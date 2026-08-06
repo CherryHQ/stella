@@ -61,18 +61,7 @@ func TestSnapshotResolveModel(t *testing.T) {
 		Model:    "anthropic/claude-sonnet-4-6",
 		BaseURL:  "https://api.example.com",
 		Providers: map[string]ProviderCreds{
-			"anthropic": {
-				BaseURL: "https://api.example.com",
-				Models: map[string]ProviderModel{
-					"claude-sonnet-4-6": {
-						Name:          "Claude Sonnet 4.6",
-						ContextWindow: 200_000,
-						MaxTokens:     32_000,
-						Reasoning:     true,
-						Input:         []string{"text", "image"},
-					},
-				},
-			},
+			"anthropic": {BaseURL: "https://api.example.com"},
 		},
 	}
 	model := snap.ResolveModel()
@@ -84,12 +73,6 @@ func TestSnapshotResolveModel(t *testing.T) {
 	}
 	if model.BaseURL != "https://api.example.com" {
 		t.Errorf("model.BaseURL = %q, want %q", model.BaseURL, "https://api.example.com")
-	}
-	if model.Name != "Claude Sonnet 4.6" || model.ContextWindow != 200_000 || model.MaxTokens != 32_000 {
-		t.Fatalf("model metadata was not resolved: %#v", model)
-	}
-	if !model.Reasoning || len(model.Input) != 2 {
-		t.Fatalf("model capabilities were not resolved: %#v", model)
 	}
 }
 

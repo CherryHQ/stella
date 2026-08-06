@@ -25,10 +25,6 @@ node = "24.14.1"
 BINARY_D = "./dist/bin/stellad"
 # Dev default; raise to "trace" for memory-detail fields, LOG_LEVEL_RIVER for queue internals.
 LOG_LEVEL = "debug"
-DEV_ADMIN_USER = "admin"
-DEV_ADMIN_PASS = "i-am-admin"
-DEV_USER = "user"
-DEV_PASS = "i-am-user"
 
 # ============================================================================
 # Build
@@ -122,6 +118,19 @@ run = 'set -o pipefail; cd web && vp dev 2>&1 | tee -a ../dist/logs/dev.log'
 description = "Start stella API server"
 depends = ["dev:log:init"]
 run = 'set -o pipefail; { mise run build && STELLA_HOME="$HOME/.stella-dev" $BINARY_D server; } 2>&1 | tee -a dist/logs/dev.log'
+
+[tasks."testbed:start"]
+description = "Start an isolated, disposable Stella testbed"
+depends = ["pg:runtime:download", "build:embedded"]
+run = """
+mise run build
+go build -o ./dist/bin/testbed ./test/testbed
+exec ./dist/bin/testbed start
+"""
+
+[tasks."testbed:stop"]
+description = "Stop and clean up this checkout's Stella testbed"
+run = 'go run ./test/testbed stop'
 
 [tasks."dev:docker"]
 description = "Start the Docker dev stack: stellad + docker sandbox + otel-lgtm"

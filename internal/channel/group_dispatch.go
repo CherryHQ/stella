@@ -221,9 +221,9 @@ func (c *Coordinator) resolveGroupChat(ctx context.Context, msg pkgchannel.Incom
 	}, nil
 }
 
-// platformGroupSpeaker builds the per-turn public speaker label. UserID remains
-// available only for the legacy group-memory compatibility path; structured
-// group memory never exposes the linked user's private memory.
+// platformGroupSpeaker builds the per-turn speaker metadata. The stable public
+// event identity remains the platform sender ID; the display name is a snapshot
+// used only when rendering this turn.
 func platformGroupSpeaker(msg pkgchannel.IncomingMessage, userID, userName string) memory.CurrentSpeaker {
 	displayName := msg.SenderName
 	if displayName == "" {

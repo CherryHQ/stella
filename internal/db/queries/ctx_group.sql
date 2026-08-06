@@ -149,14 +149,3 @@ VALUES (
   sqlc.arg(reasoning), sqlc.arg(agent_session_id)
 )
 RETURNING *;
-
--- name: ListLatestGroupActorDisplayNames :many
-SELECT DISTINCT ON (actor_type, actor_id)
-  actor_type,
-  actor_id,
-  actor_display_name
-FROM ctx_group_message
-WHERE group_id = sqlc.arg(group_id)
-  AND actor_display_name IS NOT NULL
-  AND btrim(actor_display_name) <> ''
-ORDER BY actor_type, actor_id, seq DESC;

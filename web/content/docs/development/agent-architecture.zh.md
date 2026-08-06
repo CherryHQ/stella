@@ -140,7 +140,7 @@ Memory 拥有：
 scope, err := svc.Sessions.MemoryScope(validatedInfo)
 ```
 
-`session.Info` 是独立的、经过验证的 session-domain 类型，不是 `memory.SessionInfo` 的别名。所有生产代码（包括 `runtime.Runtime`）都只通过 `MemoryScope` 获取 `memory.Session`，不存在 runtime 直接构造的例外。group session 带有持久且经过验证的 `GroupID`（持久化在 `ctx_conversation.group_id`，且 `UserID == GroupID`）。对 private session，read、write、compaction 落在同一个 partition。group session 的 read 和 write 共享同一个持久 canonical scope。自动压缩作用于各 Agent 已同步的群聊 LCM；面向用户的 `CompactSession` 入口仍不对群会话开放，因为公开历史的来源是 group event log。低层 memory 测试仍可以直接构造 `memory.Session`。
+`session.Info` 是独立的、经过验证的 session-domain 类型，不是 `memory.SessionInfo` 的别名。所有生产代码（包括 `runtime.Runtime`）都只通过 `MemoryScope` 获取 `memory.Session`，不存在 runtime 直接构造的例外。group session 带有持久且经过验证的 `GroupID`（持久化在 `ctx_conversation.group_id`，且 `UserID == GroupID`）。对 private session，read、write、compaction 落在同一个 partition。group session 的 read 和 write 共享同一个持久 canonical scope；group compaction 不被支持——`CompactSession` 会用 `ErrGroupCompactionUnsupported` 拒绝它，因为 group history 来自 group event log，而不是 LCM conversation。低层 memory 测试仍可以直接构造 `memory.Session`。
 
 ## Session kinds 和 channels
 

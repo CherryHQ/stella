@@ -587,9 +587,3 @@ func redactReviewText(text string) string {
 	// marker lookalikes before composing the bounded review unit.
 	return reviewProtocolReplacer.Replace(text)
 }
-
-// RedactReviewText applies the tested Reflect input redaction rules to text
-// before another structured review pipeline sends it to a model.
-func RedactReviewText(text string) string {
-	return redactReviewText(text)
-}

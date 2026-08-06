@@ -12,13 +12,13 @@ Stella 的群聊**让多个 agent 进入同一个物理群**。每个 agent 是�
 
 一个群有**三个互不相等、谁也不许借谁名义的身份维度**:
 
-| 维度                           | 取值                                                      | 用途                                             | 绝不用于                               |
-| ------------------------------ | --------------------------------------------------------- | ------------------------------------------------ | -------------------------------------- |
-| **session scope**              | `group_id`(`ctx_group_state` 注册表的代理 id)             | LCM 查找键、conversation 历史、Group Fact 作用域 | 运行时身份(vault/token/workspace)      |
-| **runtime execution identity** | agent 自己的群 principal `group:{group_id}`(非任何 human) | 工具执行、vault、workspace 路径                  | 冒充任何成员;读任何 human 的私有 vault |
-| **public event actor**         | Event Log 中的 `(actor_type, actor_id)`                   | 显示、寻址和 Group Fact subject identity         | 私人 Profile/Knowledge 或运行时身份    |
+| 维度                           | 取值                                                      | 用途                                        | 绝不用于                               |
+| ------------------------------ | --------------------------------------------------------- | ------------------------------------------- | -------------------------------------- |
+| **session scope**              | `group_id`(`ctx_group_state` 注册表的代理 id)             | LCM 查找键、conversation 历史、群记忆抽屉键 | 运行时身份(vault/token/workspace)      |
+| **runtime execution identity** | agent 自己的群 principal `group:{group_id}`(非任何 human) | 工具执行、vault、workspace 路径             | 冒充任何成员;读任何 human 的私有 vault |
+| **per-turn actor**             | 真实发言 human 的 `auth_user`                             | @寻址、写发言人**自己**的私有记忆、访问控制 | session 查找键、运行时执行身份         |
 
-只需记住一件事:**群 session 绝不碰任何成员的私有资源。** 公开 actor 可以成为 Group Fact 的 subject，但该 Fact 只属于当前群，绝不读取或更新 actor 的 1v1 记忆。
+只需记住一件事:**群 session 绝不碰任何成员的私有资源。** 发言人的 `user_id` 按轮携带,用于寻址和访问控制,判完即弃——它绝不进入 workspace 路径、vault 或任何 agent 工具执行身份。
 
 ## Canonical 群身份(D0)
 
@@ -121,28 +121,45 @@ type Mention struct {
 
 适配器填 `Raw` 和 `PlatformID`(它知道平台 id)。ingest best-effort 解析 `AgentID` 并存入 outbox envelope；dispatcher 在路由前对仍为空的 `AgentID` 再补解析一次。@路由只认 `Mention.AgentID != ""`——任何组件不在各处猜 username/open_id。
 
-## Structured 群记忆(D4-D6)
+## 记忆:subject 轴(D4)
 
-群记忆是一组按 `group_id` 建键的原子 `ctx_group_fact`，不是 per-Agent 抽屉。所有 Agent 读取同一组 active Facts。Fact 只有三种 typed subject：
+单独建群记忆表,**键 `(group_id)`——不做 per-agent**:
 
-- `group`，无 `subject_id`；
-- `human`，`subject_id` 为平台 actor ID；
-- `agent`，`subject_id` 为 Stella Agent ID。
+```sql
+CREATE TABLE ctx_group_memory (
+  group_id TEXT PRIMARY KEY,
+  -- ... blob 抽屉,无 auth_user FK
+);
+```
 
-Fact 只保存高门槛、长期、群协作导向的信息。短期状态、日程、承诺、偏好和普通聊天留在 LCM。Group Facts 不做 snapshot、usage/LRU 淘汰、按时间自动过期、搜索索引或 Skill 生成。
+三张现有用户记忆表(`ctx_agent_memory` / `_changelog` / `_snapshot`)完全不动。两个原因:
 
-`ctx_group_memory` 暂时保留为 group version clock；structured 模式不再读写其中的 legacy `content`。
+1. 那些表的 `user_id REFERENCES auth_user(id) ON DELETE CASCADE`。`group_id` 不是 `auth_user`,泛化进同表就得删 FK、丢掉「删用户级联清记忆」。
+2. 单独建表**把隐私墙从纪律升级成类型系统**:DM 写路径根本拿不到 `ctx_group_memory` 的 handle,`private → group` 漏不了。
 
-Group Reflect 每六小时使用独立的 128k+ 模型：
+为什么 `(group_id)` 而非 `(group_id, agent_id)`?v1 抽取是通用的(不分 agent 角色),per-agent 抽屉只会把同一份抽取复制 N 份——无收益,还拖入 cursor agent 维度、membership 依赖、N× 成本。群记忆是群的共享知识,群内所有 agent 读同一抽屉。agent 专属群记忆是未来 additive 改动(届时加 `agent_id` 轴)。
 
-1. 从 `group_reflect` cursor 后读取公开 Event Log window：最多 64k fresh + 16k 紧邻 prior。
-2. 最多生成五条候选，再由独立五维 evaluator 打分。
-3. Host 确定性门控：每维至少 3/4，等权归一化平均至少 0.80。
-4. accepted candidates 与当前群全部 active Facts 一次进入 reconciliation。
-5. 输出只能是 `noop`、`create`、`replace_many`、`deprecate_many`。
-6. Fact、changelog、group version 和 cursor 在 per-group advisory lock 下原子提交。
+写入规则按消息来源硬事实定(绝不交给 LLM):
 
-单 window timeout 为八分钟。单次 scheduler run 使用 30 分钟 soft budget：不强杀当前 window，但预算到达后不再开始新 window。某群失败不影响继续处理后续群。
+| 消息来源         | 写进哪                                                       |
+| ---------------- | ------------------------------------------------------------ |
+| 用户群里公开发言 | 群共享抽屉 `(group_id)` **+** 该用户私有抽屉 `(user, agent)` |
+| 用户私信         | 只私有抽屉——**永不**进群共享                                 |
+| agent 发言       | 不写记忆                                                     |
+
+`private → group` 是靠路径隔离强制的单向墙,不靠 prompt 求情。
+
+## 记忆时间标签(D5)
+
+`profile` 从整块 blob 改成带日期条目(对齐 constraints 现有的 `CreatedAt` 形态),且**日期必须渲染进 system prompt**(今天不渲染 = 白存)。HTTP 兼容:内部存条目,读接口把手动条目平铺回字符串,故 OpenAPI / SDK / UI 零改。
+
+## 异步记忆 ingest(D6)
+
+记忆绝不在回复链路里写。后台单消费者按 `seq > cursor` 从 event log 拉取、攒批、轻量 LLM 抽取、按 D4 路由。
+
+- cursor:`ctx_group_ingest_cursor(group_id, pipeline)`,值 = 已消费 `seq`。
+- dead-letter:`ctx_group_ingest_error(id, group_id, pipeline, seq, reason, created_at)`。瞬时失败(LLM 超时/限流)→ cursor 不前进、重试同一批;坏消息(无法解析)→ 写 dead-letter,cursor 越过该 seq。
+- cursor 只前进到「已抽取或已 dead-letter」连续前缀末端,既不漏也不卡。
 
 ## Arbiter:发言闸门(D7)
 
@@ -174,7 +191,7 @@ Group Reflect 每六小时使用独立的 128k+ 模型：
 - Dispatch 重试使用线性退避:`1s * attempts`,封顶 60s。超过重试预算后置为 `failed`;不会 fallback 到其它 channel 冒名该 agent。
 - Dispatch 按 `(group_id, agent_id)` 保持顺序:SQL 只在同 agent 没有更小 `seq` 的 pending 或未过期 running 行时 claim。过期 running 行会被回收,不会永久阻塞。
 - 回复发布是 at-least-once。正常收尾为 publish → 一个 DB 事务 append 群回复并写 `result_message_id` → mark completed。重试看到 `result_message_id` 会跳过 chat 和 publish,直接 completed。剩余重复窗口是 publish 成功但 writeback+marker 事务尚未提交。
-- 复制到某个 Agent LCM 的公开 Group Event 会携带 `origin_group_message_id`。`(conversation_id, origin_group_message_id)` 上的 partial unique index 让重试保持幂等,无需解析显示文本。
+- 群上下文 injected 去重用 SQL 在整个 conversation 内做完整 content 精确查重,不依赖 token budget 窗口。
 
 ## 回复出口:只发到群(D8)
 
@@ -210,21 +227,32 @@ membership 表闭环:
 
 `channel.agent_id` 仍表示 bot→agent 绑定;`channel_agent` 的单 active 语义只留给 DM/非群。dispatcher 收到任一 bot 的消息,按 `group_id` 解析出该群全部 agent,各 agent 用自己的 `reply_channel_id` 回复。双重断言防止配置错/恶意写让 agentB 借 agentA 的 bot 发言。
 
-## 公开 Actor 上下文(D10)
+## 当前发言人:逐轮个性化(D10)
 
-每条 Event Log 记录 `actor_type`、稳定的 `actor_id`,以及该条消息被观察到的显示名。显示名变化不会改变身份。Group Reflect 在 prompt 中使用临时 subject ref,再由 host code 将其解析回 typed actor。
+D9 让群 session 保持匿名,没有任何真人拥有运行时。但 agent 仍需知道**此刻是谁在说话**才能个性化回复。这是第二条身份轴,刻意与运行时/session 身份分离,使它永远不会变成后者。
 
-Structured 群聊回合绝不把 actor 解析成私人 Profile owner。群聊 memory tool 只暴露 session history 操作;Profile、Soul、Constraint 和 1 对 1 Knowledge 均不可用。群聊 Skill 可见范围仅为 system + 当前 Agent 的 system_agent + project,绝不包含 user/user_agent。
+`memory.CurrentSpeaker` 携带逐轮发言人:`Platform`、`PlatformUserID`(仅查询/审计)、`DisplayName`、以及 `UserID`(发送者已关联时为解析出的 Stella 用户,未关联时为空)。它经由 `WithCurrentSpeaker` / `CurrentSpeakerFromContext` 走 context,与 `UserIDFromContext` 平行——绝不合并。
+
+硬规则:
+
+- **是个性化目标,不是运行时身份。** `CurrentSpeaker.UserID` 绝不可传给 `authz.WithUserID`、sandbox/vault/token 代码、plugin 或 delegate 上下文、notify 路由、hook 用户元数据。`runtime/chat.go` 为群聊回合附上发言人,但仍跳过 `WithUserID`,故 D9 四个面全部保持群作用域。
+- **逐轮构建,绝不缓存。** prompt 的 `## Current Speaker` 段由 PoolManager 的 before-run prompt 重建逻辑每轮重渲整份系统提示词生成。缓存的群 runner 不持有发言人上下文,故一个发言人的回合元数据不会泄漏到另一个发言人的回合。
+- **prompt 渲染按 `GroupID` 分支,而非按群记忆是否为空。** 群聊回合渲染 `## Group Memory`(+ 可选的 `## Current Speaker`),即使群抽屉为空也绝不回退到按用户的 `## User Profile` 段。
+- **不自动注入私有 profile。** `## Current Speaker` 只暴露显示名与已关联/未关联状态,不包含发言人的 profile 正文、带日期条目、soul 或 constraints:公开群不是披露某成员私有记忆,也不是把某成员硬规则套到整群的地方。
+- **按硬事实解析。** 平台发送者经渠道身份查找解析(已关联 → auth 用户 id;未关联 → 空 UserID → 仅名字)。Web 发送者仅当是真正的 human actor 时才信任已认证的 `actor_id` 作为发言人,否则 fail-closed。
+
+`memory` 工具在群聊回合中对应:没有 session 用户时,普通聊天只能在模型显式调用工具时用只读 `profile_get` 回退到当前发言人；`profile_update` 只保留给显式开启写入的内部工具。`soul_*`、`constraint_*`、`profile_history` / `profile_rollback` 保持严格并 fail-closed。
 
 ## 实现顺序
 
 数据模型(难改门)先行,行为层后接:
 
-1. Event Log 与群运行时身份隔离。
-2. 基于 origin 的 Event → per-Agent LCM 同步、80k 压缩与 KeepTail=6。
-3. Group Fact store、changelog、version clock 与两小时共享缓存。
-4. 候选生成、独立评分、全量 active related 与 reconciliation。
-5. Structured runtime/tool/Skill 隔离及独立 Group Reflect 调度。
-6. 从当前 Event head 受控切换 legacy → structured,不回填历史。
+1. **Phase 1** —— IncomingMessage 字段(D3)。
+2. **Phase 2** —— event log + 群 session 归属 DB 层(D2, D9 session scope)。**安全门:群 session 不接入 `Runtime.Chat`**——测试只在 schema/event-log/session-registry 层,避免 `group_id` 漏进运行时身份。
+3. **Phase 2b** —— 群运行时身份隔离(D9 运行时面),横切上述八个文件;Phase 5 接线的前置。
+4. **Phase 3** —— 群记忆表 + 时间标签(D4, D5)。
+5. **Phase 4** —— 异步 ingest(D6)。
+6. **Phase 5** —— 多 agent + arbiter(D1, D7),含 membership 表。
+7. **Phase 6** —— 回复出口收口(D8)。
 
 迁移一律走 schema 文件编辑 → `mise run db:diff` → `mise run generate`,绝不手写 SQL。

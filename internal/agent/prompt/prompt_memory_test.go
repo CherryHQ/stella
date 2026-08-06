@@ -16,16 +16,6 @@ type snapshotPromptMemory struct {
 	versionedVersions []int64
 }
 
-type countingGroupMemory struct {
-	*memorytest.Fake
-	groupReads int
-}
-
-func (m *countingGroupMemory) GetGroupMemory(ctx context.Context, groupID string) (string, error) {
-	m.groupReads++
-	return m.Fake.GetGroupMemory(ctx, groupID)
-}
-
 func (m *snapshotPromptMemory) GetAgentSoul(context.Context, string, string) (string, error) {
 	m.currentReads++
 	return "live-sentinel-soul", nil
@@ -221,37 +211,6 @@ func TestGroupSessionWithEmptyGroupMemory(t *testing.T) {
 	}
 	if strings.Contains(p, "User Profile") {
 		t.Error("group session must never render User Profile, even with empty group memory")
-	}
-}
-
-func TestStructuredGroupPromptDoesNotReadOrRenderLegacyMemory(t *testing.T) {
-	mem := &countingGroupMemory{Fake: memorytest.New()}
-	mem.SetGroupMemory("grp-structured", "legacy blob must stay hidden")
-
-	p := prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{
-		SystemPrompt:          "You are Stella.",
-		Memory:                mem,
-		AgentID:               "a1",
-		GroupID:               "grp-structured",
-		StructuredGroupMemory: true,
-	})
-
-	if mem.groupReads != 0 {
-		t.Fatalf("legacy group memory reads = %d, want 0", mem.groupReads)
-	}
-	for _, forbidden := range []string{
-		"legacy blob must stay hidden",
-		"<group_memory>",
-		"## User Profile",
-		"Profile: user reveals a new fact",
-		"use search_knowledge",
-	} {
-		if strings.Contains(p, forbidden) {
-			t.Fatalf("structured group prompt contains %q:\n%s", forbidden, p)
-		}
-	}
-	if !strings.Contains(p, "Durable group facts are maintained by the background Group Reflect pipeline.") {
-		t.Fatalf("structured group memory guidance missing:\n%s", p)
 	}
 }
 

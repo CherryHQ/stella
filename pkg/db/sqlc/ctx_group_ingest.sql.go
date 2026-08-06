@@ -232,7 +232,6 @@ FROM ctx_group_state gs
 LEFT JOIN ctx_group_ingest_cursor c
   ON c.group_id = gs.id AND c.pipeline = $1
 WHERE gs.next_seq > COALESCE(c.last_seq, 0)
-ORDER BY c.updated_at ASC NULLS FIRST, gs.id ASC
 `
 
 type ListGroupsWithPendingIngestRow struct {

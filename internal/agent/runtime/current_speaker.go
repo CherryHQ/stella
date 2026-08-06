@@ -7,17 +7,14 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
-const (
-	currentSpeakerInstruction = "The human speaking in this group turn. Use this only for addressing and tone. Private profile facts are not injected into public group prompts. Do not call `memory.profile_get` or disclose profile details in a group unless this speaker explicitly asks you to read or use their profile in this conversation."
-	publicActorInstruction    = "The human speaking in this group turn. Use this public display name only for addressing and tone. Private Profile, Soul, Constraint, and one-to-one Knowledge are unavailable in structured group chat."
-)
+const currentSpeakerInstruction = "The human speaking in this group turn. Use this only for addressing and tone. Private profile facts are not injected into public group prompts. Do not call `memory.profile_get` or disclose profile details in a group unless this speaker explicitly asks you to read or use their profile in this conversation."
 
-func withCurrentSpeakerContext(msg MessageContent, speaker memory.CurrentSpeaker, privateProfileAvailable bool) MessageContent {
+func withCurrentSpeakerContext(msg MessageContent, speaker memory.CurrentSpeaker) MessageContent {
 	if speaker == (memory.CurrentSpeaker{}) {
 		return msg
 	}
 
-	prefix := currentSpeakerContextText(speaker, privateProfileAvailable)
+	prefix := currentSpeakerContextText(speaker)
 	switch m := msg.(type) {
 	case string:
 		return prefix + "\n\n" + m
@@ -31,13 +28,10 @@ func withCurrentSpeakerContext(msg MessageContent, speaker memory.CurrentSpeaker
 	}
 }
 
-func currentSpeakerContextText(speaker memory.CurrentSpeaker, privateProfileAvailable bool) string {
+func currentSpeakerContextText(speaker memory.CurrentSpeaker) string {
 	name := speaker.DisplayName
 	if name == "" {
 		name = "Unknown"
-	}
-	if !privateProfileAvailable {
-		return fmt.Sprintf("<current_speaker>\n%s\n\nName: %s\n</current_speaker>", publicActorInstruction, name)
 	}
 	linked := "no"
 	if speaker.UserID != "" {

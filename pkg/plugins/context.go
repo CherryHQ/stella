@@ -113,7 +113,6 @@ type BeforeRunContext struct {
 	Channel      string
 	UserID       string
 	AgentID      string
-	GroupID      string
 	Model        string
 	MessageText  string
 	SystemPrompt string

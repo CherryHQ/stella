@@ -7,11 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -586,71 +584,5 @@ func TestGetMessage_CrossSessionAndIsolation(t *testing.T) {
 	// Unknown ID fails.
 	if _, err := reader.GetMessage(ctx, "no-such-message"); err == nil {
 		t.Error("expected unknown message id to fail, got nil error")
-	}
-}
-
-func TestGroupReadScope_CanReadGroupLCMButNotPrivateLCM(t *testing.T) {
-	db, p, private := newSearchTestEnv(t, "group-read-private")
-	appendUser(t, p, private, "privatesecretquokka")
-	privateConvID := conversationID(t, db, private.ID)
-	privateIDs := messageIDs(t, db, privateConvID)
-	if len(privateIDs) != 1 {
-		t.Fatalf("private message count = %d, want 1", len(privateIDs))
-	}
-
-	groupEvent, err := eventlog.NewStore(db).AppendGroupMessage(context.Background(), eventlog.Message{
-		Platform:          "test",
-		PlatformGroupID:   "group-read-" + uuid.NewString(),
-		PlatformMessageID: "group-read-trigger",
-		ActorType:         eventlog.ActorHuman,
-		ActorID:           "participant-1",
-		Content:           "public event seed",
-	})
-	if err != nil {
-		t.Fatalf("create group: %v", err)
-	}
-	groupID := groupEvent.GroupID
-	group := memory.Session{
-		ID:      "test:group:" + groupID,
-		AgentID: private.AgentID,
-		UserID:  groupID,
-		GroupID: groupID,
-		Channel: "web",
-	}
-	if err := p.Bootstrap(context.Background(), group); err != nil {
-		t.Fatalf("bootstrap group: %v", err)
-	}
-	appendUser(t, p, group, "publicgroupnarwhal")
-
-	groupCtx := authz.WithGroupID(context.Background(), groupID)
-	groupCtx = authz.WithAgentID(groupCtx, group.AgentID)
-	searcher := p.(memory.Searcher)
-	results, err := searcher.Search(groupCtx, memory.Session{ID: group.ID}, memory.SearchQuery{
-		Text:  "publicgroupnarwhal",
-		Scope: memory.SearchScopeMessages,
-		Limit: 10,
-	})
-	if err != nil {
-		t.Fatalf("group search: %v", err)
-	}
-	if len(results) != 1 || results[0].SessionID != group.ID {
-		t.Fatalf("group search results = %#v, want own group message", results)
-	}
-
-	results, err = searcher.Search(groupCtx, memory.Session{ID: group.ID}, memory.SearchQuery{
-		Text:  "privatesecretquokka",
-		Scope: memory.SearchScopeMessages,
-		Limit: 10,
-	})
-	if err != nil {
-		t.Fatalf("group private-marker search: %v", err)
-	}
-	if len(results) != 0 {
-		t.Fatalf("group search leaked private messages: %#v", results)
-	}
-
-	reader := p.(memory.MessageReader)
-	if _, err := reader.GetMessage(groupCtx, privateIDs[0]); err == nil {
-		t.Fatal("group context read a private message by id")
 	}
 }

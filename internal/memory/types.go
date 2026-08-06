@@ -60,11 +60,11 @@ func ProjectIDFromContext(ctx context.Context) string {
 // CurrentSpeaker carries the human who sent the current turn in a group session,
 // where the runtime/session identity is the group (D9), not any one person.
 //
-// D9 WARNING: CurrentSpeaker.UserID is legacy per-turn personalization metadata,
-// never a runtime identity. Structured group memory uses only the public display
-// identity and exposes no private Profile, Knowledge, or Constraint. Do not pass
-// this UserID to WithUserID, sandbox config, vault/token code, plugin contexts,
-// delegate sessions, notify routing, or hook user metadata.
+// D9 WARNING: CurrentSpeaker.UserID is a per-turn personalization target ONLY,
+// never a runtime identity. Do not pass it to WithUserID, sandbox config,
+// vault/token code, plugin contexts, delegate sessions, notify routing, or hook
+// user metadata. Session/runtime ownership keeps flowing from the group id;
+// this axis only selects whose profile the prompt and memory tool personalize.
 type CurrentSpeaker struct {
 	Platform       string // source platform (telegram, feishu, web, ...)
 	PlatformUserID string // platform sender id / Web auth user id; lookup/audit only

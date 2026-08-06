@@ -21,17 +21,6 @@ func (t staticTool) ExecuteContent(context.Context, map[string]any) ([]ai.Conten
 	return nil, nil
 }
 
-type recordingMCPToolProvider struct {
-	userID  string
-	agentID string
-}
-
-func (p *recordingMCPToolProvider) ToolsForContext(_ context.Context, userID, agentID string) []pkgtools.Tool {
-	p.userID = userID
-	p.agentID = agentID
-	return nil
-}
-
 func TestBuildToolRegistryAppliesToolOverrides(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
@@ -55,36 +44,5 @@ func TestBuildToolRegistryAppliesToolOverrides(t *testing.T) {
 	}
 	if !reg.Has("bash") || !reg.Has("read") || !reg.Has("write") || !reg.Has("edit") {
 		t.Fatal("core tools should remain registered")
-	}
-}
-
-func TestBuildToolRegistryDoesNotResolvePrivateToolConfigurationForGroup(t *testing.T) {
-	ctx := context.Background()
-	home := t.TempDir()
-	mcpProvider := &recordingMCPToolProvider{}
-	var overrideUserID, overrideAgentID string
-
-	_, _, err := buildToolRegistry(ctx, runnerConfig{
-		Sandbox: sandbox.Config{Paths: sandbox.Paths{
-			StellaHome: home,
-			AgentRoot:  filepath.Join(home, "agents", "agent-1"),
-			UserRoot:   filepath.Join(home, "users", "group-1"),
-		}},
-		BuiltinParams:   RunnerParams{UserID: "colliding-private-user-id", GroupID: "colliding-private-user-id", AgentID: "agent-1"},
-		MCPToolProvider: mcpProvider,
-		ToolOverrideFetcher: func(_ context.Context, userID, agentID string) ([]ToolOverride, error) {
-			overrideUserID = userID
-			overrideAgentID = agentID
-			return nil, nil
-		},
-	}, &fakeSession{alive: true}, nil, ai.Model{}, "")
-	if err != nil {
-		t.Fatalf("buildToolRegistry: %v", err)
-	}
-	if mcpProvider.userID != "" || overrideUserID != "" {
-		t.Fatalf("group tool resolution received private user IDs: MCP=%q overrides=%q", mcpProvider.userID, overrideUserID)
-	}
-	if mcpProvider.agentID != "agent-1" || overrideAgentID != "agent-1" {
-		t.Fatalf("group tool resolution lost agent scope: MCP=%q overrides=%q", mcpProvider.agentID, overrideAgentID)
 	}
 }

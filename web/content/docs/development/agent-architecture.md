@@ -140,7 +140,7 @@ Hard rule:
 scope, err := svc.Sessions.MemoryScope(validatedInfo)
 ```
 
-`session.Info` is a distinct, validated session-domain type — not an alias of `memory.SessionInfo`. All production code, including `runtime.Runtime`, obtains `memory.Session` only through `MemoryScope`; there is no runtime direct-construction exception. A group session carries a durable, validated `GroupID` (persisted on `ctx_conversation.group_id`, with `UserID == GroupID`). For a private session, read, write, and compaction resolve the same partition. A group session shares one durable canonical scope for read and write. Automatic compaction runs against each Agent's synchronized group LCM; the user-facing `CompactSession` operation remains unavailable for group sessions because public history is sourced from the group event log. Low-level memory tests may still build a `memory.Session` directly.
+`session.Info` is a distinct, validated session-domain type — not an alias of `memory.SessionInfo`. All production code, including `runtime.Runtime`, obtains `memory.Session` only through `MemoryScope`; there is no runtime direct-construction exception. A group session carries a durable, validated `GroupID` (persisted on `ctx_conversation.group_id`, with `UserID == GroupID`). For a private session, read, write, and compaction resolve the same partition. A group session shares one durable canonical scope for read and write; group compaction is unsupported — `CompactSession` rejects it with `ErrGroupCompactionUnsupported` because group history is assembled from the group event log, not the LCM conversation. Low-level memory tests may still build a `memory.Session` directly.
 
 ## Session kinds and channels
 

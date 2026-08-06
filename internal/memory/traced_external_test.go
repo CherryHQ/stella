@@ -56,12 +56,30 @@ type reviewHistoryProvider struct {
 	messages []memory.ReviewMessage
 }
 
-type groupCursorProvider struct {
+type groupCapabilityProvider struct {
 	memory.Provider
-	committed int64
+	syncedBefore int64
+	appendedID   string
+	committed    int64
 }
 
-func (p *groupCursorProvider) CommitGroupCursor(_ context.Context, _ memory.Session, triggerSeq int64) error {
+func (p *groupCapabilityProvider) SyncGroupEventsBefore(_ context.Context, _ memory.Session, triggerSeq int64) error {
+	p.syncedBefore = triggerSeq
+	return nil
+}
+
+func (p *groupCapabilityProvider) AppendGroupTurn(
+	_ context.Context,
+	_ memory.Session,
+	groupMessageID string,
+	_ ai.Message,
+	_ ...ai.Message,
+) error {
+	p.appendedID = groupMessageID
+	return nil
+}
+
+func (p *groupCapabilityProvider) CommitGroupCursor(_ context.Context, _ memory.Session, triggerSeq int64) error {
 	p.committed = triggerSeq
 	return nil
 }
@@ -97,18 +115,29 @@ func TestTracedProvider_Unwrap(t *testing.T) {
 	}
 }
 
-func TestTracedProvider_ForwardsGroupCursorCommit(t *testing.T) {
-	inner := &groupCursorProvider{Provider: memorytest.New()}
+func TestTracedProviderForwardsGroupLCMCapabilities(t *testing.T) {
+	inner := &groupCapabilityProvider{Provider: memorytest.New()}
 	traced := memory.WithTracing(inner, nil)
+	ingestor, ok := traced.(memory.GroupEventIngestor)
+	if !ok {
+		t.Fatal("traced provider does not expose GroupEventIngestor")
+	}
 	committer, ok := traced.(memory.GroupCursorCommitter)
 	if !ok {
 		t.Fatal("traced provider does not expose GroupCursorCommitter")
 	}
+
+	if err := ingestor.SyncGroupEventsBefore(context.Background(), testSession, 40); err != nil {
+		t.Fatalf("sync group events: %v", err)
+	}
+	if err := ingestor.AppendGroupTurn(context.Background(), testSession, "group-message-1", ai.UserMessage{Content: "hello"}); err != nil {
+		t.Fatalf("append group turn: %v", err)
+	}
 	if err := committer.CommitGroupCursor(context.Background(), testSession, 42); err != nil {
 		t.Fatalf("commit group cursor: %v", err)
 	}
-	if inner.committed != 42 {
-		t.Fatalf("inner committed seq = %d, want 42", inner.committed)
+	if inner.syncedBefore != 40 || inner.appendedID != "group-message-1" || inner.committed != 42 {
+		t.Fatalf("forwarded values = sync:%d append:%q commit:%d", inner.syncedBefore, inner.appendedID, inner.committed)
 	}
 }
 
@@ -133,32 +162,6 @@ func TestTracedProvider_Bootstrap(t *testing.T) {
 	}
 	if col.events[0].Op != hooks.MemoryOpBootstrap {
 		t.Errorf("expected Bootstrap op, got %q", col.events[0].Op)
-	}
-}
-
-func TestTracedProvider_GroupSessionHookDoesNotExposeStorageOwnerAsUser(t *testing.T) {
-	fake := memorytest.New()
-	traced, col := newTracedWithCollector(fake)
-	groupID := "11111111-1111-4111-8111-111111111111"
-	groupSession := memory.Session{
-		ID:      "group-session-1",
-		AgentID: "agent-1",
-		UserID:  groupID,
-		GroupID: groupID,
-	}
-
-	if err := traced.Bootstrap(context.Background(), groupSession); err != nil {
-		t.Fatal(err)
-	}
-	if len(col.events) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(col.events))
-	}
-	got := col.events[0]
-	if got.UserID != "" {
-		t.Fatalf("group hook UserID = %q, want empty", got.UserID)
-	}
-	if got.SessionID != groupSession.ID || got.AgentID != groupSession.AgentID {
-		t.Fatalf("group hook metadata = %+v, want session=%q agent=%q", got.HookMeta, groupSession.ID, groupSession.AgentID)
 	}
 }
 
@@ -479,32 +482,6 @@ func TestTracedProvider_SaveInfo(t *testing.T) {
 	}
 }
 
-func TestTracedProvider_SaveGroupInfoHookDoesNotExposeStorageOwnerAsUser(t *testing.T) {
-	fake := memorytest.New()
-	traced, col := newTracedWithCollector(fake)
-	groupID := "11111111-1111-4111-8111-111111111111"
-	info := memory.SessionInfo{
-		ID:      "group-session-1",
-		AgentID: "agent-1",
-		UserID:  groupID,
-		GroupID: groupID,
-	}
-
-	if err := traced.(memory.SessionManager).SaveInfo(context.Background(), info); err != nil {
-		t.Fatal(err)
-	}
-	if len(col.events) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(col.events))
-	}
-	got := col.events[0]
-	if got.UserID != "" {
-		t.Fatalf("group SaveInfo hook UserID = %q, want empty", got.UserID)
-	}
-	if got.SessionID != info.ID || got.AgentID != info.AgentID {
-		t.Fatalf("group SaveInfo hook metadata = %+v, want session=%q agent=%q", got.HookMeta, info.ID, info.AgentID)
-	}
-}
-
 func TestTracedProvider_LoadInfo(t *testing.T) {
 	fake := memorytest.New()
 	traced, col := newTracedWithCollector(fake)
@@ -591,6 +568,48 @@ func TestTracedProvider_LoadHistory(t *testing.T) {
 	}
 	if len(col.events) != 1 || col.events[0].Op != hooks.MemoryOpLoadHistory {
 		t.Errorf("expected LoadHistory event, got %v", col.events)
+	}
+}
+
+// groupCursorProvider records the last committed group ingest watermark.
+type groupCursorProvider struct {
+	memory.Provider
+	committed int64
+}
+
+func (p *groupCursorProvider) CommitGroupCursor(_ context.Context, _ memory.Session, triggerSeq int64) error {
+	p.committed = triggerSeq
+	return nil
+}
+
+// TestTracedProvider_CommitGroupCursor pins the capability the group runtime
+// reaches by type assertion: wrapping must not hide it, or every group's ingest
+// watermark stays at 0 and each turn re-reads the whole event log — including
+// into the fresh session a `/new` just created.
+func TestTracedProvider_CommitGroupCursor(t *testing.T) {
+	inner := &groupCursorProvider{Provider: memorytest.New()}
+	traced, _ := newTracedWithCollector(inner)
+
+	committer, ok := traced.(memory.GroupCursorCommitter)
+	if !ok {
+		t.Fatal("traced provider does not expose GroupCursorCommitter")
+	}
+	if err := committer.CommitGroupCursor(context.Background(), memory.Session{ID: "sess-1", AgentID: "agent-1", GroupID: "group-1"}, 7); err != nil {
+		t.Fatalf("CommitGroupCursor: %v", err)
+	}
+	if inner.committed != 7 {
+		t.Fatalf("inner committed seq = %d, want 7", inner.committed)
+	}
+
+	// A provider without the capability has no cursor to move: the call must be a
+	// harmless no-op, not an error the runtime would log on every group turn.
+	plain, _ := newTracedWithCollector(memorytest.New())
+	plainCommitter, ok := plain.(memory.GroupCursorCommitter)
+	if !ok {
+		t.Fatal("traced provider does not expose GroupCursorCommitter for a plain inner provider")
+	}
+	if err := plainCommitter.CommitGroupCursor(context.Background(), memory.Session{ID: "sess-1"}, 7); err != nil {
+		t.Fatalf("CommitGroupCursor on a provider without the capability = %v, want nil", err)
 	}
 }
 

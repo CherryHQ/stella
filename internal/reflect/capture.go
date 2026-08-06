@@ -23,21 +23,12 @@ type captureRunResult struct {
 }
 
 type captureProtocol struct {
-	AllowedTools       map[string]struct{}
-	SubmitName         string
-	EvaluationName     string
-	ExpectedRefs       []CandidateRef
-	PayloadsValidator  func([]ai.ToolCall) error
-	RepairRetries      bool
-	RepairInstructions []string
+	AllowedTools      map[string]struct{}
+	SubmitName        string
+	EvaluationName    string
+	ExpectedRefs      []CandidateRef
+	PayloadsValidator func([]ai.ToolCall) error
 }
-
-// StructuredCaptureResult and StructuredCaptureProtocol expose the tested
-// capture contract without exposing any 1v1 Fact or Skill schema.
-type (
-	StructuredCaptureResult   = captureRunResult
-	StructuredCaptureProtocol = captureProtocol
-)
 
 type (
 	captureAttemptFunc func(context.Context) (captureRunResult, error)
@@ -211,15 +202,4 @@ func decodeCapturePayload[T any](call ai.ToolCall) (T, error) {
 		return payload, fmt.Errorf("%w: decode arguments for %q: %w", errCaptureProtocol, call.Name, err)
 	}
 	return payload, nil
-}
-
-// DecodeStructuredCapturePayload strictly decodes one model tool call and
-// rejects unknown fields.
-func DecodeStructuredCapturePayload[T any](call ai.ToolCall) (T, error) {
-	return decodeCapturePayload[T](call)
-}
-
-// AllowedCaptureTools builds the allowlist for one capture phase.
-func AllowedCaptureTools(names ...string) map[string]struct{} {
-	return allowedCaptureTools(names...)
 }

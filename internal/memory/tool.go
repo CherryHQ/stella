@@ -952,12 +952,10 @@ func (t *memoryTool) advanceSnapshot(ctx context.Context, userID string) {
 // conversation owner, so a group turn — which deliberately carries no user
 // identity (D9) — scopes to its group id, the same value its rows persist under.
 func sessionFromContext(ctx context.Context) Session {
-	groupID := authz.GroupIDFromContext(ctx)
 	return Session{
 		ID:      SessionIDFromContext(ctx),
 		AgentID: authz.AgentIDFromContext(ctx),
 		UserID:  ScopeUserIDFromContext(ctx),
-		GroupID: groupID,
 	}
 }
 

@@ -29,17 +29,16 @@ type SessionImages interface {
 }
 
 type Runtime struct {
-	cache                 *runnerCache
-	mem                   memory.Provider
-	log                   *slog.Logger
-	compact               CompactionConfig
-	beforeRun             BeforeRunFunc
-	snapshotPrompt        SnapshotPromptFunc
-	structuredGroupMemory bool
-	sessionImages         SessionImages
-	active                sync.Map // session ID → struct{}, tracks in-flight turns
-	turns                 turnTracker
-	hub                   *SessionHub
+	cache          *runnerCache
+	mem            memory.Provider
+	log            *slog.Logger
+	compact        CompactionConfig
+	beforeRun      BeforeRunFunc
+	snapshotPrompt SnapshotPromptFunc
+	sessionImages  SessionImages
+	active         sync.Map // session ID → struct{}, tracks in-flight turns
+	turns          turnTracker
+	hub            *SessionHub
 }
 
 // turnTracker counts in-flight chat turns so a graceful drain can wait,
@@ -133,10 +132,7 @@ type Config struct {
 	HooksFn         func() []hooks.HookPlugin
 	BeforeRun       BeforeRunFunc
 	SnapshotPrompt  SnapshotPromptFunc
-	// StructuredGroupMemory removes legacy current-speaker private Profile
-	// affordances from public group turns.
-	StructuredGroupMemory bool
-	SessionImages         SessionImages
+	SessionImages   SessionImages
 }
 
 // New creates a Runtime from the given config.
@@ -157,15 +153,14 @@ func New(cfg Config) (*Runtime, error) {
 	cache.defaultThinking = cfg.DefaultThinking
 	cache.hooksFn = cfg.HooksFn
 	return &Runtime{
-		cache:                 cache,
-		mem:                   cfg.Memory,
-		log:                   log,
-		compact:               cfg.Compaction.WithDefaults(),
-		beforeRun:             cfg.BeforeRun,
-		snapshotPrompt:        cfg.SnapshotPrompt,
-		structuredGroupMemory: cfg.StructuredGroupMemory,
-		sessionImages:         cfg.SessionImages,
-		hub:                   NewSessionHub(),
+		cache:          cache,
+		mem:            cfg.Memory,
+		log:            log,
+		compact:        cfg.Compaction.WithDefaults(),
+		beforeRun:      cfg.BeforeRun,
+		snapshotPrompt: cfg.SnapshotPrompt,
+		sessionImages:  cfg.SessionImages,
+		hub:            NewSessionHub(),
 	}, nil
 }
 

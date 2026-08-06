@@ -12,18 +12,18 @@ import (
 )
 
 const (
-	groupMemoryBeforeMigration = 90000000000003
-	groupMemoryMigration       = 90000000000006
+	groupLCMBeforeMigration = 90000000000003
+	groupLCMMigration       = 90000000000006
 )
 
-func TestGroupMemoryMigrationLeavesLegacyRowsUnbackfilled(t *testing.T) {
+func TestGroupLCMProvenanceMigrationLeavesLegacyRowsUnbackfilled(t *testing.T) {
 	db := newTestDB(t)
-	provider, closeProvider := groupMemoryMigrationProvider(t, db)
+	provider, closeProvider := groupLCMMigrationProvider(t, db)
 	defer closeProvider()
 	ctx := context.Background()
 
-	if _, err := provider.DownTo(ctx, groupMemoryBeforeMigration); err != nil {
-		t.Fatalf("restore pre-group-memory schema: %v", err)
+	if _, err := provider.DownTo(ctx, groupLCMBeforeMigration); err != nil {
+		t.Fatalf("restore pre-group-LCM schema: %v", err)
 	}
 
 	groupID := uuid.NewString()
@@ -55,8 +55,8 @@ func TestGroupMemoryMigrationLeavesLegacyRowsUnbackfilled(t *testing.T) {
 		t.Fatalf("seed lcm message: %v", err)
 	}
 
-	if _, err := provider.UpTo(ctx, groupMemoryMigration); err != nil {
-		t.Fatalf("apply group memory migration: %v", err)
+	if _, err := provider.UpTo(ctx, groupLCMMigration); err != nil {
+		t.Fatalf("apply group LCM migration: %v", err)
 	}
 
 	var displayName, origin any
@@ -80,12 +80,9 @@ func TestGroupMemoryMigrationLeavesLegacyRowsUnbackfilled(t *testing.T) {
 	if origin != nil {
 		t.Fatalf("legacy origin_group_message_id = %#v, want NULL", origin)
 	}
-	if !tableExists(t, db, "ctx_group_fact") || !tableExists(t, db, "ctx_group_fact_changelog") {
-		t.Fatal("group fact tables were not created")
-	}
 }
 
-func TestGroupMemoryMigrationEnforcesOriginAndSubjectShape(t *testing.T) {
+func TestGroupLCMProvenanceMigrationEnforcesOriginIdentity(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 
@@ -140,26 +137,9 @@ func TestGroupMemoryMigrationEnforcesOriginAndSubjectShape(t *testing.T) {
 	`, uuid.NewString(), conversationID, groupMessageID); err == nil {
 		t.Fatal("duplicate group origin was accepted in one conversation")
 	}
-
-	if _, err := db.Exec(ctx, `
-		INSERT INTO ctx_group_fact (
-			id, group_id, subject, subject_id, content, status, source
-		)
-		VALUES ($1, $2, 'group', 'unexpected', 'invalid subject shape', 'active', 'reflect')
-	`, uuid.NewString(), groupID); err == nil {
-		t.Fatal("group subject with subject_id was accepted")
-	}
-	if _, err := db.Exec(ctx, `
-		INSERT INTO ctx_group_fact (
-			id, group_id, subject, subject_id, content, status, source
-		)
-		VALUES ($1, $2, 'human', NULL, 'invalid subject shape', 'active', 'reflect')
-	`, uuid.NewString(), groupID); err == nil {
-		t.Fatal("human subject without subject_id was accepted")
-	}
 }
 
-func groupMemoryMigrationProvider(t *testing.T, pool *pgxpool.Pool) (*goose.Provider, func()) {
+func groupLCMMigrationProvider(t *testing.T, pool *pgxpool.Pool) (*goose.Provider, func()) {
 	t.Helper()
 	migrations, err := fs.Sub(MigrationsFS, "migrations")
 	if err != nil {

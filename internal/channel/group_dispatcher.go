@@ -943,9 +943,8 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 
 // webGroupSpeaker derives the per-turn speaker for a Web group dispatch. Web
 // senders authenticate and SendGroupMessage persists the auth user id as
-// actor_id. Legacy mode may use that link for its explicit Profile fallback;
-// structured mode uses only the public display name because private memory
-// actions are not registered. Non-human or empty actors fail closed.
+// actor_id. The event-time display name is presentation metadata only; a
+// non-human or empty actor still fails closed as a current speaker.
 func webGroupSpeaker(message sqlc.CtxGroupMessage) memory.CurrentSpeaker {
 	if message.ActorType != string(eventlog.ActorHuman) || message.ActorID == "" {
 		return memory.CurrentSpeaker{}

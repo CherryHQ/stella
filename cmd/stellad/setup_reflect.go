@@ -12,7 +12,6 @@ import (
 
 const (
 	defaultReflectInterval = 6 * time.Hour
-	defaultReflectCron     = "0 0,6,12,18 * * *"
 	// minReflectInterval guards against runaway-cost misconfiguration. The
 	// override is a dev knob; setting it below this is almost certainly a
 	// mistake (e.g. STELLA_REFLECT_INTERVAL=1ns) and would fire reflect per
@@ -32,6 +31,7 @@ const (
 // its lenient warn-and-clamp behavior while mode validation fails fast before
 // the scheduler job is registered.
 func registerReflectBuiltin(svc *scheduler.Service, cfg reflect.Config, intervalRaw, reflectModeRaw, curatorModeRaw string) error {
+	every := resolveReflectInterval(intervalRaw)
 	if err := validateReflectModeCompatibility(reflectModeRaw); err != nil {
 		return err
 	}
@@ -47,23 +47,13 @@ func registerReflectBuiltin(svc *scheduler.Service, cfg reflect.Config, interval
 	}
 	if err := svc.RegisterBuiltin(scheduler.BuiltinJob{
 		Name:     reflect.BuiltinJobName,
-		Schedule: resolveReflectSchedule(intervalRaw),
+		Schedule: scheduler.Schedule{Every: every.String()},
 		Handler:  handler,
 	}); err != nil {
 		return fmt.Errorf("register reflect builtin: %w", err)
 	}
-	slog.Info("reflect: registered scheduler builtin",
-		"schedule", resolveReflectSchedule(intervalRaw),
-		"usage_curator_mode", usageCuratorSettings.Mode,
-	)
+	slog.Info("reflect: registered scheduler builtin", "every", every, "usage_curator_mode", usageCuratorSettings.Mode)
 	return nil
-}
-
-func resolveReflectSchedule(rawInterval string) scheduler.Schedule {
-	if rawInterval == "" {
-		return scheduler.Schedule{Cron: defaultReflectCron}
-	}
-	return scheduler.Schedule{Every: resolveReflectInterval(rawInterval).String()}
 }
 
 func validateReflectModeCompatibility(rawMode string) error {

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/session"
-	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -42,11 +41,6 @@ type snapshotRecordingMemory struct {
 	snapshot memory.SessionSnapshot
 }
 
-type saveInfoContextMemory struct {
-	*recordingMemory
-	savedAuthzUserID string
-}
-
 type groupMemoryWithoutCommitter struct {
 	memory.Provider
 	ingestor memory.GroupEventIngestor
@@ -68,23 +62,6 @@ func (m *groupMemoryWithoutCommitter) AppendGroupTurn(
 
 func (m *snapshotRecordingMemory) GetOrCreateSessionSnapshot(context.Context, string, string, string) (memory.SessionSnapshot, error) {
 	return m.snapshot, nil
-}
-
-func (m *saveInfoContextMemory) SaveInfo(ctx context.Context, _ memory.SessionInfo) error {
-	m.savedAuthzUserID = authz.UserIDFromContext(ctx)
-	return nil
-}
-
-func (*saveInfoContextMemory) LoadInfo(context.Context, string) (memory.SessionInfo, error) {
-	return memory.SessionInfo{}, nil
-}
-
-func (*saveInfoContextMemory) ListInfo(context.Context, memory.ListOptions) ([]memory.SessionInfo, error) {
-	return nil, nil
-}
-
-func (*saveInfoContextMemory) LoadHistory(context.Context, string) ([]ai.Message, error) {
-	return nil, nil
 }
 
 func (*snapshotRecordingMemory) AdvanceSessionSnapshot(context.Context, string, string, string) error {
@@ -155,16 +132,6 @@ type chatFakeRunner struct {
 	messages *[]MessageContent
 }
 
-type recordingPreAgentHook struct {
-	userID string
-}
-
-func (*recordingPreAgentHook) Name() string  { return "recording-pre-agent" }
-func (*recordingPreAgentHook) Priority() int { return 0 }
-func (h *recordingPreAgentHook) OnPreAgentCall(_ context.Context, hctx *hooks.PreAgentCallContext) {
-	h.userID = hctx.UserID
-}
-
 func (r chatFakeRunner) Chat(_ context.Context, _ []ai.Message, msg MessageContent) <-chan Event {
 	if r.messages != nil {
 		*r.messages = append(*r.messages, msg)
@@ -182,68 +149,6 @@ func (r chatFakeRunner) Busy() bool              { return false }
 func (r chatFakeRunner) LastActivity() time.Time { return time.Now() }
 func (r chatFakeRunner) SystemPrompt() string    { return r.system }
 func (r chatFakeRunner) Close() error            { return nil }
-
-func TestRuntimeChatDoesNotExposeGroupOwnerAsHookUser(t *testing.T) {
-	mem := &recordingMemory{}
-	hook := &recordingPreAgentHook{}
-	rt, err := New(Config{
-		Memory: mem,
-		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
-			return chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
-		},
-		HooksFn: func() []hooks.HookPlugin { return []hooks.HookPlugin{hook} },
-	})
-	if err != nil {
-		t.Fatalf("new runtime: %v", err)
-	}
-
-	ctx := memory.WithGroupMessageID(context.Background(), "group-message-1")
-	ctx = memory.WithGroupSeq(ctx, 1)
-	out := rt.Chat(ctx, session.Info{
-		ID:      "session-1",
-		UserID:  "11111111-1111-4111-8111-111111111111",
-		GroupID: "11111111-1111-4111-8111-111111111111",
-		AgentID: "agent-1",
-	}, "hello")
-	for evt := range out {
-		if evt.Err != nil {
-			t.Fatalf("chat: %v", evt.Err)
-		}
-	}
-	if hook.userID != "" {
-		t.Fatalf("group hook UserID = %q, want empty", hook.userID)
-	}
-}
-
-func TestRuntimeChatDoesNotPutGroupOwnerInSaveInfoAuthzContext(t *testing.T) {
-	mem := &saveInfoContextMemory{recordingMemory: &recordingMemory{}}
-	rt, err := New(Config{
-		Memory: mem,
-		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
-			return chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
-		},
-	})
-	if err != nil {
-		t.Fatalf("new runtime: %v", err)
-	}
-
-	ctx := memory.WithGroupMessageID(context.Background(), "group-message-1")
-	ctx = memory.WithGroupSeq(ctx, 1)
-	out := rt.Chat(ctx, session.Info{
-		ID:      "session-1",
-		UserID:  "11111111-1111-4111-8111-111111111111",
-		GroupID: "11111111-1111-4111-8111-111111111111",
-		AgentID: "agent-1",
-	}, "hello")
-	for evt := range out {
-		if evt.Err != nil {
-			t.Fatalf("chat: %v", evt.Err)
-		}
-	}
-	if mem.savedAuthzUserID != "" {
-		t.Fatalf("SaveInfo authz UserID = %q, want empty", mem.savedAuthzUserID)
-	}
-}
 
 func TestChatRebuildsSnapshotPromptAtVersionZero(t *testing.T) {
 	mem := &snapshotRecordingMemory{
@@ -379,7 +284,7 @@ func TestRuntimeChatPassesCanonicalImageRefWithoutEnrichment(t *testing.T) {
 	}
 }
 
-func TestRuntimeGroupImageKeepsLegacyAppend(t *testing.T) {
+func TestRuntimeGroupImagePersistsPublicTriggerWithoutPrivateEnrichment(t *testing.T) {
 	mem := &recordingMemory{}
 	rt, err := New(Config{
 		Memory: mem,
@@ -399,7 +304,7 @@ func TestRuntimeGroupImageKeepsLegacyAppend(t *testing.T) {
 		}
 	}
 	if len(mem.messages) != 1 || !ai.HasImage(runtimeTestMessageBlocks(mem.messages[0])) {
-		t.Fatalf("group path changed: messages=%#v", mem.messages)
+		t.Fatalf("group image trigger was not persisted: messages=%#v", mem.messages)
 	}
 }
 

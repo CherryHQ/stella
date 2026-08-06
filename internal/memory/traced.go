@@ -86,15 +86,9 @@ func (t *tracedProvider) finish(ctx context.Context, start time.Time, hctx *hook
 
 // metaFromSession populates HookMeta from a memory Session.
 func metaFromSession(s Session) hooks.HookMeta {
-	userID := s.UserID
-	if s.GroupID != "" {
-		// Group sessions reuse UserID as a storage-owner key. Do not expose that
-		// synthetic owner to hooks as an authenticated user identity.
-		userID = ""
-	}
 	return hooks.HookMeta{
 		SessionID: s.ID,
-		UserID:    userID,
+		UserID:    s.UserID,
 		AgentID:   s.AgentID,
 	}
 }
@@ -125,6 +119,8 @@ func (t *tracedProvider) Append(ctx context.Context, session Session, msgs ...ai
 	return err
 }
 
+// SyncGroupEventsBefore traces the durable copy of public group events into a
+// per-Agent LCM while preserving the optional capability through this wrapper.
 func (t *tracedProvider) SyncGroupEventsBefore(ctx context.Context, session Session, triggerSeq int64) error {
 	ingestor, ok := t.inner.(GroupEventIngestor)
 	if !ok {
@@ -139,6 +135,8 @@ func (t *tracedProvider) SyncGroupEventsBefore(ctx context.Context, session Sess
 	return err
 }
 
+// AppendGroupTurn traces the atomic append of the current public trigger and
+// its private assistant/tool continuation.
 func (t *tracedProvider) AppendGroupTurn(
 	ctx context.Context,
 	session Session,
@@ -158,44 +156,6 @@ func (t *tracedProvider) AppendGroupTurn(
 	hctx.Detail = fmt.Sprintf("appended group turn origin=%s", groupMessageID)
 	t.finish(ctx, start, hctx)
 	return err
-}
-
-func (t *tracedProvider) CommitGroupCursor(ctx context.Context, session Session, triggerSeq int64) error {
-	committer, ok := t.inner.(GroupCursorCommitter)
-	if !ok {
-		return errCapabilityNotSupported("GroupCursorCommitter")
-	}
-	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpAppend, SessionID: session.ID}
-	ctx, start := t.begin(ctx, hctx)
-	err := committer.CommitGroupCursor(ctx, session, triggerSeq)
-	hctx.Error = err
-	hctx.Detail = fmt.Sprintf("committed public group cursor through seq=%d", triggerSeq)
-	t.finish(ctx, start, hctx)
-	return err
-}
-
-func (t *tracedProvider) ListActiveGroupFacts(ctx context.Context, groupID string) ([]GroupFact, error) {
-	store, ok := t.inner.(GroupFactStore)
-	if !ok {
-		return nil, errCapabilityNotSupported("GroupFactStore")
-	}
-	return store.ListActiveGroupFacts(ctx, groupID)
-}
-
-func (t *tracedProvider) GetGroupFactVersion(ctx context.Context, groupID string) (int64, error) {
-	store, ok := t.inner.(GroupFactStore)
-	if !ok {
-		return 0, errCapabilityNotSupported("GroupFactStore")
-	}
-	return store.GetGroupFactVersion(ctx, groupID)
-}
-
-func (t *tracedProvider) ListGroupActorDisplayNames(ctx context.Context, groupID string) ([]GroupActorDisplayName, error) {
-	store, ok := t.inner.(GroupFactStore)
-	if !ok {
-		return nil, errCapabilityNotSupported("GroupFactStore")
-	}
-	return store.ListGroupActorDisplayNames(ctx, groupID)
 }
 
 func (t *tracedProvider) Assemble(ctx context.Context, session Session, budget, freshTail int) ([]ai.Message, error) {
@@ -504,12 +464,7 @@ func (t *tracedProvider) SaveInfo(ctx context.Context, info SessionInfo) error {
 	if !ok {
 		return errCapabilityNotSupported("SessionManager")
 	}
-	userID := info.UserID
-	if info.GroupID != "" {
-		// GroupID is the storage owner; it must not become hook user identity.
-		userID = ""
-	}
-	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{SessionID: info.ID, UserID: userID, AgentID: info.AgentID}, Op: hooks.MemoryOpSaveInfo, SessionID: info.ID}
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{SessionID: info.ID, UserID: info.UserID, AgentID: info.AgentID}, Op: hooks.MemoryOpSaveInfo, SessionID: info.ID}
 	ctx, start := t.begin(ctx, hctx)
 	err := sm.SaveInfo(ctx, info)
 	hctx.Error = err
@@ -542,6 +497,22 @@ func (t *tracedProvider) RotateInfo(ctx context.Context, expectedSessionID strin
 	err := sm.RotateInfo(ctx, expectedSessionID, successor)
 	hctx.Error = err
 	hctx.Detail = fmt.Sprintf("expected=%s successor=%s kind=%s", expectedSessionID, successor.ID, successor.Kind)
+	t.finish(ctx, start, hctx)
+	return err
+}
+
+// CommitGroupCursor traces cursor movement and fails closed when the wrapped
+// provider cannot make the corresponding durable update.
+func (t *tracedProvider) CommitGroupCursor(ctx context.Context, session Session, triggerSeq int64) error {
+	committer, ok := t.inner.(GroupCursorCommitter)
+	if !ok {
+		return errCapabilityNotSupported("GroupCursorCommitter")
+	}
+	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpAppend, SessionID: session.ID}
+	ctx, start := t.begin(ctx, hctx)
+	err := committer.CommitGroupCursor(ctx, session, triggerSeq)
+	hctx.Error = err
+	hctx.Detail = fmt.Sprintf("committed public group cursor through seq=%d", triggerSeq)
 	t.finish(ctx, start, hctx)
 	return err
 }
