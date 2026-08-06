@@ -86,6 +86,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 			AgentID:    pgnull.Text(info.AgentID),
 			UserID:     pgtype.Text{String: info.UserID, Valid: true},
 			GroupID:    pgnull.Text(info.GroupID),
+			GuestID:    pgnull.Text(info.GuestID),
 		})
 		if err != nil {
 			return fmt.Errorf("create conversation: %w", err)
@@ -103,6 +104,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		Channel:   pgnull.Text(info.Channel),
 		ProjectID: pgnull.Text(info.ProjectID),
 		GroupID:   pgnull.Text(info.GroupID),
+		GuestID:   pgnull.Text(info.GuestID),
 		SessionID: info.ID,
 		UserID:    pgtype.Text{String: info.UserID, Valid: true},
 		AgentID:   pgnull.Text(info.AgentID),
@@ -124,6 +126,7 @@ func (p *Provider) TouchActiveInfo(ctx context.Context, info memory.SessionInfo)
 		Title:     pgnull.Text(info.Title),
 		Channel:   pgnull.Text(info.Channel),
 		GroupID:   pgnull.Text(info.GroupID),
+		GuestID:   pgnull.Text(info.GuestID),
 		SessionID: info.ID,
 		UserID:    pgtype.Text{String: userID, Valid: true},
 		AgentID:   pgnull.Text(agentID),
@@ -190,6 +193,7 @@ func (p *Provider) RotateInfo(ctx context.Context, expectedSessionID string, suc
 		AgentID:    pgnull.Text(successor.AgentID),
 		UserID:     pgtype.Text{String: successor.UserID, Valid: true},
 		GroupID:    pgnull.Text(successor.GroupID),
+		GuestID:    pgnull.Text(successor.GuestID),
 	}); err != nil {
 		return fmt.Errorf("create successor conversation: %w", err)
 	}
@@ -228,6 +232,7 @@ func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]mem
 	}
 	convs, err := p.q.ListConversationsFiltered(ctx, sqlc.ListConversationsFilteredParams{
 		UserID:          pgtype.Text{String: userID, Valid: true},
+		GuestID:         pgnull.Text(opts.GuestID),
 		AgentID:         pgnull.Text(agentIDValue),
 		IncludeArchived: boolToInt(opts.IncludeArchived),
 		ExcludeInternal: opts.ExcludeInternal,
@@ -369,6 +374,9 @@ func convToSessionInfo(conv sqlc.CtxConversation) memory.SessionInfo {
 	}
 	if conv.GroupID.Valid {
 		info.GroupID = conv.GroupID.String
+	}
+	if conv.GuestID.Valid {
+		info.GuestID = conv.GuestID.String
 	}
 	if conv.ProjectID.Valid {
 		info.ProjectID = conv.ProjectID.String

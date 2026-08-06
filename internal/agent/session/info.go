@@ -60,6 +60,7 @@ type Info struct {
 	AgentID    string
 	UserID     string
 	GroupID    string
+	GuestID    string
 	Channel    string
 	Kind       string
 	ProjectID  string
@@ -100,6 +101,9 @@ func (i Info) Validate() error {
 		return fmt.Errorf("session info %q: missing UserID", i.ID)
 	}
 	if i.GroupID != "" {
+		if i.GuestID != "" {
+			return fmt.Errorf("session info %q: group session cannot have GuestID", i.ID)
+		}
 		if i.UserID != i.GroupID {
 			return fmt.Errorf("session info %q: group session UserID %q must equal GroupID %q", i.ID, i.UserID, i.GroupID)
 		}
@@ -113,6 +117,18 @@ func (i Info) Validate() error {
 		}
 		if parsed.String() != i.GroupID {
 			return fmt.Errorf("session info %q: GroupID %q is not in canonical UUID form", i.ID, i.GroupID)
+		}
+	}
+	if i.GuestID != "" {
+		if i.UserID != i.GuestID {
+			return fmt.Errorf("session info %q: guest session UserID %q must equal GuestID %q", i.ID, i.UserID, i.GuestID)
+		}
+		parsed, err := uuid.Parse(i.GuestID)
+		if err != nil || parsed.String() != i.GuestID {
+			return fmt.Errorf("session info %q: GuestID %q is not a canonical UUID", i.ID, i.GuestID)
+		}
+		if i.GroupID != "" || i.ProjectID != "" || Kind(i.Kind) != KindChat {
+			return fmt.Errorf("session info %q: guest session must be chat kind without group or project", i.ID)
 		}
 	}
 	return nil
@@ -139,6 +155,7 @@ func (i Info) MemoryScope() (memory.Session, error) {
 		UserID:  i.UserID,
 		Channel: i.Channel,
 		GroupID: i.GroupID,
+		GuestID: i.GuestID,
 	}, nil
 }
 
@@ -154,6 +171,7 @@ func (i Info) Record() (memory.SessionInfo, error) {
 		AgentID:    i.AgentID,
 		UserID:     i.UserID,
 		GroupID:    i.GroupID,
+		GuestID:    i.GuestID,
 		Channel:    i.Channel,
 		Kind:       i.Kind,
 		ProjectID:  i.ProjectID,
@@ -176,6 +194,7 @@ func InfoFromRecord(r memory.SessionInfo) (Info, error) {
 		AgentID:    r.AgentID,
 		UserID:     r.UserID,
 		GroupID:    r.GroupID,
+		GuestID:    r.GuestID,
 		Channel:    r.Channel,
 		Kind:       r.Kind,
 		ProjectID:  r.ProjectID,

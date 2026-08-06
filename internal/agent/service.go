@@ -350,6 +350,8 @@ type ChatChannelRequest struct {
 	// the group-ownership invariant (UserID == GroupID) is established here.
 	UserID  string
 	GroupID string
+	// GuestID is the durable channel_guest UUID. When set it owns the session.
+	GuestID string
 	AgentID string
 	Channel session.Channel
 	// SessionKey is the chat's derived key. Sessions are no longer created under
@@ -362,11 +364,14 @@ func (r ChatChannelRequest) binding() session.ChannelRequest {
 	userID := r.UserID
 	if r.GroupID != "" {
 		userID = r.GroupID
+	} else if r.GuestID != "" {
+		userID = r.GuestID
 	}
 	return session.ChannelRequest{
 		UserID:   userID,
 		AgentID:  r.AgentID,
 		GroupID:  r.GroupID,
+		GuestID:  r.GuestID,
 		Channel:  r.Channel,
 		LegacyID: r.SessionKey,
 	}

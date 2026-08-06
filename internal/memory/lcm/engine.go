@@ -92,6 +92,7 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.S
 		AgentID:    pgnull.Text(session.AgentID),
 		UserID:     pgtype.Text{String: session.UserID, Valid: true},
 		GroupID:    pgnull.Text(session.GroupID),
+		GuestID:    pgnull.Text(session.GuestID),
 		LastActive: now,
 	})
 	if err == nil {

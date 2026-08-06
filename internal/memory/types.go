@@ -103,6 +103,7 @@ type Session struct {
 	UserID  string // internal user ID (empty for anonymous/legacy)
 	Channel string // originating channel (e.g. "cli", "telegram")
 	GroupID string // non-empty for group sessions; assembles history from event log instead of ctx_message
+	GuestID string // non-empty for a persistent channel guest; equals UserID
 }
 
 // GroupIngestPipeline names the ctx_group_ingest_cursor pipeline that tracks
@@ -125,6 +126,7 @@ type SessionInfo struct {
 	AgentID    string
 	UserID     string
 	GroupID    string // non-empty for group sessions; runtime uses this to isolate identity surfaces
+	GuestID    string // non-empty for a persistent channel guest; equals UserID
 	Channel    string
 	Kind       string // session kind: main, chat, scheduler, task
 	ProjectID  string // set for project-scoped sessions
@@ -141,6 +143,7 @@ type SessionInfo struct {
 type ListOptions struct {
 	AgentID         string // filter by agent (empty = all)
 	UserID          string // filter by user (empty = all)
+	GuestID         string // filter by guest; empty excludes guest-owned sessions
 	Kind            string // filter by kind (empty = all)
 	Channel         string // filter by durable channel binding (empty = all)
 	ProjectID       string // filter by project (empty = all)

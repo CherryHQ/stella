@@ -358,6 +358,7 @@ func (r *Registry) RotateChannel(ctx context.Context, req ChannelRequest) (Info,
 func (r *Registry) currentChannelLocked(ctx context.Context, req ChannelRequest) (Info, bool, error) {
 	opts := memory.ListOptions{
 		UserID:          req.UserID,
+		GuestID:         req.GuestID,
 		AgentID:         req.AgentID,
 		Kind:            string(KindChat),
 		ProjectIDIsNull: true,
@@ -418,7 +419,7 @@ func (r *Registry) currentChannelLocked(ctx context.Context, req ChannelRequest)
 // for, backfilling the fields a legacy row may lack. It fails closed on a
 // mismatch: the durable group owner is an ownership claim, never a rebind.
 func (r *Registry) bindChannelInfo(info Info, req ChannelRequest) (Info, error) {
-	if info.UserID != req.UserID || info.AgentID != req.AgentID {
+	if info.UserID != req.UserID || info.AgentID != req.AgentID || info.GuestID != req.GuestID {
 		return Info{}, fmt.Errorf("%w: %s", ErrForbidden, info.ID)
 	}
 	if info.Channel == "" && !req.Channel.isZero() {
@@ -448,6 +449,7 @@ func newChannelInfo(req ChannelRequest) Info {
 	id := uuid.Must(uuid.NewV7()).String()
 	info := NewInfo(id, req.AgentID, req.UserID, string(req.Channel), KindChat, "", now)
 	info.GroupID = req.GroupID
+	info.GuestID = req.GuestID
 	return info
 }
 

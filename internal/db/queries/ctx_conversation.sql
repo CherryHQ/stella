@@ -1,6 +1,6 @@
 -- name: CreateConversation :one
-INSERT INTO ctx_conversation (id, session_id, title, channel, kind, project_id, archived, last_active, agent_id, user_id, group_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, sqlc.narg(group_id))
+INSERT INTO ctx_conversation (id, session_id, title, channel, kind, project_id, archived, last_active, agent_id, user_id, group_id, guest_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, sqlc.narg(group_id), sqlc.narg(guest_id))
 RETURNING *;
 
 -- name: GetConversation :one
@@ -87,6 +87,10 @@ SET
     WHEN group_id IS NULL AND sqlc.narg(group_id)::uuid IS NOT NULL THEN sqlc.narg(group_id)
     ELSE group_id
   END,
+  guest_id = CASE
+    WHEN guest_id IS NULL AND sqlc.narg(guest_id)::uuid IS NOT NULL THEN sqlc.narg(guest_id)
+    ELSE guest_id
+  END,
   last_active = now(),
   updated_at = now()
 WHERE session_id = sqlc.arg(session_id)
@@ -121,6 +125,10 @@ SET
     WHEN group_id IS NULL AND sqlc.narg(group_id)::uuid IS NOT NULL THEN sqlc.narg(group_id)
     ELSE group_id
   END,
+  guest_id = CASE
+    WHEN guest_id IS NULL AND sqlc.narg(guest_id)::uuid IS NOT NULL THEN sqlc.narg(guest_id)
+    ELSE guest_id
+  END,
   last_active = now(),
   updated_at = now()
 WHERE session_id = sqlc.arg(session_id)
@@ -145,6 +153,7 @@ ORDER BY last_active DESC, session_id DESC;
 SELECT * FROM ctx_conversation
 WHERE user_id = sqlc.arg(user_id)
   AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)
+  AND guest_id IS NOT DISTINCT FROM sqlc.narg(guest_id)
   AND (sqlc.arg(include_archived) != 0 OR archived = false)
   AND (sqlc.arg(exclude_internal)::boolean = false OR kind NOT IN ('task', 'delegate'))
   AND (sqlc.narg(kind)::text IS NULL OR kind = sqlc.narg(kind))
@@ -172,6 +181,7 @@ SELECT * FROM ctx_conversation
 WHERE agent_id = sqlc.arg(agent_id)
   AND archived = false
   AND user_id IS NOT NULL AND user_id <> ''
+  AND guest_id IS NULL
 ORDER BY last_active DESC, session_id DESC;
 
 -- name: ListConversationsForReviewFiltered :many
@@ -192,6 +202,7 @@ FROM ctx_conversation c
 WHERE c.agent_id = sqlc.arg(agent_id)
   AND (sqlc.arg(include_archived) != 0 OR c.archived = false)
   AND c.user_id IS NOT NULL AND c.user_id <> ''
+  AND c.guest_id IS NULL
   AND (sqlc.narg(kind)::text IS NULL OR c.kind = sqlc.narg(kind))
   AND (sqlc.arg(project_id_is_null) = 0 OR c.project_id IS NULL)
   AND (sqlc.narg(project_id)::text IS NULL OR c.project_id = sqlc.narg(project_id))

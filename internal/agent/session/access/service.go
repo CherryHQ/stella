@@ -566,6 +566,7 @@ func (a *Access) authorizeAgent(ctx context.Context, agentID string, action auth
 // conversation facts; a transport never supplies them.
 type sessionFacts struct {
 	isOwner     bool
+	isGuest     bool
 	isExecutor  bool
 	isGroup     bool
 	isSameGroup bool
@@ -574,7 +575,8 @@ type sessionFacts struct {
 func sessionFactsFor(info agentsession.Info, authority authz.Authority) sessionFacts {
 	actor := authority
 	return sessionFacts{
-		isOwner:     string(actor.UserID()) != "" && string(actor.UserID()) == info.UserID,
+		isOwner:     info.GuestID == "" && string(actor.UserID()) != "" && string(actor.UserID()) == info.UserID,
+		isGuest:     info.GuestID != "",
 		isExecutor:  string(actor.AgentID()) != "" && string(actor.AgentID()) == info.AgentID,
 		isGroup:     info.GroupID != "",
 		isSameGroup: info.GroupID != "" && string(actor.GroupID()) == info.GroupID,
