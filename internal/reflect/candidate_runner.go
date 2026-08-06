@@ -53,6 +53,14 @@ type candidateLineReviewer struct {
 	OnGenerated func(int)
 }
 
+// StructuredCaptureRunner is the schema-agnostic capture transport shared by
+// 1v1 Reflect and Group Reflect. Callers own their prompts and payload schemas.
+type StructuredCaptureRunner struct {
+	Stream  providers.StreamFunc
+	Model   ai.Model
+	Options ai.CompleteOptions
+}
+
 func (r candidateLineReviewer) runFactLine(ctx context.Context, unit ReviewUnit) ([]factCandidate, error) {
 	decisions, err := r.runFactDecisionLine(ctx, unit)
 	if err != nil {
@@ -196,8 +204,19 @@ func (r candidateLineReviewer) evaluateSkillCandidates(ctx context.Context, unit
 }
 
 func (r candidateLineReviewer) capture(ctx context.Context, system, input string, protocol captureProtocol, tools []ai.ToolDefinition) (captureRunResult, error) {
+	runner := StructuredCaptureRunner{Stream: r.Stream, Model: r.Model, Options: r.Options}
+	return runner.Run(ctx, system, input, protocol, tools)
+}
+
+func (r StructuredCaptureRunner) Run(
+	ctx context.Context,
+	system string,
+	input string,
+	protocol StructuredCaptureProtocol,
+	tools []ai.ToolDefinition,
+) (StructuredCaptureResult, error) {
 	maxAttempts := 1
-	if captureRepairRetryEnabled(protocol.SubmitName) {
+	if protocol.RepairRetries || captureRepairRetryEnabled(protocol.SubmitName) {
 		maxAttempts = maxCaptureAttempts
 	}
 	// Repair prompts are only added after host-side protocol failures; the final
@@ -209,7 +228,11 @@ func (r candidateLineReviewer) capture(ctx context.Context, system, input string
 				ai.UserMessage{Content: input},
 			}
 			if repairErr != nil {
-				messages = append(messages, ai.UserMessage{Content: renderCaptureRepairPrompt(protocol.SubmitName, repairErr)})
+				messages = append(messages, ai.UserMessage{Content: renderCaptureRepairPrompt(
+					protocol.SubmitName,
+					repairErr,
+					protocol.RepairInstructions,
+				)})
 			}
 			msg, err := providers.Complete(ctx, r.Model, ai.Context{
 				System:   system,
@@ -258,7 +281,7 @@ func captureRepairRetryEnabled(submitName string) bool {
 	}
 }
 
-func renderCaptureRepairPrompt(submitName string, err error) string {
+func renderCaptureRepairPrompt(submitName string, err error, extraInstructions []string) string {
 	var b strings.Builder
 	b.WriteString("Previous capture attempt failed host-side validation.\n")
 	b.WriteString("Error: ")
@@ -290,6 +313,14 @@ func renderCaptureRepairPrompt(submitName string, err error) string {
 	if submitName == toolSubmitSkillReconciliation {
 		b.WriteString("- A plan with operations=[] is valid only when there are zero accepted candidates.\n")
 		b.WriteString("- For any accepted candidate you choose not to create or patch, add a noop operation with candidate_refs.\n")
+	}
+	for _, instruction := range extraInstructions {
+		if strings.TrimSpace(instruction) == "" {
+			continue
+		}
+		b.WriteString("- ")
+		b.WriteString(strings.TrimSpace(instruction))
+		b.WriteString("\n")
 	}
 	b.WriteString("- Do not explain in prose; only call the submit tool.")
 	return b.String()

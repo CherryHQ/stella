@@ -73,3 +73,8 @@ func assignCandidateRefs(prefix string, count int) []CandidateRef {
 	}
 	return refs
 }
+
+// AssignCandidateRefs returns deterministic host-owned refs for one review.
+func AssignCandidateRefs(prefix string, count int) []CandidateRef {
+	return assignCandidateRefs(prefix, count)
+}
