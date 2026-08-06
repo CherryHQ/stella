@@ -80,6 +80,17 @@ var envReadAllowlist = map[string]map[string]bool{
 	// Dynamic per-key reads over a computed key set.
 	"internal/manifestplugins/mise_installer.go": {nonLiteralRead: true},
 
+	// The untrusted Xberg child receives a closed parser-runtime allowlist from
+	// the host. Keeping the scan local to that fixed list avoids copying daemon
+	// secrets while preserving platform runtime, locale, and mise shim variables.
+	"internal/library/xberg.go": {
+		"PATH": true, "SYSTEMROOT": true, "WINDIR": true, "COMSPEC": true, "PATHEXT": true,
+		"TMPDIR": true, "TMP": true, "TEMP": true,
+		"LANG": true, "LC_ALL": true, "LC_CTYPE": true, "TZ": true,
+		"SSL_CERT_FILE": true, "SSL_CERT_DIR": true,
+		"LD_LIBRARY_PATH": true, "DYLD_LIBRARY_PATH": true,
+	},
+
 	// Host environment passthrough for the sandbox: PATH and selected host vars
 	// are forwarded into the sandbox, not stella configuration.
 	"internal/agent/sandbox/bash.go": {"PATH": true},

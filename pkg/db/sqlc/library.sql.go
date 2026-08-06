@@ -664,6 +664,7 @@ const markLibraryChunkSetFailed = `-- name: MarkLibraryChunkSetFailed :execrows
 UPDATE library_chunk_set
 SET status = 'failed',
     error_message = $1,
+    updated_at = now(),
     completed_at = now()
 WHERE id = $2
   AND status = 'building'
@@ -688,6 +689,7 @@ SET status = 'ready',
     chunk_count = $1,
     content_digest = $2,
     error_message = NULL,
+    updated_at = now(),
     completed_at = now()
 WHERE id = $3
   AND status = 'building'

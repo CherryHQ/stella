@@ -263,20 +263,38 @@ func TestXbergParserAvailabilityRespectsContext(t *testing.T) {
 	}
 }
 
-func TestXbergProcessEnvironmentOverridesInheritedValue(t *testing.T) {
+func TestXbergProcessEnvironmentUsesStrictAllowlist(t *testing.T) {
+	t.Setenv("PATH", "/trusted/bin")
 	t.Setenv("MISE_GLOBAL_CONFIG_FILE", "/host/config.toml")
+	t.Setenv("STELLA_VAULT_KEY", "must-not-reach-xberg")
+	t.Setenv("DATABASE_URL", "postgres://must-not-reach-xberg")
 
 	environment := xbergProcessEnvironment(map[string]string{
 		"MISE_GLOBAL_CONFIG_FILE": "/stella/config.toml",
+		"MISE_API_TOKEN":          "also-must-not-reach-xberg",
+		"STELLA_INTERNAL_SECRET":  "must-not-reach-xberg",
 	})
-	var values []string
+	values := make(map[string]string, len(environment))
 	for _, entry := range environment {
-		if strings.HasPrefix(entry, "MISE_GLOBAL_CONFIG_FILE=") {
-			values = append(values, entry)
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok {
+			t.Fatalf("malformed environment entry %q", entry)
+		}
+		values[key] = value
+	}
+	if values["PATH"] != "/trusted/bin" {
+		t.Fatalf("PATH = %q, want trusted inherited value", values["PATH"])
+	}
+	if values["MISE_GLOBAL_CONFIG_FILE"] != "/stella/config.toml" {
+		t.Fatalf("MISE_GLOBAL_CONFIG_FILE = %q", values["MISE_GLOBAL_CONFIG_FILE"])
+	}
+	for _, secret := range []string{"STELLA_VAULT_KEY", "DATABASE_URL", "MISE_API_TOKEN", "STELLA_INTERNAL_SECRET"} {
+		if _, ok := values[secret]; ok {
+			t.Fatalf("secret %s crossed the Xberg environment boundary", secret)
 		}
 	}
-	if !reflect.DeepEqual(values, []string{"MISE_GLOBAL_CONFIG_FILE=/stella/config.toml"}) {
-		t.Fatalf("MISE_GLOBAL_CONFIG_FILE entries = %#v", values)
+	if empty := xbergProcessEnvironment(nil); empty == nil {
+		t.Fatal("empty override set returned nil and would inherit the full daemon environment")
 	}
 }
 

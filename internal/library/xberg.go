@@ -8,9 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -36,8 +34,13 @@ const (
 	DefaultMaxChunkBytes   = 48 << 20
 	DefaultMaxChunks       = 50_000
 	DefaultMaxStderrBytes  = 1 << 10
-	managedXbergPluginID   = "tool/kreuzberg"
-	managedXbergScope      = "library"
+	// Xberg handles compressed and structurally complex documents. Keep each
+	// parser tree below a fixed OS-enforced memory and CPU budget even when the
+	// input passes the lightweight upload preflight.
+	DefaultMaxProcessMemoryBytes = 1 << 30
+	DefaultMaxProcessCPUTime     = 5 * time.Minute
+	managedXbergPluginID         = "tool/kreuzberg"
+	managedXbergScope            = "library"
 )
 
 var (
@@ -66,27 +69,32 @@ type ChunkLocator struct {
 // XbergParserConfig controls parser process and resource limits.
 type XbergParserConfig struct {
 	Binary string
-	// Environment overrides inherited variables for the managed Xberg process.
-	Environment     map[string]string
-	Timeout         time.Duration
-	MaxStdoutBytes  int64
-	MaxStderrBytes  int64
-	MaxContentBytes int
-	MaxChunkBytes   int
-	MaxChunks       int
+	// Environment contains trusted managed-runtime entries. The parser filters
+	// them through its allowlist and never forwards arbitrary daemon secrets.
+	Environment           map[string]string
+	Timeout               time.Duration
+	MaxStdoutBytes        int64
+	MaxStderrBytes        int64
+	MaxContentBytes       int
+	MaxChunkBytes         int
+	MaxChunks             int
+	MaxProcessMemoryBytes int64
+	MaxProcessCPUTime     time.Duration
 }
 
 // DefaultXbergParserConfig returns the V1 parser limits from the approved
 // Library V1 design.
 func DefaultXbergParserConfig(binary string) XbergParserConfig {
 	return XbergParserConfig{
-		Binary:          binary,
-		Timeout:         DefaultParseTimeout,
-		MaxStdoutBytes:  DefaultMaxStdoutBytes,
-		MaxStderrBytes:  DefaultMaxStderrBytes,
-		MaxContentBytes: DefaultMaxContentBytes,
-		MaxChunkBytes:   DefaultMaxChunkBytes,
-		MaxChunks:       DefaultMaxChunks,
+		Binary:                binary,
+		Timeout:               DefaultParseTimeout,
+		MaxStdoutBytes:        DefaultMaxStdoutBytes,
+		MaxStderrBytes:        DefaultMaxStderrBytes,
+		MaxContentBytes:       DefaultMaxContentBytes,
+		MaxChunkBytes:         DefaultMaxChunkBytes,
+		MaxChunks:             DefaultMaxChunks,
+		MaxProcessMemoryBytes: DefaultMaxProcessMemoryBytes,
+		MaxProcessCPUTime:     DefaultMaxProcessCPUTime,
 	}
 }
 
@@ -161,7 +169,11 @@ func NewXbergParser(config XbergParserConfig) (*XbergParser, error) {
 	}
 	return &XbergParser{
 		config: config,
-		runner: execXbergRunner{env: xbergProcessEnvironment(config.Environment)},
+		runner: execXbergRunner{
+			env:                   xbergProcessEnvironment(config.Environment),
+			maxProcessMemoryBytes: config.MaxProcessMemoryBytes,
+			maxProcessCPUTime:     config.MaxProcessCPUTime,
+		},
 	}, nil
 }
 
@@ -234,6 +246,12 @@ func normalizeXbergParserConfig(config XbergParserConfig) XbergParserConfig {
 	}
 	if config.MaxChunks <= 0 {
 		config.MaxChunks = defaults.MaxChunks
+	}
+	if config.MaxProcessMemoryBytes <= 0 {
+		config.MaxProcessMemoryBytes = defaults.MaxProcessMemoryBytes
+	}
+	if config.MaxProcessCPUTime <= 0 {
+		config.MaxProcessCPUTime = defaults.MaxProcessCPUTime
 	}
 	return config
 }
@@ -473,7 +491,9 @@ type xbergRunner interface {
 }
 
 type execXbergRunner struct {
-	env []string
+	env                   []string
+	maxProcessMemoryBytes int64
+	maxProcessCPUTime     time.Duration
 }
 
 func (r execXbergRunner) Run(
@@ -483,14 +503,19 @@ func (r execXbergRunner) Run(
 	args []string,
 	stdout, stderr io.Writer,
 ) error {
-	cmd := exec.CommandContext(ctx, binary, args...)
 	// The Worker creates one controlled directory per parse. Using it as the
 	// process cwd prevents Xberg from discovering an unrelated parent config.
-	cmd.Dir = filepath.Dir(documentPath)
-	cmd.Env = r.env
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	return cmd.Run()
+	return runXbergCommand(
+		ctx,
+		binary,
+		args,
+		filepath.Dir(documentPath),
+		r.env,
+		stdout,
+		stderr,
+		r.maxProcessMemoryBytes,
+		r.maxProcessCPUTime,
+	)
 }
 
 func (r execXbergRunner) Probe(
@@ -498,27 +523,53 @@ func (r execXbergRunner) Probe(
 	binary string,
 	stdout, stderr io.Writer,
 ) error {
-	cmd := exec.CommandContext(ctx, binary, "--version")
-	cmd.Dir = filepath.Dir(binary)
-	cmd.Env = r.env
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	return cmd.Run()
+	return runXbergCommand(
+		ctx,
+		binary,
+		[]string{"--version"},
+		filepath.Dir(binary),
+		r.env,
+		stdout,
+		stderr,
+		r.maxProcessMemoryBytes,
+		r.maxProcessCPUTime,
+	)
 }
 
 func xbergProcessEnvironment(overrides map[string]string) []string {
-	if len(overrides) == 0 {
-		return nil
+	// Keep this list intentionally small: credentials, Stella configuration,
+	// database URLs, and arbitrary parent-process variables must not cross the
+	// parser boundary. These entries are sufficient for executable lookup,
+	// temporary files, locale handling, and platform runtime libraries.
+	environment := map[string]string{
+		"PATH":              os.Getenv("PATH"),
+		"SYSTEMROOT":        os.Getenv("SYSTEMROOT"),
+		"WINDIR":            os.Getenv("WINDIR"),
+		"COMSPEC":           os.Getenv("COMSPEC"),
+		"PATHEXT":           os.Getenv("PATHEXT"),
+		"TMPDIR":            os.Getenv("TMPDIR"),
+		"TMP":               os.Getenv("TMP"),
+		"TEMP":              os.Getenv("TEMP"),
+		"LANG":              os.Getenv("LANG"),
+		"LC_ALL":            os.Getenv("LC_ALL"),
+		"LC_CTYPE":          os.Getenv("LC_CTYPE"),
+		"TZ":                os.Getenv("TZ"),
+		"SSL_CERT_FILE":     os.Getenv("SSL_CERT_FILE"),
+		"SSL_CERT_DIR":      os.Getenv("SSL_CERT_DIR"),
+		"LD_LIBRARY_PATH":   os.Getenv("LD_LIBRARY_PATH"),
+		"DYLD_LIBRARY_PATH": os.Getenv("DYLD_LIBRARY_PATH"),
 	}
-
-	environment := make(map[string]string, len(os.Environ())+len(overrides))
-	for _, entry := range os.Environ() {
-		key, value, ok := strings.Cut(entry, "=")
-		if ok {
-			environment[key] = value
+	for key, value := range environment {
+		if value == "" {
+			delete(environment, key)
 		}
 	}
-	maps.Copy(environment, overrides)
+	for key, value := range overrides {
+		canonicalKey := strings.ToUpper(strings.TrimSpace(key))
+		if isAllowedXbergEnvironmentKey(canonicalKey) {
+			environment[canonicalKey] = value
+		}
+	}
 
 	keys := make([]string, 0, len(environment))
 	for key := range environment {
@@ -531,6 +582,22 @@ func xbergProcessEnvironment(overrides map[string]string) []string {
 		entries = append(entries, key+"="+environment[key])
 	}
 	return entries
+}
+
+func isAllowedXbergEnvironmentKey(key string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(key))
+	switch upper {
+	case "PATH", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT",
+		"TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "LC_CTYPE", "TZ",
+		"SSL_CERT_FILE", "SSL_CERT_DIR", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH",
+		"MISE_DATA_DIR", "MISE_CONFIG_DIR", "MISE_CACHE_DIR", "MISE_STATE_DIR",
+		"MISE_YES", "MISE_NO_ANALYTICS", "MISE_EXPERIMENTAL",
+		"MISE_GLOBAL_CONFIG_FILE", "MISE_TRUSTED_CONFIG_PATHS", "MISE_SHIMS_DIR",
+		"MISE_NOT_FOUND_AUTO_INSTALL":
+		return true
+	default:
+		return false
+	}
 }
 
 type limitedBuffer struct {

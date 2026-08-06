@@ -68,6 +68,13 @@ func TestChunkWorkerStagesAndAtomicallyPublishesGeneration(t *testing.T) {
 	if set.ID != ready.ActiveChunkSetID || ChunkSetStatus(set.Status) != ChunkSetStatusReady {
 		t.Fatalf("published ChunkSet = %+v; active pointer = %q", set, ready.ActiveChunkSetID)
 	}
+	if !set.UpdatedAt.After(set.CreatedAt) {
+		t.Fatalf(
+			"ready ChunkSet updated_at = %s, want after created_at %s",
+			set.UpdatedAt,
+			set.CreatedAt,
+		)
+	}
 	staged, digest, err := normalizeParsedChunks(parsed)
 	if err != nil {
 		t.Fatal(err)
@@ -189,6 +196,13 @@ func TestDeterministicParseFailurePublishesNothing(t *testing.T) {
 	}
 	if ChunkSetStatus(set.Status) != ChunkSetStatusFailed {
 		t.Fatalf("failed parser left ChunkSet status %q", set.Status)
+	}
+	if !set.UpdatedAt.After(set.CreatedAt) {
+		t.Fatalf(
+			"failed ChunkSet updated_at = %s, want after created_at %s",
+			set.UpdatedAt,
+			set.CreatedAt,
+		)
 	}
 	var chunks int
 	if err := database.QueryRow(

@@ -177,6 +177,7 @@ SET status = 'ready',
     chunk_count = sqlc.arg('chunk_count'),
     content_digest = sqlc.arg('content_digest'),
     error_message = NULL,
+    updated_at = now(),
     completed_at = now()
 WHERE id = sqlc.arg('id')
   AND status = 'building';
@@ -194,6 +195,7 @@ WHERE id = sqlc.arg('id')
 UPDATE library_chunk_set
 SET status = 'failed',
     error_message = sqlc.arg('error_message'),
+    updated_at = now(),
     completed_at = now()
 WHERE id = sqlc.arg('id')
   AND status = 'building';
