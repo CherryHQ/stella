@@ -29,8 +29,16 @@ type groupMemberProvisioner interface {
 
 func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
 	deliveryCtx := context.WithoutCancel(ctx)
+	if m.GuildID == "" && !b.cfg.AllowDM {
+		logger().Debug("ignoring direct message because DMs are disabled", "channel_id", m.ChannelID)
+		return nil
+	}
 	if !b.guildAllowed(m.GuildID) {
 		logger().Debug("ignoring message from unconfigured guild", "guild_id", m.GuildID, "channel_id", m.ChannelID)
+		return nil
+	}
+	if m.GuildID != "" && b.cfg.RequireMention && !b.mentioned(m) {
+		logger().Debug("ignoring guild message without bot mention", "guild_id", m.GuildID, "channel_id", m.ChannelID)
 		return nil
 	}
 	text := m.Content

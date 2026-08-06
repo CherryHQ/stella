@@ -14,7 +14,7 @@ func DecodeConfig(raw map[string]any) (channel.DiscordConfig, error) {
 	if err != nil {
 		return channel.DiscordConfig{}, fmt.Errorf("encode discord config: %w", err)
 	}
-	var cfg channel.DiscordConfig
+	cfg := channel.DiscordConfig{AllowDM: true, RequireMention: true}
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return cfg, fmt.Errorf("decode discord config: %w", err)
 	}

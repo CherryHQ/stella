@@ -20,6 +20,8 @@ type Config struct {
 	InstanceID      string
 	Token           string
 	AllowedGuildIDs string
+	AllowDM         bool
+	RequireMention  bool
 }
 
 type Bot struct {
@@ -68,6 +70,19 @@ func (b *Bot) guildAllowed(guildID string) bool {
 	}
 	_, ok := b.allowedGuilds[guildID]
 	return ok
+}
+
+func (b *Bot) mentioned(m *discordgo.Message) bool {
+	if b.session.State == nil || b.session.State.User == nil {
+		return false
+	}
+	botID := b.session.State.User.ID
+	for _, user := range m.Mentions {
+		if user != nil && user.ID == botID {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *Bot) Start(ctx context.Context) error {

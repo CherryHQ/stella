@@ -17,8 +17,12 @@ import (
 
 func TestConfigDecodeRedactSchemaAndValidation(t *testing.T) {
 	cfg, err := DecodeConfig(map[string]any{"token": "secret", "allowed_guild_ids": "one, two"})
-	if err != nil || cfg.Token != "secret" || cfg.AllowedGuildIDs != "one, two" {
+	if err != nil || cfg.Token != "secret" || cfg.AllowedGuildIDs != "one, two" || !cfg.AllowDM || !cfg.RequireMention {
 		t.Fatalf("DecodeConfig() = %#v, %v", cfg, err)
+	}
+	cfg, err = DecodeConfig(map[string]any{"token": "secret", "allow_dm": false, "require_mention": false})
+	if err != nil || cfg.AllowDM || cfg.RequireMention {
+		t.Fatalf("DecodeConfig(disabled defaults) = %#v, %v", cfg, err)
 	}
 	redacted := RedactConfig(map[string]any{"token": "secret"})
 	if redacted["token"] != "***" {
@@ -107,6 +111,64 @@ func TestGuildMessageRejectsUnconfiguredGuild(t *testing.T) {
 	}
 }
 
+func TestGuildMessageRequiresMentionByDefault(t *testing.T) {
+	h := &provisioningHandler{fakeHandler: fakeHandler{}}
+	cfg, err := DecodeConfig(map[string]any{"token": "token", "allowed_guild_ids": "guild"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := New(Config{Token: cfg.Token, AllowedGuildIDs: cfg.AllowedGuildIDs, RequireMention: cfg.RequireMention}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.session.State.User = &discordgo.User{ID: "bot"}
+	m := &discordgo.Message{ID: "message", ChannelID: "discord-channel", GuildID: "guild", Author: &discordgo.User{ID: "sender"}, Content: "hello"}
+	if err := b.handleMessage(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	if h.calls != 0 {
+		t.Fatalf("unmentioned guild message caused %d provisioning calls", h.calls)
+	}
+	m.Mentions = []*discordgo.User{{ID: "bot"}}
+	m.Content = "<@bot> hello"
+	if err := b.handleMessage(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	if h.calls != 1 {
+		t.Fatalf("mentioned guild message caused %d provisioning calls, want 1", h.calls)
+	}
+}
+
+func TestDirectMessageDoesNotRequireMention(t *testing.T) {
+	h := &unregisteringHandler{}
+	b, err := New(Config{Token: "token", AllowDM: true, RequireMention: true}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &discordgo.Message{ID: "message", ChannelID: "dm", Author: &discordgo.User{ID: "sender"}, Content: "hello"}
+	if err := b.handleMessage(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	if h.handleCalls != 1 {
+		t.Fatalf("direct-message handle calls = %d, want 1", h.handleCalls)
+	}
+}
+
+func TestDirectMessageCanBeDisabled(t *testing.T) {
+	h := &unregisteringHandler{}
+	b, err := New(Config{Token: "token"}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &discordgo.Message{ID: "message", ChannelID: "dm", Author: &discordgo.User{ID: "sender"}, Content: "hello"}
+	if err := b.handleMessage(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	if h.handleCalls != 0 {
+		t.Fatalf("disabled direct messages caused %d handle calls", h.handleCalls)
+	}
+}
+
 func TestChunkingAndAllowedMentions(t *testing.T) {
 	chunks := channel.SplitMessage(strings.Repeat("a", maxMessageLength+1), maxMessageLength)
 	if len(chunks) != 2 || len(chunks[0]) > maxMessageLength {
@@ -133,7 +195,7 @@ func TestGuildErrorsDoNotExposeInternalDetails(t *testing.T) {
 
 func TestActivationPrecedesIngressAndFinalizeUnregistersOnce(t *testing.T) {
 	h := &unregisteringHandler{}
-	b, err := New(Config{InstanceID: "discord-main", Token: "token"}, h)
+	b, err := New(Config{InstanceID: "discord-main", Token: "token", AllowDM: true}, h)
 	if err != nil {
 		t.Fatal(err)
 	}

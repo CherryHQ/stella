@@ -66,6 +66,8 @@ Channel access is enforced by Stella's trusted Authority-based domain services; 
 
 - `token` -- Bot token
 - `allowed_guild_ids` -- Comma-separated trusted server IDs; empty disables all guild messages but not direct messages
+- `allow_dm` -- Accept account linking and linked-user direct messages; defaults to `true`
+- `require_mention` -- Only process guild messages that mention the bot; defaults to `true`
 
 **QQ config fields:** `app_id`, `app_secret`, `enable_notify`
 

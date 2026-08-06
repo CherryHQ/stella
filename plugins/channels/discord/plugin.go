@@ -19,7 +19,7 @@ var newRuntime = func(rc plugins.RuntimeContext) (plugins.Runtime, error) {
 		return nil, fmt.Errorf("discord: channel runtime services unavailable")
 	}
 	return NewManagedRuntime(RuntimeDeps{Parent: r.ParentContext(), Handler: r.Handler(), Notifications: r.Notifications(), Log: platform.Logger(), NewChannel: func(cfg channel.DiscordConfig, h channel.Handler) (channel.Channel, error) {
-		return New(Config{InstanceID: cfg.InstanceID, Token: cfg.Token, AllowedGuildIDs: cfg.AllowedGuildIDs}, h)
+		return New(Config{InstanceID: cfg.InstanceID, Token: cfg.Token, AllowedGuildIDs: cfg.AllowedGuildIDs, AllowDM: cfg.AllowDM, RequireMention: cfg.RequireMention}, h)
 	}}), nil
 }
 
@@ -31,7 +31,7 @@ func init() {
 				ID: PluginID, Kind: "channel", Name: channel.PlatformDiscord, DisplayName: "Discord", Description: "Discord bot integration.", AdminVisible: true,
 				Capabilities: []string{plugins.CapabilityRuntime, plugins.CapabilityConfig, plugins.CapabilityStatus}, RequiredCapabilities: []plugins.Capability{plugins.CapabilityChannelPlatform, plugins.CapabilityLogger, plugins.CapabilityRuntimeLookup},
 			},
-			DefaultConfig: func() map[string]any { return map[string]any{} }, Schema: configSchema(), Validate: func(raw map[string]any) error {
+			DefaultConfig: func() map[string]any { return map[string]any{"allow_dm": true, "require_mention": true} }, Schema: configSchema(), Validate: func(raw map[string]any) error {
 				cfg, err := DecodeConfig(raw)
 				if err != nil {
 					return err
@@ -53,5 +53,7 @@ func configSchema() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{
 		"token":             map[string]any{"type": "string", "description": "Discord bot token."},
 		"allowed_guild_ids": map[string]any{"type": "string", "description": "Comma-separated Discord guild IDs allowed to send server-channel messages."},
+		"allow_dm":          map[string]any{"type": "boolean", "description": "Accept direct messages for linked-user chat and account linking.", "default": true},
+		"require_mention":   map[string]any{"type": "boolean", "description": "Only process guild messages that mention this bot.", "default": true},
 	}, "required": []any{"token"}}
 }

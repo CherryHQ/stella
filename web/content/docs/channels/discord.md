@@ -20,11 +20,11 @@ Connect Stella to Discord through a bot Gateway connection. No webhook or public
 6. In Stella's Web UI, open **Channels**, create a Discord channel, paste the bot token and the trusted server IDs into **Allowed Guild IDs**, then enable it. Separate multiple IDs with commas.
 7. Restart `stellad server` if the channel does not start automatically.
 
-Direct messages can use each user's selected agent. Bind the Discord channel instance to an agent before using it in server channels so Stella can add that agent to each encountered channel's group routing.
+Linked users can use their selected agent in direct messages. An unlinked Discord user can request account linking but cannot reach an agent, session, or tools. Bind the Discord channel instance to an agent before using it in server channels so Stella can add that agent to each encountered channel's group routing.
 
 ## Using the bot
 
-Send the bot a direct message or mention it in an allowed server channel. Messages from servers not listed in **Allowed Guild IDs** are ignored. Every member of an allowed server can send messages into its shared agent context, so only allow servers whose membership you trust. Mentions route deterministically; other server messages may be selected by semantic group routing when configured. Agent output cannot trigger Discord mentions such as `@everyone`.
+Send the bot a direct message or mention it in an allowed server channel. Messages from servers not listed in **Allowed Guild IDs** are ignored. By default, server messages that do not mention the bot are also ignored before they enter shared history or invoke an agent. Every member who can access an allowed channel can mention the bot, so use Discord channel and role permissions for access control. Agent output cannot trigger Discord mentions such as `@everyone`.
 
 The bot supports `/start`, `/help`, `/new`, `/compact`, `/abort`, `/agent`, `/whoami`, and `/link` in direct messages. `/model` and server-channel `/agent` are not yet supported. Discord receives commands as normal text messages; you do not need to register Discord application commands.
 
@@ -42,6 +42,8 @@ For an explicit notification target, use a real Discord channel ID. Enable Disco
 | ------------------- | ------------------------------------------------ | ---------- |
 | `token`             | Discord bot token                                | (required) |
 | `allowed_guild_ids` | Comma-separated server IDs allowed to use Stella | (none)     |
+| `allow_dm`          | Accept account linking and linked-user DMs       | `true`     |
+| `require_mention`   | Require a bot mention in server channels         | `true`     |
 
 ## Troubleshooting
 
@@ -49,6 +51,8 @@ For an explicit notification target, use a real Discord channel ID. Enable Disco
 
 **The bot cannot reply or upload files:** Check its channel overrides as well as its server role. It needs View Channels, Send Messages, Read Message History, and Attach Files.
 
-**The bot does not respond in a server channel:** Add that server's ID to **Allowed Guild IDs**, then mention the bot. For no-mention routing, configure an eligible group-routing model and make sure the bot can read the channel.
+**The bot ignores direct messages:** Set `allow_dm` to `true`. Unlinked users can only submit an account link code; they cannot invoke an agent, create a session, or access memory and tools.
+
+**The bot does not respond in a server channel:** Add that server's ID to **Allowed Guild IDs**, then mention the bot. To allow semantic routing of messages without a mention, set `require_mention` to `false` and make sure an eligible group-routing model is configured.
 
 **The channel reports an authentication error:** Reset the token in the Developer Portal, replace it in Stella, and never paste the token into chat or logs.

@@ -5,6 +5,8 @@ type DiscordConfig struct {
 	InstanceID      string `json:"-"`
 	Token           string `json:"token"`
 	AllowedGuildIDs string `json:"allowed_guild_ids"`
+	AllowDM         bool   `json:"allow_dm"`
+	RequireMention  bool   `json:"require_mention"`
 }
 
 // TelegramConfig is the persisted Telegram channel plugin configuration.

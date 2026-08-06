@@ -77,11 +77,13 @@ Discord channel config (JSON):
 ```json
 {
   "token": "BOT_TOKEN",
-  "allowed_guild_ids": "SERVER_ID_1,SERVER_ID_2"
+  "allowed_guild_ids": "SERVER_ID_1,SERVER_ID_2",
+  "allow_dm": true,
+  "require_mention": true
 }
 ```
 
-The bot connects through Discord Gateway, so Stella does not need a public webhook URL. It supports direct messages, guild channels, attachments, replies, `/agent` in direct messages, and shared channel commands. `allowed_guild_ids` is comma-separated and fail-closed: leaving it empty disables all guild messages while direct messages continue to work. Every member of an allowed guild can send messages into its shared agent context, so allow only trusted guilds. Bind the channel instance to an agent before using it in guild channels; mention the bot for deterministic routing. `/model` and guild-channel `/agent` are not yet supported. Use a Discord channel ID as an explicit notification target; do not invent one.
+The bot connects through Discord Gateway, so Stella does not need a public webhook URL. It supports direct messages, guild channels, attachments, replies, `/agent` in direct messages, and shared channel commands. `allowed_guild_ids` is comma-separated and fail-closed: leaving it empty disables all guild messages while direct messages continue to work. `allow_dm` defaults to `true`; disable it for a guild-only bot. `require_mention` defaults to `true`, so unmentioned guild messages are ignored before reaching shared history or an agent. Every member who can access an allowed channel can mention the bot, so use Discord channel and role permissions for access control. Unlinked users cannot invoke an agent by direct message; they can only link an account. Bind the channel instance to an agent before using it in guild channels. `/model` and guild-channel `/agent` are not yet supported. Use a Discord channel ID as an explicit notification target; do not invent one.
 
 ## QQ bot
 
