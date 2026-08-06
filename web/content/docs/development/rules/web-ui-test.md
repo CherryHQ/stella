@@ -7,23 +7,48 @@ Automate Stella web UI verification using `tap` browser commands.
 
 ## Environment
 
-| Variable         | Purpose        | Default      |
-| ---------------- | -------------- | ------------ |
-| `DEV_ADMIN_USER` | Admin username | `admin`      |
-| `DEV_ADMIN_PASS` | Admin password | `i-am-admin` |
-| `DEV_USER`       | Normal user    | `user`       |
-| `DEV_PASS`       | Normal pass    | `i-am-user`  |
-
 Base URL: `http://localhost:25678`
 
 ```bash
 URL=${URL:-http://localhost:25678}
 ```
 
-## Prerequisites
+## Fixture setup
 
-1. Stella server must be running (`mise run dev` or similar).
-2. `tap` CLI must be installed and on `$PATH`.
+Start an isolated development instance whose `STELLA_HOME` has no users, then
+create its fixture accounts through the live HTTP API. The helper waits for
+`/readyz`; it does not start a server or write to the database directly.
+
+```bash
+# Terminal 1: starts the normal dev server using ~/.stella-dev.
+mise run dev
+
+# Terminal 2: creates one local admin and one passwordless user.
+mise run agent-test:bootstrap
+```
+
+The helper writes `$STELLA_HOME/agent-test-credentials.json` (by default
+`~/.stella-dev/agent-test-credentials.json`) atomically with mode `0600`. It
+contains both identities and roles, the admin email/password/PAT, and the
+passwordless user's PAT. Treat it as a secret: do not commit it, print it, or
+paste it into shared logs.
+
+It safely reuses a valid artifact for the same base URL and never overwrites one.
+If bootstrap is interrupted before the artifact is written, discard that isolated
+`STELLA_HOME` and start a new instance; the first-user registration cannot be
+safely replayed on a partially initialized instance.
+
+Use the credentials without displaying them:
+
+```bash
+CREDS="${STELLA_HOME:-$HOME/.stella-dev}/agent-test-credentials.json"
+ADMIN_EMAIL="$(jq -r '.admin.email' "$CREDS")"
+ADMIN_PASSWORD="$(jq -r '.admin.password' "$CREDS")"
+ADMIN_PAT="$(jq -r '.admin.token' "$CREDS")"
+USER_PAT="$(jq -r '.user.token' "$CREDS")"
+```
+
+`tap` CLI must be installed and on `$PATH`.
 
 ## Tool selection (cheapest first)
 
@@ -67,15 +92,16 @@ tap browser open "$URL/login"
 tap browser snapshot --interactive -f json
 # Clear any pre-filled values
 tap browser evaluate 'document.querySelectorAll("input").forEach(i => { i.value = ""; i.dispatchEvent(new Event("input", {bubbles:true})); })'
-tap browser fill @e3 "$USERNAME" @e4 "$PASSWORD" --submit @e1
+tap browser fill @e3 "$ADMIN_EMAIL" @e4 "$ADMIN_PASSWORD" --submit @e1
 sleep 1
 tap browser text | head -20
 ```
 
-### Register (if login fails with "Invalid username or password")
+### Register (only when registration UI is under test)
 
 ```bash
-# From login page, click Register
+# Do not use this to create fixtures. From login page, click Register only when
+# the registration flow itself is the subject under test.
 tap browser click @e2   # "Need an account? Register"
 tap browser snapshot --interactive -f json
 tap browser fill @e3 "$USERNAME" @e4 "$PASSWORD" @e5 "$PASSWORD" --submit @e1
@@ -115,6 +141,10 @@ full `browser -> API -> DB` e2e. For backend behavior alone, use `api-test.md`
 directly (no browser). For performance measurement (frame times, keystroke cost,
 load/transfer cost) use the harness described in `web-perf-test.md` — functional
 checks here prove behavior, never speed.
+
+Use the browser only to exercise UI behavior. Drive API and role-based access
+control checks with `ADMIN_PAT` or `USER_PAT`, never by creating fixture accounts
+through browser automation.
 
 ## Notes
 
