@@ -819,6 +819,7 @@ const en = {
   "sessions.transcript.thinkingFor": "Thinking for {{seconds}}s…",
   "sessions.transcript.worked": "Worked",
   "sessions.transcript.workedFor": "Worked for {{seconds}}s",
+  "sessions.transcript.failedSteps": "{{count}} failed",
   "sessions.transcript.toolCall": "Tool call",
   "sessions.transcript.toolResult": "Tool result",
   "sessions.transcript.copy": "Copy message",
@@ -1733,6 +1734,8 @@ const en = {
   "sessions.fullView": "Full view",
   "sessions.selectSession": "Select a session from the sidebar",
   "sessions.startThread": "New thread",
+  "sessions.width.comfortable": "Narrow the column",
+  "sessions.width.wide": "Widen the column",
   "sessions.inspector.sessionWorkspace": "Session workspace, work queue, and context",
   "sessions.skill.installSkill": "Install a skill",
   "sessions.skill.catalog": "Catalog",
@@ -1969,6 +1972,7 @@ const en = {
   "sessions.transcript.generating": "generating…",
   "sessions.transcript.sendHint": "↵ send · ⇧↵ new line",
   "sessions.transcript.sendHintSkills": "↵ send · ⇧↵ new line · / skills",
+  "sessions.transcript.label": "Conversation",
 
   // Session detail (additions)
   "sessions.untitled": "Untitled session",
@@ -2984,6 +2988,7 @@ const zh: Record<MessageKey, string> = {
   "sessions.transcript.thinkingFor": "思考中 {{seconds}}s…",
   "sessions.transcript.worked": "已思考",
   "sessions.transcript.workedFor": "已思考 {{seconds}}s",
+  "sessions.transcript.failedSteps": "{{count}} 个失败",
   "sessions.transcript.toolCall": "工具调用",
   "sessions.transcript.toolResult": "工具结果",
   "sessions.transcript.copy": "复制消息",
@@ -3881,6 +3886,8 @@ const zh: Record<MessageKey, string> = {
   "sessions.fullView": "完整视图",
   "sessions.selectSession": "从侧边栏选择一个会话",
   "sessions.startThread": "新话题",
+  "sessions.width.comfortable": "收窄正文列",
+  "sessions.width.wide": "加宽正文列",
   "sessions.inspector.sessionWorkspace": "会话工作区、工作队列和上下文",
   "sessions.skill.installSkill": "安装技能",
   "sessions.skill.catalog": "目录",
@@ -4111,6 +4118,7 @@ const zh: Record<MessageKey, string> = {
   "sessions.transcript.generating": "生成中…",
   "sessions.transcript.sendHint": "↵ 发送 · ⇧↵ 换行",
   "sessions.transcript.sendHintSkills": "↵ 发送 · ⇧↵ 换行 · / 技能",
+  "sessions.transcript.label": "对话",
 
   // Session detail (additions)
   "sessions.untitled": "未命名会话",

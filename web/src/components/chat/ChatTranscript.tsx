@@ -129,8 +129,13 @@ export const ChatTranscript = forwardRef<HTMLDivElement, Props>(function ChatTra
   const { t } = useI18n();
 
   return (
+    // `log` is the role for a running conversation: assistive tech announces
+    // messages as they arrive without stealing focus, which `alert` would.
+    // It carries an implicit `aria-live="polite"`, so that is not restated.
     <div
       ref={ref}
+      role="log"
+      aria-label={t("sessions.transcript.label")}
       className="stella-transcript-scroll min-w-0 flex-1 overflow-y-auto bg-background px-4 py-6 sm:px-8 sm:py-8"
       onScroll={onScroll}
     >
@@ -145,7 +150,7 @@ export const ChatTranscript = forwardRef<HTMLDivElement, Props>(function ChatTra
       {header}
       {messages.length === 0 && !loading && !header && (
         <div className="py-20 text-center">
-          <p className="font-mono text-xs text-muted-foreground/60">
+          <p className="font-mono text-xs text-muted-foreground">
             {t("sessions.transcript.empty")}
           </p>
         </div>
@@ -155,7 +160,7 @@ export const ChatTranscript = forwardRef<HTMLDivElement, Props>(function ChatTra
         fileAgentId={fileAgentId}
         fileSessionId={fileSessionId}
         agentNames={agentNames}
-        className="mx-auto w-full max-w-3xl"
+        className="mx-auto w-full max-w-[var(--chat-column)]"
       />
     </div>
   );

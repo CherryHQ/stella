@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useId, useMemo, useRef } from "react";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import type { ContentBlock } from "@/lib/types";
 import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import {
+  AlertCircle,
   ChevronDown,
   Copy,
   Check,
@@ -24,6 +25,7 @@ import { getAgentAvatarStyle } from "@/lib/agent-colors";
 import { CollapsibleThinking } from "./CollapsibleThinking";
 import { CopyButton, REVEAL_ON_HOVER } from "./CopyButton";
 import { RenderableReferenceList } from "./references";
+import { EXIT_TRAILER, toolCallFailed } from "./utils";
 import { SessionTrace } from "./SessionTrace";
 
 export interface AssistantMessageProps {
@@ -96,9 +98,9 @@ export function AssistantMessage({
         })}
         {blocks.length === 0 && streaming && (
           <span className="inline-flex items-center gap-1 py-1">
-            <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:-0.3s]" />
-            <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:-0.15s]" />
-            <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/50" />
+            <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/50 [animation-delay:-0.3s]" />
+            <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/50 [animation-delay:-0.15s]" />
+            <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/50" />
           </span>
         )}
         {agentSessionId && !streaming && !blocks.some((b) => b.type === "tool_call") && (
@@ -116,13 +118,13 @@ export function AssistantMessage({
           (copyText || (showTimestamp && (model || timestamp || (tokenCount ?? 0) > 0))) && (
             <div
               className={cn(
-                "mt-1 flex items-center gap-2 text-xs font-mono text-muted-foreground/60",
+                "mt-1 flex items-center gap-2 text-xs font-mono text-muted-foreground",
                 REVEAL_ON_HOVER,
               )}
             >
               {copyText && <CopyButton text={copyText} className="-ml-1.5" />}
               {showTimestamp && model && (
-                <span className="rounded border border-border/10 bg-muted px-1.5 py-0.5 font-medium text-foreground/75">
+                <span className="rounded border border-border/10 bg-muted px-1.5 py-0.5 font-medium text-foreground">
                   {model}
                 </span>
               )}
@@ -172,10 +174,7 @@ function groupBlocks(blocks: ContentBlock[]): GroupedBlock[] {
 function BlockRenderer({ block }: { block: ContentBlock }) {
   if (block.type === "text")
     return (
-      <MarkdownPreview
-        content={block.text}
-        className="px-0.5 leading-relaxed text-[15px] text-foreground/90 font-sans"
-      />
+      <MarkdownPreview content={block.text} className="px-0.5 text-sm text-foreground font-sans" />
     );
   if (block.type === "image")
     return (
@@ -258,6 +257,11 @@ function StepsGroup({ blocks, active }: { blocks: ContentBlock[]; active: boolea
     labelText = t("sessions.transcript.worked");
   }
 
+  // A collapsed group reports only how long it took, so a failed tool call
+  // inside it left no trace on screen — the reader had to open every group to
+  // find out whether the work actually landed. Surface the count on the label.
+  const failedCount = blocks.filter((b) => b.type === "tool_call" && toolCallFailed(b)).length;
+
   // Renderable references the agent emitted while creating entities in this
   // step group. Surfaced as cards OUTSIDE the collapsible — the raw tool output
   // defaults to collapsed, so a card buried inside would read as "not done".
@@ -267,14 +271,26 @@ function StepsGroup({ blocks, active }: { blocks: ContentBlock[]; active: boolea
 
   return (
     <div className="space-y-3">
-      <CollapsibleThinking labelText={labelText} expanded={expanded} onToggle={setExpanded}>
+      <CollapsibleThinking
+        labelText={labelText}
+        badge={
+          failedCount > 0 ? (
+            <span className="inline-flex items-center gap-1 text-destructive-foreground">
+              <AlertCircle className="size-3.5 shrink-0" />
+              {t("sessions.transcript.failedSteps", { count: failedCount })}
+            </span>
+          ) : null
+        }
+        expanded={expanded}
+        onToggle={setExpanded}
+      >
         <div className="space-y-3">
           {blocks.map((block, idx) => {
             if (block.type === "thinking" && block.thinking) {
               return (
                 <div
                   key={`t${idx}`}
-                  className="py-0.5 text-xs text-muted-foreground/80 leading-relaxed whitespace-pre-wrap break-words overflow-hidden border-l border-border/60 pl-3 font-sans min-w-0"
+                  className="py-0.5 text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap break-words overflow-hidden border-l border-border/60 pl-3 font-sans min-w-0"
                 >
                   {block.thinking}
                 </div>
@@ -317,6 +333,7 @@ const MEMORY_VERBS: Record<string, string> = {
 function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const panelId = useId();
   const n = block.name ?? "tool";
   const args = block.arguments ?? {};
 
@@ -363,14 +380,12 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
     const outputBlocks = block.result?.blocks ?? [];
     if (outputBlocks.length > 0) outputText = "";
     let duration = "";
-    let exitOk = !block.result?.is_error;
-    const exitMatch = outputText.match(/\n?\[exit:(\d+) \| (\d+ms)\]\s*$/);
+    const exitMatch = outputText.match(EXIT_TRAILER);
     if (exitMatch) {
       outputText = outputText.slice(0, exitMatch.index).replace(/\s+$/, "");
       duration = exitMatch[2];
-      exitOk = exitMatch[1] === "0" && !block.result?.is_error;
     }
-    return { inputText, outputText, outputBlocks, duration, exitOk };
+    return { inputText, outputText, outputBlocks, duration, exitOk: !toolCallFailed(block) };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- args derives from block
   }, [open, block]);
 
@@ -384,43 +399,47 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
   return (
     <div className="py-1">
       <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 py-0.5 font-mono text-xs text-muted-foreground/70 hover:text-foreground transition-colors cursor-pointer min-w-0 max-w-full"
+        className="flex items-center gap-1.5 py-0.5 font-mono text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer min-w-0 max-w-full"
       >
-        <Icon className="size-3.5 shrink-0 text-muted-foreground/60" />
+        <Icon className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="truncate">
           {verb} {cmdPreview}
         </span>
         <ChevronDown
           className={cn(
-            "size-3.5 shrink-0 text-muted-foreground/40 transition-transform duration-150",
+            "size-3.5 shrink-0 text-muted-foreground transition-transform duration-150",
             open && "rotate-180",
           )}
         />
       </button>
 
       {open && (
-        <div className="mt-1.5 rounded-xl bg-muted px-4 py-3 font-mono text-xs max-w-full overflow-hidden">
+        <div
+          id={panelId}
+          className="mt-1.5 rounded-xl bg-muted px-4 py-3 font-mono text-xs max-w-full overflow-hidden"
+        >
           <div className="mb-1.5 flex items-center justify-between gap-2">
-            <span className="text-muted-foreground/70">{meta.surface}</span>
+            <span className="text-muted-foreground">{meta.surface}</span>
             <button
               onClick={onCopy}
               title="Copy"
-              className="shrink-0 text-muted-foreground/50 hover:text-foreground transition-colors cursor-pointer"
+              className="shrink-0 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             >
               {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
             </button>
           </div>
-          <pre className="whitespace-pre-wrap break-all leading-relaxed text-foreground/90">
+          <pre className="whitespace-pre-wrap break-all leading-relaxed text-foreground">
             {isBash ? `$ ${details!.inputText}` : details!.inputText}
           </pre>
           {block.result && details!.outputText && (
             <pre
               className={cn(
                 "mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-all leading-relaxed",
-                block.result.is_error
-                  ? "text-destructive-foreground/80"
-                  : "text-muted-foreground/80",
+                block.result.is_error ? "text-destructive-foreground" : "text-muted-foreground",
               )}
             >
               {details!.outputText}
@@ -434,8 +453,8 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
                   className={cn(
                     "mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-all leading-relaxed",
                     block.result?.is_error
-                      ? "text-destructive-foreground/80"
-                      : "text-muted-foreground/80",
+                      ? "text-destructive-foreground"
+                      : "text-muted-foreground",
                   )}
                 >
                   {output.text}
@@ -460,8 +479,8 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
           {block.result && (
             <div
               className={cn(
-                "mt-2 text-right text-muted-foreground/55",
-                block.result.is_error && "text-destructive-foreground/70",
+                "mt-2 text-right text-muted-foreground",
+                block.result.is_error && "text-destructive-foreground",
               )}
             >
               {details!.exitOk ? "✓ Success" : "✕ Failed"}

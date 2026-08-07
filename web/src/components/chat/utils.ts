@@ -2,6 +2,27 @@ import type { ContentBlock } from "@/lib/types";
 
 export const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
 
+/** The runner appends this to bash output; the exit code is the real verdict. */
+export const EXIT_TRAILER = /\n?\[exit:(\d+) \| (\d+ms)\]\s*$/;
+
+/**
+ * Whether a finished tool call failed.
+ *
+ * Two signals, and they disagree: the transport sets `is_error` for a call that
+ * threw, but a shell command that ran to completion and exited 1 is a success
+ * at that level and a failure at the one the reader cares about. A call with no
+ * result yet is still in flight, not failed.
+ *
+ * Shared so the collapsed group summary and the expanded row's status footer
+ * cannot drift into reporting different verdicts for the same call.
+ */
+export function toolCallFailed(block: ContentBlock & { type: "tool_call" }): boolean {
+  if (!block.result) return false;
+  if (block.result.is_error) return true;
+  const exit = (block.result.content ?? "").match(EXIT_TRAILER);
+  return exit ? exit[1] !== "0" : false;
+}
+
 export function isImagePath(path: string): boolean {
   return IMAGE_EXT.test(path);
 }

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useId, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { getSessionMessages } from "@/lib/api-client/sdk.gen";
 import { mergeToolResults, sessionMessagesToMessages } from "@/lib/chat-transport";
@@ -17,6 +17,7 @@ export function SessionTrace({ agentId, agentName, sessionId, matchContent }: Pr
   const [expanded, setExpanded] = useState(false);
   const [blocks, setBlocks] = useState<ContentBlock[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const panelId = useId();
   const { t } = useI18n();
 
   const load = useCallback(async () => {
@@ -53,8 +54,10 @@ export function SessionTrace({ agentId, agentName, sessionId, matchContent }: Pr
   if (!expanded) {
     return (
       <button
+        type="button"
+        aria-expanded={false}
         onClick={toggle}
-        className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground/60 hover:text-foreground transition-colors cursor-pointer mt-1"
+        className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors cursor-pointer mt-1"
       >
         <ChevronRight className="size-3" />
         <span>{t("chat.viewTrace")}</span>
@@ -65,33 +68,38 @@ export function SessionTrace({ agentId, agentName, sessionId, matchContent }: Pr
   return (
     <div className="mt-2 space-y-2">
       <button
+        type="button"
+        aria-expanded={true}
+        aria-controls={panelId}
         onClick={toggle}
-        className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground/60 hover:text-foreground transition-colors cursor-pointer"
+        className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
       >
         <ChevronRight className="size-3 rotate-90 transition-transform" />
         <span>{t("chat.executionTrace")}</span>
       </button>
-      {loading && (
-        <div className="flex items-center gap-2 pl-4">
-          <div className="size-3 animate-spin rounded-full border border-muted-foreground/30 border-t-muted-foreground" />
-          <span className="text-xs font-mono text-muted-foreground">Loading…</span>
-        </div>
-      )}
-      {blocks !== null && blocks.length > 0 && (
-        <div className="border-l border-border/40 pl-3 ml-1">
-          <AssistantMessage
-            agentName={agentName}
-            agentId={agentId}
-            blocks={blocks}
-            sameRoleAsPrev
-          />
-        </div>
-      )}
-      {blocks !== null && blocks.length === 0 && !loading && (
-        <p className="text-xs font-mono text-muted-foreground/40 pl-4">
-          {t("chat.noExecutionDetails")}
-        </p>
-      )}
+      <div id={panelId} className="space-y-2">
+        {loading && (
+          <div className="flex items-center gap-2 pl-4">
+            <div className="size-3 animate-spin rounded-full border border-muted-foreground/30 border-t-muted-foreground" />
+            <span className="text-xs font-mono text-muted-foreground">Loading…</span>
+          </div>
+        )}
+        {blocks !== null && blocks.length > 0 && (
+          <div className="border-l border-border/40 pl-3 ml-1">
+            <AssistantMessage
+              agentName={agentName}
+              agentId={agentId}
+              blocks={blocks}
+              sameRoleAsPrev
+            />
+          </div>
+        )}
+        {blocks !== null && blocks.length === 0 && !loading && (
+          <p className="text-xs font-mono text-muted-foreground pl-4">
+            {t("chat.noExecutionDetails")}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
