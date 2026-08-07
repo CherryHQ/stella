@@ -3,7 +3,9 @@
 package vision
 
 import (
+	"os"
 	"os/exec"
+	"strconv"
 	"syscall"
 	"testing"
 	"time"
@@ -16,6 +18,24 @@ func processGone(pid int) bool {
 func killProcessGroup(pid int) {
 	_ = syscall.Kill(-pid, syscall.SIGKILL)
 	_ = syscall.Kill(pid, syscall.SIGKILL)
+}
+
+// TestXbergEscapedDescendantHelper is invoked as a child test binary by the
+// escaped-descendant regression. It publishes its PID only after it has left
+// the supervisor's process group, then deliberately retains inherited stdout.
+func TestXbergEscapedDescendantHelper(t *testing.T) {
+	if os.Getenv("STELLA_XBERG_ESCAPED_DESCENDANT_HELPER") != "1" {
+		return
+	}
+	if _, err := syscall.Setsid(); err != nil {
+		t.Fatalf("escape supervisor process group: %v", err)
+	}
+	if err := os.WriteFile(os.Getenv("STELLA_XBERG_ESCAPED_DESCENDANT_READY"), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+		t.Fatalf("publish escaped descendant readiness: %v", err)
+	}
+	for {
+		time.Sleep(time.Hour)
+	}
 }
 
 func TestConfirmXbergProcessGroupGoneRejectsLiveGroup(t *testing.T) {

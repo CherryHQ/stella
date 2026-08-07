@@ -13,7 +13,6 @@ import (
 	"image/jpeg"
 	"image/png"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -535,17 +534,16 @@ func TestXbergFailsClosedForEscapedDescendantHoldingStdout(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX process-group assertions do not run on Windows")
 	}
-	setsid, err := exec.LookPath("setsid")
-	if err != nil {
-		t.Skip("setsid is unavailable on this POSIX host")
-	}
 	oldDrainWait := xbergDrainWait
 	xbergDrainWait = 50 * time.Millisecond
 	t.Cleanup(func() { xbergDrainWait = oldDrainWait })
 	capture := t.TempDir()
 	t.Setenv("CAPTURE_DIR", capture)
-	t.Setenv("SETSID", setsid)
-	installXbergScript(t, "\"$SETSID\" /bin/sh -c 'while :; do :; done' &\necho $! > \"$CAPTURE_DIR/child\"\nprintf OCR\nexit 0\n")
+	t.Setenv("XBERG_TEST_BINARY", os.Args[0])
+	// The helper writes escaped-ready only after syscall.Setsid succeeds. The
+	// shim waits for that evidence before it exits, so group cancellation cannot
+	// race ahead and kill the child before it escapes the supervisor's group.
+	installXbergScript(t, "STELLA_XBERG_ESCAPED_DESCENDANT_HELPER=1 STELLA_XBERG_ESCAPED_DESCENDANT_READY=\"$CAPTURE_DIR/escaped-ready\" \"$XBERG_TEST_BINARY\" -test.run '^TestXbergEscapedDescendantHelper$' &\nchild=$!\nwhile [ ! -s \"$CAPTURE_DIR/escaped-ready\" ]; do\n\tif ! kill -0 \"$child\" 2>/dev/null; then exit 1; fi\n\tsleep 0.01\ndone\ncat \"$CAPTURE_DIR/escaped-ready\" > \"$CAPTURE_DIR/child\"\nprintf OCR\nexit 0\n")
 	done := make(chan error, 1)
 	go func() {
 		_, err := New(Options{}).Baseline(context.Background(), Request{Data: pngBytes(t, 8, 8), MimeType: "image/png"})
