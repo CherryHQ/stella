@@ -88,7 +88,8 @@ func createLocalSession(ctx context.Context, cfg Config) (pkgsandbox.Session, er
 
 	session, err := localplugin.NewFactory(localplugin.Config{
 		StellaHome: paths.StellaHome,
-	}).CreateSession(ctx, policy)
+		Layout:     runnerHostLayout(paths, cfg),
+	}).CreateSession(ctx, providerPolicy(policy))
 	if err != nil {
 		return nil, fmt.Errorf("create local session: %w", err)
 	}
@@ -109,12 +110,21 @@ func createHostSession(ctx context.Context, cfg Config) (pkgsandbox.Session, err
 
 	session, err := noneplugin.NewFactory(noneplugin.Config{
 		StellaHome: paths.StellaHome,
-	}).CreateSession(ctx, policy)
+		Layout:     runnerHostLayout(paths, cfg),
+	}).CreateSession(ctx, providerPolicy(policy))
 	if err != nil {
 		return nil, fmt.Errorf("create host session: %w", err)
 	}
 
 	return session, nil
+}
+
+// providerPolicy removes physical filesystem authority before local and none
+// factories see it. Docker continues to receive its temporary legacy projection.
+func providerPolicy(policy pkgsandbox.Policy) pkgsandbox.Policy {
+	policy.Filesystem.WorkspaceRoot = ""
+	policy.Filesystem.Mounts = nil
+	return policy
 }
 
 // buildBasePolicy resolves paths and builds the backend-agnostic base policy

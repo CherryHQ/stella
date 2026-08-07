@@ -19,6 +19,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/fsops"
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/hostlayout"
 )
 
 // sandboxEnvDenyList is the set of host environment variable names that must
@@ -32,6 +33,8 @@ type Config struct {
 	// StellaHome is the host path to the stella home directory, used for
 	// building a sandboxed PATH that includes $STELLA_HOME/bin.
 	StellaHome string
+	// Layout is the complete physical host filesystem authority for this factory.
+	Layout hostlayout.Layout
 }
 
 // Factory creates local sandbox sessions that run directly on the host OS.
@@ -47,6 +50,7 @@ func NewFactory(cfg ...Config) sandboxpkg.Factory {
 	if len(cfg) > 0 {
 		c = cfg[0]
 	}
+	c.Layout = c.Layout.Clone()
 	return &Factory{cfg: c}
 }
 
@@ -57,7 +61,12 @@ func (f *Factory) Name() string { return "local" }
 func (f *Factory) Available() bool { return true }
 
 // Supported returns an error if platform sandbox requirements are not met.
-func (f *Factory) Supported(_ sandboxpkg.Policy) error { return checkSandboxRequirements() }
+func (f *Factory) Supported(_ sandboxpkg.Policy) error {
+	if err := f.cfg.Layout.Validate(); err != nil {
+		return err
+	}
+	return checkSandboxRequirements()
+}
 
 // tmpMount pairs a sandbox-space path (e.g. /tmp) with its backing real host path.
 type tmpMount struct {
@@ -71,7 +80,9 @@ type tmpMount struct {
 // also builds a sandboxed PATH and copies the host-variable allowlist.
 func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
 	sessionID := sandboxpkg.NewSessionID()
-	if err := checkSandboxRequirements(); err != nil {
+	policy.Filesystem.WorkspaceRoot = ""
+	policy.Filesystem.Mounts = nil
+	if err := f.Supported(policy); err != nil {
 		return nil, err
 	}
 
@@ -79,8 +90,9 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 	// Resolve the backend's filesystem roots first. The temporary mounts must be
 	// created before applying the filesystem environment because macOS exposes
 	// their real host path as TMPDIR.
-	sandboxRoot, realRoot := resolveSandboxRoot(policy)
-	userDataSandbox, userDataReal := resolveUserDataRoot(policy)
+	layout := f.cfg.Layout
+	sandboxRoot, realRoot := resolveSandboxRoot(layout)
+	userDataSandbox, userDataReal := resolveUserDataRoot(layout)
 	tmpMounts, err := createSessionTmpMounts()
 	if err != nil {
 		return nil, fmt.Errorf("local: create session tmp: %w", err)
@@ -98,6 +110,7 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 	s := &localSession{
 		id:                sessionID,
 		policy:            policy,
+		layout:            layout,
 		realRoot:          realRoot,
 		sandboxRoot:       sandboxRoot,
 		userDataReal:      userDataReal,
@@ -241,16 +254,6 @@ func remapStellaHomePath(p, hostSH, sandboxSH string) string {
 	}
 }
 
-func mountBySandboxPath(mounts []sandboxpkg.Mount, sandboxPath string) (sandboxpkg.Mount, bool) {
-	clean := filepath.Clean(sandboxPath)
-	for _, m := range mounts {
-		if filepath.Clean(m.SandboxPath) == clean {
-			return m, true
-		}
-	}
-	return sandboxpkg.Mount{}, false
-}
-
 // ─────────────────────────── localSession ─────────────────────────────
 
 // localSession implements sandboxpkg.Session by running commands directly on
@@ -258,6 +261,7 @@ func mountBySandboxPath(mounts []sandboxpkg.Mount, sandboxPath string) (sandboxp
 type localSession struct {
 	id                string
 	policy            sandboxpkg.Policy
+	layout            hostlayout.Layout
 	realRoot          string     // actual host path (e.g. /home/stella/.stella-dev/...)
 	sandboxRoot       string     // path the agent sees (/workspace on Linux+bwrap, else = realRoot)
 	userDataReal      string     // host path of the shared user-data root, "" when none
@@ -299,14 +303,14 @@ func (s *localSession) WorkingDir() string {
 }
 
 // Filesystem creates a contained, provider-private adapter for the session's
-// mounted roots. The legacy host resolver remains until its callers migrate.
+// layout-authorized roots.
 func (s *localSession) Filesystem() (sandboxpkg.Filesystem, error) {
-	mounts := make([]fsops.Mount, 0, len(s.policy.Filesystem.Mounts))
-	for _, mount := range s.policy.Filesystem.Mounts {
-		if mount.SandboxPath != sandboxpkg.PathWorkspace && mount.SandboxPath != sandboxpkg.PathUser && mount.SandboxPath != sandboxpkg.PathTemp {
+	mounts := make([]fsops.Mount, 0, len(s.layout.Mounts))
+	for _, mount := range s.layout.Mounts {
+		if mount.Target != sandboxpkg.PathWorkspace && mount.Target != sandboxpkg.PathUser && mount.Target != sandboxpkg.PathTemp {
 			continue
 		}
-		mounts = append(mounts, fsops.Mount{Path: mount.SandboxPath, Directory: mount.HostPath, ReadOnly: mount.Access == sandboxpkg.MountReadOnly})
+		mounts = append(mounts, fsops.Mount{Path: mount.Target, Directory: mount.Source, ReadOnly: mount.Access == hostlayout.ReadOnly})
 	}
 	if len(mounts) == 0 {
 		mounts = append(mounts, fsops.Mount{Path: sandboxpkg.PathWorkspace, Directory: s.realRoot})
@@ -411,18 +415,7 @@ func (s *localSession) resolveCoordinates(agentPath string) (realPath, sandboxPa
 }
 
 func (s *localSession) pathResolver() *sandboxpkg.PathResolver {
-	mounts := append([]sandboxpkg.Mount(nil), s.policy.Filesystem.Mounts...)
-	if len(mounts) == 0 {
-		if s.realRoot != "" && s.sandboxRoot != "" {
-			mounts = append(mounts, sandboxpkg.Mount{HostPath: s.realRoot, SandboxPath: s.sandboxRoot, Access: sandboxpkg.MountReadWrite})
-		}
-		if s.userDataReal != "" && s.userDataSandbox != "" {
-			mounts = append(mounts, sandboxpkg.Mount{HostPath: s.userDataReal, SandboxPath: s.userDataSandbox, Access: sandboxpkg.MountReadWrite})
-		}
-		for _, pair := range s.stellaHomeSubdirs() {
-			mounts = append(mounts, sandboxpkg.Mount{HostPath: pair[1], SandboxPath: pair[0], Access: sandboxpkg.MountReadOnly})
-		}
-	}
+	mounts := policyMounts(s.layout)
 	for _, m := range s.tmpMounts {
 		mounts = append(mounts, sandboxpkg.Mount{HostPath: m.realPath, SandboxPath: m.sandboxPath, Access: sandboxpkg.MountReadWrite})
 	}
@@ -433,23 +426,18 @@ func (s *localSession) pathResolver() *sandboxpkg.PathResolver {
 	})
 }
 
-// stellaHomeSubdirs returns the {sandboxRoot, hostRoot} pairs for each subtree of
-// STELLA_HOME that an isolating backend RO-mounts (see StellaHomeSandboxDirs).
-// File tools mirror exactly these mounts — reads are scoped to them and nothing
-// broader, so the sibling users/ and agents/ host trees nested under STELLA_HOME
-// stay invisible. Returns nil on identity backends (sandbox == host).
-func (s *localSession) stellaHomeSubdirs() [][2]string {
-	if s.stellaHomeHost == "" || s.stellaHomeSandbox == s.stellaHomeHost {
-		return nil
+// policyMounts is temporary plumbing for pkg/sandbox.PathResolver. The layout,
+// not Policy, remains the source of these physical mappings.
+func policyMounts(layout hostlayout.Layout) []sandboxpkg.Mount {
+	mounts := make([]sandboxpkg.Mount, 0, len(layout.Mounts))
+	for _, mount := range layout.Mounts {
+		access := sandboxpkg.MountReadOnly
+		if mount.Access == hostlayout.ReadWrite {
+			access = sandboxpkg.MountReadWrite
+		}
+		mounts = append(mounts, sandboxpkg.Mount{HostPath: mount.Source, SandboxPath: mount.Target, Access: access})
 	}
-	out := make([][2]string, 0, len(sandboxpkg.StellaHomeSandboxDirs()))
-	for _, name := range sandboxpkg.StellaHomeSandboxDirs() {
-		out = append(out, [2]string{
-			filepath.Join(s.stellaHomeSandbox, name),
-			filepath.Join(s.stellaHomeHost, name),
-		})
-	}
-	return out
+	return mounts
 }
 
 // toRealPath translates a sandbox-space absolute path to the real host path.
@@ -503,7 +491,7 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: resolve cwd: %w", err)
 	}
 
-	execPath, execArgs, err := wrapCommand(policy, sandboxCwd, s.tmpMounts, s.stellaHomeHost, "sh", []string{"-c", command})
+	execPath, execArgs, err := wrapCommand(policy, s.layout, sandboxCwd, s.tmpMounts, s.stellaHomeHost, "sh", []string{"-c", command})
 	if err != nil {
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: wrap: %w", err)
 	}
@@ -594,7 +582,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 		return nil, fmt.Errorf("local start_process: resolve cwd: %w", err)
 	}
 
-	execPath, execArgs, err := wrapCommand(policy, sandboxCwd, s.tmpMounts, s.stellaHomeHost, req.Path, args)
+	execPath, execArgs, err := wrapCommand(policy, s.layout, sandboxCwd, s.tmpMounts, s.stellaHomeHost, req.Path, args)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("local start_process: wrap: %w", err)

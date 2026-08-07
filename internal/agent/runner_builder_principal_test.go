@@ -97,10 +97,10 @@ func TestNewRunnerFuncUsesPrincipalWorkspace(t *testing.T) {
 					t.Fatalf("scratch is not writable: %v", err)
 				}
 				impl := builtRunner.(*runner)
-				workspaceRoot, err := filepath.EvalSymlinks(impl.session.Policy().Filesystem.WorkspaceRoot)
+				workspaceRoot, err := filepath.EvalSymlinks(impl.session.WorkingDir())
 				promptRoot, promptErr := filepath.EvalSymlinks(promptBuild.UserRoot)
 				if err != nil || promptErr != nil || impl.sandboxCfg.Paths.AgentRoot != snap.Workspace || workspaceRoot != promptRoot {
-					t.Fatalf("definition/scratch roots = agent %q workspace %q scratch %q", impl.sandboxCfg.Paths.AgentRoot, impl.session.Policy().Filesystem.WorkspaceRoot, promptBuild.UserRoot)
+					t.Fatalf("definition/scratch roots = agent %q workspace %q scratch %q", impl.sandboxCfg.Paths.AgentRoot, impl.session.WorkingDir(), promptBuild.UserRoot)
 				}
 				if got := impl.session.Policy().Filesystem.Homes; len(got) != 2 || !got[0].ReadOnly || !got[1].ReadOnly {
 					t.Fatalf("user-less Homes = %#v, want only read-only shared roots", got)

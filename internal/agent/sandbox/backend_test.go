@@ -103,6 +103,17 @@ func TestSandboxProcessEnvWithoutStellaHomeIsEmpty(t *testing.T) {
 	}
 }
 
+func TestLocalNoneProviderPolicyHasNoPhysicalMountAuthority(t *testing.T) {
+	policy := pkgsandbox.Policy{Filesystem: pkgsandbox.FilesystemPolicy{WorkspaceRoot: "/host/workspace", WorkingDir: "/host/workspace/project", Mounts: []pkgsandbox.Mount{{HostPath: "/host/workspace", SandboxPath: "/workspace", Access: pkgsandbox.MountReadWrite}}}}
+	clean := providerPolicy(policy)
+	if clean.Filesystem.WorkspaceRoot != "" || len(clean.Filesystem.Mounts) != 0 {
+		t.Fatalf("provider policy retained physical layout: %#v", clean.Filesystem)
+	}
+	if clean.Filesystem.WorkingDir != policy.Filesystem.WorkingDir {
+		t.Fatal("provider policy must preserve logical working directory")
+	}
+}
+
 func TestCopyLocalHostEnvAllowlist(t *testing.T) {
 	t.Setenv("STELLA_TEST_SECRET", "must-not-leak")
 	t.Setenv("LANG", "C.UTF-8")

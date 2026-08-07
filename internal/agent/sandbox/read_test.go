@@ -17,6 +17,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
+	"github.com/CherryHQ/stella/plugins/sandbox/hostlayout"
 	localplugin "github.com/CherryHQ/stella/plugins/sandbox/local"
 )
 
@@ -185,7 +186,10 @@ func TestReadToolRejectsHostAbsolutePath(t *testing.T) {
 		},
 		Network: pkgsandbox.NetworkPolicy{Mode: pkgsandbox.NetworkAllowAll},
 	}
-	session, err := localplugin.NewFactory().CreateSession(context.Background(), policy)
+	session, err := localplugin.NewFactory(localplugin.Config{Layout: hostlayout.Layout{
+		WorkspaceSource: workspace, WorkingDirSource: workspace,
+		Mounts: []hostlayout.Mount{{Source: workspace, Target: pkgsandbox.MountWorkspace, Access: hostlayout.ReadWrite}},
+	}}).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Skipf("local sandbox unavailable: %v", err)
 	}

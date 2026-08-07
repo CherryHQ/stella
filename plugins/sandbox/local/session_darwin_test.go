@@ -37,7 +37,7 @@ func TestWrapCommand_darwin_usesSeatbelt(t *testing.T) {
 	root := t.TempDir()
 	policy := makePolicy(root, sandboxpkg.NetworkDisabled)
 
-	execPath, args, err := wrapCommand(policy, root, nil, "", "sh", []string{"-c", "echo hi"})
+	execPath, args, err := wrapCommand(policy, layoutForPolicy(policy), root, nil, "", "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -83,6 +83,7 @@ func TestLocalSession_darwinProductionMountUsesHostCwd(t *testing.T) {
 	s := &localSession{
 		id:          "test",
 		policy:      policy,
+		layout:      layoutForPolicy(policy),
 		realRoot:    root,
 		sandboxRoot: sandboxpkg.MountWorkspace,
 		done:        make(chan struct{}),
@@ -129,7 +130,7 @@ func TestLocalSession_darwinProductionMountUsesHostCwd(t *testing.T) {
 
 func TestBuildSeatbeltProfile_structure(t *testing.T) {
 	policy := makePolicy("/tmp/ws", sandboxpkg.NetworkDisabled)
-	profile := buildSeatbeltProfile(policy, "")
+	profile := buildSeatbeltProfile(policy, layoutForPolicy(policy), "")
 
 	for _, want := range []string{
 		"(allow default)",
@@ -154,7 +155,7 @@ func TestBuildSeatbeltProfile_allowsMiseRuntimeWriteDirs(t *testing.T) {
 		"MISE_CACHE_DIR": filepath.Join(stellaHome, ".mise-tools", "cache"),
 		"MISE_STATE_DIR": "/tmp/mise-state",
 	}
-	profile := buildSeatbeltProfile(policy, "")
+	profile := buildSeatbeltProfile(policy, layoutForPolicy(policy), "")
 
 	for _, want := range []string{
 		`(allow file-write* (subpath "` + filepath.Join(stellaHome, ".mise-tools", "cache") + `"))`,
@@ -172,7 +173,7 @@ func TestBuildSeatbeltProfile_ignoresUnsafeMiseRuntimeWriteDirs(t *testing.T) {
 		"MISE_CACHE_DIR": "/",
 		"MISE_STATE_DIR": "relative/state",
 	}
-	profile := buildSeatbeltProfile(policy, "")
+	profile := buildSeatbeltProfile(policy, layoutForPolicy(policy), "")
 
 	for _, forbidden := range []string{
 		`(allow file-write* (subpath "/"))`,
@@ -196,7 +197,7 @@ func TestBuildSeatbeltProfile_miseHolesKeyedOnPerUserTree(t *testing.T) {
 		policy := makePolicy("/tmp/ws", sandboxpkg.NetworkDisabled)
 		policy.Env = map[string]string{"MISE_CACHE_DIR": cacheDir}
 		policy.Filesystem.Mounts = append(policy.Filesystem.Mounts, sandboxpkg.Mount{HostPath: "/tmp/unrelated", SandboxPath: "/tmp/unrelated", Access: sandboxpkg.MountReadWrite})
-		profile := buildSeatbeltProfile(policy, stellaHome)
+		profile := buildSeatbeltProfile(policy, layoutForPolicy(policy), stellaHome)
 
 		if !strings.Contains(profile, `(allow file-write* (subpath "`+cacheDir+`"))`) {
 			t.Errorf("an unrelated writable mount must not suppress mise cache holes:\n%s", profile)
@@ -211,7 +212,7 @@ func TestBuildSeatbeltProfile_miseHolesKeyedOnPerUserTree(t *testing.T) {
 			"MISE_CACHE_DIR": "/tmp/mise-cache",
 		}
 		policy.Filesystem.Mounts = append(policy.Filesystem.Mounts, sandboxpkg.Mount{HostPath: userDir, SandboxPath: userDir, Access: sandboxpkg.MountReadWrite})
-		profile := buildSeatbeltProfile(policy, stellaHome)
+		profile := buildSeatbeltProfile(policy, layoutForPolicy(policy), stellaHome)
 
 		if strings.Contains(profile, `(allow file-write* (subpath "/tmp/mise-cache"))`) {
 			t.Errorf("a writable per-user mise tree should skip the cache fallback holes:\n%s", profile)
@@ -222,7 +223,7 @@ func TestBuildSeatbeltProfile_miseHolesKeyedOnPerUserTree(t *testing.T) {
 // TestBuildSeatbeltProfile_noSiblingRules verifies generic mount policy emits no
 // legacy per-agent deny/allow rules.
 func TestBuildSeatbeltProfile_noSiblingRules(t *testing.T) {
-	profile := buildSeatbeltProfile(makePolicy("/private/tmp/ws", sandboxpkg.NetworkDisabled), "")
+	profile := buildSeatbeltProfile(makePolicy("/private/tmp/ws", sandboxpkg.NetworkDisabled), layoutForPolicy(makePolicy("/private/tmp/ws", sandboxpkg.NetworkDisabled)), "")
 	if strings.Contains(profile, "(deny file-read* file-write*") {
 		t.Errorf("no sibling-hiding rules expected without generic mounts:\n%s", profile)
 	}
@@ -230,7 +231,7 @@ func TestBuildSeatbeltProfile_noSiblingRules(t *testing.T) {
 
 func TestBuildSeatbeltProfile_networkAllowAll(t *testing.T) {
 	policy := makePolicy("/tmp/ws", sandboxpkg.NetworkAllowAll)
-	profile := buildSeatbeltProfile(policy, "")
+	profile := buildSeatbeltProfile(policy, layoutForPolicy(policy), "")
 
 	if strings.Contains(profile, "(deny network*)") {
 		t.Error("profile must not deny network when mode is allow_all")
@@ -243,11 +244,11 @@ func TestBuildSeatbeltProfile_networkDisabledVsAllowAll(t *testing.T) {
 	}
 	root := t.TempDir()
 
-	_, disabledArgs, err := wrapCommand(makePolicy(root, sandboxpkg.NetworkDisabled), root, nil, "", "sh", []string{"-c", "echo"})
+	_, disabledArgs, err := wrapCommand(makePolicy(root, sandboxpkg.NetworkDisabled), layoutForPolicy(makePolicy(root, sandboxpkg.NetworkDisabled)), root, nil, "", "sh", []string{"-c", "echo"})
 	if err != nil {
 		t.Fatalf("disabled wrapCommand error: %v", err)
 	}
-	_, allowArgs, err := wrapCommand(makePolicy(root, sandboxpkg.NetworkAllowAll), root, nil, "", "sh", []string{"-c", "echo"})
+	_, allowArgs, err := wrapCommand(makePolicy(root, sandboxpkg.NetworkAllowAll), layoutForPolicy(makePolicy(root, sandboxpkg.NetworkAllowAll)), root, nil, "", "sh", []string{"-c", "echo"})
 	if err != nil {
 		t.Fatalf("allow_all wrapCommand error: %v", err)
 	}

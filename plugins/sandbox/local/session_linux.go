@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/hostlayout"
 )
 
 // sandboxStellaHome is the virtual STELLA_HOME inside the bwrap sandbox: the
@@ -91,16 +93,18 @@ func checkSandboxRequirements() error {
 
 // resolveSandboxRoot returns the sandbox-space root and the real host root.
 // On Linux bwrap is required, so the agent always sees /workspace.
-func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
-	return sandboxpkg.MountWorkspace, policy.WorkspaceRootOrDefault()
+func resolveSandboxRoot(layout hostlayout.Layout) (sandboxRoot, realRoot string) {
+	return sandboxpkg.MountWorkspace, layout.WorkspaceSource
 }
 
 // resolveUserDataRoot returns the sandbox-space and host paths of the shared
 // user-data root. On Linux it is bind-mounted at the fixed path /user; "" host
 // path (a user-less job) yields no second root.
-func resolveUserDataRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
-	if m, ok := mountBySandboxPath(policy.Filesystem.Mounts, sandboxpkg.MountUserData); ok {
-		return sandboxpkg.MountUserData, m.HostPath
+func resolveUserDataRoot(layout hostlayout.Layout) (sandboxRoot, realRoot string) {
+	for _, mount := range layout.Mounts {
+		if path.Clean(mount.Target) == sandboxpkg.MountUserData {
+			return sandboxpkg.MountUserData, mount.Source
+		}
 	}
 	return "", ""
 }
@@ -243,28 +247,6 @@ func appendDirParents(args []string, path string) []string {
 	return args
 }
 
-func linuxPolicyMounts(policy sandboxpkg.Policy, stellaHomeHost string) []sandboxpkg.Mount {
-	mounts := append([]sandboxpkg.Mount(nil), policy.Filesystem.Mounts...)
-	if len(mounts) != 0 {
-		return mounts
-	}
-	mounts = append(mounts, sandboxpkg.Mount{
-		HostPath:    policy.WorkspaceRootOrDefault(),
-		SandboxPath: sandboxpkg.MountWorkspace,
-		Access:      sandboxpkg.MountReadWrite,
-	})
-	if stellaHomeHost != "" {
-		for _, name := range sandboxpkg.StellaHomeSandboxDirs() {
-			mounts = append(mounts, sandboxpkg.Mount{
-				HostPath:    filepath.Join(stellaHomeHost, name),
-				SandboxPath: filepath.Join(sandboxStellaHome, name),
-				Access:      sandboxpkg.MountReadOnly,
-			})
-		}
-	}
-	return mounts
-}
-
 func isCoveredByWritableMount(hostPath string, mounts []sandboxpkg.Mount) bool {
 	for _, m := range mounts {
 		if m.Access != sandboxpkg.MountReadWrite || filepath.Clean(m.HostPath) == filepath.Clean(hostPath) {
@@ -282,7 +264,7 @@ func isCoveredByWritableMount(hostPath string, mounts []sandboxpkg.Mount) bool {
 // isolation on Linux. bwrap is mandatory — returns an error if not functional.
 //
 //   - sandboxCwd: working directory in sandbox space (e.g. /workspace/sub).
-func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMount, stellaHomeHost string, name string, args []string) (execPath string, execArgs []string, err error) {
+func wrapCommand(policy sandboxpkg.Policy, layout hostlayout.Layout, sandboxCwd string, tmpMounts []tmpMount, _ string, name string, args []string) (execPath string, execArgs []string, err error) {
 	if !bwrapFunctional() {
 		return "", nil, fmt.Errorf(
 			"local sandbox: bwrap (bubblewrap) is required on Linux but is not available or not functional; " +
@@ -291,9 +273,9 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 		)
 	}
 
-	realRoot := policy.WorkspaceRootOrDefault()
+	realRoot := layout.WorkspaceSource
 	networkMode := policy.NetworkModeOrDefault()
-	mounts := linuxPolicyMounts(policy, stellaHomeHost)
+	mounts := policyMounts(layout)
 
 	bwrapArgs := []string{
 		"--die-with-parent",

@@ -4,22 +4,26 @@ package local
 
 import (
 	"os"
+	"path"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/hostlayout"
 )
 
 // resolveSandboxRoot returns the sandbox-space root and the real host root.
 // On platforms other than Linux and macOS there is no path remapping.
-func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
-	real := policy.WorkspaceRootOrDefault()
+func resolveSandboxRoot(layout hostlayout.Layout) (sandboxRoot, realRoot string) {
+	real := layout.WorkspaceSource
 	return real, real
 }
 
 // resolveUserDataRoot returns the shared user-data root. There is no path
 // remapping on this platform, so the sandbox-space and host paths are identical.
-func resolveUserDataRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
-	if m, ok := mountBySandboxPath(policy.Filesystem.Mounts, sandboxpkg.MountUserData); ok {
-		return m.HostPath, m.HostPath
+func resolveUserDataRoot(layout hostlayout.Layout) (sandboxRoot, realRoot string) {
+	for _, mount := range layout.Mounts {
+		if path.Clean(mount.Target) == sandboxpkg.MountUserData {
+			return mount.Source, mount.Source
+		}
 	}
 	return "", ""
 }
@@ -54,6 +58,6 @@ func checkSandboxRequirements() error { return nil }
 
 // wrapCommand is a no-op on platforms other than Linux and macOS.
 // Commands run unwrapped on the host OS.
-func wrapCommand(_ sandboxpkg.Policy, _ string, _ []tmpMount, _ string, name string, args []string) (string, []string, error) {
+func wrapCommand(_ sandboxpkg.Policy, _ hostlayout.Layout, _ string, _ []tmpMount, _ string, name string, args []string) (string, []string, error) {
 	return name, args, nil
 }

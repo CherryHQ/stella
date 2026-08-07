@@ -108,6 +108,14 @@ func TestLocalExec_linux_workspaceWritableOutsideHidden(t *testing.T) {
 				"HOME": "/workspace",
 			},
 		},
+		layout: layoutForPolicy(sandboxpkg.Policy{
+			Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root},
+			Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkDisabled},
+			Env: map[string]string{
+				"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+				"HOME": "/workspace",
+			},
+		}),
 		realRoot:    root,
 		sandboxRoot: "/workspace",
 		done:        make(chan struct{}),

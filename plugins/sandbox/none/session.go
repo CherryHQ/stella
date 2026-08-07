@@ -12,11 +12,13 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"sync"
 
 	"github.com/CherryHQ/stella/internal/fsops"
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/hostlayout"
 )
 
 // Config configures the none factory.
@@ -24,6 +26,8 @@ type Config struct {
 	// StellaHome is the host path to the stella home directory, used for
 	// building a PATH that includes $STELLA_HOME/bin.
 	StellaHome string
+	// Layout is the complete physical host filesystem authority for this factory.
+	Layout hostlayout.Layout
 }
 
 // Factory creates sessions that execute directly on the host with no sandboxing.
@@ -39,6 +43,7 @@ func NewFactory(cfg ...Config) sandboxpkg.Factory {
 	if len(cfg) > 0 {
 		c = cfg[0]
 	}
+	c.Layout = c.Layout.Clone()
 	return &Factory{cfg: c}
 }
 
@@ -49,13 +54,18 @@ func (f *Factory) Name() string { return "none" }
 func (f *Factory) Available() bool { return platformAvailable() }
 
 // Supported accepts any policy; the none backend imposes no restrictions.
-func (f *Factory) Supported(_ sandboxpkg.Policy) error { return nil }
+func (f *Factory) Supported(_ sandboxpkg.Policy) error { return f.cfg.Layout.Validate() }
 
 // CreateSession creates a new noneSession.
 // If a StellaHome was provided via Config, the factory adjusts the policy env
 // with a sandboxed PATH. Network mode is always overridden to AllowAll since
 // the none backend cannot enforce network restrictions.
 func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
+	policy.Filesystem.WorkspaceRoot = ""
+	policy.Filesystem.Mounts = nil
+	if err := f.Supported(policy); err != nil {
+		return nil, err
+	}
 	tmpDir, err := os.MkdirTemp("", "stella-none-session-tmp-*")
 	if err != nil {
 		return nil, fmt.Errorf("none: create session temp: %w", err)
@@ -74,6 +84,7 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 	s := &noneSession{
 		id:           id,
 		policy:       policy,
+		layout:       f.cfg.Layout,
 		ownedTempDir: tmpDir,
 		done:         make(chan struct{}),
 	}
@@ -92,8 +103,8 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, tmpDir string) (sandbox
 
 	// The none backend has no path remapping or confinement: all filesystem
 	// roots are real host paths. A user-less session falls back to its workspace.
-	workspace := policy.WorkspaceRootOrDefault()
-	userData := hostPathForSandboxMount(policy.Filesystem.Mounts, sandboxpkg.MountUserData)
+	workspace := f.cfg.Layout.WorkspaceSource
+	userData := layoutSourceForTarget(f.cfg.Layout, sandboxpkg.MountUserData)
 	view := sandboxpkg.FilesystemView{Home: workspace, SharedDataDir: userData, TempDir: tmpDir}
 	if err := sandboxpkg.ApplyFilesystemEnv(env, view); err != nil {
 		return sandboxpkg.Policy{}, err
@@ -112,11 +123,11 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, tmpDir string) (sandbox
 	return policy, nil
 }
 
-func hostPathForSandboxMount(mounts []sandboxpkg.Mount, sandboxPath string) string {
-	clean := filepath.Clean(sandboxPath)
-	for _, m := range mounts {
-		if filepath.Clean(m.SandboxPath) == clean {
-			return m.HostPath
+func layoutSourceForTarget(layout hostlayout.Layout, target string) string {
+	clean := path.Clean(target)
+	for _, mount := range layout.Mounts {
+		if path.Clean(mount.Target) == clean {
+			return mount.Source
 		}
 	}
 	return ""
@@ -126,6 +137,7 @@ func hostPathForSandboxMount(mounts []sandboxpkg.Mount, sandboxPath string) stri
 type noneSession struct {
 	id           string
 	policy       sandboxpkg.Policy
+	layout       hostlayout.Layout
 	done         chan struct{}
 	doneOnce     sync.Once
 	mu           sync.RWMutex
@@ -142,8 +154,8 @@ func (s *noneSession) Policy() sandboxpkg.Policy {
 }
 
 func (s *noneSession) WorkingDir() string {
-	if s.policy.Filesystem.WorkingDir != "" {
-		return s.policy.Filesystem.WorkingDir
+	if s.layout.WorkingDirSource != "" {
+		return s.layout.WorkingDirSource
 	}
 	wd, _ := os.Getwd()
 	return wd
@@ -158,17 +170,17 @@ func (s *noneSession) WorkingDir() string {
 // root is created here on demand. Read-only mounts are never created: a missing
 // read-only root must fail closed.
 func (s *noneSession) Filesystem() (sandboxpkg.Filesystem, error) {
-	mounts := make([]fsops.Mount, 0, len(s.policy.Filesystem.Mounts))
-	for _, mount := range s.policy.Filesystem.Mounts {
-		if mount.SandboxPath != sandboxpkg.PathWorkspace && mount.SandboxPath != sandboxpkg.PathUser && mount.SandboxPath != sandboxpkg.PathTemp {
+	mounts := make([]fsops.Mount, 0, len(s.layout.Mounts))
+	for _, mount := range s.layout.Mounts {
+		if mount.Target != sandboxpkg.PathWorkspace && mount.Target != sandboxpkg.PathUser && mount.Target != sandboxpkg.PathTemp {
 			continue
 		}
-		if mount.Access != sandboxpkg.MountReadOnly {
-			if err := os.MkdirAll(mount.HostPath, 0o755); err != nil {
+		if mount.Access != hostlayout.ReadOnly {
+			if err := os.MkdirAll(mount.Source, 0o755); err != nil {
 				return nil, err
 			}
 		}
-		mounts = append(mounts, fsops.Mount{Path: mount.SandboxPath, Directory: mount.HostPath, ReadOnly: mount.Access == sandboxpkg.MountReadOnly})
+		mounts = append(mounts, fsops.Mount{Path: mount.Target, Directory: mount.Source, ReadOnly: mount.Access == hostlayout.ReadOnly})
 	}
 	if len(mounts) == 0 {
 		mounts = append(mounts, fsops.Mount{Path: sandboxpkg.PathWorkspace, Directory: s.WorkingDir()})

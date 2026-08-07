@@ -13,6 +13,7 @@ import (
 	"github.com/CherryHQ/stella/internal/manifestplugins"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/hostlayout"
 )
 
 const (
@@ -25,40 +26,51 @@ const (
 )
 
 func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy {
-	mounts := []pkgsandbox.Mount{
-		{HostPath: paths.WorkspaceRoot, SandboxPath: pkgsandbox.MountWorkspace, Access: pkgsandbox.MountReadWrite},
+	layout := runnerHostLayout(paths, cfg)
+	mounts := make([]pkgsandbox.Mount, 0, len(layout.Mounts))
+	for _, mount := range layout.Mounts {
+		access := pkgsandbox.MountReadOnly
+		if mount.Access == hostlayout.ReadWrite {
+			access = pkgsandbox.MountReadWrite
+		}
+		mounts = append(mounts, pkgsandbox.Mount{HostPath: mount.Source, SandboxPath: mount.Target, Access: access})
+	}
+	return pkgsandbox.FilesystemPolicy{WorkspaceRoot: layout.WorkspaceSource, WorkingDir: layout.WorkingDirSource, Mounts: mounts}
+}
+
+// runnerHostLayout is the single producer of physical host paths for local and
+// none providers. Docker temporarily receives its legacy Policy projection.
+func runnerHostLayout(paths Paths, cfg Config) hostlayout.Layout {
+	mounts := []hostlayout.Mount{
+		{Source: paths.WorkspaceRoot, Target: pkgsandbox.MountWorkspace, Access: hostlayout.ReadWrite},
 	}
 	if userData := userDataDirHost(paths, cfg); userData != "" {
-		mounts = append(mounts, pkgsandbox.Mount{HostPath: userData, SandboxPath: pkgsandbox.MountUserData, Access: pkgsandbox.MountReadWrite})
+		mounts = append(mounts, hostlayout.Mount{Source: userData, Target: pkgsandbox.MountUserData, Access: hostlayout.ReadWrite})
 	}
 	for _, name := range pkgsandbox.StellaHomeSandboxDirs() {
-		mounts = append(mounts, pkgsandbox.Mount{
-			HostPath:    filepath.Join(paths.StellaHome, name),
-			SandboxPath: path.Join(pkgsandbox.MountStellaHome, strings.ReplaceAll(name, "\\", "/")),
-			Access:      pkgsandbox.MountReadOnly,
+		mounts = append(mounts, hostlayout.Mount{
+			Source: filepath.Join(paths.StellaHome, name),
+			Target: path.Join(pkgsandbox.MountStellaHome, strings.ReplaceAll(name, "\\", "/")),
+			Access: hostlayout.ReadOnly,
 		})
 	}
 	if paths.BuiltinBundle != "" {
-		mounts = append(mounts, pkgsandbox.Mount{HostPath: paths.BuiltinBundle, SandboxPath: pkgsandbox.MountBuiltinSkills, Access: pkgsandbox.MountReadOnly})
+		mounts = append(mounts, hostlayout.Mount{Source: paths.BuiltinBundle, Target: pkgsandbox.MountBuiltinSkills, Access: hostlayout.ReadOnly})
 	}
 	if agentSkills := agentSkillsDirHost(paths); agentSkills != "" {
-		mounts = append(mounts, pkgsandbox.Mount{HostPath: agentSkills, SandboxPath: pkgsandbox.MountAgentSkills, Access: pkgsandbox.MountReadOnly})
+		mounts = append(mounts, hostlayout.Mount{Source: agentSkills, Target: pkgsandbox.MountAgentSkills, Access: hostlayout.ReadOnly})
 	}
 	if systemSkills := systemDBSkillsDirHost(paths); systemSkills != "" {
-		mounts = append(mounts, pkgsandbox.Mount{HostPath: systemSkills, SandboxPath: pkgsandbox.MountSystemDBSkills, Access: pkgsandbox.MountReadOnly})
+		mounts = append(mounts, hostlayout.Mount{Source: systemSkills, Target: pkgsandbox.MountSystemDBSkills, Access: hostlayout.ReadOnly})
 	}
 	if miseDir := miseUserDirHost(paths, cfg); miseDir != "" {
-		mounts = append(mounts, pkgsandbox.Mount{
-			HostPath:    miseDir,
-			SandboxPath: remapStellaHomePolicyPath(miseDir, paths.StellaHome),
-			Access:      pkgsandbox.MountReadWrite,
+		mounts = append(mounts, hostlayout.Mount{
+			Source: miseDir,
+			Target: remapStellaHomePolicyPath(miseDir, paths.StellaHome),
+			Access: hostlayout.ReadWrite,
 		})
 	}
-	return pkgsandbox.FilesystemPolicy{
-		WorkspaceRoot: paths.WorkspaceRoot,
-		WorkingDir:    paths.WorkDir,
-		Mounts:        mounts,
-	}
+	return hostlayout.Layout{WorkspaceSource: paths.WorkspaceRoot, WorkingDirSource: paths.WorkDir, Mounts: mounts}
 }
 
 func remapStellaHomePolicyPath(hostPath, stellaHome string) string {

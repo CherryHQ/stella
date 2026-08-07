@@ -9,6 +9,7 @@ import (
 	"github.com/CherryHQ/stella/internal/fsops"
 	"github.com/CherryHQ/stella/internal/fsops/fstest"
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/hostlayout"
 	"github.com/CherryHQ/stella/plugins/sandbox/local"
 	"github.com/CherryHQ/stella/plugins/sandbox/none"
 )
@@ -21,10 +22,14 @@ func TestFilesystemConformance(t *testing.T) {
 		fstest.Run(t, libraryHarness(t))
 	})
 	t.Run("none", func(t *testing.T) {
-		fstest.Run(t, sessionHarness(t, none.NewFactory()))
+		fstest.Run(t, sessionHarness(t, func(layout hostlayout.Layout) sandboxpkg.Factory {
+			return none.NewFactory(none.Config{Layout: layout})
+		}))
 	})
 	t.Run("local", func(t *testing.T) {
-		fstest.Run(t, sessionHarness(t, local.NewFactory()))
+		fstest.Run(t, sessionHarness(t, func(layout hostlayout.Layout) sandboxpkg.Factory {
+			return local.NewFactory(local.Config{Layout: layout})
+		}))
 	})
 }
 
@@ -50,15 +55,19 @@ func libraryHarness(t *testing.T) fstest.Harness {
 }
 
 // sessionHarness drives a real backend session's mediated Filesystem.
-func sessionHarness(t *testing.T, factory sandboxpkg.Factory) fstest.Harness {
+func sessionHarness(t *testing.T, newFactory func(hostlayout.Layout) sandboxpkg.Factory) fstest.Harness {
 	t.Helper()
 	workspace, readOnly := t.TempDir(), t.TempDir()
+	factory := newFactory(hostlayout.Layout{
+		WorkspaceSource:  workspace,
+		WorkingDirSource: workspace,
+		Mounts: []hostlayout.Mount{
+			{Source: workspace, Target: sandboxpkg.PathWorkspace, Access: hostlayout.ReadWrite},
+			{Source: readOnly, Target: sandboxpkg.PathUser, Access: hostlayout.ReadOnly},
+		},
+	})
 	session, err := factory.CreateSession(context.Background(), sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{
 		WorkingDir: workspace,
-		Mounts: []sandboxpkg.Mount{
-			{HostPath: workspace, SandboxPath: sandboxpkg.PathWorkspace, Access: sandboxpkg.MountReadWrite},
-			{HostPath: readOnly, SandboxPath: sandboxpkg.PathUser, Access: sandboxpkg.MountReadOnly},
-		},
 	}})
 	if err != nil {
 		t.Fatal(err)

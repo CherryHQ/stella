@@ -16,11 +16,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/hostlayout"
 )
 
 const seatbeltExecPath = "/usr/bin/sandbox-exec"
@@ -47,16 +49,18 @@ func seatbeltFunctional() bool {
 
 // resolveSandboxRoot returns the sandbox-space root and the real host root.
 // On macOS there is no path remapping; both are always identical.
-func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
-	real := policy.WorkspaceRootOrDefault()
+func resolveSandboxRoot(layout hostlayout.Layout) (sandboxRoot, realRoot string) {
+	real := layout.WorkspaceSource
 	return real, real
 }
 
 // resolveUserDataRoot returns the shared user-data root. macOS does no path
 // remapping, so the sandbox-space and host paths are identical (no /user alias).
-func resolveUserDataRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
-	if m, ok := mountBySandboxPath(policy.Filesystem.Mounts, sandboxpkg.MountUserData); ok {
-		return m.HostPath, m.HostPath
+func resolveUserDataRoot(layout hostlayout.Layout) (sandboxRoot, realRoot string) {
+	for _, mount := range layout.Mounts {
+		if path.Clean(mount.Target) == sandboxpkg.MountUserData {
+			return mount.Source, mount.Source
+		}
 	}
 	return "", ""
 }
@@ -118,8 +122,8 @@ func checkSandboxRequirements() error {
 //
 // stellaHomeHost is the host STELLA_HOME, used to recognize whether the policy
 // carries a writable per-user mise tree (see the cache/state fallback below).
-func buildSeatbeltProfile(policy sandboxpkg.Policy, stellaHomeHost string) string {
-	workspace := policy.WorkspaceRootOrDefault()
+func buildSeatbeltProfile(policy sandboxpkg.Policy, layout hostlayout.Layout, stellaHomeHost string) string {
+	workspace := layout.WorkspaceSource
 	networkMode := policy.NetworkModeOrDefault()
 
 	var sb strings.Builder
@@ -143,9 +147,9 @@ func buildSeatbeltProfile(policy sandboxpkg.Policy, stellaHomeHost string) strin
 
 	// Writable mounts (e.g. the per-user mise home): carve out each subtree so the
 	// agent can write through it — for mise that's installs/cache/state.
-	for _, m := range policy.Filesystem.Mounts {
-		if m.Access == sandboxpkg.MountReadWrite {
-			fmt.Fprintf(&sb, "(allow file-write* (subpath %q))\n", filepath.Clean(m.HostPath))
+	for _, mount := range layout.Mounts {
+		if mount.Access == hostlayout.ReadWrite {
+			fmt.Fprintf(&sb, "(allow file-write* (subpath %q))\n", filepath.Clean(mount.Source))
 		}
 	}
 	// With no writable per-user mise tree, the shared system installs stay
@@ -181,7 +185,7 @@ func appendSeatbeltWritableEnvDirs(sb *strings.Builder, env map[string]string) {
 // wrapCommand wraps name+args with sandbox-exec for macOS Seatbelt isolation.
 // tmpMounts is accepted for signature compatibility with the Linux backend but
 // is not used here — macOS bash and file tools share the same host filesystem.
-func wrapCommand(policy sandboxpkg.Policy, _ string, _ []tmpMount, stellaHomeHost string, name string, args []string) (execPath string, execArgs []string, err error) {
+func wrapCommand(policy sandboxpkg.Policy, layout hostlayout.Layout, _ string, _ []tmpMount, stellaHomeHost string, name string, args []string) (execPath string, execArgs []string, err error) {
 	if !seatbeltFunctional() {
 		return "", nil, fmt.Errorf(
 			"local sandbox: sandbox-exec (macOS Seatbelt) is required but not available",
@@ -193,7 +197,7 @@ func wrapCommand(policy sandboxpkg.Policy, _ string, _ []tmpMount, stellaHomeHos
 		return "", nil, fmt.Errorf("local exec: look up %q: %w", name, lookErr)
 	}
 
-	profile := buildSeatbeltProfile(policy, stellaHomeHost)
+	profile := buildSeatbeltProfile(policy, layout, stellaHomeHost)
 	seatbeltArgs := []string{"-p", profile, resolved}
 	seatbeltArgs = append(seatbeltArgs, args...)
 	return seatbeltExecPath, seatbeltArgs, nil

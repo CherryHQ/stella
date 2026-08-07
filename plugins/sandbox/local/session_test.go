@@ -8,10 +8,12 @@ import (
 	"testing"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/hostlayout"
 )
 
 func TestFactory_basics(t *testing.T) {
-	f := NewFactory()
+	root := t.TempDir()
+	f := NewFactory(Config{Layout: hostlayout.Layout{WorkspaceSource: root, WorkingDirSource: root, Mounts: []hostlayout.Mount{{Source: root, Target: sandboxpkg.MountWorkspace, Access: hostlayout.ReadWrite}}}})
 	if f.(*Factory).Name() != "local" {
 		t.Error("expected name 'local'")
 	}
@@ -38,7 +40,7 @@ func TestFactory_createSession(t *testing.T) {
 		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 		InheritEnv: true,
 	}
-	f := NewFactory()
+	f := NewFactory(Config{Layout: layoutForPolicy(policy)})
 	sess, err := f.(*Factory).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
@@ -53,15 +55,39 @@ func TestFactory_createSession(t *testing.T) {
 	}
 }
 
+func TestFactoryScrubsPolicyPhysicalLayout(t *testing.T) {
+	skipIfBwrapNotFunctional(t)
+	workspace := t.TempDir()
+	redirect := t.TempDir()
+	layout := hostlayout.Layout{WorkspaceSource: workspace, WorkingDirSource: workspace, Mounts: []hostlayout.Mount{{Source: workspace, Target: sandboxpkg.MountWorkspace, Access: hostlayout.ReadWrite}}}
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: redirect, WorkingDir: redirect, Mounts: []sandboxpkg.Mount{{HostPath: redirect, SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite}}},
+		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
+		Env:        map[string]string{"PRESERVED": "yes"},
+	}
+	session, err := NewFactory(Config{Layout: layout}).CreateSession(context.Background(), policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close() //nolint:errcheck
+	got := session.Policy()
+	if got.Filesystem.WorkspaceRoot != "" || len(got.Filesystem.Mounts) != 0 {
+		t.Fatalf("Policy retained physical layout: %#v", got.Filesystem)
+	}
+	if got.Filesystem.WorkingDir != redirect || got.Network.Mode != sandboxpkg.NetworkAllowAll || got.Env["PRESERVED"] != "yes" {
+		t.Fatalf("Policy lost logical fields: %#v", got)
+	}
+}
+
 func TestFactory_sessionsOwnDistinctTempDirs(t *testing.T) {
 	skipIfBwrapNotFunctional(t)
 	root := t.TempDir()
 	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root}}
-	firstSession, err := NewFactory().CreateSession(context.Background(), policy)
+	firstSession, err := NewFactory(Config{Layout: layoutForPolicy(policy)}).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Fatalf("CreateSession(first): %v", err)
 	}
-	secondSession, err := NewFactory().CreateSession(context.Background(), policy)
+	secondSession, err := NewFactory(Config{Layout: layoutForPolicy(policy)}).CreateSession(context.Background(), policy)
 	if err != nil {
 		firstSession.Close() //nolint:errcheck
 		t.Fatalf("CreateSession(second): %v", err)
@@ -156,6 +182,7 @@ func TestLocalSession_workspaceAndWorkingDir(t *testing.T) {
 	s := &localSession{
 		id:          "test",
 		policy:      policy,
+		layout:      layoutForPolicy(policy),
 		realRoot:    resolved,
 		sandboxRoot: resolved,
 		done:        make(chan struct{}),
@@ -193,6 +220,7 @@ func newTestSession(t *testing.T) (*localSession, string) {
 	s := &localSession{
 		id:          "test",
 		policy:      policy,
+		layout:      layoutForPolicy(policy),
 		realRoot:    root,
 		sandboxRoot: root,
 		done:        make(chan struct{}),
@@ -216,7 +244,7 @@ func newExecTestSession(t *testing.T) *localSession {
 		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 		InheritEnv: true,
 	}
-	sess, err := NewFactory().CreateSession(context.Background(), policy)
+	sess, err := NewFactory(Config{Layout: layoutForPolicy(policy)}).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
@@ -284,6 +312,7 @@ func TestResolvePath_realRootSymlink(t *testing.T) {
 	s := &localSession{
 		id:          "test",
 		policy:      sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: resolvedRoot, WorkingDir: resolvedRoot}},
+		layout:      layoutForPolicy(sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: resolvedRoot, WorkingDir: resolvedRoot}}),
 		realRoot:    resolvedRoot,
 		sandboxRoot: "/workspace",
 		done:        make(chan struct{}),
@@ -304,6 +333,7 @@ func TestToRealPath(t *testing.T) {
 	s := &localSession{
 		sandboxRoot: "/workspace",
 		realRoot:    "/home/stella/.stella-dev/workspaces/1",
+		layout:      hostlayout.Layout{WorkspaceSource: "/home/stella/.stella-dev/workspaces/1", WorkingDirSource: "/home/stella/.stella-dev/workspaces/1", Mounts: []hostlayout.Mount{{Source: "/home/stella/.stella-dev/workspaces/1", Target: "/workspace", Access: hostlayout.ReadWrite}}},
 	}
 
 	tests := []struct {
@@ -360,6 +390,7 @@ func TestResolvePath_remapped(t *testing.T) {
 	s := &localSession{
 		id:          "test",
 		policy:      policy,
+		layout:      layoutForPolicy(policy),
 		realRoot:    root,
 		sandboxRoot: "/workspace",
 		done:        make(chan struct{}),
@@ -398,6 +429,7 @@ func TestResolvePath_extraMountAllowed(t *testing.T) {
 	s := &localSession{
 		id:          "test",
 		policy:      policy,
+		layout:      layoutForPolicy(policy),
 		realRoot:    root,
 		sandboxRoot: root,
 		done:        make(chan struct{}),
@@ -437,6 +469,7 @@ func TestResolveWritePath_rejectsExtraMount(t *testing.T) {
 	s := &localSession{
 		id:          "test",
 		policy:      policy,
+		layout:      layoutForPolicy(policy),
 		realRoot:    root,
 		sandboxRoot: root,
 		done:        make(chan struct{}),
@@ -474,6 +507,7 @@ func TestBuiltinBundleReadableButNotWritable(t *testing.T) {
 	s := &localSession{
 		id:                "test",
 		policy:            sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, Mounts: []sandboxpkg.Mount{{HostPath: root, SandboxPath: root, Access: sandboxpkg.MountReadWrite}, {HostPath: filepath.Join(hostSH, "bundles", "revision"), SandboxPath: sandboxpkg.MountBuiltinSkills, Access: sandboxpkg.MountReadOnly}}}},
+		layout:            layoutForPolicy(sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, Mounts: []sandboxpkg.Mount{{HostPath: root, SandboxPath: root, Access: sandboxpkg.MountReadWrite}, {HostPath: filepath.Join(hostSH, "bundles", "revision"), SandboxPath: sandboxpkg.MountBuiltinSkills, Access: sandboxpkg.MountReadOnly}}}}),
 		realRoot:          root,
 		sandboxRoot:       root,
 		stellaHomeHost:    hostSH,
@@ -527,6 +561,7 @@ func TestAgentSkills_readableButNotWritable(t *testing.T) {
 	s := &localSession{
 		id:                "test",
 		policy:            sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, Mounts: []sandboxpkg.Mount{{HostPath: root, SandboxPath: root, Access: sandboxpkg.MountReadWrite}, {HostPath: agentSkills, SandboxPath: sandboxpkg.MountAgentSkills, Access: sandboxpkg.MountReadOnly}}}},
+		layout:            layoutForPolicy(sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, Mounts: []sandboxpkg.Mount{{HostPath: root, SandboxPath: root, Access: sandboxpkg.MountReadWrite}, {HostPath: agentSkills, SandboxPath: sandboxpkg.MountAgentSkills, Access: sandboxpkg.MountReadOnly}}}}),
 		realRoot:          root,
 		sandboxRoot:       root,
 		stellaHomeHost:    hostSH,
@@ -571,6 +606,7 @@ func TestSystemDBSkills_readableButNotWritable(t *testing.T) {
 	s := &localSession{
 		id:                "test",
 		policy:            sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, Mounts: []sandboxpkg.Mount{{HostPath: root, SandboxPath: root, Access: sandboxpkg.MountReadWrite}, {HostPath: dbSkills, SandboxPath: sandboxpkg.MountSystemDBSkills, Access: sandboxpkg.MountReadOnly}}}},
+		layout:            layoutForPolicy(sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, Mounts: []sandboxpkg.Mount{{HostPath: root, SandboxPath: root, Access: sandboxpkg.MountReadWrite}, {HostPath: dbSkills, SandboxPath: sandboxpkg.MountSystemDBSkills, Access: sandboxpkg.MountReadOnly}}}}),
 		realRoot:          root,
 		sandboxRoot:       root,
 		stellaHomeHost:    hostSH,
@@ -629,6 +665,7 @@ func TestResolvePath_rejectsAdjacentToExtraMount(t *testing.T) {
 	s := &localSession{
 		id:          "test",
 		policy:      policy,
+		layout:      layoutForPolicy(policy),
 		realRoot:    root,
 		sandboxRoot: root,
 		done:        make(chan struct{}),
@@ -694,7 +731,7 @@ func TestAdjustPolicy_rewritesMiseEnvPaths(t *testing.T) {
 	}
 
 	f := &Factory{cfg: Config{StellaHome: hostSH}}
-	sandboxRoot, realRoot := resolveSandboxRoot(policy)
+	sandboxRoot, realRoot := resolveSandboxRoot(layoutForPolicy(policy))
 	adjusted := f.adjustPolicy(policy, sandboxRoot, realRoot, "", "")
 
 	if hostSH == sandboxSH {
@@ -741,7 +778,7 @@ func TestAdjustPolicy_perUserMiseShimsOnPath(t *testing.T) {
 		Env: map[string]string{"MISE_DATA_DIR": hostSH + "/users/u1/.mise-tools"},
 	}
 	f := &Factory{cfg: Config{StellaHome: hostSH}}
-	sandboxRoot, realRoot := resolveSandboxRoot(policy)
+	sandboxRoot, realRoot := resolveSandboxRoot(layoutForPolicy(policy))
 	adjusted := f.adjustPolicy(policy, sandboxRoot, realRoot, "", "")
 
 	wantShims := sandboxSH + "/users/u1/.mise-tools/shims"
@@ -816,8 +853,8 @@ func TestAdjustPolicy_homeAndXDG(t *testing.T) {
 		},
 	}
 	f := &Factory{cfg: Config{StellaHome: t.TempDir()}}
-	sandboxRoot, realRoot := resolveSandboxRoot(policy)
-	userDataSandbox, userDataReal := resolveUserDataRoot(policy)
+	sandboxRoot, realRoot := resolveSandboxRoot(layoutForPolicy(policy))
+	userDataSandbox, userDataReal := resolveUserDataRoot(layoutForPolicy(policy))
 	adjusted := f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal)
 	if err := applyFilesystemEnv(&adjusted, sandboxRoot, userDataSandbox, nil); err != nil {
 		t.Fatalf("applyFilesystemEnv: %v", err)
@@ -851,8 +888,8 @@ func TestAdjustPolicy_noUserDataFallsBackToWorkspace(t *testing.T) {
 		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root},
 	}
 	f := &Factory{cfg: Config{StellaHome: t.TempDir()}}
-	sandboxRoot, realRoot := resolveSandboxRoot(policy)
-	userDataSandbox, userDataReal := resolveUserDataRoot(policy)
+	sandboxRoot, realRoot := resolveSandboxRoot(layoutForPolicy(policy))
+	userDataSandbox, userDataReal := resolveUserDataRoot(layoutForPolicy(policy))
 	adjusted := f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal)
 	if err := applyFilesystemEnv(&adjusted, sandboxRoot, userDataSandbox, nil); err != nil {
 		t.Fatalf("applyFilesystemEnv: %v", err)
@@ -889,6 +926,7 @@ func TestResolvePath_twoRoots(t *testing.T) {
 		policy: sandboxpkg.Policy{
 			Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: "/workspace"},
 		},
+		layout: hostlayout.Layout{WorkspaceSource: agentReal, WorkingDirSource: agentReal, Mounts: []hostlayout.Mount{{Source: agentReal, Target: "/workspace", Access: hostlayout.ReadWrite}, {Source: userReal, Target: "/user", Access: hostlayout.ReadWrite}}},
 	}
 
 	got, err := s.resolveWritePath("/user/assets/x.txt")
@@ -1009,6 +1047,7 @@ func TestResolvePath_tmpMountAllowed(t *testing.T) {
 	s := &localSession{
 		id:          "test",
 		policy:      sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root}},
+		layout:      layoutForPolicy(sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root}}),
 		realRoot:    root,
 		sandboxRoot: "/workspace",
 		tmpMounts:   []tmpMount{{sandboxPath: "/tmp", realPath: realTmpDir}},
@@ -1041,6 +1080,7 @@ func TestResolvePath_varTmpMountAllowed(t *testing.T) {
 	s := &localSession{
 		id:          "test",
 		policy:      sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root}},
+		layout:      layoutForPolicy(sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root}}),
 		realRoot:    root,
 		sandboxRoot: "/workspace",
 		tmpMounts:   []tmpMount{{sandboxPath: "/var/tmp", realPath: realVarTmp}},
@@ -1067,6 +1107,7 @@ func TestToRealPath_tmpMapping(t *testing.T) {
 	s := &localSession{
 		realRoot:    root,
 		sandboxRoot: "/workspace",
+		layout:      hostlayout.Layout{WorkspaceSource: root, WorkingDirSource: root, Mounts: []hostlayout.Mount{{Source: root, Target: "/workspace", Access: hostlayout.ReadWrite}}},
 		tmpMounts: []tmpMount{
 			{sandboxPath: "/tmp", realPath: realTmp},
 			{sandboxPath: "/var/tmp", realPath: realVarTmp},
@@ -1106,6 +1147,7 @@ func TestResolveWritePath_allowsTmp(t *testing.T) {
 	s := &localSession{
 		id:          "test",
 		policy:      sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root}},
+		layout:      layoutForPolicy(sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root}}),
 		realRoot:    root,
 		sandboxRoot: "/workspace",
 		tmpMounts:   []tmpMount{{sandboxPath: "/tmp", realPath: realTmpDir}},
@@ -1119,4 +1161,20 @@ func TestResolveWritePath_allowsTmp(t *testing.T) {
 	if got != f {
 		t.Errorf("ResolveWritePath = %q, want %q", got, f)
 	}
+}
+
+func layoutForPolicy(policy sandboxpkg.Policy) hostlayout.Layout {
+	mounts := make([]hostlayout.Mount, 0, len(policy.Filesystem.Mounts)+1)
+	for _, mount := range policy.Filesystem.Mounts {
+		access := hostlayout.ReadOnly
+		if mount.Access == sandboxpkg.MountReadWrite {
+			access = hostlayout.ReadWrite
+		}
+		mounts = append(mounts, hostlayout.Mount{Source: mount.HostPath, Target: mount.SandboxPath, Access: access})
+	}
+	workspace := policy.WorkspaceRootOrDefault()
+	if len(mounts) == 0 && workspace != "" {
+		mounts = append(mounts, hostlayout.Mount{Source: workspace, Target: sandboxpkg.MountWorkspace, Access: hostlayout.ReadWrite})
+	}
+	return hostlayout.Layout{WorkspaceSource: workspace, WorkingDirSource: policy.Filesystem.WorkingDir, Mounts: mounts}
 }
