@@ -166,6 +166,19 @@ WHERE user_id = sqlc.arg(user_id)
 ORDER BY last_active DESC, session_id DESC
 LIMIT NULLIF(sqlc.arg('limit'), -1) OFFSET sqlc.arg('offset');
 
+-- name: ListConversationsForAdminFiltered :many
+-- Administrative session management is agent-scoped but intentionally crosses
+-- user and guest ownership. Authorization remains in the session access layer.
+SELECT * FROM ctx_conversation
+WHERE agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)
+  AND (sqlc.arg(include_archived) != 0 OR archived = false)
+  AND (sqlc.arg(exclude_internal)::boolean = false OR kind NOT IN ('task', 'delegate'))
+  AND (sqlc.narg(kind)::text IS NULL OR kind = sqlc.narg(kind))
+  AND (sqlc.arg(project_id_is_null) = 0 OR project_id IS NULL)
+  AND (sqlc.narg(project_id)::text IS NULL OR project_id = sqlc.narg(project_id))
+ORDER BY last_active DESC, session_id DESC
+LIMIT NULLIF(sqlc.arg('limit'), -1) OFFSET sqlc.arg('offset');
+
 -- name: ListAgentConversationLastActive :many
 SELECT agent_id, MAX(last_active) AS last_active
 FROM ctx_conversation

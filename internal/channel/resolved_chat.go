@@ -2,7 +2,7 @@ package channel
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -14,6 +14,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 // GroupResolver resolves the canonical group_id for a physical group identity.
@@ -22,16 +23,17 @@ type GroupResolver interface {
 }
 
 type ResolvedChat struct {
-	Service            *agent.Service
-	User               auth.User
-	AgentID            string
-	SessionKey         string
-	Channel            session.Channel
-	ChatCtx            ChatContext
-	GroupID            string          // non-empty for group sessions; used as session scope (D9)
-	GuestID            string          // durable unlinked channel principal
-	Authority          authz.Authority // minted from resolved persisted identity/group, never message args
-	DedicatedChannelID string          // non-empty only with Authority's exact persisted binding grant
+	Service                    *agent.Service
+	User                       auth.User
+	AgentID                    string
+	SessionKey                 string
+	Channel                    session.Channel
+	ChatCtx                    ChatContext
+	GroupID                    string          // non-empty for group sessions; used as session scope (D9)
+	GuestID                    string          // durable unlinked channel principal
+	GuestMessageLimitPerMinute int             // persisted per-guest admission budget
+	Authority                  authz.Authority // minted from resolved persisted identity/group, never message args
+	DedicatedChannelID         string          // non-empty only with Authority's exact persisted binding grant
 	// CurrentSpeaker is the per-turn group speaker (personalization target only).
 	// Canonical source for group personalization; runtime/session scope still
 	// flows from GroupID / sessionUserID(), never from User.ID.
@@ -226,20 +228,25 @@ func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store conf
 	chatCtx := ChatContext{Platform: platform, ChannelID: channelID, ChatID: chatID, GroupID: groupID, IsGroup: isGroup}
 
 	var guestID, agentID string
+	guestMessageLimitPerMinute := 0
 	if resolved.User.ID == "" && !isGroup && platform == "discord" {
 		channel, channelErr := store.GetChannel(ctx, channelID)
-		var pluginConfig struct {
-			AllowDM         bool `json:"allow_dm"`
-			AllowUnlinkedDM bool `json:"allow_unlinked_dm"`
-		}
-		if channelErr != nil || !channel.Enabled || channel.AgentID == "" || json.Unmarshal([]byte(channel.Config), &pluginConfig) != nil || !pluginConfig.AllowDM || !pluginConfig.AllowUnlinkedDM || guests == nil {
+		if channelErr != nil || channel.AgentID == "" || !pkgchannel.AllowsUnlinkedGuestDM(channel.Type, channel.Enabled, channel.Config) || guests == nil {
 			return nil, ErrAgentAccessDenied
 		}
-		guest, guestErr := guests.ResolveOrCreateGuest(ctx, channel.ID, platform, senderID)
+		guestConfig, configErr := pkgchannel.DecodeDiscordConfig([]byte(channel.Config))
+		if configErr != nil {
+			return nil, ErrAgentAccessDenied
+		}
+		guest, guestErr := guests.ResolveOrCreateGuest(ctx, channel.ID, platform, senderID, guestConfig.GuestMaxPerChannel)
 		if guestErr != nil {
+			if errors.Is(guestErr, ErrGuestLimitReached) {
+				return nil, ErrAgentAccessDenied
+			}
 			return nil, fmt.Errorf("resolve guest: %w", guestErr)
 		}
 		guestID, agentID = guest.ID, channel.AgentID
+		guestMessageLimitPerMinute = guestConfig.GuestMessageLimitPerMinute
 	} else {
 		agentID, err = ResolveAgent(ctx, store, accessService, resolved, chatCtx)
 		if err != nil {
@@ -316,15 +323,16 @@ func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store conf
 	}
 
 	return &ResolvedChat{
-		Service:            svc,
-		User:               resolved.User,
-		AgentID:            agentID,
-		SessionKey:         sessionKey,
-		Channel:            ch,
-		ChatCtx:            chatCtx,
-		GroupID:            groupID,
-		GuestID:            guestID,
-		Authority:          authority,
-		DedicatedChannelID: dedicatedChannelID,
+		Service:                    svc,
+		User:                       resolved.User,
+		AgentID:                    agentID,
+		SessionKey:                 sessionKey,
+		Channel:                    ch,
+		ChatCtx:                    chatCtx,
+		GroupID:                    groupID,
+		GuestID:                    guestID,
+		GuestMessageLimitPerMinute: guestMessageLimitPerMinute,
+		Authority:                  authority,
+		DedicatedChannelID:         dedicatedChannelID,
 	}, nil
 }

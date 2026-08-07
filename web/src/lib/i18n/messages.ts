@@ -2055,6 +2055,13 @@ const en = {
   "channels.allowUnlinkedDm": "Allow guest direct messages",
   "channels.allowUnlinkedDmDesc":
     "Let unlinked Discord users chat with the bound agent in persistent, capability-free guest sessions.",
+  "channels.guestMessageLimit": "Guest messages per minute",
+  "channels.guestMessageLimitDesc": "Per-guest limit, including commands.",
+  "channels.guestMaxPerChannel": "Maximum guests",
+  "channels.guestMaxPerChannelDesc": "Maximum durable guest identities for this channel.",
+  "channels.guestRetentionDays": "Guest retention (days)",
+  "channels.guestRetentionDaysDesc":
+    "Delete inactive guest identities and sessions after this period.",
   "channels.requireMention": "Require a mention",
   "channels.requireMentionDesc": "Ignore server-channel messages that do not mention this bot.",
   "channels.configOnlyNote":
@@ -4188,6 +4195,12 @@ const zh: Record<MessageKey, string> = {
   "channels.allowUnlinkedDm": "允许访客私信",
   "channels.allowUnlinkedDmDesc":
     "允许未关联的 Discord 用户通过持久、无工具权限的访客会话与绑定 Agent 对话。",
+  "channels.guestMessageLimit": "访客每分钟消息数",
+  "channels.guestMessageLimitDesc": "每位访客的限制，包含命令。",
+  "channels.guestMaxPerChannel": "访客数量上限",
+  "channels.guestMaxPerChannelDesc": "此渠道可持久保存的访客身份上限。",
+  "channels.guestRetentionDays": "访客保留天数",
+  "channels.guestRetentionDaysDesc": "超过此期限未活动的访客身份和会话将被删除。",
   "channels.requireMention": "必须 @机器人",
   "channels.requireMentionDesc": "忽略服务器频道中未 @此机器人的消息。",
   "channels.configOnlyNote": "这里只保存渠道配置；绑定关系在智能体那边设置。",

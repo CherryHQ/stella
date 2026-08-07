@@ -10,6 +10,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/plugins"
@@ -17,7 +18,7 @@ import (
 
 func TestConfigDecodeRedactSchemaAndValidation(t *testing.T) {
 	cfg, err := DecodeConfig(map[string]any{"token": "secret", "allowed_guild_ids": "one, two"})
-	if err != nil || cfg.Token != "secret" || cfg.AllowedGuildIDs != "one, two" || !cfg.AllowDM || cfg.AllowUnlinkedDM || !cfg.RequireMention {
+	if err != nil || cfg.Token != "secret" || cfg.AllowedGuildIDs != "one, two" || !cfg.AllowDM || cfg.AllowUnlinkedDM || !cfg.RequireMention || cfg.GuestMessageLimitPerMinute != 10 || cfg.GuestMaxPerChannel != 1000 || cfg.GuestRetentionDays != 30 {
 		t.Fatalf("DecodeConfig() = %#v, %v", cfg, err)
 	}
 	cfg, err = DecodeConfig(map[string]any{"token": "secret", "allow_dm": false, "allow_unlinked_dm": true, "require_mention": false})
@@ -41,6 +42,9 @@ func TestConfigDecodeRedactSchemaAndValidation(t *testing.T) {
 	unlinked, ok := properties["allow_unlinked_dm"].(map[string]any)
 	if !ok || unlinked["default"] != false {
 		t.Fatalf("allow_unlinked_dm schema = %#v", properties["allow_unlinked_dm"])
+	}
+	if validateConfig(channel.DiscordConfig{Token: "secret", GuestMessageLimitPerMinute: 121, GuestMaxPerChannel: 1000, GuestRetentionDays: 30}) == "" {
+		t.Fatal("out-of-range guest message limit passed validation")
 	}
 }
 
@@ -177,8 +181,23 @@ func TestDirectMessageCanBeDisabled(t *testing.T) {
 	}
 }
 
+func TestLocalCommandsRunGuestAdmissionFirst(t *testing.T) {
+	h := &localCommandAdmissionHandler{}
+	b, err := New(Config{Token: "token", AllowDM: true, AllowUnlinkedDM: true}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &discordgo.Message{ID: "message", ChannelID: "dm", Author: &discordgo.User{ID: "guest"}, Content: "/agent other"}
+	if err := b.handleMessage(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	if h.admissionCalls != 1 || h.listCalls != 0 || h.switchCalls != 0 {
+		t.Fatalf("calls: admission=%d list=%d switch=%d, want 1, 0, 0", h.admissionCalls, h.listCalls, h.switchCalls)
+	}
+}
+
 func TestAttachmentOwnershipIsResolvedBeforeDownload(t *testing.T) {
-	h := &rejectingAttachmentHandler{err: errors.New("guest sessions have no workspace")}
+	h := &rejectingAttachmentHandler{err: agentaccess.ErrForbidden}
 	b, err := New(Config{Token: "token", AllowDM: true, AllowUnlinkedDM: true}, h)
 	if err != nil {
 		t.Fatal(err)
@@ -188,8 +207,11 @@ func TestAttachmentOwnershipIsResolvedBeforeDownload(t *testing.T) {
 		Attachments: []*discordgo.MessageAttachment{{ID: "attachment", Filename: "secret.txt", URL: "https://invalid.example/should-not-be-fetched"}},
 	}
 	err = b.handleMessage(context.Background(), m)
-	if err == nil || !strings.Contains(err.Error(), "guest sessions have no workspace") {
+	if !errors.Is(err, errGuestAttachmentsUnsupported) {
 		t.Fatalf("handleMessage() error = %v", err)
+	}
+	if got := userFacingError(m, err); !strings.Contains(got, "not supported in guest chat") {
+		t.Fatalf("userFacingError() = %q", got)
 	}
 	if h.resolveCalls != 1 || h.handleCalls != 0 {
 		t.Fatalf("calls: resolve=%d handle=%d, want 1 and 0", h.resolveCalls, h.handleCalls)
@@ -302,6 +324,28 @@ func (fakeHandler) ListAgents(context.Context, channel.IncomingMessage) ([]chann
 	return nil, "", nil
 }
 func (fakeHandler) SwitchAgent(context.Context, channel.IncomingMessage, string) error { return nil }
+
+type localCommandAdmissionHandler struct {
+	fakeHandler
+	admissionCalls int
+	listCalls      int
+	switchCalls    int
+}
+
+func (h *localCommandAdmissionHandler) AdmitLocalCommand(context.Context, channel.IncomingMessage) (string, bool, error) {
+	h.admissionCalls++
+	return "This command is not available in guest chat.", true, nil
+}
+
+func (h *localCommandAdmissionHandler) ListAgents(context.Context, channel.IncomingMessage) ([]channel.AgentInfo, string, error) {
+	h.listCalls++
+	return nil, "", nil
+}
+
+func (h *localCommandAdmissionHandler) SwitchAgent(context.Context, channel.IncomingMessage, string) error {
+	h.switchCalls++
+	return nil
+}
 
 type provisioningHandler struct {
 	fakeHandler

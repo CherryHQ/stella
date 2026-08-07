@@ -185,6 +185,13 @@ type UserRootResolver interface {
 	ResolveUserRoot(ctx context.Context, msg IncomingMessage) (string, error)
 }
 
+// LocalCommandAdmitter is an optional capability for channel-specific commands
+// that are handled before Handler.HandleIncoming. It lets the host apply guest
+// admission policy and rate limits without duplicating them in a plugin.
+type LocalCommandAdmitter interface {
+	AdmitLocalCommand(ctx context.Context, msg IncomingMessage) (response string, handled bool, err error)
+}
+
 // BotRegistrar is an optional capability that a Handler may implement.
 // Channel adapters call RegisterBotIdentity at startup to record their
 // bot's platform identity (e.g., Telegram username), enabling the group

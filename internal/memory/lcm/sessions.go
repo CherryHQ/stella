@@ -249,6 +249,28 @@ func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]mem
 	return convsToSessionInfo(convs), nil
 }
 
+// ListInfoForAdmin lists all durable owners for one agent. The session access
+// layer restricts this capability to administrators and rechecks every row.
+func (p *Provider) ListInfoForAdmin(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error) {
+	if opts.AgentID == "" {
+		return nil, fmt.Errorf("missing agent context")
+	}
+	convs, err := p.q.ListConversationsForAdminFiltered(ctx, sqlc.ListConversationsForAdminFilteredParams{
+		AgentID:         pgnull.Text(opts.AgentID),
+		IncludeArchived: boolToInt(opts.IncludeArchived),
+		ExcludeInternal: opts.ExcludeInternal,
+		Kind:            pgnull.Text(opts.Kind),
+		ProjectIDIsNull: boolToInt(opts.ProjectIDIsNull),
+		ProjectID:       pgnull.Text(opts.ProjectID),
+		Offset:          nonNegativeOffset(opts.Offset),
+		Limit:           listLimit(opts.Limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list admin conversations: %w", err)
+	}
+	return convsToSessionInfo(convs), nil
+}
+
 // ListInfoForReview lists review candidates across users for one agent.
 func (p *Provider) ListInfoForReview(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error) {
 	if opts.AgentID == "" {

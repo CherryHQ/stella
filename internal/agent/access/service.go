@@ -3,7 +3,6 @@ package access
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -12,6 +11,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 var (
@@ -102,11 +102,7 @@ func (a *Access) UseDedicated(ctx context.Context, agentID, channelID string) (c
 		return config.Agent{}, ErrForbidden
 	}
 	if a.authority.Kind() == authz.ActorGuest {
-		var guestConfig struct {
-			AllowDM         bool `json:"allow_dm"`
-			AllowUnlinkedDM bool `json:"allow_unlinked_dm"`
-		}
-		if !channel.Enabled || channel.Type != "discord" || json.Unmarshal([]byte(channel.Config), &guestConfig) != nil || !guestConfig.AllowDM || !guestConfig.AllowUnlinkedDM {
+		if !pkgchannel.AllowsUnlinkedGuestDM(channel.Type, channel.Enabled, channel.Config) {
 			return config.Agent{}, ErrForbidden
 		}
 	}

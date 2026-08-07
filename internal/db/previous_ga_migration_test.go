@@ -8,10 +8,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 const (
@@ -374,6 +377,13 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 		) VALUES ('00000000-0000-0000-0000-000000000046', 'previous-ga-agent:guest:duplicate', 'discord', 'chat', $1, $2::text, $2::uuid)
 	`, previousGAAgentID, previousGAGuestID)
 	assertConstraintViolation(t, err, "idx_one_agent_guest_chat")
+	_, err = sqlc.New(db).CreateChannelGuest(ctx, sqlc.CreateChannelGuestParams{
+		ID: "00000000-0000-0000-0000-000000000047", ChannelID: "previous-ga-discord",
+		Platform: "discord", ExternalID: "over-cap", MaxGuests: 1,
+	})
+	if !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("create channel guest above cap = %v, want no rows", err)
+	}
 
 	// Exercise the complete Knowledge snapshot publication relationship after
 	// upgrading the previous GA database, rather than checking table names only.
@@ -413,6 +423,31 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 		WHERE file.id = $1
 	`, previousGAKnowledgeFile); got != 1 {
 		t.Fatalf("published knowledge chunks = %d, want 1", got)
+	}
+
+	if _, err := db.Exec(ctx, `UPDATE channel_guest SET updated_at = now() - interval '31 days' WHERE id = $1`, previousGAGuestID); err != nil {
+		t.Fatalf("age guest activity: %v", err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE channel SET config = '{"guest_retention_days":365}' WHERE id = 'previous-ga-discord'`); err != nil {
+		t.Fatalf("configure guest retention: %v", err)
+	}
+	queries := sqlc.New(db)
+	deleted, err := queries.PurgeExpiredChannelGuest(ctx)
+	if err != nil {
+		t.Fatalf("purge expired channel guests: %v", err)
+	}
+	if deleted != 0 {
+		t.Fatalf("guest retention purge deleted %d guests before configured retention, want 0", deleted)
+	}
+	if _, err := db.Exec(ctx, `UPDATE channel SET config = '{' WHERE id = 'previous-ga-discord'`); err != nil {
+		t.Fatalf("set malformed channel config: %v", err)
+	}
+	deleted, err = queries.PurgeExpiredChannelGuest(ctx)
+	if err != nil {
+		t.Fatalf("purge expired channel guests with malformed config: %v", err)
+	}
+	if deleted != 1 || count("retained expired guest conversations", `SELECT count(*) FROM ctx_conversation WHERE guest_id = $1`, previousGAGuestID) != 0 {
+		t.Fatalf("guest retention purge deleted %d guests without cascading conversations, want 1 guest and 0 conversations", deleted)
 	}
 
 	var latest int64

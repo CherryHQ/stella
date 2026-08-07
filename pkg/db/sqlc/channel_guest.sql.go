@@ -10,8 +10,16 @@ import (
 )
 
 const createChannelGuest = `-- name: CreateChannelGuest :one
+WITH channel_lock AS (
+    SELECT pg_advisory_xact_lock(hashtextextended($2, 0))
+), capacity AS (
+    SELECT 1
+    FROM channel_lock
+    WHERE (SELECT count(*) FROM channel_guest WHERE channel_guest.channel_id = $2) < $5::bigint
+)
 INSERT INTO channel_guest (id, channel_id, platform, external_id)
-VALUES ($1, $2, $3, $4)
+SELECT $1, $2, $3, $4
+FROM capacity
 RETURNING id, channel_id, platform, external_id, created_at, updated_at
 `
 
@@ -20,6 +28,7 @@ type CreateChannelGuestParams struct {
 	ChannelID  string `json:"channel_id"`
 	Platform   string `json:"platform"`
 	ExternalID string `json:"external_id"`
+	MaxGuests  int64  `json:"max_guests"`
 }
 
 func (q *Queries) CreateChannelGuest(ctx context.Context, arg CreateChannelGuestParams) (ChannelGuest, error) {
@@ -28,6 +37,7 @@ func (q *Queries) CreateChannelGuest(ctx context.Context, arg CreateChannelGuest
 		arg.ChannelID,
 		arg.Platform,
 		arg.ExternalID,
+		arg.MaxGuests,
 	)
 	var i ChannelGuest
 	err := row.Scan(
@@ -68,19 +78,50 @@ func (q *Queries) GetChannelGuest(ctx context.Context, id string) (ChannelGuest,
 	return i, err
 }
 
-const getChannelGuestByExternalID = `-- name: GetChannelGuestByExternalID :one
-SELECT id, channel_id, platform, external_id, created_at, updated_at FROM channel_guest
-WHERE channel_id = $1 AND platform = $2 AND external_id = $3
+const purgeExpiredChannelGuest = `-- name: PurgeExpiredChannelGuest :execrows
+WITH channel_retention AS (
+    SELECT id, CASE
+        WHEN retention_value ~ '^-?[0-9]+$'
+            THEN GREATEST(1, LEAST(retention_value::numeric, 365))::integer
+        ELSE 30
+    END AS retention_days
+    FROM (
+        SELECT id, (CASE
+            WHEN pg_input_is_valid(config, 'jsonb') THEN config::jsonb
+            ELSE '{}'::jsonb
+        END)->>'guest_retention_days' AS retention_value
+        FROM channel
+    ) AS channel_config
+)
+DELETE FROM channel_guest AS guest
+USING channel_retention
+WHERE channel_retention.id = guest.channel_id
+  AND guest.updated_at < now() - make_interval(days => channel_retention.retention_days)
 `
 
-type GetChannelGuestByExternalIDParams struct {
+func (q *Queries) PurgeExpiredChannelGuest(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, purgeExpiredChannelGuest)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateChannelGuestActivityByExternalID = `-- name: UpdateChannelGuestActivityByExternalID :one
+UPDATE channel_guest
+SET updated_at = now()
+WHERE channel_id = $1 AND platform = $2 AND external_id = $3
+RETURNING id, channel_id, platform, external_id, created_at, updated_at
+`
+
+type UpdateChannelGuestActivityByExternalIDParams struct {
 	ChannelID  string `json:"channel_id"`
 	Platform   string `json:"platform"`
 	ExternalID string `json:"external_id"`
 }
 
-func (q *Queries) GetChannelGuestByExternalID(ctx context.Context, arg GetChannelGuestByExternalIDParams) (ChannelGuest, error) {
-	row := q.db.QueryRow(ctx, getChannelGuestByExternalID, arg.ChannelID, arg.Platform, arg.ExternalID)
+func (q *Queries) UpdateChannelGuestActivityByExternalID(ctx context.Context, arg UpdateChannelGuestActivityByExternalIDParams) (ChannelGuest, error) {
+	row := q.db.QueryRow(ctx, updateChannelGuestActivityByExternalID, arg.ChannelID, arg.Platform, arg.ExternalID)
 	var i ChannelGuest
 	err := row.Scan(
 		&i.ID,

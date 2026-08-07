@@ -7,7 +7,7 @@ import { useI18n } from "@/lib/i18n";
 
 // ─── platform metadata ────────────────────────────────────────────────────────
 
-export type PlatformDefaults = Record<string, string | boolean>;
+export type PlatformDefaults = Record<string, string | boolean | number>;
 
 /**
  * The credential fields each platform stores on a channel row. This map is the
@@ -22,6 +22,9 @@ export const platformDefaults: Record<string, PlatformDefaults> = {
     allowed_guild_ids: "",
     allow_dm: true,
     allow_unlinked_dm: false,
+    guest_message_limit_per_minute: 10,
+    guest_max_per_channel: 1000,
+    guest_retention_days: 30,
     require_mention: true,
   },
   qq: { app_id: "", app_secret: "" },
@@ -55,8 +58,15 @@ export function platformConfigDefaults(type: string): PlatformDefaults {
   return { ...platformDefaults[type] };
 }
 
-function normalizeConfigValue(defaultValue: string | boolean, value: unknown): string | boolean {
+function normalizeConfigValue(
+  defaultValue: string | boolean | number,
+  value: unknown,
+): string | boolean | number {
   if (typeof defaultValue === "boolean") return Boolean(value);
+  if (typeof defaultValue === "number") {
+    const number = Number(value);
+    return Number.isFinite(number) ? Math.trunc(number) : defaultValue;
+  }
   return (value as string) || "";
 }
 
@@ -165,6 +175,28 @@ export function ChannelConfigFields({
     </Field>
   );
 
+  const numberField = (
+    key: string,
+    label: string,
+    description: string,
+    min: number,
+    max: number,
+  ) => (
+    <Field key={key} className="w-full">
+      <FieldLabel>{label}</FieldLabel>
+      <Input
+        nativeInput
+        type="number"
+        min={min}
+        max={max}
+        value={Number(channel[key])}
+        onChange={(e) => onChange(key, e.target.valueAsNumber)}
+        className="w-full font-mono"
+      />
+      <FieldDescription>{description}</FieldDescription>
+    </Field>
+  );
+
   return (
     <div className="flex flex-col gap-4">
       {type === "telegram" && (
@@ -201,6 +233,29 @@ export function ChannelConfigFields({
             />
             <FieldDescription>{t("channels.allowUnlinkedDmDesc")}</FieldDescription>
           </Field>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            {numberField(
+              "guest_message_limit_per_minute",
+              t("channels.guestMessageLimit"),
+              t("channels.guestMessageLimitDesc"),
+              1,
+              120,
+            )}
+            {numberField(
+              "guest_max_per_channel",
+              t("channels.guestMaxPerChannel"),
+              t("channels.guestMaxPerChannelDesc"),
+              1,
+              100000,
+            )}
+            {numberField(
+              "guest_retention_days",
+              t("channels.guestRetentionDays"),
+              t("channels.guestRetentionDaysDesc"),
+              1,
+              365,
+            )}
+          </div>
           <Field>
             <FieldLabel>{t("channels.requireMention")}</FieldLabel>
             <Switch

@@ -63,6 +63,21 @@ func (a *memoryAdapter) list(ctx context.Context, userID, agentID string, opts m
 	return infosFromRecords(recs)
 }
 
+func (a *memoryAdapter) listForAdmin(ctx context.Context, agentID string, opts memory.ListOptions) ([]Info, error) {
+	opts.AgentID = agentID
+	lister, ok := a.sm.(interface {
+		ListInfoForAdmin(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("memory provider does not support administrative session listing")
+	}
+	recs, err := lister.ListInfoForAdmin(authz.WithAgentID(ctx, agentID), opts)
+	if err != nil {
+		return nil, err
+	}
+	return infosFromRecords(recs)
+}
+
 func withSessionOwner(ctx context.Context, userID, guestID string) context.Context {
 	if guestID != "" && guestID == userID {
 		return authz.WithGuestID(ctx, guestID)

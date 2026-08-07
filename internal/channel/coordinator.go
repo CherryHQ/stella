@@ -67,6 +67,7 @@ type Coordinator struct {
 	db                   *pgxpool.Pool
 	assets               *asset.Store
 	guests               GuestStore
+	guestLimiter         *guestRateLimiter
 }
 
 // WithGuestStore enables durable unlinked channel principals.
@@ -114,6 +115,7 @@ func NewCoordinator(
 		listFn:         listFn,
 		switchFn:       switchFn,
 		queue:          newSessionQueue(),
+		guestLimiter:   newGuestRateLimiter(),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -331,8 +333,27 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 	if err != nil {
 		return "", false, nil, err
 	}
+	if rc.GuestID != "" && !c.guestLimiter.allow(rc.GuestID, rc.GuestMessageLimitPerMinute) {
+		return "Guest message rate limit exceeded. Try again in a minute.", true, nil, nil
+	}
 
 	return c.handleResolvedIncoming(ctx, rc, msg, command, args)
+}
+
+// AdmitLocalCommand applies guest admission to commands a channel plugin must
+// handle locally. Linked users continue to the plugin-specific implementation.
+func (c *Coordinator) AdmitLocalCommand(ctx context.Context, msg pkgchannel.IncomingMessage) (string, bool, error) {
+	rc, err := c.resolve(ctx, msg)
+	if err != nil {
+		return "", false, err
+	}
+	if rc.GuestID == "" {
+		return "", false, nil
+	}
+	if !c.guestLimiter.allow(rc.GuestID, rc.GuestMessageLimitPerMinute) {
+		return "Guest message rate limit exceeded. Try again in a minute.", true, nil
+	}
+	return "This command is not available in guest chat.", true, nil
 }
 
 func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
@@ -341,7 +362,7 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 			return "Guest chat currently supports text messages only.", true, nil, nil
 		}
 		switch strings.ToLower(command) {
-		case "", "/new", "/abort", "/help":
+		case "", "/new", "/abort", "/help", "/compact":
 		default:
 			return "This command is not available in guest chat.", true, nil, nil
 		}

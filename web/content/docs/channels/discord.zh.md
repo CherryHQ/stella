@@ -26,9 +26,11 @@ title: Discord 机器人
 
 将 `allow_unlinked_dm` 设为 `true`，可让未关联的 Discord 用户与此渠道实例绑定的 agent 对话。此选项默认关闭；同时还必须满足 `allow_dm: true`、渠道已启用且已绑定 agent。访客不能选择其他 agent。
 
-访客的对话历史会在多次私信间持久保留，但受限访客 session 不提供 profile、reflection、工具、skills、文件、workspace、plugins 或 delegation。访客只能使用 `/link`、`/help`、`/new` 和 `/abort`。关联 Stella 账号后，之前的访客历史不会合并到该账号的历史中。
+访客的对话历史会在多次私信间持久保留，并在内容增长后自动压缩，但受限访客 session 不提供 profile、reflection、工具、skills、文件、workspace、plugins 或 delegation。访客只能使用 `/link`、`/help`、`/new`、`/compact` 和 `/abort`。关联 Stella 账号后，之前的访客历史不会合并到该账号的历史中。
 
-> **警告：** 启用访客私信会向公众开放你的模型，可能产生意外的模型费用和安全风险。此 POC 尚无访客速率限制或访客管理界面。请使用专用且对访客安全的 agent，并确保其 base prompt 不含任何 secret。
+系统会限制每位访客的消息速率和每个渠道的持久访客数量；每日保留任务会删除超期未活动的访客身份及其 session。你可以在 Web UI 中配置这些限制。管理员可以通过普通 session 管理界面查看和删除访客 session。
+
+> **警告：** 即使启用了这些限制，访客私信仍会向公众开放你的模型，并可能产生意外费用和安全风险。请使用专用且对访客安全的 agent，并确保其 base prompt 不含任何 secret。
 
 ## 使用机器人
 
@@ -46,13 +48,16 @@ title: Discord 机器人
 
 ## 配置参考
 
-| 字段                | 描述                                    | 默认值  |
-| ------------------- | --------------------------------------- | ------- |
-| `token`             | Discord bot token                       | 必需    |
-| `allowed_guild_ids` | 允许使用 Stella 的服务器 ID，以逗号分隔 | 无      |
-| `allow_dm`          | 接受账号关联和已关联用户的私信          | `true`  |
-| `allow_unlinked_dm` | 允许访客使用渠道绑定 agent 的受限私信   | `false` |
-| `require_mention`   | 服务器频道消息必须 @机器人              | `true`  |
+| 字段                             | 描述                                    | 默认值  |
+| -------------------------------- | --------------------------------------- | ------- |
+| `token`                          | Discord bot token                       | 必需    |
+| `allowed_guild_ids`              | 允许使用 Stella 的服务器 ID，以逗号分隔 | 无      |
+| `allow_dm`                       | 接受账号关联和已关联用户的私信          | `true`  |
+| `allow_unlinked_dm`              | 允许访客使用渠道绑定 agent 的受限私信   | `false` |
+| `guest_message_limit_per_minute` | 每位访客每分钟可发送的消息和命令数      | `10`    |
+| `guest_max_per_channel`          | 渠道可持久保存的访客身份上限            | `1000`  |
+| `guest_retention_days`           | 访客停止活动多少天后删除身份及 session  | `30`    |
+| `require_mention`                | 服务器频道消息必须 @机器人              | `true`  |
 
 ## 故障排除
 

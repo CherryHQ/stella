@@ -153,6 +153,43 @@ func (r *Registry) List(ctx context.Context, scope Scope, opts ListOptions) ([]I
 	return out, nil
 }
 
+// ListForAdmin returns agent-scoped sessions across user and guest owners. The
+// caller must enforce administrator authority and per-row read authorization.
+func (r *Registry) ListForAdmin(ctx context.Context, agentID string, opts ListOptions) ([]Info, error) {
+	agentID = r.resolveAgentID(agentID)
+	if agentID == "" {
+		return nil, fmt.Errorf("ListForAdmin requires AgentID")
+	}
+	lister, ok := r.store.(interface {
+		listForAdmin(context.Context, string, memory.ListOptions) ([]Info, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("session store does not support administrative listing")
+	}
+	all, err := lister.listForAdmin(ctx, agentID, memory.ListOptions{
+		AgentID:         agentID,
+		IncludeArchived: opts.IncludeArchived,
+		ExcludeInternal: opts.ExcludeInternal,
+		ProjectID:       opts.ProjectID,
+		Limit:           opts.Limit,
+		Offset:          opts.Offset,
+	})
+	if err != nil || len(opts.Kinds) == 0 {
+		return all, err
+	}
+	kindSet := make(map[Kind]struct{}, len(opts.Kinds))
+	for _, kind := range opts.Kinds {
+		kindSet[kind] = struct{}{}
+	}
+	out := all[:0]
+	for _, info := range all {
+		if _, allowed := kindSet[Kind(info.Kind)]; allowed {
+			out = append(out, info)
+		}
+	}
+	return out, nil
+}
+
 // Archive marks a session as archived.
 func (r *Registry) Archive(ctx context.Context, scope Scope, id string) error {
 	info, err := r.Get(ctx, scope, id)

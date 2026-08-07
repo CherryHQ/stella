@@ -330,11 +330,12 @@ func (a *Access) authorizeChannelBinding(ctx context.Context, req agentsession.C
 	}
 	actor := a.authority
 	facts := sessionFacts{
-		isOwner:     string(actor.UserID()) != "" && string(actor.UserID()) == req.UserID,
-		isGuest:     req.GuestID != "" && string(actor.GuestID()) == req.GuestID && req.UserID == req.GuestID,
-		isExecutor:  string(actor.AgentID()) != "" && string(actor.AgentID()) == req.AgentID,
-		isGroup:     req.GroupID != "",
-		isSameGroup: req.GroupID != "" && string(actor.GroupID()) == req.GroupID,
+		isOwner:        string(actor.UserID()) != "" && string(actor.UserID()) == req.UserID,
+		isGuestSession: req.GuestID != "" && req.UserID == req.GuestID,
+		isSameGuest:    req.GuestID != "" && string(actor.GuestID()) == req.GuestID,
+		isExecutor:     string(actor.AgentID()) != "" && string(actor.AgentID()) == req.AgentID,
+		isGroup:        req.GroupID != "",
+		isSameGroup:    req.GroupID != "" && string(actor.GroupID()) == req.GroupID,
 	}
 	if !a.allowSession(authz.ActionCreate, facts) || !a.allowSession(extra, facts) {
 		return ErrNotFound
@@ -365,7 +366,13 @@ func (a *Access) List(ctx context.Context, agentID string, opts agentsession.Lis
 	if userID == "" {
 		return nil, ErrForbidden
 	}
-	infos, err := a.svc.registry.List(ctx, agentsession.Scope{UserID: userID, AgentID: agentID}, opts)
+	var infos []agentsession.Info
+	var err error
+	if a.authority.IsAdmin() {
+		infos, err = a.svc.registry.ListForAdmin(ctx, agentID, opts)
+	} else {
+		infos, err = a.svc.registry.List(ctx, agentsession.Scope{UserID: userID, AgentID: agentID}, opts)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: list sessions: %w", ErrUnavailable, err)
 	}
@@ -416,7 +423,13 @@ func (a *Access) ListPage(ctx context.Context, agentID string, opts agentsession
 		query.Kinds = nil // filter here so the durable cursor counts every candidate
 		query.Offset = offset
 		query.Limit = batchSize
-		candidates, err := a.svc.registry.List(ctx, agentsession.Scope{UserID: userID, AgentID: agentID}, query)
+		var candidates []agentsession.Info
+		var err error
+		if a.authority.IsAdmin() {
+			candidates, err = a.svc.registry.ListForAdmin(ctx, agentID, query)
+		} else {
+			candidates, err = a.svc.registry.List(ctx, agentsession.Scope{UserID: userID, AgentID: agentID}, query)
+		}
 		if err != nil {
 			return ListPage{}, fmt.Errorf("%w: list sessions: %w", ErrUnavailable, err)
 		}
@@ -464,6 +477,13 @@ func (a *Access) Archive(ctx context.Context, info agentsession.Info) error {
 func (a *Access) ensure(ctx context.Context, req agentsession.Request, action authz.Action) (agentsession.Info, error) {
 	if req.AgentID == "" || (req.ID == "" && !req.CreateIfMissing) {
 		return agentsession.Info{}, ErrNotFound
+	}
+	if a.authority.Kind() == authz.ActorGuest {
+		guestID := string(a.authority.GuestID())
+		if guestID == "" || req.UserID != guestID {
+			return agentsession.Info{}, ErrNotFound
+		}
+		ctx = authz.WithGuestID(ctx, guestID)
 	}
 	if req.CreateIfMissing {
 		if req.UserID == "" || req.Kind == "" || req.Channel == "" {
@@ -583,21 +603,23 @@ func (a *Access) authorizeAgent(ctx context.Context, agentID string, action auth
 // compare. They are derived at the PEP from immutable authority plus durable
 // conversation facts; a transport never supplies them.
 type sessionFacts struct {
-	isOwner     bool
-	isGuest     bool
-	isExecutor  bool
-	isGroup     bool
-	isSameGroup bool
+	isOwner        bool
+	isGuestSession bool
+	isSameGuest    bool
+	isExecutor     bool
+	isGroup        bool
+	isSameGroup    bool
 }
 
 func sessionFactsFor(info agentsession.Info, authority authz.Authority) sessionFacts {
 	actor := authority
 	return sessionFacts{
-		isOwner:     info.GuestID == "" && string(actor.UserID()) != "" && string(actor.UserID()) == info.UserID,
-		isGuest:     info.GuestID != "" && string(actor.GuestID()) == info.GuestID,
-		isExecutor:  string(actor.AgentID()) != "" && string(actor.AgentID()) == info.AgentID,
-		isGroup:     info.GroupID != "",
-		isSameGroup: info.GroupID != "" && string(actor.GroupID()) == info.GroupID,
+		isOwner:        info.GuestID == "" && string(actor.UserID()) != "" && string(actor.UserID()) == info.UserID,
+		isGuestSession: info.GuestID != "",
+		isSameGuest:    info.GuestID != "" && string(actor.GuestID()) == info.GuestID,
+		isExecutor:     string(actor.AgentID()) != "" && string(actor.AgentID()) == info.AgentID,
+		isGroup:        info.GroupID != "",
+		isSameGroup:    info.GroupID != "" && string(actor.GroupID()) == info.GroupID,
 	}
 }
 
@@ -625,8 +647,11 @@ func (a *Access) allowSession(action authz.Action, f sessionFacts) bool {
 	if !isSessionAction(action) {
 		return false
 	}
-	if f.isGuest || a.authority.Kind() == authz.ActorGuest {
-		return a.authority.Kind() == authz.ActorGuest && f.isGuest && isWorkerSessionAction(action)
+	if f.isGuestSession || a.authority.Kind() == authz.ActorGuest {
+		if a.authority.IsAdmin() && f.isGuestSession {
+			return action == authz.ActionRead || action == authz.ActionDelete
+		}
+		return a.authority.Kind() == authz.ActorGuest && f.isGuestSession && f.isSameGuest && isWorkerSessionAction(action)
 	}
 	if a.authority.IsAdmin() {
 		return true
@@ -674,6 +699,9 @@ func (a *Access) allowWorkspace(action authz.Action, f sessionFacts) bool {
 	switch action {
 	case authz.ActionRead, authz.ActionList, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete:
 	default:
+		return false
+	}
+	if f.isGuestSession {
 		return false
 	}
 	if a.authority.IsAdmin() {

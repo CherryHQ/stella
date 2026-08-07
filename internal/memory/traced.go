@@ -533,6 +533,19 @@ func (t *tracedProvider) ListInfoForReview(ctx context.Context, opts ListOptions
 	return infos, err
 }
 
+// ListInfoForAdmin preserves the optional administrative listing capability.
+// It deliberately bypasses memory hooks: listing guest metadata must not enter
+// any user or guest memory lifecycle.
+func (t *tracedProvider) ListInfoForAdmin(ctx context.Context, opts ListOptions) ([]SessionInfo, error) {
+	lister, ok := t.inner.(interface {
+		ListInfoForAdmin(ctx context.Context, opts ListOptions) ([]SessionInfo, error)
+	})
+	if !ok {
+		return nil, errCapabilityNotSupported("ListInfoForAdmin")
+	}
+	return lister.ListInfoForAdmin(ctx, opts)
+}
+
 func (t *tracedProvider) LoadHistory(ctx context.Context, sessionID string) ([]ai.Message, error) {
 	sm, ok := t.inner.(SessionManager)
 	if !ok {

@@ -51,7 +51,7 @@ type guestResolutionStore struct {
 	calls int
 }
 
-func (s *guestResolutionStore) ResolveOrCreateGuest(_ context.Context, channelID, platform, externalID string) (sqlc.ChannelGuest, error) {
+func (s *guestResolutionStore) ResolveOrCreateGuest(_ context.Context, channelID, platform, externalID string, _ int) (sqlc.ChannelGuest, error) {
 	s.calls++
 	s.guest.ChannelID, s.guest.Platform, s.guest.ExternalID = channelID, platform, externalID
 	return s.guest, nil

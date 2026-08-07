@@ -100,7 +100,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	}
 
 	// Auto-compact.
-	if !isGuest && rt.needsCompaction(ctx, memSess) {
+	if rt.needsCompaction(ctx, memSess) {
 		rt.log.Info("auto-compaction triggered", "session_id", info.ID)
 		compactCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), autoCompactionTimeout)
 		if summary, err := rt.compact_(compactCtx, memSess); err != nil {
@@ -282,6 +282,8 @@ func (rt *Runtime) getOrCreateRunner(ctx context.Context, info session.Info, mod
 	}
 	if info.GuestID == "" {
 		attrs = append(attrs, attribute.String("user_id", info.UserID))
+	} else {
+		attrs = append(attrs, attribute.String("guest_id", info.GuestID))
 	}
 	if info.ProjectID != "" {
 		attrs = append(attrs, attribute.String("project_id", info.ProjectID))

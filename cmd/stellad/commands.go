@@ -25,6 +25,7 @@ import (
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/blob"
+	"github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/internal/cli"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/connections"
@@ -314,6 +315,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		Providers:         providerStreamBuilder,
 		Services:          &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
 	}, cfg.Reflect.Interval, cfg.Reflect.LegacyModeGuard, cfg.Reflect.CuratorMode); err != nil {
+		return nil, err
+	}
+	if err := registerChannelGuestRetentionBuiltin(schedulerSvc, channel.NewGuestRetention(db)); err != nil {
 		return nil, err
 	}
 

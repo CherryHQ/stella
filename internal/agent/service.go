@@ -24,10 +24,6 @@ import (
 // rather than silently compacting an event-log conversation.
 var ErrGroupCompactionUnsupported = errors.New("compaction is not supported for group sessions")
 
-// ErrGuestCompactionUnsupported prevents guest history from entering memory
-// summarization/reflection paths while retaining ordinary LCM assembly/append.
-var ErrGuestCompactionUnsupported = errors.New("compaction is not supported for guest sessions")
-
 // Service is a thin composition facade over session.Registry and runtime.Runtime.
 // It provides ergonomic entry points for common use cases without hiding the
 // conceptual split: policy lives in Session, execution lives in Runtime.
@@ -632,8 +628,11 @@ func (s *Service) CompactAuthorizedSession(ctx context.Context, info session.Inf
 		return "", ErrGroupCompactionUnsupported
 	}
 	if info.GuestID != "" {
-		return "", ErrGuestCompactionUnsupported
+		ctx = authz.WithGuestID(ctx, info.GuestID)
+	} else {
+		ctx = authz.WithUserID(ctx, info.UserID)
 	}
+	ctx = authz.WithAgentID(ctx, info.AgentID)
 	mem := s.Runtime.Memory()
 	if mem == nil {
 		return "", fmt.Errorf("no memory provider")

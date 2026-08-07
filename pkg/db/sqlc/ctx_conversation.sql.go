@@ -520,6 +520,76 @@ func (q *Queries) ListConversationsFiltered(ctx context.Context, arg ListConvers
 	return items, nil
 }
 
+const listConversationsForAdminFiltered = `-- name: ListConversationsForAdminFiltered :many
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id FROM ctx_conversation
+WHERE agent_id IS NOT DISTINCT FROM $1
+  AND ($2 != 0 OR archived = false)
+  AND ($3::boolean = false OR kind NOT IN ('task', 'delegate'))
+  AND ($4::text IS NULL OR kind = $4)
+  AND ($5 = 0 OR project_id IS NULL)
+  AND ($6::text IS NULL OR project_id = $6)
+ORDER BY last_active DESC, session_id DESC
+LIMIT NULLIF($8, -1) OFFSET $7
+`
+
+type ListConversationsForAdminFilteredParams struct {
+	AgentID         pgtype.Text `json:"agent_id"`
+	IncludeArchived interface{} `json:"include_archived"`
+	ExcludeInternal bool        `json:"exclude_internal"`
+	Kind            pgtype.Text `json:"kind"`
+	ProjectIDIsNull interface{} `json:"project_id_is_null"`
+	ProjectID       pgtype.Text `json:"project_id"`
+	Offset          int32       `json:"offset"`
+	Limit           interface{} `json:"limit"`
+}
+
+// Administrative session management is agent-scoped but intentionally crosses
+// user and guest ownership. Authorization remains in the session access layer.
+func (q *Queries) ListConversationsForAdminFiltered(ctx context.Context, arg ListConversationsForAdminFilteredParams) ([]CtxConversation, error) {
+	rows, err := q.db.Query(ctx, listConversationsForAdminFiltered,
+		arg.AgentID,
+		arg.IncludeArchived,
+		arg.ExcludeInternal,
+		arg.Kind,
+		arg.ProjectIDIsNull,
+		arg.ProjectID,
+		arg.Offset,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxConversation{}
+	for rows.Next() {
+		var i CtxConversation
+		if err := rows.Scan(
+			&i.ID,
+			&i.SessionID,
+			&i.Title,
+			&i.Channel,
+			&i.Kind,
+			&i.ProjectID,
+			&i.Archived,
+			&i.LastActive,
+			&i.BootstrappedAt,
+			&i.AgentID,
+			&i.UserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.GroupID,
+			&i.GuestID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listConversationsForReviewByAgent = `-- name: ListConversationsForReviewByAgent :many
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id FROM ctx_conversation
 WHERE agent_id = $1

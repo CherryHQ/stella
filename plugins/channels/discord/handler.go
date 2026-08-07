@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,11 +14,14 @@ import (
 	"github.com/bwmarrin/discordgo"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
 const maxAttachmentBytes = 25 << 20
+
+var errGuestAttachmentsUnsupported = errors.New("attachments are not supported in guest chat")
 
 type channelContentBlock = ai.ContentBlock
 
@@ -58,6 +62,9 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
 			if err != nil {
 				// Resolve ownership before fetching untrusted content. In particular,
 				// guest sessions have no workspace and must not trigger downloads.
+				if errors.Is(err, agentaccess.ErrForbidden) {
+					return errGuestAttachmentsUnsupported
+				}
 				return fmt.Errorf("attachments are unavailable for this Discord session: %w", err)
 			}
 		}
@@ -76,6 +83,19 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
 	}
 	cmd, args := channel.ParseSlashCommand(text)
 	reply := func(text string) { _ = b.sendText(deliveryCtx, m.ChannelID, text, m.ID) }
+	switch cmd {
+	case "/model", "/agent":
+		if admitter, ok := b.handler.(channel.LocalCommandAdmitter); ok {
+			resp, handled, err := admitter.AdmitLocalCommand(ctx, msg)
+			if err != nil {
+				return err
+			}
+			if handled {
+				reply(resp)
+				return nil
+			}
+		}
+	}
 	switch cmd {
 	case "/model":
 		reply("The /model command is not available in Discord yet.")
