@@ -57,17 +57,16 @@ func resolveToolPath(session pkgsandbox.Session, input string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		// Variables are trusted session-policy aliases. A non-isolating backend
-		// expands them to a host path, which must be projected back into the
-		// Filesystem's canonical mount view. Literal host paths never take this
-		// branch and remain forbidden at the Filesystem boundary.
-		resolver := pkgsandbox.NewPathResolver(pkgsandbox.PathResolverConfig{
-			WorkspaceRoot: policy.Filesystem.WorkspaceRoot,
-			WorkingDir:    policy.Filesystem.WorkingDir,
-			Mounts:        policy.Filesystem.Mounts,
-		})
-		if sandboxPath, ok := resolver.ToSandboxPath(resolved); ok {
-			resolved = sandboxPath
+		// Variables are trusted session-policy aliases. Providers alone know how
+		// to project their physical process view into canonical Filesystem paths.
+		projector, ok := session.(pkgsandbox.FilesystemPathProjector)
+		if !ok {
+			return "", fmt.Errorf("sandbox session cannot project filesystem paths")
+		}
+		var projected bool
+		resolved, projected = projector.ProjectFilesystemPath(resolved)
+		if !projected {
+			return "", fmt.Errorf("sandbox filesystem path %q is not mapped", input)
 		}
 	}
 	if !strings.HasPrefix(resolved, "/") {

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"path"
+	"strings"
 	"time"
 )
 
@@ -90,4 +92,22 @@ type Filesystem interface {
 type FilesystemSession interface {
 	Session
 	Filesystem() (Filesystem, error)
+}
+
+// FilesystemPathProjector maps a trusted provider-side filesystem path into a
+// canonical Filesystem coordinate. It never returns a physical host path.
+// Providers expose it separately from FilesystemSession because path projection
+// is optional and must not broaden Session's process capability.
+type FilesystemPathProjector interface {
+	ProjectFilesystemPath(path string) (canonical string, ok bool)
+}
+
+// IsCanonicalFilesystemPath reports whether value is a canonical POSIX path
+// within one of the public Filesystem roots. It deliberately accepts no host
+// separators or traversal syntax.
+func IsCanonicalFilesystemPath(value string) bool {
+	if !path.IsAbs(value) || path.Clean(value) != value || strings.Contains(value, "\\") {
+		return false
+	}
+	return value == PathWorkspace || strings.HasPrefix(value, PathWorkspace+"/") || value == PathUser || strings.HasPrefix(value, PathUser+"/") || value == PathTemp || strings.HasPrefix(value, PathTemp+"/")
 }

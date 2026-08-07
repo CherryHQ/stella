@@ -33,10 +33,26 @@ type dockerFilesystem struct{ session *dockerSession }
 
 var (
 	_ sandboxpkg.FilesystemSession       = (*dockerSession)(nil)
+	_ sandboxpkg.FilesystemPathProjector = (*dockerSession)(nil)
 	_ sandboxpkg.Filesystem              = (*dockerFilesystem)(nil)
 	_ sandboxpkg.ManagedSkillPublisher   = (*dockerFilesystem)(nil)
 	_ sandboxpkg.ManagedSkillUnpublisher = (*dockerFilesystem)(nil)
 )
+
+// ProjectFilesystemPath accepts only already-canonical container coordinates.
+// Docker's daemon bind sources are never provider-visible and must not be
+// projectable from a caller-supplied path.
+func (s *dockerSession) ProjectFilesystemPath(input string) (string, bool) {
+	if !sandboxpkg.IsCanonicalFilesystemPath(input) {
+		return "", false
+	}
+	for _, mount := range s.mountTable {
+		if input == mount.ContainerPath || strings.HasPrefix(input, mount.ContainerPath+"/") {
+			return input, true
+		}
+	}
+	return "", false
+}
 
 func (f *dockerFilesystem) Close() error { return nil }
 func (f *dockerFilesystem) Read(ctx context.Context, p string, o sandboxpkg.ReadOptions) (io.ReadCloser, sandboxpkg.FileInfo, error) {

@@ -42,7 +42,10 @@ type Factory struct {
 	cfg Config
 }
 
-var _ sandboxpkg.FilesystemSession = (*localSession)(nil)
+var (
+	_ sandboxpkg.FilesystemSession       = (*localSession)(nil)
+	_ sandboxpkg.FilesystemPathProjector = (*localSession)(nil)
+)
 
 // NewFactory returns a Factory for the local backend.
 func NewFactory(cfg ...Config) sandboxpkg.Factory {
@@ -315,7 +318,29 @@ func (s *localSession) Filesystem() (sandboxpkg.Filesystem, error) {
 	if len(mounts) == 0 {
 		mounts = append(mounts, fsops.Mount{Path: sandboxpkg.PathWorkspace, Directory: s.realRoot})
 	}
+	for _, mount := range s.tmpMounts {
+		if mount.sandboxPath == sandboxpkg.PathTemp {
+			mounts = append(mounts, fsops.Mount{Path: sandboxpkg.PathTemp, Directory: mount.realPath})
+		}
+	}
 	return fsops.NewFilesystem(mounts)
+}
+
+// ProjectFilesystemPath returns only a canonical mounted Filesystem path.
+func (s *localSession) ProjectFilesystemPath(input string) (string, bool) {
+	if strings.HasPrefix(input, sandboxpkg.PathWorkspace) || strings.HasPrefix(input, sandboxpkg.PathUser) || strings.HasPrefix(input, sandboxpkg.PathTemp) {
+		return input, sandboxpkg.IsCanonicalFilesystemPath(input)
+	}
+	resolver := s.pathResolver()
+	if canonical, ok := resolver.ToSandboxPath(input); ok && sandboxpkg.IsCanonicalFilesystemPath(filepath.ToSlash(canonical)) {
+		return filepath.ToSlash(canonical), true
+	}
+	if host, ok := resolver.ToHostPath(input); ok {
+		if canonical, ok := resolver.ToSandboxPath(host); ok && sandboxpkg.IsCanonicalFilesystemPath(filepath.ToSlash(canonical)) {
+			return filepath.ToSlash(canonical), true
+		}
+	}
+	return "", false
 }
 
 func (s *localSession) Alive() bool {

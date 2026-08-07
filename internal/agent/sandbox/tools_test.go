@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -33,6 +34,23 @@ func (s *toolTestSession) Filesystem() (pkgsandbox.Filesystem, error) {
 	return fsops.NewFilesystem(s.mounts)
 }
 
+func (s *toolTestSession) ProjectFilesystemPath(input string) (string, bool) {
+	if pkgsandbox.IsCanonicalFilesystemPath(input) {
+		return input, true
+	}
+	for _, mount := range s.mounts {
+		if input == mount.Path || strings.HasPrefix(input, mount.Path+"/") {
+			return input, true
+		}
+		rel, err := filepath.Rel(mount.Directory, input)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			canonical := path.Join(mount.Path, filepath.ToSlash(rel))
+			return canonical, pkgsandbox.IsCanonicalFilesystemPath(canonical)
+		}
+	}
+	return "", false
+}
+
 func workspaceSession(t *testing.T, dir string) *toolTestSession {
 	t.Helper()
 	return &toolTestSession{
@@ -51,6 +69,14 @@ func (panicPolicySession) Policy() pkgsandbox.Policy {
 }
 func (panicPolicySession) WorkingDir() string { return pkgsandbox.PathWorkspace }
 
+type unprojectableSession struct {
+	pkgsandbox.Session
+	policy pkgsandbox.Policy
+}
+
+func (s unprojectableSession) Policy() pkgsandbox.Policy { return s.policy }
+func (unprojectableSession) WorkingDir() string          { return pkgsandbox.PathWorkspace }
+
 func TestLiteralToolPathsDoNotRequireSessionPolicy(t *testing.T) {
 	session := panicPolicySession{Session: pkgsandbox.NopSession()}
 	// Absolute paths canonicalize as-is; relative paths join the working dir.
@@ -68,6 +94,17 @@ func TestLiteralToolPathsDoNotRequireSessionPolicy(t *testing.T) {
 		if got != want {
 			t.Errorf("resolveToolPath(%q) = %q, want %q", input, got, want)
 		}
+	}
+}
+
+func TestVariableToolPathRequiresMappedProjector(t *testing.T) {
+	missing := unprojectableSession{Session: pkgsandbox.NopSession(), policy: pkgsandbox.Policy{Env: map[string]string{"HOME": "/workspace"}}}
+	if _, err := resolveToolPath(missing, "$HOME/file"); err == nil {
+		t.Fatal("variable path succeeded without projector")
+	}
+	unmapped := &toolTestSession{Session: pkgsandbox.NopSession(), policy: pkgsandbox.Policy{Env: map[string]string{"HOME": "/unmapped"}}}
+	if _, err := resolveToolPath(unmapped, "$HOME/file"); err == nil {
+		t.Fatal("variable path succeeded with unmapped source")
 	}
 }
 

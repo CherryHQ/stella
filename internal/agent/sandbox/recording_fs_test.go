@@ -117,6 +117,7 @@ type recordingSession struct {
 	fs      *recordingFS
 	policy  pkgsandbox.Policy
 	workDir string
+	project map[string]string
 }
 
 func (s *recordingSession) Policy() pkgsandbox.Policy { return s.policy }
@@ -127,6 +128,10 @@ func (s *recordingSession) WorkingDir() string {
 	return s.workDir
 }
 func (s *recordingSession) Filesystem() (pkgsandbox.Filesystem, error) { return s.fs, nil }
+func (s *recordingSession) ProjectFilesystemPath(value string) (string, bool) {
+	canonical, ok := s.project[value]
+	return canonical, ok && pkgsandbox.IsCanonicalFilesystemPath(canonical)
+}
 
 func newRecordingSession(f *recordingFS) *recordingSession {
 	return &recordingSession{Session: pkgsandbox.NopSession(), fs: f, workDir: pkgsandbox.PathWorkspace}
@@ -326,6 +331,7 @@ func TestToolsExpandLeadingVariableToCanonicalRoot(t *testing.T) {
 		fs:      f,
 		workDir: pkgsandbox.PathWorkspace,
 		policy:  pkgsandbox.Policy{Env: map[string]string{pkgsandbox.EnvStellaAssetsDir: pkgsandbox.PathUser + "/assets"}},
+		project: map[string]string{pkgsandbox.PathUser + "/assets/report.txt": pkgsandbox.PathUser + "/assets/report.txt"},
 	}
 	if _, err := newReadTool(session).Execute(context.Background(), map[string]any{"path": "$STELLA_ASSETS_DIR/report.txt"}); err != nil {
 		t.Fatalf("read: %v", err)

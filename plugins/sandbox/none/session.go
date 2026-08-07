@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/CherryHQ/stella/internal/fsops"
@@ -35,7 +36,10 @@ type Factory struct {
 	cfg Config
 }
 
-var _ sandboxpkg.FilesystemSession = (*noneSession)(nil)
+var (
+	_ sandboxpkg.FilesystemSession       = (*noneSession)(nil)
+	_ sandboxpkg.FilesystemPathProjector = (*noneSession)(nil)
+)
 
 // NewFactory returns a Factory for the none backend.
 func NewFactory(cfg ...Config) sandboxpkg.Factory {
@@ -185,7 +189,26 @@ func (s *noneSession) Filesystem() (sandboxpkg.Filesystem, error) {
 	if len(mounts) == 0 {
 		mounts = append(mounts, fsops.Mount{Path: sandboxpkg.PathWorkspace, Directory: s.WorkingDir()})
 	}
+	if s.ownedTempDir != "" {
+		mounts = append(mounts, fsops.Mount{Path: sandboxpkg.PathTemp, Directory: s.ownedTempDir})
+	}
 	return fsops.NewFilesystem(mounts)
+}
+
+func (s *noneSession) ProjectFilesystemPath(input string) (string, bool) {
+	if strings.HasPrefix(input, sandboxpkg.PathWorkspace) || strings.HasPrefix(input, sandboxpkg.PathUser) || strings.HasPrefix(input, sandboxpkg.PathTemp) {
+		return input, sandboxpkg.IsCanonicalFilesystemPath(input)
+	}
+	if s.ownedTempDir != "" {
+		if rel, err := filepath.Rel(s.ownedTempDir, input); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			canonical := path.Join(sandboxpkg.PathTemp, filepath.ToSlash(rel))
+			return canonical, sandboxpkg.IsCanonicalFilesystemPath(canonical)
+		}
+	}
+	if canonical, ok := s.layout.SourceToTarget(input); ok && sandboxpkg.IsCanonicalFilesystemPath(canonical) {
+		return canonical, true
+	}
+	return "", false
 }
 
 func (s *noneSession) Alive() bool {

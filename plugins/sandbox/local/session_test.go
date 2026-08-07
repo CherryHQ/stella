@@ -79,6 +79,41 @@ func TestFactoryScrubsPolicyPhysicalLayout(t *testing.T) {
 	}
 }
 
+func TestFactoryProjectsFilesystemEnvironmentPaths(t *testing.T) {
+	skipIfBwrapNotFunctional(t)
+	workspace, user := t.TempDir(), t.TempDir()
+	layout := hostlayout.Layout{WorkspaceSource: workspace, WorkingDirSource: workspace, Mounts: []hostlayout.Mount{{Source: workspace, Target: sandboxpkg.PathWorkspace, Access: hostlayout.ReadWrite}, {Source: user, Target: sandboxpkg.PathUser, Access: hostlayout.ReadWrite}}}
+	session, err := NewFactory(Config{Layout: layout}).CreateSession(context.Background(), sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: workspace}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close() //nolint:errcheck
+	projector := session.(sandboxpkg.FilesystemPathProjector)
+	for source, want := range map[string]string{
+		session.Policy().Env["HOME"]:                                    sandboxpkg.PathWorkspace,
+		session.Policy().Env[sandboxpkg.EnvStellaAssetsDir]:             sandboxpkg.PathUser + "/assets",
+		filepath.Join(session.Policy().Env[sandboxpkg.EnvTempDir], "x"): sandboxpkg.PathTemp + "/x",
+		sandboxpkg.PathWorkspace + "/a":                                 sandboxpkg.PathWorkspace + "/a",
+	} {
+		if got, ok := projector.ProjectFilesystemPath(source); !ok || got != want {
+			t.Errorf("ProjectFilesystemPath(%q) = %q, %v; want %q", source, got, ok, want)
+		}
+	}
+	filesystem, err := session.(sandboxpkg.FilesystemSession).Filesystem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer filesystem.Close() //nolint:errcheck
+	if err := filesystem.Write(context.Background(), "/tmp/projected", strings.NewReader("ok"), sandboxpkg.WriteOptions{}); err != nil {
+		t.Fatalf("Filesystem temp write: %v", err)
+	}
+	for _, source := range []string{workspace + "-sibling", "/workspace/../user", `/workspace\x`} {
+		if _, ok := projector.ProjectFilesystemPath(source); ok {
+			t.Errorf("ProjectFilesystemPath accepted %q", source)
+		}
+	}
+}
+
 func TestFactory_sessionsOwnDistinctTempDirs(t *testing.T) {
 	skipIfBwrapNotFunctional(t)
 	root := t.TempDir()
