@@ -51,6 +51,7 @@ func createDockerSession(ctx context.Context, cfg Config) (pkgsandbox.Session, e
 	}
 	factory, err := dockerplugin.NewFactory(dockerplugin.Config{
 		Image: dockerImage(), StellaHome: paths.StellaHome,
+		Layout:                 runnerHostLayout(paths, cfg),
 		ExpectedBundleRevision: registry.BundleRevision(),
 		ExpectedHelperRevision: version.Version,
 	})
@@ -58,7 +59,7 @@ func createDockerSession(ctx context.Context, cfg Config) (pkgsandbox.Session, e
 		return nil, err
 	}
 
-	session, err := factory.CreateSession(ctx, policy)
+	session, err := factory.CreateSession(ctx, providerPolicy(policy))
 	if err != nil {
 		if dockerImageIsDev() {
 			err = fmt.Errorf("%w (run `mise run sandbox:docker:build` to build the local %q image)", err, dockerImage())
@@ -119,8 +120,7 @@ func createHostSession(ctx context.Context, cfg Config) (pkgsandbox.Session, err
 	return session, nil
 }
 
-// providerPolicy removes physical filesystem authority before local and none
-// factories see it. Docker continues to receive its temporary legacy projection.
+// providerPolicy removes physical filesystem authority before providers see it.
 func providerPolicy(policy pkgsandbox.Policy) pkgsandbox.Policy {
 	policy.Filesystem.WorkspaceRoot = ""
 	policy.Filesystem.Mounts = nil

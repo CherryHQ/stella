@@ -9,7 +9,6 @@ import (
 	"maps"
 	"os"
 	"path"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -73,6 +72,7 @@ func (f *dockerFactory) client() (*dockerclient.Client, error) {
 // Both steps are skipped when StellaHome is empty (e.g. unit tests), making
 // construction cheap and infallible in that case.
 func NewFactory(cfg Config) (sandboxpkg.Factory, error) {
+	cfg.Layout = cfg.Layout.Clone()
 	if cfg.StellaHome != "" {
 		var err error
 		cfg, err = applyDockerMode(cfg, cfg.StellaHome)
@@ -122,6 +122,10 @@ func (f *dockerFactory) Available() bool {
 
 // Supported returns a PolicyCompatibilityError when the docker daemon is unreachable.
 func (f *dockerFactory) Supported(policy sandboxpkg.Policy) error {
+	policy = scrubDockerPolicy(policy)
+	if err := f.cfg.Layout.Validate(); err != nil {
+		return fmt.Errorf("docker sandbox: invalid host layout: %w", err)
+	}
 	if !f.Available() {
 		return &sandboxpkg.PolicyCompatibilityError{
 			Backend: f.Name(),
@@ -166,6 +170,7 @@ func (f *dockerFactory) EnsureReady(ctx context.Context) error {
 
 // CreateSession starts a new container and returns a dockerSession.
 func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
+	policy = scrubDockerPolicy(policy)
 	if err := f.Supported(policy); err != nil {
 		return nil, err
 	}
@@ -180,13 +185,10 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		}
 	}
 
-	sessionID := nextSessionID()
-	policy.Filesystem.Mounts = normalizeDockerPolicyMounts(policy.Filesystem.Mounts)
+	layout := f.cfg.Layout
+	workspaceHost := layout.WorkspaceSource
 
-	workspaceHost, err := filepath.Abs(policy.WorkspaceRootOrDefault())
-	if err != nil {
-		return nil, fmt.Errorf("docker session: abs workspace root: %w", err)
-	}
+	sessionID := nextSessionID()
 
 	tempDir, err := f.prepareSessionTempDir(sessionID)
 	if err != nil {
@@ -200,13 +202,6 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	}()
 	// Shared user-data root (mounted as /user). Empty for a user-less job, which
 	// has no principal home — then no /user mount and shared assets stay unset.
-	userDataHost := ""
-	if ud := hostPathForSandboxMount(policy.Filesystem.Mounts, userDataMount); ud != "" {
-		if abs, absErr := filepath.Abs(ud); absErr == nil {
-			userDataHost = abs
-		}
-	}
-
 	ctx, span := tracer.Start(ctx, "sandbox.docker.session",
 		trace.WithAttributes(sessionTraceAttrs(sessionID, policy, f.cfg.Image, workspaceHost)...),
 	)
@@ -239,7 +234,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		Name: "stella-sandbox-" + sessionID,
 	}
 
-	mountedPolicyMounts, mountedTempDirHost, mountedUserDataHost, err := f.configureSessionMounts(&opts, policy, workspaceHost, userDataHost, tempDir)
+	mountedLayout, mountedTempDirHost, mountedUserDataHost, err := f.configureSessionMounts(&opts, layout, tempDir)
 	if err != nil {
 		recordError(span, err)
 		span.End()
@@ -248,7 +243,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 
 	// Per-user mise tree(s) are generic writable mounts; keep their mounted pairs
 	// so PATH can point at their shims.
-	perUserTrees := writableToolTrees(mountedPolicyMounts)
+	perUserTrees := writableToolTrees(mountedLayout)
 
 	// Render only roots that actually have a container view. An unavailable
 	// /user mount falls persistent XDG state back to the workspace. Values stay
@@ -279,15 +274,16 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	mountTable := buildMountTable(mountTableOptions{
 		WorkspaceHost:  workspaceHost,
 		WorkspaceMount: workspaceMount,
-		Mounts:         mountedPolicyMounts,
+		Mounts:         mountedLayout,
 		TempHost:       mountedTempDirHost,
 	})
-	agentCwd, err := agentWorkingDir(mountTable, policy.Filesystem.WorkingDir)
+	agentCwd, err := agentWorkingDir(mountTable, layout.WorkingDirSource)
 	if err != nil {
 		recordError(span, err)
 		span.End()
 		return nil, fmt.Errorf("docker session: working directory: %w", err)
 	}
+	policy.Filesystem.WorkingDir = agentCwd
 
 	// The per-user trees are writable and resolve via the process view too.
 	for _, tree := range perUserTrees {
@@ -304,7 +300,11 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 			ContainerPrefix: stellaHomeMount,
 		})
 	}
-	opts.Env = translateEnvPaths(mergeEnv(policy.Env, nil), mountTable, envMaps)
+	hostEnv := policy.Env
+	opts.Env = translateEnvPaths(mergeEnv(hostEnv, nil), mountTable, envMaps)
+	// Retain host coordinates only privately for exec-time translation. The
+	// session policy is observable API and must expose container coordinates.
+	policy.Env = maps.Clone(opts.Env)
 
 	// Per-user mise shims go on PATH ahead of the image's system shims so a user's
 	// own tool versions win (mirrors HostEnvBuildPath on the host backends). Only
@@ -365,6 +365,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	session := &dockerSession{
 		id:           sessionID,
 		policy:       policy,
+		hostEnv:      hostEnv,
 		client:       client,
 		containerID:  containerID,
 		mountTable:   mountTable,
@@ -384,6 +385,14 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	return session, nil
 }
 
+// scrubDockerPolicy removes the legacy physical layout projection before a
+// policy can be retained in an error, trace, log, or session.
+func scrubDockerPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
+	policy.Filesystem.WorkspaceRoot = ""
+	policy.Filesystem.Mounts = nil
+	return policy
+}
+
 // mapNetworkMode translates sandbox policy network mode to the dockerclient type.
 func mapNetworkMode(policy sandboxpkg.Policy) dockerclient.NetworkMode {
 	switch policy.NetworkModeOrDefault() {
@@ -398,6 +407,7 @@ func mapNetworkMode(policy sandboxpkg.Policy) dockerclient.NetworkMode {
 type dockerSession struct {
 	id           string
 	policy       sandboxpkg.Policy
+	hostEnv      map[string]string
 	client       *dockerclient.Client
 	containerID  string
 	mountTable   []dockerclient.Mount
@@ -564,7 +574,7 @@ func (h *dockerHost) Exec(ctx context.Context, command string, opts sandboxpkg.E
 
 	// Per-exec env reads take a snapshot under the lock.
 	h.session.mu.RLock()
-	policyEnv := h.session.policy.Env
+	policyEnv := h.session.hostEnv
 	h.session.mu.RUnlock()
 	env := injectToolPaths(translateEnvPaths(mergeEnv(policyEnv, opts.Env), h.session.mountTable, h.session.envPathMaps), h.session.toolBinPaths)
 
@@ -613,7 +623,7 @@ func (h *dockerHost) StartProcess(ctx context.Context, req sandboxpkg.ProcessReq
 
 	// Per-exec env reads take a snapshot under the lock.
 	h.session.mu.RLock()
-	policyEnv := h.session.policy.Env
+	policyEnv := h.session.hostEnv
 	h.session.mu.RUnlock()
 	env := injectToolPaths(translateEnvPaths(mergeEnv(policyEnv, req.Env), h.session.mountTable, h.session.envPathMaps), h.session.toolBinPaths)
 

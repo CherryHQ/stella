@@ -38,8 +38,7 @@ func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy
 	return pkgsandbox.FilesystemPolicy{WorkspaceRoot: layout.WorkspaceSource, WorkingDir: layout.WorkingDirSource, Mounts: mounts}
 }
 
-// runnerHostLayout is the single producer of physical host paths for local and
-// none providers. Docker temporarily receives its legacy Policy projection.
+// runnerHostLayout is the single producer of physical host paths for providers.
 func runnerHostLayout(paths Paths, cfg Config) hostlayout.Layout {
 	mounts := []hostlayout.Mount{
 		{Source: paths.WorkspaceRoot, Target: pkgsandbox.MountWorkspace, Access: hostlayout.ReadWrite},

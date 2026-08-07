@@ -1,6 +1,10 @@
 package docker
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/CherryHQ/stella/plugins/sandbox/hostlayout"
+)
 
 // DockerSandboxMode describes how the Docker daemon sees STELLA_HOME.
 type DockerSandboxMode string
@@ -19,6 +23,10 @@ const (
 
 // Config configures the docker sandbox factory.
 type Config struct {
+	// Layout is the complete physical host filesystem authority for sessions.
+	// Policy deliberately carries no host paths or mount declarations.
+	Layout hostlayout.Layout
+
 	// Image is the container image to use. Required.
 	Image string
 

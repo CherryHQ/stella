@@ -11,6 +11,7 @@ import (
 
 	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
 	dockerclient "github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
+	"github.com/CherryHQ/stella/plugins/sandbox/hostlayout"
 
 	sandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
@@ -55,19 +56,13 @@ func TestSessionContract(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = os.RemoveAll(stellaHome) })
-		factory, err := dockerplugin.NewFactory(dockerplugin.Config{
-			Image:       dockerContractImage,
-			StellaHome:  stellaHome,
-			RuntimeMode: dockerplugin.DockerSandboxModeHost,
+		testSessionContract(t, func(layout hostlayout.Layout) (sandbox.Factory, error) {
+			return dockerplugin.NewFactory(dockerplugin.Config{Image: dockerContractImage, StellaHome: stellaHome, RuntimeMode: dockerplugin.DockerSandboxModeHost, Layout: layout})
 		})
-		if err != nil {
-			t.Fatalf("NewFactory: %v", err)
-		}
-		testSessionContract(t, factory)
 	})
 }
 
-func testSessionContract(t *testing.T, factory sandbox.Factory) {
+func testSessionContract(t *testing.T, newFactory func(hostlayout.Layout) (sandbox.Factory, error)) {
 	ctx := context.Background()
 	workspace, err := os.MkdirTemp(".", "docker-contract-workspace-")
 	if err != nil {
@@ -81,6 +76,10 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 	project := filepath.Join(workspace, "projects", "p")
 	if err := os.MkdirAll(project, 0o700); err != nil {
 		t.Fatal(err)
+	}
+	factory, err := newFactory(hostlayout.Layout{WorkspaceSource: workspace, WorkingDirSource: project, Mounts: []hostlayout.Mount{{Source: workspace, Target: sandbox.MountWorkspace, Access: hostlayout.ReadWrite}}})
+	if err != nil {
+		t.Fatalf("NewFactory: %v", err)
 	}
 
 	policy := sandbox.Policy{

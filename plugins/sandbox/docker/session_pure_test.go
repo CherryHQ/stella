@@ -9,6 +9,7 @@ import (
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
+	"github.com/CherryHQ/stella/plugins/sandbox/hostlayout"
 )
 
 func TestMergeEnv(t *testing.T) {
@@ -68,10 +69,10 @@ func TestBuildMountTable(t *testing.T) {
 	table := buildMountTable(mountTableOptions{
 		WorkspaceHost:  "/host/ws",
 		WorkspaceMount: "/container/ws",
-		Mounts: []sandboxpkg.Mount{
-			{HostPath: "/host/ws", SandboxPath: "/container/ws", Access: sandboxpkg.MountReadWrite},
-			{HostPath: "/host/data", SandboxPath: "/user", Access: sandboxpkg.MountReadWrite},
-			{HostPath: "/extra/path", SandboxPath: "/extra/path", Access: sandboxpkg.MountReadOnly},
+		Mounts: []hostlayout.Mount{
+			{Source: "/host/ws", Target: "/container/ws", Access: hostlayout.ReadWrite},
+			{Source: "/host/data", Target: "/user", Access: hostlayout.ReadWrite},
+			{Source: "/extra/path", Target: "/extra/path", Access: hostlayout.ReadOnly},
 		},
 		TempHost: "/tmp/user-1",
 	})
@@ -112,10 +113,10 @@ func TestContainerPathNormalizationWithWindowsStylePolicyPaths(t *testing.T) {
 		t.Fatalf("cleanContainerPath = %q, want %q", got, want)
 	}
 
-	table := buildMountTable(mountTableOptions{Mounts: normalizeDockerPolicyMounts([]sandboxpkg.Mount{
-		{HostPath: `C:\stella\users\u1`, SandboxPath: `\workspace\`, Access: sandboxpkg.MountReadWrite},
-		{HostPath: `C:\stella\users\u1\.mise-tools`, SandboxPath: `\opt\stella\users\u1\.mise-tools`, Access: sandboxpkg.MountReadWrite},
-	})})
+	table := buildMountTable(mountTableOptions{Mounts: []hostlayout.Mount{
+		{Source: `C:\stella\users\u1`, Target: "/workspace", Access: hostlayout.ReadWrite},
+		{Source: `C:\stella\users\u1\.mise-tools`, Target: "/opt/stella/users/u1/.mise-tools", Access: hostlayout.ReadWrite},
+	}})
 	if got, want := table[0].ContainerPath, "/workspace"; got != want {
 		t.Errorf("workspace ContainerPath = %q, want %q", got, want)
 	}
@@ -123,20 +124,16 @@ func TestContainerPathNormalizationWithWindowsStylePolicyPaths(t *testing.T) {
 		t.Errorf("mise ContainerPath = %q, want %q", got, want)
 	}
 
-	mounts := nonWorkspacePolicyMounts(normalizeDockerPolicyMounts([]sandboxpkg.Mount{
-		{HostPath: `C:\workspace`, SandboxPath: `\workspace`, Access: sandboxpkg.MountReadWrite},
-		{HostPath: `C:\stella\bin`, SandboxPath: `\opt\stella\bin`, Access: sandboxpkg.MountReadOnly},
-		{HostPath: `C:\user`, SandboxPath: `\user`, Access: sandboxpkg.MountReadWrite},
-	}))
-	if len(mounts) != 1 || mounts[0].SandboxPath != "/user" {
-		t.Fatalf("nonWorkspacePolicyMounts = %+v, want only /user", mounts)
+	mounts := nonWorkspaceLayoutMounts([]hostlayout.Mount{
+		{Source: `C:\workspace`, Target: "/workspace", Access: hostlayout.ReadWrite},
+		{Source: `C:\stella\bin`, Target: "/opt/stella/bin", Access: hostlayout.ReadOnly},
+		{Source: `C:\user`, Target: "/user", Access: hostlayout.ReadWrite},
+	})
+	if len(mounts) != 1 || mounts[0].Target != "/user" {
+		t.Fatalf("nonWorkspaceLayoutMounts = %+v, want only /user", mounts)
 	}
 
-	tools := writableToolTrees(normalizeDockerPolicyMounts([]sandboxpkg.Mount{{
-		HostPath:    `C:\stella\users\u1\.mise-tools`,
-		SandboxPath: `\opt\stella\users\u1\.mise-tools`,
-		Access:      sandboxpkg.MountReadWrite,
-	}}))
+	tools := writableToolTrees([]hostlayout.Mount{{Source: `C:\stella\users\u1\.mise-tools`, Target: "/opt/stella/users/u1/.mise-tools", Access: hostlayout.ReadWrite}})
 	if len(tools) != 1 || tools[0].Container != "/opt/stella/users/u1/.mise-tools" {
 		t.Fatalf("writableToolTrees = %+v, want normalized mise tree", tools)
 	}
@@ -271,7 +268,7 @@ func TestConfigureSessionMounts_HostMode(t *testing.T) {
 	stellaHome, workspace, extra, tmp := dockerModeTestDirs(t)
 	f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeHost, StellaHome: stellaHome}}
 	opts := dockerModeCreateOptions(workspace)
-	mountedExtra, mountedTmp, _, err := f.configureSessionMounts(&opts, dockerModePolicy(stellaHome, workspace, extra, tmp), workspace, "", tmp)
+	mountedExtra, mountedTmp, _, err := f.configureSessionMounts(&opts, dockerModeLayout(stellaHome, workspace, extra, tmp), tmp)
 	if err != nil {
 		t.Fatalf("configureSessionMounts: %v", err)
 	}
@@ -281,7 +278,7 @@ func TestConfigureSessionMounts_HostMode(t *testing.T) {
 	if mountedTmp != tmp {
 		t.Fatalf("mounted tmp = %q, want %q", mountedTmp, tmp)
 	}
-	if len(mountedExtra) < 2 || mountedExtra[1].HostPath != extra {
+	if len(mountedExtra) < 2 || mountedExtra[1].Source != extra {
 		t.Fatalf("mounted extra = %v, want [%q]", mountedExtra, extra)
 	}
 	assertNoMountTo(t, opts.ExtraMounts, filepath.Join(stellaHomeMount, "bin"))
@@ -299,9 +296,9 @@ func TestConfigureSessionMounts_BindModeTranslatesSources(t *testing.T) {
 		HostPathPrefix:      "/daemon/stella",
 	}}
 	opts := dockerModeCreateOptions(workspace)
-	policy := dockerModePolicy(stellaHome, workspace, extra, tmp)
+	policy := dockerModeLayout(stellaHome, workspace, extra, tmp)
 	tempDir := preparedDockerTemp(t, f)
-	mountedExtra, mountedTmp, _, err := f.configureSessionMounts(&opts, policy, workspace, "", tempDir)
+	mountedExtra, mountedTmp, _, err := f.configureSessionMounts(&opts, policy, tempDir)
 	if err != nil {
 		t.Fatalf("configureSessionMounts: %v", err)
 	}
@@ -312,7 +309,7 @@ func TestConfigureSessionMounts_BindModeTranslatesSources(t *testing.T) {
 		t.Fatalf("mounted tmp = %q, want session temp %q", mountedTmp, tempDir)
 	}
 	assertMount(t, opts.ExtraMounts, "/daemon/stella/cache/sandbox-tmp/sandbox-test", "/tmp", false, dockerclient.MountType(""), "")
-	if len(mountedExtra) < 2 || mountedExtra[1].HostPath != extra {
+	if len(mountedExtra) < 2 || mountedExtra[1].Source != extra {
 		t.Fatalf("mounted extra = %v, want [%q]", mountedExtra, extra)
 	}
 	assertNoMountTo(t, opts.ExtraMounts, filepath.Join(stellaHomeMount, "bin"))
@@ -325,10 +322,10 @@ func TestConfigureSessionMounts_VolumeModeUsesSubpaths(t *testing.T) {
 	outsideExtra := t.TempDir()
 	f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeVolume, StellaHome: stellaHome, StellaHomeVolume: "stella-data"}}
 	opts := dockerModeCreateOptions(workspace)
-	policy := dockerModePolicy(stellaHome, workspace, extra, tmp)
-	policy.Filesystem.Mounts = append(policy.Filesystem.Mounts, sandboxpkg.Mount{HostPath: outsideExtra, SandboxPath: outsideExtra, Access: sandboxpkg.MountReadOnly})
+	policy := dockerModeLayout(stellaHome, workspace, extra, tmp)
+	policy.Mounts = append(policy.Mounts, hostlayout.Mount{Source: outsideExtra, Target: outsideExtra, Access: hostlayout.ReadOnly})
 	tempDir := preparedDockerTemp(t, f)
-	mountedExtra, mountedTmp, _, err := f.configureSessionMounts(&opts, policy, workspace, "", tempDir)
+	mountedExtra, mountedTmp, _, err := f.configureSessionMounts(&opts, policy, tempDir)
 	if err != nil {
 		t.Fatalf("configureSessionMounts: %v", err)
 	}
@@ -339,7 +336,7 @@ func TestConfigureSessionMounts_VolumeModeUsesSubpaths(t *testing.T) {
 		t.Fatalf("mounted tmp = %q, want session temp %q", mountedTmp, tempDir)
 	}
 	assertMount(t, opts.ExtraMounts, "stella-data", "/tmp", false, dockerclient.MountTypeVolume, "cache/sandbox-tmp/sandbox-test")
-	if len(mountedExtra) < 2 || mountedExtra[1].HostPath != extra {
+	if len(mountedExtra) < 2 || mountedExtra[1].Source != extra {
 		t.Fatalf("mounted extra = %v, want only [%q]", mountedExtra, extra)
 	}
 	assertMount(t, opts.ExtraMounts, "stella-data", workspaceMount, false, dockerclient.MountTypeVolume, "users/user")
@@ -352,7 +349,7 @@ func TestConfigureSessionMounts_VolumeModeRejectsStellaHomeAsWorkspace(t *testin
 	stellaHome, _, extra, tmp := dockerModeTestDirs(t)
 	f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeVolume, StellaHome: stellaHome, StellaHomeVolume: "stella-data"}}
 	opts := dockerModeCreateOptions(stellaHome)
-	_, _, _, err := f.configureSessionMounts(&opts, dockerModePolicy(stellaHome, stellaHome, extra, tmp), stellaHome, "", preparedDockerTemp(t, f))
+	_, _, _, err := f.configureSessionMounts(&opts, dockerModeLayout(stellaHome, stellaHome, extra, tmp), preparedDockerTemp(t, f))
 	if err == nil {
 		t.Fatal("expected error when volume workspace is STELLA_HOME itself")
 	}
@@ -369,10 +366,9 @@ func TestConfigureSessionMounts_DoesNotMountHostBuiltinBundle(t *testing.T) {
 	}
 	f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeHost, StellaHome: stellaHome}}
 	opts := dockerModeCreateOptions(workspace)
-	policy := dockerModePolicy(stellaHome, workspace, extra, tmp)
-	policy.Filesystem.Mounts = append(policy.Filesystem.Mounts, sandboxpkg.Mount{HostPath: builtin, SandboxPath: sandboxpkg.MountBuiltinSkills, Access: sandboxpkg.MountReadOnly})
-	policy.Env = nil
-	_, _, _, err := f.configureSessionMounts(&opts, policy, workspace, "", tmp)
+	policy := dockerModeLayout(stellaHome, workspace, extra, tmp)
+	policy.Mounts = append(policy.Mounts, hostlayout.Mount{Source: builtin, Target: sandboxpkg.MountBuiltinSkills, Access: hostlayout.ReadOnly})
+	_, _, _, err := f.configureSessionMounts(&opts, policy, tmp)
 	if err != nil {
 		t.Fatalf("configureSessionMounts: %v", err)
 	}
@@ -398,7 +394,7 @@ func TestConfigureSessionMounts_UserDataRoot(t *testing.T) {
 			HostPathPrefix:      "/daemon/stella",
 		}}
 		opts := dockerModeCreateOptions(workspace)
-		if _, _, _, err := f.configureSessionMounts(&opts, dockerModePolicy(stellaHome, workspace, extra, tmp), workspace, userData, tmp); err != nil {
+		if _, _, _, err := f.configureSessionMounts(&opts, withUserData(dockerModeLayout(stellaHome, workspace, extra, tmp), userData), tmp); err != nil {
 			t.Fatalf("configureSessionMounts: %v", err)
 		}
 		assertMount(t, opts.ExtraMounts, "/daemon/stella/users/user/data", userDataMount, false, dockerclient.MountType(""), "")
@@ -407,8 +403,8 @@ func TestConfigureSessionMounts_UserDataRoot(t *testing.T) {
 	t.Run("volume", func(t *testing.T) {
 		f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeVolume, StellaHome: stellaHome, StellaHomeVolume: "stella-data"}}
 		opts := dockerModeCreateOptions(workspace)
-		policy := dockerModePolicy(stellaHome, workspace, extra, tmp)
-		if _, _, _, err := f.configureSessionMounts(&opts, policy, workspace, userData, preparedDockerTemp(t, f)); err != nil {
+		policy := dockerModeLayout(stellaHome, workspace, extra, tmp)
+		if _, _, _, err := f.configureSessionMounts(&opts, withUserData(policy, userData), preparedDockerTemp(t, f)); err != nil {
 			t.Fatalf("configureSessionMounts: %v", err)
 		}
 		assertMount(t, opts.ExtraMounts, "stella-data", userDataMount, false, dockerclient.MountTypeVolume, "users/user/data")
@@ -433,14 +429,14 @@ func TestConfigureSessionMounts_WritableMiseTree(t *testing.T) {
 		{name: "volume", factory: &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeVolume, StellaHome: stellaHome, StellaHomeVolume: "stella-data"}}, wantSource: "stella-data", wantType: dockerclient.MountTypeVolume, wantSub: "users/user/.mise-tools"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			policy := dockerModePolicy(stellaHome, workspace, extra, tmp)
-			policy.Filesystem.Mounts = append(policy.Filesystem.Mounts, sandboxpkg.Mount{HostPath: miseDir, SandboxPath: containerPath, Access: sandboxpkg.MountReadWrite})
+			policy := dockerModeLayout(stellaHome, workspace, extra, tmp)
+			policy.Mounts = append(policy.Mounts, hostlayout.Mount{Source: miseDir, Target: containerPath, Access: hostlayout.ReadWrite})
 			tempDir := tmp
 			if tc.factory.cfg.RuntimeMode == DockerSandboxModeVolume {
 				tempDir = preparedDockerTemp(t, tc.factory)
 			}
 			opts := dockerModeCreateOptions(workspace)
-			if _, _, _, err := tc.factory.configureSessionMounts(&opts, policy, workspace, "", tempDir); err != nil {
+			if _, _, _, err := tc.factory.configureSessionMounts(&opts, policy, tempDir); err != nil {
 				t.Fatal(err)
 			}
 			assertMount(t, opts.ExtraMounts, tc.wantSource, containerPath, false, tc.wantType, tc.wantSub)
@@ -649,15 +645,17 @@ func preparedDockerTemp(t *testing.T, factory *dockerFactory) string {
 	return tempDir
 }
 
-func dockerModePolicy(stellaHome, workspace, extra, tmp string) sandboxpkg.Policy {
-	return sandboxpkg.Policy{
-		Env: map[string]string{"STELLA_HOME": stellaHome},
-		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: workspace,
-			WorkingDir:    workspace,
-			Mounts:        []sandboxpkg.Mount{{HostPath: workspace, SandboxPath: workspaceMount, Access: sandboxpkg.MountReadWrite}, {HostPath: extra, SandboxPath: extra, Access: sandboxpkg.MountReadOnly}, {HostPath: filepath.Join(stellaHome, ".agents", "skills"), SandboxPath: filepath.Join(stellaHomeMount, ".agents", "skills"), Access: sandboxpkg.MountReadOnly}},
-		},
+func dockerModeLayout(stellaHome, workspace, extra, _ string) hostlayout.Layout {
+	return hostlayout.Layout{
+		WorkspaceSource:  workspace,
+		WorkingDirSource: workspace,
+		Mounts:           []hostlayout.Mount{{Source: workspace, Target: workspaceMount, Access: hostlayout.ReadWrite}, {Source: extra, Target: extra, Access: hostlayout.ReadOnly}, {Source: filepath.Join(stellaHome, ".agents", "skills"), Target: filepath.Join(stellaHomeMount, ".agents", "skills"), Access: hostlayout.ReadOnly}},
 	}
+}
+
+func withUserData(layout hostlayout.Layout, userData string) hostlayout.Layout {
+	layout.Mounts = append(layout.Mounts, hostlayout.Mount{Source: userData, Target: userDataMount, Access: hostlayout.ReadWrite})
+	return layout
 }
 
 func assertNoMountTo(t *testing.T, mounts []dockerclient.Mount, target string) {

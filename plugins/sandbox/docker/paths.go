@@ -138,8 +138,18 @@ func (h *dockerHost) pathResolver() *sandboxpkg.PathResolver {
 		mounts = append(mounts, sandboxpkg.Mount{HostPath: m.HostPath, SandboxPath: m.ContainerPath, Access: access})
 	}
 	return sandboxpkg.NewPathResolver(sandboxpkg.PathResolverConfig{
-		WorkspaceRoot: h.session.policy.WorkspaceRootOrDefault(),
-		WorkingDir:    h.session.policy.Filesystem.WorkingDir,
+		WorkspaceRoot: h.workspaceRoot(),
+		WorkingDir:    h.workingDirSource(),
 		Mounts:        mounts,
 	})
+}
+
+func (h *dockerHost) workspaceRoot() string {
+	root, _ := toHostPath(h.session.mountTable, workspaceMount)
+	return root
+}
+
+func (h *dockerHost) workingDirSource() string {
+	workingDir, _ := toHostPath(h.session.mountTable, h.session.workingDir)
+	return workingDir
 }

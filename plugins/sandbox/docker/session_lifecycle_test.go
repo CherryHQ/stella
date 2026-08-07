@@ -14,14 +14,21 @@ import (
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
+	"github.com/CherryHQ/stella/plugins/sandbox/hostlayout"
 )
 
 type stopCountingAPI struct {
 	noopAPI
-	stops    atomic.Int32
-	removes  atomic.Int32
-	execs    atomic.Int32
-	execUser string
+	stops      atomic.Int32
+	removes    atomic.Int32
+	execs      atomic.Int32
+	execUser   string
+	createOpts mobyclient.ContainerCreateOptions
+}
+
+func (f *stopCountingAPI) ContainerCreate(_ context.Context, opts mobyclient.ContainerCreateOptions) (mobyclient.ContainerCreateResult, error) {
+	f.createOpts = opts
+	return mobyclient.ContainerCreateResult{}, nil
 }
 
 func (f *stopCountingAPI) ContainerStop(context.Context, string, mobyclient.ContainerStopOptions) (mobyclient.ContainerStopResult, error) {
@@ -147,14 +154,17 @@ func TestCreateSessionStoresNormalizedPolicyAndPrivateMountedTemp(t *testing.T) 
 		t.Fatal(err)
 	}
 	factory := &dockerFactory{
-		cfg:      Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost},
+		cfg: Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost, Layout: hostlayout.Layout{
+			WorkspaceSource: workspace, WorkingDirSource: project,
+			Mounts: []hostlayout.Mount{{Source: workspace, Target: workspaceMount, Access: hostlayout.ReadWrite}},
+		}},
 		clientFn: func() (*dockerclient.Client, error) { return dockerclient.NewWithAPI(api), nil },
 	}
 	session, err := factory.CreateSession(context.Background(), sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: workspace,
-			WorkingDir:    project,
-			Mounts:        []sandboxpkg.Mount{{HostPath: workspace, SandboxPath: `\workspace\`, Access: sandboxpkg.MountReadWrite}},
+			WorkspaceRoot: filepath.Join(t.TempDir(), "redirected-workspace"),
+			WorkingDir:    filepath.Join(t.TempDir(), "redirected-working-dir"),
+			Mounts:        []sandboxpkg.Mount{{HostPath: filepath.Join(t.TempDir(), "redirected-mount"), SandboxPath: "/redirected", Access: sandboxpkg.MountReadWrite}},
 		},
 	})
 	if err != nil {
@@ -165,10 +175,21 @@ func TestCreateSessionStoresNormalizedPolicyAndPrivateMountedTemp(t *testing.T) 
 	if got, want := session.WorkingDir(), "/workspace/projects/p"; got != want {
 		t.Errorf("WorkingDir() = %q, want %q", got, want)
 	}
-	if got := policy.Filesystem.Mounts[0].SandboxPath; got != workspaceMount {
-		t.Errorf("normalized SandboxPath = %q, want %q", got, workspaceMount)
+	if policy.Filesystem.WorkspaceRoot != "" || len(policy.Filesystem.Mounts) != 0 {
+		t.Errorf("Policy retained physical layout: %#v", policy.Filesystem)
 	}
-	tempDir := policy.Env[sandboxpkg.EnvTempDir]
+	if got, want := policy.Filesystem.WorkingDir, "/workspace/projects/p"; got != want {
+		t.Errorf("policy working directory = %q, want %q", got, want)
+	}
+	for _, mount := range api.createOpts.HostConfig.Mounts {
+		if mount.Target == workspaceMount && mount.Source != workspace {
+			t.Errorf("workspace mount source = %q, want Layout source %q", mount.Source, workspace)
+		}
+	}
+	if got := policy.Env[sandboxpkg.EnvTempDir]; got != "/tmp" {
+		t.Fatalf("policy TMPDIR = %q, want container coordinate /tmp", got)
+	}
+	tempDir := session.(*dockerSession).ownedTempDir
 	if tempDir == "" {
 		t.Fatal("policy TMPDIR is empty, want a private session directory")
 	}
@@ -181,7 +202,10 @@ func TestCreateSessionRejectsUnmappableWorkingDirBeforeContainerStart(t *testing
 	api := &startFailAPI{}
 	workspace := t.TempDir()
 	factory := &dockerFactory{
-		cfg:      Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost},
+		cfg: Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost, Layout: hostlayout.Layout{
+			WorkspaceSource: workspace, WorkingDirSource: filepath.Join(t.TempDir(), "outside-workspace"),
+			Mounts: []hostlayout.Mount{{Source: workspace, Target: workspaceMount, Access: hostlayout.ReadWrite}},
+		}},
 		clientFn: func() (*dockerclient.Client, error) { return dockerclient.NewWithAPI(api), nil },
 	}
 	_, err := factory.CreateSession(context.Background(), sandboxpkg.Policy{
@@ -202,7 +226,10 @@ func TestCreateSessionStartFailureRemovesOwnedTemp(t *testing.T) {
 	api := &startFailAPI{}
 	workspace := t.TempDir()
 	factory := &dockerFactory{
-		cfg:      Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost},
+		cfg: Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost, Layout: hostlayout.Layout{
+			WorkspaceSource: workspace, WorkingDirSource: workspace,
+			Mounts: []hostlayout.Mount{{Source: workspace, Target: workspaceMount, Access: hostlayout.ReadWrite}},
+		}},
 		clientFn: func() (*dockerclient.Client, error) { return dockerclient.NewWithAPI(api), nil },
 	}
 	_, err := factory.CreateSession(context.Background(), sandboxpkg.Policy{
