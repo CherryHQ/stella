@@ -119,6 +119,13 @@ func TestFeishuManagedRuntimeMissingCredentialsMarksError(t *testing.T) {
 	}
 }
 
+func TestFeishuEmptyConfigPassesPersistenceValidation(t *testing.T) {
+	cfg, err := DecodeConfig(map[string]any{})
+	if err != nil || validateConfigValues(cfg) != "" {
+		t.Fatalf("empty disabled-channel config should pass persistence validation: cfg=%#v err=%v validation=%q", cfg, err, validateConfigValues(cfg))
+	}
+}
+
 func TestFeishuManagedRuntimeBuildFailureReturnsError(t *testing.T) {
 	runtime := NewFeishuManagedRuntime(FeishuRuntimeDeps{
 		Parent:  context.Background(),

@@ -437,7 +437,7 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 			return c.handleNewSessionCommand(ctx, rc, msg), true, nil, nil
 		}
 		if command == "/compact" {
-			if err := rc.AuthorizeUse(ctx, c.agentAccess); err != nil {
+			if err := rc.AuthorizeDedicatedUse(ctx, c.agentAccess); err != nil {
 				return fmt.Sprintf("Compaction failed: %v", err), true, nil, nil
 			}
 		}
@@ -457,7 +457,7 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 			// user's context. The message falls through to a normal turn, where the
 			// agent answers in words and points the user at the explicit command.
 		case IntentCompact:
-			if err := rc.AuthorizeUse(ctx, c.agentAccess); err != nil {
+			if err := rc.AuthorizeDedicatedUse(ctx, c.agentAccess); err != nil {
 				return fmt.Sprintf("Compaction failed: %v", err), true, nil, nil
 			}
 			if resp, ok := HandleCommand(ctx, rc, IntentToCommand(intent), msg.SenderID); ok {
@@ -523,7 +523,7 @@ func (c *Coordinator) handleConfigCommand(ctx context.Context, rc *ResolvedChat,
 func (c *Coordinator) handleNewSessionCommand(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage) string {
 	receipt := chatReceiptForMessage(c.receiptQueries(), rc, msg, newSessionCommand)
 	return rotateChatSessionAuthorized(ctx, rc, receipt, c.queue, func(authCtx context.Context) error {
-		return rc.AuthorizeUse(authCtx, c.agentAccess)
+		return rc.AuthorizeDedicatedUse(authCtx, c.agentAccess)
 	})
 }
 

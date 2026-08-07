@@ -159,6 +159,10 @@ func validateConfig(cfg pkgchannel.FeishuConfig) string {
 	if strings.TrimSpace(cfg.AppID) == "" || strings.TrimSpace(cfg.AppSecret) == "" {
 		return "feishu: missing app_id or app_secret"
 	}
+	return validateConfigValues(cfg)
+}
+
+func validateConfigValues(cfg pkgchannel.FeishuConfig) string {
 	if cfg.GuestMessageLimitPerMinute < 1 || cfg.GuestMessageLimitPerMinute > pkgchannel.MaxGuestMessageLimitPerMinute {
 		return fmt.Sprintf("guest message limit per minute must be between 1 and %d", pkgchannel.MaxGuestMessageLimitPerMinute)
 	}

@@ -41,6 +41,9 @@ func TestTelegramConfigSchemaGuestBounds(t *testing.T) {
 	if validateConfig(pkgchannel.TelegramConfig{Token: "token", GuestMessageLimitPerMinute: pkgchannel.MaxGuestMessageLimitPerMinute + 1, GuestMaxPerChannel: 1, GuestRetentionDays: 1}) == "" {
 		t.Fatal("out-of-range guest message limit accepted")
 	}
+	if cfg, err := DecodeConfig(map[string]any{}); err != nil || validateConfigValues(cfg) != "" {
+		t.Fatalf("empty disabled-channel config should pass persistence validation: cfg=%#v err=%v validation=%q", cfg, err, validateConfigValues(cfg))
+	}
 }
 
 func TestRedactConfig(t *testing.T) {

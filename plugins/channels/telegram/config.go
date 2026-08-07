@@ -36,6 +36,10 @@ func validateConfig(cfg pkgchannel.TelegramConfig) string {
 	if strings.TrimSpace(cfg.Token) == "" {
 		return "telegram: missing token"
 	}
+	return validateConfigValues(cfg)
+}
+
+func validateConfigValues(cfg pkgchannel.TelegramConfig) string {
 	if cfg.GuestMessageLimitPerMinute < 1 || cfg.GuestMessageLimitPerMinute > pkgchannel.MaxGuestMessageLimitPerMinute {
 		return fmt.Sprintf("guest message limit per minute must be between 1 and %d", pkgchannel.MaxGuestMessageLimitPerMinute)
 	}

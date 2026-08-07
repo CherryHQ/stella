@@ -72,7 +72,7 @@ func init() {
 				if err != nil {
 					return err
 				}
-				if msg := validateConfig(cfg); msg != "" {
+				if msg := validateConfigValues(cfg); msg != "" {
 					return fmt.Errorf("%s", msg)
 				}
 				return nil
