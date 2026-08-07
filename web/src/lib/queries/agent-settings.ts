@@ -101,9 +101,7 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
   const selectedAgent = agentId ? agents.find((a) => a.id === agentId) : undefined;
   const allUsers = isAdmin ? await fetchAllAuthUsers() : [];
   const agentSkillResponse = agentId
-    ? await listAgentSkills({ path: { id: agentId }, throwOnError: true }).then(
-        ({ data }) => data,
-      )
+    ? await listAgentSkills({ path: { id: agentId }, throwOnError: true }).then(({ data }) => data)
     : undefined;
   const agentSkills = (agentSkillResponse?.skills ?? []) as Skill[];
   let personalisation: Personalisation = {

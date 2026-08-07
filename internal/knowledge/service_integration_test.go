@@ -621,8 +621,8 @@ func seedKnowledgePrincipals(t *testing.T, database *pgxpool.Pool) {
 	}
 	if _, err := sqlc.New(database).CreateAgent(t.Context(), sqlc.CreateAgentParams{
 		ID: testAgentA, Name: testAgentA, Model: "test/model", Workspace: "/tmp/" + testAgentA,
-		Sandbox: json.RawMessage(`{}`), EnabledBuiltinSkills: json.RawMessage(`[]`),
-		Scope: string(config.AgentScopeSystem), Enabled: true,
+		Sandbox: json.RawMessage(`{}`),
+		Scope:   string(config.AgentScopeSystem), Enabled: true,
 	}); err != nil {
 		t.Fatalf("seed Agent: %v", err)
 	}
