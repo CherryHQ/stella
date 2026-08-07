@@ -41,6 +41,9 @@ var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) 
 				Groups:            groupsToPluginConfig(cfg.Groups),
 				TenantKey:         cfg.TenantKey,
 				AutoProvision:     cfg.AutoProvision,
+				AllowedChatIDs:    cfg.AllowedChatIDs,
+				AllowDM:           cfg.AllowDM,
+				RequireMention:    cfg.RequireMention,
 			}, handler)
 		},
 	}), nil
@@ -69,10 +72,26 @@ func init() {
 					pkgplugins.CapabilityRuntimeLookup,
 				},
 			},
-			DefaultConfig: func() map[string]any { return map[string]any{} },
-			Schema:        configSchema(),
-			Validate:      func(raw map[string]any) error { _, err := DecodeConfig(raw); return err },
-			Redact:        RedactConfig,
+			DefaultConfig: func() map[string]any {
+				return map[string]any{
+					"allow_dm": true, "allow_unlinked_dm": false, "require_mention": true,
+					"guest_message_limit_per_minute": pkgchannel.DefaultGuestMessageLimitPerMinute,
+					"guest_max_per_channel":          pkgchannel.DefaultGuestMaxPerChannel,
+					"guest_retention_days":           pkgchannel.DefaultGuestRetentionDays,
+				}
+			},
+			Schema: configSchema(),
+			Validate: func(raw map[string]any) error {
+				cfg, err := DecodeConfig(raw)
+				if err != nil {
+					return err
+				}
+				if msg := validateConfigValues(cfg); msg != "" {
+					return fmt.Errorf("%s", msg)
+				}
+				return nil
+			},
+			Redact: RedactConfig,
 			Configured: func(raw map[string]any) bool {
 				cfg, err := DecodeConfig(raw)
 				return err == nil && validateConfig(cfg) == ""

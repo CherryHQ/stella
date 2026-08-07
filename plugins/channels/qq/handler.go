@@ -276,21 +276,15 @@ func (b *Bot) handleIncoming(authorID, groupID, msgID string, incoming channel.I
 	logger().Debug("response sent", "author", authorID, "response_len", len(response), "images", len(images))
 }
 
-// handleLocalCommand handles plugin-local commands (/model, /agent, /help, /whoami).
+// handleLocalCommand handles plugin-local commands (/help and /whoami).
 // Returns true if the text was handled.
 func (b *Bot) handleLocalCommand(incoming channel.IncomingMessage, text string, reply func(string)) bool {
-	cmd, args := channel.ParseSlashCommand(text)
+	cmd, _ := channel.ParseSlashCommand(text)
 	if cmd == "" {
 		return false
 	}
 
 	switch cmd {
-	case "/model":
-		b.handleModelCommand(args, reply)
-		return true
-	case "/agent":
-		b.handleAgentCommand(incoming, args, reply)
-		return true
 	case "/help":
 		reply(channel.WelcomeMessage)
 		return true

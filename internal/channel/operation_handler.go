@@ -10,7 +10,7 @@ import (
 // handler (the Coordinator) exposes and that channel adapters type-assert for.
 // The two-phase-drain wrapper embeds it so a wrapped handler still satisfies the
 // BotRegistrar, RegisterGroupPublisher, Provisioner, UserRootResolver,
-// LocalCommandAdmitter, AssetSaver, and group-member-provisioner assertions the adapters make at
+// AssetSaver, and group-member-provisioner assertions the adapters make at
 // construction and call time. Adding a capability that an adapter asserts
 // requires adding it here.
 type operationHandlerSurface interface {
@@ -20,7 +20,6 @@ type operationHandlerSurface interface {
 	RegisterGroupPublisher(channelID string, publisher GroupPublisher)
 	UnregisterGroupPublisher(channelID string)
 	ProvisionUser(ctx context.Context, req pkgchannel.ProvisionRequest) error
-	AdmitLocalCommand(ctx context.Context, msg pkgchannel.IncomingMessage) (string, bool, error)
 	ResolveUserRoot(ctx context.Context, msg pkgchannel.IncomingMessage) (string, error)
 	SaveAsset(ctx context.Context, assetsDir, fileName string, data []byte) (string, error)
 	EnsurePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error
@@ -83,22 +82,8 @@ func (h operationContextHandler) HandleIncoming(ctx context.Context, msg pkgchan
 	return h.operationHandlerSurface.HandleIncoming(operationCallContext(h.opCtx, ctx), msg, command, args)
 }
 
-// ListAgents runs on the operation context for the same reason as HandleIncoming.
-func (h operationContextHandler) ListAgents(ctx context.Context, msg pkgchannel.IncomingMessage) ([]pkgchannel.AgentInfo, string, error) {
-	return h.operationHandlerSurface.ListAgents(operationCallContext(h.opCtx, ctx), msg)
-}
-
-// SwitchAgent runs on the operation context for the same reason as HandleIncoming.
-func (h operationContextHandler) SwitchAgent(ctx context.Context, msg pkgchannel.IncomingMessage, agentSlug string) error {
-	return h.operationHandlerSurface.SwitchAgent(operationCallContext(h.opCtx, ctx), msg, agentSlug)
-}
-
 func (h operationContextHandler) ProvisionUser(ctx context.Context, req pkgchannel.ProvisionRequest) error {
 	return h.operationHandlerSurface.ProvisionUser(operationCallContext(h.opCtx, ctx), req)
-}
-
-func (h operationContextHandler) AdmitLocalCommand(ctx context.Context, msg pkgchannel.IncomingMessage) (string, bool, error) {
-	return h.operationHandlerSurface.AdmitLocalCommand(operationCallContext(h.opCtx, ctx), msg)
 }
 
 func (h operationContextHandler) ResolveUserRoot(ctx context.Context, msg pkgchannel.IncomingMessage) (string, error) {

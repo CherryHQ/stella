@@ -40,8 +40,6 @@ type Bot struct {
 	sessionManager botgo.SessionManager
 	handler        channel.Handler
 
-	chatModels map[string]channel.ModelOption
-
 	cfg          Config
 	ctx          context.Context
 	cancel       context.CancelFunc
@@ -55,9 +53,8 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	}
 
 	b := &Bot{
-		handler:    handler,
-		chatModels: make(map[string]channel.ModelOption),
-		cfg:        cfg,
+		handler: handler,
+		cfg:     cfg,
 	}
 	if registrar, ok := handler.(interface {
 		RegisterGroupPublisher(string, internalchannel.GroupPublisher)

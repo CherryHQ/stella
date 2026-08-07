@@ -57,7 +57,7 @@ in the Web UI yet.
 
 Open the **Channels** page to connect messaging platforms. You can create multiple instances of the same platform (e.g. two Telegram bots for different agents).
 
-Each channel instance can optionally be bound to a specific agent. If unbound, users can switch agents with the `/agent` command.
+Each channel instance can optionally be bound to a specific agent in the Web UI.
 
 See the channel guides for setup instructions:
 

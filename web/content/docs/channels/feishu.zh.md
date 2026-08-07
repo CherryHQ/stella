@@ -189,9 +189,19 @@ Agent 可以在回复中使用双花括号语法嵌入可点击的按钮，格�
 
 ## 群组行为
 
-在群聊中机器人会自动参与。被 @提及时一定会路由给被提及的机器人；其他明确问题在存在可用路由模型时，也可能由 Stella 的语义群聊路由选中回复，否则保持静默。若要让机器人不再参与某个群，把它移出该群即可。
+机器人只参与明确允许的群聊。请在 Web UI 的**允许的群聊 ID**中添加每个飞书 `chat_id`。列表为空时会拒绝所有群消息，也不会建立群成员关系。
+
+群消息默认必须 @机器人。关闭**必须 @机器人**后可以使用 Stella 的语义群聊路由。允许群聊中的每位成员都能联系绑定的 Agent，因此只应添加可信群聊。
 
 你也可以通过 `groups` 字段为特定群单独覆盖配置。
+
+## 访问控制
+
+**允许私信**控制私聊、账号关联和私聊触发的自动开通。已关联的 Stella 用户继续使用自己的普通 session 和权限。
+
+未关联的私聊发送者默认会被拒绝。只有在你希望未自动开通或未关联的用户通过持久、受限的访客 session 使用渠道绑定的 Agent 时，才启用**允许访客私信**。访客历史会持久保存和压缩，但没有 profile、reflection、工具、skills、文件、workspace、plugins 或 delegation。访客只能使用 `/link`、`/help`、`/new`、`/compact` 和 `/abort`；附件会在下载前被拒绝，关联账号也不会合并此前的访客历史。
+
+系统会限制每位访客的消息速率和每个渠道的持久访客数量，并在配置的保留期后删除不活跃访客及其 session。公开访客访问仍可能产生模型费用和滥用风险。请使用专用且对访客安全的 Agent，并确保其 base prompt 不含 secret。
 
 ## 命令
 
@@ -202,8 +212,6 @@ Agent 可以在回复中使用双花括号语法嵌入可点击的按钮，格�
 | `/new`     | 开始新会话（此前的历史仍可搜索）         |
 | `/compact` | 就地压缩当前会话（同一会话，上下文更短） |
 | `/abort`   | 取消正在进行的响应                       |
-| `/model`   | 列出或切换模型                           |
-| `/agent`   | 列出或切换 agent                         |
 | `/whoami`  | 显示你的平台身份                         |
 
 `/new` 仅在私聊中生效。群聊的上下文由所有成员共享，因此在群里输入 `/new` 只会回复共享会话无法重置，不会改变任何内容；该命令本身也不会进入群聊历史。新会话保留哪些内容，见[记忆](/docs/guides/memory)。
@@ -219,6 +227,13 @@ Agent 可以在回复中使用双花括号语法嵌入可点击的按钮，格�
   "enable_notify": false,
   "tenant_key": "",
   "auto_provision": false,
+  "allowed_chat_ids": "oc_trusted_group",
+  "allow_dm": true,
+  "allow_unlinked_dm": false,
+  "guest_message_limit_per_minute": 10,
+  "guest_max_per_channel": 1000,
+  "guest_retention_days": 30,
+  "require_mention": true,
   "groups": {
     "oc_example": {
       "system_prompt": "这个群里请作为基础设施助手回复。"
@@ -236,7 +251,15 @@ Agent 可以在回复中使用双花括号语法嵌入可点击的按钮，格�
 | `enable_notify`      | 允许调度器和 `notify` 输出发送到飞书                               |
 | `tenant_key`         | 企业 Tenant Key。可选：Stella 可在启动时自动探测，但仍建议显式配置 |
 | `auto_provision`     | 仅为已验证租户成员创建账号：私聊消息，或明确 @提及此机器人的群消息 |
+| `allowed_chat_ids`   | 以英文逗号分隔的飞书群聊 `chat_id`；为空时拒绝所有群消息           |
+| `allow_dm`           | 接受私聊、账号关联和私聊自动开通；默认为 `true`                    |
+| `allow_unlinked_dm`  | 允许未关联私聊发送者使用受限访客 session；默认为 `false`           |
+| `require_mention`    | 在允许的群聊中要求 @机器人；默认为 `true`                          |
 | `groups`             | 按飞书 `chat_id` 配置的群级覆盖项                                  |
+
+访客限制使用 `guest_message_limit_per_minute`（默认 `10`）、`guest_max_per_channel`（默认 `1000`）和 `guest_retention_days`（默认 `30`）。
+
+升级时，Stella 会将已有持久群成员记录或旧版 `groups` 覆盖项中的群聊一次性加入 `allowed_chat_ids`。显式配置的 allowlist（包括表示全部拒绝的空值）不会被修改。升级后请检查生成的列表；新遇到的群聊在手动添加前仍会被拒绝。
 
 ## 故障排除
 
@@ -249,6 +272,7 @@ Agent 可以在回复中使用双花括号语法嵌入可点击的按钮，格�
 **机器人在群组中不响应？**
 
 - 最可靠的触发方式是 @提及机器人。
+- 将群聊的 `chat_id` 添加到**允许的群聊 ID**。此 allowlist 默认拒绝所有未配置群聊。
 - 如果你期望无 @提及也能回复，确认至少一个群内 agent 配置了可用于路由的模型，并且消息是明确请求而不是闲聊。
 
 **自动注册未创建用户？**

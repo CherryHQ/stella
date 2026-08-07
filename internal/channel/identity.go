@@ -214,9 +214,13 @@ func ResolveAgent(ctx context.Context, store config.Store, accessService *agenta
 	if channelID == "" {
 		channelID = chat.Platform
 	}
+	explicitChannelID := chat.ChannelID != "" && chat.ChannelID != chat.Platform
 	if channelID != "" {
 		ch, err := store.GetChannel(ctx, channelID)
 		if err == nil && ch.AgentID != "" {
+			if !ch.Enabled || ch.Type != chat.Platform {
+				return "", ErrAgentAccessDenied
+			}
 			// A dedicated channel is a distinct use case. Its Authority carries the
 			// exact persisted channel binding and cannot be minted from message data.
 			authority, err := subject.ChannelAuthority(ch.ID)
@@ -227,11 +231,22 @@ func ResolveAgent(ctx context.Context, store config.Store, accessService *agenta
 			if err != nil {
 				return "", ErrAgentAccessDenied
 			}
-			agent, err := access.UseDedicated(ctx, ch.AgentID, ch.ID)
+			agent, err := access.UseDedicatedForType(ctx, ch.AgentID, ch.ID, chat.Platform)
 			if err != nil || !agent.Enabled {
 				return "", ErrAgentAccessDenied
 			}
 			return agent.ID, nil
+		}
+		if err == nil && explicitChannelID && ch.Enabled && ch.Type == chat.Platform && ch.AgentID == "" {
+			// Historically, linked users arriving through an explicitly configured
+			// but non-dedicated channel used ordinary default/assignment fallback.
+			// An empty binding grants nothing, so preserve that behavior.
+		} else if explicitChannelID {
+			// A platform adapter that supplies a distinct channel ID is naming a
+			// configured dedicated channel, not offering a hint for ordinary agent
+			// selection. Never turn a stale or invalid dedicated binding into access
+			// to the user's default (or the first enabled) agent.
+			return "", ErrAgentAccessDenied
 		}
 	}
 

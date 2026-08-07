@@ -82,38 +82,6 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
 		}
 	}
 	cmd, args := channel.ParseSlashCommand(text)
-	reply := func(text string) { _ = b.sendText(deliveryCtx, m.ChannelID, text, m.ID) }
-	switch cmd {
-	case "/model", "/agent":
-		if admitter, ok := b.handler.(channel.LocalCommandAdmitter); ok {
-			resp, handled, err := admitter.AdmitLocalCommand(ctx, msg)
-			if err != nil {
-				return err
-			}
-			if handled {
-				reply(resp)
-				return nil
-			}
-		}
-	}
-	switch cmd {
-	case "/model":
-		reply("The /model command is not available in Discord yet.")
-		return nil
-	case "/agent":
-		if msg.IsGroup {
-			reply("The /agent command is not available in Discord server channels.")
-			return nil
-		}
-		channel.HandleAgentCommand(channel.AgentCommandHandler{
-			Incoming:    msg,
-			Args:        args,
-			Reply:       reply,
-			ListAgents:  b.handler.ListAgents,
-			SwitchAgent: b.handler.SwitchAgent,
-		})
-		return nil
-	}
 	resp, handled, stream, err := b.handler.HandleIncoming(ctx, msg, cmd, args)
 	if err != nil {
 		return err

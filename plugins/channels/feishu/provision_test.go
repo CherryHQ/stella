@@ -27,12 +27,12 @@ func newProvisionBot(cfg Config, p *mockProvisioner) *Bot {
 		handler:     p,
 		cfg:         cfg,
 		provisioned: make(map[string]time.Time),
-		chatModels:  make(map[string]pkgchannel.ModelOption),
 		seenMsgs:    make(map[string]time.Time),
 		fetchTenantProfileFn: func(context.Context, string) *TenantProfile {
 			return &TenantProfile{UnionID: "on_union1", Name: "Member", Email: "member@example.com"}
 		},
 	}
+	b.botOpenID.Store("ou_bot")
 	return b
 }
 
@@ -216,7 +216,7 @@ func TestOnMessageRoutesWithCanonicalProvisionedUnionID(t *testing.T) {
 					return "", false, nil, nil
 				},
 			}}
-			b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "t1"}, p)
+			b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "t1", AllowDM: true}, p)
 			b.fetchTenantProfileFn = func(context.Context, string) *TenantProfile {
 				return &TenantProfile{UnionID: "on_canonical"}
 			}

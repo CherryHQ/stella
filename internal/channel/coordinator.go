@@ -15,7 +15,6 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/vault"
@@ -40,7 +39,7 @@ type feishuEnroller interface {
 
 // Coordinator implements pkgchannel.Handler. It owns all business logic
 // that channels previously called directly: user/agent resolution, session
-// management, command handling, account linking, and model/agent switching.
+// management, command handling, and account linking.
 // A per-session message queue ensures that only one chat turn runs at a time
 // per resolved Stella session; later messages are serialised in arrival order.
 // userInvalidator is satisfied by *agent.PoolManager so the coordinator can
@@ -236,24 +235,62 @@ func (c *Coordinator) EnsurePlatformGroupMember(ctx context.Context, platform, p
 	if c.eventLog == nil || c.db == nil {
 		return errors.New("group member provisioning not configured")
 	}
-	ch, err := c.store.GetChannel(ctx, channelID)
-	if err != nil {
-		return fmt.Errorf("get channel %q: %w", channelID, err)
-	}
-	if ch.AgentID == "" {
-		return fmt.Errorf("channel %q has no agent", channelID)
-	}
 	groupID, err := c.eventLog.ResolveGroupID(ctx, platform, platformGroupID, "")
 	if err != nil {
 		return fmt.Errorf("resolve group: %w", err)
 	}
-	q := sqlc.New(c.db)
+	tx, err := c.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin group member update: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := sqlc.New(tx)
+	lockedChannel, err := q.GetChannelForUpdate(ctx, channelID)
+	if err != nil {
+		return fmt.Errorf("lock channel %q: %w", channelID, err)
+	}
+	if !lockedChannel.AgentID.Valid {
+		return fmt.Errorf("channel %q has no bound agent", channelID)
+	}
+	ch := config.Channel{
+		ID:      lockedChannel.ID,
+		Type:    lockedChannel.Type,
+		AgentID: lockedChannel.AgentID.String,
+		Enabled: lockedChannel.Enabled,
+	}
+	if err := validateGroupChannel(ch, platform, ch.AgentID); err != nil {
+		return fmt.Errorf("channel %q cannot join platform group: %w", channelID, err)
+	}
+	boundAgent, err := q.GetAgent(ctx, ch.AgentID)
+	if err != nil {
+		return fmt.Errorf("get channel agent %q: %w", ch.AgentID, err)
+	}
+	if !boundAgent.Enabled {
+		return fmt.Errorf("channel agent %q is disabled", ch.AgentID)
+	}
+	if _, err := q.GetGroupStateByIDForUpdate(ctx, groupID); err != nil {
+		return fmt.Errorf("lock group: %w", err)
+	}
+	members, err := q.ListGroupMembers(ctx, groupID)
+	if err != nil {
+		return fmt.Errorf("list group members: %w", err)
+	}
+	for _, member := range members {
+		if member.ReplyChannelID == channelID && member.AgentID != ch.AgentID {
+			if err := q.RemoveGroupMember(ctx, sqlc.RemoveGroupMemberParams{GroupID: groupID, AgentID: member.AgentID}); err != nil {
+				return fmt.Errorf("remove stale group member: %w", err)
+			}
+		}
+	}
 	if _, err := q.AddGroupMember(ctx, sqlc.AddGroupMemberParams{
 		GroupID:        groupID,
 		AgentID:        ch.AgentID,
 		ReplyChannelID: channelID,
 	}); err != nil {
 		return fmt.Errorf("add group member: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit group member update: %w", err)
 	}
 	slog.Info("ensured platform group member", "platform", platform, "platform_group_id", platformGroupID, "group_id", groupID, "agent_id", ch.AgentID, "channel_id", channelID)
 	return nil
@@ -356,22 +393,6 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 	return c.handleResolvedIncoming(ctx, rc, msg, command, args)
 }
 
-// AdmitLocalCommand applies guest admission to commands a channel plugin must
-// handle locally. Linked users continue to the plugin-specific implementation.
-func (c *Coordinator) AdmitLocalCommand(ctx context.Context, msg pkgchannel.IncomingMessage) (string, bool, error) {
-	rc, err := c.resolve(ctx, msg)
-	if err != nil {
-		return "", false, err
-	}
-	if rc.GuestID == "" {
-		return "", false, nil
-	}
-	if !c.guestLimiter.allow(rc.GuestID, rc.GuestMessageLimitPerMinute) {
-		return "Guest message rate limit exceeded. Try again in a minute.", true, nil
-	}
-	return "This command is not available in guest chat.", true, nil
-}
-
 func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
 	if rc.GuestID != "" {
 		if !textOnly(msg.Content) {
@@ -398,6 +419,11 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 		if command == "/new" {
 			return c.handleNewSessionCommand(ctx, rc, msg), true, nil, nil
 		}
+		if command == "/compact" {
+			if err := rc.AuthorizeUse(ctx, c.agentAccess); err != nil {
+				return fmt.Sprintf("Compaction failed: %v", err), true, nil, nil
+			}
+		}
 		if resp, ok := HandleCommand(ctx, rc, command+" "+args, msg.SenderID); ok {
 			return resp, true, nil, nil
 		}
@@ -413,7 +439,14 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 			// "新会话" from a short phrase is not, and a wrong guess throws away the
 			// user's context. The message falls through to a normal turn, where the
 			// agent answers in words and points the user at the explicit command.
-		case IntentHelp, IntentCompact:
+		case IntentCompact:
+			if err := rc.AuthorizeUse(ctx, c.agentAccess); err != nil {
+				return fmt.Sprintf("Compaction failed: %v", err), true, nil, nil
+			}
+			if resp, ok := HandleCommand(ctx, rc, IntentToCommand(intent), msg.SenderID); ok {
+				return resp, true, nil, nil
+			}
+		case IntentHelp:
 			if resp, ok := HandleCommand(ctx, rc, IntentToCommand(intent), msg.SenderID); ok {
 				return resp, true, nil, nil
 			}
@@ -472,7 +505,9 @@ func (c *Coordinator) handleConfigCommand(ctx context.Context, rc *ResolvedChat,
 // would land its reply in a session the user already left.
 func (c *Coordinator) handleNewSessionCommand(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage) string {
 	receipt := chatReceiptForMessage(c.receiptQueries(), rc, msg, newSessionCommand)
-	return rotateChatSession(ctx, rc, receipt, c.queue)
+	return rotateChatSession(ctx, rc, receipt, c.queue, func(authCtx context.Context) error {
+		return rc.AuthorizeUse(authCtx, c.agentAccess)
+	})
 }
 
 // receiptQueries returns the store backing command receipts, or nil when the
@@ -553,65 +588,6 @@ func (c *Coordinator) chatWithRC(ctx context.Context, rc *ResolvedChat, content 
 		Events:    out,
 		SessionID: sessionID,
 	}, nil
-}
-
-// ListAgents returns enabled agents the user can access and the current agent ID.
-func (c *Coordinator) ListAgents(ctx context.Context, msg pkgchannel.IncomingMessage) ([]pkgchannel.AgentInfo, string, error) {
-	rc, err := c.resolve(ctx, msg)
-	if err != nil {
-		return nil, "", err
-	}
-
-	authority, err := channelUserAuthority(rc.User)
-	if err != nil {
-		return nil, "", err
-	}
-	ac := NewAgentCommander(c.store, c.auth, c.agentAccess)
-	agents, err := ac.ListForChat(ctx, authority, rc.ChatCtx)
-	if err != nil {
-		return nil, "", err
-	}
-
-	infos := make([]pkgchannel.AgentInfo, len(agents))
-	for i, a := range agents {
-		infos[i] = pkgchannel.AgentInfo{ID: a.ID, Name: a.Name}
-	}
-	return infos, rc.AgentID, nil
-}
-
-// SwitchAgent switches the active agent for the chat context.
-func (c *Coordinator) SwitchAgent(ctx context.Context, msg pkgchannel.IncomingMessage, agentSlug string) error {
-	rc, err := c.resolve(ctx, msg)
-	if err != nil {
-		return err
-	}
-
-	authority, err := channelUserAuthority(rc.User)
-	if err != nil {
-		return err
-	}
-	ac := NewAgentCommander(c.store, c.auth, c.agentAccess)
-	return ac.Switch(ctx, authority, rc.User, rc.ChatCtx, agentSlug)
-}
-
-// channelUserAuthority converts a resolved, persisted user into the same trusted
-// authority used by HTTP. An unlinked channel user has no authority and cannot
-// enumerate or switch agents.
-func channelUserAuthority(user auth.User) (authz.Authority, error) {
-	if user.ID == "" {
-		return authz.Authority{}, agentaccess.ErrForbidden
-	}
-	return (auth.Subject{UserID: user.ID, Roles: []string{user.Role}}).Authority()
-}
-
-// ListModels returns available models.
-func (c *Coordinator) ListModels() []pkgchannel.ModelOption {
-	return c.listFn()
-}
-
-// SwitchModel switches the active model.
-func (c *Coordinator) SwitchModel(provider, model string) error {
-	return c.switchFn(provider, model)
 }
 
 func convertEvent(evt agent.Event) pkgchannel.Event {

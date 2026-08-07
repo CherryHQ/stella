@@ -44,7 +44,7 @@ Use semantic environment variables for Agent files, never host or sandbox litera
 
 - **Multi-agent**: Multiple agents can run simultaneously, each with its own global Provider/model selection, optional API-key override, system prompt, and workspace. Provider endpoints, types, models, and enabled state remain administrator-controlled; per-Agent key overrides are API-only.
 - **Multi-user**: Channel identities resolve users. Verified Feishu tenant members can be auto-provisioned when their channel enables it; each user has per-agent memory that persists across sessions.
-- **Single bot per platform**: One Telegram/Discord/QQ/Feishu/WeChat bot serves all agents. Users switch agents via `/agent` command.
+- **Single bot per platform**: One Telegram/Discord/QQ/Feishu/WeChat bot can serve an agent selected through channel configuration.
 - **Agent routing**: DMs use the user's default agent. Groups use the group's assigned agent. Fallback: first enabled agent.
 - **Session scoping**: Sessions are scoped to (agent, platform, user, chat context) so switching agents gives you a fresh conversation.
 
@@ -68,7 +68,7 @@ Read the relevant reference file for detailed guidance:
 | Topic         | Reference                                                  | When to read                                                                                                 |
 | ------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | Configuration | [references/configuration.md](references/configuration.md) | Config fields, env vars, directory layout, defaults                                                          |
-| Models        | [references/models.md](references/models.md)               | Model tiers, switching, provider setup, CLI commands                                                         |
+| Models        | [references/models.md](references/models.md)               | Model tiers, switching, and provider setup                                                                   |
 | Channels      | [references/channels.md](references/channels.md)           | Telegram/Discord/QQ/Feishu/WeChat bot setup, groups, access control                                          |
 | Webhooks      | [references/webhooks.md](references/webhooks.md)           | Personal HTTP invocation capabilities, one-time URLs, options, and lifecycle                                 |
 | Update        | [references/update.md](references/update.md)               | How to update stella to the latest version                                                                   |
@@ -83,8 +83,6 @@ Available in CLI, Telegram, Discord, QQ, Feishu, and WeChat:
 | ---------- | ------------------------------------------------------------------------ |
 | `/new`     | Start a fresh session; the previous one is archived and stays searchable |
 | `/compact` | Compress the current session in place (same session, shorter context)    |
-| `/model`   | Switch model interactively                                               |
-| `/agent`   | List or switch agents                                                    |
 | `/whoami`  | Show your user/chat ID                                                   |
 
 `/new` works in direct messages only. A group's context is shared by every

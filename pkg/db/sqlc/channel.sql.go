@@ -94,6 +94,26 @@ func (q *Queries) GetChannel(ctx context.Context, id string) (Channel, error) {
 	return i, err
 }
 
+const getChannelForUpdate = `-- name: GetChannelForUpdate :one
+SELECT id, name, type, agent_id, enabled, config, created_at, updated_at FROM channel WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) GetChannelForUpdate(ctx context.Context, id string) (Channel, error) {
+	row := q.db.QueryRow(ctx, getChannelForUpdate, id)
+	var i Channel
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Type,
+		&i.AgentID,
+		&i.Enabled,
+		&i.Config,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listChannels = `-- name: ListChannels :many
 SELECT id, name, type, agent_id, enabled, config, created_at, updated_at FROM channel ORDER BY type, id
 `

@@ -115,9 +115,9 @@ The resolved user and agent are bundled into a `ResolvedChat` struct that thread
 
 The `ServiceManager` (implemented by `PoolManager`) maintains a `map[agentID]*Service` and lazily creates services on first access. Each service is configured with its agent's `Snapshot` (model, credentials, workspace, system prompt) via the runner factory.
 
-### Agent Switching
+### Agent Routing
 
-The `/agent` slash command (handled by `AgentCommander`) lets users list enabled agents and switch the active agent for their DM or group chat. In DMs this updates `default_agent_id`; in groups it updates the `chat_agents` binding. `/model` remains per-session within the current agent.
+Channel configuration selects a dedicated agent when one is bound. Otherwise, direct messages use the user's default agent and groups use their assigned agent, falling back to the first enabled agent.
 
 ## Providers
 
@@ -240,7 +240,7 @@ type Channel interface {
 }
 ```
 
-Shared command logic for `/new`, `/compact`, `/abort`, and `/whoami` lives in the channel coordination layer, which each channel delegates to for the core logic. `/new` rotates the chat onto a fresh session — the previous one is archived, never deleted — and runs as a control operation on the same per-session queue as chat turns, so it never races an in-flight turn. `/new` applies to direct messages only: a group's context is shared, so a group `/new` is refused before the shared event log is written, which keeps the refused command out of every agent's context. `/model` and `/agent` remain per-channel because they require platform-specific UI (Telegram uses inline keyboards; Discord, QQ, Feishu, and WeChat use text lists). Chat turns are serialized per resolved Stella session so overlapping channel messages cannot race the same session history; `/abort` cancels the currently running turn for that session.
+Shared command logic for `/new`, `/compact`, and `/abort` lives in the channel coordination layer, which each channel delegates to for the core logic; adapters can provide platform-specific help and identity commands. `/new` rotates the chat onto a fresh session — the previous one is archived, never deleted — and runs as a control operation on the same per-session queue as chat turns, so it never races an in-flight turn. `/new` applies to direct messages only: a group's context is shared, so a group `/new` is refused before the shared event log is written, which keeps the refused command out of every agent's context. Chat turns are serialized per resolved Stella session so overlapping channel messages cannot race the same session history; `/abort` cancels the currently running turn for that session.
 
 ### Channel ingress ownership
 

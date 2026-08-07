@@ -16,7 +16,17 @@ export type PlatformDefaults = Record<string, string | boolean | number>;
  * which keys survive a save. A key absent here is dropped on the next write.
  */
 export const platformDefaults: Record<string, PlatformDefaults> = {
-  telegram: { token: "", channel_id: "" },
+  telegram: {
+    token: "",
+    channel_id: "",
+    allowed_chat_ids: "",
+    allow_dm: true,
+    allow_unlinked_dm: false,
+    guest_message_limit_per_minute: 10,
+    guest_max_per_channel: 1000,
+    guest_retention_days: 30,
+    require_mention: true,
+  },
   discord: {
     token: "",
     allowed_guild_ids: "",
@@ -35,6 +45,13 @@ export const platformDefaults: Record<string, PlatformDefaults> = {
     verification_token: "",
     tenant_key: "",
     auto_provision: false,
+    allowed_chat_ids: "",
+    allow_dm: true,
+    allow_unlinked_dm: false,
+    guest_message_limit_per_minute: 10,
+    guest_max_per_channel: 1000,
+    guest_retention_days: 30,
+    require_mention: true,
   },
   weixin: { bot_token: "", base_url: "", bot_id: "", user_id: "" },
 };
@@ -64,6 +81,7 @@ function normalizeConfigValue(
 ): string | boolean | number {
   if (typeof defaultValue === "boolean") return Boolean(value);
   if (typeof defaultValue === "number") {
+    if (typeof value === "string" && value.trim() === "") return defaultValue;
     const number = Number(value);
     return Number.isFinite(number) ? Math.trunc(number) : defaultValue;
   }
@@ -200,74 +218,84 @@ export function ChannelConfigFields({
     );
   };
 
+  const accessFields = (allowlistKey: string, allowlistLabel: string, placeholder: string) => (
+    <>
+      {field(allowlistKey, allowlistLabel, "text", placeholder)}
+      <Field>
+        <FieldLabel>{t("channels.allowDm")}</FieldLabel>
+        <Switch
+          checked={Boolean(channel.allow_dm)}
+          aria-label={t("channels.allowDm")}
+          onCheckedChange={(checked) => onChange("allow_dm", checked)}
+        />
+        <FieldDescription>{t("channels.allowDmDesc")}</FieldDescription>
+      </Field>
+      <Field>
+        <FieldLabel>{t("channels.allowUnlinkedDm")}</FieldLabel>
+        <Switch
+          checked={Boolean(channel.allow_unlinked_dm)}
+          aria-label={t("channels.allowUnlinkedDm")}
+          onCheckedChange={(checked) => onChange("allow_unlinked_dm", checked)}
+        />
+        <FieldDescription>{t("channels.allowUnlinkedDmDesc")}</FieldDescription>
+      </Field>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {numberField(
+          "guest_message_limit_per_minute",
+          t("channels.guestMessageLimit"),
+          t("channels.guestMessageLimitDesc"),
+          1,
+          120,
+        )}
+        {numberField(
+          "guest_max_per_channel",
+          t("channels.guestMaxPerChannel"),
+          t("channels.guestMaxPerChannelDesc"),
+          1,
+          100000,
+        )}
+        {numberField(
+          "guest_retention_days",
+          t("channels.guestRetentionDays"),
+          t("channels.guestRetentionDaysDesc"),
+          1,
+          365,
+        )}
+      </div>
+      <Field>
+        <FieldLabel>{t("channels.requireMention")}</FieldLabel>
+        <Switch
+          checked={Boolean(channel.require_mention)}
+          aria-label={t("channels.requireMention")}
+          onCheckedChange={(checked) => onChange("require_mention", checked)}
+        />
+        <FieldDescription>{t("channels.requireMentionDesc")}</FieldDescription>
+      </Field>
+    </>
+  );
+
   return (
     <div className="flex flex-col gap-4">
       {type === "telegram" && (
         <>
           {field("token", "Bot Token", "password", "From @BotFather")}
           {field("channel_id", "Channel ID", "text", "Default channel")}
+          {accessFields(
+            "allowed_chat_ids",
+            t("channels.allowedChatIds"),
+            t("channels.allowedTelegramChatIdsPlaceholder"),
+          )}
         </>
       )}
 
       {type === "discord" && (
         <>
           {field("token", "Bot Token", "password", "Discord Developer Portal")}
-          {field(
+          {accessFields(
             "allowed_guild_ids",
-            "Allowed Guild IDs",
-            "text",
-            "Comma-separated Discord server IDs",
+            t("channels.allowedGuildIds"),
+            t("channels.allowedDiscordGuildIdsPlaceholder"),
           )}
-          <Field>
-            <FieldLabel>{t("channels.allowDm")}</FieldLabel>
-            <Switch
-              checked={Boolean(channel.allow_dm)}
-              aria-label={t("channels.allowDm")}
-              onCheckedChange={(checked) => onChange("allow_dm", checked)}
-            />
-            <FieldDescription>{t("channels.allowDmDesc")}</FieldDescription>
-          </Field>
-          <Field>
-            <FieldLabel>{t("channels.allowUnlinkedDm")}</FieldLabel>
-            <Switch
-              checked={Boolean(channel.allow_unlinked_dm)}
-              aria-label={t("channels.allowUnlinkedDm")}
-              onCheckedChange={(checked) => onChange("allow_unlinked_dm", checked)}
-            />
-            <FieldDescription>{t("channels.allowUnlinkedDmDesc")}</FieldDescription>
-          </Field>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            {numberField(
-              "guest_message_limit_per_minute",
-              t("channels.guestMessageLimit"),
-              t("channels.guestMessageLimitDesc"),
-              1,
-              120,
-            )}
-            {numberField(
-              "guest_max_per_channel",
-              t("channels.guestMaxPerChannel"),
-              t("channels.guestMaxPerChannelDesc"),
-              1,
-              100000,
-            )}
-            {numberField(
-              "guest_retention_days",
-              t("channels.guestRetentionDays"),
-              t("channels.guestRetentionDaysDesc"),
-              1,
-              365,
-            )}
-          </div>
-          <Field>
-            <FieldLabel>{t("channels.requireMention")}</FieldLabel>
-            <Switch
-              checked={Boolean(channel.require_mention)}
-              aria-label={t("channels.requireMention")}
-              onCheckedChange={(checked) => onChange("require_mention", checked)}
-            />
-            <FieldDescription>{t("channels.requireMentionDesc")}</FieldDescription>
-          </Field>
         </>
       )}
 
@@ -296,6 +324,11 @@ export function ChannelConfigFields({
             />
             <FieldDescription>{t("channels.autoProvisionDesc")}</FieldDescription>
           </Field>
+          {accessFields(
+            "allowed_chat_ids",
+            t("channels.allowedChatIds"),
+            t("channels.allowedFeishuChatIdsPlaceholder"),
+          )}
         </>
       )}
 

@@ -191,9 +191,19 @@ When you message inside a Feishu thread, Stella keeps the response in that threa
 
 ## Group Behavior
 
-In group chats the bot participates automatically. @mentions always route to the mentioned bot; other clear group questions may also be routed by Stella's semantic group routing when an eligible routing model is available, otherwise they stay silent. To stop a bot from participating in a group, remove it from that group.
+The bot participates only in explicitly allowed group chats. Add each Feishu `chat_id` to **Allowed group chat IDs** in the Web UI. An empty list rejects every group message and does not provision group membership.
+
+Group messages must @mention the bot by default. You can turn off **Require a mention** to enable Stella's semantic group routing. Every member of an allowed group can address the bound agent, so add only trusted groups.
 
 You can also set per-group overrides with the `groups` map in channel config.
+
+## Access Control
+
+**Allow direct messages** controls private chat, account linking, and auto-provisioning from private messages. Linked Stella users keep their normal sessions and permissions.
+
+Unlinked private senders are denied by default. Enable **Allow guest direct messages** only when you want users who are not auto-provisioned or linked to use the channel-bound agent through persistent restricted guest sessions. Guest history persists and compacts, but guests have no profile, reflection, tools, skills, files, workspace, plugins, or delegation. They can use only `/link`, `/help`, `/new`, `/compact`, and `/abort`; attachments are rejected before download, and linking does not merge previous guest history.
+
+Guest traffic is limited per sender, each channel has a durable guest cap, and inactive guest identities and sessions are removed after the configured retention period. Public guest access can still create model cost and abuse risk. Use a dedicated guest-safe agent whose base prompt contains no secrets.
 
 ## Commands
 
@@ -204,8 +214,6 @@ Feishu supports the standard chat commands:
 | `/new`     | Start a fresh session (previous history stays searchable) |
 | `/compact` | Compress the current session in place                     |
 | `/abort`   | Cancel the in-progress response                           |
-| `/model`   | List or switch models                                     |
-| `/agent`   | List or switch agents                                     |
 | `/whoami`  | Show your platform identity                               |
 
 `/new` works in a direct message only. A group's context is shared by everyone in it, so `/new` in a group replies that the shared session cannot be reset and changes nothing; the command itself never becomes part of the group's history. See [Memory](/docs/guides/memory) for what a fresh session keeps.
@@ -221,6 +229,13 @@ Feishu supports the standard chat commands:
   "enable_notify": false,
   "tenant_key": "",
   "auto_provision": false,
+  "allowed_chat_ids": "oc_trusted_group",
+  "allow_dm": true,
+  "allow_unlinked_dm": false,
+  "guest_message_limit_per_minute": 10,
+  "guest_max_per_channel": 1000,
+  "guest_retention_days": 30,
+  "require_mention": true,
   "groups": {
     "oc_example": {
       "system_prompt": "Answer as the infra assistant for this group."
@@ -238,7 +253,15 @@ Feishu supports the standard chat commands:
 | `enable_notify`      | Allow scheduler and notify output to target Feishu                                                                     |
 | `tenant_key`         | Your enterprise tenant key. Optional: Stella can auto-detect it at startup, but setting it explicitly is recommended   |
 | `auto_provision`     | Create accounts only for verified tenant members: a direct message, or a group message explicitly @mentioning this bot |
+| `allowed_chat_ids`   | Comma-separated Feishu group `chat_id` values; empty rejects all group messages                                        |
+| `allow_dm`           | Accept private messages, account linking, and private-message auto-provisioning; defaults to `true`                    |
+| `allow_unlinked_dm`  | Allow restricted guest sessions for unlinked private senders; defaults to `false`                                      |
+| `require_mention`    | Require an @mention in allowed groups; defaults to `true`                                                              |
 | `groups`             | Optional per-chat overrides keyed by Feishu `chat_id`                                                                  |
+
+Guest limits use `guest_message_limit_per_minute` (default `10`), `guest_max_per_channel` (default `1000`), and `guest_retention_days` (default `30`).
+
+When upgrading, Stella adds groups already present in durable group membership or legacy `groups` overrides to `allowed_chat_ids` once. Explicit allowlists, including an empty deny-all value, are not changed. Review the generated list after upgrading; newly encountered groups remain blocked until you add them.
 
 ## Troubleshooting
 
@@ -251,6 +274,7 @@ Feishu supports the standard chat commands:
 **Bot not responding in groups?**
 
 - @mention the bot for the most reliable trigger.
+- Add the group's `chat_id` to **Allowed group chat IDs**. The allowlist is fail-closed.
 - If you expect replies without @mentions, make sure at least one group agent has a routing-capable model and that the message is a clear request, not casual chatter.
 
 **Auto-provisioning not creating users?**

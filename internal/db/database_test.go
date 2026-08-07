@@ -23,6 +23,80 @@ func TestOpenDBFreshInstallDoesNotCreateFeishuTokensTable(t *testing.T) {
 	}
 }
 
+func TestChannelGroupAllowlistMigrationPreservesKnownGroups(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	sub, err := fs.Sub(MigrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("open migrations fs: %v", err)
+	}
+	sqlDB := stdlib.OpenDBFromPool(db)
+	defer func() { _ = sqlDB.Close() }()
+	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, sub)
+	if err != nil {
+		t.Fatalf("create migration provider: %v", err)
+	}
+	if _, err := provider.DownTo(ctx, sequentialAnchor+5); err != nil {
+		t.Fatalf("goose down allowlist migration: %v", err)
+	}
+
+	if _, err := db.Exec(ctx, `INSERT INTO agent (id, name, workspace) VALUES ('allowlist-agent', 'Allowlist Agent', '/tmp')`); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO channel (id, name, type, config) VALUES
+			('telegram-known', 'Telegram known', 'telegram', '{}'),
+			('telegram-explicit', 'Telegram explicit', 'telegram', '{"allowed_chat_ids":""}'),
+			('telegram-malformed', 'Telegram malformed', 'telegram', '{'),
+			('feishu-known', 'Feishu known', 'feishu', '{"groups":{"oc_legacy":{}}}')`); err != nil {
+		t.Fatalf("seed channels: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO ctx_group_state (id, platform, platform_group_id) VALUES
+			('00000000-0000-0000-0000-000000000101', 'telegram', '-100'),
+			('00000000-0000-0000-0000-000000000102', 'telegram', '-200'),
+			('00000000-0000-0000-0000-000000000103', 'feishu', 'oc_member'),
+			('00000000-0000-0000-0000-000000000104', 'telegram', '-300')`); err != nil {
+		t.Fatalf("seed group states: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO channel_group_member (group_id, agent_id, reply_channel_id) VALUES
+			('00000000-0000-0000-0000-000000000101', 'allowlist-agent', 'telegram-known'),
+			('00000000-0000-0000-0000-000000000102', 'allowlist-agent', 'telegram-explicit'),
+			('00000000-0000-0000-0000-000000000103', 'allowlist-agent', 'feishu-known'),
+			('00000000-0000-0000-0000-000000000104', 'allowlist-agent', 'telegram-malformed')`); err != nil {
+		t.Fatalf("seed group membership: %v", err)
+	}
+
+	if _, err := provider.UpTo(ctx, sequentialAnchor+6); err != nil {
+		t.Fatalf("goose up allowlist migration: %v", err)
+	}
+	for _, tc := range []struct {
+		channelID string
+		want      string
+	}{
+		{channelID: "telegram-known", want: "-100"},
+		{channelID: "telegram-explicit", want: ""},
+		{channelID: "feishu-known", want: "oc_legacy,oc_member"},
+	} {
+		var got string
+		if err := db.QueryRow(ctx, `SELECT config::jsonb->>'allowed_chat_ids' FROM channel WHERE id = $1`, tc.channelID).Scan(&got); err != nil {
+			t.Fatalf("read %s allowlist: %v", tc.channelID, err)
+		}
+		if got != tc.want {
+			t.Fatalf("%s allowlist = %q, want %q", tc.channelID, got, tc.want)
+		}
+	}
+	var malformed string
+	if err := db.QueryRow(ctx, `SELECT config FROM channel WHERE id = 'telegram-malformed'`).Scan(&malformed); err != nil {
+		t.Fatalf("read malformed config: %v", err)
+	}
+	if malformed != "{" {
+		t.Fatalf("malformed config = %q, want original value", malformed)
+	}
+}
+
 func TestKnowledgeFilesMigrationUpgradesDatabaseAtMainLatest(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()

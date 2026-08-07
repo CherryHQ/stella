@@ -57,7 +57,7 @@ func (s *guestResolutionStore) ResolveOrCreateGuest(_ context.Context, channelID
 	return s.guest, nil
 }
 
-func TestCoordinatorGuestResolutionIsDiscordDMOptInOnly(t *testing.T) {
+func TestCoordinatorGuestResolutionIsSupportedPrivateOptInOnly(t *testing.T) {
 	ctx := context.Background()
 	manager := guestResolutionServices{service: &agent.Service{}}
 	channel := config.Channel{ID: "discord-main", Type: "discord", AgentID: "guest-agent", Enabled: true, Config: `{"allow_dm":true,"allow_unlinked_dm":true}`}
@@ -90,21 +90,37 @@ func TestCoordinatorGuestResolutionIsDiscordDMOptInOnly(t *testing.T) {
 		})
 	}
 	store.channel = channel
-	guestStore := &guestResolutionStore{guest: sqlc.ChannelGuest{ID: "guest-1"}}
-	resolved, err := resolve("discord", false, guestStore)
-	if err != nil {
-		t.Fatal(err)
+	t.Run("missing canonical sender cannot create guest", func(t *testing.T) {
+		guestStore := &guestResolutionStore{guest: sqlc.ChannelGuest{ID: "guest-1"}}
+		_, err := ResolveWithChannel(ctx, manager, store, authStore, nil, nil, guestStore, "discord", channel.ID, "", []string{"legacy-id"}, "Guest", "chat", "", false)
+		if !errors.Is(err, ErrAgentAccessDenied) {
+			t.Fatalf("resolve = %v, want access denied", err)
+		}
+		if guestStore.calls != 0 {
+			t.Fatalf("guest store calls = %d, want 0", guestStore.calls)
+		}
+	})
+	for _, platform := range []string{"discord", "telegram", "feishu"} {
+		t.Run(platform+" private", func(t *testing.T) {
+			store.channel.Type = platform
+			guestStore := &guestResolutionStore{guest: sqlc.ChannelGuest{ID: "guest-1"}}
+			resolved, err := resolve(platform, false, guestStore)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resolved.GuestID != "guest-1" || resolved.AgentID != "guest-agent" || resolved.DedicatedChannelID != channel.ID || guestStore.calls != 1 {
+				t.Fatalf("resolved guest = %#v, calls = %d", resolved, guestStore.calls)
+			}
+		})
 	}
-	if resolved.GuestID != "guest-1" || resolved.AgentID != "guest-agent" || resolved.DedicatedChannelID != channel.ID || guestStore.calls != 1 {
-		t.Fatalf("resolved guest = %#v, calls = %d", resolved, guestStore.calls)
-	}
+	store.channel = channel
 
 	for _, tc := range []struct {
 		name     string
 		platform string
 		isGroup  bool
 	}{
-		{name: "non Discord private", platform: "telegram"},
+		{name: "unsupported private", platform: "qq"},
 		{name: "Discord group", platform: "discord", isGroup: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	tgmd "github.com/Mad-Pixels/goldmark-tgmd"
+	"golang.org/x/sync/singleflight"
 
 	tele "gopkg.in/telebot.v4"
 
@@ -20,6 +21,16 @@ import (
 
 const telegramMaxMessageLen = 4000
 
+const (
+	groupProvisionTimeout       = 10 * time.Second
+	groupProvisionFailureTTL    = 30 * time.Second
+	maxProvisionTrackingEntries = 1024
+)
+
+type groupMemberProvisioner interface {
+	EnsurePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error
+}
+
 // logger returns the package logger, always using the current default handler.
 // This must be a function (not a package-level var) because the default handler
 // is set in main() after package init.
@@ -27,9 +38,12 @@ func logger() *slog.Logger { return slog.With("component", "telegram") }
 
 // Config holds Telegram bot settings.
 type Config struct {
-	InstanceID string // configured channel instance ID
-	Token      string // bot token
-	ChannelID  string // broadcast channel ID or @username
+	InstanceID     string
+	Token          string
+	ChannelID      string
+	AllowedChatIDs string
+	AllowDM        bool
+	RequireMention bool
 }
 
 // Bot wraps a Telegram bot with agent pool integration.
@@ -39,9 +53,12 @@ type Bot struct {
 	handler channel.Handler
 	md      goldmarkMD
 
-	mu           sync.RWMutex
-	chatModels   map[int64]channel.ModelOption
-	finalizeOnce sync.Once
+	finalizeOnce      sync.Once
+	provisionMu       sync.RWMutex
+	provisionGroup    singleflight.Group
+	provisionedGroups map[string]struct{}
+	provisionFailures map[string]time.Time
+	provisionWarnings map[string]struct{}
 
 	cfg Config
 	ctx context.Context
@@ -61,11 +78,12 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	}
 
 	b := &Bot{
-		bot:        bot,
-		handler:    handler,
-		md:         tgmd.TGMD(),
-		chatModels: make(map[int64]channel.ModelOption),
-		cfg:        cfg,
+		bot:               bot,
+		handler:           handler,
+		md:                tgmd.TGMD(),
+		provisionedGroups: make(map[string]struct{}),
+		provisionWarnings: make(map[string]struct{}),
+		cfg:               cfg,
 	}
 
 	b.registerHandlers()
@@ -170,13 +188,141 @@ type chatRef string
 func (c chatRef) Recipient() string { return string(c) }
 
 // guard wraps a handler, logging callback pass-through for diagnostics.
-func (b *Bot) guard(h tele.HandlerFunc) tele.HandlerFunc {
+func (b *Bot) guard(directed bool, h tele.HandlerFunc) tele.HandlerFunc {
 	return func(c tele.Context) error {
 		if c.Callback() != nil {
 			logger().Debug("guard: passing callback through", "data", c.Callback().Data, "unique", c.Callback().Unique)
 		}
+		if !b.admit(c, directed) {
+			return nil
+		}
 		return h(c)
 	}
+}
+
+func (b *Bot) admit(c tele.Context, directed bool) bool {
+	if !isGroup(c) {
+		return b.cfg.AllowDM
+	}
+	chatID := strconv.FormatInt(c.Chat().ID, 10)
+	allowed := false
+	for id := range strings.SplitSeq(b.cfg.AllowedChatIDs, ",") {
+		if strings.TrimSpace(id) == chatID {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		b.warnGroupRejectionOnce(chatID, "not_allowlisted", nil)
+		return false
+	}
+	if b.cfg.RequireMention && !directed && !b.botMentioned(c.Message()) && !b.replyToBot(c.Message()) {
+		return false
+	}
+	return b.ensureGroupMember(chatID)
+}
+
+func (b *Bot) ensureGroupMember(chatID string) bool {
+	provisioner, ok := b.handler.(groupMemberProvisioner)
+	if !ok {
+		b.warnGroupRejectionOnce(chatID, "provisioner_unavailable", nil)
+		return false
+	}
+	if b.ctx == nil {
+		b.warnGroupRejectionOnce(chatID, "bot_lifecycle_unavailable", nil)
+		return false
+	}
+	if admitted, retry := b.groupProvisionState(chatID, time.Now()); admitted || !retry {
+		return admitted
+	}
+	result, _, _ := b.provisionGroup.Do(chatID, func() (any, error) {
+		if admitted, retry := b.groupProvisionState(chatID, time.Now()); admitted || !retry {
+			return admitted, nil
+		}
+		ctx, cancel := context.WithTimeout(b.ctx, groupProvisionTimeout)
+		defer cancel()
+		if err := provisioner.EnsurePlatformGroupMember(ctx, channel.PlatformTelegram, chatID, b.Name()); err != nil {
+			b.recordGroupProvisionFailure(chatID, time.Now().Add(groupProvisionFailureTTL))
+			b.warnGroupRejectionOnce(chatID, "provision_failed", err)
+			return false, nil
+		}
+		b.provisionMu.Lock()
+		if b.provisionedGroups == nil {
+			b.provisionedGroups = make(map[string]struct{})
+		}
+		b.provisionedGroups[chatID] = struct{}{}
+		delete(b.provisionFailures, chatID)
+		b.provisionMu.Unlock()
+		return true, nil
+	})
+	admitted, _ := result.(bool)
+	return admitted
+}
+
+func (b *Bot) groupProvisionState(chatID string, now time.Time) (admitted, retry bool) {
+	b.provisionMu.RLock()
+	defer b.provisionMu.RUnlock()
+	if _, ok := b.provisionedGroups[chatID]; ok {
+		return true, false
+	}
+	return false, !b.provisionFailures[chatID].After(now)
+}
+
+func (b *Bot) recordGroupProvisionFailure(chatID string, retryAt time.Time) {
+	b.provisionMu.Lock()
+	defer b.provisionMu.Unlock()
+	if b.provisionFailures == nil {
+		b.provisionFailures = make(map[string]time.Time)
+	}
+	for id, expiry := range b.provisionFailures {
+		if !expiry.After(time.Now()) {
+			delete(b.provisionFailures, id)
+		}
+	}
+	if len(b.provisionFailures) < maxProvisionTrackingEntries {
+		b.provisionFailures[chatID] = retryAt
+	}
+}
+
+func (b *Bot) warnGroupRejectionOnce(chatID, reason string, err error) {
+	b.provisionMu.Lock()
+	defer b.provisionMu.Unlock()
+	b.warnGroupRejectionOnceLocked(chatID, reason, err)
+}
+
+func (b *Bot) warnGroupRejectionOnceLocked(chatID, reason string, err error) {
+	if b.provisionWarnings == nil {
+		b.provisionWarnings = make(map[string]struct{})
+	}
+	key := chatID + "\x00" + reason
+	if _, logged := b.provisionWarnings[key]; logged {
+		return
+	}
+	if len(b.provisionWarnings) >= maxProvisionTrackingEntries {
+		return
+	}
+	b.provisionWarnings[key] = struct{}{}
+	args := []any{"chat_id", chatID, "reason", reason}
+	if err != nil {
+		args = append(args, "error", err)
+	}
+	logger().Warn("telegram group message rejected", args...)
+}
+
+func (b *Bot) botMentioned(m *tele.Message) bool {
+	if m == nil || b.bot.Me.Username == "" {
+		return false
+	}
+	for _, mention := range telegramMentions(m) {
+		if strings.EqualFold(mention.PlatformID, b.bot.Me.Username) {
+			return true
+		}
+	}
+	return false
+}
+
+func (b *Bot) replyToBot(m *tele.Message) bool {
+	return m != nil && m.ReplyTo != nil && m.ReplyTo.Sender != nil && b.bot.Me != nil && m.ReplyTo.Sender.ID == b.bot.Me.ID
 }
 
 // isGroup returns true if the message is from a group or supergroup.
@@ -232,7 +378,11 @@ func (b *Bot) incomingMsg(c tele.Context, content []ai.ContentBlock) channel.Inc
 // AgentID is left empty — the dispatcher resolves it from group membership.
 func telegramMentions(m *tele.Message) []channel.Mention {
 	var mentions []channel.Mention
-	for _, e := range m.Entities {
+	entities := m.Entities
+	if len(m.CaptionEntities) > 0 {
+		entities = m.CaptionEntities
+	}
+	for _, e := range entities {
 		switch e.Type {
 		case tele.EntityMention: // @username
 			raw := m.EntityText(e)

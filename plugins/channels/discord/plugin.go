@@ -34,9 +34,9 @@ func init() {
 			DefaultConfig: func() map[string]any {
 				return map[string]any{
 					"allow_dm": true, "allow_unlinked_dm": false, "require_mention": true,
-					"guest_message_limit_per_minute": channel.DefaultDiscordGuestMessageLimitPerMinute,
-					"guest_max_per_channel":          channel.DefaultDiscordGuestMaxPerChannel,
-					"guest_retention_days":           channel.DefaultDiscordGuestRetentionDays,
+					"guest_message_limit_per_minute": channel.DefaultGuestMessageLimitPerMinute,
+					"guest_max_per_channel":          channel.DefaultGuestMaxPerChannel,
+					"guest_retention_days":           channel.DefaultGuestRetentionDays,
 				}
 			}, Schema: configSchema(), Validate: func(raw map[string]any) error {
 				cfg, err := DecodeConfig(raw)
@@ -62,9 +62,9 @@ func configSchema() map[string]any {
 		"allowed_guild_ids":              map[string]any{"type": "string", "description": "Comma-separated Discord guild IDs allowed to send server-channel messages."},
 		"allow_dm":                       map[string]any{"type": "boolean", "description": "Accept direct messages for linked-user chat and account linking.", "default": true},
 		"allow_unlinked_dm":              map[string]any{"type": "boolean", "description": "Allow unlinked Discord users to use the bound agent in restricted guest sessions.", "default": false},
-		"guest_message_limit_per_minute": map[string]any{"type": "integer", "description": "Maximum accepted guest messages per minute and guest.", "minimum": 1, "maximum": channel.MaxDiscordGuestMessageLimitPerMinute, "default": channel.DefaultDiscordGuestMessageLimitPerMinute},
-		"guest_max_per_channel":          map[string]any{"type": "integer", "description": "Maximum durable guest identities for this channel.", "minimum": 1, "maximum": channel.MaxDiscordGuestMaxPerChannel, "default": channel.DefaultDiscordGuestMaxPerChannel},
-		"guest_retention_days":           map[string]any{"type": "integer", "description": "Delete guest identities and sessions after this many inactive days.", "minimum": 1, "maximum": channel.MaxDiscordGuestRetentionDays, "default": channel.DefaultDiscordGuestRetentionDays},
+		"guest_message_limit_per_minute": map[string]any{"type": "integer", "description": "Maximum accepted guest messages per minute and guest.", "minimum": 1, "maximum": channel.MaxGuestMessageLimitPerMinute, "default": channel.DefaultGuestMessageLimitPerMinute},
+		"guest_max_per_channel":          map[string]any{"type": "integer", "description": "Maximum durable guest identities for this channel.", "minimum": 1, "maximum": channel.MaxGuestMaxPerChannel, "default": channel.DefaultGuestMaxPerChannel},
+		"guest_retention_days":           map[string]any{"type": "integer", "description": "Delete guest identities and sessions after this many inactive days.", "minimum": 1, "maximum": channel.MaxGuestRetentionDays, "default": channel.DefaultGuestRetentionDays},
 		"require_mention":                map[string]any{"type": "boolean", "description": "Only process guild messages that mention this bot.", "default": true},
 	}, "required": []any{"token"}}
 }

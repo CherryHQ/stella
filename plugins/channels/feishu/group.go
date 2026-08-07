@@ -28,6 +28,9 @@ func (b *Bot) onBotAdded(_ context.Context, event *larkim.P2ChatMemberBotAddedV1
 		return nil
 	}
 	chatID := *event.Event.ChatId
+	if !b.chatAllowed(chatID) {
+		return nil
+	}
 	name := derefStr(event.Event.Name)
 	logger().Info("bot added to group", "chat_id", chatID, "group_name", name)
 
@@ -46,6 +49,10 @@ func (b *Bot) onBotDeleted(_ context.Context, event *larkim.P2ChatMemberBotDelet
 		return nil
 	}
 	chatID := *event.Event.ChatId
+	if !b.chatAllowed(chatID) {
+		logger().Warn("ignoring bot_deleted for chat outside the allowlist", "chat_id", chatID)
+		return nil
+	}
 	name := derefStr(event.Event.Name)
 	logger().Info("bot removed from group", "chat_id", chatID, "group_name", name)
 
@@ -90,6 +97,9 @@ func (b *Bot) syncGroups() {
 				continue
 			}
 			chatID := *chat.ChatId
+			if !b.chatAllowed(chatID) {
+				continue
+			}
 			ctx, cancel := b.apiContext()
 			if err := provisioner.EnsurePlatformGroupMember(ctx, channel.PlatformFeishu, chatID, b.Name()); err != nil {
 				logger().Warn("sync groups: ensure member failed", "chat_id", chatID, "error", err)

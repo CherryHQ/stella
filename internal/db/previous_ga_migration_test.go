@@ -25,7 +25,7 @@ const (
 	previousGAVersion = int64(20260725161331)
 	// Knowledge V1 and channel guest sessions/indexes are the post-anchor migrations
 	// exercised by the assertions below.
-	currentMigrationVersion = sequentialAnchor + 5
+	currentMigrationVersion = sequentialAnchor + 6
 
 	previousGAUserID         = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID        = "00000000-0000-0000-0000-000000000002"

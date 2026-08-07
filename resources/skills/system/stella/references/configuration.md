@@ -58,7 +58,12 @@ Channels are stored in the `channel` table. Each row is a channel instance with 
 
 - `token` -- Bot token
 - `channel_id` -- Broadcast channel ID or @username
-- `enable_notify` -- Allow notify tool for this channel
+- `allowed_chat_ids` -- Comma-separated trusted numeric group IDs; empty rejects all group messages
+- `allow_dm` -- Accept private messages and account linking; defaults to `true`
+- `allow_unlinked_dm` -- Allow persistent restricted guest private messages; defaults to `false`
+- `guest_message_limit_per_minute`, `guest_max_per_channel`, `guest_retention_days` -- Guest resource limits
+- `require_mention` -- Require a bot mention in allowed groups; defaults to `true`
+- `enable_notify` -- Allow notify output for this channel
 
 Channel access is enforced by Stella's trusted Authority-based domain services; notification targets are resolved from linked identities.
 
@@ -77,9 +82,9 @@ Guest direct messages retain and compact conversation history but have no profil
 
 **QQ config fields:** `app_id`, `app_secret`, `enable_notify`
 
-**Feishu config fields:** `app_id`, `app_secret`, `encrypt_key`, `verification_token`, `enable_notify`, `tenant_key`, `auto_provision`
+**Feishu config fields:** `app_id`, `app_secret`, `encrypt_key`, `verification_token`, `enable_notify`, `tenant_key`, `auto_provision`, `allowed_chat_ids`, `allow_dm`, `allow_unlinked_dm`, `guest_message_limit_per_minute`, `guest_max_per_channel`, `guest_retention_days`, `require_mention`
 
-Feishu is a chat channel only.
+Feishu `allowed_chat_ids` is a comma-separated, fail-closed group `chat_id` allowlist. Direct messages default on, group mentions default required, and restricted guest direct messages default off. Guest sessions use the same isolation and resource limits described for Discord.
 
 ## Login providers
 
