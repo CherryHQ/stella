@@ -230,6 +230,8 @@ func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig,
 	var text string
 	var thinking string
 	toolCalls := map[string]ai.ToolCall{}
+	// The map merges deltas by ID; this slice preserves provider emission order.
+	toolCallOrder := make([]string, 0, 4)
 	toolArgs := map[string]string{} // accumulated raw JSON per tool call ID
 	started := false
 	var ttft time.Duration
@@ -241,6 +243,9 @@ func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig,
 		case ai.EventThinkingDelta:
 			thinking += e.Thinking
 		case ai.EventToolCallDelta:
+			if _, ok := toolCalls[e.ID]; !ok {
+				toolCallOrder = append(toolCallOrder, e.ID)
+			}
 			call := toolCalls[e.ID]
 			call.ID = e.ID
 			if e.Name != "" {
@@ -273,7 +278,7 @@ func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig,
 		// Emit every provider event as a delta.
 		if emit != nil {
 			// Build current partial for the delta snapshot.
-			partial := buildPartial(msg, text, thinking, toolCalls)
+			partial := buildPartial(msg, text, thinking, toolCalls, toolCallOrder)
 			emit(AssistantDelta{Event: event, Message: partial})
 		}
 	}
@@ -301,7 +306,8 @@ func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig,
 	if thinking != "" {
 		msg.Content = append(msg.Content, ai.ThinkingContent{Thinking: thinking})
 	}
-	for id, call := range toolCalls {
+	for _, id := range toolCallOrder {
+		call := toolCalls[id]
 		if raw, ok := toolArgs[id]; ok && raw != "" {
 			var parsed map[string]any
 			if json.Unmarshal([]byte(raw), &parsed) == nil {
@@ -319,7 +325,7 @@ func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig,
 }
 
 // buildPartial constructs a snapshot of the in-progress assistant message.
-func buildPartial(base ai.AssistantMessage, text, thinking string, toolCalls map[string]ai.ToolCall) ai.AssistantMessage {
+func buildPartial(base ai.AssistantMessage, text, thinking string, toolCalls map[string]ai.ToolCall, toolCallOrder []string) ai.AssistantMessage {
 	partial := base
 	partial.Content = make([]ai.ContentBlock, 0, 4)
 	if text != "" {
@@ -328,8 +334,8 @@ func buildPartial(base ai.AssistantMessage, text, thinking string, toolCalls map
 	if thinking != "" {
 		partial.Content = append(partial.Content, ai.ThinkingContent{Thinking: thinking})
 	}
-	for _, call := range toolCalls {
-		partial.Content = append(partial.Content, call)
+	for _, id := range toolCallOrder {
+		partial.Content = append(partial.Content, toolCalls[id])
 	}
 	return partial
 }
