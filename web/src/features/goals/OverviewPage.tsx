@@ -295,7 +295,12 @@ export function OverviewPage() {
               <p className="mt-1 text-[12.5px] text-muted-foreground">{t("hub.noNeedsYouDesc")}</p>
             </div>
           ) : (
-            <div className="rounded-xl border border-warning/30 border-l-2 border-l-warning bg-warning/[0.05] p-4">
+            // One accent, on the outside: a single teal rail down the whole
+            // block. It was a warning-tinted box around cards that each drew
+            // their own left border, which stacked into a double stroke in a
+            // hue the rest of the theme never uses. Nothing waiting on a
+            // decision is a verdict, so it takes the theme's one accent.
+            <div className="border-s-2 border-primary ps-4">
               <p className="mb-3 text-[12.5px] text-muted-foreground">{t("hub.needsYouHint")}</p>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {needsYou.map((d) => (
@@ -537,10 +542,10 @@ function NeedsYouCard({
       tabIndex={0}
       onClick={onOpen}
       onKeyDown={(e) => e.target === e.currentTarget && e.key === "Enter" && onOpen()}
-      className={cn(
-        "cursor-pointer rounded-xl border border-border border-l-[3px] px-4 py-3.5 hover:bg-muted/40",
-        isReview ? "border-l-primary" : "border-l-warning",
-      )}
+      // Same card as every other section's. The section's rail already says
+      // these are waiting on you; a second accent per card only repeats it,
+      // and the hook label above the title says which kind of waiting it is.
+      className="cursor-pointer rounded-xl border border-border px-4 py-3.5 hover:bg-muted/40"
     >
       <div className="text-xs font-medium text-muted-foreground">{hookLabel(t, d)}</div>
       <div className="mt-1 text-sm font-semibold">{d.title}</div>
