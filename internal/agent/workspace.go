@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/CherryHQ/stella/internal/skills"
 )
 
 // The on-disk layout is user-first (#442): a principal — a user, or a channel
@@ -178,28 +176,4 @@ func UserAssetsDir(userHome string) string {
 // UserSkillsDir returns the user-level skills directory within a user home.
 func UserSkillsDir(userHome string) string {
 	return filepath.Join(userHome, ".agents", "skills")
-}
-
-// SystemDBSkillsDir returns the directory holding DB-installed system-scope
-// skills, a sibling of the retired extracted builtin projection. Keeping runtime caches apart prevents DB Skills
-// from being mistaken for shipped built-ins. Isolating backends mount it
-// read-only.
-func SystemDBSkillsDir(base string) string {
-	return filepath.Join(base, ".agents", "db-skills")
-}
-
-// skillDiskLayout assembles the per-scope skill layout under the given roots.
-// An empty root zeroes its scope so SkillDiskLayout.BaseDir returns "" there.
-func skillDiskLayout(systemDB, agentRoot, userDataDir, userAgentRoot string) skills.SkillDiskLayout {
-	l := skills.SkillDiskLayout{SystemDB: systemDB}
-	if agentRoot != "" {
-		l.Agent = UserSkillsDir(agentRoot)
-	}
-	if userDataDir != "" {
-		l.User = UserSkillsDir(userDataDir)
-	}
-	if userAgentRoot != "" {
-		l.UserAgent = UserSkillsDir(userAgentRoot)
-	}
-	return l
 }

@@ -166,6 +166,10 @@ func (s *HomeStore) LoadFile(ctx context.Context, id, filename string) (string, 
 	return s.catalog.LoadFile(ctx, id, filename)
 }
 
+func (s *HomeStore) LoadResolvedFile(ctx context.Context, name, filename string, vc ViewContext) (*HomeSkillLoad, error) {
+	return s.catalog.LoadResolvedFile(ctx, name, filename, vc)
+}
+
 func (s *HomeStore) ListFiles(ctx context.Context, id string) ([]string, error) {
 	return s.catalog.ListFiles(ctx, id)
 }

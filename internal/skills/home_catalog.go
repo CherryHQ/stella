@@ -48,6 +48,15 @@ type HomeCatalogSkill struct {
 	Managed bool
 }
 
+// HomeSkillLoad is a single content read pinned to one catalog descriptor.
+// Directory is a validated catalog-root-relative POSIX path.
+type HomeSkillLoad struct {
+	Skill      Skill
+	Content    string
+	Directory  string
+	Suppressed bool
+}
+
 // HomeManagedSkillSnapshot is an immutable-revision read suitable as the
 // starting point for one managed mutation. Files deliberately retain opaque
 // bytes and modes; callers never need a Home locator or host path to build the
@@ -227,6 +236,73 @@ func (c *HomeCatalog) LoadFile(ctx context.Context, id, filename string) (string
 		return nil
 	})
 	return content, err
+}
+
+// LoadResolvedFile resolves and reads one Home Skill from a single descriptor
+// capture. Its Directory is catalog-root-relative POSIX, never a host path.
+func (c *HomeCatalog) LoadResolvedFile(ctx context.Context, name, filename string, vc ViewContext) (*HomeSkillLoad, error) {
+	if err := skillNameValidationError(name, name); err != nil {
+		return nil, fmt.Errorf("skills: resolve name: %w", err)
+	}
+	if err := validateSkillTreePath(filename); err != nil {
+		return nil, fmt.Errorf("skills: invalid Skill file path: %w", err)
+	}
+	roots := []HomeCatalogRoot{{Scope: "user_agent", UserID: vc.UserID, AgentID: vc.AgentID}, {Scope: "user", UserID: vc.UserID}, {Scope: "system_agent", AgentID: vc.AgentID}, {Scope: "system"}}
+	for _, root := range roots {
+		if !applicableHomeCatalogRoot(root) {
+			continue
+		}
+		var loaded *HomeSkillLoad
+		matched := false
+		err := c.useRoot(ctx, root, func(filesystem sandbox.Filesystem) error {
+			snapshot, err := c.snapshot(ctx, filesystem, root)
+			if err != nil {
+				return err
+			}
+			for _, descriptor := range snapshot.Active {
+				if descriptor.Skill.Name != name {
+					continue
+				}
+				matched = true
+				// An active disabled winner shadows lower-precedence scopes without
+				// exposing its bytes or execution directory.
+				if descriptor.Skill.DisableModelInvocation {
+					loaded = &HomeSkillLoad{Suppressed: true}
+					return nil
+				}
+				directory, err := catalogRelativeDirectory(descriptor.RevisionPath)
+				if err != nil {
+					return err
+				}
+				data, err := readCatalogFile(ctx, filesystem, path.Join(descriptor.RevisionPath, filename), maxManagedFileBytes)
+				if err != nil {
+					return err
+				}
+				skill := homeCatalogSkill(descriptor).Skill
+				loaded = &HomeSkillLoad{Skill: skill, Content: string(data), Directory: directory}
+				return nil
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		if matched {
+			return loaded, nil
+		}
+	}
+	return nil, nil
+}
+
+func catalogRelativeDirectory(directory string) (string, error) {
+	if !strings.HasPrefix(directory, sandbox.PathWorkspace+"/") {
+		return "", errors.New("skills: invalid catalog-relative execution directory")
+	}
+	relative := strings.TrimPrefix(directory, sandbox.PathWorkspace+"/")
+	if relative == "." || relative == ".." || strings.HasPrefix(relative, "../") || path.IsAbs(relative) || path.Clean(relative) != relative || strings.ContainsAny(relative, `\:`) {
+		return "", errors.New("skills: invalid catalog-relative execution directory")
+	}
+	return relative, nil
 }
 
 func (c *HomeCatalog) ListFiles(ctx context.Context, id string) ([]string, error) {

@@ -76,6 +76,23 @@ type ManagedSkillFileDelete struct {
 	Path string
 }
 
+// HomeSkillFile is one atomic Home-authoritative Skill read. Directory is a
+// validated POSIX path relative to the selected catalog root; it is never a
+// host filesystem coordinate.
+type HomeSkillFile struct {
+	Skill      Skill
+	Content    string
+	Directory  string
+	Suppressed bool // an active Home winner disables invocation and shadows lower scopes
+}
+
+// HomeSkillFileLoader is deliberately narrower than SkillStore. Home-backed
+// runtime callers use it to keep content and execution directory pinned to one
+// catalog descriptor; legacy stores continue to serve LoadFile only.
+type HomeSkillFileLoader interface {
+	LoadHomeSkillFile(ctx context.Context, name, path string, vc SkillViewContext) (*HomeSkillFile, error)
+}
+
 // SkillStore is the plugin-facing persistence interface for skills, available
 // via Platform. It intentionally exposes the management/runtime subset; internal
 // Reflect lifecycle methods stay on internal/skills.Store.

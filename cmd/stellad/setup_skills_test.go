@@ -134,7 +134,7 @@ func TestProductionSkillAuthorityCompositionBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	positions := map[string]token.Pos{}
-	forbidden := map[string]bool{"skills.New": false, "reflect.NewSQLUsageCuratorStoreForPool": false, "materializeDBSkill": false}
+	forbidden := map[string]bool{"skills.New": false, "reflect.NewSQLUsageCuratorStoreForPool": false}
 	ast.Inspect(file, func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
 		if !ok {

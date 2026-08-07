@@ -3,6 +3,7 @@ package skills
 import (
 	"context"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -104,6 +105,103 @@ func TestHomeCatalogGetReadsExactCanonicalRoot(t *testing.T) {
 	if err != nil || ordinary.ContentDigest != "" {
 		t.Fatalf("ordinary HomeStore Get = %+v, %v", ordinary, err)
 	}
+	loaded, err := catalog.LoadResolvedFile(ctx, "ordinary", MainFile, ViewContext{UserID: userID})
+	if err != nil || loaded == nil || loaded.Skill.ContentDigest != "" || loaded.Directory != "ordinary" {
+		t.Fatalf("ordinary atomic load = %+v, %v", loaded, err)
+	}
+}
+
+func TestHomeCatalogLoadResolvedFilePinsManagedDirectoryAndDigest(t *testing.T) {
+	store, manager, authorityCatalog, ctx, migration, userID, _, _ := newHomeStoreFixture(t)
+	created := createHomeStoreSkill(t, store, Skill{Scope: "user", UserID: userID, Name: "pinned", Description: "pinned"}, map[string]string{MainFile: catalogBody("pinned"), "notes/a.txt": "A"})
+	revisionA, err := authorityCatalog.LoadManagedSnapshot(ctx, created.Skill.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := manager.Update(ctx, HomeSkillUpdateRequest{
+		ID: created.Skill.ID, ExpectedDigest: created.Skill.ContentDigest,
+		FileUpserts: []HomeSkillFileInput{{Path: "notes/a.txt", Content: []byte("B")}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	revisionB, err := authorityCatalog.LoadManagedSnapshot(ctx, updated.Skill.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := home.UserSkillCatalog(userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migration.homes.UseSkillFilesystem(ctx, root, func(filesystem sandbox.Filesystem) error {
+		return filesystem.(sandbox.ManagedSkillPublisher).PublishManagedSkill(ctx, sandbox.PathWorkspace, "pinned", created.Skill.ContentDigest, publicationFromSnapshot(t, revisionA))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	revisionAPath := path.Join(sandbox.PathWorkspace, ".stella-revisions", "pinned", created.Skill.ContentDigest, "notes/a.txt")
+	flipping := &hookedReadFilesystem{target: revisionAPath}
+	flipping.beforeRead = func(ctx context.Context, filename string) error {
+		if filename != revisionAPath {
+			return nil
+		}
+		return flipping.Filesystem.(sandbox.ManagedSkillPublisher).PublishManagedSkill(ctx, sandbox.PathWorkspace, "pinned", updated.Skill.ContentDigest, publicationFromSnapshot(t, revisionB))
+	}
+	catalog, err := NewHomeCatalog(callbackWrappingHomeCatalog{inner: migration.homes, wrap: func(filesystem sandbox.Filesystem) sandbox.Filesystem {
+		flipping.Filesystem = filesystem
+		return flipping
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := catalog.LoadResolvedFile(ctx, "pinned", "notes/a.txt", ViewContext{UserID: userID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDirectory := path.Join(".stella-revisions", "pinned", created.Skill.ContentDigest)
+	if !flipping.called || updated.Skill.ContentDigest == created.Skill.ContentDigest {
+		t.Fatalf("managed link did not flip from A to B: called=%t updated=%+v", flipping.called, updated)
+	}
+	if loaded == nil || loaded.Content != "A" || loaded.Skill.ContentDigest != created.Skill.ContentDigest || loaded.Directory != wantDirectory {
+		t.Fatalf("atomic managed load = %+v, want directory %q and digest %q", loaded, wantDirectory, created.Skill.ContentDigest)
+	}
+}
+
+func publicationFromSnapshot(t *testing.T, snapshot HomeManagedSkillSnapshot) sandbox.ManagedSkillPublication {
+	t.Helper()
+	metadata, err := decodeStrictJSON(snapshot.Skill.Metadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return skillTreePublication(skillTree{Metadata: skillMetadataEnvelope{
+		Status: snapshot.Skill.Status, DisableModelInvocation: snapshot.Skill.DisableModelInvocation,
+		Metadata: metadata.(map[string]any), CreatedAt: snapshot.Skill.CreatedAt, UpdatedAt: snapshot.Skill.UpdatedAt,
+		LegacyLifecycleVersion: snapshot.Skill.Version,
+	}, Files: homeSkillTreeEntries(snapshot.Files)})
+}
+
+// hookedReadFilesystem flips the mutable direct link immediately before the
+// requested immutable-revision read. The test needs no scheduler timing: the
+// hook can only run after SnapshotFilesystemCatalog captured revision A.
+type hookedReadFilesystem struct {
+	sandbox.Filesystem
+	target     string
+	beforeRead func(context.Context, string) error
+	called     bool
+}
+
+func (f *hookedReadFilesystem) InspectManagedSkillTarget(ctx context.Context, entry string) (sandbox.ManagedSkillTarget, error) {
+	return f.Filesystem.(sandbox.ManagedSkillTargetInspector).InspectManagedSkillTarget(ctx, entry)
+}
+
+func (f *hookedReadFilesystem) Read(ctx context.Context, filename string, options sandbox.ReadOptions) (io.ReadCloser, sandbox.FileInfo, error) {
+	if f.beforeRead != nil && !f.called && filename == f.target {
+		f.called = true
+		if err := f.beforeRead(ctx, filename); err != nil {
+			return nil, sandbox.FileInfo{}, err
+		}
+	}
+	return f.Filesystem.Read(ctx, filename, options)
 }
 
 func TestHomeStoreGetTreatsNoncanonicalIDsAsNotFound(t *testing.T) {

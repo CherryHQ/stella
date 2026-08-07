@@ -1,13 +1,11 @@
 package skills
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -75,10 +73,7 @@ type Tool struct {
 	stellaHome  string
 	projectRoot string
 	actionsOnly map[string]bool
-	// layout is the single authority for where a DB-backed skill's files live on
-	// disk, by scope; it must agree with the write side that materialized them.
-	layout SkillDiskLayout
-	view   SkillDirView
+	view        SkillDirView
 	// Plugin visibility is captured at runner construction so tool search and
 	// prompt search instructions use the same visible system-skill set.
 	registeredPluginIDs []string
@@ -113,13 +108,6 @@ func NewTool(store pkgplugins.SkillStore, stellaHome, projectRoot string) *Tool 
 		stellaHome:  stellaHome,
 		projectRoot: projectRoot,
 	}
-}
-
-// WithSkillDiskLayout sets the runtime-cache roots for DB-backed Skills. The
-// zero value emits no directory for DB Skills.
-func (t *Tool) WithSkillDiskLayout(l SkillDiskLayout) *Tool {
-	t.layout = l
-	return t
 }
 
 // WithSkillDirView sets how host skill directories are remapped to the
@@ -264,7 +252,7 @@ func (t *Tool) WithActionsOnly(actions ...string) *Tool {
 	return t
 }
 
-// SkillDirView remaps a host skill directory to the path the agent sees inside
+// SkillDirView maps skill execution directories to the path the agent sees inside
 // the sandbox, so an emitted <skill_dir> is usable in bash and never leaks a host
 // path. The zero value is identity (host paths emitted) for host-execution and
 // non-sandbox callers. For an isolating backend, set Isolated and the host→view
@@ -289,6 +277,45 @@ type SkillDirView struct {
 	UserDataView  string
 	WorkspaceHost string
 	WorkspaceView string
+}
+
+// homeDirectory derives a Home Skill execution directory from its trusted scope
+// and catalog-root-relative POSIX path. It never accepts a host coordinate.
+func (v SkillDirView) homeDirectory(scope, relative string) string {
+	if relative == "" || path.IsAbs(relative) || path.Clean(relative) != relative || relative == "." || relative == ".." || strings.HasPrefix(relative, "../") || strings.ContainsAny(relative, `\:`) {
+		return ""
+	}
+	var root string
+	catalogUnderRoot := false
+	switch scope {
+	case "system":
+		root = v.SystemDBSkillsView
+	case "system_agent":
+		root = v.AgentSkillsView
+	case "user":
+		root = v.UserDataView
+		catalogUnderRoot = true
+	case "user_agent":
+		root = v.WorkspaceView
+		catalogUnderRoot = true
+	default:
+		return ""
+	}
+	if root == "" {
+		return ""
+	}
+	if v.Isolated {
+		if !path.IsAbs(root) || path.Clean(root) != root {
+			return ""
+		}
+	}
+	if catalogUnderRoot {
+		root = path.Join(root, ".agents", "skills")
+	}
+	if v.Isolated {
+		return path.Join(root, relative)
+	}
+	return filepath.Join(root, filepath.FromSlash(relative))
 }
 
 // apply remaps hostDir to its model-visible path. It returns "" to omit the dir
@@ -514,22 +541,14 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 		path = pkgplugins.SkillMainFile
 	}
 
-	// DB-backed Skill files are materialized only when loaded. PostgreSQL remains
-	// authoritative; the stable-ID directory is a derived runtime cache and is
-	// never used as a fallback when refresh fails.
-	if skillDir == "" {
-		if resolved != nil {
-			skillDir = t.layout.Dir(resolved.Scope, resolved.ID)
-			if skillDir != "" {
-				if err := t.materializeDBSkill(ctx, resolved.ID, skillDir); err != nil {
-					return "", fmt.Errorf("materialize DB skill %q: %w", resolved.Name, err)
-				}
-			}
-		}
+	// Home loads carry only a validated catalog-relative directory. Legacy and
+	// project/builtin paths retain their existing behavior; PostgreSQL Skills no
+	// longer acquire a host scratch mirror.
+	if resolved != nil && resolved.homeDir != "" {
+		skillDir = t.view.homeDirectory(resolved.Scope, resolved.homeDir)
+	} else {
+		skillDir = t.view.apply(skillDir)
 	}
-	// Remap the host directory to the path the agent sees inside the sandbox; an
-	// unmappable dir on an isolating backend is dropped rather than leaked.
-	skillDir = t.view.apply(skillDir)
 
 	var out strings.Builder
 	if skillDir != "" {
@@ -565,81 +584,6 @@ type installedSkill struct {
 	Status      string `json:"status"`
 	Scope       string `json:"scope"`
 	Removable   bool   `json:"removable"`
-}
-
-func (t *Tool) materializeDBSkill(ctx context.Context, skillID, skillDir string) error {
-	if t.store == nil || skillID == "" || skillDir == "" {
-		return nil
-	}
-	paths, err := t.store.ListFiles(ctx, skillID)
-	if err != nil {
-		return fmt.Errorf("materialize skill files: %w", err)
-	}
-	// A loadable skill always has SKILL.md in the store; an empty listing is an
-	// inconsistency, and pruning against it would wipe the whole mirror.
-	if len(paths) == 0 {
-		return fmt.Errorf("materialize skill files: store listed no files for skill %s", skillID)
-	}
-	seen := make(map[string]struct{}, len(paths))
-	for _, p := range paths {
-		content, err := t.store.LoadFile(ctx, skillID, p)
-		if err != nil {
-			return fmt.Errorf("materialize skill file %q: %w", p, err)
-		}
-		diskPath, err := safeSkillDiskPath(skillDir, filepath.FromSlash(p))
-		if err != nil {
-			return fmt.Errorf("materialize skill file %q: %w", p, err)
-		}
-		if err := os.MkdirAll(filepath.Dir(diskPath), 0o755); err != nil {
-			return fmt.Errorf("materialize skill file %q: %w", p, err)
-		}
-		data := []byte(content)
-		if existing, err := readDiskFile(diskPath); err == nil && bytes.Equal(existing, data) {
-			// Already current.
-		} else if err := os.WriteFile(diskPath, data, 0o644); err != nil {
-			return fmt.Errorf("materialize skill file %q: %w", p, err)
-		}
-		rel, err := filepath.Rel(skillDir, diskPath)
-		if err != nil {
-			return fmt.Errorf("materialize skill file %q: %w", p, err)
-		}
-		seen[filepath.ToSlash(rel)] = struct{}{}
-	}
-	if err := filepath.WalkDir(skillDir, func(p string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil || d.IsDir() {
-			return walkErr
-		}
-		rel, err := filepath.Rel(skillDir, p)
-		if err != nil {
-			return err
-		}
-		if _, ok := seen[filepath.ToSlash(rel)]; !ok {
-			_ = os.Remove(p)
-		}
-		return nil
-	}); err != nil {
-		return fmt.Errorf("materialize skill files: prune stale files: %w", err)
-	}
-	return nil
-}
-
-func readDiskFile(path string) ([]byte, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close() //nolint:errcheck
-	return io.ReadAll(f)
-}
-
-func safeSkillDiskPath(base string, parts ...string) (string, error) {
-	joined := filepath.Join(append([]string{base}, parts...)...)
-	cleaned := filepath.Clean(joined)
-	base = filepath.Clean(base)
-	if cleaned != base && !strings.HasPrefix(cleaned, base+string(filepath.Separator)) {
-		return "", fmt.Errorf("path %q escapes base %q", cleaned, base)
-	}
-	return cleaned, nil
 }
 
 func (t *Tool) list(ctx context.Context) (string, error) {

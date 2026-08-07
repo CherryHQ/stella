@@ -15,6 +15,23 @@ type countingResolveStore struct {
 	resolveCalls int
 }
 
+type homeSkillFileStore struct {
+	*testSkillStore
+	loaded   *pkgplugins.HomeSkillFile
+	loadErr  error
+	touched  []string
+	touchErr error
+}
+
+func (s *homeSkillFileStore) LoadHomeSkillFile(context.Context, string, string, pkgplugins.SkillViewContext) (*pkgplugins.HomeSkillFile, error) {
+	return s.loaded, s.loadErr
+}
+
+func (s *homeSkillFileStore) TouchReflectSkillRuntimeUse(_ context.Context, _ string, _ string, _ string, digest string) error {
+	s.touched = append(s.touched, digest)
+	return s.touchErr
+}
+
 func (s *countingResolveStore) Resolve(ctx context.Context, name string, vc pkgplugins.SkillViewContext) (*pkgplugins.Skill, error) {
 	s.resolveCalls++
 	return s.testSkillStore.Resolve(ctx, name, vc)
@@ -193,5 +210,14 @@ func TestAgentSkillPolicyFiltersOnlyTheResolvedWinner(t *testing.T) {
 	rs, err := svc.Resolve(ctx, "stella", vc, "")
 	if err != nil || rs == nil || rs.Scope != "system" {
 		t.Fatalf("Resolve active policy = %#v, %v; want system winner", rs, err)
+	}
+}
+
+func TestLoadFileSuppressedHomeWinnerShadowsBuiltin(t *testing.T) {
+	base, userID, agentID := newTestSkillStore(t)
+	store := &homeSkillFileStore{testSkillStore: base, loaded: &pkgplugins.HomeSkillFile{Suppressed: true}}
+	_, _, resolved, err := NewService(store, t.TempDir()).LoadFile(context.Background(), "stella", pkgplugins.SkillMainFile, pkgplugins.SkillViewContext{UserID: userID, AgentID: agentID}, "")
+	if err == nil || resolved != nil {
+		t.Fatalf("suppressed Home winner = resolved %#v, err %v; must not fall through to builtin", resolved, err)
 	}
 }

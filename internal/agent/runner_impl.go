@@ -277,9 +277,8 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	if cfg.SkillStore != nil {
 		stellaHome := paths.StellaHome
 		toolProjectRoot := paths.ProjectRoot
-		layout, view := skillRuntimeLayoutAndView(ctx, cfg, paths)
+		view := skillRuntimeView(ctx, cfg, paths)
 		registerNonCore(skillstool.NewTool(cfg.SkillStore, stellaHome, toolProjectRoot).
-			WithSkillDiskLayout(layout).
 			WithSkillDirView(view).
 			WithPluginVisibility(cfg.PluginView.RegisteredPluginIDs, cfg.PluginView.EnabledPluginIDs).
 			WithAgentSkillPolicy(cfg.DisabledSkillRefs).
@@ -330,14 +329,9 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	return toolReg, hookSet, nil
 }
 
-// skillRuntimeLayoutAndView is the sole production boundary that decides
-// which filesystem Skill tiers a runner can expose to the model.
-func skillRuntimeLayoutAndView(ctx context.Context, cfg runnerConfig, paths sandbox.Paths) (skillstool.SkillDiskLayout, skillstool.SkillDirView) {
-	userDataDir, workspaceRoot := paths.UserDataDir, paths.WorkspaceRoot
-	if cfg.BuiltinParams.GroupID != "" {
-		userDataDir, workspaceRoot = "", ""
-	}
-	layout := skillDiskLayout(SystemDBSkillsDir(paths.StellaHome), paths.AgentRoot, userDataDir, workspaceRoot)
+// skillRuntimeView is the sole production boundary that decides which Home
+// Skill tiers a runner can expose to the model.
+func skillRuntimeView(ctx context.Context, cfg runnerConfig, paths sandbox.Paths) skillstool.SkillDirView {
 	sv := sandbox.ResolveSkillView(ctx, cfg.Sandbox, paths)
 	view := skillstool.SkillDirView{
 		Isolated: sv.Isolated, BuiltinSkillsHost: sv.BuiltinSkillsHost, BuiltinSkillsView: sv.BuiltinSkillsView,
@@ -350,7 +344,7 @@ func skillRuntimeLayoutAndView(ctx context.Context, cfg runnerConfig, paths sand
 		view.UserDataHost, view.UserDataView = "", ""
 		view.WorkspaceHost, view.WorkspaceView = "", ""
 	}
-	return layout, view
+	return view
 }
 
 func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSet, []tools.Definition, error) {

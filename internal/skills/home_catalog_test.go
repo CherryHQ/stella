@@ -220,6 +220,10 @@ func TestHomeCatalogPrecedenceDisabledAndDeprecated(t *testing.T) {
 			t.Fatal("disabled winner fell back to a lower scope")
 		}
 	}
+	suppressed, err := catalog.LoadResolvedFile(ctx, "same", MainFile, ViewContext{UserID: userID, AgentID: agentID})
+	if err != nil || suppressed == nil || !suppressed.Suppressed || suppressed.Content != "" || suppressed.Directory != "" {
+		t.Fatalf("disabled atomic winner = %+v, %v; must shadow without exposing bytes", suppressed, err)
+	}
 	old, err := catalog.Resolve(ctx, "old", ViewContext{UserID: userID, AgentID: agentID})
 	if err != nil || old == nil || old.Skill.Scope != "system" {
 		t.Fatalf("deprecated fallback = %+v, %v", old, err)

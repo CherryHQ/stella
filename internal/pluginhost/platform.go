@@ -87,6 +87,20 @@ func (a skillStoreAdapter) LoadFile(ctx context.Context, skillID, path string) (
 	return a.s.LoadFile(ctx, skillID, path)
 }
 
+func (a skillStoreAdapter) LoadHomeSkillFile(ctx context.Context, name, path string, vc pkgplugins.SkillViewContext) (*pkgplugins.HomeSkillFile, error) {
+	loader, ok := a.s.(interface {
+		LoadResolvedFile(context.Context, string, string, skills.ViewContext) (*skills.HomeSkillLoad, error)
+	})
+	if !ok {
+		return nil, nil
+	}
+	loaded, err := loader.LoadResolvedFile(ctx, name, path, skills.ViewContext{UserID: vc.UserID, AgentID: vc.AgentID})
+	if err != nil || loaded == nil {
+		return nil, err
+	}
+	return &pkgplugins.HomeSkillFile{Skill: skillToPlugin(loaded.Skill), Content: loaded.Content, Directory: loaded.Directory, Suppressed: loaded.Suppressed}, nil
+}
+
 func (a skillStoreAdapter) ListFiles(ctx context.Context, skillID string) ([]string, error) {
 	return a.s.ListFiles(ctx, skillID)
 }

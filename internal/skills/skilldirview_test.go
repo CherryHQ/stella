@@ -76,3 +76,54 @@ func TestSkillDirView_identityPassthrough(t *testing.T) {
 		t.Errorf("identity apply(%q) = %q, want unchanged", host, got)
 	}
 }
+
+func TestSkillDirView_homeDirectoriesUseRelativeCatalogCoordinates(t *testing.T) {
+	cases := []struct {
+		scope, relative, want string
+	}{
+		{"system", ".stella-revisions/system/a", "/opt/stella/db-skills/.stella-revisions/system/a"},
+		{"system_agent", "agent", "/opt/stella/agent-skills/agent"},
+		{"user", "user", "/user/.agents/skills/user"},
+		{"user_agent", "agent", "/workspace/.agents/skills/agent"},
+	}
+	for _, tc := range cases {
+		if got := isolatingView().homeDirectory(tc.scope, tc.relative); got != tc.want {
+			t.Errorf("isolated %s = %q, want %q", tc.scope, got, tc.want)
+		}
+	}
+	nonIsolated := isolatingView()
+	nonIsolated.Isolated = false
+	nonIsolated.SystemDBSkillsView = `C:\stella\skills`
+	if got := nonIsolated.homeDirectory("system", "a/b"); got != filepath.Join(`C:\stella\skills`, "a", "b") {
+		t.Fatalf("non-isolated directory = %q", got)
+	}
+	nonIsolated.UserDataView = `C:\stella\user`
+	if got := nonIsolated.homeDirectory("user", "a/b"); got != filepath.Join(`C:\stella\user`, ".agents", "skills", "a", "b") {
+		t.Fatalf("non-isolated user directory = %q", got)
+	}
+	for _, invalid := range []string{"", "/host/private", "../escape", "a/../../escape", `C:\host\private`, "C:/host/private", `a\escape`} {
+		if got := isolatingView().homeDirectory("user", invalid); got != "" {
+			t.Errorf("invalid relative %q mapped to %q", invalid, got)
+		}
+	}
+	if got := isolatingView().homeDirectory("unknown", "a"); got != "" {
+		t.Fatalf("unknown scope mapped to %q", got)
+	}
+}
+
+func TestSkillDirView_homeDirectoriesFailClosedForEmptyUserMappings(t *testing.T) {
+	for _, isolated := range []bool{false, true} {
+		for _, scope := range []string{"user", "user_agent"} {
+			view := isolatingView()
+			view.Isolated = isolated
+			if scope == "user" {
+				view.UserDataView = ""
+			} else {
+				view.WorkspaceView = ""
+			}
+			if got := view.homeDirectory(scope, "revision"); got != "" {
+				t.Errorf("isolated=%t %s empty mapping = %q, want omitted", isolated, scope, got)
+			}
+		}
+	}
+}

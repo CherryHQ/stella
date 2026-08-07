@@ -37,7 +37,8 @@ func NewService(store pkgplugins.SkillStore, stellaHome string, registries ...*r
 // ResolvedSkill is a skill with its filesystem directory (if applicable).
 type ResolvedSkill struct {
 	pkgplugins.Skill
-	Dir      string // absolute path on disk; empty until a DB-backed Skill is loaded
+	Dir      string // project/builtin directory; Home Skill directories stay opaque here
+	homeDir  string // validated catalog-root-relative POSIX execution directory
 	builtin  *resources.BuiltinSkillDescriptor
 	registry *resources.Registry
 }
@@ -264,6 +265,37 @@ func scopeOwner(scope string, vc pkgplugins.SkillViewContext) (userID, agentID s
 func (s *Service) LoadFile(ctx context.Context, name, path string, vc pkgplugins.SkillViewContext, projectRoot string) (content string, skillDir string, resolved *ResolvedSkill, err error) {
 	if path == "" {
 		path = pkgplugins.SkillMainFile
+	}
+	if builtinName, ok := s.builtinNameForReference(name); ok {
+		name = builtinName
+	}
+	if projectRoot != "" {
+		if rs := findFSSkill(projectRoot, "project", name); rs != nil {
+			data, err := loadProjectSkillFile(rs.Dir, path)
+			if err != nil {
+				return "", "", nil, fmt.Errorf("load project skill %q file %q: %w", name, path, err)
+			}
+			return data, rs.Dir, rs, nil
+		}
+	}
+	// Home is the production content authority. This capability binds the
+	// selected descriptor, requested bytes, digest, and execution directory in
+	// one snapshot, rather than resolving then reopening a mutable link.
+	if loader, ok := s.store.(pkgplugins.HomeSkillFileLoader); ok {
+		loaded, err := loader.LoadHomeSkillFile(ctx, name, path, vc)
+		if err != nil {
+			return "", "", nil, fmt.Errorf("load Home skill %q file %q: %w", name, path, err)
+		}
+		if loaded != nil {
+			if loaded.Suppressed {
+				return "", "", nil, fmt.Errorf("skill %q not found", name)
+			}
+			rs := &ResolvedSkill{Skill: loaded.Skill, homeDir: loaded.Directory}
+			if rs = filterResolved(rs, vc.DisabledSkillRefs); rs == nil {
+				return "", "", nil, fmt.Errorf("skill %q not found", name)
+			}
+			return loaded.Content, "", rs, nil
+		}
 	}
 
 	rs, err := s.Resolve(ctx, name, vc, projectRoot)

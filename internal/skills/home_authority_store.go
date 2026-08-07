@@ -95,6 +95,10 @@ func (s *HomeAuthorityStore) LoadFile(ctx context.Context, id, path string) (str
 	return s.home.LoadFile(ctx, id, path)
 }
 
+func (s *HomeAuthorityStore) LoadResolvedFile(ctx context.Context, name, path string, vc ViewContext) (*HomeSkillLoad, error) {
+	return s.home.LoadResolvedFile(ctx, name, path, vc)
+}
+
 func (s *HomeAuthorityStore) ListFiles(ctx context.Context, id string) ([]string, error) {
 	return s.home.ListFiles(ctx, id)
 }
