@@ -16,7 +16,7 @@ import (
 func TestDMNewRedeliveryRotatesOnce(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
-	c := &Coordinator{db: db, queue: newSessionQueue()}
+	c := &Coordinator{db: db, queue: newSessionQueue(), agentAccess: newRotationAgentAccess(true)}
 	rc := newRotateTestChat(t, auth.User{ID: "user-1", Role: auth.RoleUser})
 	msg := pkgchannel.IncomingMessage{Platform: "telegram", ChannelID: "tg-bot-a", SenderID: "tg-acct-1", MessageID: "dm-msg-7"}
 
@@ -63,7 +63,7 @@ func TestDMNewRedeliveryRotatesOnce(t *testing.T) {
 func TestDMNewReceiptSurvivesAgentSwitch(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
-	c := &Coordinator{db: db, queue: newSessionQueue()}
+	c := &Coordinator{db: db, queue: newSessionQueue(), agentAccess: newRotationAgentAccess(true)}
 	msg := pkgchannel.IncomingMessage{Platform: "telegram", ChannelID: "tg-bot-a", SenderID: "tg-acct-1", MessageID: "dm-msg-7"}
 
 	rcA := newRotateTestChat(t, auth.User{ID: "user-1", Role: auth.RoleUser})
@@ -102,7 +102,7 @@ func TestDMNewReceiptSurvivesAgentSwitch(t *testing.T) {
 func TestDMNewDistinctAccountsAreDistinctMessages(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
-	c := &Coordinator{db: db, queue: newSessionQueue()}
+	c := &Coordinator{db: db, queue: newSessionQueue(), agentAccess: newRotationAgentAccess(true)}
 	rc := newRotateTestChat(t, auth.User{ID: "user-1", Role: auth.RoleUser})
 
 	first := pkgchannel.IncomingMessage{Platform: "telegram", ChannelID: "tg-bot-a", SenderID: "tg-acct-1", MessageID: "dm-msg-7"}
@@ -128,7 +128,7 @@ func TestDMNewDistinctAccountsAreDistinctMessages(t *testing.T) {
 func TestDMNewFailsClosedWithoutAMessageID(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
-	c := &Coordinator{db: db, queue: newSessionQueue()}
+	c := &Coordinator{db: db, queue: newSessionQueue(), agentAccess: newRotationAgentAccess(true)}
 	rc := newRotateTestChat(t, auth.User{ID: "user-1", Role: auth.RoleUser})
 
 	before, err := rc.ResolveSession(ctx)

@@ -237,7 +237,7 @@ func ResolveAgent(ctx context.Context, store config.Store, accessService *agenta
 			}
 			return agent.ID, nil
 		}
-		if err == nil && explicitChannelID && ch.Enabled && ch.AgentID == "" {
+		if err == nil && explicitChannelID && ch.Enabled && ch.Type == chat.Platform && ch.AgentID == "" {
 			// Historically, linked users arriving through an explicitly configured
 			// but non-dedicated channel used ordinary default/assignment fallback.
 			// An empty binding grants nothing, so preserve that behavior.

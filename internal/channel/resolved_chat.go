@@ -170,16 +170,6 @@ func (rc *ResolvedChat) AuthorizeUse(ctx context.Context, access *agentaccess.Se
 	return err
 }
 
-// AuthorizeDedicatedUse rechecks platform-specific persisted channel state for
-// operations that otherwise authorize through the session service. Ordinary
-// user and group chats have no dedicated channel grant to recheck.
-func (rc *ResolvedChat) AuthorizeDedicatedUse(ctx context.Context, access *agentaccess.Service) error {
-	if rc.DedicatedChannelID == "" {
-		return nil
-	}
-	return rc.AuthorizeUse(ctx, access)
-}
-
 func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) (<-chan agent.Event, string, error) {
 	if rc.User.ID == "" && rc.GroupID == "" && rc.GuestID == "" {
 		return nil, "", fmt.Errorf("missing user context")

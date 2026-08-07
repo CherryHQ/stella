@@ -77,7 +77,7 @@ func (b *Bot) onCardAction(ctx context.Context, event *callback.CardActionTrigge
 	unionID := b.resolveUnionID(ctx, openID)
 	senderIDs := feishuSenderIDs(unionID, openID)
 	msg := b.incomingMsg(senderIDs, chatID, chatType, channel.TextContent(text))
-	if unionID == "" {
+	if unionID == "" && chatType == "p2p" {
 		// Keep open_id as a legacy linked-identity candidate, but leave the
 		// canonical sender empty so this callback cannot mint a second guest.
 		msg.SenderID = ""

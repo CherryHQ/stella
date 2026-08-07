@@ -9,6 +9,7 @@ import (
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
@@ -169,6 +170,39 @@ func TestReplyLookupFailureDoesNotBypassMentionRequirement(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertNoMessage(t, captured)
+}
+
+func TestReplyLookupRunsOnlyWhenItCanChangeAdmission(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		cfg      Config
+		chatType string
+		wantMsg  bool
+	}{
+		{name: "direct message", cfg: Config{AllowDM: true, RequireMention: true}, chatType: "p2p", wantMsg: true},
+		{name: "disallowed group", cfg: Config{AllowedChatIDs: "oc_other", RequireMention: true}, chatType: "group"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, captured := newThreadRoutingBot(t)
+			b.cfg = tc.cfg
+			lookups := 0
+			b.resolveMessageContextFn = func(string) (string, string, string, bool, bool) {
+				lookups++
+				return "oc_chat", tc.chatType, "", true, true
+			}
+			if err := b.onMessage(context.Background(), textReceiveEvent("oc_chat", tc.chatType, "om_reply", "", "om_parent", "reply")); err != nil {
+				t.Fatal(err)
+			}
+			if lookups != 0 {
+				t.Fatalf("parent lookups = %d, want 0", lookups)
+			}
+			if tc.wantMsg {
+				_ = waitMessage(t, captured)
+			} else {
+				assertNoMessage(t, captured)
+			}
+		})
+	}
 }
 
 func TestAlternateEventIngressAdmission(t *testing.T) {
@@ -451,5 +485,16 @@ func TestAttachmentResolverErrorsFailClosed(t *testing.T) {
 			}
 			assertNoMessage(t, captured)
 		})
+	}
+}
+
+func TestAttachmentRejectionText(t *testing.T) {
+	for _, err := range []error{internalchannel.ErrAgentAccessDenied, agentaccess.ErrForbidden} {
+		if got := attachmentRejectionText(err); got != "Guest chat currently supports text messages only." {
+			t.Fatalf("attachmentRejectionText(%v) = %q", err, got)
+		}
+	}
+	if got := attachmentRejectionText(errors.New("resolver unavailable")); got != "Unable to process this attachment right now." {
+		t.Fatalf("generic attachment rejection = %q", got)
 	}
 }

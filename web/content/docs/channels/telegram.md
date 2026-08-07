@@ -177,8 +177,3 @@ When upgrading, Stella adds groups already present in durable group membership t
 
 - Configure **Settings -> Vision** for ordinary-session baselines. A model declaring `text, image` receives active-turn pixels; group history without a stored baseline uses the unavailable marker.
 - For file uploads, the Xberg skill must be enabled for the active agent.
-
-**Notifications not working?**
-
-- Set the `notify_chat` field in the Web UI to the chat ID where you want to receive notifications.
-- Make sure the bot has already had a conversation in that chat.

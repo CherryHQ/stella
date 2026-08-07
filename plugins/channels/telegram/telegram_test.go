@@ -37,20 +37,23 @@ func TestEnsureGroupMemberFailsClosedAndCachesOnlySuccess(t *testing.T) {
 		t.Fatal("admitted after failure")
 	}
 	if b.ensureGroupMember("-100") {
-		t.Fatal("failure was cached")
+		t.Fatal("admitted cached failure")
 	}
-	if h.calls != 2 {
-		t.Fatalf("calls = %d, want 2", h.calls)
+	if h.calls != 1 {
+		t.Fatalf("calls = %d, want 1 during failure TTL", h.calls)
 	}
 	h.err = nil
+	b.provisionMu.Lock()
+	b.provisionFailures["-100"] = time.Now().Add(-time.Second)
+	b.provisionMu.Unlock()
 	if !b.ensureGroupMember("-100") {
 		t.Fatal("rejected success")
 	}
 	if !b.ensureGroupMember("-100") {
 		t.Fatal("rejected cached success")
 	}
-	if h.calls != 3 {
-		t.Fatalf("calls = %d, want 3", h.calls)
+	if h.calls != 2 {
+		t.Fatalf("calls = %d, want 2", h.calls)
 	}
 	cancel()
 	other := &telegramProvisioningHandler{}

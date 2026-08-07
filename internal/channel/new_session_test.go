@@ -7,10 +7,24 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
+
+type rotationAgentStore struct{ enabled bool }
+
+func (s rotationAgentStore) GetAgent(context.Context, string) (config.Agent, error) {
+	return config.Agent{ID: "cmd-agent", Scope: config.AgentScopeSystem, Enabled: s.enabled}, nil
+}
+
+func (s rotationAgentStore) ListAgents(context.Context) ([]config.Agent, error) { return nil, nil }
+
+func newRotationAgentAccess(enabled bool) *agentaccess.Service {
+	return agentaccess.NewService(rotationAgentStore{enabled: enabled}, nil)
+}
 
 // newRotateTestChat builds a DM chat pinned to the user's main session — the
 // only shape `/new` rotates in this phase.
@@ -186,7 +200,7 @@ func TestRotateChatSessionRotatesPrivateChannelSession(t *testing.T) {
 // still running on another.
 func TestHandleNewSessionCommandWaitsForActiveTurn(t *testing.T) {
 	ctx := context.Background()
-	c := &Coordinator{queue: newSessionQueue()}
+	c := &Coordinator{queue: newSessionQueue(), agentAccess: newRotationAgentAccess(true)}
 	rc := newRotateTestChat(t, auth.User{ID: "user-1", Role: auth.RoleUser})
 
 	turnChat := newRotateTestChat(t, auth.User{ID: "user-1", Role: auth.RoleUser})
@@ -263,6 +277,13 @@ func TestHandleNewSessionCommandWaitsForActiveTurn(t *testing.T) {
 	}
 	if rotated.ID == before.ID {
 		t.Fatal("/new must rotate once the turn completes")
+	}
+}
+
+func TestSessionRotationAuthorizationRejectsDisabledAgent(t *testing.T) {
+	rc := newRotateTestChat(t, auth.User{ID: "user-1", Role: auth.RoleUser})
+	if err := rc.AuthorizeUse(context.Background(), newRotationAgentAccess(false)); !errors.Is(err, agentaccess.ErrForbidden) {
+		t.Fatalf("AuthorizeUse disabled agent = %v, want forbidden", err)
 	}
 }
 

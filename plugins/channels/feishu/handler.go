@@ -9,6 +9,7 @@ import (
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
@@ -122,22 +123,22 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	rootID := derefStr(msg.RootId)
 	parentID := derefStr(msg.ParentId)
 	mentions := msg.Mentions
+	mentioned := b.isAutoProvisionMessage(chatType, mentions)
+	if messageID != "" && b.markSeen(messageID) {
+		logger().Debug("duplicate message ignored", "message_id", messageID)
+		return nil
+	}
 	directed := false
-	if parentID != "" {
+	if parentID != "" && chatType == "group" && b.cfg.RequireMention && !mentioned && b.chatAllowed(chatID) {
 		parentChatID, _, _, botAuthored, ok := b.resolveMessageContext(parentID)
 		directed = ok && parentChatID == chatID && botAuthored
 	}
-	if !b.admitIngress(chatID, chatType, directed, b.isAutoProvisionMessage(chatType, mentions)) {
+	if !b.admitIngress(chatID, chatType, directed, mentioned) {
 		return nil
 	}
 
 	if chatID != "" && chatType != "" {
 		b.chatTypes.Store(chatID, chatType)
-	}
-
-	if messageID != "" && b.markSeen(messageID) {
-		logger().Debug("duplicate message ignored", "message_id", messageID)
-		return nil
 	}
 
 	// Extract text once for commands.
@@ -185,10 +186,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 				logger().Warn("rejecting attachment: resolve user root failed", "error", err)
 				replyCtx, cancel := b.apiContext()
 				defer cancel()
-				text := "Unable to process this attachment right now."
-				if errors.Is(err, internalchannel.ErrAgentAccessDenied) {
-					text = "Guest chat currently supports text messages only."
-				}
+				text := attachmentRejectionText(err)
 				b.replyInThread(replyCtx, messageID, rootID, text)
 				return nil
 			}
@@ -262,6 +260,13 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	cmd, args := channel.ParseSlashCommand(text)
 	go b.handleIncoming(incoming, cmd, args, incoming.SenderID, chatID, messageID, rootID, replyFn)
 	return nil
+}
+
+func attachmentRejectionText(err error) string {
+	if errors.Is(err, internalchannel.ErrAgentAccessDenied) || errors.Is(err, agentaccess.ErrForbidden) {
+		return "Guest chat currently supports text messages only."
+	}
+	return "Unable to process this attachment right now."
 }
 
 func (b *Bot) admitLocalCommand(ctx context.Context, msg channel.IncomingMessage, reply func(string)) (bool, error) {

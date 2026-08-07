@@ -10,6 +10,7 @@ import (
 	"time"
 
 	tgmd "github.com/Mad-Pixels/goldmark-tgmd"
+	"golang.org/x/sync/singleflight"
 
 	tele "gopkg.in/telebot.v4"
 
@@ -20,7 +21,11 @@ import (
 
 const telegramMaxMessageLen = 4000
 
-const groupProvisionTimeout = 10 * time.Second
+const (
+	groupProvisionTimeout       = 10 * time.Second
+	groupProvisionFailureTTL    = 30 * time.Second
+	maxProvisionTrackingEntries = 1024
+)
 
 type groupMemberProvisioner interface {
 	EnsurePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error
@@ -51,8 +56,10 @@ type Bot struct {
 	mu                sync.RWMutex
 	chatModels        map[int64]channel.ModelOption
 	finalizeOnce      sync.Once
-	provisionMu       sync.Mutex
+	provisionMu       sync.RWMutex
+	provisionGroup    singleflight.Group
 	provisionedGroups map[string]struct{}
+	provisionFailures map[string]time.Time
 	provisionWarnings map[string]struct{}
 
 	cfg Config
@@ -228,22 +235,56 @@ func (b *Bot) ensureGroupMember(chatID string) bool {
 		b.warnGroupRejectionOnce(chatID, "bot_lifecycle_unavailable", nil)
 		return false
 	}
+	if admitted, retry := b.groupProvisionState(chatID, time.Now()); admitted || !retry {
+		return admitted
+	}
+	result, _, _ := b.provisionGroup.Do(chatID, func() (any, error) {
+		if admitted, retry := b.groupProvisionState(chatID, time.Now()); admitted || !retry {
+			return admitted, nil
+		}
+		ctx, cancel := context.WithTimeout(b.ctx, groupProvisionTimeout)
+		defer cancel()
+		if err := provisioner.EnsurePlatformGroupMember(ctx, channel.PlatformTelegram, chatID, b.Name()); err != nil {
+			b.recordGroupProvisionFailure(chatID, time.Now().Add(groupProvisionFailureTTL))
+			b.warnGroupRejectionOnce(chatID, "provision_failed", err)
+			return false, nil
+		}
+		b.provisionMu.Lock()
+		if b.provisionedGroups == nil {
+			b.provisionedGroups = make(map[string]struct{})
+		}
+		b.provisionedGroups[chatID] = struct{}{}
+		delete(b.provisionFailures, chatID)
+		b.provisionMu.Unlock()
+		return true, nil
+	})
+	admitted, _ := result.(bool)
+	return admitted
+}
+
+func (b *Bot) groupProvisionState(chatID string, now time.Time) (admitted, retry bool) {
+	b.provisionMu.RLock()
+	defer b.provisionMu.RUnlock()
+	if _, ok := b.provisionedGroups[chatID]; ok {
+		return true, false
+	}
+	return false, !b.provisionFailures[chatID].After(now)
+}
+
+func (b *Bot) recordGroupProvisionFailure(chatID string, retryAt time.Time) {
 	b.provisionMu.Lock()
 	defer b.provisionMu.Unlock()
-	if b.provisionedGroups == nil {
-		b.provisionedGroups = make(map[string]struct{})
+	if b.provisionFailures == nil {
+		b.provisionFailures = make(map[string]time.Time)
 	}
-	if _, ok := b.provisionedGroups[chatID]; ok {
-		return true
+	for id, expiry := range b.provisionFailures {
+		if !expiry.After(time.Now()) {
+			delete(b.provisionFailures, id)
+		}
 	}
-	ctx, cancel := context.WithTimeout(b.ctx, groupProvisionTimeout)
-	defer cancel()
-	if err := provisioner.EnsurePlatformGroupMember(ctx, channel.PlatformTelegram, chatID, b.Name()); err != nil {
-		b.warnGroupRejectionOnceLocked(chatID, "provision_failed", err)
-		return false
+	if len(b.provisionFailures) < maxProvisionTrackingEntries {
+		b.provisionFailures[chatID] = retryAt
 	}
-	b.provisionedGroups[chatID] = struct{}{}
-	return true
 }
 
 func (b *Bot) warnGroupRejectionOnce(chatID, reason string, err error) {
@@ -258,6 +299,9 @@ func (b *Bot) warnGroupRejectionOnceLocked(chatID, reason string, err error) {
 	}
 	key := chatID + "\x00" + reason
 	if _, logged := b.provisionWarnings[key]; logged {
+		return
+	}
+	if len(b.provisionWarnings) >= maxProvisionTrackingEntries {
 		return
 	}
 	b.provisionWarnings[key] = struct{}{}
