@@ -16,7 +16,7 @@ export function MarkdownPreview({ content, className, variant = "default" }: Pro
   return (
     <div
       className={cn(
-        "prose prose-sm max-w-none min-w-0 max-w-full overflow-hidden text-foreground dark:prose-invert",
+        "min-w-0 max-w-full overflow-hidden text-sm text-foreground",
         "[overflow-wrap:anywhere] [&_*]:min-w-0 [&_*]:max-w-full [&_a]:break-words [&_a]:[overflow-wrap:anywhere] [&_code]:break-words [&_code]:[overflow-wrap:anywhere] [&_li]:[overflow-wrap:anywhere] [&_p]:break-words [&_p]:[overflow-wrap:anywhere] [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto",
         variantClassName[variant],
         className,

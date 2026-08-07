@@ -5,6 +5,14 @@
  */
 @import "./tokens.css";
 @import "tailwindcss";
+@import "streamdown/styles.css";
+
+/*
+ * Streamdown styles its markdown output with Tailwind utilities compiled into
+ * its dist bundle. Tailwind only emits rules for classes it can see, so without
+ * this @source its code-block chrome and list markers render as unstyled boxes.
+ */
+@source "../node_modules/streamdown/dist/*.js";
 
 @custom-variant dark (&:is(.dark *));
 

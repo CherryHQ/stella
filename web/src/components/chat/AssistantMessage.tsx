@@ -96,9 +96,9 @@ export function AssistantMessage({
         })}
         {blocks.length === 0 && streaming && (
           <span className="inline-flex items-center gap-1 py-1">
-            <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:-0.3s]" />
-            <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:-0.15s]" />
-            <span className="size-1.5 animate-bounce rounded-full bg-muted-foreground/50" />
+            <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/50 [animation-delay:-0.3s]" />
+            <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/50 [animation-delay:-0.15s]" />
+            <span className="size-1.5 animate-pulse rounded-full bg-muted-foreground/50" />
           </span>
         )}
         {agentSessionId && !streaming && !blocks.some((b) => b.type === "tool_call") && (
@@ -174,7 +174,7 @@ function BlockRenderer({ block }: { block: ContentBlock }) {
     return (
       <MarkdownPreview
         content={block.text}
-        className="px-0.5 leading-relaxed text-[15px] text-foreground/90 font-sans"
+        className="px-0.5 leading-relaxed text-sm text-foreground font-sans"
       />
     );
   if (block.type === "image")
