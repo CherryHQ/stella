@@ -100,14 +100,36 @@ func (q *Queries) DeleteLogicalReflectSkillUsageForCurator(ctx context.Context, 
 	return result.RowsAffected(), nil
 }
 
-const deleteSkillUsage = `-- name: DeleteSkillUsage :exec
+const deleteLogicalReflectSkillUsageForLifecycle = `-- name: DeleteLogicalReflectSkillUsageForLifecycle :execrows
 DELETE FROM skill_usage
-WHERE skill_id = $1
+WHERE user_id = $1::uuid
+  AND agent_id = $2
+  AND scope = 'user_agent'
+  AND name = $3
+  AND last_content_digest = $4
 `
 
-func (q *Queries) DeleteSkillUsage(ctx context.Context, skillID string) error {
-	_, err := q.db.Exec(ctx, deleteSkillUsage, skillID)
-	return err
+type DeleteLogicalReflectSkillUsageForLifecycleParams struct {
+	UserID            string      `json:"user_id"`
+	AgentID           string      `json:"agent_id"`
+	Name              pgtype.Text `json:"name"`
+	LastContentDigest pgtype.Text `json:"last_content_digest"`
+}
+
+// DeleteLogicalReflectSkillUsageForLifecycle removes telemetry after Home has
+// committed a Reflect Skill lifecycle change. It intentionally has neither a
+// legacy Skill join nor an activity/timestamp CAS.
+func (q *Queries) DeleteLogicalReflectSkillUsageForLifecycle(ctx context.Context, arg DeleteLogicalReflectSkillUsageForLifecycleParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteLogicalReflectSkillUsageForLifecycle,
+		arg.UserID,
+		arg.AgentID,
+		arg.Name,
+		arg.LastContentDigest,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getKnowledgeUsageForUpdate = `-- name: GetKnowledgeUsageForUpdate :one
@@ -508,102 +530,6 @@ func (q *Queries) ListStaleReflectKnowledgeForCurator(ctx context.Context, arg L
 	return items, nil
 }
 
-const listStaleReflectSkillsForCurator = `-- name: ListStaleReflectSkillsForCurator :many
-WITH pair_activity AS (
-  SELECT MAX(c.last_active)::timestamptz AS latest
-  FROM ctx_conversation c
-  WHERE c.user_id = $2::text
-    AND c.agent_id = $3::text
-    AND c.archived = false
-    AND c.kind NOT IN ('task', 'delegate', 'scheduler')
-)
-SELECT
-  s.id AS skill_id,
-  s.user_id::text AS user_id,
-  s.agent_id::text AS agent_id,
-  s.version,
-  su.use_count,
-  su.last_used_at,
-  pair_activity.latest AS pair_latest_activity_at,
-  CASE
-    WHEN su.last_used_at < $1 THEN 'unused'
-    ELSE 'low_use'
-  END AS rule
-FROM skill_usage su
-JOIN skill s ON s.id = su.skill_id
-CROSS JOIN pair_activity
-WHERE su.user_id = $2::uuid
-  AND su.agent_id = $3::text
-  AND s.scope = 'user_agent'
-  AND s.status = 'active'
-  AND s.metadata->>'created_by' = 'reflect'
-  AND (
-    su.last_used_at < $1
-    OR (
-      su.last_used_at < $4
-      AND su.use_count < $5
-    )
-  )
-  AND pair_activity.latest > su.last_used_at
-ORDER BY su.last_used_at ASC, s.id ASC
-`
-
-type ListStaleReflectSkillsForCuratorParams struct {
-	StaleBefore       time.Time `json:"stale_before"`
-	UserID            string    `json:"user_id"`
-	AgentID           string    `json:"agent_id"`
-	LowUseBefore      time.Time `json:"low_use_before"`
-	LowUseMaxUseCount int64     `json:"low_use_max_use_count"`
-}
-
-type ListStaleReflectSkillsForCuratorRow struct {
-	SkillID              string    `json:"skill_id"`
-	UserID               string    `json:"user_id"`
-	AgentID              string    `json:"agent_id"`
-	Version              int64     `json:"version"`
-	UseCount             int64     `json:"use_count"`
-	LastUsedAt           time.Time `json:"last_used_at"`
-	PairLatestActivityAt time.Time `json:"pair_latest_activity_at"`
-	Rule                 string    `json:"rule"`
-}
-
-// The same activity gate applies here: at least one non-archived conversation
-// had activity after the skill was last used.
-func (q *Queries) ListStaleReflectSkillsForCurator(ctx context.Context, arg ListStaleReflectSkillsForCuratorParams) ([]ListStaleReflectSkillsForCuratorRow, error) {
-	rows, err := q.db.Query(ctx, listStaleReflectSkillsForCurator,
-		arg.StaleBefore,
-		arg.UserID,
-		arg.AgentID,
-		arg.LowUseBefore,
-		arg.LowUseMaxUseCount,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListStaleReflectSkillsForCuratorRow{}
-	for rows.Next() {
-		var i ListStaleReflectSkillsForCuratorRow
-		if err := rows.Scan(
-			&i.SkillID,
-			&i.UserID,
-			&i.AgentID,
-			&i.Version,
-			&i.UseCount,
-			&i.LastUsedAt,
-			&i.PairLatestActivityAt,
-			&i.Rule,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const patchLogicalReflectSkillUsageDigest = `-- name: PatchLogicalReflectSkillUsageDigest :execrows
 UPDATE skill_usage
 SET last_content_digest = $1,
@@ -637,31 +563,6 @@ func (q *Queries) PatchLogicalReflectSkillUsageDigest(ctx context.Context, arg P
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const refreshSkillUsageOnReflectPatch = `-- name: RefreshSkillUsageOnReflectPatch :exec
-INSERT INTO skill_usage (skill_id, user_id, agent_id, use_count, last_used_at)
-SELECT s.id, s.user_id, s.agent_id, 0, now()
-FROM skill s
-WHERE s.id = $1
-  AND s.user_id = $2::uuid
-  AND s.agent_id = $3::text
-  AND s.scope = 'user_agent'
-  AND s.status = 'active'
-  AND s.metadata->>'created_by' = 'reflect'
-ON CONFLICT (skill_id) DO UPDATE
-SET last_used_at = excluded.last_used_at
-`
-
-type RefreshSkillUsageOnReflectPatchParams struct {
-	SkillID string `json:"skill_id"`
-	UserID  string `json:"user_id"`
-	AgentID string `json:"agent_id"`
-}
-
-func (q *Queries) RefreshSkillUsageOnReflectPatch(ctx context.Context, arg RefreshSkillUsageOnReflectPatchParams) error {
-	_, err := q.db.Exec(ctx, refreshSkillUsageOnReflectPatch, arg.SkillID, arg.UserID, arg.AgentID)
-	return err
 }
 
 const touchKnowledgeUsage = `-- name: TouchKnowledgeUsage :exec
@@ -716,37 +617,6 @@ func (q *Queries) TouchLogicalReflectSkillRuntimeUse(ctx context.Context, arg To
 		arg.Name,
 		arg.LastContentDigest,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const touchReflectSkillRuntimeUse = `-- name: TouchReflectSkillRuntimeUse :execrows
-UPDATE skill_usage su
-SET use_count = su.use_count + 1,
-    last_used_at = now()
-FROM skill s
-WHERE su.skill_id = $1
-  AND su.user_id = $2::uuid
-  AND su.agent_id = $3::text
-  AND s.id = su.skill_id
-  AND s.user_id = su.user_id
-  AND s.agent_id = su.agent_id
-  AND s.scope = 'user_agent'
-  AND s.status = 'active'
-  AND s.disable_model_invocation = false
-  AND s.metadata->>'created_by' = 'reflect'
-`
-
-type TouchReflectSkillRuntimeUseParams struct {
-	SkillID string `json:"skill_id"`
-	UserID  string `json:"user_id"`
-	AgentID string `json:"agent_id"`
-}
-
-func (q *Queries) TouchReflectSkillRuntimeUse(ctx context.Context, arg TouchReflectSkillRuntimeUseParams) (int64, error) {
-	result, err := q.db.Exec(ctx, touchReflectSkillRuntimeUse, arg.SkillID, arg.UserID, arg.AgentID)
 	if err != nil {
 		return 0, err
 	}
@@ -812,26 +682,5 @@ type UpsertKnowledgeUsageParams struct {
 
 func (q *Queries) UpsertKnowledgeUsage(ctx context.Context, arg UpsertKnowledgeUsageParams) error {
 	_, err := q.db.Exec(ctx, upsertKnowledgeUsage, arg.FactID, arg.UserID, arg.AgentID)
-	return err
-}
-
-const upsertSkillUsageOnReflectCreate = `-- name: UpsertSkillUsageOnReflectCreate :exec
-INSERT INTO skill_usage (skill_id, user_id, agent_id, use_count, last_used_at)
-VALUES ($1, $2, $3, 1, now())
-ON CONFLICT (skill_id) DO UPDATE
-SET user_id = excluded.user_id,
-    agent_id = excluded.agent_id,
-    use_count = excluded.use_count,
-    last_used_at = excluded.last_used_at
-`
-
-type UpsertSkillUsageOnReflectCreateParams struct {
-	SkillID string `json:"skill_id"`
-	UserID  string `json:"user_id"`
-	AgentID string `json:"agent_id"`
-}
-
-func (q *Queries) UpsertSkillUsageOnReflectCreate(ctx context.Context, arg UpsertSkillUsageOnReflectCreateParams) error {
-	_, err := q.db.Exec(ctx, upsertSkillUsageOnReflectCreate, arg.SkillID, arg.UserID, arg.AgentID)
 	return err
 }

@@ -3,6 +3,7 @@ package pluginhost
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -11,6 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/skills"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 )
@@ -35,21 +37,25 @@ func TestSkillStoreAdapterTouchesReflectSkillUsage(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	userID, agentID := seedSkillAdapterFixtures(t, db)
-	store := skills.New(db)
+	store := newHomeAuthorityStore(t, db)
 	created, err := store.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
 		UserID:          userID,
 		AgentID:         agentID,
 		Name:            "reflect-adapter-touch",
 		Description:     "created by reflect",
-		MainFileContent: "# Reflect Adapter Touch\n",
+		MainFileContent: "---\nname: reflect-adapter-touch\ndescription: created by reflect\n---\n# Reflect Adapter Touch\n",
 	})
 	if err != nil {
 		t.Fatalf("CreateReflectOwnedUserAgentSkill: %v", err)
 	}
 
-	var before int64
-	if err := db.QueryRow(ctx, `SELECT use_count FROM skill_usage WHERE skill_id = $1`, created.ID).Scan(&before); err != nil {
-		t.Fatalf("read initial skill usage: %v", err)
+	usage, err := skills.NewHomeSkillUsageStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := usage.Get(ctx, skills.HomeSkillUsageIdentity{ID: created.ID, UserID: userID, AgentID: agentID, Name: created.Name, LastContentDigest: created.ContentDigest})
+	if err != nil {
+		t.Fatalf("read initial logical skill usage: %v", err)
 	}
 	tracker, ok := NewSkillStoreAdapter(store).(interface {
 		TouchReflectSkillRuntimeUse(context.Context, string, string, string, string) error
@@ -57,17 +63,58 @@ func TestSkillStoreAdapterTouchesReflectSkillUsage(t *testing.T) {
 	if !ok {
 		t.Fatal("skill store adapter does not expose runtime usage touch")
 	}
-	if err := tracker.TouchReflectSkillRuntimeUse(ctx, created.ID, userID, agentID, ""); err != nil {
+	if err := tracker.TouchReflectSkillRuntimeUse(ctx, created.ID, userID, agentID, created.ContentDigest); err != nil {
 		t.Fatalf("TouchReflectSkillRuntimeUse: %v", err)
 	}
 
-	var after int64
-	if err := db.QueryRow(ctx, `SELECT use_count FROM skill_usage WHERE skill_id = $1`, created.ID).Scan(&after); err != nil {
-		t.Fatalf("read touched skill usage: %v", err)
+	after, err := usage.Get(ctx, skills.HomeSkillUsageIdentity{ID: created.ID, UserID: userID, AgentID: agentID, Name: created.Name, LastContentDigest: created.ContentDigest})
+	if err != nil {
+		t.Fatalf("read touched logical skill usage: %v", err)
 	}
-	if after != before+1 {
-		t.Fatalf("use_count after touch = %d, want %d", after, before+1)
+	if after.UseCount != before.UseCount+1 {
+		t.Fatalf("use_count after touch = %d, want %d", after.UseCount, before.UseCount+1)
 	}
+}
+
+func newHomeAuthorityStore(t *testing.T, db *pgxpool.Pool) *skills.HomeAuthorityStore {
+	t.Helper()
+	local, err := home.NewLocalStore("local", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := home.NewRegistry(db, local.ID(), local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := skills.NewHomeCatalog(registry, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publisher, err := skills.NewHomeSkillPublisher(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, err := skills.NewHomeSkillManager(catalog, publisher, func() time.Time { return time.Now().UTC() })
+	if err != nil {
+		t.Fatal(err)
+	}
+	homeStore, err := skills.NewHomeStore(catalog, manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage, err := skills.NewHomeSkillUsageStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reflectStore, err := skills.NewHomeReflectStore(homeStore, usage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := skills.NewHomeAuthorityStore(homeStore, reflectStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return authority
 }
 
 func seedSkillAdapterFixtures(t *testing.T, db *pgxpool.Pool) (string, string) {

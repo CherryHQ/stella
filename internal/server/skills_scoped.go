@@ -714,6 +714,9 @@ func (s *Server) CreateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, http.StatusBadRequest, "scope is required")
 		return
 	}
+	if strings.TrimSpace(req.Description) == "" {
+		req.Description = req.Name
+	}
 	userID, code, msg := s.agentSkillWriteScope(r.Context(), agentID, req.Scope)
 	if code != 0 {
 		writeError(w, code, msg)

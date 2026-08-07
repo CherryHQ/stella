@@ -187,7 +187,6 @@ func TestHomeCatalogPrecedenceDisabledAndDeprecated(t *testing.T) {
 	if _, err := sqlc.New(db).CreateStorageMigrationObservation(ctx, sqlc.CreateStorageMigrationObservationParams{Name: home.MutableAssetObjectAuthorityMigration, State: "not_required", Metadata: []byte(`{}`)}); err != nil {
 		t.Fatal(err)
 	}
-	store := New(db)
 	rows := []Skill{
 		{ID: "s", Scope: "system", Name: "same", Metadata: []byte(`{"created_by":"system"}`)},
 		{ID: "sa", Scope: "system_agent", AgentID: agentID, Name: "same", Metadata: []byte(`{}`)},
@@ -197,9 +196,7 @@ func TestHomeCatalogPrecedenceDisabledAndDeprecated(t *testing.T) {
 		{ID: "old-system", Scope: "system", Name: "old", Metadata: []byte(`{}`)},
 	}
 	for _, row := range rows {
-		if _, err := store.CreateManagedSkill(ctx, row, map[string]string{MainFile: catalogBody(row.Name)}); err != nil {
-			t.Fatal(err)
-		}
+		seedLegacySkill(t, db, row, map[string]string{MainFile: catalogBody(row.Name)})
 	}
 	if _, err := db.Exec(ctx, `UPDATE skill SET status = 'deprecated' WHERE id = 'old'`); err != nil {
 		t.Fatal(err)
@@ -238,7 +235,7 @@ func TestHomeCatalogPrecedenceDisabledAndDeprecated(t *testing.T) {
 			disabled = item
 		}
 	}
-	if disabled.Digest == "" || disabled.Skill.ContentDigest != disabled.Digest || !disabled.Managed || disabled.Skill.Version != 1 || string(disabled.Skill.Metadata) != `{"created_by":"manual"}` {
+	if disabled.Digest == "" || disabled.Skill.ContentDigest != disabled.Digest || !disabled.Managed || disabled.Skill.Version != 1 || string(disabled.Skill.Metadata) != `{"created_by":"reflect"}` {
 		t.Fatalf("descriptor lost metadata: %+v", disabled)
 	}
 }
@@ -250,11 +247,8 @@ func TestHomeCatalogFilesAndInventory(t *testing.T) {
 	if _, err := sqlc.New(db).CreateStorageMigrationObservation(ctx, sqlc.CreateStorageMigrationObservationParams{Name: home.MutableAssetObjectAuthorityMigration, State: "not_required", Metadata: []byte(`{}`)}); err != nil {
 		t.Fatal(err)
 	}
-	store := New(db)
 	for _, row := range rows {
-		if _, err := store.CreateManagedSkill(ctx, row, map[string]string{MainFile: catalogBody(row.Name), "references/blob": "bytes"}); err != nil {
-			t.Fatal(err)
-		}
+		seedLegacySkill(t, db, row, map[string]string{MainFile: catalogBody(row.Name), "references/blob": "bytes"})
 	}
 	if _, err := migration.MigrateSkillHomeAuthority(ctx, SkillMigrationOptions{}); err != nil {
 		t.Fatal(err)

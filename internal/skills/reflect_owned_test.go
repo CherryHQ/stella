@@ -69,18 +69,18 @@ func TestListActiveReflectOwnedUserAgentSkills(t *testing.T) {
 
 	create := func(t *testing.T, sk Skill) string {
 		t.Helper()
-		id, err := store.Create(ctx, sk, map[string]string{MainFile: "# " + sk.Name})
+		snapshot, err := store.CreateManagedSkill(ctx, sk, map[string]string{MainFile: "---\nname: " + sk.Name + "\ndescription: " + sk.Description + "\n---\n# " + sk.Name})
 		if err != nil {
 			t.Fatalf("create %s: %v", sk.Name, err)
 		}
-		return id
+		return snapshot.Skill.ID
 	}
 
 	// Reflect ownership is only established by the dedicated writer; generic
 	// Create deliberately normalizes user-originated metadata to manual.
 	reflectOwned, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{
 		UserID: userID, AgentID: agentID, Name: "reflect-owned-active",
-		Description: "created by reflect", MainFileContent: "# reflect-owned-active", Metadata: reflectMetadata,
+		Description: "created by reflect", MainFileContent: "---\nname: reflect-owned-active\ndescription: created by reflect\n---\n# reflect-owned-active", Metadata: reflectMetadata,
 	})
 	if err != nil {
 		t.Fatalf("CreateReflectOwnedUserAgentSkill: %v", err)
@@ -95,17 +95,6 @@ func TestListActiveReflectOwnedUserAgentSkills(t *testing.T) {
 		Status:      "active",
 		Metadata:    json.RawMessage(`{"created_by":"manual"}`),
 	})
-	deprecated, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{
-		UserID: userID, AgentID: agentID, Name: "reflect-deprecated",
-		Description: "created by reflect but deprecated", MainFileContent: "# reflect-deprecated", Metadata: reflectMetadata,
-	})
-	if err != nil {
-		t.Fatalf("create deprecated fixture: %v", err)
-	}
-	// Deprecated is a legacy read-only state; seed it below the business API.
-	if _, err := db.Exec(ctx, `UPDATE skill SET status = 'deprecated' WHERE id = $1`, deprecated.ID); err != nil {
-		t.Fatalf("seed deprecated fixture: %v", err)
-	}
 	create(t, Skill{
 		Scope:       "user",
 		UserID:      userID,

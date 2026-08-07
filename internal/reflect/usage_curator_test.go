@@ -18,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
@@ -473,13 +474,13 @@ func TestUsageCuratorArmedSkipsSkillWhenUsageChangedAfterSelection(t *testing.T)
 	ctx := context.Background()
 	db := dbtest.New(t)
 	userID, agentID := seedUsageCuratorDB(t, ctx, db)
-	skillStore := skills.New(db)
+	skillStore := newHomeReflectAuthority(t, db)
 	created, err := skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
 		UserID:          userID,
 		AgentID:         agentID,
 		Name:            "curator-skill-used-after-selection",
 		Description:     "selected then used",
-		MainFileContent: "# Selected Then Used\n",
+		MainFileContent: "---\nname: curator-skill-used-after-selection\ndescription: selected then used\n---\n# Selected Then Used\n",
 	})
 	if err != nil {
 		t.Fatalf("CreateReflectOwnedUserAgentSkill: %v", err)
@@ -492,17 +493,21 @@ func TestUsageCuratorArmedSkipsSkillWhenUsageChangedAfterSelection(t *testing.T)
 	`, selectedLastUsed, created.ID); err != nil {
 		t.Fatalf("seed stale skill usage: %v", err)
 	}
-	if err := skillStore.TouchReflectSkillRuntimeUse(ctx, created.ID, userID, agentID, ""); err != nil {
+	if err := skillStore.TouchReflectSkillRuntimeUse(ctx, created.ID, userID, agentID, created.ContentDigest); err != nil {
 		t.Fatalf("TouchReflectSkillRuntimeUse: %v", err)
 	}
+	activityAt := fixedUsageCuratorNow().Add(-24 * time.Hour)
+	seedEligibleCuratorActivity(t, ctx, db, userID, agentID, activityAt)
 
 	deleted, err := deleteCuratorSkills(ctx, skillStore, &stubSkillAuthorizer{}, []usageCuratorSkillCandidate{{
 		SkillID:               created.ID,
 		UserID:                userID,
 		AgentID:               agentID,
-		LegacyExpectedVersion: created.Version,
+		ContentDigest:         created.ContentDigest,
+		LegacyExpectedVersion: 0,
 		UseCount:              2,
 		LastUsedAt:            selectedLastUsed,
+		PairLatestActivityAt:  activityAt,
 		Rule:                  usageCuratorSkillRuleLowUse,
 	}})
 	if err != nil {
@@ -524,10 +529,10 @@ func TestUsageCuratorArmedSkipsSkillWhenEligibleActivityDisappearsAfterSelection
 	ctx := context.Background()
 	db := dbtest.New(t)
 	userID, agentID := seedUsageCuratorDB(t, ctx, db)
-	skillStore := skills.New(db)
+	skillStore := newHomeReflectAuthority(t, db)
 	created, err := skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
 		UserID: userID, AgentID: agentID, Name: "curator-skill-activity-disappeared",
-		Description: "selected before archive", MainFileContent: "# Selected Before Archive\n",
+		Description: "selected before archive", MainFileContent: "---\nname: curator-skill-activity-disappeared\ndescription: selected before archive\n---\n# Selected Before Archive\n",
 	})
 	if err != nil {
 		t.Fatalf("CreateReflectOwnedUserAgentSkill: %v", err)
@@ -549,7 +554,7 @@ func TestUsageCuratorArmedSkipsSkillWhenEligibleActivityDisappearsAfterSelection
 	}
 
 	deleted, err := deleteCuratorSkills(ctx, skillStore, &stubSkillAuthorizer{}, []usageCuratorSkillCandidate{{
-		SkillID: created.ID, UserID: userID, AgentID: agentID, LegacyExpectedVersion: created.Version,
+		SkillID: created.ID, UserID: userID, AgentID: agentID, ContentDigest: created.ContentDigest, LegacyExpectedVersion: 0,
 		UseCount: 2, LastUsedAt: lastUsed, PairLatestActivityAt: activityAt,
 		Rule: usageCuratorSkillRuleLowUse,
 	}})
@@ -565,135 +570,6 @@ func TestUsageCuratorArmedSkipsSkillWhenEligibleActivityDisappearsAfterSelection
 	}
 	if resolved == nil || resolved.Status != skills.SkillStatusActive {
 		t.Fatalf("skill after curator = %#v, want active", resolved)
-	}
-}
-
-func TestSQLUsageCuratorStoreListsOnlyStaleReflectRecordsWithActivity(t *testing.T) {
-	ctx := context.Background()
-	db := dbtest.New(t)
-	q := sqlc.New(db)
-	userID, agentID := seedUsageCuratorDB(t, ctx, db)
-	now := fixedUsageCuratorNow()
-	lastUsed := now.Add(-45 * 24 * time.Hour)
-	if _, err := db.Exec(ctx, `
-		INSERT INTO ctx_conversation (id, session_id, channel, kind, agent_id, user_id, last_active)
-		VALUES ($1, 'curator-session-1', 'test', 'chat', $2, $3, $4)
-	`, uuid.NewString(), agentID, userID, now.Add(-24*time.Hour)); err != nil {
-		t.Fatalf("insert conversation: %v", err)
-	}
-
-	reflectFact, err := memorywrite.CreateFact(ctx, db, q, memory.FactWrite{
-		UserID:  userID,
-		AgentID: agentID,
-		Subject: memory.FactSubjectWorld,
-		Content: "Reflect world fact.",
-		Source:  memory.SourceReflect,
-	})
-	if err != nil {
-		t.Fatalf("create reflect fact: %v", err)
-	}
-	manualFact, err := memorywrite.CreateFact(ctx, db, q, memory.FactWrite{
-		UserID:  userID,
-		AgentID: agentID,
-		Subject: memory.FactSubjectWorld,
-		Content: "Manual world fact.",
-		Source:  memory.SourceManual,
-	})
-	if err != nil {
-		t.Fatalf("create manual fact: %v", err)
-	}
-	if _, err := db.Exec(ctx, `
-		UPDATE knowledge_usage
-		SET last_used_at = $1
-		WHERE fact_id = $2
-	`, lastUsed, reflectFact.ID); err != nil {
-		t.Fatalf("seed reflect knowledge usage: %v", err)
-	}
-	if _, err := db.Exec(ctx, `
-		INSERT INTO knowledge_usage (fact_id, user_id, agent_id, last_used_at)
-		VALUES ($1, $2, $3, $4)
-	`, manualFact.ID, userID, agentID, lastUsed); err != nil {
-		t.Fatalf("seed manual knowledge usage: %v", err)
-	}
-
-	skillStore := skills.New(db)
-	staleSkill, err := skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
-		UserID: userID, AgentID: agentID, Name: "curator-stale-skill", Description: "stale", MainFileContent: "# Stale\n",
-	})
-	if err != nil {
-		t.Fatalf("create stale skill: %v", err)
-	}
-	highUseSkill, err := skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
-		UserID: userID, AgentID: agentID, Name: "curator-high-use-skill", Description: "high use", MainFileContent: "# High\n",
-	})
-	if err != nil {
-		t.Fatalf("create high-use skill: %v", err)
-	}
-	if _, err := db.Exec(ctx, `
-		UPDATE skill_usage
-		SET last_used_at = $1, use_count = 2
-		WHERE skill_id = $2
-	`, now.Add(-25*24*time.Hour), staleSkill.ID); err != nil {
-		t.Fatalf("seed stale skill usage: %v", err)
-	}
-	if _, err := db.Exec(ctx, `
-		UPDATE skill_usage
-		SET last_used_at = $1, use_count = 8
-		WHERE skill_id = $2
-	`, now.Add(-25*24*time.Hour), highUseSkill.ID); err != nil {
-		t.Fatalf("seed high-use skill usage: %v", err)
-	}
-
-	curatorStore := NewSQLUsageCuratorStore(q)
-	knowledge, err := curatorStore.ListStaleReflectKnowledge(ctx, usageCuratorKnowledgeQuery{
-		UserID:      userID,
-		AgentID:     agentID,
-		StaleBefore: now.Add(-20 * 24 * time.Hour),
-	})
-	if err != nil {
-		t.Fatalf("ListStaleReflectKnowledge: %v", err)
-	}
-	if len(knowledge) != 1 || knowledge[0].FactID != reflectFact.ID {
-		t.Fatalf("knowledge candidates = %#v, want only reflect fact", knowledge)
-	}
-	skillCandidates, err := curatorStore.ListStaleReflectSkills(ctx, usageCuratorSkillQuery{
-		UserID:            userID,
-		AgentID:           agentID,
-		StaleBefore:       now.Add(-60 * 24 * time.Hour),
-		LowUseBefore:      now.Add(-20 * 24 * time.Hour),
-		LowUseMaxUseCount: 5,
-	})
-	if err != nil {
-		t.Fatalf("ListStaleReflectSkills: %v", err)
-	}
-	if len(skillCandidates) != 1 || skillCandidates[0].SkillID != staleSkill.ID || skillCandidates[0].Rule != usageCuratorSkillRuleLowUse {
-		t.Fatalf("skill candidates = %#v, want only low-use stale skill", skillCandidates)
-	}
-
-	if _, err := db.Exec(ctx, `UPDATE ctx_conversation SET archived = true WHERE session_id = 'curator-session-1'`); err != nil {
-		t.Fatalf("archive eligible conversation: %v", err)
-	}
-	if _, err := db.Exec(ctx, `
-		INSERT INTO ctx_conversation (id, session_id, channel, kind, agent_id, user_id, last_active)
-		VALUES ($1, 'curator-internal-session', 'test', 'scheduler', $2, $3, $4)
-	`, uuid.NewString(), agentID, userID, now); err != nil {
-		t.Fatalf("insert internal conversation: %v", err)
-	}
-	knowledge, err = curatorStore.ListStaleReflectKnowledge(ctx, usageCuratorKnowledgeQuery{UserID: userID, AgentID: agentID, StaleBefore: now.Add(-20 * 24 * time.Hour)})
-	if err != nil {
-		t.Fatalf("ListStaleReflectKnowledge with internal activity: %v", err)
-	}
-	if len(knowledge) != 0 {
-		t.Fatalf("knowledge candidates = %#v, internal activity must not satisfy gate", knowledge)
-	}
-	skillCandidates, err = curatorStore.ListStaleReflectSkills(ctx, usageCuratorSkillQuery{
-		UserID: userID, AgentID: agentID, StaleBefore: now.Add(-60 * 24 * time.Hour), LowUseBefore: now.Add(-20 * 24 * time.Hour), LowUseMaxUseCount: 5,
-	})
-	if err != nil {
-		t.Fatalf("ListStaleReflectSkills with internal activity: %v", err)
-	}
-	if len(skillCandidates) != 0 {
-		t.Fatalf("skill candidates = %#v, internal activity must not satisfy gate", skillCandidates)
 	}
 }
 
@@ -1015,4 +891,45 @@ func (w *fakeUsageCuratorSkillWriter) DeleteReflectOwnedUserAgentSkill(_ context
 		return skills.Skill{}, w.err
 	}
 	return skills.Skill{ID: in.ID, Status: skills.SkillStatusActive}, nil
+}
+
+func newHomeReflectAuthority(t *testing.T, db *pgxpool.Pool) *skills.HomeAuthorityStore {
+	t.Helper()
+	local, err := home.NewLocalStore("local", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := home.NewRegistry(db, local.ID(), local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := skills.NewHomeCatalog(registry, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publisher, err := skills.NewHomeSkillPublisher(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, err := skills.NewHomeSkillManager(catalog, publisher, func() time.Time { return time.Now().UTC() })
+	if err != nil {
+		t.Fatal(err)
+	}
+	homeStore, err := skills.NewHomeStore(catalog, manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage, err := skills.NewHomeSkillUsageStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reflectStore, err := skills.NewHomeReflectStore(homeStore, usage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := skills.NewHomeAuthorityStore(homeStore, reflectStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return authority
 }

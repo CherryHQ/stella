@@ -43,7 +43,7 @@ func newHomeSkillAuthorityFixture(t *testing.T) (context.Context, *pgxpool.Pool,
 }
 
 func TestHomeSkillAuthorityCompositionFreshMarkerUsesOnlyHomeCurrentState(t *testing.T) {
-	ctx, db, q, registry := newHomeSkillAuthorityFixture(t)
+	ctx, db, _, registry := newHomeSkillAuthorityFixture(t)
 	if err := skills.EnsureSkillHomeAuthority(ctx, db, registry); err != nil {
 		t.Fatalf("EnsureSkillHomeAuthority: %v", err)
 	}
@@ -82,9 +82,9 @@ func TestHomeSkillAuthorityCompositionFreshMarkerUsesOnlyHomeCurrentState(t *tes
 		t.Fatalf("Home delete: %v", err)
 	}
 
-	rows, err := q.ListAllSkills(ctx)
-	if err != nil || len(rows) != 0 {
-		t.Fatalf("legacy skill rows = %d, %v; want none", len(rows), err)
+	var skillRows int
+	if err := db.QueryRow(ctx, "SELECT count(*) FROM skill").Scan(&skillRows); err != nil || skillRows != 0 {
+		t.Fatalf("legacy skill rows = %d, %v; want none", skillRows, err)
 	}
 	var changelogRows int
 	if err := db.QueryRow(ctx, "SELECT count(*) FROM skill_changelog").Scan(&changelogRows); err != nil || changelogRows != 0 {
@@ -94,7 +94,7 @@ func TestHomeSkillAuthorityCompositionFreshMarkerUsesOnlyHomeCurrentState(t *tes
 
 func TestHomeSkillAuthorityMarkerGateRejectsLegacyBeforeConstruction(t *testing.T) {
 	ctx, db, q, registry := newHomeSkillAuthorityFixture(t)
-	if _, err := skills.New(db).CreateManagedSkill(ctx, skills.Skill{ID: "legacy", Scope: "system", Name: "legacy"}, map[string]string{skills.MainFile: "legacy"}); err != nil {
+	if _, err := db.Exec(ctx, `INSERT INTO skill (id, scope, name, description, status, metadata) VALUES ('legacy', 'system', 'legacy', '', 'active', '{}')`); err != nil {
 		t.Fatal(err)
 	}
 	if err := skills.EnsureSkillHomeAuthority(ctx, db, registry); err == nil {

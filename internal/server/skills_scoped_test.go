@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -59,13 +61,22 @@ func createTestSkill(t *testing.T, env *testEnv, scope string, userID string, ag
 	}
 	ctx := context.Background()
 	snapshot, err := env.pluginHost.SkillStore().CreateManagedSkill(ctx, sk, map[string]string{
-		skills.MainFile: "# " + name,
+		skills.MainFile: "---\nname: " + name + "\ndescription: test\n---\n# " + name,
 		"reference.md":  "reference content",
 	})
 	if err != nil {
 		t.Fatalf("Create skill: %v", err)
 	}
 	return snapshot.Skill.ID
+}
+
+func homeSkillDigest(t *testing.T, env *testEnv, id string) string {
+	t.Helper()
+	sk, err := env.pluginHost.SkillStore().Get(t.Context(), id)
+	if err != nil {
+		t.Fatalf("load Home skill %s: %v", id, err)
+	}
+	return sk.ContentDigest
 }
 
 func createSkillZip(t *testing.T, files map[string]string) []byte {
@@ -243,12 +254,6 @@ func TestAgentSkills_ListVisibleSkills(t *testing.T) {
 	createTestSkill(t, env, "system", "", "", "system-skill")
 	createTestSkill(t, env, "system_agent", "", agentID, "agent-skill")
 	createTestSkill(t, env, "user_agent", creator.ID, agentID, "creator-user-skill")
-	orgCtx := context.Background()
-	deprecatedID := createTestSkill(t, env, "user_agent", creator.ID, agentID, "deprecated-skill")
-	// Seed legacy state directly; users can no longer deprecate skills.
-	if _, err := env.db.Exec(orgCtx, `UPDATE skill SET status = 'deprecated' WHERE id = $1`, deprecatedID); err != nil {
-		t.Fatalf("mark legacy skill deprecated: %v", err)
-	}
 
 	rr := doRequestWithSession(t, env.srv, creatorSID, "GET", "/api/agents/"+agentID+"/skills", nil)
 	if rr.Code != http.StatusOK {
@@ -259,9 +264,6 @@ func TestAgentSkills_ListVisibleSkills(t *testing.T) {
 		if findSkill(list, name) == nil {
 			t.Fatalf("creator list missing %q: %#v", name, list)
 		}
-	}
-	if deprecated := findSkill(list, "deprecated-skill"); deprecated != nil {
-		t.Fatalf("creator list included deprecated skill: %#v", deprecated)
 	}
 
 	rr = doRequest(t, env, "GET", "/api/agents/"+agentID+"/skills", nil)
@@ -358,9 +360,9 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 	createTestSkill(t, env, "system_agent", "", agentID, "skill-ud")
 
 	rr = doRequest(t, env, "PATCH", "/api/agents/"+agentID+"/skills/skill-ud?scope=system_agent", map[string]any{
-		"expected_digest": legacyTestSkillDigest,
+		"expected_digest": homeSkillDigest(t, env, mustResolveSkillID(t, env, "skill-ud", "", agentID)),
 		"description":     "updated",
-		"files":           map[string]string{"SKILL.md": "# updated body"},
+		"files":           map[string]string{"SKILL.md": "---\nname: skill-ud\ndescription: updated\n---\n# updated body"},
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("admin update status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
@@ -368,21 +370,53 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 
 	// Non-admin creator cannot update the admin-managed system_agent skill.
 	rr = doRequestWithSession(t, env.srv, sid, "PATCH", "/api/agents/"+agentID+"/skills/skill-ud?scope=system_agent", map[string]any{
-		"expected_digest": legacyTestSkillDigest,
+		"expected_digest": homeSkillDigest(t, env, mustResolveSkillID(t, env, "skill-ud", "", agentID)),
 		"description":     "creator edit",
 	})
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("creator system_agent update status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?scope=system_agent&path=reference.md&expected_digest="+legacyTestSkillDigest, nil)
+	rr = doRequest(t, env, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?scope=system_agent&path=reference.md&expected_digest="+homeSkillDigest(t, env, mustResolveSkillID(t, env, "skill-ud", "", agentID)), nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("admin delete file status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?scope=system_agent&path=SKILL.md&expected_digest="+legacyTestSkillDigest, nil)
+	rr = doRequest(t, env, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?scope=system_agent&path=SKILL.md&expected_digest="+homeSkillDigest(t, env, mustResolveSkillID(t, env, "skill-ud", "", agentID)), nil)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("admin delete SKILL.md status = %d, want 400", rr.Code)
+	}
+}
+
+func TestAgentSkills_CreateDefaultsOmittedDescriptionBeforeHomeCodec(t *testing.T) {
+	env := setupAdmin(t)
+	_, sid := newNonAdmin(t, env, "agent-omitted-description")
+	agentID := createAgentAsUser(t, env, sid, "agent-omitted-description-agent")
+	const name = "agent-omitted-description"
+	rr := doRequestWithSession(t, env.srv, sid, http.MethodPost, "/api/agents/"+agentID+"/skills", map[string]any{
+		"name":  name,
+		"scope": "user_agent",
+		"files": map[string]string{"SKILL.md": "---\nname: " + name + "\ndescription: " + name + "\n---\n# Canonical\n"},
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
+	}
+	var response struct {
+		ID          string `json:"id"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &response); err != nil {
+		t.Fatalf("unmarshal create response: %v", err)
+	}
+	if response.Description != name {
+		t.Fatalf("response description = %q, want %q", response.Description, name)
+	}
+	stored, err := env.pluginHost.SkillStore().Get(t.Context(), response.ID)
+	if err != nil {
+		t.Fatalf("get created Home skill: %v", err)
+	}
+	if stored.Description != name {
+		t.Fatalf("Home description = %q, want %q", stored.Description, name)
 	}
 }
 
@@ -394,20 +428,13 @@ func TestAgentSkills_DeleteRemovesUserAgentSkill(t *testing.T) {
 	agentID := createAgentAsUser(t, env, sid, "agent-delete-lifecycle-agent")
 	id := createTestSkill(t, env, "user_agent", user.ID, agentID, "agent-delete-lifecycle-skill")
 
-	rr := doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/agent-delete-lifecycle-skill?scope=user_agent&expected_digest="+legacyTestSkillDigest, nil)
+	rr := doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/agent-delete-lifecycle-skill?scope=user_agent&expected_digest="+homeSkillDigest(t, env, id), nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	var skillCount, fileCount int
-	if err := env.db.QueryRow(t.Context(), `SELECT count(*) FROM skill WHERE id = $1`, id).Scan(&skillCount); err != nil {
-		t.Fatalf("count deleted agent skill: %v", err)
-	}
-	if err := env.db.QueryRow(t.Context(), `SELECT count(*) FROM skill_file WHERE skill_id = $1`, id).Scan(&fileCount); err != nil {
-		t.Fatalf("count deleted agent files: %v", err)
-	}
-	if skillCount != 0 || fileCount != 0 {
-		t.Fatalf("deleted agent skill retained skill=%d files=%d", skillCount, fileCount)
+	if _, err := env.pluginHost.SkillStore().Get(t.Context(), id); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("deleted agent skill Get error = %v, want fs.ErrNotExist", err)
 	}
 }
 
@@ -488,16 +515,32 @@ func TestAgentSkills_UploadZip(t *testing.T) {
 	if uploaded["scope"] != "user_agent" || uploaded["user_id"] != creator.ID || uploaded["agent_id"] != agentID {
 		t.Fatalf("uploaded skill ownership = %#v, want user_agent scoped to creator and agent", uploaded)
 	}
-	var storedStatus string
-	if err := env.db.QueryRow(context.Background(), `SELECT status FROM skill WHERE name = 'uploaded-skill' AND user_id = $1 AND agent_id = $2`, creator.ID, agentID).Scan(&storedStatus); err != nil {
-		t.Fatalf("read uploaded skill status: %v", err)
+	stored, err := env.pluginHost.SkillStore().ListByScope(t.Context(), "user_agent", creator.ID, agentID)
+	if err != nil {
+		t.Fatalf("list uploaded Home skill: %v", err)
 	}
-	if storedStatus != "active" {
-		t.Fatalf("uploaded stored status = %v, want active", storedStatus)
+	var uploadedHome *skills.Skill
+	for i := range stored {
+		if stored[i].ID == uploaded["id"] {
+			uploadedHome = &stored[i]
+			break
+		}
+	}
+	if uploadedHome == nil || uploadedHome.Status != "active" || uploadedHome.ContentDigest == "" {
+		t.Fatalf("uploaded Home skill = %#v, want active skill with digest", stored)
 	}
 	if uploaded["disable_model_invocation"] != true {
 		t.Fatalf("uploaded disable_model_invocation = %v, want true", uploaded["disable_model_invocation"])
 	}
+}
+
+func mustResolveSkillID(t *testing.T, env *testEnv, name, userID, agentID string) string {
+	t.Helper()
+	sk, err := env.pluginHost.SkillStore().Resolve(t.Context(), name, skills.ViewContext{UserID: userID, AgentID: agentID})
+	if err != nil {
+		t.Fatalf("resolve skill %q: %v", name, err)
+	}
+	return sk.ID
 }
 
 func TestAgentUserSkills_SelfOnly(t *testing.T) {

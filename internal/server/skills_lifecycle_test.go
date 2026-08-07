@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/skills"
@@ -121,7 +123,7 @@ func TestAgentSkillsLifecycleScopeCountsAndSearch(t *testing.T) {
 	createTestSkill(t, env, "user_agent", user.ID, agentID, "task5-filter-manual-agent")
 	reflectSkill, err := env.pluginHost.SkillStore().CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
 		UserID: user.ID, AgentID: agentID, Name: "task5-filter-reflect-agent",
-		Description: "Needle Description", MainFileContent: "reflect body",
+		Description: "Needle Description", MainFileContent: "---\nname: task5-filter-reflect-agent\ndescription: Needle Description\n---\nreflect body",
 	})
 	if err != nil {
 		t.Fatalf("create reflect-owned skill: %v", err)
@@ -149,33 +151,28 @@ func TestAgentSkillsLifecycleDeleteUsesStableIDAndActiveName(t *testing.T) {
 	env := setupAdmin(t)
 	user, sid := newNonAdmin(t, env, "skill-lifecycle-delete-reference")
 	agentID := createAgentAsUser(t, env, sid, "skill-lifecycle-delete-reference-agent")
-	deprecatedID := createTestSkill(t, env, "user_agent", user.ID, agentID, "legacy-deprecated")
-	if _, err := env.db.Exec(context.Background(), `UPDATE skill SET status = 'deprecated' WHERE id = $1`, deprecatedID); err != nil {
-		t.Fatalf("mark legacy skill deprecated: %v", err)
-	}
-	rr := doRequestWithSession(t, env.srv, sid, http.MethodGet, "/api/agents/"+agentID+"/skills/"+deprecatedID+"?scope=user_agent", nil)
+	// Deprecated legacy rows are migration history, not mutable Home current state.
+	rr := doRequestWithSession(t, env.srv, sid, http.MethodGet, "/api/agents/"+agentID+"/skills/missing-legacy-deprecated?scope=user_agent", nil)
 	if rr.Code != http.StatusNotFound {
-		t.Fatalf("deprecated stable ID status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
+		t.Fatalf("missing reference status = %d, want 404", rr.Code)
 	}
 
+	// Deprecated rows are migration-history only under Home authority; exercise
+	// stable-ID and active-name deletion with active Home entries.
 	stableID := createTestSkill(t, env, "user_agent", user.ID, agentID, "delete-by-id")
-	rr = doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/"+stableID+"?scope=user_agent&expected_digest="+legacyTestSkillDigest, nil)
+	rr = doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/"+stableID+"?scope=user_agent&expected_digest="+homeSkillDigest(t, env, stableID), nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("stable ID delete status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	replacementID := createTestSkill(t, env, "user_agent", user.ID, agentID, "delete-by-id")
-	rr = doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/delete-by-id?scope=user_agent&expected_digest="+legacyTestSkillDigest, nil)
+	rr = doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/delete-by-id?scope=user_agent&expected_digest="+homeSkillDigest(t, env, replacementID), nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("active-name delete status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 	}
 	for _, id := range []string{stableID, replacementID} {
-		var count int
-		if err := env.db.QueryRow(context.Background(), `SELECT count(*) FROM skill WHERE id = $1`, id).Scan(&count); err != nil {
-			t.Fatalf("count deleted skill %s: %v", id, err)
-		}
-		if count != 0 {
-			t.Fatalf("skill %s remains after delete", id)
+		if _, err := env.pluginHost.SkillStore().Get(t.Context(), id); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("deleted skill %s Get error = %v, want fs.ErrNotExist", id, err)
 		}
 	}
 }
@@ -189,7 +186,7 @@ func TestAgentSkillsLifecycleExactScopeFallsBackAfterIDCollision(t *testing.T) {
 	if _, err := env.pluginHost.SkillStore().CreateManagedSkill(ctx, skills.Skill{
 		ID: "deadbeef", Scope: "system_agent", AgentID: agentID,
 		Name: "system-collision", Description: "ID occupies the hexadecimal reference",
-	}, map[string]string{skills.MainFile: "# System collision\n"}); err != nil {
+	}, map[string]string{skills.MainFile: "---\nname: system-collision\ndescription: ID occupies the hexadecimal reference\n---\n# System collision\n"}); err != nil {
 		t.Fatalf("create colliding ID skill: %v", err)
 	}
 	wantID := createTestSkill(t, env, "user_agent", user.ID, agentID, "deadbeef")
@@ -212,14 +209,14 @@ func TestAgentSkillsLifecycleAtomicEditPreservesOrConvertsReflectOwnership(t *te
 	agentID := createAgentAsUser(t, env, sid, "skill-lifecycle-edit-agent")
 	ctx := context.Background()
 	created, err := env.pluginHost.SkillStore().CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
-		UserID: user.ID, AgentID: agentID, Name: "task5-reflect-edit", Description: "before", MainFileContent: "before body",
+		UserID: user.ID, AgentID: agentID, Name: "task5-reflect-edit", Description: "before", MainFileContent: "---\nname: task5-reflect-edit\ndescription: before\n---\nbefore body",
 	})
 	if err != nil {
 		t.Fatalf("create reflect-owned skill: %v", err)
 	}
 	path := "/api/agents/" + agentID + "/skills/" + created.ID + "?scope=user_agent"
 	rr := doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{
-		"expected_digest": legacyTestSkillDigest, "description": "must not commit", "files": map[string]string{"../escape.md": "invalid"},
+		"expected_digest": homeSkillDigest(t, env, created.ID), "description": "must not commit", "files": map[string]string{"../escape.md": "invalid"},
 	})
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("invalid file patch status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
@@ -228,7 +225,7 @@ func TestAgentSkillsLifecycleAtomicEditPreservesOrConvertsReflectOwnership(t *te
 
 	// An ordinary edit keeps Reflect ownership while committing metadata and files together.
 	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{
-		"expected_digest": legacyTestSkillDigest, "description": "ordinary edit", "files": map[string]string{"SKILL.md": "ordinary body"},
+		"expected_digest": homeSkillDigest(t, env, created.ID), "description": "ordinary edit", "files": map[string]string{"SKILL.md": "---\nname: task5-reflect-edit\ndescription: ordinary edit\n---\nordinary body"},
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("ordinary reflect patch status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
@@ -237,8 +234,8 @@ func TestAgentSkillsLifecycleAtomicEditPreservesOrConvertsReflectOwnership(t *te
 	assertManagedSkillState(t, env, created.ID, "reflect", "ordinary edit", "ordinary body")
 
 	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{
-		"expected_digest": legacyTestSkillDigest, "description": "manual edit", "convert_to_manual": true,
-		"files": map[string]string{"SKILL.md": "manual body", "references/note.md": "note"},
+		"expected_digest": homeSkillDigest(t, env, created.ID), "description": "manual edit", "convert_to_manual": true,
+		"files": map[string]string{"SKILL.md": "---\nname: task5-reflect-edit\ndescription: manual edit\n---\nmanual body", "references/note.md": "note"},
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("convert patch status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
@@ -247,7 +244,7 @@ func TestAgentSkillsLifecycleAtomicEditPreservesOrConvertsReflectOwnership(t *te
 	assertManagedSkillState(t, env, created.ID, "manual", "manual edit", "manual body")
 
 	// Conversion is one-way; a second conversion request is an explicit conflict.
-	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{"expected_digest": legacyTestSkillDigest, "convert_to_manual": true})
+	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{"expected_digest": homeSkillDigest(t, env, created.ID), "convert_to_manual": true})
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("second conversion status = %d, want 409 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -261,7 +258,7 @@ func TestSkillMutationResponseUsesCommittedSnapshotWhenListFilesFails(t *testing
 
 	rr := doRequestWithSession(t, env.srv, sid, http.MethodPost, "/api/agents/"+agentID+"/skills", map[string]any{
 		"scope": "user_agent", "name": "snapshot-response",
-		"files": map[string]string{skills.MainFile: "# Snapshot\n", "references/note.md": "note\n"},
+		"files": map[string]string{skills.MainFile: "---\nname: snapshot-response\ndescription: snapshot-response\n---\n# Snapshot\n", "references/note.md": "note\n"},
 	})
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create with failing ListFiles status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
@@ -277,7 +274,7 @@ func TestSkillMutationResponseUsesCommittedSnapshotWhenListFilesFails(t *testing
 	}
 	id, _ := got["id"].(string)
 	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, "/api/agents/"+agentID+"/skills/"+id+"?scope=user_agent", map[string]any{
-		"expected_digest": legacyTestSkillDigest, "files": map[string]string{"scripts/run.sh": "#!/bin/sh\n"},
+		"expected_digest": homeSkillDigest(t, env, id), "files": map[string]string{"scripts/run.sh": "#!/bin/sh\n"},
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update with failing ListFiles status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
@@ -307,18 +304,15 @@ func assertFullSkillMutationResponse(t *testing.T, rr *httptest.ResponseRecorder
 
 func assertManagedSkillState(t *testing.T, env *testEnv, id, createdBy, description, mainFile string) {
 	t.Helper()
-	var row struct {
-		Description string          `json:"description"`
-		Metadata    json.RawMessage `json:"metadata"`
-	}
-	if err := env.db.QueryRow(context.Background(), `SELECT description, metadata FROM skill WHERE id = $1`, id).Scan(&row.Description, &row.Metadata); err != nil {
+	sk, err := env.pluginHost.SkillStore().Get(t.Context(), id)
+	if err != nil {
 		t.Fatalf("read managed skill %s: %v", id, err)
 	}
-	if row.Description != description || skills.CreatedBy(skills.Skill{Metadata: row.Metadata}) != createdBy {
-		t.Fatalf("skill %s state description=%q created_by=%q", id, row.Description, skills.CreatedBy(skills.Skill{Metadata: row.Metadata}))
+	if sk.Description != description || skills.CreatedBy(*sk) != createdBy {
+		t.Fatalf("skill %s state description=%q created_by=%q", id, sk.Description, skills.CreatedBy(*sk))
 	}
 	content, err := env.pluginHost.SkillStore().LoadFile(context.Background(), id, skills.MainFile)
-	if err != nil || content != mainFile {
-		t.Fatalf("skill %s main file = %q, %v; want %q", id, content, err, mainFile)
+	if err != nil || !strings.Contains(content, mainFile) {
+		t.Fatalf("skill %s main file = %q, %v; want body containing %q", id, content, err, mainFile)
 	}
 }

@@ -34,19 +34,6 @@ type SkillSnapshot struct {
 	Files []string
 }
 
-type SkillChangelog struct {
-	ID            string
-	SkillID       string
-	UserID        string
-	AgentID       string
-	Scope         string
-	Action        string
-	VersionBefore int64
-	VersionAfter  int64
-	Metadata      json.RawMessage
-	CreatedAt     time.Time
-}
-
 // ViewContext describes who is asking and from where.
 // Empty fields mean no such context (e.g. empty UserID → only system skills visible).
 type ViewContext struct {
@@ -75,7 +62,6 @@ type ManagedSkillUpdate struct {
 	AgentID string
 	Scope   string
 	// ExpectedDigest is the exact Home content revision the caller inspected.
-	// PGStore deliberately ignores it until Home authority is composed.
 	ExpectedDigest string
 	Patch          UpdatePatch
 	Files          map[string]string
@@ -131,11 +117,11 @@ type Store interface {
 	DeleteManagedSkillFile(ctx context.Context, in ManagedSkillFileDelete) (SkillSnapshot, error)
 
 	// CreateReflectOwnedUserAgentSkill creates an active user_agent skill whose
-	// lifecycle is owned by Reflect, including version and changelog records.
+	// lifecycle is owned by Reflect.
 	CreateReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillCreate) (Skill, error)
 
 	// PatchReflectOwnedUserAgentSkill updates a Reflect-owned user_agent skill
-	// under optimistic version control and records a changelog entry.
+	// under optimistic content revision control.
 	PatchReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillPatch) (Skill, error)
 
 	// DeleteReflectOwnedUserAgentSkill permanently deletes a stale Reflect-owned

@@ -41,8 +41,8 @@ func TestEnsureSkillHomeAuthorityFreshMissRacedWithLegacySourceFailsClosed(t *te
 		t.Fatal(err)
 	}
 	err := ensureSkillHomeAuthority(ctx, db, migration.homes, authorityEnsureHooks{beforeFreshLock: func() error {
-		_, err := New(db).CreateManagedSkill(ctx, Skill{ID: "raced", Scope: "system", Name: "raced", Metadata: []byte(`{}`)}, map[string]string{MainFile: "# raced"})
-		return err
+		seedLegacySkill(t, db, Skill{ID: "raced", Scope: "system", Name: "raced", Metadata: []byte(`{}`)}, map[string]string{MainFile: "# raced"})
+		return nil
 	}})
 	if err == nil || !strings.Contains(err.Error(), "migrate-skills") {
 		t.Fatalf("raced initialization = %v", err)
@@ -90,9 +90,7 @@ func TestEnsureSkillHomeAuthorityRejectsLegacyRowsWithoutMutation(t *testing.T) 
 	if _, err := q.CreateStorageMigrationObservation(ctx, sqlc.CreateStorageMigrationObservationParams{Name: home.MutableAssetObjectAuthorityMigration, State: "not_required", Metadata: []byte(`{}`)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := New(db).CreateManagedSkill(ctx, Skill{ID: "legacy", Scope: "system", Name: "legacy", Metadata: []byte(`{}`)}, map[string]string{MainFile: "# legacy"}); err != nil {
-		t.Fatal(err)
-	}
+	seedLegacySkill(t, db, Skill{ID: "legacy", Scope: "system", Name: "legacy", Metadata: []byte(`{}`)}, map[string]string{MainFile: "# legacy"})
 	err := EnsureSkillHomeAuthority(ctx, db, migration.homes)
 	if err == nil {
 		t.Fatal("legacy source accepted")

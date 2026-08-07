@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/home"
@@ -93,6 +94,47 @@ func setupHomeAuthorityHTTPServer(t *testing.T) (*testEnv, *skills.HomeAuthority
 		t.Fatalf("rebuild HTTP server with Home Skill authority: %v", err)
 	}
 	return env, authority, registry
+}
+
+func newHomeSkillAuthorityForTest(t *testing.T, db *pgxpool.Pool) *skills.HomeAuthorityStore {
+	t.Helper()
+	local, err := home.NewLocalStore("local", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := home.NewRegistry(db, local.ID(), local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := skills.NewHomeCatalog(registry, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publisher, err := skills.NewHomeSkillPublisher(registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager, err := skills.NewHomeSkillManager(catalog, publisher, func() time.Time { return time.Now().UTC() })
+	if err != nil {
+		t.Fatal(err)
+	}
+	homeStore, err := skills.NewHomeStore(catalog, manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	usage, err := skills.NewHomeSkillUsageStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reflectStore, err := skills.NewHomeReflectStore(homeStore, usage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := skills.NewHomeAuthorityStore(homeStore, reflectStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return authority
 }
 
 func createHomeHTTPSkill(t *testing.T, store *skills.HomeAuthorityStore, scope, userID, agentID, name string, files map[string]string) skills.SkillSnapshot {

@@ -2,7 +2,11 @@ package server_test
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
+	"maps"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -10,7 +14,22 @@ import (
 // new skill ID. It fails the test if the status is not 201.
 func createScopedSkill(t *testing.T, env *testEnv, sid string, body map[string]any) string {
 	t.Helper()
-	rr := doRequestWithSession(t, env.srv, sid, "POST", "/api/skills", body)
+	request := make(map[string]any, len(body)+1)
+	maps.Copy(request, body)
+	name, _ := request["name"].(string)
+	description, _ := request["description"].(string)
+	if description == "" {
+		description = name
+		request["description"] = description
+	}
+	if files, ok := request["files"].(map[string]string); ok {
+		files = maps.Clone(files)
+		if main, ok := files["SKILL.md"]; ok && !strings.HasPrefix(main, "---\n") {
+			files["SKILL.md"] = "---\nname: " + name + "\ndescription: " + description + "\n---\n" + main
+		}
+		request["files"] = files
+	}
+	rr := doRequestWithSession(t, env.srv, sid, "POST", "/api/skills", request)
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create scoped skill %v: status = %d (body: %s)", body["scope"], rr.Code, rr.Body.String())
 	}
@@ -22,6 +41,36 @@ func createScopedSkill(t *testing.T, env *testEnv, sid string, body map[string]a
 	}
 	assertFullSkillMutationResponse(t, rr, out.ID, "manual")
 	return out.ID
+}
+
+func TestScopedSkills_CreateDefaultsOmittedDescriptionBeforeHomeCodec(t *testing.T) {
+	env := setupAdmin(t)
+	const name = "scoped-omitted-description"
+	rr := doRequest(t, env, http.MethodPost, "/api/skills", map[string]any{
+		"name":  name,
+		"scope": "user",
+		"files": map[string]string{"SKILL.md": "---\nname: " + name + "\ndescription: " + name + "\n---\n# Canonical\n"},
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
+	}
+	var response struct {
+		ID          string `json:"id"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &response); err != nil {
+		t.Fatalf("unmarshal create response: %v", err)
+	}
+	if response.Description != name {
+		t.Fatalf("response description = %q, want %q", response.Description, name)
+	}
+	stored, err := env.pluginHost.SkillStore().Get(t.Context(), response.ID)
+	if err != nil {
+		t.Fatalf("get created Home skill: %v", err)
+	}
+	if stored.Description != name {
+		t.Fatalf("Home description = %q, want %q", stored.Description, name)
+	}
 }
 
 // TestScopedSkills_CreatePermissions verifies the /api/skills scope guard:
@@ -78,7 +127,7 @@ func TestScopedSkills_CrossUserIsolation(t *testing.T) {
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("B get status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
 	}
-	rr = doRequestWithSession(t, env.srv, sidB, "DELETE", "/api/skills/"+id+"?expected_digest="+legacyTestSkillDigest, nil)
+	rr = doRequestWithSession(t, env.srv, sidB, "DELETE", "/api/skills/"+id+"?expected_digest="+homeSkillDigest(t, env, id), nil)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("B delete status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -122,7 +171,7 @@ func TestScopedSkills_DeleteRemovesMutableRows(t *testing.T) {
 		{name: "system_agent", sid: env.bearerToken, id: systemAgentID, scope: "system_agent", agent: agentID},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			rr := doRequestWithSession(t, env.srv, tc.sid, "DELETE", "/api/skills/"+tc.id+"?expected_digest="+legacyTestSkillDigest, nil)
+			rr := doRequestWithSession(t, env.srv, tc.sid, "DELETE", "/api/skills/"+tc.id+"?expected_digest="+homeSkillDigest(t, env, tc.id), nil)
 			if rr.Code != http.StatusNoContent {
 				t.Fatalf("delete status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 			}
@@ -138,25 +187,18 @@ func TestScopedSkills_DeleteRemovesMutableRows(t *testing.T) {
 	}
 
 	// A system row is never a mutable lifecycle row, even for a non-admin.
-	rr := doRequestWithSession(t, env.srv, sid, "DELETE", "/api/skills/"+systemID+"?expected_digest="+legacyTestSkillDigest, nil)
+	rr := doRequestWithSession(t, env.srv, sid, "DELETE", "/api/skills/"+systemID+"?expected_digest="+homeSkillDigest(t, env, systemID), nil)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("system delete status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
 	}
-	rr = doRequest(t, env, "DELETE", "/api/skills/"+systemID+"?expected_digest="+legacyTestSkillDigest, nil)
+	rr = doRequest(t, env, "DELETE", "/api/skills/"+systemID+"?expected_digest="+homeSkillDigest(t, env, systemID), nil)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("admin system delete status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	for _, id := range []string{userID, userAgentID, systemAgentID} {
-		var skillCount, fileCount int
-		if err := env.db.QueryRow(t.Context(), `SELECT count(*) FROM skill WHERE id = $1`, id).Scan(&skillCount); err != nil {
-			t.Fatalf("count deleted skill %s: %v", id, err)
-		}
-		if err := env.db.QueryRow(t.Context(), `SELECT count(*) FROM skill_file WHERE skill_id = $1`, id).Scan(&fileCount); err != nil {
-			t.Fatalf("count deleted skill files %s: %v", id, err)
-		}
-		if skillCount != 0 || fileCount != 0 {
-			t.Fatalf("deleted skill %s retained skill=%d files=%d", id, skillCount, fileCount)
+		if _, err := env.pluginHost.SkillStore().Get(t.Context(), id); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("deleted skill %s Get error = %v, want fs.ErrNotExist", id, err)
 		}
 	}
 

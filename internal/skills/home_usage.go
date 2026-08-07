@@ -195,6 +195,28 @@ func (s *HomeSkillUsageStore) Delete(ctx context.Context, identity HomeSkillUsag
 	return nil
 }
 
+// DeleteForLifecycle removes the exact logical telemetry fact after Home has
+// committed a lifecycle cleanup. A missing fact is already-cleaned success;
+// lifecycle cleanup deliberately does not use curator activity or timestamp CAS.
+func (s *HomeSkillUsageStore) DeleteForLifecycle(ctx context.Context, identity HomeSkillUsageIdentity) error {
+	if err := validateHomeSkillUsageIdentity(identity); err != nil {
+		return err
+	}
+	rows, err := s.q.DeleteLogicalReflectSkillUsageForLifecycle(ctx, sqlc.DeleteLogicalReflectSkillUsageForLifecycleParams{
+		UserID:            identity.UserID,
+		AgentID:           identity.AgentID,
+		Name:              pgtype.Text{String: identity.Name, Valid: true},
+		LastContentDigest: pgtype.Text{String: identity.LastContentDigest, Valid: true},
+	})
+	if err != nil {
+		return homeUsageMutationOutcome("delete Home Skill lifecycle usage", err)
+	}
+	if rows > 1 {
+		return fmt.Errorf("skills: delete Home Skill lifecycle usage affected %d rows", rows)
+	}
+	return nil
+}
+
 // DeleteForCurator removes one exact logical usage fact only if the eligible
 // pair activity which justified its curation decision still exists. This is a
 // single DELETE ... EXISTS CAS: it never reads a Home or legacy Skill row.

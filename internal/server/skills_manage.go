@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/http"
+	"strings"
 	"unicode/utf8"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
@@ -223,6 +224,9 @@ func (s *Server) CreateScopedSkill(w http.ResponseWriter, r *http.Request) {
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
+	}
+	if strings.TrimSpace(req.Description) == "" {
+		req.Description = req.Name
 	}
 	userID, agentID, _, ok := s.resolveSkillManageScope(w, r, info, req.Scope, req.AgentID)
 	if !ok {

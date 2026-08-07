@@ -22,7 +22,7 @@ func MarkReflectOwnedMetadata(metadata json.RawMessage) (json.RawMessage, error)
 }
 
 // MarkManualOwnedMetadata records manual ownership without dropping installer
-// metadata. Generic PGStore.Create always uses this boundary helper.
+// metadata. Home-managed creation always uses this boundary helper.
 func MarkManualOwnedMetadata(metadata json.RawMessage) (json.RawMessage, error) {
 	return markSkillCreatedByMetadata(metadata, ManualSkillCreatedBy)
 }

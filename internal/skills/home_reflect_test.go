@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -85,6 +86,201 @@ func TestHomeAuthorityStoreDelegatesOneAuthorityAndRejectsSplit(t *testing.T) {
 	}
 	if _, err := NewHomeAuthorityStore(nil, reflectStore); err == nil {
 		t.Fatal("composite accepted nil HomeStore")
+	}
+}
+
+func TestHomeAuthorityStoreGenericMutationsCoordinateReflectTelemetry(t *testing.T) {
+	store, _, usage, _, ctx, _, userID, agentID, _ := newHomeReflectFixture(t)
+	authority, err := NewHomeAuthorityStore(store.home, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := authority.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{
+		UserID: userID, AgentID: agentID, Name: "generic-telemetry", Description: "before",
+		MainFileContent: string(managedSkillMarkdown("generic-telemetry", "before", "body")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldIdentity := homeReflectUsageIdentity(created)
+	updated, err := authority.UpdateManagedSkill(ctx, ManagedSkillUpdate{
+		ID: created.ID, Scope: created.Scope, UserID: userID, AgentID: agentID, ExpectedDigest: created.ContentDigest,
+		Files: map[string]string{"note": "present"},
+	})
+	if err != nil {
+		t.Fatalf("generic update: %v", err)
+	}
+	updatedIdentity := homeReflectUsageIdentity(updated.Skill)
+	if _, err := usage.Get(ctx, oldIdentity); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("old update telemetry = %v, want missing", err)
+	}
+	if got, err := usage.Get(ctx, updatedIdentity); err != nil || CreatedBy(updated.Skill) != ReflectSkillCreatedBy || !slices.Contains(updated.Files, "note") {
+		t.Fatalf("updated telemetry/ownership/content = %+v, %v", got, err)
+	}
+	fileDeleted, err := authority.DeleteManagedSkillFile(ctx, ManagedSkillFileDelete{
+		ManagedSkillDelete: ManagedSkillDelete{ID: updated.Skill.ID, Scope: updated.Skill.Scope, UserID: userID, AgentID: agentID, ExpectedDigest: updated.Skill.ContentDigest}, Path: "note",
+	})
+	if err != nil {
+		t.Fatalf("generic file delete: %v", err)
+	}
+	if _, err := usage.Get(ctx, updatedIdentity); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("old file-delete telemetry = %v, want missing", err)
+	}
+	if got, err := usage.Get(ctx, homeReflectUsageIdentity(fileDeleted.Skill)); err != nil || slices.Contains(fileDeleted.Files, "note") {
+		t.Fatalf("file-delete telemetry/content = %+v, %v", got, err)
+	}
+}
+
+func TestHomeAuthorityStoreGenericReflectLifecycleCleanup(t *testing.T) {
+	for _, operation := range []struct {
+		name  string
+		apply func(*HomeAuthorityStore, context.Context, Skill) error
+	}{
+		{name: "convert to manual", apply: func(store *HomeAuthorityStore, ctx context.Context, skill Skill) error {
+			_, err := store.UpdateManagedSkill(ctx, ManagedSkillUpdate{ID: skill.ID, Scope: skill.Scope, UserID: skill.UserID, AgentID: skill.AgentID, ExpectedDigest: skill.ContentDigest, ConvertToManual: true})
+			return err
+		}},
+		{name: "delete", apply: func(store *HomeAuthorityStore, ctx context.Context, skill Skill) error {
+			return store.DeleteManagedSkill(ctx, ManagedSkillDelete{ID: skill.ID, Scope: skill.Scope, UserID: skill.UserID, AgentID: skill.AgentID, ExpectedDigest: skill.ContentDigest})
+		}},
+	} {
+		t.Run(operation.name, func(t *testing.T) {
+			reflectStore, _, usage, _, ctx, _, userID, agentID, _ := newHomeReflectFixture(t)
+			store, err := NewHomeAuthorityStore(reflectStore.home, reflectStore)
+			if err != nil {
+				t.Fatal(err)
+			}
+			created, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{UserID: userID, AgentID: agentID, Name: "generic-cleanup", Description: "before", MainFileContent: string(managedSkillMarkdown("generic-cleanup", "before", "body"))})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := operation.apply(store, ctx, created); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := usage.Get(ctx, homeReflectUsageIdentity(created)); !errors.Is(err, pgx.ErrNoRows) {
+				t.Fatalf("cleanup telemetry = %v, want missing", err)
+			}
+			candidates, err := usage.ListStaleReflectCandidates(ctx, userID, agentID, time.Now().UTC().Add(time.Hour), time.Now().UTC().Add(time.Hour), 2)
+			if err != nil || len(candidates) != 0 {
+				t.Fatalf("logical curator candidates = %+v, %v", candidates, err)
+			}
+		})
+	}
+}
+
+func TestHomeAuthorityStoreManualMutationsDoNotTouchTelemetry(t *testing.T) {
+	for _, operation := range []struct {
+		name  string
+		apply func(*HomeAuthorityStore, context.Context, Skill) error
+	}{
+		{name: "update", apply: func(store *HomeAuthorityStore, ctx context.Context, skill Skill) error {
+			_, err := store.UpdateManagedSkill(ctx, ManagedSkillUpdate{ID: skill.ID, Scope: skill.Scope, UserID: skill.UserID, AgentID: skill.AgentID, ExpectedDigest: skill.ContentDigest, Files: map[string]string{"note": "x"}})
+			return err
+		}},
+		{name: "file delete", apply: func(store *HomeAuthorityStore, ctx context.Context, skill Skill) error {
+			_, err := store.DeleteManagedSkillFile(ctx, ManagedSkillFileDelete{ManagedSkillDelete: ManagedSkillDelete{ID: skill.ID, Scope: skill.Scope, UserID: skill.UserID, AgentID: skill.AgentID, ExpectedDigest: skill.ContentDigest}, Path: "note"})
+			return err
+		}},
+		{name: "delete", apply: func(store *HomeAuthorityStore, ctx context.Context, skill Skill) error {
+			return store.DeleteManagedSkill(ctx, ManagedSkillDelete{ID: skill.ID, Scope: skill.Scope, UserID: skill.UserID, AgentID: skill.AgentID, ExpectedDigest: skill.ContentDigest})
+		}},
+	} {
+		t.Run(operation.name, func(t *testing.T) {
+			reflectStore, manager, usage, _, ctx, _, userID, agentID, _ := newHomeReflectFixture(t)
+			store, err := NewHomeAuthorityStore(reflectStore.home, reflectStore)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manual, err := manager.Create(ctx, HomeSkillCreateRequest{Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "manual-telemetry", Description: "manual", Files: []HomeSkillFileInput{{Path: MainFile, Content: managedSkillMarkdown("manual-telemetry", "manual", "body")}, {Path: "note", Content: []byte("x")}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			unrelated := testHomeUsageIdentity(t, userID, agentID, "unrelated-telemetry", testDigest('a'))
+			if _, err := usage.InitializeReflectCreate(ctx, unrelated); err != nil {
+				t.Fatal(err)
+			}
+			if err := operation.apply(store, ctx, manual.Skill); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := usage.Get(ctx, unrelated); err != nil {
+				t.Fatalf("manual %s changed unrelated telemetry: %v", operation.name, err)
+			}
+		})
+	}
+}
+
+func TestHomeAuthorityStoreGenericMutationsMarkPostHomeTelemetryFailureUnknown(t *testing.T) {
+	for _, operation := range []struct {
+		name  string
+		apply func(*HomeAuthorityStore, context.Context, Skill) error
+	}{
+		{name: "update", apply: func(store *HomeAuthorityStore, ctx context.Context, skill Skill) error {
+			_, err := store.UpdateManagedSkill(ctx, ManagedSkillUpdate{ID: skill.ID, Scope: skill.Scope, UserID: skill.UserID, AgentID: skill.AgentID, ExpectedDigest: skill.ContentDigest, Files: map[string]string{"note": "x"}})
+			return err
+		}},
+		{name: "delete", apply: func(store *HomeAuthorityStore, ctx context.Context, skill Skill) error {
+			return store.DeleteManagedSkill(ctx, ManagedSkillDelete{ID: skill.ID, Scope: skill.Scope, UserID: skill.UserID, AgentID: skill.AgentID, ExpectedDigest: skill.ContentDigest})
+		}},
+	} {
+		t.Run(operation.name, func(t *testing.T) {
+			reflectStore, manager, _, db, ctx, migration, userID, agentID, _ := newHomeReflectFixture(t)
+			store, err := NewHomeAuthorityStore(reflectStore.home, reflectStore)
+			if err != nil {
+				t.Fatal(err)
+			}
+			created, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{UserID: userID, AgentID: agentID, Name: "generic-unknown", Description: "before", MainFileContent: string(managedSkillMarkdown("generic-unknown", "before", "body"))})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var homeEffectErr error
+			manager.publisher.homes = homeSkillFilesystemAccessFunc(func(ctx context.Context, root *home.SkillRoot, use func(sandbox.Filesystem) error) error {
+				err := migration.homes.UseSkillFilesystem(ctx, root, use)
+				if operation.name == "update" {
+					current, getErr := reflectStore.home.Get(ctx, created.ID)
+					if getErr != nil || current.ContentDigest == created.ContentDigest {
+						homeEffectErr = getErr
+						if homeEffectErr == nil {
+							homeEffectErr = errors.New("Home update retained old digest")
+						}
+					}
+				} else if _, getErr := reflectStore.home.Get(ctx, created.ID); !errors.Is(getErr, fs.ErrNotExist) {
+					homeEffectErr = getErr
+				}
+				db.Close()
+				return err
+			})
+			err = operation.apply(store, ctx, created)
+			if !sandbox.IsOutcomeUnknown(err) {
+				t.Fatalf("post-Home telemetry failure = %v, want outcome unknown", err)
+			}
+			if homeEffectErr != nil {
+				t.Fatalf("Home %s was not committed: %v", operation.name, homeEffectErr)
+			}
+		})
+	}
+}
+
+func TestHomeAuthorityStoreCASOrOwnerMismatchLeavesReflectTelemetry(t *testing.T) {
+	reflectStore, _, usage, _, ctx, _, userID, agentID, _ := newHomeReflectFixture(t)
+	store, err := NewHomeAuthorityStore(reflectStore.home, reflectStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := store.CreateReflectOwnedUserAgentSkill(ctx, ReflectSkillCreate{UserID: userID, AgentID: agentID, Name: "generic-mismatch", Description: "before", MainFileContent: string(managedSkillMarkdown("generic-mismatch", "before", "body"))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := homeReflectUsageIdentity(created)
+	for _, in := range []ManagedSkillUpdate{
+		{ID: created.ID, Scope: created.Scope, UserID: userID, AgentID: agentID, ExpectedDigest: testDigest('f')},
+		{ID: created.ID, Scope: created.Scope, UserID: uuid.NewString(), AgentID: agentID, ExpectedDigest: created.ContentDigest},
+	} {
+		if _, err := store.UpdateManagedSkill(ctx, in); err == nil {
+			t.Fatal("mismatched generic update succeeded")
+		}
+		if _, err := usage.Get(ctx, identity); err != nil {
+			t.Fatalf("mismatched generic update changed telemetry: %v", err)
+		}
 	}
 }
 

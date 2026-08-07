@@ -3,6 +3,7 @@ package skills
 import (
 	"context"
 	"errors"
+	"io/fs"
 )
 
 // HomeAuthorityStore composes the one Home current-state authority with its
@@ -44,15 +45,109 @@ func (s *HomeAuthorityStore) CreateManagedSkill(ctx context.Context, sk Skill, f
 }
 
 func (s *HomeAuthorityStore) UpdateManagedSkill(ctx context.Context, in ManagedSkillUpdate) (SkillSnapshot, error) {
-	return s.home.UpdateManagedSkill(ctx, in)
+	if _, err := homeStoreUpdateRequest(in); err != nil {
+		return SkillSnapshot{}, err
+	}
+	before, err := s.loadManagedSnapshotForTelemetry(ctx, in.ID)
+	if err != nil {
+		return SkillSnapshot{}, err
+	}
+	identity, tracked, err := homeReflectTelemetryIdentity(before.Skill)
+	if err != nil {
+		return SkillSnapshot{}, err
+	}
+	after, err := s.home.UpdateManagedSkill(ctx, in)
+	if err != nil {
+		return SkillSnapshot{}, err
+	}
+	if !tracked {
+		return after, nil
+	}
+	if in.ConvertToManual {
+		if err := s.reflect.usage.DeleteForLifecycle(ctx, identity); err != nil {
+			return SkillSnapshot{}, reflectTelemetryOutcome("delete Home Reflect lifecycle usage", err)
+		}
+		return after, nil
+	}
+	if _, err := s.reflect.usage.PatchReflectDigest(ctx, identity, after.Skill.ContentDigest); err != nil {
+		return SkillSnapshot{}, reflectTelemetryOutcome("patch Home Reflect usage after managed update", err)
+	}
+	return after, nil
 }
 
 func (s *HomeAuthorityStore) DeleteManagedSkill(ctx context.Context, in ManagedSkillDelete) error {
-	return s.home.DeleteManagedSkill(ctx, in)
+	if err := validateHomeManagedDelete(in); err != nil {
+		return err
+	}
+	before, err := s.loadManagedSnapshotForTelemetry(ctx, in.ID)
+	if err != nil {
+		return err
+	}
+	identity, tracked, err := homeReflectTelemetryIdentity(before.Skill)
+	if err != nil {
+		return err
+	}
+	if err := s.home.DeleteManagedSkill(ctx, in); err != nil {
+		return err
+	}
+	if tracked {
+		if err := s.reflect.usage.DeleteForLifecycle(ctx, identity); err != nil {
+			return reflectTelemetryOutcome("delete Home Reflect lifecycle usage", err)
+		}
+	}
+	return nil
 }
 
 func (s *HomeAuthorityStore) DeleteManagedSkillFile(ctx context.Context, in ManagedSkillFileDelete) (SkillSnapshot, error) {
-	return s.home.DeleteManagedSkillFile(ctx, in)
+	if err := validateHomeManagedDelete(in.ManagedSkillDelete); err != nil {
+		return SkillSnapshot{}, err
+	}
+	if err := validateHomeMutationPath(in.Path); err != nil {
+		return SkillSnapshot{}, err
+	}
+	if in.Path == MainFile {
+		return SkillSnapshot{}, errors.New("skills: SKILL.md cannot be deleted")
+	}
+	before, err := s.loadManagedSnapshotForTelemetry(ctx, in.ID)
+	if err != nil {
+		return SkillSnapshot{}, err
+	}
+	identity, tracked, err := homeReflectTelemetryIdentity(before.Skill)
+	if err != nil {
+		return SkillSnapshot{}, err
+	}
+	after, err := s.home.DeleteManagedSkillFile(ctx, in)
+	if err != nil {
+		return SkillSnapshot{}, err
+	}
+	if tracked {
+		if _, err := s.reflect.usage.PatchReflectDigest(ctx, identity, after.Skill.ContentDigest); err != nil {
+			return SkillSnapshot{}, reflectTelemetryOutcome("patch Home Reflect usage after managed file delete", err)
+		}
+	}
+	return after, nil
+}
+
+// loadManagedSnapshotForTelemetry uses Home's canonical snapshot solely to
+// decide whether a successful generic mutation requires derived telemetry work.
+// The manager's digest CAS remains the race arbiter for the subsequent mutation.
+func (s *HomeAuthorityStore) loadManagedSnapshotForTelemetry(ctx context.Context, id string) (HomeManagedSkillSnapshot, error) {
+	snapshot, err := s.home.catalog.LoadManagedSnapshot(ctx, id)
+	if errors.Is(err, fs.ErrNotExist) {
+		return HomeManagedSkillSnapshot{}, ErrHomeSkillConflict
+	}
+	return snapshot, err
+}
+
+func homeReflectTelemetryIdentity(skill Skill) (HomeSkillUsageIdentity, bool, error) {
+	if !IsReflectOwned(skill) {
+		return HomeSkillUsageIdentity{}, false, nil
+	}
+	identity, err := newHomeReflectUsageIdentity(skill.ID, skill.UserID, skill.AgentID, skill.ContentDigest)
+	if err != nil {
+		return HomeSkillUsageIdentity{}, false, err
+	}
+	return identity, true, nil
 }
 
 func (s *HomeAuthorityStore) CreateReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillCreate) (Skill, error) {

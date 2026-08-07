@@ -108,10 +108,8 @@ func TestSkillMigrationScanKeepsContextFailuresOperational(t *testing.T) {
 }
 
 func TestSkillMigrationScanReportsBoundedLogicalPathReason(t *testing.T) {
-	store, db, ctx := newTestStore(t)
-	if _, err := store.CreateManagedSkill(ctx, Skill{ID: "bad-path", Scope: "system", Name: "bad-path", Metadata: []byte(`{}`)}, map[string]string{MainFile: "# valid"}); err != nil {
-		t.Fatal(err)
-	}
+	_, db, ctx := newTestStore(t)
+	seedLegacySkill(t, db, Skill{ID: "bad-path", Scope: "system", Name: "bad-path", Metadata: []byte(`{}`)}, map[string]string{MainFile: "# valid"})
 	if _, err := db.Exec(ctx, `UPDATE skill_file SET path = '../outside' WHERE skill_id = 'bad-path' AND path = $1`, MainFile); err != nil {
 		t.Fatal(err)
 	}
@@ -201,11 +199,9 @@ func TestSkillMigrationAssetPrerequisiteGate(t *testing.T) {
 }
 
 func TestSkillMigrationSourceReportCollectsRealInvalidRows(t *testing.T) {
-	store, db, ctx := newTestStore(t)
+	_, db, ctx := newTestStore(t)
 	for _, name := range []string{"missing-main", "empty-main", "binary", "bad-path", "many-files", "large-file"} {
-		if _, err := store.CreateManagedSkill(ctx, Skill{ID: name, Scope: "system", Name: name, Metadata: []byte(`{}`)}, map[string]string{MainFile: "# valid"}); err != nil {
-			t.Fatal(err)
-		}
+		seedLegacySkill(t, db, Skill{ID: name, Scope: "system", Name: name, Metadata: []byte(`{}`)}, map[string]string{MainFile: "# valid"})
 	}
 	statements := []string{
 		`DELETE FROM skill_file WHERE skill_id = 'missing-main' AND path = 'SKILL.md'`,
@@ -244,11 +240,9 @@ func TestSkillMigrationSourceReportCollectsRealInvalidRows(t *testing.T) {
 }
 
 func TestSkillMigrationTargetConflictPreventsEarlierPublication(t *testing.T) {
-	store, db, ctx := newTestStore(t)
+	_, db, ctx := newTestStore(t)
 	for _, name := range []string{"a-first", "z-later"} {
-		if _, err := store.CreateManagedSkill(ctx, Skill{ID: name, Scope: "system", Name: name, Metadata: []byte(`{}`)}, map[string]string{MainFile: "# " + name}); err != nil {
-			t.Fatal(err)
-		}
+		seedLegacySkill(t, db, Skill{ID: name, Scope: "system", Name: name, Metadata: []byte(`{}`)}, map[string]string{MainFile: "# " + name})
 	}
 	base := t.TempDir()
 	local, err := home.NewLocalStore("local", base)
@@ -283,13 +277,11 @@ func TestSkillMigrationTargetConflictPreventsEarlierPublication(t *testing.T) {
 }
 
 func TestSkillMigrationPostPublicationUsageFailureIsOutcomeUnknown(t *testing.T) {
-	store, db, ctx := newTestStore(t)
+	_, db, ctx := newTestStore(t)
 	userID, agentID := seedFixtures(t, db)
-	if _, err := store.CreateManagedSkill(ctx, Skill{ID: "reflect", Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "reflect", Metadata: []byte(`{"created_by":"reflect"}`)}, map[string]string{MainFile: "# reflect"}); err != nil {
-		t.Fatal(err)
-	}
+	seedLegacySkill(t, db, Skill{ID: "reflect", Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "reflect", Metadata: []byte(`{"created_by":"reflect"}`)}, map[string]string{MainFile: "# reflect"})
 	q := sqlc.New(db)
-	if err := q.UpsertSkillUsageOnReflectCreate(ctx, sqlc.UpsertSkillUsageOnReflectCreateParams{SkillID: "reflect", UserID: userID, AgentID: agentID}); err != nil {
+	if _, err := db.Exec(ctx, `INSERT INTO skill_usage (skill_id, user_id, agent_id, use_count, last_used_at) VALUES ('reflect', $1, $2, 1, now())`, userID, agentID); err != nil {
 		t.Fatal(err)
 	}
 	base := t.TempDir()
@@ -355,13 +347,11 @@ func TestSkillMigrationPostPublicationUsageFailureIsOutcomeUnknown(t *testing.T)
 }
 
 func TestSkillMigrationCompletedUsageDriftIsReadOnly(t *testing.T) {
-	store, db, ctx := newTestStore(t)
+	_, db, ctx := newTestStore(t)
 	userID, agentID := seedFixtures(t, db)
-	if _, err := store.CreateManagedSkill(ctx, Skill{ID: "reflect", Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "reflect", Metadata: []byte(`{"created_by":"reflect"}`)}, map[string]string{MainFile: "# reflect"}); err != nil {
-		t.Fatal(err)
-	}
+	seedLegacySkill(t, db, Skill{ID: "reflect", Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "reflect", Metadata: []byte(`{"created_by":"reflect"}`)}, map[string]string{MainFile: "# reflect"})
 	q := sqlc.New(db)
-	if err := q.UpsertSkillUsageOnReflectCreate(ctx, sqlc.UpsertSkillUsageOnReflectCreateParams{SkillID: "reflect", UserID: userID, AgentID: agentID}); err != nil {
+	if _, err := db.Exec(ctx, `INSERT INTO skill_usage (skill_id, user_id, agent_id, use_count, last_used_at) VALUES ('reflect', $1, $2, 1, now())`, userID, agentID); err != nil {
 		t.Fatal(err)
 	}
 	base := t.TempDir()
@@ -409,7 +399,7 @@ func TestSkillMigrationCompletedUsageDriftIsReadOnly(t *testing.T) {
 }
 
 func TestSkillHomeMigrationDryRunThenIdempotent(t *testing.T) {
-	store, db, ctx := newTestStore(t)
+	_, db, ctx := newTestStore(t)
 	userID, agentID := seedFixtures(t, db)
 	for _, skill := range []Skill{
 		{ID: "system", Scope: "system", Name: "base", Description: "x", Metadata: []byte(`{"created_by":"operator"}`)},
@@ -418,14 +408,12 @@ func TestSkillHomeMigrationDryRunThenIdempotent(t *testing.T) {
 		{ID: "user-agent", Scope: "user_agent", UserID: userID, AgentID: agentID, Name: "reflect", Description: "x", Metadata: []byte(`{"created_by":"reflect","unicode":"雪"}`)},
 		{ID: "old", Scope: "user", UserID: userID, Name: "old", Description: "x", Status: SkillStatusDeprecated, Metadata: []byte(`{}`)},
 	} {
-		if _, err := store.CreateManagedSkill(ctx, skill, map[string]string{MainFile: "# " + skill.Name, "references/说明.txt": "内容"}); err != nil {
-			t.Fatalf("seed %s: %v", skill.ID, err)
-		}
+		seedLegacySkill(t, db, skill, map[string]string{MainFile: "# " + skill.Name, "references/说明.txt": "内容"})
 	}
 	if _, err := db.Exec(ctx, `UPDATE skill SET status = 'deprecated' WHERE id = 'old'`); err != nil {
 		t.Fatal(err)
 	}
-	if err := sqlc.New(db).UpsertSkillUsageOnReflectCreate(ctx, sqlc.UpsertSkillUsageOnReflectCreateParams{SkillID: "user-agent", UserID: userID, AgentID: agentID}); err != nil {
+	if _, err := db.Exec(ctx, `INSERT INTO skill_usage (skill_id, user_id, agent_id, use_count, last_used_at) VALUES ('user-agent', $1, $2, 1, now())`, userID, agentID); err != nil {
 		t.Fatal(err)
 	}
 	base := t.TempDir()

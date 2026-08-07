@@ -3,6 +3,7 @@ package skillaccess
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"testing"
 
 	"github.com/google/uuid"
@@ -23,7 +24,7 @@ func TestEmbeddedPostgresSkillAccessMatrix(t *testing.T) {
 	store := storepkg.NewDBStore(pool)
 	oidc := appdb.NewOIDCStore(pool)
 	assign := appdb.NewAuthStore(pool)
-	skillStore := skills.New(pool)
+	skillStore := &memorySkillStore{rows: map[string]skills.Skill{}}
 
 	owner, err := oidc.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "owner@sk.test", Name: "owner", Role: auth.RoleUser})
 	if err != nil {
@@ -237,14 +238,24 @@ func TestEmbeddedPostgresSkillAccessMatrix(t *testing.T) {
 	})
 }
 
-func mustCreateSkill(t *testing.T, store *skills.PGStore, sk skills.Skill) string {
+func mustCreateSkill(t *testing.T, store *memorySkillStore, sk skills.Skill) string {
 	t.Helper()
 	if sk.Status == "" {
 		sk.Status = "active"
 	}
-	id, err := store.Create(context.Background(), sk, map[string]string{skills.MainFile: "---\nname: " + sk.Name + "\n---\n"})
-	if err != nil {
-		t.Fatalf("create skill %q: %v", sk.Name, err)
+	if sk.ID == "" {
+		sk.ID = uuid.NewString()
 	}
-	return id
+	store.rows[sk.ID] = sk
+	return sk.ID
+}
+
+type memorySkillStore struct{ rows map[string]skills.Skill }
+
+func (s *memorySkillStore) Get(_ context.Context, id string) (*skills.Skill, error) {
+	sk, ok := s.rows[id]
+	if !ok {
+		return nil, fs.ErrNotExist
+	}
+	return &sk, nil
 }

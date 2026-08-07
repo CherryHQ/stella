@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/skills"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -154,103 +153,6 @@ func TestExecuteSkillReconciliationPlanRejectsInvalidPlanBeforeWriting(t *testin
 	}
 }
 
-func TestExecuteSkillPlanCanRetryAfterPartialCommit(t *testing.T) {
-	ctx := context.Background()
-	db := dbtest.New(t)
-	userID, agentID := seedUsageCuratorDB(t, ctx, db)
-	inner := skills.New(db)
-	wantFailure := errors.New("injected second operation failure")
-	writer := &failOnceReflectSkillWriter{inner: inner, failCall: 2, err: wantFailure}
-	bundle := skillRelatedBundle{
-		Candidates: []skillCandidate{validSkillCandidate("skill-0001"), validSkillCandidate("skill-0002")},
-	}
-	plan := skillReconciliationPlan{Operations: []skillWriteOperation{
-		{
-			Operation:       skillOperationCreate,
-			CandidateRefs:   []CandidateRef{"skill-0001"},
-			Name:            "partial-commit-first",
-			Description:     "first committed skill",
-			MainFileContent: "# First\n",
-		},
-		{
-			Operation:       skillOperationCreate,
-			CandidateRefs:   []CandidateRef{"skill-0002"},
-			Name:            "partial-commit-second",
-			Description:     "second committed skill",
-			MainFileContent: "# Second\n",
-		},
-	}}
-	provenance := skillProvenanceInput{
-		Context: testReflectProvenanceContext(),
-		Decisions: []skillCandidateDecision{
-			testSkillCandidateDecision(bundle.Candidates[0], 0.91),
-			testSkillCandidateDecision(bundle.Candidates[1], 0.92),
-		},
-	}
-
-	partial, err := executeSkillReconciliationPlan(ctx, writer, &stubSkillAuthorizer{}, userID, agentID, bundle, plan, provenance)
-	if !errors.Is(err, wantFailure) {
-		t.Fatalf("first execute error = %v, want injected failure", err)
-	}
-	if len(partial) != 1 || partial[0].Name != "partial-commit-first" {
-		t.Fatalf("partial writes = %#v, want the committed first skill", partial)
-	}
-	var firstMetadata []byte
-	if err := db.QueryRow(ctx, `
-		SELECT sc.metadata
-		FROM skill_changelog sc
-		JOIN skill s ON s.id = sc.skill_id
-		WHERE s.name = 'partial-commit-first'
-	`).Scan(&firstMetadata); err != nil {
-		t.Fatalf("read first partial changelog: %v", err)
-	}
-	var firstProvenance reflectProvenanceMetadata[skillOperationProvenance]
-	if err := json.Unmarshal(firstMetadata, &firstProvenance); err != nil {
-		t.Fatalf("decode first partial provenance: %v", err)
-	}
-	if firstProvenance.ReflectProvenance.OperationRef != "skill-0001" {
-		t.Fatalf("first partial operation ref = %q", firstProvenance.ReflectProvenance.OperationRef)
-	}
-	var secondBeforeRetry int
-	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM skill WHERE name = 'partial-commit-second'`).Scan(&secondBeforeRetry); err != nil {
-		t.Fatalf("count second skill before retry: %v", err)
-	}
-	if secondBeforeRetry != 0 {
-		t.Fatalf("failed second operation committed %d skills", secondBeforeRetry)
-	}
-
-	// A later line retry gets a new run ID. The already committed first create is
-	// an idempotent no-op, while the second create records the new attempt.
-	provenance.Context.RunID = "run-2"
-	written, err := executeSkillReconciliationPlan(ctx, writer, &stubSkillAuthorizer{}, userID, agentID, bundle, plan, provenance)
-	if err != nil {
-		t.Fatalf("retry executeSkillReconciliationPlan: %v", err)
-	}
-	if len(written) != 2 || written[0].Name != "partial-commit-first" || written[1].Name != "partial-commit-second" {
-		t.Fatalf("retry written skills = %#v", written)
-	}
-	if written[0].Version != 1 || written[1].Version != 1 {
-		t.Fatalf("retry versions = %d/%d, want 1/1", written[0].Version, written[1].Version)
-	}
-	var secondMetadata []byte
-	if err := db.QueryRow(ctx, `
-		SELECT sc.metadata
-		FROM skill_changelog sc
-		JOIN skill s ON s.id = sc.skill_id
-		WHERE s.name = 'partial-commit-second'
-	`).Scan(&secondMetadata); err != nil {
-		t.Fatalf("read second retry changelog: %v", err)
-	}
-	var secondProvenance reflectProvenanceMetadata[skillOperationProvenance]
-	if err := json.Unmarshal(secondMetadata, &secondProvenance); err != nil {
-		t.Fatalf("decode second retry provenance: %v", err)
-	}
-	if secondProvenance.ReflectProvenance.OperationRef != "skill-0002" ||
-		secondProvenance.ReflectProvenance.RunID != "run-2" {
-		t.Fatalf("second retry provenance header = %#v", secondProvenance.ReflectProvenance.reflectProvenanceHeader)
-	}
-}
-
 func TestExecuteSkillReconciliationPlanNoopDoesNotPersistProvenance(t *testing.T) {
 	writer := &fakeReflectSkillWriter{}
 	candidate := validSkillCandidate("skill-0001")
@@ -328,25 +230,6 @@ func TestExecuteSkillReconciliationPlanPrebuildsAllProvenanceBeforeWriting(t *te
 type fakeReflectSkillWriter struct {
 	creates []skills.ReflectSkillCreate
 	patches []skills.ReflectSkillPatch
-}
-
-type failOnceReflectSkillWriter struct {
-	inner    reflectSkillWriter
-	calls    int
-	failCall int
-	err      error
-}
-
-func (w *failOnceReflectSkillWriter) CreateReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillCreate) (skills.Skill, error) {
-	w.calls++
-	if w.calls == w.failCall {
-		return skills.Skill{}, w.err
-	}
-	return w.inner.CreateReflectOwnedUserAgentSkill(ctx, in)
-}
-
-func (w *failOnceReflectSkillWriter) PatchReflectOwnedUserAgentSkill(ctx context.Context, in skills.ReflectSkillPatch) (skills.Skill, error) {
-	return w.inner.PatchReflectOwnedUserAgentSkill(ctx, in)
 }
 
 func (w *fakeReflectSkillWriter) CreateReflectOwnedUserAgentSkill(_ context.Context, in skills.ReflectSkillCreate) (skills.Skill, error) {

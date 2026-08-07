@@ -135,6 +135,43 @@ func TestHomeSkillUsageStoreRejectsMalformedIdentityBeforeSQL(t *testing.T) {
 	}
 }
 
+func TestHomeSkillUsageLifecycleDeleteIsIdempotentAndExact(t *testing.T) {
+	_, db, ctx := newTestStore(t)
+	userID, agentID := seedFixtures(t, db)
+	store, err := NewHomeSkillUsageStore(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := testHomeUsageIdentity(t, userID, agentID, "lifecycle-exact", testDigest('a'))
+	if _, err := store.InitializeReflectCreate(ctx, identity); err != nil {
+		t.Fatal(err)
+	}
+	otherName := testHomeUsageIdentity(t, userID, agentID, "lifecycle-other", testDigest('a'))
+	if _, err := store.InitializeReflectCreate(ctx, otherName); err != nil {
+		t.Fatal(err)
+	}
+	wrongDigest := identity
+	wrongDigest.LastContentDigest = testDigest('b')
+	if err := store.DeleteForLifecycle(ctx, wrongDigest); err != nil {
+		t.Fatalf("wrong digest DeleteForLifecycle: %v", err)
+	}
+	if _, err := store.Get(ctx, identity); err != nil {
+		t.Fatalf("wrong digest delete removed usage: %v", err)
+	}
+	if err := store.DeleteForLifecycle(ctx, identity); err != nil {
+		t.Fatalf("DeleteForLifecycle: %v", err)
+	}
+	if err := store.DeleteForLifecycle(ctx, identity); err != nil {
+		t.Fatalf("idempotent DeleteForLifecycle: %v", err)
+	}
+	if _, err := store.Get(ctx, identity); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("deleted exact usage = %v, want missing", err)
+	}
+	if _, err := store.Get(ctx, otherName); err != nil {
+		t.Fatalf("exact lifecycle delete removed another name: %v", err)
+	}
+}
+
 func TestHomeSkillUsageMutatingTransportErrorsAreOutcomeUnknown(t *testing.T) {
 	tests := []struct {
 		name string
@@ -153,6 +190,9 @@ func TestHomeSkillUsageMutatingTransportErrorsAreOutcomeUnknown(t *testing.T) {
 		}},
 		{name: "delete", call: func(store *HomeSkillUsageStore, identity HomeSkillUsageIdentity) error {
 			return store.Delete(context.Background(), identity, time.Now().UTC())
+		}},
+		{name: "lifecycle delete", call: func(store *HomeSkillUsageStore, identity HomeSkillUsageIdentity) error {
+			return store.DeleteForLifecycle(context.Background(), identity)
 		}},
 		{name: "curator delete", call: func(store *HomeSkillUsageStore, identity HomeSkillUsageIdentity) error {
 			return store.DeleteForCurator(context.Background(), identity, time.Now().UTC(), time.Now().UTC().Add(time.Hour))

@@ -10,21 +10,15 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-type sqlUsageCuratorStore struct {
-	q *sqlc.Queries
+// homeUsageCuratorStore keeps PostgreSQL for logical pair/knowledge activity
+// while delegating Skill candidates to Home's telemetry-only usage store. It
+// deliberately never reads legacy Skill current state or its stale-skill join.
+type homeUsageCuratorStore struct {
+	q     *sqlc.Queries
+	usage *skills.HomeSkillUsageStore
 }
 
-func NewSQLUsageCuratorStore(q *sqlc.Queries) UsageCuratorStore {
-	return sqlUsageCuratorStore{q: q}
-}
-
-// NewSQLUsageCuratorStoreForPool builds a UsageCuratorStore backed by the given
-// connection pool, owning construction of its sqlc query set.
-func NewSQLUsageCuratorStoreForPool(pool *pgxpool.Pool) UsageCuratorStore {
-	return NewSQLUsageCuratorStore(sqlc.New(pool))
-}
-
-func (s sqlUsageCuratorStore) ListReflectUsagePairs(ctx context.Context) ([]usageCuratorPair, error) {
+func (s homeUsageCuratorStore) ListReflectUsagePairs(ctx context.Context) ([]usageCuratorPair, error) {
 	if s.q == nil {
 		return nil, fmt.Errorf("usage curator: sql queries are required")
 	}
@@ -39,7 +33,7 @@ func (s sqlUsageCuratorStore) ListReflectUsagePairs(ctx context.Context) ([]usag
 	return pairs, nil
 }
 
-func (s sqlUsageCuratorStore) ListStaleReflectKnowledge(ctx context.Context, query usageCuratorKnowledgeQuery) ([]usageCuratorKnowledgeCandidate, error) {
+func (s homeUsageCuratorStore) ListStaleReflectKnowledge(ctx context.Context, query usageCuratorKnowledgeQuery) ([]usageCuratorKnowledgeCandidate, error) {
 	if s.q == nil {
 		return nil, fmt.Errorf("usage curator: sql queries are required")
 	}
@@ -62,44 +56,6 @@ func (s sqlUsageCuratorStore) ListStaleReflectKnowledge(ctx context.Context, que
 	return out, nil
 }
 
-func (s sqlUsageCuratorStore) ListStaleReflectSkills(ctx context.Context, query usageCuratorSkillQuery) ([]usageCuratorSkillCandidate, error) {
-	if s.q == nil {
-		return nil, fmt.Errorf("usage curator: sql queries are required")
-	}
-	rows, err := s.q.ListStaleReflectSkillsForCurator(ctx, sqlc.ListStaleReflectSkillsForCuratorParams{
-		UserID:            query.UserID,
-		AgentID:           query.AgentID,
-		StaleBefore:       query.StaleBefore,
-		LowUseBefore:      query.LowUseBefore,
-		LowUseMaxUseCount: query.LowUseMaxUseCount,
-	})
-	if err != nil {
-		return nil, err
-	}
-	out := make([]usageCuratorSkillCandidate, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, usageCuratorSkillCandidate{
-			SkillID:               row.SkillID,
-			UserID:                row.UserID,
-			AgentID:               row.AgentID,
-			LegacyExpectedVersion: row.Version,
-			UseCount:              row.UseCount,
-			LastUsedAt:            row.LastUsedAt,
-			PairLatestActivityAt:  row.PairLatestActivityAt,
-			Rule:                  usageCuratorSkillRule(row.Rule),
-		})
-	}
-	return out, nil
-}
-
-// homeUsageCuratorStore keeps PostgreSQL for logical pair/knowledge activity
-// while delegating Skill candidates to Home's telemetry-only usage store. It
-// deliberately never reads legacy Skill current state or its stale-skill join.
-type homeUsageCuratorStore struct {
-	q     *sqlc.Queries
-	usage *skills.HomeSkillUsageStore
-}
-
 func NewHomeUsageCuratorStore(q *sqlc.Queries, usage *skills.HomeSkillUsageStore) (UsageCuratorStore, error) {
 	if q == nil || usage == nil {
 		return nil, fmt.Errorf("usage curator: Home queries and usage store are required")
@@ -115,14 +71,6 @@ func NewHomeUsageCuratorStoreForPool(pool *pgxpool.Pool) (UsageCuratorStore, err
 		return nil, err
 	}
 	return NewHomeUsageCuratorStore(sqlc.New(pool), usage)
-}
-
-func (s homeUsageCuratorStore) ListReflectUsagePairs(ctx context.Context) ([]usageCuratorPair, error) {
-	return sqlUsageCuratorStore{q: s.q}.ListReflectUsagePairs(ctx)
-}
-
-func (s homeUsageCuratorStore) ListStaleReflectKnowledge(ctx context.Context, query usageCuratorKnowledgeQuery) ([]usageCuratorKnowledgeCandidate, error) {
-	return sqlUsageCuratorStore{q: s.q}.ListStaleReflectKnowledge(ctx, query)
 }
 
 func (s homeUsageCuratorStore) ListStaleReflectSkills(ctx context.Context, query usageCuratorSkillQuery) ([]usageCuratorSkillCandidate, error) {
