@@ -27,6 +27,10 @@ import (
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
+// xbergTestTimeout bounds test-only process startup and completion under the
+// combined race and coverage gate without changing production cleanup limits.
+const xbergTestTimeout = 5 * time.Second
+
 // pngBytes builds a tiny valid PNG. w varies the content so tests can produce
 // two images that differ in bytes.
 func pngBytes(t *testing.T, w, h int) []byte {
@@ -404,7 +408,7 @@ func TestXbergOutputAndProcessErrors(t *testing.T) {
 		if parseErr != nil {
 			t.Fatalf("read child pid: %v", parseErr)
 		}
-		deadline := time.Now().Add(time.Second)
+		deadline := time.Now().Add(xbergTestTimeout)
 		gone := processGone(pid)
 		for !gone && time.Now().Before(deadline) {
 			time.Sleep(time.Millisecond)
@@ -476,9 +480,9 @@ func TestXbergTerminatesDescendantsHoldingStagingResources(t *testing.T) {
 				} else if err == nil || !strings.Contains(err.Error(), "output exceeds") {
 					t.Fatalf("Baseline oversized output error = %v", err)
 				}
-			case <-time.After(time.Second):
+			case <-time.After(xbergTestTimeout):
 				killProcessGroup(root)
-				t.Fatal("Baseline did not terminate Xberg process tree within one second")
+				t.Fatalf("Baseline did not terminate Xberg process tree within %s", xbergTestTimeout)
 			}
 			if !processGone(root) || !processGone(child) {
 				t.Fatalf("Xberg process tree remains: root gone=%t child gone=%t", processGone(root), processGone(child))
@@ -522,8 +526,8 @@ func TestXbergReapsLingeringDescendantAfterSuccessfulRoot(t *testing.T) {
 		if !strings.Contains(result.text, "OCR") {
 			t.Fatalf("Baseline text = %q, want normalized OCR", result.text)
 		}
-	case <-time.After(time.Second):
-		t.Fatal("Baseline waited for a descendant holding stdout after Xberg exited")
+	case <-time.After(xbergTestTimeout):
+		t.Fatalf("Baseline waited for a descendant holding stdout after Xberg exited within %s", xbergTestTimeout)
 	}
 	if !processGone(child) {
 		t.Fatalf("successful Xberg root left descendant %d alive", child)
@@ -556,14 +560,14 @@ func TestXbergFailsClosedForEscapedDescendantHoldingStdout(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "did not drain") {
 			t.Fatalf("Baseline escaped-descendant error = %v, want bounded drain failure", err)
 		}
-	case <-time.After(time.Second):
-		t.Fatal("Baseline hung on an escaped descendant holding stdout")
+	case <-time.After(xbergTestTimeout):
+		t.Fatalf("Baseline hung on an escaped descendant holding stdout within %s", xbergTestTimeout)
 	}
 }
 
 func waitForTestPID(t *testing.T, path string) int {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
+	deadline := time.Now().Add(xbergTestTimeout)
 	for time.Now().Before(deadline) {
 		data, err := os.ReadFile(path)
 		if err == nil {
