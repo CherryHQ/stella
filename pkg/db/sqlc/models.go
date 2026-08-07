@@ -321,6 +321,15 @@ type ChannelGroupMember struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
+type ChannelGuest struct {
+	ID         string    `json:"id"`
+	ChannelID  string    `json:"channel_id"`
+	Platform   string    `json:"platform"`
+	ExternalID string    `json:"external_id"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 type ChannelIdentity struct {
 	ID         string    `json:"id"`
 	UserID     string    `json:"user_id"`
@@ -384,6 +393,7 @@ type CtxConversation struct {
 	CreatedAt      time.Time          `json:"created_at"`
 	UpdatedAt      time.Time          `json:"updated_at"`
 	GroupID        pgtype.Text        `json:"group_id"`
+	GuestID        pgtype.Text        `json:"guest_id"`
 }
 
 type CtxGroupDispatch struct {

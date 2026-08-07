@@ -36,12 +36,15 @@ const (
 	// ActorGroupAgent is a group turn executing as one agent inside one group; it
 	// carries no user and can never reach user-private capabilities.
 	ActorGroupAgent
+	// ActorGuest is a durable unlinked channel principal confined to one exact
+	// dedicated channel binding.
+	ActorGuest
 	// ActorSystem is named maintenance / control-plane work. It has no user or
 	// admin identity and is never an implicit omnipotent actor.
 	ActorSystem
 )
 
-var allActorKinds = []ActorKind{ActorUser, ActorAgent, ActorGroupAgent, ActorSystem}
+var allActorKinds = []ActorKind{ActorUser, ActorAgent, ActorGroupAgent, ActorGuest, ActorSystem}
 
 // AllActorKinds returns the closed actor-kind catalog.
 func AllActorKinds() []ActorKind { return append([]ActorKind(nil), allActorKinds...) }
@@ -57,6 +60,8 @@ func (k ActorKind) String() string {
 		return "agent"
 	case ActorGroupAgent:
 		return "group_agent"
+	case ActorGuest:
+		return "guest"
 	case ActorSystem:
 		return "system"
 	default:
@@ -71,6 +76,7 @@ type (
 	UserID    string
 	AgentID   string
 	GroupID   string
+	GuestID   string
 	Component string
 )
 
@@ -86,6 +92,7 @@ type Authority struct {
 	userID           UserID
 	agentID          AgentID
 	groupID          GroupID
+	guestID          GuestID
 	component        Component
 	admin            bool
 	channelBindingID string
@@ -132,6 +139,15 @@ func NewGroupAgentAuthority(group GroupID, agent AgentID) (Authority, error) {
 	return Authority{kind: ActorGroupAgent, groupID: group, agentID: agent}, nil
 }
 
+// NewGuestAuthority constructs a durable guest confined to one exact channel
+// binding. Both values are required; it carries no user, agent, group, or admin.
+func NewGuestAuthority(guest GuestID, channelBindingID string) (Authority, error) {
+	if guest == "" || channelBindingID == "" {
+		return Authority{}, ErrInvalidActor
+	}
+	return Authority{kind: ActorGuest, guestID: guest, channelBindingID: channelBindingID}, nil
+}
+
 // NewSystemAuthority constructs a named SystemActor. The component name is
 // required. A system actor has no user or admin identity; it is named maintenance
 // work, never an implicit omnipotent identity.
@@ -149,13 +165,15 @@ func NewSystemAuthority(name Component) (Authority, error) {
 func (a Authority) Valid() bool {
 	switch a.kind {
 	case ActorUser:
-		return a.userID != "" && a.agentID == "" && a.groupID == "" && a.component == ""
+		return a.userID != "" && a.agentID == "" && a.groupID == "" && a.guestID == "" && a.component == ""
 	case ActorAgent:
-		return a.userID != "" && a.agentID != "" && a.groupID == "" && a.component == "" && !a.admin && a.channelBindingID == ""
+		return a.userID != "" && a.agentID != "" && a.groupID == "" && a.guestID == "" && a.component == "" && !a.admin && a.channelBindingID == ""
 	case ActorGroupAgent:
-		return a.groupID != "" && a.agentID != "" && a.userID == "" && a.component == "" && !a.admin && a.channelBindingID == ""
+		return a.groupID != "" && a.agentID != "" && a.userID == "" && a.guestID == "" && a.component == "" && !a.admin && a.channelBindingID == ""
+	case ActorGuest:
+		return a.guestID != "" && a.channelBindingID != "" && a.userID == "" && a.agentID == "" && a.groupID == "" && a.component == "" && !a.admin
 	case ActorSystem:
-		return a.component != "" && a.userID == "" && a.agentID == "" && a.groupID == "" && !a.admin && a.channelBindingID == ""
+		return a.component != "" && a.userID == "" && a.agentID == "" && a.groupID == "" && a.guestID == "" && !a.admin && a.channelBindingID == ""
 	default:
 		return false
 	}
@@ -174,6 +192,9 @@ func (a Authority) AgentID() AgentID { return a.agentID }
 
 // GroupID returns the group for GroupAgentActor, empty otherwise.
 func (a Authority) GroupID() GroupID { return a.groupID }
+
+// GuestID returns the durable guest principal for GuestActor, empty otherwise.
+func (a Authority) GuestID() GuestID { return a.guestID }
 
 // Component returns the maintenance class for SystemActor, empty otherwise.
 func (a Authority) Component() Component { return a.component }

@@ -164,11 +164,16 @@ type AgentInfo struct {
 	Name string
 }
 
-// ProvisionRequest carries the information needed to look up a channel user.
+// ProvisionRequest carries verified platform evidence for enrollment. Plugins
+// remain independent of internal auth types; ExternalID is the platform's
+// canonical identity subject (Feishu union_id for Feishu enrollment).
 type ProvisionRequest struct {
 	Platform   string
 	ExternalID string
+	TenantKey  string
+	Email      string
 	Name       string
+	AvatarURL  string
 }
 
 // Provisioner is an optional capability that a Handler may implement.
@@ -183,6 +188,13 @@ type Provisioner interface {
 // writable root path (e.g. to store uploaded files) before calling HandleIncoming.
 type UserRootResolver interface {
 	ResolveUserRoot(ctx context.Context, msg IncomingMessage) (string, error)
+}
+
+// LocalCommandAdmitter is an optional capability for channel-specific commands
+// that are handled before Handler.HandleIncoming. It lets the host apply guest
+// admission policy and rate limits without duplicating them in a plugin.
+type LocalCommandAdmitter interface {
+	AdmitLocalCommand(ctx context.Context, msg IncomingMessage) (response string, handled bool, err error)
 }
 
 // BotRegistrar is an optional capability that a Handler may implement.

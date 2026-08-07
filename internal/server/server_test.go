@@ -611,7 +611,7 @@ func TestGetAdditionalPluginConfigSchemas(t *testing.T) {
 		path          string
 		propertyNames []string
 	}{
-		{path: "/api/plugins/channel/discord/config-schema", propertyNames: []string{"token", "allowed_guild_ids", "allow_dm", "require_mention"}},
+		{path: "/api/plugins/channel/discord/config-schema", propertyNames: []string{"token", "allowed_guild_ids", "allow_dm", "allow_unlinked_dm", "guest_message_limit_per_minute", "guest_max_per_channel", "guest_retention_days", "require_mention"}},
 		{path: "/api/plugins/channel/qq/config-schema", propertyNames: []string{"app_id"}},
 		{path: "/api/plugins/channel/feishu/config-schema", propertyNames: []string{"app_id"}},
 		{path: "/api/plugins/channel/weixin/config-schema", propertyNames: []string{"bot_token"}},

@@ -23,7 +23,7 @@ All config lives in normalized PostgreSQL tables:
 | `settings`                | Key-value JSON settings (runner, scheduler, plugins)                                                    |
 | `settings_agents`         | Agent definitions (provider, model, system prompt, workspace)                                           |
 | `settings_plugins`        | Unified plugin table (tools, channels, hooks, providers). Provider credentials stored in `config` JSON. |
-| `settings_users`          | Auto-created platform users with default agent preference                                               |
+| `settings_users`          | User accounts with default-agent preference                                                             |
 | `settings_channel_agents` | Per-group agent assignment                                                                              |
 | `ctx_agent_memory`        | Per-user-per-agent persistent notes                                                                     |
 
@@ -67,11 +67,17 @@ Channel access is enforced by Stella's trusted Authority-based domain services; 
 - `token` -- Bot token
 - `allowed_guild_ids` -- Comma-separated trusted server IDs; empty disables all guild messages but not direct messages
 - `allow_dm` -- Accept account linking and linked-user direct messages; defaults to `true`
+- `allow_unlinked_dm` -- Allow persistent restricted guest direct messages on the channel-bound agent; defaults to `false` and requires `allow_dm`
+- `guest_message_limit_per_minute` -- Per-guest message and command limit; defaults to `10`
+- `guest_max_per_channel` -- Durable guest identity cap for one channel; defaults to `1000`
+- `guest_retention_days` -- Inactivity period before the daily purge deletes a guest and its sessions; defaults to `30`
 - `require_mention` -- Only process guild messages that mention the bot; defaults to `true`
+
+Guest direct messages retain and compact conversation history but have no profile, reflection, tools, skills, files, workspace, plugins, or delegation. Guests can only use `/link`, `/help`, `/new`, `/compact`, and `/abort`; linking does not merge old guest history. Guest rate, count, and retention limits reduce abuse but enabling the feature still exposes model usage publicly, so warn about cost and security and use a dedicated guest-safe agent whose base prompt contains no secrets.
 
 **QQ config fields:** `app_id`, `app_secret`, `enable_notify`
 
-**Feishu config fields:** `app_id`, `app_secret`, `encrypt_key`, `verification_token`, `enable_notify`
+**Feishu config fields:** `app_id`, `app_secret`, `encrypt_key`, `verification_token`, `enable_notify`, `tenant_key`, `auto_provision`
 
 Feishu is a chat channel only.
 

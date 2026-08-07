@@ -14,8 +14,8 @@ func DecodeConfig(raw map[string]any) (channel.DiscordConfig, error) {
 	if err != nil {
 		return channel.DiscordConfig{}, fmt.Errorf("encode discord config: %w", err)
 	}
-	cfg := channel.DiscordConfig{AllowDM: true, RequireMention: true}
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	cfg, err := channel.DecodeDiscordConfig(data)
+	if err != nil {
 		return cfg, fmt.Errorf("decode discord config: %w", err)
 	}
 	return cfg, nil
@@ -33,6 +33,15 @@ func RedactConfig(raw map[string]any) map[string]any {
 func validateConfig(cfg channel.DiscordConfig) string {
 	if strings.TrimSpace(cfg.Token) == "" {
 		return "discord bot token is required"
+	}
+	if cfg.GuestMessageLimitPerMinute < 1 || cfg.GuestMessageLimitPerMinute > channel.MaxDiscordGuestMessageLimitPerMinute {
+		return fmt.Sprintf("guest message limit per minute must be between 1 and %d", channel.MaxDiscordGuestMessageLimitPerMinute)
+	}
+	if cfg.GuestMaxPerChannel < 1 || cfg.GuestMaxPerChannel > channel.MaxDiscordGuestMaxPerChannel {
+		return fmt.Sprintf("guest maximum per channel must be between 1 and %d", channel.MaxDiscordGuestMaxPerChannel)
+	}
+	if cfg.GuestRetentionDays < 1 || cfg.GuestRetentionDays > channel.MaxDiscordGuestRetentionDays {
+		return fmt.Sprintf("guest retention days must be between 1 and %d", channel.MaxDiscordGuestRetentionDays)
 	}
 	return ""
 }

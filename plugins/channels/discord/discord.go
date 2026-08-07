@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -203,6 +204,9 @@ func (b *Bot) onMessageCreate(_ *discordgo.Session, event *discordgo.MessageCrea
 }
 
 func userFacingError(message *discordgo.Message, err error) string {
+	if errors.Is(err, errGuestAttachmentsUnsupported) {
+		return "Attachments are not supported in guest chat. Send a text message instead."
+	}
 	if message != nil && message.GuildID != "" {
 		return "Error: Stella could not process this server message."
 	}

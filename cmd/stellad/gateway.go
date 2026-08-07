@@ -332,6 +332,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		return fmt.Errorf("oidc: setup: %w", err)
 	}
 	slog.Info("oidc: authentication configured")
+	coordOpts = append(coordOpts, channel.WithFeishuEnrollment(auth.NewFeishuEnrollmentService(oidcStore, vaultRecipient)))
 
 	intentClassifier := newIntentClassifier(s.snapshotLoader, s.pluginHost)
 	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))
@@ -344,6 +345,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	botRegistry := channel.NewBotIdentityRegistry()
 	publisherRegistry := channel.NewPublisherRegistry()
 	coordOpts = append(coordOpts, channel.WithDB(s.db))
+	coordOpts = append(coordOpts, channel.WithGuestStore(channel.NewGuestStore(s.db)))
 	coordOpts = append(coordOpts, channel.WithEventLog(elStore))
 	coordOpts = append(coordOpts, channel.WithBotRegistry(botRegistry))
 	coordOpts = append(coordOpts, channel.WithPublisherRegistry(publisherRegistry))

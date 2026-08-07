@@ -130,6 +130,51 @@ func TestDedicatedChannelUseRequiresExactBindingAndCurrentBinding(t *testing.T) 
 	}
 }
 
+func TestGuestDedicatedChannelUseRequiresEnabledOptInDiscordBinding(t *testing.T) {
+	ctx := context.Background()
+	guest, err := authz.NewGuestAuthority("guest-1", "channel-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := config.Agent{ID: "dedicated", Scope: config.AgentScopeRestricted, Enabled: true}
+	valid := config.Channel{ID: "channel-1", AgentID: agent.ID, Type: "discord", Enabled: true, Config: `{"allow_dm":true,"allow_unlinked_dm":true}`}
+
+	for _, tc := range []struct {
+		name    string
+		channel config.Channel
+		binding string
+		wantOK  bool
+	}{
+		{name: "enabled opted-in Discord channel", channel: valid, binding: "channel-1", wantOK: true},
+		{name: "allow dm disabled", channel: func() config.Channel { c := valid; c.Config = `{"allow_dm":false,"allow_unlinked_dm":true}`; return c }(), binding: "channel-1"},
+		{name: "unlinked dm disabled", channel: func() config.Channel { c := valid; c.Config = `{"allow_dm":true,"allow_unlinked_dm":false}`; return c }(), binding: "channel-1"},
+		{name: "channel disabled", channel: func() config.Channel { c := valid; c.Enabled = false; return c }(), binding: "channel-1"},
+		{name: "agent disabled", channel: valid, binding: "channel-1"},
+		{name: "channel type differs", channel: func() config.Channel { c := valid; c.Type = "telegram"; return c }(), binding: "channel-1"},
+		{name: "agent binding differs", channel: func() config.Channel { c := valid; c.AgentID = "other"; return c }(), binding: "channel-1"},
+		{name: "authority binding differs", channel: valid, binding: "channel-2"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			storedAgent := agent
+			if tc.name == "agent disabled" {
+				storedAgent.Enabled = false
+			}
+			store := testStore{agents: map[string]config.Agent{agent.ID: storedAgent}, channels: map[string]config.Channel{"channel-1": tc.channel}}
+			decision, beginErr := NewService(store, &testAssignments{}).Begin(ctx, guest)
+			if beginErr != nil {
+				t.Fatal(beginErr)
+			}
+			_, useErr := decision.UseDedicated(ctx, agent.ID, tc.binding)
+			if tc.wantOK && useErr != nil {
+				t.Fatalf("UseDedicated() = %v", useErr)
+			}
+			if !tc.wantOK && !errors.Is(useErr, ErrForbidden) {
+				t.Fatalf("UseDedicated() = %v, want forbidden", useErr)
+			}
+		})
+	}
+}
+
 func TestListFilteringAndAssignmentFailureFailClosed(t *testing.T) {
 	ctx := context.Background()
 	store := testStore{agents: map[string]config.Agent{

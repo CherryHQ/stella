@@ -20,7 +20,17 @@ title: Discord 机器人
 6. 在 Stella Web UI 中打开 **Channels**，创建 Discord 渠道，粘贴 bot token，并将可信服务器 ID 填入 **Allowed Guild IDs**，然后启用。多个 ID 之间使用英文逗号分隔。
 7. 如果渠道未自动启动，请重启 `stellad server`。
 
-已关联的用户可以在私信中使用自己选择的 agent。未关联的 Discord 用户可以请求关联账号，但无法访问 agent、session 或工具。使用服务器频道前，请将 Discord 渠道实例绑定到一个 agent，以便 Stella 将该 agent 加入所遇频道的群聊路由。
+已关联的用户可以在私信中使用自己选择的 agent。默认情况下，未关联的 Discord 用户可以请求关联账号，但无法访问 agent。你可以按下文说明选择启用持久化访客私信。使用服务器频道前，请将 Discord 渠道实例绑定到一个 agent，以便 Stella 将该 agent 加入所遇频道的群聊路由。
+
+## 可选的访客私信
+
+将 `allow_unlinked_dm` 设为 `true`，可让未关联的 Discord 用户与此渠道实例绑定的 agent 对话。此选项默认关闭；同时还必须满足 `allow_dm: true`、渠道已启用且已绑定 agent。访客不能选择其他 agent。
+
+访客的对话历史会在多次私信间持久保留，并在内容增长后自动压缩，但受限访客 session 不提供 profile、reflection、工具、skills、文件、workspace、plugins 或 delegation。访客只能使用 `/link`、`/help`、`/new`、`/compact` 和 `/abort`。关联 Stella 账号后，之前的访客历史不会合并到该账号的历史中。
+
+系统会限制每位访客的聊天消息速率和每个渠道的持久访客数量；每日保留任务会删除超期未活动的访客身份及其 session。有效的账号关联码会在访客准入前处理，不占用访客聊天额度；被限流的请求仍会刷新访客的活动时间。你可以在 Web UI 中配置这些限制。管理员可以通过普通 session 管理界面查看和删除访客 session。
+
+> **警告：** 即使启用了这些限制，访客私信仍会向公众开放你的模型，并可能产生意外费用和安全风险。请使用专用且对访客安全的 agent，并确保其 base prompt 不含任何 secret。
 
 ## 使用机器人
 
@@ -38,12 +48,16 @@ title: Discord 机器人
 
 ## 配置参考
 
-| 字段                | 描述                                    | 默认值 |
-| ------------------- | --------------------------------------- | ------ |
-| `token`             | Discord bot token                       | 必需   |
-| `allowed_guild_ids` | 允许使用 Stella 的服务器 ID，以逗号分隔 | 无     |
-| `allow_dm`          | 接受账号关联和已关联用户的私信          | `true` |
-| `require_mention`   | 服务器频道消息必须 @机器人              | `true` |
+| 字段                             | 描述                                    | 默认值  |
+| -------------------------------- | --------------------------------------- | ------- |
+| `token`                          | Discord bot token                       | 必需    |
+| `allowed_guild_ids`              | 允许使用 Stella 的服务器 ID，以逗号分隔 | 无      |
+| `allow_dm`                       | 接受账号关联和已关联用户的私信          | `true`  |
+| `allow_unlinked_dm`              | 允许访客使用渠道绑定 agent 的受限私信   | `false` |
+| `guest_message_limit_per_minute` | 每位访客每分钟可发送的消息和命令数      | `10`    |
+| `guest_max_per_channel`          | 渠道可持久保存的访客身份上限            | `1000`  |
+| `guest_retention_days`           | 访客停止活动多少天后删除身份及 session  | `30`    |
+| `require_mention`                | 服务器频道消息必须 @机器人              | `true`  |
 
 ## 故障排除
 
@@ -51,7 +65,7 @@ title: Discord 机器人
 
 **机器人无法回复或上传文件：** 同时检查频道权限覆盖和服务器角色。机器人需要 View Channels、Send Messages、Read Message History 和 Attach Files。
 
-**机器人忽略私信：** 将 `allow_dm` 设为 `true`。未关联用户只能提交账号关联码，无法调用 agent、创建 session 或访问 memory 和工具。
+**机器人忽略私信：** 将 `allow_dm` 设为 `true`。若要接受未关联用户作为受限访客，还需绑定专用且对访客安全的 agent，并将 `allow_unlinked_dm` 设为 `true`。
 
 **机器人在服务器频道中不响应：** 先将该服务器 ID 加入 **Allowed Guild IDs**，再 @提及机器人。若需要无 @提及的语义路由，请将 `require_mention` 设为 `false`，并确认已配置可用的群聊路由模型。
 

@@ -1,12 +1,49 @@
 package channel
 
+import "encoding/json"
+
+const (
+	DefaultDiscordGuestMessageLimitPerMinute = 10
+	DefaultDiscordGuestMaxPerChannel         = 1000
+	DefaultDiscordGuestRetentionDays         = 30
+	MaxDiscordGuestMessageLimitPerMinute     = 120
+	MaxDiscordGuestMaxPerChannel             = 100000
+	MaxDiscordGuestRetentionDays             = 365
+)
+
 // DiscordConfig is the persisted Discord channel plugin configuration.
 type DiscordConfig struct {
-	InstanceID      string `json:"-"`
-	Token           string `json:"token"`
-	AllowedGuildIDs string `json:"allowed_guild_ids"`
-	AllowDM         bool   `json:"allow_dm"`
-	RequireMention  bool   `json:"require_mention"`
+	InstanceID                 string `json:"-"`
+	Token                      string `json:"token"`
+	AllowedGuildIDs            string `json:"allowed_guild_ids"`
+	AllowDM                    bool   `json:"allow_dm"`
+	AllowUnlinkedDM            bool   `json:"allow_unlinked_dm"`
+	GuestMessageLimitPerMinute int    `json:"guest_message_limit_per_minute"`
+	GuestMaxPerChannel         int    `json:"guest_max_per_channel"`
+	GuestRetentionDays         int    `json:"guest_retention_days"`
+	RequireMention             bool   `json:"require_mention"`
+}
+
+// DecodeDiscordConfig applies stable defaults before decoding persisted JSON.
+func DecodeDiscordConfig(data []byte) (DiscordConfig, error) {
+	cfg := DiscordConfig{
+		AllowDM:                    true,
+		GuestMessageLimitPerMinute: DefaultDiscordGuestMessageLimitPerMinute,
+		GuestMaxPerChannel:         DefaultDiscordGuestMaxPerChannel,
+		GuestRetentionDays:         DefaultDiscordGuestRetentionDays,
+		RequireMention:             true,
+	}
+	return cfg, json.Unmarshal(data, &cfg)
+}
+
+// AllowsUnlinkedGuestDM is the shared fail-closed policy for creating and
+// continuing an unlinked guest session through a persisted channel binding.
+func AllowsUnlinkedGuestDM(channelType string, enabled bool, rawConfig string) bool {
+	if !enabled || channelType != PlatformDiscord {
+		return false
+	}
+	cfg, err := DecodeDiscordConfig([]byte(rawConfig))
+	return err == nil && cfg.AllowDM && cfg.AllowUnlinkedDM
 }
 
 // TelegramConfig is the persisted Telegram channel plugin configuration.
