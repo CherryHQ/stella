@@ -106,6 +106,16 @@ func (s *FeishuEnrollmentService) enrollOnce(ctx context.Context, input FeishuEn
 		return FeishuEnrollmentResult{}, fmt.Errorf("auth: lock active administrator: %w", err)
 	}
 
+	// Read email before identities. Under READ COMMITTED, each statement gets a
+	// fresh snapshot: if a concurrent enrollment commits between these reads,
+	// the later identity reads must be able to supply the user ID that owns an
+	// email observed here. Reading email last can observe the committed user
+	// after earlier identity misses and falsely report an email conflict.
+	emailUser, emailFound, err := findUserByEmail(ctx, stores.Users, input.Email)
+	if err != nil {
+		return FeishuEnrollmentResult{}, err
+	}
+
 	login, loginFound, err := findLoginIdentity(ctx, stores.Logins, input.UnionID)
 	if err != nil {
 		return FeishuEnrollmentResult{}, err
@@ -125,10 +135,6 @@ func (s *FeishuEnrollmentService) enrollOnce(ctx context.Context, input FeishuEn
 		userID = channel.UserID
 	}
 
-	emailUser, emailFound, err := findUserByEmail(ctx, stores.Users, input.Email)
-	if err != nil {
-		return FeishuEnrollmentResult{}, err
-	}
 	if emailFound && emailUser.ID != userID {
 		return FeishuEnrollmentResult{}, ErrEnrollmentEmailConflict
 	}
