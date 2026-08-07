@@ -96,7 +96,7 @@ func (s *Service) unreviewedTargetFromRegistry(ctx context.Context, reg *session
 	// Reflect currently mines private one-to-one history only. Exclude groups
 	// before watermark lookup and target limiting so skipped group sessions cannot
 	// permanently occupy the oldest-review slots and starve private sessions.
-	if info.UserID == "" || info.GroupID != "" {
+	if info.UserID == "" || info.GroupID != "" || info.GuestID != "" {
 		return reviewTarget{}, false
 	}
 
@@ -123,7 +123,7 @@ func (s *Service) unreviewedTargetFromRegistry(ctx context.Context, reg *session
 }
 
 func (s *Service) unreviewedTarget(ctx context.Context, sess memory.SessionInfo) (reviewTarget, bool) {
-	if sess.UserID == "" || sess.GroupID != "" {
+	if sess.UserID == "" || sess.GroupID != "" || sess.GuestID != "" {
 		return reviewTarget{}, false
 	}
 

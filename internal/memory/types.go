@@ -11,16 +11,19 @@ import (
 
 // ScopeUserIDFromContext returns the user_id this turn's conversation rows are
 // keyed by. A group turn carries no user identity — runtime identity stays the
-// group (D9) — and its conversations persist under user_id = group_id (the
-// ctx_conversation_group_owner_check invariant), so the group id is its scope
+// group (D9) — and guest turns likewise carry no Stella user identity. Their
+// conversations persist under their group_id or guest_id compatibility owner
 // key. Use this for conversation-scoped reads and writes (session info,
 // messages, summaries) only. Per-user data — soul, profile, constraints,
 // knowledge facts — must keep resolving strictly against
-// authz.UserIDFromContext so a group turn fails closed instead of reading a
-// person's private rows.
+// authz.UserIDFromContext so a group or guest turn fails closed instead of
+// reading a person's private rows.
 func ScopeUserIDFromContext(ctx context.Context) string {
 	if userID := authz.UserIDFromContext(ctx); userID != "" {
 		return userID
+	}
+	if guestID := authz.GuestIDFromContext(ctx); guestID != "" {
+		return guestID
 	}
 	return authz.GroupIDFromContext(ctx)
 }
@@ -103,6 +106,7 @@ type Session struct {
 	UserID  string // internal user ID (empty for anonymous/legacy)
 	Channel string // originating channel (e.g. "cli", "telegram")
 	GroupID string // non-empty for group sessions; assembles history from event log instead of ctx_message
+	GuestID string // non-empty for a persistent channel guest; equals UserID
 }
 
 // GroupIngestPipeline names the ctx_group_ingest_cursor pipeline that tracks
@@ -125,6 +129,7 @@ type SessionInfo struct {
 	AgentID    string
 	UserID     string
 	GroupID    string // non-empty for group sessions; runtime uses this to isolate identity surfaces
+	GuestID    string // non-empty for a persistent channel guest; equals UserID
 	Channel    string
 	Kind       string // session kind: main, chat, scheduler, task
 	ProjectID  string // set for project-scoped sessions
@@ -141,6 +146,7 @@ type SessionInfo struct {
 type ListOptions struct {
 	AgentID         string // filter by agent (empty = all)
 	UserID          string // filter by user (empty = all)
+	GuestID         string // filter by guest; empty excludes guest-owned sessions
 	Kind            string // filter by kind (empty = all)
 	Channel         string // filter by durable channel binding (empty = all)
 	ProjectID       string // filter by project (empty = all)

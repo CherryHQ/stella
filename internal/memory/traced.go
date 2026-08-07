@@ -56,6 +56,9 @@ func (t *tracedProvider) hooks() *hooks.HookSet {
 }
 
 func (t *tracedProvider) begin(ctx context.Context, hctx *hooks.PostMemoryCallContext) (context.Context, time.Time) {
+	if authz.GuestIDFromContext(ctx) != "" {
+		return ctx, time.Now()
+	}
 	hs := t.hooks()
 	if hs == nil || hs.Empty() {
 		return ctx, time.Now()
@@ -72,6 +75,9 @@ func (t *tracedProvider) begin(ctx context.Context, hctx *hooks.PostMemoryCallCo
 }
 
 func (t *tracedProvider) emit(ctx context.Context, hctx *hooks.PostMemoryCallContext) {
+	if authz.GuestIDFromContext(ctx) != "" {
+		return
+	}
 	hs := t.hooks()
 	if hs == nil || hs.Empty() {
 		return
@@ -525,6 +531,19 @@ func (t *tracedProvider) ListInfoForReview(ctx context.Context, opts ListOptions
 	hctx.Detail = fmt.Sprintf("agent=%s limit=%d → %d results", opts.AgentID, opts.Limit, len(infos))
 	t.finish(ctx, start, hctx)
 	return infos, err
+}
+
+// ListInfoForAdmin preserves the optional administrative listing capability.
+// It deliberately bypasses memory hooks: listing guest metadata must not enter
+// any user or guest memory lifecycle.
+func (t *tracedProvider) ListInfoForAdmin(ctx context.Context, opts ListOptions) ([]SessionInfo, error) {
+	lister, ok := t.inner.(interface {
+		ListInfoForAdmin(ctx context.Context, opts ListOptions) ([]SessionInfo, error)
+	})
+	if !ok {
+		return nil, errCapabilityNotSupported("ListInfoForAdmin")
+	}
+	return lister.ListInfoForAdmin(ctx, opts)
 }
 
 func (t *tracedProvider) LoadHistory(ctx context.Context, sessionID string) ([]ai.Message, error) {

@@ -134,6 +134,7 @@ func (c *runnerCache) getOrCreate(ctx context.Context, info session.Info, model 
 		Memory:         c.mem,
 		UserID:         info.UserID,
 		GroupID:        info.GroupID,
+		GuestID:        info.GuestID,
 		SessionID:      info.ID,
 		AgentID:        info.AgentID,
 		ProjectID:      info.ProjectID,

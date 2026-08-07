@@ -8,10 +8,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 const (
@@ -19,9 +23,9 @@ const (
 	// representative fixture/assertions for the newly crossed migrations turns
 	// this test into a green lie.
 	previousGAVersion = int64(20260725161331)
-	// Knowledge V1 is the first post-anchor migration. The assertions below
-	// exercise its file, ChunkSet, chunk, and active-publication schema.
-	currentMigrationVersion = sequentialAnchor + 3
+	// Knowledge V1 and channel guest sessions/indexes are the post-anchor migrations
+	// exercised by the assertions below.
+	currentMigrationVersion = sequentialAnchor + 5
 
 	previousGAUserID         = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID        = "00000000-0000-0000-0000-000000000002"
@@ -35,6 +39,8 @@ const (
 	previousGAKnowledgeFile  = "00000000-0000-0000-0000-000000000041"
 	previousGAChunkSet       = "00000000-0000-0000-0000-000000000042"
 	previousGAChunk          = "00000000-0000-0000-0000-000000000043"
+	previousGAGuestID        = "00000000-0000-0000-0000-000000000044"
+	previousGAGuestChatID    = "00000000-0000-0000-0000-000000000045"
 	previousGAAgentID        = "previous-ga-agent"
 	previousGACascadeAgentID = "previous-ga-cascade-agent"
 	previousGAProviderID     = "previous-ga-provider"
@@ -336,6 +342,76 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 		t.Fatalf("credential rows after Provider delete = %d, want 0", got)
 	}
 
+	// Exercise durable channel guest identity and its active Agent conversation
+	// after upgrading the previous GA database.
+	if _, err := db.Exec(ctx, `
+		INSERT INTO channel (id, name, type, agent_id, enabled, created_at, updated_at)
+		VALUES ('previous-ga-discord', 'Previous GA Discord', 'discord', $1, true, $2, $2)
+	`, previousGAAgentID, previousGATime); err != nil {
+		t.Fatalf("insert Discord channel after previous-GA upgrade: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO channel_guest (id, channel_id, platform, external_id, created_at, updated_at)
+		VALUES ($1, 'previous-ga-discord', 'discord', 'previous-ga-user', $2, $2)
+	`, previousGAGuestID, previousGATime); err != nil {
+		t.Fatalf("insert channel guest after previous-GA upgrade: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO ctx_conversation (
+			id, session_id, channel, kind, agent_id, user_id, guest_id,
+			last_active, created_at, updated_at
+		) VALUES ($1, 'previous-ga-agent:guest:discord', 'discord', 'chat', $2, $3::text, $3::uuid, $4, $4, $4)
+	`, previousGAGuestChatID, previousGAAgentID, previousGAGuestID, previousGATime); err != nil {
+		t.Fatalf("insert guest conversation after previous-GA upgrade: %v", err)
+	}
+	if got := count("channel guest conversation", `
+		SELECT count(*)
+		FROM ctx_conversation AS conversation
+		JOIN channel_guest AS guest ON guest.id = conversation.guest_id
+		WHERE conversation.id = $1 AND guest.channel_id = 'previous-ga-discord'
+	`, previousGAGuestChatID); got != 1 {
+		t.Fatalf("channel guest conversations = %d, want 1", got)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ('00000000-0000-0000-0000-000000000048', 'other-user@test.invalid')`); err != nil {
+		t.Fatalf("insert other user fixture: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO ctx_conversation (id, session_id, channel, kind, agent_id, user_id) VALUES
+			('00000000-0000-0000-0000-000000000049', 'previous-ga-admin-own', 'web', 'chat', $1, $2),
+			('00000000-0000-0000-0000-000000000050', 'previous-ga-other-user', 'web', 'chat', $1, '00000000-0000-0000-0000-000000000048')
+	`, previousGAAgentID, previousGAUserID); err != nil {
+		t.Fatalf("insert admin session visibility fixtures: %v", err)
+	}
+	adminSessions, err := sqlc.New(db).ListConversationsForAdminFiltered(ctx, sqlc.ListConversationsForAdminFilteredParams{
+		AgentID: pgtype.Text{String: previousGAAgentID, Valid: true}, UserID: pgtype.Text{String: previousGAUserID, Valid: true},
+		IncludeArchived: int32(1), ProjectIDIsNull: int32(0), Offset: 0, Limit: int32(-1),
+	})
+	if err != nil {
+		t.Fatalf("list admin and guest sessions: %v", err)
+	}
+	var foundOwn, foundGuest, foundOther bool
+	for _, conversation := range adminSessions {
+		foundOwn = foundOwn || conversation.SessionID == "previous-ga-admin-own"
+		foundGuest = foundGuest || conversation.ID == previousGAGuestChatID
+		foundOther = foundOther || conversation.SessionID == "previous-ga-other-user"
+	}
+	if !foundOwn || !foundGuest || foundOther {
+		t.Fatalf("admin session visibility: own=%v guest=%v other-user=%v, want true, true, false", foundOwn, foundGuest, foundOther)
+	}
+	_, err = db.Exec(ctx, `
+		INSERT INTO ctx_conversation (
+			id, session_id, channel, kind, agent_id, user_id, guest_id
+		) VALUES ('00000000-0000-0000-0000-000000000046', 'previous-ga-agent:guest:duplicate', 'discord', 'chat', $1, $2::text, $2::uuid)
+	`, previousGAAgentID, previousGAGuestID)
+	assertConstraintViolation(t, err, "idx_one_agent_guest_chat")
+	_, err = sqlc.New(db).CreateChannelGuest(ctx, sqlc.CreateChannelGuestParams{
+		ID: "00000000-0000-0000-0000-000000000047", ChannelID: "previous-ga-discord",
+		Platform: "discord", ExternalID: "over-cap", MaxGuests: 1,
+	})
+	if !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("create channel guest above cap = %v, want no rows", err)
+	}
+
 	// Exercise the complete Knowledge snapshot publication relationship after
 	// upgrading the previous GA database, rather than checking table names only.
 	if _, err := db.Exec(ctx, `
@@ -374,6 +450,31 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 		WHERE file.id = $1
 	`, previousGAKnowledgeFile); got != 1 {
 		t.Fatalf("published knowledge chunks = %d, want 1", got)
+	}
+
+	if _, err := db.Exec(ctx, `UPDATE channel_guest SET updated_at = now() - interval '31 days' WHERE id = $1`, previousGAGuestID); err != nil {
+		t.Fatalf("age guest activity: %v", err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE channel SET config = '{"guest_retention_days":365}' WHERE id = 'previous-ga-discord'`); err != nil {
+		t.Fatalf("configure guest retention: %v", err)
+	}
+	queries := sqlc.New(db)
+	deleted, err := queries.PurgeExpiredChannelGuest(ctx)
+	if err != nil {
+		t.Fatalf("purge expired channel guests: %v", err)
+	}
+	if deleted != 0 {
+		t.Fatalf("guest retention purge deleted %d guests before configured retention, want 0", deleted)
+	}
+	if _, err := db.Exec(ctx, `UPDATE channel SET config = '{' WHERE id = 'previous-ga-discord'`); err != nil {
+		t.Fatalf("set malformed channel config: %v", err)
+	}
+	deleted, err = queries.PurgeExpiredChannelGuest(ctx)
+	if err != nil {
+		t.Fatalf("purge expired channel guests with malformed config: %v", err)
+	}
+	if deleted != 1 || count("retained expired guest conversations", `SELECT count(*) FROM ctx_conversation WHERE guest_id = $1`, previousGAGuestID) != 0 {
+		t.Fatalf("guest retention purge deleted %d guests without cascading conversations, want 1 guest and 0 conversations", deleted)
 	}
 
 	var latest int64

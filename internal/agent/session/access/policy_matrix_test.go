@@ -38,6 +38,32 @@ type sessionMatrix struct {
 	dedicatedChan  string
 }
 
+func TestAdminGuestSessionAccessIsLimitedToInspectionAndDeletion(t *testing.T) {
+	authority, err := authz.NewUserAuthority("admin", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	access := &Access{authority: authority}
+	facts := sessionFactsFor(agentsession.Info{UserID: "guest", GuestID: "guest", AgentID: "agent"}, authority)
+	for _, tc := range []struct {
+		action authz.Action
+		want   bool
+	}{
+		{action: authz.ActionRead, want: true},
+		{action: authz.ActionDelete, want: true},
+		{action: authz.ActionWrite},
+		{action: authz.ActionExecute},
+		{action: authz.ActionCreate},
+	} {
+		if got := access.allowSession(tc.action, facts); got != tc.want {
+			t.Fatalf("allowSession(%s) = %v, want %v", tc.action, got, tc.want)
+		}
+	}
+	if access.allowWorkspace(authz.ActionRead, facts) {
+		t.Fatal("admin was allowed to access a guest workspace")
+	}
+}
+
 // TestEmbeddedPostgresSessionBehaviorMatrix asserts the direct Session/Workspace
 // rules over real durable fixtures: who may read/use/create/delete which session,
 // how groups/workers/system/dedicated channels are confined, and that collection

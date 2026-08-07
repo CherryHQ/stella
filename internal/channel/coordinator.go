@@ -66,6 +66,13 @@ type Coordinator struct {
 	groupDispatcher      *GroupDispatcher
 	db                   *pgxpool.Pool
 	assets               *asset.Store
+	guests               GuestStore
+	guestLimiter         *guestRateLimiter
+}
+
+// WithGuestStore enables durable unlinked channel principals.
+func WithGuestStore(store GuestStore) CoordinatorOption {
+	return func(c *Coordinator) { c.guests = store }
 }
 
 // CoordinatorOption configures the Coordinator.
@@ -108,6 +115,7 @@ func NewCoordinator(
 		listFn:         listFn,
 		switchFn:       switchFn,
 		queue:          newSessionQueue(),
+		guestLimiter:   newGuestRateLimiter(),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -299,7 +307,7 @@ func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessag
 		channelID = msg.Platform
 	}
 
-	return ResolveWithChannel(ctx, c.serviceManager, c.store, c.auth, c.agentAccess, c.groupResolver, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.ThreadID, msg.IsGroup)
+	return ResolveWithChannel(ctx, c.serviceManager, c.store, c.auth, c.agentAccess, c.groupResolver, c.guests, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.ThreadID, msg.IsGroup)
 }
 
 // HandleIncoming resolves the user once, tries command handling, and if the
@@ -325,11 +333,40 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 	if err != nil {
 		return "", false, nil, err
 	}
+	if rc.GuestID != "" && !c.guestLimiter.allow(rc.GuestID, rc.GuestMessageLimitPerMinute) {
+		return "Guest message rate limit exceeded. Try again in a minute.", true, nil, nil
+	}
 
 	return c.handleResolvedIncoming(ctx, rc, msg, command, args)
 }
 
+// AdmitLocalCommand applies guest admission to commands a channel plugin must
+// handle locally. Linked users continue to the plugin-specific implementation.
+func (c *Coordinator) AdmitLocalCommand(ctx context.Context, msg pkgchannel.IncomingMessage) (string, bool, error) {
+	rc, err := c.resolve(ctx, msg)
+	if err != nil {
+		return "", false, err
+	}
+	if rc.GuestID == "" {
+		return "", false, nil
+	}
+	if !c.guestLimiter.allow(rc.GuestID, rc.GuestMessageLimitPerMinute) {
+		return "Guest message rate limit exceeded. Try again in a minute.", true, nil
+	}
+	return "This command is not available in guest chat.", true, nil
+}
+
 func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
+	if rc.GuestID != "" {
+		if !textOnly(msg.Content) {
+			return "Guest chat currently supports text messages only.", true, nil, nil
+		}
+		switch strings.ToLower(command) {
+		case "", "/new", "/abort", "/help", "/compact":
+		default:
+			return "This command is not available in guest chat.", true, nil, nil
+		}
+	}
 	// Try shared commands.
 	if command != "" {
 		command = strings.ToLower(command)
@@ -350,7 +387,7 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 		}
 	}
 
-	if c.intentClassifier != nil {
+	if rc.GuestID == "" && c.intentClassifier != nil {
 		intent := c.intentClassifier.Classify(ctx, rc.AgentID, msg.Content)
 		switch intent {
 		case IntentAbort:
@@ -373,6 +410,15 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 		return "", false, nil, err
 	}
 	return "", false, stream, nil
+}
+
+func textOnly(content []ai.ContentBlock) bool {
+	for _, block := range content {
+		if _, ok := block.(ai.TextContent); !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // handleConfigCommand handles /config KEY VALUE: writes to vault, invalidates
@@ -624,6 +670,9 @@ func (c *Coordinator) ResolveUserRoot(ctx context.Context, msg pkgchannel.Incomi
 	rc, err := c.resolve(ctx, msg)
 	if err != nil {
 		return "", fmt.Errorf("resolve user root: %w", err)
+	}
+	if rc.GuestID != "" {
+		return "", agentaccess.ErrForbidden
 	}
 	if rc.GroupID != "" {
 		dir, err := agent.SetupGroupWorkspace(config.StellaHome(), rc.GroupID, rc.AgentID)

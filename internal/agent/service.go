@@ -67,6 +67,7 @@ type ChatRequest struct {
 	// callers such as the scheduler (KindScheduler).
 	Kind    session.Kind
 	GroupID string // non-empty for group sessions; overlaid onto session.Info after Ensure
+	GuestID string // durable channel_guest UUID; runtime restriction plumbing
 	Message MessageContent
 	Model   string
 	// CurrentSpeaker is the human speaking this group turn. Personalization
@@ -350,6 +351,8 @@ type ChatChannelRequest struct {
 	// the group-ownership invariant (UserID == GroupID) is established here.
 	UserID  string
 	GroupID string
+	// GuestID is the durable channel_guest UUID. When set it owns the session.
+	GuestID string
 	AgentID string
 	Channel session.Channel
 	// SessionKey is the chat's derived key. Sessions are no longer created under
@@ -362,11 +365,14 @@ func (r ChatChannelRequest) binding() session.ChannelRequest {
 	userID := r.UserID
 	if r.GroupID != "" {
 		userID = r.GroupID
+	} else if r.GuestID != "" {
+		userID = r.GuestID
 	}
 	return session.ChannelRequest{
 		UserID:   userID,
 		AgentID:  r.AgentID,
 		GroupID:  r.GroupID,
+		GuestID:  r.GuestID,
 		Channel:  r.Channel,
 		LegacyID: r.SessionKey,
 	}
@@ -621,6 +627,12 @@ func (s *Service) CompactAuthorizedSession(ctx context.Context, info session.Inf
 	if info.GroupID != "" {
 		return "", ErrGroupCompactionUnsupported
 	}
+	if info.GuestID != "" {
+		ctx = authz.WithGuestID(ctx, info.GuestID)
+	} else {
+		ctx = authz.WithUserID(ctx, info.UserID)
+	}
+	ctx = authz.WithAgentID(ctx, info.AgentID)
 	mem := s.Runtime.Memory()
 	if mem == nil {
 		return "", fmt.Errorf("no memory provider")
@@ -668,7 +680,12 @@ func (s *Service) History(ctx context.Context, info session.Info) []ai.Message {
 	if !ok {
 		return nil
 	}
-	saveCtx := authz.WithUserID(ctx, info.UserID)
+	saveCtx := ctx
+	if info.GuestID != "" {
+		saveCtx = authz.WithGuestID(saveCtx, info.GuestID)
+	} else {
+		saveCtx = authz.WithUserID(saveCtx, info.UserID)
+	}
 	saveCtx = authz.WithAgentID(saveCtx, info.AgentID)
 	msgs, err := sm.LoadHistory(saveCtx, info.ID)
 	if err != nil {

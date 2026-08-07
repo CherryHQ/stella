@@ -2,6 +2,7 @@ package discord
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,11 +14,14 @@ import (
 	"github.com/bwmarrin/discordgo"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
 const maxAttachmentBytes = 25 << 20
+
+var errGuestAttachmentsUnsupported = errors.New("attachments are not supported in guest chat")
 
 type channelContentBlock = ai.ContentBlock
 
@@ -50,8 +54,23 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
 		content = append(content, ai.TextContent{Text: text})
 	}
 	probe := b.incomingMessage(m, nil)
+	var assetsRoot string
+	if len(m.Attachments) > 0 {
+		if resolver, ok := b.handler.(channel.UserRootResolver); ok {
+			var err error
+			assetsRoot, err = resolver.ResolveUserRoot(deliveryCtx, probe)
+			if err != nil {
+				// Resolve ownership before fetching untrusted content. In particular,
+				// guest sessions have no workspace and must not trigger downloads.
+				if errors.Is(err, agentaccess.ErrForbidden) {
+					return errGuestAttachmentsUnsupported
+				}
+				logger().Warn("resolve attachment storage failed; using inline fallback", "error", err)
+			}
+		}
+	}
 	for _, attachment := range m.Attachments {
-		content = append(content, b.attachmentContent(deliveryCtx, probe, attachment)...)
+		content = append(content, b.attachmentContent(deliveryCtx, assetsRoot, attachment)...)
 	}
 	if len(content) == 0 {
 		return nil
@@ -64,6 +83,19 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
 	}
 	cmd, args := channel.ParseSlashCommand(text)
 	reply := func(text string) { _ = b.sendText(deliveryCtx, m.ChannelID, text, m.ID) }
+	switch cmd {
+	case "/model", "/agent":
+		if admitter, ok := b.handler.(channel.LocalCommandAdmitter); ok {
+			resp, handled, err := admitter.AdmitLocalCommand(ctx, msg)
+			if err != nil {
+				return err
+			}
+			if handled {
+				reply(resp)
+				return nil
+			}
+		}
+	}
 	switch cmd {
 	case "/model":
 		reply("The /model command is not available in Discord yet.")
@@ -168,7 +200,7 @@ func collectResponse(ctx context.Context, stream *channel.ChatStream) (string, [
 	}
 }
 
-func (b *Bot) attachmentContent(ctx context.Context, msg channel.IncomingMessage, a *discordgo.MessageAttachment) []ai.ContentBlock {
+func (b *Bot) attachmentContent(ctx context.Context, assetsRoot string, a *discordgo.MessageAttachment) []ai.ContentBlock {
 	if a == nil {
 		return nil
 	}
@@ -182,20 +214,14 @@ func (b *Bot) attachmentContent(ctx context.Context, msg channel.IncomingMessage
 		return channel.TextContent(fmt.Sprintf("[Attachment: %s — download failed.]", name))
 	}
 	mime := http.DetectContentType(data)
-	resolver, rok := b.handler.(channel.UserRootResolver)
-	saver, sok := b.handler.(channel.AssetSaver)
-	if rok && sok {
-		root, err := resolver.ResolveUserRoot(ctx, msg)
+	saver, ok := b.handler.(channel.AssetSaver)
+	if ok && assetsRoot != "" {
+		dir := agent.UserAssetsDir(assetsRoot)
+		path, err := saver.SaveAsset(ctx, dir, name, data)
 		if err != nil {
-			logger().Warn("resolve attachment owner failed", "attachment_id", a.ID, "file_name", name, "error", err)
-		} else if root != "" {
-			dir := agent.UserAssetsDir(root)
-			path, err := saver.SaveAsset(ctx, dir, name, data)
-			if err != nil {
-				logger().Warn("save attachment failed", "attachment_id", a.ID, "file_name", name, "error", err)
-			} else {
-				return channel.AttachmentReceivedContent(name, dir, path, data)
-			}
+			logger().Warn("save attachment failed", "attachment_id", a.ID, "file_name", name, "error", err)
+		} else {
+			return channel.AttachmentReceivedContent(name, dir, path, data)
 		}
 	}
 	if strings.HasPrefix(mime, "image/") {

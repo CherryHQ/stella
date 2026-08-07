@@ -19,6 +19,7 @@ type fullSurfaceHandler struct {
 	handleCtx string
 	agentsCtx string
 	switchCtx string
+	admitCtx  string
 	assetCtx  string
 	switched  bool
 }
@@ -49,6 +50,11 @@ func (h *fullSurfaceHandler) RegisterGroupPublisher(string, GroupPublisher) {}
 func (h *fullSurfaceHandler) UnregisterGroupPublisher(string)               {}
 func (h *fullSurfaceHandler) ProvisionUser(context.Context, pkgchannel.ProvisionRequest) error {
 	return nil
+}
+
+func (h *fullSurfaceHandler) AdmitLocalCommand(ctx context.Context, _ pkgchannel.IncomingMessage) (string, bool, error) {
+	h.admitCtx, _ = ctx.Value(marker).(string)
+	return "", false, nil
 }
 
 func (h *fullSurfaceHandler) ResolveUserRoot(context.Context, pkgchannel.IncomingMessage) (string, error) {
@@ -105,6 +111,14 @@ func TestWrapOperationHandlerUsesOperationLifetimeAndCallValues(t *testing.T) {
 	if inner.switchCtx != "poll" {
 		t.Fatalf("SwitchAgent value = %q, want call-scoped value", inner.switchCtx)
 	}
+	if admitter, ok := wrapped.(pkgchannel.LocalCommandAdmitter); !ok {
+		t.Fatal("wrapper dropped LocalCommandAdmitter")
+	} else if _, _, err := admitter.AdmitLocalCommand(callCtx, pkgchannel.IncomingMessage{}); err != nil {
+		t.Fatalf("AdmitLocalCommand: %v", err)
+	}
+	if inner.admitCtx != "poll" {
+		t.Fatalf("AdmitLocalCommand value = %q, want call-scoped value", inner.admitCtx)
+	}
 	cancelOperation()
 	select {
 	case <-inner.handle.Done():
@@ -130,6 +144,9 @@ func TestWrapOperationHandlerPreservesOptionalInterfaces(t *testing.T) {
 	}
 	if _, ok := wrapped.(pkgchannel.UserRootResolver); !ok {
 		t.Error("wrapper dropped UserRootResolver")
+	}
+	if _, ok := wrapped.(pkgchannel.LocalCommandAdmitter); !ok {
+		t.Error("wrapper dropped LocalCommandAdmitter")
 	}
 	assetSaver, ok := wrapped.(pkgchannel.AssetSaver)
 	if !ok {

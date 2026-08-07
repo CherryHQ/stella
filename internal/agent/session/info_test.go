@@ -126,6 +126,10 @@ func TestInfoValidate(t *testing.T) {
 	}{
 		{name: "valid private", info: Info{ID: "s", AgentID: "a", UserID: "u"}},
 		{name: "valid group", info: Info{ID: "s", AgentID: "a", UserID: testGroupID, GroupID: testGroupID}},
+		{name: "valid guest", info: Info{ID: "s", AgentID: "a", UserID: testGroupID, GuestID: testGroupID, Kind: string(KindChat)}},
+		{name: "guest user mismatch", info: Info{ID: "s", AgentID: "a", UserID: "u", GuestID: testGroupID, Kind: string(KindChat)}, wantErr: true},
+		{name: "guest must be chat", info: Info{ID: "s", AgentID: "a", UserID: testGroupID, GuestID: testGroupID, Kind: string(KindMain)}, wantErr: true},
+		{name: "guest cannot have project", info: Info{ID: "s", AgentID: "a", UserID: testGroupID, GuestID: testGroupID, Kind: string(KindChat), ProjectID: "p"}, wantErr: true},
 		{name: "missing id", info: Info{AgentID: "a", UserID: "u"}, wantErr: true},
 		{name: "missing agent", info: Info{ID: "s", UserID: "u"}, wantErr: true},
 		{name: "missing user", info: Info{ID: "s", AgentID: "a"}, wantErr: true},

@@ -88,6 +88,46 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestNewRunnerFuncGuestHasMinimalPromptAndNoTools(t *testing.T) {
+	stellaHome := t.TempDir()
+	t.Setenv("STELLA_HOME", stellaHome)
+	config.ResetStellaHome()
+	t.Cleanup(config.ResetStellaHome)
+	snap := &config.Snapshot{AgentID: "agent-1", Provider: "anthropic", Model: "test-model", APIKey: "test-key", SystemPrompt: "Operator base prompt", Workspace: t.TempDir()}
+	build := newRunnerFunc(runnerBuilderConfig{
+		Snap: snap,
+		ProviderStreamBuilder: func(string, string, string) (providers.StreamFunc, error) {
+			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
+		},
+		SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
+		PromptSectionsBuilder: func(context.Context, plugins.SystemPromptContext) ([]plugins.SystemPromptSection, error) {
+			t.Fatal("guest must not build prompt sections")
+			return nil, nil
+		},
+	})
+	r, err := build(context.Background(), RunnerParams{UserID: "11111111-1111-4111-8111-111111111111", GuestID: "11111111-1111-4111-8111-111111111111", AgentID: "agent-1", SessionID: "guest-session"})
+	if err != nil {
+		t.Fatalf("build guest runner: %v", err)
+	}
+	t.Cleanup(func() { _ = r.Close() })
+	impl := r.(*runner)
+	if got := impl.tools.Definitions(); len(got) != 0 {
+		t.Fatalf("guest tool definitions = %#v, want none", got)
+	}
+	if impl.SandboxSession() != nil {
+		t.Fatal("guest runner created a sandbox session")
+	}
+	system := r.SystemPrompt()
+	for _, forbidden := range []string{"# Tools", "# Filesystem", "# Memories", "## User Profile", "## Agent Soul", "# Plugins", "# Project Context"} {
+		if strings.Contains(system, forbidden) {
+			t.Fatalf("guest prompt contains forbidden section %q:\n%s", forbidden, system)
+		}
+	}
+	if !strings.Contains(system, "Operator base prompt") || !strings.Contains(system, "# Guest limitations") {
+		t.Fatalf("unexpected guest prompt:\n%s", system)
+	}
+}
+
 func TestNewRunnerFuncCarriesDeclaredModelInput(t *testing.T) {
 	stellaHome := t.TempDir()
 	t.Setenv("STELLA_HOME", stellaHome)

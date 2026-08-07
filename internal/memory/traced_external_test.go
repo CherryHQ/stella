@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -108,6 +109,29 @@ func TestTracedProvider_Bootstrap(t *testing.T) {
 	}
 	if col.events[0].Op != hooks.MemoryOpBootstrap {
 		t.Errorf("expected Bootstrap op, got %q", col.events[0].Op)
+	}
+}
+
+func TestTracedProviderGuestBypassesHooksButRetainsHistory(t *testing.T) {
+	fake := memorytest.New()
+	traced, col := newTracedWithCollector(fake)
+	ctx := authz.WithGuestID(context.Background(), "11111111-1111-4111-8111-111111111111")
+	sess := memory.Session{ID: "guest-session", AgentID: "agent-1", UserID: authz.GuestIDFromContext(ctx), GuestID: authz.GuestIDFromContext(ctx)}
+	if err := traced.Bootstrap(ctx, sess); err != nil {
+		t.Fatal(err)
+	}
+	if err := traced.Append(ctx, sess, ai.UserMessage{Content: "remember this"}); err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := traced.Assemble(ctx, sess, 1000, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) == 0 {
+		t.Fatal("guest history was not retained by inner provider")
+	}
+	if len(col.events) != 0 {
+		t.Fatalf("guest memory emitted %d hook events, want none", len(col.events))
 	}
 }
 

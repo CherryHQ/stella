@@ -41,6 +41,21 @@ func testProviderStreamBuilder(api, apiKey, baseURL string) (providers.StreamFun
 	return providers.AdapterStreamFunc(&stubProvider{}), nil
 }
 
+func TestRunnerAliveWithoutSandboxOnlyForNoCapabilities(t *testing.T) {
+	if (&runner{}).Alive() {
+		t.Fatal("runner with an unexpectedly missing sandbox session reported alive")
+	}
+	if !(&runner{noCapabilities: true}).Alive() {
+		t.Fatal("no-capabilities runner was treated as dead without a sandbox session")
+	}
+	if (&runner{session: &fakeSession{alive: false}}).Alive() {
+		t.Fatal("runner ignored a dead sandbox session")
+	}
+	if !(&runner{session: &fakeSession{alive: true}}).Alive() {
+		t.Fatal("runner ignored a live sandbox session")
+	}
+}
+
 func testRunnerPaths(t *testing.T) (stellaHome, workspace, userRoot string) {
 	t.Helper()
 	stellaHome = t.TempDir()
