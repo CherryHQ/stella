@@ -18,6 +18,7 @@ function SidebarChevron({ className }: { className?: string }) {
 
 export function SidebarSection({
   title,
+  titleLink,
   children,
   open = true,
   onOpenChange,
@@ -26,6 +27,13 @@ export function SidebarSection({
   className,
 }: {
   title: ReactNode;
+  /**
+   * Renders the label as a destination instead of plain text — for a section
+   * that *is* a space (its own page) rather than just a grouping. The caller
+   * supplies the whole element so routing stays type-safe here; the collapse
+   * moves onto the chevron, because a link inside a button is invalid markup.
+   */
+  titleLink?: ReactNode;
   children: ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -50,7 +58,25 @@ export function SidebarSection({
   return (
     <section className={cn("mt-4", className)}>
       <div className="flex h-[30px] items-center gap-1 pr-1">
-        {onOpenChange ? (
+        {titleLink ? (
+          <div className={headerClassName}>
+            <span className="min-w-0 truncate hover:text-foreground">{titleLink}</span>
+            {onOpenChange && (
+              <button
+                type="button"
+                aria-expanded={open}
+                aria-label={typeof title === "string" ? title : undefined}
+                onClick={() => onOpenChange(!open)}
+                className="grid size-4 shrink-0 cursor-pointer place-items-center rounded hover:text-foreground"
+              >
+                <SidebarChevron
+                  className={cn("size-2.5 transition-transform duration-150", open && "rotate-90")}
+                />
+              </button>
+            )}
+            {hiddenCount}
+          </div>
+        ) : onOpenChange ? (
           <button
             type="button"
             onClick={() => onOpenChange(!open)}

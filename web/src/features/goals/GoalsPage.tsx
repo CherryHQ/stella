@@ -485,7 +485,7 @@ function Triage({ rows, onOpen, selected, onSelect }: ViewProps) {
 
   return (
     <>
-      <Section label={t("goals.secNeedsYou")} arr={needs} />
+      <Section label={t("hub.secNeedsYou")} arr={needs} />
       <Section label={t("goals.secInProgress")} arr={prog} />
       <Section label={t("goals.secClosed")} arr={closed} dim />
     </>

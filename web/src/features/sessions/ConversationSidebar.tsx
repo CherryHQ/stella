@@ -603,7 +603,11 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
 
   const activeSessionId = pathname.match(/\/sessions\/([^/]+)/)?.[1] ?? "";
   const activeProjectId = pathname.match(/\/projects\/([^/]+)/)?.[1] ?? "";
-  const onGoals = pathname.includes(`/agents/${agentId}/goals`);
+  // Work is one space composed from several routes — goals, their schedules,
+  // and workflows all live under it, so the row stays lit across all of them.
+  const onWork =
+    pathname.includes(`/agents/${agentId}/goals`) ||
+    pathname.includes(`/agents/${agentId}/workflows`);
   const onProfile = pathname === `/agents/${agentId}/profile`;
 
   const projectSessions = useQuery(projectSessionsQueryOptions(agentId, activeProjectId));
@@ -732,10 +736,13 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
         label={t("sessions.sidebar.newThread")}
         onClick={() => void createChat()}
       />
+      {/* Work is the only space that needs a row of its own. Conversations is
+          the thread section further down — that list *is* the space, so a row
+          pointing at the same page would be a second door onto one room. */}
       <SidebarItem
-        active={onGoals}
+        active={onWork}
         icon={<ListTodo className="size-4" />}
-        label={t("sidebar.goals")}
+        label={t("sidebar.work")}
         badge={
           goalCounts && goalCounts.active > 0 ? (
             <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 font-mono text-xs text-foreground">
@@ -829,7 +836,12 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
           project threads in bulk) is reachable. */}
       {(recentThreads.length > 0 || projects.length > 0) && (
         <SidebarSection
-          title={t("sidebar.recentThreads")}
+          title={t("sidebar.conversations")}
+          titleLink={
+            <Link to="/agents/$agentId/threads" params={{ agentId }} onClick={onNavigate}>
+              {t("sidebar.conversations")}
+            </Link>
+          }
           open={threadsOpen}
           onOpenChange={setThreadsOverride}
           count={recentThreads.length}

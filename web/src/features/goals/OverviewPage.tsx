@@ -11,15 +11,23 @@ import type { ComponentsGoal, JobRun } from "@/lib/api-client/types.gen";
 import type { SchedulerJob } from "@/lib/types";
 import { goalChildrenOptions, goalsOptions } from "@/lib/queries/goals";
 import { postGoalTimelineMessage } from "@/features/goals/useGoalTimelineMessage";
-import { agentSchedulerJobsOptions } from "@/lib/queries/agents";
+import { agentSchedulerJobsOptions, agentsQueryOptions } from "@/lib/queries/agents";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { workflowsOptions, workflowRunsOptions } from "@/lib/queries/workflows";
 import { useI18n } from "@/lib/i18n";
 import { useAppShell } from "@/layouts/AppShell";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import { Plus } from "lucide-react";
+import { ListTodo, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -84,12 +92,17 @@ export function OverviewPage() {
   };
   const projectFilter = (useSearch({ strict: false }) as { project_id?: string }).project_id ?? "";
   const navigate = useNavigate();
-  const { setHeaderActions } = useAppShell();
+  const { setHeaderTitle, setHeaderActions } = useAppShell();
   const { showToast } = useToast();
 
-  const { data: allGoals = [] } = useQuery(goalsOptions(agentId));
-  const { data: jobs = [] } = useQuery(agentSchedulerJobsOptions(agentId));
+  const goalsQuery = useQuery(goalsOptions(agentId));
+  const jobsQuery = useQuery(agentSchedulerJobsOptions(agentId));
+  const workflowsQuery = useQuery(workflowsOptions(agentId));
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
+  const { data: agents = [] } = useQuery(agentsQueryOptions);
+  const allGoals = useMemo(() => goalsQuery.data ?? [], [goalsQuery.data]);
+  const jobs = jobsQuery.data ?? [];
+  const agentName = agents.find((a) => a.id === agentId)?.name ?? "";
 
   // Goals already carry a project scope, so the agent-level hub can narrow to
   // one project without a second endpoint. Inside a project route the scope is
@@ -102,6 +115,11 @@ export function OverviewPage() {
   );
 
   useEffect(() => {
+    // The hub is one of the agent's two primary spaces, so it names itself in
+    // the breadcrumb tail the same way the list and detail pages do.
+    setHeaderTitle(
+      <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{t("hub.title")}</h1>,
+    );
     setHeaderActions(
       <div className="flex items-center gap-1">
         {!projectId && projects.length > 0 && (
@@ -145,9 +163,10 @@ export function OverviewPage() {
       </div>,
     );
     return () => {
+      setHeaderTitle(null);
       setHeaderActions(null);
     };
-  }, [setHeaderActions, t, agentId, navigate, projectFilter, projectId, projects]);
+  }, [setHeaderTitle, setHeaderActions, t, agentId, navigate, projectFilter, projectId, projects]);
 
   const needsYou = useMemo(
     () =>
@@ -157,18 +176,6 @@ export function OverviewPage() {
     [goals],
   );
 
-  const runningCount = useMemo(() => goals.filter((d) => d.lifecycle === "active").length, [goals]);
-
-  const doneThisWeek = useMemo(() => {
-    const cutoff = Date.now() - 7 * 86_400_000;
-    return goals.filter(
-      (d) =>
-        d.lifecycle === "done" &&
-        d.done_reason === "accepted" &&
-        new Date(d.accepted_at ?? d.updated_at).getTime() >= cutoff,
-    ).length;
-  }, [goals]);
-
   const sortedJobs = useMemo(() => {
     const byEnabledThenName = (a: SchedulerJob, b: SchedulerJob) => {
       if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
@@ -176,15 +183,6 @@ export function OverviewPage() {
     };
     return [...(jobs as SchedulerJob[])].sort(byEnabledThenName);
   }, [jobs]);
-
-  const soonestNextRun = useMemo(() => {
-    let soonest: Date | null = null;
-    for (const j of sortedJobs) {
-      const next = jobNextRunAt(j);
-      if (next && (!soonest || next < soonest)) soonest = next;
-    }
-    return soonest;
-  }, [sortedJobs]);
 
   const activeWork = useMemo(
     () =>
@@ -240,38 +238,69 @@ export function OverviewPage() {
     [navigate, agentId],
   );
 
+  // Nothing tracked at all: one hero instead of five stacked "nothing here"
+  // rows, which is what an empty page used to read as. Held back until every
+  // source has answered, so a slow request never flashes the wrong story.
+  const nothingLoaded = !goalsQuery.isPending && !jobsQuery.isPending && !workflowsQuery.isPending;
+  const nothingTracked =
+    nothingLoaded &&
+    goals.length === 0 &&
+    sortedJobs.length === 0 &&
+    (workflowsQuery.data?.length ?? 0) === 0;
+
+  if (nothingTracked) {
+    return (
+      <div className="h-full min-h-0 overflow-y-auto bg-background">
+        <div className="mx-auto max-w-[980px] px-6 py-6 sm:px-8">
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <ListTodo />
+              </EmptyMedia>
+              <EmptyTitle>{t("hub.emptyTitle")}</EmptyTitle>
+              <EmptyDescription>{t("hub.emptyDesc", { agent: agentName })}</EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button
+                render={
+                  <Link
+                    to="/agents/$agentId/goals/new"
+                    params={{ agentId }}
+                    search={projectId ? { project_id: projectId } : {}}
+                  />
+                }
+                variant="outline"
+                size="sm"
+              >
+                <Plus />
+                {t("goals.new")}
+              </Button>
+            </EmptyContent>
+          </Empty>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-background">
       <div className="mx-auto max-w-[980px] px-6 py-6 pb-20 sm:px-8">
-        {/* Stats */}
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatCard
-            num={needsYou.length}
-            label={t("goals.secNeedsYou")}
-            tone={needsYou.length > 0 ? "attn" : undefined}
-          />
-          <StatCard num={runningCount} label={t("hub.statRunning")} tone="live" />
-          <StatCard
-            num={sortedJobs.filter((j) => j.enabled).length}
-            label={
-              soonestNextRun
-                ? `${t("hub.secSchedules")} · ${t("hub.nextRunStat", { when: formatUntil(t, soonestNextRun) })}`
-                : t("hub.secSchedules")
-            }
-          />
-          <StatCard num={doneThisWeek} label={t("hub.statDoneWeek")} />
-        </div>
-
-        {/* Needs you */}
-        <section className="mt-8">
-          <SectionHead title={t("goals.secNeedsYou")} count={needsYou.length} />
+        {/* Needs you — the page's front door, so it carries an accent while it
+            has anything in it. Empty, it stays plain: reassurance, not alarm. */}
+        <section className="mt-2">
+          <SectionHead title={t("hub.secNeedsYou")} count={needsYou.length} />
           {needsYou.length === 0 ? (
             <div className="rounded-xl border border-border px-4 py-3.5">
               <p className="text-sm font-medium text-muted-foreground">{t("hub.noNeedsYou")}</p>
               <p className="mt-1 text-[12.5px] text-muted-foreground">{t("hub.noNeedsYouDesc")}</p>
             </div>
           ) : (
-            <>
+            // One accent, on the outside: a single teal rail down the whole
+            // block. It was a warning-tinted box around cards that each drew
+            // their own left border, which stacked into a double stroke in a
+            // hue the rest of the theme never uses. Nothing waiting on a
+            // decision is a verdict, so it takes the theme's one accent.
+            <div className="border-s-2 border-primary ps-4">
               <p className="mb-3 text-[12.5px] text-muted-foreground">{t("hub.needsYouHint")}</p>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {needsYou.map((d) => (
@@ -285,28 +314,14 @@ export function OverviewPage() {
                   />
                 ))}
               </div>
-            </>
+            </div>
           )}
         </section>
 
-        {/* Schedules */}
-        <section className="mt-8">
-          <SectionHead title={t("hub.secSchedules")} count={sortedJobs.length} />
-          {sortedJobs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t("hub.noSchedules")}</p>
-          ) : (
-            <SchedulesTable jobs={sortedJobs} agentId={agentId} />
-          )}
-        </section>
-
-        {/* Repeatable (workflows) — hidden until the first workflow exists, so
-            the concept only appears once the user has saved one. */}
-        <WorkflowsSection agentId={agentId} />
-
-        {/* Active work */}
+        {/* Active */}
         <section className="mt-8">
           <SectionHead
-            title={t("hub.activeWork")}
+            title={t("hub.secActive")}
             count={activeWork.length}
             action={
               <Button
@@ -329,10 +344,41 @@ export function OverviewPage() {
           )}
         </section>
 
-        {/* Recently completed */}
+        {/* Scheduled — like Repeatable and History, it appears only once it has
+            something in it. An empty row for a concept the user never used is
+            chrome, not information. */}
+        {sortedJobs.length > 0 && (
+          <section className="mt-8">
+            <SectionHead title={t("hub.secSchedules")} count={sortedJobs.length} />
+            <SchedulesTable jobs={sortedJobs} agentId={agentId} />
+          </section>
+        )}
+
+        {/* Repeatable (workflows) — hidden until the first workflow exists, so
+            the concept only appears once the user has saved one. */}
+        <WorkflowsSection agentId={agentId} />
+
+        {/* History */}
         {recentDone.length > 0 && (
           <section className="mt-8">
-            <SectionHead title={t("hub.secRecentDone")} />
+            <SectionHead
+              title={t("hub.secHistory")}
+              action={
+                <Button
+                  render={
+                    <Link
+                      to="/agents/$agentId/goals/all"
+                      params={{ agentId }}
+                      search={{ mode: "history" }}
+                    />
+                  }
+                  variant="outline"
+                  size="xs"
+                >
+                  {t("hub.viewAll")}
+                </Button>
+              }
+            />
             <div className="overflow-hidden rounded-xl border border-border">
               {recentDone.map((entry) => {
                 const d = entry.kind === "workflow" ? entry.latest : entry.goal;
@@ -370,30 +416,6 @@ export function OverviewPage() {
             </div>
           </section>
         )}
-      </div>
-    </div>
-  );
-}
-
-function StatCard({ num, label, tone }: { num: number; label: string; tone?: "attn" | "live" }) {
-  return (
-    <div
-      className={cn(
-        "rounded-xl border border-border px-4 py-3.5",
-        tone === "attn" && "border-warning/30 bg-warning/[0.07]",
-      )}
-    >
-      <div
-        className={cn(
-          "text-[26px] font-semibold tracking-tight",
-          tone === "attn" && "text-warning-foreground",
-          tone === "live" && num > 0 && "text-success",
-        )}
-      >
-        {num}
-      </div>
-      <div className="mt-0.5 truncate text-xs text-muted-foreground" title={label}>
-        {label}
       </div>
     </div>
   );
@@ -520,10 +542,10 @@ function NeedsYouCard({
       tabIndex={0}
       onClick={onOpen}
       onKeyDown={(e) => e.target === e.currentTarget && e.key === "Enter" && onOpen()}
-      className={cn(
-        "cursor-pointer rounded-xl border border-border border-l-[3px] px-4 py-3.5 hover:bg-muted/40",
-        isReview ? "border-l-primary" : "border-l-warning",
-      )}
+      // Same card as every other section's. The section's rail already says
+      // these are waiting on you; a second accent per card only repeats it,
+      // and the hook label above the title says which kind of waiting it is.
+      className="cursor-pointer rounded-xl border border-border px-4 py-3.5 hover:bg-muted/40"
     >
       <div className="text-xs font-medium text-muted-foreground">{hookLabel(t, d)}</div>
       <div className="mt-1 text-sm font-semibold">{d.title}</div>

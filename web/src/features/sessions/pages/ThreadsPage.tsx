@@ -94,7 +94,7 @@ export function ThreadsPage() {
   useEffect(() => {
     setHeaderTitle(
       <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">
-        {t("threads.title")}
+        {t("sidebar.conversations")}
       </h1>,
     );
     setHeaderActions(null);
