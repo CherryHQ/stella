@@ -19,9 +19,9 @@ const (
 	// representative fixture/assertions for the newly crossed migrations turns
 	// this test into a green lie.
 	previousGAVersion = int64(20260725161331)
-	// Knowledge V1 is the first post-anchor migration. The assertions below
-	// exercise its file, ChunkSet, chunk, and active-publication schema.
-	currentMigrationVersion = sequentialAnchor + 3
+	// Knowledge V1 and channel guest sessions are the post-anchor migrations
+	// exercised by the assertions below.
+	currentMigrationVersion = sequentialAnchor + 4
 
 	previousGAUserID         = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID        = "00000000-0000-0000-0000-000000000002"
@@ -35,6 +35,8 @@ const (
 	previousGAKnowledgeFile  = "00000000-0000-0000-0000-000000000041"
 	previousGAChunkSet       = "00000000-0000-0000-0000-000000000042"
 	previousGAChunk          = "00000000-0000-0000-0000-000000000043"
+	previousGAGuestID        = "00000000-0000-0000-0000-000000000044"
+	previousGAGuestChatID    = "00000000-0000-0000-0000-000000000045"
 	previousGAAgentID        = "previous-ga-agent"
 	previousGACascadeAgentID = "previous-ga-cascade-agent"
 	previousGAProviderID     = "previous-ga-provider"
@@ -335,6 +337,43 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	if got := count("credentials after Provider cascade", `SELECT count(*) FROM agent_provider_credential WHERE provider_id = $1`, previousGAProviderID); got != 0 {
 		t.Fatalf("credential rows after Provider delete = %d, want 0", got)
 	}
+
+	// Exercise durable channel guest identity and its active Agent conversation
+	// after upgrading the previous GA database.
+	if _, err := db.Exec(ctx, `
+		INSERT INTO channel (id, name, type, agent_id, enabled, created_at, updated_at)
+		VALUES ('previous-ga-discord', 'Previous GA Discord', 'discord', $1, true, $2, $2)
+	`, previousGAAgentID, previousGATime); err != nil {
+		t.Fatalf("insert Discord channel after previous-GA upgrade: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO channel_guest (id, channel_id, platform, external_id, created_at, updated_at)
+		VALUES ($1, 'previous-ga-discord', 'discord', 'previous-ga-user', $2, $2)
+	`, previousGAGuestID, previousGATime); err != nil {
+		t.Fatalf("insert channel guest after previous-GA upgrade: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO ctx_conversation (
+			id, session_id, channel, kind, agent_id, user_id, guest_id,
+			last_active, created_at, updated_at
+		) VALUES ($1, 'previous-ga-agent:guest:discord', 'discord', 'chat', $2, $3::text, $3::uuid, $4, $4, $4)
+	`, previousGAGuestChatID, previousGAAgentID, previousGAGuestID, previousGATime); err != nil {
+		t.Fatalf("insert guest conversation after previous-GA upgrade: %v", err)
+	}
+	if got := count("channel guest conversation", `
+		SELECT count(*)
+		FROM ctx_conversation AS conversation
+		JOIN channel_guest AS guest ON guest.id = conversation.guest_id
+		WHERE conversation.id = $1 AND guest.channel_id = 'previous-ga-discord'
+	`, previousGAGuestChatID); got != 1 {
+		t.Fatalf("channel guest conversations = %d, want 1", got)
+	}
+	_, err = db.Exec(ctx, `
+		INSERT INTO ctx_conversation (
+			id, session_id, channel, kind, agent_id, user_id, guest_id
+		) VALUES ('00000000-0000-0000-0000-000000000046', 'previous-ga-agent:guest:duplicate', 'discord', 'chat', $1, $2::text, $2::uuid)
+	`, previousGAAgentID, previousGAGuestID)
+	assertConstraintViolation(t, err, "idx_one_agent_guest_chat")
 
 	// Exercise the complete Knowledge snapshot publication relationship after
 	// upgrading the previous GA database, rather than checking table names only.
