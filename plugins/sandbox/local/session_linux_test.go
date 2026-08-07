@@ -80,6 +80,37 @@ func TestWrapCommand_linux_allowAllNoWrap(t *testing.T) {
 	}
 }
 
+func TestWrapCommandLinuxBindsEachSessionTempMountOnce(t *testing.T) {
+	skipIfBwrapNotFunctional(t)
+
+	workspace := t.TempDir()
+	tmp, varTmp := t.TempDir(), t.TempDir()
+	tmpMounts := []tmpMount{
+		{sandboxPath: "/tmp", realPath: tmp},
+		{sandboxPath: "/var/tmp", realPath: varTmp},
+	}
+	layout := layoutFor(workspace, workspace,
+		hostlayout.Mount{Source: workspace, Target: sandboxpkg.PathWorkspace, Access: hostlayout.ReadWrite},
+		hostlayout.Mount{Source: tmp, Target: "/tmp", Access: hostlayout.ReadWrite},
+		hostlayout.Mount{Source: varTmp, Target: "/var/tmp", Access: hostlayout.ReadWrite},
+	)
+	_, args, err := wrapCommand(sandboxpkg.Policy{Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll}}, layout, sandboxpkg.PathWorkspace, tmpMounts, "", "sh", []string{"-c", "true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, temp := range tmpMounts {
+		count := 0
+		for i := range args {
+			if args[i] == "--bind" && i+2 < len(args) && args[i+1] == temp.realPath && args[i+2] == temp.sandboxPath {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Errorf("bind %q -> %q appears %d times; want once: %v", temp.realPath, temp.sandboxPath, count, args)
+		}
+	}
+}
+
 // TestWrapCommand_linux_bwrapWorkspaceRemap verifies that when bwrap is
 // available, the args include --dir /workspace, --bind <realRoot> /workspace,
 // and --chdir <sandboxCwd>.
