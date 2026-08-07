@@ -80,7 +80,7 @@ type HomeSkillPublisher struct {
 	core  managedSkillPublicationCore
 
 	revisionTelemetry *RevisionTelemetry
-	catalogRoot       func(*home.SkillRoot) (FilesystemCatalogRoot, error)
+	catalogRoot       func(context.Context, *home.SkillRoot) (FilesystemCatalogRoot, error)
 }
 
 func NewHomeSkillPublisher(homes HomeSkillFilesystemAccess) (*HomeSkillPublisher, error) {
@@ -94,7 +94,7 @@ func NewHomeSkillPublisher(homes HomeSkillFilesystemAccess) (*HomeSkillPublisher
 // revision observation after verified publication. The resolver remains opaque:
 // it maps an already validated typed root to a catalog root without exposing a
 // Home record, attachment, locator, or host path.
-func NewHomeSkillPublisherWithRevisionTelemetry(homes HomeSkillFilesystemAccess, telemetry *RevisionTelemetry, catalogRoot func(*home.SkillRoot) (FilesystemCatalogRoot, error)) (*HomeSkillPublisher, error) {
+func NewHomeSkillPublisherWithRevisionTelemetry(homes HomeSkillFilesystemAccess, telemetry *RevisionTelemetry, catalogRoot func(context.Context, *home.SkillRoot) (FilesystemCatalogRoot, error)) (*HomeSkillPublisher, error) {
 	publisher, err := NewHomeSkillPublisher(homes)
 	if err != nil {
 		return nil, err
@@ -124,6 +124,9 @@ func (p *HomeSkillPublisher) Unpublish(ctx context.Context, request HomeSkillUnp
 	if p == nil || p.homes == nil {
 		return errors.New("skills: Home Skill publisher is unavailable")
 	}
+	// Unpublication only unlinks the direct selection; immutable revisions stay
+	// retained unchanged, so the cached retained-revision count/bytes/age needs
+	// no refresh. Phase 3 owns eventual reclamation.
 	return p.core.unpublish(ctx, request, p.homes.UseSkillFilesystem)
 }
 
@@ -131,7 +134,7 @@ func (p *HomeSkillPublisher) observeVerifiedPublication(ctx context.Context, roo
 	if p.revisionTelemetry == nil {
 		return
 	}
-	catalogRoot, err := p.catalogRoot(root)
+	catalogRoot, err := p.catalogRoot(ctx, root)
 	if err != nil {
 		slog.Warn("Home Skill revision telemetry failed after publication", "reason", "root_unavailable")
 		return

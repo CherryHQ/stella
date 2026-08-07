@@ -5,9 +5,11 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"log/slog"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -17,6 +19,125 @@ import (
 type catalogInventory []HomeCatalogRoot
 
 func (i catalogInventory) ListRoots(context.Context) ([]HomeCatalogRoot, error) { return i, nil }
+
+type cancellationInventory struct{ called int }
+
+func (i *cancellationInventory) ListRoots(context.Context) ([]HomeCatalogRoot, error) {
+	i.called++
+	return []HomeCatalogRoot{{Scope: "system"}}, nil
+}
+
+type startupObservationHomes struct {
+	filesystems  []sandbox.Filesystem
+	observations []home.SkillRootObservation
+	next         int
+	opened       int
+}
+
+func (h *startupObservationHomes) SkillRootObservation(context.Context, *home.SkillRoot) (home.SkillRootObservation, error) {
+	if h.next >= len(h.observations) {
+		return home.SkillRootObservation{}, errors.New("unexpected root observation")
+	}
+	observation := h.observations[h.next]
+	h.next++
+	return observation, nil
+}
+
+func (h *startupObservationHomes) UseExistingSkillFilesystem(_ context.Context, _ *home.SkillRoot, use func(sandbox.Filesystem) error) (bool, error) {
+	index := h.next - 1
+	if index < 0 || index >= len(h.filesystems) {
+		return false, errors.New("unexpected existing root")
+	}
+	filesystem := h.filesystems[index]
+	if filesystem == nil {
+		return false, nil
+	}
+	h.opened++
+	return true, use(filesystem)
+}
+
+func TestHomeCatalogStartupRevisionObservationInventoriesEveryReadyRoot(t *testing.T) {
+	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+	telemetry, err := NewRevisionTelemetry(RevisionTelemetryConfig{Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstFS, _, firstDir := revisionTestRoot(t, "first", "system")
+	secondFS, _, secondDir := revisionTestRoot(t, "second", "user")
+	thirdFS, _, thirdDir := revisionTestRoot(t, "third", "user_agent")
+	writeRevisionTree(t, firstDir, "one", revisionDigest, map[string]string{"SKILL.md": "a"}, now)
+	writeRevisionTree(t, secondDir, "two", revisionDigest, map[string]string{"SKILL.md": "bc"}, now)
+	writeRevisionTree(t, thirdDir, "three", revisionDigest, map[string]string{"SKILL.md": "def"}, now)
+	homes := &startupObservationHomes{
+		filesystems:  []sandbox.Filesystem{firstFS, secondFS, thirdFS, nil},
+		observations: []home.SkillRootObservation{{Scope: "system", OpaqueID: "root-system"}, {Scope: "user", OpaqueID: "root-user"}, {Scope: "user_agent", OpaqueID: "root-user-agent"}, {Scope: "system_agent", OpaqueID: "root-missing"}},
+	}
+	catalog, err := NewHomeCatalog(homes, catalogInventory{{Scope: "system"}, {Scope: "user", UserID: "u"}, {Scope: "user_agent", UserID: "u", AgentID: "a"}, {Scope: "system_agent", AgentID: "a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog.ObserveRetainedRevisions(context.Background(), telemetry)
+	if homes.opened != 3 {
+		t.Fatalf("opened roots = %d, want 3; missing root must not be created", homes.opened)
+	}
+	telemetry.mu.RLock()
+	defer telemetry.mu.RUnlock()
+	if len(telemetry.observed) != 3 {
+		t.Fatalf("observed roots = %#v", telemetry.observed)
+	}
+	for rootID, want := range map[string]int64{"root-system": 1, "root-user": 1, "root-user-agent": 1} {
+		observation, ok := telemetry.observed[revisionRootKey{scope: map[string]string{"root-system": "system", "root-user": "user", "root-user-agent": "user_agent"}[rootID], homeID: rootID, root: sandbox.PathWorkspace}]
+		if !ok || observation.count != want {
+			t.Fatalf("root %q observation = %+v, exists=%t", rootID, observation, ok)
+		}
+	}
+}
+
+func TestHomeCatalogStartupRevisionObservationScanFailureIsOneSanitizedWarning(t *testing.T) {
+	logs := &revisionLogHandler{}
+	telemetry, err := NewRevisionTelemetry(RevisionTelemetryConfig{Logger: slog.New(logs)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filesystem, _, _ := revisionTestRoot(t, "failed", "user")
+	failing := &revisionFilesystem{Filesystem: filesystem, list: func(context.Context, string) ([]sandbox.DirEntry, error) {
+		return nil, errors.New("private /workspace/coordinate")
+	}}
+	homes := &startupObservationHomes{filesystems: []sandbox.Filesystem{failing}, observations: []home.SkillRootObservation{{Scope: "user", OpaqueID: "root-failed"}}}
+	catalog, err := NewHomeCatalog(homes, catalogInventory{{Scope: "user", UserID: "u"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog.ObserveRetainedRevisions(context.Background(), telemetry)
+	if logs.count("skill revision telemetry collection failed") != 1 {
+		t.Fatalf("collection warnings = %d, want one", logs.count("skill revision telemetry collection failed"))
+	}
+	warning := logs.last("skill revision telemetry collection failed").attrs
+	if warning["root_id"] != "root-failed" || warning["scope"] != "user" || warning["reason"] != "scan_failed" {
+		t.Fatalf("sanitized startup warning = %#v", warning)
+	}
+}
+
+func TestHomeCatalogStartupRevisionObservationStopsOnCancellation(t *testing.T) {
+	telemetry, err := NewRevisionTelemetry(RevisionTelemetryConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inventory := &cancellationInventory{}
+	catalog, err := NewHomeCatalog(&startupObservationHomes{}, inventory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	catalog.ObserveRetainedRevisions(ctx, telemetry)
+	if inventory.called != 1 {
+		t.Fatalf("inventory calls = %d, want one", inventory.called)
+	}
+	if homes := catalog.homes.(*startupObservationHomes); homes.opened != 0 || homes.next != 0 {
+		t.Fatalf("canceled scan opened or observed roots: %+v", homes)
+	}
+}
 
 type callbackWrappingHomeCatalog struct {
 	inner HomeCatalogFilesystem

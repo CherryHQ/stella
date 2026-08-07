@@ -2,6 +2,8 @@ package home
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 
@@ -14,6 +16,14 @@ import (
 // constructors deliberately admit only the four supported user/system scopes;
 // group catalog scopes do not exist.
 type SkillRoot struct{ key Key }
+
+// SkillRootObservation is the narrow observability identity for a typed Skill
+// root. OpaqueID is a stable one-way token, never a Home record, attachment,
+// locator, path, or principal identifier.
+type SkillRootObservation struct {
+	Scope    string
+	OpaqueID string
+}
 
 func newSkillRoot(key Key) (*SkillRoot, error) {
 	if err := key.Validate(); err != nil {
@@ -54,6 +64,46 @@ func UserSkillCatalog(userID string) (*SkillRoot, error) {
 // UserAgentSkillCatalog identifies one user's Agent-specific mutable Skill catalog.
 func UserAgentSkillCatalog(userID, agentID string) (*SkillRoot, error) {
 	return newSkillRoot(Agent(UserPrincipal, userID, agentID))
+}
+
+// SkillRootObservation returns only the bounded scope and opaque identity
+// needed for aggregate retained-revision observation. It re-resolves the ready
+// storage_home row in one standalone query; no transaction or owner lock spans
+// a filesystem callback.
+func (r *Registry) SkillRootObservation(ctx context.Context, root *SkillRoot) (SkillRootObservation, error) {
+	if r == nil || root == nil {
+		return SkillRootObservation{}, errors.New("home: Skill root observation is unavailable")
+	}
+	if _, err := newSkillRoot(root.key); err != nil {
+		return SkillRootObservation{}, err
+	}
+	row, err := r.get(ctx, root.key)
+	if err != nil {
+		return SkillRootObservation{}, fmt.Errorf("home: get Skill root observation: %w", err)
+	}
+	record, err := r.decode(row)
+	if err != nil || record.Key != root.key || record.State != StateReady {
+		return SkillRootObservation{}, errors.New("home: stale or unavailable Skill root observation")
+	}
+	scope := ""
+	switch root.key.Kind {
+	case SystemSkillRoot:
+		scope = "system"
+	case SystemAgentSkillRoot:
+		scope = "system_agent"
+	case PrincipalHome:
+		scope = "user"
+	case AgentHome:
+		scope = "user_agent"
+	}
+	return SkillRootObservation{Scope: scope, OpaqueID: OpaqueStorageHomeObservationID(record.ID)}, nil
+}
+
+// OpaqueStorageHomeObservationID is the single stable telemetry-key transform
+// for a storage_home UUID. It accepts no logical owner or physical coordinate.
+func OpaqueStorageHomeObservationID(storageHomeID string) string {
+	sum := sha256.Sum256([]byte("stella-skill-observation-v1\x00" + storageHomeID))
+	return hex.EncodeToString(sum[:])
 }
 
 // skillFilesystemStore is intentionally private: Store implementations can

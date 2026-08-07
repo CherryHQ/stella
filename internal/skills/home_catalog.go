@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"path"
 	"sort"
 	"strings"
@@ -19,6 +20,12 @@ import (
 // locator.
 type HomeCatalogFilesystem interface {
 	UseExistingSkillFilesystem(context.Context, *home.SkillRoot, func(sandbox.Filesystem) error) (bool, error)
+}
+
+// HomeSkillRootObservationAccess exposes only an opaque observation identity
+// for an already selected typed root; it cannot reveal Home coordinates.
+type HomeSkillRootObservationAccess interface {
+	SkillRootObservation(context.Context, *home.SkillRoot) (home.SkillRootObservation, error)
 }
 
 // HomeCatalogInventory supplies authoritative global identities. Directory
@@ -156,6 +163,54 @@ func (c *HomeCatalog) ListAll(ctx context.Context) ([]HomeCatalogSkill, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Skill.ID < out[j].Skill.ID })
 	return out, nil
+}
+
+// ObserveRetainedRevisions takes one best-effort startup snapshot of every
+// authoritative ready typed root. It never ensures a missing Home, retries a
+// failed scan, or returns an error that could weaken an established authority.
+func (c *HomeCatalog) ObserveRetainedRevisions(ctx context.Context, telemetry *RevisionTelemetry) {
+	if c == nil || telemetry == nil || c.inventory == nil {
+		return
+	}
+	observations, ok := c.homes.(HomeSkillRootObservationAccess)
+	if !ok {
+		slog.Warn("skill revision telemetry startup inventory failed", "reason", "observation_unavailable")
+		return
+	}
+	roots, err := c.inventory.ListRoots(ctx)
+	if err != nil {
+		slog.Warn("skill revision telemetry startup inventory failed", "reason", "inventory_unavailable")
+		return
+	}
+	for _, coordinate := range roots {
+		if ctx.Err() != nil {
+			return
+		}
+		root, err := homeCatalogSkillRoot(coordinate)
+		if err != nil {
+			slog.Warn("skill revision telemetry startup inventory failed", "reason", "invalid_root")
+			continue
+		}
+		catalogRoot, err := HomeSkillObservationCatalogRoot(ctx, observations, root)
+		if err != nil {
+			slog.Warn("skill revision telemetry startup inventory failed", "reason", "observation_unavailable")
+			continue
+		}
+		scanned := false
+		exists, err := c.homes.UseExistingSkillFilesystem(ctx, root, func(filesystem sandbox.Filesystem) error {
+			scanned = true
+			return telemetry.Observe(ctx, filesystem, catalogRoot)
+		})
+		if err != nil {
+			if !exists && errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			// Observe already emitted its path-safe warning for a scan failure.
+			if !scanned {
+				_ = telemetry.collectionFailed(catalogRoot, err)
+			}
+		}
+	}
 }
 
 func (c *HomeCatalog) LoadFile(ctx context.Context, id, filename string) (string, error) {

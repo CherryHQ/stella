@@ -151,7 +151,7 @@ func TestHomeSkillPublisherObservesOnlyVerifiedPublication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	publisher, err := NewHomeSkillPublisherWithRevisionTelemetry(homes, telemetry, func(got *home.SkillRoot) (FilesystemCatalogRoot, error) {
+	publisher, err := NewHomeSkillPublisherWithRevisionTelemetry(homes, telemetry, func(_ context.Context, got *home.SkillRoot) (FilesystemCatalogRoot, error) {
 		if got != root {
 			return FilesystemCatalogRoot{}, errors.New("wrong typed root")
 		}
@@ -160,7 +160,8 @@ func TestHomeSkillPublisherObservesOnlyVerifiedPublication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := publisher.Publish(context.Background(), validHomeSkillRequest(root)); err != nil {
+	digest, err := publisher.Publish(context.Background(), validHomeSkillRequest(root))
+	if err != nil {
 		t.Fatal(err)
 	}
 	key := revisionKey(catalogRoot)
@@ -170,14 +171,100 @@ func TestHomeSkillPublisherObservesOnlyVerifiedPublication(t *testing.T) {
 	if observation.count != 1 || observation.bytes == 0 {
 		t.Fatalf("success observation = %+v", observation)
 	}
+	update := validHomeSkillRequest(root)
+	update.ExpectedDigest = digest
+	update.Files = append(update.Files, HomeSkillFile{Path: "note.txt", Content: []byte("a retained second revision"), Mode: 0o644})
+	updatedDigest, err := publisher.Publish(context.Background(), update)
+	if err != nil {
+		t.Fatalf("update = %v", err)
+	}
+	telemetry.mu.RLock()
+	refreshed := telemetry.observed[key]
+	telemetry.mu.RUnlock()
+	if refreshed.count != 2 || refreshed.bytes <= observation.bytes {
+		t.Fatalf("post-publication refresh = %+v, before %+v", refreshed, observation)
+	}
 	if _, err := publisher.Publish(context.Background(), validHomeSkillRequest(root)); !errors.Is(err, ErrHomeSkillConflict) {
 		t.Fatalf("conflict = %v", err)
 	}
 	telemetry.mu.RLock()
 	afterConflict := telemetry.observed[key]
 	telemetry.mu.RUnlock()
-	if afterConflict != observation {
-		t.Fatalf("conflict changed telemetry: before=%+v after=%+v", observation, afterConflict)
+	if afterConflict != refreshed {
+		t.Fatalf("conflict changed telemetry: before=%+v after=%+v", refreshed, afterConflict)
+	}
+	if err := publisher.Unpublish(context.Background(), HomeSkillUnpublishRequest{Root: root, Name: "example", ExpectedDigest: updatedDigest}); err != nil {
+		t.Fatalf("unpublish = %v", err)
+	}
+	telemetry.mu.RLock()
+	afterUnpublish := telemetry.observed[key]
+	telemetry.mu.RUnlock()
+	if afterUnpublish != refreshed {
+		t.Fatalf("unpublication changed retained-revision telemetry: before=%+v after=%+v", refreshed, afterUnpublish)
+	}
+}
+
+func TestHomeSkillPublisherRefreshReplacesStartupObservationForSameOpaqueRoot(t *testing.T) {
+	root := home.SystemSkillCatalog()
+	initialPublisher, homes := testHomeSkillPublisher(t, root)
+	initialDigest, err := initialPublisher.Publish(context.Background(), validHomeSkillRequest(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	telemetry, err := NewRevisionTelemetry(RevisionTelemetryConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogRoot, err := observedFilesystemCatalogRoot("system", "authoritative-opaque-root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := telemetry.Observe(context.Background(), homes.filesystems[root], catalogRoot); err != nil {
+		t.Fatalf("startup observation: %v", err)
+	}
+	publisher, err := NewHomeSkillPublisherWithRevisionTelemetry(homes, telemetry, func(context.Context, *home.SkillRoot) (FilesystemCatalogRoot, error) { return catalogRoot, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	update := validHomeSkillRequest(root)
+	update.ExpectedDigest = initialDigest
+	update.Files = append(update.Files, HomeSkillFile{Path: "second.txt", Content: []byte("second revision"), Mode: 0o644})
+	if _, err := publisher.Publish(context.Background(), update); err != nil {
+		t.Fatal(err)
+	}
+	telemetry.mu.RLock()
+	defer telemetry.mu.RUnlock()
+	if len(telemetry.observed) != 1 || telemetry.observed[revisionKey(catalogRoot)].count != 2 {
+		t.Fatalf("startup/publication observations = %#v", telemetry.observed)
+	}
+}
+
+func TestHomeSkillPublisherTelemetryResolverReceivesPublicationContext(t *testing.T) {
+	root := home.SystemSkillCatalog()
+	_, homes := testHomeSkillPublisher(t, root)
+	telemetry, err := NewRevisionTelemetry(RevisionTelemetryConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	type contextKey struct{}
+	deadline := time.Now().Add(time.Minute)
+	ctx, cancel := context.WithDeadline(context.WithValue(context.Background(), contextKey{}, "publication"), deadline)
+	defer cancel()
+	var resolverValue any
+	var resolverDeadline time.Time
+	publisher, err := NewHomeSkillPublisherWithRevisionTelemetry(homes, telemetry, func(got context.Context, _ *home.SkillRoot) (FilesystemCatalogRoot, error) {
+		resolverValue = got.Value(contextKey{})
+		resolverDeadline, _ = got.Deadline()
+		return FilesystemCatalogRoot{}, errors.New("telemetry resolver unavailable")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if digest, err := publisher.Publish(ctx, validHomeSkillRequest(root)); err != nil || digest == "" {
+		t.Fatalf("verified publication = %q, %v", digest, err)
+	}
+	if resolverValue != "publication" || !resolverDeadline.Equal(deadline) {
+		t.Fatalf("resolver context = value %v deadline %v", resolverValue, resolverDeadline)
 	}
 }
 

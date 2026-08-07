@@ -222,6 +222,29 @@ func TestUseExistingSkillFilesystemDoesNotCreateAndOpensReadyCatalog(t *testing.
 	}
 }
 
+func TestSkillRootObservationUsesReadyStorageHomeIdentityOnly(t *testing.T) {
+	r, _ := newRegistry(t)
+	ctx := context.Background()
+	root, err := UserAgentSkillCatalog("user-7", "agent-9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := r.Ensure(ctx, root.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := r.SkillRootObservation(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observation.Scope != "user_agent" || observation.OpaqueID != OpaqueStorageHomeObservationID(record.ID) {
+		t.Fatalf("observation = %+v", observation)
+	}
+	if strings.Contains(observation.OpaqueID, "user-7") || strings.Contains(observation.OpaqueID, "agent-9") || strings.Contains(observation.OpaqueID, record.Locator) {
+		t.Fatalf("observation leaked identity or locator: %+v", observation)
+	}
+}
+
 type blockingSkillStore struct {
 	Store
 	local   *LocalStore

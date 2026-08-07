@@ -103,9 +103,12 @@ func TestRevisionTelemetryWarningDedupRecoveryAndPathSafeFailure(t *testing.T) {
 	if got := logs.count("skill retained revision capacity exceeded"); got != 3 {
 		t.Fatalf("capacity warnings = %d, want 3", got)
 	}
+	if warning := logs.last("skill retained revision capacity exceeded").attrs; warning["root_id"] == "" || warning["root_id"] == "opaque-home" || warning["scope"] != "user" || warning["home_id"] != "" {
+		t.Fatalf("capacity warning identity = %#v", warning)
+	}
 	for _, record := range logs.records {
 		for key, value := range record.attrs {
-			if key != "home_id" && (value == "opaque-home" || value == sandbox.PathWorkspace || value == revisionDigest) {
+			if key != "root_id" && (value == "opaque-home" || value == sandbox.PathWorkspace || value == revisionDigest) {
 				t.Fatalf("unsafe log attr %s=%q", key, value)
 			}
 		}

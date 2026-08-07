@@ -250,7 +250,7 @@ func TestSharedSkillPublisherObservesOnlyVerifiedSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	publisher, err := NewSharedSkillPublisherWithRevisionTelemetry(&testSharedSkillHomes{filesystem: filesystem}, telemetry, func(home.Key) (FilesystemCatalogRoot, error) { return root, nil })
+	publisher, err := NewSharedSkillPublisherWithRevisionTelemetry(&testSharedSkillHomes{filesystem: filesystem}, telemetry, func(context.Context, home.Key) (FilesystemCatalogRoot, error) { return root, nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +294,7 @@ func TestSharedSkillPublisherTelemetryFailuresKeepVerifiedSuccess(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		publisher, err := NewSharedSkillPublisherWithRevisionTelemetry(&testSharedSkillHomes{filesystem: base}, telemetry, func(home.Key) (FilesystemCatalogRoot, error) {
+		publisher, err := NewSharedSkillPublisherWithRevisionTelemetry(&testSharedSkillHomes{filesystem: base}, telemetry, func(context.Context, home.Key) (FilesystemCatalogRoot, error) {
 			return FilesystemCatalogRoot{}, errors.New("/workspace/secret")
 		})
 		if err != nil {
@@ -314,7 +314,7 @@ func TestSharedSkillPublisherTelemetryFailuresKeepVerifiedSuccess(t *testing.T) 
 			t.Fatal(err)
 		}
 		failing := &telemetryFailFilesystem{Filesystem: base}
-		publisher, err := NewSharedSkillPublisherWithRevisionTelemetry(&testSharedSkillHomes{filesystem: failing}, telemetry, func(home.Key) (FilesystemCatalogRoot, error) { return root, nil })
+		publisher, err := NewSharedSkillPublisherWithRevisionTelemetry(&testSharedSkillHomes{filesystem: failing}, telemetry, func(context.Context, home.Key) (FilesystemCatalogRoot, error) { return root, nil })
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -346,7 +346,7 @@ func TestSharedSkillPublisherTelemetrySkipsPrevalidationAndUnknownOutcome(t *tes
 		t.Fatal(err)
 	}
 	publisher.revisionTelemetry = telemetry
-	publisher.catalogRoot = func(home.Key) (FilesystemCatalogRoot, error) { return root, nil }
+	publisher.catalogRoot = func(context.Context, home.Key) (FilesystemCatalogRoot, error) { return root, nil }
 	bad := validSharedSkillRequest()
 	bad.Name = "bad/name"
 	if _, err := publisher.Publish(context.Background(), bad); err == nil {

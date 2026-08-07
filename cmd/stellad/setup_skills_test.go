@@ -47,7 +47,7 @@ func TestHomeSkillAuthorityCompositionFreshMarkerUsesOnlyHomeCurrentState(t *tes
 	if err := skills.EnsureSkillHomeAuthority(ctx, db, registry); err != nil {
 		t.Fatalf("EnsureSkillHomeAuthority: %v", err)
 	}
-	authority, err := setupHomeSkillAuthority(db, registry)
+	authority, err := setupHomeSkillAuthority(ctx, db, registry)
 	if err != nil {
 		t.Fatalf("setupHomeSkillAuthority: %v", err)
 	}
@@ -102,6 +102,21 @@ func TestHomeSkillAuthorityMarkerGateRejectsLegacyBeforeConstruction(t *testing.
 	}
 	if _, err := q.GetStorageMigration(ctx, skills.SkillHomeAuthorityMigration); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("marker = %v, want missing", err)
+	}
+}
+
+func TestProductionRevisionTelemetryWiringUsesNonzeroThresholds(t *testing.T) {
+	if productionRevisionWarningCount <= 0 || productionRevisionWarningBytes <= 0 || productionRevisionScanEntries <= 8*(512+2) || productionRevisionScanBytes <= productionRevisionWarningBytes {
+		t.Fatalf("production retained-revision thresholds/limits are unreachable: count=%d bytes=%d entries=%d scan_bytes=%d", productionRevisionWarningCount, productionRevisionWarningBytes, productionRevisionScanEntries, productionRevisionScanBytes)
+	}
+	source, err := os.ReadFile("setup_skills.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"skills.NewRevisionTelemetry", "skills.NewHomeSkillPublisherWithRevisionTelemetry", "catalog.ObserveRetainedRevisions", "skills.HomeSkillObservationCatalogRoot"} {
+		if !strings.Contains(string(source), required) {
+			t.Errorf("production retained-revision telemetry is missing %q", required)
+		}
 	}
 }
 

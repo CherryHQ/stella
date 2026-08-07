@@ -176,7 +176,7 @@ func (t *RevisionTelemetry) Observe(ctx context.Context, filesystem sandbox.File
 func (t *RevisionTelemetry) collectionFailed(root FilesystemCatalogRoot, err error) error {
 	// Filesystem errors commonly embed a canonical path; log only a stable
 	// category so collection failures cannot expose provider coordinates.
-	t.logger.Warn("skill revision telemetry collection failed", "home_id", root.homeID, "scope", root.scope, "reason", revisionCollectionReason(err))
+	t.logger.Warn("skill revision telemetry collection failed", "root_id", root.homeID, "scope", root.scope, "reason", revisionCollectionReason(err))
 	return fmt.Errorf("skills: collect retained revisions: %w", err)
 }
 
@@ -255,7 +255,7 @@ func (t *RevisionTelemetry) warnIfNeededLocked(root FilesystemCatalogRoot, key r
 		return
 	}
 	t.breached[key] = observation
-	t.logger.Warn("skill retained revision capacity exceeded", "home_id", root.homeID, "scope", root.scope, "count", observation.count, "bytes", observation.bytes, "oldest_age", observation.oldestAge, "count_threshold", t.thresholds.Count, "bytes_threshold", t.thresholds.Bytes)
+	t.logger.Warn("skill retained revision capacity exceeded", "root_id", root.homeID, "scope", root.scope, "count", observation.count, "bytes", observation.bytes, "oldest_age", observation.oldestAge, "count_threshold", t.thresholds.Count, "bytes_threshold", t.thresholds.Bytes)
 }
 
 func scanRetainedRevisions(ctx context.Context, filesystem sandbox.Filesystem, root FilesystemCatalogRoot, limits RevisionScanLimits, now time.Time) (revisionObservation, error) {

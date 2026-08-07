@@ -57,7 +57,7 @@ type SharedSkillPublisher struct {
 	homes             SharedSkillFilesystemAccess
 	core              managedSkillPublicationCore
 	revisionTelemetry *RevisionTelemetry
-	catalogRoot       func(home.Key) (FilesystemCatalogRoot, error)
+	catalogRoot       func(context.Context, home.Key) (FilesystemCatalogRoot, error)
 }
 
 func NewSharedSkillPublisher(homes SharedSkillFilesystemAccess) (*SharedSkillPublisher, error) {
@@ -70,7 +70,7 @@ func NewSharedSkillPublisher(homes SharedSkillFilesystemAccess) (*SharedSkillPub
 // NewSharedSkillPublisherWithRevisionTelemetry adds best-effort retained
 // revision observation after verified publications. The resolver is supplied by
 // the authority wiring because only it can bind a Home to an opaque catalog root.
-func NewSharedSkillPublisherWithRevisionTelemetry(homes SharedSkillFilesystemAccess, telemetry *RevisionTelemetry, catalogRoot func(home.Key) (FilesystemCatalogRoot, error)) (*SharedSkillPublisher, error) {
+func NewSharedSkillPublisherWithRevisionTelemetry(homes SharedSkillFilesystemAccess, telemetry *RevisionTelemetry, catalogRoot func(context.Context, home.Key) (FilesystemCatalogRoot, error)) (*SharedSkillPublisher, error) {
 	publisher, err := NewSharedSkillPublisher(homes)
 	if err != nil {
 		return nil, err
@@ -137,7 +137,7 @@ func (p *SharedSkillPublisher) observeVerifiedPublication(ctx context.Context, k
 	if p.revisionTelemetry == nil {
 		return
 	}
-	root, err := p.catalogRoot(key)
+	root, err := p.catalogRoot(ctx, key)
 	if err != nil {
 		slog.Warn("shared Skill revision telemetry failed after publication", "reason", "root_unavailable")
 		return

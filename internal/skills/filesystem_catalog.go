@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/CherryHQ/stella/internal/home"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 )
@@ -199,7 +200,7 @@ func newFilesystemCatalogRoot(root string, attachment sandbox.HomeAttachment, sc
 	// The attachment remains an input for source compatibility and to retain the
 	// trusted call-site boundary. Catalog identity must not depend on the mutable
 	// Home record or its locator, however.
-	catalogRoot := FilesystemCatalogRoot{root: root, scope: scope, userID: userID, agentID: agentID, homeID: attachment.HomeID}
+	catalogRoot := FilesystemCatalogRoot{root: root, scope: scope, userID: userID, agentID: agentID, homeID: home.OpaqueStorageHomeObservationID(attachment.HomeID)}
 	if err := validateFilesystemCatalogScope(catalogRoot); err != nil {
 		return FilesystemCatalogRoot{}, err
 	}
@@ -215,6 +216,33 @@ func filesystemCatalogRoot(scope, userID, agentID string) (FilesystemCatalogRoot
 		return FilesystemCatalogRoot{}, err
 	}
 	return catalogRoot, nil
+}
+
+// HomeSkillObservationCatalogRoot translates the narrow Home observation
+// capability into a telemetry coordinate without exposing its opaque token to
+// callers outside this package.
+func HomeSkillObservationCatalogRoot(ctx context.Context, observations HomeSkillRootObservationAccess, root *home.SkillRoot) (FilesystemCatalogRoot, error) {
+	if observations == nil {
+		return FilesystemCatalogRoot{}, errors.New("skills: Home Skill root observation is required")
+	}
+	observation, err := observations.SkillRootObservation(ctx, root)
+	if err != nil {
+		return FilesystemCatalogRoot{}, err
+	}
+	return observedFilesystemCatalogRoot(observation.Scope, observation.OpaqueID)
+}
+
+// observedFilesystemCatalogRoot creates the telemetry-only coordinate from
+// Home's narrow opaque token. It is private so no caller can substitute a
+// principal, locator, path, or raw Home ID.
+func observedFilesystemCatalogRoot(scope, opaqueID string) (FilesystemCatalogRoot, error) {
+	if opaqueID == "" {
+		return FilesystemCatalogRoot{}, errors.New("skills: opaque filesystem catalog observation identity is required")
+	}
+	if scope != "system" && scope != "system_agent" && scope != "user" && scope != "user_agent" {
+		return FilesystemCatalogRoot{}, errors.New("skills: invalid observed filesystem catalog scope")
+	}
+	return FilesystemCatalogRoot{root: sandbox.PathWorkspace, scope: scope, homeID: opaqueID}, nil
 }
 
 func validateFilesystemCatalogScope(scope FilesystemCatalogRoot) error {

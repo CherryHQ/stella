@@ -231,7 +231,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err := skills.EnsureSkillHomeAuthority(parent, db, homeRegistry); err != nil {
 		return nil, err
 	}
-	skillAuthority, err := setupHomeSkillAuthority(db, homeRegistry)
+	skillAuthority, err := setupHomeSkillAuthority(parent, db, homeRegistry)
 	if err != nil {
 		return nil, fmt.Errorf("build Home Skill authority: %w", err)
 	}
