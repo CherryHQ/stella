@@ -160,6 +160,51 @@ type fsMockSession struct {
 	err error
 }
 
+type projectorMockSession struct {
+	*mockSession
+	input  string
+	output string
+	ok     bool
+	calls  int
+}
+
+func (m *projectorMockSession) ProjectFilesystemPath(input string) (string, bool) {
+	m.calls++
+	m.input = input
+	return m.output, m.ok
+}
+
+func TestResilientSession_ProjectFilesystemPathForwardsExactlyOnce(t *testing.T) {
+	inner := &projectorMockSession{mockSession: newMockSession(), output: "/workspace/project", ok: true}
+	var creates atomic.Int32
+	rs := NewResilientSession(inner, func(context.Context) (Session, error) { creates.Add(1); return nil, nil })
+	got, ok := rs.ProjectFilesystemPath("/host/project")
+	if !ok || got != "/workspace/project" || inner.input != "/host/project" || inner.calls != 1 || creates.Load() != 0 {
+		t.Fatalf("projection = %q/%v input=%q calls=%d creates=%d", got, ok, inner.input, inner.calls, creates.Load())
+	}
+}
+
+func TestResilientSession_ProjectFilesystemPathFailsClosed(t *testing.T) {
+	var creates atomic.Int32
+	creator := func(context.Context) (Session, error) { creates.Add(1); return newMockSession(), nil }
+	for _, rs := range []*ResilientSession{
+		NewResilientSession(newMockSession(), creator),
+		NewResilientSession(nil, creator),
+	} {
+		if got, ok := rs.ProjectFilesystemPath("/host/project"); ok || got != "" {
+			t.Fatalf("projection = %q/%v", got, ok)
+		}
+	}
+	closed := NewResilientSession(&projectorMockSession{mockSession: newMockSession(), output: "/workspace/project", ok: true}, creator)
+	_ = closed.Close()
+	if got, ok := closed.ProjectFilesystemPath("/host/project"); ok || got != "" {
+		t.Fatalf("closed projection = %q/%v", got, ok)
+	}
+	if creates.Load() != 0 {
+		t.Fatalf("creator called %d times", creates.Load())
+	}
+}
+
 func (m fsMockSession) Filesystem() (Filesystem, error) { return m.fs, m.err }
 
 func TestResilientSession_FilesystemForwardsToInner(t *testing.T) {

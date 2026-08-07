@@ -13,6 +13,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/authz"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -68,12 +69,14 @@ var skillsInputSchema = func() map[string]any {
 const runtimeUsageTouchTimeout = 500 * time.Millisecond
 
 type Tool struct {
-	svc         *Service
-	store       pkgplugins.SkillStore
-	stellaHome  string
-	projectRoot string
-	actionsOnly map[string]bool
-	view        SkillDirView
+	svc                *Service
+	store              pkgplugins.SkillStore
+	stellaHome         string
+	projectRoot        string
+	runtimeFS          sandbox.FilesystemSession
+	runtimeProjectRoot string
+	actionsOnly        map[string]bool
+	view               SkillDirView
 	// Plugin visibility is captured at runner construction so tool search and
 	// prompt search instructions use the same visible system-skill set.
 	registeredPluginIDs []string
@@ -116,6 +119,28 @@ func NewTool(store pkgplugins.SkillStore, stellaHome, projectRoot string) *Tool 
 func (t *Tool) WithSkillDirView(v SkillDirView) *Tool {
 	t.view = v
 	return t
+}
+
+// WithRuntimeFilesystem makes runner project Skill access use only its
+// mediated filesystem; root is a canonical sandbox coordinate.
+func (t *Tool) WithRuntimeFilesystem(session sandbox.FilesystemSession, root string) *Tool {
+	t.runtimeFS, t.runtimeProjectRoot = session, root
+	return t
+}
+
+func (t *Tool) withRuntimeFilesystem(fn func(sandbox.Filesystem) error) (err error) {
+	if t.runtimeFS == nil || t.runtimeProjectRoot == "" {
+		return fn(nil)
+	}
+	filesystem, err := t.runtimeFS.Filesystem()
+	if err != nil {
+		return err
+	}
+	if filesystem == nil {
+		return errors.New("skills: sandbox returned a nil filesystem")
+	}
+	defer func() { err = errors.Join(err, filesystem.Close()) }()
+	return fn(filesystem)
 }
 
 // WithPluginVisibility limits plugin-owned system skills to enabled plugins.
@@ -316,6 +341,31 @@ func (v SkillDirView) homeDirectory(scope, relative string) string {
 		return path.Join(root, relative)
 	}
 	return filepath.Join(root, filepath.FromSlash(relative))
+}
+
+// projectDirectory projects a canonical project Skill coordinate only at the
+// final model/execution boundary. Filesystem operations retain canonical paths.
+func (v SkillDirView) projectDirectory(canonical string) string {
+	if !sandbox.IsCanonicalFilesystemPath(canonical) || canonical == sandbox.PathWorkspace || !strings.HasPrefix(canonical, sandbox.PathWorkspace+"/") {
+		return ""
+	}
+	relative := strings.TrimPrefix(canonical, sandbox.PathWorkspace+"/")
+	if relative == "" || path.Clean(relative) != relative || strings.Contains(relative, `\`) {
+		return ""
+	}
+	if v.WorkspaceView == "" {
+		return ""
+	}
+	if v.Isolated {
+		if v.WorkspaceView != sandbox.PathWorkspace {
+			return ""
+		}
+		return path.Join(v.WorkspaceView, relative)
+	}
+	if !filepath.IsAbs(v.WorkspaceView) || filepath.Clean(v.WorkspaceView) != v.WorkspaceView {
+		return ""
+	}
+	return filepath.Join(v.WorkspaceView, filepath.FromSlash(relative))
 }
 
 // apply remaps hostDir to its model-visible path. It returns "" to omit the dir
@@ -519,8 +569,22 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 	path, _ := args["path"].(string)
 	projectRoot := projectRootFromContext(ctx, t.projectRoot)
 	vc := t.viewContext(ctx)
-
-	data, skillDir, resolved, err := t.svc.LoadFile(ctx, name, path, vc, projectRoot)
+	var data, skillDir string
+	var resolved *ResolvedSkill
+	var err error
+	if t.runtimeFS != nil {
+		projectRoot = t.runtimeProjectRoot
+		err = t.withRuntimeFilesystem(func(filesystem sandbox.Filesystem) error {
+			if filesystem == nil {
+				data, skillDir, resolved, err = t.svc.LoadFile(ctx, name, path, vc, "")
+			} else {
+				data, skillDir, resolved, err = t.svc.LoadFileFromFilesystem(ctx, name, path, vc, filesystem, projectRoot)
+			}
+			return err
+		})
+	} else {
+		data, skillDir, resolved, err = t.svc.LoadFile(ctx, name, path, vc, projectRoot)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -544,9 +608,12 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 	// Home loads carry only a validated catalog-relative directory. Legacy and
 	// project/builtin paths retain their existing behavior; PostgreSQL Skills no
 	// longer acquire a host scratch mirror.
-	if resolved != nil && resolved.homeDir != "" {
+	switch {
+	case resolved != nil && resolved.Scope == "project" && t.runtimeFS != nil:
+		skillDir = t.view.projectDirectory(skillDir)
+	case resolved != nil && resolved.homeDir != "":
 		skillDir = t.view.homeDirectory(resolved.Scope, resolved.homeDir)
-	} else {
+	default:
 		skillDir = t.view.apply(skillDir)
 	}
 
@@ -589,8 +656,21 @@ type installedSkill struct {
 func (t *Tool) list(ctx context.Context) (string, error) {
 	projectRoot := projectRootFromContext(ctx, t.projectRoot)
 	vc := t.viewContext(ctx)
-
-	merged, err := t.svc.ListMerged(ctx, vc, projectRoot)
+	var merged []ResolvedSkill
+	var err error
+	if t.runtimeFS != nil {
+		projectRoot = t.runtimeProjectRoot
+		err = t.withRuntimeFilesystem(func(filesystem sandbox.Filesystem) error {
+			if filesystem == nil {
+				merged, err = t.svc.ListMerged(ctx, vc, "")
+			} else {
+				merged, err = t.svc.ListMergedFromFilesystem(ctx, vc, filesystem, projectRoot)
+			}
+			return err
+		})
+	} else {
+		merged, err = t.svc.ListMerged(ctx, vc, projectRoot)
+	}
 	if err != nil {
 		return "", fmt.Errorf("list skills: %w", err)
 	}

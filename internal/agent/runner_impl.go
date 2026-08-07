@@ -109,6 +109,20 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		if err != nil {
 			return nil, fmt.Errorf("runner: %w", err)
 		}
+		if session == nil {
+			return nil, fmt.Errorf("runner: sandbox session is unavailable")
+		}
+		paths, err := sandbox.ResolvePaths(cfg.Sandbox)
+		if err != nil {
+			_ = session.Close()
+			return nil, fmt.Errorf("runner: %w", err)
+		}
+		if cfg.SkillStore != nil {
+			if _, err := runtimeProjectSkillRoot(paths, session); err != nil {
+				_ = session.Close()
+				return nil, fmt.Errorf("runner: %w", err)
+			}
+		}
 	}
 
 	if systemPrompt == "" {

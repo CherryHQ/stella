@@ -9,6 +9,7 @@ import (
 	"slices"
 
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/resources"
 )
 
@@ -74,20 +75,62 @@ func (s *Service) ListMerged(ctx context.Context, vc pkgplugins.SkillViewContext
 			return nil, fmt.Errorf("list db skills: %w", err)
 		}
 	}
-	return filterDisabled(s.mergeSkills(dbSkills, projectRoot), vc.DisabledSkillRefs), nil
+	merged, err := s.mergeSkills(ctx, dbSkills, hostProjectSource{root: projectRoot}, true)
+	if err != nil {
+		return nil, err
+	}
+	return filterDisabled(merged, vc.DisabledSkillRefs), nil
 }
 
 // ListMergedWithDB merges the given DB skills with FS skills.
 // Use this when the caller needs a different DB query (e.g. including disabled skills).
 func (s *Service) ListMergedWithDB(dbSkills []pkgplugins.Skill, projectRoot string) []ResolvedSkill {
-	return s.mergeSkills(dbSkills, projectRoot)
+	merged, _ := s.mergeSkills(context.Background(), dbSkills, hostProjectSource{root: projectRoot}, true)
+	return merged
 }
 
-func (s *Service) mergeSkills(dbSkills []pkgplugins.Skill, projectRoot string) []ResolvedSkill {
-	projSkills, projDirs, _ := ListProjectSkills(projectRoot)
+// ListMergedFromFilesystem resolves the runner project tier through its injected
+// filesystem. It intentionally has no host-project fallback.
+func (s *Service) ListMergedFromFilesystem(ctx context.Context, vc pkgplugins.SkillViewContext, filesystem sandbox.Filesystem, projectRoot string) ([]ResolvedSkill, error) {
+	project, err := newFilesystemProjectSource(filesystem, projectRoot)
+	if err != nil {
+		return nil, err
+	}
+	var dbSkills []pkgplugins.Skill
+	if s.store != nil {
+		if dbSkills, err = s.store.List(ctx, vc); err != nil {
+			return nil, fmt.Errorf("list db skills: %w", err)
+		}
+	}
+	merged, err := s.mergeSkills(ctx, dbSkills, project, false)
+	if err != nil {
+		return nil, err
+	}
+	return filterDisabled(merged, vc.DisabledSkillRefs), nil
+}
+
+func (s *Service) LoadFileFromFilesystem(ctx context.Context, name, file string, vc pkgplugins.SkillViewContext, filesystem sandbox.Filesystem, projectRoot string) (string, string, *ResolvedSkill, error) {
+	project, err := newFilesystemProjectSource(filesystem, projectRoot)
+	if err != nil {
+		return "", "", nil, err
+	}
+	return s.loadFile(ctx, name, file, vc, project, false)
+}
+
+func (s *Service) mergeSkills(ctx context.Context, dbSkills []pkgplugins.Skill, project projectSkillSource, ignoreProjectError bool) ([]ResolvedSkill, error) {
+	projSkills, projDirs, projectErr := project.list(ctx)
+	if projectErr != nil && !ignoreProjectError {
+		return nil, projectErr
+	}
+	if projectErr != nil {
+		projSkills, projDirs = nil, nil
+	}
 	builtinSkills, err := s.builtinSkills()
 	if err != nil {
-		return nil
+		if ignoreProjectError {
+			return nil, nil
+		}
+		return nil, err
 	}
 
 	seen := make(map[string]bool, len(projSkills)+len(dbSkills)+len(builtinSkills))
@@ -111,7 +154,7 @@ func (s *Service) mergeSkills(dbSkills []pkgplugins.Skill, projectRoot string) [
 		seen[sk.Name] = true
 		out = append(out, sk)
 	}
-	return out
+	return out, nil
 }
 
 // Resolve finds a skill by name across all 4 levels, honoring the scope
@@ -119,11 +162,17 @@ func (s *Service) mergeSkills(dbSkills []pkgplugins.Skill, projectRoot string) [
 // (filesystem) wins outright; DB skills (which already rank user_agent > user >
 // system_agent > system among themselves) shadow filesystem system skills.
 func (s *Service) Resolve(ctx context.Context, name string, vc pkgplugins.SkillViewContext, projectRoot string) (*ResolvedSkill, error) {
+	return s.resolve(ctx, name, vc, hostProjectSource{root: projectRoot}, true)
+}
+
+func (s *Service) resolve(ctx context.Context, name string, vc pkgplugins.SkillViewContext, project projectSkillSource, ignoreProjectError bool) (*ResolvedSkill, error) {
 	if builtinName, ok := s.builtinNameForReference(name); ok {
 		name = builtinName
 	}
-	if projectRoot != "" {
-		if rs := findFSSkill(projectRoot, "project", name); rs != nil {
+	if project != nil {
+		if rs, err := findProjectSkill(ctx, project, name); err != nil && !ignoreProjectError {
+			return nil, err
+		} else if rs != nil {
 			return filterResolved(rs, vc.DisabledSkillRefs), nil
 		}
 	}
@@ -142,6 +191,19 @@ func (s *Service) Resolve(ctx context.Context, name string, vc pkgplugins.SkillV
 		return nil, err
 	}
 	return filterResolved(rs, vc.DisabledSkillRefs), nil
+}
+
+func findProjectSkill(ctx context.Context, project projectSkillSource, name string) (*ResolvedSkill, error) {
+	skills, dirs, err := project.list(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, sk := range skills {
+		if sk.Name == name {
+			return &ResolvedSkill{Skill: sk, Dir: dirs[sk.Name]}, nil
+		}
+	}
+	return nil, nil
 }
 
 // filterDisabled runs only after precedence resolution. A disabled winner is
@@ -263,15 +325,21 @@ func scopeOwner(scope string, vc pkgplugins.SkillViewContext) (userID, agentID s
 // LoadFile loads a file from a skill resolved by name. It returns the resolved
 // record so callers can reuse the exact identity for post-load bookkeeping.
 func (s *Service) LoadFile(ctx context.Context, name, path string, vc pkgplugins.SkillViewContext, projectRoot string) (content string, skillDir string, resolved *ResolvedSkill, err error) {
+	return s.loadFile(ctx, name, path, vc, hostProjectSource{root: projectRoot}, true)
+}
+
+func (s *Service) loadFile(ctx context.Context, name, path string, vc pkgplugins.SkillViewContext, project projectSkillSource, ignoreProjectError bool) (content string, skillDir string, resolved *ResolvedSkill, err error) {
 	if path == "" {
 		path = pkgplugins.SkillMainFile
 	}
 	if builtinName, ok := s.builtinNameForReference(name); ok {
 		name = builtinName
 	}
-	if projectRoot != "" {
-		if rs := findFSSkill(projectRoot, "project", name); rs != nil {
-			data, err := loadProjectSkillFile(rs.Dir, path)
+	if project != nil {
+		if rs, projectErr := findProjectSkill(ctx, project, name); projectErr != nil && !ignoreProjectError {
+			return "", "", nil, fmt.Errorf("resolve project skill %q: %w", name, projectErr)
+		} else if rs != nil {
+			data, err := project.load(ctx, rs.Dir, path)
 			if err != nil {
 				return "", "", nil, fmt.Errorf("load project skill %q file %q: %w", name, path, err)
 			}
@@ -298,7 +366,7 @@ func (s *Service) LoadFile(ctx context.Context, name, path string, vc pkgplugins
 		}
 	}
 
-	rs, err := s.Resolve(ctx, name, vc, projectRoot)
+	rs, err := s.resolve(ctx, name, vc, project, ignoreProjectError)
 	if err != nil {
 		return "", "", nil, fmt.Errorf("resolve skill %q: %w", name, err)
 	}
@@ -314,7 +382,7 @@ func (s *Service) LoadFile(ctx context.Context, name, path string, vc pkgplugins
 		return data, rs.Dir, rs, nil
 	}
 	if rs.Dir != "" {
-		data, err := loadProjectSkillFile(rs.Dir, path)
+		data, err := project.load(ctx, rs.Dir, path)
 		if err != nil {
 			return "", "", nil, fmt.Errorf("load %s skill %q file %q: %w", rs.Scope, name, path, err)
 		}

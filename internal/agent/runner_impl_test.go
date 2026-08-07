@@ -3,8 +3,12 @@ package agent
 import (
 	"context"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -14,10 +18,31 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/pkg/renderrefs"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 type stubProvider struct{}
+
+type runtimeProjectTestSession struct {
+	pkgsandbox.Session
+	root string
+}
+
+func (s runtimeProjectTestSession) WorkingDir() string                       { return s.root }
+func (runtimeProjectTestSession) Filesystem() (pkgsandbox.Filesystem, error) { return nil, nil }
+
+type runtimeProjectProjectorSession struct {
+	runtimeProjectTestSession
+	projected string
+	ok        bool
+	input     string
+}
+
+func (s *runtimeProjectProjectorSession) ProjectFilesystemPath(input string) (string, bool) {
+	s.input = input
+	return s.projected, s.ok
+}
 
 type stubTool struct{ name string }
 
@@ -122,6 +147,93 @@ func TestGroupSkillRuntimeBoundaryExcludesPrincipalTiers(t *testing.T) {
 	}
 	if view.SystemDBSkillsView == "" || view.AgentSkillsView == "" || view.BuiltinSkillsHost == "" || paths.ProjectRoot == "" {
 		t.Fatalf("group lost retained Skill/project tiers: view=%+v project=%q", view, paths.ProjectRoot)
+	}
+}
+
+func TestRuntimeProjectSkillRootUsesSessionCoordinate(t *testing.T) {
+	paths := sandbox.Paths{ProjectRoot: "/host/private/project", WorkDir: "/host/private/project"}
+	root, err := runtimeProjectSkillRoot(paths, runtimeProjectTestSession{Session: pkgsandbox.NopSession(), root: "/workspace/projects/p"})
+	if err != nil || root != "/workspace/projects/p" {
+		t.Fatalf("root = %q, %v", root, err)
+	}
+	for _, root := range []string{"/host/private/project", "/user/project", "/workspace/../escape"} {
+		if _, err := runtimeProjectSkillRoot(paths, runtimeProjectTestSession{Session: pkgsandbox.NopSession(), root: root}); err == nil {
+			t.Fatalf("accepted %q", root)
+		}
+	}
+	projected := &runtimeProjectProjectorSession{runtimeProjectTestSession: runtimeProjectTestSession{Session: pkgsandbox.NopSession(), root: "/host/process/project"}, projected: "/workspace/projects/p", ok: true}
+	root, err = runtimeProjectSkillRoot(paths, projected)
+	if err != nil || root != "/workspace/projects/p" || projected.input != "/host/process/project" {
+		t.Fatalf("projection root=%q err=%v input=%q", root, err, projected.input)
+	}
+	for _, projectedRoot := range []string{"/user/project", "/workspace/../escape"} {
+		s := &runtimeProjectProjectorSession{runtimeProjectTestSession: runtimeProjectTestSession{Session: pkgsandbox.NopSession(), root: "/host/process/project"}, projected: projectedRoot, ok: true}
+		if _, err := runtimeProjectSkillRoot(paths, s); err == nil {
+			t.Fatalf("accepted projection %q", projectedRoot)
+		}
+	}
+	wrapped := pkgsandbox.NewResilientSession(&runtimeProjectProjectorSession{runtimeProjectTestSession: runtimeProjectTestSession{Session: pkgsandbox.NopSession(), root: "/host/process/project"}, projected: "/workspace/projects/p", ok: true}, func(context.Context) (pkgsandbox.Session, error) {
+		t.Fatal("projection must not recreate")
+		return nil, nil
+	})
+	if root, err := runtimeProjectSkillRoot(paths, wrapped); err != nil || root != "/workspace/projects/p" {
+		t.Fatalf("resilient projection root=%q err=%v", root, err)
+	}
+	if _, err := runtimeProjectSkillRoot(paths, &runtimeProjectProjectorSession{runtimeProjectTestSession: runtimeProjectTestSession{Session: pkgsandbox.NopSession(), root: "/host/process/project"}}); err == nil {
+		t.Fatal("accepted failed projection")
+	}
+}
+
+func TestBuildToolRegistrySkillsToolDoesNotReceiveHostProjectRoot(t *testing.T) {
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("caller")
+	}
+	file, err := parser.ParseFile(token.NewFileSet(), strings.TrimSuffix(filename, "_test.go")+".go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var build *ast.FuncDecl
+	for _, decl := range file.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "buildToolRegistry" {
+			build = fn
+			break
+		}
+	}
+	if build == nil {
+		t.Fatal("buildToolRegistry missing")
+	}
+	var emptyRoot, newTool, runtimeFilesystem bool
+	ast.Inspect(build.Body, func(n ast.Node) bool {
+		if assign, ok := n.(*ast.AssignStmt); ok {
+			for i, lhs := range assign.Lhs {
+				if ident, ok := lhs.(*ast.Ident); ok && ident.Name == "toolProjectRoot" && i < len(assign.Rhs) {
+					if literal, ok := assign.Rhs[i].(*ast.BasicLit); ok && literal.Kind == token.STRING && literal.Value == `""` {
+						emptyRoot = true
+					}
+				}
+			}
+		}
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		if selector.Sel.Name == "WithRuntimeFilesystem" {
+			runtimeFilesystem = true
+		}
+		if selector.Sel.Name == "NewTool" && len(call.Args) == 3 {
+			if ident, ok := call.Args[2].(*ast.Ident); ok && ident.Name == "toolProjectRoot" {
+				newTool = true
+			}
+		}
+		return true
+	})
+	if !emptyRoot || !newTool || !runtimeFilesystem {
+		t.Fatalf("skills wiring changed: empty=%v NewTool=%v runtime=%v", emptyRoot, newTool, runtimeFilesystem)
 	}
 }
 

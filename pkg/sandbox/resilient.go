@@ -25,6 +25,8 @@ type ResilientSession struct {
 	log        *slog.Logger
 }
 
+var _ FilesystemPathProjector = (*ResilientSession)(nil)
+
 // NewResilientSession wraps an existing session with auto-recreation support.
 func NewResilientSession(session Session, create SessionCreator) *ResilientSession {
 	return &ResilientSession{
@@ -83,6 +85,22 @@ func (r *ResilientSession) WorkingDir() string {
 		return ""
 	}
 	return s.WorkingDir()
+}
+
+// ProjectFilesystemPath forwards the optional projection capability without
+// recreating a session. Projection is a pure provider fact, not a retryable I/O.
+func (r *ResilientSession) ProjectFilesystemPath(input string) (string, bool) {
+	r.mu.Lock()
+	s, closed := r.inner, r.closed
+	r.mu.Unlock()
+	if closed || s == nil {
+		return "", false
+	}
+	projector, ok := s.(FilesystemPathProjector)
+	if !ok {
+		return "", false
+	}
+	return projector.ProjectFilesystemPath(input)
 }
 
 func (r *ResilientSession) Alive() bool {

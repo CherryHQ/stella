@@ -9,6 +9,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/searchrank"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 type installedSkillSearchResult struct {
@@ -29,7 +30,21 @@ func (t *Tool) searchInstalled(ctx context.Context, args map[string]any) (string
 	limit := installedSkillSearchLimit(args)
 
 	projectRoot := projectRootFromContext(ctx, t.projectRoot)
-	merged, err := t.svc.ListMerged(ctx, t.viewContext(ctx), projectRoot)
+	var merged []ResolvedSkill
+	var err error
+	if t.runtimeFS != nil {
+		projectRoot = t.runtimeProjectRoot
+		err = t.withRuntimeFilesystem(func(filesystem sandbox.Filesystem) error {
+			if filesystem == nil {
+				merged, err = t.svc.ListMerged(ctx, t.viewContext(ctx), "")
+			} else {
+				merged, err = t.svc.ListMergedFromFilesystem(ctx, t.viewContext(ctx), filesystem, projectRoot)
+			}
+			return err
+		})
+	} else {
+		merged, err = t.svc.ListMerged(ctx, t.viewContext(ctx), projectRoot)
+	}
 	if err != nil {
 		return "", fmt.Errorf("search installed skills: %w", err)
 	}
