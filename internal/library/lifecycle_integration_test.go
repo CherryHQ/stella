@@ -284,7 +284,10 @@ func TestOrphanReconciliationIsAgeBoundedAndFailClosed(t *testing.T) {
 	if err := store.Create(t.Context(), malformedKey, stringsReader("malformed")); err != nil {
 		t.Fatal(err)
 	}
-	nonCanonicalOwnedKey := RawPrefix + "/" + strings.ToUpper(liveID) + "/source"
+	// Compact UUID text remains non-canonical while mapping to a distinct path
+	// on both case-sensitive and case-insensitive filesystems.
+	compactOwnedID := strings.ReplaceAll(liveID, "-", "")
+	nonCanonicalOwnedKey := RawPrefix + "/" + compactOwnedID + "/source"
 	if err := store.Create(t.Context(), nonCanonicalOwnedKey, stringsReader("non-canonical owner")); err != nil {
 		t.Fatal(err)
 	}
