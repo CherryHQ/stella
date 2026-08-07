@@ -66,7 +66,7 @@ func TestMaybeAutoProvisionDisabled(t *testing.T) {
 	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: false, TenantKey: "t1"}, p)
 	// With a nil client, fetchTenantProfile would panic — but it should never be
 	// reached when AutoProvision is false.
-	b.maybeAutoProvision(context.Background(), "ou_open1", "on_union1", "t1")
+	b.maybeAutoProvision(context.Background(), "ou_open1", "t1")
 	if len(p.calls) != 0 {
 		t.Errorf("expected 0 calls, got %d", len(p.calls))
 	}
@@ -76,7 +76,7 @@ func TestMaybeAutoProvisionNoTenantKeyKnown(t *testing.T) {
 	// Neither cfg.TenantKey nor learnedTenantKey is set — should skip silently.
 	p := &mockProvisioner{}
 	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: ""}, p)
-	b.maybeAutoProvision(context.Background(), "ou_open1", "on_union1", "t1")
+	b.maybeAutoProvision(context.Background(), "ou_open1", "t1")
 	if len(p.calls) != 0 {
 		t.Errorf("expected 0 calls, got %d", len(p.calls))
 	}
@@ -88,7 +88,7 @@ func TestMaybeAutoProvisionLearnedTenantKey(t *testing.T) {
 	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: ""}, p)
 	b.learnedTenantKey = "t1"
 	// Wrong tenant in event: should skip.
-	b.maybeAutoProvision(context.Background(), "ou_open1", "on_union1", "wrong")
+	b.maybeAutoProvision(context.Background(), "ou_open1", "wrong")
 	if len(p.calls) != 0 {
 		t.Errorf("wrong tenant with learned key: expected 0 calls, got %d", len(p.calls))
 	}
@@ -102,13 +102,14 @@ func TestMaybeAutoProvisionNoProvisioner(t *testing.T) {
 		provisioned: make(map[string]time.Time),
 	}
 	// Should return silently without panic.
-	b.maybeAutoProvision(context.Background(), "ou_open1", "on_union1", "t1")
+	b.maybeAutoProvision(context.Background(), "ou_open1", "t1")
 }
 
-func TestMaybeAutoProvisionCacheHit(t *testing.T) {
+func TestMaybeAutoProvisionCacheHitStillVerifiesOpenID(t *testing.T) {
 	p := &mockProvisioner{}
 	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "t1"}, p)
-	// Pre-populate the cache so it looks like this user was recently provisioned.
+	// The cache avoids only enrollment; Contact still binds this open_id to the
+	// canonical union_id before the cached result is trusted.
 	b.provisioned["on_union1"] = time.Now()
 	fetches := 0
 	b.fetchTenantProfileFn = func(context.Context, string) *TenantProfile {
@@ -116,9 +117,9 @@ func TestMaybeAutoProvisionCacheHit(t *testing.T) {
 		return &TenantProfile{UnionID: "on_union1"}
 	}
 
-	b.maybeAutoProvision(context.Background(), "ou_open1", "on_union1", "t1")
-	if len(p.calls) != 0 || fetches != 0 {
-		t.Errorf("cache hit: calls=%d fetches=%d, want zero", len(p.calls), fetches)
+	b.maybeAutoProvision(context.Background(), "ou_open1", "t1")
+	if len(p.calls) != 0 || fetches != 1 {
+		t.Errorf("cache hit: calls=%d fetches=%d, want 0 and 1", len(p.calls), fetches)
 	}
 }
 
@@ -143,7 +144,7 @@ func TestMaybeAutoProvisionWrongTenantSkips(t *testing.T) {
 	p := &mockProvisioner{}
 	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "t1"}, p)
 	// Pass a different tenant key — should return before any API call.
-	b.maybeAutoProvision(context.Background(), "ou_open1", "on_union1", "wrong_tenant")
+	b.maybeAutoProvision(context.Background(), "ou_open1", "wrong_tenant")
 	if len(p.calls) != 0 {
 		t.Errorf("wrong tenant: expected 0 calls, got %d", len(p.calls))
 	}
@@ -153,7 +154,7 @@ func TestMaybeAutoProvisionNilProfileSkips(t *testing.T) {
 	p := &mockProvisioner{}
 	b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "t1"}, p)
 	b.fetchTenantProfileFn = func(context.Context, string) *TenantProfile { return nil }
-	b.maybeAutoProvision(context.Background(), "ou_open1", "on_union1", "t1")
+	b.maybeAutoProvision(context.Background(), "ou_open1", "t1")
 	if len(p.calls) != 0 {
 		t.Errorf("nil profile: expected 0 calls, got %d", len(p.calls))
 	}
@@ -167,8 +168,8 @@ func TestMaybeAutoProvisionFailsClosedWithoutEventTenantEvidence(t *testing.T) {
 		fetches++
 		return &TenantProfile{UnionID: "on_union1"}
 	}
-	b.maybeAutoProvision(context.Background(), "ou_open1", "on_event", "")
-	b.maybeAutoProvision(context.Background(), "ou_open1", "on_event", "wrong")
+	b.maybeAutoProvision(context.Background(), "ou_open1", "")
+	b.maybeAutoProvision(context.Background(), "ou_open1", "wrong")
 	if len(p.calls) != 0 || fetches != 0 {
 		t.Fatalf("calls=%d fetches=%d, want zero", len(p.calls), fetches)
 	}
@@ -181,8 +182,10 @@ func TestMaybeAutoProvisionPassesCanonicalProfileAndCachesOnlyAfterSuccess(t *te
 		return &TenantProfile{UnionID: "on_canonical", Name: "Canonical Member", Email: "canonical@example.com"}
 	}
 
-	b.maybeAutoProvision(context.Background(), "ou_open", "on_untrusted_event", "t1")
-	b.maybeAutoProvision(context.Background(), "ou_open", "on_untrusted_event", "t1")
+	if got := b.maybeAutoProvision(context.Background(), "ou_open", "t1"); got != "" {
+		t.Fatalf("failed enrollment returned canonical ID %q", got)
+	}
+	b.maybeAutoProvision(context.Background(), "ou_open", "t1")
 	if len(p.calls) != 2 {
 		t.Fatalf("failed enrollment calls = %d, want 2 (not cached)", len(p.calls))
 	}
@@ -192,9 +195,48 @@ func TestMaybeAutoProvisionPassesCanonicalProfileAndCachesOnlyAfterSuccess(t *te
 	}
 
 	p.err = nil
-	b.maybeAutoProvision(context.Background(), "ou_open", "on_untrusted_event", "t1")
-	b.maybeAutoProvision(context.Background(), "ou_open", "on_untrusted_event", "t1")
+	if got := b.maybeAutoProvision(context.Background(), "ou_open", "t1"); got != "on_canonical" {
+		t.Fatalf("successful enrollment canonical ID = %q, want on_canonical", got)
+	}
+	if got := b.maybeAutoProvision(context.Background(), "ou_open", "t1"); got != "on_canonical" {
+		t.Fatalf("cached enrollment canonical ID = %q, want on_canonical", got)
+	}
 	if len(p.calls) != 3 {
 		t.Fatalf("successful enrollment calls = %d, want 3 (one success then cache)", len(p.calls))
+	}
+}
+
+func TestOnMessageRoutesWithCanonicalProvisionedUnionID(t *testing.T) {
+	for _, eventUnionID := range []string{"", "on_untrusted_event"} {
+		t.Run(eventUnionID, func(t *testing.T) {
+			captured := make(chan pkgchannel.IncomingMessage, 1)
+			p := &mockProvisioner{mockHandler: mockHandler{
+				handleIncomingFn: func(_ context.Context, msg pkgchannel.IncomingMessage, _, _ string) (string, bool, *pkgchannel.ChatStream, error) {
+					captured <- msg
+					return "", false, nil, nil
+				},
+			}}
+			b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "t1"}, p)
+			b.fetchTenantProfileFn = func(context.Context, string) *TenantProfile {
+				return &TenantProfile{UnionID: "on_canonical"}
+			}
+
+			event := textReceiveEvent("oc_chat", "p2p", "om_message", "", "", "hello")
+			tenantKey := "t1"
+			event.Event.Sender.TenantKey = &tenantKey
+			if eventUnionID == "" {
+				event.Event.Sender.SenderId.UnionId = nil
+			} else {
+				event.Event.Sender.SenderId.UnionId = &eventUnionID
+			}
+			if err := b.onMessage(context.Background(), event); err != nil {
+				t.Fatalf("onMessage: %v", err)
+			}
+
+			msg := waitMessage(t, captured)
+			if msg.SenderID != "on_canonical" || len(msg.SenderIDs) == 0 || msg.SenderIDs[0] != "on_canonical" {
+				t.Fatalf("sender IDs = %q / %v, want canonical union ID first", msg.SenderID, msg.SenderIDs)
+			}
+		})
 	}
 }

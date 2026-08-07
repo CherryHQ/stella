@@ -135,12 +135,12 @@ func (s *FeishuEnrollmentService) enrollOnce(ctx context.Context, input FeishuEn
 
 	result := FeishuEnrollmentResult{}
 	if userID != "" {
-		user, err := stores.Users.GetUser(ctx, userID)
-		if err != nil {
-			return FeishuEnrollmentResult{}, fmt.Errorf("auth: get Feishu identity user: %w", err)
-		}
-		if !user.IsActive {
+		user, err := stores.ActiveUsers.GetActiveUserForShare(ctx, userID)
+		if errors.Is(err, ErrNotFound) || errors.Is(err, pgx.ErrNoRows) {
 			return FeishuEnrollmentResult{}, ErrEnrollmentInactiveUser
+		}
+		if err != nil {
+			return FeishuEnrollmentResult{}, fmt.Errorf("auth: lock active Feishu identity user: %w", err)
 		}
 		result.User = user
 	} else {

@@ -54,6 +54,12 @@ type ActiveAdminStore interface {
 	LockActiveAdmin(ctx context.Context) error
 }
 
+// ActiveUserStore reads and locks an active user for the enclosing transaction.
+// Identity enrollment uses it to serialize with account deactivation.
+type ActiveUserStore interface {
+	GetActiveUserForShare(ctx context.Context, userID string) (User, error)
+}
+
 // SessionStore provides CRUD for auth_session (token-hash-based sessions).
 type SessionStore interface {
 	CreateSession(ctx context.Context, s Session) (Session, error)
@@ -80,6 +86,7 @@ type AuthStores struct {
 	Logins      LoginIdentityStore
 	Channels    ChannelIdentityStore
 	Admins      ActiveAdminStore
+	ActiveUsers ActiveUserStore
 	Sessions    SessionStore
 	Credentials CredentialStore
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"filippo.io/age"
 	"github.com/google/uuid"
@@ -307,6 +308,89 @@ func TestFeishuEnrollmentIsIdempotentAndConcurrent(t *testing.T) {
 	}
 	if users, logins, channels := enrollmentCounts(t, store); users != 2 || logins != 1 || channels != 1 {
 		t.Fatalf("row counts = %d:%d:%d, want 2:1:1", users, logins, channels)
+	}
+}
+
+type blockingActiveUserStore struct {
+	auth.ActiveUserStore
+	locked  chan<- struct{}
+	release <-chan struct{}
+}
+
+func (s blockingActiveUserStore) GetActiveUserForShare(ctx context.Context, userID string) (auth.User, error) {
+	user, err := s.ActiveUserStore.GetActiveUserForShare(ctx, userID)
+	close(s.locked)
+	<-s.release
+	return user, err
+}
+
+type blockingEnrollmentTransactioner struct {
+	store   *OIDCStore
+	locked  chan<- struct{}
+	release <-chan struct{}
+}
+
+func (t blockingEnrollmentTransactioner) BeginAuthTx(ctx context.Context) (auth.AuthStores, func() error, func(), error) {
+	stores, commit, rollback, err := t.store.BeginAuthTx(ctx)
+	if err == nil {
+		stores.ActiveUsers = blockingActiveUserStore{
+			ActiveUserStore: stores.ActiveUsers,
+			locked:          t.locked,
+			release:         t.release,
+		}
+	}
+	return stores, commit, rollback, err
+}
+
+func TestFeishuEnrollmentSerializesExistingUserDeactivation(t *testing.T) {
+	store, _, ctx := setupEnrollment(t, nil)
+	user, err := store.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "member@example.test", Role: auth.RoleUser})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateLoginIdentity(ctx, auth.LoginIdentity{ID: uuid.NewString(), UserID: user.ID, Provider: "feishu", ProviderSubject: "on_member"}); err != nil {
+		t.Fatal(err)
+	}
+
+	locked := make(chan struct{})
+	release := make(chan struct{})
+	enrollment := auth.NewFeishuEnrollmentService(blockingEnrollmentTransactioner{
+		store: store, locked: locked, release: release,
+	}, nil)
+	enrolled := make(chan error, 1)
+	go func() {
+		_, err := enrollment.Enroll(ctx, enrollmentInput())
+		enrolled <- err
+	}()
+	<-locked
+
+	deactivated := make(chan error, 1)
+	go func() {
+		deactivated <- store.UpdateUserActive(ctx, user.ID, false)
+	}()
+	premature := false
+	select {
+	case err := <-deactivated:
+		premature = true
+		if err != nil {
+			t.Errorf("premature deactivation: %v", err)
+		}
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	if err := <-enrolled; err != nil {
+		t.Fatalf("Enroll: %v", err)
+	}
+	if !premature {
+		if err := <-deactivated; err != nil {
+			t.Fatalf("deactivate: %v", err)
+		}
+	}
+	if premature {
+		t.Fatal("deactivation completed while enrollment held the active-user lock")
+	}
+	if _, err := store.GetChannelIdentityByPlatform(ctx, "feishu", "on_member"); err != nil {
+		t.Fatalf("completed channel identity: %v", err)
 	}
 }
 

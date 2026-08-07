@@ -139,28 +139,23 @@ func (b *Bot) fetchTenantProfile(ctx context.Context, openID string) *TenantProf
 // the bot's effective tenant key. Contact API readability is not tenant proof.
 // On any failure it logs and returns silently — provisioning failure never
 // blocks normal message handling.
-func (b *Bot) maybeAutoProvision(ctx context.Context, openID, eventUnionID, tenantKey string) {
+// A non-empty return value is the canonical union_id of a successful enrollment.
+func (b *Bot) maybeAutoProvision(ctx context.Context, openID, tenantKey string) string {
 	if !b.cfg.AutoProvision {
-		return
+		return ""
 	}
 	effective := b.effectiveTenantKey()
 	if effective == "" || tenantKey == "" {
-		return
+		return ""
 	}
 	if tenantKey != effective {
 		logger().Debug("auto-provision: skipping external tenant user", "tenant_key", tenantKey)
-		return
+		return ""
 	}
 
 	provisioner, ok := b.handler.(pkgchannel.Provisioner)
 	if !ok {
-		return
-	}
-	// A cached key was recorded only after a Contact-API-derived canonical
-	// union_id enrolled successfully. The event union_id is safe to use only to
-	// avoid that repeat lookup; it is never persisted without profile evidence.
-	if eventUnionID != "" && b.isCachedProvision(eventUnionID) {
-		return
+		return ""
 	}
 
 	// The Contact API profile supplies the canonical union_id and enrollment
@@ -170,10 +165,10 @@ func (b *Bot) maybeAutoProvision(ctx context.Context, openID, eventUnionID, tena
 		if profile != nil {
 			logger().Warn("auto-provision: skipping user with empty union_id", "open_id", openID)
 		}
-		return
+		return ""
 	}
 	if b.isCachedProvision(profile.UnionID) {
-		return
+		return profile.UnionID
 	}
 
 	if err := provisioner.ProvisionUser(ctx, pkgchannel.ProvisionRequest{
@@ -184,11 +179,12 @@ func (b *Bot) maybeAutoProvision(ctx context.Context, openID, eventUnionID, tena
 		Name:       profile.Name,
 	}); err != nil {
 		logger().Debug("auto-provision failed", "open_id", openID, "error", err)
-		return
+		return ""
 	}
 
 	// Cache only a successful, canonically identified enrollment.
 	b.provisionedMu.Lock()
 	b.provisioned[profile.UnionID] = time.Now()
 	b.provisionedMu.Unlock()
+	return profile.UnionID
 }

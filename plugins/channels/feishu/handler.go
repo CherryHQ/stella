@@ -127,11 +127,16 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	// group traffic before it is selected. Skip /link to keep manual linking
 	// authoritative. Run synchronously so the user exists before identity lookup.
 	if cmd0, _ := channel.ParseSlashCommand(text); cmd0 != "/link" && b.isAutoProvisionMessage(chatType, mentions) {
-		unionID := derefStr(sender.SenderId.UnionId)
 		tenantKey := derefStr(sender.TenantKey)
 		provCtx, provCancel := b.apiContext()
-		b.maybeAutoProvision(provCtx, openID, unionID, tenantKey)
+		canonicalUnionID := b.maybeAutoProvision(provCtx, openID, tenantKey)
 		provCancel()
+		if canonicalUnionID != "" {
+			senderIDs = feishuSenderIDs(append([]string{canonicalUnionID}, senderIDs...)...)
+			if openID != "" {
+				b.unionIDs.Store(openID, canonicalUnionID)
+			}
+		}
 	}
 
 	// For file and image-bearing messages: resolve the per-user assets directory

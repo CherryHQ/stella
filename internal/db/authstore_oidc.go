@@ -54,6 +54,7 @@ func (s *OIDCStore) BeginAuthTx(ctx context.Context) (auth.AuthStores, func() er
 		Logins:      txStore,
 		Channels:    txStore,
 		Admins:      txStore,
+		ActiveUsers: txStore,
 		Sessions:    txStore,
 		Credentials: txStore,
 	}
@@ -75,6 +76,7 @@ var (
 	_ auth.LoginIdentityStore             = (*OIDCStore)(nil)
 	_ auth.ChannelIdentityStore           = (*OIDCStore)(nil)
 	_ auth.ActiveAdminStore               = (*OIDCStore)(nil)
+	_ auth.ActiveUserStore                = (*OIDCStore)(nil)
 	_ auth.SessionStore                   = (*OIDCStore)(nil)
 	_ auth.CredentialStore                = (*OIDCStore)(nil)
 )
@@ -253,6 +255,15 @@ func (s *OIDCStore) LockActiveAdmin(ctx context.Context) error {
 		return auth.ErrNotFound
 	}
 	return err
+}
+
+// GetActiveUserForShare locks an active user until the current transaction
+// completes so identity enrollment cannot race account deactivation.
+func (s *OIDCStore) GetActiveUserForShare(ctx context.Context, id string) (auth.User, error) {
+	const q = `SELECT id, email, name, avatar_url, role, is_active, default_agent_id, notify_identity_id,
+	           age_public_key, age_private_key, created_at, updated_at
+	           FROM auth_user WHERE id = $1 AND is_active = true FOR SHARE`
+	return scanUserResult(s.db.QueryRow(ctx, q, id))
 }
 
 func (s *OIDCStore) UpdateUserAgeKeys(ctx context.Context, userID, publicKey, privateKey string) error {
