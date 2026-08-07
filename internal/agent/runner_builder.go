@@ -180,6 +180,10 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			DisabledSkillRefs:   append([]string(nil), cfg.Snap.DisabledSkillRefs...),
 		}
 		var sections []pkgplugins.SystemPromptSection
+		// Active prompt extensions may contribute generated text, but project
+		// content belongs to the session Filesystem. Never give an extension the
+		// host project coordinate before that session exists.
+		promptBuild.ProjectRoot = ""
 		if cfg.PromptSectionsBuilder != nil {
 			sections, _ = cfg.PromptSectionsBuilder(ctx, promptBuild)
 		}
@@ -208,14 +212,15 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			}
 		}
 
-		// Build the full system prompt per-session with profile from memory provider.
-		// Group sessions skip private profile injection (D9 isolation); group memory
-		// is Phase 3 concern.
+		// Prepare the full system prompt per-session with profile from memory provider.
+		// It is rendered only after newRunner creates the sandbox session, which is
+		// the authoritative filesystem boundary for project context. Group sessions
+		// skip private profile injection (D9 isolation); group memory is Phase 3 concern.
 		promptUserID := params.UserID
 		if params.GroupID != "" {
 			promptUserID = ""
 		}
-		system := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
+		promptParams := &prompt.DBPromptParams{
 			SystemPrompt: cfg.Snap.SystemPrompt,
 			AgentSoul:    cfg.Snap.Soul,
 			Memory:       memProvider,
@@ -227,7 +232,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			ProjectRoot:  projectRoot,
 			UserRoot:     userRoot,
 			Sections:     sections,
-		})
+		}
 
 		// Resolve hooks from RunnerParams — injected by Pool, not the builder.
 		var hookPlugins []hooks.HookPlugin
@@ -304,7 +309,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			},
 			Thinking:            params.Thinking,
 			Sandbox:             sandboxCfg,
-			System:              system,
+			PromptParams:        promptParams,
 			Sections:            sections,
 			BuiltinTools:        builtinTools,
 			BuiltinParams:       params,

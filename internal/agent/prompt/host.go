@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/CherryHQ/stella/pkg/sandbox"
 )
@@ -12,8 +13,9 @@ import (
 const promptContextMaxBytes = 256 * 1024
 
 // promptFilesystem returns the injected runner Filesystem. A non-nil session is
-// authoritative: failure never falls back to host I/O. Prompt rendering outside
-// an active runner has no host and retains its temporary host-only fallback.
+// authoritative: failure never falls back to host I/O. Host=nil is a separate
+// compatibility API for previews, tests, and operator-local callers; it is never
+// an active runner fallback.
 func promptFilesystem(host sandbox.Host) (sandbox.Filesystem, func(), bool) {
 	if host == nil {
 		return nil, func() {}, false
@@ -34,17 +36,25 @@ func promptFilesystem(host sandbox.Host) (sandbox.Filesystem, func(), bool) {
 
 func readPromptFile(ctx context.Context, filesystem sandbox.Filesystem, path string) (string, bool) {
 	if filesystem != nil {
-		r, _, err := filesystem.Read(ctx, path, sandbox.ReadOptions{MaxBytes: promptContextMaxBytes})
-		if err != nil {
+		r, info, err := filesystem.Read(ctx, path, sandbox.ReadOptions{MaxBytes: promptContextMaxBytes})
+		if err != nil || r == nil || info.IsDir || !info.Mode.IsRegular() || info.Size < 0 || info.Size > promptContextMaxBytes {
+			if r != nil {
+				_ = r.Close()
+			}
 			return "", false
 		}
-		defer func() { _ = r.Close() }()
-		content, err := io.ReadAll(r)
-		if err != nil {
+		// LimitReader independently enforces the contract even if an injected
+		// filesystem ignores MaxBytes. A prompt file must be exactly the regular
+		// file described by its returned FileInfo.
+		content, readErr := io.ReadAll(io.LimitReader(r, promptContextMaxBytes+1))
+		closeErr := r.Close()
+		if readErr != nil || closeErr != nil || len(content) > promptContextMaxBytes || int64(len(content)) != info.Size {
 			return "", false
 		}
 		return string(content), true
 	}
+	// Host=nil is a separate compatibility API for previews, tests, and
+	// operator-local callers. It is never an active runner fallback.
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return "", false
@@ -88,11 +98,32 @@ func readPromptDir(ctx context.Context, filesystem sandbox.Filesystem, path stri
 
 func promptPath(host sandbox.Host, projectRoot string, filesystem sandbox.Filesystem) string {
 	if filesystem != nil {
-		return host.WorkingDir()
+		if host == nil {
+			return ""
+		}
+		workingDir := host.WorkingDir()
+		if !isWorkspacePath(workingDir) {
+			projector, ok := host.(sandbox.FilesystemPathProjector)
+			if !ok {
+				return ""
+			}
+			var projected bool
+			workingDir, projected = projector.ProjectFilesystemPath(workingDir)
+			if !projected || !isWorkspacePath(workingDir) {
+				return ""
+			}
+		}
+		return workingDir
 	}
+	// Host=nil is a separate compatibility API for previews, tests, and
+	// operator-local callers. It is never an active runner fallback.
 	if filepath.IsAbs(projectRoot) {
 		return projectRoot
 	}
 	wd, _ := os.Getwd()
 	return filepath.Join(wd, projectRoot)
+}
+
+func isWorkspacePath(value string) bool {
+	return sandbox.IsCanonicalFilesystemPath(value) && (value == sandbox.PathWorkspace || strings.HasPrefix(value, sandbox.PathWorkspace+"/"))
 }

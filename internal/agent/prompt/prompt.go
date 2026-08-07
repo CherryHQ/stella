@@ -247,6 +247,11 @@ func loadProjectContextFiles(ctx context.Context, filesystem sandbox.Filesystem,
 			}
 		}
 
+		// Injected runner context is confined to /workspace: include its
+		// AGENTS.md, then stop without probing host-like ancestors such as /.
+		if injected && absDir == sandbox.PathWorkspace {
+			break
+		}
 		parent := filepath.Dir(absDir)
 		if injected {
 			parent = path.Dir(absDir)

@@ -45,6 +45,7 @@ type runnerConfig struct {
 	Thinking            ai.ThinkingLevel
 	Sandbox             sandbox.Config
 	System              string // optional system prompt override (bypasses default prompt building)
+	PromptParams        *prompt.DBPromptParams
 	Sections            []pkgplugins.SystemPromptSection
 	BuiltinTools        []BuiltinTool
 	BuiltinParams       RunnerParams
@@ -126,7 +127,15 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		}
 	}
 
-	if systemPrompt == "" {
+	if systemPrompt == "" && cfg.PromptParams != nil {
+		params := *cfg.PromptParams
+		// The active session is the sole filesystem authority for runner prompt
+		// context. Do not let a prepared host ProjectRoot bypass it.
+		params.Host = session
+		systemPrompt = prompt.BuildSystemPromptFromDB(ctx, params)
+	} else if systemPrompt == "" {
+		// Compatibility for direct runner tests/callers that do not prepare DB
+		// params. Active builder paths always use PromptParams above.
 		paths, err := sandbox.ResolvePaths(cfg.Sandbox)
 		if err != nil {
 			if session != nil {
@@ -134,7 +143,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 			}
 			return nil, fmt.Errorf("runner: %w", err)
 		}
-		systemPrompt = prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{
+		systemPrompt = prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
 			StellaHome:  paths.StellaHome,
 			AgentRoot:   paths.AgentRoot,
 			ProjectRoot: paths.ProjectRoot,

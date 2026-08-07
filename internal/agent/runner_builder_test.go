@@ -3,8 +3,12 @@ package agent
 import (
 	"context"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -20,6 +24,41 @@ type fakeStreamProvider struct{}
 func (fakeStreamProvider) API() string { return "anthropic" }
 func (fakeStreamProvider) Stream(context.Context, ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
 	return nil, errors.New("not implemented")
+}
+
+func TestRunnerBuilderDefersPromptRenderingAndProjectSkillDiscovery(t *testing.T) {
+	t.Helper()
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve runner builder source path")
+	}
+	builderSource := strings.TrimSuffix(source, "_test.go") + ".go"
+	contents, err := os.ReadFile(builderSource)
+	if err != nil {
+		t.Fatalf("read runner_builder.go: %v", err)
+	}
+	file, err := parser.ParseFile(token.NewFileSet(), builderSource, contents, 0)
+	if err != nil {
+		t.Fatalf("parse runner_builder.go: %v", err)
+	}
+	var rendersPrompt bool
+	ast.Inspect(file, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if ok && selector.Sel.Name == "BuildSystemPromptFromDB" {
+			rendersPrompt = true
+		}
+		return true
+	})
+	if rendersPrompt {
+		t.Fatal("runner_builder must prepare prompt params, not render before session creation")
+	}
+	if !strings.Contains(string(contents), "promptBuild.ProjectRoot = \"\"") {
+		t.Fatal("active prompt extensions must not receive the host project root")
+	}
 }
 
 func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
@@ -86,6 +125,9 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 	}
 	if got, want := promptBuild.UserRoot, filepath.Dir(filepath.Dir(userAgentDir)); got != want {
 		t.Errorf("prompt UserRoot = %q, want shared user home %q", got, want)
+	}
+	if promptBuild.ProjectRoot != "" {
+		t.Errorf("active prompt extension received host ProjectRoot %q", promptBuild.ProjectRoot)
 	}
 }
 
