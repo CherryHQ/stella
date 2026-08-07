@@ -8,11 +8,13 @@ import (
 	"testing"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/hostlayout"
 )
 
 func TestOtherPlatformTmpMountsAreSessionOwnedIdentityViews(t *testing.T) {
 	workspace := t.TempDir()
-	mounts, err := createSessionTmpMounts()
+	root := t.TempDir()
+	mounts, err := createSessionTmpMounts(hostlayout.Layout{WorkspaceSource: root, WorkingDirSource: root, Mounts: []hostlayout.Mount{{Source: root, Target: sandboxpkg.PathWorkspace, Access: hostlayout.ReadWrite}}})
 	if err != nil {
 		t.Fatalf("createSessionTmpMounts: %v", err)
 	}

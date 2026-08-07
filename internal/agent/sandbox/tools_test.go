@@ -35,18 +35,15 @@ func (s *toolTestSession) Filesystem() (pkgsandbox.Filesystem, error) {
 }
 
 func (s *toolTestSession) ProjectFilesystemPath(input string) (string, bool) {
-	if pkgsandbox.IsCanonicalFilesystemPath(input) {
-		return input, true
-	}
 	for _, mount := range s.mounts {
-		if input == mount.Path || strings.HasPrefix(input, mount.Path+"/") {
-			return input, true
-		}
 		rel, err := filepath.Rel(mount.Directory, input)
 		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			canonical := path.Join(mount.Path, filepath.ToSlash(rel))
 			return canonical, pkgsandbox.IsCanonicalFilesystemPath(canonical)
 		}
+	}
+	if pkgsandbox.IsCanonicalFilesystemPath(input) {
+		return input, true
 	}
 	return "", false
 }

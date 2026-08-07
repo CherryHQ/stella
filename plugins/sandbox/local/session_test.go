@@ -71,7 +71,7 @@ func TestFactoryScrubsPolicyPhysicalLayout(t *testing.T) {
 	}
 	defer session.Close() //nolint:errcheck
 	got := session.Policy()
-	if got.Filesystem.WorkingDir != workspace || got.Network.Mode != sandboxpkg.NetworkAllowAll || got.Env["PRESERVED"] != "yes" {
+	if got.Filesystem.WorkingDir != session.WorkingDir() || got.Filesystem.WorkingDir == redirect || got.Network.Mode != sandboxpkg.NetworkAllowAll || got.Env["PRESERVED"] != "yes" {
 		t.Fatalf("Policy lost logical fields: %#v", got)
 	}
 }

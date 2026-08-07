@@ -68,7 +68,7 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 	if err := f.Supported(policy); err != nil {
 		return nil, err
 	}
-	tmpDir, err := os.MkdirTemp("", "stella-none-session-tmp-*")
+	tmpDir, err := hostlayout.CreateSessionTempDir(f.cfg.Layout, "none-tmp-*")
 	if err != nil {
 		return nil, fmt.Errorf("none: create session temp: %w", err)
 	}
@@ -195,9 +195,6 @@ func (s *noneSession) Filesystem() (sandboxpkg.Filesystem, error) {
 }
 
 func (s *noneSession) ProjectFilesystemPath(input string) (string, bool) {
-	if strings.HasPrefix(input, sandboxpkg.PathWorkspace) || strings.HasPrefix(input, sandboxpkg.PathUser) || strings.HasPrefix(input, sandboxpkg.PathTemp) {
-		return input, sandboxpkg.IsCanonicalFilesystemPath(input)
-	}
 	if s.ownedTempDir != "" {
 		if rel, err := filepath.Rel(s.ownedTempDir, input); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			canonical := path.Join(sandboxpkg.PathTemp, filepath.ToSlash(rel))
@@ -206,6 +203,9 @@ func (s *noneSession) ProjectFilesystemPath(input string) (string, bool) {
 	}
 	if canonical, ok := s.layout.SourceToTarget(input); ok && sandboxpkg.IsCanonicalFilesystemPath(canonical) {
 		return canonical, true
+	}
+	if sandboxpkg.IsCanonicalFilesystemPath(input) {
+		return input, true
 	}
 	return "", false
 }

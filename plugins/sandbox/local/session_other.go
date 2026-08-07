@@ -31,8 +31,8 @@ func resolveUserDataRoot(layout hostlayout.Layout) (sandboxRoot, realRoot string
 // createSessionTmpMounts returns an identity mount for a session-private host
 // directory. Non-isolating platforms do not remap paths, but the path resolver
 // still needs the published TMPDIR as a writable process-view mount.
-func createSessionTmpMounts() ([]tmpMount, error) {
-	tmpDir, err := os.MkdirTemp("", "stella-session-tmp-*")
+func createSessionTmpMounts(layout hostlayout.Layout) ([]tmpMount, error) {
+	tmpDir, err := hostlayout.CreateSessionTempDir(layout, "tmp-*")
 	if err != nil {
 		return nil, err
 	}

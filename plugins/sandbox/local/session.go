@@ -97,7 +97,7 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 	layout := f.cfg.Layout.Clone()
 	sandboxRoot, realRoot := resolveSandboxRoot(layout)
 	userDataSandbox, userDataReal := resolveUserDataRoot(layout)
-	tmpMounts, err := createSessionTmpMounts()
+	tmpMounts, err := createSessionTmpMounts(layout)
 	if err != nil {
 		return nil, fmt.Errorf("local: create session tmp: %w", err)
 	}
@@ -339,17 +339,12 @@ func (s *localSession) Filesystem() (sandboxpkg.Filesystem, error) {
 
 // ProjectFilesystemPath returns only a canonical mounted Filesystem path.
 func (s *localSession) ProjectFilesystemPath(input string) (string, bool) {
-	if strings.HasPrefix(input, sandboxpkg.PathWorkspace) || strings.HasPrefix(input, sandboxpkg.PathUser) || strings.HasPrefix(input, sandboxpkg.PathTemp) {
-		return input, sandboxpkg.IsCanonicalFilesystemPath(input)
-	}
 	resolver := s.pathResolver()
 	if canonical, ok := resolver.SourceToTarget(input); ok && sandboxpkg.IsCanonicalFilesystemPath(filepath.ToSlash(canonical)) {
 		return filepath.ToSlash(canonical), true
 	}
-	if host, ok := resolver.TargetToSource(input); ok {
-		if canonical, ok := resolver.SourceToTarget(host); ok && sandboxpkg.IsCanonicalFilesystemPath(filepath.ToSlash(canonical)) {
-			return filepath.ToSlash(canonical), true
-		}
+	if sandboxpkg.IsCanonicalFilesystemPath(input) {
+		return input, true
 	}
 	return "", false
 }

@@ -116,12 +116,12 @@ func resolveUserDataRoot(layout hostlayout.Layout) (sandboxRoot, realRoot string
 //  1. Create or resolve the host dir and append a tmpMount{sandboxPath, realPath, owned}.
 //  2. Add a corresponding "--bind realPath sandboxPath" entry in wrapCommand below.
 //  3. Add the sandbox path to the platform profile in session_darwin.go if needed.
-func createSessionTmpMounts() ([]tmpMount, error) {
-	tmp, err := os.MkdirTemp("", "stella-session-tmp-*")
+func createSessionTmpMounts(layout hostlayout.Layout) ([]tmpMount, error) {
+	tmp, err := hostlayout.CreateSessionTempDir(layout, "tmp-*")
 	if err != nil {
 		return nil, err
 	}
-	varTmp, err := os.MkdirTemp("", "stella-session-vartmp-*")
+	varTmp, err := hostlayout.CreateSessionTempDir(layout, "var-tmp-*")
 	if err != nil {
 		os.RemoveAll(tmp) //nolint:errcheck
 		return nil, err
@@ -308,6 +308,12 @@ func wrapCommand(policy sandboxpkg.Policy, layout hostlayout.Layout, sandboxCwd 
 	}
 	bwrapArgs = appendLinuxRuntimeMounts(bwrapArgs)
 	for _, m := range mounts {
+		// Temporary targets are bound above from their per-session sources. Keep
+		// them in layout for path resolution, but do not give the generic layout
+		// loop a second bind of that exact source/target pair.
+		if isExplicitTmpMount(m, tmpMounts) {
+			continue
+		}
 		if m.Target == sandboxpkg.MountWorkspace || m.Target == sandboxpkg.MountUserData {
 			continue
 		}
@@ -350,4 +356,13 @@ func wrapCommand(policy sandboxpkg.Policy, layout hostlayout.Layout, sandboxCwd 
 	bwrapArgs = append(bwrapArgs, "--", name)
 	bwrapArgs = append(bwrapArgs, args...)
 	return bwrapPath, bwrapArgs, nil
+}
+
+func isExplicitTmpMount(mount hostlayout.Mount, tmpMounts []tmpMount) bool {
+	for _, temp := range tmpMounts {
+		if filepath.Clean(mount.Source) == filepath.Clean(temp.realPath) && mount.Target == temp.sandboxPath {
+			return true
+		}
+	}
+	return false
 }

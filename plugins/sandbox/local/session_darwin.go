@@ -76,12 +76,12 @@ func resolveUserDataRoot(layout hostlayout.Layout) (sandboxRoot, realRoot string
 // createSessionTmpMounts returns session-private host directories for the macOS
 // temporary roots. Seatbelt has no bind mounts, so TMPDIR names the real backing
 // directory and the profile grants access to that exact path.
-func createSessionTmpMounts() ([]tmpMount, error) {
-	tmp, err := os.MkdirTemp("", "stella-session-tmp-*")
+func createSessionTmpMounts(layout hostlayout.Layout) ([]tmpMount, error) {
+	tmp, err := hostlayout.CreateSessionTempDir(layout, "tmp-*")
 	if err != nil {
 		return nil, err
 	}
-	varTmp, err := os.MkdirTemp("", "stella-session-vartmp-*")
+	varTmp, err := hostlayout.CreateSessionTempDir(layout, "var-tmp-*")
 	if err != nil {
 		os.RemoveAll(tmp) //nolint:errcheck
 		return nil, err
