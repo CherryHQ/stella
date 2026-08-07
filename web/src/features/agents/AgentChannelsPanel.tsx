@@ -23,7 +23,7 @@ import {
 } from "@/lib/queries/channels";
 import { meQueryOptions } from "@/lib/queries/me";
 import type { Identity } from "@/lib/types";
-import { ToastContainer, useToast } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
 import { ChannelCreateSheet } from "@/features/channels/ChannelCreateSheet";
 import { ChannelEditSheet } from "@/features/channels/ChannelEditSheet";
@@ -75,7 +75,7 @@ interface Props {
  */
 export function AgentChannelsPanel({ agentId }: Props) {
   const { t } = useI18n();
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
   const queryClient = useQueryClient();
   const { data: me } = useQuery(meQueryOptions);
   const isAdmin = me?.is_admin ?? false;
@@ -203,8 +203,6 @@ export function AgentChannelsPanel({ agentId }: Props) {
 
   return (
     <div className="flex flex-col gap-6">
-      <ToastContainer messages={toasts} />
-
       <ProfilePanelSection
         title={t("agents.channels.title")}
         description={t("agents.channels.desc")}

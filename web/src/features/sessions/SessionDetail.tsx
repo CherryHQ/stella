@@ -11,6 +11,7 @@ import { inboxQueryOptions } from "@/lib/queries/inbox";
 import { sessionContextItemsOptions } from "@/lib/queries/session-context";
 import { fetchAllSessionMessages } from "@/lib/paginated";
 import type { Message, Session } from "@/lib/types";
+import { sessionDisplayTitle } from "@/lib/session-title";
 import { ChatPane } from "@/components/chat/ChatPane";
 import { ChatErrorNotice } from "@/components/chat/ChatErrorNotice";
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
-import { useToast, ToastContainer } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import {
   downloadTextFile,
   exportFileName,
@@ -74,7 +75,7 @@ export function SessionDetail({
 }: Props) {
   const { t } = useI18n();
   const queryClient = useQueryClient();
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
   const [exporting, setExporting] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const { data: agentsList = [] } = useQuery(agentsQueryOptions);
@@ -493,7 +494,9 @@ export function SessionDetail({
   // A main session *is* the agent (or project) conversation, so its title only
   // repeats the breadcrumb — "Anna / Anna". Only a branched thread earns a tail.
   const titleText =
-    session && session.kind !== "main" ? session.title || t("sessions.untitled") : "";
+    session && session.kind !== "main"
+      ? sessionDisplayTitle(session.title, t("sessions.untitled"))
+      : "";
   useEffect(() => {
     setHeaderTitle(
       titleText ? (
@@ -662,7 +665,6 @@ export function SessionDetail({
             {composer}
           </div>
         </div>
-        <ToastContainer messages={toasts} />
       </>
     );
   }
@@ -714,7 +716,6 @@ export function SessionDetail({
         notice={<ChatErrorNotice error={chatError} />}
         composer={composer}
       />
-      <ToastContainer messages={toasts} />
     </>
   );
 }

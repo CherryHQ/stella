@@ -46,7 +46,8 @@ import {
 } from "@/features/settings/SettingsCardGrid";
 import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
 import { Spinner } from "@/components/ui/spinner";
-import { useToast, ToastContainer } from "@/hooks/use-toast";
+import { ErrorState } from "@/components/RouteFallback";
+import { useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import { Copy, Plus, RotateCw, Trash2, Webhook as WebhookIcon } from "lucide-react";
@@ -72,12 +73,13 @@ async function fetchAllWebhooks(): Promise<Webhook[]> {
 
 export function WebhooksPage() {
   const { t } = useI18n();
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
   const queryClient = useQueryClient();
   const {
     data: items = [],
     isLoading: loading,
     error: webhooksError,
+    refetch: refetchWebhooks,
   } = useQuery({ queryKey: webhooksQueryKey, queryFn: fetchAllWebhooks });
   const { data: agents = [], error: agentsError } = useQuery(agentsQueryOptions);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
@@ -220,6 +222,14 @@ export function WebhooksPage() {
           <div className="flex justify-center py-8">
             <Spinner />
           </div>
+        ) : webhooksError ? (
+          // The toast below fires too, but it is gone in 3s while the page kept
+          // insisting "no webhooks yet" — the failure has to own the body.
+          <ErrorState
+            title={t("route.error.title")}
+            description={t("route.loadFailed")}
+            onRetry={() => void refetchWebhooks()}
+          />
         ) : items.length === 0 ? (
           <SettingsEmptyState
             icon={<WebhookIcon size={20} />}
@@ -433,8 +443,6 @@ export function WebhooksPage() {
           </AlertDialogFooter>
         </AlertDialogPopup>
       </AlertDialog>
-
-      <ToastContainer messages={toasts} />
     </>
   );
 }

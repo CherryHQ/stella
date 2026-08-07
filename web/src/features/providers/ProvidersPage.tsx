@@ -3,8 +3,9 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { providersQueryOptions, providerTypesQueryOptions } from "@/lib/queries/providers";
 import { useI18n } from "@/lib/i18n";
-import { useToast, ToastContainer } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
+import { ErrorState } from "@/components/RouteFallback";
 import {
   SettingsCard,
   SettingsCardSection,
@@ -17,13 +18,20 @@ import { NewProviderForm } from "./NewProviderForm";
 
 export function ProvidersPage() {
   const { t } = useI18n();
-  const { toasts } = useToast();
   const navigate = useNavigate();
   const params = useParams({ strict: false }) as { providerId?: string };
   const providerId = params.providerId;
 
-  const { data: providers = [] } = useQuery(providersQueryOptions);
-  const { data: providerTypes = [] } = useQuery(providerTypesQueryOptions);
+  // Neither is defaulted to `[]` at the destructure. TanStack Query turns a
+  // rejection into `isError` instead of throwing to the router boundary, so a
+  // swallowed failure renders "no providers configured" during an outage — and
+  // worse, offers a create form whose type list is silently empty.
+  const providersQuery = useQuery(providersQueryOptions);
+  const typesQuery = useQuery(providerTypesQueryOptions);
+  const providers = providersQuery.data ?? [];
+  const providerTypes = typesQuery.data ?? [];
+  const isPending = providersQuery.isPending || typesQuery.isPending;
+  const isError = providersQuery.isError || typesQuery.isError;
 
   const providerDefaults = useMemo(() => {
     const defaults: Record<string, { base_url: string; name: string }> = {};
@@ -111,41 +119,64 @@ export function ProvidersPage() {
             render={<Link to="/settings/providers/$providerId" params={{ providerId: "new" }} />}
             variant="outline"
             size="sm"
+            // The form is built out of the provider-type registry. Without it
+            // there is nothing to pick, so offering the button promises a
+            // choice the page cannot deliver.
+            disabled={isPending || isError}
           >
             <Plus className="size-4" />
             {t("providers.new")}
           </Button>
         }
       >
-        {groups.map((group) => (
-          <SettingsCardSection key={group.type} title={group.label} count={group.providers.length}>
-            {group.providers.map((p) => {
-              const modelCount = Object.keys(p.models || {}).length;
-              return (
-                <SettingsCard
-                  key={p.id}
-                  icon={<Boxes className="size-4" />}
-                  title={p.name || p.id}
-                  active={providerId === p.id}
-                  to="/settings/providers/$providerId"
-                  params={{ providerId: p.id }}
-                  footer={
-                    <>
-                      <span
-                        className={`size-1.5 shrink-0 rounded-full ${
-                          p.enabled ? "bg-chart-3" : "bg-muted-foreground"
-                        }`}
-                      />
-                      <span className="text-xs text-muted-foreground">
-                        {t("providers.modelsConfigured", { count: String(modelCount) })}
-                      </span>
-                    </>
-                  }
-                />
-              );
-            })}
-          </SettingsCardSection>
-        ))}
+        {isPending ? (
+          <div className="flex justify-center py-8">
+            <Spinner />
+          </div>
+        ) : isError ? (
+          <ErrorState
+            title={t("route.error.title")}
+            description={t("route.loadFailed")}
+            onRetry={() => {
+              void providersQuery.refetch();
+              void typesQuery.refetch();
+            }}
+          />
+        ) : (
+          groups.map((group) => (
+            <SettingsCardSection
+              key={group.type}
+              title={group.label}
+              count={group.providers.length}
+            >
+              {group.providers.map((p) => {
+                const modelCount = Object.keys(p.models || {}).length;
+                return (
+                  <SettingsCard
+                    key={p.id}
+                    icon={<Boxes className="size-4" />}
+                    title={p.name || p.id}
+                    active={providerId === p.id}
+                    to="/settings/providers/$providerId"
+                    params={{ providerId: p.id }}
+                    footer={
+                      <>
+                        <span
+                          className={`size-1.5 shrink-0 rounded-full ${
+                            p.enabled ? "bg-success" : "bg-muted-foreground"
+                          }`}
+                        />
+                        <span className="text-xs text-muted-foreground">
+                          {t("providers.modelsConfigured", { count: String(modelCount) })}
+                        </span>
+                      </>
+                    }
+                  />
+                );
+              })}
+            </SettingsCardSection>
+          ))
+        )}
       </SettingsGridPage>
 
       <SettingsDetailSheet
@@ -154,8 +185,6 @@ export function ProvidersPage() {
       >
         {detail}
       </SettingsDetailSheet>
-
-      <ToastContainer messages={toasts} />
     </>
   );
 }

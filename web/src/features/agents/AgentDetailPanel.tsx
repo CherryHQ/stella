@@ -35,7 +35,7 @@ import { AgentForm, type AgentFormLayout } from "./AgentForm";
 import { TemplateModal } from "./TemplateModal";
 import { SkillInstallModal } from "./SkillInstallModal";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { useToast, ToastContainer } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
 
 type ProfileMemory = { agent_id: string; soul?: string; content?: string };
@@ -79,7 +79,7 @@ export function AgentDetailPanel({
 }: AgentDetailPanelProps) {
   const [state, setState] = useState<AgentsPageState>(() => initialAgentDetailState(data, agentId));
   const [creating] = useState(() => !agentId);
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
   const { t } = useI18n();
   const queryClient = useQueryClient();
 
@@ -668,7 +668,6 @@ export function AgentDetailPanel({
           onCancel={() => setState((prev) => ({ ...prev, confirmMsg: "" }))}
         />
       )}
-      <ToastContainer messages={toasts} />
     </>
   );
 }

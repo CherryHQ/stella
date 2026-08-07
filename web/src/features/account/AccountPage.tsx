@@ -239,7 +239,7 @@ export function AccountPage() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="text-destructive hover:bg-destructive/10 shrink-0 cursor-pointer"
+                      className="text-destructive-foreground hover:bg-destructive/10 shrink-0 cursor-pointer"
                       loading={revokeSession.isPending}
                       onClick={() => revokeSession.mutate(sess.id)}
                     >

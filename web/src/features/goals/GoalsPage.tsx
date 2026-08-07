@@ -485,7 +485,7 @@ function Triage({ rows, onOpen, selected, onSelect }: ViewProps) {
 
   return (
     <>
-      <Section label={t("goals.secNeedsYou")} arr={needs} />
+      <Section label={t("hub.secNeedsYou")} arr={needs} />
       <Section label={t("goals.secInProgress")} arr={prog} />
       <Section label={t("goals.secClosed")} arr={closed} dim />
     </>
@@ -526,9 +526,9 @@ function Row({
         <StatusPill status={s} label={statusLabel(t, s)} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate font-serif text-[15px] font-semibold">{d.title}</span>
+            <span className="truncate text-[15px] font-semibold">{d.title}</span>
             {d.priority === "urgent" && (
-              <span className="rounded-md border border-chart-4/25 bg-chart-4/10 px-1.5 py-0.5 font-mono text-xs font-medium text-chart-4">
+              <span className="rounded-md border border-warning/25 bg-warning/10 px-1.5 py-0.5 font-mono text-xs font-medium text-warning-foreground">
                 {priorityLabel(t, d.priority)}
               </span>
             )}
@@ -587,7 +587,7 @@ function Board({ rows, onOpen, selected, onSelect }: ViewProps) {
           <div key={col.labelKey} className="min-h-[180px] rounded-2xl bg-muted p-2.5">
             <div className="flex items-center gap-2 px-1.5 pb-2.5 pt-1">
               <StatusDot status={col.status} />
-              <span className="font-mono text-xs font-semibold">{t(col.labelKey)}</span>
+              <span className="text-xs font-semibold">{t(col.labelKey)}</span>
               <span className="ml-auto font-mono text-xs text-muted-foreground">
                 {items.length}
               </span>
@@ -611,7 +611,7 @@ function Board({ rows, onOpen, selected, onSelect }: ViewProps) {
                         onClick={() => onOpen(d)}
                         className="min-w-0 flex-1 text-left"
                       >
-                        <div className="truncate font-serif text-[13.5px] font-semibold leading-snug">
+                        <div className="truncate text-[13.5px] font-semibold leading-snug">
                           {d.title}
                         </div>
                       </button>
@@ -619,7 +619,7 @@ function Board({ rows, onOpen, selected, onSelect }: ViewProps) {
                     <div className="flex flex-wrap items-center gap-1.5">
                       <StatusPill status={s} label={statusLabel(t, s)} />
                       {d.priority === "urgent" && (
-                        <span className="rounded-md border border-chart-4/25 bg-chart-4/10 px-1.5 py-0.5 font-mono text-xs font-medium text-chart-4">
+                        <span className="rounded-md border border-warning/25 bg-warning/10 px-1.5 py-0.5 font-mono text-xs font-medium text-warning-foreground">
                           {priorityLabel(t, d.priority)}
                         </span>
                       )}
@@ -664,7 +664,7 @@ function Table({ rows, onOpen, selected, onSelect }: ViewProps) {
     <div className="overflow-hidden rounded-2xl border border-border bg-card">
       <table className="w-full border-collapse">
         <thead>
-          <tr className="border-b border-border bg-muted/50 text-left font-mono text-[10.5px] text-muted-foreground">
+          <tr className="border-b border-border bg-muted/50 text-left text-[10.5px] text-muted-foreground">
             <th className="w-[42px] px-3.5 py-2.5 font-semibold" />
             <th className="w-[120px] px-3.5 py-2.5 font-semibold">{t("goals.colStatus")}</th>
             <th className="px-3.5 py-2.5 font-semibold">{t("goals.colTitle")}</th>
@@ -702,11 +702,11 @@ function Table({ rows, onOpen, selected, onSelect }: ViewProps) {
                       {blockReasonLabel(t, d)}
                     </span>
                   ) : d.lifecycle === "done" && d.done_reason === "accepted" ? (
-                    <span className="rounded-md border border-chart-3/25 bg-chart-3/10 px-2 py-0.5 font-mono text-xs font-medium text-chart-3">
+                    <span className="rounded-md border border-success/25 bg-success/10 px-2 py-0.5 font-mono text-xs font-medium text-success-foreground">
                       {t("goals.hookAccepted")}
                     </span>
                   ) : d.priority === "urgent" ? (
-                    <span className="rounded-md border border-chart-4/25 bg-chart-4/10 px-2 py-0.5 font-mono text-xs font-medium text-chart-4">
+                    <span className="rounded-md border border-warning/25 bg-warning/10 px-2 py-0.5 font-mono text-xs font-medium text-warning-foreground">
                       {priorityLabel(t, d.priority)}
                     </span>
                   ) : (

@@ -346,7 +346,7 @@ export function FileViewer({
 
         {!loading && !isPdf(path) && isBinary(path) && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
-            <span className="text-xs font-mono">{t("sessions.workspace.binaryFile")}</span>
+            <span className="text-xs">{t("sessions.workspace.binaryFile")}</span>
             <span className="text-xs font-mono">.{ext}</span>
             <a
               href={rawUrl}

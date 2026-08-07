@@ -153,7 +153,7 @@ export function AgentForm({
               onClick={onDelete}
               variant="ghost"
               size="sm"
-              className="text-muted-foreground hover:text-destructive cursor-pointer duration-120"
+              className="text-muted-foreground hover:text-destructive-foreground cursor-pointer duration-120"
             >
               {t("common.delete")}
             </Button>

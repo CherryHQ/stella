@@ -13,7 +13,9 @@ The token pipeline: `web/src/tokens.css` defines values → `globals.css` `@them
 - Never hardcode color values: no `text-[#abc]`, no `bg-[oklch(...)]`, no inline `style={{ color }}`, no palette classes like `bg-violet-500`.
 - Never reference `var(--some-color)` directly in JSX when a Tailwind utility exists.
 - Never use arbitrary spacing values like `p-[13px]`. Stick to the 4px grid; prefer `gap-*` on flex/grid parents over margin on children.
-- Do not add project-specific color aliases for one-off states or surfaces. If shadcn lacks an exact semantic name, use the closest existing token; status colors map to `chart-3` success, `chart-4` warning, `chart-2` info/running, and `destructive` error.
+- Do not add project-specific color aliases for one-off states or surfaces. If shadcn lacks an exact semantic name, use the closest existing token.
+- Status verdicts use `success` / `warning` / `info` / `destructive` and their `-foreground` pairs; `chart-1..5` are fills for plotted and categorical data, so `bg-chart-*` only — never as a text, fill or stroke color. Values and the reasoning: [`web-design.md`](./web-design.md).
+- **Every semantic color a component references must be bridged in `globals.css`.** A class naming a token that `@theme inline` never defined is not a style bug that review catches — Tailwind emits no rule at all, so it looks correct in the source and renders as nothing. `src/lib/color-tokens.test.ts` fails the build on it; that guard exists because `bg-success`, `bg-info`, and `bg-warning` shipped undefined across three vendored primitives and thirteen call sites, and every success toast rendered as text on no background.
 
 ## Dark mode
 
@@ -43,7 +45,9 @@ Read `web/.agents/skills/coss/SKILL.md` for imports, composition, and particle e
 
 There is no global top bar. `AppShell` (`src/layouts/AppShell.tsx`) is the only frame: a full-height sidebar (16rem desktop, 18rem mobile, offcanvas sheet on mobile) plus the content inset beside it. Every app mounts through it, so every app inherits the same chrome.
 
-**The sidebar owns the global chrome.** Its header carries the app switcher (monogram + current app + menu) and the two controls that belong to no page — search and the inbox bell; its footer pins the signed-in account and its menu (settings, appearance, locale, sign-out). Both come from `AppSidebarChrome` and are rendered by `AppShell`, never by a per-app sidebar: an app's sidebar component supplies the body only. The ⌘K search dialog and its key listener live at app level (`GlobalSearchProvider` in `AppLayout`), because the sidebar is collapsible and sheet-based on mobile while the shortcut must work everywhere.
+**The sidebar owns the global chrome.** Its header carries the app switcher (monogram + current app + menu) and the two controls that belong to no page — search and the inbox bell; its footer pins the signed-in account and its menu — destinations (settings, account, docs), preferences (appearance, locale), then sign-out. Both come from `AppSidebarChrome` and are rendered by `AppShell`, never by a per-app sidebar: an app's sidebar component supplies the body only.
+
+**A menu holds decisions, not editors.** Every row in it must be one click, visible in its current state, and reversible — a segmented control qualifies (`SegmentedField`), a slider or anything with a preview does not and belongs on a settings surface. Nothing global gets a second home beside the menu either: a lone row next to the identity pill puts the app's broadest destination beside its narrowest and gives the footer two anchors. The ⌘K search dialog and its key listener live at app level (`GlobalSearchProvider` in `AppLayout`), because the sidebar is collapsible and sheet-based on mobile while the shortcut must work everywhere.
 
 **The content column owns exactly one header** (h-12, border-b), rendered by `AppShell` — never add a second header row inside a page. In order: sidebar trigger at the outer edge, the breadcrumb spine (`title`) then `/` then the page's tail (`setHeaderTitle` — the tail appends, it never replaces the spine), the action cluster (`setHeaderActions` + static `headerActions`), and finally the page's right-panel toggle (`setHeaderPanelToggle`) behind a separator at the far edge.
 
@@ -64,10 +68,10 @@ On mobile, replace side panels with Sheet (bottom or right), not Dialog. Prefer 
 
 ## Feedback patterns
 
-- **Toasts:** use `useToast()` from `@/hooks/use-toast` (not a shadcn toast). Kinds: `"success" | "error"`, default 3000ms.
-- **Loading:** TanStack Query's `isLoading` with a Spinner or brief text — never a full-page skeleton unless the page is data-heavy.
+- **Toasts:** use `useToast()` from `@/hooks/use-toast` (not a shadcn toast). Kinds: `"success" | "error"`, default 3000ms. The container is mounted once, at the router root — never render your own. It used to be per-component state, so a detail panel's toast wrote to a different instance than its list page rendered and was dropped silently.
+- **Loading:** TanStack Query's `isLoading` with a Spinner or brief text — never a full-page skeleton unless the page is data-heavy. Route-level pending and error fall back to `RoutePending` / `RouteError` (`@/components/RouteFallback`), wired in `app.tsx`.
 - **Empty states:** the shared `SettingsEmptyState` (`@/features/settings/SettingsEmptyState`).
-- **Errors:** display inline, direct tone, no apology.
+- **Errors:** display inline, direct tone, no apology. **A failed request must never fall through to the empty state** — "no webhooks yet" and "the server is unreachable" are different sentences, and rendering the first for the second tells the user their data is gone. Branch on `isError` before `length === 0` and render `ErrorState` (`@/components/RouteFallback`) with a retry. Never swallow a rejection into `[]`.
 
 ## Form validation
 

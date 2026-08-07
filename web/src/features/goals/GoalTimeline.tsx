@@ -106,8 +106,8 @@ export function GoalTimeline({ goalId, live = false }: { goalId: string; live?: 
           <Button size="sm" loading={posting} disabled={!text.trim()} onClick={() => void submit()}>
             {t("goals.timelineSend")}
           </Button>
-          {notice && <span className="text-xs text-chart-3">{notice}</span>}
-          {error && <span className="text-xs text-destructive">{error}</span>}
+          {notice && <span className="text-xs text-success">{notice}</span>}
+          {error && <span className="text-xs text-destructive-foreground">{error}</span>}
         </div>
       </div>
     </div>
@@ -275,13 +275,13 @@ function eventMeta(type: GoalTimelineEvent["event_type"]): { label: MessageKey; 
     case "plan_submitted":
       return { label: "goals.timelinePlanSubmitted", dot: "bg-primary" };
     case "attempt_started":
-      return { label: "goals.timelineAttemptStarted", dot: "bg-chart-2" };
+      return { label: "goals.timelineAttemptStarted", dot: "bg-info" };
     case "attempt_finished":
       return { label: "goals.timelineAttemptFinished", dot: "bg-muted-foreground" };
     case "acceptance_recorded":
-      return { label: "goals.timelineAcceptanceRecorded", dot: "bg-chart-3" };
+      return { label: "goals.timelineAcceptanceRecorded", dot: "bg-success" };
     case "lifecycle_changed":
-      return { label: "goals.timelineLifecycleChanged", dot: "bg-chart-4" };
+      return { label: "goals.timelineLifecycleChanged", dot: "bg-warning" };
     case "human_message":
       return { label: "goals.timelineHumanMessage", dot: "bg-primary" };
   }

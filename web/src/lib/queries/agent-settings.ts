@@ -64,24 +64,27 @@ export interface AgentsSettingsLoaderData {
   selectedAgent?: AgentDetail;
 }
 
+/**
+ * Every request here fails loudly on purpose. Swallowing them into `[]` turned a
+ * server outage into a convincing empty account — no agents, no models, no
+ * skills, and a blank soul/profile draft that overwrites real memory on save.
+ * Rejections propagate to the route's `errorComponent` (or the caller's
+ * `isError`), which is the only place that can tell the user what happened.
+ */
 export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettingsLoaderData> {
   const [agentsRaw, modelsRaw, me, catalog] = await Promise.all([
-    listAgents({ query: { include_all: true }, throwOnError: true })
-      .then(({ data }) => data?.agents ?? [])
-      .catch(() => []),
-    listModels({ throwOnError: true })
-      .then(({ data }) => data?.models ?? [])
-      .catch(() => []),
-    getMe({ throwOnError: true })
-      .then(({ data }) => data)
-      .catch(() => null),
+    listAgents({ query: { include_all: true }, throwOnError: true }).then(
+      ({ data }) => data?.agents ?? [],
+    ),
+    listModels({ throwOnError: true }).then(({ data }) => data?.models ?? []),
+    getMe({ throwOnError: true }).then(({ data }) => data),
     Promise.all([
-      listBuiltinResources({ path: { kind: "template" }, throwOnError: true })
-        .then(({ data }) => (data?.resources as BuiltinItem[]) ?? [])
-        .catch(() => []),
-      listBuiltinResources({ path: { kind: "soul" }, throwOnError: true })
-        .then(({ data }) => (data?.resources as BuiltinItem[]) ?? [])
-        .catch(() => []),
+      listBuiltinResources({ path: { kind: "template" }, throwOnError: true }).then(
+        ({ data }) => (data?.resources as BuiltinItem[]) ?? [],
+      ),
+      listBuiltinResources({ path: { kind: "soul" }, throwOnError: true }).then(
+        ({ data }) => (data?.resources as BuiltinItem[]) ?? [],
+      ),
     ]),
   ]);
   const isAdmin = me?.is_admin ?? false;
@@ -91,12 +94,12 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
     _highlight: a.id === agentId,
   })) as AgentDetail[];
   const selectedAgent = agentId ? agents.find((a) => a.id === agentId) : undefined;
-  const allUsers = isAdmin ? await fetchAllAuthUsers().catch(() => []) : [];
+  const allUsers = isAdmin ? await fetchAllAuthUsers() : [];
   const agentSkills = (
     agentId
-      ? ((await listAgentSkills({ path: { id: agentId }, throwOnError: true })
-          .then(({ data }) => data?.skills ?? [])
-          .catch(() => [])) ?? [])
+      ? ((await listAgentSkills({ path: { id: agentId }, throwOnError: true }).then(
+          ({ data }) => data?.skills ?? [],
+        )) ?? [])
       : []
   ) as Skill[];
   let personalisation: Personalisation = {
@@ -107,9 +110,7 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
     loaded: !!agentId,
   };
   if (agentId) {
-    const { data: memsData } = await listProfileMemories({ throwOnError: true }).catch(() => ({
-      data: undefined,
-    }));
+    const { data: memsData } = await listProfileMemories({ throwOnError: true });
     const mems = profileMemories(memsData);
     const mem = mems.find((m) => m.agent_id === agentId);
     const soul = mem?.soul ?? "";

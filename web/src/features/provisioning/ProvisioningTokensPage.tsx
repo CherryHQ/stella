@@ -48,7 +48,7 @@ import {
 } from "@/components/ui/table";
 import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
 import { SettingsGridPage } from "@/features/settings/SettingsCardGrid";
-import { useToast, ToastContainer } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useI18n } from "@/lib/i18n";
 import { Copy, KeyRound, Plus } from "lucide-react";
@@ -77,7 +77,7 @@ function statusVariant(status: ProvisioningTokenStatus) {
 
 export function ProvisioningTokensPage() {
   const { t } = useI18n();
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
   const queryClient = useQueryClient();
   const {
     data: response,
@@ -394,8 +394,6 @@ export function ProvisioningTokensPage() {
           </AlertDialogFooter>
         </AlertDialogPopup>
       </AlertDialog>
-
-      <ToastContainer messages={toasts} />
     </>
   );
 }

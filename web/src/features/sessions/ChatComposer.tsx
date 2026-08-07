@@ -378,7 +378,7 @@ export function ChatComposer({
             </span>
           )}
           {isStreaming && (
-            <span className="text-xs font-mono text-chart-2 select-none animate-pulse">
+            <span className="text-xs font-mono text-info select-none animate-pulse">
               {t("sessions.transcript.generating")}
             </span>
           )}

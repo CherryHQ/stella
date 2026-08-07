@@ -539,6 +539,27 @@ func (a *Access) ListAttempts(ctx context.Context, id string) ([]Attempt, error)
 	return attemptsFromRows(rows), nil
 }
 
+// ListAttemptSummaries authorizes the goal, then returns at most limit
+// lightweight attempt rows for read-only status projection.
+func (a *Access) ListAttemptSummaries(ctx context.Context, id string, limit int32) ([]AttemptSummary, error) {
+	if _, err := a.getRow(ctx, id); err != nil {
+		return nil, err
+	}
+	rows, err := a.svc.q.ListAttemptSummaryByGoal(ctx, sqlc.ListAttemptSummaryByGoalParams{GoalID: id, Limit: limit})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AttemptSummary, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, AttemptSummary{
+			ID: row.ID, Purpose: row.Purpose, AttemptNo: row.AttemptNo, Status: row.Status,
+			SessionID: row.SessionID, Error: row.Error, FailureClass: row.FailureClass,
+			StartedAt: timePtr(row.StartedAt), FinishedAt: timePtr(row.FinishedAt), UpdatedAt: row.UpdatedAt.UTC(),
+		})
+	}
+	return out, nil
+}
+
 // GetAttempt authorizes the goal, then returns one attempt scoped to it.
 func (a *Access) GetAttempt(ctx context.Context, id, attemptID string) (Attempt, error) {
 	if _, err := a.getRow(ctx, id); err != nil {

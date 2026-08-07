@@ -6,8 +6,9 @@ import { cn } from "@/lib/utils";
 import { logout as logoutRequest } from "@/lib/api-client/sdk.gen";
 import { useI18n, SUPPORTED_LOCALES } from "@/lib/i18n";
 import { meQueryOptions } from "@/lib/queries/me";
-import { inboxQueryOptions } from "@/lib/queries/inbox";
-import { ThemeAccentControl, ThemeAppearanceControl } from "@/components/ThemeControls";
+import { INBOX_SOURCE_LABELS, inboxQueryOptions, useInboxAgentName } from "@/lib/queries/inbox";
+import { ThemeAppearanceControl } from "@/components/ThemeControls";
+import { SegmentedField } from "@/components/SegmentedField";
 import { useGlobalSearch } from "@/components/GlobalSearch";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -23,12 +24,6 @@ import {
 } from "@/components/ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
-
-const INBOX_KIND_LABELS = {
-  blocked: "inbox.kind.blocked",
-  review: "inbox.kind.review",
-  failed: "inbox.kind.failed",
-} as const;
 
 interface AppEntry {
   key: string;
@@ -114,6 +109,7 @@ export function AppChromeHeader() {
 function InboxBell() {
   const { t } = useI18n();
   const { data: inbox } = useQuery(inboxQueryOptions(undefined, 20));
+  const agentName = useInboxAgentName();
   const items = inbox?.items ?? [];
 
   return (
@@ -150,22 +146,31 @@ function InboxBell() {
               {t("inbox.empty")}
             </p>
           ) : (
-            items.map((item) => (
-              <Button
-                key={item.id}
-                variant="ghost"
-                size="sm"
-                className="h-auto w-full justify-start py-2"
-                render={<Link to={item.target_path} />}
-              >
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
-                  <span className="truncate text-sm">{item.title}</span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    {item.detail || t(INBOX_KIND_LABELS[item.kind])}
+            items.map((item) => {
+              const agent = agentName(item.agent_id);
+              return (
+                <Button
+                  key={item.id}
+                  variant="ghost"
+                  size="sm"
+                  // A two-line row has to outgrow the size variant's fixed
+                  // height, and the variant pins it twice — `h-8 sm:h-7`. Only
+                  // naming both frees it; `h-auto` alone leaves `sm:h-7`
+                  // standing, which clipped the title and put a scrollbar on a
+                  // single-item list.
+                  className="h-auto w-full justify-start py-2 sm:h-auto"
+                  render={<Link to={item.target_path} />}
+                >
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
+                    <span className="truncate text-sm">{item.title}</span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {agent ? `${agent} · ` : ""}
+                      {item.detail || t(INBOX_SOURCE_LABELS[item.source_type])}
+                    </span>
                   </span>
-                </span>
-              </Button>
-            ))
+                </Button>
+              );
+            })
           )}
         </div>
       </PopoverPopup>
@@ -173,11 +178,38 @@ function InboxBell() {
   );
 }
 
+// Locale is a preference, not a destination, so it gets the same row shape as
+// appearance instead of a menu item. As an item it had to be worded as the
+// language you would switch *to*, which is indistinguishable from the language
+// you are already in — the segments show both and mark the live one.
+function LocaleField() {
+  const { t, locale, setLocale } = useI18n();
+
+  return (
+    <SegmentedField
+      label={t("header.language")}
+      value={locale}
+      onChange={(next) => void setLocale(next)}
+      // Each locale names itself: 中文 is legible to someone who cannot read the
+      // English around it, which is exactly who needs this row.
+      options={SUPPORTED_LOCALES.map((l) => ({ value: l, label: t(`locale.${l}`) }))}
+    />
+  );
+}
+
 /**
  * The sidebar's pinned bottom row: who you are signed in as, and everything that
- * hangs off that — personal settings, appearance, sign-out. The appearance
- * switch lives inline in the menu rather than behind its own trigger (nesting a
- * popover inside a menu is a bug) and stays a single row so the menu fits.
+ * hangs off that — where to go (settings, account, docs), how it should look and
+ * read (appearance, locale), and the way out.
+ *
+ * One row, not two. Settings used to sit outside the menu as its own row, which
+ * put the broadest destination in the app beside the narrowest one and made the
+ * footer two competing anchors. Inside, it leads the destinations and the
+ * identity pill is the sidebar's single bottom edge.
+ *
+ * The menu is a decision surface: everything in it is one click, visible, and
+ * reversible. That is why the accent picker is not here — a 360° hue slider is
+ * something you explore, and it already has room on the account page.
  */
 export function AppChromeFooter() {
   const { data: me } = useQuery(meQueryOptions);
@@ -186,7 +218,7 @@ export function AppChromeFooter() {
   const anchorRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { t, locale, setLocale } = useI18n();
+  const { t } = useI18n();
 
   if (!me) return null;
 
@@ -196,7 +228,6 @@ export function AppChromeFooter() {
     void navigate({ to: "/login" });
   }
 
-  const nextLocaleLabel = locale === "en" ? t("locale.zh") : t("locale.en");
   // The display name is what a human recognises; the username stays reachable in
   // the menu header because it is the identity you actually sign in with.
   const name = me.name?.trim();
@@ -204,24 +235,7 @@ export function AppChromeFooter() {
   const initial = displayName.trim()[0]?.toUpperCase() ?? "?";
 
   return (
-    // Two stacked full-width rows: a lone icon beside a stretched pill reads as
-    // two unrelated widths, so Settings gets the same row shape as the user.
-    // Settings is a secondary entry, so it sits in muted; the identity row keeps
-    // full foreground as the anchor of the footer.
-    <div ref={anchorRef} className="flex min-w-0 flex-col gap-1">
-      <Button
-        variant="ghost"
-        size="sm"
-        className="w-full min-w-0 justify-start text-muted-foreground"
-        render={<Link to="/settings" />}
-      >
-        {/* The leading slot matches the avatar's box so both rows' labels share
-            one left edge. */}
-        <span className="flex size-6 shrink-0 items-center justify-center">
-          <Settings />
-        </span>
-        {t("nav.settings")}
-      </Button>
+    <div ref={anchorRef} className="flex min-w-0 flex-col">
       <DropdownMenu>
         <DropdownMenuTrigger
           render={<Button variant="ghost" size="sm" className="w-full min-w-0 justify-start" />}
@@ -277,7 +291,13 @@ export function AppChromeFooter() {
             </DropdownMenuLabel>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
+          {/* Destinations, widest first: the whole settings surface, then the
+              one page in it that is about you, then the docs. */}
           <DropdownMenuGroup>
+            <DropdownMenuItem render={<Link to="/settings" />}>
+              <Settings className="size-4" />
+              {t("nav.settings")}
+            </DropdownMenuItem>
             <DropdownMenuItem render={<Link to="/settings/account" />}>
               <UserCog className="size-4" />
               {t("settings.nav.account")}
@@ -286,26 +306,20 @@ export function AppChromeFooter() {
               <FileText className="size-4" />
               {t("nav.docs")}
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => void setLocale(SUPPORTED_LOCALES.find((l) => l !== locale) ?? locale)}
-            >
-              <span className="flex size-4 items-center justify-center text-xs font-medium">
-                文
-              </span>
-              {nextLocaleLabel}
-            </DropdownMenuItem>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
-          {/* The full theme block (appearance + accent): this menu is the one
-              always-reachable home for personalization, so hiding accent on the
-              account page made it effectively lost. */}
-          <div className="flex flex-col gap-3 p-2">
+          {/* Preferences, not destinations: two rows of the same shape, so the
+              block reads as one idea and the controls share a right edge. */}
+          <div className="flex flex-col gap-2 p-2">
             <ThemeAppearanceControl layout="inline" />
-            <ThemeAccentControl />
+            <LocaleField />
           </div>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
-            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={logout}>
+            <DropdownMenuItem
+              className="text-destructive-foreground focus:text-destructive-foreground"
+              onClick={logout}
+            >
               <LogOut className="size-4" />
               {t("header.logout")}
             </DropdownMenuItem>

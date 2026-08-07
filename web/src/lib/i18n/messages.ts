@@ -25,7 +25,7 @@ const en = {
   // Agent IA
   "inbox.needsYou": "Needs you",
   "inbox.title": "Inbox",
-  "inbox.subtitle": "Blocked goals, reviews, and failed runs.",
+  "inbox.subtitle": "What needs you, across all agents.",
   "inbox.empty": "Nothing needs attention.",
   "inbox.blocked": "Blocked",
   "inbox.review": "Review",
@@ -54,8 +54,11 @@ const en = {
   "home.greeting": "What can I do for you today?",
   "home.selectAgent": "Select agent",
 
-  // Conversation sidebar
-  "sidebar.goals": "Goals",
+  // Conversation sidebar. The two rows an agent always has are its two primary
+  // spaces: Conversations (where context and execution live) and Work (goals,
+  // schedules, and workflows composed into one view).
+  "sidebar.conversations": "Conversations",
+  "sidebar.work": "Work",
   "sidebar.projects": "Projects",
   "sidebar.recentThreads": "Recent threads",
   "sidebar.showMore": "Show more",
@@ -67,7 +70,6 @@ const en = {
   "sidebar.newGroup": "New group",
 
   // Threads management page
-  "threads.title": "Threads",
   "threads.searchPlaceholder": "Search threads",
   "threads.homeFilter": "Filter by home",
   "threads.homeAll": "All homes",
@@ -119,6 +121,14 @@ const en = {
   "profile.configurationDesc": "Model, prompt, tools and sandbox for this agent.",
   "profile.files": "Files",
   "profile.openFiles": "Open files",
+
+  // Route-level failure and not-found states
+  "route.error.title": "Something went wrong",
+  "route.error.desc": "This page could not be loaded. The server may be unreachable.",
+  "route.notFound.title": "Page not found",
+  "route.notFound.desc": "This URL does not point anywhere in Stella.",
+  "route.notFound.home": "Go to Agents",
+  "route.loadFailed": "Could not load this list.",
 
   // Common actions
   "common.cancel": "Cancel",
@@ -1057,7 +1067,6 @@ const en = {
   "goals.emptyDesc": "A goal is one outcome an agent drives to acceptance.",
   "goals.noMatches": "No matches",
   "goals.noMatchesDesc": "No goals match your filters.",
-  "goals.secNeedsYou": "Needs you",
   "goals.secInProgress": "In progress",
   "goals.secClosed": "Closed",
   "goals.colStatus": "Status",
@@ -1353,7 +1362,6 @@ const en = {
   "goals.create": "Create",
   "goals.creating": "Creating…",
   "goals.createRun": "Create & run",
-  "hub.activeWork": "Active work",
   "hub.historyArchive": "History archive",
   "hub.needsYouHint":
     "Only goals waiting on your decision appear here. Goals waiting on upstream stay in Active work and resume on their own.",
@@ -1365,10 +1373,12 @@ const en = {
   "hub.achievedAt": "Achieved {{time}}",
 
   // Automations hub (unified page)
-  "hub.title": "Goals",
+  "hub.title": "Work",
   "hub.secNeedsYou": "Needs you",
+  "hub.emptyTitle": "Nothing tracked yet",
+  "hub.emptyDesc": "Ask {{agent}} for an outcome, or schedule a recurring task.",
   "hub.secActive": "Active",
-  "hub.secSchedules": "Schedules",
+  "hub.secSchedules": "Scheduled",
   "hub.secRepeatable": "Repeatable (workflows)",
   "hub.secClosed": "Closed",
   "hub.chipGoal": "Goal",
@@ -1394,10 +1404,7 @@ const en = {
   "hub.saved": "Saved",
   "hub.deleted": "Deleted",
   "hub.deleteConfirm": "Delete this schedule?",
-  "hub.statDoneWeek": "Done this week",
-  "hub.statRunning": "Running",
   "hub.nextRunLabel": "Next run",
-  "hub.nextRunStat": "next {{when}}",
   "hub.nextNow": "soon",
   "hub.inMinutes": "in {{n}} min",
   "hub.inHours": "in {{n}} h",
@@ -1411,9 +1418,8 @@ const en = {
   "hub.colNextRun": "Next run",
   "hub.colEnabled": "Enabled",
   "hub.secGoals": "Goals",
-  "hub.secRecentDone": "Recently completed",
+  "hub.secHistory": "History",
   "hub.noNeedsYou": "Nothing needs you right now.",
-  "hub.noSchedules": "No schedules yet.",
   "hub.openSession": "Open session",
   "hub.view": "View",
   "hub.viewAll": "View all",
@@ -1926,6 +1932,7 @@ const en = {
   // Header (additions)
   "header.openNavigation": "Open navigation",
   "header.appearance": "Appearance",
+  "header.language": "Language",
   "header.github": "GitHub",
   "header.system": "System",
   "header.light": "Light",
@@ -1965,6 +1972,18 @@ const en = {
 
   // Session detail (additions)
   "sessions.untitled": "Untitled session",
+  "sessions.origin.main": "Main thread",
+  "sessions.origin.scheduler": "Scheduled",
+  "sessions.origin.goal": "Goal",
+  "sessions.origin.delegate": "Delegated",
+  "sessions.origin.webhook": "Webhook",
+  "sessions.origin.telegram": "Telegram",
+  "sessions.origin.feishu": "Feishu",
+  "sessions.origin.qq": "QQ",
+  "sessions.origin.wechat": "WeChat",
+  "sessions.origin.slack": "Slack",
+  "sessions.origin.discord": "Discord",
+  "sessions.origin.email": "Email",
   "sessions.messagesChannel": "{{count}} messages · {{channel}}",
   "sessions.chat": "chat",
   "sessions.createNewHint": "or create a new one with + New",
@@ -2187,7 +2206,7 @@ const zh: Record<MessageKey, string> = {
   // Agent IA
   "inbox.needsYou": "需要你",
   "inbox.title": "收件箱",
-  "inbox.subtitle": "阻塞目标、待审查项和失败运行。",
+  "inbox.subtitle": "所有 Agent 中需要你处理的事项。",
   "inbox.empty": "当前没有需要处理的事项。",
   "inbox.blocked": "阻塞",
   "inbox.review": "审查",
@@ -2217,7 +2236,8 @@ const zh: Record<MessageKey, string> = {
   "home.selectAgent": "选择智能体",
 
   // Conversation sidebar
-  "sidebar.goals": "目标",
+  "sidebar.conversations": "对话",
+  "sidebar.work": "工作",
   "sidebar.projects": "项目",
   "sidebar.recentThreads": "最近话题",
   "sidebar.showMore": "显示更多",
@@ -2229,7 +2249,6 @@ const zh: Record<MessageKey, string> = {
   "sidebar.newGroup": "新建群聊",
 
   // Threads management page
-  "threads.title": "话题",
   "threads.searchPlaceholder": "搜索话题",
   "threads.homeFilter": "按归属筛选",
   "threads.homeAll": "全部归属",
@@ -2281,6 +2300,14 @@ const zh: Record<MessageKey, string> = {
   "profile.configurationDesc": "该智能体的模型、提示词、工具与沙箱。",
   "profile.files": "文件",
   "profile.openFiles": "打开文件",
+
+  // Route-level failure and not-found states
+  "route.error.title": "出错了",
+  "route.error.desc": "此页面无法加载，服务端可能不可达。",
+  "route.notFound.title": "页面不存在",
+  "route.notFound.desc": "该地址在 Stella 中没有对应页面。",
+  "route.notFound.home": "前往智能体",
+  "route.loadFailed": "无法加载该列表。",
 
   // Common actions
   "common.cancel": "取消",
@@ -3193,7 +3220,6 @@ const zh: Record<MessageKey, string> = {
   "goals.emptyDesc": "目标是 Agent 推动至验收的一个成果。",
   "goals.noMatches": "无匹配",
   "goals.noMatchesDesc": "没有目标符合当前筛选。",
-  "goals.secNeedsYou": "待你处理",
   "goals.secInProgress": "进行中",
   "goals.secClosed": "已结束",
   "goals.colStatus": "状态",
@@ -3485,7 +3511,6 @@ const zh: Record<MessageKey, string> = {
   "goals.create": "创建",
   "goals.creating": "创建中…",
   "goals.createRun": "创建并运行",
-  "hub.activeWork": "活跃工作",
   "hub.historyArchive": "历史归档",
   "hub.needsYouHint":
     "这里只放等待你决定的目标。等上游的目标留在活跃工作里，上游完成后会自动继续。",
@@ -3496,8 +3521,10 @@ const zh: Record<MessageKey, string> = {
   "hub.achievedAt": "已于 {{time}} 达成",
 
   // Automations hub (unified page)
-  "hub.title": "目标",
+  "hub.title": "工作",
   "hub.secNeedsYou": "需要你处理",
+  "hub.emptyTitle": "还没有在追踪的工作",
+  "hub.emptyDesc": "交给 {{agent}} 一个目标，或安排一个定时任务。",
   "hub.secActive": "进行中",
   "hub.secSchedules": "定时任务",
   "hub.secRepeatable": "可重复（工作流）",
@@ -3525,10 +3552,7 @@ const zh: Record<MessageKey, string> = {
   "hub.saved": "已保存",
   "hub.deleted": "已删除",
   "hub.deleteConfirm": "删除此定时任务？",
-  "hub.statDoneWeek": "本周完成",
-  "hub.statRunning": "正在运行",
   "hub.nextRunLabel": "下次运行",
-  "hub.nextRunStat": "下次 {{when}}",
   "hub.nextNow": "即将运行",
   "hub.inMinutes": "{{n}} 分钟后",
   "hub.inHours": "{{n}} 小时后",
@@ -3542,9 +3566,8 @@ const zh: Record<MessageKey, string> = {
   "hub.colNextRun": "下次运行",
   "hub.colEnabled": "启用",
   "hub.secGoals": "目标",
-  "hub.secRecentDone": "最近完成",
+  "hub.secHistory": "历史",
   "hub.noNeedsYou": "目前没有需要你处理的事项。",
-  "hub.noSchedules": "暂无定时任务。",
   "hub.openSession": "打开会话",
   "hub.view": "查看",
   "hub.viewAll": "查看全部",
@@ -4044,6 +4067,7 @@ const zh: Record<MessageKey, string> = {
   // Header (additions)
   "header.openNavigation": "打开导航",
   "header.appearance": "外观",
+  "header.language": "语言",
   "header.github": "GitHub",
   "header.system": "跟随系统",
   "header.light": "浅色",
@@ -4083,6 +4107,18 @@ const zh: Record<MessageKey, string> = {
 
   // Session detail (additions)
   "sessions.untitled": "未命名会话",
+  "sessions.origin.main": "主线程",
+  "sessions.origin.scheduler": "定时",
+  "sessions.origin.goal": "目标",
+  "sessions.origin.delegate": "委派",
+  "sessions.origin.webhook": "Webhook",
+  "sessions.origin.telegram": "Telegram",
+  "sessions.origin.feishu": "飞书",
+  "sessions.origin.qq": "QQ",
+  "sessions.origin.wechat": "微信",
+  "sessions.origin.slack": "Slack",
+  "sessions.origin.discord": "Discord",
+  "sessions.origin.email": "邮件",
   "sessions.messagesChannel": "{{count}} 条消息 · {{channel}}",
   "sessions.chat": "对话",
   "sessions.createNewHint": "或点击 + 新建创建一个",

@@ -286,7 +286,7 @@ export function SkillsTab({
                     onClick={() => onDeleteSkill(selectedSkill)}
                     variant="ghost"
                     size="xs"
-                    className="text-destructive hover:bg-destructive/10 cursor-pointer"
+                    className="text-destructive-foreground hover:bg-destructive/10 cursor-pointer"
                   >
                     {t("common.delete")}
                   </Button>
@@ -410,7 +410,7 @@ export function SkillsTab({
                         onClick={onDeleteSkillFile}
                         variant="ghost"
                         size="xs"
-                        className="text-destructive hover:bg-destructive/10 cursor-pointer"
+                        className="text-destructive-foreground hover:bg-destructive/10 cursor-pointer"
                       >
                         {t("agents.skills.deleteFile")}
                       </Button>

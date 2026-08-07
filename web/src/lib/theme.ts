@@ -10,7 +10,13 @@ export const THEME_STORAGE_KEY = "stella-theme";
 
 /** Hue of the shipped teal accent (`--primary`). A chosen hue rotates the whole
  *  chromatic family by its delta from this base. */
-export const DEFAULT_ACCENT_HUE = 174;
+export const DEFAULT_ACCENT_HUE = 190;
+
+/** The default before the accent moved to 190. Anyone who had explicitly picked
+ *  the Teal preset stored this hue, and it would now read as a -16 rotation —
+ *  pinning them to the old teal, whose light-mode button label sits at 4.2:1.
+ *  Treat it as "no override" once so the fix reaches them too. */
+const LEGACY_TEAL_HUE = 174;
 
 export const DEFAULT_THEME: ThemeSettings = {
   appearance: "system",
@@ -18,7 +24,7 @@ export const DEFAULT_THEME: ThemeSettings = {
 
 /** Preset accent hues offered as quick swatches. */
 export const ACCENT_PRESETS: { name: string; hue: number }[] = [
-  { name: "Teal", hue: 174 },
+  { name: "Teal", hue: 190 },
   { name: "Blue", hue: 245 },
   { name: "Indigo", hue: 275 },
   { name: "Violet", hue: 305 },
@@ -42,10 +48,11 @@ export function getStoredTheme(): ThemeSettings {
     const appearance = isAppearance(parsed.appearance)
       ? parsed.appearance
       : DEFAULT_THEME.appearance;
-    const accentHue =
+    const hue =
       typeof parsed.accentHue === "number" && Number.isFinite(parsed.accentHue)
         ? normalizeHue(parsed.accentHue)
         : undefined;
+    const accentHue = hue === LEGACY_TEAL_HUE ? undefined : hue;
     return { appearance, accentHue };
   } catch {
     return DEFAULT_THEME;
@@ -84,62 +91,63 @@ function normalizeHue(hue: number): number {
 // Status colors (chart-2..5, destructive) and the pure-white card/popover are
 // intentionally absent — they must not rotate with the brand accent.
 //
-// Keep in sync with tokens.css if a token's L/C ever changes.
+// These are a mirror of tokens.css, and a comment cannot keep a mirror honest —
+// theme.test.ts parses tokens.css and fails on any drift.
 
-type TokenSpec = [name: string, l: number, c: number, h: number];
+export type TokenSpec = [name: string, l: number, c: number, h: number];
 
-const LIGHT_TOKENS: TokenSpec[] = [
+export const LIGHT_TOKENS: TokenSpec[] = [
   ["background", 0.975, 0.008, 200],
   ["foreground", 0.2, 0.022, 220],
   ["card-foreground", 0.2, 0.022, 220],
   ["popover-foreground", 0.2, 0.022, 220],
-  ["primary", 0.55, 0.14, 172],
-  ["primary-foreground", 0.99, 0.01, 172],
+  ["primary", 0.5, 0.12, 190],
+  ["primary-foreground", 0.99, 0.01, 190],
   ["secondary", 0.95, 0.012, 198],
   ["secondary-foreground", 0.2, 0.022, 220],
   ["muted", 0.95, 0.012, 198],
   ["muted-foreground", 0.48, 0.025, 205],
-  ["accent", 0.93, 0.05, 178],
-  ["accent-foreground", 0.43, 0.11, 178],
+  ["accent", 0.93, 0.045, 190],
+  ["accent-foreground", 0.4, 0.09, 190],
   ["border", 0.9, 0.012, 200],
   ["input", 0.9, 0.012, 200],
-  ["ring", 0.55, 0.14, 172],
-  ["chart-1", 0.55, 0.14, 172],
+  ["ring", 0.5, 0.12, 190],
+  ["chart-1", 0.5, 0.12, 190],
   ["sidebar", 0.965, 0.01, 198],
   ["sidebar-foreground", 0.2, 0.022, 220],
-  ["sidebar-primary", 0.55, 0.14, 172],
-  ["sidebar-primary-foreground", 0.99, 0.01, 172],
-  ["sidebar-accent", 0.93, 0.05, 178],
-  ["sidebar-accent-foreground", 0.43, 0.11, 178],
+  ["sidebar-primary", 0.5, 0.12, 190],
+  ["sidebar-primary-foreground", 0.99, 0.01, 190],
+  ["sidebar-accent", 0.93, 0.045, 190],
+  ["sidebar-accent-foreground", 0.4, 0.09, 190],
   ["sidebar-border", 0.9, 0.012, 200],
-  ["sidebar-ring", 0.55, 0.14, 172],
+  ["sidebar-ring", 0.5, 0.12, 190],
 ];
 
-const DARK_TOKENS: TokenSpec[] = [
+export const DARK_TOKENS: TokenSpec[] = [
   ["background", 0.18, 0.014, 215],
   ["foreground", 0.95, 0.006, 200],
   ["card-foreground", 0.95, 0.006, 200],
   ["popover-foreground", 0.95, 0.006, 200],
-  ["primary", 0.7, 0.14, 174],
+  ["primary", 0.72, 0.13, 190],
   ["primary-foreground", 0.18, 0.04, 200],
   ["secondary", 0.24, 0.018, 215],
   ["secondary-foreground", 0.95, 0.006, 200],
   ["muted", 0.24, 0.018, 215],
   ["muted-foreground", 0.7, 0.018, 200],
-  ["accent", 0.3, 0.06, 178],
-  ["accent-foreground", 0.8, 0.13, 174],
+  ["accent", 0.3, 0.055, 190],
+  ["accent-foreground", 0.82, 0.12, 190],
   ["border", 0.28, 0.016, 210],
   ["input", 0.28, 0.016, 210],
-  ["ring", 0.7, 0.14, 174],
-  ["chart-1", 0.7, 0.14, 174],
+  ["ring", 0.72, 0.13, 190],
+  ["chart-1", 0.72, 0.13, 190],
   ["sidebar", 0.2, 0.016, 215],
   ["sidebar-foreground", 0.95, 0.006, 200],
-  ["sidebar-primary", 0.7, 0.14, 174],
+  ["sidebar-primary", 0.72, 0.13, 190],
   ["sidebar-primary-foreground", 0.18, 0.04, 200],
-  ["sidebar-accent", 0.3, 0.06, 178],
-  ["sidebar-accent-foreground", 0.8, 0.13, 174],
+  ["sidebar-accent", 0.3, 0.055, 190],
+  ["sidebar-accent-foreground", 0.82, 0.12, 190],
   ["sidebar-border", 0.28, 0.016, 210],
-  ["sidebar-ring", 0.7, 0.14, 174],
+  ["sidebar-ring", 0.72, 0.13, 190],
 ];
 
 const ALL_TOKEN_NAMES = LIGHT_TOKENS.map(([name]) => name);

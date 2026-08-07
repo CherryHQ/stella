@@ -29,7 +29,7 @@ import {
   updateSession as sdkUpdateSession,
 } from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
-import { getAgentColor } from "@/lib/agent-colors";
+import { getAgentAvatarStyle } from "@/lib/agent-colors";
 import { relativeTime } from "@/lib/relative-time";
 import { cn } from "@/lib/utils";
 import { agentsQueryOptions } from "@/lib/queries/agents";
@@ -44,6 +44,7 @@ import {
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { groupsQueryOptions, groupMembersQueryOptions } from "@/lib/queries/groups";
 import { inboxQueryOptions } from "@/lib/queries/inbox";
+import { sessionDisplayTitle } from "@/lib/session-title";
 import { SidebarItem, SidebarSection } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
 import {
@@ -354,7 +355,7 @@ function CreateProjectDialog({
             <p className="text-xs text-muted-foreground">{t("sessions.sidebar.noActiveSession")}</p>
           )}
 
-          {error && <p className="text-xs text-destructive">{error}</p>}
+          {error && <p className="text-xs text-destructive-foreground">{error}</p>}
         </DialogPanel>
         <DialogFooter>
           <Button variant="ghost" size="sm" onClick={onClose}>
@@ -552,7 +553,7 @@ function AgentNode({
         icon={
           <span
             className="grid size-6 place-items-center rounded-full text-xs font-semibold text-primary-foreground"
-            style={{ background: getAgentColor(target.id, target.colorIndex) }}
+            style={getAgentAvatarStyle(target.id, target.colorIndex)}
           >
             {target.label[0]?.toUpperCase()}
           </span>
@@ -602,7 +603,11 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
 
   const activeSessionId = pathname.match(/\/sessions\/([^/]+)/)?.[1] ?? "";
   const activeProjectId = pathname.match(/\/projects\/([^/]+)/)?.[1] ?? "";
-  const onGoals = pathname.includes(`/agents/${agentId}/goals`);
+  // Work is one space composed from several routes — goals, their schedules,
+  // and workflows all live under it, so the row stays lit across all of them.
+  const onWork =
+    pathname.includes(`/agents/${agentId}/goals`) ||
+    pathname.includes(`/agents/${agentId}/workflows`);
   const onProfile = pathname === `/agents/${agentId}/profile`;
 
   const projectSessions = useQuery(projectSessionsQueryOptions(agentId, activeProjectId));
@@ -731,10 +736,13 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
         label={t("sessions.sidebar.newThread")}
         onClick={() => void createChat()}
       />
+      {/* Work is the only space that needs a row of its own. Conversations is
+          the thread section further down — that list *is* the space, so a row
+          pointing at the same page would be a second door onto one room. */}
       <SidebarItem
-        active={onGoals}
+        active={onWork}
         icon={<ListTodo className="size-4" />}
-        label={t("sidebar.goals")}
+        label={t("sidebar.work")}
         badge={
           goalCounts && goalCounts.active > 0 ? (
             <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 font-mono text-xs text-foreground">
@@ -807,7 +815,7 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
                     key={session.id}
                     active={activeSessionId === session.id}
                     icon={<MessageSquare className="size-4" />}
-                    label={session.title || t("sessions.untitled")}
+                    label={sessionDisplayTitle(session.title, t("sessions.untitled"))}
                     meta={
                       <time className="font-mono text-xs">{relativeTime(session.last_active)}</time>
                     }
@@ -828,7 +836,12 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
           project threads in bulk) is reachable. */}
       {(recentThreads.length > 0 || projects.length > 0) && (
         <SidebarSection
-          title={t("sidebar.recentThreads")}
+          title={t("sidebar.conversations")}
+          titleLink={
+            <Link to="/agents/$agentId/threads" params={{ agentId }} onClick={onNavigate}>
+              {t("sidebar.conversations")}
+            </Link>
+          }
           open={threadsOpen}
           onOpenChange={setThreadsOverride}
           count={recentThreads.length}
@@ -846,7 +859,7 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
           }
         >
           {recentThreads.slice(0, visibleThreads).map((session: Session) => {
-            const label = session.title || t("sessions.untitled");
+            const label = sessionDisplayTitle(session.title, t("sessions.untitled"));
             return (
               <SidebarItem
                 key={session.id}

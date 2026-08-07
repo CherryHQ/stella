@@ -417,6 +417,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 
 	serviceTools := []agent.BuiltinTool{
 		{Tool: goal.NewTool(goalSvc), Available: agent.BuiltinToolAvailable},
+		{Tool: sessionaccess.NewTool(sessionAccess), Available: func(ctx context.Context, params agent.RunnerParams) bool {
+			return params.GroupID == "" && agent.BuiltinToolAvailable(ctx, params)
+		}},
 		{Tool: scheduler.NewTool(schedulerSvc), Available: agent.BuiltinToolAvailable},
 		{Tool: workflowpkg.NewTool(workflowSvc), Available: agent.BuiltinToolAvailable},
 		{Tool: connections.NewTool(credSvc), Available: oauthToolAvailable(credSvc)},

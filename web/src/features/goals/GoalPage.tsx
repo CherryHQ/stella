@@ -73,7 +73,10 @@ import { AgentChip, DetailSection, DetailShell, MetaSep } from "@/features/goals
 import { GoalCanvas } from "@/features/goals/GoalCanvas";
 import { GoalTimeline } from "@/features/goals/GoalTimeline";
 import { postGoalTimelineMessage } from "@/features/goals/useGoalTimelineMessage";
-import { ToastContainer, useToast } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
+import { ErrorState, RoutePending } from "@/components/RouteFallback";
+// Generic HTTP-status reader; it lives in auth-error.ts but is not auth-specific.
+import { authErrorStatus } from "@/lib/auth-error";
 
 // A done goal never changes again, so every query on this page polls while the
 // goal is live and stops at done. Polling pauses automatically when the page
@@ -90,10 +93,15 @@ export function GoalPage() {
   const { node } = useSearch({ strict: false }) as { node?: string; tab?: string };
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
   const [acting, setActing] = useState(false);
 
-  const { data: d, isError } = useQuery({
+  const {
+    data: d,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     ...goalOptions(goalId),
     refetchInterval: (q) => {
       const data = q.state.data;
@@ -155,13 +163,28 @@ export function GoalPage() {
   );
 
   if (isError) {
+    // A deleted goal and an unreachable server used to render the same
+    // "not found" dead end. Only the first one is terminal.
+    const missing = authErrorStatus(error) === 404;
     return (
-      <DetailShell agentId={agentId} kindLabel={t("goals.kindLeaf")} title={t("goals.notFound")}>
-        <div />
+      <DetailShell
+        agentId={agentId}
+        kindLabel={t("goals.kindLeaf")}
+        title={missing ? t("goals.notFound") : t("route.error.title")}
+      >
+        {missing ? (
+          <ErrorState title={t("goals.notFound")} />
+        ) : (
+          <ErrorState
+            title={t("route.error.title")}
+            description={t("route.error.desc")}
+            onRetry={() => void refetch()}
+          />
+        )}
       </DetailShell>
     );
   }
-  if (!d) return null;
+  if (!d) return <RoutePending />;
 
   const isComposite = d.kind === "composite";
   const path = { id: d.id };
@@ -290,7 +313,6 @@ export function GoalPage() {
         act={act}
         onClose={() => setNode(null)}
       />
-      <ToastContainer messages={toasts} />
     </DetailShell>
   );
 }
@@ -681,8 +703,8 @@ function HeaderActions({
   return (
     <>
       {d.active_attempt_id && (lc === "active" || lc === "pending") && (
-        <span className="inline-flex items-center gap-1.5 self-center font-mono text-xs text-chart-2">
-          <span className="size-1.5 animate-pulse rounded-full bg-chart-2" />
+        <span className="inline-flex items-center gap-1.5 self-center font-mono text-xs text-info">
+          <span className="size-1.5 animate-pulse rounded-full bg-info" />
           {t("goals.attemptRunning")}
         </span>
       )}
@@ -1033,7 +1055,7 @@ function ReadinessBlock({ readiness }: { readiness: ComponentsReadiness | null }
       <span
         className={cn(
           "font-mono text-xs font-semibold",
-          readiness.dispatchable ? "text-chart-3" : "text-chart-4",
+          readiness.dispatchable ? "text-success" : "text-warning",
         )}
       >
         {t(stateKey[readiness.state] ?? "goals.readinessUnknown")}
@@ -1134,7 +1156,7 @@ function AttemptItem({ a }: { a: ComponentsAttempt }) {
       </button>
       {open && canExpand && (
         <div className="space-y-3 border-t border-border px-3.5 py-3">
-          {a.error && <p className="text-[12px] text-destructive">{a.error}</p>}
+          {a.error && <p className="text-[12px] text-destructive-foreground">{a.error}</p>}
           {hasOutput && (
             <div>
               <div className="mb-1.5 font-mono text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1251,7 +1273,7 @@ function AcceptanceTab({ d, acting, act }: { d: ComponentsGoal; acting: boolean;
                         <span
                           className={cn(
                             "font-semibold",
-                            ev.result === "pass" ? "text-chart-3" : "text-destructive",
+                            ev.result === "pass" ? "text-success" : "text-destructive-foreground",
                           )}
                         >
                           {t(ev.result === "pass" ? "goals.resultPass" : "goals.resultFail")}
@@ -1395,7 +1417,7 @@ function ContractEditor({ d, acting, act }: { d: ComponentsGoal; acting: boolean
                   <FieldDescription>{t("goals.contractJsonHelp")}</FieldDescription>
                   {/* Base UI Field.Error only renders on control validity failure;
                       server/parse errors are manual state, so render a plain element. */}
-                  {error && <p className="text-xs text-destructive">{error}</p>}
+                  {error && <p className="text-xs text-destructive-foreground">{error}</p>}
                 </Field>
               </DialogPanel>
               <DialogFooter>
@@ -1467,7 +1489,7 @@ function VerdictForm({
           size="sm"
           variant="outline"
           loading={acting}
-          className="text-destructive"
+          className="text-destructive-foreground"
           onClick={() => submit("fail")}
         >
           {t("goals.verdictFail")}
@@ -1710,7 +1732,7 @@ function AcceptanceContractView({ contract }: { contract: ComponentsAcceptanceCo
                 <span className="font-mono text-[10px]">{it.authority}</span>
               )}
               {it.required === false && (
-                <span className="font-mono text-[10px]">{t("goals.planOptional")}</span>
+                <span className="text-[10px]">{t("goals.planOptional")}</span>
               )}
             </span>
             {it.command && (
@@ -1756,7 +1778,7 @@ function PlanDecisionActions({
         size="sm"
         variant="outline"
         loading={acting}
-        className="text-destructive"
+        className="text-destructive-foreground"
         onClick={() => act(() => rejectPlan({ path, body: {}, throwOnError: true }))}
       >
         {t("goals.revReject")}

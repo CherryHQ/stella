@@ -357,7 +357,7 @@ export function SkillInspectorPanel({
                   <Switch checked={convertToManual} onCheckedChange={setConvertToManual} />
                 </div>
                 {convertToManual && (
-                  <p className="text-xs text-destructive">
+                  <p className="text-xs text-destructive-foreground">
                     {t("sessions.skillsList.convertToManualWarning")}
                   </p>
                 )}
@@ -563,7 +563,7 @@ function SkillFileView({
                 <Switch checked={convertToManual} onCheckedChange={setConvertToManual} />
               </div>
               {convertToManual && (
-                <p className="text-xs text-destructive">
+                <p className="text-xs text-destructive-foreground">
                   {t("sessions.skillsList.convertToManualWarning")}
                 </p>
               )}

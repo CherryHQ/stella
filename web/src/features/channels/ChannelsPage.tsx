@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { useI18n } from "@/lib/i18n";
-import { useToast, ToastContainer } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import {
   DetailPanel,
   DetailPanelHeader,
@@ -352,7 +352,7 @@ export function ChannelsPage() {
   // inside the Sheet and an overlay may not nest inside another (`web-ui.md`).
   const [pendingDelete, setPendingDelete] = useState<NormalizedChannel | null>(null);
 
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
 
   // ── derived state ──
 
@@ -688,7 +688,7 @@ export function ChannelsPage() {
                         <>
                           <span
                             className={`size-1.5 shrink-0 rounded-full ${
-                              ch.enabled ? "bg-chart-3" : "bg-muted-foreground"
+                              ch.enabled ? "bg-success" : "bg-muted-foreground"
                             }`}
                           />
                           <span className="font-mono text-xs text-muted-foreground">{ch.id}</span>
@@ -739,8 +739,6 @@ export function ChannelsPage() {
           setPendingDelete(null);
         }}
       />
-
-      <ToastContainer messages={toasts} />
     </>
   );
 }

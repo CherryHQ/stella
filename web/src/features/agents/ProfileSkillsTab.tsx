@@ -24,7 +24,7 @@ import {
   SCOPE_LABEL_KEY,
   type SkillScope,
 } from "@/lib/skill-scope";
-import { ToastContainer, useToast } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 import type { Skill } from "@/lib/types";
@@ -64,7 +64,7 @@ const GROUP_ORDER: GroupKey[] = ["mine", "project", "system"];
  */
 export function ProfileSkillsTab({ agentId, projectId }: { agentId: string; projectId?: string }) {
   const { t } = useI18n();
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
   const queryClient = useQueryClient();
   const [installOpen, setInstallOpen] = useState(false);
   const [selected, setSelected] = useState<Skill | null>(null);
@@ -107,7 +107,6 @@ export function ProfileSkillsTab({ agentId, projectId }: { agentId: string; proj
 
   return (
     <div className="flex flex-col gap-6">
-      <ToastContainer messages={toasts} />
       <div className="flex items-center justify-between gap-2">
         <p className="min-w-0 text-sm text-muted-foreground">{t("profile.skillsDesc")}</p>
         <Button

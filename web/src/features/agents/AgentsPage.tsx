@@ -79,7 +79,7 @@ export function AgentsPage() {
                 <>
                   <span
                     className={`size-1.5 shrink-0 rounded-full ${
-                      a.enabled ? "bg-chart-3" : "bg-muted-foreground"
+                      a.enabled ? "bg-success" : "bg-muted-foreground"
                     }`}
                   />
                   <span className="truncate font-mono text-xs text-muted-foreground">

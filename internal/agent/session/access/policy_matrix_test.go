@@ -288,13 +288,33 @@ func TestEmbeddedPostgresSessionBehaviorMatrix(t *testing.T) {
 		}
 	})
 
-	t.Run("worker actor cannot list sessions", func(t *testing.T) {
+	t.Run("worker actor lists only its owner executor sessions", func(t *testing.T) {
 		access, err := m.svc.Begin(ctx, worker(m.owner, m.agent))
 		if err != nil {
 			t.Fatal(err)
 		}
+		infos, err := access.List(ctx, m.agent, agentsession.ListOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(infos) != 2 {
+			t.Fatalf("worker list count=%d, want owner private and internal sessions", len(infos))
+		}
+		if _, err := access.List(ctx, "other-agent", agentsession.ListOptions{}); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("worker cross-agent List error=%v, want ErrNotFound", err)
+		}
+		if _, err := access.ListPage(ctx, "other-agent", agentsession.ListOptions{}, 20); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("worker cross-agent ListPage error=%v, want ErrNotFound", err)
+		}
+	})
+
+	t.Run("group actor cannot list sessions", func(t *testing.T) {
+		access, err := m.svc.Begin(ctx, group(m.group, m.agent))
+		if err != nil {
+			t.Fatal(err)
+		}
 		if _, err := access.List(ctx, m.agent, agentsession.ListOptions{}); !errors.Is(err, ErrNotFound) {
-			t.Fatalf("worker List error=%v, want ErrNotFound", err)
+			t.Fatalf("group List error=%v, want ErrNotFound", err)
 		}
 	})
 

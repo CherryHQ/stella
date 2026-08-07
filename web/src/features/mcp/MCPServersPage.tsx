@@ -13,7 +13,7 @@ import type { Agent } from "@/lib/types";
 import { meQueryOptions } from "@/lib/queries/me";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
-import { useToast, ToastContainer } from "@/hooks/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
@@ -32,6 +32,7 @@ import {
   type McpTransport,
 } from "@/features/mcp/McpServerFields";
 import { SettingsEmptyState } from "@/features/settings/SettingsEmptyState";
+import { ErrorState } from "@/components/RouteFallback";
 import {
   SettingsCard,
   SettingsCardSection,
@@ -69,11 +70,12 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
   const { t } = useI18n();
   const { data: me } = useQuery(meQueryOptions);
   const isAdmin = me?.is_admin ?? false;
-  const { toasts, showToast } = useToast();
+  const { showToast } = useToast();
 
   const [servers, setServers] = useState<McpServer[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<McpServer | null>(null);
@@ -92,28 +94,22 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
     [agents],
   );
 
+  // These used to swallow into `[]`, so an unreachable server rendered as
+  // "no MCP servers configured" — indistinguishable from a clean install.
+  // Failures now surface through `loadError`.
   const fetchScope = useCallback(async (scope: MCPScope, agentID?: string) => {
-    try {
-      const { data } = await listScopedMcpServers({
-        query: { scope, agent_id: agentID },
-        throwOnError: true,
-      });
-      return data?.servers ?? [];
-    } catch {
-      return [];
-    }
+    const { data } = await listScopedMcpServers({
+      query: { scope, agent_id: agentID },
+      throwOnError: true,
+    });
+    return data?.servers ?? [];
   }, []);
 
   const loadAgents = useCallback(async () => {
-    try {
-      const { data } = await listAgents({ query: { include_all: true }, throwOnError: true });
-      const list = (data?.agents as Agent[]) ?? [];
-      setAgents(list);
-      return list;
-    } catch {
-      setAgents([]);
-      return [];
-    }
+    const { data } = await listAgents({ query: { include_all: true }, throwOnError: true });
+    const list = (data?.agents as Agent[]) ?? [];
+    setAgents(list);
+    return list;
   }, []);
 
   const loadServers = useCallback(
@@ -148,13 +144,21 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
     [fetchScope],
   );
 
-  useEffect(() => {
-    const init = async () => {
+  const init = useCallback(async () => {
+    setLoadError(false);
+    try {
       const agentList = await loadAgents();
       await loadServers(agentList);
-    };
-    void init();
+    } catch {
+      setAgents([]);
+      setServers([]);
+      setLoadError(true);
+    }
   }, [loadAgents, loadServers]);
+
+  useEffect(() => {
+    void init();
+  }, [init]);
 
   const openAddSheet = useCallback(() => {
     setEditingServer(null);
@@ -402,6 +406,12 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
 
   const content = loading ? (
     <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+  ) : loadError ? (
+    <ErrorState
+      title={t("route.error.title")}
+      description={t("route.loadFailed")}
+      onRetry={() => void init()}
+    />
   ) : sortedServers.length === 0 ? (
     <SettingsEmptyState
       icon={<PlugZap className="size-5" />}
@@ -477,7 +487,6 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
       <SettingsDetailSheet open={sheetOpen} onClose={() => setSheetOpen(false)}>
         {addPanel}
       </SettingsDetailSheet>
-      <ToastContainer messages={toasts} />
     </>
   );
 }
