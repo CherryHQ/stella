@@ -17,6 +17,12 @@ export type PlatformDefaults = Record<string, string | boolean>;
  */
 export const platformDefaults: Record<string, PlatformDefaults> = {
   telegram: { token: "", channel_id: "" },
+  discord: {
+    token: "",
+    allowed_guild_ids: "",
+    allow_dm: true,
+    require_mention: true,
+  },
   qq: { app_id: "", app_secret: "" },
   feishu: {
     app_id: "",
@@ -164,6 +170,36 @@ export function ChannelConfigFields({
         <>
           {field("token", "Bot Token", "password", "From @BotFather")}
           {field("channel_id", "Channel ID", "text", "Default channel")}
+        </>
+      )}
+
+      {type === "discord" && (
+        <>
+          {field("token", "Bot Token", "password", "Discord Developer Portal")}
+          {field(
+            "allowed_guild_ids",
+            "Allowed Guild IDs",
+            "text",
+            "Comma-separated Discord server IDs",
+          )}
+          <Field>
+            <FieldLabel>{t("channels.allowDm")}</FieldLabel>
+            <Switch
+              checked={Boolean(channel.allow_dm)}
+              aria-label={t("channels.allowDm")}
+              onCheckedChange={(checked) => onChange("allow_dm", checked)}
+            />
+            <FieldDescription>{t("channels.allowDmDesc")}</FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel>{t("channels.requireMention")}</FieldLabel>
+            <Switch
+              checked={Boolean(channel.require_mention)}
+              aria-label={t("channels.requireMention")}
+              onCheckedChange={(checked) => onChange("require_mention", checked)}
+            />
+            <FieldDescription>{t("channels.requireMentionDesc")}</FieldDescription>
+          </Field>
         </>
       )}
 

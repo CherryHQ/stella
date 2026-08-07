@@ -51,13 +51,13 @@ That gives Stella:
 
 Stella ships built-in plugins across several areas:
 
-| Kind     | Examples                                 |
-| -------- | ---------------------------------------- |
-| tool     | `webfetch`, `notify`                     |
-| channel  | `telegram`, `qq`, `feishu`, `weixin`     |
-| hook     | `trace`, `rtk`                           |
-| provider | `anthropic`, `openai`, `openai-response` |
-| memory   | `lcm`, `simple`                          |
+| Kind     | Examples                                        |
+| -------- | ----------------------------------------------- |
+| tool     | `webfetch`, `notify`                            |
+| channel  | `telegram`, `discord`, `qq`, `feishu`, `weixin` |
+| hook     | `trace`, `rtk`                                  |
+| provider | `anthropic`, `openai`, `openai-response`        |
+| memory   | `lcm`, `simple`                                 |
 
 ## Declared Capabilities
 

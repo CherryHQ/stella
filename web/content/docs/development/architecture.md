@@ -8,7 +8,7 @@ title: Architecture
 
 stella is structured as a set of loosely coupled packages wired together at startup. The system supports multiple users and multiple agents, with routing handled per message. The core flow:
 
-1. The **Web UI or a channel** (Telegram, QQ, Feishu, or WeChat) receives user input.
+1. The **Web UI or a channel** (Telegram, Discord, QQ, Feishu, or WeChat) receives user input.
 2. The channel **resolves the user** (upsert by external ID + platform) and **resolves the agent** (DM default, group binding, or fallback).
 3. The **ServiceManager** looks up the agent's `agent.Service` by agent ID.
 4. `agent.Service` resolves session intent through `session.Registry`.
@@ -17,7 +17,7 @@ stella is structured as a set of loosely coupled packages wired together at star
 7. Responses stream back through the channel to the user.
 
 ```
-Web UI / Channel (Telegram / QQ / Feishu / WeChat)
+Web UI / Channel (Telegram / Discord / QQ / Feishu / WeChat)
     |
     v
 Resolve user  -->  Resolve agent
@@ -63,7 +63,7 @@ pkg/
 plugins/
   tools/               Plugin tool registry + plugin tools (webfetch)
   hooks/               Plugin hook registry + plugin hooks (rtk)
-  channels/            Channel plugins (telegram, qq, feishu, weixin)
+  channels/            Channel plugins (telegram, discord, qq, feishu, weixin)
   providers/           Provider plugin registry + LLM adapters (anthropic, openai, openai-response)
   sandbox/             Sandbox backend plugins
 ```
@@ -240,11 +240,11 @@ type Channel interface {
 }
 ```
 
-Shared command logic for `/new`, `/compact`, `/abort`, and `/whoami` lives in the channel coordination layer, which each channel delegates to for the core logic. `/new` rotates the chat onto a fresh session — the previous one is archived, never deleted — and runs as a control operation on the same per-session queue as chat turns, so it never races an in-flight turn. `/new` applies to direct messages only: a group's context is shared, so a group `/new` is refused before the shared event log is written, which keeps the refused command out of every agent's context. `/model` and `/agent` remain per-channel because they require platform-specific UI (Telegram uses inline keyboards; QQ, Feishu, and WeChat use text lists). Chat turns are serialized per resolved Stella session so overlapping channel messages cannot race the same session history; `/abort` cancels the currently running turn for that session.
+Shared command logic for `/new`, `/compact`, `/abort`, and `/whoami` lives in the channel coordination layer, which each channel delegates to for the core logic. `/new` rotates the chat onto a fresh session — the previous one is archived, never deleted — and runs as a control operation on the same per-session queue as chat turns, so it never races an in-flight turn. `/new` applies to direct messages only: a group's context is shared, so a group `/new` is refused before the shared event log is written, which keeps the refused command out of every agent's context. `/model` and `/agent` remain per-channel because they require platform-specific UI (Telegram uses inline keyboards; Discord, QQ, Feishu, and WeChat use text lists). Chat turns are serialized per resolved Stella session so overlapping channel messages cannot race the same session history; `/abort` cancels the currently running turn for that session.
 
 ### Channel ingress ownership
 
-Stella supports one server replica ([#637](https://github.com/CherryHQ/stella/issues/637)). The Helm chart enforces `replicaCount: 1` and a `Recreate` rollout, so managed channel bot pollers start unconditionally once their dependencies are wired. Running two `stellad` processes against the same channel configuration is unsupported: Telegram may return 409 and WeChat, QQ, or Feishu may duplicate delivery. Multi-replica channel ingress needs a complete offset and fencing design; a database lease alone is not that design.
+Stella supports one server replica ([#637](https://github.com/CherryHQ/stella/issues/637)). The Helm chart enforces `replicaCount: 1` and a `Recreate` rollout, so managed channel bot pollers start unconditionally once their dependencies are wired. Running two `stellad` processes against the same channel configuration is unsupported: Telegram may return 409 and Discord, QQ, Feishu, or WeChat may duplicate delivery. Multi-replica channel ingress needs a complete offset and fencing design; a database lease alone is not that design.
 
 During graceful drain, `pluginHost.Quiesce` stops new channel polling while accepted work and notifier senders remain alive. Final `pluginHost.Stop` runs only after River drains, preserving outbound delivery for accepted work.
 
@@ -261,8 +261,8 @@ The `internal/server/` package provides an HTTP API and embedded SPA for managin
 ## Notification Flow
 
 ```
-Agent notify tool      --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
-Scheduler job result   --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
+Agent notify tool      --> Dispatcher --> Channel (Telegram/Discord/QQ/Feishu/WeChat)
+Scheduler job result   --> Dispatcher --> Channel (Telegram/Discord/QQ/Feishu/WeChat)
 ```
 
 The dispatcher is created early in setup, but backends are registered later when gateway services start. The ServiceManager wires per-agent notification tool injection through the `BuiltinToolsFactory`, keeping notifications in the always-on builtin tool set while external tools remain plugin-managed.

@@ -2,11 +2,11 @@
 name: stella
 description: >
   Self-knowledge about stella, the self-hosted AI assistant. Use when the user asks about
-  stella itself: configuration, setup, onboarding, providers, models, agents, channels (Telegram/QQ/Feishu/WeChat), webhooks,
+  stella itself: configuration, setup, onboarding, providers, models, agents, channels (Telegram/Discord/QQ/Feishu/WeChat), webhooks,
   memory system (LCM), scheduled jobs, reusable workflows, goals (objectives that converge through acceptance), workers/decomposition/dependencies,
   skills, plugins, session compaction, notifications,
   self-update, multi-agent, multi-user, or general "how does stella work" / "help me get started" questions.
-  Also triggers on "change my model", "set up telegram", "set up wechat", "set up webhook", "configure provider", "update stella",
+  Also triggers on "change my model", "set up telegram", "set up discord", "set up wechat", "set up webhook", "configure provider", "update stella",
   "what can you do", "how do I install skills", "stella onboard", "switch agent".
   Also triggers when the user wants to report a bug or file a GitHub issue about stella:
   "report this bug", "create an issue for this", "报告这个 issue", "帮我建个 issue".
@@ -26,7 +26,7 @@ stella is a self-hosted AI assistant with multi-user and multi-agent support. Sh
 
 Run mode:
 
-- **Server**: `stellad server` (Telegram, QQ, Feishu, WeChat bots + scheduler + Web UI)
+- **Server**: `stellad server` (Telegram, Discord, QQ, Feishu, WeChat bots + scheduler + Web UI)
 
 Setup: run `stellad server` and open `http://localhost:25678` to configure everything via the Web UI. All configuration and runtime state live in PostgreSQL: an embedded cluster managed under the operator's `$STELLA_HOME` (install its runtime with `stellad postgres download` if missing), or an external server when `STELLA_DATABASE_URL` is set. `$STELLA_HOME` is an operator configuration location, not an Agent sandbox path.
 
@@ -44,7 +44,7 @@ Use semantic environment variables for Agent files, never host or sandbox litera
 
 - **Multi-agent**: Multiple agents can run simultaneously, each with its own global Provider/model selection, optional API-key override, system prompt, and workspace. Provider endpoints, types, models, and enabled state remain administrator-controlled; per-Agent key overrides are API-only.
 - **Multi-user**: Users are auto-created from platform identity. Each user has per-agent memory that persists across sessions.
-- **Single bot per platform**: One Telegram/QQ/Feishu/WeChat bot serves all agents. Users switch agents via `/agent` command.
+- **Single bot per platform**: One Telegram/Discord/QQ/Feishu/WeChat bot serves all agents. Users switch agents via `/agent` command.
 - **Agent routing**: DMs use the user's default agent. Groups use the group's assigned agent. Fallback: first enabled agent.
 - **Session scoping**: Sessions are scoped to (agent, platform, user, chat context) so switching agents gives you a fresh conversation.
 
@@ -69,7 +69,7 @@ Read the relevant reference file for detailed guidance:
 | ------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | Configuration | [references/configuration.md](references/configuration.md) | Config fields, env vars, directory layout, defaults                                                          |
 | Models        | [references/models.md](references/models.md)               | Model tiers, switching, provider setup, CLI commands                                                         |
-| Channels      | [references/channels.md](references/channels.md)           | Telegram/QQ/Feishu/WeChat bot setup, groups, access control                                                  |
+| Channels      | [references/channels.md](references/channels.md)           | Telegram/Discord/QQ/Feishu/WeChat bot setup, groups, access control                                          |
 | Webhooks      | [references/webhooks.md](references/webhooks.md)           | Personal HTTP invocation capabilities, one-time URLs, options, and lifecycle                                 |
 | Update        | [references/update.md](references/update.md)               | How to update stella to the latest version                                                                   |
 | Goals         | [references/goals.md](references/goals.md)                 | Goal model: root/child, leaf/composite, derived acceptance, convergence, worker `goal_control`, deps, blocks |
@@ -77,7 +77,7 @@ Read the relevant reference file for detailed guidance:
 
 ## In-chat commands
 
-Available in CLI, Telegram, QQ, Feishu, and WeChat:
+Available in CLI, Telegram, Discord, QQ, Feishu, and WeChat:
 
 | Command    | Description                                                              |
 | ---------- | ------------------------------------------------------------------------ |
@@ -156,10 +156,10 @@ Memory, scheduler, goals, vault, OAuth connections, Recally, email, and sharing 
 - **Workflows**: agents use the `workflow` tool to save/list/get/run reusable workflow definitions. For "save this goal and run it every morning", save the accepted goal first, then schedule the workflow; users can inspect workflow-backed runs in the Web UI.
 - **Scheduler**: agents use the `scheduler` tool to add/list/update/delete/pause/resume scheduled or one-time jobs, including workflow jobs when exposed. Jobs route to the correct agent's pool. Some jobs are available as platform-managed **templates** (e.g. `recally-rss` for feed polling, `recally-digest` for daily digests). Templates are opt-in: use the `scheduler` tool with `action=create` and `template_key`, the Web UI (Goals tab/Tasks tab schedule surfaces), or the HTTP API. Each user gets one subscription per template; the prompt is platform-managed and read-only. If a user asks why RSS polling or digests stopped working after an upgrade, guide them to subscribe via the Web UI.
 - **Vault/OAuth/Recally/Email/Share**: agents use built-in tools. OAuth connect returns a verification URI and user code; give those to the user, wait for authorization, then poll status with the returned flow id. Recally save requires the agent to fetch article content first. Email send requires explicit user confirmation and an idempotency key. Share creates public links only when the user asks.
-- **Notifications**: `notify` plugin (gateway mode only, optional) -- send messages via Telegram/QQ/Feishu/WeChat dispatcher.
+- **Notifications**: `notify` plugin (gateway mode only, optional) -- send messages via Telegram/Discord/QQ/Feishu/WeChat dispatcher.
 - **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable in settings. Compaction keeps the same session; `/new` instead rotates the chat onto a fresh session and archives the old one, which stays searchable through memory.
 - **Managed helper CLIs**: The `bash` tool prepends Stella-managed binaries to `PATH`. Expect `fd`, `rg`, `mise`, and `tap` to be available even when the host machine doesn't have them installed separately.
 - **Vault secrets**: scope-matching vault secrets are already available as sandbox environment variables by name. Never print secret values; use the `vault` tool or Web UI to inspect secret metadata.
 - **GitHub CLI authorization**: `gh` uses Stella's GitHub OAuth connection and receives a refreshed runtime token.
-- **Plugins**: Stella uses a unified plugin host. A plugin owns its config, runtime lifecycle, status, and capability registrations. Built-in capabilities currently cover tools (`webfetch`), channels (telegram, qq, feishu, weixin), hooks (rtk), providers (anthropic, openai, openai-response), and memory (`lcm`, `simple`). Core tools (read/bash/edit/write/agent/memory) and the scheduler-builtin Structured Reflect pipeline are not plugins. Skills and notify are optional plugins. The `telegram`, `qq`, `feishu`, and `weixin` channels all use the same host-backed config/runtime/status path while keeping their existing `channel/...` rows and `/channels` Web UI. Manage plugins through the Web UI.
+- **Plugins**: Stella uses a unified plugin host. A plugin owns its config, runtime lifecycle, status, and capability registrations. Built-in capabilities currently cover tools (`webfetch`), channels (telegram, discord, qq, feishu, weixin), hooks (rtk), providers (anthropic, openai, openai-response), and memory (`lcm`, `simple`). Core tools (read/bash/edit/write/agent/memory) and the scheduler-builtin Structured Reflect pipeline are not plugins. Skills and notify are optional plugins. The `telegram`, `discord`, `qq`, `feishu`, and `weixin` channels all use the same host-backed config/runtime/status path while keeping their existing `channel/...` rows and `/channels` Web UI. Manage plugins through the Web UI.
 - **Observability**: Tracing is server-level infrastructure, not a plugin. The server logs all LLM calls, tool executions, and memory operations via slog, and traces inbound HTTP requests. Set `OTEL_EXPORTER_OTLP_ENDPOINT` to also export OpenTelemetry traces using standard OTel env vars. Both OTLP/gRPC and OTLP/HTTP are supported, including auth headers via `OTEL_EXPORTER_OTLP_HEADERS` or `OTEL_EXPORTER_OTLP_TRACES_HEADERS`. Always include a scheme in the endpoint (for example `http://localhost:4317` or `https://collector.example.com/api/default`). No code changes needed -- just set the env vars and restart.

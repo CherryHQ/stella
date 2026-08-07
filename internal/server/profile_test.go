@@ -148,6 +148,29 @@ func TestGenerateLinkCode(t *testing.T) {
 	}
 }
 
+func TestGenerateDiscordLinkCode(t *testing.T) {
+	env := setupAdmin(t)
+
+	rr := doRequest(t, env, "POST", "/api/users/me/link-code", map[string]string{
+		"platform": "discord",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	resp := parseResponse(t, rr)
+	var result struct {
+		Code     string `json:"code"`
+		Platform string `json:"platform"`
+	}
+	if err := json.Unmarshal(resp.Data, &result); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(result.Code) != 6 || result.Platform != "discord" {
+		t.Fatalf("link code response = %#v", result)
+	}
+}
+
 func TestGenerateLinkCodeInvalidPlatform(t *testing.T) {
 	env := setupAdmin(t)
 

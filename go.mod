@@ -6,6 +6,7 @@ require (
 	filippo.io/age v1.3.1
 	github.com/Mad-Pixels/goldmark-tgmd v0.0.10
 	github.com/anthropics/anthropic-sdk-go v1.26.0
+	github.com/bwmarrin/discordgo v0.29.0
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/containerd/errdefs v1.0.0
 	github.com/coreos/go-oidc/v3 v3.18.0

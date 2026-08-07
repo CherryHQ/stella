@@ -39,8 +39,9 @@ type Bot struct {
 	handler channel.Handler
 	md      goldmarkMD
 
-	mu         sync.RWMutex
-	chatModels map[int64]channel.ModelOption
+	mu           sync.RWMutex
+	chatModels   map[int64]channel.ModelOption
+	finalizeOnce sync.Once
 
 	cfg Config
 	ctx context.Context
@@ -105,6 +106,20 @@ func (b *Bot) Start(ctx context.Context) error {
 func (b *Bot) Stop() {
 	logger().Info("stopping telegram bot")
 	b.bot.Stop()
+}
+
+// Finalize removes routing registrations after accepted work has drained.
+func (b *Bot) Finalize() {
+	b.finalizeOnce.Do(func() {
+		if registrar, ok := b.handler.(interface {
+			UnregisterBotIdentity(string, string, string)
+		}); ok && b.bot.Me.Username != "" {
+			registrar.UnregisterBotIdentity(channel.PlatformTelegram, b.bot.Me.Username, b.cfg.InstanceID)
+		}
+		if registrar, ok := b.handler.(interface{ UnregisterGroupPublisher(string) }); ok {
+			registrar.UnregisterGroupPublisher(b.Name())
+		}
+	})
 }
 
 // Name returns the channel name. Implements channel.Channel.

@@ -33,6 +33,14 @@ func TestBotIdentityRegistry(t *testing.T) {
 	if _, ok := reg.ChannelIDForBot("telegram", "unknown"); ok {
 		t.Fatal("expected unknown bot to not be found")
 	}
+	reg.Unregister("telegram", "my_bot", "different-channel")
+	if _, ok := reg.ChannelIDForBot("telegram", "my_bot"); !ok {
+		t.Fatal("mismatched unregister removed bot identity")
+	}
+	reg.Unregister("telegram", "my_bot", "ch-1")
+	if _, ok := reg.ChannelIDForBot("telegram", "my_bot"); ok {
+		t.Fatal("expected bot identity to be removed")
+	}
 }
 
 func TestContentBlocksToText(t *testing.T) {

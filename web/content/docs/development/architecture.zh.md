@@ -8,7 +8,7 @@ title: 架构
 
 stella 的结构是一组松耦合的包，在启动时组装在一起。系统支持多用户和多代理，消息路由按消息级别处理。核心流程：
 
-1. **Web UI 或通道**（Telegram、QQ、Feishu 或微信）接收用户输入。
+1. **Web UI 或通道**（Telegram、Discord、QQ、Feishu 或微信）接收用户输入。
 2. 通道**解析用户**（通过外部 ID + 平台进行 upsert）和**解析代理**（DM 默认、群组绑定或回退）。
 3. **ServiceManager** 通过代理 ID 查找该代理的 `agent.Service`。
 4. `agent.Service` 通过 `session.Registry` 解析 session intent。
@@ -17,7 +17,7 @@ stella 的结构是一组松耦合的包，在启动时组装在一起。系统�
 7. 响应通过通道流回给用户。
 
 ```
-Web UI / Channel (Telegram / QQ / Feishu / WeChat)
+Web UI / Channel (Telegram / Discord / QQ / Feishu / WeChat)
     |
     v
 Resolve user  -->  Resolve agent
@@ -63,7 +63,7 @@ pkg/
 plugins/
   tools/               插件工具注册表 + 插件工具（webfetch）
   hooks/               插件钩子注册表 + 插件钩子（rtk）
-  channels/            通道插件（telegram、qq、feishu、weixin）
+  channels/            通道插件（telegram、discord、qq、feishu、weixin）
   providers/           供应商插件注册表 + LLM 适配器（anthropic、openai、openai-response）
   sandbox/             沙箱后端插件
 ```
@@ -225,11 +225,11 @@ type Channel interface {
 }
 ```
 
-共享命令逻辑（`/new`、`/compact`、`/abort`、`/whoami`）位于通道协调层，每个通道委托给它以处理核心逻辑。`/new` 将聊天轮换到一个新会话——此前的会话被归档而非删除——并作为控制操作进入与聊天轮次相同的按会话队列，因此不会与进行中的轮次竞争。`/new` 仅适用于私聊：群聊上下文是共享的，因此群里的 `/new` 会在写入共享事件日志之前被拒绝，这样被拒绝的命令也不会进入任何 agent 的上下文。`/model` 和 `/agent` 保持按通道处理，因为它们需要特定于平台的 UI（Telegram 使用内联键盘；QQ、Feishu 和微信使用文本列表）。聊天轮次按解析的 Stella 会话进行序列化，因此重叠的通道消息不会竞争相同的会话历史；`/abort` 取消该会话当前正在运行的轮次。
+共享命令逻辑（`/new`、`/compact`、`/abort`、`/whoami`）位于通道协调层，每个通道委托给它以处理核心逻辑。`/new` 将聊天轮换到一个新会话——此前的会话被归档而非删除——并作为控制操作进入与聊天轮次相同的按会话队列，因此不会与进行中的轮次竞争。`/new` 仅适用于私聊：群聊上下文是共享的，因此群里的 `/new` 会在写入共享事件日志之前被拒绝，这样被拒绝的命令也不会进入任何 agent 的上下文。`/model` 和 `/agent` 保持按通道处理，因为它们需要特定于平台的 UI（Telegram 使用内联键盘；Discord、QQ、Feishu 和微信使用文本列表）。聊天轮次按解析的 Stella 会话进行序列化，因此重叠的通道消息不会竞争相同的会话历史；`/abort` 取消该会话当前正在运行的轮次。
 
 ### 通道入口归属
 
-Stella 只支持一个服务副本（[#637](https://github.com/CherryHQ/stella/issues/637)）。Helm chart 强制 `replicaCount: 1` 和 `Recreate` 发布策略，因此托管通道机器人会在依赖完成装配后无条件启动。针对同一份通道配置运行两个 `stellad` 进程不受支持：Telegram 可能返回 409，微信、QQ 和 Feishu 可能重复投递。多副本通道入口需要完整的 offset 与 fencing 设计；单独的数据库租约并不能解决它。
+Stella 只支持一个服务副本（[#637](https://github.com/CherryHQ/stella/issues/637)）。Helm chart 强制 `replicaCount: 1` 和 `Recreate` 发布策略，因此托管通道机器人会在依赖完成装配后无条件启动。针对同一份通道配置运行两个 `stellad` 进程不受支持：Telegram 可能返回 409，Discord、QQ、Feishu 和微信可能重复投递。多副本通道入口需要完整的 offset 与 fencing 设计；单独的数据库租约并不能解决它。
 
 优雅排空时，`pluginHost.Quiesce` 停止新的通道轮询，同时保留已接受的工作和通知发送器。最终的 `pluginHost.Stop` 只在 River 排空后执行，确保已接受工作仍可向外投递。
 
@@ -246,8 +246,8 @@ Stella 只支持一个服务副本（[#637](https://github.com/CherryHQ/stella/i
 ## 通知流程
 
 ```
-Agent notify tool      --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
-Scheduler job result   --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
+Agent notify tool      --> Dispatcher --> Channel (Telegram/Discord/QQ/Feishu/WeChat)
+Scheduler job result   --> Dispatcher --> Channel (Telegram/Discord/QQ/Feishu/WeChat)
 ```
 
 分发器在设置早期创建，但后端在网关服务启动时稍后注册。ServiceManager 通过 `BuiltinToolsFactory` 按代理注入通知工具，把通知保留在始终启用的内建工具集合中，而外部工具继续由插件管理。

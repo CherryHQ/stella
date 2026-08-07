@@ -15,6 +15,7 @@ import (
 // Platform identifiers for each messaging channel.
 const (
 	PlatformTelegram = "telegram"
+	PlatformDiscord  = "discord"
 	PlatformQQ       = "qq"
 	PlatformFeishu   = "feishu"
 	PlatformWeixin   = "weixin"
@@ -149,11 +150,12 @@ type ToolUseEvent struct {
 
 // Notification is a push message to send to a chat.
 type Notification struct {
-	Channel string // optional: route to a specific backend
-	ChatID  string // target chat/channel within the backend
-	AgentID string // optional: agent that produced the notification
-	Text    string // markdown content
-	Silent  bool   // send without notification sound
+	Channel     string // optional: route to a specific backend
+	ChatID      string // target chat/channel within the backend
+	RecipientID string // linked platform user identity; empty for explicit ChatID targets
+	AgentID     string // optional: agent that produced the notification
+	Text        string // markdown content
+	Silent      bool   // send without notification sound
 }
 
 // AgentInfo is agent metadata for display in channel UIs.

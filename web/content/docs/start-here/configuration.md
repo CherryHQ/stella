@@ -62,6 +62,7 @@ Each channel instance can optionally be bound to a specific agent. If unbound, u
 See the channel guides for setup instructions:
 
 - [Telegram](/docs/channels/telegram)
+- [Discord](/docs/channels/discord)
 - [QQ](/docs/channels/qq)
 - [Feishu](/docs/channels/feishu)
 - [WeChat](/docs/channels/weixin)
