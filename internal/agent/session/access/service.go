@@ -353,8 +353,12 @@ func assertChannelBinding(req agentsession.ChannelRequest, info agentsession.Inf
 }
 
 // List lists the actor's sessions and filters every row through the same
-// evaluation. Collection visibility and individual visibility therefore cannot
-// drift apart.
+// evaluation, so the collection can never show a row the actor could not read
+// individually. The converse does not hold for an administrator: the durable
+// query deliberately returns only their own sessions plus this agent's guest
+// sessions, while allowSession still grants an admin Read on any single session
+// they name. Discovery is narrower than access on purpose — an admin's own
+// session list is not a directory of every user's private conversations.
 func (a *Access) List(ctx context.Context, agentID string, opts agentsession.ListOptions) ([]agentsession.Info, error) {
 	if !a.allowSessionList() {
 		return nil, ErrNotFound

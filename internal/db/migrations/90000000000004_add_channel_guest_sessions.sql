@@ -31,9 +31,14 @@ ALTER TABLE ctx_conversation
         FOREIGN KEY (guest_id) REFERENCES channel_guest(id) ON DELETE CASCADE
         NOT VALID;
 
--- Validation scans existing rows while holding a weaker lock than adding a
--- fully validated constraint. The new guest_id column is NULL for every
--- pre-migration row, so both validations are expected to be cheap.
+-- VALIDATE CONSTRAINT normally takes only SHARE UPDATE EXCLUSIVE, but goose
+-- wraps this migration in one transaction, so the ACCESS EXCLUSIVE lock taken
+-- by ADD CONSTRAINT above is still held here: the split buys no concurrency on
+-- its own. It is kept because the scan it bounds is what would otherwise make
+-- that lock long-lived, and because the NOT VALID form is what a future
+-- deployment needs if guest_id is ever backfilled. The new guest_id column is
+-- NULL for every pre-migration row, so both validations scan a table with no
+-- candidate rows and finish immediately.
 ALTER TABLE ctx_conversation
     VALIDATE CONSTRAINT ctx_conversation_guest_scope_check;
 
