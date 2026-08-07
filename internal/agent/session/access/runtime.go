@@ -154,6 +154,11 @@ func relayEventsUntilDone(observerCtx context.Context, source <-chan agent.Event
 			case out <- event:
 			case <-observerCtx.Done():
 				forward = false
+			default:
+				// A connection can remain open while its peer stops reading. Detach
+				// this observer rather than letting two full buffers stall the turn;
+				// reconnect and persisted history are the recovery paths.
+				forward = false
 			}
 		}
 	}()

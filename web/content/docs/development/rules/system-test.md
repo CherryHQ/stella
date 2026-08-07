@@ -92,9 +92,8 @@ and one shared database serve them all in sequence:
   is persisted, the server is force-killed before it is due, and a replacement
   process on the same database executes and retires that exact job once.
 - `graceful_drain` — SIGTERM with a turn pinned in flight: `/readyz` flips away
-  from ready, an attach subscription is drain-cancelled, the pinned turn still
-  completes on its stream (full text, finish, [DONE]), and the process exits 0.
-  Runs last, since it consumes the shared server.
+  from ready, attach and send observers detach promptly, the server-owned turn
+  persists its complete reply under accepted-work drain, and the process exits 0. Runs last, since it consumes the shared server.
 
 `startup_and_auth` also covers the personal-access-token bearer lifecycle: a
 session mints a PAT, the token alone authenticates an ordinary API route with

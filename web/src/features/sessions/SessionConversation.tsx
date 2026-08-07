@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
 import { getSessionMessages, stopSession } from "@/lib/api-client/sdk.gen";
 import {
@@ -45,6 +45,7 @@ export function SessionConversation({
   inline,
 }: Props) {
   const { t } = useI18n();
+  const queryClient = useQueryClient();
   const [userInput, setUserInput] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [resumeEnabled, setResumeEnabled] = useState(true);
@@ -52,6 +53,17 @@ export function SessionConversation({
   const transcriptRef = useRef<HTMLDivElement>(null);
   const initialScrollSessionRef = useRef<string | null>(null);
   const transport = useMemo(() => createSessionTransport(agentId, sessionId), [agentId, sessionId]);
+  const historyAuthoritativeRef = useRef(false);
+  const reconcilePersistedHistory = useCallback(() => {
+    historyAuthoritativeRef.current = true;
+    void queryClient.invalidateQueries({
+      queryKey: ["session-messages", agentId, sessionId],
+    });
+  }, [queryClient, agentId, sessionId]);
+  const completeReconnectCheck = useCallback(() => {
+    setRecoveringDisconnect(false);
+    reconcilePersistedHistory();
+  }, [reconcilePersistedHistory]);
 
   const {
     messages: chatMessages,
@@ -68,7 +80,10 @@ export function SessionConversation({
     // Batch SSE deltas: without this every token re-renders the transcript.
     experimental_throttle: 50,
     onError: (err) => console.error("[session conversation chat]", err),
-    onFinish: ({ isDisconnect }) => setRecoveringDisconnect(isDisconnect),
+    onFinish: ({ isAbort, isDisconnect, isError }) => {
+      setRecoveringDisconnect(isDisconnect);
+      if (!isAbort && !isDisconnect && !isError) reconcilePersistedHistory();
+    },
   });
 
   const isStreaming = chatStatus === "streaming" || chatStatus === "submitted";
@@ -93,9 +108,6 @@ export function SessionConversation({
       lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,
   });
 
-  const reconcilePersistedHistory = useCallback(() => {
-    void messagesQuery.refetch();
-  }, [messagesQuery.refetch]);
   useSessionStreamResume(
     sessionId,
     resumeEnabled,
@@ -103,19 +115,8 @@ export function SessionConversation({
     chatResume,
     recoveringDisconnect,
     chatClearError,
-    reconcilePersistedHistory,
+    completeReconnectCheck,
   );
-
-  const wasStreamingRef = useRef(false);
-  useEffect(() => {
-    if (isStreaming) {
-      wasStreamingRef.current = true;
-      return;
-    }
-    if (!wasStreamingRef.current) return;
-    wasStreamingRef.current = false;
-    reconcilePersistedHistory();
-  }, [isStreaming, reconcilePersistedHistory]);
 
   const historicalIDsRef = useRef(new Set<string>());
 
@@ -126,10 +127,13 @@ export function SessionConversation({
     const uiMessages = merged.map(messageToUIMessage);
     const newIDs = new Set(uiMessages.map((m) => m.id));
     historicalIDsRef.current = newIDs;
+    const authoritative = historyAuthoritativeRef.current;
+    historyAuthoritativeRef.current = false;
     setChatMessages((prev) =>
       reconcileHistoryUIMessages(
         uiMessages,
         prev.filter((message) => !newIDs.has(message.id)),
+        { authoritative },
       ),
     );
   }, [messagesQuery.data, setChatMessages]);

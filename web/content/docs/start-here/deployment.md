@@ -291,7 +291,7 @@ Stella exposes two unauthenticated infrastructure endpoints for orchestrators:
 
 On the first `SIGTERM`/`SIGINT` the daemon runs a **two-phase graceful drain** rather than stopping immediately:
 
-1. `/readyz` flips to `503` and idle watch streams (SSE subscriptions) end, so load balancers stop routing new traffic. Streams carrying an in-flight turn keep running so the turn can finish.
+1. `/readyz` flips to `503` and SSE observers detach, so load balancers stop routing new traffic. In-flight turns continue as server-owned accepted work and persist before shutdown completes.
 2. In-flight HTTP requests drain within `STELLA_HTTP_SHUTDOWN_TIMEOUT`; anything still open when the budget is spent is force-closed.
 3. Background jobs (goal and scheduler agent runs) keep executing and drain within `STELLA_RIVER_SOFT_STOP_TIMEOUT`; jobs still running when that budget is spent are cancelled.
 

@@ -214,7 +214,7 @@ Runtime 对每个 session 最多允许一个 active turn。第二个 same-sessio
 每个已受理的 turn 都归服务端生命周期所有，而不是归某条 HTTP 连接所有。Runtime 把事件经由每个 runtime 一份的 `SessionHub` tee 出去，因此浏览器切换页面、刷新或短暂断线都不会停止 agent：
 
 - `Runtime.Chat` 除了写给调用方的 channel，还把每个事件发布到 hub。发消息的初始 stream 断开时只移除该观察者，turn 继续运行。
-- 发布永不阻塞 turn。Hub 为新观察者保留最多 4,096 个事件或 8 MiB 的进程内 replay；超过上限后，重连只接收后续事件，并在 turn 结束后从持久化历史对齐最终状态。
+- 发布永不阻塞 turn。Hub 会合并相邻的 text/reasoning delta，并为新观察者保留最多 4,096 条 replay entry 或 8 MiB 的进程内 replay；超过上限后，重连只接收后续事件，并在 turn 结束后从持久化历史对齐最终状态。
 - turn 结束时，hub 关闭其订阅 channel。`POST /api/agents/{agentId}/sessions/{sessionId}/stop` 是独立、显式的取消路径。
 
 `GET /api/agents/{agentId}/sessions/{sessionId}/events` 订阅一个只读 SSE 流，复用与发消息端点相同的 AI-SDK UI message 编码；没有进行中的 turn 时返回 `204`。Web UI 对所有 session kind 调用 AI-SDK 的 `resumeStream()`，并在 stream 结束后重新加载持久化历史。Replay 刻意只保存在进程内；若要跨进程替换恢复，需要持久化 turn event log。

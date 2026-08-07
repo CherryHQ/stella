@@ -214,7 +214,7 @@ Runtime allows at most one active turn per session. It rejects a second same-ses
 Every admitted turn is owned by the server lifecycle, not by an HTTP connection. Runtime tees its events through a per-runtime `SessionHub` so a browser can navigate, refresh, or temporarily disconnect without stopping the agent:
 
 - `Runtime.Chat` publishes each event to the hub in addition to the caller's channel. Losing the initiating message stream detaches that observer while the turn continues.
-- Publishing never blocks the turn. The hub keeps up to 4,096 events or 8 MiB of process-local replay for a newly attached observer; after that ceiling, reconnects receive future events and reconcile from persisted history when the turn ends.
+- Publishing never blocks the turn. The hub coalesces adjacent text/reasoning deltas and keeps up to 4,096 replay entries or 8 MiB of process-local replay for a newly attached observer; after that ceiling, reconnects receive future events and reconcile from persisted history when the turn ends.
 - When the turn ends, the hub closes its subscriber channels. `POST /api/agents/{agentId}/sessions/{sessionId}/stop` is the separate, explicit cancellation path.
 
 `GET /api/agents/{agentId}/sessions/{sessionId}/events` subscribes a read-only SSE stream that reuses the same AI-SDK UI message encoding as the message-send endpoint, and returns `204` when no turn is in flight. The Web UI calls the AI-SDK `resumeStream()` for every session kind and reloads persisted history after the stream settles. Replay is intentionally process-local; surviving process replacement requires a durable turn event log.

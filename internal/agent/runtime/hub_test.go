@@ -63,6 +63,38 @@ func TestSessionHubReplayCeilingFailsClosed(t *testing.T) {
 	h.end("s1")
 }
 
+func TestSessionHubCoalescesTextBeforeEventCeiling(t *testing.T) {
+	h := NewSessionHub()
+	h.begin("s1")
+	for range replayMaxEvents + 1 {
+		h.publish("s1", Event{Text: "x"})
+	}
+
+	ch, cancel := h.Subscribe("s1")
+	defer cancel()
+	if event := <-ch; len(event.Text) != replayMaxEvents+1 {
+		t.Fatalf("coalesced replay length = %d, want %d", len(event.Text), replayMaxEvents+1)
+	}
+	h.end("s1")
+}
+
+func TestSessionHubEventCeilingFailsClosed(t *testing.T) {
+	h := NewSessionHub()
+	h.begin("s1")
+	for range replayMaxEvents + 1 {
+		h.publish("s1", Event{Step: &StepEvent{Kind: "start"}})
+	}
+
+	ch, cancel := h.Subscribe("s1")
+	defer cancel()
+	select {
+	case event := <-ch:
+		t.Fatalf("event-count overflow unexpectedly replayed: %#v", event)
+	default:
+	}
+	h.end("s1")
+}
+
 func TestSessionHubCancelUnsubscribes(t *testing.T) {
 	h := NewSessionHub()
 	ch, cancel := h.Subscribe("s1")

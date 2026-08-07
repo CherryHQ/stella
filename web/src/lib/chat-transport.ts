@@ -195,13 +195,17 @@ export function mergeToolResults(messages: Message[]): Message[] {
 // breaks — every already-loaded message would be added a second time.
 const CANONICAL_RECONCILIATION_WINDOW_MS = 2 * 60 * 1000;
 
-// reconcileHistoryUIMessages lets canonical history replace only the optimistic
-// workspace image that produced it. Matching is one-to-one and timestamp-bound:
-// an old, identical caption is not evidence that a new upload was persisted.
+// reconcileHistoryUIMessages normally lets canonical history replace only the
+// optimistic workspace image that produced it. Matching is one-to-one and
+// timestamp-bound: an old, identical caption is not evidence that a new upload
+// was persisted. After a stream closes, authoritative mode replaces all live
+// IDs because the server has persisted the complete turn under canonical IDs.
 export function reconcileHistoryUIMessages(
   history: UIMessage[],
   current: UIMessage[],
+  options: { authoritative?: boolean } = {},
 ): UIMessage[] {
+  if (options.authoritative) return history;
   const historyIDs = new Set(history.map((message) => message.id));
   const consumedOptimisticIDs = new Set<string>();
 

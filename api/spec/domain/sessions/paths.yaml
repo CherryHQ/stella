@@ -240,8 +240,7 @@ paths:
       operationId: stopSession
       responses:
         "204": {
-          description: The active turn was stopped,
-          or no turn was active,
+          description: "The active turn was stopped, or no turn was active",
         }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",

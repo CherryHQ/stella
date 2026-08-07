@@ -3,6 +3,8 @@ package runtime
 import (
 	"encoding/json"
 	"sync"
+
+	"github.com/CherryHQ/stella/pkg/renderrefs"
 )
 
 // SessionHub fans out a session's live turn events to any number of read-only
@@ -136,14 +138,32 @@ func (h *SessionHub) end(sessionID string) {
 
 // publish records and delivers an event without blocking the producer.
 func (h *SessionHub) publish(sessionID string, event Event) {
+	// Store events are never encoded by the SSE boundary, so retaining them only
+	// burns replay memory. Size everything else before taking the runtime-wide
+	// hub lock; structured tool arguments are rare but may require JSON encoding.
+	replayable := event.Store == nil
+	size := 0
+	deltaKind := 0
+	if replayable {
+		size = replayEventSize(event)
+		deltaKind = replayDeltaKind(event)
+	}
+
 	h.mu.Lock()
-	if state := h.replay[sessionID]; state != nil && !state.disabled {
-		size := replayEventSize(event)
-		if len(state.events) >= replayMaxEvents || state.bytes+size > replayMaxBytes {
-			state.events = nil
-			state.bytes = 0
-			state.disabled = true
-		} else {
+	if state := h.replay[sessionID]; replayable && state != nil && !state.disabled {
+		coalescesWithTail := deltaKind != 0 && len(state.events) > 0 &&
+			replayDeltaKind(state.events[len(state.events)-1]) == deltaKind
+		switch {
+		case coalescesWithTail && state.bytes+size > replayMaxBytes:
+			disableReplay(state)
+		case coalescesWithTail:
+			last := &state.events[len(state.events)-1]
+			last.Text += event.Text
+			last.Reasoning += event.Reasoning
+			state.bytes += size
+		case len(state.events) >= replayMaxEvents || state.bytes+size > replayMaxBytes:
+			disableReplay(state)
+		default:
 			state.events = append(state.events, event)
 			state.bytes += size
 		}
@@ -157,12 +177,56 @@ func (h *SessionHub) publish(sessionID string, event Event) {
 	h.mu.Unlock()
 }
 
-func replayEventSize(event Event) int {
-	// JSON is only used to account for nested tool/reference payloads. If an
-	// event cannot be represented, disable replay rather than undercount it.
-	encoded, err := json.Marshal(event)
-	if err != nil {
-		return replayMaxBytes + 1
+func disableReplay(state *replayState) {
+	state.events = nil
+	state.bytes = 0
+	state.disabled = true
+}
+
+func replayDeltaKind(event Event) int {
+	if event.Image != nil || event.File != nil || event.ToolUse != nil || len(event.References) > 0 || event.Step != nil || event.Store != nil || event.Err != nil {
+		return 0
 	}
-	return len(encoded)
+	if event.Text != "" && event.Reasoning == "" {
+		return 1
+	}
+	if event.Reasoning != "" && event.Text == "" {
+		return 2
+	}
+	return 0
+}
+
+func replayEventSize(event Event) int {
+	size := 64 + len(event.Text) + len(event.Reasoning)
+	if event.Image != nil {
+		size += len(event.Image.Data) + len(event.Image.MimeType)
+	}
+	if event.File != nil {
+		size += len(event.File.Path) + len(event.File.Name)
+	}
+	if event.ToolUse != nil {
+		size += len(event.ToolUse.ID) + len(event.ToolUse.Tool) + len(event.ToolUse.Status) + len(event.ToolUse.Input) + len(event.ToolUse.Detail) + len(event.ToolUse.Content)
+		if arguments, err := json.Marshal(event.ToolUse.Arguments); err == nil {
+			size += len(arguments)
+		} else {
+			return replayMaxBytes + 1
+		}
+		size += replayReferencesSize(event.ToolUse.References)
+	}
+	size += replayReferencesSize(event.References)
+	if event.Err != nil {
+		size += len(event.Err.Error())
+	}
+	return size
+}
+
+func replayReferencesSize(references []renderrefs.Reference) int {
+	size := 0
+	for _, reference := range references {
+		size += 64 + len(reference.Type) + len(reference.ID) + len(reference.Intent) + len(reference.AgentID)
+		if reference.Preview != nil {
+			size += len(reference.Preview.Title) + len(reference.Preview.Status)
+		}
+	}
+	return size
 }

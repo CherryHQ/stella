@@ -361,14 +361,14 @@ func (rt *Runtime) ChatAdmitted(ctx context.Context, info session.Info, msg Mess
 	return out, nil
 }
 
-// StopSession cancels the active turn for sessionID. It returns false when the
-// session has no in-flight turn. Disconnecting an observer never calls this;
-// cancellation is an explicit, authorized action at the Session boundary.
 // stopWaitCeiling keeps a broken provider from pinning the stop HTTP request.
 // Cooperative providers finish immediately; increase only if a real backend
 // needs a longer cancellation unwind.
 const stopWaitCeiling = 5 * time.Second
 
+// StopSession cancels the active turn for sessionID. It returns false when the
+// session has no in-flight turn. Disconnecting an observer never calls this;
+// cancellation is an explicit, authorized action at the Session boundary.
 func (rt *Runtime) StopSession(ctx context.Context, sessionID string) bool {
 	value, ok := rt.active.Load(sessionID)
 	if !ok {

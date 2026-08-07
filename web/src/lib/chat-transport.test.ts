@@ -321,4 +321,17 @@ describe("session history conversion", () => {
 
     expect(reconcileHistoryUIMessages([canonical], [optimistic])).toEqual([canonical, optimistic]);
   });
+
+  it("replaces live turn IDs when persisted history is authoritative", () => {
+    const canonical: UIMessage[] = [
+      { id: "db-user", role: "user", parts: [{ type: "text", text: "hi" }] },
+      { id: "db-assistant", role: "assistant", parts: [{ type: "text", text: "hello" }] },
+    ];
+    const live: UIMessage[] = [
+      { id: "client-user", role: "user", parts: [{ type: "text", text: "hi" }] },
+      { id: "sse-assistant", role: "assistant", parts: [{ type: "text", text: "hello" }] },
+    ];
+
+    expect(reconcileHistoryUIMessages(canonical, live, { authoritative: true })).toEqual(canonical);
+  });
 });

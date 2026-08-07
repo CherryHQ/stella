@@ -130,6 +130,16 @@ export function SessionDetail({
     () => (session ? createSessionTransport(session.agent_id, session.id) : undefined),
     [session?.agent_id, session?.id],
   );
+  const historyAuthoritativeRef = useRef(false);
+  const reconcilePersistedHistory = useCallback(() => {
+    historyAuthoritativeRef.current = true;
+    void queryClient.invalidateQueries({ queryKey: ["session-messages", sessionId] });
+    void queryClient.invalidateQueries({ queryKey: ["session-tail-messages", sessionId] });
+  }, [queryClient, sessionId]);
+  const completeReconnectCheck = useCallback(() => {
+    setRecoveringDisconnect(false);
+    reconcilePersistedHistory();
+  }, [reconcilePersistedHistory]);
 
   const {
     messages: chatMessages,
@@ -146,14 +156,13 @@ export function SessionDetail({
     // Batch SSE deltas: without this every token re-renders the transcript.
     experimental_throttle: 50,
     onError: (err) => console.error("[session chat]", err),
-    onFinish: ({ isDisconnect }) => setRecoveringDisconnect(isDisconnect),
+    onFinish: ({ isAbort, isDisconnect, isError }) => {
+      setRecoveringDisconnect(isDisconnect);
+      if (!isAbort && !isDisconnect && !isError) reconcilePersistedHistory();
+    },
   });
 
   const isStreaming = chatStatus === "streaming" || chatStatus === "submitted";
-  const reconcilePersistedHistory = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: ["session-messages", sessionId] });
-    void queryClient.invalidateQueries({ queryKey: ["session-tail-messages", sessionId] });
-  }, [queryClient, sessionId]);
 
   // The server titles an untitled session from its first user message *during*
   // the turn (internal/agent/runtime/chat.go), so nothing on the client knows
@@ -182,14 +191,11 @@ export function SessionDetail({
         console.error("[session refresh]", err);
       }
       void queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
-      // Replay is bounded, so persisted history is the final authority after a
-      // sent or resumed stream settles.
-      reconcilePersistedHistory();
     })();
     return () => {
       cancelled = true;
     };
-  }, [isStreaming, agentId, sessionId, onSessionUpdate, queryClient, reconcilePersistedHistory]);
+  }, [isStreaming, agentId, sessionId, onSessionUpdate, queryClient]);
 
   // Every turn is server-owned once admitted. An idle view polls the read-only
   // events stream so navigation, refresh, connection loss, and turns started
@@ -201,7 +207,7 @@ export function SessionDetail({
     chatResume,
     recoveringDisconnect,
     chatClearError,
-    reconcilePersistedHistory,
+    completeReconnectCheck,
   );
 
   const messagesQuery = useInfiniteQuery({
@@ -275,10 +281,13 @@ export function SessionDetail({
     // text copy forever (duplicated, un-collapsed tool output). Excluding
     // everything history has ever owned drops it.
     for (const m of uiMessages) historicalIDsRef.current.add(m.id);
+    const authoritative = historyAuthoritativeRef.current;
+    historyAuthoritativeRef.current = false;
     setChatMessages((prev) =>
       reconcileHistoryUIMessages(
         uiMessages,
         prev.filter((message) => !historicalIDsRef.current.has(message.id)),
+        { authoritative },
       ),
     );
   }, [historyMessages, setChatMessages]);

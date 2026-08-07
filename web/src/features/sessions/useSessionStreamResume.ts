@@ -35,10 +35,18 @@ export function useSessionStreamResume(
       resumingRef.current = true;
       void resumeStream().finally(() => {
         resumingRef.current = false;
-        if (checkedSessionRef.current !== sessionId || recoveringDisconnect) {
-          checkedSessionRef.current = sessionId;
-          onInitialCheck();
-        }
+        // AI SDK resolves resumeStream() for 204 and transport errors alike;
+        // status is committed on the next render. Reconcile only from ready,
+        // which means either a clean stream finish or no active stream.
+        window.setTimeout(() => {
+          if (
+            statusRef.current === "ready" &&
+            (checkedSessionRef.current !== sessionId || recoveringDisconnect)
+          ) {
+            checkedSessionRef.current = sessionId;
+            onInitialCheck();
+          }
+        }, 0);
       });
     };
 

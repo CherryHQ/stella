@@ -164,10 +164,12 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 		streamPlainReply(w, flusher, result.PlainReply)
 		return
 	}
-	// The response follows the request context, but the admitted turn follows the
-	// server lifecycle context. Navigation or connection loss ends this observer
-	// only; graceful shutdown still owns cancellation of the underlying work.
-	streamAgentEvents(r.Context(), w, flusher, agentID, sessionID, result.Events, nil)
+	// The response follows the request and drain contexts, but the admitted turn
+	// follows the server work lifecycle. Navigation, connection loss, or graceful
+	// HTTP drain ends this observer only; accepted-work drain owns the turn.
+	sctx, cancel := s.readiness.streamContext(r.Context())
+	defer cancel()
+	streamAgentEvents(sctx, w, flusher, agentID, sessionID, result.Events, nil)
 }
 
 // StopSession explicitly cancels an in-flight turn. Transport disconnects never

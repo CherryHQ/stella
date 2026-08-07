@@ -17,7 +17,10 @@ import (
 // recordingRuntime stands in for the agent pool and reports whether a turn was
 // ever started. Nothing else in this test can tell the difference between "the
 // send was rejected" and "the send ran and then failed".
-type recordingRuntime struct{ chats atomic.Int64 }
+type recordingRuntime struct {
+	chats atomic.Int64
+	stops atomic.Int64
+}
 
 func (r *recordingRuntime) Chat(context.Context, agent.ChatRequest) <-chan agent.Event {
 	r.chats.Add(1)
@@ -26,7 +29,10 @@ func (r *recordingRuntime) Chat(context.Context, agent.ChatRequest) <-chan agent
 	return ch
 }
 
-func (r *recordingRuntime) StopSession(context.Context, string) bool { return false }
+func (r *recordingRuntime) StopSession(context.Context, string) bool {
+	r.stops.Add(1)
+	return true
+}
 
 func (r *recordingRuntime) SubscribeSession(string) (<-chan agent.Event, func()) {
 	ch := make(chan agent.Event)
@@ -112,5 +118,14 @@ func TestSendToArchivedSessionConflicts(t *testing.T) {
 	}
 	if n := rt.chats.Load(); n != 1 {
 		t.Fatalf("runtime turns after a live send = %d, want 1", n)
+	}
+
+	rr = doRequest(t, env, http.MethodPost,
+		"/api/agents/"+agentID+"/sessions/live-send/stop", nil)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("POST stop live session = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	}
+	if n := rt.stops.Load(); n != 1 {
+		t.Fatalf("runtime stops = %d, want 1", n)
 	}
 }
