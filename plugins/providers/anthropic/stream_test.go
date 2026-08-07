@@ -34,8 +34,10 @@ func TestMapEventMessageDeltaUsage(t *testing.T) {
 			StopReason: "end_turn",
 		},
 		Usage: sdk.MessageDeltaUsage{
-			InputTokens:  8,
-			OutputTokens: 2,
+			InputTokens:              8,
+			OutputTokens:             2,
+			CacheReadInputTokens:     5,
+			CacheCreationInputTokens: 3,
 		},
 	}
 	events := mapEvent(event, blockToID)
@@ -45,8 +47,13 @@ func TestMapEventMessageDeltaUsage(t *testing.T) {
 	if _, ok := events[0].(ai.EventStop); !ok {
 		t.Fatalf("expected stop event")
 	}
-	if _, ok := events[1].(ai.EventUsage); !ok {
+	usage, ok := events[1].(ai.EventUsage)
+	if !ok {
 		t.Fatalf("expected usage event")
+	}
+	want := ai.Usage{InputTokens: 8, OutputTokens: 2, CacheRead: 5, CacheWrite: 3, TotalTokens: 18}
+	if usage.Usage != want {
+		t.Fatalf("usage = %+v, want %+v", usage.Usage, want)
 	}
 }
 
