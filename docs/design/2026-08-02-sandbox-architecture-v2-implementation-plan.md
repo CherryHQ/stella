@@ -389,11 +389,11 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
   - accept ordinary directory Skills with normal POSIX semantics;
   - reject absolute/escaping/cyclic symlinks and never rename over a non-empty directory;
   - retain old revisions without GC until Phase 3 can prove AgentRun references.
-- [ ] Make the temporary no-GC ceiling observable through the existing OTel pipeline: export retained revision count/bytes/oldest-age aggregated by scope, evaluate documented capacity thresholds per root, and emit a structured warning with opaque root identity on breach. Do not put principal/root IDs in metric labels.
-- [ ] Change `pkg/sandbox.Session` and policy types so public consumers receive sandbox paths/attachments, never host paths; retain any local resolver only as Provider-private implementation.
-- [ ] Migrate Agent `read`, `write`, `edit`, prompt file reads, filesystem Skill catalogs/loaders, and every `ResolvePath`/`ResolveWritePath` caller to Filesystem. Catalog parsing accepts ordinary directories and managed symlinks while skipping `.stella-revisions`.
-- [ ] For isolating Providers, mount exact read-only sources at `/opt/stella/skills/builtin`, `/opt/stella/skills/system`, and `/opt/stella/skills/system-agent`; these are execution views, not authority. Managed descriptors resolve/pin the contained exact revision path so a symlink flip affects only a later Turn/Run. `none`/non-isolating local returns exact Provider paths through `SkillView`.
-- [ ] Add trusted structured admin writes for SystemSkillRoot/SystemAgentSkillRoot through one-shot Home access. The provisioner accepts validated paths/content and expected digest, never model-authored commands, arbitrary shell, or AgentRun secrets.
+- [x] Make the temporary no-GC ceiling observable through the existing OTel pipeline: export retained revision count/bytes/oldest-age aggregated by scope, evaluate documented capacity thresholds per root, and emit a structured warning with opaque root identity on breach. Do not put principal/root IDs in metric labels.
+- [x] Change `pkg/sandbox.Session` and policy types so public consumers receive sandbox paths/attachments, never host paths; retain any local resolver only as Provider-private implementation.
+- [x] Migrate Agent `read`, `write`, `edit`, prompt file reads, filesystem Skill catalogs/loaders, and every `ResolvePath`/`ResolveWritePath` caller to Filesystem. Catalog parsing accepts ordinary directories and managed symlinks while skipping `.stella-revisions`.
+- [x] For isolating Providers, mount exact read-only sources at `/opt/stella/skills/builtin`, `/opt/stella/skills/system`, and `/opt/stella/skills/system-agent`; these are execution views, not authority. Managed descriptors resolve/pin the contained exact revision path so a symlink flip affects only a later Turn/Run. `none`/non-isolating local returns exact Provider paths through `SkillView`.
+- [x] Add trusted structured admin writes for SystemSkillRoot/SystemAgentSkillRoot through one-shot Home access. The provisioner accepts validated paths/content and expected digest, never model-authored commands, arbitrary shell, or AgentRun secrets.
 - [x] Route Workspace requests for the exact URL Session through the existing single-process Session lifecycle so it creates/reuses a Sandbox and invokes only Filesystem/`stella-fs`, with no direct host path and no AgentRun secrets. Durable generation, `BeginUse + Open`, keepalive renewal, and cross-replica linearization remain Phase 3 work.
 
 > Make Workspace requests execute `BeginUse + Open` on the exact URL Session generation in Phase 2.
@@ -407,7 +407,7 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
   - document canonical sandbox paths;
   - keep `scope=user` as a compatibility alias for shared PrincipalHome;
   - regenerate Go and TypeScript clients before server/Web changes.
-- [ ] Move host-side parsing of untrusted Sandbox files behind the Sandbox/Filesystem boundary, including the current vision/xberg path, or prove the input is immutable trusted media and record that narrower boundary.
+- [x] Move host-side parsing of untrusted Sandbox files behind the Sandbox/Filesystem boundary, including the current vision/xberg path, or prove the input is immutable trusted media and record that narrower boundary.
 - [x] Implement the operator-only `stellad storage migrate-assets` command through the Home/blob service layer, following CLI rules:
   - require old writers to be stopped and retain the legacy blob configuration;
   - support dry-run and `--json`, progress on stderr, and actionable non-zero errors;
@@ -417,7 +417,7 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
 - [x] Fail server startup when the durable metadata/config says legacy mutable object authority requires migration but the completion marker is absent. No-authority deployments record/observe `not_required` and continue normally.
 - [x] After the marker gate, make `$STELLA_ASSETS_DIR` ordinary PrincipalHome data; migrate upload/share/channel consumers; remove mutable `asset.Store` object mirroring, hydrate, rollback, and object-version fencing while retaining immutable session media and share snapshots.
 - [x] Extend canonical filesystem Skill metadata to preserve active/deprecated status, `disable_model_invocation`, nested metadata/`created_by`, source/install timestamps, and legacy lifecycle version; scope remains attachment-derived and rename remains delete+create.
-- [ ] Add operator-only `stellad storage migrate-skills --dry-run|--json` and a fail-closed Skill authority marker:
+- [x] Add operator-only `stellad storage migrate-skills --dry-run|--json` and a fail-closed Skill authority marker:
   - require maintenance mode, old writers stopped, and complete PG backup;
   - map active rows to exact SystemSkillRoot/SystemAgentSkillRoot/UserHome/AgentHome scope roots;
   - export deprecated rows and `skill_changelog` into a non-catalog operator archive;
@@ -425,14 +425,14 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
   - default PG files to `0644` unless canonical metadata proves executable intent;
   - write the marker by CAS only after every row has a verified active/archive disposition and Reflect create/patch/delete/runtime-touch/usage adversarial tests pass;
   - support dry-run/idempotent rerun and never delete PG backup/current rows during migration.
-- [ ] Preserve Reflect under filesystem authority:
+- [x] Preserve Reflect under filesystem authority:
   - migrate `created_by=reflect` and lifecycle metadata;
   - replace integer version CAS with expected canonical tree digest for managed writes;
   - migrate `skill_usage` from `skill.id` FK to logical principal/Agent/scope/name plus last content digest;
   - retain durable worker authorization, runtime usage touch, pair-activity and usage rechecks;
   - make stale/manual concurrent edits conflict, outcome-unknown writes non-retryable, and remove-marker conversion explicit.
-- [ ] After the marker, fail startup on residual PG-only mutable current state; remove PG SkillStore/materializer/changelog writers and all runtime readers. Drop obsolete rows/tables only in a later explicit migration after backup retention and last dependency removal.
-- [ ] Delete public `ResolvePath`, `ResolveWritePath`, `HostPath` policy leakage, sessionless host `os.*` shortcuts, and obsolete resilient file retry paths.
+- [x] After the marker, fail startup on residual PG-only mutable current state; remove PG SkillStore/materializer/changelog writers and all runtime readers. Drop obsolete rows/tables only in a later explicit migration after backup retention and last dependency removal.
+- [x] Delete public `ResolvePath`, `ResolveWritePath`, `HostPath` policy leakage, sessionless host `os.*` shortcuts, and obsolete resilient file retry paths.
 - [x] Add one Filesystem conformance suite and run it against local, `none`, and Docker adapters, including permissions, rename, symlink escape, concurrent writes, helper termination, and outcome-unknown writes.
 - [x] Update user/developer docs and built-in skills in English and Chinese for Workspace paths, mutable assets, and removed host-path behavior.
 
@@ -441,16 +441,16 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
 - [x] `mise run generate:check` exits 0 after the spec-first API/client change.
 - [x] The shared Filesystem conformance suite passes for local, `none`, and Docker; a helper killed during write returns outcome unknown and the caller does not retry.
 - [x] Managed Skill publication tests prove concurrent readers see complete old or new trees without ENOENT/mixed files; unsupported symlink/Store behavior fails conformance. Ordinary CLI mutation retains documented POSIX behavior.
-- [ ] A fixture publishes known-size revisions into multiple roots: the collector reports exact aggregate count/bytes/oldest-age, a configured low threshold emits the expected opaque-root warning, and alert/capacity-response documentation is executable without high-cardinality metric labels.
-- [ ] Isolating-provider tests prove the three exact `/opt/stella/skills/*` views are read-only and disjoint; a pinned managed descriptor continues reading its old revision after a flip while the next catalog snapshot reads the new revision.
+- [x] A fixture publishes known-size revisions into multiple roots: the collector reports exact aggregate count/bytes/oldest-age, a configured low threshold emits the expected opaque-root warning, and alert/capacity-response documentation is executable without high-cardinality metric labels.
+- [x] Isolating-provider tests prove the three exact `/opt/stella/skills/*` views are read-only and disjoint; a pinned managed descriptor continues reading its old revision after a flip while the next catalog snapshot reads the new revision.
 - [x] Workspace list/read/write/upload succeeds through an exact Session with no warm Sandbox using the current single-process lifecycle; no Workspace path or response exposes a host coordinate.
-- [ ] `rg "ResolvePath|ResolveWritePath|HostPath" pkg/sandbox internal/agent internal/server plugins/sandbox` shows no public/caller dependency; any Provider-private resolver is explicitly scoped and tested.
+- [x] `rg "ResolvePath|ResolveWritePath|HostPath" pkg/sandbox internal/agent internal/server plugins/sandbox` shows no public/caller dependency; any Provider-private resolver is explicitly scoped and tested.
 - [x] A fixture containing assets only in the configured S3-compatible authority fails server startup before migration; dry-run changes nothing; the real migration materializes and digest-verifies every fixture into the correct UserHome/GroupHome, records the marker, is idempotent, and leaves remote objects intact.
 - [x] After cutover, mutable assets written by bash are immediately visible to Workspace/share without an object-store commit or hydrate step; immutable media/share tests remain green.
-- [ ] Skill migration fixtures cover active, deprecated, manual, Reflect, metadata-rich, binary, colliding, invalid-path, and unsupported-status rows. Dry-run changes nothing; real migration verifies every disposition; marker-before/after has exactly one authority; residual PG-only state blocks startup.
-- [ ] Reflect filesystem tests cover expected-digest conflict, exact retry/outcome unknown, manual concurrent edit, runtime usage touch, pair-activity delete refusal, logical usage migration, and no PG changelog write after cutover.
-- [ ] A checked architecture-boundary test proves post-marker production wiring cannot construct/use PG SkillStore, `materializeDBSkill`, or changelog writers; migration/archive-only code is isolated behind the pre-marker operator path.
-- [ ] `mise run format && mise run build && mise run test && mise run system-test` exits 0 on a supported host.
+- [x] Skill migration fixtures cover active, deprecated, manual, Reflect, metadata-rich, binary, colliding, invalid-path, and unsupported-status rows. Dry-run changes nothing; real migration verifies every disposition; marker-before/after has exactly one authority; residual PG-only state blocks startup.
+- [x] Reflect filesystem tests cover expected-digest conflict, exact retry/outcome unknown, manual concurrent edit, runtime usage touch, pair-activity delete refusal, logical usage migration, and no PG changelog write after cutover.
+- [x] A checked architecture-boundary test proves post-marker production wiring cannot construct/use PG SkillStore, `materializeDBSkill`, or changelog writers; migration/archive-only code is isolated behind the pre-marker operator path.
+- [x] `mise run format && mise run build && mise run test && mise run system-test` exits 0 on a supported host.
 
 ### Phase 3: Durable SessionSandbox, AgentRun, input, and reconciliation
 
@@ -699,15 +699,15 @@ Every completed phase must replace its pending entry with the concrete handoff r
 - **What remains open:** Phase 2.3 owns mutable Skill/Reflect Home authority and managed publication. Phase 2.4 owns final public host-path cleanup. SessionSandbox, multi-replica, Compose, and Kubernetes remain closed.
 - **What Phase 2.3 must read or verify first:** the completed asset migration marker and Home authority boundary, `pkg/sandbox.Filesystem`, `internal/fsops`, immutable builtin Registry/manifests, current PostgreSQL Skill/Reflect metadata, and the offline Skill migration/observability acceptance contract above.
 
-### Handoff after Phase 2 — pending
+### Handoff after Phase 2
 
-- What landed
-- Acceptance results
-- Decisions made during implementation
-- Surprises / gotchas
-- What changed from this plan
-- What remains open
-- What Phase 3 must read or verify first
+- **What landed** — Provider-neutral Filesystem plus local/`none`/Docker `stella-fs` conformance; typed Home consumer and asset cutover; managed Skill publication, migration, marker, Home authority, logical telemetry, and retained-revision observability. Public host-layout contracts are removed and physical layouts are provider-private. Active project Skill, delegate, and prompt reads go through canonical Filesystem. Vision/Xberg accepts validated immutable bytes and stages only daemon-owned `0600` files. PostgreSQL mutable Skill current-state readers, writers, and changelog lifecycle are removed; migration, marker, archive, backup, and logical usage remain.
+- **Acceptance results** — All remaining Phase 2 task and Acceptance checkboxes are complete. Deterministic generation was verified by identical hashes across repeated `mise run generate` on the dirty generated diff; DB and generation gates from prior Phase 2 slices passed. Final gates passed: `mise run format`, `mise run build`, serial full `mise run test`, focused race coverage across skills/reflect/pluginhost/skillaccess/server/stellad, the Windows `stellad` cross-build, `git diff --check`, supported-host `mise run system-test` with temporary `STELLA_HOME`, and a final independent blocker review marked `APPROVE`. Earlier real Docker conformance and retained-revision/migration fixtures are part of the Phase 2 acceptance evidence.
+- **Decisions made during implementation** — Home mutation happens first, followed by exact logical telemetry coordination. If telemetry fails after visible Home mutation, the outcome is unknown and is never retried. Explicit `Host=nil` prompt compatibility remains operator/test-local only and is never an active-runner fallback. Windows daemon-side Xberg fallback fails closed; the sandbox Xberg CLI remains supported.
+- **Surprises / gotchas** — The active runner prompt rendered before Session. Vision initially accepted an arbitrary daemon host path. Final review found orphan Reflect telemetry after generic edit/file-delete/convert/delete paths; it was fixed across every generic path.
+- **What changed from this plan** — `stella-exec` remains Phase 5 as planned. Windows atomic Workspace move remains fail-closed as already noted. Windows daemon-side Xberg explicitly fails closed rather than adding unsafe process semantics. No new authority, controller, or dual read/write path was added.
+- **What remains open** — Phase 3 owns durable SessionSandbox/AgentRun/input/reconciliation and managed revision GC. Phase 4 owns the Compose multi-replica gate. Phase 5 owns Kubernetes; Compose remains the hard gate before Kubernetes.
+- **What Phase 3 must read or verify first** — Read the current `pkg/sandbox` Filesystem, Session, and Provider contracts; Home authority and the managed revision inventory; runner and Session lifecycle code; and the architecture Phase 3 invariants. First prove that no old host-path or PostgreSQL fallback is reintroduced.
 
 ### Handoff after Phase 3 — pending
 
