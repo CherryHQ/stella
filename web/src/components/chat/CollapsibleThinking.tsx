@@ -3,11 +3,14 @@ import { useId } from "react";
 
 export function CollapsibleThinking({
   labelText,
+  badge,
   expanded,
   onToggle,
   children,
 }: {
   labelText: string;
+  /** Status the reader needs before deciding whether to open the panel. */
+  badge?: React.ReactNode;
   expanded: boolean;
   onToggle: (v: boolean) => void;
   children: React.ReactNode;
@@ -24,13 +27,14 @@ export function CollapsibleThinking({
       >
         <Lightbulb className="size-3.5 text-muted-foreground shrink-0" />
         <span>{labelText}</span>
+        {badge}
         <ChevronDown className="size-3.5 text-muted-foreground shrink-0" />
       </button>
     );
   }
 
   return (
-    <div className="space-y-2.5 max-w-3xl w-full">
+    <div className="space-y-2.5 max-w-[var(--chat-column)] w-full">
       <button
         type="button"
         aria-expanded={true}
@@ -40,6 +44,7 @@ export function CollapsibleThinking({
       >
         <Lightbulb className="size-3.5 text-muted-foreground shrink-0" />
         <span>{labelText}</span>
+        {badge}
         <ChevronDown className="size-3.5 text-muted-foreground rotate-180" />
       </button>
       <div id={panelId} className="space-y-3 pl-5">

@@ -40,6 +40,7 @@ import {
 import { useAppShell } from "@/layouts/AppShell";
 import { BUILTIN_COMMANDS, ChatComposer } from "./ChatComposer";
 import { takePendingMessage } from "./pendingMessage";
+import { ChatWidthToggle } from "@/components/chat/ChatWidthToggle";
 import { SessionInfoPopover } from "./SessionInfoPopover";
 import { Transcript } from "./Transcript";
 import { useFileAttachments } from "./useFileAttachments";
@@ -574,6 +575,7 @@ export function SessionDetail({
               <TooltipPopup side="bottom">{t("sessions.startThread")}</TooltipPopup>
             </Tooltip>
           )}
+          <ChatWidthToggle />
           <SessionInfoPopover session={session} />
         </div>
       ) : null,
@@ -656,7 +658,7 @@ export function SessionDetail({
     return (
       <>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center overflow-y-auto bg-background">
-          <div className="w-full max-w-3xl">
+          <div className="w-full max-w-[var(--chat-column)]">
             {agentName && (
               <h2 className="px-4 pb-4 text-center text-xl font-semibold sm:px-8">{agentName}</h2>
             )}

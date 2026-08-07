@@ -160,7 +160,7 @@ export const ChatTranscript = forwardRef<HTMLDivElement, Props>(function ChatTra
         fileAgentId={fileAgentId}
         fileSessionId={fileSessionId}
         agentNames={agentNames}
-        className="mx-auto w-full max-w-3xl"
+        className="mx-auto w-full max-w-[var(--chat-column)]"
       />
     </div>
   );

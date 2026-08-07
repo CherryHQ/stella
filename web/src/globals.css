@@ -96,6 +96,14 @@
     @apply border-border outline-ring/50;
   }
 
+  :root {
+    /* Width of the conversation column, shared by the transcript, the composer
+       and everything docked to them. chat-width.ts overrides this inline on the
+       document element from the stored preference; the value here is what the
+       column measures before that runs, and equals `max-w-3xl`. */
+    --chat-column: 48rem;
+  }
+
   body {
     @apply bg-background text-foreground;
     letter-spacing: var(--tracking-normal);

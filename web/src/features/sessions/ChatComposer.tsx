@@ -217,7 +217,7 @@ export function ChatComposer({
       )}
       <div
         className={cn(
-          "relative mx-auto flex w-full min-w-0 max-w-3xl flex-col rounded-lg border bg-card p-1.5",
+          "relative mx-auto flex w-full min-w-0 max-w-[var(--chat-column)] flex-col rounded-lg border bg-card p-1.5",
           isStreaming
             ? "border-primary focus-within:ring-2 focus-within:ring-primary/20"
             : "border-border focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20",

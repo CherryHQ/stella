@@ -87,7 +87,7 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
   // messages themselves flow through the regular chat pipeline so tool calls,
   // markdown, and streaming render identically to an uncompacted session.
   const epochHeader = hasSummaries ? (
-    <div className="mx-auto mb-8 flex w-full max-w-3xl flex-col gap-3">
+    <div className="mx-auto mb-8 flex w-full max-w-[var(--chat-column)] flex-col gap-3">
       {contextItems.map((item) =>
         item.type === "summary" && item.summary ? (
           <SummaryCard

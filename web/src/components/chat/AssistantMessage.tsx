@@ -5,6 +5,7 @@ import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import {
+  AlertCircle,
   ChevronDown,
   Copy,
   Check,
@@ -24,6 +25,7 @@ import { getAgentAvatarStyle } from "@/lib/agent-colors";
 import { CollapsibleThinking } from "./CollapsibleThinking";
 import { CopyButton, REVEAL_ON_HOVER } from "./CopyButton";
 import { RenderableReferenceList } from "./references";
+import { EXIT_TRAILER, toolCallFailed } from "./utils";
 import { SessionTrace } from "./SessionTrace";
 
 export interface AssistantMessageProps {
@@ -255,6 +257,11 @@ function StepsGroup({ blocks, active }: { blocks: ContentBlock[]; active: boolea
     labelText = t("sessions.transcript.worked");
   }
 
+  // A collapsed group reports only how long it took, so a failed tool call
+  // inside it left no trace on screen — the reader had to open every group to
+  // find out whether the work actually landed. Surface the count on the label.
+  const failedCount = blocks.filter((b) => b.type === "tool_call" && toolCallFailed(b)).length;
+
   // Renderable references the agent emitted while creating entities in this
   // step group. Surfaced as cards OUTSIDE the collapsible — the raw tool output
   // defaults to collapsed, so a card buried inside would read as "not done".
@@ -264,7 +271,19 @@ function StepsGroup({ blocks, active }: { blocks: ContentBlock[]; active: boolea
 
   return (
     <div className="space-y-3">
-      <CollapsibleThinking labelText={labelText} expanded={expanded} onToggle={setExpanded}>
+      <CollapsibleThinking
+        labelText={labelText}
+        badge={
+          failedCount > 0 ? (
+            <span className="inline-flex items-center gap-1 text-destructive-foreground">
+              <AlertCircle className="size-3.5 shrink-0" />
+              {t("sessions.transcript.failedSteps", { count: failedCount })}
+            </span>
+          ) : null
+        }
+        expanded={expanded}
+        onToggle={setExpanded}
+      >
         <div className="space-y-3">
           {blocks.map((block, idx) => {
             if (block.type === "thinking" && block.thinking) {
@@ -361,14 +380,12 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
     const outputBlocks = block.result?.blocks ?? [];
     if (outputBlocks.length > 0) outputText = "";
     let duration = "";
-    let exitOk = !block.result?.is_error;
-    const exitMatch = outputText.match(/\n?\[exit:(\d+) \| (\d+ms)\]\s*$/);
+    const exitMatch = outputText.match(EXIT_TRAILER);
     if (exitMatch) {
       outputText = outputText.slice(0, exitMatch.index).replace(/\s+$/, "");
       duration = exitMatch[2];
-      exitOk = exitMatch[1] === "0" && !block.result?.is_error;
     }
-    return { inputText, outputText, outputBlocks, duration, exitOk };
+    return { inputText, outputText, outputBlocks, duration, exitOk: !toolCallFailed(block) };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- args derives from block
   }, [open, block]);
 

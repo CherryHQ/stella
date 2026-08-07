@@ -7,12 +7,14 @@ import { RouteError, RoutePending } from "@/components/RouteFallback";
 import { queryClient } from "@/lib/queryClient";
 import { I18nProvider } from "@/lib/i18n";
 import { applyTheme, getStoredTheme } from "@/lib/theme";
+import { applyChatWidth, getStoredChatWidth } from "@/lib/chat-width";
 import { recoverFromStaleChunks, registerServiceWorker } from "@/lib/pwa";
 import { watchBuild } from "@/lib/build-watch";
 import "./globals.css";
 
 if (typeof window !== "undefined") {
   applyTheme(getStoredTheme());
+  applyChatWidth(getStoredChatWidth());
   recoverFromStaleChunks();
   registerServiceWorker();
   watchBuild();
