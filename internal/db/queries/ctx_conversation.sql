@@ -167,10 +167,11 @@ ORDER BY last_active DESC, session_id DESC
 LIMIT NULLIF(sqlc.arg('limit'), -1) OFFSET sqlc.arg('offset');
 
 -- name: ListConversationsForAdminFiltered :many
--- Administrative session management is agent-scoped but intentionally crosses
--- user and guest ownership. Authorization remains in the session access layer.
+-- Administrative guest management includes the admin's own sessions plus guest
+-- sessions for the agent, never another registered user's private sessions.
 SELECT * FROM ctx_conversation
 WHERE agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)
+  AND (guest_id IS NOT NULL OR user_id = sqlc.arg(user_id))
   AND (sqlc.arg(include_archived) != 0 OR archived = false)
   AND (sqlc.arg(exclude_internal)::boolean = false OR kind NOT IN ('task', 'delegate'))
   AND (sqlc.narg(kind)::text IS NULL OR kind = sqlc.narg(kind))

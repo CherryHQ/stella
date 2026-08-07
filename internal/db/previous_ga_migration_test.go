@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
@@ -22,9 +23,9 @@ const (
 	// representative fixture/assertions for the newly crossed migrations turns
 	// this test into a green lie.
 	previousGAVersion = int64(20260725161331)
-	// Knowledge V1 and channel guest sessions are the post-anchor migrations
+	// Knowledge V1 and channel guest sessions/indexes are the post-anchor migrations
 	// exercised by the assertions below.
-	currentMigrationVersion = sequentialAnchor + 4
+	currentMigrationVersion = sequentialAnchor + 5
 
 	previousGAUserID         = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID        = "00000000-0000-0000-0000-000000000002"
@@ -370,6 +371,32 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 		WHERE conversation.id = $1 AND guest.channel_id = 'previous-ga-discord'
 	`, previousGAGuestChatID); got != 1 {
 		t.Fatalf("channel guest conversations = %d, want 1", got)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ('00000000-0000-0000-0000-000000000048', 'other-user@test.invalid')`); err != nil {
+		t.Fatalf("insert other user fixture: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO ctx_conversation (id, session_id, channel, kind, agent_id, user_id) VALUES
+			('00000000-0000-0000-0000-000000000049', 'previous-ga-admin-own', 'web', 'chat', $1, $2),
+			('00000000-0000-0000-0000-000000000050', 'previous-ga-other-user', 'web', 'chat', $1, '00000000-0000-0000-0000-000000000048')
+	`, previousGAAgentID, previousGAUserID); err != nil {
+		t.Fatalf("insert admin session visibility fixtures: %v", err)
+	}
+	adminSessions, err := sqlc.New(db).ListConversationsForAdminFiltered(ctx, sqlc.ListConversationsForAdminFilteredParams{
+		AgentID: pgtype.Text{String: previousGAAgentID, Valid: true}, UserID: pgtype.Text{String: previousGAUserID, Valid: true},
+		IncludeArchived: int32(1), ProjectIDIsNull: int32(0), Offset: 0, Limit: int32(-1),
+	})
+	if err != nil {
+		t.Fatalf("list admin and guest sessions: %v", err)
+	}
+	var foundOwn, foundGuest, foundOther bool
+	for _, conversation := range adminSessions {
+		foundOwn = foundOwn || conversation.SessionID == "previous-ga-admin-own"
+		foundGuest = foundGuest || conversation.ID == previousGAGuestChatID
+		foundOther = foundOther || conversation.SessionID == "previous-ga-other-user"
+	}
+	if !foundOwn || !foundGuest || foundOther {
+		t.Fatalf("admin session visibility: own=%v guest=%v other-user=%v, want true, true, false", foundOwn, foundGuest, foundOther)
 	}
 	_, err = db.Exec(ctx, `
 		INSERT INTO ctx_conversation (

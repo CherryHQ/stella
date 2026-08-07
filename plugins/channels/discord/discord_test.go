@@ -183,7 +183,7 @@ func TestDirectMessageCanBeDisabled(t *testing.T) {
 
 func TestLocalCommandsRunGuestAdmissionFirst(t *testing.T) {
 	h := &localCommandAdmissionHandler{}
-	b, err := New(Config{Token: "token", AllowDM: true, AllowUnlinkedDM: true}, h)
+	b, err := New(Config{Token: "token", AllowDM: true}, h)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestLocalCommandsRunGuestAdmissionFirst(t *testing.T) {
 
 func TestAttachmentOwnershipIsResolvedBeforeDownload(t *testing.T) {
 	h := &rejectingAttachmentHandler{err: agentaccess.ErrForbidden}
-	b, err := New(Config{Token: "token", AllowDM: true, AllowUnlinkedDM: true}, h)
+	b, err := New(Config{Token: "token", AllowDM: true}, h)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,6 +215,24 @@ func TestAttachmentOwnershipIsResolvedBeforeDownload(t *testing.T) {
 	}
 	if h.resolveCalls != 1 || h.handleCalls != 0 {
 		t.Fatalf("calls: resolve=%d handle=%d, want 1 and 0", h.resolveCalls, h.handleCalls)
+	}
+}
+
+func TestAttachmentRootFailureStillDeliversMessage(t *testing.T) {
+	h := &rejectingAttachmentHandler{err: errors.New("storage unavailable")}
+	b, err := New(Config{Token: "token", AllowDM: true}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &discordgo.Message{
+		ID: "message", ChannelID: "dm", Author: &discordgo.User{ID: "linked-user"}, Content: "hello",
+		Attachments: []*discordgo.MessageAttachment{{ID: "attachment", Filename: "image.png", URL: "https://invalid.example/image.png"}},
+	}
+	if err := b.handleMessage(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	if h.resolveCalls != 1 || h.handleCalls != 1 {
+		t.Fatalf("calls: resolve=%d handle=%d, want 1 and 1", h.resolveCalls, h.handleCalls)
 	}
 }
 

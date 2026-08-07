@@ -81,8 +81,9 @@ func (q *Queries) GetChannelGuest(ctx context.Context, id string) (ChannelGuest,
 const purgeExpiredChannelGuest = `-- name: PurgeExpiredChannelGuest :execrows
 WITH channel_retention AS (
     SELECT id, CASE
-        WHEN retention_value ~ '^-?[0-9]+$'
-            THEN GREATEST(1, LEAST(retention_value::numeric, 365))::integer
+        WHEN retention_value ~ '^[0-9]+$'
+             AND retention_value::numeric BETWEEN 1 AND 365
+            THEN retention_value::integer
         ELSE 30
     END AS retention_days
     FROM (

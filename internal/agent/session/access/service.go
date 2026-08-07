@@ -369,7 +369,7 @@ func (a *Access) List(ctx context.Context, agentID string, opts agentsession.Lis
 	var infos []agentsession.Info
 	var err error
 	if a.authority.IsAdmin() {
-		infos, err = a.svc.registry.ListForAdmin(ctx, agentID, opts)
+		infos, err = a.svc.registry.ListForAdmin(ctx, userID, agentID, opts)
 	} else {
 		infos, err = a.svc.registry.List(ctx, agentsession.Scope{UserID: userID, AgentID: agentID}, opts)
 	}
@@ -426,7 +426,7 @@ func (a *Access) ListPage(ctx context.Context, agentID string, opts agentsession
 		var candidates []agentsession.Info
 		var err error
 		if a.authority.IsAdmin() {
-			candidates, err = a.svc.registry.ListForAdmin(ctx, agentID, query)
+			candidates, err = a.svc.registry.ListForAdmin(ctx, userID, agentID, query)
 		} else {
 			candidates, err = a.svc.registry.List(ctx, agentsession.Scope{UserID: userID, AgentID: agentID}, query)
 		}

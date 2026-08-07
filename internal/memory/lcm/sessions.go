@@ -257,6 +257,7 @@ func (p *Provider) ListInfoForAdmin(ctx context.Context, opts memory.ListOptions
 	}
 	convs, err := p.q.ListConversationsForAdminFiltered(ctx, sqlc.ListConversationsForAdminFilteredParams{
 		AgentID:         pgnull.Text(opts.AgentID),
+		UserID:          pgnull.Text(opts.UserID),
 		IncludeArchived: boolToInt(opts.IncludeArchived),
 		ExcludeInternal: opts.ExcludeInternal,
 		Kind:            pgnull.Text(opts.Kind),

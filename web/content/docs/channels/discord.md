@@ -28,7 +28,7 @@ Set `allow_unlinked_dm` to `true` to let unlinked Discord users chat with the ag
 
 Guest conversation history persists across direct messages and is compacted when it grows, but the restricted guest session has no profile, reflection, tools, skills, files, workspace, plugins, or delegation. Guests can use only `/link`, `/help`, `/new`, `/compact`, and `/abort`. Linking a Stella account does not merge the earlier guest history into that account's history.
 
-Guest traffic is limited per guest, each channel has a durable guest cap, and inactive guest identities and their sessions are deleted by the daily retention job. Configure these limits in the Web UI. Administrators can inspect and delete guest sessions through the normal session management surfaces.
+Guest chat traffic is limited per guest, each channel has a durable guest cap, and inactive guest identities and their sessions are deleted by the daily retention job. Valid account-link codes are handled before guest admission and do not consume the guest chat budget. Throttled attempts still refresh the guest's activity timestamp. Configure these limits in the Web UI. Administrators can inspect and delete guest sessions through the normal session management surfaces.
 
 > **Warning:** Enabling guest direct messages makes your model available to the public and can create unexpected provider costs and security risk even with these limits. Use a dedicated guest-safe agent, and make sure its base prompt contains no secrets.
 

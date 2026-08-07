@@ -181,21 +181,24 @@ export function ChannelConfigFields({
     description: string,
     min: number,
     max: number,
-  ) => (
-    <Field key={key} className="w-full">
-      <FieldLabel>{label}</FieldLabel>
-      <Input
-        nativeInput
-        type="number"
-        min={min}
-        max={max}
-        value={Number(channel[key])}
-        onChange={(e) => onChange(key, e.target.valueAsNumber)}
-        className="w-full font-mono"
-      />
-      <FieldDescription>{description}</FieldDescription>
-    </Field>
-  );
+  ) => {
+    const value = channel[key];
+    return (
+      <Field key={key} className="w-full">
+        <FieldLabel>{label}</FieldLabel>
+        <Input
+          nativeInput
+          type="number"
+          min={min}
+          max={max}
+          value={typeof value === "number" && Number.isFinite(value) ? value : ""}
+          onChange={(e) => onChange(key, e.target.value === "" ? "" : e.target.valueAsNumber)}
+          className="w-full font-mono"
+        />
+        <FieldDescription>{description}</FieldDescription>
+      </Field>
+    );
+  };
 
   return (
     <div className="flex flex-col gap-4">

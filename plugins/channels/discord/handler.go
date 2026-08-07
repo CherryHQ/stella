@@ -65,7 +65,7 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
 				if errors.Is(err, agentaccess.ErrForbidden) {
 					return errGuestAttachmentsUnsupported
 				}
-				return fmt.Errorf("attachments are unavailable for this Discord session: %w", err)
+				logger().Warn("resolve attachment storage failed; using inline fallback", "error", err)
 			}
 		}
 	}

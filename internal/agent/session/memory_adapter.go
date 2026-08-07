@@ -63,7 +63,8 @@ func (a *memoryAdapter) list(ctx context.Context, userID, agentID string, opts m
 	return infosFromRecords(recs)
 }
 
-func (a *memoryAdapter) listForAdmin(ctx context.Context, agentID string, opts memory.ListOptions) ([]Info, error) {
+func (a *memoryAdapter) listForAdmin(ctx context.Context, userID, agentID string, opts memory.ListOptions) ([]Info, error) {
+	opts.UserID = userID
 	opts.AgentID = agentID
 	lister, ok := a.sm.(interface {
 		ListInfoForAdmin(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error)

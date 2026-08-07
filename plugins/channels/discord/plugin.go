@@ -19,7 +19,7 @@ var newRuntime = func(rc plugins.RuntimeContext) (plugins.Runtime, error) {
 		return nil, fmt.Errorf("discord: channel runtime services unavailable")
 	}
 	return NewManagedRuntime(RuntimeDeps{Parent: r.ParentContext(), Handler: r.Handler(), Notifications: r.Notifications(), Log: platform.Logger(), NewChannel: func(cfg channel.DiscordConfig, h channel.Handler) (channel.Channel, error) {
-		return New(Config{InstanceID: cfg.InstanceID, Token: cfg.Token, AllowedGuildIDs: cfg.AllowedGuildIDs, AllowDM: cfg.AllowDM, AllowUnlinkedDM: cfg.AllowUnlinkedDM, RequireMention: cfg.RequireMention}, h)
+		return New(Config{InstanceID: cfg.InstanceID, Token: cfg.Token, AllowedGuildIDs: cfg.AllowedGuildIDs, AllowDM: cfg.AllowDM, RequireMention: cfg.RequireMention}, h)
 	}}), nil
 }
 

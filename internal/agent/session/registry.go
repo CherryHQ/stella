@@ -153,20 +153,24 @@ func (r *Registry) List(ctx context.Context, scope Scope, opts ListOptions) ([]I
 	return out, nil
 }
 
-// ListForAdmin returns agent-scoped sessions across user and guest owners. The
-// caller must enforce administrator authority and per-row read authorization.
-func (r *Registry) ListForAdmin(ctx context.Context, agentID string, opts ListOptions) ([]Info, error) {
+// ListForAdmin returns an admin's own sessions plus agent-scoped guest sessions.
+// The caller must enforce administrator authority and per-row authorization.
+func (r *Registry) ListForAdmin(ctx context.Context, userID, agentID string, opts ListOptions) ([]Info, error) {
+	if userID == "" {
+		return nil, fmt.Errorf("ListForAdmin requires UserID")
+	}
 	agentID = r.resolveAgentID(agentID)
 	if agentID == "" {
 		return nil, fmt.Errorf("ListForAdmin requires AgentID")
 	}
 	lister, ok := r.store.(interface {
-		listForAdmin(context.Context, string, memory.ListOptions) ([]Info, error)
+		listForAdmin(context.Context, string, string, memory.ListOptions) ([]Info, error)
 	})
 	if !ok {
 		return nil, fmt.Errorf("session store does not support administrative listing")
 	}
-	all, err := lister.listForAdmin(ctx, agentID, memory.ListOptions{
+	all, err := lister.listForAdmin(ctx, userID, agentID, memory.ListOptions{
+		UserID:          userID,
 		AgentID:         agentID,
 		IncludeArchived: opts.IncludeArchived,
 		ExcludeInternal: opts.ExcludeInternal,

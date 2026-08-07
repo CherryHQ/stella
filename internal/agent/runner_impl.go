@@ -75,6 +75,7 @@ type runner struct {
 	canonicalImages *coreagent.CanonicalImageConfig
 	chatTimeout     time.Duration
 	session         pkgsandbox.Session // runner-owned sandbox session lifecycle
+	noCapabilities  bool               // guest runner intentionally has no sandbox session
 	sandboxCfg      sandbox.Config     // retained to refresh OAuth-derived env on long-lived runners
 
 	mu           sync.Mutex
@@ -154,6 +155,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		canonicalImages: cfg.CanonicalImages,
 		chatTimeout:     cfg.ChatTimeout,
 		session:         session,
+		noCapabilities:  cfg.NoCapabilities,
 		sandboxCfg:      cfg.Sandbox,
 		lastActivity:    time.Now(),
 		log:             slog.With("component", "go_runner"),
@@ -518,11 +520,11 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 	return out
 }
 
-// Alive reports whether the runner is healthy.
-// Delegates to the session's lifecycle state.
+// Alive reports whether the runner is healthy. Capability-bearing runners
+// delegate to the sandbox lifecycle; guest runners have no sandbox by design.
 func (r *runner) Alive() bool {
 	if r.session == nil {
-		return false
+		return r.noCapabilities
 	}
 	return r.session.Alive()
 }

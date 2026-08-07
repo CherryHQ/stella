@@ -523,17 +523,19 @@ func (q *Queries) ListConversationsFiltered(ctx context.Context, arg ListConvers
 const listConversationsForAdminFiltered = `-- name: ListConversationsForAdminFiltered :many
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id FROM ctx_conversation
 WHERE agent_id IS NOT DISTINCT FROM $1
-  AND ($2 != 0 OR archived = false)
-  AND ($3::boolean = false OR kind NOT IN ('task', 'delegate'))
-  AND ($4::text IS NULL OR kind = $4)
-  AND ($5 = 0 OR project_id IS NULL)
-  AND ($6::text IS NULL OR project_id = $6)
+  AND (guest_id IS NOT NULL OR user_id = $2)
+  AND ($3 != 0 OR archived = false)
+  AND ($4::boolean = false OR kind NOT IN ('task', 'delegate'))
+  AND ($5::text IS NULL OR kind = $5)
+  AND ($6 = 0 OR project_id IS NULL)
+  AND ($7::text IS NULL OR project_id = $7)
 ORDER BY last_active DESC, session_id DESC
-LIMIT NULLIF($8, -1) OFFSET $7
+LIMIT NULLIF($9, -1) OFFSET $8
 `
 
 type ListConversationsForAdminFilteredParams struct {
 	AgentID         pgtype.Text `json:"agent_id"`
+	UserID          pgtype.Text `json:"user_id"`
 	IncludeArchived interface{} `json:"include_archived"`
 	ExcludeInternal bool        `json:"exclude_internal"`
 	Kind            pgtype.Text `json:"kind"`
@@ -543,11 +545,12 @@ type ListConversationsForAdminFilteredParams struct {
 	Limit           interface{} `json:"limit"`
 }
 
-// Administrative session management is agent-scoped but intentionally crosses
-// user and guest ownership. Authorization remains in the session access layer.
+// Administrative guest management includes the admin's own sessions plus guest
+// sessions for the agent, never another registered user's private sessions.
 func (q *Queries) ListConversationsForAdminFiltered(ctx context.Context, arg ListConversationsForAdminFilteredParams) ([]CtxConversation, error) {
 	rows, err := q.db.Query(ctx, listConversationsForAdminFiltered,
 		arg.AgentID,
+		arg.UserID,
 		arg.IncludeArchived,
 		arg.ExcludeInternal,
 		arg.Kind,
