@@ -37,6 +37,13 @@ Telegram channel config (JSON):
 {
   "token": "BOT_TOKEN",
   "channel_id": "@my_channel",
+  "allowed_chat_ids": "-1001234567890",
+  "allow_dm": true,
+  "allow_unlinked_dm": false,
+  "guest_message_limit_per_minute": 10,
+  "guest_max_per_channel": 1000,
+  "guest_retention_days": 30,
+  "require_mention": true,
   "enable_notify": true
 }
 ```
@@ -54,11 +61,11 @@ Or set `STELLA_TELEGRAM_TOKEN` env var for the token only.
 
 ### Group support
 
-In group chats the bot participates automatically and group routing is decided semantically. @mentions always route to the mentioned bot. To stop a bot from participating in a group, remove it from that group.
+`allowed_chat_ids` is a comma-separated, fail-closed group allowlist. Group messages require a bot mention by default. Disable `require_mention` only when semantic routing is intended and BotFather privacy mode is disabled. Every member of an allowed group can address the bound agent, so allow only trusted groups.
 
 ### Access control
 
-Channel access is enforced by Stella's Authority-based services. Use the Web UI to manage users and channel configuration.
+Direct messages can be disabled with `allow_dm`. Unlinked private senders are denied unless `allow_unlinked_dm` is explicitly enabled on a channel-bound agent. Guests reuse persistent restricted sessions with configurable rate, count, and retention limits, but have no profile, reflection, tools, skills, files, workspace, plugins, or delegation. Guest attachments are rejected before download. Enabling guest access exposes model usage publicly; recommend a dedicated guest-safe agent whose base prompt contains no secrets.
 
 ### Notifications
 
@@ -133,6 +140,13 @@ Feishu channel config (JSON):
   "app_secret": "YOUR_APP_SECRET",
   "encrypt_key": "",
   "verification_token": "",
+  "allowed_chat_ids": "oc_trusted_group",
+  "allow_dm": true,
+  "allow_unlinked_dm": false,
+  "guest_message_limit_per_minute": 10,
+  "guest_max_per_channel": 1000,
+  "guest_retention_days": 30,
+  "require_mention": true,
   "enable_notify": false
 }
 ```
@@ -148,6 +162,8 @@ Connects via WebSocket (no public URL or webhook needed).
 - Commands: `/new`, `/compact`, `/model`, `/agent`, `/whoami`
 - Feishu OAuth login and Feishu channel chat share `union_id`; Feishu OAuth login immediately links the channel identity to the same Stella user, with first channel message as a fallback.
 - Chat transport only.
+
+`allowed_chat_ids` is a comma-separated, fail-closed Feishu group `chat_id` allowlist, and `require_mention` defaults to `true`. `allow_dm` controls private chat, account linking, and private-message auto-provisioning. `allow_unlinked_dm` has the same restricted guest semantics and operational limits as Telegram and Discord; it is disabled by default and requires a channel-bound agent. Guest attachments are rejected before download.
 
 ## WeChat bot (iLink)
 

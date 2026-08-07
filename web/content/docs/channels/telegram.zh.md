@@ -98,13 +98,17 @@ Stella 内置了一个通过长轮询连接的 Telegram 机器人 —— 无需 
 
 ## 群组支持
 
-机器人支持群聊。在群聊中机器人会自动参与：被 @提及时一定会路由给被提及的机器人，其他明确问题在存在可用路由模型时，也可能由 Stella 的语义群聊路由选中回复，否则保持静默。若要让机器人不再参与某个群，把它移出该群即可。
+机器人只支持明确允许的群聊。请在Web UI的**允许的群聊 ID**中添加 Telegram 群组或超级群组的数字 ID。列表为空时会拒绝所有群消息。
 
-如果希望无 @提及也能语义路由，机器人必须能读取普通群消息。Telegram 中需要在 BotFather 里关闭 bot privacy mode。
+群消息默认必须 @机器人。关闭**必须 @机器人**后可以使用 Stella 的语义群聊路由；同时还要在 BotFather 中关闭 bot privacy mode，让机器人能读取普通消息。允许群聊中的每位成员都能联系绑定的 Agent，因此只应添加可信群聊。
 
 ## 访问控制
 
-你可以在Web UI中添加允许的用户 ID 来限制哪些 Telegram 用户可以与机器人交互。留空则允许所有用户。在 Telegram 中使用 `/whoami` 命令获取你的用户 ID。
+**允许私信**控制私聊和账号关联。已关联的 Stella 用户继续使用自己的普通 session 和权限。
+
+未关联的私聊发送者默认会被拒绝。只有在你希望他们通过持久、受限的访客 session 使用渠道绑定的 Agent 时，才启用**允许访客私信**。访客历史会持久保存和压缩，但没有 profile、reflection、工具、skills、文件、workspace、plugins 或 delegation。访客只能使用 `/link`、`/help`、`/new`、`/compact` 和 `/abort`；附件会在下载前被拒绝，关联账号也不会合并此前的访客历史。
+
+系统会限制每位访客的消息速率和每个渠道的持久访客数量，并在配置的保留期后删除不活跃访客及其 session。公开访客访问仍可能产生模型费用和滥用风险。请使用专用且对访客安全的 Agent，并确保其 base prompt 不含 secret。
 
 ## 通知
 
@@ -140,12 +144,17 @@ Stella 内置了一个通过长轮询连接的 Telegram 机器人 —— 无需 
 
 以下所有设置都通过Web UI管理。
 
-| 字段          | 描述                                   | 默认值   |
-| ------------- | -------------------------------------- | -------- |
-| `token`       | Bot API token                          | （必需） |
-| `notify_chat` | 用于主动通知的聊天 ID                  |          |
-| `channel_id`  | 广播频道（@name 或数字 ID）            |          |
-| `allowed_ids` | 允许使用机器人的用户 ID（空 = 所有人） | `[]`     |
+| 字段                             | 描述                                            | 默认值   |
+| -------------------------------- | ----------------------------------------------- | -------- |
+| `token`                          | Bot API token                                   | （必需） |
+| `channel_id`                     | 主动通知的默认目标（@name 或数字 ID）           |          |
+| `allowed_chat_ids`               | 以英文逗号分隔的数字群聊 ID；为空时拒绝所有群聊 |          |
+| `allow_dm`                       | 接受私聊和账号关联                              | `true`   |
+| `allow_unlinked_dm`              | 允许未关联私聊发送者使用受限访客 session        | `false`  |
+| `guest_message_limit_per_minute` | 每位访客每分钟的消息和命令上限                  | `10`     |
+| `guest_max_per_channel`          | 此渠道可持久保存的访客身份上限                  | `1000`   |
+| `guest_retention_days`           | 超过此时间未活动时删除访客身份及 session        | `30`     |
+| `require_mention`                | 在允许的群聊中要求 @机器人                      | `true`   |
 
 ## 故障排除
 
@@ -153,11 +162,12 @@ Stella 内置了一个通过长轮询连接的 Telegram 机器人 —— 无需 
 
 - 确保 `stellad server` 正在运行，且 Telegram 频道已在Web UI中配置。
 - 仔细检查 bot token 是否正确。你可以向 [@BotFather](https://t.me/BotFather) 发消息查看你的机器人列表来确认。
-- 如果设置了访问控制，请确认你的 Telegram 用户 ID 在 `allowed_ids` 列表中。向机器人发送 `/whoami` 来检查。
+- 如果在私聊中测试，请确认已启用**允许私信**。
 
 **机器人在群组中不响应？**
 
 - 最可靠的触发方式是 @提及机器人。
+- 将群聊的数字 ID 添加到**允许的群聊 ID**。此 allowlist 默认拒绝所有未配置群聊。
 - 如果你期望无 @提及也能回复，确认至少一个群内 agent 配置了可用于路由的模型，并且消息是明确请求而不是闲聊。
 - 确保机器人已被添加到群组中，并有权限读取消息。Telegram 中如果要使用无 @提及路由，需要在 BotFather 里关闭 bot privacy mode。
 

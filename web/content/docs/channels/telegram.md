@@ -98,13 +98,17 @@ For non-image files, the agent can then use the `xberg extract` command to parse
 
 ## Group Support
 
-The bot supports group chats. In group chats it participates automatically: @mentions always route to the mentioned bot, and other clear group questions may also be routed by Stella's semantic group routing when an eligible routing model is available, otherwise they stay silent. To stop a bot from participating in a group, remove it from that group.
+The bot supports explicitly allowed group chats. Add each numeric Telegram group or supergroup ID to **Allowed group chat IDs** in the Web UI. An empty list rejects every group message.
 
-For semantic no-mention routing, the bot must be able to read normal group messages. In Telegram, disable privacy mode for the bot in BotFather.
+Group messages must @mention the bot by default. You can turn off **Require a mention** to enable Stella's semantic group routing; also disable privacy mode for the bot in BotFather so it can read ordinary messages. Every member of an allowed group can address the bound agent, so add only trusted groups.
 
 ## Access Control
 
-You can restrict which Telegram users can interact with your bot by adding allowed user IDs in the Web UI. Leave the list empty to allow all users. Use the `/whoami` command in Telegram to find your user ID.
+**Allow direct messages** controls private chat and account linking. Linked Stella users keep their normal sessions and permissions.
+
+Unlinked private senders are denied by default. Enable **Allow guest direct messages** only when you want them to use the channel-bound agent through persistent restricted guest sessions. Guest history persists and compacts, but guests have no profile, reflection, tools, skills, files, workspace, plugins, or delegation. They can use only `/link`, `/help`, `/new`, `/compact`, and `/abort`; attachments are rejected before download, and linking does not merge previous guest history.
+
+Guest traffic is limited per sender, each channel has a durable guest cap, and inactive guest identities and sessions are removed after the configured retention period. Public guest access can still create model cost and abuse risk. Use a dedicated guest-safe agent whose base prompt contains no secrets.
 
 ## Notifications
 
@@ -140,12 +144,17 @@ You can switch models mid-conversation using the `/model` command, which opens a
 
 All settings below are managed through the Web UI.
 
-| Field         | Description                               | Default    |
-| ------------- | ----------------------------------------- | ---------- |
-| `token`       | Bot API token                             | (required) |
-| `notify_chat` | Chat ID for proactive notifications       |            |
-| `channel_id`  | Broadcast channel (@name or numeric ID)   |            |
-| `allowed_ids` | User IDs allowed to use bot (empty = all) | `[]`       |
+| Field                            | Description                                                   | Default    |
+| -------------------------------- | ------------------------------------------------------------- | ---------- |
+| `token`                          | Bot API token                                                 | (required) |
+| `channel_id`                     | Default proactive notification target (@name or numeric ID)   |            |
+| `allowed_chat_ids`               | Comma-separated numeric group IDs; empty rejects all groups   |            |
+| `allow_dm`                       | Accept private messages and account linking                   | `true`     |
+| `allow_unlinked_dm`              | Allow restricted guest sessions for unlinked private senders  | `false`    |
+| `guest_message_limit_per_minute` | Per-guest message and command limit                           | `10`       |
+| `guest_max_per_channel`          | Maximum durable guest identities for this channel             | `1000`     |
+| `guest_retention_days`           | Delete inactive guest identities and sessions after this time | `30`       |
+| `require_mention`                | Require an @mention in allowed groups                         | `true`     |
 
 ## Troubleshooting
 
@@ -153,11 +162,12 @@ All settings below are managed through the Web UI.
 
 - Make sure `stellad server` is running and the Telegram channel is configured in the Web UI.
 - Double-check that your bot token is correct. You can verify it by messaging [@BotFather](https://t.me/BotFather) and checking your bot list.
-- If you set up access control, confirm your Telegram user ID is in the `allowed_ids` list. Send `/whoami` to the bot to check.
+- Confirm **Allow direct messages** is enabled if you are testing in a private chat.
 
 **Bot not responding in groups?**
 
 - @mention the bot for the most reliable trigger.
+- Add the group's numeric chat ID to **Allowed group chat IDs**. The allowlist is fail-closed.
 - If you expect replies without @mentions, make sure at least one group agent has a routing-capable model and that the message is a clear request, not casual chatter.
 - Make sure the bot has been added to the group and has permission to read messages. For Telegram, disable bot privacy mode in BotFather if you want no-mention routing.
 

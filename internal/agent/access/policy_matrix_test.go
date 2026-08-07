@@ -67,6 +67,12 @@ func TestAgentAccessMatrix(t *testing.T) {
 			}
 		})
 	}
+	disabled := store.agents["owned"]
+	disabled.Enabled = false
+	store.agents["owned"] = disabled
+	if err := access.Authorize(ctx, mustGroupAuthority(t, "g1", "owned"), "owned", authz.ActionExecute); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("disabled group agent execute = %v, want forbidden", err)
+	}
 
 	if err := access.CanList(ctx, owner); err != nil {
 		t.Fatalf("user list = %v", err)
@@ -90,7 +96,7 @@ func TestDedicatedChannelUseRequiresExactBindingAndCurrentBinding(t *testing.T) 
 	}
 	store := testStore{
 		agents:   map[string]config.Agent{"dedicated": {ID: "dedicated", Scope: config.AgentScopeRestricted, CreatorID: "owner", Enabled: true}},
-		channels: map[string]config.Channel{"channel-1": {ID: "channel-1", AgentID: "dedicated"}},
+		channels: map[string]config.Channel{"channel-1": {ID: "channel-1", AgentID: "dedicated", Type: "discord", Enabled: true}},
 	}
 	access := NewService(store, &testAssignments{})
 	// The plain Use path never infers a dedicated channel binding: a held binding
@@ -104,6 +110,12 @@ func TestDedicatedChannelUseRequiresExactBindingAndCurrentBinding(t *testing.T) 
 	}
 	if _, err := bound.UseDedicated(ctx, "dedicated", "channel-1"); err != nil {
 		t.Fatalf("dedicated use = %v", err)
+	}
+	if _, err := bound.UseDedicatedForType(ctx, "dedicated", "channel-1", "discord"); err != nil {
+		t.Fatalf("typed dedicated use = %v", err)
+	}
+	if _, err := bound.UseDedicatedForType(ctx, "dedicated", "channel-1", "telegram"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("mismatched channel type = %v", err)
 	}
 	bound, err = access.Begin(ctx, authority)
 	if err != nil {
@@ -130,7 +142,7 @@ func TestDedicatedChannelUseRequiresExactBindingAndCurrentBinding(t *testing.T) 
 	}
 }
 
-func TestGuestDedicatedChannelUseRequiresEnabledOptInDiscordBinding(t *testing.T) {
+func TestGuestDedicatedChannelUseRequiresEnabledOptInChannelBinding(t *testing.T) {
 	ctx := context.Background()
 	guest, err := authz.NewGuestAuthority("guest-1", "channel-1")
 	if err != nil {
@@ -146,11 +158,13 @@ func TestGuestDedicatedChannelUseRequiresEnabledOptInDiscordBinding(t *testing.T
 		wantOK  bool
 	}{
 		{name: "enabled opted-in Discord channel", channel: valid, binding: "channel-1", wantOK: true},
+		{name: "enabled opted-in Telegram channel", channel: func() config.Channel { c := valid; c.Type = "telegram"; return c }(), binding: "channel-1", wantOK: true},
+		{name: "enabled opted-in Feishu channel", channel: func() config.Channel { c := valid; c.Type = "feishu"; return c }(), binding: "channel-1", wantOK: true},
 		{name: "allow dm disabled", channel: func() config.Channel { c := valid; c.Config = `{"allow_dm":false,"allow_unlinked_dm":true}`; return c }(), binding: "channel-1"},
 		{name: "unlinked dm disabled", channel: func() config.Channel { c := valid; c.Config = `{"allow_dm":true,"allow_unlinked_dm":false}`; return c }(), binding: "channel-1"},
 		{name: "channel disabled", channel: func() config.Channel { c := valid; c.Enabled = false; return c }(), binding: "channel-1"},
 		{name: "agent disabled", channel: valid, binding: "channel-1"},
-		{name: "channel type differs", channel: func() config.Channel { c := valid; c.Type = "telegram"; return c }(), binding: "channel-1"},
+		{name: "unsupported channel type", channel: func() config.Channel { c := valid; c.Type = "qq"; return c }(), binding: "channel-1"},
 		{name: "agent binding differs", channel: func() config.Channel { c := valid; c.AgentID = "other"; return c }(), binding: "channel-1"},
 		{name: "authority binding differs", channel: valid, binding: "channel-2"},
 	} {

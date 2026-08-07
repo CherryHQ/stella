@@ -34,14 +34,14 @@ func validateConfig(cfg channel.DiscordConfig) string {
 	if strings.TrimSpace(cfg.Token) == "" {
 		return "discord bot token is required"
 	}
-	if cfg.GuestMessageLimitPerMinute < 1 || cfg.GuestMessageLimitPerMinute > channel.MaxDiscordGuestMessageLimitPerMinute {
-		return fmt.Sprintf("guest message limit per minute must be between 1 and %d", channel.MaxDiscordGuestMessageLimitPerMinute)
+	if cfg.GuestMessageLimitPerMinute < 1 || cfg.GuestMessageLimitPerMinute > channel.MaxGuestMessageLimitPerMinute {
+		return fmt.Sprintf("guest message limit per minute must be between 1 and %d", channel.MaxGuestMessageLimitPerMinute)
 	}
-	if cfg.GuestMaxPerChannel < 1 || cfg.GuestMaxPerChannel > channel.MaxDiscordGuestMaxPerChannel {
-		return fmt.Sprintf("guest maximum per channel must be between 1 and %d", channel.MaxDiscordGuestMaxPerChannel)
+	if cfg.GuestMaxPerChannel < 1 || cfg.GuestMaxPerChannel > channel.MaxGuestMaxPerChannel {
+		return fmt.Sprintf("guest maximum per channel must be between 1 and %d", channel.MaxGuestMaxPerChannel)
 	}
-	if cfg.GuestRetentionDays < 1 || cfg.GuestRetentionDays > channel.MaxDiscordGuestRetentionDays {
-		return fmt.Sprintf("guest retention days must be between 1 and %d", channel.MaxDiscordGuestRetentionDays)
+	if cfg.GuestRetentionDays < 1 || cfg.GuestRetentionDays > channel.MaxGuestRetentionDays {
+		return fmt.Sprintf("guest retention days must be between 1 and %d", channel.MaxGuestRetentionDays)
 	}
 	return ""
 }

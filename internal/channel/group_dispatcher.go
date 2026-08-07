@@ -792,6 +792,14 @@ func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.Ctx
 	if d.coord == nil {
 		return nil, errors.New("coordinator not configured")
 	}
+	// The dispatch row is routing state, not authority. Re-check the originating
+	// persisted channel after this turn reaches the head of its execution queue.
+	// resolveGroupChat separately re-checks that the agent itself is enabled.
+	if state.Platform != "web" {
+		if err := ValidateGroupMembership(ctx, d.coord.store, state.Platform, row.AgentID, row.ReplyChannelID); err != nil {
+			return nil, fmt.Errorf("validate queued group channel: %w", err)
+		}
+	}
 	// This runs inside the per-(agent,group) queue — the same queue that
 	// serializes `/new` — so the cursor read cannot interleave with a rotation:
 	// either the rotation committed first and its boundary is visible here, or

@@ -49,17 +49,16 @@ func (b *Bot) onCardAction(ctx context.Context, event *callback.CardActionTrigge
 		messageID = req.Context.OpenMessageID
 	}
 
-	chatType := "p2p"
+	chatType := ""
 	rootID := ""
-	if b.client != nil && messageID != "" {
-		resolvedChatID, resolvedChatType, resolvedRootID := b.getMessageContext(messageID)
-		if resolvedChatID != "" {
-			chatID = resolvedChatID
-			chatType = resolvedChatType
-			rootID = resolvedRootID
-		}
-	} else if b.client != nil && chatID != "" {
-		chatType = b.getChatType(chatID)
+	var contextOK bool
+	if messageID != "" {
+		chatID, chatType, rootID, _, contextOK = b.resolveMessageContext(messageID)
+	} else {
+		chatType, contextOK = b.getChatType(chatID)
+	}
+	if !contextOK || !b.admitIngress(chatID, chatType, true, false) {
+		return nil, nil
 	}
 
 	// Extract the action label for the agent message.

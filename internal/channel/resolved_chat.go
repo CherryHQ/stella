@@ -163,7 +163,7 @@ func (rc *ResolvedChat) AuthorizeUse(ctx context.Context, access *agentaccess.Se
 		return err
 	}
 	if rc.DedicatedChannelID != "" {
-		_, err = decision.UseDedicated(ctx, rc.AgentID, rc.DedicatedChannelID)
+		_, err = decision.UseDedicatedForType(ctx, rc.AgentID, rc.DedicatedChannelID, rc.ChatCtx.Platform)
 	} else {
 		_, err = decision.Use(ctx, rc.AgentID)
 	}
@@ -229,12 +229,12 @@ func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store conf
 
 	var guestID, agentID string
 	guestMessageLimitPerMinute := 0
-	if resolved.User.ID == "" && !isGroup && platform == "discord" {
+	if resolved.User.ID == "" && !isGroup {
 		channel, channelErr := store.GetChannel(ctx, channelID)
-		if channelErr != nil || channel.AgentID == "" || !pkgchannel.AllowsUnlinkedGuestDM(channel.Type, channel.Enabled, channel.Config) || guests == nil {
+		if channelErr != nil || channel.Type != platform || channel.AgentID == "" || !pkgchannel.AllowsUnlinkedGuestDM(channel.Type, channel.Enabled, channel.Config) || guests == nil {
 			return nil, ErrAgentAccessDenied
 		}
-		guestConfig, configErr := pkgchannel.DecodeDiscordConfig([]byte(channel.Config))
+		guestConfig, configErr := pkgchannel.DecodeGuestConfig(channel.Type, channel.Config)
 		if configErr != nil {
 			return nil, ErrAgentAccessDenied
 		}
@@ -283,12 +283,14 @@ func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store conf
 	case channelID != "":
 		// Re-read the persisted channel binding after selection. This is the sole
 		// source for a dedicated authority; input routing fields never mint grants.
-		if channel, channelErr := store.GetChannel(ctx, channelID); channelErr == nil && channel.AgentID == agentID {
+		if channel, channelErr := store.GetChannel(ctx, channelID); channelErr == nil && channel.Enabled && channel.Type == platform && channel.AgentID == agentID {
 			authority, err = subject.ChannelAuthority(channel.ID)
 			if err != nil {
 				return nil, ErrAgentAccessDenied
 			}
 			dedicatedChannelID = channel.ID
+		} else if channelID != platform {
+			return nil, ErrAgentAccessDenied
 		}
 	}
 

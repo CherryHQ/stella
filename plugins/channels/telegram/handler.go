@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,8 @@ import (
 	tele "gopkg.in/telebot.v4"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
@@ -44,13 +47,13 @@ func (b *Bot) registerHandlers() {
 	// Register shared slash commands explicitly so Telegram's command list and
 	// handler table stay aligned. /whoami keeps a Telegram-specific override.
 	for _, cmd := range []string{"/start", "/help", "/new", "/compact", "/abort"} {
-		b.bot.Handle(cmd, b.guard(func(c tele.Context) error {
+		b.bot.Handle(cmd, b.guard(true, func(c tele.Context) error {
 			return b.handleSharedCommand(c, cmd)
 		}))
 	}
 
 	// Telegram-specific /whoami override (includes chat ID in markdown).
-	b.bot.Handle("/whoami", b.guard(func(c tele.Context) error {
+	b.bot.Handle("/whoami", b.guard(true, func(c tele.Context) error {
 		if c.Sender() == nil {
 			return c.Send("Cannot determine user ID (no sender info).")
 		}
@@ -59,17 +62,20 @@ func (b *Bot) registerHandlers() {
 		return c.Send(msg, tele.ModeMarkdown)
 	}))
 
-	b.bot.Handle("/agent", b.guard(func(c tele.Context) error {
+	b.bot.Handle("/agent", b.guard(true, func(c tele.Context) error {
 		return b.handleAgent(c)
 	}))
 
-	b.bot.Handle("/model", b.guard(func(c tele.Context) error {
+	b.bot.Handle("/model", b.guard(true, func(c tele.Context) error {
 		return b.handleModel(c)
 	}))
 
 	// Handle inline keyboard callbacks for model selection via unique handler.
 	// telebot strips the "\fmodel_select|" prefix, so c.Data() = "1", "2", etc.
-	b.bot.Handle("\fmodel_select", b.guard(func(c tele.Context) error {
+	b.bot.Handle("\fmodel_select", b.guard(true, func(c tele.Context) error {
+		if handled, err := b.admitLocalCommand(c); handled || err != nil {
+			return err
+		}
 		idxStr := c.Data()
 		logger().Debug("model_select callback fired", "data", idxStr, "sender", c.Sender().ID, "chat", c.Chat().ID)
 		if err := b.switchModelByIdx(c, atoiOr(idxStr, 0)); err != nil {
@@ -81,7 +87,10 @@ func (b *Bot) registerHandlers() {
 	}))
 
 	// Handle pagination for model keyboard.
-	b.bot.Handle("\fmodel_page", b.guard(func(c tele.Context) error {
+	b.bot.Handle("\fmodel_page", b.guard(true, func(c tele.Context) error {
+		if handled, err := b.admitLocalCommand(c); handled || err != nil {
+			return err
+		}
 		data := c.Data()
 		pageStr, query, _ := strings.Cut(data, "|")
 		page, _ := strconv.Atoi(pageStr)
@@ -94,12 +103,18 @@ func (b *Bot) registerHandlers() {
 		return c.Respond()
 	}))
 
-	b.bot.Handle("\fmodel_noop", func(c tele.Context) error {
+	b.bot.Handle("\fmodel_noop", b.guard(true, func(c tele.Context) error {
+		if handled, err := b.admitLocalCommand(c); handled || err != nil {
+			return err
+		}
 		return c.Respond()
-	})
+	}))
 
 	// Handle inline keyboard callbacks for agent selection.
-	b.bot.Handle("\fagent_select", b.guard(func(c tele.Context) error {
+	b.bot.Handle("\fagent_select", b.guard(true, func(c tele.Context) error {
+		if handled, err := b.admitLocalCommand(c); handled || err != nil {
+			return err
+		}
 		idxStr := c.Data()
 		logger().Debug("agent_select callback fired", "data", idxStr, "sender", c.Sender().ID, "chat", c.Chat().ID)
 		if err := b.switchAgentByIdx(c, atoiOr(idxStr, 0)); err != nil {
@@ -111,7 +126,10 @@ func (b *Bot) registerHandlers() {
 	}))
 
 	// Handle pagination for agent keyboard.
-	b.bot.Handle("\fagent_page", b.guard(func(c tele.Context) error {
+	b.bot.Handle("\fagent_page", b.guard(true, func(c tele.Context) error {
+		if handled, err := b.admitLocalCommand(c); handled || err != nil {
+			return err
+		}
 		page, _ := strconv.Atoi(c.Data())
 
 		msg := b.incomingMsg(c, nil)
@@ -127,27 +145,30 @@ func (b *Bot) registerHandlers() {
 		return c.Respond()
 	}))
 
-	b.bot.Handle("\fagent_noop", func(c tele.Context) error {
+	b.bot.Handle("\fagent_noop", b.guard(true, func(c tele.Context) error {
+		if handled, err := b.admitLocalCommand(c); handled || err != nil {
+			return err
+		}
 		return c.Respond()
-	})
+	}))
 
-	b.bot.Handle(tele.OnText, b.guard(func(c tele.Context) error {
+	b.bot.Handle(tele.OnText, b.guard(false, func(c tele.Context) error {
 		return b.handleText(c)
 	}))
 
-	b.bot.Handle(tele.OnPhoto, b.guard(func(c tele.Context) error {
+	b.bot.Handle(tele.OnPhoto, b.guard(false, func(c tele.Context) error {
 		return b.handlePhoto(c)
 	}))
 
-	b.bot.Handle(tele.OnDocument, b.guard(func(c tele.Context) error {
+	b.bot.Handle(tele.OnDocument, b.guard(false, func(c tele.Context) error {
 		return b.handleDocument(c)
 	}))
 
-	b.bot.Handle(tele.OnCallback, func(c tele.Context) error {
+	b.bot.Handle(tele.OnCallback, b.guard(true, func(c tele.Context) error {
 		cb := c.Callback()
 		logger().Warn("unmatched callback", "data", cb.Data, "unique", cb.Unique)
 		return c.Respond()
-	})
+	}))
 }
 
 // handleSharedCommand forwards a shared slash command to the coordinator,
@@ -178,6 +199,10 @@ func (b *Bot) modelList(query string) []channel.IndexedModel {
 
 // handleModel processes the /model command with inline keyboard.
 func (b *Bot) handleModel(c tele.Context) error {
+	if handled, err := b.admitLocalCommand(c); handled || err != nil {
+		return err
+	}
+
 	args := strings.TrimSpace(c.Message().Payload)
 	query := channel.ParseModelArgs(args)
 
@@ -197,9 +222,12 @@ func (b *Bot) handleModel(c tele.Context) error {
 
 // handleAgent handles the /agent command with inline keyboard.
 func (b *Bot) handleAgent(c tele.Context) error {
-	args := strings.TrimSpace(c.Message().Payload)
-
 	msg := b.incomingMsg(c, nil)
+	if handled, err := b.admitLocalCommandMessage(c, msg); handled || err != nil {
+		return err
+	}
+
+	args := strings.TrimSpace(c.Message().Payload)
 
 	// Direct switch by slug.
 	if args != "" {
@@ -218,6 +246,29 @@ func (b *Bot) handleAgent(c tele.Context) error {
 		return c.Send("No agents available.")
 	}
 	return b.sendAgentKeyboard(c, channel.IndexAgents(agents), currentAgentID)
+}
+
+func (b *Bot) admitLocalCommand(c tele.Context) (bool, error) {
+	return b.admitLocalCommandMessage(c, b.incomingMsg(c, nil))
+}
+
+func (b *Bot) admitLocalCommandMessage(c tele.Context, msg channel.IncomingMessage) (bool, error) {
+	admitter, ok := b.handler.(channel.LocalCommandAdmitter)
+	if !ok {
+		return true, c.Send("This command is unavailable.")
+	}
+	ctx := b.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	resp, handled, err := admitter.AdmitLocalCommand(ctx, msg)
+	if err != nil {
+		return false, err
+	}
+	if handled {
+		return true, c.Send(resp)
+	}
+	return false, nil
 }
 
 // handleText processes incoming text messages.
@@ -257,6 +308,10 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 	if photo == nil {
 		return c.Send("No photo found in message.")
 	}
+	assetsDir, resolveErr := b.resolveAssetsDir(c)
+	if resolveErr != nil {
+		return b.rejectAttachment(c, resolveErr)
+	}
 
 	file, err := b.bot.File(&photo.File)
 	if err != nil {
@@ -284,7 +339,7 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 		}
 		content = append(content, ai.TextContent{Text: caption})
 	}
-	content = append(content, b.imageContent(c, photo.UniqueID, mimeType, data)...)
+	content = append(content, b.imageContent(assetsDir, photo.UniqueID, mimeType, data)...)
 
 	logger().Debug("photo received", "chat_id", c.Chat().ID, "size", len(data), "mime", mimeType)
 
@@ -302,29 +357,36 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 	return b.handleStream(c, stream)
 }
 
+func (b *Bot) rejectAttachment(c tele.Context, err error) error {
+	if errors.Is(err, internalchannel.ErrAgentAccessDenied) || errors.Is(err, agentaccess.ErrForbidden) {
+		return c.Send("Attachments are not supported in guest chat.")
+	}
+	return c.Send("Unable to process this attachment.")
+}
+
 // resolveAssetsDir resolves the per-user assets directory for the message's
 // author, or "" when the handler cannot resolve a user root.
-func (b *Bot) resolveAssetsDir(c tele.Context) string {
+func (b *Bot) resolveAssetsDir(c tele.Context) (string, error) {
 	resolver, ok := b.handler.(channel.UserRootResolver)
 	if !ok {
-		return ""
+		return "", errors.New("user root resolver unavailable")
 	}
 	probeMsg := b.incomingMsg(c, nil)
 	userRoot, err := resolver.ResolveUserRoot(b.ctx, probeMsg)
 	if err != nil {
 		logger().Warn("resolve user root failed", "error", err)
-		return ""
+		return "", err
 	}
-	return agent.UserAssetsDir(userRoot)
+	return agent.UserAssetsDir(userRoot), nil
 }
 
 // imageContent persists an inbound image message to the user's assets and
 // returns the unified attachment blocks. When persistence is unavailable the
 // image degrades via the shared inline fallback (inline within the ceiling, else
 // a text note) so the message still reaches the agent.
-func (b *Bot) imageContent(c tele.Context, uniqueID, mimeType string, data []byte) []ai.ContentBlock {
+func (b *Bot) imageContent(assetsDir, uniqueID, mimeType string, data []byte) []ai.ContentBlock {
 	fileName := channel.ImageFileName(uniqueID, mimeType)
-	if assetsDir := b.resolveAssetsDir(c); assetsDir != "" {
+	if assetsDir != "" {
 		savedPath, err := b.saveAsset(b.ctx, assetsDir, fileName, data)
 		if err == nil {
 			return channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)
@@ -385,9 +447,9 @@ func (b *Bot) handleDocument(c tele.Context) error {
 // error was already replied to the chat, so nothing can be given to the agent.
 func (b *Bot) documentAttachment(c tele.Context, doc *tele.Document, fileName string) ([]ai.ContentBlock, bool) {
 	// Resolve the per-user assets directory before downloading.
-	assetsDir := b.resolveAssetsDir(c)
-	if assetsDir == "" {
-		_ = c.Send("Unable to resolve storage directory for this file.")
+	assetsDir, resolveErr := b.resolveAssetsDir(c)
+	if resolveErr != nil {
+		_ = b.rejectAttachment(c, resolveErr)
 		return nil, false
 	}
 
@@ -413,6 +475,9 @@ func (b *Bot) documentAttachment(c tele.Context, doc *tele.Document, fileName st
 		return nil, false
 	}
 
+	if assetsDir == "" {
+		return channel.AttachmentSaveFailureContent(fileName, data), true
+	}
 	savedPath, err := b.saveAsset(b.ctx, assetsDir, fileName, data)
 	if err != nil {
 		logger().Warn("save document failed", "error", err)

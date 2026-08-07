@@ -236,24 +236,62 @@ func (c *Coordinator) EnsurePlatformGroupMember(ctx context.Context, platform, p
 	if c.eventLog == nil || c.db == nil {
 		return errors.New("group member provisioning not configured")
 	}
-	ch, err := c.store.GetChannel(ctx, channelID)
-	if err != nil {
-		return fmt.Errorf("get channel %q: %w", channelID, err)
-	}
-	if ch.AgentID == "" {
-		return fmt.Errorf("channel %q has no agent", channelID)
-	}
 	groupID, err := c.eventLog.ResolveGroupID(ctx, platform, platformGroupID, "")
 	if err != nil {
 		return fmt.Errorf("resolve group: %w", err)
 	}
-	q := sqlc.New(c.db)
+	tx, err := c.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin group member update: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := sqlc.New(tx)
+	lockedChannel, err := q.GetChannelForUpdate(ctx, channelID)
+	if err != nil {
+		return fmt.Errorf("lock channel %q: %w", channelID, err)
+	}
+	if !lockedChannel.AgentID.Valid {
+		return fmt.Errorf("channel %q has no bound agent", channelID)
+	}
+	ch := config.Channel{
+		ID:      lockedChannel.ID,
+		Type:    lockedChannel.Type,
+		AgentID: lockedChannel.AgentID.String,
+		Enabled: lockedChannel.Enabled,
+	}
+	if err := validateGroupChannel(ch, platform, ch.AgentID); err != nil {
+		return fmt.Errorf("channel %q cannot join platform group: %w", channelID, err)
+	}
+	boundAgent, err := q.GetAgent(ctx, ch.AgentID)
+	if err != nil {
+		return fmt.Errorf("get channel agent %q: %w", ch.AgentID, err)
+	}
+	if !boundAgent.Enabled {
+		return fmt.Errorf("channel agent %q is disabled", ch.AgentID)
+	}
+	if _, err := q.GetGroupStateByIDForUpdate(ctx, groupID); err != nil {
+		return fmt.Errorf("lock group: %w", err)
+	}
+	members, err := q.ListGroupMembers(ctx, groupID)
+	if err != nil {
+		return fmt.Errorf("list group members: %w", err)
+	}
+	for _, member := range members {
+		if member.ReplyChannelID == channelID && member.AgentID != ch.AgentID {
+			if err := q.RemoveGroupMember(ctx, sqlc.RemoveGroupMemberParams{GroupID: groupID, AgentID: member.AgentID}); err != nil {
+				return fmt.Errorf("remove stale group member: %w", err)
+			}
+		}
+	}
 	if _, err := q.AddGroupMember(ctx, sqlc.AddGroupMemberParams{
 		GroupID:        groupID,
 		AgentID:        ch.AgentID,
 		ReplyChannelID: channelID,
 	}); err != nil {
 		return fmt.Errorf("add group member: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit group member update: %w", err)
 	}
 	slog.Info("ensured platform group member", "platform", platform, "platform_group_id", platformGroupID, "group_id", groupID, "agent_id", ch.AgentID, "channel_id", channelID)
 	return nil
@@ -398,6 +436,11 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 		if command == "/new" {
 			return c.handleNewSessionCommand(ctx, rc, msg), true, nil, nil
 		}
+		if command == "/compact" {
+			if err := rc.AuthorizeUse(ctx, c.agentAccess); err != nil {
+				return fmt.Sprintf("Compaction failed: %v", err), true, nil, nil
+			}
+		}
 		if resp, ok := HandleCommand(ctx, rc, command+" "+args, msg.SenderID); ok {
 			return resp, true, nil, nil
 		}
@@ -413,7 +456,14 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 			// "新会话" from a short phrase is not, and a wrong guess throws away the
 			// user's context. The message falls through to a normal turn, where the
 			// agent answers in words and points the user at the explicit command.
-		case IntentHelp, IntentCompact:
+		case IntentCompact:
+			if err := rc.AuthorizeUse(ctx, c.agentAccess); err != nil {
+				return fmt.Sprintf("Compaction failed: %v", err), true, nil, nil
+			}
+			if resp, ok := HandleCommand(ctx, rc, IntentToCommand(intent), msg.SenderID); ok {
+				return resp, true, nil, nil
+			}
+		case IntentHelp:
 			if resp, ok := HandleCommand(ctx, rc, IntentToCommand(intent), msg.SenderID); ok {
 				return resp, true, nil, nil
 			}
@@ -472,7 +522,9 @@ func (c *Coordinator) handleConfigCommand(ctx context.Context, rc *ResolvedChat,
 // would land its reply in a session the user already left.
 func (c *Coordinator) handleNewSessionCommand(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage) string {
 	receipt := chatReceiptForMessage(c.receiptQueries(), rc, msg, newSessionCommand)
-	return rotateChatSession(ctx, rc, receipt, c.queue)
+	return rotateChatSessionAuthorized(ctx, rc, receipt, c.queue, func(authCtx context.Context) error {
+		return rc.AuthorizeUse(authCtx, c.agentAccess)
+	})
 }
 
 // receiptQueries returns the store backing command receipts, or nil when the

@@ -52,20 +52,34 @@ type Config struct {
 	Groups            map[string]GroupConfig `json:"groups"` // per-group overrides keyed by chat_id
 	TenantKey         string                 `json:"tenant_key"`
 	AutoProvision     bool                   `json:"auto_provision"`
+	AllowedChatIDs    string                 `json:"allowed_chat_ids"`
+	AllowDM           bool                   `json:"allow_dm"`
+	RequireMention    bool                   `json:"require_mention"`
+}
+
+func (b *Bot) chatAllowed(chatID string) bool {
+	for allowed := range strings.SplitSeq(b.cfg.AllowedChatIDs, ",") {
+		if strings.TrimSpace(allowed) == chatID && chatID != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // Bot wraps a Feishu bot with agent pool integration.
 type (
-	listChatsFunc        func(context.Context, *larkim.ListChatReq) (*larkim.ListChatResp, error)
-	tenantProfileFetcher func(context.Context, string) *TenantProfile
+	listChatsFunc          func(context.Context, *larkim.ListChatReq) (*larkim.ListChatResp, error)
+	tenantProfileFetcher   func(context.Context, string) *TenantProfile
+	messageContextResolver func(string) (string, string, string, bool, bool)
 )
 
 type Bot struct {
-	client               *lark.Client
-	wsClient             *larkws.Client
-	listChats            listChatsFunc
-	fetchTenantProfileFn tenantProfileFetcher // test seam; production uses Contact API
-	handler              channel.Handler
+	client                  *lark.Client
+	wsClient                *larkws.Client
+	listChats               listChatsFunc
+	fetchTenantProfileFn    tenantProfileFetcher   // test seam; production uses Contact API
+	resolveMessageContextFn messageContextResolver // test seam; production uses Message and Chat APIs
+	handler                 channel.Handler
 
 	botOpenID atomic.Value // bot's own open_id (string), fetched on startup
 

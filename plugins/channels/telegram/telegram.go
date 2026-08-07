@@ -27,9 +27,12 @@ func logger() *slog.Logger { return slog.With("component", "telegram") }
 
 // Config holds Telegram bot settings.
 type Config struct {
-	InstanceID string // configured channel instance ID
-	Token      string // bot token
-	ChannelID  string // broadcast channel ID or @username
+	InstanceID     string
+	Token          string
+	ChannelID      string
+	AllowedChatIDs string
+	AllowDM        bool
+	RequireMention bool
 }
 
 // Bot wraps a Telegram bot with agent pool integration.
@@ -39,9 +42,10 @@ type Bot struct {
 	handler channel.Handler
 	md      goldmarkMD
 
-	mu           sync.RWMutex
-	chatModels   map[int64]channel.ModelOption
-	finalizeOnce sync.Once
+	mu                sync.RWMutex
+	chatModels        map[int64]channel.ModelOption
+	finalizeOnce      sync.Once
+	provisionedGroups map[string]struct{}
 
 	cfg Config
 	ctx context.Context
@@ -61,11 +65,12 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	}
 
 	b := &Bot{
-		bot:        bot,
-		handler:    handler,
-		md:         tgmd.TGMD(),
-		chatModels: make(map[int64]channel.ModelOption),
-		cfg:        cfg,
+		bot:               bot,
+		handler:           handler,
+		md:                tgmd.TGMD(),
+		chatModels:        make(map[int64]channel.ModelOption),
+		provisionedGroups: make(map[string]struct{}),
+		cfg:               cfg,
 	}
 
 	b.registerHandlers()
@@ -170,13 +175,70 @@ type chatRef string
 func (c chatRef) Recipient() string { return string(c) }
 
 // guard wraps a handler, logging callback pass-through for diagnostics.
-func (b *Bot) guard(h tele.HandlerFunc) tele.HandlerFunc {
+func (b *Bot) guard(directed bool, h tele.HandlerFunc) tele.HandlerFunc {
 	return func(c tele.Context) error {
 		if c.Callback() != nil {
 			logger().Debug("guard: passing callback through", "data", c.Callback().Data, "unique", c.Callback().Unique)
 		}
+		if !b.admit(c, directed) {
+			return nil
+		}
 		return h(c)
 	}
+}
+
+func (b *Bot) admit(c tele.Context, directed bool) bool {
+	if !isGroup(c) {
+		return b.cfg.AllowDM
+	}
+	chatID := strconv.FormatInt(c.Chat().ID, 10)
+	allowed := false
+	for id := range strings.SplitSeq(b.cfg.AllowedChatIDs, ",") {
+		if strings.TrimSpace(id) == chatID {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return false
+	}
+	if b.cfg.RequireMention && !directed && !b.botMentioned(c.Message()) {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.provisionedGroups == nil {
+		b.provisionedGroups = make(map[string]struct{})
+	}
+	if _, ok := b.provisionedGroups[chatID]; ok {
+		return true
+	}
+	if p, ok := b.handler.(interface {
+		EnsurePlatformGroupMember(context.Context, string, string, string) error
+	}); ok {
+		ctx := b.ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		if err := p.EnsurePlatformGroupMember(ctx, channel.PlatformTelegram, chatID, b.Name()); err != nil {
+			logger().Warn("ensure telegram group member failed", "chat_id", chatID, "error", err)
+			return false
+		}
+	}
+	b.provisionedGroups[chatID] = struct{}{}
+	return true
+}
+
+func (b *Bot) botMentioned(m *tele.Message) bool {
+	if m == nil || b.bot.Me.Username == "" {
+		return false
+	}
+	for _, mention := range telegramMentions(m) {
+		if strings.EqualFold(mention.PlatformID, b.bot.Me.Username) {
+			return true
+		}
+	}
+	return false
 }
 
 // isGroup returns true if the message is from a group or supergroup.
@@ -232,7 +294,11 @@ func (b *Bot) incomingMsg(c tele.Context, content []ai.ContentBlock) channel.Inc
 // AgentID is left empty — the dispatcher resolves it from group membership.
 func telegramMentions(m *tele.Message) []channel.Mention {
 	var mentions []channel.Mention
-	for _, e := range m.Entities {
+	entities := m.Entities
+	if len(m.CaptionEntities) > 0 {
+		entities = m.CaptionEntities
+	}
+	for _, e := range entities {
 		switch e.Type {
 		case tele.EntityMention: // @username
 			raw := m.EntityText(e)

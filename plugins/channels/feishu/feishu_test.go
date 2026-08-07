@@ -1024,7 +1024,7 @@ func TestSyncGroupsEnsuresMembersAcrossPages(t *testing.T) {
 	calls := 0
 	bot := &Bot{
 		handler: provisioner,
-		cfg:     Config{InstanceID: "feishu-work"},
+		cfg:     Config{InstanceID: "feishu-work", AllowedChatIDs: "oc_1, oc_2, oc_3"},
 		listChats: func(_ context.Context, _ *larkim.ListChatReq) (*larkim.ListChatResp, error) {
 			calls++
 			switch calls {
@@ -1289,9 +1289,13 @@ func TestCardActionSelfClick(t *testing.T) {
 func TestCardActionReturnsToast(t *testing.T) {
 	bot := &Bot{
 		handler:     &mockHandler{},
+		cfg:         Config{AllowDM: true},
 		chatModels:  make(map[string]channel.ModelOption),
 		seenMsgs:    make(map[string]time.Time),
 		provisioned: make(map[string]time.Time),
+		resolveMessageContextFn: func(string) (string, string, string, bool, bool) {
+			return "oc_chat1", "p2p", "", true, true
+		},
 	}
 	resp, err := bot.onCardAction(context.Background(), &callback.CardActionTriggerEvent{
 		Event: &callback.CardActionTriggerRequest{
@@ -1325,9 +1329,13 @@ func TestCardActionSyntheticMessageDoesNotReuseCardMessageID(t *testing.T) {
 				return "", false, nil, nil
 			},
 		},
+		cfg:         Config{AllowDM: true},
 		chatModels:  make(map[string]channel.ModelOption),
 		seenMsgs:    make(map[string]time.Time),
 		provisioned: make(map[string]time.Time),
+		resolveMessageContextFn: func(string) (string, string, string, bool, bool) {
+			return "oc_chat1", "p2p", "", true, true
+		},
 	}
 	_, err := bot.onCardAction(context.Background(), &callback.CardActionTriggerEvent{
 		Event: &callback.CardActionTriggerRequest{

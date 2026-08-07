@@ -58,7 +58,11 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 
 	// Look up the reacted message to get its chat context so we resolve
 	// against the correct session (group vs private, threaded vs not).
-	chatID, chatType, rootID := b.getMessageContext(messageID)
+	chatID, chatType, rootID, botAuthored, ok := b.resolveMessageContext(messageID)
+	directed := botAuthored
+	if !ok || !b.admitIngress(chatID, chatType, directed, false) {
+		return nil
+	}
 
 	reactionText := fmt.Sprintf("[User reacted with %s on message %s]", emojiType, messageID)
 
@@ -105,6 +109,9 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	messageID := derefStr(msg.MessageId)
 	rootID := derefStr(msg.RootId)
 	mentions := msg.Mentions
+	if !b.admitIngress(chatID, chatType, false, b.isAutoProvisionMessage(chatType, mentions)) {
+		return nil
+	}
 
 	if chatID != "" && chatType != "" {
 		b.chatTypes.Store(chatID, chatType)
@@ -145,16 +152,25 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	var assetsDir string
 	switch derefStr(msg.MessageType) {
 	case "file", "image", "post":
-		if resolver, ok := b.handler.(channel.UserRootResolver); ok {
+		resolver, ok := b.handler.(channel.UserRootResolver)
+		if !ok {
+			logger().Warn("rejecting attachment: user root resolver unavailable")
+			return nil
+		}
+		{
 			probeMsg := b.incomingMsg(senderIDs, chatID, chatType, nil)
 			probeMsg.ThreadID = rootID
 			resolveCtx, resolveCancel := b.apiContext()
-			if userRoot, err := resolver.ResolveUserRoot(resolveCtx, probeMsg); err == nil {
-				assetsDir = agent.UserAssetsDir(userRoot)
-			} else {
-				logger().Warn("resolve user root failed, file will use placeholder", "error", err)
-			}
+			userRoot, err := resolver.ResolveUserRoot(resolveCtx, probeMsg)
 			resolveCancel()
+			if err != nil {
+				logger().Warn("rejecting attachment: resolve user root failed", "error", err)
+				replyCtx, cancel := b.apiContext()
+				defer cancel()
+				b.replyInThread(replyCtx, messageID, rootID, "Guest chat currently supports text messages only.")
+				return nil
+			}
+			assetsDir = agent.UserAssetsDir(userRoot)
 		}
 	}
 
@@ -202,9 +218,15 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 			go b.handleIncoming(authMsg, "", "", authMsg.SenderID, chatID, messageID, rootID, replyFn)
 			return nil
 		case "/model":
+			if handled, err := b.admitLocalCommand(ctx, incoming, replyFn); handled || err != nil {
+				return err
+			}
 			b.handleModelCommand(args, replyFn)
 			return nil
 		case "/agent":
+			if handled, err := b.admitLocalCommand(ctx, incoming, replyFn); handled || err != nil {
+				return err
+			}
 			b.handleAgentCommand(incoming, args, replyFn)
 			return nil
 		}
@@ -214,6 +236,22 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	cmd, args := channel.ParseSlashCommand(text)
 	go b.handleIncoming(incoming, cmd, args, incoming.SenderID, chatID, messageID, rootID, replyFn)
 	return nil
+}
+
+func (b *Bot) admitLocalCommand(ctx context.Context, msg channel.IncomingMessage, reply func(string)) (bool, error) {
+	admitter, ok := b.handler.(channel.LocalCommandAdmitter)
+	if !ok {
+		reply("This command is unavailable.")
+		return true, nil
+	}
+	response, handled, err := admitter.AdmitLocalCommand(ctx, msg)
+	if err != nil {
+		return false, err
+	}
+	if handled {
+		reply(response)
+	}
+	return handled, nil
 }
 
 func (b *Bot) onMessageRead(_ context.Context, _ *larkim.P2MessageReadV1) error {
@@ -444,6 +482,9 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 // (directives stripped) rather than sending an interactive type with text-shaped
 // content, which Feishu rejects.
 func (b *Bot) replyText(ctx context.Context, messageID, text string) {
+	if b.client == nil {
+		return
+	}
 	msgType := larkim.MsgTypeText
 	content := textContent(text)
 	if cardButtonDirective.MatchString(text) {
@@ -472,10 +513,33 @@ func (b *Bot) replyText(ctx context.Context, messageID, text string) {
 	}
 }
 
-// getMessageContext fetches a message's chat_id, chat_type, and root_id via
-// the Get Message API. Returns ("", "p2p", "") on any failure so the caller
-// falls back to a private session rather than leaking across sessions.
-func (b *Bot) getMessageContext(messageID string) (chatID, chatType, rootID string) {
+func (b *Bot) admitIngress(chatID, chatType string, directed, mentioned bool) bool {
+	if directed && chatID == "" {
+		return false
+	}
+	switch chatType {
+	case "p2p":
+		return b.cfg.AllowDM
+	case "group":
+		return b.chatAllowed(chatID) && (directed || !b.cfg.RequireMention || mentioned)
+	default:
+		return false
+	}
+}
+
+func (b *Bot) resolveMessageContext(messageID string) (chatID, chatType, rootID string, botAuthored, ok bool) {
+	if b.resolveMessageContextFn != nil {
+		return b.resolveMessageContextFn(messageID)
+	}
+	return b.getMessageContext(messageID)
+}
+
+// getMessageContext fetches authoritative message and chat context. It fails
+// closed when either lookup cannot establish the chat ID and type.
+func (b *Bot) getMessageContext(messageID string) (chatID, chatType, rootID string, botAuthored, ok bool) {
+	if b.client == nil || messageID == "" {
+		return "", "", "", false, false
+	}
 	apiCtx, cancel := b.apiContext()
 	defer cancel()
 
@@ -484,13 +548,21 @@ func (b *Bot) getMessageContext(messageID string) (chatID, chatType, rootID stri
 			MessageId(messageID).
 			Build())
 	if err != nil || !resp.Success() || resp.Data == nil || len(resp.Data.Items) == 0 {
-		return "", "p2p", ""
+		return "", "", "", false, false
 	}
 	msg := resp.Data.Items[0]
 	chatID = derefStr(msg.ChatId)
 	rootID = derefStr(msg.RootId)
-	chatType = b.getChatType(chatID)
-	return chatID, chatType, rootID
+	botID, _ := b.botOpenID.Load().(string)
+	botAuthored = isBotAuthoredMessage(msg, botID)
+	chatType, ok = b.getChatType(chatID)
+	return chatID, chatType, rootID, botAuthored, ok && chatID != ""
+}
+
+func isBotAuthoredMessage(msg *larkim.Message, botOpenID string) bool {
+	return msg != nil && botOpenID != "" && msg.Sender != nil &&
+		derefStr(msg.Sender.SenderType) == "app" && derefStr(msg.Sender.IdType) == "open_id" &&
+		derefStr(msg.Sender.Id) == botOpenID
 }
 
 // resolveUnionID returns the union_id for an open_id. It checks the in-memory
@@ -514,12 +586,13 @@ func (b *Bot) resolveUnionID(ctx context.Context, openID string) string {
 // getChatType queries the Get Chat API to determine whether a chat is p2p or
 // group. Feishu P2P chats also use oc_ prefixed IDs, so prefix-based guessing
 // is unreliable.
-func (b *Bot) getChatType(chatID string) string {
+func (b *Bot) getChatType(chatID string) (string, bool) {
 	if chatID == "" || b.client == nil {
-		return "p2p"
+		return "", false
 	}
 	if v, ok := b.chatTypes.Load(chatID); ok {
-		return v.(string)
+		chatType, valid := v.(string)
+		return chatType, valid && (chatType == "p2p" || chatType == "group")
 	}
 	apiCtx, cancel := b.apiContext()
 	defer cancel()
@@ -529,14 +602,19 @@ func (b *Bot) getChatType(chatID string) string {
 			ChatId(chatID).
 			Build())
 	if err != nil || !resp.Success() || resp.Data == nil {
-		return "p2p"
+		return "", false
 	}
-	ct := "group"
-	if derefStr(resp.Data.ChatMode) == "p2p" {
+	var ct string
+	switch derefStr(resp.Data.ChatMode) {
+	case "p2p":
 		ct = "p2p"
+	case "group":
+		ct = "group"
+	default:
+		return "", false
 	}
 	b.chatTypes.Store(chatID, ct)
-	return ct
+	return ct, true
 }
 
 // derefStr safely dereferences a string pointer, returning empty string if nil.

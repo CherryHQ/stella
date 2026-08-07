@@ -216,7 +216,7 @@ func TestOnMessageRoutesWithCanonicalProvisionedUnionID(t *testing.T) {
 					return "", false, nil, nil
 				},
 			}}
-			b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "t1"}, p)
+			b := newProvisionBot(Config{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "t1", AllowDM: true}, p)
 			b.fetchTenantProfileFn = func(context.Context, string) *TenantProfile {
 				return &TenantProfile{UnionID: "on_canonical"}
 			}

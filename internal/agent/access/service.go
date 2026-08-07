@@ -81,9 +81,23 @@ func (a *Access) Delete(ctx context.Context, agentID string) (config.Agent, erro
 }
 
 // UseDedicated requires both the authority's exact held channel binding and a
-// current DB binding from that channel to this exact agent. Either mismatch
-// fails closed; channel ID by itself is never an agent-use capability.
+// current enabled DB binding from that channel to this exact agent. Either
+// mismatch fails closed; channel ID by itself is never an agent-use capability.
 func (a *Access) UseDedicated(ctx context.Context, agentID, channelID string) (config.Agent, error) {
+	return a.useDedicated(ctx, agentID, channelID, "")
+}
+
+// UseDedicatedForType additionally requires the current channel type to match
+// the platform that minted the queued chat. This prevents a channel record that
+// was reconfigured for another platform from authorizing stale queued work.
+func (a *Access) UseDedicatedForType(ctx context.Context, agentID, channelID, channelType string) (config.Agent, error) {
+	if channelType == "" {
+		return config.Agent{}, ErrForbidden
+	}
+	return a.useDedicated(ctx, agentID, channelID, channelType)
+}
+
+func (a *Access) useDedicated(ctx context.Context, agentID, channelID, channelType string) (config.Agent, error) {
 	if channelID == "" || (a.authority.Kind() != authz.ActorUser && a.authority.Kind() != authz.ActorGuest) || a.authority.ChannelBindingID() != channelID {
 		return config.Agent{}, ErrForbidden
 	}
@@ -98,7 +112,7 @@ func (a *Access) UseDedicated(ctx context.Context, agentID, channelID string) (c
 		}
 		return config.Agent{}, fmt.Errorf("%w: get channel: %w", ErrUnavailable, err)
 	}
-	if channel.AgentID != agentID {
+	if !channel.Enabled || channel.AgentID != agentID || (channelType != "" && channel.Type != channelType) {
 		return config.Agent{}, ErrForbidden
 	}
 	if a.authority.Kind() == authz.ActorGuest {
@@ -263,7 +277,7 @@ func (a *Access) decide(ctx context.Context, agentID string, action authz.Action
 	if err != nil {
 		return config.Agent{}, err
 	}
-	if action == authz.ActionExecute && a.authority.Kind() == authz.ActorGuest && !ag.Enabled {
+	if action == authz.ActionExecute && !ag.Enabled {
 		return config.Agent{}, ErrForbidden
 	}
 	scope, err := canonicalScope(ag.Scope)

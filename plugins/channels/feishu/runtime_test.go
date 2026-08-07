@@ -227,22 +227,45 @@ func waitClosed(t *testing.T, ch <-chan struct{}, label string) {
 
 func TestValidateConfigAutoProvisionNoTenantKey(t *testing.T) {
 	// tenant_key is optional; auto-detected at startup via the Feishu tenant API.
-	cfg := pkgchannel.FeishuConfig{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: ""}
+	cfg, _ := DecodeConfig(map[string]any{"app_id": "a", "app_secret": "s", "auto_provision": true})
 	if got := validateConfig(cfg); got != "" {
 		t.Errorf("unexpected validation error: %q", got)
 	}
 }
 
 func TestValidateConfigAutoProvisionWithTenantKey(t *testing.T) {
-	cfg := pkgchannel.FeishuConfig{AppID: "a", AppSecret: "s", AutoProvision: true, TenantKey: "tenant123"}
+	cfg, _ := DecodeConfig(map[string]any{"app_id": "a", "app_secret": "s", "auto_provision": true, "tenant_key": "tenant123"})
 	if got := validateConfig(cfg); got != "" {
 		t.Errorf("unexpected validation error: %q", got)
 	}
 }
 
 func TestValidateConfigNoAutoProvision(t *testing.T) {
-	cfg := pkgchannel.FeishuConfig{AppID: "a", AppSecret: "s"}
+	cfg, _ := DecodeConfig(map[string]any{"app_id": "a", "app_secret": "s"})
 	if got := validateConfig(cfg); got != "" {
 		t.Errorf("unexpected validation error: %q", got)
+	}
+}
+
+func TestDecodeConfigAppliesAdmissionDefaults(t *testing.T) {
+	cfg, err := DecodeConfig(map[string]any{"app_id": "a", "app_secret": "s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.AllowDM || cfg.AllowUnlinkedDM || !cfg.RequireMention || cfg.GuestMessageLimitPerMinute != pkgchannel.DefaultGuestMessageLimitPerMinute || cfg.GuestMaxPerChannel != pkgchannel.DefaultGuestMaxPerChannel || cfg.GuestRetentionDays != pkgchannel.DefaultGuestRetentionDays {
+		t.Fatalf("defaults not applied: %#v", cfg)
+	}
+	explicit, err := DecodeConfig(map[string]any{"app_id": "a", "app_secret": "s", "allow_dm": false, "require_mention": false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if explicit.AllowDM || explicit.RequireMention {
+		t.Fatalf("explicit false values lost: %#v", explicit)
+	}
+	properties := configSchema()["properties"].(map[string]any)
+	for _, key := range []string{"allowed_chat_ids", "allow_dm", "allow_unlinked_dm", "guest_message_limit_per_minute", "guest_max_per_channel", "guest_retention_days", "require_mention"} {
+		if properties[key] == nil {
+			t.Fatalf("schema missing %s", key)
+		}
 	}
 }

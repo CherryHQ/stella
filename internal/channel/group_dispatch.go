@@ -70,6 +70,9 @@ func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.Inc
 	if channelID == "" {
 		channelID = msg.Platform
 	}
+	if _, err := validatePlatformChannel(ctx, c.store, msg.Platform, channelID); err != nil {
+		return eventlog.AppendResult{}, fmt.Errorf("validate source channel: %w", err)
+	}
 	content := legacyGroupContent(msg.Content)
 	return c.eventLog.AppendGroupMessage(ctx, eventlog.Message{
 		Platform:          msg.Platform,

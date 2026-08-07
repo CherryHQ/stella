@@ -2,7 +2,10 @@ package feishu
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -30,6 +33,9 @@ func NewFeishuManagedRuntime(deps FeishuRuntimeDeps) pkgplugins.Runtime {
 				Groups:            groupsToPluginConfig(cfg.Groups),
 				TenantKey:         cfg.TenantKey,
 				AutoProvision:     cfg.AutoProvision,
+				AllowedChatIDs:    cfg.AllowedChatIDs,
+				AllowDM:           cfg.AllowDM,
+				RequireMention:    cfg.RequireMention,
 			}, handler)
 		}
 	}
@@ -56,7 +62,15 @@ func configureConfig(cfg pkgchannel.FeishuConfig, desired pkgplugins.PluginState
 }
 
 func DecodeConfig(raw map[string]any) (pkgchannel.FeishuConfig, error) {
-	return pkgchannel.DecodePluginConfig[pkgchannel.FeishuConfig](raw, "feishu")
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return pkgchannel.FeishuConfig{}, fmt.Errorf("encode feishu config: %w", err)
+	}
+	cfg, err := pkgchannel.DecodeFeishuConfig(data)
+	if err != nil {
+		return cfg, fmt.Errorf("decode feishu config: %w", err)
+	}
+	return cfg, nil
 }
 
 func RedactConfig(raw map[string]any) map[string]any {
@@ -129,14 +143,30 @@ func configSchema() map[string]any {
 				"description": "Automatically create Stella accounts for members of the bot's Feishu tenant.",
 				"default":     false,
 			},
+			"allowed_chat_ids":               map[string]any{"type": "string", "description": "Comma-separated Feishu chat IDs allowed to send group messages."},
+			"allow_dm":                       map[string]any{"type": "boolean", "description": "Accept direct messages for linked-user chat and account linking.", "default": true},
+			"allow_unlinked_dm":              map[string]any{"type": "boolean", "description": "Allow unlinked Feishu users to use the bound agent in restricted guest sessions.", "default": false},
+			"guest_message_limit_per_minute": map[string]any{"type": "integer", "minimum": 1, "maximum": pkgchannel.MaxGuestMessageLimitPerMinute, "default": pkgchannel.DefaultGuestMessageLimitPerMinute},
+			"guest_max_per_channel":          map[string]any{"type": "integer", "minimum": 1, "maximum": pkgchannel.MaxGuestMaxPerChannel, "default": pkgchannel.DefaultGuestMaxPerChannel},
+			"guest_retention_days":           map[string]any{"type": "integer", "minimum": 1, "maximum": pkgchannel.MaxGuestRetentionDays, "default": pkgchannel.DefaultGuestRetentionDays},
+			"require_mention":                map[string]any{"type": "boolean", "description": "Only process group messages that mention this bot.", "default": true},
 		},
 		"required": []any{"app_id", "app_secret"},
 	}
 }
 
 func validateConfig(cfg pkgchannel.FeishuConfig) string {
-	if cfg.AppID == "" || cfg.AppSecret == "" {
+	if strings.TrimSpace(cfg.AppID) == "" || strings.TrimSpace(cfg.AppSecret) == "" {
 		return "feishu: missing app_id or app_secret"
+	}
+	if cfg.GuestMessageLimitPerMinute < 1 || cfg.GuestMessageLimitPerMinute > pkgchannel.MaxGuestMessageLimitPerMinute {
+		return fmt.Sprintf("guest message limit per minute must be between 1 and %d", pkgchannel.MaxGuestMessageLimitPerMinute)
+	}
+	if cfg.GuestMaxPerChannel < 1 || cfg.GuestMaxPerChannel > pkgchannel.MaxGuestMaxPerChannel {
+		return fmt.Sprintf("guest maximum per channel must be between 1 and %d", pkgchannel.MaxGuestMaxPerChannel)
+	}
+	if cfg.GuestRetentionDays < 1 || cfg.GuestRetentionDays > pkgchannel.MaxGuestRetentionDays {
+		return fmt.Sprintf("guest retention days must be between 1 and %d", pkgchannel.MaxGuestRetentionDays)
 	}
 	return ""
 }

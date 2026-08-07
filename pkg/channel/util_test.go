@@ -22,8 +22,10 @@ func TestAllowsUnlinkedGuestDM(t *testing.T) {
 		want        bool
 	}{
 		{name: "enabled opted-in Discord channel", channelType: PlatformDiscord, enabled: true, config: valid, want: true},
+		{name: "enabled opted-in Telegram channel", channelType: PlatformTelegram, enabled: true, config: valid, want: true},
+		{name: "enabled opted-in Feishu channel", channelType: PlatformFeishu, enabled: true, config: valid, want: true},
 		{name: "disabled channel", channelType: PlatformDiscord, config: valid},
-		{name: "different platform", channelType: PlatformTelegram, enabled: true, config: valid},
+		{name: "unsupported platform", channelType: PlatformQQ, enabled: true, config: valid},
 		{name: "direct messages disabled", channelType: PlatformDiscord, enabled: true, config: `{"allow_dm":false,"allow_unlinked_dm":true}`},
 		{name: "unlinked direct messages disabled", channelType: PlatformDiscord, enabled: true, config: `{"allow_dm":true}`},
 		{name: "invalid config", channelType: PlatformDiscord, enabled: true, config: `{`},

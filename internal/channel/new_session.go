@@ -47,6 +47,10 @@ type commandClaim interface {
 // session that is already archived, so it reports the reset as done instead of
 // resetting a second time.
 func rotateChatSession(ctx context.Context, rc *ResolvedChat, receipt commandClaim, queue *sessionQueue) string {
+	return rotateChatSessionAuthorized(ctx, rc, receipt, queue, nil)
+}
+
+func rotateChatSessionAuthorized(ctx context.Context, rc *ResolvedChat, receipt commandClaim, queue *sessionQueue, authorize func(context.Context) error) string {
 	claimed, err := receipt.claim(ctx)
 	if errors.Is(err, errUnidentifiedCommand) {
 		return pkgchannel.NewSessionUnverifiableMessage
@@ -58,6 +62,12 @@ func rotateChatSession(ctx context.Context, rc *ResolvedChat, receipt commandCla
 	}
 	if !claimed {
 		return pkgchannel.SessionAlreadyResetMessage
+	}
+	if authorize != nil {
+		if err := authorize(ctx); err != nil {
+			receipt.release(ctx)
+			return fmt.Sprintf("Starting a new session failed: %v", err)
+		}
 	}
 	current, err := rc.CurrentSessionForRotation(ctx)
 	if err != nil {
@@ -79,6 +89,11 @@ func rotateChatSession(ctx context.Context, rc *ResolvedChat, receipt commandCla
 	// "already reset".
 	var reply string
 	started, err := run(func(qctx context.Context) error {
+		if authorize != nil {
+			if err := authorize(qctx); err != nil {
+				return err
+			}
+		}
 		switch _, err := rc.RotateSession(qctx, current.ID); {
 		case err == nil:
 			reply = pkgchannel.NewSessionStartedMessage
