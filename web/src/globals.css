@@ -195,4 +195,25 @@
     ) {
     margin-bottom: 0;
   }
+
+  /*
+   * Code blocks ship as two nested boxes: a `bg-sidebar` shell with `p-2` and a
+   * `bg-background` body with its own border and `p-4`. That reads as a frame
+   * around a frame and spends 64px of chrome above the first line of code.
+   * Collapse it to one box — the shell keeps the border and the tint, the body
+   * keeps only its horizontal scroll.
+   *
+   * What is deliberately NOT touched: the header's `h-8` and the shell's
+   * `gap-2`. The action pill is pulled onto the header row by `-mt-10` (40px),
+   * which is exactly 32px + 8px. Change either and the buttons leave the box.
+   */
+  .stella-markdown [data-streamdown="code-block"] {
+    padding: 0.25rem 0.5rem 0.5rem;
+  }
+
+  .stella-markdown [data-streamdown="code-block-body"] {
+    border: 0;
+    background: transparent;
+    padding: 0;
+  }
 }

@@ -1969,6 +1969,7 @@ const en = {
   "sessions.transcript.generating": "generating…",
   "sessions.transcript.sendHint": "↵ send · ⇧↵ new line",
   "sessions.transcript.sendHintSkills": "↵ send · ⇧↵ new line · / skills",
+  "sessions.transcript.label": "Conversation",
 
   // Session detail (additions)
   "sessions.untitled": "Untitled session",
@@ -4111,6 +4112,7 @@ const zh: Record<MessageKey, string> = {
   "sessions.transcript.generating": "生成中…",
   "sessions.transcript.sendHint": "↵ 发送 · ⇧↵ 换行",
   "sessions.transcript.sendHintSkills": "↵ 发送 · ⇧↵ 换行 · / 技能",
+  "sessions.transcript.label": "对话",
 
   // Session detail (additions)
   "sessions.untitled": "未命名会话",

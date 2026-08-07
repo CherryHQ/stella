@@ -50,7 +50,7 @@ export function UserMessage({
               block.type === "text" ? (
                 <div
                   key={`text-${index}`}
-                  className="min-w-0 max-w-[85%] break-words rounded-2xl rounded-tr-md border border-border bg-secondary px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-foreground font-sans text-left"
+                  className="min-w-0 max-w-[85%] break-words rounded-2xl rounded-tr-md border border-border bg-secondary px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-foreground font-sans text-left"
                 >
                   {renderMentionedText(replaceUUIDMentions(block.text, agentNames), agentNames)}
                 </div>
@@ -72,7 +72,7 @@ export function UserMessage({
               ),
             )
           : text && (
-              <div className="min-w-0 max-w-[85%] break-words rounded-2xl rounded-tr-md border border-border bg-secondary px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-foreground font-sans text-left">
+              <div className="min-w-0 max-w-[85%] break-words rounded-2xl rounded-tr-md border border-border bg-secondary px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-foreground font-sans text-left">
                 {renderMentionedText(text, agentNames)}
               </div>
             )}
@@ -120,7 +120,7 @@ export function UserMessage({
         {(hasCanonicalImage || text || (showTimestamp && msg.timestamp)) && (
           <div
             className={cn(
-              "flex items-center gap-2 text-xs font-mono text-muted-foreground/60",
+              "flex items-center gap-2 text-xs font-mono text-muted-foreground",
               REVEAL_ON_HOVER,
             )}
           >

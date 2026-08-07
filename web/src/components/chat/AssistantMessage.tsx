@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useId, useMemo, useRef } from "react";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import type { ContentBlock } from "@/lib/types";
 import { formatTime } from "@/lib/time";
@@ -116,13 +116,13 @@ export function AssistantMessage({
           (copyText || (showTimestamp && (model || timestamp || (tokenCount ?? 0) > 0))) && (
             <div
               className={cn(
-                "mt-1 flex items-center gap-2 text-xs font-mono text-muted-foreground/60",
+                "mt-1 flex items-center gap-2 text-xs font-mono text-muted-foreground",
                 REVEAL_ON_HOVER,
               )}
             >
               {copyText && <CopyButton text={copyText} className="-ml-1.5" />}
               {showTimestamp && model && (
-                <span className="rounded border border-border/10 bg-muted px-1.5 py-0.5 font-medium text-foreground/75">
+                <span className="rounded border border-border/10 bg-muted px-1.5 py-0.5 font-medium text-foreground">
                   {model}
                 </span>
               )}
@@ -271,7 +271,7 @@ function StepsGroup({ blocks, active }: { blocks: ContentBlock[]; active: boolea
               return (
                 <div
                   key={`t${idx}`}
-                  className="py-0.5 text-xs text-muted-foreground/80 leading-relaxed whitespace-pre-wrap break-words overflow-hidden border-l border-border/60 pl-3 font-sans min-w-0"
+                  className="py-0.5 text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap break-words overflow-hidden border-l border-border/60 pl-3 font-sans min-w-0"
                 >
                   {block.thinking}
                 </div>
@@ -314,6 +314,7 @@ const MEMORY_VERBS: Record<string, string> = {
 function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const panelId = useId();
   const n = block.name ?? "tool";
   const args = block.arguments ?? {};
 
@@ -381,43 +382,47 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
   return (
     <div className="py-1">
       <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 py-0.5 font-mono text-xs text-muted-foreground/70 hover:text-foreground transition-colors cursor-pointer min-w-0 max-w-full"
+        className="flex items-center gap-1.5 py-0.5 font-mono text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer min-w-0 max-w-full"
       >
-        <Icon className="size-3.5 shrink-0 text-muted-foreground/60" />
+        <Icon className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="truncate">
           {verb} {cmdPreview}
         </span>
         <ChevronDown
           className={cn(
-            "size-3.5 shrink-0 text-muted-foreground/40 transition-transform duration-150",
+            "size-3.5 shrink-0 text-muted-foreground transition-transform duration-150",
             open && "rotate-180",
           )}
         />
       </button>
 
       {open && (
-        <div className="mt-1.5 rounded-xl bg-muted px-4 py-3 font-mono text-xs max-w-full overflow-hidden">
+        <div
+          id={panelId}
+          className="mt-1.5 rounded-xl bg-muted px-4 py-3 font-mono text-xs max-w-full overflow-hidden"
+        >
           <div className="mb-1.5 flex items-center justify-between gap-2">
-            <span className="text-muted-foreground/70">{meta.surface}</span>
+            <span className="text-muted-foreground">{meta.surface}</span>
             <button
               onClick={onCopy}
               title="Copy"
-              className="shrink-0 text-muted-foreground/50 hover:text-foreground transition-colors cursor-pointer"
+              className="shrink-0 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             >
               {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
             </button>
           </div>
-          <pre className="whitespace-pre-wrap break-all leading-relaxed text-foreground/90">
+          <pre className="whitespace-pre-wrap break-all leading-relaxed text-foreground">
             {isBash ? `$ ${details!.inputText}` : details!.inputText}
           </pre>
           {block.result && details!.outputText && (
             <pre
               className={cn(
                 "mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-all leading-relaxed",
-                block.result.is_error
-                  ? "text-destructive-foreground/80"
-                  : "text-muted-foreground/80",
+                block.result.is_error ? "text-destructive-foreground" : "text-muted-foreground",
               )}
             >
               {details!.outputText}
@@ -431,8 +436,8 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
                   className={cn(
                     "mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-all leading-relaxed",
                     block.result?.is_error
-                      ? "text-destructive-foreground/80"
-                      : "text-muted-foreground/80",
+                      ? "text-destructive-foreground"
+                      : "text-muted-foreground",
                   )}
                 >
                   {output.text}
@@ -457,8 +462,8 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
           {block.result && (
             <div
               className={cn(
-                "mt-2 text-right text-muted-foreground/55",
-                block.result.is_error && "text-destructive-foreground/70",
+                "mt-2 text-right text-muted-foreground",
+                block.result.is_error && "text-destructive-foreground",
               )}
             >
               {details!.exitOk ? "✓ Success" : "✕ Failed"}

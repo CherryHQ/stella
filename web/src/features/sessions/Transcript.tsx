@@ -1,4 +1,4 @@
-import { forwardRef, useMemo, useRef, useState } from "react";
+import { forwardRef, useId, useMemo, useRef, useState } from "react";
 import type { Message } from "@/lib/types";
 import { useQuery } from "@tanstack/react-query";
 import { Archive, ChevronDown, MessageSquareText } from "lucide-react";
@@ -129,6 +129,8 @@ function SummaryCard({
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [showMessages, setShowMessages] = useState(false);
+  const bodyId = useId();
+  const messagesId = useId();
   const summary = item.summary;
   const summaryQuery = useQuery({
     ...sessionSummaryOptions(agentId, sessionId, summary?.id ?? ""),
@@ -172,6 +174,8 @@ function SummaryCard({
     <section className="rounded-lg border border-border bg-muted/20">
       <button
         type="button"
+        aria-expanded={open}
+        aria-controls={open ? bodyId : undefined}
         className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left"
         onClick={() => setOpen((value) => !value)}
       >
@@ -191,7 +195,7 @@ function SummaryCard({
         />
       </button>
       {open && (
-        <div className="border-t border-border px-4 py-3">
+        <div id={bodyId} className="border-t border-border px-4 py-3">
           <p className="whitespace-pre-wrap text-xs leading-relaxed text-foreground">
             {summaryQuery.data?.summary.content ?? summary.content}
           </p>
@@ -208,20 +212,25 @@ function SummaryCard({
           )}
           <button
             type="button"
+            aria-expanded={showMessages}
+            aria-controls={showMessages ? messagesId : undefined}
             onClick={() => setShowMessages((value) => !value)}
-            className="mt-3 flex cursor-pointer items-center gap-1.5 font-mono text-xs text-muted-foreground/70 transition-colors hover:text-foreground"
+            className="mt-3 flex cursor-pointer items-center gap-1.5 font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
           >
-            <MessageSquareText className="size-3.5 shrink-0 text-muted-foreground/60" />
+            <MessageSquareText className="size-3.5 shrink-0 text-muted-foreground" />
             <span>{t("sessions.epoch.originalMessages")}</span>
             <ChevronDown
               className={cn(
-                "size-3.5 shrink-0 text-muted-foreground/40 transition-transform",
+                "size-3.5 shrink-0 text-muted-foreground transition-transform",
                 showMessages && "rotate-180",
               )}
             />
           </button>
           {showMessages && (
-            <div className="mt-3 max-h-[60vh] overflow-y-auto rounded-md border border-border bg-background/40 px-4 py-3">
+            <div
+              id={messagesId}
+              className="mt-3 max-h-[60vh] overflow-y-auto rounded-md border border-border bg-background/40 px-4 py-3"
+            >
               {messagesQuery.isLoading ? (
                 <p className="text-xs text-muted-foreground">{t("common.loading")}</p>
               ) : rawTranscript.length > 0 ? (

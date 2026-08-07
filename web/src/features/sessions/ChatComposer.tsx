@@ -246,7 +246,7 @@ export function ChatComposer({
                 <button
                   type="button"
                   onClick={() => removeSkill(s.name)}
-                  className="ml-0.5 shrink-0 cursor-pointer text-muted-foreground/60 transition-colors hover:text-foreground"
+                  className="ml-0.5 shrink-0 cursor-pointer text-muted-foreground transition-colors hover:text-foreground"
                 >
                   <X className="size-3" />
                 </button>
@@ -336,7 +336,7 @@ export function ChatComposer({
               }
             }}
             placeholder={placeholder}
-            className="w-full min-w-0 resize-none overflow-y-auto border-0 bg-transparent px-4 pt-3 pb-1.5 pr-12 text-[15px] leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
+            className="w-full min-w-0 resize-none overflow-y-auto border-0 bg-transparent px-4 pt-3 pb-1.5 pr-12 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
             style={{ minHeight: 40, maxHeight: 160 }}
             rows={1}
             disabled={disabled ?? isStreaming}
@@ -371,7 +371,7 @@ export function ChatComposer({
             </Button>
           )}
           {!isStreaming && (
-            <span className="min-w-0 truncate font-mono text-xs text-muted-foreground/60 select-none">
+            <span className="min-w-0 truncate font-mono text-xs text-muted-foreground select-none">
               {skills && skills.length > 0
                 ? t("sessions.transcript.sendHintSkills")
                 : t("sessions.transcript.sendHint")}

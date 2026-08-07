@@ -622,10 +622,8 @@ export function SessionDetail({
     return (
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         <div className="flex-1 flex flex-col items-center justify-center gap-3">
-          <p className="text-sm text-muted-foreground/70">{t("sessions.selectSession")}</p>
-          <p className="text-xs text-muted-foreground/40 font-mono">
-            {t("sessions.createNewHint")}
-          </p>
+          <p className="text-sm text-muted-foreground">{t("sessions.selectSession")}</p>
+          <p className="text-xs text-muted-foreground font-mono">{t("sessions.createNewHint")}</p>
         </div>
       </div>
     );
