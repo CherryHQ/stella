@@ -8,6 +8,7 @@ import (
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
+	"github.com/CherryHQ/stella/plugins/sandbox/hostlayout"
 )
 
 // toContainerPath maps a host absolute path to its equivalent in-container path
@@ -84,11 +85,11 @@ type dockerHost struct {
 // workspace, so any are agent-planted and following them would let an
 // agent escape the mount via a file that passes the string-based check.
 func (h *dockerHost) resolvePath(path string) (string, error) {
-	resolved, err := h.pathResolver().ResolvePath(path)
+	resolved, err := h.pathResolver().SourceForRead(path)
 	if err != nil {
 		return "", fmt.Errorf("docker host: %w", err)
 	}
-	return resolved.HostPath, nil
+	return resolved, nil
 }
 
 // toHostPath maps a container absolute path to its equivalent host path when
@@ -121,27 +122,23 @@ func toHostPath(mounts []dockerclient.Mount, containerPath string) (string, bool
 // resolveWritePath is like resolvePath but additionally rejects paths that
 // fall within a read-only mount.
 func (h *dockerHost) resolveWritePath(path string) (string, error) {
-	resolved, err := h.pathResolver().ResolveWritePath(path)
+	resolved, err := h.pathResolver().SourceForWrite(path)
 	if err != nil {
 		return "", fmt.Errorf("docker host: %w", err)
 	}
-	return resolved.HostPath, nil
+	return resolved, nil
 }
 
-func (h *dockerHost) pathResolver() *sandboxpkg.PathResolver {
-	mounts := make([]sandboxpkg.Mount, 0, len(h.session.mountTable))
+func (h *dockerHost) pathResolver() *hostlayout.Resolver {
+	mounts := make([]hostlayout.Mount, 0, len(h.session.mountTable))
 	for _, m := range h.session.mountTable {
-		access := sandboxpkg.MountReadWrite
+		access := hostlayout.ReadWrite
 		if m.ReadOnly {
-			access = sandboxpkg.MountReadOnly
+			access = hostlayout.ReadOnly
 		}
-		mounts = append(mounts, sandboxpkg.Mount{HostPath: m.HostPath, SandboxPath: m.ContainerPath, Access: access})
+		mounts = append(mounts, hostlayout.Mount{Source: m.HostPath, Target: m.ContainerPath, Access: access})
 	}
-	return sandboxpkg.NewPathResolver(sandboxpkg.PathResolverConfig{
-		WorkspaceRoot: h.workspaceRoot(),
-		WorkingDir:    h.workingDirSource(),
-		Mounts:        mounts,
-	})
+	return hostlayout.NewResolver(hostlayout.Layout{WorkspaceSource: h.workspaceRoot(), WorkingDirSource: h.workingDirSource(), Mounts: mounts})
 }
 
 func (h *dockerHost) workspaceRoot() string {

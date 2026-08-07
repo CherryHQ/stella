@@ -122,7 +122,6 @@ func (f *dockerFactory) Available() bool {
 
 // Supported returns a PolicyCompatibilityError when the docker daemon is unreachable.
 func (f *dockerFactory) Supported(policy sandboxpkg.Policy) error {
-	policy = scrubDockerPolicy(policy)
 	if err := f.cfg.Layout.Validate(); err != nil {
 		return fmt.Errorf("docker sandbox: invalid host layout: %w", err)
 	}
@@ -170,7 +169,6 @@ func (f *dockerFactory) EnsureReady(ctx context.Context) error {
 
 // CreateSession starts a new container and returns a dockerSession.
 func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
-	policy = scrubDockerPolicy(policy)
 	if err := f.Supported(policy); err != nil {
 		return nil, err
 	}
@@ -383,14 +381,6 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	go session.watchContainer()
 
 	return session, nil
-}
-
-// scrubDockerPolicy removes the legacy physical layout projection before a
-// policy can be retained in an error, trace, log, or session.
-func scrubDockerPolicy(policy sandboxpkg.Policy) sandboxpkg.Policy {
-	policy.Filesystem.WorkspaceRoot = ""
-	policy.Filesystem.Mounts = nil
-	return policy
 }
 
 // mapNetworkMode translates sandbox policy network mode to the dockerclient type.

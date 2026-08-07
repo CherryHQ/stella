@@ -8,28 +8,27 @@ title: 沙箱后端抽象
 
 沙箱抽象的目的是使 runner 代码、插件配置和工具执行不依赖于具体的后端类型。执行总是通过 runner 选中的活动后端进行。
 
-- `pkg/sandbox.Policy` — 不可变的、后端无关的执行策略（文件系统根目录、工作目录、网络模式、环境变量、超时）
-- `pkg/sandbox.Session` — 每次运行的执行边界和生命周期所有者；将生命周期和宿主机访问合并为单一接口
-- Runner 拥有的文件 I/O — runner 使用 `os.*` 配合 `Session.ResolvePath` 读写文件；`Session` 上没有 `ReadFile`/`WriteFile` 方法
+- `pkg/sandbox.Policy` — 不可变的、后端无关的执行策略（逻辑工作目录、类型化 Home、网络模式、环境变量、超时）
+- `pkg/sandbox.Session` — 每次运行的进程执行边界和生命周期所有者；不暴露宿主机路径
+- `pkg/sandbox.Filesystem` — provider 中立的持久文件操作边界，通过独立的 `FilesystemSession` 获取
 
 后端标识保留在 runner 和面向 runner 的 sandbox 包内部。插件包不导入 `internal/agent/sandbox`。
 
 ## Session 接口
 
-`pkg/sandbox.Session` 暴露 8 个方法：
+`pkg/sandbox.Session` 暴露 7 个方法：
 
-| 方法                                                       | 描述                                               |
-| ---------------------------------------------------------- | -------------------------------------------------- |
-| `Policy() Policy`                                          | 返回会话创建时使用的不可变策略                     |
-| `Exec(ctx, command, ExecOptions) (ExecResult, error)`      | 运行命令并等待结果                                 |
-| `StartProcess(ctx, ProcessRequest) (ProcessHandle, error)` | 启动带 stdio 句柄的长期运行进程                    |
-| `ResolvePath(path string) (string, error)`                 | 将沙箱相对路径转换为宿主机路径，供 `os.*` 调用使用 |
-| `WorkingDir() string`                                      | 返回沙箱内的逻辑工作目录                           |
-| `Close() error`                                            | 关闭会话并释放资源                                 |
-| `Alive() bool`                                             | 报告会话是否仍然活跃                               |
-| `Done() <-chan struct{}`                                   | 会话终止时关闭的 channel                           |
+| 方法                                                       | 描述                            |
+| ---------------------------------------------------------- | ------------------------------- |
+| `Policy() Policy`                                          | 返回会话创建时使用的不可变策略  |
+| `Exec(ctx, command, ExecOptions) (ExecResult, error)`      | 运行命令并等待结果              |
+| `StartProcess(ctx, ProcessRequest) (ProcessHandle, error)` | 启动带 stdio 句柄的长期运行进程 |
+| `WorkingDir() string`                                      | 返回沙箱内的逻辑工作目录        |
+| `Close() error`                                            | 关闭会话并释放资源              |
+| `Alive() bool`                                             | 报告会话是否仍然活跃            |
+| `Done() <-chan struct{}`                                   | 会话终止时关闭的 channel        |
 
-文件 I/O（`read`、`write`、`edit`）由 runner 拥有：runner 调用 `ResolvePath` 获取宿主机路径，然后直接使用 `os.ReadFile`/`os.WriteFile`/`os.MkdirAll`。`Session` 不包含文件读写方法。
+`Session` 不包含文件读写方法或物理文件系统坐标。文件消费者使用独立的 `FilesystemSession.Filesystem()` 能力。
 
 ## Provider 文件系统边界
 
@@ -39,7 +38,9 @@ title: 沙箱后端抽象
 
 写操作被中断时会返回 `sandbox.ErrOutcomeUnknown`。调用方必须报告该状态且不得自动重试，因为第一次操作可能已经完成。Docker preflight 还要求镜像中的文件系统 helper revision 与正在运行的 `stellad` 二进制匹配。
 
-该边界目前与 `Session.ResolvePath` 并存：`FilesystemSession` 暴露新实现，而现有运行时消费者仍使用旧的宿主机路径契约。后续迁移会先移动这些消费者，再删除宿主机路径方法。provider 边界不会在生产环境回退到 `ResolvePath`。
+`read`、`write`、`edit`，以及活动提示上下文和 Skill 路径，都使用注入的 `Filesystem`。缺少 `FilesystemSession`、打开时出错，或得到 nil `Filesystem` 都会拒绝失败；活动运行时路径绝不回退到直接宿主机 I/O。
+
+物理 source、mount 与坐标解析是不可变的 provider 私有 `hostlayout.Layout` 构造配置。provider 可以在内部转换物理坐标，但这些坐标绝不会跨越 `pkg/sandbox` 运行时契约。
 
 ## 类型化 Home registry 与 attachment
 
@@ -64,9 +65,9 @@ runner 会根据插件状态解析当前活动后端，并分派到对应的后�
 所有必须遵守沙箱策略的本地执行路径都通过活动 runner 会话进行中介：
 
 - 核心工具（`bash`）通过 runner 拥有的会话使用 `Session.Exec`
-- `read`、`write`、`edit` 使用 `Session.ResolvePath` 然后通过 `os.*` 进行文件 I/O
+- `read`、`write`、`edit` 每次操作都从 `FilesystemSession` 获取一个短生命周期的 `Filesystem`
 - 插件工具接收 `ToolContext.Runtime`，这是活动会话上的 `pkg/plugins.ToolRuntime` 适配器
-- 技能和代理预设加载在代理会话内运行时使用 `ToolRuntime`
+- 活动提示上下文和 Skill 路径使用注入的 `Filesystem`
 - MCP stdio 进程派生使用 `Session.StartProcess`
 
 ### stdio-MCP 优势
@@ -75,9 +76,9 @@ runner 会根据插件状态解析当前活动后端，并分派到对应的后�
 
 ### 非 runner 文件系统访问
 
-某些代码路径需要在没有已注入运行时的情况下访问本地文件系统，例如活动代理运行之外的提示渲染或元数据发现。
+某些代码路径需要在没有已注入运行时的情况下访问本地文件系统，例如活动代理运行之外的提示渲染或项目元数据发现。
 
-当没有 runner 会话时，提示渲染回退到直接 `os.*` 调用。在活动 runner 外部调用时，技能和代理预设发现使用 `pkg/plugins.NewLocalToolRuntime(...)`。这些是有意为之的非 runner 路径，而不是沙箱化工具执行的回退。
+仅当没有注入 runner Host 时，提示渲染才回退到直接 `os.*` 调用。在活动 runner 外部调用时，技能和代理预设发现使用 `pkg/plugins.NewLocalToolRuntime(...)`。这些是有意为之的非 runner 路径，而不是沙箱化工具执行的回退。
 
 ### 显式例外边界
 
@@ -93,6 +94,7 @@ Stella 优先选择显式拒绝而非静默降级：
 
 - 会话创建时 Docker 不可用 → runner 启动失败
 - 不支持的策略 → `PolicyCompatibilityError`，runner 启动失败
+- 缺少、打开失败或为 nil 的活动 `Filesystem` → 文件消费者拒绝失败，不回退到宿主机 I/O
 - 直接非中介的插件 exec → 拒绝失败
 - 远程 MCP HTTP/SSE/StreamableHTTP → 显式例外，而非隐式沙箱绕过
 

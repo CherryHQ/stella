@@ -7,10 +7,11 @@ import (
 
 	"github.com/CherryHQ/stella/internal/config"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/hostlayout"
 )
 
 func TestResolveSkillViewUsesExactBuiltinBundle(t *testing.T) {
-	paths := Paths{StellaHome: "/srv/stella", BuiltinBundle: "/srv/stella/bundles/revision", WorkspaceRoot: "/work", UserDataDir: "/user"}
+	paths := Paths{StellaHome: "/srv/stella", BuiltinBundle: "/srv/stella/bundles/revision", UserDataDir: "/user"}
 	for _, tt := range []struct {
 		name    string
 		backend string
@@ -29,16 +30,16 @@ func TestResolveSkillViewUsesExactBuiltinBundle(t *testing.T) {
 }
 
 func TestRunnerFilesystemPolicyMountsExactBuiltinBundleReadOnly(t *testing.T) {
-	paths := Paths{StellaHome: "/srv/stella", BuiltinBundle: "/srv/stella/bundles/revision", WorkspaceRoot: "/work", WorkDir: "/work"}
-	policy := runnerFilesystemPolicy(paths, Config{})
-	for _, mount := range policy.Mounts {
-		if mount.SandboxPath == pkgsandbox.MountBuiltinSkills {
-			if mount.HostPath != paths.BuiltinBundle || mount.Access != pkgsandbox.MountReadOnly {
+	paths := Paths{StellaHome: "/srv/stella", BuiltinBundle: "/srv/stella/bundles/revision", WorkDir: "/work"}
+	layout := runnerHostLayout(paths, Config{})
+	for _, mount := range layout.Mounts {
+		if mount.Target == pkgsandbox.MountBuiltinSkills {
+			if mount.Source != paths.BuiltinBundle || mount.Access != hostlayout.ReadOnly {
 				t.Fatalf("builtin mount = %#v", mount)
 			}
 			return
 		}
-		if mount.HostPath == filepath.Join(paths.StellaHome, ".agents", "skills") {
+		if mount.Source == filepath.Join(paths.StellaHome, ".agents", "skills") {
 			t.Fatalf("legacy builtin host path leaked into policy: %#v", mount)
 		}
 	}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/fsops/fstest"
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/hostlayout"
 )
 
 // TestDockerFilesystemConformanceRealImage runs the provider-neutral suite
@@ -30,7 +31,7 @@ func TestDockerFilesystemConformanceRealImage(t *testing.T) {
 	workspace := tempAbsDir(t, "workspace")
 	readOnly := tempAbsDir(t, "user")
 
-	factory, err := NewFactory(Config{Image: image, StellaHome: stellaHome, RuntimeMode: DockerSandboxModeHost})
+	factory, err := NewFactory(Config{Image: image, StellaHome: stellaHome, RuntimeMode: DockerSandboxModeHost, Layout: hostlayout.Layout{WorkspaceSource: workspace, WorkingDirSource: workspace, Mounts: []hostlayout.Mount{{Source: workspace, Target: sandboxpkg.MountWorkspace, Access: hostlayout.ReadWrite}, {Source: readOnly, Target: sandboxpkg.MountUserData, Access: hostlayout.ReadOnly}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,10 +42,6 @@ func TestDockerFilesystemConformanceRealImage(t *testing.T) {
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
 			WorkingDir: workspace,
-			Mounts: []sandboxpkg.Mount{
-				{HostPath: workspace, SandboxPath: sandboxpkg.PathWorkspace, Access: sandboxpkg.MountReadWrite},
-				{HostPath: readOnly, SandboxPath: sandboxpkg.PathUser, Access: sandboxpkg.MountReadOnly},
-			},
 		},
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkDisabled},
 		Timeout: 2 * time.Minute,

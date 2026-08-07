@@ -83,8 +83,6 @@ type tmpMount struct {
 // also builds a sandboxed PATH and copies the host-variable allowlist.
 func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
 	sessionID := sandboxpkg.NewSessionID()
-	policy.Filesystem.WorkspaceRoot = ""
-	policy.Filesystem.Mounts = nil
 	if err := f.Supported(policy); err != nil {
 		return nil, err
 	}
@@ -93,7 +91,10 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 	// Resolve the backend's filesystem roots first. The temporary mounts must be
 	// created before applying the filesystem environment because macOS exposes
 	// their real host path as TMPDIR.
-	layout := f.cfg.Layout
+	// Layout is immutable factory authority. Clone its mount slice before adding
+	// session-private temporary mounts: a copy of the slice header could otherwise
+	// append into spare factory backing capacity.
+	layout := f.cfg.Layout.Clone()
 	sandboxRoot, realRoot := resolveSandboxRoot(layout)
 	userDataSandbox, userDataReal := resolveUserDataRoot(layout)
 	tmpMounts, err := createSessionTmpMounts()
@@ -106,6 +107,11 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 			cleanupOwnedTmpMounts(tmpMounts)
 		}
 	}()
+	for _, mount := range tmpMounts {
+		layout.Mounts = append(layout.Mounts, hostlayout.Mount{Source: mount.realPath, Target: mount.sandboxPath, Access: hostlayout.ReadWrite})
+	}
+	// The session policy is the exact process/filesystem view, never a host plan.
+	policy.Filesystem.WorkingDir = localWorkingDir(layout, sandboxRoot, realRoot)
 	policy = f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal)
 	if err := applyFilesystemEnv(&policy, sandboxRoot, userDataSandbox, tmpMounts); err != nil {
 		return nil, fmt.Errorf("local: apply filesystem environment: %w", err)
@@ -126,6 +132,16 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 	transferredTmpOwnership = true
 	sandboxpkg.LogSessionCreated(sessionID, "local", policy)
 	return s, nil
+}
+
+func localWorkingDir(layout hostlayout.Layout, sandboxRoot, realRoot string) string {
+	if sandboxRoot == realRoot {
+		return layout.WorkingDirSource
+	}
+	if target, ok := layout.SourceToTarget(layout.WorkingDirSource); ok {
+		return target
+	}
+	return sandboxRoot // unreachable after Layout.Validate; fail closed in cwd resolution.
 }
 
 // adjustPolicy applies local-backend-specific environment adjustments.
@@ -318,11 +334,6 @@ func (s *localSession) Filesystem() (sandboxpkg.Filesystem, error) {
 	if len(mounts) == 0 {
 		mounts = append(mounts, fsops.Mount{Path: sandboxpkg.PathWorkspace, Directory: s.realRoot})
 	}
-	for _, mount := range s.tmpMounts {
-		if mount.sandboxPath == sandboxpkg.PathTemp {
-			mounts = append(mounts, fsops.Mount{Path: sandboxpkg.PathTemp, Directory: mount.realPath})
-		}
-	}
 	return fsops.NewFilesystem(mounts)
 }
 
@@ -332,11 +343,11 @@ func (s *localSession) ProjectFilesystemPath(input string) (string, bool) {
 		return input, sandboxpkg.IsCanonicalFilesystemPath(input)
 	}
 	resolver := s.pathResolver()
-	if canonical, ok := resolver.ToSandboxPath(input); ok && sandboxpkg.IsCanonicalFilesystemPath(filepath.ToSlash(canonical)) {
+	if canonical, ok := resolver.SourceToTarget(input); ok && sandboxpkg.IsCanonicalFilesystemPath(filepath.ToSlash(canonical)) {
 		return filepath.ToSlash(canonical), true
 	}
-	if host, ok := resolver.ToHostPath(input); ok {
-		if canonical, ok := resolver.ToSandboxPath(host); ok && sandboxpkg.IsCanonicalFilesystemPath(filepath.ToSlash(canonical)) {
+	if host, ok := resolver.TargetToSource(input); ok {
+		if canonical, ok := resolver.SourceToTarget(host); ok && sandboxpkg.IsCanonicalFilesystemPath(filepath.ToSlash(canonical)) {
 			return filepath.ToSlash(canonical), true
 		}
 	}
@@ -407,11 +418,11 @@ func (s *localSession) resolvePath(agentPath string) (string, error) {
 // resolveWritePath is like resolvePath but additionally rejects paths that fall
 // within read-only mounts.
 func (s *localSession) resolveWritePath(agentPath string) (string, error) {
-	resolved, err := s.pathResolver().ResolveWritePath(agentPath)
+	resolved, err := s.pathResolver().SourceForWrite(agentPath)
 	if err != nil {
 		return "", fmt.Errorf("local: %w", err)
 	}
-	return resolved.HostPath, nil
+	return resolved, nil
 }
 
 // resolveCwd validates a requested working directory, then returns both its
@@ -432,44 +443,24 @@ func (s *localSession) resolveCwd(cwd string) (sandboxCwd, realCwd string, err e
 // sandbox-space path. Existing symlink components under the workspace are
 // rejected, including symlinked parents of non-existent creation targets.
 func (s *localSession) resolveCoordinates(agentPath string) (realPath, sandboxPath string, err error) {
-	resolved, err := s.pathResolver().ResolvePath(agentPath)
+	resolved, err := s.pathResolver().SourceForRead(agentPath)
 	if err != nil {
 		return "", "", fmt.Errorf("local: %w", err)
 	}
-	return resolved.HostPath, resolved.SandboxPath, nil
+	sandboxPath, ok := s.pathResolver().SourceToTarget(resolved)
+	if !ok || sandboxPath == "" {
+		return "", "", fmt.Errorf("local: resolved path %q is not mappable into sandbox layout", resolved)
+	}
+	return resolved, sandboxPath, nil
 }
 
-func (s *localSession) pathResolver() *sandboxpkg.PathResolver {
-	mounts := policyMounts(s.layout)
-	for _, m := range s.tmpMounts {
-		mounts = append(mounts, sandboxpkg.Mount{HostPath: m.realPath, SandboxPath: m.sandboxPath, Access: sandboxpkg.MountReadWrite})
-	}
-	return sandboxpkg.NewPathResolver(sandboxpkg.PathResolverConfig{
-		WorkspaceRoot: s.realRoot,
-		WorkingDir:    s.WorkingDir(),
-		Mounts:        mounts,
-	})
-}
-
-// policyMounts is temporary plumbing for pkg/sandbox.PathResolver. The layout,
-// not Policy, remains the source of these physical mappings.
-func policyMounts(layout hostlayout.Layout) []sandboxpkg.Mount {
-	mounts := make([]sandboxpkg.Mount, 0, len(layout.Mounts))
-	for _, mount := range layout.Mounts {
-		access := sandboxpkg.MountReadOnly
-		if mount.Access == hostlayout.ReadWrite {
-			access = sandboxpkg.MountReadWrite
-		}
-		mounts = append(mounts, sandboxpkg.Mount{HostPath: mount.Source, SandboxPath: mount.Target, Access: access})
-	}
-	return mounts
-}
+func (s *localSession) pathResolver() *hostlayout.Resolver { return hostlayout.NewResolver(s.layout) }
 
 // toRealPath translates a sandbox-space absolute path to the real host path.
 // When sandboxRoot == realRoot (no remapping), it is a no-op.
 // Temp paths (/tmp, /var/tmp) are checked first against tmpMounts.
 func (s *localSession) toRealPath(sandboxPath string) string {
-	if hostPath, ok := s.pathResolver().ToHostPath(sandboxPath); ok {
+	if hostPath, ok := s.pathResolver().TargetToSource(sandboxPath); ok {
 		return hostPath
 	}
 	return sandboxPath
@@ -478,7 +469,7 @@ func (s *localSession) toRealPath(sandboxPath string) string {
 // toSandboxPath translates a real host path back into sandbox space.
 // Temp mount real paths are checked first against tmpMounts.
 func (s *localSession) toSandboxPath(realPath string) string {
-	if sandboxPath, ok := s.pathResolver().ToSandboxPath(realPath); ok {
+	if sandboxPath, ok := s.pathResolver().SourceToTarget(realPath); ok {
 		return sandboxPath
 	}
 	return realPath

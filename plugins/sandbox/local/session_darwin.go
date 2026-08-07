@@ -32,11 +32,19 @@ var (
 	seatbeltAvailable bool
 )
 
+// seatbeltBinaryAvailable reports whether the exact executable path can be run.
+// Do not use the functional probe to skip execution tests: a present but broken
+// sandbox-exec is a production failure, not an unsupported test host.
+func seatbeltBinaryAvailable() bool {
+	info, err := os.Stat(seatbeltExecPath)
+	return err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0
+}
+
 // seatbeltFunctional returns true when sandbox-exec is present and can run.
 // Result is cached after the first call.
 func seatbeltFunctional() bool {
 	seatbeltOnce.Do(func() {
-		if _, err := exec.LookPath(seatbeltExecPath); err != nil {
+		if !seatbeltBinaryAvailable() {
 			return
 		}
 		// Probe with an allow-all profile to verify the binary works.

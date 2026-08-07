@@ -11,20 +11,11 @@ import (
 	"github.com/CherryHQ/stella/plugins/sandbox/hostlayout"
 )
 
-func layoutForPolicy(policy sandboxpkg.Policy) hostlayout.Layout {
-	mounts := make([]hostlayout.Mount, 0, len(policy.Filesystem.Mounts)+1)
-	for _, mount := range policy.Filesystem.Mounts {
-		access := hostlayout.ReadOnly
-		if mount.Access == sandboxpkg.MountReadWrite {
-			access = hostlayout.ReadWrite
-		}
-		mounts = append(mounts, hostlayout.Mount{Source: mount.HostPath, Target: mount.SandboxPath, Access: access})
-	}
-	workspace := policy.WorkspaceRootOrDefault()
+func layoutFor(workspace, workingDir string, mounts ...hostlayout.Mount) hostlayout.Layout {
 	if len(mounts) == 0 && workspace != "" {
-		mounts = append(mounts, hostlayout.Mount{Source: workspace, Target: sandboxpkg.MountWorkspace, Access: hostlayout.ReadWrite})
+		mounts = []hostlayout.Mount{{Source: workspace, Target: sandboxpkg.MountWorkspace, Access: hostlayout.ReadWrite}}
 	}
-	return hostlayout.Layout{WorkspaceSource: workspace, WorkingDirSource: policy.Filesystem.WorkingDir, Mounts: mounts}
+	return hostlayout.Layout{WorkspaceSource: workspace, WorkingDirSource: workingDir, Mounts: mounts}
 }
 
 func TestFactory_basics(t *testing.T) {
@@ -53,15 +44,15 @@ func TestFactory_createSession(t *testing.T) {
 		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 		InheritEnv: true,
 	}
-	f := NewFactory(Config{Layout: layoutForPolicy(policy)})
+	f := NewFactory(Config{Layout: layoutFor(policy.Filesystem.WorkingDir, policy.Filesystem.WorkingDir)})
 	sess, err := f.CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
 	defer sess.Close() //nolint:errcheck
 
-	if sess.Policy().Filesystem.WorkingDir != policy.Filesystem.WorkingDir {
-		t.Error("Policy not preserved")
+	if sess.Policy().Filesystem.WorkingDir != sess.WorkingDir() {
+		t.Error("Policy must match the provider execution view")
 	}
 	if !sess.Alive() {
 		t.Error("expected Alive=true before close")
@@ -76,9 +67,7 @@ func TestFactoryLayoutIsAuthoritativeAndCloned(t *testing.T) {
 	// Mutating the caller's slice after construction must not redirect a session.
 	layout.Mounts[0].Source = redirect
 	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{
-		WorkspaceRoot: redirect,
-		WorkingDir:    redirect,
-		Mounts:        []sandboxpkg.Mount{{HostPath: redirect, SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite}},
+		WorkingDir: redirect,
 	}, Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll}, Env: map[string]string{"PRESERVED": "yes"}}
 	session, err := factory.CreateSession(context.Background(), policy)
 	if err != nil {
@@ -89,10 +78,10 @@ func TestFactoryLayoutIsAuthoritativeAndCloned(t *testing.T) {
 		t.Fatalf("WorkingDir = %q, want layout source %q", got, workspace)
 	}
 	got := session.Policy()
-	if got.Filesystem.WorkspaceRoot != "" || len(got.Filesystem.Mounts) != 0 {
-		t.Fatalf("Policy retained physical layout: %#v", got.Filesystem)
+	if got.Filesystem.WorkingDir != workspace {
+		t.Fatalf("Policy working directory = %q, want layout working directory %q", got.Filesystem.WorkingDir, workspace)
 	}
-	if got.Filesystem.WorkingDir != redirect || got.Network.Mode != sandboxpkg.NetworkAllowAll || got.Env["PRESERVED"] != "yes" {
+	if got.Network.Mode != sandboxpkg.NetworkAllowAll || got.Env["PRESERVED"] != "yes" {
 		t.Fatalf("Policy lost logical fields: %#v", got)
 	}
 }
@@ -140,9 +129,8 @@ func TestFilesystemUsesCanonicalPath(t *testing.T) {
 	workspace := t.TempDir()
 	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{
 		WorkingDir: workspace,
-		Mounts:     []sandboxpkg.Mount{{HostPath: workspace, SandboxPath: sandboxpkg.PathWorkspace, Access: sandboxpkg.MountReadWrite}},
 	}}
-	session, err := NewFactory(Config{Layout: layoutForPolicy(policy)}).CreateSession(context.Background(), policy)
+	session, err := NewFactory(Config{Layout: layoutFor(policy.Filesystem.WorkingDir, policy.Filesystem.WorkingDir)}).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,12 +158,8 @@ func TestFilesystemCreatesMissingWritableRootButNotReadOnly(t *testing.T) {
 	readOnly := filepath.Join(base, "missing-ro") // read-only, not created
 	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{
 		WorkingDir: workspace,
-		Mounts: []sandboxpkg.Mount{
-			{HostPath: workspace, SandboxPath: sandboxpkg.PathWorkspace, Access: sandboxpkg.MountReadWrite},
-			{HostPath: readOnly, SandboxPath: sandboxpkg.PathUser, Access: sandboxpkg.MountReadOnly},
-		},
 	}}
-	session, err := NewFactory(Config{Layout: layoutForPolicy(policy)}).CreateSession(context.Background(), policy)
+	session, err := NewFactory(Config{Layout: layoutFor(workspace, workspace, hostlayout.Mount{Source: workspace, Target: sandboxpkg.PathWorkspace, Access: hostlayout.ReadWrite}, hostlayout.Mount{Source: readOnly, Target: sandboxpkg.PathUser, Access: hostlayout.ReadOnly})}).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,15 +191,12 @@ func TestFactoryCreateSession_setsHostXDGPaths(t *testing.T) {
 	policy := sandboxpkg.Policy{
 		Env: map[string]string{"XDG_RUNTIME_DIR": "/run/user/1000"},
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: workspace,
-			WorkingDir:    workspace,
-			Mounts: []sandboxpkg.Mount{
-				{HostPath: workspace, SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite},
-				{HostPath: userData, SandboxPath: sandboxpkg.MountUserData, Access: sandboxpkg.MountReadWrite},
-			},
+			WorkingDir: workspace,
 		},
 	}
-	sess, err := NewFactory(Config{Layout: layoutForPolicy(policy)}).CreateSession(context.Background(), policy)
+	sess, err := NewFactory(Config{Layout: layoutFor(workspace, workspace,
+		hostlayout.Mount{Source: workspace, Target: sandboxpkg.PathWorkspace, Access: hostlayout.ReadWrite},
+		hostlayout.Mount{Source: userData, Target: sandboxpkg.PathUser, Access: hostlayout.ReadWrite})}).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
@@ -247,9 +228,9 @@ func TestFactoryCreateSession_setsHostXDGPaths(t *testing.T) {
 func TestFactoryCreateSession_withoutUserDataFallsBackToWorkspace(t *testing.T) {
 	workspace := t.TempDir()
 	policy := sandboxpkg.Policy{
-		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: workspace, WorkingDir: workspace},
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: workspace},
 	}
-	sess, err := NewFactory(Config{Layout: layoutForPolicy(policy)}).CreateSession(context.Background(), policy)
+	sess, err := NewFactory(Config{Layout: layoutFor(policy.Filesystem.WorkingDir, policy.Filesystem.WorkingDir)}).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
@@ -298,12 +279,12 @@ func TestFactoryCreateSession_errorRemovesOwnedTempDir(t *testing.T) {
 
 func TestFactoryCreateSession_ownsDistinctTempDirs(t *testing.T) {
 	workspace := t.TempDir()
-	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: workspace, WorkingDir: workspace}}
-	first, err := NewFactory(Config{Layout: layoutForPolicy(policy)}).CreateSession(context.Background(), policy)
+	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: workspace}}
+	first, err := NewFactory(Config{Layout: layoutFor(policy.Filesystem.WorkingDir, policy.Filesystem.WorkingDir)}).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Fatalf("CreateSession(first): %v", err)
 	}
-	second, err := NewFactory(Config{Layout: layoutForPolicy(policy)}).CreateSession(context.Background(), policy)
+	second, err := NewFactory(Config{Layout: layoutFor(workspace, workspace)}).CreateSession(context.Background(), policy)
 	if err != nil {
 		first.Close() //nolint:errcheck
 		t.Fatalf("CreateSession(second): %v", err)
@@ -377,7 +358,7 @@ func TestNoneSession_workingDir(t *testing.T) {
 	s := &noneSession{
 		id:     "test",
 		policy: policy,
-		layout: layoutForPolicy(policy),
+		layout: layoutFor(policy.Filesystem.WorkingDir, policy.Filesystem.WorkingDir),
 		done:   make(chan struct{}),
 	}
 	if s.WorkingDir() != tempDir {
@@ -395,7 +376,7 @@ func TestNoneSession_workingDirDefaultsToCwd(t *testing.T) {
 	s := &noneSession{
 		id:     "test",
 		policy: policy,
-		layout: layoutForPolicy(policy),
+		layout: layoutFor(policy.Filesystem.WorkingDir, policy.Filesystem.WorkingDir),
 		done:   make(chan struct{}),
 	}
 	cwd, _ := os.Getwd()
@@ -637,7 +618,7 @@ func newTestSession(t *testing.T) *noneSession {
 	return &noneSession{
 		id:     "test",
 		policy: policy,
-		layout: layoutForPolicy(policy),
+		layout: layoutFor(policy.Filesystem.WorkingDir, policy.Filesystem.WorkingDir),
 		done:   make(chan struct{}),
 	}
 }

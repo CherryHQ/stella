@@ -319,12 +319,7 @@ func TestToolPathVariableProjectsHostAssetPathToCanonicalFilesystemPath(t *testi
 		workDir: pkgsandbox.PathWorkspace,
 		policy: pkgsandbox.Policy{
 			Filesystem: pkgsandbox.FilesystemPolicy{
-				WorkspaceRoot: workspace,
-				WorkingDir:    workspace,
-				Mounts: []pkgsandbox.Mount{
-					{HostPath: workspace, SandboxPath: pkgsandbox.PathWorkspace, Access: pkgsandbox.MountReadWrite},
-					{HostPath: userData, SandboxPath: pkgsandbox.PathUser, Access: pkgsandbox.MountReadWrite},
-				},
+				WorkingDir: workspace,
 			},
 			Env: map[string]string{pkgsandbox.EnvStellaAssetsDir: assets},
 		},

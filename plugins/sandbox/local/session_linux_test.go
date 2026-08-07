@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/hostlayout"
 )
 
 func TestFilesystemTempDirLinuxUsesSandboxPath(t *testing.T) {
@@ -25,13 +26,12 @@ func TestWrapCommand_linux_networkDisabled(t *testing.T) {
 	sandboxCwd := "/workspace"
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: root,
-			WorkingDir:    root,
+			WorkingDir: root,
 		},
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkDisabled},
 	}
 
-	path, args, err := wrapCommand(policy, sandboxCwd, nil, "", "sh", []string{"-c", "echo hi"})
+	path, args, err := wrapCommand(policy, layoutFor(root, root), sandboxCwd, nil, "", "sh", []string{"-c", "echo hi"})
 
 	if !bwrapFunctional() {
 		if err == nil {
@@ -63,13 +63,12 @@ func TestWrapCommand_linux_allowAllNoWrap(t *testing.T) {
 	sandboxCwd := "/workspace"
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: root,
-			WorkingDir:    root,
+			WorkingDir: root,
 		},
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
 
-	_, args, err := wrapCommand(policy, sandboxCwd, nil, "", "sh", []string{"-c", "echo hi"})
+	_, args, err := wrapCommand(policy, layoutFor(root, root), sandboxCwd, nil, "", "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error for allow_all network: %v", err)
 	}
@@ -101,21 +100,14 @@ func TestLocalExec_linux_workspaceWritableOutsideHidden(t *testing.T) {
 	s := &localSession{
 		id: "test",
 		policy: sandboxpkg.Policy{
-			Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root},
+			Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: root},
 			Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkDisabled},
 			Env: map[string]string{
 				"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 				"HOME": "/workspace",
 			},
 		},
-		layout: layoutForPolicy(sandboxpkg.Policy{
-			Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root},
-			Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkDisabled},
-			Env: map[string]string{
-				"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-				"HOME": "/workspace",
-			},
-		}),
+		layout:      layoutFor(root, root),
 		realRoot:    root,
 		sandboxRoot: "/workspace",
 		done:        make(chan struct{}),
@@ -163,13 +155,12 @@ func TestWrapCommand_linux_bwrapWorkspaceRemap(t *testing.T) {
 	sandboxCwd := "/workspace/sub"
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: root,
-			WorkingDir:    sandboxCwd,
+			WorkingDir: sandboxCwd,
 		},
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
 
-	execPath, args, err := wrapCommand(policy, sandboxCwd, nil, "", "sh", []string{"-c", "echo hi"})
+	execPath, args, err := wrapCommand(policy, layoutFor(root, root), sandboxCwd, nil, "", "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -256,14 +247,16 @@ func TestWrapCommand_linux_outOfRootWritableBind(t *testing.T) {
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: "/tmp/test-workspace",
-			WorkingDir:    "/workspace",
-			Mounts:        []sandboxpkg.Mount{{HostPath: "/tmp/test-workspace", SandboxPath: "/workspace", Access: sandboxpkg.MountReadWrite}, {HostPath: userDir, SandboxPath: sandboxUserDir, Access: sandboxpkg.MountReadWrite}},
+			WorkingDir: "/workspace",
 		},
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
 
-	_, args, err := wrapCommand(policy, "/workspace", nil, stellaHome, "sh", []string{"-c", "echo hi"})
+	workspace := t.TempDir()
+	layout := layoutFor(workspace, workspace,
+		hostlayout.Mount{Source: workspace, Target: sandboxpkg.MountWorkspace, Access: hostlayout.ReadWrite},
+		hostlayout.Mount{Source: userDir, Target: sandboxUserDir, Access: hostlayout.ReadWrite})
+	_, args, err := wrapCommand(policy, layout, "/workspace", nil, stellaHome, "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -301,14 +294,13 @@ func TestWrapCommand_linux_inWorkspaceWritableMountSkipped(t *testing.T) {
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: userHome,
-			WorkingDir:    "/workspace",
-			Mounts:        []sandboxpkg.Mount{{HostPath: userHome, SandboxPath: "/workspace", Access: sandboxpkg.MountReadWrite}, {HostPath: miseDir, SandboxPath: sandboxMiseDir, Access: sandboxpkg.MountReadWrite}},
+			WorkingDir: "/workspace",
 		},
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
 
-	_, args, err := wrapCommand(policy, "/workspace", nil, stellaHome, "sh", []string{"-c", "echo hi"})
+	layout := layoutFor(userHome, userHome, hostlayout.Mount{Source: userHome, Target: sandboxpkg.MountWorkspace, Access: hostlayout.ReadWrite})
+	_, args, err := wrapCommand(policy, layout, "/workspace", nil, stellaHome, "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -339,20 +331,22 @@ func TestWrapCommand_linux_inUserDataWritableMountSkipped(t *testing.T) {
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: agentDir,
-			WorkingDir:    "/workspace",
-			Mounts:        []sandboxpkg.Mount{{HostPath: agentDir, SandboxPath: "/workspace", Access: sandboxpkg.MountReadWrite}, {HostPath: userData, SandboxPath: "/user", Access: sandboxpkg.MountReadWrite}, {HostPath: writableDir, SandboxPath: filepath.Join(sandboxStellaHome, "users", "u1", "data", "scratch"), Access: sandboxpkg.MountReadWrite}},
+			WorkingDir: "/workspace",
 		},
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
 
-	_, args, err := wrapCommand(policy, "/workspace", nil, stellaHome, "sh", []string{"-c", "echo hi"})
+	sandboxWritableDir := filepath.Join(sandboxStellaHome, "users", "u1", "data", "scratch")
+	layout := layoutFor(agentDir, agentDir,
+		hostlayout.Mount{Source: agentDir, Target: sandboxpkg.MountWorkspace, Access: hostlayout.ReadWrite},
+		hostlayout.Mount{Source: userData, Target: sandboxpkg.MountUserData, Access: hostlayout.ReadWrite},
+		hostlayout.Mount{Source: writableDir, Target: sandboxWritableDir, Access: hostlayout.ReadWrite})
+	_, args, err := wrapCommand(policy, layout, "/workspace", nil, stellaHome, "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	joined := strings.Join(args, " ")
-	sandboxWritableDir := filepath.Join(sandboxStellaHome, "users", "u1", "data", "scratch")
 	if strings.Contains(joined, sandboxWritableDir) {
 		t.Errorf("under-/user writable mount must not be re-bound under %s: %v", sandboxStellaHome, args)
 	}
@@ -372,14 +366,15 @@ func TestWrapCommand_linux_twoRoots(t *testing.T) {
 	userData := "/tmp/test-workspace/users/u1/data"
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: agentDir,
-			WorkingDir:    agentDir + "/projects/p",
-			Mounts:        []sandboxpkg.Mount{{HostPath: agentDir, SandboxPath: "/workspace", Access: sandboxpkg.MountReadWrite}, {HostPath: userData, SandboxPath: "/user", Access: sandboxpkg.MountReadWrite}},
+			WorkingDir: agentDir + "/projects/p",
 		},
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
 
-	_, args, err := wrapCommand(policy, "/workspace/projects/p", nil, "", "sh", []string{"-c", "echo hi"})
+	layout := layoutFor(agentDir, filepath.Join(agentDir, "projects", "p"),
+		hostlayout.Mount{Source: agentDir, Target: sandboxpkg.MountWorkspace, Access: hostlayout.ReadWrite},
+		hostlayout.Mount{Source: userData, Target: sandboxpkg.MountUserData, Access: hostlayout.ReadWrite})
+	_, args, err := wrapCommand(policy, layout, "/workspace/projects/p", nil, "", "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

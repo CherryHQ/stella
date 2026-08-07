@@ -247,17 +247,26 @@ func appendDirParents(args []string, path string) []string {
 	return args
 }
 
-func isCoveredByWritableMount(hostPath string, mounts []sandboxpkg.Mount) bool {
+func isCoveredByWritableMount(hostPath string, mounts []hostlayout.Mount) bool {
 	for _, m := range mounts {
-		if m.Access != sandboxpkg.MountReadWrite || filepath.Clean(m.HostPath) == filepath.Clean(hostPath) {
+		if m.Access != hostlayout.ReadWrite || filepath.Clean(m.Source) == filepath.Clean(hostPath) {
 			continue
 		}
-		rel, err := filepath.Rel(m.HostPath, hostPath)
+		rel, err := filepath.Rel(m.Source, hostPath)
 		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return true
 		}
 	}
 	return false
+}
+
+func mountByTarget(mounts []hostlayout.Mount, target string) (hostlayout.Mount, bool) {
+	for _, mount := range mounts {
+		if mount.Target == target {
+			return mount, true
+		}
+	}
+	return hostlayout.Mount{}, false
 }
 
 // wrapCommand wraps name+args with bwrap for filesystem and optional network
@@ -275,7 +284,7 @@ func wrapCommand(policy sandboxpkg.Policy, layout hostlayout.Layout, sandboxCwd 
 
 	realRoot := layout.WorkspaceSource
 	networkMode := policy.NetworkModeOrDefault()
-	mounts := policyMounts(layout)
+	mounts := layout.Mounts
 
 	bwrapArgs := []string{
 		"--die-with-parent",
@@ -299,41 +308,41 @@ func wrapCommand(policy sandboxpkg.Policy, layout hostlayout.Layout, sandboxCwd 
 	}
 	bwrapArgs = appendLinuxRuntimeMounts(bwrapArgs)
 	for _, m := range mounts {
-		if m.SandboxPath == sandboxpkg.MountWorkspace || m.SandboxPath == sandboxpkg.MountUserData {
+		if m.Target == sandboxpkg.MountWorkspace || m.Target == sandboxpkg.MountUserData {
 			continue
 		}
-		if m.Access == sandboxpkg.MountReadWrite && isCoveredByWritableMount(m.HostPath, mounts) {
+		if m.Access == hostlayout.ReadWrite && isCoveredByWritableMount(m.Source, mounts) {
 			continue
 		}
-		if m.Access == sandboxpkg.MountReadOnly {
-			bwrapArgs = appendRoBindIfExists(bwrapArgs, m.HostPath, m.SandboxPath)
+		if m.Access == hostlayout.ReadOnly {
+			bwrapArgs = appendRoBindIfExists(bwrapArgs, m.Source, m.Target)
 			continue
 		}
-		bwrapArgs = appendWritableBind(bwrapArgs, m.HostPath, m.SandboxPath)
+		bwrapArgs = appendWritableBind(bwrapArgs, m.Source, m.Target)
 	}
-	workspaceMount, _ := mountBySandboxPath(mounts, sandboxpkg.MountWorkspace)
-	if workspaceMount.HostPath == "" {
-		workspaceMount = sandboxpkg.Mount{HostPath: realRoot, SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite}
+	workspaceMount, _ := mountByTarget(mounts, sandboxpkg.MountWorkspace)
+	if workspaceMount.Source == "" {
+		workspaceMount = hostlayout.Mount{Source: realRoot, Target: sandboxpkg.MountWorkspace, Access: hostlayout.ReadWrite}
 	}
 	bwrapArgs = append(bwrapArgs,
-		"--dir", workspaceMount.SandboxPath,
-		"--bind", workspaceMount.HostPath, workspaceMount.SandboxPath,
+		"--dir", workspaceMount.Target,
+		"--bind", workspaceMount.Source, workspaceMount.Target,
 		"--chdir", sandboxCwd,
 	)
-	if userMount, ok := mountBySandboxPath(mounts, sandboxpkg.MountUserData); ok {
-		bwrapArgs = appendWritableBind(bwrapArgs, userMount.HostPath, userMount.SandboxPath)
+	if userMount, ok := mountByTarget(mounts, sandboxpkg.MountUserData); ok {
+		bwrapArgs = appendWritableBind(bwrapArgs, userMount.Source, userMount.Target)
 	}
 	// Re-mount workspace-contained read-only paths at their /workspace/... equivalent.
 	// This overrides the writable workspace bind for those subdirectories.
 	for _, m := range mounts {
-		if m.Access != sandboxpkg.MountReadOnly {
+		if m.Access != hostlayout.ReadOnly {
 			continue
 		}
-		rel, relErr := filepath.Rel(workspaceMount.HostPath, filepath.Clean(m.HostPath))
+		rel, relErr := filepath.Rel(workspaceMount.Source, filepath.Clean(m.Source))
 		if relErr != nil || strings.HasPrefix(rel, "..") || rel == "." {
 			continue
 		}
-		bwrapArgs = appendRoBindIfExists(bwrapArgs, m.HostPath, filepath.Join(workspaceMount.SandboxPath, rel))
+		bwrapArgs = appendRoBindIfExists(bwrapArgs, m.Source, filepath.Join(workspaceMount.Target, rel))
 	}
 	if networkMode != sandboxpkg.NetworkAllowAll {
 		bwrapArgs = append(bwrapArgs, "--unshare-net")

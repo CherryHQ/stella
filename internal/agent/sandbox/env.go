@@ -25,19 +25,6 @@ const (
 	LarkCLIDataDirEnv = "LARKSUITE_CLI_DATA_DIR"
 )
 
-func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy {
-	layout := runnerHostLayout(paths, cfg)
-	mounts := make([]pkgsandbox.Mount, 0, len(layout.Mounts))
-	for _, mount := range layout.Mounts {
-		access := pkgsandbox.MountReadOnly
-		if mount.Access == hostlayout.ReadWrite {
-			access = pkgsandbox.MountReadWrite
-		}
-		mounts = append(mounts, pkgsandbox.Mount{HostPath: mount.Source, SandboxPath: mount.Target, Access: access})
-	}
-	return pkgsandbox.FilesystemPolicy{WorkspaceRoot: layout.WorkspaceSource, WorkingDir: layout.WorkingDirSource, Mounts: mounts}
-}
-
 // runnerHostLayout is the single producer of physical host paths for providers.
 func runnerHostLayout(paths Paths, cfg Config) hostlayout.Layout {
 	mounts := []hostlayout.Mount{

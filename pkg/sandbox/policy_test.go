@@ -58,17 +58,6 @@ func TestNetworkModeOrDefault(t *testing.T) {
 	}
 }
 
-func TestWorkspaceRootOrDefault(t *testing.T) {
-	p := Policy{Filesystem: FilesystemPolicy{WorkingDir: "/work"}}
-	if got := p.WorkspaceRootOrDefault(); got != "/work" {
-		t.Fatalf("expected /work, got %q", got)
-	}
-	p2 := Policy{Filesystem: FilesystemPolicy{WorkspaceRoot: "/root", WorkingDir: "/work"}}
-	if got := p2.WorkspaceRootOrDefault(); got != "/root" {
-		t.Fatalf("expected /root, got %q", got)
-	}
-}
-
 func TestPolicyCompatibilityError(t *testing.T) {
 	e := &PolicyCompatibilityError{Backend: "docker", Reason: "unsupported"}
 	if !strings.Contains(e.Error(), "docker") {

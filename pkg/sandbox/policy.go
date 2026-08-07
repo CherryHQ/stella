@@ -63,40 +63,14 @@ type Policy struct {
 	Timeout time.Duration
 }
 
-// MountAccess is the access mode a sandbox mount grants inside the sandbox.
-type MountAccess uint8
-
-const (
-	// MountReadOnly allows reads but rejects writes through host-side tools and
-	// asks isolating backends for a read-only bind when the platform supports it.
-	MountReadOnly MountAccess = iota
-	// MountReadWrite allows reads and writes.
-	MountReadWrite
-)
-
-// Mount maps a host path into the sandbox view.
-type Mount struct {
-	HostPath    string
-	SandboxPath string
-	Access      MountAccess
-}
-
-// FilesystemPolicy defines filesystem constraints for a sandbox session.
+// FilesystemPolicy defines the agent-visible filesystem contract for a sandbox session.
 type FilesystemPolicy struct {
-	// Homes preserves typed persistent identity alongside Phase-1 host mounts.
-	// Providers must not derive host paths from these opaque attachments.
+	// Homes preserves typed persistent identity. Providers must not derive physical
+	// paths from these opaque attachments.
 	Homes []HomeAttachment
-	// WorkspaceRoot is the host workspace root. When empty, WorkingDir is used for
-	// backwards compatibility and for relative-path anchoring in non-isolating code.
-	WorkspaceRoot string
-
-	// WorkingDir is the requested working directory. Producers may provide either
-	// a host path under WorkspaceRoot or the corresponding sandbox path; backends
-	// normalize it through Mounts before execution.
+	// WorkingDir is the exact agent-visible default directory for processes and
+	// relative filesystem operations.
 	WorkingDir string
-
-	// Mounts is the complete host→sandbox mount plan for isolating backends.
-	Mounts []Mount
 }
 
 // NetworkPolicy defines network constraints for a sandbox session.
@@ -120,10 +94,6 @@ func (p Policy) Validate() error {
 	if p.Filesystem.WorkingDir == "" {
 		return fmt.Errorf("sandbox: working directory is required")
 	}
-	if p.Filesystem.WorkspaceRoot == "" {
-		p.Filesystem.WorkspaceRoot = p.Filesystem.WorkingDir
-	}
-
 	return nil
 }
 
@@ -133,14 +103,6 @@ func (p Policy) NetworkModeOrDefault() NetworkMode {
 		return NetworkAllowAll
 	}
 	return p.Network.Mode
-}
-
-// WorkspaceRootOrDefault returns the mounted sandbox root on the host.
-func (p Policy) WorkspaceRootOrDefault() string {
-	if p.Filesystem.WorkspaceRoot != "" {
-		return p.Filesystem.WorkspaceRoot
-	}
-	return p.Filesystem.WorkingDir
 }
 
 // PolicyCompatibilityError indicates a policy is not compatible with a backend.

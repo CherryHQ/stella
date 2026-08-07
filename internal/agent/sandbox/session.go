@@ -59,7 +59,7 @@ func createDockerSession(ctx context.Context, cfg Config) (pkgsandbox.Session, e
 		return nil, err
 	}
 
-	session, err := factory.CreateSession(ctx, providerPolicy(policy))
+	session, err := factory.CreateSession(ctx, policy)
 	if err != nil {
 		if dockerImageIsDev() {
 			err = fmt.Errorf("%w (run `mise run sandbox:docker:build` to build the local %q image)", err, dockerImage())
@@ -90,7 +90,7 @@ func createLocalSession(ctx context.Context, cfg Config) (pkgsandbox.Session, er
 	session, err := localplugin.NewFactory(localplugin.Config{
 		StellaHome: paths.StellaHome,
 		Layout:     runnerHostLayout(paths, cfg),
-	}).CreateSession(ctx, providerPolicy(policy))
+	}).CreateSession(ctx, policy)
 	if err != nil {
 		return nil, fmt.Errorf("create local session: %w", err)
 	}
@@ -112,19 +112,12 @@ func createHostSession(ctx context.Context, cfg Config) (pkgsandbox.Session, err
 	session, err := noneplugin.NewFactory(noneplugin.Config{
 		StellaHome: paths.StellaHome,
 		Layout:     runnerHostLayout(paths, cfg),
-	}).CreateSession(ctx, providerPolicy(policy))
+	}).CreateSession(ctx, policy)
 	if err != nil {
 		return nil, fmt.Errorf("create host session: %w", err)
 	}
 
 	return session, nil
-}
-
-// providerPolicy removes physical filesystem authority before providers see it.
-func providerPolicy(policy pkgsandbox.Policy) pkgsandbox.Policy {
-	policy.Filesystem.WorkspaceRoot = ""
-	policy.Filesystem.Mounts = nil
-	return policy
 }
 
 // buildBasePolicy resolves paths and builds the backend-agnostic base policy
@@ -140,8 +133,12 @@ func buildBasePolicy(ctx context.Context, cfg Config) (Paths, pkgsandbox.Policy,
 		return Paths{}, pkgsandbox.Policy{}, err
 	}
 
-	fs := runnerFilesystemPolicy(paths, cfg)
-	fs.Homes = append([]pkgsandbox.HomeAttachment(nil), cfg.Homes...)
+	layout := runnerHostLayout(paths, cfg)
+	workingDir, ok := layout.SourceToTarget(paths.WorkDir)
+	if !ok {
+		return Paths{}, pkgsandbox.Policy{}, fmt.Errorf("map working directory into sandbox layout")
+	}
+	fs := pkgsandbox.FilesystemPolicy{WorkingDir: workingDir, Homes: append([]pkgsandbox.HomeAttachment(nil), cfg.Homes...)}
 	// Mise tree prep, uniform across backends. EnsureMiseShims relinks the shared
 	// system-tree shims to relative targets so they resolve after STELLA_HOME is
 	// remapped (bwrap's /opt/stella) — otherwise a session started before the next

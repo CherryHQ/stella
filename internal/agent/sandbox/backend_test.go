@@ -85,7 +85,7 @@ func TestResolveSessionRequiresUserRoot(t *testing.T) {
 }
 
 func TestSandboxProcessEnvIsRunnerOnly(t *testing.T) {
-	paths := Paths{StellaHome: "/stella", WorkspaceRoot: "/workspace/job", UserDataDir: "/user/data"}
+	paths := Paths{StellaHome: "/stella", UserDataDir: "/user/data"}
 	env := ProcessEnv(paths)
 	if got, want := env["STELLA_HOME"], paths.StellaHome; got != want {
 		t.Errorf("STELLA_HOME = %q, want %q", got, want)
@@ -104,13 +104,9 @@ func TestSandboxProcessEnvWithoutStellaHomeIsEmpty(t *testing.T) {
 }
 
 func TestLocalNoneProviderPolicyHasNoPhysicalMountAuthority(t *testing.T) {
-	policy := pkgsandbox.Policy{Filesystem: pkgsandbox.FilesystemPolicy{WorkspaceRoot: "/host/workspace", WorkingDir: "/host/workspace/project", Mounts: []pkgsandbox.Mount{{HostPath: "/host/workspace", SandboxPath: "/workspace", Access: pkgsandbox.MountReadWrite}}}}
-	clean := providerPolicy(policy)
-	if clean.Filesystem.WorkspaceRoot != "" || len(clean.Filesystem.Mounts) != 0 {
-		t.Fatalf("provider policy retained physical layout: %#v", clean.Filesystem)
-	}
-	if clean.Filesystem.WorkingDir != policy.Filesystem.WorkingDir {
-		t.Fatal("provider policy must preserve logical working directory")
+	policy := pkgsandbox.Policy{Filesystem: pkgsandbox.FilesystemPolicy{WorkingDir: "/host/workspace/project"}}
+	if err := policy.Validate(); err != nil {
+		t.Fatalf("logical policy rejected: %v", err)
 	}
 }
 
@@ -204,11 +200,10 @@ func TestResolveSessionDockerUnreachableDaemonReturnsError(t *testing.T) {
 func TestRunnerFilesystemPolicyGroupUsesGroupSubtree(t *testing.T) {
 	userData := filepath.Join("/stella", "users", "group-g7", "data")
 	paths := Paths{
-		StellaHome:    "/stella",
-		UserRoot:      "/stella/users/group-g7",
-		UserDataDir:   userData,
-		WorkspaceRoot: "/stella/users/group-g7/agents/a1",
-		WorkDir:       "/stella/users/group-g7/agents/a1",
+		StellaHome:  "/stella",
+		UserRoot:    "/stella/users/group-g7",
+		UserDataDir: userData,
+		WorkDir:     "/stella/users/group-g7/agents/a1",
 	}
 	cfg := Config{GroupID: "g7", UserID: "g7", AgentID: "a1"}
 

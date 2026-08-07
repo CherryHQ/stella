@@ -181,8 +181,7 @@ func TestReadToolRejectsHostAbsolutePath(t *testing.T) {
 
 	policy := pkgsandbox.Policy{
 		Filesystem: pkgsandbox.FilesystemPolicy{
-			WorkspaceRoot: workspace,
-			WorkingDir:    workspace,
+			WorkingDir: workspace,
 		},
 		Network: pkgsandbox.NetworkPolicy{Mode: pkgsandbox.NetworkAllowAll},
 	}

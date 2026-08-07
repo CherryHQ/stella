@@ -162,9 +162,7 @@ func TestCreateSessionStoresNormalizedPolicyAndPrivateMountedTemp(t *testing.T) 
 	}
 	session, err := factory.CreateSession(context.Background(), sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: filepath.Join(t.TempDir(), "redirected-workspace"),
-			WorkingDir:    filepath.Join(t.TempDir(), "redirected-working-dir"),
-			Mounts:        []sandboxpkg.Mount{{HostPath: filepath.Join(t.TempDir(), "redirected-mount"), SandboxPath: "/redirected", Access: sandboxpkg.MountReadWrite}},
+			WorkingDir: filepath.Join(t.TempDir(), "redirected-working-dir"),
 		},
 	})
 	if err != nil {
@@ -175,9 +173,7 @@ func TestCreateSessionStoresNormalizedPolicyAndPrivateMountedTemp(t *testing.T) 
 	if got, want := session.WorkingDir(), "/workspace/projects/p"; got != want {
 		t.Errorf("WorkingDir() = %q, want %q", got, want)
 	}
-	if policy.Filesystem.WorkspaceRoot != "" || len(policy.Filesystem.Mounts) != 0 {
-		t.Errorf("Policy retained physical layout: %#v", policy.Filesystem)
-	}
+
 	if got, want := policy.Filesystem.WorkingDir, "/workspace/projects/p"; got != want {
 		t.Errorf("policy working directory = %q, want %q", got, want)
 	}
@@ -210,8 +206,7 @@ func TestCreateSessionRejectsUnmappableWorkingDirBeforeContainerStart(t *testing
 	}
 	_, err := factory.CreateSession(context.Background(), sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: workspace,
-			WorkingDir:    filepath.Join(t.TempDir(), "outside-workspace"),
+			WorkingDir: filepath.Join(t.TempDir(), "outside-workspace"),
 		},
 	})
 	if err == nil {
@@ -234,8 +229,7 @@ func TestCreateSessionStartFailureRemovesOwnedTemp(t *testing.T) {
 	}
 	_, err := factory.CreateSession(context.Background(), sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: workspace,
-			WorkingDir:    workspace,
+			WorkingDir: workspace,
 		},
 	})
 	if err == nil {

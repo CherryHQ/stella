@@ -65,8 +65,6 @@ func (f *Factory) Supported(_ sandboxpkg.Policy) error { return f.cfg.Layout.Val
 // with a sandboxed PATH. Network mode is always overridden to AllowAll since
 // the none backend cannot enforce network restrictions.
 func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
-	policy.Filesystem.WorkspaceRoot = ""
-	policy.Filesystem.Mounts = nil
 	if err := f.Supported(policy); err != nil {
 		return nil, err
 	}
@@ -85,6 +83,7 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 		return nil, fmt.Errorf("none: apply filesystem environment: %w", err)
 	}
 	id := sandboxpkg.NewSessionID()
+	policy.Filesystem.WorkingDir = f.cfg.Layout.WorkingDirSource
 	s := &noneSession{
 		id:           id,
 		policy:       policy,

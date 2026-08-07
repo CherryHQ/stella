@@ -53,7 +53,7 @@ func TestFactorySupported_DaemonUnreachable(t *testing.T) {
 	pointToUnreachableDaemon(t)
 	f, _ := NewFactory(Config{Layout: hostlayout.Layout{WorkspaceSource: "/workspace", WorkingDirSource: "/workspace", Mounts: []hostlayout.Mount{{Source: "/workspace", Target: workspaceMount, Access: hostlayout.ReadWrite}}}})
 	policy := sandboxpkg.Policy{
-		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: "/host/secret", WorkingDir: t.TempDir(), Mounts: []sandboxpkg.Mount{{HostPath: "/host/secret", SandboxPath: "/workspace", Access: sandboxpkg.MountReadWrite}}},
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: t.TempDir()},
 	}
 	err := f.Supported(policy)
 	if err == nil {
@@ -63,9 +63,6 @@ func TestFactorySupported_DaemonUnreachable(t *testing.T) {
 	ok := errors.As(err, &pce)
 	if !ok {
 		t.Fatalf("expected *PolicyCompatibilityError, got %T", err)
-	}
-	if pce.Policy.Filesystem.WorkspaceRoot != "" || len(pce.Policy.Filesystem.Mounts) != 0 {
-		t.Fatalf("compatibility error retained physical layout: %#v", pce.Policy.Filesystem)
 	}
 }
 

@@ -72,13 +72,13 @@ func TestDockerHostResolvePath(t *testing.T) {
 	dir := t.TempDir()
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: dir,
-			WorkingDir:    dir,
+			WorkingDir: dir,
 		},
 	}
 	session := &dockerSession{
-		id:     "test-session",
-		policy: policy,
+		id:         "test-session",
+		policy:     policy,
+		workingDir: "/workspace",
 		mountTable: []dockerclient.Mount{
 			{HostPath: dir, ContainerPath: "/workspace"},
 		},
@@ -126,13 +126,13 @@ func TestDockerHostResolvePath_RejectsSymlinks(t *testing.T) {
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: workspace,
-			WorkingDir:    workspace,
+			WorkingDir: workspace,
 		},
 	}
 	session := &dockerSession{
-		id:     "test-session",
-		policy: policy,
+		id:         "test-session",
+		policy:     policy,
+		workingDir: "/workspace",
 		mountTable: []dockerclient.Mount{
 			{HostPath: workspace, ContainerPath: "/workspace"},
 		},

@@ -8,28 +8,27 @@ title: Sandbox Backend Abstraction
 
 The sandbox abstraction exists so runner code, plugin wiring, and tool execution do not depend on concrete backend types. Execution always runs through the active backend selected by the runner.
 
-- `pkg/sandbox.Policy` — immutable backend-agnostic execution policy (filesystem root, working dir, network mode, env, timeout)
-- `pkg/sandbox.Session` — per-run execution boundary and lifecycle owner; combines lifecycle and host-access into one interface
-- Runner-owned file I/O — the runner uses `os.*` with `Session.ResolvePath` to read and write files; there is no `ReadFile`/`WriteFile` on `Session`
+- `pkg/sandbox.Policy` — immutable backend-agnostic execution policy (logical working directory, typed Homes, network mode, env, timeout)
+- `pkg/sandbox.Session` — per-run process-execution boundary and lifecycle owner; it exposes no host paths
+- `pkg/sandbox.Filesystem` — provider-neutral persistent file-operation boundary, obtained separately from a `FilesystemSession`
 
 Backend identity stays inside the runner and runner-facing sandbox packages. Plugin packages do not import `internal/agent/sandbox`.
 
 ## Session Interface
 
-`pkg/sandbox.Session` exposes 8 methods:
+`pkg/sandbox.Session` exposes 7 methods:
 
-| Method                                                     | Description                                                       |
-| ---------------------------------------------------------- | ----------------------------------------------------------------- |
-| `Policy() Policy`                                          | Returns the immutable policy the session was created with         |
-| `Exec(ctx, command, ExecOptions) (ExecResult, error)`      | Run a command and wait for its result                             |
-| `StartProcess(ctx, ProcessRequest) (ProcessHandle, error)` | Spawn a long-lived process with stdio handles                     |
-| `ResolvePath(path string) (string, error)`                 | Translate a sandbox-relative path to a host path for `os.*` calls |
-| `WorkingDir() string`                                      | Returns the logical working directory inside the sandbox          |
-| `Close() error`                                            | Tear down the session and release resources                       |
-| `Alive() bool`                                             | Reports whether the session is still active                       |
-| `Done() <-chan struct{}`                                   | Channel closed when the session terminates                        |
+| Method                                                     | Description                                               |
+| ---------------------------------------------------------- | --------------------------------------------------------- |
+| `Policy() Policy`                                          | Returns the immutable policy the session was created with |
+| `Exec(ctx, command, ExecOptions) (ExecResult, error)`      | Run a command and wait for its result                     |
+| `StartProcess(ctx, ProcessRequest) (ProcessHandle, error)` | Spawn a long-lived process with stdio handles             |
+| `WorkingDir() string`                                      | Returns the logical working directory inside the sandbox  |
+| `Close() error`                                            | Tear down the session and release resources               |
+| `Alive() bool`                                             | Reports whether the session is still active               |
+| `Done() <-chan struct{}`                                   | Channel closed when the session terminates                |
 
-File I/O (`read`, `write`, `edit`) is runner-owned: the runner calls `ResolvePath` to obtain the host path and then uses `os.ReadFile` / `os.WriteFile` / `os.MkdirAll` directly. `Session` carries no file read/write methods.
+`Session` carries no file read/write methods or physical filesystem coordinates. File consumers use the separate `FilesystemSession.Filesystem()` capability.
 
 ## Provider filesystem boundary
 
@@ -39,7 +38,9 @@ File I/O (`read`, `write`, `edit`) is runner-owned: the runner calls `ResolvePat
 
 An interrupted mutation returns `sandbox.ErrOutcomeUnknown`. Callers must report that state and must not retry automatically because the first operation may have completed. Docker preflight also requires the image's filesystem-helper revision to match the running `stellad` binary.
 
-This boundary currently coexists with `Session.ResolvePath`: `FilesystemSession` exposes the new implementation while existing runtime consumers still use the legacy host-path contract. Subsequent migration changes move those consumers before the host-path methods are removed. There is no production fallback from the provider boundary to `ResolvePath`.
+`read`, `write`, and `edit`, plus active prompt context and Skill paths, use the injected `Filesystem`. A missing `FilesystemSession`, an error opening it, or a nil `Filesystem` fails closed; active runtime paths never fall back to direct host I/O.
+
+Physical sources, mounts, and coordinate resolution are immutable provider-private `hostlayout.Layout` construction configuration. Providers may translate physical coordinates internally, but those coordinates never cross the `pkg/sandbox` runtime contract.
 
 ## Typed Home registry and attachments
 
@@ -64,9 +65,9 @@ The runner resolves the active backend from plugin state and dispatches to a bac
 All local execution paths that must obey sandbox policy are mediated through the active runner session:
 
 - core tools (`bash`) use `Session.Exec` through the runner-owned session
-- `read`, `write`, `edit` use `Session.ResolvePath` then `os.*` for file I/O
+- `read`, `write`, `edit` obtain a short-lived `Filesystem` from `FilesystemSession` for each operation
 - plugin tools receive `ToolContext.Runtime`, a `pkg/plugins.ToolRuntime` adapter over the active session
-- skills and agent preset loading use `ToolRuntime` when running inside an agent session
+- active prompt context and Skill paths use the injected `Filesystem`
 - MCP stdio process spawning uses `Session.StartProcess`
 
 ### stdio-MCP benefit
@@ -75,9 +76,9 @@ All local execution paths that must obey sandbox policy are mediated through the
 
 ### Non-runner filesystem access
 
-Some code paths need local filesystem access without an already-injected runtime, such as prompt rendering or metadata discovery outside an active agent run.
+Some code paths need local filesystem access without an already-injected runtime, such as prompt rendering or project metadata discovery outside an active agent run.
 
-Prompt rendering falls back to direct `os.*` calls when it has no runner session. Skills and agent preset discovery use `pkg/plugins.NewLocalToolRuntime(...)` when called outside an active runner. These are intentional non-runner paths, not fallbacks for sandboxed tool execution.
+Prompt rendering falls back to direct `os.*` calls only when it has no injected runner Host. Skills and agent preset discovery use `pkg/plugins.NewLocalToolRuntime(...)` when called outside an active runner. These are intentional non-runner paths, not fallbacks for sandboxed tool execution.
 
 ### Explicit exception boundary
 
@@ -93,6 +94,7 @@ Stella prefers explicit denial over silent downgrade:
 
 - Docker unavailable at session-create time → runner fails to start
 - unsupported policies → `PolicyCompatibilityError`, runner fails to start
+- missing, failing, or nil active `Filesystem` → file consumers fail closed without host-I/O fallback
 - direct non-mediated plugin exec → fail closed
 - remote MCP HTTP/SSE/StreamableHTTP → explicit exception, not an implicit sandbox bypass
 

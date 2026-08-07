@@ -32,13 +32,9 @@ func TestOtherPlatformTmpMountsAreSessionOwnedIdentityViews(t *testing.T) {
 		sandboxRoot: workspace,
 		tmpMounts:   mounts,
 		policy: sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: workspace,
-			WorkingDir:    workspace,
+			WorkingDir: workspace,
 		}},
-		layout: layoutForPolicy(sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: workspace,
-			WorkingDir:    workspace,
-		}}),
+		layout: layoutFor(workspace, workspace),
 	}
 	wantPath := filepath.Join(mount.realPath, "tmp-file")
 	if got, err := session.resolveWritePath(wantPath); err != nil || got != wantPath {

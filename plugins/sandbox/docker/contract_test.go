@@ -84,8 +84,7 @@ func testSessionContract(t *testing.T, newFactory func(hostlayout.Layout) (sandb
 
 	policy := sandbox.Policy{
 		Filesystem: sandbox.FilesystemPolicy{
-			WorkspaceRoot: workspace,
-			WorkingDir:    project,
+			WorkingDir: project,
 		},
 		Network: sandbox.NetworkPolicy{
 			Mode: sandbox.NetworkDisabled,
