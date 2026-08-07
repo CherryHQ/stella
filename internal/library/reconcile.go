@@ -19,6 +19,7 @@ const (
 	reconciliationBatchSize = 100
 	orphanPageSize          = 250
 	orphanPagesPerJob       = 4
+	orphanCursorSettingKey  = "library_orphan_gc_cursor"
 )
 
 func (s *Service) processReconcileJob(ctx context.Context, _ *river.Job[reconcileArgs]) error {
@@ -44,10 +45,49 @@ func (s *Service) reconcileStaleDerivations(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list stale library derivations: %w", err)
 	}
+	type staleFile struct {
+		needsCurrentWork bool
+		retiredOldSet    bool
+	}
+	files := make(map[string]*staleFile, len(rows))
+	order := make([]string, 0, len(rows))
 	for _, row := range rows {
-		job, found, err := latestLibraryJob(ctx, client, chunkArgs{}.Kind(), row.ID)
+		state, ok := files[row.ID]
+		if !ok {
+			state = &staleFile{}
+			files[row.ID] = state
+			order = append(order, row.ID)
+		}
+		currentKey, err := libraryDerivationKey(row.RawSha256, row.MediaType, s.parserProfile)
 		if err != nil {
-			return fmt.Errorf("load library chunk job for %s: %w", row.ID, err)
+			return fmt.Errorf("derive current library generation for %s: %w", row.ID, err)
+		}
+		if row.ChunkSetID.Valid {
+			currentSet := row.ChunkSetDerivationKey.Valid &&
+				row.ChunkSetProcessorKey.Valid &&
+				row.ChunkSetDerivationKey.String == currentKey &&
+				row.ChunkSetProcessorKey.String == s.parserProfile
+			if currentSet {
+				state.needsCurrentWork = true
+			} else {
+				if err := s.retireSupersededBuildingSet(ctx, row.ID, row.ChunkSetID.String); err != nil {
+					return fmt.Errorf("retire superseded library generation %s: %w", row.ChunkSetID.String, err)
+				}
+				state.retiredOldSet = true
+			}
+		}
+		if FileStatus(row.Status) == FileStatusProcessing {
+			state.needsCurrentWork = true
+		}
+	}
+	for _, fileID := range order {
+		state := files[fileID]
+		if !state.needsCurrentWork {
+			continue
+		}
+		job, found, err := latestLibraryJob(ctx, client, chunkArgs{}.Kind(), fileID)
+		if err != nil {
+			return fmt.Errorf("load library chunk job for %s: %w", fileID, err)
 		}
 		if found && slices.Contains(activeLibraryJobStates, job.State) {
 			if job.State != rivertype.JobStateRunning {
@@ -60,24 +100,72 @@ func (s *Service) reconcileStaleDerivations(ctx context.Context) error {
 			// in-process parser and every database statement are bounded, so this is
 			// a crashed or wedged worker rather than healthy work.
 			if err := finalizeStaleRunningLibraryJob(ctx, client, job); err != nil {
-				return fmt.Errorf("cancel stale library derivation %s: %w", row.ID, err)
+				return fmt.Errorf("cancel stale library derivation %s: %w", fileID, err)
 			}
 			// The stale row no longer occupies River uniqueness, so the idempotent
 			// replacement below can take over without changing the global rescuer.
 		}
-		if found && job.State == rivertype.JobStateDiscarded {
-			if err := s.failStaleGeneration(ctx, row.ID); err != nil {
+		if found && job.State == rivertype.JobStateDiscarded && !state.retiredOldSet {
+			if err := s.failStaleGeneration(ctx, fileID); err != nil {
 				return err
 			}
 			continue
 		}
-		args := chunkArgs{FileID: row.ID}
+		args := chunkArgs{FileID: fileID}
 		options := args.InsertOpts()
 		if _, err := client.Insert(ctx, args, &options); err != nil {
-			return fmt.Errorf("re-enqueue stale library derivation %s: %w", row.ID, err)
+			return fmt.Errorf("re-enqueue stale library derivation %s: %w", fileID, err)
 		}
 	}
 	return nil
+}
+
+func (s *Service) retireSupersededBuildingSet(ctx context.Context, fileID, chunkSetID string) error {
+	tx, queries, err := s.beginBoundedTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin superseded library generation retirement: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	file, err := queries.LockLibraryFileLifecycle(ctx, fileID)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && file.DeletedAt.Valid {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("lock library file for superseded generation: %w", err)
+	}
+	set, err := queries.LockLibraryChunkSetLifecycle(ctx, chunkSetID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("lock superseded LibraryChunkSet: %w", err)
+	}
+	if set.FileID != file.ID {
+		return fmt.Errorf("superseded LibraryChunkSet %s belongs to another file", set.ID)
+	}
+	currentKey, err := libraryDerivationKey(file.RawSha256, file.MediaType, s.parserProfile)
+	if err != nil {
+		return err
+	}
+	if set.DerivationKey == currentKey && set.ProcessorKey == s.parserProfile {
+		return nil
+	}
+	if ChunkSetStatus(set.Status) != ChunkSetStatusBuilding {
+		return nil
+	}
+	// File then ChunkSet locking matches publication. Remove only unpublished
+	// rows while the set is still building, then make the retirement terminal.
+	if _, err := queries.DeleteBuildingLibraryChunks(ctx, set.ID); err != nil {
+		return fmt.Errorf("delete superseded library chunks: %w", err)
+	}
+	if affected, err := queries.MarkLibraryChunkSetFailed(ctx, sqlc.MarkLibraryChunkSetFailedParams{
+		ErrorMessage: nullableText("Superseded by a newer parser profile."), ID: set.ID,
+	}); err != nil {
+		return fmt.Errorf("mark superseded LibraryChunkSet failed: %w", err)
+	} else if affected != 1 {
+		return ErrGenerationChanged
+	}
+	return commitLibraryTransaction(ctx, tx)
 }
 
 func (s *Service) failStaleGeneration(ctx context.Context, fileID string) error {
@@ -198,10 +286,16 @@ func finalizeStaleRunningLibraryJob(
 }
 
 func (s *Service) reconcileOrphanPages(ctx context.Context) error {
-	// Each periodic run starts from the canonical-key head and scans a fixed
-	// number of pages. This bounds one maintenance job without persisting a
-	// continuation protocol; later runs safely repeat the same idempotent work.
-	cursor := ""
+	if !s.rawStore.SupportsOrphanCollection() {
+		// A deployment identity is not part of the S3 key today. Skip unknown-key
+		// deletion there so deployments sharing one bucket cannot delete each
+		// other's immutable snapshots.
+		return nil
+	}
+	cursor, err := s.loadOrphanCursor(ctx)
+	if err != nil {
+		return err
+	}
 	cutoff := time.Now().UTC().Add(-s.orphanMinAge)
 	for range orphanPagesPerJob {
 		page, err := s.rawStore.ListPage(ctx, RawPrefix, cursor, orphanPageSize)
@@ -212,9 +306,29 @@ func (s *Service) reconcileOrphanPages(ctx context.Context) error {
 			return err
 		}
 		if page.NextCursor == "" {
-			return nil
+			return s.storeOrphanCursor(ctx, "")
 		}
 		cursor = page.NextCursor
+	}
+	return s.storeOrphanCursor(ctx, cursor)
+}
+
+func (s *Service) loadOrphanCursor(ctx context.Context) (string, error) {
+	setting, err := s.q.GetSetting(ctx, orphanCursorSettingKey)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("load library orphan cursor: %w", err)
+	}
+	return setting.Value, nil
+}
+
+func (s *Service) storeOrphanCursor(ctx context.Context, cursor string) error {
+	if err := s.q.UpsertSetting(ctx, sqlc.UpsertSettingParams{
+		Key: orphanCursorSettingKey, Value: cursor,
+	}); err != nil {
+		return fmt.Errorf("store library orphan cursor: %w", err)
 	}
 	return nil
 }

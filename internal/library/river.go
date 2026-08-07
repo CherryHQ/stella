@@ -165,8 +165,20 @@ func completeRiverJobTx[T river.JobArgs](
 	tx pgx.Tx,
 	job *river.Job[T],
 ) error {
-	if _, err := river.JobCompleteTx[*riverpgxv5.Driver](ctx, tx, job); err != nil {
+	updated, err := river.JobCompleteTx[*riverpgxv5.Driver](ctx, tx, job)
+	if err != nil {
 		return fmt.Errorf("complete %s River job: %w", job.Args.Kind(), err)
+	}
+	// River returns the durable row even when another worker already finalized
+	// it. Refuse to commit Library terminal writes unless this transaction won
+	// the running-to-completed transition.
+	if updated.State != rivertype.JobStateCompleted {
+		return fmt.Errorf(
+			"library %s job %d was finalized elsewhere (%s)",
+			job.Args.Kind(),
+			job.ID,
+			updated.State,
+		)
 	}
 	return nil
 }

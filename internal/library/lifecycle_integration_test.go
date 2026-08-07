@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -282,6 +284,10 @@ func TestOrphanReconciliationIsAgeBoundedAndFailClosed(t *testing.T) {
 	if err := store.Create(t.Context(), malformedKey, stringsReader("malformed")); err != nil {
 		t.Fatal(err)
 	}
+	nonCanonicalOwnedKey := RawPrefix + "/" + strings.ToUpper(liveID) + "/source"
+	if err := store.Create(t.Context(), nonCanonicalOwnedKey, stringsReader("non-canonical owner")); err != nil {
+		t.Fatal(err)
+	}
 	old := time.Now().UTC().Add(-2 * time.Hour)
 	for _, id := range []string{oldOrphanID, liveID, tombstoneID} {
 		key, _ := RawKey(id)
@@ -300,6 +306,13 @@ func TestOrphanReconciliationIsAgeBoundedAndFailClosed(t *testing.T) {
 	if err := os.Chtimes(malformedPath, old, old); err != nil {
 		t.Fatal(err)
 	}
+	nonCanonicalOwnedPath, err := store.path(nonCanonicalOwnedKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(nonCanonicalOwnedPath, old, old); err != nil {
+		t.Fatal(err)
+	}
 	page, err := store.ListPage(t.Context(), RawPrefix, "", 10)
 	if err != nil {
 		t.Fatal(err)
@@ -316,6 +329,11 @@ func TestOrphanReconciliationIsAgeBoundedAndFailClosed(t *testing.T) {
 		t.Fatalf("malformed ownership was not retained fail-closed: %v", err)
 	}
 	_ = malformed.Close()
+	nonCanonicalOwned, err := store.Open(t.Context(), nonCanonicalOwnedKey)
+	if err != nil {
+		t.Fatalf("non-canonical owned key was not retained fail-closed: %v", err)
+	}
+	_ = nonCanonicalOwned.Close()
 
 	// An unavailable database must make reconciliation retain every candidate
 	// rather than guessing that missing ownership means an orphan.
@@ -445,7 +463,7 @@ func TestOrphanReconciliationSurvivesUploaderProcessRestart(t *testing.T) {
 func TestOrphanReconciliationBoundsEachJob(t *testing.T) {
 	database := dbtest.New(t)
 	_, service := newLibraryService(t, database)
-	store := &endlessPagingRawStore{}
+	store := &endlessPagingRawStore{supportsOrphanCollection: true}
 	service.rawStore = store
 	if err := service.reconcileOrphanPages(t.Context()); err != nil {
 		t.Fatal(err)
@@ -464,8 +482,87 @@ func TestOrphanReconciliationBoundsEachJob(t *testing.T) {
 	if store.calls != 2*orphanPagesPerJob {
 		t.Fatalf("two bounded scans made %d calls, want %d", store.calls, 2*orphanPagesPerJob)
 	}
-	if store.cursors[0] != "" || store.cursors[orphanPagesPerJob] != "" {
-		t.Fatalf("periodic scans did not restart at the RawStore head: %v", store.cursors)
+	if store.cursors[0] != "" || store.cursors[orphanPagesPerJob] != "page-4" {
+		t.Fatalf("periodic scan did not resume from its durable cursor: %v", store.cursors)
+	}
+}
+
+func TestOrphanReconciliationEventuallyPassesFirstScanBudget(t *testing.T) {
+	database := dbtest.New(t)
+	old := time.Now().UTC().Add(-2 * time.Hour)
+	objects := make([]RawObject, 0, orphanPageSize*orphanPagesPerJob+1)
+	liveCount := orphanPageSize * orphanPagesPerJob
+	if _, err := database.Exec(t.Context(), `
+		INSERT INTO library_file (
+			id, scope, file_name, media_type, size_bytes, raw_sha256, status
+		)
+		SELECT
+			('00000000-0000-7000-8000-' || lpad(n::text, 12, '0'))::uuid,
+			'system', 'live.txt', 'text/plain', 1, $2, 'ready'
+		FROM generate_series(0, $1::integer - 1) AS series(n)
+	`, liveCount, bytes.Repeat([]byte{1}, 32)); err != nil {
+		t.Fatal(err)
+	}
+	for index := range orphanPageSize * orphanPagesPerJob {
+		id := fmt.Sprintf("00000000-0000-7000-8000-%012d", index)
+		key, err := RawKey(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		objects = append(objects, RawObject{Key: key, Size: 1, LastModified: old})
+	}
+	orphanID := "ffffffff-ffff-7fff-bfff-ffffffffffff"
+	orphanKey, err := RawKey(orphanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects = append(objects, RawObject{Key: orphanKey, Size: 1, LastModified: old})
+	store := &memoryPagedRawStore{
+		supportsOrphanCollection: true,
+		objects:                  objects,
+		deleted:                  make(map[string]struct{}),
+	}
+	service := newLibraryServiceWithConfig(t, database, ServiceConfig{
+		RawStore: store, Parser: staticLibraryParser{},
+	})
+	if err := service.reconcileOrphanPages(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if store.wasDeleted(orphanKey) {
+		t.Fatal("orphan beyond the first bounded scan was deleted too early")
+	}
+	if err := service.reconcileOrphanPages(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if !store.wasDeleted(orphanKey) {
+		t.Fatal("orphan beyond the first bounded scan was never reached")
+	}
+	setting, err := sqlc.New(database).GetSetting(t.Context(), orphanCursorSettingKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if setting.Value != "" {
+		t.Fatalf("completed orphan scan cursor = %q, want wrapped head", setting.Value)
+	}
+}
+
+func TestOrphanReconciliationSkipsStoreWithoutExclusiveNamespace(t *testing.T) {
+	database := dbtest.New(t)
+	store := &memoryPagedRawStore{
+		objects: []RawObject{{
+			Key:          RawPrefix + "/ffffffff-ffff-7fff-bfff-ffffffffffff/source",
+			LastModified: time.Now().UTC().Add(-2 * time.Hour),
+		}},
+		deleted: make(map[string]struct{}),
+	}
+	service := newLibraryServiceWithConfig(t, database, ServiceConfig{
+		RawStore: store, Parser: staticLibraryParser{},
+	})
+	if err := service.reconcileOrphanPages(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if store.calls != 0 || len(store.deleted) != 0 {
+		t.Fatalf("unowned RawStore was enumerated or mutated: calls=%d deleted=%d", store.calls, len(store.deleted))
 	}
 }
 
@@ -657,6 +754,98 @@ func TestReconciliationRepairsMissingJobsAndFinalizesDiscardedGeneration(t *test
 	}
 }
 
+func TestReconciliationRetiresSupersededBuildingGeneration(t *testing.T) {
+	database := dbtest.New(t)
+	_, service := newLibraryService(t, database)
+	fileID, err := insertLibraryFile(
+		t.Context(), database, Owner{Scope: ScopeSystem}, 1, "ready", nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawSHA256 := bytes.Repeat([]byte{1}, 32)
+	currentKey, err := libraryDerivationKey(rawSHA256, "text/plain", testParserProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldProfile := "test-parser:old"
+	oldKey, err := libraryDerivationKey(rawSHA256, "text/plain", oldProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentSetID := uuid.NewString()
+	oldSetID := uuid.NewString()
+	if _, err := database.Exec(t.Context(), `
+		INSERT INTO library_chunk_set (
+			id, file_id, derivation_key, processor_key, raw_sha256,
+			status, chunk_count, content_digest, completed_at
+		) VALUES ($1, $2, $3, $4, $5, 'ready', 0, $6, now())
+	`, currentSetID, fileID, currentKey, testParserProfile, rawSHA256, bytes.Repeat([]byte{2}, 32)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(t.Context(), `
+		INSERT INTO library_chunk_set (
+			id, file_id, derivation_key, processor_key, raw_sha256, status
+		) VALUES ($1, $2, $3, $4, $5, 'building')
+	`, oldSetID, fileID, oldKey, oldProfile, rawSHA256); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(t.Context(), `
+		INSERT INTO library_chunk (id, chunk_set_id, ordinal, content, locator, content_sha256)
+		VALUES ($1, $2, 0, 'partial old generation', '{}', $3)
+	`, uuid.NewString(), oldSetID, bytes.Repeat([]byte{3}, 32)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(t.Context(), `
+		UPDATE library_file
+		SET active_chunk_set_id = $1, updated_at = now() - interval '1 hour'
+		WHERE id = $2
+	`, currentSetID, fileID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.reconcileStaleDerivations(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var oldStatus, currentStatus, activeSetID string
+	var oldError *string
+	var oldChunks int
+	if err := database.QueryRow(t.Context(), `
+		SELECT
+			old_set.status,
+			old_set.error_message,
+			current_set.status,
+			file.active_chunk_set_id,
+			(SELECT count(*) FROM library_chunk WHERE chunk_set_id = old_set.id)
+		FROM library_file AS file
+		JOIN library_chunk_set AS old_set ON old_set.id = $2
+		JOIN library_chunk_set AS current_set ON current_set.id = $3
+		WHERE file.id = $1
+	`, fileID, oldSetID, currentSetID).Scan(
+		&oldStatus, &oldError, &currentStatus, &activeSetID, &oldChunks,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if oldStatus != string(ChunkSetStatusFailed) || oldError == nil || *oldError == "" || oldChunks != 0 {
+		t.Fatalf("superseded generation status=%q error=%v chunks=%d", oldStatus, oldError, oldChunks)
+	}
+	if currentStatus != string(ChunkSetStatusReady) || activeSetID != currentSetID {
+		t.Fatalf("active generation changed: status=%q active=%q want=%q", currentStatus, activeSetID, currentSetID)
+	}
+	rows, err := sqlc.New(database).ListStaleLibraryDerivation(
+		t.Context(),
+		sqlc.ListStaleLibraryDerivationParams{StaleBefore: time.Now().UTC(), Limit: 10},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("superseded generation still matched reconciliation: %+v", rows)
+	}
+	if _, found, err := latestLibraryJob(t.Context(), service.riverClient(), chunkArgs{}.Kind(), fileID); err != nil || found {
+		t.Fatalf("ready file received replacement job: found=%t error=%v", found, err)
+	}
+}
+
 func TestChunkStagingRowLockWaitIsBounded(t *testing.T) {
 	database := dbtest.New(t)
 	store, err := NewFSRawStore(t.TempDir(), 0)
@@ -760,9 +949,10 @@ type failOnceDeleteRawStore struct {
 }
 
 type endlessPagingRawStore struct {
-	calls   int
-	limits  []int
-	cursors []string
+	supportsOrphanCollection bool
+	calls                    int
+	limits                   []int
+	cursors                  []string
 }
 
 func (*endlessPagingRawStore) Create(context.Context, string, io.Reader) error { return nil }
@@ -772,6 +962,10 @@ func (*endlessPagingRawStore) Open(context.Context, string) (io.ReadCloser, erro
 }
 
 func (*endlessPagingRawStore) Delete(context.Context, string) error { return nil }
+
+func (s *endlessPagingRawStore) SupportsOrphanCollection() bool {
+	return s.supportsOrphanCollection
+}
 
 func (s *endlessPagingRawStore) ListPage(
 	_ context.Context,
@@ -783,6 +977,59 @@ func (s *endlessPagingRawStore) ListPage(
 	s.limits = append(s.limits, limit)
 	s.cursors = append(s.cursors, cursor)
 	return RawPage{NextCursor: "page-" + string(rune('0'+s.calls))}, nil
+}
+
+type memoryPagedRawStore struct {
+	supportsOrphanCollection bool
+	objects                  []RawObject
+	deleted                  map[string]struct{}
+	calls                    int
+}
+
+func (*memoryPagedRawStore) Create(context.Context, string, io.Reader) error { return nil }
+
+func (*memoryPagedRawStore) Open(context.Context, string) (io.ReadCloser, error) {
+	return nil, fs.ErrNotExist
+}
+
+func (s *memoryPagedRawStore) Delete(_ context.Context, key string) error {
+	s.deleted[key] = struct{}{}
+	return nil
+}
+
+func (s *memoryPagedRawStore) SupportsOrphanCollection() bool {
+	return s.supportsOrphanCollection
+}
+
+func (s *memoryPagedRawStore) ListPage(
+	_ context.Context,
+	prefix string,
+	cursor string,
+	limit int,
+) (RawPage, error) {
+	s.calls++
+	objects := make([]RawObject, 0, limit+1)
+	for _, object := range s.objects {
+		if object.Key <= cursor || !strings.HasPrefix(object.Key, prefix+"/") {
+			continue
+		}
+		if _, deleted := s.deleted[object.Key]; deleted {
+			continue
+		}
+		objects = append(objects, object)
+		if len(objects) == limit+1 {
+			break
+		}
+	}
+	if len(objects) <= limit {
+		return RawPage{Objects: objects}, nil
+	}
+	return RawPage{Objects: objects[:limit], NextCursor: objects[limit-1].Key}, nil
+}
+
+func (s *memoryPagedRawStore) wasDeleted(key string) bool {
+	_, ok := s.deleted[key]
+	return ok
 }
 
 func (s *failOnceDeleteRawStore) Delete(ctx context.Context, key string) error {

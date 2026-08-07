@@ -185,4 +185,16 @@ func TestRawKeyRoundTrip(t *testing.T) {
 	if _, err := FileIDFromRawKey("library/files/not-a-uuid/source"); err == nil {
 		t.Fatal("malformed raw key was accepted")
 	}
+	for _, nonCanonical := range []string{
+		strings.ToUpper(fileID),
+		strings.ReplaceAll(fileID, "-", ""),
+		"urn:uuid:" + fileID,
+	} {
+		if _, err := RawKey(nonCanonical); err == nil {
+			t.Fatalf("non-canonical file ID %q was accepted", nonCanonical)
+		}
+		if _, err := FileIDFromRawKey(RawPrefix + "/" + nonCanonical + "/source"); err == nil {
+			t.Fatalf("non-canonical raw key file ID %q was accepted", nonCanonical)
+		}
+	}
 }

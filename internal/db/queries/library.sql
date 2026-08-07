@@ -225,20 +225,26 @@ WHERE id = sqlc.arg('id')
   AND deleted_at IS NOT NULL;
 
 -- name: ListStaleLibraryDerivation :many
-SELECT f.id, f.status, f.updated_at
+SELECT
+  f.id,
+  f.status,
+  f.media_type,
+  f.raw_sha256,
+  f.updated_at,
+  chunk_set.id AS chunk_set_id,
+  chunk_set.derivation_key AS chunk_set_derivation_key,
+  chunk_set.processor_key AS chunk_set_processor_key
 FROM library_file AS f
+LEFT JOIN library_chunk_set AS chunk_set
+  ON chunk_set.file_id = f.id
+ AND chunk_set.status = 'building'
 WHERE f.deleted_at IS NULL
   AND f.updated_at < sqlc.arg('stale_before')
   AND (
     f.status = 'processing'
-    OR EXISTS (
-      SELECT 1
-      FROM library_chunk_set AS chunk_set
-      WHERE chunk_set.file_id = f.id
-        AND chunk_set.status = 'building'
-    )
+    OR chunk_set.id IS NOT NULL
   )
-ORDER BY f.updated_at ASC, f.id ASC
+ORDER BY f.updated_at ASC, f.id ASC, chunk_set.created_at ASC, chunk_set.id ASC
 LIMIT sqlc.arg('limit');
 
 -- name: ListLibraryTombstone :many

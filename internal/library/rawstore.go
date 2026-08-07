@@ -52,6 +52,9 @@ type RawStore interface {
 	Open(ctx context.Context, key string) (io.ReadCloser, error)
 	Delete(ctx context.Context, key string) error
 	ListPage(ctx context.Context, prefix, cursor string, limit int) (RawPage, error)
+	// SupportsOrphanCollection is true only when RawPrefix is owned exclusively
+	// by this Stella deployment, so unknown objects can be deleted safely.
+	SupportsOrphanCollection() bool
 }
 
 // RawStoreOptions holds backend admission knobs without exposing a second
@@ -81,8 +84,12 @@ func NewRawStoreFromConfig(
 
 // RawKey derives the only canonical object key for a LibraryFile.
 func RawKey(fileID string) (string, error) {
-	if _, err := uuid.Parse(fileID); err != nil {
+	parsed, err := uuid.Parse(fileID)
+	if err != nil {
 		return "", fmt.Errorf("invalid library file ID: %w", err)
+	}
+	if parsed.String() != fileID {
+		return "", fmt.Errorf("library file ID %q is not canonical", fileID)
 	}
 	return path.Join(RawPrefix, fileID, "source"), nil
 }
@@ -98,8 +105,12 @@ func FileIDFromRawKey(key string) (string, error) {
 	if len(parts) != 4 || parts[0] != "library" || parts[1] != "files" || parts[3] != "source" {
 		return "", fmt.Errorf("invalid library raw key %q", key)
 	}
-	if _, err := uuid.Parse(parts[2]); err != nil {
+	parsed, err := uuid.Parse(parts[2])
+	if err != nil {
 		return "", fmt.Errorf("invalid library raw file ID: %w", err)
+	}
+	if parsed.String() != parts[2] {
+		return "", fmt.Errorf("library raw file ID %q is not canonical", parts[2])
 	}
 	return parts[2], nil
 }

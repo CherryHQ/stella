@@ -30,6 +30,9 @@ func TestFSRawStoreContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !store.SupportsOrphanCollection() {
+		t.Fatal("FS RawStore must allow deployment-local orphan collection")
+	}
 	runRawStoreContract(t, store)
 }
 
@@ -44,6 +47,9 @@ func TestS3RawStoreContract(t *testing.T) {
 	}, t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if store.SupportsOrphanCollection() {
+		t.Fatal("S3 RawStore must retain unknown objects until keys are deployment-namespaced")
 	}
 	runRawStoreContract(t, store)
 	if err := server.putContractError(); err != nil {

@@ -88,7 +88,10 @@ func normalizeParsedChunks(chunks []ParsedChunk) ([]stagedChunk, []byte, error) 
 }
 
 // stagedContentDigest matches GetLibraryChunkSetIntegrity: each row adds an
-// eight-byte big-endian ordinal followed by its 32-byte content hash.
+// eight-byte big-endian ordinal followed by its 32-byte content hash. Locator
+// JSON is deliberately outside the V1 guard because the sole built-in parser
+// is deterministic. A second parser must add canonical locator JSON to both
+// digest implementations before it can be enabled.
 func stagedContentDigest(chunks []stagedChunk) []byte {
 	hash := sha256.New()
 	var ordinal [8]byte

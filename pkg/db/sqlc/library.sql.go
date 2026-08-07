@@ -492,20 +492,26 @@ func (q *Queries) ListLibraryTombstone(ctx context.Context, limit int32) ([]List
 }
 
 const listStaleLibraryDerivation = `-- name: ListStaleLibraryDerivation :many
-SELECT f.id, f.status, f.updated_at
+SELECT
+  f.id,
+  f.status,
+  f.media_type,
+  f.raw_sha256,
+  f.updated_at,
+  chunk_set.id AS chunk_set_id,
+  chunk_set.derivation_key AS chunk_set_derivation_key,
+  chunk_set.processor_key AS chunk_set_processor_key
 FROM library_file AS f
+LEFT JOIN library_chunk_set AS chunk_set
+  ON chunk_set.file_id = f.id
+ AND chunk_set.status = 'building'
 WHERE f.deleted_at IS NULL
   AND f.updated_at < $1
   AND (
     f.status = 'processing'
-    OR EXISTS (
-      SELECT 1
-      FROM library_chunk_set AS chunk_set
-      WHERE chunk_set.file_id = f.id
-        AND chunk_set.status = 'building'
-    )
+    OR chunk_set.id IS NOT NULL
   )
-ORDER BY f.updated_at ASC, f.id ASC
+ORDER BY f.updated_at ASC, f.id ASC, chunk_set.created_at ASC, chunk_set.id ASC
 LIMIT $2
 `
 
@@ -515,9 +521,14 @@ type ListStaleLibraryDerivationParams struct {
 }
 
 type ListStaleLibraryDerivationRow struct {
-	ID        string    `json:"id"`
-	Status    string    `json:"status"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID                    string      `json:"id"`
+	Status                string      `json:"status"`
+	MediaType             string      `json:"media_type"`
+	RawSha256             []byte      `json:"raw_sha256"`
+	UpdatedAt             time.Time   `json:"updated_at"`
+	ChunkSetID            pgtype.Text `json:"chunk_set_id"`
+	ChunkSetDerivationKey pgtype.Text `json:"chunk_set_derivation_key"`
+	ChunkSetProcessorKey  pgtype.Text `json:"chunk_set_processor_key"`
 }
 
 func (q *Queries) ListStaleLibraryDerivation(ctx context.Context, arg ListStaleLibraryDerivationParams) ([]ListStaleLibraryDerivationRow, error) {
@@ -529,7 +540,16 @@ func (q *Queries) ListStaleLibraryDerivation(ctx context.Context, arg ListStaleL
 	items := []ListStaleLibraryDerivationRow{}
 	for rows.Next() {
 		var i ListStaleLibraryDerivationRow
-		if err := rows.Scan(&i.ID, &i.Status, &i.UpdatedAt); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.MediaType,
+			&i.RawSha256,
+			&i.UpdatedAt,
+			&i.ChunkSetID,
+			&i.ChunkSetDerivationKey,
+			&i.ChunkSetProcessorKey,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

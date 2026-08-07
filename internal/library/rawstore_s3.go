@@ -19,6 +19,11 @@ type S3RawStore struct {
 	admission func(context.Context) error
 }
 
+// SupportsOrphanCollection remains false until S3 keys carry a deployment
+// namespace or another ownership marker. Exact-key tombstone cleanup is still
+// safe and continues to use Delete directly.
+func (*S3RawStore) SupportsOrphanCollection() bool { return false }
+
 func NewS3RawStore(
 	config blob.S3Config,
 	tempDir string,

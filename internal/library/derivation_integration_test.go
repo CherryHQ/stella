@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"reflect"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -308,6 +309,85 @@ func TestDeterministicParseFailurePublishesNothing(t *testing.T) {
 	assertLatestLibraryJobState(t, client, chunkArgs{}.Kind(), file.ID, rivertype.JobStateCompleted)
 }
 
+func TestCancelledChunkWorkerCannotCommitTerminalFailure(t *testing.T) {
+	database := dbtest.New(t)
+	store, err := NewFSRawStore(t.TempDir(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	defer func() {
+		select {
+		case <-releaseFirst:
+		default:
+			close(releaseFirst)
+		}
+	}()
+	var calls atomic.Int32
+	parser := parserFunc(func(context.Context, string, string) ([]ParsedChunk, error) {
+		if calls.Add(1) == 1 {
+			close(firstStarted)
+			<-releaseFirst
+			// The stale worker deliberately ignores cancellation long enough to
+			// enter the terminal failure transaction after takeover.
+			return nil, ErrInvalidParserData
+		}
+		return []ParsedChunk{{Content: "replacement generation"}}, nil
+	})
+	service, client := newWorkingLibraryServiceWithWorkers(t, database, store, parser, 1)
+	file, err := service.CreateManagedUpload(
+		t.Context(), testAuthority(t, testUserA, true), ScopeSystem, "", "takeover.txt", stringsReader("source"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-firstStarted:
+	case <-time.After(10 * time.Second):
+		t.Fatal("first parser attempt did not start")
+	}
+	oldJob, found, err := latestLibraryJob(t.Context(), client, chunkArgs{}.Kind(), file.ID)
+	if err != nil || !found || oldJob.State != rivertype.JobStateRunning {
+		t.Fatalf("load running chunk job: state=%v found=%t error=%v", oldJob, found, err)
+	}
+	if _, err := database.Exec(t.Context(), `
+		UPDATE river_job
+		SET attempted_at = now() - interval '1 hour'
+		WHERE id = $1
+	`, oldJob.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(t.Context(), `
+		UPDATE library_file
+		SET updated_at = now() - interval '1 hour'
+		WHERE id = $1
+	`, file.ID); err != nil {
+		t.Fatal(err)
+	}
+	service.staleDerivationAfter = time.Minute
+	if err := service.reconcileStaleDerivations(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var oldState string
+	if err := database.QueryRow(
+		t.Context(), `SELECT state::text FROM river_job WHERE id = $1`, oldJob.ID,
+	).Scan(&oldState); err != nil {
+		t.Fatal(err)
+	}
+	if oldState != string(rivertype.JobStateCancelled) {
+		t.Fatalf("taken-over job state = %q, want cancelled", oldState)
+	}
+	close(releaseFirst)
+	ready := waitForLibraryFile(t, service, file.ID, func(current LibraryFile) bool {
+		return current.Status == FileStatusReady && current.ActiveChunkSetID != ""
+	})
+	if ready.ErrorMessage != "" || calls.Load() < 2 {
+		t.Fatalf("replacement did not recover cancelled worker: file=%+v parser_calls=%d", ready, calls.Load())
+	}
+	assertLatestLibraryJobState(t, client, chunkArgs{}.Kind(), file.ID, rivertype.JobStateCompleted)
+}
+
 func TestInactiveReadyChunkSetDoesNotChangePublishedGeneration(t *testing.T) {
 	database := dbtest.New(t)
 	store, err := NewFSRawStore(t.TempDir(), 0)
@@ -374,12 +454,22 @@ func newWorkingLibraryService(
 	store RawStore,
 	parser Parser,
 ) (*Service, *river.Client[pgx.Tx]) {
+	return newWorkingLibraryServiceWithWorkers(t, database, store, parser, 0)
+}
+
+func newWorkingLibraryServiceWithWorkers(
+	t *testing.T,
+	database *pgxpool.Pool,
+	store RawStore,
+	parser Parser,
+	maxWorkers int,
+) (*Service, *river.Client[pgx.Tx]) {
 	t.Helper()
 	service, err := NewService(ServiceConfig{
 		DB: database, RawStore: store, Parser: parser, ParserProfile: testParserProfile,
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), TempDir: t.TempDir(),
 		MaxConcurrentUploads: 4, MaxSpoolBytes: 4 * MaxFileBytes,
-		ReconciliationInterval: time.Hour,
+		ReconciliationInterval: time.Hour, MaxWorkers: maxWorkers,
 	})
 	if err != nil {
 		t.Fatal(err)

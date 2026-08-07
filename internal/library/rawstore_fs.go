@@ -24,6 +24,10 @@ type FSRawStore struct {
 	availableBytes func(string) (int64, error)
 }
 
+// SupportsOrphanCollection reports that the local Library root belongs to this
+// Stella deployment rather than a shared external namespace.
+func (*FSRawStore) SupportsOrphanCollection() bool { return true }
+
 func NewFSRawStore(root string, minFreeBytes int64) (*FSRawStore, error) {
 	if root == "" {
 		return nil, fmt.Errorf("library raw FS root is required")
