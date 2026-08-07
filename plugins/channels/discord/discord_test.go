@@ -198,8 +198,8 @@ func TestAttachmentOwnershipIsResolvedBeforeDownload(t *testing.T) {
 	if got := userFacingError(m, err); !strings.Contains(got, "not supported in guest chat") {
 		t.Fatalf("userFacingError() = %q", got)
 	}
-	if h.resolveCalls != 1 || h.handleCalls != 0 {
-		t.Fatalf("calls: resolve=%d handle=%d, want 1 and 0", h.resolveCalls, h.handleCalls)
+	if h.admitCalls != 1 || h.handleCalls != 0 {
+		t.Fatalf("calls: admit=%d handle=%d, want 1 and 0", h.admitCalls, h.handleCalls)
 	}
 }
 
@@ -216,8 +216,8 @@ func TestAttachmentRootFailureStillDeliversMessage(t *testing.T) {
 	if err := b.handleMessage(context.Background(), m); err != nil {
 		t.Fatal(err)
 	}
-	if h.resolveCalls != 1 || h.handleCalls != 1 {
-		t.Fatalf("calls: resolve=%d handle=%d, want 1 and 1", h.resolveCalls, h.handleCalls)
+	if h.admitCalls != 1 || h.handleCalls != 1 {
+		t.Fatalf("calls: admit=%d handle=%d, want 1 and 1", h.admitCalls, h.handleCalls)
 	}
 }
 
@@ -359,13 +359,13 @@ type unregisteringHandler struct {
 
 type rejectingAttachmentHandler struct {
 	unregisteringHandler
-	err          error
-	resolveCalls int
+	err        error
+	admitCalls int
 }
 
-func (h *rejectingAttachmentHandler) ResolveUserRoot(context.Context, channel.IncomingMessage) (string, error) {
-	h.resolveCalls++
-	return "", h.err
+func (h *rejectingAttachmentHandler) AdmitAssetSave(context.Context, channel.IncomingMessage) error {
+	h.admitCalls++
+	return h.err
 }
 
 func (h *unregisteringHandler) HandleIncoming(context.Context, channel.IncomingMessage, string, string) (string, bool, *channel.ChatStream, error) {
