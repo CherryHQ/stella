@@ -9,15 +9,19 @@ import (
 // operationHandlerSurface is the full capability surface the managed channel
 // handler (the Coordinator) exposes and that channel adapters type-assert for.
 // The two-phase-drain wrapper embeds it so a wrapped handler still satisfies the
-// BotRegistrar, RegisterGroupPublisher, Provisioner, UserRootResolver, and
-// group-member-provisioner assertions the adapters make at construction and call
-// time. Adding a capability that an adapter asserts requires adding it here.
+// BotRegistrar, RegisterGroupPublisher, Provisioner, UserRootResolver,
+// AssetSaver, and group-member-provisioner assertions the adapters make at
+// construction and call time. Adding a capability that an adapter asserts
+// requires adding it here — an embedded-interface wrapper only satisfies the
+// interfaces its declared method set covers, so a capability missing here is
+// silently dropped for every managed channel.
 type operationHandlerSurface interface {
 	pkgchannel.Handler
 	RegisterBotIdentity(platform, platformBotID, channelID string)
 	RegisterGroupPublisher(channelID string, publisher GroupPublisher)
 	ProvisionUser(ctx context.Context, req pkgchannel.ProvisionRequest) error
 	ResolveUserRoot(ctx context.Context, msg pkgchannel.IncomingMessage) (string, error)
+	SaveAsset(ctx context.Context, assetsDir, fileName string, data []byte) (string, error)
 	EnsurePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error
 	RemovePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error
 }
@@ -94,6 +98,12 @@ func (h operationContextHandler) ProvisionUser(ctx context.Context, req pkgchann
 
 func (h operationContextHandler) ResolveUserRoot(ctx context.Context, msg pkgchannel.IncomingMessage) (string, error) {
 	return h.operationHandlerSurface.ResolveUserRoot(operationCallContext(h.opCtx, ctx), msg)
+}
+
+// SaveAsset runs on the operation context so an accepted attachment finishes
+// persisting even if the poll context is cancelled at drain.
+func (h operationContextHandler) SaveAsset(ctx context.Context, assetsDir, fileName string, data []byte) (string, error) {
+	return h.operationHandlerSurface.SaveAsset(operationCallContext(h.opCtx, ctx), assetsDir, fileName, data)
 }
 
 func (h operationContextHandler) EnsurePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error {

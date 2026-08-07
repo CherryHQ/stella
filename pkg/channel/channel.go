@@ -18,6 +18,7 @@ const (
 	PlatformQQ       = "qq"
 	PlatformFeishu   = "feishu"
 	PlatformWeixin   = "weixin"
+	PlatformDiscord  = "discord"
 	PlatformCLI      = "cli"
 )
 

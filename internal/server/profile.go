@@ -89,10 +89,10 @@ func (s *Server) GenerateLinkCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch body.Platform {
-	case pkgchannel.PlatformTelegram, pkgchannel.PlatformQQ, pkgchannel.PlatformFeishu:
+	case pkgchannel.PlatformTelegram, pkgchannel.PlatformQQ, pkgchannel.PlatformFeishu, pkgchannel.PlatformDiscord:
 		// valid
 	default:
-		writeError(w, http.StatusBadRequest, "platform must be telegram, qq, or feishu")
+		writeError(w, http.StatusBadRequest, "platform must be telegram, qq, feishu, or discord")
 		return
 	}
 

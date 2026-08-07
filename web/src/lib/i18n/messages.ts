@@ -2051,6 +2051,9 @@ const en = {
   "channels.enabledDesc": "A disabled channel receives nothing, whatever it is bound to.",
   "channels.autoProvision": "Auto-provision accounts",
   "channels.autoProvisionDesc": "Create a Stella account for every member of the tenant.",
+  "channels.discordMentionOnly": "Respond only when @mentioned",
+  "channels.discordMentionOnlyDesc":
+    "In servers, reply only to messages that @mention the bot or land in a whitelisted channel. Direct messages always get a reply.",
   "channels.configOnlyNote":
     "This form stores the channel config only; binding lives on the agent.",
   "channels.saved": "Channel saved",
@@ -4181,6 +4184,9 @@ const zh: Record<MessageKey, string> = {
   "channels.enabledDesc": "停用后，无论绑定了谁，该渠道都不再接收消息。",
   "channels.autoProvision": "自动开通账号",
   "channels.autoProvisionDesc": "为企业内的每位成员自动创建 Stella 账号。",
+  "channels.discordMentionOnly": "仅在被 @提及时回复",
+  "channels.discordMentionOnlyDesc":
+    "在服务器中，仅回复 @提及机器人或位于白名单频道的消息；私信始终回复。",
   "channels.configOnlyNote": "这里只保存渠道配置；绑定关系在智能体那边设置。",
   "channels.saved": "渠道已保存",
   "channels.saveFailed": "保存渠道失败",

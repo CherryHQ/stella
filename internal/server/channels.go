@@ -52,6 +52,7 @@ var channelLinkLabels = map[string]string{
 	pkgchannel.PlatformQQ:       "QQ",
 	pkgchannel.PlatformFeishu:   "Feishu",
 	pkgchannel.PlatformWeixin:   "Weixin",
+	pkgchannel.PlatformDiscord:  "Discord",
 }
 
 var channelLinkOrder = []string{
@@ -59,6 +60,7 @@ var channelLinkOrder = []string{
 	pkgchannel.PlatformQQ,
 	pkgchannel.PlatformFeishu,
 	pkgchannel.PlatformWeixin,
+	pkgchannel.PlatformDiscord,
 }
 
 func channelToView(ch config.Channel) channelView {

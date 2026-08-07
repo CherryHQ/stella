@@ -1,5 +1,5 @@
 import { MessageCircle } from "lucide-react";
-import { siQq, siTelegram, siWechat } from "simple-icons";
+import { siDiscord, siQq, siTelegram, siWechat } from "simple-icons";
 
 /**
  * Chat platform identity — the brand mark and display name shared by every
@@ -11,6 +11,7 @@ export const PLATFORM_LABELS: Record<string, string> = {
   qq: "QQ",
   feishu: "Feishu",
   weixin: "Weixin",
+  discord: "Discord",
 };
 
 export function platformLabel(type: string, fallback = ""): string {
@@ -21,6 +22,7 @@ const PLATFORM_ICON_PATHS: Record<string, string> = {
   telegram: siTelegram.path,
   qq: siQq.path,
   weixin: siWechat.path,
+  discord: siDiscord.path,
 };
 
 /**

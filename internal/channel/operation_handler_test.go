@@ -52,6 +52,10 @@ func (h *fullSurfaceHandler) ResolveUserRoot(context.Context, pkgchannel.Incomin
 	return "", nil
 }
 
+func (h *fullSurfaceHandler) SaveAsset(context.Context, string, string, []byte) (string, error) {
+	return "", nil
+}
+
 func (h *fullSurfaceHandler) EnsurePlatformGroupMember(context.Context, string, string, string) error {
 	return nil
 }
@@ -121,6 +125,9 @@ func TestWrapOperationHandlerPreservesOptionalInterfaces(t *testing.T) {
 	}
 	if _, ok := wrapped.(pkgchannel.UserRootResolver); !ok {
 		t.Error("wrapper dropped UserRootResolver")
+	}
+	if _, ok := wrapped.(pkgchannel.AssetSaver); !ok {
+		t.Error("wrapper dropped AssetSaver")
 	}
 	if _, ok := wrapped.(interface {
 		RegisterGroupPublisher(string, GroupPublisher)

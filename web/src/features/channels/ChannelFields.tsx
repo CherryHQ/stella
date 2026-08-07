@@ -27,6 +27,13 @@ export const platformDefaults: Record<string, PlatformDefaults> = {
     auto_provision: false,
   },
   weixin: { bot_token: "", base_url: "", bot_id: "", user_id: "" },
+  discord: {
+    token: "",
+    guild_id: "",
+    channel_id: "",
+    mention_only: true,
+    respond_channels: "",
+  },
 };
 
 export const channelTypes = Object.keys(platformDefaults).map((id) => ({
@@ -202,6 +209,31 @@ export function ChannelConfigFields({
           {field("bot_id", "Bot ID", "text", "optional")}
           {field("user_id", "User ID", "text", "optional")}
         </div>
+      )}
+
+      {type === "discord" && (
+        <>
+          {field("token", "Bot Token", "password", "From Discord Developer Portal")}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {field("guild_id", "Server ID", "text", "optional, restrict to one server")}
+            {field("channel_id", "Channel ID", "text", "optional default channel")}
+          </div>
+          <Field>
+            <FieldLabel>{t("channels.discordMentionOnly")}</FieldLabel>
+            <Switch
+              checked={Boolean(channel.mention_only)}
+              aria-label={t("channels.discordMentionOnly")}
+              onCheckedChange={(checked) => onChange("mention_only", checked)}
+            />
+            <FieldDescription>{t("channels.discordMentionOnlyDesc")}</FieldDescription>
+          </Field>
+          {field(
+            "respond_channels",
+            "Respond Channels",
+            "text",
+            "optional, comma-separated channel IDs that bypass mention-only",
+          )}
+        </>
       )}
     </div>
   );
