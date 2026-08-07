@@ -41,6 +41,12 @@ func TestAutoProvisionGroupMessagesRequireBotMention(t *testing.T) {
 	if !b.isAutoProvisionMessage("p2p", nil) {
 		t.Fatal("direct message should be eligible")
 	}
+	if b.isAutoProvisionMessage("", nil) {
+		t.Fatal("missing chat type should not be eligible")
+	}
+	if b.isAutoProvisionMessage("future-chat-type", nil) {
+		t.Fatal("unknown chat type should not be eligible")
+	}
 	if b.isAutoProvisionMessage("group", nil) {
 		t.Fatal("unmentioned group message should not be eligible")
 	}

@@ -17,16 +17,18 @@ const provisionCacheTTL = time.Hour
 // address this bot. The later semantic-group decision is asynchronous and must
 // not be used as an admission signal.
 func (b *Bot) isAutoProvisionMessage(chatType string, mentions []*larkim.MentionEvent) bool {
-	if chatType != "group" {
+	switch chatType {
+	case "p2p":
 		return true
-	}
-	botOpenID, _ := b.botOpenID.Load().(string)
-	if botOpenID == "" {
-		return false
-	}
-	for _, mention := range mentions {
-		if mention != nil && mention.Id != nil && derefStr(mention.Id.OpenId) == botOpenID {
-			return true
+	case "group":
+		botOpenID, _ := b.botOpenID.Load().(string)
+		if botOpenID == "" {
+			return false
+		}
+		for _, mention := range mentions {
+			if mention != nil && mention.Id != nil && derefStr(mention.Id.OpenId) == botOpenID {
+				return true
+			}
 		}
 	}
 	return false
