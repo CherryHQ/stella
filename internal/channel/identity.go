@@ -75,6 +75,11 @@ func ResolveUserCandidates(ctx context.Context, store channelAuthStore, platform
 			return ResolvedIdentity{}, identityMatch{}, fmt.Errorf("lookup auth user: %w", err)
 		}
 
+		if !user.IsActive {
+			// Do not disclose whether this sender is linked to a deactivated account.
+			return ResolvedIdentity{}, identityMatch{}, ErrAgentAccessDenied
+		}
+
 		return ResolvedIdentity{User: user}, identityMatch{Identity: identity, Matched: externalID}, nil
 	}
 
@@ -100,6 +105,11 @@ func linkLoginIdentityAsChannelIdentity(ctx context.Context, store channelAuthSt
 			return ResolvedIdentity{}, identityMatch{}, true, nil
 		}
 		return ResolvedIdentity{}, identityMatch{}, false, fmt.Errorf("lookup login identity user: %w", err)
+	}
+
+	if !user.IsActive {
+		// Linking must not turn a deactivated login account into usable channel access.
+		return ResolvedIdentity{}, identityMatch{}, true, ErrAgentAccessDenied
 	}
 
 	name := senderName

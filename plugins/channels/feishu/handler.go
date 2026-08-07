@@ -60,16 +60,6 @@ func (b *Bot) onReaction(ctx context.Context, event *larkim.P2MessageReactionCre
 	// against the correct session (group vs private, threaded vs not).
 	chatID, chatType, rootID := b.getMessageContext(messageID)
 
-	// Auto-provision the reacting user. TenantKey is not available in reaction
-	// events; the contact API failure acts as the implicit tenant filter.
-	// Run synchronously so the user exists before HandleIncoming does the identity lookup.
-	if data.UserId != nil {
-		unionID := derefStr(data.UserId.UnionId)
-		provCtx, provCancel := b.apiContext()
-		b.maybeAutoProvision(provCtx, openID, unionID, "")
-		provCancel()
-	}
-
 	reactionText := fmt.Sprintf("[User reacted with %s on message %s]", emojiType, messageID)
 
 	msg := b.incomingMsg(senderIDs, chatID, chatType, channel.TextContent(reactionText))
@@ -131,16 +121,22 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 		text = stripMentions(text, mentions)
 	}
 
-	// Auto-provision the sender if enabled. Done after dedup+group checks so
-	// duplicate events and bots in disabled groups never trigger provisioning.
-	// Skip for /link so the existing manual-link flow stays authoritative.
-	// Run synchronously so the user exists before HandleIncoming does the identity lookup.
-	if cmd0, _ := channel.ParseSlashCommand(text); cmd0 != "/link" {
-		unionID := derefStr(sender.SenderId.UnionId)
+	// Auto-provision only direct messages or group messages that explicitly
+	// mention this bot. Group arbitration happens asynchronously after this
+	// boundary, so using its eventual decision here would admit unaddressed
+	// group traffic before it is selected. Skip /link to keep manual linking
+	// authoritative. Run synchronously so the user exists before identity lookup.
+	if cmd0, _ := channel.ParseSlashCommand(text); cmd0 != "/link" && b.isAutoProvisionMessage(chatType, mentions) {
 		tenantKey := derefStr(sender.TenantKey)
 		provCtx, provCancel := b.apiContext()
-		b.maybeAutoProvision(provCtx, openID, unionID, tenantKey)
+		canonicalUnionID := b.maybeAutoProvision(provCtx, openID, tenantKey)
 		provCancel()
+		if canonicalUnionID != "" {
+			senderIDs = feishuSenderIDs(append([]string{canonicalUnionID}, senderIDs...)...)
+			if openID != "" {
+				b.unionIDs.Store(openID, canonicalUnionID)
+			}
+		}
 	}
 
 	// For file and image-bearing messages: resolve the per-user assets directory

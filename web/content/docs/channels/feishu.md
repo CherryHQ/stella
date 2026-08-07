@@ -46,37 +46,47 @@ If you already have a Feishu app, you can still enter credentials manually:
 
 ## Auto-Provisioning
 
-When a user signs in to Stella with Feishu OAuth, Stella links the Feishu channel identity immediately using the Feishu `union_id`. No `/link` command is needed.
+Feishu OAuth and Feishu chat use the same canonical Feishu `union_id`. Configure the built-in OAuth provider as `feishu`; a Feishu OAuth login then links the channel identity to that user. Auto-provisioning creates that same pair of identities, so a later OAuth login reuses the account instead of creating another one. `/link` remains available for manual linking and never triggers auto-provisioning.
 
-When you enable auto-provisioning for a Feishu channel instance, Stella can also create an account for each employee the first time they message that bot. This is for users who have not signed in with Feishu OAuth yet.
+Enable auto-provisioning per Feishu channel only when you want verified members of that bot's tenant to be admitted on first contact.
 
-### How it works
+### Admission contract
 
-1. A user messages the bot.
-2. Auto-provision runs only for messages that the bot actually handles. In groups, the most reliable first-contact trigger is an `@` mention. Non-mention messages may be handled when Stella's semantic group routing confidently selects this bot.
-3. Stella determines the bot tenant key:
-   - If you configured `tenant_key`, that value is used.
-   - Otherwise Stella tries to auto-detect it at startup via the Feishu tenant API.
-4. If the message event includes a `tenant_key` that does not match the bot tenant, Stella skips auto-provision for that sender.
-5. Stella calls the Feishu Contact API to retrieve the user's `union_id`, display name, and email.
-6. A new Stella user is created with the email local-part as username (`alice` from `alice@corp.com`), falling back to `feishu-<union_id[:8]>` if no email is available. Username collisions get a `-2`, `-3`, ... suffix.
-7. The provisioned user has no password -- they can chat with the bot immediately but cannot log into the Web UI until an admin sets a password for them.
-8. Provisioned users are assigned the `user` role and the system default agent.
+Stella creates or completes an account only when all of these are true:
 
-Auto-provisioning is best-effort. If tenant detection or the Contact API lookup fails, the message still goes through the normal channel flow, but no Stella user is created. If a matching Feishu OAuth login identity already exists and was not linked during Web UI login, Stella links the channel identity from that login identity instead of creating a separate user.
+1. `auto_provision` is enabled for the channel and the event is a normal message, not a reaction or `/link` event.
+2. The bot has an effective tenant key: the configured `tenant_key`, or a key successfully discovered at startup from the Feishu tenant API.
+3. The message event itself carries a non-empty `tenant_key` exactly matching that effective key. Contact API access alone is not tenant-membership proof.
+4. Stella can read the sender through the Feishu Contact API and the profile contains a non-empty canonical `union_id`.
+5. At least one active Stella administrator already exists.
+
+In a group, auto-provisioning requires an explicit `@` mention of this bot; semantic routing of an unmentioned message does not enroll its sender. External guests, missing or mismatched event tenant keys, reaction events, Contact API failures, and profiles without a `union_id` create no account. Provisioning failures do not stop the normal message flow.
+
+The Contact API supplies the canonical `union_id`, display name, and email. Stella never persists the event `union_id` as new identity evidence. It uses `union_id`, not email, to converge Feishu OAuth and channel identities; an email already owned by a different user is rejected rather than silently merged.
+
+### Account and access behavior
+
+A successful first enrollment atomically creates one active Stella user, a Feishu login identity, and a Feishu channel identity. The new account always has the `user` role; auto-provisioning can neither create nor promote an administrator.
+
+If Feishu omits an email address, Stella stores a stable synthetic internal address derived from the canonical `union_id` and tenant key (for example, `union_id@tenant_key.feishu.local`). It is an account identifier, not a deliverable mailbox. The same normalization is used by Feishu OAuth, so the two entry points converge.
+
+Auto-provisioning does not assign an agent or set a default agent. The user's access to agents continues through Stella's existing authorization and channel-routing rules; a channel bound to a dedicated agent remains subject to that channel's routing policy.
+
+An inactive user is never reactivated by a message. Existing inactive Feishu channel or OAuth identities are denied channel access. To offboard someone, an administrator must deactivate their Stella user; this feature does not synchronize departures from the Feishu directory or remove accounts automatically.
 
 ### Required app scopes
 
-Add these scopes to your Feishu app under **Permissions & Scopes**:
+Add these scopes to your Feishu app under **Permissions & Scopes** so Stella can read the Contact API profile:
 
 - `contact:user.base:readonly`
 - `contact:user.id:readonly`
+- `contact:user.email:readonly` (to use the member's actual email; otherwise Stella uses the synthetic address)
 
 ### Finding your tenant key
 
 In the Feishu Admin Console, go to **Enterprise Information**. The tenant key is labeled **Tenant Key**.
 
-Setting `tenant_key` explicitly is recommended because it removes one failure mode and makes auto-provisioning more predictable, though Stella can auto-detect it at startup.
+Setting `tenant_key` explicitly is recommended because it removes a startup discovery failure mode. Auto-provisioning is disabled for admission if Stella has no effective tenant key.
 
 ### Configuration
 
@@ -89,9 +99,9 @@ Setting `tenant_key` explicitly is recommended because it removes one failure mo
 }
 ```
 
-> **Warning:** External guests in shared groups are not auto-provisioned. If their tenant key differs from the bot tenant, Stella skips account creation for them. This is by design.
+> **Warning:** An event must carry the same tenant key as this bot. A shared-group guest or any event without that evidence is not auto-provisioned.
 
-> **Note:** If no admin user exists yet, auto-provisioning is refused until the first admin registers via the Web UI. This prevents stranding a fresh deployment with zero admins.
+> **Note:** Create an active administrator before enabling auto-provisioning. The feature cannot bootstrap the first admin.
 
 ## Multi-User Support
 
@@ -219,16 +229,16 @@ Feishu supports the standard chat commands:
 }
 ```
 
-| Field                | Description                                                                                                          |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `app_id`             | Feishu app ID                                                                                                        |
-| `app_secret`         | Feishu app secret                                                                                                    |
-| `encrypt_key`        | Optional event encryption key                                                                                        |
-| `verification_token` | Optional event verification token                                                                                    |
-| `enable_notify`      | Allow scheduler and notify output to target Feishu                                                                   |
-| `tenant_key`         | Your enterprise tenant key. Optional: Stella can auto-detect it at startup, but setting it explicitly is recommended |
-| `auto_provision`     | Automatically create Stella accounts for users handled by this Feishu channel instance                               |
-| `groups`             | Optional per-chat overrides keyed by Feishu `chat_id`                                                                |
+| Field                | Description                                                                                                            |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `app_id`             | Feishu app ID                                                                                                          |
+| `app_secret`         | Feishu app secret                                                                                                      |
+| `encrypt_key`        | Optional event encryption key                                                                                          |
+| `verification_token` | Optional event verification token                                                                                      |
+| `enable_notify`      | Allow scheduler and notify output to target Feishu                                                                     |
+| `tenant_key`         | Your enterprise tenant key. Optional: Stella can auto-detect it at startup, but setting it explicitly is recommended   |
+| `auto_provision`     | Create accounts only for verified tenant members: a direct message, or a group message explicitly @mentioning this bot |
+| `groups`             | Optional per-chat overrides keyed by Feishu `chat_id`                                                                  |
 
 ## Troubleshooting
 
@@ -246,9 +256,9 @@ Feishu supports the standard chat commands:
 **Auto-provisioning not creating users?**
 
 1. Make sure you enabled auto-provision on the correct Feishu channel instance -- it is configured per instance, not globally.
-2. In groups, ask the user to @mention the bot for first contact. Non-mention messages can stay silent if semantic routing does not select the bot.
-3. Verify that `tenant_key` is set or that startup auto-detection succeeded. If neither works, auto-provision is skipped.
-4. Confirm your Feishu app has these scopes: `contact:user.base:readonly` and `contact:user.id:readonly`.
+2. In groups, the user must @mention this bot for first-contact enrollment. Semantic routing of an unmentioned message does not auto-provision its sender.
+3. Verify that `tenant_key` is set or that startup auto-detection succeeded, and that the message event carries that exact tenant key. If either check fails, auto-provision is skipped.
+4. Confirm your Feishu app has these scopes: `contact:user.base:readonly`, `contact:user.id:readonly`, and `contact:user.email:readonly` if you want to store actual member emails.
 5. At least one Stella admin must already exist. Fresh deployments refuse auto-provision until the first admin account is created.
 6. External guests are intentionally not auto-provisioned. Only internal tenant members qualify.
 7. Restart `stellad server` after changing any configuration.

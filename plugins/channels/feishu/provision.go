@@ -6,17 +6,50 @@ import (
 	"time"
 
 	larkcontact "github.com/larksuite/oapi-sdk-go/v3/service/contact/v3"
+	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 const provisionCacheTTL = time.Hour
 
+// isAutoProvisionMessage restricts group enrollment to users who directly
+// address this bot. The later semantic-group decision is asynchronous and must
+// not be used as an admission signal.
+func (b *Bot) isAutoProvisionMessage(chatType string, mentions []*larkim.MentionEvent) bool {
+	switch chatType {
+	case "p2p":
+		return true
+	case "group":
+		botOpenID, _ := b.botOpenID.Load().(string)
+		if botOpenID == "" {
+			return false
+		}
+		for _, mention := range mentions {
+			if mention != nil && mention.Id != nil && derefStr(mention.Id.OpenId) == botOpenID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (b *Bot) isCachedProvision(key string) bool {
 	b.provisionedMu.Lock()
 	defer b.provisionedMu.Unlock()
-	t, ok := b.provisioned[key]
-	return ok && time.Since(t) < provisionCacheTTL
+
+	now := time.Now()
+	if now.Sub(b.lastProvisionSweep) >= provisionCacheTTL {
+		for unionID, provisionedAt := range b.provisioned {
+			if now.Sub(provisionedAt) >= provisionCacheTTL {
+				delete(b.provisioned, unionID)
+			}
+		}
+		b.lastProvisionSweep = now
+	}
+
+	provisionedAt, ok := b.provisioned[key]
+	return ok && now.Sub(provisionedAt) < provisionCacheTTL
 }
 
 // effectiveTenantKey returns the configured tenant key, or the one auto-detected
@@ -63,6 +96,9 @@ type TenantProfile struct {
 // fetchTenantProfile calls contact.v3.user.get with open_id to get profile info.
 // Returns nil if the API call fails or returns no data.
 func (b *Bot) fetchTenantProfile(ctx context.Context, openID string) *TenantProfile {
+	if b.fetchTenantProfileFn != nil {
+		return b.fetchTenantProfileFn(ctx, openID)
+	}
 	if b.client == nil {
 		return nil
 	}
@@ -99,80 +135,56 @@ func (b *Bot) fetchTenantProfile(ctx context.Context, openID string) *TenantProf
 // maybeAutoProvision provisions an Stella user for the sender if auto-provisioning
 // is enabled and the sender belongs to the configured tenant.
 //
-// tenantKey is the sender's tenant key from the event (empty string if unavailable,
-// e.g. in reaction events). When non-empty it is checked against cfg.TenantKey
-// before any API call; when empty the contact API failure acts as an implicit filter.
-//
-// It is called after dedup+group-eligibility checks in onMessage/onReaction.
-// On any error it logs and returns silently — provisioning failure must never
-// block the normal message flow.
-//
-// Cache key is union_id so users messaging from multiple devices share one entry.
-func (b *Bot) maybeAutoProvision(ctx context.Context, openID, unionID, tenantKey string) {
+// tenantKey must be non-empty evidence from a normal message event and match
+// the bot's effective tenant key. Contact API readability is not tenant proof.
+// On any failure it logs and returns silently — provisioning failure never
+// blocks normal message handling.
+// A non-empty return value is the canonical union_id of a successful enrollment.
+func (b *Bot) maybeAutoProvision(ctx context.Context, openID, tenantKey string) string {
 	if !b.cfg.AutoProvision {
-		return
+		return ""
 	}
 	effective := b.effectiveTenantKey()
-	if effective == "" {
-		return
+	if effective == "" || tenantKey == "" {
+		return ""
 	}
-
-	// Explicit tenant check when the event carries a tenant_key.
-	if tenantKey != "" && tenantKey != effective {
+	if tenantKey != effective {
 		logger().Debug("auto-provision: skipping external tenant user", "tenant_key", tenantKey)
-		return
+		return ""
 	}
 
 	provisioner, ok := b.handler.(pkgchannel.Provisioner)
 	if !ok {
-		return
+		return ""
 	}
 
-	// Check cache using union_id when available, falling back to open_id.
-	cacheKey := unionID
-	if cacheKey == "" {
-		cacheKey = openID
-	}
-
-	if b.isCachedProvision(cacheKey) {
-		return
-	}
-
-	// Fetch profile from contact API for email hint and authoritative union_id.
-	// This also acts as an implicit tenant filter: the API rejects external users.
+	// The Contact API profile supplies the canonical union_id and enrollment
+	// attributes. Never trust the event union_id for durable identity writes.
 	profile := b.fetchTenantProfile(ctx, openID)
-	if profile == nil {
-		return
+	if profile == nil || profile.UnionID == "" {
+		if profile != nil {
+			logger().Warn("auto-provision: skipping user with empty union_id", "open_id", openID)
+		}
+		return ""
 	}
-
-	// Use union_id from profile as the canonical external ID.
-	if profile.UnionID != "" {
-		cacheKey = profile.UnionID
-		unionID = profile.UnionID
-	}
-
-	// Refuse to provision with an empty external ID: every user missing union_id
-	// would be stored as (feishu, "") and resolve to the same Stella account.
-	if unionID == "" {
-		logger().Warn("auto-provision: skipping user with empty union_id", "open_id", openID)
-		return
-	}
-
-	// Re-check cache with the authoritative union_id.
-	if b.isCachedProvision(cacheKey) {
-		return
+	if b.isCachedProvision(profile.UnionID) {
+		return profile.UnionID
 	}
 
 	if err := provisioner.ProvisionUser(ctx, pkgchannel.ProvisionRequest{
 		Platform:   pkgchannel.PlatformFeishu,
-		ExternalID: unionID,
+		ExternalID: profile.UnionID,
+		TenantKey:  tenantKey,
+		Email:      profile.Email,
 		Name:       profile.Name,
 	}); err != nil {
 		logger().Debug("auto-provision failed", "open_id", openID, "error", err)
-		return
+		return ""
 	}
 
+	// Cache only a successful, canonically identified enrollment.
 	b.provisionedMu.Lock()
-	b.provisioned[cacheKey] = time.Now()
+	b.provisioned[profile.UnionID] = time.Now()
 	b.provisionedMu.Unlock()
+	return profile.UnionID
 }

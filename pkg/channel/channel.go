@@ -164,11 +164,16 @@ type AgentInfo struct {
 	Name string
 }
 
-// ProvisionRequest carries the information needed to look up a channel user.
+// ProvisionRequest carries verified platform evidence for enrollment. Plugins
+// remain independent of internal auth types; ExternalID is the platform's
+// canonical identity subject (Feishu union_id for Feishu enrollment).
 type ProvisionRequest struct {
 	Platform   string
 	ExternalID string
+	TenantKey  string
+	Email      string
 	Name       string
+	AvatarURL  string
 }
 
 // Provisioner is an optional capability that a Handler may implement.

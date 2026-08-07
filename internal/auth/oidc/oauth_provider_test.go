@@ -165,6 +165,29 @@ func TestOAuthProviderFeishuAllowsMissingEmailWhenTenantAllowed(t *testing.T) {
 	}
 }
 
+func TestOAuthProviderFeishuRejectsMissingUnionID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 0,
+			"data": map[string]any{"open_id": "ou_open", "tenant_key": "tenant-1"},
+		})
+	}))
+	defer server.Close()
+
+	p, err := NewOAuthProvider(&OAuthConfig{
+		ProviderName: "feishu", Kind: "feishu", ClientID: "client-id", ClientSecret: "client-secret",
+		RedirectURL: "https://stella.example/auth/callback/feishu", AuthURL: server.URL + "/authorize",
+		TokenURL: server.URL + "/token", TokenRequestStyle: "json", UserInfoURL: server.URL,
+		AllowedTenantKeys: []string{"tenant-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.fetchFeishuProfile(t.Context(), "token"); err == nil || !strings.Contains(err.Error(), "missing union_id") {
+		t.Fatalf("fetchFeishuProfile error = %v, want missing union_id", err)
+	}
+}
+
 func TestOAuthProviderGenericRequiresEmailVerifiedByDefault(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
