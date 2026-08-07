@@ -2052,7 +2052,7 @@ const en = {
   "channels.allowDm": "Allow direct messages",
   "channels.allowDmDesc":
     "Accept account linking and direct-message chat. Disable this to reject all DMs.",
-  "channels.allowedGuildIds": "Allowed Guild IDs",
+  "channels.allowedGuildIds": "Allowed server IDs",
   "channels.allowedChatIds": "Allowed group chat IDs",
   "channels.allowedDiscordGuildIdsPlaceholder": "Comma-separated Discord server IDs",
   "channels.allowedTelegramChatIdsPlaceholder": "Comma-separated Telegram group chat IDs",

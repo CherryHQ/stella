@@ -1297,6 +1297,8 @@ func TestCardActionReturnsToast(t *testing.T) {
 			return "oc_chat1", "p2p", "", true, true
 		},
 	}
+	bot.botOpenID.Store("ou_bot")
+	bot.unionIDs.Store("ou_user1", "on_user1")
 	resp, err := bot.onCardAction(context.Background(), &callback.CardActionTriggerEvent{
 		Event: &callback.CardActionTriggerRequest{
 			Operator: &callback.Operator{OpenID: "ou_user1"},
@@ -1337,6 +1339,8 @@ func TestCardActionSyntheticMessageDoesNotReuseCardMessageID(t *testing.T) {
 			return "oc_chat1", "p2p", "", true, true
 		},
 	}
+	bot.botOpenID.Store("ou_bot")
+	bot.unionIDs.Store("ou_user1", "on_user1")
 	_, err := bot.onCardAction(context.Background(), &callback.CardActionTriggerEvent{
 		Event: &callback.CardActionTriggerRequest{
 			Operator: &callback.Operator{OpenID: "ou_user1"},
@@ -1355,6 +1359,37 @@ func TestCardActionSyntheticMessageDoesNotReuseCardMessageID(t *testing.T) {
 	msg := waitMessage(t, captured)
 	if msg.MessageID != "" {
 		t.Errorf("MessageID = %q, want empty synthetic action id", msg.MessageID)
+	}
+}
+
+func TestCardActionUnknownCanonicalOperatorCannotMintGuest(t *testing.T) {
+	captured := make(chan channel.IncomingMessage, 1)
+	bot := &Bot{
+		handler: &mockHandler{
+			handleIncomingFn: func(_ context.Context, msg channel.IncomingMessage, _, _ string) (string, bool, *channel.ChatStream, error) {
+				captured <- msg
+				return "", false, nil, nil
+			},
+		},
+		cfg: Config{AllowDM: true},
+		resolveMessageContextFn: func(string) (string, string, string, bool, bool) {
+			return "oc_chat1", "p2p", "", true, true
+		},
+	}
+	bot.botOpenID.Store("ou_bot")
+	resp, err := bot.onCardAction(context.Background(), &callback.CardActionTriggerEvent{
+		Event: &callback.CardActionTriggerRequest{
+			Operator: &callback.Operator{OpenID: "ou_user1"},
+			Action:   &callback.CallBackAction{Value: map[string]any{"action": "retry"}},
+			Context:  &callback.Context{OpenChatID: "oc_chat1", OpenMessageID: "om_card1"},
+		},
+	})
+	if err != nil || resp == nil {
+		t.Fatalf("unknown canonical operator: resp=%v err=%v", resp, err)
+	}
+	msg := waitMessage(t, captured)
+	if msg.SenderID != "" || len(msg.SenderIDs) != 1 || msg.SenderIDs[0] != "ou_user1" {
+		t.Fatalf("operator identity = canonical %q candidates %#v, want empty canonical and open_id candidate", msg.SenderID, msg.SenderIDs)
 	}
 }
 

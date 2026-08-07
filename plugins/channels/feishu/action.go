@@ -38,7 +38,12 @@ func (b *Bot) onCardAction(ctx context.Context, event *callback.CardActionTrigge
 	}
 
 	// Ignore actions from the bot itself.
-	if botID, _ := b.botOpenID.Load().(string); botID != "" && openID == botID {
+	botID, _ := b.botOpenID.Load().(string)
+	if botID == "" {
+		logger().Warn("rejecting Feishu card action: bot open_id is unknown")
+		return nil, nil
+	}
+	if openID == botID {
 		return nil, nil
 	}
 
@@ -51,13 +56,12 @@ func (b *Bot) onCardAction(ctx context.Context, event *callback.CardActionTrigge
 
 	chatType := ""
 	rootID := ""
-	var contextOK bool
+	botAuthored := false
+	contextOK := false
 	if messageID != "" {
-		chatID, chatType, rootID, _, contextOK = b.resolveMessageContext(messageID)
-	} else {
-		chatType, contextOK = b.getChatType(chatID)
+		chatID, chatType, rootID, botAuthored, contextOK = b.resolveMessageContext(messageID)
 	}
-	if !contextOK || !b.admitIngress(chatID, chatType, true, false) {
+	if !contextOK || !botAuthored || !b.admitIngress(chatID, chatType, true, false) {
 		return nil, nil
 	}
 
@@ -70,8 +74,14 @@ func (b *Bot) onCardAction(ctx context.Context, event *callback.CardActionTrigge
 	// Build synthetic message text.
 	text := fmt.Sprintf("[User clicked: %s]", action)
 
-	senderIDs := feishuSenderIDs(b.resolveUnionID(ctx, openID), openID)
+	unionID := b.resolveUnionID(ctx, openID)
+	senderIDs := feishuSenderIDs(unionID, openID)
 	msg := b.incomingMsg(senderIDs, chatID, chatType, channel.TextContent(text))
+	if unionID == "" {
+		// Keep open_id as a legacy linked-identity candidate, but leave the
+		// canonical sender empty so this callback cannot mint a second guest.
+		msg.SenderID = ""
+	}
 	msg.ThreadID = rootID
 
 	replyFn := func(reply string) {

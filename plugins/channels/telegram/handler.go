@@ -377,6 +377,9 @@ func (b *Bot) resolveAssetsDir(c tele.Context) (string, error) {
 		logger().Warn("resolve user root failed", "error", err)
 		return "", err
 	}
+	if userRoot == "" {
+		return "", errors.New("resolved user root is empty")
+	}
 	return agent.UserAssetsDir(userRoot), nil
 }
 

@@ -36,8 +36,9 @@ type commandClaim interface {
 	release(ctx context.Context)
 }
 
-// rotateChatSession claims the command's receipt, then resolves the session it
-// names and rotates it from inside the chat's turn queue, so the
+// rotateChatSession claims the command's receipt, authorizes the destructive
+// operation, then resolves the session it names and rotates it from inside the
+// chat's turn queue, so the
 // once-per-message guard and the ordering guarantee are stated in one place.
 //
 // The two guards answer different races. The receipt stops the same inbound
@@ -46,11 +47,7 @@ type commandClaim interface {
 // outside the queue makes a genuinely different, concurrent `/new` name a
 // session that is already archived, so it reports the reset as done instead of
 // resetting a second time.
-func rotateChatSession(ctx context.Context, rc *ResolvedChat, receipt commandClaim, queue *sessionQueue) string {
-	return rotateChatSessionAuthorized(ctx, rc, receipt, queue, nil)
-}
-
-func rotateChatSessionAuthorized(ctx context.Context, rc *ResolvedChat, receipt commandClaim, queue *sessionQueue, authorize func(context.Context) error) string {
+func rotateChatSession(ctx context.Context, rc *ResolvedChat, receipt commandClaim, queue *sessionQueue, authorize func(context.Context) error) string {
 	claimed, err := receipt.claim(ctx)
 	if errors.Is(err, errUnidentifiedCommand) {
 		return pkgchannel.NewSessionUnverifiableMessage
@@ -63,11 +60,13 @@ func rotateChatSessionAuthorized(ctx context.Context, rc *ResolvedChat, receipt 
 	if !claimed {
 		return pkgchannel.SessionAlreadyResetMessage
 	}
-	if authorize != nil {
-		if err := authorize(ctx); err != nil {
-			receipt.release(ctx)
-			return fmt.Sprintf("Starting a new session failed: %v", err)
-		}
+	if authorize == nil {
+		receipt.release(ctx)
+		return "Starting a new session failed: authorization is required"
+	}
+	if err := authorize(ctx); err != nil {
+		receipt.release(ctx)
+		return fmt.Sprintf("Starting a new session failed: %v", err)
 	}
 	current, err := rc.CurrentSessionForRotation(ctx)
 	if err != nil {
@@ -89,10 +88,8 @@ func rotateChatSessionAuthorized(ctx context.Context, rc *ResolvedChat, receipt 
 	// "already reset".
 	var reply string
 	started, err := run(func(qctx context.Context) error {
-		if authorize != nil {
-			if err := authorize(qctx); err != nil {
-				return err
-			}
+		if err := authorize(qctx); err != nil {
+			return err
 		}
 		switch _, err := rc.RotateSession(qctx, current.ID); {
 		case err == nil:

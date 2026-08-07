@@ -64,13 +64,31 @@ func DecodeGuestConfig(channelType, rawConfig string) (GuestConfig, error) {
 	switch channelType {
 	case PlatformDiscord:
 		cfg, err := DecodeDiscordConfig([]byte(rawConfig))
-		return GuestConfig{cfg.AllowDM, cfg.AllowUnlinkedDM, cfg.GuestMessageLimitPerMinute, cfg.GuestMaxPerChannel, cfg.GuestRetentionDays}, err
+		return GuestConfig{
+			AllowDM:                    cfg.AllowDM,
+			AllowUnlinkedDM:            cfg.AllowUnlinkedDM,
+			GuestMessageLimitPerMinute: cfg.GuestMessageLimitPerMinute,
+			GuestMaxPerChannel:         cfg.GuestMaxPerChannel,
+			GuestRetentionDays:         cfg.GuestRetentionDays,
+		}, err
 	case PlatformTelegram:
 		cfg, err := DecodeTelegramConfig([]byte(rawConfig))
-		return GuestConfig{cfg.AllowDM, cfg.AllowUnlinkedDM, cfg.GuestMessageLimitPerMinute, cfg.GuestMaxPerChannel, cfg.GuestRetentionDays}, err
+		return GuestConfig{
+			AllowDM:                    cfg.AllowDM,
+			AllowUnlinkedDM:            cfg.AllowUnlinkedDM,
+			GuestMessageLimitPerMinute: cfg.GuestMessageLimitPerMinute,
+			GuestMaxPerChannel:         cfg.GuestMaxPerChannel,
+			GuestRetentionDays:         cfg.GuestRetentionDays,
+		}, err
 	case PlatformFeishu:
 		cfg, err := DecodeFeishuConfig([]byte(rawConfig))
-		return GuestConfig{cfg.AllowDM, cfg.AllowUnlinkedDM, cfg.GuestMessageLimitPerMinute, cfg.GuestMaxPerChannel, cfg.GuestRetentionDays}, err
+		return GuestConfig{
+			AllowDM:                    cfg.AllowDM,
+			AllowUnlinkedDM:            cfg.AllowUnlinkedDM,
+			GuestMessageLimitPerMinute: cfg.GuestMessageLimitPerMinute,
+			GuestMaxPerChannel:         cfg.GuestMaxPerChannel,
+			GuestRetentionDays:         cfg.GuestRetentionDays,
+		}, err
 	default:
 		return GuestConfig{}, errors.New("channel does not support guest sessions")
 	}

@@ -133,6 +133,7 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 // a WebSocket connection. It blocks until ctx is cancelled.
 func (b *Bot) Start(ctx context.Context) error {
 	b.ctx, b.cancel = context.WithCancel(ctx)
+	defer b.cancel()
 
 	b.client = lark.NewClient(b.cfg.AppID, b.cfg.AppSecret,
 		lark.WithLogLevel(larkcore.LogLevelInfo),
@@ -140,16 +141,10 @@ func (b *Bot) Start(ctx context.Context) error {
 	)
 
 	if err := b.fetchBotOpenID(b.ctx); err != nil {
-		logger().Warn("failed to fetch bot open_id, self-message filtering disabled", "error", err)
-	} else if registrar, ok := b.handler.(channel.BotRegistrar); ok {
-		if botID, _ := b.botOpenID.Load().(string); botID != "" {
-			b.routingMu.Lock()
-			if !b.routingFinalized {
-				registrar.RegisterBotIdentity(channel.PlatformFeishu, botID, b.cfg.InstanceID)
-				b.registeredBotID = botID
-			}
-			b.routingMu.Unlock()
-		}
+		logger().Warn("failed to fetch bot open_id; ingress remains closed and lookup will be retried", "error", err)
+		go b.retryBotOpenID()
+	} else {
+		b.registerBotIdentity()
 	}
 
 	if b.cfg.AutoProvision && b.cfg.TenantKey == "" {
@@ -194,6 +189,38 @@ func (b *Bot) Start(ctx context.Context) error {
 		return b.ctx.Err()
 	case err := <-errCh:
 		return fmt.Errorf("feishu: websocket error: %w", err)
+	}
+}
+
+func (b *Bot) registerBotIdentity() {
+	registrar, ok := b.handler.(channel.BotRegistrar)
+	botID, _ := b.botOpenID.Load().(string)
+	if !ok || botID == "" {
+		return
+	}
+	b.routingMu.Lock()
+	defer b.routingMu.Unlock()
+	if !b.routingFinalized && b.registeredBotID == "" {
+		registrar.RegisterBotIdentity(channel.PlatformFeishu, botID, b.cfg.InstanceID)
+		b.registeredBotID = botID
+	}
+}
+
+func (b *Bot) retryBotOpenID() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-b.ctx.Done():
+			return
+		case <-ticker.C:
+			if err := b.fetchBotOpenID(b.ctx); err != nil {
+				logger().Warn("bot open_id retry failed; ingress remains closed", "error", err)
+				continue
+			}
+			b.registerBotIdentity()
+			return
+		}
 	}
 }
 

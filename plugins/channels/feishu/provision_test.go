@@ -33,6 +33,7 @@ func newProvisionBot(cfg Config, p *mockProvisioner) *Bot {
 			return &TenantProfile{UnionID: "on_union1", Name: "Member", Email: "member@example.com"}
 		},
 	}
+	b.botOpenID.Store("ou_bot")
 	return b
 }
 

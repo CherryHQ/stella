@@ -156,6 +156,8 @@ Stella 内置了一个通过长轮询连接的 Telegram 机器人 —— 无需 
 | `guest_retention_days`           | 超过此时间未活动时删除访客身份及 session        | `30`     |
 | `require_mention`                | 在允许的群聊中要求 @机器人                      | `true`   |
 
+升级时，Stella 会将已有持久群成员记录中的群聊一次性加入 `allowed_chat_ids`。显式配置的 allowlist（包括表示全部拒绝的空值）不会被修改。升级后请检查生成的列表；新遇到的群聊在手动添加前仍会被拒绝。
+
 ## 故障排除
 
 **机器人不响应消息？**

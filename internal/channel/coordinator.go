@@ -522,7 +522,7 @@ func (c *Coordinator) handleConfigCommand(ctx context.Context, rc *ResolvedChat,
 // would land its reply in a session the user already left.
 func (c *Coordinator) handleNewSessionCommand(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage) string {
 	receipt := chatReceiptForMessage(c.receiptQueries(), rc, msg, newSessionCommand)
-	return rotateChatSessionAuthorized(ctx, rc, receipt, c.queue, func(authCtx context.Context) error {
+	return rotateChatSession(ctx, rc, receipt, c.queue, func(authCtx context.Context) error {
 		return rc.AuthorizeDedicatedUse(authCtx, c.agentAccess)
 	})
 }

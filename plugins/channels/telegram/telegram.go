@@ -20,6 +20,12 @@ import (
 
 const telegramMaxMessageLen = 4000
 
+const groupProvisionTimeout = 10 * time.Second
+
+type groupMemberProvisioner interface {
+	EnsurePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error
+}
+
 // logger returns the package logger, always using the current default handler.
 // This must be a function (not a package-level var) because the default handler
 // is set in main() after package init.
@@ -45,7 +51,9 @@ type Bot struct {
 	mu                sync.RWMutex
 	chatModels        map[int64]channel.ModelOption
 	finalizeOnce      sync.Once
+	provisionMu       sync.Mutex
 	provisionedGroups map[string]struct{}
+	provisionWarnings map[string]struct{}
 
 	cfg Config
 	ctx context.Context
@@ -70,6 +78,7 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		md:                tgmd.TGMD(),
 		chatModels:        make(map[int64]channel.ModelOption),
 		provisionedGroups: make(map[string]struct{}),
+		provisionWarnings: make(map[string]struct{}),
 		cfg:               cfg,
 	}
 
@@ -200,33 +209,63 @@ func (b *Bot) admit(c tele.Context, directed bool) bool {
 		}
 	}
 	if !allowed {
+		b.warnGroupRejectionOnce(chatID, "not_allowlisted", nil)
 		return false
 	}
-	if b.cfg.RequireMention && !directed && !b.botMentioned(c.Message()) {
+	if b.cfg.RequireMention && !directed && !b.botMentioned(c.Message()) && !b.replyToBot(c.Message()) {
 		return false
 	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
+	return b.ensureGroupMember(chatID)
+}
+
+func (b *Bot) ensureGroupMember(chatID string) bool {
+	provisioner, ok := b.handler.(groupMemberProvisioner)
+	if !ok {
+		b.warnGroupRejectionOnce(chatID, "provisioner_unavailable", nil)
+		return false
+	}
+	if b.ctx == nil {
+		b.warnGroupRejectionOnce(chatID, "bot_lifecycle_unavailable", nil)
+		return false
+	}
+	b.provisionMu.Lock()
+	defer b.provisionMu.Unlock()
 	if b.provisionedGroups == nil {
 		b.provisionedGroups = make(map[string]struct{})
 	}
 	if _, ok := b.provisionedGroups[chatID]; ok {
 		return true
 	}
-	if p, ok := b.handler.(interface {
-		EnsurePlatformGroupMember(context.Context, string, string, string) error
-	}); ok {
-		ctx := b.ctx
-		if ctx == nil {
-			ctx = context.Background()
-		}
-		if err := p.EnsurePlatformGroupMember(ctx, channel.PlatformTelegram, chatID, b.Name()); err != nil {
-			logger().Warn("ensure telegram group member failed", "chat_id", chatID, "error", err)
-			return false
-		}
+	ctx, cancel := context.WithTimeout(b.ctx, groupProvisionTimeout)
+	defer cancel()
+	if err := provisioner.EnsurePlatformGroupMember(ctx, channel.PlatformTelegram, chatID, b.Name()); err != nil {
+		b.warnGroupRejectionOnceLocked(chatID, "provision_failed", err)
+		return false
 	}
 	b.provisionedGroups[chatID] = struct{}{}
 	return true
+}
+
+func (b *Bot) warnGroupRejectionOnce(chatID, reason string, err error) {
+	b.provisionMu.Lock()
+	defer b.provisionMu.Unlock()
+	b.warnGroupRejectionOnceLocked(chatID, reason, err)
+}
+
+func (b *Bot) warnGroupRejectionOnceLocked(chatID, reason string, err error) {
+	if b.provisionWarnings == nil {
+		b.provisionWarnings = make(map[string]struct{})
+	}
+	key := chatID + "\x00" + reason
+	if _, logged := b.provisionWarnings[key]; logged {
+		return
+	}
+	b.provisionWarnings[key] = struct{}{}
+	args := []any{"chat_id", chatID, "reason", reason}
+	if err != nil {
+		args = append(args, "error", err)
+	}
+	logger().Warn("telegram group message rejected", args...)
 }
 
 func (b *Bot) botMentioned(m *tele.Message) bool {
@@ -239,6 +278,10 @@ func (b *Bot) botMentioned(m *tele.Message) bool {
 		}
 	}
 	return false
+}
+
+func (b *Bot) replyToBot(m *tele.Message) bool {
+	return m != nil && m.ReplyTo != nil && m.ReplyTo.Sender != nil && b.bot.Me != nil && m.ReplyTo.Sender.ID == b.bot.Me.ID
 }
 
 // isGroup returns true if the message is from a group or supergroup.

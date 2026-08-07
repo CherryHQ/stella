@@ -263,6 +263,8 @@ Feishu supports the standard chat commands:
 
 Guest limits use `guest_message_limit_per_minute` (default `10`), `guest_max_per_channel` (default `1000`), and `guest_retention_days` (default `30`).
 
+When upgrading, Stella adds groups already present in durable group membership or legacy `groups` overrides to `allowed_chat_ids` once. Explicit allowlists, including an empty deny-all value, are not changed. Review the generated list after upgrading; newly encountered groups remain blocked until you add them.
+
 ## Troubleshooting
 
 **Bot not responding to messages?**

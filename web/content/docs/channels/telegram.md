@@ -156,6 +156,8 @@ All settings below are managed through the Web UI.
 | `guest_retention_days`           | Delete inactive guest identities and sessions after this time | `30`       |
 | `require_mention`                | Require an @mention in allowed groups                         | `true`     |
 
+When upgrading, Stella adds groups already present in durable group membership to `allowed_chat_ids` once. Explicit allowlists, including an empty deny-all value, are not changed. Review the generated list after upgrading; newly encountered groups remain blocked until you add them.
+
 ## Troubleshooting
 
 **Bot not responding to messages?**

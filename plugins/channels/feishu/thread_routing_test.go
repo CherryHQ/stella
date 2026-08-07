@@ -37,6 +37,7 @@ func newThreadRoutingBotWithHandler(t *testing.T) (*Bot, *mockHandler, <-chan ch
 		seenMsgs:    make(map[string]time.Time),
 		provisioned: make(map[string]time.Time),
 	}
+	b.botOpenID.Store("ou_bot")
 	return b, h, captured
 }
 
@@ -125,6 +126,49 @@ func TestFeishuIngressAdmission(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNormalizeFeishuTopicChatTypes(t *testing.T) {
+	for _, chatType := range []string{"topic", "topic_group", "group"} {
+		if got := normalizeChatType(chatType); got != "group" {
+			t.Errorf("normalizeChatType(%q) = %q, want group", chatType, got)
+		}
+	}
+	b, _ := newThreadRoutingBot(t)
+	b.chatTypes.Store("oc_topic", "topic_group")
+	if got, ok := b.getChatType("oc_topic"); !ok || got != "group" {
+		t.Fatalf("cached topic chat type = %q, %v; want group, true", got, ok)
+	}
+}
+
+func TestReplyToBotMessageIsDirectedAfterAuthoritativeLookup(t *testing.T) {
+	b, captured := newThreadRoutingBot(t)
+	b.cfg.RequireMention = true
+	b.resolveMessageContextFn = func(messageID string) (string, string, string, bool, bool) {
+		if messageID != "om_parent" {
+			t.Fatalf("resolved message %q, want parent", messageID)
+		}
+		return "oc_chat", "topic", "om_root", true, true
+	}
+	if err := b.onMessage(context.Background(), textReceiveEvent("oc_chat", "topic_group", "om_reply", "om_root", "om_parent", "reply")); err != nil {
+		t.Fatal(err)
+	}
+	msg := waitMessage(t, captured)
+	if !msg.IsGroup {
+		t.Fatal("topic reply was not normalized to a group message")
+	}
+}
+
+func TestReplyLookupFailureDoesNotBypassMentionRequirement(t *testing.T) {
+	b, captured := newThreadRoutingBot(t)
+	b.cfg.RequireMention = true
+	b.resolveMessageContextFn = func(string) (string, string, string, bool, bool) {
+		return "", "", "", false, false
+	}
+	if err := b.onMessage(context.Background(), textReceiveEvent("oc_chat", "group", "om_reply", "", "om_parent", "reply")); err != nil {
+		t.Fatal(err)
+	}
+	assertNoMessage(t, captured)
 }
 
 func TestAlternateEventIngressAdmission(t *testing.T) {
@@ -374,20 +418,20 @@ func TestLocalCommandAdmissionPreservesLinkedBehavior(t *testing.T) {
 }
 
 func TestBotAuthoredMessageRequiresAuthoritativeSender(t *testing.T) {
-	botID, app, user, openID, appID, otherID := "ou_bot", "app", "user", "open_id", "app_id", "ou_other"
+	botAppID, app, user, openID, appID, otherAppID := "cli_bot", "app", "user", "open_id", "app_id", "cli_other"
 	for _, tc := range []struct {
 		name   string
 		sender *larkim.Sender
 		want   bool
 	}{
-		{name: "matching bot app open id", sender: &larkim.Sender{Id: &botID, IdType: &openID, SenderType: &app}, want: true},
-		{name: "user with matching id", sender: &larkim.Sender{Id: &botID, IdType: &openID, SenderType: &user}},
-		{name: "app id is not bot open id", sender: &larkim.Sender{Id: &botID, IdType: &appID, SenderType: &app}},
-		{name: "different app", sender: &larkim.Sender{Id: &otherID, IdType: &openID, SenderType: &app}},
+		{name: "matching bot app id", sender: &larkim.Sender{Id: &botAppID, IdType: &appID, SenderType: &app}, want: true},
+		{name: "user with matching id", sender: &larkim.Sender{Id: &botAppID, IdType: &appID, SenderType: &user}},
+		{name: "bot open id is not app id", sender: &larkim.Sender{Id: &botAppID, IdType: &openID, SenderType: &app}},
+		{name: "different app", sender: &larkim.Sender{Id: &otherAppID, IdType: &appID, SenderType: &app}},
 		{name: "missing sender"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := isBotAuthoredMessage(&larkim.Message{Sender: tc.sender}, botID); got != tc.want {
+			if got := isBotAuthoredMessage(&larkim.Message{Sender: tc.sender}, botAppID); got != tc.want {
 				t.Fatalf("isBotAuthoredMessage() = %v, want %v", got, tc.want)
 			}
 		})

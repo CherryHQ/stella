@@ -1,6 +1,8 @@
 package telegram
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +11,53 @@ import (
 
 	tgmd "github.com/Mad-Pixels/goldmark-tgmd"
 )
+
+type telegramProvisioningHandler struct {
+	fakeChannelHandler
+	calls int
+	err   error
+}
+
+func (h *telegramProvisioningHandler) EnsurePlatformGroupMember(ctx context.Context, _, _, _ string) error {
+	h.calls++
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return h.err
+}
+
+func TestEnsureGroupMemberFailsClosedAndCachesOnlySuccess(t *testing.T) {
+	lifecycle, cancel := context.WithCancel(context.Background())
+	if (&Bot{handler: fakeChannelHandler{}, ctx: lifecycle}).ensureGroupMember("-100") {
+		t.Fatal("admitted without capability")
+	}
+	h := &telegramProvisioningHandler{err: errors.New("unavailable")}
+	b := &Bot{handler: h, ctx: lifecycle}
+	if b.ensureGroupMember("-100") {
+		t.Fatal("admitted after failure")
+	}
+	if b.ensureGroupMember("-100") {
+		t.Fatal("failure was cached")
+	}
+	if h.calls != 2 {
+		t.Fatalf("calls = %d, want 2", h.calls)
+	}
+	h.err = nil
+	if !b.ensureGroupMember("-100") {
+		t.Fatal("rejected success")
+	}
+	if !b.ensureGroupMember("-100") {
+		t.Fatal("rejected cached success")
+	}
+	if h.calls != 3 {
+		t.Fatalf("calls = %d, want 3", h.calls)
+	}
+	cancel()
+	other := &telegramProvisioningHandler{}
+	if (&Bot{handler: other, ctx: lifecycle}).ensureGroupMember("-200") {
+		t.Fatal("admitted after lifecycle cancellation")
+	}
+}
 
 func TestSplitMessageShort(t *testing.T) {
 	chunks := channel.SplitMessage("hello", telegramMaxMessageLen)

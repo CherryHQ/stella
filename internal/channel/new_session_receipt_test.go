@@ -64,7 +64,7 @@ func TestNewReceiptReleasedWhenRotationNeverRan(t *testing.T) {
 	// Authorization fails, so rotation is abandoned after the claim.
 	rc := newReceiptTestChat(t)
 	rc.Service.SessionAccess = compactSessionAccessSvc{reg: rc.Service.Sessions, useErr: errors.New("denied")}
-	if reply := rotateChatSession(ctx, rc, newDMReceipt(db, "m-fail"), nil); reply == pkgchannel.NewSessionStartedMessage {
+	if reply := rotateChatSession(ctx, rc, newDMReceipt(db, "m-fail"), nil, allowRotation); reply == pkgchannel.NewSessionStartedMessage {
 		t.Fatalf("reply = %q, want a failure", reply)
 	}
 	if count := countChatReceipts(t, db); count != 0 {
@@ -104,7 +104,7 @@ func TestNewReceiptReleasedWhenRotationFails(t *testing.T) {
 
 	rc := newReceiptTestChat(t)
 	rc.Service.SessionAccess = rotateFailAccessSvc{reg: rc.Service.Sessions, rotateErr: errors.New("db down")}
-	if reply := rotateChatSession(ctx, rc, newDMReceipt(db, "m-rotatefail"), nil); reply == pkgchannel.NewSessionStartedMessage {
+	if reply := rotateChatSession(ctx, rc, newDMReceipt(db, "m-rotatefail"), nil, allowRotation); reply == pkgchannel.NewSessionStartedMessage {
 		t.Fatalf("reply = %q, want a failure", reply)
 	}
 	if count := countChatReceipts(t, db); count != 0 {
@@ -121,7 +121,7 @@ func TestNewReceiptKeptWhenRotationWasStale(t *testing.T) {
 
 	rc := newReceiptTestChat(t)
 	rc.Service.SessionAccess = rotateFailAccessSvc{reg: rc.Service.Sessions, rotateErr: session.ErrStaleRotation}
-	if reply := rotateChatSession(ctx, rc, newDMReceipt(db, "m-stale"), nil); reply != pkgchannel.SessionAlreadyResetMessage {
+	if reply := rotateChatSession(ctx, rc, newDMReceipt(db, "m-stale"), nil, allowRotation); reply != pkgchannel.SessionAlreadyResetMessage {
 		t.Fatalf("reply = %q, want %q", reply, pkgchannel.SessionAlreadyResetMessage)
 	}
 	if count := countChatReceipts(t, db); count != 1 {
@@ -218,7 +218,7 @@ func TestNewVerifiesUnknownCommitOutcome(t *testing.T) {
 			tc.access.rotated = &rotated
 			rc.Service.SessionAccess = tc.access
 
-			if reply := rotateChatSession(ctx, rc, newDMReceipt(db, "m-unknown"), nil); reply != tc.wantReply {
+			if reply := rotateChatSession(ctx, rc, newDMReceipt(db, "m-unknown"), nil, allowRotation); reply != tc.wantReply {
 				t.Fatalf("reply = %q, want %q", reply, tc.wantReply)
 			}
 			if count := countChatReceipts(t, db); count != tc.wantReceipts {
@@ -270,7 +270,7 @@ func TestNewReceiptKeptWhenCancelRacesCommit(t *testing.T) {
 	}
 
 	receipt := newDMReceipt(db, "m-ambig")
-	_ = rotateChatSession(ctx, rc, receipt, queue) // either reply is legitimate here
+	_ = rotateChatSession(ctx, rc, receipt, queue, allowRotation) // either reply is legitimate here
 
 	rotated, err := rc.CurrentSessionForRotation(context.Background())
 	if err != nil {
@@ -285,7 +285,7 @@ func TestNewReceiptKeptWhenCancelRacesCommit(t *testing.T) {
 
 	// The redelivery must answer, not rotate the successor.
 	rc.Service.SessionAccess = compactSessionAccessSvc{reg: rc.Service.Sessions}
-	if reply := rotateChatSession(context.Background(), rc, receipt, queue); reply != pkgchannel.SessionAlreadyResetMessage {
+	if reply := rotateChatSession(context.Background(), rc, receipt, queue, allowRotation); reply != pkgchannel.SessionAlreadyResetMessage {
 		t.Fatalf("redelivered /new reply = %q, want %q", reply, pkgchannel.SessionAlreadyResetMessage)
 	}
 	after, err := rc.CurrentSessionForRotation(context.Background())
@@ -327,7 +327,7 @@ func TestNewReceiptReleasedWhenQueueNeverRan(t *testing.T) {
 	// than the blocker: the deadline can only fire while waiting on the queue.
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	if reply := rotateChatSession(ctx, rc, newDMReceipt(db, "m-neverran"), queue); reply == pkgchannel.NewSessionStartedMessage {
+	if reply := rotateChatSession(ctx, rc, newDMReceipt(db, "m-neverran"), queue, allowRotation); reply == pkgchannel.NewSessionStartedMessage {
 		t.Fatalf("reply = %q, want a failure", reply)
 	}
 	close(unblock)

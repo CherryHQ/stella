@@ -261,6 +261,8 @@ Agent 可以在回复中使用双花括号语法嵌入可点击的按钮，格�
 
 访客限制使用 `guest_message_limit_per_minute`（默认 `10`）、`guest_max_per_channel`（默认 `1000`）和 `guest_retention_days`（默认 `30`）。
 
+升级时，Stella 会将已有持久群成员记录或旧版 `groups` 覆盖项中的群聊一次性加入 `allowed_chat_ids`。显式配置的 allowlist（包括表示全部拒绝的空值）不会被修改。升级后请检查生成的列表；新遇到的群聊在手动添加前仍会被拒绝。
+
 ## 故障排除
 
 **机器人不响应消息？**

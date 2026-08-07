@@ -90,6 +90,16 @@ func TestCoordinatorGuestResolutionIsSupportedPrivateOptInOnly(t *testing.T) {
 		})
 	}
 	store.channel = channel
+	t.Run("missing canonical sender cannot create guest", func(t *testing.T) {
+		guestStore := &guestResolutionStore{guest: sqlc.ChannelGuest{ID: "guest-1"}}
+		_, err := ResolveWithChannel(ctx, manager, store, authStore, nil, nil, guestStore, "discord", channel.ID, "", []string{"legacy-id"}, "Guest", "chat", "", false)
+		if !errors.Is(err, ErrAgentAccessDenied) {
+			t.Fatalf("resolve = %v, want access denied", err)
+		}
+		if guestStore.calls != 0 {
+			t.Fatalf("guest store calls = %d, want 0", guestStore.calls)
+		}
+	})
 	for _, platform := range []string{"discord", "telegram", "feishu"} {
 		t.Run(platform+" private", func(t *testing.T) {
 			store.channel.Type = platform

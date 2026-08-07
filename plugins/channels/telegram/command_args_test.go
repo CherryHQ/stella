@@ -25,6 +25,10 @@ type capturingHandler struct {
 	calls   int
 }
 
+func (h *capturingHandler) EnsurePlatformGroupMember(context.Context, string, string, string) error {
+	return nil
+}
+
 type attachmentResolverHandler struct {
 	fakeChannelHandler
 	err error
@@ -173,6 +177,8 @@ func TestTelegramIngressAdmission(t *testing.T) {
 			},
 			want: true,
 		},
+		{name: "reply to bot is directed", cfg: Config{AllowedChatIDs: "-100", RequireMention: true}, message: tele.Message{Text: "follow up", Sender: &tele.User{ID: 7}, Chat: &tele.Chat{ID: -100, Type: tele.ChatSuperGroup}, ReplyTo: &tele.Message{Sender: &tele.User{ID: 1, Username: "stella_bot"}}}, want: true},
+		{name: "reply to lookalike is not directed", cfg: Config{AllowedChatIDs: "-100", RequireMention: true}, message: tele.Message{Text: "follow up", Sender: &tele.User{ID: 7}, Chat: &tele.Chat{ID: -100, Type: tele.ChatSuperGroup}, ReplyTo: &tele.Message{Sender: &tele.User{ID: 99, Username: "stella_bot"}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			bot, err := tele.NewBot(tele.Settings{Offline: true, Synchronous: true})
