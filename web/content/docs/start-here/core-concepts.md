@@ -66,6 +66,11 @@ Everything else is something you do with a session or a goal, not a third kind o
 
 So when you say "save this and run it every morning", the agent saves the accepted goal as a workflow and schedules it.
 
+The Web UI follows the same split. Each agent has two spaces:
+
+- **Conversations** — every thread you have with that agent.
+- **Work** — everything being tracked to an outcome, in the order you need it: what **needs you**, what is **active**, what is **scheduled**, what is **repeatable** (your saved workflows), and the **history**.
+
 ## Review
 
 Review is the human checkpoint. The agent can do the work, but the organization can keep judgment, approvals, and accountability where they belong.

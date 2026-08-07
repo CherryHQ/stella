@@ -54,8 +54,11 @@ const en = {
   "home.greeting": "What can I do for you today?",
   "home.selectAgent": "Select agent",
 
-  // Conversation sidebar
-  "sidebar.goals": "Goals",
+  // Conversation sidebar. The two rows an agent always has are its two primary
+  // spaces: Conversations (where context and execution live) and Work (goals,
+  // schedules, and workflows composed into one view).
+  "sidebar.conversations": "Conversations",
+  "sidebar.work": "Work",
   "sidebar.projects": "Projects",
   "sidebar.recentThreads": "Recent threads",
   "sidebar.showMore": "Show more",
@@ -67,7 +70,6 @@ const en = {
   "sidebar.newGroup": "New group",
 
   // Threads management page
-  "threads.title": "Threads",
   "threads.searchPlaceholder": "Search threads",
   "threads.homeFilter": "Filter by home",
   "threads.homeAll": "All homes",
@@ -1361,7 +1363,6 @@ const en = {
   "goals.create": "Create",
   "goals.creating": "Creating…",
   "goals.createRun": "Create & run",
-  "hub.activeWork": "Active work",
   "hub.historyArchive": "History archive",
   "hub.needsYouHint":
     "Only goals waiting on your decision appear here. Goals waiting on upstream stay in Active work and resume on their own.",
@@ -1373,7 +1374,7 @@ const en = {
   "hub.achievedAt": "Achieved {{time}}",
 
   // Automations hub (unified page)
-  "hub.title": "Goals",
+  "hub.title": "Work",
   "hub.secNeedsYou": "Needs you",
   "hub.secActive": "Active",
   "hub.secSchedules": "Schedules",
@@ -1419,7 +1420,7 @@ const en = {
   "hub.colNextRun": "Next run",
   "hub.colEnabled": "Enabled",
   "hub.secGoals": "Goals",
-  "hub.secRecentDone": "Recently completed",
+  "hub.secHistory": "History",
   "hub.noNeedsYou": "Nothing needs you right now.",
   "hub.noSchedules": "No schedules yet.",
   "hub.openSession": "Open session",
@@ -2235,7 +2236,8 @@ const zh: Record<MessageKey, string> = {
   "home.selectAgent": "选择智能体",
 
   // Conversation sidebar
-  "sidebar.goals": "目标",
+  "sidebar.conversations": "对话",
+  "sidebar.work": "工作",
   "sidebar.projects": "项目",
   "sidebar.recentThreads": "最近话题",
   "sidebar.showMore": "显示更多",
@@ -2247,7 +2249,6 @@ const zh: Record<MessageKey, string> = {
   "sidebar.newGroup": "新建群聊",
 
   // Threads management page
-  "threads.title": "话题",
   "threads.searchPlaceholder": "搜索话题",
   "threads.homeFilter": "按归属筛选",
   "threads.homeAll": "全部归属",
@@ -3511,7 +3512,6 @@ const zh: Record<MessageKey, string> = {
   "goals.create": "创建",
   "goals.creating": "创建中…",
   "goals.createRun": "创建并运行",
-  "hub.activeWork": "活跃工作",
   "hub.historyArchive": "历史归档",
   "hub.needsYouHint":
     "这里只放等待你决定的目标。等上游的目标留在活跃工作里，上游完成后会自动继续。",
@@ -3522,7 +3522,7 @@ const zh: Record<MessageKey, string> = {
   "hub.achievedAt": "已于 {{time}} 达成",
 
   // Automations hub (unified page)
-  "hub.title": "目标",
+  "hub.title": "工作",
   "hub.secNeedsYou": "需要你处理",
   "hub.secActive": "进行中",
   "hub.secSchedules": "定时任务",
@@ -3568,7 +3568,7 @@ const zh: Record<MessageKey, string> = {
   "hub.colNextRun": "下次运行",
   "hub.colEnabled": "启用",
   "hub.secGoals": "目标",
-  "hub.secRecentDone": "最近完成",
+  "hub.secHistory": "历史",
   "hub.noNeedsYou": "目前没有需要你处理的事项。",
   "hub.noSchedules": "暂无定时任务。",
   "hub.openSession": "打开会话",

@@ -84,7 +84,7 @@ export function OverviewPage() {
   };
   const projectFilter = (useSearch({ strict: false }) as { project_id?: string }).project_id ?? "";
   const navigate = useNavigate();
-  const { setHeaderActions } = useAppShell();
+  const { setHeaderTitle, setHeaderActions } = useAppShell();
   const { showToast } = useToast();
 
   const { data: allGoals = [] } = useQuery(goalsOptions(agentId));
@@ -102,6 +102,11 @@ export function OverviewPage() {
   );
 
   useEffect(() => {
+    // The hub is one of the agent's two primary spaces, so it names itself in
+    // the breadcrumb tail the same way the list and detail pages do.
+    setHeaderTitle(
+      <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{t("hub.title")}</h1>,
+    );
     setHeaderActions(
       <div className="flex items-center gap-1">
         {!projectId && projects.length > 0 && (
@@ -145,9 +150,10 @@ export function OverviewPage() {
       </div>,
     );
     return () => {
+      setHeaderTitle(null);
       setHeaderActions(null);
     };
-  }, [setHeaderActions, t, agentId, navigate, projectFilter, projectId, projects]);
+  }, [setHeaderTitle, setHeaderActions, t, agentId, navigate, projectFilter, projectId, projects]);
 
   const needsYou = useMemo(
     () =>
@@ -289,24 +295,10 @@ export function OverviewPage() {
           )}
         </section>
 
-        {/* Schedules */}
-        <section className="mt-8">
-          <SectionHead title={t("hub.secSchedules")} count={sortedJobs.length} />
-          {sortedJobs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t("hub.noSchedules")}</p>
-          ) : (
-            <SchedulesTable jobs={sortedJobs} agentId={agentId} />
-          )}
-        </section>
-
-        {/* Repeatable (workflows) — hidden until the first workflow exists, so
-            the concept only appears once the user has saved one. */}
-        <WorkflowsSection agentId={agentId} />
-
-        {/* Active work */}
+        {/* Active */}
         <section className="mt-8">
           <SectionHead
-            title={t("hub.activeWork")}
+            title={t("hub.secActive")}
             count={activeWork.length}
             action={
               <Button
@@ -329,10 +321,41 @@ export function OverviewPage() {
           )}
         </section>
 
-        {/* Recently completed */}
+        {/* Scheduled */}
+        <section className="mt-8">
+          <SectionHead title={t("hub.secSchedules")} count={sortedJobs.length} />
+          {sortedJobs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t("hub.noSchedules")}</p>
+          ) : (
+            <SchedulesTable jobs={sortedJobs} agentId={agentId} />
+          )}
+        </section>
+
+        {/* Repeatable (workflows) — hidden until the first workflow exists, so
+            the concept only appears once the user has saved one. */}
+        <WorkflowsSection agentId={agentId} />
+
+        {/* History */}
         {recentDone.length > 0 && (
           <section className="mt-8">
-            <SectionHead title={t("hub.secRecentDone")} />
+            <SectionHead
+              title={t("hub.secHistory")}
+              action={
+                <Button
+                  render={
+                    <Link
+                      to="/agents/$agentId/goals/all"
+                      params={{ agentId }}
+                      search={{ mode: "history" }}
+                    />
+                  }
+                  variant="outline"
+                  size="xs"
+                >
+                  {t("hub.viewAll")}
+                </Button>
+              }
+            />
             <div className="overflow-hidden rounded-xl border border-border">
               {recentDone.map((entry) => {
                 const d = entry.kind === "workflow" ? entry.latest : entry.goal;

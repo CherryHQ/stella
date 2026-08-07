@@ -10,6 +10,7 @@ import {
   List,
   ListTodo,
   MessageSquare,
+  MessagesSquare,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -603,7 +604,12 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
 
   const activeSessionId = pathname.match(/\/sessions\/([^/]+)/)?.[1] ?? "";
   const activeProjectId = pathname.match(/\/projects\/([^/]+)/)?.[1] ?? "";
-  const onGoals = pathname.includes(`/agents/${agentId}/goals`);
+  const onConversations = pathname === `/agents/${agentId}/threads`;
+  // Work is one space composed from several routes — goals, their schedules,
+  // and workflows all live under it, so the row stays lit across all of them.
+  const onWork =
+    pathname.includes(`/agents/${agentId}/goals`) ||
+    pathname.includes(`/agents/${agentId}/workflows`);
   const onProfile = pathname === `/agents/${agentId}/profile`;
 
   const projectSessions = useQuery(projectSessionsQueryOptions(agentId, activeProjectId));
@@ -732,10 +738,22 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
         label={t("sessions.sidebar.newThread")}
         onClick={() => void createChat()}
       />
+      {/* The agent's two primary spaces, as peers: Conversations is where
+          context and execution live, Work is everything tracked to an outcome
+          (goals, their schedules, and saved workflows). Everything below is a
+          shortcut into one of them, not a third space. */}
       <SidebarItem
-        active={onGoals}
+        active={onConversations}
+        icon={<MessagesSquare className="size-4" />}
+        label={t("sidebar.conversations")}
+        to="/agents/$agentId/threads"
+        params={{ agentId }}
+        onClick={onNavigate}
+      />
+      <SidebarItem
+        active={onWork}
         icon={<ListTodo className="size-4" />}
-        label={t("sidebar.goals")}
+        label={t("sidebar.work")}
         badge={
           goalCounts && goalCounts.active > 0 ? (
             <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 font-mono text-xs text-foreground">

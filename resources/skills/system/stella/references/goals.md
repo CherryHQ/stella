@@ -11,7 +11,7 @@ Completion is **derived, never asserted**. A goal converges through a bounded re
 Two surfaces author goals, both over the same goal HTTP API:
 
 - **You, the agent** — via the `goal` tool when available. `action=create` creates a goal and runs it autonomously: the server **plans first** (decomposes it into verifiable sub-tasks), then the dispatcher runs each child and converges to acceptance, with no further prompting. You do not choose leaf vs composite or call plan/approve/activate — just write a clear, self-contained intent. This is how you give yourself long-running work that outlives the current conversation; check back with `action=list` or `action=get`. For goals that need a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)` for the user to approve from the Web UI operator surface. When you report a created goal back to the user, mention its title — chat surfaces render a rich status card for it automatically, so never paste only the raw UUID.
-- **The user** — from the Web UI (Goals tab), backed by the same goal HTTP API.
+- **The user** — from the Web UI (Work space), backed by the same goal HTTP API.
 
 Authoring and working are separate roles: once a goal is active you may also be handed it as a **worker** (see the `goal_control` contract below).
 
