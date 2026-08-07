@@ -233,21 +233,24 @@ func TestNewVerifiesUnknownCommitOutcome(t *testing.T) {
 // background context to guarantee the commit, exactly like a transaction that
 // landed as the caller gave up.
 type cancelThenRotateAccessSvc struct {
-	reg    *session.Registry
-	cancel context.CancelFunc
+	reg          *session.Registry
+	cancel       context.CancelFunc
+	rotationDone chan struct{}
 }
 
 func (s cancelThenRotateAccessSvc) Begin(context.Context, authz.Authority) (agent.SessionAccess, error) {
-	return cancelThenRotateAccess{compactSessionAccess{reg: s.reg}, s.cancel}, nil
+	return cancelThenRotateAccess{compactSessionAccess{reg: s.reg}, s.cancel, s.rotationDone}, nil
 }
 
 type cancelThenRotateAccess struct {
 	compactSessionAccess
-	cancel context.CancelFunc
+	cancel       context.CancelFunc
+	rotationDone chan struct{}
 }
 
 func (a cancelThenRotateAccess) RotateChannel(_ context.Context, req session.ChannelRequest) (session.Info, error) {
 	a.cancel()
+	defer close(a.rotationDone)
 	return a.reg.RotateChannel(context.Background(), req)
 }
 
@@ -263,7 +266,8 @@ func TestNewReceiptKeptWhenCancelRacesCommit(t *testing.T) {
 	defer cancel()
 
 	rc := newReceiptTestChat(t)
-	rc.Service.SessionAccess = cancelThenRotateAccessSvc{reg: rc.Service.Sessions, cancel: cancel}
+	rotationDone := make(chan struct{})
+	rc.Service.SessionAccess = cancelThenRotateAccessSvc{reg: rc.Service.Sessions, cancel: cancel, rotationDone: rotationDone}
 	before, err := rc.CurrentSessionForRotation(context.Background())
 	if err != nil {
 		t.Fatalf("resolve session: %v", err)
@@ -271,6 +275,7 @@ func TestNewReceiptKeptWhenCancelRacesCommit(t *testing.T) {
 
 	receipt := newDMReceipt(db, "m-ambig")
 	_ = rotateChatSession(ctx, rc, receipt, queue, allowRotation) // either reply is legitimate here
+	<-rotationDone
 
 	rotated, err := rc.CurrentSessionForRotation(context.Background())
 	if err != nil {
