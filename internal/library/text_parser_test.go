@@ -109,6 +109,25 @@ func TestTextParserOmitsWhitespaceOnlyTail(t *testing.T) {
 	}
 }
 
+func TestTextParserSkipsWhitespaceOnlyWindowsBetweenText(t *testing.T) {
+	t.Parallel()
+	path := writeTextParserFixture(t, "hello world."+strings.Repeat("\n", 1_800)+"goodbye world.")
+
+	chunks, err := NewTextParser().Parse(t.Context(), path, MediaTypeText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 2 {
+		t.Fatalf("chunks = %d, want 2 non-blank windows", len(chunks))
+	}
+	if strings.TrimSpace(chunks[0].Content) != "hello world." || strings.TrimSpace(chunks[1].Content) != "goodbye world." {
+		t.Fatalf("non-blank content was not preserved: %q then %q", chunks[0].Content, chunks[1].Content)
+	}
+	if _, _, err := normalizeParsedChunks(chunks); err != nil {
+		t.Fatalf("normalize parser output containing a long whitespace run: %v", err)
+	}
+}
+
 func TestTextParserHonorsCancellationAndPinnedLimits(t *testing.T) {
 	t.Parallel()
 	path := writeTextParserFixture(t, "content")

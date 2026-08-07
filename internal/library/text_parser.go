@@ -91,6 +91,12 @@ func (*TextParser) Parse(ctx context.Context, filePath, mediaType string) ([]Par
 
 	emit := func() error {
 		content := string(window)
+		// Drop whitespace-only windows but retain every other window, including
+		// symbols, diagrams, and emoji. Extractability remains a document-level
+		// decision after all non-blank source content has been chunked.
+		if strings.TrimSpace(content) == "" {
+			return nil
+		}
 		if len(chunks) >= MaxParsedChunks {
 			return fmt.Errorf("%w: too many chunks", ErrParseResultLimit)
 		}
