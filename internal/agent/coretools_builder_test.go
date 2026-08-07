@@ -33,7 +33,10 @@ func (f *fakeSession) StartProcess(_ context.Context, _ pkgsandbox.ProcessReques
 }
 func (f *fakeSession) WorkingDir() string { return "/tmp" }
 func (f *fakeSession) Filesystem() (pkgsandbox.Filesystem, error) {
-	return fsops.NewFilesystem([]fsops.Mount{{Path: pkgsandbox.PathWorkspace, Directory: os.TempDir()}})
+	return fsops.NewFilesystem([]fsops.Mount{
+		{Path: pkgsandbox.PathWorkspace, Directory: os.TempDir()},
+		{Path: pkgsandbox.PathUser, Directory: os.TempDir()},
+	})
 }
 
 func TestBuildSandboxCoreTools_NoSessionFailsClosed(t *testing.T) {

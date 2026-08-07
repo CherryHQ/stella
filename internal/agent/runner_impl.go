@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -311,12 +312,16 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	}
 
 	hookSet := buildHookSet(cfg)
+	presets, err := buildDelegatePresets(ctx, cfg, session)
+	if err != nil {
+		return nil, nil, err
+	}
 	registerNonCore(delegatetool.NewDelegateTool(delegatetool.DelegateConfig{
 		Stream:         stream,
 		Registry:       toolReg,
 		Model:          model,
 		System:         systemPrompt,
-		Presets:        buildDelegatePresets(cfg),
+		Presets:        presets,
 		Hooks:          hookSet,
 		ToolLifecycle:  cfg.ToolLifecycle,
 		SessionRunner:  cfg.DelegateRunner,
@@ -382,18 +387,40 @@ func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSe
 	return coreagent.ToolSetFromRegistryFiltered(reg, allowed)
 }
 
-func buildDelegatePresets(cfg runnerConfig) *delegatetool.PresetRegistry {
-	paths, _ := sandbox.ResolvePaths(cfg.Sandbox)
-	if err := resources.ExtractDelegates(stellaDelegatesDir(paths)); err != nil {
-		slog.Warn("failed to extract builtin delegates", "error", err)
+func buildDelegatePresets(ctx context.Context, cfg runnerConfig, session pkgsandbox.Session) (_ *delegatetool.PresetRegistry, err error) {
+	paths, err := sandbox.ResolvePaths(cfg.Sandbox)
+	if err != nil {
+		return nil, fmt.Errorf("runner: %w", err)
 	}
-	return delegatetool.NewPresetRegistry(delegatetool.LoadDelegatePresets(delegatetool.LoadDelegatePresetsConfig{
-		StellaHome: paths.StellaHome,
-		AgentRoot:  paths.AgentRoot,
-		// User-level presets live under the shared user-data root (mounted as /user).
-		UserRoot:    paths.UserDataDir,
-		ProjectRoot: paths.ProjectRoot,
-	}))
+	fsSession, ok := session.(pkgsandbox.FilesystemSession)
+	if !ok {
+		return nil, fmt.Errorf("runner: sandbox session lacks filesystem capability for delegate presets")
+	}
+	filesystem, err := fsSession.Filesystem()
+	if err != nil {
+		return nil, fmt.Errorf("runner: open delegate preset filesystem: %w", err)
+	}
+	if filesystem == nil {
+		return nil, fmt.Errorf("runner: sandbox returned a nil filesystem for delegate presets")
+	}
+	defer func() { err = errors.Join(err, filesystem.Close()) }()
+
+	projectRoot, err := runtimeProjectSkillRoot(paths, session)
+	if err != nil {
+		return nil, fmt.Errorf("runner: %w", err)
+	}
+	builtin, err := resources.Default()
+	if err != nil {
+		return nil, fmt.Errorf("runner: load builtin delegate resources: %w", err)
+	}
+	presets, err := delegatetool.LoadRuntimeDelegatePresets(ctx, filesystem, builtin, delegatetool.RuntimePresetLoadConfig{
+		HasPrincipal: cfg.BuiltinParams.UserID != "" || cfg.BuiltinParams.GroupID != "",
+		ProjectRoot:  projectRoot,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("runner: load delegate presets: %w", err)
+	}
+	return delegatetool.NewPresetRegistry(presets), nil
 }
 
 // buildHookSet creates the hook set from configured hook plugins.

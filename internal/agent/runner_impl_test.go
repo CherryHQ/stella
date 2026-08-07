@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/fsops"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -23,6 +24,34 @@ import (
 )
 
 type stubProvider struct{}
+
+type delegatePresetSpyFS struct {
+	pkgsandbox.Filesystem
+	closeErr error
+	closes   int
+}
+
+func (f *delegatePresetSpyFS) Close() error { f.closes++; return f.closeErr }
+
+type delegatePresetErrorFS struct {
+	*delegatePresetSpyFS
+	listErr error
+}
+
+func (f *delegatePresetErrorFS) List(context.Context, string) ([]pkgsandbox.DirEntry, error) {
+	return nil, f.listErr
+}
+
+type delegatePresetSession struct {
+	*fakeSession
+	filesystem    pkgsandbox.Filesystem
+	filesystemErr error
+}
+
+func (s *delegatePresetSession) WorkingDir() string { return pkgsandbox.PathWorkspace }
+func (s *delegatePresetSession) Filesystem() (pkgsandbox.Filesystem, error) {
+	return s.filesystem, s.filesystemErr
+}
 
 type runtimeProjectTestSession struct {
 	pkgsandbox.Session
@@ -181,6 +210,127 @@ func TestRuntimeProjectSkillRootUsesSessionCoordinate(t *testing.T) {
 	}
 	if _, err := runtimeProjectSkillRoot(paths, &runtimeProjectProjectorSession{runtimeProjectTestSession: runtimeProjectTestSession{Session: pkgsandbox.NopSession(), root: "/host/process/project"}}); err == nil {
 		t.Fatal("accepted failed projection")
+	}
+}
+
+func TestBuildDelegatePresetsFilesystemBoundary(t *testing.T) {
+	t.Parallel()
+	home, workspace, userRoot := testRunnerPaths(t)
+	cfg := runnerConfig{Sandbox: sandbox.Config{Paths: sandbox.Paths{StellaHome: home, AgentRoot: workspace, UserRoot: userRoot}}, BuiltinParams: RunnerParams{UserID: "u", AgentID: "a"}}
+	newFS := func() *delegatePresetSpyFS {
+		filesystem, err := fsops.NewFilesystem([]fsops.Mount{
+			{Path: pkgsandbox.PathWorkspace, Directory: t.TempDir()},
+			{Path: pkgsandbox.PathUser, Directory: t.TempDir()},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &delegatePresetSpyFS{Filesystem: filesystem}
+	}
+	spy := newFS()
+	session := &delegatePresetSession{fakeSession: &fakeSession{alive: true}, filesystem: spy}
+	if _, err := buildDelegatePresets(context.Background(), cfg, session); err != nil {
+		t.Fatalf("buildDelegatePresets: %v", err)
+	}
+	if spy.closes != 1 {
+		t.Fatalf("filesystem closes = %d", spy.closes)
+	}
+
+	acquireErr := &delegatePresetSession{fakeSession: &fakeSession{alive: true}, filesystemErr: errors.New("acquire")}
+	if _, err := buildDelegatePresets(context.Background(), cfg, acquireErr); err == nil {
+		t.Fatal("acquisition error accepted")
+	}
+	nilFS := &delegatePresetSession{fakeSession: &fakeSession{alive: true}}
+	if _, err := buildDelegatePresets(context.Background(), cfg, nilFS); err == nil {
+		t.Fatal("nil filesystem accepted")
+	}
+
+	loaderSpy := newFS()
+	loaderSpy.closeErr = errors.New("close")
+	loaderFailure := &delegatePresetErrorFS{delegatePresetSpyFS: loaderSpy, listErr: errors.New("list")}
+	loaderSession := &delegatePresetSession{fakeSession: &fakeSession{alive: true}, filesystem: loaderFailure}
+	if _, err := buildDelegatePresets(context.Background(), cfg, loaderSession); !errors.Is(err, loaderFailure.listErr) || !errors.Is(err, loaderSpy.closeErr) {
+		t.Fatalf("loader/close errors not joined: %v", err)
+	}
+	if loaderSpy.closes != 1 {
+		t.Fatalf("failed filesystem closes = %d", loaderSpy.closes)
+	}
+
+	creates := 0
+	resilient := pkgsandbox.NewResilientSession(session, func(context.Context) (pkgsandbox.Session, error) {
+		creates++
+		return nil, errors.New("must not recreate")
+	})
+	if _, err := buildDelegatePresets(context.Background(), cfg, resilient); err != nil {
+		t.Fatal(err)
+	}
+	if creates != 0 {
+		t.Fatalf("resilient session recreated %d times", creates)
+	}
+}
+
+func TestBuildDelegatePresetsRuntimeOnlyASTGuard(t *testing.T) {
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("caller")
+	}
+	runnerFile := strings.TrimSuffix(filename, "_test.go") + ".go"
+	file, err := parser.ParseFile(token.NewFileSet(), runnerFile, nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var target *ast.FuncDecl
+	for _, decl := range file.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "buildDelegatePresets" {
+			target = fn
+			break
+		}
+	}
+	if target == nil {
+		t.Fatal("buildDelegatePresets missing")
+	}
+	var filesystem, runtimeLoader bool
+	forbidden := map[string]bool{"ExtractDelegates": true, "LoadDelegatePresets": true, "stellaDelegatesDir": true}
+	ast.Inspect(target.Body, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		if forbidden[selector.Sel.Name] {
+			t.Errorf("forbidden host loader call %s", selector.Sel.Name)
+		}
+		filesystem = filesystem || selector.Sel.Name == "Filesystem"
+		runtimeLoader = runtimeLoader || selector.Sel.Name == "LoadRuntimeDelegatePresets"
+		if selector.Sel.Name == "LoadRuntimeDelegatePresets" {
+			ast.Inspect(call, func(n ast.Node) bool {
+				sel, ok := n.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				base, isPaths := sel.X.(*ast.Ident)
+				if isPaths && base.Name == "paths" && (sel.Sel.Name == "StellaHome" || sel.Sel.Name == "AgentRoot" || sel.Sel.Name == "UserDataDir" || sel.Sel.Name == "ProjectRoot") {
+					t.Errorf("host path field passed to runtime loader: %s", sel.Sel.Name)
+				}
+				return true
+			})
+		}
+		return true
+	})
+	if !filesystem || !runtimeLoader {
+		t.Fatalf("runtime wiring missing: Filesystem=%v loader=%v", filesystem, runtimeLoader)
+	}
+	pathsFile, err := parser.ParseFile(token.NewFileSet(), filepath.Join(filepath.Dir(runnerFile), "paths.go"), nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, decl := range pathsFile.Decls {
+		if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "stellaDelegatesDir" {
+			t.Fatal("obsolete stellaDelegatesDir remains")
+		}
 	}
 }
 
