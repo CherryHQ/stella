@@ -17,9 +17,10 @@ import (
 // temp directories. Nothing is addressed by host coordinates.
 type toolTestSession struct {
 	pkgsandbox.Session
-	policy  pkgsandbox.Policy
-	workDir string
-	mounts  []fsops.Mount
+	policy              pkgsandbox.Policy
+	workDir             string
+	canonicalWorkingDir string
+	mounts              []fsops.Mount
 }
 
 func (s *toolTestSession) Policy() pkgsandbox.Policy { return s.policy }
@@ -48,6 +49,17 @@ func (s *toolTestSession) ProjectFilesystemPath(input string) (string, bool) {
 	return "", false
 }
 
+func (s *toolTestSession) FilesystemWorkingDirectory() (string, bool) {
+	if s.canonicalWorkingDir != "" {
+		return s.canonicalWorkingDir, true
+	}
+	workingDir := s.WorkingDir()
+	if pkgsandbox.IsCanonicalFilesystemPath(workingDir) {
+		return workingDir, true
+	}
+	return s.ProjectFilesystemPath(workingDir)
+}
+
 func workspaceSession(t *testing.T, dir string) *toolTestSession {
 	t.Helper()
 	return &toolTestSession{
@@ -68,11 +80,17 @@ func (panicPolicySession) WorkingDir() string { return pkgsandbox.PathWorkspace 
 
 type unprojectableSession struct {
 	pkgsandbox.Session
-	policy pkgsandbox.Policy
+	policy  pkgsandbox.Policy
+	workDir string
 }
 
 func (s unprojectableSession) Policy() pkgsandbox.Policy { return s.policy }
-func (unprojectableSession) WorkingDir() string          { return pkgsandbox.PathWorkspace }
+func (s unprojectableSession) WorkingDir() string {
+	if s.workDir != "" {
+		return s.workDir
+	}
+	return pkgsandbox.PathWorkspace
+}
 
 func TestLiteralToolPathsDoNotRequireSessionPolicy(t *testing.T) {
 	session := panicPolicySession{Session: pkgsandbox.NopSession()}
@@ -102,6 +120,32 @@ func TestVariableToolPathRequiresMappedProjector(t *testing.T) {
 	unmapped := &toolTestSession{Session: pkgsandbox.NopSession(), policy: pkgsandbox.Policy{Env: map[string]string{"HOME": "/unmapped"}}}
 	if _, err := resolveToolPath(unmapped, "$HOME/file"); err == nil {
 		t.Fatal("variable path succeeded with unmapped source")
+	}
+}
+
+func TestRelativeToolPathProjectsPhysicalWorkingDir(t *testing.T) {
+	workspace, err := os.MkdirTemp("/tmp", "stella-tool-workspace-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(workspace) //nolint:errcheck
+	project := filepath.Join(workspace, "project")
+	if err := os.Mkdir(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	session := &toolTestSession{
+		Session: pkgsandbox.NopSession(), workDir: project, canonicalWorkingDir: "/workspace/project",
+		mounts: []fsops.Mount{{Path: pkgsandbox.PathWorkspace, Directory: workspace}},
+	}
+	if got, err := resolveToolPath(session, "relative.txt"); err != nil || got != "/workspace/project/relative.txt" {
+		t.Fatalf("resolve physical relative path = %q, %v", got, err)
+	}
+}
+
+func TestRelativeToolPathRejectsUnprojectableWorkingDir(t *testing.T) {
+	session := unprojectableSession{Session: pkgsandbox.NopSession(), workDir: "/host/project"}
+	if _, err := resolveToolPath(session, "relative.txt"); err == nil {
+		t.Fatal("relative path accepted an unprojectable physical working directory")
 	}
 }
 

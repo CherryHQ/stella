@@ -19,6 +19,10 @@ type contextFilesystemSession struct {
 }
 
 func (s contextFilesystemSession) WorkingDir() string { return "/workspace/project/app" }
+func (s contextFilesystemSession) FilesystemWorkingDirectory() (string, bool) {
+	return s.WorkingDir(), true
+}
+
 func (s contextFilesystemSession) Filesystem() (sandbox.Filesystem, error) {
 	return fsops.NewFilesystem([]fsops.Mount{{Path: sandbox.PathWorkspace, Directory: s.root}})
 }
@@ -74,6 +78,10 @@ func TestBuildSystemPromptLoadsActiveContextFromFilesystem(t *testing.T) {
 type brokenContextSession struct{ sandbox.Session }
 
 func (brokenContextSession) WorkingDir() string { return "/workspace" }
+func (s brokenContextSession) FilesystemWorkingDirectory() (string, bool) {
+	return s.WorkingDir(), true
+}
+
 func (brokenContextSession) Filesystem() (sandbox.Filesystem, error) {
 	return nil, errors.New("provider unavailable")
 }
@@ -92,6 +100,10 @@ func TestBuildSystemPromptDoesNotFallbackAfterInjectedFilesystemFailure(t *testi
 type nilFilesystemContextSession struct{ sandbox.Session }
 
 func (nilFilesystemContextSession) WorkingDir() string { return "/workspace" }
+func (s nilFilesystemContextSession) FilesystemWorkingDirectory() (string, bool) {
+	return s.WorkingDir(), true
+}
+
 func (nilFilesystemContextSession) Filesystem() (sandbox.Filesystem, error) {
 	return nil, nil
 }
@@ -127,6 +139,10 @@ type brokenSizeSession struct {
 }
 
 func (s brokenSizeSession) WorkingDir() string { return "/workspace" }
+func (s brokenSizeSession) FilesystemWorkingDirectory() (string, bool) {
+	return s.WorkingDir(), true
+}
+
 func (s brokenSizeSession) Filesystem() (sandbox.Filesystem, error) {
 	return fsops.NewFilesystem([]fsops.Mount{{Path: sandbox.PathWorkspace, Directory: s.root}})
 }
@@ -148,6 +164,10 @@ type closeSpySession struct {
 }
 
 func (s closeSpySession) WorkingDir() string { return "/workspace" }
+func (s closeSpySession) FilesystemWorkingDirectory() (string, bool) {
+	return s.WorkingDir(), true
+}
+
 func (s closeSpySession) Filesystem() (sandbox.Filesystem, error) {
 	fs, err := fsops.NewFilesystem([]fsops.Mount{{Path: sandbox.PathWorkspace, Directory: s.root}})
 	if err != nil {

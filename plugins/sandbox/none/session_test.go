@@ -2,6 +2,7 @@ package none
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -94,8 +95,8 @@ func TestProjectFilesystemPathUsesDeepestLayoutMount(t *testing.T) {
 		// Deliberately broad-first: declaration order must not choose it.
 		Mounts: []hostlayout.Mount{{Source: workspace, Target: sandboxpkg.PathWorkspace, Access: hostlayout.ReadWrite}, {Source: nested, Target: sandboxpkg.PathUser, Access: hostlayout.ReadOnly}},
 	}}
-	if got, ok := session.ProjectFilesystemPath(filepath.Join(nested, "secret")); !ok || got != "/user/secret" {
-		t.Fatalf("ProjectFilesystemPath = %q, %v; want deepest /user target", got, ok)
+	if got, ok := session.projectFilesystemSourcePath(filepath.Join(nested, "secret")); !ok || got != "/user/secret" {
+		t.Fatalf("projectFilesystemSourcePath = %q, %v; want deepest /user target", got, ok)
 	}
 }
 
@@ -107,21 +108,75 @@ func TestFactoryProjectsFilesystemEnvironmentPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer session.Close() //nolint:errcheck
-	projector := session.(sandboxpkg.FilesystemPathProjector)
+	projector := session.(*noneSession)
 	for source, want := range map[string]string{
 		session.Policy().Env["HOME"]:                                    sandboxpkg.PathWorkspace,
 		session.Policy().Env[sandboxpkg.EnvStellaAssetsDir]:             sandboxpkg.PathUser + "/assets",
 		filepath.Join(session.Policy().Env[sandboxpkg.EnvTempDir], "x"): sandboxpkg.PathTemp + "/x",
-		sandboxpkg.PathWorkspace + "/a":                                 sandboxpkg.PathWorkspace + "/a",
 	} {
-		if got, ok := projector.ProjectFilesystemPath(source); !ok || got != want {
-			t.Errorf("ProjectFilesystemPath(%q) = %q, %v; want %q", source, got, ok, want)
+		if got, ok := projector.projectFilesystemSourcePath(source); !ok || got != want {
+			t.Errorf("projectFilesystemSourcePath(%q) = %q, %v; want %q", source, got, ok, want)
 		}
 	}
 	for _, source := range []string{filepath.Join(filepath.Dir(workspace), "escape"), workspace + "-sibling", filepath.Join(workspace, "..", "escape"), "/workspace/../user", `/workspace\x`} {
-		if _, ok := projector.ProjectFilesystemPath(source); ok {
-			t.Errorf("ProjectFilesystemPath accepted %q", source)
+		if _, ok := projector.projectFilesystemSourcePath(source); ok {
+			t.Errorf("projectFilesystemSourcePath accepted %q", source)
 		}
+	}
+}
+
+func TestProjectFilesystemSourcePathRejectsPhysicalTmpSibling(t *testing.T) {
+	// This makes the Linux-only ambiguity reproducible on Darwin: a physical
+	// /tmp source must not be accepted merely because it spells canonically.
+	workspace, err := os.MkdirTemp("/tmp", "stella-projector-workspace-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(workspace) //nolint:errcheck
+	session := &noneSession{layout: layoutFor(workspace, workspace)}
+	sibling := workspace + "-sibling"
+	if !sandboxpkg.IsCanonicalFilesystemPath(sibling) {
+		t.Fatalf("fixture %q must spell like canonical /tmp", sibling)
+	}
+	if _, ok := session.projectFilesystemSourcePath(sibling); ok {
+		t.Fatalf("physical /tmp sibling %q was accepted", sibling)
+	}
+}
+
+func TestFilesystemUsesNestedReadOnlyMount(t *testing.T) {
+	workspace, locked := t.TempDir(), t.TempDir()
+	if err := os.Mkdir(filepath.Join(workspace, "locked"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "locked", "secret"), []byte("parent"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(locked, "secret"), []byte("locked"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	session := &noneSession{layout: hostlayout.Layout{Mounts: []hostlayout.Mount{
+		{Source: workspace, Target: sandboxpkg.PathWorkspace, Access: hostlayout.ReadWrite},
+		{Source: locked, Target: sandboxpkg.PathWorkspace + "/locked", Access: hostlayout.ReadOnly},
+	}}}
+	filesystem, err := session.Filesystem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer filesystem.Close() //nolint:errcheck
+	r, _, err := filesystem.Read(context.Background(), "/workspace/locked/secret", sandboxpkg.ReadOptions{MaxBytes: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, readErr := io.ReadAll(r)
+	closeErr := r.Close()
+	if readErr != nil || closeErr != nil || string(contents) != "locked" {
+		t.Fatalf("nested mount read = %q, %v, %v", contents, readErr, closeErr)
+	}
+	if err := filesystem.Write(context.Background(), "/workspace/locked/new", strings.NewReader("no"), sandboxpkg.WriteOptions{}); err == nil {
+		t.Fatal("wrote nested read-only mount")
+	}
+	if err := filesystem.Rename(context.Background(), "/workspace/locked/secret", "/workspace/locked/renamed"); err == nil {
+		t.Fatal("renamed nested read-only mount")
 	}
 }
 

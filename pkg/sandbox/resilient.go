@@ -103,6 +103,27 @@ func (r *ResilientSession) ProjectFilesystemPath(input string) (string, bool) {
 	return projector.ProjectFilesystemPath(input)
 }
 
+// FilesystemWorkingDirectory returns the provider-owned canonical working
+// directory without recreating a session. Older providers expose only an
+// execution-path projector; the resilient boundary supplies their own
+// WorkingDir to that projector, never a caller-supplied coordinate.
+func (r *ResilientSession) FilesystemWorkingDirectory() (string, bool) {
+	r.mu.Lock()
+	s, closed := r.inner, r.closed
+	r.mu.Unlock()
+	if closed || s == nil {
+		return "", false
+	}
+	if projector, ok := s.(FilesystemWorkingDirectoryProjector); ok {
+		return projector.FilesystemWorkingDirectory()
+	}
+	projector, ok := s.(FilesystemPathProjector)
+	if !ok {
+		return "", false
+	}
+	return projector.ProjectFilesystemPath(s.WorkingDir())
+}
+
 func (r *ResilientSession) Alive() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()

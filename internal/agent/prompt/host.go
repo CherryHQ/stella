@@ -101,17 +101,13 @@ func promptPath(host sandbox.Host, projectRoot string, filesystem sandbox.Filesy
 		if host == nil {
 			return ""
 		}
-		workingDir := host.WorkingDir()
-		if !isWorkspacePath(workingDir) {
-			projector, ok := host.(sandbox.FilesystemPathProjector)
-			if !ok {
-				return ""
-			}
-			var projected bool
-			workingDir, projected = projector.ProjectFilesystemPath(workingDir)
-			if !projected || !isWorkspacePath(workingDir) {
-				return ""
-			}
+		projector, ok := host.(sandbox.FilesystemWorkingDirectoryProjector)
+		if !ok {
+			return ""
+		}
+		workingDir, projected := projector.FilesystemWorkingDirectory()
+		if !projected || !isWorkspacePath(workingDir) {
+			return ""
 		}
 		return workingDir
 	}

@@ -45,6 +45,9 @@ type promptTestSession struct {
 
 func (s promptTestSession) WorkingDir() string                      { return s.workingDir }
 func (s promptTestSession) Filesystem() (sandbox.Filesystem, error) { return s.filesystem, nil }
+func (s promptTestSession) FilesystemWorkingDirectory() (string, bool) {
+	return s.WorkingDir(), true
+}
 
 type projectedPromptTestSession struct {
 	promptTestSession
@@ -52,7 +55,7 @@ type projectedPromptTestSession struct {
 	ok        bool
 }
 
-func (s projectedPromptTestSession) ProjectFilesystemPath(string) (string, bool) {
+func (s projectedPromptTestSession) FilesystemWorkingDirectory() (string, bool) {
 	return s.projected, s.ok
 }
 

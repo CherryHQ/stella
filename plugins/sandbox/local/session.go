@@ -43,8 +43,9 @@ type Factory struct {
 }
 
 var (
-	_ sandboxpkg.FilesystemSession       = (*localSession)(nil)
-	_ sandboxpkg.FilesystemPathProjector = (*localSession)(nil)
+	_ sandboxpkg.FilesystemSession                   = (*localSession)(nil)
+	_ sandboxpkg.FilesystemPathProjector             = (*localSession)(nil)
+	_ sandboxpkg.FilesystemWorkingDirectoryProjector = (*localSession)(nil)
 )
 
 // NewFactory returns a Factory for the local backend.
@@ -117,17 +118,18 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 		return nil, fmt.Errorf("local: apply filesystem environment: %w", err)
 	}
 	s := &localSession{
-		id:                sessionID,
-		policy:            policy,
-		layout:            layout,
-		realRoot:          realRoot,
-		sandboxRoot:       sandboxRoot,
-		userDataReal:      userDataReal,
-		userDataSandbox:   userDataSandbox,
-		stellaHomeHost:    hostStellaHome,
-		stellaHomeSandbox: adjustStellaHome(hostStellaHome),
-		tmpMounts:         tmpMounts,
-		done:              make(chan struct{}),
+		id:                    sessionID,
+		policy:                policy,
+		layout:                layout,
+		realRoot:              realRoot,
+		sandboxRoot:           sandboxRoot,
+		processPathsCanonical: localProcessPathsCanonical(),
+		userDataReal:          userDataReal,
+		userDataSandbox:       userDataSandbox,
+		stellaHomeHost:        hostStellaHome,
+		stellaHomeSandbox:     adjustStellaHome(hostStellaHome),
+		tmpMounts:             tmpMounts,
+		done:                  make(chan struct{}),
 	}
 	transferredTmpOwnership = true
 	sandboxpkg.LogSessionCreated(sessionID, "local", policy)
@@ -278,21 +280,22 @@ func remapStellaHomePath(p, hostSH, sandboxSH string) string {
 // localSession implements sandboxpkg.Session by running commands directly on
 // the host OS with no container isolation.
 type localSession struct {
-	id                string
-	policy            sandboxpkg.Policy
-	layout            hostlayout.Layout
-	realRoot          string     // actual host path (e.g. /home/stella/.stella-dev/...)
-	sandboxRoot       string     // path the agent sees (/workspace on Linux+bwrap, else = realRoot)
-	userDataReal      string     // host path of the shared user-data root, "" when none
-	userDataSandbox   string     // path the agent sees for it (/user on Linux+bwrap, else = userDataReal)
-	stellaHomeHost    string     // host-side STELLA_HOME for bwrap mounts
-	stellaHomeSandbox string     // agent's view of STELLA_HOME (/opt/stella on Linux+bwrap, else = host)
-	tmpMounts         []tmpMount // sandbox temp paths mapped to real host dirs (/tmp, /var/tmp)
-	done              chan struct{}
-	doneOnce          sync.Once
-	mu                sync.RWMutex
-	closed            bool
-	procs             []*localProcess
+	id                    string
+	policy                sandboxpkg.Policy
+	layout                hostlayout.Layout
+	realRoot              string     // actual host path (e.g. /home/stella/.stella-dev/...)
+	sandboxRoot           string     // path the agent sees (/workspace on Linux+bwrap, else = realRoot)
+	processPathsCanonical bool       // true only when platform construction supplies canonical process paths
+	userDataReal          string     // host path of the shared user-data root, "" when none
+	userDataSandbox       string     // path the agent sees for it (/user on Linux+bwrap, else = userDataReal)
+	stellaHomeHost        string     // host-side STELLA_HOME for bwrap mounts
+	stellaHomeSandbox     string     // agent's view of STELLA_HOME (/opt/stella on Linux+bwrap, else = host)
+	tmpMounts             []tmpMount // sandbox temp paths mapped to real host dirs (/tmp, /var/tmp)
+	done                  chan struct{}
+	doneOnce              sync.Once
+	mu                    sync.RWMutex
+	closed                bool
+	procs                 []*localProcess
 }
 
 func (s *localSession) Policy() sandboxpkg.Policy {
@@ -326,7 +329,7 @@ func (s *localSession) WorkingDir() string {
 func (s *localSession) Filesystem() (sandboxpkg.Filesystem, error) {
 	mounts := make([]fsops.Mount, 0, len(s.layout.Mounts))
 	for _, mount := range s.layout.Mounts {
-		if mount.Target != sandboxpkg.PathWorkspace && mount.Target != sandboxpkg.PathUser && mount.Target != sandboxpkg.PathTemp {
+		if !sandboxpkg.IsCanonicalFilesystemPath(mount.Target) {
 			continue
 		}
 		mounts = append(mounts, fsops.Mount{Path: mount.Target, Directory: mount.Source, ReadOnly: mount.Access == hostlayout.ReadOnly})
@@ -337,16 +340,37 @@ func (s *localSession) Filesystem() (sandboxpkg.Filesystem, error) {
 	return fsops.NewFilesystem(mounts)
 }
 
-// ProjectFilesystemPath returns only a canonical mounted Filesystem path.
+// ProjectFilesystemPath maps a trusted path from the local process environment.
+// Platform construction determines whether process paths are canonical; string
+// equality between host and sandbox roots is not a coordinate-system signal.
 func (s *localSession) ProjectFilesystemPath(input string) (string, bool) {
+	if s.processPathsCanonical {
+		if !sandboxpkg.IsCanonicalFilesystemPath(input) {
+			return "", false
+		}
+		// Validate against provider authority without returning the physical source.
+		if _, mounted := s.pathResolver().TargetToSource(input); !mounted {
+			return "", false
+		}
+		return input, true
+	}
+	return s.projectFilesystemSourcePath(input)
+}
+
+// projectFilesystemSourcePath maps only a physical path through the authorized
+// layout. It never accepts canonical coordinates by spelling.
+func (s *localSession) projectFilesystemSourcePath(input string) (string, bool) {
 	resolver := s.pathResolver()
 	if canonical, ok := resolver.SourceToTarget(input); ok && sandboxpkg.IsCanonicalFilesystemPath(filepath.ToSlash(canonical)) {
 		return filepath.ToSlash(canonical), true
 	}
-	if sandboxpkg.IsCanonicalFilesystemPath(input) {
-		return input, true
-	}
 	return "", false
+}
+
+// FilesystemWorkingDirectory returns the session-owned working directory with
+// its provider-known coordinate system projected exactly once.
+func (s *localSession) FilesystemWorkingDirectory() (string, bool) {
+	return s.ProjectFilesystemPath(s.WorkingDir())
 }
 
 func (s *localSession) Alive() bool {

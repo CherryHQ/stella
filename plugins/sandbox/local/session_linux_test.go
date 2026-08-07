@@ -2,6 +2,7 @@ package local
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -345,11 +346,10 @@ func TestWrapCommand_linux_inWorkspaceWritableMountSkipped(t *testing.T) {
 	}
 }
 
-// TestWrapCommand_linux_inUserDataWritableMountSkipped verifies that an extra
-// writable mount that already sits under the user-data root is NOT bound again
-// under the STELLA_HOME tree: the /user bind already makes it writable, and a
-// second bind would re-expose the host path to the agent.
-func TestWrapCommand_linux_inUserDataWritableMountSkipped(t *testing.T) {
+// TestWrapCommand_linux_inUserDataWritableMountUsesDeclaredTarget verifies that
+// a nested source remains bound at its distinct declared target even when a
+// writable /user root also contains it.
+func TestWrapCommand_linux_inUserDataWritableMountUsesDeclaredTarget(t *testing.T) {
 	skipIfBwrapNotFunctional(t)
 
 	stellaHome := t.TempDir()
@@ -377,12 +377,289 @@ func TestWrapCommand_linux_inUserDataWritableMountSkipped(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	joined := strings.Join(args, " ")
-	if strings.Contains(joined, sandboxWritableDir) {
-		t.Errorf("under-/user writable mount must not be re-bound under %s: %v", sandboxStellaHome, args)
+	hasBind := func(source, target string) bool {
+		for i := range args {
+			if args[i] == "--bind" && i+2 < len(args) && args[i+1] == source && args[i+2] == target {
+				return true
+			}
+		}
+		return false
 	}
-	if !strings.Contains(joined, "--bind "+userData+" /user") {
+	if !hasBind(userData, "/user") {
 		t.Errorf("expected --bind %s /user covering the writable mount, got %v", userData, args)
+	}
+	if !hasBind(writableDir, sandboxWritableDir) {
+		t.Errorf("expected declared --bind %s %s, got %v", writableDir, sandboxWritableDir, args)
+	}
+}
+
+func TestLocalSessionLinuxExternalReadOnlyMountMatchesFilesystem(t *testing.T) {
+	skipIfBwrapNotFunctional(t)
+
+	workspace, locked := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(locked, "secret"), []byte("external\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	layout := layoutFor(workspace, workspace,
+		hostlayout.Mount{Source: workspace, Target: sandboxpkg.PathWorkspace, Access: hostlayout.ReadWrite},
+		hostlayout.Mount{Source: locked, Target: sandboxpkg.PathWorkspace + "/locked", Access: hostlayout.ReadOnly})
+	session, err := NewFactory(Config{Layout: layout}).CreateSession(context.Background(), sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: workspace},
+		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close() //nolint:errcheck
+
+	filesystem, err := session.(sandboxpkg.FilesystemSession).Filesystem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer filesystem.Close() //nolint:errcheck
+	r, _, err := filesystem.Read(context.Background(), "/workspace/locked/secret", sandboxpkg.ReadOptions{MaxBytes: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, readErr := io.ReadAll(r)
+	closeErr := r.Close()
+	if readErr != nil || closeErr != nil || string(contents) != "external\n" {
+		t.Fatalf("Filesystem nested mount read = %q, %v, %v", contents, readErr, closeErr)
+	}
+	if err := filesystem.Write(context.Background(), "/workspace/locked/new", strings.NewReader("no"), sandboxpkg.WriteOptions{}); err == nil {
+		t.Fatal("Filesystem wrote nested read-only mount")
+	}
+
+	result, err := session.Exec(context.Background(), `cat /workspace/locked/secret && ! printf no > /workspace/locked/new`, sandboxpkg.ExecOptions{})
+	if err != nil || result.ExitCode != 0 || result.Stdout != "external\n" {
+		t.Fatalf("Exec nested mount = %+v, %v", result, err)
+	}
+	if _, err := os.Stat(filepath.Join(locked, "new")); !os.IsNotExist(err) {
+		t.Fatalf("bwrap wrote read-only external source: %v", err)
+	}
+}
+
+func TestLocalSessionLinuxReadOnlyWorkspaceWithWritableChildMatchesFilesystem(t *testing.T) {
+	skipIfBwrapNotFunctional(t)
+
+	base := t.TempDir()
+	project, other := filepath.Join(base, "project"), filepath.Join(base, "other")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	layout := hostlayout.Layout{
+		WorkspaceSource: project, WorkingDirSource: project,
+		Mounts: []hostlayout.Mount{
+			{Source: base, Target: sandboxpkg.PathWorkspace, Access: hostlayout.ReadOnly},
+			{Source: project, Target: sandboxpkg.PathWorkspace + "/project", Access: hostlayout.ReadWrite},
+		},
+	}
+	session, err := NewFactory(Config{Layout: layout}).CreateSession(context.Background(), sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: project},
+		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close() //nolint:errcheck
+
+	filesystem, err := session.(sandboxpkg.FilesystemSession).Filesystem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer filesystem.Close() //nolint:errcheck
+	if err := filesystem.Write(context.Background(), "/workspace/other/no", strings.NewReader("no"), sandboxpkg.WriteOptions{}); err == nil {
+		t.Fatal("Filesystem wrote read-only workspace root")
+	}
+	if err := filesystem.Write(context.Background(), "/workspace/project/yes", strings.NewReader("yes"), sandboxpkg.WriteOptions{}); err != nil {
+		t.Fatalf("Filesystem wrote declared child: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(project, "yes")); err != nil || string(got) != "yes" {
+		t.Fatalf("Filesystem child bytes = %q, %v", got, err)
+	}
+
+	result, err := session.Exec(context.Background(), `! printf no > /workspace/other/no && printf yes > /workspace/project/exec`, sandboxpkg.ExecOptions{})
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("Exec workspace root/child = %+v, %v", result, err)
+	}
+	if _, err := os.Stat(filepath.Join(other, "no")); !os.IsNotExist(err) {
+		t.Fatalf("bwrap wrote read-only workspace root: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(project, "exec")); err != nil || string(got) != "yes" {
+		t.Fatalf("bwrap child bytes = %q, %v", got, err)
+	}
+}
+
+func TestLocalSessionLinuxReadOnlyUserMountMatchesFilesystem(t *testing.T) {
+	skipIfBwrapNotFunctional(t)
+
+	workspace, userData := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(userData, "secret"), []byte("user\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	layout := layoutFor(workspace, workspace,
+		hostlayout.Mount{Source: workspace, Target: sandboxpkg.PathWorkspace, Access: hostlayout.ReadWrite},
+		hostlayout.Mount{Source: userData, Target: sandboxpkg.PathUser, Access: hostlayout.ReadOnly})
+	session, err := NewFactory(Config{Layout: layout}).CreateSession(context.Background(), sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: workspace},
+		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close() //nolint:errcheck
+
+	filesystem, err := session.(sandboxpkg.FilesystemSession).Filesystem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer filesystem.Close() //nolint:errcheck
+	r, _, err := filesystem.Read(context.Background(), "/user/secret", sandboxpkg.ReadOptions{MaxBytes: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, readErr := io.ReadAll(r)
+	closeErr := r.Close()
+	if readErr != nil || closeErr != nil || string(contents) != "user\n" {
+		t.Fatalf("Filesystem read-only user read = %q, %v, %v", contents, readErr, closeErr)
+	}
+	if err := filesystem.Write(context.Background(), "/user/new", strings.NewReader("no"), sandboxpkg.WriteOptions{}); err == nil {
+		t.Fatal("Filesystem wrote read-only /user")
+	}
+
+	result, err := session.Exec(context.Background(), `cat /user/secret && ! printf no > /user/new`, sandboxpkg.ExecOptions{})
+	if err != nil || result.ExitCode != 0 || result.Stdout != "user\n" {
+		t.Fatalf("Exec read-only /user = %+v, %v", result, err)
+	}
+	if _, err := os.Stat(filepath.Join(userData, "new")); !os.IsNotExist(err) {
+		t.Fatalf("bwrap wrote read-only /user source: %v", err)
+	}
+}
+
+func TestWrapCommandLinuxDoesNotOverrideExplicitMaskedAlias(t *testing.T) {
+	skipIfBwrapNotFunctional(t)
+
+	workspace, override := t.TempDir(), t.TempDir()
+	readOnlySource := filepath.Join(workspace, "locked", "readonly")
+	if err := os.MkdirAll(readOnlySource, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	layout := layoutFor(workspace, workspace,
+		hostlayout.Mount{Source: workspace, Target: sandboxpkg.PathWorkspace, Access: hostlayout.ReadWrite},
+		hostlayout.Mount{Source: override, Target: "/workspace/locked", Access: hostlayout.ReadWrite},
+		hostlayout.Mount{Source: readOnlySource, Target: "/external/readonly", Access: hostlayout.ReadOnly})
+	_, args, err := wrapCommand(sandboxpkg.Policy{Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll}}, layout, sandboxpkg.PathWorkspace, nil, "", "sh", []string{"-c", "true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindIndex := func(flag, source, target string) int {
+		for i := range args {
+			if args[i] == flag && i+2 < len(args) && args[i+1] == source && args[i+2] == target {
+				return i
+			}
+		}
+		return -1
+	}
+	rootIndex, maskedIndex := bindIndex("--bind", workspace, "/workspace"), bindIndex("--bind", override, "/workspace/locked")
+	if rootIndex < 0 || maskedIndex < 0 || rootIndex >= maskedIndex {
+		t.Fatalf("root/explicit mount order root=%d explicit=%d: %v", rootIndex, maskedIndex, args)
+	}
+	if aliasIndex := bindIndex("--ro-bind", readOnlySource, "/workspace/locked/readonly"); aliasIndex >= 0 {
+		t.Fatalf("derived alias at %d overrides explicit mount at %d: %v", aliasIndex, maskedIndex, args)
+	}
+	if chdirIndex := slices.Index(args, "--chdir"); chdirIndex < maskedIndex {
+		t.Fatalf("--chdir appears before explicit mount: %v", args)
+	}
+}
+
+func TestWrapCommandLinuxHonorsReadOnlyWorkspaceRootAndChildOrder(t *testing.T) {
+	skipIfBwrapNotFunctional(t)
+
+	base := t.TempDir()
+	project := filepath.Join(base, "project")
+	if err := os.Mkdir(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	layout := hostlayout.Layout{WorkspaceSource: project, WorkingDirSource: project, Mounts: []hostlayout.Mount{
+		{Source: base, Target: sandboxpkg.PathWorkspace, Access: hostlayout.ReadOnly},
+		{Source: project, Target: sandboxpkg.PathWorkspace + "/project", Access: hostlayout.ReadWrite},
+	}}
+	_, args, err := wrapCommand(sandboxpkg.Policy{Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll}}, layout, "/workspace/project", nil, "", "sh", []string{"-c", "true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := func(flag, source, target string) int {
+		for i := range args {
+			if args[i] == flag && i+2 < len(args) && args[i+1] == source && args[i+2] == target {
+				return i
+			}
+		}
+		return -1
+	}
+	rootIndex, childIndex := index("--ro-bind", base, "/workspace"), index("--bind", project, "/workspace/project")
+	if rootIndex < 0 || childIndex < 0 || rootIndex >= childIndex {
+		t.Fatalf("read-only root/child order root=%d child=%d: %v", rootIndex, childIndex, args)
+	}
+}
+
+func TestWrapCommandLinuxDoesNotBindWorkspaceFallback(t *testing.T) {
+	skipIfBwrapNotFunctional(t)
+
+	base := t.TempDir()
+	project := filepath.Join(base, "project")
+	if err := os.Mkdir(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	layout := hostlayout.Layout{WorkspaceSource: project, WorkingDirSource: project, Mounts: []hostlayout.Mount{
+		{Source: project, Target: sandboxpkg.PathWorkspace + "/project", Access: hostlayout.ReadWrite},
+	}}
+	_, args, err := wrapCommand(sandboxpkg.Policy{Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll}}, layout, "/workspace/project", nil, "", "sh", []string{"-c", "true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hasBind := func(source, target string) bool {
+		for i := range args {
+			if args[i] == "--bind" && i+2 < len(args) && args[i+1] == source && args[i+2] == target {
+				return true
+			}
+		}
+		return false
+	}
+	if hasBind(project, sandboxpkg.PathWorkspace) || !hasBind(project, "/workspace/project") {
+		t.Fatalf("workspace fallback broadened child authority: %v", args)
+	}
+}
+
+func TestWrapCommandLinuxOrdersNestedDeclaredTargets(t *testing.T) {
+	skipIfBwrapNotFunctional(t)
+
+	workspace, shallow, deep := t.TempDir(), t.TempDir(), t.TempDir()
+	layout := layoutFor(workspace, workspace,
+		hostlayout.Mount{Source: workspace, Target: sandboxpkg.PathWorkspace, Access: hostlayout.ReadWrite},
+		hostlayout.Mount{Source: shallow, Target: "/workspace/mount", Access: hostlayout.ReadWrite},
+		hostlayout.Mount{Source: deep, Target: "/workspace/mount/deep", Access: hostlayout.ReadWrite})
+	_, args, err := wrapCommand(sandboxpkg.Policy{Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll}}, layout, sandboxpkg.PathWorkspace, nil, "", "sh", []string{"-c", "true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindIndex := func(source, target string) int {
+		for i := range args {
+			if args[i] == "--bind" && i+2 < len(args) && args[i+1] == source && args[i+2] == target {
+				return i
+			}
+		}
+		return -1
+	}
+	shallowIndex, deepIndex := bindIndex(shallow, "/workspace/mount"), bindIndex(deep, "/workspace/mount/deep")
+	if shallowIndex < 0 || deepIndex < 0 || shallowIndex >= deepIndex {
+		t.Fatalf("declared bind order shallow=%d deep=%d: %v", shallowIndex, deepIndex, args)
+	}
+	chdirIndex := slices.Index(args, "--chdir")
+	if chdirIndex < deepIndex {
+		t.Fatalf("--chdir appears before declared mounts: %v", args)
 	}
 }
 

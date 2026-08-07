@@ -17,6 +17,8 @@ func resolveSandboxRoot(layout hostlayout.Layout) (sandboxRoot, realRoot string)
 	return real, real
 }
 
+func localProcessPathsCanonical() bool { return false }
+
 // resolveUserDataRoot returns the shared user-data root. There is no path
 // remapping on this platform, so the sandbox-space and host paths are identical.
 func resolveUserDataRoot(layout hostlayout.Layout) (sandboxRoot, realRoot string) {

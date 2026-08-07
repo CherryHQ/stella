@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -96,6 +97,8 @@ func checkSandboxRequirements() error {
 func resolveSandboxRoot(layout hostlayout.Layout) (sandboxRoot, realRoot string) {
 	return sandboxpkg.MountWorkspace, layout.WorkspaceSource
 }
+
+func localProcessPathsCanonical() bool { return true }
 
 // resolveUserDataRoot returns the sandbox-space and host paths of the shared
 // user-data root. On Linux it is bind-mounted at the fixed path /user; "" host
@@ -231,6 +234,25 @@ func appendWritableBind(args []string, hostPath, sandboxPath string) []string {
 	return append(args, "--bind", hostPath, sandboxPath)
 }
 
+// appendDeclaredMount binds an exact declared target after public roots exist.
+// It creates only parent directories below those roots, avoiding a second
+// --dir for an already-bound root while still supporting out-of-root targets.
+func appendDeclaredMount(args []string, hostPath, sandboxPath string, readOnly bool, publicRoots []string) []string {
+	info, err := os.Stat(hostPath)
+	if err != nil {
+		return args
+	}
+	args = appendDirParentsBelowRoots(args, sandboxPath, publicRoots)
+	if info.IsDir() {
+		args = append(args, "--dir", filepath.Clean(sandboxPath))
+	}
+	flag := "--bind"
+	if readOnly {
+		flag = "--ro-bind"
+	}
+	return append(args, flag, hostPath, sandboxPath)
+}
+
 func appendDirParents(args []string, path string) []string {
 	parent := filepath.Clean(filepath.Dir(path))
 	if parent == "." || parent == string(filepath.Separator) {
@@ -247,17 +269,24 @@ func appendDirParents(args []string, path string) []string {
 	return args
 }
 
-func isCoveredByWritableMount(hostPath string, mounts []hostlayout.Mount) bool {
-	for _, m := range mounts {
-		if m.Access != hostlayout.ReadWrite || filepath.Clean(m.Source) == filepath.Clean(hostPath) {
-			continue
-		}
-		rel, err := filepath.Rel(m.Source, hostPath)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return true
-		}
+func appendDirParentsBelowRoots(args []string, path string, roots []string) []string {
+	known := make(map[string]struct{}, len(roots))
+	for _, root := range roots {
+		known[filepath.Clean(root)] = struct{}{}
 	}
-	return false
+	parent := filepath.Clean(filepath.Dir(path))
+	var dirs []string
+	for parent != "." && parent != string(filepath.Separator) {
+		if _, ok := known[parent]; ok {
+			break
+		}
+		dirs = append(dirs, parent)
+		parent = filepath.Dir(parent)
+	}
+	for i := len(dirs) - 1; i >= 0; i-- {
+		args = append(args, "--dir", dirs[i])
+	}
+	return args
 }
 
 func mountByTarget(mounts []hostlayout.Mount, target string) (hostlayout.Mount, bool) {
@@ -267,6 +296,71 @@ func mountByTarget(mounts []hostlayout.Mount, target string) (hostlayout.Mount, 
 		}
 	}
 	return hostlayout.Mount{}, false
+}
+
+func deepestDeclaredMountContaining(mounts []hostlayout.Mount, target string) (hostlayout.Mount, bool) {
+	target = path.Clean(target)
+	var best hostlayout.Mount
+	found := false
+	for _, mount := range mounts {
+		mountTarget := path.Clean(mount.Target)
+		if target != mountTarget && !strings.HasPrefix(target, mountTarget+"/") {
+			continue
+		}
+		if !found || len(mountTarget) > len(path.Clean(best.Target)) {
+			best, found = mount, true
+		}
+	}
+	return best, found
+}
+
+func declaredNestedMounts(mounts []hostlayout.Mount, tmpMounts []tmpMount) []hostlayout.Mount {
+	declared := make([]hostlayout.Mount, 0, len(mounts))
+	for _, mount := range mounts {
+		if isExplicitTmpMount(mount, tmpMounts) || mount.Target == sandboxpkg.MountWorkspace || mount.Target == sandboxpkg.MountUserData {
+			continue
+		}
+		declared = append(declared, mount)
+	}
+	sort.Slice(declared, func(i, j int) bool {
+		left, right := path.Clean(declared[i].Target), path.Clean(declared[j].Target)
+		if len(left) == len(right) {
+			return left < right
+		}
+		return len(left) < len(right)
+	})
+	return declared
+}
+
+// appendReadOnlyAliases keeps a read-only source contained by a writable root
+// read-only through that root's host-relative alias. A deeper declared mount
+// already masks root bytes at that alias, so it must win unchanged.
+func appendReadOnlyAliases(args []string, mounts []hostlayout.Mount, root hostlayout.Mount, publicRoots []string) []string {
+	if root.Access != hostlayout.ReadWrite {
+		return args
+	}
+	aliases := make([]hostlayout.Mount, 0, len(mounts))
+	for _, mount := range mounts {
+		if mount.Access != hostlayout.ReadOnly {
+			continue
+		}
+		rel, err := filepath.Rel(root.Source, filepath.Clean(mount.Source))
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		alias := filepath.Join(root.Target, rel)
+		deepest, found := deepestDeclaredMountContaining(mounts, alias)
+		if !found || path.Clean(deepest.Target) != path.Clean(root.Target) {
+			continue
+		}
+		mount.Target = alias
+		aliases = append(aliases, mount)
+	}
+	sort.Slice(aliases, func(i, j int) bool { return len(aliases[i].Target) < len(aliases[j].Target) })
+	for _, alias := range aliases {
+		args = appendDeclaredMount(args, alias.Source, alias.Target, true, publicRoots)
+	}
+	return args
 }
 
 // wrapCommand wraps name+args with bwrap for filesystem and optional network
@@ -282,7 +376,6 @@ func wrapCommand(policy sandboxpkg.Policy, layout hostlayout.Layout, sandboxCwd 
 		)
 	}
 
-	realRoot := layout.WorkspaceSource
 	networkMode := policy.NetworkModeOrDefault()
 	mounts := layout.Mounts
 
@@ -307,49 +400,38 @@ func wrapCommand(policy sandboxpkg.Policy, layout hostlayout.Layout, sandboxCwd 
 		bwrapArgs = append(bwrapArgs, "--dir", m.sandboxPath, "--bind", m.realPath, m.sandboxPath)
 	}
 	bwrapArgs = appendLinuxRuntimeMounts(bwrapArgs)
-	for _, m := range mounts {
-		// Temporary targets are bound above from their per-session sources. Keep
-		// them in layout for path resolution, but do not give the generic layout
-		// loop a second bind of that exact source/target pair.
-		if isExplicitTmpMount(m, tmpMounts) {
-			continue
+	// Establish public roots before their nested targets. bwrap applies
+	// later binds on top, so declared nested authority must come after the roots.
+	workspaceMount, hasWorkspaceMount := mountByTarget(mounts, sandboxpkg.MountWorkspace)
+	bwrapArgs = append(bwrapArgs, "--dir", sandboxpkg.MountWorkspace)
+	if hasWorkspaceMount {
+		flag := "--bind"
+		if workspaceMount.Access == hostlayout.ReadOnly {
+			flag = "--ro-bind"
 		}
-		if m.Target == sandboxpkg.MountWorkspace || m.Target == sandboxpkg.MountUserData {
-			continue
-		}
-		if m.Access == hostlayout.ReadWrite && isCoveredByWritableMount(m.Source, mounts) {
-			continue
-		}
-		if m.Access == hostlayout.ReadOnly {
-			bwrapArgs = appendRoBindIfExists(bwrapArgs, m.Source, m.Target)
-			continue
-		}
-		bwrapArgs = appendWritableBind(bwrapArgs, m.Source, m.Target)
+		bwrapArgs = append(bwrapArgs, flag, workspaceMount.Source, workspaceMount.Target)
 	}
-	workspaceMount, _ := mountByTarget(mounts, sandboxpkg.MountWorkspace)
-	if workspaceMount.Source == "" {
-		workspaceMount = hostlayout.Mount{Source: realRoot, Target: sandboxpkg.MountWorkspace, Access: hostlayout.ReadWrite}
-	}
-	bwrapArgs = append(bwrapArgs,
-		"--dir", workspaceMount.Target,
-		"--bind", workspaceMount.Source, workspaceMount.Target,
-		"--chdir", sandboxCwd,
-	)
-	if userMount, ok := mountByTarget(mounts, sandboxpkg.MountUserData); ok {
-		bwrapArgs = appendWritableBind(bwrapArgs, userMount.Source, userMount.Target)
-	}
-	// Re-mount workspace-contained read-only paths at their /workspace/... equivalent.
-	// This overrides the writable workspace bind for those subdirectories.
-	for _, m := range mounts {
-		if m.Access != hostlayout.ReadOnly {
-			continue
+	userMount, hasUserMount := mountByTarget(mounts, sandboxpkg.MountUserData)
+	if hasUserMount {
+		if userMount.Access == hostlayout.ReadOnly {
+			bwrapArgs = appendRoBindIfExists(bwrapArgs, userMount.Source, userMount.Target)
+		} else {
+			bwrapArgs = appendWritableBind(bwrapArgs, userMount.Source, userMount.Target)
 		}
-		rel, relErr := filepath.Rel(workspaceMount.Source, filepath.Clean(m.Source))
-		if relErr != nil || strings.HasPrefix(rel, "..") || rel == "." {
-			continue
-		}
-		bwrapArgs = appendRoBindIfExists(bwrapArgs, m.Source, filepath.Join(workspaceMount.Target, rel))
 	}
+	publicRoots := []string{sandboxpkg.MountWorkspace}
+	if hasUserMount {
+		publicRoots = append(publicRoots, userMount.Target)
+	}
+	for _, mount := range declaredNestedMounts(mounts, tmpMounts) {
+		bwrapArgs = appendDeclaredMount(bwrapArgs, mount.Source, mount.Target, mount.Access == hostlayout.ReadOnly, publicRoots)
+	}
+	for _, mount := range mounts {
+		if mount.Access == hostlayout.ReadWrite {
+			bwrapArgs = appendReadOnlyAliases(bwrapArgs, mounts, mount, publicRoots)
+		}
+	}
+	bwrapArgs = append(bwrapArgs, "--chdir", sandboxCwd)
 	if networkMode != sandboxpkg.NetworkAllowAll {
 		bwrapArgs = append(bwrapArgs, "--unshare-net")
 	}

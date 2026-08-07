@@ -184,6 +184,18 @@ func TestResilientSession_ProjectFilesystemPathForwardsExactlyOnce(t *testing.T)
 	}
 }
 
+func TestResilientSession_FilesystemWorkingDirectoryProjectsOnlyInnerWorkingDir(t *testing.T) {
+	inner := &projectorMockSession{mockSession: newMockSession(), output: "/workspace/project", ok: true}
+	rs := NewResilientSession(inner, func(context.Context) (Session, error) {
+		t.Fatal("working directory projection must not recreate")
+		return nil, nil
+	})
+	got, ok := rs.FilesystemWorkingDirectory()
+	if !ok || got != "/workspace/project" || inner.input != inner.WorkingDir() || inner.calls != 1 {
+		t.Fatalf("working directory = %q/%v input=%q calls=%d", got, ok, inner.input, inner.calls)
+	}
+}
+
 func TestResilientSession_ProjectFilesystemPathFailsClosed(t *testing.T) {
 	var creates atomic.Int32
 	creator := func(context.Context) (Session, error) { creates.Add(1); return newMockSession(), nil }

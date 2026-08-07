@@ -37,8 +37,9 @@ type Factory struct {
 }
 
 var (
-	_ sandboxpkg.FilesystemSession       = (*noneSession)(nil)
-	_ sandboxpkg.FilesystemPathProjector = (*noneSession)(nil)
+	_ sandboxpkg.FilesystemSession                   = (*noneSession)(nil)
+	_ sandboxpkg.FilesystemPathProjector             = (*noneSession)(nil)
+	_ sandboxpkg.FilesystemWorkingDirectoryProjector = (*noneSession)(nil)
 )
 
 // NewFactory returns a Factory for the none backend.
@@ -175,7 +176,7 @@ func (s *noneSession) WorkingDir() string {
 func (s *noneSession) Filesystem() (sandboxpkg.Filesystem, error) {
 	mounts := make([]fsops.Mount, 0, len(s.layout.Mounts))
 	for _, mount := range s.layout.Mounts {
-		if mount.Target != sandboxpkg.PathWorkspace && mount.Target != sandboxpkg.PathUser && mount.Target != sandboxpkg.PathTemp {
+		if !sandboxpkg.IsCanonicalFilesystemPath(mount.Target) {
 			continue
 		}
 		if mount.Access != hostlayout.ReadOnly {
@@ -195,6 +196,13 @@ func (s *noneSession) Filesystem() (sandboxpkg.Filesystem, error) {
 }
 
 func (s *noneSession) ProjectFilesystemPath(input string) (string, bool) {
+	return s.projectFilesystemSourcePath(input)
+}
+
+// projectFilesystemSourcePath maps only a physical path through the authorized
+// layout. none executes directly on the host, so its environment uses physical
+// coordinates too.
+func (s *noneSession) projectFilesystemSourcePath(input string) (string, bool) {
 	if s.ownedTempDir != "" {
 		if rel, err := filepath.Rel(s.ownedTempDir, input); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			canonical := path.Join(sandboxpkg.PathTemp, filepath.ToSlash(rel))
@@ -204,10 +212,13 @@ func (s *noneSession) ProjectFilesystemPath(input string) (string, bool) {
 	if canonical, ok := s.layout.SourceToTarget(input); ok && sandboxpkg.IsCanonicalFilesystemPath(canonical) {
 		return canonical, true
 	}
-	if sandboxpkg.IsCanonicalFilesystemPath(input) {
-		return input, true
-	}
 	return "", false
+}
+
+// FilesystemWorkingDirectory returns the host working directory through the
+// authorized layout instead of inferring authority from its spelling.
+func (s *noneSession) FilesystemWorkingDirectory() (string, bool) {
+	return s.projectFilesystemSourcePath(s.WorkingDir())
 }
 
 func (s *noneSession) Alive() bool {

@@ -60,6 +60,9 @@ type runtimeProjectTestSession struct {
 
 func (s runtimeProjectTestSession) WorkingDir() string                       { return s.root }
 func (runtimeProjectTestSession) Filesystem() (pkgsandbox.Filesystem, error) { return nil, nil }
+func (s runtimeProjectTestSession) FilesystemWorkingDirectory() (string, bool) {
+	return s.root, true
+}
 
 type runtimeProjectProjectorSession struct {
 	runtimeProjectTestSession
@@ -68,7 +71,8 @@ type runtimeProjectProjectorSession struct {
 	input     string
 }
 
-func (s *runtimeProjectProjectorSession) ProjectFilesystemPath(input string) (string, bool) {
+func (s *runtimeProjectProjectorSession) FilesystemWorkingDirectory() (string, bool) {
+	input := s.WorkingDir()
 	s.input = input
 	return s.projected, s.ok
 }
@@ -190,9 +194,9 @@ func TestRuntimeProjectSkillRootUsesSessionCoordinate(t *testing.T) {
 			t.Fatalf("accepted %q", root)
 		}
 	}
-	projected := &runtimeProjectProjectorSession{runtimeProjectTestSession: runtimeProjectTestSession{Session: pkgsandbox.NopSession(), root: "/host/process/project"}, projected: "/workspace/projects/p", ok: true}
+	projected := &runtimeProjectProjectorSession{runtimeProjectTestSession: runtimeProjectTestSession{Session: pkgsandbox.NopSession(), root: "/tmp/host-project"}, projected: "/workspace/projects/p", ok: true}
 	root, err = runtimeProjectSkillRoot(paths, projected)
-	if err != nil || root != "/workspace/projects/p" || projected.input != "/host/process/project" {
+	if err != nil || root != "/workspace/projects/p" || projected.input != "/tmp/host-project" {
 		t.Fatalf("projection root=%q err=%v input=%q", root, err, projected.input)
 	}
 	for _, projectedRoot := range []string{"/user/project", "/workspace/../escape"} {

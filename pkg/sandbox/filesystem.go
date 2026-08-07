@@ -94,12 +94,19 @@ type FilesystemSession interface {
 	Filesystem() (Filesystem, error)
 }
 
-// FilesystemPathProjector maps a trusted provider-side filesystem path into a
-// canonical Filesystem coordinate. It never returns a physical host path.
-// Providers expose it separately from FilesystemSession because path projection
-// is optional and must not broaden Session's process capability.
+// FilesystemPathProjector maps a trusted path from the session's execution
+// environment into a canonical Filesystem coordinate. It never returns a
+// physical host path. The input is not an arbitrary host path: providers know
+// whether their execution environment uses canonical or physical coordinates.
 type FilesystemPathProjector interface {
 	ProjectFilesystemPath(path string) (canonical string, ok bool)
+}
+
+// FilesystemWorkingDirectoryProjector returns the provider-owned working
+// directory in canonical Filesystem coordinates. Callers must not infer the
+// directory's coordinate system from its string spelling.
+type FilesystemWorkingDirectoryProjector interface {
+	FilesystemWorkingDirectory() (canonical string, ok bool)
 }
 
 // IsCanonicalFilesystemPath reports whether value is a canonical POSIX path

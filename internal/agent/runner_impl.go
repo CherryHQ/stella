@@ -357,6 +357,33 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	return toolReg, hookSet, nil
 }
 
+// runtimeProjectSkillRoot returns the runner-visible project coordinate. Host
+// Paths.ProjectRoot only declares that a project is configured; it is never a
+// filesystem coordinate for tools.
+func runtimeProjectSkillRoot(paths sandbox.Paths, session pkgsandbox.Session) (string, error) {
+	if paths.ProjectRoot == "" {
+		return "", nil
+	}
+	if paths.WorkDir != paths.ProjectRoot {
+		return "", fmt.Errorf("configured project is not the working directory")
+	}
+	if _, ok := session.(pkgsandbox.FilesystemSession); !ok {
+		return "", fmt.Errorf("sandbox session lacks filesystem capability for project skills")
+	}
+	projector, ok := session.(pkgsandbox.FilesystemWorkingDirectoryProjector)
+	if !ok {
+		return "", fmt.Errorf("sandbox session cannot project project working directory")
+	}
+	root, projected := projector.FilesystemWorkingDirectory()
+	if !projected {
+		return "", fmt.Errorf("sandbox session cannot project project working directory")
+	}
+	if !pkgsandbox.IsCanonicalFilesystemPath(root) || (root != pkgsandbox.PathWorkspace && !strings.HasPrefix(root, pkgsandbox.PathWorkspace+"/")) {
+		return "", fmt.Errorf("project working directory is not canonical under /workspace")
+	}
+	return root, nil
+}
+
 // skillRuntimeView is the sole production boundary that decides which Home
 // Skill tiers a runner can expose to the model.
 func skillRuntimeView(ctx context.Context, cfg runnerConfig, paths sandbox.Paths) skillstool.SkillDirView {

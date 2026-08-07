@@ -2,6 +2,7 @@ package local
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,15 +86,14 @@ func TestFactoryProjectsFilesystemEnvironmentPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer session.Close() //nolint:errcheck
-	projector := session.(sandboxpkg.FilesystemPathProjector)
+	projector := session.(*localSession)
 	for source, want := range map[string]string{
 		session.Policy().Env["HOME"]:                                    sandboxpkg.PathWorkspace,
 		session.Policy().Env[sandboxpkg.EnvStellaAssetsDir]:             sandboxpkg.PathUser + "/assets",
 		filepath.Join(session.Policy().Env[sandboxpkg.EnvTempDir], "x"): sandboxpkg.PathTemp + "/x",
-		sandboxpkg.PathWorkspace + "/a":                                 sandboxpkg.PathWorkspace + "/a",
 	} {
-		if got, ok := projector.ProjectFilesystemPath(source); !ok || got != want {
-			t.Errorf("ProjectFilesystemPath(%q) = %q, %v; want %q", source, got, ok, want)
+		if got, ok := projector.projectFilesystemSourcePath(source); !ok || got != want {
+			t.Errorf("projectFilesystemSourcePath(%q) = %q, %v; want %q", source, got, ok, want)
 		}
 	}
 	filesystem, err := session.(sandboxpkg.FilesystemSession).Filesystem()
@@ -105,9 +105,98 @@ func TestFactoryProjectsFilesystemEnvironmentPaths(t *testing.T) {
 		t.Fatalf("Filesystem temp write: %v", err)
 	}
 	for _, source := range []string{workspace + "-sibling", "/workspace/../user", `/workspace\x`} {
-		if _, ok := projector.ProjectFilesystemPath(source); ok {
-			t.Errorf("ProjectFilesystemPath accepted %q", source)
+		if _, ok := projector.projectFilesystemSourcePath(source); ok {
+			t.Errorf("projectFilesystemSourcePath accepted %q", source)
 		}
+	}
+}
+
+func TestProjectFilesystemPathSeparatesLinuxCanonicalAndPhysicalTmpPaths(t *testing.T) {
+	// Use /tmp explicitly: Linux host sources and canonical sandbox /tmp paths
+	// have identical string prefixes, while Darwin normally uses /var/folders.
+	workspace, err := os.MkdirTemp("/tmp", "stella-projector-workspace-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(workspace) //nolint:errcheck
+	tmp := t.TempDir()
+	session := &localSession{
+		layout:                hostlayout.Layout{WorkspaceSource: workspace, WorkingDirSource: workspace, Mounts: []hostlayout.Mount{{Source: workspace, Target: sandboxpkg.PathWorkspace, Access: hostlayout.ReadWrite}, {Source: tmp, Target: sandboxpkg.PathTemp, Access: hostlayout.ReadWrite}}},
+		realRoot:              workspace,
+		sandboxRoot:           sandboxpkg.PathWorkspace,
+		processPathsCanonical: true,
+	}
+	if !sandboxpkg.IsCanonicalFilesystemPath(workspace + "-sibling") {
+		t.Fatalf("fixture %q must spell like canonical /tmp", workspace+"-sibling")
+	}
+	if got, ok := session.projectFilesystemSourcePath(workspace); !ok || got != sandboxpkg.PathWorkspace {
+		t.Fatalf("physical workspace projection = %q, %v", got, ok)
+	}
+	if _, ok := session.projectFilesystemSourcePath(workspace + "-sibling"); ok {
+		t.Fatalf("physical /tmp sibling %q was accepted", workspace+"-sibling")
+	}
+	if got, ok := session.ProjectFilesystemPath("/tmp/canonical"); !ok || got != "/tmp/canonical" {
+		t.Fatalf("Linux execution coordinate = %q, %v", got, ok)
+	}
+}
+
+func TestProjectFilesystemPathUsesExplicitProcessCoordinateMode(t *testing.T) {
+	session := &localSession{
+		layout: hostlayout.Layout{WorkspaceSource: sandboxpkg.PathWorkspace, WorkingDirSource: sandboxpkg.PathWorkspace, Mounts: []hostlayout.Mount{
+			{Source: sandboxpkg.PathWorkspace, Target: sandboxpkg.PathWorkspace, Access: hostlayout.ReadWrite},
+			{Source: "/physical/tmp", Target: sandboxpkg.PathTemp, Access: hostlayout.ReadWrite},
+			{Source: "/physical/locked", Target: sandboxpkg.PathWorkspace + "/locked", Access: hostlayout.ReadOnly},
+		}},
+		realRoot: sandboxpkg.PathWorkspace, sandboxRoot: sandboxpkg.PathWorkspace,
+		processPathsCanonical: true,
+	}
+	for _, input := range []string{"/workspace", "/tmp/canonical", "/workspace/locked/secret"} {
+		if got, ok := session.ProjectFilesystemPath(input); !ok || got != input {
+			t.Fatalf("canonical process path %q = %q, %v", input, got, ok)
+		}
+	}
+	if got, ok := session.ProjectFilesystemPath("/user/x"); ok || got != "" {
+		t.Fatalf("user-less session accepted /user: %q, %v", got, ok)
+	}
+	if _, ok := session.projectFilesystemSourcePath("/workspace-sibling"); ok {
+		t.Fatal("physical source mapper accepted an outside sibling")
+	}
+}
+
+func TestFilesystemUsesNestedReadOnlyMount(t *testing.T) {
+	workspace, locked := t.TempDir(), t.TempDir()
+	if err := os.Mkdir(filepath.Join(workspace, "locked"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "locked", "secret"), []byte("parent"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(locked, "secret"), []byte("locked"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	session := &localSession{layout: hostlayout.Layout{Mounts: []hostlayout.Mount{
+		{Source: workspace, Target: sandboxpkg.PathWorkspace, Access: hostlayout.ReadWrite},
+		{Source: locked, Target: sandboxpkg.PathWorkspace + "/locked", Access: hostlayout.ReadOnly},
+	}}}
+	filesystem, err := session.Filesystem()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer filesystem.Close() //nolint:errcheck
+	r, _, err := filesystem.Read(context.Background(), "/workspace/locked/secret", sandboxpkg.ReadOptions{MaxBytes: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, readErr := io.ReadAll(r)
+	closeErr := r.Close()
+	if readErr != nil || closeErr != nil || string(contents) != "locked" {
+		t.Fatalf("nested mount read = %q, %v, %v", contents, readErr, closeErr)
+	}
+	if err := filesystem.Write(context.Background(), "/workspace/locked/new", strings.NewReader("no"), sandboxpkg.WriteOptions{}); err == nil {
+		t.Fatal("wrote nested read-only mount")
+	}
+	if err := filesystem.Rename(context.Background(), "/workspace/locked/secret", "/workspace/locked/renamed"); err == nil {
+		t.Fatal("renamed nested read-only mount")
 	}
 }
 

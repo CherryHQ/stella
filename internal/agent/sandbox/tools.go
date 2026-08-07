@@ -42,9 +42,8 @@ func ToolDefinitions() []pkgtools.Definition {
 	return []pkgtools.Definition{bashDefinition(), readDefinition(), writeDefinition(), editDefinition()}
 }
 
-// resolveToolPath returns a canonical sandbox path. Relative paths deliberately
-// use the active Session's logical working directory, never the caller's host
-// project root.
+// resolveToolPath returns a canonical sandbox path. Relative paths use the
+// provider-owned canonical working directory, never a caller or host path.
 func resolveToolPath(session pkgsandbox.Session, input string) (string, error) {
 	if session == nil {
 		return "", fmt.Errorf("sandbox session is required")
@@ -70,7 +69,17 @@ func resolveToolPath(session pkgsandbox.Session, input string) (string, error) {
 		}
 	}
 	if !strings.HasPrefix(resolved, "/") {
-		resolved = path.Join(session.WorkingDir(), resolved)
+		workingDir := session.WorkingDir()
+		if projector, ok := session.(pkgsandbox.FilesystemWorkingDirectoryProjector); ok {
+			var projected bool
+			workingDir, projected = projector.FilesystemWorkingDirectory()
+			if !projected || !pkgsandbox.IsCanonicalFilesystemPath(workingDir) {
+				return "", fmt.Errorf("sandbox session cannot project working directory")
+			}
+		} else if !pkgsandbox.IsCanonicalFilesystemPath(workingDir) {
+			return "", fmt.Errorf("sandbox working directory is not canonical")
+		}
+		resolved = path.Join(workingDir, resolved)
 	}
 	return path.Clean(resolved), nil
 }

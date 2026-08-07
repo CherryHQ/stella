@@ -150,6 +150,42 @@ func TestFilesystemRejectsReadOnlyAndDuplicateMounts(t *testing.T) {
 	}
 }
 
+func TestFilesystemDispatchesNestedReadOnlyMount(t *testing.T) {
+	workspace, locked := t.TempDir(), t.TempDir()
+	if err := os.Mkdir(filepath.Join(workspace, "locked"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "locked", "secret"), []byte("parent"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(locked, "secret"), []byte("locked"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := NewFilesystem([]Mount{
+		{Path: sandbox.PathWorkspace, Directory: workspace},
+		{Path: sandbox.PathWorkspace + "/locked", Directory: locked, ReadOnly: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	r, _, err := f.Read(context.Background(), "/workspace/locked/secret", sandbox.ReadOptions{MaxBytes: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bytes, readErr := io.ReadAll(r)
+	closeErr := r.Close()
+	if readErr != nil || closeErr != nil || string(bytes) != "locked" {
+		t.Fatalf("nested mount read = %q, %v, %v", bytes, readErr, closeErr)
+	}
+	if err := f.Write(context.Background(), "/workspace/locked/new", strings.NewReader("no"), sandbox.WriteOptions{}); err == nil {
+		t.Fatal("wrote nested read-only mount")
+	}
+	if err := f.Rename(context.Background(), "/workspace/locked/secret", "/workspace/locked/renamed"); err == nil {
+		t.Fatal("renamed nested read-only mount")
+	}
+}
+
 func TestFilesystemDoesNotRetryWrite(t *testing.T) {
 	root := t.TempDir()
 	f, err := NewFilesystem([]Mount{{Path: sandbox.PathWorkspace, Directory: root}})

@@ -22,3 +22,22 @@ func TestProjectFilesystemPathAcceptsOnlyMountedCanonicalContainerPaths(t *testi
 		}
 	}
 }
+
+func TestFilesystemWorkingDirectoryUsesOnlyMountedContainerCoordinate(t *testing.T) {
+	newSession := func(workingDir string) *dockerSession {
+		return &dockerSession{workingDir: workingDir, mountTable: []dockerclient.Mount{
+			{HostPath: "/daemon/workspace", ContainerPath: "/workspace"},
+			{HostPath: "/daemon/tmp", ContainerPath: "/tmp"},
+		}}
+	}
+	for _, workingDir := range []string{"/workspace/project", "/tmp/session"} {
+		if got, ok := newSession(workingDir).FilesystemWorkingDirectory(); !ok || got != workingDir {
+			t.Errorf("FilesystemWorkingDirectory(%q) = %q, %v", workingDir, got, ok)
+		}
+	}
+	for _, workingDir := range []string{"/daemon/workspace", "/workspace/../tmp", "/user/project"} {
+		if got, ok := newSession(workingDir).FilesystemWorkingDirectory(); ok || got != "" {
+			t.Errorf("FilesystemWorkingDirectory(%q) = %q, true; want rejection", workingDir, got)
+		}
+	}
+}

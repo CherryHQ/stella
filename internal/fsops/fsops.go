@@ -81,7 +81,7 @@ func NewFilesystem(mounts []Mount) (*Filesystem, error) {
 }
 
 func canonicalMount(p string) bool {
-	return p == sandbox.PathWorkspace || p == sandbox.PathUser || p == sandbox.PathTemp
+	return sandbox.IsCanonicalFilesystemPath(p)
 }
 
 func (f *Filesystem) Close() error {

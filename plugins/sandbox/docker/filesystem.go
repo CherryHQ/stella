@@ -32,11 +32,12 @@ func (s *dockerSession) Filesystem() (sandboxpkg.Filesystem, error) {
 type dockerFilesystem struct{ session *dockerSession }
 
 var (
-	_ sandboxpkg.FilesystemSession       = (*dockerSession)(nil)
-	_ sandboxpkg.FilesystemPathProjector = (*dockerSession)(nil)
-	_ sandboxpkg.Filesystem              = (*dockerFilesystem)(nil)
-	_ sandboxpkg.ManagedSkillPublisher   = (*dockerFilesystem)(nil)
-	_ sandboxpkg.ManagedSkillUnpublisher = (*dockerFilesystem)(nil)
+	_ sandboxpkg.FilesystemSession                   = (*dockerSession)(nil)
+	_ sandboxpkg.FilesystemPathProjector             = (*dockerSession)(nil)
+	_ sandboxpkg.FilesystemWorkingDirectoryProjector = (*dockerSession)(nil)
+	_ sandboxpkg.Filesystem                          = (*dockerFilesystem)(nil)
+	_ sandboxpkg.ManagedSkillPublisher               = (*dockerFilesystem)(nil)
+	_ sandboxpkg.ManagedSkillUnpublisher             = (*dockerFilesystem)(nil)
 )
 
 // ProjectFilesystemPath accepts only already-canonical container coordinates.
@@ -52,6 +53,12 @@ func (s *dockerSession) ProjectFilesystemPath(input string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// FilesystemWorkingDirectory returns Docker's provider-owned container
+// coordinate only when it is one of the mediated Filesystem mount paths.
+func (s *dockerSession) FilesystemWorkingDirectory() (string, bool) {
+	return s.ProjectFilesystemPath(s.WorkingDir())
 }
 
 func (f *dockerFilesystem) Close() error { return nil }
