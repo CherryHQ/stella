@@ -196,7 +196,7 @@ docker run -d \
   stellad server
 ```
 
-容器以 `nonroot` 用户运行。挂载 `$STELLA_HOME`（通常为 `~/.stella`）以保留持久 Principal 和 Agent Home，包括可变资产和 Project Skill。数据库支持的可变 Skill 仍位于外部 PostgreSQL。发行版自带 builtin 来自镜像中的不可变 bundle，而不是宿主机。你可以设置 `STELLA_HOME` 来更改容器内的数据目录。`--security-opt seccomp=unconfined` 标志是本地沙箱后端（bwrap）在容器内调用 `unshare(2)` 所必需的。
+容器以 `nonroot` 用户运行。挂载 `$STELLA_HOME`（通常为 `~/.stella`）以保留持久 Principal 和 Agent Home，包括可变 Skill catalog 与修订版、migration archive、可变资产和 Project Skill。PostgreSQL 仍保存其自身状态，但可变 Skill 内容位于 Home 存储中。发行版自带 builtin 来自镜像中的不可变 bundle，而不是宿主机。你可以设置 `STELLA_HOME` 来更改容器内的数据目录。`--security-opt seccomp=unconfined` 标志是本地沙箱后端（bwrap）在容器内调用 `unshare(2)` 所必需的。
 
 ### Docker Compose
 
@@ -257,6 +257,8 @@ Docker 镜像设置了 `STELLA_REQUIRE_EXTERNAL_DB=1`：当 `STELLA_DATABASE_URL
 上传的用户资产是持久 Principal Home 文件，必须与其他 Home 数据一起持久化。配置 `STELLA_BLOB_S3_*` 不会改变其运行时权威。已配置的对象存储是遗留可变资产迁移来源，也是不可变、内容寻址 session media 的权威。Stella 当前只开放单副本 Helm 拓扑。Principal Home 和 Agent Home 存储在后续 Compose 或 Kubernetes 拓扑门槛之前仍是单副本。
 
 配置了 `STELLA_BLOB_S3_*` 的部署必须先通过离线可变资产迁移门槛，服务器才能启动；bucket 为空时也不例外。停止所有旧资产 writer，保留原有 S3 与数据库配置，并按 `stellad storage migrate-assets --help` 操作。该命令把仅存在于对象存储的资产复制并校验到类型化 Principal Home，不会删除远端对象。升级步骤见 [S3 资产迁移门槛](/docs/start-here/storage#s3-资产迁移门槛)。
+
+旧版 Skill 部署也必须在新服务器启动前完成迁移。启动会校验严格的 Skill Home authority marker 和残留旧 PostgreSQL 当前状态。进入 maintenance mode，停止所有旧 Skill writer，创建并验证 PostgreSQL 备份，运行 dry run，解决每个不支持项或冲突报告，然后执行真实迁移。两次运行都要求全部三个确认 flag；命令语法请运行 `stellad storage migrate-skills --help`。迁移可幂等重跑、不覆盖且校验摘要；它保留规范 metadata，并将迁移的旧 PostgreSQL 文件写为 `0644`；不猜测扩展名，也不凭空设置可执行位。它将 deprecated/changelog 数据归档到隐藏 Home 存储，迁移逻辑 Reflect usage，绝不删除源 PostgreSQL 行或备份。参见[Skill 与派生缓存](/docs/start-here/storage#skill-与派生缓存)。
 
 loopback base URL 永远不是启动错误——通过 `localhost` 或 `kubectl port-forward` 访问 Stella 时它是合法的——但当配置了 OAuth/OIDC 登录时 Stella 会发出响亮警告，因为登录跳转会指回 pod 自身。部署 chart 应将 `STELLA_BASE_URL` 作为必填值：那一层才知道自己位于 ingress 之后。
 
@@ -339,11 +341,11 @@ terminationGracePeriodSeconds: 200
 | `~/.stella/postgres/`                         | 内嵌 PostgreSQL 数据（配置、记忆、调度器）；使用 `STELLA_DATABASE_URL` 时不存在 |
 | `~/.stella/pg-runtime/`                       | 下载的内嵌 PostgreSQL runtime；可用 `stellad postgres download` 重建            |
 | `~/.stella/bundles/{revision}/`               | 与发行版完全一致的 builtin Skill bundle；从匹配二进制派生                       |
-| `~/.stella/agents/{agent-id}/.agents/skills/` | 派生的 `system_agent` Skill 执行缓存                                            |
+| `~/.stella/agents/{agent-id}/.agents/skills/` | 持久的类型化 Home `system_agent` Skill catalog 与受管修订版                     |
 | `~/.stella/agents/{agent-id}/SOUL.md`         | 可选的每个 agent 的灵魂/身份覆盖                                                |
 | `~/.stella/cache/sandbox-tmp/`                | Docker 沙箱临时目录；属于临时数据，启动时删除遗留目录                           |
 
-必须保留 PostgreSQL 和每个持久 Principal、Agent Home，包括可变资产树和 Project Skill。PostgreSQL 包含配置、消息历史、摘要、调度器任务和可变的 `system`、`system_agent`、`user`、`user_agent` Skill。使用内嵌集群时，停止服务后备份 `~/.stella/postgres/`；`~/.stella/pg-runtime/`、`~/.stella/bundles/{revision}/` 和 Skill 执行缓存都是派生数据，可重新生成。使用外部服务器时，对 `STELLA_DATABASE_URL` 所指数据库执行 `pg_dump`。保留并备份已配置的 object store，因为它保存不可变、内容寻址 session media。
+必须备份 PostgreSQL 和每个持久 Home store，包括可变 Skill catalog、受管修订版、隐藏 migration archive、可变资产树和 Project Skill。PostgreSQL 包含配置、消息历史、摘要、调度器任务、Home 身份清单、Agent Skill 策略、逻辑 Reflect usage/pair activity，以及迁移/审计/备份兼容性——不包含可变 Skill 字节或当前状态。使用内嵌集群时，停止服务后备份 `~/.stella/postgres/`；`~/.stella/pg-runtime/` 和 `~/.stella/bundles/{revision}/` 是派生数据，可重新生成。使用外部服务器时，对 `STELLA_DATABASE_URL` 所指数据库执行 `pg_dump`。保留并备份已配置的 object store，因为它保存不可变、内容寻址 session media。
 
 关于哪些目录属于持久数据、派生缓存或临时数据——以及各自在 Kubernetes 或临时磁盘上所需的卷与备份处理方式——完整说明参见[存储与持久化](/docs/start-here/storage)。
 

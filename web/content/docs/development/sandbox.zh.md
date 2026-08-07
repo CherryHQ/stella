@@ -124,15 +124,15 @@ sandbox 镜像通过 `stellad mise reconcile-builtins`（与宿主相同的 `res
 
 `resources.Registry` 是发行版自带 builtin 的唯一权威。它产出不可变、内容寻址的 bundle，供原生 `local` 和 `none` 执行安装到 `$STELLA_HOME/bundles/<revision>`。隔离执行将这一精确 bundle 以只读方式投影到 `/opt/stella/skills/builtin`；`/opt` 是执行坐标而非另一份权威，bundle 中辅助可执行文件的模式必须在投影中保留。
 
-Project Skill 仍是持久 Agent/项目工作树中的普通文件。PostgreSQL 仍是可变 `system`、`system_agent`、`user` 和 `user_agent` 记录的权威；它们的执行 materialization 是派生缓存。Home 文件系统权威切换已规划但尚未启用。
+Project Skill 仍是持久 Agent/项目工作树中的普通文件。类型化 Home 文件系统是可变 `system`、`system_agent`、`user` 和 `user_agent` 内容的权威。PostgreSQL 保存 Home 身份清单、Agent Skill 策略、逻辑 Reflect 使用和 pair activity，以及迁移/审计/备份兼容性；它不保存可变 Skill 字节、当前状态或 changelog 写入。没有 PostgreSQL 回退、镜像、双读写路径或 miss 后恢复。
 
 Docker 沙箱镜像会烤入并标记精确 revision，不会回退到宿主机 builtin。Docker provider preflight 拒绝二进制与镜像 revision 不匹配的组合，从而阻止 runner session 启动。操作员命令语法使用 `stellad system-bundle --help` 查询。开发镜像用 `mise run sandbox:docker:build` 重建；每个自定义沙箱镜像都必须从匹配的 Stella revision 重建。
 
-升级前，操作员必须使用旧的可工作二进制，在 **设置 → 技能** 中将遗留 `$STELLA_HOME/.agents/skills` 下的每个自定义 Skill 根导入为全局（`system`）Skill。其他残留路径必须先备份、验证后删除。启动会报告每个阻塞路径并退出，不会修改任何内容。当前 manifest 路径即使内容或模式不同也只是惰性数据；其他每个 Skill 根或残留路径都会阻塞启动。
+生产启动时会校验严格的 Skill Home authority marker，并拒绝残留的旧 PostgreSQL 当前状态。离线迁移旧部署：进入 maintenance mode，停止所有旧 Skill writer，创建并验证 PostgreSQL 备份，运行 dry run，解决每个不支持项或冲突报告，然后执行真实迁移，再启动新服务器。dry run 和真实迁移都要求全部三个确认 flag；命令语法请运行 `stellad storage migrate-skills --help`。迁移可幂等重跑且不覆盖，校验摘要，保留规范 metadata，并将迁移的旧 PostgreSQL 文件写为 `0644`；不猜测扩展名，也不凭空设置可执行位。它将 deprecated/changelog 数据归档到隐藏的 Home migration archive，迁移逻辑 Reflect usage，绝不删除源 PostgreSQL 行或备份。完成 marker 后重跑只做校验。
 
 ## Agent Skill 策略
 
-存储的作用域词汇为 `system`、`system_agent`、`user`、`user_agent` 和 `project`，另加上下文作用域 `builtin`。发行版的 `builtin:<name>` 不可变。管理员安装的 `system:<name>` 与绑定 Agent 的 `system_agent:<name>` 是独立的可变身份。
+存储的作用域词汇为 `system`、`system_agent`、`user`、`user_agent` 和 `project`，另加上下文作用域 `builtin`。发行版 builtin 不可变；受管 Skill 可变。公开的规范 ID 是 URL-safe 的稳定资源标识符。客户端必须将其编码视为实现细节，不得解析它们或从中派生文件系统路径。
 
 解析会先选择唯一的胜出项，再应用策略：`project > user_agent > user > system_agent > system > builtin`。禁用该胜出项不会暴露同名的低优先级 Skill。策略默认启用、按 Agent 共享，且与编辑内容的授权、`disable_model_invocation` 彼此独立。已接纳的 turn 保留其快照，下一次 turn 才会看到成功提交。旧版非空数组是诊断信息但表示全部启用；悬空的禁用引用不影响执行，需显式清理。
 

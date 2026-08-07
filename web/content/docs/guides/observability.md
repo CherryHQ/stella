@@ -281,7 +281,7 @@ Sandbox lifecycle spans use these Stella-specific attributes:
 
 ## Retained managed Skill revisions
 
-Managed Skill publications retain immutable revisions. Until Phase 3 garbage collection lands, this inventory is observation-only: it **never deletes revisions**. Capacity thresholds are caller-configured and will be activated by the authority cutover; this release wires no production default or environment variable.
+Managed Skill publications retain immutable revisions. Until Phase 3 garbage collection lands, this inventory is observation-only: it **never deletes revisions**. Production observes every ready Home root at startup and after each verified publication. There is no environment override.
 
 OpenTelemetry exposes these gauges, aggregated only by the bounded `scope` label (`system`, `system_agent`, `user`, or `user_agent`):
 
@@ -291,7 +291,7 @@ OpenTelemetry exposes these gauges, aggregated only by the bounded `scope` label
 | `stella.skill.revisions.bytes`      | `By`         | Exact regular-file bytes in those revisions |
 | `stella.skill.revisions.oldest_age` | `s`          | Age of the oldest retained revision         |
 
-Metric labels never include home IDs, roots, principals, users, agents, Skill names, or revision digests. A configured count or byte threshold emits a structured capacity warning when the observed value is equal to or greater than it: once on entry, again only when count/bytes change or oldest age moves by at least one hour, and again after recovery followed by a new breach. Zero disables that threshold dimension. Failed scans retain the last successful metrics snapshot and log a collection warning; they do not retry automatically.
+Metric labels never include home IDs, roots, principals, users, agents, Skill names, or revision digests. A warning is emitted for each opaque ready root at 8 revisions or 96 MiB, then only when count/bytes change, oldest age moves by at least one hour, or a recovered root breaches again. The scan stops at 4,608 entries or 128 MiB. Failed scans retain the last successful metrics snapshot and log a collection warning; they do not retry automatically.
 
 If a warning fires: stop managed Skill publication, inspect Store capacity, then add or migrate storage. Do **not** manually delete retained revisions before Phase 3 garbage collection; manual deletion can invalidate an active or pinned revision.
 

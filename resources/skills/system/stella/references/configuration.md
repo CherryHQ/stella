@@ -124,9 +124,9 @@ All paths are relative to `$STELLA_HOME` (`~/.stella` by default).
 | `postgres/`                                 | Embedded PostgreSQL data directory (all config; absent when `STELLA_DATABASE_URL` points at an external server) |
 | `pg-runtime/`                               | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download`                               |
 | `cache/sandbox-tmp/`                        | Docker sandbox temporary directories; scratch, removed when stale                                               |
-| `.agents/db-skills/`                        | Local compatibility coordinate for the narrow system Skill root; PostgreSQL-derived materialization             |
+| `.agents/db-skills/`                        | Durable typed Home catalog for managed system Skills, revisions, and migration archives                         |
 | `agents/{agent_id}/`                        | User-independent agent definition and administrator-managed compatibility area                                  |
-| `agents/{agent_id}/.agents/skills/`         | Local compatibility coordinate for the narrow system-Agent Skill root; PostgreSQL-derived materialization       |
+| `agents/{agent_id}/.agents/skills/`         | Durable typed Home catalog for managed system-Agent Skills, revisions, and migration archives                   |
 | `users/{user_id}/agents/{agent_id}/`        | This user's per-principal Agent Home; sandbox `$HOME` and initial working directory                             |
 | `users/group-{group_id}/agents/{agent_id}/` | This channel group's per-principal Agent Home; sandbox `$HOME` and initial working directory                    |
 | `users/{principal}/data/`                   | User or group Principal Home: shared principal data and uploads                                                 |
@@ -135,15 +135,17 @@ All paths are relative to `$STELLA_HOME` (`~/.stella` by default).
 
 ## Skills and release bundles
 
-Release-provided builtins are immutable `builtin:<name>` entries from `resources.Registry`. Their only authority is the content-addressed release bundle. Native `local` and `none` execution installs the exact bundle at `$STELLA_HOME/bundles/<revision>`; isolating execution sees that bundle read-only at `/opt/stella/skills/builtin`. `/opt` is only an execution coordinate. Helper executable modes are preserved.
+Release-provided builtins are immutable entries from `resources.Registry`. Their only authority is the content-addressed release bundle. Native `local` and `none` execution installs the exact bundle at `$STELLA_HOME/bundles/<revision>`; isolating execution sees that bundle read-only at `/opt/stella/skills/builtin`. `/opt` is only an execution coordinate. Helper executable modes are preserved.
 
-Project Skills remain ordinary files in durable Agent/project working trees. PostgreSQL remains the authority for mutable `system`, `system_agent`, `user`, and `user_agent` records; their on-disk materializations are derived caches. The Home filesystem authority cutover is planned and not active. `system:<name>` is a mutable administrator-installed global Skill, `system_agent:<name>` is a mutable Agent-bound administrator Skill, and neither is a release builtin.
+Project Skills remain ordinary files in durable Agent/project working trees. Typed Home filesystems are the authority for mutable `system`, `system_agent`, `user`, and `user_agent` content. They contain current content, immutable managed revisions, and hidden migration archives; they are not PostgreSQL-derived caches. PostgreSQL keeps Home identity inventory, Agent Skill policy, logical Reflect usage and pair activity, and migration/audit/backup compatibility—not mutable Skill bytes, current state, or changelog writes. There is no PostgreSQL fallback, mirror, dual read/write path, or restore-on-miss. Release builtins are immutable; managed Skills are mutable. Public canonical Skill IDs are URL-safe stable resource identifiers. Clients must treat their encoding as an implementation detail and must not parse them or derive filesystem paths from them; use names and the Web UI in normal work.
+
+Managed API and Web UI writes send the current `content_digest` as `expected_digest`. A stale write conflicts and the Web UI refreshes; it never overwrites a newer managed revision. Ordinary project edits retain POSIX semantics.
 
 Skills are enabled per Agent by default. An administrator or durable Agent creator changes one shared setting. Stella selects the precedence winner before applying that policy, so disabling it never reveals a lower same-name Skill. Activation is independent of content-edit permission and `disable_model_invocation`. An admitted turn keeps its snapshot; the next turn sees a committed change. Legacy non-empty arrays diagnose all-enabled, and dangling disabled references are inert until explicitly cleared.
 
 For an exact operator command syntax, run `stellad system-bundle --help`. Docker sandbox images bake and label the matching bundle revision, never fall back to host builtins, and Docker provider preflight prevents a runner session from starting if their revision differs from the binary. Developers rebuild the local image with `mise run sandbox:docker:build`; rebuild custom images from the matching Stella revision.
 
-Before upgrading, use the old working binary to import each custom Skill root under legacy `$STELLA_HOME/.agents/skills` through **Settings → Skills** as a global (`system`) Skill. Back up, verify, and remove other residual paths. Current-manifest paths are inert even if their contents or modes differ; every other Skill root or residual path blocks startup without mutation.
+Production startup verifies the strict Skill Home authority marker and residual legacy PostgreSQL current state. For a legacy deployment: enter maintenance mode, stop every legacy Skill writer, create and verify a PostgreSQL backup, run the dry run, resolve every finite unsupported-item or collision report, then run the real migration and start the new server. Both runs require all three confirmations; run `stellad storage migrate-skills --help` for syntax. The migration is idempotent and no-replace, digest-verified, preserves canonical metadata, and writes migrated legacy PostgreSQL files as `0644`; it does not guess extensions or invent an executable bit. It archives deprecated/changelog data in hidden Home storage, migrates logical Reflect usage, and never deletes source PostgreSQL rows or backups. A completed-marker rerun verifies only.
 
 `{principal}` is a user ID or `group-{group_id}`. These operator filesystem
 paths are local compatibility coordinates, not Home identity. A typed Home has
@@ -154,7 +156,8 @@ workspace.
 
 PostgreSQL records typed user/group Principal Homes, per-principal Agent Homes,
 and narrow system/system-Agent Skill roots, but registry metadata cannot recover
-their file bytes. Back up PostgreSQL with durable Home storage. An explicit
+their file bytes. Back up PostgreSQL with every durable Home store, including
+mutable Skill revisions and hidden migration archives. An explicit
 destructive user, group, or Agent delete tombstones and fences Homes, then
 purges bytes asynchronously. Removing an assignment or member, archiving a
 Session, and uninstalling Helm do not delete Homes. A physical-purge failure is

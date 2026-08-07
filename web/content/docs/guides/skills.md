@@ -10,9 +10,9 @@ Skills are written in plain markdown — they are essentially cheat sheets that 
 
 ## Skill scopes and priority
 
-Stella has two Skill authorities today. Release-provided builtins come only from the immutable, content-addressed release bundle. Project Skills are ordinary files in durable Agent/project working trees. Global, Agent-bound, user, and user-Agent Skills remain stored in PostgreSQL, with execution mirrors derived from them. The later Home filesystem authority cutover has not landed.
+Release-provided builtins come only from an immutable, content-addressed release bundle. Mutable `system`, `system_agent`, `user`, and `user_agent` Skills live in their typed Home filesystems. Project Skills remain ordinary files in durable Agent/project working trees. There is no PostgreSQL current-state fallback, mirror, dual read/write path, or restore-on-miss for mutable Skill content.
 
-The stored scopes are `project`, `user_agent`, `user`, `system_agent`, and `system`. `builtin` is contextual: a release Skill has the immutable identity `builtin:<name>`. An administrator-installed global Skill is the separate mutable identity `system:<name>`, and an Agent-bound administrator Skill is `system_agent:<name>`.
+The stored scopes are `project`, `user_agent`, `user`, `system_agent`, and `system`; `builtin` is contextual. Public canonical Skill IDs are URL-safe stable resource identifiers. Clients must treat their encoding as an implementation detail and must not parse them or derive filesystem paths from them. Use names and the Web UI in normal work.
 
 When names collide, Stella selects one winner in this order:
 
@@ -21,6 +21,8 @@ project > user_agent > user > system_agent > system > builtin
 ```
 
 It applies policy after selecting that winner. Disabling a winner does not reveal a lower-priority Skill with the same name.
+
+Managed API and Web UI writes send the current `content_digest` as `expected_digest`. If another writer has published first, the write conflicts and the Web UI refreshes instead of overwriting it. Project files keep normal POSIX file semantics.
 
 ## Per-Agent activation
 

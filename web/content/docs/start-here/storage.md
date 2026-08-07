@@ -17,8 +17,8 @@ This page classifies every directory and tells you the volume and backup treatme
 | `library/`                                                                                      | Legacy article mirror (being drained into PostgreSQL) | Legacy         | Keep on a volume until the backfill reports zero missing, then archive or delete. |
 | `bundles/{revision}/`                                                                           | Exact release-provided builtin Skill bundle           | Derived cache  | Reinstalled from the matching binary; do not modify it.                           |
 | `.agents/skills/`                                                                               | Legacy Skill inventory                                | Migration gate | Preserve custom roots until they are imported or safely removed.                  |
-| `.agents/db-skills/`, `agents/{agent-id}/.agents/skills/`                                       | Narrow system and system-Agent Skill roots            | Derived cache  | PostgreSQL-derived, re-materialized on load; ephemeral disk is fine.              |
-| `users/{principal}/data/.agents/skills/`, `users/{principal}/agents/{agent-id}/.agents/skills/` | Principal and Agent mutable Skill mirrors             | Derived cache  | PostgreSQL-derived, re-materialized on load; ephemeral disk is fine.              |
+| `.agents/db-skills/`, `agents/{agent-id}/.agents/skills/`                                       | System and system-Agent managed Skill catalogs        | Durable        | Persistent storage **and** back it up; these are Home authority.                  |
+| `users/{principal}/data/.agents/skills/`, `users/{principal}/agents/{agent-id}/.agents/skills/` | Principal and Agent managed Skill catalogs, revisions | Durable        | Persistent storage **and** back it up; these are Home authority.                  |
 | `bin/`                                                                                          | Embedded tools and the `stella` CLI                   | Derived cache  | Ephemeral disk is fine. Re-extracted at startup.                                  |
 | `.mise-tools/`, `users/{id}/.mise-tools/`                                                       | Toolchains for the sandbox                            | Derived cache  | Ephemeral disk is fine. Re-installed on demand.                                   |
 | `pg-runtime/`                                                                                   | Downloaded and extracted embedded-PostgreSQL runtime  | Derived cache  | Ephemeral disk is fine. Re-download with `stellad postgres download`.             |
@@ -28,11 +28,11 @@ This page classifies every directory and tells you the volume and backup treatme
 
 Principal Home and Agent Home bytes are durable data and the live authority for their mutable files. Back up their storage with PostgreSQL.
 
-## PostgreSQL is the source of truth (durable)
+## PostgreSQL state (durable)
 
-PostgreSQL holds nearly all state: configuration, secrets metadata, message history and summaries, mutable Skill records, Recally articles and their bodies, the fetched-models cache, goals, schedules, and the scheduler queue. Preserve it together with durable project Skill data; neither can be reconstructed.
+PostgreSQL holds configuration, secret metadata, message history and summaries, Recally articles and bodies, the fetched-models cache, goals, schedules, and the scheduler queue. For Skills it holds Home identity inventory, Agent Skill policy, logical Reflect usage and pair activity, and migration/audit/backup compatibility. It does not hold mutable Skill bytes, current state, or changelog writes.
 
-Phase 1 also records typed Home identity and lifecycle metadata in PostgreSQL: user and group Principal Homes, per-principal Agent Homes, and the narrow system and system-Agent Skill roots. That stable metadata does **not** make Home file bytes recoverable. Back up PostgreSQL together with every durable Principal Home and Agent Home storage location.
+PostgreSQL also records typed Home identity and lifecycle metadata: user and group Principal Homes, per-principal Agent Homes, and the narrow system and system-Agent Skill roots. That stable metadata does **not** recover Home bytes. Back up PostgreSQL with every durable Home store, including managed Skill revisions and hidden migration archives.
 
 - **Embedded cluster (default):** the data lives in `$STELLA_HOME/postgres/`. This directory must sit on a persistent volume and be backed up (stop the server first, or use a filesystem snapshot). The downloaded runtime under `pg-runtime/` is just code and can be re-fetched.
 - **External server (`STELLA_DATABASE_URL`):** the database moves out of `$STELLA_HOME` entirely. Back it up with `pg_dump` against your database. This is the recommended setup for Kubernetes — it takes the single hardest-to-manage stateful directory off the pod.
@@ -79,14 +79,15 @@ If physical purge fails, the Home remains in `purge_failed` with its audit recor
 
 Builtin Skills are the exact release bundle at `bundles/{revision}/`. Native `local` and `none` execution installs that bundle; isolating execution reads it at `/opt/stella/skills/builtin`. The `/opt` path is an execution coordinate, not a second content authority.
 
-Project Skills are ordinary files in durable Agent/project working trees. PostgreSQL is the authority for mutable `system`, `system_agent`, `user`, and `user_agent` records; `.agents/db-skills/`, `agents/{agent-id}/.agents/skills/`, `users/{principal}/data/.agents/skills/`, and `users/{principal}/agents/{agent-id}/.agents/skills/` are derived mirrors re-materialized on load. Here, `{principal}` is a user ID or `group-{id}`. Phase 1 registers typed Home identities but does not cut over mutable Skill content authority.
+Typed Home filesystems are the authority for mutable `system`, `system_agent`, `user`, and `user_agent` Skills. The listed catalog directories contain their current content, immutable managed revisions, and hidden migration archives. They are durable data, not PostgreSQL-derived mirrors. Project Skills remain ordinary files in durable Agent/project working trees. There is no PostgreSQL current-state fallback, mirror, dual read/write path, or restore-on-miss.
 
-Before upgrade, import each custom Skill root under legacy top-level `.agents/skills/` through **Settings → Skills** as a global (`system`) Skill using the old working binary. Back up, verify, and remove other residual paths. New startup lists every blocking path and stops without changing or deleting anything. Paths owned by the current release manifest are inert even when contents or modes are stale; every other Skill root or residual path blocks.
+Production startup verifies the strict Skill Home authority marker and residual legacy PostgreSQL state before serving. To migrate a legacy deployment, enter maintenance mode; stop all legacy Skill writers; create and verify a PostgreSQL backup; run the dry run; resolve every finite unsupported-item or collision report; then run the real migration and start the new server. Both runs require all three confirmations. Run `stellad storage migrate-skills --help` for syntax.
+
+The migration is idempotent and no-replace. It verifies digests, preserves canonical metadata, and writes migrated legacy PostgreSQL files as `0644`; it does not guess extensions or invent an executable bit. It archives deprecated/changelog data under a hidden Home migration archive, migrates logical Reflect usage, and never deletes source PostgreSQL rows or backups. Once the marker is complete, a rerun verifies only.
 
 These directories are rebuilt automatically and can live on ephemeral disk:
 
 - **Builtin bundle** (`bundles/{revision}/`): installed from the running binary's immutable release bundle.
-- **PostgreSQL-derived Skill mirrors** (`.agents/db-skills/`, `agents/{agent-id}/.agents/skills/`, `users/{principal}/data/.agents/skills/`, and `users/{principal}/agents/{agent-id}/.agents/skills/`): re-materialized on load.
 - **`bin/`**: embedded tools and the `stella` CLI, re-extracted at startup.
 - **Toolchains** (`.mise-tools/`, per-user `.mise-tools/`): re-installed on demand.
 - **`pg-runtime/`**: the downloaded embedded-PostgreSQL runtime; re-download with `stellad postgres download`. Each runtime version installs into its own directory and older ones are never removed automatically — a few hundred megabytes each. Run `stellad postgres prune` to see what is unused, and again with `--force` to remove it.

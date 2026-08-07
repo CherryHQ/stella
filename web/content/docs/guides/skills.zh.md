@@ -10,9 +10,9 @@ title: 技能
 
 ## 技能作用域与优先级
 
-Stella 当前有两类 Skill 权威。随发行版提供的 builtin 只来自不可变、内容寻址的发行 bundle。Project Skill 是持久 Agent/项目工作树中的普通文件。全局、Agent 绑定、用户和用户-Agent Skill 仍存储在 PostgreSQL 中，执行镜像从它们派生。后续将权威切换到 Home 文件系统的工作尚未落地。
+随发行版提供的 builtin 只来自不可变、内容寻址的发行 bundle。可变的 `system`、`system_agent`、`user` 和 `user_agent` Skill 存在各自的类型化 Home 文件系统中。Project Skill 仍是持久 Agent/项目工作树中的普通文件。可变 Skill 内容没有 PostgreSQL 当前状态回退、镜像、双读写路径或 miss 后恢复。
 
-存储的作用域为 `project`、`user_agent`、`user`、`system_agent` 和 `system`。`builtin` 是上下文作用域：发行版 Skill 使用不可变身份 `builtin:<name>`。管理员安装的全局 Skill 是另一个可变身份 `system:<name>`，绑定到 Agent 的管理员 Skill 则是 `system_agent:<name>`。
+存储的作用域为 `project`、`user_agent`、`user`、`system_agent` 和 `system`；`builtin` 是上下文作用域。公开的规范 Skill ID 是 URL-safe 的稳定资源标识符。客户端必须将其编码视为实现细节，不得解析它们或从中派生文件系统路径。日常操作请使用名称和 Web UI。
 
 同名时，Stella 按以下顺序选择唯一的胜出项：
 
@@ -21,6 +21,8 @@ project > user_agent > user > system_agent > system > builtin
 ```
 
 策略在选择胜出项后才应用。禁用胜出项不会让同名的低优先级 Skill 出现。
+
+受管 API 和 Web UI 写入会将当前的 `content_digest` 作为 `expected_digest` 发送。若其他 writer 已先发布，写入会冲突，Web UI 会刷新而不会覆盖。Project 文件仍遵循普通 POSIX 文件语义。
 
 ## 按 Agent 启用
 
