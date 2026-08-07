@@ -282,6 +282,12 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		Mounts:         mountedPolicyMounts,
 		TempHost:       mountedTempDirHost,
 	})
+	agentCwd, err := agentWorkingDir(mountTable, policy.Filesystem.WorkingDir)
+	if err != nil {
+		recordError(span, err)
+		span.End()
+		return nil, fmt.Errorf("docker session: working directory: %w", err)
+	}
 
 	// The per-user trees are writable and resolve via the process view too.
 	for _, tree := range perUserTrees {
@@ -362,6 +368,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		client:       client,
 		containerID:  containerID,
 		mountTable:   mountTable,
+		workingDir:   agentCwd,
 		envPathMaps:  envMaps,
 		toolBinPaths: toolBinPaths,
 		ownedTempDir: tempDir,
@@ -394,6 +401,7 @@ type dockerSession struct {
 	client       *dockerclient.Client
 	containerID  string
 	mountTable   []dockerclient.Mount
+	workingDir   string
 	envPathMaps  []envPathMap
 	toolBinPaths []string
 	ownedTempDir string
@@ -420,11 +428,10 @@ func (s *dockerSession) Exec(ctx context.Context, command string, opts sandboxpk
 func (s *dockerSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRequest) (sandboxpkg.ProcessHandle, error) {
 	return s.host.StartProcess(ctx, req)
 }
-func (s *dockerSession) ResolvePath(path string) (string, error) { return s.host.ResolvePath(path) }
-func (s *dockerSession) ResolveWritePath(path string) (string, error) {
-	return s.host.ResolveWritePath(path)
-}
-func (s *dockerSession) WorkingDir() string { return s.host.WorkingDir() }
+
+// WorkingDir is the agent-visible container coordinate corresponding exactly
+// to the configured working directory, never the daemon-side source path.
+func (s *dockerSession) WorkingDir() string { return s.workingDir }
 
 func (s *dockerSession) Alive() bool {
 	s.mu.RLock()
@@ -542,10 +549,10 @@ func (s *dockerSession) Close() error {
 func (h *dockerHost) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
 	cwd := opts.Cwd
 	if cwd == "" {
-		cwd = h.session.policy.Filesystem.WorkingDir
+		cwd = h.session.WorkingDir()
 	}
 
-	hostCwd, err := h.ResolvePath(cwd)
+	hostCwd, err := h.resolvePath(cwd)
 	if err != nil {
 		return sandboxpkg.ExecResult{}, fmt.Errorf("docker host exec: resolve cwd: %w", err)
 	}
@@ -591,10 +598,10 @@ func (h *dockerHost) Exec(ctx context.Context, command string, opts sandboxpkg.E
 func (h *dockerHost) StartProcess(ctx context.Context, req sandboxpkg.ProcessRequest) (sandboxpkg.ProcessHandle, error) {
 	cwd := req.Cwd
 	if cwd == "" {
-		cwd = h.session.policy.Filesystem.WorkingDir
+		cwd = h.session.WorkingDir()
 	}
 
-	hostCwd, err := h.ResolvePath(cwd)
+	hostCwd, err := h.resolvePath(cwd)
 	if err != nil {
 		return nil, fmt.Errorf("docker host start_process: resolve cwd: %w", err)
 	}

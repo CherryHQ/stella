@@ -31,9 +31,7 @@ func (f *fakeSession) Exec(_ context.Context, _ string, _ pkgsandbox.ExecOptions
 func (f *fakeSession) StartProcess(_ context.Context, _ pkgsandbox.ProcessRequest) (pkgsandbox.ProcessHandle, error) {
 	return nil, nil
 }
-func (f *fakeSession) ResolvePath(path string) (string, error)      { return path, nil }
-func (f *fakeSession) ResolveWritePath(path string) (string, error) { return path, nil }
-func (f *fakeSession) WorkingDir() string                           { return "/tmp" }
+func (f *fakeSession) WorkingDir() string { return "/tmp" }
 func (f *fakeSession) Filesystem() (pkgsandbox.Filesystem, error) {
 	return fsops.NewFilesystem([]fsops.Mount{{Path: pkgsandbox.PathWorkspace, Directory: os.TempDir()}})
 }

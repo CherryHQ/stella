@@ -142,6 +142,10 @@ func TestCleanupStaleSessionTempDirsKeepsYoungDirectoryAndFailsClosed(t *testing
 func TestCreateSessionStoresNormalizedPolicyAndPrivateMountedTemp(t *testing.T) {
 	api := &stopCountingAPI{}
 	workspace := t.TempDir()
+	project := filepath.Join(workspace, "projects", "p")
+	if err := os.MkdirAll(project, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	factory := &dockerFactory{
 		cfg:      Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost},
 		clientFn: func() (*dockerclient.Client, error) { return dockerclient.NewWithAPI(api), nil },
@@ -149,7 +153,7 @@ func TestCreateSessionStoresNormalizedPolicyAndPrivateMountedTemp(t *testing.T) 
 	session, err := factory.CreateSession(context.Background(), sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
 			WorkspaceRoot: workspace,
-			WorkingDir:    workspace,
+			WorkingDir:    project,
 			Mounts:        []sandboxpkg.Mount{{HostPath: workspace, SandboxPath: `\workspace\`, Access: sandboxpkg.MountReadWrite}},
 		},
 	})
@@ -158,6 +162,9 @@ func TestCreateSessionStoresNormalizedPolicyAndPrivateMountedTemp(t *testing.T) 
 	}
 	t.Cleanup(func() { _ = session.Close() })
 	policy := session.Policy()
+	if got, want := session.WorkingDir(), "/workspace/projects/p"; got != want {
+		t.Errorf("WorkingDir() = %q, want %q", got, want)
+	}
 	if got := policy.Filesystem.Mounts[0].SandboxPath; got != workspaceMount {
 		t.Errorf("normalized SandboxPath = %q, want %q", got, workspaceMount)
 	}
@@ -165,8 +172,29 @@ func TestCreateSessionStoresNormalizedPolicyAndPrivateMountedTemp(t *testing.T) 
 	if tempDir == "" {
 		t.Fatal("policy TMPDIR is empty, want a private session directory")
 	}
-	if got, err := session.ResolveWritePath("/tmp/file"); err != nil || got != filepath.Join(tempDir, "file") {
+	if got, err := session.(*dockerSession).host.resolveWritePath("/tmp/file"); err != nil || got != filepath.Join(tempDir, "file") {
 		t.Errorf("ResolveWritePath(/tmp/file) = %q, %v; want %q, nil", got, err, filepath.Join(tempDir, "file"))
+	}
+}
+
+func TestCreateSessionRejectsUnmappableWorkingDirBeforeContainerStart(t *testing.T) {
+	api := &startFailAPI{}
+	workspace := t.TempDir()
+	factory := &dockerFactory{
+		cfg:      Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost},
+		clientFn: func() (*dockerclient.Client, error) { return dockerclient.NewWithAPI(api), nil },
+	}
+	_, err := factory.CreateSession(context.Background(), sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkspaceRoot: workspace,
+			WorkingDir:    filepath.Join(t.TempDir(), "outside-workspace"),
+		},
+	})
+	if err == nil {
+		t.Fatal("CreateSession accepted an unmappable working directory")
+	}
+	if api.createOpts.Name != "" {
+		t.Fatalf("CreateSession reached ContainerCreate for an unmappable working directory: %+v", api.createOpts)
 	}
 }
 

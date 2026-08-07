@@ -71,7 +71,7 @@ func TestFactory_sessionsOwnDistinctTempDirs(t *testing.T) {
 	if firstTmp == "" || secondTmp == "" || firstTmp == secondTmp {
 		t.Fatalf("session temp backings = %q and %q, want distinct non-empty paths", firstTmp, secondTmp)
 	}
-	toolPath, err := firstSession.ResolveWritePath(filepath.Join(firstSession.Policy().Env[sandboxpkg.EnvTempDir], "from-tool"))
+	toolPath, err := firstSession.(*localSession).resolveWritePath(filepath.Join(firstSession.Policy().Env[sandboxpkg.EnvTempDir], "from-tool"))
 	if err != nil {
 		t.Fatalf("ResolveWritePath(TMPDIR): %v", err)
 	}
@@ -82,7 +82,7 @@ func TestFactory_sessionsOwnDistinctTempDirs(t *testing.T) {
 	if err != nil || result.ExitCode != 0 || result.Stdout != "tool" {
 		t.Fatalf("temp exec round trip = %+v, %v", result, err)
 	}
-	execPath, err := firstSession.ResolvePath(filepath.Join(firstSession.Policy().Env[sandboxpkg.EnvTempDir], "from-exec"))
+	execPath, err := firstSession.(*localSession).resolvePath(filepath.Join(firstSession.Policy().Env[sandboxpkg.EnvTempDir], "from-exec"))
 	if err != nil {
 		t.Fatalf("ResolvePath(TMPDIR): %v", err)
 	}
@@ -231,7 +231,7 @@ func TestResolvePath_rejectsOutsideRoot(t *testing.T) {
 
 	// A path that traverses above the root.
 	outside := filepath.Join(root, "..", "escape")
-	_, err := s.ResolvePath(outside)
+	_, err := s.resolvePath(outside)
 	if err == nil {
 		t.Fatalf("expected error for path outside workspace root, got nil")
 	}
@@ -248,7 +248,7 @@ func TestResolvePath_acceptsInsideRoot(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	got, err := s.ResolvePath(f)
+	got, err := s.resolvePath(f)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -289,7 +289,7 @@ func TestResolvePath_realRootSymlink(t *testing.T) {
 		done:        make(chan struct{}),
 	}
 
-	got, err := s.ResolvePath("/workspace/main.go")
+	got, err := s.resolvePath("/workspace/main.go")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestResolvePath_remapped(t *testing.T) {
 	}
 
 	// Agent passes sandbox-space path.
-	got, err := s.ResolvePath("/workspace/main.go")
+	got, err := s.resolvePath("/workspace/main.go")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -403,7 +403,7 @@ func TestResolvePath_extraMountAllowed(t *testing.T) {
 		done:        make(chan struct{}),
 	}
 
-	got, err := s.ResolvePath(skillFile)
+	got, err := s.resolvePath(skillFile)
 	if err != nil {
 		t.Fatalf("unexpected error for extra mount path: %v", err)
 	}
@@ -443,12 +443,12 @@ func TestResolveWritePath_rejectsExtraMount(t *testing.T) {
 	}
 
 	// ResolvePath should accept it.
-	if _, err := s.ResolvePath(skillFile); err != nil {
+	if _, err := s.resolvePath(skillFile); err != nil {
 		t.Fatalf("ResolvePath unexpectedly rejected extra mount path: %v", err)
 	}
 
 	// ResolveWritePath must reject it.
-	_, err := s.ResolveWritePath(skillFile)
+	_, err := s.resolveWritePath(skillFile)
 	if err == nil {
 		t.Fatal("expected ResolveWritePath to reject read-only mount path, got nil")
 	}
@@ -483,7 +483,7 @@ func TestBuiltinBundleReadableButNotWritable(t *testing.T) {
 
 	// The agent addresses the exact release bundle through its fixed sandbox view.
 	sandboxPath := sandboxpkg.MountBuiltinSkills + "/system/demo/refs.md"
-	real, _, err := s.resolvePath(sandboxPath)
+	real, _, err := s.resolveCoordinates(sandboxPath)
 	if err != nil {
 		t.Fatalf("resolvePath rejected system-tree read: %v", err)
 	}
@@ -492,7 +492,7 @@ func TestBuiltinBundleReadableButNotWritable(t *testing.T) {
 	}
 
 	// Writes into the bundle must be rejected.
-	if _, err := s.ResolveWritePath(sandboxPath); err == nil {
+	if _, err := s.resolveWritePath(sandboxPath); err == nil {
 		t.Fatal("expected ResolveWritePath to reject system-tree path, got nil")
 	}
 
@@ -500,7 +500,7 @@ func TestBuiltinBundleReadableButNotWritable(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(hostSH, "users", "u1"), 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if _, _, err := s.resolvePath("/opt/stella/.agents/skills/demo/refs.md"); err == nil {
+	if _, _, err := s.resolveCoordinates("/opt/stella/.agents/skills/demo/refs.md"); err == nil {
 		t.Fatal("expected resolvePath to reject the retired extracted builtin path, got nil")
 	}
 }
@@ -535,7 +535,7 @@ func TestAgentSkills_readableButNotWritable(t *testing.T) {
 	}
 
 	sandboxPath := sandboxpkg.MountAgentSkills + "/demo/SKILL.md"
-	real, _, err := s.resolvePath(sandboxPath)
+	real, _, err := s.resolveCoordinates(sandboxPath)
 	if err != nil {
 		t.Fatalf("resolvePath rejected agent-skills read: %v", err)
 	}
@@ -545,7 +545,7 @@ func TestAgentSkills_readableButNotWritable(t *testing.T) {
 	if got := s.toSandboxPath(filepath.Join(agentSkills, "demo")); got != sandboxpkg.MountAgentSkills+"/demo" {
 		t.Errorf("toSandboxPath = %q, want %q", got, sandboxpkg.MountAgentSkills+"/demo")
 	}
-	if _, err := s.ResolveWritePath(sandboxPath); err == nil {
+	if _, err := s.resolveWritePath(sandboxPath); err == nil {
 		t.Fatal("expected ResolveWritePath to reject agent-skills path, got nil")
 	}
 }
@@ -579,7 +579,7 @@ func TestSystemDBSkills_readableButNotWritable(t *testing.T) {
 	}
 
 	sandboxPath := sandboxpkg.MountSystemDBSkills + "/demo/SKILL.md"
-	real, _, err := s.resolvePath(sandboxPath)
+	real, _, err := s.resolveCoordinates(sandboxPath)
 	if err != nil {
 		t.Fatalf("resolvePath rejected system-db-skills read: %v", err)
 	}
@@ -589,7 +589,7 @@ func TestSystemDBSkills_readableButNotWritable(t *testing.T) {
 	if got := s.toSandboxPath(filepath.Join(dbSkills, "demo")); got != sandboxpkg.MountSystemDBSkills+"/demo" {
 		t.Errorf("toSandboxPath = %q, want %q", got, sandboxpkg.MountSystemDBSkills+"/demo")
 	}
-	if _, err := s.ResolveWritePath(sandboxPath); err == nil {
+	if _, err := s.resolveWritePath(sandboxPath); err == nil {
 		t.Fatal("expected ResolveWritePath to reject system-db-skills path, got nil")
 	}
 }
@@ -604,7 +604,7 @@ func TestResolveWritePath_acceptsWorkspace(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	got, err := s.ResolveWritePath(f)
+	got, err := s.resolveWritePath(f)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -636,7 +636,7 @@ func TestResolvePath_rejectsAdjacentToExtraMount(t *testing.T) {
 
 	// A sibling directory of mountDir — not inside any mount.
 	adjacent := filepath.Join(filepath.Dir(mountDir), "adjacent")
-	_, err := s.ResolvePath(adjacent)
+	_, err := s.resolvePath(adjacent)
 	if err == nil {
 		t.Fatal("expected error for path adjacent to extra mount, got nil")
 	}
@@ -650,7 +650,7 @@ func TestResolvePath_rejectsSymlinkParentForMissingPath(t *testing.T) {
 		t.Fatalf("Symlink: %v", err)
 	}
 
-	_, err := s.ResolvePath(filepath.Join(link, "new.txt"))
+	_, err := s.resolvePath(filepath.Join(link, "new.txt"))
 	if err == nil {
 		t.Fatal("expected symlink parent to be rejected")
 	}
@@ -891,7 +891,7 @@ func TestResolvePath_twoRoots(t *testing.T) {
 		},
 	}
 
-	got, err := s.ResolveWritePath("/user/assets/x.txt")
+	got, err := s.resolveWritePath("/user/assets/x.txt")
 	if err != nil {
 		t.Fatalf("ResolveWritePath(/user/...): %v", err)
 	}
@@ -899,7 +899,7 @@ func TestResolvePath_twoRoots(t *testing.T) {
 		t.Errorf("/user write resolved to %q, want %q", got, want)
 	}
 
-	got, err = s.ResolveWritePath("/workspace/main.go")
+	got, err = s.resolveWritePath("/workspace/main.go")
 	if err != nil {
 		t.Fatalf("ResolveWritePath(/workspace/...): %v", err)
 	}
@@ -907,7 +907,7 @@ func TestResolvePath_twoRoots(t *testing.T) {
 		t.Errorf("/workspace write resolved to %q, want %q", got, want)
 	}
 
-	if _, err := s.ResolvePath("/workspace/../other/secret"); err == nil {
+	if _, err := s.resolvePath("/workspace/../other/secret"); err == nil {
 		t.Error("escape from /workspace to a sibling must be rejected")
 	}
 
@@ -915,7 +915,7 @@ func TestResolvePath_twoRoots(t *testing.T) {
 	if err := os.Symlink(userReal, filepath.Join(userReal, "loop")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ResolvePath("/user/loop/x"); err == nil {
+	if _, err := s.resolvePath("/user/loop/x"); err == nil {
 		t.Error("symlink component under /user must be rejected")
 	}
 }
@@ -1016,7 +1016,7 @@ func TestResolvePath_tmpMountAllowed(t *testing.T) {
 	}
 
 	// Agent path in sandbox space.
-	got, err := s.ResolvePath("/tmp/work/out.json")
+	got, err := s.resolvePath("/tmp/work/out.json")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1047,7 +1047,7 @@ func TestResolvePath_varTmpMountAllowed(t *testing.T) {
 		done:        make(chan struct{}),
 	}
 
-	got, err := s.ResolvePath("/var/tmp/cache.bin")
+	got, err := s.resolvePath("/var/tmp/cache.bin")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1112,7 +1112,7 @@ func TestResolveWritePath_allowsTmp(t *testing.T) {
 		done:        make(chan struct{}),
 	}
 
-	got, err := s.ResolveWritePath("/tmp/out.txt")
+	got, err := s.resolveWritePath("/tmp/out.txt")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

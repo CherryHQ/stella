@@ -168,26 +168,6 @@ func mergeEnvUpdates(base, overrides map[string]string) map[string]string {
 	return merged
 }
 
-func (r *ResilientSession) ResolvePath(path string) (string, error) {
-	r.mu.Lock()
-	s := r.inner
-	r.mu.Unlock()
-	if s == nil {
-		return "", fmt.Errorf("sandbox: no active session")
-	}
-	return s.ResolvePath(path)
-}
-
-func (r *ResilientSession) ResolveWritePath(path string) (string, error) {
-	r.mu.Lock()
-	s := r.inner
-	r.mu.Unlock()
-	if s == nil {
-		return "", fmt.Errorf("sandbox: no active session")
-	}
-	return s.ResolveWritePath(path)
-}
-
 // Filesystem preserves the mediated filesystem capability across reconnectable
 // sessions. Callers still own and close each returned short-lived handle.
 func (r *ResilientSession) Filesystem() (Filesystem, error) {

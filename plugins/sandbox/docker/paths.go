@@ -49,28 +49,41 @@ func toContainerPath(mounts []dockerclient.Mount, hostPath string) (string, erro
 	return path.Join(containerRoot, strings.ReplaceAll(bestRel, "\\", "/")), nil
 }
 
+// agentWorkingDir maps the configured host working directory into the
+// container view before a session starts. A session has no safe default when
+// this fails: exposing a different directory splits process and filesystem
+// coordinates.
+func agentWorkingDir(mounts []dockerclient.Mount, hostWorkingDir string) (string, error) {
+	if hostWorkingDir == "" {
+		return "", fmt.Errorf("docker: working directory is required")
+	}
+	absWorkingDir, err := filepath.Abs(hostWorkingDir)
+	if err != nil {
+		return "", fmt.Errorf("docker: abs working directory: %w", err)
+	}
+	workingDir, err := toContainerPath(mounts, absWorkingDir)
+	if err != nil {
+		return "", fmt.Errorf("docker: map working directory: %w", err)
+	}
+	return workingDir, nil
+}
+
 // ─────────────────────────── dockerHost ──────────────────────────────
 
-// dockerHost implements the process/path surface of Host.
-// File I/O is done directly via os.* on resolved host paths
-// (bind-mount makes host paths the source of truth).
+// dockerHost maps the provider's container paths to private host coordinates.
 // Exec and StartProcess translate host cwd → container cwd via toContainerPath.
 type dockerHost struct {
 	session *dockerSession
 }
 
-func (h *dockerHost) WorkingDir() string {
-	return h.session.policy.Filesystem.WorkingDir
-}
-
-// ResolvePath turns a relative or absolute path into an absolute host path
+// resolvePath turns a relative or absolute path into an absolute host path
 // covered by the session's mount set. Paths outside every mount are rejected
 // so absolute-path inputs cannot bypass the workspace / read-only policy
 // boundary on filesystem operations. Symlinks anywhere in the path are
 // rejected — nothing in the codebase creates symlinks in a session
 // workspace, so any are agent-planted and following them would let an
 // agent escape the mount via a file that passes the string-based check.
-func (h *dockerHost) ResolvePath(path string) (string, error) {
+func (h *dockerHost) resolvePath(path string) (string, error) {
 	resolved, err := h.pathResolver().ResolvePath(path)
 	if err != nil {
 		return "", fmt.Errorf("docker host: %w", err)
@@ -105,9 +118,9 @@ func toHostPath(mounts []dockerclient.Mount, containerPath string) (string, bool
 	return filepath.Join(bestMount.HostPath, bestRel), true
 }
 
-// ResolveWritePath is like ResolvePath but additionally rejects paths that
+// resolveWritePath is like resolvePath but additionally rejects paths that
 // fall within a read-only mount.
-func (h *dockerHost) ResolveWritePath(path string) (string, error) {
+func (h *dockerHost) resolveWritePath(path string) (string, error) {
 	resolved, err := h.pathResolver().ResolveWritePath(path)
 	if err != nil {
 		return "", fmt.Errorf("docker host: %w", err)

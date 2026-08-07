@@ -26,15 +26,6 @@ func TestNopSession(t *testing.T) {
 		t.Errorf("Exec exit code = %d, want 0", result.ExitCode)
 	}
 
-	// ResolvePath should be an identity.
-	resolved, err := s.ResolvePath("/some/path")
-	if err != nil {
-		t.Errorf("ResolvePath: unexpected error: %v", err)
-	}
-	if resolved != "/some/path" {
-		t.Errorf("ResolvePath = %q, want /some/path", resolved)
-	}
-
 	// Policy should be the default no-op policy.
 	policy := s.Policy()
 	if policy.Network.Mode != NetworkAllowAll {

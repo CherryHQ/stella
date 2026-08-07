@@ -86,7 +86,7 @@ func TestDockerHostResolvePath(t *testing.T) {
 	}
 	host := &dockerHost{session: session}
 
-	abs, err := host.ResolvePath("relative/path")
+	abs, err := host.resolvePath("relative/path")
 	if err != nil {
 		t.Fatalf("ResolvePath: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestDockerHostResolvePath(t *testing.T) {
 
 	// Absolute path inside a mounted tree passes through unchanged.
 	insideMount := filepath.Join(dir, "sub/file.txt")
-	got, err := host.ResolvePath(insideMount)
+	got, err := host.resolvePath(insideMount)
 	if err != nil {
 		t.Fatalf("ResolvePath inside mount: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestDockerHostResolvePath(t *testing.T) {
 
 	// Absolute path outside every mount must be rejected so filesystem
 	// policies (workspace-only, read-only trees) cannot be bypassed.
-	if _, err := host.ResolvePath("/absolute/path"); err == nil {
+	if _, err := host.resolvePath("/absolute/path"); err == nil {
 		t.Error("ResolvePath: expected error for path outside mount set")
 	}
 }
@@ -145,13 +145,13 @@ func TestDockerHostResolvePath_RejectsSymlinks(t *testing.T) {
 	if err := os.WriteFile(regular, []byte("ok"), 0o644); err != nil {
 		t.Fatalf("seed regular: %v", err)
 	}
-	if _, err := host.ResolvePath("regular.txt"); err != nil {
+	if _, err := host.resolvePath("regular.txt"); err != nil {
 		t.Fatalf("regular file: %v", err)
 	}
 
 	// Baseline: a non-existent leaf in a clean directory resolves — writes
 	// of new files must still work.
-	if _, err := host.ResolvePath("newfile.txt"); err != nil {
+	if _, err := host.resolvePath("newfile.txt"); err != nil {
 		t.Fatalf("non-existent leaf in clean dir: %v", err)
 	}
 
@@ -160,7 +160,7 @@ func TestDockerHostResolvePath_RejectsSymlinks(t *testing.T) {
 	if err := os.Symlink(filepath.Join(outside, "secret.txt"), linkOut); err != nil {
 		t.Fatalf("seed outward symlink: %v", err)
 	}
-	if _, err := host.ResolvePath("leak"); err == nil {
+	if _, err := host.resolvePath("leak"); err == nil {
 		t.Error("expected rejection for leaf symlink pointing outside mount")
 	}
 
@@ -170,7 +170,7 @@ func TestDockerHostResolvePath_RejectsSymlinks(t *testing.T) {
 	if err := os.Symlink(regular, filepath.Join(workspace, "inside-link")); err != nil {
 		t.Fatalf("seed inward symlink: %v", err)
 	}
-	if _, err := host.ResolvePath("inside-link"); err == nil {
+	if _, err := host.resolvePath("inside-link"); err == nil {
 		t.Error("expected rejection for any leaf symlink, even inside mount")
 	}
 
@@ -180,7 +180,7 @@ func TestDockerHostResolvePath_RejectsSymlinks(t *testing.T) {
 	if err := os.Symlink(outside, dirlink); err != nil {
 		t.Fatalf("seed ancestor symlink: %v", err)
 	}
-	if _, err := host.ResolvePath("dirlink/new.txt"); err == nil {
+	if _, err := host.resolvePath("dirlink/new.txt"); err == nil {
 		t.Error("expected rejection for write through symlinked ancestor")
 	}
 
@@ -190,7 +190,7 @@ func TestDockerHostResolvePath_RejectsSymlinks(t *testing.T) {
 			t.Fatalf("cleanup %s: %v", name, err)
 		}
 	}
-	if _, err := host.ResolvePath("leak"); err != nil {
+	if _, err := host.resolvePath("leak"); err != nil {
 		t.Fatalf("non-existent leaf after cleanup: %v", err)
 	}
 }

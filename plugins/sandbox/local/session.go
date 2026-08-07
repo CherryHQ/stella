@@ -366,18 +366,18 @@ func (s *localSession) deregisterProcess(p *localProcess) {
 	}
 }
 
-// ResolvePath resolves an agent-space path to a real host path, rejecting
+// resolvePath resolves an agent-space path to a real host path, rejecting
 // anything that resolves outside the workspace root.
 // The agent may pass sandbox-space paths (e.g. /workspace/foo.go); this
 // translates them to real host paths before any OS operations.
-func (s *localSession) ResolvePath(agentPath string) (string, error) {
-	resolved, _, err := s.resolvePath(agentPath)
+func (s *localSession) resolvePath(agentPath string) (string, error) {
+	resolved, _, err := s.resolveCoordinates(agentPath)
 	return resolved, err
 }
 
-// ResolveWritePath is like ResolvePath but additionally rejects paths that fall
+// resolveWritePath is like resolvePath but additionally rejects paths that fall
 // within read-only mounts.
-func (s *localSession) ResolveWritePath(agentPath string) (string, error) {
+func (s *localSession) resolveWritePath(agentPath string) (string, error) {
 	resolved, err := s.pathResolver().ResolveWritePath(agentPath)
 	if err != nil {
 		return "", fmt.Errorf("local: %w", err)
@@ -392,17 +392,17 @@ func (s *localSession) resolveCwd(cwd string) (sandboxCwd, realCwd string, err e
 	if cwd == "" {
 		cwd = s.WorkingDir()
 	}
-	realCwd, sandboxCwd, err = s.resolvePath(cwd)
+	realCwd, sandboxCwd, err = s.resolveCoordinates(cwd)
 	if err != nil {
 		return "", "", err
 	}
 	return sandboxCwd, realCwd, nil
 }
 
-// resolvePath translates an agent-space path to a real path and a normalized
+// resolveCoordinates translates an agent-space path to a real path and a normalized
 // sandbox-space path. Existing symlink components under the workspace are
 // rejected, including symlinked parents of non-existent creation targets.
-func (s *localSession) resolvePath(agentPath string) (realPath, sandboxPath string, err error) {
+func (s *localSession) resolveCoordinates(agentPath string) (realPath, sandboxPath string, err error) {
 	resolved, err := s.pathResolver().ResolvePath(agentPath)
 	if err != nil {
 		return "", "", fmt.Errorf("local: %w", err)

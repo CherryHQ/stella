@@ -86,8 +86,7 @@ type Filesystem interface {
 }
 
 // FilesystemSession is implemented by providers that expose the mediated file
-// boundary. It is separate from Session while Phase 2.1 coexists with legacy
-// ResolvePath callers; subsequent PRs migrate consumers before removing them.
+// boundary. It is separate from Session because filesystem access is optional.
 type FilesystemSession interface {
 	Session
 	Filesystem() (Filesystem, error)

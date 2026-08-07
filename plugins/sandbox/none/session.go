@@ -204,19 +204,13 @@ func (s *noneSession) Close() error {
 	return s.closeErr
 }
 
-// ResolvePath resolves a relative path against the working directory.
+// resolvePath resolves a relative path against the working directory.
 // Absolute paths are returned as-is.
-func (s *noneSession) ResolvePath(path string) (string, error) {
+func (s *noneSession) resolvePath(path string) (string, error) {
 	if filepath.IsAbs(path) {
 		return path, nil
 	}
 	return filepath.Join(s.WorkingDir(), path), nil
-}
-
-// ResolveWritePath is the same as ResolvePath for the none backend, which has
-// no mount-level isolation.
-func (s *noneSession) ResolveWritePath(path string) (string, error) {
-	return s.ResolvePath(path)
 }
 
 func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
@@ -231,6 +225,10 @@ func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.
 	cwd := opts.Cwd
 	if cwd == "" {
 		cwd = s.WorkingDir()
+	}
+	cwd, err := s.resolvePath(cwd)
+	if err != nil {
+		return sandboxpkg.ExecResult{}, fmt.Errorf("none: resolve cwd: %w", err)
 	}
 
 	timeout := opts.Timeout
@@ -294,6 +292,10 @@ func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRe
 	cwd := req.Cwd
 	if cwd == "" {
 		cwd = s.WorkingDir()
+	}
+	cwd, err := s.resolvePath(cwd)
+	if err != nil {
+		return nil, fmt.Errorf("none: resolve cwd: %w", err)
 	}
 
 	timeout := req.Timeout

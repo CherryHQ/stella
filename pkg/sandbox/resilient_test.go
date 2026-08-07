@@ -57,9 +57,6 @@ func (m *mockSession) StartProcess(_ context.Context, req ProcessRequest) (Proce
 	return nil, nil
 }
 
-func (m *mockSession) ResolvePath(path string) (string, error)      { return path, nil }
-func (m *mockSession) ResolveWritePath(path string) (string, error) { return path, nil }
-
 func TestResilientSession_ExecUsesExistingSession(t *testing.T) {
 	s := newMockSession()
 	rs := NewResilientSession(s, func(_ context.Context) (Session, error) {

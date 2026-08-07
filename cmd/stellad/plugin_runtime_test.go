@@ -71,9 +71,7 @@ func (h *passthroughHost) Exec(_ context.Context, command string, opts sandbox.E
 	return sandbox.ExecResult{Stdout: string(out), ExitCode: exitCode}, nil
 }
 
-func (h *passthroughHost) ResolvePath(path string) (string, error)      { return path, nil }
-func (h *passthroughHost) ResolveWritePath(path string) (string, error) { return path, nil }
-func (h *passthroughHost) WorkingDir() string                           { return h.workDir }
+func (h *passthroughHost) WorkingDir() string { return h.workDir }
 
 // Filesystem mounts the host work directory at the canonical workspace root, so
 // read/write/edit address files by canonical path while bash still runs in the

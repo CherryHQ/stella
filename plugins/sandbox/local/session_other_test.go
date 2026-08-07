@@ -37,7 +37,7 @@ func TestOtherPlatformTmpMountsAreSessionOwnedIdentityViews(t *testing.T) {
 		}},
 	}
 	wantPath := filepath.Join(mount.realPath, "tmp-file")
-	if got, err := session.ResolveWritePath(wantPath); err != nil || got != wantPath {
+	if got, err := session.resolveWritePath(wantPath); err != nil || got != wantPath {
 		t.Errorf("ResolveWritePath(%q) = %q, %v; want %q, nil", wantPath, got, err, wantPath)
 	}
 	cleanupOwnedTmpMounts(mounts)

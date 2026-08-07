@@ -92,6 +92,21 @@ func TestBuildMountTable(t *testing.T) {
 	}
 }
 
+func TestAgentWorkingDir(t *testing.T) {
+	mounts := []dockerclient.Mount{{HostPath: "/host/agent", ContainerPath: sandboxpkg.PathWorkspace}}
+	workingDir, err := agentWorkingDir(mounts, "/host/agent/projects/p")
+	if err != nil {
+		t.Fatalf("agentWorkingDir: %v", err)
+	}
+	if want := "/workspace/projects/p"; workingDir != want {
+		t.Errorf("agentWorkingDir = %q, want %q", workingDir, want)
+	}
+
+	if _, err := agentWorkingDir(mounts, "/host/other/project"); err == nil {
+		t.Fatal("agentWorkingDir accepted a directory outside the mounted container view")
+	}
+}
+
 func TestContainerPathNormalizationWithWindowsStylePolicyPaths(t *testing.T) {
 	if got, want := cleanContainerPath(`\opt\stella\users\u1\.mise-tools`), "/opt/stella/users/u1/.mise-tools"; got != want {
 		t.Fatalf("cleanContainerPath = %q, want %q", got, want)

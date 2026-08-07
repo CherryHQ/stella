@@ -2,8 +2,10 @@ package docker_test
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -76,10 +78,15 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(workspace) })
+	project := filepath.Join(workspace, "projects", "p")
+	if err := os.MkdirAll(project, 0o700); err != nil {
+		t.Fatal(err)
+	}
 
 	policy := sandbox.Policy{
 		Filesystem: sandbox.FilesystemPolicy{
-			WorkingDir: workspace,
+			WorkspaceRoot: workspace,
+			WorkingDir:    project,
 		},
 		Network: sandbox.NetworkPolicy{
 			Mode: sandbox.NetworkDisabled,
@@ -158,66 +165,73 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 		}
 		defer func() { _ = session.Close() }()
 
-		if got := session.WorkingDir(); got != policy.Filesystem.WorkingDir {
-			t.Errorf("WorkingDir() = %q, want %q", got, policy.Filesystem.WorkingDir)
+		if got := session.WorkingDir(); got != "/workspace/projects/p" {
+			t.Errorf("WorkingDir() = %q, want normalized project directory %q", got, "/workspace/projects/p")
 		}
 
-		resolved, err := session.ResolvePath("test.txt")
-		if err != nil {
-			t.Errorf("ResolvePath: %v", err)
+		got, err := session.Exec(ctx, "pwd", sandbox.ExecOptions{})
+		if err != nil || got.ExitCode != 0 {
+			t.Fatalf("Exec(pwd) = %+v, %v", got, err)
 		}
-
-		expected := filepath.Join(policy.Filesystem.WorkingDir, "test.txt")
-		if resolved != expected {
-			t.Errorf("ResolvePath(%q) = %q, want %q", "test.txt", resolved, expected)
+		if pwd := strings.TrimSuffix(got.Stdout, "\n"); pwd != session.WorkingDir() {
+			t.Errorf("Exec(pwd) = %q, want normalized working directory %q", pwd, session.WorkingDir())
 		}
 	})
 
-	t.Run("TempDirSharedByFileToolsAndExec", func(t *testing.T) {
+	t.Run("FilesystemAndExecShareCanonicalMounts", func(t *testing.T) {
 		session, err := factory.CreateSession(ctx, policy)
 		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
 		defer func() { _ = session.Close() }()
 
-		fromTool, err := session.ResolveWritePath("/tmp/from-tool.txt")
+		// alpine is sufficient for the generic Session contract but does not
+		// contain stella-fs. The production sandbox image does; do not pretend
+		// this is a Filesystem seam when that capability is absent.
+		available, err := session.Exec(ctx, "test -x /opt/stella/bin/stella-fs", sandbox.ExecOptions{})
+		if err != nil || available.ExitCode != 0 {
+			t.Skip("sandbox image does not provide the mediated filesystem helper")
+		}
+		withFilesystem, ok := session.(sandbox.FilesystemSession)
+		if !ok {
+			t.Fatal("docker session does not expose Filesystem")
+		}
+		filesystem, err := withFilesystem.Filesystem()
 		if err != nil {
-			t.Fatalf("ResolveWritePath(tool file): %v", err)
+			t.Fatalf("Filesystem: %v", err)
 		}
-		if err := os.WriteFile(fromTool, []byte("from-tool"), 0o600); err != nil {
-			t.Fatalf("write tool file: %v", err)
+		defer func() {
+			if err := filesystem.Close(); err != nil {
+				t.Errorf("Filesystem.Close: %v", err)
+			}
+		}()
+
+		// Filesystem accepts canonical coordinates by contract. Exec's relative
+		// path is resolved from the same nested WorkingDir.
+		writeContractFile(t, ctx, filesystem, "/workspace/projects/p/from-filesystem.txt", "from-filesystem")
+		got, err := session.Exec(ctx, `cat from-filesystem.txt`, sandbox.ExecOptions{})
+		if err != nil || got.ExitCode != 0 || got.Stdout != "from-filesystem" {
+			t.Fatalf("exec read filesystem-written project file = %+v, %v", got, err)
 		}
-		got, err := session.Exec(ctx, `cat "$TMPDIR/from-tool.txt" && printf from-exec-overwrite > "$TMPDIR/from-tool.txt"`, sandbox.ExecOptions{})
+		got, err = session.Exec(ctx, `printf from-exec > from-exec.txt`, sandbox.ExecOptions{})
+		if err != nil || got.ExitCode != 0 {
+			t.Fatalf("exec write project file = %+v, %v", got, err)
+		}
+		readContractFile(t, ctx, filesystem, "/workspace/projects/p/from-exec.txt", "from-exec")
+
+		writeContractFile(t, ctx, filesystem, "/tmp/from-tool.txt", "from-tool")
+		got, err = session.Exec(ctx, `cat "$TMPDIR/from-tool.txt"`, sandbox.ExecOptions{})
 		if err != nil || got.ExitCode != 0 || got.Stdout != "from-tool" {
-			t.Fatalf("exec read/write tool file = %+v, %v", got, err)
-		}
-		data, err := os.ReadFile(fromTool)
-		if err != nil || string(data) != "from-exec-overwrite" {
-			t.Fatalf("file tool read exec overwrite = %q, %v", data, err)
+			t.Fatalf("exec read filesystem-written temp file = %+v, %v", got, err)
 		}
 
 		got, err = session.Exec(ctx, `printf from-exec > "$TMPDIR/from-exec.txt"`, sandbox.ExecOptions{})
 		if err != nil || got.ExitCode != 0 {
 			t.Fatalf("exec write temp file = %+v, %v", got, err)
 		}
-		fromExec, err := session.ResolvePath("/tmp/from-exec.txt")
-		if err != nil {
-			t.Fatalf("ResolvePath(exec file): %v", err)
-		}
-		data, err = os.ReadFile(fromExec)
-		if err != nil || string(data) != "from-exec" {
-			t.Fatalf("file tool read exec file = %q, %v", data, err)
-		}
-		if fromExec == fromTool {
-			t.Fatalf("distinct sandbox paths resolved to the same host path %q", fromExec)
-		}
-		if err := os.WriteFile(fromExec, []byte("from-tool-overwrite"), 0o600); err != nil {
-			t.Fatalf("file tool overwrite exec file: %v", err)
-		}
-		data, err = os.ReadFile(fromExec)
-		if err != nil || string(data) != "from-tool-overwrite" {
-			t.Fatalf("host did not observe tool overwrite = %q, %v", data, err)
-		}
+		readContractFile(t, ctx, filesystem, "/tmp/from-exec.txt", "from-exec")
+
+		writeContractFile(t, ctx, filesystem, "/tmp/from-exec.txt", "from-tool-overwrite")
 		// Docker Desktop may need a brief propagation window for host overwrites.
 		deadline := time.Now().Add(2 * time.Second)
 		for {
@@ -243,15 +257,12 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 		if err != nil || got.ExitCode != 0 {
 			t.Fatalf("exec rootfs/mount writes = %+v, %v", got, err)
 		}
-		if data, err := os.ReadFile(filepath.Join(workspace, "rootfs-workspace.txt")); err != nil || string(data) != "workspace" {
+		if data, err := os.ReadFile(filepath.Join(project, "rootfs-workspace.txt")); err != nil || string(data) != "workspace" {
 			t.Fatalf("workspace write = %q, %v", data, err)
 		}
-		tempFile, err := session.ResolvePath("/tmp/rootfs-tmp.txt")
-		if err != nil {
-			t.Fatalf("ResolvePath(temp file): %v", err)
-		}
-		if data, err := os.ReadFile(tempFile); err != nil || string(data) != "tmp" {
-			t.Fatalf("temp write = %q, %v", data, err)
+		got, err = session.Exec(ctx, `test "$(cat "$TMPDIR/rootfs-tmp.txt")" = tmp`, sandbox.ExecOptions{})
+		if err != nil || got.ExitCode != 0 {
+			t.Fatalf("exec read tmp file = %+v, %v", got, err)
 		}
 	})
 
@@ -284,6 +295,33 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 			t.Errorf("Stdout = %q, should contain %q", execResult.Stdout, "hello")
 		}
 	})
+}
+
+func writeContractFile(t *testing.T, ctx context.Context, filesystem sandbox.Filesystem, path, content string) {
+	t.Helper()
+	length := int64(len(content))
+	if err := filesystem.Write(ctx, path, strings.NewReader(content), sandbox.WriteOptions{Perm: 0o600, ContentLength: &length}); err != nil {
+		t.Fatalf("Filesystem.Write(%q): %v", path, err)
+	}
+}
+
+func readContractFile(t *testing.T, ctx context.Context, filesystem sandbox.Filesystem, path, want string) {
+	t.Helper()
+	reader, _, err := filesystem.Read(ctx, path, sandbox.ReadOptions{MaxBytes: int64(len(want))})
+	if err != nil {
+		t.Fatalf("Filesystem.Read(%q): %v", path, err)
+	}
+	got, readErr := io.ReadAll(reader)
+	closeErr := reader.Close()
+	if readErr != nil {
+		t.Fatalf("Filesystem.Read(%q): %v", path, readErr)
+	}
+	if closeErr != nil {
+		t.Fatalf("Filesystem.Read(%q) close: %v", path, closeErr)
+	}
+	if string(got) != want {
+		t.Fatalf("Filesystem.Read(%q) = %q, want %q", path, got, want)
+	}
 }
 
 func contractContainsSubstring(s, substr string) bool {

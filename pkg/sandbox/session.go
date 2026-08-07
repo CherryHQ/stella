@@ -21,12 +21,6 @@ type Session interface {
 	Exec(ctx context.Context, command string, opts ExecOptions) (ExecResult, error)
 	StartProcess(ctx context.Context, req ProcessRequest) (ProcessHandle, error)
 
-	// Path resolution — use os.* with the resolved path for file I/O.
-	// ResolvePath validates read access; use ResolveWritePath for write operations.
-	ResolvePath(path string) (string, error)
-	// ResolveWritePath is like ResolvePath but additionally rejects paths in
-	// read-only mounts.
-	ResolveWritePath(path string) (string, error)
 	WorkingDir() string
 }
 
@@ -117,6 +111,4 @@ func (s *nopSession) Exec(_ context.Context, _ string, _ ExecOptions) (ExecResul
 func (s *nopSession) StartProcess(_ context.Context, _ ProcessRequest) (ProcessHandle, error) {
 	return nil, nil
 }
-func (s *nopSession) ResolvePath(path string) (string, error)      { return path, nil }
-func (s *nopSession) ResolveWritePath(path string) (string, error) { return path, nil }
-func (s *nopSession) WorkingDir() string                           { return "" }
+func (s *nopSession) WorkingDir() string { return "" }
