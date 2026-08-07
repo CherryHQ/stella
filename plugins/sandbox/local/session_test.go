@@ -87,10 +87,29 @@ func TestFactoryProjectsFilesystemEnvironmentPaths(t *testing.T) {
 	}
 	defer session.Close() //nolint:errcheck
 	projector := session.(*localSession)
-	for source, want := range map[string]string{
+	for input, want := range map[string]string{
 		session.Policy().Env["HOME"]:                                    sandboxpkg.PathWorkspace,
 		session.Policy().Env[sandboxpkg.EnvStellaAssetsDir]:             sandboxpkg.PathUser + "/assets",
 		filepath.Join(session.Policy().Env[sandboxpkg.EnvTempDir], "x"): sandboxpkg.PathTemp + "/x",
+	} {
+		if got, ok := projector.ProjectFilesystemPath(input); !ok || got != want {
+			t.Errorf("ProjectFilesystemPath(%q) = %q, %v; want %q", input, got, ok, want)
+		}
+	}
+	physicalTmp := ""
+	for _, mount := range projector.tmpMounts {
+		if mount.sandboxPath == sandboxpkg.PathTemp {
+			physicalTmp = mount.realPath
+			break
+		}
+	}
+	if physicalTmp == "" {
+		t.Fatal("session has no physical /tmp source")
+	}
+	for source, want := range map[string]string{
+		workspace:   sandboxpkg.PathWorkspace,
+		user:        sandboxpkg.PathUser,
+		physicalTmp: sandboxpkg.PathTemp,
 	} {
 		if got, ok := projector.projectFilesystemSourcePath(source); !ok || got != want {
 			t.Errorf("projectFilesystemSourcePath(%q) = %q, %v; want %q", source, got, ok, want)
