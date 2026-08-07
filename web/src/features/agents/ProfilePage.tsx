@@ -370,7 +370,7 @@ function OverviewTab({
           <Link to="/agents/$agentId/goals" params={{ agentId }} className={SUMMARY_CARD_CLS}>
             <SummaryCardBody
               icon={<ListTodo size={16} />}
-              title={t("sidebar.goals")}
+              title={t("sidebar.work")}
               detail={t("profile.goalCount", { count: goalCounts?.active ?? 0 })}
             />
           </Link>

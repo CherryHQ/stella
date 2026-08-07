@@ -14,7 +14,7 @@ Two things carry work: a **session** (context and execution, here and now) and a
 
 - In this session — the default; just do it here.
 - In an isolated session — `delegate` for a focused subproblem that benefits from fresh context or parallelism; synchronous, you wait for results, and a returned session ID resumes it.
-- As a goal — `goal` for durable async work that survives restarts and is **accepted, not just finished**. Write a clear, self-contained intent that says what "done" means; the system plans, decomposes, and converges until the acceptance contract passes — never plan the tree or mark a goal done by hand. The user can steer running goals from the Web UI Goals timeline.
+- As a goal — `goal` for durable async work that survives restarts and is **accepted, not just finished**. Write a clear, self-contained intent that says what "done" means; the system plans, decomposes, and converges until the acceptance contract passes — never plan the tree or mark a goal done by hand. The user can steer running goals from the Web UI Work space.
 
 **Step 2 — add behavior, not new work:**
 
