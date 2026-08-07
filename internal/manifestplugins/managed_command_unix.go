@@ -10,7 +10,10 @@ import (
 	"syscall"
 )
 
-func managedCommandContext(ctx context.Context, name string, args ...string) *exec.Cmd {
+// ManagedCommandContext returns a command whose cancellation terminates the
+// complete process tree and whose WaitDelay bounds blocked descendant pipes.
+// Callers must still call Wait exactly once after a successful Start.
+func ManagedCommandContext(ctx context.Context, name string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {

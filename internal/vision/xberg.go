@@ -3,6 +3,7 @@ package vision
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,12 +16,57 @@ import (
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-// xbergTimeout bounds local extraction for canonical baseline fallback.
-const xbergTimeout = 60 * time.Second
+const (
+	// xbergTimeout bounds local extraction for canonical baseline fallback.
+	xbergTimeout = 60 * time.Second
+	// xbergMaxStdoutBytes is intentionally far above the durable 12k-rune
+	// baseline ceiling while bounding untrusted child-process output in memory.
+	xbergMaxStdoutBytes = 256 * 1024
+)
 
-// ExtractWithXberg shells out to the Xberg CLI to extract text from a
-// file. It returns an error when the binary is missing or extraction fails.
-func ExtractWithXberg(ctx context.Context, path string) (string, error) {
+// extractBytesWithXberg stages already-validated, service-owned image bytes for
+// the one daemon-side Xberg invocation. The staging directory and its fixed
+// filename prevent callers from selecting either the input path or Xberg cwd.
+func extractBytesWithXberg(ctx context.Context, data []byte, mime string) (string, error) {
+	if err := xbergFallbackSupported(); err != nil {
+		return "", fmt.Errorf("xberg fallback: %w", err)
+	}
+	dir, err := os.MkdirTemp("", "stella-vision-")
+	if err != nil {
+		return "", fmt.Errorf("stage image for xberg: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	path := filepath.Join(dir, "image"+extensionForMime(mime))
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("stage image for xberg: %w", err)
+	}
+	if err := writeAndClose(file, data); err != nil {
+		return "", fmt.Errorf("stage image for xberg: %w", err)
+	}
+	return runXberg(ctx, dir, path)
+}
+
+func writeAndClose(file *os.File, data []byte) error {
+	for len(data) > 0 {
+		n, err := file.Write(data)
+		if err != nil {
+			_ = file.Close()
+			return err
+		}
+		if n == 0 {
+			_ = file.Close()
+			return io.ErrShortWrite
+		}
+		data = data[n:]
+	}
+	return file.Close()
+}
+
+// runXberg is deliberately private: its path and cwd originate exclusively
+// from extractBytesWithXberg's daemon-owned staging directory.
+func runXberg(ctx context.Context, stagingDir, stagedPath string) (string, error) {
 	// Reconciliation installs the Xberg shim under STELLA_HOME; the daemon's
 	// own PATH need not contain sandbox-only tool directories.
 	stellaHome := config.StellaHome()
@@ -38,10 +84,8 @@ func ExtractWithXberg(ctx context.Context, path string) (string, error) {
 	}
 	cctx, cancel := context.WithTimeout(ctx, xbergTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(cctx, bin, "extract", path)
-	// Xberg auto-discovers config from its cwd and parents. Anchor discovery to
-	// the input file instead of leaking stellad's operator-controlled cwd.
-	cmd.Dir = filepath.Dir(path)
+	cmd := manifestplugins.ManagedCommandContext(cctx, bin, "extract", stagedPath)
+	cmd.Dir = stagingDir
 	if managedShim {
 		miseEnv := manifestplugins.RuntimeMiseEnv(stellaHome, "", "")
 		// RuntimeMiseEnv uses the sandbox's /tmp by default; this command runs in
@@ -49,8 +93,38 @@ func ExtractWithXberg(ctx context.Context, path string) (string, error) {
 		miseEnv["MISE_STATE_DIR"] = filepath.Join(os.TempDir(), "stella-mise-state")
 		cmd.Env = withEnvOverrides(os.Environ(), miseEnv)
 	}
-	out, err := cmd.Output()
+
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		return "", fmt.Errorf("start xberg stdout: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+	out, readErr := io.ReadAll(io.LimitReader(stdout, xbergMaxStdoutBytes+1))
+	if readErr != nil {
+		_ = cmd.Cancel()
+		waitErr := cmd.Wait()
+		if err := cctx.Err(); err != nil {
+			return "", err
+		}
+		if waitErr != nil {
+			return "", waitErr
+		}
+		return "", fmt.Errorf("read xberg output: %w", readErr)
+	}
+	if len(out) > xbergMaxStdoutBytes {
+		_ = cmd.Cancel()
+		_ = cmd.Wait()
+		if err := cctx.Err(); err != nil {
+			return "", err
+		}
+		return "", fmt.Errorf("xberg output exceeds %d bytes", xbergMaxStdoutBytes)
+	}
+	if err := cmd.Wait(); err != nil {
+		if ctxErr := cctx.Err(); ctxErr != nil {
+			return "", ctxErr
+		}
 		return "", err
 	}
 	text := strings.TrimSpace(string(out))
@@ -58,23 +132,6 @@ func ExtractWithXberg(ctx context.Context, path string) (string, error) {
 		return "", fmt.Errorf("xberg returned no text")
 	}
 	return text, nil
-}
-
-// extractBytesWithXberg stages data in a temporary file so Xberg — which only
-// reads from disk — can extract text from image bytes that never came from a
-// file the daemon can reach.
-func extractBytesWithXberg(ctx context.Context, data []byte, mime string) (string, error) {
-	dir, err := os.MkdirTemp("", "stella-vision-")
-	if err != nil {
-		return "", fmt.Errorf("stage image for xberg: %w", err)
-	}
-	defer func() { _ = os.RemoveAll(dir) }()
-
-	path := filepath.Join(dir, "image"+extensionForMime(mime))
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return "", fmt.Errorf("stage image for xberg: %w", err)
-	}
-	return ExtractWithXberg(ctx, path)
 }
 
 // withEnvOverrides replaces environment values while retaining the process

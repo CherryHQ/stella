@@ -97,6 +97,7 @@ Stella prefers explicit denial over silent downgrade:
 - missing, failing, or nil active `Filesystem` → file consumers fail closed without host-I/O fallback
 - direct non-mediated plugin exec → fail closed
 - remote MCP HTTP/SSE/StreamableHTTP → explicit exception, not an implicit sandbox bypass
+- On supported POSIX hosts, daemon Vision Xberg consumes one validated owned image-byte snapshot through `0700`/`0600` temporary staging with no host input path; it fails closed on Windows, while agent document parsing continues to use the sandbox Xberg CLI.
 
 ## Verification
 

@@ -157,7 +157,7 @@ func runMiseCapture(ctx context.Context, stellaHome string, args ...string) (str
 	defer func() { _ = os.RemoveAll(dir) }()
 
 	var stdout, stderr bytes.Buffer
-	cmd := managedCommandContext(ctx, miseBin, args...)
+	cmd := ManagedCommandContext(ctx, miseBin, args...)
 	cmd.Dir = dir
 	cmd.Env = env
 	cmd.Stdout = &stdout

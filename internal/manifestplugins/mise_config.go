@@ -264,7 +264,7 @@ func scopeMiseEnv(stellaHome, scope string) ([]string, error) {
 // the given lookup name under the provided env, running in a neutral cwd.
 func resolveToolVersion(ctx context.Context, miseBin string, env []string, dir, lookup string) (string, error) {
 	var stdout, stderr bytes.Buffer
-	cmd := managedCommandContext(ctx, miseBin, "which", lookup, "--version")
+	cmd := ManagedCommandContext(ctx, miseBin, "which", lookup, "--version")
 	cmd.Dir = dir
 	cmd.Env = env
 	cmd.Stdout = &stdout
@@ -278,7 +278,7 @@ func resolveToolVersion(ctx context.Context, miseBin string, env []string, dir, 
 // runMise runs a mise subcommand in dir with the given env, capturing stderr.
 func runMise(ctx context.Context, miseBin string, env []string, dir string, args ...string) error {
 	var stderr bytes.Buffer
-	cmd := managedCommandContext(ctx, miseBin, args...)
+	cmd := ManagedCommandContext(ctx, miseBin, args...)
 	cmd.Dir = dir
 	cmd.Env = env
 	cmd.Stderr = &stderr

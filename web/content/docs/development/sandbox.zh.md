@@ -97,6 +97,7 @@ Stella 优先选择显式拒绝而非静默降级：
 - 缺少、打开失败或为 nil 的活动 `Filesystem` → 文件消费者拒绝失败，不回退到宿主机 I/O
 - 直接非中介的插件 exec → 拒绝失败
 - 远程 MCP HTTP/SSE/StreamableHTTP → 显式例外，而非隐式沙箱绕过
+- 在受支持的 POSIX 宿主机上，daemon Vision Xberg 只通过 `0700`/`0600` 临时暂存消费一份经验证且自有的图像字节快照，不接受宿主机输入路径；Windows 上会拒绝失败，而 agent 文档解析仍使用沙箱 Xberg CLI。
 
 ## 验证
 
