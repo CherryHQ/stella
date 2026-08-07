@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -96,15 +95,13 @@ func TestDeleteCancelsInFlightParsingWithoutResurrection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binary := filepath.Join(t.TempDir(), "xberg")
-	if err := os.WriteFile(binary, []byte("managed"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	runner := &cancellableXbergRunner{started: make(chan struct{})}
-	parser, err := newXbergParserWithRunner(DefaultXbergParserConfig(binary), runner)
-	if err != nil {
-		t.Fatal(err)
-	}
+	started := make(chan struct{})
+	var startedOnce sync.Once
+	parser := parserFunc(func(ctx context.Context, _, _ string) ([]ParsedChunk, error) {
+		startedOnce.Do(func() { close(started) })
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
 	service, _ := newWorkingLibraryService(t, database, store, parser)
 	authority := testAuthority(t, testUserA, true)
 	file, err := service.CreateManagedUpload(
@@ -114,7 +111,7 @@ func TestDeleteCancelsInFlightParsingWithoutResurrection(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case <-runner.started:
+	case <-started:
 	case <-time.After(10 * time.Second):
 		t.Fatal("chunk worker did not enter the parser")
 	}
@@ -182,7 +179,7 @@ func TestCancellationFailureNeverReversesTombstone(t *testing.T) {
 		t.Fatal(err)
 	}
 	service, err := NewService(ServiceConfig{
-		DB: database, RawStore: store, Parser: staticLibraryParser{}, River: client,
+		DB: database, RawStore: store, Parser: staticLibraryParser{}, ParserProfile: testParserProfile, River: client,
 		Logger: discardLibraryLogger(), TempDir: t.TempDir(),
 		MaxConcurrentUploads: 1, MaxSpoolBytes: MaxFileBytes,
 	})
@@ -307,7 +304,7 @@ func TestOrphanReconciliationIsAgeBoundedAndFailClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.reconcileOrphanPage(t.Context(), page.Objects, time.Now().UTC().Add(-time.Hour)); err != nil {
+	if err := service.reconcileOrphanPage(t.Context(), page.Objects, time.Now().UTC().Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	assertRawObjectExists(t, store, oldOrphanID, false)
@@ -337,7 +334,7 @@ func TestOrphanReconciliationIsAgeBoundedAndFailClosed(t *testing.T) {
 	}
 	unavailablePool.Close()
 	service.q = sqlc.New(unavailablePool)
-	_, err = service.reconcileOrphanPage(t.Context(), []RawObject{{
+	err = service.reconcileOrphanPage(t.Context(), []RawObject{{
 		Key: key, Size: 9, LastModified: old,
 	}}, time.Now().UTC().Add(-time.Hour))
 	if err == nil {
@@ -355,6 +352,7 @@ func TestOrphanReconciliationSurvivesUploaderProcessRestart(t *testing.T) {
 	const orphanMinAge = time.Second
 	config := ServiceConfig{
 		Parser:                   staticLibraryParser{},
+		ParserProfile:            testParserProfile,
 		SnapshotCommitTimeout:    500 * time.Millisecond,
 		DatabaseStatementTimeout: 200 * time.Millisecond,
 		DatabaseLockTimeout:      100 * time.Millisecond,
@@ -417,7 +415,7 @@ func TestOrphanReconciliationSurvivesUploaderProcessRestart(t *testing.T) {
 	// terminated. It must retain the raw throughout the safe-age window.
 	config.RawStore = baseStore
 	restarted := newLibraryServiceWithConfig(t, database, config)
-	if _, _, err := restarted.reconcileOrphanPages(t.Context(), ""); err != nil {
+	if err := restarted.reconcileOrphanPages(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	assertRawObjectExists(t, baseStore, fileID, true)
@@ -430,7 +428,7 @@ func TestOrphanReconciliationSurvivesUploaderProcessRestart(t *testing.T) {
 	if err := os.Chtimes(path, strictlyOld, strictlyOld); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := restarted.reconcileOrphanPages(t.Context(), ""); err != nil {
+	if err := restarted.reconcileOrphanPages(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	assertRawObjectExists(t, baseStore, fileID, false)
@@ -449,12 +447,8 @@ func TestOrphanReconciliationBoundsEachJob(t *testing.T) {
 	_, service := newLibraryService(t, database)
 	store := &endlessPagingRawStore{}
 	service.rawStore = store
-	nextCursor, continuation, err := service.reconcileOrphanPages(t.Context(), "")
-	if err != nil {
+	if err := service.reconcileOrphanPages(t.Context()); err != nil {
 		t.Fatal(err)
-	}
-	if !continuation || nextCursor != "page-4" {
-		t.Fatalf("bounded scan = cursor %q continuation=%t", nextCursor, continuation)
 	}
 	if store.calls != orphanPagesPerJob {
 		t.Fatalf("ListPage calls = %d, want %d", store.calls, orphanPagesPerJob)
@@ -464,32 +458,15 @@ func TestOrphanReconciliationBoundsEachJob(t *testing.T) {
 			t.Fatalf("ListPage limit = %d, want %d", limit, orphanPageSize)
 		}
 	}
-}
-
-func TestReconciliationCursorHandoffConvergesThroughRiver(t *testing.T) {
-	database := dbtest.New(t)
-	store := &finitePagingRawStore{remainingPages: orphanPagesPerJob + 1}
-	_, client := newWorkingLibraryService(t, database, store, staticLibraryParser{})
-	args := reconcileArgs{}
-	options := args.InsertOpts()
-	if _, err := client.Insert(t.Context(), args, &options); err != nil {
+	if err := service.reconcileOrphanPages(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		jobs, err := client.JobList(
-			t.Context(),
-			river.NewJobListParams().Kinds(args.Kind()).States(rivertype.JobStateCompleted).First(10),
-		)
-		if err == nil && len(jobs.Jobs) == 2 {
-			if store.calls.Load() != int32(orphanPagesPerJob+1) {
-				t.Fatalf("paginated reconciliation calls = %d", store.calls.Load())
-			}
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
+	if store.calls != 2*orphanPagesPerJob {
+		t.Fatalf("two bounded scans made %d calls, want %d", store.calls, 2*orphanPagesPerJob)
 	}
-	t.Fatal("reconciliation cursor handoff did not complete both bounded jobs")
+	if store.cursors[0] != "" || store.cursors[orphanPagesPerJob] != "" {
+		t.Fatalf("periodic scans did not restart at the RawStore head: %v", store.cursors)
+	}
 }
 
 func TestReconciliationRepairsMissingJobsAndFinalizesDiscardedGeneration(t *testing.T) {
@@ -749,6 +726,7 @@ func TestOrphanMinimumAgeMustExceedCommitUncertaintyWindow(t *testing.T) {
 		DB:                       database,
 		RawStore:                 store,
 		Parser:                   staticLibraryParser{},
+		ParserProfile:            testParserProfile,
 		MaxConcurrentUploads:     1,
 		MaxSpoolBytes:            MaxFileBytes,
 		SnapshotCommitTimeout:    5 * time.Second,
@@ -782,34 +760,9 @@ type failOnceDeleteRawStore struct {
 }
 
 type endlessPagingRawStore struct {
-	calls  int
-	limits []int
-}
-
-type finitePagingRawStore struct {
-	remainingPages int32
-	calls          atomic.Int32
-}
-
-func (*finitePagingRawStore) Create(context.Context, string, io.Reader) error { return nil }
-
-func (*finitePagingRawStore) Open(context.Context, string) (io.ReadCloser, error) {
-	return nil, fs.ErrNotExist
-}
-
-func (*finitePagingRawStore) Delete(context.Context, string) error { return nil }
-
-func (s *finitePagingRawStore) ListPage(
-	_ context.Context,
-	_ string,
-	_ string,
-	_ int,
-) (RawPage, error) {
-	call := s.calls.Add(1)
-	if call >= s.remainingPages {
-		return RawPage{}, nil
-	}
-	return RawPage{NextCursor: "next"}, nil
+	calls   int
+	limits  []int
+	cursors []string
 }
 
 func (*endlessPagingRawStore) Create(context.Context, string, io.Reader) error { return nil }
@@ -823,11 +776,12 @@ func (*endlessPagingRawStore) Delete(context.Context, string) error { return nil
 func (s *endlessPagingRawStore) ListPage(
 	_ context.Context,
 	_ string,
-	_ string,
+	cursor string,
 	limit int,
 ) (RawPage, error) {
 	s.calls++
 	s.limits = append(s.limits, limit)
+	s.cursors = append(s.cursors, cursor)
 	return RawPage{NextCursor: "page-" + string(rune('0'+s.calls))}, nil
 }
 
@@ -856,34 +810,6 @@ func (s *publishThenAbortRawStore) Create(ctx context.Context, key string, reade
 	s.published <- key
 	<-ctx.Done()
 	return ctx.Err()
-}
-
-type cancellableXbergRunner struct {
-	started chan struct{}
-	once    sync.Once
-}
-
-func (r *cancellableXbergRunner) Run(
-	ctx context.Context,
-	_ string,
-	_ string,
-	_ []string,
-	_ io.Writer,
-	_ io.Writer,
-) error {
-	r.once.Do(func() { close(r.started) })
-	<-ctx.Done()
-	return ctx.Err()
-}
-
-func (*cancellableXbergRunner) Probe(
-	_ context.Context,
-	_ string,
-	stdout io.Writer,
-	_ io.Writer,
-) error {
-	_, err := io.WriteString(stdout, "xberg "+XbergVersion+"\n")
-	return err
 }
 
 func waitForLibraryMetadataAbsent(t *testing.T, database *pgxpool.Pool, fileID string) {
@@ -933,6 +859,9 @@ func newLibraryServiceWithConfig(
 	}
 	config.DB = database
 	config.River = client
+	if config.ParserProfile == "" {
+		config.ParserProfile = testParserProfile
+	}
 	config.Logger = discardLibraryLogger()
 	config.TempDir = t.TempDir()
 	config.MaxConcurrentUploads = 1

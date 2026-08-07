@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -27,9 +28,10 @@ import (
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
 const (
-	testUserA  = "10000000-0000-0000-0000-000000000001"
-	testUserB  = "10000000-0000-0000-0000-000000000002"
-	testAgentA = "library-agent-a"
+	testUserA         = "10000000-0000-0000-0000-000000000001"
+	testUserB         = "10000000-0000-0000-0000-000000000002"
+	testAgentA        = "library-agent-a"
+	testParserProfile = "test-parser:v1"
 )
 
 func TestLibrarySchemaEnforcesOwnerAndActivePointer(t *testing.T) {
@@ -92,7 +94,7 @@ func TestLibrarySchemaEnforcesOwnerAndActivePointer(t *testing.T) {
 		if _, err := database.Exec(t.Context(), `
 			INSERT INTO library_chunk_set
 				(id, file_id, derivation_key, processor_key, raw_sha256)
-			VALUES ($1, $2, $3, 'xberg:test', $4)
+			VALUES ($1, $2, $3, 'test-parser:v1', $4)
 		`, value.setID, value.fileID, "derivation:"+value.setID, bytes.Repeat([]byte{1}, sha256.Size)); err != nil {
 			t.Fatalf("insert ChunkSet: %v", err)
 		}
@@ -170,6 +172,20 @@ func TestCreateManagedUploadCommitsRawMetadataAndUniqueJob(t *testing.T) {
 	}
 }
 
+func TestNewServiceRequiresExplicitParserProfile(t *testing.T) {
+	database := dbtest.New(t)
+	store, err := NewFSRawStore(t.TempDir(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = NewService(ServiceConfig{
+		DB: database, RawStore: store, Parser: staticLibraryParser{},
+	})
+	if err == nil || !strings.Contains(err.Error(), "parser profile is required") {
+		t.Fatalf("NewService error = %v, want missing parser profile", err)
+	}
+}
+
 func TestCreateManagedUploadAuthorizesBeforeReadingBody(t *testing.T) {
 	database := dbtest.New(t)
 	_, service := newLibraryService(t, database)
@@ -199,7 +215,7 @@ func TestRawStoreIOCompletesBeforeDatabaseTransactionBegins(t *testing.T) {
 		t.Fatal(err)
 	}
 	service, err := NewService(ServiceConfig{
-		DB: database, RawStore: blocking, Parser: staticLibraryParser{}, River: client,
+		DB: database, RawStore: blocking, Parser: staticLibraryParser{}, ParserProfile: testParserProfile, River: client,
 		TempDir: t.TempDir(), MaxConcurrentUploads: 1, MaxSpoolBytes: MaxFileBytes,
 	})
 	if err != nil {
@@ -592,6 +608,7 @@ func newSnapshotServiceWithConfig(
 	config.DB = database
 	config.River = client
 	config.Parser = staticLibraryParser{}
+	config.ParserProfile = testParserProfile
 	config.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	config.TempDir = t.TempDir()
 	config.MaxConcurrentUploads = 4

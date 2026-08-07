@@ -289,14 +289,11 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build library RawStore: %w", err)
 	}
-	libraryParser, err := library.NewManagedXbergParser(parent, config.StellaHome())
-	if err != nil {
-		return nil, fmt.Errorf("build library parser: %w", err)
-	}
 	librarySvc, err := library.NewService(library.ServiceConfig{
 		DB:                   db,
 		RawStore:             libraryRaw,
-		Parser:               libraryParser,
+		Parser:               library.NewTextParser(),
+		ParserProfile:        library.TextParserProfile,
 		Logger:               slog.With("component", "library"),
 		TempDir:              os.TempDir(),
 		MaxConcurrentUploads: 4,

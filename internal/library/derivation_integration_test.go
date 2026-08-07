@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"errors"
+	"encoding/json"
 	"io"
 	"log/slog"
+	"reflect"
 	"testing"
 	"time"
 
@@ -82,23 +83,47 @@ func TestChunkWorkerStagesAndAtomicallyPublishesGeneration(t *testing.T) {
 	if set.ChunkCount.Int64 != int64(len(staged)) || !bytes.Equal(set.ContentDigest, digest) {
 		t.Fatalf("ChunkSet integrity = count %d digest %x; want %d %x", set.ChunkCount.Int64, set.ContentDigest, len(staged), digest)
 	}
-	rows, err := sqlc.New(database).ListLibraryChunkByOrdinals(
-		t.Context(),
-		sqlc.ListLibraryChunkByOrdinalsParams{
-			ChunkSetID: set.ID,
-			Ordinals:   []int64{0, 1, 2},
-		},
-	)
+	rows, err := database.Query(t.Context(), `
+		SELECT ordinal, content, locator, content_sha256
+		FROM library_chunk
+		WHERE chunk_set_id = $1
+		ORDER BY ordinal ASC
+	`, set.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := verifyStagedBatch(staged, rows); err != nil {
-		t.Fatalf("persisted chunks differ from parser output: %v", err)
+	defer rows.Close()
+	for index := 0; rows.Next(); index++ {
+		if index >= len(staged) {
+			t.Fatal("persisted more chunks than the parser returned")
+		}
+		var ordinal int64
+		var content string
+		var locatorJSON []byte
+		var contentHash []byte
+		if err := rows.Scan(&ordinal, &content, &locatorJSON, &contentHash); err != nil {
+			t.Fatal(err)
+		}
+		var gotLocator, wantLocator any
+		if err := json.Unmarshal(locatorJSON, &gotLocator); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal([]byte(staged[index].LocatorJSON), &wantLocator); err != nil {
+			t.Fatal(err)
+		}
+		if ordinal != staged[index].Ordinal || content != staged[index].Content ||
+			!bytes.Equal(contentHash, staged[index].ContentSHA256[:]) ||
+			!reflect.DeepEqual(gotLocator, wantLocator) {
+			t.Fatalf("persisted chunk %d differs from parser output", index)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
 	}
 	assertLatestLibraryJobState(t, client, chunkArgs{}.Kind(), file.ID, rivertype.JobStateCompleted)
 }
 
-func TestChunkStagingIsIdempotentAndInvisibleUntilPublication(t *testing.T) {
+func TestChunkRetryDiscardsUnpublishedRowsBeforeRebuild(t *testing.T) {
 	database := dbtest.New(t)
 	store, service := newLibraryService(t, database)
 	file, err := service.CreateManagedUpload(
@@ -118,7 +143,7 @@ func TestChunkStagingIsIdempotentAndInvisibleUntilPublication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.stageChunkBatch(t.Context(), target, chunks); err != nil {
+	if err := service.stageChunkBatch(t.Context(), target, chunks[:1]); err != nil {
 		t.Fatal(err)
 	}
 	restarted := newLibraryServiceWithConfig(t, database, ServiceConfig{
@@ -132,8 +157,17 @@ func TestChunkStagingIsIdempotentAndInvisibleUntilPublication(t *testing.T) {
 	if restartedTarget.ChunkSetID != target.ChunkSetID || restartedTarget.DerivationKey != target.DerivationKey {
 		t.Fatalf("restart changed deterministic generation: before=%+v after=%+v", target, restartedTarget)
 	}
+	var resetCount int
+	if err := database.QueryRow(
+		t.Context(), `SELECT count(*) FROM library_chunk WHERE chunk_set_id = $1`, target.ChunkSetID,
+	).Scan(&resetCount); err != nil {
+		t.Fatal(err)
+	}
+	if resetCount != 0 {
+		t.Fatalf("restart retained %d unpublished chunks, want 0", resetCount)
+	}
 	if err := restarted.stageChunkBatch(t.Context(), restartedTarget, chunks); err != nil {
-		t.Fatalf("idempotent restaging failed: %v", err)
+		t.Fatalf("clean rebuild failed: %v", err)
 	}
 	var count int
 	var activeSetID *string
@@ -150,12 +184,6 @@ func TestChunkStagingIsIdempotentAndInvisibleUntilPublication(t *testing.T) {
 		t.Fatalf("partial staging count = %d, active pointer = %v", count, activeSetID)
 	}
 
-	conflict := append([]stagedChunk(nil), chunks...)
-	conflict[0].Content = "different content"
-	conflict[0].ContentSHA256 = sha256.Sum256([]byte(conflict[0].Content))
-	if err := restarted.stageChunkBatch(t.Context(), restartedTarget, conflict[:1]); !errors.Is(err, ErrGenerationConflict) {
-		t.Fatalf("conflicting restaging error = %v, want ErrGenerationConflict", err)
-	}
 	// Both insert-only River clients are deliberately not started. No background
 	// worker can race this test's direct staging assertions.
 }
@@ -171,7 +199,7 @@ func TestDeterministicParseFailurePublishesNothing(t *testing.T) {
 		string,
 		string,
 	) ([]ParsedChunk, error) {
-		return nil, ErrInvalidXbergJSON
+		return nil, ErrInvalidParserData
 	}))
 	file, err := service.CreateManagedUpload(
 		t.Context(), testAuthority(t, testUserA, true), ScopeSystem, "", "invalid.txt", stringsReader("source"),
@@ -284,7 +312,7 @@ func newWorkingLibraryService(
 ) (*Service, *river.Client[pgx.Tx]) {
 	t.Helper()
 	service, err := NewService(ServiceConfig{
-		DB: database, RawStore: store, Parser: parser,
+		DB: database, RawStore: store, Parser: parser, ParserProfile: testParserProfile,
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), TempDir: t.TempDir(),
 		MaxConcurrentUploads: 4, MaxSpoolBytes: 4 * MaxFileBytes,
 		ReconciliationInterval: time.Hour,
@@ -366,7 +394,7 @@ func assertLatestLibraryJobState(
 
 func mustLibraryDerivationKey(t *testing.T, rawSHA256 []byte, mediaType string) string {
 	t.Helper()
-	key, err := libraryDerivationKey(rawSHA256, mediaType)
+	key, err := libraryDerivationKey(rawSHA256, mediaType, testParserProfile)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -57,12 +57,9 @@ func (cleanupArgs) InsertOpts() river.InsertOpts {
 	}
 }
 
-// reconcileArgs carries only the backend cursor. Uniqueness is kind-wide, not
-// by args, so a periodic root cannot overlap an active continuation chain.
-type reconcileArgs struct {
-	Cursor      string `json:"cursor,omitempty"`
-	OrphansOnly bool   `json:"orphans_only,omitempty"`
-}
+// reconcileArgs has no durable scan state. Every bounded periodic pass starts
+// at the RawStore head and relies on idempotent lifecycle operations.
+type reconcileArgs struct{}
 
 func (reconcileArgs) Kind() string { return "stella_library_reconcile" }
 
@@ -107,12 +104,7 @@ type reconcileWorker struct {
 
 func (w *reconcileWorker) Work(ctx context.Context, job *river.Job[reconcileArgs]) error {
 	if err := w.service.processReconcileJob(ctx, job); err != nil {
-		w.logger.Warn(
-			"library reconciliation failed",
-			"cursor_set", job.Args.Cursor != "",
-			"orphans_only", job.Args.OrphansOnly,
-			"error", err,
-		)
+		w.logger.Warn("library reconciliation failed", "error", err)
 		return err
 	}
 	return nil

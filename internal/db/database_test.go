@@ -97,7 +97,7 @@ func TestChannelGroupAllowlistMigrationPreservesKnownGroups(t *testing.T) {
 	}
 }
 
-func TestLibraryMigrationsUpgradePublishedKnowledgeSchema(t *testing.T) {
+func TestLibraryMigrationReplacesUnreleasedKnowledgeSchema(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 
@@ -112,11 +112,11 @@ func TestLibraryMigrationsUpgradePublishedKnowledgeSchema(t *testing.T) {
 		t.Fatalf("create migration provider: %v", err)
 	}
 
-	// Exercise both supported paths: a fresh database crosses the original
-	// v0.61.0 schema migration, while an existing installation resumes from
-	// that applied version and crosses only the Library rename migration.
+	// The old Knowledge schema existed only in unreleased development commits.
+	// The forward migration deliberately replaces it instead of
+	// preserving rows under obsolete names.
 	if _, err := provider.DownTo(ctx, 20260804120000); err != nil {
-		t.Fatalf("goose down Library migrations: %v", err)
+		t.Fatalf("goose down post-anchor migrations: %v", err)
 	}
 	if tableExists(t, db, "knowledge_file") ||
 		tableExists(t, db, "knowledge_chunk_set") ||
@@ -127,40 +127,40 @@ func TestLibraryMigrationsUpgradePublishedKnowledgeSchema(t *testing.T) {
 		t.Fatal("Library tables should not exist before the post-anchor migrations")
 	}
 	if _, err := provider.UpTo(ctx, sequentialAnchor+1); err != nil {
-		t.Fatalf("goose up published Knowledge schema: %v", err)
+		t.Fatalf("goose up unreleased Knowledge schema: %v", err)
 	}
 	if !tableExists(t, db, "knowledge_file") ||
 		!tableExists(t, db, "knowledge_chunk_set") ||
 		!tableExists(t, db, "knowledge_chunk") {
-		t.Fatal("published Knowledge tables should exist before the rename migration")
+		t.Fatal("unreleased Knowledge tables should exist before replacement")
 	}
 
 	fileID := uuid.NewString()
 	if _, err := db.Exec(ctx, `
 		INSERT INTO knowledge_file (id, scope, file_name, media_type, size_bytes, raw_sha256)
-		VALUES ($1, 'system', 'published.txt', 'text/plain', 1, $2)
+		VALUES ($1, 'system', 'unreleased.txt', 'text/plain', 1, $2)
 	`, fileID, make([]byte, 32)); err != nil {
-		t.Fatalf("seed published Knowledge row: %v", err)
+		t.Fatalf("seed unreleased Knowledge row: %v", err)
 	}
 	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("goose up Library rename migration: %v", err)
+		t.Fatalf("goose up Library replacement migration: %v", err)
 	}
 	if tableExists(t, db, "knowledge_file") ||
 		tableExists(t, db, "knowledge_chunk_set") ||
 		tableExists(t, db, "knowledge_chunk") {
-		t.Fatal("legacy Knowledge tables should not remain after the rename migration")
+		t.Fatal("legacy Knowledge tables should not remain after replacement")
 	}
 	if !tableExists(t, db, "library_file") ||
 		!tableExists(t, db, "library_chunk_set") ||
 		!tableExists(t, db, "library_chunk") {
-		t.Fatal("Library tables should exist after the rename migration")
+		t.Fatal("Library tables should exist after replacement")
 	}
-	var preserved int
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM library_file WHERE id = $1`, fileID).Scan(&preserved); err != nil {
-		t.Fatalf("read renamed Library row: %v", err)
+	var rows int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM library_file WHERE id = $1`, fileID).Scan(&rows); err != nil {
+		t.Fatalf("read replacement Library row: %v", err)
 	}
-	if preserved != 1 {
-		t.Fatalf("renamed Library rows = %d, want 1", preserved)
+	if rows != 0 {
+		t.Fatalf("replacement Library rows = %d, want 0", rows)
 	}
 
 	var legacySchemaNames string
@@ -178,7 +178,7 @@ func TestLibraryMigrationsUpgradePublishedKnowledgeSchema(t *testing.T) {
 			  AND relname ~ '^(knowledge_(file|chunk)|idx_knowledge_(file|chunk))'
 		) AS legacy_names
 	`).Scan(&legacySchemaNames); err != nil {
-		t.Fatalf("inspect renamed Library schema objects: %v", err)
+		t.Fatalf("inspect replacement Library schema objects: %v", err)
 	}
 	if legacySchemaNames != "" {
 		t.Fatalf("legacy Knowledge schema object names remain: %s", legacySchemaNames)

@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -42,16 +43,15 @@ type Parser interface {
 	Parse(ctx context.Context, path, mediaType string) ([]ParsedChunk, error)
 }
 
-type parserAvailability interface {
-	Available(context.Context) error
-}
-
 // ServiceConfig contains the internal Library ingestion and lifecycle
 // dependencies. Public management and retrieval surfaces are composed later.
 type ServiceConfig struct {
-	DB                       *pgxpool.Pool
-	RawStore                 RawStore
-	Parser                   Parser
+	DB       *pgxpool.Pool
+	RawStore RawStore
+	Parser   Parser
+	// ParserProfile is an immutable identity for every setting that can affect
+	// generated chunks. Callers must change it whenever parser behavior changes.
+	ParserProfile            string
 	River                    *river.Client[pgx.Tx]
 	Logger                   *slog.Logger
 	TempDir                  string
@@ -72,14 +72,15 @@ type ServiceConfig struct {
 // Service owns authorization, bounded acquisition, immutable raw publication,
 // and the short metadata-plus-job transaction.
 type Service struct {
-	db          *pgxpool.Pool
-	q           *sqlc.Queries
-	rawStore    RawStore
-	parser      Parser
-	logger      *slog.Logger
-	tempDir     string
-	spool       *spoolBudget
-	agentAccess *agentaccess.Service
+	db            *pgxpool.Pool
+	q             *sqlc.Queries
+	rawStore      RawStore
+	parser        Parser
+	parserProfile string
+	logger        *slog.Logger
+	tempDir       string
+	spool         *spoolBudget
+	agentAccess   *agentaccess.Service
 
 	snapshotCommitTimeout    time.Duration
 	databaseStatementTimeout time.Duration
@@ -109,6 +110,10 @@ func NewService(config ServiceConfig) (*Service, error) {
 	}
 	if config.Parser == nil {
 		return nil, fmt.Errorf("library parser is required")
+	}
+	parserProfile := strings.TrimSpace(config.ParserProfile)
+	if parserProfile == "" {
+		return nil, fmt.Errorf("library parser profile is required")
 	}
 	budget, err := newSpoolBudget(config.MaxConcurrentUploads, config.MaxSpoolBytes)
 	if err != nil {
@@ -151,6 +156,7 @@ func NewService(config ServiceConfig) (*Service, error) {
 		q:                        sqlc.New(config.DB),
 		rawStore:                 config.RawStore,
 		parser:                   config.Parser,
+		parserProfile:            parserProfile,
 		river:                    config.River,
 		logger:                   logger,
 		tempDir:                  tempDir,
@@ -216,12 +222,6 @@ func (s *Service) CreateManagedUpload(
 	owner, err := s.ResolveManageOwner(ctx, authority, scope, agentID)
 	if err != nil {
 		return LibraryFile{}, err
-	}
-	if availability, ok := s.parser.(parserAvailability); ok {
-		if err := availability.Available(ctx); err != nil {
-			s.logger.Warn("library parser is unavailable", "error", err)
-			return LibraryFile{}, ErrServiceUnavailable
-		}
 	}
 	return s.createSnapshot(ctx, owner, fileName, source)
 }

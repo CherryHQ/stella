@@ -4,13 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -35,6 +34,7 @@ type generationTarget struct {
 	RawSHA256     []byte
 	ChunkSetID    string
 	DerivationKey string
+	ProcessorKey  string
 }
 
 func (s *Service) processChunkJob(ctx context.Context, job *river.Job[chunkArgs]) error {
@@ -114,7 +114,7 @@ func (s *Service) prepareChunkGeneration(
 	if FileStatus(file.Status) != FileStatusProcessing && FileStatus(file.Status) != FileStatusReady {
 		return generationTarget{}, generationComplete, fmt.Errorf("%w: unsupported file status %q", ErrGenerationChanged, file.Status)
 	}
-	derivationKey, err := libraryDerivationKey(file.RawSha256, file.MediaType)
+	derivationKey, err := libraryDerivationKey(file.RawSha256, file.MediaType, s.parserProfile)
 	if err != nil {
 		return generationTarget{}, generationComplete, err
 	}
@@ -124,6 +124,7 @@ func (s *Service) prepareChunkGeneration(
 		SizeBytes:     file.SizeBytes,
 		RawSHA256:     append([]byte(nil), file.RawSha256...),
 		DerivationKey: derivationKey,
+		ProcessorKey:  s.parserProfile,
 	}
 
 	setID, err := uuid.NewV7()
@@ -134,7 +135,7 @@ func (s *Service) prepareChunkGeneration(
 		ID:            setID.String(),
 		FileID:        file.ID,
 		DerivationKey: derivationKey,
-		ProcessorKey:  XbergProcessorKey,
+		ProcessorKey:  target.ProcessorKey,
 		RawSha256:     append([]byte(nil), file.RawSha256...),
 	}); err != nil {
 		return generationTarget{}, generationComplete, fmt.Errorf("create library ChunkSet: %w", err)
@@ -149,6 +150,23 @@ func (s *Service) prepareChunkGeneration(
 		return generationTarget{}, generationComplete, err
 	}
 	target.ChunkSetID = set.ID
+	if ChunkSetStatus(set.Status) == ChunkSetStatusBuilding {
+		// A retry always rebuilds unpublished data from a clean generation. The
+		// final digest remains the publication guard if an older deterministic
+		// worker reaches staging after this reset.
+		set, err = queries.LockLibraryChunkSetLifecycle(ctx, set.ID)
+		if err != nil {
+			return generationTarget{}, generationComplete, fmt.Errorf("lock building LibraryChunkSet: %w", err)
+		}
+		if err := validateGenerationIdentity(set, target); err != nil {
+			return generationTarget{}, generationComplete, err
+		}
+		if ChunkSetStatus(set.Status) == ChunkSetStatusBuilding {
+			if _, err := queries.DeleteBuildingLibraryChunks(ctx, set.ID); err != nil {
+				return generationTarget{}, generationComplete, fmt.Errorf("reset building LibraryChunkSet: %w", err)
+			}
+		}
+	}
 	if err := commitLibraryTransaction(ctx, tx); err != nil {
 		return generationTarget{}, generationComplete, err
 	}
@@ -166,7 +184,7 @@ func (s *Service) prepareChunkGeneration(
 }
 
 func validateGenerationIdentity(set sqlc.LibraryChunkSet, target generationTarget) error {
-	if set.FileID != target.FileID || set.DerivationKey != target.DerivationKey || set.ProcessorKey != XbergProcessorKey {
+	if set.FileID != target.FileID || set.DerivationKey != target.DerivationKey || set.ProcessorKey != target.ProcessorKey {
 		return fmt.Errorf("%w: ChunkSet identity mismatch", ErrGenerationConflict)
 	}
 	if subtle.ConstantTimeCompare(set.RawSha256, target.RawSHA256) != 1 {
@@ -305,44 +323,12 @@ func (s *Service) stageChunkBatch(
 	if _, err := queries.InsertLibraryChunkBatch(ctx, params); err != nil {
 		return fmt.Errorf("stage library chunk batch: %w", err)
 	}
-	rows, err := queries.ListLibraryChunkByOrdinals(ctx, sqlc.ListLibraryChunkByOrdinalsParams{
-		ChunkSetID: target.ChunkSetID, Ordinals: params.Ordinals,
-	})
-	if err != nil {
-		return fmt.Errorf("verify library chunk batch: %w", err)
-	}
-	if err := verifyStagedBatch(batch, rows); err != nil {
-		return err
-	}
 	if affected, err := queries.TouchLibraryFileDerivation(ctx, target.FileID); err != nil {
 		return fmt.Errorf("touch library derivation: %w", err)
 	} else if affected != 1 {
 		return errGenerationStopped
 	}
 	return commitLibraryTransaction(ctx, tx)
-}
-
-func verifyStagedBatch(batch []stagedChunk, rows []sqlc.ListLibraryChunkByOrdinalsRow) error {
-	if len(rows) != len(batch) {
-		return fmt.Errorf("%w: staged row count %d, want %d", ErrGenerationConflict, len(rows), len(batch))
-	}
-	for index, want := range batch {
-		got := rows[index]
-		if got.Ordinal != want.Ordinal || got.Content != want.Content || subtle.ConstantTimeCompare(got.ContentSha256, want.ContentSHA256[:]) != 1 {
-			return fmt.Errorf("%w: ordinal %d content differs", ErrGenerationConflict, want.Ordinal)
-		}
-		var gotLocator, wantLocator any
-		if err := json.Unmarshal(got.Locator, &gotLocator); err != nil {
-			return fmt.Errorf("%w: stored locator is invalid", ErrGenerationConflict)
-		}
-		if err := json.Unmarshal([]byte(want.LocatorJSON), &wantLocator); err != nil {
-			return fmt.Errorf("encode expected chunk locator: %w", err)
-		}
-		if !reflect.DeepEqual(gotLocator, wantLocator) {
-			return fmt.Errorf("%w: ordinal %d locator differs", ErrGenerationConflict, want.Ordinal)
-		}
-	}
-	return nil
 }
 
 func (s *Service) publishChunkSet(
@@ -544,9 +530,10 @@ func commitLibraryTransaction(ctx context.Context, tx pgx.Tx) error {
 
 func isDeterministicParseError(err error) bool {
 	return errors.Is(err, ErrNoExtractedText) ||
-		errors.Is(err, ErrParseOutputLimit) ||
-		errors.Is(err, ErrInvalidXbergJSON) ||
+		errors.Is(err, ErrInvalidParserData) ||
 		errors.Is(err, ErrParseResultLimit) ||
+		errors.Is(err, ErrInvalidFile) ||
+		errors.Is(err, ErrUnsupportedFileType) ||
 		errors.Is(err, ErrRawIntegrity) ||
 		errors.Is(err, ErrGenerationConflict)
 }
@@ -555,9 +542,9 @@ func publicParseError(err error) string {
 	switch {
 	case errors.Is(err, ErrNoExtractedText):
 		return "No extractable text was found in this document."
-	case errors.Is(err, ErrParseOutputLimit), errors.Is(err, ErrParseResultLimit):
+	case errors.Is(err, ErrParseResultLimit):
 		return "The parsed document exceeds the supported limits."
-	case errors.Is(err, ErrInvalidXbergJSON):
+	case errors.Is(err, ErrInvalidParserData), errors.Is(err, ErrInvalidFile), errors.Is(err, ErrUnsupportedFileType):
 		return "The document parser returned an invalid result."
 	case errors.Is(err, ErrRawIntegrity):
 		return "The stored document failed integrity validation."
@@ -569,7 +556,7 @@ func publicParseError(err error) string {
 }
 
 func cleanErrorMessage(message string) string {
-	message = sanitizeXbergDiagnostic(message)
+	message = strings.TrimSpace(message)
 	if message == "" {
 		return "Document parsing failed."
 	}
@@ -578,10 +565,6 @@ func cleanErrorMessage(message string) string {
 
 func extensionForMediaType(mediaType string) string {
 	switch mediaType {
-	case MediaTypePDF:
-		return ".pdf"
-	case MediaTypeDOCX:
-		return ".docx"
 	case MediaTypeMarkdown:
 		return ".md"
 	default:

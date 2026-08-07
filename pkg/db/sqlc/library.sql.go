@@ -7,7 +7,6 @@ package sqlc
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -115,6 +114,25 @@ func (q *Queries) CreateLibraryFile(ctx context.Context, arg CreateLibraryFilePa
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const deleteBuildingLibraryChunks = `-- name: DeleteBuildingLibraryChunks :execrows
+DELETE FROM library_chunk
+WHERE chunk_set_id = $1
+  AND EXISTS (
+    SELECT 1
+    FROM library_chunk_set
+    WHERE id = $1
+      AND status = 'building'
+  )
+`
+
+func (q *Queries) DeleteBuildingLibraryChunks(ctx context.Context, chunkSetID string) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteBuildingLibraryChunks, chunkSetID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getLibraryChunkSetByDerivation = `-- name: GetLibraryChunkSetByDerivation :one
@@ -438,51 +456,6 @@ func (q *Queries) InsertLibraryChunkBatch(ctx context.Context, arg InsertLibrary
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const listLibraryChunkByOrdinals = `-- name: ListLibraryChunkByOrdinals :many
-SELECT ordinal, content, locator, content_sha256
-FROM library_chunk
-WHERE chunk_set_id = $1
-  AND ordinal = ANY($2::bigint[])
-ORDER BY ordinal ASC
-`
-
-type ListLibraryChunkByOrdinalsParams struct {
-	ChunkSetID string  `json:"chunk_set_id"`
-	Ordinals   []int64 `json:"ordinals"`
-}
-
-type ListLibraryChunkByOrdinalsRow struct {
-	Ordinal       int64           `json:"ordinal"`
-	Content       string          `json:"content"`
-	Locator       json.RawMessage `json:"locator"`
-	ContentSha256 []byte          `json:"content_sha256"`
-}
-
-func (q *Queries) ListLibraryChunkByOrdinals(ctx context.Context, arg ListLibraryChunkByOrdinalsParams) ([]ListLibraryChunkByOrdinalsRow, error) {
-	rows, err := q.db.Query(ctx, listLibraryChunkByOrdinals, arg.ChunkSetID, arg.Ordinals)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListLibraryChunkByOrdinalsRow{}
-	for rows.Next() {
-		var i ListLibraryChunkByOrdinalsRow
-		if err := rows.Scan(
-			&i.Ordinal,
-			&i.Content,
-			&i.Locator,
-			&i.ContentSha256,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const listLibraryTombstone = `-- name: ListLibraryTombstone :many

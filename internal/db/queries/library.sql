@@ -121,6 +121,16 @@ FROM library_chunk_set
 WHERE id = sqlc.arg('id')
 FOR UPDATE;
 
+-- name: DeleteBuildingLibraryChunks :execrows
+DELETE FROM library_chunk
+WHERE chunk_set_id = sqlc.arg('chunk_set_id')
+  AND EXISTS (
+    SELECT 1
+    FROM library_chunk_set
+    WHERE id = sqlc.arg('chunk_set_id')
+      AND status = 'building'
+  );
+
 -- name: InsertLibraryChunkBatch :execrows
 INSERT INTO library_chunk (
     id,
@@ -145,13 +155,6 @@ FROM ROWS FROM (
     unnest(sqlc.arg('content_sha256s')::bytea[])
 ) AS input(id, ordinal, content, locator, content_sha256)
 ON CONFLICT (chunk_set_id, ordinal) DO NOTHING;
-
--- name: ListLibraryChunkByOrdinals :many
-SELECT ordinal, content, locator, content_sha256
-FROM library_chunk
-WHERE chunk_set_id = sqlc.arg('chunk_set_id')
-  AND ordinal = ANY(sqlc.arg('ordinals')::bigint[])
-ORDER BY ordinal ASC;
 
 -- name: TouchLibraryFileDerivation :execrows
 UPDATE library_file

@@ -1,12 +1,10 @@
 package library
 
 import (
-	"archive/zip"
 	"bytes"
 	"crypto/sha256"
 	"errors"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -108,8 +106,8 @@ func TestPrepareUploadRejectsInvalidAndOversizedContent(t *testing.T) {
 		{"unsupported", "policy.csv", []byte("a,b"), ErrUnsupportedFileType},
 		{"empty", "policy.txt", nil, ErrInvalidFile},
 		{"invalid UTF-8", "policy.txt", []byte{0xff}, ErrInvalidFile},
-		{"PDF signature", "policy.pdf", []byte("not a PDF"), ErrInvalidFile},
-		{"DOCX container", "policy.docx", []byte("not a zip"), ErrInvalidFile},
+		{"PDF unsupported", "policy.pdf", []byte("%PDF-1.7"), ErrUnsupportedFileType},
+		{"DOCX unsupported", "policy.docx", []byte("not a zip"), ErrUnsupportedFileType},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -141,71 +139,6 @@ func TestPrepareUploadRejectsInvalidAndOversizedContent(t *testing.T) {
 	if !errors.Is(err, ErrFileTooLarge) {
 		t.Fatalf("oversized error = %v, want ErrFileTooLarge", err)
 	}
-}
-
-func TestValidateDOCXArchiveBoundsExpansion(t *testing.T) {
-	t.Parallel()
-	required := func(documentBytes, compressedBytes uint64) []*zip.File {
-		return []*zip.File{
-			docxArchiveFile("[Content_Types].xml", 128, 64),
-			docxArchiveFile("word/document.xml", documentBytes, compressedBytes),
-		}
-	}
-
-	tests := []struct {
-		name  string
-		files []*zip.File
-	}{
-		{
-			name:  "entry count",
-			files: make([]*zip.File, maxDOCXEntries+1),
-		},
-		{
-			name:  "single entry size",
-			files: required(maxDOCXEntryBytes+1, maxDOCXEntryBytes+1),
-		},
-		{
-			name: "total expanded size",
-			files: append(
-				required(maxDOCXEntryBytes, maxDOCXEntryBytes),
-				docxArchiveFile("word/media/one.bin", maxDOCXEntryBytes, maxDOCXEntryBytes),
-				docxArchiveFile("word/media/two.bin", maxDOCXEntryBytes, maxDOCXEntryBytes),
-				docxArchiveFile("word/media/three.bin", maxDOCXEntryBytes, maxDOCXEntryBytes),
-				docxArchiveFile("word/media/four.bin", 1, 1),
-			),
-		},
-		{
-			name:  "compression ratio",
-			files: required(maxDOCXCompressionRatio+1, 1),
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			if err := validateDOCXArchive(test.files); !errors.Is(err, ErrInvalidFile) {
-				t.Fatalf("validateDOCXArchive() error = %v, want ErrInvalidFile", err)
-			}
-		})
-	}
-
-	if err := validateDOCXArchive(required(1024, 512)); err != nil {
-		t.Fatalf("bounded DOCX archive rejected: %v", err)
-	}
-	path := filepath.Join(t.TempDir(), "valid.docx")
-	if err := writeSimpleDOCX(path, "Handbook", "Travel policy"); err != nil {
-		t.Fatal(err)
-	}
-	if err := validateUploadFile(path, MediaTypeDOCX); err != nil {
-		t.Fatalf("valid DOCX upload rejected: %v", err)
-	}
-}
-
-func docxArchiveFile(name string, uncompressed, compressed uint64) *zip.File {
-	return &zip.File{FileHeader: zip.FileHeader{
-		Name:               name,
-		UncompressedSize64: uncompressed,
-		CompressedSize64:   compressed,
-	}}
 }
 
 func TestSpoolBudgetBoundsConcurrentFilesAndBytes(t *testing.T) {

@@ -7,7 +7,6 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -18,8 +17,6 @@ import (
 
 // builtinScope is the scope name for the global base config.
 const builtinScope = "_builtin"
-
-var runtimeScopePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
 
 // miseInstallMu serializes installs into the shared MISE_DATA_DIR. mise reshim
 // rewrites the whole shims directory, so concurrent installs must not run in
@@ -205,15 +202,6 @@ func writeScopeConfig(stellaHome, scope string, tools []miseTool) (string, error
 // PATH; nothing is copied to $STELLA_HOME/bin. mise runs in a neutral cwd so no
 // ambient project mise.toml is picked up.
 func runScopeInstall(ctx context.Context, stellaHome, scope string) error {
-	return runScopeInstallWithShims(
-		ctx,
-		stellaHome,
-		scope,
-		filepath.Join(miseToolsDir(stellaHome), "shims"),
-	)
-}
-
-func runScopeInstallWithShims(ctx context.Context, stellaHome, scope, shimsDir string) error {
 	miseInstallMu.Lock()
 	defer miseInstallMu.Unlock()
 
@@ -222,7 +210,7 @@ func runScopeInstallWithShims(ctx context.Context, stellaHome, scope, shimsDir s
 		return err
 	}
 	configPath := ScopeConfigPath(stellaHome, scope)
-	env, err := scopeMiseEnvWithShims(stellaHome, scope, shimsDir)
+	env, err := scopeMiseEnv(stellaHome, scope)
 	if err != nil {
 		return err
 	}
@@ -247,45 +235,6 @@ func runScopeInstallWithShims(ctx context.Context, stellaHome, scope, shimsDir s
 	return nil
 }
 
-// ProvisionRuntimeBinary synchronously installs one daemon-owned binary into
-// the shared mise package tree, but gives the runtime a dedicated config and
-// shim directory so plugin enablement cannot remove its executable surface.
-func ProvisionRuntimeBinary(
-	ctx context.Context,
-	stellaHome string,
-	scope string,
-	binary ManifestBinary,
-) (string, map[string]string, error) {
-	if !runtimeScopePattern.MatchString(scope) {
-		return "", nil, fmt.Errorf("invalid runtime mise scope %q", scope)
-	}
-	if strings.TrimSpace(binary.Name) == "" || strings.TrimSpace(binary.Tool) == "" {
-		return "", nil, fmt.Errorf("runtime binary name and tool are required")
-	}
-	if err := bootstrapMise(ctx, stellaHome); err != nil {
-		return "", nil, fmt.Errorf("bootstrap runtime mise: %w", err)
-	}
-	if _, err := writeScopeConfig(stellaHome, scope, []miseTool{miseToolFromBinary(binary)}); err != nil {
-		return "", nil, fmt.Errorf("write runtime mise scope: %w", err)
-	}
-	shimsDir := filepath.Join(miseToolsDir(stellaHome), "runtime-shims", scope)
-	if err := runScopeInstallWithShims(ctx, stellaHome, scope, shimsDir); err != nil {
-		return "", nil, fmt.Errorf("install runtime binary %s: %w", binary.Name, err)
-	}
-	environment := runtimeScopeMiseEnv(stellaHome, scope, shimsDir)
-	return filepath.Join(shimsDir, runtimeBinaryName(binaryLookupName(binary))), environment, nil
-}
-
-func runtimeScopeMiseEnv(stellaHome, scope, shimsDir string) map[string]string {
-	environment := miseBaseEnv(stellaHome)
-	configPath := ScopeConfigPath(stellaHome, scope)
-	environment["MISE_GLOBAL_CONFIG_FILE"] = configPath
-	environment["MISE_TRUSTED_CONFIG_PATHS"] = configPath
-	environment["MISE_SHIMS_DIR"] = shimsDir
-	environment["MISE_NOT_FOUND_AUTO_INSTALL"] = "false"
-	return environment
-}
-
 // installScope persists the scope config and installs its tools. Convenience
 // wrapper for callers that always want both (org sync, tests).
 func installScope(ctx context.Context, stellaHome, scope string, tools []miseTool) error {
@@ -300,15 +249,7 @@ func installScope(ctx context.Context, stellaHome, scope string, tools []miseToo
 // RuntimeMiseEnv so install, resolve, and runtime all trust the config the same
 // way rather than depending on the persisted trust store under the isolated HOME.
 func scopeMiseEnv(stellaHome, scope string) ([]string, error) {
-	return scopeMiseEnvWithShims(
-		stellaHome,
-		scope,
-		filepath.Join(miseToolsDir(stellaHome), "shims"),
-	)
-}
-
-func scopeMiseEnvWithShims(stellaHome, scope, shimsDir string) ([]string, error) {
-	env, err := isolatedMiseEnvWithShims(stellaHome, shimsDir)
+	env, err := isolatedMiseEnv(stellaHome)
 	if err != nil {
 		return nil, err
 	}

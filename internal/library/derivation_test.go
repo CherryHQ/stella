@@ -12,11 +12,11 @@ func TestLibraryDerivationKeyIsDeterministic(t *testing.T) {
 	for index := range raw {
 		raw[index] = byte(index)
 	}
-	first, err := libraryDerivationKey(raw, MediaTypePDF)
+	first, err := libraryDerivationKey(raw, MediaTypeText, TextParserProfile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := libraryDerivationKey(append([]byte(nil), raw...), MediaTypePDF)
+	second, err := libraryDerivationKey(append([]byte(nil), raw...), MediaTypeText, TextParserProfile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,25 +24,35 @@ func TestLibraryDerivationKeyIsDeterministic(t *testing.T) {
 		t.Fatalf("derivation keys = %q and %q", first, second)
 	}
 	raw[0]++
-	changed, err := libraryDerivationKey(raw, MediaTypePDF)
+	changed, err := libraryDerivationKey(raw, MediaTypeText, TextParserProfile)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if changed == first {
 		t.Fatal("derivation key did not change with the raw snapshot")
 	}
-	changedType, err := libraryDerivationKey(append([]byte(nil), raw...), MediaTypeDOCX)
+	changedType, err := libraryDerivationKey(append([]byte(nil), raw...), MediaTypeMarkdown, TextParserProfile)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if changedType == changed {
 		t.Fatal("derivation key did not change with the media type")
 	}
-	if _, err := libraryDerivationKey([]byte("short"), MediaTypePDF); err == nil {
+	changedProfile, err := libraryDerivationKey(append([]byte(nil), raw...), MediaTypeMarkdown, "builtin-text:v2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changedProfile == changedType {
+		t.Fatal("derivation key did not change with the parser profile")
+	}
+	if _, err := libraryDerivationKey([]byte("short"), MediaTypeText, TextParserProfile); err == nil {
 		t.Fatal("short raw hash was accepted")
 	}
-	if _, err := libraryDerivationKey(raw, ""); err == nil {
+	if _, err := libraryDerivationKey(raw, "", TextParserProfile); err == nil {
 		t.Fatal("empty media type was accepted")
+	}
+	if _, err := libraryDerivationKey(raw, MediaTypeText, ""); err == nil {
+		t.Fatal("empty parser profile was accepted")
 	}
 }
 
@@ -74,6 +84,16 @@ func TestNormalizeParsedChunksRejectsOneOversizedChunk(t *testing.T) {
 	}})
 	if !errors.Is(err, ErrParseResultLimit) {
 		t.Fatalf("normalizeParsedChunks error = %v, want ErrParseResultLimit", err)
+	}
+}
+
+func TestNormalizeParsedChunksRejectsInvalidLocator(t *testing.T) {
+	t.Parallel()
+	_, _, err := normalizeParsedChunks([]ParsedChunk{{
+		Content: "valid text", Locator: ChunkLocator{ByteStart: 2, ByteEnd: 1},
+	}})
+	if !errors.Is(err, ErrInvalidParserData) {
+		t.Fatalf("normalizeParsedChunks error = %v, want ErrInvalidParserData", err)
 	}
 }
 

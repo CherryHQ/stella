@@ -64,18 +64,12 @@ var misePassthroughEnv = []string{
 }
 
 func isolatedMiseEnv(stellaHome string) ([]string, error) {
-	return isolatedMiseEnvWithShims(stellaHome, filepath.Join(miseToolsDir(stellaHome), "shims"))
-}
-
-// isolatedMiseEnvWithShims keeps installs in the shared Stella mise data tree
-// while allowing daemon-owned runtimes to maintain an independent shim set.
-func isolatedMiseEnvWithShims(stellaHome, shimsDir string) ([]string, error) {
 	dataDir := miseToolsDir(stellaHome)
 	// Directories the install needs on disk; the shared base (miseBaseEnv)
 	// already covers DATA/CONFIG/CACHE/STATE, install adds shims + an isolated
 	// HOME/XDG so nothing leaks into the host user's profile.
 	installDirs := map[string]string{
-		"MISE_SHIMS_DIR":  shimsDir,
+		"MISE_SHIMS_DIR":  filepath.Join(dataDir, "shims"),
 		"HOME":            filepath.Join(dataDir, "home"),
 		"XDG_CONFIG_HOME": filepath.Join(dataDir, "xdg", "config"),
 		"XDG_CACHE_HOME":  filepath.Join(dataDir, "xdg", "cache"),
