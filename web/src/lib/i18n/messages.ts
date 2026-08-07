@@ -25,7 +25,7 @@ const en = {
   // Agent IA
   "inbox.needsYou": "Needs you",
   "inbox.title": "Inbox",
-  "inbox.subtitle": "Blocked goals, reviews, and failed runs.",
+  "inbox.subtitle": "What needs you, across all agents.",
   "inbox.empty": "Nothing needs attention.",
   "inbox.blocked": "Blocked",
   "inbox.review": "Review",
@@ -2203,7 +2203,7 @@ const zh: Record<MessageKey, string> = {
   // Agent IA
   "inbox.needsYou": "需要你",
   "inbox.title": "收件箱",
-  "inbox.subtitle": "阻塞目标、待审查项和失败运行。",
+  "inbox.subtitle": "所有 Agent 中需要你处理的事项。",
   "inbox.empty": "当前没有需要处理的事项。",
   "inbox.blocked": "阻塞",
   "inbox.review": "审查",
