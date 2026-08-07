@@ -87,6 +87,8 @@ export function SessionConversation({
   });
 
   const isStreaming = chatStatus === "streaming" || chatStatus === "submitted";
+  const isStreamingRef = useRef(isStreaming);
+  isStreamingRef.current = isStreaming;
 
   const messagesQuery = useInfiniteQuery({
     queryKey: ["session-messages", agentId, sessionId, after, before],
@@ -127,8 +129,8 @@ export function SessionConversation({
     const uiMessages = merged.map(messageToUIMessage);
     const newIDs = new Set(uiMessages.map((m) => m.id));
     historicalIDsRef.current = newIDs;
-    const authoritative = historyAuthoritativeRef.current;
-    historyAuthoritativeRef.current = false;
+    const authoritative = historyAuthoritativeRef.current && !isStreamingRef.current;
+    if (authoritative) historyAuthoritativeRef.current = false;
     setChatMessages((prev) =>
       reconcileHistoryUIMessages(
         uiMessages,

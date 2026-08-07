@@ -3,6 +3,7 @@ package access
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -121,6 +122,26 @@ func TestRelayDrainsRuntimeAfterObserverDisconnect(t *testing.T) {
 		t.Fatal("runtime source stalled after observer disconnect")
 	}
 	for range output {
+	}
+}
+
+func TestRelayPreservesTransientBackpressure(t *testing.T) {
+	source := make(chan agent.Event)
+	output := relayEventsUntilDone(t.Context(), source)
+
+	go func() {
+		for i := range 150 {
+			source <- agent.Event{Text: fmt.Sprintf("%d", i)}
+		}
+		close(source)
+	}()
+
+	var got []string
+	for event := range output {
+		got = append(got, event.Text)
+	}
+	if len(got) != 150 || got[149] != "149" {
+		t.Fatalf("relayed events = %d (tail %q), want all 150", len(got), got[len(got)-1])
 	}
 }
 

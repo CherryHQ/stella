@@ -128,4 +128,14 @@ func TestSendToArchivedSessionConflicts(t *testing.T) {
 	if n := rt.stops.Load(); n != 1 {
 		t.Fatalf("runtime stops = %d, want 1", n)
 	}
+
+	_, otherToken := createTestUserWithToken(t, env.authStore, env.oidcStore, "stop-other-user", "user")
+	rr = doRequestWithSession(t, env.srv, otherToken, http.MethodPost,
+		"/api/agents/"+agentID+"/sessions/live-send/stop", nil)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("cross-user POST stop = %d, want opaque %d (body: %s)", rr.Code, http.StatusNotFound, rr.Body.String())
+	}
+	if n := rt.stops.Load(); n != 1 {
+		t.Fatalf("denied stop reached runtime: stops = %d, want 1", n)
+	}
 }

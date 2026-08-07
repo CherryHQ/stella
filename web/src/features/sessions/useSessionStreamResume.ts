@@ -24,6 +24,7 @@ export function useSessionStreamResume(
   useEffect(() => {
     if (!sessionId || !enabled) return;
     let cancelled = false;
+    let deferredTimer: number | undefined;
 
     const tick = () => {
       if (cancelled || resumingRef.current) return;
@@ -35,11 +36,13 @@ export function useSessionStreamResume(
       resumingRef.current = true;
       void resumeStream().finally(() => {
         resumingRef.current = false;
+        if (cancelled) return;
         // AI SDK resolves resumeStream() for 204 and transport errors alike;
         // status is committed on the next render. Reconcile only from ready,
         // which means either a clean stream finish or no active stream.
-        window.setTimeout(() => {
+        deferredTimer = window.setTimeout(() => {
           if (
+            !cancelled &&
             statusRef.current === "ready" &&
             (checkedSessionRef.current !== sessionId || recoveringDisconnect)
           ) {
@@ -55,6 +58,7 @@ export function useSessionStreamResume(
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      if (deferredTimer !== undefined) window.clearTimeout(deferredTimer);
     };
   }, [sessionId, enabled, resumeStream, recoveringDisconnect, clearError, onInitialCheck]);
 }

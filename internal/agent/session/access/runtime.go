@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
@@ -137,6 +138,10 @@ func (s *Service) Send(ctx, runCtx context.Context, in SendInput) (SendResult, e
 	return SendResult{Events: relayEventsUntilDone(ctx, ch)}, nil
 }
 
+// observerStallCeiling separates transient HTTP backpressure from a peer that
+// has stopped reading without closing its connection.
+const observerStallCeiling = 30 * time.Second
+
 // relayEventsUntilDone keeps draining the runtime's initiating stream after the
 // HTTP observer disconnects. The runtime publishes to attach subscribers before
 // writing this stream, but leaving it unread would eventually fill its bounded
@@ -145,19 +150,28 @@ func relayEventsUntilDone(observerCtx context.Context, source <-chan agent.Event
 	out := make(chan agent.Event, 100)
 	go func() {
 		defer close(out)
+		stall := time.NewTimer(observerStallCeiling)
+		defer stall.Stop()
 		forward := true
 		for event := range source {
 			if !forward {
 				continue
 			}
+			if !stall.Stop() {
+				select {
+				case <-stall.C:
+				default:
+				}
+			}
+			stall.Reset(observerStallCeiling)
 			select {
 			case out <- event:
 			case <-observerCtx.Done():
 				forward = false
-			default:
+			case <-stall.C:
 				// A connection can remain open while its peer stops reading. Detach
-				// this observer rather than letting two full buffers stall the turn;
-				// reconnect and persisted history are the recovery paths.
+				// only after sustained backpressure; reconnect and persisted history
+				// are the recovery paths.
 				forward = false
 			}
 		}

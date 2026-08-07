@@ -153,14 +153,15 @@ func (h *SessionHub) publish(sessionID string, event Event) {
 	if state := h.replay[sessionID]; replayable && state != nil && !state.disabled {
 		coalescesWithTail := deltaKind != 0 && len(state.events) > 0 &&
 			replayDeltaKind(state.events[len(state.events)-1]) == deltaKind
+		deltaSize := len(event.Text) + len(event.Reasoning)
 		switch {
-		case coalescesWithTail && state.bytes+size > replayMaxBytes:
+		case coalescesWithTail && state.bytes+deltaSize > replayMaxBytes:
 			disableReplay(state)
 		case coalescesWithTail:
 			last := &state.events[len(state.events)-1]
 			last.Text += event.Text
 			last.Reasoning += event.Reasoning
-			state.bytes += size
+			state.bytes += deltaSize
 		case len(state.events) >= replayMaxEvents || state.bytes+size > replayMaxBytes:
 			disableReplay(state)
 		default:

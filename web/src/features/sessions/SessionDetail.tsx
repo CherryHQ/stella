@@ -163,6 +163,8 @@ export function SessionDetail({
   });
 
   const isStreaming = chatStatus === "streaming" || chatStatus === "submitted";
+  const isStreamingRef = useRef(isStreaming);
+  isStreamingRef.current = isStreaming;
 
   // The server titles an untitled session from its first user message *during*
   // the turn (internal/agent/runtime/chat.go), so nothing on the client knows
@@ -281,8 +283,8 @@ export function SessionDetail({
     // text copy forever (duplicated, un-collapsed tool output). Excluding
     // everything history has ever owned drops it.
     for (const m of uiMessages) historicalIDsRef.current.add(m.id);
-    const authoritative = historyAuthoritativeRef.current;
-    historyAuthoritativeRef.current = false;
+    const authoritative = historyAuthoritativeRef.current && !isStreamingRef.current;
+    if (authoritative) historyAuthoritativeRef.current = false;
     setChatMessages((prev) =>
       reconcileHistoryUIMessages(
         uiMessages,

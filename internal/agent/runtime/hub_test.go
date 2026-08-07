@@ -78,6 +78,23 @@ func TestSessionHubCoalescesTextBeforeEventCeiling(t *testing.T) {
 	h.end("s1")
 }
 
+func TestSessionHubCoalescedByteAccountingChargesOneEntry(t *testing.T) {
+	h := NewSessionHub()
+	h.begin("s1")
+	for range 100 {
+		h.publish("s1", Event{Text: "x"})
+	}
+
+	h.mu.Lock()
+	state := h.replay["s1"]
+	got := state.bytes
+	h.mu.Unlock()
+	if want := 64 + 100; got != want {
+		t.Fatalf("coalesced replay bytes = %d, want %d", got, want)
+	}
+	h.end("s1")
+}
+
 func TestSessionHubEventCeilingFailsClosed(t *testing.T) {
 	h := NewSessionHub()
 	h.begin("s1")
