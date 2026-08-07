@@ -225,6 +225,8 @@ paths:
     $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}~1messages"
   /api/agents/{agentId}/sessions/{sessionId}/media/{mediaId}:
     $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}~1media~1{mediaId}"
+  /api/agents/{agentId}/sessions/{sessionId}/stop:
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}~1stop"
   /api/agents/{agentId}/sessions/{sessionId}/events:
     $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}~1events"
   /api/agents/{agentId}/sessions/{sessionId}/context-items:

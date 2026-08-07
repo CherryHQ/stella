@@ -61,6 +61,8 @@ Ubuntu runner，并调用 `mise run system-test`；若该 runner 将来变得不
 - `readiness` —— 子进程迁移了交给它的数据库、绑定了 TCP 监听、并报告 ready。
 - `startup_and_auth` —— bootstrap 注册与 session 认证后的访问。
 - `chat_sse` —— 一次端到端 chat 轮次，以实时 SSE 流的方式消费。
+- `chat_disconnect_resume` —— 在 turn 中途断开发消息的初始 stream，通过只读 events
+  stream 重连，回放前半段并继续完成，且不发起第二次模型请求。
 - `image_history` —— 上传图片通过 fake provider 完成 baseline 渲染和当前回答，随后持久化为
   canonical media 与该精确 baseline；下一次回答请求不含像素、只投影 baseline，并可通过鉴权
   历史接口逐字节加载原图。

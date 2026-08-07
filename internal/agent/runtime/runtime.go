@@ -286,8 +286,16 @@ func safeClose(ch chan Event) {
 // busy guard. A nil error means the turn is admitted; every later runtime failure
 // is delivered on the returned stream. ErrSessionBusy means no turn was started,
 // so the caller can decide before any run/session/tool side effect is visible.
+type activeTurn struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
 func (rt *Runtime) ChatAdmitted(ctx context.Context, info session.Info, msg MessageContent, opts ...Option) (<-chan Event, error) {
-	if _, loaded := rt.active.LoadOrStore(info.ID, struct{}{}); loaded {
+	turnCtx, cancel := context.WithCancel(ctx)
+	turn := &activeTurn{cancel: cancel, done: make(chan struct{})}
+	if _, loaded := rt.active.LoadOrStore(info.ID, turn); loaded {
+		cancel()
 		return nil, fmt.Errorf("%w: session %s", ErrSessionBusy, info.ID)
 	}
 	out := make(chan Event, 100)
@@ -296,7 +304,7 @@ func (rt *Runtime) ChatAdmitted(ctx context.Context, info session.Info, msg Mess
 	for _, o := range opts {
 		o(&co)
 	}
-	ctx = memory.WithSessionID(ctx, info.ID)
+	ctx = memory.WithSessionID(turnCtx, info.ID)
 	// One identifier per turn. Tools that must know whether a second, real user
 	// message arrived since something happened compare turn ids; the runtime
 	// admits one turn per session at a time, so "different id" means "different
@@ -317,7 +325,6 @@ func (rt *Runtime) ChatAdmitted(ctx context.Context, info session.Info, msg Mess
 	rt.turns.begin()
 	go func() {
 		defer rt.turns.end()
-		defer rt.active.Delete(info.ID)
 		defer func() {
 			if p := recover(); p != nil {
 				// rt.chat panicked. Close inner so the forwarder drains and
@@ -333,6 +340,9 @@ func (rt *Runtime) ChatAdmitted(ctx context.Context, info session.Info, msg Mess
 	}()
 	go func() {
 		defer close(out)
+		defer close(turn.done)
+		defer cancel()
+		defer rt.active.CompareAndDelete(info.ID, turn)
 		defer rt.hub.end(info.ID)
 		for ev := range inner {
 			rt.hub.publish(info.ID, ev)
@@ -349,6 +359,34 @@ func (rt *Runtime) ChatAdmitted(ctx context.Context, info session.Info, msg Mess
 		}
 	}()
 	return out, nil
+}
+
+// StopSession cancels the active turn for sessionID. It returns false when the
+// session has no in-flight turn. Disconnecting an observer never calls this;
+// cancellation is an explicit, authorized action at the Session boundary.
+// stopWaitCeiling keeps a broken provider from pinning the stop HTTP request.
+// Cooperative providers finish immediately; increase only if a real backend
+// needs a longer cancellation unwind.
+const stopWaitCeiling = 5 * time.Second
+
+func (rt *Runtime) StopSession(ctx context.Context, sessionID string) bool {
+	value, ok := rt.active.Load(sessionID)
+	if !ok {
+		return false
+	}
+	turn, ok := value.(*activeTurn)
+	if !ok {
+		return false
+	}
+	turn.cancel()
+	timer := time.NewTimer(stopWaitCeiling)
+	defer timer.Stop()
+	select {
+	case <-turn.done:
+	case <-ctx.Done():
+	case <-timer.C:
+	}
+	return true
 }
 
 // Chat preserves the historic stream-only API. A rejected admission surfaces as

@@ -421,7 +421,10 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// send path degrades to 503 while CRUD stays available).
 	groupSvc := channel.NewGroupService(s.db, agentAccess, channel.NewRuntimeResolver(s.store), elStore, groupDispatcher)
 
-	adminSrv, err := server.New(gctx, server.Deps{
+	// Accepted Web turns outlive their initiating HTTP connections and must also
+	// survive the errgroup cancellation caused by HTTP Shutdown. workCtx is
+	// canceled only after the graceful-drain accepted-work wait completes.
+	adminSrv, err := server.New(workCtx, server.Deps{
 		Pinger:              s.db,
 		Account:             accountSvc,
 		Profile:             profileSvc,

@@ -5,7 +5,12 @@ import type { UIMessage } from "ai";
 import { Link } from "@tanstack/react-router";
 import { AlertCircle, Download, MessageSquarePlus, PanelRight } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
-import { getSession, getSessionMessages, uploadWorkspaceFile } from "@/lib/api-client/sdk.gen";
+import {
+  getSession,
+  getSessionMessages,
+  stopSession,
+  uploadWorkspaceFile,
+} from "@/lib/api-client/sdk.gen";
 import { agentSkillsOptions, agentsQueryOptions } from "@/lib/queries/agents";
 import { inboxQueryOptions } from "@/lib/queries/inbox";
 import { sessionContextItemsOptions } from "@/lib/queries/session-context";
@@ -44,6 +49,7 @@ import { ChatWidthToggle } from "@/components/chat/ChatWidthToggle";
 import { SessionInfoPopover } from "./SessionInfoPopover";
 import { Transcript } from "./Transcript";
 import { useFileAttachments } from "./useFileAttachments";
+import { useSessionStreamResume } from "./useSessionStreamResume";
 
 const PAGE_SIZE = 50;
 // Auto-fill (below) pulls older pages until the transcript overflows; cap how
@@ -79,6 +85,8 @@ export function SessionDetail({
   const { showToast } = useToast();
   const [exporting, setExporting] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [resumeEnabled, setResumeEnabled] = useState(true);
+  const [recoveringDisconnect, setRecoveringDisconnect] = useState(false);
   const { data: agentsList = [] } = useQuery(agentsQueryOptions);
 
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -130,6 +138,7 @@ export function SessionDetail({
     status: chatStatus,
     stop: chatStop,
     resumeStream: chatResume,
+    clearError: chatClearError,
     error: chatError,
   } = useChat({
     id: session?.id ?? "empty",
@@ -137,9 +146,14 @@ export function SessionDetail({
     // Batch SSE deltas: without this every token re-renders the transcript.
     experimental_throttle: 50,
     onError: (err) => console.error("[session chat]", err),
+    onFinish: ({ isDisconnect }) => setRecoveringDisconnect(isDisconnect),
   });
 
   const isStreaming = chatStatus === "streaming" || chatStatus === "submitted";
+  const reconcilePersistedHistory = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ["session-messages", sessionId] });
+    void queryClient.invalidateQueries({ queryKey: ["session-tail-messages", sessionId] });
+  }, [queryClient, sessionId]);
 
   // The server titles an untitled session from its first user message *during*
   // the turn (internal/agent/runtime/chat.go), so nothing on the client knows
@@ -168,43 +182,27 @@ export function SessionDetail({
         console.error("[session refresh]", err);
       }
       void queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
+      // Replay is bounded, so persisted history is the final authority after a
+      // sent or resumed stream settles.
+      reconcilePersistedHistory();
     })();
     return () => {
       cancelled = true;
     };
-  }, [isStreaming, agentId, sessionId, onSessionUpdate, queryClient]);
+  }, [isStreaming, agentId, sessionId, onSessionUpdate, queryClient, reconcilePersistedHistory]);
 
-  // Server-driven sessions (scheduler/task/delegate) run turns that carry no
-  // HTTP request of their own, so the normal send-stream never sees them. Poll
-  // the read-only events stream to watch such a turn live: resumeStream()
-  // attaches when one is in flight and no-ops (204) otherwise. Fire it only
-  // while idle so we never double-connect, and read status via a ref to keep
-  // the interval stable.
-  const isInternalKind =
-    session?.kind === "scheduler" || session?.kind === "task" || session?.kind === "delegate";
-  const chatStatusRef = useRef(chatStatus);
-  chatStatusRef.current = chatStatus;
-  // resumeStream() is async and status only flips to "streaming" once the SSE
-  // connection parses its first frame; guard with an in-flight ref so a tick
-  // firing inside that window can't open a second concurrent stream.
-  const resumingRef = useRef(false);
-  useEffect(() => {
-    if (!session || !isInternalKind) return;
-    let cancelled = false;
-    const tick = () => {
-      if (cancelled || resumingRef.current || chatStatusRef.current !== "ready") return;
-      resumingRef.current = true;
-      void chatResume().finally(() => {
-        resumingRef.current = false;
-      });
-    };
-    tick();
-    const timer = setInterval(tick, 3000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [session?.id, isInternalKind, chatResume]);
+  // Every turn is server-owned once admitted. An idle view polls the read-only
+  // events stream so navigation, refresh, connection loss, and turns started
+  // elsewhere all converge on the same reconnect path.
+  useSessionStreamResume(
+    sessionId,
+    resumeEnabled,
+    chatStatus,
+    chatResume,
+    recoveringDisconnect,
+    chatClearError,
+    reconcilePersistedHistory,
+  );
 
   const messagesQuery = useInfiniteQuery({
     queryKey: ["session-messages", session?.id],
@@ -308,6 +306,8 @@ export function SessionDetail({
   );
 
   useEffect(() => {
+    setResumeEnabled(true);
+    setRecoveringDisconnect(false);
     if (!session) {
       setChatMessages([]);
       clearAttachments();
@@ -427,6 +427,8 @@ export function SessionDetail({
       if (attachments.some((a) => a.uploading)) return;
 
       const parts = buildMessageParts(input);
+      setResumeEnabled(true);
+      setRecoveringDisconnect(false);
       clearAttachments();
       shouldAutoScrollRef.current = true;
       setTimeout(() => {
@@ -438,6 +440,22 @@ export function SessionDetail({
     },
     [isStreaming, session, attachments, buildMessageParts, clearAttachments, chatSendMessage],
   );
+
+  const stopActiveTurn = useCallback(() => {
+    if (!session) return;
+    // Block automatic reconnect until another message is sent. The explicit
+    // action cancels server work; chatStop only detaches this local reader.
+    setResumeEnabled(false);
+    setRecoveringDisconnect(false);
+    void chatStop();
+    void stopSession({
+      path: { agentId: session.agent_id, sessionId: session.id },
+      throwOnError: true,
+    }).catch((err) => {
+      console.error("[session stop]", err);
+      setResumeEnabled(true);
+    });
+  }, [session, chatStop]);
 
   // A thread started from the home composer arrives with its first message
   // parked in memory. Claim it once the session is loaded; `takePendingMessage`
@@ -634,7 +652,7 @@ export function SessionDetail({
     session.user_id === currentUserID ? (
       <ChatComposer
         onSend={(text) => void sendMessage(text)}
-        onStop={() => chatStop()}
+        onStop={stopActiveTurn}
         isStreaming={isStreaming}
         placeholder={t("sessions.composer.placeholder")}
         attachments={attachments}

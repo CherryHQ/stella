@@ -227,6 +227,28 @@ paths:
         }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
+  /api/agents/{agentId}/sessions/{sessionId}/stop:
+    parameters:
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: sessionId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [sessions]
+      summary: Stop the active turn on a session
+      description: >
+        Explicitly cancel the session's in-flight turn. Disconnecting from a
+        message or events stream does not stop the turn.
+      operationId: stopSession
+      responses:
+        "204": {
+          description: The active turn was stopped,
+          or no turn was active,
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
   /api/agents/{agentId}/sessions/{sessionId}/events:
     parameters:
       - { name: agentId, in: path, required: true, schema: { type: string } }
@@ -236,10 +258,10 @@ paths:
       summary: Stream a session's live turn events (read-only SSE)
       description: >
         Subscribe to the events of an in-flight turn on this session without
-        initiating one. Used by the web UI to watch server-driven turns
-        (scheduler, task, delegate) or a turn started in another tab in real
-        time. The stream emits the same Vercel AI-SDK UI message frames as the
-        message-send endpoint and ends when the turn finishes.
+        initiating one. Used by the web UI to resume a turn after navigation,
+        refresh, connection loss, or a turn started elsewhere. The stream emits
+        the same Vercel AI-SDK UI message frames as the message-send endpoint
+        and ends when the turn finishes.
       operationId: streamSessionEvents
       responses:
         "200":

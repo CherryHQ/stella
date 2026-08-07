@@ -103,6 +103,65 @@ func TestChat_BusyGuard_RejectsConcurrentSameSession(t *testing.T) {
 	}
 }
 
+type contextRunner struct{}
+
+func (r *contextRunner) Chat(ctx context.Context, _ []ai.Message, _ MessageContent) <-chan Event {
+	out := make(chan Event, 1)
+	go func() {
+		defer close(out)
+		out <- Event{Text: "partial"}
+		<-ctx.Done()
+	}()
+	return out
+}
+func (r *contextRunner) Alive() bool             { return true }
+func (r *contextRunner) Busy() bool              { return false }
+func (r *contextRunner) LastActivity() time.Time { return time.Now() }
+func (r *contextRunner) SystemPrompt() string    { return "" }
+func (r *contextRunner) Close() error            { return nil }
+
+func TestStopSessionCancelsOnlyExplicitly(t *testing.T) {
+	mem := &recordingMemory{}
+	rt, err := New(Config{
+		NewRunner: func(_ context.Context, _ RunnerParams) (Runner, error) {
+			return &contextRunner{}, nil
+		},
+		Memory: mem,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	info := session.Info{ID: "sess-stop", UserID: "u1", AgentID: "a1"}
+	stream := rt.Chat(context.Background(), info, "hello")
+
+	deadline := time.Now().Add(time.Second)
+	for !rt.SessionLive(info.ID) && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if !rt.StopSession(t.Context(), info.ID) {
+		t.Fatal("StopSession reported no active turn")
+	}
+	for range stream {
+	}
+	waitSessionFree(t, rt, info.ID)
+	if rt.StopSession(t.Context(), info.ID) {
+		t.Fatal("stopping an idle session should report false")
+	}
+	mem.mu.Lock()
+	defer mem.mu.Unlock()
+	if len(mem.messages) != 2 {
+		t.Fatalf("persisted messages = %d, want user plus partial assistant", len(mem.messages))
+	}
+	assistant, ok := mem.messages[1].(ai.AssistantMessage)
+	if !ok || len(assistant.Content) != 1 {
+		t.Fatalf("persisted partial assistant = %#v", mem.messages[1])
+	}
+	text, ok := assistant.Content[0].(ai.TextContent)
+	if !ok || text.Text != "partial" {
+		t.Fatalf("persisted partial text = %#v", assistant.Content[0])
+	}
+}
+
 func TestChat_BusyGuard_AllowsDifferentSessions(t *testing.T) {
 	gate := make(chan struct{})
 	rt := newTestRuntime(gate)

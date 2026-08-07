@@ -172,6 +172,12 @@ func (s *Service) Chat(ctx context.Context, req ChatRequest) <-chan Event {
 	return stream
 }
 
+// StopSession cancels the active turn for sessionID. Authorization belongs to
+// the Session access boundary; this method only exposes the runtime operation.
+func (s *Service) StopSession(ctx context.Context, sessionID string) bool {
+	return s.Runtime.StopSession(ctx, sessionID)
+}
+
 // SubscribeSession registers a read-only listener for a session's live turn
 // events, regardless of who initiated the turn. Used by the SSE endpoint to let
 // the web UI watch scheduler/task/delegate turns in real time.

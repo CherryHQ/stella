@@ -1,15 +1,19 @@
 package runtime
 
-import "sync"
+import (
+	"encoding/json"
+	"sync"
+)
 
 // SessionHub fans out a session's live turn events to any number of read-only
 // subscribers. The runtime publishes every event of an in-flight turn; HTTP SSE
-// handlers subscribe to watch a turn they did not initiate — a scheduler/task
-// turn driven server-side, or a turn started from another browser tab.
+// handlers subscribe to watch a turn after navigation or connection loss, one
+// driven server-side, or one started from another browser tab.
 //
 // Publishing never blocks the turn: a slow subscriber drops events rather than
-// stalling the agent. Subscribers reconcile final state by reloading persisted
-// history, so dropped deltas are cosmetic.
+// stalling the agent. While a turn is active, the hub retains a bounded replay
+// so a newly attached subscriber can reconstruct output emitted before it
+// connected. Subscribers still reconcile final state from persisted history.
 //
 // Placement invariant: the hub lives on the Runtime that executes a session's
 // turns, and the SSE handler subscribes via the Service of `session.AgentID`.
@@ -20,29 +24,54 @@ import "sync"
 // stream would silently fall back to 204. Such a change must hoist the hub to a
 // single per-pool instance keyed by session ID.
 type SessionHub struct {
-	mu   sync.Mutex
-	subs map[string]map[chan Event]struct{}
-	live map[string]int // session ID → in-flight turn count
+	mu     sync.Mutex
+	subs   map[string]map[chan Event]struct{}
+	live   map[string]int // session ID → in-flight turn count
+	replay map[string]*replayState
 }
 
-// subBuffer bounds per-subscriber buffering before events are dropped.
-const subBuffer = 256
+type replayState struct {
+	events   []Event
+	bytes    int
+	disabled bool
+}
+
+const (
+	// subBuffer bounds live per-subscriber buffering before events are dropped.
+	subBuffer = 256
+	// Replay is deliberately process-local: it covers browser navigation and
+	// transient disconnects. A durable event log is the upgrade when turns must
+	// survive process replacement. The byte ceiling prevents tool/image output
+	// from turning one active session into unbounded server memory.
+	replayMaxEvents = 4096
+	replayMaxBytes  = 8 << 20
+)
 
 // NewSessionHub returns an empty hub.
 func NewSessionHub() *SessionHub {
 	return &SessionHub{
-		subs: make(map[string]map[chan Event]struct{}),
-		live: make(map[string]int),
+		subs:   make(map[string]map[chan Event]struct{}),
+		live:   make(map[string]int),
+		replay: make(map[string]*replayState),
 	}
 }
 
-// Subscribe registers a listener for a session's live events. The returned
-// channel delivers events until the turn ends (then it is closed) or the caller
-// invokes cancel. Callers must always invoke cancel to avoid leaking the
-// subscription.
+// Subscribe registers a listener for a session's live events. Events already
+// emitted by the active turn are queued before live delivery. The returned
+// channel closes when the turn ends or the caller invokes cancel.
 func (h *SessionHub) Subscribe(sessionID string) (<-chan Event, func()) {
-	ch := make(chan Event, subBuffer)
 	h.mu.Lock()
+	replayed := h.replay[sessionID]
+	capacity := subBuffer
+	if replayed != nil && !replayed.disabled && len(replayed.events)+subBuffer > capacity {
+		capacity = len(replayed.events) + subBuffer
+	}
+	ch := make(chan Event, capacity)
+	if replayed != nil && !replayed.disabled {
+		for _, event := range replayed.events {
+			ch <- event
+		}
+	}
 	set := h.subs[sessionID]
 	if set == nil {
 		set = make(map[chan Event]struct{})
@@ -80,6 +109,9 @@ func (h *SessionHub) IsLive(sessionID string) bool {
 // begin marks a turn as in flight.
 func (h *SessionHub) begin(sessionID string) {
 	h.mu.Lock()
+	if h.live[sessionID] == 0 {
+		h.replay[sessionID] = &replayState{}
+	}
 	h.live[sessionID]++
 	h.mu.Unlock()
 }
@@ -93,6 +125,7 @@ func (h *SessionHub) end(sessionID string) {
 	}
 	if h.live[sessionID] == 0 {
 		delete(h.live, sessionID)
+		delete(h.replay, sessionID)
 		for ch := range h.subs[sessionID] {
 			close(ch)
 		}
@@ -101,15 +134,35 @@ func (h *SessionHub) end(sessionID string) {
 	h.mu.Unlock()
 }
 
-// publish delivers an event to every current subscriber, dropping it for any
-// subscriber whose buffer is full.
-func (h *SessionHub) publish(sessionID string, ev Event) {
+// publish records and delivers an event without blocking the producer.
+func (h *SessionHub) publish(sessionID string, event Event) {
 	h.mu.Lock()
+	if state := h.replay[sessionID]; state != nil && !state.disabled {
+		size := replayEventSize(event)
+		if len(state.events) >= replayMaxEvents || state.bytes+size > replayMaxBytes {
+			state.events = nil
+			state.bytes = 0
+			state.disabled = true
+		} else {
+			state.events = append(state.events, event)
+			state.bytes += size
+		}
+	}
 	for ch := range h.subs[sessionID] {
 		select {
-		case ch <- ev:
+		case ch <- event:
 		default:
 		}
 	}
 	h.mu.Unlock()
+}
+
+func replayEventSize(event Event) int {
+	// JSON is only used to account for nested tool/reference payloads. If an
+	// event cannot be represented, disable replay rather than undercount it.
+	encoded, err := json.Marshal(event)
+	if err != nil {
+		return replayMaxBytes + 1
+	}
+	return len(encoded)
 }

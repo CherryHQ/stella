@@ -62,6 +62,7 @@ func (m agentRuntimeManager) Default() RuntimeService {
 // agent runtime. It deliberately excludes session lookup and policy concerns.
 type RuntimeService interface {
 	Chat(context.Context, agent.ChatRequest) <-chan agent.Event
+	StopSession(context.Context, string) bool
 	SubscribeSession(sessionID string) (<-chan agent.Event, func())
 	SessionLive(sessionID string) bool
 	CompactAuthorizedSession(context.Context, agentsession.Info) (string, error)
@@ -96,7 +97,7 @@ type SendResult struct {
 // Send authorizes and starts exactly one foreground turn. The returned event
 // chunks are not re-authorized by Session access; the single Access evaluation
 // covers the turn initiation, matching the send semantics expected by the UI.
-func (s *Service) Send(ctx context.Context, in SendInput) (SendResult, error) {
+func (s *Service) Send(ctx, runCtx context.Context, in SendInput) (SendResult, error) {
 	access, err := s.Begin(ctx, in.Authority)
 	if err != nil {
 		return SendResult{}, err
@@ -121,7 +122,10 @@ func (s *Service) Send(ctx context.Context, in SendInput) (SendResult, error) {
 	if info.Archived {
 		return SendResult{}, fmt.Errorf("%w: %s", agentsession.ErrArchived, in.SessionID)
 	}
-	ch := runtime.Chat(ctx, agent.ChatRequest{
+	// Authorization and input resolution use the request context above. The
+	// admitted turn uses the server lifecycle context so losing the initiating
+	// HTTP/SSE connection only detaches that observer; it does not kill work.
+	ch := runtime.Chat(runCtx, agent.ChatRequest{
 		SessionID: in.SessionID,
 		UserID:    info.UserID,
 		AgentID:   info.AgentID,
@@ -130,7 +134,55 @@ func (s *Service) Send(ctx context.Context, in SendInput) (SendResult, error) {
 		Message:   in.Message,
 		Authority: in.Authority,
 	})
-	return SendResult{Events: ch}, nil
+	return SendResult{Events: relayEventsUntilDone(ctx, ch)}, nil
+}
+
+// relayEventsUntilDone keeps draining the runtime's initiating stream after the
+// HTTP observer disconnects. The runtime publishes to attach subscribers before
+// writing this stream, but leaving it unread would eventually fill its bounded
+// buffer and stall the producer.
+func relayEventsUntilDone(observerCtx context.Context, source <-chan agent.Event) <-chan agent.Event {
+	out := make(chan agent.Event, 100)
+	go func() {
+		defer close(out)
+		forward := true
+		for event := range source {
+			if !forward {
+				continue
+			}
+			select {
+			case out <- event:
+			case <-observerCtx.Done():
+				forward = false
+			}
+		}
+	}()
+	return out
+}
+
+type StopInput struct {
+	Authority authz.Authority
+	AgentID   string
+	SessionID string
+}
+
+// Stop authorizes use of a session and explicitly cancels its active turn. It
+// is idempotent: stopping an idle session succeeds without inventing state.
+func (s *Service) Stop(ctx context.Context, in StopInput) error {
+	access, err := s.Begin(ctx, in.Authority)
+	if err != nil {
+		return err
+	}
+	info, err := access.Use(ctx, in.AgentID, in.SessionID)
+	if err != nil {
+		return err
+	}
+	runtime, err := s.runtimeFor(info.AgentID)
+	if err != nil {
+		return err
+	}
+	runtime.StopSession(ctx, in.SessionID)
+	return nil
 }
 
 type AttachInput struct {

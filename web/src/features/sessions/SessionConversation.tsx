@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
-import { getSessionMessages } from "@/lib/api-client/sdk.gen";
+import { getSessionMessages, stopSession } from "@/lib/api-client/sdk.gen";
 import {
   createSessionTransport,
   mergeToolResults,
@@ -21,6 +21,7 @@ import {
 import { Transcript } from "./Transcript";
 import { ChatErrorNotice } from "@/components/chat/ChatErrorNotice";
 import { useI18n } from "@/lib/i18n";
+import { useSessionStreamResume } from "./useSessionStreamResume";
 
 interface Props {
   agentId: string;
@@ -46,6 +47,8 @@ export function SessionConversation({
   const { t } = useI18n();
   const [userInput, setUserInput] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [resumeEnabled, setResumeEnabled] = useState(true);
+  const [recoveringDisconnect, setRecoveringDisconnect] = useState(false);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const initialScrollSessionRef = useRef<string | null>(null);
   const transport = useMemo(() => createSessionTransport(agentId, sessionId), [agentId, sessionId]);
@@ -56,6 +59,8 @@ export function SessionConversation({
     setMessages: setChatMessages,
     status: chatStatus,
     stop: chatStop,
+    resumeStream: chatResume,
+    clearError: chatClearError,
     error: chatError,
   } = useChat({
     id: `conv-${sessionId}`,
@@ -63,6 +68,7 @@ export function SessionConversation({
     // Batch SSE deltas: without this every token re-renders the transcript.
     experimental_throttle: 50,
     onError: (err) => console.error("[session conversation chat]", err),
+    onFinish: ({ isDisconnect }) => setRecoveringDisconnect(isDisconnect),
   });
 
   const isStreaming = chatStatus === "streaming" || chatStatus === "submitted";
@@ -87,6 +93,30 @@ export function SessionConversation({
       lastPage.length === 20 ? allPages.reduce((sum, page) => sum + page.length, 0) : undefined,
   });
 
+  const reconcilePersistedHistory = useCallback(() => {
+    void messagesQuery.refetch();
+  }, [messagesQuery.refetch]);
+  useSessionStreamResume(
+    sessionId,
+    resumeEnabled,
+    chatStatus,
+    chatResume,
+    recoveringDisconnect,
+    chatClearError,
+    reconcilePersistedHistory,
+  );
+
+  const wasStreamingRef = useRef(false);
+  useEffect(() => {
+    if (isStreaming) {
+      wasStreamingRef.current = true;
+      return;
+    }
+    if (!wasStreamingRef.current) return;
+    wasStreamingRef.current = false;
+    reconcilePersistedHistory();
+  }, [isStreaming, reconcilePersistedHistory]);
+
   const historicalIDsRef = useRef(new Set<string>());
 
   useEffect(() => {
@@ -107,6 +137,8 @@ export function SessionConversation({
   const messages = useMemo(() => chatMessages.map(uiMessageToMessage), [chatMessages]);
 
   useEffect(() => {
+    setResumeEnabled(true);
+    setRecoveringDisconnect(false);
     initialScrollSessionRef.current = null;
     historicalIDsRef.current = new Set();
     setChatMessages([]);
@@ -137,6 +169,8 @@ export function SessionConversation({
     const content = userInput.trim();
     if (!content || isStreaming) return;
 
+    setResumeEnabled(true);
+    setRecoveringDisconnect(false);
     setUserInput("");
     setTimeout(() => {
       if (transcriptRef.current) {
@@ -146,6 +180,19 @@ export function SessionConversation({
 
     void chatSendMessage({ text: content });
   }, [userInput, isStreaming, chatSendMessage]);
+
+  const stopActiveTurn = useCallback(() => {
+    setResumeEnabled(false);
+    setRecoveringDisconnect(false);
+    void chatStop();
+    void stopSession({
+      path: { agentId, sessionId },
+      throwOnError: true,
+    }).catch((err) => {
+      console.error("[session conversation stop]", err);
+      setResumeEnabled(true);
+    });
+  }, [agentId, sessionId, chatStop]);
 
   const renderBody = () => (
     <div className="flex h-full min-h-0 flex-col">
@@ -173,12 +220,7 @@ export function SessionConversation({
           className="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-hidden focus:ring-2 focus:ring-ring"
         />
         {isStreaming ? (
-          <Button
-            size="sm"
-            variant="outline"
-            className="w-full sm:w-auto"
-            onClick={() => chatStop()}
-          >
+          <Button size="sm" variant="outline" className="w-full sm:w-auto" onClick={stopActiveTurn}>
             Stop
           </Button>
         ) : (

@@ -20,6 +20,7 @@ func TestSystem(t *testing.T) {
 	t.Run("pwa_assets_anonymous", h.testPWAAssetsAnonymous)
 	t.Run("startup_and_auth", h.testStartupAndAuth)
 	t.Run("chat_sse", h.testChatSSE)
+	t.Run("chat_disconnect_resume", h.testChatDisconnectResume)
 	t.Run("agent_provider_credentials", h.testAgentProviderCredentials)
 	t.Run("image_history", h.testImageHistory)
 	t.Run("read_tool_image_history", h.testReadToolImageHistory)

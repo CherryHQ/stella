@@ -71,6 +71,9 @@ and one shared database serve them all in sequence:
   listener, and reports ready.
 - `startup_and_auth` — bootstrap registration and session-authenticated access.
 - `chat_sse` — one chat turn end to end, consumed as a live SSE stream.
+- `chat_disconnect_resume` — disconnect the initiating message stream mid-turn,
+  reconnect through the read-only events stream, replay the first half, and
+  finish without a second model request.
 - `agent_provider_credentials` — three Agents share one global fake Provider;
   two send distinct encrypted overrides, one sends the global key, and live
   rotation/delete changes the next request without changing Agent model state.

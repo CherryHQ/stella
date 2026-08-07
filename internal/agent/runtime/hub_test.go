@@ -30,6 +30,39 @@ func TestSessionHubFanOutAndClose(t *testing.T) {
 	}
 }
 
+func TestSessionHubReplaysActiveTurnBeforeLiveEvents(t *testing.T) {
+	h := NewSessionHub()
+	h.begin("s1")
+	h.publish("s1", Event{Text: "before"})
+
+	ch, cancel := h.Subscribe("s1")
+	defer cancel()
+	h.publish("s1", Event{Text: "after"})
+
+	if event := <-ch; event.Text != "before" {
+		t.Fatalf("first event = %q, want replayed event", event.Text)
+	}
+	if event := <-ch; event.Text != "after" {
+		t.Fatalf("second event = %q, want live event", event.Text)
+	}
+	h.end("s1")
+}
+
+func TestSessionHubReplayCeilingFailsClosed(t *testing.T) {
+	h := NewSessionHub()
+	h.begin("s1")
+	h.publish("s1", Event{Text: string(make([]byte, replayMaxBytes+1))})
+
+	ch, cancel := h.Subscribe("s1")
+	defer cancel()
+	select {
+	case event := <-ch:
+		t.Fatalf("oversized replay unexpectedly delivered: %d bytes", len(event.Text))
+	default:
+	}
+	h.end("s1")
+}
+
 func TestSessionHubCancelUnsubscribes(t *testing.T) {
 	h := NewSessionHub()
 	ch, cancel := h.Subscribe("s1")
