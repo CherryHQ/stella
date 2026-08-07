@@ -78,18 +78,27 @@ func (s *Service) processChunkJob(ctx context.Context, job *river.Job[chunkArgs]
 		}
 	}
 	if err := s.publishChunkSet(ctx, job, target, int64(len(chunks)), digest); err != nil {
-		if errors.Is(err, errGenerationStopped) {
+		switch {
+		case errors.Is(err, errGenerationStopped):
 			return s.completeChunkJob(ctx, job)
-		}
-		if errors.Is(err, ErrGenerationConflict) {
+		case errors.Is(err, ErrGenerationConflict):
 			return s.failChunkJob(ctx, job, target, publicParseError(err))
+		case errors.Is(err, errStagedGenerationIntegrityMismatch) && job.Attempt >= job.MaxAttempts:
+			return s.failChunkJob(ctx, job, target, publicParseError(err))
+		default:
+			// A stale worker can race a replacement and temporarily leave an
+			// incomplete building set. Returning the integrity mismatch lets River
+			// retry; the next attempt clears unpublished chunks and rebuilds.
+			return err
 		}
-		return err
 	}
 	return nil
 }
 
-var errGenerationStopped = errors.New("library generation stopped")
+var (
+	errGenerationStopped                 = errors.New("library generation stopped")
+	errStagedGenerationIntegrityMismatch = errors.New("library staged generation failed integrity validation")
+)
 
 func (s *Service) prepareChunkGeneration(
 	ctx context.Context,
@@ -371,7 +380,7 @@ func (s *Service) publishChunkSet(
 		return fmt.Errorf("validate library ChunkSet integrity: %w", err)
 	}
 	if integrity.ChunkCount != chunkCount || integrity.MinOrdinal != 0 || integrity.MaxOrdinal != chunkCount-1 || subtle.ConstantTimeCompare(integrity.ContentDigest, expectedDigest) != 1 {
-		return fmt.Errorf("%w: staged generation integrity mismatch", ErrGenerationConflict)
+		return errStagedGenerationIntegrityMismatch
 	}
 	if affected, err := queries.MarkLibraryChunkSetReady(ctx, sqlc.MarkLibraryChunkSetReadyParams{
 		ChunkCount:    pgtype.Int8{Int64: chunkCount, Valid: true},

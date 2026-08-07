@@ -40,6 +40,31 @@ func TestTextParserChunksUnicodeRunesWithStableByteLocators(t *testing.T) {
 	}
 }
 
+func TestTextParserRetainsSymbolOnlyWindowsInsideSearchableDocument(t *testing.T) {
+	t.Parallel()
+	content := strings.Repeat("a", 900) + strings.Repeat("★", 2_000) + strings.Repeat("b", 900)
+	path := writeTextParserFixture(t, content)
+
+	chunks, err := NewTextParser().Parse(t.Context(), path, MediaTypeText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 5 {
+		t.Fatalf("chunks = %d, want 5", len(chunks))
+	}
+	if chunks[2].Content != strings.Repeat("★", TextChunkRunes) {
+		t.Fatal("symbol-only middle window was not retained")
+	}
+	if chunks[2].Locator.ByteStart != 3_000 || chunks[2].Locator.ByteEnd != 6_000 {
+		t.Fatalf("symbol-only locator = %+v, want bytes [3000,6000)", chunks[2].Locator)
+	}
+	for index := 1; index < len(chunks); index++ {
+		if chunks[index].Locator.ByteStart > chunks[index-1].Locator.ByteEnd {
+			t.Fatalf("source gap between chunks %d and %d: %+v then %+v", index-1, index, chunks[index-1].Locator, chunks[index].Locator)
+		}
+	}
+}
+
 func TestTextParserTreatsMarkdownAsPlainText(t *testing.T) {
 	t.Parallel()
 	path := writeTextParserFixture(t, "# Travel\n\nApproval is required.")
@@ -65,6 +90,23 @@ func TestTextParserRejectsInvalidOrIneffectiveText(t *testing.T) {
 	if _, err := NewTextParser().Parse(t.Context(), punctuationPath, MediaTypeText); !errors.Is(err, ErrNoExtractedText) {
 		t.Fatalf("ineffective text error = %v, want ErrNoExtractedText", err)
 	}
+	symbolPath := writeTextParserFixture(t, strings.Repeat("★", TextChunkRunes))
+	if _, err := NewTextParser().Parse(t.Context(), symbolPath, MediaTypeText); !errors.Is(err, ErrNoExtractedText) {
+		t.Fatalf("symbol-only document error = %v, want ErrNoExtractedText", err)
+	}
+}
+
+func TestTextParserOmitsWhitespaceOnlyTail(t *testing.T) {
+	t.Parallel()
+	path := writeTextParserFixture(t, strings.Repeat("a", TextChunkRunes)+"\n\n\n")
+
+	chunks, err := NewTextParser().Parse(t.Context(), path, MediaTypeText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 1 || chunks[0].Content != strings.Repeat("a", TextChunkRunes) {
+		t.Fatalf("whitespace-only tail produced chunks = %+v", chunks)
+	}
 }
 
 func TestTextParserHonorsCancellationAndPinnedLimits(t *testing.T) {
@@ -83,6 +125,32 @@ func TestTextParserHonorsCancellationAndPinnedLimits(t *testing.T) {
 	const wantProfile = "builtin-text:v1;unit=unicode-rune;size=1000;overlap=200;markdown=plain;max_input_bytes=26214400;max_chunks=32768;max_content_bytes=41943040"
 	if TextParserProfile != wantProfile {
 		t.Fatalf("TextParserProfile = %q, want %q", TextParserProfile, wantProfile)
+	}
+}
+
+func TestTextParserAcceptsMaximumSizeASCIIInput(t *testing.T) {
+	stride := TextChunkRunes - TextChunkOverlapRunes
+	if stride <= 0 {
+		t.Fatalf("text chunk stride = %d, want positive", stride)
+	}
+	maxASCIIChunks := 1
+	if MaxFileBytes > TextChunkRunes {
+		maxASCIIChunks += (MaxFileBytes - TextChunkRunes + stride - 1) / stride
+	}
+	if maxASCIIChunks > MaxParsedChunks {
+		t.Fatalf(
+			"maximum accepted ASCII input needs %d chunks, exceeding limit %d",
+			maxASCIIChunks,
+			MaxParsedChunks,
+		)
+	}
+	path := writeTextParserFixture(t, strings.Repeat("a", MaxFileBytes))
+	chunks, err := NewTextParser().Parse(t.Context(), path, MediaTypeText)
+	if err != nil {
+		t.Fatalf("parse maximum-size ASCII input: %v", err)
+	}
+	if len(chunks) != maxASCIIChunks {
+		t.Fatalf("maximum-size ASCII chunks = %d, want %d", len(chunks), maxASCIIChunks)
 	}
 }
 

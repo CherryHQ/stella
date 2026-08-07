@@ -56,7 +56,7 @@ var (
 	ErrForbidden           = errors.New("library access forbidden")
 	ErrServiceUnavailable  = errors.New("library service is unavailable")
 	ErrSpoolCapacity       = errors.New("library upload spool is at capacity")
-	ErrGenerationConflict  = errors.New("library chunk generation conflicts with staged data")
+	ErrGenerationConflict  = errors.New("library chunk generation identity conflicts with durable state")
 	ErrGenerationChanged   = errors.New("library chunk generation state changed")
 	ErrRawIntegrity        = errors.New("library raw snapshot failed integrity validation")
 )

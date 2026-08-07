@@ -19,6 +19,7 @@ const (
 
 	TextChunkRunes             = 1_000
 	TextChunkOverlapRunes      = 200
+	textCancellationCheckRunes = 256
 	MaxParsedChunks            = 32_768
 	MaxParsedChunkContentBytes = 40 << 20
 	MaxStagedChunksPerTx       = 500
@@ -85,12 +86,11 @@ func (*TextParser) Parse(ctx context.Context, filePath, mediaType string) ([]Par
 	byteEnd := 0
 	newRunes := 0
 	totalContentBytes := 0
+	hasDocumentText := false
+	runesSinceCancellationCheck := 0
 
 	emit := func() error {
 		content := string(window)
-		if !hasEffectiveText(content) {
-			return nil
-		}
 		if len(chunks) >= MaxParsedChunks {
 			return fmt.Errorf("%w: too many chunks", ErrParseResultLimit)
 		}
@@ -105,10 +105,10 @@ func (*TextParser) Parse(ctx context.Context, filePath, mediaType string) ([]Par
 		return nil
 	}
 
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	for {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
 		r, size, err := reader.ReadRune()
 		if errors.Is(err, io.EOF) {
 			break
@@ -118,6 +118,16 @@ func (*TextParser) Parse(ctx context.Context, filePath, mediaType string) ([]Par
 		}
 		if r == '\x00' || r == utf8.RuneError && size == 1 {
 			return nil, fmt.Errorf("%w: text must be valid UTF-8 without NUL bytes", ErrInvalidFile)
+		}
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			hasDocumentText = true
+		}
+		runesSinceCancellationCheck++
+		if runesSinceCancellationCheck == textCancellationCheckRunes {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			runesSinceCancellationCheck = 0
 		}
 
 		window = append(window, r)
@@ -136,14 +146,21 @@ func (*TextParser) Parse(ctx context.Context, filePath, mediaType string) ([]Par
 		newRunes = 0
 	}
 
-	// A full final window was already emitted. Otherwise emit the overlapping
-	// tail only when it contains newly read, useful text.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	// A full final window was already emitted. A whitespace-only suffix does not
+	// need a separate overlapping chunk; every non-whitespace source rune remains
+	// covered by an emitted window.
 	if newRunes > 0 && strings.TrimSpace(string(window[len(window)-newRunes:])) != "" {
 		if err := emit(); err != nil {
 			return nil, err
 		}
 	}
-	if len(chunks) == 0 {
+	// Effectiveness is a document-level decision. Individual symbol-only windows
+	// are retained so diagrams, emoji, and mathematical notation do not leave
+	// holes between otherwise searchable text chunks.
+	if !hasDocumentText || len(chunks) == 0 {
 		return nil, ErrNoExtractedText
 	}
 	return chunks, nil

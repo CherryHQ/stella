@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 type stagedChunk struct {
@@ -50,9 +51,13 @@ func normalizeParsedChunks(chunks []ParsedChunk) ([]stagedChunk, []byte, error) 
 
 	staged := make([]stagedChunk, 0, len(chunks))
 	totalBytes := 0
+	hasDocumentText := false
 	for ordinal, chunk := range chunks {
-		if !hasEffectiveText(chunk.Content) {
-			return nil, nil, fmt.Errorf("%w: chunk %d has no effective text", ErrInvalidParserData, ordinal)
+		if strings.TrimSpace(chunk.Content) == "" {
+			return nil, nil, fmt.Errorf("%w: chunk %d is empty or whitespace-only", ErrInvalidParserData, ordinal)
+		}
+		if hasEffectiveText(chunk.Content) {
+			hasDocumentText = true
 		}
 		if chunk.Locator.ByteStart < 0 || chunk.Locator.ByteEnd < chunk.Locator.ByteStart {
 			return nil, nil, fmt.Errorf("%w: chunk %d has invalid byte offsets", ErrInvalidParserData, ordinal)
@@ -75,6 +80,9 @@ func normalizeParsedChunks(chunks []ParsedChunk) ([]stagedChunk, []byte, error) 
 			LocatorJSON:   string(locator),
 			ContentSHA256: sha256.Sum256([]byte(chunk.Content)),
 		})
+	}
+	if !hasDocumentText {
+		return nil, nil, ErrNoExtractedText
 	}
 	return staged, stagedContentDigest(staged), nil
 }

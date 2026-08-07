@@ -123,6 +123,70 @@ func TestChunkWorkerStagesAndAtomicallyPublishesGeneration(t *testing.T) {
 	assertLatestLibraryJobState(t, client, chunkArgs{}.Kind(), file.ID, rivertype.JobStateCompleted)
 }
 
+func TestTransientPublicationIntegrityMismatchRetriesFromCleanGeneration(t *testing.T) {
+	database := dbtest.New(t)
+	store, err := NewFSRawStore(t.TempDir(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate the stale-worker race by dropping exactly one staged row from the
+	// first attempt. The publication digest must reject that attempt without
+	// making the file terminal; River then rebuilds the generation from scratch.
+	if _, err := database.Exec(t.Context(), `
+		CREATE TABLE library_test_chunk_skip_once (remaining integer NOT NULL);
+		INSERT INTO library_test_chunk_skip_once (remaining) VALUES (1);
+		CREATE FUNCTION library_test_skip_chunk_once() RETURNS trigger
+		LANGUAGE plpgsql AS $function$
+		DECLARE
+			skipped boolean := false;
+		BEGIN
+			UPDATE library_test_chunk_skip_once
+			SET remaining = remaining - 1
+			WHERE remaining > 0
+			RETURNING true INTO skipped;
+			IF skipped THEN
+				RETURN NULL;
+			END IF;
+			RETURN NEW;
+		END;
+		$function$;
+		CREATE TRIGGER library_test_skip_chunk_once
+		BEFORE INSERT ON library_chunk
+		FOR EACH ROW EXECUTE FUNCTION library_test_skip_chunk_once();
+	`); err != nil {
+		t.Fatal(err)
+	}
+	service, client := newWorkingLibraryService(t, database, store, staticLibraryParser{})
+	file, err := service.CreateManagedUpload(
+		t.Context(), testAuthority(t, testUserA, true), ScopeSystem, "", "retry.txt", stringsReader("source"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready := waitForLibraryFile(t, service, file.ID, func(current LibraryFile) bool {
+		return current.Status == FileStatusReady && current.ActiveChunkSetID != ""
+	})
+	job, found, err := latestLibraryJob(t.Context(), client, chunkArgs{}.Kind(), file.ID)
+	if err != nil || !found {
+		t.Fatalf("load retried chunk job: found=%t error=%v", found, err)
+	}
+	if job.State != rivertype.JobStateCompleted || job.Attempt < 2 {
+		t.Fatalf("retried chunk job = state %q attempt %d, want completed after retry", job.State, job.Attempt)
+	}
+	var remaining, chunkCount int
+	if err := database.QueryRow(t.Context(), `SELECT remaining FROM library_test_chunk_skip_once`).Scan(&remaining); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRow(
+		t.Context(), `SELECT count(*) FROM library_chunk WHERE chunk_set_id = $1`, ready.ActiveChunkSetID,
+	).Scan(&chunkCount); err != nil {
+		t.Fatal(err)
+	}
+	if remaining != 0 || chunkCount != 1 {
+		t.Fatalf("recovered generation = remaining_skip %d chunks %d, want 0 and 1", remaining, chunkCount)
+	}
+}
+
 func TestChunkRetryDiscardsUnpublishedRowsBeforeRebuild(t *testing.T) {
 	database := dbtest.New(t)
 	store, service := newLibraryService(t, database)

@@ -97,6 +97,26 @@ func TestNormalizeParsedChunksRejectsInvalidLocator(t *testing.T) {
 	}
 }
 
+func TestNormalizeParsedChunksUsesDocumentLevelEffectiveness(t *testing.T) {
+	t.Parallel()
+	chunks, _, err := normalizeParsedChunks([]ParsedChunk{
+		{Content: "searchable text"},
+		{Content: strings.Repeat("★", TextChunkRunes)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 2 || chunks[1].Content != strings.Repeat("★", TextChunkRunes) {
+		t.Fatalf("normalized chunks = %+v, want symbol-only window retained", chunks)
+	}
+	if _, _, err := normalizeParsedChunks([]ParsedChunk{{Content: strings.Repeat("★", TextChunkRunes)}}); !errors.Is(err, ErrNoExtractedText) {
+		t.Fatalf("symbol-only document error = %v, want ErrNoExtractedText", err)
+	}
+	if _, _, err := normalizeParsedChunks([]ParsedChunk{{Content: "searchable"}, {Content: " \n"}}); !errors.Is(err, ErrInvalidParserData) {
+		t.Fatalf("whitespace-only chunk error = %v, want ErrInvalidParserData", err)
+	}
+}
+
 func batchLengths(batches [][]stagedChunk) []int {
 	lengths := make([]int, 0, len(batches))
 	for _, batch := range batches {
