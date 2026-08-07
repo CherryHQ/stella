@@ -84,15 +84,22 @@ func waitBarrierRunner(t *testing.T, runners <-chan *barrierRunner) *barrierRunn
 
 func waitText(t *testing.T, stream <-chan Event) string {
 	t.Helper()
-	select {
-	case event := <-stream:
-		if event.Err != nil {
-			t.Fatalf("turn failed: %v", event.Err)
+	timeout := time.NewTimer(time.Second)
+	defer timeout.Stop()
+	var text string
+	for {
+		select {
+		case event, ok := <-stream:
+			if !ok {
+				return text
+			}
+			if event.Err != nil {
+				t.Fatalf("turn failed: %v", event.Err)
+			}
+			text += event.Text
+		case <-timeout.C:
+			t.Fatal("timed out waiting for turn completion")
 		}
-		return event.Text
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for turn output")
-		return ""
 	}
 }
 

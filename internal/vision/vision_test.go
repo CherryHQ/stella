@@ -13,6 +13,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -491,6 +492,74 @@ func TestXbergTerminatesDescendantsHoldingStagingResources(t *testing.T) {
 				t.Errorf("staging directory survives process-tree termination: %v", err)
 			}
 		})
+	}
+}
+
+func TestXbergReapsLingeringDescendantAfterSuccessfulRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX process-group assertions do not run on Windows")
+	}
+	capture := t.TempDir()
+	t.Setenv("CAPTURE_DIR", capture)
+	installXbergScript(t, "(while :; do :; done) &\necho $! > \"$CAPTURE_DIR/child\"\nprintf OCR\nexit 0\n")
+	done := make(chan struct {
+		text string
+		err  error
+	}, 1)
+	go func() {
+		baseline, err := New(Options{}).Baseline(context.Background(), Request{Data: pngBytes(t, 8, 8), MimeType: "image/png"})
+		done <- struct {
+			text string
+			err  error
+		}{baseline.Text, err}
+	}()
+	child := waitForTestPID(t, filepath.Join(capture, "child"))
+	t.Cleanup(func() { killProcessGroup(child) })
+	select {
+	case result := <-done:
+		if result.err != nil {
+			t.Fatalf("Baseline: %v", result.err)
+		}
+		if !strings.Contains(result.text, "OCR") {
+			t.Fatalf("Baseline text = %q, want normalized OCR", result.text)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Baseline waited for a descendant holding stdout after Xberg exited")
+	}
+	if !processGone(child) {
+		t.Fatalf("successful Xberg root left descendant %d alive", child)
+	}
+}
+
+func TestXbergFailsClosedForEscapedDescendantHoldingStdout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX process-group assertions do not run on Windows")
+	}
+	setsid, err := exec.LookPath("setsid")
+	if err != nil {
+		t.Skip("setsid is unavailable on this POSIX host")
+	}
+	oldDrainWait := xbergDrainWait
+	xbergDrainWait = 50 * time.Millisecond
+	t.Cleanup(func() { xbergDrainWait = oldDrainWait })
+	capture := t.TempDir()
+	t.Setenv("CAPTURE_DIR", capture)
+	t.Setenv("SETSID", setsid)
+	installXbergScript(t, "\"$SETSID\" /bin/sh -c 'while :; do :; done' &\necho $! > \"$CAPTURE_DIR/child\"\nprintf OCR\nexit 0\n")
+	done := make(chan error, 1)
+	go func() {
+		_, err := New(Options{}).Baseline(context.Background(), Request{Data: pngBytes(t, 8, 8), MimeType: "image/png"})
+		done <- err
+	}()
+	child := waitForTestPID(t, filepath.Join(capture, "child"))
+	t.Cleanup(func() { killProcessGroup(child) })
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "did not drain") {
+			t.Fatalf("Baseline escaped-descendant error = %v, want bounded drain failure", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Baseline hung on an escaped descendant holding stdout")
 	}
 }
 
