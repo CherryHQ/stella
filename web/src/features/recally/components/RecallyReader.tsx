@@ -408,7 +408,7 @@ export function RecallyReader({
                 {summaryExpanded && (
                   <MarkdownPreview
                     content={selectedArticle.summary}
-                    className="mt-2 text-foreground leading-relaxed"
+                    className="mt-2 text-foreground"
                   />
                 )}
               </div>

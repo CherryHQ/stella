@@ -22,7 +22,14 @@ export function MarkdownPreview({ content, className, variant = "default" }: Pro
         className,
       )}
     >
-      <Streamdown>{content}</Streamdown>
+      {/*
+        The className reaches Streamdown's own root, not a wrapper around it, so
+        `space-y-3` replaces its `space-y-4` block rhythm through tailwind-merge.
+        Everything Streamdown sets per element is retuned by the `.stella-markdown`
+        layer in globals.css. Density lives in those two places and nowhere else —
+        call sites pass layout only.
+      */}
+      <Streamdown className="stella-markdown space-y-3">{content}</Streamdown>
     </div>
   );
 }

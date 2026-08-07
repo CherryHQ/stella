@@ -133,3 +133,66 @@
     background: color-mix(in oklch, var(--muted-foreground) 32%, transparent);
   }
 }
+
+/*
+ * Markdown density.
+ *
+ * Streamdown ships spacing tuned for a wide, sparse chat column: `space-y-4`
+ * between blocks, `py-1` per list item, `mt-6 mb-2` on headings. web-design.md
+ * asks the opposite of the app surface — dense and functional, wall-of-text is
+ * a bug — so the rhythm is retuned here, in one place, instead of being fought
+ * with per-call-site overrides.
+ *
+ * The selectors key on `data-streamdown`, which the library stamps on every
+ * element it renders and documents as its styling hook. Matching its utility
+ * classes instead would break on any upgrade that renames them.
+ *
+ * Specificity, deliberately: these sit in `utilities` alongside Streamdown's
+ * own classes, and an attribute selector under a class (0,2,0) outranks the
+ * single utility class (0,1,0) it overrides — no `!important` anywhere. The one
+ * thing it does *not* outrank is `space-y-3`'s own `> :not([hidden]) ~ ...`
+ * (0,3,0), which is why block separation is set through that utility on the
+ * root and the rules below only ever touch padding or margin-bottom.
+ */
+@layer utilities {
+  .stella-markdown {
+    line-height: 1.6;
+  }
+
+  /* Was `py-1`: 8px between items reads as a gap, not a list. */
+  .stella-markdown [data-streamdown="list-item"] {
+    padding-block: 0.125rem;
+  }
+
+  /*
+   * Headings earn air above (padding, so it stacks on the 12px rhythm rather
+   * than losing to it) and none below — the rhythm already separates them.
+   */
+  .stella-markdown
+    :is(
+      [data-streamdown="heading-1"],
+      [data-streamdown="heading-2"],
+      [data-streamdown="heading-3"],
+      [data-streamdown="heading-4"],
+      [data-streamdown="heading-5"],
+      [data-streamdown="heading-6"]
+    ) {
+    padding-top: 0.5rem;
+    margin-bottom: 0;
+  }
+
+  /*
+   * `space-y-*` only sets margin-top, so every `my-*` block below leaked its
+   * bottom half and sat asymmetrically in the flow.
+   */
+  .stella-markdown
+    :is(
+      [data-streamdown="code-block"],
+      [data-streamdown="blockquote"],
+      [data-streamdown="mermaid-block"],
+      [data-streamdown="table-wrapper"],
+      [data-streamdown="horizontal-rule"]
+    ) {
+    margin-bottom: 0;
+  }
+}

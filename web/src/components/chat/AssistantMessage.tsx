@@ -172,10 +172,7 @@ function groupBlocks(blocks: ContentBlock[]): GroupedBlock[] {
 function BlockRenderer({ block }: { block: ContentBlock }) {
   if (block.type === "text")
     return (
-      <MarkdownPreview
-        content={block.text}
-        className="px-0.5 leading-relaxed text-sm text-foreground font-sans"
-      />
+      <MarkdownPreview content={block.text} className="px-0.5 text-sm text-foreground font-sans" />
     );
   if (block.type === "image")
     return (
