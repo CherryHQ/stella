@@ -128,14 +128,21 @@ func TestRelayDrainsRuntimeAfterObserverDisconnect(t *testing.T) {
 func TestRelayPreservesTransientBackpressure(t *testing.T) {
 	source := make(chan agent.Event)
 	output := relayEventsUntilDone(t.Context(), source)
+	bufferFilled := make(chan struct{})
 
 	go func() {
 		for i := range 150 {
 			source <- agent.Event{Text: fmt.Sprintf("%d", i)}
+			if i == cap(output) {
+				// The relay has received the first event beyond its output capacity
+				// and must now be applying backpressure until the reader starts.
+				close(bufferFilled)
+			}
 		}
 		close(source)
 	}()
 
+	<-bufferFilled
 	var got []string
 	for event := range output {
 		got = append(got, event.Text)
