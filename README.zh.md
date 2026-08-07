@@ -59,7 +59,7 @@ stellad server
 | 飞书     | WebSocket，无需公网 IP | Edit-in-place  |
 | 微信     | 长轮询（iLink Bot）    | 不支持         |
 
-你可以把某个渠道绑定到特定 agent，也可以让用户通过 Telegram 的 `/agent` 切换 agent。
+你可以在 Web UI 中把每个渠道绑定到特定 agent。
 
 ## 技能
 

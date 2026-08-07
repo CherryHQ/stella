@@ -36,7 +36,7 @@ Guest chat traffic is limited per guest, each channel has a durable guest cap, a
 
 Send the bot a direct message or mention it in an allowed server channel. Messages from servers not listed in **Allowed server IDs** are ignored. By default, server messages that do not mention the bot are also ignored before they enter shared history or invoke an agent. Every member who can access an allowed channel can mention the bot, so use Discord channel and role permissions for access control. Agent output cannot trigger Discord mentions such as `@everyone`.
 
-The bot supports `/start`, `/help`, `/new`, `/compact`, `/abort`, `/agent`, `/whoami`, and `/link` in direct messages. `/model` and server-channel `/agent` are not yet supported. Discord receives commands as normal text messages; you do not need to register Discord application commands.
+The bot supports `/start`, `/help`, `/new`, `/compact`, `/abort`, `/whoami`, and `/link` in direct messages. Discord receives commands as normal text messages; you do not need to register Discord application commands.
 
 Images and files up to 25 MiB are downloaded from Discord's attachment service and saved to your private assets directory when storage is available. Agent-created images and files are uploaded back to Discord.
 

@@ -105,10 +105,10 @@ func TestParseCommandArgs(t *testing.T) {
 		cmd  string
 		want string
 	}{
-		{"/agent foo", "/agent", "foo"},
-		{"/agent  bar  ", "/agent", "bar"},
-		{"/agent", "/agent", ""},
-		{"other", "/agent", "other"},
+		{"/command foo", "/command", "foo"},
+		{"/command  bar  ", "/command", "bar"},
+		{"/command", "/command", ""},
+		{"other", "/command", "other"},
 	}
 	for _, tc := range tests {
 		got := ParseCommandArgs(tc.text, tc.cmd)
@@ -124,8 +124,8 @@ func TestParseSlashCommand(t *testing.T) {
 		wantCmd  string
 		wantArgs string
 	}{
-		{text: "/model openai/gpt-4", wantCmd: "/model", wantArgs: "openai/gpt-4"},
-		{text: " /Agent stella ", wantCmd: "/agent", wantArgs: "stella"},
+		{text: "/command value", wantCmd: "/command", wantArgs: "value"},
+		{text: " /Other value ", wantCmd: "/other", wantArgs: "value"},
 		{text: "hello", wantCmd: "", wantArgs: ""},
 	}
 

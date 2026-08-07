@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 
 	tele "gopkg.in/telebot.v4"
@@ -18,23 +17,12 @@ import (
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
-// atoiOr converts a string to int, returning fallback on error.
-func atoiOr(s string, fallback int) int {
-	v, err := strconv.Atoi(s)
-	if err != nil {
-		return fallback
-	}
-	return v
-}
-
 func botCommands() []tele.Command {
 	return []tele.Command{
 		{Text: "start", Description: "Welcome & help"},
 		{Text: "new", Description: "Start a fresh session"},
 		{Text: "compact", Description: "Compress the current session in place"},
 		{Text: "abort", Description: "Cancel the in-progress response"},
-		{Text: "model", Description: "List or switch models"},
-		{Text: "agent", Description: "List or switch agents"},
 		{Text: "whoami", Description: "Show your user ID"},
 	}
 }
@@ -60,96 +48,6 @@ func (b *Bot) registerHandlers() {
 		msg := fmt.Sprintf("Your user ID: `%d`\nThis chat ID: `%d`",
 			c.Sender().ID, c.Chat().ID)
 		return c.Send(msg, tele.ModeMarkdown)
-	}))
-
-	b.bot.Handle("/agent", b.guard(true, func(c tele.Context) error {
-		return b.handleAgent(c)
-	}))
-
-	b.bot.Handle("/model", b.guard(true, func(c tele.Context) error {
-		return b.handleModel(c)
-	}))
-
-	// Handle inline keyboard callbacks for model selection via unique handler.
-	// telebot strips the "\fmodel_select|" prefix, so c.Data() = "1", "2", etc.
-	b.bot.Handle("\fmodel_select", b.guard(true, func(c tele.Context) error {
-		if handled, err := b.admitLocalCommand(c); handled || err != nil {
-			return err
-		}
-		idxStr := c.Data()
-		logger().Debug("model_select callback fired", "data", idxStr, "sender", c.Sender().ID, "chat", c.Chat().ID)
-		if err := b.switchModelByIdx(c, atoiOr(idxStr, 0)); err != nil {
-			logger().Error("model switch failed", "data", idxStr, "error", err)
-			return err
-		}
-		_ = c.Respond()
-		return c.Delete()
-	}))
-
-	// Handle pagination for model keyboard.
-	b.bot.Handle("\fmodel_page", b.guard(true, func(c tele.Context) error {
-		if handled, err := b.admitLocalCommand(c); handled || err != nil {
-			return err
-		}
-		data := c.Data()
-		pageStr, query, _ := strings.Cut(data, "|")
-		page, _ := strconv.Atoi(pageStr)
-
-		models := b.modelList(query)
-		if err := b.sendModelPage(c, models, page, query, true); err != nil {
-			logger().Error("model page failed", "page", page, "error", err)
-			return err
-		}
-		return c.Respond()
-	}))
-
-	b.bot.Handle("\fmodel_noop", b.guard(true, func(c tele.Context) error {
-		if handled, err := b.admitLocalCommand(c); handled || err != nil {
-			return err
-		}
-		return c.Respond()
-	}))
-
-	// Handle inline keyboard callbacks for agent selection.
-	b.bot.Handle("\fagent_select", b.guard(true, func(c tele.Context) error {
-		if handled, err := b.admitLocalCommand(c); handled || err != nil {
-			return err
-		}
-		idxStr := c.Data()
-		logger().Debug("agent_select callback fired", "data", idxStr, "sender", c.Sender().ID, "chat", c.Chat().ID)
-		if err := b.switchAgentByIdx(c, atoiOr(idxStr, 0)); err != nil {
-			logger().Error("agent switch failed", "data", idxStr, "error", err)
-			return err
-		}
-		_ = c.Respond()
-		return c.Delete()
-	}))
-
-	// Handle pagination for agent keyboard.
-	b.bot.Handle("\fagent_page", b.guard(true, func(c tele.Context) error {
-		if handled, err := b.admitLocalCommand(c); handled || err != nil {
-			return err
-		}
-		page, _ := strconv.Atoi(c.Data())
-
-		msg := b.incomingMsg(c, nil)
-		agents, currentAgentID, err := b.handler.ListAgents(context.Background(), msg)
-		if err != nil {
-			return c.Send(fmt.Sprintf("Error: %v", err))
-		}
-		indexed := channel.IndexAgents(agents)
-		if err := b.sendAgentPage(c, indexed, page, currentAgentID, true); err != nil {
-			logger().Error("agent page failed", "page", page, "error", err)
-			return err
-		}
-		return c.Respond()
-	}))
-
-	b.bot.Handle("\fagent_noop", b.guard(true, func(c tele.Context) error {
-		if handled, err := b.admitLocalCommand(c); handled || err != nil {
-			return err
-		}
-		return c.Respond()
 	}))
 
 	b.bot.Handle(tele.OnText, b.guard(false, func(c tele.Context) error {
@@ -186,89 +84,6 @@ func (b *Bot) handleSharedCommand(c tele.Context, cmd string) error {
 		return c.Send(resp)
 	}
 	return nil
-}
-
-// modelList returns models optionally filtered by query.
-func (b *Bot) modelList(query string) []channel.IndexedModel {
-	models := b.handler.ListModels()
-	if query == "" {
-		return channel.IndexModels(models)
-	}
-	return channel.FilterModels(models, query)
-}
-
-// handleModel processes the /model command with inline keyboard.
-func (b *Bot) handleModel(c tele.Context) error {
-	if handled, err := b.admitLocalCommand(c); handled || err != nil {
-		return err
-	}
-
-	args := strings.TrimSpace(c.Message().Payload)
-	query := channel.ParseModelArgs(args)
-
-	if query != "" && strings.Contains(query, "/") {
-		return b.switchModelByName(c, query)
-	}
-
-	models := b.modelList(query)
-	if len(models) == 0 {
-		if query != "" {
-			return c.Send(fmt.Sprintf("No models matching %q.", query))
-		}
-		return c.Send("No models configured.")
-	}
-	return b.sendModelKeyboard(c, models)
-}
-
-// handleAgent handles the /agent command with inline keyboard.
-func (b *Bot) handleAgent(c tele.Context) error {
-	msg := b.incomingMsg(c, nil)
-	if handled, err := b.admitLocalCommandMessage(c, msg); handled || err != nil {
-		return err
-	}
-
-	args := strings.TrimSpace(c.Message().Payload)
-
-	// Direct switch by slug.
-	if args != "" {
-		if err := b.handler.SwitchAgent(context.Background(), msg, args); err != nil {
-			return c.Send(fmt.Sprintf("Error switching agent: %v", err))
-		}
-		logger().Info("agent switched", "agent_id", args)
-		return c.Send(fmt.Sprintf("Switched to agent: %s", args))
-	}
-
-	agents, currentAgentID, err := b.handler.ListAgents(context.Background(), msg)
-	if err != nil {
-		return c.Send(fmt.Sprintf("Error listing agents: %v", err))
-	}
-	if len(agents) == 0 {
-		return c.Send("No agents available.")
-	}
-	return b.sendAgentKeyboard(c, channel.IndexAgents(agents), currentAgentID)
-}
-
-func (b *Bot) admitLocalCommand(c tele.Context) (bool, error) {
-	return b.admitLocalCommandMessage(c, b.incomingMsg(c, nil))
-}
-
-func (b *Bot) admitLocalCommandMessage(c tele.Context, msg channel.IncomingMessage) (bool, error) {
-	admitter, ok := b.handler.(channel.LocalCommandAdmitter)
-	if !ok {
-		return true, c.Send("This command is unavailable.")
-	}
-	ctx := b.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	resp, handled, err := admitter.AdmitLocalCommand(ctx, msg)
-	if err != nil {
-		return false, err
-	}
-	if handled {
-		return true, c.Send(resp)
-	}
-	return false, nil
 }
 
 // handleText processes incoming text messages.

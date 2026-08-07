@@ -181,21 +181,6 @@ func TestDirectMessageCanBeDisabled(t *testing.T) {
 	}
 }
 
-func TestLocalCommandsRunGuestAdmissionFirst(t *testing.T) {
-	h := &localCommandAdmissionHandler{}
-	b, err := New(Config{Token: "token", AllowDM: true}, h)
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := &discordgo.Message{ID: "message", ChannelID: "dm", Author: &discordgo.User{ID: "guest"}, Content: "/agent other"}
-	if err := b.handleMessage(context.Background(), m); err != nil {
-		t.Fatal(err)
-	}
-	if h.admissionCalls != 1 || h.listCalls != 0 || h.switchCalls != 0 {
-		t.Fatalf("calls: admission=%d list=%d switch=%d, want 1, 0, 0", h.admissionCalls, h.listCalls, h.switchCalls)
-	}
-}
-
 func TestAttachmentOwnershipIsResolvedBeforeDownload(t *testing.T) {
 	h := &rejectingAttachmentHandler{err: agentaccess.ErrForbidden}
 	b, err := New(Config{Token: "token", AllowDM: true}, h)
@@ -342,28 +327,6 @@ func (fakeHandler) ListAgents(context.Context, channel.IncomingMessage) ([]chann
 	return nil, "", nil
 }
 func (fakeHandler) SwitchAgent(context.Context, channel.IncomingMessage, string) error { return nil }
-
-type localCommandAdmissionHandler struct {
-	fakeHandler
-	admissionCalls int
-	listCalls      int
-	switchCalls    int
-}
-
-func (h *localCommandAdmissionHandler) AdmitLocalCommand(context.Context, channel.IncomingMessage) (string, bool, error) {
-	h.admissionCalls++
-	return "This command is not available in guest chat.", true, nil
-}
-
-func (h *localCommandAdmissionHandler) ListAgents(context.Context, channel.IncomingMessage) ([]channel.AgentInfo, string, error) {
-	h.listCalls++
-	return nil, "", nil
-}
-
-func (h *localCommandAdmissionHandler) SwitchAgent(context.Context, channel.IncomingMessage, string) error {
-	h.switchCalls++
-	return nil
-}
 
 type provisioningHandler struct {
 	fakeHandler

@@ -53,8 +53,6 @@ type Bot struct {
 	handler channel.Handler
 	md      goldmarkMD
 
-	mu                sync.RWMutex
-	chatModels        map[int64]channel.ModelOption
 	finalizeOnce      sync.Once
 	provisionMu       sync.RWMutex
 	provisionGroup    singleflight.Group
@@ -83,7 +81,6 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		bot:               bot,
 		handler:           handler,
 		md:                tgmd.TGMD(),
-		chatModels:        make(map[int64]channel.ModelOption),
 		provisionedGroups: make(map[string]struct{}),
 		provisionWarnings: make(map[string]struct{}),
 		cfg:               cfg,

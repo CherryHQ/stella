@@ -4,19 +4,17 @@ All channel configuration is stored in the database and managed via the Web UI (
 
 ## Agent routing
 
-- **DMs**: Use the user's default agent (set via `/agent` command)
-- **Groups**: Use the group's assigned agent (set via `/agent` command in the group)
-- **Dedicated channels**: If a channel instance has `agent_id`, all chats on that channel use the bound agent and `/agent` switching is disabled there
+- **DMs**: Use the user's default agent
+- **Groups**: Use the group's assigned agent
+- **Dedicated channels**: If a channel instance has `agent_id`, all chats on that channel use the bound agent
 - **Fallback**: First enabled agent
 
 In the Web UI, groups appear alongside agents in the main agent sidebar. A group conversation uses the same transcript and composer shape as an agent chat, plus a group monitor for member activity and shared upload context. Mention a member agent with `@<agent-id>` when you need deterministic routing in a web group.
 
 Commands available in all channels:
 
-- `/agent` -- List available agents or switch to a specific one
 - `/new` -- Start a fresh session; the previous one is archived and stays searchable
 - `/compact` -- Compress the current session in place (same session, shorter context)
-- `/model` -- Switch model interactively
 - `/whoami` -- Show your user/chat ID
 
 `/new` works in direct messages only. A group's context is shared by every
@@ -56,8 +54,7 @@ Or set `STELLA_TELEGRAM_TOKEN` env var for the token only.
 
 - Streaming responses via Draft API (Bot API 9.3+), falls back to edit-in-place
 - Image input: configure **Settings -> Vision** for ordinary-session baselines; only a model declaring image input receives active-turn pixels, and group history without a baseline uses the unavailable marker
-- Multi-agent: `/agent` to list or switch agents per DM or group
-- In-chat commands: `/new`, `/compact`, `/model`, `/agent`, `/whoami`
+- In-chat commands: `/new`, `/compact`, `/abort`, `/whoami`
 
 ### Group support
 
@@ -94,7 +91,7 @@ Discord channel config (JSON):
 }
 ```
 
-The bot connects through Discord Gateway, so Stella does not need a public webhook URL. It supports direct messages, guild channels, attachments, replies, `/agent` in direct messages, and shared channel commands. `allowed_guild_ids` is comma-separated and fail-closed: leaving it empty disables all guild messages while direct messages continue to work. `allow_dm` defaults to `true`; disable it for a guild-only bot. `require_mention` defaults to `true`, so unmentioned guild messages are ignored before reaching shared history or an agent. Every member who can access an allowed channel can mention the bot, so use Discord channel and role permissions for access control. Bind the channel instance to an agent before using it in guild channels. `/model` and guild-channel `/agent` are not yet supported. Use a Discord channel ID as an explicit notification target; do not invent one.
+The bot connects through Discord Gateway, so Stella does not need a public webhook URL. It supports direct messages, guild channels, attachments, replies, and shared channel commands. `allowed_guild_ids` is comma-separated and fail-closed: leaving it empty disables all guild messages while direct messages continue to work. `allow_dm` defaults to `true`; disable it for a guild-only bot. `require_mention` defaults to `true`, so unmentioned guild messages are ignored before reaching shared history or an agent. Every member who can access an allowed channel can mention the bot, so use Discord channel and role permissions for access control. Bind the channel instance to an agent before using it in guild channels. Use a Discord channel ID as an explicit notification target; do not invent one.
 
 Unlinked direct messages are off by default. Setting `allow_unlinked_dm: true` requires `allow_dm: true`, an enabled Discord channel, and a channel-bound agent; guests can use only that agent. Guest conversation history persists and compacts, but profile, reflection, tools, skills, files, workspace, plugins, and delegation are unavailable. Only `/link`, `/help`, `/new`, `/compact`, and `/abort` are allowed, and linking does not merge old guest history. Per-guest rate, per-channel count, and inactivity-retention limits are configurable. It still exposes model use publicly, so warn operators about cost and security and recommend a dedicated guest-safe agent whose base prompt contains no secrets.
 
@@ -123,7 +120,7 @@ Connects via WebSocket (no public URL needed). QQ supports the same channel inst
 - Native Stream API for progressive responses
 - C2C (private) and group @mention support
 - Image input support
-- Commands: `/start`, `/help`, `/new`, `/compact`, `/model`, `/whoami`
+- Commands: `/start`, `/help`, `/new`, `/compact`, `/abort`, `/whoami`
 
 ## Feishu bot
 
@@ -159,7 +156,7 @@ Connects via WebSocket (no public URL or webhook needed).
 
 - Edit-in-place streaming for progressive responses
 - Private (p2p) and group @mention support
-- Commands: `/new`, `/compact`, `/model`, `/agent`, `/whoami`
+- Commands: `/new`, `/compact`, `/abort`, `/whoami`
 - Feishu OAuth login and Feishu channel chat share `union_id`; Feishu OAuth login immediately links the channel identity to the same Stella user, with first channel message as a fallback.
 - Chat transport only.
 
@@ -195,7 +192,7 @@ Uses long-polling via iLink Bot API (no public URL needed). DM only for v1.
 - Image input/output with AES-128-ECB encryption
 - Typing indicators while processing
 - QR-code-based bot creation via Web UI
-- Commands: `/start`, `/help`, `/new`, `/compact`, `/model`, `/agent`, `/whoami`
+- Commands: `/start`, `/help`, `/new`, `/compact`, `/abort`, `/whoami`
 
 ### WeChat limitations
 

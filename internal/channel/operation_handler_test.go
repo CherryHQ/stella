@@ -17,11 +17,7 @@ const marker ctxKey = "marker"
 type fullSurfaceHandler struct {
 	handle    context.Context
 	handleCtx string
-	agentsCtx string
-	switchCtx string
-	admitCtx  string
 	assetCtx  string
-	switched  bool
 }
 
 func (h *fullSurfaceHandler) HandleIncoming(ctx context.Context, _ pkgchannel.IncomingMessage, _, _ string) (string, bool, *pkgchannel.ChatStream, error) {
@@ -30,31 +26,12 @@ func (h *fullSurfaceHandler) HandleIncoming(ctx context.Context, _ pkgchannel.In
 	return "ok", true, nil, nil
 }
 
-func (h *fullSurfaceHandler) ListModels() []pkgchannel.ModelOption {
-	return []pkgchannel.ModelOption{{Provider: "p", Model: "m"}}
-}
-func (h *fullSurfaceHandler) SwitchModel(string, string) error { return nil }
-func (h *fullSurfaceHandler) ListAgents(ctx context.Context, _ pkgchannel.IncomingMessage) ([]pkgchannel.AgentInfo, string, error) {
-	h.agentsCtx, _ = ctx.Value(marker).(string)
-	return nil, "", nil
-}
-
-func (h *fullSurfaceHandler) SwitchAgent(ctx context.Context, _ pkgchannel.IncomingMessage, _ string) error {
-	h.switchCtx, _ = ctx.Value(marker).(string)
-	h.switched = true
-	return nil
-}
 func (h *fullSurfaceHandler) RegisterBotIdentity(string, string, string)    {}
 func (h *fullSurfaceHandler) UnregisterBotIdentity(string, string, string)  {}
 func (h *fullSurfaceHandler) RegisterGroupPublisher(string, GroupPublisher) {}
 func (h *fullSurfaceHandler) UnregisterGroupPublisher(string)               {}
 func (h *fullSurfaceHandler) ProvisionUser(context.Context, pkgchannel.ProvisionRequest) error {
 	return nil
-}
-
-func (h *fullSurfaceHandler) AdmitLocalCommand(ctx context.Context, _ pkgchannel.IncomingMessage) (string, bool, error) {
-	h.admitCtx, _ = ctx.Value(marker).(string)
-	return "", false, nil
 }
 
 func (h *fullSurfaceHandler) ResolveUserRoot(context.Context, pkgchannel.IncomingMessage) (string, error) {
@@ -99,36 +76,11 @@ func TestWrapOperationHandlerUsesOperationLifetimeAndCallValues(t *testing.T) {
 	if err := inner.handle.Err(); err != nil {
 		t.Fatalf("poll cancellation leaked into accepted operation: %v", err)
 	}
-	if _, _, err := wrapped.ListAgents(callCtx, pkgchannel.IncomingMessage{}); err != nil {
-		t.Fatalf("ListAgents: %v", err)
-	}
-	if inner.agentsCtx != "poll" {
-		t.Fatalf("ListAgents value = %q, want call-scoped value", inner.agentsCtx)
-	}
-	if err := wrapped.SwitchAgent(callCtx, pkgchannel.IncomingMessage{}, "x"); err != nil {
-		t.Fatalf("SwitchAgent: %v", err)
-	}
-	if inner.switchCtx != "poll" {
-		t.Fatalf("SwitchAgent value = %q, want call-scoped value", inner.switchCtx)
-	}
-	if admitter, ok := wrapped.(pkgchannel.LocalCommandAdmitter); !ok {
-		t.Fatal("wrapper dropped LocalCommandAdmitter")
-	} else if _, _, err := admitter.AdmitLocalCommand(callCtx, pkgchannel.IncomingMessage{}); err != nil {
-		t.Fatalf("AdmitLocalCommand: %v", err)
-	}
-	if inner.admitCtx != "poll" {
-		t.Fatalf("AdmitLocalCommand value = %q, want call-scoped value", inner.admitCtx)
-	}
 	cancelOperation()
 	select {
 	case <-inner.handle.Done():
 	case <-time.After(time.Second):
 		t.Fatal("operation context cancellation did not reach accepted operation")
-	}
-
-	// ListModels/SwitchModel delegate unchanged.
-	if got := wrapped.ListModels(); len(got) != 1 || got[0].Model != "m" {
-		t.Fatalf("ListModels did not delegate: %v", got)
 	}
 }
 
@@ -144,9 +96,6 @@ func TestWrapOperationHandlerPreservesOptionalInterfaces(t *testing.T) {
 	}
 	if _, ok := wrapped.(pkgchannel.UserRootResolver); !ok {
 		t.Error("wrapper dropped UserRootResolver")
-	}
-	if _, ok := wrapped.(pkgchannel.LocalCommandAdmitter); !ok {
-		t.Error("wrapper dropped LocalCommandAdmitter")
 	}
 	assetSaver, ok := wrapped.(pkgchannel.AssetSaver)
 	if !ok {

@@ -34,17 +34,6 @@ All channel configuration (token, allowed IDs, dedicated agent binding, etc.) is
 
 Each Telegram user is automatically identified from their platform identity. Sessions are scoped per user per agent, so different users keep separate conversation histories. No manual user setup is required.
 
-## Agent Switching
-
-You can switch between available agents using the `/agent` command:
-
-- `/agent` -- list all available agents
-- `/agent <name>` -- switch to a specific agent
-
-In DMs, this sets your default agent. In groups, it sets the active agent for the entire group.
-
-If a channel instance is bound to a dedicated agent in the Web UI, all chats on that bot use the bound agent and `/agent` switching is disabled.
-
 ## Streaming Responses
 
 The bot streams LLM responses in real time using two strategies:
@@ -119,10 +108,6 @@ Used by:
 - The `notify` agent tool (in server mode)
 - Scheduler job result broadcasting
 
-## Model Switching
-
-You can switch models mid-conversation using the `/model` command, which opens an inline keyboard. The model list is paginated with text filtering support.
-
 ## Commands
 
 | Command             | Description                                               |
@@ -131,11 +116,6 @@ You can switch models mid-conversation using the `/model` command, which opens a
 | `/new`              | Start a fresh session (previous history stays searchable) |
 | `/compact`          | Compress the current session in place                     |
 | `/abort`            | Cancel the in-progress response                           |
-| `/model`            | List available models                                     |
-| `/model <number>`   | Switch to model by number                                 |
-| `/model <query>`    | Filter models by name                                     |
-| `/agent`            | List available agents                                     |
-| `/agent <name>`     | Switch active agent (user default in DM, group in chat)   |
 | `/whoami`           | Show your user ID                                         |
 
 `/new` works in a direct message only. A group's context is shared by everyone in it, so `/new` in a group replies that the shared session cannot be reset and changes nothing; the command itself never becomes part of the group's history. See [Memory](/docs/guides/memory) for what a fresh session keeps.

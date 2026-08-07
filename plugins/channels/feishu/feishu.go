@@ -84,7 +84,6 @@ type Bot struct {
 	botOpenID atomic.Value // bot's own open_id (string), fetched on startup
 
 	mu            sync.RWMutex
-	chatModels    map[string]channel.ModelOption
 	seenMsgs      map[string]time.Time // message ID -> first seen time
 	lastSeenSweep time.Time            // last time seenMsgs was swept
 
@@ -115,7 +114,6 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 
 	b := &Bot{
 		handler:     handler,
-		chatModels:  make(map[string]channel.ModelOption),
 		seenMsgs:    make(map[string]time.Time),
 		provisioned: make(map[string]time.Time),
 		cfg:         cfg,

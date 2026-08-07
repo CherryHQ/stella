@@ -59,7 +59,7 @@ All channels share the same memory. Chat from one, switch to another, and Stella
 | Feishu   | WebSocket, no public IP    | Edit-in-place     |
 | WeChat   | Long polling (iLink Bot)   | No                |
 
-You can bind a channel to a specific agent, or let users switch agents with `/agent`.
+You can bind each channel to a specific agent in the Web UI.
 
 ## Skills
 

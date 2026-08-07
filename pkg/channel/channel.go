@@ -50,32 +50,9 @@ type MessageHandler interface {
 	HandleIncoming(ctx context.Context, msg IncomingMessage, command, args string) (string, bool, *ChatStream, error)
 }
 
-// ModelManager provides model listing and switching for channel plugins
-// that support the /model command.
-type ModelManager interface {
-	// ListModels returns available models.
-	ListModels() []ModelOption
-
-	// SwitchModel switches the active model.
-	SwitchModel(provider, model string) error
-}
-
-// AgentManager provides agent listing and switching for channel plugins
-// that support the /agent command.
-type AgentManager interface {
-	// ListAgents returns enabled agents the user can access and the current agent ID.
-	ListAgents(ctx context.Context, msg IncomingMessage) ([]AgentInfo, string, error)
-
-	// SwitchAgent switches the active agent for this chat context.
-	SwitchAgent(ctx context.Context, msg IncomingMessage, agentSlug string) error
-}
-
-// Handler combines message routing with model and agent management.
-// Channel plugins typically need all three capabilities.
+// Handler is the message-routing contract used by channel plugins.
 type Handler interface {
 	MessageHandler
-	ModelManager
-	AgentManager
 }
 
 // IncomingMessage is the normalised input from any platform.
@@ -188,13 +165,6 @@ type Provisioner interface {
 // writable root path (e.g. to store uploaded files) before calling HandleIncoming.
 type UserRootResolver interface {
 	ResolveUserRoot(ctx context.Context, msg IncomingMessage) (string, error)
-}
-
-// LocalCommandAdmitter is an optional capability for channel-specific commands
-// that are handled before Handler.HandleIncoming. It lets the host apply guest
-// admission policy and rate limits without duplicating them in a plugin.
-type LocalCommandAdmitter interface {
-	AdmitLocalCommand(ctx context.Context, msg IncomingMessage) (response string, handled bool, err error)
 }
 
 // BotRegistrar is an optional capability that a Handler may implement.

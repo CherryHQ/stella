@@ -223,11 +223,10 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	incoming.Timestamp = feishuEventTime(derefStr(msg.CreateTime))
 	incoming.Mentions = feishuMentions(mentions)
 
-	// Handle plugin-local commands first.
+	// Handle the plugin-local OAuth shortcut first.
 	if text != "" {
 		cmd, args := channel.ParseSlashCommand(text)
-		switch cmd {
-		case "/auth":
+		if cmd == "/auth" {
 			provider := "feishu"
 			if args != "" {
 				provider = strings.TrimSpace(args)
@@ -240,18 +239,6 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 			authMsg.Timestamp = feishuEventTime(derefStr(msg.CreateTime))
 			authMsg.Mentions = feishuMentions(mentions)
 			go b.handleIncoming(authMsg, "", "", authMsg.SenderID, chatID, messageID, rootID, replyFn)
-			return nil
-		case "/model":
-			if handled, err := b.admitLocalCommand(ctx, incoming, replyFn); handled || err != nil {
-				return err
-			}
-			b.handleModelCommand(args, replyFn)
-			return nil
-		case "/agent":
-			if handled, err := b.admitLocalCommand(ctx, incoming, replyFn); handled || err != nil {
-				return err
-			}
-			b.handleAgentCommand(incoming, args, replyFn)
 			return nil
 		}
 	}
@@ -267,22 +254,6 @@ func attachmentRejectionText(err error) string {
 		return "Guest chat currently supports text messages only."
 	}
 	return "Unable to process this attachment right now."
-}
-
-func (b *Bot) admitLocalCommand(ctx context.Context, msg channel.IncomingMessage, reply func(string)) (bool, error) {
-	admitter, ok := b.handler.(channel.LocalCommandAdmitter)
-	if !ok {
-		reply("This command is unavailable.")
-		return true, nil
-	}
-	response, handled, err := admitter.AdmitLocalCommand(ctx, msg)
-	if err != nil {
-		return false, err
-	}
-	if handled {
-		reply(response)
-	}
-	return handled, nil
 }
 
 func (b *Bot) onMessageRead(_ context.Context, _ *larkim.P2MessageReadV1) error {

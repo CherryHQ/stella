@@ -15,7 +15,6 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/vault"
@@ -40,7 +39,7 @@ type feishuEnroller interface {
 
 // Coordinator implements pkgchannel.Handler. It owns all business logic
 // that channels previously called directly: user/agent resolution, session
-// management, command handling, account linking, and model/agent switching.
+// management, command handling, and account linking.
 // A per-session message queue ensures that only one chat turn runs at a time
 // per resolved Stella session; later messages are serialised in arrival order.
 // userInvalidator is satisfied by *agent.PoolManager so the coordinator can
@@ -394,22 +393,6 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 	return c.handleResolvedIncoming(ctx, rc, msg, command, args)
 }
 
-// AdmitLocalCommand applies guest admission to commands a channel plugin must
-// handle locally. Linked users continue to the plugin-specific implementation.
-func (c *Coordinator) AdmitLocalCommand(ctx context.Context, msg pkgchannel.IncomingMessage) (string, bool, error) {
-	rc, err := c.resolve(ctx, msg)
-	if err != nil {
-		return "", false, err
-	}
-	if rc.GuestID == "" {
-		return "", false, nil
-	}
-	if !c.guestLimiter.allow(rc.GuestID, rc.GuestMessageLimitPerMinute) {
-		return "Guest message rate limit exceeded. Try again in a minute.", true, nil
-	}
-	return "This command is not available in guest chat.", true, nil
-}
-
 func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
 	if rc.GuestID != "" {
 		if !textOnly(msg.Content) {
@@ -605,65 +588,6 @@ func (c *Coordinator) chatWithRC(ctx context.Context, rc *ResolvedChat, content 
 		Events:    out,
 		SessionID: sessionID,
 	}, nil
-}
-
-// ListAgents returns enabled agents the user can access and the current agent ID.
-func (c *Coordinator) ListAgents(ctx context.Context, msg pkgchannel.IncomingMessage) ([]pkgchannel.AgentInfo, string, error) {
-	rc, err := c.resolve(ctx, msg)
-	if err != nil {
-		return nil, "", err
-	}
-
-	authority, err := channelUserAuthority(rc.User)
-	if err != nil {
-		return nil, "", err
-	}
-	ac := NewAgentCommander(c.store, c.auth, c.agentAccess)
-	agents, err := ac.ListForChat(ctx, authority, rc.ChatCtx)
-	if err != nil {
-		return nil, "", err
-	}
-
-	infos := make([]pkgchannel.AgentInfo, len(agents))
-	for i, a := range agents {
-		infos[i] = pkgchannel.AgentInfo{ID: a.ID, Name: a.Name}
-	}
-	return infos, rc.AgentID, nil
-}
-
-// SwitchAgent switches the active agent for the chat context.
-func (c *Coordinator) SwitchAgent(ctx context.Context, msg pkgchannel.IncomingMessage, agentSlug string) error {
-	rc, err := c.resolve(ctx, msg)
-	if err != nil {
-		return err
-	}
-
-	authority, err := channelUserAuthority(rc.User)
-	if err != nil {
-		return err
-	}
-	ac := NewAgentCommander(c.store, c.auth, c.agentAccess)
-	return ac.Switch(ctx, authority, rc.User, rc.ChatCtx, agentSlug)
-}
-
-// channelUserAuthority converts a resolved, persisted user into the same trusted
-// authority used by HTTP. An unlinked channel user has no authority and cannot
-// enumerate or switch agents.
-func channelUserAuthority(user auth.User) (authz.Authority, error) {
-	if user.ID == "" {
-		return authz.Authority{}, agentaccess.ErrForbidden
-	}
-	return (auth.Subject{UserID: user.ID, Roles: []string{user.Role}}).Authority()
-}
-
-// ListModels returns available models.
-func (c *Coordinator) ListModels() []pkgchannel.ModelOption {
-	return c.listFn()
-}
-
-// SwitchModel switches the active model.
-func (c *Coordinator) SwitchModel(provider, model string) error {
-	return c.switchFn(provider, model)
 }
 
 func convertEvent(evt agent.Event) pkgchannel.Event {

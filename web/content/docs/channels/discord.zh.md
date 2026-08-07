@@ -36,7 +36,7 @@ title: Discord 机器人
 
 向机器人发送私信，或在允许的服务器频道中 @提及它。未列入**允许的服务器 ID** 的服务器消息会被忽略。默认情况下，未 @提及机器人的服务器消息也会在进入共享历史或调用 agent 前被忽略。任何能访问允许频道的成员都可以 @机器人，因此请使用 Discord 频道和 Role 权限控制访问。Agent 输出不会触发 `@everyone` 等 Discord 提及。
 
-机器人在私信中支持 `/start`、`/help`、`/new`、`/compact`、`/abort`、`/agent`、`/whoami` 和 `/link`。暂不支持 `/model` 和服务器频道中的 `/agent`。Discord 将命令作为普通文本消息接收，无需注册 Discord application commands。
+机器人在私信中支持 `/start`、`/help`、`/new`、`/compact`、`/abort`、`/whoami` 和 `/link`。Discord 将命令作为普通文本消息接收，无需注册 Discord application commands。
 
 机器人会从 Discord 附件服务下载不超过 25 MiB 的图片和文件，并在存储可用时保存到你的私有 assets 目录。Agent 生成的图片和文件也可上传回 Discord。
 

@@ -34,7 +34,6 @@ func newThreadRoutingBotWithHandler(t *testing.T) (*Bot, *mockHandler, <-chan ch
 	b := &Bot{
 		handler:     h,
 		cfg:         Config{AppID: "a", AppSecret: "s", AllowedChatIDs: "oc_chat", AllowDM: true, RequireMention: false},
-		chatModels:  make(map[string]channel.ModelOption),
 		seenMsgs:    make(map[string]time.Time),
 		provisioned: make(map[string]time.Time),
 	}
@@ -391,63 +390,6 @@ func TestOnMessageFileResolveUserRootPreservesThreadID(t *testing.T) {
 	msg := waitMessage(t, captured)
 	if msg.ThreadID != "om_root" {
 		t.Errorf("ThreadID = %q, want %q", msg.ThreadID, "om_root")
-	}
-}
-
-type localCommandAdmissionHandler struct {
-	*mockHandler
-	admitted        chan channel.IncomingMessage
-	handled         bool
-	listModelsCalls int
-	listAgentsCalls int
-}
-
-func (h *localCommandAdmissionHandler) AdmitLocalCommand(_ context.Context, msg channel.IncomingMessage) (string, bool, error) {
-	h.admitted <- msg
-	return "This command is not available in guest chat.", h.handled, nil
-}
-
-func (h *localCommandAdmissionHandler) ListModels() []channel.ModelOption {
-	h.listModelsCalls++
-	return nil
-}
-
-func (h *localCommandAdmissionHandler) ListAgents(context.Context, channel.IncomingMessage) ([]channel.AgentInfo, string, error) {
-	h.listAgentsCalls++
-	return nil, "", nil
-}
-
-func TestLocalCommandsAdmitSenderBeforeSideEffects(t *testing.T) {
-	for _, command := range []string{"/model", "/agent"} {
-		t.Run(command, func(t *testing.T) {
-			b, base, captured := newThreadRoutingBotWithHandler(t)
-			h := &localCommandAdmissionHandler{mockHandler: base, admitted: make(chan channel.IncomingMessage, 1), handled: true}
-			b.handler = h
-			if err := b.onMessage(context.Background(), textReceiveEvent("oc_chat", "group", "om_command", "om_root", "", command)); err != nil {
-				t.Fatal(err)
-			}
-			admitted := waitMessage(t, h.admitted)
-			if admitted.SenderID != "on_sender" || len(admitted.SenderIDs) == 0 || admitted.ThreadID != "om_root" {
-				t.Fatalf("admission sender context = %#v", admitted)
-			}
-			if h.listModelsCalls != 0 || h.listAgentsCalls != 0 {
-				t.Fatalf("local side effects occurred: models=%d agents=%d", h.listModelsCalls, h.listAgentsCalls)
-			}
-			assertNoMessage(t, captured)
-		})
-	}
-}
-
-func TestLocalCommandAdmissionPreservesLinkedBehavior(t *testing.T) {
-	b, base, _ := newThreadRoutingBotWithHandler(t)
-	h := &localCommandAdmissionHandler{mockHandler: base, admitted: make(chan channel.IncomingMessage, 1)}
-	b.handler = h
-	if err := b.onMessage(context.Background(), textReceiveEvent("oc_chat", "group", "om_linked", "", "", "/model")); err != nil {
-		t.Fatal(err)
-	}
-	_ = waitMessage(t, h.admitted)
-	if h.listModelsCalls != 1 {
-		t.Fatalf("linked /model list calls = %d, want 1", h.listModelsCalls)
 	}
 }
 
