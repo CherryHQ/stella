@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"unicode/utf8"
@@ -31,7 +32,11 @@ func (s *Server) ListLibraryFiles(w http.ResponseWriter, r *http.Request, params
 		return
 	}
 	scope := library.Scope(params.Scope)
-	agentID := libraryParamString(params.AgentId)
+	agentID, validAgentID := libraryAgentIDParam(params.AgentId)
+	if !validAgentID {
+		writeError(w, http.StatusBadRequest, "agent_id must not be empty")
+		return
+	}
 	query := strings.TrimSpace(libraryParamString(params.Q))
 	if utf8.RuneCountInString(query) > maxLibraryFileSearchRunes {
 		writeError(w, http.StatusBadRequest, "q must be at most 200 characters")
@@ -100,7 +105,11 @@ func (s *Server) CreateLibraryFile(w http.ResponseWriter, r *http.Request, param
 		return
 	}
 	scope := library.Scope(params.Scope)
-	agentID := libraryParamString(params.AgentId)
+	agentID, validAgentID := libraryAgentIDParam(params.AgentId)
+	if !validAgentID {
+		writeError(w, http.StatusBadRequest, "agent_id must not be empty")
+		return
+	}
 	if _, err := svc.ResolveManageOwner(r.Context(), authority, scope, agentID); err != nil {
 		s.writeLibraryFileError(w, err)
 		return
@@ -113,7 +122,16 @@ func (s *Server) CreateLibraryFile(w http.ResponseWriter, r *http.Request, param
 		return
 	}
 	part, err := reader.NextPart()
-	if err != nil || part.FormName() != "file" || part.FileName() == "" {
+	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			s.writeLibraryFileError(w, err)
+		} else {
+			writeError(w, http.StatusBadRequest, "invalid multipart form")
+		}
+		return
+	}
+	if part.FormName() != "file" || part.FileName() == "" {
 		writeError(w, http.StatusBadRequest, "file is required")
 		return
 	}
@@ -175,6 +193,7 @@ func (s *Server) libraryFileAccess(w http.ResponseWriter, r *http.Request) (auth
 
 func (s *Server) writeLibraryFileError(w http.ResponseWriter, err error) {
 	var quotaErr *library.QuotaExceededError
+	var maxBytesErr *http.MaxBytesError
 	switch {
 	case errors.Is(err, library.ErrNotFound):
 		writeError(w, http.StatusNotFound, "library file not found")
@@ -190,6 +209,10 @@ func (s *Server) writeLibraryFileError(w http.ResponseWriter, err error) {
 		writeErrorDetails(w, http.StatusRequestEntityTooLarge, "library file exceeds 25 MiB", map[string]any{
 			"code": "file_too_large", "max_bytes": library.MaxFileBytes,
 		})
+	case errors.As(err, &maxBytesErr):
+		writeErrorDetails(w, http.StatusRequestEntityTooLarge, "library upload exceeds the request size limit", map[string]any{
+			"code": "request_too_large", "max_bytes": maxBytesErr.Limit,
+		})
 	case errors.As(err, &quotaErr):
 		writeErrorDetails(w, http.StatusTooManyRequests, "library quota exceeded", map[string]any{
 			"code":       "quota_exceeded",
@@ -198,8 +221,12 @@ func (s *Server) writeLibraryFileError(w http.ResponseWriter, err error) {
 			"used_bytes": quotaErr.Quota.UsedBytes,
 			"max_bytes":  quotaErr.Quota.MaxBytes,
 		})
-	case errors.Is(err, library.ErrSpoolCapacity), errors.Is(err, library.ErrServiceUnavailable):
+	case errors.Is(err, library.ErrSpoolCapacity),
+		errors.Is(err, library.ErrRawStorageDegraded),
+		errors.Is(err, library.ErrServiceUnavailable):
 		writeError(w, http.StatusServiceUnavailable, "library management is temporarily unavailable")
+	case errors.Is(err, io.ErrUnexpectedEOF):
+		writeError(w, http.StatusBadRequest, "incomplete library file upload")
 	default:
 		s.writeInternalError(w, err)
 	}
@@ -239,4 +266,14 @@ func libraryParamString[T ~string](value *T) string {
 		return ""
 	}
 	return string(*value)
+}
+
+// libraryAgentIDParam preserves the difference between an omitted optional
+// query parameter and an explicitly empty value rejected by the API contract.
+func libraryAgentIDParam[T ~string](value *T) (string, bool) {
+	if value == nil {
+		return "", true
+	}
+	agentID := string(*value)
+	return agentID, agentID != ""
 }

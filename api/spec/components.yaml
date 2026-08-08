@@ -2190,7 +2190,7 @@ components:
           readOnly: true
     LibraryFileList:
       type: object
-      required: [library_files, quota]
+      required: [library_files, next_page_token, quota]
       properties:
         library_files:
           type: array

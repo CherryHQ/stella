@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"math"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -57,6 +58,15 @@ func attachLibraryService(t *testing.T, env *testEnv) *library.Service {
 	if err != nil {
 		t.Fatalf("library.NewFSRawStore: %v", err)
 	}
+	return attachLibraryServiceWithRawStore(t, env, rawStore)
+}
+
+func attachLibraryServiceWithRawStore(
+	t *testing.T,
+	env *testEnv,
+	rawStore library.RawStore,
+) *library.Service {
+	t.Helper()
 	riverClient, err := river.NewClient(riverpgxv5.New(env.db), &river.Config{})
 	if err != nil {
 		t.Fatalf("river.NewClient: %v", err)
@@ -214,7 +224,24 @@ func TestLibraryFilePageTokenIsBoundToScopeAgentAndQuery(t *testing.T) {
 	if len(first.LibraryFiles) != 1 || first.NextPageToken == nil || *first.NextPageToken == "" {
 		t.Fatalf("first page = %+v, want one item and next token", first)
 	}
-	second := listLibraryFiles(t, env, userToken, "scope=user&page_size=1&page_token="+url.QueryEscape(*first.NextPageToken))
+	secondPath := "/api/library-files?scope=user&page_size=1&page_token=" + url.QueryEscape(*first.NextPageToken)
+	secondResponse := doRequestWithSession(t, env.srv, userToken, http.MethodGet, secondPath, nil)
+	if secondResponse.Code != http.StatusOK {
+		t.Fatalf("second page status = %d, want 200 (body: %s)", secondResponse.Code, secondResponse.Body.String())
+	}
+	secondData := parseResponse(t, secondResponse).Data
+	var secondEnvelope map[string]json.RawMessage
+	if err := json.Unmarshal(secondData, &secondEnvelope); err != nil {
+		t.Fatalf("decode second page envelope: %v", err)
+	}
+	nextPageTokenJSON, ok := secondEnvelope["next_page_token"]
+	if !ok || string(nextPageTokenJSON) != "null" {
+		t.Fatalf("terminal next_page_token = %s (present: %t), want explicit null", nextPageTokenJSON, ok)
+	}
+	var second libraryFileAPIList
+	if err := json.Unmarshal(secondData, &second); err != nil {
+		t.Fatalf("decode second page: %v", err)
+	}
 	if len(second.LibraryFiles) != 1 || second.NextPageToken != nil || second.LibraryFiles[0].ID == first.LibraryFiles[0].ID {
 		t.Fatalf("second page = %+v, want distinct final item", second)
 	}
@@ -314,6 +341,23 @@ func TestLibraryFileUploadValidationAndUnavailableCapability(t *testing.T) {
 		t.Fatalf("unwired library status = %d, want 503", rr.Code)
 	}
 	attachLibraryService(t, env)
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		var response *httptest.ResponseRecorder
+		if method == http.MethodGet {
+			response = doRequestWithSession(
+				t, env.srv, env.bearerToken, method,
+				"/api/library-files?scope=user&agent_id=", nil,
+			)
+		} else {
+			response = doMultipartRequestWithSession(
+				t, env.srv.Handler(), env.bearerToken, method,
+				"/api/library-files?scope=user&agent_id=", "file", "empty-agent.txt", []byte("value"),
+			)
+		}
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("%s with empty agent_id status = %d, want 400 (body: %s)", method, response.Code, response.Body.String())
+		}
+	}
 
 	for name, wantStatus := range map[string]int{
 		"unsupported.csv": http.StatusBadRequest,
@@ -343,6 +387,53 @@ func TestLibraryFileUploadValidationAndUnavailableCapability(t *testing.T) {
 		t.Fatalf("oversized upload status = %d, want 413 (body: %s)", rr.Code, rr.Body.String())
 	}
 
+	// A multipart preamble is transport framing rather than file content. It can
+	// therefore exceed the request limit before the domain file limit is reached.
+	var expandedBody bytes.Buffer
+	expandedBody.Write(bytes.Repeat(
+		[]byte("preamble\r\n"),
+		int((library.MaxFileBytes+(1<<20))/int64(len("preamble\r\n")))+1,
+	))
+	expandedWriter := multipart.NewWriter(&expandedBody)
+	expandedPart, err := expandedWriter.CreateFormFile("file", "expanded.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := expandedPart.Write([]byte("value")); err != nil {
+		t.Fatal(err)
+	}
+	if err := expandedWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	expandedReq := httptest.NewRequest(http.MethodPost, "/api/library-files?scope=user", &expandedBody)
+	setLibraryTestAuth(expandedReq, env.bearerToken)
+	expandedReq.Header.Set("Content-Type", expandedWriter.FormDataContentType())
+	rr = httptest.NewRecorder()
+	env.srv.Handler().ServeHTTP(rr, expandedReq)
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("multipart transport limit status = %d, want 413 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	// An interrupted multipart file must be reported as invalid input rather
+	// than as a server failure.
+	var truncatedBody bytes.Buffer
+	truncatedWriter := multipart.NewWriter(&truncatedBody)
+	truncatedPart, err := truncatedWriter.CreateFormFile("file", "truncated.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := truncatedPart.Write([]byte("partial")); err != nil {
+		t.Fatal(err)
+	}
+	truncatedReq := httptest.NewRequest(http.MethodPost, "/api/library-files?scope=user", &truncatedBody)
+	setLibraryTestAuth(truncatedReq, env.bearerToken)
+	truncatedReq.Header.Set("Content-Type", truncatedWriter.FormDataContentType())
+	rr = httptest.NewRecorder()
+	env.srv.Handler().ServeHTTP(rr, truncatedReq)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("truncated upload status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+
 	// The API accepts exactly the documented file part; scope and Agent stay in
 	// trusted query parameters so authorization never depends on multipart order.
 	var body strings.Builder
@@ -360,5 +451,22 @@ func TestLibraryFileUploadValidationAndUnavailableCapability(t *testing.T) {
 	env.srv.Handler().ServeHTTP(rr, req)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("missing file part status = %d, want 400", rr.Code)
+	}
+}
+
+func TestLibraryFileUploadRawStorageDegradedIsUnavailable(t *testing.T) {
+	env := setupAdmin(t)
+	rawStore, err := library.NewFSRawStore(t.TempDir(), math.MaxInt64)
+	if err != nil {
+		t.Fatalf("library.NewFSRawStore: %v", err)
+	}
+	attachLibraryServiceWithRawStore(t, env, rawStore)
+
+	rr := doMultipartRequestWithSession(
+		t, env.srv.Handler(), env.bearerToken, http.MethodPost,
+		"/api/library-files?scope=user", "file", "degraded.txt", []byte("value"),
+	)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("degraded RawStore status = %d, want 503 (body: %s)", rr.Code, rr.Body.String())
 	}
 }

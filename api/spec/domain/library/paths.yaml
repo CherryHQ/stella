@@ -119,9 +119,13 @@ paths:
               schema: {
                 $ref: "../../components.yaml#/components/schemas/LibraryFile",
               }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
         "503": {
           $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
@@ -132,9 +136,13 @@ paths:
       operationId: deleteLibraryFile
       responses:
         "204": { description: deleted }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
         "503": {
           $ref: "../../components.yaml#/components/responses/ServiceUnavailable",
