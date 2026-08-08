@@ -300,9 +300,20 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	}
 	if cfg.SkillStore != nil {
 		stellaHome := paths.StellaHome
-		toolProjectRoot := paths.ProjectRoot
+		// Project access below is mediated by the active Filesystem; never hand the
+		// host project coordinate to the runner Skills tool.
+		toolProjectRoot := ""
 		view := skillRuntimeView(ctx, cfg, paths)
+		fsSession, ok := session.(pkgsandbox.FilesystemSession)
+		if !ok {
+			return nil, nil, fmt.Errorf("runner: sandbox session lacks filesystem capability for skills tool")
+		}
+		runtimeProjectRoot, err := runtimeProjectSkillRoot(paths, fsSession)
+		if err != nil {
+			return nil, nil, fmt.Errorf("runner: %w", err)
+		}
 		registerNonCore(skillstool.NewTool(cfg.SkillStore, stellaHome, toolProjectRoot).
+			WithRuntimeFilesystem(fsSession, runtimeProjectRoot).
 			WithSkillDirView(view).
 			WithPluginVisibility(cfg.PluginView.RegisteredPluginIDs, cfg.PluginView.EnabledPluginIDs).
 			WithAgentSkillPolicy(cfg.DisabledSkillRefs).
