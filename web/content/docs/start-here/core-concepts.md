@@ -28,11 +28,11 @@ Memory is what lets an agent know a person over time. Stella supports per-user, 
 
 Stella can also use shared user memory when you want multiple agents to remember the same preferences.
 
-## Knowledge
+## Library
 
-Knowledge is the agent's professional reference material: policies, process documents, examples, playbooks, PDFs, saved articles, or team-specific context.
+The Library is the agent's professional reference material: policies, process documents, examples, playbooks, or team-specific context that a user or administrator intentionally uploads.
 
-Knowledge should answer "what does this agent need to know to do this job well?"
+The Library should answer "what does this agent need to know to do this job well?" It is searched when a conversation needs evidence; ordinary chat attachments do not enter it automatically.
 
 ## Skills
 

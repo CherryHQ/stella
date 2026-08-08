@@ -33,6 +33,33 @@ func TestToolExecution(t *testing.T) {
 	}
 }
 
+func TestToolExecutionEnforcesPerRunCallLimit(t *testing.T) {
+	const name = "library.search"
+	actualCalls := 0
+	toolSet := ToolSet{name: func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		actualCalls++
+		return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
+	}}
+	ctx := withToolCallLimits(context.Background(), map[string]int{name: 2})
+	results, err := executeToolCalls(ctx, []ai.ToolCall{
+		{ID: "1", Name: name},
+		{ID: "2", Name: name},
+		{ID: "3", Name: name},
+	}, toolSet, toolCallbacks{}, nil, hooks.HookMeta{}, nil, nil)
+	if err != nil {
+		t.Fatalf("executeToolCalls: %v", err)
+	}
+	if actualCalls != 2 {
+		t.Fatalf("actual calls = %d, want 2", actualCalls)
+	}
+	if len(results) != 3 || results[0].IsError || results[1].IsError || !results[2].IsError {
+		t.Fatalf("results = %+v, want two successes followed by one limit error", results)
+	}
+	if got := ai.FlattenText(results[2].Content); !strings.Contains(got, "at most 2 times") {
+		t.Fatalf("limit result = %q", got)
+	}
+}
+
 func TestToolExecutionToolError(t *testing.T) {
 	calls := []ai.ToolCall{{ID: "1", Name: "fail"}}
 	tools := ToolSet{

@@ -45,7 +45,7 @@ Engineering describes Stella in feature language. Users don't buy features; they
 | Telegram / Discord / QQ / Feishu / WeChat / Web channels | It shows up in the group chat you already live in — no new app to install                              |
 | Skills, tools, sandbox policy                            | It does the work, not just chats — and only within boundaries you set                                  |
 | Self-hosted, bring-your-own model keys                   | Your data and your keys stay on infrastructure you control                                             |
-| Knowledge base + permissions                             | The agent answers from _your_ docs, and only shows each person what they're allowed to see             |
+| Library + permissions                                    | The agent answers from _your_ docs, and only shows each person what they're allowed to see             |
 | Scheduler / durable jobs                                 | Reminders, digests, and recurring work keep running and notify the right people                        |
 
 The test for any marketing sentence: a reader should feel **"this is about me,"** not "this is impressive engineering." If a sentence only makes sense to someone who already knows the architecture, it belongs in `development/`, not on a landing page.

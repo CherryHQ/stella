@@ -3,12 +3,43 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/hooks"
 )
+
+type toolCallLimitKey struct{}
+
+type toolCallBudget struct {
+	limits map[string]int
+	used   map[string]int
+}
+
+func withToolCallLimits(ctx context.Context, limits map[string]int) context.Context {
+	if _, ok := ctx.Value(toolCallLimitKey{}).(*toolCallBudget); ok || len(limits) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, toolCallLimitKey{}, &toolCallBudget{
+		limits: limits,
+		used:   make(map[string]int),
+	})
+}
+
+func consumeToolCall(ctx context.Context, name string) (bool, int) {
+	budget, _ := ctx.Value(toolCallLimitKey{}).(*toolCallBudget)
+	if budget == nil || budget.limits[name] <= 0 {
+		return true, 0
+	}
+	limit := budget.limits[name]
+	if budget.used[name] >= limit {
+		return false, limit
+	}
+	budget.used[name]++
+	return true, limit
+}
 
 // toolCallbacks emits progress events around tool execution.
 type toolCallbacks struct {
@@ -139,6 +170,20 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		}
 
 		// Execute tool with (possibly rewritten) args.
+		if allowed, limit := consumeToolCall(execCtx, call.Name); !allowed {
+			message := fmt.Sprintf("tool call limit reached: %s may run at most %d times for this user message", call.Name, limit)
+			runPostToolCall(execCtx, args, message, true, 0)
+			result := ai.ToolResultMessage{
+				ToolCallID: call.ID,
+				ToolName:   call.Name,
+				IsError:    true,
+				Content:    []ai.ContentBlock{ai.TextContent{Text: message}},
+			}
+			if err := appendFinal(result); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		execCall := call
 		execCall.Arguments = args
 		start := time.Now()

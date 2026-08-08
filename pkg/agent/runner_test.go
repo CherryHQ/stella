@@ -119,3 +119,18 @@ func TestNewRunner_CopiesToolsAndDefs(t *testing.T) {
 		t.Errorf("expected 1 def, got %d", len(r.toolDefs))
 	}
 }
+
+func TestNewRunnerCopiesPositiveToolCallLimits(t *testing.T) {
+	limits := map[string]int{"library.search": 2, "ignored": 0}
+	r, err := NewRunner(RunnerConfig{Stream: fakeStream, ToolCallLimits: limits})
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits["library.search"] = 99
+	if got := r.toolCallLimits["library.search"]; got != 2 {
+		t.Fatalf("copied limit = %d, want 2", got)
+	}
+	if _, ok := r.toolCallLimits["ignored"]; ok {
+		t.Fatal("non-positive call limit was retained")
+	}
+}
