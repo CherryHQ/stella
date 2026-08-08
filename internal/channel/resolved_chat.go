@@ -229,7 +229,17 @@ func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store conf
 
 	var guestID, agentID string
 	guestMessageLimitPerMinute := 0
-	if resolved.User.ID == "" && !isGroup {
+	switch {
+	case isGroup && groupID != "":
+		// A platform group speaks through its persisted channel binding. Sender
+		// identity must not gate the group agent: most group members are not
+		// expected to have Stella accounts.
+		channel, channelErr := validatePlatformChannel(ctx, store, platform, channelID)
+		if channelErr != nil {
+			return nil, fmt.Errorf("resolve group agent: %w", channelErr)
+		}
+		agentID = channel.AgentID
+	case resolved.User.ID == "" && !isGroup:
 		channel, channelErr := store.GetChannel(ctx, channelID)
 		if senderID == "" || channelErr != nil || channel.Type != platform || channel.AgentID == "" || !pkgchannel.AllowsUnlinkedGuestDM(channel.Type, channel.Enabled, channel.Config) || guests == nil {
 			return nil, ErrAgentAccessDenied
@@ -247,7 +257,7 @@ func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store conf
 		}
 		guestID, agentID = guest.ID, channel.AgentID
 		guestMessageLimitPerMinute = guestConfig.GuestMessageLimitPerMinute
-	} else {
+	default:
 		agentID, err = ResolveAgent(ctx, store, accessService, resolved, chatCtx)
 		if err != nil {
 			return nil, fmt.Errorf("resolve agent: %w", err)
@@ -256,7 +266,7 @@ func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store conf
 
 	var authority authz.Authority
 	var subject auth.Subject
-	if guestID == "" {
+	if guestID == "" && groupID == "" {
 		role := resolved.User.Role
 		if role == "" {
 			role = auth.RoleUser
