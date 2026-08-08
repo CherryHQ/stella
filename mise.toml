@@ -177,6 +177,9 @@ PY
 
 [tasks."pg:runtime:download"]
 description = "Download the embedded PostgreSQL runtime used by tests and local server runs"
+# This command compiles stellad, which imports generated API packages. Resolve
+# generation before sibling dependencies can race it on a clean checkout.
+depends = ["generate"]
 run = "go run ./cmd/stellad postgres download"
 
 [tasks."build:web"]
