@@ -58,7 +58,7 @@ export function AgentForm({
   const { editingId, isAdmin, form, currentUserId } = state;
   const embedded = layout === "embedded";
 
-  const canEdit = isAdmin || !editingId || (form.creator_id && form.creator_id === currentUserId);
+  const canEdit = isAdmin || !editingId || (!!form.creator_id && form.creator_id === currentUserId);
 
   const availableUsers = state.allUsers.filter(
     (u: User) => !state.assignedUsers.some((a: User) => a.id === u.id),
@@ -120,15 +120,17 @@ export function AgentForm({
         )}
         {shows("tools") && (
           <ProfilePanelSection collapsible title={t("agents.tabs.tools")}>
-            <ToolsTab state={state} />
+            <ToolsTab state={state} canEdit={canEdit} />
           </ProfilePanelSection>
         )}
         {shows("advanced") && (
           <ProfilePanelSection collapsible title={t("agents.tabs.advanced")}>
-            <AdvancedTab state={state} onSetState={onSetState} />
+            <AdvancedTab state={state} canEdit={canEdit} onSetState={onSetState} />
           </ProfilePanelSection>
         )}
-        {isAdmin && shows("users") && (
+        {/* Not admin-only: the owner sets the agent's reach here. The tab keeps
+            the per-user assignment list behind the admin check itself. */}
+        {canEdit && shows("users") && (
           <ProfilePanelSection collapsible title={t("agents.tabs.users")}>
             <UsersTab
               state={state}

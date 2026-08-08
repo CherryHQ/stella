@@ -1060,6 +1060,17 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertPlugin qq: %v", err)
 	}
+	// Discord deliberately gets no plugin row: a platform is usable unless an
+	// admin switched it off, so a channel must be public without one.
+	if err := env.store.UpsertChannel(octx, config.Channel{
+		ID:      "discord-stella",
+		Type:    pkgchannel.PlatformDiscord,
+		AgentID: stellaID,
+		Enabled: true,
+		Config:  `{}`,
+	}); err != nil {
+		t.Fatalf("UpsertChannel discord-stella: %v", err)
+	}
 
 	rr := doRequest(t, env, "GET", "/api/channels/public", nil)
 	if rr.Code != http.StatusOK {
@@ -1095,6 +1106,9 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	}
 	if _, ok := byID[pkgchannel.PlatformQQ]; ok {
 		t.Fatalf("qq disabled plugin should not be public: %#v", channels)
+	}
+	if _, ok := byID["discord-stella"]; !ok {
+		t.Fatalf("discord channel without a plugin row should be public: %#v", channels)
 	}
 }
 

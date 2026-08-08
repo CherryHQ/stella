@@ -178,17 +178,21 @@ func (m *Management) prepareCreate(ctx context.Context, authority authz.Authorit
 		return config.Agent{}, false, err
 	}
 
+	// Scope is the new agent's reach and its creator picks it, admin or not:
+	// choosing between "only me" and "everyone" never names another user, so it
+	// needs no directory access. Only the default differs — an admin creating
+	// without a scope gets the historical system default, everyone else the
+	// restricted agent that is auto-assigned below.
 	isAdmin := authority.IsAdmin()
-	if !isAdmin {
-		// Non-admins always get restricted scope, auto-assigned below.
-		candidate.Scope = config.AgentScopeRestricted
-	} else {
-		if candidate.Scope == "" {
+	if candidate.Scope == "" {
+		if isAdmin {
 			candidate.Scope = config.AgentScopeSystem
+		} else {
+			candidate.Scope = config.AgentScopeRestricted
 		}
-		if candidate.Scope != config.AgentScopeSystem && candidate.Scope != config.AgentScopeRestricted {
-			return config.Agent{}, false, ErrInvalidScope
-		}
+	}
+	if candidate.Scope != config.AgentScopeSystem && candidate.Scope != config.AgentScopeRestricted {
+		return config.Agent{}, false, ErrInvalidScope
 	}
 
 	// Workspace is always the default path — never caller-supplied.
@@ -222,9 +226,13 @@ func (m *Management) finishCreate(ctx context.Context, isAdmin bool, candidate c
 	return candidate, nil
 }
 
-// Update authorizes (Manage) and persists an agent edit. Non-admins cannot change
-// scope; admins default an empty scope to system and reject any other value. The
-// caller supplies a transport-validated candidate; reload is best-effort.
+// Update authorizes (Manage) and persists an agent edit. Scope is the agent's
+// reach — system means every user may use it, restricted means only assigned
+// users — and its manager decides it: an admin for any agent, the creator for
+// their own. An empty scope keeps the persisted one for a creator and defaults
+// to system for an admin (the historical create-shaped default); any other value
+// is rejected. The caller supplies a transport-validated candidate; reload is
+// best-effort.
 func (m *Management) Update(ctx context.Context, authority authz.Authority, candidate config.Agent) (config.Agent, error) {
 	acc, err := m.pep.Begin(ctx, authority)
 	if err != nil {
@@ -235,15 +243,15 @@ func (m *Management) Update(ctx context.Context, authority authz.Authority, cand
 		return config.Agent{}, err
 	}
 
-	if !authority.IsAdmin() {
-		candidate.Scope = existing.Scope
-	} else {
-		if candidate.Scope == "" {
+	if candidate.Scope == "" {
+		if authority.IsAdmin() {
 			candidate.Scope = config.AgentScopeSystem
+		} else {
+			candidate.Scope = existing.Scope
 		}
-		if candidate.Scope != config.AgentScopeSystem && candidate.Scope != config.AgentScopeRestricted {
-			return config.Agent{}, ErrInvalidScope
-		}
+	}
+	if candidate.Scope != config.AgentScopeSystem && candidate.Scope != config.AgentScopeRestricted {
+		return config.Agent{}, ErrInvalidScope
 	}
 
 	// Workspace and creator are durable server-owned facts, never transport
@@ -254,6 +262,16 @@ func (m *Management) Update(ctx context.Context, authority authz.Authority, cand
 
 	if err := m.agents.UpdateAgent(ctx, candidate); err != nil {
 		return config.Agent{}, fmt.Errorf("%w: update agent: %w", ErrUnavailable, err)
+	}
+	// Narrowing to restricted hides the agent from everyone but its assigned
+	// users. The creator must survive that: an agent that was created as system
+	// (or created by an admin) has no assignment row, so without this its own
+	// manager would keep Manage but lose Read and Execute. The insert is
+	// idempotent, so re-narrowing an already-assigned agent is a no-op.
+	if candidate.Scope == config.AgentScopeRestricted && candidate.CreatorID != "" {
+		if err := m.assign.AssignAgent(ctx, candidate.CreatorID, candidate.ID); err != nil {
+			return config.Agent{}, fmt.Errorf("%w: assign creator: %w", ErrUnavailable, err)
+		}
 	}
 	m.reload(ctx, candidate.ID)
 	return candidate, nil

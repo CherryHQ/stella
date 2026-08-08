@@ -108,7 +108,9 @@ const settingsNav: {
         id: "channels",
         label: "settings.nav.channels",
         href: "/settings/channels",
-        adminOnly: true,
+        // An agent owner manages their own agents' channels here; an admin sees
+        // every channel in the deployment on the same page.
+        adminOnly: false,
         icon: (
           <svg
             viewBox="0 0 24 24"
