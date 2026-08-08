@@ -8,48 +8,91 @@ description: Release tagging and packaging workflow for Stella.
 Use semantic versioning with `v` prefix: `v0.1.0`, `v1.0.0`, `v1.2.3-rc.1`.
 GoReleaser auto-detects pre-release suffixes (`-rc.1`, `-beta.1`).
 
+## Branch Model
+
+`main` remains the default development branch. Releases use maintained minor
+branches named `release/vX.Y`, for example `release/v0.63`:
+
+- Cut a new minor release branch from the intended commit on `main`.
+- Publish `vX.Y.0` and every `vX.Y.Z` patch from that same branch.
+- Land fixes on `main` first when practical, then backport the exact commit to a
+  short-lived branch and open a PR against `release/vX.Y`.
+- Sync release metadata and any release-only fix back to `main` through a PR.
+  Never leave the two lines silently divergent.
+
+Protect `release/v*` with the same required Format and Test checks as `main`.
+Disallow force-pushes and branch deletion, and require PRs for updates. The tag
+workflow also derives `release/vX.Y` from the version and rejects a tagged
+commit that is not reachable from that branch.
+
 ## Release Flow
 
 1. Choose release tag `vX.Y.Z`; the web package version is `X.Y.Z` (without `v`).
-2. Update `web/package.json` so `.version` matches the API/server release version:
+2. Create or update the maintained release branch:
+
+   ```bash
+   RELEASE_BRANCH=release/vX.Y
+   git fetch origin --prune
+
+   # New minor line only:
+   git switch main
+   git pull --ff-only origin main
+   git switch -c "$RELEASE_BRANCH"
+   git push -u origin "$RELEASE_BRANCH"
+
+   # Existing patch line:
+   git switch "$RELEASE_BRANCH"
+   git pull --ff-only origin "$RELEASE_BRANCH"
+   ```
+
+3. Create a short-lived preparation branch from `release/vX.Y`. Do not commit
+   release metadata directly to the maintained branch.
+4. Update `web/package.json` so `.version` matches the API/server release version:
    ```bash
    VERSION=X.Y.Z
    tmp=$(mktemp)
    jq --arg version "$VERSION" '.version = $version' web/package.json > "$tmp" && mv "$tmp" web/package.json
    test "$(jq -r '.version' web/package.json)" = "$VERSION"
    ```
-3. Update the Helm chart metadata in `deploy/helm/stella/Chart.yaml`:
+5. Update the Helm chart metadata in `deploy/helm/stella/Chart.yaml`:
    - Set `appVersion: "vX.Y.Z"` so the chart records the release it ships alongside.
      The default `image.tag` is `latest` (CI publishes it for every stable release,
      see Artifacts), so a fresh install already tracks this version; `appVersion`
      just keeps the metadata honest.
    - Bump the chart's own `version` (its SemVer, independent of `appVersion`)
      whenever the chart changed since the last release.
-4. Update `web/content/docs/changelog.mdx` and `web/content/docs/changelog.zh.mdx` (see below).
-5. Commit: `📝 docs: Update CHANGELOG for vX.Y.Z` including both changelogs, `web/package.json`, and `deploy/helm/stella/Chart.yaml`.
-6. Verify the commit succeeded and the working tree is clean:
+6. Update `web/content/docs/changelog.mdx` and `web/content/docs/changelog.zh.mdx` (see below).
+7. Commit: `📝 docs: Update CHANGELOG for vX.Y.Z` including both changelogs,
+   `web/package.json`, and `deploy/helm/stella/Chart.yaml`.
+8. Run the full pre-cut gate below. Verify that the release commit is `HEAD` and
+   the working tree is clean:
    ```bash
    git status --short
    git log --oneline -1
    ```
-   Stop if the release commit is not `HEAD`; never tag before the commit exists.
-7. Verify that the version milestone contains the exact release scope and has
+9. Verify that the version milestone contains the exact release scope and has
    no open issues. Stop and resolve any open issue before tagging:
    ```bash
    gh issue list --repo CherryHQ/stella --milestone vX.Y.Z --state open
    gh issue list --repo CherryHQ/stella --milestone vX.Y.Z --state all
    ```
-8. Tag the release commit and verify the tag points at `HEAD`:
-   ```bash
-   git tag vX.Y.Z
-   test "$(git rev-parse vX.Y.Z)" = "$(git rev-parse HEAD)"
-   ```
-9. Push the branch and new release tag explicitly: `git push origin main vX.Y.Z`.
-10. CI triggers `.github/workflows/release.yml`. Its validation job checks the
-    exact tagged commit before the GoReleaser or Docker publication jobs can
-    start.
-11. After CI succeeds and the GitHub Release is visible, close the version
-    milestone:
+10. Push the preparation branch and open a PR against `release/vX.Y`. Wait for
+    required checks and merge it.
+11. Fetch the merged release branch, then tag its remote tip:
+    ```bash
+    git fetch origin --prune
+    git switch "$RELEASE_BRANCH"
+    git reset --hard "origin/$RELEASE_BRANCH"
+    git tag vX.Y.Z
+    test "$(git rev-parse vX.Y.Z)" = "$(git rev-parse origin/$RELEASE_BRANCH)"
+    git push origin vX.Y.Z
+    ```
+12. CI triggers `.github/workflows/release.yml`. It verifies the exact tagged
+    commit and the matching maintained branch before publication starts.
+13. After CI succeeds and the GitHub Release is visible, open a sync-back PR
+    from `release/vX.Y` to `main` when the release branch contains commits not
+    already present on `main`.
+14. Close the version milestone:
     ```bash
     MILESTONE_NUMBER=$(gh api 'repos/CherryHQ/stella/milestones?state=open' \
       --jq '.[] | select(.title == "vX.Y.Z") | .number')
@@ -70,7 +113,7 @@ Gather changes since last tag:
 
 ```bash
 git log $(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)..HEAD --oneline
-gh pr list --state merged --base main --search "merged:>=$(git log -1 --format=%aI $(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD))"
+gh pr list --state merged --base "$RELEASE_BRANCH" --search "merged:>=$(git log -1 --format=%aI $(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD))"
 ```
 
 Apply to both changelog files:
@@ -92,12 +135,15 @@ test "$(jq -r '.version' web/package.json)" = "$VERSION"
 mise run release:validate
 ```
 
-The system suite (`system-test`) runs both in the local gate and in the
-tag-triggered validation job. Release CI pins a supported Ubuntu runner and
-uploads the suite's server logs before any snapshot build can clean `dist/`.
-GoReleaser and Docker publication jobs depend directly on the validation result,
-so a failed or unsupported System Test cannot publish partial release artifacts.
-See `system-test.md`.
+The local gate remains sequential so the first failure stops later work. The
+tag workflow verifies the release source once, then runs quality/build, Go and
+Web tests, the System Test, and the release snapshot in parallel. GoReleaser and
+Docker publication depend on all four jobs. A failure in any lane blocks every
+publication job.
+
+Release CI pins supported Ubuntu runners. The System Test lane uploads its server
+logs with `if: always()` before any other job can affect its isolated workspace,
+so failed subprocess journeys remain diagnosable. See `system-test.md`.
 
 ## Artifacts
 
