@@ -1,10 +1,13 @@
 package runtime
 
-import "testing"
+import (
+	"strconv"
+	"testing"
+)
 
 func BenchmarkSessionHubReplayTextTurn(b *testing.B) {
 	for _, chunks := range []int{1500, 10000} {
-		b.Run(testName(chunks), func(b *testing.B) {
+		b.Run(strconv.Itoa(chunks)+"Chunks", func(b *testing.B) {
 			event := Event{Text: "0123456789"}
 			b.ReportAllocs()
 			b.ResetTimer()
@@ -43,11 +46,4 @@ func BenchmarkSessionHubReplayAndSubscriberTextTurn(b *testing.B) {
 		<-done
 	}
 	b.ReportMetric(1500, "events/turn")
-}
-
-func testName(n int) string {
-	if n == 1500 {
-		return "1500Chunks"
-	}
-	return "10000Chunks"
 }

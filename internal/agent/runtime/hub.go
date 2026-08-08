@@ -47,9 +47,9 @@ const (
 	// from turning one active session into unbounded server memory.
 	replayMaxEvents = 4096
 	replayMaxBytes  = 8 << 20
-	// Bound string concatenation so retaining streamed deltas stays linear in
-	// output size; 2 KiB chunks can still fill the 8 MiB byte ceiling without
-	// hitting the event ceiling first.
+	// Bound string concatenation so retaining token-sized streamed deltas stays
+	// linear in output size and can approach the 8 MiB byte ceiling before the
+	// event ceiling. Provider-batched deltas may hit the event ceiling earlier.
 	replayDeltaMaxBytes = 2 << 10
 )
 
