@@ -72,6 +72,7 @@ func (m stubRuntimeManager) Default() sessionaccess.RuntimeService          { re
 type stubRuntimeService struct{ events chan agent.Event }
 
 func (s *stubRuntimeService) Chat(context.Context, agent.ChatRequest) <-chan agent.Event { return nil }
+func (s *stubRuntimeService) StopSession(context.Context, string) bool                   { return false }
 func (s *stubRuntimeService) SubscribeSession(string) (<-chan agent.Event, func()) {
 	return s.events, func() {}
 }

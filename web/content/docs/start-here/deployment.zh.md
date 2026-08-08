@@ -280,7 +280,7 @@ Stella 暴露两个供编排器使用的免鉴权基础设施端点：
 
 收到第一个 `SIGTERM`/`SIGINT` 时，网关不会立即退出，而是执行**两阶段优雅排空**：
 
-1. `/readyz` 翻转为 `503`，空闲的订阅流（SSE watch）结束，使负载均衡器停止转发新流量；承载进行中 turn 的流会继续运行至 turn 完成。
+1. `/readyz` 翻转为 `503`，SSE 观察者断开，使负载均衡器停止转发新流量；进行中的 turn 作为服务端 accepted work 继续运行，并在关停完成前持久化。
 2. 在 `STELLA_HTTP_SHUTDOWN_TIMEOUT` 预算内排空进行中的 HTTP 请求；预算耗尽后仍未结束的连接被强制关闭。
 3. 后台任务（goal 与 scheduler 的 agent 运行）继续执行，并在 `STELLA_RIVER_SOFT_STOP_TIMEOUT` 预算内排空；预算耗尽时仍在运行的任务被取消。
 

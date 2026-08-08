@@ -383,6 +383,8 @@ func (rt *Runtime) streamEvents(
 	isGroup := memSess.GroupID != ""
 	var chatErr error
 	var pendingStores []ai.Message
+	var textBuf strings.Builder
+	var reasoningBuf strings.Builder
 	appendWithPrefix := func(msgs ...ai.Message) error {
 		storeMessages := make([]ai.Message, 0, len(storePrefix)+len(msgs))
 		storeMessages = append(storeMessages, storePrefix...)
@@ -400,6 +402,16 @@ func (rt *Runtime) streamEvents(
 		}
 		return appendWithPrefix(msgs...)
 	}
+	flushInterruptedAssistant := func() {
+		if isGroup || (textBuf.Len() == 0 && reasoningBuf.Len() == 0) {
+			return
+		}
+		if err := appendWithPrefix(bufferedAssistantMessage(textBuf.String(), reasoningBuf.String())); err != nil {
+			rt.log.Warn("memory append interrupted assistant failed", "session_id", sessionID, "error", err)
+		}
+		textBuf.Reset()
+		reasoningBuf.Reset()
+	}
 	defer func() {
 		hs.RunPostAgentCall(ctx, &hooks.PostAgentCallContext{
 			HookMeta: hookMeta,
@@ -409,19 +421,14 @@ func (rt *Runtime) streamEvents(
 		close(out)
 	}()
 
-	var textBuf strings.Builder
-	var reasoningBuf strings.Builder
-
 	for evt := range stream {
 		if evt.Err != nil {
 			chatErr = evt.Err
-			if !isGroup && (textBuf.Len() > 0 || reasoningBuf.Len() > 0) {
-				flush := bufferedAssistantMessage(textBuf.String(), reasoningBuf.String())
-				if err := rt.mem.Append(persistCtx, memSess, flush); err != nil {
-					rt.log.Warn("memory append error-flush failed", "session_id", sessionID, "error", err)
-				}
-				textBuf.Reset()
-				reasoningBuf.Reset()
+			flushInterruptedAssistant()
+			// Explicit stop and lifecycle shutdown are normal cancellation paths,
+			// not failed turns to surface as an in-band chat error.
+			if ctx.Err() != nil && errors.Is(evt.Err, context.Canceled) {
+				return ctx.Err()
 			}
 			if errors.Is(evt.Err, ErrChatTimeout) {
 				notice := "I've been working on this for a while and have reached the time limit. Here's where things stand — feel free to send a message to continue or change direction."
@@ -460,6 +467,7 @@ func (rt *Runtime) streamEvents(
 		if evt.ToolUse != nil {
 			if !sendEvent(ctx, out, evt) {
 				chatErr = ctx.Err()
+				flushInterruptedAssistant()
 				return chatErr
 			}
 			continue
@@ -473,11 +481,13 @@ func (rt *Runtime) streamEvents(
 		}
 		if !sendEvent(ctx, out, evt) {
 			chatErr = ctx.Err()
+			flushInterruptedAssistant()
 			return chatErr
 		}
 	}
 
 	if ctx.Err() != nil {
+		flushInterruptedAssistant()
 		return ctx.Err()
 	}
 	if textBuf.Len() > 0 || reasoningBuf.Len() > 0 {

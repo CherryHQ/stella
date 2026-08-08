@@ -83,6 +83,32 @@ const (
 	maxSessionMessageParts = 32
 )
 
+// lifecycleValueContext takes cancellation and deadlines from the server
+// lifecycle while preserving request-scoped values for tracing and downstream
+// hooks. A browser disconnect therefore detaches transport without orphaning
+// the turn from process shutdown.
+type lifecycleValueContext struct {
+	context.Context
+	values context.Context
+}
+
+func (c lifecycleValueContext) Value(key any) any {
+	if value := c.values.Value(key); value != nil {
+		return value
+	}
+	return c.Context.Value(key)
+}
+
+func (s *Server) turnContext(requestCtx context.Context) context.Context {
+	lifecycle := s.runtimeCtx
+	if lifecycle == nil {
+		// Production always injects runtimeCtx. The fallback keeps directly-built
+		// handler tests safe without coupling a turn to their request recorder.
+		lifecycle = context.Background()
+	}
+	return lifecycleValueContext{Context: lifecycle, values: context.WithoutCancel(requestCtx)}
+}
+
 func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "missing session ID")
@@ -122,7 +148,7 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 		return
 	}
 
-	result, err := s.sessionAccess.Send(r.Context(), sessionaccess.SendInput{Authority: authority, AgentID: agentID, SessionID: sessionID, Message: message})
+	result, err := s.sessionAccess.Send(r.Context(), s.turnContext(r.Context()), sessionaccess.SendInput{Authority: authority, AgentID: agentID, SessionID: sessionID, Message: message})
 	if err != nil {
 		// An archived session is a state conflict, not a missing one: the client
 		// holds a session that was rotated away and needs to move to the new one
@@ -138,11 +164,34 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 		streamPlainReply(w, flusher, result.PlainReply)
 		return
 	}
-	// Deliberately NOT drain-cancelled: the turn above runs on the request
-	// context, so ending this stream at drain start would kill the in-flight
-	// turn — the exact work the graceful HTTP shutdown budget exists to finish.
-	// The stream ends when the turn completes; force-close is the backstop.
-	streamAgentEvents(r.Context(), w, flusher, agentID, sessionID, result.Events, nil)
+	// The response follows the request and drain contexts, but the admitted turn
+	// follows the server work lifecycle. Navigation, connection loss, or graceful
+	// HTTP drain ends this observer only; accepted-work drain owns the turn.
+	sctx, cancel := s.readiness.streamContext(r.Context())
+	defer cancel()
+	streamAgentEvents(sctx, w, flusher, agentID, sessionID, result.Events, nil)
+}
+
+// StopSession explicitly cancels an in-flight turn. Transport disconnects never
+// call this endpoint; they only detach an SSE observer.
+func (s *Server) StopSession(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "missing session ID")
+		return
+	}
+	authority, ok := s.sessionAuthority(w, r)
+	if !ok {
+		return
+	}
+	if err := s.sessionAccess.Stop(r.Context(), sessionaccess.StopInput{
+		Authority: authority,
+		AgentID:   agentID,
+		SessionID: sessionID,
+	}); err != nil {
+		s.writeSessionAccessError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // streamAgentEvents encodes a live turn's events to w as a Vercel AI-SDK UI

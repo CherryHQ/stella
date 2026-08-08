@@ -71,6 +71,9 @@ and one shared database serve them all in sequence:
   listener, and reports ready.
 - `startup_and_auth` — bootstrap registration and session-authenticated access.
 - `chat_sse` — one chat turn end to end, consumed as a live SSE stream.
+- `chat_disconnect_resume` — disconnect the initiating message stream mid-turn,
+  reconnect through the read-only events stream, replay the first half, and
+  finish without a second model request.
 - `agent_provider_credentials` — three Agents share one global fake Provider;
   two send distinct encrypted overrides, one sends the global key, and live
   rotation/delete changes the next request without changing Agent model state.
@@ -89,9 +92,8 @@ and one shared database serve them all in sequence:
   is persisted, the server is force-killed before it is due, and a replacement
   process on the same database executes and retires that exact job once.
 - `graceful_drain` — SIGTERM with a turn pinned in flight: `/readyz` flips away
-  from ready, an attach subscription is drain-cancelled, the pinned turn still
-  completes on its stream (full text, finish, [DONE]), and the process exits 0.
-  Runs last, since it consumes the shared server.
+  from ready, attach and send observers detach promptly, the server-owned turn
+  persists its complete reply under accepted-work drain, and the process exits 0. Runs last, since it consumes the shared server.
 
 `startup_and_auth` also covers the personal-access-token bearer lifecycle: a
 session mints a PAT, the token alone authenticates an ordinary API route with
