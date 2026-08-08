@@ -47,6 +47,10 @@ const (
 	// from turning one active session into unbounded server memory.
 	replayMaxEvents = 4096
 	replayMaxBytes  = 8 << 20
+	// Bound string concatenation so retaining streamed deltas stays linear in
+	// output size; 2 KiB chunks can still fill the 8 MiB byte ceiling without
+	// hitting the event ceiling first.
+	replayDeltaMaxBytes = 2 << 10
 )
 
 // NewSessionHub returns an empty hub.
@@ -151,9 +155,13 @@ func (h *SessionHub) publish(sessionID string, event Event) {
 
 	h.mu.Lock()
 	if state := h.replay[sessionID]; replayable && state != nil && !state.disabled {
-		coalescesWithTail := deltaKind != 0 && len(state.events) > 0 &&
-			replayDeltaKind(state.events[len(state.events)-1]) == deltaKind
 		deltaSize := len(event.Text) + len(event.Reasoning)
+		coalescesWithTail := false
+		if deltaKind != 0 && len(state.events) > 0 {
+			last := state.events[len(state.events)-1]
+			coalescesWithTail = replayDeltaKind(last) == deltaKind &&
+				len(last.Text)+len(last.Reasoning)+deltaSize <= replayDeltaMaxBytes
+		}
 		switch {
 		case coalescesWithTail && state.bytes+deltaSize > replayMaxBytes:
 			disableReplay(state)

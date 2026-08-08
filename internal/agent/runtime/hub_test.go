@@ -70,10 +70,18 @@ func TestSessionHubCoalescesTextBeforeEventCeiling(t *testing.T) {
 		h.publish("s1", Event{Text: "x"})
 	}
 
-	ch, cancel := h.Subscribe("s1")
-	defer cancel()
-	if event := <-ch; len(event.Text) != replayMaxEvents+1 {
-		t.Fatalf("coalesced replay length = %d, want %d", len(event.Text), replayMaxEvents+1)
+	h.mu.Lock()
+	events := append([]Event(nil), h.replay["s1"].events...)
+	h.mu.Unlock()
+	if len(events) != 3 {
+		t.Fatalf("coalesced replay events = %d, want 3 bounded chunks", len(events))
+	}
+	length := 0
+	for _, event := range events {
+		length += len(event.Text)
+	}
+	if length != replayMaxEvents+1 {
+		t.Fatalf("coalesced replay length = %d, want %d", length, replayMaxEvents+1)
 	}
 	h.end("s1")
 }
