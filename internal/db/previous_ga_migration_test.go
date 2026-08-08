@@ -23,9 +23,9 @@ const (
 	// representative fixture/assertions for the newly crossed migrations turns
 	// this test into a green lie.
 	previousGAVersion = int64(20260725161331)
-	// Library V1 and channel guest sessions/indexes are the post-anchor migrations
-	// exercised by the assertions below.
-	currentMigrationVersion = sequentialAnchor + 6
+	// Library V1, channel guest sessions/indexes, and channel allowlist backfill
+	// are the post-anchor migrations exercised by the assertions below.
+	currentMigrationVersion = sequentialAnchor + 7
 
 	previousGAUserID         = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID        = "00000000-0000-0000-0000-000000000002"
