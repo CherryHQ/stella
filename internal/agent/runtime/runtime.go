@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,9 +38,10 @@ type Runtime struct {
 	beforeRun      BeforeRunFunc
 	snapshotPrompt SnapshotPromptFunc
 	sessionImages  SessionImages
-	active         sync.Map // session ID → struct{}, tracks in-flight turns
+	active         sync.Map // session ID → *activeTurn, tracks in-flight turns
 	turns          turnTracker
 	hub            *SessionHub
+	closed         atomic.Bool
 }
 
 // managedSessionRunner is intentionally optional: Runtime supports test and
@@ -109,6 +111,10 @@ func (t *turnTracker) wait(ctx context.Context) error {
 func (rt *Runtime) WaitTurns(ctx context.Context) error {
 	return rt.turns.wait(ctx)
 }
+
+// InvalidateSkillPolicy schedules existing runners for refresh without
+// interrupting an in-flight turn, which continues with its copied snapshot.
+func (rt *Runtime) InvalidateSkillPolicy() error { return rt.cache.invalidateSkillPolicy() }
 
 // CompactionConfig controls automatic compaction thresholds.
 type CompactionConfig struct {
@@ -241,8 +247,9 @@ func (rt *Runtime) CloseSession(_ context.Context, sessionID string) error {
 	return rt.cache.close(sessionID)
 }
 
-// Close shuts down all runners and releases resources.
+// Close shuts down all runners and rejects every later admission.
 func (rt *Runtime) Close() error {
+	rt.closed.Store(true)
 	return rt.cache.closeAll()
 }
 
@@ -258,27 +265,7 @@ func (rt *Runtime) ResetRunners() error {
 
 // ResetRunnersForUser closes live runners for a specific user.
 func (rt *Runtime) ResetRunnersForUser(userID string) error {
-	rt.cache.mu.Lock()
-	var runners []Runner
-	for _, cs := range rt.cache.sessions {
-		if cs.info.UserID != userID {
-			continue
-		}
-		if cs.r != nil {
-			runners = append(runners, cs.r)
-			cs.r = nil
-		}
-		cs.model = ""
-	}
-	rt.cache.mu.Unlock()
-
-	var lastErr error
-	for _, r := range runners {
-		if err := r.Close(); err != nil {
-			lastErr = err
-		}
-	}
-	return lastErr
+	return rt.cache.resetWhere(func(cs *cachedSession) bool { return cs.info.UserID == userID })
 }
 
 // NewRunnerFunc returns the current runner builder. Used by the task system to
