@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.1] - 2026-08-08
+
+### 🔧 CI
+
+- Releases now use maintained `release/vX.Y` branches, so each minor line has a stable base for patch releases while `main` remains the default development branch. Tag validation rejects commits outside the matching branch and runs quality/build, Go and Web tests, the System Test, and release packaging in parallel. Feature branches also avoid duplicate push and pull-request checks. ([#948](https://github.com/CherryHQ/stella/pull/948), [#947](https://github.com/CherryHQ/stella/issues/947))
+
+**Full Changelog**: [v0.63.0...v0.63.1](https://github.com/CherryHQ/stella/compare/v0.63.0...v0.63.1)
+
 ## [0.63.0] - 2026-08-08
 
 ### ✨ Features
