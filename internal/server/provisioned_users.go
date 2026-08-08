@@ -15,6 +15,8 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/auth/account"
 	"github.com/CherryHQ/stella/internal/provisioning"
 )
 
@@ -152,6 +154,68 @@ func (s *Server) DeactivateProvisionedUser(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeData(w, http.StatusOK, provisionedUserToAPI(user))
+}
+
+// LinkProvisionedUserLoginIdentity handles POST /api/provisioned-users/{id}/identities/login.
+//
+// The external directory that provisioned a user is the only party that knows
+// which IM account belongs to it, so it must be able to record that mapping;
+// otherwise inbound channel messages can never resolve to the provisioned user.
+// The blast radius stays inside the provisioning surface: the target is resolved
+// through the provisioning service first, so a provisioning credential can never
+// reach a human account's identities. PATs remain barred from every identity
+// route by the credential gate.
+func (s *Server) LinkProvisionedUserLoginIdentity(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	info := requireProvisioningBearer(w, r)
+	if info == nil {
+		return
+	}
+	if s.provisioningSvc == nil || s.account == nil {
+		writeError(w, http.StatusServiceUnavailable, "provisioning is unavailable")
+		return
+	}
+	// The path carries the provisioned-user record id; identities hang off the
+	// auth user it wraps. Resolving here also proves this surface owns the target.
+	provisioned, err := s.provisioningSvc.Get(r.Context(), id.String())
+	if err != nil {
+		s.writeProvisioningError(w, err)
+		return
+	}
+
+	var body struct {
+		Provider        string `json:"provider"`
+		ProviderSubject string `json:"provider_subject"`
+		Email           string `json:"email"`
+		Name            string `json:"name"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if body.Provider == "" || body.ProviderSubject == "" || body.Email == "" {
+		writeError(w, http.StatusBadRequest, "provider, provider_subject, and email are required")
+		return
+	}
+
+	// Ownership is already narrowed above, so reuse the account layer with an
+	// admin authority to inherit its conflict handling (identity owned by
+	// another user -> 409).
+	authority, err := (auth.Subject{UserID: info.UserID, Roles: []string{auth.RoleAdmin}}).Authority()
+	if err != nil {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	linked, err := s.account.LinkLoginIdentity(r.Context(), authority, provisioned.UserID, account.LinkLoginInput{
+		Provider:        body.Provider,
+		ProviderSubject: body.ProviderSubject,
+		Email:           body.Email,
+		Name:            body.Name,
+	})
+	if err != nil {
+		s.writeAccountError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, linked)
 }
 
 const provisionedUserPageTokenKind = "provisioned_user"

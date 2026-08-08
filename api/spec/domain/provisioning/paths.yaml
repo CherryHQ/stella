@@ -165,6 +165,48 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
+  /api/provisioned-users/{id}/identities/login:
+    parameters:
+      - {
+          name: id,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
+    post:
+      tags: [provisioning]
+      summary: Link a login identity to a provisioned user
+      description: >-
+        Lets the provisioning credential attach an external login identity
+        (e.g. a Feishu union_id) to a user it provisioned, so inbound channel
+        messages resolve to that user. Scoped to provisioned users: the target
+        must have been created through this same provisioning surface.
+      operationId: linkProvisionedUserLoginIdentity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/LinkLoginIdentityRequest",
+            }
+      responses:
+        "200":
+          description: linked
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/LoginIdentity",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
+
   /api/provisioned-users/{id}/deactivate:
     parameters:
       - {

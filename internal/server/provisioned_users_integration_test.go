@@ -228,3 +228,56 @@ func TestProvisionedUsersHTTPIntegration(t *testing.T) {
 		}
 	}
 }
+
+// TestProvisionedUserLoginIdentityHTTP covers the identity route added for
+// external directories: the provisioning credential may attach a login identity
+// to a user it provisioned, other credentials may not reach the route at all,
+// and a human account stays out of reach.
+func TestProvisionedUserLoginIdentityHTTP(t *testing.T) {
+	ctx := context.Background()
+	env := setupAdmin(t)
+	issuer := createProvisioningToken(t, env.bearerToken, env, "directory", nil)
+	created := createProvisionedUserHTTP(t, env, issuer.Token, map[string]any{
+		"external_id": "directory-link", "email": "link@example.test", "name": "Link",
+	})
+	path := "/api/provisioned-users/" + created.ProvisionedUser.ID + "/identities/login"
+	body := map[string]any{
+		"provider": "feishu", "provider_subject": "on_union_1", "email": "link@example.test", "name": "Link",
+	}
+
+	// Session and PAT bearers are barred from the provisioning family.
+	adminPAT, _ := mintPAT(t, env, env.bearerToken, "admin-pat")
+	for _, denied := range []string{env.bearerToken, adminPAT} {
+		if rr := doBearerRequest(t, env.srv, denied, http.MethodPost, path, body); rr.Code != http.StatusForbidden {
+			t.Fatalf("non-provisioning credential: want 403 got %d (%s)", rr.Code, rr.Body.String())
+		}
+	}
+
+	if rr := doBearerRequest(t, env.srv, issuer.Token, http.MethodPost, path, body); rr.Code != http.StatusOK {
+		t.Fatalf("link identity: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	// Re-linking the same identity to the same user is idempotent.
+	if rr := doBearerRequest(t, env.srv, issuer.Token, http.MethodPost, path, body); rr.Code != http.StatusOK {
+		t.Fatalf("relink identity: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+
+	var userID string
+	if err := env.db.QueryRow(ctx, `SELECT user_id FROM auth_provisioned_user WHERE id=$1`, created.ProvisionedUser.ID).Scan(&userID); err != nil {
+		t.Fatalf("load provisioned user mapping: %v", err)
+	}
+	var linked int
+	if err := env.db.QueryRow(ctx,
+		`SELECT count(*) FROM auth_identity WHERE user_id=$1 AND provider='feishu' AND provider_subject='on_union_1'`,
+		userID).Scan(&linked); err != nil {
+		t.Fatalf("count login identities: %v", err)
+	}
+	if linked != 1 {
+		t.Fatalf("login identities linked = %d, want 1", linked)
+	}
+
+	// A user that this surface did not provision (the admin) is not reachable.
+	adminPath := "/api/provisioned-users/" + env.adminUser.ID + "/identities/login"
+	if rr := doBearerRequest(t, env.srv, issuer.Token, http.MethodPost, adminPath, body); rr.Code != http.StatusNotFound {
+		t.Fatalf("foreign user: want 404 got %d (%s)", rr.Code, rr.Body.String())
+	}
+}
