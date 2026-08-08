@@ -84,6 +84,7 @@ type shareRuntime struct {
 }
 
 func (r *shareRuntime) Chat(context.Context, agent.ChatRequest) <-chan agent.Event { return nil }
+func (r *shareRuntime) StopSession(context.Context, string) bool                   { return false }
 func (r *shareRuntime) SubscribeSession(string) (<-chan agent.Event, func())       { return nil, func() {} }
 func (r *shareRuntime) SessionLive(string) bool                                    { return false }
 func (r *shareRuntime) CompactAuthorizedSession(context.Context, agentsession.Info) (string, error) {

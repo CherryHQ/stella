@@ -176,6 +176,7 @@ type workspaceTestRuntime struct {
 }
 
 func (*workspaceTestRuntime) Chat(context.Context, agent.ChatRequest) <-chan agent.Event { return nil }
+func (*workspaceTestRuntime) StopSession(context.Context, string) bool                   { return false }
 func (*workspaceTestRuntime) SubscribeSession(string) (<-chan agent.Event, func()) {
 	ch := make(chan agent.Event)
 	close(ch)
