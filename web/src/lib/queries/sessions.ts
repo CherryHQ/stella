@@ -31,6 +31,7 @@ export function mainSessionQueryOptions(agentId: string) {
       return ((data?.sessions as Session[]) ?? [])[0] ?? null;
     },
     enabled: !!agentId,
+    refetchInterval: 3000,
   });
 }
 
@@ -52,6 +53,7 @@ export function projectSessionsQueryOptions(agentId: string, projectId: string) 
       return all;
     },
     enabled: !!agentId && !!projectId,
+    refetchInterval: 3000,
   });
 }
 
@@ -127,5 +129,6 @@ export function sessionsInfiniteQueryOptions(agentId: string, kind?: Session["ki
       };
     },
     getNextPageParam: (lastPage) => lastPage.nextPageToken,
+    refetchInterval: 3000,
   });
 }

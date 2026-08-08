@@ -137,6 +137,61 @@ func (p *Provider) TouchActiveInfo(ctx context.Context, info memory.SessionInfo)
 	return rows > 0, nil
 }
 
+// MarkSessionTurnStarted implements memory.SessionActivityStore.
+func (p *Provider) MarkSessionTurnStarted(ctx context.Context, session memory.Session) (bool, error) {
+	session, err := requireMemorySessionScope(ctx, session)
+	if err != nil {
+		return false, err
+	}
+	rows, err := p.q.MarkConversationTurnStarted(ctx, sqlc.MarkConversationTurnStartedParams{
+		SessionID: session.ID,
+		UserID:    pgtype.Text{String: session.UserID, Valid: true},
+		AgentID:   pgnull.Text(session.AgentID),
+	})
+	if err != nil {
+		return false, fmt.Errorf("mark session turn started: %w", err)
+	}
+	return rows > 0, nil
+}
+
+// MarkSessionTurnCompleted implements memory.SessionActivityStore.
+func (p *Provider) MarkSessionTurnCompleted(ctx context.Context, session memory.Session, result memory.SessionTurnResult) (bool, error) {
+	if !result.Valid() {
+		return false, fmt.Errorf("mark session turn completed: invalid result %q", result)
+	}
+	session, err := requireMemorySessionScope(ctx, session)
+	if err != nil {
+		return false, err
+	}
+	rows, err := p.q.MarkConversationTurnCompleted(ctx, sqlc.MarkConversationTurnCompletedParams{
+		SessionID: session.ID,
+		UserID:    pgtype.Text{String: session.UserID, Valid: true},
+		AgentID:   pgnull.Text(session.AgentID),
+		Result:    pgtype.Text{String: string(result), Valid: true},
+	})
+	if err != nil {
+		return false, fmt.Errorf("mark session turn completed: %w", err)
+	}
+	return rows > 0, nil
+}
+
+// MarkSessionViewed implements memory.SessionActivityStore.
+func (p *Provider) MarkSessionViewed(ctx context.Context, session memory.Session) (bool, error) {
+	session, err := requireMemorySessionScope(ctx, session)
+	if err != nil {
+		return false, err
+	}
+	rows, err := p.q.MarkConversationViewed(ctx, sqlc.MarkConversationViewedParams{
+		SessionID: session.ID,
+		UserID:    pgtype.Text{String: session.UserID, Valid: true},
+		AgentID:   pgnull.Text(session.AgentID),
+	})
+	if err != nil {
+		return false, fmt.Errorf("mark session viewed: %w", err)
+	}
+	return rows > 0, nil
+}
+
 // RotateInfo implements memory.SessionManager.
 //
 // Order inside the transaction matters: idx_one_agent_main admits a single
@@ -406,6 +461,18 @@ func convToSessionInfo(conv sqlc.CtxConversation) memory.SessionInfo {
 	}
 	info.CreatedAt = conv.CreatedAt.UTC()
 	info.LastActive = conv.LastActive.UTC()
+	if conv.LastTurnStartedAt.Valid {
+		info.LastTurnStartedAt = conv.LastTurnStartedAt.Time.UTC()
+	}
+	if conv.LastTurnCompletedAt.Valid {
+		info.LastTurnCompletedAt = conv.LastTurnCompletedAt.Time.UTC()
+	}
+	if conv.LastTurnResult.Valid {
+		info.LastTurnResult = memory.SessionTurnResult(conv.LastTurnResult.String)
+	}
+	if conv.LastViewedAt.Valid {
+		info.LastViewedAt = conv.LastViewedAt.Time.UTC()
+	}
 	return info
 }
 

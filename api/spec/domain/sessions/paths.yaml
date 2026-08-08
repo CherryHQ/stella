@@ -248,6 +248,23 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
+  /api/agents/{agentId}/sessions/{sessionId}/view:
+    parameters:
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: sessionId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [sessions]
+      summary: Mark a session viewed
+      description: Clear its terminal status after the user opens the session.
+      operationId: markSessionViewed
+      responses:
+        "204": { description: Session was marked viewed }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
   /api/agents/{agentId}/sessions/{sessionId}/events:
     parameters:
       - { name: agentId, in: path, required: true, schema: { type: string } }

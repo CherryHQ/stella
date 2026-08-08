@@ -5,6 +5,8 @@ import {
   Bot,
   ChevronDown,
   ChevronRight,
+  CircleAlert,
+  CircleCheck,
   Folder,
   FolderPlus,
   List,
@@ -26,6 +28,7 @@ import {
   deleteProject as sdkDeleteProject,
   deleteSession as sdkDeleteSession,
   getSessionWorkspace,
+  markSessionViewed as sdkMarkSessionViewed,
   updateSession as sdkUpdateSession,
 } from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
@@ -47,6 +50,7 @@ import { inboxQueryOptions } from "@/lib/queries/inbox";
 import { sessionDisplayTitle } from "@/lib/session-title";
 import { SidebarItem, SidebarSection } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Dialog,
   DialogDescription,
@@ -71,6 +75,58 @@ import { CreateGroupDialog } from "@/features/groups/CreateGroupDialog";
 const RECENT_THREAD_PAGE = 5;
 /** How many threads are inlined under the project the URL points at. */
 const PROJECT_THREAD_LIMIT = 5;
+
+function SessionActivityIcon({ status }: { status: Session["activity_status"] }) {
+  const { t } = useI18n();
+  if (status === "working") {
+    return (
+      <span
+        aria-label={t("sessions.sidebar.working")}
+        className="inline-flex shrink-0 text-info"
+        role="status"
+        title={t("sessions.sidebar.working")}
+      >
+        <Spinner aria-hidden="true" className="size-4" role="presentation" />
+      </span>
+    );
+  }
+  if (status === "success") {
+    return (
+      <span
+        aria-label={t("sessions.sidebar.success")}
+        className="inline-flex shrink-0 text-success motion-safe:animate-pulse"
+        role="status"
+        title={t("sessions.sidebar.success")}
+      >
+        <CircleCheck aria-hidden="true" className="size-4" />
+      </span>
+    );
+  }
+  if (status === "error") {
+    return (
+      <span
+        aria-label={t("sessions.sidebar.error")}
+        className="inline-flex shrink-0 text-destructive-foreground motion-safe:animate-pulse"
+        role="status"
+        title={t("sessions.sidebar.error")}
+      >
+        <CircleAlert aria-hidden="true" className="size-4" />
+      </span>
+    );
+  }
+  return null;
+}
+
+function SessionRowIcon({ session, idle }: { session: Session | null; idle: ReactNode }) {
+  if (session?.activity_status && session.activity_status !== "idle") {
+    return <SessionActivityIcon status={session.activity_status} />;
+  }
+  return idle;
+}
+
+function SessionMeta({ session }: { session: Session }) {
+  return <time className="font-mono text-xs">{relativeTime(session.last_active)}</time>;
+}
 
 /**
  * An icon action inside a sidebar row. SidebarItem already renders the row as a
@@ -533,6 +589,7 @@ function AgentNode({
   onNavigate: () => void;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const queryClient = useQueryClient();
   const { data: mainSession = null } = useQuery({
     ...mainSessionQueryOptions(target.id),
     enabled: expanded,
@@ -543,6 +600,19 @@ function AgentNode({
     expanded &&
     (pathname === `/agents/${target.id}` || (!!mainSession && activeSessionId === mainSession.id));
 
+  const openAgent = useCallback(() => {
+    onNavigate();
+    if (mainSession?.activity_status !== "success" && mainSession?.activity_status !== "error") {
+      return;
+    }
+    void sdkMarkSessionViewed({
+      path: { agentId: target.id, sessionId: mainSession.id },
+      throwOnError: true,
+    })
+      .then(() => queryClient.invalidateQueries({ queryKey: ["sessions", target.id] }))
+      .catch((error) => console.error("[session viewed]", error));
+  }, [mainSession, onNavigate, queryClient, target.id]);
+
   return (
     <div className="min-w-0">
       <SidebarItem
@@ -551,12 +621,17 @@ function AgentNode({
         active={active}
         emphasized={expanded && !active}
         icon={
-          <span
-            className="grid size-6 place-items-center rounded-full text-xs font-semibold text-primary-foreground"
-            style={getAgentAvatarStyle(target.id, target.colorIndex)}
-          >
-            {target.label[0]?.toUpperCase()}
-          </span>
+          <SessionRowIcon
+            session={mainSession}
+            idle={
+              <span
+                className="grid size-6 place-items-center rounded-full text-xs font-semibold text-primary-foreground"
+                style={getAgentAvatarStyle(target.id, target.colorIndex)}
+              >
+                {target.label[0]?.toUpperCase()}
+              </span>
+            }
+          />
         }
         label={target.label}
         badge={
@@ -567,13 +642,15 @@ function AgentNode({
           ) : undefined
         }
         meta={
-          target.updatedAt ? (
+          mainSession ? (
+            <SessionMeta session={mainSession} />
+          ) : target.updatedAt ? (
             <span className="font-mono text-xs">{relativeTime(target.updatedAt)}</span>
           ) : undefined
         }
         to="/agents/$agentId"
         params={{ agentId: target.id }}
-        onClick={onNavigate}
+        onClick={openAgent}
       />
       {expanded && <AgentBranch agentId={target.id} onNavigate={onNavigate} />}
     </div>
@@ -636,6 +713,20 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
   const refreshSessions = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
   }, [agentId, queryClient]);
+
+  const openSession = useCallback(
+    (session: Session) => {
+      onNavigate();
+      if (session.activity_status !== "success" && session.activity_status !== "error") return;
+      void sdkMarkSessionViewed({
+        path: { agentId, sessionId: session.id },
+        throwOnError: true,
+      })
+        .then(() => queryClient.invalidateQueries({ queryKey: ["sessions", agentId] }))
+        .catch((error) => console.error("[session viewed]", error));
+    },
+    [agentId, onNavigate, queryClient],
+  );
 
   const createChat = useCallback(async () => {
     const { data } = await sdkCreateSession({
@@ -814,14 +905,17 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
                   <SidebarItem
                     key={session.id}
                     active={activeSessionId === session.id}
-                    icon={<MessageSquare className="size-4" />}
-                    label={sessionDisplayTitle(session.title, t("sessions.untitled"))}
-                    meta={
-                      <time className="font-mono text-xs">{relativeTime(session.last_active)}</time>
+                    icon={
+                      <SessionRowIcon
+                        session={session}
+                        idle={<MessageSquare className="size-4" />}
+                      />
                     }
+                    label={sessionDisplayTitle(session.title, t("sessions.untitled"))}
+                    meta={<SessionMeta session={session} />}
                     to="/agents/$agentId/projects/$projectId/sessions/$sessionId"
                     params={{ agentId, projectId: project.id, sessionId: session.id }}
-                    onClick={onNavigate}
+                    onClick={() => openSession(session)}
                   />
                 ))}
               </div>
@@ -865,7 +959,9 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
                 key={session.id}
                 active={activeSessionId === session.id}
                 className="group/chat"
-                icon={<MessageSquare className="size-4" />}
+                icon={
+                  <SessionRowIcon session={session} idle={<MessageSquare className="size-4" />} />
+                }
                 label={
                   editingSessionId === session.id ? (
                     <Input
@@ -894,9 +990,7 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
                     label
                   )
                 }
-                meta={
-                  <time className="font-mono text-xs">{relativeTime(session.last_active)}</time>
-                }
+                meta={<SessionMeta session={session} />}
                 trailing={
                   editingSessionId === session.id ? undefined : (
                     <DropdownMenu>
@@ -944,7 +1038,7 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
                 }
                 to="/agents/$agentId/sessions/$sessionId"
                 params={{ agentId, sessionId: session.id }}
-                onClick={onNavigate}
+                onClick={() => openSession(session)}
               />
             );
           })}

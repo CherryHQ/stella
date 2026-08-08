@@ -3885,6 +3885,7 @@ components:
         user_id,
         created_at,
         last_active,
+        activity_status,
         archived,
       ]
       properties:
@@ -3911,6 +3912,12 @@ components:
         last_active:
           type: string
           format: date-time
+        activity_status:
+          type: string
+          readOnly: true
+          description: >-
+            Activity state for this session. Working is live process state; success and error describe an unviewed completed turn.
+          enum: [idle, working, success, error]
         archived:
           type: boolean
     SessionDetail:

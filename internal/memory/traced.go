@@ -481,6 +481,33 @@ func (t *tracedProvider) CommitGroupCursor(ctx context.Context, session Session,
 	return committer.CommitGroupCursor(ctx, session, triggerSeq)
 }
 
+// Session activity is durable session metadata rather than memory content, so
+// the tracing wrapper preserves the optional capability without emitting a
+// memory hook for each turn-state write.
+func (t *tracedProvider) MarkSessionTurnStarted(ctx context.Context, session Session) (bool, error) {
+	activity, ok := t.inner.(SessionActivityStore)
+	if !ok {
+		return false, errCapabilityNotSupported("SessionActivityStore")
+	}
+	return activity.MarkSessionTurnStarted(ctx, session)
+}
+
+func (t *tracedProvider) MarkSessionTurnCompleted(ctx context.Context, session Session, result SessionTurnResult) (bool, error) {
+	activity, ok := t.inner.(SessionActivityStore)
+	if !ok {
+		return false, errCapabilityNotSupported("SessionActivityStore")
+	}
+	return activity.MarkSessionTurnCompleted(ctx, session, result)
+}
+
+func (t *tracedProvider) MarkSessionViewed(ctx context.Context, session Session) (bool, error) {
+	activity, ok := t.inner.(SessionActivityStore)
+	if !ok {
+		return false, errCapabilityNotSupported("SessionActivityStore")
+	}
+	return activity.MarkSessionViewed(ctx, session)
+}
+
 func (t *tracedProvider) LoadInfo(ctx context.Context, sessionID string) (SessionInfo, error) {
 	sm, ok := t.inner.(SessionManager)
 	if !ok {

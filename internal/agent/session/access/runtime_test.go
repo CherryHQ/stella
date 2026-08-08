@@ -26,6 +26,21 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
+type nilAgentServiceManager struct{}
+
+func (nilAgentServiceManager) GetService(string) *agent.Service { return nil }
+func (nilAgentServiceManager) Default() *agent.Service          { return nil }
+
+func TestRuntimeManagerDoesNotLeakTypedNilServices(t *testing.T) {
+	manager := NewRuntimeManager(nilAgentServiceManager{})
+	if manager.GetService("missing") != nil {
+		t.Fatal("GetService returned a typed nil RuntimeService")
+	}
+	if manager.Default() != nil {
+		t.Fatal("Default returned a typed nil RuntimeService")
+	}
+}
+
 type fakeRuntimeManager struct{ svc *fakeRuntimeService }
 
 func (m fakeRuntimeManager) GetService(string) RuntimeService { return m.svc }
@@ -152,6 +167,30 @@ func TestRelayPreservesTransientBackpressure(t *testing.T) {
 	}
 }
 
+func TestMarkViewedAuthorizesAndAdvancesDurableWatermark(t *testing.T) {
+	svc, _, _, authority := newRuntimeTestService(t)
+	info, err := svc.memory.LoadInfo(t.Context(), "s1")
+	if err != nil {
+		t.Fatalf("LoadInfo: %v", err)
+	}
+	info.LastTurnCompletedAt = time.Now().UTC().Add(-time.Minute)
+	if err := svc.memory.SaveInfo(t.Context(), info); err != nil {
+		t.Fatalf("SaveInfo: %v", err)
+	}
+	if err := svc.MarkViewed(t.Context(), MarkViewedInput{
+		Authority: authority, AgentID: "a1", SessionID: "s1",
+	}); err != nil {
+		t.Fatalf("MarkViewed: %v", err)
+	}
+	updated, err := svc.memory.LoadInfo(t.Context(), "s1")
+	if err != nil {
+		t.Fatalf("LoadInfo after MarkViewed: %v", err)
+	}
+	if !updated.LastViewedAt.After(updated.LastTurnCompletedAt) {
+		t.Fatalf("last_viewed_at = %v, completion = %v", updated.LastViewedAt, updated.LastTurnCompletedAt)
+	}
+}
+
 func TestStopAuthorizesAndCancelsActiveTurn(t *testing.T) {
 	svc, rt, _, authority := newRuntimeTestService(t)
 	rt.live = true
@@ -162,6 +201,25 @@ func TestStopAuthorizesAndCancelsActiveTurn(t *testing.T) {
 	}
 	if rt.stopCalls != 1 {
 		t.Fatalf("stop calls = %d, want 1", rt.stopCalls)
+	}
+}
+
+func TestSessionRunningUsesAuthorizedRuntimeState(t *testing.T) {
+	svc, rt, _, authority := newRuntimeTestService(t)
+	access, err := svc.Begin(t.Context(), authority)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	info, err := access.Read(t.Context(), "a1", "s1")
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if access.SessionRunning(info) {
+		t.Fatal("idle session reported running")
+	}
+	rt.live = true
+	if !access.SessionRunning(info) {
+		t.Fatal("live session reported idle")
 	}
 }
 

@@ -56,18 +56,22 @@ const (
 // group read, write, and compaction resolve one memory partition; it is enforced
 // by Validate at every use boundary rather than left as an undeclared convention.
 type Info struct {
-	ID         string
-	AgentID    string
-	UserID     string
-	GroupID    string
-	GuestID    string
-	Channel    string
-	Kind       string
-	ProjectID  string
-	Title      string
-	CreatedAt  time.Time
-	LastActive time.Time
-	Archived   bool
+	ID                  string
+	AgentID             string
+	UserID              string
+	GroupID             string
+	GuestID             string
+	Channel             string
+	Kind                string
+	ProjectID           string
+	Title               string
+	CreatedAt           time.Time
+	LastActive          time.Time
+	LastTurnStartedAt   time.Time
+	LastTurnCompletedAt time.Time
+	LastTurnResult      memory.SessionTurnResult
+	LastViewedAt        time.Time
+	Archived            bool
 	// LatestSeq is populated by review listings and is not session metadata.
 	LatestSeq int64
 }
@@ -167,19 +171,23 @@ func (i Info) Record() (memory.SessionInfo, error) {
 		return memory.SessionInfo{}, err
 	}
 	return memory.SessionInfo{
-		ID:         i.ID,
-		AgentID:    i.AgentID,
-		UserID:     i.UserID,
-		GroupID:    i.GroupID,
-		GuestID:    i.GuestID,
-		Channel:    i.Channel,
-		Kind:       i.Kind,
-		ProjectID:  i.ProjectID,
-		Title:      i.Title,
-		CreatedAt:  i.CreatedAt,
-		LastActive: i.LastActive,
-		Archived:   i.Archived,
-		LatestSeq:  i.LatestSeq,
+		ID:                  i.ID,
+		AgentID:             i.AgentID,
+		UserID:              i.UserID,
+		GroupID:             i.GroupID,
+		GuestID:             i.GuestID,
+		Channel:             i.Channel,
+		Kind:                i.Kind,
+		ProjectID:           i.ProjectID,
+		Title:               i.Title,
+		CreatedAt:           i.CreatedAt,
+		LastActive:          i.LastActive,
+		LastTurnStartedAt:   i.LastTurnStartedAt,
+		LastTurnCompletedAt: i.LastTurnCompletedAt,
+		LastTurnResult:      i.LastTurnResult,
+		LastViewedAt:        i.LastViewedAt,
+		Archived:            i.Archived,
+		LatestSeq:           i.LatestSeq,
 	}, nil
 }
 
@@ -190,19 +198,23 @@ func (i Info) Record() (memory.SessionInfo, error) {
 // session invariant.
 func InfoFromRecord(r memory.SessionInfo) (Info, error) {
 	info := Info{
-		ID:         r.ID,
-		AgentID:    r.AgentID,
-		UserID:     r.UserID,
-		GroupID:    r.GroupID,
-		GuestID:    r.GuestID,
-		Channel:    r.Channel,
-		Kind:       r.Kind,
-		ProjectID:  r.ProjectID,
-		Title:      r.Title,
-		CreatedAt:  r.CreatedAt,
-		LastActive: r.LastActive,
-		Archived:   r.Archived,
-		LatestSeq:  r.LatestSeq,
+		ID:                  r.ID,
+		AgentID:             r.AgentID,
+		UserID:              r.UserID,
+		GroupID:             r.GroupID,
+		GuestID:             r.GuestID,
+		Channel:             r.Channel,
+		Kind:                r.Kind,
+		ProjectID:           r.ProjectID,
+		Title:               r.Title,
+		CreatedAt:           r.CreatedAt,
+		LastActive:          r.LastActive,
+		LastTurnStartedAt:   r.LastTurnStartedAt,
+		LastTurnCompletedAt: r.LastTurnCompletedAt,
+		LastTurnResult:      r.LastTurnResult,
+		LastViewedAt:        r.LastViewedAt,
+		Archived:            r.Archived,
+		LatestSeq:           r.LatestSeq,
 	}
 	if err := info.Validate(); err != nil {
 		return Info{}, err
