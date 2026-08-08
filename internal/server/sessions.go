@@ -194,6 +194,27 @@ func (s *Server) StopSession(w http.ResponseWriter, r *http.Request, agentID str
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// MarkSessionViewed clears completed-turn attention without altering content.
+func (s *Server) MarkSessionViewed(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "missing session ID")
+		return
+	}
+	authority, ok := s.sessionAuthority(w, r)
+	if !ok {
+		return
+	}
+	if err := s.sessionAccess.MarkViewed(r.Context(), sessionaccess.MarkViewedInput{
+		Authority: authority,
+		AgentID:   agentID,
+		SessionID: sessionID,
+	}); err != nil {
+		s.writeSessionAccessError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // streamAgentEvents encodes a live turn's events to w as a Vercel AI-SDK UI
 // message stream (SSE). Shared by SendSessionMessage (the turn it initiated) and
 // StreamSessionEvents (a read-only subscription to a turn started elsewhere), so
@@ -590,16 +611,17 @@ func detectMIME(name string) string {
 
 // sessionResponse is the HTTP representation of session-domain metadata.
 type sessionResponse struct {
-	ID         string    `json:"id"`
-	Channel    string    `json:"channel"`
-	Kind       string    `json:"kind"`
-	ProjectID  string    `json:"project_id,omitempty"`
-	Title      string    `json:"title"`
-	AgentID    string    `json:"agent_id"`
-	UserID     string    `json:"user_id"`
-	CreatedAt  time.Time `json:"created_at"`
-	LastActive time.Time `json:"last_active"`
-	Archived   bool      `json:"archived"`
+	ID             string    `json:"id"`
+	Channel        string    `json:"channel"`
+	Kind           string    `json:"kind"`
+	ProjectID      string    `json:"project_id,omitempty"`
+	Title          string    `json:"title"`
+	AgentID        string    `json:"agent_id"`
+	UserID         string    `json:"user_id"`
+	CreatedAt      time.Time `json:"created_at"`
+	LastActive     time.Time `json:"last_active"`
+	ActivityStatus string    `json:"activity_status"`
+	Archived       bool      `json:"archived"`
 }
 
 // sessionDetailResponse extends sessionResponse with resolved names.
@@ -613,17 +635,25 @@ type sessionDetailResponse struct {
 // round-tripping through the memory persistence record just to build a DTO.
 func sessionResponseFromInfo(info session.Info) sessionResponse {
 	return sessionResponse{
-		ID:         info.ID,
-		Channel:    info.Channel,
-		Kind:       info.Kind,
-		ProjectID:  info.ProjectID,
-		Title:      info.Title,
-		AgentID:    info.AgentID,
-		UserID:     info.UserID,
-		CreatedAt:  info.CreatedAt.UTC(),
-		LastActive: info.LastActive.UTC(),
-		Archived:   info.Archived,
+		ID:             info.ID,
+		Channel:        info.Channel,
+		Kind:           info.Kind,
+		ProjectID:      info.ProjectID,
+		Title:          info.Title,
+		AgentID:        info.AgentID,
+		UserID:         info.UserID,
+		CreatedAt:      info.CreatedAt.UTC(),
+		LastActive:     info.LastActive.UTC(),
+		ActivityStatus: sessionActivityStatus(info),
+		Archived:       info.Archived,
 	}
+}
+
+func sessionActivityStatus(info session.Info) string {
+	if !info.LastTurnCompletedAt.IsZero() && info.LastTurnCompletedAt.After(info.LastViewedAt) {
+		return "unread"
+	}
+	return "idle"
 }
 
 func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID string, params apiserver.ListSessionsParams) {
@@ -657,7 +687,11 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID st
 
 	resp := make([]sessionResponse, 0, len(page.Sessions))
 	for _, si := range page.Sessions {
-		resp = append(resp, sessionResponseFromInfo(si))
+		item := sessionResponseFromInfo(si)
+		if access.SessionRunning(si) {
+			item.ActivityStatus = "running"
+		}
+		resp = append(resp, item)
 	}
 	out := map[string]any{"sessions": resp}
 	if page.HasMore {
@@ -684,6 +718,9 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, agentID stri
 	resp := sessionDetailResponse{
 		sessionResponse: sessionResponseFromInfo(detail.Info),
 		AgentName:       detail.AgentName,
+	}
+	if access.SessionRunning(detail.Info) {
+		resp.ActivityStatus = "running"
 	}
 
 	// Resolve user name from the account system (best-effort display enrichment).
@@ -731,7 +768,11 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, agentID s
 		return
 	}
 	si.Title = title
-	writeData(w, http.StatusOK, sessionResponseFromInfo(si))
+	resp := sessionResponseFromInfo(si)
+	if access.SessionRunning(si) {
+		resp.ActivityStatus = "running"
+	}
+	writeData(w, http.StatusOK, resp)
 }
 
 func (s *Server) DeleteSession(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {

@@ -56,6 +56,29 @@ WHERE session_id = sqlc.arg(session_id)
 UPDATE ctx_conversation SET last_active = now(), updated_at = now()
 WHERE session_id = sqlc.arg(session_id) AND user_id = sqlc.arg(user_id) AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id);
 
+-- name: MarkConversationTurnStarted :execrows
+UPDATE ctx_conversation
+SET last_turn_started_at = now(), last_active = now(), updated_at = now()
+WHERE session_id = sqlc.arg(session_id)
+  AND user_id = sqlc.arg(user_id)
+  AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)
+  AND archived = false;
+
+-- name: MarkConversationTurnCompleted :execrows
+UPDATE ctx_conversation
+SET last_turn_completed_at = now(), updated_at = now()
+WHERE session_id = sqlc.arg(session_id)
+  AND user_id = sqlc.arg(user_id)
+  AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)
+  AND archived = false;
+
+-- name: MarkConversationViewed :execrows
+UPDATE ctx_conversation
+SET last_viewed_at = now(), updated_at = now()
+WHERE session_id = sqlc.arg(session_id)
+  AND user_id = sqlc.arg(user_id)
+  AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id);
+
 -- name: UpdateConversationTitleBySessionID :exec
 UPDATE ctx_conversation SET title = sqlc.arg(title), updated_at = now()
 WHERE session_id = sqlc.arg(session_id) AND user_id = sqlc.arg(user_id) AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id);

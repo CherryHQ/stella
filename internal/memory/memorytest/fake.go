@@ -474,6 +474,45 @@ func (f *Fake) TouchActiveInfo(_ context.Context, info memory.SessionInfo) (bool
 	return true, nil
 }
 
+// MarkSessionTurnStarted implements memory.SessionActivityStore.
+func (f *Fake) MarkSessionTurnStarted(_ context.Context, session memory.Session) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	si, ok := f.sessionInfos[session.ID]
+	if !ok || si.info.Archived || si.info.UserID != session.UserID || si.info.AgentID != session.AgentID {
+		return false, nil
+	}
+	si.info.LastTurnStartedAt = time.Now().UTC()
+	f.sessionInfos[session.ID] = si
+	return true, nil
+}
+
+// MarkSessionTurnCompleted implements memory.SessionActivityStore.
+func (f *Fake) MarkSessionTurnCompleted(_ context.Context, session memory.Session) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	si, ok := f.sessionInfos[session.ID]
+	if !ok || si.info.Archived || si.info.UserID != session.UserID || si.info.AgentID != session.AgentID {
+		return false, nil
+	}
+	si.info.LastTurnCompletedAt = time.Now().UTC()
+	f.sessionInfos[session.ID] = si
+	return true, nil
+}
+
+// MarkSessionViewed implements memory.SessionActivityStore.
+func (f *Fake) MarkSessionViewed(_ context.Context, session memory.Session) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	si, ok := f.sessionInfos[session.ID]
+	if !ok || si.info.UserID != session.UserID || si.info.AgentID != session.AgentID {
+		return false, nil
+	}
+	si.info.LastViewedAt = time.Now().UTC()
+	f.sessionInfos[session.ID] = si
+	return true, nil
+}
+
 // RotateInfo implements memory.SessionManager. The mutex stands in for the real
 // provider's transaction: the archive and the successor become visible together.
 func (f *Fake) RotateInfo(_ context.Context, expectedSessionID string, successor memory.SessionInfo) error {

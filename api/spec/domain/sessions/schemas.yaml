@@ -16,6 +16,7 @@ components:
         user_id,
         created_at,
         last_active,
+        activity_status,
         archived,
       ]
       properties:
@@ -33,6 +34,14 @@ components:
         user_id: { type: string }
         created_at: { type: string, format: date-time }
         last_active: { type: string, format: date-time }
+        activity_status:
+          type: string
+          readOnly: true
+          description: >-
+            Sidebar attention state for the latest turn. Running is live
+            process state; unread means a turn completed after the session was
+            last marked viewed.
+          enum: [idle, running, unread]
         archived: { type: boolean }
 
     SessionDetail:

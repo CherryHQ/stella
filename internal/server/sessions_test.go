@@ -44,6 +44,21 @@ func TestToSessionResponse(t *testing.T) {
 	if !resp.CreatedAt.Equal(now) {
 		t.Errorf("CreatedAt = %v", resp.CreatedAt)
 	}
+	if resp.ActivityStatus != "idle" {
+		t.Errorf("ActivityStatus = %q, want idle", resp.ActivityStatus)
+	}
+}
+
+func TestSessionActivityStatusUsesCompletionAndViewedWatermarks(t *testing.T) {
+	now := time.Date(2026, 8, 8, 1, 2, 3, 0, time.UTC)
+	info := agentsession.Info{LastTurnCompletedAt: now}
+	if got := sessionActivityStatus(info); got != "unread" {
+		t.Fatalf("unviewed completion status = %q, want unread", got)
+	}
+	info.LastViewedAt = now
+	if got := sessionActivityStatus(info); got != "idle" {
+		t.Fatalf("viewed completion status = %q, want idle", got)
+	}
 }
 
 func TestDecodeToolCallBlock_valid(t *testing.T) {

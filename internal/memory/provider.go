@@ -378,6 +378,16 @@ type SessionManager interface {
 	LoadHistory(ctx context.Context, sessionID string) ([]ai.Message, error)
 }
 
+// SessionActivityStore persists the minimal turn/view timestamps used by
+// session-list attention state. Running remains process-local runtime truth;
+// completion and viewing are durable so navigation and refresh do not lose the
+// pending-review marker.
+type SessionActivityStore interface {
+	MarkSessionTurnStarted(ctx context.Context, session Session) (bool, error)
+	MarkSessionTurnCompleted(ctx context.Context, session Session) (bool, error)
+	MarkSessionViewed(ctx context.Context, session Session) (bool, error)
+}
+
 // ReviewMessage is a logical message with the underlying storage boundary kept
 // intact for deterministic review watermarking. Assistant turns may span
 // multiple storage rows, so callers must advance to LastSeq after reviewing one.

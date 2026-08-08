@@ -45,8 +45,10 @@ import { agentProjectsOptions } from "@/lib/queries/projects";
 import { groupsQueryOptions, groupMembersQueryOptions } from "@/lib/queries/groups";
 import { inboxQueryOptions } from "@/lib/queries/inbox";
 import { sessionDisplayTitle } from "@/lib/session-title";
+import { aggregateSessionActivity, type SessionActivityStatus } from "@/lib/session-activity";
 import { SidebarItem, SidebarSection } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Dialog,
   DialogDescription,
@@ -71,6 +73,49 @@ import { CreateGroupDialog } from "@/features/groups/CreateGroupDialog";
 const RECENT_THREAD_PAGE = 5;
 /** How many threads are inlined under the project the URL points at. */
 const PROJECT_THREAD_LIMIT = 5;
+
+function ActivityStatus({ status }: { status: SessionActivityStatus }) {
+  const { t } = useI18n();
+  if (status === "running") {
+    return (
+      <span
+        className="inline-flex shrink-0 items-center gap-1 text-info"
+        title={t("sessions.sidebar.running")}
+      >
+        <Spinner className="size-3" />
+        <span>{t("sessions.sidebar.running")}</span>
+      </span>
+    );
+  }
+  if (status === "unread") {
+    return (
+      <span
+        className="inline-flex shrink-0 items-center gap-1 text-warning"
+        title={t("sessions.sidebar.toReview")}
+      >
+        <span className="size-1.5 rounded-full bg-chart-3" aria-hidden="true" />
+        <span>{t("sessions.sidebar.toReview")}</span>
+      </span>
+    );
+  }
+  return null;
+}
+
+function SessionMeta({ session }: { session: Session }) {
+  if (session.activity_status && session.activity_status !== "idle") {
+    return <ActivityStatus status={session.activity_status} />;
+  }
+  return <time className="font-mono text-xs">{relativeTime(session.last_active)}</time>;
+}
+
+function SectionTitle({ label, status }: { label: string; status: SessionActivityStatus }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="truncate">{label}</span>
+      <ActivityStatus status={status} />
+    </span>
+  );
+}
 
 /**
  * An icon action inside a sidebar row. SidebarItem already renders the row as a
@@ -567,7 +612,9 @@ function AgentNode({
           ) : undefined
         }
         meta={
-          target.updatedAt ? (
+          mainSession ? (
+            <SessionMeta session={mainSession} />
+          ) : target.updatedAt ? (
             <span className="font-mono text-xs">{relativeTime(target.updatedAt)}</span>
           ) : undefined
         }
@@ -615,9 +662,30 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
   // "main" is the pinned conversation and scheduler/task/delegate sessions are
   // machine-owned; recent only ever lists what the user started by hand, and
   // only at agent level — a project thread's home is its project.
-  const recentThreads = useMemo(
-    () => agentLevelChats(chatsQuery.data?.pages.flatMap((page) => page.sessions) ?? []),
+  const chatSessions = useMemo(
+    () => chatsQuery.data?.pages.flatMap((page) => page.sessions) ?? [],
     [chatsQuery.data],
+  );
+  const recentThreads = useMemo(() => agentLevelChats(chatSessions), [chatSessions]);
+  const recentActivity = useMemo(() => aggregateSessionActivity(recentThreads), [recentThreads]);
+  const projectActivity = useMemo(() => {
+    const byProject = new Map<string, Session[]>();
+    for (const session of chatSessions) {
+      if (!session.project_id || session.archived) continue;
+      const sessions = byProject.get(session.project_id) ?? [];
+      sessions.push(session);
+      byProject.set(session.project_id, sessions);
+    }
+    return new Map(
+      [...byProject].map(([projectId, sessions]) => [
+        projectId,
+        aggregateSessionActivity(sessions),
+      ]),
+    );
+  }, [chatSessions]);
+  const projectsActivity = useMemo(
+    () => aggregateSessionActivity(chatSessions.filter((session) => !!session.project_id)),
+    [chatSessions],
   );
   // Only the project the URL points at gets its threads inlined — every other
   // project stays a single row so the section keeps its flat shape.
@@ -764,7 +832,7 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
       />
 
       <SidebarSection
-        title={t("sidebar.projects")}
+        title={<SectionTitle label={t("sidebar.projects")} status={projectsActivity} />}
         open={projectsOpen}
         onOpenChange={setProjectsOverride}
         count={projects.length}
@@ -786,6 +854,15 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
               className="group/project"
               icon={<Folder className="size-4" />}
               label={project.name}
+              meta={
+                <ActivityStatus
+                  status={
+                    project.id === activeProjectId
+                      ? aggregateSessionActivity(projectSessions.data ?? [])
+                      : (projectActivity.get(project.id) ?? "idle")
+                  }
+                />
+              }
               trailing={
                 <span className="flex shrink-0 items-center gap-0.5">
                   <RowAction
@@ -816,9 +893,7 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
                     active={activeSessionId === session.id}
                     icon={<MessageSquare className="size-4" />}
                     label={sessionDisplayTitle(session.title, t("sessions.untitled"))}
-                    meta={
-                      <time className="font-mono text-xs">{relativeTime(session.last_active)}</time>
-                    }
+                    meta={<SessionMeta session={session} />}
                     to="/agents/$agentId/projects/$projectId/sessions/$sessionId"
                     params={{ agentId, projectId: project.id, sessionId: session.id }}
                     onClick={onNavigate}
@@ -838,8 +913,14 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
         <SidebarSection
           title={t("sidebar.conversations")}
           titleLink={
-            <Link to="/agents/$agentId/threads" params={{ agentId }} onClick={onNavigate}>
-              {t("sidebar.conversations")}
+            <Link
+              className="flex min-w-0 items-center gap-2"
+              to="/agents/$agentId/threads"
+              params={{ agentId }}
+              onClick={onNavigate}
+            >
+              <span className="truncate">{t("sidebar.conversations")}</span>
+              <ActivityStatus status={recentActivity} />
             </Link>
           }
           open={threadsOpen}
@@ -894,9 +975,7 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
                     label
                   )
                 }
-                meta={
-                  <time className="font-mono text-xs">{relativeTime(session.last_active)}</time>
-                }
+                meta={<SessionMeta session={session} />}
                 trailing={
                   editingSessionId === session.id ? undefined : (
                     <DropdownMenu>

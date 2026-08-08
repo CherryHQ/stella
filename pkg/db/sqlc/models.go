@@ -379,21 +379,24 @@ type CtxAgentMemorySnapshot struct {
 }
 
 type CtxConversation struct {
-	ID             string             `json:"id"`
-	SessionID      string             `json:"session_id"`
-	Title          pgtype.Text        `json:"title"`
-	Channel        string             `json:"channel"`
-	Kind           string             `json:"kind"`
-	ProjectID      pgtype.Text        `json:"project_id"`
-	Archived       bool               `json:"archived"`
-	LastActive     time.Time          `json:"last_active"`
-	BootstrappedAt pgtype.Timestamptz `json:"bootstrapped_at"`
-	AgentID        pgtype.Text        `json:"agent_id"`
-	UserID         pgtype.Text        `json:"user_id"`
-	CreatedAt      time.Time          `json:"created_at"`
-	UpdatedAt      time.Time          `json:"updated_at"`
-	GroupID        pgtype.Text        `json:"group_id"`
-	GuestID        pgtype.Text        `json:"guest_id"`
+	ID                  string             `json:"id"`
+	SessionID           string             `json:"session_id"`
+	Title               pgtype.Text        `json:"title"`
+	Channel             string             `json:"channel"`
+	Kind                string             `json:"kind"`
+	ProjectID           pgtype.Text        `json:"project_id"`
+	Archived            bool               `json:"archived"`
+	LastActive          time.Time          `json:"last_active"`
+	BootstrappedAt      pgtype.Timestamptz `json:"bootstrapped_at"`
+	AgentID             pgtype.Text        `json:"agent_id"`
+	UserID              pgtype.Text        `json:"user_id"`
+	CreatedAt           time.Time          `json:"created_at"`
+	UpdatedAt           time.Time          `json:"updated_at"`
+	GroupID             pgtype.Text        `json:"group_id"`
+	GuestID             pgtype.Text        `json:"guest_id"`
+	LastTurnStartedAt   pgtype.Timestamptz `json:"last_turn_started_at"`
+	LastTurnCompletedAt pgtype.Timestamptz `json:"last_turn_completed_at"`
+	LastViewedAt        pgtype.Timestamptz `json:"last_viewed_at"`
 }
 
 type CtxGroupDispatch struct {

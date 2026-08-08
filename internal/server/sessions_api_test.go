@@ -49,6 +49,51 @@ func TestUpdateAndDeleteSession(t *testing.T) {
 	}
 }
 
+func TestSessionActivityBecomesIdleAfterView(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := createAgentAsUser(t, env, env.bearerToken, "Session Activity Agent")
+	_, err := env.db.Exec(context.Background(), `
+		INSERT INTO ctx_conversation (
+			id, session_id, title, channel, kind, agent_id, user_id, last_active,
+			last_turn_started_at, last_turn_completed_at
+		)
+		VALUES ($1, 'session-activity', 'Background turn', 'web', 'chat', $2, $3, now(), now(), now())
+	`, uuid.NewString(), agentID, env.adminUser.ID)
+	if err != nil {
+		t.Fatalf("seed conversation: %v", err)
+	}
+
+	listSessions := func() apitypes.Session {
+		rr := doRequest(t, env, http.MethodGet, "/api/agents/"+agentID+"/sessions?kind=chat", nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("GET sessions status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+		}
+		resp := parseResponse(t, rr)
+		var list apitypes.SessionList
+		if err := json.Unmarshal(resp.Data, &list); err != nil {
+			t.Fatalf("unmarshal session list: %v", err)
+		}
+		if len(list.Sessions) != 1 {
+			t.Fatalf("sessions = %d, want 1", len(list.Sessions))
+		}
+		return list.Sessions[0]
+	}
+
+	before := listSessions()
+	if before.ActivityStatus == nil || *before.ActivityStatus != apitypes.SessionActivityStatusUnread {
+		t.Fatalf("activity before view = %v, want unread", before.ActivityStatus)
+	}
+
+	rr := doRequest(t, env, http.MethodPost, "/api/agents/"+agentID+"/sessions/session-activity/view", nil)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("POST view status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	}
+	after := listSessions()
+	if after.ActivityStatus == nil || *after.ActivityStatus != apitypes.SessionActivityStatusIdle {
+		t.Fatalf("activity after view = %v, want idle", after.ActivityStatus)
+	}
+}
+
 func TestListSessionsHidesInternalKindsByDefault(t *testing.T) {
 	env := setupAdmin(t)
 	agentID := createAgentAsUser(t, env, env.bearerToken, "Session List Agent")

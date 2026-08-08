@@ -23,9 +23,9 @@ const (
 	// representative fixture/assertions for the newly crossed migrations turns
 	// this test into a green lie.
 	previousGAVersion = int64(20260725161331)
-	// Library V1, channel guest sessions/indexes, and channel allowlist backfill
-	// are the post-anchor migrations exercised by the assertions below.
-	currentMigrationVersion = sequentialAnchor + 7
+	// Library V1, channel guest sessions/indexes, channel allowlist backfill, and
+	// session activity columns are the post-anchor migrations exercised below.
+	currentMigrationVersion = sequentialAnchor + 8
 
 	previousGAUserID         = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID        = "00000000-0000-0000-0000-000000000002"
@@ -450,6 +450,18 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 		WHERE file.id = $1
 	`, previousGALibraryFile); got != 1 {
 		t.Fatalf("published Library chunks = %d, want 1", got)
+	}
+
+	var lastTurnStartedAt, lastTurnCompletedAt, lastViewedAt pgtype.Timestamptz
+	if err := db.QueryRow(ctx, `
+		SELECT last_turn_started_at, last_turn_completed_at, last_viewed_at
+		FROM ctx_conversation
+		WHERE id = $1
+	`, previousGANewChatID).Scan(&lastTurnStartedAt, &lastTurnCompletedAt, &lastViewedAt); err != nil {
+		t.Fatalf("read migrated session activity: %v", err)
+	}
+	if lastTurnStartedAt.Valid || lastTurnCompletedAt.Valid || lastViewedAt.Valid {
+		t.Fatalf("migrated session activity = %v/%v/%v, want null/null/null", lastTurnStartedAt, lastTurnCompletedAt, lastViewedAt)
 	}
 
 	if _, err := db.Exec(ctx, `UPDATE channel_guest SET updated_at = now() - interval '31 days' WHERE id = $1`, previousGAGuestID); err != nil {

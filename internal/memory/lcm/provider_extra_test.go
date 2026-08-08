@@ -74,6 +74,55 @@ func newLCMTestSession(suffix string) memory.Session {
 	}
 }
 
+func TestSessionActivityWatermarksRoundTrip(t *testing.T) {
+	provider, cleanup := newLCMTestProvider(t)
+	defer cleanup()
+	manager := provider.(memory.SessionManager)
+	activity := provider.(memory.SessionActivityStore)
+	session := newLCMTestSession("activity")
+	ctx := authz.WithAgentID(authz.WithUserID(t.Context(), session.UserID), session.AgentID)
+	now := time.Now().UTC()
+	if err := manager.SaveInfo(ctx, memory.SessionInfo{
+		ID: session.ID, AgentID: session.AgentID, UserID: session.UserID,
+		Channel: session.Channel, Kind: "chat", CreatedAt: now, LastActive: now,
+	}); err != nil {
+		t.Fatalf("SaveInfo: %v", err)
+	}
+
+	if updated, err := activity.MarkSessionTurnStarted(ctx, session); err != nil || !updated {
+		t.Fatalf("MarkSessionTurnStarted: updated=%v err=%v", updated, err)
+	}
+	started, err := manager.LoadInfo(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("LoadInfo after start: %v", err)
+	}
+	if started.LastTurnStartedAt.IsZero() || !started.LastTurnCompletedAt.IsZero() {
+		t.Fatalf("activity after start = %+v", started)
+	}
+
+	if updated, err := activity.MarkSessionTurnCompleted(ctx, session); err != nil || !updated {
+		t.Fatalf("MarkSessionTurnCompleted: updated=%v err=%v", updated, err)
+	}
+	completed, err := manager.LoadInfo(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("LoadInfo after completion: %v", err)
+	}
+	if completed.LastTurnCompletedAt.Before(completed.LastTurnStartedAt) {
+		t.Fatalf("completion %v precedes start %v", completed.LastTurnCompletedAt, completed.LastTurnStartedAt)
+	}
+
+	if updated, err := activity.MarkSessionViewed(ctx, session); err != nil || !updated {
+		t.Fatalf("MarkSessionViewed: updated=%v err=%v", updated, err)
+	}
+	viewed, err := manager.LoadInfo(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("LoadInfo after view: %v", err)
+	}
+	if viewed.LastViewedAt.Before(viewed.LastTurnCompletedAt) {
+		t.Fatalf("view %v precedes completion %v", viewed.LastViewedAt, viewed.LastTurnCompletedAt)
+	}
+}
+
 func TestTouchKnowledgeUsageDoesNotRecreateMissingRuntimeRow(t *testing.T) {
 	db := newLCMTestDB(t)
 	defer db.Close()

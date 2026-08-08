@@ -9,6 +9,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/memory"
 )
 
 // RuntimeManager is the typed runtime lookup port used by session Send/Attach.
@@ -49,14 +50,22 @@ func (m agentRuntimeManager) GetService(agentID string) RuntimeService {
 	if m.inner == nil {
 		return nil
 	}
-	return m.inner.GetService(agentID)
+	service := m.inner.GetService(agentID)
+	if service == nil {
+		return nil
+	}
+	return service
 }
 
 func (m agentRuntimeManager) Default() RuntimeService {
 	if m.inner == nil {
 		return nil
 	}
-	return m.inner.Default()
+	service := m.inner.Default()
+	if service == nil {
+		return nil
+	}
+	return service
 }
 
 // RuntimeService is the narrow live-turn port Session access needs from the
@@ -177,6 +186,47 @@ func relayEventsUntilDone(observerCtx context.Context, source <-chan agent.Event
 		}
 	}()
 	return out
+}
+
+// SessionRunning reports process-local turn state for an already-authorized
+// session record. Durable completion/view timestamps remain on Info.
+func (a *Access) SessionRunning(info agentsession.Info) bool {
+	runtime, err := a.svc.runtimeFor(info.AgentID)
+	return err == nil && runtime.SessionLive(info.ID)
+}
+
+type MarkViewedInput struct {
+	Authority authz.Authority
+	AgentID   string
+	SessionID string
+}
+
+// MarkViewed clears terminal attention for a session the caller can read.
+func (s *Service) MarkViewed(ctx context.Context, in MarkViewedInput) error {
+	access, err := s.Begin(ctx, in.Authority)
+	if err != nil {
+		return err
+	}
+	info, err := access.Read(ctx, in.AgentID, in.SessionID)
+	if err != nil {
+		return err
+	}
+	activity, ok := s.memory.(memory.SessionActivityStore)
+	if !ok {
+		return fmt.Errorf("%w: session activity store unavailable", ErrUnavailable)
+	}
+	scope, err := info.MemoryScope()
+	if err != nil {
+		return fmt.Errorf("%w: invalid session scope: %w", ErrUnavailable, err)
+	}
+	updated, err := activity.MarkSessionViewed(ctx, scope)
+	if err != nil {
+		return fmt.Errorf("%w: mark session viewed: %w", ErrUnavailable, err)
+	}
+	if !updated {
+		return ErrNotFound
+	}
+	return nil
 }
 
 type StopInput struct {

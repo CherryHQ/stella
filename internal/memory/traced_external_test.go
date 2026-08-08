@@ -583,6 +583,37 @@ func TestTracedProvider_CommitGroupCursor(t *testing.T) {
 	}
 }
 
+func TestTracedProvider_PreservesSessionActivityStore(t *testing.T) {
+	inner := memorytest.New()
+	session := memory.Session{ID: "activity-session", UserID: "user-1", AgentID: "agent-1"}
+	if err := inner.SaveInfo(t.Context(), memory.SessionInfo{
+		ID: session.ID, UserID: session.UserID, AgentID: session.AgentID,
+	}); err != nil {
+		t.Fatalf("SaveInfo: %v", err)
+	}
+	traced, _ := newTracedWithCollector(inner)
+	activity, ok := traced.(memory.SessionActivityStore)
+	if !ok {
+		t.Fatal("traced provider does not expose SessionActivityStore")
+	}
+	if updated, err := activity.MarkSessionTurnStarted(t.Context(), session); err != nil || !updated {
+		t.Fatalf("MarkSessionTurnStarted: updated=%v err=%v", updated, err)
+	}
+	if updated, err := activity.MarkSessionTurnCompleted(t.Context(), session); err != nil || !updated {
+		t.Fatalf("MarkSessionTurnCompleted: updated=%v err=%v", updated, err)
+	}
+	if updated, err := activity.MarkSessionViewed(t.Context(), session); err != nil || !updated {
+		t.Fatalf("MarkSessionViewed: updated=%v err=%v", updated, err)
+	}
+	info, err := inner.LoadInfo(t.Context(), session.ID)
+	if err != nil {
+		t.Fatalf("LoadInfo: %v", err)
+	}
+	if info.LastTurnStartedAt.IsZero() || info.LastTurnCompletedAt.IsZero() || info.LastViewedAt.IsZero() {
+		t.Fatalf("activity watermarks were not forwarded: %+v", info)
+	}
+}
+
 func TestTracedProvider_LoadReviewHistory(t *testing.T) {
 	inner := &reviewHistoryProvider{
 		Provider: memorytest.New(),
