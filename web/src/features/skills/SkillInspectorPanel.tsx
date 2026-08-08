@@ -38,11 +38,12 @@ import {
   updateAgentSkill,
   upgradeAgentSkill,
 } from "@/lib/api-client/sdk.gen";
-import { apiErrorMessage } from "@/lib/api-error";
+import { apiErrorMessage, apiErrorStatus } from "@/lib/api-error";
 import { meQueryOptions } from "@/lib/queries/me";
 import { useI18n } from "@/lib/i18n";
 import {
   isSkillReadOnly,
+  managedSkillDigest,
   SCOPE_DESC_KEY,
   SCOPE_LABEL_KEY,
   type SkillScope,
@@ -143,6 +144,8 @@ export function SkillInspectorPanel({
   async function save() {
     // Keep the conversion decision stable while local form state is reset after saving.
     const shouldConvertToManual = convertToManual;
+    const expectedDigest = managedSkillDigest(skill);
+    if (expectedDigest === "") return notify(t("skills.digestUnavailable"), "error");
     try {
       await updateAgentSkill({
         path: { id: agentId, skillId: skill.id },
@@ -154,6 +157,7 @@ export function SkillInspectorPanel({
           description,
           disable_model_invocation: !modelEnabled,
           version,
+          ...(expectedDigest === null ? {} : { expected_digest: expectedDigest }),
           ...(shouldConvertToManual ? { convert_to_manual: true } : {}),
         },
         throwOnError: true,
@@ -162,16 +166,23 @@ export function SkillInspectorPanel({
       invalidateSkillQueries();
       if (shouldConvertToManual) onClose();
     } catch (error) {
+      if (apiErrorStatus(error) === 409) {
+        notify(t("skills.conflict"), "error");
+        invalidateSkillQueries();
+        return;
+      }
       notify(apiErrorMessage(error, t("common.error")), "error");
     }
   }
 
   async function upgrade() {
+    const expectedDigest = managedSkillDigest(skill);
+    if (!expectedDigest) return notify(t("skills.digestUnavailable"), "error");
     setUpgrading(true);
     try {
       const res = await upgradeAgentSkill({
         path: { id: agentId, skillId: skill.id },
-        query: { scope: skill.scope as SkillScope },
+        query: { scope: skill.scope as SkillScope, expected_digest: expectedDigest },
         throwOnError: true,
       });
       if (res.data?.updated) {
@@ -184,6 +195,11 @@ export function SkillInspectorPanel({
         notify(t("sessions.skillsList.upgradeUpToDate"), "success");
       }
     } catch (error) {
+      if (apiErrorStatus(error) === 409) {
+        notify(t("skills.conflict"), "error");
+        invalidateSkillQueries();
+        return;
+      }
       notify(apiErrorMessage(error, t("common.error")), "error");
     } finally {
       setUpgrading(false);
@@ -191,12 +207,15 @@ export function SkillInspectorPanel({
   }
 
   async function remove() {
+    const expectedDigest = managedSkillDigest(skill);
+    if (expectedDigest === "") return notify(t("skills.digestUnavailable"), "error");
     try {
       await deleteAgentSkill({
         path: { id: agentId, skillId: skill.id },
         query: {
           scope: skill.scope as SkillScope,
           ...(sessionId ? { session_id: sessionId } : {}),
+          ...(expectedDigest === null ? {} : { expected_digest: expectedDigest }),
         },
         throwOnError: true,
       });
@@ -205,6 +224,11 @@ export function SkillInspectorPanel({
       await queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
       onClose();
     } catch (error) {
+      if (apiErrorStatus(error) === 409) {
+        notify(t("skills.conflict"), "error");
+        invalidateSkillQueries();
+        return;
+      }
       notify(apiErrorMessage(error, t("common.error")), "error");
     } finally {
       setConfirmOpen(false);
@@ -471,6 +495,8 @@ function SkillFileView({
     }
     // Keep the conversion decision stable while local editor state is reset after saving.
     const shouldConvertToManual = convertToManual;
+    const expectedDigest = managedSkillDigest(skill);
+    if (expectedDigest === "") return notify(t("skills.digestUnavailable"), "error");
     try {
       await updateAgentSkill({
         path: { id: agentId, skillId: skill.id },
@@ -480,6 +506,7 @@ function SkillFileView({
         },
         body: {
           files: { [path]: draft },
+          ...(expectedDigest === null ? {} : { expected_digest: expectedDigest }),
           ...(shouldConvertToManual ? { convert_to_manual: true } : {}),
         },
         throwOnError: true,
@@ -493,6 +520,11 @@ function SkillFileView({
       void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
       if (shouldConvertToManual) onClose();
     } catch (error) {
+      if (apiErrorStatus(error) === 409) {
+        notify(t("skills.conflict"), "error");
+        void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
+        return;
+      }
       notify(apiErrorMessage(error, t("common.error")), "error");
     }
   }

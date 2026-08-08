@@ -273,7 +273,6 @@ export function SkillsPage() {
 
   const deleteSkill = useCallback(
     async (skill: Skill) => {
-      if (!window.confirm(t("skills.deleteConfirm", { name: skill.name }))) return;
       if (!skill.content_digest) return showToast(t("skills.digestUnavailable"), "error");
       try {
         await deleteScopedSkillRequest({
