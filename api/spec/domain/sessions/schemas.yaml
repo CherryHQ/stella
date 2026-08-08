@@ -38,10 +38,9 @@ components:
           type: string
           readOnly: true
           description: >-
-            Sidebar attention state for the latest turn. Running is live
-            process state; unread means a turn completed after the session was
-            last marked viewed.
-          enum: [idle, running, unread]
+            Activity state for this session. Working is live process state;
+            success and error describe an unviewed completed turn.
+          enum: [idle, working, success, error]
         archived: { type: boolean }
 
     SessionDetail:

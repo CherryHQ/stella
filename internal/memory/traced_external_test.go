@@ -599,7 +599,7 @@ func TestTracedProvider_PreservesSessionActivityStore(t *testing.T) {
 	if updated, err := activity.MarkSessionTurnStarted(t.Context(), session); err != nil || !updated {
 		t.Fatalf("MarkSessionTurnStarted: updated=%v err=%v", updated, err)
 	}
-	if updated, err := activity.MarkSessionTurnCompleted(t.Context(), session); err != nil || !updated {
+	if updated, err := activity.MarkSessionTurnCompleted(t.Context(), session, memory.SessionTurnSuccess); err != nil || !updated {
 		t.Fatalf("MarkSessionTurnCompleted: updated=%v err=%v", updated, err)
 	}
 	if updated, err := activity.MarkSessionViewed(t.Context(), session); err != nil || !updated {
@@ -609,7 +609,7 @@ func TestTracedProvider_PreservesSessionActivityStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadInfo: %v", err)
 	}
-	if info.LastTurnStartedAt.IsZero() || info.LastTurnCompletedAt.IsZero() || info.LastViewedAt.IsZero() {
+	if info.LastTurnStartedAt.IsZero() || info.LastTurnCompletedAt.IsZero() || info.LastTurnResult != memory.SessionTurnSuccess || info.LastViewedAt.IsZero() {
 		t.Fatalf("activity watermarks were not forwarded: %+v", info)
 	}
 }

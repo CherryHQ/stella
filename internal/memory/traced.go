@@ -483,7 +483,7 @@ func (t *tracedProvider) CommitGroupCursor(ctx context.Context, session Session,
 
 // Session activity is durable session metadata rather than memory content, so
 // the tracing wrapper preserves the optional capability without emitting a
-// memory hook for each sidebar/view watermark write.
+// memory hook for each turn-state write.
 func (t *tracedProvider) MarkSessionTurnStarted(ctx context.Context, session Session) (bool, error) {
 	activity, ok := t.inner.(SessionActivityStore)
 	if !ok {
@@ -492,12 +492,12 @@ func (t *tracedProvider) MarkSessionTurnStarted(ctx context.Context, session Ses
 	return activity.MarkSessionTurnStarted(ctx, session)
 }
 
-func (t *tracedProvider) MarkSessionTurnCompleted(ctx context.Context, session Session) (bool, error) {
+func (t *tracedProvider) MarkSessionTurnCompleted(ctx context.Context, session Session, result SessionTurnResult) (bool, error) {
 	activity, ok := t.inner.(SessionActivityStore)
 	if !ok {
 		return false, errCapabilityNotSupported("SessionActivityStore")
 	}
-	return activity.MarkSessionTurnCompleted(ctx, session)
+	return activity.MarkSessionTurnCompleted(ctx, session, result)
 }
 
 func (t *tracedProvider) MarkSessionViewed(ctx context.Context, session Session) (bool, error) {

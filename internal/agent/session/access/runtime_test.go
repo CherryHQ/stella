@@ -177,7 +177,6 @@ func TestMarkViewedAuthorizesAndAdvancesDurableWatermark(t *testing.T) {
 	if err := svc.memory.SaveInfo(t.Context(), info); err != nil {
 		t.Fatalf("SaveInfo: %v", err)
 	}
-
 	if err := svc.MarkViewed(t.Context(), MarkViewedInput{
 		Authority: authority, AgentID: "a1", SessionID: "s1",
 	}); err != nil {

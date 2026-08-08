@@ -50,7 +50,6 @@ import { SessionInfoPopover } from "./SessionInfoPopover";
 import { Transcript } from "./Transcript";
 import { useFileAttachments } from "./useFileAttachments";
 import { useSessionStreamResume } from "./useSessionStreamResume";
-import { useSessionViewed } from "./useSessionViewed";
 
 const PAGE_SIZE = 50;
 // Auto-fill (below) pulls older pages until the transcript overflows; cap how
@@ -131,7 +130,6 @@ export function SessionDetail({
     () => (session ? createSessionTransport(session.agent_id, session.id) : undefined),
     [session?.agent_id, session?.id],
   );
-  const markViewed = useSessionViewed(agentId, sessionId);
   const historyAuthoritativeRef = useRef(false);
   const reconcilePersistedHistory = useCallback(() => {
     historyAuthoritativeRef.current = true;
@@ -160,7 +158,6 @@ export function SessionDetail({
     onError: (err) => console.error("[session chat]", err),
     onFinish: ({ isAbort, isDisconnect, isError }) => {
       setRecoveringDisconnect(isDisconnect);
-      if (!isDisconnect) void markViewed();
       if (!isAbort && !isDisconnect && !isError) reconcilePersistedHistory();
     },
   });
@@ -465,13 +462,11 @@ export function SessionDetail({
     void stopSession({
       path: { agentId: session.agent_id, sessionId: session.id },
       throwOnError: true,
-    })
-      .then(() => markViewed())
-      .catch((err) => {
-        console.error("[session stop]", err);
-        setResumeEnabled(true);
-      });
-  }, [session, chatStop, markViewed]);
+    }).catch((err) => {
+      console.error("[session stop]", err);
+      setResumeEnabled(true);
+    });
+  }, [session, chatStop]);
 
   // A thread started from the home composer arrives with its first message
   // parked in memory. Claim it once the session is loaded; `takePendingMessage`

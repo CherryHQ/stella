@@ -194,7 +194,6 @@ func (s *Server) StopSession(w http.ResponseWriter, r *http.Request, agentID str
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// MarkSessionViewed clears completed-turn attention without altering content.
 func (s *Server) MarkSessionViewed(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "missing session ID")
@@ -650,10 +649,17 @@ func sessionResponseFromInfo(info session.Info) sessionResponse {
 }
 
 func sessionActivityStatus(info session.Info) string {
-	if !info.LastTurnCompletedAt.IsZero() && info.LastTurnCompletedAt.After(info.LastViewedAt) {
-		return "unread"
+	if info.LastTurnCompletedAt.IsZero() || !info.LastTurnCompletedAt.After(info.LastViewedAt) {
+		return "idle"
 	}
-	return "idle"
+	switch string(info.LastTurnResult) {
+	case "success":
+		return "success"
+	case "error":
+		return "error"
+	default:
+		return "idle"
+	}
 }
 
 func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID string, params apiserver.ListSessionsParams) {
@@ -689,7 +695,7 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID st
 	for _, si := range page.Sessions {
 		item := sessionResponseFromInfo(si)
 		if access.SessionRunning(si) {
-			item.ActivityStatus = "running"
+			item.ActivityStatus = "working"
 		}
 		resp = append(resp, item)
 	}
@@ -720,7 +726,7 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, agentID stri
 		AgentName:       detail.AgentName,
 	}
 	if access.SessionRunning(detail.Info) {
-		resp.ActivityStatus = "running"
+		resp.ActivityStatus = "working"
 	}
 
 	// Resolve user name from the account system (best-effort display enrichment).
@@ -770,7 +776,7 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, agentID s
 	si.Title = title
 	resp := sessionResponseFromInfo(si)
 	if access.SessionRunning(si) {
-		resp.ActivityStatus = "running"
+		resp.ActivityStatus = "working"
 	}
 	writeData(w, http.StatusOK, resp)
 }

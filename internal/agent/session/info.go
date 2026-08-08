@@ -69,6 +69,7 @@ type Info struct {
 	LastActive          time.Time
 	LastTurnStartedAt   time.Time
 	LastTurnCompletedAt time.Time
+	LastTurnResult      memory.SessionTurnResult
 	LastViewedAt        time.Time
 	Archived            bool
 	// LatestSeq is populated by review listings and is not session metadata.
@@ -183,6 +184,7 @@ func (i Info) Record() (memory.SessionInfo, error) {
 		LastActive:          i.LastActive,
 		LastTurnStartedAt:   i.LastTurnStartedAt,
 		LastTurnCompletedAt: i.LastTurnCompletedAt,
+		LastTurnResult:      i.LastTurnResult,
 		LastViewedAt:        i.LastViewedAt,
 		Archived:            i.Archived,
 		LatestSeq:           i.LatestSeq,
@@ -209,6 +211,7 @@ func InfoFromRecord(r memory.SessionInfo) (Info, error) {
 		LastActive:          r.LastActive,
 		LastTurnStartedAt:   r.LastTurnStartedAt,
 		LastTurnCompletedAt: r.LastTurnCompletedAt,
+		LastTurnResult:      r.LastTurnResult,
 		LastViewedAt:        r.LastViewedAt,
 		Archived:            r.Archived,
 		LatestSeq:           r.LatestSeq,

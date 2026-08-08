@@ -378,13 +378,12 @@ type SessionManager interface {
 	LoadHistory(ctx context.Context, sessionID string) ([]ai.Message, error)
 }
 
-// SessionActivityStore persists the minimal turn/view timestamps used by
-// session-list attention state. Running remains process-local runtime truth;
-// completion and viewing are durable so navigation and refresh do not lose the
-// pending-review marker.
+// SessionActivityStore persists the latest terminal turn result and view
+// watermark. Working remains process-local runtime truth; unread terminal
+// results survive navigation and refresh until the session is opened.
 type SessionActivityStore interface {
 	MarkSessionTurnStarted(ctx context.Context, session Session) (bool, error)
-	MarkSessionTurnCompleted(ctx context.Context, session Session) (bool, error)
+	MarkSessionTurnCompleted(ctx context.Context, session Session, result SessionTurnResult) (bool, error)
 	MarkSessionViewed(ctx context.Context, session Session) (bool, error)
 }
 

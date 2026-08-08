@@ -255,9 +255,7 @@ paths:
     post:
       tags: [sessions]
       summary: Mark a session viewed
-      description: >
-        Clear completed-turn attention after the user opens the session. This
-        does not alter transcript content or active turn state.
+      description: Clear its terminal status after the user opens the session.
       operationId: markSessionViewed
       responses:
         "204": { description: Session was marked viewed }

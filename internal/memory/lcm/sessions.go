@@ -155,7 +155,10 @@ func (p *Provider) MarkSessionTurnStarted(ctx context.Context, session memory.Se
 }
 
 // MarkSessionTurnCompleted implements memory.SessionActivityStore.
-func (p *Provider) MarkSessionTurnCompleted(ctx context.Context, session memory.Session) (bool, error) {
+func (p *Provider) MarkSessionTurnCompleted(ctx context.Context, session memory.Session, result memory.SessionTurnResult) (bool, error) {
+	if !result.Valid() {
+		return false, fmt.Errorf("mark session turn completed: invalid result %q", result)
+	}
 	session, err := requireMemorySessionScope(ctx, session)
 	if err != nil {
 		return false, err
@@ -164,6 +167,7 @@ func (p *Provider) MarkSessionTurnCompleted(ctx context.Context, session memory.
 		SessionID: session.ID,
 		UserID:    pgtype.Text{String: session.UserID, Valid: true},
 		AgentID:   pgnull.Text(session.AgentID),
+		Result:    pgtype.Text{String: string(result), Valid: true},
 	})
 	if err != nil {
 		return false, fmt.Errorf("mark session turn completed: %w", err)
@@ -462,6 +466,9 @@ func convToSessionInfo(conv sqlc.CtxConversation) memory.SessionInfo {
 	}
 	if conv.LastTurnCompletedAt.Valid {
 		info.LastTurnCompletedAt = conv.LastTurnCompletedAt.Time.UTC()
+	}
+	if conv.LastTurnResult.Valid {
+		info.LastTurnResult = memory.SessionTurnResult(conv.LastTurnResult.String)
 	}
 	if conv.LastViewedAt.Valid {
 		info.LastViewedAt = conv.LastViewedAt.Time.UTC()

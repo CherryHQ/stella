@@ -396,6 +396,7 @@ type CtxConversation struct {
 	GuestID             pgtype.Text        `json:"guest_id"`
 	LastTurnStartedAt   pgtype.Timestamptz `json:"last_turn_started_at"`
 	LastTurnCompletedAt pgtype.Timestamptz `json:"last_turn_completed_at"`
+	LastTurnResult      pgtype.Text        `json:"last_turn_result"`
 	LastViewedAt        pgtype.Timestamptz `json:"last_viewed_at"`
 }
 

@@ -326,9 +326,11 @@ func (rt *Runtime) ChatAdmitted(ctx context.Context, info session.Info, msg Mess
 	// disconnects; the ctx.Done branch below only flushes already-buffered
 	// events rather than blocking on a reader that is gone.
 	inner := make(chan Event, 100)
+	producerResult := make(chan memory.SessionTurnResult, 1)
 	rt.hub.begin(info.ID)
 	rt.turns.begin()
 	go func() {
+		result := memory.SessionTurnSuccess
 		defer rt.turns.end()
 		defer func() {
 			if p := recover(); p != nil {
@@ -338,8 +340,13 @@ func (rt *Runtime) ChatAdmitted(ctx context.Context, info session.Info, msg Mess
 				// unwound through a defer in rt.chat/streamEvents that already
 				// closed inner, so tolerate an already-closed channel.
 				rt.log.Error("chat turn panicked", "session_id", info.ID, "panic", p)
+				result = memory.SessionTurnError
 				safeClose(inner)
 			}
+			if result != memory.SessionTurnError && ctx.Err() != nil {
+				result = memory.SessionTurnCanceled
+			}
+			producerResult <- result
 		}()
 		rt.chat(ctx, inner, info, msg, co)
 	}()
@@ -349,22 +356,31 @@ func (rt *Runtime) ChatAdmitted(ctx context.Context, info session.Info, msg Mess
 		defer cancel()
 		defer rt.active.CompareAndDelete(info.ID, turn)
 		defer rt.hub.end(info.ID)
-		// Registered last, so completion is durable before hub/out observers see
-		// EOF and mark the session viewed.
-		defer rt.markSessionTurnCompleted(ctx, activityScope)
+		result := memory.SessionTurnSuccess
+		deliver := true
 		for ev := range inner {
 			rt.hub.publish(info.ID, ev)
+			if ev.Err != nil {
+				result = memory.SessionTurnError
+			}
+			if !deliver {
+				continue
+			}
 			select {
 			case out <- ev:
 			case <-ctx.Done():
-				// Caller gone: keep draining inner so the turn finishes cleanly
-				// and hub subscribers still receive, but stop writing to out.
-				for ev := range inner {
-					rt.hub.publish(info.ID, ev)
-				}
-				return
+				// Caller gone: keep draining inner so the turn finishes cleanly and
+				// hub subscribers still receive, but stop writing to out.
+				deliver = false
 			}
 		}
+		producerOutcome := <-producerResult
+		if result != memory.SessionTurnError {
+			result = producerOutcome
+		}
+		// Completion is durable before hub/out observers see EOF and mark the
+		// session viewed.
+		rt.markSessionTurnCompleted(ctx, activityScope, result)
 	}()
 	return out, nil
 }
@@ -379,12 +395,12 @@ func (rt *Runtime) markSessionTurnStarted(ctx context.Context, session memory.Se
 	}
 }
 
-func (rt *Runtime) markSessionTurnCompleted(ctx context.Context, session memory.Session) {
+func (rt *Runtime) markSessionTurnCompleted(ctx context.Context, session memory.Session, result memory.SessionTurnResult) {
 	activity, ok := rt.mem.(memory.SessionActivityStore)
 	if !ok {
 		return
 	}
-	if _, err := activity.MarkSessionTurnCompleted(context.WithoutCancel(ctx), session); err != nil {
+	if _, err := activity.MarkSessionTurnCompleted(context.WithoutCancel(ctx), session, result); err != nil {
 		rt.log.Warn("mark session turn completed failed", "session_id", session.ID, "error", err)
 	}
 }

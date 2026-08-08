@@ -13,6 +13,7 @@ import (
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/memory"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -49,12 +50,21 @@ func TestToSessionResponse(t *testing.T) {
 	}
 }
 
-func TestSessionActivityStatusUsesCompletionAndViewedWatermarks(t *testing.T) {
+func TestSessionActivityStatusUsesTerminalResult(t *testing.T) {
 	now := time.Date(2026, 8, 8, 1, 2, 3, 0, time.UTC)
-	info := agentsession.Info{LastTurnCompletedAt: now}
-	if got := sessionActivityStatus(info); got != "unread" {
-		t.Fatalf("unviewed completion status = %q, want unread", got)
+	info := agentsession.Info{LastTurnCompletedAt: now, LastTurnResult: memory.SessionTurnSuccess}
+	if got := sessionActivityStatus(info); got != "success" {
+		t.Fatalf("unviewed completion status = %q, want success", got)
 	}
+	info.LastTurnResult = memory.SessionTurnError
+	if got := sessionActivityStatus(info); got != "error" {
+		t.Fatalf("failed completion status = %q, want error", got)
+	}
+	info.LastTurnResult = memory.SessionTurnCanceled
+	if got := sessionActivityStatus(info); got != "idle" {
+		t.Fatalf("canceled completion status = %q, want idle", got)
+	}
+	info.LastTurnResult = memory.SessionTurnSuccess
 	info.LastViewedAt = now
 	if got := sessionActivityStatus(info); got != "idle" {
 		t.Fatalf("viewed completion status = %q, want idle", got)

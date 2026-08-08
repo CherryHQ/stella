@@ -488,7 +488,10 @@ func (f *Fake) MarkSessionTurnStarted(_ context.Context, session memory.Session)
 }
 
 // MarkSessionTurnCompleted implements memory.SessionActivityStore.
-func (f *Fake) MarkSessionTurnCompleted(_ context.Context, session memory.Session) (bool, error) {
+func (f *Fake) MarkSessionTurnCompleted(_ context.Context, session memory.Session, result memory.SessionTurnResult) (bool, error) {
+	if !result.Valid() {
+		return false, fmt.Errorf("invalid session turn result %q", result)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	si, ok := f.sessionInfos[session.ID]
@@ -496,6 +499,7 @@ func (f *Fake) MarkSessionTurnCompleted(_ context.Context, session memory.Sessio
 		return false, nil
 	}
 	si.info.LastTurnCompletedAt = time.Now().UTC()
+	si.info.LastTurnResult = result
 	f.sessionInfos[session.ID] = si
 	return true, nil
 }

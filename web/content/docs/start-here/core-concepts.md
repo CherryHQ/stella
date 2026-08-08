@@ -68,7 +68,7 @@ So when you say "save this and run it every morning", the agent saves the accept
 
 The Web UI follows the same split. Each agent has two spaces:
 
-- **Conversations** — the thread list in the sidebar, and the page behind its title: every thread you have with that agent. The list marks a thread while it is running and after it finishes away from view; opening the thread clears the finished marker.
+- **Conversations** — the thread list in the sidebar, and the page behind its title: every thread you have with that agent. Each thread uses a colored icon for its latest state: working, succeeded, or failed. Opening a completed thread marks its result read and returns the icon to idle.
 - **Work** — everything that agent is tracking to an outcome, in the order you need it: what **needs you**, what is **active**, what is **scheduled**, what is **repeatable** (your saved workflows), and the **history**.
 
 **Inbox** is the same "needs you", one scope wider: it collects what is waiting on you across every agent, so you never have to check them one by one.

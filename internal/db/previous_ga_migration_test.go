@@ -453,15 +453,16 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 
 	var lastTurnStartedAt, lastTurnCompletedAt, lastViewedAt pgtype.Timestamptz
+	var lastTurnResult pgtype.Text
 	if err := db.QueryRow(ctx, `
-		SELECT last_turn_started_at, last_turn_completed_at, last_viewed_at
+		SELECT last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at
 		FROM ctx_conversation
 		WHERE id = $1
-	`, previousGANewChatID).Scan(&lastTurnStartedAt, &lastTurnCompletedAt, &lastViewedAt); err != nil {
+	`, previousGANewChatID).Scan(&lastTurnStartedAt, &lastTurnCompletedAt, &lastTurnResult, &lastViewedAt); err != nil {
 		t.Fatalf("read migrated session activity: %v", err)
 	}
-	if lastTurnStartedAt.Valid || lastTurnCompletedAt.Valid || lastViewedAt.Valid {
-		t.Fatalf("migrated session activity = %v/%v/%v, want null/null/null", lastTurnStartedAt, lastTurnCompletedAt, lastViewedAt)
+	if lastTurnStartedAt.Valid || lastTurnCompletedAt.Valid || lastTurnResult.Valid || lastViewedAt.Valid {
+		t.Fatalf("migrated session activity = %v/%v/%v/%v, want all null", lastTurnStartedAt, lastTurnCompletedAt, lastTurnResult, lastViewedAt)
 	}
 
 	if _, err := db.Exec(ctx, `UPDATE channel_guest SET updated_at = now() - interval '31 days' WHERE id = $1`, previousGAGuestID); err != nil {

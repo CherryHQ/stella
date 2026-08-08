@@ -189,7 +189,7 @@ func relayEventsUntilDone(observerCtx context.Context, source <-chan agent.Event
 }
 
 // SessionRunning reports process-local turn state for an already-authorized
-// session record. Durable completion/view timestamps remain on Info.
+// session record. Durable terminal state remains on Info.
 func (a *Access) SessionRunning(info agentsession.Info) bool {
 	runtime, err := a.svc.runtimeFor(info.AgentID)
 	return err == nil && runtime.SessionLive(info.ID)
@@ -201,7 +201,7 @@ type MarkViewedInput struct {
 	SessionID string
 }
 
-// MarkViewed clears terminal attention for a session the caller can read.
+// MarkViewed clears terminal status for a session the caller can read.
 func (s *Service) MarkViewed(ctx context.Context, in MarkViewedInput) error {
 	access, err := s.Begin(ctx, in.Authority)
 	if err != nil {

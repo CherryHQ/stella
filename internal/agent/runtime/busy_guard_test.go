@@ -67,15 +67,21 @@ func (m *activityRecordingMemory) MarkSessionTurnStarted(_ context.Context, _ me
 	return true, nil
 }
 
-func (m *activityRecordingMemory) MarkSessionTurnCompleted(_ context.Context, _ memory.Session) (bool, error) {
+func (m *activityRecordingMemory) MarkSessionTurnCompleted(_ context.Context, _ memory.Session, result memory.SessionTurnResult) (bool, error) {
 	m.activityMu.Lock()
 	defer m.activityMu.Unlock()
-	m.activity = append(m.activity, "completed")
+	m.activity = append(m.activity, "completed:"+string(result))
 	return true, nil
 }
 
 func (m *activityRecordingMemory) MarkSessionViewed(context.Context, memory.Session) (bool, error) {
 	return true, nil
+}
+
+func (m *activityRecordingMemory) activitySnapshot() []string {
+	m.activityMu.Lock()
+	defer m.activityMu.Unlock()
+	return append([]string(nil), m.activity...)
 }
 
 func TestChatMarksTurnActivityAroundExecution(t *testing.T) {
@@ -106,8 +112,27 @@ func TestChatMarksTurnActivityAroundExecution(t *testing.T) {
 	mem.activityMu.Lock()
 	got = append([]string(nil), mem.activity...)
 	mem.activityMu.Unlock()
-	if !reflect.DeepEqual(got, []string{"started", "completed"}) {
-		t.Fatalf("activity after completion = %v, want [started completed]", got)
+	if !reflect.DeepEqual(got, []string{"started", "completed:success"}) {
+		t.Fatalf("activity after completion = %v, want [started completed:success]", got)
+	}
+}
+
+func TestChatMarksFailedTurnActivity(t *testing.T) {
+	mem := &activityRecordingMemory{}
+	rt, err := New(Config{
+		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+			return chatFakeRunner{events: []Event{{Err: errors.New("model failed")}}}, nil
+		},
+		Memory: mem,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	stream := rt.Chat(t.Context(), session.Info{ID: "failed-session", UserID: "u1", AgentID: "a1"}, "hello")
+	for range stream {
+	}
+	if got := mem.activitySnapshot(); !reflect.DeepEqual(got, []string{"started", "completed:error"}) {
+		t.Fatalf("failed turn activity = %v, want [started completed:error]", got)
 	}
 }
 
@@ -181,7 +206,7 @@ func (r *contextRunner) SystemPrompt() string    { return "" }
 func (r *contextRunner) Close() error            { return nil }
 
 func TestStopSessionCancelsOnlyExplicitly(t *testing.T) {
-	mem := &recordingMemory{}
+	mem := &activityRecordingMemory{}
 	rt, err := New(Config{
 		NewRunner: func(_ context.Context, _ RunnerParams) (Runner, error) {
 			return &contextRunner{}, nil
@@ -206,6 +231,9 @@ func TestStopSessionCancelsOnlyExplicitly(t *testing.T) {
 	waitSessionFree(t, rt, info.ID)
 	if rt.StopSession(t.Context(), info.ID) {
 		t.Fatal("stopping an idle session should report false")
+	}
+	if got := mem.activitySnapshot(); !reflect.DeepEqual(got, []string{"started", "completed:canceled"}) {
+		t.Fatalf("stopped turn activity = %v, want [started completed:canceled]", got)
 	}
 	mem.mu.Lock()
 	defer mem.mu.Unlock()

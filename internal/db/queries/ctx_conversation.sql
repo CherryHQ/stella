@@ -58,7 +58,7 @@ WHERE session_id = sqlc.arg(session_id) AND user_id = sqlc.arg(user_id) AND agen
 
 -- name: MarkConversationTurnStarted :execrows
 UPDATE ctx_conversation
-SET last_turn_started_at = now(), last_active = now(), updated_at = now()
+SET last_turn_started_at = now(), last_turn_result = NULL, last_active = now(), updated_at = now()
 WHERE session_id = sqlc.arg(session_id)
   AND user_id = sqlc.arg(user_id)
   AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)
@@ -66,7 +66,7 @@ WHERE session_id = sqlc.arg(session_id)
 
 -- name: MarkConversationTurnCompleted :execrows
 UPDATE ctx_conversation
-SET last_turn_completed_at = now(), updated_at = now()
+SET last_turn_completed_at = now(), last_turn_result = sqlc.arg(result), updated_at = now()
 WHERE session_id = sqlc.arg(session_id)
   AND user_id = sqlc.arg(user_id)
   AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)

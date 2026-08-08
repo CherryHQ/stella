@@ -49,15 +49,15 @@ func TestUpdateAndDeleteSession(t *testing.T) {
 	}
 }
 
-func TestSessionActivityBecomesIdleAfterView(t *testing.T) {
+func TestSessionActivityReturnsDurableTerminalResult(t *testing.T) {
 	env := setupAdmin(t)
 	agentID := createAgentAsUser(t, env, env.bearerToken, "Session Activity Agent")
 	_, err := env.db.Exec(context.Background(), `
 		INSERT INTO ctx_conversation (
 			id, session_id, title, channel, kind, agent_id, user_id, last_active,
-			last_turn_started_at, last_turn_completed_at
+			last_turn_started_at, last_turn_completed_at, last_turn_result
 		)
-		VALUES ($1, 'session-activity', 'Background turn', 'web', 'chat', $2, $3, now(), now(), now())
+		VALUES ($1, 'session-activity', 'Background turn', 'web', 'chat', $2, $3, now(), now(), now(), 'success')
 	`, uuid.NewString(), agentID, env.adminUser.ID)
 	if err != nil {
 		t.Fatalf("seed conversation: %v", err)
@@ -79,18 +79,18 @@ func TestSessionActivityBecomesIdleAfterView(t *testing.T) {
 		return list.Sessions[0]
 	}
 
-	before := listSessions()
-	if before.ActivityStatus == nil || *before.ActivityStatus != apitypes.SessionActivityStatusUnread {
-		t.Fatalf("activity before view = %v, want unread", before.ActivityStatus)
+	got := listSessions()
+	if got.ActivityStatus == nil || *got.ActivityStatus != apitypes.SessionActivityStatusSuccess {
+		t.Fatalf("activity status = %v, want success", got.ActivityStatus)
 	}
 
 	rr := doRequest(t, env, http.MethodPost, "/api/agents/"+agentID+"/sessions/session-activity/view", nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("POST view status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
 	}
-	after := listSessions()
-	if after.ActivityStatus == nil || *after.ActivityStatus != apitypes.SessionActivityStatusIdle {
-		t.Fatalf("activity after view = %v, want idle", after.ActivityStatus)
+	viewed := listSessions()
+	if viewed.ActivityStatus == nil || *viewed.ActivityStatus != apitypes.SessionActivityStatusIdle {
+		t.Fatalf("viewed activity status = %v, want idle", viewed.ActivityStatus)
 	}
 }
 

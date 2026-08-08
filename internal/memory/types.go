@@ -123,6 +123,23 @@ type GroupCursorCommitter interface {
 	CommitGroupCursor(ctx context.Context, session Session, triggerSeq int64) error
 }
 
+type SessionTurnResult string
+
+const (
+	SessionTurnSuccess  SessionTurnResult = "success"
+	SessionTurnError    SessionTurnResult = "error"
+	SessionTurnCanceled SessionTurnResult = "canceled"
+)
+
+func (r SessionTurnResult) Valid() bool {
+	switch r {
+	case SessionTurnSuccess, SessionTurnError, SessionTurnCanceled:
+		return true
+	default:
+		return false
+	}
+}
+
 // SessionInfo holds metadata about a session.
 type SessionInfo struct {
 	ID                  string
@@ -138,6 +155,7 @@ type SessionInfo struct {
 	LastActive          time.Time
 	LastTurnStartedAt   time.Time
 	LastTurnCompletedAt time.Time
+	LastTurnResult      SessionTurnResult
 	LastViewedAt        time.Time
 	Archived            bool
 	// LatestSeq is the latest persisted message sequence when supplied by a

@@ -100,7 +100,7 @@ func TestSessionActivityWatermarksRoundTrip(t *testing.T) {
 		t.Fatalf("activity after start = %+v", started)
 	}
 
-	if updated, err := activity.MarkSessionTurnCompleted(ctx, session); err != nil || !updated {
+	if updated, err := activity.MarkSessionTurnCompleted(ctx, session, memory.SessionTurnSuccess); err != nil || !updated {
 		t.Fatalf("MarkSessionTurnCompleted: updated=%v err=%v", updated, err)
 	}
 	completed, err := manager.LoadInfo(ctx, session.ID)
@@ -109,6 +109,9 @@ func TestSessionActivityWatermarksRoundTrip(t *testing.T) {
 	}
 	if completed.LastTurnCompletedAt.Before(completed.LastTurnStartedAt) {
 		t.Fatalf("completion %v precedes start %v", completed.LastTurnCompletedAt, completed.LastTurnStartedAt)
+	}
+	if completed.LastTurnResult != memory.SessionTurnSuccess {
+		t.Fatalf("completion result = %q, want success", completed.LastTurnResult)
 	}
 
 	if updated, err := activity.MarkSessionViewed(ctx, session); err != nil || !updated {

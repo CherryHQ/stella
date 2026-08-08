@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
 import { getSessionMessages, stopSession } from "@/lib/api-client/sdk.gen";
-import { useSessionViewed } from "./useSessionViewed";
 import {
   createSessionTransport,
   mergeToolResults,
@@ -54,7 +53,6 @@ export function SessionConversation({
   const transcriptRef = useRef<HTMLDivElement>(null);
   const initialScrollSessionRef = useRef<string | null>(null);
   const transport = useMemo(() => createSessionTransport(agentId, sessionId), [agentId, sessionId]);
-  const markViewed = useSessionViewed(agentId, sessionId);
   const historyAuthoritativeRef = useRef(false);
   const reconcilePersistedHistory = useCallback(() => {
     historyAuthoritativeRef.current = true;
@@ -84,7 +82,6 @@ export function SessionConversation({
     onError: (err) => console.error("[session conversation chat]", err),
     onFinish: ({ isAbort, isDisconnect, isError }) => {
       setRecoveringDisconnect(isDisconnect);
-      if (!isDisconnect) void markViewed();
       if (!isAbort && !isDisconnect && !isError) reconcilePersistedHistory();
     },
   });
@@ -197,13 +194,11 @@ export function SessionConversation({
     void stopSession({
       path: { agentId, sessionId },
       throwOnError: true,
-    })
-      .then(() => markViewed())
-      .catch((err) => {
-        console.error("[session conversation stop]", err);
-        setResumeEnabled(true);
-      });
-  }, [agentId, sessionId, chatStop, markViewed]);
+    }).catch((err) => {
+      console.error("[session conversation stop]", err);
+      setResumeEnabled(true);
+    });
+  }, [agentId, sessionId, chatStop]);
 
   const renderBody = () => (
     <div className="flex h-full min-h-0 flex-col">
