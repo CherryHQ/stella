@@ -11,6 +11,14 @@ icon: History
 
 ## [Unreleased]
 
+## [0.63.1] - 2026-08-08
+
+### 🔧 CI
+
+- 发布现在使用长期维护的 `release/vX.Y` 分支，让每条 minor 版本线都有稳定的 patch 基线，同时保留 `main` 作为默认开发分支。Tag 验证会拒绝不属于匹配分支的提交，并行运行质量与构建、Go 与 Web 测试、System Test 和发布打包。Feature 分支也不再重复运行 push 与 pull request 检查。([#948](https://github.com/CherryHQ/stella/pull/948), [#947](https://github.com/CherryHQ/stella/issues/947))
+
+**完整变更记录**：[v0.63.0...v0.63.1](https://github.com/CherryHQ/stella/compare/v0.63.0...v0.63.1)
+
 ## [0.63.0] - 2026-08-08
 
 ### ✨ 功能

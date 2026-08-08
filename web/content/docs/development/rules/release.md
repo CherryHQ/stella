@@ -77,7 +77,9 @@ commit that is not reachable from that branch.
    gh issue list --repo CherryHQ/stella --milestone vX.Y.Z --state all
    ```
 10. Push the preparation branch and open a PR against `release/vX.Y`. Wait for
-    required checks and merge it.
+    required checks and merge it. GitHub auto-closes linked issues only when a PR
+    merges into the default branch, so close the release issue explicitly and
+    recheck that the version milestone has no open scope.
 11. Fetch the merged release branch, then tag its remote tip:
     ```bash
     git fetch origin --prune
