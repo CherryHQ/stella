@@ -1,4 +1,4 @@
-package knowledge
+package library
 
 import (
 	"errors"
@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Scope is the owner scope shared by Knowledge management and retrieval.
+// Scope is the owner scope shared by Library management and retrieval.
 type Scope string
 
 const (
@@ -25,6 +25,16 @@ const (
 	FileStatusFailed     FileStatus = "failed"
 )
 
+// ChunkSetStatus is the publication state of one deterministic generation.
+// Only a ready set referenced by LibraryFile.ActiveChunkSetID may be retrieved.
+type ChunkSetStatus string
+
+const (
+	ChunkSetStatusBuilding ChunkSetStatus = "building"
+	ChunkSetStatusReady    ChunkSetStatus = "ready"
+	ChunkSetStatusFailed   ChunkSetStatus = "failed"
+)
+
 const (
 	MaxFileBytes = 25 << 20
 
@@ -37,15 +47,18 @@ const (
 )
 
 var (
-	ErrInvalidOwner        = errors.New("invalid knowledge owner")
-	ErrFileTooLarge        = errors.New("knowledge file is too large")
-	ErrUnsupportedFileType = errors.New("unsupported knowledge file type")
-	ErrInvalidFile         = errors.New("invalid knowledge file")
-	ErrQuotaExceeded       = errors.New("knowledge quota exceeded")
-	ErrNotFound            = errors.New("knowledge file not found")
-	ErrForbidden           = errors.New("knowledge access forbidden")
-	ErrServiceUnavailable  = errors.New("knowledge service is unavailable")
-	ErrSpoolCapacity       = errors.New("knowledge upload spool is at capacity")
+	ErrInvalidOwner        = errors.New("invalid library owner")
+	ErrFileTooLarge        = errors.New("library file is too large")
+	ErrUnsupportedFileType = errors.New("unsupported library file type")
+	ErrInvalidFile         = errors.New("invalid library file")
+	ErrQuotaExceeded       = errors.New("library quota exceeded")
+	ErrNotFound            = errors.New("library file not found")
+	ErrForbidden           = errors.New("library access forbidden")
+	ErrServiceUnavailable  = errors.New("library service is unavailable")
+	ErrSpoolCapacity       = errors.New("library upload spool is at capacity")
+	ErrGenerationConflict  = errors.New("library chunk generation identity conflicts with durable state")
+	ErrGenerationChanged   = errors.New("library chunk generation state changed")
+	ErrRawIntegrity        = errors.New("library raw snapshot failed integrity validation")
 )
 
 // Owner is the normalized four-part scope tuple. Empty IDs are database NULLs.
@@ -84,9 +97,9 @@ func (o Owner) Validate() error {
 	)
 }
 
-// File is internal metadata for one canonical immutable source snapshot.
+// LibraryFile is internal metadata for one canonical immutable source snapshot.
 // Raw bytes remain in RawStore and are never included in this value.
-type File struct {
+type LibraryFile struct {
 	ID               string
 	Owner            Owner
 	FileName         string

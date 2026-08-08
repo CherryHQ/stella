@@ -1,4 +1,4 @@
-package knowledge
+package library
 
 import (
 	"context"
@@ -12,11 +12,11 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 )
 
-type knowledgeAgentStore struct {
+type libraryAgentStore struct {
 	agents map[string]config.Agent
 }
 
-func (s knowledgeAgentStore) GetAgent(_ context.Context, id string) (config.Agent, error) {
+func (s libraryAgentStore) GetAgent(_ context.Context, id string) (config.Agent, error) {
 	agent, ok := s.agents[id]
 	if !ok {
 		return config.Agent{}, pgx.ErrNoRows
@@ -24,17 +24,17 @@ func (s knowledgeAgentStore) GetAgent(_ context.Context, id string) (config.Agen
 	return agent, nil
 }
 
-func (s knowledgeAgentStore) ListAgents(context.Context) ([]config.Agent, error) {
+func (s libraryAgentStore) ListAgents(context.Context) ([]config.Agent, error) {
 	return nil, nil
 }
 
-type knowledgeAssignments struct{}
+type libraryAssignments struct{}
 
-func (knowledgeAssignments) ListUserAgentIDs(context.Context, string) ([]string, error) {
+func (libraryAssignments) ListUserAgentIDs(context.Context, string) ([]string, error) {
 	return nil, nil
 }
 
-func knowledgeAuthority(t *testing.T, userID string, admin bool) authz.Authority {
+func libraryAuthority(t *testing.T, userID string, admin bool) authz.Authority {
 	t.Helper()
 	authority, err := authz.NewUserAuthority(authz.UserID(userID), admin)
 	if err != nil {
@@ -46,12 +46,12 @@ func knowledgeAuthority(t *testing.T, userID string, admin bool) authz.Authority
 func TestResolveManageOwnerFourScopePolicy(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	agents := agentaccess.NewService(knowledgeAgentStore{agents: map[string]config.Agent{
+	agents := agentaccess.NewService(libraryAgentStore{agents: map[string]config.Agent{
 		"a1": {ID: "a1", Scope: config.AgentScopeSystem},
-	}}, knowledgeAssignments{})
+	}}, libraryAssignments{})
 	service := &Service{agentAccess: agents}
-	user := knowledgeAuthority(t, "u1", false)
-	admin := knowledgeAuthority(t, "admin", true)
+	user := libraryAuthority(t, "u1", false)
+	admin := libraryAuthority(t, "admin", true)
 
 	tests := []struct {
 		name      string

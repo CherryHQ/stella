@@ -1,4 +1,4 @@
-package knowledge
+package library
 
 import (
 	"container/heap"
@@ -24,12 +24,16 @@ type FSRawStore struct {
 	availableBytes func(string) (int64, error)
 }
 
+// SupportsOrphanCollection reports that the local Library root belongs to this
+// Stella deployment rather than a shared external namespace.
+func (*FSRawStore) SupportsOrphanCollection() bool { return true }
+
 func NewFSRawStore(root string, minFreeBytes int64) (*FSRawStore, error) {
 	if root == "" {
-		return nil, fmt.Errorf("knowledge raw FS root is required")
+		return nil, fmt.Errorf("library raw FS root is required")
 	}
 	if minFreeBytes < 0 {
-		return nil, fmt.Errorf("knowledge raw FS minimum free bytes cannot be negative")
+		return nil, fmt.Errorf("library raw FS minimum free bytes cannot be negative")
 	}
 	abs, err := filepath.Abs(root)
 	if err != nil {
@@ -43,25 +47,25 @@ func NewFSRawStore(root string, minFreeBytes int64) (*FSRawStore, error) {
 
 func (s *FSRawStore) Create(ctx context.Context, key string, reader io.Reader) error {
 	if reader == nil {
-		return fmt.Errorf("knowledge raw reader is required")
+		return fmt.Errorf("library raw reader is required")
 	}
 	target, err := s.path(key)
 	if err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-		return fmt.Errorf("create knowledge raw directory: %w", err)
+		return fmt.Errorf("create library raw directory: %w", err)
 	}
 
-	temp, err := os.CreateTemp(filepath.Dir(target), ".stella-knowledge-raw-*")
+	temp, err := os.CreateTemp(filepath.Dir(target), ".stella-library-raw-*")
 	if err != nil {
-		return fmt.Errorf("create knowledge raw temp file: %w", err)
+		return fmt.Errorf("create library raw temp file: %w", err)
 	}
 	tempName := temp.Name()
 	defer func() { _ = os.Remove(tempName) }()
 	if err := temp.Chmod(0o600); err != nil {
 		_ = temp.Close()
-		return fmt.Errorf("restrict knowledge raw temp file: %w", err)
+		return fmt.Errorf("restrict library raw temp file: %w", err)
 	}
 
 	written, err := copyBounded(ctx, temp, reader, MaxFileBytes)
@@ -71,20 +75,20 @@ func (s *FSRawStore) Create(ctx context.Context, key string, reader io.Reader) e
 	}
 	if err := temp.Sync(); err != nil {
 		_ = temp.Close()
-		return fmt.Errorf("sync knowledge raw temp file: %w", err)
+		return fmt.Errorf("sync library raw temp file: %w", err)
 	}
 	// Refresh immediately before publication so LastModified measures the age of
 	// the canonical object, not how long an upload spent writing its temp file.
 	now := time.Now()
 	if err := os.Chtimes(tempName, now, now); err != nil {
 		_ = temp.Close()
-		return fmt.Errorf("timestamp knowledge raw temp file: %w", err)
+		return fmt.Errorf("timestamp library raw temp file: %w", err)
 	}
 	if s.minFreeBytes > 0 {
 		available, err := s.availableBytes(filepath.Dir(target))
 		if err != nil {
 			_ = temp.Close()
-			return fmt.Errorf("inspect knowledge raw free space: %w", err)
+			return fmt.Errorf("inspect library raw free space: %w", err)
 		}
 		// The temp file already consumes written bytes, so the current free-space
 		// figure is the post-write value that must remain above the low-water mark.
@@ -104,7 +108,7 @@ func (s *FSRawStore) Create(ctx context.Context, key string, reader io.Reader) e
 		return err
 	}
 	if err := temp.Close(); err != nil {
-		return fmt.Errorf("close knowledge raw temp file: %w", err)
+		return fmt.Errorf("close library raw temp file: %w", err)
 	}
 
 	// A same-directory hard link is an atomic no-replace publication primitive:
@@ -113,7 +117,7 @@ func (s *FSRawStore) Create(ctx context.Context, key string, reader io.Reader) e
 		if errors.Is(err, fs.ErrExist) {
 			return ErrRawAlreadyExists
 		}
-		return fmt.Errorf("publish knowledge raw object: %w", err)
+		return fmt.Errorf("publish library raw object: %w", err)
 	}
 	return nil
 }
@@ -138,7 +142,7 @@ func (s *FSRawStore) Delete(ctx context.Context, key string) error {
 		return err
 	}
 	if err := os.Remove(objectPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("delete knowledge raw object: %w", err)
+		return fmt.Errorf("delete library raw object: %w", err)
 	}
 	return nil
 }
@@ -164,7 +168,7 @@ func (s *FSRawStore) ListPage(
 		if errors.Is(err, fs.ErrNotExist) {
 			return RawPage{}, nil
 		}
-		return RawPage{}, fmt.Errorf("inspect knowledge raw prefix: %w", err)
+		return RawPage{}, fmt.Errorf("inspect library raw prefix: %w", err)
 	}
 
 	// The filesystem cannot portably seek to a filename in directory order.
@@ -216,7 +220,7 @@ func (s *FSRawStore) path(key string) (string, error) {
 	objectPath := filepath.Join(s.root, filepath.FromSlash(clean))
 	relative, err := filepath.Rel(s.root, objectPath)
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("knowledge raw key escapes root: %q", key)
+		return "", fmt.Errorf("library raw key escapes root: %q", key)
 	}
 	return objectPath, nil
 }
@@ -228,7 +232,7 @@ func copyBounded(ctx context.Context, writer io.Writer, reader io.Reader, limit 
 		make([]byte, spoolCopyBufferSize),
 	)
 	if err != nil {
-		return written, fmt.Errorf("write knowledge raw object: %w", err)
+		return written, fmt.Errorf("write library raw object: %w", err)
 	}
 	if written > limit {
 		return written, fmt.Errorf("%w: maximum is %d bytes", ErrFileTooLarge, limit)

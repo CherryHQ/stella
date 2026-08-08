@@ -1,4 +1,4 @@
-package knowledge
+package library
 
 import (
 	"bytes"
@@ -106,8 +106,8 @@ func TestPrepareUploadRejectsInvalidAndOversizedContent(t *testing.T) {
 		{"unsupported", "policy.csv", []byte("a,b"), ErrUnsupportedFileType},
 		{"empty", "policy.txt", nil, ErrInvalidFile},
 		{"invalid UTF-8", "policy.txt", []byte{0xff}, ErrInvalidFile},
-		{"PDF signature", "policy.pdf", []byte("not a PDF"), ErrInvalidFile},
-		{"DOCX container", "policy.docx", []byte("not a zip"), ErrInvalidFile},
+		{"PDF unsupported", "policy.pdf", []byte("%PDF-1.7"), ErrUnsupportedFileType},
+		{"DOCX unsupported", "policy.docx", []byte("not a zip"), ErrUnsupportedFileType},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -182,7 +182,19 @@ func TestRawKeyRoundTrip(t *testing.T) {
 	if got != fileID {
 		t.Fatalf("file ID = %q, want %q", got, fileID)
 	}
-	if _, err := FileIDFromRawKey("knowledge/files/not-a-uuid/source"); err == nil {
+	if _, err := FileIDFromRawKey("library/files/not-a-uuid/source"); err == nil {
 		t.Fatal("malformed raw key was accepted")
+	}
+	for _, nonCanonical := range []string{
+		strings.ToUpper(fileID),
+		strings.ReplaceAll(fileID, "-", ""),
+		"urn:uuid:" + fileID,
+	} {
+		if _, err := RawKey(nonCanonical); err == nil {
+			t.Fatalf("non-canonical file ID %q was accepted", nonCanonical)
+		}
+		if _, err := FileIDFromRawKey(RawPrefix + "/" + nonCanonical + "/source"); err == nil {
+			t.Fatalf("non-canonical raw key file ID %q was accepted", nonCanonical)
+		}
 	}
 }

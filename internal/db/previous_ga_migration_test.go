@@ -23,9 +23,9 @@ const (
 	// representative fixture/assertions for the newly crossed migrations turns
 	// this test into a green lie.
 	previousGAVersion = int64(20260725161331)
-	// Knowledge V1 and channel guest sessions/indexes are the post-anchor migrations
-	// exercised by the assertions below.
-	currentMigrationVersion = sequentialAnchor + 6
+	// Library V1, channel guest sessions/indexes, and channel allowlist backfill
+	// are the post-anchor migrations exercised by the assertions below.
+	currentMigrationVersion = sequentialAnchor + 7
 
 	previousGAUserID         = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID        = "00000000-0000-0000-0000-000000000002"
@@ -36,7 +36,7 @@ const (
 	previousGAPartID         = "00000000-0000-0000-0000-000000000006"
 	previousGAMediaID        = "00000000-0000-0000-0000-000000000007"
 	previousGAWebhookID      = "00000000-0000-0000-0000-000000000008"
-	previousGAKnowledgeFile  = "00000000-0000-0000-0000-000000000041"
+	previousGALibraryFile    = "00000000-0000-0000-0000-000000000041"
 	previousGAChunkSet       = "00000000-0000-0000-0000-000000000042"
 	previousGAChunk          = "00000000-0000-0000-0000-000000000043"
 	previousGAGuestID        = "00000000-0000-0000-0000-000000000044"
@@ -412,44 +412,44 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 		t.Fatalf("create channel guest above cap = %v, want no rows", err)
 	}
 
-	// Exercise the complete Knowledge snapshot publication relationship after
+	// Exercise the complete Library snapshot publication relationship after
 	// upgrading the previous GA database, rather than checking table names only.
 	if _, err := db.Exec(ctx, `
-		INSERT INTO knowledge_file (
+		INSERT INTO library_file (
 			id, scope, user_id, agent_id, file_name, media_type,
 			size_bytes, raw_sha256, status
 		) VALUES ($1, 'user_agent', $2, $3, 'previous-ga.txt', 'text/plain', 1, $4, 'ready')
-	`, previousGAKnowledgeFile, previousGAUserID, previousGAAgentID, hash); err != nil {
-		t.Fatalf("insert knowledge file after previous-GA upgrade: %v", err)
+	`, previousGALibraryFile, previousGAUserID, previousGAAgentID, hash); err != nil {
+		t.Fatalf("insert Library file after previous-GA upgrade: %v", err)
 	}
 	if _, err := db.Exec(ctx, `
-		INSERT INTO knowledge_chunk_set (
+		INSERT INTO library_chunk_set (
 			id, file_id, derivation_key, processor_key, raw_sha256,
 			status, chunk_count, content_digest, completed_at
 		) VALUES ($1, $2, 'previous-ga-derivation', 'previous-ga-processor', $3, 'ready', 1, $3, $4)
-	`, previousGAChunkSet, previousGAKnowledgeFile, hash, previousGATime); err != nil {
-		t.Fatalf("insert knowledge ChunkSet after previous-GA upgrade: %v", err)
+	`, previousGAChunkSet, previousGALibraryFile, hash, previousGATime); err != nil {
+		t.Fatalf("insert Library ChunkSet after previous-GA upgrade: %v", err)
 	}
 	if _, err := db.Exec(ctx, `
-		INSERT INTO knowledge_chunk (
+		INSERT INTO library_chunk (
 			id, chunk_set_id, ordinal, content, content_sha256
-		) VALUES ($1, $2, 0, 'previous GA knowledge', $3)
+		) VALUES ($1, $2, 0, 'previous GA library content', $3)
 	`, previousGAChunk, previousGAChunkSet, hash); err != nil {
-		t.Fatalf("insert knowledge chunk after previous-GA upgrade: %v", err)
+		t.Fatalf("insert Library chunk after previous-GA upgrade: %v", err)
 	}
 	if _, err := db.Exec(ctx, `
-		UPDATE knowledge_file SET active_chunk_set_id = $1 WHERE id = $2
-	`, previousGAChunkSet, previousGAKnowledgeFile); err != nil {
-		t.Fatalf("publish knowledge ChunkSet after previous-GA upgrade: %v", err)
+		UPDATE library_file SET active_chunk_set_id = $1 WHERE id = $2
+	`, previousGAChunkSet, previousGALibraryFile); err != nil {
+		t.Fatalf("publish Library ChunkSet after previous-GA upgrade: %v", err)
 	}
-	if got := count("published knowledge chunks", `
+	if got := count("published Library chunks", `
 		SELECT count(*)
-		FROM knowledge_file AS file
-		JOIN knowledge_chunk_set AS chunk_set ON chunk_set.id = file.active_chunk_set_id
-		JOIN knowledge_chunk AS chunk ON chunk.chunk_set_id = chunk_set.id
+		FROM library_file AS file
+		JOIN library_chunk_set AS chunk_set ON chunk_set.id = file.active_chunk_set_id
+		JOIN library_chunk AS chunk ON chunk.chunk_set_id = chunk_set.id
 		WHERE file.id = $1
-	`, previousGAKnowledgeFile); got != 1 {
-		t.Fatalf("published knowledge chunks = %d, want 1", got)
+	`, previousGALibraryFile); got != 1 {
+		t.Fatalf("published Library chunks = %d, want 1", got)
 	}
 
 	if _, err := db.Exec(ctx, `UPDATE channel_guest SET updated_at = now() - interval '31 days' WHERE id = $1`, previousGAGuestID); err != nil {

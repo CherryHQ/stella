@@ -1,4 +1,4 @@
-package knowledge
+package library
 
 import (
 	"bufio"
@@ -30,6 +30,9 @@ func TestFSRawStoreContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !store.SupportsOrphanCollection() {
+		t.Fatal("FS RawStore must allow deployment-local orphan collection")
+	}
 	runRawStoreContract(t, store)
 }
 
@@ -40,10 +43,13 @@ func TestS3RawStoreContract(t *testing.T) {
 	t.Cleanup(httpServer.Close)
 	endpoint := strings.TrimPrefix(httpServer.URL, "http://")
 	store, err := NewS3RawStore(blob.S3Config{
-		Endpoint: endpoint, Bucket: "knowledge-test", AccessKey: "test", SecretKey: "test", UseSSL: false,
+		Endpoint: endpoint, Bucket: "library-test", AccessKey: "test", SecretKey: "test", UseSSL: false,
 	}, t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if store.SupportsOrphanCollection() {
+		t.Fatal("S3 RawStore must retain unknown objects until keys are deployment-namespaced")
 	}
 	runRawStoreContract(t, store)
 	if err := server.putContractError(); err != nil {
@@ -264,7 +270,7 @@ func TestS3RawStoreAdmissionRejectsBeforePublish(t *testing.T) {
 	t.Cleanup(httpServer.Close)
 	store, err := NewS3RawStore(blob.S3Config{
 		Endpoint: strings.TrimPrefix(httpServer.URL, "http://"),
-		Bucket:   "knowledge-test", AccessKey: "test", SecretKey: "test",
+		Bucket:   "library-test", AccessKey: "test", SecretKey: "test",
 	}, t.TempDir(), func(context.Context) error { return errors.New("backlog threshold exceeded") })
 	if err != nil {
 		t.Fatal(err)
@@ -363,7 +369,7 @@ func newRawS3Server() *rawS3Server {
 }
 
 func (s *rawS3Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	if (request.URL.Path == "/knowledge-test" || request.URL.Path == "/knowledge-test/") &&
+	if (request.URL.Path == "/library-test" || request.URL.Path == "/library-test/") &&
 		request.URL.Query().Has("location") {
 		writer.Header().Set("Content-Type", "application/xml")
 		_, _ = writer.Write([]byte(
@@ -375,7 +381,7 @@ func (s *rawS3Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 		s.serveList(writer, request)
 		return
 	}
-	key := strings.TrimPrefix(request.URL.Path, "/knowledge-test/")
+	key := strings.TrimPrefix(request.URL.Path, "/library-test/")
 	if key == request.URL.Path || key == "" {
 		writeS3Error(writer, http.StatusNotFound, "NoSuchKey")
 		return
@@ -504,7 +510,7 @@ func (s *rawS3Server) serveList(writer http.ResponseWriter, request *http.Reques
 	}
 	s.mu.Unlock()
 	result := rawS3ListResult{
-		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/", Name: "knowledge-test",
+		Xmlns: "http://s3.amazonaws.com/doc/2006-03-01/", Name: "library-test",
 		Prefix: prefix, KeyCount: len(contents), MaxKeys: maxKeys, Contents: contents,
 	}
 	writer.Header().Set("Content-Type", "application/xml")

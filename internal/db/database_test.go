@@ -97,7 +97,7 @@ func TestChannelGroupAllowlistMigrationPreservesKnownGroups(t *testing.T) {
 	}
 }
 
-func TestKnowledgeFilesMigrationUpgradesDatabaseAtMainLatest(t *testing.T) {
+func TestLibraryMigrationReplacesUnreleasedKnowledgeSchema(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 
@@ -112,24 +112,76 @@ func TestKnowledgeFilesMigrationUpgradesDatabaseAtMainLatest(t *testing.T) {
 		t.Fatalf("create migration provider: %v", err)
 	}
 
-	// newTestDB starts fully migrated. Rolling back only the unpublished
-	// Knowledge migration leaves the exact schema an existing current-main
-	// deployment has before this PR is installed.
+	// The old Knowledge schema existed only in unreleased development commits.
+	// The forward migration deliberately replaces it instead of
+	// preserving rows under obsolete names.
 	if _, err := provider.DownTo(ctx, 20260804120000); err != nil {
-		t.Fatalf("goose down knowledge migration: %v", err)
+		t.Fatalf("goose down post-anchor migrations: %v", err)
 	}
 	if tableExists(t, db, "knowledge_file") ||
 		tableExists(t, db, "knowledge_chunk_set") ||
-		tableExists(t, db, "knowledge_chunk") {
-		t.Fatal("knowledge tables should not exist after down")
+		tableExists(t, db, "knowledge_chunk") ||
+		tableExists(t, db, "library_file") ||
+		tableExists(t, db, "library_chunk_set") ||
+		tableExists(t, db, "library_chunk") {
+		t.Fatal("Library tables should not exist before the post-anchor migrations")
 	}
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("goose up knowledge migration: %v", err)
+	if _, err := provider.UpTo(ctx, sequentialAnchor+1); err != nil {
+		t.Fatalf("goose up unreleased Knowledge schema: %v", err)
 	}
 	if !tableExists(t, db, "knowledge_file") ||
 		!tableExists(t, db, "knowledge_chunk_set") ||
 		!tableExists(t, db, "knowledge_chunk") {
-		t.Fatal("knowledge tables should exist after up")
+		t.Fatal("unreleased Knowledge tables should exist before replacement")
+	}
+
+	fileID := uuid.NewString()
+	if _, err := db.Exec(ctx, `
+		INSERT INTO knowledge_file (id, scope, file_name, media_type, size_bytes, raw_sha256)
+		VALUES ($1, 'system', 'unreleased.txt', 'text/plain', 1, $2)
+	`, fileID, make([]byte, 32)); err != nil {
+		t.Fatalf("seed unreleased Knowledge row: %v", err)
+	}
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatalf("goose up Library replacement migration: %v", err)
+	}
+	if tableExists(t, db, "knowledge_file") ||
+		tableExists(t, db, "knowledge_chunk_set") ||
+		tableExists(t, db, "knowledge_chunk") {
+		t.Fatal("legacy Knowledge tables should not remain after replacement")
+	}
+	if !tableExists(t, db, "library_file") ||
+		!tableExists(t, db, "library_chunk_set") ||
+		!tableExists(t, db, "library_chunk") {
+		t.Fatal("Library tables should exist after replacement")
+	}
+	var rows int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM library_file WHERE id = $1`, fileID).Scan(&rows); err != nil {
+		t.Fatalf("read replacement Library row: %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("replacement Library rows = %d, want 0", rows)
+	}
+
+	var legacySchemaNames string
+	if err := db.QueryRow(ctx, `
+		SELECT coalesce(string_agg(name, ', ' ORDER BY name), '') FROM (
+			SELECT conname AS name
+			FROM pg_constraint
+			WHERE connamespace = current_schema()::regnamespace
+			  AND conname ~ '^knowledge_(file|chunk)'
+			UNION ALL
+			SELECT relname AS name
+			FROM pg_class
+			WHERE relnamespace = current_schema()::regnamespace
+			  AND relkind = 'i'
+			  AND relname ~ '^(knowledge_(file|chunk)|idx_knowledge_(file|chunk))'
+		) AS legacy_names
+	`).Scan(&legacySchemaNames); err != nil {
+		t.Fatalf("inspect replacement Library schema objects: %v", err)
+	}
+	if legacySchemaNames != "" {
+		t.Fatalf("legacy Knowledge schema object names remain: %s", legacySchemaNames)
 	}
 }
 

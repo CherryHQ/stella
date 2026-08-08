@@ -1,4 +1,4 @@
-package knowledge
+package library
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,13 +30,28 @@ const (
 	defaultSnapshotCommitTimeout    = 30 * time.Second
 	defaultDatabaseStatementTimeout = 20 * time.Second
 	defaultDatabaseLockTimeout      = 10 * time.Second
+	defaultReconciliationInterval   = 5 * time.Minute
+	defaultStaleDerivationAfter     = 15 * time.Minute
+	defaultOrphanMinAge             = 10 * time.Minute
+	defaultMaxClockSkew             = time.Minute
+	defaultOrphanSafetyMargin       = time.Minute
+	defaultLibraryWorkers           = 2
 )
 
-// ServiceConfig contains only the storage-core dependencies. The service is
-// intentionally not composed into stellad until the chunk worker is delivered.
+// Parser is the bounded document parser used by the asynchronous chunk worker.
+type Parser interface {
+	Parse(ctx context.Context, path, mediaType string) ([]ParsedChunk, error)
+}
+
+// ServiceConfig contains the internal Library ingestion and lifecycle
+// dependencies. Public management and retrieval surfaces are composed later.
 type ServiceConfig struct {
-	DB                       *pgxpool.Pool
-	RawStore                 RawStore
+	DB       *pgxpool.Pool
+	RawStore RawStore
+	Parser   Parser
+	// ParserProfile is an immutable identity for every setting that can affect
+	// generated chunks. Callers must change it whenever parser behavior changes.
+	ParserProfile            string
 	River                    *river.Client[pgx.Tx]
 	Logger                   *slog.Logger
 	TempDir                  string
@@ -44,23 +61,40 @@ type ServiceConfig struct {
 	SnapshotCommitTimeout    time.Duration
 	DatabaseStatementTimeout time.Duration
 	DatabaseLockTimeout      time.Duration
+	ReconciliationInterval   time.Duration
+	StaleDerivationAfter     time.Duration
+	OrphanMinAge             time.Duration
+	MaxClockSkew             time.Duration
+	OrphanSafetyMargin       time.Duration
+	MaxWorkers               int
 }
 
 // Service owns authorization, bounded acquisition, immutable raw publication,
 // and the short metadata-plus-job transaction.
 type Service struct {
-	db          *pgxpool.Pool
-	q           *sqlc.Queries
-	rawStore    RawStore
-	river       *river.Client[pgx.Tx]
-	logger      *slog.Logger
-	tempDir     string
-	spool       *spoolBudget
-	agentAccess *agentaccess.Service
+	db            *pgxpool.Pool
+	q             *sqlc.Queries
+	rawStore      RawStore
+	parser        Parser
+	parserProfile string
+	logger        *slog.Logger
+	tempDir       string
+	spool         *spoolBudget
+	agentAccess   *agentaccess.Service
 
 	snapshotCommitTimeout    time.Duration
 	databaseStatementTimeout time.Duration
 	databaseLockTimeout      time.Duration
+	reconciliationInterval   time.Duration
+	staleDerivationAfter     time.Duration
+	orphanMinAge             time.Duration
+	maxWorkers               int
+
+	// mu guards the one-shot River bind and periodic lifecycle. It is never held
+	// while calling River or performing storage/database IO.
+	mu      sync.Mutex
+	river   *river.Client[pgx.Tx]
+	started bool
 
 	// commitTx is replaceable only by same-package fault tests so they can model
 	// a successful commit whose acknowledgement is lost.
@@ -69,13 +103,17 @@ type Service struct {
 
 func NewService(config ServiceConfig) (*Service, error) {
 	if config.DB == nil {
-		return nil, fmt.Errorf("knowledge database is required")
+		return nil, fmt.Errorf("library database is required")
 	}
 	if config.RawStore == nil {
-		return nil, fmt.Errorf("knowledge RawStore is required")
+		return nil, fmt.Errorf("library RawStore is required")
 	}
-	if config.River == nil {
-		return nil, fmt.Errorf("knowledge River client is required")
+	if config.Parser == nil {
+		return nil, fmt.Errorf("library parser is required")
+	}
+	parserProfile := strings.TrimSpace(config.ParserProfile)
+	if parserProfile == "" {
+		return nil, fmt.Errorf("library parser profile is required")
 	}
 	budget, err := newSpoolBudget(config.MaxConcurrentUploads, config.MaxSpoolBytes)
 	if err != nil {
@@ -83,7 +121,7 @@ func NewService(config ServiceConfig) (*Service, error) {
 	}
 	logger := config.Logger
 	if logger == nil {
-		logger = slog.Default().With("component", "knowledge")
+		logger = slog.Default().With("component", "library")
 	}
 	tempDir := config.TempDir
 	if tempDir == "" {
@@ -93,15 +131,32 @@ func NewService(config ServiceConfig) (*Service, error) {
 	statementTimeout := defaultDuration(config.DatabaseStatementTimeout, defaultDatabaseStatementTimeout)
 	lockTimeout := defaultDuration(config.DatabaseLockTimeout, defaultDatabaseLockTimeout)
 	if statementTimeout > snapshotCommitTimeout {
-		return nil, fmt.Errorf("knowledge database statement timeout must not exceed snapshot commit timeout")
+		return nil, fmt.Errorf("library database statement timeout must not exceed snapshot commit timeout")
 	}
 	if lockTimeout > statementTimeout {
-		return nil, fmt.Errorf("knowledge database lock timeout must not exceed statement timeout")
+		return nil, fmt.Errorf("library database lock timeout must not exceed statement timeout")
+	}
+	maxClockSkew := defaultDuration(config.MaxClockSkew, defaultMaxClockSkew)
+	orphanSafetyMargin := defaultDuration(config.OrphanSafetyMargin, defaultOrphanSafetyMargin)
+	orphanMinAge := defaultDuration(config.OrphanMinAge, defaultOrphanMinAge)
+	minimumOrphanAge := snapshotCommitTimeout + maxClockSkew + orphanSafetyMargin
+	if orphanMinAge <= minimumOrphanAge {
+		return nil, fmt.Errorf(
+			"library orphan minimum age %s must be greater than commit window plus skew and safety margin %s",
+			orphanMinAge,
+			minimumOrphanAge,
+		)
+	}
+	maxWorkers := config.MaxWorkers
+	if maxWorkers <= 0 {
+		maxWorkers = defaultLibraryWorkers
 	}
 	service := &Service{
 		db:                       config.DB,
 		q:                        sqlc.New(config.DB),
 		rawStore:                 config.RawStore,
+		parser:                   config.Parser,
+		parserProfile:            parserProfile,
 		river:                    config.River,
 		logger:                   logger,
 		tempDir:                  tempDir,
@@ -110,6 +165,10 @@ func NewService(config ServiceConfig) (*Service, error) {
 		snapshotCommitTimeout:    snapshotCommitTimeout,
 		databaseStatementTimeout: statementTimeout,
 		databaseLockTimeout:      lockTimeout,
+		reconciliationInterval:   defaultDuration(config.ReconciliationInterval, defaultReconciliationInterval),
+		staleDerivationAfter:     defaultDuration(config.StaleDerivationAfter, defaultStaleDerivationAfter),
+		orphanMinAge:             orphanMinAge,
+		maxWorkers:               maxWorkers,
 	}
 	service.commitTx = func(ctx context.Context, tx pgx.Tx) error { return tx.Commit(ctx) }
 	return service, nil
@@ -122,6 +181,34 @@ func defaultDuration(value, fallback time.Duration) time.Duration {
 	return value
 }
 
+// BindRiverClient injects the single shared working River client. Tests may
+// still supply an insert-only client in ServiceConfig; production binds once
+// before the client starts.
+func (s *Service) BindRiverClient(client *river.Client[pgx.Tx]) error {
+	if client == nil {
+		return fmt.Errorf("library: BindRiverClient requires a non-nil client")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.started {
+		return fmt.Errorf("library: BindRiverClient after reconciliation start")
+	}
+	if s.river != nil {
+		return fmt.Errorf("library: River client already bound")
+	}
+	s.river = client
+	return nil
+}
+
+func (s *Service) riverClient() *river.Client[pgx.Tx] {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.river
+}
+
 // CreateManagedUpload is the upload acquisition boundary. Scope and Agent
 // authorization finish before prepareUpload consumes a single source byte.
 func (s *Service) CreateManagedUpload(
@@ -131,10 +218,10 @@ func (s *Service) CreateManagedUpload(
 	agentID string,
 	fileName string,
 	source io.Reader,
-) (File, error) {
+) (LibraryFile, error) {
 	owner, err := s.ResolveManageOwner(ctx, authority, scope, agentID)
 	if err != nil {
-		return File{}, err
+		return LibraryFile{}, err
 	}
 	return s.createSnapshot(ctx, owner, fileName, source)
 }
@@ -144,27 +231,31 @@ func (s *Service) createSnapshot(
 	owner Owner,
 	fileName string,
 	source io.Reader,
-) (File, error) {
-	if s == nil || s.db == nil || s.rawStore == nil || s.river == nil || s.spool == nil {
-		return File{}, ErrServiceUnavailable
+) (LibraryFile, error) {
+	if s == nil || s.db == nil || s.rawStore == nil || s.parser == nil || s.spool == nil {
+		return LibraryFile{}, ErrServiceUnavailable
+	}
+	riverClient := s.riverClient()
+	if riverClient == nil {
+		return LibraryFile{}, ErrServiceUnavailable
 	}
 	if err := owner.Validate(); err != nil {
-		return File{}, err
+		return LibraryFile{}, err
 	}
 	prepared, err := prepareUpload(ctx, s.tempDir, s.spool, fileName, source)
 	if err != nil {
-		return File{}, err
+		return LibraryFile{}, err
 	}
 	defer prepared.close()
 
 	fileUUID, err := uuid.NewV7()
 	if err != nil {
-		return File{}, fmt.Errorf("generate knowledge file ID: %w", err)
+		return LibraryFile{}, fmt.Errorf("generate library file ID: %w", err)
 	}
 	fileID := fileUUID.String()
 	rawKey, err := RawKey(fileID)
 	if err != nil {
-		return File{}, err
+		return LibraryFile{}, err
 	}
 	// Start the service-owned uncertainty window before raw publication. Once it
 	// expires, this uploader can no longer begin or complete the metadata commit.
@@ -172,28 +263,28 @@ func (s *Service) createSnapshot(
 	defer cancelSnapshot()
 	raw, err := os.Open(prepared.path)
 	if err != nil {
-		return File{}, fmt.Errorf("open prepared knowledge upload: %w", err)
+		return LibraryFile{}, fmt.Errorf("open prepared library upload: %w", err)
 	}
 	createErr := s.rawStore.Create(snapshotContext, rawKey, raw)
 	closeErr := raw.Close()
 	if createErr != nil {
 		if errors.Is(createErr, ErrRawAlreadyExists) {
 			if verifyErr := s.verifyRawSnapshot(snapshotContext, rawKey, prepared); verifyErr != nil {
-				return File{}, verifyErr
+				return LibraryFile{}, verifyErr
 			}
 			// The upload API never accepts a caller-supplied file ID, so an existing
 			// canonical key is a UUID collision, not an idempotent request retry.
-			return File{}, ErrRawAlreadyExists
+			return LibraryFile{}, ErrRawAlreadyExists
 		}
-		return File{}, createErr
+		return LibraryFile{}, createErr
 	}
 	if closeErr != nil {
 		// The RawStore has already consumed and published the stream. A local
 		// reader close error cannot invalidate that canonical snapshot.
-		s.logger.Warn("prepared knowledge upload close failed", "file_id", fileID, "error", closeErr)
+		s.logger.Warn("prepared library upload close failed", "file_id", fileID, "error", closeErr)
 	}
 
-	file, commitAttempted, err := s.commitSnapshot(snapshotContext, fileID, owner, prepared)
+	file, commitAttempted, err := s.commitSnapshot(snapshotContext, riverClient, fileID, owner, prepared)
 	if err == nil {
 		return file, nil
 	}
@@ -204,7 +295,7 @@ func (s *Service) createSnapshot(
 		defer cancel()
 		if deleteErr := s.rawStore.Delete(cleanupContext, rawKey); deleteErr != nil {
 			s.logger.Warn(
-				"knowledge raw compensation failed",
+				"library raw compensation failed",
 				"file_id", fileID,
 				"error", deleteErr,
 			)
@@ -213,32 +304,34 @@ func (s *Service) createSnapshot(
 	// Once Commit was invoked, its error may mean "committed but response lost".
 	// Deleting here could destroy an owned snapshot; age-based GC resolves only
 	// database-confirmed orphans in the lifecycle slice.
-	return File{}, err
+	return LibraryFile{}, err
 }
 
 func (s *Service) commitSnapshot(
 	ctx context.Context,
+	riverClient *river.Client[pgx.Tx],
 	fileID string,
 	owner Owner,
 	prepared *preparedUpload,
-) (File, bool, error) {
+) (LibraryFile, bool, error) {
 	tx, queries, err := s.beginBoundedTx(ctx)
 	if err != nil {
-		return File{}, false, fmt.Errorf("begin knowledge snapshot commit: %w", err)
+		return LibraryFile{}, false, fmt.Errorf("begin library snapshot commit: %w", err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	if err := queries.LockKnowledgeQuotaPool(ctx, quotaLockKey(owner)); err != nil {
-		return File{}, false, fmt.Errorf("lock knowledge quota: %w", err)
+
+	if err := queries.LockLibraryQuotaPool(ctx, quotaLockKey(owner)); err != nil {
+		return LibraryFile{}, false, fmt.Errorf("lock library quota: %w", err)
 	}
 	quota, err := quotaForOwner(ctx, queries, owner)
 	if err != nil {
-		return File{}, false, err
+		return LibraryFile{}, false, err
 	}
 	if !quota.CanAdd(prepared.sizeBytes) {
-		return File{}, false, &QuotaExceededError{Quota: quota}
+		return LibraryFile{}, false, &QuotaExceededError{Quota: quota}
 	}
 
-	row, err := queries.CreateKnowledgeFile(ctx, sqlc.CreateKnowledgeFileParams{
+	row, err := queries.CreateLibraryFile(ctx, sqlc.CreateLibraryFileParams{
 		ID:        fileID,
 		Scope:     string(owner.Scope),
 		UserID:    nullableText(owner.UserID),
@@ -249,17 +342,17 @@ func (s *Service) commitSnapshot(
 		RawSha256: append([]byte(nil), prepared.rawSHA256...),
 	})
 	if err != nil {
-		return File{}, false, fmt.Errorf("create knowledge file metadata: %w", err)
+		return LibraryFile{}, false, fmt.Errorf("create library file metadata: %w", err)
 	}
 	args := chunkArgs{FileID: fileID}
 	options := args.InsertOpts()
-	if _, err := s.river.InsertTx(ctx, tx, args, &options); err != nil {
-		return File{}, false, fmt.Errorf("enqueue knowledge chunk job: %w", err)
+	if _, err := riverClient.InsertTx(ctx, tx, args, &options); err != nil {
+		return LibraryFile{}, false, fmt.Errorf("enqueue library chunk job: %w", err)
 	}
 
 	commitAttempted := true
 	if err := s.commitTx(ctx, tx); err != nil {
-		return File{}, commitAttempted, fmt.Errorf("commit knowledge snapshot: %w", err)
+		return LibraryFile{}, commitAttempted, fmt.Errorf("commit library snapshot: %w", err)
 	}
 	return fileFromCreateRow(row), commitAttempted, nil
 }
@@ -301,13 +394,13 @@ func (s *Service) verifyRawSnapshot(
 ) error {
 	object, err := s.rawStore.Open(ctx, rawKey)
 	if err != nil {
-		return fmt.Errorf("open existing knowledge raw object: %w", err)
+		return fmt.Errorf("open existing library raw object: %w", err)
 	}
 	defer func() { _ = object.Close() }()
 	hash := sha256.New()
 	size, err := io.Copy(hash, io.LimitReader(contextReader(ctx, object), MaxFileBytes+1))
 	if err != nil {
-		return fmt.Errorf("verify existing knowledge raw object: %w", err)
+		return fmt.Errorf("verify existing library raw object: %w", err)
 	}
 	if size != prepared.sizeBytes || subtle.ConstantTimeCompare(hash.Sum(nil), prepared.rawSHA256) != 1 {
 		return fmt.Errorf("%w: existing object differs from prepared snapshot", ErrRawAlreadyExists)
@@ -316,44 +409,44 @@ func (s *Service) verifyRawSnapshot(
 }
 
 // Get returns live internal metadata only; raw bytes are never exposed.
-func (s *Service) Get(ctx context.Context, id string) (File, error) {
+func (s *Service) Get(ctx context.Context, id string) (LibraryFile, error) {
 	if s == nil || s.q == nil {
-		return File{}, ErrServiceUnavailable
+		return LibraryFile{}, ErrServiceUnavailable
 	}
-	row, err := s.q.GetKnowledgeFile(ctx, id)
+	row, err := s.q.GetLibraryFile(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return File{}, ErrNotFound
+		return LibraryFile{}, ErrNotFound
 	}
 	if err != nil {
-		return File{}, fmt.Errorf("get knowledge file: %w", err)
+		return LibraryFile{}, fmt.Errorf("get library file: %w", err)
 	}
 	return fileFromGetRow(row), nil
 }
 
-type knowledgeQuerier interface {
-	GetSystemKnowledgeQuotaUsage(context.Context) (sqlc.GetSystemKnowledgeQuotaUsageRow, error)
-	GetSystemAgentKnowledgeQuotaUsage(context.Context, pgtype.Text) (sqlc.GetSystemAgentKnowledgeQuotaUsageRow, error)
-	GetPersonalKnowledgeQuotaUsage(context.Context, pgtype.Text) (sqlc.GetPersonalKnowledgeQuotaUsageRow, error)
+type libraryQuerier interface {
+	GetSystemLibraryQuotaUsage(context.Context) (sqlc.GetSystemLibraryQuotaUsageRow, error)
+	GetSystemAgentLibraryQuotaUsage(context.Context, pgtype.Text) (sqlc.GetSystemAgentLibraryQuotaUsageRow, error)
+	GetPersonalLibraryQuotaUsage(context.Context, pgtype.Text) (sqlc.GetPersonalLibraryQuotaUsageRow, error)
 }
 
-func quotaForOwner(ctx context.Context, queries knowledgeQuerier, owner Owner) (Quota, error) {
+func quotaForOwner(ctx context.Context, queries libraryQuerier, owner Owner) (Quota, error) {
 	switch owner.Scope {
 	case ScopeSystem:
-		usage, err := queries.GetSystemKnowledgeQuotaUsage(ctx)
+		usage, err := queries.GetSystemLibraryQuotaUsage(ctx)
 		if err != nil {
-			return Quota{}, fmt.Errorf("load system knowledge quota: %w", err)
+			return Quota{}, fmt.Errorf("load system library quota: %w", err)
 		}
 		return Quota{usage.UsedFiles, SystemMaxFiles, usage.UsedBytes, SystemMaxBytes}, nil
 	case ScopeSystemAgent:
-		usage, err := queries.GetSystemAgentKnowledgeQuotaUsage(ctx, nullableText(owner.AgentID))
+		usage, err := queries.GetSystemAgentLibraryQuotaUsage(ctx, nullableText(owner.AgentID))
 		if err != nil {
-			return Quota{}, fmt.Errorf("load Agent knowledge quota: %w", err)
+			return Quota{}, fmt.Errorf("load Agent library quota: %w", err)
 		}
 		return Quota{usage.UsedFiles, SystemAgentMaxFiles, usage.UsedBytes, SystemAgentMaxBytes}, nil
 	case ScopeUser, ScopeUserAgent:
-		usage, err := queries.GetPersonalKnowledgeQuotaUsage(ctx, nullableText(owner.UserID))
+		usage, err := queries.GetPersonalLibraryQuotaUsage(ctx, nullableText(owner.UserID))
 		if err != nil {
-			return Quota{}, fmt.Errorf("load personal knowledge quota: %w", err)
+			return Quota{}, fmt.Errorf("load personal library quota: %w", err)
 		}
 		return Quota{usage.UsedFiles, PersonalMaxFiles, usage.UsedBytes, PersonalMaxBytes}, nil
 	default:
@@ -374,7 +467,7 @@ func quotaLockKey(owner Owner) int64 {
 		pool = "invalid"
 	}
 	hash := fnv.New64a()
-	_, _ = hash.Write([]byte("stella:knowledge:quota:" + pool))
+	_, _ = hash.Write([]byte("stella:library:quota:" + pool))
 	return int64(hash.Sum64())
 }
 
@@ -399,13 +492,13 @@ type fileFields struct {
 	UpdatedAt        time.Time
 }
 
-func fileFromFields(row fileFields) File {
+func fileFromFields(row fileFields) LibraryFile {
 	var deletedAt *time.Time
 	if row.DeletedAt.Valid {
 		value := row.DeletedAt.Time
 		deletedAt = &value
 	}
-	return File{
+	return LibraryFile{
 		ID: row.ID,
 		Owner: Owner{
 			Scope: Scope(row.Scope), UserID: row.UserID.String, AgentID: row.AgentID.String,
@@ -423,7 +516,7 @@ func fileFromFields(row fileFields) File {
 	}
 }
 
-func fileFromCreateRow(row sqlc.KnowledgeFile) File {
+func fileFromCreateRow(row sqlc.LibraryFile) LibraryFile {
 	return fileFromFields(fileFields{
 		ID: row.ID, Scope: row.Scope, UserID: row.UserID, AgentID: row.AgentID,
 		FileName: row.FileName, MediaType: row.MediaType, SizeBytes: row.SizeBytes,
@@ -433,7 +526,7 @@ func fileFromCreateRow(row sqlc.KnowledgeFile) File {
 	})
 }
 
-func fileFromGetRow(row sqlc.KnowledgeFile) File {
+func fileFromGetRow(row sqlc.LibraryFile) LibraryFile {
 	return fileFromFields(fileFields{
 		ID: row.ID, Scope: row.Scope, UserID: row.UserID, AgentID: row.AgentID,
 		FileName: row.FileName, MediaType: row.MediaType, SizeBytes: row.SizeBytes,

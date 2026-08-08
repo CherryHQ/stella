@@ -1,4 +1,4 @@
-package knowledge
+package library
 
 import (
 	"context"
@@ -16,14 +16,17 @@ import (
 )
 
 const (
-	RawPrefix          = "knowledge/files"
+	RawPrefix          = "library/files"
 	MaxRawListPageSize = 500
+	// DefaultFSMinFreeBytes keeps a local deployment from consuming the final
+	// disk reserve with immutable library snapshots.
+	DefaultFSMinFreeBytes int64 = 5 << 30
 )
 
 var (
-	ErrRawAlreadyExists    = errors.New("knowledge raw object already exists")
-	ErrRawStorageDegraded  = errors.New("knowledge raw storage is degraded")
-	ErrInvalidRawStorePage = errors.New("invalid knowledge raw store page")
+	ErrRawAlreadyExists    = errors.New("library raw object already exists")
+	ErrRawStorageDegraded  = errors.New("library raw storage is degraded")
+	ErrInvalidRawStorePage = errors.New("invalid library raw store page")
 )
 
 // RawObject is the minimum storage metadata required by bounded orphan GC.
@@ -49,10 +52,13 @@ type RawStore interface {
 	Open(ctx context.Context, key string) (io.ReadCloser, error)
 	Delete(ctx context.Context, key string) error
 	ListPage(ctx context.Context, prefix, cursor string, limit int) (RawPage, error)
+	// SupportsOrphanCollection is true only when RawPrefix is owned exclusively
+	// by this Stella deployment, so unknown objects can be deleted safely.
+	SupportsOrphanCollection() bool
 }
 
 // RawStoreOptions holds backend admission knobs without exposing a second
-// Knowledge-specific storage configuration group.
+// Library-specific storage configuration group.
 type RawStoreOptions struct {
 	TempDir        string
 	FSMinFreeBytes int64
@@ -60,8 +66,7 @@ type RawStoreOptions struct {
 }
 
 // NewRawStoreFromConfig selects local FS or deployment S3 using the existing
-// STELLA_BLOB_S3_* configuration group. It is intentionally not wired into the
-// daemon until the derivation worker exists in the next delivery slice.
+// STELLA_BLOB_S3_* configuration group.
 func NewRawStoreFromConfig(
 	root string,
 	deploymentS3 config.BlobS3Config,
@@ -77,10 +82,14 @@ func NewRawStoreFromConfig(
 	return NewFSRawStore(root, options.FSMinFreeBytes)
 }
 
-// RawKey derives the only canonical object key for a KnowledgeFile.
+// RawKey derives the only canonical object key for a LibraryFile.
 func RawKey(fileID string) (string, error) {
-	if _, err := uuid.Parse(fileID); err != nil {
-		return "", fmt.Errorf("invalid knowledge file ID: %w", err)
+	parsed, err := uuid.Parse(fileID)
+	if err != nil {
+		return "", fmt.Errorf("invalid library file ID: %w", err)
+	}
+	if parsed.String() != fileID {
+		return "", fmt.Errorf("library file ID %q is not canonical", fileID)
 	}
 	return path.Join(RawPrefix, fileID, "source"), nil
 }
@@ -93,11 +102,15 @@ func FileIDFromRawKey(key string) (string, error) {
 		return "", err
 	}
 	parts := strings.Split(clean, "/")
-	if len(parts) != 4 || parts[0] != "knowledge" || parts[1] != "files" || parts[3] != "source" {
-		return "", fmt.Errorf("invalid knowledge raw key %q", key)
+	if len(parts) != 4 || parts[0] != "library" || parts[1] != "files" || parts[3] != "source" {
+		return "", fmt.Errorf("invalid library raw key %q", key)
 	}
-	if _, err := uuid.Parse(parts[2]); err != nil {
-		return "", fmt.Errorf("invalid knowledge raw file ID: %w", err)
+	parsed, err := uuid.Parse(parts[2])
+	if err != nil {
+		return "", fmt.Errorf("invalid library raw file ID: %w", err)
+	}
+	if parsed.String() != parts[2] {
+		return "", fmt.Errorf("library raw file ID %q is not canonical", parts[2])
 	}
 	return parts[2], nil
 }

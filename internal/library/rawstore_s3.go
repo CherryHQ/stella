@@ -1,4 +1,4 @@
-package knowledge
+package library
 
 import (
 	"context"
@@ -18,6 +18,11 @@ type S3RawStore struct {
 	tempDir   string
 	admission func(context.Context) error
 }
+
+// SupportsOrphanCollection remains false until S3 keys carry a deployment
+// namespace or another ownership marker. Exact-key tombstone cleanup is still
+// safe and continues to use Delete directly.
+func (*S3RawStore) SupportsOrphanCollection() bool { return false }
 
 func NewS3RawStore(
 	config blob.S3Config,
@@ -42,7 +47,7 @@ func (s *S3RawStore) Create(ctx context.Context, key string, reader io.Reader) e
 		return err
 	}
 	if reader == nil {
-		return fmt.Errorf("knowledge raw reader is required")
+		return fmt.Errorf("library raw reader is required")
 	}
 	publicationReader, size, cleanup, err := s.prepareReader(ctx, reader)
 	if err != nil {
@@ -63,7 +68,7 @@ func (s *S3RawStore) Create(ctx context.Context, key string, reader io.Reader) e
 		if response.StatusCode == 412 || response.Code == "PreconditionFailed" {
 			return ErrRawAlreadyExists
 		}
-		return fmt.Errorf("publish S3 knowledge raw object: %w", err)
+		return fmt.Errorf("publish S3 library raw object: %w", err)
 	}
 	return nil
 }
@@ -97,7 +102,7 @@ func (s *S3RawStore) prepareReader(
 		return contextReader(ctx, reader), size, func() {}, nil
 	}
 
-	temp, err := os.CreateTemp(s.tempDir, ".stella-knowledge-s3-raw-*")
+	temp, err := os.CreateTemp(s.tempDir, ".stella-library-s3-raw-*")
 	if err != nil {
 		return nil, 0, nil, fmt.Errorf("create S3 raw spool: %w", err)
 	}
@@ -140,7 +145,7 @@ func (s *S3RawStore) Delete(ctx context.Context, key string) error {
 		return err
 	}
 	if err := s.client.RemoveObject(ctx, s.bucket, clean, minio.RemoveObjectOptions{}); err != nil {
-		return fmt.Errorf("delete S3 knowledge raw object: %w", err)
+		return fmt.Errorf("delete S3 library raw object: %w", err)
 	}
 	return nil
 }
@@ -170,7 +175,7 @@ func (s *S3RawStore) ListPage(
 			if len(objects) > limit && errors.Is(object.Err, context.Canceled) {
 				continue
 			}
-			return RawPage{}, fmt.Errorf("list S3 knowledge raw objects: %w", object.Err)
+			return RawPage{}, fmt.Errorf("list S3 library raw objects: %w", object.Err)
 		}
 		objects = append(objects, RawObject{
 			Key: object.Key, Size: object.Size, LastModified: object.LastModified.UTC(),
