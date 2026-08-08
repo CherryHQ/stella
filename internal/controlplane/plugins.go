@@ -217,6 +217,49 @@ func (a *Access) SaveManifestPlugins(ctx context.Context, plugins []manifestplug
 	return merged, nil
 }
 
+// DeleteManifestPlugin removes an admin-added plugin: its override row is the
+// whole definition, so dropping it drops the plugin. A builtin ships with the
+// server and is refused — disabling it is the reversible equivalent, and letting
+// a delete "remove" one would only resurrect it on the next resolve. Installed
+// binaries stay in the mise cache, exactly as they do when a plugin is disabled.
+func (a *Access) DeleteManifestPlugin(ctx context.Context, id string) error {
+	builtin, err := manifestplugins.LoadBuiltin()
+	if err != nil {
+		return err
+	}
+	for _, p := range builtin.Plugins {
+		if p.ID == id {
+			return invalid(fmt.Sprintf("plugin %q ships with the server and cannot be removed; disable it instead", id))
+		}
+	}
+
+	_, found, err := a.svc.store.GetManifestPluginOverride(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return notFound(fmt.Sprintf("plugin %q not found", id))
+	}
+	if err := a.svc.store.DeleteManifestPluginOverride(ctx, id); err != nil {
+		return err
+	}
+
+	merged, err := a.svc.resolveManifestPlugins(ctx)
+	if err != nil {
+		return err
+	}
+	a.svc.plugins.RegisterManifestPlugins(merged)
+	if a.svc.pools != nil {
+		if err := a.svc.pools.ReloadPluginTools(ctx); err != nil {
+			a.svc.log.Error("failed to reload manifest plugin tools", "error", err)
+		}
+		if err := a.svc.pools.ReloadPluginHooks(ctx); err != nil {
+			a.svc.log.Error("failed to reload manifest plugin hooks", "error", err)
+		}
+	}
+	return nil
+}
+
 // SyncManifestPlugins reconciles the merged manifest against the filesystem
 // (installs binaries/skills) and returns the reconcile result.
 func (a *Access) SyncManifestPlugins(ctx context.Context) (manifestplugins.ReconcileResult, error) {
@@ -251,6 +294,7 @@ func (s *Service) resolveManifestPlugins(ctx context.Context) (*manifestplugins.
 	for i := range builtin.Plugins {
 		id := builtin.Plugins[i].ID
 		seen[id] = true
+		builtin.Plugins[i].Builtin = true
 		ov, ok := byID[id]
 		if !ok {
 			continue
@@ -262,6 +306,7 @@ func (s *Service) resolveManifestPlugins(ctx context.Context) (*manifestplugins.
 			} else {
 				p.ID = id
 				p.Enabled = builtin.Plugins[i].Enabled
+				p.Builtin = true
 				builtin.Plugins[i] = p
 			}
 		}

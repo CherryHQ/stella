@@ -1874,6 +1874,10 @@ const en = {
     "Declare a GitHub release binary. Stella writes it to plugins.yaml and syncs automatically.",
   "plugins.addCliToolDesc":
     "Search the mise registry by name, or type a mise key (e.g. github:owner/repo). Stella installs it and keeps it in sync.",
+  "plugins.removePlugin": "Remove this plugin?",
+  "plugins.removePluginMsg":
+    "{{id}} is removed from this deployment along with its tools. Installed binaries stay in the mise cache.",
+  "plugins.removeDesc": "Added by an admin — remove it to take it back out.",
   "plugins.searchRegistry": "Search a tool name or mise key…",
   "plugins.searchingRegistry": "Searching…",
   "plugins.noRegistryMatches": "No matches. You can still add a mise key directly.",
@@ -4036,6 +4040,10 @@ const zh: Record<MessageKey, string> = {
   "plugins.addToolDesc": "声明 GitHub 发布二进制文件。Stella 将其写入 plugins.yaml 并自动同步。",
   "plugins.addCliToolDesc":
     "按名称搜索 mise 注册表，或直接输入 mise 标识（如 github:owner/repo）。Stella 会自动安装并保持同步。",
+  "plugins.removePlugin": "移除此插件？",
+  "plugins.removePluginMsg":
+    "{{id}} 及其提供的工具会从本部署中移除。已安装的二进制文件仍保留在 mise 缓存中。",
+  "plugins.removeDesc": "由管理员添加 — 可以移除。",
   "plugins.searchRegistry": "搜索工具名称或 mise 标识…",
   "plugins.searchingRegistry": "搜索中…",
   "plugins.noRegistryMatches": "无匹配结果。你仍可直接输入 mise 标识添加。",

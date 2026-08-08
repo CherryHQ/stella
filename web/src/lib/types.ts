@@ -213,6 +213,8 @@ export interface ManifestPlugin {
   binaries?: ManifestBinary[];
   session_env?: ManifestSessionEnv[];
   oauth_provider?: string;
+  /** Ships with the server: it can be customized or disabled, never removed. */
+  builtin?: boolean;
 }
 
 export interface ManifestOAuthProvider {

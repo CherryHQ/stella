@@ -1566,6 +1566,90 @@ func TestSaveManifestPluginsRejectsDisablingEssential(t *testing.T) {
 	}
 }
 
+// TestDeleteManifestPluginRemovesCustomOnly covers the delete an added CLI tool
+// needs: an admin-added plugin lives entirely in its override row and goes away
+// with it, while a builtin is refused because the next resolve would bring it
+// back anyway.
+func TestDeleteManifestPluginRemovesCustomOnly(t *testing.T) {
+	env := setupAdmin(t)
+	octx := context.Background()
+
+	const customID = "tool/my-cli"
+	body := map[string]any{"plugins": []map[string]any{{
+		"id":           customID,
+		"kind":         "tool",
+		"name":         "my-cli",
+		"display_name": "My CLI",
+		"description":  "",
+		"enabled":      true,
+		"binaries":     []map[string]any{{"name": "my-cli", "tool": "github:owner/repo"}},
+	}}}
+	if rr := doRequest(t, env, "PATCH", "/api/manifest-plugins", body); rr.Code != http.StatusOK {
+		t.Fatalf("create: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if _, ok, err := env.store.GetManifestPluginOverride(octx, customID); err != nil || !ok {
+		t.Fatalf("custom plugin not persisted: ok=%v err=%v", ok, err)
+	}
+
+	if rr := doRequest(t, env, "DELETE", "/api/manifest-plugins/tool/my-cli", nil); rr.Code != http.StatusNoContent {
+		t.Fatalf("delete custom: status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if _, ok, err := env.store.GetManifestPluginOverride(octx, customID); err != nil {
+		t.Fatalf("get override: %v", err)
+	} else if ok {
+		t.Fatal("override row survived the delete")
+	}
+
+	// A second delete has nothing to remove.
+	if rr := doRequest(t, env, "DELETE", "/api/manifest-plugins/tool/my-cli", nil); rr.Code != http.StatusNotFound {
+		t.Fatalf("delete missing: status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	// A builtin ships with the server: disable it, don't delete it.
+	if rr := doRequest(t, env, "DELETE", "/api/manifest-plugins/tool/tap-web", nil); rr.Code != http.StatusBadRequest {
+		t.Fatalf("delete builtin: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+// TestListManifestPluginsMarksBuiltin covers the flag the settings UI uses to
+// decide whether a plugin may be removed at all.
+func TestListManifestPluginsMarksBuiltin(t *testing.T) {
+	env := setupAdmin(t)
+
+	body := map[string]any{"plugins": []map[string]any{{
+		"id": "tool/my-cli", "kind": "tool", "name": "my-cli",
+		"display_name": "My CLI", "description": "", "enabled": true,
+		"binaries": []map[string]any{{"name": "my-cli", "tool": "github:owner/repo"}},
+	}}}
+	if rr := doRequest(t, env, "PATCH", "/api/manifest-plugins", body); rr.Code != http.StatusOK {
+		t.Fatalf("create: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	rr := doRequest(t, env, "GET", "/api/manifest-plugins", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list: status = %d, want 200", rr.Code)
+	}
+	var resp struct {
+		Plugins []struct {
+			ID      string `json:"id"`
+			Builtin bool   `json:"builtin"`
+		} `json:"plugins"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, p := range resp.Plugins {
+		seen[p.ID] = p.Builtin
+	}
+	if builtin, ok := seen["tool/tap-web"]; !ok || !builtin {
+		t.Fatalf("tool/tap-web builtin = %v (present=%v), want true", builtin, ok)
+	}
+	if builtin, ok := seen["tool/my-cli"]; !ok || builtin {
+		t.Fatalf("tool/my-cli builtin = %v (present=%v), want false", builtin, ok)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // POST /api/channels/{id}/bind — the one channel write open to a non-admin.
 // ---------------------------------------------------------------------------
