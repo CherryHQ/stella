@@ -334,6 +334,39 @@ func cleanupOwnedTmpMounts(mounts []tmpMount) {
 	}
 }
 
+// ensureOwnedTmpMounts restores session-owned temporary directories removed by
+// host cleanup services while a long-lived session is still active. Borrowed
+// mounts are deliberately ignored: their lifecycle belongs to the operator,
+// and a missing source must still fail closed in the platform sandbox.
+func ensureOwnedTmpMounts(mounts []tmpMount) error {
+	for _, mount := range mounts {
+		if !mount.owned {
+			continue
+		}
+		info, err := os.Lstat(mount.realPath)
+		switch {
+		case err == nil:
+			if !info.IsDir() {
+				return fmt.Errorf("temporary mount source %q is not a directory", mount.realPath)
+			}
+		case errors.Is(err, os.ErrNotExist):
+			if err := os.Mkdir(mount.realPath, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+				return fmt.Errorf("recreate temporary mount source %q: %w", mount.realPath, err)
+			}
+			info, err = os.Lstat(mount.realPath)
+			if err != nil {
+				return fmt.Errorf("verify temporary mount source %q: %w", mount.realPath, err)
+			}
+			if !info.IsDir() {
+				return fmt.Errorf("temporary mount source %q is not a directory", mount.realPath)
+			}
+		default:
+			return fmt.Errorf("inspect temporary mount source %q: %w", mount.realPath, err)
+		}
+	}
+	return nil
+}
+
 // deregisterProcess removes a process handle from the session's tracked list.
 // Called by localProcess after natural exit so stale PIDs are not killed.
 func (s *localSession) deregisterProcess(p *localProcess) {
@@ -463,6 +496,9 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 	if closed {
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local: session is closed")
 	}
+	if err := ensureOwnedTmpMounts(s.tmpMounts); err != nil {
+		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: prepare temporary mounts: %w", err)
+	}
 
 	sandboxCwd := opts.Cwd
 	if sandboxCwd == "" {
@@ -543,8 +579,15 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRequest) (sandboxpkg.ProcessHandle, error) {
 	// Per-exec env reads take a policy snapshot under the lock.
 	s.mu.RLock()
+	closed := s.closed
 	policy := s.policy
 	s.mu.RUnlock()
+	if closed {
+		return nil, fmt.Errorf("local: session is closed")
+	}
+	if err := ensureOwnedTmpMounts(s.tmpMounts); err != nil {
+		return nil, fmt.Errorf("local start_process: prepare temporary mounts: %w", err)
+	}
 
 	sandboxCwd := req.Cwd
 	if sandboxCwd == "" {
