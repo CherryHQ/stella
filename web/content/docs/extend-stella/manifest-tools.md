@@ -224,7 +224,7 @@ Rows with manifest backing show a `manifest` badge and an **Edit definition** ac
 
 The **Tools** tab includes **Add Tool** for creating a new manifest-backed CLI from a GitHub release binary. Saving writes `$STELLA_HOME/plugins.yaml`, registers the plugin, and syncs binaries automatically without a restart. The embedded built-in manifest is never modified.
 
-Editing a built-in from the admin UI stores only the fields you changed, so the rest keep following the definition shipped with the server and still improve when you upgrade. Such a plugin is marked **customized** and offers **Reset to default**, which drops the stored edits and leaves the enable switch as it is. Lists — binaries, skills, session environment variables — are stored whole: edit one binary and you own that list. This applies to the admin UI only; a `plugins.yaml` entry is still a full-entry replacement.
+Editing a built-in from the admin UI stores only the fields you changed, so the rest keep following the definition shipped with the server and still improve when you upgrade. Such a plugin is marked **customized** and offers **Reset to default**, which drops the stored edits and leaves the enable switch as it is. Lists — binaries, skills, session environment variables — are stored whole: edit one binary and you own that list. A customization saved before this behaviour existed holds a whole definition and stays frozen at it; saving that plugin once rewrites the row and it starts following upgrades again.
 
 ## Limitations in v1
 
