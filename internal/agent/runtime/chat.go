@@ -533,5 +533,9 @@ func withChannel(ctx context.Context, channel string) context.Context {
 }
 
 func withExcludedTools(ctx context.Context, names ...string) context.Context {
+	// Child runs must retain every exclusion their ancestor applied. In
+	// particular, delegate adds its recursion guard here without restoring a
+	// goal worker's control-plane tools.
+	names = append(agentctx.ExcludedToolsFromContext(ctx), names...)
 	return agentctx.WithExcludedTools(ctx, names...)
 }

@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/agentctx"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -101,6 +103,38 @@ func (r chatFakeRunner) Busy() bool              { return false }
 func (r chatFakeRunner) LastActivity() time.Time { return time.Now() }
 func (r chatFakeRunner) SystemPrompt() string    { return r.system }
 func (r chatFakeRunner) Close() error            { return nil }
+
+// TestRuntimeChatUnionsAncestorExcludedTools prevents a goal worker from
+// restoring a control-plane tool by delegating. The per-call exclusions model a
+// delegate preset that whitelists "goal" (and therefore excludes every other
+// registry tool); the ancestor exclusion remains authoritative.
+func TestRuntimeChatUnionsAncestorExcludedTools(t *testing.T) {
+	mem := &recordingMemory{}
+	var runnerCtx context.Context
+	rt, err := New(Config{
+		Memory: mem,
+		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+			return chatFakeRunner{ctx: &runnerCtx, events: []Event{{Text: "ok"}}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	parent := agentctx.WithExcludedTools(context.Background(), "goal", "scheduler", "workflow")
+	for event := range rt.Chat(parent, session.Info{ID: "delegate-1", UserID: "user-1", AgentID: "agent-1"}, "work",
+		WithExcludedTools("scheduler", "workflow", "delegate", "read_file"),
+	) {
+		if event.Err != nil {
+			t.Fatalf("chat: %v", event.Err)
+		}
+	}
+
+	want := []string{"goal", "scheduler", "workflow", "delegate", "read_file"}
+	if got := agentctx.ExcludedToolsFromContext(runnerCtx); !slices.Equal(got, want) {
+		t.Fatalf("child excluded tools = %v, want %v", got, want)
+	}
+}
 
 func TestGuestChatCarriesGuestIdentityWithoutUserIdentity(t *testing.T) {
 	const guestID = "11111111-1111-4111-8111-111111111111"
