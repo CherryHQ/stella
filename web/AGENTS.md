@@ -97,12 +97,39 @@ Response is snake_case: `{ id, username, role, is_admin }`.
 
 ### Commands
 
+Vite+ has two coordinated parts: the global `vp` CLI pinned by `mise.toml` and
+the local `vite-plus` toolchain pinned by `pnpm-workspace.yaml`. Keep those
+versions equal. `mise` owns Node, the global `vp`, and cross-language task
+orchestration; do not use `vp env`, `vp upgrade`, or a separately installed
+Node to override it. `package.json#packageManager` is the sole pnpm version pin;
+`vp install` downloads and delegates to that version. `pnpm-workspace.yaml`
+owns pnpm policy and the exact Vite+, Vite core, and Vitest compatibility set;
+`pnpm-lock.yaml` is generated resolution output.
+
+Use Vite+ as the Web entry point instead of invoking pnpm directly:
+
 ```bash
+vp install        # install with package.json#packageManager
 vp dev            # Vite dev server at localhost:5173
 vp check --fix    # format, lint, type-check with auto-fix
 vp test           # run frontend tests
 vp build          # build to web/static/dist/
 vp add <pkg>      # add dependency
+vp exec <binary>  # run a binary from node_modules/.bin
+vp run <script>   # run a package.json script
 ```
 
-Always `vp check --fix` before committing. Full-stack dev: `mise run dev` from repo root (proxies `/api/*` to Go).
+For package-manager-specific diagnostics only, use `vp pm <command>`; do not add
+raw `pnpm` calls to repository tasks. Upgrade Vite+ as one reviewed change:
+update the `vp` pin in `mise.toml`, run
+`vp migrate --no-interactive --no-hooks --no-agent --no-editor`, review every
+generated dependency and import change, then regenerate the lockfile. Never
+update only the global CLI, local package, Vite alias, or Vitest override.
+Tests deliberately import APIs from `vitest`: Vite+ 0.2.8's
+`vite-plus/test` re-export loses the runner context in this repository. Retry
+that migration on a later Vite+ upgrade and keep it only when `vp test` passes.
+
+Always `vp check --fix` before committing. Full-stack dev: `mise run dev` from
+repo root (proxies `/api/*` to Go). Run repository workflows through
+`mise run <task>`; before committing, run
+`mise run format && mise run build && mise run test`.

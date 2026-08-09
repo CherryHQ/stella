@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
-# Built through mise rather than a pnpm base image so the Node and pnpm versions
-# come from mise.toml, the same place the local and CI builds read them from. An
-# image tag pinned here would be a fourth toolchain to keep in step.
+# Built through mise rather than a Node base image so the Node and global Vite+
+# versions come from mise.toml, the same place local and CI builds read them
+# from. Vite+ resolves pnpm from web/package.json.
 FROM --platform=$BUILDPLATFORM debian:13-slim AS web-builder
 RUN apt-get update \
     && apt-get -y --no-install-recommends install ca-certificates curl git libatomic1 \
@@ -12,11 +12,11 @@ ENV MISE_INSTALL_PATH="/usr/local/bin/mise"
 RUN curl -fsSL https://mise.run | sh
 WORKDIR /src
 COPY mise.toml ./
-RUN mise trust && mise install node pnpm
+RUN mise trust && mise install node vp
 COPY api/spec/ ./api/spec/
 COPY web/ ./web/
 ENV CI=true
-# The SPA build needs Node and pnpm and nothing else; without this mise would
+# The SPA build needs Node and Vite+ and nothing else; without this mise would
 # also fetch Go, sqlc, and GoReleaser here just to satisfy mise.toml.
 ENV MISE_TASK_RUN_AUTO_INSTALL=0
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
