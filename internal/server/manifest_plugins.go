@@ -28,6 +28,15 @@ func (s *Server) ListManifestPlugins(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, manifestPluginsResponseFrom(merged))
 }
 
+// manifestPluginID rebuilds the plugin ID a two-segment route addresses.
+//
+// The second segment is the ID's own suffix, not the plugin's name: `name` is an
+// ordinary definition field and is allowed to differ. tool/kreuzberg ships as
+// "xberg" precisely because persisted overrides and install state key on the
+// historical ID, so addressing by name would miss the plugin entirely — and, on
+// a write, create a second one beside it.
+func manifestPluginID(kind, idSuffix string) string { return kind + "/" + idSuffix }
+
 // SaveManifestPluginDefinition writes one plugin's definition. `fields` names
 // what this request takes ownership of on a builtin; an admin-added plugin has
 // no definition underneath it, so the body is the whole plugin.
@@ -44,11 +53,15 @@ func (s *Server) SaveManifestPluginDefinition(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	// The URL addresses the plugin; a body that disagrees is a bug on the caller's
-	// side, not a second opinion.
-	req.Plugin.ID = kind + "/" + name
+	// The URL addresses the plugin, so the ID comes from it. The body's `name` is
+	// a definition field and is left alone; a body that claims a different kind is
+	// addressing something other than what it asked for.
+	req.Plugin.ID = manifestPluginID(kind, name)
+	if req.Plugin.Kind != "" && req.Plugin.Kind != kind {
+		writeError(w, http.StatusBadRequest, "plugin kind does not match the URL")
+		return
+	}
 	req.Plugin.Kind = kind
-	req.Plugin.Name = name
 	merged, err := access.SaveManifestPluginDefinition(r.Context(), req.Plugin, req.Fields)
 	if err != nil {
 		s.writeControlPlaneError(w, err)
@@ -70,7 +83,7 @@ func (s *Server) SetManifestPluginEnabled(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	merged, err := access.SetManifestPluginEnabled(r.Context(), kind+"/"+name, req.Enabled)
+	merged, err := access.SetManifestPluginEnabled(r.Context(), manifestPluginID(kind, name), req.Enabled)
 	if err != nil {
 		s.writeControlPlaneError(w, err)
 		return
@@ -85,7 +98,7 @@ func (s *Server) DeleteManifestPlugin(w http.ResponseWriter, r *http.Request, ki
 	if !ok {
 		return
 	}
-	if err := access.DeleteManifestPlugin(r.Context(), kind+"/"+name); err != nil {
+	if err := access.DeleteManifestPlugin(r.Context(), manifestPluginID(kind, name)); err != nil {
 		s.writeControlPlaneError(w, err)
 		return
 	}
@@ -110,7 +123,7 @@ func (s *Server) ResetManifestPlugin(w http.ResponseWriter, r *http.Request, kin
 			return
 		}
 	}
-	merged, err := access.ResetManifestPlugin(r.Context(), kind+"/"+name, req.Field)
+	merged, err := access.ResetManifestPlugin(r.Context(), manifestPluginID(kind, name), req.Field)
 	if err != nil {
 		s.writeControlPlaneError(w, err)
 		return

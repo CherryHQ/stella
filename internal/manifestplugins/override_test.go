@@ -362,3 +362,53 @@ func TestApplyOverrideRejectsCorruptJSON(t *testing.T) {
 		t.Fatal("want an error for a corrupt override")
 	}
 }
+
+// kind and essential belong to the server, so no override may take them —
+// including a legacy row, which was a snapshot of the whole resolved plugin and
+// therefore carried the server's own values incidentally, never as a decision
+// anyone made. Materializing those would pin a plugin's identity and its
+// core-tool policy at whatever they were the day someone renamed it.
+func TestServerOwnedFieldsCannotBeTaken(t *testing.T) {
+	edited := builtinPlugin()
+	edited.Kind = "hook"
+	edited.Essential = true
+	for _, field := range []string{"kind", "essential"} {
+		if _, err := SetFields("", edited, []string{field}); err == nil {
+			t.Errorf("SetFields(%q) = nil error, want a refusal", field)
+		}
+		if _, err := ReleaseField(`{"$sparse":true,"display_name":"x"}`, field); err == nil {
+			t.Errorf("ReleaseField(%q) = nil error, want a refusal", field)
+		}
+		if IsOwnableField(field) {
+			t.Errorf("IsOwnableField(%q) = true, want false", field)
+		}
+		if slices.Contains(OwnableFields(), field) {
+			t.Errorf("OwnableFields() contains %q", field)
+		}
+	}
+
+	legacy, err := DefinitionJSON(edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owned, err := OwnedFields(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(owned, "kind") || slices.Contains(owned, "essential") {
+		t.Fatalf("a legacy row reports owning %v, want kind and essential left to the server", owned)
+	}
+	merged, err := ApplyOverride(builtinPlugin(), legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged.Kind != "tool" || merged.Essential {
+		t.Fatalf("merged kind=%q essential=%v, want the shipped tool/false", merged.Kind, merged.Essential)
+	}
+
+	// A sparse row written before these were server-owned is read the same way.
+	stale := `{"$sparse":true,"kind":"hook","essential":true,"display_name":"x"}`
+	if owned, err := OwnedFields(stale); err != nil || !slices.Equal(owned, []string{"display_name"}) {
+		t.Fatalf("OwnedFields(stale) = %v, %v; want [display_name]", owned, err)
+	}
+}

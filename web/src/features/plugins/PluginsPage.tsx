@@ -178,6 +178,18 @@ export function PluginsPage() {
     setPlugins((prev) => prev.map((p) => (p.id === id ? { ...p, enabled } : p)));
   }
 
+  // manifestPluginPath addresses a manifest plugin by its stable ID, not by its
+  // name. `name` is an editable definition field and is allowed to differ from
+  // the ID's suffix — tool/kreuzberg ships as "xberg" because persisted
+  // overrides and install state key on the historical ID — so routing by name
+  // would miss the plugin, and on a write create a second one beside it.
+  function manifestPluginPath(id: string) {
+    const slash = id.indexOf("/");
+    return slash !== -1
+      ? { kind: id.slice(0, slash), name: id.slice(slash + 1) }
+      : { kind: id, name: id };
+  }
+
   function pluginPathByID(id: string, pluginList: Plugin[]) {
     const plugin = pluginList.find((p) => p.id === id);
     if (plugin) return { kind: plugin.kind, name: plugin.name };
@@ -224,7 +236,7 @@ export function PluginsPage() {
       const updated = manifestPlugins.map((p) => (p.id === id ? { ...p, enabled } : p));
       setManifestPlugins(updated);
       await setManifestPluginEnabled({
-        path: { kind: target.kind, name: target.name },
+        path: manifestPluginPath(target.id),
         body: { enabled },
         throwOnError: true,
       });
@@ -300,7 +312,7 @@ export function PluginsPage() {
   // ownership of. Existing field ownership is retained by the backend.
   async function upsertManifestPlugin(next: ManifestPlugin, fields: string[], successMsg: string) {
     await saveManifestPluginDefinition({
-      path: { kind: next.kind, name: next.name },
+      path: manifestPluginPath(next.id),
       body: { plugin: { ...next }, fields },
       throwOnError: true,
     });
@@ -347,7 +359,7 @@ export function PluginsPage() {
     if (field) setResettingManifestField(field);
     try {
       await resetManifestPlugin({
-        path: { kind: plugin.kind, name: plugin.name },
+        path: manifestPluginPath(plugin.id),
         ...(field ? { body: { field } } : {}),
         throwOnError: true,
       });
@@ -368,7 +380,7 @@ export function PluginsPage() {
   async function removeManifestPlugin(plugin: PluginWithMeta) {
     try {
       await deleteManifestPlugin({
-        path: { kind: plugin.kind, name: plugin.name },
+        path: manifestPluginPath(plugin.id),
         throwOnError: true,
       });
       await loadManifestPlugins();

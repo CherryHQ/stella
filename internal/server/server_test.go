@@ -1499,7 +1499,7 @@ func saveManifestDefinition(t *testing.T, env *testEnv, id string, plugin map[st
 	if fields != nil {
 		body["fields"] = fields
 	}
-	return doRequest(t, env, "PUT", "/api/manifest-plugins/"+id, body)
+	return doRequest(t, env, "PATCH", "/api/manifest-plugins/"+id, body)
 }
 
 // TestToggleManifestPluginPreservesSessionEnvVaultKey guards against the enable
@@ -1841,6 +1841,99 @@ func TestResetManifestPluginFieldReleasesOneFieldOnly(t *testing.T) {
 	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/tap-web/reset",
 		map[string]any{"field": "enabled"}); rr.Code != http.StatusBadRequest {
 		t.Fatalf("reset a non-definition field: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+// A plugin's ID and its name are different things: resources/tools.yaml ships
+// tool/kreuzberg under the name "xberg", with a comment saying the ID is kept
+// because persisted overrides and install state key on it. Every write therefore
+// has to address the row by ID. Routing by name would find no row, and the save
+// would quietly create a second plugin beside the one being edited.
+func TestWritesAddressAPluginWhoseNameIsNotItsID(t *testing.T) {
+	env := setupAdmin(t)
+	octx := context.Background()
+
+	const pluginID = "tool/kreuzberg"
+	shipped := manifestPluginByID(t, env, pluginID)
+	if shipped["name"] == "kreuzberg" {
+		t.Fatalf("this test needs a builtin whose name differs from its ID suffix; %s is named %v", pluginID, shipped["name"])
+	}
+
+	if rr := toggleManifestPlugin(t, env, pluginID, false); rr.Code != http.StatusOK {
+		t.Fatalf("disable: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	edited := manifestPluginByID(t, env, pluginID)
+	edited["display_name"] = "Ours"
+	if rr := saveManifestDefinition(t, env, pluginID, edited, []string{"display_name"}); rr.Code != http.StatusOK {
+		t.Fatalf("save: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	after := manifestPluginByID(t, env, pluginID)
+	if after["display_name"] != "Ours" || after["enabled"] != false {
+		t.Fatalf("plugin = %v, want the edit and the disable to have landed on it", after)
+	}
+	if after["name"] != shipped["name"] {
+		t.Errorf("name = %v, want the shipped %v — the URL addresses the ID, not the name", after["name"], shipped["name"])
+	}
+	if _, _, err := env.store.GetManifestPluginOverride(octx, pluginID); err != nil {
+		t.Fatalf("get override: %v", err)
+	}
+	// Nothing was created beside it.
+	rr := doRequest(t, env, "GET", "/api/manifest-plugins", nil)
+	var resp struct {
+		Plugins []map[string]any `json:"plugins"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, p := range resp.Plugins {
+		if p["id"] == "tool/"+shipped["name"].(string) {
+			t.Fatalf("a second plugin appeared at %v; the write addressed the name instead of the ID", p["id"])
+		}
+	}
+
+	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/"+pluginID+"/reset",
+		map[string]any{"field": "display_name"}); rr.Code != http.StatusOK {
+		t.Fatalf("reset field: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if released := manifestPluginByID(t, env, pluginID); released["display_name"] != shipped["display_name"] {
+		t.Errorf("display_name = %v, want the shipped %v", released["display_name"], shipped["display_name"])
+	}
+}
+
+// kind and essential belong to the server. kind is part of the plugin's identity
+// — the ID is prefixed with it and the runtime reloads by it — and essential is
+// the server's statement that disabling this plugin breaks a core tool, which the
+// disable check reads from the shipped definition regardless. An override that
+// claimed either would only produce a UI disagreeing with the API.
+func TestKindAndEssentialCannotBeOverridden(t *testing.T) {
+	env := setupAdmin(t)
+
+	const pluginID = "tool/tap-web"
+	shipped := manifestPluginByID(t, env, pluginID)
+
+	// essential is omitempty, so a plugin that is not essential simply has no key.
+	wasEssential, _ := shipped["essential"].(bool)
+	edited := manifestPluginByID(t, env, pluginID)
+	edited["essential"] = !wasEssential
+	if rr := saveManifestDefinition(t, env, pluginID, edited, []string{"essential"}); rr.Code != http.StatusBadRequest {
+		t.Fatalf("own essential: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if rr := saveManifestDefinition(t, env, pluginID, edited, []string{"kind"}); rr.Code != http.StatusBadRequest {
+		t.Fatalf("own kind: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	// A body that addresses a different kind than the URL is addressing something
+	// other than what it asked for.
+	mismatched := manifestPluginByID(t, env, pluginID)
+	mismatched["kind"] = "hook"
+	if rr := saveManifestDefinition(t, env, pluginID, mismatched, []string{"display_name"}); rr.Code != http.StatusBadRequest {
+		t.Fatalf("kind that disagrees with the URL: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	after := manifestPluginByID(t, env, pluginID)
+	if stillEssential, _ := after["essential"].(bool); stillEssential != wasEssential || after["kind"] != shipped["kind"] {
+		t.Fatalf("plugin = %v, want kind and essential still the server's", after)
 	}
 }
 

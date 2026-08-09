@@ -114,4 +114,37 @@ describe("changedManifestPluginFields", () => {
       }),
     ).toEqual([]);
   });
+
+  it("never claims kind or essential, which belong to the server", () => {
+    expect(
+      changedManifestPluginFields(initial, { ...initial, kind: "hook", essential: true }),
+    ).toEqual([]);
+  });
+
+  // The editor rebuilds `binaries: []` on every render, and the server drops
+  // empty lists and empty strings when it stores a definition. Absent and empty
+  // reach it identically, so a save must not claim ownership of the difference.
+  it("reads an absent list and an empty one as the same value", () => {
+    const bare: ManifestPlugin = { ...initial, binaries: undefined, session_env: undefined };
+    expect(changedManifestPluginFields(bare, { ...bare, binaries: [], session_env: [] })).toEqual(
+      [],
+    );
+    expect(changedManifestPluginFields(bare, { ...bare, oauth_provider: "" })).toEqual([]);
+  });
+
+  it("still sees emptying a non-empty list, and reordering one", () => {
+    expect(changedManifestPluginFields(initial, { ...initial, binaries: [] })).toEqual([
+      "binaries",
+    ]);
+    const two: ManifestPlugin = {
+      ...initial,
+      binaries: [
+        { name: "a", tool: "github:example/a" },
+        { name: "b", tool: "github:example/b" },
+      ],
+    };
+    expect(
+      changedManifestPluginFields(two, { ...two, binaries: [...two.binaries!].reverse() }),
+    ).toEqual(["binaries"]);
+  });
 });

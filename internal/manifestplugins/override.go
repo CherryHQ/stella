@@ -63,9 +63,9 @@ type definition struct {
 	OAuthProvider string               `json:"oauth_provider,omitempty"`
 }
 
-// definitionFieldNames is every field an override may own, in declaration order.
-// It is derived from the struct so a new customizable field cannot be added
-// without becoming ownable, resettable, and reportable in the same edit.
+// definitionFieldNames is every field the definition carries, in declaration
+// order. It is derived from the struct so a new field cannot be added without
+// being serialized, resettable, and reportable in the same edit.
 var definitionFieldNames = func() []string {
 	t := reflect.TypeFor[definition]()
 	names := make([]string, 0, t.NumField())
@@ -78,11 +78,33 @@ var definitionFieldNames = func() []string {
 	return names
 }()
 
-// IsOwnableField reports whether name is a definition field an override may own.
-func IsOwnableField(name string) bool { return slices.Contains(definitionFieldNames, name) }
+// serverOwnedFields are definition fields an override may not take from the
+// server, even though an admin-added plugin still has to carry them.
+//
+// kind participates in the plugin's identity: the ID is prefixed with it, the
+// UI groups by it, and the runtime reloads tools and hooks separately, so an
+// override that disagreed would make three answers out of one question.
+// essential is policy — it is the server's statement that disabling this plugin
+// breaks Grep or Glob, and the disable check reads the shipped value, so letting
+// an override say otherwise only produced a UI that offered a switch the API
+// then refused.
+var serverOwnedFields = []string{"kind", "essential"}
 
-// OwnableFields lists every field an override may own.
-func OwnableFields() []string { return slices.Clone(definitionFieldNames) }
+// IsOwnableField reports whether name is a definition field an override may own.
+func IsOwnableField(name string) bool {
+	return slices.Contains(definitionFieldNames, name) && !slices.Contains(serverOwnedFields, name)
+}
+
+// OwnableFields lists every field an override may own, in definition order.
+func OwnableFields() []string {
+	out := make([]string, 0, len(definitionFieldNames))
+	for _, name := range definitionFieldNames {
+		if IsOwnableField(name) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
 
 func definitionOf(p ManifestPlugin) definition {
 	// Normalize empty slices to nil so omitempty produces stable JSON whether the
@@ -152,6 +174,9 @@ func ownedMap(override string) (map[string]json.RawMessage, error) {
 	}
 	if marker, ok := stored[sparseMarker]; ok && string(marker) == "true" {
 		delete(stored, sparseMarker)
+		for _, name := range serverOwnedFields {
+			delete(stored, name)
+		}
 		return stored, nil
 	}
 
@@ -163,8 +188,15 @@ func ownedMap(override string) (map[string]json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A legacy row is a snapshot of the whole resolved plugin, so it carries the
+	// server's own kind and essential too — incidentally, never as a decision an
+	// admin made. Leaving those out is what stops such a row from pinning a
+	// plugin's policy at whatever it was the day someone renamed it.
 	owned := make(map[string]json.RawMessage, len(definitionFieldNames))
 	for _, name := range definitionFieldNames {
+		if !IsOwnableField(name) {
+			continue
+		}
 		if value, ok := present[name]; ok {
 			owned[name] = value
 			continue

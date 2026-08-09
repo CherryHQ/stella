@@ -156,18 +156,19 @@ paths:
         in: path
         required: true
         schema: { type: string }
-    put:
+    patch:
       tags: [plugins]
-      summary: Save one manifest plugin's definition (admin only)
+      summary: Update one manifest plugin's definition (admin only)
       description: >
-        Writes the definition of the addressed plugin. For a builtin, `fields`
+        Updates the definition of the addressed plugin. For a builtin, `fields`
         names the definition fields this request takes ownership of: those keys
         are stored at the submitted values, every other field of the plugin keeps
         whatever ownership it already had, and unowned fields keep following the
-        definition the server ships. `enabled` is ignored for a builtin — the
-        enable switch has its own operation. A plugin an admin added has no
-        shipped definition underneath it, so the body is the whole plugin,
-        `fields` does not apply, and `enabled` travels with it.
+        definition the server ships. `kind` and `essential` belong to the server
+        and cannot be owned. `enabled` is ignored for a builtin — the enable
+        switch has its own operation. A plugin an admin added has no shipped
+        definition underneath it, so the body is the whole plugin, `fields` does
+        not apply, and `enabled` travels with it.
       operationId: saveManifestPluginDefinition
       requestBody:
         required: true
