@@ -121,6 +121,33 @@ func (q *Queries) CreateMessagePart(ctx context.Context, arg CreateMessagePartPa
 	return i, err
 }
 
+const getContextTimeBounds = `-- name: GetContextTimeBounds :one
+SELECT oldest.created_at AS oldest_at, newest.created_at AS newest_at
+FROM ctx_message oldest
+JOIN LATERAL (
+    SELECT newest_message.created_at
+    FROM ctx_message newest_message
+    WHERE newest_message.conversation_id = $1
+    ORDER BY newest_message.seq DESC
+    LIMIT 1
+) newest ON true
+WHERE oldest.conversation_id = $1
+ORDER BY oldest.seq ASC
+LIMIT 1
+`
+
+type GetContextTimeBoundsRow struct {
+	OldestAt time.Time `json:"oldest_at"`
+	NewestAt time.Time `json:"newest_at"`
+}
+
+func (q *Queries) GetContextTimeBounds(ctx context.Context, conversationID string) (GetContextTimeBoundsRow, error) {
+	row := q.db.QueryRow(ctx, getContextTimeBounds, conversationID)
+	var i GetContextTimeBoundsRow
+	err := row.Scan(&i.OldestAt, &i.NewestAt)
+	return i, err
+}
+
 const getConversationTimeBounds = `-- name: GetConversationTimeBounds :one
 SELECT MIN(created_at) AS earliest_at, MAX(created_at) AS latest_at
 FROM ctx_message

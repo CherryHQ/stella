@@ -18,6 +18,7 @@ const (
 
 	// A card is orientation, not transcript retrieval. Increase this only if
 	// real summaries routinely lose their recent tail; Phase 2 owns deeper reads.
+	maxSessionCardTitleBytes   = 1_000
 	maxSessionCardSummaryBytes = 2_000
 	maxSessionCardBackground   = 600
 	maxSessionCardUser         = 700
@@ -102,7 +103,7 @@ func (a *Access) projectCards(ctx context.Context, infos []agentsession.Info) ([
 			state = SessionStateRunning
 		}
 		cards[i] = Card{
-			ID: info.ID, Title: info.Title,
+			ID: info.ID, Title: summaryExcerpt(info.Title, maxSessionCardTitleBytes),
 			Summary: summary,
 			State:   state, Sendable: sessionSendable(info), LastActive: info.LastActive.UTC(),
 			TurnStartedAt: info.LastTurnStartedAt.UTC(),

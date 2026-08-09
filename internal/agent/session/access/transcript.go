@@ -34,7 +34,7 @@ type TranscriptPageInput struct {
 	SessionID string
 	AnchorSeq int64
 	// SnapshotSeq caps the visible transcript before logical turns are formed.
-	// Zero keeps the live view used by find cursors.
+	// Zero keeps a live view; session.get cursors set an exact snapshot sequence.
 	SnapshotSeq int64
 	Offset      int
 	Limit       int
@@ -90,7 +90,10 @@ type ContextMeta struct {
 	MessageCount     int
 	SourceTokenCount int
 	ActiveTokenCount int
+	SummaryCount     int
 	SummaryDepth     int
+	OldestAt         *time.Time
+	NewestAt         *time.Time
 }
 
 type ContextItem struct {
@@ -132,6 +135,33 @@ type SummaryDetail struct {
 	Children       []Summary
 	MessageSeqFrom int
 	MessageSeqTo   int
+}
+
+// ContextStats returns authorized context-window statistics without loading a
+// transcript or materialized context page.
+func (a *Access) ContextStats(ctx context.Context, agentID, sessionID string) (ContextMeta, error) {
+	info, err := a.Read(ctx, agentID, sessionID)
+	if err != nil {
+		return ContextMeta{}, err
+	}
+	conv, err := a.conversation(ctx, info)
+	if err != nil {
+		return ContextMeta{}, err
+	}
+	stats, err := a.svc.q.GetContextStats(ctx, conv.ID)
+	if err != nil {
+		return ContextMeta{}, fmt.Errorf("%w: get context stats: %w", ErrUnavailable, err)
+	}
+	meta := contextMetaFromRow(stats)
+	if stats.MessageCount > 0 {
+		bounds, err := a.svc.q.GetContextTimeBounds(ctx, conv.ID)
+		if err != nil {
+			return ContextMeta{}, fmt.Errorf("%w: get context time bounds: %w", ErrUnavailable, err)
+		}
+		oldest, newest := bounds.OldestAt.UTC(), bounds.NewestAt.UTC()
+		meta.OldestAt, meta.NewestAt = &oldest, &newest
+	}
+	return meta, nil
 }
 
 // ListMessages authorizes the session once, then loads transcript rows for it.
@@ -305,7 +335,7 @@ func (a *Access) ListContextItems(ctx context.Context, in ContextItemListInput) 
 	if err != nil {
 		return ContextItemPage{}, fmt.Errorf("%w: get context stats: %w", ErrUnavailable, err)
 	}
-	page := ContextItemPage{Items: items, Meta: ContextMeta{MessageCount: int(stats.MessageCount), SourceTokenCount: int(stats.SourceTokenCount), ActiveTokenCount: int(stats.ActiveTokenCount), SummaryDepth: int(stats.SummaryDepth)}}
+	page := ContextItemPage{Items: items, Meta: contextMetaFromRow(stats)}
 	if usingMessageFallback {
 		page.Meta.ActiveTokenCount = int(stats.SourceTokenCount)
 	}
@@ -318,6 +348,15 @@ func (a *Access) ListContextItems(ctx context.Context, in ContextItemListInput) 
 		page.HasNextOffset = true
 	}
 	return page, nil
+}
+
+func contextMetaFromRow(stats sqlc.GetContextStatsRow) ContextMeta {
+	meta := ContextMeta{
+		MessageCount: int(stats.MessageCount), SourceTokenCount: int(stats.SourceTokenCount),
+		ActiveTokenCount: int(stats.ActiveTokenCount), SummaryCount: int(stats.SummaryCount),
+		SummaryDepth: int(stats.SummaryDepth),
+	}
+	return meta
 }
 
 // GetSummary authorizes the session once, then loads a summary detail within
@@ -338,11 +377,16 @@ func (a *Access) GetSummary(ctx context.Context, agentID, sessionID, summaryID s
 		}
 		return SummaryDetail{}, fmt.Errorf("%w: get summary: %w", ErrUnavailable, err)
 	}
+	// Compaction stores constituents in parent_summary_id, so the legacy-named
+	// GetSummaryParents query returns this summary's conceptual children.
 	children, err := a.svc.q.GetSummaryParents(ctx, summaryID)
 	if err != nil {
 		return SummaryDetail{}, fmt.Errorf("%w: list summary children: %w", ErrUnavailable, err)
 	}
-	from, to, err := a.summaryMessageSeqRange(ctx, summaryID)
+	if !summariesBelongToConversation(children, conv.ID) {
+		return SummaryDetail{}, fmt.Errorf("%w: summary lineage crosses conversation boundary", ErrUnavailable)
+	}
+	from, to, err := a.summaryMessageSeqRange(ctx, conv.ID, summaryID)
 	if err != nil {
 		return SummaryDetail{}, err
 	}
@@ -364,7 +408,7 @@ func (a *Access) conversation(ctx context.Context, info agentsession.Info) (sqlc
 	return conv, nil
 }
 
-func (a *Access) summaryMessageSeqRange(ctx context.Context, summaryID string) (int, int, error) {
+func (a *Access) summaryMessageSeqRange(ctx context.Context, conversationID, summaryID string) (int, int, error) {
 	from, to := 0, 0
 	queue := []string{summaryID}
 	seen := map[string]bool{}
@@ -375,21 +419,29 @@ func (a *Access) summaryMessageSeqRange(ctx context.Context, summaryID string) (
 			continue
 		}
 		seen[id] = true
-		r, err := a.svc.q.GetSummaryMessageSeqRange(ctx, id)
+		messages, err := a.svc.q.GetSummaryMessages(ctx, id)
 		if err != nil {
-			return 0, 0, fmt.Errorf("%w: get summary message range: %w", ErrUnavailable, err)
+			return 0, 0, fmt.Errorf("%w: get summary messages: %w", ErrUnavailable, err)
 		}
-		if r.MessageSeqFrom > 0 {
-			if from == 0 || int(r.MessageSeqFrom) < from {
-				from = int(r.MessageSeqFrom)
+		for _, message := range messages {
+			if message.ConversationID != conversationID {
+				return 0, 0, fmt.Errorf("%w: summary message crosses conversation boundary", ErrUnavailable)
 			}
-			if int(r.MessageSeqTo) > to {
-				to = int(r.MessageSeqTo)
+			if from == 0 || int(message.Seq) < from {
+				from = int(message.Seq)
+			}
+			if int(message.Seq) > to {
+				to = int(message.Seq)
 			}
 		}
+		// See GetSummary: GetSummaryParents follows the summary toward its
+		// constituent descendants despite the legacy query name.
 		kids, err := a.svc.q.GetSummaryParents(ctx, id)
 		if err != nil {
 			return 0, 0, fmt.Errorf("%w: list summary descendants: %w", ErrUnavailable, err)
+		}
+		if !summariesBelongToConversation(kids, conversationID) {
+			return 0, 0, fmt.Errorf("%w: summary lineage crosses conversation boundary", ErrUnavailable)
 		}
 		for _, k := range kids {
 			queue = append(queue, k.ID)

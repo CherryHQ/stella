@@ -290,6 +290,10 @@ WHERE sp.summary_id = $1
 ORDER BY sp.ordinal ASC
 `
 
+// Legacy naming note: compaction stores the containing condensed summary in
+// summary_id and each constituent summary in parent_summary_id. Consequently,
+// GetSummaryParents returns conceptual children/constituents, while
+// GetSummaryChildren returns conceptual parents/containers.
 func (q *Queries) GetSummaryParents(ctx context.Context, summaryID string) ([]CtxSummary, error) {
 	rows, err := q.db.Query(ctx, getSummaryParents, summaryID)
 	if err != nil {

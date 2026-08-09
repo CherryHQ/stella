@@ -3,6 +3,7 @@ package access
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -32,12 +33,21 @@ func (s staticSessionSearcher) Search(context.Context, memory.Session, memory.Se
 	return s.results, s.err
 }
 
+func sessionWorkerAuthority(t *testing.T, owner, agent string) authz.Authority {
+	t.Helper()
+	authority, err := authz.NewAgentAuthority(authz.UserID(owner), authz.AgentID(agent))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return authority
+}
+
 func TestSessionToolUsesRuntimeIdentityAndNewSurface(t *testing.T) {
 	m := newSessionMatrix(t)
 	tool := NewTool(m.svc)
 	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), m.owner), m.agent)
 
-	out, err := tool.Execute(ctx, map[string]any{"action": "find", "include_archived": true})
+	out, err := tool.Execute(ctx, map[string]any{"action": "list", "include_archived": true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,12 +61,12 @@ func TestSessionToolUsesRuntimeIdentityAndNewSurface(t *testing.T) {
 		t.Fatalf("session count=%d, want 2", len(list.Sessions))
 	}
 	if strings.Contains(out, `"kind"`) {
-		t.Fatalf("session kind leaked from find: %s", out)
+		t.Fatalf("session kind leaked from list: %s", out)
 	}
 	if _, err := tool.Execute(ctx, map[string]any{"action": "get", "session_id": m.private}); err != nil {
 		t.Fatalf("owner get: %v", err)
 	}
-	for _, removed := range []string{"list", "messages"} {
+	for _, removed := range []string{"find", "messages"} {
 		if _, err := tool.Execute(ctx, map[string]any{"action": removed}); err == nil {
 			t.Fatalf("removed action %q was accepted", removed)
 		}
@@ -71,10 +81,48 @@ func TestSessionToolUsesRuntimeIdentityAndNewSurface(t *testing.T) {
 	if !ok {
 		t.Fatal("session tool schema has no properties")
 	}
-	for _, hidden := range []string{"user_id", "agent_id", "kind", "skip", "limit"} {
+	for _, hidden := range []string{"user_id", "agent_id", "kind", "skip", "limit", "query"} {
 		if _, ok := properties[hidden]; ok {
 			t.Fatalf("session tool schema must not expose %s", hidden)
 		}
+	}
+}
+
+func TestSessionListBoundsUserControlledTitlesAndSerializedResult(t *testing.T) {
+	m := newSessionMatrix(t)
+	info, err := m.svc.memory.LoadInfo(t.Context(), m.private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info.Title = strings.Repeat("t", 200_000)
+	if err := m.svc.memory.SaveInfo(t.Context(), info); err != nil {
+		t.Fatal(err)
+	}
+	ctx := authz.WithAgentID(authz.WithUserID(t.Context(), m.owner), m.agent)
+	out, err := NewTool(m.svc).Execute(ctx, map[string]any{"action": "list", "include_archived": true, "page_size": 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) > maxSessionToolSerializedResult {
+		t.Fatalf("serialized session.list bytes=%d, limit=%d", len(out), maxSessionToolSerializedResult)
+	}
+	var list struct {
+		Sessions []sessionCardResponse `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &list); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, card := range list.Sessions {
+		if card.ID == m.private {
+			found = true
+			if len(card.Title) != maxSessionCardTitleBytes {
+				t.Fatalf("bounded title bytes=%d, want %d", len(card.Title), maxSessionCardTitleBytes)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("bounded session card was not returned")
 	}
 }
 
@@ -158,7 +206,7 @@ func seedManagedSession(t *testing.T, m sessionMatrix, id string) {
 	}
 }
 
-func TestSessionFindSearchUsesLCMRetrievalAndExactPrincipalAgentScope(t *testing.T) {
+func TestSessionRecallSearchUsesLCMRetrievalAndExactPrincipalAgentScope(t *testing.T) {
 	m := newSessionMatrix(t)
 	provider, err := lcm.New(m.db.(*pgxpool.Pool), nil, nil)
 	if err != nil {
@@ -180,50 +228,41 @@ func TestSessionFindSearchUsesLCMRetrievalAndExactPrincipalAgentScope(t *testing
 		ai.UserMessage{Content: "rotatedtokenneedle belongs to another agent"},
 	)
 
-	out, err := NewTool(m.svc).Execute(ctx, map[string]any{"action": "find", "query": "rotatedtokenneedle"})
+	authority := sessionWorkerAuthority(t, m.owner, m.agent)
+	results, err := m.svc.SearchRecall(ctx, authority, m.agent, "rotatedtokenneedle", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var response struct {
-		Sessions []sessionCardResponse `json:"sessions"`
+	if len(results) != 1 || results[0].SessionID != m.private || results[0].Reference.Kind != "message" {
+		t.Fatalf("scoped recall results=%#v, want only %s", results, m.private)
 	}
-	if err := json.Unmarshal([]byte(out), &response); err != nil {
+	if !strings.Contains(results[0].Content, "rotatedtokenneedle") || results[0].Reference.ID == "" {
+		t.Fatalf("recall result lacks content/ref: %#v", results[0])
+	}
+	doc, err := m.svc.ReadRecall(ctx, authority, m.agent, results[0].Reference, 4_000)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(response.Sessions) != 1 || response.Sessions[0].ID != m.private {
-		t.Fatalf("scoped search sessions=%#v, want only %s", response.Sessions, m.private)
+	if !strings.Contains(doc.Content, "rotatedtokenneedle") || doc.SessionID != m.private {
+		t.Fatalf("read recall missed matching message: %#v", doc)
 	}
-	card := response.Sessions[0]
-	if !strings.Contains(card.Match, "rotatedtokenneedle") || card.MatchCursor == "" {
-		t.Fatalf("search card lacks bounded match/cursor: %#v", card)
+
+	foreignAuthority := sessionWorkerAuthority(t, m.other, m.agent)
+	foreign, err := m.svc.SearchRecall(ctx, foreignAuthority, m.agent, "rotatedtokenneedle", 20)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, leaked := range []string{"source_type", "source_id", `"kind"`, "summary_id", "depth"} {
-		if strings.Contains(out, leaked) {
-			t.Fatalf("search leaked LCM detail %q: %s", leaked, out)
+	for _, result := range foreign {
+		if result.SessionID == m.private {
+			t.Fatalf("cross-user recall exposed owner session: %#v", foreign)
 		}
 	}
-
-	getOut, err := NewTool(m.svc).Execute(ctx, map[string]any{
-		"action": "get", "session_id": m.private, "cursor": card.MatchCursor, "transcript_page_size": 1,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(getOut, "rotatedtokenneedle") {
-		t.Fatalf("get around find match missed matching turn: %s", getOut)
-	}
-
-	foreignCtx := authz.WithAgentID(authz.WithUserID(context.Background(), m.other), m.agent)
-	foreignOut, err := NewTool(m.svc).Execute(foreignCtx, map[string]any{"action": "find", "query": "rotatedtokenneedle"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(foreignOut, m.private) {
-		t.Fatalf("cross-user search exposed owner session: %s", foreignOut)
+	if _, err := m.svc.ReadRecall(ctx, foreignAuthority, m.agent, results[0].Reference, 4_000); err == nil || !errors.Is(err, ErrNotFound) {
+		t.Fatalf("foreign caller read a forged owner ref: %v", err)
 	}
 }
 
-func TestSessionFindKeepsCardWhenSearchSourceWasDeleted(t *testing.T) {
+func TestSessionRecallDropsDeletedSearchSource(t *testing.T) {
 	m := newSessionMatrix(t)
 	provider, err := lcm.New(m.db.(*pgxpool.Pool), nil, nil)
 	if err != nil {
@@ -254,21 +293,152 @@ func TestSessionFindKeepsCardWhenSearchSourceWasDeleted(t *testing.T) {
 		Content: "stale anchor still leaves a useful search card",
 	}}}
 
-	out, err := NewTool(m.svc).Execute(ctx, map[string]any{"action": "find", "query": "stale anchor"})
+	authority := sessionWorkerAuthority(t, m.owner, m.agent)
+	results, err := m.svc.SearchRecall(ctx, authority, m.agent, "stale anchor", 20)
 	if err != nil {
-		t.Fatalf("find should degrade a deleted match anchor: %v", err)
-	}
-	var response struct {
-		Sessions []sessionCardResponse `json:"sessions"`
-	}
-	if err := json.Unmarshal([]byte(out), &response); err != nil {
 		t.Fatal(err)
 	}
-	if len(response.Sessions) != 1 || response.Sessions[0].ID != m.private {
-		t.Fatalf("find dropped card after source deletion: %#v", response.Sessions)
+	if len(results) != 0 {
+		t.Fatalf("deleted recall source was returned: %#v", results)
 	}
-	if response.Sessions[0].Match == "" || response.Sessions[0].MatchCursor != "" {
-		t.Fatalf("deleted source should retain match and omit cursor: %#v", response.Sessions[0])
+}
+
+func TestSessionRecallAllowsDurableOnlyProvidersWithoutWeakeningPolicy(t *testing.T) {
+	m := newSessionMatrix(t)
+	m.svc.searcher = nil
+
+	results, err := m.svc.SearchRecall(t.Context(), sessionWorkerAuthority(t, m.owner, m.agent), m.agent, "durable memory", 20)
+	if err != nil || len(results) != 0 {
+		t.Fatalf("authorized provider without transcript search: results=%#v err=%v", results, err)
+	}
+	groupAuthority, err := authz.NewGroupAgentAuthority(authz.GroupID(m.group), authz.AgentID(m.agent))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.svc.SearchRecall(t.Context(), groupAuthority, m.agent, "private memory", 20); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("provider without transcript search weakened group policy: %v", err)
+	}
+}
+
+func TestSessionRecallSummaryPreservesExpansionAndRejectsCrossConversationLineage(t *testing.T) {
+	m := newSessionMatrix(t)
+	provider, err := lcm.New(m.db.(*pgxpool.Pool), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	appendTranscript(t, provider, memory.Session{ID: m.private, UserID: m.owner, AgentID: m.agent},
+		ai.UserMessage{Content: "source message retained below the summary"},
+	)
+	appendTranscript(t, provider, memory.Session{ID: "foreign-summary-session", UserID: m.other, AgentID: m.agent},
+		ai.UserMessage{Content: "foreign source must never expand"},
+	)
+	var conversationID, messageID, foreignConversationID, foreignMessageID string
+	if err := m.db.QueryRow(ctx, `
+		SELECT c.id, m.id FROM ctx_conversation c
+		JOIN ctx_message m ON m.conversation_id = c.id
+		WHERE c.session_id = $1 ORDER BY m.seq DESC LIMIT 1`, m.private).Scan(&conversationID, &messageID); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.db.QueryRow(ctx, `
+		SELECT c.id, m.id FROM ctx_conversation c
+		JOIN ctx_message m ON m.conversation_id = c.id
+		WHERE c.session_id = $1 ORDER BY m.seq DESC LIMIT 1`, "foreign-summary-session").Scan(&foreignConversationID, &foreignMessageID); err != nil {
+		t.Fatal(err)
+	}
+	q := sqlc.New(m.db)
+	if err := q.CreateSummary(ctx, sqlc.CreateSummaryParams{
+		ID: "summary-root", ConversationID: conversationID, Kind: "leaf", Content: "bounded summary", TokenCount: 2, DescendantCount: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.LinkSummaryToMessage(ctx, sqlc.LinkSummaryToMessageParams{SummaryID: "summary-root", MessageID: messageID, Ordinal: 1}); err != nil {
+		t.Fatal(err)
+	}
+	authority := sessionWorkerAuthority(t, m.owner, m.agent)
+	ref := memory.RecallReference{Kind: "summary", ID: "summary-root", SessionID: m.private}
+	doc, err := m.svc.ReadRecall(ctx, authority, m.agent, ref, 4_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Summary == nil || len(doc.Summary.Expanded) != 1 || doc.Summary.Expanded[0].Reference.Kind != "message" || !strings.Contains(doc.Summary.Expanded[0].Content, "retained") {
+		t.Fatalf("summary expansion lost LCM detail: %#v", doc)
+	}
+	if err := q.CreateSummary(ctx, sqlc.CreateSummaryParams{
+		ID: "summary-child", ConversationID: conversationID, Kind: "leaf", Depth: 0, Content: "child summary", TokenCount: 2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.CreateSummary(ctx, sqlc.CreateSummaryParams{
+		ID: "summary-condensed", ConversationID: conversationID, Kind: "condensed", Depth: 1, Content: "condensed root", TokenCount: 2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.LinkSummaryToParent(ctx, sqlc.LinkSummaryToParentParams{
+		SummaryID: "summary-condensed", ParentSummaryID: "summary-child", Ordinal: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	condensed, err := m.svc.ReadRecall(ctx, authority, m.agent, memory.RecallReference{Kind: "summary", ID: "summary-condensed", SessionID: m.private}, 4_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if condensed.Summary == nil || len(condensed.Summary.Parents) != 0 || len(condensed.Summary.Children) != 1 || condensed.Summary.Children[0].ID != "summary-child" || len(condensed.Summary.Expanded) != 1 || condensed.Summary.Expanded[0].Kind != "leaf" || condensed.Summary.Expanded[0].Depth == nil || *condensed.Summary.Expanded[0].Depth != 0 {
+		t.Fatalf("condensed expansion lost child kind/depth: %#v", condensed)
+	}
+	child, err := m.svc.ReadRecall(ctx, authority, m.agent, memory.RecallReference{Kind: "summary", ID: "summary-child", SessionID: m.private}, 4_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.Summary == nil || len(child.Summary.Parents) != 1 || child.Summary.Parents[0].ID != "summary-condensed" || len(child.Summary.Children) != 0 {
+		t.Fatalf("summary lineage direction was reversed: %#v", child)
+	}
+	access, err := m.svc.Begin(ctx, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats, err := access.ContextStats(ctx, m.agent, m.private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.MessageCount != 1 || stats.SummaryCount != 3 || stats.SummaryDepth != 1 || stats.SourceTokenCount == 0 || stats.ActiveTokenCount == 0 || stats.OldestAt == nil || stats.NewestAt == nil {
+		t.Fatalf("context stats did not include summary/time metadata: %#v", stats)
+	}
+
+	if err := q.CreateSummary(ctx, sqlc.CreateSummaryParams{
+		ID: "summary-cross-message", ConversationID: conversationID, Kind: "leaf", Content: "unsafe message link", TokenCount: 2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.LinkSummaryToMessage(ctx, sqlc.LinkSummaryToMessageParams{SummaryID: "summary-cross-message", MessageID: foreignMessageID, Ordinal: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.svc.ReadRecall(ctx, authority, m.agent, memory.RecallReference{Kind: "summary", ID: "summary-cross-message", SessionID: m.private}, 4_000); err == nil || !strings.Contains(err.Error(), "crosses conversation boundary") {
+		t.Fatalf("cross-conversation summary message was not rejected: %v", err)
+	}
+
+	if err := q.CreateSummary(ctx, sqlc.CreateSummaryParams{
+		ID: "summary-foreign", ConversationID: foreignConversationID, Kind: "leaf", Content: "foreign summary", TokenCount: 2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A foreign constituent must make a container read fail closed.
+	if err := q.LinkSummaryToParent(ctx, sqlc.LinkSummaryToParentParams{
+		SummaryID: "summary-root", ParentSummaryID: "summary-foreign", Ordinal: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.svc.ReadRecall(ctx, authority, m.agent, ref, 4_000); err == nil || !strings.Contains(err.Error(), "crosses conversation boundary") {
+		t.Fatalf("cross-conversation summary child was not rejected: %v", err)
+	}
+	// A foreign container must also make its local constituent fail closed.
+	if err := q.LinkSummaryToParent(ctx, sqlc.LinkSummaryToParentParams{
+		SummaryID: "summary-foreign", ParentSummaryID: "summary-child", Ordinal: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.svc.ReadRecall(ctx, authority, m.agent, memory.RecallReference{Kind: "summary", ID: "summary-child", SessionID: m.private}, 4_000); err == nil || !strings.Contains(err.Error(), "crosses conversation boundary") {
+		t.Fatalf("cross-conversation summary parent was not rejected: %v", err)
 	}
 }
 
@@ -302,6 +472,9 @@ func TestSessionGetIsCompactByDefaultAndPagesWholeToolTurns(t *testing.T) {
 	}
 	if compact.ActiveRequest != nil || strings.Join(compact.SupportedOperations, ",") != "get,send" {
 		t.Fatalf("unexpected compact state: %#v", compact)
+	}
+	if compact.ContextStats.MessageCount != 6 || compact.ContextStats.TokenCount == 0 || compact.ContextStats.ActiveTokenCount == 0 || compact.ContextStats.SummaryCount != 0 || compact.ContextStats.OldestAt == "" || compact.ContextStats.NewestAt == "" {
+		t.Fatalf("missing context stats: %#v", compact.ContextStats)
 	}
 	initialCursor, err := decodeTranscriptCursor(compact.TranscriptCursor, m.private)
 	if err != nil || initialCursor.AnchorSeq == 0 || initialCursor.SnapshotSeq != initialCursor.AnchorSeq {
@@ -454,9 +627,9 @@ func TestSessionToolRejectsInvalidCursorsAndOffsets(t *testing.T) {
 	tool := NewTool(m.svc)
 
 	if _, err := tool.Execute(ctx, map[string]any{
-		"action": "find", "page_token": tools.OffsetToken(math.MaxInt32),
+		"action": "list", "page_token": tools.OffsetToken(math.MaxInt32),
 	}); err == nil || !strings.Contains(err.Error(), "invalid pagination") {
-		t.Fatalf("large find offset error=%v, want invalid pagination", err)
+		t.Fatalf("large list offset error=%v, want invalid pagination", err)
 	}
 	if _, err := tool.Execute(ctx, map[string]any{
 		"action": "get", "session_id": m.private, "cursor": "not-a-cursor",

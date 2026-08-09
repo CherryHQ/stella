@@ -5,146 +5,271 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 const (
-	// Search stays deliberately finite because the existing LCM retrieval API is
-	// rank/limit based rather than cursor based. Upgrade to keyset paging if real
-	// users routinely need relevant hits beyond the first 100 storage results.
-	maxSessionSearchResults = 100
-	maxSessionMatchBytes    = 1_000
+	// Search stays deliberately finite because LCM retrieval is rank/limit based,
+	// not cursor based. The model-facing memory search therefore returns a bounded
+	// top window instead of pretending an offset is a stable search cursor.
+	maxRecallSearchResults = 100
+	defaultRecallTokenCap  = 4_000
+	maxRecallTokenCap      = 8_000
 )
 
-type TranscriptAnchor struct {
-	Seq int64
-}
-
-type MatchedCard struct {
-	Card   Card
-	Match  string
-	Anchor *TranscriptAnchor
-}
-
-type MatchedCardPage struct {
-	Sessions   []MatchedCard
-	NextOffset int
-	HasMore    bool
-}
-
-// FindCardPage reuses the memory provider's cross-session BM25/RRF retrieval,
-// but turns storage hits into policy-checked Session cards. Neither source type
-// nor summary/message identifiers cross this boundary.
-func (a *Access) FindCardPage(ctx context.Context, agentID, query string, includeArchived bool, offset, limit int) (MatchedCardPage, error) {
-	if a.svc.searcher == nil {
-		return MatchedCardPage{}, fmt.Errorf("%w: session transcript search is unavailable", ErrUnavailable)
+// SearchRecall implements memory.RecallSource through the Session PEP.
+func (s *Service) SearchRecall(ctx context.Context, authority authz.Authority, agentID, query string, limit int) ([]memory.RecallSearchResult, error) {
+	access, err := s.Begin(ctx, authority)
+	if err != nil {
+		return nil, err
 	}
+	return access.searchRecall(ctx, agentID, query, limit)
+}
+
+// ReadRecall implements memory.RecallSource through the Session PEP.
+func (s *Service) ReadRecall(ctx context.Context, authority authz.Authority, agentID string, ref memory.RecallReference, tokenCap int) (memory.RecallDocument, error) {
+	access, err := s.Begin(ctx, authority)
+	if err != nil {
+		return memory.RecallDocument{}, err
+	}
+	return access.readRecall(ctx, agentID, ref, tokenCap)
+}
+
+func (a *Access) searchRecall(ctx context.Context, agentID, query string, limit int) ([]memory.RecallSearchResult, error) {
 	if !a.allowSessionList() {
-		return MatchedCardPage{}, ErrNotFound
+		return nil, ErrNotFound
 	}
 	if err := a.allowSessionListAgent(agentID); err != nil {
-		return MatchedCardPage{}, err
+		return nil, err
 	}
+	query = strings.TrimSpace(query)
+	if query == "" || limit <= 0 {
+		return nil, ErrForbidden
+	}
+	limit = min(limit, maxRecallSearchResults)
 	userID := string(a.authority.UserID())
 	if userID == "" {
-		return MatchedCardPage{}, ErrForbidden
+		return nil, ErrForbidden
+	}
+	// Providers such as Simple intentionally have no transcript search lane.
+	// Return an empty authorized lane so unified memory search can still search
+	// durable facts and identity; operational Searcher failures remain errors.
+	if a.svc.searcher == nil {
+		return []memory.RecallSearchResult{}, nil
 	}
 
 	hits, err := a.svc.searcher.Search(ctx, memory.Session{UserID: userID, AgentID: agentID}, memory.SearchQuery{
-		Text: query, Scope: memory.SearchScopeBoth, Limit: maxSessionSearchResults,
+		Text: query, Scope: memory.SearchScopeBoth, Limit: maxRecallSearchResults,
 	})
 	if err != nil {
-		return MatchedCardPage{}, fmt.Errorf("%w: search session transcripts: %w", ErrUnavailable, err)
+		return nil, fmt.Errorf("%w: search conversation memory: %w", ErrUnavailable, err)
 	}
 
-	type visibleHit struct {
-		info agentsession.Info
-		hit  memory.SearchResult
-	}
-	visible := make([]visibleHit, 0, len(hits))
-	seen := make(map[string]struct{}, len(hits))
-	// Deliberate ceiling: LCM caps this policy loop at 100 Read calls, and
-	// anchor resolution below at one query per returned card. Replace both with
-	// batched scoped loads when query-bearing find latency becomes material or
-	// the retrieval ceiling needs to grow beyond 100 hits.
+	out := make([]memory.RecallSearchResult, 0, min(limit, len(hits)))
 	for _, hit := range hits {
-		if hit.SessionID == "" {
+		if len(out) == limit {
+			break
+		}
+		info, conv, ok, err := a.authorizedRecallConversation(ctx, agentID, hit.SessionID)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
 			continue
 		}
-		if _, ok := seen[hit.SessionID]; ok {
-			continue
-		}
-		info, readErr := a.Read(ctx, agentID, hit.SessionID)
-		if readErr != nil {
-			if errors.Is(readErr, ErrNotFound) || errors.Is(readErr, ErrForbidden) {
-				continue
+		ref := memory.RecallReference{Kind: hit.SourceType, ID: hit.SourceID, SessionID: info.ID}
+		switch hit.SourceType {
+		case "message":
+			if _, err := a.svc.q.GetMessage(ctx, sqlc.GetMessageParams{ID: hit.SourceID, ConversationID: conv.ID}); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					continue
+				}
+				return nil, fmt.Errorf("%w: verify conversation memory message: %w", ErrUnavailable, err)
 			}
-			return MatchedCardPage{}, readErr
-		}
-		// Search is stricter than generic administrator exact-ID inspection: it is
-		// always the current principal's private corpus for this exact Agent.
-		if info.UserID != userID || info.AgentID != agentID || info.GroupID != "" || (!includeArchived && info.Archived) {
+		case "summary":
+			if _, err := a.svc.q.GetSummary(ctx, sqlc.GetSummaryParams{ID: hit.SourceID, ConversationID: conv.ID}); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					continue
+				}
+				return nil, fmt.Errorf("%w: verify conversation memory summary: %w", ErrUnavailable, err)
+			}
+		default:
 			continue
 		}
-		seen[hit.SessionID] = struct{}{}
-		visible = append(visible, visibleHit{info: info, hit: hit})
-	}
-	if offset >= len(visible) {
-		return MatchedCardPage{Sessions: []MatchedCard{}}, nil
-	}
-	end := min(offset+limit, len(visible))
-	pageHits := visible[offset:end]
-	infos := make([]agentsession.Info, len(pageHits))
-	for i := range pageHits {
-		infos[i] = pageHits[i].info
-	}
-	cards, err := a.projectCards(ctx, infos)
-	if err != nil {
-		return MatchedCardPage{}, err
-	}
-	items := make([]MatchedCard, 0, len(cards))
-	for i, card := range cards {
-		// Search and anchor lookup are separate reads. Rotation, compaction, or
-		// deletion may invalidate one source between them; the card and excerpt
-		// remain useful, so only the optional around-match cursor is dropped.
-		var anchor *TranscriptAnchor
-		if resolved, anchorErr := a.transcriptAnchorForSearchHit(ctx, pageHits[i].info, pageHits[i].hit); anchorErr == nil {
-			anchor = &resolved
+		title := hit.ConversationTitle
+		if title == "" {
+			title = info.Title
 		}
-		match := strings.ReplaceAll(strings.ReplaceAll(pageHits[i].hit.Content, "<b>", ""), "</b>", "")
-		items = append(items, MatchedCard{Card: card, Match: summaryExcerpt(match, maxSessionMatchBytes), Anchor: anchor})
+		out = append(out, memory.RecallSearchResult{
+			Reference: ref, Content: hit.Content, Score: hit.Score, OccurredAt: hit.OccurredAt.UTC(),
+			SessionID: info.ID, ConversationTitle: title,
+		})
 	}
-	return MatchedCardPage{Sessions: items, NextOffset: end, HasMore: end < len(visible)}, nil
+	return out, nil
 }
 
-func (a *Access) transcriptAnchorForSearchHit(ctx context.Context, info agentsession.Info, hit memory.SearchResult) (TranscriptAnchor, error) {
-	conv, err := a.conversation(ctx, info)
+func (a *Access) readRecall(ctx context.Context, agentID string, ref memory.RecallReference, tokenCap int) (memory.RecallDocument, error) {
+	if ref.ID == "" || ref.SessionID == "" {
+		return memory.RecallDocument{}, ErrNotFound
+	}
+	info, conv, ok, err := a.authorizedRecallConversation(ctx, agentID, ref.SessionID)
 	if err != nil {
-		return TranscriptAnchor{}, err
+		return memory.RecallDocument{}, err
 	}
-	switch hit.SourceType {
+	if !ok {
+		return memory.RecallDocument{}, ErrNotFound
+	}
+	title := conv.Title.String
+	if title == "" {
+		title = info.Title
+	}
+
+	switch ref.Kind {
 	case "message":
-		message, err := a.svc.q.GetMessage(ctx, sqlc.GetMessageParams{ID: hit.SourceID, ConversationID: conv.ID})
-		if err != nil {
-			return TranscriptAnchor{}, fmt.Errorf("%w: resolve session search match: %w", ErrUnavailable, err)
+		row, err := a.svc.q.GetMessage(ctx, sqlc.GetMessageParams{ID: ref.ID, ConversationID: conv.ID})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return memory.RecallDocument{}, ErrNotFound
 		}
-		return TranscriptAnchor{Seq: message.Seq}, nil
+		if err != nil {
+			return memory.RecallDocument{}, fmt.Errorf("%w: read conversation memory message: %w", ErrUnavailable, err)
+		}
+		return memory.RecallDocument{
+			Reference: ref, Content: row.Content, Role: row.Role, OccurredAt: row.CreatedAt.UTC(),
+			SessionID: info.ID, ConversationTitle: title,
+		}, nil
 	case "summary":
-		if _, err := a.svc.q.GetSummary(ctx, sqlc.GetSummaryParams{ID: hit.SourceID, ConversationID: conv.ID}); err != nil {
-			return TranscriptAnchor{}, fmt.Errorf("%w: resolve session search summary: %w", ErrUnavailable, err)
-		}
-		from, to, err := a.summaryMessageSeqRange(ctx, hit.SourceID)
-		if err != nil {
-			return TranscriptAnchor{}, err
-		}
-		if from <= 0 || to < from {
-			return TranscriptAnchor{}, fmt.Errorf("%w: session search summary has no transcript range", ErrUnavailable)
-		}
-		return TranscriptAnchor{Seq: int64(to)}, nil
+		return a.readRecallSummary(ctx, info.ID, conv.ID, title, ref, tokenCap)
 	default:
-		return TranscriptAnchor{}, fmt.Errorf("%w: unsupported session search result", ErrUnavailable)
+		return memory.RecallDocument{}, ErrNotFound
 	}
+}
+
+func (a *Access) authorizedRecallConversation(ctx context.Context, agentID, sessionID string) (info agentsession.Info, conv sqlc.CtxConversation, ok bool, err error) {
+	if sessionID == "" {
+		return info, conv, false, nil
+	}
+	info, err = a.Read(ctx, agentID, sessionID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrForbidden) {
+			return agentsession.Info{}, sqlc.CtxConversation{}, false, nil
+		}
+		return agentsession.Info{}, sqlc.CtxConversation{}, false, err
+	}
+	// Recall is deliberately narrower than administrator exact-ID inspection:
+	// it is always the current owner's private corpus for this exact Agent.
+	if info.UserID != string(a.authority.UserID()) || info.AgentID != agentID || info.GroupID != "" {
+		return agentsession.Info{}, sqlc.CtxConversation{}, false, nil
+	}
+	conv, err = a.conversation(ctx, info)
+	if err != nil {
+		return agentsession.Info{}, sqlc.CtxConversation{}, false, err
+	}
+	return info, conv, true, nil
+}
+
+func (a *Access) readRecallSummary(ctx context.Context, sessionID, conversationID, title string, ref memory.RecallReference, tokenCap int) (memory.RecallDocument, error) {
+	root, err := a.svc.q.GetSummary(ctx, sqlc.GetSummaryParams{ID: ref.ID, ConversationID: conversationID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return memory.RecallDocument{}, ErrNotFound
+	}
+	if err != nil {
+		return memory.RecallDocument{}, fmt.Errorf("%w: read conversation memory summary: %w", ErrUnavailable, err)
+	}
+	// Compaction writes (summary_id=container, parent_summary_id=constituent).
+	// The query names predate the conceptual API names and are therefore
+	// inverted: GetSummaryChildren returns containers, while GetSummaryParents
+	// returns constituents.
+	parents, err := a.svc.q.GetSummaryChildren(ctx, root.ID)
+	if err != nil {
+		return memory.RecallDocument{}, fmt.Errorf("%w: read summary parents: %w", ErrUnavailable, err)
+	}
+	children, err := a.svc.q.GetSummaryParents(ctx, root.ID)
+	if err != nil {
+		return memory.RecallDocument{}, fmt.Errorf("%w: read summary children: %w", ErrUnavailable, err)
+	}
+	if !summariesBelongToConversation(parents, conversationID) || !summariesBelongToConversation(children, conversationID) {
+		return memory.RecallDocument{}, fmt.Errorf("%w: summary lineage crosses conversation boundary", ErrUnavailable)
+	}
+
+	detail := &memory.RecallSummaryDetail{
+		Kind: root.Kind, Depth: int(root.Depth), DescendantCount: int(root.DescendantCount),
+		EarliestAt: timePtr(root.EarliestAt), LatestAt: timePtr(root.LatestAt),
+		Parents:  make([]memory.RecallReference, 0, len(parents)),
+		Children: make([]memory.RecallReference, 0, len(children)),
+	}
+	for _, parent := range parents {
+		detail.Parents = append(detail.Parents, memory.RecallReference{Kind: "summary", ID: parent.ID, SessionID: sessionID})
+	}
+	for _, child := range children {
+		detail.Children = append(detail.Children, memory.RecallReference{Kind: "summary", ID: child.ID, SessionID: sessionID})
+	}
+
+	if tokenCap <= 0 {
+		tokenCap = defaultRecallTokenCap
+	}
+	tokenCap = min(tokenCap, maxRecallTokenCap)
+	tokensUsed := 0
+	if root.Kind == "leaf" {
+		messages, err := a.svc.q.GetSummaryMessages(ctx, root.ID)
+		if err != nil {
+			return memory.RecallDocument{}, fmt.Errorf("%w: expand summary messages: %w", ErrUnavailable, err)
+		}
+		for _, message := range messages {
+			if message.ConversationID != conversationID {
+				return memory.RecallDocument{}, fmt.Errorf("%w: summary message crosses conversation boundary", ErrUnavailable)
+			}
+		}
+		for _, message := range messages {
+			tokens := memory.EstimateTokens(message.Content)
+			if tokensUsed+tokens > tokenCap && len(detail.Expanded) > 0 {
+				break
+			}
+			detail.Expanded = append(detail.Expanded, memory.RecallFragment{
+				Reference: memory.RecallReference{Kind: "message", ID: message.ID, SessionID: sessionID},
+				Role:      message.Role, Content: message.Content, OccurredAt: message.CreatedAt.UTC(),
+			})
+			tokensUsed += tokens
+		}
+	} else {
+		for _, child := range children {
+			tokens := memory.EstimateTokens(child.Content)
+			if tokensUsed+tokens > tokenCap && len(detail.Expanded) > 0 {
+				break
+			}
+			depth := int(child.Depth)
+			detail.Expanded = append(detail.Expanded, memory.RecallFragment{
+				Reference: memory.RecallReference{Kind: "summary", ID: child.ID, SessionID: sessionID},
+				Kind:      child.Kind, Depth: &depth, Content: child.Content, OccurredAt: summaryOccurredAt(child),
+			})
+			tokensUsed += tokens
+		}
+	}
+
+	return memory.RecallDocument{
+		Reference: ref, Content: root.Content, OccurredAt: summaryOccurredAt(root),
+		SessionID: sessionID, ConversationTitle: title, Summary: detail,
+	}, nil
+}
+
+func summariesBelongToConversation(summaries []sqlc.CtxSummary, conversationID string) bool {
+	for _, summary := range summaries {
+		if summary.ConversationID != conversationID {
+			return false
+		}
+	}
+	return true
+}
+
+func summaryOccurredAt(summary sqlc.CtxSummary) time.Time {
+	if summary.LatestAt.Valid {
+		return summary.LatestAt.Time.UTC()
+	}
+	return summary.CreatedAt.UTC()
 }

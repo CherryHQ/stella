@@ -179,10 +179,10 @@ type Tool interface {
 
 ### Session 工具
 
-面向模型的 `session` 工具统一负责 Session 发现、对话检索、创建和同步通信：
+面向模型的 `session` 工具统一负责 Session 管理、有界检查、创建和同步通信。内容回忆归 `memory` 工具负责：
 
-- `find` 列出最近的 Session 卡片，或搜索对话记录。
-- `get` 返回紧凑视图，并按完整逻辑回合分页。
+- `list` 列出最近、活跃或已归档的 Session 卡片，不做语义搜索。
+- `get` 返回 metadata 与 context stats，并按完整逻辑回合分页。
 - `create` 打开持久的聚焦 Session，并可应用内部 preset。
 - `send` 在当前 Agent 拥有且可发送的 Session 上运行一个回合，包括旧 delegate Session。
 
@@ -192,15 +192,15 @@ Agent 发送先进入进程内按 Session 划分的 FIFO，再经过标准 runti
 
 ### 内置共享工具
 
-| 工具        | 条件                  | 描述                                           |
-| ----------- | --------------------- | ---------------------------------------------- |
-| `memory`    | 始终                  | 自动生成的内存工具（操作根据提供商能力自适应） |
-| `session`   | 一对一 Agent 会话     | Session 发现、有界检索、创建和同步发送         |
-| `skills`    | 始终                  | 技能管理（从 skills.sh 搜索/安装/列出/移除）   |
-| `scheduler` | 始终                  | 安排任务（添加/列出/移除作业）                 |
-| `notify`    | 网关模式 + 通道已配置 | 通过分发器发送通知                             |
+| 工具        | 条件                  | 描述                                         |
+| ----------- | --------------------- | -------------------------------------------- |
+| `memory`    | 始终                  | 跨对话与持久记忆的统一搜索和读取             |
+| `session`   | 一对一 Agent 会话     | Session 列表、有界检查、创建和同步发送       |
+| `skills`    | 始终                  | 技能管理（从 skills.sh 搜索/安装/列出/移除） |
+| `scheduler` | 始终                  | 安排任务（添加/列出/移除作业）               |
+| `notify`    | 网关模式 + 通道已配置 | 通过分发器发送通知                           |
 
-内存工具由 `memory.BuildTool(provider)` 自动生成，它会检查 provider 能力并生成匹配动作。普通聊天 runner 同时应用 `WithSessionReadOnlyWrites()` 和 `WithoutTranscriptActions()`。模型可以检索持久知识，并读取 provider 支持的 profile、soul 和 constraint；对话相关的 `status`、`search`、`describe`、`expand`、`get_message` 保持内部能力。Session find/get 负责对话检索。持久 profile、soul 和 constraint 写入由 Reflect 或 UI/API 等手动路径负责。
+内存工具由 `memory.BuildTool(provider, memory.WithRecallSource(sessionAccess))` 生成。普通聊天 runner 只暴露 `search` 与 `read`：search 联合检索当前快照可见的 LCM 消息/摘要和持久 facts、profile、soul、constraints；read 解析 opaque result ref 或 well-known 的身份、约束、历史 ref。Dynamic read 会重新经过 Session access 授权；summary read 则通过有界 child ref 保留 LCM describe/expand 能力。对话 `status`/`describe`/`expand`/`get_message` 以及持久 profile、soul、constraint 管理等 provider-oriented actions，只保留给负责它们的 internal、Reflect 或 manual surface。
 
 ## 会话生命周期
 

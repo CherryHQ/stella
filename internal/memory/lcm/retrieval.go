@@ -445,18 +445,31 @@ func (p *Provider) Describe(ctx context.Context, summaryID string) (*memory.Desc
 }
 
 func (r *retrievalEngine) describe(ctx context.Context, sum sqlc.CtxSummary) (*memory.DescribeResult, error) {
-	parents, err := r.q.GetSummaryParents(ctx, sum.ID)
+	// Compaction stores (summary_id=container,
+	// parent_summary_id=constituent), so these legacy query names are inverted
+	// relative to the conceptual Explorer API.
+	parents, err := r.q.GetSummaryChildren(ctx, sum.ID)
 	if err != nil {
 		return nil, fmt.Errorf("get parents: %w", err)
+	}
+	for _, parent := range parents {
+		if parent.ConversationID != sum.ConversationID {
+			return nil, fmt.Errorf("get parents: summary lineage crosses conversation boundary")
+		}
 	}
 	parentIDs := make([]string, len(parents))
 	for i, p := range parents {
 		parentIDs[i] = p.ID
 	}
 
-	children, err := r.q.GetSummaryChildren(ctx, sum.ID)
+	children, err := r.q.GetSummaryParents(ctx, sum.ID)
 	if err != nil {
 		return nil, fmt.Errorf("get children: %w", err)
+	}
+	for _, child := range children {
+		if child.ConversationID != sum.ConversationID {
+			return nil, fmt.Errorf("get children: summary lineage crosses conversation boundary")
+		}
 	}
 	childIDs := make([]string, len(children))
 	for i, c := range children {
@@ -499,6 +512,11 @@ func (r *retrievalEngine) expand(ctx context.Context, sum sqlc.CtxSummary, token
 			return nil, fmt.Errorf("get summary messages: %w", err)
 		}
 		for _, msg := range msgs {
+			if msg.ConversationID != sum.ConversationID {
+				return nil, fmt.Errorf("get summary messages: summary message crosses conversation boundary")
+			}
+		}
+		for _, msg := range msgs {
 			tokens := memory.EstimateTokens(msg.Content)
 			if tokensUsed+tokens > tokenCap && len(result.Messages) > 0 {
 				break
@@ -512,9 +530,16 @@ func (r *retrievalEngine) expand(ctx context.Context, sum sqlc.CtxSummary, token
 			tokensUsed += tokens
 		}
 	} else {
-		children, err := r.q.GetSummaryChildren(ctx, sum.ID)
+		// GetSummaryParents returns this condensed summary's constituents; see
+		// describe for the legacy relation-name explanation.
+		children, err := r.q.GetSummaryParents(ctx, sum.ID)
 		if err != nil {
 			return nil, fmt.Errorf("get children: %w", err)
+		}
+		for _, child := range children {
+			if child.ConversationID != sum.ConversationID {
+				return nil, fmt.Errorf("get children: summary lineage crosses conversation boundary")
+			}
 		}
 		for _, child := range children {
 			tokens := memory.EstimateTokens(child.Content)

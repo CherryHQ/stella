@@ -165,6 +165,7 @@ const getContextStats = `-- name: GetContextStats :one
 SELECT
   (SELECT COUNT(*) FROM ctx_message cm WHERE cm.conversation_id = $1) AS message_count,
   (SELECT CAST(COALESCE(SUM(cm.token_count), 0) AS BIGINT) FROM ctx_message cm WHERE cm.conversation_id = $1) AS source_token_count,
+	(SELECT COUNT(*) FROM ctx_summary cs WHERE cs.conversation_id = $1) AS summary_count,
   (SELECT CAST(COALESCE(SUM(
         CASE
             WHEN ci.item_type = 'message' THEN m.token_count
@@ -182,6 +183,7 @@ SELECT
 type GetContextStatsRow struct {
 	MessageCount     int64 `json:"message_count"`
 	SourceTokenCount int64 `json:"source_token_count"`
+	SummaryCount     int64 `json:"summary_count"`
 	ActiveTokenCount int64 `json:"active_token_count"`
 	SummaryDepth     int64 `json:"summary_depth"`
 }
@@ -192,6 +194,7 @@ func (q *Queries) GetContextStats(ctx context.Context, conversationID string) (G
 	err := row.Scan(
 		&i.MessageCount,
 		&i.SourceTokenCount,
+		&i.SummaryCount,
 		&i.ActiveTokenCount,
 		&i.SummaryDepth,
 	)

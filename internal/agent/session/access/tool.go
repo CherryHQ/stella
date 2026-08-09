@@ -47,24 +47,23 @@ func NewTool(svc *Service) *Tool { return &Tool{svc: svc} }
 func (t *Tool) Definition() tools.Definition {
 	return tools.Definition{
 		Name:        sessionToolName,
-		Description: "Find, inspect, create, and continue this agent's sessions for the current user. Use find without a query for recent sessions or with a query to search transcripts. Get is compact by default; pass a cursor returned by find/get to page a bounded raw transcript. Create starts a focused session and waits for its reply. Send continues any sendable session and waits in FIFO order when the target is busy. Agent input retains source provenance. Only wait=true is supported.",
+		Description: "List, inspect, create, and continue this agent's sessions for the current user. List returns structured recent sessions; use memory.search to recall content across sessions. Get returns session state, context statistics, and a compact preview; pass its cursor back to page a bounded raw transcript. Create starts a focused session and waits for its reply. Send continues any sendable session and waits in FIFO order when the target is busy. Agent input retains source provenance. Only wait=true is supported.",
 		InputSchema: tools.MustInputSchema(`{
   "type": "object",
   "properties": {
     "action": {
       "type": "string",
-	      "enum": ["find", "get", "create", "send"],
-	      "description": "Required parameters by action: find(); get(session_id); create(message, optional preset, optional wait=true); send(session_id, message, optional wait=true)."
+	      "enum": ["list", "get", "create", "send"],
+	      "description": "Required parameters by action: list(); get(session_id); create(message, optional preset, optional wait=true); send(session_id, message, optional wait=true)."
     },
     "session_id": {"type": "string"},
 	    "message": {"type": "string", "description": "The Session's initial or next request."},
 	    "preset": {"type": "string", "description": "Optional managed-Session preset for create."},
 	    "wait": {"type": "boolean", "default": true, "description": "Must be true in this phase; asynchronous Session requests are not yet supported."},
-    "query": {"type": "string", "description": "Optional transcript search for find. Natural-language retrieval inside get is not supported."},
     "include_archived": {"type": "boolean", "default": false},
-    "page_size": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Number of cards returned by find."},
-    "page_token": {"type": "string", "description": "Opaque find cursor; pass it back unchanged."},
-    "cursor": {"type": "string", "description": "Opaque get transcript cursor returned by find/get; pass it back unchanged."},
+	    "page_size": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Number of cards returned by list."},
+    "page_token": {"type": "string", "description": "Opaque list cursor; pass it back unchanged."},
+    "cursor": {"type": "string", "description": "Opaque get transcript cursor returned by get; pass it back unchanged."},
     "transcript_page_size": {"type": "integer", "minimum": 1, "maximum": 5, "description": "Number of whole logical turns returned by get when cursor is set."}
   },
   "required": ["action"]
@@ -95,8 +94,8 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 
 	var result any
 	switch action {
-	case "find":
-		result, err = executeSessionFind(ctx, access, ident.AgentID, args)
+	case "list":
+		result, err = executeSessionList(ctx, access, ident.AgentID, args)
 	case "get":
 		result, err = executeSessionGet(ctx, access, ident.AgentID, args)
 	case "create":
@@ -110,14 +109,13 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 		return "", mapSessionToolError(err)
 	}
 	output, err := tools.MarshalResult(result)
-	if err == nil && action == "get" && len(output) > maxSessionToolSerializedResult {
-		return "", fmt.Errorf("session.get exceeded its serialized result limit")
+	if err == nil && len(output) > maxSessionToolSerializedResult {
+		return "", fmt.Errorf("session.%s exceeded its serialized result limit", action)
 	}
 	return output, err
 }
 
-type sessionFindInput struct {
-	Query           string `json:"query,omitempty"`
+type sessionListInput struct {
 	IncludeArchived bool   `json:"include_archived,omitempty"`
 	PageSize        int    `json:"page_size,omitempty"`
 	PageToken       string `json:"page_token,omitempty"`
@@ -155,8 +153,6 @@ type sessionCardResponse struct {
 	Sendable      bool   `json:"sendable"`
 	LastActive    string `json:"last_active"`
 	TurnStartedAt string `json:"turn_started_at,omitempty"`
-	Match         string `json:"match,omitempty"`
-	MatchCursor   string `json:"match_cursor,omitempty"`
 }
 
 type sessionGetResponse struct {
@@ -164,6 +160,7 @@ type sessionGetResponse struct {
 	ActiveRequest       any                     `json:"active_request"`
 	LatestResult        *sessionTerminalResult  `json:"latest_result"`
 	SupportedOperations []string                `json:"supported_operations"`
+	ContextStats        sessionContextStats     `json:"context_stats"`
 	Preview             []sessionTranscriptTurn `json:"preview,omitempty"`
 	TranscriptCursor    string                  `json:"transcript_cursor,omitempty"`
 	Transcript          *sessionTranscriptPage  `json:"transcript,omitempty"`
@@ -172,6 +169,16 @@ type sessionGetResponse struct {
 type sessionTerminalResult struct {
 	Status      string `json:"status"`
 	CompletedAt string `json:"completed_at"`
+}
+
+type sessionContextStats struct {
+	MessageCount     int    `json:"message_count"`
+	TokenCount       int    `json:"token_count"`
+	ActiveTokenCount int    `json:"active_token_count"`
+	SummaryCount     int    `json:"summary_count"`
+	SummaryDepth     int    `json:"summary_depth"`
+	OldestAt         string `json:"oldest_at,omitempty"`
+	NewestAt         string `json:"newest_at,omitempty"`
 }
 
 type sessionTranscriptPage struct {
@@ -222,8 +229,8 @@ type transcriptCursor struct {
 	Offset      int    `json:"offset,omitempty"`
 }
 
-func executeSessionFind(ctx context.Context, access *Access, agentID string, args map[string]any) (any, error) {
-	var in sessionFindInput
+func executeSessionList(ctx context.Context, access *Access, agentID string, args map[string]any) (any, error) {
+	var in sessionListInput
 	if err := tools.DecodeInput(args, &in, nil); err != nil {
 		return nil, err
 	}
@@ -231,49 +238,38 @@ func executeSessionFind(ctx context.Context, access *Access, agentID string, arg
 	if err != nil || offset > math.MaxInt32-limit-1 {
 		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxSessionToolPage)
 	}
-	query := strings.TrimSpace(in.Query)
-	if query == "" {
-		page, err := access.ListCardPage(ctx, agentID, agentsession.ListOptions{
-			IncludeArchived: in.IncludeArchived,
-			Offset:          offset,
-		}, limit)
-		if err != nil {
-			return nil, err
-		}
-		items := make([]sessionCardResponse, 0, len(page.Sessions))
-		for _, card := range page.Sessions {
-			items = append(items, sessionCardFrom(card))
-		}
-		response := map[string]any{"sessions": items}
-		if page.HasMore {
-			response["next_page_token"] = tools.OffsetToken(page.NextOffset)
-		}
-		return response, nil
-	}
-
-	page, err := access.FindCardPage(ctx, agentID, query, in.IncludeArchived, offset, limit)
+	page, err := access.ListCardPage(ctx, agentID, agentsession.ListOptions{
+		IncludeArchived: in.IncludeArchived,
+		Offset:          offset,
+	}, limit)
 	if err != nil {
 		return nil, err
 	}
 	items := make([]sessionCardResponse, 0, len(page.Sessions))
-	for _, matched := range page.Sessions {
-		item := sessionCardFrom(matched.Card)
-		item.Match = matched.Match
-		if matched.Anchor != nil {
-			item.MatchCursor, err = encodeTranscriptCursor(transcriptCursor{
-				Version: sessionTranscriptCursorVersion, SessionID: matched.Card.ID, AnchorSeq: matched.Anchor.Seq,
-			})
-			if err != nil {
-				return nil, err
-			}
+	for _, card := range page.Sessions {
+		items = append(items, sessionCardFrom(card))
+	}
+	hasMore := page.HasMore
+	nextOffset := page.NextOffset
+	for {
+		response := map[string]any{"sessions": items}
+		if hasMore {
+			response["next_page_token"] = tools.OffsetToken(nextOffset)
 		}
-		items = append(items, item)
+		serialized, marshalErr := tools.MarshalResult(response)
+		if marshalErr != nil {
+			return nil, marshalErr
+		}
+		if len(serialized) <= maxSessionToolSerializedResult {
+			return response, nil
+		}
+		if len(items) == 0 {
+			return nil, fmt.Errorf("session.list exceeded its serialized result limit")
+		}
+		items = items[:len(items)-1]
+		hasMore = true
+		nextOffset = offset + len(items)
 	}
-	response := map[string]any{"sessions": items}
-	if page.HasMore {
-		response["next_page_token"] = tools.OffsetToken(page.NextOffset)
-	}
-	return response, nil
 }
 
 func executeSessionGet(ctx context.Context, access *Access, agentID string, args map[string]any) (any, error) {
@@ -289,10 +285,15 @@ func executeSessionGet(ctx context.Context, access *Access, agentID string, args
 	if err != nil {
 		return nil, err
 	}
+	contextMeta, err := access.ContextStats(ctx, agentID, in.SessionID)
+	if err != nil {
+		return nil, err
+	}
 	response := sessionGetResponse{
 		sessionCardResponse: sessionCardFrom(cards[0]),
 		ActiveRequest:       nil, // Session Requests arrive in Phase 3+.
 		SupportedOperations: []string{"get"},
+		ContextStats:        sessionContextStatsFrom(contextMeta),
 	}
 	if cards[0].Sendable {
 		response.SupportedOperations = append(response.SupportedOperations, "send")
@@ -363,6 +364,21 @@ func executeSessionGet(ctx context.Context, access *Access, agentID string, args
 	}
 	response.Transcript = page
 	return response, nil
+}
+
+func sessionContextStatsFrom(meta ContextMeta) sessionContextStats {
+	out := sessionContextStats{
+		MessageCount: meta.MessageCount, TokenCount: meta.SourceTokenCount,
+		ActiveTokenCount: meta.ActiveTokenCount, SummaryCount: meta.SummaryCount,
+		SummaryDepth: meta.SummaryDepth,
+	}
+	if meta.OldestAt != nil {
+		out.OldestAt = meta.OldestAt.UTC().Format(time.RFC3339)
+	}
+	if meta.NewestAt != nil {
+		out.NewestAt = meta.NewestAt.UTC().Format(time.RFC3339)
+	}
+	return out
 }
 
 func executeSessionCreate(ctx context.Context, svc *Service, agentID string, args map[string]any) (any, error) {
@@ -485,12 +501,12 @@ func encodeTranscriptCursor(cursor transcriptCursor) (string, error) {
 func decodeTranscriptCursor(value, sessionID string) (transcriptCursor, error) {
 	data, err := base64.RawURLEncoding.DecodeString(value)
 	if err != nil {
-		return transcriptCursor{}, fmt.Errorf("invalid transcript cursor — pass a cursor returned by find/get unchanged")
+		return transcriptCursor{}, fmt.Errorf("invalid transcript cursor — pass a cursor returned by get unchanged")
 	}
 	var cursor transcriptCursor
 	if err := json.Unmarshal(data, &cursor); err != nil || cursor.Version != sessionTranscriptCursorVersion || cursor.SessionID != sessionID || cursor.AnchorSeq < 0 || cursor.SnapshotSeq < 0 || cursor.Offset < 0 ||
 		(cursor.SnapshotSeq > 0 && cursor.AnchorSeq > cursor.SnapshotSeq) {
-		return transcriptCursor{}, fmt.Errorf("invalid transcript cursor — pass a cursor returned by find/get unchanged")
+		return transcriptCursor{}, fmt.Errorf("invalid transcript cursor — pass a cursor returned by get unchanged")
 	}
 	return cursor, nil
 }

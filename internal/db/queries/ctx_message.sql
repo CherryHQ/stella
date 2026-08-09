@@ -32,6 +32,20 @@ SELECT MIN(created_at) AS earliest_at, MAX(created_at) AS latest_at
 FROM ctx_message
 WHERE conversation_id = $1;
 
+-- name: GetContextTimeBounds :one
+SELECT oldest.created_at AS oldest_at, newest.created_at AS newest_at
+FROM ctx_message oldest
+JOIN LATERAL (
+    SELECT newest_message.created_at
+    FROM ctx_message newest_message
+    WHERE newest_message.conversation_id = sqlc.arg('conversation_id')
+    ORDER BY newest_message.seq DESC
+    LIMIT 1
+) newest ON true
+WHERE oldest.conversation_id = sqlc.arg('conversation_id')
+ORDER BY oldest.seq ASC
+LIMIT 1;
+
 -- name: ListMessagesByLogicalPage :many
 -- Keep this logical-message boundary in sync with serializeDBMessages in
 -- internal/server/sessions.go: consecutive assistant rows render as one

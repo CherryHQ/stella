@@ -355,36 +355,36 @@ func TestEmbeddedPostgresSessionBehaviorMatrix(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// Invalid synthetic source IDs are never resolved because this assertion is
-		// about denied rows: use an offset beyond the one visible private hit.
-		page, err := ownerAccess.FindCardPage(ctx, m.agent, "match", true, 1, 20)
+		// Invalid synthetic source IDs are dropped after the source Session passes
+		// policy; the group row must be dropped before source resolution.
+		results, err := ownerAccess.searchRecall(ctx, m.agent, "match", 20)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(page.Sessions) != 0 {
-			t.Fatalf("group search hit crossed into private corpus: %#v", page.Sessions)
+		if len(results) != 0 {
+			t.Fatalf("group search hit crossed into private corpus: %#v", results)
 		}
 
 		foreignAccess, err := m.svc.Begin(ctx, worker(m.other, m.agent))
 		if err != nil {
 			t.Fatal(err)
 		}
-		page, err = foreignAccess.FindCardPage(ctx, m.agent, "match", true, 0, 20)
+		results, err = foreignAccess.searchRecall(ctx, m.agent, "match", 20)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(page.Sessions) != 0 {
-			t.Fatalf("cross-user search exposed sessions: %#v", page.Sessions)
+		if len(results) != 0 {
+			t.Fatalf("cross-user search exposed sessions: %#v", results)
 		}
 
 		groupAccess, err := m.svc.Begin(ctx, group(m.group, m.agent))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := groupAccess.FindCardPage(ctx, m.agent, "match", true, 0, 20); !errors.Is(err, ErrNotFound) {
+		if _, err := groupAccess.searchRecall(ctx, m.agent, "match", 20); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("group transcript search error=%v, want ErrNotFound", err)
 		}
-		if _, err := ownerAccess.FindCardPage(ctx, "other-agent", "match", true, 0, 20); !errors.Is(err, ErrNotFound) {
+		if _, err := ownerAccess.searchRecall(ctx, "other-agent", "match", 20); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("cross-agent transcript search error=%v, want ErrNotFound", err)
 		}
 	})

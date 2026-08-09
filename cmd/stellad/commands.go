@@ -259,9 +259,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	var poolMgr *agent.PoolManager
 	memProvider = wrapMemoryWithTracing(memProvider, &poolMgr)
 
-	builtinTools := []agent.BuiltinTool{
-		{Tool: memory.BuildTool(memProvider, memory.WithSessionReadOnlyWrites(), memory.WithoutTranscriptActions())},
-	}
+	var builtinTools []agent.BuiltinTool
 	if notifyTool := notify.NewTool(dispatcher); notifyTool != nil {
 		builtinTools = append(builtinTools, agent.BuiltinTool{Tool: notifyTool})
 	}
@@ -326,6 +324,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build session/workspace service: %w", err)
 	}
+	builtinTools = append([]agent.BuiltinTool{{
+		Tool: memory.BuildTool(memProvider, memory.WithRecallSource(sessionAccess)),
+	}}, builtinTools...)
 
 	if err := registerReflectBuiltin(schedulerSvc, reflect.Config{
 		Memory:            memProvider,

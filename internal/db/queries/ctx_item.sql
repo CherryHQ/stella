@@ -70,6 +70,7 @@ WHERE ci.conversation_id = $1;
 SELECT
   (SELECT COUNT(*) FROM ctx_message cm WHERE cm.conversation_id = sqlc.arg('conversation_id')) AS message_count,
   (SELECT CAST(COALESCE(SUM(cm.token_count), 0) AS BIGINT) FROM ctx_message cm WHERE cm.conversation_id = sqlc.arg('conversation_id')) AS source_token_count,
+	(SELECT COUNT(*) FROM ctx_summary cs WHERE cs.conversation_id = sqlc.arg('conversation_id')) AS summary_count,
   (SELECT CAST(COALESCE(SUM(
         CASE
             WHEN ci.item_type = 'message' THEN m.token_count

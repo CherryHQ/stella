@@ -37,7 +37,32 @@ LCM 插件实现完整能力。Simple 插件实现核心 Provider、身份、约
 
 ## 记忆工具
 
-`memory.BuildTool(provider)` 会检查 provider 能力，并生成匹配动作的 `tools.Tool`。调用方会按使用场景收窄这组内部能力。普通聊天 runner 同时使用 `WithSessionReadOnlyWrites()` 和 `WithoutTranscriptActions()`。Session find/get 负责对话检索；Reflect 和 manual 路径只开启自己负责的写动作。
+`memory.BuildTool(provider)` 会检查 provider 能力，并生成与调用场景匹配的 `tools.Tool`。这里刻意区分两个 surface。
+
+### 普通 Agent surface
+
+普通聊天 runner 传入 `WithRecallSource(sessionAccess)`，只暴露两个动作：
+
+| 动作     | 说明                                                                                                                                            |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `search` | 搜索当前快照可见的全部记忆：对话消息与摘要、持久 facts、profile、soul 和 constraints。结果携带 opaque ref。                                     |
+| `read`   | 解析搜索结果 ref，或读取 well-known ref：`profile`、`soul`、`constraints`、`profile_versions`、`soul_versions`。摘要可通过 child ref 继续下钻。 |
+
+因此 Agent 只需理解一个回忆流程：先搜索记忆，再读取感兴趣的结果；不必在消息、摘要、知识或身份搜索 API 之间做选择。Session 管理保持独立：`session.list` 列出最近、活跃或已归档 Session；`session.get` 检查已知 Session 并对其有界 transcript 分页；`session.create` 和 `session.send` 管理工作。
+
+这个 façade 不暴露 LCM 存储模型，同时保留其检索能力：
+
+| LCM 能力                        | 普通 Agent 投影                                                                      |
+| ------------------------------- | ------------------------------------------------------------------------------------ |
+| `Searcher.Search`               | `memory.search` 将消息和摘要命中与持久记忆命中统一排序返回。                         |
+| `MessageReader.GetMessage`      | `memory.read` 根据 opaque search ref 返回完整消息。                                  |
+| `Explorer.Describe` 与 `Expand` | `memory.read` 返回摘要 metadata、lineage 和一层有界 children；可继续读取 child ref。 |
+
+Opaque ref 只是 locator，不是 capability token。每次读取 dynamic ref 都会重新经过 Session policy enforcement point，校验当前 user、agent、Session、conversation 和 snapshot。返回 summary descendants 之前，也会逐个校验它们属于同一 conversation。搜索与展开受结果数、文本大小、token 预算和序列化输出限制；聚合读取省略内容或 ref 时会设置 `truncated`。搜索只返回 top window，不提供 cursor，因为底层 LCM 排序并不支持稳定分页。
+
+### 内部管理 surface
+
+Reflect、manual 管理路径与底层内部调用方继续保留各自负责的 provider-oriented actions。`memory.read` 只在普通 Agent surface 取代分散的读取 action；删除这些内部 action 会破坏授权边界和管理流程。
 
 | 动作                | 需要接口                           | 说明                                                   |
 | ------------------- | ---------------------------------- | ------------------------------------------------------ |
@@ -57,17 +82,17 @@ LCM 插件实现完整能力。Simple 插件实现核心 Provider、身份、约
 | `constraint_add`    | `ConstraintStore`                  | 添加硬性约束；仅 manual                                |
 | `constraint_remove` | `ConstraintStore`                  | 按 ID 删除硬性约束；仅 manual                          |
 
-工具的 JSON schema、描述和调度都会动态适配。能力较少的 provider 会生成动作较少的工具。面向模型的聊天会话不暴露对话相关的 `status`、`search`、`describe`、`expand`、`get_message`，也不能调用 `profile_update`、`soul_update`、`profile_rollback`、`constraint_add` 或 `constraint_remove` 等持久写入动作。
+工具的 JSON schema、描述和调度都会动态适配。能力较少的 provider 会生成较少的内部 action。普通聊天会话不能调用 `profile_update`、`soul_update`、`profile_rollback`、`constraint_add` 或 `constraint_remove` 等持久写入 action。
 
 ### 群聊回合:当前发言人回退
 
-群 session 的运行时身份是群,因此没有 session 用户(D9)。为了仍能让 agent 读取正在说话的人的事实,当不存在 session 用户时,`profile_get` 会回退到当前发言人。底层 resolver 也支持显式开启写入的工具使用 `profile_update`，但普通聊天 runner 不暴露该动作:
+群 session 的运行时身份是群,因此没有 session 用户(D9)。为了仍能让 agent 读取正在说话的人的事实,当不存在 session 用户时，well-known ref `profile` 的 `memory.read` 会回退到当前发言人。底层 resolver 也支持显式开启写入的工具使用 `profile_update`，但普通聊天 runner 不暴露该动作:
 
 1. session 用户(`UserIDFromContext`)—— 正常 DM 行为。
 2. 否则已关联的当前发言人(`CurrentSpeaker.UserID`)—— 群个性化。
 3. 否则 fail-closed,报 `no linked current speaker`(未关联发送者)。
 
-回退刻意收窄。**普通聊天中只有 `profile_get` 获得它,且只有模型显式调用工具时才会发生。** `soul_get`、`soul_update`、`constraint_*`、`profile_history`、`profile_rollback` 仍走严格的 session-用户解析器,因此群聊回合中它们 fail-closed——公开群不是通过共享 agent 读取或改写某成员 soul、constraints、历史的地方。如果显式开启写入的内部工具经回退调用 `profile_update`，它只推进发言人自己的快照行 `(session, speaker.UserID, agent)`,绝不推进群的。
+回退刻意收窄。**普通聊天中只有显式 `memory.read("profile")` 能获得它。**统一搜索以及 `soul`、`constraints`、版本历史或 dynamic transcript ref 的读取仍走严格的 session-用户解析器，因此群聊回合中会 fail-closed——公开群不是通过共享 agent 搜索或读取某成员私有记忆的地方。如果显式开启写入的内部工具经回退调用 `profile_update`，它只推进发言人自己的快照行 `(session, speaker.UserID, agent)`,绝不推进群的。
 
 参见[群聊:当前发言人(D10)](/docs/development/group-chat-multi-agent#current-speaker-per-turn-personalization-d10)。
 
@@ -85,7 +110,7 @@ LCM 插件实现完整能力。Simple 插件实现核心 Provider、身份、约
 
 对话历史由记忆 provider 单独组装。约束、身份和知识位于系统提示中，因此对话压缩不会删除它们。
 
-群聊回合由 PoolManager 的 before-run 路径带当前发言人元数据重渲整份提示词;缓存的群 runner 不持有发言人数据,故一个发言人的回合上下文不会泄漏到另一个发言人的回合。发言人的 profile 正文和带日期条目不会自动注入公开群 prompt;profile 访问仍必须通过显式的只读 `memory.profile_get` 工具调用。
+群聊回合由 PoolManager 的 before-run 路径带当前发言人元数据重渲整份提示词;缓存的群 runner 不持有发言人数据,故一个发言人的回合上下文不会泄漏到另一个发言人的回合。发言人的 profile 正文和带日期条目不会自动注入公开群 prompt;profile 访问仍必须通过显式的只读 `memory.read("profile")` 调用。
 
 ## Changelog 与回滚
 
@@ -224,7 +249,7 @@ ai.Message (user/assistant/tool_result)
 
 - 原始用户文本直接交给 `paradedb.match`，它用 ICU 分词，且对标点或查询语法字符永不报错 — 因此既无需单独的清洗步骤，短查询和中文查询也能原生命中（没有最小 token 长度限制，没有 `LIKE` 回退）。
 - 命中包含 pg_search 片段（`<b>term</b>` 高亮）和 `paradedb.score` BM25 分数（越大越相关）。
-- `both` 范围分别以完整 limit 查询消息和摘要，再按分数合并取前 N — 强摘要命中可以排在弱消息命中之前。摘要命中可通过 `describe`/`expand` 下钻。
+- `both` 范围分别以完整 limit 查询消息和摘要，再按分数合并取前 N — 强摘要命中可以排在弱消息命中之前。内部调用方通过 `describe`/`expand` 下钻摘要；普通 Agent façade 将其投影为 `memory.read` 和有界 child refs。
 - BM25 索引位于 schema 基线（`internal/db/migrations`）；`vector`/`pg_search` 扩展在**运行时**（`internal/db/database.go` 的 `ensureExtensions`）于迁移前创建，因为 `CREATE EXTENSION` 需要二进制（以及 `shared_preload_libraries=pg_search`），迁移无法保证这些。
 - 语义检索使用按来源拆分的 sidecar 表（`ctx_message_embedding`、`ctx_summary_embedding`、`recally_article_embedding`），各持有一列 `vector(1536)` 并建有 HNSW（`vector_cosine_ops`）索引，以来源 id 为键。该通道**默认关闭、运行时配置**——没有任何 embedding 环境变量。管理员在 **设置 → 向量嵌入** 页面设置提供商密钥、Base URL、模型、维度与是否归一化（以一条 JSON 存入 `app_setting` 的 `embedding` 键），修改即时生效，无需重启。
 - 启用后，基于 River 的 worker 会为新内容生成向量并回填存量行；关闭时 worker 空转，检索回退为纯 BM25。每一行在其 `model` 列记录一个**空间键**（`model@dim`），查询按 `WHERE model = $space` 过滤——因此用不同模型/维度生成的查询向量只会返回空结果而非错配结果；切换模型或维度会重新嵌入到全新的向量空间。

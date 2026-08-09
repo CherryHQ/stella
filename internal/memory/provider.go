@@ -10,6 +10,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
@@ -156,6 +157,69 @@ type SearchResult struct {
 // Searcher is implemented by providers that support history search.
 type Searcher interface {
 	Search(ctx context.Context, session Session, query SearchQuery) ([]SearchResult, error)
+}
+
+// RecallReference identifies one conversation-memory resource behind the
+// Session policy boundary. It is an internal transport value: model-facing
+// callers receive an opaque encoded ref and every read reauthorizes this tuple.
+type RecallReference struct {
+	Kind      string
+	ID        string
+	SessionID string
+}
+
+// RecallSearchResult is one authorized message or summary match. Source kinds
+// stay inside the recall facade; the memory tool returns one uniform result
+// shape and an opaque ref instead.
+type RecallSearchResult struct {
+	Reference         RecallReference
+	Content           string
+	Score             float64
+	OccurredAt        time.Time
+	SessionID         string
+	ConversationTitle string
+}
+
+// RecallFragment is one authorized, one-level expansion item for a summary.
+type RecallFragment struct {
+	Reference  RecallReference
+	Role       string
+	Kind       string
+	Depth      *int
+	Content    string
+	OccurredAt time.Time
+}
+
+// RecallSummaryDetail preserves LCM's describe and bounded one-level expand
+// capabilities without exposing provider actions to the model.
+type RecallSummaryDetail struct {
+	Kind            string
+	Depth           int
+	DescendantCount int
+	EarliestAt      *time.Time
+	LatestAt        *time.Time
+	Parents         []RecallReference
+	Children        []RecallReference
+	Expanded        []RecallFragment
+}
+
+// RecallDocument is one fully authorized conversation-memory read.
+type RecallDocument struct {
+	Reference         RecallReference
+	Content           string
+	Role              string
+	OccurredAt        time.Time
+	SessionID         string
+	ConversationTitle string
+	Summary           *RecallSummaryDetail
+}
+
+// RecallSource is the authorized Session facade used by the model-facing
+// memory tool. It keeps transcript policy in Session while memory presents one
+// search/read mental model across transcripts and durable memory.
+type RecallSource interface {
+	SearchRecall(ctx context.Context, authority authz.Authority, agentID, query string, limit int) ([]RecallSearchResult, error)
+	ReadRecall(ctx context.Context, authority authz.Authority, agentID string, ref RecallReference, tokenCap int) (RecallDocument, error)
 }
 
 // ---------------------------------------------------------------------------

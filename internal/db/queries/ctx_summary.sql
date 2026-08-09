@@ -47,6 +47,10 @@ FROM ctx_summary_message sm
 JOIN ctx_message m ON sm.message_id = m.id
 WHERE sm.summary_id = $1;
 
+-- Legacy naming note: compaction stores the containing condensed summary in
+-- summary_id and each constituent summary in parent_summary_id. Consequently,
+-- GetSummaryParents returns conceptual children/constituents, while
+-- GetSummaryChildren returns conceptual parents/containers.
 -- name: GetSummaryParents :many
 SELECT s.* FROM ctx_summary s
 JOIN ctx_summary_parent sp ON sp.parent_summary_id = s.id
