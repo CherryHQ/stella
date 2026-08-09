@@ -8,6 +8,37 @@ import (
 	"github.com/CherryHQ/stella/internal/version"
 )
 
+func TestRedirectRoot(t *testing.T) {
+	tests := []struct {
+		name string
+		info *AuthInfo
+		want string
+	}{
+		{name: "unauthenticated", want: "/login"},
+		{name: "user", info: &AuthInfo{UserID: "user-1"}, want: "/agents"},
+		{name: "admin", info: &AuthInfo{UserID: "admin-1", IsAdmin: true}, want: "/agents"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tt.info != nil {
+				req = req.WithContext(withAuthInfo(req.Context(), tt.info))
+			}
+			rec := httptest.NewRecorder()
+
+			(&Server{}).redirectRoot(rec, req)
+
+			if rec.Code != http.StatusFound {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusFound)
+			}
+			if got := rec.Header().Get("Location"); got != tt.want {
+				t.Errorf("Location = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildMiddlewareStampsEveryResponse(t *testing.T) {
 	original, originalCommit := version.Version, version.Commit
 	t.Cleanup(func() { version.Version, version.Commit = original, originalCommit })

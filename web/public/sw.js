@@ -16,10 +16,10 @@
 const CACHE = "stella-shell-v1";
 
 // Cache key for the offline shell, not a path to fetch: "/" redirects to /login
-// or /providers, and Go's file server sends "/index.html" back to "/", so
-// neither can be primed at install time. Every SPA route returns the same
-// document, so the first navigation this worker controls seeds the shell —
-// which means offline support starts on the second visit.
+// or /agents, and Go's file server sends "/index.html" back to "/", so neither
+// can be primed at install time. Every SPA route returns the same document, so
+// the first navigation this worker controls seeds the shell — which means
+// offline support starts on the second visit.
 const SHELL_KEY = "/index.html";
 
 // Root paths owned by the Go server rather than the SPA build. Chat replies
