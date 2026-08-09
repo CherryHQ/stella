@@ -2,6 +2,9 @@ package agent_test
 
 import (
 	"context"
+	"fmt"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -9,6 +12,7 @@ import (
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -18,6 +22,33 @@ import (
 
 type fakeRunnerSvc struct {
 	events []agentruntime.Event
+}
+
+type groupActorMemory struct {
+	*memorytest.Fake
+	mu     sync.Mutex
+	actors []eventlog.MessageActor
+}
+
+func (m *groupActorMemory) Append(ctx context.Context, sess memory.Session, msgs ...ai.Message) error {
+	actor, _ := eventlog.MessageActorFromContext(ctx)
+	m.mu.Lock()
+	m.actors = append(m.actors, actor)
+	m.mu.Unlock()
+	return m.Fake.Append(ctx, sess, msgs...)
+}
+
+type inputRecordingRunner struct {
+	fakeRunnerSvc
+	mu    sync.Mutex
+	input agentruntime.MessageContent
+}
+
+func (r *inputRecordingRunner) Chat(_ context.Context, _ []ai.Message, input agentruntime.MessageContent) <-chan agentruntime.Event {
+	r.mu.Lock()
+	r.input = input
+	r.mu.Unlock()
+	return r.fakeRunnerSvc.Chat(context.Background(), nil, nil)
 }
 
 type fakeSessionAccessSvc struct{ reg *session.Registry }
@@ -155,6 +186,56 @@ func TestService_Chat_PropagatesEvents(t *testing.T) {
 	}
 	if got != "hello world" {
 		t.Errorf("got %q, want %q", got, "hello world")
+	}
+}
+
+func TestServiceGroupTurnPersistsHumanSpeakerAndRendersUnwrapped(t *testing.T) {
+	const groupID = "11111111-1111-4111-8111-111111111111"
+	mem := &groupActorMemory{Fake: memorytest.New()}
+	runner := &inputRecordingRunner{}
+	rt, err := agentruntime.New(agentruntime.Config{
+		NewRunner: func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) { return runner, nil },
+		Memory:    mem,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err := session.NewRegistry(mem, "agent1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := &agent.Service{Sessions: reg, Runtime: rt, SessionAccess: fakeSessionAccessSvc{reg: reg}, AgentID: "agent1"}
+	authority, err := authz.NewGroupAgentAuthority(groupID, "agent1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := svc.Chat(context.Background(), agent.ChatRequest{
+		UserID:         groupID,
+		AgentID:        "agent1",
+		GroupID:        groupID,
+		Kind:           session.KindChat,
+		Channel:        session.Channel("group:test"),
+		Message:        "human group input",
+		CurrentSpeaker: memory.CurrentSpeaker{UserID: "speaker-1", PlatformUserID: "platform-speaker", DisplayName: "Alice"},
+		Authority:      authority,
+	})
+	for event := range stream {
+		if event.Err != nil {
+			t.Fatalf("group chat: %v", event.Err)
+		}
+	}
+
+	mem.mu.Lock()
+	actors := append([]eventlog.MessageActor(nil), mem.actors...)
+	mem.mu.Unlock()
+	if len(actors) == 0 || actors[0] != (eventlog.MessageActor{Type: eventlog.ActorHuman, ID: "speaker-1"}) {
+		t.Fatalf("persisted group actor=%#v, want human speaker", actors)
+	}
+	runner.mu.Lock()
+	modelInput := fmt.Sprint(runner.input)
+	runner.mu.Unlock()
+	if strings.Contains(modelInput, "stella_actor") {
+		t.Fatalf("human group input was wrapped as injected agent content: %s", modelInput)
 	}
 }
 

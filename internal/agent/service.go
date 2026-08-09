@@ -150,7 +150,7 @@ func (s *Service) RunConversationSession(ctx context.Context, target session.Inf
 	go func() {
 		defer close(out)
 		err := s.runQueuedTurn(ctx, target, message, []agentruntime.Option{
-			agentruntime.WithInputActor(messageActor(authority, memory.SessionIDFromContext(ctx))),
+			agentruntime.WithInputActor(messageActor(authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))),
 		}, func(stream <-chan Event) error {
 			for event := range stream {
 				select {
@@ -252,18 +252,24 @@ func (s *Service) ChatAdmitted(ctx context.Context, req ChatRequest) (<-chan Eve
 	if info.GroupID != "" && req.CurrentSpeaker != (memory.CurrentSpeaker{}) {
 		opts = append(opts, agentruntime.WithCurrentSpeaker(req.CurrentSpeaker))
 	}
-	opts = append(opts, agentruntime.WithInputActor(messageActor(req.Authority, memory.SessionIDFromContext(ctx))))
+	opts = append(opts, agentruntime.WithInputActor(messageActor(req.Authority, req.CurrentSpeaker, memory.SessionIDFromContext(ctx))))
 	return s.Runtime.ChatAdmitted(ctx, info, req.Message, opts...)
 }
 
-func messageActor(authority authz.Authority, sourceSessionID string) eventlog.MessageActor {
+func messageActor(authority authz.Authority, speaker memory.CurrentSpeaker, sourceSessionID string) eventlog.MessageActor {
 	switch authority.Kind() {
 	case authz.ActorUser:
 		return eventlog.MessageActor{Type: eventlog.ActorHuman, ID: string(authority.UserID())}
 	case authz.ActorGuest:
 		return eventlog.MessageActor{Type: eventlog.ActorHuman, ID: string(authority.GuestID())}
-	case authz.ActorAgent, authz.ActorGroupAgent:
+	case authz.ActorAgent:
 		return eventlog.MessageActor{Type: eventlog.ActorAgent, ID: string(authority.AgentID()), SourceSessionID: sourceSessionID}
+	case authz.ActorGroupAgent:
+		id := speaker.UserID
+		if id == "" {
+			id = speaker.PlatformUserID
+		}
+		return eventlog.MessageActor{Type: eventlog.ActorHuman, ID: id}
 	case authz.ActorSystem:
 		return eventlog.MessageActor{Type: eventlog.ActorSystem, ID: string(authority.Component())}
 	default:
@@ -341,7 +347,7 @@ func (s *Service) ChatForScheduler(ctx context.Context, req SchedulerChatRequest
 	if req.Model != "" {
 		opts = append(opts, agentruntime.WithModel(req.Model))
 	}
-	opts = append(opts, agentruntime.WithInputActor(messageActor(req.Authority, memory.SessionIDFromContext(ctx))))
+	opts = append(opts, agentruntime.WithInputActor(messageActor(req.Authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))))
 	return s.Runtime.Chat(ctx, info, req.Message, opts...)
 }
 
@@ -414,7 +420,7 @@ func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req T
 	if len(req.ExcludedTools) > 0 {
 		opts = append(opts, agentruntime.WithExcludedTools(req.ExcludedTools...))
 	}
-	opts = append(opts, agentruntime.WithInputActor(messageActor(req.Authority, memory.SessionIDFromContext(ctx))))
+	opts = append(opts, agentruntime.WithInputActor(messageActor(req.Authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))))
 	src := s.Runtime.Chat(ctx, info, req.Message, opts...)
 	out := make(chan Event)
 	go func() {
@@ -626,7 +632,7 @@ func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateRe
 	if len(req.ExcludedTools) > 0 {
 		opts = append(opts, agentruntime.WithExcludedTools(req.ExcludedTools...))
 	}
-	opts = append(opts, agentruntime.WithInputActor(messageActor(authority, memory.SessionIDFromContext(ctx))))
+	opts = append(opts, agentruntime.WithInputActor(messageActor(authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))))
 
 	result := DelegateResult{SessionID: info.ID}
 	var output strings.Builder

@@ -5,6 +5,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/eventlog"
+	"github.com/CherryHQ/stella/internal/memory"
 )
 
 func TestMessageActorUsesTrustedAuthorityAndSourceSession(t *testing.T) {
@@ -31,9 +32,23 @@ func TestMessageActorUsesTrustedAuthorityAndSourceSession(t *testing.T) {
 		{name: "system", authority: system, want: eventlog.MessageActor{Type: eventlog.ActorSystem, ID: "scheduler"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := messageActor(tc.authority, "source-session"); got != tc.want {
+			if got := messageActor(tc.authority, memory.CurrentSpeaker{}, "source-session"); got != tc.want {
 				t.Fatalf("actor=%#v, want %#v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestMessageActorUsesGroupHumanSpeakerNotExecutingAgent(t *testing.T) {
+	authority, err := authz.NewGroupAgentAuthority("group-1", "agent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := messageActor(authority, memory.CurrentSpeaker{UserID: "speaker-1", PlatformUserID: "platform-speaker"}, "source-session")
+	if want := (eventlog.MessageActor{Type: eventlog.ActorHuman, ID: "speaker-1"}); actor != want {
+		t.Fatalf("group input actor=%#v, want %#v", actor, want)
+	}
+	if rendered := eventlog.RenderInput("human group message", actor); rendered != "human group message" {
+		t.Fatalf("human group input rendered with agent envelope: %#v", rendered)
 	}
 }

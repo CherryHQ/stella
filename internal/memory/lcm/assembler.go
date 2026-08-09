@@ -383,14 +383,17 @@ func (a *assembler) loadContextWindow(ctx context.Context, convID string) ([]sql
 
 		if item.ItemType == itemTypeMessage && row.MessageID.Valid {
 			messages[row.MessageID.String] = sqlc.CtxMessage{
-				ID:             row.MessageID.String,
-				ConversationID: convID,
-				Seq:            row.MessageSeq.Int64,
-				Role:           row.MessageRole.String,
-				EventType:      row.MessageEventType.String,
-				Content:        row.MessageContent.String,
-				TokenCount:     row.MessageTokenCount.Int64,
-				CreatedAt:      row.MessageCreatedAt.Time.UTC(),
+				ID:              row.MessageID.String,
+				ConversationID:  convID,
+				Seq:             row.MessageSeq.Int64,
+				Role:            row.MessageRole.String,
+				EventType:       row.MessageEventType.String,
+				Content:         row.MessageContent.String,
+				TokenCount:      row.MessageTokenCount.Int64,
+				CreatedAt:       row.MessageCreatedAt.Time.UTC(),
+				ActorType:       row.MessageActorType.String,
+				ActorID:         row.MessageActorID,
+				SourceSessionID: row.MessageSourceSessionID,
 			}
 		}
 		if item.ItemType == itemTypeSummary && row.SummaryID.Valid {

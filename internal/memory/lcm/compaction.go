@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -211,14 +212,14 @@ func formatMessageForSummarizerWithParts(msg sqlc.CtxMessage, parts []loadedMess
 		if msg.EventType == eventTypeToolResult {
 			var env toolResultEnvelope
 			if err := json.Unmarshal([]byte(msg.Content), &env); err != nil {
-				return fmt.Sprintf("[%s] %s", msg.Role, text)
+				return formatSummarizerInput(msg, text)
 			}
 			if env.Error != "" {
 				return fmt.Sprintf("[tool:%s] error: %s", env.Tool, text)
 			}
 			return fmt.Sprintf("[tool:%s] result(%d chars): %s", env.Tool, len(text), truncateUTF8(text, 300))
 		}
-		return fmt.Sprintf("[%s] %s", msg.Role, text)
+		return formatSummarizerInput(msg, text)
 	}
 	switch msg.EventType {
 	case eventTypeMultimodal:
@@ -228,7 +229,7 @@ func formatMessageForSummarizerWithParts(msg sqlc.CtxMessage, parts []loadedMess
 		// so keep the text and name the images instead of carrying their bytes.
 		var blocks []contentBlockJSON
 		if err := json.Unmarshal([]byte(msg.Content), &blocks); err != nil {
-			return fmt.Sprintf("[%s] %s", msg.Role, truncateUTF8(msg.Content, 300))
+			return formatSummarizerInput(msg, truncateUTF8(msg.Content, 300))
 		}
 		var parts []string
 		images := 0
@@ -243,19 +244,19 @@ func formatMessageForSummarizerWithParts(msg sqlc.CtxMessage, parts []loadedMess
 				parts = append(parts, fmt.Sprintf("[image %d omitted (%s)]", images, b.MimeType))
 			}
 		}
-		return fmt.Sprintf("[%s] %s", msg.Role, strings.Join(parts, "\n"))
+		return formatSummarizerInput(msg, strings.Join(parts, "\n"))
 
 	case eventTypeToolResult:
 		var env toolResultEnvelope
 		if err := json.Unmarshal([]byte(msg.Content), &env); err != nil {
-			return fmt.Sprintf("[%s] %s", msg.Role, msg.Content)
+			return formatSummarizerInput(msg, msg.Content)
 		}
 		if env.Error != "" {
 			return fmt.Sprintf("[tool:%s] error: %s", env.Tool, env.Error)
 		}
 		var text string
 		if err := json.Unmarshal(env.Result, &text); err != nil {
-			return fmt.Sprintf("[%s] %s", msg.Role, msg.Content)
+			return formatSummarizerInput(msg, msg.Content)
 		}
 		preview := truncateUTF8(text, 300)
 		return fmt.Sprintf("[tool:%s] result(%d chars): %s", env.Tool, len(text), preview)
@@ -263,13 +264,34 @@ func formatMessageForSummarizerWithParts(msg sqlc.CtxMessage, parts []loadedMess
 	case eventTypeToolCall:
 		var env toolCallEnvelope
 		if err := json.Unmarshal([]byte(msg.Content), &env); err != nil {
-			return fmt.Sprintf("[%s] %s", msg.Role, msg.Content)
+			return formatSummarizerInput(msg, msg.Content)
 		}
 		args := truncateUTF8(string(env.Args), 300)
 		return fmt.Sprintf("[assistant:call %s] args: %s", env.Tool, args)
 
 	default:
-		return fmt.Sprintf("[%s] %s", msg.Role, msg.Content)
+		return formatSummarizerInput(msg, msg.Content)
+	}
+}
+
+func formatSummarizerInput(msg sqlc.CtxMessage, content string) string {
+	if msg.Role != roleUser {
+		return fmt.Sprintf("[%s] %s", msg.Role, content)
+	}
+	switch eventlog.ActorType(msg.ActorType) {
+	case eventlog.ActorAgent:
+		source := msg.SourceSessionID.String
+		if source == "" {
+			source = msg.ActorID.String
+		}
+		if source == "" {
+			source = "unknown"
+		}
+		return fmt.Sprintf("[agent-input from %s] %s", source, content)
+	case eventlog.ActorSystem:
+		return fmt.Sprintf("[system-input] %s", content)
+	default:
+		return fmt.Sprintf("[user] %s", content)
 	}
 }
 
