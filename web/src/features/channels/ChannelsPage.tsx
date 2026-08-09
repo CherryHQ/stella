@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { meQueryOptions } from "@/lib/queries/me";
 import {
   createChannel as createChannelRequest,
   deleteChannel,
@@ -208,8 +206,6 @@ export function ChannelsPage() {
   const search = useSearch({ strict: false }) as { agent?: string };
   const initialAgentId = search.agent ?? "";
 
-  const { data: me } = useQuery(meQueryOptions);
-
   const [linkedIdentities, setLinkedIdentities] = useState<Identity[]>([]);
   const [instances, setInstances] = useState<NormalizedChannel[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -265,7 +261,7 @@ export function ChannelsPage() {
 
   // The picker offers only what the API would accept; a readable-but-foreign
   // agent would just fail the bind.
-  const pickableAgents = useMemo(() => bindableAgents(agents, me), [agents, me]);
+  const pickableAgents = useMemo(() => bindableAgents(agents), [agents]);
 
   const loadInstances = useCallback(async () => {
     setLoadingInstances(true);

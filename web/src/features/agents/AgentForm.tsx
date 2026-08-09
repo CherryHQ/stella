@@ -3,6 +3,7 @@ import type { AgentsPageState } from "./agent-detail-state";
 import { Button } from "@/components/ui/button";
 import { ProfilePanelSection } from "./ProfilePanelSection";
 import { useI18n } from "@/lib/i18n";
+import { canEditAgent } from "./agent-detail-state";
 import { ConfigTab } from "./tabs/ConfigTab";
 import { PromptTab } from "./tabs/PromptTab";
 import { SkillsTab } from "./tabs/SkillsTab";
@@ -55,10 +56,11 @@ export function AgentForm({
   onDelete,
 }: Props) {
   const { t } = useI18n();
-  const { editingId, isAdmin, form, currentUserId } = state;
+  const { editingId, form } = state;
   const embedded = layout === "embedded";
 
-  const canEdit = isAdmin || !editingId || (!!form.creator_id && form.creator_id === currentUserId);
+  // A form with nothing saved yet has no agent to manage: creation is the edit.
+  const canEdit = !editingId || canEditAgent(form);
 
   const availableUsers = state.allUsers.filter(
     (u: User) => !state.assignedUsers.some((a: User) => a.id === u.id),

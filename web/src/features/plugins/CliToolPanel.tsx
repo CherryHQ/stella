@@ -248,14 +248,16 @@ function toEnvRows(envs: ManifestSessionEnv[] | undefined): EnvRow[] {
 
 // CliToolEditor is the compact detail editor for a manifest plugin: per-binary
 // version (with resolve-to-latest) and mise key, the session env mapping that
-// wires the CLI's runtime variables, and an OAuth provider. A builtin's mise key
-// stays read-only — it is the definition the server ships, and rewriting it here
-// would silently fork it.
+// wires the CLI's runtime variables, and an OAuth provider.
+//
+// A builtin's mise key is editable too: the edit becomes an override row over
+// the shipped definition, which is what every other field here already does.
+// The whole manifest-plugin API is admin-only, so that is who can write it.
+// What builtin still forbids is removal — see pluginIsRemovable.
 export function CliToolEditor({ plugin, oauthProviders, onSave, showToast }: EditorProps) {
   const { t } = useI18n();
   const manifest = plugin._manifestPlugin as ManifestPlugin;
   const binaries = manifest.binaries ?? [];
-  const builtin = !!manifest.builtin;
 
   const [versions, setVersions] = useState<Record<string, string>>(() =>
     Object.fromEntries(binaries.map((b) => [b.name, b.version ?? ""])),
@@ -322,9 +324,8 @@ export function CliToolEditor({ plugin, oauthProviders, onSave, showToast }: Edi
           const v = (versions[b.name] ?? "").trim();
           if (v) copy.version = v;
           else delete copy.version;
-          // A builtin keeps the key it ships with; the input is read-only there.
           const tool = (tools[b.name] ?? "").trim();
-          if (!builtin && tool) copy.tool = tool;
+          if (tool) copy.tool = tool;
           return copy;
         }),
       };
@@ -363,21 +364,15 @@ export function CliToolEditor({ plugin, oauthProviders, onSave, showToast }: Edi
             <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
               <div className="space-y-1.5 min-w-0">
                 <span className="text-xs font-semibold text-foreground">{binary.name}</span>
-                {builtin ? (
-                  <p className="font-mono text-xs text-muted-foreground truncate">{binary.tool}</p>
-                ) : (
-                  <Input
-                    nativeInput
-                    value={tools[binary.name] ?? ""}
-                    onChange={(e) =>
-                      setTools((prev) => ({ ...prev, [binary.name]: inputValue(e) }))
-                    }
-                    type="text"
-                    placeholder="github:owner/repo"
-                    className="font-mono text-sm"
-                    size="sm"
-                  />
-                )}
+                <Input
+                  nativeInput
+                  value={tools[binary.name] ?? ""}
+                  onChange={(e) => setTools((prev) => ({ ...prev, [binary.name]: inputValue(e) }))}
+                  type="text"
+                  placeholder="github:owner/repo"
+                  className="font-mono text-sm"
+                  size="sm"
+                />
               </div>
               <div className="flex items-end gap-2">
                 <div className="space-y-1.5">

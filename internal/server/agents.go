@@ -95,7 +95,7 @@ func (s *Server) ListAgents(w http.ResponseWriter, r *http.Request, params apise
 	}
 	result := make([]apitypes.Agent, len(agents))
 	for i := range agents {
-		result[i] = agentToAPI(agents[i])
+		result[i] = agentToAPI(agents[i], viewerFrom(info))
 	}
 	writeData(w, http.StatusOK, apitypes.AgentList{Agents: result})
 }
@@ -151,7 +151,7 @@ func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeData(w, http.StatusCreated, agentToAPI(created))
+	writeData(w, http.StatusCreated, agentToAPI(created, viewerFrom(info)))
 }
 
 func (s *Server) GetAgent(w http.ResponseWriter, r *http.Request, id string) {
@@ -163,7 +163,7 @@ func (s *Server) GetAgent(w http.ResponseWriter, r *http.Request, id string) {
 	}
 
 	fillAgentDefaults(&a)
-	writeData(w, http.StatusOK, agentToAPI(a))
+	writeData(w, http.StatusOK, agentToAPI(a, viewerFrom(UserFromContext(ctx))))
 }
 
 func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) {
@@ -209,7 +209,7 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) 
 		writeError(w, code, msg)
 		return
 	}
-	writeData(w, http.StatusOK, agentToAPI(updated))
+	writeData(w, http.StatusOK, agentToAPI(updated, viewerFrom(info)))
 }
 
 func (s *Server) DeleteAgent(w http.ResponseWriter, r *http.Request, id string) {

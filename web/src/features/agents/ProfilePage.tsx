@@ -16,7 +16,6 @@ import { agentsQueryOptions, agentSkillsOptions, agentToolsOptions } from "@/lib
 import { agentSettingsQueryOptions } from "@/lib/queries/agent-settings";
 import { goalCountsOptions } from "@/lib/queries/goals";
 import { agentMemoryOptions } from "@/lib/queries/memories";
-import { meQueryOptions } from "@/lib/queries/me";
 import { modelsQueryOptions } from "@/lib/queries/models";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { formatTime } from "@/lib/time";
@@ -63,7 +62,6 @@ export function ProfilePage() {
   const knowledgeState = search.knowledge === "removed" ? "removed" : "active";
 
   const { data: agents = [] } = useQuery(agentsQueryOptions);
-  const { data: me } = useQuery(meQueryOptions);
   const { data: models = [] } = useQuery(modelsQueryOptions);
   const { data: memory } = useQuery(agentMemoryOptions(agentId));
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
@@ -75,8 +73,7 @@ export function ProfilePage() {
 
   // Projects inherit their agent's configuration and tool catalog; both belong
   // to the agent's own profile, so those tabs only appear there.
-  const canConfigure =
-    !projectId && !!agent && canEditAgent(agent, me?.is_admin ?? false, me?.id ?? "");
+  const canConfigure = !projectId && canEditAgent(agent);
 
   const tabs: ProfileTab[] = [
     "overview",
