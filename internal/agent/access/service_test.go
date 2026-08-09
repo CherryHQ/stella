@@ -107,14 +107,25 @@ func TestListReadableKeepsADisabledAgentVisibleToItsCreator(t *testing.T) {
 		t.Fatalf("creator sees %v, want mine and live", ids)
 	}
 
-	// An admin is not every agent's creator, so the disabled set still takes the
-	// deliberate include_all rather than arriving unasked.
+	// Someone else's disabled agent still takes the deliberate include_all rather
+	// than arriving unasked, admin or not.
 	got, err = svc.ListReadable(context.Background(), userAuthority(t, "root", true), false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ids := agentIDs(got); len(ids) != 1 || !ids["live"] {
 		t.Fatalf("admin sees %v, want live only", ids)
+	}
+
+	// An admin is a creator like anyone else. The page holding the enable switch
+	// does not ask for includeDisabled, so excluding admins here would lock them
+	// out of their own agent exactly the way this test's first case describes.
+	got, err = svc.ListReadable(context.Background(), userAuthority(t, "u2", true), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := agentIDs(got); !ids["other"] {
+		t.Fatalf("admin creator sees %v, want their own disabled agent", ids)
 	}
 	got, err = svc.ListReadable(context.Background(), userAuthority(t, "root", true), true)
 	if err != nil {

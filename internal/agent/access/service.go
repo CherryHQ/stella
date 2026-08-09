@@ -190,8 +190,13 @@ func (a *Access) ListReadable(ctx context.Context, includeDisabled bool) ([]conf
 		// A disabled agent stays listed for its creator. They are the one person
 		// who can turn it back on, and the UI reaches an agent's configuration
 		// through this list — hiding it would make "disable" a one-way door out
-		// of your own agent. includeDisabled remains the admin's separate,
-		// deliberate reach over everyone else's.
+		// of your own agent.
+		//
+		// An admin is a creator too, and this deliberately applies to them: the
+		// page that owns the enable switch does not ask for includeDisabled, so
+		// excluding admins here would hand them back the same one-way door. What
+		// includeDisabled still decides is the reach over *other people's*
+		// disabled agents.
 		if !includeDisabled && !agent.Enabled && !a.isCreator(agent) {
 			continue
 		}
