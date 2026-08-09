@@ -14,19 +14,25 @@ import (
 )
 
 const createMessage = `-- name: CreateMessage :one
-INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, conversation_id, seq, role, event_type, content, token_count, created_at
+INSERT INTO ctx_message (
+    id, conversation_id, seq, role, event_type, content, token_count,
+    actor_type, actor_id, source_session_id
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+RETURNING id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id
 `
 
 type CreateMessageParams struct {
-	ID             string `json:"id"`
-	ConversationID string `json:"conversation_id"`
-	Seq            int64  `json:"seq"`
-	Role           string `json:"role"`
-	EventType      string `json:"event_type"`
-	Content        string `json:"content"`
-	TokenCount     int64  `json:"token_count"`
+	ID              string      `json:"id"`
+	ConversationID  string      `json:"conversation_id"`
+	Seq             int64       `json:"seq"`
+	Role            string      `json:"role"`
+	EventType       string      `json:"event_type"`
+	Content         string      `json:"content"`
+	TokenCount      int64       `json:"token_count"`
+	ActorType       string      `json:"actor_type"`
+	ActorID         pgtype.Text `json:"actor_id"`
+	SourceSessionID pgtype.Text `json:"source_session_id"`
 }
 
 func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (CtxMessage, error) {
@@ -38,6 +44,9 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (C
 		arg.EventType,
 		arg.Content,
 		arg.TokenCount,
+		arg.ActorType,
+		arg.ActorID,
+		arg.SourceSessionID,
 	)
 	var i CtxMessage
 	err := row.Scan(
@@ -49,6 +58,9 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (C
 		&i.Content,
 		&i.TokenCount,
 		&i.CreatedAt,
+		&i.ActorType,
+		&i.ActorID,
+		&i.SourceSessionID,
 	)
 	return i, err
 }
@@ -139,7 +151,7 @@ func (q *Queries) GetMaxSeq(ctx context.Context, conversationID string) (int64, 
 }
 
 const getMessage = `-- name: GetMessage :one
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_message WHERE id = $1 AND conversation_id = $2
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id FROM ctx_message WHERE id = $1 AND conversation_id = $2
 `
 
 type GetMessageParams struct {
@@ -159,6 +171,9 @@ func (q *Queries) GetMessage(ctx context.Context, arg GetMessageParams) (CtxMess
 		&i.Content,
 		&i.TokenCount,
 		&i.CreatedAt,
+		&i.ActorType,
+		&i.ActorID,
+		&i.SourceSessionID,
 	)
 	return i, err
 }
@@ -252,7 +267,7 @@ func (q *Queries) GetMessagePartsByMessages(ctx context.Context, messageIds []st
 
 const getMessageScoped = `-- name: GetMessageScoped :one
 SELECT
-    m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at,
+    m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at, m.actor_type, m.actor_id, m.source_session_id,
     c.session_id AS session_id,
     c.title AS conversation_title
 FROM ctx_message m
@@ -277,6 +292,9 @@ type GetMessageScopedRow struct {
 	Content           string      `json:"content"`
 	TokenCount        int64       `json:"token_count"`
 	CreatedAt         time.Time   `json:"created_at"`
+	ActorType         string      `json:"actor_type"`
+	ActorID           pgtype.Text `json:"actor_id"`
+	SourceSessionID   pgtype.Text `json:"source_session_id"`
 	SessionID         string      `json:"session_id"`
 	ConversationTitle pgtype.Text `json:"conversation_title"`
 }
@@ -297,6 +315,9 @@ func (q *Queries) GetMessageScoped(ctx context.Context, arg GetMessageScopedPara
 		&i.Content,
 		&i.TokenCount,
 		&i.CreatedAt,
+		&i.ActorType,
+		&i.ActorID,
+		&i.SourceSessionID,
 		&i.SessionID,
 		&i.ConversationTitle,
 	)
@@ -304,7 +325,7 @@ func (q *Queries) GetMessageScoped(ctx context.Context, arg GetMessageScopedPara
 }
 
 const getMessagesByConversation = `-- name: GetMessagesByConversation :many
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_message WHERE conversation_id = $1 ORDER BY seq ASC
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id FROM ctx_message WHERE conversation_id = $1 ORDER BY seq ASC
 `
 
 func (q *Queries) GetMessagesByConversation(ctx context.Context, conversationID string) ([]CtxMessage, error) {
@@ -325,6 +346,9 @@ func (q *Queries) GetMessagesByConversation(ctx context.Context, conversationID 
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.SourceSessionID,
 		); err != nil {
 			return nil, err
 		}
@@ -337,7 +361,7 @@ func (q *Queries) GetMessagesByConversation(ctx context.Context, conversationID 
 }
 
 const getMessagesByConversationRange = `-- name: GetMessagesByConversationRange :many
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_message
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id FROM ctx_message
 WHERE conversation_id = $1 AND seq >= $2 AND seq <= $3
 ORDER BY seq ASC
 `
@@ -366,6 +390,9 @@ func (q *Queries) GetMessagesByConversationRange(ctx context.Context, arg GetMes
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.SourceSessionID,
 		); err != nil {
 			return nil, err
 		}
@@ -378,7 +405,7 @@ func (q *Queries) GetMessagesByConversationRange(ctx context.Context, arg GetMes
 }
 
 const getMessagesSince = `-- name: GetMessagesSince :many
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_message
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id FROM ctx_message
 WHERE conversation_id = $1 AND created_at > $2
 ORDER BY seq ASC
 `
@@ -406,6 +433,9 @@ func (q *Queries) GetMessagesSince(ctx context.Context, arg GetMessagesSincePara
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.SourceSessionID,
 		); err != nil {
 			return nil, err
 		}
@@ -508,7 +538,7 @@ func (q *Queries) ListMessagePartsWithMediaByMessages(ctx context.Context, messa
 }
 
 const listMessagesByIDs = `-- name: ListMessagesByIDs :many
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at FROM ctx_message WHERE conversation_id = $1 AND id = ANY($2::uuid[]) ORDER BY seq ASC
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id FROM ctx_message WHERE conversation_id = $1 AND id = ANY($2::uuid[]) ORDER BY seq ASC
 `
 
 type ListMessagesByIDsParams struct {
@@ -534,6 +564,9 @@ func (q *Queries) ListMessagesByIDs(ctx context.Context, arg ListMessagesByIDsPa
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.SourceSessionID,
 		); err != nil {
 			return nil, err
 		}
@@ -548,7 +581,7 @@ func (q *Queries) ListMessagesByIDs(ctx context.Context, arg ListMessagesByIDsPa
 const listMessagesByLogicalPage = `-- name: ListMessagesByLogicalPage :many
 WITH ordered AS (
     SELECT
-        id, conversation_id, seq, role, event_type, content, token_count, created_at,
+        id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id,
         lag(role) OVER (ORDER BY seq ASC) AS prev_role
     FROM ctx_message
     WHERE conversation_id = $1
@@ -556,7 +589,7 @@ WITH ordered AS (
       AND ($3::timestamptz IS NULL OR created_at <= $3)
 ), grouped AS (
     SELECT
-        id, conversation_id, seq, role, event_type, content, token_count, created_at, prev_role,
+        id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id, prev_role,
         sum(CASE WHEN role = 'assistant' AND prev_role = 'assistant' THEN 0 ELSE 1 END)
             OVER (ORDER BY seq ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS logical_idx
     FROM ordered
@@ -567,7 +600,8 @@ WITH ordered AS (
     ORDER BY logical_idx DESC
     LIMIT $5 OFFSET $4
 )
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at,
+       actor_type, actor_id, source_session_id
 FROM grouped
 WHERE logical_idx IN (SELECT logical_idx FROM selected_groups)
 ORDER BY seq ASC
@@ -582,14 +616,17 @@ type ListMessagesByLogicalPageParams struct {
 }
 
 type ListMessagesByLogicalPageRow struct {
-	ID             string    `json:"id"`
-	ConversationID string    `json:"conversation_id"`
-	Seq            int64     `json:"seq"`
-	Role           string    `json:"role"`
-	EventType      string    `json:"event_type"`
-	Content        string    `json:"content"`
-	TokenCount     int64     `json:"token_count"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID              string      `json:"id"`
+	ConversationID  string      `json:"conversation_id"`
+	Seq             int64       `json:"seq"`
+	Role            string      `json:"role"`
+	EventType       string      `json:"event_type"`
+	Content         string      `json:"content"`
+	TokenCount      int64       `json:"token_count"`
+	CreatedAt       time.Time   `json:"created_at"`
+	ActorType       string      `json:"actor_type"`
+	ActorID         pgtype.Text `json:"actor_id"`
+	SourceSessionID pgtype.Text `json:"source_session_id"`
 }
 
 // Keep this logical-message boundary in sync with serializeDBMessages in
@@ -619,6 +656,9 @@ func (q *Queries) ListMessagesByLogicalPage(ctx context.Context, arg ListMessage
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.SourceSessionID,
 		); err != nil {
 			return nil, err
 		}
@@ -684,13 +724,13 @@ func (q *Queries) ListMessagesNeedingEmbedding(ctx context.Context, arg ListMess
 const listSessionTranscriptPage = `-- name: ListSessionTranscriptPage :many
 WITH ordered AS (
     SELECT
-        id, conversation_id, seq, role, event_type, content, token_count, created_at,
+        id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id,
         lag(seq) OVER (ORDER BY seq ASC) AS prev_seq
     FROM ctx_message
     WHERE conversation_id = $1
 ), grouped AS (
     SELECT
-        id, conversation_id, seq, role, event_type, content, token_count, created_at, prev_seq,
+        id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id, prev_seq,
         sum(CASE WHEN role = 'user' OR prev_seq IS NULL THEN 1 ELSE 0 END)
             OVER (ORDER BY seq ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS turn_idx
     FROM ordered
@@ -714,7 +754,8 @@ WITH ordered AS (
     ORDER BY turn_idx DESC
     LIMIT $4 OFFSET $3
 )
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at,
+       actor_type, actor_id, source_session_id
 FROM grouped
 WHERE turn_idx IN (SELECT turn_idx FROM selected_turns)
 ORDER BY seq ASC
@@ -728,14 +769,17 @@ type ListSessionTranscriptPageParams struct {
 }
 
 type ListSessionTranscriptPageRow struct {
-	ID             string    `json:"id"`
-	ConversationID string    `json:"conversation_id"`
-	Seq            int64     `json:"seq"`
-	Role           string    `json:"role"`
-	EventType      string    `json:"event_type"`
-	Content        string    `json:"content"`
-	TokenCount     int64     `json:"token_count"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID              string      `json:"id"`
+	ConversationID  string      `json:"conversation_id"`
+	Seq             int64       `json:"seq"`
+	Role            string      `json:"role"`
+	EventType       string      `json:"event_type"`
+	Content         string      `json:"content"`
+	TokenCount      int64       `json:"token_count"`
+	CreatedAt       time.Time   `json:"created_at"`
+	ActorType       string      `json:"actor_type"`
+	ActorID         pgtype.Text `json:"actor_id"`
+	SourceSessionID pgtype.Text `json:"source_session_id"`
 }
 
 // Agent-facing transcript pages use a whole user turn as the atomic boundary:
@@ -764,6 +808,9 @@ func (q *Queries) ListSessionTranscriptPage(ctx context.Context, arg ListSession
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.SourceSessionID,
 		); err != nil {
 			return nil, err
 		}
@@ -777,7 +824,7 @@ func (q *Queries) ListSessionTranscriptPage(ctx context.Context, arg ListSession
 
 const searchMessageEmbeddings = `-- name: SearchMessageEmbeddings :many
 SELECT
-    m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at,
+    m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at, m.actor_type, m.actor_id, m.source_session_id,
     c.session_id AS session_id,
     c.title AS conversation_title,
     (1 - (e.embedding <=> $1::vector(1536)))::double precision AS score
@@ -808,6 +855,9 @@ type SearchMessageEmbeddingsRow struct {
 	Content           string      `json:"content"`
 	TokenCount        int64       `json:"token_count"`
 	CreatedAt         time.Time   `json:"created_at"`
+	ActorType         string      `json:"actor_type"`
+	ActorID           pgtype.Text `json:"actor_id"`
+	SourceSessionID   pgtype.Text `json:"source_session_id"`
 	SessionID         string      `json:"session_id"`
 	ConversationTitle pgtype.Text `json:"conversation_title"`
 	Score             float64     `json:"score"`
@@ -843,6 +893,9 @@ func (q *Queries) SearchMessageEmbeddings(ctx context.Context, arg SearchMessage
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.SourceSessionID,
 			&i.SessionID,
 			&i.ConversationTitle,
 			&i.Score,
@@ -859,7 +912,7 @@ func (q *Queries) SearchMessageEmbeddings(ctx context.Context, arg SearchMessage
 
 const searchMessages = `-- name: SearchMessages :many
 SELECT
-    m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at,
+    m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at, m.actor_type, m.actor_id, m.source_session_id,
     c.session_id AS session_id,
     c.title AS conversation_title,
     paradedb.snippet(m.content)::text AS snippet,
@@ -889,6 +942,9 @@ type SearchMessagesRow struct {
 	Content           string      `json:"content"`
 	TokenCount        int64       `json:"token_count"`
 	CreatedAt         time.Time   `json:"created_at"`
+	ActorType         string      `json:"actor_type"`
+	ActorID           pgtype.Text `json:"actor_id"`
+	SourceSessionID   pgtype.Text `json:"source_session_id"`
 	SessionID         string      `json:"session_id"`
 	ConversationTitle pgtype.Text `json:"conversation_title"`
 	Snippet           string      `json:"snippet"`
@@ -929,6 +985,9 @@ func (q *Queries) SearchMessages(ctx context.Context, arg SearchMessagesParams) 
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.SourceSessionID,
 			&i.SessionID,
 			&i.ConversationTitle,
 			&i.Snippet,

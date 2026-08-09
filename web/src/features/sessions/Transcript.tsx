@@ -77,6 +77,9 @@ export const Transcript = forwardRef<HTMLDivElement, Props>(function Transcript(
         model: msg.model,
         tokenCount: msg.token_count,
         streaming,
+        actorType: msg.actor_type,
+        actorId: msg.actor_id,
+        sourceSessionId: msg.source_session_id,
       };
       tmCacheRef.current.set(msg, { agentName, agentId, streaming, out });
       return out;
@@ -165,6 +168,9 @@ function SummaryCard({
       blocks: msg.blocks ?? (msg.content ? [{ type: "text" as const, text: msg.content }] : []),
       model: msg.model,
       tokenCount: msg.token_count,
+      actorType: msg.actor_type,
+      actorId: msg.actor_id,
+      sourceSessionId: msg.source_session_id,
     }));
   }, [messagesQuery.data, agentName, agentId]);
 

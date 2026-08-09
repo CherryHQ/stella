@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -30,6 +31,10 @@ func TestAssembleContextWindowLoaderMixedLargeWindow(t *testing.T) {
 	ordinal := int64(0)
 	appendMessage := func(id string, seq int64, role, eventType, content string) {
 		t.Helper()
+		actorType := eventlog.ActorHuman
+		if role != roleUser {
+			actorType = eventlog.ActorAgent
+		}
 		if _, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
 			ID:             id,
 			ConversationID: convID,
@@ -37,6 +42,7 @@ func TestAssembleContextWindowLoaderMixedLargeWindow(t *testing.T) {
 			Role:           role,
 			EventType:      eventType,
 			Content:        content,
+			ActorType:      string(actorType),
 			TokenCount:     int64(memoryEstimate(content)),
 		}); err != nil {
 			t.Fatalf("create message %s: %v", id, err)

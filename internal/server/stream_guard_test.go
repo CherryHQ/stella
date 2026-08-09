@@ -76,6 +76,10 @@ func (s *stubRuntimeService) Chat(context.Context, agent.ChatRequest) <-chan age
 func (s *stubRuntimeService) RunManagedSession(context.Context, delegatetool.ManagedSessionRequest) (delegatetool.ManagedSessionResult, error) {
 	return delegatetool.ManagedSessionResult{}, nil
 }
+
+func (s *stubRuntimeService) RunConversationSession(context.Context, agentsession.Info, agent.MessageContent) <-chan agent.Event {
+	return nil
+}
 func (s *stubRuntimeService) StopSession(context.Context, string) bool { return false }
 func (s *stubRuntimeService) SubscribeSession(string) (<-chan agent.Event, func()) {
 	return s.events, func() {}

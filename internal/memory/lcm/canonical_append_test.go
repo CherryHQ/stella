@@ -11,12 +11,52 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
 const encodedPixels = "QklOQVJZX1BJWEVMU19NVVNUX05PVF9CRV9TVE9SRUQ="
+
+func TestAppendPersistsTrustedPerMessageActor(t *testing.T) {
+	db := newLCMTestDB(t)
+	defer db.Close()
+	p, err := lcm.New(db, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = p.Close() }()
+
+	sess := memory.Session{ID: "actor-target", UserID: testUserID, AgentID: "target-agent", Channel: "web"}
+	actor := eventlog.MessageActor{Type: eventlog.ActorAgent, ID: "source-agent", SourceSessionID: "source-session"}
+	ctx := eventlog.WithMessageActor(context.Background(), actor)
+	if err := p.Append(ctx, sess,
+		ai.UserMessage{Content: "agent input"},
+		ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "target reply"}}},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := db.Query(context.Background(), `SELECT role, actor_type, actor_id, COALESCE(source_session_id, '') FROM ctx_message ORDER BY seq`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	want := []struct{ role, actorType, actorID, sourceSessionID string }{
+		{"user", string(eventlog.ActorAgent), "source-agent", "source-session"},
+		{"assistant", string(eventlog.ActorAgent), "target-agent", ""},
+	}
+	for i := 0; rows.Next(); i++ {
+		var got struct{ role, actorType, actorID, sourceSessionID string }
+		if err := rows.Scan(&got.role, &got.actorType, &got.actorID, &got.sourceSessionID); err != nil {
+			t.Fatal(err)
+		}
+		if i >= len(want) || got != want[i] {
+			t.Fatalf("row %d actor=%#v, want %#v", i, got, want[i])
+		}
+	}
+}
 
 func TestAppendStoresBaselineProjectionAndParts(t *testing.T) {
 	db := newLCMTestDB(t)

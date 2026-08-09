@@ -54,14 +54,16 @@ type fakeRuntimeService struct {
 	live           bool
 	events         chan agent.Event
 	chatCtx        context.Context
+	chatRequests   []agent.ChatRequest
 	managedCalls   []delegatetool.ManagedSessionRequest
 	managedResult  delegatetool.ManagedSessionResult
 	managedErr     error
 }
 
-func (s *fakeRuntimeService) Chat(ctx context.Context, _ agent.ChatRequest) <-chan agent.Event {
+func (s *fakeRuntimeService) Chat(ctx context.Context, req agent.ChatRequest) <-chan agent.Event {
 	s.chatCalls++
 	s.chatCtx = ctx
+	s.chatRequests = append(s.chatRequests, req)
 	ch := make(chan agent.Event, 2)
 	ch <- agent.Event{Text: "hello"}
 	ch <- agent.Event{Text: " world"}
@@ -79,6 +81,13 @@ func (s *fakeRuntimeService) RunManagedSession(_ context.Context, req delegateto
 		result.SessionID = req.SessionID
 	}
 	return result, nil
+}
+
+func (s *fakeRuntimeService) RunConversationSession(ctx context.Context, info agentsession.Info, message agent.MessageContent) <-chan agent.Event {
+	return s.Chat(ctx, agent.ChatRequest{
+		SessionID: info.ID, UserID: info.UserID, AgentID: info.AgentID, ProjectID: info.ProjectID,
+		Kind: agentsession.Kind(info.Kind), Channel: agentsession.Channel(info.Channel), Message: message,
+	})
 }
 
 func (s *fakeRuntimeService) StopSession(context.Context, string) bool {

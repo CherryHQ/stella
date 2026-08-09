@@ -299,7 +299,7 @@ func TestSessionGetIsCompactByDefaultAndPagesWholeToolTurns(t *testing.T) {
 	if compact.Transcript != nil || compact.TranscriptCursor == "" || len(compact.Preview) != 1 {
 		t.Fatalf("get default was not compact/cursor-gated: %#v", compact)
 	}
-	if compact.ActiveRequest != nil || len(compact.SupportedOperations) != 1 || compact.SupportedOperations[0] != "get" {
+	if compact.ActiveRequest != nil || strings.Join(compact.SupportedOperations, ",") != "get,send" {
 		t.Fatalf("unexpected compact state: %#v", compact)
 	}
 

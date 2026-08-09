@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -15,6 +16,15 @@ type chatOptions struct {
 	extraTools     []tools.Tool
 	currentSpeaker memory.CurrentSpeaker
 	hasSpeaker     bool
+	inputActor     eventlog.MessageActor
+}
+
+// WithInputActor attaches runtime-derived provenance to the input message.
+// The value comes from trusted authority/session state, never model arguments.
+func WithInputActor(actor eventlog.MessageActor) Option {
+	return func(o *chatOptions) {
+		o.inputActor = actor
+	}
 }
 
 // WithCurrentSpeaker attaches the per-turn group speaker for this Chat call.

@@ -277,6 +277,9 @@ SELECT
   m.content AS message_content,
   m.token_count AS message_token_count,
   m.created_at AS message_created_at,
+  m.actor_type AS message_actor_type,
+  m.actor_id AS message_actor_id,
+  m.source_session_id AS message_source_session_id,
   s.id AS summary_id,
   s.kind AS summary_kind,
   s.depth AS summary_depth,
@@ -314,6 +317,9 @@ type ListContextItemsPageRow struct {
 	MessageContent                 pgtype.Text        `json:"message_content"`
 	MessageTokenCount              pgtype.Int8        `json:"message_token_count"`
 	MessageCreatedAt               pgtype.Timestamptz `json:"message_created_at"`
+	MessageActorType               pgtype.Text        `json:"message_actor_type"`
+	MessageActorID                 pgtype.Text        `json:"message_actor_id"`
+	MessageSourceSessionID         pgtype.Text        `json:"message_source_session_id"`
 	SummaryID                      pgtype.Text        `json:"summary_id"`
 	SummaryKind                    pgtype.Text        `json:"summary_kind"`
 	SummaryDepth                   pgtype.Int8        `json:"summary_depth"`
@@ -348,6 +354,9 @@ func (q *Queries) ListContextItemsPage(ctx context.Context, arg ListContextItems
 			&i.MessageContent,
 			&i.MessageTokenCount,
 			&i.MessageCreatedAt,
+			&i.MessageActorType,
+			&i.MessageActorID,
+			&i.MessageSourceSessionID,
 			&i.SummaryID,
 			&i.SummaryKind,
 			&i.SummaryDepth,

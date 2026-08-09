@@ -38,14 +38,17 @@ type TranscriptPageInput struct {
 }
 
 type Message struct {
-	ID         string
-	Seq        int64
-	Role       string
-	EventType  string
-	Content    string
-	Parts      []MessagePart
-	TokenCount int64
-	CreatedAt  time.Time
+	ID              string
+	Seq             int64
+	Role            string
+	EventType       string
+	Content         string
+	Parts           []MessagePart
+	TokenCount      int64
+	CreatedAt       time.Time
+	ActorType       string
+	ActorID         string
+	SourceSessionID string
 }
 
 // MessagePart is the transcript-safe projection of an ordered durable part.
@@ -95,13 +98,16 @@ type ContextItem struct {
 }
 
 type ContextMessage struct {
-	ID         string
-	Seq        int
-	Role       string
-	EventType  *string
-	Content    *string
-	Timestamp  time.Time
-	TokenCount int
+	ID              string
+	Seq             int
+	Role            string
+	EventType       *string
+	Content         *string
+	Timestamp       time.Time
+	TokenCount      int
+	ActorType       string
+	ActorID         string
+	SourceSessionID string
 }
 
 type Summary struct {
@@ -494,7 +500,11 @@ func messagesFromRows(rows []sqlc.CtxMessage, partsByMessage map[string][]Messag
 }
 
 func messageFromRow(row sqlc.CtxMessage, parts []MessagePart) Message {
-	return Message{ID: row.ID, Seq: row.Seq, Role: row.Role, EventType: row.EventType, Content: row.Content, Parts: parts, TokenCount: row.TokenCount, CreatedAt: row.CreatedAt.UTC()}
+	return Message{
+		ID: row.ID, Seq: row.Seq, Role: row.Role, EventType: row.EventType, Content: row.Content,
+		Parts: parts, TokenCount: row.TokenCount, CreatedAt: row.CreatedAt.UTC(), ActorType: row.ActorType,
+		ActorID: row.ActorID.String, SourceSessionID: row.SourceSessionID.String,
+	}
 }
 
 func contextItemsFromMessages(messages []sqlc.CtxMessage) []ContextItem {
@@ -502,7 +512,11 @@ func contextItemsFromMessages(messages []sqlc.CtxMessage) []ContextItem {
 	for i, msg := range messages {
 		content := msg.Content
 		eventType := msg.EventType
-		items = append(items, ContextItem{Ordinal: i + 1, EventType: stringPtr(msg.EventType), Message: &ContextMessage{ID: msg.ID, Seq: int(msg.Seq), Role: msg.Role, EventType: &eventType, Content: &content, Timestamp: msg.CreatedAt.UTC(), TokenCount: int(msg.TokenCount)}})
+		items = append(items, ContextItem{Ordinal: i + 1, EventType: stringPtr(msg.EventType), Message: &ContextMessage{
+			ID: msg.ID, Seq: int(msg.Seq), Role: msg.Role, EventType: &eventType, Content: &content,
+			Timestamp: msg.CreatedAt.UTC(), TokenCount: int(msg.TokenCount), ActorType: msg.ActorType,
+			ActorID: msg.ActorID.String, SourceSessionID: msg.SourceSessionID.String,
+		}})
 	}
 	return items
 }
@@ -524,7 +538,12 @@ func contextItemFromRow(row sqlc.ListContextItemsPageRow) (ContextItem, bool) {
 		if !row.MessageID.Valid || !row.MessageSeq.Valid || !row.MessageRole.Valid {
 			return item, false
 		}
-		item.Message = &ContextMessage{ID: row.MessageID.String, Seq: int(row.MessageSeq.Int64), Role: row.MessageRole.String, EventType: textPtr(row.MessageEventType), Content: textPtr(row.MessageContent), Timestamp: row.MessageCreatedAt.Time.UTC(), TokenCount: int(row.MessageTokenCount.Int64)}
+		item.Message = &ContextMessage{
+			ID: row.MessageID.String, Seq: int(row.MessageSeq.Int64), Role: row.MessageRole.String,
+			EventType: textPtr(row.MessageEventType), Content: textPtr(row.MessageContent), Timestamp: row.MessageCreatedAt.Time.UTC(),
+			TokenCount: int(row.MessageTokenCount.Int64), ActorType: row.MessageActorType.String,
+			ActorID: row.MessageActorID.String, SourceSessionID: row.MessageSourceSessionID.String,
+		}
 		return item, true
 	case "summary":
 		if !row.SummaryID.Valid {

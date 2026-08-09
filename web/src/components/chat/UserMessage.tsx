@@ -18,6 +18,8 @@ export interface UserMessageProps {
   agentNames?: Map<string, string>;
   sameRoleAsPrev?: boolean;
   showTimestamp?: boolean;
+  actorType?: "human" | "agent" | "system";
+  actorId?: string;
 }
 
 export function UserMessage({
@@ -27,20 +29,29 @@ export function UserMessage({
   agentNames,
   sameRoleAsPrev,
   showTimestamp,
+  actorType,
+  actorId,
 }: UserMessageProps) {
   const { t } = useI18n();
   const { canonicalBlocks, hasCanonicalImage, text, images, otherFiles } = userMessageRenderInput(
     msg,
     agentNames,
   );
+  const nonHuman = actorType === "agent" || actorType === "system";
+  const actorLabel =
+    actorType === "agent"
+      ? (agentNames?.get(actorId ?? "") ?? actorId ?? t("chat.agentMessage"))
+      : actorType === "system"
+        ? t("chat.systemMessage")
+        : t("chat.you");
 
   return (
     <div className="group w-full min-w-0 flex flex-col items-end gap-1.5">
       {!sameRoleAsPrev && (
         <div className="flex items-center gap-2 mb-0.5">
-          <span className="text-xs font-semibold text-foreground">{t("chat.you")}</span>
+          <span className="text-xs font-semibold text-foreground">{actorLabel}</span>
           <span className="grid size-5 place-items-center rounded-full bg-foreground/15 text-xs font-semibold text-foreground shrink-0">
-            Y
+            {nonHuman ? (actorType === "agent" ? "A" : "S") : "Y"}
           </span>
         </div>
       )}

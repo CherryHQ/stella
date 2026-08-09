@@ -430,13 +430,27 @@ func TestEmbeddedPostgresSessionBehaviorMatrix(t *testing.T) {
 	})
 }
 
-// TestSessionSendRestrictionMatrix pins the phase-3 bridge: the server only
-// admits owned managed/delegate sessions. Conversation inputs must wait for
-// message actor provenance, and every other ownership boundary remains hidden.
+// TestSessionSendRestrictionMatrix pins the exact sendable policy after actor
+// provenance: owned conversation/managed sessions are callable; control-plane,
+// archived, group, and cross-principal targets remain unavailable.
 func TestSessionSendRestrictionMatrix(t *testing.T) {
 	m := newSessionMatrix(t)
 	managedID := "managed-send-target"
 	seedManagedSession(t, m, managedID)
+	archivedID := "archived-send-target"
+	now := time.Now().UTC()
+	if err := m.svc.memory.SaveInfo(context.Background(), memory.SessionInfo{
+		ID: archivedID, UserID: m.owner, AgentID: m.agent, Kind: string(agentsession.KindChat),
+		Channel: string(agentsession.ChannelWeb), Archived: true, CreatedAt: now, LastActive: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlc.New(m.db).CreateConversation(context.Background(), sqlc.CreateConversationParams{
+		ID: uuid.NewString(), SessionID: archivedID, Kind: string(agentsession.KindChat), Channel: string(agentsession.ChannelWeb),
+		Archived: true, LastActive: now, UserID: pgtype.Text{String: m.owner, Valid: true}, AgentID: pgtype.Text{String: m.agent, Valid: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	runtime := &fakeRuntimeService{}
 	if err := m.svc.BindRuntimeManager(fakeRuntimeManager{svc: runtime}); err != nil {
 		t.Fatal(err)
@@ -451,8 +465,9 @@ func TestSessionSendRestrictionMatrix(t *testing.T) {
 		want string
 	}{
 		{name: "owner sends managed session", ctx: ownerCtx, id: managedID},
-		{name: "conversation sessions need provenance", ctx: ownerCtx, id: m.private, want: "conversation sessions require message actor provenance"},
-		{name: "control plane sessions are not generic targets", ctx: ownerCtx, id: m.internal, want: "only supports managed sessions"},
+		{name: "owner sends channel-bound conversation transcript only", ctx: ownerCtx, id: m.private},
+		{name: "control plane sessions are not generic targets", ctx: ownerCtx, id: m.internal, want: "control-plane sessions"},
+		{name: "archived conversation is refused", ctx: ownerCtx, id: archivedID, want: "archived"},
 		{name: "foreign user is hidden", ctx: memory.WithSessionID(authz.WithAgentID(authz.WithUserID(context.Background(), m.other), m.agent), "source-session"), id: managedID, want: "session not found"},
 		{name: "foreign agent is hidden", ctx: memory.WithSessionID(authz.WithAgentID(authz.WithUserID(context.Background(), m.owner), "other-agent"), "source-session"), id: managedID, want: "session not found"},
 		{name: "group target is hidden", ctx: ownerCtx, id: m.groupSID, want: "session not found"},
@@ -474,6 +489,12 @@ func TestSessionSendRestrictionMatrix(t *testing.T) {
 	}
 	if len(runtime.managedCalls) != 1 || runtime.managedCalls[0].SessionID != managedID {
 		t.Fatalf("managed calls=%#v, want exactly the owned managed send", runtime.managedCalls)
+	}
+	if len(runtime.chatRequests) != 1 || runtime.chatRequests[0].SessionID != m.private || runtime.chatRequests[0].Channel != agentsession.ChannelTelegram {
+		t.Fatalf("conversation calls=%#v, want one transcript-only Telegram target turn", runtime.chatRequests)
+	}
+	if sessionSendable(agentsession.Info{ID: archivedID, Kind: string(agentsession.KindChat), Archived: true}) {
+		t.Fatal("archived conversation card is sendable")
 	}
 
 	runtime.managedErr = agenterr.ErrSessionBusy
@@ -508,17 +529,17 @@ func newSessionMatrix(t *testing.T) sessionMatrix {
 	}
 	mem := memorytest.New()
 	q := sqlc.New(pool)
-	save := func(id, userID, groupID, kind string) {
+	save := func(id, userID, groupID, kind string, channel agentsession.Channel) {
 		t.Helper()
 		now := time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC)
 		if err := mem.SaveInfo(ctx, memory.SessionInfo{
 			ID: id, UserID: userID, GroupID: groupID, AgentID: agentID,
-			Channel: string(agentsession.ChannelWeb), Kind: kind, CreatedAt: now, LastActive: now,
+			Channel: string(channel), Kind: kind, CreatedAt: now, LastActive: now,
 		}); err != nil {
 			t.Fatalf("SaveInfo(%s): %v", id, err)
 		}
 		if _, err := q.CreateConversation(ctx, sqlc.CreateConversationParams{
-			ID: uuid.NewString(), SessionID: id, Channel: string(agentsession.ChannelWeb), Kind: kind, LastActive: now,
+			ID: uuid.NewString(), SessionID: id, Channel: string(channel), Kind: kind, LastActive: now,
 			AgentID: pgtype.Text{String: agentID, Valid: true}, UserID: pgtype.Text{String: userID, Valid: true},
 			GroupID: pgtype.Text{String: groupID, Valid: groupID != ""},
 		}); err != nil {
@@ -531,9 +552,9 @@ func newSessionMatrix(t *testing.T) sessionMatrix {
 	}); err != nil {
 		t.Fatalf("CreateGroupState: %v", err)
 	}
-	save(private, owner, "", string(agentsession.KindChat))
-	save(internal, owner, "", string(agentsession.KindTask))
-	save(groupSession, groupID, groupID, string(agentsession.KindChat))
+	save(private, owner, "", string(agentsession.KindChat), agentsession.ChannelTelegram)
+	save(internal, owner, "", string(agentsession.KindTask), agentsession.ChannelTask)
+	save(groupSession, groupID, groupID, string(agentsession.KindChat), agentsession.ChannelWeb)
 
 	blobStore, err := blob.NewFSStore(t.TempDir())
 	if err != nil {

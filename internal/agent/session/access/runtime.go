@@ -74,6 +74,7 @@ func (m agentRuntimeManager) Default() RuntimeService {
 type RuntimeService interface {
 	Chat(context.Context, agent.ChatRequest) <-chan agent.Event
 	RunManagedSession(context.Context, delegatetool.ManagedSessionRequest) (delegatetool.ManagedSessionResult, error)
+	RunConversationSession(context.Context, agentsession.Info, agent.MessageContent) <-chan agent.Event
 	StopSession(context.Context, string) bool
 	SubscribeSession(sessionID string) (<-chan agent.Event, func())
 	SessionLive(sessionID string) bool

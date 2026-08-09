@@ -506,14 +506,17 @@ type CtxMedium struct {
 }
 
 type CtxMessage struct {
-	ID             string    `json:"id"`
-	ConversationID string    `json:"conversation_id"`
-	Seq            int64     `json:"seq"`
-	Role           string    `json:"role"`
-	EventType      string    `json:"event_type"`
-	Content        string    `json:"content"`
-	TokenCount     int64     `json:"token_count"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID              string      `json:"id"`
+	ConversationID  string      `json:"conversation_id"`
+	Seq             int64       `json:"seq"`
+	Role            string      `json:"role"`
+	EventType       string      `json:"event_type"`
+	Content         string      `json:"content"`
+	TokenCount      int64       `json:"token_count"`
+	CreatedAt       time.Time   `json:"created_at"`
+	ActorType       string      `json:"actor_type"`
+	ActorID         pgtype.Text `json:"actor_id"`
+	SourceSessionID pgtype.Text `json:"source_session_id"`
 }
 
 type CtxMessageEmbedding struct {

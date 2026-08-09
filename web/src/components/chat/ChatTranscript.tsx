@@ -17,6 +17,9 @@ export interface TranscriptMessage {
   tokenCount?: number;
   streaming?: boolean;
   agentSessionId?: string;
+  actorType?: "human" | "agent" | "system";
+  actorId?: string;
+  sourceSessionId?: string;
 }
 
 interface Props {
@@ -71,6 +74,8 @@ const MessageRow = memo(function MessageRow({
       {msg.role === "user" ? (
         <UserMessage
           msg={{ content: msg.content, blocks: msg.blocks, timestamp: msg.timestamp }}
+          actorType={msg.actorType}
+          actorId={msg.actorId}
           agentId={fileAgentId}
           sessionId={fileSessionId}
           agentNames={agentNames}
@@ -110,7 +115,11 @@ export function MessageList({
           key={msg.id}
           msg={msg}
           sameRoleAsPrev={
-            i > 0 && messages[i - 1].role === msg.role && messages[i - 1].agentId === msg.agentId
+            i > 0 &&
+            messages[i - 1].role === msg.role &&
+            messages[i - 1].agentId === msg.agentId &&
+            messages[i - 1].actorType === msg.actorType &&
+            messages[i - 1].actorId === msg.actorId
           }
           showTimestamp={i === messages.length - 1 || messages[i + 1].role !== msg.role}
           fileAgentId={fileAgentId}

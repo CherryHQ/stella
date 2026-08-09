@@ -18,6 +18,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
@@ -74,11 +75,11 @@ func TestListMessagesLoadsPartsInTwoBatchesAndFallsBackToBaseline(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	userMessage, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{ID: uuid.NewString(), ConversationID: conversation.ID, Seq: 1, Role: "user", EventType: "multimodal", Content: "baseline", TokenCount: 1})
+	userMessage, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{ID: uuid.NewString(), ConversationID: conversation.ID, Seq: 1, Role: "user", EventType: "multimodal", Content: "baseline", TokenCount: 1, ActorType: string(eventlog.ActorHuman)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = q.CreateMessage(ctx, sqlc.CreateMessageParams{ID: uuid.NewString(), ConversationID: conversation.ID, Seq: 2, Role: "user", EventType: "multimodal", Content: `[{"kind":"text","text":"legacy"}]`, TokenCount: 1})
+	_, err = q.CreateMessage(ctx, sqlc.CreateMessageParams{ID: uuid.NewString(), ConversationID: conversation.ID, Seq: 2, Role: "user", EventType: "multimodal", Content: `[{"kind":"text","text":"legacy"}]`, TokenCount: 1, ActorType: string(eventlog.ActorHuman)})
 	if err != nil {
 		t.Fatal(err)
 	}

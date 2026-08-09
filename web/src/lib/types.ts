@@ -61,6 +61,11 @@ export type Provider = ComponentsProvider;
 export type ProviderModel = ComponentsProviderModelItem;
 export type Workspace = SessionWorkspace;
 export type SessionMessage = SdkSessionMessage;
+export const SESSION_MESSAGE_ACTOR_TYPE = {
+  human: "human",
+  agent: "agent",
+  system: "system",
+} as const;
 export type Project = SdkProject;
 export type OAuthFlow = ComponentsOAuthFlowStatus;
 
@@ -165,6 +170,9 @@ export interface Message {
   token_count?: number;
   model?: string;
   streaming?: boolean;
+  actor_type?: "human" | "agent" | "system";
+  actor_id?: string;
+  source_session_id?: string;
 }
 
 export interface AgentSandbox {

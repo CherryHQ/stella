@@ -316,6 +316,9 @@ export function sessionMessagesToMessages(messages: SessionMessage[] | undefined
       references,
       timestamp: message.timestamp,
       token_count: message.token_count,
+      actor_type: message.actor_type,
+      actor_id: message.actor_id,
+      source_session_id: message.source_session_id,
       ...(message.tool_name ? { tool_name: message.tool_name } : {}),
       ...(message.is_error !== undefined ? { is_error: message.is_error } : {}),
     };

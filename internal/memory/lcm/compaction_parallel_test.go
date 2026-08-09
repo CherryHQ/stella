@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -157,6 +158,7 @@ func seedLeafRuns(t *testing.T, ctx context.Context, q *sqlc.Queries, runs, runS
 			EventType:      eventTypeText,
 			Content:        content,
 			TokenCount:     int64(memory.EstimateTokens(content)),
+			ActorType:      string(eventlog.ActorHuman),
 		}); err != nil {
 			t.Fatalf("create message: %v", err)
 		}

@@ -270,12 +270,17 @@ components:
 
     SessionMessage:
       type: object
-      required: [id, role, timestamp, token_count]
+      required: [id, role, actor_type, timestamp, token_count]
       properties:
         id: { type: string }
         role:
           type: string
           enum: [user, assistant, tool]
+        actor_type:
+          type: string
+          enum: [human, agent, system]
+        actor_id: { type: string }
+        source_session_id: { type: string }
         content: { type: string }
         blocks:
           type: array
@@ -314,11 +319,16 @@ components:
 
     SessionContextMessage:
       type: object
-      required: [id, seq, role, timestamp, token_count]
+      required: [id, seq, role, actor_type, timestamp, token_count]
       properties:
         id: { type: string }
         seq: { type: integer }
         role: { type: string }
+        actor_type:
+          type: string
+          enum: [human, agent, system]
+        actor_id: { type: string }
+        source_session_id: { type: string }
         event_type: { type: string }
         content: { type: string }
         timestamp: { type: string, format: date-time }

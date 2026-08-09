@@ -175,16 +175,19 @@ type sessionTranscriptTurn struct {
 }
 
 type sessionToolMessage struct {
-	ID         string            `json:"id"`
-	Seq        int64             `json:"seq"`
-	Role       string            `json:"role"`
-	Type       string            `json:"type"`
-	Content    string            `json:"content,omitempty"`
-	ToolCallID string            `json:"tool_call_id,omitempty"`
-	ToolName   string            `json:"tool_name,omitempty"`
-	Parts      []toolMessagePart `json:"parts,omitempty"`
-	CreatedAt  string            `json:"created_at"`
-	Truncated  bool              `json:"truncated,omitempty"`
+	ID              string            `json:"id"`
+	Seq             int64             `json:"seq"`
+	Role            string            `json:"role"`
+	Type            string            `json:"type"`
+	Content         string            `json:"content,omitempty"`
+	ToolCallID      string            `json:"tool_call_id,omitempty"`
+	ToolName        string            `json:"tool_name,omitempty"`
+	Parts           []toolMessagePart `json:"parts,omitempty"`
+	CreatedAt       string            `json:"created_at"`
+	Truncated       bool              `json:"truncated,omitempty"`
+	ActorType       string            `json:"actor_type"`
+	ActorID         string            `json:"actor_id,omitempty"`
+	SourceSessionID string            `json:"source_session_id,omitempty"`
 }
 
 type toolMessagePart struct {
@@ -364,10 +367,17 @@ func executeSessionSend(ctx context.Context, svc *Service, access *Access, agent
 	if err != nil {
 		return nil, err
 	}
-	if agentsession.Kind(info.Kind) != agentsession.KindDelegate {
-		return nil, fmt.Errorf("session.send only supports managed sessions in this phase; conversation sessions require message actor provenance before agent-originated input can be stored")
+	if info.Archived {
+		return nil, fmt.Errorf("cannot send to archived session")
 	}
-	return runManagedSession(ctx, svc, agentID, info.ID, in.Message, "")
+	switch agentsession.Kind(info.Kind) {
+	case agentsession.KindDelegate:
+		return runManagedSession(ctx, svc, agentID, info.ID, in.Message, "")
+	case agentsession.KindMain, agentsession.KindChat:
+		return runConversationSession(ctx, svc, info, in.Message)
+	default:
+		return nil, fmt.Errorf("session.send does not support control-plane sessions")
+	}
 }
 
 func requireSynchronousSessionWait(wait *bool) error {
@@ -392,6 +402,28 @@ func runManagedSession(ctx context.Context, svc *Service, agentID, sessionID, me
 	}
 	reply, truncated := tools.TruncateText(result.Output, maxSessionToolResultText)
 	return sessionRunResponse{SessionID: result.SessionID, Reply: reply, ReplyTruncated: truncated}, nil
+}
+
+func runConversationSession(ctx context.Context, svc *Service, info agentsession.Info, message string) (any, error) {
+	runtime, err := svc.runtimeFor(info.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	// This stream is consumed only into the synchronous tool result. A target
+	// Session's channel is execution context, not an authorized connector route;
+	// no channel publisher participates in this path.
+	stream := runtime.RunConversationSession(ctx, info, message)
+	var output strings.Builder
+	for event := range stream {
+		if event.Text != "" {
+			output.WriteString(event.Text)
+		}
+		if event.Err != nil {
+			return nil, event.Err
+		}
+	}
+	reply, truncated := tools.TruncateText(output.String(), maxSessionToolResultText)
+	return sessionRunResponse{SessionID: info.ID, Reply: reply, ReplyTruncated: truncated}, nil
 }
 
 func sessionCardFrom(card Card) sessionCardResponse {
@@ -514,6 +546,7 @@ func sessionToolMessageFrom(message Message, remaining *int) sessionToolMessage 
 		ID: message.ID, Seq: message.Seq, Role: message.Role, Type: itemType,
 		Content: content, ToolCallID: toolCallID, ToolName: toolName,
 		CreatedAt: message.CreatedAt.UTC().Format(time.RFC3339), Truncated: truncated,
+		ActorType: message.ActorType, ActorID: message.ActorID, SourceSessionID: message.SourceSessionID,
 	}
 	for _, part := range message.Parts {
 		text, partTruncated := truncateSessionToolText(part.Text, remaining, perMessageLimit)

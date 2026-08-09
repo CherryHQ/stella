@@ -14,6 +14,7 @@ import (
 
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -21,6 +22,25 @@ import (
 type sessionSummaryCountingDB struct {
 	db      sqlc.DBTX
 	queries int
+}
+
+func TestSessionSendableMatchesConversationSendPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		kind     agentsession.Kind
+		archived bool
+		want     bool
+	}{
+		{kind: agentsession.KindMain, want: true},
+		{kind: agentsession.KindChat, want: true},
+		{kind: agentsession.KindDelegate, want: true},
+		{kind: agentsession.KindTask},
+		{kind: agentsession.KindScheduler},
+		{kind: agentsession.KindChat, archived: true},
+	} {
+		if got := sessionSendable(agentsession.Info{Kind: string(tc.kind), Archived: tc.archived}); got != tc.want {
+			t.Fatalf("sessionSendable(kind=%s archived=%v)=%v, want %v", tc.kind, tc.archived, got, tc.want)
+		}
+	}
 }
 
 func (d *sessionSummaryCountingDB) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
@@ -63,9 +83,13 @@ func TestSessionCardsDeriveSummaryStateAndSendabilityInOneBatch(t *testing.T) {
 		{"user", "multimodal", `[{"kind":"image","data":"RAW-BASE64-IMAGE-DATA"}]`},
 	}
 	for i, message := range messages {
+		actorType := eventlog.ActorHuman
+		if message.role != "user" {
+			actorType = eventlog.ActorAgent
+		}
 		if _, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
 			ID: uuid.NewString(), ConversationID: conversation.ID, Seq: int64(i + 1),
-			Role: message.role, EventType: message.eventType, Content: message.content, TokenCount: 1,
+			Role: message.role, EventType: message.eventType, Content: message.content, TokenCount: 1, ActorType: string(actorType),
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -96,7 +120,7 @@ func TestSessionCardsDeriveSummaryStateAndSendabilityInOneBatch(t *testing.T) {
 	}
 	if _, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
 		ID: uuid.NewString(), ConversationID: controlConversation.ID, Seq: 1,
-		Role: "assistant", EventType: "tool_call", Content: "internal payload", TokenCount: 1,
+		Role: "assistant", EventType: "tool_call", Content: "internal payload", TokenCount: 1, ActorType: string(eventlog.ActorAgent),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -157,8 +181,8 @@ func TestSessionCardsDeriveSummaryStateAndSendabilityInOneBatch(t *testing.T) {
 			t.Fatalf("summary leaked skipped content %q: %q", skipped, card.Summary)
 		}
 	}
-	if card.State != SessionStateRunning || card.Sendable {
-		t.Fatalf("chat card state/sendable = %q/%v, want running/false", card.State, card.Sendable)
+	if card.State != SessionStateRunning || !card.Sendable {
+		t.Fatalf("chat card state/sendable = %q/%v, want running/true", card.State, card.Sendable)
 	}
 	if card.TurnStartedAt != "2026-08-09T01:58:12Z" {
 		t.Fatalf("turn_started_at = %q, want UTC RFC3339", card.TurnStartedAt)

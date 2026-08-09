@@ -34,6 +34,13 @@ func (r *recordingRuntime) RunManagedSession(context.Context, delegatetool.Manag
 	return delegatetool.ManagedSessionResult{}, nil
 }
 
+func (r *recordingRuntime) RunConversationSession(context.Context, agentsession.Info, agent.MessageContent) <-chan agent.Event {
+	r.chats.Add(1)
+	ch := make(chan agent.Event)
+	close(ch)
+	return ch
+}
+
 func (r *recordingRuntime) StopSession(context.Context, string) bool {
 	r.stops.Add(1)
 	return true

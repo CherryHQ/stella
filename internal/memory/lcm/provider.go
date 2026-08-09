@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -244,14 +245,18 @@ func (p *Provider) appendRows(ctx context.Context, session memory.Session, rows 
 
 		for _, row := range rows {
 			seq++
+			actor := actorForStorageRow(ctx, session, row)
 			dbMsg, err := qtx.CreateMessage(ctx, sqlc.CreateMessageParams{
-				ID:             uuid.Must(uuid.NewV7()).String(),
-				ConversationID: convID,
-				Seq:            seq,
-				Role:           row.role,
-				EventType:      row.eventType,
-				Content:        row.content,
-				TokenCount:     int64(memory.EstimateTokens(row.tokenText)),
+				ID:              uuid.Must(uuid.NewV7()).String(),
+				ConversationID:  convID,
+				Seq:             seq,
+				Role:            row.role,
+				EventType:       row.eventType,
+				Content:         row.content,
+				TokenCount:      int64(memory.EstimateTokens(row.tokenText)),
+				ActorType:       string(actor.Type),
+				ActorID:         pgtype.Text{String: actor.ID, Valid: actor.ID != ""},
+				SourceSessionID: pgtype.Text{String: actor.SourceSessionID, Valid: actor.SourceSessionID != ""},
 			})
 			if err != nil {
 				return fmt.Errorf("create message: %w", err)
@@ -278,6 +283,18 @@ func (p *Provider) appendRows(ctx context.Context, session memory.Session, rows 
 
 		return tx.Commit(ctx)
 	})
+}
+
+func actorForStorageRow(ctx context.Context, session memory.Session, row storageRow) eventlog.MessageActor {
+	if row.role == roleUser {
+		if actor, ok := eventlog.MessageActorFromContext(ctx); ok {
+			return actor
+		}
+		// Direct provider callers are human-history import paths. Unknown legacy
+		// identity may remain NULL, but the actor type is never inferred from text.
+		return eventlog.MessageActor{Type: eventlog.ActorHuman, ID: session.UserID}
+	}
+	return eventlog.MessageActor{Type: eventlog.ActorAgent, ID: session.AgentID}
 }
 
 // Assemble implements memory.Provider.

@@ -12,6 +12,7 @@ import (
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/sandbox"
@@ -113,6 +114,27 @@ func (s *Service) RunManagedSession(ctx context.Context, req delegatetool.Manage
 	return s.Runtime.RunManagedSession(ctx, memory.SessionIDFromContext(ctx), req)
 }
 
+// RunConversationSession starts one transcript-only turn from an active source
+// agent Session into an already-authorized owned conversation Session. This is
+// the trusted authority-mint boundary used by session.send; connector delivery
+// is intentionally absent.
+func (s *Service) RunConversationSession(ctx context.Context, target session.Info, message MessageContent) <-chan Event {
+	kind := session.Kind(target.Kind)
+	if s == nil || s.Runtime == nil || target.UserID == "" || target.AgentID != s.AgentID || target.GroupID != "" || target.Archived ||
+		(kind != session.KindMain && kind != session.KindChat) ||
+		authz.UserIDFromContext(ctx) != target.UserID || authz.AgentIDFromContext(ctx) != s.AgentID || memory.SessionIDFromContext(ctx) == "" {
+		return errorEvents(agentaccess.ErrForbidden)
+	}
+	authority, err := agentaccess.WorkerAgentAuthority(target.UserID, target.AgentID)
+	if err != nil {
+		return errorEvents(agentaccess.ErrForbidden)
+	}
+	// Session access already evaluated this exact target in the caller. Run the
+	// admitted target directly rather than opening a second policy evaluation.
+	return s.Runtime.Chat(ctx, target, message,
+		agentruntime.WithInputActor(messageActor(authority, memory.SessionIDFromContext(ctx))))
+}
+
 // ServiceManager provides multi-agent Service lookup.
 // It replaces PoolManager for callers migrated to the new model.
 type ServiceManager interface {
@@ -164,7 +186,23 @@ func (s *Service) ChatAdmitted(ctx context.Context, req ChatRequest) (<-chan Eve
 	if info.GroupID != "" && req.CurrentSpeaker != (memory.CurrentSpeaker{}) {
 		opts = append(opts, agentruntime.WithCurrentSpeaker(req.CurrentSpeaker))
 	}
+	opts = append(opts, agentruntime.WithInputActor(messageActor(req.Authority, memory.SessionIDFromContext(ctx))))
 	return s.Runtime.ChatAdmitted(ctx, info, req.Message, opts...)
+}
+
+func messageActor(authority authz.Authority, sourceSessionID string) eventlog.MessageActor {
+	switch authority.Kind() {
+	case authz.ActorUser:
+		return eventlog.MessageActor{Type: eventlog.ActorHuman, ID: string(authority.UserID())}
+	case authz.ActorGuest:
+		return eventlog.MessageActor{Type: eventlog.ActorHuman, ID: string(authority.GuestID())}
+	case authz.ActorAgent, authz.ActorGroupAgent:
+		return eventlog.MessageActor{Type: eventlog.ActorAgent, ID: string(authority.AgentID()), SourceSessionID: sourceSessionID}
+	case authz.ActorSystem:
+		return eventlog.MessageActor{Type: eventlog.ActorSystem, ID: string(authority.Component())}
+	default:
+		return eventlog.MessageActor{}
+	}
 }
 
 // Chat resolves (or creates) a session and executes a chat turn.
@@ -237,6 +275,7 @@ func (s *Service) ChatForScheduler(ctx context.Context, req SchedulerChatRequest
 	if req.Model != "" {
 		opts = append(opts, agentruntime.WithModel(req.Model))
 	}
+	opts = append(opts, agentruntime.WithInputActor(messageActor(req.Authority, memory.SessionIDFromContext(ctx))))
 	return s.Runtime.Chat(ctx, info, req.Message, opts...)
 }
 
@@ -309,6 +348,7 @@ func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req T
 	if len(req.ExcludedTools) > 0 {
 		opts = append(opts, agentruntime.WithExcludedTools(req.ExcludedTools...))
 	}
+	opts = append(opts, agentruntime.WithInputActor(messageActor(req.Authority, memory.SessionIDFromContext(ctx))))
 	src := s.Runtime.Chat(ctx, info, req.Message, opts...)
 	out := make(chan Event)
 	go func() {
@@ -516,6 +556,7 @@ func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateRe
 	if len(req.ExcludedTools) > 0 {
 		opts = append(opts, agentruntime.WithExcludedTools(req.ExcludedTools...))
 	}
+	opts = append(opts, agentruntime.WithInputActor(messageActor(authority, memory.SessionIDFromContext(ctx))))
 
 	stream := s.Runtime.Chat(ctx, info, req.Task, opts...)
 	result := DelegateResult{SessionID: info.ID}

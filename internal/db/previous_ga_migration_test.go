@@ -24,8 +24,9 @@ const (
 	// this test into a green lie.
 	previousGAVersion = int64(20260725161331)
 	// Library V1, channel guest sessions/indexes, channel allowlist backfill, and
-	// session activity columns are the post-anchor migrations exercised below.
-	currentMigrationVersion = sequentialAnchor + 8
+	// session activity and per-message actor provenance are the post-anchor
+	// migrations exercised below.
+	currentMigrationVersion = sequentialAnchor + 9
 
 	previousGAUserID         = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID        = "00000000-0000-0000-0000-000000000002"
@@ -200,6 +201,13 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 	if tokenUse != "personal" || issuedByProvisioning {
 		t.Fatalf("migrated personal access token use=%q issued_by_provisioning=%v, want personal/false", tokenUse, issuedByProvisioning)
+	}
+	var legacyActorType string
+	if err := db.QueryRow(ctx, `SELECT actor_type FROM ctx_message WHERE id = $1`, previousGAMessageID).Scan(&legacyActorType); err != nil {
+		t.Fatalf("read defaulted legacy message actor: %v", err)
+	}
+	if legacyActorType != "human" {
+		t.Fatalf("defaulted legacy message actor=%q, want human", legacyActorType)
 	}
 	if _, err := db.Exec(ctx, `
 		INSERT INTO auth_provisioned_user (id, external_id, user_id, created_by_user_id, created_by_token_id)

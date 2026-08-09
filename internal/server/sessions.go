@@ -1186,6 +1186,8 @@ func contextItemsToAPI(items []sessionaccess.ContextItem) []apitypes.SessionCont
 			apiItem.Type = apitypes.Message
 			apiItem.Message = &apitypes.SessionContextMessage{
 				Id: item.Message.ID, Seq: item.Message.Seq, Role: item.Message.Role,
+				ActorType: apitypes.SessionContextMessageActorType(item.Message.ActorType),
+				ActorId:   textPointer(item.Message.ActorID), SourceSessionId: textPointer(item.Message.SourceSessionID),
 				EventType: item.Message.EventType, Content: item.Message.Content,
 				Timestamp: item.Message.Timestamp.UTC(), TokenCount: item.Message.TokenCount,
 			}
@@ -1255,8 +1257,10 @@ func serializeDBMessages(agentID, sessionID string, rows []sessionaccess.Message
 func serializeUserRow(agentID, sessionID string, row sessionaccess.Message) apitypes.SessionMessage {
 	message := apitypes.SessionMessage{
 		Id: row.ID, Role: apitypes.SessionMessageRoleUser,
+		ActorType: apitypes.SessionMessageActorType(row.ActorType),
 		Timestamp: row.CreatedAt.UTC(), TokenCount: row.TokenCount,
 	}
+	setSessionMessageActor(&message, row)
 	setSessionMessagePresentation(&message, agentID, sessionID, row.Content, row.Parts)
 	return message
 }
@@ -1289,6 +1293,8 @@ func serializeAssistantRows(rows []sessionaccess.Message, start int) (apitypes.S
 		// First row's id identifies the merged turn — stable across pagination
 		// regardless of how many earlier pages have been loaded.
 		Id: rows[start].ID, Role: apitypes.SessionMessageRoleAssistant, Blocks: &blocks,
+		ActorType: apitypes.SessionMessageActorType(rows[start].ActorType),
+		ActorId:   textPointer(rows[start].ActorID), SourceSessionId: textPointer(rows[start].SourceSessionID),
 		Timestamp: rows[start].CreatedAt.UTC(), TokenCount: totalTokens,
 	}, consumed
 }
@@ -1315,7 +1321,9 @@ func decodeToolCallBlock(content string) apitypes.SessionMessageBlock {
 func serializeToolRow(agentID, sessionID string, row sessionaccess.Message) apitypes.SessionMessage {
 	message := apitypes.SessionMessage{
 		Id: row.ID, Role: apitypes.SessionMessageRoleTool, Timestamp: row.CreatedAt.UTC(), TokenCount: row.TokenCount,
+		ActorType: apitypes.SessionMessageActorType(row.ActorType),
 	}
+	setSessionMessageActor(&message, row)
 	var env struct {
 		ID         string                 `json:"id"`
 		Tool       string                 `json:"tool"`
@@ -1361,6 +1369,18 @@ func serializeToolRow(agentID, sessionID string, row sessionaccess.Message) apit
 		message.References = &references
 	}
 	return message
+}
+
+func setSessionMessageActor(message *apitypes.SessionMessage, row sessionaccess.Message) {
+	message.ActorId = textPointer(row.ActorID)
+	message.SourceSessionId = textPointer(row.SourceSessionID)
+}
+
+func textPointer(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 // setSessionMessagePresentation uses durable parts as the complete visible
