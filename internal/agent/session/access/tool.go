@@ -215,10 +215,11 @@ type toolMessagePart struct {
 }
 
 type transcriptCursor struct {
-	Version   int    `json:"v"`
-	SessionID string `json:"session_id"`
-	AnchorSeq int64  `json:"anchor_seq,omitempty"`
-	Offset    int    `json:"offset,omitempty"`
+	Version     int    `json:"v"`
+	SessionID   string `json:"session_id"`
+	AnchorSeq   int64  `json:"anchor_seq,omitempty"`
+	SnapshotSeq int64  `json:"snapshot_seq,omitempty"`
+	Offset      int    `json:"offset,omitempty"`
 }
 
 func executeSessionFind(ctx context.Context, access *Access, agentID string, args map[string]any) (any, error) {
@@ -310,8 +311,16 @@ func executeSessionGet(ctx context.Context, access *Access, agentID string, args
 			return nil, err
 		}
 		response.Preview = sessionTranscriptTurns(messages, maxSessionToolPreviewText)
+		var anchorSeq int64
+		for _, message := range messages {
+			anchorSeq = max(anchorSeq, message.Seq)
+		}
+		if anchorSeq == 0 {
+			return response, nil
+		}
 		response.TranscriptCursor, err = encodeTranscriptCursor(transcriptCursor{
 			Version: sessionTranscriptCursorVersion, SessionID: in.SessionID,
+			AnchorSeq: anchorSeq, SnapshotSeq: anchorSeq,
 		})
 		return response, err
 	}
@@ -328,7 +337,8 @@ func executeSessionGet(ctx context.Context, access *Access, agentID string, args
 		return nil, fmt.Errorf("invalid transcript pagination — use page_size between 1 and %d and pass cursor unchanged", maxSessionTranscriptPage)
 	}
 	messages, err := access.ListTranscriptPage(ctx, TranscriptPageInput{
-		AgentID: agentID, SessionID: in.SessionID, AnchorSeq: cursor.AnchorSeq,
+		AgentID: agentID, SessionID: in.SessionID,
+		AnchorSeq: cursor.AnchorSeq, SnapshotSeq: cursor.SnapshotSeq,
 		Offset: cursor.Offset, Limit: pageSize + 1,
 	})
 	if err != nil {
@@ -446,6 +456,9 @@ func runConversationSession(ctx context.Context, svc *Service, info agentsession
 			return nil, event.Err
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	reply, truncated := tools.TruncateText(output.String(), maxSessionToolResultText)
 	return sessionRunResponse{SessionID: info.ID, Reply: reply, ReplyTruncated: truncated}, nil
 }
@@ -475,7 +488,8 @@ func decodeTranscriptCursor(value, sessionID string) (transcriptCursor, error) {
 		return transcriptCursor{}, fmt.Errorf("invalid transcript cursor — pass a cursor returned by find/get unchanged")
 	}
 	var cursor transcriptCursor
-	if err := json.Unmarshal(data, &cursor); err != nil || cursor.Version != sessionTranscriptCursorVersion || cursor.SessionID != sessionID || cursor.AnchorSeq < 0 || cursor.Offset < 0 {
+	if err := json.Unmarshal(data, &cursor); err != nil || cursor.Version != sessionTranscriptCursorVersion || cursor.SessionID != sessionID || cursor.AnchorSeq < 0 || cursor.SnapshotSeq < 0 || cursor.Offset < 0 ||
+		(cursor.SnapshotSeq > 0 && cursor.AnchorSeq > cursor.SnapshotSeq) {
 		return transcriptCursor{}, fmt.Errorf("invalid transcript cursor — pass a cursor returned by find/get unchanged")
 	}
 	return cursor, nil

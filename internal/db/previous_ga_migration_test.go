@@ -234,18 +234,22 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 		t.Fatalf("defaulted legacy message actor=%q, want human", legacyActorType)
 	}
 	for _, tc := range []struct {
-		name, messageID, want string
+		name, messageID, wantType, wantID string
 	}{
-		{name: "delegate", messageID: previousGADelegateMsgID, want: "agent"},
-		{name: "scheduler", messageID: previousGASchedulerMsgID, want: "system"},
-		{name: "task", messageID: previousGATaskMsgID, want: "system"},
+		{name: "delegate", messageID: previousGADelegateMsgID, wantType: "agent", wantID: previousGAAgentID},
+		{name: "scheduler", messageID: previousGASchedulerMsgID, wantType: "system"},
+		{name: "task", messageID: previousGATaskMsgID, wantType: "system"},
 	} {
 		var actorType string
-		if err := db.QueryRow(ctx, `SELECT actor_type FROM ctx_message WHERE id = $1`, tc.messageID).Scan(&actorType); err != nil {
+		var actorID pgtype.Text
+		if err := db.QueryRow(ctx, `SELECT actor_type, actor_id FROM ctx_message WHERE id = $1`, tc.messageID).Scan(&actorType, &actorID); err != nil {
 			t.Fatalf("read backfilled %s actor: %v", tc.name, err)
 		}
-		if actorType != tc.want {
-			t.Fatalf("backfilled %s actor=%q, want %q", tc.name, actorType, tc.want)
+		if actorType != tc.wantType {
+			t.Fatalf("backfilled %s actor=%q, want %q", tc.name, actorType, tc.wantType)
+		}
+		if actorID.String != tc.wantID || actorID.Valid != (tc.wantID != "") {
+			t.Fatalf("backfilled %s actor ID=%#v, want %q", tc.name, actorID, tc.wantID)
 		}
 	}
 	if _, err := db.Exec(ctx, `

@@ -140,6 +140,10 @@ func (s *Service) RunConversationSession(ctx context.Context, target session.Inf
 	if err != nil {
 		return errorEvents(agentaccess.ErrForbidden)
 	}
+	// A conversation Session is not the chat that invoked session.send. Strip
+	// the source binding at this trust boundary so target tools cannot use the
+	// source chat's rotate/compact authority.
+	ctx = agentctx.WithoutChatBinding(ctx)
 	ctx, err = agentctx.BindSessionCallTarget(ctx, target.ID)
 	if err != nil {
 		return errorEvents(err)
@@ -152,25 +156,43 @@ func (s *Service) RunConversationSession(ctx context.Context, target session.Inf
 		err := s.runQueuedTurn(ctx, target, message, []agentruntime.Option{
 			agentruntime.WithInputActor(messageActor(authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))),
 		}, func(stream <-chan Event) error {
+			deliver := true
 			for event := range stream {
+				if !deliver {
+					continue
+				}
 				select {
 				case out <- event:
 				case <-ctx.Done():
-					return ctx.Err()
+					// Keep draining until the admitted turn releases its runtime
+					// guard, but stop writing to an abandoned caller.
+					deliver = false
 				}
 			}
 			return nil
 		})
 		if err != nil {
-			// Preserve cancellation as the truthful tool result after the source
-			// context closes, but never leak if an abandoned caller filled the buffer.
-			select {
-			case out <- Event{Err: err}:
-			default:
-			}
+			forceTerminalEvent(out, Event{Err: err})
 		}
 	}()
 	return out
+}
+
+// forceTerminalEvent makes terminal failure observable even when an abandoned
+// caller filled the bounded output buffer. Partial output is expendable once
+// the turn has failed; the terminal result is not.
+func forceTerminalEvent(out chan Event, event Event) {
+	for {
+		select {
+		case out <- event:
+			return
+		default:
+		}
+		select {
+		case <-out:
+		default:
+		}
+	}
 }
 
 const busyAdmissionPollInterval = 25 * time.Millisecond
@@ -180,7 +202,15 @@ func (s *Service) runQueuedTurn(ctx context.Context, target session.Info, messag
 		for {
 			stream, err := s.Runtime.ChatAdmittedControlled(runCtx, target, message, beforeStart, opts...)
 			if err == nil {
-				return consume(stream)
+				consumeErr := consume(stream)
+				// A consumer may stop on its first in-band error. Drain the admitted
+				// turn before releasing the FIFO slot and caller-owned result state.
+				for range stream {
+				}
+				if consumeErr != nil {
+					return consumeErr
+				}
+				return runCtx.Err()
 			}
 			if !errors.Is(err, agenterr.ErrSessionBusy) {
 				return err

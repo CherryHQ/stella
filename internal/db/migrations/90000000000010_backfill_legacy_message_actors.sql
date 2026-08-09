@@ -4,11 +4,13 @@
 -- of magnitude fewer rows than human chat. Keep each UPDATE scoped to one kind
 -- so unrelated ctx_message rows are never rewritten.
 UPDATE ctx_message AS message
-SET actor_type = 'agent'
+SET actor_type = 'agent',
+    actor_id = conversation.agent_id
 FROM ctx_conversation AS conversation
 WHERE message.conversation_id = conversation.id
   AND message.role = 'user'
   AND message.actor_id IS NULL
+  AND conversation.agent_id IS NOT NULL
   AND conversation.kind = 'delegate';
 
 UPDATE ctx_message AS message
@@ -29,11 +31,13 @@ WHERE message.conversation_id = conversation.id
 
 -- +goose Down
 UPDATE ctx_message AS message
-SET actor_type = 'human'
+SET actor_type = 'human',
+    actor_id = NULL
 FROM ctx_conversation AS conversation
 WHERE message.conversation_id = conversation.id
   AND message.role = 'user'
-  AND message.actor_id IS NULL
+  AND message.actor_id = conversation.agent_id
+  AND message.source_session_id IS NULL
   AND message.actor_type = 'agent'
   AND conversation.kind = 'delegate';
 

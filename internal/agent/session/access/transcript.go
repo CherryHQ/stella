@@ -33,8 +33,11 @@ type TranscriptPageInput struct {
 	AgentID   string
 	SessionID string
 	AnchorSeq int64
-	Offset    int
-	Limit     int
+	// SnapshotSeq caps the visible transcript before logical turns are formed.
+	// Zero keeps the live view used by find cursors.
+	SnapshotSeq int64
+	Offset      int
+	Limit       int
 }
 
 type Message struct {
@@ -187,9 +190,14 @@ func (a *Access) ListTranscriptPage(ctx context.Context, in TranscriptPageInput)
 	if in.AnchorSeq > 0 {
 		anchor = pgtype.Int8{Int64: in.AnchorSeq, Valid: true}
 	}
+	snapshot := pgtype.Int8{}
+	if in.SnapshotSeq > 0 {
+		snapshot = pgtype.Int8{Int64: in.SnapshotSeq, Valid: true}
+	}
 	rows, err := a.svc.q.ListSessionTranscriptPage(ctx, sqlc.ListSessionTranscriptPageParams{
 		ConversationID: conv.ID,
 		AnchorSeq:      anchor,
+		SnapshotSeq:    snapshot,
 		Limit:          int32(in.Limit),
 		Offset:         int32(in.Offset),
 	})

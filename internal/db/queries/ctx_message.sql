@@ -73,6 +73,10 @@ WITH ordered AS (
         lag(seq) OVER (ORDER BY seq ASC) AS prev_seq
     FROM ctx_message
     WHERE conversation_id = sqlc.arg('conversation_id')
+      AND (
+          sqlc.narg('snapshot_seq')::bigint IS NULL
+          OR seq <= sqlc.narg('snapshot_seq')::bigint
+      )
 ), grouped AS (
     SELECT
         *,

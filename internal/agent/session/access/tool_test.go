@@ -303,6 +303,20 @@ func TestSessionGetIsCompactByDefaultAndPagesWholeToolTurns(t *testing.T) {
 	if compact.ActiveRequest != nil || strings.Join(compact.SupportedOperations, ",") != "get,send" {
 		t.Fatalf("unexpected compact state: %#v", compact)
 	}
+	initialCursor, err := decodeTranscriptCursor(compact.TranscriptCursor, m.private)
+	if err != nil || initialCursor.AnchorSeq == 0 || initialCursor.SnapshotSeq != initialCursor.AnchorSeq {
+		t.Fatalf("initial transcript cursor is not snapshot-anchored: cursor=%#v err=%v", initialCursor, err)
+	}
+	// A turn appended after the compact preview must not move the result set
+	// underneath the cursor's offset-based continuation. A later assistant row
+	// must not grow the turn that was only partially visible at the snapshot.
+	appendTranscript(t, provider, memory.Session{ID: m.private, UserID: m.owner, AgentID: m.agent},
+		ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "late continuation after snapshot"}}},
+	)
+	appendTranscript(t, provider, memory.Session{ID: m.private, UserID: m.owner, AgentID: m.agent},
+		ai.UserMessage{Content: "third request after snapshot"},
+		ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "third answer after snapshot"}}},
+	)
 
 	pageOut, err := tool.Execute(ctx, map[string]any{
 		"action": "get", "session_id": m.private, "cursor": compact.TranscriptCursor, "transcript_page_size": 1,
@@ -320,6 +334,10 @@ func TestSessionGetIsCompactByDefaultAndPagesWholeToolTurns(t *testing.T) {
 	if got := page.Transcript.Turns[0].Messages[0].Content; got != "second request" {
 		t.Fatalf("latest turn begins %q, want second request", got)
 	}
+	latestMessages := page.Transcript.Turns[0].Messages
+	if len(latestMessages) != 2 || latestMessages[1].Content != "second answer" {
+		t.Fatalf("post-snapshot row grew the anchored latest turn: %#v", latestMessages)
+	}
 
 	olderOut, err := tool.Execute(ctx, map[string]any{
 		"action": "get", "session_id": m.private, "cursor": page.Transcript.NextCursor, "transcript_page_size": 1,
@@ -333,6 +351,9 @@ func TestSessionGetIsCompactByDefaultAndPagesWholeToolTurns(t *testing.T) {
 	messages := page.Transcript.Turns[0].Messages
 	if len(messages) != 4 {
 		t.Fatalf("tool turn split across page: %#v", messages)
+	}
+	if page.Transcript.HasMore {
+		t.Fatalf("anchored pagination did not exhaust the two-turn snapshot: %#v", page.Transcript)
 	}
 	if messages[1].Type != "tool_call" || messages[2].Type != "tool_result" || messages[1].ToolCallID != messages[2].ToolCallID {
 		t.Fatalf("tool call/result pairing lost: %#v", messages)

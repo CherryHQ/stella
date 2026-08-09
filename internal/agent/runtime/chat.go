@@ -114,7 +114,13 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	// Auto-compact.
 	if rt.needsCompaction(ctx, memSess) {
 		rt.log.Info("auto-compaction triggered", "session_id", info.ID)
-		compactCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), autoCompactionTimeout)
+		compactParent := context.WithoutCancel(ctx)
+		if _, synchronous := agentctx.SessionCallFromContext(ctx); synchronous {
+			// A Session/delegate call holds its caller and target admission until
+			// completion, so source cancellation must also stop compaction.
+			compactParent = ctx
+		}
+		compactCtx, cancel := context.WithTimeout(compactParent, autoCompactionTimeout)
 		if summary, err := rt.compact_(compactCtx, memSess); err != nil {
 			cancel()
 			rt.log.Warn("auto-compaction failed", "session_id", info.ID, "error", err)

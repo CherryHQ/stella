@@ -728,6 +728,10 @@ WITH ordered AS (
         lag(seq) OVER (ORDER BY seq ASC) AS prev_seq
     FROM ctx_message
     WHERE conversation_id = $1
+      AND (
+          $2::bigint IS NULL
+          OR seq <= $2::bigint
+      )
 ), grouped AS (
     SELECT
         id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id, prev_seq,
@@ -739,8 +743,8 @@ WITH ordered AS (
         (
             SELECT turn_idx
             FROM grouped
-            WHERE $2::bigint IS NULL
-               OR seq <= $2::bigint
+            WHERE $3::bigint IS NULL
+               OR seq <= $3::bigint
             ORDER BY seq DESC
             LIMIT 1
         ),
@@ -752,7 +756,7 @@ WITH ordered AS (
     WHERE turn_idx <= (SELECT turn_idx FROM anchor)
     GROUP BY turn_idx
     ORDER BY turn_idx DESC
-    LIMIT $4 OFFSET $3
+    LIMIT $5 OFFSET $4
 )
 SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at,
        actor_type, actor_id, source_session_id
@@ -763,6 +767,7 @@ ORDER BY seq ASC
 
 type ListSessionTranscriptPageParams struct {
 	ConversationID string      `json:"conversation_id"`
+	SnapshotSeq    pgtype.Int8 `json:"snapshot_seq"`
 	AnchorSeq      pgtype.Int8 `json:"anchor_seq"`
 	Offset         int32       `json:"offset"`
 	Limit          int32       `json:"limit"`
@@ -788,6 +793,7 @@ type ListSessionTranscriptPageRow struct {
 func (q *Queries) ListSessionTranscriptPage(ctx context.Context, arg ListSessionTranscriptPageParams) ([]ListSessionTranscriptPageRow, error) {
 	rows, err := q.db.Query(ctx, listSessionTranscriptPage,
 		arg.ConversationID,
+		arg.SnapshotSeq,
 		arg.AnchorSeq,
 		arg.Offset,
 		arg.Limit,
