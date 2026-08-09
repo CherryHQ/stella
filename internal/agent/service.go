@@ -140,6 +140,10 @@ func (s *Service) RunConversationSession(ctx context.Context, target session.Inf
 	if err != nil {
 		return errorEvents(agentaccess.ErrForbidden)
 	}
+	ctx, err = agentctx.BindSessionCallTarget(ctx, target.ID)
+	if err != nil {
+		return errorEvents(err)
+	}
 	// Session access already evaluated this exact target in the caller. Queue the
 	// admitted target directly rather than opening a second policy evaluation.
 	out := make(chan Event, 100)
@@ -602,6 +606,10 @@ func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateRe
 	}
 	if info.UserID != req.UserID || info.AgentID != s.AgentID || info.GroupID != "" || info.ProjectID != req.ProjectID {
 		return DelegateResult{SessionID: info.ID}, agentaccess.ErrForbidden
+	}
+	ctx, err = agentctx.BindSessionCallTarget(ctx, info.ID)
+	if err != nil {
+		return DelegateResult{SessionID: info.ID}, err
 	}
 	// access.EnsureUse above already decided both the persisted Session and its
 	// backing Agent under this use case's single policy evaluation. Starting an

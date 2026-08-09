@@ -3,9 +3,11 @@ package delegate
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent/agentctx"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -65,10 +67,7 @@ func TestDelegateRunDropsParentChatBinding(t *testing.T) {
 	}
 }
 
-// TestDelegateAlwaysExcludesDelegate pins the recursion guard: a delegate can
-// never spawn another delegate. A preset whitelist only hides more tools, so
-// naming "delegate" in one must not re-admit it.
-func TestDelegateAlwaysExcludesDelegate(t *testing.T) {
+func TestDelegateVisibilityUsesWhitelistNotPermanentExclusion(t *testing.T) {
 	reg := registryWith("read_file", delegateToolName)
 	tool := NewDelegateTool(DelegateConfig{SessionRunner: &capturingRunner{}, Registry: reg})
 
@@ -76,16 +75,44 @@ func TestDelegateAlwaysExcludesDelegate(t *testing.T) {
 		name         string
 		whitelist    []string
 		hasWhitelist bool
+		wantExcluded bool
 	}{
 		{name: "no whitelist"},
-		{name: "whitelist of other tools", whitelist: []string{"read_file"}, hasWhitelist: true},
-		{name: "whitelist naming the blocked tool", whitelist: []string{delegateToolName}, hasWhitelist: true},
+		{name: "whitelist of other tools", whitelist: []string{"read_file"}, hasWhitelist: true, wantExcluded: true},
+		{name: "whitelist naming delegate", whitelist: []string{delegateToolName}, hasWhitelist: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			excluded := tool.excludedTools(tc.whitelist, tc.hasWhitelist)
-			if !slices.Contains(excluded, delegateToolName) {
-				t.Fatalf("excluded = %v, want it to contain %q", excluded, delegateToolName)
+			if got := slices.Contains(excluded, delegateToolName); got != tc.wantExcluded {
+				t.Fatalf("delegate excluded = %v, want %v (all exclusions: %v)", got, tc.wantExcluded, excluded)
 			}
 		})
+	}
+}
+
+func TestDelegateChildCanNestWithinDepthAndRejectsCycle(t *testing.T) {
+	first := &capturingRunner{}
+	tool := NewDelegateTool(DelegateConfig{SessionRunner: first, Registry: registryWith("session", delegateToolName)})
+	parent := memory.WithSessionID(context.Background(), "session-a")
+	if result := tool.runDelegate(parent, delegateTaskConfig{ID: "b", Task: "work", SessionID: "session-b"}); result.Error != "" {
+		t.Fatalf("A -> B: %s", result.Error)
+	}
+	call, ok := agentctx.SessionCallFromContext(first.ctx)
+	if !ok || call.Depth != 1 || !slices.Equal(call.Ancestry, []string{"session-a", "session-b"}) {
+		t.Fatalf("A -> B call = %+v, present=%v", call, ok)
+	}
+
+	second := &capturingRunner{}
+	tool.cfg.SessionRunner = second
+	if result := tool.runDelegate(first.ctx, delegateTaskConfig{ID: "c", Task: "work", SessionID: "session-c"}); result.Error != "" {
+		t.Fatalf("B -> C within depth: %s", result.Error)
+	}
+	call, ok = agentctx.SessionCallFromContext(second.ctx)
+	if !ok || call.Depth != 2 || !slices.Equal(call.Ancestry, []string{"session-a", "session-b", "session-c"}) {
+		t.Fatalf("B -> C call = %+v, present=%v", call, ok)
+	}
+
+	if result := tool.runDelegate(first.ctx, delegateTaskConfig{ID: "cycle", Task: "work", SessionID: "session-a"}); result.Error == "" || !strings.Contains(result.Error, "cycle") {
+		t.Fatalf("B -> A cycle result = %+v", result)
 	}
 }

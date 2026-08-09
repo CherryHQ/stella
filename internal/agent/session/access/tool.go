@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/agentctx"
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/agent/session/turnqueue"
@@ -374,7 +375,11 @@ func executeSessionSend(ctx context.Context, svc *Service, access *Access, agent
 	case agentsession.KindDelegate:
 		return runManagedSession(ctx, svc, agentID, info.ID, in.Message, "")
 	case agentsession.KindMain, agentsession.KindChat:
-		return runConversationSession(ctx, svc, info, in.Message)
+		callCtx, err := agentctx.EnterSessionCall(ctx, memory.SessionIDFromContext(ctx), info.ID)
+		if err != nil {
+			return nil, err
+		}
+		return runConversationSession(callCtx, svc, info, in.Message)
 	default:
 		return nil, fmt.Errorf("session.send does not support control-plane sessions")
 	}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/agentctx"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/agent"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -281,6 +282,11 @@ func (t *DelegateTool) runDelegate(parentCtx context.Context, tc delegateTaskCon
 		}
 	}()
 
+	parentCtx, err := agentctx.EnterSessionCall(parentCtx, memory.SessionIDFromContext(parentCtx), tc.SessionID)
+	if err != nil {
+		return taskResult{SessionID: tc.SessionID, Error: err.Error(), cause: err}
+	}
+
 	// Apply preset defaults if specified.
 	if tc.Preset != "" {
 		if t.cfg.Presets == nil {
@@ -357,15 +363,14 @@ func (t *DelegateTool) runDelegate(parentCtx context.Context, tc delegateTaskCon
 	return taskResult{Output: sessionResult.Output, SessionID: sessionResult.SessionID, Complete: sessionResult.Complete}
 }
 
-// excludedTools returns tools hidden for this delegate run. It always excludes
-// "delegate" to prevent recursion. A preset whitelist cannot re-admit it; it
-// only hides more.
+// excludedTools returns tools hidden for this delegate run. Nested collaboration
+// is bounded by context-carried depth and ancestry, not permanent tool hiding.
 func (t *DelegateTool) excludedTools(whitelist []string, hasWhitelist bool) []string {
-	blocked := map[string]struct{}{delegateToolName: {}}
+	blocked := make(map[string]struct{})
 	if hasWhitelist {
 		allowed := make(map[string]struct{}, len(whitelist))
 		for _, name := range whitelist {
-			if name != "" && name != delegateToolName {
+			if name != "" {
 				allowed[name] = struct{}{}
 			}
 		}
