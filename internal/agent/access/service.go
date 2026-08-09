@@ -187,7 +187,12 @@ func (a *Access) ListReadable(ctx context.Context, includeDisabled bool) ([]conf
 	}
 	out := make([]config.Agent, 0, len(agents))
 	for _, agent := range agents {
-		if !includeDisabled && !agent.Enabled {
+		// A disabled agent stays listed for its creator. They are the one person
+		// who can turn it back on, and the UI reaches an agent's configuration
+		// through this list — hiding it would make "disable" a one-way door out
+		// of your own agent. includeDisabled remains the admin's separate,
+		// deliberate reach over everyone else's.
+		if !includeDisabled && !agent.Enabled && !a.isCreator(agent) {
 			continue
 		}
 		if _, err := a.Read(ctx, agent.ID); err == nil {
@@ -329,10 +334,18 @@ func (a *Access) allowed(ctx context.Context, ag config.Agent, scope string, act
 			return false, nil
 		}
 	case authz.ActionManage, authz.ActionDelete:
-		return a.authority.Kind() == authz.ActorUser && a.userID != "" && a.userID == ag.CreatorID, nil
+		return a.isCreator(ag), nil
 	default:
 		return false, nil
 	}
+}
+
+// isCreator is the ownership half of the Manage decision, without the admin
+// superuser reach that decide() applies before ever getting here. Listing uses
+// it directly: an admin should still see the enabled set unless they ask for
+// the disabled ones.
+func (a *Access) isCreator(ag config.Agent) bool {
+	return a.authority.Kind() == authz.ActorUser && a.userID != "" && a.userID == ag.CreatorID
 }
 
 func (a *Access) load(ctx context.Context, agentID string) (config.Agent, error) {

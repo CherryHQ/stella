@@ -108,6 +108,10 @@ func (commandTestStore) SetPluginEnabled(context.Context, string, bool) error { 
 func (commandTestStore) SetPluginConfig(context.Context, string, map[string]any) error {
 	return nil
 }
+
+func (commandTestStore) SetChannelPluginConfig(context.Context, string, string, string, map[string]any) error {
+	return nil
+}
 func (commandTestStore) DeletePlugin(context.Context, string) error { return nil }
 func (commandTestStore) GetManifestPluginOverride(context.Context, string) (config.ManifestPluginOverride, bool, error) {
 	return config.ManifestPluginOverride{}, false, nil

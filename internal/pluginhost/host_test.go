@@ -96,6 +96,19 @@ func (s *stubStore) SetPluginConfig(_ context.Context, id string, cfg map[string
 	s.plugins[id] = p
 	return nil
 }
+
+// The real store writes only the config column here; the stub mirrors that by
+// leaving Enabled alone, and creating a missing row enabled.
+func (s *stubStore) SetChannelPluginConfig(_ context.Context, id, kind, name string, cfg map[string]any) error {
+	p, ok := s.plugins[id]
+	if !ok {
+		p = config.Plugin{ID: id, Kind: kind, Name: name, Enabled: true}
+	}
+	p.Config = cfg
+	s.plugins[id] = p
+	return nil
+}
+
 func (s *stubStore) DeletePlugin(context.Context, string) error { return nil }
 func (s *stubStore) GetManifestPluginOverride(context.Context, string) (config.ManifestPluginOverride, bool, error) {
 	return config.ManifestPluginOverride{}, false, nil

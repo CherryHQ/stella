@@ -88,6 +88,51 @@ func TestListReadableFiltersEachRowAndCachesAssignments(t *testing.T) {
 	}
 }
 
+// Disabling your own agent must not hide it: the list is how the UI reaches an
+// agent's configuration, so the creator would lose the switch that turns it
+// back on. Everyone else still sees nothing.
+func TestListReadableKeepsADisabledAgentVisibleToItsCreator(t *testing.T) {
+	store := testStore{agents: map[string]config.Agent{
+		"mine":  {ID: "mine", Scope: config.AgentScopeSystem, CreatorID: "u1", Enabled: false},
+		"other": {ID: "other", Scope: config.AgentScopeSystem, CreatorID: "u2", Enabled: false},
+		"live":  {ID: "live", Scope: config.AgentScopeSystem, CreatorID: "u2", Enabled: true},
+	}}
+	svc := NewService(store, &testAssignments{})
+
+	got, err := svc.ListReadable(context.Background(), userAuthority(t, "u1", false), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := agentIDs(got); len(ids) != 2 || !ids["mine"] || !ids["live"] {
+		t.Fatalf("creator sees %v, want mine and live", ids)
+	}
+
+	// An admin is not every agent's creator, so the disabled set still takes the
+	// deliberate include_all rather than arriving unasked.
+	got, err = svc.ListReadable(context.Background(), userAuthority(t, "root", true), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := agentIDs(got); len(ids) != 1 || !ids["live"] {
+		t.Fatalf("admin sees %v, want live only", ids)
+	}
+	got, err = svc.ListReadable(context.Background(), userAuthority(t, "root", true), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := agentIDs(got); len(ids) != 3 {
+		t.Fatalf("admin with include_all sees %v, want all three", ids)
+	}
+}
+
+func agentIDs(agents []config.Agent) map[string]bool {
+	out := make(map[string]bool, len(agents))
+	for _, a := range agents {
+		out[a.ID] = true
+	}
+	return out
+}
+
 func TestFailuresFailClosed(t *testing.T) {
 	ctx := context.Background()
 	user := userAuthority(t, "u1", false)

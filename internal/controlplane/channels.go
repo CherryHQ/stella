@@ -406,34 +406,18 @@ func (s *Service) channelAgentPlatformBindingConflict(ctx context.Context, ch co
 // deployment-wide switch, so nothing is upserted for them.
 //
 // Credentials are all this mirrors. The same row doubles as the admin kill
-// switch, so an existing row's Enabled is carried over verbatim: saving a
-// channel must never re-enable a platform an admin turned off. With no row at
-// all, "enabled" is what the absence already means, so writing true changes
-// nothing.
+// switch, so the write never reads or touches the enabled column — saving a
+// channel must not be able to re-enable a platform an admin turned off, not
+// even by losing a concurrent toggle's update.
 func (s *Service) mirrorWeixinPluginConfig(ctx context.Context, channelType string, cfg map[string]any) error {
 	if channelType != pkgchannel.PlatformWeixin {
 		return nil
 	}
-	id := config.PluginID(config.PluginKindChannel, channelType)
-	// Only an explicit override row carries an admin's decision. GetPlugin would
-	// answer with the builtin's DefaultEnabled (false for every channel) when no
-	// row exists, and mirroring that back would write the kill switch on.
-	enabled := true
-	overrides, err := s.store.ListPluginOverrides(ctx)
-	if err != nil {
-		return err
-	}
-	for _, o := range overrides {
-		if o.ID == id {
-			enabled = o.Enabled
-			break
-		}
-	}
-	return s.store.UpsertPlugin(ctx, config.Plugin{
-		ID:      id,
-		Kind:    config.PluginKindChannel,
-		Name:    channelType,
-		Enabled: enabled,
-		Config:  cfg,
-	})
+	return s.store.SetChannelPluginConfig(
+		ctx,
+		config.PluginID(config.PluginKindChannel, channelType),
+		config.PluginKindChannel,
+		channelType,
+		cfg,
+	)
 }

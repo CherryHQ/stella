@@ -62,6 +62,12 @@ type Store interface {
 	UpsertPlugin(ctx context.Context, p Plugin) error
 	SetPluginEnabled(ctx context.Context, id string, enabled bool) error
 	SetPluginConfig(ctx context.Context, id string, config map[string]any) error
+	// SetChannelPluginConfig mirrors a channel's credentials onto its plugin row
+	// without reading or touching the enabled column, so it can never undo the
+	// admin kill switch it shares that row with. A row that does not exist yet
+	// is created enabled: for a channel platform, "no override row" already
+	// means enabled, and an insert must not invent an off switch.
+	SetChannelPluginConfig(ctx context.Context, id, kind, name string, config map[string]any) error
 	DeletePlugin(ctx context.Context, id string) error
 
 	// Chat Agents (group -> agent mapping)
