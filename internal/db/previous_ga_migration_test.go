@@ -64,6 +64,16 @@ var previousGATime = time.Date(2026, time.July, 25, 12, 0, 0, 0, time.UTC)
 // path to upgrade persisted rows through every candidate migration.
 func TestPreviousGAPostgresForwardMigration(t *testing.T) {
 	ctx := context.Background()
+	candidate := PreviousGAUpgradedDBForTest(t)
+	assertPreviousGAUpgrade(t, ctx, candidate)
+}
+
+// PreviousGAUpgradedDBForTest exposes the real forward-migration fixture to
+// external-package integration tests that cannot import LCM from package db
+// without creating the lcm -> eventlog -> db import cycle.
+func PreviousGAUpgradedDBForTest(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	ctx := context.Background()
 	dsn, legacy := newPreviousGADB(t, ctx)
 	seedPreviousGAData(t, ctx, legacy)
 	legacy.Close()
@@ -73,8 +83,7 @@ func TestPreviousGAPostgresForwardMigration(t *testing.T) {
 		t.Fatalf("OpenDB upgrades v0.60.4 database: %v", err)
 	}
 	t.Cleanup(candidate.Close)
-
-	assertPreviousGAUpgrade(t, ctx, candidate)
+	return candidate
 }
 
 // newPreviousGADB intentionally starts with an empty database instead of
@@ -188,6 +197,14 @@ func seedPreviousGAData(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
 			($3, $6, 1, 'user', 'legacy task input', 1, $7)`,
 		previousGADelegateMsgID, previousGASchedulerMsgID, previousGATaskMsgID,
 		previousGADelegateChatID, previousGASchedulerChatID, previousGATaskChatID, previousGATime)
+	exec("legacy internal context items", `
+		INSERT INTO ctx_item (conversation_id, ordinal, item_type, message_id, event_type, role, created_at)
+		VALUES
+			($1, 1, 'message', $4, 'text', 'user', $7),
+			($2, 1, 'message', $5, 'text', 'user', $7),
+			($3, 1, 'message', $6, 'text', 'user', $7)`,
+		previousGADelegateChatID, previousGASchedulerChatID, previousGATaskChatID,
+		previousGADelegateMsgID, previousGASchedulerMsgID, previousGATaskMsgID, previousGATime)
 
 	exec("vault entries", `
 		INSERT INTO vault_entry (id, scope, name, ciphertext, created_at, updated_at) VALUES
