@@ -331,6 +331,9 @@ func (t *DelegateTool) runDelegate(parentCtx context.Context, tc delegateTaskCon
 	}
 
 	model := t.cfg.Model.Name
+	if t.cfg.Model.Provider != "" {
+		model = t.cfg.Model.Provider + "/" + model
+	}
 	if tc.Model != "" {
 		model = tc.Model
 	}
