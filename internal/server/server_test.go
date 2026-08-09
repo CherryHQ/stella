@@ -1326,14 +1326,14 @@ func TestCreateAgent(t *testing.T) {
 func TestRootRedirect(t *testing.T) {
 	env := setupAdmin(t)
 
-	// Authenticated admin -> /providers.
+	// Every authenticated user, including an admin, lands on /agents.
 	rr := doRequest(t, env, "GET", "/", nil)
 	if rr.Code != http.StatusFound {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusFound)
 	}
 	loc := rr.Header().Get("Location")
-	if loc != "/providers" {
-		t.Errorf("Location = %q, want %q", loc, "/providers")
+	if loc != "/agents" {
+		t.Errorf("Location = %q, want %q", loc, "/agents")
 	}
 
 	// Unauthenticated -> /login.
@@ -1351,8 +1351,8 @@ func TestPageRoutes(t *testing.T) {
 	env := setupAdmin(t)
 
 	pages := []string{
-		"/providers", "/agents", "/channels",
-		"/users", "/sessions", "/scheduler",
+		"/settings/providers", "/agents", "/settings/channels",
+		"/settings/users", "/sessions", "/scheduler",
 	}
 	for _, path := range pages {
 		t.Run(path, func(t *testing.T) {
