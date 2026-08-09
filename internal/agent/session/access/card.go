@@ -91,8 +91,9 @@ func (a *Access) projectCards(ctx context.Context, infos []agentsession.Info) ([
 	cards := make([]Card, len(infos))
 	for i, info := range infos {
 		source, ok := sources[info.ID]
-		if !ok {
-			return nil, fmt.Errorf("%w: missing summary source for session %q", ErrUnavailable, info.ID)
+		summary := summaryExcerpt(info.Title, maxSessionCardSummaryBytes)
+		if ok {
+			summary = deriveSessionSummary(info.Title, string(info.LastTurnResult), source)
 		}
 		state := SessionStateIdle
 		if info.Archived {
@@ -102,7 +103,7 @@ func (a *Access) projectCards(ctx context.Context, infos []agentsession.Info) ([
 		}
 		cards[i] = Card{
 			ID: info.ID, Title: info.Title,
-			Summary: deriveSessionSummary(info.Title, string(info.LastTurnResult), source),
+			Summary: summary,
 			State:   state, Sendable: sessionSendable(info), LastActive: info.LastActive.UTC(),
 			TurnStartedAt: info.LastTurnStartedAt.UTC(),
 		}

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -52,13 +53,14 @@ func TestSessionCardsDeriveSummaryStateAndSendabilityInOneBatch(t *testing.T) {
 	messages := []struct {
 		role, eventType, content string
 	}{
-		{"user", "message", "Initial authentication question"},
+		{"user", "text", "Initial authentication question"},
 		{"assistant", "text", "Old answer that must not define the recent tail"},
-		{"user", "message", "Investigate refresh-token concurrency"},
+		{"user", "text", "Investigate refresh-token concurrency"},
 		{"assistant", "thinking", "private chain of thought"},
 		{"assistant", "tool_call", "dangerous intermediate tool payload"},
 		{"assistant", "text", "Use a single-flight lock and validate cross-node behavior"},
-		{"user", "message", "continue"},
+		{"user", "text", "continue"},
+		{"user", "multimodal", `[{"kind":"image","data":"RAW-BASE64-IMAGE-DATA"}]`},
 	}
 	for i, message := range messages {
 		if _, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
@@ -150,7 +152,7 @@ func TestSessionCardsDeriveSummaryStateAndSendabilityInOneBatch(t *testing.T) {
 			t.Fatalf("summary %q does not contain %q", card.Summary, want)
 		}
 	}
-	for _, skipped := range []string{"Initial authentication question", "continue", "private chain of thought", "tool payload"} {
+	for _, skipped := range []string{"Initial authentication question", "continue", "private chain of thought", "tool payload", "RAW-BASE64", `[{"kind"`} {
 		if strings.Contains(card.Summary, skipped) {
 			t.Fatalf("summary leaked skipped content %q: %q", skipped, card.Summary)
 		}
@@ -167,6 +169,38 @@ func TestSessionCardsDeriveSummaryStateAndSendabilityInOneBatch(t *testing.T) {
 	}
 	if control.Summary == "" || strings.Contains(control.Summary, "internal payload") {
 		t.Fatalf("non-display-only Session summary = %q, want safe non-empty fallback", control.Summary)
+	}
+}
+
+func TestProjectCardsDegradesMissingConversationToTitle(t *testing.T) {
+	m := newSessionMatrix(t)
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), m.owner), m.agent)
+	info, err := m.svc.memory.LoadInfo(ctx, m.private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info.Title = "Rotated session"
+	if _, err := m.db.Exec(ctx, `DELETE FROM ctx_conversation WHERE session_id = $1`, m.private); err != nil {
+		t.Fatal(err)
+	}
+	authority, err := authz.NewUserAuthority(authz.UserID(m.owner), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	access, err := m.svc.Begin(ctx, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionInfo, err := agentsession.InfoFromRecord(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cards, err := access.projectCards(ctx, []agentsession.Info{sessionInfo})
+	if err != nil {
+		t.Fatalf("projectCards: %v", err)
+	}
+	if len(cards) != 1 || cards[0].Summary != info.Title {
+		t.Fatalf("cards = %#v, want title-only fallback", cards)
 	}
 }
 

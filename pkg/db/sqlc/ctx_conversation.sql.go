@@ -335,6 +335,7 @@ SELECT
     FROM ctx_message m
     WHERE m.conversation_id = c.id
       AND m.role = 'user'
+      AND m.event_type = 'text'
       AND NOT (
         char_length(btrim(m.content)) <= 32
         AND lower(regexp_replace(btrim(m.content), '[[:space:][:punct:]，。！？、…]+', '', 'g')) = ANY(
