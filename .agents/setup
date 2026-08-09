@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# The Bookworm PostgreSQL runtime bundles libc 2.36-9+deb12u14 but still uses
+# the orb's /lib64/ld-linux interpreter. Older orb images shipped deb12u3; that
+# loader/libc mismatch leaves PostgreSQL startup workers spinning until pg_ctl
+# times out. Keep the host loader at least as new as the bundled libc.
+minimum_libc="2.36-9+deb12u14"
+installed_libc="$(dpkg-query -W -f='${Version}' libc6)"
+if dpkg --compare-versions "$installed_libc" lt "$minimum_libc"; then
+  sudo apt-get update -qq
+  sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --only-upgrade libc6 libc-bin
+fi
+
+if ! command -v mise >/dev/null 2>&1; then
+  curl -fsSL https://mise.run | sh
+fi
+
+export PATH="$HOME/.local/bin:$PATH"
+mise trust mise.toml
+mise install
