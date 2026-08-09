@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/agentctx"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -15,12 +16,32 @@ import (
 type capturingRunner struct {
 	ctx      context.Context //nolint:containedctx // the captured value is the assertion
 	excluded []string
+	request  SessionRunRequest
 }
 
 func (r *capturingRunner) RunDelegateSession(ctx context.Context, req SessionRunRequest) (SessionRunResult, error) {
 	r.ctx = ctx
 	r.excluded = req.ExcludedTools
+	r.request = req
 	return SessionRunResult{SessionID: req.SessionID, Output: "done", Complete: true}, nil
+}
+
+func TestManagedSessionCreateAppliesPresetWithoutDelegateSurface(t *testing.T) {
+	runner := &capturingRunner{}
+	presets := NewPresetRegistry([]DelegatePreset{{Name: "coder", System: "coder instructions", Timeout: time.Minute}})
+	tool := NewDelegateTool(DelegateConfig{
+		SessionRunner: runner,
+		Registry:      registryWith("session", "read_file"),
+		Presets:       presets,
+	})
+	ctx := memory.WithSessionID(context.Background(), "source")
+	result, err := tool.RunManagedSession(ctx, ManagedSessionRequest{Message: "implement", Preset: "coder"})
+	if err != nil {
+		t.Fatalf("RunManagedSession: %v", err)
+	}
+	if result.Output != "done" || runner.request.Task != "implement" || !strings.Contains(runner.request.System, "coder instructions") || runner.request.Timeout != time.Minute {
+		t.Fatalf("managed preset result=%+v request=%+v", result, runner.request)
+	}
 }
 
 type stubTool struct{ name string }

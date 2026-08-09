@@ -260,7 +260,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	memProvider = wrapMemoryWithTracing(memProvider, &poolMgr)
 
 	builtinTools := []agent.BuiltinTool{
-		{Tool: memory.BuildTool(memProvider, memory.WithSessionReadOnlyWrites())},
+		{Tool: memory.BuildTool(memProvider, memory.WithSessionReadOnlyWrites(), memory.WithoutTranscriptActions())},
 	}
 	if notifyTool := notify.NewTool(dispatcher); notifyTool != nil {
 		builtinTools = append(builtinTools, agent.BuiltinTool{Tool: notifyTool})

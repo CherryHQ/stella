@@ -323,6 +323,27 @@ func TestBuildTool_WithSessionReadOnlyWrites(t *testing.T) {
 	}
 }
 
+func TestBuildTool_WithoutTranscriptActions(t *testing.T) {
+	provider := fakeWithMessages{memorytest.New()}
+	tool := memory.BuildTool(provider, memory.WithSessionReadOnlyWrites(), memory.WithoutTranscriptActions())
+	def := tool.Definition()
+	actions := extractActionEnum(t, def.InputSchema)
+
+	for _, removed := range []string{"status", "search", "describe", "expand", "get_message"} {
+		if slices.Contains(actions, removed) {
+			t.Fatalf("model-facing memory tool exposed transcript action %q: %v", removed, actions)
+		}
+	}
+	for _, kept := range []string{"soul_get", "profile_get", "profile_history", "constraint_list", "search_knowledge"} {
+		if !slices.Contains(actions, kept) {
+			t.Fatalf("model-facing memory tool omitted non-transcript action %q: %v", kept, actions)
+		}
+	}
+	if _, err := tool.Execute(t.Context(), map[string]any{"action": "search", "pattern": "old chat"}); err == nil || !strings.Contains(err.Error(), "unknown action") {
+		t.Fatalf("removed search action error = %v", err)
+	}
+}
+
 func TestExecute_Status(t *testing.T) {
 	tool := memory.BuildTool(&bareProvider{})
 	ctx := memory.WithSessionID(context.Background(), "test-session")

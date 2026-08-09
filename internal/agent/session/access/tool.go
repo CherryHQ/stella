@@ -42,7 +42,7 @@ func NewTool(svc *Service) *Tool { return &Tool{svc: svc} }
 func (t *Tool) Definition() tools.Definition {
 	return tools.Definition{
 		Name:        sessionToolName,
-		Description: "Find and inspect this agent's sessions for the current user. Use find without a query for recent sessions or with a query to search transcripts. Get is compact by default; pass a cursor returned by find/get to page a bounded raw transcript. Create starts a managed session and waits for its reply; send continues an existing managed session and waits for its reply. This phase supports wait=true only: conversation sessions cannot receive agent messages until actor provenance exists.",
+		Description: "Find, inspect, create, and continue this agent's sessions for the current user. Use find without a query for recent sessions or with a query to search transcripts. Get is compact by default; pass a cursor returned by find/get to page a bounded raw transcript. Create starts a focused session and waits for its reply. Send continues any sendable session and waits in FIFO order when the target is busy. Agent input retains source provenance. Only wait=true is supported.",
 		InputSchema: tools.MustInputSchema(`{
   "type": "object",
   "properties": {
@@ -52,7 +52,7 @@ func (t *Tool) Definition() tools.Definition {
 	      "description": "Required parameters by action: find(); get(session_id); create(message, optional preset, optional wait=true); send(session_id, message, optional wait=true)."
     },
     "session_id": {"type": "string"},
-	    "message": {"type": "string", "description": "The managed Session's initial or next request."},
+	    "message": {"type": "string", "description": "The Session's initial or next request."},
 	    "preset": {"type": "string", "description": "Optional managed-Session preset for create."},
 	    "wait": {"type": "boolean", "default": true, "description": "Must be true in this phase; asynchronous Session requests are not yet supported."},
     "query": {"type": "string", "description": "Optional transcript search for find. Natural-language retrieval inside get is not supported."},

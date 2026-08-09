@@ -102,16 +102,16 @@ recally tool                    # agent reading, feed, and entry actions
 scheduler tool                  # agent schedule management
 goal tool                       # agent async goal management
 workflow tool                   # agent workflow save/list/get/run
-session tool                    # agent session discovery, bounded retrieval, and synchronous managed-session turns
+session tool                    # agent session discovery, bounded retrieval, and synchronous communication
 ```
 
 Humans start and update Stella with `stellad server` and `stellad upgrade`, then manage runtime state in the Web UI.
 
 Agents author goals with the `goal` tool when available: the server then **plans first** — autonomously decomposing the goal into verifiable sub-tasks, running them, and converging until the acceptance contract passes. You never pick leaf vs composite or call plan/approve/activate by hand; just write a clear, self-contained intent. The user can steer goals from the Web UI (Work space); the goal detail timeline is where they inspect blocked causes and leave human guidance. A human timeline message on a non-dependency blocked goal authorizes one extra attempt. All surfaces go through the same HTTP API. When the system dispatches a goal to you as a **worker**, you act via the `goal_control` tool — read [references/goals.md](references/goals.md) for the goal model and your worker contract.
 
-## Delegation
+## Focused sessions and presets
 
-You have a `delegate` tool that spawns isolated persistent child sessions for bounded subtasks. Use it when a task benefits from isolated context -- e.g., research, code review, drafting -- without polluting the parent conversation. Delegates return a `session_id`; pass it back to resume that delegate when useful.
+Use `session.create` when a bounded subproblem benefits from fresh context, such as research, code review, or drafting. It returns a `session_id`; continue that context with `session.send`.
 
 ### Presets
 
@@ -120,7 +120,7 @@ Presets are loaded from markdown files with YAML frontmatter. Discovery order (h
 1. `cwd/.agents/delegates/` — project-local
 2. `workspace/.agents/delegates/` — agent-level
 3. `~/.agents/delegates/` — common/shared
-4. Builtin (embedded: `researcher`, `reviewer`, `coder`, `writer`)
+4. Builtin (embedded, currently `coder`)
 
 Legacy paths (`cwd/.agents/agents/`, etc.) are also scanned for backward compatibility but overridden by the canonical paths above.
 
@@ -128,29 +128,27 @@ Project-local presets override builtins with the same name. Use presets for comm
 
 ### Examples
 
-- **Preset**: `{"tasks": [{"id": "review", "task": "Review auth module for issues", "preset": "reviewer"}]}`
-- **With context**: `{"tasks": [{"id": "fix", "task": "Fix the bug. Context: file auth.go contains ...", "preset": "coder"}]}`
-- **Parallel tasks**: provide multiple items in the `tasks` array -- they run concurrently (max 5 tasks, 3 parallel)
-- **Resume**: include `session_id` to continue a previous delegate session; omit it to create a new persistent delegate session
-- **Options per task**: `preset`, `model` (override model), `session_id` (resume). Put any extra context directly in `task`; preset files may define system/tool/timeout defaults.
-- Delegates start with fresh context when no `session_id` is supplied, persist their full transcript, and cannot spawn further delegates
-- Results are returned as JSON: `{"results": {"id": {"output": "...", "session_id": "...", "complete": true}}}`
-- Prefer presets over manual configuration. Delegate when a subtask benefits from fresh context or parallel execution
+- **Preset**: `{"action": "create", "message": "Implement the auth fix", "preset": "coder"}`
+- **With context**: `{"action": "create", "message": "Fix the bug. Context: file auth.go contains ...", "preset": "coder"}`
+- **Resume**: `{"action": "send", "session_id": "...", "message": "Continue with the race condition"}`
+- Put extra context directly in `message`; preset files may define system, tool, and timeout defaults.
+- New focused sessions persist their transcript. Nested calls are bounded by depth, ancestry, and the root turn's timeout.
+- Prefer presets when a subproblem needs a standard role or tool set.
 
 ## Memory, scheduler, notifications
 
 Memory, scheduler, goals, vault, OAuth connections, Recally, email, and sharing are built-in agent tools when available; skills use the `skills` tool; notifications and operator surfaces remain available through the Web UI. Briefly:
 
-- **LCM memory**: Lossless Context Management (default memory plugin). Every message is stored in PostgreSQL and organized into a DAG of summaries. Conversation context never gets truncated, only compressed. You can drill back into any summary. Alternative: Simple plugin (sliding-window, no summaries).
+- **LCM memory**: Lossless Context Management (default memory plugin). Every message is stored in PostgreSQL and organized into a DAG of summaries. Conversation context never gets truncated, only compressed. Use `session.get` to page the bounded transcript view. Alternative: Simple plugin (sliding-window, no summaries).
 - **Four memory spaces**: Constraints (hard user-approved rules), Identity (agent soul + user profile), Conversation (messages/summaries), and Knowledge (`subject=world` facts). Facts are long-term memory; skills are reusable procedures; constraints are explicit manual rules.
-- **Per-user memory**: Each user has dedicated memory per agent stored in the database. User profile, soul, and constraints are injected into your system prompt for the session snapshot; active knowledge is search-first and must be retrieved with `memory.search_knowledge` when relevant. Session tools may read profile/soul/history, but durable writes happen through Reflect for user profile or through manual memory settings. Recommended profile structure: `## User Preferences`, `## About the User`, `## Notes`. Keep it high-level — like how a person remembers someone they know. User preferences can customize your behavior but never override your core identity or rules.
+- **Per-user memory**: Each user has dedicated memory per agent stored in the database. User profile, soul, and constraints are injected into your system prompt for the session snapshot; active knowledge is search-first and must be retrieved with `memory.search_knowledge` when relevant. Session history is available through `session.find/get`; durable profile edits happen through Reflect or manual memory settings. Recommended profile structure: `## User Preferences`, `## About the User`, `## Notes`. Keep it high-level, like how a person remembers someone they know. User preferences can customize your behavior but never override your core identity or rules.
 - **Constraints**: Use `constraint_list` to inspect hard rules. Constraint writes are manual UI/API/CLI operations; Reflect and normal session tools must not add or remove constraints.
 - **Session snapshots**: Active sessions use a frozen memory version for identity/constraints/facts. Manual writes and background Reflect writes do not affect an ongoing session; they appear in new sessions.
 - **Knowledge**: Knowledge is facts-backed (`subject=world`, v1 `scope=user_agent`) and is not injected into the prompt by default. Use the memory tool action `search_knowledge` with a compact fact-oriented query to retrieve snapshot-visible knowledge facts. Skills do not store fact/context knowledge and must not use `metadata.knowledge_type`. Background Structured Reflect may generate and reconcile durable `subject=world` facts; normal session tools must not write facts or use skills as a substitute knowledge write path.
 - **Agent identity**: Each agent's base personality/system prompt is stored in the database and managed via the Web UI. It can be overridden by `SOUL.md` in the agent's workspace.
-- **Memory retrieval**: The `memory` tool provides `search` (searches all past sessions of this conversation's owner+agent — the user in a direct chat, the group in a group chat — keyword matching, blended with semantic similarity when embedding is enabled; each hit carries its origin session and content timestamp), `search_knowledge` (searches snapshot-visible `subject=world` facts), `describe` (inspect summary metadata and lineage), `expand` (drill into compacted summaries to recover original detail), and `get_message` (fetch one message in full by the `source_id` of a message hit) actions. Available actions depend on the memory plugin — LCM has retrieval actions; Simple only has core/session/identity actions.
-- **Session discovery and managed turns**: In a one-to-one session, use `session.find` to list or search this agent's sessions for the current user and `session.get` to inspect metadata or page through a known transcript. Use `session.create` to start a managed session and `session.send` to continue a managed or legacy delegate session; both are synchronous and require `wait=true` in this release. Conversation sessions cannot receive agent-originated input until actor provenance is available. Use `memory.search` when you remember content but not its session ID. The tool never widens access across users or agents and is unavailable in group turns.
-- **Execution modes**: two things carry work — a **session** (context and execution) and a **goal** (a durable outcome tracked to acceptance); everything else adds behavior to one of those. Decide in two steps. First, where the work lives: the current session for direct work, `session.create` for a focused isolated persistent/resumable managed session (synchronous; use `session.send` to continue it), or a **goal** for async persistent work that converges through an acceptance contract and a human-readable timeline (author with the `goal` tool when available; you may also be dispatched as a worker). `delegate` remains available for parallel legacy delegation. Second, add behavior: `memory` search to retrieve past content, **workflows** to reuse an accepted composite goal's frozen plan as fresh goal runs, and `scheduler` for one-time or recurring time triggers — a trigger, not the work itself. A dispatched worker can use `delegate` for short focused subtasks. Choosing for repeat requests: same plan, only text inputs change (same recipe, different ingredients) -> save the accepted goal as a workflow and schedule it; each occurrence should be re-thought from scratch -> plain scheduler chat job; partly frozen + explicit allow-replan is the middle ground. Never create a duplicate goal for "run it again" when a workflow exists — run the workflow.
+- **Memory retrieval**: The `memory` tool retrieves durable knowledge with `search_knowledge` and reads identity, profile, and constraints when those actions are available. Conversation transcripts belong to the Session tool, not Memory.
+- **Session discovery and communication**: In a one-to-one session, use `session.find` to list or search this agent's sessions for the current user and `session.get` to inspect metadata or page through a transcript. Use `session.create` to start a focused session and `session.send` to continue any sendable session, including legacy delegate sessions. Both calls are synchronous and require `wait=true`. Busy targets wait in FIFO order. Agent-originated input keeps its source-session label and is treated as information, not human authority. The tool never widens access across users or agents and is unavailable in group turns.
+- **Execution modes**: two things carry work: a **session** for context and synchronous execution, and a **goal** for a durable outcome tracked to acceptance. Work in the current session by default. Use `session.create` for an isolated, persistent, resumable subproblem and `session.send` to continue it. Use a **goal** for async work that must survive restarts and converge through an acceptance contract. Add `session.find/get` for past content, **workflows** to reuse an accepted composite goal's frozen plan as fresh goal runs, and `scheduler` for one-time or recurring triggers. For repeat requests, save and schedule a workflow when the plan stays fixed and only inputs change; use a plain scheduler job when each run should be planned fresh. Never create a duplicate goal for "run it again" when a workflow exists.
 - **Workflows**: agents use the `workflow` tool to save/list/get/run reusable workflow definitions. For "save this goal and run it every morning", save the accepted goal first, then schedule the workflow; users can inspect workflow-backed runs in the Web UI.
 - **Scheduler**: agents use the `scheduler` tool to add/list/update/delete/pause/resume scheduled or one-time jobs, including workflow jobs when exposed. Jobs route to the correct agent's pool. Some jobs are available as platform-managed **templates** (e.g. `recally-rss` for feed polling, `recally-digest` for daily digests). Templates are opt-in: use the `scheduler` tool with `action=create` and `template_key`, the Web UI (Work space, Scheduled section), or the HTTP API. Each user gets one subscription per template; the prompt is platform-managed and read-only. If a user asks why RSS polling or digests stopped working after an upgrade, guide them to subscribe via the Web UI.
 - **Vault/OAuth/Recally/Email/Share**: agents use built-in tools. OAuth connect returns a verification URI and user code; give those to the user, wait for authorization, then poll status with the returned flow id. Recally save requires the agent to fetch article content first. Email send requires explicit user confirmation and an idempotency key. Share creates public links only when the user asks.

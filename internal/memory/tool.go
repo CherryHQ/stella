@@ -42,6 +42,7 @@ type toolConfig struct {
 	readOnlyProfile       bool
 	readOnlySoul          bool
 	sessionReadOnlyWrites bool
+	hideTranscriptActions bool
 	actionsOnly           map[string]bool // nil means all available
 }
 
@@ -66,6 +67,14 @@ func WithReadOnlySoul() ToolOption {
 func WithSessionReadOnlyWrites() ToolOption {
 	return func(c *toolConfig) {
 		c.sessionReadOnlyWrites = true
+	}
+}
+
+// WithoutTranscriptActions removes conversation retrieval from the model-facing
+// memory surface. Session find/get owns transcript discovery and paging.
+func WithoutTranscriptActions() ToolOption {
+	return func(c *toolConfig) {
+		c.hideTranscriptActions = true
 	}
 }
 
@@ -174,19 +183,18 @@ func (t *memoryTool) buildActions() []actionMeta {
 		actions = append(actions, actionMeta{name: name, desc: desc})
 	}
 
-	add(actionStatus, "Show session memory statistics: message count, token usage, summary count, time range.")
-
-	if t.searcher != nil {
-		add(actionSearch, "Search this user+agent's history by keyword across ALL past sessions, not just the current one. Each hit carries provenance: session_id and conversation_title for origin, and occurred_at (RFC3339) for when the content actually happened — use it to weight recency.")
-	}
-
-	if t.explorer != nil {
-		add(actionDescribe, "Inspect a summary's content, metadata, and lineage (parents/children).")
-		add(actionExpand, "Drill into a summary to retrieve original messages (leaf) or child summaries (condensed).")
-	}
-
-	if t.messageReader != nil {
-		add(actionGetMessage, "Fetch one message in full by its ID (the source_id of a 'message' search hit). Use this to read a truncated search snippet in full, including hits from other past sessions of this user+agent.")
+	if !t.cfg.hideTranscriptActions {
+		add(actionStatus, "Show session memory statistics: message count, token usage, summary count, time range.")
+		if t.searcher != nil {
+			add(actionSearch, "Search this user+agent's history by keyword across ALL past sessions, not just the current one. Each hit carries provenance: session_id and conversation_title for origin, and occurred_at (RFC3339) for when the content actually happened — use it to weight recency.")
+		}
+		if t.explorer != nil {
+			add(actionDescribe, "Inspect a summary's content, metadata, and lineage (parents/children).")
+			add(actionExpand, "Drill into a summary to retrieve original messages (leaf) or child summaries (condensed).")
+		}
+		if t.messageReader != nil {
+			add(actionGetMessage, "Fetch one message in full by its ID (the source_id of a 'message' search hit). Use this to read a truncated search snippet in full, including hits from other past sessions of this user+agent.")
+		}
 	}
 
 	if t.profileStore != nil {
@@ -231,7 +239,7 @@ func (t *memoryTool) Definition() tools.Definition {
 
 func (t *memoryTool) buildDescription() string {
 	var b strings.Builder
-	b.WriteString("Manage conversation memory.\n\nActions:\n")
+	b.WriteString("Read durable knowledge, identity, profile, and constraints. Session transcripts are available through the session tool.\n\nActions:\n")
 	for _, a := range t.actions {
 		fmt.Fprintf(&b, "- %s: %s\n", a.name, a.desc)
 	}

@@ -320,7 +320,8 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		SessionRunner:  cfg.DelegateRunner,
 		DefaultTimeout: cfg.DelegateTimeout,
 	})
-	registerNonCore(delegateTool)
+	// Keep the internal delegate adapter for session.create/send preset execution.
+	// It is intentionally absent from the model-facing registry.
 
 	var overrides []ToolOverride
 	if cfg.ToolOverrideFetcher != nil {
