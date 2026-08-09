@@ -1871,7 +1871,7 @@ const en = {
   // Plugins (additions)
   "plugins.addTool": "Add Tool",
   "plugins.addToolDesc":
-    "Declare a GitHub release binary. Stella writes it to plugins.yaml and syncs automatically.",
+    "Declare a GitHub release binary. Stella registers it and syncs automatically.",
   "plugins.addCliToolDesc":
     "Search the mise registry by name, or type a mise key (e.g. github:owner/repo). Stella installs it and keeps it in sync.",
   "plugins.removePlugin": "Remove this plugin?",
@@ -4043,7 +4043,7 @@ const zh: Record<MessageKey, string> = {
 
   // Plugins (additions)
   "plugins.addTool": "添加工具",
-  "plugins.addToolDesc": "声明 GitHub 发布二进制文件。Stella 将其写入 plugins.yaml 并自动同步。",
+  "plugins.addToolDesc": "声明 GitHub 发布二进制文件。Stella 会注册该插件并自动同步。",
   "plugins.addCliToolDesc":
     "按名称搜索 mise 注册表，或直接输入 mise 标识（如 github:owner/repo）。Stella 会自动安装并保持同步。",
   "plugins.removePlugin": "移除此插件？",

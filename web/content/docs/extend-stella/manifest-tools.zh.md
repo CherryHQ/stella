@@ -1,23 +1,22 @@
 ---
 title: 清单工具插件
-description: 从 $STELLA_HOME/plugins.yaml 加载的文件驱动 CLI 工具集成。
+description: 随服务端一同发布、并可在管理界面中自定义的声明式 CLI 工具集成。
 ---
 
 ## 概览
 
-清单工具插件是一种轻量替代方案，无需编写 Go 包，只需在 YAML 文件中声明工具，或从 Plugins 管理界面添加工具，Stella 会自动协调二进制文件的下载。
+清单工具插件是一种轻量替代方案：无需编写 Go 包，只要把工具声明为数据，Stella 就会自动协调二进制文件的下载。
 
-Stella 内置了一个默认清单，声明了默认由清单管理的 CLI 集成（`tap-web`、`gh`、`lark-cli`、`rtk`）。它们会显示在对应语义标签页中，例如 **Tools** 或 **Hooks**，并带有 `manifest` 标记。你可以在 `$STELLA_HOME/plugins.yaml` 或管理界面中覆盖或扩展这些配置。
+Stella 内置了一个默认清单，声明了默认由清单管理的 CLI 集成（`tap-web`、`gh`、`lark-cli`、`rtk`）。它们会显示在对应语义标签页中，例如 **Tools** 或 **Hooks**，并带有 `manifest` 标记。你在 Plugins 管理界面中覆盖或扩展这些配置，改动存入数据库，编译进服务端的清单本身不会被修改。
 
 ## 工作原理
 
 启动时，Stella 会：
 
 1. 加载内嵌的内置清单（`resources/oauth.yaml` 和 `resources/tools.yaml`）
-2. 如果存在，加载用户清单（`$STELLA_HOME/plugins.yaml`）
-3. 合并两者：用户条目按插件 ID 覆盖内置条目
-4. 将已启用的清单插件注册到插件主机
-5. 在后台启动二进制协调：将缺失的二进制文件下载到 `$STELLA_HOME/bin`
+2. 从数据库读取已存储的自定义并覆盖到内置定义之上，同时追加没有内置定义支撑的、由你创建的插件
+3. 将已启用的清单插件注册到插件主机
+4. 在后台启动二进制协调：将缺失的二进制文件下载到 `$STELLA_HOME/bin`
 
 启动不会被二进制下载阻塞。新增或更新的清单二进制会在后台同步完成后，出现在 Agent 沙箱会话的 `PATH` 中。对于本地沙箱会话，二进制文件通过 `$STELLA_HOME/bin` 提供。Docker 沙箱会话需要单独处理，因为宿主机二进制可能面向宿主机 OS/架构，而不是 Linux。
 
@@ -28,22 +27,22 @@ Stella 内置了一个默认清单，声明了默认由清单管理的 CLI 集�
 对于 Docker：
 
 - 必须开箱即用的内置 CLI 插件会预装到带版本的沙箱镜像中。沙箱镜像标签与 Stella release 绑定，因此一个 release 镜像可以包含该 Stella 版本对应的内置工具集合。镜像构建时运行 `stellad mise reconcile-builtins`（与守护进程相同的 reconcile 流程），按 `resources/tools.yaml` 声明的标识符与版本安装，无需再单独维护一份 Docker 工具列表。
-- `$STELLA_HOME/plugins.yaml` 仍然是插件元数据、启用状态、会话环境变量、OAuth 注入以及本地沙箱二进制安装的来源。
+- 解析后的清单（内置定义加上已存储的自定义）仍然是插件元数据、启用状态、会话环境变量、OAuth 注入以及本地沙箱二进制安装的来源。
 - 用户配置的 CLI 二进制需要一条容器原生的加载路径。它们应在 Docker 环境内按 Linux 目标安装，而不是从宿主机 `$STELLA_HOME/bin` 复制。
 
 一种用于用户配置 CLI 的安全 Docker 加载设计是：
 
-1. 从已启用的用户清单插件 `binaries` 条目生成容器工具清单，排除 release 镜像中已经存在的内置工具。
+1. 从已启用的清单插件 `binaries` 条目生成容器工具清单，排除 release 镜像中已经存在的内置工具。
 2. 基于同一个沙箱镜像启动短生命周期 helper 容器，在 Linux 上下文中运行 `mise install`。
-3. 将安装结果保存到由 Docker 管理的工具缓存或 volume，并用沙箱镜像标签加用户清单哈希作为缓存键。
+3. 将安装结果保存到由 Docker 管理的工具缓存或 volume，并用沙箱镜像标签加解析后清单的哈希作为缓存键。
 4. 将该缓存挂载到沙箱会话中的容器专用路径，并前置到容器内 `PATH`。
-5. 当已启用的用户插件集合或二进制版本变化时，重建或刷新缓存。
+5. 当已启用的插件集合或二进制版本变化时，重建或刷新缓存。
 
 这样可以保持 release 沙箱镜像稳定，同时仍支持用户新增 CLI。安装得到的用户二进制是 Linux 容器二进制，宿主机 `$STELLA_HOME/bin` 不参与 Docker 可执行文件解析。
 
-## 清单文件格式
+## 插件定义
 
-`$STELLA_HOME/plugins.yaml`：
+无论是随 `resources/tools.yaml` 发布，还是在管理界面里填写，清单插件都是同一组字段。下面的 YAML 形式是阅读这个结构最清楚的方式；管理界面编辑的是同样这些字段，只是呈现为表单行。
 
 ```yaml
 plugins:
@@ -186,31 +185,7 @@ binaries:
 
 ## 状态与缓存
 
-Stella 在 `$STELLA_HOME/plugin-manifest-state.json` 中跟踪已安装的二进制版本。后续启动时，版本正确的二进制文件会被跳过。修改 `plugins.yaml` 中的 `version` 字段可触发重新下载。启动时的协调会在后台运行，并会在关闭时取消；Stella 也会终止安装器派生出的子进程。
-
-## 覆盖内置插件
-
-要禁用内置插件，添加一个 `enabled: false` 的条目：
-
-```yaml
-plugins:
-  - id: tool/tap-web
-    enabled: false
-```
-
-要将内置二进制固定到特定版本：
-
-```yaml
-plugins:
-  - id: tool/tap-web
-    enabled: true
-    binaries:
-      - name: tap
-        tool: github:vaayne/tap
-        version: "0.5.0"
-```
-
-内置插件覆盖是完整条目替换。如果为了修改某个字段而覆盖内置插件，需要把仍然需要的其他字段也一并写上。
+Stella 在 `$STELLA_HOME/plugin-manifest-state.json` 中跟踪已安装的二进制版本。后续启动时，版本正确的二进制文件会被跳过。修改二进制的 `version` 可触发重新下载。启动时的协调会在后台运行，并会在关闭时取消；Stella 也会终止安装器派生出的子进程。
 
 ## 管理界面
 
@@ -219,9 +194,9 @@ plugins:
 - `tool/gh`、`tool/lark-cli` 和 `tool/tap-web` 显示在 **Tools**。
 - `hook/rtk` 显示在 **Hooks**。
 
-由清单管理的行会显示 `manifest` 标记，并提供 **Edit definition** 操作用于编辑 YAML 支持的插件定义。二进制文件和会话环境变量会以表单行编辑。如果同一个插件还提供运行时配置，该行也会显示 **Configure**。
+由清单管理的行会显示 `manifest` 标记，并提供 **Edit definition** 操作用于编辑插件定义。二进制文件和会话环境变量会以表单行编辑。如果同一个插件还提供运行时配置，该行也会显示 **Configure**。启用开关与定义分开存储，因此禁用内置插件不算自定义；而把某个二进制固定到指定版本，则是一次普通的定义编辑。
 
-**Tools** 标签页提供 **Add Tool**，可以从 GitHub release 二进制创建新的清单 CLI 工具。保存后会写入 `$STELLA_HOME/plugins.yaml`，注册插件，并自动同步二进制文件，无需重启。内嵌的内置清单不会被修改。
+**Tools** 标签页提供 **Add Tool**，可以从 GitHub release 二进制创建新的清单 CLI 工具。保存后会注册插件并自动同步二进制文件，无需重启。内嵌的内置清单不会被修改。
 
 在管理界面里编辑内置插件时，只会存储你改动过的字段，其余字段继续跟随服务端自带的定义，升级后仍会随之更新。这类插件会标记为 **已自定义**，并提供 **恢复默认**：丢弃已存储的改动，启用开关保持不变。列表类字段（二进制文件、技能、会话环境变量）整体存储 —— 改了其中一个二进制，就等于接管了整个列表。在此行为出现之前保存的自定义存的是一整份定义，会一直冻结在那个版本；重新保存一次该插件即可改写为新格式，之后便会继续跟随升级。
 
