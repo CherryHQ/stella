@@ -177,6 +177,34 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
 
+  /api/manifest-plugins/{kind}/{name}:
+    delete:
+      tags: [plugins]
+      summary: Remove a custom manifest plugin (admin only)
+      description: >
+        Removes a plugin an admin added. Builtin plugins ship with the server and
+        cannot be removed — disable them instead.
+      operationId: deleteManifestPlugin
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: { type: string }
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: deleted }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
   /api/manifest-plugins/sync:
     post:
       tags: [plugins]

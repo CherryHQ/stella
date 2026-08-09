@@ -80,19 +80,24 @@ func TestGoalDirectRulesAdminAndNonUserActors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Collections stay owner-bound even for an admin: the admin above owns no
+	// goal, so its list and count are empty. Superuser reach still applies to a
+	// resolved row.
 	rows, _, _, err := h.begin(t, admin).ListGoals(ctx, GoalFilter{}, 10, 0)
 	if err != nil {
 		t.Fatalf("admin ListGoals: %v", err)
 	}
-	seen := map[string]bool{}
-	for _, row := range rows {
-		seen[row.ID] = true
+	if len(rows) != 0 {
+		t.Fatalf("admin list=%v, want no foreign goals", rows)
 	}
-	if !seen[own.ID] || !seen[foreign.ID] {
-		t.Fatalf("admin list=%v, want own %s and foreign %s", seen, own.ID, foreign.ID)
+	if got, err := h.begin(t, admin).CountGoals(ctx, GoalFilter{}); err != nil || got != 0 {
+		t.Fatalf("admin CountGoals = %d, %v; want 0, nil", got, err)
 	}
-	if got, err := h.begin(t, admin).CountGoals(ctx, GoalFilter{}); err != nil || got != 2 {
-		t.Fatalf("admin CountGoals = %d, %v; want 2, nil", got, err)
+	if _, err := h.begin(t, admin).Get(ctx, foreign.ID); err != nil {
+		t.Fatalf("admin Get(foreign) err=%v, want nil", err)
+	}
+	if _, err := h.begin(t, admin).Get(ctx, own.ID); err != nil {
+		t.Fatalf("admin Get(own) err=%v, want nil", err)
 	}
 
 	group, err := authz.NewGroupAgentAuthority("group", authz.AgentID(h.agentID))

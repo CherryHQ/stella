@@ -21,6 +21,12 @@ type ManifestPlugin struct {
 	Skills        []ManifestSkill      `json:"skills,omitempty" yaml:"skills,omitempty"`
 	SessionEnvs   []ManifestSessionEnv `json:"session_env,omitempty" yaml:"session_env,omitempty"`
 	OAuthProvider string               `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"`
+
+	// Builtin marks a plugin that ships with the server. It is computed when the
+	// manifest is resolved, never read from a manifest or an override: a builtin
+	// definition can be customized or disabled, but only an admin-added plugin
+	// can be removed. `yaml:"-"` keeps it out of the shipped manifest.
+	Builtin bool `json:"builtin,omitempty" yaml:"-"`
 }
 
 type ManifestBinary struct {

@@ -80,6 +80,14 @@ components:
           type: string
         creator_id:
           type: string
+          readOnly: true
+          description: >-
+            The user who created the agent. Returned only to someone who may manage it, so an ordinary user cannot collect user ids from the agent list.
+        can_manage:
+          type: boolean
+          readOnly: true
+          description: >-
+            Whether the calling user may configure this agent. The server's answer; clients must not recompute it from creator_id.
         enabled:
           type: boolean
         last_active:

@@ -2,6 +2,7 @@ import type { AgentsPageState } from "../agent-detail-state";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useI18n } from "@/lib/i18n";
+import { canEditAgent } from "../agent-detail-state";
 
 interface Props {
   state: AgentsPageState;
@@ -11,12 +12,11 @@ interface Props {
 
 export function PromptTab({ state, onSetState, onApplySoul }: Props) {
   const { t } = useI18n();
-  const { form, builtinSouls, selectedSoulID, editingId, isAdmin } = state;
+  const { form, builtinSouls, selectedSoulID, editingId } = state;
 
   const setForm = (patch: Partial<typeof form>) => onSetState({ form: { ...form, ...patch } });
 
-  const canEdit =
-    !editingId || isAdmin || (form.creator_id && form.creator_id === state.currentUserId);
+  const canEdit = !editingId || canEditAgent(form);
 
   return (
     <div className="space-y-6">

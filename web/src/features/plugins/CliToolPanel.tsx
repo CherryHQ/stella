@@ -247,9 +247,13 @@ function toEnvRows(envs: ManifestSessionEnv[] | undefined): EnvRow[] {
 }
 
 // CliToolEditor is the compact detail editor for a manifest plugin: per-binary
-// version (with resolve-to-latest), the session env mapping that wires the CLI's
-// runtime variables, and an OAuth provider. The binary's mise key is read-only —
-// changing it means redefining the tool, which is an add/remove, not an edit.
+// version (with resolve-to-latest) and mise key, the session env mapping that
+// wires the CLI's runtime variables, and an OAuth provider.
+//
+// A builtin's mise key is editable too: the edit becomes an override row over
+// the shipped definition, which is what every other field here already does.
+// The whole manifest-plugin API is admin-only, so that is who can write it.
+// What builtin still forbids is removal — see pluginIsRemovable.
 export function CliToolEditor({ plugin, oauthProviders, onSave, showToast }: EditorProps) {
   const { t } = useI18n();
   const manifest = plugin._manifestPlugin as ManifestPlugin;
@@ -258,16 +262,26 @@ export function CliToolEditor({ plugin, oauthProviders, onSave, showToast }: Edi
   const [versions, setVersions] = useState<Record<string, string>>(() =>
     Object.fromEntries(binaries.map((b) => [b.name, b.version ?? ""])),
   );
+  const [tools, setTools] = useState<Record<string, string>>(() =>
+    Object.fromEntries(binaries.map((b) => [b.name, b.tool])),
+  );
   const [envRows, setEnvRows] = useState<EnvRow[]>(() => toEnvRows(manifest.session_env));
   const [oauthProvider, setOAuthProvider] = useState(manifest.oauth_provider ?? "");
   const [resolving, setResolving] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
 
   async function resolveLatest(binary: ManifestBinary) {
+    // Ask about the key the admin is looking at, not the saved one: after
+    // repointing a tool, the old key's latest version is the wrong answer.
+    const tool = (tools[binary.name] ?? binary.tool).trim();
+    if (!tool) {
+      showToast(t("plugins.miseKeyRequired"), "error");
+      return;
+    }
     setResolving((prev) => ({ ...prev, [binary.name]: true }));
     try {
       const { data } = await getCliToolLatest({
-        query: { tool: binary.tool },
+        query: { tool },
         throwOnError: true,
       });
       const v = data?.version ?? "";
@@ -286,6 +300,7 @@ export function CliToolEditor({ plugin, oauthProviders, onSave, showToast }: Edi
 
   function reset() {
     setVersions(Object.fromEntries(binaries.map((b) => [b.name, b.version ?? ""])));
+    setTools(Object.fromEntries(binaries.map((b) => [b.name, b.tool])));
     setEnvRows(toEnvRows(manifest.session_env));
     setOAuthProvider(manifest.oauth_provider ?? "");
   }
@@ -309,6 +324,8 @@ export function CliToolEditor({ plugin, oauthProviders, onSave, showToast }: Edi
           const v = (versions[b.name] ?? "").trim();
           if (v) copy.version = v;
           else delete copy.version;
+          const tool = (tools[b.name] ?? "").trim();
+          if (tool) copy.tool = tool;
           return copy;
         }),
       };
@@ -347,7 +364,15 @@ export function CliToolEditor({ plugin, oauthProviders, onSave, showToast }: Edi
             <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
               <div className="space-y-1.5 min-w-0">
                 <span className="text-xs font-semibold text-foreground">{binary.name}</span>
-                <p className="font-mono text-xs text-muted-foreground truncate">{binary.tool}</p>
+                <Input
+                  nativeInput
+                  value={tools[binary.name] ?? ""}
+                  onChange={(e) => setTools((prev) => ({ ...prev, [binary.name]: inputValue(e) }))}
+                  type="text"
+                  placeholder="github:owner/repo"
+                  className="font-mono text-sm"
+                  size="sm"
+                />
               </div>
               <div className="flex items-end gap-2">
                 <div className="space-y-1.5">

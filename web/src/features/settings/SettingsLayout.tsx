@@ -10,7 +10,17 @@ import { KeyRound, Webhook as WebhookIcon } from "lucide-react";
 
 const settingsNav: {
   section: string;
-  items: { id: string; label: MessageKey; href: string; adminOnly: boolean; icon: ReactNode }[];
+  items: {
+    id: string;
+    label: MessageKey;
+    // Some pages keep an admin-only half. userLabel names what is left when that
+    // half is gone, so a non-admin is not offered a door labelled after a room
+    // they cannot enter.
+    userLabel?: MessageKey;
+    href: string;
+    adminOnly: boolean;
+    icon: ReactNode;
+  }[];
 }[] = [
   {
     section: "Configuration",
@@ -108,7 +118,9 @@ const settingsNav: {
         id: "channels",
         label: "settings.nav.channels",
         href: "/settings/channels",
-        adminOnly: true,
+        // An agent owner manages their own agents' channels here; an admin sees
+        // every channel in the deployment on the same page.
+        adminOnly: false,
         icon: (
           <svg
             viewBox="0 0 24 24"
@@ -179,6 +191,9 @@ const settingsNav: {
       {
         id: "plugins",
         label: "settings.nav.plugins",
+        // Plugin install and the kill switches are the admin's; what a non-admin
+        // gets on this page is their own MCP servers, so that is what it says.
+        userLabel: "mcp.title",
         href: "/settings/plugins",
         adminOnly: false,
         icon: (
@@ -322,7 +337,7 @@ function SettingsNavContent({ isAdmin }: { isAdmin: boolean }) {
                 }}
               >
                 {item.icon}
-                {t(item.label)}
+                {t(!isAdmin && item.userLabel ? item.userLabel : item.label)}
               </Link>
             ))}
           </div>

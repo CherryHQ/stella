@@ -1,9 +1,11 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/controlplane"
 )
@@ -30,6 +32,72 @@ func (s *Server) beginControlPlane(w http.ResponseWriter, r *http.Request) (*con
 		return nil, false
 	}
 	return acc, true
+}
+
+// beginChannelAccess opens channel management for the authenticated caller. An
+// admin administers every channel in the deployment; anyone else administers the
+// channels of the agents they manage, which is how the owner of an agent gives
+// it a Telegram or Discord presence without an admin doing it for them.
+//
+// The Agent decision is made here, in the transport that already holds the Agent
+// PEP, and handed to the control plane as a settled set of ids — the control
+// plane never re-derives who may manage what.
+func (s *Server) beginChannelAccess(w http.ResponseWriter, r *http.Request) (controlplane.ChannelAccess, bool) {
+	info := UserFromContext(r.Context())
+	if info == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return nil, false
+	}
+	authority, err := info.authority()
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return nil, false
+	}
+	if info.IsAdmin {
+		acc, err := s.controlPlane.Begin(r.Context(), authority)
+		if err != nil {
+			s.writeControlPlaneError(w, err)
+			return nil, false
+		}
+		return acc, true
+	}
+	managed, err := s.manageableAgentIDs(r.Context(), authority)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return nil, false
+	}
+	acc, err := s.controlPlane.BeginAgentChannels(r.Context(), authority, managed)
+	if err != nil {
+		s.writeControlPlaneError(w, err)
+		return nil, false
+	}
+	return acc, true
+}
+
+// manageableAgentIDs lists the agents the caller may manage, asking the Agent PEP
+// for a Manage decision on every agent it can already see. Ownership is a small
+// set (a user's own agents), so the per-agent decision stays cheap and no rule is
+// duplicated here.
+//
+// The candidate set is deployment-wide on purpose: it is only a candidate set,
+// narrowed a line later by a real Manage decision. A non-admin gets their own
+// fleet regardless, and everything they can manage is in it.
+func (s *Server) manageableAgentIDs(ctx context.Context, authority authz.Authority) ([]string, error) {
+	agents, err := s.agentAccess.ListReadable(ctx, authority, true)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(agents))
+	for _, agent := range agents {
+		switch err := s.agentAccess.Authorize(ctx, authority, agent.ID, authz.ActionManage); {
+		case err == nil:
+			out = append(out, agent.ID)
+		case errors.Is(err, agentaccess.ErrForbidden), errors.Is(err, agentaccess.ErrNotFound):
+		default:
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // controlPlaneError maps a control-plane PEP error to an HTTP status and client
