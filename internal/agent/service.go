@@ -5,12 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/agentctx"
+	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/agent/session/turnqueue"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -54,7 +58,14 @@ type Service struct {
 	Runtime       *agentruntime.Runtime
 	SessionAccess SessionAccessService
 	// AgentID is the executor this service belongs to.
-	AgentID string
+	AgentID       string
+	turnQueueOnce sync.Once
+	turnQueue     *turnqueue.Queue
+}
+
+func (s *Service) sessionTurnQueue() *turnqueue.Queue {
+	s.turnQueueOnce.Do(func() { s.turnQueue = turnqueue.New() })
+	return s.turnQueue
 }
 
 // ChatRequest describes a foreground chat turn.
@@ -129,10 +140,61 @@ func (s *Service) RunConversationSession(ctx context.Context, target session.Inf
 	if err != nil {
 		return errorEvents(agentaccess.ErrForbidden)
 	}
-	// Session access already evaluated this exact target in the caller. Run the
+	// Session access already evaluated this exact target in the caller. Queue the
 	// admitted target directly rather than opening a second policy evaluation.
-	return s.Runtime.Chat(ctx, target, message,
-		agentruntime.WithInputActor(messageActor(authority, memory.SessionIDFromContext(ctx))))
+	out := make(chan Event, 100)
+	go func() {
+		defer close(out)
+		err := s.runQueuedTurn(ctx, target, message, []agentruntime.Option{
+			agentruntime.WithInputActor(messageActor(authority, memory.SessionIDFromContext(ctx))),
+		}, func(stream <-chan Event) error {
+			for event := range stream {
+				select {
+				case out <- event:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			// Preserve cancellation as the truthful tool result after the source
+			// context closes, but never leak if an abandoned caller filled the buffer.
+			select {
+			case out <- Event{Err: err}:
+			default:
+			}
+		}
+	}()
+	return out
+}
+
+const busyAdmissionPollInterval = 25 * time.Millisecond
+
+func (s *Service) runQueuedTurn(ctx context.Context, target session.Info, message MessageContent, opts []agentruntime.Option, consume func(<-chan Event) error) error {
+	return s.sessionTurnQueue().Enqueue(ctx, target.ID, func(waitCtx, runCtx context.Context, beforeStart func() error) error {
+		for {
+			stream, err := s.Runtime.ChatAdmittedControlled(runCtx, target, message, beforeStart, opts...)
+			if err == nil {
+				return consume(stream)
+			}
+			if !errors.Is(err, agenterr.ErrSessionBusy) {
+				return err
+			}
+			timer := time.NewTimer(busyAdmissionPollInterval)
+			select {
+			case <-waitCtx.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				return turnqueue.ErrTimeout
+			case <-timer.C:
+			}
+		}
+	})
 }
 
 // ServiceManager provides multi-agent Service lookup.
@@ -558,16 +620,21 @@ func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateRe
 	}
 	opts = append(opts, agentruntime.WithInputActor(messageActor(authority, memory.SessionIDFromContext(ctx))))
 
-	stream := s.Runtime.Chat(ctx, info, req.Task, opts...)
 	result := DelegateResult{SessionID: info.ID}
 	var output strings.Builder
-	for ev := range stream {
-		if ev.Text != "" {
-			output.WriteString(ev.Text)
+	err = s.runQueuedTurn(ctx, info, req.Task, opts, func(stream <-chan Event) error {
+		for ev := range stream {
+			if ev.Text != "" {
+				output.WriteString(ev.Text)
+			}
+			if ev.Err != nil {
+				return ev.Err
+			}
 		}
-		if ev.Err != nil {
-			return DelegateResult{SessionID: info.ID, Output: output.String()}, ev.Err
-		}
+		return nil
+	})
+	if err != nil {
+		return DelegateResult{SessionID: info.ID, Output: output.String()}, err
 	}
 	result.Output = output.String()
 	result.Complete = true

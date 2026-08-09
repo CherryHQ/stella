@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
-	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
@@ -495,11 +494,6 @@ func TestSessionSendRestrictionMatrix(t *testing.T) {
 	}
 	if sessionSendable(agentsession.Info{ID: archivedID, Kind: string(agentsession.KindChat), Archived: true}) {
 		t.Fatal("archived conversation card is sendable")
-	}
-
-	runtime.managedErr = agenterr.ErrSessionBusy
-	if _, err := tool.Execute(ownerCtx, map[string]any{"action": "send", "session_id": managedID, "message": "again"}); err == nil || !strings.Contains(err.Error(), "queueing is not yet supported") {
-		t.Fatalf("busy send error=%v", err)
 	}
 }
 

@@ -320,6 +320,14 @@ type activeTurn struct {
 }
 
 func (rt *Runtime) ChatAdmitted(ctx context.Context, info session.Info, msg MessageContent, opts ...Option) (<-chan Event, error) {
+	return rt.ChatAdmittedControlled(ctx, info, msg, nil, opts...)
+}
+
+// ChatAdmittedControlled is ChatAdmitted with a final admission fence. The
+// fence runs after the busy guard is acquired but before transcript/runtime
+// side effects, allowing a synchronous queue to reject a caller that timed out
+// at the admission boundary without replay or ambiguous execution.
+func (rt *Runtime) ChatAdmittedControlled(ctx context.Context, info session.Info, msg MessageContent, beforeStart func() error, opts ...Option) (<-chan Event, error) {
 	activityScope, err := info.MemoryScope()
 	if err != nil {
 		return nil, err
@@ -329,6 +337,18 @@ func (rt *Runtime) ChatAdmitted(ctx context.Context, info session.Info, msg Mess
 	if _, loaded := rt.active.LoadOrStore(info.ID, turn); loaded {
 		cancel()
 		return nil, fmt.Errorf("%w: session %s", ErrSessionBusy, info.ID)
+	}
+	if err := turnCtx.Err(); err != nil {
+		rt.active.CompareAndDelete(info.ID, turn)
+		cancel()
+		return nil, err
+	}
+	if beforeStart != nil {
+		if err := beforeStart(); err != nil {
+			rt.active.CompareAndDelete(info.ID, turn)
+			cancel()
+			return nil, err
+		}
 	}
 	out := make(chan Event, 100)
 

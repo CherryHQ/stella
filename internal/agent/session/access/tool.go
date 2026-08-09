@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/agent/session/turnqueue"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -584,8 +584,10 @@ func mapSessionToolError(err error) error {
 		return fmt.Errorf("session not found — check the id with action=find")
 	case errors.Is(err, ErrForbidden):
 		return fmt.Errorf("session access denied — use action=find to see sessions available to this agent")
-	case errors.Is(err, agenterr.ErrSessionBusy):
-		return fmt.Errorf("session is busy — queueing is not yet supported")
+	case errors.Is(err, turnqueue.ErrFull):
+		return fmt.Errorf("session queue is full — retry after pending sends finish")
+	case errors.Is(err, turnqueue.ErrTimeout):
+		return fmt.Errorf("timed out waiting for the target session — no turn was started")
 	default:
 		return err
 	}
