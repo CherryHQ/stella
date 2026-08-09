@@ -317,6 +317,87 @@ func (q *Queries) ListAgentConversationLastActive(ctx context.Context, userID pg
 	return items, nil
 }
 
+const listConversationSummarySourceBySessionIDs = `-- name: ListConversationSummarySourceBySessionIDs :many
+SELECT
+  c.session_id,
+  EXISTS (
+    SELECT 1 FROM ctx_message m WHERE m.conversation_id = c.id
+  ) AS has_messages,
+  COALESCE((
+    SELECT s.content
+    FROM ctx_summary s
+    WHERE s.conversation_id = c.id
+    ORDER BY s.created_at DESC, s.id DESC
+    LIMIT 1
+  ), '')::text AS background,
+  COALESCE((
+    SELECT m.content
+    FROM ctx_message m
+    WHERE m.conversation_id = c.id
+      AND m.role = 'user'
+      AND NOT (
+        char_length(btrim(m.content)) <= 32
+        AND lower(regexp_replace(btrim(m.content), '[[:space:][:punct:]，。！？、…]+', '', 'g')) = ANY(
+          ARRAY['continue', 'continued', 'goon', 'proceed', 'yes', 'yep', 'ok', 'okay', 'sure', 'thanks', 'thankyou',
+                '继续', '继续吧', '好的', '好', '可以', '行', '嗯', '收到', '谢谢']::text[]
+        )
+      )
+    ORDER BY m.seq DESC
+    LIMIT 1
+  ), '')::text AS last_user_message,
+  COALESCE((
+    SELECT m.content
+    FROM ctx_message m
+    WHERE m.conversation_id = c.id
+      AND m.role = 'assistant'
+      AND m.event_type = 'text'
+    ORDER BY m.seq DESC
+    LIMIT 1
+  ), '')::text AS last_assistant_text
+FROM ctx_conversation c
+WHERE c.session_id = ANY($1::text[])
+ORDER BY c.session_id
+`
+
+type ListConversationSummarySourceBySessionIDsRow struct {
+	SessionID         string `json:"session_id"`
+	HasMessages       bool   `json:"has_messages"`
+	Background        string `json:"background"`
+	LastUserMessage   string `json:"last_user_message"`
+	LastAssistantText string `json:"last_assistant_text"`
+}
+
+// Batch-load the recency-focused inputs for Session cards. The caller has
+// already authorized these exact session IDs; keeping the projection in one
+// query prevents list pages from degrading into per-session transcript reads.
+// Bare acknowledgements are intentionally a small allow-list: dropping an
+// unknown short message would be worse than keeping a little noise.
+func (q *Queries) ListConversationSummarySourceBySessionIDs(ctx context.Context, sessionIds []string) ([]ListConversationSummarySourceBySessionIDsRow, error) {
+	rows, err := q.db.Query(ctx, listConversationSummarySourceBySessionIDs, sessionIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListConversationSummarySourceBySessionIDsRow{}
+	for rows.Next() {
+		var i ListConversationSummarySourceBySessionIDsRow
+		if err := rows.Scan(
+			&i.SessionID,
+			&i.HasMessages,
+			&i.Background,
+			&i.LastUserMessage,
+			&i.LastAssistantText,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listConversations = `-- name: ListConversations :many
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at FROM ctx_conversation
 WHERE user_id = $1

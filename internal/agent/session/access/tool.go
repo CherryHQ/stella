@@ -115,14 +115,20 @@ type sessionMessagesInput struct {
 }
 
 type sessionToolResponse struct {
-	ID         string `json:"id"`
-	Title      string `json:"title"`
-	Kind       string `json:"kind"`
-	Channel    string `json:"channel"`
-	ProjectID  string `json:"project_id,omitempty"`
-	CreatedAt  string `json:"created_at"`
-	LastActive string `json:"last_active"`
-	Archived   bool   `json:"archived"`
+	ID            string `json:"id"`
+	Title         string `json:"title"`
+	Summary       string `json:"summary"`
+	State         string `json:"state"`
+	Sendable      bool   `json:"sendable"`
+	LastActive    string `json:"last_active"`
+	TurnStartedAt string `json:"turn_started_at,omitempty"`
+
+	// Compatibility fields retained until Phase 2 replaces list/get shapes.
+	Kind      string `json:"kind"`
+	Channel   string `json:"channel"`
+	ProjectID string `json:"project_id,omitempty"`
+	CreatedAt string `json:"created_at"`
+	Archived  bool   `json:"archived"`
 }
 
 type sessionToolMessage struct {
@@ -165,13 +171,13 @@ func executeSessionList(ctx context.Context, access *Access, agentID string, arg
 		}
 		opts.Kinds = []agentsession.Kind{kind}
 	}
-	page, err := access.ListPage(ctx, agentID, opts, limit)
+	page, err := access.ListCardPage(ctx, agentID, opts, limit)
 	if err != nil {
 		return nil, err
 	}
 	items := make([]sessionToolResponse, 0, len(page.Sessions))
-	for _, info := range page.Sessions {
-		items = append(items, sessionToolSummary(info))
+	for i, card := range page.Sessions {
+		items = append(items, sessionToolSummary(card, page.infos[i]))
 	}
 	response := map[string]any{"sessions": items}
 	if page.HasMore {
@@ -189,7 +195,11 @@ func executeSessionGet(ctx context.Context, access *Access, agentID string, args
 	if err != nil {
 		return nil, err
 	}
-	return sessionToolSummary(info), nil
+	cards, err := access.projectCards(ctx, []agentsession.Info{info})
+	if err != nil {
+		return nil, err
+	}
+	return sessionToolSummary(cards[0], info), nil
 }
 
 func executeSessionMessages(ctx context.Context, access *Access, agentID string, args map[string]any) (any, error) {
@@ -223,11 +233,16 @@ func executeSessionMessages(ctx context.Context, access *Access, agentID string,
 	return response, nil
 }
 
-func sessionToolSummary(info agentsession.Info) sessionToolResponse {
-	return sessionToolResponse{
-		ID: info.ID, Title: info.Title, Kind: info.Kind, Channel: info.Channel, ProjectID: info.ProjectID,
-		CreatedAt: info.CreatedAt.UTC().Format(time.RFC3339), LastActive: info.LastActive.UTC().Format(time.RFC3339), Archived: info.Archived,
+func sessionToolSummary(card Card, info agentsession.Info) sessionToolResponse {
+	response := sessionToolResponse{
+		ID: card.ID, Title: card.Title, Summary: card.Summary, State: card.State, Sendable: card.Sendable,
+		Kind: info.Kind, Channel: info.Channel, ProjectID: info.ProjectID, Archived: info.Archived,
+		CreatedAt: info.CreatedAt.UTC().Format(time.RFC3339), LastActive: card.LastActive.UTC().Format(time.RFC3339),
 	}
+	if !card.TurnStartedAt.IsZero() {
+		response.TurnStartedAt = card.TurnStartedAt.UTC().Format(time.RFC3339)
+	}
+	return response
 }
 
 func validSessionToolKind(kind agentsession.Kind) bool {

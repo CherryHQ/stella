@@ -203,6 +203,52 @@ WHERE agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)
 ORDER BY last_active DESC, session_id DESC
 LIMIT NULLIF(sqlc.arg('limit'), -1) OFFSET sqlc.arg('offset');
 
+-- name: ListConversationSummarySourceBySessionIDs :many
+-- Batch-load the recency-focused inputs for Session cards. The caller has
+-- already authorized these exact session IDs; keeping the projection in one
+-- query prevents list pages from degrading into per-session transcript reads.
+-- Bare acknowledgements are intentionally a small allow-list: dropping an
+-- unknown short message would be worse than keeping a little noise.
+SELECT
+  c.session_id,
+  EXISTS (
+    SELECT 1 FROM ctx_message m WHERE m.conversation_id = c.id
+  ) AS has_messages,
+  COALESCE((
+    SELECT s.content
+    FROM ctx_summary s
+    WHERE s.conversation_id = c.id
+    ORDER BY s.created_at DESC, s.id DESC
+    LIMIT 1
+  ), '')::text AS background,
+  COALESCE((
+    SELECT m.content
+    FROM ctx_message m
+    WHERE m.conversation_id = c.id
+      AND m.role = 'user'
+      AND NOT (
+        char_length(btrim(m.content)) <= 32
+        AND lower(regexp_replace(btrim(m.content), '[[:space:][:punct:]，。！？、…]+', '', 'g')) = ANY(
+          ARRAY['continue', 'continued', 'goon', 'proceed', 'yes', 'yep', 'ok', 'okay', 'sure', 'thanks', 'thankyou',
+                '继续', '继续吧', '好的', '好', '可以', '行', '嗯', '收到', '谢谢']::text[]
+        )
+      )
+    ORDER BY m.seq DESC
+    LIMIT 1
+  ), '')::text AS last_user_message,
+  COALESCE((
+    SELECT m.content
+    FROM ctx_message m
+    WHERE m.conversation_id = c.id
+      AND m.role = 'assistant'
+      AND m.event_type = 'text'
+    ORDER BY m.seq DESC
+    LIMIT 1
+  ), '')::text AS last_assistant_text
+FROM ctx_conversation c
+WHERE c.session_id = ANY(sqlc.arg('session_ids')::text[])
+ORDER BY c.session_id;
+
 -- name: ListAgentConversationLastActive :many
 SELECT agent_id, MAX(last_active) AS last_active
 FROM ctx_conversation

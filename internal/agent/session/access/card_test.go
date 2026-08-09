@@ -1,0 +1,188 @@
+package access
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
+)
+
+type sessionSummaryCountingDB struct {
+	db      sqlc.DBTX
+	queries int
+}
+
+func (d *sessionSummaryCountingDB) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
+	return d.db.Exec(ctx, query, args...)
+}
+
+func (d *sessionSummaryCountingDB) Query(ctx context.Context, query string, args ...any) (pgx.Rows, error) {
+	if strings.Contains(query, "ListConversationSummarySourceBySessionIDs") {
+		d.queries++
+	}
+	return d.db.Query(ctx, query, args...)
+}
+
+func (d *sessionSummaryCountingDB) QueryRow(ctx context.Context, query string, args ...any) pgx.Row {
+	return d.db.QueryRow(ctx, query, args...)
+}
+
+func TestSessionCardsDeriveSummaryStateAndSendabilityInOneBatch(t *testing.T) {
+	m := newSessionMatrix(t)
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), m.owner), m.agent)
+	q := sqlc.New(m.db)
+	conversation, err := q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{
+		SessionID: m.private,
+		UserID:    pgtype.Text{String: m.owner, Valid: true},
+		AgentID:   pgtype.Text{String: m.agent, Valid: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages := []struct {
+		role, eventType, content string
+	}{
+		{"user", "message", "Initial authentication question"},
+		{"assistant", "text", "Old answer that must not define the recent tail"},
+		{"user", "message", "Investigate refresh-token concurrency"},
+		{"assistant", "thinking", "private chain of thought"},
+		{"assistant", "tool_call", "dangerous intermediate tool payload"},
+		{"assistant", "text", "Use a single-flight lock and validate cross-node behavior"},
+		{"user", "message", "continue"},
+	}
+	for i, message := range messages {
+		if _, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
+			ID: uuid.NewString(), ConversationID: conversation.ID, Seq: int64(i + 1),
+			Role: message.role, EventType: message.eventType, Content: message.content, TokenCount: 1,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := q.CreateSummary(ctx, sqlc.CreateSummaryParams{
+		ID: "summary-latest", ConversationID: conversation.ID, Kind: "leaf", Depth: 0,
+		Content: "Earlier work established rotating refresh tokens", TokenCount: 8,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	info, err := m.svc.memory.LoadInfo(ctx, m.private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info.Title = "Authentication refactor"
+	info.LastTurnResult = memory.SessionTurnSuccess
+	info.LastTurnStartedAt = time.Date(2026, 8, 9, 9, 58, 12, 0, time.FixedZone("offset", 8*60*60))
+	if err := m.svc.memory.SaveInfo(ctx, info); err != nil {
+		t.Fatal(err)
+	}
+	controlConversation, err := q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{
+		SessionID: m.internal,
+		UserID:    pgtype.Text{String: m.owner, Valid: true},
+		AgentID:   pgtype.Text{String: m.agent, Valid: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
+		ID: uuid.NewString(), ConversationID: controlConversation.ID, Seq: 1,
+		Role: "assistant", EventType: "tool_call", Content: "internal payload", TokenCount: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	controlInfo, err := m.svc.memory.LoadInfo(ctx, m.internal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	controlInfo.Archived = true
+	if err := m.svc.memory.SaveInfo(ctx, controlInfo); err != nil {
+		t.Fatal(err)
+	}
+	if err := q.UpdateConversationArchived(ctx, sqlc.UpdateConversationArchivedParams{
+		Archived: true, SessionID: m.internal,
+		UserID: pgtype.Text{String: m.owner, Valid: true}, AgentID: pgtype.Text{String: m.agent, Valid: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	runtime := &fakeRuntimeService{live: true}
+	if err := m.svc.BindRuntimeManager(fakeRuntimeManager{svc: runtime}); err != nil {
+		t.Fatal(err)
+	}
+	counter := &sessionSummaryCountingDB{db: m.db}
+	m.svc.q = sqlc.New(counter)
+
+	out, err := NewTool(m.svc).Execute(ctx, map[string]any{"action": "list", "include_archived": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response struct {
+		Sessions []sessionToolResponse `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &response); err != nil {
+		t.Fatal(err)
+	}
+	if counter.queries != 1 {
+		t.Fatalf("summary queries = %d, want one batch for the page", counter.queries)
+	}
+	if len(response.Sessions) != 2 {
+		t.Fatalf("sessions = %d, want 2", len(response.Sessions))
+	}
+	byID := make(map[string]sessionToolResponse, len(response.Sessions))
+	for _, card := range response.Sessions {
+		byID[card.ID] = card
+	}
+	card := byID[m.private]
+	for _, want := range []string{
+		"Earlier work established rotating refresh tokens",
+		"Investigate refresh-token concurrency",
+		"success: Use a single-flight lock and validate cross-node behavior",
+	} {
+		if !strings.Contains(card.Summary, want) {
+			t.Fatalf("summary %q does not contain %q", card.Summary, want)
+		}
+	}
+	for _, skipped := range []string{"Initial authentication question", "continue", "private chain of thought", "tool payload"} {
+		if strings.Contains(card.Summary, skipped) {
+			t.Fatalf("summary leaked skipped content %q: %q", skipped, card.Summary)
+		}
+	}
+	if card.State != SessionStateRunning || !card.Sendable {
+		t.Fatalf("chat card state/sendable = %q/%v, want running/true", card.State, card.Sendable)
+	}
+	if card.TurnStartedAt != "2026-08-09T01:58:12Z" {
+		t.Fatalf("turn_started_at = %q, want UTC RFC3339", card.TurnStartedAt)
+	}
+	control := byID[m.internal]
+	if control.State != SessionStateArchived || control.Sendable {
+		t.Fatalf("archived task card state/sendable = %q/%v, want archived/false", control.State, control.Sendable)
+	}
+	if control.Summary == "" || strings.Contains(control.Summary, "internal payload") {
+		t.Fatalf("non-display-only Session summary = %q, want safe non-empty fallback", control.Summary)
+	}
+}
+
+func TestSessionSummaryIsBoundedAndNeverExplainsWithIntermediateEvents(t *testing.T) {
+	source := sqlc.ListConversationSummarySourceBySessionIDsRow{
+		HasMessages:       true,
+		Background:        strings.Repeat("b", maxSessionCardSummaryBytes),
+		LastUserMessage:   strings.Repeat("u", maxSessionCardSummaryBytes),
+		LastAssistantText: strings.Repeat("a", maxSessionCardSummaryBytes),
+	}
+	if got := deriveSessionSummary("", "success", source); len(got) > maxSessionCardSummaryBytes {
+		t.Fatalf("summary bytes = %d, want <= %d", len(got), maxSessionCardSummaryBytes)
+	}
+
+	fallback := deriveSessionSummary("", "", sqlc.ListConversationSummarySourceBySessionIDsRow{HasMessages: true})
+	if fallback == "" {
+		t.Fatal("session with only non-display message rows received an empty summary")
+	}
+}
