@@ -431,6 +431,10 @@ export function PluginsPage() {
         {p._manifest && pluginHasBinaries(p) && (
           <div className="border-t border-border pt-4 -mx-6 px-0">
             <CliToolEditor
+              // The editor holds an unsaved draft in local state; without a key
+              // per plugin, switching plugins would carry the previous one's
+              // draft into the new form.
+              key={p.id}
               plugin={p}
               oauthProviders={oauthProviders}
               onSave={(next) => upsertManifestPlugin(next, next.id + " updated")}

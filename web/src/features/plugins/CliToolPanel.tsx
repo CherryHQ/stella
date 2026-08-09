@@ -269,10 +269,17 @@ export function CliToolEditor({ plugin, oauthProviders, onSave, showToast }: Edi
   const [saving, setSaving] = useState(false);
 
   async function resolveLatest(binary: ManifestBinary) {
+    // Ask about the key the admin is looking at, not the saved one: after
+    // repointing a tool, the old key's latest version is the wrong answer.
+    const tool = (tools[binary.name] ?? binary.tool).trim();
+    if (!tool) {
+      showToast(t("plugins.miseKeyRequired"), "error");
+      return;
+    }
     setResolving((prev) => ({ ...prev, [binary.name]: true }));
     try {
       const { data } = await getCliToolLatest({
-        query: { tool: binary.tool },
+        query: { tool },
         throwOnError: true,
       });
       const v = data?.version ?? "";
