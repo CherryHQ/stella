@@ -1351,8 +1351,8 @@ func TestPageRoutes(t *testing.T) {
 	env := setupAdmin(t)
 
 	pages := []string{
-		"/settings/providers", "/agents", "/channels",
-		"/users", "/sessions", "/scheduler",
+		"/settings/providers", "/agents", "/settings/channels",
+		"/settings/users", "/sessions", "/scheduler",
 	}
 	for _, path := range pages {
 		t.Run(path, func(t *testing.T) {
