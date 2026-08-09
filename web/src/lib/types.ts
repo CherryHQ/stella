@@ -215,6 +215,8 @@ export interface ManifestPlugin {
   oauth_provider?: string;
   /** Ships with the server: it can be customized or disabled, never removed. */
   builtin?: boolean;
+  /** A builtin whose definition was edited, so it no longer follows the server. */
+  customized?: boolean;
 }
 
 export interface ManifestOAuthProvider {

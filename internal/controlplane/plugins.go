@@ -2,7 +2,6 @@ package controlplane
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/CherryHQ/stella/internal/config"
@@ -157,16 +156,23 @@ func (a *Access) SaveManifestPlugins(ctx context.Context, plugins []manifestplug
 
 		var cfgStr string
 		if isFullDefinition {
-			configJSON := manifestPluginConfigJSON(plugin)
-			if !isBuiltin || configJSON != manifestPluginConfigJSON(def) {
-				candidate := &manifestplugins.Manifest{
-					OAuthProviders: builtin.OAuthProviders,
-					Plugins:        []manifestplugins.ManifestPlugin{plugin},
-				}
-				if err := manifestplugins.Validate(candidate); err != nil {
-					return nil, invalid(fmt.Sprintf("invalid plugin %q: %v", plugin.ID, err))
-				}
-				cfgStr = configJSON
+			candidate := &manifestplugins.Manifest{
+				OAuthProviders: builtin.OAuthProviders,
+				Plugins:        []manifestplugins.ManifestPlugin{plugin},
+			}
+			if err := manifestplugins.Validate(candidate); err != nil {
+				return nil, invalid(fmt.Sprintf("invalid plugin %q: %v", plugin.ID, err))
+			}
+			// A builtin stores only the fields that differ from the definition the
+			// server ships, so the rest keep following it across upgrades. An
+			// admin-added plugin has nothing underneath it: the row is the plugin.
+			if isBuiltin {
+				cfgStr, err = manifestplugins.OverrideJSON(def, plugin)
+			} else {
+				cfgStr, err = manifestplugins.DefinitionJSON(plugin)
+			}
+			if err != nil {
+				return nil, err
 			}
 		} else {
 			cfgStr = existing.Config
@@ -260,6 +266,60 @@ func (a *Access) DeleteManifestPlugin(ctx context.Context, id string) error {
 	return nil
 }
 
+// ResetManifestPlugin drops a builtin's definition override, handing the plugin
+// back to the definition the running server ships. The enable switch is a
+// separate decision and survives: "stop customizing this" is not "turn it on".
+//
+// An admin-added plugin has no definition to fall back to, so resetting one is
+// refused — deleting it is the operation that means anything there.
+func (a *Access) ResetManifestPlugin(ctx context.Context, id string) (*manifestplugins.Manifest, error) {
+	builtin, err := manifestplugins.LoadBuiltin()
+	if err != nil {
+		return nil, err
+	}
+	isBuiltin := false
+	for _, p := range builtin.Plugins {
+		if p.ID == id {
+			isBuiltin = true
+			break
+		}
+	}
+	if !isBuiltin {
+		return nil, invalid(fmt.Sprintf("plugin %q has no builtin definition to reset to; remove it instead", id))
+	}
+
+	existing, found, err := a.svc.store.GetManifestPluginOverride(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !found || existing.Config == "" {
+		return nil, notFound(fmt.Sprintf("plugin %q is not customized", id))
+	}
+	existing.Config = ""
+	if existing.Enabled == nil && existing.SessionEnvVaultKey == "" {
+		if err := a.svc.store.DeleteManifestPluginOverride(ctx, id); err != nil {
+			return nil, err
+		}
+	} else if err := a.svc.store.UpsertManifestPluginOverride(ctx, existing); err != nil {
+		return nil, err
+	}
+
+	merged, err := a.svc.resolveManifestPlugins(ctx)
+	if err != nil {
+		return nil, err
+	}
+	a.svc.plugins.RegisterManifestPlugins(merged)
+	if a.svc.pools != nil {
+		if err := a.svc.pools.ReloadPluginTools(ctx); err != nil {
+			a.svc.log.Error("failed to reload manifest plugin tools", "error", err)
+		}
+		if err := a.svc.pools.ReloadPluginHooks(ctx); err != nil {
+			a.svc.log.Error("failed to reload manifest plugin hooks", "error", err)
+		}
+	}
+	return merged, nil
+}
+
 // SyncManifestPlugins reconciles the merged manifest against the filesystem
 // (installs binaries/skills) and returns the reconcile result.
 func (a *Access) SyncManifestPlugins(ctx context.Context) (manifestplugins.ReconcileResult, error) {
@@ -300,14 +360,12 @@ func (s *Service) resolveManifestPlugins(ctx context.Context) (*manifestplugins.
 			continue
 		}
 		if ov.Config != "" {
-			var p manifestplugins.ManifestPlugin
-			if err := json.Unmarshal([]byte(ov.Config), &p); err != nil {
+			merged, err := manifestplugins.ApplyOverride(builtin.Plugins[i], ov.Config)
+			if err != nil {
 				s.log.Warn("ignoring corrupt plugin config override", "plugin", id, "error", err)
 			} else {
-				p.ID = id
-				p.Enabled = builtin.Plugins[i].Enabled
-				p.Builtin = true
-				builtin.Plugins[i] = p
+				merged.Customized = true
+				builtin.Plugins[i] = merged
 			}
 		}
 		if ov.Enabled != nil {
@@ -318,62 +376,15 @@ func (s *Service) resolveManifestPlugins(ctx context.Context) (*manifestplugins.
 		if seen[ov.PluginID] || ov.Config == "" {
 			continue
 		}
-		var p manifestplugins.ManifestPlugin
-		if err := json.Unmarshal([]byte(ov.Config), &p); err != nil {
+		p, err := manifestplugins.PluginFromDefinition(ov.PluginID, ov.Config)
+		if err != nil {
 			s.log.Warn("ignoring corrupt custom plugin config", "plugin", ov.PluginID, "error", err)
 			continue
 		}
-		p.ID = ov.PluginID
 		if ov.Enabled != nil {
 			p.Enabled = *ov.Enabled
 		}
 		builtin.Plugins = append(builtin.Plugins, p)
 	}
 	return builtin, nil
-}
-
-// manifestPluginConfigJSON serializes a ManifestPlugin (excluding Enabled and ID)
-// to a canonical JSON string for storage and comparison.
-func manifestPluginConfigJSON(p manifestplugins.ManifestPlugin) string {
-	type configOnly struct {
-		Kind          string                               `json:"kind"`
-		Name          string                               `json:"name"`
-		DisplayName   string                               `json:"display_name"`
-		Description   string                               `json:"description"`
-		Category      string                               `json:"category,omitempty"`
-		Essential     bool                                 `json:"essential,omitempty"`
-		Prompt        string                               `json:"prompt,omitempty"`
-		Binaries      []manifestplugins.ManifestBinary     `json:"binaries,omitempty"`
-		Skills        []manifestplugins.ManifestSkill      `json:"skills,omitempty"`
-		SessionEnvs   []manifestplugins.ManifestSessionEnv `json:"session_env,omitempty"`
-		OAuthProvider string                               `json:"oauth_provider,omitempty"`
-	}
-	// Normalize empty slices to nil so omitempty produces stable JSON regardless of
-	// whether the source was nil or [].
-	binaries := p.Binaries
-	if len(binaries) == 0 {
-		binaries = nil
-	}
-	skills := p.Skills
-	if len(skills) == 0 {
-		skills = nil
-	}
-	sessionEnvs := p.SessionEnvs
-	if len(sessionEnvs) == 0 {
-		sessionEnvs = nil
-	}
-	data, _ := json.Marshal(configOnly{
-		Kind:          p.Kind,
-		Name:          p.Name,
-		DisplayName:   p.DisplayName,
-		Description:   p.Description,
-		Category:      p.Category,
-		Essential:     p.Essential,
-		Prompt:        p.Prompt,
-		Binaries:      binaries,
-		Skills:        skills,
-		SessionEnvs:   sessionEnvs,
-		OAuthProvider: p.OAuthProvider,
-	})
-	return string(data)
 }

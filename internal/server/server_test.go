@@ -1693,6 +1693,118 @@ func TestListManifestPluginsMarksBuiltin(t *testing.T) {
 	}
 }
 
+// manifestPluginByID reads one plugin out of the merged manifest as a raw JSON
+// object, which is what the settings UI edits and sends back.
+func manifestPluginByID(t *testing.T, env *testEnv, id string) map[string]any {
+	t.Helper()
+	rr := doRequest(t, env, "GET", "/api/manifest-plugins", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list: status = %d, want 200", rr.Code)
+	}
+	var resp struct {
+		Plugins []map[string]any `json:"plugins"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, p := range resp.Plugins {
+		if p["id"] == id {
+			return p
+		}
+	}
+	t.Fatalf("plugin %q not in the merged manifest", id)
+	return nil
+}
+
+// Editing one field of a builtin must store that field and nothing else. A row
+// holding the whole definition would freeze the plugin at the version that was
+// running when someone edited it: every later release's improvement to the other
+// fields would arrive in the binary and be discarded by the row.
+func TestSaveManifestPluginsStoresOnlyTheEditedField(t *testing.T) {
+	env := setupAdmin(t)
+	octx := context.Background()
+
+	const pluginID = "tool/tap-web"
+	plugin := manifestPluginByID(t, env, pluginID)
+	plugin["display_name"] = "Tap (ours)"
+
+	body := map[string]any{"plugins": []map[string]any{plugin}}
+	if rr := doRequest(t, env, "PATCH", "/api/manifest-plugins", body); rr.Code != http.StatusOK {
+		t.Fatalf("save: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	ov, ok, err := env.store.GetManifestPluginOverride(octx, pluginID)
+	if err != nil || !ok {
+		t.Fatalf("get override: ok=%v err=%v", ok, err)
+	}
+	var stored map[string]any
+	if err := json.Unmarshal([]byte(ov.Config), &stored); err != nil {
+		t.Fatalf("decode stored override %q: %v", ov.Config, err)
+	}
+	if len(stored) != 1 || stored["display_name"] != "Tap (ours)" {
+		t.Fatalf("stored override = %s, want display_name alone", ov.Config)
+	}
+
+	// And the merged view reports the edit, so the UI can offer the way back.
+	merged := manifestPluginByID(t, env, pluginID)
+	if merged["display_name"] != "Tap (ours)" || merged["customized"] != true {
+		t.Fatalf("merged plugin = %v, want the edit and customized=true", merged)
+	}
+}
+
+// Reset is the way back from a customization. It drops the definition override
+// and leaves the enable switch alone — "stop diverging" is not "turn off".
+func TestResetManifestPluginRestoresTheShippedDefinition(t *testing.T) {
+	env := setupAdmin(t)
+	octx := context.Background()
+
+	const pluginID = "tool/tap-web"
+	shipped := manifestPluginByID(t, env, pluginID)
+	shippedName := shipped["display_name"]
+
+	edited := manifestPluginByID(t, env, pluginID)
+	edited["display_name"] = "Tap (ours)"
+	edited["enabled"] = false
+	if rr := doRequest(t, env, "PATCH", "/api/manifest-plugins", map[string]any{
+		"plugins": []map[string]any{edited},
+	}); rr.Code != http.StatusOK {
+		t.Fatalf("save: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/tap-web/reset", nil); rr.Code != http.StatusOK {
+		t.Fatalf("reset: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	after := manifestPluginByID(t, env, pluginID)
+	if after["display_name"] != shippedName {
+		t.Errorf("display_name = %v, want the shipped %v", after["display_name"], shippedName)
+	}
+	if after["customized"] == true {
+		t.Error("plugin still reports as customized after the reset")
+	}
+	if after["enabled"] != false {
+		t.Errorf("enabled = %v, want the reset to leave it disabled", after["enabled"])
+	}
+	ov, ok, err := env.store.GetManifestPluginOverride(octx, pluginID)
+	if err != nil {
+		t.Fatalf("get override: %v", err)
+	}
+	if !ok || ov.Enabled == nil || *ov.Enabled {
+		t.Fatalf("the enable override did not survive the reset: ok=%v enabled=%v", ok, ov.Enabled)
+	}
+	if ov.Config != "" {
+		t.Errorf("config override survived the reset: %q", ov.Config)
+	}
+
+	// Nothing to reset, and nothing to reset *to*.
+	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/tap-web/reset", nil); rr.Code != http.StatusNotFound {
+		t.Fatalf("reset an unedited builtin: status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/my-cli/reset", nil); rr.Code != http.StatusBadRequest {
+		t.Fatalf("reset a non-builtin: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
 // ---------------------------------------------------------------------------
 // POST /api/channels/{id}/bind — the one channel write open to a non-admin.
 // ---------------------------------------------------------------------------

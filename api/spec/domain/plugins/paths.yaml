@@ -205,6 +205,41 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
+  /api/manifest-plugins/{kind}/{name}/reset:
+    post:
+      tags: [plugins]
+      summary: Reset a builtin plugin to its shipped definition (admin only)
+      description: >
+        Drops the stored customization of a builtin plugin so its definition
+        follows the running server again. The enable switch is a separate
+        decision and is left alone. A plugin an admin added has no shipped
+        definition to return to and is refused — delete it instead.
+      operationId: resetManifestPlugin
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: { type: string }
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "../../components.yaml#/components/schemas/ManifestPluginsResponse"
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
   /api/manifest-plugins/sync:
     post:
       tags: [plugins]

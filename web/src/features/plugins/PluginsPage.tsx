@@ -7,6 +7,7 @@ import {
   getPluginConfigSchema,
   listManifestPlugins,
   listPlugins,
+  resetManifestPlugin,
   saveManifestPlugins,
   syncManifestPlugins,
   togglePlugin as togglePluginRequest,
@@ -29,6 +30,7 @@ import {
   pluginBucket,
   pluginDescription,
   pluginHasBinaries,
+  pluginIsCustomized,
   pluginIsEssential,
   pluginIsRemovable,
   pluginLabel,
@@ -331,6 +333,24 @@ export function PluginsPage() {
     }
   }
 
+  // resetManifestPluginDefinition drops a builtin's customization so its
+  // definition follows the server again. The enable switch is untouched: this
+  // says "stop diverging", not "turn off".
+  async function resetManifestPluginDefinition(plugin: PluginWithMeta) {
+    try {
+      await resetManifestPlugin({
+        path: { kind: plugin.kind, name: plugin.name },
+        throwOnError: true,
+      });
+      await loadManifestPlugins();
+      await loadPlugins();
+      await syncManifest(true);
+      showToast(t("plugins.resetDone"));
+    } catch (e) {
+      showToast((e as Error).message, "error");
+    }
+  }
+
   // removeManifestPlugin drops an admin-added plugin. Only a custom plugin can
   // go: a builtin's definition ships with the server, so the UI offers "disable"
   // for those and the API refuses the delete outright.
@@ -371,6 +391,7 @@ export function PluginsPage() {
     const hasConfig = hasGenericConfigEditor(p, schemas);
     const essential = pluginIsEssential(p);
     const oauthProvider = p._manifestPlugin?.oauth_provider;
+    const customized = pluginIsCustomized(p);
 
     detail = (
       <DetailPanel>
@@ -387,6 +408,11 @@ export function PluginsPage() {
               {oauthProvider && (
                 <Badge variant="outline" size="sm">
                   {oauthProvider}
+                </Badge>
+              )}
+              {customized && (
+                <Badge variant="outline" size="sm">
+                  {t("plugins.customized")}
                 </Badge>
               )}
             </div>
@@ -440,6 +466,23 @@ export function PluginsPage() {
               onSave={(next) => upsertManifestPlugin(next, next.id + " updated")}
               showToast={showToast}
             />
+          </div>
+        )}
+
+        {/* An edited builtin stops following the server for the fields that were
+            edited. This is the way back: drop the customization, keep the
+            enable switch. */}
+        {customized && (
+          <div className="border-t border-border pt-4 flex items-center justify-between gap-3">
+            <span className="text-xs text-muted-foreground">{t("plugins.resetDesc")}</span>
+            <Button
+              onClick={() => void resetManifestPluginDefinition(p)}
+              variant="ghost"
+              size="sm"
+              className="shrink-0"
+            >
+              {t("plugins.resetToDefault")}
+            </Button>
           </div>
         )}
 

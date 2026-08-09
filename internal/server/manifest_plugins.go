@@ -62,6 +62,20 @@ func (s *Server) DeleteManifestPlugin(w http.ResponseWriter, r *http.Request, ki
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// ResetManifestPlugin hands a builtin's definition back to the running server.
+func (s *Server) ResetManifestPlugin(w http.ResponseWriter, r *http.Request, kind string, name string) {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
+		return
+	}
+	merged, err := access.ResetManifestPlugin(r.Context(), kind+"/"+name)
+	if err != nil {
+		s.writeControlPlaneError(w, err)
+		return
+	}
+	writeData(w, http.StatusOK, manifestPluginsResponseFrom(merged))
+}
+
 func (s *Server) SyncManifestPlugins(w http.ResponseWriter, r *http.Request) {
 	access, ok := s.beginControlPlane(w, r)
 	if !ok {

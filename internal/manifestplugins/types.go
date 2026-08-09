@@ -27,6 +27,12 @@ type ManifestPlugin struct {
 	// definition can be customized or disabled, but only an admin-added plugin
 	// can be removed. `yaml:"-"` keeps it out of the shipped manifest.
 	Builtin bool `json:"builtin,omitempty" yaml:"-"`
+
+	// Customized marks a builtin whose definition an admin has edited. Like
+	// Builtin it is computed at resolve time and never stored — the override row
+	// is what it reports on — and it exists so the UI can say "this one no longer
+	// follows the server" and offer the way back.
+	Customized bool `json:"customized,omitempty" yaml:"-"`
 }
 
 type ManifestBinary struct {

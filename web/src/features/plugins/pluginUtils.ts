@@ -296,6 +296,14 @@ export function pluginIsRemovable(plugin: PluginWithMeta): boolean {
   return !!plugin._manifestPlugin && !plugin._manifestPlugin.builtin;
 }
 
+// pluginIsCustomized reports whether a builtin's definition has been edited and
+// so no longer follows the one shipped with the server. Only a builtin can be:
+// an admin-added plugin has no shipped definition to diverge from.
+export function pluginIsCustomized(plugin: PluginWithMeta): boolean {
+  const manifest = plugin._manifestPlugin;
+  return !!manifest?.builtin && !!manifest.customized;
+}
+
 // pluginHasBinaries reports whether a manifest plugin installs at least one
 // binary — these get the compact version editor in the detail sheet.
 export function pluginHasBinaries(plugin: PluginWithMeta): boolean {

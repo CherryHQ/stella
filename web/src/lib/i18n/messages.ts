@@ -1878,6 +1878,11 @@ const en = {
   "plugins.removePluginMsg":
     "{{id}} is removed from this deployment along with its tools. Installed binaries stay in the mise cache.",
   "plugins.removeDesc": "Added by an admin — remove it to take it back out.",
+  "plugins.customized": "customized",
+  "plugins.resetToDefault": "Reset to default",
+  "plugins.resetDesc":
+    "Edited fields no longer follow server updates. Reset drops the edits; the enable switch stays as it is.",
+  "plugins.resetDone": "Reset to the definition that ships with the server",
   "plugins.searchRegistry": "Search a tool name or mise key…",
   "plugins.searchingRegistry": "Searching…",
   "plugins.noRegistryMatches": "No matches. You can still add a mise key directly.",
@@ -4045,6 +4050,10 @@ const zh: Record<MessageKey, string> = {
   "plugins.removePluginMsg":
     "{{id}} 及其提供的工具会从本部署中移除。已安装的二进制文件仍保留在 mise 缓存中。",
   "plugins.removeDesc": "由管理员添加 — 可以移除。",
+  "plugins.customized": "已自定义",
+  "plugins.resetToDefault": "恢复默认",
+  "plugins.resetDesc": "被改过的字段不再跟随服务端更新。恢复默认会丢弃这些改动，启用开关保持不变。",
+  "plugins.resetDone": "已恢复为服务端自带的定义",
   "plugins.searchRegistry": "搜索工具名称或 mise 标识…",
   "plugins.searchingRegistry": "搜索中…",
   "plugins.noRegistryMatches": "无匹配结果。你仍可直接输入 mise 标识添加。",

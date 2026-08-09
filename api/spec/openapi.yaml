@@ -461,6 +461,8 @@ paths:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins~1sync"
   /api/manifest-plugins/{kind}/{name}:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins~1{kind}~1{name}"
+  /api/manifest-plugins/{kind}/{name}/reset:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins~1{kind}~1{name}~1reset"
   /api/cli-tools/registry:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1cli-tools~1registry"
   /api/cli-tools/latest:

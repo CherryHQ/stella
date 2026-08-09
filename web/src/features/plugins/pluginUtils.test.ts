@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ManifestPlugin, PluginWithMeta } from "@/lib/types";
-import { pluginIsRemovable } from "./pluginUtils";
+import { pluginIsCustomized, pluginIsRemovable } from "./pluginUtils";
 
 function plugin(manifest: Partial<ManifestPlugin> | null): PluginWithMeta {
   return {
@@ -33,5 +33,20 @@ describe("pluginIsRemovable", () => {
 
   it("refuses a plugin with no manifest definition to remove", () => {
     expect(pluginIsRemovable(plugin(null))).toBe(false);
+  });
+});
+
+describe("pluginIsCustomized", () => {
+  it("marks a builtin whose definition was edited", () => {
+    expect(pluginIsCustomized(plugin({ builtin: true, customized: true }))).toBe(true);
+  });
+
+  it("leaves an untouched builtin alone", () => {
+    expect(pluginIsCustomized(plugin({ builtin: true }))).toBe(false);
+  });
+
+  it("never marks an admin-added plugin — it has no shipped definition to diverge from", () => {
+    expect(pluginIsCustomized(plugin({ builtin: false, customized: true }))).toBe(false);
+    expect(pluginIsCustomized(plugin(null))).toBe(false);
   });
 });
