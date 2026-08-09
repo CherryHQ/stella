@@ -8,12 +8,13 @@ import {
   listManifestPlugins,
   listPlugins,
   resetManifestPlugin,
-  saveManifestPlugins,
+  saveManifestPluginDefinition,
+  setManifestPluginEnabled,
   syncManifestPlugins,
   togglePlugin as togglePluginRequest,
   updatePluginConfig,
 } from "@/lib/api-client/sdk.gen";
-import type { ManifestPluginsResponse, SaveManifestPluginsData } from "@/lib/api-client/types.gen";
+import type { ManifestPluginsResponse } from "@/lib/api-client/types.gen";
 import type {
   ManifestBinary,
   ManifestOAuthProvider,
@@ -30,6 +31,7 @@ import {
   pluginBucket,
   pluginDescription,
   pluginHasBinaries,
+  pluginFieldIsOverridden,
   pluginIsCustomized,
   pluginIsEssential,
   pluginIsRemovable,
@@ -50,10 +52,6 @@ import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import { meQueryOptions } from "@/lib/queries/me";
 import { MCPServersPanel } from "@/features/mcp/MCPServersPage";
 import { Plus } from "lucide-react";
-
-function manifestPluginsBody(plugins: ManifestPlugin[]): SaveManifestPluginsData["body"] {
-  return { plugins: plugins.map((plugin) => ({ ...plugin })) };
-}
 
 export function PluginsPage() {
   const { t } = useI18n();
@@ -83,6 +81,7 @@ export function PluginsPage() {
   // The delete confirmation is an overlay and the detail renders inside a Sheet,
   // so the page owns it — nesting overlays is a bug (`web-ui.md`).
   const [pendingDelete, setPendingDelete] = useState<PluginWithMeta | null>(null);
+  const [resettingManifestField, setResettingManifestField] = useState<string | null>(null);
 
   const { showToast } = useToast(4000);
 
@@ -216,10 +215,19 @@ export function PluginsPage() {
 
   async function toggleManifestPlugin(id: string, enabled: boolean) {
     const previous = manifestPlugins;
+    const target = manifestPlugins.find((plugin) => plugin.id === id);
+    if (!target) {
+      showToast(id + " not found", "error");
+      return;
+    }
     try {
       const updated = manifestPlugins.map((p) => (p.id === id ? { ...p, enabled } : p));
       setManifestPlugins(updated);
-      await saveManifestPlugins({ body: manifestPluginsBody(updated), throwOnError: true });
+      await setManifestPluginEnabled({
+        path: { kind: target.kind, name: target.name },
+        body: { enabled },
+        throwOnError: true,
+      });
       await syncManifest(true);
       await loadManifestPlugins();
       await loadPlugins();
@@ -288,15 +296,14 @@ export function PluginsPage() {
     }
   }
 
-  // upsertManifestPlugin replaces (or appends) one manifest plugin, then persists,
-  // reloads, and syncs. Preserves every other plugin's definition verbatim.
-  async function upsertManifestPlugin(next: ManifestPlugin, successMsg: string) {
-    const index = manifestPlugins.findIndex((p) => p.id === next.id);
-    const updated =
-      index >= 0
-        ? manifestPlugins.map((p, i) => (i === index ? next : p))
-        : [...manifestPlugins, next];
-    await saveManifestPlugins({ body: manifestPluginsBody(updated), throwOnError: true });
+  // Save one definition and explicitly declare only the fields this edit takes
+  // ownership of. Existing field ownership is retained by the backend.
+  async function upsertManifestPlugin(next: ManifestPlugin, fields: string[], successMsg: string) {
+    await saveManifestPluginDefinition({
+      path: { kind: next.kind, name: next.name },
+      body: { plugin: { ...next }, fields },
+      throwOnError: true,
+    });
     await loadManifestPlugins();
     await loadPlugins();
     await syncManifest(true);
@@ -326,7 +333,7 @@ export function PluginsPage() {
       binaries: [binary],
     };
     try {
-      await upsertManifestPlugin(next, id + " added");
+      await upsertManifestPlugin(next, [], id + " added");
       void navigate({ to: "/settings/plugins/$pluginId", params: { pluginId: params.name } });
     } catch (e) {
       showToast((e as Error).message, "error");
@@ -336,18 +343,22 @@ export function PluginsPage() {
   // resetManifestPluginDefinition drops a builtin's customization so its
   // definition follows the server again. The enable switch is untouched: this
   // says "stop diverging", not "turn off".
-  async function resetManifestPluginDefinition(plugin: PluginWithMeta) {
+  async function resetManifestPluginDefinition(plugin: PluginWithMeta, field?: string) {
+    if (field) setResettingManifestField(field);
     try {
       await resetManifestPlugin({
         path: { kind: plugin.kind, name: plugin.name },
+        ...(field ? { body: { field } } : {}),
         throwOnError: true,
       });
       await loadManifestPlugins();
       await loadPlugins();
       await syncManifest(true);
-      showToast(t("plugins.resetDone"));
+      showToast(t(field ? "plugins.resetFieldDone" : "plugins.resetDone"));
     } catch (e) {
       showToast((e as Error).message, "error");
+    } finally {
+      if (field) setResettingManifestField(null);
     }
   }
 
@@ -392,6 +403,9 @@ export function PluginsPage() {
     const essential = pluginIsEssential(p);
     const oauthProvider = p._manifestPlugin?.oauth_provider;
     const customized = pluginIsCustomized(p);
+    const additionalOverriddenFields = (p._manifestPlugin?.overridden_fields ?? []).filter(
+      (field) => !["binaries", "session_env", "oauth_provider"].includes(field),
+    );
 
     detail = (
       <DetailPanel>
@@ -454,18 +468,51 @@ export function PluginsPage() {
           </div>
         )}
 
-        {p._manifest && pluginHasBinaries(p) && (
-          <div className="border-t border-border pt-4 -mx-6 px-0">
-            <CliToolEditor
-              // The editor holds an unsaved draft in local state; without a key
-              // per plugin, switching plugins would carry the previous one's
-              // draft into the new form.
-              key={p.id}
-              plugin={p}
-              oauthProviders={oauthProviders}
-              onSave={(next) => upsertManifestPlugin(next, next.id + " updated")}
-              showToast={showToast}
-            />
+        {p._manifest &&
+          (pluginHasBinaries(p) ||
+            ["binaries", "session_env", "oauth_provider"].some((field) =>
+              pluginFieldIsOverridden(p, field),
+            )) && (
+            <div className="border-t border-border pt-4 -mx-6 px-0">
+              <CliToolEditor
+                // The editor holds an unsaved draft in local state; without a key
+                // per plugin, switching plugins would carry the previous one's
+                // draft into the new form.
+                key={`${p.id}:${p._manifestPlugin?.overridden_fields?.join(",") ?? ""}`}
+                plugin={p}
+                oauthProviders={oauthProviders}
+                onSave={(next, fields) => upsertManifestPlugin(next, fields, next.id + " updated")}
+                onResetField={(field) => resetManifestPluginDefinition(p, field)}
+                resettingField={resettingManifestField}
+                showToast={showToast}
+              />
+            </div>
+          )}
+
+        {additionalOverriddenFields.length > 0 && (
+          <div className="border-t border-border pt-4 space-y-2">
+            <p className="text-xs font-semibold text-muted-foreground">
+              {t("plugins.otherOverriddenFields")}
+            </p>
+            {additionalOverriddenFields.map((field) => (
+              <div key={field} className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs">{field}</span>
+                  <Badge variant="outline" size="sm">
+                    {t("plugins.overriddenField")}
+                  </Badge>
+                </div>
+                <Button
+                  onClick={() => void resetManifestPluginDefinition(p, field)}
+                  loading={resettingManifestField === field}
+                  disabled={resettingManifestField !== null}
+                  variant="ghost"
+                  size="xs"
+                >
+                  {t("plugins.resetField")}
+                </Button>
+              </div>
+            ))}
           </div>
         )}
 
@@ -477,6 +524,7 @@ export function PluginsPage() {
             <span className="text-xs text-muted-foreground">{t("plugins.resetDesc")}</span>
             <Button
               onClick={() => void resetManifestPluginDefinition(p)}
+              disabled={resettingManifestField !== null}
               variant="ghost"
               size="sm"
               className="shrink-0"

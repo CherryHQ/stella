@@ -47,8 +47,10 @@ func Resolve(builtin *Manifest, overrides []StoredOverride, onCorrupt func(plugi
 			merged, err := ApplyOverride(builtin.Plugins[i], ov.Config)
 			if err != nil {
 				onCorrupt(id, err)
+			} else if owned, err := OwnedFields(ov.Config); err != nil {
+				onCorrupt(id, err)
 			} else {
-				merged.Customized = true
+				merged.OverriddenFields = owned
 				builtin.Plugins[i] = merged
 			}
 		}

@@ -28,11 +28,12 @@ type ManifestPlugin struct {
 	// can be removed. `yaml:"-"` keeps it out of the shipped manifest.
 	Builtin bool `json:"builtin,omitempty" yaml:"-"`
 
-	// Customized marks a builtin whose definition an admin has edited. Like
-	// Builtin it is computed at resolve time and never stored — the override row
-	// is what it reports on — and it exists so the UI can say "this one no longer
-	// follows the server" and offer the way back.
-	Customized bool `json:"customized,omitempty" yaml:"-"`
+	// OverriddenFields names the definition fields an admin has taken ownership
+	// of, so the editor can mark them and offer to hand one back. Like Builtin it
+	// is computed at resolve time and never stored — the override row is what it
+	// reports on. A boolean here would be cheaper and useless: "customized" cannot
+	// tell an admin which of two pinned fields is the one they want released.
+	OverriddenFields []string `json:"overridden_fields,omitempty" yaml:"-"`
 }
 
 type ManifestBinary struct {

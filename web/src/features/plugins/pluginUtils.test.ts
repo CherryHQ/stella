@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { ManifestPlugin, PluginWithMeta } from "@/lib/types";
-import { pluginIsCustomized, pluginIsRemovable } from "./pluginUtils";
+import {
+  changedManifestPluginFields,
+  pluginFieldIsOverridden,
+  pluginIsCustomized,
+  pluginIsRemovable,
+} from "./pluginUtils";
 
 function plugin(manifest: Partial<ManifestPlugin> | null): PluginWithMeta {
   return {
@@ -38,15 +43,75 @@ describe("pluginIsRemovable", () => {
 
 describe("pluginIsCustomized", () => {
   it("marks a builtin whose definition was edited", () => {
-    expect(pluginIsCustomized(plugin({ builtin: true, customized: true }))).toBe(true);
+    expect(pluginIsCustomized(plugin({ builtin: true, overridden_fields: ["binaries"] }))).toBe(
+      true,
+    );
   });
 
   it("leaves an untouched builtin alone", () => {
     expect(pluginIsCustomized(plugin({ builtin: true }))).toBe(false);
+    expect(pluginIsCustomized(plugin({ builtin: true, overridden_fields: [] }))).toBe(false);
   });
 
   it("never marks an admin-added plugin — it has no shipped definition to diverge from", () => {
-    expect(pluginIsCustomized(plugin({ builtin: false, customized: true }))).toBe(false);
+    expect(pluginIsCustomized(plugin({ builtin: false, overridden_fields: ["binaries"] }))).toBe(
+      false,
+    );
     expect(pluginIsCustomized(plugin(null))).toBe(false);
+  });
+});
+
+describe("pluginFieldIsOverridden", () => {
+  it("finds an owned field on a builtin", () => {
+    const builtin = plugin({
+      builtin: true,
+      overridden_fields: ["binaries", "session_env"],
+    });
+    expect(pluginFieldIsOverridden(builtin, "binaries")).toBe(true);
+    expect(pluginFieldIsOverridden(builtin, "oauth_provider")).toBe(false);
+  });
+
+  it("never marks fields on admin-added or non-manifest plugins", () => {
+    expect(
+      pluginFieldIsOverridden(
+        plugin({ builtin: false, overridden_fields: ["binaries"] }),
+        "binaries",
+      ),
+    ).toBe(false);
+    expect(pluginFieldIsOverridden(plugin(null), "binaries")).toBe(false);
+  });
+});
+
+describe("changedManifestPluginFields", () => {
+  const initial: ManifestPlugin = {
+    id: "tool/x",
+    kind: "tool",
+    name: "x",
+    display_name: "X",
+    description: "",
+    enabled: true,
+    binaries: [{ name: "x", tool: "github:example/x", version: "1.0.0" }],
+    session_env: [{ env_var: "TOKEN", source: "static", required: true }],
+  };
+
+  it("returns only changed top-level definition fields", () => {
+    expect(
+      changedManifestPluginFields(initial, {
+        ...initial,
+        enabled: false,
+        binaries: [{ name: "x", tool: "github:example/x", version: "2.0.0" }],
+        oauth_provider: "github",
+      }),
+    ).toEqual(["binaries", "oauth_provider"]);
+  });
+
+  it("ignores object key order and undefined properties", () => {
+    expect(
+      changedManifestPluginFields(initial, {
+        ...initial,
+        binaries: [{ version: "1.0.0", tool: "github:example/x", name: "x", bin_path: undefined }],
+        session_env: [{ required: true, source: "static", env_var: "TOKEN" }],
+      }),
+    ).toEqual([]);
   });
 });

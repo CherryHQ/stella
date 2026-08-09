@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/config"
@@ -174,8 +175,8 @@ func TestStartupResolvesDefinitionOverridesAndAddedPlugins(t *testing.T) {
 		byID[p.ID] = p
 	}
 
-	if got := byID["tool/tap-web"]; got.DisplayName != "Tap (ours)" || !got.Customized {
-		t.Errorf("customized builtin = %q (customized=%v), want the stored edit", got.DisplayName, got.Customized)
+	if got := byID["tool/tap-web"]; got.DisplayName != "Tap (ours)" || !slices.Equal(got.OverriddenFields, []string{"display_name"}) {
+		t.Errorf("customized builtin = %q (overridden=%v), want the stored edit", got.DisplayName, got.OverriddenFields)
 	}
 	if got, ok := byID["tool/my-cli"]; !ok || got.DisplayName != "My CLI" {
 		t.Errorf("admin-added plugin missing from the startup manifest: %#v", got)

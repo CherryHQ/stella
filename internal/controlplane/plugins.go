@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/CherryHQ/stella/internal/config"
@@ -123,90 +124,130 @@ func (a *Access) ListManifestPlugins(ctx context.Context) (*manifestplugins.Mani
 	return a.svc.resolveManifestPlugins(ctx)
 }
 
-// SaveManifestPlugins persists per-plugin overrides (definition and/or enabled
-// toggle), re-registers the merged manifest, hot-reloads plugin tools/hooks, and
-// returns the merged manifest.
-func (a *Access) SaveManifestPlugins(ctx context.Context, plugins []manifestplugins.ManifestPlugin) (*manifestplugins.Manifest, error) {
+// Every manifest mutation addresses exactly one plugin.
+//
+// They used to share one endpoint that took the whole plugin list and rewrote
+// every row from it, which made a one-plugin toggle a deployment-wide write: a
+// stale tab could overwrite an edit it never saw, and toggling any plugin
+// converted every legacy row it happened to be carrying. Addressing one plugin
+// is also what lets ownership be recorded instead of recomputed — a request now
+// says which fields it is taking, and the rest of the row survives untouched.
+
+// SetManifestPluginEnabled turns one plugin on or off. The enable switch is its
+// own column, so this never touches the definition override: "turn this off" and
+// "stop customizing this" stay independent decisions.
+func (a *Access) SetManifestPluginEnabled(ctx context.Context, id string, enabled bool) (*manifestplugins.Manifest, error) {
+	def, isBuiltin, err := a.builtinDefinition(id)
+	if err != nil {
+		return nil, err
+	}
+	existing, found, err := a.svc.store.GetManifestPluginOverride(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !isBuiltin && !found {
+		return nil, notFound(fmt.Sprintf("plugin %q not found", id))
+	}
+	// Essential builtin plugins back core tools (rg/fd -> Grep/Glob); refuse to
+	// disable them so an admin can't silently break the harness.
+	if isBuiltin && def.Essential && !enabled {
+		return nil, invalid(fmt.Sprintf("plugin %q is essential and cannot be disabled", id))
+	}
+
+	// A builtin agreeing with the shipped default needs no stored answer; an
+	// admin-added plugin has no default to agree with, so its row always carries
+	// one.
+	var stored *bool
+	if !isBuiltin || enabled != def.Enabled {
+		e := enabled
+		stored = &e
+	}
+	existing.PluginID = id
+	existing.Enabled = stored
+	return a.writeOverride(ctx, existing)
+}
+
+// SaveManifestPluginDefinition records the fields this request takes ownership
+// of and leaves every other field of the row alone.
+//
+// fields is the contract: a builtin's row grows exactly those keys, at the
+// submitted values, on top of whatever it already owned. Deriving them here by
+// diffing against the shipped definition is what this replaces — that quietly
+// released a pinned field whenever a release happened to ship the same value.
+//
+// An admin-added plugin has no definition underneath it, so its row is the whole
+// plugin and fields does not apply; its enable state travels with it, because
+// there is no shipped default to fall back to.
+func (a *Access) SaveManifestPluginDefinition(ctx context.Context, plugin manifestplugins.ManifestPlugin, fields []string) (*manifestplugins.Manifest, error) {
 	builtin, err := manifestplugins.LoadBuiltin()
 	if err != nil {
 		return nil, err
 	}
-	builtinByID := make(map[string]manifestplugins.ManifestPlugin, len(builtin.Plugins))
-	for _, p := range builtin.Plugins {
-		builtinByID[p.ID] = p
+	candidate := &manifestplugins.Manifest{
+		OAuthProviders: builtin.OAuthProviders,
+		Plugins:        []manifestplugins.ManifestPlugin{plugin},
+	}
+	if err := manifestplugins.Validate(candidate); err != nil {
+		return nil, invalid(fmt.Sprintf("invalid plugin %q: %v", plugin.ID, err))
 	}
 
-	for _, plugin := range plugins {
-		def, isBuiltin := builtinByID[plugin.ID]
+	_, isBuiltin, err := a.builtinDefinition(plugin.ID)
+	if err != nil {
+		return nil, err
+	}
+	existing, _, err := a.svc.store.GetManifestPluginOverride(ctx, plugin.ID)
+	if err != nil {
+		return nil, err
+	}
+	existing.PluginID = plugin.ID
 
-		// Essential builtin plugins back core tools (rg/fd -> Grep/Glob); refuse to
-		// disable them so an admin can't silently break the harness.
-		if isBuiltin && def.Essential && !plugin.Enabled {
-			return nil, invalid(fmt.Sprintf("plugin %q is essential and cannot be disabled", plugin.ID))
-		}
-
-		existing, _, err := a.svc.store.GetManifestPluginOverride(ctx, plugin.ID)
+	if !isBuiltin {
+		cfg, err := manifestplugins.DefinitionJSON(plugin)
 		if err != nil {
 			return nil, err
 		}
-
-		// A toggle-only request sends {id, enabled} with zero-valued Kind. Don't
-		// treat that as a config override — it would clobber the existing definition.
-		isFullDefinition := plugin.Kind != ""
-
-		var cfgStr string
-		if isFullDefinition {
-			candidate := &manifestplugins.Manifest{
-				OAuthProviders: builtin.OAuthProviders,
-				Plugins:        []manifestplugins.ManifestPlugin{plugin},
-			}
-			if err := manifestplugins.Validate(candidate); err != nil {
-				return nil, invalid(fmt.Sprintf("invalid plugin %q: %v", plugin.ID, err))
-			}
-			// A builtin stores only the fields that differ from the definition the
-			// server ships, so the rest keep following it across upgrades. An
-			// admin-added plugin has nothing underneath it: the row is the plugin.
-			if isBuiltin {
-				cfgStr, err = manifestplugins.OverrideJSON(def, plugin)
-			} else {
-				cfgStr, err = manifestplugins.DefinitionJSON(plugin)
-			}
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			cfgStr = existing.Config
-		}
-
-		enabledDiffers := isBuiltin && plugin.Enabled != def.Enabled
-		var enabled *bool
-		if enabledDiffers {
-			e := plugin.Enabled
-			enabled = &e
-		}
-		if !isBuiltin {
-			e := plugin.Enabled
-			enabled = &e
-		}
-
-		needsRow := enabled != nil || existing.SessionEnvVaultKey != "" || cfgStr != ""
-		if !needsRow {
-			if err := a.svc.store.DeleteManifestPluginOverride(ctx, plugin.ID); err != nil {
-				return nil, err
-			}
-			continue
-		}
-
-		if err := a.svc.store.UpsertManifestPluginOverride(ctx, config.ManifestPluginOverride{
-			PluginID:           plugin.ID,
-			Enabled:            enabled,
-			SessionEnvVaultKey: existing.SessionEnvVaultKey,
-			Config:             cfgStr,
-		}); err != nil {
-			return nil, err
-		}
+		enabled := plugin.Enabled
+		existing.Config = cfg
+		existing.Enabled = &enabled
+		return a.writeOverride(ctx, existing)
 	}
 
+	cfg, err := manifestplugins.SetFields(existing.Config, plugin, fields)
+	if err != nil {
+		return nil, invalid(err.Error())
+	}
+	existing.Config = cfg
+	return a.writeOverride(ctx, existing)
+}
+
+// builtinDefinition reports the shipped definition behind an ID, if there is one.
+func (a *Access) builtinDefinition(id string) (manifestplugins.ManifestPlugin, bool, error) {
+	builtin, err := manifestplugins.LoadBuiltin()
+	if err != nil {
+		return manifestplugins.ManifestPlugin{}, false, err
+	}
+	for _, p := range builtin.Plugins {
+		if p.ID == id {
+			return p, true, nil
+		}
+	}
+	return manifestplugins.ManifestPlugin{}, false, nil
+}
+
+// writeOverride persists one row — dropping it when it no longer says anything —
+// then re-resolves, re-registers, and hot-reloads.
+func (a *Access) writeOverride(ctx context.Context, row config.ManifestPluginOverride) (*manifestplugins.Manifest, error) {
+	if row.Enabled == nil && row.Config == "" && row.SessionEnvVaultKey == "" {
+		if err := a.svc.store.DeleteManifestPluginOverride(ctx, row.PluginID); err != nil {
+			return nil, err
+		}
+	} else if err := a.svc.store.UpsertManifestPluginOverride(ctx, row); err != nil {
+		return nil, err
+	}
+	return a.reloadManifest(ctx)
+}
+
+func (a *Access) reloadManifest(ctx context.Context) (*manifestplugins.Manifest, error) {
 	merged, err := a.svc.resolveManifestPlugins(ctx)
 	if err != nil {
 		return nil, err
@@ -266,26 +307,28 @@ func (a *Access) DeleteManifestPlugin(ctx context.Context, id string) error {
 	return nil
 }
 
-// ResetManifestPlugin drops a builtin's definition override, handing the plugin
-// back to the definition the running server ships. The enable switch is a
-// separate decision and survives: "stop customizing this" is not "turn it on".
+// ResetManifestPlugin hands a builtin's definition back to the server, either
+// one field of it or all of it. The enable switch is a separate decision and
+// survives either way: "stop customizing this" is not "turn it on".
+//
+// Releasing one field from a row written before overrides went sparse converts
+// it first. That conversion is lossless — such a row owns every field, including
+// the ones its JSON omits and therefore owns as empty — so the other fields stay
+// pinned exactly where they were, and only the named one starts following the
+// server again.
 //
 // An admin-added plugin has no definition to fall back to, so resetting one is
 // refused — deleting it is the operation that means anything there.
-func (a *Access) ResetManifestPlugin(ctx context.Context, id string) (*manifestplugins.Manifest, error) {
-	builtin, err := manifestplugins.LoadBuiltin()
+func (a *Access) ResetManifestPlugin(ctx context.Context, id, field string) (*manifestplugins.Manifest, error) {
+	_, isBuiltin, err := a.builtinDefinition(id)
 	if err != nil {
 		return nil, err
 	}
-	isBuiltin := false
-	for _, p := range builtin.Plugins {
-		if p.ID == id {
-			isBuiltin = true
-			break
-		}
-	}
 	if !isBuiltin {
 		return nil, invalid(fmt.Sprintf("plugin %q has no builtin definition to reset to; remove it instead", id))
+	}
+	if field != "" && !manifestplugins.IsOwnableField(field) {
+		return nil, invalid(fmt.Sprintf("%q is not a definition field", field))
 	}
 
 	existing, found, err := a.svc.store.GetManifestPluginOverride(ctx, id)
@@ -295,29 +338,20 @@ func (a *Access) ResetManifestPlugin(ctx context.Context, id string) (*manifestp
 	if !found || existing.Config == "" {
 		return nil, notFound(fmt.Sprintf("plugin %q is not customized", id))
 	}
-	existing.Config = ""
-	if existing.Enabled == nil && existing.SessionEnvVaultKey == "" {
-		if err := a.svc.store.DeleteManifestPluginOverride(ctx, id); err != nil {
+
+	if field == "" {
+		existing.Config = ""
+	} else {
+		cfg, err := manifestplugins.ReleaseField(existing.Config, field)
+		if err != nil {
+			if errors.Is(err, manifestplugins.ErrFieldNotOwned) {
+				return nil, notFound(fmt.Sprintf("plugin %q does not override %q", id, field))
+			}
 			return nil, err
 		}
-	} else if err := a.svc.store.UpsertManifestPluginOverride(ctx, existing); err != nil {
-		return nil, err
+		existing.Config = cfg
 	}
-
-	merged, err := a.svc.resolveManifestPlugins(ctx)
-	if err != nil {
-		return nil, err
-	}
-	a.svc.plugins.RegisterManifestPlugins(merged)
-	if a.svc.pools != nil {
-		if err := a.svc.pools.ReloadPluginTools(ctx); err != nil {
-			a.svc.log.Error("failed to reload manifest plugin tools", "error", err)
-		}
-		if err := a.svc.pools.ReloadPluginHooks(ctx); err != nil {
-			a.svc.log.Error("failed to reload manifest plugin hooks", "error", err)
-		}
-	}
-	return merged, nil
+	return a.writeOverride(ctx, existing)
 }
 
 // SyncManifestPlugins reconciles the merged manifest against the filesystem

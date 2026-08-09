@@ -2,33 +2,44 @@ package manifestplugins
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
+	"reflect"
+	"slices"
+	"strings"
 )
 
 // This file owns the shape of a stored customization of a builtin plugin.
 //
-// An override is *sparse*: it carries only the fields an admin actually
-// changed, and the rest keep tracking the definition compiled into the server.
-// Storing the resolved plugin instead would freeze the whole definition at the
-// version that happened to be running when someone edited one field — the next
-// release's better command, args, or description would arrive in the binary and
-// be silently discarded by the row.
+// An override is *sparse*: it carries only the fields an admin actually took
+// ownership of, and the rest keep tracking the definition compiled into the
+// server. Storing the resolved plugin instead would freeze the whole definition
+// at the version that happened to be running when someone edited one field — the
+// next release's better command, args, or description would arrive in the binary
+// and be silently discarded by the row.
+//
+// Ownership is *recorded, never inferred*. An earlier version of this file
+// derived it by diffing the submitted plugin against the builtin, which quietly
+// hands a pinned field back the moment a release happens to ship the same value:
+// pin binaries to v2, upgrade into a release whose default is also v2, save
+// anything, and the field drops out of the row — so the release after that moves
+// the "pinned" plugin to v3. A field is owned because someone said so, and stays
+// owned until someone says otherwise.
 //
 // Granularity is the top-level field. Lists (binaries, skills, session_env) are
 // replaced whole, because there is no stable identity to merge their elements
 // by; edit one binary and you own that list.
 //
-// A JSON null means "cleared" rather than "unset", which is what makes emptying
-// an optional field expressible at all in a format whose whole point is that
-// absent means inherit.
+// A JSON null means "owned and empty" rather than "unset", which is what makes
+// emptying an optional field expressible at all in a format whose whole point is
+// that absent means inherit.
 //
-// Rows written before this existed hold a whole definition, and in that format
-// an absent key means "empty", not "inherit" — reading one as sparse would hand
-// a later release's new prompt or category to an admin who had neither. The two
-// formats are not distinguishable by shape, so a sparse row says so with a
-// marker key and an unmarked row is read the old way: whatever it pinned stays
-// pinned until someone saves it again.
+// Rows written before this existed hold a whole definition. That format has an
+// exact reading — it owns every field, including the ones its JSON omits, which
+// it owns as empty — so it converts to the sparse form losslessly and is
+// converted on the first write that touches it. Until then it is read as what it
+// is, which is what the marker below is for.
 
 // sparseMarker tags a stored override as a field-level patch. Its absence means
 // the row predates the sparse format and carries a whole definition. The name is
@@ -51,6 +62,27 @@ type definition struct {
 	SessionEnvs   []ManifestSessionEnv `json:"session_env,omitempty"`
 	OAuthProvider string               `json:"oauth_provider,omitempty"`
 }
+
+// definitionFieldNames is every field an override may own, in declaration order.
+// It is derived from the struct so a new customizable field cannot be added
+// without becoming ownable, resettable, and reportable in the same edit.
+var definitionFieldNames = func() []string {
+	t := reflect.TypeFor[definition]()
+	names := make([]string, 0, t.NumField())
+	for i := range t.NumField() {
+		name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ",")
+		if name != "" && name != "-" {
+			names = append(names, name)
+		}
+	}
+	return names
+}()
+
+// IsOwnableField reports whether name is a definition field an override may own.
+func IsOwnableField(name string) bool { return slices.Contains(definitionFieldNames, name) }
+
+// OwnableFields lists every field an override may own.
+func OwnableFields() []string { return slices.Clone(definitionFieldNames) }
 
 func definitionOf(p ManifestPlugin) definition {
 	// Normalize empty slices to nil so omitempty produces stable JSON whether the
@@ -103,64 +135,143 @@ func definitionFields(p ManifestPlugin) (map[string]json.RawMessage, error) {
 	return out, nil
 }
 
-// OverrideJSON returns the sparse override that turns base into edited, or the
-// empty string when the two agree and no row is needed. A field base carries and
-// edited does not was cleared, and is recorded as null.
-func OverrideJSON(base, edited ManifestPlugin) (string, error) {
-	from, err := definitionFields(base)
-	if err != nil {
-		return "", err
+// ownedMap reads a stored override as the set of fields it owns.
+//
+// A marked row says so directly. An unmarked one predates the sparse format and
+// owns its whole definition: the fields its JSON carries, plus the ones it omits,
+// which it owns as empty. Writing those out explicitly is the lossless
+// conversion — the row keeps meaning exactly what it meant, in a form that can
+// now say which field to let go of.
+func ownedMap(override string) (map[string]json.RawMessage, error) {
+	if override == "" {
+		return map[string]json.RawMessage{}, nil
 	}
-	to, err := definitionFields(edited)
-	if err != nil {
-		return "", err
+	var stored map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(override), &stored); err != nil {
+		return nil, fmt.Errorf("read plugin override: %w", err)
 	}
-	diff := make(map[string]any, len(to))
-	for key, want := range to {
-		if got, ok := from[key]; !ok || !json.Valid(got) || string(got) != string(want) {
-			diff[key] = want
+	if marker, ok := stored[sparseMarker]; ok && string(marker) == "true" {
+		delete(stored, sparseMarker)
+		return stored, nil
+	}
+
+	legacy := ManifestPlugin{}
+	if err := json.Unmarshal([]byte(override), &legacy); err != nil {
+		return nil, fmt.Errorf("read plugin override: %w", err)
+	}
+	present, err := definitionFields(legacy)
+	if err != nil {
+		return nil, err
+	}
+	owned := make(map[string]json.RawMessage, len(definitionFieldNames))
+	for _, name := range definitionFieldNames {
+		if value, ok := present[name]; ok {
+			owned[name] = value
+			continue
+		}
+		owned[name] = json.RawMessage("null")
+	}
+	return owned, nil
+}
+
+// OwnedFields returns the fields a stored override owns, in definition order, so
+// the editor can show what is pinned and offer to let go of one.
+func OwnedFields(override string) ([]string, error) {
+	owned, err := ownedMap(override)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(owned))
+	for _, name := range definitionFieldNames {
+		if _, ok := owned[name]; ok {
+			out = append(out, name)
 		}
 	}
-	for key := range from {
-		if _, ok := to[key]; !ok {
-			diff[key] = nil
-		}
-	}
-	if len(diff) == 0 {
+	return out, nil
+}
+
+func marshalOwned(owned map[string]json.RawMessage) (string, error) {
+	if len(owned) == 0 {
 		return "", nil
 	}
-	diff[sparseMarker] = true
-	data, err := json.Marshal(diff)
+	out := make(map[string]any, len(owned)+1)
+	for key, value := range owned {
+		out[key] = value
+	}
+	out[sparseMarker] = true
+	data, err := json.Marshal(out)
 	if err != nil {
-		return "", fmt.Errorf("marshal plugin override %q: %w", edited.ID, err)
+		return "", fmt.Errorf("marshal plugin override: %w", err)
 	}
 	return string(data), nil
 }
 
-// ApplyOverride lays a stored override over the builtin definition. Fields a
-// sparse override does not mention keep whatever the running binary ships, which
-// is the entire point; a null clears one.
+// SetFields takes ownership of the named fields at edited's values, on top of
+// whatever override already owns, and returns the row to store. Fields nobody
+// mentions keep their existing ownership: a save says what it changes, not what
+// the whole plugin should be.
 //
-// An unmarked row is a pre-sparse full definition and still replaces the
-// definition outright, exactly as it did when it was written. It keeps its
-// freeze until an admin saves that plugin again, which rewrites it sparse — the
-// alternative is guessing which of its absent keys meant "empty" and handing the
-// rest to the next release.
+// A field edited to its zero value is owned as null — "I want this empty" is a
+// decision, and absent already means "inherit".
+func SetFields(override string, edited ManifestPlugin, fields []string) (string, error) {
+	owned, err := ownedMap(override)
+	if err != nil {
+		return "", err
+	}
+	values, err := definitionFields(edited)
+	if err != nil {
+		return "", err
+	}
+	owned = maps.Clone(owned)
+	for _, name := range fields {
+		if !IsOwnableField(name) {
+			return "", fmt.Errorf("plugin %q: %q is not a definition field", edited.ID, name)
+		}
+		if value, ok := values[name]; ok {
+			owned[name] = value
+			continue
+		}
+		owned[name] = json.RawMessage("null")
+	}
+	return marshalOwned(owned)
+}
+
+// ReleaseField hands one field back to the definition the server ships. A legacy
+// row is converted first, so releasing one field from it keeps every other field
+// pinned exactly where it was.
+func ReleaseField(override, field string) (string, error) {
+	if !IsOwnableField(field) {
+		return "", fmt.Errorf("%q is not a definition field", field)
+	}
+	owned, err := ownedMap(override)
+	if err != nil {
+		return "", err
+	}
+	if _, ok := owned[field]; !ok {
+		return "", fmt.Errorf("%w: %s", ErrFieldNotOwned, field)
+	}
+	delete(owned, field)
+	return marshalOwned(owned)
+}
+
+// ErrFieldNotOwned reports a reset of a field that was already following the
+// shipped definition. Callers turn it into a 404: there is nothing to undo.
+var ErrFieldNotOwned = errors.New("field is not overridden")
+
+// ApplyOverride lays a stored override over the builtin definition. Fields the
+// override does not own keep whatever the running binary ships, which is the
+// entire point; a null owns one as empty.
 func ApplyOverride(base ManifestPlugin, override string) (ManifestPlugin, error) {
 	fields, err := definitionFields(base)
 	if err != nil {
 		return ManifestPlugin{}, err
 	}
-	var patch map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(override), &patch); err != nil {
+	owned, err := ownedMap(override)
+	if err != nil {
 		return ManifestPlugin{}, fmt.Errorf("read plugin override %q: %w", base.ID, err)
 	}
-	if marker, ok := patch[sparseMarker]; !ok || string(marker) != "true" {
-		return replaceDefinition(base, override)
-	}
-	delete(patch, sparseMarker)
 	merged := maps.Clone(fields)
-	for key, value := range patch {
+	for key, value := range owned {
 		if string(value) == "null" {
 			delete(merged, key)
 			continue
@@ -177,18 +288,6 @@ func ApplyOverride(base ManifestPlugin, override string) (ManifestPlugin, error)
 	}
 	// The three fields a definition deliberately omits are the caller's, not the
 	// override's.
-	out.ID = base.ID
-	out.Enabled = base.Enabled
-	out.Builtin = base.Builtin
-	return out, nil
-}
-
-// replaceDefinition is the pre-sparse reading: the row is the definition.
-func replaceDefinition(base ManifestPlugin, override string) (ManifestPlugin, error) {
-	out := ManifestPlugin{}
-	if err := json.Unmarshal([]byte(override), &out); err != nil {
-		return ManifestPlugin{}, fmt.Errorf("read plugin override %q: %w", base.ID, err)
-	}
 	out.ID = base.ID
 	out.Enabled = base.Enabled
 	out.Builtin = base.Builtin
