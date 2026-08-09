@@ -55,6 +55,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		}
 	}
 	ctx = authz.WithAgentID(ctx, info.AgentID)
+	ctx = agentctx.WithSessionCallBudget(ctx)
 	inputActor := co.inputActor
 	if !inputActor.Valid() {
 		// Runtime callers predating provenance are human ingress. Keeping the

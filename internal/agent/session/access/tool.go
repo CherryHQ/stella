@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -20,15 +21,19 @@ import (
 )
 
 const (
-	sessionToolName                = "session"
-	defaultSessionToolPage         = 20
-	maxSessionToolPage             = 100
-	defaultSessionTranscriptPage   = 3
-	maxSessionTranscriptPage       = 5
-	maxSessionToolMessageText      = 12_000
-	maxSessionToolOutputText       = 8_000
-	maxSessionToolResultText       = 64_000
-	maxSessionToolPreviewText      = 12_000
+	sessionToolName              = "session"
+	defaultSessionToolPage       = 20
+	maxSessionToolPage           = 100
+	defaultSessionTranscriptPage = 3
+	maxSessionTranscriptPage     = 5
+	maxSessionToolMessageText    = 12_000
+	maxSessionToolOutputText     = 8_000
+	maxSessionToolResultText     = 64_000
+	maxSessionToolPreviewText    = 12_000
+	// Metadata counts too. Raise only if tool consumers demonstrate a need for
+	// larger transcript pages and provider payload limits rise with it.
+	maxSessionToolTranscriptBytes  = 72_000
+	maxSessionToolSerializedResult = 96_000
 	sessionTranscriptCursorVersion = 1
 )
 
@@ -104,7 +109,11 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	if err != nil {
 		return "", mapSessionToolError(err)
 	}
-	return tools.MarshalResult(result)
+	output, err := tools.MarshalResult(result)
+	if err == nil && action == "get" && len(output) > maxSessionToolSerializedResult {
+		return "", fmt.Errorf("session.get exceeded its serialized result limit")
+	}
+	return output, err
 }
 
 type sessionFindInput struct {
@@ -166,9 +175,15 @@ type sessionTerminalResult struct {
 }
 
 type sessionTranscriptPage struct {
-	Turns      []sessionTranscriptTurn `json:"turns"`
-	HasMore    bool                    `json:"has_more"`
-	NextCursor string                  `json:"next_cursor,omitempty"`
+	Turns      []sessionTranscriptTurn    `json:"turns"`
+	HasMore    bool                       `json:"has_more"`
+	NextCursor string                     `json:"next_cursor,omitempty"`
+	Omitted    *sessionTranscriptOmission `json:"omitted,omitempty"`
+}
+
+type sessionTranscriptOmission struct {
+	MessageCount int    `json:"message_count"`
+	Cursor       string `json:"cursor"`
 }
 
 type sessionTranscriptTurn struct {
@@ -324,13 +339,17 @@ func executeSessionGet(ctx context.Context, access *Access, agentID string, args
 	if hasMore {
 		groups = groups[len(groups)-pageSize:]
 	}
-	page := &sessionTranscriptPage{Turns: sessionTranscriptTurnsFromGroups(groups, maxSessionToolResultText), HasMore: hasMore}
+	turns, omitted := boundedSessionTranscriptTurns(groups, maxSessionToolResultText, maxSessionToolTranscriptBytes)
+	page := &sessionTranscriptPage{Turns: turns, HasMore: hasMore}
 	if hasMore {
 		cursor.Offset += pageSize
 		page.NextCursor, err = encodeTranscriptCursor(cursor)
 		if err != nil {
 			return nil, err
 		}
+	}
+	if omitted > 0 {
+		page.Omitted = &sessionTranscriptOmission{MessageCount: omitted, Cursor: in.Cursor}
 	}
 	response.Transcript = page
 	return response, nil
@@ -476,25 +495,116 @@ func groupLogicalTurns(messages []Message) [][]Message {
 }
 
 func sessionTranscriptTurns(messages []Message, budget int) []sessionTranscriptTurn {
-	return sessionTranscriptTurnsFromGroups(groupLogicalTurns(messages), budget)
-}
-
-func sessionTranscriptTurnsFromGroups(groups [][]Message, budget int) []sessionTranscriptTurn {
-	turns := make([]sessionTranscriptTurn, len(groups))
-	remaining := budget
-	// Recent turns yield last when the aggregate page budget is exhausted.
-	for i := len(groups) - 1; i >= 0; i-- {
-		turns[i].Messages = sessionToolMessagesFrom(groups[i], &remaining)
-	}
+	turns, _ := boundedSessionTranscriptTurns(groupLogicalTurns(messages), budget, maxSessionToolTranscriptBytes)
 	return turns
 }
 
-func sessionToolMessagesFrom(messages []Message, remaining *int) []sessionToolMessage {
-	items := make([]sessionToolMessage, len(messages))
-	for i := len(messages) - 1; i >= 0; i-- {
-		items[i] = sessionToolMessageFrom(messages[i], remaining)
+func boundedSessionTranscriptTurns(groups [][]Message, textBudget, byteBudget int) ([]sessionTranscriptTurn, int) {
+	remainingText, remainingBytes := textBudget, byteBudget
+	selected := make([]sessionTranscriptTurn, 0, len(groups))
+	omitted := 0
+	stopped := false
+	for groupIndex := len(groups) - 1; groupIndex >= 0; groupIndex-- {
+		chunks := sessionMessageChunks(groups[groupIndex])
+		selectedMessages := make([]indexedSessionToolMessage, 0, len(groups[groupIndex]))
+		for chunkIndex := len(chunks) - 1; chunkIndex >= 0; chunkIndex-- {
+			if stopped || remainingText <= 0 {
+				stopped = true
+				omitted += len(chunks[chunkIndex].messages)
+				continue
+			}
+			chunkText := remainingText
+			projected := make([]indexedSessionToolMessage, 0, len(chunks[chunkIndex].messages))
+			projectedMessages := make([]sessionToolMessage, 0, len(chunks[chunkIndex].messages))
+			for i, message := range chunks[chunkIndex].messages {
+				toolMessage := sessionToolMessageFrom(message, &chunkText)
+				projected = append(projected, indexedSessionToolMessage{
+					index: chunks[chunkIndex].indices[i], message: toolMessage,
+				})
+				projectedMessages = append(projectedMessages, toolMessage)
+			}
+			encoded, err := json.Marshal(projectedMessages)
+			if err != nil || len(encoded)+1 > remainingBytes {
+				stopped = true
+				omitted += len(chunks[chunkIndex].messages)
+				continue
+			}
+			remainingText = chunkText
+			remainingBytes -= len(encoded) + 1
+			selectedMessages = append(selectedMessages, projected...)
+		}
+		if len(selectedMessages) > 0 {
+			slices.SortFunc(selectedMessages, func(a, b indexedSessionToolMessage) int { return a.index - b.index })
+			messages := make([]sessionToolMessage, 0, len(selectedMessages))
+			for _, selected := range selectedMessages {
+				messages = append(messages, selected.message)
+			}
+			selected = append(selected, sessionTranscriptTurn{Messages: messages})
+		}
 	}
-	return items
+	slices.Reverse(selected)
+	return selected, omitted
+}
+
+type indexedSessionToolMessage struct {
+	index   int
+	message sessionToolMessage
+}
+
+type sessionMessageChunk struct {
+	messages []Message
+	indices  []int
+	latest   int
+}
+
+func sessionMessageChunks(messages []Message) []sessionMessageChunk {
+	resultByCallID := make(map[string]int)
+	for i, message := range messages {
+		if id := storedToolResultID(message); id != "" {
+			resultByCallID[id] = i
+		}
+	}
+	pairedResults := make(map[int]struct{})
+	chunks := make([]sessionMessageChunk, 0, len(messages))
+	for i, message := range messages {
+		if _, paired := pairedResults[i]; paired {
+			continue
+		}
+		if id := storedToolCallID(message); id != "" {
+			if resultIndex, ok := resultByCallID[id]; ok {
+				chunks = append(chunks, sessionMessageChunk{
+					messages: []Message{message, messages[resultIndex]}, indices: []int{i, resultIndex}, latest: max(i, resultIndex),
+				})
+				pairedResults[resultIndex] = struct{}{}
+				continue
+			}
+		}
+		chunks = append(chunks, sessionMessageChunk{messages: []Message{message}, indices: []int{i}, latest: i})
+	}
+	slices.SortFunc(chunks, func(a, b sessionMessageChunk) int { return a.latest - b.latest })
+	return chunks
+}
+
+func storedToolCallID(message Message) string {
+	if message.EventType != "tool_call" {
+		return ""
+	}
+	var call storedToolCall
+	if json.Unmarshal([]byte(message.Content), &call) != nil {
+		return ""
+	}
+	return call.ID
+}
+
+func storedToolResultID(message Message) string {
+	if message.EventType != "tool_result" {
+		return ""
+	}
+	var result storedToolResult
+	if json.Unmarshal([]byte(message.Content), &result) != nil {
+		return ""
+	}
+	return result.ID
 }
 
 func visibleSessionPartText(parts []MessagePart) string {

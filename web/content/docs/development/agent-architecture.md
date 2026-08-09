@@ -298,6 +298,7 @@ Rules:
 - `session.create` creates a generated delegate session through the internal adapter
 - child sessions inherit user, agent, and project scope
 - call depth and Session ancestry travel in context; the runtime rejects depth overflow and cycles
+- sibling and nested calls share a 16-call atomic budget allocated by the root runtime turn
 - the root deadline and cancellation cover queue hold and every nested turn
 - runtime options union ancestor excluded tools, while nested runs drop inherited channel chat binding
 - agent input persists actor ID and source Session ID, and provider rendering marks it information-only

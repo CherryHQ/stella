@@ -298,6 +298,7 @@ parent runner executes session.create/send
 - `session.create` 通过内部 adapter 创建生成的 delegate session
 - child sessions 继承 user、agent、project scope
 - 调用深度和 Session 祖先链通过 context 传递；runtime 拒绝深度溢出和循环
+- 同级与嵌套调用共享由根 runtime 回合分配的 16 次原子调用预算
 - 根 deadline 和取消覆盖队列等待及所有嵌套回合
 - runtime option 合并祖先的 excluded tools，嵌套运行不会继承 channel chat binding
 - Agent 输入持久化 actor ID 和来源 Session ID，provider 渲染将其标记为 information-only

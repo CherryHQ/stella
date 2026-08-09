@@ -203,7 +203,7 @@ The model-facing `session` tool owns Session discovery, transcript recall, creat
 
 The runtime keeps `DelegateTool` and delegate Session kinds as internal compatibility machinery for presets and existing IDs. It does not register `delegate` in the model tool registry.
 
-Agent sends enter a process-local per-Session FIFO before the standard runtime admission guard. The queue bounds pending depth and admission hold time, propagates the source context, and never replaces the runtime correctness guard. Nested calls carry depth and ancestry in context, reject cycles, and inherit the root deadline. Agent-originated input persists its actor and source Session; prompt rendering marks it as information rather than human authority. Synchronous Session turns never publish to an external channel implicitly.
+Agent sends enter a process-local per-Session FIFO before the standard runtime admission guard. The queue bounds pending depth and admission hold time, propagates the source context, and never replaces the runtime correctness guard. Nested calls carry depth and ancestry in context, reject cycles, inherit the root deadline, and share a 16-call root-turn budget across sibling and nested calls. Agent-originated input persists its actor and source Session; prompt rendering marks it as information rather than human authority. Synchronous Session turns never publish to an external channel implicitly.
 
 ### Builtin Shared Tools
 

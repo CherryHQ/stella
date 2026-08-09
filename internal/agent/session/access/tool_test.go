@@ -3,6 +3,7 @@ package access
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -338,6 +339,76 @@ func TestSessionGetIsCompactByDefaultAndPagesWholeToolTurns(t *testing.T) {
 	}
 	if !messages[2].Truncated || len(messages[2].Content) != maxSessionToolOutputText {
 		t.Fatalf("oversized tool output not bounded: len=%d truncated=%v", len(messages[2].Content), messages[2].Truncated)
+	}
+}
+
+func TestSessionGetBoundsSerializedMetadataAndKeepsToolPairs(t *testing.T) {
+	m := newSessionMatrix(t)
+	provider, err := lcm.New(m.db.(*pgxpool.Pool), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), m.owner), m.agent)
+	messages := []ai.Message{ai.UserMessage{Content: "run the bulk tool plan"}}
+	toolCalls := make([]ai.ContentBlock, 0, 400)
+	for i := range 400 {
+		id := fmt.Sprintf("bulk-call-%03d", i)
+		toolCalls = append(toolCalls, ai.ToolCall{ID: id, Name: "bulk_tool", Arguments: map[string]any{"index": i}})
+	}
+	messages = append(messages, ai.AssistantMessage{Content: toolCalls})
+	for i := range 400 {
+		id := fmt.Sprintf("bulk-call-%03d", i)
+		messages = append(messages, ai.ToolResultMessage{ToolCallID: id, ToolName: "bulk_tool", Content: []ai.ContentBlock{ai.TextContent{Text: "ok"}}})
+	}
+	messages = append(messages, ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "bulk work complete"}}})
+	appendTranscript(t, provider, memory.Session{ID: m.private, UserID: m.owner, AgentID: m.agent}, messages...)
+
+	tool := NewTool(m.svc)
+	compactOut, err := tool.Execute(ctx, map[string]any{"action": "get", "session_id": m.private})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var compact sessionGetResponse
+	if err := json.Unmarshal([]byte(compactOut), &compact); err != nil {
+		t.Fatal(err)
+	}
+	pageOut, err := tool.Execute(ctx, map[string]any{
+		"action": "get", "session_id": m.private, "cursor": compact.TranscriptCursor, "transcript_page_size": 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pageOut) > maxSessionToolSerializedResult {
+		t.Fatalf("serialized session.get bytes=%d, limit=%d", len(pageOut), maxSessionToolSerializedResult)
+	}
+	var page sessionGetResponse
+	if err := json.Unmarshal([]byte(pageOut), &page); err != nil {
+		t.Fatal(err)
+	}
+	if page.Transcript == nil || page.Transcript.Omitted == nil || page.Transcript.Omitted.MessageCount == 0 || page.Transcript.Omitted.Cursor != compact.TranscriptCursor {
+		t.Fatalf("missing truthful omission marker: %#v", page.Transcript)
+	}
+	seenCalls := make(map[string]bool)
+	seenResults := make(map[string]bool)
+	for _, turn := range page.Transcript.Turns {
+		for _, message := range turn.Messages {
+			switch message.Type {
+			case "tool_call":
+				seenCalls[message.ToolCallID] = true
+			case "tool_result":
+				seenResults[message.ToolCallID] = true
+			}
+		}
+	}
+	for id := range seenCalls {
+		if !seenResults[id] {
+			t.Fatalf("emitted tool call %q without its result", id)
+		}
+	}
+	for id := range seenResults {
+		if !seenCalls[id] {
+			t.Fatalf("emitted tool result %q without its call", id)
+		}
 	}
 }
 
