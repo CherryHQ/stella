@@ -10,8 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/agenterr"
+	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -38,16 +41,19 @@ func NewTool(svc *Service) *Tool { return &Tool{svc: svc} }
 func (t *Tool) Definition() tools.Definition {
 	return tools.Definition{
 		Name:        sessionToolName,
-		Description: "Find and inspect this agent's sessions for the current user. Use find without a query for recent sessions or with a query to search transcripts. Get is compact by default; pass a cursor returned by find/get to page a bounded raw transcript. This tool is read-only.",
+		Description: "Find and inspect this agent's sessions for the current user. Use find without a query for recent sessions or with a query to search transcripts. Get is compact by default; pass a cursor returned by find/get to page a bounded raw transcript. Create starts a managed session and waits for its reply; send continues an existing managed session and waits for its reply. This phase supports wait=true only: conversation sessions cannot receive agent messages until actor provenance exists.",
 		InputSchema: tools.MustInputSchema(`{
   "type": "object",
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["find", "get"],
-      "description": "Required parameters by action: find(); get(session_id)."
+	      "enum": ["find", "get", "create", "send"],
+	      "description": "Required parameters by action: find(); get(session_id); create(message, optional preset, optional wait=true); send(session_id, message, optional wait=true)."
     },
     "session_id": {"type": "string"},
+	    "message": {"type": "string", "description": "The managed Session's initial or next request."},
+	    "preset": {"type": "string", "description": "Optional managed-Session preset for create."},
+	    "wait": {"type": "boolean", "default": true, "description": "Must be true in this phase; asynchronous Session requests are not yet supported."},
     "query": {"type": "string", "description": "Optional transcript search for find. Natural-language retrieval inside get is not supported."},
     "include_archived": {"type": "boolean", "default": false},
     "page_size": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Number of cards returned by find."},
@@ -87,6 +93,10 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 		result, err = executeSessionFind(ctx, access, ident.AgentID, args)
 	case "get":
 		result, err = executeSessionGet(ctx, access, ident.AgentID, args)
+	case "create":
+		result, err = executeSessionCreate(ctx, t.svc, ident.AgentID, args)
+	case "send":
+		result, err = executeSessionSend(ctx, t.svc, access, ident.AgentID, args)
 	default:
 		return "", fmt.Errorf("unknown session action %q", action)
 	}
@@ -107,6 +117,24 @@ type sessionGetInput struct {
 	SessionID          string `json:"session_id"`
 	Cursor             string `json:"cursor,omitempty"`
 	TranscriptPageSize int    `json:"transcript_page_size,omitempty"`
+}
+
+type sessionCreateInput struct {
+	Message string `json:"message"`
+	Preset  string `json:"preset,omitempty"`
+	Wait    *bool  `json:"wait,omitempty"`
+}
+
+type sessionSendInput struct {
+	SessionID string `json:"session_id"`
+	Message   string `json:"message"`
+	Wait      *bool  `json:"wait,omitempty"`
+}
+
+type sessionRunResponse struct {
+	SessionID      string `json:"session_id"`
+	Reply          string `json:"reply"`
+	ReplyTruncated bool   `json:"reply_truncated,omitempty"`
 }
 
 type sessionCardResponse struct {
@@ -246,6 +274,9 @@ func executeSessionGet(ctx context.Context, access *Access, agentID string, args
 		ActiveRequest:       nil, // Session Requests arrive in Phase 3+.
 		SupportedOperations: []string{"get"},
 	}
+	if cards[0].Sendable {
+		response.SupportedOperations = append(response.SupportedOperations, "send")
+	}
 	if info.LastTurnResult.Valid() && !info.LastTurnCompletedAt.IsZero() {
 		response.LatestResult = &sessionTerminalResult{
 			Status: string(info.LastTurnResult), CompletedAt: info.LastTurnCompletedAt.UTC().Format(time.RFC3339),
@@ -299,6 +330,68 @@ func executeSessionGet(ctx context.Context, access *Access, agentID string, args
 	}
 	response.Transcript = page
 	return response, nil
+}
+
+func executeSessionCreate(ctx context.Context, svc *Service, agentID string, args map[string]any) (any, error) {
+	var in sessionCreateInput
+	if err := tools.DecodeInput(args, &in, []string{"message"}); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(in.Message) == "" {
+		return nil, fmt.Errorf("message must not be empty")
+	}
+	if err := requireSynchronousSessionWait(in.Wait); err != nil {
+		return nil, err
+	}
+	return runManagedSession(ctx, svc, agentID, "", in.Message, in.Preset)
+}
+
+func executeSessionSend(ctx context.Context, svc *Service, access *Access, agentID string, args map[string]any) (any, error) {
+	var in sessionSendInput
+	if err := tools.DecodeInput(args, &in, []string{"session_id", "message"}); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(in.Message) == "" {
+		return nil, fmt.Errorf("message must not be empty")
+	}
+	if err := requireSynchronousSessionWait(in.Wait); err != nil {
+		return nil, err
+	}
+	if sourceID := memory.SessionIDFromContext(ctx); sourceID != "" && sourceID == in.SessionID {
+		return nil, fmt.Errorf("cannot send to the current session")
+	}
+	info, err := access.Use(ctx, agentID, in.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	if agentsession.Kind(info.Kind) != agentsession.KindDelegate {
+		return nil, fmt.Errorf("session.send only supports managed sessions in this phase; conversation sessions require message actor provenance before agent-originated input can be stored")
+	}
+	return runManagedSession(ctx, svc, agentID, info.ID, in.Message, "")
+}
+
+func requireSynchronousSessionWait(wait *bool) error {
+	if wait != nil && !*wait {
+		return fmt.Errorf("session wait=false is not yet supported; use wait=true")
+	}
+	return nil
+}
+
+func runManagedSession(ctx context.Context, svc *Service, agentID, sessionID, message, preset string) (any, error) {
+	runtime, err := svc.runtimeFor(agentID)
+	if err != nil {
+		return nil, err
+	}
+	result, err := runtime.RunManagedSession(ctx, delegatetool.ManagedSessionRequest{
+		SessionID: sessionID,
+		Message:   message,
+		Preset:    preset,
+	})
+	if err != nil {
+		return nil, err
+	}
+	reply, truncated := tools.TruncateText(result.Output, maxSessionToolResultText)
+	return sessionRunResponse{SessionID: result.SessionID, Reply: reply, ReplyTruncated: truncated}, nil
 }
 
 func sessionCardFrom(card Card) sessionCardResponse {
@@ -458,6 +551,8 @@ func mapSessionToolError(err error) error {
 		return fmt.Errorf("session not found — check the id with action=find")
 	case errors.Is(err, ErrForbidden):
 		return fmt.Errorf("session access denied — use action=find to see sessions available to this agent")
+	case errors.Is(err, agenterr.ErrSessionBusy):
+		return fmt.Errorf("session is busy — queueing is not yet supported")
 	default:
 		return err
 	}

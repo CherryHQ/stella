@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 )
@@ -27,6 +28,10 @@ func (r *recordingRuntime) Chat(context.Context, agent.ChatRequest) <-chan agent
 	ch := make(chan agent.Event)
 	close(ch)
 	return ch
+}
+
+func (r *recordingRuntime) RunManagedSession(context.Context, delegatetool.ManagedSessionRequest) (delegatetool.ManagedSessionResult, error) {
+	return delegatetool.ManagedSessionResult{}, nil
 }
 
 func (r *recordingRuntime) StopSession(context.Context, string) bool {

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -72,6 +73,7 @@ func (m agentRuntimeManager) Default() RuntimeService {
 // agent runtime. It deliberately excludes session lookup and policy concerns.
 type RuntimeService interface {
 	Chat(context.Context, agent.ChatRequest) <-chan agent.Event
+	RunManagedSession(context.Context, delegatetool.ManagedSessionRequest) (delegatetool.ManagedSessionResult, error)
 	StopSession(context.Context, string) bool
 	SubscribeSession(sessionID string) (<-chan agent.Event, func())
 	SessionLive(sessionID string) bool

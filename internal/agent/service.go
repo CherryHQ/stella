@@ -103,6 +103,16 @@ type DelegateResult struct {
 	Complete  bool
 }
 
+// RunManagedSession invokes the delegate configured on the current source
+// runner. The request carries no principal, Agent, project, model, or tool
+// identity: those remain trusted runtime-context facts.
+func (s *Service) RunManagedSession(ctx context.Context, req delegatetool.ManagedSessionRequest) (delegatetool.ManagedSessionResult, error) {
+	if s == nil || s.Runtime == nil || authz.UserIDFromContext(ctx) == "" || authz.AgentIDFromContext(ctx) != s.AgentID {
+		return delegatetool.ManagedSessionResult{}, agentaccess.ErrForbidden
+	}
+	return s.Runtime.RunManagedSession(ctx, memory.SessionIDFromContext(ctx), req)
+}
+
 // ServiceManager provides multi-agent Service lookup.
 // It replaces PoolManager for callers migrated to the new model.
 type ServiceManager interface {

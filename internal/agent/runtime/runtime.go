@@ -41,6 +41,13 @@ type Runtime struct {
 	hub            *SessionHub
 }
 
+// managedSessionRunner is intentionally optional: Runtime supports test and
+// specialized Runner implementations that do not carry the delegate tool. Only
+// the production agent runner can bridge Session create/send to that tool.
+type managedSessionRunner interface {
+	RunManagedSession(context.Context, delegatetool.ManagedSessionRequest) (delegatetool.ManagedSessionResult, error)
+}
+
 // turnTracker counts in-flight chat turns so a graceful drain can wait,
 // bounded, for accepted work to finish before teardown cancels its
 // dependencies (#744). It is not a sync.WaitGroup because a turn may still
@@ -174,6 +181,27 @@ func (rt *Runtime) Subscribe(sessionID string) (<-chan Event, func()) {
 // SessionLive reports whether a turn is currently in flight on the session.
 func (rt *Runtime) SessionLive(sessionID string) bool {
 	return rt.hub.IsLive(sessionID)
+}
+
+// RunManagedSession executes a Session-tool request through the currently
+// active source runner. The source runner owns the effective delegate preset,
+// system override, timeout, and excluded-tool set for this turn.
+func (rt *Runtime) RunManagedSession(ctx context.Context, sourceSessionID string, req delegatetool.ManagedSessionRequest) (delegatetool.ManagedSessionResult, error) {
+	if sourceSessionID == "" {
+		return delegatetool.ManagedSessionResult{}, fmt.Errorf("managed session source is unavailable")
+	}
+	rt.cache.mu.Lock()
+	cs := rt.cache.sessions[sourceSessionID]
+	var runner Runner
+	if cs != nil {
+		runner = cs.r
+	}
+	rt.cache.mu.Unlock()
+	managed, ok := runner.(managedSessionRunner)
+	if !ok {
+		return delegatetool.ManagedSessionResult{}, fmt.Errorf("managed session runner is unavailable")
+	}
+	return managed.RunManagedSession(ctx, req)
 }
 
 // SetNewRunner replaces the runner builder. Existing runners are not affected

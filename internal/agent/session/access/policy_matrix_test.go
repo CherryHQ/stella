@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
@@ -426,6 +428,58 @@ func TestEmbeddedPostgresSessionBehaviorMatrix(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+}
+
+// TestSessionSendRestrictionMatrix pins the phase-3 bridge: the server only
+// admits owned managed/delegate sessions. Conversation inputs must wait for
+// message actor provenance, and every other ownership boundary remains hidden.
+func TestSessionSendRestrictionMatrix(t *testing.T) {
+	m := newSessionMatrix(t)
+	managedID := "managed-send-target"
+	seedManagedSession(t, m, managedID)
+	runtime := &fakeRuntimeService{}
+	if err := m.svc.BindRuntimeManager(fakeRuntimeManager{svc: runtime}); err != nil {
+		t.Fatal(err)
+	}
+	tool := NewTool(m.svc)
+	ownerCtx := memory.WithSessionID(authz.WithAgentID(authz.WithUserID(context.Background(), m.owner), m.agent), "source-session")
+
+	cases := []struct {
+		name string
+		ctx  context.Context
+		id   string
+		want string
+	}{
+		{name: "owner sends managed session", ctx: ownerCtx, id: managedID},
+		{name: "conversation sessions need provenance", ctx: ownerCtx, id: m.private, want: "conversation sessions require message actor provenance"},
+		{name: "control plane sessions are not generic targets", ctx: ownerCtx, id: m.internal, want: "only supports managed sessions"},
+		{name: "foreign user is hidden", ctx: memory.WithSessionID(authz.WithAgentID(authz.WithUserID(context.Background(), m.other), m.agent), "source-session"), id: managedID, want: "session not found"},
+		{name: "foreign agent is hidden", ctx: memory.WithSessionID(authz.WithAgentID(authz.WithUserID(context.Background(), m.owner), "other-agent"), "source-session"), id: managedID, want: "session not found"},
+		{name: "group target is hidden", ctx: ownerCtx, id: m.groupSID, want: "session not found"},
+		{name: "self send is rejected", ctx: memory.WithSessionID(authz.WithAgentID(authz.WithUserID(context.Background(), m.owner), m.agent), managedID), id: managedID, want: "cannot send to the current session"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := tool.Execute(tc.ctx, map[string]any{"action": "send", "session_id": tc.id, "message": "continue"})
+			if tc.want == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("send error=%v, want %q", err, tc.want)
+			}
+		})
+	}
+	if len(runtime.managedCalls) != 1 || runtime.managedCalls[0].SessionID != managedID {
+		t.Fatalf("managed calls=%#v, want exactly the owned managed send", runtime.managedCalls)
+	}
+
+	runtime.managedErr = agenterr.ErrSessionBusy
+	if _, err := tool.Execute(ownerCtx, map[string]any{"action": "send", "session_id": managedID, "message": "again"}); err == nil || !strings.Contains(err.Error(), "queueing is not yet supported") {
+		t.Fatalf("busy send error=%v", err)
+	}
 }
 
 func newSessionMatrix(t *testing.T) sessionMatrix {

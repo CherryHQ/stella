@@ -24,7 +24,7 @@ func (t staticTool) ExecuteContent(context.Context, map[string]any) ([]ai.Conten
 func TestBuildToolRegistryAppliesToolOverrides(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
-	reg, _, err := buildToolRegistry(ctx, runnerConfig{
+	reg, _, _, err := buildToolRegistry(ctx, runnerConfig{
 		Sandbox: sandbox.Config{Paths: sandbox.Paths{
 			StellaHome: home,
 			AgentRoot:  filepath.Join(home, "agents", "agent-1"),

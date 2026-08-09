@@ -3,6 +3,7 @@ package delegate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"runtime/debug"
@@ -64,6 +65,23 @@ type SessionRunRequest struct {
 
 // SessionRunResult is the output from a persisted delegate session.
 type SessionRunResult struct {
+	SessionID string
+	Output    string
+	Complete  bool
+}
+
+// ManagedSessionRequest is one synchronous managed Session turn. It is shared
+// with the Session tool so that it resolves presets, timeout, system override,
+// and tool exclusions through the same path as delegate.
+type ManagedSessionRequest struct {
+	SessionID string
+	Message   string
+	Preset    string
+}
+
+// ManagedSessionResult is the bounded caller-facing result of a managed
+// Session turn. Output is bounded by the Session tool, not this delegate layer.
+type ManagedSessionResult struct {
 	SessionID string
 	Output    string
 	Complete  bool
@@ -187,6 +205,26 @@ func (t *DelegateTool) Execute(ctx context.Context, args map[string]any) (string
 	return string(out), nil
 }
 
+// RunManagedSession executes one Session-tool create or send through the
+// existing delegate path. Keeping this as a single-task adapter avoids a second
+// preset or timeout implementation that could drift from delegate.
+func (t *DelegateTool) RunManagedSession(ctx context.Context, req ManagedSessionRequest) (ManagedSessionResult, error) {
+	result := t.runDelegate(ctx, delegateTaskConfig{
+		ID:        "session",
+		Task:      req.Message,
+		Preset:    req.Preset,
+		SessionID: req.SessionID,
+	})
+	if result.Error != "" {
+		err := result.cause
+		if err == nil {
+			err = errors.New(result.Error)
+		}
+		return ManagedSessionResult{SessionID: result.SessionID, Output: result.Output}, err
+	}
+	return ManagedSessionResult{SessionID: result.SessionID, Output: result.Output, Complete: result.Complete}, nil
+}
+
 type delegateTaskConfig struct {
 	ID        string
 	Task      string
@@ -223,6 +261,7 @@ type taskResult struct {
 	SessionID string `json:"session_id,omitempty"`
 	Error     string `json:"error,omitempty"`
 	Complete  bool   `json:"complete"` // true if agent stopped without error
+	cause     error
 }
 
 func (t *DelegateTool) emit(ev agent.LoopEvent) {
@@ -308,7 +347,7 @@ func (t *DelegateTool) runDelegate(parentCtx context.Context, tc delegateTaskCon
 	if err != nil {
 		log.Error("delegate failed", "duration", duration, "error", err, "session_id", sessionResult.SessionID)
 		t.emit(DelegateFinished{TaskID: tc.ID, Duration: duration, Error: err.Error()})
-		return taskResult{SessionID: sessionResult.SessionID, Error: err.Error()}
+		return taskResult{SessionID: sessionResult.SessionID, Error: err.Error(), cause: err}
 	}
 
 	log.Info("delegate finished", "duration", duration, "session_id", sessionResult.SessionID)

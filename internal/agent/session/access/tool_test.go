@@ -6,13 +6,19 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
+	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -68,6 +74,86 @@ func TestSessionToolUsesRuntimeIdentityAndNewSurface(t *testing.T) {
 		if _, ok := properties[hidden]; ok {
 			t.Fatalf("session tool schema must not expose %s", hidden)
 		}
+	}
+}
+
+func TestSessionToolCreatesAndResumesManagedSessionsSynchronously(t *testing.T) {
+	m := newSessionMatrix(t)
+	managedID := "legacy-delegate"
+	seedManagedSession(t, m, managedID)
+	runtime := &fakeRuntimeService{managedResult: delegatetool.ManagedSessionResult{SessionID: "created-delegate", Output: strings.Repeat("r", maxSessionToolResultText+1), Complete: true}}
+	if err := m.svc.BindRuntimeManager(fakeRuntimeManager{svc: runtime}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := memory.WithSessionID(authz.WithAgentID(authz.WithUserID(context.Background(), m.owner), m.agent), "source-session")
+	tool := NewTool(m.svc)
+
+	out, err := tool.Execute(ctx, map[string]any{"action": "create", "message": "Review this change", "preset": "reviewer"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	var created sessionRunResponse
+	if err := json.Unmarshal([]byte(out), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.SessionID != "created-delegate" || len(created.Reply) != maxSessionToolResultText || !created.ReplyTruncated {
+		t.Fatalf("create response = %#v", created)
+	}
+	if got := runtime.managedCalls[0]; got.SessionID != "" || got.Message != "Review this change" || got.Preset != "reviewer" {
+		t.Fatalf("create request = %#v", got)
+	}
+
+	runtime.managedResult = delegatetool.ManagedSessionResult{SessionID: managedID, Output: "continued", Complete: true}
+	out, err = tool.Execute(ctx, map[string]any{"action": "send", "session_id": managedID, "message": "Continue", "wait": true})
+	if err != nil {
+		t.Fatalf("send legacy managed session: %v", err)
+	}
+	var sent sessionRunResponse
+	if err := json.Unmarshal([]byte(out), &sent); err != nil {
+		t.Fatal(err)
+	}
+	if sent.SessionID != managedID || sent.Reply != "continued" || sent.ReplyTruncated {
+		t.Fatalf("send response = %#v", sent)
+	}
+	if got := runtime.managedCalls[1]; got.SessionID != managedID || got.Preset != "" {
+		t.Fatalf("send request = %#v", got)
+	}
+
+	if _, err := tool.Execute(ctx, map[string]any{"action": "create", "message": "later", "wait": false}); err == nil || !strings.Contains(err.Error(), "wait=false is not yet supported") {
+		t.Fatalf("wait=false error=%v", err)
+	}
+	if len(runtime.managedCalls) != 2 {
+		t.Fatalf("wait=false started %d managed runs, want 2 total", len(runtime.managedCalls))
+	}
+
+	getOut, err := tool.Execute(ctx, map[string]any{"action": "get", "session_id": managedID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var get sessionGetResponse
+	if err := json.Unmarshal([]byte(getOut), &get); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(get.SupportedOperations, ",") != "get,send" {
+		t.Fatalf("managed supported operations=%v", get.SupportedOperations)
+	}
+}
+
+func seedManagedSession(t *testing.T, m sessionMatrix, id string) {
+	t.Helper()
+	now := time.Now().UTC()
+	if err := m.svc.memory.SaveInfo(context.Background(), memory.SessionInfo{
+		ID: id, UserID: m.owner, AgentID: m.agent,
+		Kind: string(agentsession.KindDelegate), Channel: string(agentsession.ChannelDelegate), CreatedAt: now, LastActive: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sqlc.New(m.db).CreateConversation(context.Background(), sqlc.CreateConversationParams{
+		ID: uuid.NewString(), SessionID: id,
+		Kind: string(agentsession.KindDelegate), Channel: string(agentsession.ChannelDelegate), LastActive: now,
+		UserID: pgtype.Text{String: m.owner, Valid: true}, AgentID: pgtype.Text{String: m.agent, Valid: true},
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -115,12 +115,10 @@ func sessionSendable(info agentsession.Info) bool {
 	if info.Archived {
 		return false
 	}
-	switch agentsession.Kind(info.Kind) {
-	case agentsession.KindTask, agentsession.KindScheduler:
-		return false
-	default:
-		return true
-	}
+	// Agent-originated input cannot be stored as a plain user message in a chat
+	// Session. Actor provenance arrives in Phase 4, so only the pre-existing
+	// managed/delegate path is callable now.
+	return agentsession.Kind(info.Kind) == agentsession.KindDelegate
 }
 
 func deriveSessionSummary(title, lastTurnResult string, source sqlc.ListConversationSummarySourceBySessionIDsRow) string {

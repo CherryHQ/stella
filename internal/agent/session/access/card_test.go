@@ -157,8 +157,8 @@ func TestSessionCardsDeriveSummaryStateAndSendabilityInOneBatch(t *testing.T) {
 			t.Fatalf("summary leaked skipped content %q: %q", skipped, card.Summary)
 		}
 	}
-	if card.State != SessionStateRunning || !card.Sendable {
-		t.Fatalf("chat card state/sendable = %q/%v, want running/true", card.State, card.Sendable)
+	if card.State != SessionStateRunning || card.Sendable {
+		t.Fatalf("chat card state/sendable = %q/%v, want running/false", card.State, card.Sendable)
 	}
 	if card.TurnStartedAt != "2026-08-09T01:58:12Z" {
 		t.Fatalf("turn_started_at = %q, want UTC RFC3339", card.TurnStartedAt)

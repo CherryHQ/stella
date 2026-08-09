@@ -12,6 +12,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
@@ -53,6 +54,9 @@ type fakeRuntimeService struct {
 	live           bool
 	events         chan agent.Event
 	chatCtx        context.Context
+	managedCalls   []delegatetool.ManagedSessionRequest
+	managedResult  delegatetool.ManagedSessionResult
+	managedErr     error
 }
 
 func (s *fakeRuntimeService) Chat(ctx context.Context, _ agent.ChatRequest) <-chan agent.Event {
@@ -63,6 +67,18 @@ func (s *fakeRuntimeService) Chat(ctx context.Context, _ agent.ChatRequest) <-ch
 	ch <- agent.Event{Text: " world"}
 	close(ch)
 	return ch
+}
+
+func (s *fakeRuntimeService) RunManagedSession(_ context.Context, req delegatetool.ManagedSessionRequest) (delegatetool.ManagedSessionResult, error) {
+	s.managedCalls = append(s.managedCalls, req)
+	if s.managedErr != nil {
+		return delegatetool.ManagedSessionResult{SessionID: req.SessionID}, s.managedErr
+	}
+	result := s.managedResult
+	if result.SessionID == "" {
+		result.SessionID = req.SessionID
+	}
+	return result, nil
 }
 
 func (s *fakeRuntimeService) StopSession(context.Context, string) bool {
