@@ -2456,6 +2456,10 @@ components:
           description: mise backend options.
     ManifestSkill:
       type: object
+      deprecated: true
+      description: >
+        Reserved manifest declaration. Stella currently stores and returns skill entries but does not install or register them at runtime.
+
       additionalProperties: false
       required: [repo, name]
       properties:
@@ -2499,6 +2503,10 @@ components:
             $ref: "#/components/schemas/ManifestBinary"
         skills:
           type: array
+          deprecated: true
+          description: >
+            Reserved declarations. They are stored and returned but are not currently installed or registered at runtime.
+
           items:
             $ref: "#/components/schemas/ManifestSkill"
         session_env:
@@ -2538,6 +2546,10 @@ components:
             $ref: "#/components/schemas/ManifestBinary"
         skills:
           type: array
+          deprecated: true
+          description: >
+            Reserved declarations. They are stored and returned but are not currently installed or registered at runtime.
+
           items:
             $ref: "#/components/schemas/ManifestSkill"
         session_env:
@@ -2558,6 +2570,9 @@ components:
             $ref: "#/components/schemas/ManifestPluginDefinitionField"
     ManifestPluginInput:
       type: object
+      description: >
+        Submitted builtin plugin view. Only the definition fields named by the sibling `fields` array are stored; all other values are context for validation and remain unowned.
+
       additionalProperties: false
       properties:
         id:
@@ -2589,6 +2604,10 @@ components:
             $ref: "#/components/schemas/ManifestBinary"
         skills:
           type: array
+          deprecated: true
+          description: >
+            Reserved declarations. They are stored and returned but are not currently installed or registered at runtime.
+
           items:
             $ref: "#/components/schemas/ManifestSkill"
         session_env:
@@ -2599,6 +2618,9 @@ components:
           type: string
     ManifestPluginDefinitionField:
       type: string
+      description: >
+        Editable definition field. `skills` is reserved: its value can be stored and returned but is not currently installed or registered at runtime.
+
       enum:
         - name
         - display_name
@@ -2609,18 +2631,89 @@ components:
         - skills
         - session_env
         - oauth_provider
-    SaveManifestPluginDefinitionRequest:
+    SaveBuiltinManifestPluginDefinitionRequest:
       type: object
       additionalProperties: false
-      required: [plugin]
+      required: [plugin, fields]
       properties:
         plugin:
           $ref: "#/components/schemas/ManifestPluginInput"
         fields:
           type: array
-          description: Definition fields this request takes ownership of. Builtins only.
+          description: Definition fields this request takes ownership of.
           items:
             $ref: "#/components/schemas/ManifestPluginDefinitionField"
+    ManifestPluginReplacement:
+      type: object
+      description: >
+        Complete replacement value for an admin-added plugin. Empty strings and arrays explicitly clear optional definition fields.
+
+      additionalProperties: false
+      required:
+        - kind
+        - name
+        - display_name
+        - description
+        - enabled
+        - category
+        - essential
+        - prompt
+        - binaries
+        - skills
+        - session_env
+        - oauth_provider
+      properties:
+        id:
+          type: string
+          description: Ignored; the URL identifies the plugin.
+        kind:
+          type: string
+        name:
+          type: string
+        display_name:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        category:
+          type: string
+        essential:
+          type: boolean
+        prompt:
+          type: string
+        binaries:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManifestBinary"
+        skills:
+          type: array
+          deprecated: true
+          description: >
+            Reserved declarations. They are stored and returned but are not currently installed or registered at runtime.
+
+          items:
+            $ref: "#/components/schemas/ManifestSkill"
+        session_env:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManifestSessionEnv"
+        oauth_provider:
+          type: string
+    ReplaceCustomManifestPluginDefinitionRequest:
+      type: object
+      description: >
+        Full replacement for an admin-added plugin.
+
+      additionalProperties: false
+      required: [plugin]
+      properties:
+        plugin:
+          $ref: "#/components/schemas/ManifestPluginReplacement"
+    SaveManifestPluginDefinitionRequest:
+      oneOf:
+        - $ref: "#/components/schemas/SaveBuiltinManifestPluginDefinitionRequest"
+        - $ref: "#/components/schemas/ReplaceCustomManifestPluginDefinitionRequest"
     ManifestOAuthProvider:
       type: object
       properties:

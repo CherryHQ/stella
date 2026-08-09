@@ -316,10 +316,20 @@ export function PluginsPage() {
     fields: ManifestPluginDefinitionField[],
     successMsg: string,
   ) {
-    const { builtin: _builtin, overridden_fields: _overriddenFields, ...plugin } = next;
+    const { builtin, overridden_fields: _overriddenFields, ...plugin } = next;
+    const replacement = {
+      ...plugin,
+      category: plugin.category ?? "",
+      essential: plugin.essential ?? false,
+      prompt: plugin.prompt ?? "",
+      binaries: plugin.binaries ?? [],
+      skills: plugin.skills ?? [],
+      session_env: plugin.session_env ?? [],
+      oauth_provider: plugin.oauth_provider ?? "",
+    };
     await saveManifestPluginDefinition({
       path: manifestPluginPath(next.id),
-      body: { plugin, fields },
+      body: builtin ? { plugin, fields } : { plugin: replacement },
       throwOnError: true,
     });
     await loadManifestPlugins();
