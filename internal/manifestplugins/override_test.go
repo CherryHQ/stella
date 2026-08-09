@@ -9,14 +9,16 @@ import (
 
 func builtinPlugin() ManifestPlugin {
 	return ManifestPlugin{
-		ID:          "tool/gh",
-		Kind:        "tool",
-		Name:        "gh",
-		DisplayName: "GitHub CLI",
-		Description: "the description that shipped",
-		Enabled:     true,
-		Prompt:      "use gh for GitHub",
-		Binaries:    []ManifestBinary{{Name: "gh", Tool: "github:cli/cli", Version: "latest"}},
+		ID:      "tool/gh",
+		Kind:    "tool",
+		Enabled: true,
+		ManifestPluginDefinition: ManifestPluginDefinition{
+			Name:        "gh",
+			DisplayName: "GitHub CLI",
+			Description: "the description that shipped",
+			Prompt:      "use gh for GitHub",
+			Binaries:    []ManifestBinary{{Name: "gh", Tool: "github:cli/cli", Version: "latest"}},
+		},
 	}
 }
 
@@ -258,11 +260,13 @@ func TestReleasingTheLastFieldEmptiesTheOverride(t *testing.T) {
 func legacySnapshot(t *testing.T) string {
 	t.Helper()
 	snapshot, err := DefinitionJSON(ManifestPlugin{
-		Kind:        "tool",
-		Name:        "gh",
-		DisplayName: "GitHub CLI",
-		Description: "pinned by an old row",
-		Binaries:    []ManifestBinary{{Name: "gh", Tool: "npm:gh"}},
+		Kind: "tool",
+		ManifestPluginDefinition: ManifestPluginDefinition{
+			Name:        "gh",
+			DisplayName: "GitHub CLI",
+			Description: "pinned by an old row",
+			Binaries:    []ManifestBinary{{Name: "gh", Tool: "npm:gh"}},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)

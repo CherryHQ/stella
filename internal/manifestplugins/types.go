@@ -1,26 +1,29 @@
 package manifestplugins
 
-type ManifestPlugin struct {
-	ID          string `json:"id" yaml:"id"`
-	Kind        string `json:"kind" yaml:"kind"`
-	Name        string `json:"name" yaml:"name"`
-	DisplayName string `json:"display_name" yaml:"display_name"`
-	Description string `json:"description" yaml:"description"`
-	Enabled     bool   `json:"enabled" yaml:"enabled"`
-
-	// Category is a display-only hint for grouping in the settings UI
-	// ("system", "integration", "tool"). Empty means the UI derives a bucket
-	// from the plugin's signals (oauth → integration, hook → system, else tool).
-	Category string `json:"category,omitempty" yaml:"category,omitempty"`
-	// Essential marks a plugin the runtime depends on (e.g. rg/fd back the
-	// Grep/Glob tools); the UI guards against disabling it.
-	Essential bool `json:"essential,omitempty" yaml:"essential,omitempty"`
-
+// ManifestPluginDefinition is the editable definition of a manifest plugin.
+// Resource state and server-owned metadata live on ManifestPlugin instead.
+type ManifestPluginDefinition struct {
+	Name          string               `json:"name" yaml:"name"`
+	DisplayName   string               `json:"display_name" yaml:"display_name"`
+	Description   string               `json:"description" yaml:"description"`
+	Category      string               `json:"category,omitempty" yaml:"category,omitempty"`
 	Prompt        string               `json:"prompt,omitempty" yaml:"prompt,omitempty"`
 	Binaries      []ManifestBinary     `json:"binaries,omitempty" yaml:"binaries,omitempty"`
 	Skills        []ManifestSkill      `json:"skills,omitempty" yaml:"skills,omitempty"`
 	SessionEnvs   []ManifestSessionEnv `json:"session_env,omitempty" yaml:"session_env,omitempty"`
 	OAuthProvider string               `json:"oauth_provider,omitempty" yaml:"oauth_provider,omitempty"`
+}
+
+type ManifestPlugin struct {
+	ID      string `json:"id" yaml:"id"`
+	Kind    string `json:"kind" yaml:"kind"`
+	Enabled bool   `json:"enabled" yaml:"enabled"`
+
+	// Essential marks a plugin the runtime depends on (e.g. rg/fd back the
+	// Grep/Glob tools). It is shipped server policy, not editable definition.
+	Essential bool `json:"essential,omitempty" yaml:"essential,omitempty"`
+
+	ManifestPluginDefinition `yaml:",inline"`
 
 	// Builtin marks a plugin that ships with the server. It is computed when the
 	// manifest is resolved, never read from a manifest or an override: a builtin
@@ -88,19 +91,11 @@ type Manifest struct {
 }
 
 type rawManifestPlugin struct {
-	ID            string               `yaml:"id"`
-	Kind          string               `yaml:"kind"`
-	Name          string               `yaml:"name"`
-	DisplayName   string               `yaml:"display_name"`
-	Description   string               `yaml:"description"`
-	Enabled       *bool                `yaml:"enabled"`
-	Category      string               `yaml:"category,omitempty"`
-	Essential     bool                 `yaml:"essential,omitempty"`
-	Prompt        string               `yaml:"prompt,omitempty"`
-	Binaries      []ManifestBinary     `yaml:"binaries,omitempty"`
-	Skills        []ManifestSkill      `yaml:"skills,omitempty"`
-	SessionEnvs   []ManifestSessionEnv `yaml:"session_env,omitempty"`
-	OAuthProvider string               `yaml:"oauth_provider,omitempty"`
+	ID                       string `yaml:"id"`
+	Kind                     string `yaml:"kind"`
+	Enabled                  *bool  `yaml:"enabled"`
+	Essential                bool   `yaml:"essential,omitempty"`
+	ManifestPluginDefinition `yaml:",inline"`
 }
 
 type rawManifestOAuthFlow struct {

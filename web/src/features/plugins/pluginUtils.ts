@@ -1,5 +1,7 @@
 import type {
   ManifestPlugin,
+  ManifestPluginDefinition,
+  ManifestPluginDefinitionField,
   Plugin,
   PluginSchemaField,
   PluginSchemaProperty,
@@ -306,16 +308,18 @@ export function pluginIsCustomized(plugin: PluginWithMeta): boolean {
 
 // pluginFieldIsOverridden reports whether one builtin definition field is
 // pinned by an admin instead of following the value shipped by the server.
-export function pluginFieldIsOverridden(plugin: PluginWithMeta, field: string): boolean {
+export function pluginFieldIsOverridden(
+  plugin: PluginWithMeta,
+  field: ManifestPluginDefinitionField,
+): boolean {
   const manifest = plugin._manifestPlugin;
   return !!manifest?.builtin && !!manifest.overridden_fields?.includes(field);
 }
 
 // manifestPluginDefinitionFields is every field an override may take ownership
-// of, and must stay in step with the Go OwnableFields(); web/manifest_fields_test.go
-// pins the two lists together. `kind` and `essential` are the server's and are
-// deliberately absent: kind is part of the plugin's identity, and essential is
-// the server's statement about what breaks if the plugin is disabled.
+// of. The generated definition type below pins this runtime list to the OpenAPI
+// schema. `kind` and `essential` are deliberately absent because they belong to
+// the server rather than the editable definition.
 export const manifestPluginDefinitionFields = [
   "name",
   "display_name",
@@ -326,7 +330,25 @@ export const manifestPluginDefinitionFields = [
   "skills",
   "session_env",
   "oauth_provider",
-] as const;
+] as const satisfies readonly ManifestPluginDefinitionField[];
+
+// Keep the runtime comparison list exhaustive as the generated definition
+// grows; invalid and missing names are both compile errors.
+const manifestPluginDefinitionFieldsAreExhaustive: Exclude<
+  keyof ManifestPluginDefinition,
+  (typeof manifestPluginDefinitionFields)[number]
+> extends never
+  ? true
+  : never = true;
+void manifestPluginDefinitionFieldsAreExhaustive;
+
+const manifestPluginDefinitionFieldEnumIsExhaustive: Exclude<
+  ManifestPluginDefinitionField,
+  (typeof manifestPluginDefinitionFields)[number]
+> extends never
+  ? true
+  : never = true;
+void manifestPluginDefinitionFieldEnumIsExhaustive;
 
 function valuesEqual(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true;
@@ -375,7 +397,7 @@ function emptyAsAbsent(value: unknown): unknown {
 export function changedManifestPluginFields(
   initial: ManifestPlugin,
   next: ManifestPlugin,
-): string[] {
+): ManifestPluginDefinitionField[] {
   const initialRecord = initial as unknown as Record<string, unknown>;
   const nextRecord = next as unknown as Record<string, unknown>;
   return manifestPluginDefinitionFields.filter(

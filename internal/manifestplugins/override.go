@@ -46,28 +46,11 @@ import (
 // deliberately not a ManifestPlugin field, so it can never collide with one.
 const sparseMarker = "$sparse"
 
-// definition is the customizable half of a ManifestPlugin. ID is the key, Enabled
-// is its own column, and Builtin is computed at resolve time — none of them are
-// part of what an admin edits, so none of them belong in the stored override.
-type definition struct {
-	Kind          string               `json:"kind"`
-	Name          string               `json:"name"`
-	DisplayName   string               `json:"display_name"`
-	Description   string               `json:"description"`
-	Category      string               `json:"category,omitempty"`
-	Essential     bool                 `json:"essential,omitempty"`
-	Prompt        string               `json:"prompt,omitempty"`
-	Binaries      []ManifestBinary     `json:"binaries,omitempty"`
-	Skills        []ManifestSkill      `json:"skills,omitempty"`
-	SessionEnvs   []ManifestSessionEnv `json:"session_env,omitempty"`
-	OAuthProvider string               `json:"oauth_provider,omitempty"`
-}
-
 // definitionFieldNames is every field the definition carries, in declaration
 // order. It is derived from the struct so a new field cannot be added without
 // being serialized, resettable, and reportable in the same edit.
 var definitionFieldNames = func() []string {
-	t := reflect.TypeFor[definition]()
+	t := reflect.TypeFor[ManifestPluginDefinition]()
 	names := make([]string, 0, t.NumField())
 	for i := range t.NumField() {
 		name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ",")
@@ -78,67 +61,32 @@ var definitionFieldNames = func() []string {
 	return names
 }()
 
-// serverOwnedFields are definition fields an override may not take from the
-// server, even though an admin-added plugin still has to carry them.
-//
-// kind participates in the plugin's identity: the ID is prefixed with it, the
-// UI groups by it, and the runtime reloads tools and hooks separately, so an
-// override that disagreed would make three answers out of one question.
-// essential is policy — it is the server's statement that disabling this plugin
-// breaks Grep or Glob, and the disable check reads the shipped value, so letting
-// an override say otherwise only produced a UI that offered a switch the API
-// then refused.
-var serverOwnedFields = []string{"kind", "essential"}
-
 // IsOwnableField reports whether name is a definition field an override may own.
 func IsOwnableField(name string) bool {
-	return slices.Contains(definitionFieldNames, name) && !slices.Contains(serverOwnedFields, name)
+	return slices.Contains(definitionFieldNames, name)
 }
 
 // OwnableFields lists every field an override may own, in definition order.
 func OwnableFields() []string {
-	out := make([]string, 0, len(definitionFieldNames))
-	for _, name := range definitionFieldNames {
-		if IsOwnableField(name) {
-			out = append(out, name)
-		}
-	}
-	return out
-}
-
-func definitionOf(p ManifestPlugin) definition {
-	// Normalize empty slices to nil so omitempty produces stable JSON whether the
-	// source said null or [].
-	binaries, skills, envs := p.Binaries, p.Skills, p.SessionEnvs
-	if len(binaries) == 0 {
-		binaries = nil
-	}
-	if len(skills) == 0 {
-		skills = nil
-	}
-	if len(envs) == 0 {
-		envs = nil
-	}
-	return definition{
-		Kind:          p.Kind,
-		Name:          p.Name,
-		DisplayName:   p.DisplayName,
-		Description:   p.Description,
-		Category:      p.Category,
-		Essential:     p.Essential,
-		Prompt:        p.Prompt,
-		Binaries:      binaries,
-		Skills:        skills,
-		SessionEnvs:   envs,
-		OAuthProvider: p.OAuthProvider,
-	}
+	return slices.Clone(definitionFieldNames)
 }
 
 // DefinitionJSON serializes a plugin's whole definition. It is what an
 // admin-added plugin stores: there is no builtin underneath it to inherit from,
 // so the row is the plugin.
 func DefinitionJSON(p ManifestPlugin) (string, error) {
-	data, err := json.Marshal(definitionOf(p))
+	// Keep kind and essential in full snapshots. They are server-owned for a
+	// builtin, but an admin-added plugin has no shipped metadata underneath it.
+	stored := struct {
+		Kind      string `json:"kind"`
+		Essential bool   `json:"essential,omitempty"`
+		ManifestPluginDefinition
+	}{
+		Kind:                     p.Kind,
+		Essential:                p.Essential,
+		ManifestPluginDefinition: p.ManifestPluginDefinition,
+	}
+	data, err := json.Marshal(stored)
 	if err != nil {
 		return "", fmt.Errorf("marshal plugin definition %q: %w", p.ID, err)
 	}
@@ -146,7 +94,7 @@ func DefinitionJSON(p ManifestPlugin) (string, error) {
 }
 
 func definitionFields(p ManifestPlugin) (map[string]json.RawMessage, error) {
-	data, err := json.Marshal(definitionOf(p))
+	data, err := json.Marshal(p.ManifestPluginDefinition)
 	if err != nil {
 		return nil, fmt.Errorf("marshal plugin definition %q: %w", p.ID, err)
 	}
@@ -174,9 +122,8 @@ func ownedMap(override string) (map[string]json.RawMessage, error) {
 	}
 	if marker, ok := stored[sparseMarker]; ok && string(marker) == "true" {
 		delete(stored, sparseMarker)
-		for _, name := range serverOwnedFields {
-			delete(stored, name)
-		}
+		delete(stored, "kind")
+		delete(stored, "essential")
 		return stored, nil
 	}
 
@@ -194,9 +141,6 @@ func ownedMap(override string) (map[string]json.RawMessage, error) {
 	// plugin's policy at whatever it was the day someone renamed it.
 	owned := make(map[string]json.RawMessage, len(definitionFieldNames))
 	for _, name := range definitionFieldNames {
-		if !IsOwnableField(name) {
-			continue
-		}
 		if value, ok := present[name]; ok {
 			owned[name] = value
 			continue
@@ -314,15 +258,11 @@ func ApplyOverride(base ManifestPlugin, override string) (ManifestPlugin, error)
 	if err != nil {
 		return ManifestPlugin{}, fmt.Errorf("marshal merged plugin %q: %w", base.ID, err)
 	}
-	out := ManifestPlugin{}
-	if err := json.Unmarshal(data, &out); err != nil {
+	out := base
+	out.ManifestPluginDefinition = ManifestPluginDefinition{}
+	if err := json.Unmarshal(data, &out.ManifestPluginDefinition); err != nil {
 		return ManifestPlugin{}, fmt.Errorf("read merged plugin %q: %w", base.ID, err)
 	}
-	// The three fields a definition deliberately omits are the caller's, not the
-	// override's.
-	out.ID = base.ID
-	out.Enabled = base.Enabled
-	out.Builtin = base.Builtin
 	return out, nil
 }
 
