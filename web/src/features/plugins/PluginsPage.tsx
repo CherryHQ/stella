@@ -30,6 +30,7 @@ import {
   pluginDescription,
   pluginHasBinaries,
   pluginIsEssential,
+  pluginIsRemovable,
   pluginLabel,
   semanticPlugins,
 } from "./pluginUtils";
@@ -441,7 +442,7 @@ export function PluginsPage() {
         {/* Removal is the counterpart of the add form: a plugin an admin added
             can be taken back out. A builtin has no such row to drop — the
             enable switch above is its off. */}
-        {p._manifest && !p._manifestPlugin?.builtin && (
+        {pluginIsRemovable(p) && (
           <div className="border-t border-border pt-4 flex items-center justify-between gap-3">
             <span className="text-xs text-muted-foreground">{t("plugins.removeDesc")}</span>
             <Button

@@ -40,6 +40,7 @@ import {
   type NormalizedChannel,
 } from "./ChannelFields";
 import { NewChannelForm, newChannelDraftError } from "./NewChannelForm";
+import { bindableAgents } from "./channel-access";
 import { useAccountLink, weixinQrStatusVariant } from "./use-account-link";
 
 // ─── ChannelDetail ────────────────────────────────────────────────────────────
@@ -262,13 +263,9 @@ export function ChannelsPage() {
     }
   }, [showToast]);
 
-  // The picker offers only what the API would accept: every agent for an admin,
-  // and the agents they created for anyone else. A readable-but-foreign agent
-  // would just fail the bind.
-  const bindableAgents = useMemo(
-    () => (me?.is_admin ? agents : agents.filter((a) => a.creator_id && a.creator_id === me?.id)),
-    [agents, me],
-  );
+  // The picker offers only what the API would accept; a readable-but-foreign
+  // agent would just fail the bind.
+  const pickableAgents = useMemo(() => bindableAgents(agents, me), [agents, me]);
 
   const loadInstances = useCallback(async () => {
     setLoadingInstances(true);
@@ -412,7 +409,7 @@ export function ChannelsPage() {
       <NewChannelForm
         fallbackChannelType={defaultChannelType}
         initialAgentId={initialAgentId}
-        agents={bindableAgents}
+        agents={pickableAgents}
         channels={instances}
         onAdd={createNewChannel}
         onRegistered={finishRegisteredChannel}
