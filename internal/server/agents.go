@@ -71,8 +71,11 @@ func (s *Server) ListAgents(w http.ResponseWriter, r *http.Request, params apise
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
-	includeAll := info.IsAdmin && params.IncludeAll != nil && *params.IncludeAll
-	agents, err := s.agentAccess.ListReadable(ctx, authority, includeAll)
+	// include_all is the admin's deployment-wide view. The default list is the
+	// caller's own fleet for everyone, admin included: reaching every agent is
+	// not a reason to be shown every agent.
+	deploymentWide := info.IsAdmin && params.IncludeAll != nil && *params.IncludeAll
+	agents, err := s.agentAccess.ListReadable(ctx, authority, deploymentWide)
 	if err != nil {
 		code, msg := agentAccessError(err)
 		writeError(w, code, msg)

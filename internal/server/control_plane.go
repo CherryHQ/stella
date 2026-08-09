@@ -78,6 +78,10 @@ func (s *Server) beginChannelAccess(w http.ResponseWriter, r *http.Request) (con
 // for a Manage decision on every agent it can already see. Ownership is a small
 // set (a user's own agents), so the per-agent decision stays cheap and no rule is
 // duplicated here.
+//
+// The candidate set is deployment-wide on purpose: it is only a candidate set,
+// narrowed a line later by a real Manage decision. A non-admin gets their own
+// fleet regardless, and everything they can manage is in it.
 func (s *Server) manageableAgentIDs(ctx context.Context, authority authz.Authority) ([]string, error) {
 	agents, err := s.agentAccess.ListReadable(ctx, authority, true)
 	if err != nil {

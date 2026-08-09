@@ -1,5 +1,6 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import {
+  getAgent,
   getClawhubSkill,
   listAgents,
   listAgentSkills,
@@ -42,6 +43,23 @@ export const agentsQueryOptions = queryOptions({
     return (data?.agents ?? []) as Agent[];
   },
 });
+
+/**
+ * One agent by id. The list is the caller's own fleet, so a page that opens a
+ * specific agent must ask for it rather than search the list: an admin reaching
+ * someone else's agent from settings is authorized for it and simply is not in
+ * that list.
+ */
+export function agentQueryOptions(agentId: string) {
+  return queryOptions({
+    queryKey: ["agent", agentId],
+    enabled: !!agentId,
+    queryFn: async () => {
+      const { data } = await getAgent({ path: { id: agentId }, throwOnError: true });
+      return data as Agent;
+    },
+  });
+}
 
 export function clawhubSkillDetailOptions(slug: string) {
   return queryOptions({

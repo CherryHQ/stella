@@ -466,7 +466,7 @@ export function PluginsPage() {
   return (
     <>
       <SettingsGridPage
-        title={t("plugins.title")}
+        title={t(isAdmin ? "plugins.title" : "mcp.title")}
         action={
           isAdmin ? (
             <Button

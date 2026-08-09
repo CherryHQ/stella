@@ -112,6 +112,8 @@ func (s *Server) accessibleAgentNames(r *http.Request, info *AuthInfo) (map[stri
 	if err != nil {
 		return nil, agentaccess.ErrForbidden
 	}
+	// An admin's channel list spans the deployment, so the names that label those
+	// channels must too. Everyone else names the agents in their own fleet.
 	agents, err := s.agentAccess.ListReadable(ctx, authority, info.IsAdmin)
 	if err != nil {
 		return nil, err
