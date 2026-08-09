@@ -1871,13 +1871,22 @@ const en = {
   // Plugins (additions)
   "plugins.addTool": "Add Tool",
   "plugins.addToolDesc":
-    "Declare a GitHub release binary. Stella writes it to plugins.yaml and syncs automatically.",
+    "Declare a GitHub release binary. Stella registers it and syncs automatically.",
   "plugins.addCliToolDesc":
     "Search the mise registry by name, or type a mise key (e.g. github:owner/repo). Stella installs it and keeps it in sync.",
   "plugins.removePlugin": "Remove this plugin?",
   "plugins.removePluginMsg":
     "{{id}} is removed from this deployment along with its tools. Installed binaries stay in the mise cache.",
   "plugins.removeDesc": "Added by an admin — remove it to take it back out.",
+  "plugins.customized": "customized",
+  "plugins.otherOverriddenFields": "Other overridden fields",
+  "plugins.overriddenField": "overridden",
+  "plugins.resetField": "Restore field",
+  "plugins.resetFieldDone": "Field restored to the server default",
+  "plugins.resetToDefault": "Reset to default",
+  "plugins.resetDesc":
+    "Edited fields no longer follow server updates. Reset drops the edits; the enable switch stays as it is.",
+  "plugins.resetDone": "Reset to the definition that ships with the server",
   "plugins.searchRegistry": "Search a tool name or mise key…",
   "plugins.searchingRegistry": "Searching…",
   "plugins.noRegistryMatches": "No matches. You can still add a mise key directly.",
@@ -4038,13 +4047,21 @@ const zh: Record<MessageKey, string> = {
 
   // Plugins (additions)
   "plugins.addTool": "添加工具",
-  "plugins.addToolDesc": "声明 GitHub 发布二进制文件。Stella 将其写入 plugins.yaml 并自动同步。",
+  "plugins.addToolDesc": "声明 GitHub 发布二进制文件。Stella 会注册该插件并自动同步。",
   "plugins.addCliToolDesc":
     "按名称搜索 mise 注册表，或直接输入 mise 标识（如 github:owner/repo）。Stella 会自动安装并保持同步。",
   "plugins.removePlugin": "移除此插件？",
   "plugins.removePluginMsg":
     "{{id}} 及其提供的工具会从本部署中移除。已安装的二进制文件仍保留在 mise 缓存中。",
   "plugins.removeDesc": "由管理员添加 — 可以移除。",
+  "plugins.customized": "已自定义",
+  "plugins.otherOverriddenFields": "其他已覆盖字段",
+  "plugins.overriddenField": "已覆盖",
+  "plugins.resetField": "恢复此字段",
+  "plugins.resetFieldDone": "该字段已恢复为服务端默认值",
+  "plugins.resetToDefault": "恢复默认",
+  "plugins.resetDesc": "被改过的字段不再跟随服务端更新。恢复默认会丢弃这些改动，启用开关保持不变。",
+  "plugins.resetDone": "已恢复为服务端自带的定义",
   "plugins.searchRegistry": "搜索工具名称或 mise 标识…",
   "plugins.searchingRegistry": "搜索中…",
   "plugins.noRegistryMatches": "无匹配结果。你仍可直接输入 mise 标识添加。",

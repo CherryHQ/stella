@@ -1483,11 +1483,30 @@ func TestSkillsSearch_Authenticated(t *testing.T) {
 	}
 }
 
-// TestSaveManifestPluginsPreservesSessionEnvVaultKey guards against the enable
-// toggle clobbering the session_env_vault_key. The Save payload only carries
+// toggleManifestPlugin flips one plugin's enable switch. The route addresses a
+// single plugin on purpose: a request that carried the whole list made every
+// toggle a deployment-wide write.
+func toggleManifestPlugin(t *testing.T, env *testEnv, id string, enabled bool) *httptest.ResponseRecorder {
+	t.Helper()
+	return doRequest(t, env, "PUT", "/api/manifest-plugins/"+id+"/enabled", map[string]any{"enabled": enabled})
+}
+
+// saveManifestDefinition writes one plugin's definition, naming the fields the
+// request takes ownership of.
+func saveManifestDefinition(t *testing.T, env *testEnv, id string, plugin map[string]any, fields []string) *httptest.ResponseRecorder {
+	t.Helper()
+	body := map[string]any{"plugin": plugin}
+	if fields != nil {
+		body["fields"] = fields
+	}
+	return doRequest(t, env, "PATCH", "/api/manifest-plugins/"+id, body)
+}
+
+// TestToggleManifestPluginPreservesSessionEnvVaultKey guards against the enable
+// toggle clobbering the session_env_vault_key. The toggle payload only carries
 // the enable flag, so the handler must read the existing override row and
 // preserve any session env binding instead of overwriting it with "".
-func TestSaveManifestPluginsPreservesSessionEnvVaultKey(t *testing.T) {
+func TestToggleManifestPluginPreservesSessionEnvVaultKey(t *testing.T) {
 	env := setupAdmin(t)
 	octx := context.Background()
 
@@ -1503,11 +1522,9 @@ func TestSaveManifestPluginsPreservesSessionEnvVaultKey(t *testing.T) {
 		t.Fatalf("seed override: %v", err)
 	}
 
-	// Disable the plugin via the Save handler (enabled diverges from default).
-	body := map[string]any{"plugins": []map[string]any{{"id": pluginID, "enabled": false}}}
-	rr := doRequest(t, env, "PATCH", "/api/manifest-plugins", body)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("save: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	// Disable the plugin (enabled diverges from default).
+	if rr := toggleManifestPlugin(t, env, pluginID, false); rr.Code != http.StatusOK {
+		t.Fatalf("toggle: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	ov, ok, err := env.store.GetManifestPluginOverride(octx, pluginID)
@@ -1524,15 +1541,13 @@ func TestSaveManifestPluginsPreservesSessionEnvVaultKey(t *testing.T) {
 		t.Fatalf("enabled override not persisted: got %v, want explicit false", ov.Enabled)
 	}
 	if ov.Config != "" {
-		t.Fatalf("toggle-only save must not store config override: got %q", ov.Config)
+		t.Fatalf("a toggle must not store a config override: got %q", ov.Config)
 	}
 
 	// Toggle back to the default (enabled=true). The row must survive because a
 	// session env binding still exists; only the enable override clears to nil.
-	body = map[string]any{"plugins": []map[string]any{{"id": pluginID, "enabled": true}}}
-	rr = doRequest(t, env, "PATCH", "/api/manifest-plugins", body)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("save back: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	if rr := toggleManifestPlugin(t, env, pluginID, true); rr.Code != http.StatusOK {
+		t.Fatalf("toggle back: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	ov, ok, err = env.store.GetManifestPluginOverride(octx, pluginID)
@@ -1550,9 +1565,9 @@ func TestSaveManifestPluginsPreservesSessionEnvVaultKey(t *testing.T) {
 	}
 }
 
-// TestSaveManifestPluginsPreservesConfigOnToggle guards against toggle-only
-// saves clobbering a previously-stored config definition override.
-func TestSaveManifestPluginsPreservesConfigOnToggle(t *testing.T) {
+// TestToggleManifestPluginPreservesConfig guards against a toggle clobbering a
+// previously-stored config definition override.
+func TestToggleManifestPluginPreservesConfig(t *testing.T) {
 	env := setupAdmin(t)
 	octx := context.Background()
 
@@ -1567,11 +1582,8 @@ func TestSaveManifestPluginsPreservesConfigOnToggle(t *testing.T) {
 		t.Fatalf("seed override: %v", err)
 	}
 
-	// Toggle-only save: {id, enabled} with no Kind — must preserve existing config.
-	body := map[string]any{"plugins": []map[string]any{{"id": pluginID, "enabled": false}}}
-	rr := doRequest(t, env, "PATCH", "/api/manifest-plugins", body)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("save: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	if rr := toggleManifestPlugin(t, env, pluginID, false); rr.Code != http.StatusOK {
+		t.Fatalf("toggle: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	ov, ok, err := env.store.GetManifestPluginOverride(octx, pluginID)
@@ -1579,33 +1591,67 @@ func TestSaveManifestPluginsPreservesConfigOnToggle(t *testing.T) {
 		t.Fatalf("get override: %v", err)
 	}
 	if !ok {
-		t.Fatal("override row deleted by toggle-only save")
+		t.Fatal("override row deleted by a toggle")
 	}
 	if ov.Config != configJSON {
-		t.Fatalf("config clobbered by toggle-only save: got %q, want %q", ov.Config, configJSON)
+		t.Fatalf("config clobbered by a toggle: got %q, want %q", ov.Config, configJSON)
 	}
 	if ov.Enabled == nil || *ov.Enabled != false {
 		t.Fatalf("enabled not persisted: got %v, want explicit false", ov.Enabled)
 	}
 }
 
-// TestSaveManifestPluginsRejectsDisablingEssential guards the harness: an
+// A mutation addresses one plugin. When one request carried the whole list, the
+// server rewrote every row from it — so toggling A rewrote B, and a row written
+// before overrides went sparse was converted by an admin who never touched that
+// plugin. The stored bytes of the bystander are the assertion.
+func TestMutatingOnePluginLeavesAnotherRowByteIdentical(t *testing.T) {
+	env := setupAdmin(t)
+	octx := context.Background()
+
+	const bystander = "tool/gh"
+	const legacyJSON = `{"kind":"tool","name":"gh","display_name":"Our gh","description":"pinned long ago"}`
+	if err := env.store.UpsertManifestPluginOverride(octx, config.ManifestPluginOverride{
+		PluginID: bystander,
+		Config:   legacyJSON,
+	}); err != nil {
+		t.Fatalf("seed override: %v", err)
+	}
+
+	if rr := toggleManifestPlugin(t, env, "tool/tap-web", false); rr.Code != http.StatusOK {
+		t.Fatalf("toggle: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	edited := manifestPluginByID(t, env, "tool/tap-web")
+	edited["display_name"] = "Tap (ours)"
+	if rr := saveManifestDefinition(t, env, "tool/tap-web", edited, []string{"display_name"}); rr.Code != http.StatusOK {
+		t.Fatalf("save: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	ov, ok, err := env.store.GetManifestPluginOverride(octx, bystander)
+	if err != nil || !ok {
+		t.Fatalf("get bystander override: ok=%v err=%v", ok, err)
+	}
+	if ov.Config != legacyJSON {
+		t.Fatalf("a bystander's row was rewritten: got %q, want %q", ov.Config, legacyJSON)
+	}
+}
+
+// TestToggleManifestPluginRejectsDisablingEssential guards the harness: an
 // essential builtin (rg/fd/mise back Grep/Glob/install) must not be disabled.
-func TestSaveManifestPluginsRejectsDisablingEssential(t *testing.T) {
+func TestToggleManifestPluginRejectsDisablingEssential(t *testing.T) {
 	env := setupAdmin(t)
 	octx := context.Background()
 
 	const pluginID = "tool/rg" // essential: true in the builtin manifest
 
-	body := map[string]any{"plugins": []map[string]any{{"id": pluginID, "enabled": false}}}
-	rr := doRequest(t, env, "PATCH", "/api/manifest-plugins", body)
+	rr := toggleManifestPlugin(t, env, pluginID, false)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("disable essential: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}
 	if _, ok, err := env.store.GetManifestPluginOverride(octx, pluginID); err != nil {
 		t.Fatalf("get override: %v", err)
 	} else if ok {
-		t.Fatal("rejected save must not write an override row")
+		t.Fatal("a rejected toggle must not write an override row")
 	}
 }
 
@@ -1618,16 +1664,12 @@ func TestDeleteManifestPluginRemovesCustomOnly(t *testing.T) {
 	octx := context.Background()
 
 	const customID = "tool/my-cli"
-	body := map[string]any{"plugins": []map[string]any{{
-		"id":           customID,
-		"kind":         "tool",
-		"name":         "my-cli",
+	if rr := saveManifestDefinition(t, env, customID, map[string]any{
 		"display_name": "My CLI",
 		"description":  "",
 		"enabled":      true,
 		"binaries":     []map[string]any{{"name": "my-cli", "tool": "github:owner/repo"}},
-	}}}
-	if rr := doRequest(t, env, "PATCH", "/api/manifest-plugins", body); rr.Code != http.StatusOK {
+	}, nil); rr.Code != http.StatusOK {
 		t.Fatalf("create: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
 	if _, ok, err := env.store.GetManifestPluginOverride(octx, customID); err != nil || !ok {
@@ -1659,12 +1701,10 @@ func TestDeleteManifestPluginRemovesCustomOnly(t *testing.T) {
 func TestListManifestPluginsMarksBuiltin(t *testing.T) {
 	env := setupAdmin(t)
 
-	body := map[string]any{"plugins": []map[string]any{{
-		"id": "tool/my-cli", "kind": "tool", "name": "my-cli",
+	if rr := saveManifestDefinition(t, env, "tool/my-cli", map[string]any{
 		"display_name": "My CLI", "description": "", "enabled": true,
 		"binaries": []map[string]any{{"name": "my-cli", "tool": "github:owner/repo"}},
-	}}}
-	if rr := doRequest(t, env, "PATCH", "/api/manifest-plugins", body); rr.Code != http.StatusOK {
+	}, nil); rr.Code != http.StatusOK {
 		t.Fatalf("create: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
 
@@ -1690,6 +1730,263 @@ func TestListManifestPluginsMarksBuiltin(t *testing.T) {
 	}
 	if builtin, ok := seen["tool/my-cli"]; !ok || builtin {
 		t.Fatalf("tool/my-cli builtin = %v (present=%v), want false", builtin, ok)
+	}
+}
+
+// manifestPluginByID reads one plugin out of the merged manifest as a raw JSON
+// object, which is what the settings UI edits and sends back.
+func manifestPluginByID(t *testing.T, env *testEnv, id string) map[string]any {
+	t.Helper()
+	rr := doRequest(t, env, "GET", "/api/manifest-plugins", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list: status = %d, want 200", rr.Code)
+	}
+	var resp struct {
+		Plugins []map[string]any `json:"plugins"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, p := range resp.Plugins {
+		if p["id"] == id {
+			return p
+		}
+	}
+	t.Fatalf("plugin %q not in the merged manifest", id)
+	return nil
+}
+
+// Editing one field of a builtin must store that field and nothing else. A row
+// holding the whole definition would freeze the plugin at the version that was
+// running when someone edited it: every later release's improvement to the other
+// fields would arrive in the binary and be discarded by the row.
+func TestSaveManifestPluginStoresOnlyTheNamedField(t *testing.T) {
+	env := setupAdmin(t)
+	octx := context.Background()
+
+	const pluginID = "tool/tap-web"
+	plugin := manifestPluginByID(t, env, pluginID)
+	plugin["display_name"] = "Tap (ours)"
+
+	if rr := saveManifestDefinition(t, env, pluginID, plugin, []string{"display_name"}); rr.Code != http.StatusOK {
+		t.Fatalf("save: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	ov, ok, err := env.store.GetManifestPluginOverride(octx, pluginID)
+	if err != nil || !ok {
+		t.Fatalf("get override: ok=%v err=%v", ok, err)
+	}
+	var stored map[string]any
+	if err := json.Unmarshal([]byte(ov.Config), &stored); err != nil {
+		t.Fatalf("decode stored override %q: %v", ov.Config, err)
+	}
+	if stored["$sparse"] != true {
+		t.Fatalf("stored override = %s, want the sparse-format marker", ov.Config)
+	}
+	delete(stored, "$sparse")
+	if len(stored) != 1 || stored["display_name"] != "Tap (ours)" {
+		t.Fatalf("stored override = %s, want display_name alone", ov.Config)
+	}
+
+	// And the merged view names the owned field, so the editor can mark it and
+	// offer to hand that one back.
+	merged := manifestPluginByID(t, env, pluginID)
+	if merged["display_name"] != "Tap (ours)" {
+		t.Fatalf("merged plugin = %v, want the edit", merged)
+	}
+	owned, _ := merged["overridden_fields"].([]any)
+	if len(owned) != 1 || owned[0] != "display_name" {
+		t.Fatalf("overridden_fields = %v, want display_name alone", merged["overridden_fields"])
+	}
+}
+
+// Issue #963's second acceptance criterion: an admin who pinned two fields can
+// hand back one of them and keep the other.
+func TestResetManifestPluginFieldReleasesOneFieldOnly(t *testing.T) {
+	env := setupAdmin(t)
+
+	const pluginID = "tool/tap-web"
+	shipped := manifestPluginByID(t, env, pluginID)
+
+	edited := manifestPluginByID(t, env, pluginID)
+	edited["display_name"] = "Tap (ours)"
+	edited["description"] = "ours too"
+	if rr := saveManifestDefinition(t, env, pluginID, edited, []string{"display_name", "description"}); rr.Code != http.StatusOK {
+		t.Fatalf("save: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/tap-web/reset",
+		map[string]any{"field": "description"}); rr.Code != http.StatusOK {
+		t.Fatalf("reset field: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	after := manifestPluginByID(t, env, pluginID)
+	if after["description"] != shipped["description"] {
+		t.Errorf("description = %v, want the shipped %v", after["description"], shipped["description"])
+	}
+	if after["display_name"] != "Tap (ours)" {
+		t.Errorf("display_name = %v, want the other pin to hold", after["display_name"])
+	}
+	owned, _ := after["overridden_fields"].([]any)
+	if len(owned) != 1 || owned[0] != "display_name" {
+		t.Fatalf("overridden_fields = %v, want display_name alone", after["overridden_fields"])
+	}
+
+	// A field nobody owns has nothing to hand back, and neither does a field that
+	// is not part of a definition at all.
+	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/tap-web/reset",
+		map[string]any{"field": "description"}); rr.Code != http.StatusNotFound {
+		t.Fatalf("reset an unowned field: status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/tap-web/reset",
+		map[string]any{"field": "enabled"}); rr.Code != http.StatusBadRequest {
+		t.Fatalf("reset a non-definition field: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+// A plugin's ID and its name are different things: resources/tools.yaml ships
+// tool/kreuzberg under the name "xberg", with a comment saying the ID is kept
+// because persisted overrides and install state key on it. Every write therefore
+// has to address the row by ID. Routing by name would find no row, and the save
+// would quietly create a second plugin beside the one being edited.
+func TestWritesAddressAPluginWhoseNameIsNotItsID(t *testing.T) {
+	env := setupAdmin(t)
+	octx := context.Background()
+
+	const pluginID = "tool/kreuzberg"
+	shipped := manifestPluginByID(t, env, pluginID)
+	if shipped["name"] == "kreuzberg" {
+		t.Fatalf("this test needs a builtin whose name differs from its ID suffix; %s is named %v", pluginID, shipped["name"])
+	}
+
+	if rr := toggleManifestPlugin(t, env, pluginID, false); rr.Code != http.StatusOK {
+		t.Fatalf("disable: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	edited := manifestPluginByID(t, env, pluginID)
+	edited["display_name"] = "Ours"
+	if rr := saveManifestDefinition(t, env, pluginID, edited, []string{"display_name"}); rr.Code != http.StatusOK {
+		t.Fatalf("save: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	after := manifestPluginByID(t, env, pluginID)
+	if after["display_name"] != "Ours" || after["enabled"] != false {
+		t.Fatalf("plugin = %v, want the edit and the disable to have landed on it", after)
+	}
+	if after["name"] != shipped["name"] {
+		t.Errorf("name = %v, want the shipped %v — the URL addresses the ID, not the name", after["name"], shipped["name"])
+	}
+	if _, _, err := env.store.GetManifestPluginOverride(octx, pluginID); err != nil {
+		t.Fatalf("get override: %v", err)
+	}
+	// Nothing was created beside it.
+	rr := doRequest(t, env, "GET", "/api/manifest-plugins", nil)
+	var resp struct {
+		Plugins []map[string]any `json:"plugins"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, p := range resp.Plugins {
+		if p["id"] == "tool/"+shipped["name"].(string) {
+			t.Fatalf("a second plugin appeared at %v; the write addressed the name instead of the ID", p["id"])
+		}
+	}
+
+	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/"+pluginID+"/reset",
+		map[string]any{"field": "display_name"}); rr.Code != http.StatusOK {
+		t.Fatalf("reset field: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if released := manifestPluginByID(t, env, pluginID); released["display_name"] != shipped["display_name"] {
+		t.Errorf("display_name = %v, want the shipped %v", released["display_name"], shipped["display_name"])
+	}
+}
+
+// kind and essential belong to the server. kind is part of the plugin's identity
+// — the ID is prefixed with it and the runtime reloads by it — and essential is
+// the server's statement that disabling this plugin breaks a core tool, which the
+// disable check reads from the shipped definition regardless. An override that
+// claimed either would only produce a UI disagreeing with the API.
+func TestKindAndEssentialCannotBeOverridden(t *testing.T) {
+	env := setupAdmin(t)
+
+	const pluginID = "tool/tap-web"
+	shipped := manifestPluginByID(t, env, pluginID)
+
+	// essential is omitempty, so a plugin that is not essential simply has no key.
+	wasEssential, _ := shipped["essential"].(bool)
+	edited := manifestPluginByID(t, env, pluginID)
+	edited["essential"] = !wasEssential
+	if rr := saveManifestDefinition(t, env, pluginID, edited, []string{"essential"}); rr.Code != http.StatusBadRequest {
+		t.Fatalf("own essential: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if rr := saveManifestDefinition(t, env, pluginID, edited, []string{"kind"}); rr.Code != http.StatusBadRequest {
+		t.Fatalf("own kind: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	// A body that addresses a different kind than the URL is addressing something
+	// other than what it asked for.
+	mismatched := manifestPluginByID(t, env, pluginID)
+	mismatched["kind"] = "hook"
+	if rr := saveManifestDefinition(t, env, pluginID, mismatched, []string{"display_name"}); rr.Code != http.StatusBadRequest {
+		t.Fatalf("kind that disagrees with the URL: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	after := manifestPluginByID(t, env, pluginID)
+	if stillEssential, _ := after["essential"].(bool); stillEssential != wasEssential || after["kind"] != shipped["kind"] {
+		t.Fatalf("plugin = %v, want kind and essential still the server's", after)
+	}
+}
+
+// Reset is the way back from a customization. It drops the definition override
+// and leaves the enable switch alone — "stop diverging" is not "turn off".
+func TestResetManifestPluginRestoresTheShippedDefinition(t *testing.T) {
+	env := setupAdmin(t)
+	octx := context.Background()
+
+	const pluginID = "tool/tap-web"
+	shipped := manifestPluginByID(t, env, pluginID)
+	shippedName := shipped["display_name"]
+
+	edited := manifestPluginByID(t, env, pluginID)
+	edited["display_name"] = "Tap (ours)"
+	if rr := saveManifestDefinition(t, env, pluginID, edited, []string{"display_name"}); rr.Code != http.StatusOK {
+		t.Fatalf("save: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if rr := toggleManifestPlugin(t, env, pluginID, false); rr.Code != http.StatusOK {
+		t.Fatalf("disable: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/tap-web/reset", nil); rr.Code != http.StatusOK {
+		t.Fatalf("reset: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	after := manifestPluginByID(t, env, pluginID)
+	if after["display_name"] != shippedName {
+		t.Errorf("display_name = %v, want the shipped %v", after["display_name"], shippedName)
+	}
+	if owned, _ := after["overridden_fields"].([]any); len(owned) != 0 {
+		t.Errorf("overridden_fields = %v, want none after the reset", owned)
+	}
+	if after["enabled"] != false {
+		t.Errorf("enabled = %v, want the reset to leave it disabled", after["enabled"])
+	}
+	ov, ok, err := env.store.GetManifestPluginOverride(octx, pluginID)
+	if err != nil {
+		t.Fatalf("get override: %v", err)
+	}
+	if !ok || ov.Enabled == nil || *ov.Enabled {
+		t.Fatalf("the enable override did not survive the reset: ok=%v enabled=%v", ok, ov.Enabled)
+	}
+	if ov.Config != "" {
+		t.Errorf("config override survived the reset: %q", ov.Config)
+	}
+
+	// Nothing to reset, and nothing to reset *to*.
+	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/tap-web/reset", nil); rr.Code != http.StatusNotFound {
+		t.Fatalf("reset an unedited builtin: status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/tool/my-cli/reset", nil); rr.Code != http.StatusBadRequest {
+		t.Fatalf("reset a non-builtin: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}
 }
 

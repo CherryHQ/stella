@@ -296,6 +296,93 @@ export function pluginIsRemovable(plugin: PluginWithMeta): boolean {
   return !!plugin._manifestPlugin && !plugin._manifestPlugin.builtin;
 }
 
+// pluginIsCustomized reports whether a builtin's definition has been edited and
+// so no longer follows the one shipped with the server. Only a builtin can be:
+// an admin-added plugin has no shipped definition to diverge from.
+export function pluginIsCustomized(plugin: PluginWithMeta): boolean {
+  const manifest = plugin._manifestPlugin;
+  return !!manifest?.builtin && (manifest.overridden_fields?.length ?? 0) > 0;
+}
+
+// pluginFieldIsOverridden reports whether one builtin definition field is
+// pinned by an admin instead of following the value shipped by the server.
+export function pluginFieldIsOverridden(plugin: PluginWithMeta, field: string): boolean {
+  const manifest = plugin._manifestPlugin;
+  return !!manifest?.builtin && !!manifest.overridden_fields?.includes(field);
+}
+
+// manifestPluginDefinitionFields is every field an override may take ownership
+// of, and must stay in step with the Go OwnableFields(); web/manifest_fields_test.go
+// pins the two lists together. `kind` and `essential` are the server's and are
+// deliberately absent: kind is part of the plugin's identity, and essential is
+// the server's statement about what breaks if the plugin is disabled.
+export const manifestPluginDefinitionFields = [
+  "name",
+  "display_name",
+  "description",
+  "category",
+  "prompt",
+  "binaries",
+  "skills",
+  "session_env",
+  "oauth_provider",
+] as const;
+
+function valuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => valuesEqual(value, right[index]))
+    );
+  }
+  if (left && right && typeof left === "object" && typeof right === "object") {
+    const leftRecord = left as Record<string, unknown>;
+    const rightRecord = right as Record<string, unknown>;
+    const leftKeys = Object.keys(leftRecord)
+      .filter((key) => leftRecord[key] !== undefined)
+      .sort();
+    const rightKeys = Object.keys(rightRecord)
+      .filter((key) => rightRecord[key] !== undefined)
+      .sort();
+    return (
+      leftKeys.length === rightKeys.length &&
+      leftKeys.every(
+        (key, index) => key === rightKeys[index] && valuesEqual(leftRecord[key], rightRecord[key]),
+      )
+    );
+  }
+  return false;
+}
+
+// emptyAsAbsent collapses the several ways a definition field can say "nothing
+// here" into one. The server drops empty lists and empty strings when it
+// serializes a definition, so absent, null, "" and [] all reach it identically —
+// and the editor rebuilds `binaries: []` on every render whether or not anyone
+// touched it. Without this, opening a form and pressing save would claim
+// ownership of fields nobody edited.
+function emptyAsAbsent(value: unknown): unknown {
+  if (value === null || value === "") return undefined;
+  if (Array.isArray(value) && value.length === 0) return undefined;
+  return value;
+}
+
+// changedManifestPluginFields compares the submitted definition with the
+// definition loaded when editing began. It deliberately does not compare with
+// the server's builtin defaults: the request declares this edit's ownership.
+export function changedManifestPluginFields(
+  initial: ManifestPlugin,
+  next: ManifestPlugin,
+): string[] {
+  const initialRecord = initial as unknown as Record<string, unknown>;
+  const nextRecord = next as unknown as Record<string, unknown>;
+  return manifestPluginDefinitionFields.filter(
+    (field) => !valuesEqual(emptyAsAbsent(initialRecord[field]), emptyAsAbsent(nextRecord[field])),
+  );
+}
+
 // pluginHasBinaries reports whether a manifest plugin installs at least one
 // binary — these get the compact version editor in the detail sheet.
 export function pluginHasBinaries(plugin: PluginWithMeta): boolean {

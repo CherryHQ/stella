@@ -215,6 +215,8 @@ export interface ManifestPlugin {
   oauth_provider?: string;
   /** Ships with the server: it can be customized or disabled, never removed. */
   builtin?: boolean;
+  /** Definition fields that no longer follow the server's builtin value. */
+  overridden_fields?: string[];
 }
 
 export interface ManifestOAuthProvider {
