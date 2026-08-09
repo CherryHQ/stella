@@ -7,6 +7,9 @@ import type {
   ComponentsChannel,
   ComponentsIdentity,
   ComponentsJob,
+  ComponentsManifestPlugin,
+  ComponentsManifestPluginDefinition,
+  ComponentsManifestPluginDefinitionField,
   ComponentsOAuthFlowStatus,
   ComponentsOAuthProviderConfig,
   ComponentsOAuthProviderStatus,
@@ -20,6 +23,9 @@ import type {
   ComponentsUserMemory,
   ComponentsVaultEntry,
   JobRun,
+  ManifestBinary as SdkManifestBinary,
+  ManifestOAuthProvider as SdkManifestOAuthProvider,
+  ManifestSessionEnv as SdkManifestSessionEnv,
   Project as SdkProject,
   SessionWorkspace,
 } from "@/lib/api-client/types.gen";
@@ -185,46 +191,12 @@ export interface Personalisation {
   loaded: boolean;
 }
 
-export interface ManifestBinary {
-  name: string;
-  tool: string;
-  version?: string;
-  bin_path?: string;
-  bin?: string;
-}
-
-export interface ManifestSessionEnv {
-  env_var: string;
-  source: string;
-  value?: string;
-  required?: boolean;
-}
-
-export interface ManifestPlugin {
-  id: string;
-  kind: string;
-  name: string;
-  display_name: string;
-  description: string;
-  enabled: boolean;
-  category?: string;
-  essential?: boolean;
-  prompt?: string;
-  binaries?: ManifestBinary[];
-  session_env?: ManifestSessionEnv[];
-  oauth_provider?: string;
-  /** Ships with the server: it can be customized or disabled, never removed. */
-  builtin?: boolean;
-  /** Definition fields that no longer follow the server's builtin value. */
-  overridden_fields?: string[];
-}
-
-export interface ManifestOAuthProvider {
-  id: string;
-  scopes?: string[];
-  vault_key?: string;
-  client_id?: string;
-}
+export type ManifestBinary = SdkManifestBinary;
+export type ManifestSessionEnv = SdkManifestSessionEnv;
+export type ManifestPluginDefinition = ComponentsManifestPluginDefinition;
+export type ManifestPluginDefinitionField = ComponentsManifestPluginDefinitionField;
+export type ManifestPlugin = ComponentsManifestPlugin;
+export type ManifestOAuthProvider = SdkManifestOAuthProvider;
 
 export interface PluginSchema {
   properties?: Record<string, PluginSchemaProperty>;

@@ -3,39 +3,51 @@ package web
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
-	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/CherryHQ/stella/internal/manifestplugins"
 )
 
-// The editor names the definition fields a save takes ownership of, and the
-// server refuses any name it does not recognise. That makes a stray name a loud
-// 400 — but a *missing* one is silent: the field is edited, never claimed, and
-// goes back to following the shipped definition on the next upgrade, which is
-// the exact bug sparse overrides exist to prevent. Go derives its list from the
-// definition struct; the editor has to spell it out, so pin the two together.
-func TestEditorKnowsEveryOwnableDefinitionField(t *testing.T) {
-	source, err := os.ReadFile(filepath.Join("src", "features", "plugins", "pluginUtils.ts"))
+// The OpenAPI definition and field enum connect Go's ownership source to the
+// generated TypeScript types that the editor checks exhaustively. Keep that
+// chain intact so a new Go definition field cannot be editable but unownable.
+func TestManifestDefinitionFieldsStayInSyncWithOpenAPI(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "api", "spec", "domain", "plugins", "schemas.yaml"))
 	if err != nil {
-		t.Fatalf("read pluginUtils.ts: %v", err)
+		t.Fatalf("read plugin schemas: %v", err)
 	}
-	block := regexp.MustCompile(`manifestPluginDefinitionFields\s*=\s*\[([^\]]*)\]`).FindSubmatch(source)
-	if block == nil {
-		t.Fatal("manifestPluginDefinitionFields not found in pluginUtils.ts")
+	var spec struct {
+		Components struct {
+			Schemas struct {
+				Definition struct {
+					Properties map[string]any `yaml:"properties"`
+				} `yaml:"ManifestPluginDefinition"`
+				Field struct {
+					Enum []string `yaml:"enum"`
+				} `yaml:"ManifestPluginDefinitionField"`
+			} `yaml:"schemas"`
+		} `yaml:"components"`
 	}
-	var editor []string
-	for _, quoted := range regexp.MustCompile(`"([^"]+)"`).FindAllSubmatch(block[1], -1) {
-		editor = append(editor, string(quoted[1]))
+	if err := yaml.Unmarshal(source, &spec); err != nil {
+		t.Fatalf("parse plugin schemas: %v", err)
 	}
 
-	server := manifestplugins.OwnableFields()
-	slices.Sort(editor)
-	slices.Sort(server)
-	if !slices.Equal(editor, server) {
-		t.Errorf("the editor claims ownership of %s, the server allows %s — a field the editor omits is edited but never owned",
-			strings.Join(editor, ","), strings.Join(server, ","))
+	properties := make([]string, 0, len(spec.Components.Schemas.Definition.Properties))
+	for name := range spec.Components.Schemas.Definition.Properties {
+		properties = append(properties, name)
+	}
+	fields := spec.Components.Schemas.Field.Enum
+	ownable := manifestplugins.OwnableFields()
+	slices.Sort(properties)
+	slices.Sort(fields)
+	slices.Sort(ownable)
+	if !slices.Equal(properties, ownable) {
+		t.Errorf("OpenAPI definition properties = %v, Go ownable fields = %v", properties, ownable)
+	}
+	if !slices.Equal(fields, ownable) {
+		t.Errorf("OpenAPI definition field enum = %v, Go ownable fields = %v", fields, ownable)
 	}
 }

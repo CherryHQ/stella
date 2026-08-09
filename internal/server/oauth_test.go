@@ -46,36 +46,42 @@ func TestOAuthProviderRequiredBy(t *testing.T) {
 	host.RegisterManifestPlugins(&manifestplugins.Manifest{
 		Plugins: []manifestplugins.ManifestPlugin{
 			{
-				ID:            "tool/acme-exporter",
-				Kind:          "tool",
-				Name:          "acme-exporter",
-				DisplayName:   "Acme Exporter",
-				Enabled:       true,
-				OAuthProvider: "acme",
-				SessionEnvs: []manifestplugins.ManifestSessionEnv{
-					{EnvVar: "ACME_EXPORTER_TOKEN", Source: "oauth.access_token"},
-					{EnvVar: "ACME_EXPORTER_APP_ID", Source: "oauth.client_id"},
+				ID:      "tool/acme-exporter",
+				Kind:    "tool",
+				Enabled: true,
+				ManifestPluginDefinition: manifestplugins.ManifestPluginDefinition{
+					Name:          "acme-exporter",
+					DisplayName:   "Acme Exporter",
+					OAuthProvider: "acme",
+					SessionEnvs: []manifestplugins.ManifestSessionEnv{
+						{EnvVar: "ACME_EXPORTER_TOKEN", Source: "oauth.access_token"},
+						{EnvVar: "ACME_EXPORTER_APP_ID", Source: "oauth.client_id"},
+					},
 				},
 			},
 			{
-				ID:            "tool/gh",
-				Kind:          "tool",
-				Name:          "gh",
-				DisplayName:   "GitHub CLI",
-				Enabled:       true,
-				OAuthProvider: "github",
-				SessionEnvs: []manifestplugins.ManifestSessionEnv{
-					{EnvVar: "GH_TOKEN", Source: "oauth.access_token"},
+				ID:      "tool/gh",
+				Kind:    "tool",
+				Enabled: true,
+				ManifestPluginDefinition: manifestplugins.ManifestPluginDefinition{
+					Name:          "gh",
+					DisplayName:   "GitHub CLI",
+					OAuthProvider: "github",
+					SessionEnvs: []manifestplugins.ManifestSessionEnv{
+						{EnvVar: "GH_TOKEN", Source: "oauth.access_token"},
+					},
 				},
 			},
 			{
-				ID:            "tool/disabled",
-				Kind:          "tool",
-				Name:          "disabled",
-				Enabled:       false,
-				OAuthProvider: "acme",
-				SessionEnvs: []manifestplugins.ManifestSessionEnv{
-					{EnvVar: "X", Source: "oauth.access_token"},
+				ID:      "tool/disabled",
+				Kind:    "tool",
+				Enabled: false,
+				ManifestPluginDefinition: manifestplugins.ManifestPluginDefinition{
+					Name:          "disabled",
+					OAuthProvider: "acme",
+					SessionEnvs: []manifestplugins.ManifestSessionEnv{
+						{EnvVar: "X", Source: "oauth.access_token"},
+					},
 				},
 			},
 		},
