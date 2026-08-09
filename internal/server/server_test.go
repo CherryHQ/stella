@@ -1741,6 +1741,10 @@ func TestSaveManifestPluginsStoresOnlyTheEditedField(t *testing.T) {
 	if err := json.Unmarshal([]byte(ov.Config), &stored); err != nil {
 		t.Fatalf("decode stored override %q: %v", ov.Config, err)
 	}
+	if stored["$sparse"] != true {
+		t.Fatalf("stored override = %s, want the sparse-format marker", ov.Config)
+	}
+	delete(stored, "$sparse")
 	if len(stored) != 1 || stored["display_name"] != "Tap (ours)" {
 		t.Fatalf("stored override = %s, want display_name alone", ov.Config)
 	}

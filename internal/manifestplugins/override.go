@@ -22,6 +22,18 @@ import (
 // A JSON null means "cleared" rather than "unset", which is what makes emptying
 // an optional field expressible at all in a format whose whole point is that
 // absent means inherit.
+//
+// Rows written before this existed hold a whole definition, and in that format
+// an absent key means "empty", not "inherit" — reading one as sparse would hand
+// a later release's new prompt or category to an admin who had neither. The two
+// formats are not distinguishable by shape, so a sparse row says so with a
+// marker key and an unmarked row is read the old way: whatever it pinned stays
+// pinned until someone saves it again.
+
+// sparseMarker tags a stored override as a field-level patch. Its absence means
+// the row predates the sparse format and carries a whole definition. The name is
+// deliberately not a ManifestPlugin field, so it can never collide with one.
+const sparseMarker = "$sparse"
 
 // definition is the customizable half of a ManifestPlugin. ID is the key, Enabled
 // is its own column, and Builtin is computed at resolve time — none of them are
@@ -117,6 +129,7 @@ func OverrideJSON(base, edited ManifestPlugin) (string, error) {
 	if len(diff) == 0 {
 		return "", nil
 	}
+	diff[sparseMarker] = true
 	data, err := json.Marshal(diff)
 	if err != nil {
 		return "", fmt.Errorf("marshal plugin override %q: %w", edited.ID, err)
@@ -124,14 +137,15 @@ func OverrideJSON(base, edited ManifestPlugin) (string, error) {
 	return string(data), nil
 }
 
-// ApplyOverride lays a stored override over the builtin definition. Fields the
-// override does not mention keep whatever the running binary ships, which is the
-// entire point; a null clears one.
+// ApplyOverride lays a stored override over the builtin definition. Fields a
+// sparse override does not mention keep whatever the running binary ships, which
+// is the entire point; a null clears one.
 //
-// A pre-sparse row holds a full definition. It merges the same way and produces
-// the same plugin, except that an optional field the admin had emptied comes
-// back from the builtin — an old row cannot distinguish "cleared" from "not
-// set", and inheriting is the better of the two readings.
+// An unmarked row is a pre-sparse full definition and still replaces the
+// definition outright, exactly as it did when it was written. It keeps its
+// freeze until an admin saves that plugin again, which rewrites it sparse — the
+// alternative is guessing which of its absent keys meant "empty" and handing the
+// rest to the next release.
 func ApplyOverride(base ManifestPlugin, override string) (ManifestPlugin, error) {
 	fields, err := definitionFields(base)
 	if err != nil {
@@ -141,6 +155,10 @@ func ApplyOverride(base ManifestPlugin, override string) (ManifestPlugin, error)
 	if err := json.Unmarshal([]byte(override), &patch); err != nil {
 		return ManifestPlugin{}, fmt.Errorf("read plugin override %q: %w", base.ID, err)
 	}
+	if marker, ok := patch[sparseMarker]; !ok || string(marker) != "true" {
+		return replaceDefinition(base, override)
+	}
+	delete(patch, sparseMarker)
 	merged := maps.Clone(fields)
 	for key, value := range patch {
 		if string(value) == "null" {
@@ -159,6 +177,18 @@ func ApplyOverride(base ManifestPlugin, override string) (ManifestPlugin, error)
 	}
 	// The three fields a definition deliberately omits are the caller's, not the
 	// override's.
+	out.ID = base.ID
+	out.Enabled = base.Enabled
+	out.Builtin = base.Builtin
+	return out, nil
+}
+
+// replaceDefinition is the pre-sparse reading: the row is the definition.
+func replaceDefinition(base ManifestPlugin, override string) (ManifestPlugin, error) {
+	out := ManifestPlugin{}
+	if err := json.Unmarshal([]byte(override), &out); err != nil {
+		return ManifestPlugin{}, fmt.Errorf("read plugin override %q: %w", base.ID, err)
+	}
 	out.ID = base.ID
 	out.Enabled = base.Enabled
 	out.Builtin = base.Builtin

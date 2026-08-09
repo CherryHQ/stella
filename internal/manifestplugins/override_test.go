@@ -75,6 +75,7 @@ func TestOverrideStoresOnlyTheEditedField(t *testing.T) {
 	if err := json.Unmarshal([]byte(override), &fields); err != nil {
 		t.Fatal(err)
 	}
+	delete(fields, "$sparse")
 	if len(fields) != 1 {
 		t.Fatalf("override = %s, want display_name alone", override)
 	}
@@ -134,21 +135,25 @@ func TestApplyOverrideLeavesIdentityAndTheEnableSwitchAlone(t *testing.T) {
 	}
 }
 
-// Rows written before overrides went sparse hold a whole definition. They must
-// keep resolving to the same plugin.
-func TestAPreSparseFullSnapshotStillResolves(t *testing.T) {
-	base := builtinPlugin()
+// Rows written before overrides went sparse hold a whole definition, and in that
+// format an absent key means empty, not inherit. Reading one as a patch would
+// hand the admin a later release's prompt they never asked for, so an unmarked
+// row keeps replacing the definition outright.
+func TestAPreSparseFullSnapshotStillReplacesTheDefinition(t *testing.T) {
 	snapshot, err := DefinitionJSON(ManifestPlugin{
 		Kind:        "tool",
 		Name:        "gh",
 		DisplayName: "GitHub CLI",
 		Description: "pinned by an old row",
-		Prompt:      "use gh for GitHub",
 		Binaries:    []ManifestBinary{{Name: "gh", Tool: "npm:gh"}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The builtin underneath has since grown a prompt the old row never had.
+	base := builtinPlugin()
+	base.Prompt = "a prompt added in a later release"
+
 	got, err := ApplyOverride(base, snapshot)
 	if err != nil {
 		t.Fatal(err)
@@ -156,8 +161,36 @@ func TestAPreSparseFullSnapshotStillResolves(t *testing.T) {
 	if got.Description != "pinned by an old row" || got.Binaries[0].Tool != "npm:gh" {
 		t.Errorf("old row lost its customization: %#v", got)
 	}
+	if got.Prompt != "" {
+		t.Errorf("prompt = %q, want the old row's empty value rather than an inherited one", got.Prompt)
+	}
 	if got.ID != base.ID {
 		t.Errorf("id = %q", got.ID)
+	}
+}
+
+// The marker is what separates the two formats, and a sparse row wears it.
+func TestSparseOverrideIsMarked(t *testing.T) {
+	edited := builtinPlugin()
+	edited.DisplayName = "gh (ours)"
+	override, err := OverrideJSON(builtinPlugin(), edited)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal([]byte(override), &fields); err != nil {
+		t.Fatal(err)
+	}
+	if fields["$sparse"] != true {
+		t.Fatalf("override = %s, want the sparse marker", override)
+	}
+	// And the marker never reaches the plugin.
+	got, err := ApplyOverride(builtinPlugin(), override)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DisplayName != "gh (ours)" {
+		t.Errorf("display_name = %q", got.DisplayName)
 	}
 }
 

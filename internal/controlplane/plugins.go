@@ -331,9 +331,8 @@ func (a *Access) SyncManifestPlugins(ctx context.Context) (manifestplugins.Recon
 }
 
 // resolveManifestPlugins loads the builtin manifest and overlays DB overrides.
-// Each override may carry a full plugin definition (Config JSON) plus an Enabled
-// toggle: a Config replaces the entire definition; an Enabled-only override keeps
-// the builtin definition with the flag toggled.
+// The merge rule itself belongs to manifestplugins.Resolve, which the startup
+// wiring calls too — one protocol, one implementation.
 func (s *Service) resolveManifestPlugins(ctx context.Context) (*manifestplugins.Manifest, error) {
 	builtin, err := manifestplugins.LoadBuiltin()
 	if err != nil {
@@ -346,45 +345,19 @@ func (s *Service) resolveManifestPlugins(ctx context.Context) (*manifestplugins.
 	if err != nil {
 		return nil, err
 	}
-	byID := make(map[string]config.ManifestPluginOverride, len(overrides))
-	for _, ov := range overrides {
-		byID[ov.PluginID] = ov
+	return manifestplugins.Resolve(builtin, storedOverrides(overrides), func(id string, err error) {
+		s.log.Warn("ignoring corrupt plugin override", "plugin", id, "error", err)
+	}), nil
+}
+
+func storedOverrides(rows []config.ManifestPluginOverride) []manifestplugins.StoredOverride {
+	out := make([]manifestplugins.StoredOverride, 0, len(rows))
+	for _, ov := range rows {
+		out = append(out, manifestplugins.StoredOverride{
+			PluginID: ov.PluginID,
+			Enabled:  ov.Enabled,
+			Config:   ov.Config,
+		})
 	}
-	seen := make(map[string]bool, len(builtin.Plugins))
-	for i := range builtin.Plugins {
-		id := builtin.Plugins[i].ID
-		seen[id] = true
-		builtin.Plugins[i].Builtin = true
-		ov, ok := byID[id]
-		if !ok {
-			continue
-		}
-		if ov.Config != "" {
-			merged, err := manifestplugins.ApplyOverride(builtin.Plugins[i], ov.Config)
-			if err != nil {
-				s.log.Warn("ignoring corrupt plugin config override", "plugin", id, "error", err)
-			} else {
-				merged.Customized = true
-				builtin.Plugins[i] = merged
-			}
-		}
-		if ov.Enabled != nil {
-			builtin.Plugins[i].Enabled = *ov.Enabled
-		}
-	}
-	for _, ov := range overrides {
-		if seen[ov.PluginID] || ov.Config == "" {
-			continue
-		}
-		p, err := manifestplugins.PluginFromDefinition(ov.PluginID, ov.Config)
-		if err != nil {
-			s.log.Warn("ignoring corrupt custom plugin config", "plugin", ov.PluginID, "error", err)
-			continue
-		}
-		if ov.Enabled != nil {
-			p.Enabled = *ov.Enabled
-		}
-		builtin.Plugins = append(builtin.Plugins, p)
-	}
-	return builtin, nil
+	return out
 }
