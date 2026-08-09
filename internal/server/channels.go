@@ -303,6 +303,13 @@ func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string
 	// transport never holds the aggregate config store.
 	existing, existingErr := access.GetChannel(ctx, id)
 	hasExisting := existingErr == nil
+	// The platform a channel speaks is fixed at creation. Retyping it would carry
+	// the old row's credentials into a different platform's validation and, for
+	// the singleton platforms, past the id rules the create path enforces.
+	if requested := requestChannelType(req); hasExisting && requested != "" && requested != effectiveChannelType(existing) {
+		writeError(w, http.StatusBadRequest, "channel type cannot be changed")
+		return
+	}
 	// Save overwrites the stored config unconditionally, so an omitted config must
 	// resolve to the current row's config or a PATCH of an unrelated field would
 	// wipe the channel's credentials.

@@ -1172,6 +1172,49 @@ func TestUpdateChannelEnabledState(t *testing.T) {
 	}
 }
 
+// A channel's platform is fixed at creation. Retyping one is how an ordinary
+// owner could otherwise mint a second Weixin channel and, through the Weixin
+// credential mirror, take over the deployment-wide Weixin plugin row.
+func TestUpdateChannelRejectsRetyping(t *testing.T) {
+	env := setupAdmin(t)
+	octx := context.Background()
+
+	if err := env.store.UpsertChannel(octx, config.Channel{
+		ID:      "tg-1",
+		Type:    pkgchannel.PlatformTelegram,
+		Enabled: false,
+		Config:  `{}`,
+	}); err != nil {
+		t.Fatalf("UpsertChannel: %v", err)
+	}
+
+	rr := doRequest(t, env, "PATCH", "/api/channels/tg-1", map[string]any{
+		"type": pkgchannel.PlatformWeixin,
+	})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("retype status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	ch, err := env.store.GetChannel(octx, "tg-1")
+	if err != nil {
+		t.Fatalf("GetChannel: %v", err)
+	}
+	if ch.Type != pkgchannel.PlatformTelegram {
+		t.Fatalf("type = %q, want %q", ch.Type, pkgchannel.PlatformTelegram)
+	}
+	if _, err := env.store.GetChannel(octx, pkgchannel.PlatformWeixin); err == nil {
+		t.Fatal("a second weixin channel must not exist")
+	}
+
+	// Restating the current type is not a change and must still be accepted.
+	rr = doRequest(t, env, "PATCH", "/api/channels/tg-1", map[string]any{
+		"type": pkgchannel.PlatformTelegram,
+		"name": "renamed",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("same-type update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+	}
+}
+
 // channelConfigEquals compares stored config JSON by value: the server round-trips
 // config through a map, so key order is not stable.
 func channelConfigEquals(t *testing.T, got, want string) bool {

@@ -260,18 +260,24 @@ func (m *Management) Update(ctx context.Context, authority authz.Authority, cand
 	candidate.Workspace = ""
 	candidate.CreatorID = existing.CreatorID
 
-	if err := m.agents.UpdateAgent(ctx, candidate); err != nil {
-		return config.Agent{}, fmt.Errorf("%w: update agent: %w", ErrUnavailable, err)
-	}
 	// Narrowing to restricted hides the agent from everyone but its assigned
 	// users. The creator must survive that: an agent that was created as system
 	// (or created by an admin) has no assignment row, so without this its own
 	// manager would keep Manage but lose Read and Execute. The insert is
 	// idempotent, so re-narrowing an already-assigned agent is a no-op.
+	//
+	// It runs before the scope write, not after, because the two are not one
+	// transaction: assigning first and then failing leaves a still-system agent
+	// with a redundant assignment row, which grants nothing it did not already
+	// have. The other order would leave a restricted agent its own creator
+	// cannot read.
 	if candidate.Scope == config.AgentScopeRestricted && candidate.CreatorID != "" {
 		if err := m.assign.AssignAgent(ctx, candidate.CreatorID, candidate.ID); err != nil {
 			return config.Agent{}, fmt.Errorf("%w: assign creator: %w", ErrUnavailable, err)
 		}
+	}
+	if err := m.agents.UpdateAgent(ctx, candidate); err != nil {
+		return config.Agent{}, fmt.Errorf("%w: update agent: %w", ErrUnavailable, err)
 	}
 	m.reload(ctx, candidate.ID)
 	return candidate, nil

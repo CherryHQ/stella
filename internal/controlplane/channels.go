@@ -100,6 +100,13 @@ func (s *Service) saveChannel(ctx context.Context, ch config.Channel, cfgMap map
 	if err := s.validateBinding(ctx, ch); err != nil {
 		return config.Channel{}, err
 	}
+	// Weixin is a singleton: one iLink account, one row, one well-known id. The
+	// create path checks this too, but the invariant belongs here — otherwise an
+	// update could retype an ordinary channel into a second Weixin and, through
+	// the credential mirror below, take over the deployment-wide Weixin row.
+	if ch.Type == pkgchannel.PlatformWeixin && ch.ID != pkgchannel.PlatformWeixin {
+		return config.Channel{}, invalid(`weixin channel id must be "weixin"`)
+	}
 	pluginID := config.PluginID(config.PluginKindChannel, ch.Type)
 	if err := s.plugins.ValidateConfig(pluginID, cfgMap); err != nil {
 		return config.Channel{}, invalid("invalid request")
@@ -397,15 +404,36 @@ func (s *Service) channelAgentPlatformBindingConflict(ctx context.Context, ch co
 // no cross-user consequence. Every other platform keeps credentials solely on
 // the channel row and needs no plugin row: saving a channel must not flip a
 // deployment-wide switch, so nothing is upserted for them.
+//
+// Credentials are all this mirrors. The same row doubles as the admin kill
+// switch, so an existing row's Enabled is carried over verbatim: saving a
+// channel must never re-enable a platform an admin turned off. With no row at
+// all, "enabled" is what the absence already means, so writing true changes
+// nothing.
 func (s *Service) mirrorWeixinPluginConfig(ctx context.Context, channelType string, cfg map[string]any) error {
 	if channelType != pkgchannel.PlatformWeixin {
 		return nil
 	}
+	id := config.PluginID(config.PluginKindChannel, channelType)
+	// Only an explicit override row carries an admin's decision. GetPlugin would
+	// answer with the builtin's DefaultEnabled (false for every channel) when no
+	// row exists, and mirroring that back would write the kill switch on.
+	enabled := true
+	overrides, err := s.store.ListPluginOverrides(ctx)
+	if err != nil {
+		return err
+	}
+	for _, o := range overrides {
+		if o.ID == id {
+			enabled = o.Enabled
+			break
+		}
+	}
 	return s.store.UpsertPlugin(ctx, config.Plugin{
-		ID:      config.PluginID(config.PluginKindChannel, channelType),
+		ID:      id,
 		Kind:    config.PluginKindChannel,
 		Name:    channelType,
-		Enabled: true,
+		Enabled: enabled,
 		Config:  cfg,
 	})
 }
