@@ -253,8 +253,8 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      # No setup-node action: mise owns the Node and pnpm versions used by every
-      # build, including the SPA embedded by GoReleaser.
+      # No setup-vp or setup-node action: mise owns global Vite+ and Node for
+      # every build. Vite+ resolves pnpm from web/package.json.
       - name: Cache Go build
         uses: actions/cache@v4
         with:
