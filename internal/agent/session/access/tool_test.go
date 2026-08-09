@@ -136,6 +136,55 @@ func TestSessionFindSearchUsesLCMRetrievalAndExactPrincipalAgentScope(t *testing
 	}
 }
 
+func TestSessionFindKeepsCardWhenSearchSourceWasDeleted(t *testing.T) {
+	m := newSessionMatrix(t)
+	provider, err := lcm.New(m.db.(*pgxpool.Pool), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), m.owner), m.agent)
+	appendTranscript(t, provider, memory.Session{ID: m.private, UserID: m.owner, AgentID: m.agent},
+		ai.UserMessage{Content: "stale anchor still leaves a useful search card"},
+	)
+	var sourceID string
+	if err := m.db.QueryRow(ctx, `
+		SELECT m.id
+		FROM ctx_message m
+		JOIN ctx_conversation c ON c.id = m.conversation_id
+		WHERE c.session_id = $1
+		ORDER BY m.seq DESC
+		LIMIT 1`, m.private).Scan(&sourceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.db.Exec(ctx, "DELETE FROM ctx_item WHERE message_id = $1", sourceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.db.Exec(ctx, "DELETE FROM ctx_message WHERE id = $1", sourceID); err != nil {
+		t.Fatal(err)
+	}
+	m.svc.searcher = staticSessionSearcher{results: []memory.SearchResult{{
+		SourceType: "message", SourceID: sourceID, SessionID: m.private,
+		Content: "stale anchor still leaves a useful search card",
+	}}}
+
+	out, err := NewTool(m.svc).Execute(ctx, map[string]any{"action": "find", "query": "stale anchor"})
+	if err != nil {
+		t.Fatalf("find should degrade a deleted match anchor: %v", err)
+	}
+	var response struct {
+		Sessions []sessionCardResponse `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Sessions) != 1 || response.Sessions[0].ID != m.private {
+		t.Fatalf("find dropped card after source deletion: %#v", response.Sessions)
+	}
+	if response.Sessions[0].Match == "" || response.Sessions[0].MatchCursor != "" {
+		t.Fatalf("deleted source should retain match and omit cursor: %#v", response.Sessions[0])
+	}
+}
+
 func TestSessionGetIsCompactByDefaultAndPagesWholeToolTurns(t *testing.T) {
 	m := newSessionMatrix(t)
 	provider, err := lcm.New(m.db.(*pgxpool.Pool), nil, nil)

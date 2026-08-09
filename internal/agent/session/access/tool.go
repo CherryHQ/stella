@@ -211,11 +211,13 @@ func executeSessionFind(ctx context.Context, access *Access, agentID string, arg
 	for _, matched := range page.Sessions {
 		item := sessionCardFrom(matched.Card)
 		item.Match = matched.Match
-		item.MatchCursor, err = encodeTranscriptCursor(transcriptCursor{
-			Version: sessionTranscriptCursorVersion, SessionID: matched.Card.ID, AnchorSeq: matched.Anchor.Seq,
-		})
-		if err != nil {
-			return nil, err
+		if matched.Anchor != nil {
+			item.MatchCursor, err = encodeTranscriptCursor(transcriptCursor{
+				Version: sessionTranscriptCursorVersion, SessionID: matched.Card.ID, AnchorSeq: matched.Anchor.Seq,
+			})
+			if err != nil {
+				return nil, err
+			}
 		}
 		items = append(items, item)
 	}

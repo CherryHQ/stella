@@ -26,7 +26,7 @@ type TranscriptAnchor struct {
 type MatchedCard struct {
 	Card   Card
 	Match  string
-	Anchor TranscriptAnchor
+	Anchor *TranscriptAnchor
 }
 
 type MatchedCardPage struct {
@@ -66,6 +66,10 @@ func (a *Access) FindCardPage(ctx context.Context, agentID, query string, includ
 	}
 	visible := make([]visibleHit, 0, len(hits))
 	seen := make(map[string]struct{}, len(hits))
+	// Deliberate ceiling: LCM caps this policy loop at 100 Read calls, and
+	// anchor resolution below at one query per returned card. Replace both with
+	// batched scoped loads when query-bearing find latency becomes material or
+	// the retrieval ceiling needs to grow beyond 100 hits.
 	for _, hit := range hits {
 		if hit.SessionID == "" {
 			continue
@@ -103,9 +107,12 @@ func (a *Access) FindCardPage(ctx context.Context, agentID, query string, includ
 	}
 	items := make([]MatchedCard, 0, len(cards))
 	for i, card := range cards {
-		anchor, anchorErr := a.transcriptAnchorForSearchHit(ctx, pageHits[i].info, pageHits[i].hit)
-		if anchorErr != nil {
-			return MatchedCardPage{}, anchorErr
+		// Search and anchor lookup are separate reads. Rotation, compaction, or
+		// deletion may invalidate one source between them; the card and excerpt
+		// remain useful, so only the optional around-match cursor is dropped.
+		var anchor *TranscriptAnchor
+		if resolved, anchorErr := a.transcriptAnchorForSearchHit(ctx, pageHits[i].info, pageHits[i].hit); anchorErr == nil {
+			anchor = &resolved
 		}
 		match := strings.ReplaceAll(strings.ReplaceAll(pageHits[i].hit.Content, "<b>", ""), "</b>", "")
 		items = append(items, MatchedCard{Card: card, Match: summaryExcerpt(match, maxSessionMatchBytes), Anchor: anchor})
