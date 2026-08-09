@@ -48,6 +48,20 @@ func (s *Server) SaveManifestPlugins(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, manifestPluginsResponseFrom(merged))
 }
 
+// DeleteManifestPlugin removes an admin-added plugin. The id is addressed as
+// kind/name, the same shape the builtin plugin routes use.
+func (s *Server) DeleteManifestPlugin(w http.ResponseWriter, r *http.Request, kind string, name string) {
+	access, ok := s.beginControlPlane(w, r)
+	if !ok {
+		return
+	}
+	if err := access.DeleteManifestPlugin(r.Context(), kind+"/"+name); err != nil {
+		s.writeControlPlaneError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) SyncManifestPlugins(w http.ResponseWriter, r *http.Request) {
 	access, ok := s.beginControlPlane(w, r)
 	if !ok {

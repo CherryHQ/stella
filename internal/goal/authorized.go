@@ -357,10 +357,14 @@ func (a *Access) listRootParams(filter GoalFilter, limit, offset int64) sqlc.Lis
 	}
 }
 
+// listUserID is the durable owner scope of every goal collection. It stays
+// owner-bound even for an admin: goal lists back per-user workspace surfaces
+// (an agent's goal board, its counts), so an admin must see their own goals
+// there, not every user's. This mirrors Scheduler's ListJobs and Session's
+// ListPage, which are owner-bound for admins too. Admin superuser reach is
+// unchanged for a resolved row (Get/Write) and for the explicitly user-scoped
+// HealthReport.
 func (a *Access) listUserID() string {
-	if a.authority.IsAdmin() {
-		return ""
-	}
 	return a.userID
 }
 

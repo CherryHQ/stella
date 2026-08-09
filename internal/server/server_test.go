@@ -1060,6 +1060,17 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpsertPlugin qq: %v", err)
 	}
+	// Discord deliberately gets no plugin row: a platform is usable unless an
+	// admin switched it off, so a channel must be public without one.
+	if err := env.store.UpsertChannel(octx, config.Channel{
+		ID:      "discord-stella",
+		Type:    pkgchannel.PlatformDiscord,
+		AgentID: stellaID,
+		Enabled: true,
+		Config:  `{}`,
+	}); err != nil {
+		t.Fatalf("UpsertChannel discord-stella: %v", err)
+	}
 
 	rr := doRequest(t, env, "GET", "/api/channels/public", nil)
 	if rr.Code != http.StatusOK {
@@ -1095,6 +1106,9 @@ func TestPublicChannelsOnlyIncludeEnabledChannels(t *testing.T) {
 	}
 	if _, ok := byID[pkgchannel.PlatformQQ]; ok {
 		t.Fatalf("qq disabled plugin should not be public: %#v", channels)
+	}
+	if _, ok := byID["discord-stella"]; !ok {
+		t.Fatalf("discord channel without a plugin row should be public: %#v", channels)
 	}
 }
 
@@ -1155,6 +1169,49 @@ func TestUpdateChannelEnabledState(t *testing.T) {
 	}
 	if !plugin.Enabled {
 		t.Fatal("channel plugin should remain enabled")
+	}
+}
+
+// A channel's platform is fixed at creation. Retyping one is how an ordinary
+// owner could otherwise mint a second Weixin channel and, through the Weixin
+// credential mirror, take over the deployment-wide Weixin plugin row.
+func TestUpdateChannelRejectsRetyping(t *testing.T) {
+	env := setupAdmin(t)
+	octx := context.Background()
+
+	if err := env.store.UpsertChannel(octx, config.Channel{
+		ID:      "tg-1",
+		Type:    pkgchannel.PlatformTelegram,
+		Enabled: false,
+		Config:  `{}`,
+	}); err != nil {
+		t.Fatalf("UpsertChannel: %v", err)
+	}
+
+	rr := doRequest(t, env, "PATCH", "/api/channels/tg-1", map[string]any{
+		"type": pkgchannel.PlatformWeixin,
+	})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("retype status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	ch, err := env.store.GetChannel(octx, "tg-1")
+	if err != nil {
+		t.Fatalf("GetChannel: %v", err)
+	}
+	if ch.Type != pkgchannel.PlatformTelegram {
+		t.Fatalf("type = %q, want %q", ch.Type, pkgchannel.PlatformTelegram)
+	}
+	if _, err := env.store.GetChannel(octx, pkgchannel.PlatformWeixin); err == nil {
+		t.Fatal("a second weixin channel must not exist")
+	}
+
+	// Restating the current type is not a change and must still be accepted.
+	rr = doRequest(t, env, "PATCH", "/api/channels/tg-1", map[string]any{
+		"type": pkgchannel.PlatformTelegram,
+		"name": "renamed",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("same-type update status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
 	}
 }
 
@@ -1549,6 +1606,90 @@ func TestSaveManifestPluginsRejectsDisablingEssential(t *testing.T) {
 		t.Fatalf("get override: %v", err)
 	} else if ok {
 		t.Fatal("rejected save must not write an override row")
+	}
+}
+
+// TestDeleteManifestPluginRemovesCustomOnly covers the delete an added CLI tool
+// needs: an admin-added plugin lives entirely in its override row and goes away
+// with it, while a builtin is refused because the next resolve would bring it
+// back anyway.
+func TestDeleteManifestPluginRemovesCustomOnly(t *testing.T) {
+	env := setupAdmin(t)
+	octx := context.Background()
+
+	const customID = "tool/my-cli"
+	body := map[string]any{"plugins": []map[string]any{{
+		"id":           customID,
+		"kind":         "tool",
+		"name":         "my-cli",
+		"display_name": "My CLI",
+		"description":  "",
+		"enabled":      true,
+		"binaries":     []map[string]any{{"name": "my-cli", "tool": "github:owner/repo"}},
+	}}}
+	if rr := doRequest(t, env, "PATCH", "/api/manifest-plugins", body); rr.Code != http.StatusOK {
+		t.Fatalf("create: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if _, ok, err := env.store.GetManifestPluginOverride(octx, customID); err != nil || !ok {
+		t.Fatalf("custom plugin not persisted: ok=%v err=%v", ok, err)
+	}
+
+	if rr := doRequest(t, env, "DELETE", "/api/manifest-plugins/tool/my-cli", nil); rr.Code != http.StatusNoContent {
+		t.Fatalf("delete custom: status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if _, ok, err := env.store.GetManifestPluginOverride(octx, customID); err != nil {
+		t.Fatalf("get override: %v", err)
+	} else if ok {
+		t.Fatal("override row survived the delete")
+	}
+
+	// A second delete has nothing to remove.
+	if rr := doRequest(t, env, "DELETE", "/api/manifest-plugins/tool/my-cli", nil); rr.Code != http.StatusNotFound {
+		t.Fatalf("delete missing: status = %d, want 404 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	// A builtin ships with the server: disable it, don't delete it.
+	if rr := doRequest(t, env, "DELETE", "/api/manifest-plugins/tool/tap-web", nil); rr.Code != http.StatusBadRequest {
+		t.Fatalf("delete builtin: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+// TestListManifestPluginsMarksBuiltin covers the flag the settings UI uses to
+// decide whether a plugin may be removed at all.
+func TestListManifestPluginsMarksBuiltin(t *testing.T) {
+	env := setupAdmin(t)
+
+	body := map[string]any{"plugins": []map[string]any{{
+		"id": "tool/my-cli", "kind": "tool", "name": "my-cli",
+		"display_name": "My CLI", "description": "", "enabled": true,
+		"binaries": []map[string]any{{"name": "my-cli", "tool": "github:owner/repo"}},
+	}}}
+	if rr := doRequest(t, env, "PATCH", "/api/manifest-plugins", body); rr.Code != http.StatusOK {
+		t.Fatalf("create: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	rr := doRequest(t, env, "GET", "/api/manifest-plugins", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("list: status = %d, want 200", rr.Code)
+	}
+	var resp struct {
+		Plugins []struct {
+			ID      string `json:"id"`
+			Builtin bool   `json:"builtin"`
+		} `json:"plugins"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, p := range resp.Plugins {
+		seen[p.ID] = p.Builtin
+	}
+	if builtin, ok := seen["tool/tap-web"]; !ok || !builtin {
+		t.Fatalf("tool/tap-web builtin = %v (present=%v), want true", builtin, ok)
+	}
+	if builtin, ok := seen["tool/my-cli"]; !ok || builtin {
+		t.Fatalf("tool/my-cli builtin = %v (present=%v), want false", builtin, ok)
 	}
 }
 

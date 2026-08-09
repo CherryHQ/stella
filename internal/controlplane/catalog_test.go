@@ -41,6 +41,11 @@ func (f *catalogFakeStore) ListPluginsByKind(_ context.Context, _ string) ([]con
 	return f.plugins, nil
 }
 
+func (f *catalogFakeStore) ListPluginOverrides(context.Context) ([]config.Plugin, error) {
+	f.reads++
+	return f.plugins, nil
+}
+
 func catalogUser(t *testing.T) authz.Authority {
 	t.Helper()
 	a, err := authz.NewUserAuthority(authz.UserID("user-1"), false)
@@ -109,18 +114,22 @@ func TestPublicChannelsProjectsWithoutSecrets(t *testing.T) {
 	}
 }
 
-func TestEnabledChannelTypes(t *testing.T) {
+// TestDisabledChannelTypes pins the default: only an explicitly stored, disabled
+// plugin row switches a platform off. A platform with no row at all (discord
+// here) is usable, so creating a channel never needs a plugin row.
+func TestDisabledChannelTypes(t *testing.T) {
 	store := &catalogFakeStore{plugins: []config.Plugin{
-		{Name: "telegram", Enabled: true},
-		{Name: "qq", Enabled: false},
-		{Name: "feishu", Enabled: true},
+		{ID: "channel/telegram", Kind: config.PluginKindChannel, Name: "telegram", Enabled: true},
+		{ID: "channel/qq", Kind: config.PluginKindChannel, Name: "qq", Enabled: false},
+		{ID: "channel/feishu", Kind: config.PluginKindChannel, Name: "feishu", Enabled: true},
+		{ID: "tool/webfetch", Kind: config.PluginKindTool, Name: "webfetch", Enabled: false},
 	}}
-	got, err := NewService(store, nil, nil, nil, nil).EnabledChannelTypes(context.Background(), catalogUser(t))
+	got, err := NewService(store, nil, nil, nil, nil).DisabledChannelTypes(context.Background(), catalogUser(t))
 	if err != nil {
-		t.Fatalf("EnabledChannelTypes: %v", err)
+		t.Fatalf("DisabledChannelTypes: %v", err)
 	}
-	if !got["telegram"] || !got["feishu"] || got["qq"] {
-		t.Fatalf("enabled types = %v, want telegram+feishu only", got)
+	if !got["qq"] || got["telegram"] || got["feishu"] || got["discord"] || got["webfetch"] {
+		t.Fatalf("disabled types = %v, want qq only", got)
 	}
 }
 
@@ -138,8 +147,8 @@ func TestCatalogReadsRejectInvalidAuthorityBeforeStore(t *testing.T) {
 	if _, err := svc.PublicChannels(ctx, invalid); !errors.Is(err, authz.ErrForbidden) {
 		t.Fatalf("PublicChannels(invalid) = %v, want ErrForbidden", err)
 	}
-	if _, err := svc.EnabledChannelTypes(ctx, invalid); !errors.Is(err, authz.ErrForbidden) {
-		t.Fatalf("EnabledChannelTypes(invalid) = %v, want ErrForbidden", err)
+	if _, err := svc.DisabledChannelTypes(ctx, invalid); !errors.Is(err, authz.ErrForbidden) {
+		t.Fatalf("DisabledChannelTypes(invalid) = %v, want ErrForbidden", err)
 	}
 	if store.reads != 0 {
 		t.Fatalf("store was read %d times for a denied authority, want 0 (fail closed before read)", store.reads)
@@ -172,7 +181,7 @@ func TestCatalogReadsFailClosedOnNilService(t *testing.T) {
 	if _, err := nilSvc.PublicChannels(ctx, catalogUser(t)); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("nil PublicChannels = %v, want ErrUnavailable", err)
 	}
-	if _, err := nilSvc.EnabledChannelTypes(ctx, catalogUser(t)); !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("nil EnabledChannelTypes = %v, want ErrUnavailable", err)
+	if _, err := nilSvc.DisabledChannelTypes(ctx, catalogUser(t)); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("nil DisabledChannelTypes = %v, want ErrUnavailable", err)
 	}
 }

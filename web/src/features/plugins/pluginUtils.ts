@@ -289,6 +289,13 @@ export function pluginIsEssential(plugin: PluginWithMeta): boolean {
   return !!plugin._manifestPlugin?.essential;
 }
 
+// pluginIsRemovable reports whether a plugin can be deleted: only one an admin
+// added, whose whole definition is the override row. A builtin ships with the
+// server — the next resolve would bring it back, so disabling is its off switch.
+export function pluginIsRemovable(plugin: PluginWithMeta): boolean {
+  return !!plugin._manifestPlugin && !plugin._manifestPlugin.builtin;
+}
+
 // pluginHasBinaries reports whether a manifest plugin installs at least one
 // binary — these get the compact version editor in the detail sheet.
 export function pluginHasBinaries(plugin: PluginWithMeta): boolean {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import {
+  deleteManifestPlugin,
   getPluginConfig,
   getPluginConfigSchema,
   listManifestPlugins,
@@ -29,6 +30,7 @@ import {
   pluginDescription,
   pluginHasBinaries,
   pluginIsEssential,
+  pluginIsRemovable,
   pluginLabel,
   semanticPlugins,
 } from "./pluginUtils";
@@ -42,6 +44,7 @@ import { useI18n } from "@/lib/i18n";
 import { useToast } from "@/hooks/use-toast";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
 import { SettingsGridPage, SettingsDetailSheet } from "@/features/settings/SettingsCardGrid";
+import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import { meQueryOptions } from "@/lib/queries/me";
 import { MCPServersPanel } from "@/features/mcp/MCPServersPage";
 import { Plus } from "lucide-react";
@@ -74,6 +77,10 @@ export function PluginsPage() {
   const [pluginConfigDrafts, setPluginConfigDrafts] = useState<
     Record<string, Record<string, unknown>>
   >({});
+
+  // The delete confirmation is an overlay and the detail renders inside a Sheet,
+  // so the page owns it — nesting overlays is a bug (`web-ui.md`).
+  const [pendingDelete, setPendingDelete] = useState<PluginWithMeta | null>(null);
 
   const { showToast } = useToast(4000);
 
@@ -324,6 +331,25 @@ export function PluginsPage() {
     }
   }
 
+  // removeManifestPlugin drops an admin-added plugin. Only a custom plugin can
+  // go: a builtin's definition ships with the server, so the UI offers "disable"
+  // for those and the API refuses the delete outright.
+  async function removeManifestPlugin(plugin: PluginWithMeta) {
+    try {
+      await deleteManifestPlugin({
+        path: { kind: plugin.kind, name: plugin.name },
+        throwOnError: true,
+      });
+      await loadManifestPlugins();
+      await loadPlugins();
+      await syncManifest(true);
+      showToast(plugin.id + " removed");
+      void navigate({ to: "/settings/plugins" });
+    } catch (e) {
+      showToast((e as Error).message, "error");
+    }
+  }
+
   // --- Render ---
 
   function closeSheet() {
@@ -405,11 +431,32 @@ export function PluginsPage() {
         {p._manifest && pluginHasBinaries(p) && (
           <div className="border-t border-border pt-4 -mx-6 px-0">
             <CliToolEditor
+              // The editor holds an unsaved draft in local state; without a key
+              // per plugin, switching plugins would carry the previous one's
+              // draft into the new form.
+              key={p.id}
               plugin={p}
               oauthProviders={oauthProviders}
               onSave={(next) => upsertManifestPlugin(next, next.id + " updated")}
               showToast={showToast}
             />
+          </div>
+        )}
+
+        {/* Removal is the counterpart of the add form: a plugin an admin added
+            can be taken back out. A builtin has no such row to drop — the
+            enable switch above is its off. */}
+        {pluginIsRemovable(p) && (
+          <div className="border-t border-border pt-4 flex items-center justify-between gap-3">
+            <span className="text-xs text-muted-foreground">{t("plugins.removeDesc")}</span>
+            <Button
+              onClick={() => setPendingDelete(p)}
+              variant="ghost"
+              size="sm"
+              className="text-destructive-foreground hover:bg-destructive/10 shrink-0"
+            >
+              {t("common.remove")}
+            </Button>
           </div>
         )}
       </DetailPanel>
@@ -419,7 +466,7 @@ export function PluginsPage() {
   return (
     <>
       <SettingsGridPage
-        title={t("plugins.title")}
+        title={t(isAdmin ? "plugins.title" : "mcp.title")}
         action={
           isAdmin ? (
             <Button
@@ -467,6 +514,17 @@ export function PluginsPage() {
       <SettingsDetailSheet open={sheetOpen} onClose={closeSheet}>
         {detail}
       </SettingsDetailSheet>
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        onOpenChange={(open) => !open && setPendingDelete(null)}
+        title={t("plugins.removePlugin")}
+        message={pendingDelete ? t("plugins.removePluginMsg", { id: pendingDelete.id }) : ""}
+        onConfirm={() => {
+          if (pendingDelete) void removeManifestPlugin(pendingDelete);
+          setPendingDelete(null);
+        }}
+      />
     </>
   );
 }
