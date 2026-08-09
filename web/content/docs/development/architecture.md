@@ -46,7 +46,7 @@ internal/
     runtime/           Runner cache, turn execution, event persistence
     prompt/            System prompt builder and templates
     sandbox/           Core sandbox tools (bash, read, write, edit)
-    delegate/          Delegate tool (isolated child loops)
+    delegate/          Internal managed-session adapter and presets
   channel/             Channel interface, identity resolution, slash commands, notify
   memory/              Memory provider registry + implementations (lcm, simple)
   server/              HTTP API + embedded React SPA
@@ -59,7 +59,7 @@ internal/
   skills/              Skills tool (search/install/list/remove via skills.sh)
 pkg/
   ai/                  Message/Content types, Model, Provider interface, streaming events
-  tools/               Tool interface, registry, built-in tools (read, bash, write, edit, delegate)
+  tools/               Tool interface and registry
 plugins/
   tools/               Plugin tool registry + plugin tools (webfetch)
   hooks/               Plugin hook registry + plugin hooks (rtk)
@@ -171,13 +171,12 @@ type Tool interface {
 
 ### Built-in Tools (always available)
 
-| Tool       | Description                                       |
-| ---------- | ------------------------------------------------- |
-| `read`     | Read file contents with UTF-8 safe truncation     |
-| `bash`     | Execute shell commands                            |
-| `write`    | Create/overwrite files atomically                 |
-| `edit`     | Edit file sections preserving context             |
-| `delegate` | Delegate focused subtasks to isolated child loops |
+| Tool    | Description                                   |
+| ------- | --------------------------------------------- |
+| `read`  | Read file contents with UTF-8 safe truncation |
+| `bash`  | Execute shell commands                        |
+| `write` | Create/overwrite files atomically             |
+| `edit`  | Edit file sections preserving context         |
 
 ### Plugin Tools (toggleable via admin)
 
@@ -191,30 +190,32 @@ The core local-workspace tools run through a Docker sandbox backend. The `bash` 
 
 The sandbox system provides process, filesystem, and network isolation for agent tool execution. All core tools share the same `sandbox.Session` per runner: `bash` uses `Session.Exec`; `read`/`write`/`edit` use `Session.ResolvePath` + `os.*`. Runner startup fails closed when the sandbox backend is unavailable. See [Sandbox Backend Abstraction](/docs/development/sandbox) for the full Session interface, execution mediation, fail-closed behavior, and exception boundaries.
 
-Sandbox tools (bash, read, write, edit) live in `internal/agent/sandbox/`; other built-in tools live with the capability they project (for example, delegate in `internal/agent/delegate`). Plugin tools (e.g. webfetch) live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/development/plugin-system) for the full plugin architecture.
+Sandbox tools (bash, read, write, edit) live in `internal/agent/sandbox/`; other built-in tools live with the capability they project. Plugin tools (e.g. webfetch) live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/development/plugin-system) for the full plugin architecture.
 
-### Delegate Tool
+### Session Tool
 
-The `delegate` tool enables the agent to delegate focused subtasks to isolated child loops. This is useful for research, code review, or drafting that benefit from fresh context without polluting the parent conversation.
+The model-facing `session` tool owns Session discovery, transcript recall, creation, and synchronous communication:
 
-- Each delegate gets a fresh message history containing only the task description
-- Multiple tasks run in parallel via goroutines with configurable concurrency
-- The `delegate` tool is excluded from children to prevent recursion
-- Delegate output is truncated to ~4096 tokens to avoid bloating the parent context
-- Supports presets loaded from markdown files with YAML frontmatter
-- Per-task options: `preset`, `context`, `model` (override), `system` (additional instructions), `tools` (whitelist), `max_turns` (default 10), `timeout_seconds` (default 120)
+- `find` lists recent Session cards or searches transcripts.
+- `get` returns a compact view and pages bounded logical turns.
+- `create` opens a focused persistent Session and can apply an internal preset.
+- `send` runs one turn on an owned sendable Session, including legacy delegate Sessions.
+
+The runtime keeps `DelegateTool` and delegate Session kinds as internal compatibility machinery for presets and existing IDs. It does not register `delegate` in the model tool registry.
+
+Agent sends enter a process-local per-Session FIFO before the standard runtime admission guard. The queue bounds pending depth and admission hold time, propagates the source context, and never replaces the runtime correctness guard. Nested calls carry depth and ancestry in context, reject cycles, and inherit the root deadline. Agent-originated input persists its actor and source Session; prompt rendering marks it as information rather than human authority. Synchronous Session turns never publish to an external channel implicitly.
 
 ### Builtin Shared Tools
 
 | Tool        | Condition                         | Description                                                         |
 | ----------- | --------------------------------- | ------------------------------------------------------------------- |
 | `memory`    | Always                            | Auto-generated memory tool (actions adapt to provider capabilities) |
-| `session`   | One-to-one agent sessions         | Read-only session discovery and transcript inspection               |
+| `session`   | One-to-one agent sessions         | Session discovery, bounded recall, creation, and synchronous sends  |
 | `skills`    | Always                            | Skill management (search/install/list/remove from skills.sh)        |
 | `scheduler` | Always                            | Schedule tasks (add/list/remove jobs)                               |
 | `notify`    | Gateway mode + channel configured | Send notifications via dispatcher                                   |
 
-The memory tool is auto-generated by `memory.BuildTool(provider)`, which inspects the provider's capabilities and produces a tool with matching actions. Ordinary chat runners narrow it with `WithSessionReadOnlyWrites()`: with the LCM provider they expose `status`, `search`, `describe`, `expand`, `get_message`, `profile_get`, `soul_get`, `profile_history`, and `constraint_list`; with the Simple provider they expose the corresponding read-only subset. Durable profile/soul/constraint writes happen through Reflect or manual UI/API paths and are injected into new session prompts.
+The memory tool is auto-generated by `memory.BuildTool(provider)`, which inspects the provider's capabilities and produces a tool with matching actions. Ordinary chat runners apply `WithSessionReadOnlyWrites()` and `WithoutTranscriptActions()`. The model can retrieve durable knowledge and read supported profile, soul, and constraint data, while transcript `status`, `search`, `describe`, `expand`, and `get_message` stay internal. Session find/get owns conversation retrieval. Reflect or manual UI/API paths own durable profile, soul, and constraint writes.
 
 ## Session Lifecycle
 

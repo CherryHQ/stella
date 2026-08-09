@@ -37,7 +37,7 @@ LCM 插件实现完整能力。Simple 插件实现核心 Provider、身份、约
 
 ## 记忆工具
 
-`memory.BuildTool(provider)` 会检查 provider 能力，并生成匹配动作的 `tools.Tool`。调用方还可以继续收窄动作集合：普通聊天 runner 使用 `WithSessionReadOnlyWrites()`，所以暴露给模型的会话工具只包含读取/检索动作；Reflect 和 manual 路径只开启自己负责的特定写动作。
+`memory.BuildTool(provider)` 会检查 provider 能力，并生成匹配动作的 `tools.Tool`。调用方会按使用场景收窄这组内部能力。普通聊天 runner 同时使用 `WithSessionReadOnlyWrites()` 和 `WithoutTranscriptActions()`。Session find/get 负责对话检索；Reflect 和 manual 路径只开启自己负责的写动作。
 
 | 动作                | 需要接口                           | 说明                                                   |
 | ------------------- | ---------------------------------- | ------------------------------------------------------ |
@@ -45,6 +45,8 @@ LCM 插件实现完整能力。Simple 插件实现核心 Provider、身份、约
 | `search`            | `Searcher`                         | 按模式搜索消息和摘要                                   |
 | `describe`          | `Explorer`                         | 检查摘要的元数据和血统                                 |
 | `expand`            | `Explorer`                         | 深入压缩后的摘要                                       |
+| `get_message`       | `MessageReader`                    | 读取一条完整消息；内部对话能力                         |
+| `search_knowledge`  | `FactStore`                        | 搜索当前快照可见的持久知识事实                         |
 | `profile_get`       | `ProfileStore`                     | 读取持久用户画像笔记                                   |
 | `profile_update`    | `ProfileStore`                     | 替换持久用户画像笔记；仅 Reflect/manual                |
 | `soul_get`          | `ProfileStore`                     | 读取每用户 agent soul 覆盖                             |
@@ -55,7 +57,7 @@ LCM 插件实现完整能力。Simple 插件实现核心 Provider、身份、约
 | `constraint_add`    | `ConstraintStore`                  | 添加硬性约束；仅 manual                                |
 | `constraint_remove` | `ConstraintStore`                  | 按 ID 删除硬性约束；仅 manual                          |
 
-工具的 JSON schema、描述和调度都会动态适配。能力较少的 provider 会生成动作较少的工具。面向模型的聊天会话还会对持久记忆写入只读化：不能调用 `profile_update`、`soul_update`、`profile_rollback`、`constraint_add` 或 `constraint_remove`。
+工具的 JSON schema、描述和调度都会动态适配。能力较少的 provider 会生成动作较少的工具。面向模型的聊天会话不暴露对话相关的 `status`、`search`、`describe`、`expand`、`get_message`，也不能调用 `profile_update`、`soul_update`、`profile_rollback`、`constraint_add` 或 `constraint_remove` 等持久写入动作。
 
 ### 群聊回合:当前发言人回退
 

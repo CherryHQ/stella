@@ -46,15 +46,8 @@ Once created, every aspect of an agent is yours to change:
 
 Changes take effect on the next conversation. Existing chat history is preserved.
 
-## Delegates
+## Focused sessions
 
-Stella also includes specialized delegates that handle focused subtasks. When your main agent needs help with a bounded task, it can delegate work to an isolated child loop:
+An agent can open a focused session when a bounded task needs fresh context. The focused session keeps its own transcript and returns its reply to the original conversation. The agent can continue it later by session ID.
 
-| Delegate       | Role                                     |
-| -------------- | ---------------------------------------- |
-| **Coder**      | Writes and edits code                    |
-| **Researcher** | Gathers information and analyzes sources |
-| **Reviewer**   | Reviews code or documents for quality    |
-| **Writer**     | Drafts and edits written content         |
-
-Delegates work behind the scenes -- your main agent delegates to them automatically when appropriate. You do not need to configure them, but you can customize their behavior by placing override files in your project's `.agents/delegates/` directory.
+Session presets provide a standard role, tool set, system instruction, and timeout for this work. Stella currently includes the `coder` preset. You can override it or add presets in your project's `.agents/delegates/` directory. The directory name remains for compatibility; agents start preset runs through the Session tool.

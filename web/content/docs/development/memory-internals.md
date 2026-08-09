@@ -37,7 +37,7 @@ The LCM plugin implements the full set. The Simple plugin implements the core pr
 
 ## Memory Tool
 
-`memory.BuildTool(provider)` inspects the provider's capabilities and generates a `tools.Tool` with matching actions. Callers can further narrow the action set: ordinary chat runners use `WithSessionReadOnlyWrites()` so model-facing sessions only expose read/retrieval actions, while Reflect/manual paths opt into the specific write actions they own.
+`memory.BuildTool(provider)` inspects the provider's capabilities and generates a `tools.Tool` with matching actions. Callers narrow that internal set for each surface. Ordinary chat runners use `WithSessionReadOnlyWrites()` and `WithoutTranscriptActions()`. Session find/get handles conversation retrieval; Reflect and manual paths opt into the write actions they own.
 
 | Action              | Requires                           | Description                                                              |
 | ------------------- | ---------------------------------- | ------------------------------------------------------------------------ |
@@ -45,6 +45,8 @@ The LCM plugin implements the full set. The Simple plugin implements the core pr
 | `search`            | `Searcher`                         | Search messages and summaries by pattern                                 |
 | `describe`          | `Explorer`                         | Inspect a summary's metadata and lineage                                 |
 | `expand`            | `Explorer`                         | Drill into compacted summaries                                           |
+| `get_message`       | `MessageReader`                    | Read one stored message in full; internal transcript capability          |
+| `search_knowledge`  | `FactStore`                        | Search snapshot-visible durable knowledge facts                          |
 | `profile_get`       | `ProfileStore`                     | Read persistent user profile notes                                       |
 | `profile_update`    | `ProfileStore`                     | Replace persistent user profile notes; Reflect/manual only               |
 | `soul_get`          | `ProfileStore`                     | Read per-user agent soul override                                        |
@@ -55,7 +57,7 @@ The LCM plugin implements the full set. The Simple plugin implements the core pr
 | `constraint_add`    | `ConstraintStore`                  | Add a hard constraint; manual only                                       |
 | `constraint_remove` | `ConstraintStore`                  | Remove a hard constraint by ID; manual only                              |
 
-The tool's JSON schema, description, and dispatch all adapt dynamically. A provider with fewer capabilities produces a tool with fewer actions. A model-facing chat session is additionally read-only for durable memory writes: it cannot call `profile_update`, `soul_update`, `profile_rollback`, `constraint_add`, or `constraint_remove`.
+The tool's JSON schema, description, and dispatch all adapt dynamically. A provider with fewer capabilities produces a tool with fewer actions. Model-facing chat sessions omit transcript `status`, `search`, `describe`, `expand`, and `get_message`, and they cannot call durable write actions such as `profile_update`, `soul_update`, `profile_rollback`, `constraint_add`, or `constraint_remove`.
 
 ### Group turns: current-speaker fallback
 
