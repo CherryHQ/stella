@@ -11,6 +11,29 @@ icon: History
 
 ## [Unreleased]
 
+## [0.63.2] - 2026-08-09
+
+### 🔐 安全
+
+- 委派出的 Agent 运行现在无法重新获得祖先上下文已排除的控制平面工具，即使使用预设允许列表也不能绕过。([#961](https://github.com/CherryHQ/stella/pull/961), [#677](https://github.com/CherryHQ/stella/issues/677))
+
+### 🐛 修复
+
+- Discord 群组渠道现在会按照配置的 Agent 绑定授权未关联账户的服务器成员，同时保持私信和已关联用户的授权逻辑不变。([#954](https://github.com/CherryHQ/stella/pull/954), [#953](https://github.com/CherryHQ/stella/issues/953))
+- Agent owner 现在可以重新管理自己的渠道和适用的 Agent 设置，目标列表也始终限定在所属用户范围内。自定义 manifest 插件也可以删除，不会因一次错误配置而永久保留。([#956](https://github.com/CherryHQ/stella/pull/956), [#955](https://github.com/CherryHQ/stella/issues/955), [#957](https://github.com/CherryHQ/stella/issues/957))
+- 本地登录和单点登录成功后现在会进入 Agent 页面，不再跳转到已移除的 provider 路由。([#966](https://github.com/CherryHQ/stella/pull/966), [#965](https://github.com/CherryHQ/stella/issues/965))
+- 编辑内置插件时现在只保存发生变化的字段，未修改的设置可继续继承后续 Stella 版本中的改进。管理员可以将自定义项重置为随版本交付的默认值，现有完整定义 override 也保持兼容。([#964](https://github.com/CherryHQ/stella/pull/964), [#963](https://github.com/CherryHQ/stella/issues/963))
+
+### ♻️ 重构
+
+- Manifest 插件定义现在使用明确且相互对应的 Go、OpenAPI 与生成 TypeScript contract，并与运行时解析状态分离。([#968](https://github.com/CherryHQ/stella/pull/968), [#967](https://github.com/CherryHQ/stella/issues/967))
+
+### 🔧 CI
+
+- Web 构建现在在本地开发、CI 和 Docker 中统一使用一条确定性的 Vite+ 与 pnpm 版本路径，也能可靠完成非交互式依赖安装。([#970](https://github.com/CherryHQ/stella/pull/970), [#969](https://github.com/CherryHQ/stella/issues/969))
+
+**完整变更记录**：[v0.63.1...v0.63.2](https://github.com/CherryHQ/stella/compare/v0.63.1...v0.63.2)
+
 ## [0.63.1] - 2026-08-08
 
 ### 🔧 CI

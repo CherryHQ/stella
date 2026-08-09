@@ -99,27 +99,28 @@ function ModelComboField({
         autoComplete="off"
         id={`model-field-${field}`}
       />
-      {open && filtered.length > 0 && (
-        // w-max lets the list size to the longest model id instead of the
-        // (possibly narrow) trigger; min-w keeps it never smaller than it.
-        <div className="absolute z-20 mt-1 w-max min-w-full max-w-[26rem] max-h-48 overflow-y-auto bg-popover border border-border rounded-xl py-1">
-          {filtered.map((m) => (
-            <button
-              key={m.value}
-              onMouseDown={() => {
-                onChange(m.value);
-                setOpen(false);
-              }}
-              type="button"
-              className={`block w-full truncate text-left px-3 py-1.5 text-xs font-mono hover:bg-muted/80 cursor-pointer transition-colors duration-120 ${
-                value === m.value ? "text-primary font-semibold" : "text-muted-foreground"
-              }`}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-      )}
+      {open &&
+        filtered.length > 0 && (
+          // w-max lets the list size to the longest model id instead of the
+          // (possibly narrow) trigger; min-w keeps it never smaller than it.
+          <div className="absolute z-20 mt-1 w-max min-w-full max-w-[26rem] max-h-48 overflow-y-auto bg-popover border border-border rounded-xl py-1">
+            {filtered.map((m) => (
+              <button
+                key={m.value}
+                onMouseDown={() => {
+                  onChange(m.value);
+                  setOpen(false);
+                }}
+                type="button"
+                className={`block w-full truncate text-left px-3 py-1.5 text-xs font-mono hover:bg-muted/80 cursor-pointer transition-colors duration-120 ${
+                  value === m.value ? "text-primary font-semibold" : "text-muted-foreground"
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        )}
     </div>
   );
 }

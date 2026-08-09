@@ -500,10 +500,10 @@ func TestProfilePageRoute(t *testing.T) {
 	}
 }
 
-func TestAccountPageRoute(t *testing.T) {
+func TestSettingsAccountPageRoute(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "GET", "/account", nil)
+	rr := doRequest(t, env, "GET", "/settings/account", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}
@@ -512,10 +512,10 @@ func TestAccountPageRoute(t *testing.T) {
 	}
 }
 
-func TestCredentialsPageRoute(t *testing.T) {
+func TestSettingsCredentialsPageRoute(t *testing.T) {
 	env := setupAdmin(t)
 
-	rr := doRequest(t, env, "GET", "/credentials", nil)
+	rr := doRequest(t, env, "GET", "/settings/credentials", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rr.Code, http.StatusOK)
 	}

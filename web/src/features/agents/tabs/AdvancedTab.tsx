@@ -5,10 +5,12 @@ import { useI18n } from "@/lib/i18n";
 
 interface Props {
   state: AgentsPageState;
+  /** False when the viewer may read the agent but not manage it. */
+  canEdit: boolean;
   onSetState: (patch: Partial<AgentsPageState>) => void;
 }
 
-export function AdvancedTab({ state, onSetState }: Props) {
+export function AdvancedTab({ state, canEdit, onSetState }: Props) {
   const { t } = useI18n();
   const { form } = state;
 
@@ -65,7 +67,8 @@ export function AdvancedTab({ state, onSetState }: Props) {
               }),
             })
           }
-          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 cursor-pointer text-foreground font-medium"
+          disabled={!canEdit}
+          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 cursor-pointer text-foreground font-medium disabled:cursor-not-allowed disabled:opacity-60"
         >
           <option value="disabled">disabled — block outbound network</option>
           <option value="allow_all">allow_all — allow outbound network</option>
@@ -82,6 +85,7 @@ export function AdvancedTab({ state, onSetState }: Props) {
             onChange={(e) => updateSandboxAllowlist((e.target as HTMLTextAreaElement).value)}
             placeholder={"api.github.com\npypi.org\n10.0.0.0/8"}
             rows={4}
+            disabled={!canEdit}
             className="text-sm font-mono"
           />
           <p className="mt-1.5 text-xs text-warning">{t("agents.form.allowlistHint")}</p>

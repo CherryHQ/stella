@@ -11,6 +11,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.2] - 2026-08-09
+
+### 🔐 Security
+
+- Delegated Agent runs can no longer regain control-plane tools excluded by an ancestor, including through a preset allowlist. ([#961](https://github.com/CherryHQ/stella/pull/961), [#677](https://github.com/CherryHQ/stella/issues/677))
+
+### 🐛 Bug Fixes
+
+- Discord group channels now honor their configured Agent binding for unlinked server members while preserving private-message and linked-user authorization. ([#954](https://github.com/CherryHQ/stella/pull/954), [#953](https://github.com/CherryHQ/stella/issues/953))
+- Agent owners can again manage their own channels and applicable Agent settings, while goal lists stay scoped to their owner. Custom manifest plugins can also be removed instead of becoming permanent after a mistaken setup. ([#956](https://github.com/CherryHQ/stella/pull/956), [#955](https://github.com/CherryHQ/stella/issues/955), [#957](https://github.com/CherryHQ/stella/issues/957))
+- Successful local and single sign-on authentication now opens the Agents page instead of a removed provider route. ([#966](https://github.com/CherryHQ/stella/pull/966), [#965](https://github.com/CherryHQ/stella/issues/965))
+- Editing a built-in plugin now stores only the changed fields, so untouched settings continue to inherit improvements from future Stella releases. Administrators can reset a customization to its shipped default, and existing full-definition overrides remain compatible. ([#964](https://github.com/CherryHQ/stella/pull/964), [#963](https://github.com/CherryHQ/stella/issues/963))
+
+### ♻️ Refactoring
+
+- Manifest plugin definitions now have concrete Go, OpenAPI, and generated TypeScript contracts separate from resolved runtime state. ([#968](https://github.com/CherryHQ/stella/pull/968), [#967](https://github.com/CherryHQ/stella/issues/967))
+
+### 🔧 CI
+
+- Web builds now use one deterministic Vite+ and pnpm version path across local development, CI, and Docker, including non-interactive dependency installation. ([#970](https://github.com/CherryHQ/stella/pull/970), [#969](https://github.com/CherryHQ/stella/issues/969))
+
+**Full Changelog**: [v0.63.1...v0.63.2](https://github.com/CherryHQ/stella/compare/v0.63.1...v0.63.2)
+
 ## [0.63.1] - 2026-08-08
 
 ### 🔧 CI

@@ -12,11 +12,10 @@ import {
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { getAgentAvatarStyle } from "@/lib/agent-colors";
-import { agentsQueryOptions, agentSkillsOptions, agentToolsOptions } from "@/lib/queries/agents";
+import { agentQueryOptions, agentSkillsOptions, agentToolsOptions } from "@/lib/queries/agents";
 import { agentSettingsQueryOptions } from "@/lib/queries/agent-settings";
 import { goalCountsOptions } from "@/lib/queries/goals";
 import { agentMemoryOptions } from "@/lib/queries/memories";
-import { meQueryOptions } from "@/lib/queries/me";
 import { modelsQueryOptions } from "@/lib/queries/models";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { formatTime } from "@/lib/time";
@@ -62,21 +61,17 @@ export function ProfilePage() {
   const search = useSearch({ strict: false }) as MemorySearch;
   const knowledgeState = search.knowledge === "removed" ? "removed" : "active";
 
-  const { data: agents = [] } = useQuery(agentsQueryOptions);
-  const { data: me } = useQuery(meQueryOptions);
+  const { data: agent } = useQuery(agentQueryOptions(agentId));
   const { data: models = [] } = useQuery(modelsQueryOptions);
   const { data: memory } = useQuery(agentMemoryOptions(agentId));
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
 
-  const agentIndex = agents.findIndex((agent) => agent.id === agentId);
-  const agent = agentIndex >= 0 ? agents[agentIndex] : undefined;
   const project = projects.find((candidate) => candidate.id === projectId);
   const title = project?.name ?? agent?.name ?? "";
 
   // Projects inherit their agent's configuration and tool catalog; both belong
   // to the agent's own profile, so those tabs only appear there.
-  const canConfigure =
-    !projectId && !!agent && canEditAgent(agent, me?.is_admin ?? false, me?.id ?? "");
+  const canConfigure = !projectId && canEditAgent(agent);
 
   const tabs: ProfileTab[] = [
     "overview",
@@ -145,7 +140,7 @@ export function ProfilePage() {
         <header className="flex items-center gap-3">
           <span
             className="grid size-10 place-items-center rounded-full text-sm font-semibold text-primary-foreground"
-            style={getAgentAvatarStyle(agentId, agentIndex >= 0 ? agentIndex : undefined)}
+            style={getAgentAvatarStyle(agentId)}
           >
             {title[0]?.toUpperCase()}
           </span>

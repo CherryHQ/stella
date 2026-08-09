@@ -5,10 +5,15 @@ import type {
   ManifestBinary,
   ManifestOAuthProvider,
   ManifestPlugin,
+  ManifestPluginDefinitionField,
   ManifestSessionEnv,
   PluginWithMeta,
 } from "@/lib/types";
-import { deriveToolName } from "./pluginUtils";
+import {
+  changedManifestPluginFields,
+  deriveToolName,
+  pluginFieldIsOverridden,
+} from "./pluginUtils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -232,8 +237,37 @@ export function CliToolAddForm({ existingIds, onCreate, onCancel }: AddFormProps
 interface EditorProps {
   plugin: PluginWithMeta;
   oauthProviders: ManifestOAuthProvider[];
-  onSave: (next: ManifestPlugin) => Promise<void>;
+  onSave: (next: ManifestPlugin, fields: ManifestPluginDefinitionField[]) => Promise<void>;
+  onResetField: (field: string) => Promise<void>;
+  resettingField: string | null;
   showToast: (message: string, type?: "success" | "error") => void;
+}
+
+interface FieldOverrideActionsProps {
+  overridden: boolean;
+  resetting: boolean;
+  disabled: boolean;
+  onReset: () => void;
+}
+
+function FieldOverrideActions({
+  overridden,
+  resetting,
+  disabled,
+  onReset,
+}: FieldOverrideActionsProps) {
+  const { t } = useI18n();
+  if (!overridden) return null;
+  return (
+    <div className="flex items-center gap-1">
+      <Badge variant="outline" size="sm">
+        {t("plugins.overriddenField")}
+      </Badge>
+      <Button onClick={onReset} loading={resetting} disabled={disabled} variant="ghost" size="xs">
+        {t("plugins.resetField")}
+      </Button>
+    </div>
+  );
 }
 
 function toEnvRows(envs: ManifestSessionEnv[] | undefined): EnvRow[] {
@@ -247,16 +281,31 @@ function toEnvRows(envs: ManifestSessionEnv[] | undefined): EnvRow[] {
 }
 
 // CliToolEditor is the compact detail editor for a manifest plugin: per-binary
-// version (with resolve-to-latest), the session env mapping that wires the CLI's
-// runtime variables, and an OAuth provider. The binary's mise key is read-only —
-// changing it means redefining the tool, which is an add/remove, not an edit.
-export function CliToolEditor({ plugin, oauthProviders, onSave, showToast }: EditorProps) {
+// version (with resolve-to-latest) and mise key, the session env mapping that
+// wires the CLI's runtime variables, and an OAuth provider.
+//
+// A builtin's mise key is editable too: the edit becomes an override row over
+// the shipped definition, which is what every other field here already does.
+// The whole manifest-plugin API is admin-only, so that is who can write it.
+// What builtin still forbids is removal — see pluginIsRemovable.
+export function CliToolEditor({
+  plugin,
+  oauthProviders,
+  onSave,
+  onResetField,
+  resettingField,
+  showToast,
+}: EditorProps) {
   const { t } = useI18n();
   const manifest = plugin._manifestPlugin as ManifestPlugin;
+  const initialManifest = useRef(manifest);
   const binaries = manifest.binaries ?? [];
 
   const [versions, setVersions] = useState<Record<string, string>>(() =>
     Object.fromEntries(binaries.map((b) => [b.name, b.version ?? ""])),
+  );
+  const [tools, setTools] = useState<Record<string, string>>(() =>
+    Object.fromEntries(binaries.map((b) => [b.name, b.tool])),
   );
   const [envRows, setEnvRows] = useState<EnvRow[]>(() => toEnvRows(manifest.session_env));
   const [oauthProvider, setOAuthProvider] = useState(manifest.oauth_provider ?? "");
@@ -264,10 +313,17 @@ export function CliToolEditor({ plugin, oauthProviders, onSave, showToast }: Edi
   const [saving, setSaving] = useState(false);
 
   async function resolveLatest(binary: ManifestBinary) {
+    // Ask about the key the admin is looking at, not the saved one: after
+    // repointing a tool, the old key's latest version is the wrong answer.
+    const tool = (tools[binary.name] ?? binary.tool).trim();
+    if (!tool) {
+      showToast(t("plugins.miseKeyRequired"), "error");
+      return;
+    }
     setResolving((prev) => ({ ...prev, [binary.name]: true }));
     try {
       const { data } = await getCliToolLatest({
-        query: { tool: binary.tool },
+        query: { tool },
         throwOnError: true,
       });
       const v = data?.version ?? "";
@@ -286,8 +342,13 @@ export function CliToolEditor({ plugin, oauthProviders, onSave, showToast }: Edi
 
   function reset() {
     setVersions(Object.fromEntries(binaries.map((b) => [b.name, b.version ?? ""])));
+    setTools(Object.fromEntries(binaries.map((b) => [b.name, b.tool])));
     setEnvRows(toEnvRows(manifest.session_env));
     setOAuthProvider(manifest.oauth_provider ?? "");
+  }
+
+  async function resetField(field: string) {
+    await onResetField(field);
   }
 
   async function save() {
@@ -309,6 +370,8 @@ export function CliToolEditor({ plugin, oauthProviders, onSave, showToast }: Edi
           const v = (versions[b.name] ?? "").trim();
           if (v) copy.version = v;
           else delete copy.version;
+          const tool = (tools[b.name] ?? "").trim();
+          if (tool) copy.tool = tool;
           return copy;
         }),
       };
@@ -317,13 +380,18 @@ export function CliToolEditor({ plugin, oauthProviders, onSave, showToast }: Edi
       if (oauthProvider) next.oauth_provider = oauthProvider;
       else delete next.oauth_provider;
 
-      await onSave(next);
+      const fields = changedManifestPluginFields(initialManifest.current, next);
+      await onSave(next, fields);
+      initialManifest.current = next;
     } finally {
       setSaving(false);
     }
   }
 
-  const showOAuth = !!oauthProvider || envRows.some((r) => r.source.startsWith("oauth."));
+  const showOAuth =
+    !!oauthProvider ||
+    envRows.some((r) => r.source.startsWith("oauth.")) ||
+    pluginFieldIsOverridden(plugin, "oauth_provider");
 
   return (
     <div className="border-t border-border bg-muted px-6 py-5 space-y-5">
@@ -333,7 +401,13 @@ export function CliToolEditor({ plugin, oauthProviders, onSave, showToast }: Edi
           <Button onClick={reset} variant="ghost" size="xs">
             {t("common.reset")}
           </Button>
-          <Button onClick={() => void save()} loading={saving} variant="default" size="xs">
+          <Button
+            onClick={() => void save()}
+            loading={saving}
+            disabled={resettingField !== null}
+            variant="default"
+            size="xs"
+          >
             {t("common.save")}
           </Button>
         </div>
@@ -341,13 +415,29 @@ export function CliToolEditor({ plugin, oauthProviders, onSave, showToast }: Edi
 
       {/* Binaries — version only */}
       <div className="space-y-2">
-        <p className="text-xs font-semibold text-muted-foreground">{t("plugins.binaries")}</p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-semibold text-muted-foreground">{t("plugins.binaries")}</p>
+          <FieldOverrideActions
+            overridden={pluginFieldIsOverridden(plugin, "binaries")}
+            resetting={resettingField === "binaries"}
+            disabled={resettingField !== null}
+            onReset={() => void resetField("binaries")}
+          />
+        </div>
         {binaries.map((binary) => (
           <div key={binary.name} className="rounded-lg border border-border bg-background p-4">
             <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
               <div className="space-y-1.5 min-w-0">
                 <span className="text-xs font-semibold text-foreground">{binary.name}</span>
-                <p className="font-mono text-xs text-muted-foreground truncate">{binary.tool}</p>
+                <Input
+                  nativeInput
+                  value={tools[binary.name] ?? ""}
+                  onChange={(e) => setTools((prev) => ({ ...prev, [binary.name]: inputValue(e) }))}
+                  type="text"
+                  placeholder="github:owner/repo"
+                  className="font-mono text-sm"
+                  size="sm"
+                />
               </div>
               <div className="flex items-end gap-2">
                 <div className="space-y-1.5">
@@ -384,18 +474,32 @@ export function CliToolEditor({ plugin, oauthProviders, onSave, showToast }: Edi
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-semibold text-muted-foreground">{t("plugins.sessionEnv")}</p>
-          <Button
-            onClick={() =>
-              setEnvRows((prev) => [
-                ...prev,
-                { id: (envRowSeq += 1), env_var: "", source: "static", value: "", required: false },
-              ])
-            }
-            variant="ghost"
-            size="xs"
-          >
-            {t("plugins.addVariable")}
-          </Button>
+          <div className="flex items-center gap-1">
+            <FieldOverrideActions
+              overridden={pluginFieldIsOverridden(plugin, "session_env")}
+              resetting={resettingField === "session_env"}
+              disabled={resettingField !== null}
+              onReset={() => void resetField("session_env")}
+            />
+            <Button
+              onClick={() =>
+                setEnvRows((prev) => [
+                  ...prev,
+                  {
+                    id: (envRowSeq += 1),
+                    env_var: "",
+                    source: "static",
+                    value: "",
+                    required: false,
+                  },
+                ])
+              }
+              variant="ghost"
+              size="xs"
+            >
+              {t("plugins.addVariable")}
+            </Button>
+          </div>
         </div>
         {envRows.length === 0 ? (
           <p className="text-xs text-muted-foreground">{t("plugins.noSessionEnv")}</p>
@@ -462,9 +566,17 @@ export function CliToolEditor({ plugin, oauthProviders, onSave, showToast }: Edi
       {/* OAuth provider — only when an env var sources a token */}
       {showOAuth && (
         <div className="space-y-2">
-          <p className="text-xs font-semibold text-muted-foreground">
-            {t("plugins.oauthProvider")}
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-muted-foreground">
+              {t("plugins.oauthProvider")}
+            </p>
+            <FieldOverrideActions
+              overridden={pluginFieldIsOverridden(plugin, "oauth_provider")}
+              resetting={resettingField === "oauth_provider"}
+              disabled={resettingField !== null}
+              onReset={() => void resetField("oauth_provider")}
+            />
+          </div>
           <select
             value={oauthProvider}
             onChange={(e) => setOAuthProvider(e.target.value)}
