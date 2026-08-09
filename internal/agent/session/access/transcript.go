@@ -29,6 +29,14 @@ type MessageListInput struct {
 	SeqTo     *int
 }
 
+type TranscriptPageInput struct {
+	AgentID   string
+	SessionID string
+	AnchorSeq int64
+	Offset    int
+	Limit     int
+}
+
 type Message struct {
 	ID         string
 	Seq        int64
@@ -155,6 +163,42 @@ func (a *Access) ListMessages(ctx context.Context, in MessageListInput) ([]Messa
 		return nil, err
 	}
 	return messagesFromRows(rows, partsByMessage), nil
+}
+
+// ListTranscriptPage reads whole user turns from newest to oldest. AnchorSeq
+// selects the turn containing (or immediately preceding) a find match; zero
+// starts from the latest turn.
+func (a *Access) ListTranscriptPage(ctx context.Context, in TranscriptPageInput) ([]Message, error) {
+	info, err := a.Read(ctx, in.AgentID, in.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	conv, err := a.conversation(ctx, info)
+	if err != nil {
+		return nil, err
+	}
+	anchor := pgtype.Int8{}
+	if in.AnchorSeq > 0 {
+		anchor = pgtype.Int8{Int64: in.AnchorSeq, Valid: true}
+	}
+	rows, err := a.svc.q.ListSessionTranscriptPage(ctx, sqlc.ListSessionTranscriptPageParams{
+		ConversationID: conv.ID,
+		AnchorSeq:      anchor,
+		Limit:          int32(in.Limit),
+		Offset:         int32(in.Offset),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: list session transcript: %w", ErrUnavailable, err)
+	}
+	messages := make([]sqlc.CtxMessage, 0, len(rows))
+	for _, row := range rows {
+		messages = append(messages, sqlc.CtxMessage(row))
+	}
+	partsByMessage, err := a.loadTranscriptParts(ctx, messages)
+	if err != nil {
+		return nil, err
+	}
+	return messagesFromRows(messages, partsByMessage), nil
 }
 
 // ReadMedia authorizes the routed session before resolving a media reference

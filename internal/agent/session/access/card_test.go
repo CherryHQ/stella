@@ -122,12 +122,12 @@ func TestSessionCardsDeriveSummaryStateAndSendabilityInOneBatch(t *testing.T) {
 	counter := &sessionSummaryCountingDB{db: m.db}
 	m.svc.q = sqlc.New(counter)
 
-	out, err := NewTool(m.svc).Execute(ctx, map[string]any{"action": "list", "include_archived": true})
+	out, err := NewTool(m.svc).Execute(ctx, map[string]any{"action": "find", "include_archived": true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var response struct {
-		Sessions []sessionToolResponse `json:"sessions"`
+		Sessions []sessionCardResponse `json:"sessions"`
 	}
 	if err := json.Unmarshal([]byte(out), &response); err != nil {
 		t.Fatal(err)
@@ -138,7 +138,7 @@ func TestSessionCardsDeriveSummaryStateAndSendabilityInOneBatch(t *testing.T) {
 	if len(response.Sessions) != 2 {
 		t.Fatalf("sessions = %d, want 2", len(response.Sessions))
 	}
-	byID := make(map[string]sessionToolResponse, len(response.Sessions))
+	byID := make(map[string]sessionCardResponse, len(response.Sessions))
 	for _, card := range response.Sessions {
 		byID[card.ID] = card
 	}

@@ -681,6 +681,100 @@ func (q *Queries) ListMessagesNeedingEmbedding(ctx context.Context, arg ListMess
 	return items, nil
 }
 
+const listSessionTranscriptPage = `-- name: ListSessionTranscriptPage :many
+WITH ordered AS (
+    SELECT
+        id, conversation_id, seq, role, event_type, content, token_count, created_at,
+        lag(seq) OVER (ORDER BY seq ASC) AS prev_seq
+    FROM ctx_message
+    WHERE conversation_id = $1
+), grouped AS (
+    SELECT
+        id, conversation_id, seq, role, event_type, content, token_count, created_at, prev_seq,
+        sum(CASE WHEN role = 'user' OR prev_seq IS NULL THEN 1 ELSE 0 END)
+            OVER (ORDER BY seq ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS turn_idx
+    FROM ordered
+), anchor AS (
+    SELECT COALESCE(
+        (
+            SELECT turn_idx
+            FROM grouped
+            WHERE $2::bigint IS NULL
+               OR seq <= $2::bigint
+            ORDER BY seq DESC
+            LIMIT 1
+        ),
+        0
+    ) AS turn_idx
+), selected_turns AS (
+    SELECT turn_idx
+    FROM grouped
+    WHERE turn_idx <= (SELECT turn_idx FROM anchor)
+    GROUP BY turn_idx
+    ORDER BY turn_idx DESC
+    LIMIT $4 OFFSET $3
+)
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at
+FROM grouped
+WHERE turn_idx IN (SELECT turn_idx FROM selected_turns)
+ORDER BY seq ASC
+`
+
+type ListSessionTranscriptPageParams struct {
+	ConversationID string      `json:"conversation_id"`
+	AnchorSeq      pgtype.Int8 `json:"anchor_seq"`
+	Offset         int32       `json:"offset"`
+	Limit          int32       `json:"limit"`
+}
+
+type ListSessionTranscriptPageRow struct {
+	ID             string    `json:"id"`
+	ConversationID string    `json:"conversation_id"`
+	Seq            int64     `json:"seq"`
+	Role           string    `json:"role"`
+	EventType      string    `json:"event_type"`
+	Content        string    `json:"content"`
+	TokenCount     int64     `json:"token_count"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// Agent-facing transcript pages use a whole user turn as the atomic boundary:
+// one user row plus every assistant/tool row until the next user row. This keeps
+// tool calls and their results together even when a page boundary falls nearby.
+func (q *Queries) ListSessionTranscriptPage(ctx context.Context, arg ListSessionTranscriptPageParams) ([]ListSessionTranscriptPageRow, error) {
+	rows, err := q.db.Query(ctx, listSessionTranscriptPage,
+		arg.ConversationID,
+		arg.AnchorSeq,
+		arg.Offset,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSessionTranscriptPageRow{}
+	for rows.Next() {
+		var i ListSessionTranscriptPageRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConversationID,
+			&i.Seq,
+			&i.Role,
+			&i.EventType,
+			&i.Content,
+			&i.TokenCount,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const searchMessageEmbeddings = `-- name: SearchMessageEmbeddings :many
 SELECT
     m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at,

@@ -345,6 +345,49 @@ func TestEmbeddedPostgresSessionBehaviorMatrix(t *testing.T) {
 		}
 	})
 
+	t.Run("transcript search preserves user agent and group boundaries", func(t *testing.T) {
+		m.svc.searcher = staticSessionSearcher{results: []memory.SearchResult{
+			{SourceType: "message", SourceID: uuid.NewString(), SessionID: m.private, Content: "private match"},
+			{SourceType: "message", SourceID: uuid.NewString(), SessionID: m.groupSID, Content: "group match"},
+		}}
+		ownerAccess, err := m.svc.Begin(ctx, worker(m.owner, m.agent))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Invalid synthetic source IDs are never resolved because this assertion is
+		// about denied rows: use an offset beyond the one visible private hit.
+		page, err := ownerAccess.FindCardPage(ctx, m.agent, "match", true, 1, 20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Sessions) != 0 {
+			t.Fatalf("group search hit crossed into private corpus: %#v", page.Sessions)
+		}
+
+		foreignAccess, err := m.svc.Begin(ctx, worker(m.other, m.agent))
+		if err != nil {
+			t.Fatal(err)
+		}
+		page, err = foreignAccess.FindCardPage(ctx, m.agent, "match", true, 0, 20)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Sessions) != 0 {
+			t.Fatalf("cross-user search exposed sessions: %#v", page.Sessions)
+		}
+
+		groupAccess, err := m.svc.Begin(ctx, group(m.group, m.agent))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := groupAccess.FindCardPage(ctx, m.agent, "match", true, 0, 20); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("group transcript search error=%v, want ErrNotFound", err)
+		}
+		if _, err := ownerAccess.FindCardPage(ctx, "other-agent", "match", true, 0, 20); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("cross-agent transcript search error=%v, want ErrNotFound", err)
+		}
+	})
+
 	// Keep creation last because the matrix intentionally shares one durable
 	// fixture and list assertions above freeze its pre-create row set.
 	t.Run("durable agent creates a worker session for its owner", func(t *testing.T) {

@@ -59,6 +59,47 @@ FROM grouped
 WHERE logical_idx IN (SELECT logical_idx FROM selected_groups)
 ORDER BY seq ASC;
 
+-- name: ListSessionTranscriptPage :many
+-- Agent-facing transcript pages use a whole user turn as the atomic boundary:
+-- one user row plus every assistant/tool row until the next user row. This keeps
+-- tool calls and their results together even when a page boundary falls nearby.
+WITH ordered AS (
+    SELECT
+        *,
+        lag(seq) OVER (ORDER BY seq ASC) AS prev_seq
+    FROM ctx_message
+    WHERE conversation_id = sqlc.arg('conversation_id')
+), grouped AS (
+    SELECT
+        *,
+        sum(CASE WHEN role = 'user' OR prev_seq IS NULL THEN 1 ELSE 0 END)
+            OVER (ORDER BY seq ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS turn_idx
+    FROM ordered
+), anchor AS (
+    SELECT COALESCE(
+        (
+            SELECT turn_idx
+            FROM grouped
+            WHERE sqlc.narg('anchor_seq')::bigint IS NULL
+               OR seq <= sqlc.narg('anchor_seq')::bigint
+            ORDER BY seq DESC
+            LIMIT 1
+        ),
+        0
+    ) AS turn_idx
+), selected_turns AS (
+    SELECT turn_idx
+    FROM grouped
+    WHERE turn_idx <= (SELECT turn_idx FROM anchor)
+    GROUP BY turn_idx
+    ORDER BY turn_idx DESC
+    LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset')
+)
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at
+FROM grouped
+WHERE turn_idx IN (SELECT turn_idx FROM selected_turns)
+ORDER BY seq ASC;
+
 -- name: GetMessagesByConversationRange :many
 SELECT * FROM ctx_message
 WHERE conversation_id = $1 AND seq >= $2 AND seq <= $3

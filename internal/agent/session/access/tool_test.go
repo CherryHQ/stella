@@ -3,30 +3,39 @@ package access
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"math"
 	"strings"
 	"testing"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/memory/lcm"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-func TestSessionToolUsesRuntimeIdentity(t *testing.T) {
+type staticSessionSearcher struct {
+	results []memory.SearchResult
+	err     error
+}
+
+func (s staticSessionSearcher) Search(context.Context, memory.Session, memory.SearchQuery) ([]memory.SearchResult, error) {
+	return s.results, s.err
+}
+
+func TestSessionToolUsesRuntimeIdentityAndNewSurface(t *testing.T) {
 	m := newSessionMatrix(t)
 	tool := NewTool(m.svc)
 	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), m.owner), m.agent)
 
-	out, err := tool.Execute(ctx, map[string]any{"action": "list", "include_archived": true})
+	out, err := tool.Execute(ctx, map[string]any{"action": "find", "include_archived": true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var list struct {
-		Sessions []sessionToolResponse `json:"sessions"`
+		Sessions []sessionCardResponse `json:"sessions"`
 	}
 	if err := json.Unmarshal([]byte(out), &list); err != nil {
 		t.Fatal(err)
@@ -34,8 +43,16 @@ func TestSessionToolUsesRuntimeIdentity(t *testing.T) {
 	if len(list.Sessions) != 2 {
 		t.Fatalf("session count=%d, want 2", len(list.Sessions))
 	}
+	if strings.Contains(out, `"kind"`) {
+		t.Fatalf("session kind leaked from find: %s", out)
+	}
 	if _, err := tool.Execute(ctx, map[string]any{"action": "get", "session_id": m.private}); err != nil {
 		t.Fatalf("owner get: %v", err)
+	}
+	for _, removed := range []string{"list", "messages"} {
+		if _, err := tool.Execute(ctx, map[string]any{"action": removed}); err == nil {
+			t.Fatalf("removed action %q was accepted", removed)
+		}
 	}
 
 	foreignCtx := authz.WithAgentID(authz.WithUserID(context.Background(), m.other), m.agent)
@@ -47,76 +64,152 @@ func TestSessionToolUsesRuntimeIdentity(t *testing.T) {
 	if !ok {
 		t.Fatal("session tool schema has no properties")
 	}
-	if _, ok := properties["user_id"]; ok {
-		t.Fatal("session tool schema must not expose user identity")
+	for _, hidden := range []string{"user_id", "agent_id", "kind", "skip", "limit"} {
+		if _, ok := properties[hidden]; ok {
+			t.Fatalf("session tool schema must not expose %s", hidden)
+		}
 	}
 }
 
-func TestSessionToolMessagesAreBoundedAndPaged(t *testing.T) {
+func TestSessionFindSearchUsesLCMRetrievalAndExactPrincipalAgentScope(t *testing.T) {
 	m := newSessionMatrix(t)
-	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), m.owner), m.agent)
-	conv, err := m.svc.q.GetConversationBySessionID(ctx, sqlc.GetConversationBySessionIDParams{
-		SessionID: m.private,
-		UserID:    pgtype.Text{String: m.owner, Valid: true},
-		AgentID:   pgtype.Text{String: m.agent, Valid: true},
-	})
+	provider, err := lcm.New(m.db.(*pgxpool.Pool), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for seq, content := range []string{strings.Repeat("x", maxSessionToolMessageText+1), "second"} {
-		if _, err := m.svc.q.CreateMessage(ctx, sqlc.CreateMessageParams{
-			ID: uuid.NewString(), ConversationID: conv.ID, Seq: int64(seq + 1), Role: "user",
-			EventType: "message", Content: content,
-		}); err != nil {
-			t.Fatal(err)
+	m.svc.searcher = provider
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), m.owner), m.agent)
+	appendTranscript(t, provider, memory.Session{ID: m.private, UserID: m.owner, AgentID: m.agent},
+		ai.UserMessage{Content: "rotatedtokenneedle appears in the owner session"},
+		ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "owner result"}}},
+	)
+	// These rows prove the LCM query itself is scoped before Session policy is
+	// applied. They are written through the production append path, not invented
+	// role/event literals.
+	appendTranscript(t, provider, memory.Session{ID: "foreign-user", UserID: m.other, AgentID: m.agent},
+		ai.UserMessage{Content: "rotatedtokenneedle belongs to another user"},
+	)
+	appendTranscript(t, provider, memory.Session{ID: "foreign-agent", UserID: m.owner, AgentID: "other-agent"},
+		ai.UserMessage{Content: "rotatedtokenneedle belongs to another agent"},
+	)
+
+	out, err := NewTool(m.svc).Execute(ctx, map[string]any{"action": "find", "query": "rotatedtokenneedle"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response struct {
+		Sessions []sessionCardResponse `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(out), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Sessions) != 1 || response.Sessions[0].ID != m.private {
+		t.Fatalf("scoped search sessions=%#v, want only %s", response.Sessions, m.private)
+	}
+	card := response.Sessions[0]
+	if !strings.Contains(card.Match, "rotatedtokenneedle") || card.MatchCursor == "" {
+		t.Fatalf("search card lacks bounded match/cursor: %#v", card)
+	}
+	for _, leaked := range []string{"source_type", "source_id", `"kind"`, "summary_id", "depth"} {
+		if strings.Contains(out, leaked) {
+			t.Fatalf("search leaked LCM detail %q: %s", leaked, out)
 		}
 	}
 
-	out, err := NewTool(m.svc).Execute(ctx, map[string]any{
-		"action": "messages", "session_id": m.private, "limit": 1,
+	getOut, err := NewTool(m.svc).Execute(ctx, map[string]any{
+		"action": "get", "session_id": m.private, "cursor": card.MatchCursor, "transcript_page_size": 1,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var page struct {
-		Messages []sessionToolMessage `json:"messages"`
-		HasMore  bool                 `json:"has_more"`
-		NextSkip int                  `json:"next_skip"`
-	}
-	if err := json.Unmarshal([]byte(out), &page); err != nil {
-		t.Fatal(err)
-	}
-	if len(page.Messages) != 1 || page.Messages[0].Content != "second" || !page.HasMore || page.NextSkip != 1 {
-		t.Fatalf("unexpected page: %#v", page)
+	if !strings.Contains(getOut, "rotatedtokenneedle") {
+		t.Fatalf("get around find match missed matching turn: %s", getOut)
 	}
 
-	out, err = NewTool(m.svc).Execute(ctx, map[string]any{
-		"action": "messages", "session_id": m.private, "limit": 1, "skip": 1,
-	})
+	foreignCtx := authz.WithAgentID(authz.WithUserID(context.Background(), m.other), m.agent)
+	foreignOut, err := NewTool(m.svc).Execute(foreignCtx, map[string]any{"action": "find", "query": "rotatedtokenneedle"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := json.Unmarshal([]byte(out), &page); err != nil {
-		t.Fatal(err)
-	}
-	if len(page.Messages) != 1 || page.HasMore || !page.Messages[0].Truncated || len(page.Messages[0].Content) != maxSessionToolMessageText {
-		t.Fatalf("older message was not bounded: %#v", page)
+	if strings.Contains(foreignOut, m.private) {
+		t.Fatalf("cross-user search exposed owner session: %s", foreignOut)
 	}
 }
 
-func TestSessionToolPreservesLogicalAssistantTurnsAndHidesBaselines(t *testing.T) {
-	groups := groupLogicalMessages([]Message{
-		{ID: "user", Role: "user"},
-		{ID: "assistant-text", Role: "assistant"},
-		{ID: "assistant-tool", Role: "assistant"},
-	})
-	if len(groups) != 2 || len(groups[1]) != 2 {
-		t.Fatalf("logical groups=%#v", groups)
+func TestSessionGetIsCompactByDefaultAndPagesWholeToolTurns(t *testing.T) {
+	m := newSessionMatrix(t)
+	provider, err := lcm.New(m.db.(*pgxpool.Pool), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), m.owner), m.agent)
+	appendTranscript(t, provider, memory.Session{ID: m.private, UserID: m.owner, AgentID: m.agent},
+		ai.UserMessage{Content: "first request"},
+		ai.AssistantMessage{Content: []ai.ContentBlock{ai.ToolCall{ID: "call-1", Name: "test_tool", Arguments: map[string]any{"path": "/tmp"}}}},
+		ai.ToolResultMessage{ToolCallID: "call-1", ToolName: "test_tool", Content: []ai.ContentBlock{ai.TextContent{Text: strings.Repeat("x", maxSessionToolOutputText+100)}}},
+		ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "first answer"}}},
+		ai.UserMessage{Content: "second request"},
+		ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "second answer"}}},
+	)
+
+	tool := NewTool(m.svc)
+	compactOut, err := tool.Execute(ctx, map[string]any{"action": "get", "session_id": m.private})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var compact sessionGetResponse
+	if err := json.Unmarshal([]byte(compactOut), &compact); err != nil {
+		t.Fatal(err)
+	}
+	if compact.Transcript != nil || compact.TranscriptCursor == "" || len(compact.Preview) != 1 {
+		t.Fatalf("get default was not compact/cursor-gated: %#v", compact)
+	}
+	if compact.ActiveRequest != nil || len(compact.SupportedOperations) != 1 || compact.SupportedOperations[0] != "get" {
+		t.Fatalf("unexpected compact state: %#v", compact)
 	}
 
+	pageOut, err := tool.Execute(ctx, map[string]any{
+		"action": "get", "session_id": m.private, "cursor": compact.TranscriptCursor, "transcript_page_size": 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var page sessionGetResponse
+	if err := json.Unmarshal([]byte(pageOut), &page); err != nil {
+		t.Fatal(err)
+	}
+	if page.Transcript == nil || len(page.Transcript.Turns) != 1 || !page.Transcript.HasMore || page.Transcript.NextCursor == "" {
+		t.Fatalf("unexpected latest page: %#v", page.Transcript)
+	}
+	if got := page.Transcript.Turns[0].Messages[0].Content; got != "second request" {
+		t.Fatalf("latest turn begins %q, want second request", got)
+	}
+
+	olderOut, err := tool.Execute(ctx, map[string]any{
+		"action": "get", "session_id": m.private, "cursor": page.Transcript.NextCursor, "transcript_page_size": 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(olderOut), &page); err != nil {
+		t.Fatal(err)
+	}
+	messages := page.Transcript.Turns[0].Messages
+	if len(messages) != 4 {
+		t.Fatalf("tool turn split across page: %#v", messages)
+	}
+	if messages[1].Type != "tool_call" || messages[2].Type != "tool_result" || messages[1].ToolCallID != messages[2].ToolCallID {
+		t.Fatalf("tool call/result pairing lost: %#v", messages)
+	}
+	if !messages[2].Truncated || len(messages[2].Content) != maxSessionToolOutputText {
+		t.Fatalf("oversized tool output not bounded: len=%d truncated=%v", len(messages[2].Content), messages[2].Truncated)
+	}
+}
+
+func TestSessionToolTranscriptProjectionHidesMultimodalBaselines(t *testing.T) {
 	remaining := maxSessionToolResultText
 	message := sessionToolMessageFrom(Message{
-		ID: "multimodal", Role: "user", Content: "private model baseline",
+		ID: "multimodal", Role: "user", EventType: "multimodal", Content: "private model baseline",
 		Parts: []MessagePart{{Type: "text", Text: "visible text"}, {Type: "image", MediaID: "media", MimeType: "image/png"}},
 	}, &remaining)
 	encoded, err := json.Marshal(message)
@@ -128,35 +221,35 @@ func TestSessionToolPreservesLogicalAssistantTurnsAndHidesBaselines(t *testing.T
 	}
 }
 
-func TestSessionToolMessageBudgetPreservesNewestContent(t *testing.T) {
-	messages := make([]Message, 0, 7)
-	for i := range 6 {
-		messages = append(messages, Message{ID: fmt.Sprintf("old-%d", i), Content: strings.Repeat("x", maxSessionToolMessageText)})
-	}
-	messages = append(messages, Message{ID: "newest", Content: "latest result"})
-
-	items := sessionToolMessagesFrom(messages)
-	if got := items[len(items)-1].Content; got != "latest result" {
-		t.Fatalf("newest content=%q, want latest result", got)
-	}
-	if !items[0].Truncated {
-		t.Fatal("oldest content should yield budget to newer messages")
-	}
-}
-
-func TestSessionToolRejectsOffsetsThatCannotFitDatabasePagination(t *testing.T) {
+func TestSessionToolRejectsInvalidCursorsAndOffsets(t *testing.T) {
 	m := newSessionMatrix(t)
 	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), m.owner), m.agent)
 	tool := NewTool(m.svc)
 
 	if _, err := tool.Execute(ctx, map[string]any{
-		"action": "list", "page_token": tools.OffsetToken(math.MaxInt32),
+		"action": "find", "page_token": tools.OffsetToken(math.MaxInt32),
 	}); err == nil || !strings.Contains(err.Error(), "invalid pagination") {
-		t.Fatalf("large list offset error=%v, want invalid pagination", err)
+		t.Fatalf("large find offset error=%v, want invalid pagination", err)
 	}
 	if _, err := tool.Execute(ctx, map[string]any{
-		"action": "messages", "session_id": m.private, "skip": math.MaxInt32,
-	}); err == nil || !strings.Contains(err.Error(), "invalid message pagination") {
-		t.Fatalf("large message offset error=%v, want invalid message pagination", err)
+		"action": "get", "session_id": m.private, "cursor": "not-a-cursor",
+	}); err == nil || !strings.Contains(err.Error(), "invalid transcript cursor") {
+		t.Fatalf("invalid get cursor error=%v", err)
+	}
+	otherCursor, err := encodeTranscriptCursor(transcriptCursor{Version: sessionTranscriptCursorVersion, SessionID: m.internal})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tool.Execute(ctx, map[string]any{
+		"action": "get", "session_id": m.private, "cursor": otherCursor,
+	}); err == nil || !strings.Contains(err.Error(), "invalid transcript cursor") {
+		t.Fatalf("cross-session cursor error=%v", err)
+	}
+}
+
+func appendTranscript(t *testing.T, provider *lcm.Provider, session memory.Session, messages ...ai.Message) {
+	t.Helper()
+	if err := provider.Append(context.Background(), session, messages...); err != nil {
+		t.Fatalf("append production transcript for %s: %v", session.ID, err)
 	}
 }

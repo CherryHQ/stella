@@ -38,6 +38,7 @@ var (
 type Service struct {
 	registry *agentsession.Registry
 	memory   memory.SessionManager
+	searcher memory.Searcher
 	q        *sqlc.Queries
 	store    config.Store
 	agents   *agentaccess.Service
@@ -67,7 +68,8 @@ func NewService(mem memory.Provider, db sqlc.DBTX, store config.Store, assets *a
 	if err != nil {
 		return nil, fmt.Errorf("session access: registry: %w", err)
 	}
-	svc := &Service{registry: registry, memory: sm, q: sqlc.New(db), store: store, agents: agents, assets: assets}
+	searcher, _ := mem.(memory.Searcher)
+	svc := &Service{registry: registry, memory: sm, searcher: searcher, q: sqlc.New(db), store: store, agents: agents, assets: assets}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(svc)

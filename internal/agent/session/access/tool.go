@@ -2,6 +2,8 @@ package access
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -14,17 +16,21 @@ import (
 )
 
 const (
-	sessionToolName           = "session"
-	defaultSessionToolPage    = 20
-	maxSessionToolPage        = 100
-	maxSessionToolMessagePage = 20
-	maxSessionToolMessageText = 12_000
-	maxSessionToolResultText  = 64_000
+	sessionToolName                = "session"
+	defaultSessionToolPage         = 20
+	maxSessionToolPage             = 100
+	defaultSessionTranscriptPage   = 3
+	maxSessionTranscriptPage       = 5
+	maxSessionToolMessageText      = 12_000
+	maxSessionToolOutputText       = 8_000
+	maxSessionToolResultText       = 64_000
+	maxSessionToolPreviewText      = 12_000
+	sessionTranscriptCursorVersion = 1
 )
 
-// Tool exposes read-only session discovery to an agent. Identity always comes
-// from the runtime context; model arguments cannot select another owner or
-// executor.
+// Tool exposes bounded Session discovery and inspection. Identity always comes
+// from the runtime context; model arguments cannot select another principal or
+// Agent.
 type Tool struct{ svc *Service }
 
 func NewTool(svc *Service) *Tool { return &Tool{svc: svc} }
@@ -32,26 +38,22 @@ func NewTool(svc *Service) *Tool { return &Tool{svc: svc} }
 func (t *Tool) Definition() tools.Definition {
 	return tools.Definition{
 		Name:        sessionToolName,
-		Description: "List and inspect this agent's sessions for the current user. Use delegate to create or resume isolated child sessions, and memory search to find content across session history. This tool is read-only.",
+		Description: "Find and inspect this agent's sessions for the current user. Use find without a query for recent sessions or with a query to search transcripts. Get is compact by default; pass a cursor returned by find/get to page a bounded raw transcript. This tool is read-only.",
 		InputSchema: tools.MustInputSchema(`{
   "type": "object",
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["get", "list", "messages"],
-      "description": "Required parameters by action: get(session_id); messages(session_id)."
+      "enum": ["find", "get"],
+      "description": "Required parameters by action: find(); get(session_id)."
     },
     "session_id": {"type": "string"},
-    "kind": {
-      "type": "string",
-      "enum": ["main", "chat", "delegate", "task", "scheduler"]
-    },
-    "project_id": {"type": "string"},
+    "query": {"type": "string", "description": "Optional transcript search for find. Natural-language retrieval inside get is not supported."},
     "include_archived": {"type": "boolean", "default": false},
-    "page_size": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
-    "page_token": {"type": "string"},
-    "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 20},
-    "skip": {"type": "integer", "minimum": 0, "default": 0}
+    "page_size": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Number of cards returned by find."},
+    "page_token": {"type": "string", "description": "Opaque find cursor; pass it back unchanged."},
+    "cursor": {"type": "string", "description": "Opaque get transcript cursor returned by find/get; pass it back unchanged."},
+    "transcript_page_size": {"type": "integer", "minimum": 1, "maximum": 5, "description": "Number of whole logical turns returned by get when cursor is set."}
   },
   "required": ["action"]
 }`),
@@ -81,12 +83,10 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 
 	var result any
 	switch action {
-	case "list":
-		result, err = executeSessionList(ctx, access, ident.AgentID, args)
+	case "find":
+		result, err = executeSessionFind(ctx, access, ident.AgentID, args)
 	case "get":
 		result, err = executeSessionGet(ctx, access, ident.AgentID, args)
-	case "messages":
-		result, err = executeSessionMessages(ctx, access, ident.AgentID, args)
 	default:
 		return "", fmt.Errorf("unknown session action %q", action)
 	}
@@ -96,25 +96,20 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	return tools.MarshalResult(result)
 }
 
-type sessionListInput struct {
-	Kind            string `json:"kind,omitempty"`
-	ProjectID       string `json:"project_id,omitempty"`
+type sessionFindInput struct {
+	Query           string `json:"query,omitempty"`
 	IncludeArchived bool   `json:"include_archived,omitempty"`
 	PageSize        int    `json:"page_size,omitempty"`
 	PageToken       string `json:"page_token,omitempty"`
 }
 
-type sessionIDInput struct {
-	SessionID string `json:"session_id"`
+type sessionGetInput struct {
+	SessionID          string `json:"session_id"`
+	Cursor             string `json:"cursor,omitempty"`
+	TranscriptPageSize int    `json:"transcript_page_size,omitempty"`
 }
 
-type sessionMessagesInput struct {
-	SessionID string `json:"session_id"`
-	Limit     int    `json:"limit,omitempty"`
-	Skip      int    `json:"skip,omitempty"`
-}
-
-type sessionToolResponse struct {
+type sessionCardResponse struct {
 	ID            string `json:"id"`
 	Title         string `json:"title"`
 	Summary       string `json:"summary"`
@@ -122,24 +117,46 @@ type sessionToolResponse struct {
 	Sendable      bool   `json:"sendable"`
 	LastActive    string `json:"last_active"`
 	TurnStartedAt string `json:"turn_started_at,omitempty"`
+	Match         string `json:"match,omitempty"`
+	MatchCursor   string `json:"match_cursor,omitempty"`
+}
 
-	// Compatibility fields retained until Phase 2 replaces list/get shapes.
-	Kind      string `json:"kind"`
-	Channel   string `json:"channel"`
-	ProjectID string `json:"project_id,omitempty"`
-	CreatedAt string `json:"created_at"`
-	Archived  bool   `json:"archived"`
+type sessionGetResponse struct {
+	sessionCardResponse
+	ActiveRequest       any                     `json:"active_request"`
+	LatestResult        *sessionTerminalResult  `json:"latest_result"`
+	SupportedOperations []string                `json:"supported_operations"`
+	Preview             []sessionTranscriptTurn `json:"preview,omitempty"`
+	TranscriptCursor    string                  `json:"transcript_cursor,omitempty"`
+	Transcript          *sessionTranscriptPage  `json:"transcript,omitempty"`
+}
+
+type sessionTerminalResult struct {
+	Status      string `json:"status"`
+	CompletedAt string `json:"completed_at"`
+}
+
+type sessionTranscriptPage struct {
+	Turns      []sessionTranscriptTurn `json:"turns"`
+	HasMore    bool                    `json:"has_more"`
+	NextCursor string                  `json:"next_cursor,omitempty"`
+}
+
+type sessionTranscriptTurn struct {
+	Messages []sessionToolMessage `json:"messages"`
 }
 
 type sessionToolMessage struct {
-	ID        string            `json:"id"`
-	Seq       int64             `json:"seq"`
-	Role      string            `json:"role"`
-	EventType string            `json:"event_type,omitempty"`
-	Content   string            `json:"content"`
-	Parts     []toolMessagePart `json:"parts,omitempty"`
-	CreatedAt string            `json:"created_at"`
-	Truncated bool              `json:"truncated,omitempty"`
+	ID         string            `json:"id"`
+	Seq        int64             `json:"seq"`
+	Role       string            `json:"role"`
+	Type       string            `json:"type"`
+	Content    string            `json:"content,omitempty"`
+	ToolCallID string            `json:"tool_call_id,omitempty"`
+	ToolName   string            `json:"tool_name,omitempty"`
+	Parts      []toolMessagePart `json:"parts,omitempty"`
+	CreatedAt  string            `json:"created_at"`
+	Truncated  bool              `json:"truncated,omitempty"`
 }
 
 type toolMessagePart struct {
@@ -150,8 +167,15 @@ type toolMessagePart struct {
 	Truncated bool   `json:"truncated,omitempty"`
 }
 
-func executeSessionList(ctx context.Context, access *Access, agentID string, args map[string]any) (any, error) {
-	var in sessionListInput
+type transcriptCursor struct {
+	Version   int    `json:"v"`
+	SessionID string `json:"session_id"`
+	AnchorSeq int64  `json:"anchor_seq,omitempty"`
+	Offset    int    `json:"offset,omitempty"`
+}
+
+func executeSessionFind(ctx context.Context, access *Access, agentID string, args map[string]any) (any, error) {
+	var in sessionFindInput
 	if err := tools.DecodeInput(args, &in, nil); err != nil {
 		return nil, err
 	}
@@ -159,25 +183,41 @@ func executeSessionList(ctx context.Context, access *Access, agentID string, arg
 	if err != nil || offset > math.MaxInt32-limit-1 {
 		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxSessionToolPage)
 	}
-	opts := agentsession.ListOptions{
-		IncludeArchived: in.IncludeArchived,
-		ProjectID:       in.ProjectID,
-		Offset:          offset,
-	}
-	if in.Kind != "" {
-		kind := agentsession.Kind(in.Kind)
-		if !validSessionToolKind(kind) {
-			return nil, fmt.Errorf("invalid session kind %q", in.Kind)
+	query := strings.TrimSpace(in.Query)
+	if query == "" {
+		page, err := access.ListCardPage(ctx, agentID, agentsession.ListOptions{
+			IncludeArchived: in.IncludeArchived,
+			Offset:          offset,
+		}, limit)
+		if err != nil {
+			return nil, err
 		}
-		opts.Kinds = []agentsession.Kind{kind}
+		items := make([]sessionCardResponse, 0, len(page.Sessions))
+		for _, card := range page.Sessions {
+			items = append(items, sessionCardFrom(card))
+		}
+		response := map[string]any{"sessions": items}
+		if page.HasMore {
+			response["next_page_token"] = tools.OffsetToken(page.NextOffset)
+		}
+		return response, nil
 	}
-	page, err := access.ListCardPage(ctx, agentID, opts, limit)
+
+	page, err := access.FindCardPage(ctx, agentID, query, in.IncludeArchived, offset, limit)
 	if err != nil {
 		return nil, err
 	}
-	items := make([]sessionToolResponse, 0, len(page.Sessions))
-	for i, card := range page.Sessions {
-		items = append(items, sessionToolSummary(card, page.infos[i]))
+	items := make([]sessionCardResponse, 0, len(page.Sessions))
+	for _, matched := range page.Sessions {
+		item := sessionCardFrom(matched.Card)
+		item.Match = matched.Match
+		item.MatchCursor, err = encodeTranscriptCursor(transcriptCursor{
+			Version: sessionTranscriptCursorVersion, SessionID: matched.Card.ID, AnchorSeq: matched.Anchor.Seq,
+		})
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
 	}
 	response := map[string]any{"sessions": items}
 	if page.HasMore {
@@ -187,7 +227,7 @@ func executeSessionList(ctx context.Context, access *Access, agentID string, arg
 }
 
 func executeSessionGet(ctx context.Context, access *Access, agentID string, args map[string]any) (any, error) {
-	var in sessionIDInput
+	var in sessionGetInput
 	if err := tools.DecodeInput(args, &in, []string{"session_id"}); err != nil {
 		return nil, err
 	}
@@ -199,45 +239,70 @@ func executeSessionGet(ctx context.Context, access *Access, agentID string, args
 	if err != nil {
 		return nil, err
 	}
-	return sessionToolSummary(cards[0], info), nil
-}
+	response := sessionGetResponse{
+		sessionCardResponse: sessionCardFrom(cards[0]),
+		ActiveRequest:       nil, // Session Requests arrive in Phase 3+.
+		SupportedOperations: []string{"get"},
+	}
+	if info.LastTurnResult.Valid() && !info.LastTurnCompletedAt.IsZero() {
+		response.LatestResult = &sessionTerminalResult{
+			Status: string(info.LastTurnResult), CompletedAt: info.LastTurnCompletedAt.UTC().Format(time.RFC3339),
+		}
+	}
 
-func executeSessionMessages(ctx context.Context, access *Access, agentID string, args map[string]any) (any, error) {
-	var in sessionMessagesInput
-	if err := tools.DecodeInput(args, &in, []string{"session_id"}); err != nil {
+	if in.Cursor == "" {
+		messages, err := access.ListTranscriptPage(ctx, TranscriptPageInput{
+			AgentID: agentID, SessionID: in.SessionID, Limit: 1,
+		})
+		if err != nil {
+			return nil, err
+		}
+		response.Preview = sessionTranscriptTurns(messages, maxSessionToolPreviewText)
+		response.TranscriptCursor, err = encodeTranscriptCursor(transcriptCursor{
+			Version: sessionTranscriptCursorVersion, SessionID: in.SessionID,
+		})
+		return response, err
+	}
+
+	cursor, err := decodeTranscriptCursor(in.Cursor, in.SessionID)
+	if err != nil {
 		return nil, err
 	}
-	if in.Limit == 0 {
-		in.Limit = defaultSessionToolPage
+	pageSize := in.TranscriptPageSize
+	if pageSize == 0 {
+		pageSize = defaultSessionTranscriptPage
 	}
-	if in.Limit < 1 || in.Limit > maxSessionToolMessagePage || in.Skip < 0 || in.Skip > math.MaxInt32-in.Limit-1 {
-		return nil, fmt.Errorf("invalid message pagination — use limit between 1 and %d and skip of zero or greater", maxSessionToolMessagePage)
+	if pageSize < 1 || pageSize > maxSessionTranscriptPage || cursor.Offset > math.MaxInt32-pageSize-1 {
+		return nil, fmt.Errorf("invalid transcript pagination — use page_size between 1 and %d and pass cursor unchanged", maxSessionTranscriptPage)
 	}
-	messages, err := access.ListMessages(ctx, MessageListInput{
-		AgentID: agentID, SessionID: in.SessionID, Limit: in.Limit + 1, Skip: in.Skip,
+	messages, err := access.ListTranscriptPage(ctx, TranscriptPageInput{
+		AgentID: agentID, SessionID: in.SessionID, AnchorSeq: cursor.AnchorSeq,
+		Offset: cursor.Offset, Limit: pageSize + 1,
 	})
 	if err != nil {
 		return nil, err
 	}
-	groups := groupLogicalMessages(messages)
-	hasMore := len(groups) > in.Limit
+	groups := groupLogicalTurns(messages)
+	hasMore := len(groups) > pageSize
 	if hasMore {
-		groups = groups[len(groups)-in.Limit:]
+		groups = groups[len(groups)-pageSize:]
 	}
-	messages = flattenMessageGroups(groups)
-	items := sessionToolMessagesFrom(messages)
-	response := map[string]any{"messages": items, "has_more": hasMore}
+	page := &sessionTranscriptPage{Turns: sessionTranscriptTurnsFromGroups(groups, maxSessionToolResultText), HasMore: hasMore}
 	if hasMore {
-		response["next_skip"] = in.Skip + in.Limit
+		cursor.Offset += pageSize
+		page.NextCursor, err = encodeTranscriptCursor(cursor)
+		if err != nil {
+			return nil, err
+		}
 	}
+	response.Transcript = page
 	return response, nil
 }
 
-func sessionToolSummary(card Card, info agentsession.Info) sessionToolResponse {
-	response := sessionToolResponse{
-		ID: card.ID, Title: card.Title, Summary: card.Summary, State: card.State, Sendable: card.Sendable,
-		Kind: info.Kind, Channel: info.Channel, ProjectID: info.ProjectID, Archived: info.Archived,
-		CreatedAt: info.CreatedAt.UTC().Format(time.RFC3339), LastActive: card.LastActive.UTC().Format(time.RFC3339),
+func sessionCardFrom(card Card) sessionCardResponse {
+	response := sessionCardResponse{
+		ID: card.ID, Title: card.Title, Summary: card.Summary, State: card.State,
+		Sendable: card.Sendable, LastActive: card.LastActive.UTC().Format(time.RFC3339),
 	}
 	if !card.TurnStartedAt.IsZero() {
 		response.TurnStartedAt = card.TurnStartedAt.UTC().Format(time.RFC3339)
@@ -245,55 +310,57 @@ func sessionToolSummary(card Card, info agentsession.Info) sessionToolResponse {
 	return response
 }
 
-func validSessionToolKind(kind agentsession.Kind) bool {
-	switch kind {
-	case agentsession.KindMain, agentsession.KindChat, agentsession.KindDelegate, agentsession.KindTask, agentsession.KindScheduler:
-		return true
-	default:
-		return false
+func encodeTranscriptCursor(cursor transcriptCursor) (string, error) {
+	data, err := json.Marshal(cursor)
+	if err != nil {
+		return "", fmt.Errorf("encode transcript cursor: %w", err)
 	}
+	return base64.RawURLEncoding.EncodeToString(data), nil
 }
 
-// Keep this logical-message boundary in sync with ListMessagesByLogicalPage in
-// internal/db/queries/ctx_message.sql and serializeDBMessages in
-// internal/server/sessions.go.
-func groupLogicalMessages(messages []Message) [][]Message {
-	groups := make([][]Message, 0, len(messages))
+func decodeTranscriptCursor(value, sessionID string) (transcriptCursor, error) {
+	data, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return transcriptCursor{}, fmt.Errorf("invalid transcript cursor — pass a cursor returned by find/get unchanged")
+	}
+	var cursor transcriptCursor
+	if err := json.Unmarshal(data, &cursor); err != nil || cursor.Version != sessionTranscriptCursorVersion || cursor.SessionID != sessionID || cursor.AnchorSeq < 0 || cursor.Offset < 0 {
+		return transcriptCursor{}, fmt.Errorf("invalid transcript cursor — pass a cursor returned by find/get unchanged")
+	}
+	return cursor, nil
+}
+
+func groupLogicalTurns(messages []Message) [][]Message {
+	groups := make([][]Message, 0)
 	for _, message := range messages {
-		if len(groups) == 0 || message.Role != "assistant" {
+		if len(groups) == 0 || message.Role == "user" {
 			groups = append(groups, []Message{message})
 			continue
 		}
 		last := len(groups) - 1
-		previous := groups[last][len(groups[last])-1]
-		if previous.Role != "assistant" {
-			groups = append(groups, []Message{message})
-			continue
-		}
 		groups[last] = append(groups[last], message)
 	}
 	return groups
 }
 
-func flattenMessageGroups(groups [][]Message) []Message {
-	var count int
-	for _, group := range groups {
-		count += len(group)
-	}
-	messages := make([]Message, 0, count)
-	for _, group := range groups {
-		messages = append(messages, group...)
-	}
-	return messages
+func sessionTranscriptTurns(messages []Message, budget int) []sessionTranscriptTurn {
+	return sessionTranscriptTurnsFromGroups(groupLogicalTurns(messages), budget)
 }
 
-func sessionToolMessagesFrom(messages []Message) []sessionToolMessage {
+func sessionTranscriptTurnsFromGroups(groups [][]Message, budget int) []sessionTranscriptTurn {
+	turns := make([]sessionTranscriptTurn, len(groups))
+	remaining := budget
+	// Recent turns yield last when the aggregate page budget is exhausted.
+	for i := len(groups) - 1; i >= 0; i-- {
+		turns[i].Messages = sessionToolMessagesFrom(groups[i], &remaining)
+	}
+	return turns
+}
+
+func sessionToolMessagesFrom(messages []Message, remaining *int) []sessionToolMessage {
 	items := make([]sessionToolMessage, len(messages))
-	remainingText := maxSessionToolResultText
-	// The query returns chronological rows for display, but recent context is
-	// more valuable when the aggregate output budget cannot hold the whole page.
 	for i := len(messages) - 1; i >= 0; i-- {
-		items[i] = sessionToolMessageFrom(messages[i], &remainingText)
+		items[i] = sessionToolMessageFrom(messages[i], remaining)
 	}
 	return items
 }
@@ -308,18 +375,53 @@ func visibleSessionPartText(parts []MessagePart) string {
 	return strings.Join(text, "\n")
 }
 
-func sessionToolMessageFrom(message Message, remainingText *int) sessionToolMessage {
+type storedToolCall struct {
+	ID   string          `json:"id"`
+	Tool string          `json:"tool"`
+	Args json.RawMessage `json:"args"`
+}
+
+type storedToolResult struct {
+	ID     string          `json:"id"`
+	Tool   string          `json:"tool"`
+	Result json.RawMessage `json:"result"`
+	Error  string          `json:"error"`
+}
+
+func sessionToolMessageFrom(message Message, remaining *int) sessionToolMessage {
 	visibleContent := message.Content
+	itemType := message.EventType
+	toolCallID, toolName := "", ""
+	perMessageLimit := maxSessionToolMessageText
+
+	switch message.EventType {
+	case "tool_call":
+		var call storedToolCall
+		if json.Unmarshal([]byte(message.Content), &call) == nil {
+			toolCallID, toolName, visibleContent = call.ID, call.Tool, string(call.Args)
+		}
+	case "tool_result":
+		perMessageLimit = maxSessionToolOutputText
+		var result storedToolResult
+		if json.Unmarshal([]byte(message.Content), &result) == nil {
+			toolCallID, toolName = result.ID, result.Tool
+			visibleContent = rawJSONText(result.Result)
+			if visibleContent == "" {
+				visibleContent = result.Error
+			}
+		}
+	}
 	if len(message.Parts) > 0 {
 		visibleContent = visibleSessionPartText(message.Parts)
 	}
-	content, truncated := truncateSessionToolText(visibleContent, remainingText)
+	content, truncated := truncateSessionToolText(visibleContent, remaining, perMessageLimit)
 	item := sessionToolMessage{
-		ID: message.ID, Seq: message.Seq, Role: message.Role, EventType: message.EventType,
-		Content: content, CreatedAt: message.CreatedAt.UTC().Format(time.RFC3339), Truncated: truncated,
+		ID: message.ID, Seq: message.Seq, Role: message.Role, Type: itemType,
+		Content: content, ToolCallID: toolCallID, ToolName: toolName,
+		CreatedAt: message.CreatedAt.UTC().Format(time.RFC3339), Truncated: truncated,
 	}
 	for _, part := range message.Parts {
-		text, partTruncated := truncateSessionToolText(part.Text, remainingText)
+		text, partTruncated := truncateSessionToolText(part.Text, remaining, perMessageLimit)
 		item.Parts = append(item.Parts, toolMessagePart{
 			Type: part.Type, Text: text, MediaID: part.MediaID, MimeType: part.MimeType, Truncated: partTruncated,
 		})
@@ -327,8 +429,19 @@ func sessionToolMessageFrom(message Message, remainingText *int) sessionToolMess
 	return item
 }
 
-func truncateSessionToolText(text string, remaining *int) (string, bool) {
-	limit := min(maxSessionToolMessageText, *remaining)
+func rawJSONText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text
+	}
+	return string(raw)
+}
+
+func truncateSessionToolText(text string, remaining *int, perMessageLimit int) (string, bool) {
+	limit := min(perMessageLimit, *remaining)
 	if limit <= 0 {
 		return "", text != ""
 	}
@@ -340,9 +453,9 @@ func truncateSessionToolText(text string, remaining *int) (string, bool) {
 func mapSessionToolError(err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return fmt.Errorf("session not found — check the id with action=list")
+		return fmt.Errorf("session not found — check the id with action=find")
 	case errors.Is(err, ErrForbidden):
-		return fmt.Errorf("session access denied — use action=list to see sessions available to this agent")
+		return fmt.Errorf("session access denied — use action=find to see sessions available to this agent")
 	default:
 		return err
 	}
