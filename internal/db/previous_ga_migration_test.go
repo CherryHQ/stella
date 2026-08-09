@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
+	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -24,30 +25,36 @@ const (
 	// this test into a green lie.
 	previousGAVersion = int64(20260725161331)
 	// Library V1, channel guest sessions/indexes, channel allowlist backfill, and
-	// session activity and per-message actor provenance are the post-anchor
-	// migrations exercised below.
-	currentMigrationVersion = sequentialAnchor + 9
+	// session activity, per-message actor provenance, and legacy actor backfill
+	// are the post-anchor migrations exercised below.
+	currentMigrationVersion = sequentialAnchor + 10
 
-	previousGAUserID         = "00000000-0000-0000-0000-000000000001"
-	previousGAGroupID        = "00000000-0000-0000-0000-000000000002"
-	previousGAOlderChatID    = "00000000-0000-0000-0000-000000000009"
-	previousGAOldChatID      = "00000000-0000-0000-0000-000000000003"
-	previousGANewChatID      = "00000000-0000-0000-0000-000000000004"
-	previousGAMessageID      = "00000000-0000-0000-0000-000000000005"
-	previousGAPartID         = "00000000-0000-0000-0000-000000000006"
-	previousGAMediaID        = "00000000-0000-0000-0000-000000000007"
-	previousGAWebhookID      = "00000000-0000-0000-0000-000000000008"
-	previousGALibraryFile    = "00000000-0000-0000-0000-000000000041"
-	previousGAChunkSet       = "00000000-0000-0000-0000-000000000042"
-	previousGAChunk          = "00000000-0000-0000-0000-000000000043"
-	previousGAGuestID        = "00000000-0000-0000-0000-000000000044"
-	previousGAGuestChatID    = "00000000-0000-0000-0000-000000000045"
-	previousGAAgentID        = "previous-ga-agent"
-	previousGACascadeAgentID = "previous-ga-cascade-agent"
-	previousGAProviderID     = "previous-ga-provider"
-	previousGAOlderSession   = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:zz"
-	previousGAOldSession     = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:a"
-	previousGANewSession     = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:z"
+	previousGAUserID          = "00000000-0000-0000-0000-000000000001"
+	previousGAGroupID         = "00000000-0000-0000-0000-000000000002"
+	previousGAOlderChatID     = "00000000-0000-0000-0000-000000000009"
+	previousGAOldChatID       = "00000000-0000-0000-0000-000000000003"
+	previousGANewChatID       = "00000000-0000-0000-0000-000000000004"
+	previousGAMessageID       = "00000000-0000-0000-0000-000000000005"
+	previousGAPartID          = "00000000-0000-0000-0000-000000000006"
+	previousGAMediaID         = "00000000-0000-0000-0000-000000000007"
+	previousGAWebhookID       = "00000000-0000-0000-0000-000000000008"
+	previousGADelegateChatID  = "00000000-0000-0000-0000-000000000051"
+	previousGASchedulerChatID = "00000000-0000-0000-0000-000000000052"
+	previousGATaskChatID      = "00000000-0000-0000-0000-000000000053"
+	previousGADelegateMsgID   = "00000000-0000-0000-0000-000000000054"
+	previousGASchedulerMsgID  = "00000000-0000-0000-0000-000000000055"
+	previousGATaskMsgID       = "00000000-0000-0000-0000-000000000056"
+	previousGALibraryFile     = "00000000-0000-0000-0000-000000000041"
+	previousGAChunkSet        = "00000000-0000-0000-0000-000000000042"
+	previousGAChunk           = "00000000-0000-0000-0000-000000000043"
+	previousGAGuestID         = "00000000-0000-0000-0000-000000000044"
+	previousGAGuestChatID     = "00000000-0000-0000-0000-000000000045"
+	previousGAAgentID         = "previous-ga-agent"
+	previousGACascadeAgentID  = "previous-ga-cascade-agent"
+	previousGAProviderID      = "previous-ga-provider"
+	previousGAOlderSession    = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:zz"
+	previousGAOldSession      = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:a"
+	previousGANewSession      = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:z"
 )
 
 var previousGATime = time.Date(2026, time.July, 25, 12, 0, 0, 0, time.UTC)
@@ -164,6 +171,23 @@ func seedPreviousGAData(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
 		previousGANewChatID, previousGANewSession)
 	exec("legacy message", `INSERT INTO ctx_message (id, conversation_id, seq, role, content, token_count, created_at) VALUES ($1, $2, 1, 'user', 'legacy media parent', 1, $3)`, previousGAMessageID, previousGANewChatID, previousGATime)
 	exec("legacy message part", `INSERT INTO ctx_message_part (id, message_id, part_type, ordinal, text_content) VALUES ($1, $2, 'text', 0, 'legacy media child')`, previousGAPartID, previousGAMessageID)
+	exec("legacy internal conversations", `
+		INSERT INTO ctx_conversation (id, session_id, channel, kind, archived, last_active, agent_id, user_id, created_at, updated_at)
+		VALUES
+			($1, 'previous-ga-delegate', 'delegate', $4, false, $7, $8, $9, $7, $7),
+			($2, 'previous-ga-scheduler', 'scheduler', $5, false, $7, $8, $9, $7, $7),
+			($3, 'previous-ga-task', 'task', $6, false, $7, $8, $9, $7, $7)`,
+		previousGADelegateChatID, previousGASchedulerChatID, previousGATaskChatID,
+		string(session.KindDelegate), string(session.KindScheduler), string(session.KindTask),
+		previousGATime, previousGAAgentID, previousGAUserID)
+	exec("legacy internal user-role messages", `
+		INSERT INTO ctx_message (id, conversation_id, seq, role, content, token_count, created_at)
+		VALUES
+			($1, $4, 1, 'user', 'legacy delegate input', 1, $7),
+			($2, $5, 1, 'user', 'legacy scheduler input', 1, $7),
+			($3, $6, 1, 'user', 'legacy task input', 1, $7)`,
+		previousGADelegateMsgID, previousGASchedulerMsgID, previousGATaskMsgID,
+		previousGADelegateChatID, previousGASchedulerChatID, previousGATaskChatID, previousGATime)
 
 	exec("vault entries", `
 		INSERT INTO vault_entry (id, scope, name, ciphertext, created_at, updated_at) VALUES
@@ -208,6 +232,21 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 	if legacyActorType != "human" {
 		t.Fatalf("defaulted legacy message actor=%q, want human", legacyActorType)
+	}
+	for _, tc := range []struct {
+		name, messageID, want string
+	}{
+		{name: "delegate", messageID: previousGADelegateMsgID, want: "agent"},
+		{name: "scheduler", messageID: previousGASchedulerMsgID, want: "system"},
+		{name: "task", messageID: previousGATaskMsgID, want: "system"},
+	} {
+		var actorType string
+		if err := db.QueryRow(ctx, `SELECT actor_type FROM ctx_message WHERE id = $1`, tc.messageID).Scan(&actorType); err != nil {
+			t.Fatalf("read backfilled %s actor: %v", tc.name, err)
+		}
+		if actorType != tc.want {
+			t.Fatalf("backfilled %s actor=%q, want %q", tc.name, actorType, tc.want)
+		}
 	}
 	if _, err := db.Exec(ctx, `
 		INSERT INTO auth_provisioned_user (id, external_id, user_id, created_by_user_id, created_by_token_id)
