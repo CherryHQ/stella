@@ -722,6 +722,18 @@ components:
     ManifestPlugin: {
       $ref: "./components.yaml#/components/schemas/ManifestPlugin",
     }
+    ManifestPluginDefinition: {
+      $ref: "./components.yaml#/components/schemas/ManifestPluginDefinition",
+    }
+    ManifestPluginInput: {
+      $ref: "./components.yaml#/components/schemas/ManifestPluginInput",
+    }
+    ManifestPluginDefinitionField: {
+      $ref: "./components.yaml#/components/schemas/ManifestPluginDefinitionField",
+    }
+    SaveManifestPluginDefinitionRequest: {
+      $ref: "./components.yaml#/components/schemas/SaveManifestPluginDefinitionRequest",
+    }
     Goal: { $ref: "./components.yaml#/components/schemas/Goal" }
     GoalList: {
       $ref: "./components.yaml#/components/schemas/GoalList",

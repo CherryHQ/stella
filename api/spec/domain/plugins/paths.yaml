@@ -175,18 +175,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [plugin]
-              properties:
-                plugin: {
-                  $ref: "../../components.yaml#/components/schemas/ManifestPlugin",
-                }
-                fields:
-                  type: array
-                  description: >
-                    Definition fields this request takes ownership of, e.g.
-                    ["binaries"]. Builtin plugins only.
-                  items: { type: string }
+              $ref: "../../components.yaml#/components/schemas/SaveManifestPluginDefinitionRequest"
       responses:
         "200":
           description: ok

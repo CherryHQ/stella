@@ -109,7 +109,7 @@ describe("changedManifestPluginFields", () => {
     expect(
       changedManifestPluginFields(initial, {
         ...initial,
-        binaries: [{ version: "1.0.0", tool: "github:example/x", name: "x", bin_path: undefined }],
+        binaries: [{ version: "1.0.0", tool: "github:example/x", name: "x", options: undefined }],
         session_env: [{ required: true, source: "static", env_var: "TOKEN" }],
       }),
     ).toEqual([]);

@@ -2436,9 +2436,191 @@ components:
         config:
           type: object
           additionalProperties: true
+    ManifestBinary:
+      type: object
+      additionalProperties: false
+      required: [name, tool]
+      properties:
+        name:
+          type: string
+          description: Binary name installed into Stella's bin directory.
+        tool:
+          type: string
+          description: mise tool key, such as github:cli/cli or npm:serve.
+        version:
+          type: string
+          description: Version to install. Defaults to latest when omitted.
+        options:
+          type: object
+          additionalProperties: true
+          description: mise backend options.
+    ManifestSkill:
+      type: object
+      additionalProperties: false
+      required: [repo, name]
+      properties:
+        repo:
+          type: string
+        name:
+          type: string
+    ManifestSessionEnv:
+      type: object
+      additionalProperties: false
+      required: [env_var, source]
+      properties:
+        env_var:
+          type: string
+        source:
+          type: string
+          description: Value source, such as static or oauth.access_token.
+        value:
+          type: string
+        required:
+          type: boolean
+    ManifestPluginDefinition:
+      type: object
+      additionalProperties: false
+      required: [name, display_name, description]
+      properties:
+        name:
+          type: string
+        display_name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+          description: Optional settings UI grouping hint.
+        prompt:
+          type: string
+        binaries:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManifestBinary"
+        skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManifestSkill"
+        session_env:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManifestSessionEnv"
+        oauth_provider:
+          type: string
     ManifestPlugin:
       type: object
-      additionalProperties: true
+      additionalProperties: false
+      required: [id, kind, name, display_name, description, enabled]
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+        name:
+          type: string
+        display_name:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        category:
+          type: string
+          description: Optional settings UI grouping hint.
+        essential:
+          type: boolean
+          description: Server policy indicating that the plugin cannot be disabled.
+        prompt:
+          type: string
+        binaries:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManifestBinary"
+        skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManifestSkill"
+        session_env:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManifestSessionEnv"
+        oauth_provider:
+          type: string
+        builtin:
+          type: boolean
+          readOnly: true
+          description: Whether the plugin definition ships with the server.
+        overridden_fields:
+          type: array
+          readOnly: true
+          description: Definition fields owned by the stored override.
+          items:
+            $ref: "#/components/schemas/ManifestPluginDefinitionField"
+    ManifestPluginInput:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          description: Ignored; the URL identifies the plugin.
+        kind:
+          type: string
+          description: Must match the kind in the URL when supplied.
+        name:
+          type: string
+        display_name:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+          description: Used for admin-added plugins and ignored for builtins.
+        category:
+          type: string
+          description: Optional settings UI grouping hint.
+        essential:
+          type: boolean
+          description: Server-owned for builtins.
+        prompt:
+          type: string
+        binaries:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManifestBinary"
+        skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManifestSkill"
+        session_env:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManifestSessionEnv"
+        oauth_provider:
+          type: string
+    ManifestPluginDefinitionField:
+      type: string
+      enum:
+        - name
+        - display_name
+        - description
+        - category
+        - prompt
+        - binaries
+        - skills
+        - session_env
+        - oauth_provider
+    SaveManifestPluginDefinitionRequest:
+      type: object
+      additionalProperties: false
+      required: [plugin]
+      properties:
+        plugin:
+          $ref: "#/components/schemas/ManifestPluginInput"
+        fields:
+          type: array
+          description: Definition fields this request takes ownership of. Builtins only.
+          items:
+            $ref: "#/components/schemas/ManifestPluginDefinitionField"
     ManifestOAuthProvider:
       type: object
       properties:
@@ -2454,6 +2636,7 @@ components:
           type: string
     ManifestPluginsResponse:
       type: object
+      required: [plugins, oauth_providers]
       properties:
         plugins:
           type: array

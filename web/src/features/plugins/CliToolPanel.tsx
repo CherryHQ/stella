@@ -5,6 +5,7 @@ import type {
   ManifestBinary,
   ManifestOAuthProvider,
   ManifestPlugin,
+  ManifestPluginDefinitionField,
   ManifestSessionEnv,
   PluginWithMeta,
 } from "@/lib/types";
@@ -236,7 +237,7 @@ export function CliToolAddForm({ existingIds, onCreate, onCancel }: AddFormProps
 interface EditorProps {
   plugin: PluginWithMeta;
   oauthProviders: ManifestOAuthProvider[];
-  onSave: (next: ManifestPlugin, fields: string[]) => Promise<void>;
+  onSave: (next: ManifestPlugin, fields: ManifestPluginDefinitionField[]) => Promise<void>;
   onResetField: (field: string) => Promise<void>;
   resettingField: string | null;
   showToast: (message: string, type?: "success" | "error") => void;

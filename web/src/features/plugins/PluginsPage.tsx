@@ -19,6 +19,7 @@ import type {
   ManifestBinary,
   ManifestOAuthProvider,
   ManifestPlugin,
+  ManifestPluginDefinitionField,
   Plugin,
   PluginSchemaProperty,
   PluginWithMeta,
@@ -310,10 +311,15 @@ export function PluginsPage() {
 
   // Save one definition and explicitly declare only the fields this edit takes
   // ownership of. Existing field ownership is retained by the backend.
-  async function upsertManifestPlugin(next: ManifestPlugin, fields: string[], successMsg: string) {
+  async function upsertManifestPlugin(
+    next: ManifestPlugin,
+    fields: ManifestPluginDefinitionField[],
+    successMsg: string,
+  ) {
+    const { builtin: _builtin, overridden_fields: _overriddenFields, ...plugin } = next;
     await saveManifestPluginDefinition({
       path: manifestPluginPath(next.id),
-      body: { plugin: { ...next }, fields },
+      body: { plugin, fields },
       throwOnError: true,
     });
     await loadManifestPlugins();
@@ -482,7 +488,7 @@ export function PluginsPage() {
 
         {p._manifest &&
           (pluginHasBinaries(p) ||
-            ["binaries", "session_env", "oauth_provider"].some((field) =>
+            (["binaries", "session_env", "oauth_provider"] as const).some((field) =>
               pluginFieldIsOverridden(p, field),
             )) && (
             <div className="border-t border-border pt-4 -mx-6 px-0">

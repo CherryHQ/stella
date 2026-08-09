@@ -190,7 +190,8 @@ func TestManifestPluginsReceiveNoPlatformCapabilities(t *testing.T) {
 		WithChannelRuntimeServices(NewChannelRuntimeServices()))
 	host.RegisterManifestPlugins(&manifestplugins.Manifest{
 		Plugins: []manifestplugins.ManifestPlugin{{
-			ID: "tool/manifest", Kind: "tool", Name: "manifest", Enabled: true, Prompt: "Use this tool.",
+			ID: "tool/manifest", Kind: "tool", Enabled: true,
+			ManifestPluginDefinition: manifestplugins.ManifestPluginDefinition{Name: "manifest", Prompt: "Use this tool."},
 		}},
 	})
 	if host.platform("tool/manifest").ChannelPlatform() != nil {
