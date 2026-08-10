@@ -142,7 +142,7 @@ Skills are enabled per Agent by default. An administrator or durable Agent creat
 
 For an exact operator command syntax, run `stellad system-bundle --help`. Docker sandbox images bake and label the matching bundle revision, never fall back to host builtins, and Docker provider preflight prevents a runner session from starting if their revision differs from the binary. Developers rebuild the local image with `mise run sandbox:docker:build`; rebuild custom images from the matching Stella revision.
 
-Before upgrading, use the old working binary to import each custom Skill root under legacy `$STELLA_HOME/.agents/skills` through **Settings → Skills** as a global (`system`) Skill. Back up, verify, and remove other residual paths. Current-manifest paths are inert even if their contents or modes differ; every other Skill root or residual path blocks startup without mutation.
+Before upgrading, use the old working binary to import each custom Skill root under legacy `$STELLA_HOME/.agents/skills` as a global (`system`) Skill through **Settings → Skills** on older releases or **Admin Console → Deployment resources → Global Skills** on newer releases. Back up, verify, and remove other residual paths. Current-manifest paths are inert even if their contents or modes differ; every other Skill root or residual path blocks startup without mutation.
 
 `{principal}` is a user ID or `group-{group_id}`. These are operator filesystem
 paths. Agents should use their sandbox variables and ordinary relative paths:

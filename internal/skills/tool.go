@@ -668,7 +668,7 @@ func (t *Tool) list(ctx context.Context) (string, error) {
 			Description: rs.Description,
 			Status:      rs.Status,
 			Scope:       rs.Scope,
-			Removable:   IsWritable(rs.Scope),
+			Removable:   rs.builtin == nil && (rs.Scope == skillScopeUser || rs.Scope == "user_agent"),
 		})
 	}
 
@@ -828,7 +828,7 @@ func (t *Tool) resolveWritableSkill(ctx context.Context, name string, args map[s
 		return nil, fmt.Errorf("skill %q is a project skill — %s", name, errProjectScopeMsg)
 	}
 	if s.Scope != skillScopeUser && s.Scope != "user_agent" {
-		return nil, fmt.Errorf("skill %q has scope %q; the skills tool only manages your user and user_agent skills — system and system_agent skills are admin-managed in Settings → Skills", name, s.Scope)
+		return nil, fmt.Errorf("skill %q has scope %q; the skills tool only manages your user and user_agent skills — system and system_agent skills are admin-managed in Admin Console → Deployment resources → Global Skills", name, s.Scope)
 	}
 	return s, nil
 }

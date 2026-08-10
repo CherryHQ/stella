@@ -106,7 +106,7 @@ Project Skill 仍是持久 Agent/项目工作树中的普通文件。PostgreSQL 
 
 Docker 沙箱镜像会烤入并标记精确 revision，不会回退到宿主机 builtin。Docker provider preflight 拒绝二进制与镜像 revision 不匹配的组合，从而阻止 runner session 启动。操作员命令语法使用 `stellad system-bundle --help` 查询。开发镜像用 `mise run sandbox:docker:build` 重建；每个自定义沙箱镜像都必须从匹配的 Stella revision 重建。
 
-升级前，操作员必须使用旧的可工作二进制，在 **设置 → 技能** 中将遗留 `$STELLA_HOME/.agents/skills` 下的每个自定义 Skill 根导入为全局（`system`）Skill。其他残留路径必须先备份、验证后删除。启动会报告每个阻塞路径并退出，不会修改任何内容。当前 manifest 路径即使内容或模式不同也只是惰性数据；其他每个 Skill 根或残留路径都会阻塞启动。
+升级前，操作员必须使用旧的可工作二进制，将遗留 `$STELLA_HOME/.agents/skills` 下的每个自定义 Skill 根导入为全局（`system`）Skill：旧版入口为 **设置 → 技能**，新版入口为 **管理控制台 → 部署资源 → 全局技能**。其他残留路径必须先备份、验证后删除。启动会报告每个阻塞路径并退出，不会修改任何内容。当前 manifest 路径即使内容或模式不同也只是惰性数据；其他每个 Skill 根或残留路径都会阻塞启动。
 
 ## Agent Skill 策略
 

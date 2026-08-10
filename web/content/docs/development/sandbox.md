@@ -106,7 +106,7 @@ Project Skills remain ordinary files in durable Agent/project working trees. Pos
 
 The Docker sandbox image bakes and labels the exact revision. It has no host-builtin fallback. Docker provider preflight rejects a binary/image revision mismatch, preventing the runner session from starting. Use `stellad system-bundle --help` for operator command syntax. Rebuild the development image with `mise run sandbox:docker:build`; rebuild every custom sandbox image from the matching Stella revision.
 
-Before upgrading, operators must use the old working binary to import each custom Skill root under legacy `$STELLA_HOME/.agents/skills` through **Settings → Skills** as a global (`system`) Skill. They must back up, verify, and remove other residual paths. Startup reports every blocking path and exits without mutation. Current-manifest paths are inert even if their contents or modes differ; every other Skill root or residual path blocks startup.
+Before upgrading, operators must use the old working binary to import each custom Skill root under legacy `$STELLA_HOME/.agents/skills` as a global (`system`) Skill through **Settings → Skills** on older releases or **Admin Console → Deployment resources → Global Skills** on newer releases. They must back up, verify, and remove other residual paths. Startup reports every blocking path and exits without mutation. Current-manifest paths are inert even if their contents or modes differ; every other Skill root or residual path blocks startup.
 
 ## Agent Skill policy
 

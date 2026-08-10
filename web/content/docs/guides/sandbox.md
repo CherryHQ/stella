@@ -180,7 +180,7 @@ Native `local` and `none` installs use the exact release bundle at `$STELLA_HOME
 
 The Docker sandbox image bakes and labels the same revision. It does not fall back to host builtins. Docker provider preflight rejects a revision mismatch, so the runner session does not start. For command syntax, run `stellad system-bundle --help`. Developers rebuilding the local sandbox image run `mise run sandbox:docker:build`; custom sandbox images must be rebuilt from the matching Stella revision.
 
-Before upgrading, import each custom Skill root under legacy `$STELLA_HOME/.agents/skills` through **Settings → Skills** as a global (`system`) Skill with the old working binary. Back up, verify, and remove other residual paths. Startup lists every blocking path and stops without deleting or changing anything. Paths owned by the current release manifest are inert even when their contents or modes are stale; every other Skill root or residual path blocks startup.
+Before upgrading, use the old working binary to import each custom Skill root under legacy `$STELLA_HOME/.agents/skills` as a global (`system`) Skill through **Settings → Skills** on older releases or **Admin Console → Deployment resources → Global Skills** on newer releases. Back up, verify, and remove other residual paths. Startup lists every blocking path and stops without deleting or changing anything. Paths owned by the current release manifest are inert even when their contents or modes are stale; every other Skill root or residual path blocks startup.
 
 ### Upgrading existing workspaces
 

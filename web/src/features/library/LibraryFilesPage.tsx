@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { FileText, Library, Search, Upload } from "lucide-react";
@@ -11,7 +11,7 @@ import {
   flattenLibraryFilePages,
   libraryFilesInfiniteQueryOptions,
 } from "@/lib/queries/library-files";
-import { meQueryOptions } from "@/lib/queries/me";
+import type { ScopeBand } from "@/lib/scope-band";
 import { useToast } from "@/hooks/use-toast";
 import {
   AlertDialog,
@@ -393,37 +393,27 @@ interface LibrarySettingsSearch {
   q?: string;
 }
 
-export function SettingsLibraryPage() {
+export function ScopedSettingsLibraryPage({ scopeBand }: { scopeBand: ScopeBand }) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as LibrarySettingsSearch;
-  const { data: me } = useQuery(meQueryOptions);
-  const isAdmin = me?.is_admin ?? false;
-  const scope: LibraryFileScope = isAdmin && search.scope ? search.scope : "user";
+  const systemSurface = scopeBand === "system";
+  const scope: LibraryFileScope = systemSurface ? (search.scope ?? "system") : "user";
   const { data: agents = [] } = useQuery(
-    allAgentsAdminQueryOptions(isAdmin && scope === "system_agent"),
+    allAgentsAdminQueryOptions(systemSurface && scope === "system_agent"),
   );
   const agentID = scope === "system_agent" ? search.agent : undefined;
   const query = search.q ?? "";
 
-  useEffect(() => {
-    // Wait for the authenticated user query before normalizing admin-only URL
-    // state; otherwise an admin deep-link would be rewritten during loading.
-    if (me && !me.is_admin && (search.scope || search.agent)) {
-      void navigate({
-        to: "/settings/library",
-        search: search.q ? { q: search.q } : {},
-        replace: true,
-      });
-    }
-  }, [me, navigate, search.agent, search.q, search.scope]);
-
   function go(next: LibrarySettingsSearch, replace = false) {
-    void navigate({ to: "/settings/library", search: next, replace });
+    if (systemSurface) {
+      void navigate({ to: "/admin/resources/library", search: next, replace });
+      return;
+    }
+    void navigate({ to: "/settings/library", search: next.q ? { q: next.q } : {}, replace });
   }
 
   const scopeItems = [
-    { value: "user", label: t("library.scope.user") },
     { value: "system", label: t("library.scope.system") },
     { value: "system_agent", label: t("library.scope.systemAgent") },
   ];
@@ -431,7 +421,7 @@ export function SettingsLibraryPage() {
     value: agent.id,
     label: agent.name,
   }));
-  const controls = isAdmin ? (
+  const controls = systemSurface ? (
     <div className="grid gap-4 sm:grid-cols-2">
       <Field>
         <FieldLabel>{t("library.scope.label")}</FieldLabel>
@@ -439,7 +429,7 @@ export function SettingsLibraryPage() {
           items={scopeItems}
           value={scope}
           onValueChange={(value) => {
-            const nextScope = (value ?? "user") as LibraryFileScope;
+            const nextScope = (value ?? "system") as LibraryFileScope;
             go({
               ...(nextScope === "system" || nextScope === "system_agent"
                 ? { scope: nextScope }
@@ -516,6 +506,14 @@ export function SettingsLibraryPage() {
       }
     />
   );
+}
+
+export function SettingsLibraryPage() {
+  return <ScopedSettingsLibraryPage scopeBand="personal" />;
+}
+
+export function GlobalLibraryPage() {
+  return <ScopedSettingsLibraryPage scopeBand="system" />;
 }
 
 interface AgentLibrarySearch {

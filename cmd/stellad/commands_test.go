@@ -223,6 +223,7 @@ func TestEnsureEmbeddedAssetsBlocksLegacySkillWithoutMutation(t *testing.T) {
 			"back up the listed paths",
 			"previous working Stella binary",
 			"Settings → Skills",
+			"Admin Console → Deployment resources → Global Skills",
 			"verify each import",
 			"remove only migrated or residual legacy paths",
 			"then retry",

@@ -57,7 +57,7 @@ builtin Skill 是位于 `bundles/{revision}/` 的精确发行 bundle。原生 `l
 
 Project Skill 是持久 Agent/项目工作树中的普通文件。PostgreSQL 是可变 `system`、`system_agent`、`user` 和 `user_agent` 记录的权威；`.agents/db-skills/`、`agents/{agent-id}/.agents/skills/`、`users/{principal}/data/.agents/skills/` 和 `users/{principal}/agents/{agent-id}/.agents/skills/` 是加载时重新 materialize 的派生镜像。这里的 `{principal}` 是用户 ID 或 `group-{id}`。
 
-升级前，请使用旧的可工作二进制，在 **设置 → 技能** 中将遗留顶层 `.agents/skills/` 下的每个自定义 Skill 根导入为全局（`system`）Skill。其他残留路径应先备份、验证后删除。新版本启动会列出每个阻塞路径并停止，不会修改或删除任何内容。当前发行 manifest 所拥有的路径即使内容或模式陈旧也只是惰性数据；其他每个 Skill 根或残留路径都会阻塞启动。
+升级前，请使用旧的可工作二进制，将遗留顶层 `.agents/skills/` 下的每个自定义 Skill 根导入为全局（`system`）Skill：旧版入口为 **设置 → 技能**，新版入口为 **管理控制台 → 部署资源 → 全局技能**。其他残留路径应先备份、验证后删除。新版本启动会列出每个阻塞路径并停止，不会修改或删除任何内容。当前发行 manifest 所拥有的路径即使内容或模式陈旧也只是惰性数据；其他每个 Skill 根或残留路径都会阻塞启动。
 
 降级前，请重新启用每个已禁用的 Skill，并清除所有悬空的禁用引用。旧版二进制可能忽略 AgentSkillPolicy v1，并在普通 Agent 编辑时覆盖它。混合版本部署中的 Skill 启用状态只是产品偏好设置，不是安全保证或文件系统访问控制。
 

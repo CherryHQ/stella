@@ -14,10 +14,16 @@ Stella has two Skill authorities today. Release-provided builtins come only from
 
 The stored scopes are `project`, `user_agent`, `user`, `system_agent`, and `system`. `builtin` is contextual: a release Skill has the immutable identity `builtin:<name>`. An administrator-installed global Skill is the separate mutable identity `system:<name>`, and an Agent-bound administrator Skill is `system_agent:<name>`.
 
+- **Project skills** — live in your repository under `.agents/skills/`. They ship with the code and are available when the current session is attached to that project.
+- **User skills** — your personal skills, available across all of your agents.
+- **User · this agent** — your personal skills scoped to a single agent.
+- **Shared agent skills** — managed by admins and available to everyone who uses that agent.
+- **Global skills** — managed by admins and available everywhere. Skills bundled with Stella remain part of the installation; managed global skills can be installed, enabled, disabled, and removed from the Admin Console.
+
 When names collide, Stella selects one winner in this order:
 
 ```
-project > user_agent > user > system_agent > system > builtin
+project > user · this agent > user > shared agent > global > builtin
 ```
 
 It applies policy after selecting that winner. Disabling a winner does not reveal a lower-priority Skill with the same name.
@@ -31,6 +37,8 @@ Activation is separate from permission to edit Skill content and from `disable_m
 Older non-empty activation lists are shown as diagnostics but mean all Skills are enabled. Disabled references to Skills that no longer exist do not affect execution; clear them explicitly in the Web UI.
 
 Before downgrading Stella, re-enable every disabled Skill and clear any dangling disabled references. Older binaries may ignore AgentSkillPolicy v1 and overwrite it during ordinary Agent edits. Do not treat Skill activation in a mixed-version deployment as a security guarantee; it is a product preference, not a filesystem access control.
+
+Manage personal `user` and `user_agent` skills from **Personal Settings → Skills**. Administrators manage deployment-owned `system` and `system_agent` skills from **Admin Console → Deployment resources → Global Skills**. The two pages never mix ownership scopes.
 
 ## Installing Skills
 
@@ -69,7 +77,7 @@ If you hit rate limits on clawhub.ai, you can set a free API token:
 
 ### From the Web UI
 
-Use the Skills page to browse, install, and remove skills for each agent.
+Use Personal Settings to browse, install, and remove your skills. Administrators use Global Skills for deployment-wide and shared-agent skills.
 
 ## Creating Your Own Skills
 
