@@ -37,6 +37,21 @@ type snapshotRecordingMemory struct {
 	snapshot memory.SessionSnapshot
 }
 
+type blockingSnapshotMemory struct {
+	*snapshotRecordingMemory
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (m *blockingSnapshotMemory) Assemble(context.Context, memory.Session, int, int) ([]ai.Message, error) {
+	m.once.Do(func() {
+		close(m.started)
+		<-m.release
+	})
+	return nil, nil
+}
+
 func (m *snapshotRecordingMemory) GetOrCreateSessionSnapshot(context.Context, string, string, string) (memory.SessionSnapshot, error) {
 	return m.snapshot, nil
 }
@@ -215,6 +230,62 @@ func TestChatRebuildsSnapshotPromptAtVersionZero(t *testing.T) {
 	}
 	if beforeRunSystem != "frozen snapshot prompt" {
 		t.Fatalf("before-run system = %q, want frozen snapshot prompt", beforeRunSystem)
+	}
+}
+
+func TestAdmittedChatKeepsPromptBuilderSnapshot(t *testing.T) {
+	mem := &blockingSnapshotMemory{
+		snapshotRecordingMemory: &snapshotRecordingMemory{
+			recordingMemory: &recordingMemory{},
+			snapshot:        memory.SessionSnapshot{Version: 1},
+		},
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	systemsSeen := make(chan string, 2)
+	rt, err := New(Config{
+		Memory: mem,
+		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+			return chatFakeRunner{system: "runner prompt", events: []Event{{Text: "ok"}}}, nil
+		},
+		SnapshotPrompt: func(context.Context, session.Info, memory.SessionSnapshot) string { return "admitted prompt" },
+		BeforeRun: func(_ context.Context, _ session.Info, _, _, system string, _ []ai.Message) (string, error) {
+			systemsSeen <- system
+			return "", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+	first, err := rt.ChatAdmitted(context.Background(), session.Info{ID: "sess-1", UserID: "user-1", AgentID: "agent-1"}, "hello")
+	if err != nil {
+		t.Fatalf("admit first chat: %v", err)
+	}
+	<-mem.started
+	rt.SetPromptBuilders(
+		func(_ context.Context, _ session.Info, _, _, system string, _ []ai.Message) (string, error) {
+			systemsSeen <- system
+			return "", nil
+		},
+		func(context.Context, session.Info, memory.SessionSnapshot) string { return "refreshed prompt" },
+	)
+	close(mem.release)
+	for evt := range first {
+		if evt.Err != nil {
+			t.Fatalf("first chat: %v", evt.Err)
+		}
+	}
+	if got := <-systemsSeen; got != "admitted prompt" {
+		t.Fatalf("admitted chat prompt = %q, want admitted prompt", got)
+	}
+
+	for evt := range rt.Chat(context.Background(), session.Info{ID: "sess-2", UserID: "user-1", AgentID: "agent-1"}, "hello") {
+		if evt.Err != nil {
+			t.Fatalf("second chat: %v", evt.Err)
+		}
+	}
+	if got := <-systemsSeen; got != "refreshed prompt" {
+		t.Fatalf("next chat prompt = %q, want refreshed prompt", got)
 	}
 }
 

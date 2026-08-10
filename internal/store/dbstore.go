@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agentskillpolicy"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -22,9 +23,70 @@ import (
 type DBStore struct {
 	q *sqlc.Queries
 	// pool is retained (not just wrapped by q) so composite writes that must be
-	// atomic — the Agent + its encrypted Provider credentials — can open one
+	// atomic — Agent policy mutations and Agent + encrypted Provider credential
+	// writes — can open one
 	// transaction via Queries.WithTx.
 	pool *pgxpool.Pool
+}
+
+// ReadAgentSkillPolicy explicitly reads and decodes the historical policy
+// column. Decode failures are surfaced to callers; treating bad bytes as an
+// empty policy would make model execution fail open.
+func (s *DBStore) ReadAgentSkillPolicy(ctx context.Context, agentID string) (agentskillpolicy.Policy, agentskillpolicy.Diagnostics, error) {
+	row, err := s.q.GetAgent(ctx, agentID)
+	if err != nil {
+		return agentskillpolicy.Policy{}, agentskillpolicy.Diagnostics{}, fmt.Errorf("read AgentSkillPolicy for %q: %w", agentID, err)
+	}
+	policy, diagnostics, err := agentskillpolicy.Decode(row.EnabledBuiltinSkills)
+	if err != nil {
+		return agentskillpolicy.Policy{}, agentskillpolicy.Diagnostics{}, fmt.Errorf("read AgentSkillPolicy for %q: %w", agentID, err)
+	}
+	return policy, diagnostics, nil
+}
+
+// SetAgentSkillPolicy serializes a single logical-ref mutation under the Agent
+// row lock. The column is the entire concurrency boundary: normal Agent edits
+// deliberately never write it, and two different toggles retain each other.
+func (s *DBStore) SetAgentSkillPolicy(ctx context.Context, agentID, ref string, enabled bool) (agentskillpolicy.Policy, error) {
+	if err := agentskillpolicy.ValidateRef(ref); err != nil {
+		return agentskillpolicy.Policy{}, err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return agentskillpolicy.Policy{}, fmt.Errorf("begin AgentSkillPolicy mutation: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // successful commit makes rollback inert
+	qtx := s.q.WithTx(tx)
+	raw, err := qtx.GetAgentSkillPolicyForUpdate(ctx, agentID)
+	if err != nil {
+		return agentskillpolicy.Policy{}, fmt.Errorf("lock AgentSkillPolicy for %q: %w", agentID, err)
+	}
+	policy, _, err := agentskillpolicy.Decode(raw)
+	if err != nil {
+		return agentskillpolicy.Policy{}, fmt.Errorf("decode AgentSkillPolicy for %q: %w", agentID, err)
+	}
+	next, err := policy.SetEnabled(ref, enabled)
+	if err != nil {
+		return agentskillpolicy.Policy{}, err
+	}
+	bytes, err := next.CanonicalJSON()
+	if err != nil {
+		return agentskillpolicy.Policy{}, err
+	}
+	if err := qtx.UpdateAgentSkillPolicy(ctx, sqlc.UpdateAgentSkillPolicyParams{EnabledBuiltinSkills: bytes, ID: agentID}); err != nil {
+		return agentskillpolicy.Policy{}, fmt.Errorf("write AgentSkillPolicy for %q: %w", agentID, err)
+	}
+	return commitAgentSkillPolicy(ctx, next, tx.Commit)
+}
+
+// commitAgentSkillPolicy isolates PostgreSQL's ambiguous COMMIT boundary for
+// deterministic tests. Every Commit-returned error is conservative: return the
+// intended policy and make callers reconcile durable database truth.
+func commitAgentSkillPolicy(ctx context.Context, next agentskillpolicy.Policy, commit func(context.Context) error) (agentskillpolicy.Policy, error) {
+	if err := commit(ctx); err != nil {
+		return next, fmt.Errorf("%w: %w", agentskillpolicy.ErrCommitOutcomeUnknown, err)
+	}
+	return next, nil
 }
 
 // NewDBStore creates a new DBStore wrapping the given database connection.
@@ -235,22 +297,21 @@ func createAgentParams(a config.Agent) (sqlc.CreateAgentParams, error) {
 		return sqlc.CreateAgentParams{}, fmt.Errorf("create agent %q: %w", a.ID, err)
 	}
 	return sqlc.CreateAgentParams{
-		ID:                   a.ID,
-		Name:                 a.Name,
-		Model:                a.Model,
-		ModelThinking:        a.ModelThinking,
-		ModelStrong:          a.ModelStrong,
-		ModelStrongThinking:  a.ModelStrongThinking,
-		ModelFast:            a.ModelFast,
-		ModelFastThinking:    a.ModelFastThinking,
-		SystemPrompt:         a.SystemPrompt,
-		Soul:                 a.Soul,
-		Workspace:            a.Workspace,
-		Sandbox:              sandboxJSON,
-		EnabledBuiltinSkills: json.RawMessage("[]"),
-		Scope:                scope,
-		CreatorID:            a.CreatorID,
-		Enabled:              a.Enabled,
+		ID:                  a.ID,
+		Name:                a.Name,
+		Model:               a.Model,
+		ModelThinking:       a.ModelThinking,
+		ModelStrong:         a.ModelStrong,
+		ModelStrongThinking: a.ModelStrongThinking,
+		ModelFast:           a.ModelFast,
+		ModelFastThinking:   a.ModelFastThinking,
+		SystemPrompt:        a.SystemPrompt,
+		Soul:                a.Soul,
+		Workspace:           a.Workspace,
+		Sandbox:             sandboxJSON,
+		Scope:               scope,
+		CreatorID:           a.CreatorID,
+		Enabled:             a.Enabled,
 	}, nil
 }
 
@@ -267,21 +328,20 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
 		return fmt.Errorf("update agent %q: %w", a.ID, err)
 	}
 	err = s.q.UpdateAgent(ctx, sqlc.UpdateAgentParams{
-		ID:                   a.ID,
-		Name:                 a.Name,
-		Model:                a.Model,
-		ModelThinking:        a.ModelThinking,
-		ModelStrong:          a.ModelStrong,
-		ModelStrongThinking:  a.ModelStrongThinking,
-		ModelFast:            a.ModelFast,
-		ModelFastThinking:    a.ModelFastThinking,
-		SystemPrompt:         a.SystemPrompt,
-		Soul:                 a.Soul,
-		Workspace:            a.Workspace,
-		Sandbox:              sandboxJSON,
-		EnabledBuiltinSkills: json.RawMessage("[]"),
-		Scope:                scope,
-		Enabled:              a.Enabled,
+		ID:                  a.ID,
+		Name:                a.Name,
+		Model:               a.Model,
+		ModelThinking:       a.ModelThinking,
+		ModelStrong:         a.ModelStrong,
+		ModelStrongThinking: a.ModelStrongThinking,
+		ModelFast:           a.ModelFast,
+		ModelFastThinking:   a.ModelFastThinking,
+		SystemPrompt:        a.SystemPrompt,
+		Soul:                a.Soul,
+		Workspace:           a.Workspace,
+		Sandbox:             sandboxJSON,
+		Scope:               scope,
+		Enabled:             a.Enabled,
 	})
 	if err != nil {
 		return fmt.Errorf("update agent %q: %w", a.ID, err)
@@ -711,6 +771,10 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: get agent %q: %w", agentID, err)
 	}
+	policy, _, err := agentskillpolicy.Decode(ag.EnabledBuiltinSkills)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot: decode AgentSkillPolicy for %q: %w", agentID, err)
+	}
 
 	plugins, err := s.mergedPlugins(ctx, nil)
 	if err != nil {
@@ -755,6 +819,7 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 		Soul:                ag.Soul,
 		Providers:           providers,
 		ModelInputs:         modelInputs,
+		DisabledSkillRefs:   append([]string(nil), policy.Disabled...),
 		Plugins:             plugins,
 	}
 
@@ -864,14 +929,13 @@ func (s *DBStore) Seed(ctx context.Context) error {
 		return fmt.Errorf("seed: marshal stella sandbox config: %w", err)
 	}
 	if err := s.q.SeedAgent(ctx, sqlc.SeedAgentParams{
-		ID:                   defaultStellaAgentID,
-		Name:                 "Stella",
-		SystemPrompt:         defaultStellaSoul,
-		Workspace:            workspace,
-		Sandbox:              sandboxJSON,
-		EnabledBuiltinSkills: json.RawMessage("[]"),
-		Scope:                config.AgentScopeSystem,
-		Enabled:              true,
+		ID:           defaultStellaAgentID,
+		Name:         "Stella",
+		SystemPrompt: defaultStellaSoul,
+		Workspace:    workspace,
+		Sandbox:      sandboxJSON,
+		Scope:        config.AgentScopeSystem,
+		Enabled:      true,
 	}); err != nil {
 		return fmt.Errorf("seed: create stella agent: %w", err)
 	}

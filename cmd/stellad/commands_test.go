@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/config"
@@ -200,7 +201,50 @@ func setupCommandTestStellaHome(t *testing.T) string {
 	return stellaHome
 }
 
-func TestEnsureEmbeddedAssetsReplacesRetiredKreuzbergSkill(t *testing.T) {
+func TestEnsureEmbeddedAssetsBlocksLegacySkillWithoutMutation(t *testing.T) {
+	stellaHome := setupCommandTestStellaHome(t)
+	retiredBinary := filepath.Join(stellaHome, "bin", "stella")
+	if err := os.WriteFile(retiredBinary, []byte("retired binary"), 0o755); err != nil {
+		t.Fatalf("write retired binary: %v", err)
+	}
+	retired := filepath.Join(stellaHome, ".agents", "skills", "system", "kreuzberg")
+	if err := os.MkdirAll(retired, 0o755); err != nil {
+		t.Fatalf("create retired skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(retired, "SKILL.md"), []byte("stale"), 0o644); err != nil {
+		t.Fatalf("write retired skill: %v", err)
+	}
+
+	if err := ensureEmbeddedAssets(); err == nil {
+		t.Fatal("ensureEmbeddedAssets accepted legacy custom skill")
+	} else {
+		for _, instruction := range []string{
+			"system/kreuzberg",
+			"back up the listed paths",
+			"previous working Stella binary",
+			"Settings → Skills",
+			"Admin Console → Deployment resources → Global Skills",
+			"verify each import",
+			"remove only migrated or residual legacy paths",
+			"then retry",
+		} {
+			if !strings.Contains(err.Error(), instruction) {
+				t.Errorf("ensureEmbeddedAssets() error = %q, want instruction %q", err, instruction)
+			}
+		}
+	}
+	if content, err := os.ReadFile(filepath.Join(retired, "SKILL.md")); err != nil || string(content) != "stale" {
+		t.Fatalf("legacy skill mutated: %q, %v", content, err)
+	}
+	if content, err := os.ReadFile(retiredBinary); err != nil || string(content) != "retired binary" {
+		t.Fatalf("legacy gate mutated retired binary: %q, %v", content, err)
+	}
+	if _, err := os.Stat(filepath.Join(stellaHome, "bundles")); !os.IsNotExist(err) {
+		t.Fatalf("legacy gate installed a bundle: %v", err)
+	}
+}
+
+func TestSetupRunsLegacySkillGateBeforeEmbeddedPostgresMutation(t *testing.T) {
 	stellaHome := setupCommandTestStellaHome(t)
 	retired := filepath.Join(stellaHome, ".agents", "skills", "system", "kreuzberg")
 	if err := os.MkdirAll(retired, 0o755); err != nil {
@@ -210,14 +254,13 @@ func TestEnsureEmbeddedAssetsReplacesRetiredKreuzbergSkill(t *testing.T) {
 		t.Fatalf("write retired skill: %v", err)
 	}
 
-	if err := ensureEmbeddedAssets(); err != nil {
-		t.Fatalf("ensureEmbeddedAssets: %v", err)
+	if _, err := setup(t.Context(), config.ServerConfig{}, ""); err == nil {
+		t.Fatal("setup accepted legacy custom skill")
 	}
-	if _, err := os.Stat(retired); !os.IsNotExist(err) {
-		t.Fatalf("retired skill still exists: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(stellaHome, ".agents", "skills", "system", "xberg", "SKILL.md")); err != nil {
-		t.Fatalf("Xberg skill missing: %v", err)
+	for _, name := range []string{"postgres", "pg-runtime", "bundles"} {
+		if _, err := os.Stat(filepath.Join(stellaHome, name)); !os.IsNotExist(err) {
+			t.Fatalf("legacy gate allowed %s mutation: %v", name, err)
+		}
 	}
 }
 

@@ -6,13 +6,15 @@ import (
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/resources"
 )
 
 // Paths is the path set sandbox policy creation and tool registration depend on.
 type Paths struct {
-	StellaHome string
-	AgentRoot  string
-	UserRoot   string
+	StellaHome    string
+	BuiltinBundle string
+	AgentRoot     string
+	UserRoot      string
 	// WorkspaceRoot is the agent's private workspace root — sandbox HOME and cwd
 	// in the two-root layout.
 	WorkspaceRoot string
@@ -34,6 +36,14 @@ func ResolvePaths(cfg Config) (Paths, error) {
 	}
 	if resolved, err := filepath.EvalSymlinks(p.StellaHome); err == nil {
 		p.StellaHome = resolved
+	}
+	registry, err := resources.Default()
+	if err != nil {
+		return Paths{}, fmt.Errorf("load builtin skill bundle: %w", err)
+	}
+	p.BuiltinBundle, err = registry.BundlePath(p.StellaHome)
+	if err != nil {
+		return Paths{}, fmt.Errorf("resolve builtin skill bundle: %w", err)
 	}
 	if p.AgentRoot == "" {
 		return Paths{}, fmt.Errorf("agent_root is required")

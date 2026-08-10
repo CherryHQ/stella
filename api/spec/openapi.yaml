@@ -112,6 +112,8 @@ paths:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}~1upgrade"
   /api/agents/{id}/skills/{skillId}/file:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}~1file"
+  /api/agents/{id}/skills/{skillRef}/activation:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillRef}~1activation"
   # ── Inbox ──────────────────────────────────────────────────────────────────
   /api/inbox:
     $ref: "./domain/inbox/paths.yaml#/paths/~1api~1inbox"

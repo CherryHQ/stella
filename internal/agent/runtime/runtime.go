@@ -2,9 +2,11 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,12 +35,14 @@ type Runtime struct {
 	mem            memory.Provider
 	log            *slog.Logger
 	compact        CompactionConfig
+	promptMu       sync.RWMutex
 	beforeRun      BeforeRunFunc
 	snapshotPrompt SnapshotPromptFunc
 	sessionImages  SessionImages
-	active         sync.Map // session ID → struct{}, tracks in-flight turns
+	active         sync.Map // session ID → *activeTurn, tracks in-flight turns
 	turns          turnTracker
 	hub            *SessionHub
+	closed         atomic.Bool
 }
 
 // managedSessionRunner is intentionally optional: Runtime supports test and
@@ -108,6 +112,10 @@ func (t *turnTracker) wait(ctx context.Context) error {
 func (rt *Runtime) WaitTurns(ctx context.Context) error {
 	return rt.turns.wait(ctx)
 }
+
+// InvalidateSkillPolicy schedules existing runners for refresh without
+// interrupting an in-flight turn, which continues with its copied snapshot.
+func (rt *Runtime) InvalidateSkillPolicy() error { return rt.cache.invalidateSkillPolicy() }
 
 // CompactionConfig controls automatic compaction thresholds.
 type CompactionConfig struct {
@@ -220,6 +228,23 @@ func (rt *Runtime) SetDefaultModel(model string, thinking ai.ThinkingLevel) {
 	rt.cache.mu.Unlock()
 }
 
+// SetPromptBuilders replaces the snapshot-derived prompt builders for turns
+// admitted after a configuration refresh. Callers serialize this with runner
+// replacement through the Agent admission barrier.
+func (rt *Runtime) SetPromptBuilders(beforeRun BeforeRunFunc, snapshotPrompt SnapshotPromptFunc) {
+	rt.promptMu.Lock()
+	rt.beforeRun = beforeRun
+	rt.snapshotPrompt = snapshotPrompt
+	rt.promptMu.Unlock()
+}
+
+func (rt *Runtime) capturePromptBuilders(selection *runnerSelection) {
+	rt.promptMu.RLock()
+	selection.beforeRun = rt.beforeRun
+	selection.snapshotPrompt = rt.snapshotPrompt
+	rt.promptMu.RUnlock()
+}
+
 // SetHooks updates the hook getter used when creating new runners.
 func (rt *Runtime) SetHooks(fn func() []hooks.HookPlugin) {
 	rt.cache.mu.Lock()
@@ -240,8 +265,9 @@ func (rt *Runtime) CloseSession(_ context.Context, sessionID string) error {
 	return rt.cache.close(sessionID)
 }
 
-// Close shuts down all runners and releases resources.
+// Close shuts down all runners and rejects every later admission.
 func (rt *Runtime) Close() error {
+	rt.closed.Store(true)
 	return rt.cache.closeAll()
 }
 
@@ -257,27 +283,7 @@ func (rt *Runtime) ResetRunners() error {
 
 // ResetRunnersForUser closes live runners for a specific user.
 func (rt *Runtime) ResetRunnersForUser(userID string) error {
-	rt.cache.mu.Lock()
-	var runners []Runner
-	for _, cs := range rt.cache.sessions {
-		if cs.info.UserID != userID {
-			continue
-		}
-		if cs.r != nil {
-			runners = append(runners, cs.r)
-			cs.r = nil
-		}
-		cs.model = ""
-	}
-	rt.cache.mu.Unlock()
-
-	var lastErr error
-	for _, r := range runners {
-		if err := r.Close(); err != nil {
-			lastErr = err
-		}
-	}
-	return lastErr
+	return rt.cache.resetWhere(func(cs *cachedSession) bool { return cs.info.UserID == userID })
 }
 
 // NewRunnerFunc returns the current runner builder. Used by the task system to
@@ -327,13 +333,42 @@ func (rt *Runtime) ChatAdmitted(ctx context.Context, info session.Info, msg Mess
 // fence runs after the busy guard is acquired but before transcript/runtime
 // side effects, allowing a synchronous queue to reject a caller that timed out
 // at the admission boundary without replay or ambiguous execution.
-func (rt *Runtime) ChatAdmittedControlled(ctx context.Context, info session.Info, msg MessageContent, beforeStart func() error, opts ...Option) (<-chan Event, error) {
+func (rt *Runtime) ChatAdmittedControlled(ctx context.Context, info session.Info, msg MessageContent, beforeStart func() error, opts ...Option) (stream <-chan Event, admissionErr error) {
 	activityScope, err := info.MemoryScope()
 	if err != nil {
 		return nil, err
 	}
+	var (
+		selection      runnerSelection
+		selectionReady bool
+		turn           *activeTurn
+	)
+	defer func() {
+		if recover() == nil {
+			return
+		}
+		// This is only the narrow synchronous admission envelope. Deep cache
+		// construction owns its own cleanup; this protects options/UUID/hub setup
+		// and any post-selection panic before the goroutine's async recovery.
+		// Do not log recovered values: provider panics may contain secrets.
+		rt.log.Error("chat admission panicked", "session_id", info.ID)
+		if selectionReady {
+			rt.cache.abortReservedAdmission(selection.session)
+		}
+		if turn != nil {
+			turn.cancel()
+			if rt.active.CompareAndDelete(info.ID, turn) {
+				close(turn.done)
+			}
+		}
+		stream = nil
+		admissionErr = errors.New("chat admission failed")
+	}()
+	if rt.closed.Load() {
+		return nil, errors.New("runtime is closed")
+	}
 	turnCtx, cancel := context.WithCancel(ctx)
-	turn := &activeTurn{cancel: cancel, done: make(chan struct{})}
+	turn = &activeTurn{cancel: cancel, done: make(chan struct{})}
 	if _, loaded := rt.active.LoadOrStore(info.ID, turn); loaded {
 		cancel()
 		return nil, fmt.Errorf("%w: session %s", ErrSessionBusy, info.ID)
@@ -362,6 +397,22 @@ func (rt *Runtime) ChatAdmittedControlled(ctx context.Context, info session.Info
 	// admits one turn per session at a time, so "different id" means "different
 	// user message" for every turn a user drives.
 	ctx = agentctx.WithTurnID(ctx, uuid.Must(uuid.NewV7()).String())
+	ctx = withSessionIdentity(ctx, info)
+	// Select and reserve the runner before returning admission. Service holds its
+	// per-Agent policy barrier around this call, so a policy commit cannot swap
+	// factories or stale an idle old runner between active registration and
+	// runner selection. The reservation protects the gap before Runner.Chat
+	// marks itself busy in the goroutine below.
+	selection, err = rt.getOrCreateReservedRunner(ctx, info, co.model, co.extraTools)
+	if err != nil {
+		cancel()
+		if rt.active.CompareAndDelete(info.ID, turn) {
+			close(turn.done)
+		}
+		return nil, fmt.Errorf("get runner: %w", err)
+	}
+	selectionReady = true
+	rt.capturePromptBuilders(&selection)
 	rt.markSessionTurnStarted(ctx, activityScope)
 
 	// Tee: chat writes to inner; the forwarder fans every event out to the hub
@@ -396,7 +447,7 @@ func (rt *Runtime) ChatAdmittedControlled(ctx context.Context, info session.Info
 			}
 			producerResult <- result
 		}()
-		rt.chat(ctx, inner, info, msg, co)
+		rt.chatWithRunner(ctx, inner, info, msg, co, selection)
 	}()
 	go func() {
 		defer close(out)

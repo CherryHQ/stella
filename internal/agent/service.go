@@ -68,6 +68,9 @@ type Service struct {
 	AgentID       string
 	turnQueueOnce sync.Once
 	turnQueue     *turnqueue.Queue
+	// admissionMu linearizes runner selection with committed Agent Skill policy
+	// replacement for this agent. Admitted turns keep their selected snapshot.
+	admissionMu sync.Mutex
 }
 
 func (s *Service) sessionTurnQueue() *turnqueue.Queue {
@@ -239,7 +242,7 @@ func (s *Service) runQueuedTurn(ctx context.Context, target session.Info, messag
 	opts = append(append([]agentruntime.Option(nil), opts...), agentruntime.WithInboxID(queued.ID))
 	err = s.sessionTurnQueue().Enqueue(ctx, target.ID, func(waitCtx, runCtx context.Context, beforeStart func() error) error {
 		for {
-			stream, err := s.Runtime.ChatAdmittedControlled(runCtx, target, message, beforeStart, opts...)
+			stream, err := s.admitControlled(runCtx, target, message, beforeStart, opts...)
 			if err == nil {
 				consumeErr := consume(stream)
 				// A consumer may stop on its first in-band error. Drain the admitted
@@ -352,7 +355,36 @@ func (s *Service) ChatAdmitted(ctx context.Context, req ChatRequest) (<-chan Eve
 		opts = append(opts, agentruntime.WithCurrentSpeaker(req.CurrentSpeaker))
 	}
 	opts = append(opts, agentruntime.WithInputActor(messageActor(req.Authority, req.CurrentSpeaker, memory.SessionIDFromContext(ctx))))
-	return s.Runtime.ChatAdmitted(ctx, info, req.Message, opts...)
+	return s.admit(ctx, info, req.Message, opts...)
+}
+
+// admit covers Runtime.ChatAdmitted's active-session registration, the sole
+// turn admission point. Every Service turn path uses it so policy commits cannot
+// leave a post-return gap where an old runner is handed to a new turn.
+func (s *Service) admit(ctx context.Context, info session.Info, message MessageContent, opts ...agentruntime.Option) (<-chan Event, error) {
+	s.admissionMu.Lock()
+	defer s.admissionMu.Unlock()
+	return s.admitLocked(ctx, info, message, opts...)
+}
+
+// admitLocked is the actual Runtime admission point. Caller owns admissionMu.
+func (s *Service) admitLocked(ctx context.Context, info session.Info, message MessageContent, opts ...agentruntime.Option) (<-chan Event, error) {
+	return s.Runtime.ChatAdmitted(ctx, info, message, opts...)
+}
+
+func (s *Service) admitControlled(ctx context.Context, info session.Info, message MessageContent, beforeStart func() error, opts ...agentruntime.Option) (<-chan Event, error) {
+	s.admissionMu.Lock()
+	defer s.admissionMu.Unlock()
+	return s.Runtime.ChatAdmittedControlled(ctx, info, message, beforeStart, opts...)
+}
+
+// withAdmissionBarrier runs a committed policy mutation and local invalidation
+// atomically with respect to this agent's turn admission. It is intentionally
+// per-Service rather than process-global; other agents continue admitting.
+func (s *Service) withAdmissionBarrier(fn func() error) error {
+	s.admissionMu.Lock()
+	defer s.admissionMu.Unlock()
+	return fn()
 }
 
 func messageActor(authority authz.Authority, speaker memory.CurrentSpeaker, sourceSessionID string) eventlog.MessageActor {
@@ -447,7 +479,11 @@ func (s *Service) ChatForScheduler(ctx context.Context, req SchedulerChatRequest
 		opts = append(opts, agentruntime.WithModel(req.Model))
 	}
 	opts = append(opts, agentruntime.WithInputActor(messageActor(req.Authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))))
-	return s.Runtime.Chat(ctx, info, req.Message, opts...)
+	stream, err := s.admit(ctx, info, req.Message, opts...)
+	if err != nil {
+		return errorEvents(err)
+	}
+	return stream
 }
 
 // TaskChatRequest describes one worker turn on a durable task session.
@@ -520,7 +556,10 @@ func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req T
 		opts = append(opts, agentruntime.WithExcludedTools(req.ExcludedTools...))
 	}
 	opts = append(opts, agentruntime.WithInputActor(messageActor(req.Authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))))
-	src := s.Runtime.Chat(ctx, info, req.Message, opts...)
+	src, err := s.admit(ctx, info, req.Message, opts...)
+	if err != nil {
+		return errorEvents(err)
+	}
 	out := make(chan Event)
 	go func() {
 		defer close(out)

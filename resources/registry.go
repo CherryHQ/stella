@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -12,7 +13,10 @@ import (
 
 // Registry is the read-only catalog of builtin resources, keyed by Kind and ID.
 type Registry struct {
-	byKind map[Kind]map[string]Resource
+	byKind   map[Kind]map[string]Resource
+	manifest BuiltinManifest
+	skills   map[string]BuiltinSkillDescriptor
+	source   fs.FS
 }
 
 var (
@@ -24,7 +28,12 @@ var (
 // Default returns the process-wide registry, loaded lazily from the embedded FS.
 func Default() (*Registry, error) {
 	defaultOnce.Do(func() {
-		defaultReg, defaultErr = Load(fsys)
+		manifest, err := GeneratedBuiltinManifest()
+		if err != nil {
+			defaultErr = err
+			return
+		}
+		defaultReg, defaultErr = LoadBuiltin(fsys, manifest)
 	})
 	return defaultReg, defaultErr
 }
@@ -33,7 +42,7 @@ func Default() (*Registry, error) {
 // sourceFS must have subdirectories matching Kind.subdir() for each kind to load.
 // Missing subdirectories are silently skipped (useful for tests with partial fixtures).
 func Load(sourceFS fs.FS) (*Registry, error) {
-	r := &Registry{byKind: make(map[Kind]map[string]Resource, len(AllKinds()))}
+	r := &Registry{byKind: make(map[Kind]map[string]Resource, len(AllKinds())), source: sourceFS}
 	for _, kind := range AllKinds() {
 		r.byKind[kind] = map[string]Resource{}
 		sub := kind.subdir()
@@ -47,6 +56,45 @@ func Load(sourceFS fs.FS) (*Registry, error) {
 		if err := loadKind(r, kind, subFS); err != nil {
 			return nil, fmt.Errorf("load %s: %w", kind, err)
 		}
+	}
+	return r, nil
+}
+
+// LoadBuiltin loads a registry from an embedded-style filesystem and validates
+// every manifest-described byte before making it available to callers.
+func LoadBuiltin(sourceFS fs.FS, manifest BuiltinManifest) (*Registry, error) {
+	if err := validateBuiltinManifest(manifest); err != nil {
+		return nil, err
+	}
+	r, err := Load(sourceFS)
+	if err != nil {
+		return nil, err
+	}
+	r.manifest = BuiltinManifest{Revision: manifest.Revision, Skills: make([]BuiltinSkillDescriptor, 0, len(manifest.Skills))}
+	r.skills = make(map[string]BuiltinSkillDescriptor, len(manifest.Skills))
+	for _, skill := range manifest.Skills {
+		if _, exists := r.skills[skill.Name]; exists {
+			return nil, fmt.Errorf("duplicate builtin descriptor %q", skill.Name)
+		}
+		for _, file := range skill.Files {
+			data, err := fs.ReadFile(sourceFS, path.Join("skills", skill.Root, file.Path))
+			if err != nil {
+				return nil, fmt.Errorf("read builtin skill %q file %q: %w", skill.Name, file.Path, err)
+			}
+			if int64(len(data)) != file.Size || sha256Hex(data) != file.Digest {
+				return nil, fmt.Errorf("builtin skill %q file %q does not match manifest", skill.Name, file.Path)
+			}
+		}
+		resource, ok := r.Get(KindSkill, skill.Name)
+		if !ok || resource.Name != skill.Name || resource.Description != skill.Description || !reflect.DeepEqual(resource.Tags, skill.Tags) || boolMetadata(resource.Metadata, "disable_model_invocation") != skill.DisableModelInvocation || !reflect.DeepEqual(resource.Metadata, skill.Metadata) {
+			return nil, fmt.Errorf("builtin skill %q metadata does not match manifest", skill.Name)
+		}
+		cloned := cloneBuiltinSkillDescriptor(skill)
+		r.skills[skill.Name] = cloned
+		r.manifest.Skills = append(r.manifest.Skills, cloned)
+	}
+	if len(r.byKind[KindSkill]) != len(r.skills) {
+		return nil, fmt.Errorf("builtin manifest lists %d skills but embedded resources contain %d", len(r.skills), len(r.byKind[KindSkill]))
 	}
 	return r, nil
 }
@@ -132,4 +180,85 @@ func (r *Registry) Kinds() []Kind {
 		}
 	}
 	return out
+}
+
+// BundleRevision identifies the exact builtin bundle loaded by this registry.
+func (r *Registry) BundleRevision() string { return r.manifest.Revision }
+
+// BuiltinSkills returns all release-owned skill descriptors in stable name order.
+func (r *Registry) BuiltinSkills() []BuiltinSkillDescriptor {
+	out := make([]BuiltinSkillDescriptor, 0, len(r.skills))
+	for _, skill := range r.skills {
+		out = append(out, cloneBuiltinSkillDescriptor(skill))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// BuiltinSkill returns one release-owned descriptor by its stable skill name.
+func (r *Registry) BuiltinSkill(name string) (BuiltinSkillDescriptor, bool) {
+	skill, ok := r.skills[name]
+	return cloneBuiltinSkillDescriptor(skill), ok
+}
+
+// ReadBuiltinSkillFile returns an embedded skill file selected by canonical
+// root-relative path, together with its manifest descriptor.
+func (r *Registry) ReadBuiltinSkillFile(name, filePath string) ([]byte, BuiltinSkillFile, error) {
+	skill, ok := r.skills[name]
+	if !ok {
+		return nil, BuiltinSkillFile{}, fmt.Errorf("builtin skill %q not found", name)
+	}
+	if !canonicalBuiltinPath(filePath) {
+		return nil, BuiltinSkillFile{}, fmt.Errorf("invalid builtin skill file path %q", filePath)
+	}
+	for _, file := range skill.Files {
+		if file.Path != filePath {
+			continue
+		}
+		data, err := fs.ReadFile(r.source, path.Join("skills", skill.Root, file.Path))
+		if err != nil {
+			return nil, BuiltinSkillFile{}, fmt.Errorf("read builtin skill %q file %q: %w", name, filePath, err)
+		}
+		if int64(len(data)) != file.Size || sha256Hex(data) != file.Digest {
+			return nil, BuiltinSkillFile{}, fmt.Errorf("builtin skill %q file %q does not match manifest", name, filePath)
+		}
+		return data, file, nil
+	}
+	return nil, BuiltinSkillFile{}, fmt.Errorf("builtin skill %q file %q not found", name, filePath)
+}
+
+func cloneBuiltinSkillDescriptor(skill BuiltinSkillDescriptor) BuiltinSkillDescriptor {
+	cloned := skill
+	cloned.Files = append([]BuiltinSkillFile(nil), skill.Files...)
+	cloned.Tags = append([]string(nil), skill.Tags...)
+	cloned.Metadata = cloneBuiltinMetadata(skill.Metadata)
+	return cloned
+}
+
+func cloneBuiltinMetadata(metadata map[string]any) map[string]any {
+	if metadata == nil {
+		return nil
+	}
+	cloned := make(map[string]any, len(metadata))
+	for key, value := range metadata {
+		cloned[key] = cloneBuiltinMetadataValue(value)
+	}
+	return cloned
+}
+
+func cloneBuiltinMetadataValue(value any) any {
+	switch value := value.(type) {
+	case map[string]any:
+		return cloneBuiltinMetadata(value)
+	case []any:
+		cloned := make([]any, len(value))
+		for i, item := range value {
+			cloned[i] = cloneBuiltinMetadataValue(item)
+		}
+		return cloned
+	case []string:
+		return append([]string(nil), value...)
+	default:
+		return value
+	}
 }

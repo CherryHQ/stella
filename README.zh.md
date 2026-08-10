@@ -65,6 +65,8 @@ stellad server
 
 技能是可复用的操作手册，教会 Stella 如何执行特定任务。Stella 通过内置工具管理技能——直接在对话中让她搜索、安装或加载技能。
 
+随发行版提供的技能为只读；管理员单独管理共享技能。作用域、按 Agent 启用和优先级详见[技能指南](web/content/docs/guides/skills.zh.md)。
+
 ## 文档
 
 | 分区    | 内容                              | 链接                                         |

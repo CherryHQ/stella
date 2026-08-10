@@ -83,6 +83,7 @@ type Tool struct {
 	// prompt search instructions use the same visible system-skill set.
 	registeredPluginIDs []string
 	enabledPluginIDs    []string
+	disabledSkillRefs   []string
 	// readAuthz enforces Skill read authorization on every DB-backed skill this tool
 	// reads (load/search_installed/list). Injected from the composition root; when
 	// nil, DB-backed reads fail closed (the row is dropped or reported not-found).
@@ -133,6 +134,13 @@ func (t *Tool) WithSkillDirView(v SkillDirView) *Tool {
 func (t *Tool) WithPluginVisibility(registered, enabled []string) *Tool {
 	t.registeredPluginIDs = append([]string(nil), registered...)
 	t.enabledPluginIDs = append([]string(nil), enabled...)
+	return t
+}
+
+// WithAgentSkillPolicy captures the runner's immutable policy snapshot. The
+// next runner observes a committed mutation after local invalidation.
+func (t *Tool) WithAgentSkillPolicy(disabled []string) *Tool {
+	t.disabledSkillRefs = append([]string(nil), disabled...)
 	return t
 }
 
@@ -264,19 +272,16 @@ func (t *Tool) WithActionsOnly(actions ...string) *Tool {
 // root pairs; a skill dir under no known root is then omitted rather than leaked.
 type SkillDirView struct {
 	Isolated bool
-	// SystemSkillsHost/View map the system skills dir specifically (not all of
-	// STELLA_HOME): only that subtree is mounted, so a broad STELLA_HOME mapping
-	// would wrongly swallow the sibling users/ and agents/ trees nested under it.
-	SystemSkillsHost string
-	SystemSkillsView string
+	// BuiltinSkillsHost/View map the exact immutable release bundle projection.
+	BuiltinSkillsHost string
+	BuiltinSkillsView string
 	// AgentSkillsHost/View map the admin-managed agent-bound (system_agent) skills
 	// dir, mounted at its own fixed path (/opt/stella/agent-skills) since it lives
 	// in the user-independent agent definition tree, outside the two roots.
 	AgentSkillsHost string
 	AgentSkillsView string
-	// SystemDBSkillsHost/View map the DB-installed system skills dir (a sibling of
-	// the shipped built-ins under STELLA_HOME), mounted at its own fixed path
-	// (/opt/stella/db-skills); the built-ins map via SystemSkillsHost/View.
+	// SystemDBSkillsHost/View map the DB-installed system skills dir, mounted at
+	// /opt/stella/db-skills; release builtins map via BuiltinSkillsHost/View.
 	SystemDBSkillsHost string
 	SystemDBSkillsView string
 	// UserData and Workspace are full binds, so their whole root maps (this lets
@@ -298,7 +303,7 @@ func (v SkillDirView) apply(hostDir string) string {
 	for _, m := range [][2]string{
 		{v.WorkspaceHost, v.WorkspaceView},
 		{v.UserDataHost, v.UserDataView},
-		{v.SystemSkillsHost, v.SystemSkillsView},
+		{v.BuiltinSkillsHost, v.BuiltinSkillsView},
 		{v.AgentSkillsHost, v.AgentSkillsView},
 		{v.SystemDBSkillsHost, v.SystemDBSkillsView},
 	} {
@@ -375,8 +380,9 @@ func (t *Tool) targetScope(ctx context.Context, rawScope string) (string, error)
 // viewContext builds a SkillViewContext from the request context.
 func (t *Tool) viewContext(ctx context.Context) pkgplugins.SkillViewContext {
 	return pkgplugins.SkillViewContext{
-		UserID:  authz.UserIDFromContext(ctx),
-		AgentID: authz.AgentIDFromContext(ctx),
+		UserID:            authz.UserIDFromContext(ctx),
+		AgentID:           authz.AgentIDFromContext(ctx),
+		DisabledSkillRefs: t.disabledSkillRefs,
 	}
 }
 
@@ -662,7 +668,7 @@ func (t *Tool) list(ctx context.Context) (string, error) {
 			Description: rs.Description,
 			Status:      rs.Status,
 			Scope:       rs.Scope,
-			Removable:   IsWritable(rs.Scope),
+			Removable:   rs.builtin == nil && (rs.Scope == skillScopeUser || rs.Scope == "user_agent"),
 		})
 	}
 
@@ -822,7 +828,7 @@ func (t *Tool) resolveWritableSkill(ctx context.Context, name string, args map[s
 		return nil, fmt.Errorf("skill %q is a project skill — %s", name, errProjectScopeMsg)
 	}
 	if s.Scope != skillScopeUser && s.Scope != "user_agent" {
-		return nil, fmt.Errorf("skill %q has scope %q; the skills tool only manages your user and user_agent skills — system and system_agent skills are admin-managed in Settings → Skills", name, s.Scope)
+		return nil, fmt.Errorf("skill %q has scope %q; the skills tool only manages your user and user_agent skills — system and system_agent skills are admin-managed in Admin Console → Deployment resources → Global Skills", name, s.Scope)
 	}
 	return s, nil
 }

@@ -28,7 +28,7 @@ Run mode:
 
 - **Server**: `stellad server` (Telegram, Discord, QQ, Feishu, WeChat bots + scheduler + Web UI)
 
-Setup: run `stellad server` and open `http://localhost:25678` to configure everything via the Web UI. All configuration and runtime state live in PostgreSQL: an embedded cluster managed under the operator's `$STELLA_HOME` (install its runtime with `stellad postgres download` if missing), or an external server when `STELLA_DATABASE_URL` is set. `$STELLA_HOME` is an operator configuration location, not an Agent sandbox path.
+Setup: run `stellad server` and open `http://localhost:25678` to configure everything via the Web UI. Configuration and most runtime state live in PostgreSQL: an embedded cluster managed under the operator's `$STELLA_HOME` (install its runtime with `stellad postgres download` if missing), or an external server when `STELLA_DATABASE_URL` is set. `$STELLA_HOME` is an operator configuration location, not an Agent sandbox path.
 
 ## Filesystem locations
 
@@ -39,6 +39,10 @@ Use semantic environment variables for Agent files, never host or sandbox litera
 - `$TMPDIR`: session-private disposable scratch only; never use it for final output or assume it survives.
 
 `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, and `XDG_CACHE_HOME` are principal-shared and CLI-managed, not generic storage. They fall back under `$HOME` without a principal root; `XDG_RUNTIME_DIR` is unset. Mise, Lark, and system directories are tool-managed.
+
+## Skills
+
+Release builtins (`builtin:<name>`) are immutable and come only from the release bundle. Administrator-installed global (`system:<name>`) and Agent-bound (`system_agent:<name>`) Skills remain mutable and separately managed. For current authorities, per-Agent activation, and upgrade checks, read [references/configuration.md](references/configuration.md) or [references/update.md](references/update.md) before advising an operator.
 
 ## Architecture
 

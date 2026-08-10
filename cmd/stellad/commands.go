@@ -81,6 +81,7 @@ the server, or use "stellad service" to manage it as a background service.`,
 			postgresCommand(),
 			vaultCommand(),
 			miseCommand(),
+			systemBundleCommand(),
 			serviceCommand(),
 		},
 	}
@@ -145,6 +146,12 @@ type setupResult struct {
 // with it directly, so no service is built with a localhost placeholder and
 // mutated later.
 func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*setupResult, error) {
+	// The legacy Skill inventory is a pre-mutation gate for Stella Home. Run it
+	// before embedded PostgreSQL creates its cluster or runtime directories.
+	if err := ensureEmbeddedAssets(); err != nil {
+		return nil, err
+	}
+
 	dsn := cfg.Database.URL
 	var embedded *appdb.Embedded
 	if dsn == "" {
@@ -185,10 +192,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// Every authorization domain owns its own static rules and loads durable facts
 	// before deciding; the Agent domain is the shared read gate the others fold in.
 	agentAccess := agentaccess.NewService(store, authStore)
-
-	if err := ensureEmbeddedAssets(); err != nil {
-		return nil, err
-	}
 
 	skillStore := setupSkillStore(db)
 	// The Skill domain shares the Agent read gate with the other execution
@@ -626,19 +629,33 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 }
 
 func ensureEmbeddedAssets() error {
+	registry, err := resources.Default()
+	if err != nil {
+		return fmt.Errorf("load builtin skill bundle: %w", err)
+	}
+	blockers, err := registry.InventoryLegacySkills(filepath.Join(config.StellaHome(), ".agents", "skills"))
+	if err != nil {
+		return fmt.Errorf("inventory legacy system skills: %w", err)
+	}
+	if len(blockers) != 0 {
+		paths := make([]string, 0, len(blockers))
+		for _, blocker := range blockers {
+			paths = append(paths, blocker.Path)
+		}
+		return fmt.Errorf("cannot activate builtin skill bundle: legacy system skills remain at %s; back up the listed paths, run or roll back to the previous working Stella binary, import each custom root as a global/system Skill through Settings → Skills (older releases) or Admin Console → Deployment resources → Global Skills, verify each import, remove only migrated or residual legacy paths, then retry", strings.Join(paths, ", "))
+	}
 	// Remove assets retired or renamed by newer releases so stale copies do not
 	// remain discoverable beside their replacements.
 	_ = os.Remove(filepath.Join(config.StellaHome(), "bin", "stella"))
 	_ = os.Remove(filepath.Join(config.StellaHome(), "bin", "stella.exe"))
-	_ = os.RemoveAll(filepath.Join(config.StellaHome(), ".agents", "skills", "system", "kreuzberg"))
 	if err := binaries.EnsureTools(config.StellaHome()); err != nil {
 		return fmt.Errorf("extract embedded tools: %w", err)
 	}
 	if err := binaries.VerifyTools(config.StellaHome()); err != nil {
 		return err
 	}
-	if err := resources.EnsureBuiltinSkills(filepath.Join(config.StellaHome(), ".agents", "skills")); err != nil {
-		return fmt.Errorf("extract builtin skills: %w", err)
+	if _, err := registry.InstallBuiltinBundle(config.StellaHome()); err != nil {
+		return fmt.Errorf("install builtin skill bundle: %w", err)
 	}
 	return nil
 }

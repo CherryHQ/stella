@@ -48,6 +48,7 @@ type runnerConfig struct {
 	Sections            []pkgplugins.SystemPromptSection
 	BuiltinTools        []BuiltinTool
 	BuiltinParams       RunnerParams
+	DisabledSkillRefs   []string
 	PerRunTools         []tools.Tool
 	SkillStore          pkgplugins.SkillStore
 	SkillReadAuthorizer skillstool.SkillReadAuthorizer
@@ -284,8 +285,8 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		sv := sandbox.ResolveSkillView(ctx, cfg.Sandbox, paths)
 		view := skillstool.SkillDirView{
 			Isolated:           sv.Isolated,
-			SystemSkillsHost:   sv.SystemSkillsHost,
-			SystemSkillsView:   sv.SystemSkillsView,
+			BuiltinSkillsHost:  sv.BuiltinSkillsHost,
+			BuiltinSkillsView:  sv.BuiltinSkillsView,
 			AgentSkillsHost:    sv.AgentSkillsHost,
 			AgentSkillsView:    sv.AgentSkillsView,
 			SystemDBSkillsHost: sv.SystemDBSkillsHost,
@@ -299,6 +300,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 			WithSkillDiskLayout(layout).
 			WithSkillDirView(view).
 			WithPluginVisibility(cfg.PluginView.RegisteredPluginIDs, cfg.PluginView.EnabledPluginIDs).
+			WithAgentSkillPolicy(cfg.DisabledSkillRefs).
 			WithReadAuthorizer(cfg.SkillReadAuthorizer).
 			WithActionsOnly("search_installed", "load"))
 	}

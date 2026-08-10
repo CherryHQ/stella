@@ -14,6 +14,7 @@ import (
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/agentskillpolicy"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -380,9 +381,27 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 		return fmt.Errorf("build service for agent %q: %w", ag.ID, err)
 	}
 
-	pm.mu.Lock()
-	pm.services[ag.ID] = svc
-	pm.mu.Unlock()
+	// Publish while holding the Service barrier, then take one fresh snapshot.
+	// A policy mutation that began before publication sees no service and commits
+	// normally; this read observes it. One that begins after publication waits
+	// for the barrier, so no caller can admit against the bootstrap snapshot.
+	if err := svc.withAdmissionBarrier(func() error {
+		pm.mu.Lock()
+		pm.services[ag.ID] = svc
+		pm.mu.Unlock()
+		if err := pm.rebuildRunnerFuncForServiceLocked(ctx, ag.ID, svc); err != nil {
+			pm.mu.Lock()
+			if pm.services[ag.ID] == svc {
+				delete(pm.services, ag.ID)
+			}
+			pm.mu.Unlock()
+			_ = svc.Runtime.Close()
+			return err
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("refresh service snapshot for agent %q: %w", ag.ID, err)
+	}
 
 	pm.log.Info("agent started", "agent_id", ag.ID, "workspace", workspace)
 	return nil
@@ -482,6 +501,7 @@ func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot
 		SkillStore:          pm.skillStore,
 		RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
 		EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),
+		DisabledSkillRefs:   append([]string(nil), snap.DisabledSkillRefs...),
 	}
 	var sections []pkgplugins.SystemPromptSection
 	if pm.promptSectionsBuilder != nil {
@@ -624,22 +644,54 @@ func (pm *PoolManager) ReloadPluginProviders(ctx context.Context) error {
 	return nil
 }
 
-// rebuildRunnerFunc rebuilds and replaces the runner builder for a single agent's service.
+// rebuildRunnerFunc serializes a configuration-triggered factory rebuild with
+// policy commit/admission. Snapshot loading must happen inside the barrier: a
+// pre-commit snapshot installed after policy invalidation would fail open.
 func (pm *PoolManager) rebuildRunnerFunc(ctx context.Context, agentID string) error {
+	pm.mu.RLock()
+	svc := pm.services[agentID]
+	pm.mu.RUnlock()
+	if svc == nil {
+		return pm.rebuildRunnerFuncLocked(ctx, agentID)
+	}
+	return svc.withAdmissionBarrier(func() error {
+		if err := pm.rebuildRunnerFuncForServiceLocked(ctx, agentID, svc); err != nil {
+			return err
+		}
+		// A rebuilt factory is a new configuration boundary. reset preserves
+		// admitted/reserved runners as stale and retires only idle ones, so the
+		// next turn cannot reuse a runner built from the old plugin/provider view.
+		return svc.Runtime.ResetRunners()
+	})
+}
+
+// rebuildRunnerFuncLocked rebuilds a runner factory while the caller owns the
+// agent Service's admission barrier (or no local Service exists).
+func (pm *PoolManager) rebuildRunnerFuncLocked(ctx context.Context, agentID string) error {
+	pm.mu.RLock()
+	svc := pm.services[agentID]
+	pm.mu.RUnlock()
+	if svc == nil {
+		_, _, err := pm.loadAgentSnapshot(ctx, agentID)
+		return err
+	}
+	return pm.rebuildRunnerFuncForServiceLocked(ctx, agentID, svc)
+}
+
+// rebuildRunnerFuncForServiceLocked installs a snapshot-derived factory only
+// into svc. The caller owns svc's admission barrier; this intentionally does
+// not re-read the service map after DB I/O, so a replacement cannot receive a
+// stale factory by identity drift.
+func (pm *PoolManager) rebuildRunnerFuncForServiceLocked(ctx context.Context, agentID string, svc *Service) error {
 	snap, _, err := pm.loadAgentSnapshot(ctx, agentID)
 	if err != nil {
 		return err
 	}
 	factory := pm.buildRunnerFunc(ctx, snap)
-
-	pm.mu.RLock()
-	svc := pm.services[agentID]
-	pm.mu.RUnlock()
-	if svc != nil {
-		svc.Runtime.SetNewRunner(factory)
-		svc.Runtime.SetDefaultModel(snap.ResolveModelID(config.ModelTierStrong), snap.ResolveThinkingLevel(config.ModelTierStrong))
-		svc.Runtime.SetHooks(pm.HookPlugins)
-	}
+	svc.Runtime.SetNewRunner(factory)
+	svc.Runtime.SetDefaultModel(snap.ResolveModelID(config.ModelTierStrong), snap.ResolveThinkingLevel(config.ModelTierStrong))
+	svc.Runtime.SetHooks(pm.HookPlugins)
+	svc.Runtime.SetPromptBuilders(pm.runtimeBeforeRunFunc(snap), pm.buildSnapshotPromptFunc(snap))
 	return nil
 }
 
@@ -662,11 +714,16 @@ func (pm *PoolManager) SyncAgent(ctx context.Context, agentID string) error {
 	if svc == nil {
 		return pm.startAgent(ctx, ag)
 	}
-	if err := pm.rebuildRunnerFunc(ctx, agentID); err != nil {
+	if err := svc.withAdmissionBarrier(func() error {
+		if err := pm.rebuildRunnerFuncForServiceLocked(ctx, agentID, svc); err != nil {
+			return err
+		}
+		if err := svc.Runtime.ResetRunners(); err != nil {
+			pm.log.Warn("failed to reset runners after sync", "agent_id", agentID, "error", err)
+		}
+		return nil
+	}); err != nil {
 		return err
-	}
-	if err := svc.Runtime.ResetRunners(); err != nil {
-		pm.log.Warn("failed to reset runners after sync", "agent_id", agentID, "error", err)
 	}
 	pm.log.Info("agent reloaded", "agent_id", agentID)
 	return nil
@@ -681,7 +738,10 @@ func (pm *PoolManager) removeAgent(agentID string) error {
 		return nil
 	}
 	pm.log.Info("removing agent service", "agent_id", agentID)
-	return svc.Runtime.Close()
+	// A policy mutation may already own this Service's admission barrier. Wait
+	// for it before closing the Runtime so post-commit invalidation cannot race
+	// a close/use a retired runner.
+	return svc.withAdmissionBarrier(svc.Runtime.Close)
 }
 
 func (pm *PoolManager) loadAgentSnapshot(ctx context.Context, agentID string) (*config.Snapshot, string, error) {
@@ -757,7 +817,7 @@ func (pm *PoolManager) InvalidateUser(userID string) error {
 
 	var lastErr error
 	for _, svc := range services {
-		if err := svc.Runtime.ResetRunnersForUser(userID); err != nil {
+		if err := svc.withAdmissionBarrier(func() error { return svc.Runtime.ResetRunnersForUser(userID) }); err != nil {
 			pm.log.Error("reset runners for user", "user_id", userID, "error", err)
 			lastErr = err
 		}
@@ -773,7 +833,7 @@ func (pm *PoolManager) InvalidateUserAgent(userID, agentID string) error {
 	if !ok {
 		return nil
 	}
-	if err := svc.Runtime.ResetRunnersForUser(userID); err != nil {
+	if err := svc.withAdmissionBarrier(func() error { return svc.Runtime.ResetRunnersForUser(userID) }); err != nil {
 		pm.log.Error("reset runners for user agent", "user_id", userID, "agent_id", agentID, "error", err)
 		return err
 	}
@@ -788,11 +848,120 @@ func (pm *PoolManager) InvalidateAgent(agentID string) error {
 	if !ok {
 		return nil
 	}
-	if err := svc.Runtime.ResetRunners(); err != nil {
+	if err := svc.withAdmissionBarrier(svc.Runtime.ResetRunners); err != nil {
 		pm.log.Error("reset runners for agent", "agent_id", agentID, "error", err)
 		return err
 	}
 	return nil
+}
+
+var errAgentSkillPolicyServiceChanged = errors.New("agent Skill policy service changed")
+
+// ApplyAgentSkillPolicyMutation commits mutate and makes every locally
+// published Service observe that committed policy before a subsequent turn can
+// use its old factory. It owns the complete orchestration so callers cannot
+// accidentally call a barrier-assuming invalidator without the barrier.
+//
+// A refresh failure is deliberately logged but not returned after mutate has
+// committed: the database response remains truthful while the target Service is
+// poisoned fail-closed until a later successful refresh.
+func (pm *PoolManager) ApplyAgentSkillPolicyMutation(agentID string, mutate func() error) error {
+	return pm.applyAgentSkillPolicyMutation(agentID, mutate, pm.refreshAgentSkillPolicyForServiceLocked)
+}
+
+func (pm *PoolManager) applyAgentSkillPolicyMutation(agentID string, mutate func() error, refresh func(string, *Service) error) error {
+	for {
+		svc := pm.GetService(agentID)
+		if svc == nil {
+			if err := mutate(); err != nil {
+				if errors.Is(err, agentskillpolicy.ErrCommitOutcomeUnknown) {
+					pm.catchUpAgentSkillPolicyService(agentID, nil, refresh)
+				}
+				return err
+			}
+			pm.catchUpAgentSkillPolicyService(agentID, nil, refresh)
+			return nil
+		}
+
+		err := svc.withAdmissionBarrier(func() error {
+			if !pm.isCurrentService(agentID, svc) {
+				return errAgentSkillPolicyServiceChanged
+			}
+			if err := mutate(); err != nil {
+				if errors.Is(err, agentskillpolicy.ErrCommitOutcomeUnknown) {
+					if refreshErr := refresh(agentID, svc); refreshErr != nil {
+						pm.log.Error("reconcile unknown Agent Skill policy commit", "agent_id", agentID, "error", refreshErr)
+					}
+				}
+				return err
+			}
+			if err := refresh(agentID, svc); err != nil {
+				pm.log.Error("refresh committed Agent Skill policy", "agent_id", agentID, "error", err)
+			}
+			return nil
+		})
+		if errors.Is(err, errAgentSkillPolicyServiceChanged) {
+			continue
+		}
+		if errors.Is(err, agentskillpolicy.ErrCommitOutcomeUnknown) {
+			pm.catchUpAgentSkillPolicyService(agentID, svc, refresh)
+			return err
+		}
+		if err != nil {
+			return err
+		}
+		pm.catchUpAgentSkillPolicyService(agentID, svc, refresh)
+		return nil
+	}
+}
+
+func (pm *PoolManager) isCurrentService(agentID string, svc *Service) bool {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return pm.services[agentID] == svc
+}
+
+// catchUpAgentSkillPolicyService handles publication/replacement that races a
+// mutation which initially saw no Service. No Service at this point is safe:
+// a later startAgent performs its post-publication snapshot refresh after this
+// committed mutation. A Service that has appeared is refreshed behind its own
+// barrier after startup has finished its corresponding refresh.
+func (pm *PoolManager) catchUpAgentSkillPolicyService(agentID string, refreshed *Service, refresh func(string, *Service) error) {
+	for {
+		svc := pm.GetService(agentID)
+		if svc == nil || svc == refreshed {
+			return
+		}
+		err := svc.withAdmissionBarrier(func() error {
+			if !pm.isCurrentService(agentID, svc) {
+				return errAgentSkillPolicyServiceChanged
+			}
+			if err := refresh(agentID, svc); err != nil {
+				pm.log.Error("catch up committed Agent Skill policy", "agent_id", agentID, "error", err)
+			}
+			return nil
+		})
+		if errors.Is(err, errAgentSkillPolicyServiceChanged) {
+			continue
+		}
+		return
+	}
+}
+
+// refreshAgentSkillPolicyForServiceLocked refreshes one exact Service while
+// its admission barrier is held. It never consults the service map after its
+// snapshot read, preventing a replacement from receiving stale policy bytes.
+func (pm *PoolManager) refreshAgentSkillPolicyForServiceLocked(agentID string, svc *Service) error {
+	if err := pm.rebuildRunnerFuncForServiceLocked(context.Background(), agentID, svc); err != nil {
+		svc.Runtime.SetNewRunner(func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) {
+			return nil, fmt.Errorf("reload Agent Skill policy: %w", err)
+		})
+		if invalidateErr := svc.Runtime.InvalidateSkillPolicy(); invalidateErr != nil {
+			pm.log.Warn("invalidate runners after failed Agent Skill policy refresh", "agent_id", agentID, "error", invalidateErr)
+		}
+		return err
+	}
+	return svc.Runtime.InvalidateSkillPolicy()
 }
 
 // InvalidateAll closes every live runner across all services.
@@ -804,7 +973,7 @@ func (pm *PoolManager) InvalidateAll() error {
 
 	var lastErr error
 	for id, svc := range services {
-		if err := svc.Runtime.ResetRunners(); err != nil {
+		if err := svc.withAdmissionBarrier(svc.Runtime.ResetRunners); err != nil {
 			pm.log.Error("reset runners for service", "agent_id", id, "error", err)
 			lastErr = err
 		}
@@ -849,7 +1018,7 @@ func (pm *PoolManager) Close() error {
 	var lastErr error
 	for id, svc := range services {
 		pm.log.Info("closing agent service", "agent_id", id)
-		if err := svc.Runtime.Close(); err != nil {
+		if err := svc.withAdmissionBarrier(svc.Runtime.Close); err != nil {
 			pm.log.Error("failed to close service runtime", "agent_id", id, "error", err)
 			lastErr = err
 		}
