@@ -146,6 +146,27 @@ func TestBuiltinManifestGenerationIsDeterministic(t *testing.T) {
 	}
 }
 
+func TestWritableBundleModeProjection(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		actual   fs.FileMode
+		expected fs.FileMode
+		want     bool
+	}{
+		{name: "writable source", actual: 0o666, expected: 0o644, want: true},
+		{name: "executable source", actual: 0o666, expected: 0o755, want: true},
+		{name: "read-only marker", actual: 0o444, expected: 0o444, want: true},
+		{name: "writable marker", actual: 0o666, expected: 0o444, want: false},
+		{name: "read-only source", actual: 0o444, expected: 0o644, want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := writableBundleModeMatches(test.actual, test.expected); got != test.want {
+				t.Fatalf("writableBundleModeMatches(%04o, %04o) = %t, want %t", test.actual, test.expected, got, test.want)
+			}
+		})
+	}
+}
+
 func TestBuiltinBundleInstallerVerifiesTamperingAndDoesNotRewrite(t *testing.T) {
 	registry := testBuiltinRegistry(t)
 	home := t.TempDir()
@@ -160,6 +181,13 @@ func TestBuiltinBundleInstallerVerifiesTamperingAndDoesNotRewrite(t *testing.T) 
 	}
 	if info.Mode().Perm() != 0o755 {
 		t.Fatalf("installed script mode = %04o, want 0755", info.Mode().Perm())
+	}
+	rootInfo, err := os.Stat(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bundleDirectoryModeMatches(rootInfo.Mode()) {
+		t.Fatalf("installed bundle root mode = %04o, want traversable projection", rootInfo.Mode().Perm())
 	}
 	firstModTime := info.ModTime()
 	time.Sleep(20 * time.Millisecond)
@@ -194,6 +222,34 @@ func TestBuiltinBundleInstallerVerifiesTamperingAndDoesNotRewrite(t *testing.T) 
 	}
 	if err := registry.VerifyBuiltinBundle(home); err == nil {
 		t.Fatal("VerifyBuiltinBundle accepted a completion-marker directory")
+	}
+}
+
+func TestBuiltinBundleInstallerRepairsNonTraversableRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows directory traversal is controlled by ACLs")
+	}
+	registry := testBuiltinRegistry(t)
+	home := t.TempDir()
+	bundle, err := registry.InstallBuiltinBundle(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(bundle, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.VerifyBuiltinBundle(home); err == nil {
+		t.Fatal("VerifyBuiltinBundle accepted a non-traversable bundle root")
+	}
+	if _, err := registry.InstallBuiltinBundle(home); err != nil {
+		t.Fatalf("repair InstallBuiltinBundle: %v", err)
+	}
+	info, err := os.Stat(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o755 {
+		t.Fatalf("repaired bundle root mode = %04o, want 0755", info.Mode().Perm())
 	}
 }
 

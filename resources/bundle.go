@@ -195,6 +195,19 @@ func (r *Registry) writeBuiltinBundle(root string) error {
 	if err := os.Chmod(markerPath, 0o444); err != nil {
 		return fmt.Errorf("set builtin bundle completion marker mode: %w", err)
 	}
+	if err := filepath.WalkDir(root, func(filename string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			if err := os.Chmod(filename, 0o755); err != nil {
+				return fmt.Errorf("set builtin bundle directory mode %q: %w", filename, err)
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -208,6 +221,9 @@ func verifyBundleAt(root string, manifest BuiltinManifest) error {
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return errors.New("bundle root is not a directory")
+	}
+	if !bundleDirectoryModeMatches(info.Mode()) {
+		return fmt.Errorf("bundle root has unexpected mode %s", info.Mode())
 	}
 
 	want := make(map[string]BuiltinSkillFile)
@@ -242,6 +258,13 @@ func verifyBundleAt(root string, manifest BuiltinManifest) error {
 			return verifyBundleMarker(filename, manifest.Revision)
 		}
 		if entry.IsDir() {
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			if !bundleDirectoryModeMatches(info.Mode()) {
+				return fmt.Errorf("bundle directory %q has unexpected mode %s", rel, info.Mode())
+			}
 			return nil
 		}
 		file, ok := want[rel]
@@ -252,7 +275,7 @@ func verifyBundleAt(root string, manifest BuiltinManifest) error {
 		if err != nil {
 			return err
 		}
-		if !info.Mode().IsRegular() || info.Mode().Perm() != manifestSourceMode(file.Mode).Perm() {
+		if !info.Mode().IsRegular() || !bundleFileModeMatches(info.Mode(), manifestSourceMode(file.Mode)) {
 			return fmt.Errorf("bundle file %q has unexpected mode %s", rel, info.Mode())
 		}
 		data, err := os.ReadFile(filename)
@@ -289,7 +312,7 @@ func verifyBundleMarker(filename, revision string) error {
 	if err != nil {
 		return err
 	}
-	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o444 {
+	if !info.Mode().IsRegular() || !bundleFileModeMatches(info.Mode(), 0o444) {
 		return fmt.Errorf("bundle completion marker has unexpected mode %s", info.Mode())
 	}
 	data, err := os.ReadFile(filename)

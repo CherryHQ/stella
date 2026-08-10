@@ -430,7 +430,7 @@ func (c *runnerCache) reset() error {
 // non-terminal reset entry point uses it, so an admitted lease is handled the
 // same for agent-wide and user-scoped invalidation.
 func (c *runnerCache) resetWhere(include func(*cachedSession) bool) error {
-	runners := make([]Runner, 0, len(c.sessions))
+	var runners []Runner
 	func() {
 		c.mu.Lock()
 		defer c.mu.Unlock()
@@ -477,7 +477,7 @@ func (c *runnerCache) resetWhere(include func(*cachedSession) bool) error {
 // for replacement after their current turn. This is the local boundary for a
 // committed AgentSkillPolicy; cross-replica digest invalidation is Phase 4.
 func (c *runnerCache) invalidateSkillPolicy() error {
-	runners := make([]Runner, 0, len(c.sessions))
+	var runners []Runner
 	func() {
 		c.mu.Lock()
 		defer c.mu.Unlock()
