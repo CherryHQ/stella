@@ -195,3 +195,60 @@ func (q *Queries) UpsertPlugin(ctx context.Context, arg UpsertPluginParams) erro
 	)
 	return err
 }
+
+const upsertPluginConfig = `-- name: UpsertPluginConfig :exec
+INSERT INTO plugin (id, kind, name, enabled, config, updated_at)
+VALUES ($1, $2, $3, $4, $5, now())
+ON CONFLICT(id) DO UPDATE SET
+    config = excluded.config,
+    updated_at = now()
+`
+
+type UpsertPluginConfigParams struct {
+	ID      string          `json:"id"`
+	Kind    string          `json:"kind"`
+	Name    string          `json:"name"`
+	Enabled bool            `json:"enabled"`
+	Config  json.RawMessage `json:"config"`
+}
+
+func (q *Queries) UpsertPluginConfig(ctx context.Context, arg UpsertPluginConfigParams) error {
+	_, err := q.db.Exec(ctx, upsertPluginConfig,
+		arg.ID,
+		arg.Kind,
+		arg.Name,
+		arg.Enabled,
+		arg.Config,
+	)
+	return err
+}
+
+const upsertPluginEnabled = `-- name: UpsertPluginEnabled :exec
+
+INSERT INTO plugin (id, kind, name, enabled, config, updated_at)
+VALUES ($1, $2, $3, $4, '{}'::jsonb, now())
+ON CONFLICT(id) DO UPDATE SET
+    enabled = excluded.enabled,
+    updated_at = now()
+`
+
+type UpsertPluginEnabledParams struct {
+	ID      string `json:"id"`
+	Kind    string `json:"kind"`
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+}
+
+// Field-scoped writes. The whole-row UpsertPlugin above is a lost update when
+// two writers touch the same plugin: the admin kill switch and a channel's
+// credential mirror are exactly that pair. These update one column and leave
+// the other as it is; the VALUES list only decides what a first insert gets.
+func (q *Queries) UpsertPluginEnabled(ctx context.Context, arg UpsertPluginEnabledParams) error {
+	_, err := q.db.Exec(ctx, upsertPluginEnabled,
+		arg.ID,
+		arg.Kind,
+		arg.Name,
+		arg.Enabled,
+	)
+	return err
+}

@@ -464,6 +464,12 @@ paths:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins"
   /api/manifest-plugins/sync:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins~1sync"
+  /api/manifest-plugins/{kind}/{name}:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins~1{kind}~1{name}"
+  /api/manifest-plugins/{kind}/{name}/enabled:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins~1{kind}~1{name}~1enabled"
+  /api/manifest-plugins/{kind}/{name}/reset:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins~1{kind}~1{name}~1reset"
   /api/cli-tools/registry:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1cli-tools~1registry"
   /api/cli-tools/latest:
@@ -720,6 +726,27 @@ components:
     }
     ManifestPlugin: {
       $ref: "./components.yaml#/components/schemas/ManifestPlugin",
+    }
+    ManifestPluginDefinition: {
+      $ref: "./components.yaml#/components/schemas/ManifestPluginDefinition",
+    }
+    ManifestPluginInput: {
+      $ref: "./components.yaml#/components/schemas/ManifestPluginInput",
+    }
+    ManifestPluginDefinitionField: {
+      $ref: "./components.yaml#/components/schemas/ManifestPluginDefinitionField",
+    }
+    SaveBuiltinManifestPluginDefinitionRequest: {
+      $ref: "./components.yaml#/components/schemas/SaveBuiltinManifestPluginDefinitionRequest",
+    }
+    ManifestPluginReplacement: {
+      $ref: "./components.yaml#/components/schemas/ManifestPluginReplacement",
+    }
+    ReplaceCustomManifestPluginDefinitionRequest: {
+      $ref: "./components.yaml#/components/schemas/ReplaceCustomManifestPluginDefinitionRequest",
+    }
+    SaveManifestPluginDefinitionRequest: {
+      $ref: "./components.yaml#/components/schemas/SaveManifestPluginDefinitionRequest",
     }
     Goal: { $ref: "./components.yaml#/components/schemas/Goal" }
     GoalList: {

@@ -196,7 +196,7 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	// Runtime injects it as per-turn message context instead, preserving the group
 	// system prompt prefix across speakers for provider prompt caches.
 	// World facts are deliberately search-first: they remain available through
-	// memory.search_knowledge under the same snapshot/version semantics, but are
+	// memory.search under the same snapshot/version semantics, but are
 	// not injected into every prompt by default.
 
 	for _, s := range p.Sections {

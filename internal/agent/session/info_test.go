@@ -1,7 +1,9 @@
 package session
 
 import (
+	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +12,34 @@ import (
 
 // a canonical (parseable) group id used across the group-scope tests.
 const testGroupID = "11111111-1111-4111-8111-111111111111"
+
+func TestOutputCollectorBoundsUTF8Prefix(t *testing.T) {
+	var collector OutputCollector
+	collector.Write(strings.Repeat("x", MaxSynchronousOutputBytes-1))
+	collector.Write("界tail")
+	collector.Write("ignored after limit")
+	if !collector.Truncated() {
+		t.Fatal("collector did not report omitted stream output")
+	}
+	if got := collector.String(); len(got) > MaxSynchronousOutputBytes || !strings.HasSuffix(got, "x") {
+		t.Fatalf("collector retained invalid prefix: bytes=%d suffix=%q", len(got), got[len(got)-1:])
+	}
+}
+
+func TestSessionTitleByteBoundAtDomainAndRecordBoundary(t *testing.T) {
+	valid := strings.Repeat("界", MaxTitleBytes/len("界")) + "x"
+	if err := ValidateTitle(valid); err != nil {
+		t.Fatalf("ValidateTitle at %d bytes: %v", len(valid), err)
+	}
+	tooLong := valid + "界"
+	if err := ValidateTitle(tooLong); !errors.Is(err, ErrTitleTooLong) {
+		t.Fatalf("ValidateTitle error = %v, want ErrTitleTooLong", err)
+	}
+	info := Info{ID: "s", AgentID: "a", UserID: "u", Title: tooLong}
+	if _, err := info.Record(); !errors.Is(err, ErrTitleTooLong) {
+		t.Fatalf("Record error = %v, want ErrTitleTooLong", err)
+	}
+}
 
 // TestInfoIsNotMemoryAlias guards the architecture invariant that session.Info
 // is a distinct session-domain type, not an alias to the memory persistence

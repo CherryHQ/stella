@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageSquare, MoreHorizontal, Pencil, Search, Trash2 } from "lucide-react";
 import { deleteSession, updateSession } from "@/lib/api-client/sdk.gen";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import { agentProjectsOptions } from "@/lib/queries/projects";
-import { agentThreadsInfiniteQueryOptions, sortedChats } from "@/lib/queries/sessions";
+import { allThreadSessionsQueryOptions, sortedThreads } from "@/lib/queries/sessions";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/time";
@@ -84,7 +84,10 @@ export function ThreadsPage() {
   const projectFilter =
     selectedHome !== AGENT_HOME && selectedHome !== ALL_HOMES ? selectedHome : undefined;
 
-  const threadsQuery = useInfiniteQuery(agentThreadsInfiniteQueryOptions(agentId, projectFilter));
+  const threadsQuery = useQuery({
+    ...allThreadSessionsQueryOptions(agentId, true, projectFilter),
+    refetchInterval: 3000,
+  });
 
   const [editingId, setEditingId] = useState("");
   const [draftTitle, setDraftTitle] = useState("");
@@ -107,7 +110,7 @@ export function ThreadsPage() {
 
   const needle = (q ?? "").trim().toLowerCase();
   const threads = useMemo(() => {
-    const loaded = sortedChats(threadsQuery.data?.pages.flatMap((page) => page.sessions) ?? []);
+    const loaded = sortedThreads(threadsQuery.data ?? []);
     const scoped =
       selectedHome === AGENT_HOME ? loaded.filter((session) => !session.project_id) : loaded;
     return needle
@@ -348,19 +351,6 @@ export function ThreadsPage() {
                 </Link>
               );
             })}
-          </div>
-        )}
-
-        {threadsQuery.hasNextPage && (
-          <div className="flex justify-center py-4">
-            <Button
-              variant="outline"
-              size="sm"
-              loading={threadsQuery.isFetchingNextPage}
-              onClick={() => void threadsQuery.fetchNextPage()}
-            >
-              {t("sidebar.showMore")}
-            </Button>
           </div>
         )}
       </div>

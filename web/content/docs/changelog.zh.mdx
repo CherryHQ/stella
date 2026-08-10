@@ -11,10 +11,72 @@ icon: History
 
 ## [Unreleased]
 
+## [0.63.2] - 2026-08-09
+
+### 🔐 安全
+
+- 委派出的 Agent 运行现在无法重新获得祖先上下文已排除的控制平面工具，即使使用预设允许列表也不能绕过。([#961](https://github.com/CherryHQ/stella/pull/961), [#677](https://github.com/CherryHQ/stella/issues/677))
+
+### 🐛 修复
+
+- Discord 群组渠道现在会按照配置的 Agent 绑定授权未关联账户的服务器成员，同时保持私信和已关联用户的授权逻辑不变。([#954](https://github.com/CherryHQ/stella/pull/954), [#953](https://github.com/CherryHQ/stella/issues/953))
+- Agent owner 现在可以重新管理自己的渠道和适用的 Agent 设置，目标列表也始终限定在所属用户范围内。自定义 manifest 插件也可以删除，不会因一次错误配置而永久保留。([#956](https://github.com/CherryHQ/stella/pull/956), [#955](https://github.com/CherryHQ/stella/issues/955), [#957](https://github.com/CherryHQ/stella/issues/957))
+- 本地登录和单点登录成功后现在会进入 Agent 页面，不再跳转到已移除的 provider 路由。([#966](https://github.com/CherryHQ/stella/pull/966), [#965](https://github.com/CherryHQ/stella/issues/965))
+- 编辑内置插件时现在只保存发生变化的字段，未修改的设置可继续继承后续 Stella 版本中的改进。管理员可以将自定义项重置为随版本交付的默认值，现有完整定义 override 也保持兼容。([#964](https://github.com/CherryHQ/stella/pull/964), [#963](https://github.com/CherryHQ/stella/issues/963))
+
+### ♻️ 重构
+
+- Manifest 插件定义现在使用明确且相互对应的 Go、OpenAPI 与生成 TypeScript contract，并与运行时解析状态分离。([#968](https://github.com/CherryHQ/stella/pull/968), [#967](https://github.com/CherryHQ/stella/issues/967))
+
+### 🔧 CI
+
+- Web 构建现在在本地开发、CI 和 Docker 中统一使用一条确定性的 Vite+ 与 pnpm 版本路径，也能可靠完成非交互式依赖安装。([#970](https://github.com/CherryHQ/stella/pull/970), [#969](https://github.com/CherryHQ/stella/issues/969))
+
+**完整变更记录**：[v0.63.1...v0.63.2](https://github.com/CherryHQ/stella/compare/v0.63.1...v0.63.2)
+
+## [0.63.1] - 2026-08-08
+
+### 🔧 CI
+
+- 发布现在使用长期维护的 `release/vX.Y` 分支，让每条 minor 版本线都有稳定的 patch 基线，同时保留 `main` 作为默认开发分支。Tag 验证会拒绝不属于匹配分支的提交，并行运行质量与构建、Go 与 Web 测试、System Test 和发布打包。Feature 分支也不再重复运行 push 与 pull request 检查。([#948](https://github.com/CherryHQ/stella/pull/948), [#947](https://github.com/CherryHQ/stella/issues/947))
+
+**完整变更记录**：[v0.63.0...v0.63.1](https://github.com/CherryHQ/stella/compare/v0.63.0...v0.63.1)
+
+## [0.63.0] - 2026-08-08
+
 ### ✨ 功能
 
-- 企业集成现在可通过受限且会过期的开通令牌创建无密码、仅 API 可用的受管用户。管理员可在设置中创建、复制、撤销开通凭据并完成计划轮换；用户创建和轮换只返回一次 bearer secret，会保留无关的个人令牌；停用则通过正常账户锁定流程撤销 session 和全部令牌。([#891](https://github.com/CherryHQ/stella/issues/891))
-- 个人访问令牌现在继承所属账户的当前权限，包括管理员权限。创建令牌不再需要选择 API scope，现有令牌会自动采用新行为，账户页面也简化为命名并创建令牌。为避免凭证扩散或账户接管，PAT 不能管理认证凭证、浏览器 session、身份、角色或账户启用状态；OAuth access token 仍按 scope 授权。([#889](https://github.com/CherryHQ/stella/issues/889))
+- Knowledge 新增不可变快照存储核心，以及适用于 PDF、DOCX、Markdown 和文本文件的确定性派生生命周期。发布、删除、清理和恢复跨 PostgreSQL 与原始对象存储时保持原子性或可安全重试。这是后续 Knowledge 管理与检索界面的后端基础。([#779](https://github.com/CherryHQ/stella/pull/779), [#855](https://github.com/CherryHQ/stella/pull/855), [#841](https://github.com/CherryHQ/stella/issues/841))
+- 企业集成现在可通过受限且会过期的开通令牌创建无密码、仅 API 可用的受管用户。管理员可在设置中创建、复制、轮换和撤销这些凭据。用户创建和轮换只返回一次 bearer secret，会保留无关的个人令牌；停用则通过正常账户锁定流程撤销 session 和全部令牌。([#892](https://github.com/CherryHQ/stella/pull/892), [#893](https://github.com/CherryHQ/stella/pull/893), [#899](https://github.com/CherryHQ/stella/pull/899), [#891](https://github.com/CherryHQ/stella/issues/891))
+- 个人访问令牌现在继承所属账户的当前权限，包括管理员权限。创建令牌不再需要选择 API scope，现有令牌会自动采用新行为，账户页面现在只要求填写名称。PAT 仍不能管理认证凭证、浏览器 session、身份、角色或账户启用状态；OAuth access token 继续按 scope 授权。([#890](https://github.com/CherryHQ/stella/pull/890), [#889](https://github.com/CherryHQ/stella/issues/889))
+- 飞书现在可将通过验证的租户成员自动开通为 Stella 用户，同时保留现有的账户绑定与管理员控制。([#753](https://github.com/CherryHQ/stella/pull/753), [#751](https://github.com/CherryHQ/stella/issues/751))
+- Discord 成为内置渠道，支持私信与服务器控制、提及门槛、允许列表和选择性启用的持久访客 session。访客 session 使用受限主体、速率限制、保留期、压缩和单渠道数量上限，不会创建影子 Stella 用户。([#903](https://github.com/CherryHQ/stella/pull/903), [#921](https://github.com/CherryHQ/stella/pull/921), [#900](https://github.com/CherryHQ/stella/issues/900), [#920](https://github.com/CherryHQ/stella/issues/920))
+- 对话轮次现在可在页面切换后继续运行，并持久显示排队、运行、等待、失败和完成状态。Agent 还可列出并检查自己的 session 与目标执行状态，用于跟进持续工作。([#902](https://github.com/CherryHQ/stella/pull/902), [#938](https://github.com/CherryHQ/stella/pull/938), [#940](https://github.com/CherryHQ/stella/pull/940), [#901](https://github.com/CherryHQ/stella/issues/901), [#937](https://github.com/CherryHQ/stella/issues/937), [#939](https://github.com/CherryHQ/stella/issues/939))
+- Web UI 与 Agent 指引现在以“对话”和“工作”组织任务，session 与目标是工作实际承载的两个位置。“工作”页面统一使用活跃、计划、重复和历史等词汇。([#922](https://github.com/CherryHQ/stella/pull/922), [#923](https://github.com/CherryHQ/stella/pull/923), [#908](https://github.com/CherryHQ/stella/issues/908))
+
+### 🔐 安全
+
+- Telegram 和飞书现在会在下载媒体或分派工作前，以 fail-closed 方式检查私信开关、群组允许列表、提及要求和选择性启用的受限访客访问。([#935](https://github.com/CherryHQ/stella/pull/935), [#932](https://github.com/CherryHQ/stella/issues/932))
+
+### 🐛 修复
+
+- Web UI 现在可正确呈现结构化 API 错误、长标识符、机器创建的对话、Markdown 和 session 活动，不再静默失败或产生难以阅读的布局。([#896](https://github.com/CherryHQ/stella/pull/896), [#934](https://github.com/CherryHQ/stella/pull/934), [#895](https://github.com/CherryHQ/stella/issues/895), [#898](https://github.com/CherryHQ/stella/issues/898), [#933](https://github.com/CherryHQ/stella/issues/933))
+- Provider 工具调用从流式组装、执行、事件到持久历史都会保持模型给出的顺序。Provider 的 prompt cache 用量也会写入用量日志和 OpenTelemetry span。([#931](https://github.com/CherryHQ/stella/pull/931), [#930](https://github.com/CherryHQ/stella/issues/930))
+- 沙箱会在执行前恢复缺失的受管临时挂载源，清理操作或主机重启不再导致原本有效的沙箱无法启动。([#942](https://github.com/CherryHQ/stella/pull/942), [#941](https://github.com/CherryHQ/stella/issues/941))
+
+### 🔧 CI
+
+- 贡献者与 Agent 现在可创建一次性 Stella testbed，使用隔离的端口、状态、日志和浏览器凭据，重复验证 Web UI 与 API。([#907](https://github.com/CherryHQ/stella/pull/907), [#905](https://github.com/CherryHQ/stella/issues/905))
+
+### 📝 文档
+
+- Web UI 测试规则现在覆盖 testbed 端口覆盖、登录回退、状态注入，以及 DOM 中存在元素与真正可见且样式正确之间的区别。([#926](https://github.com/CherryHQ/stella/pull/926), [#925](https://github.com/CherryHQ/stella/issues/925))
+
+### 📦 依赖
+
+- Mermaid 从 11.15.0 更新至 11.16.1。([#927](https://github.com/CherryHQ/stella/pull/927))
+
+**完整变更记录**：[v0.62.0...v0.63.0](https://github.com/CherryHQ/stella/compare/v0.62.0...v0.63.0)
 
 ## [0.62.0] - 2026-08-05
 

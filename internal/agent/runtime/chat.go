@@ -16,6 +16,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -54,6 +55,17 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		}
 	}
 	ctx = authz.WithAgentID(ctx, info.AgentID)
+	ctx = agentctx.WithSessionCallBudget(ctx)
+	inputActor := co.inputActor
+	if !inputActor.Valid() {
+		// Runtime callers predating provenance are human ingress. Keeping the
+		// fallback here makes the trusted runtime, not model text, choose it.
+		inputActor = eventlog.MessageActor{Type: eventlog.ActorHuman, ID: info.UserID}
+		if isGuest {
+			inputActor.ID = info.GuestID
+		}
+	}
+	ctx = eventlog.WithMessageActor(ctx, inputActor)
 	if info.ProjectID != "" {
 		ctx = memory.WithProjectID(ctx, info.ProjectID)
 	}
@@ -102,7 +114,13 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	// Auto-compact.
 	if rt.needsCompaction(ctx, memSess) {
 		rt.log.Info("auto-compaction triggered", "session_id", info.ID)
-		compactCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), autoCompactionTimeout)
+		compactParent := context.WithoutCancel(ctx)
+		if _, synchronous := agentctx.SessionCallFromContext(ctx); synchronous {
+			// A Session/delegate call holds its caller and target admission until
+			// completion, so source cancellation must also stop compaction.
+			compactParent = ctx
+		}
+		compactCtx, cancel := context.WithTimeout(compactParent, autoCompactionTimeout)
 		if summary, err := rt.compact_(compactCtx, memSess); err != nil {
 			cancel()
 			rt.log.Warn("auto-compaction failed", "session_id", info.ID, "error", err)
@@ -213,6 +231,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	// duplicate it on the next attempt.
 	userMsg := ai.UserMessage{Content: msg, Timestamp: time.Now()}
 	modelMsg := userMsg
+	modelMsg.Content = eventlog.RenderInput(modelMsg.Content, inputActor)
 	var storePrefix []ai.Message
 	if memSess.GroupID != "" {
 		// Groups intentionally retain their legacy raw-image codec and append
@@ -252,8 +271,21 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 			hasCanonicalImage = ai.HasImageRef(blocks)
 			userMsg.Content = blocks
 			modelMsg = userMsg
+			modelMsg.Content = eventlog.RenderInput(modelMsg.Content, inputActor)
 		}
-		if err := rt.mem.Append(ctx, memSess, userMsg); err != nil {
+		if co.inboxID != "" {
+			appender, ok := rt.mem.(memory.InboxAppender)
+			if !ok {
+				out <- Event{Err: errors.New("memory provider does not support durable Session inbox")}
+				close(out)
+				return
+			}
+			if err := appender.AppendInboxInput(ctx, memSess, co.inboxID, userMsg); err != nil {
+				out <- Event{Err: fmt.Errorf("persist Session inbox input: %w", err)}
+				close(out)
+				return
+			}
+		} else if err := rt.mem.Append(ctx, memSess, userMsg); err != nil {
 			if hasCanonicalImage {
 				out <- Event{Err: fmt.Errorf("persist canonical user message: %w", err)}
 				close(out)
@@ -533,5 +565,9 @@ func withChannel(ctx context.Context, channel string) context.Context {
 }
 
 func withExcludedTools(ctx context.Context, names ...string) context.Context {
+	// Child runs must retain every exclusion their ancestor applied. In
+	// particular, delegate adds its recursion guard here without restoring a
+	// goal worker's control-plane tools.
+	names = append(agentctx.ExcludedToolsFromContext(ctx), names...)
 	return agentctx.WithExcludedTools(ctx, names...)
 }

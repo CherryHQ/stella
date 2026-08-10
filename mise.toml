@@ -13,12 +13,7 @@ go = "1.25.9"
 "github:goreleaser/goreleaser" = "2.14.1"
 "github:sqlc-dev/sqlc" = "1.29.0"
 # Web
-vp = "0.1.20"
-# This pin bootstraps pnpm for the root-level `pnpm --package=...` calls below,
-# which run outside web/ and so cannot be governed by its packageManager field.
-# Inside web/, pnpm self-switches to packageManager, which means a mismatch here
-# is invisible rather than loud — web/toolchain_test.go fails if they drift.
-pnpm = "11.0.8"
+vp = "0.2.8"
 node = "24.14.1"
 
 [env]
@@ -74,7 +69,7 @@ sqlc generate
 [tasks."generate:ts-sdk"]
 description = "Generate TypeScript client (types + fetch client + Tanstack Query hooks) from OpenAPI spec"
 dir = "web"
-run = "pnpm install && pnpm openapi-ts"
+run = "vp install && vp exec openapi-ts"
 
 [tasks."generate:api"]
 description = "Assemble api/spec/components.yaml from domain files then generate Go types and server"
@@ -88,7 +83,7 @@ go tool oapi-codegen --config api/codegen/server.yaml  api/spec/openapi.yaml
 go run ./internal/goal/cmd/gengoalcontrolschema
 # Pin: redocly 2.40.0 tightened YAML parsing and rejects openapi.yaml's flow
 # mappings (issue #769). Bump deliberately after verifying the spec still bundles.
-pnpm --package=@redocly/cli@2.39.0 dlx redocly bundle api/spec/openapi.yaml -o internal/server/docs_spec.yaml
+vp dlx @redocly/cli@2.39.0 bundle api/spec/openapi.yaml -o internal/server/docs_spec.yaml
 go run ./internal/cmd/toolgen
 """
 
@@ -177,6 +172,9 @@ PY
 
 [tasks."pg:runtime:download"]
 description = "Download the embedded PostgreSQL runtime used by tests and local server runs"
+# This command compiles stellad, which imports generated API packages. Resolve
+# generation before sibling dependencies can race it on a clean checkout.
+depends = ["generate"]
 run = "go run ./cmd/stellad postgres download"
 
 [tasks."build:web"]
@@ -185,7 +183,7 @@ description = "Build the SPA into web/static/dist, which the Go binary embeds"
 # build needs the SDK before it can typecheck anything.
 depends = ["generate:ts-sdk"]
 dir = "web"
-run = "pnpm install --frozen-lockfile && pnpm build"
+run = "vp install --frozen-lockfile && vp run build"
 
 [tasks."build:embedded"]
 description = "Generate code and build the SPA, i.e. everything the Go binary embeds"
