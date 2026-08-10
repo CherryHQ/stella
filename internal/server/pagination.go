@@ -8,6 +8,9 @@ import (
 	"math"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/CherryHQ/stella/internal/library"
 	"github.com/CherryHQ/stella/internal/memory"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/skills"
@@ -56,6 +59,8 @@ func nextPageTokenForRows[T any](rows []T, limit, offset int) (page []T, nextTok
 
 const knowledgePageTokenKind = "knowledge"
 
+const libraryFilePageTokenKind = "library_file"
+
 const changelogPageTokenKind = "changelog"
 
 const skillPageTokenKind = "skill"
@@ -65,6 +70,22 @@ type knowledgePageToken struct {
 	State  string    `json:"state"`
 	SortAt time.Time `json:"sort_at"`
 	ID     string    `json:"id"`
+}
+
+type libraryFilePageToken struct {
+	Kind             string    `json:"kind"`
+	SortAt           time.Time `json:"sort_at"`
+	ID               string    `json:"id"`
+	QueryFingerprint string    `json:"query_fingerprint"`
+}
+
+// libraryFilePageQuery binds a cursor to every authorization or filter input
+// that can change the management result set. Page size is intentionally absent.
+type libraryFilePageQuery struct {
+	UserID  string `json:"user_id"`
+	Scope   string `json:"scope"`
+	AgentID string `json:"agent_id"`
+	Query   string `json:"q"`
 }
 
 type changelogPageToken struct {
@@ -121,6 +142,46 @@ func decodeKnowledgePageToken(token string, state memprofile.KnowledgeState) (*m
 		return nil, fmt.Errorf("page_token does not match the knowledge query")
 	}
 	return &memprofile.KnowledgeCursor{Timestamp: decoded.SortAt.UTC(), ID: decoded.ID}, nil
+}
+
+func encodeLibraryFilePageToken(cursor library.ListCursor, query libraryFilePageQuery) (string, error) {
+	payload, err := json.Marshal(libraryFilePageToken{
+		Kind:             libraryFilePageTokenKind,
+		SortAt:           cursor.CreatedAt.UTC(),
+		ID:               cursor.ID,
+		QueryFingerprint: libraryFilePageQueryFingerprint(query),
+	})
+	if err != nil {
+		return "", fmt.Errorf("encode library file page token: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(payload), nil
+}
+
+func decodeLibraryFilePageToken(token string, query libraryFilePageQuery) (*library.ListCursor, error) {
+	if token == "" {
+		return nil, fmt.Errorf("page_token is malformed")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return nil, fmt.Errorf("page_token is malformed")
+	}
+	var decoded libraryFilePageToken
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		return nil, fmt.Errorf("page_token is malformed")
+	}
+	if decoded.Kind != libraryFilePageTokenKind || decoded.SortAt.IsZero() || decoded.ID == "" || decoded.QueryFingerprint != libraryFilePageQueryFingerprint(query) {
+		return nil, fmt.Errorf("page_token does not match the library file query")
+	}
+	if _, err := uuid.Parse(decoded.ID); err != nil {
+		return nil, fmt.Errorf("page_token is malformed")
+	}
+	return &library.ListCursor{CreatedAt: decoded.SortAt.UTC(), ID: decoded.ID}, nil
+}
+
+func libraryFilePageQueryFingerprint(query libraryFilePageQuery) string {
+	payload, _ := json.Marshal(query)
+	sum := sha256.Sum256(payload)
+	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
 // encodeSkillPageToken keeps a merged Skill cursor opaque to clients.

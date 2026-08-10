@@ -33,6 +33,7 @@ import { Route as AppSettingsSkillsRouteImport } from './routes/_app/settings/sk
 import { Route as AppSettingsProvisioningRouteImport } from './routes/_app/settings/provisioning'
 import { Route as AppSettingsProvidersRouteImport } from './routes/_app/settings/providers'
 import { Route as AppSettingsPluginsRouteImport } from './routes/_app/settings/plugins'
+import { Route as AppSettingsLibraryRouteImport } from './routes/_app/settings/library'
 import { Route as AppSettingsEmbeddingRouteImport } from './routes/_app/settings/embedding'
 import { Route as AppSettingsCredentialsRouteImport } from './routes/_app/settings/credentials'
 import { Route as AppSettingsChannelsRouteImport } from './routes/_app/settings/channels'
@@ -54,6 +55,7 @@ import { Route as AppAgentsAgentIdProfileRouteImport } from './routes/_app/agent
 import { Route as AppAgentsAgentIdMemoriesRouteImport } from './routes/_app/agents.$agentId/memories'
 import { Route as AppAgentsAgentIdWorkflowsIndexRouteImport } from './routes/_app/agents.$agentId/workflows/index'
 import { Route as AppAgentsAgentIdSkillsIndexRouteImport } from './routes/_app/agents.$agentId/skills/index'
+import { Route as AppAgentsAgentIdLibraryIndexRouteImport } from './routes/_app/agents.$agentId/library/index'
 import { Route as AppAgentsAgentIdGoalsIndexRouteImport } from './routes/_app/agents.$agentId/goals/index'
 import { Route as AppSettingsAgentsAgentIdTabRouteImport } from './routes/_app/settings/agents.$agentId.$tab'
 import { Route as AppAgentsAgentIdWorkflowsWorkflowIdRouteImport } from './routes/_app/agents.$agentId/workflows/$workflowId'
@@ -205,6 +207,13 @@ const AppSettingsPluginsRoute = AppSettingsPluginsRouteImport.update({
   getParentRoute: () => AppSettingsRoute,
 } as any).lazy(() =>
   import('./routes/_app/settings/plugins.lazy').then((d) => d.Route),
+)
+const AppSettingsLibraryRoute = AppSettingsLibraryRouteImport.update({
+  id: '/library',
+  path: '/library',
+  getParentRoute: () => AppSettingsRoute,
+} as any).lazy(() =>
+  import('./routes/_app/settings/library.lazy').then((d) => d.Route),
 )
 const AppSettingsEmbeddingRoute = AppSettingsEmbeddingRouteImport.update({
   id: '/embedding',
@@ -359,6 +368,16 @@ const AppAgentsAgentIdSkillsIndexRoute =
     path: '/skills/',
     getParentRoute: () => AppAgentsAgentIdRoute,
   } as any)
+const AppAgentsAgentIdLibraryIndexRoute =
+  AppAgentsAgentIdLibraryIndexRouteImport.update({
+    id: '/library/',
+    path: '/library/',
+    getParentRoute: () => AppAgentsAgentIdRoute,
+  } as any).lazy(() =>
+    import('./routes/_app/agents.$agentId/library/index.lazy').then(
+      (d) => d.Route,
+    ),
+  )
 const AppAgentsAgentIdGoalsIndexRoute =
   AppAgentsAgentIdGoalsIndexRouteImport.update({
     id: '/goals/',
@@ -515,6 +534,7 @@ export interface FileRoutesByFullPath {
   '/settings/channels': typeof AppSettingsChannelsRouteWithChildren
   '/settings/credentials': typeof AppSettingsCredentialsRouteWithChildren
   '/settings/embedding': typeof AppSettingsEmbeddingRoute
+  '/settings/library': typeof AppSettingsLibraryRoute
   '/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/settings/provisioning': typeof AppSettingsProvisioningRoute
@@ -543,6 +563,7 @@ export interface FileRoutesByFullPath {
   '/agents/$agentId/workflows/$workflowId': typeof AppAgentsAgentIdWorkflowsWorkflowIdRoute
   '/settings/agents/$agentId/$tab': typeof AppSettingsAgentsAgentIdTabRoute
   '/agents/$agentId/goals/': typeof AppAgentsAgentIdGoalsIndexRoute
+  '/agents/$agentId/library/': typeof AppAgentsAgentIdLibraryIndexRoute
   '/agents/$agentId/skills/': typeof AppAgentsAgentIdSkillsIndexRoute
   '/agents/$agentId/workflows/': typeof AppAgentsAgentIdWorkflowsIndexRoute
   '/agents/$agentId/goals/schedules/$scheduleId': typeof AppAgentsAgentIdGoalsSchedulesScheduleIdRoute
@@ -574,6 +595,7 @@ export interface FileRoutesByTo {
   '/settings/channels': typeof AppSettingsChannelsRouteWithChildren
   '/settings/credentials': typeof AppSettingsCredentialsRouteWithChildren
   '/settings/embedding': typeof AppSettingsEmbeddingRoute
+  '/settings/library': typeof AppSettingsLibraryRoute
   '/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/settings/provisioning': typeof AppSettingsProvisioningRoute
@@ -602,6 +624,7 @@ export interface FileRoutesByTo {
   '/agents/$agentId/workflows/$workflowId': typeof AppAgentsAgentIdWorkflowsWorkflowIdRoute
   '/settings/agents/$agentId/$tab': typeof AppSettingsAgentsAgentIdTabRoute
   '/agents/$agentId/goals': typeof AppAgentsAgentIdGoalsIndexRoute
+  '/agents/$agentId/library': typeof AppAgentsAgentIdLibraryIndexRoute
   '/agents/$agentId/skills': typeof AppAgentsAgentIdSkillsIndexRoute
   '/agents/$agentId/workflows': typeof AppAgentsAgentIdWorkflowsIndexRoute
   '/agents/$agentId/goals/schedules/$scheduleId': typeof AppAgentsAgentIdGoalsSchedulesScheduleIdRoute
@@ -638,6 +661,7 @@ export interface FileRoutesById {
   '/_app/settings/channels': typeof AppSettingsChannelsRouteWithChildren
   '/_app/settings/credentials': typeof AppSettingsCredentialsRouteWithChildren
   '/_app/settings/embedding': typeof AppSettingsEmbeddingRoute
+  '/_app/settings/library': typeof AppSettingsLibraryRoute
   '/_app/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/_app/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/_app/settings/provisioning': typeof AppSettingsProvisioningRoute
@@ -666,6 +690,7 @@ export interface FileRoutesById {
   '/_app/agents/$agentId/workflows/$workflowId': typeof AppAgentsAgentIdWorkflowsWorkflowIdRoute
   '/_app/settings/agents/$agentId/$tab': typeof AppSettingsAgentsAgentIdTabRoute
   '/_app/agents/$agentId/goals/': typeof AppAgentsAgentIdGoalsIndexRoute
+  '/_app/agents/$agentId/library/': typeof AppAgentsAgentIdLibraryIndexRoute
   '/_app/agents/$agentId/skills/': typeof AppAgentsAgentIdSkillsIndexRoute
   '/_app/agents/$agentId/workflows/': typeof AppAgentsAgentIdWorkflowsIndexRoute
   '/_app/agents/$agentId/goals/schedules/$scheduleId': typeof AppAgentsAgentIdGoalsSchedulesScheduleIdRoute
@@ -702,6 +727,7 @@ export interface FileRouteTypes {
     | '/settings/channels'
     | '/settings/credentials'
     | '/settings/embedding'
+    | '/settings/library'
     | '/settings/plugins'
     | '/settings/providers'
     | '/settings/provisioning'
@@ -730,6 +756,7 @@ export interface FileRouteTypes {
     | '/agents/$agentId/workflows/$workflowId'
     | '/settings/agents/$agentId/$tab'
     | '/agents/$agentId/goals/'
+    | '/agents/$agentId/library/'
     | '/agents/$agentId/skills/'
     | '/agents/$agentId/workflows/'
     | '/agents/$agentId/goals/schedules/$scheduleId'
@@ -761,6 +788,7 @@ export interface FileRouteTypes {
     | '/settings/channels'
     | '/settings/credentials'
     | '/settings/embedding'
+    | '/settings/library'
     | '/settings/plugins'
     | '/settings/providers'
     | '/settings/provisioning'
@@ -789,6 +817,7 @@ export interface FileRouteTypes {
     | '/agents/$agentId/workflows/$workflowId'
     | '/settings/agents/$agentId/$tab'
     | '/agents/$agentId/goals'
+    | '/agents/$agentId/library'
     | '/agents/$agentId/skills'
     | '/agents/$agentId/workflows'
     | '/agents/$agentId/goals/schedules/$scheduleId'
@@ -824,6 +853,7 @@ export interface FileRouteTypes {
     | '/_app/settings/channels'
     | '/_app/settings/credentials'
     | '/_app/settings/embedding'
+    | '/_app/settings/library'
     | '/_app/settings/plugins'
     | '/_app/settings/providers'
     | '/_app/settings/provisioning'
@@ -852,6 +882,7 @@ export interface FileRouteTypes {
     | '/_app/agents/$agentId/workflows/$workflowId'
     | '/_app/settings/agents/$agentId/$tab'
     | '/_app/agents/$agentId/goals/'
+    | '/_app/agents/$agentId/library/'
     | '/_app/agents/$agentId/skills/'
     | '/_app/agents/$agentId/workflows/'
     | '/_app/agents/$agentId/goals/schedules/$scheduleId'
@@ -1044,6 +1075,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsPluginsRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/library': {
+      id: '/_app/settings/library'
+      path: '/library'
+      fullPath: '/settings/library'
+      preLoaderRoute: typeof AppSettingsLibraryRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/settings/embedding': {
       id: '/_app/settings/embedding'
       path: '/embedding'
@@ -1191,6 +1229,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAgentsAgentIdSkillsIndexRouteImport
       parentRoute: typeof AppAgentsAgentIdRoute
     }
+    '/_app/agents/$agentId/library/': {
+      id: '/_app/agents/$agentId/library/'
+      path: '/library'
+      fullPath: '/agents/$agentId/library/'
+      preLoaderRoute: typeof AppAgentsAgentIdLibraryIndexRouteImport
+      parentRoute: typeof AppAgentsAgentIdRoute
+    }
     '/_app/agents/$agentId/goals/': {
       id: '/_app/agents/$agentId/goals/'
       path: '/goals'
@@ -1318,6 +1363,7 @@ interface AppAgentsAgentIdRouteChildren {
   AppAgentsAgentIdSkillsSkillIdRoute: typeof AppAgentsAgentIdSkillsSkillIdRoute
   AppAgentsAgentIdWorkflowsWorkflowIdRoute: typeof AppAgentsAgentIdWorkflowsWorkflowIdRoute
   AppAgentsAgentIdGoalsIndexRoute: typeof AppAgentsAgentIdGoalsIndexRoute
+  AppAgentsAgentIdLibraryIndexRoute: typeof AppAgentsAgentIdLibraryIndexRoute
   AppAgentsAgentIdSkillsIndexRoute: typeof AppAgentsAgentIdSkillsIndexRoute
   AppAgentsAgentIdWorkflowsIndexRoute: typeof AppAgentsAgentIdWorkflowsIndexRoute
   AppAgentsAgentIdGoalsSchedulesScheduleIdRoute: typeof AppAgentsAgentIdGoalsSchedulesScheduleIdRoute
@@ -1344,6 +1390,7 @@ const AppAgentsAgentIdRouteChildren: AppAgentsAgentIdRouteChildren = {
   AppAgentsAgentIdWorkflowsWorkflowIdRoute:
     AppAgentsAgentIdWorkflowsWorkflowIdRoute,
   AppAgentsAgentIdGoalsIndexRoute: AppAgentsAgentIdGoalsIndexRoute,
+  AppAgentsAgentIdLibraryIndexRoute: AppAgentsAgentIdLibraryIndexRoute,
   AppAgentsAgentIdSkillsIndexRoute: AppAgentsAgentIdSkillsIndexRoute,
   AppAgentsAgentIdWorkflowsIndexRoute: AppAgentsAgentIdWorkflowsIndexRoute,
   AppAgentsAgentIdGoalsSchedulesScheduleIdRoute:
@@ -1483,6 +1530,7 @@ interface AppSettingsRouteChildren {
   AppSettingsChannelsRoute: typeof AppSettingsChannelsRouteWithChildren
   AppSettingsCredentialsRoute: typeof AppSettingsCredentialsRouteWithChildren
   AppSettingsEmbeddingRoute: typeof AppSettingsEmbeddingRoute
+  AppSettingsLibraryRoute: typeof AppSettingsLibraryRoute
   AppSettingsPluginsRoute: typeof AppSettingsPluginsRouteWithChildren
   AppSettingsProvidersRoute: typeof AppSettingsProvidersRouteWithChildren
   AppSettingsProvisioningRoute: typeof AppSettingsProvisioningRoute
@@ -1500,6 +1548,7 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsChannelsRoute: AppSettingsChannelsRouteWithChildren,
   AppSettingsCredentialsRoute: AppSettingsCredentialsRouteWithChildren,
   AppSettingsEmbeddingRoute: AppSettingsEmbeddingRoute,
+  AppSettingsLibraryRoute: AppSettingsLibraryRoute,
   AppSettingsPluginsRoute: AppSettingsPluginsRouteWithChildren,
   AppSettingsProvidersRoute: AppSettingsProvidersRouteWithChildren,
   AppSettingsProvisioningRoute: AppSettingsProvisioningRoute,

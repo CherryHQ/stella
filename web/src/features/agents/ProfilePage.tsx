@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import {
   Brain,
   ChevronRight,
+  Library,
   ListTodo,
   MessageCircle,
   Puzzle,
@@ -161,16 +162,31 @@ export function ProfilePage() {
 
         <Tabs value={tab} onValueChange={(value) => selectTab(value as ProfileTab)}>
           <TabsList variant="underline">
-            {tabs.map((value) => (
-              <TabsTab key={value} value={value}>
-                {TAB_LABEL[value]}
-              </TabsTab>
-            ))}
+            {tabs
+              .filter((value) => value !== "config")
+              .map((value) => (
+                <TabsTab key={value} value={value}>
+                  {TAB_LABEL[value]}
+                </TabsTab>
+              ))}
+            {!projectId && (
+              // Library is a sibling route, not a profile panel. Keep link
+              // semantics while presenting it alongside the profile tabs.
+              <Link
+                to="/agents/$agentId/library"
+                params={{ agentId }}
+                className="relative flex h-9 shrink-0 grow items-center justify-center whitespace-nowrap rounded-md border border-transparent px-[calc(--spacing(2.5)-1px)] text-base font-medium outline-none transition-[color,background-color,box-shadow] hover:bg-accent hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring sm:h-8 sm:text-sm"
+              >
+                {t("library.title")}
+              </Link>
+            )}
+            {canConfigure && <TabsTab value="config">{TAB_LABEL.config}</TabsTab>}
           </TabsList>
 
           <TabsPanel value="overview" className="pt-4">
             <OverviewTab
               agentId={agentId}
+              agentName={title}
               projectId={projectId}
               facts={
                 agent && !projectId
@@ -287,6 +303,7 @@ interface Fact {
  */
 function OverviewTab({
   agentId,
+  agentName,
   projectId,
   facts,
   memoryUpdatedAt,
@@ -294,6 +311,7 @@ function OverviewTab({
   onSelectTab,
 }: {
   agentId: string;
+  agentName: string;
   projectId?: string;
   facts: Fact[];
   memoryUpdatedAt?: string;
@@ -360,6 +378,15 @@ function OverviewTab({
             detail={t("profile.channelsDesc")}
             onClick={() => onSelectTab("channels")}
           />
+        )}
+        {!projectId && (
+          <Link to="/agents/$agentId/library" params={{ agentId }} className={SUMMARY_CARD_CLS}>
+            <SummaryCardBody
+              icon={<Library size={16} />}
+              title={t("library.title")}
+              detail={t("library.description.userAgent", { agent: agentName })}
+            />
+          </Link>
         )}
         {!projectId && (
           <Link to="/agents/$agentId/goals" params={{ agentId }} className={SUMMARY_CARD_CLS}>

@@ -535,3 +535,13 @@ func fileFromGetRow(row sqlc.LibraryFile) LibraryFile {
 		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	})
 }
+
+func fileFromListRow(row sqlc.LibraryFile) LibraryFile {
+	return fileFromFields(fileFields{
+		ID: row.ID, Scope: row.Scope, UserID: row.UserID, AgentID: row.AgentID,
+		FileName: row.FileName, MediaType: row.MediaType, SizeBytes: row.SizeBytes,
+		RawSHA256: row.RawSha256, Status: row.Status, ErrorMessage: row.ErrorMessage,
+		ActiveChunkSetID: row.ActiveChunkSetID, DeletedAt: row.DeletedAt,
+		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+	})
+}
