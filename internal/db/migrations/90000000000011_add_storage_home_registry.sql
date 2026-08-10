@@ -1,5 +1,5 @@
 -- +goose Up
--- Home owner fields deliberately have no foreign keys. A destructive owner
+-- Home owner identity fields deliberately have no foreign keys. A destructive owner
 -- delete must tombstone the Home first, while the registry permanently retains
 -- the original identity and purge audit after the owner row is gone.
 CREATE TABLE storage_home (
