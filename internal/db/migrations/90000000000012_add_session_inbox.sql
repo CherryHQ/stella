@@ -20,13 +20,20 @@ CREATE INDEX idx_ctx_session_inbox_pending
     ON ctx_session_inbox(target_session_id, enqueue_seq)
     WHERE delivered_at IS NULL AND failed_at IS NULL;
 
--- Keep the populated message-table change metadata-only, then validate the
--- all-NULL legacy rows without taking an ACCESS EXCLUSIVE lock for the scan.
+-- Legacy rows have no inbox link, so the new nullable column and its foreign
+-- key can be validated atomically with the rest of this migration.
 ALTER TABLE ctx_message
     ADD COLUMN inbox_id UUID,
     ADD CONSTRAINT ctx_message_inbox_id_fkey
         FOREIGN KEY (inbox_id) REFERENCES ctx_session_inbox(id) NOT VALID;
 ALTER TABLE ctx_message VALIDATE CONSTRAINT ctx_message_inbox_id_fkey;
+
+-- This migration is intentionally atomic. Split this index back into a
+-- NO TRANSACTION migration with CONCURRENTLY if online upgrade writes become
+-- a requirement.
+CREATE UNIQUE INDEX idx_ctx_message_inbox_id
+    ON ctx_message(inbox_id)
+    WHERE inbox_id IS NOT NULL;
 
 -- +goose Down
 ALTER TABLE ctx_message DROP COLUMN inbox_id;
