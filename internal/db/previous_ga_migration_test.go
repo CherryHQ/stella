@@ -25,10 +25,10 @@ const (
 	// this test into a green lie.
 	previousGAVersion = int64(20260725161331)
 	// Library V1, channel guest sessions/indexes, channel allowlist backfill, and
-	// session activity, per-message actor provenance, the deliberately
-	// conservative legacy actor migration, and the durable Session inbox
-	// are the post-anchor migrations exercised below.
-	currentMigrationVersion = sequentialAnchor + 12
+	// session activity, per-message actor provenance and summary authority,
+	// and the durable Session inbox are the post-anchor migrations exercised
+	// below.
+	currentMigrationVersion = sequentialAnchor + 9
 
 	previousGAUserID          = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID         = "00000000-0000-0000-0000-000000000002"
