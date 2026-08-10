@@ -23,6 +23,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
+	sessioninbox "github.com/CherryHQ/stella/internal/agent/session/inbox"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/blob"
 	"github.com/CherryHQ/stella/internal/channel"
@@ -258,10 +259,16 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 
 	var poolMgr *agent.PoolManager
 	memProvider = wrapMemoryWithTracing(memProvider, &poolMgr)
-
-	builtinTools := []agent.BuiltinTool{
-		{Tool: memory.BuildTool(memProvider, memory.WithSessionReadOnlyWrites())},
+	if _, ok := memory.Unwrap(memProvider).(memory.InboxAppender); !ok {
+		return nil, errors.New("memory provider does not support durable Session inbox")
 	}
+	inboxAppender, ok := memProvider.(memory.InboxAppender)
+	if !ok {
+		return nil, errors.New("memory tracing wrapper does not forward durable Session inbox")
+	}
+	sessionInbox := sessioninbox.New(db)
+
+	var builtinTools []agent.BuiltinTool
 	if notifyTool := notify.NewTool(dispatcher); notifyTool != nil {
 		builtinTools = append(builtinTools, agent.BuiltinTool{Tool: notifyTool})
 	}
@@ -326,6 +333,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build session/workspace service: %w", err)
 	}
+	builtinTools = append([]agent.BuiltinTool{{
+		Tool: memory.BuildTool(memProvider, memory.WithRecallSource(sessionAccess)),
+	}}, builtinTools...)
 
 	if err := registerReflectBuiltin(schedulerSvc, reflect.Config{
 		Memory:            memProvider,
@@ -468,6 +478,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
 		agent.WithAssetStorePM(assetStore),
 		agent.WithSessionImagePipeline(sessionImages),
+		agent.WithSessionInboxPM(sessionInbox),
 		agent.WithBuiltinTools(builtinTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
@@ -511,6 +522,11 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 
 	if err := poolMgr.StartAll(parent); err != nil {
 		return nil, fmt.Errorf("start pool manager: %w", err)
+	}
+	// Drain durable inputs before any server/channel/River ingress can accept
+	// newer work. Recovery appends transcripts only; it never enters Runtime.
+	if err := sessionInbox.Recover(parent, sessionAccess, inboxAppender); err != nil {
+		return nil, fmt.Errorf("recover Session inbox: %w", err)
 	}
 
 	// The runner invalidator lets credential/token refresh propagate to running

@@ -17,6 +17,7 @@ import {
   Library,
   Send,
   ListTodo,
+  MessagesSquare,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -24,8 +25,9 @@ import { getAgentAvatarStyle } from "@/lib/agent-colors";
 import { CollapsibleThinking } from "./CollapsibleThinking";
 import { CopyButton, REVEAL_ON_HOVER } from "./CopyButton";
 import { RenderableReferenceList } from "./references";
-import { EXIT_TRAILER, toolCallFailed } from "./utils";
+import { EXIT_TRAILER, formatToolOutput, toolCallFailed } from "./utils";
 import { SessionTrace } from "./SessionTrace";
+import { Spinner } from "@/components/ui/spinner";
 
 export interface AssistantMessageProps {
   agentName: string;
@@ -281,7 +283,7 @@ function StepsGroup({ blocks, active }: { blocks: ContentBlock[]; active: boolea
             if (block.type === "tool_call") {
               // Keyed by the stable tool-call id so an appended sibling never
               // remounts an existing row (which would drop its open state).
-              return <ToolStepRow key={block.id || `i${idx}`} block={block} />;
+              return <ToolStepRow key={block.id || `i${idx}`} block={block} active={active} />;
             }
             return null;
           })}
@@ -302,6 +304,7 @@ const TOOL_META: Record<string, { icon: LucideIcon; verb: string; surface: strin
   memory: { icon: Library, verb: "Memory", surface: "Memory" },
   notify: { icon: Send, verb: "Notified", surface: "Message" },
   task_control: { icon: ListTodo, verb: "Task", surface: "Task" },
+  session: { icon: MessagesSquare, verb: "Session", surface: "Session" },
 };
 
 // memory's verb depends on the `action` arg so the line reads as a sentence.
@@ -312,19 +315,28 @@ const MEMORY_VERBS: Record<string, string> = {
   delete: "Removed from memory",
 };
 
-function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } }) {
+function ToolStepRow({
+  block,
+  active,
+}: {
+  block: ContentBlock & { type: "tool_call" };
+  active: boolean;
+}) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const panelId = useId();
   const n = block.name ?? "tool";
   const args = block.arguments ?? {};
   const failed = toolCallFailed(block);
+  const running = active && !block.result;
 
   const meta = TOOL_META[n] ?? { icon: Wrench, verb: n, surface: n };
   const Icon = meta.icon;
   let verb = meta.verb;
   const isFileTool = n === "read" || n === "write" || n === "edit";
   const isBash = n === "bash";
+  const isSession = n === "session";
 
   let cmdPreview = "";
   if (isBash) {
@@ -343,6 +355,29 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
     cmdPreview = toolArgText(args.pattern ?? args.query ?? args.content ?? args.scope ?? "");
   } else if (n === "notify") {
     cmdPreview = toolArgText(args.message ?? args.text ?? args.content ?? "");
+  } else if (isSession) {
+    const action = typeof args.action === "string" ? args.action : "";
+    if (action === "create") {
+      verb = failed
+        ? t("sessions.tool.createSessionFailed")
+        : running
+          ? t("sessions.tool.creatingSession")
+          : block.result
+            ? t("sessions.tool.createdSession")
+            : meta.verb;
+      if (!running && !block.result) cmdPreview = action;
+    } else if (action === "send") {
+      verb = failed
+        ? t("sessions.tool.sendFailed")
+        : running
+          ? t("sessions.tool.waitingForReply")
+          : block.result
+            ? t("sessions.tool.receivedReply")
+            : meta.verb;
+      if (!running && !block.result) cmdPreview = action;
+    } else {
+      cmdPreview = firstScalarArg(args);
+    }
   } else {
     // Unknown / plugin tool: show the first scalar arg, never the raw JSON blob.
     cmdPreview = firstScalarArg(args);
@@ -368,6 +403,7 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
       outputText = outputText.slice(0, exitMatch.index).replace(/\s+$/, "");
       duration = exitMatch[2];
     }
+    outputText = formatToolOutput(outputText);
     return { inputText, outputText, outputBlocks, duration, exitOk: !toolCallFailed(block) };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- args derives from block
   }, [open, block]);
@@ -393,12 +429,16 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
             : "text-muted-foreground hover:text-foreground",
         )}
       >
-        <Icon
-          className={cn(
-            "size-3.5 shrink-0",
-            failed ? "text-destructive-foreground" : "text-muted-foreground",
-          )}
-        />
+        {running ? (
+          <Spinner className="size-3.5 shrink-0 text-info" />
+        ) : (
+          <Icon
+            className={cn(
+              "size-3.5 shrink-0",
+              failed ? "text-destructive-foreground" : "text-muted-foreground",
+            )}
+          />
+        )}
         <span className="truncate">
           {verb} {cmdPreview}
         </span>
@@ -449,7 +489,7 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
                     failed ? "text-destructive-foreground" : "text-muted-foreground",
                   )}
                 >
-                  {output.text}
+                  {formatToolOutput(output.text)}
                 </pre>
               ) : (
                 <a

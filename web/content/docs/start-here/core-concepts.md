@@ -20,7 +20,9 @@ Create agents around jobs, not around technical integrations. "Finance reimburse
 
 ## Session
 
-A session is an ongoing collaboration between a user and an agent. It preserves conversation context and workspace state so work can continue instead of restarting every message.
+A session is an ongoing collaboration between a user and an agent. It preserves conversation context and workspace state so work can continue instead of restarting every message. An agent can search its sessions, inspect a bounded transcript, open a focused session, and continue an existing session.
+
+Agent messages sent from one session to another keep a source label in the transcript. Stella treats that input as information from the sending agent, not as a human instruction. If the target session is busy, agent sends wait in arrival order instead of running concurrently.
 
 ## Memory
 
@@ -59,8 +61,8 @@ Two concepts carry work in Stella:
 
 Everything else is something you do with a session or a goal, not a third kind of work:
 
-- **Delegating** hands a focused subproblem to an isolated session, so the main conversation stays clean.
-- **Remembering** searches across your past sessions, so context is never lost. Memory is also a feature in its own right — you can review and edit what an agent keeps about you in its settings.
+- **Focused work** opens an isolated session for a bounded subproblem, so the main conversation stays clean.
+- **Remembering** searches across past sessions through the Session tool. Memory stores durable profile, preference, constraint, and knowledge facts that you can review in settings.
 - **Workflows** save an accepted goal so you can run it again with new inputs.
 - **Schedules** add a time trigger — later, or every morning — to a conversation or a workflow. The schedule is the trigger, not the work.
 

@@ -89,17 +89,22 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		if apiName == "" {
 			apiName = provID
 		}
+		providerID := creds.ProviderID
+		if providerID == "" {
+			providerID = provID
+		}
 
 		if params.GuestID != "" {
 			return newRunner(ctx, runnerConfig{
 				NoCapabilities: true,
 				Provider: providerConfig{
-					API:     apiName,
-					Model:   modelID,
-					Input:   cfg.Snap.ModelInput(provID, modelID),
-					APIKey:  creds.APIKey,
-					BaseURL: creds.BaseURL,
-					Builder: cfg.ProviderStreamBuilder,
+					ProviderID: providerID,
+					API:        apiName,
+					Model:      modelID,
+					Input:      cfg.Snap.ModelInput(provID, modelID),
+					APIKey:     creds.APIKey,
+					BaseURL:    creds.BaseURL,
+					Builder:    cfg.ProviderStreamBuilder,
 				},
 				Thinking: params.Thinking,
 				System:   prompt.BuildGuestSystemPrompt(cfg.Snap.SystemPrompt),
@@ -278,12 +283,13 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 
 		return newRunner(ctx, runnerConfig{
 			Provider: providerConfig{
-				API:     apiName,
-				Model:   modelID,
-				Input:   cfg.Snap.ModelInput(provID, modelID),
-				APIKey:  creds.APIKey,
-				BaseURL: creds.BaseURL,
-				Builder: cfg.ProviderStreamBuilder,
+				ProviderID: providerID,
+				API:        apiName,
+				Model:      modelID,
+				Input:      cfg.Snap.ModelInput(provID, modelID),
+				APIKey:     creds.APIKey,
+				BaseURL:    creds.BaseURL,
+				Builder:    cfg.ProviderStreamBuilder,
 			},
 			Thinking:            params.Thinking,
 			Sandbox:             sandboxCfg,

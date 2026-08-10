@@ -506,14 +506,18 @@ type CtxMedium struct {
 }
 
 type CtxMessage struct {
-	ID             string    `json:"id"`
-	ConversationID string    `json:"conversation_id"`
-	Seq            int64     `json:"seq"`
-	Role           string    `json:"role"`
-	EventType      string    `json:"event_type"`
-	Content        string    `json:"content"`
-	TokenCount     int64     `json:"token_count"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID              string      `json:"id"`
+	ConversationID  string      `json:"conversation_id"`
+	Seq             int64       `json:"seq"`
+	Role            string      `json:"role"`
+	EventType       string      `json:"event_type"`
+	Content         string      `json:"content"`
+	TokenCount      int64       `json:"token_count"`
+	CreatedAt       time.Time   `json:"created_at"`
+	ActorType       string      `json:"actor_type"`
+	ActorID         pgtype.Text `json:"actor_id"`
+	SourceSessionID pgtype.Text `json:"source_session_id"`
+	InboxID         pgtype.Text `json:"inbox_id"`
 }
 
 type CtxMessageEmbedding struct {
@@ -541,19 +545,34 @@ type CtxMessagePart struct {
 	UpdatedAt   time.Time   `json:"updated_at"`
 }
 
+type CtxSessionInbox struct {
+	ID              string             `json:"id"`
+	EnqueueSeq      pgtype.Int8        `json:"enqueue_seq"`
+	SourceSessionID string             `json:"source_session_id"`
+	TargetSessionID string             `json:"target_session_id"`
+	ActorID         string             `json:"actor_id"`
+	Content         string             `json:"content"`
+	DeliveredAt     pgtype.Timestamptz `json:"delivered_at"`
+	FailedAt        pgtype.Timestamptz `json:"failed_at"`
+	ErrorCode       string             `json:"error_code"`
+	CreatedAt       time.Time          `json:"created_at"`
+	UpdatedAt       time.Time          `json:"updated_at"`
+}
+
 type CtxSummary struct {
-	ID                      string             `json:"id"`
-	ConversationID          string             `json:"conversation_id"`
-	Kind                    string             `json:"kind"`
-	Depth                   int64              `json:"depth"`
-	Content                 string             `json:"content"`
-	TokenCount              int64              `json:"token_count"`
-	EarliestAt              pgtype.Timestamptz `json:"earliest_at"`
-	LatestAt                pgtype.Timestamptz `json:"latest_at"`
-	DescendantCount         int64              `json:"descendant_count"`
-	DescendantTokenCount    int64              `json:"descendant_token_count"`
-	SourceMessageTokenCount int64              `json:"source_message_token_count"`
-	CreatedAt               time.Time          `json:"created_at"`
+	ID                        string             `json:"id"`
+	ConversationID            string             `json:"conversation_id"`
+	Kind                      string             `json:"kind"`
+	Depth                     int64              `json:"depth"`
+	Content                   string             `json:"content"`
+	TokenCount                int64              `json:"token_count"`
+	EarliestAt                pgtype.Timestamptz `json:"earliest_at"`
+	LatestAt                  pgtype.Timestamptz `json:"latest_at"`
+	DescendantCount           int64              `json:"descendant_count"`
+	DescendantTokenCount      int64              `json:"descendant_token_count"`
+	SourceMessageTokenCount   int64              `json:"source_message_token_count"`
+	CreatedAt                 time.Time          `json:"created_at"`
+	ContainsNonPrincipalInput bool               `json:"contains_non_principal_input"`
 }
 
 type CtxSummaryEmbedding struct {
