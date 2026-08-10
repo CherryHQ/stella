@@ -225,7 +225,8 @@ func TestNewRunnerFuncManagedSessionsPreserveQualifiedModelRef(t *testing.T) {
 	var adapterBuilds int
 	bridge := &rebuildingDelegateRunner{}
 	build := newRunnerFunc(runnerBuilderConfig{
-		Snap: snap,
+		Snap:            snap,
+		WorkspaceViewer: testWorkspaceViewer{root: stellaHome},
 		ProviderStreamBuilder: func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 			if api != providerAPI {
 				return nil, providers.ErrProviderNotFound
