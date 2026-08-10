@@ -252,7 +252,7 @@ func (q *Queries) GetSummaryMessageSeqRange(ctx context.Context, summaryID strin
 }
 
 const getSummaryMessages = `-- name: GetSummaryMessages :many
-SELECT m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at, m.actor_type, m.actor_id, m.source_session_id FROM ctx_message m
+SELECT m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at, m.actor_type, m.actor_id, m.source_session_id, m.inbox_id FROM ctx_message m
 JOIN ctx_summary_message sm ON sm.message_id = m.id
 WHERE sm.summary_id = $1
 ORDER BY sm.ordinal ASC
@@ -279,6 +279,7 @@ func (q *Queries) GetSummaryMessages(ctx context.Context, summaryID string) ([]C
 			&i.ActorType,
 			&i.ActorID,
 			&i.SourceSessionID,
+			&i.InboxID,
 		); err != nil {
 			return nil, err
 		}

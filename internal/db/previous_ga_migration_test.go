@@ -25,10 +25,10 @@ const (
 	// this test into a green lie.
 	previousGAVersion = int64(20260725161331)
 	// Library V1, channel guest sessions/indexes, channel allowlist backfill, and
-	// session activity, per-message actor provenance, and the deliberately
-	// conservative legacy actor migration
+	// session activity, per-message actor provenance, the deliberately
+	// conservative legacy actor migration, and the durable Session inbox
 	// are the post-anchor migrations exercised below.
-	currentMigrationVersion = sequentialAnchor + 11
+	currentMigrationVersion = sequentialAnchor + 13
 
 	previousGAUserID          = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID         = "00000000-0000-0000-0000-000000000002"
@@ -250,6 +250,15 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 	if legacyActorType != "human" {
 		t.Fatalf("defaulted legacy message actor=%q, want human", legacyActorType)
+	}
+	if got := count("session inbox table", `SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ctx_session_inbox'`); got != 1 {
+		t.Fatalf("session inbox tables = %d, want 1", got)
+	}
+	if got := count("message inbox column", `SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'ctx_message' AND column_name = 'inbox_id'`); got != 1 {
+		t.Fatalf("message inbox columns = %d, want 1", got)
+	}
+	if got := count("message inbox unique index", `SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'ctx_message' AND indexname = 'idx_ctx_message_inbox_id'`); got != 1 {
+		t.Fatalf("message inbox indexes = %d, want 1", got)
 	}
 	for _, tc := range []struct {
 		name, messageID string

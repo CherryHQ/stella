@@ -1,9 +1,9 @@
 -- name: CreateMessage :one
 INSERT INTO ctx_message (
     id, conversation_id, seq, role, event_type, content, token_count,
-    actor_type, actor_id, source_session_id
+    actor_type, actor_id, source_session_id, inbox_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, sqlc.narg('inbox_id'))
 RETURNING *;
 
 -- name: GetMessage :one
@@ -72,7 +72,7 @@ WITH ordered AS (
     LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset')
 )
 SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at,
-       actor_type, actor_id, source_session_id
+       actor_type, actor_id, source_session_id, inbox_id
 FROM grouped
 WHERE logical_idx IN (SELECT logical_idx FROM selected_groups)
 ORDER BY seq ASC;
@@ -118,7 +118,7 @@ WITH ordered AS (
     LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset')
 )
 SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at,
-       actor_type, actor_id, source_session_id
+       actor_type, actor_id, source_session_id, inbox_id
 FROM grouped
 WHERE turn_idx IN (SELECT turn_idx FROM selected_turns)
 ORDER BY seq ASC;

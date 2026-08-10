@@ -25,6 +25,18 @@ type SessionStats struct {
 	NewestAt     time.Time // timestamp of the most recent message (zero if empty)
 }
 
+// ErrInboxNotPending reports that an inbox-backed input could not claim its
+// pending row. Cancellation, prior delivery, and immutable-fact mismatch all
+// fail closed through this one sentinel before model execution.
+var ErrInboxNotPending = errors.New("session inbox message is not pending")
+
+// InboxAppender is implemented by providers that can atomically claim a durable
+// Session inbox row and append its input to the transcript. Callers must verify
+// the unwrapped provider supports this capability before relying on a wrapper.
+type InboxAppender interface {
+	AppendInboxInput(ctx context.Context, session Session, inboxID string, msg ai.Message) error
+}
+
 // Provider is the memory plugin contract.
 // Every memory plugin must implement this interface.
 // Optional capabilities are discovered via type assertion — see Capability Interfaces.

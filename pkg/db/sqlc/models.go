@@ -517,6 +517,7 @@ type CtxMessage struct {
 	ActorType       string      `json:"actor_type"`
 	ActorID         pgtype.Text `json:"actor_id"`
 	SourceSessionID pgtype.Text `json:"source_session_id"`
+	InboxID         pgtype.Text `json:"inbox_id"`
 }
 
 type CtxMessageEmbedding struct {
@@ -542,6 +543,20 @@ type CtxMessagePart struct {
 	MediaID     pgtype.Text `json:"media_id"`
 	CreatedAt   time.Time   `json:"created_at"`
 	UpdatedAt   time.Time   `json:"updated_at"`
+}
+
+type CtxSessionInbox struct {
+	ID              string             `json:"id"`
+	EnqueueSeq      pgtype.Int8        `json:"enqueue_seq"`
+	SourceSessionID string             `json:"source_session_id"`
+	TargetSessionID string             `json:"target_session_id"`
+	ActorID         string             `json:"actor_id"`
+	Content         string             `json:"content"`
+	DeliveredAt     pgtype.Timestamptz `json:"delivered_at"`
+	FailedAt        pgtype.Timestamptz `json:"failed_at"`
+	ErrorCode       string             `json:"error_code"`
+	CreatedAt       time.Time          `json:"created_at"`
+	UpdatedAt       time.Time          `json:"updated_at"`
 }
 
 type CtxSummary struct {
