@@ -35,10 +35,11 @@ function PluginIcon({ plugin }: { plugin: PluginWithMeta }) {
 interface PluginCardProps {
   plugin: PluginWithMeta;
   active: boolean;
+  detailRoute: "/settings/plugins/$pluginId" | "/admin/integrations/plugins/$pluginId";
   onToggle: (enabled: boolean) => void;
 }
 
-export function PluginCard({ plugin, active, onToggle }: PluginCardProps) {
+export function PluginCard({ plugin, active, detailRoute, onToggle }: PluginCardProps) {
   const essential = pluginIsEssential(plugin);
   const oauthProvider = plugin._manifestPlugin?.oauth_provider;
 
@@ -70,7 +71,7 @@ export function PluginCard({ plugin, active, onToggle }: PluginCardProps) {
         ) : undefined
       }
       active={active}
-      to="/settings/plugins/$pluginId"
+      to={detailRoute}
       params={{ pluginId: plugin.name }}
     />
   );
@@ -82,6 +83,7 @@ interface PluginSectionProps {
   description: string;
   plugins: PluginWithMeta[];
   activeName?: string;
+  detailRoute: "/settings/plugins/$pluginId" | "/admin/integrations/plugins/$pluginId";
   onToggle: (plugin: PluginWithMeta, enabled: boolean) => void;
 }
 
@@ -91,6 +93,7 @@ export function PluginSection({
   description,
   plugins,
   activeName,
+  detailRoute,
   onToggle,
 }: PluginSectionProps) {
   if (plugins.length === 0) return null;
@@ -101,6 +104,7 @@ export function PluginSection({
           key={plugin.id}
           plugin={plugin}
           active={activeName === plugin.name}
+          detailRoute={detailRoute}
           onToggle={(enabled) => onToggle(plugin, enabled)}
         />
       ))}

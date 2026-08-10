@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
 import {
   deleteManifestPlugin,
   getPluginConfig,
@@ -59,6 +59,13 @@ export function PluginsPage() {
   const { data: me } = useQuery(meQueryOptions);
   const isAdmin = me?.is_admin ?? false;
   const navigate = useNavigate();
+  const isAdminSurface = useRouterState({
+    select: (state) => state.location.pathname.startsWith("/admin/"),
+  });
+  const listRoute = isAdminSurface ? "/admin/integrations/plugins" : "/settings/plugins";
+  const detailRoute = isAdminSurface
+    ? "/admin/integrations/plugins/$pluginId"
+    : "/settings/plugins/$pluginId";
   const params = useParams({ strict: false }) as { pluginId?: string };
   const pluginId = params.pluginId;
 
@@ -362,7 +369,7 @@ export function PluginsPage() {
     };
     try {
       await upsertManifestPlugin(next, [], id + " added");
-      void navigate({ to: "/settings/plugins/$pluginId", params: { pluginId: params.name } });
+      void navigate({ to: detailRoute, params: { pluginId: params.name } });
     } catch (e) {
       showToast((e as Error).message, "error");
     }
@@ -403,7 +410,7 @@ export function PluginsPage() {
       await loadPlugins();
       await syncManifest(true);
       showToast(plugin.id + " removed");
-      void navigate({ to: "/settings/plugins" });
+      void navigate({ to: listRoute });
     } catch (e) {
       showToast((e as Error).message, "error");
     }
@@ -412,7 +419,7 @@ export function PluginsPage() {
   // --- Render ---
 
   function closeSheet() {
-    void navigate({ to: "/settings/plugins" });
+    void navigate({ to: listRoute });
   }
 
   let detail: React.ReactNode = undefined;
@@ -422,7 +429,7 @@ export function PluginsPage() {
       <CliToolAddForm
         existingIds={manifestPlugins.map((p) => p.id)}
         onCreate={createCliTool}
-        onCancel={() => void navigate({ to: "/settings/plugins" })}
+        onCancel={() => void navigate({ to: listRoute })}
       />
     );
   } else if (selectedPlugin) {
@@ -589,7 +596,7 @@ export function PluginsPage() {
         action={
           isAdmin ? (
             <Button
-              render={<Link to="/settings/plugins/$pluginId" params={{ pluginId: "new" }} />}
+              render={<Link to={detailRoute} params={{ pluginId: "new" }} />}
               variant="outline"
               size="sm"
             >
@@ -608,6 +615,7 @@ export function PluginsPage() {
               description={t("plugins.bucket.integrationsDesc")}
               plugins={integrationPlugins}
               activeName={selectedPlugin?.name}
+              detailRoute={detailRoute}
               onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
             />
             <PluginSection
@@ -616,6 +624,7 @@ export function PluginsPage() {
               description={t("plugins.bucket.toolsDesc")}
               plugins={capabilityPlugins}
               activeName={selectedPlugin?.name}
+              detailRoute={detailRoute}
               onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
             />
             <PluginSection
@@ -624,6 +633,7 @@ export function PluginsPage() {
               description={t("plugins.bucket.systemDesc")}
               plugins={systemPlugins}
               activeName={selectedPlugin?.name}
+              detailRoute={detailRoute}
               onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
             />
           </>

@@ -9,6 +9,8 @@ const en = {
   "nav.sessions": "Agents",
   "nav.sessions.desc": "AI chat assistant & projects",
   "nav.settings": "Settings",
+  "nav.personalSettings": "Personal settings",
+  "nav.adminConsole": "Admin console",
   "nav.recally": "Recally",
   "nav.recally.desc": "Read queue, feeds & memory",
   "nav.docs": "Docs",
@@ -251,6 +253,9 @@ const en = {
 
   // Settings
   "settings.title": "Settings",
+  "settings.section.resources": "Resources",
+  "settings.section.account": "Account",
+  "settings.section.about": "About",
   "settings.nav.account": "Account",
   "settings.nav.agents": "Agents",
   "settings.nav.channels": "Channels",
@@ -264,6 +269,13 @@ const en = {
   "settings.nav.embedding": "Embedding",
   "settings.nav.users": "Users",
   "settings.nav.provisioning": "Provisioning",
+  "admin.section.operations": "Operations",
+  "admin.section.access": "Access",
+  "admin.section.ai": "AI",
+  "admin.section.integrations": "Integrations",
+  "admin.nav.overview": "Overview",
+  "admin.forbidden.title": "Admin access required",
+  "admin.forbidden.desc": "Your account cannot administer this deployment.",
 
   // Library
   "library.title": "Library",
@@ -2282,6 +2294,8 @@ const zh: Record<MessageKey, string> = {
   "nav.sessions": "智能体",
   "nav.sessions.desc": "AI 聊天智能体与项目",
   "nav.settings": "设置",
+  "nav.personalSettings": "个人设置",
+  "nav.adminConsole": "管理控制台",
   "nav.recally": "忆读",
   "nav.recally.desc": "阅读队列、订阅源与记忆",
   "nav.docs": "文档",
@@ -2521,6 +2535,9 @@ const zh: Record<MessageKey, string> = {
 
   // Settings
   "settings.title": "设置",
+  "settings.section.resources": "资源",
+  "settings.section.account": "账户",
+  "settings.section.about": "关于",
   "settings.nav.account": "账户",
   "settings.nav.agents": "智能体",
   "settings.nav.channels": "渠道",
@@ -2534,6 +2551,13 @@ const zh: Record<MessageKey, string> = {
   "settings.nav.embedding": "向量嵌入",
   "settings.nav.users": "用户",
   "settings.nav.provisioning": "用户开通",
+  "admin.section.operations": "运行",
+  "admin.section.access": "访问控制",
+  "admin.section.ai": "AI",
+  "admin.section.integrations": "集成",
+  "admin.nav.overview": "概览",
+  "admin.forbidden.title": "需要管理员权限",
+  "admin.forbidden.desc": "你的账户不能管理此部署。",
 
   // Library
   "library.title": "知识库",
