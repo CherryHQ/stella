@@ -156,7 +156,7 @@ Session kind describes why the session exists. Channel describes where it origin
 
 Typed resume must validate kind. A scheduler run must not resume a delegate session even if the ID matches. A channel session must require `KindChat` even though channel keys are trusted.
 
-Human messages are accepted on every kind. The web UI may send a message to a `delegate`, `task`, or `scheduler` session just like a `chat` session. Human ingress contends for the runtime guard directly. Agent-originated `session.send` calls use a bounded process-local FIFO for fairness, then enter the same runtime admission guard. The guard remains the one-active-turn correctness boundary.
+Human messages are accepted on every kind. The web UI may send a message to a `delegate`, `task`, or `scheduler` session just like a `chat` session. Human ingress contends for the runtime guard directly. Agent-originated `session.create` and `session.send` inputs are first recorded in the durable Session inbox, then use a bounded process-local FIFO for fairness before entering the same runtime admission guard. At the normal input-append point, LCM claims the inbox row and writes the transcript message in one transaction. The guard remains the one-active-turn correctness boundary.
 
 ## ID trust model
 
@@ -207,7 +207,9 @@ This matters for delegate and scheduler callers because they treat any stream er
 
 ### Concurrency
 
-Runtime allows at most one active turn per session and returns `ErrSessionBusy` before transcript side effects when admission loses. Human ingress handles that result directly. Agent-originated Session sends add a fairness layer in front of admission: a process-local FIFO with a pending depth of 32 and a 30-second admission hold limit. The source context cancels queued and admitted work. The FIFO polls a busy guard holder and still relies on runtime admission for correctness.
+Runtime allows at most one active turn per session and returns `ErrSessionBusy` before transcript side effects when admission loses. Human ingress handles that result directly. Agent-originated Session sends add a fairness layer in front of admission: a process-local FIFO with a pending depth of 32 and a 30-second admission hold limit. The source context cancels queued and admitted work. Cancellation before transcript delivery atomically terminalizes the inbox row; cancellation after delivery leaves the input in history and stops the live turn. The FIFO polls a busy guard holder and still relies on runtime admission for correctness.
+
+On startup, Stella reauthorizes pending inbox rows and appends valid inputs to their target transcripts in enqueue order. Recovery never starts a model or tool turn, so this is durable message delivery—not durable Agent execution or reply delivery. A crash after transcript commit can therefore leave an unanswered Agent input, but it cannot replay tool side effects.
 
 Cluster-wide serialization is tracked in #643 under #637. That work will replace all process-local admission guards with one shared Session turn lease. The agent-send FIFO must remain a local fairness optimization in front of that seam.
 

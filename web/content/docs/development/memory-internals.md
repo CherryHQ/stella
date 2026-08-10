@@ -22,6 +22,7 @@ Providers can implement additional interfaces detected via type assertion:
 
 | Interface                                            | Description                                        |
 | ---------------------------------------------------- | -------------------------------------------------- |
+| `InboxAppender`                                      | Atomically claim a Session inbox row and append it |
 | `Compactor`                                          | Context window compaction                          |
 | `Searcher`                                           | Full-text search across messages and summaries     |
 | `Explorer`                                           | Inspect and drill into summaries                   |
@@ -276,7 +277,8 @@ This is suitable for short-lived conversations or resource-constrained environme
 | Table                  | Purpose                                                                                                   |
 | ---------------------- | --------------------------------------------------------------------------------------------------------- |
 | `ctx_conversations`    | One per session (`session_id` -> `id` mapping), includes agent/user ID                                    |
-| `ctx_messages`         | Raw messages with `role`, `content`, `token_count`, sequential `seq`                                      |
+| `ctx_messages`         | Raw messages with `role`, `content`, `token_count`, sequential `seq`, and an optional unique inbox link   |
+| `ctx_session_inbox`    | Durable Agent-originated Session inputs; terminal delivery is claimed with transcript append              |
 | `ctx_summaries`        | Summary DAG nodes                                                                                         |
 | `ctx_items`            | Ordered context window: points to message or summary                                                      |
 | `ctx_summary_messages` | Links leaf summaries to source messages                                                                   |

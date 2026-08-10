@@ -156,7 +156,7 @@ Session kind 描述 session 为什么存在。Channel 描述 session 从哪里�
 
 Typed resume 必须验证 kind。即使 ID 一样，scheduler run 也不能恢复 delegate session。Channel session 虽然 key 是 trusted，也必须要求 `KindChat`。
 
-所有 kind 都接受人工消息。Web UI 可以像给 `chat` session 发消息一样，给 `delegate`、`task`、`scheduler` session 发消息。人工入口直接竞争 runtime guard。Agent 发起的 `session.send` 先经过有界的进程内 FIFO 以保证公平，再进入同一个 runtime admission guard。该 guard 仍是一 Session 单活跃回合的正确性边界。
+所有 kind 都接受人工消息。Web UI 可以像给 `chat` session 发消息一样，给 `delegate`、`task`、`scheduler` session 发消息。人工入口直接竞争 runtime guard。Agent 发起的 `session.create` 和 `session.send` 输入会先写入持久 Session inbox，再经过有界的进程内 FIFO 以保证公平，最后进入同一个 runtime admission guard。在正常的输入追加点，LCM 会在同一事务中认领 inbox 行并写入 transcript 消息。该 guard 仍是一 Session 单活跃回合的正确性边界。
 
 ## ID trust model
 
@@ -207,7 +207,9 @@ Chat timeout 是可恢复停止，不是硬失败。Runtime 会持久化并 stre
 
 ### Concurrency
 
-Runtime 对每个 Session 最多允许一个 active turn。admission 竞争失败时，它会在写入对话记录之前返回 `ErrSessionBusy`。人工入口直接处理该结果。Agent 发起的 Session 发送会在 admission 前增加一层公平机制：进程内 FIFO 的等待深度为 32，admission 等待上限为 30 秒。来源 context 会取消排队中和已 admission 的工作。FIFO 会轮询忙碌 guard，但正确性仍由 runtime admission 保证。
+Runtime 对每个 Session 最多允许一个 active turn。admission 竞争失败时，它会在写入对话记录之前返回 `ErrSessionBusy`。人工入口直接处理该结果。Agent 发起的 Session 发送会在 admission 前增加一层公平机制：进程内 FIFO 的等待深度为 32，admission 等待上限为 30 秒。来源 context 会取消排队中和已 admission 的工作。在 transcript 投递前取消会原子终结 inbox 行；投递后取消则保留历史输入并停止实时 turn。FIFO 会轮询忙碌 guard，但正确性仍由 runtime admission 保证。
+
+Stella 启动时会重新鉴权 pending inbox 行，并按入队顺序把有效输入追加到目标 transcript。恢复过程绝不会启动模型或工具 turn，因此这里保证的是持久消息投递，而不是持久 Agent 执行或回复投递。transcript 已提交后崩溃可能留下一个无人回复的 Agent 输入，但不会重放工具副作用。
 
 #643 在 #637 下跟踪集群级序列化。该工作会用共享 Session turn lease 替换所有进程内 admission guard。Agent 发送 FIFO 必须保持为该边界前的本地公平优化。
 

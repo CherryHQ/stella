@@ -19,6 +19,7 @@ import (
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
+	sessioninbox "github.com/CherryHQ/stella/internal/agent/session/inbox"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
@@ -118,6 +119,64 @@ func (s *Service) Begin(_ context.Context, authority authz.Authority) (*Access, 
 		return nil, ErrForbidden
 	}
 	return &Access{svc: s, authority: authority}, nil
+}
+
+// ResolveInboxDelivery freshly authorizes both endpoints of one recovered
+// Agent-originated input. It returns only the target scope; recovery remains
+// append-only and cannot reach a runtime through this interface.
+func (s *Service) ResolveInboxDelivery(ctx context.Context, sourceSessionID, targetSessionID, actorID string) (agentsession.Info, error) {
+	if sourceSessionID == "" || targetSessionID == "" || sourceSessionID == targetSessionID || actorID == "" {
+		return agentsession.Info{}, sessioninbox.ErrTargetUnavailable
+	}
+	sourceFacts, err := s.q.GetConversationForSessionAccess(ctx, sourceSessionID)
+	if err != nil {
+		return agentsession.Info{}, inboxRecoveryLookupError("source", err)
+	}
+	targetFacts, err := s.q.GetConversationForSessionAccess(ctx, targetSessionID)
+	if err != nil {
+		return agentsession.Info{}, inboxRecoveryLookupError("target", err)
+	}
+	if sourceFacts.Archived || targetFacts.Archived || !sourceFacts.UserID.Valid || !sourceFacts.AgentID.Valid || !targetFacts.UserID.Valid || !targetFacts.AgentID.Valid ||
+		sourceFacts.UserID.String != targetFacts.UserID.String || sourceFacts.AgentID.String != actorID || targetFacts.AgentID.String != actorID {
+		return agentsession.Info{}, sessioninbox.ErrTargetUnavailable
+	}
+	authority, err := agentaccess.WorkerAgentAuthority(sourceFacts.UserID.String, actorID)
+	if err != nil {
+		return agentsession.Info{}, sessioninbox.ErrTargetUnavailable
+	}
+	access, err := s.Begin(ctx, authority)
+	if err != nil {
+		return agentsession.Info{}, sessioninbox.ErrTargetUnavailable
+	}
+	source, err := access.Use(ctx, actorID, sourceSessionID)
+	if err != nil {
+		return agentsession.Info{}, inboxRecoveryAccessError("source", err)
+	}
+	target, err := access.Use(ctx, actorID, targetSessionID)
+	if err != nil {
+		return agentsession.Info{}, inboxRecoveryAccessError("target", err)
+	}
+	kind := agentsession.Kind(target.Kind)
+	if source.Archived || target.Archived || source.GuestID != "" || target.GuestID != "" || source.GroupID != "" || target.GroupID != "" ||
+		source.UserID != target.UserID || source.AgentID != actorID || target.AgentID != actorID ||
+		(kind != agentsession.KindMain && kind != agentsession.KindChat && kind != agentsession.KindDelegate) {
+		return agentsession.Info{}, sessioninbox.ErrTargetUnavailable
+	}
+	return target, nil
+}
+
+func inboxRecoveryLookupError(endpoint string, err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("%w: %s Session", sessioninbox.ErrTargetUnavailable, endpoint)
+	}
+	return fmt.Errorf("%w: recover %s Session facts: %w", ErrUnavailable, endpoint, err)
+}
+
+func inboxRecoveryAccessError(endpoint string, err error) error {
+	if errors.Is(err, ErrForbidden) || errors.Is(err, ErrNotFound) {
+		return fmt.Errorf("%w: %s Session", sessioninbox.ErrTargetUnavailable, endpoint)
+	}
+	return err
 }
 
 // Read resolves a routed session and authorizes reading it.

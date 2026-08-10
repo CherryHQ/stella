@@ -262,7 +262,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if _, ok := memory.Unwrap(memProvider).(memory.InboxAppender); !ok {
 		return nil, errors.New("memory provider does not support durable Session inbox")
 	}
-	if _, ok := memProvider.(memory.InboxAppender); !ok {
+	inboxAppender, ok := memProvider.(memory.InboxAppender)
+	if !ok {
 		return nil, errors.New("memory tracing wrapper does not forward durable Session inbox")
 	}
 	sessionInbox := sessioninbox.New(db)
@@ -521,6 +522,11 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 
 	if err := poolMgr.StartAll(parent); err != nil {
 		return nil, fmt.Errorf("start pool manager: %w", err)
+	}
+	// Drain durable inputs before any server/channel/River ingress can accept
+	// newer work. Recovery appends transcripts only; it never enters Runtime.
+	if err := sessionInbox.Recover(parent, sessionAccess, inboxAppender); err != nil {
+		return nil, fmt.Errorf("recover Session inbox: %w", err)
 	}
 
 	// The runner invalidator lets credential/token refresh propagate to running

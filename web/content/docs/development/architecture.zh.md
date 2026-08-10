@@ -188,7 +188,7 @@ type Tool interface {
 
 runtime 保留 `DelegateTool` 和 delegate Session kind，作为 preset 和已有 ID 的内部兼容机制。模型工具注册表不再注册 `delegate`。
 
-Agent 发送先进入进程内按 Session 划分的 FIFO，再经过标准 runtime admission guard。队列限制等待深度和 admission 等待时间，传播来源 context，但不取代 runtime 正确性 guard。嵌套调用在 context 中携带深度和祖先链，拒绝循环，继承根 deadline，并在同一根回合的同级与嵌套调用间共享 16 次调用预算。Agent 输入会持久化 actor 和来源 Session；prompt 渲染把它标记为信息，而不是用户权威。同步 Session 回合不会隐式发布到外部渠道。
+Agent 发送会先持久化一行输入，再进入进程内按 Session 划分的 FIFO，最后经过标准 runtime admission guard。队列限制等待深度和 admission 等待时间，传播来源 context，但不取代 runtime 正确性 guard。LCM 会在追加 transcript 消息的同一事务中认领该行。启动恢复会重新鉴权 pending 行并只追加消息；它绝不会启动模型或工具 turn。嵌套调用在 context 中携带深度和祖先链，拒绝循环，继承根 deadline，并在同一根回合的同级与嵌套调用间共享 16 次调用预算。Agent 输入会持久化 actor 和来源 Session；prompt 渲染把它标记为信息，而不是用户权威。同步 Session 回合不会隐式发布到外部渠道，inbox 持久化也不会让回复或执行本身变得持久。
 
 ### 内置共享工具
 

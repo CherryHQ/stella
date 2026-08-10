@@ -14,6 +14,7 @@ import (
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
+	sessioninbox "github.com/CherryHQ/stella/internal/agent/session/inbox"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/blob"
@@ -63,6 +64,26 @@ func TestAdminGuestSessionAccessIsLimitedToInspectionAndDeletion(t *testing.T) {
 	}
 	if access.allowWorkspace(authz.ActionRead, facts) {
 		t.Fatal("admin was allowed to access a guest workspace")
+	}
+}
+
+func TestResolveInboxDeliveryReauthorizesEndpointsAndRejectsUnavailableTargets(t *testing.T) {
+	m := newSessionMatrix(t)
+	target, err := m.svc.ResolveInboxDelivery(t.Context(), m.internal, m.private, m.agent)
+	if err != nil {
+		t.Fatalf("ResolveInboxDelivery: %v", err)
+	}
+	if target.ID != m.private || target.UserID != m.owner || target.AgentID != m.agent {
+		t.Fatalf("target = %+v", target)
+	}
+	if _, err := m.svc.ResolveInboxDelivery(t.Context(), m.internal, m.groupSID, m.agent); !errors.Is(err, sessioninbox.ErrTargetUnavailable) {
+		t.Fatalf("group target error = %v, want ErrTargetUnavailable", err)
+	}
+	if _, err := m.db.Exec(t.Context(), `UPDATE ctx_conversation SET archived = true WHERE session_id = $1`, m.private); err != nil {
+		t.Fatalf("archive target: %v", err)
+	}
+	if _, err := m.svc.ResolveInboxDelivery(t.Context(), m.internal, m.private, m.agent); !errors.Is(err, sessioninbox.ErrTargetUnavailable) {
+		t.Fatalf("archived target error = %v, want ErrTargetUnavailable", err)
 	}
 }
 

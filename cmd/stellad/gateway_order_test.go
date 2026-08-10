@@ -103,6 +103,38 @@ func TestRunServerStartsBackendsBeforeIngress(t *testing.T) {
 	}
 }
 
+func TestSetupRecoversSessionInboxAfterAgentsStart(t *testing.T) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "commands.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse commands.go: %v", err)
+	}
+	lines := map[string]int{}
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "setup" {
+			continue
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			selector, ok := call.Fun.(*ast.SelectorExpr)
+			if ok && (selector.Sel.Name == "StartAll" || selector.Sel.Name == "Recover") {
+				lines[selector.Sel.Name] = fset.Position(call.Pos()).Line
+			}
+			return true
+		})
+	}
+	if lines["StartAll"] == 0 || lines["Recover"] == 0 {
+		t.Fatalf("setup startup calls = %v, want StartAll and Recover", lines)
+	}
+	if lines["StartAll"] >= lines["Recover"] {
+		t.Fatalf("PoolManager.StartAll line %d must precede Session inbox Recover line %d", lines["StartAll"], lines["Recover"])
+	}
+}
+
 func maxInt(xs ...int) int {
 	m := xs[0]
 	for _, x := range xs[1:] {
