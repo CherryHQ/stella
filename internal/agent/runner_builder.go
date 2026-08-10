@@ -2,11 +2,15 @@ package agent
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
@@ -49,25 +53,60 @@ const runnerScratchDir = "runner-scratch"
 // parent is deliberately private because it can contain transient tool output
 // from user-less internal runs.
 func newRunnerScratch(stellaHome string) (string, func() error, error) {
-	root := filepath.Join(stellaHome, runnerScratchDir)
-	if err := os.Mkdir(root, 0o700); err != nil && !os.IsExist(err) {
-		return "", nil, err
-	}
-	info, err := os.Lstat(root)
+	homeRoot, err := os.OpenRoot(stellaHome)
 	if err != nil {
 		return "", nil, err
 	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return "", nil, fmt.Errorf("scratch root %q is not a directory", root)
-	}
-	if err := os.Chmod(root, 0o700); err != nil {
+	defer func() { _ = homeRoot.Close() }()
+	if err := homeRoot.Mkdir(runnerScratchDir, 0o700); err != nil && !os.IsExist(err) {
 		return "", nil, err
 	}
-	dir, err := os.MkdirTemp(root, "runner-")
+
+	root, err := homeRoot.OpenRoot(runnerScratchDir)
 	if err != nil {
 		return "", nil, err
 	}
-	return dir, func() error { return os.RemoveAll(dir) }, nil
+	info, lstatErr := homeRoot.Lstat(runnerScratchDir)
+	openedInfo, statErr := root.Stat(".")
+	if lstatErr != nil || statErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !os.SameFile(info, openedInfo) {
+		_ = root.Close()
+		return "", nil, fmt.Errorf("scratch root %q is not a directory", filepath.Join(stellaHome, runnerScratchDir))
+	}
+	if err := root.Chmod(".", 0o700); err != nil {
+		_ = root.Close()
+		return "", nil, err
+	}
+
+	var name string
+	for range 100 {
+		var random [8]byte
+		if _, err := rand.Read(random[:]); err != nil {
+			_ = root.Close()
+			return "", nil, err
+		}
+		name = "runner-" + hex.EncodeToString(random[:])
+		if err := root.Mkdir(name, 0o700); err == nil {
+			break
+		} else if !os.IsExist(err) {
+			_ = root.Close()
+			return "", nil, err
+		}
+		name = ""
+	}
+	if name == "" {
+		_ = root.Close()
+		return "", nil, fmt.Errorf("create runner scratch: too many collisions")
+	}
+	dir := filepath.Join(stellaHome, runnerScratchDir, name)
+	var once sync.Once
+	var cleanupErr error
+	cleanup := func() error {
+		once.Do(func() {
+			cleanupErr = errors.Join(root.RemoveAll(name), root.Close())
+		})
+		return cleanupErr
+	}
+	return dir, cleanup, nil
 }
 
 func BuiltinToolAvailable(_ context.Context, params RunnerParams) bool {

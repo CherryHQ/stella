@@ -95,6 +95,24 @@ func (r *Registry) WorkspaceView(ctx context.Context, req WorkspaceRequest) (Wor
 		}
 	}
 
+	ready := []Record{system, systemAgent}
+	if hasPrincipal {
+		ready = append(ready, principal, agent)
+	}
+	pins := make([]readyRootPin, 0, len(ready))
+	defer func() {
+		for _, pin := range pins {
+			_ = pin.Close()
+		}
+	}()
+	for _, record := range ready {
+		pin, err := r.pinReadyRoot(record)
+		if err != nil {
+			return WorkspaceView{}, fmt.Errorf("home: pin ready workspace storage: %w", err)
+		}
+		pins = append(pins, pin)
+	}
+
 	// The final transaction is DB-only. It serializes with owner deletion and
 	// revalidates every record captured above before any attachment is returned.
 	tx, err := r.db.Begin(ctx)
@@ -135,6 +153,14 @@ func (r *Registry) WorkspaceView(ctx context.Context, req WorkspaceRequest) (Wor
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return WorkspaceView{}, fmt.Errorf("home: commit workspace view: %w", err)
+	}
+	// Inspect once more after DB revalidation. This catches an exact-root
+	// replacement during the DB-only gate without moving filesystem I/O into the
+	// transaction; the process owner lock remains held through this check.
+	for _, pin := range pins {
+		if err := pin.Revalidate(); err != nil {
+			return WorkspaceView{}, fmt.Errorf("home: ready storage changed during workspace revalidation: %w", err)
+		}
 	}
 	return view, nil
 }

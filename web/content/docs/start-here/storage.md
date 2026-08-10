@@ -52,9 +52,11 @@ The current local store preserves compatibility paths: `users/{id}/data/` and `u
 
 The paths are current local compatibility coordinates, not Home identity. A Home has stable registry metadata, including its Store ID and opaque locator, so future storage implementations need not preserve these path shapes.
 
+PostgreSQL is the authority for Home identity and lifecycle; the configured Store is the authority for its file bytes. If a registry record is `ready` but its exact physical root is missing, symlinked, or replaced, Stella reports storage loss and does not recreate an empty root. Restore the Home bytes and PostgreSQL metadata together from a consistent backup.
+
 ## Destructive owner deletion
 
-An explicit destructive group or Agent deletion immediately tombstones its Homes and fences local cached execution. Destructive user deletion has the same internal lifecycle primitive, but product account deletion is not integrated with it yet. A shared worker uses a durable, exclusive, expiring claim to purge physical bytes asynchronously and idempotently; after a crash or expired claim, another worker can recover the purge. These are the only Home-deleting lifecycles: removing an Agent assignment, removing a group member, archiving a Session, and uninstalling Helm do **not** delete Homes.
+An explicit destructive group or Agent deletion immediately tombstones its Homes and fences local cached execution. Destructive user deletion has the same internal lifecycle primitive, but product account deletion is not integrated with it yet. A shared worker uses a durable, exclusive, expiring claim to purge physical bytes asynchronously and idempotently. The local Store also holds a per-Home operating-system lock until physical mutation returns, so an expired database claim cannot overlap stale local deletion; after a crash or expired claim, another worker can recover safely. A child failure or active claim durably snoozes its parent continuation without consuming the retry budget. These are the only Home-deleting lifecycles: removing an Agent assignment, removing a group member, archiving a Session, and uninstalling Helm do **not** delete Homes.
 
 If physical purge fails, the Home remains in `purge_failed` with its audit record. It is not silently discarded; an operator must retry it. For syntax, run `stellad storage retry-purge --help`.
 

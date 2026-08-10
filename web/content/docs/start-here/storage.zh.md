@@ -52,9 +52,11 @@ Phase 1 还在 PostgreSQL 中记录了类型化 Home 的身份和生命周期元
 
 这些路径是当前 local 的兼容坐标，不是 Home 身份。Home 具有稳定的 registry 元数据，包括 Store ID 和不透明 locator，因此未来的存储实现无需保留这些路径形状。
 
+PostgreSQL 是 Home 身份与生命周期的权威，配置的 Store 是文件字节的权威。如果 registry 记录已经是 `ready`，但对应的精确物理根目录缺失、变成符号链接或被替换，Stella 会将其报告为存储丢失，不会重建空目录。请从同一份一致性备份中同时恢复 Home 字节与 PostgreSQL 元数据。
+
 ## 破坏性所有者删除
 
-显式破坏性删除群组或 Agent 时，其 Home 会立刻被 tombstone，并 fence 本地缓存的执行。破坏性用户删除具备相同的内部生命周期 primitive，但产品账号删除尚未与它集成。随后共享 worker 通过持久、独占且会过期的 claim 异步、幂等地清除物理字节；进程崩溃或 claim 过期后，其他 worker 可以恢复清除。这些是仅有的 Home 删除生命周期：移除 Agent 分配、移除群成员、归档 Session 和卸载 Helm 都**不会**删除 Home。
+显式破坏性删除群组或 Agent 时，其 Home 会立刻被 tombstone，并 fence 本地缓存的执行。破坏性用户删除具备相同的内部生命周期 primitive，但产品账号删除尚未与它集成。随后共享 worker 通过持久、独占且会过期的 claim 异步、幂等地清除物理字节。Local Store 还会持有每 Home 的操作系统锁，直至物理变更返回，因此已过期的数据库 claim 不会与仍在执行的旧本地删除重叠；进程崩溃或 claim 过期后，其他 worker 可以安全恢复。子 Home 失败或仍有活跃 claim 时，父级 continuation 会持久 snooze，且不消耗重试预算。这些是仅有的 Home 删除生命周期：移除 Agent 分配、移除群成员、归档 Session 和卸载 Helm 都**不会**删除 Home。
 
 物理清除失败时，Home 会以 `purge_failed` 状态连同审计记录保留，不会被静默丢弃；操作员必须重试。命令语法请运行 `stellad storage retry-purge --help`。
 

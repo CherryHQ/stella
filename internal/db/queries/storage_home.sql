@@ -78,9 +78,20 @@ UPDATE storage_home
 SET purge_attempts = purge_attempts + 1, purge_started_at = now(),
     purge_claim_token = $2, purge_claim_until = now() + interval '5 minutes', updated_at = now()
 WHERE id = $1
-  AND state IN ('tombstoned', 'purge_failed')
+  AND state = sqlc.arg(expected_state)
   AND (purge_claim_until IS NULL OR purge_claim_until <= now())
 RETURNING *;
+
+-- name: GetStorageHomePurgeClaimStatus :one
+SELECT state, purge_claim_token IS NOT NULL AND purge_claim_until > now() AS purge_claim_active
+FROM storage_home
+WHERE id = $1;
+
+-- name: ValidateStorageHomePurgeClaim :one
+SELECT EXISTS (
+    SELECT 1 FROM storage_home
+    WHERE id = $1 AND purge_claim_token = $2 AND purge_claim_until > now()
+);
 
 -- name: RenewStorageHomePurgeClaim :execrows
 UPDATE storage_home

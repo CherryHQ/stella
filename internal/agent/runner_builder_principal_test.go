@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/config"
@@ -178,5 +179,36 @@ func TestNewRunnerFuncCleansUserlessScratchOnConstructionFailure(t *testing.T) {
 	}
 	if _, err := os.Stat(scratch); !os.IsNotExist(err) {
 		t.Fatalf("scratch remains after construction failure: %v", err)
+	}
+}
+
+func TestNewRunnerScratchCleanupUsesOpenedRootAfterPathReplacement(t *testing.T) {
+	if runtime.GOOS == "windows" || runtime.GOOS == "plan9" || runtime.GOOS == "js" {
+		t.Skip("open directory handles do not remain usable across rename on this platform")
+	}
+	home := t.TempDir()
+	dir, cleanup, err := newRunnerScratch(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRoot := filepath.Join(home, "old-runner-scratch")
+	if err := os.Rename(filepath.Join(home, runnerScratchDir), oldRoot); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(home, runnerScratchDir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	replacementMarker := filepath.Join(home, runnerScratchDir, "keep")
+	if err := os.WriteFile(replacementMarker, []byte("replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanup(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(oldRoot, filepath.Base(dir))); !os.IsNotExist(err) {
+		t.Fatalf("scratch remains in original opened root: %v", err)
+	}
+	if _, err := os.Stat(replacementMarker); err != nil {
+		t.Fatalf("replacement root was modified: %v", err)
 	}
 }

@@ -14,6 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+	"github.com/riverqueue/river/rivertest"
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -520,8 +522,9 @@ func TestOwnerPurgeWorkerDoesNotDeleteParentAfterChildFailure(t *testing.T) {
 	store.fail[child.ID] = errors.New("disk full")
 	worker := &ownerPurgeWorker{deletion: &OwnerDeletion{registry: registry, fencer: &recordingOwnerFencer{}}}
 	job := &river.Job[ownerPurgeArgs]{Args: ownerPurgeArgs{OwnerKind: OwnerUser, OwnerID: "user-with-failed-child", HomeIDs: []string{principal.ID, child.ID}, Actor: "operator"}}
-	if err := worker.Work(ctx, job); err == nil {
-		t.Fatal("child-blocked parent purge was acknowledged")
+	var snooze *river.JobSnoozeError
+	if err := worker.Work(ctx, job); !errors.As(err, &snooze) {
+		t.Fatalf("child-blocked parent purge = %v, want durable snooze", err)
 	}
 	if len(store.order) != 1 || store.order[0] != child.ID {
 		t.Fatalf("physical order after child failure = %v, want child only", store.order)
@@ -556,13 +559,93 @@ func TestOwnerPurgeWorkerSuppressesOnlyRecordedPhysicalFailure(t *testing.T) {
 	}
 	store.fail[failed.ID] = errors.New("disk full")
 	worker := &ownerPurgeWorker{deletion: &OwnerDeletion{registry: registry, fencer: &recordingOwnerFencer{}}}
-	if err := worker.Work(ctx, &river.Job[ownerPurgeArgs]{Args: ownerPurgeArgs{OwnerKind: OwnerUser, OwnerID: "x", HomeIDs: []string{failed.ID, good.ID}, Actor: "operator"}}); err != nil {
-		t.Fatalf("durably recorded physical failure should not retry River: %v", err)
+	var snooze *river.JobSnoozeError
+	if err := worker.Work(ctx, &river.Job[ownerPurgeArgs]{Args: ownerPurgeArgs{OwnerKind: OwnerUser, OwnerID: "x", HomeIDs: []string{failed.ID, good.ID}, Actor: "operator"}}); !errors.As(err, &snooze) {
+		t.Fatalf("durably recorded physical failure should snooze River: %v", err)
 	}
 	if record, err := registry.Record(ctx, failed.ID); err != nil || record.State != StatePurgeFailed {
 		t.Fatalf("failed record = %#v, %v", record, err)
 	}
 	if record, err := registry.Record(ctx, good.ID); err != nil || record.State != StatePurged {
 		t.Fatalf("remaining record = %#v, %v", record, err)
+	}
+}
+
+func TestOwnerPurgeRiverSnoozePreservesAttemptAndContinuesAfterChildRecovery(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	base, _ := NewLocalStore("local", t.TempDir())
+	store := &recordingPurgeStore{Store: base, fail: map[string]error{}}
+	registry, _ := NewRegistry(db, store.ID(), store)
+	principal, _ := registry.Ensure(ctx, Principal(UserPrincipal, "river-wait"))
+	child, _ := registry.Ensure(ctx, Agent(UserPrincipal, "river-wait", "agent"))
+	for _, key := range []Key{principal.Key, child.Key} {
+		if _, err := registry.Tombstone(ctx, key, "operator"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store.fail[child.ID] = errors.New("disk full")
+	worker := &ownerPurgeWorker{deletion: &OwnerDeletion{registry: registry, fencer: &recordingOwnerFencer{}}}
+	testWorker := rivertest.NewWorker(t, riverpgxv5.New(db), &river.Config{}, worker)
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	args := ownerPurgeArgs{OwnerKind: OwnerUser, OwnerID: "river-wait", HomeIDs: []string{principal.ID, child.ID}, Actor: "operator"}
+	result, err := testWorker.Work(ctx, t, tx, args, ownerPurgeInsertOpts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.EventKind != river.EventKindJobSnoozed || result.Job.Attempt != 0 {
+		t.Fatalf("first result = %s attempt %d, want snoozed attempt 0", result.EventKind, result.Job.Attempt)
+	}
+	delete(store.fail, child.ID)
+	if _, err := registry.RetryFailedPurge(ctx, child.ID, "operator"); err != nil {
+		t.Fatal(err)
+	}
+	result, err = testWorker.WorkJob(ctx, t, tx, result.Job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.EventKind != river.EventKindJobCompleted {
+		t.Fatalf("continuation result = %s, want completed", result.EventKind)
+	}
+	if record, err := registry.Record(ctx, principal.ID); err != nil || record.State != StatePurged {
+		t.Fatalf("parent after River continuation = %#v, %v", record, err)
+	}
+}
+
+func TestOwnerPurgeRiverSnoozesWhileChildClaimRemainsActive(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	store, _ := NewLocalStore("local", t.TempDir())
+	registry, _ := NewRegistry(db, store.ID(), store)
+	principal, _ := registry.Ensure(ctx, Principal(UserPrincipal, "river-active"))
+	child, _ := registry.Ensure(ctx, Agent(UserPrincipal, "river-active", "agent"))
+	for _, key := range []Key{principal.Key, child.Key} {
+		if _, err := registry.Tombstone(ctx, key, "operator"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := registry.q.ClaimStorageHomePurge(ctx, sqlc.ClaimStorageHomePurgeParams{ID: child.ID, PurgeClaimToken: text("active-worker"), ExpectedState: string(StateTombstoned)}); err != nil {
+		t.Fatal(err)
+	}
+	worker := &ownerPurgeWorker{deletion: &OwnerDeletion{registry: registry, fencer: &recordingOwnerFencer{}}}
+	testWorker := rivertest.NewWorker(t, riverpgxv5.New(db), &river.Config{}, worker)
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	result, err := testWorker.Work(ctx, t, tx, ownerPurgeArgs{OwnerKind: OwnerUser, OwnerID: "river-active", HomeIDs: []string{principal.ID, child.ID}, Actor: "operator"}, ownerPurgeInsertOpts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.EventKind != river.EventKindJobSnoozed || result.Job.Attempt != 0 {
+		t.Fatalf("active-claim result = %s attempt %d, want snoozed attempt 0", result.EventKind, result.Job.Attempt)
+	}
+	if record, err := registry.Record(ctx, principal.ID); err != nil || record.State != StateTombstoned {
+		t.Fatalf("parent while child claim active = %#v, %v", record, err)
 	}
 }

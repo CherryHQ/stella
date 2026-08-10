@@ -80,7 +80,11 @@ func NewLocalStore(id, base string) (*LocalStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("home: resolve local store base: %w", err)
 	}
-	return &LocalStore{id: id, base: absolute}, nil
+	canonical, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return nil, fmt.Errorf("home: canonicalize local store base: %w", err)
+	}
+	return &LocalStore{id: id, base: canonical}, nil
 }
 
 func (s *LocalStore) ID() string { return s.id }
@@ -148,16 +152,37 @@ func (s *LocalStore) Ensure(_ context.Context, home Record) error {
 	return nil
 }
 
-func (s *LocalStore) Purge(_ context.Context, home Record) error {
-	root, err := os.OpenRoot(s.base)
-	if err != nil {
-		return fmt.Errorf("open store root: %w", err)
+// Purge removes only home.Locator. Callers that coordinate durable purge state
+// must hold AcquirePurgeLock from immediately before their final DB
+// revalidation until Purge returns. Purge is idempotent and checks ctx between
+// individual directory operations; cancellation does not imply rollback.
+func (s *LocalStore) Purge(ctx context.Context, home Record) error {
+	if _, err := s.pathFor(home); err != nil {
+		return err
 	}
-	defer func() { _ = root.Close() }()
-	if err := root.RemoveAll(home.Locator); err != nil {
+	if err := purgeLocalRelative(ctx, s.base, home.Locator); err != nil {
 		return fmt.Errorf("remove home: %w", err)
 	}
 	return nil
+}
+
+// AcquirePurgeLock obtains an OS-backed, process-wide lock whose file is
+// outside every Home tree. The returned release function must be called.
+func (s *LocalStore) AcquirePurgeLock(ctx context.Context, home Record) (func() error, error) {
+	if _, err := s.pathFor(home); err != nil {
+		return nil, err
+	}
+	return acquireLocalPurgeLock(ctx, s.base, home.ID)
+}
+
+func splitLocalPath(name string) []string {
+	var out []string
+	for name != "." && name != "" {
+		dir, file := path.Split(name)
+		out = append([]string{file}, out...)
+		name = path.Clean(dir)
+	}
+	return out
 }
 
 func (s *LocalStore) Attachment(home Record, readOnly bool) sandbox.HomeAttachment {
@@ -176,30 +201,77 @@ func (s *LocalStore) pathFor(home Record) (string, error) {
 	return filepath.Join(s.base, filepath.FromSlash(home.Locator)), nil
 }
 
-// PrepareWorkspace creates the legacy workspace shape through an os.Root. A
-// symlink beneath a Home can therefore never redirect writes outside the Store.
-// WorkspaceView calls it before opening its short DB revalidation transaction.
+// InspectReadyRoot verifies that an exact persisted locator is still the real,
+// no-follow directory provisioned for this Home. It never creates directories.
+func (s *LocalStore) InspectReadyRoot(home Record) error {
+	pin, err := s.PinReadyRoot(home)
+	if err != nil {
+		return err
+	}
+	return pin.Close()
+}
+
+type localReadyRootPin struct {
+	store *LocalStore
+	home  Record
+	file  *os.File
+	info  os.FileInfo
+}
+
+func (p *localReadyRootPin) Revalidate() error {
+	current, err := openLocalDirNoFollow(p.store.base, p.home.Locator)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = current.Close() }()
+	info, err := current.Stat()
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(p.info, info) {
+		return errors.New("ready home root was replaced")
+	}
+	return nil
+}
+
+func (p *localReadyRootPin) Close() error { return p.file.Close() }
+
+func (s *LocalStore) PinReadyRoot(home Record) (readyRootPin, error) {
+	if _, err := s.pathFor(home); err != nil {
+		return nil, err
+	}
+	f, err := openLocalDirNoFollow(s.base, home.Locator)
+	if err != nil {
+		return nil, fmt.Errorf("inspect ready home root: %w", err)
+	}
+	info, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("stat ready home root: %w", err)
+	}
+	return &localReadyRootPin{store: s, home: home, file: f, info: info}, nil
+}
+
+// PrepareWorkspace validates and pins both already-ready roots before adding
+// only their nested legacy scaffold. It deliberately cannot recreate a missing
+// ready root.
 func (s *LocalStore) PrepareWorkspace(principal, agent Record) error {
 	if _, _, _, err := s.WorkspacePaths(principal, agent); err != nil {
 		return err
 	}
-	root, err := os.OpenRoot(s.base)
+	agentRoot, err := openLocalDirNoFollow(s.base, agent.Locator)
 	if err != nil {
-		return fmt.Errorf("open store root: %w", err)
+		return fmt.Errorf("open agent home root: %w", err)
 	}
-	defer func() { _ = root.Close() }()
-	for _, dir := range []string{
-		principal.Locator,
-		path.Join(principal.Locator, "data"),
-		path.Join(principal.Locator, "data", ".cache"),
-		path.Join(principal.Locator, "data", ".agents", "skills"),
-		path.Join(principal.Locator, "data", ".agents", "delegates"),
-		path.Join(principal.Locator, "data", "assets"),
-		agent.Locator,
-	} {
-		if err := root.MkdirAll(dir, 0o755); err != nil {
-			return fmt.Errorf("materialize workspace %q: %w", dir, err)
-		}
+	defer func() { _ = agentRoot.Close() }()
+	dirs := []string{
+		"data", path.Join("data", ".cache"),
+		path.Join("data", ".agents", "skills"),
+		path.Join("data", ".agents", "delegates"),
+		path.Join("data", "assets"),
+	}
+	if err := prepareLocalWorkspaceScaffold(s.base, principal.Locator, dirs); err != nil {
+		return fmt.Errorf("materialize workspace: %w", err)
 	}
 	return nil
 }

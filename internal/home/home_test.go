@@ -54,6 +54,33 @@ func TestKeyValidationKeepsTypedOwnersDisjoint(t *testing.T) {
 	}
 }
 
+func TestReadyHomeLossFailsClosedForEveryHomeKind(t *testing.T) {
+	for _, key := range []Key{
+		Principal(UserPrincipal, "missing-principal"),
+		Agent(UserPrincipal, "missing-agent-principal", "missing-agent"),
+		SystemSkills(),
+		SystemAgentSkills("missing-system-agent"),
+	} {
+		t.Run(string(key.Kind), func(t *testing.T) {
+			r, store := newRegistry(t)
+			record, err := r.Ensure(context.Background(), key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			physical := filepath.Join(store.base, filepath.FromSlash(record.Locator))
+			if err := os.RemoveAll(physical); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := r.Ensure(context.Background(), key); err == nil {
+				t.Fatal("ready Home with missing physical root was recreated")
+			}
+			if _, err := os.Lstat(physical); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("missing ready root was recreated: %v", err)
+			}
+		})
+	}
+}
+
 func TestRegistryConstructorRejectsInvalidDependencies(t *testing.T) {
 	if _, err := NewRegistry(nil, "local"); err == nil {
 		t.Fatal("nil database accepted")
@@ -458,6 +485,33 @@ type blockingPurgeStore struct {
 	release chan struct{}
 }
 
+type serializedMutationStore struct {
+	Store
+	mu        sync.Mutex
+	calls     int
+	active    int
+	maxActive int
+	entered   chan int
+	permit    chan struct{}
+}
+
+func (s *serializedMutationStore) Purge(ctx context.Context, record Record) error {
+	s.mu.Lock()
+	s.calls++
+	call := s.calls
+	s.active++
+	if s.active > s.maxActive {
+		s.maxActive = s.active
+	}
+	s.mu.Unlock()
+	s.entered <- call
+	<-s.permit // Simulate a provider call that has not observed cancellation yet.
+	s.mu.Lock()
+	s.active--
+	s.mu.Unlock()
+	return s.Store.Purge(ctx, record)
+}
+
 func (s *blockingPurgeStore) Purge(ctx context.Context, record Record) error {
 	s.mu.Lock()
 	s.calls++
@@ -529,7 +583,7 @@ func TestExpiredPurgeClaimIsRecovered(t *testing.T) {
 	r, _ := newRegistry(t)
 	ctx := context.Background()
 	record := mustTombstoneHome(t, r, Principal(UserPrincipal, "expired-claim"))
-	if _, err := r.q.ClaimStorageHomePurge(ctx, sqlc.ClaimStorageHomePurgeParams{ID: record.ID, PurgeClaimToken: text("crashed-worker")}); err != nil {
+	if _, err := r.q.ClaimStorageHomePurge(ctx, sqlc.ClaimStorageHomePurgeParams{ID: record.ID, PurgeClaimToken: text("crashed-worker"), ExpectedState: string(StateTombstoned)}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := r.q.MarkStorageHomePurged(ctx, sqlc.MarkStorageHomePurgedParams{ID: record.ID, PurgedBy: text("intruder"), PurgeClaimToken: text("wrong-token")}); !errors.Is(err, pgx.ErrNoRows) {
@@ -547,6 +601,110 @@ func TestExpiredPurgeClaimIsRecovered(t *testing.T) {
 	purged, err := r.Purge(ctx, record.ID, "replacement")
 	if err != nil || purged.State != StatePurged {
 		t.Fatalf("expired claim recovery = %#v, %v", purged, err)
+	}
+}
+
+func TestPurgeClaimLossCancelsOperationAndJoinsHeartbeat(t *testing.T) {
+	local, _ := NewLocalStore("local", t.TempDir())
+	store := &blockingPurgeStore{Store: local, block: true, entered: make(chan struct{}, 1), release: make(chan struct{})}
+	r, _ := NewRegistry(dbtest.New(t), local.ID(), store)
+	r.purgeClaimRenewInterval = 10 * time.Millisecond
+	r.purgeClaimRenewTimeout = time.Second
+	record := mustTombstoneHome(t, r, Principal(UserPrincipal, "lost-heartbeat"))
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.Purge(context.Background(), record.ID, "worker")
+		done <- err
+	}()
+	<-store.entered
+	if _, err := r.db.Exec(context.Background(), `UPDATE storage_home SET purge_claim_token = 'replacement', purge_claim_until = now() + interval '5 minutes' WHERE id = $1`, record.ID); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrPurgeClaimLost) {
+			t.Fatalf("purge after renewal loss = %v, want claim lost", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("claim loss did not cancel the physical operation and join heartbeat")
+	}
+}
+
+func TestPurgeCallerCancellationStopsOperationAndHeartbeat(t *testing.T) {
+	local, _ := NewLocalStore("local", t.TempDir())
+	store := &blockingPurgeStore{Store: local, block: true, entered: make(chan struct{}, 1), release: make(chan struct{})}
+	r, _ := NewRegistry(dbtest.New(t), local.ID(), store)
+	r.purgeClaimRenewInterval = 10 * time.Millisecond
+	r.purgeClaimRenewTimeout = time.Second
+	record := mustTombstoneHome(t, r, Principal(UserPrincipal, "caller-cancel"))
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.Purge(ctx, record.ID, "worker")
+		done <- err
+	}()
+	<-store.entered
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled purge = %v, want context canceled", err)
+	}
+	after, err := r.q.GetStorageHome(context.Background(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3 * r.purgeClaimRenewInterval)
+	later, err := r.q.GetStorageHome(context.Background(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !later.UpdatedAt.Equal(after.UpdatedAt) {
+		t.Fatal("purge heartbeat wrote to the database after cancellation returned")
+	}
+}
+
+func TestExpiredClaimCannotOverlapStaleLocalPhysicalMutation(t *testing.T) {
+	db := dbtest.New(t)
+	local, _ := NewLocalStore("local", t.TempDir())
+	store := &serializedMutationStore{Store: local, entered: make(chan int, 2), permit: make(chan struct{}, 2)}
+	first, _ := NewRegistry(db, local.ID(), store)
+	second, _ := NewRegistry(db, local.ID(), store)
+	record := mustTombstoneHome(t, first, Principal(UserPrincipal, "physical-lock"))
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := first.Purge(context.Background(), record.ID, "first")
+		firstDone <- err
+	}()
+	if call := <-store.entered; call != 1 {
+		t.Fatalf("first physical call = %d", call)
+	}
+	if _, err := db.Exec(context.Background(), `UPDATE storage_home SET purge_claim_until = now() - interval '1 second' WHERE id = $1`, record.ID); err != nil {
+		t.Fatal(err)
+	}
+	secondDone := make(chan error, 1)
+	go func() {
+		_, err := second.Purge(context.Background(), record.ID, "second")
+		secondDone <- err
+	}()
+	select {
+	case call := <-store.entered:
+		t.Fatalf("second physical mutation %d overlapped stale first mutation", call)
+	case <-time.After(75 * time.Millisecond):
+	}
+	store.permit <- struct{}{}
+	if err := <-firstDone; !errors.Is(err, ErrPurgeClaimLost) {
+		t.Fatalf("stale claimant result = %v, want claim lost", err)
+	}
+	if call := <-store.entered; call != 2 {
+		t.Fatalf("replacement physical call = %d", call)
+	}
+	store.permit <- struct{}{}
+	if err := <-secondDone; err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.maxActive != 1 {
+		t.Fatalf("maximum simultaneous physical mutations = %d, want 1", store.maxActive)
 	}
 }
 

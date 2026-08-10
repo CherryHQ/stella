@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -25,9 +26,10 @@ const (
 	OwnerUser  OwnerKind = "user"
 	OwnerGroup OwnerKind = "group"
 	OwnerAgent OwnerKind = "agent"
-	// Physical failures return nil only after their purge_failed audit commits;
-	// everything else is retried by River within this finite safety budget.
-	ownerPurgeMaxAttempts = 25
+	// Unexpected failures consume this finite budget. Deliberate child/claim
+	// dependencies snooze without consuming attempts.
+	ownerPurgeMaxAttempts      = 25
+	ownerPurgeDependencySnooze = 30 * time.Second
 )
 
 // HomePurgeQueue serializes durable physical Home purges.
@@ -280,6 +282,7 @@ func (w *ownerPurgeWorker) Work(ctx context.Context, j *river.Job[ownerPurgeArgs
 	// bytes before the principal compatibility root on every retry.
 	records := make([]Record, 0, len(j.Args.HomeIDs))
 	var transient error
+	waiting := false
 	blockedAbove := int(^uint(0) >> 1)
 	for _, id := range j.Args.HomeIDs {
 		record, err := w.deletion.registry.Record(ctx, id)
@@ -302,7 +305,7 @@ func (w *ownerPurgeWorker) Work(ctx context.Context, j *river.Job[ownerPurgeArgs
 	for _, record := range records {
 		order := purgeOrder(record)
 		if order > blockedAbove {
-			transient = errors.Join(transient, fmt.Errorf("home %s: physical purge waits for a child Home", record.ID))
+			waiting = true
 			continue
 		}
 		purged, err := w.deletion.registry.Purge(ctx, record.ID, j.Args.Actor)
@@ -312,7 +315,12 @@ func (w *ownerPurgeWorker) Work(ctx context.Context, j *river.Job[ownerPurgeArgs
 			}
 			var physical *PhysicalPurgeError
 			if errors.As(err, &physical) {
-				continue // Durably parked; a dependent parent keeps River retrying.
+				waiting = true // Explicit maintenance recovery wakes this continuation.
+				continue
+			}
+			if errors.Is(err, ErrPurgeInProgress) || errors.Is(err, ErrPurgeClaimLost) {
+				waiting = true
+				continue
 			}
 			transient = errors.Join(transient, fmt.Errorf("home %s: %w", record.ID, err))
 			continue
@@ -321,9 +329,16 @@ func (w *ownerPurgeWorker) Work(ctx context.Context, j *river.Job[ownerPurgeArgs
 			if order < blockedAbove {
 				blockedAbove = order
 			}
+			waiting = true
 		}
 	}
-	return transient
+	if transient != nil {
+		return transient
+	}
+	if waiting {
+		return river.JobSnooze(ownerPurgeDependencySnooze)
+	}
+	return nil
 }
 
 func purgeOrder(record Record) int {

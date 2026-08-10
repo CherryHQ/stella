@@ -71,7 +71,7 @@ UPDATE storage_home
 SET purge_attempts = purge_attempts + 1, purge_started_at = now(),
     purge_claim_token = $2, purge_claim_until = now() + interval '5 minutes', updated_at = now()
 WHERE id = $1
-  AND state IN ('tombstoned', 'purge_failed')
+  AND state = $3
   AND (purge_claim_until IS NULL OR purge_claim_until <= now())
 RETURNING id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, maintenance_owner, maintenance_token, maintenance_until, tombstoned_at, tombstoned_by, purge_attempts, purge_requested_at, purge_started_at, purge_failed_at, last_purge_error, purge_claim_token, purge_claim_until, purged_at, purged_by, created_at, updated_at
 `
@@ -79,10 +79,11 @@ RETURNING id, home_kind, principal_kind, principal_id, agent_id, store_id, locat
 type ClaimStorageHomePurgeParams struct {
 	ID              string      `json:"id"`
 	PurgeClaimToken pgtype.Text `json:"purge_claim_token"`
+	ExpectedState   string      `json:"expected_state"`
 }
 
 func (q *Queries) ClaimStorageHomePurge(ctx context.Context, arg ClaimStorageHomePurgeParams) (StorageHome, error) {
-	row := q.db.QueryRow(ctx, claimStorageHomePurge, arg.ID, arg.PurgeClaimToken)
+	row := q.db.QueryRow(ctx, claimStorageHomePurge, arg.ID, arg.PurgeClaimToken, arg.ExpectedState)
 	var i StorageHome
 	err := row.Scan(
 		&i.ID,
@@ -401,6 +402,24 @@ func (q *Queries) GetStorageHome(ctx context.Context, id string) (StorageHome, e
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
+	return i, err
+}
+
+const getStorageHomePurgeClaimStatus = `-- name: GetStorageHomePurgeClaimStatus :one
+SELECT state, purge_claim_token IS NOT NULL AND purge_claim_until > now() AS purge_claim_active
+FROM storage_home
+WHERE id = $1
+`
+
+type GetStorageHomePurgeClaimStatusRow struct {
+	State            string      `json:"state"`
+	PurgeClaimActive pgtype.Bool `json:"purge_claim_active"`
+}
+
+func (q *Queries) GetStorageHomePurgeClaimStatus(ctx context.Context, id string) (GetStorageHomePurgeClaimStatusRow, error) {
+	row := q.db.QueryRow(ctx, getStorageHomePurgeClaimStatus, id)
+	var i GetStorageHomePurgeClaimStatusRow
+	err := row.Scan(&i.State, &i.PurgeClaimActive)
 	return i, err
 }
 
@@ -1041,4 +1060,23 @@ func (q *Queries) UpsertStorageMigrationObservation(ctx context.Context, arg Ups
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const validateStorageHomePurgeClaim = `-- name: ValidateStorageHomePurgeClaim :one
+SELECT EXISTS (
+    SELECT 1 FROM storage_home
+    WHERE id = $1 AND purge_claim_token = $2 AND purge_claim_until > now()
+)
+`
+
+type ValidateStorageHomePurgeClaimParams struct {
+	ID              string      `json:"id"`
+	PurgeClaimToken pgtype.Text `json:"purge_claim_token"`
+}
+
+func (q *Queries) ValidateStorageHomePurgeClaim(ctx context.Context, arg ValidateStorageHomePurgeClaimParams) (bool, error) {
+	row := q.db.QueryRow(ctx, validateStorageHomePurgeClaim, arg.ID, arg.PurgeClaimToken)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
