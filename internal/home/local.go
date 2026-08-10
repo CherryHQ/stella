@@ -166,8 +166,10 @@ func (s *LocalStore) Purge(ctx context.Context, home Record) error {
 	return nil
 }
 
-// AcquirePurgeLock obtains an OS-backed, process-wide lock whose file is
-// outside every Home tree. The returned release function must be called.
+// AcquirePurgeLock obtains an OS-backed advisory lock outside every Home tree.
+// It excludes cooperating LocalStore processes that share and preserve this
+// Store's lock namespace; it is not tamper-resistant against Stella's OS
+// identity or a privileged host operator. The returned release must be called.
 func (s *LocalStore) AcquirePurgeLock(ctx context.Context, home Record) (func() error, error) {
 	if _, err := s.pathFor(home); err != nil {
 		return nil, err

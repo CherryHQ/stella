@@ -49,9 +49,10 @@ type SessionImagePipeline interface {
 
 const runnerScratchDir = "runner-scratch"
 
-// newRunnerScratch creates runner-owned workspace outside the users tree. The
-// parent is deliberately private because it can contain transient tool output
-// from user-less internal runs.
+// newRunnerScratch creates a disposable runner-owned child outside Home
+// authority. Its structural parent is trusted host-owned state. Close and
+// construction failure clean best-effort; crashes may leave operator-cleaned
+// children. Isolating providers mount only the exact returned child.
 func newRunnerScratch(stellaHome string) (string, func() error, error) {
 	homeRoot, err := os.OpenRoot(stellaHome)
 	if err != nil {

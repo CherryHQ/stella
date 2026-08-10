@@ -130,6 +130,7 @@ All paths are relative to `$STELLA_HOME` (`~/.stella` by default).
 | `users/{user_id}/agents/{agent_id}/`        | This user's per-principal Agent Home; sandbox `$HOME` and initial working directory                             |
 | `users/group-{group_id}/agents/{agent_id}/` | This channel group's per-principal Agent Home; sandbox `$HOME` and initial working directory                    |
 | `users/{principal}/data/`                   | User or group Principal Home: shared principal data and uploads                                                 |
+| `runner-scratch/runner-*`                   | Disposable user-less-run workspace; never durable Home authority                                                |
 | `users/{principal}/data/assets/`            | Uploaded assets; inside the sandbox, use `$STELLA_ASSETS_DIR` rather than an operator path                      |
 | `users/{principal}/.mise-tools/`            | Managed per-user or per-group toolchain; shared by that principal's agents                                      |
 
@@ -154,15 +155,27 @@ workspace.
 
 PostgreSQL records typed user/group Principal Homes, per-principal Agent Homes,
 and narrow system/system-Agent Skill roots, but registry metadata cannot recover
-their file bytes. Back up PostgreSQL with durable Home storage. An explicit
-destructive group or Agent delete tombstones and fences Homes. User deletion has
-the same internal lifecycle primitive, pending product account-delete integration.
-A worker uses a durable, exclusive, expiring claim to purge bytes asynchronously,
-so another worker can recover after a crash or claim expiry. Attachments identify
-requested access but do not grant authority. Removing an assignment or member, archiving a
-Session, and uninstalling Helm do not delete Homes. A physical-purge failure is
-retained as `purge_failed` for operator retry; use `stellad storage retry-purge --help`
-for syntax.
+their file bytes. A `ready` row never recreates a missing root; missing,
+non-directory, and symlink roots fail resolution. A retained LocalStore pin
+detects replacement only during its bounded revalidation interval, not across
+operations or restart. Run restore, migration, and root cleanup stopped or with
+consumers fenced. Back up PostgreSQL with durable Home storage.
+
+An explicit destructive group or Agent delete tombstones and fences Homes. User
+deletion has the same internal lifecycle primitive, pending product account-delete
+integration. A worker uses a durable, exclusive, expiring claim to purge bytes
+asynchronously. Cooperating LocalStore processes sharing and preserving the lock
+namespace add cross-process advisory exclusion; the lock is not tamper-resistant
+against Stella's OS identity or privileged host operators. Isolating providers
+prevent Agents from reaching that namespace. Attachments identify requested access
+but do not grant authority. Removing an assignment or member, archiving a Session,
+and uninstalling Helm do not delete Homes. A physical-purge failure is retained as
+`purge_failed` for operator retry; use `stellad storage retry-purge --help` for syntax.
+
+`runner-scratch/` is trusted host-owned structural state. Normal close and
+construction failure clean each disposable child best-effort; crash or trusted
+host tampering may leave children. Isolating providers mount only the exact child.
+Clean leftovers only while Stella is stopped or affected consumers are fenced.
 
 ## Environment variables
 

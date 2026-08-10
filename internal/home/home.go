@@ -129,9 +129,10 @@ type Record struct {
 // Store owns physical coordinate allocation and operations. Every locator it
 // returns is opaque outside this package and must be relative to that Store.
 // A missing ready root is storage loss and must never be recreated. Purge must
-// be idempotent under crash replay and cancellation-responsive; its adapter's
-// AcquirePurgeLock must provide physical exclusion/fencing until Purge returns,
-// including across processes when the provider requires it.
+// be idempotent under crash replay and cancellation-responsive. AcquirePurgeLock
+// provides advisory exclusion among cooperating adapter participants that
+// preserve their configured lock namespace until Purge returns; provider
+// isolation, not this lock, keeps Agents from reaching that namespace.
 type Store interface {
 	ID() string
 	Allocate(Key) (string, error)
