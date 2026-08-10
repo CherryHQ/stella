@@ -59,6 +59,8 @@ Project Skills are ordinary files in durable Agent/project working trees. Postgr
 
 Before upgrade, import each custom Skill root under legacy top-level `.agents/skills/` through **Settings → Skills** as a global (`system`) Skill using the old working binary. Back up, verify, and remove other residual paths. New startup lists every blocking path and stops without changing or deleting anything. Paths owned by the current release manifest are inert even when contents or modes are stale; every other Skill root or residual path blocks.
 
+Before downgrade, re-enable every disabled Skill and clear any dangling disabled references. Older binaries may ignore AgentSkillPolicy v1 and overwrite it during ordinary Agent edits. Mixed-version Skill activation is a product preference, not a security guarantee or filesystem access control.
+
 These directories are rebuilt automatically and can live on ephemeral disk:
 
 - **Builtin bundle** (`bundles/{revision}/`): installed from the running binary's immutable release bundle.

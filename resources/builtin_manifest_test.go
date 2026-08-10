@@ -3,6 +3,7 @@ package resources
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -193,6 +194,181 @@ func TestBuiltinBundleInstallerVerifiesTamperingAndDoesNotRewrite(t *testing.T) 
 	}
 	if err := registry.VerifyBuiltinBundle(home); err == nil {
 		t.Fatal("VerifyBuiltinBundle accepted a completion-marker directory")
+	}
+}
+
+func TestBuiltinBundleInstallerQuarantinesBeforePublishingRepair(t *testing.T) {
+	registry := testBuiltinRegistry(t)
+	home := t.TempDir()
+	bundle, err := registry.InstallBuiltinBundle(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := filepath.Join(bundle, "system", "demo", "SKILL.md")
+	if err := os.WriteFile(tampered, []byte("tampered"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var quarantine string
+	renames := 0
+	rename := func(oldpath, newpath string) error {
+		renames++
+		switch renames {
+		case 1:
+			if oldpath != bundle || !strings.Contains(filepath.Base(newpath), ".invalid-") {
+				t.Fatalf("quarantine rename = %q -> %q", oldpath, newpath)
+			}
+			quarantine = newpath
+			if err := os.Rename(oldpath, newpath); err != nil {
+				return err
+			}
+			if _, err := os.Lstat(bundle); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("published pathname after quarantine = %v, want absent", err)
+			}
+			if got, err := os.ReadFile(filepath.Join(quarantine, "system", "demo", "SKILL.md")); err != nil || string(got) != "tampered" {
+				t.Fatalf("quarantined tree = %q, %v; want intact invalid tree", got, err)
+			}
+			if _, err := os.Stat(filepath.Join(quarantine, bundleCompleteMarker)); err != nil {
+				t.Fatalf("quarantined completion marker: %v", err)
+			}
+			return nil
+		case 2:
+			if newpath != bundle || !strings.Contains(filepath.Base(oldpath), ".tmp-") {
+				t.Fatalf("publication rename = %q -> %q", oldpath, newpath)
+			}
+			if _, err := os.Lstat(bundle); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("published pathname before publication = %v, want absent", err)
+			}
+			return os.Rename(oldpath, newpath)
+		default:
+			t.Fatalf("unexpected rename %q -> %q", oldpath, newpath)
+			return nil
+		}
+	}
+
+	if got, err := registry.installBuiltinBundle(home, rename); err != nil || got != bundle {
+		t.Fatalf("installBuiltinBundle() = %q, %v; want %q", got, err, bundle)
+	}
+	if err := registry.VerifyBuiltinBundle(home); err != nil {
+		t.Fatalf("VerifyBuiltinBundle: %v", err)
+	}
+	if _, err := os.Lstat(quarantine); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("quarantine cleanup = %v, want absent", err)
+	}
+}
+
+func TestBuiltinBundleInstallerRestoresQuarantineAfterPublicationFailure(t *testing.T) {
+	registry := testBuiltinRegistry(t)
+	home := t.TempDir()
+	bundle, err := registry.InstallBuiltinBundle(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := filepath.Join(bundle, "system", "demo", "SKILL.md")
+	if err := os.WriteFile(tampered, []byte("tampered"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	publishErr := errors.New("injected publication failure")
+	var quarantine string
+	renames := 0
+	rename := func(oldpath, newpath string) error {
+		renames++
+		switch renames {
+		case 1:
+			quarantine = newpath
+			return os.Rename(oldpath, newpath)
+		case 2:
+			return publishErr
+		case 3:
+			if oldpath != quarantine || newpath != bundle {
+				t.Fatalf("restore rename = %q -> %q", oldpath, newpath)
+			}
+			return os.Rename(oldpath, newpath)
+		default:
+			t.Fatalf("unexpected rename %q -> %q", oldpath, newpath)
+			return nil
+		}
+	}
+
+	if _, err := registry.installBuiltinBundle(home, rename); !errors.Is(err, publishErr) || !strings.Contains(err.Error(), "restored previous invalid bundle") {
+		t.Fatalf("installBuiltinBundle() error = %v, want publication failure with restoration", err)
+	}
+	if got, err := os.ReadFile(tampered); err != nil || string(got) != "tampered" {
+		t.Fatalf("restored final = %q, %v; want intact previous tree", got, err)
+	}
+	if _, err := os.Lstat(quarantine); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("restored quarantine = %v, want absent", err)
+	}
+}
+
+func TestBuiltinBundleInstallerPreservesQuarantineWhenRestorationFails(t *testing.T) {
+	registry := testBuiltinRegistry(t)
+	home := t.TempDir()
+	bundle, err := registry.InstallBuiltinBundle(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bundle, "system", "demo", "SKILL.md"), []byte("tampered"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	publishErr := errors.New("injected publication failure")
+	restoreErr := errors.New("injected restoration failure")
+	var quarantine string
+	renames := 0
+	rename := func(oldpath, newpath string) error {
+		renames++
+		switch renames {
+		case 1:
+			quarantine = newpath
+			return os.Rename(oldpath, newpath)
+		case 2:
+			return publishErr
+		case 3:
+			return restoreErr
+		default:
+			t.Fatalf("unexpected rename %q -> %q", oldpath, newpath)
+			return nil
+		}
+	}
+
+	_, err = registry.installBuiltinBundle(home, rename)
+	if !errors.Is(err, publishErr) || !errors.Is(err, restoreErr) {
+		t.Fatalf("installBuiltinBundle() error = %v, want joined publication and restoration failures", err)
+	}
+	if _, err := os.Lstat(bundle); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("published pathname = %v, want absent rather than partial", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(quarantine, "system", "demo", "SKILL.md")); err != nil || string(got) != "tampered" {
+		t.Fatalf("preserved quarantine = %q, %v; want intact previous tree", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(quarantine, bundleCompleteMarker)); err != nil {
+		t.Fatalf("preserved quarantine completion marker: %v", err)
+	}
+}
+
+func TestBuiltinBundleInstallerFailsClosedWhenQuarantineRenameFails(t *testing.T) {
+	registry := testBuiltinRegistry(t)
+	home := t.TempDir()
+	bundle, err := registry.InstallBuiltinBundle(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := filepath.Join(bundle, "system", "demo", "SKILL.md")
+	if err := os.WriteFile(tampered, []byte("tampered"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	renameErr := errors.New("injected open-handle rename failure")
+	if _, err := registry.installBuiltinBundle(home, func(string, string) error { return renameErr }); !errors.Is(err, renameErr) {
+		t.Fatalf("installBuiltinBundle() error = %v, want quarantine rename failure", err)
+	}
+	if got, err := os.ReadFile(tampered); err != nil || string(got) != "tampered" {
+		t.Fatalf("final after failed quarantine = %q, %v; want untouched invalid tree", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(bundle, bundleCompleteMarker)); err != nil {
+		t.Fatalf("final completion marker after failed quarantine: %v", err)
 	}
 }
 

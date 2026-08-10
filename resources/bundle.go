@@ -32,6 +32,10 @@ func (r *Registry) BundlePath(stellaHome string) (string, error) {
 // It returns only a fully verified revision and leaves an existing verified tree
 // untouched so repeat installs do not rewrite operator-visible files.
 func (r *Registry) InstallBuiltinBundle(stellaHome string) (string, error) {
+	return r.installBuiltinBundle(stellaHome, os.Rename)
+}
+
+func (r *Registry) installBuiltinBundle(stellaHome string, rename func(string, string) error) (string, error) {
 	final, err := r.BundlePath(stellaHome)
 	if err != nil {
 		return "", err
@@ -67,24 +71,52 @@ func (r *Registry) InstallBuiltinBundle(stellaHome string) (string, error) {
 		return "", fmt.Errorf("verify temporary builtin bundle: %w", err)
 	}
 
-	// Rename publishes only a complete tree. A concurrent installer may publish
-	// first; its tree is accepted only after the same full verification.
-	if err := os.Rename(temporary, final); err == nil {
+	_, statErr := os.Lstat(final)
+	if errors.Is(statErr, os.ErrNotExist) {
+		if err := rename(temporary, final); err != nil {
+			if verifyErr := r.VerifyBuiltinBundle(stellaHome); verifyErr == nil {
+				return final, nil
+			}
+			return "", fmt.Errorf("publish builtin bundle: %w", err)
+		}
 		return r.verifiedPublishedBundle(stellaHome, final)
 	}
-	if err := r.VerifyBuiltinBundle(stellaHome); err == nil {
-		return final, nil
+	if statErr != nil {
+		return "", fmt.Errorf("inspect invalid builtin bundle %q: %w", final, statErr)
 	}
-	if err := os.RemoveAll(final); err != nil {
-		return "", fmt.Errorf("remove invalid builtin bundle %q: %w", final, err)
+
+	quarantine, err := os.MkdirTemp(bundlesDir, "."+r.manifest.Revision+".invalid-")
+	if err != nil {
+		return "", fmt.Errorf("reserve invalid builtin bundle quarantine: %w", err)
 	}
-	if err := os.Rename(temporary, final); err != nil {
-		if verifyErr := r.VerifyBuiltinBundle(stellaHome); verifyErr == nil {
-			return final, nil
+	if err := os.Remove(quarantine); err != nil {
+		return "", fmt.Errorf("prepare invalid builtin bundle quarantine %q: %w", quarantine, err)
+	}
+	if err := rename(final, quarantine); err != nil {
+		return "", fmt.Errorf("quarantine invalid builtin bundle %q: %w", final, err)
+	}
+
+	if err := rename(temporary, final); err != nil {
+		publishErr := fmt.Errorf("publish repaired builtin bundle: %w", err)
+		if _, statErr := os.Lstat(final); errors.Is(statErr, os.ErrNotExist) {
+			if restoreErr := rename(quarantine, final); restoreErr != nil {
+				return "", errors.Join(publishErr, fmt.Errorf("restore quarantined builtin bundle %q: %w", quarantine, restoreErr))
+			}
+			return "", fmt.Errorf("%w; restored previous invalid bundle", publishErr)
+		} else if statErr != nil {
+			return "", errors.Join(publishErr, fmt.Errorf("inspect publication destination before restoring quarantine %q: %w", quarantine, statErr))
 		}
-		return "", fmt.Errorf("publish builtin bundle: %w", err)
+		return "", errors.Join(publishErr, fmt.Errorf("restore quarantined builtin bundle %q skipped: publication destination exists", quarantine))
 	}
-	return r.verifiedPublishedBundle(stellaHome, final)
+	published, err := r.verifiedPublishedBundle(stellaHome, final)
+	if err != nil {
+		return "", err
+	}
+	// The old invalid tree is retained until the replacement has been published
+	// and verified. Cleanup is best effort because it cannot affect the authority
+	// of the verified final pathname.
+	_ = os.RemoveAll(quarantine)
+	return published, nil
 }
 
 // VerifyBuiltinBundle proves that the projected revision contains exactly the

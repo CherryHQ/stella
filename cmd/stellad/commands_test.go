@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/config"
@@ -216,6 +217,20 @@ func TestEnsureEmbeddedAssetsBlocksLegacySkillWithoutMutation(t *testing.T) {
 
 	if err := ensureEmbeddedAssets(); err == nil {
 		t.Fatal("ensureEmbeddedAssets accepted legacy custom skill")
+	} else {
+		for _, instruction := range []string{
+			"system/kreuzberg",
+			"back up the listed paths",
+			"previous working Stella binary",
+			"Settings → Skills",
+			"verify each import",
+			"remove only migrated or residual legacy paths",
+			"then retry",
+		} {
+			if !strings.Contains(err.Error(), instruction) {
+				t.Errorf("ensureEmbeddedAssets() error = %q, want instruction %q", err, instruction)
+			}
+		}
 	}
 	if content, err := os.ReadFile(filepath.Join(retired, "SKILL.md")); err != nil || string(content) != "stale" {
 		t.Fatalf("legacy skill mutated: %q, %v", content, err)

@@ -642,7 +642,7 @@ func ensureEmbeddedAssets() error {
 		for _, blocker := range blockers {
 			paths = append(paths, blocker.Path)
 		}
-		return fmt.Errorf("cannot activate builtin skill bundle: legacy system skills remain at %s; import or remove them through the current managed system path, then retry", strings.Join(paths, ", "))
+		return fmt.Errorf("cannot activate builtin skill bundle: legacy system skills remain at %s; back up the listed paths, run or roll back to the previous working Stella binary, import each custom root as a global/system Skill through Settings → Skills, verify each import, remove only migrated or residual legacy paths, then retry", strings.Join(paths, ", "))
 	}
 	// Remove assets retired or renamed by newer releases so stale copies do not
 	// remain discoverable beside their replacements.

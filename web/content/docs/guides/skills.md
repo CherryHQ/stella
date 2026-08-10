@@ -30,6 +30,8 @@ Activation is separate from permission to edit Skill content and from `disable_m
 
 Older non-empty activation lists are shown as diagnostics but mean all Skills are enabled. Disabled references to Skills that no longer exist do not affect execution; clear them explicitly in the Web UI.
 
+Before downgrading Stella, re-enable every disabled Skill and clear any dangling disabled references. Older binaries may ignore AgentSkillPolicy v1 and overwrite it during ordinary Agent edits. Do not treat Skill activation in a mixed-version deployment as a security guarantee; it is a product preference, not a filesystem access control.
+
 ## Installing Skills
 
 ### From a Conversation
