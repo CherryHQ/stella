@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
-import { Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { Outlet, useRouterState } from "@tanstack/react-router";
+import { SidebarItem, SidebarSection } from "@/components/AppSidebar";
 import { useSidebar } from "@/components/ui/sidebar";
 import { AppShell } from "@/layouts/AppShell";
 import { useI18n } from "@/lib/i18n";
@@ -16,38 +17,35 @@ export interface SettingsNavGroup {
   items: SettingsNavItem[];
 }
 
-function SurfaceNav({ groups }: { groups: SettingsNavGroup[] }) {
+export function findActiveSettingsNavItem(groups: SettingsNavGroup[], pathname: string) {
+  return groups
+    .flatMap((group) => group.items)
+    .sort((a, b) => b.href.length - a.href.length)
+    .find((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
+}
+
+function SurfaceNav({ groups, activeHref }: { groups: SettingsNavGroup[]; activeHref?: string }) {
   const { t } = useI18n();
-  const { isMobile, setOpenMobile } = useSidebar();
+  const { setOpenMobile } = useSidebar();
 
   return (
-    <div className="flex flex-col gap-4 bg-sidebar px-3 pb-2">
+    <div className="flex flex-col px-3 pb-2">
       {groups.map((group) => (
-        <div key={group.label} className="flex flex-col gap-0.5">
-          <div className="px-2 pt-2 text-xs font-semibold text-muted-foreground">
-            {t(group.label)}
-          </div>
+        <SidebarSection key={group.label} title={t(group.label)}>
           {group.items.map((item) => {
             const Icon = item.icon;
             return (
-              <Link
+              <SidebarItem
                 key={item.href}
-                to={item.href as never}
-                onClick={() => {
-                  if (isMobile) setOpenMobile(false);
-                }}
-                className="flex min-h-9 items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                activeProps={{
-                  className:
-                    "flex min-h-9 items-center gap-2 rounded-lg bg-accent px-2.5 py-2 text-sm font-semibold text-accent-foreground",
-                }}
-              >
-                <Icon aria-hidden="true" />
-                {t(item.label)}
-              </Link>
+                active={activeHref === item.href}
+                icon={<Icon aria-hidden="true" size={16} />}
+                label={t(item.label)}
+                to={item.href}
+                onClick={() => setOpenMobile(false)}
+              />
             );
           })}
-        </div>
+        </SidebarSection>
       ))}
     </div>
   );
@@ -62,14 +60,11 @@ export function SettingsSurfaceLayout({
 }) {
   const { t } = useI18n();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const activeItem = groups
-    .flatMap((group) => group.items)
-    .sort((a, b) => b.href.length - a.href.length)
-    .find((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
+  const activeItem = findActiveSettingsNavItem(groups, pathname);
 
   return (
     <AppShell
-      sidebar={<SurfaceNav groups={groups} />}
+      sidebar={<SurfaceNav groups={groups} activeHref={activeItem?.href} />}
       title={
         <span className="text-sm font-semibold">
           {t(title)}
