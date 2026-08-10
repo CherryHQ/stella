@@ -26,36 +26,38 @@ const (
 	previousGAVersion = int64(20260725161331)
 	// Library V1, channel guest sessions/indexes, channel allowlist backfill, and
 	// session activity, per-message actor provenance and summary authority,
-	// and the durable Session inbox are the post-anchor migrations exercised
-	// below.
-	currentMigrationVersion = sequentialAnchor + 9
+	// the durable Session inbox, and restrictive Library ownership are the
+	// post-anchor migrations exercised below.
+	currentMigrationVersion = sequentialAnchor + 10
 
-	previousGAUserID          = "00000000-0000-0000-0000-000000000001"
-	previousGAGroupID         = "00000000-0000-0000-0000-000000000002"
-	previousGAOlderChatID     = "00000000-0000-0000-0000-000000000009"
-	previousGAOldChatID       = "00000000-0000-0000-0000-000000000003"
-	previousGANewChatID       = "00000000-0000-0000-0000-000000000004"
-	previousGAMessageID       = "00000000-0000-0000-0000-000000000005"
-	previousGAPartID          = "00000000-0000-0000-0000-000000000006"
-	previousGAMediaID         = "00000000-0000-0000-0000-000000000007"
-	previousGAWebhookID       = "00000000-0000-0000-0000-000000000008"
-	previousGADelegateChatID  = "00000000-0000-0000-0000-000000000051"
-	previousGASchedulerChatID = "00000000-0000-0000-0000-000000000052"
-	previousGATaskChatID      = "00000000-0000-0000-0000-000000000053"
-	previousGADelegateMsgID   = "00000000-0000-0000-0000-000000000054"
-	previousGASchedulerMsgID  = "00000000-0000-0000-0000-000000000055"
-	previousGATaskMsgID       = "00000000-0000-0000-0000-000000000056"
-	previousGALibraryFile     = "00000000-0000-0000-0000-000000000041"
-	previousGAChunkSet        = "00000000-0000-0000-0000-000000000042"
-	previousGAChunk           = "00000000-0000-0000-0000-000000000043"
-	previousGAGuestID         = "00000000-0000-0000-0000-000000000044"
-	previousGAGuestChatID     = "00000000-0000-0000-0000-000000000045"
-	previousGAAgentID         = "previous-ga-agent"
-	previousGACascadeAgentID  = "previous-ga-cascade-agent"
-	previousGAProviderID      = "previous-ga-provider"
-	previousGAOlderSession    = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:zz"
-	previousGAOldSession      = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:a"
-	previousGANewSession      = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:z"
+	previousGAUserID           = "00000000-0000-0000-0000-000000000001"
+	previousGAGroupID          = "00000000-0000-0000-0000-000000000002"
+	previousGAOlderChatID      = "00000000-0000-0000-0000-000000000009"
+	previousGAOldChatID        = "00000000-0000-0000-0000-000000000003"
+	previousGANewChatID        = "00000000-0000-0000-0000-000000000004"
+	previousGAMessageID        = "00000000-0000-0000-0000-000000000005"
+	previousGAPartID           = "00000000-0000-0000-0000-000000000006"
+	previousGAMediaID          = "00000000-0000-0000-0000-000000000007"
+	previousGAWebhookID        = "00000000-0000-0000-0000-000000000008"
+	previousGADelegateChatID   = "00000000-0000-0000-0000-000000000051"
+	previousGASchedulerChatID  = "00000000-0000-0000-0000-000000000052"
+	previousGATaskChatID       = "00000000-0000-0000-0000-000000000053"
+	previousGADelegateMsgID    = "00000000-0000-0000-0000-000000000054"
+	previousGASchedulerMsgID   = "00000000-0000-0000-0000-000000000055"
+	previousGATaskMsgID        = "00000000-0000-0000-0000-000000000056"
+	previousGALibraryFile      = "00000000-0000-0000-0000-000000000041"
+	previousGAAgentLibraryFile = "00000000-0000-0000-0000-000000000047"
+	previousGAChunkSet         = "00000000-0000-0000-0000-000000000042"
+	previousGAChunk            = "00000000-0000-0000-0000-000000000043"
+	previousGAGuestID          = "00000000-0000-0000-0000-000000000044"
+	previousGAGuestChatID      = "00000000-0000-0000-0000-000000000045"
+	previousGAAgentID          = "previous-ga-agent"
+	previousGACascadeAgentID   = "previous-ga-cascade-agent"
+	previousGALibraryAgentID   = "previous-ga-library-agent"
+	previousGAProviderID       = "previous-ga-provider"
+	previousGAOlderSession     = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:zz"
+	previousGAOldSession       = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:a"
+	previousGANewSession       = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:z"
 )
 
 var previousGATime = time.Date(2026, time.July, 25, 12, 0, 0, 0, time.UTC)
@@ -500,6 +502,21 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	`, previousGALibraryFile, previousGAUserID, previousGAAgentID, hash); err != nil {
 		t.Fatalf("insert Library file after previous-GA upgrade: %v", err)
 	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO agent (id, name, workspace) VALUES ($1, 'Library Agent', '/tmp')
+	`, previousGALibraryAgentID); err != nil {
+		t.Fatalf("insert Library Agent after previous-GA upgrade: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO library_file (
+			id, scope, agent_id, file_name, media_type,
+			size_bytes, raw_sha256, status
+		) VALUES ($1, 'system_agent', $2, 'agent-owned.txt', 'text/plain', 1, $3, 'ready')
+	`, previousGAAgentLibraryFile, previousGALibraryAgentID, hash); err != nil {
+		t.Fatalf("insert Agent-scoped Library file after previous-GA upgrade: %v", err)
+	}
+	_, err = db.Exec(ctx, `DELETE FROM agent WHERE id = $1`, previousGALibraryAgentID)
+	assertConstraintViolation(t, err, "library_file_agent_id_fkey")
 	if _, err := db.Exec(ctx, `
 		INSERT INTO library_chunk_set (
 			id, file_id, derivation_key, processor_key, raw_sha256,

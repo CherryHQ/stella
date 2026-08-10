@@ -44,6 +44,17 @@ export const agentsQueryOptions = queryOptions({
   },
 });
 
+export function allAgentsAdminQueryOptions(enabled: boolean) {
+  return queryOptions({
+    queryKey: ["agents", "admin", "all"],
+    enabled,
+    queryFn: async () => {
+      const { data } = await listAgents({ query: { include_all: true }, throwOnError: true });
+      return (data?.agents ?? []) as Agent[];
+    },
+  });
+}
+
 /**
  * One agent by id. The list is the caller's own fleet, so a page that opens a
  * specific agent must ask for it rather than search the list: an admin reaching

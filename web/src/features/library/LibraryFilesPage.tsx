@@ -6,7 +6,7 @@ import { createLibraryFile, deleteLibraryFile } from "@/lib/api-client/sdk.gen";
 import type { LibraryFile, LibraryFileScope, LibraryFileStatus } from "@/lib/api-client/types.gen";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useI18n } from "@/lib/i18n";
-import { agentsQueryOptions } from "@/lib/queries/agents";
+import { agentsQueryOptions, allAgentsAdminQueryOptions } from "@/lib/queries/agents";
 import {
   flattenLibraryFilePages,
   libraryFilesInfiniteQueryOptions,
@@ -398,9 +398,11 @@ export function SettingsLibraryPage() {
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as LibrarySettingsSearch;
   const { data: me } = useQuery(meQueryOptions);
-  const { data: agents = [] } = useQuery(agentsQueryOptions);
   const isAdmin = me?.is_admin ?? false;
   const scope: LibraryFileScope = isAdmin && search.scope ? search.scope : "user";
+  const { data: agents = [] } = useQuery(
+    allAgentsAdminQueryOptions(isAdmin && scope === "system_agent"),
+  );
   const agentID = scope === "system_agent" ? search.agent : undefined;
   const query = search.q ?? "";
 
@@ -416,8 +418,8 @@ export function SettingsLibraryPage() {
     }
   }, [me, navigate, search.agent, search.q, search.scope]);
 
-  function go(next: LibrarySettingsSearch) {
-    void navigate({ to: "/settings/library", search: next, replace: true });
+  function go(next: LibrarySettingsSearch, replace = false) {
+    void navigate({ to: "/settings/library", search: next, replace });
   }
 
   const scopeItems = [
@@ -503,11 +505,14 @@ export function SettingsLibraryPage() {
       description={description}
       controls={controls}
       onQueryChange={(next) =>
-        go({
-          ...(scope === "system" || scope === "system_agent" ? { scope } : {}),
-          ...(agentID ? { agent: agentID } : {}),
-          ...(next ? { q: next } : {}),
-        })
+        go(
+          {
+            ...(scope === "system" || scope === "system_agent" ? { scope } : {}),
+            ...(agentID ? { agent: agentID } : {}),
+            ...(next ? { q: next } : {}),
+          },
+          true,
+        )
       }
     />
   );

@@ -5,7 +5,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"math"
 	"mime/multipart"
@@ -14,12 +17,14 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
 	"github.com/CherryHQ/stella/internal/auth"
+	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/library"
 	"github.com/CherryHQ/stella/internal/server"
 )
@@ -81,6 +86,52 @@ func attachLibraryServiceWithRawStore(
 	if err != nil {
 		t.Fatalf("library.NewService: %v", err)
 	}
+	env.rebuild(t, func(deps *server.Deps) { deps.Library = service })
+	return service
+}
+
+func attachWorkingLibraryService(
+	t *testing.T,
+	env *testEnv,
+	rawStore library.RawStore,
+) *library.Service {
+	t.Helper()
+	service, err := library.NewService(library.ServiceConfig{
+		DB: env.db, RawStore: rawStore, Parser: serverLibraryParser{},
+		ParserProfile: library.TextParserProfile,
+		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)), TempDir: t.TempDir(),
+		MaxConcurrentUploads: 4, MaxSpoolBytes: 4 * library.MaxFileBytes,
+		AgentAccess: env.deps.AgentAccess,
+	})
+	if err != nil {
+		t.Fatalf("library.NewService: %v", err)
+	}
+	workers := river.NewWorkers()
+	service.RegisterRiverWorkers(workers)
+	queue, queueConfig := service.QueueConfig()
+	client, err := appdb.NewWorkingRiverClient(
+		env.db,
+		map[string]river.QueueConfig{queue: queueConfig},
+		workers,
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		5*time.Second,
+	)
+	if err != nil {
+		t.Fatalf("create working River client: %v", err)
+	}
+	if err := service.BindRiverClient(client); err != nil {
+		t.Fatalf("bind working River client: %v", err)
+	}
+	if err := client.Start(t.Context()); err != nil {
+		t.Fatalf("start working River client: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := client.Stop(ctx); err != nil {
+			t.Errorf("stop working River client: %v", err)
+		}
+	})
 	env.rebuild(t, func(deps *server.Deps) { deps.Library = service })
 	return service
 }
@@ -452,6 +503,223 @@ func TestLibraryFileUploadValidationAndUnavailableCapability(t *testing.T) {
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("missing file part status = %d, want 400", rr.Code)
 	}
+}
+
+func TestLibraryFileUploadRejectsAdditionalMultipartPartsBeforeCommit(t *testing.T) {
+	env := setupAdmin(t)
+	rawStore, err := library.NewFSRawStore(t.TempDir(), 0)
+	if err != nil {
+		t.Fatalf("library.NewFSRawStore: %v", err)
+	}
+	attachLibraryServiceWithRawStore(t, env, rawStore)
+
+	tests := []struct {
+		name  string
+		build func(*testing.T, *multipart.Writer)
+	}{
+		{
+			name: "field before file",
+			build: func(t *testing.T, writer *multipart.Writer) {
+				t.Helper()
+				if err := writer.WriteField("extra", "value"); err != nil {
+					t.Fatal(err)
+				}
+				writeLibraryMultipartFile(t, writer, "file", "before.txt", []byte("content"))
+			},
+		},
+		{
+			name: "field after file",
+			build: func(t *testing.T, writer *multipart.Writer) {
+				t.Helper()
+				writeLibraryMultipartFile(t, writer, "file", "after.txt", []byte("content"))
+				if err := writer.WriteField("extra", "value"); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "duplicate file",
+			build: func(t *testing.T, writer *multipart.Writer) {
+				t.Helper()
+				writeLibraryMultipartFile(t, writer, "file", "first.txt", []byte("first"))
+				writeLibraryMultipartFile(t, writer, "file", "second.txt", []byte("second"))
+			},
+		},
+		{
+			name: "oversized trailing file",
+			build: func(t *testing.T, writer *multipart.Writer) {
+				t.Helper()
+				writeLibraryMultipartFile(t, writer, "file", "first.txt", []byte("first"))
+				writeLibraryMultipartFile(
+					t, writer, "file", "trailing.txt", bytes.Repeat([]byte{'x'}, library.MaxFileBytes+1),
+				)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var body bytes.Buffer
+			writer := multipart.NewWriter(&body)
+			tt.build(t, writer)
+			if err := writer.Close(); err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodPost, "/api/library-files?scope=user", &body)
+			setLibraryTestAuth(req, env.bearerToken)
+			req.Header.Set("Content-Type", writer.FormDataContentType())
+			rr := httptest.NewRecorder()
+			env.srv.Handler().ServeHTTP(rr, req)
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
+			}
+
+			var files int
+			if err := env.db.QueryRow(t.Context(), `SELECT count(*) FROM library_file`).Scan(&files); err != nil {
+				t.Fatalf("count library files: %v", err)
+			}
+			if files != 0 {
+				t.Fatalf("persisted library files = %d, want 0", files)
+			}
+			page, err := rawStore.ListPage(t.Context(), library.RawPrefix, "", 10)
+			if err != nil {
+				t.Fatalf("list raw snapshots: %v", err)
+			}
+			if len(page.Objects) != 0 {
+				t.Fatalf("retained raw snapshots = %+v, want none", page.Objects)
+			}
+		})
+	}
+}
+
+func TestLibraryFileUploadTrailingTransportLimitRemainsPayloadTooLarge(t *testing.T) {
+	env := setupAdmin(t)
+	rawStore, err := library.NewFSRawStore(t.TempDir(), 0)
+	if err != nil {
+		t.Fatalf("library.NewFSRawStore: %v", err)
+	}
+	attachLibraryServiceWithRawStore(t, env, rawStore)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	writeLibraryMultipartFile(
+		t, writer, "file", "maximum.txt", bytes.Repeat([]byte{'x'}, library.MaxFileBytes),
+	)
+	// Start a second part with a header large enough to exceed the request's
+	// multipart framing allowance. NextPart must preserve MaxBytesError as 413.
+	_, _ = fmt.Fprintf(
+		&body,
+		"\r\n--%s\r\nX-Padding: %s\r\n\r\n",
+		writer.Boundary(),
+		strings.Repeat("x", 2<<20),
+	)
+	req := httptest.NewRequest(http.MethodPost, "/api/library-files?scope=user", &body)
+	setLibraryTestAuth(req, env.bearerToken)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rr := httptest.NewRecorder()
+	env.srv.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	var files int
+	if err := env.db.QueryRow(t.Context(), `SELECT count(*) FROM library_file`).Scan(&files); err != nil {
+		t.Fatalf("count library files: %v", err)
+	}
+	if files != 0 {
+		t.Fatalf("persisted library files = %d, want 0", files)
+	}
+	page, err := rawStore.ListPage(t.Context(), library.RawPrefix, "", 10)
+	if err != nil {
+		t.Fatalf("list raw snapshots: %v", err)
+	}
+	if len(page.Objects) != 0 {
+		t.Fatalf("retained raw snapshots = %+v, want none", page.Objects)
+	}
+}
+
+func writeLibraryMultipartFile(
+	t *testing.T,
+	writer *multipart.Writer,
+	fieldName, fileName string,
+	content []byte,
+) {
+	t.Helper()
+	part, err := writer.CreateFormFile(fieldName, fileName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(content); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAgentDeletionWaitsForLibraryCleanup(t *testing.T) {
+	env := setupAdmin(t)
+	_, userToken := newNonAdmin(t, env, "library-agent-delete")
+	agentID := createAgentAsUser(t, env, userToken, "Library Delete Agent")
+	rawStore, err := library.NewFSRawStore(t.TempDir(), 0)
+	if err != nil {
+		t.Fatalf("library.NewFSRawStore: %v", err)
+	}
+	attachWorkingLibraryService(t, env, rawStore)
+	file := uploadLibraryFile(t, env, userToken, "user_agent", agentID, "owned.txt", "content")
+	rawKey, err := library.RawKey(file.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rr := doRequest(t, env, http.MethodDelete, "/api/agents/"+agentID, nil)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("delete Agent with Library file = %d, want 409 (body: %s)", rr.Code, rr.Body.String())
+	}
+	raw, err := rawStore.Open(t.Context(), rawKey)
+	if err != nil {
+		t.Fatalf("raw snapshot missing after rejected Agent deletion: %v", err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatalf("close raw snapshot: %v", err)
+	}
+
+	rr = doRequestWithSession(
+		t, env.srv, userToken, http.MethodDelete, "/api/library-files/"+file.ID, nil,
+	)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("delete Library file = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
+	}
+	waitForLibraryCleanup(t, env, file.ID)
+	raw, err = rawStore.Open(t.Context(), rawKey)
+	if err == nil {
+		_ = raw.Close()
+		t.Fatal("raw snapshot remained after Library cleanup")
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("open cleaned raw snapshot: %v, want not exist", err)
+	}
+
+	rr = doRequest(t, env, http.MethodDelete, "/api/agents/"+agentID, nil)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("delete Agent after Library cleanup = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
+func waitForLibraryCleanup(t *testing.T, env *testEnv, fileID string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		var exists bool
+		err := env.db.QueryRow(
+			t.Context(), `SELECT EXISTS (SELECT 1 FROM library_file WHERE id = $1)`, fileID,
+		).Scan(&exists)
+		if err != nil {
+			t.Fatalf("check Library cleanup: %v", err)
+		}
+		if !exists {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("Library file %s was not cleaned up", fileID)
 }
 
 func TestLibraryFileUploadRawStorageDegradedIsUnavailable(t *testing.T) {

@@ -2,7 +2,9 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"strings"
 	"unicode/utf8"
@@ -24,6 +26,29 @@ const (
 	// body enforced by the Library acquisition service.
 	maxLibraryMultipartBytes = library.MaxFileBytes + (1 << 20)
 )
+
+var errInvalidLibraryMultipart = errors.New("invalid library multipart form")
+
+// soleLibraryFileReader exposes the file bytes only when they are followed by
+// terminal multipart EOF. This keeps envelope validation inside the service's
+// pre-publication spool phase, before raw storage or database commit.
+type soleLibraryFileReader struct {
+	part   io.Reader
+	reader *multipart.Reader
+}
+
+func (r *soleLibraryFileReader) Read(p []byte) (int, error) {
+	n, err := r.part.Read(p)
+	if !errors.Is(err, io.EOF) {
+		return n, err
+	}
+	if _, nextErr := r.reader.NextPart(); nextErr == nil {
+		return n, errInvalidLibraryMultipart
+	} else if !errors.Is(nextErr, io.EOF) {
+		return n, fmt.Errorf("%w: %w", errInvalidLibraryMultipart, nextErr)
+	}
+	return n, io.EOF
+}
 
 // ListLibraryFiles handles GET /api/library-files.
 func (s *Server) ListLibraryFiles(w http.ResponseWriter, r *http.Request, params apiserver.ListLibraryFilesParams) {
@@ -138,7 +163,8 @@ func (s *Server) CreateLibraryFile(w http.ResponseWriter, r *http.Request, param
 	defer func() { _ = part.Close() }()
 
 	file, err := svc.CreateManagedUpload(
-		r.Context(), authority, scope, agentID, part.FileName(), part,
+		r.Context(), authority, scope, agentID, part.FileName(),
+		&soleLibraryFileReader{part: part, reader: reader},
 	)
 	if err != nil {
 		s.writeLibraryFileError(w, err)
@@ -227,6 +253,8 @@ func (s *Server) writeLibraryFileError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusServiceUnavailable, "library management is temporarily unavailable")
 	case errors.Is(err, io.ErrUnexpectedEOF):
 		writeError(w, http.StatusBadRequest, "incomplete library file upload")
+	case errors.Is(err, errInvalidLibraryMultipart):
+		writeError(w, http.StatusBadRequest, "exactly one file part is required")
 	default:
 		s.writeInternalError(w, err)
 	}

@@ -292,7 +292,8 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
 func (s *DBStore) DeleteAgent(ctx context.Context, id string) error {
 	err := s.q.DeleteAgent(ctx, id)
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && (pgErr.Code == "23001" || pgErr.Code == "23503") && pgErr.ConstraintName == "webhook_agent_id_fkey" {
+	if errors.As(err, &pgErr) && (pgErr.Code == "23001" || pgErr.Code == "23503") &&
+		(pgErr.ConstraintName == "webhook_agent_id_fkey" || pgErr.ConstraintName == "library_file_agent_id_fkey") {
 		return config.ErrAgentInUse
 	}
 	return err
