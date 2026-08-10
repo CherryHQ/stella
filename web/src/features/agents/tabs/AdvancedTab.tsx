@@ -43,7 +43,7 @@ export function AdvancedTab({ state, canEdit, onSetState }: Props) {
         <p className="text-xs text-muted-foreground">
           Sandbox backend is configured on the{" "}
           <a
-            href="/settings/plugins"
+            href="/admin/integrations/plugins"
             className="text-primary underline underline-offset-4 font-medium transition-colors hover:text-primary/80"
           >
             Plugins
