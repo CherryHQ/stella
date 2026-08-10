@@ -41,6 +41,27 @@ describe("session history conversion", () => {
     expect(restored.blocks).toEqual(message.blocks);
   });
 
+  it("preserves Agent and source Session provenance through the AI SDK message cache", () => {
+    const message = sessionMessagesToMessages([
+      {
+        id: "agent-input",
+        role: "user",
+        actor_type: SESSION_MESSAGE_ACTOR_TYPE.agent,
+        actor_id: "stella",
+        source_session_id: "source-session",
+        timestamp: "2026-08-01T00:00:00Z",
+        token_count: 3,
+        content: "Review this.",
+      },
+    ])[0];
+
+    expect(uiMessageToMessage(messageToUIMessage(message))).toMatchObject({
+      actor_type: "agent",
+      actor_id: "stella",
+      source_session_id: "source-session",
+    });
+  });
+
   it("hides only an upload marker directly before a durable image in Web presentation", () => {
     const marker = "[file: /user/assets/photo.png]";
     const message = sessionMessagesToMessages([

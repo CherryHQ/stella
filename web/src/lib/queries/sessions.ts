@@ -2,21 +2,23 @@ import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { listSessions } from "@/lib/api-client/sdk.gen";
 import type { Session } from "@/lib/types";
 
-/** Hand-started, live chats, newest first — the only threads worth listing. */
-export function sortedChats(sessions: Session[]): Session[] {
+/** User-visible conversation threads, newest first. */
+export function sortedThreads(sessions: Session[]): Session[] {
   return sessions
-    .filter((session) => session.kind === "chat" && !session.archived)
+    .filter(
+      (session) => (session.kind === "chat" || session.kind === "delegate") && !session.archived,
+    )
     .sort((a, b) => new Date(b.last_active).getTime() - new Date(a.last_active).getTime());
 }
 
 /**
  * A thread has exactly one home. A chat created inside a project lives in that
  * project and nowhere else, so every agent-level list (sidebar recents, global
- * search) filters through this instead of `sortedChats` — otherwise the same
+ * search) filters through this instead of `sortedThreads` — otherwise the same
  * thread shows up twice under two different routes.
  */
-export function agentLevelChats(sessions: Session[]): Session[] {
-  return sortedChats(sessions).filter((session) => !session.project_id);
+export function agentLevelThreads(sessions: Session[]): Session[] {
+  return sortedThreads(sessions).filter((session) => !session.project_id);
 }
 
 export function mainSessionQueryOptions(agentId: string) {
@@ -57,20 +59,22 @@ export function projectSessionsQueryOptions(agentId: string, projectId: string) 
   });
 }
 
-// allChatSessionsQueryOptions walks every page of one agent's chat sessions.
+// allThreadSessionsQueryOptions walks every page of one agent's sessions, then
+// leaves the visible-kind filter to sortedThreads. Session-created delegate
+// threads must remain discoverable alongside hand-started chat threads.
 // The sessions API has no server-side search, so the global palette filters the
 // full set client-side; `enabled` keeps the walk off the critical path until a
 // caller (the search dialog) actually opens.
-export function allChatSessionsQueryOptions(agentId: string, enabled = true) {
+export function allThreadSessionsQueryOptions(agentId: string, enabled = true) {
   return queryOptions({
-    queryKey: ["sessions", agentId, "chat", "all"],
+    queryKey: ["sessions", agentId, "thread", "all"],
     queryFn: async () => {
       const all: Session[] = [];
       let pageToken: string | undefined;
       do {
         const { data } = await listSessions({
           path: { agentId },
-          query: { page_size: 200, page_token: pageToken, kind: "chat" },
+          query: { page_size: 200, page_token: pageToken },
           throwOnError: true,
         });
         all.push(...((data?.sessions as Session[]) ?? []));
@@ -92,25 +96,49 @@ export function agentThreadsInfiniteQueryOptions(agentId: string, projectId?: st
   return infiniteQueryOptions({
     queryKey: ["sessions", agentId, "chat", "threads", projectId ?? ""],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) => {
-      const { data } = await listSessions({
-        path: { agentId },
-        query: {
-          page_size: 30,
-          page_token: pageParam,
-          kind: "chat",
-          ...(projectId ? { project_id: projectId } : {}),
-        },
-        throwOnError: true,
-      });
-      return {
-        sessions: (data?.sessions as Session[]) ?? [],
-        nextPageToken: data?.next_page_token ?? undefined,
-      };
-    },
+    queryFn: ({ pageParam }) => fetchVisibleThreadPage(agentId, pageParam, 30, projectId),
     getNextPageParam: (lastPage) => lastPage.nextPageToken,
     enabled: !!agentId,
   });
+}
+
+export function threadSessionsInfiniteQueryOptions(agentId: string) {
+  return infiniteQueryOptions({
+    queryKey: ["sessions", agentId, "thread"],
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) => fetchVisibleThreadPage(agentId, pageParam, 20),
+    getNextPageParam: (lastPage) => lastPage.nextPageToken,
+    enabled: !!agentId,
+    refetchInterval: 3000,
+  });
+}
+
+// A raw page may contain only main/task/scheduler rows. Keep walking until the
+// UI has something it can render or the server is exhausted; otherwise an
+// empty first page hides the only control that could fetch a later delegate.
+async function fetchVisibleThreadPage(
+  agentId: string,
+  initialPageToken: string | undefined,
+  pageSize: number,
+  projectId?: string,
+) {
+  const sessions: Session[] = [];
+  let pageToken = initialPageToken;
+  do {
+    const { data } = await listSessions({
+      path: { agentId },
+      query: {
+        page_size: pageSize,
+        page_token: pageToken,
+        ...(projectId ? { project_id: projectId } : {}),
+      },
+      throwOnError: true,
+    });
+    sessions.push(...sortedThreads((data?.sessions as Session[]) ?? []));
+    pageToken = data?.next_page_token ?? undefined;
+  } while (sessions.length < pageSize && pageToken);
+
+  return { sessions, nextPageToken: pageToken };
 }
 
 export function sessionsInfiniteQueryOptions(agentId: string, kind?: Session["kind"]) {

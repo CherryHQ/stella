@@ -38,11 +38,11 @@ import { cn } from "@/lib/utils";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import { goalCountsOptions } from "@/lib/queries/goals";
 import {
-  agentLevelChats,
+  agentLevelThreads,
   mainSessionQueryOptions,
   projectSessionsQueryOptions,
-  sessionsInfiniteQueryOptions,
-  sortedChats,
+  threadSessionsInfiniteQueryOptions,
+  sortedThreads,
 } from "@/lib/queries/sessions";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { groupsQueryOptions, groupMembersQueryOptions } from "@/lib/queries/groups";
@@ -676,7 +676,7 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
   const { data: mainSession = null } = useQuery(mainSessionQueryOptions(agentId));
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
   const { data: goalCounts } = useQuery(goalCountsOptions(agentId));
-  const chatsQuery = useInfiniteQuery(sessionsInfiniteQueryOptions(agentId, "chat"));
+  const threadsQuery = useInfiniteQuery(threadSessionsInfiniteQueryOptions(agentId));
 
   const activeSessionId = pathname.match(/\/sessions\/([^/]+)/)?.[1] ?? "";
   const activeProjectId = pathname.match(/\/projects\/([^/]+)/)?.[1] ?? "";
@@ -689,17 +689,17 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
 
   const projectSessions = useQuery(projectSessionsQueryOptions(agentId, activeProjectId));
 
-  // "main" is the pinned conversation and scheduler/task/delegate sessions are
-  // machine-owned; recent only ever lists what the user started by hand, and
-  // only at agent level — a project thread's home is its project.
+  // "main" is pinned and scheduler/task sessions belong to Work. Delegate
+  // sessions created through the Session tool remain ordinary discoverable
+  // conversations; a project chat's home is still its project.
   const recentThreads = useMemo(
-    () => agentLevelChats(chatsQuery.data?.pages.flatMap((page) => page.sessions) ?? []),
-    [chatsQuery.data],
+    () => agentLevelThreads(threadsQuery.data?.pages.flatMap((page) => page.sessions) ?? []),
+    [threadsQuery.data],
   );
   // Only the project the URL points at gets its threads inlined — every other
   // project stays a single row so the section keeps its flat shape.
   const activeProjectThreads = useMemo(
-    () => sortedChats(projectSessions.data ?? []).slice(0, PROJECT_THREAD_LIMIT),
+    () => sortedThreads(projectSessions.data ?? []).slice(0, PROJECT_THREAD_LIMIT),
     [projectSessions.data],
   );
 
@@ -1042,7 +1042,7 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
               />
             );
           })}
-          {(recentThreads.length > visibleThreads || chatsQuery.hasNextPage) && (
+          {(recentThreads.length > visibleThreads || threadsQuery.hasNextPage) && (
             <SidebarItem
               label={t("sidebar.showMore")}
               onClick={() => {
@@ -1050,10 +1050,10 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
                 // Local slice first, network only once the cache runs dry.
                 if (
                   recentThreads.length <= visibleThreads + RECENT_THREAD_PAGE &&
-                  chatsQuery.hasNextPage &&
-                  !chatsQuery.isFetchingNextPage
+                  threadsQuery.hasNextPage &&
+                  !threadsQuery.isFetchingNextPage
                 ) {
-                  void chatsQuery.fetchNextPage();
+                  void threadsQuery.fetchNextPage();
                 }
               }}
             />

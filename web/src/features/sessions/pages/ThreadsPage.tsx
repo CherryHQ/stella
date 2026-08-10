@@ -5,7 +5,7 @@ import { MessageSquare, MoreHorizontal, Pencil, Search, Trash2 } from "lucide-re
 import { deleteSession, updateSession } from "@/lib/api-client/sdk.gen";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import { agentProjectsOptions } from "@/lib/queries/projects";
-import { agentThreadsInfiniteQueryOptions, sortedChats } from "@/lib/queries/sessions";
+import { agentThreadsInfiniteQueryOptions, sortedThreads } from "@/lib/queries/sessions";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/time";
@@ -107,7 +107,7 @@ export function ThreadsPage() {
 
   const needle = (q ?? "").trim().toLowerCase();
   const threads = useMemo(() => {
-    const loaded = sortedChats(threadsQuery.data?.pages.flatMap((page) => page.sessions) ?? []);
+    const loaded = sortedThreads(threadsQuery.data?.pages.flatMap((page) => page.sessions) ?? []);
     const scoped =
       selectedHome === AGENT_HOME ? loaded.filter((session) => !session.project_id) : loaded;
     return needle

@@ -1,8 +1,10 @@
 import { FileText } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type { ContentBlock } from "@/lib/types";
+import { Badge } from "@/components/ui/badge";
 import { CopyButton, REVEAL_ON_HOVER } from "./CopyButton";
 import { basename, replaceUUIDMentions, userMessageRenderInput, workspaceFileURL } from "./utils";
 
@@ -20,6 +22,7 @@ export interface UserMessageProps {
   showTimestamp?: boolean;
   actorType?: "human" | "agent" | "system";
   actorId?: string;
+  sourceSessionId?: string;
 }
 
 export function UserMessage({
@@ -31,6 +34,7 @@ export function UserMessage({
   showTimestamp,
   actorType,
   actorId,
+  sourceSessionId,
 }: UserMessageProps) {
   const { t } = useI18n();
   const { canonicalBlocks, hasCanonicalImage, text, images, otherFiles } = userMessageRenderInput(
@@ -50,6 +54,23 @@ export function UserMessage({
       {!sameRoleAsPrev && (
         <div className="flex items-center gap-2 mb-0.5">
           <span className="text-xs font-semibold text-foreground">{actorLabel}</span>
+          {sourceSessionId && (
+            <Badge
+              variant="secondary"
+              size="sm"
+              title={sourceSessionId}
+              render={
+                agentId ? (
+                  <Link
+                    to="/agents/$agentId/sessions/$sessionId"
+                    params={{ agentId, sessionId: sourceSessionId }}
+                  />
+                ) : undefined
+              }
+            >
+              {t("chat.fromSession")}
+            </Badge>
+          )}
           <span className="grid size-5 place-items-center rounded-full bg-foreground/15 text-xs font-semibold text-foreground shrink-0">
             {nonHuman ? (actorType === "agent" ? "A" : "S") : "Y"}
           </span>

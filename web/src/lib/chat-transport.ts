@@ -440,6 +440,9 @@ export function messageToUIMessage(m: Message): UIMessage {
       timestamp: m.timestamp,
       token_count: m.token_count,
       model: m.model,
+      actor_type: m.actor_type,
+      actor_id: m.actor_id,
+      source_session_id: m.source_session_id,
     },
   };
 }
@@ -563,6 +566,9 @@ export function uiMessageToMessage(m: UIMessage): Message {
     timestamp: (meta.timestamp as string) || "",
     token_count: meta.token_count as number | undefined,
     model: meta.model as string | undefined,
+    actor_type: meta.actor_type as Message["actor_type"],
+    actor_id: meta.actor_id as string | undefined,
+    source_session_id: meta.source_session_id as string | undefined,
     streaming: m.parts.some((p) => (p as Record<string, unknown>).state === "streaming"),
   };
 }

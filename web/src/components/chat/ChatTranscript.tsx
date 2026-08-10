@@ -76,6 +76,7 @@ const MessageRow = memo(function MessageRow({
           msg={{ content: msg.content, blocks: msg.blocks, timestamp: msg.timestamp }}
           actorType={msg.actorType}
           actorId={msg.actorId}
+          sourceSessionId={msg.sourceSessionId}
           agentId={fileAgentId}
           sessionId={fileSessionId}
           agentNames={agentNames}
@@ -119,7 +120,8 @@ export function MessageList({
             messages[i - 1].role === msg.role &&
             messages[i - 1].agentId === msg.agentId &&
             messages[i - 1].actorType === msg.actorType &&
-            messages[i - 1].actorId === msg.actorId
+            messages[i - 1].actorId === msg.actorId &&
+            messages[i - 1].sourceSessionId === msg.sourceSessionId
           }
           showTimestamp={i === messages.length - 1 || messages[i + 1].role !== msg.role}
           fileAgentId={fileAgentId}
