@@ -78,11 +78,7 @@ func retryFailedPurge(ctx context.Context, id, databaseURL string) (home.Record,
 		return home.Record{}, fmt.Errorf("open database: %w", err)
 	}
 	defer db.Close()
-	store, err := home.NewLocalStore(cfg.HomeStoreID, config.StellaHome())
-	if err != nil {
-		return home.Record{}, fmt.Errorf("configure Home Store: %w", err)
-	}
-	registry, err := home.NewRegistry(db, cfg.HomeStoreID, store)
+	registry, err := home.NewLocalRegistry(ctx, db, cfg.HomeStoreID, config.StellaHome())
 	if err != nil {
 		return home.Record{}, fmt.Errorf("build Home registry: %w", err)
 	}

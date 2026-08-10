@@ -381,6 +381,7 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
 - [x] A destructive group deletion fences attachments and reaches `purged`; an injected physical-delete failure remains `purge_failed` and succeeds after administrator retry.
 - [x] A user-less Run cannot resolve PrincipalHome/AgentHome, sees only applicable read-only shared Skill roots, and writes only to project/disposable scratch; group AgentHome Skills do not leak into user_agent scope.
 - [x] `mise run format && mise run build && mise run test` exits 0.
+- [ ] `mise run system-test` exits 0 on a supported host. The Phase 1 handoff attempt ran with embedded PostgreSQL but failed because this orb does not provide a functional Bubblewrap sandbox; webhook, scheduled-run, and drain journeys could not construct local sessions.
 
 ### Phase 2: Filesystem boundary and host-path removal
 
@@ -694,11 +695,11 @@ Every completed phase must replace its pending entry with the concrete handoff r
 ### Handoff after Phase 1
 
 - **What landed** — `storage_home`/`storage_migration`, typed `internal/home` Store registry and opaque attachments, legacy registration, explicit consumer injection, local compatibility projection, atomic owner tombstone/fence/River purge, retry CLI, and synchronized EN/ZH architecture/storage/Skill docs.
-- **Acceptance results** — `mise run db:validate`, `mise run generate:check`, `mise run format`, `mise run build`, full `mise run test`, and temporary-Home `mise run system-test` all exited 0. Focused tests prove typed user/group isolation, one-location concurrent Ensure, inode-preserving registration, user-less scratch, shared-root read-only policy, group/Agent overlap deletion, purge failure/retry, and exact Home consumer routing.
+- **Acceptance results** — `mise run db:validate`, `mise run generate:check`, `mise run format`, `mise run build`, and full `mise run test` exited 0. Focused tests prove typed user/group isolation, one-location concurrent Ensure, inode-preserving registration, user-less scratch, shared-root read-only policy, group/Agent overlap deletion, purge failure/retry, and exact Home consumer routing. `mise run system-test` started with embedded PostgreSQL but failed because this orb lacks a functional Bubblewrap sandbox; webhook, scheduled-run, and drain journeys could not construct local sessions, so supported-host System Test acceptance remains open.
 - **Decisions made during impl** — one injected `home.WorkspaceViewer` is mandatory with no production fallback; Phase-1 local projection uses bounded context-cancellable owner stripes plus a short DB-only revalidation transaction; Principal/Agent offline Store cutover remains available, while shared Skill-root cutover stays closed until Phase 2 consumes attachment coordinates.
 - **Surprises / gotchas** — holding owner advisory transactions across filesystem I/O threatened availability; moving I/O out required the same process-local owner gate on projection and deletion to prevent purge/create races. Group and Agent deletion sets overlap on AgentHome, so the second valid owner delete must skip the first delete's terminal audit row rather than fail or enqueue it twice.
 - **What changed from this plan** — no scope or phase-order change. The one-replica compatibility ceiling is now explicit and cancellation-aware; Compose/Kubernetes and durable SessionSandbox fencing remain closed.
-- **What remains open** — Phase 2 must remove host-path filesystem access and route provider-native operations through opaque attachments; mutable asset contents, mutable Skill authority, SessionSandbox, multi-replica, and Kubernetes remain intentionally unchanged.
+- **What remains open** — Phase 1 still needs a successful `mise run system-test` on a supported host. Phase 2 must remove host-path filesystem access and route provider-native operations through opaque attachments; mutable asset contents, mutable Skill authority, SessionSandbox, multi-replica, and Kubernetes remain intentionally unchanged.
 - **What Phase 2 must read or verify first** — `internal/home/{home,workspace,local,deletion}.go`, `pkg/sandbox.HomeAttachment`, the live consumer AST guard, architecture §5.4/§9, and the invariant that shared Skill consumers cannot move Stores until readers and mounts derive coordinates from attachments.
 
 ### Handoff after Phase 2 — pending

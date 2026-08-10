@@ -155,8 +155,11 @@ workspace.
 PostgreSQL records typed user/group Principal Homes, per-principal Agent Homes,
 and narrow system/system-Agent Skill roots, but registry metadata cannot recover
 their file bytes. Back up PostgreSQL with durable Home storage. An explicit
-destructive user, group, or Agent delete tombstones and fences Homes, then
-purges bytes asynchronously. Removing an assignment or member, archiving a
+destructive group or Agent delete tombstones and fences Homes. User deletion has
+the same internal lifecycle primitive, pending product account-delete integration.
+A worker uses a durable, exclusive, expiring claim to purge bytes asynchronously,
+so another worker can recover after a crash or claim expiry. Attachments identify
+requested access but do not grant authority. Removing an assignment or member, archiving a
 Session, and uninstalling Helm do not delete Homes. A physical-purge failure is
 retained as `purge_failed` for operator retry; use `stellad storage retry-purge --help`
 for syntax.
@@ -165,9 +168,12 @@ for syntax.
 
 Provider credentials and base URLs are stored in explicit provider rows managed through the Web UI or API; they are not read from the server environment.
 
-| Variable      | Purpose                                     |
-| ------------- | ------------------------------------------- |
-| `STELLA_HOME` | stella home directory (default `~/.stella`) |
+| Variable               | Purpose                                             |
+| ---------------------- | --------------------------------------------------- |
+| `STELLA_HOME`          | stella home directory (default `~/.stella`)         |
+| `STELLA_HOME_STORE_ID` | Phase 1 default Store ID for newly registered Homes |
+
+Persisted Store IDs are immutable. Changing `STELLA_HOME_STORE_ID` selects the default only for new Homes; retained local adapters are reconstructed against the same `STELLA_HOME` and continue resolving Homes already assigned to their Store ID.
 
 Note: The old YAML-based environment variables (`STELLA_PROVIDER`, `STELLA_MODEL`, `STELLA_TELEGRAM_TOKEN`, etc.) are no longer supported. Use the Web UI or database directly.
 

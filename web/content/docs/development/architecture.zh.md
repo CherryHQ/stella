@@ -81,7 +81,7 @@ plugins/
 
 `internal/home` 自持类型化持久 Home 的身份：用户与群组 Principal Home、每 Principal 的 Agent Home，以及窄范围的 system 与 system-Agent Skill 根。PostgreSQL 存储每个 Home 的不可变 Store ID、不透明 locator 与生命周期状态；Phase 1 的 local store 将当前路径布局保留为内部兼容投影。registry 元数据不能恢复文件字节，因此必须将持久 Principal、Agent Home 存储与 PostgreSQL 一起备份。
 
-显式破坏性删除用户、群组或 Agent 时，会在删除事务中先 tombstone Home、再移除所有者，并持久化地入队一个清除批次。提交后，进程同步 fence 本地缓存的执行；共享 River worker 会在幂等清除字节前再次 fence。物理清除失败会以 `purge_failed` 状态连同审计数据保留，供操作员重试。移除分配、移除成员、归档 Session 和卸载 Helm 都不是 Home 删除操作。这是单副本边界；多副本拓扑和跨副本 SessionSandbox fencing 属于未来工作。
+显式破坏性删除群组或 Agent 时，会在删除事务中先 tombstone Home、再移除所有者，并持久化地入队一个清除批次。用户删除具备相同的内部生命周期 primitive，但仍待产品账号删除流程集成。提交后，进程会尝试 fence 本地缓存的执行；共享 River worker 会再次 fence，再取得持久、独占且会过期的 claim，然后幂等清除字节。进程崩溃或 claim 过期后，其他 worker 可以恢复清除。物理清除失败会以 `purge_failed` 状态连同审计数据保留，供操作员重试。移除分配、移除成员、归档 Session 和卸载 Helm 都不是 Home 删除操作。attachment 标识请求的 Home 访问，但本身不授予 authority。这是单副本边界；多副本拓扑和跨副本 SessionSandbox fencing 属于未来工作。
 
 ## 组合与生命周期
 

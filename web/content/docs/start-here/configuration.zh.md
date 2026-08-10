@@ -99,6 +99,7 @@ Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面�
 | 变量                          | 描述                                                                                     |
 | ----------------------------- | ---------------------------------------------------------------------------------------- |
 | `STELLA_HOME`                 | 覆盖主目录（默认 `~/.stella`）                                                           |
+| `STELLA_HOME_STORE_ID`        | Phase 1 中新注册 Home 的默认 Store ID（默认 `local`）                                    |
 | `STELLA_DATABASE_URL`         | 使用外部 PostgreSQL 数据库，而不是内嵌集群                                               |
 | `STELLA_BLOB_S3_ENDPOINT`     | 可选的 S3 兼容 endpoint，用于持久化用户资产镜像                                          |
 | `STELLA_BLOB_S3_BUCKET`       | 镜像用户上传资产的 bucket；需与 endpoint/access/secret 同时设置，或全部不设置            |
@@ -111,6 +112,8 @@ Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面�
 | `STELLA_HOME_HOST`            | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                |
 | `STELLA_HOME_VOLUME`          | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要 |
 | `STELLA_REFLECT_CURATOR_MODE` | 生命周期 curator：`armed`（默认值）或不产生写入的紧急停止模式 `shadow`                   |
+
+现有 Home 已持久化的 Store ID 不可变。修改 `STELLA_HOME_STORE_ID` 只会为新 Home 选择默认 Store；保留的 local adapter 会针对同一个 `STELLA_HOME` 重建，并继续解析已分配到其 Store ID 的 Home。
 
 Structured Reflect 是唯一写入器。升级前请删除已经废弃的 `STELLA_REFLECT_MODE` 环境变量；过渡版本遇到显式 `legacy` 值时会拒绝启动，而不会静默改变行为。Curator 模式在服务启动时读取，修改后需要重启 Stella；非法值会阻止启动。运行检查见[部署](/docs/start-here/deployment#structured-reflect-与-curator)，详细机制见[记忆系统内部原理](/docs/development/memory-internals#structured-reflect-与-curator)。
 

@@ -1038,6 +1038,7 @@ type StorageHome struct {
 	Locator          string             `json:"locator"`
 	State            string             `json:"state"`
 	MaintenanceOwner pgtype.Text        `json:"maintenance_owner"`
+	MaintenanceToken pgtype.Text        `json:"maintenance_token"`
 	MaintenanceUntil pgtype.Timestamptz `json:"maintenance_until"`
 	TombstonedAt     pgtype.Timestamptz `json:"tombstoned_at"`
 	TombstonedBy     pgtype.Text        `json:"tombstoned_by"`
@@ -1046,6 +1047,8 @@ type StorageHome struct {
 	PurgeStartedAt   pgtype.Timestamptz `json:"purge_started_at"`
 	PurgeFailedAt    pgtype.Timestamptz `json:"purge_failed_at"`
 	LastPurgeError   pgtype.Text        `json:"last_purge_error"`
+	PurgeClaimToken  pgtype.Text        `json:"purge_claim_token"`
+	PurgeClaimUntil  pgtype.Timestamptz `json:"purge_claim_until"`
 	PurgedAt         pgtype.Timestamptz `json:"purged_at"`
 	PurgedBy         pgtype.Text        `json:"purged_by"`
 	CreatedAt        time.Time          `json:"created_at"`

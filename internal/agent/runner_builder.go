@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
@@ -40,6 +41,33 @@ type BuiltinTool struct {
 type SessionImagePipeline interface {
 	Enrich(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error)
 	Load(context.Context, string, string) (ai.ImageContent, error)
+}
+
+const runnerScratchDir = "runner-scratch"
+
+// newRunnerScratch creates runner-owned workspace outside the users tree. The
+// parent is deliberately private because it can contain transient tool output
+// from user-less internal runs.
+func newRunnerScratch(stellaHome string) (string, func() error, error) {
+	root := filepath.Join(stellaHome, runnerScratchDir)
+	if err := os.Mkdir(root, 0o700); err != nil && !os.IsExist(err) {
+		return "", nil, err
+	}
+	info, err := os.Lstat(root)
+	if err != nil {
+		return "", nil, err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", nil, fmt.Errorf("scratch root %q is not a directory", root)
+	}
+	if err := os.Chmod(root, 0o700); err != nil {
+		return "", nil, err
+	}
+	dir, err := os.MkdirTemp(root, "runner-")
+	if err != nil {
+		return "", nil, err
+	}
+	return dir, func() error { return os.RemoveAll(dir) }, nil
 }
 
 func BuiltinToolAvailable(_ context.Context, params RunnerParams) bool {
@@ -136,12 +164,11 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			if params.ProjectID != "" {
 				return nil, fmt.Errorf("runner: user-less runs cannot use a project")
 			}
-			userRoot, err = os.MkdirTemp("", "stella-runner-")
+			userRoot, scratchCleanup, err = newRunnerScratch(config.StellaHome())
 			if err != nil {
 				return nil, fmt.Errorf("create user-less scratch: %w", err)
 			}
 			projectValidateRoot = userRoot
-			scratchCleanup = func() error { return os.RemoveAll(userRoot) }
 		}
 
 		// Resolve project directory when session has a project.

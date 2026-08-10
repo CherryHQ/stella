@@ -13,6 +13,7 @@ CREATE TABLE storage_home (
     UNIQUE (store_id, locator),
     state               TEXT NOT NULL DEFAULT 'provisioning',
     maintenance_owner   TEXT,
+    maintenance_token   TEXT,
     maintenance_until   TIMESTAMPTZ,
     tombstoned_at       TIMESTAMPTZ,
     tombstoned_by       TEXT,
@@ -21,24 +22,52 @@ CREATE TABLE storage_home (
     purge_started_at    TIMESTAMPTZ,
     purge_failed_at     TIMESTAMPTZ,
     last_purge_error    TEXT,
+    purge_claim_token   TEXT,
+    purge_claim_until   TIMESTAMPTZ,
     purged_at           TIMESTAMPTZ,
     purged_by           TEXT,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (btrim(store_id) <> '' AND btrim(locator) <> ''),
     CHECK (
         (home_kind = 'principal'
-            AND principal_kind IS NOT NULL AND principal_id IS NOT NULL AND agent_id IS NULL)
+            AND principal_kind IS NOT NULL AND principal_kind IN ('user', 'group')
+            AND principal_id IS NOT NULL AND btrim(principal_id) <> '' AND agent_id IS NULL)
         OR (home_kind = 'agent'
-            AND principal_kind IS NOT NULL AND principal_id IS NOT NULL AND agent_id IS NOT NULL)
+            AND principal_kind IS NOT NULL AND principal_kind IN ('user', 'group')
+            AND principal_id IS NOT NULL AND btrim(principal_id) <> ''
+            AND agent_id IS NOT NULL AND btrim(agent_id) <> '')
         OR (home_kind = 'system_skill'
             AND principal_kind IS NULL AND principal_id IS NULL AND agent_id IS NULL)
         OR (home_kind = 'system_agent_skill'
-            AND principal_kind IS NULL AND principal_id IS NULL AND agent_id IS NOT NULL)
+            AND principal_kind IS NULL AND principal_id IS NULL AND agent_id IS NOT NULL AND btrim(agent_id) <> '')
     ),
     CHECK (
-        (maintenance_owner IS NULL AND maintenance_until IS NULL)
-        OR (maintenance_owner IS NOT NULL AND maintenance_until IS NOT NULL)
-    )
+        (maintenance_owner IS NULL AND maintenance_token IS NULL AND maintenance_until IS NULL)
+        OR (maintenance_owner IS NOT NULL AND btrim(maintenance_owner) <> ''
+            AND maintenance_token IS NOT NULL AND btrim(maintenance_token) <> '' AND maintenance_until IS NOT NULL)
+    ),
+    CHECK (
+        (purge_claim_token IS NULL AND purge_claim_until IS NULL)
+        OR (purge_claim_token IS NOT NULL AND btrim(purge_claim_token) <> '' AND purge_claim_until IS NOT NULL)
+    ),
+    CHECK (
+        (tombstoned_at IS NULL AND tombstoned_by IS NULL AND purge_requested_at IS NULL)
+        OR (tombstoned_at IS NOT NULL AND tombstoned_by IS NOT NULL AND btrim(tombstoned_by) <> '' AND purge_requested_at IS NOT NULL)
+    ),
+    CHECK ((purge_failed_at IS NULL AND last_purge_error IS NULL)
+        OR (purge_failed_at IS NOT NULL AND last_purge_error IS NOT NULL AND btrim(last_purge_error) <> '')),
+    CHECK ((purged_at IS NULL AND purged_by IS NULL)
+        OR (purged_at IS NOT NULL AND purged_by IS NOT NULL AND btrim(purged_by) <> '')),
+    CHECK (maintenance_token IS NULL OR state = 'ready'),
+    CHECK (purge_claim_token IS NULL OR (state IN ('tombstoned', 'purge_failed') AND purge_started_at IS NOT NULL)),
+    CHECK (tombstoned_at IS NULL OR state IN ('tombstoned', 'purge_failed', 'purged')),
+    CHECK (purge_started_at IS NULL OR state IN ('tombstoned', 'purge_failed', 'purged')),
+    CHECK (purge_failed_at IS NULL OR state IN ('purge_failed', 'purged')),
+    CHECK (purged_at IS NULL OR state = 'purged'),
+    CHECK (state <> 'tombstoned' OR tombstoned_at IS NOT NULL),
+    CHECK (state <> 'purge_failed' OR (tombstoned_at IS NOT NULL AND purge_started_at IS NOT NULL AND purge_failed_at IS NOT NULL)),
+    CHECK (state <> 'purged' OR (tombstoned_at IS NOT NULL AND purge_started_at IS NOT NULL AND purged_at IS NOT NULL))
 );
 
 -- These indexes intentionally include purged rows: Home identity and locator
@@ -65,7 +94,9 @@ CREATE TABLE storage_migration (
     metadata                    JSONB NOT NULL DEFAULT '{}',
     completed_at                TIMESTAMPTZ,
     created_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at                  TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (btrim(name) <> ''),
+    CHECK ((state = 'completed') = (completed_at IS NOT NULL))
 );
 
 -- +goose Down

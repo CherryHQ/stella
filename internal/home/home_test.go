@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -428,13 +429,124 @@ func TestConcurrentPurgeTreatsWinnerAsSuccess(t *testing.T) {
 	wg.Wait()
 	close(results)
 	close(errs)
+	var inProgress int
 	for err := range errs {
-		t.Fatal(err)
+		if !errors.Is(err, ErrPurgeInProgress) {
+			t.Fatal(err)
+		}
+		inProgress++
 	}
+	var success int
 	for record := range results {
 		if record.State != StatePurged {
 			t.Fatalf("concurrent purge state = %s", record.State)
 		}
+		success++
+	}
+	if success < 1 || success+inProgress != 2 {
+		t.Fatalf("concurrent purge success=%d in-progress=%d", success, inProgress)
+	}
+}
+
+type blockingPurgeStore struct {
+	Store
+	mu      sync.Mutex
+	calls   int
+	fail    bool
+	block   bool
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingPurgeStore) Purge(ctx context.Context, record Record) error {
+	s.mu.Lock()
+	s.calls++
+	fail, block := s.fail, s.block
+	s.mu.Unlock()
+	if fail {
+		return errors.New("injected physical failure")
+	}
+	if block {
+		s.entered <- struct{}{}
+		select {
+		case <-s.release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return s.Store.Purge(ctx, record)
+}
+
+func TestPurgeClaimExcludesOrdinaryAndRetryOverlap(t *testing.T) {
+	local, err := NewLocalStore("local", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &blockingPurgeStore{Store: local, fail: true, entered: make(chan struct{}, 1), release: make(chan struct{})}
+	r, err := NewRegistry(dbtest.New(t), local.ID(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	record := mustTombstoneHome(t, r, Principal(UserPrincipal, "exclusive-purge"))
+	if _, err := r.Purge(ctx, record.ID, "worker"); err == nil {
+		t.Fatal("initial failure unexpectedly succeeded")
+	}
+	parked, err := r.Purge(ctx, record.ID, "worker-retry")
+	if err != nil || parked.State != StatePurgeFailed {
+		t.Fatalf("ordinary retry did not leave physical failure parked: %#v, %v", parked, err)
+	}
+	store.mu.Lock()
+	if store.calls != 1 {
+		t.Fatalf("ordinary retry repeated parked physical purge: calls=%d", store.calls)
+	}
+	store.mu.Unlock()
+	store.mu.Lock()
+	store.fail, store.block = false, true
+	store.mu.Unlock()
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.RetryFailedPurge(ctx, record.ID, "operator")
+		done <- err
+	}()
+	<-store.entered
+	if _, err := r.Purge(ctx, record.ID, "worker-retry"); !errors.Is(err, ErrPurgeInProgress) {
+		t.Fatalf("overlapping ordinary purge = %v, want ErrPurgeInProgress", err)
+	}
+	close(store.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	calls := store.calls
+	store.mu.Unlock()
+	if calls != 2 {
+		t.Fatalf("physical purge calls = %d, want initial failure plus one claimed retry", calls)
+	}
+}
+
+func TestExpiredPurgeClaimIsRecovered(t *testing.T) {
+	r, _ := newRegistry(t)
+	ctx := context.Background()
+	record := mustTombstoneHome(t, r, Principal(UserPrincipal, "expired-claim"))
+	if _, err := r.q.ClaimStorageHomePurge(ctx, sqlc.ClaimStorageHomePurgeParams{ID: record.ID, PurgeClaimToken: text("crashed-worker")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.q.MarkStorageHomePurged(ctx, sqlc.MarkStorageHomePurgedParams{ID: record.ID, PurgedBy: text("intruder"), PurgeClaimToken: text("wrong-token")}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("wrong claim token completion = %v, want no rows", err)
+	}
+	if _, err := r.Purge(ctx, record.ID, "replacement"); !errors.Is(err, ErrPurgeInProgress) {
+		t.Fatalf("active claim purge = %v, want ErrPurgeInProgress", err)
+	}
+	if _, err := r.db.Exec(ctx, "UPDATE storage_home SET purge_claim_until = now() - interval '1 second' WHERE id = $1", record.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.q.MarkStorageHomePurged(ctx, sqlc.MarkStorageHomePurgedParams{ID: record.ID, PurgedBy: text("expired-worker"), PurgeClaimToken: text("crashed-worker")}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("expired claim completion = %v, want no rows", err)
+	}
+	purged, err := r.Purge(ctx, record.ID, "replacement")
+	if err != nil || purged.State != StatePurged {
+		t.Fatalf("expired claim recovery = %#v, %v", purged, err)
 	}
 }
 
@@ -473,16 +585,115 @@ func TestExistingHomeKeepsStoreAndCutoverValidatesLocator(t *testing.T) {
 	if _, err := r2.AcquireMaintenance(context.Background(), home.ID, "worker", time.Now().UTC()); err == nil {
 		t.Fatal("expired maintenance lease accepted")
 	}
-	if _, err := r2.AcquireMaintenance(context.Background(), home.ID, "worker", time.Now().UTC().Add(time.Minute)); err != nil {
+	lease, err := r2.AcquireMaintenance(context.Background(), home.ID, "worker", time.Now().UTC().Add(time.Minute))
+	if err != nil {
 		t.Fatal(err)
 	}
 	newLocator, err := second.Allocate(home.Key)
 	if err != nil {
 		t.Fatal(err)
 	}
-	moved, err := r2.CutoverStore(context.Background(), home, second.ID(), newLocator, "worker")
+	moved, err := r2.CutoverStore(context.Background(), home, second.ID(), newLocator, lease.Token)
 	if err != nil || moved.StoreID != second.ID() || moved.Locator != newLocator {
 		t.Fatalf("cutover = %+v, %v", moved, err)
+	}
+}
+
+func TestCutoverStoreRequiresCurrentUnexpiredLeaseToken(t *testing.T) {
+	db := dbtest.New(t)
+	first, err := NewLocalStore("first", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewLocalStore("second", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewRegistry(db, first.ID(), first, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	record := mustEnsureHome(t, r, Principal(UserPrincipal, "maintenance-fence"))
+	locator, err := second.Allocate(record.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease1, err := r.AcquireMaintenance(ctx, record.ID, "worker", time.Now().UTC().Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, "UPDATE storage_home SET maintenance_until = now() - interval '1 second' WHERE id = $1", record.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.ReleaseMaintenance(ctx, record.ID, lease1.Token); err == nil {
+		t.Fatal("expired lease released as current")
+	}
+	if _, err := r.CutoverStore(ctx, record, second.ID(), locator, lease1.Token); err == nil {
+		t.Fatal("expired lease cut over without takeover")
+	}
+	lease2, err := r.AcquireMaintenance(ctx, record.ID, "worker", time.Now().UTC().Add(time.Minute))
+	if err != nil || lease2.Token == lease1.Token {
+		t.Fatalf("same-owner reacquisition = %#v, %v", lease2, err)
+	}
+	if _, err := r.CutoverStore(ctx, record, second.ID(), locator, lease1.Token); err == nil {
+		t.Fatal("stale same-owner token cut over")
+	}
+	if _, err := db.Exec(ctx, "UPDATE storage_home SET maintenance_until = now() - interval '1 second' WHERE id = $1", record.ID); err != nil {
+		t.Fatal(err)
+	}
+	lease3, err := r.AcquireMaintenance(ctx, record.ID, "takeover", time.Now().UTC().Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.CutoverStore(ctx, record, second.ID(), locator, lease2.Token); err == nil {
+		t.Fatal("pre-takeover token cut over")
+	}
+	moved, err := r.CutoverStore(ctx, record, second.ID(), locator, lease3.Token)
+	if err != nil || moved.StoreID != second.ID() {
+		t.Fatalf("current takeover lease cutover = %#v, %v", moved, err)
+	}
+}
+
+func TestTombstoneClearsMaintenanceLease(t *testing.T) {
+	r, _ := newRegistry(t)
+	ctx := context.Background()
+	record := mustEnsureHome(t, r, Principal(UserPrincipal, "maintained-delete"))
+	if _, err := r.AcquireMaintenance(ctx, record.ID, "worker", time.Now().UTC().Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	tombstoned, err := r.Tombstone(ctx, record.Key, "admin")
+	if err != nil || tombstoned.State != StateTombstoned {
+		t.Fatalf("tombstone maintained Home = %#v, %v", tombstoned, err)
+	}
+	row, err := r.q.GetStorageHome(ctx, record.ID)
+	if err != nil || row.MaintenanceOwner.Valid || row.MaintenanceToken.Valid || row.MaintenanceUntil.Valid {
+		t.Fatalf("maintenance lease survived tombstone: %#v, %v", row, err)
+	}
+}
+
+func TestStorageHomeStructuralConstraints(t *testing.T) {
+	db := dbtest.New(t)
+	ctx := context.Background()
+	for _, tt := range []struct {
+		name string
+		sql  string
+	}{
+		{name: "principal domain", sql: `INSERT INTO storage_home (home_kind, principal_kind, principal_id, store_id, locator) VALUES ('principal', 'tenant', 'id', 'store', 'locator')`},
+		{name: "missing principal kind", sql: `INSERT INTO storage_home (home_kind, principal_id, store_id, locator) VALUES ('principal', 'id', 'store', 'locator')`},
+		{name: "blank principal", sql: `INSERT INTO storage_home (home_kind, principal_kind, principal_id, store_id, locator) VALUES ('principal', 'user', ' ', 'store', 'locator')`},
+		{name: "blank store", sql: `INSERT INTO storage_home (home_kind, principal_kind, principal_id, store_id, locator) VALUES ('principal', 'user', 'id', ' ', 'locator')`},
+		{name: "terminal audit", sql: `INSERT INTO storage_home (home_kind, principal_kind, principal_id, store_id, locator, state) VALUES ('principal', 'user', 'id', 'store', 'locator', 'purged')`},
+		{name: "partial maintenance", sql: `INSERT INTO storage_home (home_kind, principal_kind, principal_id, store_id, locator, maintenance_owner) VALUES ('principal', 'user', 'id', 'store', 'locator', 'worker')`},
+		{name: "partial purge claim", sql: `INSERT INTO storage_home (home_kind, principal_kind, principal_id, store_id, locator, purge_claim_token) VALUES ('principal', 'user', 'id', 'store', 'locator', 'claim')`},
+		{name: "ready purge audit", sql: `INSERT INTO storage_home (home_kind, principal_kind, principal_id, store_id, locator, state, purge_started_at) VALUES ('principal', 'user', 'id', 'store', 'locator', 'ready', now())`},
+		{name: "migration completion", sql: `INSERT INTO storage_migration (name, state) VALUES ('bad-completion', 'completed')`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := db.Exec(ctx, tt.sql); err == nil {
+				t.Fatal("durable malformed row was accepted")
+			}
+		})
 	}
 }
 
@@ -510,7 +721,7 @@ func TestCutoverStoreRejectsSharedSkillRootsUntilPhase2(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := r.CutoverStore(context.Background(), record, second.ID(), locator, "worker"); err == nil || !strings.Contains(err.Error(), "Phase 2 Skill consumers") {
+			if _, err := r.CutoverStore(context.Background(), record, second.ID(), locator, "token"); err == nil || !strings.Contains(err.Error(), "Phase 2 Skill consumers") {
 				t.Fatalf("shared Skill root cutover error = %v, want Phase 2 requirement", err)
 			}
 		})
@@ -548,7 +759,7 @@ func TestCorruptRegistryRowsFailClosed(t *testing.T) {
 	if _, err := r.Resolve(ctx, home.Key, false); err == nil {
 		t.Fatal("escaping locator resolved")
 	}
-	if _, err := db.Exec(ctx, "UPDATE storage_home SET state = 'tombstoned' WHERE id = $1", home.ID); err != nil {
+	if _, err := db.Exec(ctx, "UPDATE storage_home SET state = 'tombstoned', tombstoned_at = now(), tombstoned_by = 'admin', purge_requested_at = now() WHERE id = $1", home.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := r.Purge(ctx, home.ID, "admin"); err == nil {
@@ -567,6 +778,21 @@ func TestObserveMutableAssetObjectAuthorityStoresNoConfigurationSecret(t *testin
 	}
 	if marker.State != "pending" || !marker.ObjectAuthorityConfigured || string(marker.Metadata) != "{}" {
 		t.Fatalf("marker = %+v", marker)
+	}
+}
+
+func TestObserveMutableAssetObjectAuthorityIsMonotonicBeforeCompletion(t *testing.T) {
+	r, _ := newRegistry(t)
+	ctx := context.Background()
+	if err := r.ObserveMutableAssetObjectAuthority(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.ObserveMutableAssetObjectAuthority(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	marker, err := r.q.GetStorageMigration(ctx, MutableAssetObjectAuthorityMigration)
+	if err != nil || marker.State != "pending" || !marker.ObjectAuthorityConfigured || marker.CompletedAt.Valid {
+		t.Fatalf("second-start marker = %+v, %v", marker, err)
 	}
 }
 
@@ -827,41 +1053,59 @@ func TestRegisterLegacyInspectsOnlyDefaultStore(t *testing.T) {
 
 func TestRegisterLegacyPendingMarkerUsesRecordedStore(t *testing.T) {
 	db := dbtest.New(t)
-	storeA, err := NewLocalStore("store-a", t.TempDir())
+	baseA, baseB := t.TempDir(), t.TempDir()
+	storeA, err := NewLocalStore("store-a", baseA)
 	if err != nil {
 		t.Fatal(err)
 	}
-	storeB, err := NewLocalStore("store-b", t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	a := &failingLegacyStore{Store: storeA, local: storeA, err: errors.New("fail Store A inspection")}
-	rA, err := NewRegistry(db, storeA.ID(), a)
+	storeB, err := NewLocalStore("store-b", baseB)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
+	if _, err := sqlc.New(db).CreateStorageMigration(ctx, sqlc.CreateStorageMigrationParams{Name: TypedHomeLegacyRegistrationMigration, Metadata: []byte(`{"store_id":"store-a"}`)}); err != nil {
+		t.Fatal(err)
+	}
 	userID := uuid.NewString()
 	if _, err := db.Exec(ctx, "INSERT INTO auth_user (id, email) VALUES ($1, $2)", userID, userID+"@example.test"); err != nil {
 		t.Fatal(err)
 	}
-	if err := rA.RegisterLegacy(ctx); err == nil {
-		t.Fatal("Store A failure did not leave a pending marker")
+	if _, err := db.Exec(ctx, "INSERT INTO agent (id, name, workspace) VALUES ('agent-a', 'Agent A', '/tmp')"); err != nil {
+		t.Fatal(err)
 	}
-	if a.calls == 0 {
-		t.Fatal("initial registration did not inspect Store A")
+	if _, err := db.Exec(ctx, "INSERT INTO auth_user_agent (user_id, agent_id) VALUES ($1, 'agent-a')", userID); err != nil {
+		t.Fatal(err)
 	}
-	a.err = nil
-	b := &failingLegacyStore{Store: storeB, local: storeB, err: errors.New("retry inspected new default Store B")}
-	rB, err := NewRegistry(db, storeB.ID(), a, b)
+	legacy := filepath.Join(baseA, "users", userID, "agents", "agent-a", "keep")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacy, []byte("legacy"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rB, err := NewRegistry(db, storeB.ID(), storeA, storeB)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := rB.RegisterLegacy(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if b.calls != 0 || a.calls < 2 {
-		t.Fatalf("retry Store calls: A=%d B=%d, want A only", a.calls, b.calls)
+	rows, err := db.Query(ctx, "SELECT store_id FROM storage_home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var storeID string
+		if err := rows.Scan(&storeID); err != nil {
+			t.Fatal(err)
+		}
+		if storeID != storeA.ID() {
+			t.Fatalf("adopted Home Store = %q, want marker Store A", storeID)
+		}
+	}
+	if entries, err := os.ReadDir(baseB); err != nil || len(entries) != 0 {
+		t.Fatalf("default Store B data = %v, %v; want none", entries, err)
 	}
 	marker, err := rB.q.GetStorageMigration(ctx, TypedHomeLegacyRegistrationMigration)
 	var metadata map[string]string
@@ -886,6 +1130,68 @@ func TestRegisterLegacyFailsWhenRecordedStoreIsAbsent(t *testing.T) {
 	}
 	if err := r.RegisterLegacy(ctx); err == nil {
 		t.Fatal("registration accepted an absent recorded Store")
+	}
+}
+
+func TestNewLocalRegistryReconstructsPendingMarkerStore(t *testing.T) {
+	db := dbtest.New(t)
+	ctx := context.Background()
+	base := t.TempDir()
+	q := sqlc.New(db)
+	if _, err := q.CreateStorageMigration(ctx, sqlc.CreateStorageMigrationParams{Name: TypedHomeLegacyRegistrationMigration, Metadata: []byte(`{"store_id":"store-a"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	userID := uuid.NewString()
+	if _, err := db.Exec(ctx, "INSERT INTO auth_user (id, email) VALUES ($1, $2)", userID, userID+"@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewLocalRegistry(ctx, db, "store-b", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.RegisterLegacy(ctx); err != nil {
+		t.Fatal(err)
+	}
+	record, err := q.GetPrincipalStorageHome(ctx, sqlc.GetPrincipalStorageHomeParams{PrincipalKind: text(string(UserPrincipal)), PrincipalID: text(userID)})
+	if err != nil || record.StoreID != "store-a" {
+		t.Fatalf("production registration Store = %#v, %v", record, err)
+	}
+}
+
+func TestNewLocalRegistryRejectsMalformedPendingMarker(t *testing.T) {
+	db := dbtest.New(t)
+	ctx := context.Background()
+	if _, err := sqlc.New(db).CreateStorageMigration(ctx, sqlc.CreateStorageMigrationParams{Name: TypedHomeLegacyRegistrationMigration, Metadata: []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewLocalRegistry(ctx, db, "local", t.TempDir()); err == nil {
+		t.Fatal("malformed pending marker Store was serviceable")
+	}
+}
+
+func TestNewLocalRegistryRetainsPurgedStoreForIdempotency(t *testing.T) {
+	db := dbtest.New(t)
+	ctx := context.Background()
+	base := t.TempDir()
+	oldStore, err := NewLocalStore("old", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRegistry, err := NewRegistry(db, oldStore.ID(), oldStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := mustTombstoneHome(t, oldRegistry, Principal(UserPrincipal, "purged-old-store"))
+	if _, err := oldRegistry.Purge(ctx, record.ID, "operator"); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewLocalRegistry(ctx, db, "new", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	purged, err := r.Purge(ctx, record.ID, "stale-worker")
+	if err != nil || purged.State != StatePurged || purged.StoreID != "old" {
+		t.Fatalf("idempotent retained-Store purge = %#v, %v", purged, err)
 	}
 }
 

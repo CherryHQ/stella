@@ -54,7 +54,7 @@ The paths are current local compatibility coordinates, not Home identity. A Home
 
 ## Destructive owner deletion
 
-An explicit destructive deletion of a user, group, or Agent immediately tombstones its Homes and fences local cached execution. A shared worker then purges physical bytes asynchronously and idempotently. This is the only Home-deleting lifecycle: removing an Agent assignment, removing a group member, archiving a Session, and uninstalling Helm do **not** delete Homes.
+An explicit destructive group or Agent deletion immediately tombstones its Homes and fences local cached execution. Destructive user deletion has the same internal lifecycle primitive, but product account deletion is not integrated with it yet. A shared worker uses a durable, exclusive, expiring claim to purge physical bytes asynchronously and idempotently; after a crash or expired claim, another worker can recover the purge. These are the only Home-deleting lifecycles: removing an Agent assignment, removing a group member, archiving a Session, and uninstalling Helm do **not** delete Homes.
 
 If physical purge fails, the Home remains in `purge_failed` with its audit record. It is not silently discarded; an operator must retry it. For syntax, run `stellad storage retry-purge --help`.
 

@@ -2,6 +2,7 @@ package home
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -9,8 +10,59 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/sandbox"
 )
+
+// NewLocalRegistry reconstructs every local compatibility Store needed by
+// durable non-purged Homes and an unfinished legacy registration. Phase 1 maps
+// each immutable Store ID to the same STELLA_HOME base; only defaultStore is
+// used for genuinely new Home identities.
+func NewLocalRegistry(ctx context.Context, db *pgxpool.Pool, defaultStore, base string) (*Registry, error) {
+	if db == nil {
+		return nil, errors.New("home: database is required")
+	}
+	ids := map[string]struct{}{defaultStore: {}}
+	q := sqlc.New(db)
+	referenced, err := q.ListRetainedStorageHomeStoreID(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("home: list retained local Stores: %w", err)
+	}
+	for _, id := range referenced {
+		ids[id] = struct{}{}
+	}
+	marker, err := q.GetStorageMigration(ctx, TypedHomeLegacyRegistrationMigration)
+	if err == nil && marker.State != "completed" {
+		var metadata struct {
+			StoreID string `json:"store_id"`
+		}
+		if err := json.Unmarshal(marker.Metadata, &metadata); err != nil {
+			return nil, fmt.Errorf("home: decode pending legacy registration Store: %w", err)
+		}
+		ids[metadata.StoreID] = struct{}{}
+	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("home: load legacy registration Store: %w", err)
+	}
+	stores := make([]Store, 0, len(ids))
+	for id := range ids {
+		store, err := NewLocalStore(id, base)
+		if err != nil {
+			return nil, fmt.Errorf("home: reconstruct local Store %q: %w", id, err)
+		}
+		stores = append(stores, store)
+	}
+	registry, err := NewRegistry(db, defaultStore, stores...)
+	if err != nil {
+		return nil, err
+	}
+	if err := registry.ValidateConfiguredStores(ctx); err != nil {
+		return nil, err
+	}
+	return registry, nil
+}
 
 // LocalStore preserves the existing local, none, and Docker-bind filesystem
 // layout. Locators are Store-relative compatibility coordinates, never host

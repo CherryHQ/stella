@@ -17,6 +17,9 @@ SELECT pg_advisory_xact_lock(hashtextextended($1, 0));
 -- name: ListStorageHomeStoreID :many
 SELECT DISTINCT store_id FROM storage_home WHERE state <> 'purged' ORDER BY store_id;
 
+-- name: ListRetainedStorageHomeStoreID :many
+SELECT DISTINCT store_id FROM storage_home ORDER BY store_id;
+
 -- name: ListStorageLegacyUserID :many
 SELECT id FROM auth_user ORDER BY id;
 
@@ -65,54 +68,60 @@ RETURNING *;
 
 -- name: TombstoneStorageHome :one
 UPDATE storage_home
-SET state = 'tombstoned', tombstoned_at = now(), tombstoned_by = $2, purge_requested_at = now(), updated_at = now()
+SET state = 'tombstoned', tombstoned_at = now(), tombstoned_by = $2, purge_requested_at = now(),
+    maintenance_owner = NULL, maintenance_token = NULL, maintenance_until = NULL, updated_at = now()
 WHERE id = $1 AND state IN ('provisioning', 'ready')
 RETURNING *;
 
--- name: BeginStorageHomePurge :one
+-- name: ClaimStorageHomePurge :one
 UPDATE storage_home
-SET purge_attempts = purge_attempts + 1, purge_started_at = now(), last_purge_error = NULL, updated_at = now()
-WHERE id = $1 AND state IN ('tombstoned', 'purge_failed')
+SET purge_attempts = purge_attempts + 1, purge_started_at = now(),
+    purge_claim_token = $2, purge_claim_until = now() + interval '5 minutes', updated_at = now()
+WHERE id = $1
+  AND state IN ('tombstoned', 'purge_failed')
+  AND (purge_claim_until IS NULL OR purge_claim_until <= now())
 RETURNING *;
 
--- name: ClaimStorageHomeFailedPurgeRetry :one
--- A retry claimant moves the failed row back to tombstoned before physical I/O.
--- This is the CAS that makes retry-purge an exactly-one-operator action.
+-- name: RenewStorageHomePurgeClaim :execrows
 UPDATE storage_home
-SET state = 'tombstoned', purge_attempts = purge_attempts + 1,
-    purge_started_at = now(), last_purge_error = NULL, updated_at = now()
-WHERE id = $1 AND state = 'purge_failed'
-RETURNING *;
+SET purge_claim_until = now() + interval '5 minutes', updated_at = now()
+WHERE id = $1 AND purge_claim_token = $2 AND purge_claim_until > now();
 
 -- name: MarkStorageHomePurgeFailed :one
-UPDATE storage_home SET state = 'purge_failed', purge_failed_at = now(), last_purge_error = $2, updated_at = now()
+UPDATE storage_home
+SET state = 'purge_failed', purge_failed_at = now(), last_purge_error = $2,
+    purge_claim_token = NULL, purge_claim_until = NULL, updated_at = now()
 WHERE id = $1 AND state IN ('tombstoned', 'purge_failed')
+  AND purge_claim_token = $3 AND purge_claim_until > now()
 RETURNING *;
 
 -- name: MarkStorageHomePurged :one
 UPDATE storage_home
-SET state = 'purged', purged_at = now(), purged_by = $2, updated_at = now()
+SET state = 'purged', purged_at = now(), purged_by = $2,
+    purge_claim_token = NULL, purge_claim_until = NULL, updated_at = now()
 WHERE id = $1 AND state IN ('tombstoned', 'purge_failed')
+  AND purge_claim_token = $3 AND purge_claim_until > now()
 RETURNING *;
 
 -- name: AcquireStorageHomeMaintenance :one
 UPDATE storage_home
-SET maintenance_owner = $2, maintenance_until = $3, updated_at = now()
+SET maintenance_owner = $2, maintenance_token = $3, maintenance_until = $4, updated_at = now()
 WHERE id = $1
   AND state = 'ready'
-  AND $3 > now()
-  AND (maintenance_until IS NULL OR maintenance_until < now())
+  AND $4 > now()
+  AND (maintenance_until IS NULL OR maintenance_until <= now())
 RETURNING *;
 
 -- name: ReleaseStorageHomeMaintenance :execrows
 UPDATE storage_home
-SET maintenance_owner = NULL, maintenance_until = NULL, updated_at = now()
-WHERE id = $1 AND maintenance_owner = $2;
+SET maintenance_owner = NULL, maintenance_token = NULL, maintenance_until = NULL, updated_at = now()
+WHERE id = $1 AND maintenance_token = $2 AND maintenance_until > now();
 
 -- name: CutoverStorageHomeStore :one
 UPDATE storage_home
-SET store_id = $4, locator = $5, maintenance_owner = NULL, maintenance_until = NULL, updated_at = now()
-WHERE id = $1 AND state = 'ready' AND store_id = $2 AND locator = $3 AND maintenance_owner = $6
+SET store_id = $4, locator = $5, maintenance_owner = NULL, maintenance_token = NULL, maintenance_until = NULL, updated_at = now()
+WHERE id = $1 AND state = 'ready' AND store_id = $2 AND locator = $3
+  AND maintenance_token = $6 AND maintenance_until > now()
 RETURNING *;
 
 -- name: GetStorageMigration :one
@@ -122,8 +131,11 @@ SELECT * FROM storage_migration WHERE name = $1;
 INSERT INTO storage_migration (name, state, object_authority_configured, metadata)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (name) DO UPDATE
-SET state = excluded.state,
-    object_authority_configured = excluded.object_authority_configured,
+SET state = CASE
+        WHEN storage_migration.object_authority_configured OR excluded.object_authority_configured THEN 'pending'
+        ELSE excluded.state
+    END,
+    object_authority_configured = storage_migration.object_authority_configured OR excluded.object_authority_configured,
     metadata = excluded.metadata,
     updated_at = now()
 WHERE storage_migration.state <> 'completed'

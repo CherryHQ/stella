@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 
@@ -142,10 +143,15 @@ func (d *OwnerDeletion) delete(ctx context.Context, kind OwnerKind, id, actor st
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("home: commit owner deletion: %w", err)
 	}
-	// The durable worker fences again before physical purge. Fence now too: a
-	// successful delete response must not leave a cached runner discoverable.
+	// The durable worker fences again before physical purge. Fence now too as a
+	// best-effort latency optimization; the committed deletion remains successful
+	// when this replica cannot fence immediately.
 	if err := d.fencer.FenceHomeOwner(ctx, kind, id); err != nil {
-		return fmt.Errorf("home: owner deletion committed but execution fence is unavailable; River will retry fencing before purge: %w", err)
+		slog.Default().ErrorContext(ctx, "home: immediate owner execution fence failed after deletion commit",
+			"owner_kind", kind,
+			"owner_id", id,
+			"error", err,
+		)
 	}
 	return nil
 }
@@ -274,12 +280,14 @@ func (w *ownerPurgeWorker) Work(ctx context.Context, j *river.Job[ownerPurgeArgs
 	// bytes before the principal compatibility root on every retry.
 	records := make([]Record, 0, len(j.Args.HomeIDs))
 	var transient error
+	blockedAbove := int(^uint(0) >> 1)
 	for _, id := range j.Args.HomeIDs {
 		record, err := w.deletion.registry.Record(ctx, id)
 		if err != nil {
 			// A malformed/stale batch member must remain retryable, but it must
 			// not prevent independent Home bytes in this batch from being purged.
 			transient = errors.Join(transient, fmt.Errorf("home: load purge record %q: %w", id, err))
+			blockedAbove = 0 // Unknown batch members may be nested AgentHomes.
 			continue
 		}
 		records = append(records, record)
@@ -292,12 +300,27 @@ func (w *ownerPurgeWorker) Work(ctx context.Context, j *river.Job[ownerPurgeArgs
 		return records[i].ID < records[k].ID
 	})
 	for _, record := range records {
-		if _, err := w.deletion.registry.Purge(ctx, record.ID, j.Args.Actor); err != nil {
+		order := purgeOrder(record)
+		if order > blockedAbove {
+			transient = errors.Join(transient, fmt.Errorf("home %s: physical purge waits for a child Home", record.ID))
+			continue
+		}
+		purged, err := w.deletion.registry.Purge(ctx, record.ID, j.Args.Actor)
+		if err != nil {
+			if order < blockedAbove {
+				blockedAbove = order
+			}
 			var physical *PhysicalPurgeError
 			if errors.As(err, &physical) {
-				continue // durably parked in purge_failed; admin must retry it.
+				continue // Durably parked; a dependent parent keeps River retrying.
 			}
 			transient = errors.Join(transient, fmt.Errorf("home %s: %w", record.ID, err))
+			continue
+		}
+		if purged.State != StatePurged {
+			if order < blockedAbove {
+				blockedAbove = order
+			}
 		}
 	}
 	return transient

@@ -200,16 +200,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// Home registration is deliberately after the Phase 0 legacy-skill and
 	// bundle/tool gates: it may create directories, so it must not mutate a
 	// blocked installation.
-	localHomeStore, err := home.NewLocalStore(cfg.Storage.HomeStoreID, config.StellaHome())
-	if err != nil {
-		return nil, fmt.Errorf("configure Home Store: %w", err)
-	}
-	homeRegistry, err := home.NewRegistry(db, cfg.Storage.HomeStoreID, localHomeStore)
+	homeRegistry, err := home.NewLocalRegistry(parent, db, cfg.Storage.HomeStoreID, config.StellaHome())
 	if err != nil {
 		return nil, fmt.Errorf("build Home registry: %w", err)
-	}
-	if err := homeRegistry.ValidateConfiguredStores(parent); err != nil {
-		return nil, err
 	}
 	// Record authority observation and adopt existing typed layouts before any
 	// runtime service can consume a Home attachment.

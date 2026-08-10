@@ -1,8 +1,10 @@
 package home
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -400,7 +402,7 @@ func TestOwnerDeletionCreatesSentinelForNeverMaterializedOwner(t *testing.T) {
 	}
 }
 
-func TestOwnerDeletionFencerFailureLeavesCommittedRecovery(t *testing.T) {
+func TestOwnerDeletionImmediateFencerFailureIsLoggedAndLeavesCommittedRecovery(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	store, _ := NewLocalStore("local", t.TempDir())
@@ -411,8 +413,22 @@ func TestOwnerDeletionFencerFailureLeavesCommittedRecovery(t *testing.T) {
 	}
 	enqueue, fencer := &recordingOwnerEnqueue{}, &recordingOwnerFencer{err: errors.New("down")}
 	deletion, _ := NewOwnerDeletion(db, registry, enqueue, fencer)
-	if err := deletion.DeleteGroup(ctx, groupID, "operator"); err == nil {
-		t.Fatal("fencer failure returned success")
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+	if err := deletion.DeleteGroup(ctx, groupID, "operator"); err != nil {
+		t.Fatalf("committed deletion returned immediate fencer failure: %v", err)
+	}
+	for _, want := range []string{
+		"immediate owner execution fence failed after deletion commit",
+		`"owner_kind":"group"`,
+		`"owner_id":"` + groupID + `"`,
+		`"error":"down"`,
+	} {
+		if !strings.Contains(logs.String(), want) {
+			t.Fatalf("fencer failure log = %s, want %q", logs.String(), want)
+		}
 	}
 	if len(enqueue.args) != 1 {
 		t.Fatal("committed deletion did not retain River recovery job")
@@ -483,8 +499,45 @@ func TestOwnerPurgeWorkerReturnsTransientLoadErrorAfterOtherRecords(t *testing.T
 	if err == nil {
 		t.Fatal("missing record load was acknowledged")
 	}
-	if record, err := registry.Record(ctx, good.ID); err != nil || record.State != StatePurged {
-		t.Fatalf("independent record = %#v, %v; want purged", record, err)
+	if record, err := registry.Record(ctx, good.ID); err != nil || record.State != StateTombstoned {
+		t.Fatalf("potential parent record = %#v, %v; want tombstoned", record, err)
+	}
+}
+
+func TestOwnerPurgeWorkerDoesNotDeleteParentAfterChildFailure(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	base, _ := NewLocalStore("local", t.TempDir())
+	store := &recordingPurgeStore{Store: base, fail: map[string]error{}}
+	registry, _ := NewRegistry(db, store.ID(), store)
+	principal, _ := registry.Ensure(ctx, Principal(UserPrincipal, "user-with-failed-child"))
+	child, _ := registry.Ensure(ctx, Agent(UserPrincipal, "user-with-failed-child", "agent"))
+	for _, key := range []Key{principal.Key, child.Key} {
+		if _, err := registry.Tombstone(ctx, key, "operator"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store.fail[child.ID] = errors.New("disk full")
+	worker := &ownerPurgeWorker{deletion: &OwnerDeletion{registry: registry, fencer: &recordingOwnerFencer{}}}
+	job := &river.Job[ownerPurgeArgs]{Args: ownerPurgeArgs{OwnerKind: OwnerUser, OwnerID: "user-with-failed-child", HomeIDs: []string{principal.ID, child.ID}, Actor: "operator"}}
+	if err := worker.Work(ctx, job); err == nil {
+		t.Fatal("child-blocked parent purge was acknowledged")
+	}
+	if len(store.order) != 1 || store.order[0] != child.ID {
+		t.Fatalf("physical order after child failure = %v, want child only", store.order)
+	}
+	if record, err := registry.Record(ctx, principal.ID); err != nil || record.State != StateTombstoned {
+		t.Fatalf("parent after child failure = %#v, %v", record, err)
+	}
+	delete(store.fail, child.ID)
+	if _, err := registry.RetryFailedPurge(ctx, child.ID, "operator"); err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.Work(ctx, job); err != nil {
+		t.Fatalf("parent continuation after child retry: %v", err)
+	}
+	if record, err := registry.Record(ctx, principal.ID); err != nil || record.State != StatePurged {
+		t.Fatalf("parent after child recovery = %#v, %v", record, err)
 	}
 }
 

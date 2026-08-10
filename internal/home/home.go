@@ -180,18 +180,19 @@ func NewRegistry(db *pgxpool.Pool, defaultStore string, stores ...Store) (*Regis
 }
 
 func (r *Registry) Ensure(ctx context.Context, key Key) (Record, error) {
-	return r.ensureWithQueries(ctx, r.q, key)
+	return r.ensureWithStore(ctx, r.q, key, r.defaultStore)
 }
 
-// ensureWithQueries keeps every registry transition on the supplied handle.
-// WorkspaceView passes its advisory-lock transaction; public callers use r.q.
-func (r *Registry) ensureWithQueries(ctx context.Context, q *sqlc.Queries, key Key) (Record, error) {
+func (r *Registry) ensureWithStore(ctx context.Context, q *sqlc.Queries, key Key, storeID string) (Record, error) {
 	if err := key.Validate(); err != nil {
 		return Record{}, err
 	}
 	row, err := r.getWithQueries(ctx, q, key)
 	if errors.Is(err, pgx.ErrNoRows) {
-		store := r.stores[r.defaultStore]
+		store := r.stores[storeID]
+		if store == nil {
+			return Record{}, fmt.Errorf("home: Store %q is not configured", storeID)
+		}
 		locator, allocateErr := store.Allocate(key)
 		if allocateErr != nil {
 			return Record{}, fmt.Errorf("home: allocate locator: %w", allocateErr)
@@ -317,9 +318,15 @@ type PhysicalPurgeError struct{ err error }
 func (e *PhysicalPurgeError) Error() string { return fmt.Sprintf("home: physical purge: %v", e.err) }
 func (e *PhysicalPurgeError) Unwrap() error { return e.err }
 
+var ErrPurgeInProgress = errors.New("home: physical purge is already in progress")
+
 // Purge performs the physical half of a previously fenced deletion. It is
 // idempotent for purged records and records a physical failure durably.
 func (r *Registry) Purge(ctx context.Context, id, actor string) (Record, error) {
+	return r.purge(ctx, id, actor, false)
+}
+
+func (r *Registry) purge(ctx context.Context, id, actor string, requireFailed bool) (Record, error) {
 	if strings.TrimSpace(actor) == "" {
 		return Record{}, errors.New("home: purge actor is required")
 	}
@@ -331,15 +338,39 @@ func (r *Registry) Purge(ctx context.Context, id, actor string) (Record, error) 
 	if err != nil {
 		return Record{}, err
 	}
+	if row.PurgeClaimToken.Valid && row.PurgeClaimUntil.Valid && row.PurgeClaimUntil.Time.After(time.Now().UTC()) {
+		return Record{}, ErrPurgeInProgress
+	}
 	if home.State == StatePurged {
+		if requireFailed {
+			return Record{}, fmt.Errorf("home: %s is not eligible for purge retry", home.State)
+		}
+		return home, nil
+	}
+	if home.State == StatePurgeFailed && !requireFailed {
+		// Physical failures remain parked until the explicit maintenance retry.
 		return home, nil
 	}
 	if home.State != StateTombstoned && home.State != StatePurgeFailed {
 		return Record{}, fmt.Errorf("home: %s cannot purge", home.State)
 	}
-	row, err = r.q.BeginStorageHomePurge(ctx, id)
+	if requireFailed && home.State != StatePurgeFailed {
+		return Record{}, fmt.Errorf("home: %s is not eligible for purge retry", home.State)
+	}
+	claimToken := uuid.Must(uuid.NewV7()).String()
+	row, err = r.q.ClaimStorageHomePurge(ctx, sqlc.ClaimStorageHomePurgeParams{ID: id, PurgeClaimToken: text(claimToken)})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return r.purgedAfterRace(ctx, id)
+		current, readErr := r.q.GetStorageHome(ctx, id)
+		if readErr != nil {
+			return Record{}, fmt.Errorf("home: reload purge claim: %w", readErr)
+		}
+		if current.State == string(StatePurged) && !requireFailed {
+			return r.decode(current)
+		}
+		if current.PurgeClaimToken.Valid && current.PurgeClaimUntil.Valid && current.PurgeClaimUntil.Time.After(time.Now().UTC()) {
+			return Record{}, ErrPurgeInProgress
+		}
+		return Record{}, fmt.Errorf("home: %s cannot claim purge", current.State)
 	}
 	if err != nil {
 		return Record{}, fmt.Errorf("home: begin purge: %w", err)
@@ -348,24 +379,51 @@ func (r *Registry) Purge(ctx context.Context, id, actor string) (Record, error) 
 	if err != nil {
 		return Record{}, err
 	}
-	if err := r.stores[home.StoreID].Purge(ctx, home); err != nil {
-		_, markErr := r.q.MarkStorageHomePurgeFailed(ctx, sqlc.MarkStorageHomePurgeFailedParams{ID: id, LastPurgeError: nullable(err.Error())})
+	stopRenewal := r.renewPurgeClaim(ctx, id, claimToken)
+	physicalErr := r.stores[home.StoreID].Purge(ctx, home)
+	stopRenewal()
+	if physicalErr != nil {
+		_, markErr := r.q.MarkStorageHomePurgeFailed(ctx, sqlc.MarkStorageHomePurgeFailedParams{ID: id, LastPurgeError: nullable(physicalErr.Error()), PurgeClaimToken: text(claimToken)})
 		if markErr != nil {
-			if raced, raceErr := r.purgedAfterRace(ctx, id); raceErr == nil {
-				return raced, nil
-			}
-			return Record{}, fmt.Errorf("home: physical purge: %w; record failure: %w", err, markErr)
+			return Record{}, fmt.Errorf("home: physical purge: %w; record failure: %w", physicalErr, markErr)
 		}
-		return Record{}, &PhysicalPurgeError{err: err}
+		return Record{}, &PhysicalPurgeError{err: physicalErr}
 	}
-	row, err = r.q.MarkStorageHomePurged(ctx, sqlc.MarkStorageHomePurgedParams{ID: id, PurgedBy: nullable(actor)})
+	row, err = r.q.MarkStorageHomePurged(ctx, sqlc.MarkStorageHomePurgedParams{ID: id, PurgedBy: nullable(actor), PurgeClaimToken: text(claimToken)})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return r.purgedAfterRace(ctx, id)
+		return Record{}, errors.New("home: purge claim was lost before completion")
 	}
 	if err != nil {
 		return Record{}, fmt.Errorf("home: mark purged: %w", err)
 	}
 	return r.decode(row)
+}
+
+func (r *Registry) renewPurgeClaim(ctx context.Context, id, token string) func() {
+	ctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				renewCtx, renewCancel := context.WithTimeout(ctx, 10*time.Second)
+				rows, err := r.q.RenewStorageHomePurgeClaim(renewCtx, sqlc.RenewStorageHomePurgeClaimParams{ID: id, PurgeClaimToken: text(token)})
+				renewCancel()
+				if err != nil || rows != 1 {
+					return
+				}
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
 }
 
 // Record reads one registry record for lifecycle workers without exposing raw
@@ -382,61 +440,58 @@ func (r *Registry) Record(ctx context.Context, id string) (Record, error) {
 // refuses tombstoned, ready, purged, and missing records, so maintenance cannot
 // turn an ordinary pending deletion into an immediate purge.
 func (r *Registry) RetryFailedPurge(ctx context.Context, id, actor string) (Record, error) {
-	if strings.TrimSpace(actor) == "" {
-		return Record{}, errors.New("home: purge actor is required")
+	return r.purge(ctx, id, actor, true)
+}
+
+type MaintenanceLease struct {
+	Home  Record
+	Owner string
+	Token string
+	Until time.Time
+}
+
+func (r *Registry) AcquireMaintenance(ctx context.Context, id, owner string, until time.Time) (MaintenanceLease, error) {
+	if strings.TrimSpace(owner) == "" {
+		return MaintenanceLease{}, errors.New("home: maintenance owner is required")
 	}
-	row, err := r.q.ClaimStorageHomeFailedPurgeRetry(ctx, id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		home, readErr := r.Record(ctx, id)
-		if readErr != nil {
-			return Record{}, fmt.Errorf("home: find failed purge: %w", readErr)
-		}
-		return Record{}, fmt.Errorf("home: %s is not eligible for purge retry", home.State)
+	if until.IsZero() || !until.After(time.Now().UTC()) {
+		return MaintenanceLease{}, errors.New("home: maintenance lease must be in the future")
 	}
+	token := uuid.Must(uuid.NewV7()).String()
+	row, err := r.q.AcquireStorageHomeMaintenance(ctx, sqlc.AcquireStorageHomeMaintenanceParams{ID: id, MaintenanceOwner: nullable(owner), MaintenanceToken: text(token), MaintenanceUntil: pgtype.Timestamptz{Time: until.UTC(), Valid: true}})
 	if err != nil {
-		return Record{}, fmt.Errorf("home: claim failed purge retry: %w", err)
+		return MaintenanceLease{}, fmt.Errorf("home: acquire maintenance: %w", err)
 	}
 	home, err := r.decode(row)
 	if err != nil {
-		return Record{}, err
+		return MaintenanceLease{}, err
 	}
-	if err := r.stores[home.StoreID].Purge(ctx, home); err != nil {
-		_, markErr := r.q.MarkStorageHomePurgeFailed(ctx, sqlc.MarkStorageHomePurgeFailedParams{ID: id, LastPurgeError: nullable(err.Error())})
-		if markErr != nil {
-			return Record{}, fmt.Errorf("home: physical purge: %w; record failure: %w", err, markErr)
-		}
-		return Record{}, &PhysicalPurgeError{err: err}
-	}
-	row, err = r.q.MarkStorageHomePurged(ctx, sqlc.MarkStorageHomePurgedParams{ID: id, PurgedBy: nullable(actor)})
-	if err != nil {
-		return Record{}, fmt.Errorf("home: mark retried purge: %w", err)
-	}
-	return r.decode(row)
+	return MaintenanceLease{Home: home, Owner: owner, Token: token, Until: until.UTC()}, nil
 }
 
-func (r *Registry) AcquireMaintenance(ctx context.Context, id, owner string, until time.Time) (Record, error) {
-	if strings.TrimSpace(owner) == "" {
-		return Record{}, errors.New("home: maintenance owner is required")
+func (r *Registry) ReleaseMaintenance(ctx context.Context, id, token string) error {
+	if strings.TrimSpace(token) == "" {
+		return errors.New("home: maintenance token is required")
 	}
-	if until.IsZero() || !until.After(time.Now().UTC()) {
-		return Record{}, errors.New("home: maintenance lease must be in the future")
-	}
-	row, err := r.q.AcquireStorageHomeMaintenance(ctx, sqlc.AcquireStorageHomeMaintenanceParams{ID: id, MaintenanceOwner: nullable(owner), MaintenanceUntil: pgtype.Timestamptz{Time: until.UTC(), Valid: true}})
+	rows, err := r.q.ReleaseStorageHomeMaintenance(ctx, sqlc.ReleaseStorageHomeMaintenanceParams{ID: id, MaintenanceToken: text(token)})
 	if err != nil {
-		return Record{}, fmt.Errorf("home: acquire maintenance: %w", err)
+		return fmt.Errorf("home: release maintenance: %w", err)
 	}
-	return r.decode(row)
+	if rows != 1 {
+		return errors.New("home: maintenance lease is stale")
+	}
+	return nil
 }
 
 // CutoverStore records a completed offline copy. The caller is responsible for
 // fencing consumers and verifying physical data before this CAS; no filesystem
 // work occurs in the database transaction.
-func (r *Registry) CutoverStore(ctx context.Context, current Record, newStoreID, newLocator, owner string) (Record, error) {
+func (r *Registry) CutoverStore(ctx context.Context, current Record, newStoreID, newLocator, token string) (Record, error) {
 	if err := validateStoreID(newStoreID); err != nil {
 		return Record{}, fmt.Errorf("home: invalid target store: %w", err)
 	}
-	if strings.TrimSpace(owner) == "" {
-		return Record{}, errors.New("home: maintenance owner is required")
+	if strings.TrimSpace(token) == "" {
+		return Record{}, errors.New("home: maintenance token is required")
 	}
 	row, err := r.q.GetStorageHome(ctx, current.ID)
 	if err != nil {
@@ -459,7 +514,7 @@ func (r *Registry) CutoverStore(ctx context.Context, current Record, newStoreID,
 	if err := store.ValidateLocator(persisted.Key, newLocator); err != nil {
 		return Record{}, fmt.Errorf("home: invalid target locator: %w", err)
 	}
-	row, err = r.q.CutoverStorageHomeStore(ctx, sqlc.CutoverStorageHomeStoreParams{ID: persisted.ID, StoreID: persisted.StoreID, Locator: persisted.Locator, StoreID_2: newStoreID, Locator_2: newLocator, MaintenanceOwner: nullable(owner)})
+	row, err = r.q.CutoverStorageHomeStore(ctx, sqlc.CutoverStorageHomeStoreParams{ID: persisted.ID, StoreID: persisted.StoreID, Locator: persisted.Locator, StoreID_2: newStoreID, Locator_2: newLocator, MaintenanceToken: text(token)})
 	if err != nil {
 		return Record{}, fmt.Errorf("home: cut over store: %w", err)
 	}
@@ -587,11 +642,11 @@ func (r *Registry) RegisterLegacy(ctx context.Context) error {
 	knownAgents := make(map[string]struct{}, len(agents))
 	for _, id := range agents {
 		knownAgents[id] = struct{}{}
-		if _, err := r.Ensure(ctx, SystemAgentSkills(id)); err != nil {
+		if _, err := r.ensureWithStore(ctx, r.q, SystemAgentSkills(id), legacyStore.ID()); err != nil {
 			return fmt.Errorf("home: register system Agent Skill root %q: %w", id, err)
 		}
 	}
-	if _, err := r.Ensure(ctx, SystemSkills()); err != nil {
+	if _, err := r.ensureWithStore(ctx, r.q, SystemSkills(), legacyStore.ID()); err != nil {
 		return fmt.Errorf("home: register system Skill root: %w", err)
 	}
 	principals := make([]Key, 0, len(users)+len(groups))
@@ -602,7 +657,7 @@ func (r *Registry) RegisterLegacy(ctx context.Context) error {
 		principals = append(principals, Principal(GroupPrincipal, id))
 	}
 	for _, key := range principals {
-		if _, err := r.Ensure(ctx, key); err != nil {
+		if _, err := r.ensureWithStore(ctx, r.q, key, legacyStore.ID()); err != nil {
 			return fmt.Errorf("home: register principal: %w", err)
 		}
 	}
@@ -614,7 +669,7 @@ func (r *Registry) RegisterLegacy(ctx context.Context) error {
 		if _, ok := knownAgents[assignment.AgentID]; !ok {
 			return fmt.Errorf("home: user assignment references unknown Agent %q", assignment.AgentID)
 		}
-		if _, err := r.Ensure(ctx, Agent(UserPrincipal, assignment.UserID, assignment.AgentID)); err != nil {
+		if _, err := r.ensureWithStore(ctx, r.q, Agent(UserPrincipal, assignment.UserID, assignment.AgentID), legacyStore.ID()); err != nil {
 			return fmt.Errorf("home: register user AgentHome: %w", err)
 		}
 	}
@@ -626,7 +681,7 @@ func (r *Registry) RegisterLegacy(ctx context.Context) error {
 		if _, ok := knownAgents[assignment.AgentID]; !ok {
 			return fmt.Errorf("home: group assignment references unknown Agent %q", assignment.AgentID)
 		}
-		if _, err := r.Ensure(ctx, Agent(GroupPrincipal, assignment.GroupID, assignment.AgentID)); err != nil {
+		if _, err := r.ensureWithStore(ctx, r.q, Agent(GroupPrincipal, assignment.GroupID, assignment.AgentID), legacyStore.ID()); err != nil {
 			return fmt.Errorf("home: register group AgentHome: %w", err)
 		}
 	}
@@ -639,7 +694,7 @@ func (r *Registry) RegisterLegacy(ctx context.Context) error {
 			if _, ok := knownAgents[id]; !ok {
 				continue
 			}
-			if _, err := r.Ensure(ctx, Agent(principal.PrincipalKind, principal.PrincipalID, id)); err != nil {
+			if _, err := r.ensureWithStore(ctx, r.q, Agent(principal.PrincipalKind, principal.PrincipalID, id), legacyStore.ID()); err != nil {
 				return fmt.Errorf("home: register legacy AgentHome: %w", err)
 			}
 		}
@@ -709,21 +764,6 @@ func (r *Registry) legacyRegistrationStore(marker sqlc.StorageMigration) (Store,
 		return nil, fmt.Errorf("home: legacy registration Store %q is not configured", metadata.StoreID)
 	}
 	return store, nil
-}
-
-func (r *Registry) purgedAfterRace(ctx context.Context, id string) (Record, error) {
-	row, err := r.q.GetStorageHome(ctx, id)
-	if err != nil {
-		return Record{}, fmt.Errorf("home: get lifecycle race: %w", err)
-	}
-	home, err := r.decode(row)
-	if err != nil {
-		return Record{}, err
-	}
-	if home.State != StatePurged {
-		return Record{}, fmt.Errorf("home: concurrent purge left Home %s", home.State)
-	}
-	return home, nil
 }
 
 func (r *Registry) get(ctx context.Context, key Key) (sqlc.StorageHome, error) {

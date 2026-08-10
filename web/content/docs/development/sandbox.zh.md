@@ -37,7 +37,7 @@ Phase 1 将持久 Home 的类型化身份与机器路径分离。registry 为每
 
 用户或群组运行会得到其 Principal、Agent Home attachment，以及只读的共享 Skill 根。无用户运行只得到这些只读共享 Skill 根，没有 Principal 或 Agent Home。群组 Agent Home 的 Skill materialization 不含 user 或 `user_agent` scope：它不会把群组数据变成某个用户的 `user_agent` Skill。
 
-显式破坏性所有者删除会先 tombstone 并 fence Home，随后共享 River purge worker 清除字节。此 fencing 仅适用于单副本。Phase 3 必须加入跨副本 SessionSandbox fencing；目前尚未实现。
+显式破坏性删除群组或 Agent 会先 tombstone 并 fence Home；用户删除具备相同的内部生命周期 primitive，但尚未与产品账号删除集成。共享 River purge worker 会先取得持久、独占且会过期的 claim，再清除字节，因此进程崩溃或 claim 过期后可由其他 worker 恢复。attachment 是坐标与策略输入，不是 authority 授权。此 fencing 仅适用于单副本。Phase 3 必须加入跨副本 SessionSandbox fencing；目前尚未实现。
 
 ## 当前架构
 

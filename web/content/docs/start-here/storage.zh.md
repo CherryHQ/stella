@@ -54,7 +54,7 @@ Phase 1 还在 PostgreSQL 中记录了类型化 Home 的身份和生命周期元
 
 ## 破坏性所有者删除
 
-显式破坏性删除用户、群组或 Agent 时，其 Home 会立刻被 tombstone，并 fence 本地缓存的执行；随后共享 worker 会异步且幂等地清除物理字节。这是唯一会删除 Home 的生命周期：移除 Agent 分配、移除群成员、归档 Session 和卸载 Helm 都**不会**删除 Home。
+显式破坏性删除群组或 Agent 时，其 Home 会立刻被 tombstone，并 fence 本地缓存的执行。破坏性用户删除具备相同的内部生命周期 primitive，但产品账号删除尚未与它集成。随后共享 worker 通过持久、独占且会过期的 claim 异步、幂等地清除物理字节；进程崩溃或 claim 过期后，其他 worker 可以恢复清除。这些是仅有的 Home 删除生命周期：移除 Agent 分配、移除群成员、归档 Session 和卸载 Helm 都**不会**删除 Home。
 
 物理清除失败时，Home 会以 `purge_failed` 状态连同审计记录保留，不会被静默丢弃；操作员必须重试。命令语法请运行 `stellad storage retry-purge --help`。
 

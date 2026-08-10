@@ -61,4 +61,4 @@ Before upgrading, inspect legacy `$STELLA_HOME/.agents/skills`. Using the old wo
 
 Before downgrading to a binary that predates AgentSkillPolicy v1, re-enable every disabled Skill and explicitly clear dangling disablements in the Web UI. Older binaries ignore canonical policy, and ordinary Agent edits can overwrite the reused column. Retained bundle directories are derived and inert after rollback.
 
-An explicit destructive user, group, or Agent delete is the only lifecycle that purges Homes. Routine upgrades and Helm uninstall do not purge them. If a physical purge is retained as `purge_failed`, use `stellad storage retry-purge --help` for retry syntax.
+Explicit destructive group and Agent deletion are Home-purging lifecycles. User deletion has the same internal lifecycle primitive, pending product account-delete integration. Purge workers use durable, exclusive, expiring claims so work can be recovered after a crash or claim expiry. Routine upgrades and Helm uninstall do not purge Homes. If a physical purge is retained as `purge_failed`, use `stellad storage retry-purge --help` for retry syntax.

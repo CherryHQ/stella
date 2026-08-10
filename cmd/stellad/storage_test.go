@@ -78,7 +78,7 @@ func TestRetryFailedPurgeUsesConfiguredLocalStore(t *testing.T) {
 	config.ResetStellaHome()
 	t.Cleanup(config.ResetStellaHome)
 	db := dbtest.New(t)
-	store, err := home.NewLocalStore("local", stellaHome)
+	store, err := home.NewLocalStore("old-local", stellaHome)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,6 +102,7 @@ func TestRetryFailedPurgeUsesConfiguredLocalStore(t *testing.T) {
 		t.Fatal("initial purge unexpectedly succeeded")
 	}
 	failing.fail = false
+	t.Setenv("STELLA_HOME_STORE_ID", "new-default")
 	purged, err := retryFailedPurge(ctx, record.ID, db.Config().ConnString())
 	if err != nil || purged.State != home.StatePurged {
 		t.Fatalf("retryFailedPurge = %#v, %v", purged, err)
