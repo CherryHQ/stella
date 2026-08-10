@@ -7,7 +7,7 @@ import { useI18n } from "@/lib/i18n";
 import type { SettingsNavGroup } from "@/features/settings/SettingsSurfaceLayout";
 import { SettingsSurfaceLayout } from "@/features/settings/SettingsSurfaceLayout";
 
-const adminNav: SettingsNavGroup[] = [
+export const adminSettingsNav: SettingsNavGroup[] = [
   {
     label: "admin.section.operations",
     items: [{ label: "admin.nav.overview", href: "/admin/overview", icon: Gauge }],
@@ -52,5 +52,5 @@ export function AdminLayout() {
     );
   }
 
-  return <SettingsSurfaceLayout title="nav.adminConsole" groups={adminNav} />;
+  return <SettingsSurfaceLayout title="nav.adminConsole" groups={adminSettingsNav} />;
 }

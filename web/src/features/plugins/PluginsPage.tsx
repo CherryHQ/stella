@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Link, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import {
   deleteManifestPlugin,
   getPluginConfig,
@@ -50,22 +49,24 @@ import { useToast } from "@/hooks/use-toast";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
 import { SettingsGridPage, SettingsDetailSheet } from "@/features/settings/SettingsCardGrid";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
-import { meQueryOptions } from "@/lib/queries/me";
 import { MCPServersPanel } from "@/features/mcp/MCPServersPage";
 import { Plus } from "lucide-react";
 
-export function PluginsPage() {
+export function PersonalToolsPage() {
   const { t } = useI18n();
-  const { data: me } = useQuery(meQueryOptions);
-  const isAdmin = me?.is_admin ?? false;
+
+  return (
+    <SettingsGridPage title={t("mcp.title")}>
+      <MCPServersPanel embedded />
+    </SettingsGridPage>
+  );
+}
+
+export function AdminPluginsPage() {
+  const { t } = useI18n();
   const navigate = useNavigate();
-  const isAdminSurface = useRouterState({
-    select: (state) => state.location.pathname.startsWith("/admin/"),
-  });
-  const listRoute = isAdminSurface ? "/admin/integrations/plugins" : "/settings/plugins";
-  const detailRoute = isAdminSurface
-    ? "/admin/integrations/plugins/$pluginId"
-    : "/settings/plugins/$pluginId";
+  const listRoute = "/admin/integrations/plugins" as const;
+  const detailRoute = "/admin/integrations/plugins/$pluginId" as const;
   const params = useParams({ strict: false }) as { pluginId?: string };
   const pluginId = params.pluginId;
 
@@ -168,12 +169,11 @@ export function PluginsPage() {
   }
 
   useEffect(() => {
-    if (!isAdmin) return;
     void (async () => {
       await loadPlugins();
       await loadManifestPlugins();
     })();
-  }, [isAdmin, loadPlugins, loadManifestPlugins]);
+  }, [loadPlugins, loadManifestPlugins]);
 
   // Load config for selected plugin
   useEffect(() => {
@@ -592,52 +592,45 @@ export function PluginsPage() {
   return (
     <>
       <SettingsGridPage
-        title={t(isAdmin ? "plugins.title" : "mcp.title")}
+        title={t("plugins.title")}
         action={
-          isAdmin ? (
-            <Button
-              render={<Link to={detailRoute} params={{ pluginId: "new" }} />}
-              variant="outline"
-              size="sm"
-            >
-              <Plus className="size-4" />
-              {t("plugins.addTool")}
-            </Button>
-          ) : null
+          <Button
+            render={<Link to={detailRoute} params={{ pluginId: "new" }} />}
+            variant="outline"
+            size="sm"
+          >
+            <Plus className="size-4" />
+            {t("plugins.addTool")}
+          </Button>
         }
       >
-        <MCPServersPanel embedded />
-        {isAdmin && (
-          <>
-            <PluginSection
-              icon={bucketIcon.integration}
-              title={t("plugins.bucket.integrations")}
-              description={t("plugins.bucket.integrationsDesc")}
-              plugins={integrationPlugins}
-              activeName={selectedPlugin?.name}
-              detailRoute={detailRoute}
-              onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
-            />
-            <PluginSection
-              icon={bucketIcon.tool}
-              title={t("plugins.bucket.tools")}
-              description={t("plugins.bucket.toolsDesc")}
-              plugins={capabilityPlugins}
-              activeName={selectedPlugin?.name}
-              detailRoute={detailRoute}
-              onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
-            />
-            <PluginSection
-              icon={bucketIcon.system}
-              title={t("plugins.bucket.system")}
-              description={t("plugins.bucket.systemDesc")}
-              plugins={systemPlugins}
-              activeName={selectedPlugin?.name}
-              detailRoute={detailRoute}
-              onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
-            />
-          </>
-        )}
+        <PluginSection
+          icon={bucketIcon.integration}
+          title={t("plugins.bucket.integrations")}
+          description={t("plugins.bucket.integrationsDesc")}
+          plugins={integrationPlugins}
+          activeName={selectedPlugin?.name}
+          detailRoute={detailRoute}
+          onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
+        />
+        <PluginSection
+          icon={bucketIcon.tool}
+          title={t("plugins.bucket.tools")}
+          description={t("plugins.bucket.toolsDesc")}
+          plugins={capabilityPlugins}
+          activeName={selectedPlugin?.name}
+          detailRoute={detailRoute}
+          onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
+        />
+        <PluginSection
+          icon={bucketIcon.system}
+          title={t("plugins.bucket.system")}
+          description={t("plugins.bucket.systemDesc")}
+          plugins={systemPlugins}
+          activeName={selectedPlugin?.name}
+          detailRoute={detailRoute}
+          onToggle={(p, enabled) => void toggleSemanticPlugin(p, enabled)}
+        />
       </SettingsGridPage>
 
       <SettingsDetailSheet open={sheetOpen} onClose={closeSheet}>

@@ -4,7 +4,9 @@ const LEGACY_ADMIN_ROUTES: Array<[RegExp, string]> = [
   [/^\/settings\/vision$/, "/admin/ai/vision"],
   [/^\/settings\/provisioning$/, "/admin/access/provisioning"],
   [/^\/settings\/users(?:\/(.+))?$/, "/admin/users"],
-  [/^\/settings\/plugins(?:\/(.+))?$/, "/admin/integrations/plugins"],
+  // The list root is now personal MCP for every role. Only detail IDs remain
+  // legacy deployment-plugin links and therefore move to Admin Console.
+  [/^\/settings\/plugins\/(.+)$/, "/admin/integrations/plugins"],
   [/^\/settings\/about$/, "/admin/overview"],
 ];
 

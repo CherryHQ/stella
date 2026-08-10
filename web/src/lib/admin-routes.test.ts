@@ -10,7 +10,6 @@ describe("adminCompatibilityHref", () => {
     ["/settings/provisioning", "", "/admin/access/provisioning"],
     ["/settings/users", "?state=active", "/admin/users?state=active"],
     ["/settings/users/user-1", "", "/admin/users/user-1"],
-    ["/settings/plugins", "", "/admin/integrations/plugins"],
     [
       "/settings/plugins/telegram",
       "?tab=config",
@@ -24,5 +23,6 @@ describe("adminCompatibilityHref", () => {
   it("does not redirect personal routes", () => {
     expect(adminCompatibilityHref("/settings/account")).toBeNull();
     expect(adminCompatibilityHref("/settings/credentials")).toBeNull();
+    expect(adminCompatibilityHref("/settings/plugins")).toBeNull();
   });
 });

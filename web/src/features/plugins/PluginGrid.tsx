@@ -35,7 +35,7 @@ function PluginIcon({ plugin }: { plugin: PluginWithMeta }) {
 interface PluginCardProps {
   plugin: PluginWithMeta;
   active: boolean;
-  detailRoute: "/settings/plugins/$pluginId" | "/admin/integrations/plugins/$pluginId";
+  detailRoute: "/admin/integrations/plugins/$pluginId";
   onToggle: (enabled: boolean) => void;
 }
 
@@ -83,7 +83,7 @@ interface PluginSectionProps {
   description: string;
   plugins: PluginWithMeta[];
   activeName?: string;
-  detailRoute: "/settings/plugins/$pluginId" | "/admin/integrations/plugins/$pluginId";
+  detailRoute: "/admin/integrations/plugins/$pluginId";
   onToggle: (plugin: PluginWithMeta, enabled: boolean) => void;
 }
 

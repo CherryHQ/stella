@@ -14,7 +14,7 @@ import { meQueryOptions } from "@/lib/queries/me";
 import type { SettingsNavGroup } from "@/features/settings/SettingsSurfaceLayout";
 import { SettingsSurfaceLayout } from "@/features/settings/SettingsSurfaceLayout";
 
-const personalNav: SettingsNavGroup[] = [
+export const personalSettingsNav: SettingsNavGroup[] = [
   {
     label: "settings.section.resources",
     items: [
@@ -24,6 +24,7 @@ const personalNav: SettingsNavGroup[] = [
       { label: "settings.nav.credentials", href: "/settings/credentials", icon: KeyRound },
       { label: "settings.nav.library", href: "/settings/library", icon: Library },
       { label: "settings.nav.skills", href: "/settings/skills", icon: Puzzle },
+      { label: "mcp.title", href: "/settings/plugins", icon: Wrench },
     ],
   },
   {
@@ -32,28 +33,18 @@ const personalNav: SettingsNavGroup[] = [
   },
 ];
 
-const personalUserOnlyNav: SettingsNavGroup = {
-  label: "settings.section.resources",
-  items: [{ label: "mcp.title", href: "/settings/plugins", icon: Wrench }],
-};
-
 const aboutNav: SettingsNavGroup = {
   label: "settings.section.about",
   items: [{ label: "settings.nav.about", href: "/settings/about", icon: Info }],
 };
 
+export function personalSettingsGroups(isAdmin: boolean): SettingsNavGroup[] {
+  return isAdmin ? personalSettingsNav : [...personalSettingsNav, aboutNav];
+}
+
 export function SettingsLayout() {
   const { data: me } = useQuery(meQueryOptions);
-  const groups = me?.is_admin
-    ? personalNav
-    : [
-        {
-          ...personalNav[0],
-          items: [...personalNav[0].items, ...personalUserOnlyNav.items],
-        },
-        personalNav[1],
-        aboutNav,
-      ];
+  const groups = personalSettingsGroups(!!me?.is_admin);
 
   return <SettingsSurfaceLayout title="nav.personalSettings" groups={groups} />;
 }
