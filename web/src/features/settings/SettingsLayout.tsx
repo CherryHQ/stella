@@ -21,10 +21,10 @@ export const personalSettingsNav: SettingsNavGroup[] = [
       { label: "settings.nav.agents", href: "/settings/agents", icon: Bot },
       { label: "settings.nav.channels", href: "/settings/channels", icon: MessageSquare },
       { label: "settings.nav.webhooks", href: "/settings/webhooks", icon: Webhook },
-      { label: "settings.nav.credentials", href: "/settings/credentials", icon: KeyRound },
+      { label: "settings.nav.connections", href: "/settings/credentials", icon: KeyRound },
       { label: "settings.nav.library", href: "/settings/library", icon: Library },
       { label: "settings.nav.skills", href: "/settings/skills", icon: Puzzle },
-      { label: "mcp.title", href: "/settings/plugins", icon: Wrench },
+      { label: "mcp.title", href: "/settings/mcp", icon: Wrench },
     ],
   },
   {

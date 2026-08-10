@@ -3,6 +3,7 @@ package server_test
 import (
 	"encoding/json"
 	"net/http"
+	"path/filepath"
 	"testing"
 )
 
@@ -65,6 +66,41 @@ func TestScopedSkills_CreatePermissions(t *testing.T) {
 	}
 }
 
+func TestScopedSkills_AdminManagesGlobalSystemSkill(t *testing.T) {
+	env := setupAdmin(t)
+	source, err := filepath.Abs("../../resources/skills/system/stella")
+	if err != nil {
+		t.Fatalf("abs source: %v", err)
+	}
+
+	rr := doRequest(t, env, "POST", "/api/skills/install", map[string]any{
+		"source": source,
+		"scope":  "system",
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("install system skill status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
+	}
+	var installed struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &installed); err != nil {
+		t.Fatalf("unmarshal install response: %v", err)
+	}
+	assertFullSkillMutationResponse(t, rr, installed.ID, "manual")
+
+	rr = doRequest(t, env, "PATCH", "/api/skills/"+installed.ID, map[string]any{
+		"disable_model_invocation": true,
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("disable system skill status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	rr = doRequest(t, env, "DELETE", "/api/skills/"+installed.ID, nil)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("delete system skill status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
+	}
+}
+
 // TestScopedSkills_CrossUserIsolation verifies a user cannot read or delete
 // another user's user-scoped skill — existence is masked as 404.
 func TestScopedSkills_CrossUserIsolation(t *testing.T) {
@@ -91,7 +127,7 @@ func TestScopedSkills_CrossUserIsolation(t *testing.T) {
 }
 
 // TestScopedSkills_DeleteRemovesMutableRows verifies Settings deletion is
-// permanent for mutable rows, while immutable system skills stay protected.
+// permanent for every managed scope.
 func TestScopedSkills_DeleteRemovesMutableRows(t *testing.T) {
 	env := setupAdmin(t)
 	_, sid := newNonAdmin(t, env, "scoped-delete-lifecycle")
@@ -119,6 +155,7 @@ func TestScopedSkills_DeleteRemovesMutableRows(t *testing.T) {
 	}{
 		{name: "user", sid: sid, id: userID, scope: "user"},
 		{name: "user_agent", sid: sid, id: userAgentID, scope: "user_agent", agent: agentID},
+		{name: "system", sid: env.bearerToken, id: systemID, scope: "system"},
 		{name: "system_agent", sid: env.bearerToken, id: systemAgentID, scope: "system_agent", agent: agentID},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -137,17 +174,7 @@ func TestScopedSkills_DeleteRemovesMutableRows(t *testing.T) {
 		})
 	}
 
-	// A system row is never a mutable lifecycle row, even for a non-admin.
-	rr := doRequestWithSession(t, env.srv, sid, "DELETE", "/api/skills/"+systemID, nil)
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("system delete status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
-	}
-	rr = doRequest(t, env, "DELETE", "/api/skills/"+systemID, nil)
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("admin system delete status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
-	}
-
-	for _, id := range []string{userID, userAgentID, systemAgentID} {
+	for _, id := range []string{userID, userAgentID, systemID, systemAgentID} {
 		var skillCount, fileCount int
 		if err := env.db.QueryRow(t.Context(), `SELECT count(*) FROM skill WHERE id = $1`, id).Scan(&skillCount); err != nil {
 			t.Fatalf("count deleted skill %s: %v", id, err)
@@ -158,14 +185,6 @@ func TestScopedSkills_DeleteRemovesMutableRows(t *testing.T) {
 		if skillCount != 0 || fileCount != 0 {
 			t.Fatalf("deleted skill %s retained skill=%d files=%d", id, skillCount, fileCount)
 		}
-	}
-
-	rows, err := env.pluginHost.SkillStore().ListByScope(t.Context(), "system", "", "")
-	if err != nil {
-		t.Fatalf("list system row: %v", err)
-	}
-	if len(rows) != 1 || rows[0].ID != systemID || rows[0].Status == "deprecated" {
-		t.Fatalf("system row = %#v, want unchanged active row", rows)
 	}
 }
 

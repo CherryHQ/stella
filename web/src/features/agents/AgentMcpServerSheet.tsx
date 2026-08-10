@@ -40,9 +40,9 @@ function isAgentScope(scope: McpScope) {
 
 /**
  * Add or edit one MCP server for a single agent. The profile owns this agent's
- * registrations; the fleet-wide inventory (and moving a server between scopes)
- * stays with `/settings/plugins`, so the destination is chosen once at create
- * time and shown read-only afterwards.
+ * registrations. Personal inventory lives at `/settings/mcp`; deployment-owned
+ * inventory lives at `/admin/resources/mcp`. The destination is chosen once at
+ * create time and shown read-only afterwards.
  *
  * `formKey` remounts the draft: the caller bumps it every time the sheet opens,
  * so a cancelled edit never leaks its fields into the next one.

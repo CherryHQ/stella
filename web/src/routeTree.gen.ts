@@ -35,6 +35,7 @@ import { Route as AppSettingsSkillsRouteImport } from './routes/_app/settings/sk
 import { Route as AppSettingsProvisioningRouteImport } from './routes/_app/settings/provisioning'
 import { Route as AppSettingsProvidersRouteImport } from './routes/_app/settings/providers'
 import { Route as AppSettingsPluginsRouteImport } from './routes/_app/settings/plugins'
+import { Route as AppSettingsMcpRouteImport } from './routes/_app/settings/mcp'
 import { Route as AppSettingsLibraryRouteImport } from './routes/_app/settings/library'
 import { Route as AppSettingsEmbeddingRouteImport } from './routes/_app/settings/embedding'
 import { Route as AppSettingsCredentialsRouteImport } from './routes/_app/settings/credentials'
@@ -47,6 +48,7 @@ import { Route as AppGroupsGroupIdRouteImport } from './routes/_app/groups.$grou
 import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents.$agentId'
 import { Route as AppAdminUsersRouteImport } from './routes/_app/admin/users'
 import { Route as AppAdminOverviewRouteImport } from './routes/_app/admin/overview'
+import { Route as AppSettingsPluginsIndexRouteImport } from './routes/_app/settings/plugins.index'
 import { Route as AppAgentsAgentIdIndexRouteImport } from './routes/_app/agents.$agentId/index'
 import { Route as AppSettingsUsersUserIdRouteImport } from './routes/_app/settings/users.$userId'
 import { Route as AppSettingsProvidersProviderIdRouteImport } from './routes/_app/settings/providers.$providerId'
@@ -58,6 +60,10 @@ import { Route as AppAgentsAgentIdThreadsRouteImport } from './routes/_app/agent
 import { Route as AppAgentsAgentIdProfileRouteImport } from './routes/_app/agents.$agentId/profile'
 import { Route as AppAgentsAgentIdMemoriesRouteImport } from './routes/_app/agents.$agentId/memories'
 import { Route as AppAdminUsersUserIdRouteImport } from './routes/_app/admin/users.$userId'
+import { Route as AppAdminResourcesSkillsRouteImport } from './routes/_app/admin/resources/skills'
+import { Route as AppAdminResourcesMcpRouteImport } from './routes/_app/admin/resources/mcp'
+import { Route as AppAdminResourcesLibraryRouteImport } from './routes/_app/admin/resources/library'
+import { Route as AppAdminResourcesCredentialsRouteImport } from './routes/_app/admin/resources/credentials'
 import { Route as AppAdminIntegrationsPluginsRouteImport } from './routes/_app/admin/integrations/plugins'
 import { Route as AppAdminAiVisionRouteImport } from './routes/_app/admin/ai/vision'
 import { Route as AppAdminAiProvidersRouteImport } from './routes/_app/admin/ai/providers'
@@ -227,8 +233,13 @@ const AppSettingsPluginsRoute = AppSettingsPluginsRouteImport.update({
   id: '/plugins',
   path: '/plugins',
   getParentRoute: () => AppSettingsRoute,
+} as any)
+const AppSettingsMcpRoute = AppSettingsMcpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
+  getParentRoute: () => AppSettingsRoute,
 } as any).lazy(() =>
-  import('./routes/_app/settings/plugins.lazy').then((d) => d.Route),
+  import('./routes/_app/settings/mcp.lazy').then((d) => d.Route),
 )
 const AppSettingsLibraryRoute = AppSettingsLibraryRouteImport.update({
   id: '/library',
@@ -312,6 +323,11 @@ const AppAdminOverviewRoute = AppAdminOverviewRouteImport.update({
 } as any).lazy(() =>
   import('./routes/_app/admin/overview.lazy').then((d) => d.Route),
 )
+const AppSettingsPluginsIndexRoute = AppSettingsPluginsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppSettingsPluginsRoute,
+} as any)
 const AppAgentsAgentIdIndexRoute = AppAgentsAgentIdIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -341,11 +357,7 @@ const AppSettingsPluginsPluginIdRoute =
     id: '/$pluginId',
     path: '/$pluginId',
     getParentRoute: () => AppSettingsPluginsRoute,
-  } as any).lazy(() =>
-    import('./routes/_app/settings/plugins.$pluginId.lazy').then(
-      (d) => d.Route,
-    ),
-  )
+  } as any)
 const AppSettingsCredentialsSectionRoute =
   AppSettingsCredentialsSectionRouteImport.update({
     id: '/$section',
@@ -399,6 +411,38 @@ const AppAdminUsersUserIdRoute = AppAdminUsersUserIdRouteImport.update({
 } as any).lazy(() =>
   import('./routes/_app/admin/users.$userId.lazy').then((d) => d.Route),
 )
+const AppAdminResourcesSkillsRoute = AppAdminResourcesSkillsRouteImport.update({
+  id: '/resources/skills',
+  path: '/resources/skills',
+  getParentRoute: () => AppAdminRoute,
+} as any).lazy(() =>
+  import('./routes/_app/admin/resources/skills.lazy').then((d) => d.Route),
+)
+const AppAdminResourcesMcpRoute = AppAdminResourcesMcpRouteImport.update({
+  id: '/resources/mcp',
+  path: '/resources/mcp',
+  getParentRoute: () => AppAdminRoute,
+} as any).lazy(() =>
+  import('./routes/_app/admin/resources/mcp.lazy').then((d) => d.Route),
+)
+const AppAdminResourcesLibraryRoute =
+  AppAdminResourcesLibraryRouteImport.update({
+    id: '/resources/library',
+    path: '/resources/library',
+    getParentRoute: () => AppAdminRoute,
+  } as any).lazy(() =>
+    import('./routes/_app/admin/resources/library.lazy').then((d) => d.Route),
+  )
+const AppAdminResourcesCredentialsRoute =
+  AppAdminResourcesCredentialsRouteImport.update({
+    id: '/resources/credentials',
+    path: '/resources/credentials',
+    getParentRoute: () => AppAdminRoute,
+  } as any).lazy(() =>
+    import('./routes/_app/admin/resources/credentials.lazy').then(
+      (d) => d.Route,
+    ),
+  )
 const AppAdminIntegrationsPluginsRoute =
   AppAdminIntegrationsPluginsRouteImport.update({
     id: '/integrations/plugins',
@@ -640,6 +684,7 @@ export interface FileRoutesByFullPath {
   '/settings/credentials': typeof AppSettingsCredentialsRouteWithChildren
   '/settings/embedding': typeof AppSettingsEmbeddingRoute
   '/settings/library': typeof AppSettingsLibraryRoute
+  '/settings/mcp': typeof AppSettingsMcpRoute
   '/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/settings/provisioning': typeof AppSettingsProvisioningRoute
@@ -656,6 +701,10 @@ export interface FileRoutesByFullPath {
   '/admin/ai/providers': typeof AppAdminAiProvidersRouteWithChildren
   '/admin/ai/vision': typeof AppAdminAiVisionRoute
   '/admin/integrations/plugins': typeof AppAdminIntegrationsPluginsRouteWithChildren
+  '/admin/resources/credentials': typeof AppAdminResourcesCredentialsRoute
+  '/admin/resources/library': typeof AppAdminResourcesLibraryRoute
+  '/admin/resources/mcp': typeof AppAdminResourcesMcpRoute
+  '/admin/resources/skills': typeof AppAdminResourcesSkillsRoute
   '/admin/users/$userId': typeof AppAdminUsersUserIdRoute
   '/agents/$agentId/memories': typeof AppAgentsAgentIdMemoriesRoute
   '/agents/$agentId/profile': typeof AppAgentsAgentIdProfileRoute
@@ -667,6 +716,7 @@ export interface FileRoutesByFullPath {
   '/settings/providers/$providerId': typeof AppSettingsProvidersProviderIdRoute
   '/settings/users/$userId': typeof AppSettingsUsersUserIdRoute
   '/agents/$agentId/': typeof AppAgentsAgentIdIndexRoute
+  '/settings/plugins/': typeof AppSettingsPluginsIndexRoute
   '/admin/ai/providers/$providerId': typeof AppAdminAiProvidersProviderIdRoute
   '/admin/integrations/plugins/$pluginId': typeof AppAdminIntegrationsPluginsPluginIdRoute
   '/agents/$agentId/goals/$goalId': typeof AppAgentsAgentIdGoalsGoalIdRoute
@@ -712,7 +762,7 @@ export interface FileRoutesByTo {
   '/settings/credentials': typeof AppSettingsCredentialsRouteWithChildren
   '/settings/embedding': typeof AppSettingsEmbeddingRoute
   '/settings/library': typeof AppSettingsLibraryRoute
-  '/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
+  '/settings/mcp': typeof AppSettingsMcpRoute
   '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/settings/provisioning': typeof AppSettingsProvisioningRoute
   '/settings/skills': typeof AppSettingsSkillsRoute
@@ -728,6 +778,10 @@ export interface FileRoutesByTo {
   '/admin/ai/providers': typeof AppAdminAiProvidersRouteWithChildren
   '/admin/ai/vision': typeof AppAdminAiVisionRoute
   '/admin/integrations/plugins': typeof AppAdminIntegrationsPluginsRouteWithChildren
+  '/admin/resources/credentials': typeof AppAdminResourcesCredentialsRoute
+  '/admin/resources/library': typeof AppAdminResourcesLibraryRoute
+  '/admin/resources/mcp': typeof AppAdminResourcesMcpRoute
+  '/admin/resources/skills': typeof AppAdminResourcesSkillsRoute
   '/admin/users/$userId': typeof AppAdminUsersUserIdRoute
   '/agents/$agentId/memories': typeof AppAgentsAgentIdMemoriesRoute
   '/agents/$agentId/profile': typeof AppAgentsAgentIdProfileRoute
@@ -739,6 +793,7 @@ export interface FileRoutesByTo {
   '/settings/providers/$providerId': typeof AppSettingsProvidersProviderIdRoute
   '/settings/users/$userId': typeof AppSettingsUsersUserIdRoute
   '/agents/$agentId': typeof AppAgentsAgentIdIndexRoute
+  '/settings/plugins': typeof AppSettingsPluginsIndexRoute
   '/admin/ai/providers/$providerId': typeof AppAdminAiProvidersProviderIdRoute
   '/admin/integrations/plugins/$pluginId': typeof AppAdminIntegrationsPluginsPluginIdRoute
   '/agents/$agentId/goals/$goalId': typeof AppAgentsAgentIdGoalsGoalIdRoute
@@ -790,6 +845,7 @@ export interface FileRoutesById {
   '/_app/settings/credentials': typeof AppSettingsCredentialsRouteWithChildren
   '/_app/settings/embedding': typeof AppSettingsEmbeddingRoute
   '/_app/settings/library': typeof AppSettingsLibraryRoute
+  '/_app/settings/mcp': typeof AppSettingsMcpRoute
   '/_app/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/_app/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/_app/settings/provisioning': typeof AppSettingsProvisioningRoute
@@ -806,6 +862,10 @@ export interface FileRoutesById {
   '/_app/admin/ai/providers': typeof AppAdminAiProvidersRouteWithChildren
   '/_app/admin/ai/vision': typeof AppAdminAiVisionRoute
   '/_app/admin/integrations/plugins': typeof AppAdminIntegrationsPluginsRouteWithChildren
+  '/_app/admin/resources/credentials': typeof AppAdminResourcesCredentialsRoute
+  '/_app/admin/resources/library': typeof AppAdminResourcesLibraryRoute
+  '/_app/admin/resources/mcp': typeof AppAdminResourcesMcpRoute
+  '/_app/admin/resources/skills': typeof AppAdminResourcesSkillsRoute
   '/_app/admin/users/$userId': typeof AppAdminUsersUserIdRoute
   '/_app/agents/$agentId/memories': typeof AppAgentsAgentIdMemoriesRoute
   '/_app/agents/$agentId/profile': typeof AppAgentsAgentIdProfileRoute
@@ -817,6 +877,7 @@ export interface FileRoutesById {
   '/_app/settings/providers/$providerId': typeof AppSettingsProvidersProviderIdRoute
   '/_app/settings/users/$userId': typeof AppSettingsUsersUserIdRoute
   '/_app/agents/$agentId/': typeof AppAgentsAgentIdIndexRoute
+  '/_app/settings/plugins/': typeof AppSettingsPluginsIndexRoute
   '/_app/admin/ai/providers/$providerId': typeof AppAdminAiProvidersProviderIdRoute
   '/_app/admin/integrations/plugins/$pluginId': typeof AppAdminIntegrationsPluginsPluginIdRoute
   '/_app/agents/$agentId/goals/$goalId': typeof AppAgentsAgentIdGoalsGoalIdRoute
@@ -868,6 +929,7 @@ export interface FileRouteTypes {
     | '/settings/credentials'
     | '/settings/embedding'
     | '/settings/library'
+    | '/settings/mcp'
     | '/settings/plugins'
     | '/settings/providers'
     | '/settings/provisioning'
@@ -884,6 +946,10 @@ export interface FileRouteTypes {
     | '/admin/ai/providers'
     | '/admin/ai/vision'
     | '/admin/integrations/plugins'
+    | '/admin/resources/credentials'
+    | '/admin/resources/library'
+    | '/admin/resources/mcp'
+    | '/admin/resources/skills'
     | '/admin/users/$userId'
     | '/agents/$agentId/memories'
     | '/agents/$agentId/profile'
@@ -895,6 +961,7 @@ export interface FileRouteTypes {
     | '/settings/providers/$providerId'
     | '/settings/users/$userId'
     | '/agents/$agentId/'
+    | '/settings/plugins/'
     | '/admin/ai/providers/$providerId'
     | '/admin/integrations/plugins/$pluginId'
     | '/agents/$agentId/goals/$goalId'
@@ -940,7 +1007,7 @@ export interface FileRouteTypes {
     | '/settings/credentials'
     | '/settings/embedding'
     | '/settings/library'
-    | '/settings/plugins'
+    | '/settings/mcp'
     | '/settings/providers'
     | '/settings/provisioning'
     | '/settings/skills'
@@ -956,6 +1023,10 @@ export interface FileRouteTypes {
     | '/admin/ai/providers'
     | '/admin/ai/vision'
     | '/admin/integrations/plugins'
+    | '/admin/resources/credentials'
+    | '/admin/resources/library'
+    | '/admin/resources/mcp'
+    | '/admin/resources/skills'
     | '/admin/users/$userId'
     | '/agents/$agentId/memories'
     | '/agents/$agentId/profile'
@@ -967,6 +1038,7 @@ export interface FileRouteTypes {
     | '/settings/providers/$providerId'
     | '/settings/users/$userId'
     | '/agents/$agentId'
+    | '/settings/plugins'
     | '/admin/ai/providers/$providerId'
     | '/admin/integrations/plugins/$pluginId'
     | '/agents/$agentId/goals/$goalId'
@@ -1017,6 +1089,7 @@ export interface FileRouteTypes {
     | '/_app/settings/credentials'
     | '/_app/settings/embedding'
     | '/_app/settings/library'
+    | '/_app/settings/mcp'
     | '/_app/settings/plugins'
     | '/_app/settings/providers'
     | '/_app/settings/provisioning'
@@ -1033,6 +1106,10 @@ export interface FileRouteTypes {
     | '/_app/admin/ai/providers'
     | '/_app/admin/ai/vision'
     | '/_app/admin/integrations/plugins'
+    | '/_app/admin/resources/credentials'
+    | '/_app/admin/resources/library'
+    | '/_app/admin/resources/mcp'
+    | '/_app/admin/resources/skills'
     | '/_app/admin/users/$userId'
     | '/_app/agents/$agentId/memories'
     | '/_app/agents/$agentId/profile'
@@ -1044,6 +1121,7 @@ export interface FileRouteTypes {
     | '/_app/settings/providers/$providerId'
     | '/_app/settings/users/$userId'
     | '/_app/agents/$agentId/'
+    | '/_app/settings/plugins/'
     | '/_app/admin/ai/providers/$providerId'
     | '/_app/admin/integrations/plugins/$pluginId'
     | '/_app/agents/$agentId/goals/$goalId'
@@ -1261,6 +1339,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsPluginsRouteImport
       parentRoute: typeof AppSettingsRoute
     }
+    '/_app/settings/mcp': {
+      id: '/_app/settings/mcp'
+      path: '/mcp'
+      fullPath: '/settings/mcp'
+      preLoaderRoute: typeof AppSettingsMcpRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
     '/_app/settings/library': {
       id: '/_app/settings/library'
       path: '/library'
@@ -1345,6 +1430,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAdminOverviewRouteImport
       parentRoute: typeof AppAdminRoute
     }
+    '/_app/settings/plugins/': {
+      id: '/_app/settings/plugins/'
+      path: '/'
+      fullPath: '/settings/plugins/'
+      preLoaderRoute: typeof AppSettingsPluginsIndexRouteImport
+      parentRoute: typeof AppSettingsPluginsRoute
+    }
     '/_app/agents/$agentId/': {
       id: '/_app/agents/$agentId/'
       path: '/'
@@ -1421,6 +1513,34 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/users/$userId'
       preLoaderRoute: typeof AppAdminUsersUserIdRouteImport
       parentRoute: typeof AppAdminUsersRoute
+    }
+    '/_app/admin/resources/skills': {
+      id: '/_app/admin/resources/skills'
+      path: '/resources/skills'
+      fullPath: '/admin/resources/skills'
+      preLoaderRoute: typeof AppAdminResourcesSkillsRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/resources/mcp': {
+      id: '/_app/admin/resources/mcp'
+      path: '/resources/mcp'
+      fullPath: '/admin/resources/mcp'
+      preLoaderRoute: typeof AppAdminResourcesMcpRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/resources/library': {
+      id: '/_app/admin/resources/library'
+      path: '/resources/library'
+      fullPath: '/admin/resources/library'
+      preLoaderRoute: typeof AppAdminResourcesLibraryRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/resources/credentials': {
+      id: '/_app/admin/resources/credentials'
+      path: '/resources/credentials'
+      fullPath: '/admin/resources/credentials'
+      preLoaderRoute: typeof AppAdminResourcesCredentialsRouteImport
+      parentRoute: typeof AppAdminRoute
     }
     '/_app/admin/integrations/plugins': {
       id: '/_app/admin/integrations/plugins'
@@ -1654,6 +1774,10 @@ interface AppAdminRouteChildren {
   AppAdminAiProvidersRoute: typeof AppAdminAiProvidersRouteWithChildren
   AppAdminAiVisionRoute: typeof AppAdminAiVisionRoute
   AppAdminIntegrationsPluginsRoute: typeof AppAdminIntegrationsPluginsRouteWithChildren
+  AppAdminResourcesCredentialsRoute: typeof AppAdminResourcesCredentialsRoute
+  AppAdminResourcesLibraryRoute: typeof AppAdminResourcesLibraryRoute
+  AppAdminResourcesMcpRoute: typeof AppAdminResourcesMcpRoute
+  AppAdminResourcesSkillsRoute: typeof AppAdminResourcesSkillsRoute
 }
 
 const AppAdminRouteChildren: AppAdminRouteChildren = {
@@ -1666,6 +1790,10 @@ const AppAdminRouteChildren: AppAdminRouteChildren = {
   AppAdminAiVisionRoute: AppAdminAiVisionRoute,
   AppAdminIntegrationsPluginsRoute:
     AppAdminIntegrationsPluginsRouteWithChildren,
+  AppAdminResourcesCredentialsRoute: AppAdminResourcesCredentialsRoute,
+  AppAdminResourcesLibraryRoute: AppAdminResourcesLibraryRoute,
+  AppAdminResourcesMcpRoute: AppAdminResourcesMcpRoute,
+  AppAdminResourcesSkillsRoute: AppAdminResourcesSkillsRoute,
 }
 
 const AppAdminRouteWithChildren = AppAdminRoute._addFileChildren(
@@ -1813,10 +1941,12 @@ const AppSettingsCredentialsRouteWithChildren =
 
 interface AppSettingsPluginsRouteChildren {
   AppSettingsPluginsPluginIdRoute: typeof AppSettingsPluginsPluginIdRoute
+  AppSettingsPluginsIndexRoute: typeof AppSettingsPluginsIndexRoute
 }
 
 const AppSettingsPluginsRouteChildren: AppSettingsPluginsRouteChildren = {
   AppSettingsPluginsPluginIdRoute: AppSettingsPluginsPluginIdRoute,
+  AppSettingsPluginsIndexRoute: AppSettingsPluginsIndexRoute,
 }
 
 const AppSettingsPluginsRouteWithChildren =
@@ -1852,6 +1982,7 @@ interface AppSettingsRouteChildren {
   AppSettingsCredentialsRoute: typeof AppSettingsCredentialsRouteWithChildren
   AppSettingsEmbeddingRoute: typeof AppSettingsEmbeddingRoute
   AppSettingsLibraryRoute: typeof AppSettingsLibraryRoute
+  AppSettingsMcpRoute: typeof AppSettingsMcpRoute
   AppSettingsPluginsRoute: typeof AppSettingsPluginsRouteWithChildren
   AppSettingsProvidersRoute: typeof AppSettingsProvidersRouteWithChildren
   AppSettingsProvisioningRoute: typeof AppSettingsProvisioningRoute
@@ -1870,6 +2001,7 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsCredentialsRoute: AppSettingsCredentialsRouteWithChildren,
   AppSettingsEmbeddingRoute: AppSettingsEmbeddingRoute,
   AppSettingsLibraryRoute: AppSettingsLibraryRoute,
+  AppSettingsMcpRoute: AppSettingsMcpRoute,
   AppSettingsPluginsRoute: AppSettingsPluginsRouteWithChildren,
   AppSettingsProvidersRoute: AppSettingsProvidersRouteWithChildren,
   AppSettingsProvisioningRoute: AppSettingsProvisioningRoute,

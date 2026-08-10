@@ -36,7 +36,7 @@ You can disconnect at any time by clicking **Disconnect** on the Credentials pag
 
 ## Admin: managing providers
 
-Admins manage each OAuth provider from the provider's detail panel on the **Credentials** page.
+Admins manage each OAuth provider from **Admin Console → Deployment resources → System Credentials**. Personal Settings contains only each user's own connections and vault entries.
 
 ### App credentials
 

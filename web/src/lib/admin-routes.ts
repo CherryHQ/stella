@@ -20,3 +20,17 @@ export function adminCompatibilityHref(pathname: string, search = ""): string | 
   }
   return null;
 }
+
+/** Keeps the former mixed Plugins root as an alias for personal MCP. */
+export function personalCompatibilityHref(pathname: string, search = ""): string | null {
+  return pathname === "/settings/plugins" ? `/settings/mcp${search}` : null;
+}
+
+/** Moves pre-split deployment Library bookmarks to the Admin surface. */
+export function libraryCompatibilityHref(pathname: string, search = ""): string | null {
+  if (pathname !== "/settings/library") return null;
+  const scope = new URLSearchParams(search).get("scope");
+  return scope === "system" || scope === "system_agent"
+    ? `/admin/resources/library${search}`
+    : null;
+}

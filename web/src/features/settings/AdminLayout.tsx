@@ -1,5 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
-import { Blocks, Bot, Eye, Gauge, KeyRound, ScanSearch, Users } from "lucide-react";
+import {
+  Blocks,
+  Bot,
+  Eye,
+  Gauge,
+  KeyRound,
+  Library,
+  Puzzle,
+  ScanSearch,
+  Users,
+  Wrench,
+} from "lucide-react";
 import { ErrorState } from "@/components/RouteFallback";
 import { AppShell } from "@/layouts/AppShell";
 import { meQueryOptions } from "@/lib/queries/me";
@@ -29,6 +40,31 @@ export const adminSettingsNav: SettingsNavGroup[] = [
       { label: "settings.nav.providers", href: "/admin/ai/providers", icon: Bot },
       { label: "settings.nav.embedding", href: "/admin/ai/embedding", icon: ScanSearch },
       { label: "settings.nav.vision", href: "/admin/ai/vision", icon: Eye },
+    ],
+  },
+  {
+    label: "admin.section.resources",
+    items: [
+      {
+        label: "admin.resources.skills.title",
+        href: "/admin/resources/skills",
+        icon: Puzzle,
+      },
+      {
+        label: "admin.resources.mcp.title",
+        href: "/admin/resources/mcp",
+        icon: Wrench,
+      },
+      {
+        label: "admin.resources.credentials.title",
+        href: "/admin/resources/credentials",
+        icon: KeyRound,
+      },
+      {
+        label: "admin.resources.library.title",
+        href: "/admin/resources/library",
+        icon: Library,
+      },
     ],
   },
   {

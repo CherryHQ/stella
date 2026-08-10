@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { adminCompatibilityHref } from "@/lib/admin-routes";
+import {
+  adminCompatibilityHref,
+  libraryCompatibilityHref,
+  personalCompatibilityHref,
+} from "@/lib/admin-routes";
 
 describe("adminCompatibilityHref", () => {
   it.each([
@@ -24,5 +28,23 @@ describe("adminCompatibilityHref", () => {
     expect(adminCompatibilityHref("/settings/account")).toBeNull();
     expect(adminCompatibilityHref("/settings/credentials")).toBeNull();
     expect(adminCompatibilityHref("/settings/plugins")).toBeNull();
+  });
+});
+
+describe("personalCompatibilityHref", () => {
+  it("moves only the former Plugins root to personal MCP", () => {
+    expect(personalCompatibilityHref("/settings/plugins", "?from=bookmark")).toBe(
+      "/settings/mcp?from=bookmark",
+    );
+    expect(personalCompatibilityHref("/settings/plugins/tool-id")).toBeNull();
+  });
+});
+
+describe("libraryCompatibilityHref", () => {
+  it("moves only deployment-owned Library bookmarks", () => {
+    expect(
+      libraryCompatibilityHref("/settings/library", "?scope=system_agent&agent=a&q=runbook"),
+    ).toBe("/admin/resources/library?scope=system_agent&agent=a&q=runbook");
+    expect(libraryCompatibilityHref("/settings/library", "?q=mine")).toBeNull();
   });
 });

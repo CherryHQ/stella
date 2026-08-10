@@ -49,18 +49,7 @@ import { useToast } from "@/hooks/use-toast";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
 import { SettingsGridPage, SettingsDetailSheet } from "@/features/settings/SettingsCardGrid";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
-import { MCPServersPanel } from "@/features/mcp/MCPServersPage";
 import { Plus } from "lucide-react";
-
-export function PersonalToolsPage() {
-  const { t } = useI18n();
-
-  return (
-    <SettingsGridPage title={t("mcp.title")}>
-      <MCPServersPanel embedded />
-    </SettingsGridPage>
-  );
-}
 
 export function AdminPluginsPage() {
   const { t } = useI18n();

@@ -16,15 +16,15 @@ Skills are organized by who manages them and where they apply:
 - **User skills** — your personal skills, available across all of your agents.
 - **User · this agent** — your personal skills scoped to a single agent.
 - **Shared agent skills** — managed by admins and available to everyone who uses that agent.
-- **Built-in skills** — managed by admins and available everywhere.
+- **Global skills** — managed by admins and available everywhere. Skills bundled with Stella remain part of the installation; managed global skills can be installed, enabled, disabled, and removed from the Admin Console.
 
 When two skills share a name, the most specific one wins. Resolution order, highest first:
 
 ```
-project > user · this agent > user > shared agent > built-in
+project > user · this agent > user > shared agent > global
 ```
 
-Manage your user and per-agent skills from an agent's **Skills** tab, or manage every scope (including the admin-only shared and built-in scopes) from **Settings → Skills**.
+Manage personal `user` and `user_agent` skills from **Personal Settings → Skills**. Administrators manage deployment-owned `system` and `system_agent` skills from **Admin Console → Deployment resources → Global Skills**. The two pages never mix ownership scopes.
 
 ## Installing Skills
 
@@ -63,7 +63,7 @@ If you hit rate limits on clawhub.ai, you can set a free API token:
 
 ### From the Web UI
 
-Use the Skills page to browse, install, and remove skills for each agent.
+Use Personal Settings to browse, install, and remove your skills. Administrators use Global Skills for deployment-wide and shared-agent skills.
 
 ## Creating Your Own Skills
 
