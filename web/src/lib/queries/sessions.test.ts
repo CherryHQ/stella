@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { listSessions } from "@/lib/api-client/sdk.gen";
-import { agentLevelThreads, sortedThreads, threadSessionsInfiniteQueryOptions } from "./sessions";
+import { agentLevelThreads, allThreadSessionsQueryOptions, sortedThreads } from "./sessions";
 import type { Session } from "@/lib/types";
 
 vi.mock("@/lib/api-client/sdk.gen", () => ({ listSessions: vi.fn() }));
@@ -39,26 +39,23 @@ describe("visible session threads", () => {
     ).toEqual(["2"]);
   });
 
-  it("walks past an invisible raw page to find delegate threads", async () => {
+  it("requests chat and delegate explicitly and walks both cursors", async () => {
     vi.mocked(listSessions)
       .mockResolvedValueOnce({
-        data: {
-          sessions: [session("3", "task"), session("4", "scheduler")],
-          next_page_token: "page-2",
-        },
+        data: { sessions: [session("1", "chat")], next_page_token: "chat-2" },
       } as never)
-      .mockResolvedValueOnce({
-        data: { sessions: [session("2", "delegate")] },
-      } as never);
+      .mockResolvedValueOnce({ data: { sessions: [session("2", "delegate")] } } as never)
+      .mockResolvedValueOnce({ data: { sessions: [session("3", "chat")] } } as never);
 
-    const options = threadSessionsInfiniteQueryOptions("agent");
-    const queryFn = options.queryFn as (context: {
-      pageParam?: string;
-    }) => Promise<{ sessions: Session[]; nextPageToken?: string }>;
-    const page = await queryFn({ pageParam: undefined });
+    const options = allThreadSessionsQueryOptions("agent");
+    const queryFn = options.queryFn as () => Promise<Session[]>;
+    const threads = await queryFn();
 
-    expect(page.sessions.map((item) => item.id)).toEqual(["2"]);
-    expect(listSessions).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(listSessions).mock.calls[1][0].query?.page_token).toBe("page-2");
+    expect(threads.map((item) => item.id)).toEqual(["3", "2", "1"]);
+    expect(vi.mocked(listSessions).mock.calls.map(([request]) => request.query?.kind)).toEqual([
+      "chat",
+      "delegate",
+      "chat",
+    ]);
   });
 });

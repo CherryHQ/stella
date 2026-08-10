@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   Bot,
@@ -39,9 +39,8 @@ import { agentsQueryOptions } from "@/lib/queries/agents";
 import { goalCountsOptions } from "@/lib/queries/goals";
 import {
   agentLevelThreads,
+  allThreadSessionsQueryOptions,
   mainSessionQueryOptions,
-  projectSessionsQueryOptions,
-  threadSessionsInfiniteQueryOptions,
   sortedThreads,
 } from "@/lib/queries/sessions";
 import { agentProjectsOptions } from "@/lib/queries/projects";
@@ -676,7 +675,10 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
   const { data: mainSession = null } = useQuery(mainSessionQueryOptions(agentId));
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
   const { data: goalCounts } = useQuery(goalCountsOptions(agentId));
-  const threadsQuery = useInfiniteQuery(threadSessionsInfiniteQueryOptions(agentId));
+  const threadsQuery = useQuery({
+    ...allThreadSessionsQueryOptions(agentId),
+    refetchInterval: 3000,
+  });
 
   const activeSessionId = pathname.match(/\/sessions\/([^/]+)/)?.[1] ?? "";
   const activeProjectId = pathname.match(/\/projects\/([^/]+)/)?.[1] ?? "";
@@ -687,13 +689,16 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
     pathname.includes(`/agents/${agentId}/workflows`);
   const onProfile = pathname === `/agents/${agentId}/profile`;
 
-  const projectSessions = useQuery(projectSessionsQueryOptions(agentId, activeProjectId));
+  const projectSessions = useQuery({
+    ...allThreadSessionsQueryOptions(agentId, !!activeProjectId, activeProjectId),
+    refetchInterval: 3000,
+  });
 
   // "main" is pinned and scheduler/task sessions belong to Work. Delegate
   // sessions created through the Session tool remain ordinary discoverable
   // conversations; a project chat's home is still its project.
   const recentThreads = useMemo(
-    () => agentLevelThreads(threadsQuery.data?.pages.flatMap((page) => page.sessions) ?? []),
+    () => agentLevelThreads(threadsQuery.data ?? []),
     [threadsQuery.data],
   );
   // Only the project the URL points at gets its threads inlined — every other
@@ -1042,19 +1047,11 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
               />
             );
           })}
-          {(recentThreads.length > visibleThreads || threadsQuery.hasNextPage) && (
+          {recentThreads.length > visibleThreads && (
             <SidebarItem
               label={t("sidebar.showMore")}
               onClick={() => {
                 setVisibleThreads((count) => count + RECENT_THREAD_PAGE);
-                // Local slice first, network only once the cache runs dry.
-                if (
-                  recentThreads.length <= visibleThreads + RECENT_THREAD_PAGE &&
-                  threadsQuery.hasNextPage &&
-                  !threadsQuery.isFetchingNextPage
-                ) {
-                  void threadsQuery.fetchNextPage();
-                }
               }}
             />
           )}

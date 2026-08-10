@@ -59,88 +59,54 @@ export function projectSessionsQueryOptions(agentId: string, projectId: string) 
   });
 }
 
-// allThreadSessionsQueryOptions walks every page of one agent's sessions, then
-// leaves the visible-kind filter to sortedThreads. Session-created delegate
-// threads must remain discoverable alongside hand-started chat threads.
+// The API deliberately excludes internal kinds when `kind` is omitted, so a
+// visible thread list must request chat and delegate explicitly. Fetch both
+// complete ordered streams and merge them client-side; revisit this when the
+// API can express a multi-kind filter or per-agent thread counts become large.
 // The sessions API has no server-side search, so the global palette filters the
 // full set client-side; `enabled` keeps the walk off the critical path until a
 // caller (the search dialog) actually opens.
-export function allThreadSessionsQueryOptions(agentId: string, enabled = true) {
+export function allThreadSessionsQueryOptions(agentId: string, enabled = true, projectId?: string) {
   return queryOptions({
-    queryKey: ["sessions", agentId, "thread", "all"],
+    queryKey: ["sessions", agentId, "thread", "all", projectId ?? ""],
     queryFn: async () => {
-      const all: Session[] = [];
-      let pageToken: string | undefined;
-      do {
-        const { data } = await listSessions({
-          path: { agentId },
-          query: { page_size: 200, page_token: pageToken },
-          throwOnError: true,
-        });
-        all.push(...((data?.sessions as Session[]) ?? []));
-        pageToken = data?.next_page_token ?? undefined;
-      } while (pageToken);
-      return all;
+      const [chats, delegates] = await Promise.all([
+        listAllSessionsByKind(agentId, "chat", projectId),
+        listAllSessionsByKind(agentId, "delegate", projectId),
+      ]);
+      return sortedThreads([...chats, ...delegates]);
     },
     enabled: enabled && !!agentId,
   });
 }
 
-/**
- * Every chat thread of one agent for the threads management page — the one
- * surface where agent-level and project threads appear together. `projectId`
- * narrows the walk server-side; the "agent only" view is a client filter
- * because the API can express "in project X" but not "in no project".
- */
-export function agentThreadsInfiniteQueryOptions(agentId: string, projectId?: string) {
-  return infiniteQueryOptions({
-    queryKey: ["sessions", agentId, "chat", "threads", projectId ?? ""],
-    initialPageParam: undefined as string | undefined,
-    queryFn: ({ pageParam }) => fetchVisibleThreadPage(agentId, pageParam, 30, projectId),
-    getNextPageParam: (lastPage) => lastPage.nextPageToken,
-    enabled: !!agentId,
-  });
-}
-
-export function threadSessionsInfiniteQueryOptions(agentId: string) {
-  return infiniteQueryOptions({
-    queryKey: ["sessions", agentId, "thread"],
-    initialPageParam: undefined as string | undefined,
-    queryFn: ({ pageParam }) => fetchVisibleThreadPage(agentId, pageParam, 20),
-    getNextPageParam: (lastPage) => lastPage.nextPageToken,
-    enabled: !!agentId,
-    refetchInterval: 3000,
-  });
-}
-
-// A raw page may contain only main/task/scheduler rows. Keep walking until the
-// UI has something it can render or the server is exhausted; otherwise an
-// empty first page hides the only control that could fetch a later delegate.
-async function fetchVisibleThreadPage(
+async function listAllSessionsByKind(
   agentId: string,
-  initialPageToken: string | undefined,
-  pageSize: number,
+  kind: Extract<Session["kind"], "chat" | "delegate">,
   projectId?: string,
-) {
-  const sessions: Session[] = [];
-  let pageToken = initialPageToken;
+): Promise<Session[]> {
+  const all: Session[] = [];
+  let pageToken: string | undefined;
   do {
     const { data } = await listSessions({
       path: { agentId },
       query: {
-        page_size: pageSize,
+        page_size: 200,
         page_token: pageToken,
+        kind,
         ...(projectId ? { project_id: projectId } : {}),
       },
       throwOnError: true,
     });
-    sessions.push(...sortedThreads((data?.sessions as Session[]) ?? []));
+    all.push(...((data?.sessions as Session[]) ?? []));
     pageToken = data?.next_page_token ?? undefined;
-  } while (sessions.length < pageSize && pageToken);
-
-  return { sessions, nextPageToken: pageToken };
+  } while (pageToken);
+  return all;
 }
 
+/** Generic server pagination for callers that need one kind or the API's
+ * default external-session view. Visible conversation lists must use
+ * allThreadSessionsQueryOptions so delegate rows are requested explicitly. */
 export function sessionsInfiniteQueryOptions(agentId: string, kind?: Session["kind"]) {
   return infiniteQueryOptions({
     queryKey: ["sessions", agentId, kind],
