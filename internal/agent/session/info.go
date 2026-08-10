@@ -13,6 +13,7 @@
 package session
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -20,6 +21,20 @@ import (
 
 	"github.com/CherryHQ/stella/internal/memory"
 )
+
+const MaxTitleBytes = 1_000
+
+var ErrTitleTooLong = errors.New("session title exceeds maximum length")
+
+// ValidateTitle enforces the canonical title write bound in UTF-8 bytes. A
+// byte bound matches the serialized payloads titles are copied into and avoids
+// allowing multibyte Unicode to exceed those budgets.
+func ValidateTitle(title string) error {
+	if len(title) > MaxTitleBytes {
+		return fmt.Errorf("%w: got %d bytes, maximum is %d", ErrTitleTooLong, len(title), MaxTitleBytes)
+	}
+	return nil
+}
 
 // Kind is the typed session kind.
 type Kind string
@@ -169,6 +184,9 @@ func (i Info) MemoryScope() (memory.Session, error) {
 func (i Info) Record() (memory.SessionInfo, error) {
 	if err := i.Validate(); err != nil {
 		return memory.SessionInfo{}, err
+	}
+	if err := ValidateTitle(i.Title); err != nil {
+		return memory.SessionInfo{}, fmt.Errorf("session info %q: %w", i.ID, err)
 	}
 	return memory.SessionInfo{
 		ID:                  i.ID,

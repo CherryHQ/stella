@@ -3,9 +3,12 @@ package delegate
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/agentctx"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -13,12 +16,32 @@ import (
 type capturingRunner struct {
 	ctx      context.Context //nolint:containedctx // the captured value is the assertion
 	excluded []string
+	request  SessionRunRequest
 }
 
 func (r *capturingRunner) RunDelegateSession(ctx context.Context, req SessionRunRequest) (SessionRunResult, error) {
 	r.ctx = ctx
 	r.excluded = req.ExcludedTools
+	r.request = req
 	return SessionRunResult{SessionID: req.SessionID, Output: "done", Complete: true}, nil
+}
+
+func TestManagedSessionCreateAppliesPresetWithoutDelegateSurface(t *testing.T) {
+	runner := &capturingRunner{}
+	presets := NewPresetRegistry([]DelegatePreset{{Name: "coder", System: "coder instructions", Timeout: time.Minute}})
+	tool := NewDelegateTool(DelegateConfig{
+		SessionRunner: runner,
+		Registry:      registryWith("session", "read_file"),
+		Presets:       presets,
+	})
+	ctx := memory.WithSessionID(context.Background(), "source")
+	result, err := tool.RunManagedSession(ctx, ManagedSessionRequest{Message: "implement", Preset: "coder"})
+	if err != nil {
+		t.Fatalf("RunManagedSession: %v", err)
+	}
+	if result.Output != "done" || runner.request.Task != "implement" || !strings.Contains(runner.request.System, "coder instructions") || runner.request.Timeout != time.Minute {
+		t.Fatalf("managed preset result=%+v request=%+v", result, runner.request)
+	}
 }
 
 type stubTool struct{ name string }
@@ -65,10 +88,7 @@ func TestDelegateRunDropsParentChatBinding(t *testing.T) {
 	}
 }
 
-// TestDelegateAlwaysExcludesDelegate pins the recursion guard: a delegate can
-// never spawn another delegate. A preset whitelist only hides more tools, so
-// naming "delegate" in one must not re-admit it.
-func TestDelegateAlwaysExcludesDelegate(t *testing.T) {
+func TestDelegateVisibilityUsesWhitelistNotPermanentExclusion(t *testing.T) {
 	reg := registryWith("read_file", delegateToolName)
 	tool := NewDelegateTool(DelegateConfig{SessionRunner: &capturingRunner{}, Registry: reg})
 
@@ -76,16 +96,44 @@ func TestDelegateAlwaysExcludesDelegate(t *testing.T) {
 		name         string
 		whitelist    []string
 		hasWhitelist bool
+		wantExcluded bool
 	}{
 		{name: "no whitelist"},
-		{name: "whitelist of other tools", whitelist: []string{"read_file"}, hasWhitelist: true},
-		{name: "whitelist naming the blocked tool", whitelist: []string{delegateToolName}, hasWhitelist: true},
+		{name: "whitelist of other tools", whitelist: []string{"read_file"}, hasWhitelist: true, wantExcluded: true},
+		{name: "whitelist naming delegate", whitelist: []string{delegateToolName}, hasWhitelist: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			excluded := tool.excludedTools(tc.whitelist, tc.hasWhitelist)
-			if !slices.Contains(excluded, delegateToolName) {
-				t.Fatalf("excluded = %v, want it to contain %q", excluded, delegateToolName)
+			if got := slices.Contains(excluded, delegateToolName); got != tc.wantExcluded {
+				t.Fatalf("delegate excluded = %v, want %v (all exclusions: %v)", got, tc.wantExcluded, excluded)
 			}
 		})
+	}
+}
+
+func TestDelegateChildCanNestWithinDepthAndRejectsCycle(t *testing.T) {
+	first := &capturingRunner{}
+	tool := NewDelegateTool(DelegateConfig{SessionRunner: first, Registry: registryWith("session", delegateToolName)})
+	parent := memory.WithSessionID(context.Background(), "session-a")
+	if result := tool.runDelegate(parent, delegateTaskConfig{ID: "b", Task: "work", SessionID: "session-b"}); result.Error != "" {
+		t.Fatalf("A -> B: %s", result.Error)
+	}
+	call, ok := agentctx.SessionCallFromContext(first.ctx)
+	if !ok || call.Depth != 1 || !slices.Equal(call.Ancestry, []string{"session-a", "session-b"}) {
+		t.Fatalf("A -> B call = %+v, present=%v", call, ok)
+	}
+
+	second := &capturingRunner{}
+	tool.cfg.SessionRunner = second
+	if result := tool.runDelegate(first.ctx, delegateTaskConfig{ID: "c", Task: "work", SessionID: "session-c"}); result.Error != "" {
+		t.Fatalf("B -> C within depth: %s", result.Error)
+	}
+	call, ok = agentctx.SessionCallFromContext(second.ctx)
+	if !ok || call.Depth != 2 || !slices.Equal(call.Ancestry, []string{"session-a", "session-b", "session-c"}) {
+		t.Fatalf("B -> C call = %+v, present=%v", call, ok)
+	}
+
+	if result := tool.runDelegate(first.ctx, delegateTaskConfig{ID: "cycle", Task: "work", SessionID: "session-a"}); result.Error == "" || !strings.Contains(result.Error, "cycle") {
+		t.Fatalf("B -> A cycle result = %+v", result)
 	}
 }

@@ -4,12 +4,39 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 
 	apitypes "github.com/CherryHQ/stella/api/types"
+	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 )
+
+func TestUpdateSessionRejectsTitleOverDomainByteBound(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := createAgentAsUser(t, env, env.bearerToken, "Session Title Bound Agent")
+	_, err := env.db.Exec(context.Background(), `
+		INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active)
+		VALUES ($1, 'session-title-bound', 'Old title', 'web', 'chat', $2, $3, now())
+	`, uuid.NewString(), agentID, env.adminUser.ID)
+	if err != nil {
+		t.Fatalf("seed conversation: %v", err)
+	}
+
+	title := strings.Repeat("界", agentsession.MaxTitleBytes/len("界")+1)
+	rr := doRequest(t, env, http.MethodPatch, "/api/agents/"+agentID+"/sessions/session-title-bound", map[string]string{"title": title})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH oversized title status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	var stored string
+	if err := env.db.QueryRow(context.Background(), `SELECT title FROM ctx_conversation WHERE session_id = 'session-title-bound'`).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored != "Old title" {
+		t.Fatalf("stored title = %q, want unchanged", stored)
+	}
+}
 
 func TestUpdateAndDeleteSession(t *testing.T) {
 	env := setupAdmin(t)

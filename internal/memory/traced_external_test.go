@@ -57,6 +57,16 @@ type reviewHistoryProvider struct {
 	messages []memory.ReviewMessage
 }
 
+type inboxAppendProvider struct {
+	memory.Provider
+	calls int
+}
+
+func (p *inboxAppendProvider) AppendInboxInput(_ context.Context, _ memory.Session, _ string, _ ai.Message) error {
+	p.calls++
+	return nil
+}
+
 func (p *reviewHistoryProvider) LoadReviewHistory(context.Context, string) ([]memory.ReviewMessage, error) {
 	return append([]memory.ReviewMessage(nil), p.messages...), nil
 }
@@ -93,6 +103,30 @@ func TestUnwrap_NonWrapped(t *testing.T) {
 	got := memory.Unwrap(fake)
 	if got != fake {
 		t.Error("Unwrap of non-wrapped should return itself")
+	}
+}
+
+func TestTracedProvider_ForwardsInboxAppenderButUnwrapDeterminesSupport(t *testing.T) {
+	fake := memorytest.New()
+	unsupported := &reviewHistoryProvider{Provider: fake}
+	if _, ok := memory.Unwrap(memory.WithTracing(unsupported, nil)).(memory.InboxAppender); ok {
+		t.Fatal("unwrapped provider unexpectedly supports InboxAppender")
+	}
+
+	inner := &inboxAppendProvider{Provider: fake}
+	traced, collector := newTracedWithCollector(inner)
+	if _, ok := memory.Unwrap(traced).(memory.InboxAppender); !ok {
+		t.Fatal("unwrapped inbox provider does not expose InboxAppender")
+	}
+	appender, ok := traced.(memory.InboxAppender)
+	if !ok {
+		t.Fatal("tracing wrapper does not forward InboxAppender")
+	}
+	if err := appender.AppendInboxInput(t.Context(), testSession, "inbox-1", ai.UserMessage{Content: "hello"}); err != nil {
+		t.Fatalf("AppendInboxInput: %v", err)
+	}
+	if inner.calls != 1 || len(collector.events) != 1 {
+		t.Fatalf("calls/events = %d/%d, want 1/1", inner.calls, len(collector.events))
 	}
 }
 

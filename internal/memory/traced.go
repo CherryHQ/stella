@@ -125,6 +125,24 @@ func (t *tracedProvider) Append(ctx context.Context, session Session, msgs ...ai
 	return err
 }
 
+// AppendInboxInput preserves the atomic durable-inbox capability through the
+// tracing layer. Callers must inspect Unwrap first: this method exists on every
+// traced provider so a wrapper-only type assertion is not a capability check.
+func (t *tracedProvider) AppendInboxInput(ctx context.Context, session Session, inboxID string, msg ai.Message) error {
+	appender, ok := t.inner.(InboxAppender)
+	if !ok {
+		return errCapabilityNotSupported("InboxAppender")
+	}
+	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpAppend, SessionID: session.ID}
+	ctx, start := t.begin(ctx, hctx)
+	err := appender.AppendInboxInput(ctx, session, inboxID, msg)
+	hctx.Error = err
+	hctx.MessageCount = 1
+	hctx.Detail = formatMessages("appended inbox input", []ai.Message{msg})
+	t.finish(ctx, start, hctx)
+	return err
+}
+
 func (t *tracedProvider) Assemble(ctx context.Context, session Session, budget, freshTail int) ([]ai.Message, error) {
 	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpAssemble, SessionID: session.ID}
 	ctx, start := t.begin(ctx, hctx)
