@@ -44,6 +44,17 @@ func (r *Registry) InstallBuiltinBundle(stellaHome string) (string, error) {
 	if err := ensureBundlesDir(bundlesDir, true); err != nil {
 		return "", err
 	}
+	unlock, err := lockBundleInstall(filepath.Join(bundlesDir, "."+r.manifest.Revision+".lock"))
+	if err != nil {
+		return "", fmt.Errorf("lock builtin bundle installation: %w", err)
+	}
+	defer func() { _ = unlock() }()
+	// The first verification is only a fast path. Re-check under the cross-process
+	// lock so a repairer cannot act on stale invalid state and delete a verified
+	// bundle published by the previous lock owner.
+	if err := r.VerifyBuiltinBundle(stellaHome); err == nil {
+		return final, nil
+	}
 	temporary, err := os.MkdirTemp(bundlesDir, "."+r.manifest.Revision+".tmp-")
 	if err != nil {
 		return "", fmt.Errorf("create builtin bundle temporary directory: %w", err)

@@ -1,10 +1,12 @@
 package resources
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -194,18 +196,28 @@ func TestBuiltinBundleInstallerVerifiesTamperingAndDoesNotRewrite(t *testing.T) 
 	}
 }
 
-func TestBuiltinBundleInstallerConcurrentWinnersAreVerified(t *testing.T) {
+func TestBuiltinBundleInstallerConcurrentRepairersAreVerified(t *testing.T) {
 	registry := testBuiltinRegistry(t)
 	home := t.TempDir()
+	bundle, err := registry.InstallBuiltinBundle(home)
+	if err != nil {
+		t.Fatalf("initial InstallBuiltinBundle: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(bundle, "system", "demo", "SKILL.md"), []byte("tampered"), 0o644); err != nil {
+		t.Fatalf("tamper bundle: %v", err)
+	}
 	const installers = 12
 	errs := make(chan error, installers)
+	start := make(chan struct{})
 	var wg sync.WaitGroup
 	for range installers {
 		wg.Go(func() {
+			<-start
 			_, err := registry.InstallBuiltinBundle(home)
 			errs <- err
 		})
 	}
+	close(start)
 	wg.Wait()
 	close(errs)
 	for err := range errs {
@@ -215,6 +227,75 @@ func TestBuiltinBundleInstallerConcurrentWinnersAreVerified(t *testing.T) {
 	}
 	if err := registry.VerifyBuiltinBundle(home); err != nil {
 		t.Fatalf("VerifyBuiltinBundle: %v", err)
+	}
+}
+
+func TestBundleInstallLockSerializesProcesses(t *testing.T) {
+	const lockEnv = "STELLA_TEST_BUNDLE_LOCK"
+	if lockPath := os.Getenv(lockEnv); lockPath != "" {
+		fmt.Println("ready")
+		unlock, err := lockBundleInstall(lockPath)
+		if err != nil {
+			t.Fatalf("child lockBundleInstall: %v", err)
+		}
+		fmt.Println("acquired")
+		if err := unlock(); err != nil {
+			t.Fatalf("child unlock: %v", err)
+		}
+		return
+	}
+
+	lockPath := filepath.Join(t.TempDir(), "bundle.lock")
+	unlock, err := lockBundleInstall(lockPath)
+	if err != nil {
+		t.Fatalf("parent lockBundleInstall: %v", err)
+	}
+	locked := true
+	defer func() {
+		if locked {
+			_ = unlock()
+		}
+	}()
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestBundleInstallLockSerializesProcesses$")
+	cmd.Env = append(os.Environ(), lockEnv+"="+lockPath)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("child stdout pipe: %v", err)
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start child: %v", err)
+	}
+	reader := bufio.NewReader(stdout)
+	if line, err := reader.ReadString('\n'); err != nil || line != "ready\n" {
+		t.Fatalf("child ready = %q, %v; stderr: %s", line, err, stderr.String())
+	}
+	acquired := make(chan string, 1)
+	go func() {
+		line, _ := reader.ReadString('\n')
+		acquired <- line
+	}()
+	select {
+	case line := <-acquired:
+		t.Fatalf("child acquired parent-held lock early: %q", line)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if err := unlock(); err != nil {
+		t.Fatalf("parent unlock: %v", err)
+	}
+	locked = false
+	select {
+	case line := <-acquired:
+		if line != "acquired\n" {
+			t.Fatalf("child acquisition = %q, want acquired", line)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("child did not acquire released lock")
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("child wait: %v; stderr: %s", err, stderr.String())
 	}
 }
 

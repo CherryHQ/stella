@@ -146,6 +146,12 @@ type setupResult struct {
 // with it directly, so no service is built with a localhost placeholder and
 // mutated later.
 func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*setupResult, error) {
+	// The legacy Skill inventory is a pre-mutation gate for Stella Home. Run it
+	// before embedded PostgreSQL creates its cluster or runtime directories.
+	if err := ensureEmbeddedAssets(); err != nil {
+		return nil, err
+	}
+
 	dsn := cfg.Database.URL
 	var embedded *appdb.Embedded
 	if dsn == "" {
@@ -186,10 +192,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// Every authorization domain owns its own static rules and loads durable facts
 	// before deciding; the Agent domain is the shared read gate the others fold in.
 	agentAccess := agentaccess.NewService(store, authStore)
-
-	if err := ensureEmbeddedAssets(); err != nil {
-		return nil, err
-	}
 
 	skillStore := setupSkillStore(db)
 	// The Skill domain shares the Agent read gate with the other execution

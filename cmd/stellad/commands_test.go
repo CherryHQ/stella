@@ -228,6 +228,26 @@ func TestEnsureEmbeddedAssetsBlocksLegacySkillWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestSetupRunsLegacySkillGateBeforeEmbeddedPostgresMutation(t *testing.T) {
+	stellaHome := setupCommandTestStellaHome(t)
+	retired := filepath.Join(stellaHome, ".agents", "skills", "system", "kreuzberg")
+	if err := os.MkdirAll(retired, 0o755); err != nil {
+		t.Fatalf("create retired skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(retired, "SKILL.md"), []byte("stale"), 0o644); err != nil {
+		t.Fatalf("write retired skill: %v", err)
+	}
+
+	if _, err := setup(t.Context(), config.ServerConfig{}, ""); err == nil {
+		t.Fatal("setup accepted legacy custom skill")
+	}
+	for _, name := range []string{"postgres", "pg-runtime", "bundles"} {
+		if _, err := os.Stat(filepath.Join(stellaHome, name)); !os.IsNotExist(err) {
+			t.Fatalf("legacy gate allowed %s mutation: %v", name, err)
+		}
+	}
+}
+
 func TestCLIUserSkillsDirUsesUserScope(t *testing.T) {
 	setupCommandTestStellaHome(t)
 	db := dbtest.New(t)

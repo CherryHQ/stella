@@ -44,6 +44,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		close(out)
 		return
 	}
+	rt.capturePromptBuilders(&selection)
 	rt.chatWithRunner(ctx, out, info, msg, co, selection)
 }
 
@@ -191,7 +192,7 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	}
 	if baseSystem == "" {
 		baseSystem = selection.runner.SystemPrompt()
-		if !isGuest && info.GroupID == "" && rt.snapshotPrompt != nil && info.UserID != "" && info.AgentID != "" {
+		if !isGuest && info.GroupID == "" && selection.snapshotPrompt != nil && info.UserID != "" && info.AgentID != "" {
 			// DM per-turn snapshot prompt: rebuild system with frozen memory
 			// version. Skipped when systemOverride is set (e.g. delegate custom
 			// system).
@@ -201,13 +202,13 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 				if err != nil {
 					rt.log.Warn("snapshot lookup failed, using base system", "session_id", info.ID, "error", err)
 				} else {
-					baseSystem = rt.snapshotPrompt(ctx, info, snap)
+					baseSystem = selection.snapshotPrompt(ctx, info, snap)
 				}
 			}
 		}
 	}
-	if !isGuest && rt.beforeRun != nil {
-		systemOut, err := rt.beforeRun(ctx, info, selection.model, msgText, baseSystem, history)
+	if !isGuest && selection.beforeRun != nil {
+		systemOut, err := selection.beforeRun(ctx, info, selection.model, msgText, baseSystem, history)
 		if err != nil {
 			out <- Event{Err: fmt.Errorf("before run: %w", err)}
 			close(out)

@@ -691,6 +691,7 @@ func (pm *PoolManager) rebuildRunnerFuncForServiceLocked(ctx context.Context, ag
 	svc.Runtime.SetNewRunner(factory)
 	svc.Runtime.SetDefaultModel(snap.ResolveModelID(config.ModelTierStrong), snap.ResolveThinkingLevel(config.ModelTierStrong))
 	svc.Runtime.SetHooks(pm.HookPlugins)
+	svc.Runtime.SetPromptBuilders(pm.runtimeBeforeRunFunc(snap), pm.buildSnapshotPromptFunc(snap))
 	return nil
 }
 

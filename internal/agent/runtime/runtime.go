@@ -35,6 +35,7 @@ type Runtime struct {
 	mem            memory.Provider
 	log            *slog.Logger
 	compact        CompactionConfig
+	promptMu       sync.RWMutex
 	beforeRun      BeforeRunFunc
 	snapshotPrompt SnapshotPromptFunc
 	sessionImages  SessionImages
@@ -227,6 +228,23 @@ func (rt *Runtime) SetDefaultModel(model string, thinking ai.ThinkingLevel) {
 	rt.cache.mu.Unlock()
 }
 
+// SetPromptBuilders replaces the snapshot-derived prompt builders for turns
+// admitted after a configuration refresh. Callers serialize this with runner
+// replacement through the Agent admission barrier.
+func (rt *Runtime) SetPromptBuilders(beforeRun BeforeRunFunc, snapshotPrompt SnapshotPromptFunc) {
+	rt.promptMu.Lock()
+	rt.beforeRun = beforeRun
+	rt.snapshotPrompt = snapshotPrompt
+	rt.promptMu.Unlock()
+}
+
+func (rt *Runtime) capturePromptBuilders(selection *runnerSelection) {
+	rt.promptMu.RLock()
+	selection.beforeRun = rt.beforeRun
+	selection.snapshotPrompt = rt.snapshotPrompt
+	rt.promptMu.RUnlock()
+}
+
 // SetHooks updates the hook getter used when creating new runners.
 func (rt *Runtime) SetHooks(fn func() []hooks.HookPlugin) {
 	rt.cache.mu.Lock()
@@ -394,6 +412,7 @@ func (rt *Runtime) ChatAdmittedControlled(ctx context.Context, info session.Info
 		return nil, fmt.Errorf("get runner: %w", err)
 	}
 	selectionReady = true
+	rt.capturePromptBuilders(&selection)
 	rt.markSessionTurnStarted(ctx, activityScope)
 
 	// Tee: chat writes to inner; the forwarder fans every event out to the hub

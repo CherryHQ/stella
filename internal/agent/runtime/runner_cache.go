@@ -38,10 +38,12 @@ type cachedSession struct {
 // remain mutable for the next turn (reset intentionally clears them), so code
 // executing an admitted turn must use this value rather than cachedSession.
 type runnerSelection struct {
-	session  *cachedSession
-	runner   Runner
-	model    string
-	thinking ai.ThinkingLevel
+	session        *cachedSession
+	runner         Runner
+	model          string
+	thinking       ai.ThinkingLevel
+	beforeRun      BeforeRunFunc
+	snapshotPrompt SnapshotPromptFunc
 }
 
 // runnerCache manages active runners keyed by session ID.
