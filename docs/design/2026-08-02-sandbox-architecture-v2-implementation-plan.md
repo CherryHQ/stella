@@ -1,11 +1,12 @@
 # Plan: Implement Sandbox Architecture v2
 
-- **Status:** APPROVED — V-authorized 15-Draft-PR execution map; Docker Compose remains the hard gate before Kubernetes
-- **Issue:** CherryHQ/stella#828
-- **Design PR:** CherryHQ/stella#829
+- **Status:** APPROVED — implementation tracked in CherryHQ/stella#828; Docker Compose remains the hard gate before Kubernetes
+- **Issue:** CherryHQ/stella#828 (implementation tracking)
+- **Design PR:** CherryHQ/stella#829 (Draft, not merged)
+- **Current-main reconciliation:** 2026-08-10, after PRs #940 and #962
 - **Architecture source:** `docs/design/2026-08-01-sandbox-architecture-v2.md` rev 8, D1–D60
-- **Canonical plan:** `~/.agents/sessions/stella/2026-08-02-sandbox-architecture-v2-implementation/plan.md`
-- **Repository archive after approval:** `docs/design/2026-08-02-sandbox-architecture-v2-implementation-plan.md`
+- **Current plan:** `docs/design/2026-08-02-sandbox-architecture-v2-implementation-plan.md`
+- **Historical authoring path:** `~/.agents/sessions/stella/2026-08-02-sandbox-architecture-v2-implementation/plan.md` (non-authoritative after repository reconciliation)
 - **Execution:** one logical phase at a time; every phase ends with its Acceptance block, review, commit(s), and a handoff before the next phase starts
 
 ## Problem
@@ -15,6 +16,7 @@ Stella currently works because `stellad`, its sandbox, and durable files usually
 - `pkg/sandbox.Session` exposes host paths through `ResolvePath` and `ResolveWritePath`; tools and Workspace APIs perform `os.*` outside the sandbox contract.
 - `agent.workspace`, `project.base_dir`, `HostPath`, mutable assets, group homes, and user-less Agent directories mix logical data identity with `STELLA_HOME` coordinates.
 - active-turn exclusion, channel serialization, Publisher lookup, Docker resource identity, OAuth flows, and login rate limits depend on process memory.
+- Session activity/viewed watermarks are now durable, while `running` remains process-local; agent-originated `session.send` now has a durable `ctx_session_inbox`, transcript-only startup recovery, and a process-local `turnqueue` that cannot serialize across replicas.
 - the Helm deployment is intentionally single-replica, while the target must safely support multiple homogeneous `stellad` replicas and ordinary Kubernetes Session Pods.
 - a failed executor can leave outcome-unknown work, stale containers, stuck running rows, or accepted asynchronous input. Retrying by guess would be worse than surfacing interruption.
 - Skill current state is split between release embeds, PG rows, extracted host directories and project files; without an authority cutover, multi-replica execution would preserve a PG/disk mirror and implement a disposable DB Skill snapshot mechanism only to delete it later.
@@ -27,7 +29,7 @@ The program is complete when all of the following are observable:
 
 1. User and group persistent data resolve through typed `PrincipalHome`; Agent-private data resolves through `AgentHome`; no public contract exposes a host path.
 2. A Session owns one reconnectable `SessionSandbox` generation, while any capable replica can execute a later `AgentRun` against it.
-3. `AgentRun` is the only running execution lease across Chat, channel, Webhook, Scheduler, Goal, and Delegate; expiry, abort, stale writes, and generation fencing fail closed.
+3. `AgentRun` is the only running execution lease across Chat, agent-originated Session send, channel, Webhook, Scheduler, Goal, and Delegate; expiry, abort, stale writes, and generation fencing fail closed. Session activity/viewed metadata remains presentation state, not an execution lease.
 4. Accepted asynchronous input is durable, ordered by ChatBinding, deduplicated only by stable source identity, and never silently skipped or replayed after an unknown outcome.
 5. A three-replica Docker Compose deployment passes the cross-replica protocol and crash-recovery gate before Kubernetes work begins.
 6. Kubernetes passes its own POSIX, PVC topology, Pod fencing, security, and node-failure conformance before Helm permits more than one replica.
@@ -144,7 +146,7 @@ Destroy(ref)           -> idempotent completion
 
 PostgreSQL persists `SessionSandbox`, normalized spec, deterministic provisioning intent, immutable resource identity, generation, lifecycle, and keepalive. A lightweight reconciler runs on every replica and competes only through CAS; it is not an owner.
 
-`internal/agent/run` will own AgentRun admission, heartbeat guard, abort, execution-start marker, guarded finalization, and terminal state. Every source domain references its Run but keeps only its own queue/budget/reply policy.
+`internal/agent/run` will own AgentRun admission, heartbeat guard, abort, execution-start marker, guarded finalization, and terminal state. Every source domain references its Run but keeps only its own receipt/queue/budget/reply policy. Durable Session activity/viewed watermarks remain presentation metadata; after Phase 3, `running` is derived only from a valid AgentRun.
 
 Alternatives rejected:
 
@@ -154,11 +156,15 @@ Alternatives rejected:
 
 Tradeoff: an accepted message can become visibly interrupted without an automatic response. The receipt and transcript remain durable; unknown work is not guessed safe to replay.
 
-### 5. Durable input is one ChatBinding FIFO
+### 5. Durable ingress keeps source receipts and one generic ChatBinding FIFO
 
-`ctx_chat_input` is the only new direct/channel delivery table. It is simultaneously the ingress receipt, lane item, barrier, batch member, and one-time Run relation. Existing `ctx_group_message` remains the immutable group receipt; `ctx_group_outbox` is narrowed into one expiring `GroupRoute` claim.
+`ctx_chat_input` is the only new generic direct/channel delivery table. It is simultaneously the ingress receipt, lane item, barrier, batch member, and one-time Run relation. Existing `ctx_group_message` remains the immutable group receipt; `ctx_group_outbox` is narrowed into one expiring `GroupRoute` claim.
+
+PR #962's existing `ctx_session_inbox` remains the source-domain receipt for agent-originated Session send. Phase 3 adds its AgentRun relation and keeps its exact source/target Session provenance plus transcript-only recovery. It does not join the ChatBinding FIFO, batch, background dispatch, or hold a running lease. Live send atomically persists/validates the receipt, admits one AgentRun, links the two, and projects the inbox input; successful admission then preserves synchronous result streaming. Busy/no-capacity ends the receipt with an explicit failure. A committed Run interrupted by process death is never replayed; startup recovery only idempotently appends legacy/unassociated pending receipts to the transcript without creating a Run.
 
 The dispatcher uses transactional PostgreSQL notification only as a wakeup, takes a per-binding transaction advisory lock, reauthorizes at admission, and atomically creates a running Run only when the local replica has capacity.
+
+`internal/agent/session/turnqueue` is deleted or retained only as optional local fairness before database admission. Two replicas must remain correct without it; the AgentRun partial unique index, not a local queue, is the Session serialization boundary.
 
 Alternatives rejected:
 
@@ -247,13 +253,13 @@ Every phase runs the repository's mandatory `mise run format && mise run build &
 | Area                                                                               | Planned change                                                                                                                                                                                                                                                                         |
 | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `internal/db/migrations/`                                                          | Hand-written goose migrations for typed Homes/shared Skill roots, Skill migration marker/Reflect usage identity, SessionSandbox, AgentRun, chat input/GroupRoute, OAuth flows, rate limits, and config revisions. One logical schema change per migration; every migration has `Down`. |
-| `internal/db/queries/`                                                             | New focused sqlc files such as `storage_home.sql`, `ctx_session_sandbox.sql`, `ctx_agent_run.sql`, and `ctx_chat_input.sql`; narrowed group queries; guarded transcript/source updates.                                                                                                |
+| `internal/db/queries/`                                                             | New focused sqlc files such as `storage_home.sql`, `ctx_session_sandbox.sql`, `ctx_agent_run.sql`, and `ctx_chat_input.sql`; evolve existing Session inbox queries; narrow group queries; guard transcript/source updates.                                                             |
 | `pkg/db/sqlc/`                                                                     | Regenerated only through `mise run generate`; never hand-edited.                                                                                                                                                                                                                       |
 | `internal/home/`                                                                   | New deep module for typed identity including shared Skill roots, Store configuration, attachment resolution, legacy registration, maintenance, tombstone, purge, and local/Docker/Kubernetes adapters.                                                                                 |
 | `pkg/sandbox/`                                                                     | `HomeAttachment`, Provider lifecycle, normalized spec/ref/state, error taxonomy, and removal of public host-path methods.                                                                                                                                                              |
 | `plugins/sandbox/local`, `none`, `docker`                                          | Adapt to the Provider/Filesystem contracts; Docker gains deterministic identity, labels, capability probes, Open/Inspect/Destroy, and no `owner_pid` correctness.                                                                                                                      |
 | `internal/fsops/` and `cmd/stellad/`                                               | Shared safe file operations plus restricted multicall `stella-fs`/`stella-exec` entry modes in the existing binary.                                                                                                                                                                    |
-| `internal/agent/`                                                                  | Replace path-derived workspace identity; add AgentRun guard/finalization; move every top-level source to one lease; guard transcript and memory writes.                                                                                                                                |
+| `internal/agent/`                                                                  | Replace path-derived workspace identity; add AgentRun guard/finalization; move every top-level source including agent-originated Session send to one lease; demote/delete `turnqueue`; guard transcript and memory writes.                                                             |
 | `internal/agent/sandbox/`                                                          | SessionSandbox lifecycle, BeginUse/keepalive, provisioning intent, reconciler, env refresh, file helper adapter, and generation checks.                                                                                                                                                |
 | `internal/channel/`                                                                | `ctx_chat_input` ingress/dispatcher, barriers, batching, stable dedup, expiring GroupRoute, per-responder Web busy results, durable reply envelopes, and removal of process queue plus `/agent`/`/model`.                                                                              |
 | `internal/controlplane/`, `cmd/stellad/channel_runtime.go`                         | One serialized PostgreSQL control session, leader acquisition/drain, cache invalidation, lifecycle startup order, and feature gates.                                                                                                                                                   |
@@ -270,23 +276,23 @@ Every phase runs the repository's mandatory `mise run format && mise run build &
 
 The implementation baseline is **15 Draft PRs**. Every PR body says `Refs #828`; no child Issue is created, no PR says `Closes #828`, and every PR stays Draft until V explicitly changes its state. Drafts open just in time rather than all at once.
 
-| ID  | Branch                          | Scope                                                                                                                                                        | Depends on |
-| --- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
-| 0.1 | `refactor/system-skill-bundle`  | Complete standalone Phase 0 in four commits: manifest/Registry, Provider projection/legacy gate, Agent policy API/UI, docs/gate                              | PR #829    |
-| 1.1 | `storage/typed-homes`           | Phase 1 vertical slice: schema/sqlc, deep Home module, local/Docker Store adapters, shared Skill roots, registration/wiring/lifecycle                        | 0.1        |
-| 2.1 | `sandbox/filesystem-boundary`   | `fsops`, restricted helpers, local/none/Docker adapters, Filesystem conformance and outcome-unknown semantics                                                | 1.1        |
-| 2.2 | `storage/home-consumers-assets` | Non-Skill read/write/edit and Workspace API/UI migration, host parser boundary, mutable-asset migration/marker/Home cutover                                  | 2.1        |
-| 2.3 | `skills/home-authority-cutover` | Filesystem Skill metadata/catalog/publication/admin path, observability, then offline PG Skill/Reflect/usage/archive migration after the asset marker exists | 2.2        |
-| 2.4 | `sandbox/host-path-cleanup`     | Remove remaining public host paths, PG Skill current-state readers/writers and obsolete retries; run complete Phase 2 acceptance                             | 2.3        |
-| 3.1 | `runtime/session-sandbox`       | Durable SessionSandbox/AgentRun/input schema, deterministic Provider lifecycle, provisioning intents and exact-generation Workspace foundation               | 2.4        |
-| 3.2 | `runtime/agent-run`             | AgentRun lease/guards/abort, lifecycle reconciler, source migration, Workspace linearization, catalog/policy pin and revision GC                             | 3.1        |
-| 3.3 | `runtime/durable-input`         | ChatBinding FIFO/media/quota/batching, receipt backfill, GroupRoute, Session API/Web behavior, command/process-local cleanup and complete Phase 3 gate       | 3.2        |
-| 4.1 | `control/shared-state`          | Pool-external control session, OAuth/rate-limit/config/policy durability and managed-writer serialization                                                    | 3.3        |
-| 4.2 | `channel/distributed-runtime`   | Global channel ingress leadership, cursor/ack/capability durability and reconstructable Publishers                                                           | 4.1        |
-| 4.3 | `sandbox/compose-gate`          | Three-replica Compose harness/journeys, documentation and fail-closed Docker multi-replica activation                                                        | 4.2        |
-| 5.1 | `sandbox/kubernetes-provider`   | Kubernetes dependency/frozen placement contract, Provider Pod/exec/watch/recovery and Session Pod compute                                                    | 4.3        |
-| 5.2 | `storage/kubernetes-topology`   | RWX Pool/shared roots, RWO AgentHome PVC/affinity, trusted provisioner, Helm storage/security/RBAC/network/quota integration                                 | 5.1        |
-| 5.3 | `sandbox/kubernetes-gate`       | Kubernetes conformance, Phase 4 journey reuse, docs and fail-closed Helm multi-replica activation                                                            | 5.2        |
+| ID  | Branch                          | Scope                                                                                                                                                                                       | Depends on |
+| --- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| 0.1 | `refactor/system-skill-bundle`  | Complete standalone Phase 0 in four commits: manifest/Registry, Provider projection/legacy gate, Agent policy API/UI, docs/gate                                                             | PR #829    |
+| 1.1 | `storage/typed-homes`           | Phase 1 vertical slice: schema/sqlc, deep Home module, local/Docker Store adapters, shared Skill roots, registration/wiring/lifecycle                                                       | 0.1        |
+| 2.1 | `sandbox/filesystem-boundary`   | `fsops`, restricted helpers, local/none/Docker adapters, Filesystem conformance and outcome-unknown semantics                                                                               | 1.1        |
+| 2.2 | `storage/home-consumers-assets` | Non-Skill read/write/edit and Workspace API/UI migration, host parser boundary, mutable-asset migration/marker/Home cutover                                                                 | 2.1        |
+| 2.3 | `skills/home-authority-cutover` | Filesystem Skill metadata/catalog/publication/admin path, observability, then offline PG Skill/Reflect/usage/archive migration after the asset marker exists                                | 2.2        |
+| 2.4 | `sandbox/host-path-cleanup`     | Remove remaining public host paths, PG Skill current-state readers/writers and obsolete retries; run complete Phase 2 acceptance                                                            | 2.3        |
+| 3.1 | `runtime/session-sandbox`       | Durable SessionSandbox/AgentRun/input schema, including `ctx_session_inbox` Run relation, deterministic Provider lifecycle, provisioning intents and exact-generation Workspace foundation  | 2.4        |
+| 3.2 | `runtime/agent-run`             | AgentRun lease/guards/abort, lifecycle reconciler, source migration, Workspace linearization, catalog/policy pin and revision GC                                                            | 3.1        |
+| 3.3 | `runtime/durable-input`         | ChatBinding FIFO/media/quota/batching, agent-send inbox admission/recovery, receipt backfill, GroupRoute, Session API/Web behavior, command/process-local cleanup and complete Phase 3 gate | 3.2        |
+| 4.1 | `control/shared-state`          | Pool-external control session, OAuth/rate-limit/config/policy durability and managed-writer serialization                                                                                   | 3.3        |
+| 4.2 | `channel/distributed-runtime`   | Global channel ingress leadership, cursor/ack/capability durability and reconstructable Publishers                                                                                          | 4.1        |
+| 4.3 | `sandbox/compose-gate`          | Three-replica Compose harness/journeys, documentation and fail-closed Docker multi-replica activation                                                                                       | 4.2        |
+| 5.1 | `sandbox/kubernetes-provider`   | Kubernetes dependency/frozen placement contract, Provider Pod/exec/watch/recovery and Session Pod compute                                                                                   | 4.3        |
+| 5.2 | `storage/kubernetes-topology`   | RWX Pool/shared roots, RWO AgentHome PVC/affinity, trusted provisioner, Helm storage/security/RBAC/network/quota integration                                                                | 5.1        |
+| 5.3 | `sandbox/kubernetes-gate`       | Kubernetes conformance, Phase 4 journey reuse, docs and fail-closed Helm multi-replica activation                                                                                           | 5.2        |
 
 Count: `1 + 1 + 4 + 3 + 3 + 3 = 15`.
 
@@ -327,7 +333,7 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
 
 ### Phase 0 prerequisite: Builtin bundle and Agent Skill policy
 
-**Why before Phase 1:** release-owned builtin authority and logical activation refs do not need Homes; landing them first prevents Home migration from carrying the startup-extracted builtin mirror forward. This phase is executed through the separate canonical plan `~/.agents/sessions/stella/2026-08-02-system-skill-bundle/plan.md`; its byte-identical repository archive is `docs/design/2026-08-02-system-skill-bundle-phase-0-plan.md`.
+**Why before Phase 1:** release-owned builtin authority and logical activation refs do not need Homes; landing them first prevents Home migration from carrying the startup-extracted builtin mirror forward. The current repository plan is `docs/design/2026-08-02-system-skill-bundle-phase-0-plan.md`; `~/.agents/sessions/stella/2026-08-02-system-skill-bundle/plan.md` is its historical authoring path.
 
 - [ ] Generate and embed the deterministic mode-preserving builtin manifest; make `resources.Registry` the catalog/content authority and install one digest-pinned execution bundle for local/none/Docker. Isolating Providers expose its exact revision read-only at `/opt/stella/skills/builtin`.
 - [ ] Before disabling the legacy scan/mount, classify `$STELLA_HOME/.agents/skills` at the same nested skill-root granularity as the current extractor. Any non-manifest root or unrecognized residue fails the capability gate with a complete operator inventory.
@@ -379,6 +385,8 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
 ### Phase 2: Filesystem boundary and host-path removal
 
 **Why after Phase 1:** Filesystem operations need typed attachments before host coordinates can be hidden.
+
+The known Project Skill HTTP host-path gap remains implementation work in CherryHQ/stella#928. It must close against this Filesystem/Home boundary and does not relax or redesign the Sandbox v2 target.
 
 - [ ] Define canonical sandbox paths and `internal/fsops` operations for stat/list/read/write/mkdir/remove/rename/upload with root containment, symlink handling, permission preservation, bounded reads, and streaming payloads.
 - [ ] Add restricted multicall modes for `stella-fs` and `stella-exec` in the existing `stellad` binary; install digest-matched entry points in the sandbox image/system bundle.
@@ -460,6 +468,7 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
   - SessionSandbox generation/spec/ref/lifecycle/provisioning intent/keepalive/fencing errors;
   - AgentRun state, executor boot ID, lease, heartbeat, execution marker, abort, terminal/error fields, and partial indexes;
   - `ctx_chat_input` FIFO/receipt/barrier/batch/retry fields and source uniqueness;
+  - `ctx_session_inbox` nullable `run_id`, explicit admission/recovery terminal states, a partial unique index preventing multiple receipts from linking to one Run, and checks requiring Run-associated rows to be linked while failed/transcript-recovered rows are unlinked;
   - narrowed expiring GroupRoute claim and atomic responder materialization;
   - `run_id` links on transcript and every source-domain row that needs terminal fold/reply state.
 - [ ] Evolve `pkg/sandbox` and local/`none`/Docker Providers to deterministic Provision, Open, Inspect, Destroy, normalized spec/ref validation, endpoint identity, immutable labels, and generation mismatch rejection.
@@ -474,7 +483,14 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
   - terminal classification and source-domain notification.
 - [ ] At admission, read one effective filesystem/builtin catalog plus canonical AgentSkillPolicy, persist their content/policy digests on AgentRun, and keep that snapshot for the complete Run. A policy or symlink flip affects only a later Run; disabled winners never reveal lower same-name entries.
 - [ ] Add managed Skill revision GC only after durable Run state exists: retain the current target and every revision that could be observed by an active matching Run; reclaim only noncurrent revisions after no matching Run reference plus a documented grace. Phase 2 disk-growth metrics remain the safety ceiling until this lands.
-- [ ] Move Chat, Webhook, Scheduler, Goal, and Delegate to AgentRun as their only running lease; keep only source queue/budget/fold/retry policy. Remove Goal's “heartbeat failure logs and continues” behavior.
+- [ ] Move Chat, agent-originated Session send, Webhook, Scheduler, Goal, and Delegate to AgentRun as their only running lease; keep only source receipt/queue/budget/fold/retry policy. Remove Goal's “heartbeat failure logs and continues” behavior.
+- [ ] Reconcile PR #940 Session activity state: keep `last_turn_started_at`, `last_turn_completed_at`, `last_turn_result`, and `last_viewed_at` as durable presentation watermarks, but replace `SessionRunning`/`SessionLive` as the authoritative state with a query for an unexpired running AgentRun. Write Run-derived started/completed/result metadata in admission or under AgentRun ownership CAS; keep `last_viewed_at` as an independent authorized write.
+- [ ] Reconcile PR #962 agent-originated send:
+  - retain `ctx_session_inbox` as the exact source/target/provenance receipt and transcript-recovery record rather than copying it into `ctx_chat_input`;
+  - atomically persist/validate the receipt, admit and link one AgentRun, and project the inbox input; busy/no-capacity/canceled-before-admission reaches an explicit failed receipt without durable queueing;
+  - keep the successful call synchronous, classify process death through the linked Run, and never replay model/tool execution;
+  - limit startup recovery to idempotent transcript append/terminalization for legacy or unassociated pending receipts; recovery never creates a Run;
+  - delete `internal/agent/session/turnqueue`, or retain it only as removable local fairness before database admission with no correctness or serialization responsibility.
 - [ ] Implement `ctx_chat_input` receipt/admission:
   - validate payload/schema and hard size limits before a row can enter `queued`;
   - fetch platform attachments before ack and persist immutable content-addressed media refs rather than expiring URLs;
@@ -514,13 +530,18 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
   - add structured duplicate, busy, recovering, and remote-live error details;
   - make `/events` return 204 only with no valid active Run and 503 for a remote valid Run.
 - [ ] Update the Web UI to create stable message UUIDs, poll AgentRun plus transcript every three seconds on remote-live fallback, and render completed/failed/cancelled/interrupted/recovering states.
-- [ ] Delete or demote process-local correctness in runner cache, active-turn map, SessionHub, channel queue, old group leases, and resilient recreation. Delete the old command receipt table only after its handled-control backfill is verified. Caches/hubs may remain only as optional local acceleration.
+- [ ] Delete or demote process-local correctness in runner cache, active-turn map, SessionHub, channel queue, Session `turnqueue`, old group leases, and resilient recreation. Delete the old command receipt table only after its handled-control backfill is verified. Caches, hubs, and local fairness may remain only as optional acceleration.
 - [ ] Keep all Docker/Kubernetes multi-replica feature gates closed at the end of this phase.
 
 **Acceptance:**
 
-- [ ] `mise run db:validate && mise run generate:check` exits 0; partial unique/check constraints reject two running Runs, invalid input source combinations, and duplicate stable source identities.
+- [ ] `mise run db:validate && mise run generate:check` exits 0; partial unique/check constraints reject two running Runs, multiple Session inbox receipts linked to one Run, admitted inbox rows without a Run, linked failed/recovered rows, invalid input source combinations, and duplicate stable source identities.
 - [ ] Deterministic DB integration tests with two independent service instances prove one admission winner, heartbeat/reaper linearization, abort/completion ordering, stale durable-write rejection, `/new` compare-and-rotate, and GroupRoute seq order.
+- [ ] Two independent service instances concurrently handling agent-originated sends to the same target Session prove exactly one running AgentRun and no concurrent model/tool/Sandbox execution; the loser receives explicit busy/failed outcome.
+- [ ] Agent-send crash tests prove process death after admission produces an interrupted linked Run with no replay, while a legacy/unassociated pending receipt is appended to the transcript exactly once without executing a turn.
+- [ ] Agent-send transaction rollback/crash leaves no current-format recovery-pending orphan; busy/no-capacity commits only a failed, unlinked receipt.
+- [ ] The same agent-send integration suite passes with `turnqueue` absent; if a local fairness queue remains, bypassing it does not weaken any invariant.
+- [ ] After a replacement Run starts, a stale executor cannot overwrite its `last_turn_started_at`, `last_turn_completed_at`, or `last_turn_result`; an authorized viewed update remains independent.
 - [ ] Crash-window tests cover: commit-before-start, marker-before-call, provisioning create timeout, crash after fencing CAS, destroy retry, stale executor completion, and Workspace write interrupted by fencing.
 - [ ] Workspace tests with two independent service instances prove `BeginUse + Open`, keepalive/reaper ordering, exact-generation validation, and ordinary POSIX concurrency with a Run on the other instance.
 - [ ] Skill tests prove an AgentRun keeps its admitted catalog/policy digest across concurrent admin/CLI changes; the next Run sees the change; GC never removes a revision observable by an active Run.
@@ -553,6 +574,7 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
   - isolated project/volume names and deterministic cleanup so developer data is never touched.
 - [ ] Add `mise run compose-test` and a Go/shell harness that drives and inspects replicas directly. Cover at least:
   - Run initiated on A, Workspace operation on B, abort from C;
+  - concurrent agent-originated sends from A and B to one target Session, with one AgentRun winner and no local-queue dependency;
   - executor container/process kill, lease expiry, fencing, resource replacement, and later Run on another replica;
   - queued ChatBinding input, batching, `/new`, duplicate delivery, GroupRoute, and poison-head recovery;
   - one channel leader, control-session failure, leader handoff, cursor redelivery dedup, and outbound publish from a non-leader executor;
@@ -657,7 +679,7 @@ Any finding that changes safety, product semantics, the selected module boundary
 
 **Review (Fable, exact transcription round 2):** `DECISION: APPROVED`. Fable verified the architecture, this parent plan, and the byte-identical Phase 0 plan; it found no mandatory issue. It also approved the clarified `/opt/stella/skills/{builtin,system,system-agent}` read-only execution views as coordinates over the same two authorities, not a third source.
 
-**Resolved:** Final review gate satisfied. The canonical and repository plan copies must remain byte-identical as implementation review threads and handoffs are appended.
+**Resolved:** Final review gate was satisfied. After later current-main reconciliations, the repository artifacts are authoritative; historical authoring copies do not override them.
 
 **Decision (V, full-program execution):** Implement all phases, reuse umbrella Issue #828 for every PR, create no child Issues, and open every PR as Draft. V rejected a 23-PR draft as over-granular and explicitly authorized Sol self-review without another Fable pass.
 

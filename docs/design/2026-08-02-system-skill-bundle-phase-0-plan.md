@@ -1,10 +1,10 @@
 # Plan: Phase 0 — Builtin Skill bundle and Agent Skill policy
 
 - **Revision:** 3 — release bundle now; mutable Home authority after Homes + `stella-fs`
-- **Status:** APPROVED — ready to execute
+- **Status:** APPROVED — implementation tracked in CherryHQ/stella#828
 - **Issue:** CherryHQ/stella#828 (umbrella; V requested no child Issue)
 - **Branch:** `refactor/system-skill-bundle`
-- **PR base:** `design/sandbox-architecture-v2` (stacked above Draft PR #829; retarget to `main` after #829 merges)
+- **PR base:** `design/sandbox-architecture-v2` (stacked above Draft PR #829, which is not merged; retarget only after it merges)
 - **Parent architecture:** `docs/design/2026-08-01-sandbox-architecture-v2.md` rev 8, D1–D60
 - **Parent plan:** `docs/design/2026-08-02-sandbox-architecture-v2-implementation-plan.md`
 - **Umbrella:** CherryHQ/stella#828
@@ -308,7 +308,7 @@ Kept system scopes but added `agent_skill_disablement`. Fable approved after sta
 
 **Review (Fable, round 2): APPROVED.** Fable re-read architecture rev 8, the parent plan, and this byte-identical exact plan, found no mandatory issue, and confirmed the `/opt/stella/skills/builtin` Phase 0 view remains a projection of the immutable bundle rather than another authority.
 
-**Resolved:** Final plan gate satisfied. Implementation may start with Phase 1 of this standalone Phase 0 plan.
+**Resolved:** Final plan gate satisfied. Implementation status and sequencing are tracked in Issue #828; this archived plan does not infer completion from approval.
 
 ### Full-program execution map
 
