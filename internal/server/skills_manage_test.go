@@ -3,6 +3,7 @@ package server_test
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -68,9 +69,13 @@ func TestScopedSkills_CreatePermissions(t *testing.T) {
 
 func TestScopedSkills_AdminManagesGlobalSystemSkill(t *testing.T) {
 	env := setupAdmin(t)
-	source, err := filepath.Abs("../../resources/skills/system/stella")
-	if err != nil {
-		t.Fatalf("abs source: %v", err)
+	_, nonAdminSession := newNonAdmin(t, env, "global-system-skill-denied")
+	source := filepath.Join(t.TempDir(), "global-system-skill")
+	if err := os.Mkdir(source, 0o755); err != nil {
+		t.Fatalf("mkdir source: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("---\nname: global-system-skill\ndescription: test\n---\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
 	}
 
 	rr := doRequest(t, env, "POST", "/api/skills/install", map[string]any{
@@ -87,6 +92,17 @@ func TestScopedSkills_AdminManagesGlobalSystemSkill(t *testing.T) {
 		t.Fatalf("unmarshal install response: %v", err)
 	}
 	assertFullSkillMutationResponse(t, rr, installed.ID, "manual")
+
+	rr = doRequestWithSession(t, env.srv, nonAdminSession, "PATCH", "/api/skills/"+installed.ID, map[string]any{
+		"disable_model_invocation": true,
+	})
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("non-admin disable system skill status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
+	}
+	rr = doRequestWithSession(t, env.srv, nonAdminSession, "DELETE", "/api/skills/"+installed.ID, nil)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("non-admin delete system skill status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
+	}
 
 	rr = doRequest(t, env, "PATCH", "/api/skills/"+installed.ID, map[string]any{
 		"disable_model_invocation": true,

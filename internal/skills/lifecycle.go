@@ -15,7 +15,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// ErrSkillNotMutable rejects system, filesystem, deprecated, and project writes.
+// ErrSkillNotMutable rejects filesystem, deprecated, and project writes.
 var ErrSkillNotMutable = errors.New("skill is not mutable")
 
 // ErrInvalidSkillFilePath rejects keys whose runtime path would differ from the
