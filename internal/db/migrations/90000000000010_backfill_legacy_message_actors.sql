@@ -1,60 +1,10 @@
 -- +goose Up
--- Expected affected rows are only user-role rows in legacy internal Session
--- histories: one history per delegate, scheduler, or task run, normally orders
--- of magnitude fewer rows than human chat. Keep each UPDATE scoped to one kind
--- so unrelated ctx_message rows are never rewritten.
-UPDATE ctx_message AS message
-SET actor_type = 'agent',
-    actor_id = conversation.agent_id
-FROM ctx_conversation AS conversation
-WHERE message.conversation_id = conversation.id
-  AND message.role = 'user'
-  AND message.actor_id IS NULL
-  AND conversation.agent_id IS NOT NULL
-  AND conversation.kind = 'delegate';
-
-UPDATE ctx_message AS message
-SET actor_type = 'system'
-FROM ctx_conversation AS conversation
-WHERE message.conversation_id = conversation.id
-  AND message.role = 'user'
-  AND message.actor_id IS NULL
-  AND conversation.kind = 'scheduler';
-
-UPDATE ctx_message AS message
-SET actor_type = 'system'
-FROM ctx_conversation AS conversation
-WHERE message.conversation_id = conversation.id
-  AND message.role = 'user'
-  AND message.actor_id IS NULL
-  AND conversation.kind = 'task';
+-- Previous-GA rows do not contain per-message evidence of who authored a
+-- user-role message. Conversation kind is not author provenance: owners could
+-- send human messages to delegate, scheduler, and task conversations through
+-- the old Session API. Keep the actor_type default added by migration 9
+-- (human) rather than risk demoting historical principal input.
+SELECT 1;
 
 -- +goose Down
-UPDATE ctx_message AS message
-SET actor_type = 'human',
-    actor_id = NULL
-FROM ctx_conversation AS conversation
-WHERE message.conversation_id = conversation.id
-  AND message.role = 'user'
-  AND message.actor_id = conversation.agent_id
-  AND message.source_session_id IS NULL
-  AND message.actor_type = 'agent'
-  AND conversation.kind = 'delegate';
-
-UPDATE ctx_message AS message
-SET actor_type = 'human'
-FROM ctx_conversation AS conversation
-WHERE message.conversation_id = conversation.id
-  AND message.role = 'user'
-  AND message.actor_id IS NULL
-  AND message.actor_type = 'system'
-  AND conversation.kind = 'scheduler';
-
-UPDATE ctx_message AS message
-SET actor_type = 'human'
-FROM ctx_conversation AS conversation
-WHERE message.conversation_id = conversation.id
-  AND message.role = 'user'
-  AND message.actor_id IS NULL
-  AND message.actor_type = 'system'
-  AND conversation.kind = 'task';
+SELECT 1;

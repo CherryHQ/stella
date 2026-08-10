@@ -770,6 +770,10 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, agentID s
 	}
 
 	if err := access.UpdateTitle(r.Context(), si, title); err != nil {
+		if errors.Is(err, sessionaccess.ErrInvalid) {
+			writeError(w, http.StatusBadRequest, "title is too long")
+			return
+		}
 		s.writeSessionAccessError(w, err)
 		return
 	}

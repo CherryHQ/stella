@@ -31,6 +31,20 @@ func (f *fakeStore) save(_ context.Context, info Info) error {
 	return nil
 }
 
+func TestEnsureRejectsOversizedTitleBeforeStorage(t *testing.T) {
+	store := newFakeStore()
+	r := NewRegistryWithStore(store, "agent")
+	_, err := r.Ensure(context.Background(), Request{
+		UserID: "user", Title: strings.Repeat("界", MaxTitleBytes/len("界")+1), CreateIfMissing: true,
+	})
+	if !errors.Is(err, ErrTitleTooLong) {
+		t.Fatalf("Ensure error = %v, want ErrTitleTooLong", err)
+	}
+	if len(store.sessions) != 0 {
+		t.Fatalf("stored sessions = %d, want 0", len(store.sessions))
+	}
+}
+
 func (f *fakeStore) rotate(_ context.Context, expectedSessionID string, successor Info) error {
 	if f.beforeRotate != nil {
 		f.beforeRotate()

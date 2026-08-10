@@ -29,7 +29,7 @@ components:
             value predates the goal rename and is kept for stored sessions.
           enum: [main, chat, delegate, scheduler, task]
         project_id: { type: string }
-        title: { type: string }
+        title: { type: string, maxLength: 1000 }
         agent_id: { type: string }
         user_id: { type: string }
         created_at: { type: string, format: date-time }
@@ -63,7 +63,7 @@ components:
     UpdateSessionRequest:
       type: object
       properties:
-        title: { type: string }
+        title: { type: string, maxLength: 1000 }
 
     MessagePart:
       type: object

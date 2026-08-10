@@ -545,18 +545,19 @@ type CtxMessagePart struct {
 }
 
 type CtxSummary struct {
-	ID                      string             `json:"id"`
-	ConversationID          string             `json:"conversation_id"`
-	Kind                    string             `json:"kind"`
-	Depth                   int64              `json:"depth"`
-	Content                 string             `json:"content"`
-	TokenCount              int64              `json:"token_count"`
-	EarliestAt              pgtype.Timestamptz `json:"earliest_at"`
-	LatestAt                pgtype.Timestamptz `json:"latest_at"`
-	DescendantCount         int64              `json:"descendant_count"`
-	DescendantTokenCount    int64              `json:"descendant_token_count"`
-	SourceMessageTokenCount int64              `json:"source_message_token_count"`
-	CreatedAt               time.Time          `json:"created_at"`
+	ID                        string             `json:"id"`
+	ConversationID            string             `json:"conversation_id"`
+	Kind                      string             `json:"kind"`
+	Depth                     int64              `json:"depth"`
+	Content                   string             `json:"content"`
+	TokenCount                int64              `json:"token_count"`
+	EarliestAt                pgtype.Timestamptz `json:"earliest_at"`
+	LatestAt                  pgtype.Timestamptz `json:"latest_at"`
+	DescendantCount           int64              `json:"descendant_count"`
+	DescendantTokenCount      int64              `json:"descendant_token_count"`
+	SourceMessageTokenCount   int64              `json:"source_message_token_count"`
+	CreatedAt                 time.Time          `json:"created_at"`
+	ContainsNonPrincipalInput bool               `json:"contains_non_principal_input"`
 }
 
 type CtxSummaryEmbedding struct {

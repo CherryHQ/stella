@@ -296,12 +296,13 @@ func formatSummarizerInput(msg sqlc.CtxMessage, content string) string {
 }
 
 type messageRunSummary struct {
-	run         messageRun
-	messages    []sqlc.CtxMessage
-	content     string
-	totalTokens int64
-	earliestAt  time.Time
-	latestAt    time.Time
+	run                       messageRun
+	messages                  []sqlc.CtxMessage
+	content                   string
+	totalTokens               int64
+	earliestAt                time.Time
+	latestAt                  time.Time
+	containsNonPrincipalInput bool
 }
 
 // summarizeMessageRun creates a leaf summary candidate from a message run without writing it.
@@ -315,6 +316,7 @@ func (c *compactionEngine) summarizeMessageRun(ctx context.Context, convID strin
 	var textParts []string
 	var totalTokens int64
 	var earliestAt, latestAt time.Time
+	var containsNonPrincipalInput bool
 
 	messageIDs := make([]string, 0, len(run.items))
 	for _, item := range run.items {
@@ -345,6 +347,8 @@ func (c *compactionEngine) summarizeMessageRun(ctx context.Context, convID strin
 		messages = append(messages, msg)
 		textParts = append(textParts, formatMessageForSummarizerWithParts(msg, partsByMessage[msg.ID]))
 		totalTokens += msg.TokenCount
+		containsNonPrincipalInput = containsNonPrincipalInput ||
+			(msg.Role == roleUser && eventlog.ActorType(msg.ActorType) == eventlog.ActorAgent)
 
 		if earliestAt.IsZero() || msg.CreatedAt.Before(earliestAt) {
 			earliestAt = msg.CreatedAt
@@ -371,12 +375,13 @@ func (c *compactionEngine) summarizeMessageRun(ctx context.Context, convID strin
 	}
 
 	return messageRunSummary{
-		run:         run,
-		messages:    messages,
-		content:     summary,
-		totalTokens: totalTokens,
-		earliestAt:  earliestAt,
-		latestAt:    latestAt,
+		run:                       run,
+		messages:                  messages,
+		content:                   summary,
+		totalTokens:               totalTokens,
+		earliestAt:                earliestAt,
+		latestAt:                  latestAt,
+		containsNonPrincipalInput: containsNonPrincipalInput,
 	}, nil
 }
 
@@ -403,17 +408,18 @@ func (c *compactionEngine) writeMessageRunSummary(ctx context.Context, convID st
 	// Create summary record.
 	sumID := generateSummaryID()
 	err = qtx.CreateSummary(ctx, sqlc.CreateSummaryParams{
-		ID:                      sumID,
-		ConversationID:          convID,
-		Kind:                    kindLeaf,
-		Depth:                   0,
-		Content:                 summary.content,
-		TokenCount:              int64(memory.EstimateTokens(summary.content)),
-		EarliestAt:              pgtype.Timestamptz{Time: summary.earliestAt.UTC(), Valid: !summary.earliestAt.IsZero()},
-		LatestAt:                pgtype.Timestamptz{Time: summary.latestAt.UTC(), Valid: !summary.latestAt.IsZero()},
-		DescendantCount:         int64(len(summary.messages)),
-		DescendantTokenCount:    summary.totalTokens,
-		SourceMessageTokenCount: summary.totalTokens,
+		ID:                        sumID,
+		ConversationID:            convID,
+		Kind:                      kindLeaf,
+		Depth:                     0,
+		Content:                   summary.content,
+		TokenCount:                int64(memory.EstimateTokens(summary.content)),
+		EarliestAt:                pgtype.Timestamptz{Time: summary.earliestAt.UTC(), Valid: !summary.earliestAt.IsZero()},
+		LatestAt:                  pgtype.Timestamptz{Time: summary.latestAt.UTC(), Valid: !summary.latestAt.IsZero()},
+		DescendantCount:           int64(len(summary.messages)),
+		DescendantTokenCount:      summary.totalTokens,
+		SourceMessageTokenCount:   summary.totalTokens,
+		ContainsNonPrincipalInput: summary.containsNonPrincipalInput,
 	})
 	if err != nil {
 		return fmt.Errorf("create summary: %w", err)
@@ -587,15 +593,16 @@ func findSummaryRuns(items []sqlc.CtxItem, minSize int, depthOf map[string]int64
 }
 
 type condensedRunSummary struct {
-	run              summaryRun
-	summaries        []sqlc.CtxSummary
-	content          string
-	newDepth         int64
-	totalTokens      int64
-	totalDescendants int64
-	totalDescTokens  int64
-	earliestAt       time.Time
-	latestAt         time.Time
+	run                       summaryRun
+	summaries                 []sqlc.CtxSummary
+	content                   string
+	newDepth                  int64
+	totalTokens               int64
+	totalDescendants          int64
+	totalDescTokens           int64
+	earliestAt                time.Time
+	latestAt                  time.Time
+	containsNonPrincipalInput bool
 }
 
 // summarizeCondensedRun creates a condensed summary candidate from summary items without writing it.
@@ -610,6 +617,7 @@ func (c *compactionEngine) summarizeCondensedRun(ctx context.Context, run summar
 	var totalDescTokens int64
 	var maxDepth int64
 	var earliestAt, latestAt time.Time
+	var containsNonPrincipalInput bool
 
 	for _, item := range run.items {
 		if !item.SummaryID.Valid {
@@ -624,6 +632,7 @@ func (c *compactionEngine) summarizeCondensedRun(ctx context.Context, run summar
 		totalTokens += sum.TokenCount
 		totalDescendants += sum.DescendantCount
 		totalDescTokens += sum.DescendantTokenCount
+		containsNonPrincipalInput = containsNonPrincipalInput || sum.ContainsNonPrincipalInput
 		if sum.Depth > maxDepth {
 			maxDepth = sum.Depth
 		}
@@ -656,15 +665,16 @@ func (c *compactionEngine) summarizeCondensedRun(ctx context.Context, run summar
 	}
 
 	return condensedRunSummary{
-		run:              run,
-		summaries:        summaries,
-		content:          content,
-		newDepth:         newDepth,
-		totalTokens:      totalTokens,
-		totalDescendants: totalDescendants,
-		totalDescTokens:  totalDescTokens,
-		earliestAt:       earliestAt,
-		latestAt:         latestAt,
+		run:                       run,
+		summaries:                 summaries,
+		content:                   content,
+		newDepth:                  newDepth,
+		totalTokens:               totalTokens,
+		totalDescendants:          totalDescendants,
+		totalDescTokens:           totalDescTokens,
+		earliestAt:                earliestAt,
+		latestAt:                  latestAt,
+		containsNonPrincipalInput: containsNonPrincipalInput,
 	}, nil
 }
 
@@ -690,17 +700,18 @@ func (c *compactionEngine) writeCondensedRunSummary(ctx context.Context, convID 
 	// Create condensed summary.
 	sumID := generateSummaryID()
 	err = qtx.CreateSummary(ctx, sqlc.CreateSummaryParams{
-		ID:                      sumID,
-		ConversationID:          convID,
-		Kind:                    kindCondensed,
-		Depth:                   summary.newDepth,
-		Content:                 summary.content,
-		TokenCount:              int64(memory.EstimateTokens(summary.content)),
-		EarliestAt:              pgtype.Timestamptz{Time: summary.earliestAt.UTC(), Valid: !summary.earliestAt.IsZero()},
-		LatestAt:                pgtype.Timestamptz{Time: summary.latestAt.UTC(), Valid: !summary.latestAt.IsZero()},
-		DescendantCount:         summary.totalDescendants + int64(len(summary.summaries)),
-		DescendantTokenCount:    summary.totalDescTokens + summary.totalTokens,
-		SourceMessageTokenCount: 0,
+		ID:                        sumID,
+		ConversationID:            convID,
+		Kind:                      kindCondensed,
+		Depth:                     summary.newDepth,
+		Content:                   summary.content,
+		TokenCount:                int64(memory.EstimateTokens(summary.content)),
+		EarliestAt:                pgtype.Timestamptz{Time: summary.earliestAt.UTC(), Valid: !summary.earliestAt.IsZero()},
+		LatestAt:                  pgtype.Timestamptz{Time: summary.latestAt.UTC(), Valid: !summary.latestAt.IsZero()},
+		DescendantCount:           summary.totalDescendants + int64(len(summary.summaries)),
+		DescendantTokenCount:      summary.totalDescTokens + summary.totalTokens,
+		SourceMessageTokenCount:   0,
+		ContainsNonPrincipalInput: summary.containsNonPrincipalInput,
 	})
 	if err != nil {
 		return fmt.Errorf("create condensed summary: %w", err)

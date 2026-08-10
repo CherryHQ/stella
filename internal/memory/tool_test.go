@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -501,13 +502,14 @@ func TestUnifiedMemorySearchAndReadFederatesRecallAndDurableMemory(t *testing.T)
 
 func TestUnifiedMemorySearchAndReadAreBounded(t *testing.T) {
 	const sessionID = "session-1"
+	oversizedTitle := strings.Repeat("界", 50_000)
 	hits := make([]memory.RecallSearchResult, 60)
 	docs := make(map[string]memory.RecallDocument, len(hits))
 	for i := range hits {
 		ref := memory.RecallReference{Kind: "message", ID: fmt.Sprintf("message-%d", i), SessionID: sessionID}
-		hits[i] = memory.RecallSearchResult{Reference: ref, Content: strings.Repeat("x", 2_000), SessionID: sessionID}
+		hits[i] = memory.RecallSearchResult{Reference: ref, Content: strings.Repeat("x", 2_000), SessionID: sessionID, ConversationTitle: oversizedTitle}
 		docs[fmt.Sprintf("message:message-%d:%s", i, sessionID)] = memory.RecallDocument{
-			Reference: ref, Content: strings.Repeat("y", 100_000), SessionID: sessionID,
+			Reference: ref, Content: strings.Repeat("y", 100_000), SessionID: sessionID, ConversationTitle: oversizedTitle,
 		}
 	}
 	source := &fakeRecallSource{hits: hits, docs: docs}
@@ -541,14 +543,20 @@ func TestUnifiedMemorySearchAndReadAreBounded(t *testing.T) {
 		t.Fatal(err)
 	}
 	var response struct {
-		Content   string `json:"content"`
-		Truncated bool   `json:"truncated"`
+		Content    string `json:"content"`
+		Truncated  bool   `json:"truncated"`
+		Provenance struct {
+			Title string `json:"title"`
+		} `json:"provenance"`
 	}
 	if err := json.Unmarshal([]byte(read), &response); err != nil {
 		t.Fatal(err)
 	}
 	if source.requestedReadCap != 8_000 || len(response.Content) != 64_000 || !response.Truncated {
 		t.Fatalf("read bounds: source cap=%d bytes=%d truncated=%t", source.requestedReadCap, len(response.Content), response.Truncated)
+	}
+	if len(response.Provenance.Title) > 1_000 || !utf8.ValidString(response.Provenance.Title) {
+		t.Fatalf("read provenance title bytes=%d valid_utf8=%t, want <=1000 valid bytes", len(response.Provenance.Title), utf8.ValidString(response.Provenance.Title))
 	}
 	if len(read) > 128_000 {
 		t.Fatalf("serialized memory.read bytes=%d, want <=128000", len(read))
@@ -568,7 +576,7 @@ func TestUnifiedMemoryReadPreservesCondensedSummaryMetadata(t *testing.T) {
 		hits: []memory.RecallSearchResult{{Reference: ref, Content: "condensed root", SessionID: "session-1"}},
 		docs: map[string]memory.RecallDocument{
 			"summary:root:session-1": {
-				Reference: ref, Content: "condensed root", SessionID: "session-1",
+				Reference: ref, Content: "condensed root", Authority: "information_only", SessionID: "session-1",
 				Summary: &memory.RecallSummaryDetail{
 					Kind: "condensed", Depth: 1,
 					Children: children,
@@ -596,7 +604,8 @@ func TestUnifiedMemoryReadPreservesCondensedSummaryMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	var response struct {
-		Summary struct {
+		Authority string `json:"authority"`
+		Summary   struct {
 			ChildRefs []string `json:"child_refs"`
 			Expanded  []struct {
 				Kind  string `json:"kind"`
@@ -607,6 +616,9 @@ func TestUnifiedMemoryReadPreservesCondensedSummaryMetadata(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(read), &response); err != nil {
 		t.Fatal(err)
+	}
+	if response.Authority != "information_only" {
+		t.Fatalf("model-facing summary authority was lost: %s", read)
 	}
 	if len(response.Summary.Expanded) == 0 || len(response.Summary.Expanded) > 200 || len(response.Summary.ChildRefs) == 0 || len(response.Summary.ChildRefs) > 200 || !response.Summary.Truncated {
 		t.Fatalf("model-facing summary arrays were not bounded: %s", read)

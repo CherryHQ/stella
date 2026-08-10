@@ -90,6 +90,7 @@ type unifiedReadResponse struct {
 	Content     string                   `json:"content,omitempty"`
 	Truncated   bool                     `json:"truncated,omitempty"`
 	Role        string                   `json:"role,omitempty"`
+	Authority   string                   `json:"authority,omitempty"`
 	OccurredAt  string                   `json:"occurred_at,omitempty"`
 	Provenance  *unifiedRecallProvenance `json:"provenance,omitempty"`
 	Constraints []ConstraintEntry        `json:"constraints,omitempty"`
@@ -121,6 +122,7 @@ type unifiedSummaryRead struct {
 type unifiedExpandedRead struct {
 	Ref        string `json:"ref"`
 	Role       string `json:"role,omitempty"`
+	Authority  string `json:"authority,omitempty"`
 	Kind       string `json:"kind,omitempty"`
 	Depth      *int   `json:"depth,omitempty"`
 	Content    string `json:"content"`
@@ -318,8 +320,8 @@ func (t *memoryTool) readUnifiedRecall(ctx context.Context, encoded string, payl
 	}
 	content, truncated := tools.TruncateText(doc.Content, maxUnifiedReadTextBytes)
 	response := unifiedReadResponse{
-		Ref: encoded, Content: content, Truncated: truncated, Role: doc.Role,
-		Provenance: &unifiedRecallProvenance{SessionID: doc.SessionID, Title: doc.ConversationTitle},
+		Ref: encoded, Content: content, Truncated: truncated, Role: doc.Role, Authority: doc.Authority,
+		Provenance: &unifiedRecallProvenance{SessionID: doc.SessionID, Title: truncateUnifiedText(doc.ConversationTitle, maxUnifiedProvenanceTitle)},
 	}
 	if !doc.OccurredAt.IsZero() {
 		response.OccurredAt = doc.OccurredAt.UTC().Format(time.RFC3339)
@@ -389,7 +391,7 @@ func unifiedSummaryFrom(detail *RecallSummaryDetail) (*unifiedSummaryRead, error
 		remaining := maxUnifiedExpansionBytes - expansionBytes
 		content, truncated := tools.TruncateText(item.Content, remaining)
 		expanded := unifiedExpandedRead{
-			Ref: encoded, Role: item.Role, Kind: item.Kind, Depth: item.Depth,
+			Ref: encoded, Role: item.Role, Authority: item.Authority, Kind: item.Kind, Depth: item.Depth,
 			Content: content, Truncated: truncated,
 		}
 		expansionBytes += len(content)

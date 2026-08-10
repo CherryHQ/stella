@@ -748,6 +748,41 @@ func (q *Queries) ListMessagesNeedingEmbedding(ctx context.Context, arg ListMess
 	return items, nil
 }
 
+const listRecallMessageByIDs = `-- name: ListRecallMessageByIDs :many
+SELECT id, conversation_id
+FROM ctx_message
+WHERE id = ANY($1::uuid[])
+ORDER BY id
+`
+
+type ListRecallMessageByIDsRow struct {
+	ID             string `json:"id"`
+	ConversationID string `json:"conversation_id"`
+}
+
+// Recall hits are untrusted hints spanning authorized conversations. Return
+// only identity and ownership facts so the PEP can match each hit back to the
+// exact conversation authorized in the same search operation.
+func (q *Queries) ListRecallMessageByIDs(ctx context.Context, messageIds []string) ([]ListRecallMessageByIDsRow, error) {
+	rows, err := q.db.Query(ctx, listRecallMessageByIDs, messageIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRecallMessageByIDsRow{}
+	for rows.Next() {
+		var i ListRecallMessageByIDsRow
+		if err := rows.Scan(&i.ID, &i.ConversationID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSessionTranscriptPage = `-- name: ListSessionTranscriptPage :many
 WITH ordered AS (
     SELECT

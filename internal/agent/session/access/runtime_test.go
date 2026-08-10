@@ -58,12 +58,27 @@ type fakeRuntimeService struct {
 	managedCalls   []delegatetool.ManagedSessionRequest
 	managedResult  delegatetool.ManagedSessionResult
 	managedErr     error
+	chatEvents     []agent.Event
+	chatDone       chan struct{}
 }
 
 func (s *fakeRuntimeService) Chat(ctx context.Context, req agent.ChatRequest) <-chan agent.Event {
 	s.chatCalls++
 	s.chatCtx = ctx
 	s.chatRequests = append(s.chatRequests, req)
+	if s.chatEvents != nil {
+		ch := make(chan agent.Event)
+		go func() {
+			defer close(ch)
+			if s.chatDone != nil {
+				defer close(s.chatDone)
+			}
+			for _, event := range s.chatEvents {
+				ch <- event
+			}
+		}()
+		return ch
+	}
 	ch := make(chan agent.Event, 2)
 	ch <- agent.Event{Text: "hello"}
 	ch <- agent.Event{Text: " world"}

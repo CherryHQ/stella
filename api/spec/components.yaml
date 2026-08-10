@@ -4186,6 +4186,7 @@ components:
           type: string
         title:
           type: string
+          maxLength: 1000
         agent_id:
           type: string
         user_id:
@@ -4226,6 +4227,7 @@ components:
       properties:
         title:
           type: string
+          maxLength: 1000
     MessagePart:
       type: object
       required: [type]

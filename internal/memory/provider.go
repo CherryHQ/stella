@@ -184,6 +184,7 @@ type RecallSearchResult struct {
 type RecallFragment struct {
 	Reference  RecallReference
 	Role       string
+	Authority  string
 	Kind       string
 	Depth      *int
 	Content    string
@@ -208,6 +209,7 @@ type RecallDocument struct {
 	Reference         RecallReference
 	Content           string
 	Role              string
+	Authority         string
 	OccurredAt        time.Time
 	SessionID         string
 	ConversationTitle string

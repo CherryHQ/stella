@@ -2,6 +2,7 @@
 package turnqueue
 
 import (
+	"container/list"
 	"context"
 	"errors"
 	"sync"
@@ -39,19 +40,30 @@ type Queue struct {
 type slot struct {
 	parent *Queue
 	key    string
-	queue  chan *request
+	mu     sync.Mutex
+	queue  list.List
+	wake   chan struct{}
 	refs   int
 }
+
+type requestState uint8
+
+const (
+	requestQueued requestState = iota
+	requestDequeued
+	requestStarted
+	requestAbandoned
+	requestCompleted
+)
 
 type request struct {
 	ctx      context.Context
 	deadline time.Time
 	fn       func(context.Context, context.Context, func() error) error
 	result   chan error
-
-	mu        sync.Mutex
-	started   bool
-	abandoned bool
+	slot     *slot
+	element  *list.Element
+	state    requestState
 }
 
 func New() *Queue { return NewWithLimits(MaxDepth, HoldTimeout, idleTimeout) }
@@ -67,7 +79,7 @@ func (q *Queue) getOrCreate(key string) *slot {
 		s.refs++
 		return s
 	}
-	s := &slot{parent: q, key: key, queue: make(chan *request, q.depth), refs: 1}
+	s := &slot{parent: q, key: key, wake: make(chan struct{}, 1), refs: 1}
 	q.sessions[key] = s
 	go s.run()
 	return s
@@ -84,7 +96,12 @@ func (q *Queue) release(s *slot) {
 func (q *Queue) deleteIdle(s *slot) bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.sessions[s.key] != s || s.refs != 0 || len(s.queue) != 0 {
+	if q.sessions[s.key] != s || s.refs != 0 {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.queue.Len() != 0 {
 		return false
 	}
 	delete(q.sessions, s.key)
@@ -101,14 +118,17 @@ func (q *Queue) Enqueue(ctx context.Context, key string, fn func(context.Context
 		return err
 	}
 	s := q.getOrCreate(key)
-	req := &request{ctx: ctx, deadline: time.Now().Add(q.hold), fn: fn, result: make(chan error, 1)}
-	select {
-	case s.queue <- req:
-		q.release(s)
-	default:
+	req := &request{ctx: ctx, deadline: time.Now().Add(q.hold), fn: fn, result: make(chan error, 1), slot: s, state: requestQueued}
+	s.mu.Lock()
+	if s.queue.Len() >= q.depth {
+		s.mu.Unlock()
 		q.release(s)
 		return ErrFull
 	}
+	req.element = s.queue.PushBack(req)
+	s.signal()
+	s.mu.Unlock()
+	q.release(s)
 
 	timer := time.NewTimer(time.Until(req.deadline))
 	defer timer.Stop()
@@ -136,19 +156,23 @@ func (q *Queue) Enqueue(ctx context.Context, key string, fn func(context.Context
 }
 
 func (r *request) abandon() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.started {
+	r.slot.mu.Lock()
+	defer r.slot.mu.Unlock()
+	switch r.state {
+	case requestStarted, requestCompleted:
 		return false
+	case requestQueued:
+		r.slot.queue.Remove(r.element)
+		r.element = nil
 	}
-	r.abandoned = true
+	r.state = requestAbandoned
 	return true
 }
 
 func (r *request) beforeStart() error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.abandoned {
+	r.slot.mu.Lock()
+	defer r.slot.mu.Unlock()
+	if r.state == requestAbandoned {
 		if err := r.ctx.Err(); err != nil {
 			return err
 		}
@@ -160,32 +184,65 @@ func (r *request) beforeStart() error {
 		return err
 	}
 	if !time.Now().Before(r.deadline) {
-		r.abandoned = true
+		r.state = requestAbandoned
 		return ErrTimeout
 	}
-	r.started = true
+	r.state = requestStarted
 	return nil
 }
 
 func (s *slot) run() {
 	for {
+		if req := s.dequeue(); req != nil {
+			s.execute(req)
+			continue
+		}
 		timer := time.NewTimer(s.parent.idle)
 		select {
-		case req := <-s.queue:
+		case <-s.wake:
 			if !timer.Stop() {
 				<-timer.C
 			}
-			if err := req.ctx.Err(); err != nil {
-				req.result <- err
-				continue
-			}
-			waitCtx, cancel := context.WithDeadline(req.ctx, req.deadline)
-			req.result <- req.fn(waitCtx, req.ctx, req.beforeStart)
-			cancel()
 		case <-timer.C:
 			if s.parent.deleteIdle(s) {
 				return
 			}
 		}
 	}
+}
+
+func (s *slot) signal() {
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (s *slot) dequeue() *request {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	element := s.queue.Front()
+	if element == nil {
+		return nil
+	}
+	s.queue.Remove(element)
+	req := element.Value.(*request)
+	req.element = nil
+	req.state = requestDequeued
+	return req
+}
+
+func (s *slot) execute(req *request) {
+	var err error
+	if ctxErr := req.ctx.Err(); ctxErr != nil {
+		err = ctxErr
+	} else {
+		waitCtx, cancel := context.WithDeadline(req.ctx, req.deadline)
+		err = req.fn(waitCtx, req.ctx, req.beforeStart)
+		cancel()
+	}
+	s.mu.Lock()
+	req.state = requestCompleted
+	s.mu.Unlock()
+	req.result <- err
 }

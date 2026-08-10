@@ -28,7 +28,7 @@ const (
 	maxSessionTranscriptPage     = 5
 	maxSessionToolMessageText    = 12_000
 	maxSessionToolOutputText     = 8_000
-	maxSessionToolResultText     = 64_000
+	maxSessionToolResultText     = agentsession.MaxSynchronousOutputBytes
 	maxSessionToolPreviewText    = 12_000
 	// Metadata counts too. Raise only if tool consumers demonstrate a need for
 	// larger transcript pages and provider payload limits rise with it.
@@ -189,8 +189,8 @@ type sessionTranscriptPage struct {
 }
 
 type sessionTranscriptOmission struct {
-	MessageCount int    `json:"message_count"`
-	Cursor       string `json:"cursor"`
+	MessageCount int  `json:"message_count"`
+	Permanent    bool `json:"permanent"`
 }
 
 type sessionTranscriptTurn struct {
@@ -360,7 +360,11 @@ func executeSessionGet(ctx context.Context, access *Access, agentID string, args
 		}
 	}
 	if omitted > 0 {
-		page.Omitted = &sessionTranscriptOmission{MessageCount: omitted, Cursor: in.Cursor}
+		// Transcript pages preserve whole tool call/result pairs. A logical turn
+		// whose serialized metadata exceeds the bounded tool result cannot be
+		// resumed within that turn, so report the omission as permanent instead
+		// of returning a cursor that would replay this exact page forever.
+		page.Omitted = &sessionTranscriptOmission{MessageCount: omitted, Permanent: true}
 	}
 	response.Transcript = page
 	return response, nil
@@ -451,6 +455,7 @@ func runManagedSession(ctx context.Context, svc *Service, agentID, sessionID, me
 		return nil, err
 	}
 	reply, truncated := tools.TruncateText(result.Output, maxSessionToolResultText)
+	truncated = truncated || result.OutputTruncated
 	return sessionRunResponse{SessionID: result.SessionID, Reply: reply, ReplyTruncated: truncated}, nil
 }
 
@@ -463,20 +468,23 @@ func runConversationSession(ctx context.Context, svc *Service, info agentsession
 	// Session's channel is execution context, not an authorized connector route;
 	// no channel publisher participates in this path.
 	stream := runtime.RunConversationSession(ctx, info, message)
-	var output strings.Builder
+	var output agentsession.OutputCollector
+	var terminalErr error
 	for event := range stream {
 		if event.Text != "" {
-			output.WriteString(event.Text)
+			output.Write(event.Text)
 		}
-		if event.Err != nil {
-			return nil, event.Err
+		if terminalErr == nil && event.Err != nil {
+			terminalErr = event.Err
 		}
+	}
+	if terminalErr != nil {
+		return sessionRunResponse{SessionID: info.ID, Reply: output.String(), ReplyTruncated: output.Truncated()}, terminalErr
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return sessionRunResponse{SessionID: info.ID, Reply: output.String(), ReplyTruncated: output.Truncated()}, err
 	}
-	reply, truncated := tools.TruncateText(output.String(), maxSessionToolResultText)
-	return sessionRunResponse{SessionID: info.ID, Reply: reply, ReplyTruncated: truncated}, nil
+	return sessionRunResponse{SessionID: info.ID, Reply: output.String(), ReplyTruncated: output.Truncated()}, nil
 }
 
 func sessionCardFrom(card Card) sessionCardResponse {
@@ -726,9 +734,9 @@ func truncateSessionToolText(text string, remaining *int, perMessageLimit int) (
 func mapSessionToolError(err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return fmt.Errorf("session not found — check the id with action=find")
+		return fmt.Errorf("session not found — check the id with action=list")
 	case errors.Is(err, ErrForbidden):
-		return fmt.Errorf("session access denied — use action=find to see sessions available to this agent")
+		return fmt.Errorf("session access denied — use action=list to see sessions available to this agent")
 	case errors.Is(err, turnqueue.ErrFull):
 		return fmt.Errorf("session queue is full — retry after pending sends finish")
 	case errors.Is(err, turnqueue.ErrTimeout):

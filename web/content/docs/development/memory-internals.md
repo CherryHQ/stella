@@ -273,18 +273,18 @@ This is suitable for short-lived conversations or resource-constrained environme
 
 **Core schema:**
 
-| Table                  | Purpose                                                                |
-| ---------------------- | ---------------------------------------------------------------------- |
-| `ctx_conversations`    | One per session (`session_id` -> `id` mapping), includes agent/user ID |
-| `ctx_messages`         | Raw messages with `role`, `content`, `token_count`, sequential `seq`   |
-| `ctx_summaries`        | Summary DAG nodes                                                      |
-| `ctx_items`            | Ordered context window: points to message or summary                   |
-| `ctx_summary_messages` | Links leaf summaries to source messages                                |
-| `ctx_summary_parents`  | Links condensed summaries to parent summaries                          |
-| `ctx_agent_memory`     | Profile, soul, constraints, and row-level version                      |
-| `memory_changelog`     | Append-only audit log for memory writes                                |
-| `memory_snapshots`     | Per-session frozen memory version                                      |
-| `skills`               | Skills plus non-callable fact/context knowledge entries                |
+| Table                  | Purpose                                                                                                   |
+| ---------------------- | --------------------------------------------------------------------------------------------------------- |
+| `ctx_conversations`    | One per session (`session_id` -> `id` mapping), includes agent/user ID                                    |
+| `ctx_messages`         | Raw messages with `role`, `content`, `token_count`, sequential `seq`                                      |
+| `ctx_summaries`        | Summary DAG nodes                                                                                         |
+| `ctx_items`            | Ordered context window: points to message or summary                                                      |
+| `ctx_summary_messages` | Links leaf summaries to source messages                                                                   |
+| `ctx_summary_parents`  | Links each condensed summary container to its constituent children (`parent_summary_id` is a legacy name) |
+| `ctx_agent_memory`     | Profile, soul, constraints, and row-level version                                                         |
+| `memory_changelog`     | Append-only audit log for memory writes                                                                   |
+| `memory_snapshots`     | Per-session frozen memory version                                                                         |
+| `skills`               | Skills plus non-callable fact/context knowledge entries                                                   |
 
 ## Configuration Defaults
 

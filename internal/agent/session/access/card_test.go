@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -242,5 +243,15 @@ func TestSessionSummaryIsBoundedAndNeverExplainsWithIntermediateEvents(t *testin
 	fallback := deriveSessionSummary("", "", sqlc.ListConversationSummarySourceBySessionIDsRow{HasMessages: true})
 	if fallback == "" {
 		t.Fatal("session with only non-display message rows received an empty summary")
+	}
+}
+
+func TestSessionCardTitleTruncationRemainsByteBoundedForUnicode(t *testing.T) {
+	got := summaryExcerpt(strings.Repeat("界", agentsession.MaxTitleBytes), maxSessionCardTitleBytes)
+	if len(got) > agentsession.MaxTitleBytes {
+		t.Fatalf("card title bytes = %d, want <= %d", len(got), agentsession.MaxTitleBytes)
+	}
+	if !utf8.ValidString(got) {
+		t.Fatalf("card title is invalid UTF-8: %q", got)
 	}
 }

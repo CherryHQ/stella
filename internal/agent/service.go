@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -110,9 +109,10 @@ type DelegateRequest struct {
 
 // DelegateResult is the output of a delegate turn.
 type DelegateResult struct {
-	SessionID string
-	Output    string
-	Complete  bool
+	SessionID       string
+	Output          string
+	OutputTruncated bool
+	Complete        bool
 }
 
 // RunManagedSession invokes the delegate configured on the current source
@@ -665,22 +665,24 @@ func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateRe
 	opts = append(opts, agentruntime.WithInputActor(messageActor(authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))))
 
 	result := DelegateResult{SessionID: info.ID}
-	var output strings.Builder
+	var output session.OutputCollector
 	err = s.runQueuedTurn(ctx, info, req.Task, opts, func(stream <-chan Event) error {
+		var terminalErr error
 		for ev := range stream {
 			if ev.Text != "" {
-				output.WriteString(ev.Text)
+				output.Write(ev.Text)
 			}
-			if ev.Err != nil {
-				return ev.Err
+			if terminalErr == nil && ev.Err != nil {
+				terminalErr = ev.Err
 			}
 		}
-		return nil
+		return terminalErr
 	})
 	if err != nil {
-		return DelegateResult{SessionID: info.ID, Output: output.String()}, err
+		return DelegateResult{SessionID: info.ID, Output: output.String(), OutputTruncated: output.Truncated()}, err
 	}
 	result.Output = output.String()
+	result.OutputTruncated = output.Truncated()
 	result.Complete = true
 	return result, nil
 }
@@ -715,9 +717,10 @@ func (s *Service) RunDelegateSession(ctx context.Context, req delegatetool.Sessi
 		Authority:     authority,
 	})
 	return delegatetool.SessionRunResult{
-		SessionID: res.SessionID,
-		Output:    res.Output,
-		Complete:  res.Complete,
+		SessionID:       res.SessionID,
+		Output:          res.Output,
+		OutputTruncated: res.OutputTruncated,
+		Complete:        res.Complete,
 	}, err
 }
 

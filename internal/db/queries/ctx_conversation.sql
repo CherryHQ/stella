@@ -21,6 +21,14 @@ WHERE session_id = sqlc.arg(session_id)
 SELECT * FROM ctx_conversation
 WHERE session_id = $1;
 
+-- name: ListConversationsForRecallAccess :many
+-- Private recall PEP lookup. Search results are untrusted resource hints, so
+-- authorize their durable Session facts in one bounded batch before resolving
+-- message or summary IDs. No transport may call this query.
+SELECT * FROM ctx_conversation
+WHERE session_id = ANY(sqlc.arg('session_ids')::text[])
+ORDER BY session_id;
+
 -- name: GetConversationAgentBySessionID :one
 SELECT agent_id FROM ctx_conversation
 WHERE session_id = sqlc.arg(session_id)

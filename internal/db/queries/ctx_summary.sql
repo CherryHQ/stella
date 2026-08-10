@@ -1,12 +1,20 @@
 -- name: CreateSummary :exec
-INSERT INTO ctx_summary (id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
+INSERT INTO ctx_summary (id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, contains_non_principal_input)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);
 
 -- name: GetSummary :one
 SELECT * FROM ctx_summary WHERE id = $1 AND conversation_id = $2;
 
 -- name: ListSummariesByIDs :many
 SELECT * FROM ctx_summary WHERE conversation_id = $1 AND id = ANY(sqlc.arg('summary_ids')::text[]) ORDER BY created_at ASC;
+
+-- name: ListRecallSummaryByIDs :many
+-- As with recall messages, return only the resource ID and its exact owning
+-- conversation for a bounded, fail-closed batch verification.
+SELECT id, conversation_id
+FROM ctx_summary
+WHERE id = ANY(sqlc.arg('summary_ids')::text[])
+ORDER BY id;
 
 -- name: GetSummaryByID :one
 SELECT * FROM ctx_summary WHERE id = $1;

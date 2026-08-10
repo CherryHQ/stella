@@ -66,9 +66,10 @@ type SessionRunRequest struct {
 
 // SessionRunResult is the output from a persisted delegate session.
 type SessionRunResult struct {
-	SessionID string
-	Output    string
-	Complete  bool
+	SessionID       string
+	Output          string
+	OutputTruncated bool
+	Complete        bool
 }
 
 // ManagedSessionRequest is one synchronous managed Session turn. It is shared
@@ -83,9 +84,10 @@ type ManagedSessionRequest struct {
 // ManagedSessionResult is the bounded caller-facing result of a managed
 // Session turn. Output is bounded by the Session tool, not this delegate layer.
 type ManagedSessionResult struct {
-	SessionID string
-	Output    string
-	Complete  bool
+	SessionID       string
+	Output          string
+	OutputTruncated bool
+	Complete        bool
 }
 
 func (c DelegateConfig) maxConcurrency() int {
@@ -221,9 +223,9 @@ func (t *DelegateTool) RunManagedSession(ctx context.Context, req ManagedSession
 		if err == nil {
 			err = errors.New(result.Error)
 		}
-		return ManagedSessionResult{SessionID: result.SessionID, Output: result.Output}, err
+		return ManagedSessionResult{SessionID: result.SessionID, Output: result.Output, OutputTruncated: result.OutputTruncated}, err
 	}
-	return ManagedSessionResult{SessionID: result.SessionID, Output: result.Output, Complete: result.Complete}, nil
+	return ManagedSessionResult{SessionID: result.SessionID, Output: result.Output, OutputTruncated: result.OutputTruncated, Complete: result.Complete}, nil
 }
 
 type delegateTaskConfig struct {
@@ -258,11 +260,12 @@ func (tc *delegateTaskConfig) applyPreset(p DelegatePreset) {
 }
 
 type taskResult struct {
-	Output    string `json:"output"`
-	SessionID string `json:"session_id,omitempty"`
-	Error     string `json:"error,omitempty"`
-	Complete  bool   `json:"complete"` // true if agent stopped without error
-	cause     error
+	Output          string `json:"output"`
+	OutputTruncated bool   `json:"output_truncated,omitempty"`
+	SessionID       string `json:"session_id,omitempty"`
+	Error           string `json:"error,omitempty"`
+	Complete        bool   `json:"complete"` // true if agent stopped without error
+	cause           error
 }
 
 func (t *DelegateTool) emit(ev agent.LoopEvent) {
@@ -356,14 +359,14 @@ func (t *DelegateTool) runDelegate(parentCtx context.Context, tc delegateTaskCon
 	if err != nil {
 		log.Error("delegate failed", "duration", duration, "error", err, "session_id", sessionResult.SessionID)
 		t.emit(DelegateFinished{TaskID: tc.ID, Duration: duration, Error: err.Error()})
-		return taskResult{SessionID: sessionResult.SessionID, Error: err.Error(), cause: err}
+		return taskResult{Output: sessionResult.Output, OutputTruncated: sessionResult.OutputTruncated, SessionID: sessionResult.SessionID, Error: err.Error(), cause: err}
 	}
 
 	log.Info("delegate finished", "duration", duration, "session_id", sessionResult.SessionID)
 
 	t.emit(DelegateFinished{TaskID: tc.ID, Duration: duration})
 
-	return taskResult{Output: sessionResult.Output, SessionID: sessionResult.SessionID, Complete: sessionResult.Complete}
+	return taskResult{Output: sessionResult.Output, OutputTruncated: sessionResult.OutputTruncated, SessionID: sessionResult.SessionID, Complete: sessionResult.Complete}
 }
 
 // excludedTools returns tools hidden for this delegate run. Nested collaboration

@@ -60,6 +60,10 @@ func NewService(mem memory.Provider, db sqlc.DBTX, store config.Store, assets *a
 	if mem == nil || db == nil || store == nil || assets == nil || agents == nil {
 		return nil, fmt.Errorf("session access: missing dependency")
 	}
+	inner := memory.Unwrap(mem)
+	if _, ok := inner.(memory.SessionManager); !ok {
+		return nil, fmt.Errorf("session access: memory provider does not implement SessionManager")
+	}
 	sm, ok := mem.(memory.SessionManager)
 	if !ok {
 		return nil, fmt.Errorf("session access: memory provider does not implement SessionManager")
@@ -68,7 +72,10 @@ func NewService(mem memory.Provider, db sqlc.DBTX, store config.Store, assets *a
 	if err != nil {
 		return nil, fmt.Errorf("session access: registry: %w", err)
 	}
-	searcher, _ := mem.(memory.Searcher)
+	var searcher memory.Searcher
+	if _, ok := inner.(memory.Searcher); ok {
+		searcher, _ = mem.(memory.Searcher)
+	}
 	svc := &Service{registry: registry, memory: sm, searcher: searcher, q: sqlc.New(db), store: store, agents: agents, assets: assets}
 	for _, opt := range opts {
 		if opt != nil {
@@ -460,6 +467,9 @@ func (a *Access) ListPage(ctx context.Context, agentID string, opts agentsession
 
 // UpdateTitle persists a title after Write has authorized the exact session.
 func (a *Access) UpdateTitle(ctx context.Context, info agentsession.Info, title string) error {
+	if err := agentsession.ValidateTitle(title); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
 	if err := a.svc.q.UpdateConversationTitleBySessionID(ctx, sqlc.UpdateConversationTitleBySessionIDParams{
 		Title: pgtype.Text{String: title, Valid: true}, SessionID: info.ID,
 		UserID: pgtype.Text{String: info.UserID, Valid: true}, AgentID: pgtype.Text{String: info.AgentID, Valid: true},

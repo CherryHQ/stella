@@ -273,18 +273,18 @@ Simple 插件使用滑动窗口方式：
 
 **核心 schema：**
 
-| 表                     | 用途                                                        |
-| ---------------------- | ----------------------------------------------------------- |
-| `ctx_conversations`    | 每会话一条（`session_id` -> `id` 映射），包含 agent/user ID |
-| `ctx_messages`         | 原始消息，包含 `role`、`content`、`token_count`、顺序 `seq` |
-| `ctx_summaries`        | 摘要 DAG 节点                                               |
-| `ctx_items`            | 有序上下文窗口：指向消息或摘要                              |
-| `ctx_summary_messages` | 将叶子摘要链接到源消息                                      |
-| `ctx_summary_parents`  | 将聚合摘要链接到父摘要                                      |
-| `ctx_agent_memory`     | Profile、soul、constraints 和行级 version                   |
-| `memory_changelog`     | 记忆写入的追加式审计日志                                    |
-| `memory_snapshots`     | 每会话冻结的记忆版本                                        |
-| `skills`               | 技能，以及不可调用的 fact/context 知识条目                  |
+| 表                     | 用途                                                                     |
+| ---------------------- | ------------------------------------------------------------------------ |
+| `ctx_conversations`    | 每会话一条（`session_id` -> `id` 映射），包含 agent/user ID              |
+| `ctx_messages`         | 原始消息，包含 `role`、`content`、`token_count`、顺序 `seq`              |
+| `ctx_summaries`        | 摘要 DAG 节点                                                            |
+| `ctx_items`            | 有序上下文窗口：指向消息或摘要                                           |
+| `ctx_summary_messages` | 将叶子摘要链接到源消息                                                   |
+| `ctx_summary_parents`  | 将聚合摘要容器链接到组成它的子摘要（`parent_summary_id` 是历史遗留命名） |
+| `ctx_agent_memory`     | Profile、soul、constraints 和行级 version                                |
+| `memory_changelog`     | 记忆写入的追加式审计日志                                                 |
+| `memory_snapshots`     | 每会话冻结的记忆版本                                                     |
+| `skills`               | 技能，以及不可调用的 fact/context 知识条目                               |
 
 ## 配置默认值
 

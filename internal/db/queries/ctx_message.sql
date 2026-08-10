@@ -145,6 +145,15 @@ RETURNING *;
 -- name: ListMessagesByIDs :many
 SELECT * FROM ctx_message WHERE conversation_id = $1 AND id = ANY(sqlc.arg('message_ids')::uuid[]) ORDER BY seq ASC;
 
+-- name: ListRecallMessageByIDs :many
+-- Recall hits are untrusted hints spanning authorized conversations. Return
+-- only identity and ownership facts so the PEP can match each hit back to the
+-- exact conversation authorized in the same search operation.
+SELECT id, conversation_id
+FROM ctx_message
+WHERE id = ANY(sqlc.arg('message_ids')::uuid[])
+ORDER BY id;
+
 -- name: GetMessageParts :many
 SELECT * FROM ctx_message_part WHERE message_id = $1 ORDER BY ordinal ASC;
 

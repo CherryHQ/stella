@@ -10,7 +10,7 @@ import (
 	"github.com/CherryHQ/stella/internal/memory/lcm"
 )
 
-func TestPreviousGADelegateActorBackfillAssemblesAsInformationOnly(t *testing.T) {
+func TestPreviousGADelegateMessageWithoutProvenanceRemainsPrincipal(t *testing.T) {
 	database := appdb.PreviousGAUpgradedDBForTest(t)
 	provider, err := lcm.New(database, nil, nil)
 	if err != nil {
@@ -28,9 +28,10 @@ func TestPreviousGADelegateActorBackfillAssemblesAsInformationOnly(t *testing.T)
 		assembledText = append(assembledText, memory.MessageText(message))
 	}
 	delegateContext := strings.Join(assembledText, "\n")
-	for _, want := range []string{`"type":"agent"`, `"id":"previous-ga-agent"`, `"authority":"information_only"`, `"content":"legacy delegate input"`} {
-		if !strings.Contains(delegateContext, want) {
-			t.Fatalf("assembled backfilled delegate lost %s: %s", want, delegateContext)
-		}
+	if delegateContext != "legacy delegate input" {
+		t.Fatalf("legacy delegate input was reclassified without row-level evidence: %s", delegateContext)
+	}
+	if strings.Contains(delegateContext, `"authority":"information_only"`) {
+		t.Fatalf("legacy principal input was demoted to information-only: %s", delegateContext)
 	}
 }

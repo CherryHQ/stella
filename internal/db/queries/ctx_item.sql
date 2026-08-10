@@ -33,6 +33,7 @@ SELECT
   s.descendant_count AS summary_descendant_count,
   s.descendant_token_count AS summary_descendant_token_count,
   s.source_message_token_count AS summary_source_message_token_count,
+  s.contains_non_principal_input AS summary_contains_non_principal_input,
   s.created_at AS summary_created_at
 FROM ctx_item ci
 LEFT JOIN ctx_message m ON m.id = ci.message_id

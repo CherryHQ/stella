@@ -715,6 +715,55 @@ func (q *Queries) ListConversationsForAdminFiltered(ctx context.Context, arg Lis
 	return items, nil
 }
 
+const listConversationsForRecallAccess = `-- name: ListConversationsForRecallAccess :many
+SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at FROM ctx_conversation
+WHERE session_id = ANY($1::text[])
+ORDER BY session_id
+`
+
+// Private recall PEP lookup. Search results are untrusted resource hints, so
+// authorize their durable Session facts in one bounded batch before resolving
+// message or summary IDs. No transport may call this query.
+func (q *Queries) ListConversationsForRecallAccess(ctx context.Context, sessionIds []string) ([]CtxConversation, error) {
+	rows, err := q.db.Query(ctx, listConversationsForRecallAccess, sessionIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxConversation{}
+	for rows.Next() {
+		var i CtxConversation
+		if err := rows.Scan(
+			&i.ID,
+			&i.SessionID,
+			&i.Title,
+			&i.Channel,
+			&i.Kind,
+			&i.ProjectID,
+			&i.Archived,
+			&i.LastActive,
+			&i.BootstrappedAt,
+			&i.AgentID,
+			&i.UserID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.GroupID,
+			&i.GuestID,
+			&i.LastTurnStartedAt,
+			&i.LastTurnCompletedAt,
+			&i.LastTurnResult,
+			&i.LastViewedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listConversationsForReviewByAgent = `-- name: ListConversationsForReviewByAgent :many
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at FROM ctx_conversation
 WHERE agent_id = $1

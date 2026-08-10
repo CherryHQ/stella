@@ -18,7 +18,7 @@ const (
 
 	// A card is orientation, not transcript retrieval. Increase this only if
 	// real summaries routinely lose their recent tail; Phase 2 owns deeper reads.
-	maxSessionCardTitleBytes   = 1_000
+	maxSessionCardTitleBytes   = agentsession.MaxTitleBytes
 	maxSessionCardSummaryBytes = 2_000
 	maxSessionCardBackground   = 600
 	maxSessionCardUser         = 700

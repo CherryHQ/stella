@@ -293,6 +293,7 @@ SELECT
   s.descendant_count AS summary_descendant_count,
   s.descendant_token_count AS summary_descendant_token_count,
   s.source_message_token_count AS summary_source_message_token_count,
+  s.contains_non_principal_input AS summary_contains_non_principal_input,
   s.created_at AS summary_created_at
 FROM ctx_item ci
 LEFT JOIN ctx_message m ON m.id = ci.message_id
@@ -309,31 +310,32 @@ type ListContextItemsPageParams struct {
 }
 
 type ListContextItemsPageRow struct {
-	Ordinal                        int64              `json:"ordinal"`
-	ItemType                       string             `json:"item_type"`
-	EventType                      string             `json:"event_type"`
-	Role                           string             `json:"role"`
-	MessageID                      pgtype.Text        `json:"message_id"`
-	MessageSeq                     pgtype.Int8        `json:"message_seq"`
-	MessageRole                    pgtype.Text        `json:"message_role"`
-	MessageEventType               pgtype.Text        `json:"message_event_type"`
-	MessageContent                 pgtype.Text        `json:"message_content"`
-	MessageTokenCount              pgtype.Int8        `json:"message_token_count"`
-	MessageCreatedAt               pgtype.Timestamptz `json:"message_created_at"`
-	MessageActorType               pgtype.Text        `json:"message_actor_type"`
-	MessageActorID                 pgtype.Text        `json:"message_actor_id"`
-	MessageSourceSessionID         pgtype.Text        `json:"message_source_session_id"`
-	SummaryID                      pgtype.Text        `json:"summary_id"`
-	SummaryKind                    pgtype.Text        `json:"summary_kind"`
-	SummaryDepth                   pgtype.Int8        `json:"summary_depth"`
-	SummaryContent                 pgtype.Text        `json:"summary_content"`
-	SummaryTokenCount              pgtype.Int8        `json:"summary_token_count"`
-	SummaryEarliestAt              pgtype.Timestamptz `json:"summary_earliest_at"`
-	SummaryLatestAt                pgtype.Timestamptz `json:"summary_latest_at"`
-	SummaryDescendantCount         pgtype.Int8        `json:"summary_descendant_count"`
-	SummaryDescendantTokenCount    pgtype.Int8        `json:"summary_descendant_token_count"`
-	SummarySourceMessageTokenCount pgtype.Int8        `json:"summary_source_message_token_count"`
-	SummaryCreatedAt               pgtype.Timestamptz `json:"summary_created_at"`
+	Ordinal                          int64              `json:"ordinal"`
+	ItemType                         string             `json:"item_type"`
+	EventType                        string             `json:"event_type"`
+	Role                             string             `json:"role"`
+	MessageID                        pgtype.Text        `json:"message_id"`
+	MessageSeq                       pgtype.Int8        `json:"message_seq"`
+	MessageRole                      pgtype.Text        `json:"message_role"`
+	MessageEventType                 pgtype.Text        `json:"message_event_type"`
+	MessageContent                   pgtype.Text        `json:"message_content"`
+	MessageTokenCount                pgtype.Int8        `json:"message_token_count"`
+	MessageCreatedAt                 pgtype.Timestamptz `json:"message_created_at"`
+	MessageActorType                 pgtype.Text        `json:"message_actor_type"`
+	MessageActorID                   pgtype.Text        `json:"message_actor_id"`
+	MessageSourceSessionID           pgtype.Text        `json:"message_source_session_id"`
+	SummaryID                        pgtype.Text        `json:"summary_id"`
+	SummaryKind                      pgtype.Text        `json:"summary_kind"`
+	SummaryDepth                     pgtype.Int8        `json:"summary_depth"`
+	SummaryContent                   pgtype.Text        `json:"summary_content"`
+	SummaryTokenCount                pgtype.Int8        `json:"summary_token_count"`
+	SummaryEarliestAt                pgtype.Timestamptz `json:"summary_earliest_at"`
+	SummaryLatestAt                  pgtype.Timestamptz `json:"summary_latest_at"`
+	SummaryDescendantCount           pgtype.Int8        `json:"summary_descendant_count"`
+	SummaryDescendantTokenCount      pgtype.Int8        `json:"summary_descendant_token_count"`
+	SummarySourceMessageTokenCount   pgtype.Int8        `json:"summary_source_message_token_count"`
+	SummaryContainsNonPrincipalInput pgtype.Bool        `json:"summary_contains_non_principal_input"`
+	SummaryCreatedAt                 pgtype.Timestamptz `json:"summary_created_at"`
 }
 
 func (q *Queries) ListContextItemsPage(ctx context.Context, arg ListContextItemsPageParams) ([]ListContextItemsPageRow, error) {
@@ -370,6 +372,7 @@ func (q *Queries) ListContextItemsPage(ctx context.Context, arg ListContextItems
 			&i.SummaryDescendantCount,
 			&i.SummaryDescendantTokenCount,
 			&i.SummarySourceMessageTokenCount,
+			&i.SummaryContainsNonPrincipalInput,
 			&i.SummaryCreatedAt,
 		); err != nil {
 			return nil, err

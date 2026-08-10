@@ -3,6 +3,7 @@ package agent_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -106,6 +107,50 @@ func TestServiceConversationDropsSourceChatBinding(t *testing.T) {
 type cancelBlockingRunner struct {
 	started chan struct{}
 	once    sync.Once
+}
+
+type largeOutputRunner struct {
+	done chan struct{}
+	err  error
+}
+
+func (r *largeOutputRunner) Chat(context.Context, []ai.Message, agentruntime.MessageContent) <-chan agentruntime.Event {
+	stream := make(chan agentruntime.Event)
+	go func() {
+		defer close(r.done)
+		defer close(stream)
+		for range 100 {
+			stream <- agentruntime.Event{Text: strings.Repeat("x", 1_024)}
+		}
+		stream <- agentruntime.Event{Err: r.err}
+	}()
+	return stream
+}
+
+func (r *largeOutputRunner) Alive() bool             { return true }
+func (r *largeOutputRunner) Busy() bool              { return false }
+func (r *largeOutputRunner) LastActivity() time.Time { return time.Now() }
+func (r *largeOutputRunner) SystemPrompt() string    { return "" }
+func (r *largeOutputRunner) Close() error            { return nil }
+
+func TestServiceDelegateBoundsLargeOutputAndPreservesTerminalError(t *testing.T) {
+	wantErr := errors.New("terminal delegate error")
+	runner := &largeOutputRunner{done: make(chan struct{}), err: wantErr}
+	svc := newBoundaryTestService(t, memorytest.New(), runner)
+	ctx := memory.WithSessionID(authz.WithAgentID(authz.WithUserID(context.Background(), "u1"), "agent1"), "source-chat")
+
+	result, err := svc.Delegate(ctx, agent.DelegateRequest{UserID: "u1", AgentID: "agent1", Task: "work"})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("delegate error=%v, want %v", err, wantErr)
+	}
+	if len(result.Output) > session.MaxSynchronousOutputBytes || !result.OutputTruncated || result.Complete {
+		t.Fatalf("delegate result bytes=%d truncated=%v complete=%v", len(result.Output), result.OutputTruncated, result.Complete)
+	}
+	select {
+	case <-runner.done:
+	case <-time.After(time.Second):
+		t.Fatal("delegate producer remained blocked after large output")
+	}
 }
 
 func (r *cancelBlockingRunner) Chat(ctx context.Context, _ []ai.Message, _ agentruntime.MessageContent) <-chan agentruntime.Event {

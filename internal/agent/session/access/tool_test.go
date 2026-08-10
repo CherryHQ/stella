@@ -11,14 +11,18 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agent"
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/lcm"
+	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -27,6 +31,75 @@ import (
 type staticSessionSearcher struct {
 	results []memory.SearchResult
 	err     error
+}
+
+type recallBatchCountingDB struct {
+	db      sqlc.DBTX
+	queries map[string]int
+}
+
+func (d *recallBatchCountingDB) Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error) {
+	return d.db.Exec(ctx, query, args...)
+}
+
+func (d *recallBatchCountingDB) Query(ctx context.Context, query string, args ...any) (pgx.Rows, error) {
+	for _, name := range []string{"ListConversationsForRecallAccess", "ListRecallMessageByIDs", "ListRecallSummaryByIDs", "GetConversationForSessionAccess", "GetMessage", "GetSummary"} {
+		if strings.Contains(query, "-- name: "+name+" ") {
+			d.queries[name]++
+		}
+	}
+	return d.db.Query(ctx, query, args...)
+}
+
+func (d *recallBatchCountingDB) QueryRow(ctx context.Context, query string, args ...any) pgx.Row {
+	return d.db.QueryRow(ctx, query, args...)
+}
+
+// sessionOnlyProvider intentionally forwards Provider + SessionManager but not
+// Searcher, so tracing cannot manufacture an optional search capability.
+type sessionOnlyProvider struct {
+	inner *memorytest.Fake
+}
+
+func (p *sessionOnlyProvider) Name() string { return p.inner.Name() }
+func (p *sessionOnlyProvider) Bootstrap(ctx context.Context, session memory.Session) error {
+	return p.inner.Bootstrap(ctx, session)
+}
+
+func (p *sessionOnlyProvider) Append(ctx context.Context, session memory.Session, msgs ...ai.Message) error {
+	return p.inner.Append(ctx, session, msgs...)
+}
+
+func (p *sessionOnlyProvider) Assemble(ctx context.Context, session memory.Session, budget, freshTail int) ([]ai.Message, error) {
+	return p.inner.Assemble(ctx, session, budget, freshTail)
+}
+
+func (p *sessionOnlyProvider) Stats(ctx context.Context, session memory.Session) (memory.SessionStats, error) {
+	return p.inner.Stats(ctx, session)
+}
+func (p *sessionOnlyProvider) Close() error { return p.inner.Close() }
+func (p *sessionOnlyProvider) SaveInfo(ctx context.Context, info memory.SessionInfo) error {
+	return p.inner.SaveInfo(ctx, info)
+}
+
+func (p *sessionOnlyProvider) RotateInfo(ctx context.Context, expectedSessionID string, successor memory.SessionInfo) error {
+	return p.inner.RotateInfo(ctx, expectedSessionID, successor)
+}
+
+func (p *sessionOnlyProvider) TouchActiveInfo(ctx context.Context, info memory.SessionInfo) (bool, error) {
+	return p.inner.TouchActiveInfo(ctx, info)
+}
+
+func (p *sessionOnlyProvider) LoadInfo(ctx context.Context, sessionID string) (memory.SessionInfo, error) {
+	return p.inner.LoadInfo(ctx, sessionID)
+}
+
+func (p *sessionOnlyProvider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error) {
+	return p.inner.ListInfo(ctx, opts)
+}
+
+func (p *sessionOnlyProvider) LoadHistory(ctx context.Context, sessionID string) ([]ai.Message, error) {
+	return p.inner.LoadHistory(ctx, sessionID)
 }
 
 func (s staticSessionSearcher) Search(context.Context, memory.Session, memory.SearchQuery) ([]memory.SearchResult, error) {
@@ -85,6 +158,25 @@ func TestSessionToolUsesRuntimeIdentityAndNewSurface(t *testing.T) {
 		if _, ok := properties[hidden]; ok {
 			t.Fatalf("session tool schema must not expose %s", hidden)
 		}
+	}
+}
+
+func TestSessionRecallTracedProviderWithoutSearcherUsesEmptyLane(t *testing.T) {
+	m := newSessionMatrix(t)
+	traced := memory.WithTracing(&sessionOnlyProvider{inner: memorytest.New()}, nil)
+	svc, err := NewService(traced, m.db, m.svc.store, m.svc.assets, m.svc.agents)
+	if err != nil {
+		t.Fatalf("NewService with traced SessionManager: %v", err)
+	}
+	if svc.searcher != nil {
+		t.Fatal("tracing manufactured a Searcher capability absent from the inner provider")
+	}
+	results, err := svc.SearchRecall(t.Context(), sessionWorkerAuthority(t, m.owner, m.agent), m.agent, "durable memory", 20)
+	if err != nil {
+		t.Fatalf("no-Searcher recall lane should degrade to empty: %v", err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("no-Searcher recall results=%#v, want empty lane", results)
 	}
 }
 
@@ -185,6 +277,49 @@ func TestSessionToolCreatesAndResumesManagedSessionsSynchronously(t *testing.T) 
 	}
 	if strings.Join(get.SupportedOperations, ",") != "get,send" {
 		t.Fatalf("managed supported operations=%v", get.SupportedOperations)
+	}
+}
+
+func TestConversationSessionBoundsOutputAndDrainsAfterTerminalError(t *testing.T) {
+	m := newSessionMatrix(t)
+	wantErr := errors.New("terminal conversation error")
+	events := make([]agent.Event, 0, 102)
+	for range 50 {
+		events = append(events, agent.Event{Text: strings.Repeat("x", 1_024)})
+	}
+	events = append(events, agent.Event{Text: strings.Repeat("y", 20_000), Err: wantErr})
+	// A defensive collector must still drain protocol violations after a
+	// terminal event rather than leaving the producer blocked.
+	for range 50 {
+		events = append(events, agent.Event{Text: strings.Repeat("z", 1_024)})
+	}
+	done := make(chan struct{})
+	runtime := &fakeRuntimeService{chatEvents: events, chatDone: done}
+	m.svc.runtime = fakeRuntimeManager{svc: runtime}
+	record, err := m.svc.memory.LoadInfo(t.Context(), m.private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := agentsession.InfoFromRecord(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := runConversationSession(t.Context(), m.svc, info, "continue")
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("terminal error=%v, want %v", err, wantErr)
+	}
+	response, ok := result.(sessionRunResponse)
+	if !ok {
+		t.Fatalf("partial result type=%T, want sessionRunResponse", result)
+	}
+	if len(response.Reply) > maxSessionToolResultText || !response.ReplyTruncated {
+		t.Fatalf("bounded conversation reply bytes=%d truncated=%v", len(response.Reply), response.ReplyTruncated)
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("conversation producer remained blocked after terminal error")
 	}
 }
 
@@ -303,6 +438,60 @@ func TestSessionRecallDropsDeletedSearchSource(t *testing.T) {
 	}
 }
 
+func TestSessionRecallBatchesAuthorizationAndResourceVerification(t *testing.T) {
+	m := newSessionMatrix(t)
+	provider, err := lcm.New(m.db.(*pgxpool.Pool), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sessionID := range []string{m.private, m.internal} {
+		session := memory.Session{ID: sessionID, UserID: m.owner, AgentID: m.agent}
+		for i := range 4 {
+			appendTranscript(t, provider, session, ai.UserMessage{Content: fmt.Sprintf("batched recall %s %d", sessionID, i)})
+		}
+	}
+	var rows []sqlc.CtxMessage
+	for _, sessionID := range []string{m.private, m.internal} {
+		var conversationID string
+		if err := m.db.QueryRow(t.Context(), `SELECT id FROM ctx_conversation WHERE session_id = $1`, sessionID).Scan(&conversationID); err != nil {
+			t.Fatal(err)
+		}
+		conversationRows, err := sqlc.New(m.db).GetMessagesByConversation(t.Context(), conversationID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows = append(rows, conversationRows...)
+	}
+	hits := make([]memory.SearchResult, 0, len(rows)+1)
+	for _, row := range rows {
+		var sessionID string
+		if err := m.db.QueryRow(t.Context(), `SELECT session_id FROM ctx_conversation WHERE id = $1`, row.ConversationID).Scan(&sessionID); err != nil {
+			t.Fatal(err)
+		}
+		hits = append(hits, memory.SearchResult{SourceType: "message", SourceID: row.ID, SessionID: sessionID, Content: row.Content})
+	}
+	hits = append(hits, memory.SearchResult{SourceType: "message", SourceID: uuid.NewString(), SessionID: m.private, Content: "stale"})
+	m.svc.searcher = staticSessionSearcher{results: hits}
+	counter := &recallBatchCountingDB{db: m.db, queries: make(map[string]int)}
+	m.svc.q = sqlc.New(counter)
+
+	results, err := m.svc.SearchRecall(t.Context(), sessionWorkerAuthority(t, m.owner, m.agent), m.agent, "batched", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != len(rows) {
+		t.Fatalf("authorized results=%d, want %d live rows", len(results), len(rows))
+	}
+	if counter.queries["ListConversationsForRecallAccess"] != 1 || counter.queries["ListRecallMessageByIDs"] != 1 {
+		t.Fatalf("recall batch queries=%v, want one Session batch and one message batch", counter.queries)
+	}
+	for _, forbidden := range []string{"GetConversationForSessionAccess", "GetMessage", "GetSummary"} {
+		if counter.queries[forbidden] != 0 {
+			t.Fatalf("recall regressed to per-hit %s queries: %v", forbidden, counter.queries)
+		}
+	}
+}
+
 func TestSessionRecallAllowsDurableOnlyProvidersWithoutWeakeningPolicy(t *testing.T) {
 	m := newSessionMatrix(t)
 	m.svc.searcher = nil
@@ -349,6 +538,7 @@ func TestSessionRecallSummaryPreservesExpansionAndRejectsCrossConversationLineag
 	q := sqlc.New(m.db)
 	if err := q.CreateSummary(ctx, sqlc.CreateSummaryParams{
 		ID: "summary-root", ConversationID: conversationID, Kind: "leaf", Content: "bounded summary", TokenCount: 2, DescendantCount: 1,
+		ContainsNonPrincipalInput: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -364,13 +554,18 @@ func TestSessionRecallSummaryPreservesExpansionAndRejectsCrossConversationLineag
 	if doc.Summary == nil || len(doc.Summary.Expanded) != 1 || doc.Summary.Expanded[0].Reference.Kind != "message" || !strings.Contains(doc.Summary.Expanded[0].Content, "retained") {
 		t.Fatalf("summary expansion lost LCM detail: %#v", doc)
 	}
+	if doc.Authority != "information_only" {
+		t.Fatalf("summary read lost non-principal authority: %#v", doc)
+	}
 	if err := q.CreateSummary(ctx, sqlc.CreateSummaryParams{
 		ID: "summary-child", ConversationID: conversationID, Kind: "leaf", Depth: 0, Content: "child summary", TokenCount: 2,
+		ContainsNonPrincipalInput: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := q.CreateSummary(ctx, sqlc.CreateSummaryParams{
 		ID: "summary-condensed", ConversationID: conversationID, Kind: "condensed", Depth: 1, Content: "condensed root", TokenCount: 2,
+		ContainsNonPrincipalInput: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -385,6 +580,9 @@ func TestSessionRecallSummaryPreservesExpansionAndRejectsCrossConversationLineag
 	}
 	if condensed.Summary == nil || len(condensed.Summary.Parents) != 0 || len(condensed.Summary.Children) != 1 || condensed.Summary.Children[0].ID != "summary-child" || len(condensed.Summary.Expanded) != 1 || condensed.Summary.Expanded[0].Kind != "leaf" || condensed.Summary.Expanded[0].Depth == nil || *condensed.Summary.Expanded[0].Depth != 0 {
 		t.Fatalf("condensed expansion lost child kind/depth: %#v", condensed)
+	}
+	if condensed.Authority != "information_only" || condensed.Summary.Expanded[0].Authority != "information_only" {
+		t.Fatalf("summary read/expansion lost non-principal authority: %#v", condensed)
 	}
 	child, err := m.svc.ReadRecall(ctx, authority, m.agent, memory.RecallReference{Kind: "summary", ID: "summary-child", SessionID: m.private}, 4_000)
 	if err != nil {
@@ -579,8 +777,11 @@ func TestSessionGetBoundsSerializedMetadataAndKeepsToolPairs(t *testing.T) {
 	if err := json.Unmarshal([]byte(pageOut), &page); err != nil {
 		t.Fatal(err)
 	}
-	if page.Transcript == nil || page.Transcript.Omitted == nil || page.Transcript.Omitted.MessageCount == 0 || page.Transcript.Omitted.Cursor != compact.TranscriptCursor {
+	if page.Transcript == nil || page.Transcript.Omitted == nil || page.Transcript.Omitted.MessageCount == 0 || !page.Transcript.Omitted.Permanent {
 		t.Fatalf("missing truthful omission marker: %#v", page.Transcript)
+	}
+	if page.Transcript.HasMore || page.Transcript.NextCursor != "" {
+		t.Fatalf("single oversized turn exposed a misleading continuation: %#v", page.Transcript)
 	}
 	seenCalls := make(map[string]bool)
 	seenResults := make(map[string]bool)
@@ -603,6 +804,13 @@ func TestSessionGetBoundsSerializedMetadataAndKeepsToolPairs(t *testing.T) {
 		if !seenCalls[id] {
 			t.Fatalf("emitted tool result %q without its call", id)
 		}
+	}
+	serialized, err := json.Marshal(page.Transcript.Omitted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(serialized), "cursor") {
+		t.Fatalf("permanent omission advertised a replay cursor: %s", serialized)
 	}
 }
 

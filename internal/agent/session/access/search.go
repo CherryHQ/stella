@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -71,36 +73,96 @@ func (a *Access) searchRecall(ctx context.Context, agentID, query string, limit 
 	if err != nil {
 		return nil, fmt.Errorf("%w: search conversation memory: %w", ErrUnavailable, err)
 	}
+	if len(hits) == 0 {
+		return []memory.RecallSearchResult{}, nil
+	}
+	if len(hits) > maxRecallSearchResults {
+		hits = hits[:maxRecallSearchResults]
+	}
+	if err := a.authorizeAgent(ctx, agentID, authz.ActionRead); err != nil {
+		return nil, err
+	}
 
-	out := make([]memory.RecallSearchResult, 0, min(limit, len(hits)))
+	sessionIDs := make([]string, 0, len(hits))
+	seenSessions := make(map[string]struct{}, len(hits))
 	for _, hit := range hits {
-		if len(out) == limit {
-			break
+		if hit.SessionID == "" {
+			continue
 		}
-		info, conv, ok, err := a.authorizedRecallConversation(ctx, agentID, hit.SessionID)
-		if err != nil {
-			return nil, err
+		if _, seen := seenSessions[hit.SessionID]; seen {
+			continue
 		}
+		seenSessions[hit.SessionID] = struct{}{}
+		sessionIDs = append(sessionIDs, hit.SessionID)
+	}
+	conversations, err := a.svc.q.ListConversationsForRecallAccess(ctx, sessionIDs)
+	if err != nil {
+		return nil, fmt.Errorf("%w: batch session facts for recall: %w", ErrUnavailable, err)
+	}
+	type authorizedConversation struct {
+		info agentsession.Info
+		conv sqlc.CtxConversation
+	}
+	authorized := make(map[string]authorizedConversation, len(conversations))
+	for _, conv := range conversations {
+		info, ok := a.authorizeRecallConversationRecord(agentID, conv)
 		if !ok {
 			continue
 		}
-		ref := memory.RecallReference{Kind: hit.SourceType, ID: hit.SourceID, SessionID: info.ID}
+		authorized[conv.SessionID] = authorizedConversation{info: info, conv: conv}
+	}
+
+	type recallCandidate struct {
+		hit  memory.SearchResult
+		info agentsession.Info
+		conv sqlc.CtxConversation
+	}
+	candidates := make([]recallCandidate, 0, len(hits))
+	messageIDs := make([]string, 0, len(hits))
+	summaryIDs := make([]string, 0, len(hits))
+	for _, hit := range hits {
+		authorizedConversation, ok := authorized[hit.SessionID]
+		if !ok {
+			continue
+		}
 		switch hit.SourceType {
 		case "message":
-			if _, err := a.svc.q.GetMessage(ctx, sqlc.GetMessageParams{ID: hit.SourceID, ConversationID: conv.ID}); err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					continue
-				}
-				return nil, fmt.Errorf("%w: verify conversation memory message: %w", ErrUnavailable, err)
-			}
+			messageIDs = appendUniqueID(messageIDs, hit.SourceID)
 		case "summary":
-			if _, err := a.svc.q.GetSummary(ctx, sqlc.GetSummaryParams{ID: hit.SourceID, ConversationID: conv.ID}); err != nil {
-				if errors.Is(err, pgx.ErrNoRows) {
-					continue
-				}
-				return nil, fmt.Errorf("%w: verify conversation memory summary: %w", ErrUnavailable, err)
-			}
+			summaryIDs = appendUniqueID(summaryIDs, hit.SourceID)
 		default:
+			continue
+		}
+		candidates = append(candidates, recallCandidate{hit: hit, info: authorizedConversation.info, conv: authorizedConversation.conv})
+	}
+	validResources := make(map[string]struct{}, len(candidates))
+	if len(messageIDs) > 0 {
+		rows, err := a.svc.q.ListRecallMessageByIDs(ctx, messageIDs)
+		if err != nil {
+			return nil, fmt.Errorf("%w: batch verify conversation memory messages: %w", ErrUnavailable, err)
+		}
+		for _, row := range rows {
+			validResources[recallResourceKey("message", row.ConversationID, row.ID)] = struct{}{}
+		}
+	}
+	if len(summaryIDs) > 0 {
+		rows, err := a.svc.q.ListRecallSummaryByIDs(ctx, summaryIDs)
+		if err != nil {
+			return nil, fmt.Errorf("%w: batch verify conversation memory summaries: %w", ErrUnavailable, err)
+		}
+		for _, row := range rows {
+			validResources[recallResourceKey("summary", row.ConversationID, row.ID)] = struct{}{}
+		}
+	}
+
+	out := make([]memory.RecallSearchResult, 0, min(limit, len(hits)))
+	for _, candidate := range candidates {
+		if len(out) == limit {
+			break
+		}
+		hit, info, conv := candidate.hit, candidate.info, candidate.conv
+		ref := memory.RecallReference{Kind: hit.SourceType, ID: hit.SourceID, SessionID: info.ID}
+		if _, ok := validResources[recallResourceKey(hit.SourceType, conv.ID, hit.SourceID)]; !ok {
 			continue
 		}
 		title := hit.ConversationTitle
@@ -113,6 +175,37 @@ func (a *Access) searchRecall(ctx context.Context, agentID, query string, limit 
 		})
 	}
 	return out, nil
+}
+
+func (a *Access) authorizeRecallConversationRecord(agentID string, conv sqlc.CtxConversation) (agentsession.Info, bool) {
+	if !conv.UserID.Valid || !conv.AgentID.Valid || conv.AgentID.String != agentID || conv.UserID.String != string(a.authority.UserID()) || conv.GroupID.Valid || conv.GuestID.Valid {
+		return agentsession.Info{}, false
+	}
+	info, err := agentsession.InfoFromRecord(memory.SessionInfo{
+		ID: conv.SessionID, AgentID: conv.AgentID.String, UserID: conv.UserID.String,
+		Channel: conv.Channel, Kind: conv.Kind, ProjectID: conv.ProjectID.String, Title: conv.Title.String,
+		CreatedAt: conv.CreatedAt.UTC(), LastActive: conv.LastActive.UTC(),
+		LastTurnStartedAt: conv.LastTurnStartedAt.Time.UTC(), LastTurnCompletedAt: conv.LastTurnCompletedAt.Time.UTC(),
+		LastTurnResult: memory.SessionTurnResult(conv.LastTurnResult.String), LastViewedAt: conv.LastViewedAt.Time.UTC(), Archived: conv.Archived,
+	})
+	if err != nil || !a.allowSession(authz.ActionRead, sessionFactsFor(info, a.authority)) {
+		return agentsession.Info{}, false
+	}
+	return info, true
+}
+
+func appendUniqueID(ids []string, id string) []string {
+	if id == "" {
+		return ids
+	}
+	if slices.Contains(ids, id) {
+		return ids
+	}
+	return append(ids, id)
+}
+
+func recallResourceKey(kind, conversationID, id string) string {
+	return kind + "\x00" + conversationID + "\x00" + id
 }
 
 func (a *Access) readRecall(ctx context.Context, agentID string, ref memory.RecallReference, tokenCap int) (memory.RecallDocument, error) {
@@ -141,7 +234,7 @@ func (a *Access) readRecall(ctx context.Context, agentID string, ref memory.Reca
 			return memory.RecallDocument{}, fmt.Errorf("%w: read conversation memory message: %w", ErrUnavailable, err)
 		}
 		return memory.RecallDocument{
-			Reference: ref, Content: row.Content, Role: row.Role, OccurredAt: row.CreatedAt.UTC(),
+			Reference: ref, Content: row.Content, Role: row.Role, Authority: recallAuthority(row.ActorType), OccurredAt: row.CreatedAt.UTC(),
 			SessionID: info.ID, ConversationTitle: title,
 		}, nil
 	case "summary":
@@ -233,7 +326,7 @@ func (a *Access) readRecallSummary(ctx context.Context, sessionID, conversationI
 			}
 			detail.Expanded = append(detail.Expanded, memory.RecallFragment{
 				Reference: memory.RecallReference{Kind: "message", ID: message.ID, SessionID: sessionID},
-				Role:      message.Role, Content: message.Content, OccurredAt: message.CreatedAt.UTC(),
+				Role:      message.Role, Authority: recallAuthority(message.ActorType), Content: message.Content, OccurredAt: message.CreatedAt.UTC(),
 			})
 			tokensUsed += tokens
 		}
@@ -246,16 +339,30 @@ func (a *Access) readRecallSummary(ctx context.Context, sessionID, conversationI
 			depth := int(child.Depth)
 			detail.Expanded = append(detail.Expanded, memory.RecallFragment{
 				Reference: memory.RecallReference{Kind: "summary", ID: child.ID, SessionID: sessionID},
-				Kind:      child.Kind, Depth: &depth, Content: child.Content, OccurredAt: summaryOccurredAt(child),
+				Kind:      child.Kind, Depth: &depth, Authority: summaryAuthority(child), Content: child.Content, OccurredAt: summaryOccurredAt(child),
 			})
 			tokensUsed += tokens
 		}
 	}
 
 	return memory.RecallDocument{
-		Reference: ref, Content: root.Content, OccurredAt: summaryOccurredAt(root),
+		Reference: ref, Content: root.Content, Authority: summaryAuthority(root), OccurredAt: summaryOccurredAt(root),
 		SessionID: sessionID, ConversationTitle: title, Summary: detail,
 	}, nil
+}
+
+func recallAuthority(actorType string) string {
+	if eventlog.ActorType(actorType) == eventlog.ActorAgent {
+		return "information_only"
+	}
+	return ""
+}
+
+func summaryAuthority(summary sqlc.CtxSummary) string {
+	if summary.ContainsNonPrincipalInput {
+		return "information_only"
+	}
+	return ""
 }
 
 func summariesBelongToConversation(summaries []sqlc.CtxSummary, conversationID string) bool {

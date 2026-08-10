@@ -103,7 +103,9 @@ func TestAgentInputCompactionKeepsNonPrincipalAttribution(t *testing.T) {
 	var summarizerInput string
 	summarizer := func(_ context.Context, prompt string) (string, error) {
 		summarizerInput = prompt
-		return "[agent-input from source-session] agent directive 0", nil
+		// A valid summarizer is free to omit textual attribution. Structured
+		// provenance must preserve the trust boundary independently of this text.
+		return "distilled directive without textual attribution", nil
 	}
 	p, err := lcm.New(db, summarizer, map[string]any{"fresh_tail": 1})
 	if err != nil {
@@ -135,6 +137,13 @@ func TestAgentInputCompactionKeepsNonPrincipalAttribution(t *testing.T) {
 	if strings.Contains(summarizerInput, "[user] agent directive 0") {
 		t.Fatalf("summarizer input promoted agent content to user: %s", summarizerInput)
 	}
+	var containsNonPrincipalInput bool
+	if err := db.QueryRow(context.Background(), `SELECT contains_non_principal_input FROM ctx_summary LIMIT 1`).Scan(&containsNonPrincipalInput); err != nil {
+		t.Fatalf("read compacted summary provenance: %v", err)
+	}
+	if !containsNonPrincipalInput {
+		t.Fatal("compacted agent input summary lost structured non-principal provenance")
+	}
 
 	assembled, err := p.Assemble(context.Background(), sess, 100_000, 1)
 	if err != nil {
@@ -145,11 +154,13 @@ func TestAgentInputCompactionKeepsNonPrincipalAttribution(t *testing.T) {
 		text = append(text, memory.MessageText(msg))
 	}
 	got := strings.Join(text, "\n")
-	if !strings.Contains(got, "[agent-input from source-session] agent directive 0") {
-		t.Fatalf("compacted summary lost agent attribution: %s", got)
+	for _, want := range []string{`"type":"agent"`, `"authority":"information_only"`, "distilled directive without textual attribution"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("compacted summary lost structured non-principal boundary %s: %s", want, got)
+		}
 	}
-	if strings.Contains(got, "[user] agent directive 0") {
-		t.Fatalf("compacted summary promoted agent input to user: %s", got)
+	if strings.Contains(got, "[agent-input") {
+		t.Fatalf("test summarizer unexpectedly preserved free-text attribution: %s", got)
 	}
 }
 

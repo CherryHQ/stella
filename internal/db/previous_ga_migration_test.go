@@ -25,9 +25,10 @@ const (
 	// this test into a green lie.
 	previousGAVersion = int64(20260725161331)
 	// Library V1, channel guest sessions/indexes, channel allowlist backfill, and
-	// session activity, per-message actor provenance, and legacy actor backfill
+	// session activity, per-message actor provenance, and the deliberately
+	// conservative legacy actor migration
 	// are the post-anchor migrations exercised below.
-	currentMigrationVersion = sequentialAnchor + 10
+	currentMigrationVersion = sequentialAnchor + 11
 
 	previousGAUserID          = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID         = "00000000-0000-0000-0000-000000000002"
@@ -251,22 +252,22 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 		t.Fatalf("defaulted legacy message actor=%q, want human", legacyActorType)
 	}
 	for _, tc := range []struct {
-		name, messageID, wantType, wantID string
+		name, messageID string
 	}{
-		{name: "delegate", messageID: previousGADelegateMsgID, wantType: "agent", wantID: previousGAAgentID},
-		{name: "scheduler", messageID: previousGASchedulerMsgID, wantType: "system"},
-		{name: "task", messageID: previousGATaskMsgID, wantType: "system"},
+		{name: "delegate", messageID: previousGADelegateMsgID},
+		{name: "scheduler", messageID: previousGASchedulerMsgID},
+		{name: "task", messageID: previousGATaskMsgID},
 	} {
 		var actorType string
 		var actorID pgtype.Text
 		if err := db.QueryRow(ctx, `SELECT actor_type, actor_id FROM ctx_message WHERE id = $1`, tc.messageID).Scan(&actorType, &actorID); err != nil {
-			t.Fatalf("read backfilled %s actor: %v", tc.name, err)
+			t.Fatalf("read legacy %s actor: %v", tc.name, err)
 		}
-		if actorType != tc.wantType {
-			t.Fatalf("backfilled %s actor=%q, want %q", tc.name, actorType, tc.wantType)
+		if actorType != "human" {
+			t.Fatalf("legacy %s actor=%q, want conservative human default", tc.name, actorType)
 		}
-		if actorID.String != tc.wantID || actorID.Valid != (tc.wantID != "") {
-			t.Fatalf("backfilled %s actor ID=%#v, want %q", tc.name, actorID, tc.wantID)
+		if actorID.Valid {
+			t.Fatalf("legacy %s actor ID=%#v, want NULL without row-level provenance", tc.name, actorID)
 		}
 	}
 	if _, err := db.Exec(ctx, `

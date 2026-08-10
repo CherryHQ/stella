@@ -134,6 +134,69 @@ func TestQueueTimeoutNeverStartsQueuedTurn(t *testing.T) {
 	}
 }
 
+func TestQueueAbandonedWaiterFreesCapacity(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		hold   time.Duration
+		cancel bool
+		want   error
+	}{
+		{name: "canceled", hold: time.Second, cancel: true, want: context.Canceled},
+		{name: "timed out", hold: 30 * time.Millisecond, want: ErrTimeout},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			q := NewWithLimits(1, tc.hold, time.Second)
+			block := make(chan struct{})
+			activeStarted := make(chan struct{})
+			activeDone := make(chan error, 1)
+			go func() {
+				activeDone <- q.Enqueue(context.Background(), "session", func(_ context.Context, _ context.Context, beforeStart func() error) error {
+					if err := beforeStart(); err != nil {
+						return err
+					}
+					close(activeStarted)
+					<-block
+					return nil
+				})
+			}()
+			<-activeStarted
+
+			waitCtx, cancel := context.WithCancel(context.Background())
+			abandonedDone := make(chan error, 1)
+			go func() {
+				abandonedDone <- q.Enqueue(waitCtx, "session", func(_ context.Context, _ context.Context, beforeStart func() error) error {
+					return beforeStart()
+				})
+			}()
+			waitQueueDepth(t, q, "session", 1)
+			if tc.cancel {
+				cancel()
+			} else {
+				defer cancel()
+			}
+			if err := <-abandonedDone; !errors.Is(err, tc.want) {
+				t.Fatalf("abandoned waiter error = %v, want %v", err, tc.want)
+			}
+			waitQueueDepth(t, q, "session", 0)
+
+			validDone := make(chan error, 1)
+			go func() {
+				validDone <- q.Enqueue(context.Background(), "session", func(_ context.Context, _ context.Context, beforeStart func() error) error {
+					return beforeStart()
+				})
+			}()
+			waitQueueDepth(t, q, "session", 1)
+			close(block)
+			if err := <-activeDone; err != nil {
+				t.Fatalf("active turn: %v", err)
+			}
+			if err := <-validDone; err != nil {
+				t.Fatalf("valid replacement turn: %v", err)
+			}
+		})
+	}
+}
+
 func TestQueueSourceCancellationQueuedAndHeld(t *testing.T) {
 	t.Run("queued", func(t *testing.T) {
 		q := NewWithLimits(2, time.Second, time.Second)
@@ -209,7 +272,9 @@ func waitQueueDepth(t *testing.T, q *Queue, key string, want int) {
 		s := q.sessions[key]
 		got := 0
 		if s != nil {
-			got = len(s.queue)
+			s.mu.Lock()
+			got = s.queue.Len()
+			s.mu.Unlock()
 		}
 		q.mu.Unlock()
 		if got == want {
