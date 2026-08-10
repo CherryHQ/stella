@@ -30,6 +30,11 @@ type SessionStats struct {
 // fail closed through this one sentinel before model execution.
 var ErrInboxNotPending = errors.New("session inbox message is not pending")
 
+// ErrInboxAppendOutcomeUnknown reports a commit-acknowledgement failure after
+// the inbox claim and transcript writes were sent. The transaction may have
+// committed; callers must resolve the pending row before promising no delivery.
+var ErrInboxAppendOutcomeUnknown = errors.New("session inbox append outcome unknown")
+
 // InboxAppender is implemented by providers that can atomically claim a durable
 // Session inbox row and append its input to the transcript. Callers must verify
 // the unwrapped provider supports this capability before relying on a wrapper.

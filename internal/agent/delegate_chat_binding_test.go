@@ -51,7 +51,7 @@ func newBoundaryTestService(t *testing.T, mem memory.Provider, runner agentrunti
 	if err != nil {
 		t.Fatalf("session.NewRegistry: %v", err)
 	}
-	return &agent.Service{Sessions: reg, Runtime: rt, SessionAccess: fakeSessionAccessSvc{reg: reg}, AgentID: "agent1"}
+	return &agent.Service{Sessions: reg, Runtime: rt, SessionAccess: fakeSessionAccessSvc{reg: reg}, SessionInbox: &fakeSessionInbox{}, AgentID: "agent1"}
 }
 
 // TestService_DelegateDropsParentChatBinding pins the second half of the
@@ -66,6 +66,7 @@ func TestService_DelegateDropsParentChatBinding(t *testing.T) {
 	svc := newBoundaryTestService(t, mem, runner)
 
 	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), "u1"), "agent1")
+	ctx = memory.WithSessionID(ctx, "source-chat")
 	ctx = agentctx.WithChatBinding(ctx, agentctx.ChatBinding{Main: true, SessionKey: "agent1:main:u1"})
 
 	if _, err := svc.Delegate(ctx, agent.DelegateRequest{UserID: "u1", AgentID: "agent1", Task: "work"}); err != nil {

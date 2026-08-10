@@ -108,8 +108,9 @@ func TestUnwrap_NonWrapped(t *testing.T) {
 
 func TestTracedProvider_ForwardsInboxAppenderButUnwrapDeterminesSupport(t *testing.T) {
 	fake := memorytest.New()
-	if _, ok := memory.Unwrap(memory.WithTracing(fake, nil)).(memory.InboxAppender); ok {
-		t.Fatal("unwrapped fake unexpectedly supports InboxAppender")
+	unsupported := &reviewHistoryProvider{Provider: fake}
+	if _, ok := memory.Unwrap(memory.WithTracing(unsupported, nil)).(memory.InboxAppender); ok {
+		t.Fatal("unwrapped provider unexpectedly supports InboxAppender")
 	}
 
 	inner := &inboxAppendProvider{Provider: fake}

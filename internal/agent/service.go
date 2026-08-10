@@ -13,6 +13,7 @@ import (
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	sessioninbox "github.com/CherryHQ/stella/internal/agent/session/inbox"
 	"github.com/CherryHQ/stella/internal/agent/session/turnqueue"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/eventlog"
@@ -52,10 +53,17 @@ type SessionAccess interface {
 	Archive(context.Context, session.Info) error
 }
 
+// SessionInbox persists Agent-originated inputs independently of live execution.
+type SessionInbox interface {
+	Enqueue(context.Context, sessioninbox.Input) (sessioninbox.Message, error)
+	FailPending(context.Context, string, sessioninbox.ErrorCode) (bool, error)
+}
+
 type Service struct {
 	Sessions      *session.Registry // legacy fallback for tests only; production lifecycle goes through SessionAccess.
 	Runtime       *agentruntime.Runtime
 	SessionAccess SessionAccessService
+	SessionInbox  SessionInbox
 	// AgentID is the executor this service belongs to.
 	AgentID       string
 	turnQueueOnce sync.Once
@@ -153,11 +161,19 @@ func (s *Service) RunConversationSession(ctx context.Context, target session.Inf
 	out := make(chan Event, 100)
 	go func() {
 		defer close(out)
-		err := s.runQueuedTurn(ctx, target, message, []agentruntime.Option{
-			agentruntime.WithInputActor(messageActor(authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))),
+		actor := messageActor(authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))
+		err := s.runQueuedTurn(ctx, target, message, actor, []agentruntime.Option{
+			agentruntime.WithInputActor(actor),
 		}, func(stream <-chan Event) error {
 			deliver := true
+			var terminalErr error
 			for event := range stream {
+				if event.Err != nil {
+					if terminalErr == nil {
+						terminalErr = event.Err
+					}
+					continue
+				}
 				if !deliver {
 					continue
 				}
@@ -169,7 +185,7 @@ func (s *Service) RunConversationSession(ctx context.Context, target session.Inf
 					deliver = false
 				}
 			}
-			return nil
+			return terminalErr
 		})
 		if err != nil {
 			forceTerminalEvent(out, Event{Err: err})
@@ -195,10 +211,33 @@ func forceTerminalEvent(out chan Event, event Event) {
 	}
 }
 
-const busyAdmissionPollInterval = 25 * time.Millisecond
+const (
+	busyAdmissionPollInterval = 25 * time.Millisecond
+	inboxFinalizationTimeout  = 5 * time.Second
+)
 
-func (s *Service) runQueuedTurn(ctx context.Context, target session.Info, message MessageContent, opts []agentruntime.Option, consume func(<-chan Event) error) error {
-	return s.sessionTurnQueue().Enqueue(ctx, target.ID, func(waitCtx, runCtx context.Context, beforeStart func() error) error {
+func (s *Service) runQueuedTurn(ctx context.Context, target session.Info, message MessageContent, actor eventlog.MessageActor, opts []agentruntime.Option, consume func(<-chan Event) error) error {
+	if s.SessionInbox == nil {
+		return errors.New("durable Session inbox is not configured")
+	}
+	content, ok := message.(string)
+	if !ok {
+		return errors.New("durable Session inbox accepts text input only")
+	}
+	queued, err := s.SessionInbox.Enqueue(ctx, sessioninbox.Input{
+		SourceSessionID: actor.SourceSessionID,
+		TargetSessionID: target.ID,
+		Actor:           actor,
+		Content:         content,
+	})
+	if err != nil {
+		if queued.ID == "" {
+			return err
+		}
+		return s.finalizePendingInbox(ctx, queued.ID, sessionInboxErrorCode(err), err)
+	}
+	opts = append(append([]agentruntime.Option(nil), opts...), agentruntime.WithInboxID(queued.ID))
+	err = s.sessionTurnQueue().Enqueue(ctx, target.ID, func(waitCtx, runCtx context.Context, beforeStart func() error) error {
 		for {
 			stream, err := s.Runtime.ChatAdmittedControlled(runCtx, target, message, beforeStart, opts...)
 			if err == nil {
@@ -229,6 +268,36 @@ func (s *Service) runQueuedTurn(ctx context.Context, target session.Info, messag
 			}
 		}
 	})
+	if err == nil {
+		return nil
+	}
+	return s.finalizePendingInbox(ctx, queued.ID, sessionInboxErrorCode(err), err)
+}
+
+func (s *Service) finalizePendingInbox(ctx context.Context, inboxID string, code sessioninbox.ErrorCode, cause error) error {
+	finalizeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), inboxFinalizationTimeout)
+	defer cancel()
+	applied, err := s.SessionInbox.FailPending(finalizeCtx, inboxID, code)
+	if err != nil {
+		return errors.Join(cause, fmt.Errorf("%w: finalize inbox %s: %w", sessioninbox.ErrOutcomeUnknown, inboxID, err))
+	}
+	if !applied && errors.Is(cause, memory.ErrInboxAppendOutcomeUnknown) {
+		return errors.Join(cause, sessioninbox.ErrOutcomeUnknown)
+	}
+	return cause
+}
+
+func sessionInboxErrorCode(err error) sessioninbox.ErrorCode {
+	switch {
+	case errors.Is(err, turnqueue.ErrFull):
+		return sessioninbox.ErrorQueueFull
+	case errors.Is(err, turnqueue.ErrTimeout), errors.Is(err, context.DeadlineExceeded):
+		return sessioninbox.ErrorTimeout
+	case errors.Is(err, context.Canceled):
+		return sessioninbox.ErrorCanceled
+	default:
+		return sessioninbox.ErrorLiveFailed
+	}
 }
 
 // ServiceManager provides multi-agent Service lookup.
@@ -662,11 +731,12 @@ func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateRe
 	if len(req.ExcludedTools) > 0 {
 		opts = append(opts, agentruntime.WithExcludedTools(req.ExcludedTools...))
 	}
-	opts = append(opts, agentruntime.WithInputActor(messageActor(authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))))
+	actor := messageActor(authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))
+	opts = append(opts, agentruntime.WithInputActor(actor))
 
 	result := DelegateResult{SessionID: info.ID}
 	var output session.OutputCollector
-	err = s.runQueuedTurn(ctx, info, req.Task, opts, func(stream <-chan Event) error {
+	err = s.runQueuedTurn(ctx, info, req.Task, actor, opts, func(stream <-chan Event) error {
 		var terminalErr error
 		for ev := range stream {
 			if ev.Text != "" {

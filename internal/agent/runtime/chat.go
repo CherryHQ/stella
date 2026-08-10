@@ -273,7 +273,19 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 			modelMsg = userMsg
 			modelMsg.Content = eventlog.RenderInput(modelMsg.Content, inputActor)
 		}
-		if err := rt.mem.Append(ctx, memSess, userMsg); err != nil {
+		if co.inboxID != "" {
+			appender, ok := rt.mem.(memory.InboxAppender)
+			if !ok {
+				out <- Event{Err: errors.New("memory provider does not support durable Session inbox")}
+				close(out)
+				return
+			}
+			if err := appender.AppendInboxInput(ctx, memSess, co.inboxID, userMsg); err != nil {
+				out <- Event{Err: fmt.Errorf("persist Session inbox input: %w", err)}
+				close(out)
+				return
+			}
+		} else if err := rt.mem.Append(ctx, memSess, userMsg); err != nil {
 			if hasCanonicalImage {
 				out <- Event{Err: fmt.Errorf("persist canonical user message: %w", err)}
 				close(out)

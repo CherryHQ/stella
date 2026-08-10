@@ -150,6 +150,12 @@ func WithSessionImagePipeline(images SessionImagePipeline) PoolManagerOption {
 	return func(pm *PoolManager) { pm.sessionImages = images }
 }
 
+// WithSessionInboxPM injects durable Agent-to-Session input persistence into
+// every service. The inbox does not own execution; turnqueue remains caller-driven.
+func WithSessionInboxPM(inbox SessionInbox) PoolManagerOption {
+	return func(pm *PoolManager) { pm.sessionInbox = inbox }
+}
+
 // PoolManager manages one Service per enabled agent. It reads enabled agents
 // from the config Store and creates a Service (session.Registry + runtime.Runtime)
 // per agent.
@@ -191,6 +197,7 @@ type PoolManager struct {
 	assets                   *asset.Store
 	sessionImages            SessionImagePipeline
 	sessionAccess            SessionAccessService
+	sessionInbox             SessionInbox
 	log                      *slog.Logger
 }
 
@@ -414,7 +421,7 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 	if sessionAccess == nil {
 		return nil, errors.New("session access is not bound")
 	}
-	svc := &Service{Sessions: reg, Runtime: rt, SessionAccess: sessionAccess, AgentID: agentID}
+	svc := &Service{Sessions: reg, Runtime: rt, SessionAccess: sessionAccess, SessionInbox: pm.sessionInbox, AgentID: agentID}
 	rt.SetDelegateRunner(svc)
 	return svc, nil
 }

@@ -90,6 +90,7 @@ func New() *Fake {
 // Compile-time interface checks.
 var (
 	_ memory.Provider                 = (*Fake)(nil)
+	_ memory.InboxAppender            = (*Fake)(nil)
 	_ memory.Compactor                = (*Fake)(nil)
 	_ memory.Searcher                 = (*Fake)(nil)
 	_ memory.Explorer                 = (*Fake)(nil)
@@ -135,6 +136,12 @@ func (f *Fake) Append(_ context.Context, session memory.Session, msgs ...ai.Mess
 	defer f.mu.Unlock()
 	f.sessions[session.ID] = append(f.sessions[session.ID], msgs...)
 	return nil
+}
+
+// AppendInboxInput implements memory.InboxAppender for unit tests. Durable CAS
+// semantics belong to LCM integration tests; Fake preserves the append boundary.
+func (f *Fake) AppendInboxInput(ctx context.Context, session memory.Session, _ string, msg ai.Message) error {
+	return f.Append(ctx, session, msg)
 }
 
 // Assemble implements memory.Provider.

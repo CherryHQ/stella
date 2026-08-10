@@ -357,7 +357,13 @@ func (p *Provider) appendRows(ctx context.Context, session memory.Session, rows 
 			}
 		}
 
-		return tx.Commit(ctx)
+		if err := tx.Commit(ctx); err != nil {
+			if claim != nil {
+				return fmt.Errorf("%w: %w", memory.ErrInboxAppendOutcomeUnknown, err)
+			}
+			return err
+		}
+		return nil
 	})
 }
 

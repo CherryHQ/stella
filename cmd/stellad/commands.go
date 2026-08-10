@@ -23,6 +23,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
+	sessioninbox "github.com/CherryHQ/stella/internal/agent/session/inbox"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/blob"
 	"github.com/CherryHQ/stella/internal/channel"
@@ -258,6 +259,13 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 
 	var poolMgr *agent.PoolManager
 	memProvider = wrapMemoryWithTracing(memProvider, &poolMgr)
+	if _, ok := memory.Unwrap(memProvider).(memory.InboxAppender); !ok {
+		return nil, errors.New("memory provider does not support durable Session inbox")
+	}
+	if _, ok := memProvider.(memory.InboxAppender); !ok {
+		return nil, errors.New("memory tracing wrapper does not forward durable Session inbox")
+	}
+	sessionInbox := sessioninbox.New(db)
 
 	var builtinTools []agent.BuiltinTool
 	if notifyTool := notify.NewTool(dispatcher); notifyTool != nil {
@@ -469,6 +477,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
 		agent.WithAssetStorePM(assetStore),
 		agent.WithSessionImagePipeline(sessionImages),
+		agent.WithSessionInboxPM(sessionInbox),
 		agent.WithBuiltinTools(builtinTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),

@@ -17,6 +17,7 @@ type chatOptions struct {
 	currentSpeaker memory.CurrentSpeaker
 	hasSpeaker     bool
 	inputActor     eventlog.MessageActor
+	inboxID        string
 }
 
 // WithInputActor attaches runtime-derived provenance to the input message.
@@ -24,6 +25,14 @@ type chatOptions struct {
 func WithInputActor(actor eventlog.MessageActor) Option {
 	return func(o *chatOptions) {
 		o.inputActor = actor
+	}
+}
+
+// WithInboxID binds a runtime-authored durable Session inbox row to this input.
+// It is internal admission metadata, never a model argument.
+func WithInboxID(id string) Option {
+	return func(o *chatOptions) {
+		o.inboxID = id
 	}
 }
 

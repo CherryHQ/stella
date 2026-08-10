@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -11,6 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	sessioninbox "github.com/CherryHQ/stella/internal/agent/session/inbox"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -22,6 +24,25 @@ import (
 
 type fakeRunnerSvc struct {
 	events []agentruntime.Event
+}
+
+type fakeSessionInbox struct {
+	mu  sync.Mutex
+	seq int64
+}
+
+func (f *fakeSessionInbox) Enqueue(_ context.Context, input sessioninbox.Input) (sessioninbox.Message, error) {
+	if input.SourceSessionID == "" || input.Actor.SourceSessionID != input.SourceSessionID {
+		return sessioninbox.Message{}, errors.New("test inbox requires source Session provenance")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.seq++
+	return sessioninbox.Message{ID: fmt.Sprintf("00000000-0000-4000-8000-%012d", f.seq), EnqueueSeq: f.seq}, nil
+}
+
+func (*fakeSessionInbox) FailPending(context.Context, string, sessioninbox.ErrorCode) (bool, error) {
+	return true, nil
 }
 
 type groupActorMemory struct {
@@ -138,6 +159,7 @@ func newTestService(t *testing.T, events []agentruntime.Event) (*agent.Service, 
 		Sessions:      reg,
 		Runtime:       rt,
 		SessionAccess: fakeSessionAccessSvc{reg: reg},
+		SessionInbox:  &fakeSessionInbox{},
 		AgentID:       "agent1",
 	}
 	return svc, mem
