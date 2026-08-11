@@ -23,6 +23,17 @@ export function toolCallFailed(block: ContentBlock & { type: "tool_call" }): boo
   return exit ? exit[1] !== "0" : false;
 }
 
+/** Pretty-print a complete JSON object/array without rewriting ordinary tool output. */
+export function formatToolOutput(content: string): string {
+  const trimmed = content.trim();
+  if (!trimmed || (trimmed[0] !== "{" && trimmed[0] !== "[")) return content;
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2);
+  } catch {
+    return content;
+  }
+}
+
 export function isImagePath(path: string): boolean {
   return IMAGE_EXT.test(path);
 }

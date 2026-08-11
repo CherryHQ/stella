@@ -2,21 +2,23 @@ import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import { listSessions } from "@/lib/api-client/sdk.gen";
 import type { Session } from "@/lib/types";
 
-/** Hand-started, live chats, newest first — the only threads worth listing. */
-export function sortedChats(sessions: Session[]): Session[] {
+/** User-visible conversation threads, newest first. */
+export function sortedThreads(sessions: Session[]): Session[] {
   return sessions
-    .filter((session) => session.kind === "chat" && !session.archived)
+    .filter(
+      (session) => (session.kind === "chat" || session.kind === "delegate") && !session.archived,
+    )
     .sort((a, b) => new Date(b.last_active).getTime() - new Date(a.last_active).getTime());
 }
 
 /**
  * A thread has exactly one home. A chat created inside a project lives in that
  * project and nowhere else, so every agent-level list (sidebar recents, global
- * search) filters through this instead of `sortedChats` — otherwise the same
+ * search) filters through this instead of `sortedThreads` — otherwise the same
  * thread shows up twice under two different routes.
  */
-export function agentLevelChats(sessions: Session[]): Session[] {
-  return sortedChats(sessions).filter((session) => !session.project_id);
+export function agentLevelThreads(sessions: Session[]): Session[] {
+  return sortedThreads(sessions).filter((session) => !session.project_id);
 }
 
 export function mainSessionQueryOptions(agentId: string) {
@@ -57,62 +59,54 @@ export function projectSessionsQueryOptions(agentId: string, projectId: string) 
   });
 }
 
-// allChatSessionsQueryOptions walks every page of one agent's chat sessions.
+// The API deliberately excludes internal kinds when `kind` is omitted, so a
+// visible thread list must request chat and delegate explicitly. Fetch both
+// complete ordered streams and merge them client-side; revisit this when the
+// API can express a multi-kind filter or per-agent thread counts become large.
 // The sessions API has no server-side search, so the global palette filters the
 // full set client-side; `enabled` keeps the walk off the critical path until a
 // caller (the search dialog) actually opens.
-export function allChatSessionsQueryOptions(agentId: string, enabled = true) {
+export function allThreadSessionsQueryOptions(agentId: string, enabled = true, projectId?: string) {
   return queryOptions({
-    queryKey: ["sessions", agentId, "chat", "all"],
+    queryKey: ["sessions", agentId, "thread", "all", projectId ?? ""],
     queryFn: async () => {
-      const all: Session[] = [];
-      let pageToken: string | undefined;
-      do {
-        const { data } = await listSessions({
-          path: { agentId },
-          query: { page_size: 200, page_token: pageToken, kind: "chat" },
-          throwOnError: true,
-        });
-        all.push(...((data?.sessions as Session[]) ?? []));
-        pageToken = data?.next_page_token ?? undefined;
-      } while (pageToken);
-      return all;
+      const [chats, delegates] = await Promise.all([
+        listAllSessionsByKind(agentId, "chat", projectId),
+        listAllSessionsByKind(agentId, "delegate", projectId),
+      ]);
+      return sortedThreads([...chats, ...delegates]);
     },
     enabled: enabled && !!agentId,
   });
 }
 
-/**
- * Every chat thread of one agent for the threads management page — the one
- * surface where agent-level and project threads appear together. `projectId`
- * narrows the walk server-side; the "agent only" view is a client filter
- * because the API can express "in project X" but not "in no project".
- */
-export function agentThreadsInfiniteQueryOptions(agentId: string, projectId?: string) {
-  return infiniteQueryOptions({
-    queryKey: ["sessions", agentId, "chat", "threads", projectId ?? ""],
-    initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) => {
-      const { data } = await listSessions({
-        path: { agentId },
-        query: {
-          page_size: 30,
-          page_token: pageParam,
-          kind: "chat",
-          ...(projectId ? { project_id: projectId } : {}),
-        },
-        throwOnError: true,
-      });
-      return {
-        sessions: (data?.sessions as Session[]) ?? [],
-        nextPageToken: data?.next_page_token ?? undefined,
-      };
-    },
-    getNextPageParam: (lastPage) => lastPage.nextPageToken,
-    enabled: !!agentId,
-  });
+async function listAllSessionsByKind(
+  agentId: string,
+  kind: Extract<Session["kind"], "chat" | "delegate">,
+  projectId?: string,
+): Promise<Session[]> {
+  const all: Session[] = [];
+  let pageToken: string | undefined;
+  do {
+    const { data } = await listSessions({
+      path: { agentId },
+      query: {
+        page_size: 200,
+        page_token: pageToken,
+        kind,
+        ...(projectId ? { project_id: projectId } : {}),
+      },
+      throwOnError: true,
+    });
+    all.push(...((data?.sessions as Session[]) ?? []));
+    pageToken = data?.next_page_token ?? undefined;
+  } while (pageToken);
+  return all;
 }
 
+/** Generic server pagination for callers that need one kind or the API's
+ * default external-session view. Visible conversation lists must use
+ * allThreadSessionsQueryOptions so delegate rows are requested explicitly. */
 export function sessionsInfiniteQueryOptions(agentId: string, kind?: Session["kind"]) {
   return infiniteQueryOptions({
     queryKey: ["sessions", agentId, kind],

@@ -4,14 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
+	"sync"
+	"time"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/agentctx"
+	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	sessioninbox "github.com/CherryHQ/stella/internal/agent/session/inbox"
+	"github.com/CherryHQ/stella/internal/agent/session/turnqueue"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/sandbox"
@@ -48,12 +53,26 @@ type SessionAccess interface {
 	Archive(context.Context, session.Info) error
 }
 
+// SessionInbox persists Agent-originated inputs independently of live execution.
+type SessionInbox interface {
+	Enqueue(context.Context, sessioninbox.Input) (sessioninbox.Message, error)
+	FailPending(context.Context, string, sessioninbox.ErrorCode) (bool, error)
+}
+
 type Service struct {
 	Sessions      *session.Registry // legacy fallback for tests only; production lifecycle goes through SessionAccess.
 	Runtime       *agentruntime.Runtime
 	SessionAccess SessionAccessService
+	SessionInbox  SessionInbox
 	// AgentID is the executor this service belongs to.
-	AgentID string
+	AgentID       string
+	turnQueueOnce sync.Once
+	turnQueue     *turnqueue.Queue
+}
+
+func (s *Service) sessionTurnQueue() *turnqueue.Queue {
+	s.turnQueueOnce.Do(func() { s.turnQueue = turnqueue.New() })
+	return s.turnQueue
 }
 
 // ChatRequest describes a foreground chat turn.
@@ -98,9 +117,187 @@ type DelegateRequest struct {
 
 // DelegateResult is the output of a delegate turn.
 type DelegateResult struct {
-	SessionID string
-	Output    string
-	Complete  bool
+	SessionID       string
+	Output          string
+	OutputTruncated bool
+	Complete        bool
+}
+
+// RunManagedSession invokes the delegate configured on the current source
+// runner. The request carries no principal, Agent, project, model, or tool
+// identity: those remain trusted runtime-context facts.
+func (s *Service) RunManagedSession(ctx context.Context, req delegatetool.ManagedSessionRequest) (delegatetool.ManagedSessionResult, error) {
+	if s == nil || s.Runtime == nil || authz.UserIDFromContext(ctx) == "" || authz.AgentIDFromContext(ctx) != s.AgentID {
+		return delegatetool.ManagedSessionResult{}, agentaccess.ErrForbidden
+	}
+	return s.Runtime.RunManagedSession(ctx, memory.SessionIDFromContext(ctx), req)
+}
+
+// RunConversationSession starts one transcript-only turn from an active source
+// agent Session into an already-authorized owned conversation Session. This is
+// the trusted authority-mint boundary used by session.send; connector delivery
+// is intentionally absent.
+func (s *Service) RunConversationSession(ctx context.Context, target session.Info, message MessageContent) <-chan Event {
+	kind := session.Kind(target.Kind)
+	if s == nil || s.Runtime == nil || target.UserID == "" || target.AgentID != s.AgentID || target.GroupID != "" || target.Archived ||
+		(kind != session.KindMain && kind != session.KindChat) ||
+		authz.UserIDFromContext(ctx) != target.UserID || authz.AgentIDFromContext(ctx) != s.AgentID || memory.SessionIDFromContext(ctx) == "" {
+		return errorEvents(agentaccess.ErrForbidden)
+	}
+	authority, err := agentaccess.WorkerAgentAuthority(target.UserID, target.AgentID)
+	if err != nil {
+		return errorEvents(agentaccess.ErrForbidden)
+	}
+	// A conversation Session is not the chat that invoked session.send. Strip
+	// the source binding at this trust boundary so target tools cannot use the
+	// source chat's rotate/compact authority.
+	ctx = agentctx.WithoutChatBinding(ctx)
+	ctx, err = agentctx.BindSessionCallTarget(ctx, target.ID)
+	if err != nil {
+		return errorEvents(err)
+	}
+	// Session access already evaluated this exact target in the caller. Queue the
+	// admitted target directly rather than opening a second policy evaluation.
+	out := make(chan Event, 100)
+	go func() {
+		defer close(out)
+		actor := messageActor(authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))
+		err := s.runQueuedTurn(ctx, target, message, actor, []agentruntime.Option{
+			agentruntime.WithInputActor(actor),
+		}, func(stream <-chan Event) error {
+			deliver := true
+			var terminalErr error
+			for event := range stream {
+				if event.Err != nil {
+					if terminalErr == nil {
+						terminalErr = event.Err
+					}
+					continue
+				}
+				if !deliver {
+					continue
+				}
+				select {
+				case out <- event:
+				case <-ctx.Done():
+					// Keep draining until the admitted turn releases its runtime
+					// guard, but stop writing to an abandoned caller.
+					deliver = false
+				}
+			}
+			return terminalErr
+		})
+		if err != nil {
+			forceTerminalEvent(out, Event{Err: err})
+		}
+	}()
+	return out
+}
+
+// forceTerminalEvent makes terminal failure observable even when an abandoned
+// caller filled the bounded output buffer. Partial output is expendable once
+// the turn has failed; the terminal result is not.
+func forceTerminalEvent(out chan Event, event Event) {
+	for {
+		select {
+		case out <- event:
+			return
+		default:
+		}
+		select {
+		case <-out:
+		default:
+		}
+	}
+}
+
+const (
+	busyAdmissionPollInterval = 25 * time.Millisecond
+	inboxFinalizationTimeout  = 5 * time.Second
+)
+
+func (s *Service) runQueuedTurn(ctx context.Context, target session.Info, message MessageContent, actor eventlog.MessageActor, opts []agentruntime.Option, consume func(<-chan Event) error) error {
+	if s.SessionInbox == nil {
+		return errors.New("durable Session inbox is not configured")
+	}
+	content, ok := message.(string)
+	if !ok {
+		return errors.New("durable Session inbox accepts text input only")
+	}
+	queued, err := s.SessionInbox.Enqueue(ctx, sessioninbox.Input{
+		SourceSessionID: actor.SourceSessionID,
+		TargetSessionID: target.ID,
+		Actor:           actor,
+		Content:         content,
+	})
+	if err != nil {
+		if queued.ID == "" {
+			return err
+		}
+		return s.finalizePendingInbox(ctx, queued.ID, sessionInboxErrorCode(err), err)
+	}
+	opts = append(append([]agentruntime.Option(nil), opts...), agentruntime.WithInboxID(queued.ID))
+	err = s.sessionTurnQueue().Enqueue(ctx, target.ID, func(waitCtx, runCtx context.Context, beforeStart func() error) error {
+		for {
+			stream, err := s.Runtime.ChatAdmittedControlled(runCtx, target, message, beforeStart, opts...)
+			if err == nil {
+				consumeErr := consume(stream)
+				// A consumer may stop on its first in-band error. Drain the admitted
+				// turn before releasing the FIFO slot and caller-owned result state.
+				for range stream {
+				}
+				if consumeErr != nil {
+					return consumeErr
+				}
+				return runCtx.Err()
+			}
+			if !errors.Is(err, agenterr.ErrSessionBusy) {
+				return err
+			}
+			timer := time.NewTimer(busyAdmissionPollInterval)
+			select {
+			case <-waitCtx.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				return turnqueue.ErrTimeout
+			case <-timer.C:
+			}
+		}
+	})
+	if err == nil {
+		return nil
+	}
+	return s.finalizePendingInbox(ctx, queued.ID, sessionInboxErrorCode(err), err)
+}
+
+func (s *Service) finalizePendingInbox(ctx context.Context, inboxID string, code sessioninbox.ErrorCode, cause error) error {
+	finalizeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), inboxFinalizationTimeout)
+	defer cancel()
+	applied, err := s.SessionInbox.FailPending(finalizeCtx, inboxID, code)
+	if err != nil {
+		return errors.Join(cause, fmt.Errorf("%w: finalize inbox %s: %w", sessioninbox.ErrOutcomeUnknown, inboxID, err))
+	}
+	if !applied && errors.Is(cause, memory.ErrInboxAppendOutcomeUnknown) {
+		return errors.Join(cause, sessioninbox.ErrOutcomeUnknown)
+	}
+	return cause
+}
+
+func sessionInboxErrorCode(err error) sessioninbox.ErrorCode {
+	switch {
+	case errors.Is(err, turnqueue.ErrFull):
+		return sessioninbox.ErrorQueueFull
+	case errors.Is(err, turnqueue.ErrTimeout), errors.Is(err, context.DeadlineExceeded):
+		return sessioninbox.ErrorTimeout
+	case errors.Is(err, context.Canceled):
+		return sessioninbox.ErrorCanceled
+	default:
+		return sessioninbox.ErrorLiveFailed
+	}
 }
 
 // ServiceManager provides multi-agent Service lookup.
@@ -154,7 +351,29 @@ func (s *Service) ChatAdmitted(ctx context.Context, req ChatRequest) (<-chan Eve
 	if info.GroupID != "" && req.CurrentSpeaker != (memory.CurrentSpeaker{}) {
 		opts = append(opts, agentruntime.WithCurrentSpeaker(req.CurrentSpeaker))
 	}
+	opts = append(opts, agentruntime.WithInputActor(messageActor(req.Authority, req.CurrentSpeaker, memory.SessionIDFromContext(ctx))))
 	return s.Runtime.ChatAdmitted(ctx, info, req.Message, opts...)
+}
+
+func messageActor(authority authz.Authority, speaker memory.CurrentSpeaker, sourceSessionID string) eventlog.MessageActor {
+	switch authority.Kind() {
+	case authz.ActorUser:
+		return eventlog.MessageActor{Type: eventlog.ActorHuman, ID: string(authority.UserID())}
+	case authz.ActorGuest:
+		return eventlog.MessageActor{Type: eventlog.ActorHuman, ID: string(authority.GuestID())}
+	case authz.ActorAgent:
+		return eventlog.MessageActor{Type: eventlog.ActorAgent, ID: string(authority.AgentID()), SourceSessionID: sourceSessionID}
+	case authz.ActorGroupAgent:
+		id := speaker.UserID
+		if id == "" {
+			id = speaker.PlatformUserID
+		}
+		return eventlog.MessageActor{Type: eventlog.ActorHuman, ID: id}
+	case authz.ActorSystem:
+		return eventlog.MessageActor{Type: eventlog.ActorSystem, ID: string(authority.Component())}
+	default:
+		return eventlog.MessageActor{}
+	}
 }
 
 // Chat resolves (or creates) a session and executes a chat turn.
@@ -227,6 +446,7 @@ func (s *Service) ChatForScheduler(ctx context.Context, req SchedulerChatRequest
 	if req.Model != "" {
 		opts = append(opts, agentruntime.WithModel(req.Model))
 	}
+	opts = append(opts, agentruntime.WithInputActor(messageActor(req.Authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))))
 	return s.Runtime.Chat(ctx, info, req.Message, opts...)
 }
 
@@ -299,6 +519,7 @@ func (s *Service) chatOnSession(ctx context.Context, sreq session.Request, req T
 	if len(req.ExcludedTools) > 0 {
 		opts = append(opts, agentruntime.WithExcludedTools(req.ExcludedTools...))
 	}
+	opts = append(opts, agentruntime.WithInputActor(messageActor(req.Authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))))
 	src := s.Runtime.Chat(ctx, info, req.Message, opts...)
 	out := make(chan Event)
 	go func() {
@@ -491,6 +712,10 @@ func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateRe
 	if info.UserID != req.UserID || info.AgentID != s.AgentID || info.GroupID != "" || info.ProjectID != req.ProjectID {
 		return DelegateResult{SessionID: info.ID}, agentaccess.ErrForbidden
 	}
+	ctx, err = agentctx.BindSessionCallTarget(ctx, info.ID)
+	if err != nil {
+		return DelegateResult{SessionID: info.ID}, err
+	}
 	// access.EnsureUse above already decided both the persisted Session and its
 	// backing Agent under this use case's single policy evaluation. Starting an
 	// AgentAccess evaluation here would create a revocation race and violate the
@@ -506,19 +731,28 @@ func (s *Service) Delegate(ctx context.Context, req DelegateRequest) (DelegateRe
 	if len(req.ExcludedTools) > 0 {
 		opts = append(opts, agentruntime.WithExcludedTools(req.ExcludedTools...))
 	}
+	actor := messageActor(authority, memory.CurrentSpeaker{}, memory.SessionIDFromContext(ctx))
+	opts = append(opts, agentruntime.WithInputActor(actor))
 
-	stream := s.Runtime.Chat(ctx, info, req.Task, opts...)
 	result := DelegateResult{SessionID: info.ID}
-	var output strings.Builder
-	for ev := range stream {
-		if ev.Text != "" {
-			output.WriteString(ev.Text)
+	var output session.OutputCollector
+	err = s.runQueuedTurn(ctx, info, req.Task, actor, opts, func(stream <-chan Event) error {
+		var terminalErr error
+		for ev := range stream {
+			if ev.Text != "" {
+				output.Write(ev.Text)
+			}
+			if terminalErr == nil && ev.Err != nil {
+				terminalErr = ev.Err
+			}
 		}
-		if ev.Err != nil {
-			return DelegateResult{SessionID: info.ID, Output: output.String()}, ev.Err
-		}
+		return terminalErr
+	})
+	if err != nil {
+		return DelegateResult{SessionID: info.ID, Output: output.String(), OutputTruncated: output.Truncated()}, err
 	}
 	result.Output = output.String()
+	result.OutputTruncated = output.Truncated()
 	result.Complete = true
 	return result, nil
 }
@@ -553,9 +787,10 @@ func (s *Service) RunDelegateSession(ctx context.Context, req delegatetool.Sessi
 		Authority:     authority,
 	})
 	return delegatetool.SessionRunResult{
-		SessionID: res.SessionID,
-		Output:    res.Output,
-		Complete:  res.Complete,
+		SessionID:       res.SessionID,
+		Output:          res.Output,
+		OutputTruncated: res.OutputTruncated,
+		Complete:        res.Complete,
 	}, err
 }
 

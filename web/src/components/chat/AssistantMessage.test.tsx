@@ -42,4 +42,25 @@ describe("AssistantMessage tool failures", () => {
     expect(html).not.toContain("1 failed");
     expect(html).not.toContain("1 个失败");
   });
+
+  it("shows a specific waiting state for synchronous session calls", () => {
+    const html = renderToStaticMarkup(
+      <AssistantMessage
+        agentName="Stella"
+        agentId="stella"
+        streaming
+        blocks={[
+          {
+            type: "tool_call",
+            id: "call-1",
+            name: "session",
+            arguments: { action: "send", session_id: "session-1", wait: true },
+          },
+        ]}
+      />,
+    );
+
+    expect(html).toContain("sessions.tool.waitingForReply");
+    expect(html).toContain("animate-spin");
+  });
 });

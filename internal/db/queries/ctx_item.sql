@@ -20,6 +20,9 @@ SELECT
   m.content AS message_content,
   m.token_count AS message_token_count,
   m.created_at AS message_created_at,
+  m.actor_type AS message_actor_type,
+  m.actor_id AS message_actor_id,
+  m.source_session_id AS message_source_session_id,
   s.id AS summary_id,
   s.kind AS summary_kind,
   s.depth AS summary_depth,
@@ -30,6 +33,7 @@ SELECT
   s.descendant_count AS summary_descendant_count,
   s.descendant_token_count AS summary_descendant_token_count,
   s.source_message_token_count AS summary_source_message_token_count,
+  s.contains_non_principal_input AS summary_contains_non_principal_input,
   s.created_at AS summary_created_at
 FROM ctx_item ci
 LEFT JOIN ctx_message m ON m.id = ci.message_id
@@ -67,6 +71,7 @@ WHERE ci.conversation_id = $1;
 SELECT
   (SELECT COUNT(*) FROM ctx_message cm WHERE cm.conversation_id = sqlc.arg('conversation_id')) AS message_count,
   (SELECT CAST(COALESCE(SUM(cm.token_count), 0) AS BIGINT) FROM ctx_message cm WHERE cm.conversation_id = sqlc.arg('conversation_id')) AS source_token_count,
+	(SELECT COUNT(*) FROM ctx_summary cs WHERE cs.conversation_id = sqlc.arg('conversation_id')) AS summary_count,
   (SELECT CAST(COALESCE(SUM(
         CASE
             WHEN ci.item_type = 'message' THEN m.token_count

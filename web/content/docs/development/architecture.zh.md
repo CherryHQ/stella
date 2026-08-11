@@ -46,7 +46,7 @@ internal/
     runtime/           Runner cache、turn 执行、event 持久化
     prompt/            系统提示构建器和模板
     sandbox/           核心沙箱工具（bash、read、write、edit）
-    delegate/          Delegate 工具（隔离子循环）
+    delegate/          内部 managed-session adapter 与 preset
   channel/             Channel 接口、身份解析、斜杠命令、入口租约、通知
   memory/              记忆 provider 注册表 + 实现（lcm、simple）
   server/              HTTP API + 嵌入式 React SPA
@@ -59,7 +59,7 @@ internal/
   skills/              技能工具（通过 skills.sh 搜索/安装/列出/移除）
 pkg/
   ai/                  Message/Content 类型、Model、Provider 接口、流式事件
-  tools/               Tool 接口、注册表、内置工具（read、bash、write、edit、delegate）
+  tools/               Tool 接口与注册表
 plugins/
   tools/               插件工具注册表 + 插件工具（webfetch）
   hooks/               插件钩子注册表 + 插件钩子（rtk）
@@ -156,13 +156,12 @@ type Tool interface {
 
 ### 内置工具（始终可用）
 
-| 工具       | 描述                             |
-| ---------- | -------------------------------- |
-| `read`     | 使用 UTF-8 安全截断读取文件内容  |
-| `bash`     | 执行 shell 命令                  |
-| `write`    | 原子性创建/覆盖文件              |
-| `edit`     | 编辑文件部分，保留上下文         |
-| `delegate` | 将专注子任务委派到隔离的子循环中 |
+| 工具    | 描述                            |
+| ------- | ------------------------------- |
+| `read`  | 使用 UTF-8 安全截断读取文件内容 |
+| `bash`  | 执行 shell 命令                 |
+| `write` | 原子性创建/覆盖文件             |
+| `edit`  | 编辑文件部分，保留上下文        |
 
 ### 插件工具（通过Web UI切换）
 
@@ -176,30 +175,32 @@ type Tool interface {
 
 沙箱系统为 agent 工具执行提供进程、文件系统和网络隔离。所有核心工具在每个 runner 中共享同一个 `sandbox.Session`：`bash` 使用 `Session.Exec`；`read`/`write`/`edit` 使用 `Session.ResolvePath` + `os.*`。沙箱后端不可用时 runner 启动失败关闭。详见[沙箱后端抽象](/docs/development/sandbox)了解完整的 Session 接口、执行中介、拒绝失败行为和例外边界。
 
-沙箱工具（bash、read、write、edit）位于 `internal/agent/sandbox/`；其他内置工具位于它们投射的能力包中（例如 delegate 位于 `internal/agent/delegate`）。插件工具（如 webfetch）位于 `plugins/tools/`，通过 `init()` 自注册。添加新的插件工具只需一个空白导入，无需修改组装代码。详见[插件系统](/docs/development/plugin-system)。
+沙箱工具（bash、read、write、edit）位于 `internal/agent/sandbox/`；其他内置工具位于它们投射的能力包中。插件工具（如 webfetch）位于 `plugins/tools/`，通过 `init()` 自注册。添加新的插件工具只需一个空白导入，无需修改组装代码。详见[插件系统](/docs/development/plugin-system)。
 
-### Delegate 工具
+### Session 工具
 
-`delegate` 工具使代理能够将专注子任务委派到具有隔离上下文的子循环中。这对于从新上下文受益的任务（研究、代码审查、起草）很有用，而不会污染父对话。
+面向模型的 `session` 工具统一负责 Session 管理、有界检查、创建和同步通信。内容回忆归 `memory` 工具负责：
 
-- 每个委派任务获得仅包含任务描述的新消息历史
-- 多个任务通过 goroutine 并行运行，支持可配置并发度
-- `delegate` 工具从子任务中排除以防止递归
-- 委派任务输出截断为 ~4096 个 token，以避免膨胀父上下文
-- 支持从带有 YAML 前置数据的 markdown 文件加载预设
-- 每任务选项：`preset`、`context`、`model`（覆盖）、`system`（附加指令）、`tools`（白名单）、`max_turns`（默认 10）、`timeout_seconds`（默认 120）
+- `list` 列出最近、活跃或已归档的 Session 卡片，不做语义搜索。
+- `get` 返回 metadata 与 context stats，并按完整逻辑回合分页。
+- `create` 打开持久的聚焦 Session，并可应用内部 preset。
+- `send` 在当前 Agent 拥有且可发送的 Session 上运行一个回合，包括旧 delegate Session。
+
+runtime 保留 `DelegateTool` 和 delegate Session kind，作为 preset 和已有 ID 的内部兼容机制。模型工具注册表不再注册 `delegate`。
+
+Agent 发送会先持久化一行输入，再进入进程内按 Session 划分的 FIFO，最后经过标准 runtime admission guard。队列限制等待深度和 admission 等待时间，传播来源 context，但不取代 runtime 正确性 guard。LCM 会在追加 transcript 消息的同一事务中认领该行。启动恢复会重新鉴权 pending 行并只追加消息；它绝不会启动模型或工具 turn。嵌套调用在 context 中携带深度和祖先链，拒绝循环，继承根 deadline，并在同一根回合的同级与嵌套调用间共享 16 次调用预算。Agent 输入会持久化 actor 和来源 Session；prompt 渲染把它标记为信息，而不是用户权威。同步 Session 回合不会隐式发布到外部渠道，inbox 持久化也不会让回复或执行本身变得持久。
 
 ### 内置共享工具
 
-| 工具        | 条件                  | 描述                                           |
-| ----------- | --------------------- | ---------------------------------------------- |
-| `memory`    | 始终                  | 自动生成的内存工具（操作根据提供商能力自适应） |
-| `session`   | 一对一 Agent 会话     | 只读会话发现与对话记录查看                     |
-| `skills`    | 始终                  | 技能管理（从 skills.sh 搜索/安装/列出/移除）   |
-| `scheduler` | 始终                  | 安排任务（添加/列出/移除作业）                 |
-| `notify`    | 网关模式 + 通道已配置 | 通过分发器发送通知                             |
+| 工具        | 条件                  | 描述                                         |
+| ----------- | --------------------- | -------------------------------------------- |
+| `memory`    | 始终                  | 跨对话与持久记忆的统一搜索和读取             |
+| `session`   | 一对一 Agent 会话     | Session 列表、有界检查、创建和同步发送       |
+| `skills`    | 始终                  | 技能管理（从 skills.sh 搜索/安装/列出/移除） |
+| `scheduler` | 始终                  | 安排任务（添加/列出/移除作业）               |
+| `notify`    | 网关模式 + 通道已配置 | 通过分发器发送通知                           |
 
-内存工具由 `memory.BuildTool(provider)` 自动生成，它会检查 provider 能力并生成匹配动作。普通聊天 runner 会用 `WithSessionReadOnlyWrites()` 收窄它：使用 LCM provider 时暴露 `status`、`search`、`describe`、`expand`、`get_message`、`profile_get`、`soul_get`、`profile_history` 和 `constraint_list`；Simple provider 暴露对应的只读子集。持久 profile/soul/constraint 写入由 Reflect 或 UI/API 等手动路径完成，并注入新会话的系统提示。
+内存工具由 `memory.BuildTool(provider, memory.WithRecallSource(sessionAccess))` 生成。普通聊天 runner 只暴露 `search` 与 `read`：search 联合检索当前快照可见的 LCM 消息/摘要和持久 facts、profile、soul、constraints；read 解析 opaque result ref 或 well-known 的身份、约束、历史 ref。Dynamic read 会重新经过 Session access 授权；summary read 则通过有界 child ref 保留 LCM describe/expand 能力。对话 `status`/`describe`/`expand`/`get_message` 以及持久 profile、soul、constraint 管理等 provider-oriented actions，只保留给负责它们的 internal、Reflect 或 manual surface。
 
 ## 会话生命周期
 

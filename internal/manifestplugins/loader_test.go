@@ -1,6 +1,9 @@
 package manifestplugins
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestLoadBuiltin(t *testing.T) {
 	m, err := LoadBuiltin()
@@ -57,7 +60,7 @@ func TestLoadBuiltinXberg(t *testing.T) {
 	t.Fatal("Xberg plugin not found")
 }
 
-func TestLoadBuiltinLarkCLIIsStandaloneTool(t *testing.T) {
+func TestLoadBuiltinLarkCLIUsesManagedFeishuOAuth(t *testing.T) {
 	m, err := LoadBuiltin()
 	if err != nil {
 		t.Fatalf("LoadBuiltin() error: %v", err)
@@ -66,11 +69,11 @@ func TestLoadBuiltinLarkCLIIsStandaloneTool(t *testing.T) {
 		if p.ID != "tool/lark-cli" {
 			continue
 		}
-		if p.OAuthProvider != "" {
-			t.Fatalf("OAuthProvider = %q, want standalone CLI", p.OAuthProvider)
+		if p.OAuthProvider != "feishu" {
+			t.Fatalf("OAuthProvider = %q, want feishu", p.OAuthProvider)
 		}
-		if len(p.SessionEnvs) != 0 {
-			t.Fatalf("SessionEnvs = %#v, want no Stella OAuth injection", p.SessionEnvs)
+		if len(p.SessionEnvs) != 3 {
+			t.Fatalf("SessionEnvs = %#v, want token, app ID, and brand injection", p.SessionEnvs)
 		}
 		if len(p.Binaries) != 1 || p.Binaries[0].Version != "1.0.80" {
 			t.Fatalf("Binaries = %#v, want pinned lark-cli 1.0.80", p.Binaries)
@@ -78,4 +81,32 @@ func TestLoadBuiltinLarkCLIIsStandaloneTool(t *testing.T) {
 		return
 	}
 	t.Fatal("tool/lark-cli not found")
+}
+
+func TestLoadBuiltinLarkProvidersRecommendFullCLIScopes(t *testing.T) {
+	m, err := LoadBuiltin()
+	if err != nil {
+		t.Fatalf("LoadBuiltin() error: %v", err)
+	}
+	found := map[string]bool{}
+	for _, provider := range m.OAuthProviders {
+		if provider.ID != "lark" && provider.ID != "feishu" {
+			continue
+		}
+		found[provider.ID] = true
+		// The builtin default is the recommended lark-cli capability surface, so
+		// one authorization covers every documented command. Admins trim it; it
+		// is a floor users can still grow incrementally.
+		if len(provider.Scopes) < 100 {
+			t.Fatalf("%s defaults = %d scopes, want the full lark-cli capability set", provider.ID, len(provider.Scopes))
+		}
+		for _, want := range []string{"offline_access", "contact:user.basic_profile:readonly"} {
+			if !slices.Contains(provider.Scopes, want) {
+				t.Fatalf("%s defaults missing %q", provider.ID, want)
+			}
+		}
+	}
+	if !found["lark"] || !found["feishu"] {
+		t.Fatalf("providers found = %v, want lark and feishu", found)
+	}
 }

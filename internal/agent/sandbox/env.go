@@ -340,6 +340,8 @@ func oauthBundleField(bundle *oauth.OAuthBundle, field string) (value string, kn
 		return bundle.AccessToken, true
 	case "client_id":
 		return bundle.ClientID, true
+	case "brand":
+		return bundle.Brand, true
 	case "refresh_token":
 		return bundle.RefreshToken, true
 	default:

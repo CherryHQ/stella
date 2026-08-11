@@ -141,6 +141,13 @@ func TestTruncateTail_LongSingleLineUsesUTF8SafePartial(t *testing.T) {
 	}
 }
 
+func TestTruncateTextUsesUTF8SafeByteLimit(t *testing.T) {
+	got, truncated := TruncateText(strings.Repeat("界", 10), 8)
+	if !truncated || got != "界界" || len(got) > 8 || !utf8.ValidString(got) {
+		t.Fatalf("TruncateText = %q (%d bytes, valid=%t, truncated=%t), want two valid runes", got, len(got), utf8.ValidString(got), truncated)
+	}
+}
+
 func TestTruncateStillReturnsTruncatedContentWhenTempSaveFails(t *testing.T) {
 	input := strings.Repeat("line\n", 2500)
 	t.Setenv("TMPDIR", "/path/that/does/not/exist")

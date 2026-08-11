@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.3] - 2026-08-11
+
+### ✨ Features
+
+- Agents now use one bounded Session interface to find, inspect, create, and send to their own execution threads. Busy targets queue synchronously, message actors are persisted by the runtime, and nested calls enforce depth, ancestry, and inherited tool exclusions. ([#962](https://github.com/CherryHQ/stella/pull/962), [#958](https://github.com/CherryHQ/stella/issues/958))
+- Agents can now ask for additional OAuth permissions for one user on demand. A provider's configured scopes are the minimum every connection requests, each user's own added scopes are remembered across authorizations, and only that user re-authorizes — other connections are untouched. Requested, granted, and missing permissions are visible per connection, and a missing grant produces an actionable reconnect state. ([#978](https://github.com/CherryHQ/stella/pull/978), [#977](https://github.com/CherryHQ/stella/issues/977))
+- Lark and Feishu return as Stella-managed OAuth providers, with the bundled Lark CLI's full permission set recommended by default so one authorization covers its documented commands. Users connect from the Web UI or chat without host-shell access, and the app secret is never exposed to the agent or its sandbox. ([#978](https://github.com/CherryHQ/stella/pull/978), [#977](https://github.com/CherryHQ/stella/issues/977))
+
+### 🐛 Bug Fixes
+
+- An Agent's Channels tab now shows only channels bound to that Agent, removing cross-Agent bind and transfer actions from the Agent-scoped inventory while preserving channel creation, editing, account linking, and confirmed unbinding. ([#982](https://github.com/CherryHQ/stella/pull/982), [#981](https://github.com/CherryHQ/stella/issues/981))
+
+**Full Changelog**: [v0.63.2...v0.63.3](https://github.com/CherryHQ/stella/compare/v0.63.2...v0.63.3)
+
 ## [0.63.2] - 2026-08-09
 
 ### 🔐 Security

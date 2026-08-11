@@ -280,7 +280,7 @@ func TestFilterAlreadyPersistedInjectedBatchesLargeCandidateSet(t *testing.T) {
 		t.Fatalf("create conversation: %v", err)
 	}
 	for i, content := range []string{"candidate-0000", "candidate-0500", "candidate-1001"} {
-		if _, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{ID: uuid.NewString(), ConversationID: convID, Seq: int64(i + 1), Role: "user", EventType: "text", Content: content}); err != nil {
+		if _, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{ID: uuid.NewString(), ConversationID: convID, Seq: int64(i + 1), Role: "user", EventType: "text", Content: content, ActorType: string(eventlog.ActorHuman)}); err != nil {
 			t.Fatalf("create message %s: %v", content, err)
 		}
 	}

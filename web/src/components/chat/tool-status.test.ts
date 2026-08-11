@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toolCallFailed } from "./utils";
+import { formatToolOutput, toolCallFailed } from "./utils";
 import type { ContentBlock } from "@/lib/types";
 
 type ToolCall = ContentBlock & { type: "tool_call" };
@@ -30,5 +30,24 @@ describe("toolCallFailed", () => {
     // failure would flash a red badge on every step while it runs.
     expect(toolCallFailed(call())).toBe(false);
     expect(toolCallFailed(call({ content: "" }))).toBe(false);
+  });
+});
+
+describe("formatToolOutput", () => {
+  it("pretty-prints JSON objects and arrays", () => {
+    expect(formatToolOutput('{"session_id":"s1","reply":"ok"}')).toBe(`{
+  "session_id": "s1",
+  "reply": "ok"
+}`);
+    expect(formatToolOutput('[{"id":"s1"}]')).toBe(`[
+  {
+    "id": "s1"
+  }
+]`);
+  });
+
+  it("leaves prose and malformed JSON untouched", () => {
+    expect(formatToolOutput("plain output")).toBe("plain output");
+    expect(formatToolOutput('{"broken"')).toBe('{"broken"');
   });
 });

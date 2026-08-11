@@ -136,6 +136,39 @@ func TestChatMarksFailedTurnActivity(t *testing.T) {
 	}
 }
 
+func TestChatAdmittedControlledFenceRejectsBeforeTurnSideEffects(t *testing.T) {
+	gate := make(chan struct{})
+	mem := &activityRecordingMemory{}
+	rt, err := New(Config{
+		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+			return &blockingRunner{gate: gate}, nil
+		},
+		Memory: mem,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	info := session.Info{ID: "fenced-session", UserID: "u1", AgentID: "a1"}
+	want := errors.New("caller timed out")
+	if stream, err := rt.ChatAdmittedControlled(t.Context(), info, "must not run", func() error { return want }); !errors.Is(err, want) || stream != nil {
+		t.Fatalf("controlled admission = (%v, %v), want (nil, %v)", stream, err, want)
+	}
+	if got := mem.activitySnapshot(); len(got) != 0 {
+		t.Fatalf("rejected turn activity = %v, want none", got)
+	}
+	if _, active := rt.active.Load(info.ID); active {
+		t.Fatal("rejected admission retained the runtime busy guard")
+	}
+
+	stream, err := rt.ChatAdmitted(t.Context(), info, "next turn")
+	if err != nil {
+		t.Fatalf("next admission: %v", err)
+	}
+	close(gate)
+	for range stream {
+	}
+}
+
 func TestChat_BusyGuard_RejectsConcurrentSameSession(t *testing.T) {
 	gate := make(chan struct{})
 	rt := newTestRuntime(gate)

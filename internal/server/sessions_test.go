@@ -13,6 +13,7 @@ import (
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -247,13 +248,13 @@ func TestListMessagesByLogicalPageMatchesSerializedWindow(t *testing.T) {
 	toolCall, _ := json.Marshal(map[string]any{"id": "c1", "tool": "bash", "args": map[string]any{"command": "ls"}})
 	toolResult, _ := json.Marshal(map[string]any{"id": "c1", "tool": "bash", "result": "output"})
 	rows := []sqlc.CreateMessageParams{
-		{ID: uuid.NewString(), ConversationID: conv.ID, Seq: 1, Role: "user", EventType: "text", Content: "u1"},
-		{ID: uuid.NewString(), ConversationID: conv.ID, Seq: 2, Role: "assistant", EventType: "text", Content: "a1"},
-		{ID: uuid.NewString(), ConversationID: conv.ID, Seq: 3, Role: "assistant", EventType: "tool_call", Content: string(toolCall)},
-		{ID: uuid.NewString(), ConversationID: conv.ID, Seq: 4, Role: "tool", EventType: "text", Content: string(toolResult)},
-		{ID: uuid.NewString(), ConversationID: conv.ID, Seq: 5, Role: "assistant", EventType: "text", Content: "a2"},
-		{ID: uuid.NewString(), ConversationID: conv.ID, Seq: 6, Role: "assistant", EventType: "thinking", Content: "think"},
-		{ID: uuid.NewString(), ConversationID: conv.ID, Seq: 7, Role: "user", EventType: "text", Content: "u2"},
+		{ID: uuid.NewString(), ConversationID: conv.ID, Seq: 1, Role: "user", EventType: "text", Content: "u1", ActorType: string(eventlog.ActorHuman)},
+		{ID: uuid.NewString(), ConversationID: conv.ID, Seq: 2, Role: "assistant", EventType: "text", Content: "a1", ActorType: string(eventlog.ActorAgent)},
+		{ID: uuid.NewString(), ConversationID: conv.ID, Seq: 3, Role: "assistant", EventType: "tool_call", Content: string(toolCall), ActorType: string(eventlog.ActorAgent)},
+		{ID: uuid.NewString(), ConversationID: conv.ID, Seq: 4, Role: "tool", EventType: "text", Content: string(toolResult), ActorType: string(eventlog.ActorAgent)},
+		{ID: uuid.NewString(), ConversationID: conv.ID, Seq: 5, Role: "assistant", EventType: "text", Content: "a2", ActorType: string(eventlog.ActorAgent)},
+		{ID: uuid.NewString(), ConversationID: conv.ID, Seq: 6, Role: "assistant", EventType: "thinking", Content: "think", ActorType: string(eventlog.ActorAgent)},
+		{ID: uuid.NewString(), ConversationID: conv.ID, Seq: 7, Role: "user", EventType: "text", Content: "u2", ActorType: string(eventlog.ActorHuman)},
 	}
 	for _, row := range rows {
 		if _, err := q.CreateMessage(ctx, row); err != nil {
@@ -300,7 +301,7 @@ func testMessagesFromLogicalRows(rows []sqlc.ListMessagesByLogicalPageRow) []ses
 
 func TestSerializeAssistantRows_text(t *testing.T) {
 	rows := []sessionaccess.Message{
-		{ID: "msg-a1", Role: "assistant", EventType: "text", Content: "hi"},
+		{ID: "msg-a1", Role: "assistant", EventType: "text", Content: "hi", ActorType: string(eventlog.ActorAgent), ActorID: "agent-1", SourceSessionID: "session-1"},
 	}
 	m, consumed := serializeAssistantRows(rows, 0)
 	if consumed != 1 {
@@ -311,6 +312,9 @@ func TestSerializeAssistantRows_text(t *testing.T) {
 	}
 	if m.Id != "msg-a1" {
 		t.Errorf("id = %v, want msg-a1", m.Id)
+	}
+	if m.ActorType != apitypes.SessionMessageActorTypeAgent || m.ActorId == nil || *m.ActorId != "agent-1" || m.SourceSessionId == nil || *m.SourceSessionId != "session-1" {
+		t.Errorf("actor = %s/%v/%v", m.ActorType, m.ActorId, m.SourceSessionId)
 	}
 }
 
