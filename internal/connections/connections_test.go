@@ -123,7 +123,7 @@ func TestGetProviderStatusesYAMLCredentials(t *testing.T) {
 
 func TestStartFlowNilVault(t *testing.T) {
 	svc := newService(t)
-	_, err := svc.StartFlow(context.Background(), "1", "github")
+	_, err := svc.StartFlow(context.Background(), "1", "github", nil)
 	if err == nil {
 		t.Error("expected error when vault is nil")
 	}
@@ -139,7 +139,7 @@ func TestPollFlowUnknownFlow(t *testing.T) {
 
 func TestStartFlowUnsupportedProvider(t *testing.T) {
 	svc := newService(t)
-	_, err := svc.StartFlow(context.Background(), "1", "unsupported-provider")
+	_, err := svc.StartFlow(context.Background(), "1", "unsupported-provider", nil)
 	if err == nil {
 		t.Error("expected error for unsupported provider")
 	}
@@ -314,7 +314,7 @@ func TestSetOAuthProviderConfigInvalidatesOnCredentialChange(t *testing.T) {
 	}
 
 	// scope-only change (same client_id, no secret) → no further invalidation.
-	if err := svc.SetOAuthProviderConfig(ctx, connections.OAuthProviderConfig{ProviderID: "github", ClientID: "client-b", Scopes: []string{"repo", "read:org"}}); err != nil {
+	if err := svc.SetOAuthProviderConfig(ctx, connections.OAuthProviderConfig{ProviderID: "github", ClientID: "client-b", Scopes: []string{"repo", "read:org"}, AllowedScopes: []string{"repo", "read:org", "workflow"}}); err != nil {
 		t.Fatalf("scope-only set: %v", err)
 	}
 	if inv.allCalled != 1 {
@@ -328,5 +328,8 @@ func TestSetOAuthProviderConfigInvalidatesOnCredentialChange(t *testing.T) {
 	}
 	if len(got.Scopes) != 2 || got.Scopes[0] != "repo" || got.Scopes[1] != "read:org" {
 		t.Errorf("Scopes = %v, want [repo read:org]", got.Scopes)
+	}
+	if len(got.AllowedScopes) != 3 || got.AllowedScopes[2] != "workflow" {
+		t.Errorf("AllowedScopes = %v, want [repo read:org workflow]", got.AllowedScopes)
 	}
 }

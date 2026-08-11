@@ -1704,6 +1704,9 @@ const en = {
     "The permissions the connect flow requests. Align these with the provider console; connected users must re-authorize to gain added scopes.",
   "credentials.oauth.scopes.selectionHint":
     "Groups start collapsed. Check the scopes to request; unchecked scopes are removed when you save.",
+  "credentials.oauth.scopes.allowedTitle": "Allowed incremental scopes",
+  "credentials.oauth.scopes.allowedSelectionHint":
+    "Users may request only these scopes. Default scopes are always allowed.",
   "credentials.oauth.scopes.search": "Search scopes",
   "credentials.oauth.scopes.addHint": "Add scopes that are not in the built-in list.",
   "credentials.oauth.scopes.addPlaceholder": "One per line, comma, or space",
@@ -1716,6 +1719,8 @@ const en = {
   "credentials.oauth.scopes.selectedCount": "{{selected}} of {{total}} selected",
   "credentials.oauth.scopes.saveHint":
     "Saving applies the checked scopes. Connected users must re-authorize to gain added scopes.",
+  "credentials.oauth.scopes.allowedSaveHint":
+    "Requests outside this allowlist fail before an OAuth flow starts.",
   "credentials.oauth.resetTitle": "Reset OAuth app",
   "credentials.oauth.disconnectTitle": "Disconnect",
   "credentials.email.default": "Default",
@@ -3963,6 +3968,8 @@ const zh: Record<MessageKey, string> = {
   "credentials.oauth.scopes.description":
     "连接流程请求的权限。请与提供方控制台保持一致；已连接的用户需要重新授权才能获得新增权限。",
   "credentials.oauth.scopes.selectionHint": "权限分组默认收起；未勾选的权限会在保存时移除。",
+  "credentials.oauth.scopes.allowedTitle": "允许增量申请的权限",
+  "credentials.oauth.scopes.allowedSelectionHint": "用户只能增量申请这些权限；默认权限始终允许。",
   "credentials.oauth.scopes.search": "搜索权限范围",
   "credentials.oauth.scopes.addHint": "添加内置列表中没有的权限范围。",
   "credentials.oauth.scopes.addPlaceholder": "每行、逗号或空格分隔",
@@ -3974,6 +3981,7 @@ const zh: Record<MessageKey, string> = {
   "credentials.oauth.scopes.noMatch": "没有匹配的权限范围。",
   "credentials.oauth.scopes.selectedCount": "已选择 {{selected}} / {{total}}",
   "credentials.oauth.scopes.saveHint": "保存后使用勾选的权限；新增权限需要用户重新授权。",
+  "credentials.oauth.scopes.allowedSaveHint": "超出此允许列表的请求会在 OAuth 流程开始前被拒绝。",
   "credentials.oauth.resetTitle": "重置 OAuth 应用",
   "credentials.oauth.disconnectTitle": "断开连接",
   "credentials.email.default": "默认",

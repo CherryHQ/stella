@@ -106,3 +106,23 @@ func TestFlowStore_DeleteMissingIsNoOp(t *testing.T) {
 	// Should not panic.
 	s.Delete("not-there")
 }
+
+func TestFlowStoreCreateExclusiveRejectsConcurrentUserProviderFlow(t *testing.T) {
+	s := NewFlowStore()
+	first := FlowStatus{
+		FlowID: "first", UserID: "user-1", Provider: ProviderGitHub,
+		State: FlowStatePending, ExpiresAt: time.Now().Add(time.Minute),
+	}
+	if !s.CreateExclusive(first) {
+		t.Fatal("first CreateExclusive rejected")
+	}
+	second := first
+	second.FlowID = "second"
+	if s.CreateExclusive(second) {
+		t.Fatal("second concurrent CreateExclusive succeeded")
+	}
+	second.UserID = "user-2"
+	if !s.CreateExclusive(second) {
+		t.Fatal("different user should have an independent flow")
+	}
+}

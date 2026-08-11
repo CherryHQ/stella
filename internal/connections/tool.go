@@ -14,7 +14,7 @@ type Tool struct{ svc *Service }
 
 func NewTool(svc *Service) *Tool { return &Tool{svc: svc} }
 func (t *Tool) Definition() tools.Definition {
-	return tools.Definition{Name: ToolName, Description: "Connect and manage external OAuth providers for this user. Actions: list providers, connect, status, disconnect. For connect, give the user the returned verification_uri and user_code, ask them to authorize and tell you when done, then call action=status with the flow_id. Never tell the user to run commands; never expose tokens.", InputSchema: InputSchema()}
+	return tools.Definition{Name: ToolName, Description: "Connect and manage external OAuth providers for this user. Actions: list providers, connect, status, disconnect. connect accepts optional scopes and adds them to this user's cumulative requested scopes after administrator policy validation. Give the user the returned verification_uri and user_code, ask them to authorize and tell you when done, then call action=status with the flow_id. Never tell the user to run commands; never expose tokens.", InputSchema: InputSchema()}
 }
 
 func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
@@ -63,11 +63,21 @@ func (h oauthHandler) Connect(ctx context.Context, in ConnectInput) (any, error)
 	if err != nil {
 		return nil, err
 	}
-	status, err := acc.StartFlow(ctx, in.Provider)
+	status, err := acc.StartFlow(ctx, in.Provider, scopeItems(in.Scopes))
 	if err != nil {
 		return nil, err
 	}
 	return oauthFlowSummary(status), nil
+}
+
+func scopeItems(items []any) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if scope, ok := item.(string); ok {
+			out = append(out, scope)
+		}
+	}
+	return out
 }
 
 func (h oauthHandler) Status(ctx context.Context, in StatusInput) (any, error) {
@@ -110,24 +120,34 @@ func (h oauthHandler) Disconnect(ctx context.Context, in DisconnectInput) (any, 
 }
 
 type oauthFlowResponse struct {
-	Provider        string `json:"provider"`
-	FlowID          string `json:"flow_id"`
-	VerificationURI string `json:"verification_uri"`
-	UserCode        string `json:"user_code,omitempty"`
-	ExpiresAt       string `json:"expires_at"`
-	State           string `json:"state"`
+	Provider        string   `json:"provider"`
+	FlowID          string   `json:"flow_id"`
+	VerificationURI string   `json:"verification_uri"`
+	UserCode        string   `json:"user_code,omitempty"`
+	ExpiresAt       string   `json:"expires_at"`
+	State           string   `json:"state"`
+	RequestedScopes []string `json:"requested_scopes,omitempty"`
 }
 type oauthProviderResponse struct {
-	Provider   string `json:"provider"`
-	Configured bool   `json:"configured"`
-	Connected  bool   `json:"connected"`
-	Username   string `json:"username,omitempty"`
+	Provider        string   `json:"provider"`
+	Configured      bool     `json:"configured"`
+	Connected       bool     `json:"connected"`
+	Username        string   `json:"username,omitempty"`
+	RequestedScopes []string `json:"requested_scopes,omitempty"`
+	GrantedScopes   []string `json:"granted_scopes,omitempty"`
+	NeedsReconnect  bool     `json:"needs_reconnect,omitempty"`
+	ReconnectReason string   `json:"reconnect_reason,omitempty"`
 }
 
 func oauthFlowSummary(status FlowStatus) oauthFlowResponse {
-	return oauthFlowResponse{Provider: status.Provider, FlowID: status.FlowID, VerificationURI: status.VerificationURI, UserCode: status.UserCode, ExpiresAt: status.ExpiresAt.UTC().Format(time.RFC3339), State: status.State}
+	return oauthFlowResponse{Provider: status.Provider, FlowID: status.FlowID, VerificationURI: status.VerificationURI, UserCode: status.UserCode, ExpiresAt: status.ExpiresAt.UTC().Format(time.RFC3339), State: status.State, RequestedScopes: status.RequestedScopes}
 }
 
 func oauthProviderSummary(status ProviderStatus) oauthProviderResponse {
-	return oauthProviderResponse{Provider: status.Provider, Configured: status.Configured, Connected: status.Connected, Username: status.Username}
+	return oauthProviderResponse{
+		Provider: status.Provider, Configured: status.Configured, Connected: status.Connected,
+		Username: status.Username, RequestedScopes: status.RequestedScopes,
+		GrantedScopes: status.GrantedScopes, NeedsReconnect: status.NeedsReconnect,
+		ReconnectReason: status.ReconnectReason,
+	}
 }

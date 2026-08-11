@@ -1,6 +1,9 @@
 package connections
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Reconnect reasons reported in ProviderStatus.ReconnectReason (D4). This is a
 // Go-enforced closed enum; callers must not invent new values.
@@ -12,6 +15,17 @@ const (
 	// currently-requested scopes.
 	ReconnectReasonMissingScopes = "missing_scopes"
 )
+
+// ScopeNotAllowedError reports a user-requested scope rejected by the
+// administrator's provider policy before an OAuth flow starts.
+type ScopeNotAllowedError struct {
+	Provider string
+	Scopes   []string
+}
+
+func (e *ScopeNotAllowedError) Error() string {
+	return "scope_not_allowed: provider " + e.Provider + " does not allow scopes: " + strings.Join(e.Scopes, ", ")
+}
 
 // ProviderStatus describes the availability of an OAuth provider.
 type ProviderStatus struct {
@@ -52,6 +66,11 @@ type OAuthProviderConfig struct {
 	// DefaultScopes is the YAML seed default, output-only, so the UI can diff
 	// and reset without a second call (D7). Ignored on writes.
 	DefaultScopes []string `json:"default_scopes,omitempty"`
+	// AllowedScopes is the administrator override for scopes users may request
+	// incrementally. Empty means use the manifest allowlist.
+	AllowedScopes []string `json:"allowed_scopes,omitempty"`
+	// DefaultAllowedScopes is the manifest allowlist, output-only.
+	DefaultAllowedScopes []string `json:"default_allowed_scopes,omitempty"`
 }
 
 // FlowStatus is the model-visible view of an in-flight OAuth flow.
@@ -63,6 +82,7 @@ type FlowStatus struct {
 	ExpiresAt       time.Time
 	State           string
 	Error           string // failure reason when State is "failed" (D5)
+	RequestedScopes []string
 }
 
 // VaultEntry holds non-sensitive metadata for a stored secret.

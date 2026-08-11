@@ -68,9 +68,12 @@ func TestDeviceCodeBroker_PollFailureSetsError(t *testing.T) {
 	store := NewFlowStore()
 	broker := NewDeviceCodeBroker(deviceBrokerConfig(srv), store, nil)
 
-	status, err := broker.StartFlow(context.Background(), ProviderGitHub, "user-1")
+	status, err := broker.StartFlow(context.Background(), ProviderGitHub, "user-1", []string{"repo"})
 	if err != nil {
 		t.Fatalf("StartFlow: %v", err)
+	}
+	if len(status.DesiredScopes) != 1 || status.DesiredScopes[0] != "repo" {
+		t.Fatalf("DesiredScopes = %v, want [repo]", status.DesiredScopes)
 	}
 
 	failed := waitForState(t, store, status.FlowID, FlowStateFailed)
@@ -98,7 +101,7 @@ func TestDeviceCodeBroker_PersistFailureSetsError(t *testing.T) {
 		return persistErr
 	})
 
-	status, err := broker.StartFlow(context.Background(), ProviderGitHub, "user-1")
+	status, err := broker.StartFlow(context.Background(), ProviderGitHub, "user-1", []string{"repo"})
 	if err != nil {
 		t.Fatalf("StartFlow: %v", err)
 	}

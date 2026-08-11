@@ -20,7 +20,7 @@ func (q *Queries) DeleteAuthOAuthProvider(ctx context.Context, providerID string
 }
 
 const getAuthOAuthProvider = `-- name: GetAuthOAuthProvider :one
-SELECT id, provider_id, client_id, client_secret_enc, redirect_url, scopes, created_at, updated_at
+SELECT id, provider_id, client_id, client_secret_enc, redirect_url, scopes, allowed_scopes, created_at, updated_at
 FROM plugin_oauth_provider
 WHERE provider_id = $1
 `
@@ -32,6 +32,7 @@ type GetAuthOAuthProviderRow struct {
 	ClientSecretEnc string    `json:"client_secret_enc"`
 	RedirectUrl     string    `json:"redirect_url"`
 	Scopes          []string  `json:"scopes"`
+	AllowedScopes   []string  `json:"allowed_scopes"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
@@ -46,6 +47,7 @@ func (q *Queries) GetAuthOAuthProvider(ctx context.Context, providerID string) (
 		&i.ClientSecretEnc,
 		&i.RedirectUrl,
 		&i.Scopes,
+		&i.AllowedScopes,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -53,13 +55,14 @@ func (q *Queries) GetAuthOAuthProvider(ctx context.Context, providerID string) (
 }
 
 const upsertAuthOAuthProvider = `-- name: UpsertAuthOAuthProvider :exec
-INSERT INTO plugin_oauth_provider (id, provider_id, client_id, client_secret_enc, redirect_url, scopes)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO plugin_oauth_provider (id, provider_id, client_id, client_secret_enc, redirect_url, scopes, allowed_scopes)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT(provider_id) DO UPDATE SET
     client_id         = excluded.client_id,
     client_secret_enc = excluded.client_secret_enc,
     redirect_url      = excluded.redirect_url,
     scopes            = excluded.scopes,
+    allowed_scopes    = excluded.allowed_scopes,
     updated_at        = now()
 `
 
@@ -70,6 +73,7 @@ type UpsertAuthOAuthProviderParams struct {
 	ClientSecretEnc string   `json:"client_secret_enc"`
 	RedirectUrl     string   `json:"redirect_url"`
 	Scopes          []string `json:"scopes"`
+	AllowedScopes   []string `json:"allowed_scopes"`
 }
 
 func (q *Queries) UpsertAuthOAuthProvider(ctx context.Context, arg UpsertAuthOAuthProviderParams) error {
@@ -80,6 +84,7 @@ func (q *Queries) UpsertAuthOAuthProvider(ctx context.Context, arg UpsertAuthOAu
 		arg.ClientSecretEnc,
 		arg.RedirectUrl,
 		arg.Scopes,
+		arg.AllowedScopes,
 	)
 	return err
 }

@@ -9,7 +9,10 @@ import (
 // Provider identifies an OAuth provider.
 type Provider string
 
-const ProviderGitHub Provider = "github"
+const (
+	ProviderGitHub Provider = "github"
+	ProviderLark   Provider = "lark"
+)
 
 // FlowState is the lifecycle state of a device-flow authorization.
 type FlowState string
@@ -31,6 +34,7 @@ type FlowStatus struct {
 	ExpiresAt       time.Time
 	State           FlowState
 	FlowType        string        // "device_code" or "authorization_code"
+	DesiredScopes   []string      // complete per-user scope set requested by this flow
 	Token           *oauth2.Token // set by DeviceCodeBroker when authorized
 	PKCEVerifier    string        // PKCE code verifier; set when PKCE is enabled
 	Error           string        // failure reason when State is FlowStateFailed (D5)
@@ -47,11 +51,19 @@ type OAuthBundle struct {
 	RefreshToken     string    `json:"refresh_token,omitempty"`
 	AccessExpiresAt  time.Time `json:"access_expires_at"`
 	RefreshExpiresAt time.Time `json:"refresh_expires_at,omitzero"`
+	// DesiredScopes is the cumulative per-user scope set used for the latest
+	// authorization. Older bundles omit it and fall back to provider defaults.
+	DesiredScopes []string `json:"desired_scopes,omitempty"`
 	// GrantedScope is the raw space-separated scope string the provider returned
 	// with the token (oauth2.Token.Extra("scope")). Empty means "unknown" — a
 	// pre-D3 bundle or a provider that omitted the field — not "no scopes".
 	GrantedScope string `json:"granted_scope,omitempty"`
+	Brand        string `json:"brand,omitempty"` // e.g. "lark" or "feishu"
 }
 
 // Vault key names for the supported providers.
-const VaultKeyGitHub = "GH_OAUTH"
+const (
+	VaultKeyGitHub = "GH_OAUTH"
+	VaultKeyLark   = "LARK_CLI_OAUTH"
+	VaultKeyFeishu = "FEISHU_CLI_OAUTH"
+)

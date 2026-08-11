@@ -57,7 +57,7 @@ func TestLoadBuiltinXberg(t *testing.T) {
 	t.Fatal("Xberg plugin not found")
 }
 
-func TestLoadBuiltinLarkCLIIsStandaloneTool(t *testing.T) {
+func TestLoadBuiltinLarkCLIUsesManagedFeishuOAuth(t *testing.T) {
 	m, err := LoadBuiltin()
 	if err != nil {
 		t.Fatalf("LoadBuiltin() error: %v", err)
@@ -66,11 +66,11 @@ func TestLoadBuiltinLarkCLIIsStandaloneTool(t *testing.T) {
 		if p.ID != "tool/lark-cli" {
 			continue
 		}
-		if p.OAuthProvider != "" {
-			t.Fatalf("OAuthProvider = %q, want standalone CLI", p.OAuthProvider)
+		if p.OAuthProvider != "feishu" {
+			t.Fatalf("OAuthProvider = %q, want feishu", p.OAuthProvider)
 		}
-		if len(p.SessionEnvs) != 0 {
-			t.Fatalf("SessionEnvs = %#v, want no Stella OAuth injection", p.SessionEnvs)
+		if len(p.SessionEnvs) != 3 {
+			t.Fatalf("SessionEnvs = %#v, want token, app ID, and brand injection", p.SessionEnvs)
 		}
 		if len(p.Binaries) != 1 || p.Binaries[0].Version != "1.0.80" {
 			t.Fatalf("Binaries = %#v, want pinned lark-cli 1.0.80", p.Binaries)
@@ -78,4 +78,27 @@ func TestLoadBuiltinLarkCLIIsStandaloneTool(t *testing.T) {
 		return
 	}
 	t.Fatal("tool/lark-cli not found")
+}
+
+func TestLoadBuiltinLarkProvidersUseMinimalDefaultsAndBroadAllowlists(t *testing.T) {
+	m, err := LoadBuiltin()
+	if err != nil {
+		t.Fatalf("LoadBuiltin() error: %v", err)
+	}
+	found := map[string]bool{}
+	for _, provider := range m.OAuthProviders {
+		if provider.ID != "lark" && provider.ID != "feishu" {
+			continue
+		}
+		found[provider.ID] = true
+		if len(provider.Scopes) > 3 {
+			t.Fatalf("%s defaults = %d scopes, want minimal first consent", provider.ID, len(provider.Scopes))
+		}
+		if len(provider.AllowedScopes) < 100 {
+			t.Fatalf("%s allowlist = %d scopes, want full lark-cli capability set", provider.ID, len(provider.AllowedScopes))
+		}
+	}
+	if !found["lark"] || !found["feishu"] {
+		t.Fatalf("providers found = %v, want lark and feishu", found)
+	}
 }

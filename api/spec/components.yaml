@@ -3046,6 +3046,17 @@ components:
           items:
             type: string
           description: Built-in YAML default scopes (output-only, for diff/reset).
+        allowed_scopes:
+          type: array
+          items:
+            type: string
+          description: >-
+            Admin allowlist override for scopes users may request incrementally; empty means use the built-in allowlist.
+        default_allowed_scopes:
+          type: array
+          items:
+            type: string
+          description: Built-in scope allowlist (output-only).
     OAuthProviderConfigInput:
       type: object
       required: [client_id, client_secret]
@@ -3062,6 +3073,20 @@ components:
             type: string
           description: >-
             Scope override to request on connect. Empty or omitted clears the override (reverts to the built-in default).
+        allowed_scopes:
+          type: array
+          items:
+            type: string
+          description: >-
+            Scopes users may request incrementally. Empty or omitted clears the override and uses the built-in allowlist.
+    StartOAuthFlowRequest:
+      type: object
+      properties:
+        scopes:
+          type: array
+          items:
+            type: string
+          description: Additional scopes to union into this user's desired set.
     OAuthFlowStatus:
       type: object
       required: [provider, flow_id, verification_uri, expires_at, state]
@@ -3082,6 +3107,11 @@ components:
         error:
           type: string
           description: Failure reason when state is "failed".
+        requested_scopes:
+          type: array
+          items:
+            type: string
+          description: Complete cumulative scope set requested by this flow.
     OAuthConnectedResponse:
       type: object
       required: [connected]

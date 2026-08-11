@@ -18,15 +18,17 @@ func TestAdminOAuthProviderConfigScopeRoundTrip(t *testing.T) {
 
 	reg := oauth.NewProviderRegistry()
 	reg.Register(oauth.ProviderConfig{
-		ID: "github", VaultKey: oauth.VaultKeyGitHub, ClientID: "yaml-client", Scopes: []string{"repo"},
+		ID: "github", VaultKey: oauth.VaultKeyGitHub, ClientID: "yaml-client", Scopes: []string{"repo"}, AllowedScopes: []string{"repo", "read:org"},
 	})
 	env.credSvc.SetRegistry(reg)
 
 	type configResp struct {
-		ProviderID    string   `json:"provider_id"`
-		ClientID      string   `json:"client_id"`
-		Scopes        []string `json:"scopes"`
-		DefaultScopes []string `json:"default_scopes"`
+		ProviderID           string   `json:"provider_id"`
+		ClientID             string   `json:"client_id"`
+		Scopes               []string `json:"scopes"`
+		DefaultScopes        []string `json:"default_scopes"`
+		AllowedScopes        []string `json:"allowed_scopes"`
+		DefaultAllowedScopes []string `json:"default_allowed_scopes"`
 	}
 	decode := func(rr *httptest.ResponseRecorder) configResp {
 		t.Helper()
@@ -41,9 +43,10 @@ func TestAdminOAuthProviderConfigScopeRoundTrip(t *testing.T) {
 
 	// PUT a scope override with a duplicate that must be deduped.
 	put := doRequest(t, env, http.MethodPut, path, map[string]any{
-		"client_id":     "admin-client",
-		"client_secret": "",
-		"scopes":        []string{"repo", "read:org", "repo"},
+		"client_id":      "admin-client",
+		"client_secret":  "",
+		"scopes":         []string{"repo", "read:org", "repo"},
+		"allowed_scopes": []string{"repo", "read:org", "workflow", "workflow"},
 	})
 	if put.Code != http.StatusOK {
 		t.Fatalf("PUT status = %d, want 200 (body=%s)", put.Code, put.Body.String())
@@ -54,6 +57,12 @@ func TestAdminOAuthProviderConfigScopeRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.DefaultScopes, []string{"repo"}) {
 		t.Errorf("PUT default_scopes = %v, want [repo]", got.DefaultScopes)
+	}
+	if !reflect.DeepEqual(got.AllowedScopes, []string{"repo", "read:org", "workflow"}) {
+		t.Errorf("PUT allowed_scopes = %v, want [repo read:org workflow]", got.AllowedScopes)
+	}
+	if !reflect.DeepEqual(got.DefaultAllowedScopes, []string{"repo", "read:org"}) {
+		t.Errorf("PUT default_allowed_scopes = %v, want [repo read:org]", got.DefaultAllowedScopes)
 	}
 
 	// GET returns the same override plus defaults.

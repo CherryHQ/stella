@@ -50,13 +50,14 @@ func resolveOAuthProvider(ro rawManifestOAuthProvider) ManifestOAuthProvider {
 		flows = append(flows, ManifestOAuthFlow(rf))
 	}
 	return ManifestOAuthProvider{
-		ID:           ro.ID,
-		Icon:         ro.Icon,
-		Scopes:       ro.Scopes,
-		VaultKey:     ro.VaultKey,
-		Flows:        flows,
-		ClientID:     ro.ClientID,
-		ClientSecret: ro.ClientSecret,
+		ID:            ro.ID,
+		Icon:          ro.Icon,
+		Scopes:        ro.Scopes,
+		AllowedScopes: ro.AllowedScopes,
+		VaultKey:      ro.VaultKey,
+		Flows:         flows,
+		ClientID:      ro.ClientID,
+		ClientSecret:  ro.ClientSecret,
 	}
 }
 

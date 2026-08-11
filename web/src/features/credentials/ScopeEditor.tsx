@@ -40,10 +40,12 @@ export function ScopeEditor({
   value,
   defaults,
   onChange,
+  kind = "default",
 }: {
   value: string[];
   defaults: string[];
   onChange: (next: string[]) => void;
+  kind?: "default" | "allowed";
 }) {
   const { t } = useI18n();
   const [search, setSearch] = useState("");
@@ -95,10 +97,18 @@ export function ScopeEditor({
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
           <span className="text-xs font-semibold text-muted-foreground">
-            {t("credentials.oauth.scopes.title")}
+            {t(
+              kind === "allowed"
+                ? "credentials.oauth.scopes.allowedTitle"
+                : "credentials.oauth.scopes.title",
+            )}
           </span>
           <p className="text-xs text-muted-foreground">
-            {t("credentials.oauth.scopes.selectionHint")}
+            {t(
+              kind === "allowed"
+                ? "credentials.oauth.scopes.allowedSelectionHint"
+                : "credentials.oauth.scopes.selectionHint",
+            )}
           </p>
         </div>
         <Button

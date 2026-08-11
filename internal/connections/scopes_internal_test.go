@@ -2,6 +2,7 @@ package connections
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -31,6 +32,33 @@ func TestMissingScopes(t *testing.T) {
 	}
 	if got := missingScopes([]string{"a"}, []string{"a"}); len(got) != 0 {
 		t.Errorf("missingScopes with full grant = %v, want empty", got)
+	}
+}
+
+func TestDesiredScopes_UnionAndPolicy(t *testing.T) {
+	svc := NewService(nil, nil, oauth.NewFlowStore(), "http://localhost:8080")
+	reg := oauth.NewProviderRegistry()
+	reg.Register(oauth.ProviderConfig{
+		ID: "acme", VaultKey: "ACME_OAUTH",
+		Scopes: []string{"profile"}, AllowedScopes: []string{"profile", "documents.read"},
+	})
+	svc.SetRegistry(reg)
+
+	got, err := svc.desiredScopes(context.Background(), "user-1", "acme", []string{"documents.read", "profile"})
+	if err != nil {
+		t.Fatalf("desiredScopes: %v", err)
+	}
+	if want := []string{"profile", "documents.read"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("desiredScopes = %v, want %v", got, want)
+	}
+
+	_, err = svc.desiredScopes(context.Background(), "user-1", "acme", []string{"admin.write"})
+	var denied *ScopeNotAllowedError
+	if !errors.As(err, &denied) {
+		t.Fatalf("desiredScopes denied error = %T %v, want *ScopeNotAllowedError", err, err)
+	}
+	if want := []string{"admin.write"}; !reflect.DeepEqual(denied.Scopes, want) {
+		t.Fatalf("denied scopes = %v, want %v", denied.Scopes, want)
 	}
 }
 
@@ -105,7 +133,7 @@ func TestProviderScopes_OverrideWinsElseDefault(t *testing.T) {
 
 	// DB row with empty scopes (credentials-only override) → still YAML default.
 	if err := q.UpsertAuthOAuthProvider(ctx, pkgdb.UpsertAuthOAuthProviderParams{
-		ID: uuid.Must(uuid.NewV7()).String(), ProviderID: "github", ClientID: "cid", Scopes: []string{},
+		ID: uuid.Must(uuid.NewV7()).String(), ProviderID: "github", ClientID: "cid", Scopes: []string{}, AllowedScopes: []string{},
 	}); err != nil {
 		t.Fatalf("upsert empty scopes: %v", err)
 	}
@@ -116,7 +144,7 @@ func TestProviderScopes_OverrideWinsElseDefault(t *testing.T) {
 	// DB row with a non-empty scopes override → override wins, and it works even
 	// with no client_id (independent of the credential gate).
 	if err := q.UpsertAuthOAuthProvider(ctx, pkgdb.UpsertAuthOAuthProviderParams{
-		ID: uuid.Must(uuid.NewV7()).String(), ProviderID: "github", ClientID: "", Scopes: []string{"repo", "read:org"},
+		ID: uuid.Must(uuid.NewV7()).String(), ProviderID: "github", ClientID: "", Scopes: []string{"repo", "read:org"}, AllowedScopes: []string{},
 	}); err != nil {
 		t.Fatalf("upsert override: %v", err)
 	}

@@ -9,6 +9,7 @@ Stella OAuth connections provide user tokens to tools that explicitly declare an
 When you connect a service, Stella securely stores its access token and injects it only into enabled tools that declare that provider. This means Stella can:
 
 - Create GitHub issues, open pull requests, and query repositories using `gh`
+- Use Feishu/Lark documents, calendars, tasks, and messages through `lark-cli`
 - Authorize a custom manifest tool that explicitly declares an OAuth provider
 
 OAuth provider scope settings and token refresh apply only to those consumers.
@@ -34,6 +35,12 @@ GitHub works out of the box -- no admin setup needed.
 
 You can disconnect at any time by clicking **Disconnect** on the Credentials page.
 
+## Connecting Feishu or Lark
+
+An administrator first configures the Feishu or Lark OAuth app under **Admin Console → Deployment resources → System Credentials**. Users then connect it from chat or their **Credentials** page using the same browser authorization flow as GitHub. Do not paste an App Secret into chat and do not run `lark-cli config init` inside an agent sandbox.
+
+The built-in `lark-cli` tool targets Feishu by default. Lark deployments can bind the tool manifest to the `lark` provider instead.
+
 ## Admin: managing providers
 
 Admins manage each OAuth provider from **Admin Console → Deployment resources → System Credentials**. Personal Settings contains only each user's own connections and vault entries.
@@ -44,14 +51,19 @@ Set the provider's **Client ID** and **Client Secret**. Saving new credentials m
 
 ### Scopes
 
-Each provider ships with a built-in default scope list. Admins can override it with the scope editor:
+Each provider has two scope sets:
+
+- **Default scopes** are requested on a user's first connection.
+- **Allowed incremental scopes** are the maximum set users may add later. A request outside this allowlist fails before Stella contacts the provider.
+
+Admins can override either set with its scope editor:
 
 - The checklist always shows every built-in scope. Without an override they start selected; afterward, the checked state matches the saved configuration. Uncheck a scope to remove it from the next authorization request.
 - Scopes are grouped by namespace prefix (for example `im:`, `docs:`), collapsed by default, and searchable.
 - **Restore defaults** selects the built-in list and removes custom scopes from the draft.
 - Use the input below the checklist to add scopes that are not in the built-in list. Stella splits pasted lines, commas, and spaces and removes duplicates.
 
-Saving applies the checked scopes. Widening the requested scopes does **not** change already-issued tokens: connected users must reconnect to grant the newly requested scopes.
+Saving applies the checked policy. Changing defaults does **not** silently widen already-issued tokens. When a tool needs another allowed scope, Stella unions it into that user's desired scopes and asks only that user to authorize again; other users remain connected.
 
 ### Reconnect semantics
 
