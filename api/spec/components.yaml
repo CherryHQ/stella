@@ -2907,7 +2907,8 @@ components:
           type: array
           items:
             type: string
-          description: Admin scope override; empty means "use the default".
+          description: >-
+            Admin minimum-scope override every connect requests; empty means "use the default". A floor, not a ceiling — users may request more.
         default_scopes:
           type: array
           items:
@@ -2928,7 +2929,15 @@ components:
           items:
             type: string
           description: >-
-            Scope override to request on connect. Empty or omitted clears the override (reverts to the built-in default).
+            Minimum scopes every connect requests. Empty or omitted clears the override (reverts to the built-in default).
+    StartOAuthFlowRequest:
+      type: object
+      properties:
+        scopes:
+          type: array
+          items:
+            type: string
+          description: Additional scopes to union into this user's desired set.
     OAuthFlowStatus:
       type: object
       required: [provider, flow_id, verification_uri, expires_at, state]
@@ -2949,6 +2958,11 @@ components:
         error:
           type: string
           description: Failure reason when state is "failed".
+        requested_scopes:
+          type: array
+          items:
+            type: string
+          description: Complete cumulative scope set requested by this flow.
     OAuthConnectedResponse:
       type: object
       required: [connected]

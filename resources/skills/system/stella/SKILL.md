@@ -105,6 +105,13 @@ workflow tool                   # agent workflow save/list/get/run
 session tool                    # agent session discovery, bounded retrieval, and synchronous communication
 ```
 
+`oauth.connect` accepts an optional `scopes` list. Request only the permissions
+needed for the current operation; Stella unions them into that user's desired
+scopes and returns a user-consent flow without changing other users. The
+provider's consent screen decides what is granted, so a scope its app
+configuration does not offer stays missing after re-authorizing—report it to the
+administrator instead of retrying.
+
 Humans start and update Stella with `stellad server` and `stellad upgrade`, then manage runtime state in the Web UI.
 
 Agents author goals with the `goal` tool when available: the server then **plans first** — autonomously decomposing the goal into verifiable sub-tasks, running them, and converging until the acceptance contract passes. You never pick leaf vs composite or call plan/approve/activate by hand; just write a clear, self-contained intent. The user can steer goals from the Web UI (Work space); the goal detail timeline is where they inspect blocked causes and leave human guidance. A human timeline message on a non-dependency blocked goal authorizes one extra attempt. All surfaces go through the same HTTP API. When the system dispatches a goal to you as a **worker**, you act via the `goal_control` tool — read [references/goals.md](references/goals.md) for the goal model and your worker contract.
