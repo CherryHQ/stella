@@ -28,7 +28,7 @@ const (
 	// session activity, per-message actor provenance and summary authority,
 	// the durable Session inbox, and restrictive Library ownership are the
 	// post-anchor migrations exercised below.
-	currentMigrationVersion = sequentialAnchor + 10
+	currentMigrationVersion = sequentialAnchor + 11
 
 	previousGAUserID           = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID          = "00000000-0000-0000-0000-000000000002"
@@ -304,16 +304,18 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	if got := count("custom OAuth provider", `SELECT count(*) FROM plugin_oauth_provider WHERE provider_id = 'custom'`); got != 1 {
 		t.Fatalf("custom OAuth providers = %d, want 1", got)
 	}
-	var larkClean, larkCustom, unrelatedPreserved bool
+	var larkClean, larkSparse, larkSnapshotPreserved, larkCustom, unrelatedPreserved bool
 	if err := db.QueryRow(ctx, `
 		SELECT NOT (config::jsonb ? 'oauth_provider') AND NOT (config::jsonb ? 'session_env'),
+		       config::jsonb @> '{"$sparse": true}',
+		       config::jsonb->'name' = 'null'::jsonb AND config::jsonb->'binaries' = 'null'::jsonb,
 		       config::jsonb->>'prompt' = 'custom prompt' AND config::jsonb->>'custom' = 'keep' AND session_env_vault_key = 'custom-vault-key',
 		       EXISTS (SELECT 1 FROM plugin_override WHERE plugin_id = 'tool/custom' AND enabled = false AND config::jsonb->>'custom' = 'untouched')
-		FROM plugin_override WHERE plugin_id = 'tool/lark-cli'`).Scan(&larkClean, &larkCustom, &unrelatedPreserved); err != nil {
+		FROM plugin_override WHERE plugin_id = 'tool/lark-cli'`).Scan(&larkClean, &larkSparse, &larkSnapshotPreserved, &larkCustom, &unrelatedPreserved); err != nil {
 		t.Fatalf("read cleaned Lark override: %v", err)
 	}
-	if !larkClean || !larkCustom || !unrelatedPreserved {
-		t.Fatalf("Lark cleanup = fields removed %v, custom preserved %v, unrelated preserved %v; want true, true, true", larkClean, larkCustom, unrelatedPreserved)
+	if !larkClean || !larkSparse || !larkSnapshotPreserved || !larkCustom || !unrelatedPreserved {
+		t.Fatalf("Lark cleanup = fields removed %v, sparse %v, snapshot preserved %v, custom preserved %v, unrelated preserved %v; want all true", larkClean, larkSparse, larkSnapshotPreserved, larkCustom, unrelatedPreserved)
 	}
 	if got := count("deleted sandbox plugins", `SELECT count(*) FROM plugin WHERE id LIKE 'sandbox/%'`); got != 0 {
 		t.Fatalf("sandbox plugin rows = %d, want 0", got)
