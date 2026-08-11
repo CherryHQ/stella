@@ -21,7 +21,7 @@ Every file belongs to one of four ranges. The ranges are added together during a
 | System · All Agents | An administrator | For every user and agent                          |
 | System · One Agent  | An administrator | For every user working with the selected agent    |
 
-Open **Settings → Library** to manage files for Mine · All Agents. Administrators can also select the two System ranges there. Open an agent's **Library** page to manage your Mine · One Agent files for that agent.
+Open **Settings → Library** to manage files for Mine · All Agents. Administrators manage the two System ranges from **Admin Console → Deployment resources → Global Library**. Open an agent's **Library** page to manage your Mine · One Agent files for that agent.
 
 ## Uploading and processing
 

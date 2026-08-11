@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -15,6 +16,7 @@ import (
 type toolCallLimitKey struct{}
 
 type toolCallBudget struct {
+	mu     sync.Mutex
 	limits map[string]int
 	used   map[string]int
 }
@@ -34,6 +36,8 @@ func consumeToolCall(ctx context.Context, name string) (bool, int) {
 	if budget == nil || budget.limits[name] <= 0 {
 		return true, 0
 	}
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
 	limit := budget.limits[name]
 	if budget.used[name] >= limit {
 		return false, limit
@@ -44,7 +48,12 @@ func consumeToolCall(ctx context.Context, name string) (bool, int) {
 
 func refundToolCall(ctx context.Context, name string) {
 	budget, _ := ctx.Value(toolCallLimitKey{}).(*toolCallBudget)
-	if budget == nil || budget.used[name] == 0 {
+	if budget == nil {
+		return
+	}
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	if budget.used[name] == 0 {
 		return
 	}
 	budget.used[name]--
@@ -179,7 +188,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		}
 
 		// Execute tool with (possibly rewritten) args.
-		if allowed, limit := consumeToolCall(execCtx, call.Name); !allowed {
+		if allowed, limit := consumeToolCall(ctx, call.Name); !allowed {
 			message := fmt.Sprintf("tool call limit reached: %s may run at most %d times for this user message", call.Name, limit)
 			runPostToolCall(execCtx, args, message, true, 0)
 			result := ai.ToolResultMessage{
@@ -202,7 +211,7 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		if pkgtools.IsInvalidInput(err) {
 			// Argument validation did not run the tool's operation. Return the
 			// slot so the model still has the configured number of real attempts.
-			refundToolCall(execCtx, call.Name)
+			refundToolCall(ctx, call.Name)
 		}
 
 		result := ai.ToolResultMessage{ToolCallID: call.ID, ToolName: call.Name, Content: content}

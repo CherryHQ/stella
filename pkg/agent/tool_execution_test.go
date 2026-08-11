@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -61,6 +63,79 @@ func TestToolExecutionEnforcesPerRunCallLimit(t *testing.T) {
 	}
 }
 
+func TestToolExecutionEnforcesCallLimitAcrossConcurrentRuns(t *testing.T) {
+	const (
+		name    = "library.search"
+		workers = 32
+	)
+	ctx := withToolCallLimits(context.Background(), map[string]int{name: 2})
+	toolSet := ToolSet{name: func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
+	}}
+
+	start := make(chan struct{})
+	successes := make(chan bool, workers)
+	var wg sync.WaitGroup
+	for i := range workers {
+		wg.Go(func() {
+			<-start
+			results, err := executeToolCalls(ctx, []ai.ToolCall{{ID: fmt.Sprint(i), Name: name}}, toolSet, toolCallbacks{}, nil, hooks.HookMeta{}, nil, nil)
+			if err != nil {
+				t.Errorf("executeToolCalls: %v", err)
+				return
+			}
+			successes <- !results[0].IsError
+		})
+	}
+	close(start)
+	wg.Wait()
+	close(successes)
+
+	actual := 0
+	for success := range successes {
+		if success {
+			actual++
+		}
+	}
+	if actual != 2 {
+		t.Fatalf("successful calls = %d, want 2", actual)
+	}
+}
+
+func TestToolExecutionCallLimitSurvivesHookContextReplacement(t *testing.T) {
+	const name = "library.search"
+	type contextKey struct{}
+	actualCalls := 0
+	toolSet := ToolSet{name: func(ctx context.Context, _ ai.ToolCall) ([]ai.ContentBlock, error) {
+		actualCalls++
+		if got := ctx.Value(contextKey{}); got != "hook" {
+			t.Fatalf("tool context value = %v, want hook", got)
+		}
+		return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
+	}}
+	hs := hooks.NewHookSet([]hooks.HookPlugin{toolExecutionHook{
+		pre: func(context.Context, *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
+			return hooks.PreToolCallResult{Context: context.WithValue(context.Background(), contextKey{}, "hook")}, nil
+		},
+		post: func(context.Context, *hooks.PostToolCallContext) {},
+	}})
+	ctx := withToolCallLimits(context.Background(), map[string]int{name: 2})
+	results, err := executeToolCalls(ctx, []ai.ToolCall{
+		{ID: "1", Name: name},
+		{ID: "2", Name: name},
+		{ID: "3", Name: name},
+	}, toolSet, toolCallbacks{}, hs, hooks.HookMeta{}, nil, nil)
+	if err != nil {
+		t.Fatalf("executeToolCalls: %v", err)
+	}
+	if actualCalls != 2 {
+		t.Fatalf("actual calls = %d, want 2", actualCalls)
+	}
+	if len(results) != 3 || !results[2].IsError {
+		t.Fatalf("results = %+v, want third call limited", results)
+	}
+}
+
 func TestToolExecutionDoesNotCountInvalidInputAgainstCallLimit(t *testing.T) {
 	const name = "library.search"
 	actualCalls := 0
@@ -71,13 +146,19 @@ func TestToolExecutionDoesNotCountInvalidInputAgainstCallLimit(t *testing.T) {
 		}
 		return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
 	}}
+	hs := hooks.NewHookSet([]hooks.HookPlugin{toolExecutionHook{
+		pre: func(context.Context, *hooks.PreToolCallContext) (hooks.PreToolCallResult, error) {
+			return hooks.PreToolCallResult{Context: context.Background()}, nil
+		},
+		post: func(context.Context, *hooks.PostToolCallContext) {},
+	}})
 	ctx := withToolCallLimits(context.Background(), map[string]int{name: 2})
 	results, err := executeToolCalls(ctx, []ai.ToolCall{
 		{ID: "invalid", Name: name},
 		{ID: "first", Name: name},
 		{ID: "second", Name: name},
 		{ID: "limited", Name: name},
-	}, toolSet, toolCallbacks{}, nil, hooks.HookMeta{}, nil, nil)
+	}, toolSet, toolCallbacks{}, hs, hooks.HookMeta{}, nil, nil)
 	if err != nil {
 		t.Fatalf("executeToolCalls: %v", err)
 	}
