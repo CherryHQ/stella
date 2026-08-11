@@ -58,7 +58,6 @@ type runnerConfig struct {
 	PluginTools         func(context.Context, pkgplugins.ToolBuildContext) []tools.Tool
 	HookPlugins         []hooks.HookPlugin // hook plugins for the engine loop
 	ToolLifecycle       *coreagent.ToolLifecycle
-	ToolCallLimits      map[string]int
 	DelegateRunner      delegatetool.SessionRunner
 	DelegateTimeout     time.Duration // default wall-clock timeout per delegate (0 = 15m)
 	ChatTimeout         time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
@@ -77,7 +76,6 @@ type runner struct {
 	system          string
 	hookSet         *hooks.HookSet
 	toolLifecycle   *coreagent.ToolLifecycle
-	toolCallLimits  map[string]int
 	canonicalImages *coreagent.CanonicalImageConfig
 	chatTimeout     time.Duration
 	session         pkgsandbox.Session // runner-owned sandbox session lifecycle
@@ -146,7 +144,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	}
 
 	streamOptions := ai.StreamOptions{Reasoning: cfg.Thinking}
-	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle, cfg.ToolCallLimits, cfg.CanonicalImages)
+	coreRunner, err := newAgentRunner(stream, toolReg, model, streamOptions, systemPrompt, hookSet, cfg.ToolLifecycle, cfg.CanonicalImages)
 	if err != nil {
 		if session != nil {
 			_ = session.Close()
@@ -164,7 +162,6 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		system:          systemPrompt,
 		hookSet:         hookSet,
 		toolLifecycle:   cfg.ToolLifecycle,
-		toolCallLimits:  cfg.ToolCallLimits,
 		canonicalImages: cfg.CanonicalImages,
 		cleanup:         cfg.Cleanup,
 		chatTimeout:     cfg.ChatTimeout,
@@ -176,13 +173,13 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	}, nil
 }
 
-func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, toolCallLimits map[string]int, canonicalImages *coreagent.CanonicalImageConfig) (*coreagent.Runner, error) {
+func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, canonicalImages *coreagent.CanonicalImageConfig) (*coreagent.Runner, error) {
 	toolSet := coreagent.ToolSetFromRegistry(toolReg)
 	toolDefs := toolReg.Definitions()
-	return newAgentRunnerWithTools(stream, model, streamOptions, system, hookSet, toolLifecycle, toolCallLimits, canonicalImages, toolSet, toolDefs)
+	return newAgentRunnerWithTools(stream, model, streamOptions, system, hookSet, toolLifecycle, canonicalImages, toolSet, toolDefs)
 }
 
-func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, toolCallLimits map[string]int, canonicalImages *coreagent.CanonicalImageConfig, toolSet coreagent.ToolSet, toolDefs []tools.Definition) (*coreagent.Runner, error) {
+func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, canonicalImages *coreagent.CanonicalImageConfig, toolSet coreagent.ToolSet, toolDefs []tools.Definition) (*coreagent.Runner, error) {
 	opts := []coreagent.Option{
 		coreagent.WithStreamOptions(streamOptions),
 		coreagent.WithSystem(system),
@@ -197,7 +194,6 @@ func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, stream
 		Model:           model,
 		Tools:           toolSet,
 		ToolDefinitions: toolDefs,
-		ToolCallLimits:  toolCallLimits,
 	}, opts...)
 }
 
@@ -469,7 +465,7 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 				toolSet = filteredSet
 				toolDefs = filteredDefs
 			}
-			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, r.toolCallLimits, r.canonicalImages, toolSet, toolDefs)
+			tempRunner, err := newAgentRunnerWithTools(r.stream, r.model, r.streamOptions, effectiveSystem, r.hookSet, r.toolLifecycle, r.canonicalImages, toolSet, toolDefs)
 			if err != nil {
 				sendEvent(ctx, out, Event{Err: fmt.Errorf("runner: %w", err)})
 				return

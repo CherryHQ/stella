@@ -37,7 +37,7 @@ Deleting a file removes it from search immediately. Stella cleans up its stored 
 
 ## How agents use it
 
-You can ask a natural question; you do not need to choose a file or write a search command. The agent decides whether the question needs Library evidence, writes a search phrase from the conversation, and retrieves the best matching passages. If the first search is weak or empty, it may rewrite the phrase once.
+You can ask a natural question; you do not need to choose a file or write a search command. The agent decides whether the question needs Library evidence, writes a search phrase from the conversation, and retrieves the best matching passages.
 
 Each search covers exactly the four ranges available to the current user and agent. Stella filters permissions, publication state, and deletion state in the same database query that ranks matches. It returns complete matching passages rather than the original file.
 

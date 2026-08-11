@@ -3,61 +3,12 @@ package agent
 import (
 	"context"
 	"errors"
-	"fmt"
-	"sync"
 	"time"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/hooks"
-	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
-
-type toolCallLimitKey struct{}
-
-type toolCallBudget struct {
-	mu     sync.Mutex
-	limits map[string]int
-	used   map[string]int
-}
-
-func withToolCallLimits(ctx context.Context, limits map[string]int) context.Context {
-	if _, ok := ctx.Value(toolCallLimitKey{}).(*toolCallBudget); ok || len(limits) == 0 {
-		return ctx
-	}
-	return context.WithValue(ctx, toolCallLimitKey{}, &toolCallBudget{
-		limits: limits,
-		used:   make(map[string]int),
-	})
-}
-
-func consumeToolCall(ctx context.Context, name string) (bool, int) {
-	budget, _ := ctx.Value(toolCallLimitKey{}).(*toolCallBudget)
-	if budget == nil || budget.limits[name] <= 0 {
-		return true, 0
-	}
-	budget.mu.Lock()
-	defer budget.mu.Unlock()
-	limit := budget.limits[name]
-	if budget.used[name] >= limit {
-		return false, limit
-	}
-	budget.used[name]++
-	return true, limit
-}
-
-func refundToolCall(ctx context.Context, name string) {
-	budget, _ := ctx.Value(toolCallLimitKey{}).(*toolCallBudget)
-	if budget == nil {
-		return
-	}
-	budget.mu.Lock()
-	defer budget.mu.Unlock()
-	if budget.used[name] == 0 {
-		return
-	}
-	budget.used[name]--
-}
 
 // toolCallbacks emits progress events around tool execution.
 type toolCallbacks struct {
@@ -188,32 +139,12 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		}
 
 		// Execute tool with (possibly rewritten) args.
-		if allowed, limit := consumeToolCall(ctx, call.Name); !allowed {
-			message := fmt.Sprintf("tool call limit reached: %s may run at most %d times for this user message", call.Name, limit)
-			runPostToolCall(execCtx, args, message, true, 0)
-			result := ai.ToolResultMessage{
-				ToolCallID: call.ID,
-				ToolName:   call.Name,
-				IsError:    true,
-				Content:    []ai.ContentBlock{ai.TextContent{Text: message}},
-			}
-			if err := appendFinal(result); err != nil {
-				return nil, err
-			}
-			continue
-		}
 		execCall := call
 		execCall.Arguments = args
 		start := time.Now()
 		toolCtx := pkgchannel.WithNotificationAgentID(execCtx, meta.AgentID)
 		content, err := toolFn(toolCtx, execCall)
 		duration := time.Since(start)
-		if pkgtools.IsInvalidInput(err) {
-			// Argument validation did not run the tool's operation. Return the
-			// slot so the model still has the configured number of real attempts.
-			refundToolCall(ctx, call.Name)
-		}
-
 		result := ai.ToolResultMessage{ToolCallID: call.ID, ToolName: call.Name, Content: content}
 		if err != nil {
 			result.IsError = true

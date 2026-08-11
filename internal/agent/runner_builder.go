@@ -37,9 +37,8 @@ type MCPToolProvider interface {
 }
 
 type BuiltinTool struct {
-	Tool           tools.Tool
-	Available      func(context.Context, RunnerParams) bool
-	MaxCallsPerRun int
+	Tool      tools.Tool
+	Available func(context.Context, RunnerParams) bool
 }
 
 // SessionImagePipeline is the complete ordinary-session image boundary.
@@ -333,14 +332,6 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 
 		builtinTools := append([]BuiltinTool(nil), cfg.BuiltinTools...)
 		perRunTools := append([]tools.Tool(nil), params.ExtraTools...)
-		toolCallLimits := make(map[string]int)
-		for _, entry := range builtinTools {
-			if entry.Tool != nil && entry.MaxCallsPerRun > 0 {
-				// Limits are copied into each agent Run, so a cached runner never
-				// shares one user's message budget with another turn.
-				toolCallLimits[entry.Tool.Definition().Name] = entry.MaxCallsPerRun
-			}
-		}
 
 		var canonicalImages *coreagent.CanonicalImageConfig
 		if params.GroupID == "" {
@@ -400,7 +391,6 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			PluginTools:         cfg.PluginToolsBuilder,
 			HookPlugins:         hookPlugins,
 			ToolLifecycle:       cfg.ToolLifecycle,
-			ToolCallLimits:      toolCallLimits,
 			DelegateRunner:      params.DelegateRunner,
 			DelegateTimeout:     cfg.Snap.Runner.DelegateTimeoutDuration(),
 			CanonicalImages:     canonicalImages,

@@ -42,10 +42,6 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 		return history, projectionError("invalid active boundary")
 	}
 	loopStart := time.Now()
-	// The budget lives in this Run context, which is exactly one user message.
-	// Preserve an inherited budget so delegate loops cannot reset the parent
-	// message's remaining calls.
-	ctx = withToolCallLimits(ctx, cfg.ToolCallLimits)
 	hydrationMemo := make(map[string]ai.ImageContent)
 	for turn := 1; ; turn++ {
 		if cfg.TurnNotify != nil {

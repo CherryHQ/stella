@@ -473,9 +473,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 			return params.GroupID == "" && agent.BuiltinToolAvailable(ctx, params)
 		}},
 		{
-			Tool:           library.NewTool(librarySvc),
-			Available:      libraryToolAvailable,
-			MaxCallsPerRun: 2,
+			Tool:      library.NewTool(librarySvc),
+			Available: libraryToolAvailable,
 		},
 		{Tool: scheduler.NewTool(schedulerSvc), Available: agent.BuiltinToolAvailable},
 		{Tool: workflowpkg.NewTool(workflowSvc), Available: agent.BuiltinToolAvailable},

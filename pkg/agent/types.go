@@ -39,7 +39,6 @@ type loopConfig struct {
 	Hooks           *hooks.HookSet
 	HookMeta        hooks.HookMeta
 	ToolLifecycle   *ToolLifecycle
-	ToolCallLimits  map[string]int
 	CanonicalImages *CanonicalImageConfig
 	// TurnNotify is called at the start of each turn. If it returns a non-nil
 	// string, that text is injected as a UserMessage before the model call.

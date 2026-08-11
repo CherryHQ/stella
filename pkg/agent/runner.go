@@ -24,7 +24,6 @@ type Runner struct {
 	hooks           *hooks.HookSet
 	hookMeta        hooks.HookMeta
 	toolLifecycle   *ToolLifecycle
-	toolCallLimits  map[string]int
 	canonicalImages *CanonicalImageConfig
 	turnNotify      func(turn int, elapsed time.Duration) *string
 }
@@ -35,10 +34,6 @@ type RunnerConfig struct {
 	Model           ai.Model
 	Tools           ToolSet
 	ToolDefinitions []ai.ToolDefinition
-	// ToolCallLimits caps actual executions by tool name for one Run. A new
-	// budget is created for every user message; absent or non-positive means
-	// unlimited.
-	ToolCallLimits map[string]int
 }
 
 // Option configures optional Runner fields.
@@ -98,19 +93,12 @@ func NewRunner(cfg RunnerConfig, opts ...Option) (*Runner, error) {
 	maps.Copy(toolsCopy, cfg.Tools)
 	defsCopy := make([]ai.ToolDefinition, len(cfg.ToolDefinitions))
 	copy(defsCopy, cfg.ToolDefinitions)
-	limitsCopy := make(map[string]int, len(cfg.ToolCallLimits))
-	for name, limit := range cfg.ToolCallLimits {
-		if limit > 0 {
-			limitsCopy[name] = limit
-		}
-	}
 
 	r := &Runner{
-		stream:         cfg.Stream,
-		model:          cfg.Model,
-		tools:          toolsCopy,
-		toolDefs:       defsCopy,
-		toolCallLimits: limitsCopy,
+		stream:   cfg.Stream,
+		model:    cfg.Model,
+		tools:    toolsCopy,
+		toolDefs: defsCopy,
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -167,7 +155,6 @@ func (r *Runner) loopConfig() loopConfig {
 		Hooks:           r.hooks,
 		HookMeta:        r.hookMeta,
 		ToolLifecycle:   r.toolLifecycle,
-		ToolCallLimits:  r.toolCallLimits,
 		CanonicalImages: r.canonicalImages,
 		TurnNotify:      r.turnNotify,
 	}
