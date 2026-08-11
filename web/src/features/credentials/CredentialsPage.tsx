@@ -509,6 +509,7 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
       try {
         const { data } = await startOAuthFlow({
           path: { provider },
+          body: { scopes: [] },
           throwOnError: true,
         });
         const flow = data as OAuthFlow;
