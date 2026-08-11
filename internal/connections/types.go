@@ -1,17 +1,10 @@
 package connections
 
-import (
-	"strings"
-	"time"
-)
+import "time"
 
 // OAuthOutcomeUserConsentRequired tells a caller to present the returned
 // verification URL to the user.
 const OAuthOutcomeUserConsentRequired = "user_consent_required"
-
-// OAuthOutcomeScopeNotAllowed tells a caller that administrator policy denied
-// one or more requested scopes before a provider flow was created.
-const OAuthOutcomeScopeNotAllowed = "scope_not_allowed"
 
 // Reconnect reasons reported in ProviderStatus.ReconnectReason (D4). This is a
 // Go-enforced closed enum; callers must not invent new values.
@@ -22,21 +15,7 @@ const (
 	// ReconnectReasonMissingScopes means the granted scopes lack one or more
 	// currently-requested scopes.
 	ReconnectReasonMissingScopes = "missing_scopes"
-	// ReconnectReasonScopePolicyChanged means the user's cumulative desired
-	// scopes contain entries the administrator no longer allows.
-	ReconnectReasonScopePolicyChanged = "scope_policy_changed"
 )
-
-// ScopeNotAllowedError reports a user-requested scope rejected by the
-// administrator's provider policy before an OAuth flow starts.
-type ScopeNotAllowedError struct {
-	Provider string
-	Scopes   []string
-}
-
-func (e *ScopeNotAllowedError) Error() string {
-	return OAuthOutcomeScopeNotAllowed + ": provider " + e.Provider + " does not allow scopes: " + strings.Join(e.Scopes, ", ")
-}
 
 // ProviderStatus describes the availability of an OAuth provider.
 type ProviderStatus struct {
@@ -71,17 +50,15 @@ type OAuthProviderConfig struct {
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
 	RedirectURL  string `json:"redirect_url,omitempty"`
-	// Scopes is the admin scope override; empty means "no override, use the
-	// YAML default" (D2).
+	// Scopes is the administrator-configured minimum that every authorization
+	// request includes. Empty means "no override, use the YAML default" (D2). It
+	// is a floor, not a ceiling: a user may request additional scopes on top of
+	// it, and the provider's own app configuration and consent screen bound what
+	// can actually be granted.
 	Scopes []string `json:"scopes,omitempty"`
 	// DefaultScopes is the YAML seed default, output-only, so the UI can diff
 	// and reset without a second call (D7). Ignored on writes.
 	DefaultScopes []string `json:"default_scopes,omitempty"`
-	// AllowedScopes is the administrator override for scopes users may request
-	// incrementally. Empty means use the manifest allowlist.
-	AllowedScopes []string `json:"allowed_scopes,omitempty"`
-	// DefaultAllowedScopes is the manifest allowlist, output-only.
-	DefaultAllowedScopes []string `json:"default_allowed_scopes,omitempty"`
 }
 
 // FlowStatus is the model-visible view of an in-flight OAuth flow.

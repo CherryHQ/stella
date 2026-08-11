@@ -50,12 +50,11 @@ func (s *Server) SetOAuthProviderConfig(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	cfg, err := access.SetOAuthProviderConfig(r.Context(), connections.OAuthProviderConfig{
-		ProviderID:    id,
-		ClientID:      body.ClientId,
-		ClientSecret:  body.ClientSecret,
-		RedirectURL:   stringVal(body.RedirectUrl),
-		Scopes:        sliceVal(body.Scopes),
-		AllowedScopes: sliceVal(body.AllowedScopes),
+		ProviderID:   id,
+		ClientID:     body.ClientId,
+		ClientSecret: body.ClientSecret,
+		RedirectURL:  stringVal(body.RedirectUrl),
+		Scopes:       sliceVal(body.Scopes),
 	})
 	if err != nil {
 		s.writeControlPlaneError(w, err)
@@ -78,12 +77,6 @@ func toAPIProviderConfig(cfg connections.OAuthProviderConfig) apiserver.OAuthPro
 	}
 	if len(cfg.DefaultScopes) > 0 {
 		out.DefaultScopes = &cfg.DefaultScopes
-	}
-	if len(cfg.AllowedScopes) > 0 {
-		out.AllowedScopes = &cfg.AllowedScopes
-	}
-	if len(cfg.DefaultAllowedScopes) > 0 {
-		out.DefaultAllowedScopes = &cfg.DefaultAllowedScopes
 	}
 	return out
 }

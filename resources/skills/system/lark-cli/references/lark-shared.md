@@ -33,16 +33,15 @@ description: "飞书/Lark CLI 共享基础（Stella 适配版）：说明 manage
 
 1. 保留并检查错误中的接口、错误码、`message`、`permission_violations`、`console_url` 和 `hint`。
 2. 只提取当前操作实际缺少的 user scopes。
-3. 使用 `oauth list` 找到 `required_by` 包含 Lark CLI 的实际 provider，再调用 `oauth connect(provider=<实际 provider>, scopes=[...])`。Stella 会把新 scopes 与该用户已有 desired scopes 取并集，并在发起 OAuth 前校验管理员 allowlist。
+3. 使用 `oauth list` 找到 `required_by` 包含 Lark CLI 的实际 provider，再调用 `oauth connect(provider=<实际 provider>, scopes=[...])`。Stella 会把新 scopes 与该用户已有 desired scopes 取并集；能否授予由飞书授权页面决定。
 4. 把验证链接发给用户；用户完成授权后检查 flow，再重试原操作。
 
 禁止为了省事请求全部权限。一次业务操作缺少多个 scope 时可以合并成一次增量授权。
 
-### 三类权限结果
+### 两类权限结果
 
 - **用户 token 缺少 scope**：使用上面的增量 OAuth connection 流程。
-- **应用 scope 未开通**：停止调用，把 provider 返回的 `console_url` 和缺少的 scope 交给管理员；通用 OAuth 层无法替管理员在开发者后台开权限。
-- **scope 被 Stella 策略拒绝**：`oauth connect` 会在网络请求前返回 `scope_not_allowed` 类错误；停止并让管理员更新该 provider 的 allowed scopes，不得绕过。
+- **应用 scope 未开通**：授权页面不会出现该权限，重新授权后依旧缺少。停止调用，把 provider 返回的 `console_url` 和缺少的 scope 交给管理员；通用 OAuth 层无法替管理员在开发者后台开权限。
 
 ## 身份选择
 

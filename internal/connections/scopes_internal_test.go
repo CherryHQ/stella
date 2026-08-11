@@ -2,7 +2,6 @@ package connections
 
 import (
 	"context"
-	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -41,13 +40,13 @@ func TestMissingScopes(t *testing.T) {
 	}
 }
 
-func TestDesiredScopes_UnionAndPolicy(t *testing.T) {
+// The admin scope list is a floor, not a ceiling: a request outside it is
+// unioned in, never denied. The provider's consent screen is the authority on
+// what a user can actually grant.
+func TestDesiredScopesUnionFloorAndRequest(t *testing.T) {
 	svc := NewService(nil, nil, oauth.NewFlowStore(), "http://localhost:8080")
 	reg := oauth.NewProviderRegistry()
-	reg.Register(oauth.ProviderConfig{
-		ID: "acme", VaultKey: "ACME_OAUTH",
-		Scopes: []string{"profile"}, AllowedScopes: []string{"profile", "documents.read"},
-	})
+	reg.Register(oauth.ProviderConfig{ID: "acme", VaultKey: "ACME_OAUTH", Scopes: []string{"profile"}})
 	svc.SetRegistry(reg)
 
 	got, err := svc.desiredScopes(context.Background(), "user-1", "acme", []string{"documents.read", "profile"})
@@ -58,28 +57,26 @@ func TestDesiredScopes_UnionAndPolicy(t *testing.T) {
 		t.Fatalf("desiredScopes = %v, want %v", got, want)
 	}
 
-	_, err = svc.desiredScopes(context.Background(), "user-1", "acme", []string{"admin.write"})
-	var denied *ScopeNotAllowedError
-	if !errors.As(err, &denied) {
-		t.Fatalf("desiredScopes denied error = %T %v, want *ScopeNotAllowedError", err, err)
+	got, err = svc.desiredScopes(context.Background(), "user-1", "acme", []string{"admin.write"})
+	if err != nil {
+		t.Fatalf("desiredScopes beyond the floor: %v", err)
 	}
-	if want := []string{"admin.write"}; !reflect.DeepEqual(denied.Scopes, want) {
-		t.Fatalf("denied scopes = %v, want %v", denied.Scopes, want)
+	if want := []string{"profile", "admin.write"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("desiredScopes beyond the floor = %v, want %v", got, want)
 	}
 }
 
-func TestPolicyNarrowingFiltersHistoricalDesiredScopes(t *testing.T) {
+// Lowering the admin floor never drops a scope this user already asked for;
+// only the user's own re-authorization changes their desired set.
+func TestBundleDesiredScopesKeepsHistoricalUserScopes(t *testing.T) {
 	bundle := &oauth.OAuthBundle{DesiredScopes: []string{"documents.read", "admin.write"}}
 	stored := bundleDesiredScopes(bundle, []string{"profile"})
 	if want := []string{"profile", "documents.read", "admin.write"}; !reflect.DeepEqual(stored, want) {
 		t.Fatalf("desired scopes = %v, want %v", stored, want)
 	}
-	policy := []string{"profile", "documents.read"}
-	if removed := missingScopes(stored, policy); !reflect.DeepEqual(removed, []string{"admin.write"}) {
-		t.Fatalf("removed scopes = %v, want [admin.write]", removed)
-	}
-	if got := allowedScopes(stored, policy); !reflect.DeepEqual(got, []string{"profile", "documents.read"}) {
-		t.Fatalf("filtered desired scopes = %v, want [profile documents.read]", got)
+	narrowed := bundleDesiredScopes(bundle, nil)
+	if want := []string{"documents.read", "admin.write"}; !reflect.DeepEqual(narrowed, want) {
+		t.Fatalf("desired scopes after floor removal = %v, want %v", narrowed, want)
 	}
 }
 
@@ -90,7 +87,7 @@ func TestPendingFlowReportsUserConsentOutcome(t *testing.T) {
 	}
 }
 
-func TestDesiredScopesPersistAcrossIncrementalFlowsAndPolicyNarrowing(t *testing.T) {
+func TestDesiredScopesPersistAcrossIncrementalFlows(t *testing.T) {
 	db := dbtest.New(t)
 	q := pkgdb.New(db)
 	oidc := appdb.NewOIDCStore(db)
@@ -119,8 +116,8 @@ func TestDesiredScopesPersistAcrossIncrementalFlowsAndPolicyNarrowing(t *testing
 	reg := oauth.NewProviderRegistry()
 	reg.Register(oauth.ProviderConfig{
 		ID: "acme", VaultKey: "ACME_OAUTH", ClientID: "client",
-		Scopes: []string{"profile"}, AllowedScopes: []string{"profile", "documents.read"},
-		Flows: []oauth.ProviderFlowConfig{{Type: "authorization_code", AuthURL: "https://example.test/authorize", TokenURL: "https://example.test/token"}},
+		Scopes: []string{"profile"},
+		Flows:  []oauth.ProviderFlowConfig{{Type: "authorization_code", AuthURL: "https://example.test/authorize", TokenURL: "https://example.test/token"}},
 	})
 	svc := NewService(vaultSvc, q, oauth.NewFlowStore(), "http://localhost:8080")
 	svc.SetRegistry(reg)
@@ -128,16 +125,20 @@ func TestDesiredScopesPersistAcrossIncrementalFlowsAndPolicyNarrowing(t *testing
 	if err != nil {
 		t.Fatalf("NewUserAuthority: %v", err)
 	}
+	// A scope the admin never listed still reaches the provider's consent screen.
 	out, err := (oauthHandler{svc: svc, authority: authority}).Connect(ctx, ConnectInput{
 		Provider: "acme",
 		Scopes:   []any{"admin.write"},
 	})
 	if err != nil {
-		t.Fatalf("Connect denied scope: %v", err)
+		t.Fatalf("Connect with an extra scope: %v", err)
 	}
-	denied, ok := out.(oauthScopeDeniedResponse)
-	if !ok || denied.Outcome != OAuthOutcomeScopeNotAllowed || !reflect.DeepEqual(denied.Scopes, []string{"admin.write"}) {
-		t.Fatalf("scope denial = %#v", out)
+	flow, ok := out.(oauthFlowResponse)
+	if !ok {
+		t.Fatalf("Connect response = %#v, want oauthFlowResponse", out)
+	}
+	if want := []string{"profile", "admin.write"}; !reflect.DeepEqual(flow.RequestedScopes, want) {
+		t.Fatalf("flow requested scopes = %v, want %v", flow.RequestedScopes, want)
 	}
 	if err := svc.saveBundle(ctx, "acme", user.ID, "access-1", "refresh-1", time.Now().Add(time.Hour), time.Time{}, "profile", []string{"profile"}); err != nil {
 		t.Fatalf("save initial bundle: %v", err)
@@ -161,18 +162,20 @@ func TestDesiredScopesPersistAcrossIncrementalFlowsAndPolicyNarrowing(t *testing
 		t.Fatalf("stored desired scopes = %v, want %v", stored.DesiredScopes, desired)
 	}
 
+	// Moving the admin floor neither drops nor denies scopes this user already
+	// asked for. Only what the provider actually granted drives a reconnect.
 	if err := q.UpsertAuthOAuthProvider(ctx, pkgdb.UpsertAuthOAuthProviderParams{
 		ID: uuid.Must(uuid.NewV7()).String(), ProviderID: "acme", ClientID: "client",
-		Scopes: []string{"profile"}, AllowedScopes: []string{"profile"},
+		Scopes: []string{"basic"},
 	}); err != nil {
-		t.Fatalf("narrow provider policy: %v", err)
+		t.Fatalf("move provider floor: %v", err)
 	}
 	status := svc.getProviderStatus(ctx, user.ID, "acme")
-	if !status.NeedsReconnect || status.ReconnectReason != ReconnectReasonScopePolicyChanged {
-		t.Fatalf("policy-narrowed status = reconnect %v reason %q", status.NeedsReconnect, status.ReconnectReason)
+	if !status.NeedsReconnect || status.ReconnectReason != ReconnectReasonMissingScopes {
+		t.Fatalf("moved-floor status = reconnect %v reason %q", status.NeedsReconnect, status.ReconnectReason)
 	}
-	if want := []string{"profile"}; !reflect.DeepEqual(status.RequestedScopes, want) {
-		t.Fatalf("policy-narrowed requested scopes = %v, want %v", status.RequestedScopes, want)
+	if want := []string{"basic", "profile", "documents.read"}; !reflect.DeepEqual(status.RequestedScopes, want) {
+		t.Fatalf("moved-floor requested scopes = %v, want %v", status.RequestedScopes, want)
 	}
 }
 
@@ -247,7 +250,7 @@ func TestProviderScopes_OverrideWinsElseDefault(t *testing.T) {
 
 	// DB row with empty scopes (credentials-only override) → still YAML default.
 	if err := q.UpsertAuthOAuthProvider(ctx, pkgdb.UpsertAuthOAuthProviderParams{
-		ID: uuid.Must(uuid.NewV7()).String(), ProviderID: "github", ClientID: "cid", Scopes: []string{}, AllowedScopes: []string{},
+		ID: uuid.Must(uuid.NewV7()).String(), ProviderID: "github", ClientID: "cid", Scopes: []string{},
 	}); err != nil {
 		t.Fatalf("upsert empty scopes: %v", err)
 	}
@@ -258,7 +261,7 @@ func TestProviderScopes_OverrideWinsElseDefault(t *testing.T) {
 	// DB row with a non-empty scopes override → override wins, and it works even
 	// with no client_id (independent of the credential gate).
 	if err := q.UpsertAuthOAuthProvider(ctx, pkgdb.UpsertAuthOAuthProviderParams{
-		ID: uuid.Must(uuid.NewV7()).String(), ProviderID: "github", ClientID: "", Scopes: []string{"repo", "read:org"}, AllowedScopes: []string{},
+		ID: uuid.Must(uuid.NewV7()).String(), ProviderID: "github", ClientID: "", Scopes: []string{"repo", "read:org"},
 	}); err != nil {
 		t.Fatalf("upsert override: %v", err)
 	}

@@ -118,14 +118,13 @@ func buildOAuthRegistry(merged *manifestplugins.Manifest) *oauth.ProviderRegistr
 			})
 		}
 		registry.Register(oauth.ProviderConfig{
-			ID:            op.ID,
-			Icon:          op.Icon,
-			Scopes:        op.Scopes,
-			AllowedScopes: op.AllowedScopes,
-			VaultKey:      op.VaultKey,
-			Flows:         flows,
-			ClientID:      op.ClientID,
-			ClientSecret:  op.ClientSecret,
+			ID:           op.ID,
+			Icon:         op.Icon,
+			Scopes:       op.Scopes,
+			VaultKey:     op.VaultKey,
+			Flows:        flows,
+			ClientID:     op.ClientID,
+			ClientSecret: op.ClientSecret,
 		})
 	}
 	return registry

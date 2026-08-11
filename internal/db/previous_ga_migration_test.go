@@ -28,7 +28,7 @@ const (
 	// session activity, per-message actor provenance and summary authority,
 	// the durable Session inbox, and restrictive Library ownership are the
 	// post-anchor migrations exercised below.
-	currentMigrationVersion = sequentialAnchor + 11
+	currentMigrationVersion = sequentialAnchor + 10
 
 	previousGAUserID           = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID          = "00000000-0000-0000-0000-000000000002"

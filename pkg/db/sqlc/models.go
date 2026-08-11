@@ -790,7 +790,6 @@ type PluginOauthProvider struct {
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 	Scopes          []string  `json:"scopes"`
-	AllowedScopes   []string  `json:"allowed_scopes"`
 }
 
 type PluginOverride struct {

@@ -146,14 +146,6 @@ func (s *Server) StartOAuthFlow(w http.ResponseWriter, r *http.Request, provider
 	status, err := acc.StartFlow(r.Context(), provider, body.Scopes, origin)
 	if err != nil {
 		s.log.Error("start oauth flow", "provider", provider, "error", err)
-		var denied *connections.ScopeNotAllowedError
-		if errors.As(err, &denied) {
-			writeErrorDetails(w, http.StatusBadRequest, "requested OAuth scopes are not allowed", map[string]any{
-				"reason": connections.OAuthOutcomeScopeNotAllowed,
-				"scopes": denied.Scopes,
-			})
-			return
-		}
 		writeError(w, http.StatusBadRequest, "invalid request")
 		return
 	}

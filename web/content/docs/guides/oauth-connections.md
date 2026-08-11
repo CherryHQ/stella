@@ -51,21 +51,18 @@ Set the provider's **Client ID** and **Client Secret**. Saving new credentials m
 
 ### Scopes
 
-Each provider has two scope sets:
+**Minimum scopes** are the permissions every connection requests. They are a floor, not a ceiling: a user whose tool needs more can request additional scopes and re-authorize, and Stella unions those into only that user's own desired set. The OAuth app configuration and the provider's consent screen decide what a user can actually grant — Stella does not add a second gate in front of them.
 
-- **Default scopes** are requested on a user's first connection.
-- **Allowed incremental scopes** are the maximum set users may add later. A request outside this allowlist fails before Stella contacts the provider.
-
-Admins can override either set with its scope editor:
+Admins override the floor with the scope editor:
 
 - The checklist always shows every built-in scope. Without an override they start selected; afterward, the checked state matches the saved configuration. Uncheck a scope to remove it from the next authorization request.
 - Scopes are grouped by namespace prefix (for example `im:`, `docs:`), collapsed by default, and searchable.
 - **Restore defaults** selects the built-in list and removes custom scopes from the draft.
 - Use the input below the checklist to add scopes that are not in the built-in list. Stella splits pasted lines, commas, and spaces and removes duplicates.
 
-Saving applies the checked policy. The default scopes are the minimum floor for every user; each user's desired scopes are that floor plus the additional allowed scopes they have requested. Changing defaults does **not** silently widen already-issued tokens, but affected users are asked to reconnect. When a tool needs another allowed scope, Stella unions it into only that user's desired scopes; other users remain connected.
+Saving applies the checked scopes as the floor for every user. Changing the floor does **not** silently widen already-issued tokens, but affected users are asked to reconnect. Lowering the floor does not take away scopes a user already asked for; their desired set only shrinks when they re-authorize. To remove a granted permission for real, disconnect and revoke the grant on the provider's side.
 
-If an administrator narrows the allowlist, Stella removes the disallowed scopes from that user's next authorization request and marks the connection for reconnect. OAuth providers may retain previously granted scopes; disconnect and revoke the provider-side grant when strict removal is required.
+Keep the floor minimal. A large first-consent screen is the main reason users abandon a connection, and a scope only a few users need belongs in their own incremental request.
 
 ### Reconnect semantics
 

@@ -80,7 +80,7 @@ func TestLoadBuiltinLarkCLIUsesManagedFeishuOAuth(t *testing.T) {
 	t.Fatal("tool/lark-cli not found")
 }
 
-func TestLoadBuiltinLarkProvidersUseMinimalDefaultsAndBroadAllowlists(t *testing.T) {
+func TestLoadBuiltinLarkProvidersUseMinimalDefaults(t *testing.T) {
 	m, err := LoadBuiltin()
 	if err != nil {
 		t.Fatalf("LoadBuiltin() error: %v", err)
@@ -91,11 +91,10 @@ func TestLoadBuiltinLarkProvidersUseMinimalDefaultsAndBroadAllowlists(t *testing
 			continue
 		}
 		found[provider.ID] = true
+		// The default is a floor users grow incrementally, so first consent
+		// must stay small; the provider console owns the ceiling.
 		if len(provider.Scopes) > 3 {
 			t.Fatalf("%s defaults = %d scopes, want minimal first consent", provider.ID, len(provider.Scopes))
-		}
-		if len(provider.AllowedScopes) < 100 {
-			t.Fatalf("%s allowlist = %d scopes, want full lark-cli capability set", provider.ID, len(provider.AllowedScopes))
 		}
 	}
 	if !found["lark"] || !found["feishu"] {

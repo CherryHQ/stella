@@ -37,14 +37,13 @@ type ProviderFlowConfig struct {
 // from manifest YAML. ClientID and ClientSecret are YAML defaults; DB overrides
 // take precedence at flow-start time.
 type ProviderConfig struct {
-	ID            string
-	Icon          string
-	Scopes        []string
-	AllowedScopes []string
-	VaultKey      string
-	Flows         []ProviderFlowConfig
-	ClientID      string
-	ClientSecret  string
+	ID           string
+	Icon         string
+	Scopes       []string
+	VaultKey     string
+	Flows        []ProviderFlowConfig
+	ClientID     string
+	ClientSecret string
 }
 
 // ProviderRegistry maps OAuth provider IDs to their static ProviderConfig.

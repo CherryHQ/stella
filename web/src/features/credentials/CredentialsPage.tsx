@@ -38,7 +38,6 @@ import type { MessageKey } from "@/lib/i18n/messages";
 import { useToast } from "@/hooks/use-toast";
 import { EmailAccountsPanel } from "@/features/credentials/EmailAccountsPanel";
 import { buildOAuthScopeDraft, ScopeEditor } from "@/features/credentials/ScopeEditor";
-import { buildOAuthAllowedScopeOverride } from "@/features/credentials/scope-policy";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import {
   SettingsDetailSheet,
@@ -218,10 +217,6 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
   const [scopeMeta, setScopeMeta] = useState<
     Record<string, { saved: string[]; defaults: string[] }>
   >({});
-  const [allowedScopeDraft, setAllowedScopeDraft] = useState<Record<string, string[]>>({});
-  const [allowedScopeMeta, setAllowedScopeMeta] = useState<
-    Record<string, { saved: string[]; defaults: string[] }>
-  >({});
 
   // One pending confirmation at a time; ConfirmDialog is controlled by this.
   const [confirm, setConfirm] = useState<{
@@ -335,16 +330,6 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
     // Without an override, the built-in defaults start selected.
     setScopeDraft((prev) => ({ ...prev, [provider]: buildOAuthScopeDraft(saved, defaults) }));
     setScopeMeta((prev) => ({ ...prev, [provider]: { saved, defaults } }));
-    const savedAllowed = providerConfig.allowed_scopes ?? [];
-    const defaultAllowed = providerConfig.default_allowed_scopes ?? defaults;
-    setAllowedScopeDraft((prev) => ({
-      ...prev,
-      [provider]: buildOAuthScopeDraft(savedAllowed, defaultAllowed),
-    }));
-    setAllowedScopeMeta((prev) => ({
-      ...prev,
-      [provider]: { saved: savedAllowed, defaults: defaultAllowed },
-    }));
   }, [sheetProvider, providerConfig]);
 
   useEffect(() => {
@@ -578,11 +563,6 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
       }
       // The database uses an empty override to mean "all built-in defaults".
       const scopes = sameScopeSet(draft, defaults) ? [] : draft;
-      const savedAllowed = allowedScopeMeta[provider]?.saved ?? [];
-      const defaultAllowed = allowedScopeMeta[provider]?.defaults ?? defaults;
-      const allowedDraft =
-        allowedScopeDraft[provider] ?? buildOAuthScopeDraft(savedAllowed, defaultAllowed);
-      const allowedScopes = buildOAuthAllowedScopeOverride(allowedDraft, defaultAllowed, draft);
 
       setConfigSaving((prev) => ({ ...prev, [provider]: true }));
       try {
@@ -593,7 +573,6 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
             client_secret: vals.clientSecret,
             redirect_url: vals.redirectUrl || undefined,
             scopes,
-            allowed_scopes: allowedScopes,
           },
           throwOnError: true,
         });
@@ -612,8 +591,6 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
       configValues,
       scopeDraft,
       scopeMeta,
-      allowedScopeDraft,
-      allowedScopeMeta,
       showToast,
       invalidateProviders,
       invalidateProviderConfig,
@@ -893,9 +870,7 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
                 })
               : sp.reconnect_reason === "credentials_rotated"
                 ? t("credentials.oauth.reconnectRotated")
-                : sp.reconnect_reason === "scope_policy_changed"
-                  ? t("credentials.oauth.reconnectPolicyChanged")
-                  : t("credentials.oauth.reconnectGeneric")}
+                : t("credentials.oauth.reconnectGeneric")}
           </p>
           {sp.reconnect_reason === "missing_scopes" && spMissingScopes.length > 0 && (
             <ul className="flex flex-wrap gap-1">
@@ -1071,23 +1046,6 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
               onChange={(next) => setScopeDraft((prev) => ({ ...prev, [sheetProvider]: next }))}
             />
             <FieldDescription>{t("credentials.oauth.scopes.saveHint")}</FieldDescription>
-          </Field>
-          <Field className="min-h-0 flex-1">
-            <ScopeEditor
-              kind="allowed"
-              value={
-                allowedScopeDraft[sheetProvider] ??
-                buildOAuthScopeDraft(
-                  allowedScopeMeta[sheetProvider]?.saved ?? [],
-                  allowedScopeMeta[sheetProvider]?.defaults ?? [],
-                )
-              }
-              defaults={allowedScopeMeta[sheetProvider]?.defaults ?? []}
-              onChange={(next) =>
-                setAllowedScopeDraft((prev) => ({ ...prev, [sheetProvider]: next }))
-              }
-            />
-            <FieldDescription>{t("credentials.oauth.scopes.allowedSaveHint")}</FieldDescription>
           </Field>
         </Fieldset>
       </DetailPanel>

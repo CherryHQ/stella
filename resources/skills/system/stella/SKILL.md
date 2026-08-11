@@ -110,10 +110,11 @@ session tool                    # agent session discovery, bounded retrieval, an
 ```
 
 `oauth.connect` accepts an optional `scopes` list. Request only the permissions
-needed for the current operation; Stella unions allowed additions into that
-user's desired scopes and returns a user-consent flow without changing other
-users. A `scope_not_allowed` outcome means administrator policy denied the
-request—do not retry it with broader scopes.
+needed for the current operation; Stella unions them into that user's desired
+scopes and returns a user-consent flow without changing other users. The
+provider's consent screen decides what is granted, so a scope its app
+configuration does not offer stays missing after re-authorizing—report it to the
+administrator instead of retrying.
 
 Humans start and update Stella with `stellad server` and `stellad upgrade`, then manage runtime state in the Web UI.
 

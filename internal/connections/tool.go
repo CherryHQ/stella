@@ -14,7 +14,7 @@ type Tool struct{ svc *Service }
 
 func NewTool(svc *Service) *Tool { return &Tool{svc: svc} }
 func (t *Tool) Definition() tools.Definition {
-	return tools.Definition{Name: ToolName, Description: "Connect and manage external OAuth providers for this user. Actions: list providers, connect, status, disconnect. connect accepts optional scopes and adds them to this user's cumulative requested scopes after administrator policy validation. Give the user the returned verification_uri and user_code, ask them to authorize and tell you when done, then call action=status with the flow_id. Never tell the user to run commands; never expose tokens.", InputSchema: InputSchema()}
+	return tools.Definition{Name: ToolName, Description: "Connect and manage external OAuth providers for this user. Actions: list providers, connect, status, disconnect. connect accepts optional scopes and adds them to this user's cumulative requested scopes; the provider's consent screen decides what is actually granted. Give the user the returned verification_uri and user_code, ask them to authorize and tell you when done, then call action=status with the flow_id. Never tell the user to run commands; never expose tokens.", InputSchema: InputSchema()}
 }
 
 func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error) {
@@ -65,14 +65,6 @@ func (h oauthHandler) Connect(ctx context.Context, in ConnectInput) (any, error)
 	}
 	status, err := acc.StartFlow(ctx, in.Provider, scopeItems(in.Scopes))
 	if err != nil {
-		var denied *ScopeNotAllowedError
-		if errors.As(err, &denied) {
-			return oauthScopeDeniedResponse{
-				Outcome:  OAuthOutcomeScopeNotAllowed,
-				Provider: denied.Provider,
-				Scopes:   denied.Scopes,
-			}, nil
-		}
 		return nil, err
 	}
 	return oauthFlowSummary(status), nil
@@ -136,11 +128,6 @@ type oauthFlowResponse struct {
 	State           string   `json:"state"`
 	Outcome         string   `json:"outcome,omitempty"`
 	RequestedScopes []string `json:"requested_scopes,omitempty"`
-}
-type oauthScopeDeniedResponse struct {
-	Outcome  string   `json:"outcome"`
-	Provider string   `json:"provider"`
-	Scopes   []string `json:"scopes"`
 }
 type oauthProviderResponse struct {
 	Provider        string   `json:"provider"`

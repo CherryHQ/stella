@@ -108,7 +108,7 @@ components:
           description: True when the user must re-authorize to stay usable.
         reconnect_reason:
           type: string
-          enum: [credentials_rotated, missing_scopes, scope_policy_changed]
+          enum: [credentials_rotated, missing_scopes]
           description: Why a reconnect is needed, when needs_reconnect is true.
 
     OAuthProviderConfig:
@@ -122,21 +122,13 @@ components:
         scopes:
           type: array
           items: { type: string }
-          description: Admin scope override; empty means "use the default".
+          description: >-
+            Admin minimum-scope override every connect requests; empty means
+            "use the default". A floor, not a ceiling — users may request more.
         default_scopes:
           type: array
           items: { type: string }
           description: Built-in YAML default scopes (output-only, for diff/reset).
-        allowed_scopes:
-          type: array
-          items: { type: string }
-          description: >-
-            Admin allowlist override for scopes users may request incrementally;
-            empty means use the built-in allowlist.
-        default_allowed_scopes:
-          type: array
-          items: { type: string }
-          description: Built-in scope allowlist (output-only).
 
     OAuthProviderConfigInput:
       type: object
@@ -149,14 +141,8 @@ components:
           type: array
           items: { type: string }
           description: >-
-            Scope override to request on connect. Empty or omitted clears the
+            Minimum scopes every connect requests. Empty or omitted clears the
             override (reverts to the built-in default).
-        allowed_scopes:
-          type: array
-          items: { type: string }
-          description: >-
-            Scopes users may request incrementally. Empty or omitted clears the
-            override and uses the built-in allowlist.
 
     StartOAuthFlowRequest:
       type: object

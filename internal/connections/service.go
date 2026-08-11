@@ -242,25 +242,12 @@ func (s *Service) providerScopes(ctx context.Context, providerID string) []strin
 	return nil
 }
 
-// providerAllowedScopes returns every scope a user may request. Provider
-// defaults are always allowed; the administrator or manifest allowlist only
-// broadens that baseline.
-func (s *Service) providerAllowedScopes(ctx context.Context, providerID string) []string {
-	defaults := s.providerScopes(ctx, providerID)
-	var allowed []string
-	if s.q != nil {
-		if cfg, err := s.q.GetAuthOAuthProvider(ctx, providerID); err == nil && len(cfg.AllowedScopes) > 0 {
-			allowed = cfg.AllowedScopes
-		}
-	}
-	if len(allowed) == 0 && s.registry != nil {
-		if providerCfg, ok := s.registry.Get(providerID); ok {
-			allowed = providerCfg.AllowedScopes
-		}
-	}
-	return unionScopes(defaults, allowed)
-}
-
+// desiredScopes resolves the complete scope set the next authorization for
+// userID must request: the administrator-configured minimum, the scopes this
+// user already asked for, and whatever the caller is adding now. Stella does not
+// cap the result — the provider's app configuration and consent screen are the
+// authority on what a user can actually grant, and a scope the provider refuses
+// simply comes back missing from the grant (see reconnectDecision).
 func (s *Service) desiredScopes(ctx context.Context, userID, providerID string, requested []string) ([]string, error) {
 	if s.registry == nil {
 		return nil, fmt.Errorf("provider registry not set")
@@ -278,13 +265,6 @@ func (s *Service) desiredScopes(ctx context.Context, userID, providerID string, 
 		if bundle != nil {
 			base = bundleDesiredScopes(bundle, base)
 		}
-	}
-	policy := s.providerAllowedScopes(ctx, providerID)
-	// Policy narrowing removes historical desired scopes from the next flow;
-	// requested additions are still rejected explicitly rather than dropped.
-	base = allowedScopes(base, policy)
-	if denied := missingScopes(requested, policy); len(denied) > 0 {
-		return nil, &ScopeNotAllowedError{Provider: providerID, Scopes: denied}
 	}
 	return unionScopes(base, requested), nil
 }
@@ -312,7 +292,6 @@ func (s *Service) GetOAuthProviderConfig(ctx context.Context, providerID string)
 				out.ClientSecret = "***"
 			}
 			out.DefaultScopes = providerCfg.Scopes
-			out.DefaultAllowedScopes = unionScopes(providerCfg.Scopes, providerCfg.AllowedScopes)
 		}
 	}
 
@@ -329,7 +308,6 @@ func (s *Service) GetOAuthProviderConfig(ctx context.Context, providerID string)
 				}
 			}
 			out.Scopes = cfg.Scopes
-			out.AllowedScopes = cfg.AllowedScopes
 		}
 	}
 
@@ -371,11 +349,6 @@ func (s *Service) SetOAuthProviderConfig(ctx context.Context, cfg OAuthProviderC
 	if scopes == nil {
 		scopes = []string{}
 	}
-	allowedScopes := normalizeScopes(cfg.AllowedScopes)
-	if allowedScopes == nil {
-		allowedScopes = []string{}
-	}
-
 	if err := s.q.UpsertAuthOAuthProvider(ctx, pkgdb.UpsertAuthOAuthProviderParams{
 		ID:              uuid.Must(uuid.NewV7()).String(),
 		ProviderID:      cfg.ProviderID,
@@ -383,7 +356,6 @@ func (s *Service) SetOAuthProviderConfig(ctx context.Context, cfg OAuthProviderC
 		ClientSecretEnc: secretEnc,
 		RedirectUrl:     cfg.RedirectURL,
 		Scopes:          scopes,
-		AllowedScopes:   allowedScopes,
 	}); err != nil {
 		return err
 	}
@@ -603,9 +575,6 @@ func (s *Service) getProviderStatus(ctx context.Context, userID string, provider
 		ps.RefreshExpiresAt = bundle.RefreshExpiresAt.UTC()
 
 		requested := bundleDesiredScopes(bundle, ps.RequestedScopes)
-		policy := s.providerAllowedScopes(ctx, provider)
-		policyDenied := missingScopes(requested, policy)
-		requested = allowedScopes(requested, policy)
 		ps.RequestedScopes = append([]string(nil), requested...)
 
 		// Empty GrantedScope means unknown (pre-capture bundle), not "no scopes".
@@ -622,10 +591,6 @@ func (s *Service) getProviderStatus(ctx context.Context, userID string, provider
 		if effectiveClientID, _, _, cerr := s.providerCredentials(ctx, provider); cerr == nil {
 			ps.NeedsReconnect, ps.ReconnectReason = reconnectDecision(
 				bundle.ClientID, effectiveClientID, requested, granted, grantedKnown)
-			if !ps.NeedsReconnect && len(policyDenied) > 0 {
-				ps.NeedsReconnect = true
-				ps.ReconnectReason = ReconnectReasonScopePolicyChanged
-			}
 		}
 	}
 	return ps
