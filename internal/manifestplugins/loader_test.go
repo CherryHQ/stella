@@ -1,6 +1,9 @@
 package manifestplugins
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestLoadBuiltin(t *testing.T) {
 	m, err := LoadBuiltin()
@@ -80,7 +83,7 @@ func TestLoadBuiltinLarkCLIUsesManagedFeishuOAuth(t *testing.T) {
 	t.Fatal("tool/lark-cli not found")
 }
 
-func TestLoadBuiltinLarkProvidersUseMinimalDefaults(t *testing.T) {
+func TestLoadBuiltinLarkProvidersRecommendFullCLIScopes(t *testing.T) {
 	m, err := LoadBuiltin()
 	if err != nil {
 		t.Fatalf("LoadBuiltin() error: %v", err)
@@ -91,10 +94,16 @@ func TestLoadBuiltinLarkProvidersUseMinimalDefaults(t *testing.T) {
 			continue
 		}
 		found[provider.ID] = true
-		// The default is a floor users grow incrementally, so first consent
-		// must stay small; the provider console owns the ceiling.
-		if len(provider.Scopes) > 3 {
-			t.Fatalf("%s defaults = %d scopes, want minimal first consent", provider.ID, len(provider.Scopes))
+		// The builtin default is the recommended lark-cli capability surface, so
+		// one authorization covers every documented command. Admins trim it; it
+		// is a floor users can still grow incrementally.
+		if len(provider.Scopes) < 100 {
+			t.Fatalf("%s defaults = %d scopes, want the full lark-cli capability set", provider.ID, len(provider.Scopes))
+		}
+		for _, want := range []string{"offline_access", "contact:user.basic_profile:readonly"} {
+			if !slices.Contains(provider.Scopes, want) {
+				t.Fatalf("%s defaults missing %q", provider.ID, want)
+			}
 		}
 	}
 	if !found["lark"] || !found["feishu"] {

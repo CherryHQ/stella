@@ -62,7 +62,9 @@ Admins override the floor with the scope editor:
 
 Saving applies the checked scopes as the floor for every user. Changing the floor does **not** silently widen already-issued tokens, but affected users are asked to reconnect. Lowering the floor does not take away scopes a user already asked for; their desired set only shrinks when they re-authorize. To remove a granted permission for real, disconnect and revoke the grant on the provider's side.
 
-Keep the floor minimal. A large first-consent screen is the main reason users abandon a connection, and a scope only a few users need belongs in their own incremental request.
+Built-in defaults are chosen per provider. Lark and Feishu ship the full lark-cli capability surface, so a single authorization covers every documented command; GitHub and X ship the scopes their tools need. Trim the floor when your deployment needs less — a smaller first-consent screen is easier for users to accept, and a scope only a few people need can come from their own incremental request.
+
+Every scope in the floor must also be enabled in the provider's app console. A scope the app does not offer is simply left out of the grant, which shows up as a **Reconnect needed** state that reconnecting cannot clear; remove it from the floor or enable it in the console.
 
 ### Reconnect semantics
 
