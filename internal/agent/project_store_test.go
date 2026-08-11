@@ -300,6 +300,24 @@ func TestProjectStoreCanonicalizesHomeCoordinates(t *testing.T) {
 			t.Fatalf("Create(%q) error=%v, want ErrInvalidBaseDir", value, err)
 		}
 	}
+	for _, value := range []string{
+		"C:/outside/project",
+		"project:name",
+		"control/\x00child",
+		"control/\x1fchild",
+		"control/\x7fchild",
+	} {
+		if _, err := ps.Create(ctx, authority, agentID, "portable-invalid", value, nil); !errors.Is(err, ErrInvalidBaseDir) {
+			t.Errorf("Create(%q) error=%v, want ErrInvalidBaseDir", value, err)
+		}
+		if _, err := ps.Update(ctx, authority, agentID, updateProjectID, ProjectUpdate{BaseDir: &value}); !errors.Is(err, ErrInvalidBaseDir) {
+			t.Errorf("Update(%q) error=%v, want ErrInvalidBaseDir", value, err)
+		}
+		persisted := sqlc.Project{UserID: user.ID, AgentID: agentID, BaseDir: value}
+		if _, err := ps.projectFromRow(ctx, persisted); !errors.Is(err, ErrInvalidBaseDir) {
+			t.Errorf("decode persisted %q error=%v, want ErrInvalidBaseDir", value, err)
+		}
+	}
 	legacyPhysical, err := q.CreateProject(ctx, sqlc.CreateProjectParams{ID: uuid.NewString(), AgentID: agentID, UserID: user.ID, Name: "legacy metadata update", BaseDir: filepath.Join(agentRoot, "legacy", "project")})
 	if err != nil {
 		t.Fatal(err)

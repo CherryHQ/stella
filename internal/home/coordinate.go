@@ -49,7 +49,7 @@ func ResolveLogicalCoordinate(scope RootScope, value string, allowRoot bool) (Ro
 	if scope != RootAgentWorkspace && scope != RootPrincipalData {
 		return 0, "", errors.New("home: invalid workspace scope")
 	}
-	if strings.Contains(value, `\`) || strings.ContainsRune(value, 0) {
+	if strings.Contains(value, `\`) {
 		return 0, "", errors.New("home: malformed coordinate")
 	}
 	if name, suffix, ok, err := pkgsandbox.SplitLeadingPathVariable(value); err != nil {
@@ -77,6 +77,12 @@ func ResolveLogicalCoordinate(scope RootScope, value string, allowRoot bool) (Ro
 			return 0, "", errors.New("home: non-logical absolute coordinate")
 		}
 	}
+	// Logical coordinates are portable persisted data. Reject a native absolute
+	// path after rewriting the recognized sandbox aliases, and reject characters
+	// that could become drive or stream syntax on another platform.
+	if filepath.IsAbs(value) {
+		return 0, "", errors.New("home: non-logical absolute coordinate")
+	}
 	if value == "" && allowRoot {
 		return scope, ".", nil
 	}
@@ -87,7 +93,9 @@ func ResolveLogicalCoordinate(scope RootScope, value string, allowRoot bool) (Ro
 		return 0, "", errors.New("home: canonical relative name required")
 	}
 	for part := range strings.SplitSeq(value, "/") {
-		if part == "" || part == "." || part == ".." {
+		if part == "" || part == "." || part == ".." || strings.ContainsRune(part, ':') || strings.IndexFunc(part, func(r rune) bool {
+			return r < ' ' || r == '\x7f'
+		}) >= 0 {
 			return 0, "", errors.New("home: canonical relative name required")
 		}
 	}

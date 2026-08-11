@@ -162,6 +162,17 @@ func TestResolveLogicalCoordinateAllowsDotOnlyForRoot(t *testing.T) {
 	if err != nil || scope != RootAgentWorkspace || name != "." {
 		t.Fatalf("AllowRoot dot = %v %q %v", scope, name, err)
 	}
+	for _, value := range []string{
+		"C:/outside/project",
+		"project:name",
+		"control/\x00child",
+		"control/\x1fchild",
+		"control/\x7fchild",
+	} {
+		if _, _, err := ResolveLogicalCoordinate(RootAgentWorkspace, value, true); err == nil {
+			t.Errorf("portable-invalid coordinate %q accepted", value)
+		}
+	}
 }
 
 func TestAssetCompatibilityRestoresObjectOnlyWorkspaceAssetWhileRootIsOpen(t *testing.T) {

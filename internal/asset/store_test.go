@@ -598,6 +598,26 @@ func TestUploadFileIsBoundedAtomicAndMirrored(t *testing.T) {
 	}
 }
 
+func TestUploadFileCommitThenErrorIsOutcomeUnknown(t *testing.T) {
+	home := t.TempDir()
+	auth := newMemAuthority()
+	auth.commitThenFailPut = true
+	s := mustStore(t, home, auth)
+	abs := filepath.Join(assetsDirFor(home, "u1"), "unknown-upload.txt")
+	key, _ := blob.KeyForPath(home, abs)
+
+	err := s.UploadFile(context.Background(), abs, strings.NewReader("committed"), 0o644, 9, false)
+	if !errors.Is(err, ErrOutcomeUnknown) {
+		t.Fatalf("UploadFile error=%v, want ErrOutcomeUnknown", err)
+	}
+	if got := string(auth.objs[key]); got != "committed" {
+		t.Fatalf("committed authority bytes=%q", got)
+	}
+	if _, err := os.Stat(abs); !os.IsNotExist(err) {
+		t.Fatalf("outcome-unknown upload published local target: %v", err)
+	}
+}
+
 func TestNonAssetPathNotMirrored(t *testing.T) {
 	home := t.TempDir()
 	auth := newMemAuthority()
