@@ -51,8 +51,6 @@ var dockerEnvKinds = map[string]dockerEnvKind{
 	sandboxpkg.EnvXDGStateHome:    dockerEnvHostPath,
 	sandboxpkg.EnvXDGCacheHome:    dockerEnvHostPath,
 	"STELLA_HOME":                 dockerEnvHostPath,
-	"LARKSUITE_CLI_CONFIG_DIR":    dockerEnvHostPath,
-	"LARKSUITE_CLI_DATA_DIR":      dockerEnvHostPath,
 	"MISE_DATA_DIR":               dockerEnvHostPath,
 	"MISE_CONFIG_DIR":             dockerEnvHostPath,
 	"MISE_CACHE_DIR":              dockerEnvHostPath,
