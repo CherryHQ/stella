@@ -30,7 +30,7 @@ func TestHomeConsumerBoundary(t *testing.T) {
 				selected = fun.Sel.Name
 			}
 			switch selected {
-			case "SetupUserWorkspace", "SetupGroupWorkspace", "UserHomeDir", "GroupHomeDir", "UserAgentDir", "GroupAgentDir", "UserDataDir":
+			case "UserHomeDir", "GroupHomeDir", "UserAgentDir", "GroupAgentDir", "UserDataDir":
 				t.Errorf("%s calls forbidden Home path helper %s", name, selected)
 			}
 			return true

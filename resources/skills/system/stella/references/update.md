@@ -50,7 +50,7 @@ Tags: `latest` (stable), `vX.Y.Z` (specific release).
 
 ## After updating
 
-- Back up PostgreSQL's Home registry and all durable Principal and Agent Home bytes before upgrading; database migrations run automatically when the new release starts
+- Back up PostgreSQL and all durable workspace bytes before upgrading; database migrations run automatically when the new release starts
 - Review release notes and resolve any startup-reported blockers before serving traffic
 - Refresh the model cache from the Web UI if new models are available
 - Builtin skills update with the binary through its immutable release bundle
@@ -61,4 +61,4 @@ Before upgrading, inspect legacy `$STELLA_HOME/.agents/skills`. Using the old wo
 
 Before downgrading to a binary that predates AgentSkillPolicy v1, re-enable every disabled Skill and explicitly clear dangling disablements in the Web UI. Older binaries ignore canonical policy, and ordinary Agent edits can overwrite the reused column. Retained bundle directories are derived and inert after rollback.
 
-Explicit destructive group and Agent deletion fence execution and tombstone Homes. User deletion has the same internal lifecycle primitive, pending product account-delete integration. Tombstoned identities and locators remain reserved, but Phase 1 preserves their physical bytes and has no purge worker or retry command. A `ready` registry row never recreates a missing root, and missing, non-directory, or symlink roots fail resolution. A retained pin detects replacement only during its bounded revalidation interval; there is no durable inode identity against trusted host-side replacement across operations or restart. Run restore, migration, and root cleanup stopped or with consumers fenced. Routine upgrades and Helm uninstall do not tombstone Homes. Future physical cleanup after the provider/filesystem boundary must also run stopped or fenced.
+Explicit destructive user, group, and Agent deletion fence execution before removing the database owner. Workspace bytes and inodes remain, but subsequent access fails owner validation. For live owners, the sole `WorkspaceManager` creates missing deterministic roots and rejects non-directories, symlinks, unsafe IDs, and trusted-root replacement. Any filesystem entry at `agents/{id}` reserves that Agent ID. Run restore and root cleanup while Stella is stopped. Routine upgrades and Helm uninstall do not delete workspace bytes. This is a trusted-host, single-replica POSIX contract; multi-replica, Kubernetes, and S3 authority require a future redesign.

@@ -61,6 +61,10 @@ import (
 	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"
 )
 
+type testAgentIDOccupancy struct{}
+
+func (testAgentIDOccupancy) AgentIDOccupied(context.Context, string) (bool, error) { return false, nil }
+
 // externalServerTestWorkspace maps each server fixture's temporary legacy Home
 // layout. It is explicit test composition, never a production fallback.
 type externalServerTestWorkspace struct{ root string }
@@ -284,7 +288,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("sessionaccess.NewService: %v", err)
 	}
-	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolManager, testUserDir{users: oidcStore}, agent.NewAgentActivityStore(db), nil, nil, slog.With("component", "agent-management-test"), agentaccess.WithOwnerDeletion(externalTestTransportOwnerDeletion{agents: store}))
+	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolManager, testUserDir{users: oidcStore}, agent.NewAgentActivityStore(db), nil, nil, slog.With("component", "agent-management-test"), agentaccess.WithOwnerDeletion(externalTestTransportOwnerDeletion{agents: store}), agentaccess.WithAgentIDOccupancy(testAgentIDOccupancy{}))
 	accountSvc := account.NewService(oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, as, credFrontDoor, slog.With("component", "account-test"))
 	provisioningSvc := provisioning.New(db, accountSvc, nil, slog.With("component", "provisioning-test"))
 	memoryManagement := memorywrite.NewManagementService(db, mem)

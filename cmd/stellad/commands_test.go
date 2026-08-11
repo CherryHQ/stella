@@ -13,7 +13,6 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/manifestplugins"
 	"github.com/CherryHQ/stella/internal/pluginhost"
-	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -21,19 +20,6 @@ import (
 )
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
-
-func TestSetupRunsPhaseZeroGateBeforeHomeRegistration(t *testing.T) {
-	source, err := os.ReadFile("commands.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	gate := strings.Index(string(source), "ensureEmbeddedAssets()")
-	observe := strings.Index(string(source), "ObserveMutableAssetObjectAuthority")
-	register := strings.Index(string(source), "RegisterLegacy(parent)")
-	if gate < 0 || observe < 0 || register < 0 || gate > observe || gate > register {
-		t.Fatal("Phase 0 asset gate must precede Home observation and legacy registration")
-	}
-}
 
 type commandTestProvider struct{}
 
@@ -274,33 +260,6 @@ func TestSetupRunsLegacySkillGateBeforeEmbeddedPostgresMutation(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(stellaHome, name)); !os.IsNotExist(err) {
 			t.Fatalf("legacy gate allowed %s mutation: %v", name, err)
 		}
-	}
-}
-
-func TestCLIUserSkillsDirUsesUserScope(t *testing.T) {
-	setupCommandTestStellaHome(t)
-	db := dbtest.New(t)
-	store := cfgstore.NewDBStore(db)
-	ctx := context.Background()
-	if err := store.Seed(ctx); err != nil {
-		t.Fatalf("seed defaults: %v", err)
-	}
-	agents, err := store.ListEnabledAgents(ctx)
-	if err != nil || len(agents) == 0 {
-		t.Fatal("no enabled agents found")
-	}
-	snap, err := store.Snapshot(ctx, agents[0].ID)
-	if err != nil {
-		t.Fatalf("snapshot: %v", err)
-	}
-
-	dir, err := cliUserSkillsDir(snap)
-	if err != nil {
-		t.Fatalf("cliUserSkillsDir: %v", err)
-	}
-	want := filepath.Join(config.StellaHome(), "users", "1", "data", ".agents", "skills")
-	if dir != want {
-		t.Fatalf("cliUserSkillsDir() = %q, want %q", dir, want)
 	}
 }
 

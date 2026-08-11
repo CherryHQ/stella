@@ -17,7 +17,6 @@ const (
 	requireExternalDBEnv    = "STELLA_REQUIRE_EXTERNAL_DB"
 	httpShutdownTimeoutEnv  = "STELLA_HTTP_SHUTDOWN_TIMEOUT"
 	riverSoftStopTimeoutEnv = "STELLA_RIVER_SOFT_STOP_TIMEOUT"
-	homeStoreIDEnv          = "STELLA_HOME_STORE_ID"
 
 	// Raw passthrough vars: read with os.Getenv semantics (value or "" for
 	// unset/empty; no trim, no default). Their group-level validation stays with
@@ -96,9 +95,6 @@ type ServerConfig struct {
 	// (any set => the four core fields required) and the USE_SSL bool dialect stay
 	// in the blob package, which consumes these raw strings.
 	Blob BlobS3Config
-	// Storage selects the immutable logical identity of the filesystem Store.
-	// It is deliberately unrelated to sandbox compute backend selection.
-	Storage StorageConfig
 	// Reflect carries the raw reflect-scheduler tuning strings. Parsing stays in
 	// the reflect setup so its lenient-warn-and-clamp interval behavior and
 	// fail-fast curator-mode enum are preserved exactly.
@@ -142,10 +138,6 @@ type BlobS3Config struct {
 	SecretKey string
 	Region    string
 	UseSSL    string
-}
-
-type StorageConfig struct {
-	HomeStoreID string
 }
 
 // ReflectConfig carries raw reflect-scheduler settings. LegacyModeGuard is only
@@ -210,7 +202,6 @@ type rawServerConfig struct {
 	RequireExternalDB    string `env:"STELLA_REQUIRE_EXTERNAL_DB"`
 	HTTPShutdownTimeout  string `env:"STELLA_HTTP_SHUTDOWN_TIMEOUT"`
 	RiverSoftStopTimeout string `env:"STELLA_RIVER_SOFT_STOP_TIMEOUT"`
-	HomeStoreID          string `env:"STELLA_HOME_STORE_ID"`
 }
 
 // serverConfigKeys is the closed set of normalized (trimmed, empty=default)
@@ -221,7 +212,6 @@ var serverConfigKeys = []string{
 	requireExternalDBEnv,
 	httpShutdownTimeoutEnv,
 	riverSoftStopTimeoutEnv,
-	homeStoreIDEnv,
 }
 
 // LoadServerConfig parses the server's boot-time environment. lookup resolves a
@@ -315,10 +305,6 @@ func (raw rawServerConfig) convert() (ServerConfig, error) {
 	if err != nil {
 		errs = append(errs, err)
 	}
-	homeStoreID, err := parseHomeStoreID(homeStoreIDEnv, raw.HomeStoreID)
-	if err != nil {
-		errs = append(errs, err)
-	}
 
 	if len(errs) > 0 {
 		return ServerConfig{}, env.AggregateError{Errors: errs}
@@ -331,20 +317,7 @@ func (raw rawServerConfig) convert() (ServerConfig, error) {
 			HTTPShutdownTimeout:  httpTimeout,
 			RiverSoftStopTimeout: riverTimeout,
 		},
-		Storage: StorageConfig{HomeStoreID: homeStoreID},
 	}, nil
-}
-
-func parseHomeStoreID(name, value string) (string, error) {
-	if value == "" {
-		return "local", nil
-	}
-	for _, r := range value {
-		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.') {
-			return "", fmt.Errorf("%s=%q is not a valid Store ID", name, value)
-		}
-	}
-	return value, nil
 }
 
 // parseServerBool parses a normalized boolean value. An empty value (unset after

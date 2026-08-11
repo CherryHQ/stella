@@ -31,13 +31,13 @@ Backend identity stays inside the runner and runner-facing sandbox packages. Plu
 
 File I/O (`read`, `write`, `edit`) is runner-owned: the runner calls `ResolvePath` to obtain the host path and then uses `os.ReadFile` / `os.WriteFile` / `os.MkdirAll` directly. `Session` carries no file read/write methods.
 
-## Typed Home registry and attachments
+## Local workspace ownership
 
-Phase 1 gives persistent Homes typed identity separate from a machine path. The registry records an immutable Store ID and opaque locator for each user or group Principal Home, per-principal Agent Home, and narrow system or system-Agent Skill root. `sandbox.HomeAttachment` is the stable contract for compute-facing consumers. `internal/home.WorkspaceView` temporarily carries local root projections for migrated current consumers until Phase 2. A user and a group with the same raw ID are distinct principals.
+Phase 1 supports one replica and one trusted POSIX `STELLA_HOME`. PostgreSQL owner rows are identity and authorization authority; deterministic paths under `STELLA_HOME` are layout and byte authority. `internal/home.WorkspaceManager` is the only production component that creates typed roots. It creates a missing root only after confirming its live user, group, and Agent owners, and rejects symlinks, non-directories, unsafe IDs, and replacement of the trusted root. A user and group with the same raw ID use distinct paths.
 
 A user or group run receives its Principal and Agent Home attachments plus read-only shared Skill roots. A user-less run receives only those read-only shared Skill roots and no Principal or Agent Home. Group Agent Home Skill materialization has no user or `user_agent` scope: it does not turn group data into a user's `user_agent` Skill.
 
-Explicit destructive group or Agent deletion fences local execution before tombstoning Homes; user deletion exposes the same internal lifecycle primitive but is not yet integrated with product account deletion. Tombstoned identities and locators remain reserved, while Phase 1 deliberately preserves their bytes and has no physical purge worker. Attachments are coordinates and policy inputs, not authority grants. This fencing is single-replica only. Phase 3 must add cross-replica SessionSandbox fencing; it is not implemented now.
+Explicit destructive user, group, or Agent deletion fences local execution before deleting the database owner. Files and inodes are retained, but a later `WorkspaceView` fails because the durable owner is gone. Any filesystem entry at `agents/{id}` reserves that global Agent ID. These guarantees are bounded by the trusted host and are single-replica only. Multi-replica, Kubernetes, and S3 authority require a future redesign rather than reuse of a registry that does not exist.
 
 ## Current Architecture
 

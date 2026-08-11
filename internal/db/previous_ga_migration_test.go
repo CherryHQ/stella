@@ -27,9 +27,8 @@ const (
 	// Library V1, channel guest sessions/indexes, channel allowlist backfill, and
 	// session activity, per-message actor provenance and summary authority,
 	// the durable Session inbox, and restrictive Library ownership are the
-	// post-anchor migrations exercised below. Typed Home registry creation is
-	// also verified against this deployed-database upgrade fixture.
-	currentMigrationVersion = sequentialAnchor + 11
+	// post-anchor migrations exercised below.
+	currentMigrationVersion = sequentialAnchor + 10
 
 	previousGAUserID           = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID          = "00000000-0000-0000-0000-000000000002"
@@ -238,25 +237,6 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 			t.Fatalf("count %s: %v", name, err)
 		}
 		return got
-	}
-	if got := count("typed Home registry tables", `
-		SELECT count(*)
-		FROM information_schema.tables
-		WHERE table_schema = 'public'
-		  AND table_name IN ('storage_home', 'storage_migration')
-	`); got != 2 {
-		t.Fatalf("typed Home registry tables = %d, want 2", got)
-	}
-	if _, err := db.Exec(ctx, `
-		INSERT INTO storage_home (home_kind, principal_kind, principal_id, store_id, locator, state)
-		VALUES
-			('principal', 'user', 'same-raw-id', 'local', 'users/same-raw-id', 'ready'),
-			('principal', 'group', 'same-raw-id', 'local', 'users/group-same-raw-id', 'ready')
-	`); err != nil {
-		t.Fatalf("insert typed Home upgrade fixtures: %v", err)
-	}
-	if got := count("typed same-raw-ID Homes", `SELECT count(*) FROM storage_home WHERE principal_id = 'same-raw-id'`); got != 2 {
-		t.Fatalf("typed same-raw-ID Homes = %d, want 2", got)
 	}
 	var tokenUse string
 	var issuedByProvisioning bool

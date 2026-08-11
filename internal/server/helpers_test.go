@@ -65,6 +65,10 @@ type testTransportOwnerDeletion struct {
 	}
 }
 
+type testAgentIDOccupancy struct{}
+
+func (testAgentIDOccupancy) AgentIDOccupied(context.Context, string) (bool, error) { return false, nil }
+
 func (d testTransportOwnerDeletion) DeleteAgent(ctx context.Context, id, _ string) error {
 	return d.agents.DeleteAgent(ctx, id)
 }
@@ -120,7 +124,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	}
 	toolOverrides := agent.NewToolOverrideStore(db)
 	agentSkillPolicy, _ := store.(AgentSkillPolicyStore)
-	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolMgr, testUserDirectory{users: oidcStore}, agent.NewAgentActivityStore(db), nil, nil, slog.With("component", "agent-management-test"), agentaccess.WithOwnerDeletion(testTransportOwnerDeletion{agents: store}))
+	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolMgr, testUserDirectory{users: oidcStore}, agent.NewAgentActivityStore(db), nil, nil, slog.With("component", "agent-management-test"), agentaccess.WithOwnerDeletion(testTransportOwnerDeletion{agents: store}), agentaccess.WithAgentIDOccupancy(testAgentIDOccupancy{}))
 	accountSvc := account.NewService(oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, as, credFrontDoor, slog.With("component", "account-test"))
 	memProfiles, _ := mem.(memory.ProfileStore)
 	memChangelog, _ := mem.(memory.ChangelogReader)

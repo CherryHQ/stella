@@ -146,30 +146,24 @@ For an exact operator command syntax, run `stellad system-bundle --help`. Docker
 
 Before upgrading, use the old working binary to import each custom Skill root under legacy `$STELLA_HOME/.agents/skills` as a global (`system`) Skill through **Settings → Skills** on older releases or **Admin Console → Deployment resources → Global Skills** on newer releases. Back up, verify, and remove other residual paths. Current-manifest paths are inert even if their contents or modes differ; every other Skill root or residual path blocks startup without mutation.
 
-`{principal}` is a user ID or `group-{group_id}`. These operator filesystem
-paths are local compatibility coordinates, not Home identity. A typed Home has
-an immutable Store ID and opaque locator in PostgreSQL. Agents should use their sandbox variables and ordinary relative paths:
+`{principal}` is a user ID or `group-{group_id}`. These are deterministic paths
+under the single POSIX `STELLA_HOME`, not registry locators. Agents should use their sandbox variables and ordinary relative paths:
 `$HOME` for their workspace and `$STELLA_ASSETS_DIR` for uploaded assets. Persistent
 XDG state is stored under the principal's `data/` tree; it is not an agent
 workspace.
 
-PostgreSQL records typed user/group Principal Homes, per-principal Agent Homes,
-and narrow system/system-Agent Skill roots, but registry metadata cannot recover
-their file bytes. A `ready` row never recreates a missing root; missing,
-non-directory, and symlink roots fail resolution. A retained LocalStore pin
-detects replacement only during its bounded revalidation interval, not across
-operations or restart. Run restore, migration, and root cleanup stopped or with
-consumers fenced. Back up PostgreSQL with durable Home storage.
+PostgreSQL owner rows authorize workspace access. The sole production
+`WorkspaceManager` creates a missing root for live owners and rejects symlinks,
+non-directories, unsafe IDs, and replacement of the trusted root. The filesystem
+owns the bytes; back it up with PostgreSQL. Any entry at `agents/{id}` reserves
+that global Agent ID. Run restore and root cleanup while Stella is stopped.
 
-An explicit destructive group or Agent delete tombstones and fences Homes. User
-deletion has the same internal lifecycle primitive, pending product account-delete
-integration. Fencing succeeds before the database transaction tombstones Homes and
-removes the owner. Tombstoned identities and locators remain permanently reserved,
-but Phase 1 deliberately preserves their bytes and has no physical purge worker or
-retry command. Attachments identify requested access but do not grant authority.
+An explicit destructive user, group, or Agent delete fences execution before the
+database transaction removes the owner. Physical bytes and inodes remain, while
+subsequent workspace access fails owner validation.
 Removing an assignment or member, archiving a Session, and uninstalling Helm do not
-tombstone Homes. Do not manually clean Home roots while Stella is running; a future
-post-filesystem-boundary change owns stopped-or-fenced physical cleanup.
+delete workspace bytes. Do not manually clean workspace roots while Stella is running.
+Multi-replica, Kubernetes, and S3 authority require a future redesign.
 
 `runner-scratch/` is trusted host-owned structural state. Normal close and
 construction failure clean each disposable child best-effort; crash or trusted
@@ -180,12 +174,9 @@ Clean leftovers only while Stella is stopped or affected consumers are fenced.
 
 Provider credentials and base URLs are stored in explicit provider rows managed through the Web UI or API; they are not read from the server environment.
 
-| Variable               | Purpose                                              |
-| ---------------------- | ---------------------------------------------------- |
-| `STELLA_HOME`          | stella home directory (default `~/.stella`)          |
-| `STELLA_HOME_STORE_ID` | Phase 1 LocalStore identity for all registered Homes |
-
-Persisted Store IDs are immutable. Phase 1 configures exactly one LocalStore, so changing `STELLA_HOME_STORE_ID` after registry creation fails startup. A future explicit offline migration must move the registry and bytes together.
+| Variable      | Purpose                                     |
+| ------------- | ------------------------------------------- |
+| `STELLA_HOME` | stella home directory (default `~/.stella`) |
 
 Note: The old YAML-based environment variables (`STELLA_PROVIDER`, `STELLA_MODEL`, `STELLA_TELEGRAM_TOKEN`, etc.) are no longer supported. Use the Web UI or database directly.
 

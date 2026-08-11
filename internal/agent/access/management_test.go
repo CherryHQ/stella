@@ -156,6 +156,10 @@ type fakeActivity struct {
 	err error
 }
 
+type freeAgentIDOccupancy struct{}
+
+func (freeAgentIDOccupancy) AgentIDOccupied(context.Context, string) (bool, error) { return false, nil }
+
 func (f fakeActivity) ListAgentLastActive(context.Context, string) (map[string]time.Time, error) {
 	return f.m, f.err
 }
@@ -164,7 +168,7 @@ func newManagement(agents *fakeAgents, assign *fakeAssign, reloader AgentReloade
 	pep := NewService(agents, assign)
 	return NewManagement(pep, agents, assign, reloader, users, activity, nil, nil, nil, WithOwnerDeletion(fakeOwnerDeletion{deleteAgent: func(ctx context.Context, id, _ string) error {
 		return agents.DeleteAgent(ctx, id)
-	}}))
+	}}), WithAgentIDOccupancy(freeAgentIDOccupancy{}))
 }
 
 func TestManagementCreateNonAdminRestrictedAndAutoAssigns(t *testing.T) {

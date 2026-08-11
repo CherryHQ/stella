@@ -4,186 +4,167 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-type recordingFencer struct {
-	calls int
-	err   error
-	lease *recordingFenceLease
-}
-
-type recordingFenceLease struct {
-	committed bool
-	released  bool
-}
-
-func (l *recordingFenceLease) Commit()  { l.committed = true }
-func (l *recordingFenceLease) Release() { l.released = true }
-
-func (f *recordingFencer) AcquireHomeOwnerFence(context.Context, OwnerKind, string) (OwnerFenceLease, error) {
-	f.calls++
-	if f.err != nil {
-		return nil, f.err
+type (
+	testFence struct {
+		acquired int
+		lease    *testFenceLease
 	}
-	f.lease = &recordingFenceLease{}
+	testFenceLease struct {
+		committed bool
+		released  bool
+	}
+)
+
+func (f *testFence) AcquireHomeOwnerFence(context.Context, OwnerKind, string) (OwnerFenceLease, error) {
+	f.acquired++
+	f.lease = &testFenceLease{}
 	return f.lease, nil
 }
+func (l *testFenceLease) Commit()  { l.committed = true }
+func (l *testFenceLease) Release() { l.released = true }
 
-func seedGroup(t *testing.T, q *sqlc.Queries) string {
-	t.Helper()
-	id := uuid.NewString()
-	if _, err := q.CreateGroupState(context.Background(), sqlc.CreateGroupStateParams{ID: id, Platform: "test", PlatformGroupID: id, GroupName: "group"}); err != nil {
+func TestOwnerDeletionFencesBeforeDBAndPreservesWorkspaceBytes(t *testing.T) {
+	ctx, db, base := t.Context(), dbtest.New(t), t.TempDir()
+	user, group, agentID := uuid.NewString(), uuid.NewString(), "delete-agent"
+	if _, err := db.Exec(ctx, `INSERT INTO auth_user(id,email) VALUES($1,$2)`, user, user+"@test.invalid"); err != nil {
 		t.Fatal(err)
 	}
-	return id
-}
-
-func keepFile(t *testing.T, store *LocalStore, home Record) (string, os.FileInfo) {
-	t.Helper()
-	name := filepath.Join(store.base, filepath.FromSlash(home.Locator), "keep")
-	if err := os.WriteFile(name, []byte("exact bytes"), 0o600); err != nil {
+	if _, err := sqlc.New(db).CreateGroupState(ctx, sqlc.CreateGroupStateParams{ID: group, Platform: "test", PlatformGroupID: group, GroupName: "group"}); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(name)
+	if _, err := db.Exec(ctx, `INSERT INTO agent (id,name,workspace) VALUES ($1,'Agent','')`, agentID); err != nil {
+		t.Fatal(err)
+	}
+	m, err := NewWorkspaceManager(db, base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return name, info
-}
-
-func TestOwnerDeletionFenceFailureAndSuccessNeverTouchPhysicalHomes(t *testing.T) {
-	db := dbtest.New(t)
-	q := sqlc.New(db)
-	r, store := newRegistryWithDB(t, db)
-	id := seedGroup(t, q)
-	home, err := r.Ensure(context.Background(), Principal(GroupPrincipal, id))
+	t.Cleanup(func() { _ = m.Close() })
+	fence := &testFence{}
+	d, err := NewOwnerDeletion(db, m, fence)
 	if err != nil {
 		t.Fatal(err)
 	}
-	name, before := keepFile(t, store, home)
-	fencer := &recordingFencer{err: errors.New("unavailable")}
-	deletion, _ := NewOwnerDeletion(db, r, fencer)
-	if err := deletion.DeleteGroup(context.Background(), id, "operator"); err == nil {
-		t.Fatal("fencer failure succeeded")
-	}
-	if _, err := q.GetGroupStateByID(context.Background(), id); err != nil {
-		t.Fatal("owner changed on fence failure")
-	}
-	if record, _ := r.Record(context.Background(), home.ID); record.State != StateReady {
-		t.Fatalf("Home changed: %#v", record)
-	}
-	after, err := os.Stat(name)
-	if err != nil || !os.SameFile(before, after) {
-		t.Fatalf("bytes/inode changed: %v", err)
-	}
-	fencer.err = nil
-	if err := deletion.DeleteGroup(context.Background(), id, "operator"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := q.GetGroupStateByID(context.Background(), id); !errors.Is(err, pgx.ErrNoRows) {
-		t.Fatalf("owner remains: %v", err)
-	}
-	if record, _ := r.Record(context.Background(), home.ID); record.State != StateTombstoned {
-		t.Fatalf("Home not tombstoned: %#v", record)
-	}
-	if fencer.lease == nil || !fencer.lease.committed || !fencer.lease.released {
-		t.Fatalf("successful fence lease = %#v", fencer.lease)
-	}
-	after, err = os.Stat(name)
-	if err != nil || !os.SameFile(before, after) {
-		t.Fatalf("physical Home changed: %v", err)
-	}
-	key := Principal(GroupPrincipal, id)
-	if _, err := r.Ensure(context.Background(), key); err == nil {
-		t.Fatal("post-delete Ensure admitted")
-	}
-	if _, err := r.Resolve(context.Background(), key, false); err == nil {
-		t.Fatal("post-delete Resolve admitted")
-	}
-	if _, err := r.WorkspaceView(context.Background(), WorkspaceRequest{GroupID: id, UserID: "u", AgentID: "a"}); err == nil {
-		t.Fatal("post-delete workspace admitted")
+
+	for _, tc := range []struct {
+		name string
+		req  WorkspaceRequest
+		del  func() error
+	}{
+		{name: "user", req: WorkspaceRequest{UserID: user, AgentID: agentID}, del: func() error { return d.DeleteUser(ctx, user, "actor") }},
+		{name: "group", req: WorkspaceRequest{GroupID: group, AgentID: agentID}, del: func() error { return d.DeleteGroup(ctx, group, "actor") }},
+		{name: "agent", req: WorkspaceRequest{AgentID: agentID}, del: func() error { return d.DeleteAgent(ctx, agentID, "actor") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			view, err := m.WorkspaceView(ctx, tc.req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			marker := view.AgentRoot + "/retained"
+			if err := os.WriteFile(marker, []byte("keep"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.Stat(marker)
+			if err != nil {
+				t.Fatal(err)
+			}
+			priorFences := fence.acquired
+			if err := tc.del(); err != nil {
+				t.Fatal(err)
+			}
+			if fence.acquired != priorFences+1 {
+				t.Fatal("owner deletion did not acquire lifecycle fence")
+			}
+			if fence.lease == nil || !fence.lease.committed || !fence.lease.released {
+				t.Fatalf("successful fence lease = %#v", fence.lease)
+			}
+			if _, err := m.WorkspaceView(ctx, tc.req); err == nil {
+				t.Fatal("post-delete WorkspaceView succeeded")
+			}
+			after, err := os.Stat(marker)
+			if err != nil || !os.SameFile(before, after) {
+				t.Fatalf("workspace inode was not retained: %v", err)
+			}
+		})
 	}
 }
 
-func newRegistryWithDB(t *testing.T, db *pgxpool.Pool) (*Registry, *LocalStore) {
-	t.Helper()
-	store, err := NewLocalStore("local", t.TempDir())
+func TestOwnerDeletionReconcilesUnknownCommitOutcomes(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		commit        bool
+		reconcileErr  error
+		wantErr       bool
+		wantCommitted bool
+		wantOwner     bool
+	}{
+		{name: "committed acknowledgement lost", commit: true, wantCommitted: true},
+		{name: "transaction remains uncommitted", wantErr: true, wantOwner: true},
+		{name: "reconciliation fails closed", reconcileErr: errors.New("reconcile unavailable"), wantErr: true, wantCommitted: true, wantOwner: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, db := t.Context(), dbtest.New(t)
+			id := uuid.NewString()
+			if _, err := sqlc.New(db).CreateGroupState(ctx, sqlc.CreateGroupStateParams{ID: id, Platform: "test", PlatformGroupID: id, GroupName: "group"}); err != nil {
+				t.Fatal(err)
+			}
+			manager, err := NewWorkspaceManager(db, t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = manager.Close() })
+			fence := &testFence{}
+			deletion, err := NewOwnerDeletion(db, manager, fence)
+			if err != nil {
+				t.Fatal(err)
+			}
+			deletion.commitTx = func(ctx context.Context, tx pgx.Tx) error {
+				if tc.commit {
+					if err := tx.Commit(ctx); err != nil {
+						return err
+					}
+				}
+				return errors.New("commit acknowledgement lost")
+			}
+			if tc.reconcileErr != nil {
+				deletion.reconcileOwner = func(context.Context, OwnerKind, string) error { return tc.reconcileErr }
+			}
+			err = deletion.DeleteGroup(ctx, id, "actor")
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("DeleteGroup error = %v, wantErr=%t", err, tc.wantErr)
+			}
+			if fence.lease == nil || fence.lease.committed != tc.wantCommitted || !fence.lease.released {
+				t.Fatalf("fence lease = %#v, want committed=%t and released", fence.lease, tc.wantCommitted)
+			}
+			_, ownerErr := sqlc.New(db).GetGroupStateByID(ctx, id)
+			if (ownerErr == nil) != tc.wantOwner {
+				t.Fatalf("owner error = %v, wantOwner=%t", ownerErr, tc.wantOwner)
+			}
+		})
+	}
+}
+
+func TestOwnerDeletionMissingOwnerDoesNotFence(t *testing.T) {
+	db, f := dbtest.New(t), &testFence{}
+	m, err := NewWorkspaceManager(db, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := NewRegistry(db, store.ID(), store)
-	if err != nil {
-		t.Fatal(err)
+	t.Cleanup(func() { _ = m.Close() })
+	d, _ := NewOwnerDeletion(db, m, f)
+	if err := d.DeleteAgent(t.Context(), "missing", "actor"); err == nil {
+		t.Fatal("missing owner deletion succeeded")
 	}
-	return r, store
-}
-
-func TestOwnerDeletionMissingOwnerIsNotFencedAndSentinelNeedsNoMaterialization(t *testing.T) {
-	db := dbtest.New(t)
-	r, store := newRegistryWithDB(t, db)
-	f := &recordingFencer{}
-	d, _ := NewOwnerDeletion(db, r, f)
-	if err := d.DeleteGroup(context.Background(), uuid.NewString(), "operator"); err == nil {
-		t.Fatal("missing owner deleted")
-	}
-	if f.calls != 0 {
-		t.Fatalf("missing owner fenced %d times", f.calls)
-	}
-	id := seedGroup(t, sqlc.New(db))
-	if err := d.DeleteGroup(context.Background(), id, "operator"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := r.Resolve(context.Background(), Principal(GroupPrincipal, id), false); err == nil {
-		t.Fatal("sentinel resolved")
-	}
-	if entries, err := os.ReadDir(store.base); err != nil || len(entries) != 0 {
-		t.Fatalf("sentinel materialized: %v %v", entries, err)
-	}
-}
-
-func TestOwnerDeletionFKFailureRollsBackHomesButFenceIsAvailabilityOnly(t *testing.T) {
-	db := dbtest.New(t)
-	q := sqlc.New(db)
-	r, _ := newRegistryWithDB(t, db)
-	ctx := context.Background()
-	userID, agentID := uuid.NewString(), uuid.NewString()
-	if _, err := db.Exec(ctx, "INSERT INTO auth_user (id,email) VALUES ($1,$2)", userID, userID+"@test.invalid"); err != nil {
-		t.Fatal(err)
-	}
-	if err := q.SeedAgent(ctx, sqlc.SeedAgentParams{ID: agentID, Name: "agent", Model: "test", Sandbox: []byte(`{}`), Scope: "system", Enabled: true}); err != nil {
-		t.Fatal(err)
-	}
-	home, _ := r.Ensure(ctx, SystemAgentSkills(agentID))
-	if _, err := db.Exec(ctx, "INSERT INTO webhook (id,user_id,agent_id,name,provider,wait_timeout_seconds,max_run_timeout_seconds,token_public_id,token_hash,token_last4) VALUES ($1,$2,$3,'x','generic',60,300,'public','hash','1234')", uuid.NewString(), userID, agentID); err != nil {
-		t.Fatal(err)
-	}
-	f := &recordingFencer{}
-	d, _ := NewOwnerDeletion(db, r, f)
-	err := d.DeleteAgent(ctx, agentID, "operator")
-	var pgErr *pgconn.PgError
-	if !errors.As(err, &pgErr) {
-		t.Fatalf("want FK failure: %v", err)
-	}
-	if f.calls != 1 {
-		t.Fatalf("fence calls = %d", f.calls)
-	} // Availability-only: DB rollback cannot undo a successful fence.
-	if _, err := q.GetAgent(ctx, agentID); err != nil {
-		t.Fatal("owner deleted")
-	}
-	if record, _ := r.Record(ctx, home.ID); record.State != StateReady {
-		t.Fatalf("tombstone survived rollback: %#v", record)
-	}
-	if f.lease == nil || f.lease.committed || !f.lease.released {
-		t.Fatalf("rolled-back fence lease = %#v", f.lease)
+	if f.acquired != 0 {
+		t.Fatal("missing owner acquired a fence")
 	}
 }

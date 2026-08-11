@@ -350,6 +350,10 @@ func (pm *PoolManager) StartAll(ctx context.Context) error {
 		pm.mu.Unlock()
 		return errors.New("agent: PoolManager.StartAll requires SessionAccess")
 	}
+	if pm.homeWorkspace == nil {
+		pm.mu.Unlock()
+		return errors.New("agent: PoolManager.StartAll requires WorkspaceViewer")
+	}
 	pm.started = true
 	pm.mu.Unlock()
 
@@ -787,6 +791,9 @@ func (pm *PoolManager) rebuildRunnerFuncForServiceLocked(ctx context.Context, ag
 // disabled, its service is closed and removed. Otherwise the factory and
 // runners are rebuilt.
 func (pm *PoolManager) SyncAgent(ctx context.Context, agentID string) error {
+	if pm.homeWorkspace == nil {
+		return errors.New("agent: PoolManager.SyncAgent requires WorkspaceViewer")
+	}
 	if pm.syncAgentBeforeLifecycleHook != nil {
 		pm.syncAgentBeforeLifecycleHook()
 	}
@@ -848,10 +855,14 @@ func (pm *PoolManager) removeAgentLocked(agentID string) error {
 }
 
 func (pm *PoolManager) loadAgentSnapshot(ctx context.Context, agentID string) (*config.Snapshot, string, error) {
-	workspace, err := SetupAgentWorkspace(config.StellaHome(), agentID)
+	if pm.homeWorkspace == nil {
+		return nil, "", errors.New("agent: load snapshot requires WorkspaceViewer")
+	}
+	view, err := pm.homeWorkspace.WorkspaceView(ctx, home.WorkspaceRequest{AgentID: agentID})
 	if err != nil {
 		return nil, "", fmt.Errorf("setup Agent definition workspace for %q: %w", agentID, err)
 	}
+	workspace := view.AgentRoot
 	snap, err := pm.snapshots.Snapshot(ctx, agentID)
 	if err != nil {
 		return nil, "", fmt.Errorf("load snapshot for agent %q: %w", agentID, err)

@@ -126,7 +126,7 @@ type setupResult struct {
 	shareSvc                 *sharepkg.Service
 	recallySvc               *recally.Service
 	assetStore               *asset.Store
-	homeRegistry             *home.Registry
+	workspaceManager         *home.WorkspaceManager
 	homeDeletion             *home.OwnerDeletion
 	workflowSvc              *workflowpkg.Service
 	embeddingSvc             *embedding.Service
@@ -196,27 +196,23 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// before deciding; the Agent domain is the shared read gate the others fold in.
 	agentAccess := agentaccess.NewService(store, authStore)
 
-	// Home registration is deliberately after the Phase 0 legacy-skill and
-	// bundle/tool gates: it may create directories, so it must not mutate a
-	// blocked installation.
-	homeRegistry, err := home.NewLocalRegistry(parent, db, cfg.Storage.HomeStoreID, config.StellaHome())
+	// One process-wide manager is the sole materializer beneath STELLA_HOME.
+	homeRegistry, err := home.NewWorkspaceManager(db, config.StellaHome())
 	if err != nil {
-		return nil, fmt.Errorf("build Home registry: %w", err)
+		return nil, fmt.Errorf("build workspace manager: %w", err)
 	}
-	// Record authority observation and adopt existing typed layouts before any
-	// runtime service can consume a Home attachment.
+	workspaceManagerOwned := true
+	defer func() {
+		if workspaceManagerOwned {
+			_ = homeRegistry.Close()
+		}
+	}()
 	blobStore, err := blob.NewStoreFromConfig(cfg.Blob)
 	if err != nil {
 		return nil, err
 	}
 	assetStore, err := asset.NewStore(config.StellaHome(), blobStore, slog.Default())
 	if err != nil {
-		return nil, err
-	}
-	if err := homeRegistry.ObserveMutableAssetObjectAuthority(parent, assetStore.SharedAuthority()); err != nil {
-		return nil, err
-	}
-	if err := homeRegistry.RegisterLegacy(parent); err != nil {
 		return nil, err
 	}
 
@@ -628,7 +624,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		shareSvc:                 shareSvc,
 		recallySvc:               recallySvc,
 		assetStore:               assetStore,
-		homeRegistry:             homeRegistry,
+		workspaceManager:         homeRegistry,
 		homeDeletion:             homeDeletion,
 		workflowSvc:              workflowSvc,
 		embeddingSvc:             embeddingSvc,
@@ -647,6 +643,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	// Ownership of the embedded server moves to result; clear the local so the
 	// cleanup defer above becomes a no-op on this success path.
+	workspaceManagerOwned = false
 	embedded = nil
 	return result, nil
 }

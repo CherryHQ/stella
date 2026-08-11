@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
@@ -19,7 +18,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-type ownerFenceRunner struct{ closed bool }
+type ownerFenceRunner struct{}
 
 func (*ownerFenceRunner) Chat(context.Context, []ai.Message, agentruntime.MessageContent) <-chan agentruntime.Event {
 	out := make(chan agentruntime.Event)
@@ -30,7 +29,7 @@ func (*ownerFenceRunner) Alive() bool             { return true }
 func (*ownerFenceRunner) Busy() bool              { return false }
 func (*ownerFenceRunner) LastActivity() time.Time { return time.Now() }
 func (*ownerFenceRunner) SystemPrompt() string    { return "" }
-func (r *ownerFenceRunner) Close() error          { r.closed = true; return nil }
+func (*ownerFenceRunner) Close() error            { return nil }
 
 type signalingFenceAcquirer struct {
 	delegate home.OwnerFenceAcquirer
@@ -46,7 +45,7 @@ func (f *signalingFenceAcquirer) AcquireHomeOwnerFence(ctx context.Context, kind
 func TestHomeOwnerDeletionWaitsForWorkspaceAdmissionWithoutDeadlock(t *testing.T) {
 	for _, kind := range []home.OwnerKind{home.OwnerUser, home.OwnerGroup, home.OwnerAgent} {
 		t.Run(string(kind), func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 			db := dbtest.New(t)
 			q := sqlc.New(db)
 			userID, agentID := uuid.NewString(), uuid.NewString()
@@ -61,34 +60,24 @@ func TestHomeOwnerDeletionWaitsForWorkspaceAdmissionWithoutDeadlock(t *testing.T
 					t.Fatal(err)
 				}
 			}
-			local, err := home.NewLocalStore("local", t.TempDir())
+			manager, err := home.NewWorkspaceManager(db, t.TempDir())
 			if err != nil {
 				t.Fatal(err)
 			}
-			registry, err := home.NewRegistry(db, local.ID(), local)
-			if err != nil {
-				t.Fatal(err)
-			}
-			factoryEntered := make(chan struct{})
-			releaseFactory := make(chan struct{})
-			var factoryOnce sync.Once
-			rt, err := agentruntime.New(agentruntime.Config{
-				Memory: memorytest.New(),
-				NewRunner: func(ctx context.Context, _ agentruntime.RunnerParams) (agentruntime.Runner, error) {
-					factoryOnce.Do(func() {
-						close(factoryEntered)
-						<-releaseFactory
-					})
-					req := home.WorkspaceRequest{UserID: userID, AgentID: agentID}
-					if kind == home.OwnerGroup {
-						req.GroupID = userID
-					}
-					if _, err := registry.WorkspaceView(ctx, req); err != nil {
-						return nil, err
-					}
-					return &ownerFenceRunner{}, nil
-				},
-			})
+			t.Cleanup(func() { _ = manager.Close() })
+			factoryEntered, releaseFactory := make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			rt, err := agentruntime.New(agentruntime.Config{Memory: memorytest.New(), NewRunner: func(ctx context.Context, _ agentruntime.RunnerParams) (agentruntime.Runner, error) {
+				once.Do(func() { close(factoryEntered); <-releaseFactory })
+				req := home.WorkspaceRequest{UserID: userID, AgentID: agentID}
+				if kind == home.OwnerGroup {
+					req.GroupID = userID
+				}
+				if _, err := manager.WorkspaceView(ctx, req); err != nil {
+					return nil, err
+				}
+				return &ownerFenceRunner{}, nil
+			}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -96,21 +85,17 @@ func TestHomeOwnerDeletionWaitsForWorkspaceAdmissionWithoutDeadlock(t *testing.T
 			svc := &Service{Runtime: rt, AgentID: agentID, lifecycle: pm.lifecycle}
 			pm.services[agentID] = svc
 			fencer := &signalingFenceAcquirer{delegate: pm, entered: make(chan struct{})}
-			deletion, err := home.NewOwnerDeletion(db, registry, fencer)
+			deletion, err := home.NewOwnerDeletion(db, manager, fencer)
 			if err != nil {
 				t.Fatal(err)
 			}
-
+			info := session.Info{ID: uuid.NewString(), UserID: userID, AgentID: agentID, Kind: string(session.KindChat), Channel: string(session.ChannelWeb)}
+			if kind == home.OwnerGroup {
+				info.GroupID = userID
+			}
 			admitDone := make(chan error, 1)
-			go func() {
-				info := session.Info{ID: uuid.NewString(), UserID: userID, AgentID: agentID, Kind: string(session.KindChat), Channel: string(session.ChannelWeb)}
-				if kind == home.OwnerGroup {
-					info.GroupID = userID
-				}
-				_, err := svc.admit(ctx, info, "turn")
-				admitDone <- err
-			}()
-			<-factoryEntered // admissionMu is held; WorkspaceView owner gate is not.
+			go func() { _, err := svc.admit(ctx, info, "turn"); admitDone <- err }()
+			<-factoryEntered
 			deleteDone := make(chan error, 1)
 			go func() {
 				switch kind {
@@ -123,106 +108,82 @@ func TestHomeOwnerDeletionWaitsForWorkspaceAdmissionWithoutDeadlock(t *testing.T
 				}
 			}()
 			<-fencer.entered
-			// With the former Home-gate-first order, deletion owns the Home gate
-			// here and releasing the factory creates the exact lock cycle.
 			close(releaseFactory)
-			select {
-			case err := <-admitDone:
-				if err != nil {
-					t.Fatalf("admission that won ordering failed: %v", err)
+			for label, done := range map[string]<-chan error{"admission": admitDone, "deletion": deleteDone} {
+				select {
+				case err := <-done:
+					if err != nil {
+						t.Fatalf("%s: %v", label, err)
+					}
+				case <-time.After(2 * time.Second):
+					t.Fatalf("%s deadlocked", label)
 				}
-			case <-time.After(2 * time.Second):
-				t.Fatal("admission deadlocked")
-			}
-			select {
-			case err := <-deleteDone:
-				if err != nil {
-					t.Fatalf("delete: %v", err)
-				}
-			case <-time.After(2 * time.Second):
-				t.Fatal("deletion deadlocked")
 			}
 			if kind == home.OwnerAgent && pm.GetService(agentID) != nil {
 				t.Fatal("Agent service remained published after commit")
 			}
-			if kind != home.OwnerAgent {
-				req := home.WorkspaceRequest{UserID: userID, AgentID: agentID}
-				if kind == home.OwnerGroup {
-					req.GroupID = userID
-				}
-				if _, err := registry.WorkspaceView(ctx, req); err == nil {
-					t.Fatal("WorkspaceView admitted after user tombstone")
-				}
-			} else if _, err := q.GetAgent(ctx, agentID); !errors.Is(err, pgx.ErrNoRows) {
-				t.Fatalf("Agent owner remains: %v", err)
+			if _, err := manager.WorkspaceView(ctx, home.WorkspaceRequest{UserID: userID, GroupID: info.GroupID, AgentID: agentID}); err == nil {
+				t.Fatal("WorkspaceView admitted after owner deletion")
 			}
 		})
 	}
 }
 
-func TestAgentOwnerDeletionRollbackKeepsServicePublished(t *testing.T) {
-	ctx := context.Background()
-	db := dbtest.New(t)
+func TestAgentOwnerDeletionRollbackKeepsExactServiceFreshAdmissible(t *testing.T) {
+	ctx, db := t.Context(), dbtest.New(t)
 	q := sqlc.New(db)
 	userID, agentID := uuid.NewString(), uuid.NewString()
-	if _, err := db.Exec(ctx, "INSERT INTO auth_user (id,email) VALUES ($1,$2)", userID, userID+"@test.invalid"); err != nil {
-		t.Fatal(err)
-	}
+	_, _ = db.Exec(ctx, "INSERT INTO auth_user (id,email) VALUES ($1,$2)", userID, userID+"@test.invalid")
 	if err := q.SeedAgent(ctx, sqlc.SeedAgentParams{ID: agentID, Name: "agent", Model: "test", Sandbox: []byte(`{}`), Scope: "system", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, "INSERT INTO webhook (id,user_id,agent_id,name,provider,wait_timeout_seconds,max_run_timeout_seconds,token_public_id,token_hash,token_last4) VALUES ($1,$2,$3,'x','generic',60,300,'public','hash','1234')", uuid.NewString(), userID, agentID); err != nil {
 		t.Fatal(err)
 	}
-	local, err := home.NewLocalStore("local", t.TempDir())
+	manager, err := home.NewWorkspaceManager(db, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry, err := home.NewRegistry(db, local.ID(), local)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rt, err := agentruntime.New(agentruntime.Config{Memory: memorytest.New(), NewRunner: func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) {
+	t.Cleanup(func() { _ = manager.Close() })
+	rt, _ := agentruntime.New(agentruntime.Config{Memory: memorytest.New(), NewRunner: func(ctx context.Context, _ agentruntime.RunnerParams) (agentruntime.Runner, error) {
+		if _, err := manager.WorkspaceView(ctx, home.WorkspaceRequest{UserID: userID, AgentID: agentID}); err != nil {
+			return nil, err
+		}
 		return &ownerFenceRunner{}, nil
 	}})
-	if err != nil {
-		t.Fatal(err)
-	}
 	pm := NewPoolManager(nil, memorytest.New())
 	svc := &Service{Runtime: rt, AgentID: agentID, lifecycle: pm.lifecycle}
 	pm.services[agentID] = svc
-	deletion, err := home.NewOwnerDeletion(db, registry, pm)
-	if err != nil {
-		t.Fatal(err)
-	}
+	deletion, _ := home.NewOwnerDeletion(db, manager, pm)
 	if err := deletion.DeleteAgent(ctx, agentID, "operator"); err == nil {
-		t.Fatal("FK-blocked Agent deletion succeeded")
+		t.Fatal("FK-blocked deletion succeeded")
 	}
 	if pm.GetService(agentID) != svc {
-		t.Fatal("failed transaction unpublished Agent service")
+		t.Fatal("rollback changed published Service")
 	}
 	if _, err := q.GetAgent(ctx, agentID); err != nil {
-		t.Fatalf("failed transaction deleted Agent owner: %v", err)
+		t.Fatalf("owner rolled back: %v", err)
 	}
-	if _, err := svc.admit(ctx, session.Info{ID: uuid.NewString(), UserID: userID, AgentID: agentID, Kind: string(session.KindChat), Channel: string(session.ChannelWeb)}, "after-rollback"); err != nil {
-		t.Fatalf("failed transaction left Agent service unusable: %v", err)
+	_, err = svc.admit(ctx, session.Info{ID: uuid.NewString(), UserID: userID, AgentID: agentID, Kind: string(session.KindChat), Channel: string(session.ChannelWeb)}, "fresh")
+	if err != nil {
+		t.Fatalf("fresh admission after rollback: %v", err)
 	}
 }
 
 func TestAcquireHomeOwnerFenceCancellationDoesNotLeakLifecycleGate(t *testing.T) {
 	pm := NewPoolManager(nil, memorytest.New())
-	if err := pm.lifecycle.lockShared(context.Background()); err != nil {
+	if err := pm.lifecycle.lockShared(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
 	defer cancel()
 	if _, err := pm.AcquireHomeOwnerFence(ctx, home.OwnerUser, "user"); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("AcquireHomeOwnerFence = %v, want deadline", err)
+		t.Fatalf("got %v", err)
 	}
 	pm.lifecycle.unlockShared()
-	lease, err := pm.AcquireHomeOwnerFence(context.Background(), home.OwnerUser, "user")
+	lease, err := pm.AcquireHomeOwnerFence(t.Context(), home.OwnerUser, "user")
 	if err != nil {
-		t.Fatalf("acquire after cancellation: %v", err)
+		t.Fatal(err)
 	}
 	lease.Release()
 }

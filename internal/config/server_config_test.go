@@ -36,21 +36,8 @@ func TestLoadServerConfigDefaults(t *testing.T) {
 	if cfg.Database.URL != "" {
 		t.Errorf("Database.URL = %q, want empty", cfg.Database.URL)
 	}
-	if cfg.Storage.HomeStoreID != "local" {
-		t.Errorf("HomeStoreID = %q, want local", cfg.Storage.HomeStoreID)
-	}
 	if cfg.ServerURL != "http://127.0.0.1:25678" {
 		t.Errorf("ServerURL = %q, want default", cfg.ServerURL)
-	}
-}
-
-func TestLoadServerConfigHomeStoreID(t *testing.T) {
-	cfg, err := LoadServerConfig(lookupFrom(map[string]string{homeStoreIDEnv: " durable-local "}))
-	if err != nil || cfg.Storage.HomeStoreID != "durable-local" {
-		t.Fatalf("HomeStoreID = %q, %v", cfg.Storage.HomeStoreID, err)
-	}
-	if _, err := LoadServerConfig(lookupFrom(map[string]string{homeStoreIDEnv: "bad/store"})); err == nil {
-		t.Fatal("path-like Home Store ID accepted")
 	}
 }
 

@@ -8,10 +8,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -27,7 +30,12 @@ func newSyncLifecyclePool(t *testing.T, agentID string) (*PoolManager, *cfgstore
 		t.Fatal(err)
 	}
 	store := cfgstore.NewDBStore(db)
-	pm := NewPoolManager(store, memorytest.New())
+	workspaces, err := home.NewWorkspaceManager(db, config.StellaHome())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = workspaces.Close() })
+	pm := NewPoolManager(store, memorytest.New(), WithHomeWorkspace(workspaces))
 	if err := pm.BindSessionAccess(fakePoolSessionAccess{}); err != nil {
 		t.Fatal(err)
 	}
@@ -48,6 +56,16 @@ func waitSyncLifecycleSignal(t *testing.T, ch <-chan struct{}, name string) {
 	case <-time.After(2 * time.Second):
 		t.Fatalf("timed out waiting for %s", name)
 	}
+}
+
+func lifecycleWorkspace(t *testing.T, db *pgxpool.Pool) home.WorkspaceViewer {
+	t.Helper()
+	v, err := home.NewWorkspaceManager(db, config.StellaHome())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = v.Close() })
+	return v
 }
 
 func waitSyncLifecycleResult(t *testing.T, ch <-chan error, name string) error {
@@ -71,7 +89,7 @@ func TestConcurrentSyncAgentPublishesOneService(t *testing.T) {
 	if err := sqlc.New(db).SeedAgent(ctx, sqlc.SeedAgentParams{ID: agentID, Name: "agent", Model: "test", SystemPrompt: "newest", Sandbox: []byte(`{}`), Scope: "system", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	pm := NewPoolManager(cfgstore.NewDBStore(db), memorytest.New())
+	pm := NewPoolManager(cfgstore.NewDBStore(db), memorytest.New(), WithHomeWorkspace(lifecycleWorkspace(t, db)))
 	if err := pm.BindSessionAccess(fakePoolSessionAccess{}); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +131,7 @@ func TestStartAgentAndCloseSerializeLifecycle(t *testing.T) {
 	if err := sqlc.New(db).SeedAgent(ctx, sqlc.SeedAgentParams{ID: agentID, Name: "agent", Model: "test", Sandbox: []byte(`{}`), Scope: "system", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	pm := NewPoolManager(cfgstore.NewDBStore(db), memorytest.New())
+	pm := NewPoolManager(cfgstore.NewDBStore(db), memorytest.New(), WithHomeWorkspace(lifecycleWorkspace(t, db)))
 	if err := pm.BindSessionAccess(fakePoolSessionAccess{}); err != nil {
 		t.Fatal(err)
 	}

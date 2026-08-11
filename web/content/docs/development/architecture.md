@@ -55,7 +55,7 @@ internal/
   controlplane/        Control-plane domain (providers, settings, plugins, channels)
   pluginhost/          Capability-scoped plugin platform host
   db/                  PostgreSQL (pgx/v5), goose migrations, sqlc queries
-  home/                Typed Home registry, local compatibility projection, deletion lifecycle
+  home/                POSIX workspace materialization, owner validation, deletion fencing
   scheduler/           River-backed service (durable job scheduling for Web UI and native agent tools)
   skills/              Skills tool (search/install/list/remove via skills.sh)
 pkg/
@@ -79,9 +79,9 @@ Configuration is stored in PostgreSQL and accessed through the `config.Store` in
 
 ## Home persistence and lifecycle
 
-`internal/home` owns typed persistent Home identity: user and group Principal Homes, per-principal Agent Homes, and narrow system and system-Agent Skill roots. PostgreSQL stores each Home's immutable Store ID, opaque locator, and lifecycle state; the Phase 1 local store preserves the current path layout as an internal compatibility projection. Registry metadata does not recover file bytes, so durable Principal and Agent Home storage must be backed up with PostgreSQL.
+`internal/home.WorkspaceManager` is the sole production materializer beneath one POSIX `STELLA_HOME`. PostgreSQL user, group, and Agent rows authorize deterministic local paths; the filesystem owns layout and bytes. A missing workspace for live owners is created, while a symlink, non-directory, unsafe ID, or replaced trusted root fails closed. Existing files are never registered into a PostgreSQL Home catalog because Phase 1 has no such catalog.
 
-An explicit destructive group or Agent delete fences local cached execution before tombstoning Homes and removing the owner in one transaction. User deletion has the same internal lifecycle primitive, pending integration with the product account-delete flow. Tombstoned identities and locators remain permanently reserved; Phase 1 preserves their physical bytes and has no Home purge worker. Assignment removal, member removal, Session archive, and Helm uninstall are not Home deletion operations. Attachments identify requested Home access but do not themselves confer authority. This is a single-replica boundary; physical destruction after the provider/filesystem boundary, multi-replica topology, and cross-replica SessionSandbox fencing are future work.
+An explicit destructive user, group, or Agent delete fences local cached execution before deleting the owner in the existing database transaction. Physical bytes and inodes remain, but owner validation prevents later workspace access. A filesystem entry of any kind at `agents/{id}` reserves the global Agent ID. Assignment removal, member removal, Session archive, and Helm uninstall do not delete workspace bytes. This is a trusted-host, single-replica boundary; multi-replica, Kubernetes, and S3 storage authority require a future design.
 
 ## Composition & Lifecycle
 

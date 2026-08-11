@@ -55,7 +55,7 @@ internal/
   controlplane/        控制面域（providers、settings、plugins、channels）
   pluginhost/          按能力限定的插件平台宿主
   db/                  PostgreSQL（pgx/v5）、goose 迁移、sqlc 查询
-  home/                类型化 Home registry、local 兼容投影、删除生命周期
+  home/                POSIX workspace 物化、所有者验证、删除 fence
   scheduler/           River 持久化调度服务（供 Web UI 和 Agent 原生工具使用）
   skills/              技能工具（通过 skills.sh 搜索/安装/列出/移除）
 pkg/
@@ -79,9 +79,9 @@ plugins/
 
 ## Home 持久化与生命周期
 
-`internal/home` 自持类型化持久 Home 的身份：用户与群组 Principal Home、每 Principal 的 Agent Home，以及窄范围的 system 与 system-Agent Skill 根。PostgreSQL 存储每个 Home 的不可变 Store ID、不透明 locator 与生命周期状态；Phase 1 的 local store 将当前路径布局保留为内部兼容投影。registry 元数据不能恢复文件字节，因此必须将持久 Principal、Agent Home 存储与 PostgreSQL 一起备份。
+`internal/home.WorkspaceManager` 是单个 POSIX `STELLA_HOME` 下唯一的生产物化器。PostgreSQL user、group 与 Agent row 授权确定性本地路径；文件系统拥有布局和字节。owner 存活时会创建缺失 workspace；symlink、非目录、不安全 ID 或可信根被替换时会 fail closed。Phase 1 不存在 PostgreSQL Home catalog。
 
-显式破坏性删除群组或 Agent 时，会先 fence 本地缓存的执行，再在同一事务中 tombstone Home 并删除所有者。用户删除具备相同的内部生命周期 primitive，但仍待产品账号删除流程集成。tombstone 后的身份与 locator 会永久保留；Phase 1 保留物理字节，且没有 Home 清除 worker。移除分配、移除成员、归档 Session 和卸载 Helm 都不是 Home 删除操作。attachment 标识请求的 Home 访问，但本身不授予 authority。这是单副本边界；provider/filesystem 边界之后的物理删除、多副本拓扑和跨副本 SessionSandbox fencing 属于未来工作。
+显式破坏性删除 user、group 或 Agent 时，会先 fence 本地缓存执行，再在既有数据库事务中删除 owner。物理字节和 inode 保留，但 owner 校验阻止后续 workspace 访问。`agents/{id}` 的任意文件系统条目都会保留该全局 Agent ID。移除分配、移除成员、归档 Session 和卸载 Helm 不删除 workspace 字节。这是可信宿主、单副本边界；多副本、Kubernetes 与 S3 authority 需要未来设计。
 
 ## 组合与生命周期
 

@@ -60,7 +60,11 @@ func (f fakeProviders) ListProviderIDs(context.Context) ([]string, error) {
 
 func newCredManagement(agents *fakeAgents, assign *fakeAssign, reloader AgentReloader, creds CredentialWriter, providers ProviderReader) *Management {
 	pep := NewService(agents, assign)
-	return NewManagement(pep, agents, assign, reloader, fakeUsers{}, nil, creds, providers, nil)
+	return NewManagement(pep, agents, assign, reloader, fakeUsers{}, nil, creds, providers, nil,
+		WithAgentIDOccupancy(freeAgentIDOccupancy{}),
+		WithOwnerDeletion(fakeOwnerDeletion{deleteAgent: func(ctx context.Context, id, _ string) error {
+			return agents.DeleteAgent(ctx, id)
+		}}))
 }
 
 func credAgent() *fakeAgents {

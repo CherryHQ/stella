@@ -51,13 +51,13 @@ Phase 1 还在 PostgreSQL 中记录了类型化 Home 的身份和生命周期元
 
 当前 local store 保留兼容路径：`users/{id}/data/` 和 `users/group-{id}/data/` 分别是用户和群组 Principal Home；`users/{principal}/agents/{id}/` 是每个 Principal 的 Agent Home。Agent Home 保存该 Principal 的可变工作树与项目文件。Principal 数据或 Agent Home 的文件字节不会镜像到 PostgreSQL，S3 也只按上文所述镜像资产。它们属于持久数据：使用持久存储并将工作负载固定到一个副本。带检查点的多副本执行属于未来工作——现在不要假定它存在。
 
-这些路径是当前 local 的兼容坐标，不是 Home 身份。Home 具有稳定的 registry 元数据，包括 Store ID 和不透明 locator，因此未来的存储实现无需保留这些路径形状。
+这些确定性路径是当前单副本 POSIX 产品的存储布局。PostgreSQL owner row 授权访问，文件系统保留字节。未来多副本、Kubernetes 或 S3 存储需要重新设计，也无需保留这些路径形状。
 
-PostgreSQL 是 Home 身份与生命周期的权威，配置的 Store 是文件字节的权威。`ready` registry 记录绝不会让 Stella 重建缺失的根目录；根目录缺失、不是目录或为符号链接时，解析会失败。LocalStore 在每个有界的重新校验区间内保留目录 pin，并能检测该区间内发生的替换；但对于跨操作或进程重启的受信任主机侧替换，它不提供持久 inode 身份。恢复、存储迁移和 Home 根目录清理只能在 Stella 已停止或所有消费者均已 fence 时执行，并应从同一份一致性备份中恢复 Home 字节与 PostgreSQL 元数据。
+Stella 仅支持一个副本和一个 POSIX `STELLA_HOME`。PostgreSQL 中的用户、群组、Agent 与分配记录仍是身份和授权权威；目录没有 PostgreSQL catalog。确定性根目录为 `users/<user-id>`、`users/group-<group-id>`、其中的 `agents/<agent-id>`，以及全局 `agents/<agent-id>`。文件系统是布局和数据权威。活跃所有者缺少根目录时会创建根及内部 scaffold；符号链接、非目录和不安全 ID 会被拒绝。主机属于受信任边界。
 
 ## 破坏性所有者删除
 
-显式破坏性删除群组或 Agent 时，会先 fence 本地缓存的执行，再在同一数据库事务中 tombstone 其 Home 并删除所有者。破坏性用户删除具备相同的内部生命周期 primitive，但产品账号删除尚未与它集成。tombstone 后的身份与 locator 会永久保留，不能 attachment 或重新创建，物理字节则被有意保留。移除 Agent 分配、移除群成员、归档 Session 和卸载 Helm 都**不会** tombstone Home。
+显式破坏性删除按“进程生命周期 fence → 本地所有者 gate → 现有数据库删除事务”的顺序执行。文件字节和 inode 保留；提交后，所有者存在性检查会拒绝新的 workspace view 和 admission。全局 `agents/<agent-id>` 中的任何孤儿条目（文件、目录或符号链接）都会保留该 Agent ID；受信任主机手动删除后才允许复用。未来的多副本、S3 数据权威、generation 和分布式 lease 需要重新设计。
 
 在单个 server 进程内，一个 writer-prioritized admission barrier 防止 runner setup 与破坏性删除竞态。同步 runner 选择与 Home 解析结束后即释放 barrier，不等待 active Turn 完成。这是 single-replica 保证，不是 distributed lease。未来 multi-replica 必须在每个进程的本地 barrier 之外增加 PostgreSQL generation/lease。durable management 变更后的 best-effort runtime refresh 若失败，可能保持 stale，直到后续 reconcile。
 
