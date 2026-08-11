@@ -62,6 +62,18 @@ func TestDesiredScopes_UnionAndPolicy(t *testing.T) {
 	}
 }
 
+func TestPolicyNarrowingFiltersHistoricalDesiredScopes(t *testing.T) {
+	bundle := &oauth.OAuthBundle{DesiredScopes: []string{"profile", "documents.read"}}
+	stored := bundleDesiredScopes(bundle, []string{"profile"})
+	policy := []string{"profile"}
+	if removed := missingScopes(stored, policy); !reflect.DeepEqual(removed, []string{"documents.read"}) {
+		t.Fatalf("removed scopes = %v, want [documents.read]", removed)
+	}
+	if got := allowedScopes(stored, policy); !reflect.DeepEqual(got, []string{"profile"}) {
+		t.Fatalf("filtered desired scopes = %v, want [profile]", got)
+	}
+}
+
 func TestReconnectDecision(t *testing.T) {
 	tests := []struct {
 		name          string

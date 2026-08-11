@@ -170,6 +170,10 @@ func (b *AuthCodeBroker) Poll(ctx context.Context, flowID string) (FlowStatus, e
 	if !ok {
 		return FlowStatus{}, fmt.Errorf("oauth: unknown flow %q", flowID)
 	}
+	if status.State == FlowStateCompleting {
+		status.State = FlowStatePending
+		return status, nil
+	}
 	if status.State != FlowStatePending {
 		return status, nil
 	}
@@ -183,9 +187,9 @@ func (b *AuthCodeBroker) Poll(ctx context.Context, flowID string) (FlowStatus, e
 // Complete exchanges an authorization code for tokens and returns the token.
 // The code comes from the OAuth callback handler's query parameter.
 func (b *AuthCodeBroker) Complete(ctx context.Context, flowID string, code string) (*oauth2.Token, error) {
-	flow, ok := b.store.Get(flowID)
+	flow, ok := b.store.Claim(flowID)
 	if !ok {
-		return nil, fmt.Errorf("oauth: unknown flow %q", flowID)
+		return nil, fmt.Errorf("oauth: flow %q is expired, already completing, or already completed", flowID)
 	}
 
 	var opts []oauth2.AuthCodeOption
@@ -194,6 +198,7 @@ func (b *AuthCodeBroker) Complete(ctx context.Context, flowID string, code strin
 	}
 	tok, err := b.cfg.Exchange(ctx, code, opts...)
 	if err != nil {
+		b.store.Update(flowID, FlowStateFailed, func(fs *FlowStatus) { fs.Error = err.Error() })
 		return nil, fmt.Errorf("oauth: exchange code: %w", err)
 	}
 

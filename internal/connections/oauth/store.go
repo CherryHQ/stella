@@ -31,12 +31,32 @@ func (s *FlowStore) CreateExclusive(status FlowStatus) bool {
 	defer s.mu.Unlock()
 	now := time.Now()
 	for _, flow := range s.flows {
-		if flow.UserID == status.UserID && flow.Provider == status.Provider && flow.State == FlowStatePending && now.Before(flow.ExpiresAt) {
+		live := (flow.State == FlowStatePending && now.Before(flow.ExpiresAt)) || flow.State == FlowStateCompleting
+		if flow.UserID == status.UserID && flow.Provider == status.Provider && live {
 			return false
 		}
 	}
 	s.flows[status.FlowID] = status
 	return true
+}
+
+// Claim atomically moves a live pending flow into completing state. It rejects
+// expired and replayed callbacks before any token exchange occurs.
+func (s *FlowStore) Claim(flowID string) (FlowStatus, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	flow, ok := s.flows[flowID]
+	if !ok || flow.State != FlowStatePending {
+		return FlowStatus{}, false
+	}
+	if !time.Now().Before(flow.ExpiresAt) {
+		flow.State = FlowStateExpired
+		s.flows[flowID] = flow
+		return FlowStatus{}, false
+	}
+	flow.State = FlowStateCompleting
+	s.flows[flowID] = flow
+	return flow, true
 }
 
 // Get returns the FlowStatus for flowID, or false if not found.

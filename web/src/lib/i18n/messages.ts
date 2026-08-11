@@ -1670,6 +1670,8 @@ const en = {
     "Reconnect to grant {{count}} newly requested scope(s).",
   "credentials.oauth.reconnectRotated":
     "The app credentials changed. Reconnect to keep this connection working.",
+  "credentials.oauth.reconnectPolicyChanged":
+    "The administrator narrowed the allowed scopes. Reconnect to apply the new policy.",
   "credentials.oauth.reconnectGeneric": "This connection needs to be re-authorized.",
   "credentials.oauth.accessExpires": "Access token expires",
   "credentials.oauth.refreshExpires": "Refresh token expires",
@@ -3935,6 +3937,8 @@ const zh: Record<MessageKey, string> = {
   "credentials.oauth.reconnect": "重新连接",
   "credentials.oauth.reconnectMissingScopes": "重新连接以授予 {{count}} 个新请求的权限范围。",
   "credentials.oauth.reconnectRotated": "应用凭据已变更。请重新连接以保持此连接可用。",
+  "credentials.oauth.reconnectPolicyChanged":
+    "管理员已收窄允许的权限范围。请重新连接以应用新策略。",
   "credentials.oauth.reconnectGeneric": "此连接需要重新授权。",
   "credentials.oauth.accessExpires": "访问令牌过期时间",
   "credentials.oauth.refreshExpires": "刷新令牌过期时间",

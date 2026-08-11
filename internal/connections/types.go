@@ -14,6 +14,9 @@ const (
 	// ReconnectReasonMissingScopes means the granted scopes lack one or more
 	// currently-requested scopes.
 	ReconnectReasonMissingScopes = "missing_scopes"
+	// ReconnectReasonScopePolicyChanged means the user's cumulative desired
+	// scopes contain entries the administrator no longer allows.
+	ReconnectReasonScopePolicyChanged = "scope_policy_changed"
 )
 
 // ScopeNotAllowedError reports a user-requested scope rejected by the

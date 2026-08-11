@@ -111,3 +111,34 @@ func TestDeviceCodeBroker_PersistFailureSetsError(t *testing.T) {
 		t.Errorf("Error = %q, want %q", failed.Error, persistErr.Error())
 	}
 }
+
+func TestAuthCodeBrokerCompleteClaimsFlowOnce(t *testing.T) {
+	tokenCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokenCalls++
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "access", "token_type": "Bearer", "expires_in": 3600,
+		})
+	}))
+	defer srv.Close()
+
+	store := NewFlowStore()
+	broker := NewAuthCodeBroker(&oauth2.Config{
+		ClientID: "client",
+		Endpoint: oauth2.Endpoint{AuthURL: "https://example.com/authorize", TokenURL: srv.URL},
+	}, store, false)
+	flow, err := broker.StartFlow(context.Background(), ProviderGitHub, "user-1", []string{"repo"})
+	if err != nil {
+		t.Fatalf("StartFlow: %v", err)
+	}
+	if _, err := broker.Complete(context.Background(), flow.FlowID, "code"); err != nil {
+		t.Fatalf("first Complete: %v", err)
+	}
+	if _, err := broker.Complete(context.Background(), flow.FlowID, "code"); err == nil {
+		t.Fatal("replayed Complete succeeded")
+	}
+	if tokenCalls != 1 {
+		t.Fatalf("token endpoint calls = %d, want 1", tokenCalls)
+	}
+}

@@ -108,7 +108,7 @@ components:
           description: True when the user must re-authorize to stay usable.
         reconnect_reason:
           type: string
-          enum: [credentials_rotated, missing_scopes]
+          enum: [credentials_rotated, missing_scopes, scope_policy_changed]
           description: Why a reconnect is needed, when needs_reconnect is true.
 
     OAuthProviderConfig:

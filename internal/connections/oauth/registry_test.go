@@ -46,6 +46,24 @@ func TestProviderRegistry_GetAndVaultKeyAndIDs(t *testing.T) {
 	}
 }
 
+func TestBundleChangedSinceRefreshStartedDetectsNewAuthorization(t *testing.T) {
+	original := &OAuthBundle{
+		ClientID: "client", AccessToken: "old-access", RefreshToken: "old-refresh",
+		DesiredScopes: []string{"profile"}, GrantedScope: "profile",
+	}
+	unchanged := *original
+	if bundleChangedSinceRefreshStarted(original, &unchanged) {
+		t.Fatal("identical bundle reported as changed")
+	}
+	authorized := unchanged
+	authorized.AccessToken = "new-access"
+	authorized.RefreshToken = "new-refresh"
+	authorized.DesiredScopes = []string{"profile", "documents.read"}
+	if !bundleChangedSinceRefreshStarted(original, &authorized) {
+		t.Fatal("new authorization was not detected")
+	}
+}
+
 func TestNeedsRefresh(t *testing.T) {
 	now := time.Now()
 

@@ -65,6 +65,8 @@ Admins can override either set with its scope editor:
 
 Saving applies the checked policy. Changing defaults does **not** silently widen already-issued tokens. When a tool needs another allowed scope, Stella unions it into that user's desired scopes and asks only that user to authorize again; other users remain connected.
 
+If an administrator narrows the allowlist, Stella removes the disallowed scopes from that user's next authorization request and marks the connection for reconnect. OAuth providers may retain previously granted scopes; disconnect and revoke the provider-side grant when strict removal is required.
+
 ### Reconnect semantics
 
 A connection can be **connected** yet still need action. The provider shows a **Reconnect needed** state when either:

@@ -19,6 +19,7 @@ type FlowState string
 
 const (
 	FlowStatePending    FlowState = "pending"
+	FlowStateCompleting FlowState = "completing"
 	FlowStateAuthorized FlowState = "authorized"
 	FlowStateFailed     FlowState = "failed"
 	FlowStateExpired    FlowState = "expired"

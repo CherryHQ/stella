@@ -126,3 +126,24 @@ func TestFlowStoreCreateExclusiveRejectsConcurrentUserProviderFlow(t *testing.T)
 		t.Fatal("different user should have an independent flow")
 	}
 }
+
+func TestFlowStoreClaimRejectsReplayAndExpiredFlow(t *testing.T) {
+	s := NewFlowStore()
+	s.Create(FlowStatus{FlowID: "live", State: FlowStatePending, ExpiresAt: time.Now().Add(time.Minute)})
+	claimed, ok := s.Claim("live")
+	if !ok || claimed.State != FlowStateCompleting {
+		t.Fatalf("Claim(live) = (%+v, %v), want completing", claimed, ok)
+	}
+	if _, ok := s.Claim("live"); ok {
+		t.Fatal("replayed Claim(live) succeeded")
+	}
+
+	s.Create(FlowStatus{FlowID: "expired", State: FlowStatePending, ExpiresAt: time.Now().Add(-time.Second)})
+	if _, ok := s.Claim("expired"); ok {
+		t.Fatal("Claim(expired) succeeded")
+	}
+	got, _ := s.Get("expired")
+	if got.State != FlowStateExpired {
+		t.Fatalf("expired state = %q, want %q", got.State, FlowStateExpired)
+	}
+}

@@ -892,7 +892,9 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
                 })
               : sp.reconnect_reason === "credentials_rotated"
                 ? t("credentials.oauth.reconnectRotated")
-                : t("credentials.oauth.reconnectGeneric")}
+                : sp.reconnect_reason === "scope_policy_changed"
+                  ? t("credentials.oauth.reconnectPolicyChanged")
+                  : t("credentials.oauth.reconnectGeneric")}
           </p>
           {sp.reconnect_reason === "missing_scopes" && spMissingScopes.length > 0 && (
             <ul className="flex flex-wrap gap-1">

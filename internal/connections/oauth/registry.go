@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -49,8 +50,9 @@ type ProviderConfig struct {
 // ProviderRegistry maps OAuth provider IDs to their static ProviderConfig.
 // It is populated from manifest oauth_providers at runtime.
 type ProviderRegistry struct {
-	mu      sync.RWMutex
-	entries map[string]ProviderConfig
+	mu          sync.RWMutex
+	entries     map[string]ProviderConfig
+	bundleLocks sync.Map // user/provider -> *sync.Mutex
 }
 
 // NewProviderRegistry returns an empty registry.
@@ -123,11 +125,37 @@ func (r *ProviderRegistry) GetToken(ctx context.Context, vs VaultStore, provider
 	if !ok {
 		return nil, fmt.Errorf("oauth: unknown provider: %s", providerID)
 	}
-	bundle, err := LoadOAuthBundle(ctx, vs, userID, cfg.VaultKey)
-	if err != nil {
-		return nil, fmt.Errorf("oauth: get token for provider %s: %w", providerID, err)
+	return withBundleLock(r, providerID, userID, func() (*OAuthBundle, error) {
+		bundle, err := LoadOAuthBundle(ctx, vs, userID, cfg.VaultKey)
+		if err != nil {
+			return nil, fmt.Errorf("oauth: get token for provider %s: %w", providerID, err)
+		}
+		return r.resolveToken(ctx, vs, cfg, providerID, userID, bundle, minValidity)
+	})
+}
+
+// SaveBundle serializes an authorization completion against refreshes for the
+// same user/provider in this process. Multi-replica safety also relies on the
+// write-before-save reload in tryRefresh; upgrade the vault to CAS if concurrent
+// grants across replicas become a supported throughput requirement.
+func (r *ProviderRegistry) SaveBundle(ctx context.Context, vs VaultStore, providerID, userID string, bundle OAuthBundle) error {
+	cfg, ok := r.providerConfig(providerID)
+	if !ok {
+		return fmt.Errorf("oauth: unknown provider: %s", providerID)
 	}
-	return r.resolveToken(ctx, vs, cfg, providerID, userID, bundle, minValidity)
+	_, err := withBundleLock(r, providerID, userID, func() (*OAuthBundle, error) {
+		return nil, SaveOAuthBundle(ctx, vs, userID, cfg.VaultKey, bundle)
+	})
+	return err
+}
+
+func withBundleLock[T any](r *ProviderRegistry, providerID, userID string, fn func() (T, error)) (T, error) {
+	key := providerID + "\x00" + userID
+	value, _ := r.bundleLocks.LoadOrStore(key, &sync.Mutex{})
+	mu := value.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+	return fn()
 }
 
 func (r *ProviderRegistry) providerConfig(providerID string) (ProviderConfig, bool) {
@@ -287,10 +315,35 @@ func (r *ProviderRegistry) tryRefresh(ctx context.Context, vs VaultStore, cfg Pr
 		updated.GrantedScope = scope
 	}
 
+	// A different replica may have completed a newer authorization while this
+	// refresh request was in flight. Never overwrite that bundle with a result
+	// derived from the stale token snapshot.
+	latest, loadErr := LoadOAuthBundle(ctx, vs, userID, cfg.VaultKey)
+	if loadErr != nil {
+		return nil, fmt.Errorf("reload bundle before refresh save: %w", loadErr)
+	}
+	if bundleChangedSinceRefreshStarted(bundle, latest) {
+		return latest, nil
+	}
+
 	if err := SaveOAuthBundle(ctx, vs, userID, cfg.VaultKey, updated); err != nil {
 		return nil, fmt.Errorf("save refreshed token: %w", err)
 	}
 	slog.Info("oauth: token refreshed", "provider", cfg.ID, "user_id", userID,
 		"expires_at", updated.AccessExpiresAt)
 	return &updated, nil
+}
+
+func bundleChangedSinceRefreshStarted(original, latest *OAuthBundle) bool {
+	if latest == nil {
+		return original != nil
+	}
+	if original == nil {
+		return true
+	}
+	return latest.ClientID != original.ClientID ||
+		latest.AccessToken != original.AccessToken ||
+		latest.RefreshToken != original.RefreshToken ||
+		latest.GrantedScope != original.GrantedScope ||
+		!slices.Equal(latest.DesiredScopes, original.DesiredScopes)
 }

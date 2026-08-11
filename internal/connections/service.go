@@ -275,17 +275,28 @@ func (s *Service) desiredScopes(ctx context.Context, userID, providerID string, 
 		if err != nil {
 			return nil, fmt.Errorf("load %s oauth scopes: %w", providerID, err)
 		}
-		if bundle != nil && len(bundle.DesiredScopes) > 0 {
-			base = bundle.DesiredScopes
-		} else if bundle != nil && bundle.GrantedScope != "" {
-			base = strings.Fields(bundle.GrantedScope)
+		if bundle != nil {
+			base = bundleDesiredScopes(bundle, base)
 		}
 	}
-	desired := unionScopes(base, requested)
-	if denied := missingScopes(desired, s.providerAllowedScopes(ctx, providerID)); len(denied) > 0 {
+	policy := s.providerAllowedScopes(ctx, providerID)
+	// Policy narrowing removes historical desired scopes from the next flow;
+	// requested additions are still rejected explicitly rather than dropped.
+	base = allowedScopes(base, policy)
+	if denied := missingScopes(requested, policy); len(denied) > 0 {
 		return nil, &ScopeNotAllowedError{Provider: providerID, Scopes: denied}
 	}
-	return desired, nil
+	return unionScopes(base, requested), nil
+}
+
+func bundleDesiredScopes(bundle *oauth.OAuthBundle, defaults []string) []string {
+	if len(bundle.DesiredScopes) > 0 {
+		return append([]string(nil), bundle.DesiredScopes...)
+	}
+	if bundle.GrantedScope != "" {
+		return strings.Fields(bundle.GrantedScope)
+	}
+	return append([]string(nil), defaults...)
 }
 
 // GetOAuthProviderConfig returns the effective config for a provider:
@@ -425,10 +436,6 @@ func (s *Service) saveBundle(ctx context.Context, providerID, userID, accessToke
 	if s.registry == nil {
 		return fmt.Errorf("provider registry not set")
 	}
-	providerCfg, ok := s.registry.Get(providerID)
-	if !ok {
-		return fmt.Errorf("unknown provider: %s", providerID)
-	}
 	clientID, clientSecret, _, err := s.providerCredentials(ctx, providerID)
 	if err != nil {
 		return err
@@ -450,7 +457,7 @@ func (s *Service) saveBundle(ctx context.Context, providerID, userID, accessToke
 	case "feishu":
 		bundle.Brand = "feishu"
 	}
-	return oauth.SaveOAuthBundle(ctx, s.vaultSvc, userID, providerCfg.VaultKey, bundle)
+	return s.registry.SaveBundle(ctx, s.vaultSvc, providerID, userID, bundle)
 }
 
 // --- vault operations ---
@@ -595,10 +602,10 @@ func (s *Service) getProviderStatus(ctx context.Context, userID string, provider
 		ps.AccessExpiresAt = bundle.AccessExpiresAt.UTC()
 		ps.RefreshExpiresAt = bundle.RefreshExpiresAt.UTC()
 
-		requested := bundle.DesiredScopes
-		if len(requested) == 0 {
-			requested = ps.RequestedScopes
-		}
+		requested := bundleDesiredScopes(bundle, ps.RequestedScopes)
+		policy := s.providerAllowedScopes(ctx, provider)
+		policyDenied := missingScopes(requested, policy)
+		requested = allowedScopes(requested, policy)
 		ps.RequestedScopes = append([]string(nil), requested...)
 
 		// Empty GrantedScope means unknown (pre-capture bundle), not "no scopes".
@@ -615,6 +622,10 @@ func (s *Service) getProviderStatus(ctx context.Context, userID string, provider
 		if effectiveClientID, _, _, cerr := s.providerCredentials(ctx, provider); cerr == nil {
 			ps.NeedsReconnect, ps.ReconnectReason = reconnectDecision(
 				bundle.ClientID, effectiveClientID, requested, granted, grantedKnown)
+			if !ps.NeedsReconnect && len(policyDenied) > 0 {
+				ps.NeedsReconnect = true
+				ps.ReconnectReason = ReconnectReasonScopePolicyChanged
+			}
 		}
 	}
 	return ps
@@ -771,6 +782,7 @@ func (s *Service) CompleteAuthCodeFlowWithOrigin(ctx context.Context, provider, 
 	}
 
 	if err := s.saveToken(ctx, provider, flow.UserID, tok, flow.DesiredScopes); err != nil {
+		s.flowStore.Update(flowID, oauth.FlowStateFailed, func(fs *oauth.FlowStatus) { fs.Error = err.Error() })
 		return fmt.Errorf("save %s token: %w", provider, err)
 	}
 	// Match device-flow ordering: persistence is complete before observers can
