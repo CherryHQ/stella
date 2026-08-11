@@ -444,6 +444,8 @@ func TestInactiveReadyChunkSetDoesNotChangePublishedGeneration(t *testing.T) {
 
 type parserFunc func(context.Context, string, string) ([]ParsedChunk, error)
 
+func (parserFunc) Profile(string) (string, error) { return testParserProfile, nil }
+
 func (f parserFunc) Parse(ctx context.Context, path, mediaType string) ([]ParsedChunk, error) {
 	return f(ctx, path, mediaType)
 }
@@ -466,7 +468,7 @@ func newWorkingLibraryServiceWithWorkers(
 ) (*Service, *river.Client[pgx.Tx]) {
 	t.Helper()
 	service, err := NewService(ServiceConfig{
-		DB: database, RawStore: store, Parser: parser, ParserProfile: testParserProfile,
+		DB: database, RawStore: store, Parser: parser,
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), TempDir: t.TempDir(),
 		MaxConcurrentUploads: 4, MaxSpoolBytes: 4 * MaxFileBytes,
 		ReconciliationInterval: time.Hour, MaxWorkers: maxWorkers,

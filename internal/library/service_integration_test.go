@@ -8,7 +8,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -172,7 +171,7 @@ func TestCreateManagedUploadCommitsRawMetadataAndUniqueJob(t *testing.T) {
 	}
 }
 
-func TestNewServiceRequiresExplicitParserProfile(t *testing.T) {
+func TestNewServiceAcceptsParserOwnedProfile(t *testing.T) {
 	database := dbtest.New(t)
 	store, err := NewFSRawStore(t.TempDir(), 0)
 	if err != nil {
@@ -180,9 +179,10 @@ func TestNewServiceRequiresExplicitParserProfile(t *testing.T) {
 	}
 	_, err = NewService(ServiceConfig{
 		DB: database, RawStore: store, Parser: staticLibraryParser{},
+		MaxConcurrentUploads: 1, MaxSpoolBytes: MaxFileBytes,
 	})
-	if err == nil || !strings.Contains(err.Error(), "parser profile is required") {
-		t.Fatalf("NewService error = %v, want missing parser profile", err)
+	if err != nil {
+		t.Fatalf("NewService error = %v", err)
 	}
 }
 
@@ -198,6 +198,24 @@ func TestCreateManagedUploadAuthorizesBeforeReadingBody(t *testing.T) {
 	}
 	if reader.reads != 0 {
 		t.Fatalf("unauthorized request body was read %d times", reader.reads)
+	}
+
+	textParser := NewTextParser()
+	service.parser, err = NewRoutingParser(map[string]Parser{
+		MediaTypeText: textParser, MediaTypeMarkdown: textParser,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader = &countingReader{reader: stringsReader("%PDF-1.7\ncontent")}
+	_, err = service.CreateManagedUpload(
+		t.Context(), testAuthority(t, testUserA, true), ScopeSystem, "", "document.pdf", reader,
+	)
+	if !errors.Is(err, ErrServiceUnavailable) {
+		t.Fatalf("unavailable parser error = %v, want ErrServiceUnavailable", err)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("unavailable parser upload body was read %d times", reader.reads)
 	}
 }
 
@@ -215,7 +233,7 @@ func TestRawStoreIOCompletesBeforeDatabaseTransactionBegins(t *testing.T) {
 		t.Fatal(err)
 	}
 	service, err := NewService(ServiceConfig{
-		DB: database, RawStore: blocking, Parser: staticLibraryParser{}, ParserProfile: testParserProfile, River: client,
+		DB: database, RawStore: blocking, Parser: staticLibraryParser{}, River: client,
 		TempDir: t.TempDir(), MaxConcurrentUploads: 1, MaxSpoolBytes: MaxFileBytes,
 	})
 	if err != nil {
@@ -608,7 +626,6 @@ func newSnapshotServiceWithConfig(
 	config.DB = database
 	config.River = client
 	config.Parser = staticLibraryParser{}
-	config.ParserProfile = testParserProfile
 	config.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	config.TempDir = t.TempDir()
 	config.MaxConcurrentUploads = 4
@@ -625,6 +642,8 @@ type staticLibraryParser struct{}
 func (staticLibraryParser) Parse(context.Context, string, string) ([]ParsedChunk, error) {
 	return []ParsedChunk{{Content: "test library"}}, nil
 }
+
+func (staticLibraryParser) Profile(string) (string, error) { return testParserProfile, nil }
 
 func testAuthority(t *testing.T, userID string, admin bool) authz.Authority {
 	t.Helper()

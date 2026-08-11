@@ -311,11 +311,25 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build library RawStore: %w", err)
 	}
+	textParser := library.NewTextParser()
+	parserRoutes := map[string]library.Parser{
+		library.MediaTypeText: textParser, library.MediaTypeMarkdown: textParser,
+	}
+	xbergParser, err := library.NewXbergCLIParser(parent, "xberg")
+	if err != nil {
+		slog.Warn("Xberg CLI unavailable; PDF and DOCX Library uploads are disabled", "error", err)
+	} else {
+		parserRoutes[library.MediaTypePDF] = xbergParser
+		parserRoutes[library.MediaTypeDOCX] = xbergParser
+	}
+	libraryParser, err := library.NewRoutingParser(parserRoutes)
+	if err != nil {
+		return nil, fmt.Errorf("build Library parser routes: %w", err)
+	}
 	librarySvc, err := library.NewService(library.ServiceConfig{
 		DB:                   db,
 		RawStore:             libraryRaw,
-		Parser:               library.NewTextParser(),
-		ParserProfile:        library.TextParserProfile,
+		Parser:               libraryParser,
 		Logger:               slog.With("component", "library"),
 		TempDir:              os.TempDir(),
 		MaxConcurrentUploads: 4,

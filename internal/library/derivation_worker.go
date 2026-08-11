@@ -123,7 +123,11 @@ func (s *Service) prepareChunkGeneration(
 	if FileStatus(file.Status) != FileStatusProcessing && FileStatus(file.Status) != FileStatusReady {
 		return generationTarget{}, generationComplete, fmt.Errorf("%w: unsupported file status %q", ErrGenerationChanged, file.Status)
 	}
-	derivationKey, err := libraryDerivationKey(file.RawSha256, file.MediaType, s.parserProfile)
+	processorKey, err := s.parser.Profile(file.MediaType)
+	if err != nil {
+		return generationTarget{}, generationComplete, fmt.Errorf("profile library parser: %w", err)
+	}
+	derivationKey, err := libraryDerivationKey(file.RawSha256, file.MediaType, processorKey)
 	if err != nil {
 		return generationTarget{}, generationComplete, err
 	}
@@ -133,7 +137,7 @@ func (s *Service) prepareChunkGeneration(
 		SizeBytes:     file.SizeBytes,
 		RawSHA256:     append([]byte(nil), file.RawSha256...),
 		DerivationKey: derivationKey,
-		ProcessorKey:  s.parserProfile,
+		ProcessorKey:  processorKey,
 	}
 
 	setID, err := uuid.NewV7()
@@ -318,6 +322,7 @@ func (s *Service) stageChunkBatch(
 	params.Contents = make([]string, 0, len(batch))
 	params.Locators = make([]string, 0, len(batch))
 	params.ContentSha256s = make([][]byte, 0, len(batch))
+	params.LocatorSha256s = make([][]byte, 0, len(batch))
 	for _, chunk := range batch {
 		id, err := uuid.NewV7()
 		if err != nil {
@@ -328,6 +333,7 @@ func (s *Service) stageChunkBatch(
 		params.Contents = append(params.Contents, chunk.Content)
 		params.Locators = append(params.Locators, chunk.LocatorJSON)
 		params.ContentSha256s = append(params.ContentSha256s, append([]byte(nil), chunk.ContentSHA256[:]...))
+		params.LocatorSha256s = append(params.LocatorSha256s, append([]byte(nil), chunk.LocatorSHA256[:]...))
 	}
 	if _, err := queries.InsertLibraryChunkBatch(ctx, params); err != nil {
 		return fmt.Errorf("stage library chunk batch: %w", err)
@@ -576,6 +582,10 @@ func extensionForMediaType(mediaType string) string {
 	switch mediaType {
 	case MediaTypeMarkdown:
 		return ".md"
+	case MediaTypePDF:
+		return ".pdf"
+	case MediaTypeDOCX:
+		return ".docx"
 	default:
 		return ".txt"
 	}

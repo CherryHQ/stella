@@ -14,6 +14,7 @@ type stagedChunk struct {
 	Content       string
 	LocatorJSON   string
 	ContentSHA256 [sha256.Size]byte
+	LocatorSHA256 [sha256.Size]byte
 }
 
 // libraryDerivationKey binds every parser input that can change persisted
@@ -79,6 +80,7 @@ func normalizeParsedChunks(chunks []ParsedChunk) ([]stagedChunk, []byte, error) 
 			Content:       chunk.Content,
 			LocatorJSON:   string(locator),
 			ContentSHA256: sha256.Sum256([]byte(chunk.Content)),
+			LocatorSHA256: sha256.Sum256(locator),
 		})
 	}
 	if !hasDocumentText {
@@ -88,10 +90,8 @@ func normalizeParsedChunks(chunks []ParsedChunk) ([]stagedChunk, []byte, error) 
 }
 
 // stagedContentDigest matches GetLibraryChunkSetIntegrity: each row adds an
-// eight-byte big-endian ordinal followed by its 32-byte content hash. Locator
-// JSON is deliberately outside the V1 guard because the sole built-in parser
-// is deterministic. A second parser must add canonical locator JSON to both
-// digest implementations before it can be enabled.
+// eight-byte big-endian ordinal followed by the 32-byte content hash and the
+// 32-byte hash of the exact marshaled locator bytes.
 func stagedContentDigest(chunks []stagedChunk) []byte {
 	hash := sha256.New()
 	var ordinal [8]byte
@@ -99,6 +99,7 @@ func stagedContentDigest(chunks []stagedChunk) []byte {
 		binary.BigEndian.PutUint64(ordinal[:], uint64(chunk.Ordinal))
 		_, _ = hash.Write(ordinal[:])
 		_, _ = hash.Write(chunk.ContentSHA256[:])
+		_, _ = hash.Write(chunk.LocatorSHA256[:])
 	}
 	return hash.Sum(nil)
 }

@@ -66,7 +66,10 @@ paths:
               type: object
               required: [file]
               properties:
-                file: { type: string, format: binary }
+                file:
+                  type: string
+                  format: binary
+                  description: PDF, DOCX, Markdown, or plain-text file (maximum 25 MiB)
       responses:
         "201":
           description: accepted for asynchronous processing

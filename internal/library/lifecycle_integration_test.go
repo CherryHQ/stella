@@ -181,7 +181,7 @@ func TestCancellationFailureNeverReversesTombstone(t *testing.T) {
 		t.Fatal(err)
 	}
 	service, err := NewService(ServiceConfig{
-		DB: database, RawStore: store, Parser: staticLibraryParser{}, ParserProfile: testParserProfile, River: client,
+		DB: database, RawStore: store, Parser: staticLibraryParser{}, River: client,
 		Logger: discardLibraryLogger(), TempDir: t.TempDir(),
 		MaxConcurrentUploads: 1, MaxSpoolBytes: MaxFileBytes,
 	})
@@ -373,7 +373,6 @@ func TestOrphanReconciliationSurvivesUploaderProcessRestart(t *testing.T) {
 	const orphanMinAge = time.Second
 	config := ServiceConfig{
 		Parser:                   staticLibraryParser{},
-		ParserProfile:            testParserProfile,
 		SnapshotCommitTimeout:    500 * time.Millisecond,
 		DatabaseStatementTimeout: 200 * time.Millisecond,
 		DatabaseLockTimeout:      100 * time.Millisecond,
@@ -569,7 +568,7 @@ func TestOrphanReconciliationSkipsStoreWithoutExclusiveNamespace(t *testing.T) {
 	}
 }
 
-func TestReconciliationRepairsMissingJobsAndFinalizesDiscardedGeneration(t *testing.T) {
+func TestReconciliationRepairsMissingAndDiscardedJobs(t *testing.T) {
 	database := dbtest.New(t)
 	store, service := newLibraryService(t, database)
 	client := service.riverClient()
@@ -656,12 +655,16 @@ func TestReconciliationRepairsMissingJobsAndFinalizesDiscardedGeneration(t *test
 	if err != nil || !found || state != rivertype.JobStateAvailable {
 		t.Fatalf("missing derivation repair = state %q found=%t error=%v", state, found, err)
 	}
-	failed, err := service.Get(t.Context(), discardedID)
+	recovered, err := service.Get(t.Context(), discardedID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failed.Status != FileStatusFailed || failed.ErrorMessage == "" {
-		t.Fatalf("discarded generation did not converge to failed: %+v", failed)
+	state, found, err = latestLibraryJobState(t.Context(), client, chunkArgs{}.Kind(), discardedID)
+	if err != nil || !found || state != rivertype.JobStateAvailable {
+		t.Fatalf("discarded job without a durable generation was not replaced: state %q found=%t error=%v", state, found, err)
+	}
+	if recovered.Status != FileStatusProcessing || recovered.ErrorMessage != "" {
+		t.Fatalf("discarded historical job failed a generation that did not exist: %+v", recovered)
 	}
 	var stuckState string
 	var cancellationMarked bool
@@ -836,7 +839,10 @@ func TestReconciliationRetiresSupersededBuildingGeneration(t *testing.T) {
 	}
 	rows, err := sqlc.New(database).ListStaleLibraryDerivation(
 		t.Context(),
-		sqlc.ListStaleLibraryDerivationParams{StaleBefore: time.Now().UTC(), Limit: 10},
+		sqlc.ListStaleLibraryDerivationParams{
+			MediaTypes: []string{MediaTypeText}, ProcessorKeys: []string{testParserProfile},
+			StaleBefore: time.Now().UTC(), Limit: 10,
+		},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -847,6 +853,192 @@ func TestReconciliationRetiresSupersededBuildingGeneration(t *testing.T) {
 	if _, found, err := latestLibraryJob(t.Context(), service.riverClient(), chunkArgs{}.Kind(), fileID); err != nil || found {
 		t.Fatalf("ready file received replacement job: found=%t error=%v", found, err)
 	}
+}
+
+func TestReconciliationRebuildsReadyGenerationAfterParserProfileChanges(t *testing.T) {
+	database := dbtest.New(t)
+	store, err := NewFSRawStore(t.TempDir(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parser := &switchingProfileParser{}
+	parser.profile.Store("switching-parser:v1")
+	service, _ := newWorkingLibraryService(t, database, store, parser)
+	file, err := service.CreateManagedUpload(
+		t.Context(), testAuthority(t, testUserA, true), ScopeSystem, "", "profile.txt", stringsReader("profile source"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForLibraryFile(t, service, file.ID, func(current LibraryFile) bool {
+		return current.Status == FileStatusReady
+	})
+
+	parser.profile.Store("switching-parser:v2")
+	if _, err := database.Exec(t.Context(), `
+		UPDATE library_file SET updated_at = now() - interval '1 hour' WHERE id = $1
+	`, file.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.reconcileStaleDerivations(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var profile string
+		if err := database.QueryRow(t.Context(), `
+			SELECT chunk_set.processor_key
+			FROM library_file AS file
+			JOIN library_chunk_set AS chunk_set ON chunk_set.id = file.active_chunk_set_id
+			WHERE file.id = $1
+		`, file.ID).Scan(&profile); err != nil {
+			t.Fatal(err)
+		}
+		if profile == "switching-parser:v2" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("active parser profile = %q, want switching-parser:v2", profile)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	var jobsBefore int
+	if err := database.QueryRow(t.Context(), `
+		SELECT count(*) FROM river_job
+		WHERE kind = $1 AND args ->> 'file_id' = $2
+	`, chunkArgs{}.Kind(), file.ID).Scan(&jobsBefore); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(t.Context(), `
+		UPDATE library_file SET updated_at = now() - interval '1 hour' WHERE id = $1
+	`, file.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.reconcileStaleDerivations(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var jobsAfter int
+	if err := database.QueryRow(t.Context(), `
+		SELECT count(*) FROM river_job
+		WHERE kind = $1 AND args ->> 'file_id' = $2
+	`, chunkArgs{}.Kind(), file.ID).Scan(&jobsAfter); err != nil {
+		t.Fatal(err)
+	}
+	if jobsAfter != jobsBefore {
+		t.Fatalf("idempotent reconcile created jobs: before=%d after=%d", jobsBefore, jobsAfter)
+	}
+
+	parser.profile.Store("switching-parser:v3")
+	parser.fail.Store(true)
+	if _, err := database.Exec(t.Context(), `
+		UPDATE library_file SET updated_at = now() - interval '1 hour' WHERE id = $1
+	`, file.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.reconcileStaleDerivations(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(10 * time.Second)
+	for {
+		var status string
+		err := database.QueryRow(t.Context(), `
+			SELECT status FROM library_chunk_set
+			WHERE file_id = $1 AND processor_key = 'switching-parser:v3'
+		`, file.ID).Scan(&status)
+		if err == nil && status == string(ChunkSetStatusFailed) {
+			break
+		}
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("failed desired generation status = %q, error = %v", status, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err := database.QueryRow(t.Context(), `
+		SELECT count(*) FROM river_job
+		WHERE kind = $1 AND args ->> 'file_id' = $2
+	`, chunkArgs{}.Kind(), file.ID).Scan(&jobsBefore); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(t.Context(), `
+		UPDATE library_file SET updated_at = now() - interval '1 hour' WHERE id = $1
+	`, file.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.reconcileStaleDerivations(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRow(t.Context(), `
+		SELECT count(*) FROM river_job
+		WHERE kind = $1 AND args ->> 'file_id' = $2
+	`, chunkArgs{}.Kind(), file.ID).Scan(&jobsAfter); err != nil {
+		t.Fatal(err)
+	}
+	if jobsAfter != jobsBefore {
+		t.Fatalf("failed desired generation created periodic jobs: before=%d after=%d", jobsBefore, jobsAfter)
+	}
+
+	// A discarded job from the failed profile must not block a newly desired
+	// profile whose durable generation does not exist yet.
+	if _, err := database.Exec(t.Context(), `
+		UPDATE river_job
+		SET state = 'discarded', finalized_at = now()
+		WHERE id = (
+			SELECT id FROM river_job
+			WHERE kind = $1 AND args ->> 'file_id' = $2
+			ORDER BY id DESC LIMIT 1
+		)
+	`, chunkArgs{}.Kind(), file.ID); err != nil {
+		t.Fatal(err)
+	}
+	parser.profile.Store("switching-parser:v4")
+	parser.fail.Store(false)
+	if _, err := database.Exec(t.Context(), `
+		UPDATE library_file SET updated_at = now() - interval '1 hour' WHERE id = $1
+	`, file.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.reconcileStaleDerivations(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(10 * time.Second)
+	for {
+		var profile string
+		if err := database.QueryRow(t.Context(), `
+			SELECT chunk_set.processor_key
+			FROM library_file AS file
+			JOIN library_chunk_set AS chunk_set ON chunk_set.id = file.active_chunk_set_id
+			WHERE file.id = $1
+		`, file.ID).Scan(&profile); err != nil {
+			t.Fatal(err)
+		}
+		if profile == "switching-parser:v4" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("discarded historical job blocked profile v4; active profile = %q", profile)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+type switchingProfileParser struct {
+	profile atomic.Value
+	fail    atomic.Bool
+}
+
+func (p *switchingProfileParser) Profile(string) (string, error) {
+	return p.profile.Load().(string), nil
+}
+
+func (p *switchingProfileParser) Parse(ctx context.Context, path, mediaType string) ([]ParsedChunk, error) {
+	if p.fail.Load() {
+		return nil, ErrNoExtractedText
+	}
+	return staticLibraryParser{}.Parse(ctx, path, mediaType)
 }
 
 func TestChunkStagingRowLockWaitIsBounded(t *testing.T) {
@@ -918,7 +1110,6 @@ func TestOrphanMinimumAgeMustExceedCommitUncertaintyWindow(t *testing.T) {
 		DB:                       database,
 		RawStore:                 store,
 		Parser:                   staticLibraryParser{},
-		ParserProfile:            testParserProfile,
 		MaxConcurrentUploads:     1,
 		MaxSpoolBytes:            MaxFileBytes,
 		SnapshotCommitTimeout:    5 * time.Second,
@@ -1109,9 +1300,6 @@ func newLibraryServiceWithConfig(
 	}
 	config.DB = database
 	config.River = client
-	if config.ParserProfile == "" {
-		config.ParserProfile = testParserProfile
-	}
 	config.Logger = discardLibraryLogger()
 	config.TempDir = t.TempDir()
 	config.MaxConcurrentUploads = 1

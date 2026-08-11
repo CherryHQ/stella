@@ -186,7 +186,7 @@ SELECT
     coalesce(min(ordinal), -1)::bigint AS min_ordinal,
     coalesce(max(ordinal), -1)::bigint AS max_ordinal,
     sha256(decode(coalesce(string_agg(
-        lpad(to_hex(ordinal), 16, '0') || encode(content_sha256, 'hex'),
+        lpad(to_hex(ordinal), 16, '0') || encode(content_sha256, 'hex') || encode(locator_sha256, 'hex'),
         '' ORDER BY ordinal
     ), ''), 'hex')) AS content_digest
 FROM library_chunk
@@ -416,7 +416,8 @@ INSERT INTO library_chunk (
     ordinal,
     content,
     locator,
-    content_sha256
+    content_sha256,
+    locator_sha256
 )
 SELECT
     input.id,
@@ -424,14 +425,16 @@ SELECT
     input.ordinal,
     input.content,
     input.locator::jsonb,
-    input.content_sha256
+    input.content_sha256,
+    input.locator_sha256
 FROM ROWS FROM (
     unnest($2::uuid[]),
     unnest($3::bigint[]),
     unnest($4::text[]),
     unnest($5::text[]),
-    unnest($6::bytea[])
-) AS input(id, ordinal, content, locator, content_sha256)
+    unnest($6::bytea[]),
+    unnest($7::bytea[])
+) AS input(id, ordinal, content, locator, content_sha256, locator_sha256)
 ON CONFLICT (chunk_set_id, ordinal) DO NOTHING
 `
 
@@ -442,6 +445,7 @@ type InsertLibraryChunkBatchParams struct {
 	Contents       []string `json:"contents"`
 	Locators       []string `json:"locators"`
 	ContentSha256s [][]byte `json:"content_sha256s"`
+	LocatorSha256s [][]byte `json:"locator_sha256s"`
 }
 
 func (q *Queries) InsertLibraryChunkBatch(ctx context.Context, arg InsertLibraryChunkBatchParams) (int64, error) {
@@ -452,6 +456,7 @@ func (q *Queries) InsertLibraryChunkBatch(ctx context.Context, arg InsertLibrary
 		arg.Contents,
 		arg.Locators,
 		arg.ContentSha256s,
+		arg.LocatorSha256s,
 	)
 	if err != nil {
 		return 0, err
@@ -590,39 +595,77 @@ SELECT
   f.updated_at,
   chunk_set.id AS chunk_set_id,
   chunk_set.derivation_key AS chunk_set_derivation_key,
-  chunk_set.processor_key AS chunk_set_processor_key
+  chunk_set.processor_key AS chunk_set_processor_key,
+  active_set.derivation_key AS active_chunk_set_derivation_key,
+  active_set.processor_key AS active_chunk_set_processor_key,
+  desired_set.derivation_key AS desired_chunk_set_derivation_key,
+  desired_set.processor_key AS desired_chunk_set_processor_key,
+  desired_set.status AS desired_chunk_set_status
 FROM library_file AS f
+JOIN ROWS FROM (
+  unnest($1::text[]),
+  unnest($2::text[])
+) AS desired(media_type, processor_key)
+  ON desired.media_type = f.media_type
 LEFT JOIN library_chunk_set AS chunk_set
   ON chunk_set.file_id = f.id
  AND chunk_set.status = 'building'
+LEFT JOIN library_chunk_set AS active_set
+  ON active_set.id = f.active_chunk_set_id
+LEFT JOIN library_chunk_set AS desired_set
+  ON desired_set.file_id = f.id
+ AND desired_set.processor_key = desired.processor_key
 WHERE f.deleted_at IS NULL
-  AND f.updated_at < $1
+  AND f.updated_at < $3
   AND (
     f.status = 'processing'
     OR chunk_set.id IS NOT NULL
+    OR (
+      f.status = 'ready'
+      AND (
+        active_set.id IS NULL
+        OR active_set.processor_key <> desired.processor_key
+      )
+      AND (
+        desired_set.id IS NULL
+        OR desired_set.status <> 'failed'
+      )
+    )
   )
 ORDER BY f.updated_at ASC, f.id ASC, chunk_set.created_at ASC, chunk_set.id ASC
-LIMIT $2
+LIMIT $4
 `
 
 type ListStaleLibraryDerivationParams struct {
-	StaleBefore time.Time `json:"stale_before"`
-	Limit       int32     `json:"limit"`
+	MediaTypes    []string  `json:"media_types"`
+	ProcessorKeys []string  `json:"processor_keys"`
+	StaleBefore   time.Time `json:"stale_before"`
+	Limit         int32     `json:"limit"`
 }
 
 type ListStaleLibraryDerivationRow struct {
-	ID                    string      `json:"id"`
-	Status                string      `json:"status"`
-	MediaType             string      `json:"media_type"`
-	RawSha256             []byte      `json:"raw_sha256"`
-	UpdatedAt             time.Time   `json:"updated_at"`
-	ChunkSetID            pgtype.Text `json:"chunk_set_id"`
-	ChunkSetDerivationKey pgtype.Text `json:"chunk_set_derivation_key"`
-	ChunkSetProcessorKey  pgtype.Text `json:"chunk_set_processor_key"`
+	ID                           string      `json:"id"`
+	Status                       string      `json:"status"`
+	MediaType                    string      `json:"media_type"`
+	RawSha256                    []byte      `json:"raw_sha256"`
+	UpdatedAt                    time.Time   `json:"updated_at"`
+	ChunkSetID                   pgtype.Text `json:"chunk_set_id"`
+	ChunkSetDerivationKey        pgtype.Text `json:"chunk_set_derivation_key"`
+	ChunkSetProcessorKey         pgtype.Text `json:"chunk_set_processor_key"`
+	ActiveChunkSetDerivationKey  pgtype.Text `json:"active_chunk_set_derivation_key"`
+	ActiveChunkSetProcessorKey   pgtype.Text `json:"active_chunk_set_processor_key"`
+	DesiredChunkSetDerivationKey pgtype.Text `json:"desired_chunk_set_derivation_key"`
+	DesiredChunkSetProcessorKey  pgtype.Text `json:"desired_chunk_set_processor_key"`
+	DesiredChunkSetStatus        pgtype.Text `json:"desired_chunk_set_status"`
 }
 
 func (q *Queries) ListStaleLibraryDerivation(ctx context.Context, arg ListStaleLibraryDerivationParams) ([]ListStaleLibraryDerivationRow, error) {
-	rows, err := q.db.Query(ctx, listStaleLibraryDerivation, arg.StaleBefore, arg.Limit)
+	rows, err := q.db.Query(ctx, listStaleLibraryDerivation,
+		arg.MediaTypes,
+		arg.ProcessorKeys,
+		arg.StaleBefore,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -639,6 +682,11 @@ func (q *Queries) ListStaleLibraryDerivation(ctx context.Context, arg ListStaleL
 			&i.ChunkSetID,
 			&i.ChunkSetDerivationKey,
 			&i.ChunkSetProcessorKey,
+			&i.ActiveChunkSetDerivationKey,
+			&i.ActiveChunkSetProcessorKey,
+			&i.DesiredChunkSetDerivationKey,
+			&i.DesiredChunkSetProcessorKey,
+			&i.DesiredChunkSetStatus,
 		); err != nil {
 			return nil, err
 		}

@@ -106,8 +106,8 @@ func TestPrepareUploadRejectsInvalidAndOversizedContent(t *testing.T) {
 		{"unsupported", "policy.csv", []byte("a,b"), ErrUnsupportedFileType},
 		{"empty", "policy.txt", nil, ErrInvalidFile},
 		{"invalid UTF-8", "policy.txt", []byte{0xff}, ErrInvalidFile},
-		{"PDF unsupported", "policy.pdf", []byte("%PDF-1.7"), ErrUnsupportedFileType},
-		{"DOCX unsupported", "policy.docx", []byte("not a zip"), ErrUnsupportedFileType},
+		{"invalid PDF", "policy.pdf", []byte("not a PDF"), ErrInvalidFile},
+		{"invalid DOCX", "policy.docx", []byte("not a zip"), ErrInvalidFile},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

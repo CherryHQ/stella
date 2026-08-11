@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -27,8 +28,9 @@ const (
 	// Library V1, channel guest sessions/indexes, channel allowlist backfill, and
 	// session activity, per-message actor provenance and summary authority,
 	// the durable Session inbox, and restrictive Library ownership are the
-	// post-anchor migrations exercised below.
-	currentMigrationVersion = sequentialAnchor + 11
+	// post-anchor migrations exercised below. Library chunk locator integrity is
+	// covered by inserting a chunk through the rolling-deployment default.
+	currentMigrationVersion = sequentialAnchor + 12
 
 	previousGAUserID           = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID          = "00000000-0000-0000-0000-000000000002"
@@ -521,10 +523,9 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	assertConstraintViolation(t, err, "library_file_agent_id_fkey")
 	if _, err := db.Exec(ctx, `
 		INSERT INTO library_chunk_set (
-			id, file_id, derivation_key, processor_key, raw_sha256,
-			status, chunk_count, content_digest, completed_at
-		) VALUES ($1, $2, 'previous-ga-derivation', 'previous-ga-processor', $3, 'ready', 1, $3, $4)
-	`, previousGAChunkSet, previousGALibraryFile, hash, previousGATime); err != nil {
+			id, file_id, derivation_key, processor_key, raw_sha256, status
+		) VALUES ($1, $2, 'previous-ga-derivation', 'previous-ga-processor', $3, 'building')
+	`, previousGAChunkSet, previousGALibraryFile, hash); err != nil {
 		t.Fatalf("insert Library ChunkSet after previous-GA upgrade: %v", err)
 	}
 	if _, err := db.Exec(ctx, `
@@ -533,6 +534,46 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 		) VALUES ($1, $2, 0, 'previous GA library content', $3)
 	`, previousGAChunk, previousGAChunkSet, hash); err != nil {
 		t.Fatalf("insert Library chunk after previous-GA upgrade: %v", err)
+	}
+	var locatorDigestBytes int
+	var locatorDigestMatches bool
+	if err := db.QueryRow(ctx, `
+		SELECT
+			octet_length(locator_sha256),
+			locator_sha256 = sha256(convert_to(locator::text, 'UTF8'))
+		FROM library_chunk
+		WHERE id = $1
+	`, previousGAChunk).Scan(&locatorDigestBytes, &locatorDigestMatches); err != nil {
+		t.Fatalf("read Library chunk locator digest after previous-GA upgrade: %v", err)
+	}
+	if locatorDigestBytes != sha256.Size || !locatorDigestMatches {
+		t.Fatalf("Library chunk locator digest bytes = %d, matches locator = %t", locatorDigestBytes, locatorDigestMatches)
+	}
+	// Simulate an old worker submitting its content-only aggregate. The migration
+	// trigger must replace it before the generation can become ready.
+	if _, err := db.Exec(ctx, `
+		UPDATE library_chunk_set
+		SET status = 'ready', chunk_count = 1, content_digest = $1, completed_at = $2
+		WHERE id = $3
+	`, hash, previousGATime, previousGAChunkSet); err != nil {
+		t.Fatalf("mark old-worker Library ChunkSet ready: %v", err)
+	}
+	var readyDigestMatches bool
+	if err := db.QueryRow(ctx, `
+		SELECT chunk_set.content_digest = sha256(decode(
+			lpad(to_hex(chunk.ordinal), 16, '0') ||
+			encode(chunk.content_sha256, 'hex') ||
+			encode(chunk.locator_sha256, 'hex'),
+			'hex'
+		))
+		FROM library_chunk_set AS chunk_set
+		JOIN library_chunk AS chunk ON chunk.chunk_set_id = chunk_set.id
+		WHERE chunk_set.id = $1
+	`, previousGAChunkSet).Scan(&readyDigestMatches); err != nil {
+		t.Fatalf("read old-worker Library ChunkSet digest: %v", err)
+	}
+	if !readyDigestMatches {
+		t.Fatal("old-worker Library ChunkSet became ready without locator-aware integrity")
 	}
 	if _, err := db.Exec(ctx, `
 		UPDATE library_file SET active_chunk_set_id = $1 WHERE id = $2

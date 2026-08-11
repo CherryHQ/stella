@@ -188,7 +188,7 @@ function LibraryFilesView({
         className="hidden"
         type="file"
         multiple
-        accept=".md,.markdown,.txt,text/markdown,text/plain"
+        accept=".pdf,.docx,.md,.markdown,.txt"
         aria-label={t("library.upload.action")}
         onChange={(event) => {
           const selected = Array.from(event.currentTarget.files ?? []);
