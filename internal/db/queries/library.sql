@@ -173,7 +173,8 @@ INSERT INTO library_chunk (
     ordinal,
     content,
     locator,
-    content_sha256
+    content_sha256,
+    locator_sha256
 )
 SELECT
     input.id,
@@ -181,14 +182,16 @@ SELECT
     input.ordinal,
     input.content,
     input.locator::jsonb,
-    input.content_sha256
+    input.content_sha256,
+    input.locator_sha256
 FROM ROWS FROM (
     unnest(sqlc.arg('ids')::uuid[]),
     unnest(sqlc.arg('ordinals')::bigint[]),
     unnest(sqlc.arg('contents')::text[]),
     unnest(sqlc.arg('locators')::text[]),
-    unnest(sqlc.arg('content_sha256s')::bytea[])
-) AS input(id, ordinal, content, locator, content_sha256)
+    unnest(sqlc.arg('content_sha256s')::bytea[]),
+    unnest(sqlc.arg('locator_sha256s')::bytea[])
+) AS input(id, ordinal, content, locator, content_sha256, locator_sha256)
 ON CONFLICT (chunk_set_id, ordinal) DO NOTHING;
 
 -- name: TouchLibraryFileDerivation :execrows
@@ -203,7 +206,7 @@ SELECT
     coalesce(min(ordinal), -1)::bigint AS min_ordinal,
     coalesce(max(ordinal), -1)::bigint AS max_ordinal,
     sha256(decode(coalesce(string_agg(
-        lpad(to_hex(ordinal), 16, '0') || encode(content_sha256, 'hex'),
+        lpad(to_hex(ordinal), 16, '0') || encode(content_sha256, 'hex') || encode(locator_sha256, 'hex'),
         '' ORDER BY ordinal
     ), ''), 'hex')) AS content_digest
 FROM library_chunk

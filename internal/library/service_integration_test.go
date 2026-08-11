@@ -8,7 +8,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -172,7 +171,7 @@ func TestCreateManagedUploadCommitsRawMetadataAndUniqueJob(t *testing.T) {
 	}
 }
 
-func TestNewServiceRequiresExplicitParserProfile(t *testing.T) {
+func TestNewServiceAcceptsParserOwnedProfile(t *testing.T) {
 	database := dbtest.New(t)
 	store, err := NewFSRawStore(t.TempDir(), 0)
 	if err != nil {
@@ -180,9 +179,10 @@ func TestNewServiceRequiresExplicitParserProfile(t *testing.T) {
 	}
 	_, err = NewService(ServiceConfig{
 		DB: database, RawStore: store, Parser: staticLibraryParser{},
+		MaxConcurrentUploads: 1, MaxSpoolBytes: MaxFileBytes,
 	})
-	if err == nil || !strings.Contains(err.Error(), "parser profile is required") {
-		t.Fatalf("NewService error = %v, want missing parser profile", err)
+	if err != nil {
+		t.Fatalf("NewService error = %v", err)
 	}
 }
 
@@ -215,7 +215,7 @@ func TestRawStoreIOCompletesBeforeDatabaseTransactionBegins(t *testing.T) {
 		t.Fatal(err)
 	}
 	service, err := NewService(ServiceConfig{
-		DB: database, RawStore: blocking, Parser: staticLibraryParser{}, ParserProfile: testParserProfile, River: client,
+		DB: database, RawStore: blocking, Parser: staticLibraryParser{}, River: client,
 		TempDir: t.TempDir(), MaxConcurrentUploads: 1, MaxSpoolBytes: MaxFileBytes,
 	})
 	if err != nil {
@@ -608,7 +608,6 @@ func newSnapshotServiceWithConfig(
 	config.DB = database
 	config.River = client
 	config.Parser = staticLibraryParser{}
-	config.ParserProfile = testParserProfile
 	config.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	config.TempDir = t.TempDir()
 	config.MaxConcurrentUploads = 4
@@ -625,6 +624,8 @@ type staticLibraryParser struct{}
 func (staticLibraryParser) Parse(context.Context, string, string) ([]ParsedChunk, error) {
 	return []ParsedChunk{{Content: "test library"}}, nil
 }
+
+func (staticLibraryParser) Profile(string) (string, error) { return testParserProfile, nil }
 
 func testAuthority(t *testing.T, userID string, admin bool) authz.Authority {
 	t.Helper()

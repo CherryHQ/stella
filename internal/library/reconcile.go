@@ -58,7 +58,11 @@ func (s *Service) reconcileStaleDerivations(ctx context.Context) error {
 			files[row.ID] = state
 			order = append(order, row.ID)
 		}
-		currentKey, err := libraryDerivationKey(row.RawSha256, row.MediaType, s.parserProfile)
+		processorKey, err := s.parser.Profile(row.MediaType)
+		if err != nil {
+			return fmt.Errorf("profile current library parser for %s: %w", row.ID, err)
+		}
+		currentKey, err := libraryDerivationKey(row.RawSha256, row.MediaType, processorKey)
 		if err != nil {
 			return fmt.Errorf("derive current library generation for %s: %w", row.ID, err)
 		}
@@ -66,7 +70,7 @@ func (s *Service) reconcileStaleDerivations(ctx context.Context) error {
 			currentSet := row.ChunkSetDerivationKey.Valid &&
 				row.ChunkSetProcessorKey.Valid &&
 				row.ChunkSetDerivationKey.String == currentKey &&
-				row.ChunkSetProcessorKey.String == s.parserProfile
+				row.ChunkSetProcessorKey.String == processorKey
 			if currentSet {
 				state.needsCurrentWork = true
 			} else {
@@ -143,11 +147,15 @@ func (s *Service) retireSupersededBuildingSet(ctx context.Context, fileID, chunk
 	if set.FileID != file.ID {
 		return fmt.Errorf("superseded LibraryChunkSet %s belongs to another file", set.ID)
 	}
-	currentKey, err := libraryDerivationKey(file.RawSha256, file.MediaType, s.parserProfile)
+	processorKey, err := s.parser.Profile(file.MediaType)
+	if err != nil {
+		return fmt.Errorf("profile current library parser: %w", err)
+	}
+	currentKey, err := libraryDerivationKey(file.RawSha256, file.MediaType, processorKey)
 	if err != nil {
 		return err
 	}
-	if set.DerivationKey == currentKey && set.ProcessorKey == s.parserProfile {
+	if set.DerivationKey == currentKey && set.ProcessorKey == processorKey {
 		return nil
 	}
 	if ChunkSetStatus(set.Status) != ChunkSetStatusBuilding {
@@ -181,7 +189,11 @@ func (s *Service) failStaleGeneration(ctx context.Context, fileID string) error 
 	if err != nil {
 		return fmt.Errorf("lock stale library file: %w", err)
 	}
-	derivationKey, err := libraryDerivationKey(file.RawSha256, file.MediaType, s.parserProfile)
+	processorKey, err := s.parser.Profile(file.MediaType)
+	if err != nil {
+		return fmt.Errorf("profile current library parser: %w", err)
+	}
+	derivationKey, err := libraryDerivationKey(file.RawSha256, file.MediaType, processorKey)
 	if err != nil {
 		return err
 	}

@@ -311,11 +311,22 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build library RawStore: %w", err)
 	}
+	textParser := library.NewTextParser()
+	xbergParser, err := library.NewXbergCLIParser(parent, "xberg")
+	if err != nil {
+		return nil, fmt.Errorf("build Library Xberg parser: %w", err)
+	}
+	libraryParser, err := library.NewRoutingParser(map[string]library.Parser{
+		library.MediaTypeText: textParser, library.MediaTypeMarkdown: textParser,
+		library.MediaTypePDF: xbergParser, library.MediaTypeDOCX: xbergParser,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build Library parser routes: %w", err)
+	}
 	librarySvc, err := library.NewService(library.ServiceConfig{
 		DB:                   db,
 		RawStore:             libraryRaw,
-		Parser:               library.NewTextParser(),
-		ParserProfile:        library.TextParserProfile,
+		Parser:               libraryParser,
 		Logger:               slog.With("component", "library"),
 		TempDir:              os.TempDir(),
 		MaxConcurrentUploads: 4,

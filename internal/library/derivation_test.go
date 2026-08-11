@@ -97,6 +97,25 @@ func TestNormalizeParsedChunksRejectsInvalidLocator(t *testing.T) {
 	}
 }
 
+func TestNormalizeParsedChunksDigestIncludesLocator(t *testing.T) {
+	t.Parallel()
+	_, first, err := normalizeParsedChunks([]ParsedChunk{{
+		Content: "valid text", Locator: ChunkLocator{ByteStart: 0, ByteEnd: 10},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, second, err := normalizeParsedChunks([]ParsedChunk{{
+		Content: "valid text", Locator: ChunkLocator{ByteStart: 1, ByteEnd: 10},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) == string(second) {
+		t.Fatal("generation digest did not change with the locator")
+	}
+}
+
 func TestNormalizeParsedChunksUsesDocumentLevelEffectiveness(t *testing.T) {
 	t.Parallel()
 	chunks, _, err := normalizeParsedChunks([]ParsedChunk{

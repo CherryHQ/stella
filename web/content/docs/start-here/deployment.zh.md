@@ -49,6 +49,8 @@ cd stella && go build -o dist/bin/stellad ./cmd/stellad/
 
 ## 运行
 
+请在服务器上安装 `xberg` 命令行程序，并确保可以从 `$PATH` 找到它。Stella 会在启动时检查该程序，并使用它提取 PDF 和 DOCX Knowledge 文件。
+
 启动服务器 —— Web UI访问地址：`http://localhost:25678`：
 
 ```bash

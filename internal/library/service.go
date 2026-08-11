@@ -10,7 +10,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -40,18 +39,18 @@ const (
 
 // Parser is the bounded document parser used by the asynchronous chunk worker.
 type Parser interface {
+	// Profile must be a pure, stable lookup: lifecycle code calls it while
+	// holding database locks and uses the value as durable generation identity.
+	Profile(mediaType string) (string, error)
 	Parse(ctx context.Context, path, mediaType string) ([]ParsedChunk, error)
 }
 
 // ServiceConfig contains the internal Library ingestion and lifecycle
 // dependencies. Public management and retrieval surfaces are composed later.
 type ServiceConfig struct {
-	DB       *pgxpool.Pool
-	RawStore RawStore
-	Parser   Parser
-	// ParserProfile is an immutable identity for every setting that can affect
-	// generated chunks. Callers must change it whenever parser behavior changes.
-	ParserProfile            string
+	DB                       *pgxpool.Pool
+	RawStore                 RawStore
+	Parser                   Parser
 	River                    *river.Client[pgx.Tx]
 	Logger                   *slog.Logger
 	TempDir                  string
@@ -72,15 +71,14 @@ type ServiceConfig struct {
 // Service owns authorization, bounded acquisition, immutable raw publication,
 // and the short metadata-plus-job transaction.
 type Service struct {
-	db            *pgxpool.Pool
-	q             *sqlc.Queries
-	rawStore      RawStore
-	parser        Parser
-	parserProfile string
-	logger        *slog.Logger
-	tempDir       string
-	spool         *spoolBudget
-	agentAccess   *agentaccess.Service
+	db          *pgxpool.Pool
+	q           *sqlc.Queries
+	rawStore    RawStore
+	parser      Parser
+	logger      *slog.Logger
+	tempDir     string
+	spool       *spoolBudget
+	agentAccess *agentaccess.Service
 
 	snapshotCommitTimeout    time.Duration
 	databaseStatementTimeout time.Duration
@@ -110,10 +108,6 @@ func NewService(config ServiceConfig) (*Service, error) {
 	}
 	if config.Parser == nil {
 		return nil, fmt.Errorf("library parser is required")
-	}
-	parserProfile := strings.TrimSpace(config.ParserProfile)
-	if parserProfile == "" {
-		return nil, fmt.Errorf("library parser profile is required")
 	}
 	budget, err := newSpoolBudget(config.MaxConcurrentUploads, config.MaxSpoolBytes)
 	if err != nil {
@@ -156,7 +150,6 @@ func NewService(config ServiceConfig) (*Service, error) {
 		q:                        sqlc.New(config.DB),
 		rawStore:                 config.RawStore,
 		parser:                   config.Parser,
-		parserProfile:            parserProfile,
 		river:                    config.River,
 		logger:                   logger,
 		tempDir:                  tempDir,

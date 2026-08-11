@@ -186,7 +186,7 @@ SELECT
     coalesce(min(ordinal), -1)::bigint AS min_ordinal,
     coalesce(max(ordinal), -1)::bigint AS max_ordinal,
     sha256(decode(coalesce(string_agg(
-        lpad(to_hex(ordinal), 16, '0') || encode(content_sha256, 'hex'),
+        lpad(to_hex(ordinal), 16, '0') || encode(content_sha256, 'hex') || encode(locator_sha256, 'hex'),
         '' ORDER BY ordinal
     ), ''), 'hex')) AS content_digest
 FROM library_chunk
@@ -416,7 +416,8 @@ INSERT INTO library_chunk (
     ordinal,
     content,
     locator,
-    content_sha256
+    content_sha256,
+    locator_sha256
 )
 SELECT
     input.id,
@@ -424,14 +425,16 @@ SELECT
     input.ordinal,
     input.content,
     input.locator::jsonb,
-    input.content_sha256
+    input.content_sha256,
+    input.locator_sha256
 FROM ROWS FROM (
     unnest($2::uuid[]),
     unnest($3::bigint[]),
     unnest($4::text[]),
     unnest($5::text[]),
-    unnest($6::bytea[])
-) AS input(id, ordinal, content, locator, content_sha256)
+    unnest($6::bytea[]),
+    unnest($7::bytea[])
+) AS input(id, ordinal, content, locator, content_sha256, locator_sha256)
 ON CONFLICT (chunk_set_id, ordinal) DO NOTHING
 `
 
@@ -442,6 +445,7 @@ type InsertLibraryChunkBatchParams struct {
 	Contents       []string `json:"contents"`
 	Locators       []string `json:"locators"`
 	ContentSha256s [][]byte `json:"content_sha256s"`
+	LocatorSha256s [][]byte `json:"locator_sha256s"`
 }
 
 func (q *Queries) InsertLibraryChunkBatch(ctx context.Context, arg InsertLibraryChunkBatchParams) (int64, error) {
@@ -452,6 +456,7 @@ func (q *Queries) InsertLibraryChunkBatch(ctx context.Context, arg InsertLibrary
 		arg.Contents,
 		arg.Locators,
 		arg.ContentSha256s,
+		arg.LocatorSha256s,
 	)
 	if err != nil {
 		return 0, err

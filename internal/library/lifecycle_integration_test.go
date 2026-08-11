@@ -181,7 +181,7 @@ func TestCancellationFailureNeverReversesTombstone(t *testing.T) {
 		t.Fatal(err)
 	}
 	service, err := NewService(ServiceConfig{
-		DB: database, RawStore: store, Parser: staticLibraryParser{}, ParserProfile: testParserProfile, River: client,
+		DB: database, RawStore: store, Parser: staticLibraryParser{}, River: client,
 		Logger: discardLibraryLogger(), TempDir: t.TempDir(),
 		MaxConcurrentUploads: 1, MaxSpoolBytes: MaxFileBytes,
 	})
@@ -373,7 +373,6 @@ func TestOrphanReconciliationSurvivesUploaderProcessRestart(t *testing.T) {
 	const orphanMinAge = time.Second
 	config := ServiceConfig{
 		Parser:                   staticLibraryParser{},
-		ParserProfile:            testParserProfile,
 		SnapshotCommitTimeout:    500 * time.Millisecond,
 		DatabaseStatementTimeout: 200 * time.Millisecond,
 		DatabaseLockTimeout:      100 * time.Millisecond,
@@ -918,7 +917,6 @@ func TestOrphanMinimumAgeMustExceedCommitUncertaintyWindow(t *testing.T) {
 		DB:                       database,
 		RawStore:                 store,
 		Parser:                   staticLibraryParser{},
-		ParserProfile:            testParserProfile,
 		MaxConcurrentUploads:     1,
 		MaxSpoolBytes:            MaxFileBytes,
 		SnapshotCommitTimeout:    5 * time.Second,
@@ -1109,9 +1107,6 @@ func newLibraryServiceWithConfig(
 	}
 	config.DB = database
 	config.River = client
-	if config.ParserProfile == "" {
-		config.ParserProfile = testParserProfile
-	}
 	config.Logger = discardLibraryLogger()
 	config.TempDir = t.TempDir()
 	config.MaxConcurrentUploads = 1

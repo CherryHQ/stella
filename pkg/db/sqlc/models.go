@@ -638,6 +638,7 @@ type LibraryChunk struct {
 	ContentSha256 []byte          `json:"content_sha256"`
 	CreatedAt     time.Time       `json:"created_at"`
 	UpdatedAt     time.Time       `json:"updated_at"`
+	LocatorSha256 []byte          `json:"locator_sha256"`
 }
 
 type LibraryChunkSet struct {

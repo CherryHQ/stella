@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -53,6 +54,8 @@ type libraryFileAPIList struct {
 
 type serverLibraryParser struct{}
 
+func (serverLibraryParser) Profile(string) (string, error) { return library.TextParserProfile, nil }
+
 func (serverLibraryParser) Parse(context.Context, string, string) ([]library.ParsedChunk, error) {
 	return []library.ParsedChunk{{Content: "server test library"}}, nil
 }
@@ -78,7 +81,7 @@ func attachLibraryServiceWithRawStore(
 	}
 	service, err := library.NewService(library.ServiceConfig{
 		DB: env.db, RawStore: rawStore, Parser: serverLibraryParser{},
-		ParserProfile: library.TextParserProfile, River: riverClient,
+		River:  riverClient,
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), TempDir: t.TempDir(),
 		MaxConcurrentUploads: 4, MaxSpoolBytes: 4 * library.MaxFileBytes,
 		AgentAccess: env.deps.AgentAccess,
@@ -98,8 +101,7 @@ func attachWorkingLibraryService(
 	t.Helper()
 	service, err := library.NewService(library.ServiceConfig{
 		DB: env.db, RawStore: rawStore, Parser: serverLibraryParser{},
-		ParserProfile: library.TextParserProfile,
-		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)), TempDir: t.TempDir(),
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), TempDir: t.TempDir(),
 		MaxConcurrentUploads: 4, MaxSpoolBytes: 4 * library.MaxFileBytes,
 		AgentAccess: env.deps.AgentAccess,
 	})
@@ -409,6 +411,18 @@ func TestLibraryFileUploadValidationAndUnavailableCapability(t *testing.T) {
 			t.Fatalf("%s with empty agent_id status = %d, want 400 (body: %s)", method, response.Code, response.Body.String())
 		}
 	}
+	for name, content := range map[string][]byte{
+		"paper.pdf":   []byte("%PDF-1.7\nfixture"),
+		"report.docx": libraryDOCXFixture(t),
+	} {
+		rr = doMultipartRequestWithSession(
+			t, env.srv.Handler(), env.bearerToken, http.MethodPost,
+			"/api/library-files?scope=user", "file", name, content,
+		)
+		if rr.Code != http.StatusCreated {
+			t.Fatalf("upload %s status = %d, want 201 (body: %s)", name, rr.Code, rr.Body.String())
+		}
+	}
 
 	for name, wantStatus := range map[string]int{
 		"unsupported.csv": http.StatusBadRequest,
@@ -503,6 +517,25 @@ func TestLibraryFileUploadValidationAndUnavailableCapability(t *testing.T) {
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("missing file part status = %d, want 400", rr.Code)
 	}
+}
+
+func libraryDOCXFixture(t *testing.T) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	writer := zip.NewWriter(&buffer)
+	for _, name := range []string{"[Content_Types].xml", "word/document.xml"} {
+		entry, err := writer.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write([]byte("<xml/>")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.Bytes()
 }
 
 func TestLibraryFileUploadRejectsAdditionalMultipartPartsBeforeCommit(t *testing.T) {

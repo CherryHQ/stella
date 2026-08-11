@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -27,8 +28,9 @@ const (
 	// Library V1, channel guest sessions/indexes, channel allowlist backfill, and
 	// session activity, per-message actor provenance and summary authority,
 	// the durable Session inbox, and restrictive Library ownership are the
-	// post-anchor migrations exercised below.
-	currentMigrationVersion = sequentialAnchor + 11
+	// post-anchor migrations exercised below. Library chunk locator integrity is
+	// covered by inserting a chunk through the rolling-deployment default.
+	currentMigrationVersion = sequentialAnchor + 12
 
 	previousGAUserID           = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID          = "00000000-0000-0000-0000-000000000002"
@@ -533,6 +535,17 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 		) VALUES ($1, $2, 0, 'previous GA library content', $3)
 	`, previousGAChunk, previousGAChunkSet, hash); err != nil {
 		t.Fatalf("insert Library chunk after previous-GA upgrade: %v", err)
+	}
+	var locatorDigestBytes int
+	if err := db.QueryRow(ctx, `
+		SELECT octet_length(locator_sha256)
+		FROM library_chunk
+		WHERE id = $1
+	`, previousGAChunk).Scan(&locatorDigestBytes); err != nil {
+		t.Fatalf("read Library chunk locator digest after previous-GA upgrade: %v", err)
+	}
+	if locatorDigestBytes != sha256.Size {
+		t.Fatalf("Library chunk locator digest bytes = %d, want %d", locatorDigestBytes, sha256.Size)
 	}
 	if _, err := db.Exec(ctx, `
 		UPDATE library_file SET active_chunk_set_id = $1 WHERE id = $2
