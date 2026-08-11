@@ -11,10 +11,19 @@ icon: History
 
 ## [Unreleased]
 
+## [0.63.3] - 2026-08-11
+
 ### ✨ Features
 
+- Agent 现在通过一个有边界的 Session 接口查找、检查、创建自己的执行线程并向其发送消息。繁忙目标会同步排队，消息 actor 由运行时持久化，嵌套调用则强制执行深度、祖先链和继承的工具排除规则。([#962](https://github.com/CherryHQ/stella/pull/962), [#958](https://github.com/CherryHQ/stella/issues/958))
 - Agent 现在可以按需为单个用户申请额外的 OAuth 权限。provider 配置的权限是每次连接至少请求的下限，用户自己追加的权限会跨授权保留，且只有该用户需要重新授权，其他人的连接不受影响。每个连接都能看到请求、已授予和缺失的权限，缺失时会给出可操作的重新连接提示。([#978](https://github.com/CherryHQ/stella/pull/978), [#977](https://github.com/CherryHQ/stella/issues/977))
 - Lark 和飞书重新成为 Stella 托管的 OAuth provider，默认推荐内置 Lark CLI 的完整权限集，一次授权即可覆盖其文档中的命令。用户在 Web UI 或聊天中即可完成连接，无需主机 shell 访问，App Secret 也不会暴露给 Agent 或沙盒。([#978](https://github.com/CherryHQ/stella/pull/978), [#977](https://github.com/CherryHQ/stella/issues/977))
+
+### 🐛 修复
+
+- Agent 的“渠道”标签页现在只显示绑定到该 Agent 的渠道，移除 Agent 范围清单中的跨 Agent 绑定和转移操作，同时保留渠道创建、编辑、账户关联和确认解绑。([#982](https://github.com/CherryHQ/stella/pull/982), [#981](https://github.com/CherryHQ/stella/issues/981))
+
+**完整变更记录**：[v0.63.2...v0.63.3](https://github.com/CherryHQ/stella/compare/v0.63.2...v0.63.3)
 
 ## [0.63.2] - 2026-08-09
 
