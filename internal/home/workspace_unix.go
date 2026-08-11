@@ -5,6 +5,8 @@ package home
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -61,6 +63,61 @@ func (m *WorkspaceManager) ensureChain(parts ...string) error {
 		fd = next
 	}
 	return nil
+}
+
+func (m *WorkspaceManager) openOperationsRoot(parts ...string) (*os.Root, error) {
+	if err := m.verifyPinnedRoot(); err != nil {
+		return nil, err
+	}
+	fd, err := unix.Dup(m.rootFD)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if fd >= 0 {
+			_ = unix.Close(fd)
+		}
+	}()
+	for _, part := range parts {
+		if err := validID(part); err != nil {
+			return nil, err
+		}
+		next, openErr := unix.Openat(fd, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		if openErr != nil {
+			return nil, fmt.Errorf("home: securely open typed root: %w", openErr)
+		}
+		_ = unix.Close(fd)
+		fd = next
+	}
+	pinned := os.NewFile(uintptr(fd), "stella-workspace-root")
+	if pinned == nil {
+		return nil, errors.New("home: wrap typed root descriptor")
+	}
+	fd = -1 // pinned now owns the descriptor.
+	defer func() { _ = pinned.Close() }()
+	expected, err := pinned.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("home: inspect typed root descriptor: %w", err)
+	}
+	rootPath := filepath.Join(append([]string{m.base}, parts...)...)
+	r, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return nil, fmt.Errorf("home: open operation root: %w", err)
+	}
+	actual, err := r.Stat(".")
+	if err != nil {
+		_ = r.Close()
+		return nil, fmt.Errorf("home: inspect operation root: %w", err)
+	}
+	if !os.SameFile(expected, actual) {
+		_ = r.Close()
+		return nil, errors.New("home: operation root inode mismatch")
+	}
+	return r, nil
+}
+
+func openRootFile(root *os.Root, name string, flag int, perm os.FileMode) (*os.File, error) {
+	return root.OpenFile(name, flag|unix.O_NONBLOCK, perm)
 }
 
 func (m *WorkspaceManager) agentIDOccupied(id string) (bool, error) {
