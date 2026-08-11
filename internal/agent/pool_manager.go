@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
@@ -190,6 +192,7 @@ type PoolManager struct {
 	startAgentCandidateHook      func(*Service)
 	startAgentCandidateCloseHook func(*Service)
 	runnerFuncRefreshedHook      func(*Service, *config.Snapshot)
+	syncAgentServiceSnapshotHook func(*Service)
 	// started is set true when StartAll runs. The one-shot pre-start binds
 	// (Bind* below) refuse to run once started, while the dynamic reconfigure
 	// surface (ReloadPlugin*/SyncAgent/Invalidate*) stays available afterward.
@@ -440,7 +443,7 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 		pm.mu.Lock()
 		if pm.closing || pm.closed {
 			pm.mu.Unlock()
-			return errors.New("agent: PoolManager is closing")
+			return errPoolManagerClosing
 		}
 		if winner := pm.services[ag.ID]; winner != nil {
 			pm.mu.Unlock()
@@ -475,7 +478,10 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 	return nil
 }
 
-var errServiceAlreadyPublished = errors.New("agent: service already published")
+var (
+	errServiceAlreadyPublished = errors.New("agent: service already published")
+	errPoolManagerClosing      = errors.New("agent: PoolManager is closing")
+)
 
 func (pm *PoolManager) syncPublishedService(ctx context.Context, agentID string) error {
 	const maxAttempts = 8
@@ -485,7 +491,7 @@ func (pm *PoolManager) syncPublishedService(ctx context.Context, agentID string)
 		closing := pm.closing || pm.closed
 		pm.mu.RUnlock()
 		if closing {
-			return errors.New("agent: PoolManager is closing")
+			return errPoolManagerClosing
 		}
 		if svc == nil {
 			continue
@@ -815,34 +821,60 @@ func (pm *PoolManager) rebuildRunnerFuncForServiceLocked(ctx context.Context, ag
 // disabled, its service is closed and removed. Otherwise the factory and
 // runners are rebuilt.
 func (pm *PoolManager) SyncAgent(ctx context.Context, agentID string) error {
-	ag, err := pm.store.GetAgent(ctx, agentID)
-	if err != nil {
-		return pm.removeAgent(agentID)
-	}
-	if !ag.Enabled {
-		return pm.removeAgent(agentID)
-	}
+	const maxAttempts = 8
+	for range maxAttempts {
+		// Every retry starts from durable Agent state. A Service can disappear or
+		// be replaced while this call waits for its admission barrier.
+		ag, err := pm.store.GetAgent(ctx, agentID)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && !ag.Enabled) {
+			return pm.removeAgent(agentID)
+		}
+		if err != nil {
+			return fmt.Errorf("agent: refresh durable Agent %q: %w", agentID, err)
+		}
 
-	pm.mu.RLock()
-	svc := pm.services[agentID]
-	pm.mu.RUnlock()
-
-	if svc == nil {
-		return pm.startAgent(ctx, ag)
-	}
-	if err := svc.withAdmissionBarrier(func() error {
-		if err := pm.rebuildRunnerFuncForServiceLocked(ctx, agentID, svc); err != nil {
+		pm.mu.RLock()
+		svc := pm.services[agentID]
+		closing := pm.closing || pm.closed
+		pm.mu.RUnlock()
+		if closing {
+			return errPoolManagerClosing
+		}
+		if svc == nil {
+			return pm.startAgent(ctx, ag)
+		}
+		if pm.syncAgentServiceSnapshotHook != nil {
+			pm.syncAgentServiceSnapshotHook(svc)
+		}
+		err = svc.withAdmissionBarrierContext(ctx, func() error {
+			pm.mu.RLock()
+			current := pm.services[agentID]
+			closing := pm.closing || pm.closed
+			pm.mu.RUnlock()
+			if closing {
+				return errPoolManagerClosing
+			}
+			if current != svc {
+				return errServiceAlreadyPublished
+			}
+			if err := pm.rebuildRunnerFuncForServiceLocked(ctx, agentID, svc); err != nil {
+				return err
+			}
+			if err := svc.Runtime.ResetRunners(); err != nil {
+				pm.log.Warn("failed to reset runners after sync", "agent_id", agentID, "error", err)
+			}
+			return nil
+		})
+		if errors.Is(err, errServiceAlreadyPublished) {
+			continue
+		}
+		if err != nil {
 			return err
 		}
-		if err := svc.Runtime.ResetRunners(); err != nil {
-			pm.log.Warn("failed to reset runners after sync", "agent_id", agentID, "error", err)
-		}
+		pm.log.Info("agent reloaded", "agent_id", agentID)
 		return nil
-	}); err != nil {
-		return err
 	}
-	pm.log.Info("agent reloaded", "agent_id", agentID)
-	return nil
+	return fmt.Errorf("agent: service lifecycle for %q did not stabilize", agentID)
 }
 
 func (pm *PoolManager) removeAgent(agentID string) error {

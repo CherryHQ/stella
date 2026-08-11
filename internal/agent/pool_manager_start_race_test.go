@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -17,6 +19,50 @@ import (
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+func newSyncLifecyclePool(t *testing.T, agentID string) (*PoolManager, *cfgstore.DBStore, config.Agent) {
+	t.Helper()
+	t.Setenv("STELLA_HOME", t.TempDir())
+	config.ResetStellaHome()
+	t.Cleanup(config.ResetStellaHome)
+	db := dbtest.New(t)
+	if err := sqlc.New(db).SeedAgent(context.Background(), sqlc.SeedAgentParams{ID: agentID, Name: "agent", Model: "test", SystemPrompt: "initial", Sandbox: []byte(`{}`), Scope: "system", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	store := cfgstore.NewDBStore(db)
+	pm := NewPoolManager(store, memorytest.New())
+	if err := pm.BindSessionAccess(fakePoolSessionAccess{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := pm.SyncAgent(context.Background(), agentID); err != nil {
+		t.Fatalf("initial SyncAgent: %v", err)
+	}
+	ag, err := store.GetAgent(context.Background(), agentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pm, store, ag
+}
+
+func waitSyncLifecycleSignal(t *testing.T, ch <-chan struct{}, name string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for %s", name)
+	}
+}
+
+func waitSyncLifecycleResult(t *testing.T, ch <-chan error, name string) error {
+	t.Helper()
+	select {
+	case err := <-ch:
+		return err
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for %s", name)
+		return nil
+	}
+}
 
 type racingSnapshotLoader struct{ calls atomic.Int32 }
 
@@ -180,5 +226,184 @@ func TestStartAgentCandidateIsClosedWhenShutdownWinsPublication(t *testing.T) {
 	}
 	if _, err := candidate.Runtime.ChatAdmitted(ctx, session.Info{ID: "candidate", UserID: "user", AgentID: agentID, Kind: string(session.KindChat), Channel: string(session.ChannelWeb)}, "turn"); err == nil || !strings.Contains(err.Error(), "runtime is closed") {
 		t.Fatalf("rejected candidate admission error = %v, want closed Runtime", err)
+	}
+}
+
+func TestSyncAgentDisableRemovalConcurrentReenableRestartsNewestService(t *testing.T) {
+	ctx := context.Background()
+	const agentID = "disable-reenable"
+	pm, store, ag := newSyncLifecyclePool(t, agentID)
+	old := pm.GetService(agentID)
+	runner := &blockingCloseRunner{closeEntered: make(chan struct{}), releaseClose: make(chan struct{})}
+	old.Runtime.SetNewRunner(func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) { return runner, nil })
+	stream, err := old.admit(ctx, session.Info{ID: "old", UserID: "user", AgentID: agentID, Kind: string(session.KindChat), Channel: string(session.ChannelWeb)}, "seed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range stream {
+	}
+
+	ag.Enabled = false
+	if err := store.UpdateAgent(ctx, ag); err != nil {
+		t.Fatal(err)
+	}
+	disabled := make(chan error, 1)
+	go func() { disabled <- pm.SyncAgent(ctx, agentID) }()
+	waitSyncLifecycleSignal(t, runner.closeEntered, "disabled Service close")
+
+	ag.Enabled = true
+	ag.SystemPrompt = "newest-enabled"
+	if err := store.UpdateAgent(ctx, ag); err != nil {
+		t.Fatal(err)
+	}
+	snapshotted := make(chan struct{})
+	var snapshotOnce sync.Once
+	pm.syncAgentServiceSnapshotHook = func(svc *Service) {
+		if svc == old {
+			snapshotOnce.Do(func() { close(snapshotted) })
+		}
+	}
+	var refreshMu sync.Mutex
+	refreshes := make(map[*Service][]string)
+	pm.runnerFuncRefreshedHook = func(svc *Service, snap *config.Snapshot) {
+		refreshMu.Lock()
+		refreshes[svc] = append(refreshes[svc], snap.SystemPrompt)
+		refreshMu.Unlock()
+	}
+	reenabled := make(chan error, 1)
+	go func() { reenabled <- pm.SyncAgent(ctx, agentID) }()
+	waitSyncLifecycleSignal(t, snapshotted, "re-enabled SyncAgent old-Service snapshot")
+	close(runner.releaseClose)
+	if err := waitSyncLifecycleResult(t, disabled, "disable removal completion"); err != nil {
+		t.Fatalf("disable removal: %v", err)
+	}
+	if err := waitSyncLifecycleResult(t, reenabled, "re-enable completion"); err != nil {
+		t.Fatalf("re-enable SyncAgent: %v", err)
+	}
+	winner := pm.GetService(agentID)
+	if winner == nil || winner == old {
+		t.Fatalf("published Service = %p, old = %p", winner, old)
+	}
+	pm.mu.RLock()
+	count := len(pm.services)
+	pm.mu.RUnlock()
+	if count != 1 {
+		t.Fatalf("published Service count = %d, want 1", count)
+	}
+	refreshMu.Lock()
+	winnerRefreshes := append([]string(nil), refreshes[winner]...)
+	oldRefreshes := append([]string(nil), refreshes[old]...)
+	refreshMu.Unlock()
+	if len(oldRefreshes) != 0 {
+		t.Fatalf("retired Service refreshed after removal: %v", oldRefreshes)
+	}
+	if len(winnerRefreshes) == 0 || winnerRefreshes[len(winnerRefreshes)-1] != "newest-enabled" {
+		t.Fatalf("winner refreshes = %v, want final newest-enabled", winnerRefreshes)
+	}
+	if _, err := winner.Runtime.ChatAdmitted(ctx, session.Info{ID: "winner", UserID: "user", AgentID: agentID, Kind: string(session.KindChat), Channel: string(session.ChannelWeb)}, "turn"); err != nil && strings.Contains(err.Error(), "runtime is closed") {
+		t.Fatalf("new winner is closed: %v", err)
+	}
+}
+
+func TestSyncAgentRetriesReplacementDriftAgainstActualWinner(t *testing.T) {
+	ctx := context.Background()
+	const agentID = "replacement-drift"
+	pm, store, ag := newSyncLifecyclePool(t, agentID)
+	old := pm.GetService(agentID)
+	var refreshMu sync.Mutex
+	refreshes := make(map[*Service][]string)
+	pm.runnerFuncRefreshedHook = func(svc *Service, snap *config.Snapshot) {
+		refreshMu.Lock()
+		refreshes[svc] = append(refreshes[svc], snap.SystemPrompt)
+		refreshMu.Unlock()
+	}
+	snapshotted := make(chan struct{})
+	releaseSnapshot := make(chan struct{})
+	var snapshotOnce sync.Once
+	pm.syncAgentServiceSnapshotHook = func(svc *Service) {
+		if svc == old {
+			snapshotOnce.Do(func() {
+				close(snapshotted)
+				<-releaseSnapshot
+			})
+		}
+	}
+	stale := make(chan error, 1)
+	go func() { stale <- pm.SyncAgent(ctx, agentID) }()
+	waitSyncLifecycleSignal(t, snapshotted, "stale SyncAgent old-Service snapshot")
+	if err := pm.removeAgent(agentID); err != nil {
+		t.Fatalf("remove old Service: %v", err)
+	}
+	if err := pm.SyncAgent(ctx, agentID); err != nil {
+		t.Fatalf("publish replacement: %v", err)
+	}
+	winner := pm.GetService(agentID)
+	if winner == nil || winner == old {
+		t.Fatal("production replacement was not published")
+	}
+	ag.SystemPrompt = "replacement-newest"
+	if err := store.UpdateAgent(ctx, ag); err != nil {
+		t.Fatal(err)
+	}
+	close(releaseSnapshot)
+	if err := waitSyncLifecycleResult(t, stale, "replacement-drift completion"); err != nil {
+		t.Fatalf("stale SyncAgent did not reconcile replacement: %v", err)
+	}
+	if pm.GetService(agentID) != winner {
+		t.Fatal("stale SyncAgent replaced the actual winner")
+	}
+	refreshMu.Lock()
+	winnerRefreshes := append([]string(nil), refreshes[winner]...)
+	oldRefreshes := append([]string(nil), refreshes[old]...)
+	refreshMu.Unlock()
+	if len(oldRefreshes) != 0 {
+		t.Fatalf("retired Service refreshed after replacement: %v", oldRefreshes)
+	}
+	if len(winnerRefreshes) == 0 || winnerRefreshes[len(winnerRefreshes)-1] != "replacement-newest" {
+		t.Fatalf("winner refreshes = %v, want final replacement-newest", winnerRefreshes)
+	}
+}
+
+func TestSyncAgentReturnsClosingErrorAfterCapturedServiceShutdown(t *testing.T) {
+	ctx := context.Background()
+	const agentID = "shutdown-drift"
+	pm, _, _ := newSyncLifecyclePool(t, agentID)
+	old := pm.GetService(agentID)
+	var refreshMu sync.Mutex
+	refreshes := make(map[*Service][]string)
+	pm.runnerFuncRefreshedHook = func(svc *Service, snap *config.Snapshot) {
+		refreshMu.Lock()
+		refreshes[svc] = append(refreshes[svc], snap.SystemPrompt)
+		refreshMu.Unlock()
+	}
+	snapshotted := make(chan struct{})
+	releaseSnapshot := make(chan struct{})
+	var snapshotOnce sync.Once
+	pm.syncAgentServiceSnapshotHook = func(svc *Service) {
+		if svc == old {
+			snapshotOnce.Do(func() {
+				close(snapshotted)
+				<-releaseSnapshot
+			})
+		}
+	}
+	done := make(chan error, 1)
+	go func() { done <- pm.SyncAgent(ctx, agentID) }()
+	waitSyncLifecycleSignal(t, snapshotted, "shutdown-drift Service snapshot")
+	if err := pm.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	close(releaseSnapshot)
+	if err := waitSyncLifecycleResult(t, done, "shutdown-drift completion"); !errors.Is(err, errPoolManagerClosing) {
+		t.Fatalf("SyncAgent shutdown drift error = %v, want %v", err, errPoolManagerClosing)
+	}
+	if pm.GetService(agentID) != nil {
+		t.Fatal("Service remained published after shutdown")
+	}
+	refreshMu.Lock()
+	oldRefreshes := append([]string(nil), refreshes[old]...)
+	refreshMu.Unlock()
+	if len(oldRefreshes) != 0 {
+		t.Fatalf("closed Service refreshed during shutdown drift: %v", oldRefreshes)
 	}
 }
