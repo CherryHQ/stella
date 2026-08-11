@@ -112,6 +112,52 @@ func TestDeviceCodeBroker_PersistFailureSetsError(t *testing.T) {
 	}
 }
 
+func TestDeviceCodeBrokerSupersededFlowDoesNotPersistToken(t *testing.T) {
+	enteredTokenEndpoint := make(chan struct{})
+	releaseToken := make(chan struct{})
+	srv := deviceAuthServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		close(enteredTokenEndpoint)
+		<-releaseToken
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "superseded-token", "token_type": "Bearer", "expires_in": 3600,
+		})
+	})
+	defer srv.Close()
+
+	store := NewFlowStore()
+	persisted := make(chan struct{}, 1)
+	broker := NewDeviceCodeBroker(deviceBrokerConfig(srv), store, func(string, *oauth2.Token) error {
+		persisted <- struct{}{}
+		return nil
+	})
+	oldFlow, err := broker.StartFlow(context.Background(), ProviderGitHub, "user-1", []string{"repo"})
+	if err != nil {
+		t.Fatalf("StartFlow: %v", err)
+	}
+	select {
+	case <-enteredTokenEndpoint:
+	case <-time.After(3 * time.Second):
+		t.Fatal("device token endpoint was not called")
+	}
+	replacement := FlowStatus{
+		Provider: ProviderGitHub, FlowID: "replacement", UserID: "user-1",
+		State: FlowStatePending, ExpiresAt: time.Now().Add(time.Minute),
+	}
+	if !store.CreateExclusive(replacement) {
+		t.Fatal("replacement flow was rejected")
+	}
+	close(releaseToken)
+	select {
+	case <-persisted:
+		t.Fatal("superseded device flow persisted its token")
+	case <-time.After(300 * time.Millisecond):
+	}
+	if _, ok := store.Get(oldFlow.FlowID); ok {
+		t.Fatal("superseded device flow remains in store")
+	}
+}
+
 func TestAuthCodeBrokerCompleteClaimsFlowOnce(t *testing.T) {
 	tokenCalls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -85,6 +85,13 @@ func (b *DeviceCodeBroker) StartFlow(ctx context.Context, provider Provider, use
 			b.store.Update(flowID, FlowStateFailed, func(fs *FlowStatus) { fs.Error = err.Error() })
 			return
 		}
+		// Claim before persistence so a newer flow that superseded this one
+		// cannot save an out-of-date desired-scope snapshot.
+		if _, ok := b.store.Claim(flowID); !ok {
+			slog.Info("oauth: device flow superseded or expired; discarding token",
+				"provider", provider, "user_id", userID, "flow_id", flowID)
+			return
+		}
 		// Persist before marking authorized so the token is in the vault the
 		// moment any observer sees the flow complete.
 		if b.onAuthorized != nil {
@@ -108,6 +115,10 @@ func (b *DeviceCodeBroker) Poll(ctx context.Context, flowID string) (FlowStatus,
 		return FlowStatus{}, fmt.Errorf("oauth: unknown flow %q", flowID)
 	}
 
+	if status.State == FlowStateCompleting {
+		status.State = FlowStatePending
+		return status, nil
+	}
 	if status.State != FlowStatePending {
 		return status, nil
 	}

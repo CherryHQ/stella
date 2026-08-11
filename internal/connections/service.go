@@ -804,11 +804,7 @@ func (s *Service) Disconnect(ctx context.Context, userID string, provider string
 	if s.registry == nil {
 		return fmt.Errorf("provider registry not set")
 	}
-	providerCfg, ok := s.registry.Get(provider)
-	if !ok {
-		return fmt.Errorf("unknown provider: %s", provider)
-	}
-	if err := oauth.DeleteBundle(ctx, s.vaultSvc, userID, providerCfg.VaultKey); err != nil {
+	if err := s.registry.DeleteBundle(ctx, s.vaultSvc, provider, userID); err != nil {
 		return err
 	}
 	_ = s.InvalidateUser(userID)
@@ -821,6 +817,10 @@ func (s *Service) GetFlowForCallback(flowID string) (oauth.FlowStatus, bool) {
 }
 
 func toFlowStatus(fs oauth.FlowStatus) FlowStatus {
+	outcome := ""
+	if fs.State == oauth.FlowStatePending || fs.State == oauth.FlowStateCompleting {
+		outcome = OAuthOutcomeUserConsentRequired
+	}
 	return FlowStatus{
 		Provider:        string(fs.Provider),
 		FlowID:          fs.FlowID,
@@ -828,6 +828,7 @@ func toFlowStatus(fs oauth.FlowStatus) FlowStatus {
 		UserCode:        fs.UserCode,
 		ExpiresAt:       fs.ExpiresAt,
 		State:           string(fs.State),
+		Outcome:         outcome,
 		Error:           fs.Error,
 		RequestedScopes: append([]string(nil), fs.DesiredScopes...),
 	}

@@ -5,6 +5,14 @@ import (
 	"time"
 )
 
+// OAuthOutcomeUserConsentRequired tells a caller to present the returned
+// verification URL to the user.
+const OAuthOutcomeUserConsentRequired = "user_consent_required"
+
+// OAuthOutcomeScopeNotAllowed tells a caller that administrator policy denied
+// one or more requested scopes before a provider flow was created.
+const OAuthOutcomeScopeNotAllowed = "scope_not_allowed"
+
 // Reconnect reasons reported in ProviderStatus.ReconnectReason (D4). This is a
 // Go-enforced closed enum; callers must not invent new values.
 const (
@@ -27,7 +35,7 @@ type ScopeNotAllowedError struct {
 }
 
 func (e *ScopeNotAllowedError) Error() string {
-	return "scope_not_allowed: provider " + e.Provider + " does not allow scopes: " + strings.Join(e.Scopes, ", ")
+	return OAuthOutcomeScopeNotAllowed + ": provider " + e.Provider + " does not allow scopes: " + strings.Join(e.Scopes, ", ")
 }
 
 // ProviderStatus describes the availability of an OAuth provider.
@@ -84,6 +92,7 @@ type FlowStatus struct {
 	UserCode        string
 	ExpiresAt       time.Time
 	State           string
+	Outcome         string // typed caller action; set while user consent is required
 	Error           string // failure reason when State is "failed" (D5)
 	RequestedScopes []string
 }

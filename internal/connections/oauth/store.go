@@ -24,16 +24,21 @@ func (s *FlowStore) Create(status FlowStatus) {
 	s.flows[status.FlowID] = status
 }
 
-// CreateExclusive stores status only when no live flow exists for the same
-// user/provider. The check and insert share one lock.
+// CreateExclusive stores status as the only pending flow for its user/provider.
+// A previous pending flow is superseded; a flow already completing cannot be
+// replaced because its token exchange may have succeeded. The check and insert
+// share one lock.
 func (s *FlowStore) CreateExclusive(status FlowStatus) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
-	for _, flow := range s.flows {
+	for flowID, flow := range s.flows {
 		live := (flow.State == FlowStatePending && now.Before(flow.ExpiresAt)) || flow.State == FlowStateCompleting
 		if flow.UserID == status.UserID && flow.Provider == status.Provider && live {
-			return false
+			if flow.State == FlowStateCompleting {
+				return false
+			}
+			delete(s.flows, flowID)
 		}
 	}
 	s.flows[status.FlowID] = status

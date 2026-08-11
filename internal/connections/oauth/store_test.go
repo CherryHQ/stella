@@ -107,7 +107,7 @@ func TestFlowStore_DeleteMissingIsNoOp(t *testing.T) {
 	s.Delete("not-there")
 }
 
-func TestFlowStoreCreateExclusiveRejectsConcurrentUserProviderFlow(t *testing.T) {
+func TestFlowStoreCreateExclusiveSupersedesPendingButNotCompletingFlow(t *testing.T) {
 	s := NewFlowStore()
 	first := FlowStatus{
 		FlowID: "first", UserID: "user-1", Provider: ProviderGitHub,
@@ -118,11 +118,22 @@ func TestFlowStoreCreateExclusiveRejectsConcurrentUserProviderFlow(t *testing.T)
 	}
 	second := first
 	second.FlowID = "second"
-	if s.CreateExclusive(second) {
-		t.Fatal("second concurrent CreateExclusive succeeded")
-	}
-	second.UserID = "user-2"
 	if !s.CreateExclusive(second) {
+		t.Fatal("replacement CreateExclusive rejected")
+	}
+	if _, ok := s.Get("first"); ok {
+		t.Fatal("superseded pending flow still exists")
+	}
+	if _, ok := s.Claim("second"); !ok {
+		t.Fatal("Claim(second) failed")
+	}
+	third := second
+	third.FlowID = "third"
+	if s.CreateExclusive(third) {
+		t.Fatal("CreateExclusive replaced a completing flow")
+	}
+	third.UserID = "user-2"
+	if !s.CreateExclusive(third) {
 		t.Fatal("different user should have an independent flow")
 	}
 }

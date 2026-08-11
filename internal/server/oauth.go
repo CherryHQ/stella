@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -40,6 +41,7 @@ type flowStatusJSON struct {
 	UserCode        string    `json:"user_code,omitempty"`
 	ExpiresAt       time.Time `json:"expires_at"`
 	State           string    `json:"state"`
+	Outcome         string    `json:"outcome,omitempty"`
 	Error           string    `json:"error,omitempty"`
 	RequestedScopes []string  `json:"requested_scopes,omitempty"`
 }
@@ -52,6 +54,7 @@ func toFlowStatusJSON(fs connections.FlowStatus) flowStatusJSON {
 		UserCode:        fs.UserCode,
 		ExpiresAt:       fs.ExpiresAt.UTC(),
 		State:           fs.State,
+		Outcome:         fs.Outcome,
 		Error:           fs.Error,
 		RequestedScopes: fs.RequestedScopes,
 	}
@@ -136,18 +139,19 @@ func (s *Server) StartOAuthFlow(w http.ResponseWriter, r *http.Request, provider
 	var body struct {
 		Scopes []string `json:"scopes"`
 	}
-	if r.ContentLength != 0 {
-		if err := decodeJSON(r, &body); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid request")
-			return
-		}
+	if err := decodeJSON(r, &body); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid request")
+		return
 	}
 	status, err := acc.StartFlow(r.Context(), provider, body.Scopes, origin)
 	if err != nil {
 		s.log.Error("start oauth flow", "provider", provider, "error", err)
 		var denied *connections.ScopeNotAllowedError
 		if errors.As(err, &denied) {
-			writeError(w, http.StatusBadRequest, denied.Error())
+			writeErrorDetails(w, http.StatusBadRequest, "requested OAuth scopes are not allowed", map[string]any{
+				"reason": connections.OAuthOutcomeScopeNotAllowed,
+				"scopes": denied.Scopes,
+			})
 			return
 		}
 		writeError(w, http.StatusBadRequest, "invalid request")

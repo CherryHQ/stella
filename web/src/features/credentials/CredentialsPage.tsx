@@ -38,6 +38,7 @@ import type { MessageKey } from "@/lib/i18n/messages";
 import { useToast } from "@/hooks/use-toast";
 import { EmailAccountsPanel } from "@/features/credentials/EmailAccountsPanel";
 import { buildOAuthScopeDraft, ScopeEditor } from "@/features/credentials/ScopeEditor";
+import { buildOAuthAllowedScopeOverride } from "@/features/credentials/scope-policy";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
 import {
   SettingsDetailSheet,
@@ -581,7 +582,7 @@ export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
       const defaultAllowed = allowedScopeMeta[provider]?.defaults ?? defaults;
       const allowedDraft =
         allowedScopeDraft[provider] ?? buildOAuthScopeDraft(savedAllowed, defaultAllowed);
-      const allowedScopes = sameScopeSet(allowedDraft, defaultAllowed) ? [] : allowedDraft;
+      const allowedScopes = buildOAuthAllowedScopeOverride(allowedDraft, defaultAllowed, draft);
 
       setConfigSaving((prev) => ({ ...prev, [provider]: true }));
       try {

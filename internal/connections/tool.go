@@ -65,6 +65,14 @@ func (h oauthHandler) Connect(ctx context.Context, in ConnectInput) (any, error)
 	}
 	status, err := acc.StartFlow(ctx, in.Provider, scopeItems(in.Scopes))
 	if err != nil {
+		var denied *ScopeNotAllowedError
+		if errors.As(err, &denied) {
+			return oauthScopeDeniedResponse{
+				Outcome:  OAuthOutcomeScopeNotAllowed,
+				Provider: denied.Provider,
+				Scopes:   denied.Scopes,
+			}, nil
+		}
 		return nil, err
 	}
 	return oauthFlowSummary(status), nil
@@ -126,7 +134,13 @@ type oauthFlowResponse struct {
 	UserCode        string   `json:"user_code,omitempty"`
 	ExpiresAt       string   `json:"expires_at"`
 	State           string   `json:"state"`
+	Outcome         string   `json:"outcome,omitempty"`
 	RequestedScopes []string `json:"requested_scopes,omitempty"`
+}
+type oauthScopeDeniedResponse struct {
+	Outcome  string   `json:"outcome"`
+	Provider string   `json:"provider"`
+	Scopes   []string `json:"scopes"`
 }
 type oauthProviderResponse struct {
 	Provider        string   `json:"provider"`
@@ -140,7 +154,7 @@ type oauthProviderResponse struct {
 }
 
 func oauthFlowSummary(status FlowStatus) oauthFlowResponse {
-	return oauthFlowResponse{Provider: status.Provider, FlowID: status.FlowID, VerificationURI: status.VerificationURI, UserCode: status.UserCode, ExpiresAt: status.ExpiresAt.UTC().Format(time.RFC3339), State: status.State, RequestedScopes: status.RequestedScopes}
+	return oauthFlowResponse{Provider: status.Provider, FlowID: status.FlowID, VerificationURI: status.VerificationURI, UserCode: status.UserCode, ExpiresAt: status.ExpiresAt.UTC().Format(time.RFC3339), State: status.State, Outcome: status.Outcome, RequestedScopes: status.RequestedScopes}
 }
 
 func oauthProviderSummary(status ProviderStatus) oauthProviderResponse {

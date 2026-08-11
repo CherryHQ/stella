@@ -149,6 +149,20 @@ func (r *ProviderRegistry) SaveBundle(ctx context.Context, vs VaultStore, provid
 	return err
 }
 
+// DeleteBundle serializes disconnect against refresh and authorization writes
+// for the same user/provider so a completed refresh cannot resurrect a removed
+// credential in this process.
+func (r *ProviderRegistry) DeleteBundle(ctx context.Context, vs VaultStore, providerID, userID string) error {
+	cfg, ok := r.providerConfig(providerID)
+	if !ok {
+		return fmt.Errorf("oauth: unknown provider: %s", providerID)
+	}
+	_, err := withBundleLock(r, providerID, userID, func() (*OAuthBundle, error) {
+		return nil, DeleteBundle(ctx, vs, userID, cfg.VaultKey)
+	})
+	return err
+}
+
 func withBundleLock[T any](r *ProviderRegistry, providerID, userID string, fn func() (T, error)) (T, error) {
 	key := providerID + "\x00" + userID
 	value, _ := r.bundleLocks.LoadOrStore(key, &sync.Mutex{})
@@ -230,6 +244,9 @@ func needsRefresh(bundle *OAuthBundle, minValidity time.Duration) bool {
 // least minValidity. A bundle with no known expiry (AccessExpiresAt zero) is
 // treated as long-lived — e.g. a GitHub OAuth-app token — and always qualifies.
 func meetsMinValidity(bundle *OAuthBundle, minValidity time.Duration) bool {
+	if bundle == nil {
+		return false
+	}
 	if bundle.AccessExpiresAt.IsZero() {
 		return true
 	}
@@ -323,6 +340,9 @@ func (r *ProviderRegistry) tryRefresh(ctx context.Context, vs VaultStore, cfg Pr
 		return nil, fmt.Errorf("reload bundle before refresh save: %w", loadErr)
 	}
 	if bundleChangedSinceRefreshStarted(bundle, latest) {
+		if latest == nil {
+			return nil, fmt.Errorf("oauth bundle for user %s was removed during refresh", userID)
+		}
 		return latest, nil
 	}
 
