@@ -269,6 +269,10 @@ Purge(home)       delete physical storage idempotently
 
 Phase 1 的可合并子集只实现 `Ensure`、ready-root inspection、`Resolve` 与 `Tombstone`，并永久保留 tombstoned identity/locator 与物理字节。`Purge` 是本节最终架构能力；它在 provider/filesystem 边界之后的独立 Draft 中实现，不能由 Phase 1 的 host-path 兼容层提前执行。
 
+Phase 1 的单进程删除 fence 使用一个 process-wide、writer-progress 的 shared/exclusive lifecycle gate。所有真实 Turn admission 仅在同步选择或构造 runner（包括 `WorkspaceView`）期间持 shared；Service 发布、`SyncAgent` reconcile、remove、shutdown 与 owner deletion 持 exclusive。owner deletion 的固定顺序为 lifecycle exclusive → Home process owner gate → PostgreSQL advisory/row locks，并把 exclusive 保留到 owner transaction commit/rollback。Runtime close 可以让这个低频 writer 变慢，但 writer 不等待 active Turn 完成，也不得在 exclusive 内调用 `WaitTurns`。
+
+这只解决当前 single-replica 的进程内正确性，不能伪装成 distributed fence。未来 multi-replica 必须把 PostgreSQL generation/lease 与每个副本的 process gate 组合。durable management write 后 best-effort `SyncAgent` 若失败，runtime 仍可能暂时 drift，直到下一次 reconcile；plugin hook reload 对已 active Turn 的旧 generation 也仍缺少 reference-counted retirement，本 gate 不声称解决这两项问题。
+
 `SandboxProvider` 只接收 `HomeAttachment`。它不决定 Home 放在哪里，也不把 compute Provider 名称写进数据身份。
 
 ### 5.4 Store 修改与迁移

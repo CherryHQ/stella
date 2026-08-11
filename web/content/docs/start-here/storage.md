@@ -59,6 +59,8 @@ PostgreSQL is the authority for Home identity and lifecycle; the configured Stor
 
 An explicit destructive group or Agent deletion first fences local cached execution, then tombstones its Homes and removes the owner in one database transaction. Destructive user deletion has the same internal lifecycle primitive, but product account deletion is not integrated with it yet. Tombstoned identities and locators remain permanently reserved, cannot be attached or recreated, and their physical bytes are deliberately preserved. Removing an Agent assignment, removing a group member, archiving a Session, and uninstalling Helm do **not** tombstone Homes.
 
+Within one server process, a writer-prioritized admission barrier prevents runner setup from racing destructive deletion. The barrier is released after synchronous runner selection and Home resolution; it does not wait for an active turn to finish. This is a single-replica guarantee, not a distributed lease. Future multi-replica support requires PostgreSQL-backed generations or leases in addition to each process's local barrier. A failed best-effort runtime refresh after a durable management change can remain stale until a later reconciliation.
+
 Phase 1 has no physical Home purge, retry command, or Store migration/cutover. Temporary orphaned bytes are safer than deleting them before the provider/filesystem boundary can fence physical operations correctly. Do not manually remove Home roots while Stella is running. A dedicated future purge change after the provider/filesystem boundary will own stopped-or-fenced cleanup.
 
 ## Legacy article mirror (draining)

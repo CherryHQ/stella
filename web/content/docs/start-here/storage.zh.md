@@ -59,6 +59,8 @@ PostgreSQL 是 Home 身份与生命周期的权威，配置的 Store 是文件�
 
 显式破坏性删除群组或 Agent 时，会先 fence 本地缓存的执行，再在同一数据库事务中 tombstone 其 Home 并删除所有者。破坏性用户删除具备相同的内部生命周期 primitive，但产品账号删除尚未与它集成。tombstone 后的身份与 locator 会永久保留，不能 attachment 或重新创建，物理字节则被有意保留。移除 Agent 分配、移除群成员、归档 Session 和卸载 Helm 都**不会** tombstone Home。
 
+在单个 server 进程内，一个 writer-prioritized admission barrier 防止 runner setup 与破坏性删除竞态。同步 runner 选择与 Home 解析结束后即释放 barrier，不等待 active Turn 完成。这是 single-replica 保证，不是 distributed lease。未来 multi-replica 必须在每个进程的本地 barrier 之外增加 PostgreSQL generation/lease。durable management 变更后的 best-effort runtime refresh 若失败，可能保持 stale，直到后续 reconcile。
+
 Phase 1 不包含 Home 物理清除、重试命令或 Store 迁移/切换。在 provider/filesystem 边界能够正确 fence 物理操作之前，暂时留下孤立字节比提前删除更安全。Stella 运行时不得手动删除 Home 根目录。provider/filesystem 边界之后的专用清除变更将负责在停机或完成 fence 后清理。
 
 ## 遗留文章镜像（迁移中）

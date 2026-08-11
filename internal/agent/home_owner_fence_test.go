@@ -92,8 +92,8 @@ func TestHomeOwnerDeletionWaitsForWorkspaceAdmissionWithoutDeadlock(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			svc := &Service{Runtime: rt, AgentID: agentID}
 			pm := NewPoolManager(nil, memorytest.New())
+			svc := &Service{Runtime: rt, AgentID: agentID, lifecycle: pm.lifecycle}
 			pm.services[agentID] = svc
 			fencer := &signalingFenceAcquirer{delegate: pm, entered: make(chan struct{})}
 			deletion, err := home.NewOwnerDeletion(db, registry, fencer)
@@ -188,8 +188,8 @@ func TestAgentOwnerDeletionRollbackKeepsServicePublished(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := &Service{Runtime: rt, AgentID: agentID}
 	pm := NewPoolManager(nil, memorytest.New())
+	svc := &Service{Runtime: rt, AgentID: agentID, lifecycle: pm.lifecycle}
 	pm.services[agentID] = svc
 	deletion, err := home.NewOwnerDeletion(db, registry, pm)
 	if err != nil {
@@ -209,202 +209,20 @@ func TestAgentOwnerDeletionRollbackKeepsServicePublished(t *testing.T) {
 	}
 }
 
-func TestHomeOwnerFenceRetriesServicePublicationAndConcurrentAcquisition(t *testing.T) {
+func TestAcquireHomeOwnerFenceCancellationDoesNotLeakLifecycleGate(t *testing.T) {
 	pm := NewPoolManager(nil, memorytest.New())
-	svc1, _, _ := newBarrierService(t)
-	svc1.AgentID = "b"
-	pm.services["b"] = svc1
-	snapshotted := make(chan struct{})
-	releaseSnapshot := make(chan struct{})
-	var snapshotOnce sync.Once
-	pm.homeOwnerFenceSnapshotHook = func() {
-		snapshotOnce.Do(func() {
-			close(snapshotted)
-			<-releaseSnapshot
-		})
-	}
-	acquired := make(chan home.OwnerFenceLease, 1)
-	go func() {
-		lease, err := pm.AcquireHomeOwnerFence(context.Background(), home.OwnerUser, "user")
-		if err != nil {
-			t.Errorf("acquire: %v", err)
-			return
-		}
-		acquired <- lease
-	}()
-	<-snapshotted
-	svc2, _, _ := newBarrierService(t)
-	svc2.AgentID = "a"
-	if err := svc2.admissionMu.Lock(context.Background()); err != nil {
+	if err := pm.lifecycle.lockShared(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := pm.ownerFenceMu.Lock(context.Background()); err != nil {
-		t.Fatal(err)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := pm.AcquireHomeOwnerFence(ctx, home.OwnerUser, "user"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("AcquireHomeOwnerFence = %v, want deadline", err)
 	}
-	pm.mu.Lock()
-	pm.services["a"] = svc2
-	pm.mu.Unlock()
-	pm.ownerFenceMu.Unlock()
-	svc2.admissionMu.Unlock()
-	close(releaseSnapshot)
-	lease := <-acquired
-	concrete := lease.(*homeOwnerFenceLease)
-	if len(concrete.services) != 2 {
-		t.Fatalf("stabilized services = %d, want 2", len(concrete.services))
-	}
-	lease.Release()
-
-	done := make(chan error, 2)
-	for _, kind := range []home.OwnerKind{home.OwnerUser, home.OwnerGroup} {
-		go func(kind home.OwnerKind) {
-			lease, err := pm.AcquireHomeOwnerFence(context.Background(), kind, string(kind))
-			if err == nil {
-				lease.Release()
-			}
-			done <- err
-		}(kind)
-	}
-	for range 2 {
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Fatal(err)
-			}
-		case <-time.After(2 * time.Second):
-			t.Fatal("concurrent owner fences deadlocked")
-		}
-	}
-}
-
-func TestAcquireHomeOwnerFenceCancellationCleansStructuralBarriers(t *testing.T) {
-	t.Run("midway through sorted services", func(t *testing.T) {
-		pm := NewPoolManager(nil, memorytest.New())
-		for _, id := range []string{"a", "b"} {
-			svc, _, _ := newBarrierService(t)
-			svc.AgentID = id
-			pm.services[id] = svc
-		}
-		second := pm.services["b"]
-		if err := second.admissionMu.Lock(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-		firstHeld := make(chan struct{})
-		pm.homeOwnerFenceAdmissionHook = func(i int) {
-			if i == 0 {
-				close(firstHeld)
-			}
-		}
-		ctx, cancel := context.WithCancel(context.Background())
-		done := make(chan error, 1)
-		go func() {
-			_, err := pm.AcquireHomeOwnerFence(ctx, home.OwnerUser, "user")
-			done <- err
-		}()
-		<-firstHeld
-		cancel()
-		if err := <-done; !errors.Is(err, context.Canceled) {
-			t.Fatalf("acquire error = %v, want context.Canceled", err)
-		}
-		second.admissionMu.Unlock()
-		pm.homeOwnerFenceAdmissionHook = nil
-		lease, err := pm.AcquireHomeOwnerFence(context.Background(), home.OwnerUser, "user")
-		if err != nil {
-			t.Fatalf("acquire after cancellation: %v", err)
-		}
-		lease.Release()
-	})
-
-	t.Run("waiting for publication exclusion", func(t *testing.T) {
-		pm := NewPoolManager(nil, memorytest.New())
-		svc, _, _ := newBarrierService(t)
-		pm.services[svc.AgentID] = svc
-		if err := pm.ownerFenceMu.Lock(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-		admissionHeld := make(chan struct{})
-		pm.homeOwnerFenceAdmissionHook = func(int) { close(admissionHeld) }
-		ctx, cancel := context.WithCancel(context.Background())
-		done := make(chan error, 1)
-		go func() {
-			_, err := pm.AcquireHomeOwnerFence(ctx, home.OwnerUser, "user")
-			done <- err
-		}()
-		<-admissionHeld
-		cancel()
-		if err := <-done; !errors.Is(err, context.Canceled) {
-			t.Fatalf("acquire error = %v, want context.Canceled", err)
-		}
-		pm.ownerFenceMu.Unlock()
-		pm.homeOwnerFenceAdmissionHook = nil
-		lease, err := pm.AcquireHomeOwnerFence(context.Background(), home.OwnerUser, "user")
-		if err != nil {
-			t.Fatalf("acquire after cancellation: %v", err)
-		}
-		lease.Release()
-	})
-}
-
-func TestAcquireHomeOwnerFenceCancellationWhileColdFactoryPrecedesWorkspaceView(t *testing.T) {
-	ctx := context.Background()
-	local, err := home.NewLocalStore("local", t.TempDir())
+	pm.lifecycle.unlockShared()
+	lease, err := pm.AcquireHomeOwnerFence(context.Background(), home.OwnerUser, "user")
 	if err != nil {
-		t.Fatal(err)
-	}
-	registry, err := home.NewRegistry(dbtest.New(t), local.ID(), local)
-	if err != nil {
-		t.Fatal(err)
-	}
-	factoryEntered := make(chan struct{})
-	releaseFactory := make(chan struct{})
-	rt, err := agentruntime.New(agentruntime.Config{
-		Memory: memorytest.New(),
-		NewRunner: func(ctx context.Context, _ agentruntime.RunnerParams) (agentruntime.Runner, error) {
-			close(factoryEntered)
-			<-releaseFactory
-			if _, err := registry.WorkspaceView(ctx, home.WorkspaceRequest{UserID: "user", AgentID: "agent"}); err != nil {
-				return nil, err
-			}
-			return &ownerFenceRunner{}, nil
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	svc := &Service{AgentID: "agent", Runtime: rt}
-	pm := NewPoolManager(nil, memorytest.New())
-	pm.services[svc.AgentID] = svc
-	admitted := make(chan error, 1)
-	go func() {
-		_, err := svc.admit(ctx, session.Info{ID: "cold", UserID: "user", AgentID: "agent", Kind: string(session.KindChat), Channel: string(session.ChannelWeb)}, "turn")
-		admitted <- err
-	}()
-	<-factoryEntered // admission barrier held; WorkspaceView Home gate not entered.
-	fenceSnapshotted := make(chan struct{})
-	var snapshotOnce sync.Once
-	pm.homeOwnerFenceSnapshotHook = func() { snapshotOnce.Do(func() { close(fenceSnapshotted) }) }
-	fenceCtx, cancel := context.WithCancel(ctx)
-	fenced := make(chan error, 1)
-	go func() {
-		_, err := pm.AcquireHomeOwnerFence(fenceCtx, home.OwnerUser, "user")
-		fenced <- err
-	}()
-	<-fenceSnapshotted
-	cancel()
-	select {
-	case err := <-fenced:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("owner fence error = %v, want context.Canceled", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("canceled owner fence remained blocked behind cold factory")
-	}
-	close(releaseFactory)
-	if err := <-admitted; err != nil {
-		t.Fatalf("cold admission: %v", err)
-	}
-	lease, err := pm.AcquireHomeOwnerFence(ctx, home.OwnerUser, "user")
-	if err != nil {
-		t.Fatalf("owner fence after cancellation: %v", err)
+		t.Fatalf("acquire after cancellation: %v", err)
 	}
 	lease.Release()
 }

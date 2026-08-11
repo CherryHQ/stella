@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"sync"
 	"testing"
 	"time"
 
@@ -55,6 +54,7 @@ func newBlockingCloseService(t *testing.T, id string) (*Service, *blockingCloseR
 func TestRemoveAgentKeepsLiveRuntimeVisibleUntilCloseCompletes(t *testing.T) {
 	pm := NewPoolManager(nil, memorytest.New())
 	svc, runner := newBlockingCloseService(t, "agent")
+	svc.lifecycle = pm.lifecycle
 	pm.services[svc.AgentID] = svc
 	removed := make(chan error, 1)
 	go func() { removed <- pm.removeAgent(svc.AgentID) }()
@@ -62,9 +62,6 @@ func TestRemoveAgentKeepsLiveRuntimeVisibleUntilCloseCompletes(t *testing.T) {
 	if pm.GetService(svc.AgentID) != svc {
 		t.Fatal("service unpublished while Runtime.Close was blocked")
 	}
-	fenceSnapshotted := make(chan struct{})
-	var snapshotOnce sync.Once
-	pm.homeOwnerFenceSnapshotHook = func() { snapshotOnce.Do(func() { close(fenceSnapshotted) }) }
 	fenced := make(chan home.OwnerFenceLease, 1)
 	go func() {
 		lease, err := pm.AcquireHomeOwnerFence(context.Background(), home.OwnerUser, "user")
@@ -74,10 +71,19 @@ func TestRemoveAgentKeepsLiveRuntimeVisibleUntilCloseCompletes(t *testing.T) {
 		}
 		fenced <- lease
 	}()
-	<-fenceSnapshotted
 	select {
 	case <-fenced:
 		t.Fatal("owner fence passed a still-published live runtime")
+	case <-time.After(30 * time.Millisecond):
+	}
+	readmitted := make(chan error, 1)
+	go func() {
+		_, err := svc.admit(context.Background(), session.Info{ID: "after-remove", UserID: "user", AgentID: svc.AgentID, Kind: string(session.KindChat), Channel: string(session.ChannelWeb)}, "turn")
+		readmitted <- err
+	}()
+	select {
+	case err := <-readmitted:
+		t.Fatalf("raw Service admission passed lifecycle removal: %v", err)
 	case <-time.After(30 * time.Millisecond):
 	}
 	close(runner.releaseClose)
@@ -89,11 +95,15 @@ func TestRemoveAgentKeepsLiveRuntimeVisibleUntilCloseCompletes(t *testing.T) {
 		t.Fatal("owner fence observed service after removal completed")
 	}
 	lease.Release()
+	if err := <-readmitted; err == nil {
+		t.Fatal("raw Service pointer admitted after Runtime.Close")
+	}
 }
 
 func TestPoolManagerCloseKeepsLiveRuntimeVisibleAndRejectsStartState(t *testing.T) {
 	pm := NewPoolManager(nil, memorytest.New())
 	svc, runner := newBlockingCloseService(t, "agent")
+	svc.lifecycle = pm.lifecycle
 	pm.services[svc.AgentID] = svc
 	closed := make(chan error, 1)
 	go func() { closed <- pm.Close() }()
@@ -104,15 +114,11 @@ func TestPoolManagerCloseKeepsLiveRuntimeVisibleAndRejectsStartState(t *testing.
 	if !closing || !published {
 		t.Fatalf("during Close: closing=%t published=%t", closing, published)
 	}
-	fenceSnapshotted := make(chan struct{})
-	var snapshotOnce sync.Once
-	pm.homeOwnerFenceSnapshotHook = func() { snapshotOnce.Do(func() { close(fenceSnapshotted) }) }
 	fenced := make(chan home.OwnerFenceLease, 1)
 	go func() {
 		lease, _ := pm.AcquireHomeOwnerFence(context.Background(), home.OwnerUser, "user")
 		fenced <- lease
 	}()
-	<-fenceSnapshotted
 	select {
 	case <-fenced:
 		t.Fatal("owner fence passed blocked PoolManager.Close")
