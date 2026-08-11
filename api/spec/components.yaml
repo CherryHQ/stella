@@ -3088,10 +3088,6 @@ components:
           format: date-time
         state:
           type: string
-        outcome:
-          type: string
-          enum: [user_consent_required]
-          description: Machine-readable caller action while the flow awaits user consent.
         error:
           type: string
           description: Failure reason when state is "failed".

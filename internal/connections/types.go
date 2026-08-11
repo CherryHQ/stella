@@ -2,10 +2,6 @@ package connections
 
 import "time"
 
-// OAuthOutcomeUserConsentRequired tells a caller to present the returned
-// verification URL to the user.
-const OAuthOutcomeUserConsentRequired = "user_consent_required"
-
 // Reconnect reasons reported in ProviderStatus.ReconnectReason (D4). This is a
 // Go-enforced closed enum; callers must not invent new values.
 const (
@@ -69,7 +65,6 @@ type FlowStatus struct {
 	UserCode        string
 	ExpiresAt       time.Time
 	State           string
-	Outcome         string // typed caller action; set while user consent is required
 	Error           string // failure reason when State is "failed" (D5)
 	RequestedScopes []string
 }

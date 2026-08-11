@@ -786,10 +786,6 @@ func (s *Service) GetFlowForCallback(flowID string) (oauth.FlowStatus, bool) {
 }
 
 func toFlowStatus(fs oauth.FlowStatus) FlowStatus {
-	outcome := ""
-	if fs.State == oauth.FlowStatePending || fs.State == oauth.FlowStateCompleting {
-		outcome = OAuthOutcomeUserConsentRequired
-	}
 	return FlowStatus{
 		Provider:        string(fs.Provider),
 		FlowID:          fs.FlowID,
@@ -797,7 +793,6 @@ func toFlowStatus(fs oauth.FlowStatus) FlowStatus {
 		UserCode:        fs.UserCode,
 		ExpiresAt:       fs.ExpiresAt,
 		State:           string(fs.State),
-		Outcome:         outcome,
 		Error:           fs.Error,
 		RequestedScopes: append([]string(nil), fs.DesiredScopes...),
 	}

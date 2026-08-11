@@ -126,7 +126,6 @@ type oauthFlowResponse struct {
 	UserCode        string   `json:"user_code,omitempty"`
 	ExpiresAt       string   `json:"expires_at"`
 	State           string   `json:"state"`
-	Outcome         string   `json:"outcome,omitempty"`
 	RequestedScopes []string `json:"requested_scopes,omitempty"`
 }
 type oauthProviderResponse struct {
@@ -141,7 +140,7 @@ type oauthProviderResponse struct {
 }
 
 func oauthFlowSummary(status FlowStatus) oauthFlowResponse {
-	return oauthFlowResponse{Provider: status.Provider, FlowID: status.FlowID, VerificationURI: status.VerificationURI, UserCode: status.UserCode, ExpiresAt: status.ExpiresAt.UTC().Format(time.RFC3339), State: status.State, Outcome: status.Outcome, RequestedScopes: status.RequestedScopes}
+	return oauthFlowResponse{Provider: status.Provider, FlowID: status.FlowID, VerificationURI: status.VerificationURI, UserCode: status.UserCode, ExpiresAt: status.ExpiresAt.UTC().Format(time.RFC3339), State: status.State, RequestedScopes: status.RequestedScopes}
 }
 
 func oauthProviderSummary(status ProviderStatus) oauthProviderResponse {

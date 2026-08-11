@@ -41,7 +41,6 @@ type flowStatusJSON struct {
 	UserCode        string    `json:"user_code,omitempty"`
 	ExpiresAt       time.Time `json:"expires_at"`
 	State           string    `json:"state"`
-	Outcome         string    `json:"outcome,omitempty"`
 	Error           string    `json:"error,omitempty"`
 	RequestedScopes []string  `json:"requested_scopes,omitempty"`
 }
@@ -54,7 +53,6 @@ func toFlowStatusJSON(fs connections.FlowStatus) flowStatusJSON {
 		UserCode:        fs.UserCode,
 		ExpiresAt:       fs.ExpiresAt.UTC(),
 		State:           fs.State,
-		Outcome:         fs.Outcome,
 		Error:           fs.Error,
 		RequestedScopes: fs.RequestedScopes,
 	}

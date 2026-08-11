@@ -80,13 +80,6 @@ func TestBundleDesiredScopesKeepsHistoricalUserScopes(t *testing.T) {
 	}
 }
 
-func TestPendingFlowReportsUserConsentOutcome(t *testing.T) {
-	status := toFlowStatus(oauth.FlowStatus{State: oauth.FlowStatePending})
-	if status.Outcome != OAuthOutcomeUserConsentRequired {
-		t.Fatalf("pending flow outcome = %q, want %q", status.Outcome, OAuthOutcomeUserConsentRequired)
-	}
-}
-
 func TestDesiredScopesPersistAcrossIncrementalFlows(t *testing.T) {
 	db := dbtest.New(t)
 	q := pkgdb.New(db)
