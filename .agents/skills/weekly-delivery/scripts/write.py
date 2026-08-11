@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+"""Apply an approved weekly draft to the Feishu task table.
+
+Reads the draft produced by collect.py after the agent has filled the judgement
+fields, refuses to run on an incomplete draft, writes in two batches, and reads
+the result back. Nothing here decides anything.
+
+Usage:
+    write.py [--draft draft.json] [--dry-run]
+"""
+
+import argparse
+import json
+import subprocess
+import sys
+
+BASE = "BEEbbI9jtad6PmsYSXpcmBy2nUd"
+TASKS = "tbl4pUhlngTJdg2Z"
+DRI = "ou_e28726c5c1bfc639d6005b9f804af37c"
+
+MILESTONES = {
+    "知识库 v1": "recvqx8529aZBT",
+    "自动化测试 v1": "recvqx869rkLuv",
+    "记忆 v1": "recvqzQfwmK9cy",
+    "云端 Agent 体验 v1": "recvqPcD0E3FLo",
+    "企业版集成 v1": "recvqPcD0EFGJu",
+    "任务一键上云 v1": "recvqPcD0EIydV",
+    "场景探索 + Eval v1": "recvqPHDXBNCm7",
+    "平台核心持续维护": "recvrXpAB7GkXa",
+    "渠道接入与维护": "recvrXpAB7bvth",
+    "运维持续维护": "recvrXpAB7YWvG",
+}
+
+REQUIRED = ["任务", "状态", "优先级", "产品线", "里程碑", "验收标准"]
+
+
+def lark(cmd, payload=None):
+    argv = ["lark-cli", "base", cmd, "--base-token", BASE, "--table-id", TASKS, "--as", "user"]
+    if payload is not None:
+        argv += ["--json", json.dumps(payload, ensure_ascii=False)]
+    out = subprocess.run(argv, capture_output=True, text=True)
+    body = json.loads(out.stdout or "{}")
+    if not body.get("ok"):
+        sys.exit(f"{cmd} failed: {json.dumps(body.get('error'), ensure_ascii=False)}")
+    return body.get("data") or {}
+
+
+def milestone_cell(name):
+    if not name:
+        return None
+    if name not in MILESTONES:
+        sys.exit(f"unknown milestone {name!r}; add its record id to MILESTONES first")
+    return [{"id": MILESTONES[name]}]
+
+
+def common(entry):
+    """Fields every touched task carries, whether new or refreshed."""
+    fields = {
+        "PR": entry["pr_field"],
+        "PR 数": entry["pr_count"],
+        "GitHub Issue": entry["issue_url"],
+    }
+    # A closed issue means the work landed; that is what makes it show up in the
+    # weekly view. An open issue keeps delivering across weeks, so no end date.
+    if entry["issue_state"] == "closed":
+        fields["完成日期"] = entry["last_merged"] + " 00:00:00"
+    return fields
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--draft", default="/tmp/weekly-draft.json")
+    ap.add_argument("--dry-run", action="store_true")
+    args = ap.parse_args()
+
+    draft = json.load(open(args.draft))
+
+    incomplete = [
+        f"#{e['issue']} missing {[k for k in REQUIRED if k != '里程碑' and not e.get(k)]}"
+        for e in draft["new"]
+        if any(not e.get(k) for k in REQUIRED if k != "里程碑")
+    ]
+    if incomplete:
+        sys.exit("draft is not ready:\n  " + "\n  ".join(incomplete))
+
+    creates = []
+    for e in draft["new"]:
+        row = dict(common(e))
+        row.update({
+            "任务": e["任务"],
+            "状态": e["状态"],
+            "优先级": e["优先级"],
+            "产品线": e["产品线"],
+            "验收标准": e["验收标准"],
+            "Refs": "PR " + ", ".join(f"#{n}" for n in e["prs"]),
+            "开始日期": e["first_created"] + " 00:00:00",
+            "截止日期": e["last_merged"] + " 00:00:00",
+            "DRI": [{"id": DRI}],
+        })
+        ms = milestone_cell(e.get("里程碑"))
+        if ms:
+            row["里程碑"] = ms
+        creates.append(row)
+
+    updates = {}
+    for e in draft["update"]:
+        row = dict(common(e))
+        ms = milestone_cell(e.get("里程碑"))
+        if ms:
+            row["里程碑"] = ms
+        updates[e["record_id"]] = row
+
+    print(f"create {len(creates)} / update {len(updates)}")
+    if args.dry_run:
+        print(json.dumps({"create": creates, "update": updates}, ensure_ascii=False, indent=2))
+        return
+
+    created = []
+    if creates:
+        created = lark("+record-batch-create", {"create_records": creates})["record_id_list"]
+    if updates:
+        lark("+record-batch-update", {"update_records": updates})
+
+    # The write APIs do not echo stored rows, so confirm against the table.
+    argv = ["lark-cli", "base", "+record-list", "--base-token", BASE, "--table-id", TASKS,
+            "--as", "user", "--limit", "200", "--json"]
+    table = json.loads(subprocess.run(argv, capture_output=True, text=True).stdout)["data"]
+    rows = {rid: dict(zip(table["fields"], row))
+            for rid, row in zip(table["record_id_list"], table["data"])}
+    touched = set(created) | set(updates)
+    missing_pr = [rid for rid in touched if not rows.get(rid, {}).get("PR")]
+    print(f"verified {len(touched - set(missing_pr))}/{len(touched)} rows carry PR links")
+    if missing_pr:
+        sys.exit(f"these records did not take the write: {missing_pr}")
+
+
+if __name__ == "__main__":
+    main()
