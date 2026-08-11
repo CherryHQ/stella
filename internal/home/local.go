@@ -17,44 +17,31 @@ import (
 	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-// NewLocalRegistry reconstructs every local compatibility Store needed by
-// durable non-purged Homes and an unfinished legacy registration. Phase 1 maps
-// each immutable Store ID to the same STELLA_HOME base; only defaultStore is
-// used for genuinely new Home identities.
-func NewLocalRegistry(ctx context.Context, db *pgxpool.Pool, defaultStore, base string) (*Registry, error) {
+// NewLocalRegistry constructs exactly the configured local Store. Persisted
+// Homes and registration markers that name any other Store fail startup.
+func NewLocalRegistry(ctx context.Context, db *pgxpool.Pool, storeID, base string) (*Registry, error) {
 	if db == nil {
 		return nil, errors.New("home: database is required")
 	}
-	ids := map[string]struct{}{defaultStore: {}}
-	q := sqlc.New(db)
-	referenced, err := q.ListRetainedStorageHomeStoreID(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("home: list retained local Stores: %w", err)
-	}
-	for _, id := range referenced {
-		ids[id] = struct{}{}
-	}
-	marker, err := q.GetStorageMigration(ctx, TypedHomeLegacyRegistrationMigration)
-	if err == nil && marker.State != "completed" {
+	marker, err := sqlc.New(db).GetStorageMigration(ctx, TypedHomeLegacyRegistrationMigration)
+	if err == nil {
 		var metadata struct {
 			StoreID string `json:"store_id"`
 		}
 		if err := json.Unmarshal(marker.Metadata, &metadata); err != nil {
-			return nil, fmt.Errorf("home: decode pending legacy registration Store: %w", err)
+			return nil, fmt.Errorf("home: decode legacy registration Store: %w", err)
 		}
-		ids[metadata.StoreID] = struct{}{}
+		if metadata.StoreID == "" || metadata.StoreID != storeID {
+			return nil, fmt.Errorf("home: legacy registration requires Store %q, configured %q", metadata.StoreID, storeID)
+		}
 	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("home: load legacy registration Store: %w", err)
 	}
-	stores := make([]Store, 0, len(ids))
-	for id := range ids {
-		store, err := NewLocalStore(id, base)
-		if err != nil {
-			return nil, fmt.Errorf("home: reconstruct local Store %q: %w", id, err)
-		}
-		stores = append(stores, store)
+	store, err := NewLocalStore(storeID, base)
+	if err != nil {
+		return nil, err
 	}
-	registry, err := NewRegistry(db, defaultStore, stores...)
+	registry, err := NewRegistry(db, storeID, store)
 	if err != nil {
 		return nil, err
 	}
@@ -150,31 +137,6 @@ func (s *LocalStore) Ensure(_ context.Context, home Record) error {
 		return fmt.Errorf("create home: %w", err)
 	}
 	return nil
-}
-
-// Purge removes only home.Locator. Callers that coordinate durable purge state
-// must hold AcquirePurgeLock from immediately before their final DB
-// revalidation until Purge returns. Purge is idempotent and checks ctx between
-// individual directory operations; cancellation does not imply rollback.
-func (s *LocalStore) Purge(ctx context.Context, home Record) error {
-	if _, err := s.pathFor(home); err != nil {
-		return err
-	}
-	if err := purgeLocalRelative(ctx, s.base, home.Locator); err != nil {
-		return fmt.Errorf("remove home: %w", err)
-	}
-	return nil
-}
-
-// AcquirePurgeLock obtains an OS-backed advisory lock outside every Home tree.
-// It excludes cooperating LocalStore processes that share and preserve this
-// Store's lock namespace; it is not tamper-resistant against Stella's OS
-// identity or a privileged host operator. The returned release must be called.
-func (s *LocalStore) AcquirePurgeLock(ctx context.Context, home Record) (func() error, error) {
-	if _, err := s.pathFor(home); err != nil {
-		return nil, err
-	}
-	return acquireLocalPurgeLock(ctx, s.base, home.ID)
 }
 
 func splitLocalPath(name string) []string {

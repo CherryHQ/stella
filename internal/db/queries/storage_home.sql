@@ -15,9 +15,6 @@ SELECT * FROM storage_home WHERE id = $1;
 SELECT pg_advisory_xact_lock(hashtextextended($1, 0));
 
 -- name: ListStorageHomeStoreID :many
-SELECT DISTINCT store_id FROM storage_home WHERE state <> 'purged' ORDER BY store_id;
-
--- name: ListRetainedStorageHomeStoreID :many
 SELECT DISTINCT store_id FROM storage_home ORDER BY store_id;
 
 -- name: ListStorageLegacyUserID :many
@@ -68,71 +65,8 @@ RETURNING *;
 
 -- name: TombstoneStorageHome :one
 UPDATE storage_home
-SET state = 'tombstoned', tombstoned_at = now(), tombstoned_by = $2, purge_requested_at = now(),
-    maintenance_owner = NULL, maintenance_token = NULL, maintenance_until = NULL, updated_at = now()
+SET state = 'tombstoned', tombstoned_at = now(), tombstoned_by = $2, updated_at = now()
 WHERE id = $1 AND state IN ('provisioning', 'ready')
-RETURNING *;
-
--- name: ClaimStorageHomePurge :one
-UPDATE storage_home
-SET purge_attempts = purge_attempts + 1, purge_started_at = now(),
-    purge_claim_token = $2, purge_claim_until = now() + interval '5 minutes', updated_at = now()
-WHERE id = $1
-  AND state = sqlc.arg(expected_state)
-  AND (purge_claim_until IS NULL OR purge_claim_until <= now())
-RETURNING *;
-
--- name: GetStorageHomePurgeClaimStatus :one
-SELECT state, purge_claim_token IS NOT NULL AND purge_claim_until > now() AS purge_claim_active
-FROM storage_home
-WHERE id = $1;
-
--- name: ValidateStorageHomePurgeClaim :one
-SELECT EXISTS (
-    SELECT 1 FROM storage_home
-    WHERE id = $1 AND purge_claim_token = $2 AND purge_claim_until > now()
-);
-
--- name: RenewStorageHomePurgeClaim :execrows
-UPDATE storage_home
-SET purge_claim_until = now() + interval '5 minutes', updated_at = now()
-WHERE id = $1 AND purge_claim_token = $2 AND purge_claim_until > now();
-
--- name: MarkStorageHomePurgeFailed :one
-UPDATE storage_home
-SET state = 'purge_failed', purge_failed_at = now(), last_purge_error = $2,
-    purge_claim_token = NULL, purge_claim_until = NULL, updated_at = now()
-WHERE id = $1 AND state IN ('tombstoned', 'purge_failed')
-  AND purge_claim_token = $3 AND purge_claim_until > now()
-RETURNING *;
-
--- name: MarkStorageHomePurged :one
-UPDATE storage_home
-SET state = 'purged', purged_at = now(), purged_by = $2,
-    purge_claim_token = NULL, purge_claim_until = NULL, updated_at = now()
-WHERE id = $1 AND state IN ('tombstoned', 'purge_failed')
-  AND purge_claim_token = $3 AND purge_claim_until > now()
-RETURNING *;
-
--- name: AcquireStorageHomeMaintenance :one
-UPDATE storage_home
-SET maintenance_owner = $2, maintenance_token = $3, maintenance_until = $4, updated_at = now()
-WHERE id = $1
-  AND state = 'ready'
-  AND $4 > now()
-  AND (maintenance_until IS NULL OR maintenance_until <= now())
-RETURNING *;
-
--- name: ReleaseStorageHomeMaintenance :execrows
-UPDATE storage_home
-SET maintenance_owner = NULL, maintenance_token = NULL, maintenance_until = NULL, updated_at = now()
-WHERE id = $1 AND maintenance_token = $2 AND maintenance_until > now();
-
--- name: CutoverStorageHomeStore :one
-UPDATE storage_home
-SET store_id = $4, locator = $5, maintenance_owner = NULL, maintenance_token = NULL, maintenance_until = NULL, updated_at = now()
-WHERE id = $1 AND state = 'ready' AND store_id = $2 AND locator = $3
-  AND maintenance_token = $6 AND maintenance_until > now()
 RETURNING *;
 
 -- name: GetStorageMigration :one

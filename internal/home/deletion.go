@@ -4,36 +4,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
-	"sort"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/rivertype"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// OwnerKind names the durable owner whose Homes are permanently deleted.
+// OwnerKind names the durable owner whose Homes are terminally tombstoned.
 type OwnerKind string
 
 const (
 	OwnerUser  OwnerKind = "user"
 	OwnerGroup OwnerKind = "group"
 	OwnerAgent OwnerKind = "agent"
-	// Unexpected failures consume this finite budget. Deliberate child/claim
-	// dependencies snooze without consuming attempts.
-	ownerPurgeMaxAttempts      = 25
-	ownerPurgeDependencySnooze = 30 * time.Second
 )
-
-// HomePurgeQueue serializes durable physical Home purges.
-const HomePurgeQueue = "home_purge"
 
 // OwnerFencer synchronously makes an owner's cached execution state terminal.
 // It is deliberately narrower than PoolManager's ordinary invalidation surface.
@@ -41,42 +29,23 @@ type OwnerFencer interface {
 	FenceHomeOwner(context.Context, OwnerKind, string) error
 }
 
-type ownerDeleteEnqueuer interface {
-	InsertTx(context.Context, pgx.Tx, river.JobArgs, *river.InsertOpts) (*rivertype.JobInsertResult, error)
-}
-
 // OwnerDeletion is the deep lifecycle boundary for destructive owner deletes.
-// It owns the transaction that makes Homes unavailable, removes the owner, and
-// durably schedules exactly one physical-purge batch.
+// It owns the transaction that makes Homes unavailable and removes the owner.
 type OwnerDeletion struct {
 	db       *pgxpool.Pool
 	registry *Registry
-	enqueue  ownerDeleteEnqueuer
 	fencer   OwnerFencer
 }
 
-func NewOwnerDeletion(db *pgxpool.Pool, registry *Registry, enqueue ownerDeleteEnqueuer, fencer OwnerFencer) (*OwnerDeletion, error) {
+func NewOwnerDeletion(db *pgxpool.Pool, registry *Registry, fencer OwnerFencer) (*OwnerDeletion, error) {
 	if db == nil || registry == nil || fencer == nil {
 		return nil, errors.New("home: owner deletion requires database, registry, and fencer")
 	}
-	return &OwnerDeletion{db: db, registry: registry, enqueue: enqueue, fencer: fencer}, nil
+	return &OwnerDeletion{db: db, registry: registry, fencer: fencer}, nil
 }
 
-// BindRiverClient is the one pre-start bind from the shared River composition
-// root. Tests may instead construct OwnerDeletion with a narrow fake enqueuer.
-func (d *OwnerDeletion) BindRiverClient(client ownerDeleteEnqueuer) error {
-	if client == nil {
-		return errors.New("home: bind owner deletion River client: nil client")
-	}
-	if d.enqueue != nil {
-		return errors.New("home: owner deletion River client already bound")
-	}
-	d.enqueue = client
-	return nil
-}
-
-// DeleteGroup atomically tombstones all group Homes, deletes the group, and
-// enqueues one purge batch. The caller authorizes before reaching this boundary.
+// DeleteGroup atomically tombstones all group Homes and deletes the group.
+// The caller authorizes before reaching this boundary.
 func (d *OwnerDeletion) DeleteGroup(ctx context.Context, id, actor string) error {
 	return d.delete(ctx, OwnerGroup, id, actor, func(ctx context.Context, q *sqlc.Queries, id string) error {
 		return q.DeleteGroupState(ctx, id)
@@ -101,19 +70,29 @@ func (d *OwnerDeletion) DeleteUser(ctx context.Context, id, actor string) error 
 type ownerDeleteFunc func(context.Context, *sqlc.Queries, string) error
 
 func (d *OwnerDeletion) delete(ctx context.Context, kind OwnerKind, id, actor string, deleteOwner ownerDeleteFunc) error {
-	if d == nil || d.db == nil || d.registry == nil || d.enqueue == nil || d.fencer == nil {
+	if d == nil || d.db == nil || d.registry == nil || d.fencer == nil {
 		return errors.New("home: owner deletion lifecycle is unavailable")
 	}
 	if strings.TrimSpace(id) == "" || strings.TrimSpace(actor) == "" {
 		return errors.New("home: owner deletion ID and actor are required")
 	}
-	// Phase-1 local projection holds this same bounded process lock before it
-	// touches Store bytes. Keep it through commit and the synchronous fence.
+	// Reject missing/unsupported owners before fencing. This check is repeated
+	// under row lock below; it only avoids an availability fence when there is
+	// plainly no owner to delete.
+	if err := d.ownerExists(ctx, sqlc.New(d.db), kind, id); err != nil {
+		return err
+	}
+	// Phase-1 local projection holds this same bounded process lock. Fence while
+	// holding it, before opening the mutation transaction, so WorkspaceView
+	// cannot pass between a successful fence and commit.
 	unlock, err := d.registry.lockOwnerKeys(ctx, []string{ownerLockKey(kind, id)})
 	if err != nil {
 		return err
 	}
 	defer unlock()
+	if err := d.fencer.FenceHomeOwner(ctx, kind, id); err != nil {
+		return fmt.Errorf("home: fence %s owner %q: %w", kind, id, err)
+	}
 	tx, err := d.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("home: begin owner deletion: %w", err)
@@ -128,32 +107,32 @@ func (d *OwnerDeletion) delete(ctx context.Context, kind OwnerKind, id, actor st
 	if err := d.lockOwner(ctx, q, kind, id); err != nil {
 		return err
 	}
-	rows, err := d.tombstoneHomes(ctx, q, kind, id, actor)
-	if err != nil {
+	if _, err := d.tombstoneHomes(ctx, q, kind, id, actor); err != nil {
 		return err
 	}
 	if err := deleteOwner(ctx, q, id); err != nil {
 		return err
 	}
-	ids := make([]string, len(rows))
-	for i, row := range rows {
-		ids[i] = row.ID
-	}
-	if _, err := d.enqueue.InsertTx(ctx, tx, ownerPurgeArgs{OwnerKind: kind, OwnerID: id, HomeIDs: ids, Actor: actor}, ownerPurgeInsertOpts()); err != nil {
-		return fmt.Errorf("home: enqueue owner purge: %w", err)
-	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("home: commit owner deletion: %w", err)
 	}
-	// The durable worker fences again before physical purge. Fence now too as a
-	// best-effort latency optimization; the committed deletion remains successful
-	// when this replica cannot fence immediately.
-	if err := d.fencer.FenceHomeOwner(ctx, kind, id); err != nil {
-		slog.Default().ErrorContext(ctx, "home: immediate owner execution fence failed after deletion commit",
-			"owner_kind", kind,
-			"owner_id", id,
-			"error", err,
-		)
+	return nil
+}
+
+func (d *OwnerDeletion) ownerExists(ctx context.Context, q *sqlc.Queries, kind OwnerKind, id string) error {
+	var err error
+	switch kind {
+	case OwnerGroup:
+		_, err = q.GetGroupStateByID(ctx, id)
+	case OwnerAgent:
+		_, err = q.GetAgent(ctx, id)
+	case OwnerUser:
+		_, err = q.GetAuthUser(ctx, id)
+	default:
+		return fmt.Errorf("home: unsupported deletion owner %q", kind)
+	}
+	if err != nil {
+		return fmt.Errorf("home: validate %s owner: %w", kind, err)
 	}
 	return nil
 }
@@ -206,7 +185,7 @@ func (d *OwnerDeletion) tombstoneHomes(ctx context.Context, q *sqlc.Queries, kin
 	}
 	out := make([]sqlc.StorageHome, 0, len(rows))
 	for _, row := range rows {
-		if State(row.State) == StateTombstoned || State(row.State) == StatePurgeFailed || State(row.State) == StatePurged {
+		if State(row.State) == StateTombstoned {
 			// AgentHomes are shared by their principal and Agent deletion sets.
 			// A terminal row belongs to the first valid owner delete; do not make
 			// that prior audit block deletion of the other owner.
@@ -255,111 +234,3 @@ func getTx(ctx context.Context, q *sqlc.Queries, key Key) (sqlc.StorageHome, err
 }
 
 func text(s string) pgtype.Text { return pgtype.Text{String: s, Valid: true} }
-
-type ownerPurgeArgs struct {
-	OwnerKind OwnerKind `json:"owner_kind"`
-	OwnerID   string    `json:"owner_id"`
-	HomeIDs   []string  `json:"home_ids"`
-	Actor     string    `json:"actor"`
-}
-
-func (ownerPurgeArgs) Kind() string { return "stella_home_owner_purge" }
-
-func ownerPurgeInsertOpts() *river.InsertOpts {
-	return &river.InsertOpts{Queue: HomePurgeQueue, MaxAttempts: ownerPurgeMaxAttempts, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: []rivertype.JobState{rivertype.JobStateAvailable, rivertype.JobStatePending, rivertype.JobStateRunning, rivertype.JobStateScheduled}}}
-}
-
-type ownerPurgeWorker struct {
-	river.WorkerDefaults[ownerPurgeArgs]
-	deletion *OwnerDeletion
-}
-
-func (w *ownerPurgeWorker) Work(ctx context.Context, j *river.Job[ownerPurgeArgs]) error {
-	if err := w.deletion.fencer.FenceHomeOwner(ctx, j.Args.OwnerKind, j.Args.OwnerID); err != nil {
-		return fmt.Errorf("home: fence %s owner %q: %w", j.Args.OwnerKind, j.Args.OwnerID, err)
-	}
-	// Do not trust enqueue argument order: child AgentHomes must lose their
-	// bytes before the principal compatibility root on every retry.
-	records := make([]Record, 0, len(j.Args.HomeIDs))
-	var transient error
-	waiting := false
-	blockedAbove := int(^uint(0) >> 1)
-	for _, id := range j.Args.HomeIDs {
-		record, err := w.deletion.registry.Record(ctx, id)
-		if err != nil {
-			// A malformed/stale batch member must remain retryable, but it must
-			// not prevent independent Home bytes in this batch from being purged.
-			transient = errors.Join(transient, fmt.Errorf("home: load purge record %q: %w", id, err))
-			blockedAbove = 0 // Unknown batch members may be nested AgentHomes.
-			continue
-		}
-		records = append(records, record)
-	}
-	sort.Slice(records, func(i, k int) bool {
-		left, right := purgeOrder(records[i]), purgeOrder(records[k])
-		if left != right {
-			return left < right
-		}
-		return records[i].ID < records[k].ID
-	})
-	for _, record := range records {
-		order := purgeOrder(record)
-		if order > blockedAbove {
-			waiting = true
-			continue
-		}
-		purged, err := w.deletion.registry.Purge(ctx, record.ID, j.Args.Actor)
-		if err != nil {
-			if order < blockedAbove {
-				blockedAbove = order
-			}
-			var physical *PhysicalPurgeError
-			if errors.As(err, &physical) {
-				waiting = true // Explicit maintenance recovery wakes this continuation.
-				continue
-			}
-			if errors.Is(err, ErrPurgeInProgress) || errors.Is(err, ErrPurgeClaimLost) {
-				waiting = true
-				continue
-			}
-			transient = errors.Join(transient, fmt.Errorf("home %s: %w", record.ID, err))
-			continue
-		}
-		if purged.State != StatePurged {
-			if order < blockedAbove {
-				blockedAbove = order
-			}
-			waiting = true
-		}
-	}
-	if transient != nil {
-		return transient
-	}
-	if waiting {
-		return river.JobSnooze(ownerPurgeDependencySnooze)
-	}
-	return nil
-}
-
-func purgeOrder(record Record) int {
-	// AgentHomes nest under a principal compatibility root. Agent deletion has
-	// no PrincipalHome, so its SystemAgent root follows all child AgentHomes.
-	switch record.Key.Kind {
-	case AgentHome:
-		return 0
-	case PrincipalHome:
-		return 1
-	case SystemAgentSkillRoot:
-		return 2
-	default:
-		return 3
-	}
-}
-
-func (d *OwnerDeletion) RegisterRiverWorker(workers *river.Workers) {
-	river.AddWorker(workers, &ownerPurgeWorker{deletion: d})
-}
-
-func (d *OwnerDeletion) RiverQueueConfig() (string, river.QueueConfig) {
-	return HomePurgeQueue, river.QueueConfig{MaxWorkers: 1}
-}

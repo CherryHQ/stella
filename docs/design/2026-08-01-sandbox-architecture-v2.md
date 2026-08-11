@@ -226,7 +226,8 @@ storage_home
   agent_id       nullable
   store_id
   locator        opaque
-  state          provisioning | ready | tombstoned | purge_failed | purged
+  state          provisioning | ready | tombstoned
+                 (future provider-fenced purge adds purge_failed | purged)
   created_at
   updated_at
 ```
@@ -265,6 +266,8 @@ Resolve(home)     return a provider-compatible HomeAttachment
 Tombstone(home)   revoke future attachment
 Purge(home)       delete physical storage idempotently
 ```
+
+Phase 1 的可合并子集只实现 `Ensure`、ready-root inspection、`Resolve` 与 `Tombstone`，并永久保留 tombstoned identity/locator 与物理字节。`Purge` 是本节最终架构能力；它在 provider/filesystem 边界之后的独立 Draft 中实现，不能由 Phase 1 的 host-path 兼容层提前执行。
 
 `SandboxProvider` 只接收 `HomeAttachment`。它不决定 Home 放在哪里，也不把 compute Provider 名称写进数据身份。
 
@@ -841,8 +844,8 @@ immutable session media 仍可使用 content-addressed blob/S3。share 在发布
 | Phase | 内容                                                                                                                                                                                                                                                                                                                                                                                                                             | 验收结果                                                                                                          |
 | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | 0     | 生成 deterministic builtin manifest/bundle，切 catalog 到 Registry，治理 legacy filesystem system root；保留 system/system_agent wire scope；复用 Agent policy column 实现 per-Agent activation，普通 Agent update 停止覆盖 policy                                                                                                                                                                                               | builtin 不再依赖启动抽取/反扫；legacy custom root 不静默消失；policy 在 Home cutover 前后使用同一 logical ref     |
-| 1     | 新增 typed `storage_home` 与 HomeStore；注册 UserHome、GroupHome、AgentHome，并创建 opaque SystemSkillRoot/SystemAgentSkillRoot identity；停止把 `agent.workspace` 当数据身份，明确 group/user-less 只读 shared Skill mount                                                                                                                                                                                                      | 不移动现有文件，数据库能解析每个 typed Home/shared Skill root                                                     |
-| 2     | 先引入 `Filesystem`/`stella-fs`、managed Skill symlink publication 和 trusted admin write；迁移 read/write/edit/Workspace/share/assets。通过 object-only asset marker 后，再离线把 PG Skills/Reflect usage 完整迁入对应 Home root/archive，写 Skill marker，删除 ResolvePath、asset mirror 与 PG Skill current-state readers/writers                                                                                             | local、none、Docker 通过文件/Skill conformance；asset/Skill 无双 authority；bash/API 写同一 Home                  |
+| 1     | 新增 typed `storage_home` 与 HomeStore；注册 UserHome、GroupHome、AgentHome，并创建 opaque SystemSkillRoot/SystemAgentSkillRoot identity；停止把 `agent.workspace` 当数据身份，明确 group/user-less 只读 shared Skill mount；删除时只 fence+tombstone 并保留物理字节                                                                                                                                                             | 不移动或删除现有文件，数据库能解析每个 typed Home/shared Skill root，tombstone 永久拒绝 attachment                |
+| 2     | 先引入 `Filesystem`/`stella-fs`，随后用独立 Draft 实现 provider-fenced Home purge/重试/离线 Store 迁移；再加入 managed Skill symlink publication 和 trusted admin write，迁移 read/write/edit/Workspace/share/assets。通过 object-only asset marker 后，离线把 PG Skills/Reflect usage 完整迁入对应 Home root/archive，写 Skill marker，删除 ResolvePath、asset mirror 与 PG Skill current-state readers/writers                 | local、none、Docker 通过文件/Skill conformance；物理清除受 provider fence；asset/Skill 无双 authority             |
 | 3     | 持久化 SandboxRef/generation/lifecycle、provisioning intent、`ctx_chat_input`、AgentRun 和 ChatBinding FIFO；把现有 `ctx_session_inbox` 接入 AgentRun admission 并限制为 receipt/transcript recovery；保留单一 GroupRoute；删除旧 process lease；实现 reconciler、event fallback、batch admission、`BeginUse`、Docker `Open`、fencing；AgentRun pin catalog/policy revision，并对旧 managed Skill revision 做 reference-aware GC | semantic routing、Skill/policy 一致性、agent send、expired Run recovery 与 execution 都不依赖进程状态或本地 queue |
 | 4     | 实现 channel leader、durable Publisher、DB OAuth/rate limit、versioned config 与 Skill policy invalidation；新增共享 PostgreSQL/daemon/Home 的 3-replica Docker Compose journey，并在全部门槛通过后开放 Docker multi-replica flag                                                                                                                                                                                                | Compose 中跨副本 Run、Skill、Reflect、abort、Workspace、FIFO、leader/publisher 与 crash recovery 通过             |
 | 5     | 实现 Kubernetes Provider、显式 storage 配置与 conformance gate、RWX PrincipalHome/shared Skill roots、RWO AgentHome PVC、versioned system bundle、symlink publication、Pod affinity、安全基线和 `stella-exec` adapter；复用 Phase 4 协议测试，只新增 Kubernetes platform conformance                                                                                                                                             | Session Pod 跨节点调度且不丢 Home；tool/Skill 无宿主路径或 PG scratch；通过后才开放 Helm 多副本                   |
@@ -858,8 +861,8 @@ Phase 之间不引入兼容性假象：旧代码仍需要宿主路径时，只�
 - `Ensure` 幂等，重复调用不创建第二份 Home。
 - locator 不能由未验证的用户路径组成。
 - tombstoned Home 不能生成新 attachment。
-- purge 可重复，部分失败保留可重试状态。
-- purged Home 只保留 immutable registry/audit metadata，identity 与 locator 不复用。
+- Phase 1 tombstone 永久保留 identity、locator 与物理字节；它不执行 purge。
+- 后续 provider-fenced purge 可重复，部分失败保留可重试状态；purged Home 只保留 immutable registry/audit metadata，identity 与 locator 不复用。
 - `(principal_kind, principal_id)` 防止同 raw ID 的 user/group Home 碰撞；group Pod 不得挂载成员 UserHome。
 - SystemSkillRoot 全部署唯一，SystemAgentSkillRoot 按 agent_id 唯一，locator opaque；普通 Run 只能得到适用 root 的只读 attachment。
 - 现有 `users/group-{groupID}` 与其 per-Agent 内容无损注册为 GroupHome/AgentHome；GroupHome/group AgentHome 的 Skills 不冒充 user/user_agent scope；user-less Run 不把全局 Agent definition 目录当 writable Home。

@@ -45,7 +45,7 @@ type localWorkspaceProjector interface {
 
 // WorkspaceView projects compatibility paths outside a DB transaction, then
 // captures ready attachments behind the owner advisory gate. The bounded local
-// owner lock is a Phase-1 one-replica ceiling: it keeps deletion from purging a
+// owner lock is a Phase-1 one-replica ceiling: it keeps deletion from fencing a
 // Home while a local Store call is in flight; Phase 3 uses SessionSandbox fencing.
 func (r *Registry) WorkspaceView(ctx context.Context, req WorkspaceRequest) (WorkspaceView, error) {
 	if req.AgentID == "" {

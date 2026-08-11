@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -54,12 +52,10 @@ const (
 	StateProvisioning State = "provisioning"
 	StateReady        State = "ready"
 	StateTombstoned   State = "tombstoned"
-	StatePurgeFailed  State = "purge_failed"
-	StatePurged       State = "purged"
 )
 
 func (s State) Valid() bool {
-	return s == StateProvisioning || s == StateReady || s == StateTombstoned || s == StatePurgeFailed || s == StatePurged
+	return s == StateProvisioning || s == StateReady || s == StateTombstoned
 }
 
 // Key is the only logical identity accepted by this package.
@@ -128,19 +124,13 @@ type Record struct {
 
 // Store owns physical coordinate allocation and operations. Every locator it
 // returns is opaque outside this package and must be relative to that Store.
-// A missing ready root is storage loss and must never be recreated. Purge must
-// be idempotent under crash replay and cancellation-responsive. AcquirePurgeLock
-// provides advisory exclusion among cooperating adapter participants that
-// preserve their configured lock namespace until Purge returns; provider
-// isolation, not this lock, keeps Agents from reaching that namespace.
+// A missing ready root is storage loss and must never be recreated.
 type Store interface {
 	ID() string
 	Allocate(Key) (string, error)
 	ValidateLocator(Key, string) error
 	Ensure(context.Context, Record) error
 	InspectReadyRoot(Record) error
-	AcquirePurgeLock(context.Context, Record) (func() error, error)
-	Purge(context.Context, Record) error
 	Attachment(Record, bool) sandbox.HomeAttachment
 }
 
@@ -167,9 +157,6 @@ type Registry struct {
 	stores       map[string]Store
 	defaultStore string
 	ownerLocks   [ownerLockStripeCount]chan struct{}
-	// Shorter intervals are injected only by fault/concurrency tests.
-	purgeClaimRenewInterval time.Duration
-	purgeClaimRenewTimeout  time.Duration
 }
 
 // Phase 1 supports one replica. These bounded process-local stripes serialize
@@ -186,7 +173,6 @@ func NewRegistry(db *pgxpool.Pool, defaultStore string, stores ...Store) (*Regis
 	}
 	r := &Registry{
 		db: db, q: sqlc.New(db), stores: make(map[string]Store), defaultStore: defaultStore,
-		purgeClaimRenewInterval: time.Minute, purgeClaimRenewTimeout: 10 * time.Second,
 	}
 	for i := range r.ownerLocks {
 		r.ownerLocks[i] = make(chan struct{}, 1)
@@ -243,7 +229,7 @@ func (r *Registry) ensureWithStore(ctx context.Context, q *sqlc.Queries, key Key
 	if err != nil {
 		return Record{}, err
 	}
-	if home.State == StateTombstoned || home.State == StatePurgeFailed || home.State == StatePurged {
+	if home.State == StateTombstoned {
 		return Record{}, fmt.Errorf("home: %s Home cannot be ensured or attached", home.State)
 	}
 	if home.State == StateProvisioning {
@@ -304,7 +290,7 @@ func (r *Registry) resolveWithQueries(ctx context.Context, q *sqlc.Queries, key 
 }
 
 // resolveRecord re-reads the row by immutable ID before issuing an attachment.
-// This closes the cutover/tombstone window between Ensure and compatibility
+// This closes the tombstone window between Ensure and compatibility
 // projection; a stale, forged, or non-ready record never obtains a local path.
 func (r *Registry) resolveRecord(ctx context.Context, record Record, readOnly bool) (sandbox.HomeAttachment, error) {
 	store := r.stores[record.StoreID]
@@ -373,7 +359,7 @@ func (r *Registry) Tombstone(ctx context.Context, key Key, actor string) (Record
 	if err != nil {
 		return Record{}, err
 	}
-	if home.State == StateTombstoned || home.State == StatePurgeFailed || home.State == StatePurged {
+	if home.State == StateTombstoned {
 		return home, nil
 	}
 	row, err = r.q.TombstoneStorageHome(ctx, sqlc.TombstoneStorageHomeParams{ID: home.ID, TombstonedBy: nullable(actor)})
@@ -386,251 +372,12 @@ func (r *Registry) Tombstone(ctx context.Context, key Key, actor string) (Record
 	return r.decode(row)
 }
 
-// PhysicalPurgeError proves that the physical Store operation failed and that
-// the durable registry row was parked in purge_failed. Workers may suppress
-// only this error; all other failures are unsafe to acknowledge.
-type PhysicalPurgeError struct{ err error }
-
-func (e *PhysicalPurgeError) Error() string { return fmt.Sprintf("home: physical purge: %v", e.err) }
-func (e *PhysicalPurgeError) Unwrap() error { return e.err }
-
-var (
-	ErrPurgeInProgress = errors.New("home: physical purge is already in progress")
-	ErrPurgeClaimLost  = errors.New("home: physical purge claim was lost")
-)
-
-// Purge performs the physical half of a previously fenced deletion. It is
-// idempotent for purged records and records a physical failure durably.
-func (r *Registry) Purge(ctx context.Context, id, actor string) (Record, error) {
-	return r.purge(ctx, id, actor, false)
-}
-
-func (r *Registry) purge(ctx context.Context, id, actor string, requireFailed bool) (Record, error) {
-	if strings.TrimSpace(actor) == "" {
-		return Record{}, errors.New("home: purge actor is required")
-	}
-	claimToken := uuid.Must(uuid.NewV7()).String()
-	expectedState := StateTombstoned
-	if requireFailed {
-		expectedState = StatePurgeFailed
-	}
-	var row sqlc.StorageHome
-	for {
-		var err error
-		row, err = r.q.ClaimStorageHomePurge(ctx, sqlc.ClaimStorageHomePurgeParams{
-			ID: id, PurgeClaimToken: text(claimToken), ExpectedState: string(expectedState),
-		})
-		if !errors.Is(err, pgx.ErrNoRows) {
-			if err != nil {
-				return Record{}, fmt.Errorf("home: begin purge: %w", err)
-			}
-			break
-		}
-		status, readErr := r.q.GetStorageHomePurgeClaimStatus(ctx, id)
-		if readErr != nil {
-			return Record{}, fmt.Errorf("home: classify purge claim: %w", readErr)
-		}
-		if status.PurgeClaimActive.Valid && status.PurgeClaimActive.Bool {
-			return Record{}, ErrPurgeInProgress
-		}
-		if State(status.State) == expectedState {
-			continue // The database clock says a racing claim is now reclaimable.
-		}
-		if State(status.State) == StatePurged && !requireFailed {
-			current, getErr := r.q.GetStorageHome(ctx, id)
-			if getErr != nil {
-				return Record{}, fmt.Errorf("home: reload purged Home: %w", getErr)
-			}
-			return r.decode(current)
-		}
-		if State(status.State) == StatePurgeFailed && !requireFailed {
-			current, getErr := r.q.GetStorageHome(ctx, id)
-			if getErr != nil {
-				return Record{}, fmt.Errorf("home: reload failed purge: %w", getErr)
-			}
-			return r.decode(current)
-		}
-		return Record{}, fmt.Errorf("home: %s cannot claim purge", status.State)
-	}
-	home, err := r.decode(row)
-	if err != nil {
-		return Record{}, err
-	}
-	operationCtx, stopRenewal := r.renewPurgeClaim(ctx, id, claimToken)
-	release, err := r.stores[home.StoreID].AcquirePurgeLock(operationCtx, home)
-	if err != nil {
-		renewErr := stopRenewal()
-		if renewErr != nil {
-			return Record{}, renewErr
-		}
-		return Record{}, fmt.Errorf("home: acquire physical purge lock: %w", err)
-	}
-	defer func() {
-		_ = stopRenewal()
-		_ = release()
-	}()
-	claimCurrent, err := r.q.ValidateStorageHomePurgeClaim(operationCtx, sqlc.ValidateStorageHomePurgeClaimParams{ID: id, PurgeClaimToken: text(claimToken)})
-	if err != nil {
-		return Record{}, fmt.Errorf("home: revalidate physical purge claim: %w", err)
-	}
-	if !claimCurrent {
-		return Record{}, ErrPurgeClaimLost
-	}
-	physicalErr := r.stores[home.StoreID].Purge(operationCtx, home)
-	if cause := context.Cause(operationCtx); cause != nil {
-		return Record{}, cause
-	}
-	if renewErr := stopRenewal(); renewErr != nil {
-		return Record{}, renewErr
-	}
-	if physicalErr != nil {
-		_, markErr := r.q.MarkStorageHomePurgeFailed(operationCtx, sqlc.MarkStorageHomePurgeFailedParams{ID: id, LastPurgeError: nullable(physicalErr.Error()), PurgeClaimToken: text(claimToken)})
-		if markErr != nil {
-			return Record{}, fmt.Errorf("home: physical purge: %w; record failure: %w", physicalErr, markErr)
-		}
-		return Record{}, &PhysicalPurgeError{err: physicalErr}
-	}
-	row, err = r.q.MarkStorageHomePurged(operationCtx, sqlc.MarkStorageHomePurgedParams{ID: id, PurgedBy: nullable(actor), PurgeClaimToken: text(claimToken)})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Record{}, ErrPurgeClaimLost
-	}
-	if err != nil {
-		return Record{}, fmt.Errorf("home: mark purged: %w", err)
-	}
-	return r.decode(row)
-}
-
-func (r *Registry) renewPurgeClaim(ctx context.Context, id, token string) (context.Context, func() error) {
-	operationCtx, cancelOperation := context.WithCancelCause(ctx)
-	stop := make(chan struct{})
-	done := make(chan struct{})
-	var renewalErr error
-	go func() {
-		defer close(done)
-		ticker := time.NewTicker(r.purgeClaimRenewInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-operationCtx.Done():
-				return
-			case <-stop:
-				return
-			case <-ticker.C:
-				renewCtx, renewCancel := context.WithTimeout(operationCtx, r.purgeClaimRenewTimeout)
-				rows, err := r.q.RenewStorageHomePurgeClaim(renewCtx, sqlc.RenewStorageHomePurgeClaimParams{ID: id, PurgeClaimToken: text(token)})
-				renewCancel()
-				if err != nil {
-					renewalErr = fmt.Errorf("home: renew physical purge claim: %w", err)
-					cancelOperation(renewalErr)
-					return
-				}
-				if rows != 1 {
-					renewalErr = ErrPurgeClaimLost
-					cancelOperation(renewalErr)
-					return
-				}
-			}
-		}
-	}()
-	var stopOnce sync.Once
-	return operationCtx, func() error {
-		stopOnce.Do(func() { close(stop) })
-		<-done
-		return renewalErr
-	}
-}
-
 // Record reads one registry record for lifecycle workers without exposing raw
 // sqlc state to callers.
 func (r *Registry) Record(ctx context.Context, id string) (Record, error) {
 	row, err := r.q.GetStorageHome(ctx, id)
 	if err != nil {
 		return Record{}, fmt.Errorf("home: get record: %w", err)
-	}
-	return r.decode(row)
-}
-
-// RetryFailedPurge retries exactly one durably parked physical failure. It
-// refuses tombstoned, ready, purged, and missing records, so maintenance cannot
-// turn an ordinary pending deletion into an immediate purge.
-func (r *Registry) RetryFailedPurge(ctx context.Context, id, actor string) (Record, error) {
-	return r.purge(ctx, id, actor, true)
-}
-
-type MaintenanceLease struct {
-	Home  Record
-	Owner string
-	Token string
-	Until time.Time
-}
-
-func (r *Registry) AcquireMaintenance(ctx context.Context, id, owner string, until time.Time) (MaintenanceLease, error) {
-	if strings.TrimSpace(owner) == "" {
-		return MaintenanceLease{}, errors.New("home: maintenance owner is required")
-	}
-	if until.IsZero() || !until.After(time.Now().UTC()) {
-		return MaintenanceLease{}, errors.New("home: maintenance lease must be in the future")
-	}
-	token := uuid.Must(uuid.NewV7()).String()
-	row, err := r.q.AcquireStorageHomeMaintenance(ctx, sqlc.AcquireStorageHomeMaintenanceParams{ID: id, MaintenanceOwner: nullable(owner), MaintenanceToken: text(token), MaintenanceUntil: pgtype.Timestamptz{Time: until.UTC(), Valid: true}})
-	if err != nil {
-		return MaintenanceLease{}, fmt.Errorf("home: acquire maintenance: %w", err)
-	}
-	home, err := r.decode(row)
-	if err != nil {
-		return MaintenanceLease{}, err
-	}
-	return MaintenanceLease{Home: home, Owner: owner, Token: token, Until: until.UTC()}, nil
-}
-
-func (r *Registry) ReleaseMaintenance(ctx context.Context, id, token string) error {
-	if strings.TrimSpace(token) == "" {
-		return errors.New("home: maintenance token is required")
-	}
-	rows, err := r.q.ReleaseStorageHomeMaintenance(ctx, sqlc.ReleaseStorageHomeMaintenanceParams{ID: id, MaintenanceToken: text(token)})
-	if err != nil {
-		return fmt.Errorf("home: release maintenance: %w", err)
-	}
-	if rows != 1 {
-		return errors.New("home: maintenance lease is stale")
-	}
-	return nil
-}
-
-// CutoverStore records a completed offline copy. The caller is responsible for
-// fencing consumers and verifying physical data before this CAS; no filesystem
-// work occurs in the database transaction.
-func (r *Registry) CutoverStore(ctx context.Context, current Record, newStoreID, newLocator, token string) (Record, error) {
-	if err := validateStoreID(newStoreID); err != nil {
-		return Record{}, fmt.Errorf("home: invalid target store: %w", err)
-	}
-	if strings.TrimSpace(token) == "" {
-		return Record{}, errors.New("home: maintenance token is required")
-	}
-	row, err := r.q.GetStorageHome(ctx, current.ID)
-	if err != nil {
-		return Record{}, fmt.Errorf("home: find for store cutover: %w", err)
-	}
-	persisted, err := r.decode(row)
-	if err != nil {
-		return Record{}, err
-	}
-	if current.StoreID != persisted.StoreID || current.Locator != persisted.Locator {
-		return Record{}, errors.New("home: stale store cutover record")
-	}
-	if persisted.Key.Kind == SystemSkillRoot || persisted.Key.Kind == SystemAgentSkillRoot {
-		return Record{}, errors.New("home: shared Skill root Store cutover requires Phase 2 Skill consumers and mounts to derive coordinates from attachments")
-	}
-	store := r.stores[newStoreID]
-	if store == nil {
-		return Record{}, fmt.Errorf("home: target store %q is not configured", newStoreID)
-	}
-	if err := store.ValidateLocator(persisted.Key, newLocator); err != nil {
-		return Record{}, fmt.Errorf("home: invalid target locator: %w", err)
-	}
-	row, err = r.q.CutoverStorageHomeStore(ctx, sqlc.CutoverStorageHomeStoreParams{ID: persisted.ID, StoreID: persisted.StoreID, Locator: persisted.Locator, StoreID_2: newStoreID, Locator_2: newLocator, MaintenanceToken: text(token)})
-	if err != nil {
-		return Record{}, fmt.Errorf("home: cut over store: %w", err)
 	}
 	return r.decode(row)
 }
@@ -867,15 +614,9 @@ func (r *Registry) legacyRegistrationStore(marker sqlc.StorageMigration) (Store,
 	if err := validateStoreID(metadata.StoreID); err != nil {
 		return nil, fmt.Errorf("home: legacy registration metadata has invalid Store ID: %w", err)
 	}
-	// A completed marker is an audit record, not a live attachment. Its Store
-	// identity must remain well-formed, but retiring that adapter is safe once
-	// no further legacy inventory can run.
-	if marker.State == "completed" {
-		return nil, nil
-	}
 	store := r.stores[metadata.StoreID]
 	if store == nil {
-		return nil, fmt.Errorf("home: legacy registration Store %q is not configured", metadata.StoreID)
+		return nil, fmt.Errorf("home: legacy registration marker references unavailable Store %q; configure STELLA_HOME_STORE_ID=%s or restore the matching Store", metadata.StoreID, metadata.StoreID)
 	}
 	return store, nil
 }

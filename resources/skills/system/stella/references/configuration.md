@@ -163,14 +163,13 @@ consumers fenced. Back up PostgreSQL with durable Home storage.
 
 An explicit destructive group or Agent delete tombstones and fences Homes. User
 deletion has the same internal lifecycle primitive, pending product account-delete
-integration. A worker uses a durable, exclusive, expiring claim to purge bytes
-asynchronously. Cooperating LocalStore processes sharing and preserving the lock
-namespace add cross-process advisory exclusion; the lock is not tamper-resistant
-against Stella's OS identity or privileged host operators. Isolating providers
-prevent Agents from reaching that namespace. Attachments identify requested access
-but do not grant authority. Removing an assignment or member, archiving a Session,
-and uninstalling Helm do not delete Homes. A physical-purge failure is retained as
-`purge_failed` for operator retry; use `stellad storage retry-purge --help` for syntax.
+integration. Fencing succeeds before the database transaction tombstones Homes and
+removes the owner. Tombstoned identities and locators remain permanently reserved,
+but Phase 1 deliberately preserves their bytes and has no physical purge worker or
+retry command. Attachments identify requested access but do not grant authority.
+Removing an assignment or member, archiving a Session, and uninstalling Helm do not
+tombstone Homes. Do not manually clean Home roots while Stella is running; a future
+post-filesystem-boundary change owns stopped-or-fenced physical cleanup.
 
 `runner-scratch/` is trusted host-owned structural state. Normal close and
 construction failure clean each disposable child best-effort; crash or trusted
@@ -181,12 +180,12 @@ Clean leftovers only while Stella is stopped or affected consumers are fenced.
 
 Provider credentials and base URLs are stored in explicit provider rows managed through the Web UI or API; they are not read from the server environment.
 
-| Variable               | Purpose                                             |
-| ---------------------- | --------------------------------------------------- |
-| `STELLA_HOME`          | stella home directory (default `~/.stella`)         |
-| `STELLA_HOME_STORE_ID` | Phase 1 default Store ID for newly registered Homes |
+| Variable               | Purpose                                              |
+| ---------------------- | ---------------------------------------------------- |
+| `STELLA_HOME`          | stella home directory (default `~/.stella`)          |
+| `STELLA_HOME_STORE_ID` | Phase 1 LocalStore identity for all registered Homes |
 
-Persisted Store IDs are immutable. Changing `STELLA_HOME_STORE_ID` selects the default only for new Homes; retained local adapters are reconstructed against the same `STELLA_HOME` and continue resolving Homes already assigned to their Store ID.
+Persisted Store IDs are immutable. Phase 1 configures exactly one LocalStore, so changing `STELLA_HOME_STORE_ID` after registry creation fails startup. A future explicit offline migration must move the registry and bytes together.
 
 Note: The old YAML-based environment variables (`STELLA_PROVIDER`, `STELLA_MODEL`, `STELLA_TELEGRAM_TOKEN`, etc.) are no longer supported. Use the Web UI or database directly.
 

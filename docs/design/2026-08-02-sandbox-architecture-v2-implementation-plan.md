@@ -67,7 +67,7 @@ An independent Fable architecture review found no direction blocker in rev 5. Re
 
 ### 1. Persistent identity belongs to a typed Home registry
 
-`internal/home` will be the deep module that owns logical Home identity, Store selection, lifecycle, maintenance locks, legacy registration, and idempotent purge. Callers receive opaque attachments; they do not derive paths or PVC names.
+`internal/home` will be the deep module that owns logical Home identity, Store selection, lifecycle, legacy registration, and attachment resolution. Phase 1 stops at permanent tombstone and preserves physical bytes; provider-fenced purge and Store migration land only after the Filesystem boundary. Callers receive opaque attachments; they do not derive paths or PVC names.
 
 ```text
 PrincipalHome = (principal_kind: user|group, principal_id)
@@ -255,7 +255,7 @@ Every phase runs the repository's mandatory `mise run format && mise run build &
 | `internal/db/migrations/`                                                          | Hand-written goose migrations for typed Homes/shared Skill roots, Skill migration marker/Reflect usage identity, SessionSandbox, AgentRun, chat input/GroupRoute, OAuth flows, rate limits, and config revisions. One logical schema change per migration; every migration has `Down`. |
 | `internal/db/queries/`                                                             | New focused sqlc files such as `storage_home.sql`, `ctx_session_sandbox.sql`, `ctx_agent_run.sql`, and `ctx_chat_input.sql`; evolve existing Session inbox queries; narrow group queries; guard transcript/source updates.                                                             |
 | `pkg/db/sqlc/`                                                                     | Regenerated only through `mise run generate`; never hand-edited.                                                                                                                                                                                                                       |
-| `internal/home/`                                                                   | New deep module for typed identity including shared Skill roots, Store configuration, attachment resolution, legacy registration, maintenance, tombstone, purge, and local/Docker/Kubernetes adapters.                                                                                 |
+| `internal/home/`                                                                   | New deep module for typed identity including shared Skill roots, Store configuration, attachment resolution, legacy registration, terminal tombstone, and later provider-fenced purge and local/Docker/Kubernetes adapters.                                                            |
 | `pkg/sandbox/`                                                                     | `HomeAttachment`, Provider lifecycle, normalized spec/ref/state, error taxonomy, and removal of public host-path methods.                                                                                                                                                              |
 | `plugins/sandbox/local`, `none`, `docker`                                          | Adapt to the Provider/Filesystem contracts; Docker gains deterministic identity, labels, capability probes, Open/Inspect/Destroy, and no `owner_pid` correctness.                                                                                                                      |
 | `internal/fsops/` and `cmd/stellad/`                                               | Shared safe file operations plus restricted multicall `stella-fs`/`stella-exec` entry modes in the existing binary.                                                                                                                                                                    |
@@ -274,17 +274,18 @@ Every phase runs the repository's mandatory `mise run format && mise run build &
 
 ## Migration and PR order
 
-The implementation baseline is **15 Draft PRs**. Every PR body says `Refs #828`; no child Issue is created, no PR says `Closes #828`, and every PR stays Draft until V explicitly changes its state. Drafts open just in time rather than all at once.
+The implementation baseline is **16 Draft PRs**. Every PR body says `Refs #828`; no child Issue is created, no PR says `Closes #828`, and every PR stays Draft until V explicitly changes its state. Drafts open just in time rather than all at once.
 
 | ID  | Branch                          | Scope                                                                                                                                                                                       | Depends on |
 | --- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
 | 0.1 | `refactor/system-skill-bundle`  | Complete standalone Phase 0 in four commits: manifest/Registry, Provider projection/legacy gate, Agent policy API/UI, docs/gate                                                             | PR #829    |
-| 1.1 | `storage/typed-homes`           | Phase 1 vertical slice: schema/sqlc, deep Home module, local/Docker Store adapters, shared Skill roots, registration/wiring/lifecycle                                                       | 0.1        |
+| 1.1 | `storage/typed-homes`           | Phase 1 vertical slice: typed identity, registration, ready-root inspection, consumer routing, and terminal tombstone/fence; physical bytes remain                                          | 0.1        |
 | 2.1 | `sandbox/filesystem-boundary`   | `fsops`, restricted helpers, local/none/Docker adapters, Filesystem conformance and outcome-unknown semantics                                                                               | 1.1        |
-| 2.2 | `storage/home-consumers-assets` | Non-Skill read/write/edit and Workspace API/UI migration, host parser boundary, mutable-asset migration/marker/Home cutover                                                                 | 2.1        |
-| 2.3 | `skills/home-authority-cutover` | Filesystem Skill metadata/catalog/publication/admin path, observability, then offline PG Skill/Reflect/usage/archive migration after the asset marker exists                                | 2.2        |
-| 2.4 | `sandbox/host-path-cleanup`     | Remove remaining public host paths, PG Skill current-state readers/writers and obsolete retries; run complete Phase 2 acceptance                                                            | 2.3        |
-| 3.1 | `runtime/session-sandbox`       | Durable SessionSandbox/AgentRun/input schema, including `ctx_session_inbox` Run relation, deterministic Provider lifecycle, provisioning intents and exact-generation Workspace foundation  | 2.4        |
+| 2.2 | `storage/home-physical-purge`   | Dedicated Draft after the provider/filesystem boundary: provider-fenced asynchronous physical destruction, terminal audit/retry, and offline Store migration                                | 2.1        |
+| 2.3 | `storage/home-consumers-assets` | Non-Skill read/write/edit and Workspace API/UI migration, host parser boundary, mutable-asset migration/marker/Home cutover                                                                 | 2.2        |
+| 2.4 | `skills/home-authority-cutover` | Filesystem Skill metadata/catalog/publication/admin path, observability, then offline PG Skill/Reflect/usage/archive migration after the asset marker exists                                | 2.3        |
+| 2.5 | `sandbox/host-path-cleanup`     | Remove remaining public host paths, PG Skill current-state readers/writers and obsolete retries; run complete Phase 2 acceptance                                                            | 2.4        |
+| 3.1 | `runtime/session-sandbox`       | Durable SessionSandbox/AgentRun/input schema, including `ctx_session_inbox` Run relation, deterministic Provider lifecycle, provisioning intents and exact-generation Workspace foundation  | 2.5        |
 | 3.2 | `runtime/agent-run`             | AgentRun lease/guards/abort, lifecycle reconciler, source migration, Workspace linearization, catalog/policy pin and revision GC                                                            | 3.1        |
 | 3.3 | `runtime/durable-input`         | ChatBinding FIFO/media/quota/batching, agent-send inbox admission/recovery, receipt backfill, GroupRoute, Session API/Web behavior, command/process-local cleanup and complete Phase 3 gate | 3.2        |
 | 4.1 | `control/shared-state`          | Pool-external control session, OAuth/rate-limit/config/policy durability and managed-writer serialization                                                                                   | 3.3        |
@@ -294,16 +295,17 @@ The implementation baseline is **15 Draft PRs**. Every PR body says `Refs #828`;
 | 5.2 | `storage/kubernetes-topology`   | RWX Pool/shared roots, RWO AgentHome PVC/affinity, trusted provisioner, Helm storage/security/RBAC/network/quota integration                                                                | 5.1        |
 | 5.3 | `sandbox/kubernetes-gate`       | Kubernetes conformance, Phase 4 journey reuse, docs and fail-closed Helm multi-replica activation                                                                                           | 5.2        |
 
-Count: `1 + 1 + 4 + 3 + 3 + 3 = 15`.
+Count: `1 + 1 + 5 + 3 + 3 + 3 = 16`.
 
 ```text
-#829 → 0.1 → 1.1 → 2.1 → 2.2 → 2.3 → 2.4
+#829 → 0.1 → 1.1 → 2.1 → 2.2 → 2.3 → 2.4 → 2.5
                               │      │
                               │      └─ Skill preparation may start after 2.1,
-                              │         but its cutover/review base remains 2.2.
-                              └─ Workspace and asset work share the PrincipalHome boundary.
+                              │         but its cutover/review base remains 2.3.
+                              └─ Physical purge waits for provider-fenced filesystem operations;
+                                 Workspace and asset work follows that boundary.
 
-2.4 → 3.1 → 3.2 → 3.3 → 4.1 → 4.2 → 4.3 → 5.1 → 5.2 → 5.3
+2.5 → 3.1 → 3.2 → 3.3 → 4.1 → 4.2 → 4.3 → 5.1 → 5.2 → 5.3
                               │                    │
                               │                    └─ storage/chart preparation may run beside
                               │                       compute after 5.1 freezes placement types.
@@ -313,9 +315,9 @@ Count: `1 + 1 + 4 + 3 + 3 + 3 = 15`.
 
 PR count and worker count are independent. Separate COW clones may develop disjoint commits in parallel, then integrate them into the named Draft PR. Maximum substantive coding concurrency is two lanes; planning, fixtures and documentation may run ahead only against committed interfaces. A higher phase cannot claim Acceptance, merge, or activate before its predecessor gate passes.
 
-Use `gh stack` for linear chains. Parallel preparation does not justify sibling PRs unless it gains an independent rollback/activation boundary; fake linear micro-PRs and one permanent 15-layer stack are both rejected. After #829 merges, retarget 0.1 to `main`. Each behavior/API/config PR carries its own README/docs/EN+ZH/builtin-skill/system-prompt delta where applicable; gate PRs aggregate phase acceptance and handoff rather than receiving all documentation debt.
+Use `gh stack` for linear chains. Parallel preparation does not justify sibling PRs unless it gains an independent rollback/activation boundary; fake linear micro-PRs and one permanent 16-layer stack are both rejected. After #829 merges, retarget 0.1 to `main`. Each behavior/API/config PR carries its own README/docs/EN+ZH/builtin-skill/system-prompt delta where applicable; gate PRs aggregate phase acceptance and handoff rather than receiving all documentation debt.
 
-Schema additions are expand-first. Old columns/tables are removed only in the PR that removes their last reader/writer. Asset authority switches before Skill authority; no phase leaves two active authorities under a multi-replica-enabled configuration. Split beyond 15 only when implementation evidence reveals a genuinely independent rollback boundary or one PR cannot have a single runnable Acceptance story; update this plan first rather than drifting silently.
+Schema additions are expand-first. Old columns/tables are removed only in the PR that removes their last reader/writer. Asset authority switches before Skill authority; no phase leaves two active authorities under a multi-replica-enabled configuration. Split beyond 16 only when implementation evidence reveals a genuinely independent rollback boundary or one PR cannot have a single runnable Acceptance story; update this plan first rather than drifting silently.
 
 ### PMO execution and progress protocol
 
@@ -355,12 +357,12 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
 
 **Why first:** every later Sandbox ref, mount, file operation, and Kubernetes volume needs a stable data identity that is not a machine path.
 
-- [x] Add goose migrations for `storage_home`, `storage_migration`, and required lifecycle/job metadata.
-  - Encode `home_kind=principal|agent|system_skill|system_agent_skill`, `principal_kind=user|group|nullable`, nullable owner/agent fields, lifecycle checks, singleton/per-Agent shared-root indexes, UTC timestamps, and purge audit fields.
+- [x] Add goose migrations for `storage_home`, `storage_migration`, and terminal lifecycle metadata.
+  - Encode `home_kind=principal|agent|system_skill|system_agent_skill`, `principal_kind=user|group|nullable`, nullable owner/agent fields, lifecycle checks, singleton/per-Agent shared-root indexes, UTC timestamps, and permanent tombstone audit.
   - Do not cascade owner deletion into Home rows; destructive owner deletion must tombstone Homes first.
-- [x] Add focused sqlc queries and transaction helpers for Ensure, Resolve, tombstone, purge state transitions, maintenance locks, and Store cutover.
-- [x] Implement `internal/home` with a narrow deep API: typed keys, Store registry, opaque locator, `Ensure`, `Resolve`, `Tombstone`, `Purge`, and offline migration primitives.
-- [x] Add explicit Store configuration for local/Docker layouts; Store IDs are immutable once referenced, and default changes affect only new Homes.
+- [x] Add focused sqlc queries and transaction helpers for Ensure, Resolve, terminal tombstone, legacy registration, and monotonic migration observation.
+- [x] Implement `internal/home` with a narrow deep API: typed keys, Store registry, opaque locator, `Ensure`, ready-root inspection, `Resolve`, and `Tombstone`.
+- [x] Add one explicit immutable LocalStore identity for local/Docker compatibility layouts. Startup fails closed if persisted Homes or registration metadata reference another Store; changing it requires a future offline migration.
 - [x] Add opaque SystemSkillRoot and SystemAgentSkillRoot identities in the existing shared RWX Store. They are narrow Skill namespaces, not a global Agent workspace; Agent delete is their only destructive lifecycle trigger.
 - [x] Implement idempotent legacy registration derived from authoritative DB user/group/Agent rows:
   - `users/{userID}` → UserHome;
@@ -370,18 +372,20 @@ The main Sol agent is the program owner, not a feature coder. It owns dependency
 - [x] Add durable storage-migration metadata and record whether the deployment starts with a configured mutable asset object authority. This is metadata-only in Phase 1; it must not change mirror/hydrate behavior yet.
 - [x] Audit user-less/group jobs that currently write under `{base}/agents/{agentID}`. User-less and group Runs get applicable read-only shared Skill roots plus project/scratch; GroupHome and group AgentHome Skills do not become user/user_agent scope.
 - [x] Route runner/project/Home setup through registry attachments while the local adapter preserves current physical files; stop treating `agent.workspace` as identity.
-- [x] Implement explicit destructive Home deletion: tombstone, fence referencing Sessions, wait for resource detach, enqueue idempotent River purge, retain permanent purged metadata, and expose administrator retry for `purge_failed`.
-- [x] Add typed user/group isolation, shared Skill-root opacity/read-only attachment, same-raw-ID collision, no-data-move, concurrent Ensure, deletion, retry, and legacy registration tests.
+- [x] Implement explicit destructive owner deletion: under the process-local owner gate, synchronously fence local cached execution before atomically tombstoning Homes and deleting the owner. Preserve all physical bytes and permanently reserve identity/locator.
+- [x] Add typed user/group isolation, shared Skill-root opacity/read-only attachment, same-raw-ID collision, no-data-move, concurrent Ensure, tombstone permanence, byte preservation, and legacy registration tests.
 - [x] Update architecture/developer storage docs and system skill references in English and Chinese for typed Homes and user-less scratch semantics.
 
 **Acceptance:**
 
 - [x] `mise run db:validate && mise run generate:check` exits 0.
 - [x] Targeted Home/agent tests prove user `abc` and group `abc` resolve to disjoint Homes, concurrent Ensure creates one row/location, and existing bytes/inodes are not copied or renamed.
-- [x] A destructive group deletion fences attachments and reaches `purged`; an injected physical-delete failure remains `purge_failed` and succeeds after administrator retry.
+- [x] A destructive group or Agent deletion fails without DB mutation if fencing fails; after a successful fence it atomically tombstones Homes and deletes the owner while preserving the exact physical bytes and inodes.
 - [x] A user-less Run cannot resolve PrincipalHome/AgentHome, sees only applicable read-only shared Skill roots, and writes only to project/disposable scratch; group AgentHome Skills do not leak into user_agent scope.
 - [x] `mise run format && mise run build && mise run test` exits 0.
 - [ ] `mise run system-test` exits 0 on a supported host. The Phase 1 handoff attempt ran with embedded PostgreSQL but failed because this orb does not provide a functional Bubblewrap sandbox; webhook, scheduled-run, and drain journeys could not construct local sessions.
+
+Phase 1 deliberately leaves orphaned bytes after destructive owner deletion. It contains no physical purge, purge retry CLI or River worker, maintenance lease, or Store cutover. This is the safer boundary until `sandbox/filesystem-boundary` provides provider-native physical operations and fencing. The dedicated `storage/home-physical-purge` Draft under Issue #828 owns asynchronous destruction, retry/audit, and offline Store migration after that boundary; it must remain Draft until explicitly authorized.
 
 ### Phase 2: Filesystem boundary and host-path removal
 
@@ -694,12 +698,12 @@ Every completed phase must replace its pending entry with the concrete handoff r
 
 ### Handoff after Phase 1
 
-- **What landed** — `storage_home`/`storage_migration`, typed `internal/home` Store registry and opaque attachments, legacy registration, explicit consumer injection, local compatibility projection, atomic owner tombstone/fence/River purge, retry CLI, and synchronized EN/ZH architecture/storage/Skill docs.
-- **Acceptance results** — `mise run db:validate`, `mise run generate:check`, `mise run format`, `mise run build`, and full `mise run test` exited 0. Focused tests prove typed user/group isolation, one-location concurrent Ensure, inode-preserving registration, user-less scratch, shared-root read-only policy, group/Agent overlap deletion, purge failure/retry, and exact Home consumer routing. `mise run system-test` started with embedded PostgreSQL but failed because this orb lacks a functional Bubblewrap sandbox; webhook, scheduled-run, and drain journeys could not construct local sessions, so supported-host System Test acceptance remains open.
-- **Decisions made during impl** — one injected `home.WorkspaceViewer` is mandatory with no production fallback; Phase-1 local projection uses bounded context-cancellable owner stripes, pinned no-follow ready-root inspection, and a short DB-only revalidation transaction. A `ready` row never recreates a missing root; missing, non-directory, and symlink roots fail resolution. Retained pins detect replacement only during their bounded revalidation interval, not across operations or restart: Phase 1 has no durable inode identity against trusted host-side replacement, so restore, migration, and root cleanup run stopped or with consumers fenced. Purge claims use PostgreSQL time and token fencing; LocalStore adds cross-process advisory exclusion among cooperating participants that share and preserve its lock namespace, not tamper resistance against Stella's operating-system identity or privileged host operators. Isolating providers prevent Agents from reaching that namespace. River snoozes deliberate child/claim dependencies without consuming attempts. User-less `runner-scratch` is disposable, never Home authority, and mounts only an exact child under isolating providers; normal close/construction failure cleans best-effort, while crash or trusted host tampering can leave operator-cleaned children. Principal/Agent offline Store cutover remains available, while shared Skill-root cutover stays closed until Phase 2 consumes attachment coordinates.
-- **Surprises / gotchas** — holding owner advisory transactions across filesystem I/O threatened availability; moving I/O out required the same process-local owner gate on projection and deletion to prevent purge/create races. Group and Agent deletion sets overlap on AgentHome, so the second valid owner delete must skip the first delete's terminal audit row rather than fail or enqueue it twice.
-- **What changed from this plan** — no scope or phase-order change. The one-replica compatibility ceiling is now explicit and cancellation-aware; Compose/Kubernetes and durable SessionSandbox fencing remain closed.
-- **What remains open** — Phase 1 still needs a successful `mise run system-test` on a supported host. Phase 2 must remove host-path filesystem access and route provider-native operations through opaque attachments; mutable asset contents, mutable Skill authority, SessionSandbox, multi-replica, and Kubernetes remain intentionally unchanged.
+- **What landed** — `storage_home`/`storage_migration`, typed `internal/home` Store registry and opaque attachments, legacy registration, explicit consumer injection, local compatibility projection, ready-root inspection, and atomic owner fence/tombstone with synchronized EN/ZH architecture/storage/Skill docs. Tombstoned identities and locators remain permanent while every physical byte is preserved.
+- **Acceptance results** — `mise run db:validate`, `mise run generate:check`, `mise run format`, `mise run build`, and full `mise run test` exited 0 for the recorded Phase 1 head. Focused tests prove typed user/group isolation, one-location concurrent Ensure, inode-preserving registration, user-less scratch, shared-root read-only policy, group/Agent overlap tombstone, rollback on deletion failure, byte preservation, and exact Home consumer routing. `mise run system-test` started with embedded PostgreSQL but failed because this orb lacks a functional Bubblewrap sandbox; webhook, scheduled-run, and drain journeys could not construct local sessions, so supported-host System Test acceptance remains open.
+- **Decisions made during impl** — one injected `home.WorkspaceViewer` is mandatory with no production fallback; Phase-1 local projection uses bounded context-cancellable owner stripes, pinned no-follow ready-root inspection, and a short DB-only revalidation transaction. A `ready` row never recreates a missing root; missing, non-directory, and symlink roots fail resolution. Retained pins detect replacement only during their bounded revalidation interval, not across operations or restart: Phase 1 has no durable inode identity against trusted host-side replacement, so restore and root cleanup run stopped or with consumers fenced. User-less `runner-scratch` is disposable, never Home authority, and mounts only an exact child under isolating providers; normal close/construction failure cleans best-effort, while crash or trusted host tampering can leave operator-cleaned children. Phase 1 has one immutable configured LocalStore identity; changing it after registry creation fails closed until a future offline migration.
+- **Surprises / gotchas** — physical purge before a provider/filesystem boundary required increasingly complex DB claims, host locks, and River continuation semantics without provider-level authority. The accepted reduction preserves orphaned bytes rather than risking destructive deletion. Group and Agent deletion sets overlap on AgentHome, so the second valid owner delete skips the first delete's terminal tombstone rather than failing.
+- **What changed from this plan** — Phase 1 now ends at terminal tombstone/fence and does no physical destruction or Store cutover. A dedicated Draft `storage/home-physical-purge` PR under Issue #828 follows `sandbox/filesystem-boundary` and precedes authority cutovers that depend on cleanup. The baseline map therefore grows from 15 to 16 Draft PRs.
+- **What remains open** — Phase 1 still needs a successful `mise run system-test` on a supported host. Phase 2 must remove host-path filesystem access and route provider-native operations through opaque attachments before the new purge PR can implement physical cleanup. Mutable asset contents, mutable Skill authority, SessionSandbox, multi-replica, and Kubernetes remain intentionally unchanged.
 - **What Phase 2 must read or verify first** — `internal/home/{home,workspace,local,deletion}.go`, `pkg/sandbox.HomeAttachment`, the live consumer AST guard, architecture §5.4/§9, and the invariant that shared Skill consumers cannot move Stores until readers and mounts derive coordinates from attachments.
 
 ### Handoff after Phase 2 — pending

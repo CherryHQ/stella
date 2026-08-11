@@ -84,7 +84,6 @@ the server, or use "stellad service" to manage it as a background service.`,
 			miseCommand(),
 			systemBundleCommand(),
 			serviceCommand(),
-			storageCommand(),
 		},
 	}
 }
@@ -576,11 +575,11 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
 	// inject it back into each. runServer owns its Start/Stop.
-	homeDeletion, err := home.NewOwnerDeletion(db, homeRegistry, nil, poolMgr)
+	homeDeletion, err := home.NewOwnerDeletion(db, homeRegistry, poolMgr)
 	if err != nil {
 		return nil, fmt.Errorf("build Home deletion lifecycle: %w", err)
 	}
-	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, librarySvc, homeDeletion, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
+	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, librarySvc, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
 	if err != nil {
 		return nil, err
 	}
@@ -708,14 +707,10 @@ func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host, agentAccess *agent
 // electable River client per database (see db.NewWorkingRiverClient); this is
 // where that invariant is enforced. The caller owns the returned client's
 // Start/Stop lifecycle (runServer); the subsystems only use it.
-func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service, librarySvc *library.Service, homeDeletion *home.OwnerDeletion, softStopTimeout time.Duration, riverLogLevel string) (*river.Client[pgx.Tx], error) {
+func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service, librarySvc *library.Service, softStopTimeout time.Duration, riverLogLevel string) (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	scheduler.RegisterRiverWorker(workers, schedulerSvc)
 	goalSvc.RegisterRiverWorker(workers)
-	if homeDeletion == nil {
-		return nil, errors.New("build shared river client: Home deletion lifecycle is required")
-	}
-	homeDeletion.RegisterRiverWorker(workers)
 
 	queues := map[string]river.QueueConfig{}
 	sn, sc := scheduler.SchedulerQueueConfig()
@@ -724,8 +719,6 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 	queues[gn] = gc
 	gtn, gtc := goalSvc.GoalTickQueueConfig()
 	queues[gtn] = gtc
-	hn, hc := homeDeletion.RiverQueueConfig()
-	queues[hn] = hc
 
 	// The embedding lane is opt-in: only contribute its backfill worker + queue
 	// when an embedding provider is configured.
@@ -757,9 +750,6 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 		return nil, err
 	}
 	if err := goalSvc.BindRiverClient(client); err != nil {
-		return nil, err
-	}
-	if err := homeDeletion.BindRiverClient(client); err != nil {
 		return nil, err
 	}
 	if embeddingSvc != nil {

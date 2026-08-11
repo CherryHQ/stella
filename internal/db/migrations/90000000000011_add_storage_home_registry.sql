@@ -1,7 +1,7 @@
 -- +goose Up
 -- Home owner identity fields deliberately have no foreign keys. A destructive owner
 -- delete must tombstone the Home first, while the registry permanently retains
--- the original identity and purge audit after the owner row is gone.
+-- the original identity after the owner row is gone.
 CREATE TABLE storage_home (
     id                  UUID PRIMARY KEY DEFAULT uuidv7(),
     home_kind           TEXT NOT NULL,
@@ -12,20 +12,8 @@ CREATE TABLE storage_home (
     locator             TEXT NOT NULL,
     UNIQUE (store_id, locator),
     state               TEXT NOT NULL DEFAULT 'provisioning',
-    maintenance_owner   TEXT,
-    maintenance_token   TEXT,
-    maintenance_until   TIMESTAMPTZ,
     tombstoned_at       TIMESTAMPTZ,
     tombstoned_by       TEXT,
-    purge_attempts      INTEGER NOT NULL DEFAULT 0 CHECK (purge_attempts >= 0),
-    purge_requested_at  TIMESTAMPTZ,
-    purge_started_at    TIMESTAMPTZ,
-    purge_failed_at     TIMESTAMPTZ,
-    last_purge_error    TEXT,
-    purge_claim_token   TEXT,
-    purge_claim_until   TIMESTAMPTZ,
-    purged_at           TIMESTAMPTZ,
-    purged_by           TEXT,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (btrim(store_id) <> '' AND btrim(locator) <> ''),
@@ -43,34 +31,14 @@ CREATE TABLE storage_home (
             AND principal_kind IS NULL AND principal_id IS NULL AND agent_id IS NOT NULL AND btrim(agent_id) <> '')
     ),
     CHECK (
-        (maintenance_owner IS NULL AND maintenance_token IS NULL AND maintenance_until IS NULL)
-        OR (maintenance_owner IS NOT NULL AND btrim(maintenance_owner) <> ''
-            AND maintenance_token IS NOT NULL AND btrim(maintenance_token) <> '' AND maintenance_until IS NOT NULL)
+        (tombstoned_at IS NULL AND tombstoned_by IS NULL)
+        OR (tombstoned_at IS NOT NULL AND tombstoned_by IS NOT NULL AND btrim(tombstoned_by) <> '')
     ),
-    CHECK (
-        (purge_claim_token IS NULL AND purge_claim_until IS NULL)
-        OR (purge_claim_token IS NOT NULL AND btrim(purge_claim_token) <> '' AND purge_claim_until IS NOT NULL)
-    ),
-    CHECK (
-        (tombstoned_at IS NULL AND tombstoned_by IS NULL AND purge_requested_at IS NULL)
-        OR (tombstoned_at IS NOT NULL AND tombstoned_by IS NOT NULL AND btrim(tombstoned_by) <> '' AND purge_requested_at IS NOT NULL)
-    ),
-    CHECK ((purge_failed_at IS NULL AND last_purge_error IS NULL)
-        OR (purge_failed_at IS NOT NULL AND last_purge_error IS NOT NULL AND btrim(last_purge_error) <> '')),
-    CHECK ((purged_at IS NULL AND purged_by IS NULL)
-        OR (purged_at IS NOT NULL AND purged_by IS NOT NULL AND btrim(purged_by) <> '')),
-    CHECK (maintenance_token IS NULL OR state = 'ready'),
-    CHECK (purge_claim_token IS NULL OR (state IN ('tombstoned', 'purge_failed') AND purge_started_at IS NOT NULL)),
-    CHECK (tombstoned_at IS NULL OR state IN ('tombstoned', 'purge_failed', 'purged')),
-    CHECK (purge_started_at IS NULL OR state IN ('tombstoned', 'purge_failed', 'purged')),
-    CHECK (purge_failed_at IS NULL OR state IN ('purge_failed', 'purged')),
-    CHECK (purged_at IS NULL OR state = 'purged'),
-    CHECK (state <> 'tombstoned' OR tombstoned_at IS NOT NULL),
-    CHECK (state <> 'purge_failed' OR (tombstoned_at IS NOT NULL AND purge_started_at IS NOT NULL AND purge_failed_at IS NOT NULL)),
-    CHECK (state <> 'purged' OR (tombstoned_at IS NOT NULL AND purge_started_at IS NOT NULL AND purged_at IS NOT NULL))
+    CHECK (state IN ('provisioning', 'ready', 'tombstoned')),
+    CHECK ((state = 'tombstoned') = (tombstoned_at IS NOT NULL))
 );
 
--- These indexes intentionally include purged rows: Home identity and locator
+-- These indexes intentionally include tombstoned rows: Home identity and locator
 -- are permanent audit records and must never be reused.
 CREATE UNIQUE INDEX idx_storage_home_principal_identity
     ON storage_home (principal_kind, principal_id)

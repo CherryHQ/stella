@@ -16,6 +16,10 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
+type testOwnerFencer struct{}
+
+func (testOwnerFencer) FenceHomeOwner(context.Context, OwnerKind, string) error { return nil }
+
 func TestWorkspaceViewKeepsTypedPrincipalsDisjointAndSharedRootsReadOnly(t *testing.T) {
 	ctx := context.Background()
 	r, store := newRegistry(t)
@@ -169,7 +173,7 @@ func TestWorkspaceViewProjectionLinearizesBeforeOwnerDeletion(t *testing.T) {
 			q := sqlc.New(db)
 			ownerID := uuid.NewString()
 			tt.seed(t, q, db, ownerID)
-			deletion, err := NewOwnerDeletion(db, registry, &recordingOwnerEnqueue{}, &recordingOwnerFencer{})
+			deletion, err := NewOwnerDeletion(db, registry, testOwnerFencer{})
 			if err != nil {
 				t.Fatal(err)
 			}

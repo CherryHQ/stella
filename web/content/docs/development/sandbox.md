@@ -37,7 +37,7 @@ Phase 1 gives persistent Homes typed identity separate from a machine path. The 
 
 A user or group run receives its Principal and Agent Home attachments plus read-only shared Skill roots. A user-less run receives only those read-only shared Skill roots and no Principal or Agent Home. Group Agent Home Skill materialization has no user or `user_agent` scope: it does not turn group data into a user's `user_agent` Skill.
 
-Explicit destructive group or Agent deletion tombstones and fences Homes; user deletion exposes the same internal lifecycle primitive but is not yet integrated with product account deletion. A shared River purge worker takes a durable, exclusive, expiring claim before removing bytes, so another worker can recover after a crash or expiry. Attachments are coordinates and policy inputs, not authority grants. This fencing is single-replica only. Phase 3 must add cross-replica SessionSandbox fencing; it is not implemented now.
+Explicit destructive group or Agent deletion fences local execution before tombstoning Homes; user deletion exposes the same internal lifecycle primitive but is not yet integrated with product account deletion. Tombstoned identities and locators remain reserved, while Phase 1 deliberately preserves their bytes and has no physical purge worker. Attachments are coordinates and policy inputs, not authority grants. This fencing is single-replica only. Phase 3 must add cross-replica SessionSandbox fencing; it is not implemented now.
 
 ## Current Architecture
 

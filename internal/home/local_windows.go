@@ -3,14 +3,9 @@
 package home
 
 import (
-	"context"
-	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
-
-	"golang.org/x/sys/windows"
 )
 
 func openLocalDirNoFollow(base, locator string) (*os.File, error) {
@@ -98,122 +93,6 @@ func mkdirAllWindowsNoFollow(root *os.Root, name string, mode os.FileMode) error
 		}
 		opened = append(opened, next)
 		current = next
-	}
-	return nil
-}
-
-func acquireLocalPurgeLock(ctx context.Context, base, id string) (func() error, error) {
-	baseRoot, err := os.OpenRoot(base)
-	if err != nil {
-		return nil, err
-	}
-	defer baseRoot.Close()
-	const lockDir = ".stella-home-purge-locks"
-	if err := baseRoot.Mkdir(lockDir, 0o700); err != nil && !os.IsExist(err) {
-		return nil, err
-	}
-	lockRoot, err := baseRoot.OpenRoot(lockDir)
-	if err != nil {
-		return nil, err
-	}
-	defer lockRoot.Close()
-	name := fmt.Sprintf("%x.lock", sha256.Sum256([]byte(id)))
-	file, err := lockRoot.OpenFile(name, os.O_RDWR|os.O_CREATE, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	h := windows.Handle(file.Fd())
-	var ov windows.Overlapped
-	for {
-		err = windows.LockFileEx(h, windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &ov)
-		if err == nil {
-			break
-		}
-		if err != windows.ERROR_LOCK_VIOLATION {
-			file.Close()
-			return nil, err
-		}
-		select {
-		case <-ctx.Done():
-			file.Close()
-			return nil, ctx.Err()
-		case <-time.After(10 * time.Millisecond):
-		}
-	}
-	return file.Close, nil
-}
-
-func purgeLocalRelative(ctx context.Context, base, locator string) error {
-	parts := splitLocalPath(filepath.ToSlash(locator))
-	if len(parts) == 0 {
-		return fmt.Errorf("empty purge locator")
-	}
-	parent := filepath.Join(parts[:len(parts)-1]...)
-	if parent == "" {
-		parent = "."
-	}
-	root, err := openLocalRootNoFollow(base, filepath.ToSlash(parent))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	defer root.Close()
-	return purgeWindowsAt(ctx, root, parts[len(parts)-1])
-}
-
-func purgeWindowsAt(ctx context.Context, parent *os.Root, name string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	info, err := parent.Lstat(name)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return parent.Remove(name)
-	}
-	child, err := parent.OpenRoot(name)
-	if err != nil {
-		return err
-	}
-	openedInfo, err := child.Stat(".")
-	if err != nil || !os.SameFile(info, openedInfo) {
-		_ = child.Close()
-		if err != nil {
-			return err
-		}
-		return fmt.Errorf("purge path component %q was replaced", name)
-	}
-	dir, err := child.Open(".")
-	if err != nil {
-		_ = child.Close()
-		return err
-	}
-	entries, err := dir.ReadDir(-1)
-	_ = dir.Close()
-	if err != nil {
-		_ = child.Close()
-		return err
-	}
-	for _, entry := range entries {
-		if err := purgeWindowsAt(ctx, child, entry.Name()); err != nil {
-			_ = child.Close()
-			return err
-		}
-	}
-	if err := child.Close(); err != nil {
-		return err
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := parent.Remove(name); err != nil && !os.IsNotExist(err) {
-		return err
 	}
 	return nil
 }

@@ -110,26 +110,6 @@ type ServerConfig struct {
 	Observability ObservabilityConfig
 }
 
-// HomeMaintenanceConfig is the intentionally small configuration surface for
-// offline Home maintenance. It avoids making a repair command parse unrelated
-// server settings (vault, OIDC, providers) outside serverAction.
-type HomeMaintenanceConfig struct {
-	DatabaseURL string
-	HomeStoreID string
-}
-
-// LoadHomeMaintenanceConfig reads only the database and Home Store selection
-// shared by standalone Home maintenance commands.
-func LoadHomeMaintenanceConfig(lookup func(string) (string, bool)) (HomeMaintenanceConfig, error) {
-	databaseURL, _ := lookup(databaseURLEnv)
-	rawHomeStoreID, _ := lookup(homeStoreIDEnv)
-	homeStoreID, err := parseHomeStoreID(homeStoreIDEnv, rawHomeStoreID)
-	if err != nil {
-		return HomeMaintenanceConfig{}, err
-	}
-	return HomeMaintenanceConfig{DatabaseURL: databaseURL, HomeStoreID: homeStoreID}, nil
-}
-
 // VaultConfig carries the vault master key (STELLA_VAULT_KEY). The key is a
 // secret: it must never appear in any error or log text, so this struct is not
 // logged and callers thread Key only into the vault service. The value is raw

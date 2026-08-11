@@ -57,9 +57,9 @@ PostgreSQL is the authority for Home identity and lifecycle; the configured Stor
 
 ## Destructive owner deletion
 
-An explicit destructive group or Agent deletion immediately tombstones its Homes and fences local cached execution. Destructive user deletion has the same internal lifecycle primitive, but product account deletion is not integrated with it yet. A shared worker uses a durable, exclusive, expiring claim to purge physical bytes asynchronously and idempotently. LocalStore also holds a per-Home operating-system lock until physical mutation returns. This is cross-process advisory exclusion among cooperating LocalStore participants that share and preserve the configured lock namespace; it is not tamper-resistant against Stella's operating-system identity or a privileged host operator. Isolating providers keep Agents from reaching that namespace. A child failure or active claim durably snoozes its parent continuation without consuming the retry budget. These are the only Home-deleting lifecycles: removing an Agent assignment, removing a group member, archiving a Session, and uninstalling Helm do **not** delete Homes.
+An explicit destructive group or Agent deletion first fences local cached execution, then tombstones its Homes and removes the owner in one database transaction. Destructive user deletion has the same internal lifecycle primitive, but product account deletion is not integrated with it yet. Tombstoned identities and locators remain permanently reserved, cannot be attached or recreated, and their physical bytes are deliberately preserved. Removing an Agent assignment, removing a group member, archiving a Session, and uninstalling Helm do **not** tombstone Homes.
 
-If physical purge fails, the Home remains in `purge_failed` with its audit record. It is not silently discarded; an operator must retry it. For syntax, run `stellad storage retry-purge --help`.
+Phase 1 has no physical Home purge, retry command, or Store migration/cutover. Temporary orphaned bytes are safer than deleting them before the provider/filesystem boundary can fence physical operations correctly. Do not manually remove Home roots while Stella is running. A dedicated future purge change after the provider/filesystem boundary will own stopped-or-fenced cleanup.
 
 ## Legacy article mirror (draining)
 

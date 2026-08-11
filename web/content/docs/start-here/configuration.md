@@ -108,7 +108,7 @@ Only a small set of environment variables is recognized:
 | Variable                      | Description                                                                                                       |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `STELLA_HOME`                 | Override the home directory (default `~/.stella`)                                                                 |
-| `STELLA_HOME_STORE_ID`        | Phase 1 default Store ID for newly registered Homes (default `local`)                                             |
+| `STELLA_HOME_STORE_ID`        | Phase 1 LocalStore identity for every registered Home (default `local`)                                           |
 | `STELLA_DATABASE_URL`         | Use an external PostgreSQL database instead of the embedded cluster                                               |
 | `STELLA_BLOB_S3_ENDPOINT`     | Optional S3-compatible endpoint for the durable user-asset mirror                                                 |
 | `STELLA_BLOB_S3_BUCKET`       | Bucket for mirrored user-uploaded assets; set with endpoint/access/secret or leave all unset                      |
@@ -122,7 +122,7 @@ Only a small set of environment variables is recognized:
 | `STELLA_HOME_VOLUME`          | Docker named volume for `STELLA_HOME`; required only when `STELLA_DOCKER_SANDBOX_MODE=volume`                     |
 | `STELLA_REFLECT_CURATOR_MODE` | Lifecycle curator: `armed` (default) or non-mutating emergency-stop mode `shadow`                                 |
 
-Store IDs persisted for existing Homes are immutable. Changing `STELLA_HOME_STORE_ID` selects the default only for new Homes; retained local adapters are reconstructed against the same `STELLA_HOME` and continue resolving Homes already assigned to their Store ID.
+Store IDs persisted for existing Homes are immutable. Phase 1 configures exactly one LocalStore, so changing `STELLA_HOME_STORE_ID` after registry creation fails startup. A future explicit offline migration must move the registry and bytes together; changing the variable alone is not a migration.
 
 Structured Reflect is the only writer. Remove the obsolete `STELLA_REFLECT_MODE` variable before upgrading; the transition release rejects an explicit `legacy` value instead of silently changing behavior. Curator mode is read at server startup, so restart Stella after changing it. Invalid curator modes stop startup. See [Deployment](/docs/start-here/deployment#structured-reflect-and-curator) for operational checks and [Memory internals](/docs/development/memory-internals#structured-reflect-and-curator) for the detailed mechanism.
 

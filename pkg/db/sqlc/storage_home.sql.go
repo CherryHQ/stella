@@ -12,108 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const acquireStorageHomeMaintenance = `-- name: AcquireStorageHomeMaintenance :one
-UPDATE storage_home
-SET maintenance_owner = $2, maintenance_token = $3, maintenance_until = $4, updated_at = now()
-WHERE id = $1
-  AND state = 'ready'
-  AND $4 > now()
-  AND (maintenance_until IS NULL OR maintenance_until <= now())
-RETURNING id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, maintenance_owner, maintenance_token, maintenance_until, tombstoned_at, tombstoned_by, purge_attempts, purge_requested_at, purge_started_at, purge_failed_at, last_purge_error, purge_claim_token, purge_claim_until, purged_at, purged_by, created_at, updated_at
-`
-
-type AcquireStorageHomeMaintenanceParams struct {
-	ID               string             `json:"id"`
-	MaintenanceOwner pgtype.Text        `json:"maintenance_owner"`
-	MaintenanceToken pgtype.Text        `json:"maintenance_token"`
-	MaintenanceUntil pgtype.Timestamptz `json:"maintenance_until"`
-}
-
-func (q *Queries) AcquireStorageHomeMaintenance(ctx context.Context, arg AcquireStorageHomeMaintenanceParams) (StorageHome, error) {
-	row := q.db.QueryRow(ctx, acquireStorageHomeMaintenance,
-		arg.ID,
-		arg.MaintenanceOwner,
-		arg.MaintenanceToken,
-		arg.MaintenanceUntil,
-	)
-	var i StorageHome
-	err := row.Scan(
-		&i.ID,
-		&i.HomeKind,
-		&i.PrincipalKind,
-		&i.PrincipalID,
-		&i.AgentID,
-		&i.StoreID,
-		&i.Locator,
-		&i.State,
-		&i.MaintenanceOwner,
-		&i.MaintenanceToken,
-		&i.MaintenanceUntil,
-		&i.TombstonedAt,
-		&i.TombstonedBy,
-		&i.PurgeAttempts,
-		&i.PurgeRequestedAt,
-		&i.PurgeStartedAt,
-		&i.PurgeFailedAt,
-		&i.LastPurgeError,
-		&i.PurgeClaimToken,
-		&i.PurgeClaimUntil,
-		&i.PurgedAt,
-		&i.PurgedBy,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const claimStorageHomePurge = `-- name: ClaimStorageHomePurge :one
-UPDATE storage_home
-SET purge_attempts = purge_attempts + 1, purge_started_at = now(),
-    purge_claim_token = $2, purge_claim_until = now() + interval '5 minutes', updated_at = now()
-WHERE id = $1
-  AND state = $3
-  AND (purge_claim_until IS NULL OR purge_claim_until <= now())
-RETURNING id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, maintenance_owner, maintenance_token, maintenance_until, tombstoned_at, tombstoned_by, purge_attempts, purge_requested_at, purge_started_at, purge_failed_at, last_purge_error, purge_claim_token, purge_claim_until, purged_at, purged_by, created_at, updated_at
-`
-
-type ClaimStorageHomePurgeParams struct {
-	ID              string      `json:"id"`
-	PurgeClaimToken pgtype.Text `json:"purge_claim_token"`
-	ExpectedState   string      `json:"expected_state"`
-}
-
-func (q *Queries) ClaimStorageHomePurge(ctx context.Context, arg ClaimStorageHomePurgeParams) (StorageHome, error) {
-	row := q.db.QueryRow(ctx, claimStorageHomePurge, arg.ID, arg.PurgeClaimToken, arg.ExpectedState)
-	var i StorageHome
-	err := row.Scan(
-		&i.ID,
-		&i.HomeKind,
-		&i.PrincipalKind,
-		&i.PrincipalID,
-		&i.AgentID,
-		&i.StoreID,
-		&i.Locator,
-		&i.State,
-		&i.MaintenanceOwner,
-		&i.MaintenanceToken,
-		&i.MaintenanceUntil,
-		&i.TombstonedAt,
-		&i.TombstonedBy,
-		&i.PurgeAttempts,
-		&i.PurgeRequestedAt,
-		&i.PurgeStartedAt,
-		&i.PurgeFailedAt,
-		&i.LastPurgeError,
-		&i.PurgeClaimToken,
-		&i.PurgeClaimUntil,
-		&i.PurgedAt,
-		&i.PurgedBy,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const completeStorageMigration = `-- name: CompleteStorageMigration :one
 UPDATE storage_migration SET state = 'completed', completed_at = now(), updated_at = now()
 WHERE name = $1 AND state = $2
@@ -148,7 +46,7 @@ INSERT INTO storage_home (
     $4, $5, $6, $7
 )
 ON CONFLICT DO NOTHING
-RETURNING id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, maintenance_owner, maintenance_token, maintenance_until, tombstoned_at, tombstoned_by, purge_attempts, purge_requested_at, purge_started_at, purge_failed_at, last_purge_error, purge_claim_token, purge_claim_until, purged_at, purged_by, created_at, updated_at
+RETURNING id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, tombstoned_at, tombstoned_by, created_at, updated_at
 `
 
 type CreateStorageHomeParams struct {
@@ -181,20 +79,8 @@ func (q *Queries) CreateStorageHome(ctx context.Context, arg CreateStorageHomePa
 		&i.StoreID,
 		&i.Locator,
 		&i.State,
-		&i.MaintenanceOwner,
-		&i.MaintenanceToken,
-		&i.MaintenanceUntil,
 		&i.TombstonedAt,
 		&i.TombstonedBy,
-		&i.PurgeAttempts,
-		&i.PurgeRequestedAt,
-		&i.PurgeStartedAt,
-		&i.PurgeFailedAt,
-		&i.LastPurgeError,
-		&i.PurgeClaimToken,
-		&i.PurgeClaimUntil,
-		&i.PurgedAt,
-		&i.PurgedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -228,64 +114,8 @@ func (q *Queries) CreateStorageMigration(ctx context.Context, arg CreateStorageM
 	return i, err
 }
 
-const cutoverStorageHomeStore = `-- name: CutoverStorageHomeStore :one
-UPDATE storage_home
-SET store_id = $4, locator = $5, maintenance_owner = NULL, maintenance_token = NULL, maintenance_until = NULL, updated_at = now()
-WHERE id = $1 AND state = 'ready' AND store_id = $2 AND locator = $3
-  AND maintenance_token = $6 AND maintenance_until > now()
-RETURNING id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, maintenance_owner, maintenance_token, maintenance_until, tombstoned_at, tombstoned_by, purge_attempts, purge_requested_at, purge_started_at, purge_failed_at, last_purge_error, purge_claim_token, purge_claim_until, purged_at, purged_by, created_at, updated_at
-`
-
-type CutoverStorageHomeStoreParams struct {
-	ID               string      `json:"id"`
-	StoreID          string      `json:"store_id"`
-	Locator          string      `json:"locator"`
-	StoreID_2        string      `json:"store_id_2"`
-	Locator_2        string      `json:"locator_2"`
-	MaintenanceToken pgtype.Text `json:"maintenance_token"`
-}
-
-func (q *Queries) CutoverStorageHomeStore(ctx context.Context, arg CutoverStorageHomeStoreParams) (StorageHome, error) {
-	row := q.db.QueryRow(ctx, cutoverStorageHomeStore,
-		arg.ID,
-		arg.StoreID,
-		arg.Locator,
-		arg.StoreID_2,
-		arg.Locator_2,
-		arg.MaintenanceToken,
-	)
-	var i StorageHome
-	err := row.Scan(
-		&i.ID,
-		&i.HomeKind,
-		&i.PrincipalKind,
-		&i.PrincipalID,
-		&i.AgentID,
-		&i.StoreID,
-		&i.Locator,
-		&i.State,
-		&i.MaintenanceOwner,
-		&i.MaintenanceToken,
-		&i.MaintenanceUntil,
-		&i.TombstonedAt,
-		&i.TombstonedBy,
-		&i.PurgeAttempts,
-		&i.PurgeRequestedAt,
-		&i.PurgeStartedAt,
-		&i.PurgeFailedAt,
-		&i.LastPurgeError,
-		&i.PurgeClaimToken,
-		&i.PurgeClaimUntil,
-		&i.PurgedAt,
-		&i.PurgedBy,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const getAgentStorageHome = `-- name: GetAgentStorageHome :one
-SELECT id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, maintenance_owner, maintenance_token, maintenance_until, tombstoned_at, tombstoned_by, purge_attempts, purge_requested_at, purge_started_at, purge_failed_at, last_purge_error, purge_claim_token, purge_claim_until, purged_at, purged_by, created_at, updated_at FROM storage_home
+SELECT id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, tombstoned_at, tombstoned_by, created_at, updated_at FROM storage_home
 WHERE home_kind = 'agent' AND principal_kind = $1 AND principal_id = $2 AND agent_id = $3
 `
 
@@ -307,20 +137,8 @@ func (q *Queries) GetAgentStorageHome(ctx context.Context, arg GetAgentStorageHo
 		&i.StoreID,
 		&i.Locator,
 		&i.State,
-		&i.MaintenanceOwner,
-		&i.MaintenanceToken,
-		&i.MaintenanceUntil,
 		&i.TombstonedAt,
 		&i.TombstonedBy,
-		&i.PurgeAttempts,
-		&i.PurgeRequestedAt,
-		&i.PurgeStartedAt,
-		&i.PurgeFailedAt,
-		&i.LastPurgeError,
-		&i.PurgeClaimToken,
-		&i.PurgeClaimUntil,
-		&i.PurgedAt,
-		&i.PurgedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -328,7 +146,7 @@ func (q *Queries) GetAgentStorageHome(ctx context.Context, arg GetAgentStorageHo
 }
 
 const getPrincipalStorageHome = `-- name: GetPrincipalStorageHome :one
-SELECT id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, maintenance_owner, maintenance_token, maintenance_until, tombstoned_at, tombstoned_by, purge_attempts, purge_requested_at, purge_started_at, purge_failed_at, last_purge_error, purge_claim_token, purge_claim_until, purged_at, purged_by, created_at, updated_at FROM storage_home
+SELECT id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, tombstoned_at, tombstoned_by, created_at, updated_at FROM storage_home
 WHERE home_kind = 'principal' AND principal_kind = $1 AND principal_id = $2
 `
 
@@ -349,20 +167,8 @@ func (q *Queries) GetPrincipalStorageHome(ctx context.Context, arg GetPrincipalS
 		&i.StoreID,
 		&i.Locator,
 		&i.State,
-		&i.MaintenanceOwner,
-		&i.MaintenanceToken,
-		&i.MaintenanceUntil,
 		&i.TombstonedAt,
 		&i.TombstonedBy,
-		&i.PurgeAttempts,
-		&i.PurgeRequestedAt,
-		&i.PurgeStartedAt,
-		&i.PurgeFailedAt,
-		&i.LastPurgeError,
-		&i.PurgeClaimToken,
-		&i.PurgeClaimUntil,
-		&i.PurgedAt,
-		&i.PurgedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -370,7 +176,7 @@ func (q *Queries) GetPrincipalStorageHome(ctx context.Context, arg GetPrincipalS
 }
 
 const getStorageHome = `-- name: GetStorageHome :one
-SELECT id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, maintenance_owner, maintenance_token, maintenance_until, tombstoned_at, tombstoned_by, purge_attempts, purge_requested_at, purge_started_at, purge_failed_at, last_purge_error, purge_claim_token, purge_claim_until, purged_at, purged_by, created_at, updated_at FROM storage_home WHERE id = $1
+SELECT id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, tombstoned_at, tombstoned_by, created_at, updated_at FROM storage_home WHERE id = $1
 `
 
 func (q *Queries) GetStorageHome(ctx context.Context, id string) (StorageHome, error) {
@@ -385,41 +191,11 @@ func (q *Queries) GetStorageHome(ctx context.Context, id string) (StorageHome, e
 		&i.StoreID,
 		&i.Locator,
 		&i.State,
-		&i.MaintenanceOwner,
-		&i.MaintenanceToken,
-		&i.MaintenanceUntil,
 		&i.TombstonedAt,
 		&i.TombstonedBy,
-		&i.PurgeAttempts,
-		&i.PurgeRequestedAt,
-		&i.PurgeStartedAt,
-		&i.PurgeFailedAt,
-		&i.LastPurgeError,
-		&i.PurgeClaimToken,
-		&i.PurgeClaimUntil,
-		&i.PurgedAt,
-		&i.PurgedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
-	return i, err
-}
-
-const getStorageHomePurgeClaimStatus = `-- name: GetStorageHomePurgeClaimStatus :one
-SELECT state, purge_claim_token IS NOT NULL AND purge_claim_until > now() AS purge_claim_active
-FROM storage_home
-WHERE id = $1
-`
-
-type GetStorageHomePurgeClaimStatusRow struct {
-	State            string      `json:"state"`
-	PurgeClaimActive pgtype.Bool `json:"purge_claim_active"`
-}
-
-func (q *Queries) GetStorageHomePurgeClaimStatus(ctx context.Context, id string) (GetStorageHomePurgeClaimStatusRow, error) {
-	row := q.db.QueryRow(ctx, getStorageHomePurgeClaimStatus, id)
-	var i GetStorageHomePurgeClaimStatusRow
-	err := row.Scan(&i.State, &i.PurgeClaimActive)
 	return i, err
 }
 
@@ -443,7 +219,7 @@ func (q *Queries) GetStorageMigration(ctx context.Context, name string) (Storage
 }
 
 const getSystemAgentSkillStorageHome = `-- name: GetSystemAgentSkillStorageHome :one
-SELECT id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, maintenance_owner, maintenance_token, maintenance_until, tombstoned_at, tombstoned_by, purge_attempts, purge_requested_at, purge_started_at, purge_failed_at, last_purge_error, purge_claim_token, purge_claim_until, purged_at, purged_by, created_at, updated_at FROM storage_home WHERE home_kind = 'system_agent_skill' AND agent_id = $1
+SELECT id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, tombstoned_at, tombstoned_by, created_at, updated_at FROM storage_home WHERE home_kind = 'system_agent_skill' AND agent_id = $1
 `
 
 func (q *Queries) GetSystemAgentSkillStorageHome(ctx context.Context, agentID pgtype.Text) (StorageHome, error) {
@@ -458,20 +234,8 @@ func (q *Queries) GetSystemAgentSkillStorageHome(ctx context.Context, agentID pg
 		&i.StoreID,
 		&i.Locator,
 		&i.State,
-		&i.MaintenanceOwner,
-		&i.MaintenanceToken,
-		&i.MaintenanceUntil,
 		&i.TombstonedAt,
 		&i.TombstonedBy,
-		&i.PurgeAttempts,
-		&i.PurgeRequestedAt,
-		&i.PurgeStartedAt,
-		&i.PurgeFailedAt,
-		&i.LastPurgeError,
-		&i.PurgeClaimToken,
-		&i.PurgeClaimUntil,
-		&i.PurgedAt,
-		&i.PurgedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -479,7 +243,7 @@ func (q *Queries) GetSystemAgentSkillStorageHome(ctx context.Context, agentID pg
 }
 
 const getSystemSkillStorageHome = `-- name: GetSystemSkillStorageHome :one
-SELECT id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, maintenance_owner, maintenance_token, maintenance_until, tombstoned_at, tombstoned_by, purge_attempts, purge_requested_at, purge_started_at, purge_failed_at, last_purge_error, purge_claim_token, purge_claim_until, purged_at, purged_by, created_at, updated_at FROM storage_home WHERE home_kind = 'system_skill'
+SELECT id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, tombstoned_at, tombstoned_by, created_at, updated_at FROM storage_home WHERE home_kind = 'system_skill'
 `
 
 func (q *Queries) GetSystemSkillStorageHome(ctx context.Context) (StorageHome, error) {
@@ -494,52 +258,16 @@ func (q *Queries) GetSystemSkillStorageHome(ctx context.Context) (StorageHome, e
 		&i.StoreID,
 		&i.Locator,
 		&i.State,
-		&i.MaintenanceOwner,
-		&i.MaintenanceToken,
-		&i.MaintenanceUntil,
 		&i.TombstonedAt,
 		&i.TombstonedBy,
-		&i.PurgeAttempts,
-		&i.PurgeRequestedAt,
-		&i.PurgeStartedAt,
-		&i.PurgeFailedAt,
-		&i.LastPurgeError,
-		&i.PurgeClaimToken,
-		&i.PurgeClaimUntil,
-		&i.PurgedAt,
-		&i.PurgedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
-const listRetainedStorageHomeStoreID = `-- name: ListRetainedStorageHomeStoreID :many
-SELECT DISTINCT store_id FROM storage_home ORDER BY store_id
-`
-
-func (q *Queries) ListRetainedStorageHomeStoreID(ctx context.Context) ([]string, error) {
-	rows, err := q.db.Query(ctx, listRetainedStorageHomeStoreID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []string{}
-	for rows.Next() {
-		var store_id string
-		if err := rows.Scan(&store_id); err != nil {
-			return nil, err
-		}
-		items = append(items, store_id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listStorageHomeByAgentForUpdate = `-- name: ListStorageHomeByAgentForUpdate :many
-SELECT id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, maintenance_owner, maintenance_token, maintenance_until, tombstoned_at, tombstoned_by, purge_attempts, purge_requested_at, purge_started_at, purge_failed_at, last_purge_error, purge_claim_token, purge_claim_until, purged_at, purged_by, created_at, updated_at FROM storage_home
+SELECT id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, tombstoned_at, tombstoned_by, created_at, updated_at FROM storage_home
 WHERE agent_id = $1 AND home_kind IN ('agent', 'system_agent_skill')
 ORDER BY CASE WHEN home_kind = 'agent' THEN 0 ELSE 1 END, id
 FOR UPDATE
@@ -563,20 +291,8 @@ func (q *Queries) ListStorageHomeByAgentForUpdate(ctx context.Context, agentID p
 			&i.StoreID,
 			&i.Locator,
 			&i.State,
-			&i.MaintenanceOwner,
-			&i.MaintenanceToken,
-			&i.MaintenanceUntil,
 			&i.TombstonedAt,
 			&i.TombstonedBy,
-			&i.PurgeAttempts,
-			&i.PurgeRequestedAt,
-			&i.PurgeStartedAt,
-			&i.PurgeFailedAt,
-			&i.LastPurgeError,
-			&i.PurgeClaimToken,
-			&i.PurgeClaimUntil,
-			&i.PurgedAt,
-			&i.PurgedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -591,7 +307,7 @@ func (q *Queries) ListStorageHomeByAgentForUpdate(ctx context.Context, agentID p
 }
 
 const listStorageHomeByPrincipalForUpdate = `-- name: ListStorageHomeByPrincipalForUpdate :many
-SELECT id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, maintenance_owner, maintenance_token, maintenance_until, tombstoned_at, tombstoned_by, purge_attempts, purge_requested_at, purge_started_at, purge_failed_at, last_purge_error, purge_claim_token, purge_claim_until, purged_at, purged_by, created_at, updated_at FROM storage_home
+SELECT id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, tombstoned_at, tombstoned_by, created_at, updated_at FROM storage_home
 WHERE principal_kind = $1 AND principal_id = $2
 ORDER BY CASE WHEN home_kind = 'agent' THEN 0 ELSE 1 END, id
 FOR UPDATE
@@ -620,20 +336,8 @@ func (q *Queries) ListStorageHomeByPrincipalForUpdate(ctx context.Context, arg L
 			&i.StoreID,
 			&i.Locator,
 			&i.State,
-			&i.MaintenanceOwner,
-			&i.MaintenanceToken,
-			&i.MaintenanceUntil,
 			&i.TombstonedAt,
 			&i.TombstonedBy,
-			&i.PurgeAttempts,
-			&i.PurgeRequestedAt,
-			&i.PurgeStartedAt,
-			&i.PurgeFailedAt,
-			&i.LastPurgeError,
-			&i.PurgeClaimToken,
-			&i.PurgeClaimUntil,
-			&i.PurgedAt,
-			&i.PurgedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -648,7 +352,7 @@ func (q *Queries) ListStorageHomeByPrincipalForUpdate(ctx context.Context, arg L
 }
 
 const listStorageHomeStoreID = `-- name: ListStorageHomeStoreID :many
-SELECT DISTINCT store_id FROM storage_home WHERE state <> 'purged' ORDER BY store_id
+SELECT DISTINCT store_id FROM storage_home ORDER BY store_id
 `
 
 func (q *Queries) ListStorageHomeStoreID(ctx context.Context) ([]string, error) {
@@ -805,104 +509,10 @@ func (q *Queries) LockStorageHomeOwner(ctx context.Context, hashtextextended str
 	return err
 }
 
-const markStorageHomePurgeFailed = `-- name: MarkStorageHomePurgeFailed :one
-UPDATE storage_home
-SET state = 'purge_failed', purge_failed_at = now(), last_purge_error = $2,
-    purge_claim_token = NULL, purge_claim_until = NULL, updated_at = now()
-WHERE id = $1 AND state IN ('tombstoned', 'purge_failed')
-  AND purge_claim_token = $3 AND purge_claim_until > now()
-RETURNING id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, maintenance_owner, maintenance_token, maintenance_until, tombstoned_at, tombstoned_by, purge_attempts, purge_requested_at, purge_started_at, purge_failed_at, last_purge_error, purge_claim_token, purge_claim_until, purged_at, purged_by, created_at, updated_at
-`
-
-type MarkStorageHomePurgeFailedParams struct {
-	ID              string      `json:"id"`
-	LastPurgeError  pgtype.Text `json:"last_purge_error"`
-	PurgeClaimToken pgtype.Text `json:"purge_claim_token"`
-}
-
-func (q *Queries) MarkStorageHomePurgeFailed(ctx context.Context, arg MarkStorageHomePurgeFailedParams) (StorageHome, error) {
-	row := q.db.QueryRow(ctx, markStorageHomePurgeFailed, arg.ID, arg.LastPurgeError, arg.PurgeClaimToken)
-	var i StorageHome
-	err := row.Scan(
-		&i.ID,
-		&i.HomeKind,
-		&i.PrincipalKind,
-		&i.PrincipalID,
-		&i.AgentID,
-		&i.StoreID,
-		&i.Locator,
-		&i.State,
-		&i.MaintenanceOwner,
-		&i.MaintenanceToken,
-		&i.MaintenanceUntil,
-		&i.TombstonedAt,
-		&i.TombstonedBy,
-		&i.PurgeAttempts,
-		&i.PurgeRequestedAt,
-		&i.PurgeStartedAt,
-		&i.PurgeFailedAt,
-		&i.LastPurgeError,
-		&i.PurgeClaimToken,
-		&i.PurgeClaimUntil,
-		&i.PurgedAt,
-		&i.PurgedBy,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const markStorageHomePurged = `-- name: MarkStorageHomePurged :one
-UPDATE storage_home
-SET state = 'purged', purged_at = now(), purged_by = $2,
-    purge_claim_token = NULL, purge_claim_until = NULL, updated_at = now()
-WHERE id = $1 AND state IN ('tombstoned', 'purge_failed')
-  AND purge_claim_token = $3 AND purge_claim_until > now()
-RETURNING id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, maintenance_owner, maintenance_token, maintenance_until, tombstoned_at, tombstoned_by, purge_attempts, purge_requested_at, purge_started_at, purge_failed_at, last_purge_error, purge_claim_token, purge_claim_until, purged_at, purged_by, created_at, updated_at
-`
-
-type MarkStorageHomePurgedParams struct {
-	ID              string      `json:"id"`
-	PurgedBy        pgtype.Text `json:"purged_by"`
-	PurgeClaimToken pgtype.Text `json:"purge_claim_token"`
-}
-
-func (q *Queries) MarkStorageHomePurged(ctx context.Context, arg MarkStorageHomePurgedParams) (StorageHome, error) {
-	row := q.db.QueryRow(ctx, markStorageHomePurged, arg.ID, arg.PurgedBy, arg.PurgeClaimToken)
-	var i StorageHome
-	err := row.Scan(
-		&i.ID,
-		&i.HomeKind,
-		&i.PrincipalKind,
-		&i.PrincipalID,
-		&i.AgentID,
-		&i.StoreID,
-		&i.Locator,
-		&i.State,
-		&i.MaintenanceOwner,
-		&i.MaintenanceToken,
-		&i.MaintenanceUntil,
-		&i.TombstonedAt,
-		&i.TombstonedBy,
-		&i.PurgeAttempts,
-		&i.PurgeRequestedAt,
-		&i.PurgeStartedAt,
-		&i.PurgeFailedAt,
-		&i.LastPurgeError,
-		&i.PurgeClaimToken,
-		&i.PurgeClaimUntil,
-		&i.PurgedAt,
-		&i.PurgedBy,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const markStorageHomeReady = `-- name: MarkStorageHomeReady :one
 UPDATE storage_home SET state = 'ready', updated_at = now()
 WHERE id = $1 AND state = 'provisioning'
-RETURNING id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, maintenance_owner, maintenance_token, maintenance_until, tombstoned_at, tombstoned_by, purge_attempts, purge_requested_at, purge_started_at, purge_failed_at, last_purge_error, purge_claim_token, purge_claim_until, purged_at, purged_by, created_at, updated_at
+RETURNING id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, tombstoned_at, tombstoned_by, created_at, updated_at
 `
 
 func (q *Queries) MarkStorageHomeReady(ctx context.Context, id string) (StorageHome, error) {
@@ -917,70 +527,19 @@ func (q *Queries) MarkStorageHomeReady(ctx context.Context, id string) (StorageH
 		&i.StoreID,
 		&i.Locator,
 		&i.State,
-		&i.MaintenanceOwner,
-		&i.MaintenanceToken,
-		&i.MaintenanceUntil,
 		&i.TombstonedAt,
 		&i.TombstonedBy,
-		&i.PurgeAttempts,
-		&i.PurgeRequestedAt,
-		&i.PurgeStartedAt,
-		&i.PurgeFailedAt,
-		&i.LastPurgeError,
-		&i.PurgeClaimToken,
-		&i.PurgeClaimUntil,
-		&i.PurgedAt,
-		&i.PurgedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
-const releaseStorageHomeMaintenance = `-- name: ReleaseStorageHomeMaintenance :execrows
-UPDATE storage_home
-SET maintenance_owner = NULL, maintenance_token = NULL, maintenance_until = NULL, updated_at = now()
-WHERE id = $1 AND maintenance_token = $2 AND maintenance_until > now()
-`
-
-type ReleaseStorageHomeMaintenanceParams struct {
-	ID               string      `json:"id"`
-	MaintenanceToken pgtype.Text `json:"maintenance_token"`
-}
-
-func (q *Queries) ReleaseStorageHomeMaintenance(ctx context.Context, arg ReleaseStorageHomeMaintenanceParams) (int64, error) {
-	result, err := q.db.Exec(ctx, releaseStorageHomeMaintenance, arg.ID, arg.MaintenanceToken)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const renewStorageHomePurgeClaim = `-- name: RenewStorageHomePurgeClaim :execrows
-UPDATE storage_home
-SET purge_claim_until = now() + interval '5 minutes', updated_at = now()
-WHERE id = $1 AND purge_claim_token = $2 AND purge_claim_until > now()
-`
-
-type RenewStorageHomePurgeClaimParams struct {
-	ID              string      `json:"id"`
-	PurgeClaimToken pgtype.Text `json:"purge_claim_token"`
-}
-
-func (q *Queries) RenewStorageHomePurgeClaim(ctx context.Context, arg RenewStorageHomePurgeClaimParams) (int64, error) {
-	result, err := q.db.Exec(ctx, renewStorageHomePurgeClaim, arg.ID, arg.PurgeClaimToken)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const tombstoneStorageHome = `-- name: TombstoneStorageHome :one
 UPDATE storage_home
-SET state = 'tombstoned', tombstoned_at = now(), tombstoned_by = $2, purge_requested_at = now(),
-    maintenance_owner = NULL, maintenance_token = NULL, maintenance_until = NULL, updated_at = now()
+SET state = 'tombstoned', tombstoned_at = now(), tombstoned_by = $2, updated_at = now()
 WHERE id = $1 AND state IN ('provisioning', 'ready')
-RETURNING id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, maintenance_owner, maintenance_token, maintenance_until, tombstoned_at, tombstoned_by, purge_attempts, purge_requested_at, purge_started_at, purge_failed_at, last_purge_error, purge_claim_token, purge_claim_until, purged_at, purged_by, created_at, updated_at
+RETURNING id, home_kind, principal_kind, principal_id, agent_id, store_id, locator, state, tombstoned_at, tombstoned_by, created_at, updated_at
 `
 
 type TombstoneStorageHomeParams struct {
@@ -1000,20 +559,8 @@ func (q *Queries) TombstoneStorageHome(ctx context.Context, arg TombstoneStorage
 		&i.StoreID,
 		&i.Locator,
 		&i.State,
-		&i.MaintenanceOwner,
-		&i.MaintenanceToken,
-		&i.MaintenanceUntil,
 		&i.TombstonedAt,
 		&i.TombstonedBy,
-		&i.PurgeAttempts,
-		&i.PurgeRequestedAt,
-		&i.PurgeStartedAt,
-		&i.PurgeFailedAt,
-		&i.LastPurgeError,
-		&i.PurgeClaimToken,
-		&i.PurgeClaimUntil,
-		&i.PurgedAt,
-		&i.PurgedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -1060,23 +607,4 @@ func (q *Queries) UpsertStorageMigrationObservation(ctx context.Context, arg Ups
 		&i.UpdatedAt,
 	)
 	return i, err
-}
-
-const validateStorageHomePurgeClaim = `-- name: ValidateStorageHomePurgeClaim :one
-SELECT EXISTS (
-    SELECT 1 FROM storage_home
-    WHERE id = $1 AND purge_claim_token = $2 AND purge_claim_until > now()
-)
-`
-
-type ValidateStorageHomePurgeClaimParams struct {
-	ID              string      `json:"id"`
-	PurgeClaimToken pgtype.Text `json:"purge_claim_token"`
-}
-
-func (q *Queries) ValidateStorageHomePurgeClaim(ctx context.Context, arg ValidateStorageHomePurgeClaimParams) (bool, error) {
-	row := q.db.QueryRow(ctx, validateStorageHomePurgeClaim, arg.ID, arg.PurgeClaimToken)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
 }
