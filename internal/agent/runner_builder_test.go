@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,12 +11,43 @@ import (
 
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 	"github.com/CherryHQ/stella/resources/binaries"
 )
+
+type panicSnapshotOpener struct {
+	root string
+	gate chan struct{}
+}
+
+func (o *panicSnapshotOpener) OpenRoot(context.Context, home.WorkspaceRequest, home.RootScope, home.RootAccess) (home.RootOperations, error) {
+	<-o.gate
+	r, err := os.OpenRoot(o.root)
+	if err != nil {
+		o.gate <- struct{}{}
+		return nil, err
+	}
+	return &panicSnapshotRoot{runnerTestRoot: runnerTestRoot{Root: r}, gate: o.gate}, nil
+}
+
+type panicSnapshotRoot struct {
+	runnerTestRoot
+	gate chan struct{}
+}
+
+func (*panicSnapshotRoot) Stat(context.Context, string) (fs.FileInfo, error) {
+	panic("snapshot read panic")
+}
+
+func (r *panicSnapshotRoot) Close() error {
+	err := r.runnerTestRoot.Close()
+	r.gate <- struct{}{}
+	return err
+}
 
 type fakeStreamProvider struct{}
 
@@ -80,6 +112,7 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 	}
 
 	var promptBuild plugins.SystemPromptContext
+	resolveCalls := 0
 	build := newRunnerFunc(runnerBuilderConfig{
 		Snap:            snap,
 		WorkspaceViewer: testWorkspaceViewer{root: stellaHome},
@@ -92,8 +125,12 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 		},
 		SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
 		ProjectResolver: func(ctx context.Context, projectID, userID, agentID string) (ProjectDescriptor, error) {
+			resolveCalls++
 			if projectID != "project-1" || userID != "user-1" || agentID != snap.AgentID {
 				t.Fatalf("ProjectResolver called with projectID=%q userID=%q", projectID, userID)
+			}
+			if resolveCalls > 1 {
+				return ProjectDescriptor{ID: projectID, UserID: userID, AgentID: agentID, Path: "changed/generation"}, nil
 			}
 			return ProjectDescriptor{ID: projectID, UserID: userID, AgentID: agentID, Path: "projects/app"}, nil
 		},
@@ -117,6 +154,36 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 	}
 	if got, want := promptBuild.UserRoot, filepath.Dir(filepath.Dir(userAgentDir)); got != want {
 		t.Errorf("prompt UserRoot = %q, want shared user home %q", got, want)
+	}
+	if resolveCalls != 1 {
+		t.Fatalf("project resolved %d times, want exactly once", resolveCalls)
+	}
+}
+
+func TestSnapshotAuthorizedProjectPanicReleasesOwnerGate(t *testing.T) {
+	root := t.TempDir()
+	opener := &panicSnapshotOpener{root: root, gate: make(chan struct{}, 1)}
+	opener.gate <- struct{}{}
+	resolve := func(_ context.Context, projectID, userID, agentID string) (ProjectDescriptor, error) {
+		return ProjectDescriptor{ID: projectID, UserID: userID, AgentID: agentID, Path: "."}, nil
+	}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("SnapshotAuthorizedProject did not propagate read panic")
+			}
+		}()
+		_, _ = SnapshotAuthorizedProject(context.Background(), resolve, opener, "p", "u", "a")
+	}()
+	if len(opener.gate) != 1 {
+		t.Fatal("owner gate remained held after panic")
+	}
+	reopened, err := opener.OpenRoot(context.Background(), home.WorkspaceRequest{}, home.RootAgentWorkspace, home.RootReadOnly)
+	if err != nil {
+		t.Fatalf("owner gate remained held after panic: %v", err)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 

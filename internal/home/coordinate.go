@@ -80,6 +80,9 @@ func ResolveLogicalCoordinate(scope RootScope, value string, allowRoot bool) (Ro
 	if value == "" && allowRoot {
 		return scope, ".", nil
 	}
+	if value == "." && allowRoot {
+		return scope, ".", nil
+	}
 	if value == "" || path.IsAbs(value) || path.Clean(value) != value {
 		return 0, "", errors.New("home: canonical relative name required")
 	}
@@ -140,9 +143,14 @@ func (m *WorkspaceManager) WriteAsset(ctx context.Context, store *asset.Store, c
 		return err
 	}
 	if create {
-		return store.CreateFile(ctx, abs, data, mode)
+		err = store.CreateFile(ctx, abs, data, mode)
+	} else {
+		err = store.WriteFile(ctx, abs, data, mode)
 	}
-	return store.WriteFile(ctx, abs, data, mode)
+	if errors.Is(err, asset.ErrOutcomeUnknown) {
+		return fmt.Errorf("%w: %w", ErrOutcomeUnknown, err)
+	}
+	return err
 }
 
 func (m *WorkspaceManager) UploadAsset(ctx context.Context, store *asset.Store, c Coordinate, src io.Reader, options WriteOptions) error {

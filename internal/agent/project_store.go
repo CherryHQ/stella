@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"path"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -145,7 +143,7 @@ func (s *ProjectStore) Create(ctx context.Context, authority authz.Authority, ag
 		return Project{}, err
 	}
 	userID := string(authority.UserID())
-	baseDir, err := canonicalProjectPath(baseDir)
+	baseDir, err := s.projectCoordinate(userID, agentID, baseDir)
 	if err != nil {
 		return Project{}, err
 	}
@@ -191,12 +189,13 @@ func (s *ProjectStore) Update(ctx context.Context, authority authz.Authority, ag
 	if in.Name != nil {
 		name = *in.Name
 	}
-	baseDir := existing.BaseDir
+	baseDirValue := existing.BaseDir
 	if in.BaseDir != nil {
-		baseDir, err = canonicalProjectPath(*in.BaseDir)
-		if err != nil {
-			return Project{}, err
-		}
+		baseDirValue = *in.BaseDir
+	}
+	baseDir, err := s.projectCoordinate(userID, agentID, baseDirValue)
+	if err != nil {
+		return Project{}, err
 	}
 	description := existing.Description
 	if in.Description != nil {
@@ -268,47 +267,30 @@ func (s *ProjectStore) projectFromRow(ctx context.Context, p sqlc.Project) (Proj
 	}, nil
 }
 
-func canonicalProjectPath(value string) (string, error) {
+func (s *ProjectStore) projectCoordinate(userID, agentID, value string) (string, error) {
 	if value == "" {
 		value = "."
 	}
-	if path.IsAbs(value) || filepath.IsAbs(value) || strings.Contains(value, `\`) || path.Clean(value) != value {
+	resolver, ok := s.homes.(home.CoordinateResolver)
+	if !ok {
+		return "", ErrWorkspaceSetup
+	}
+	scope, name, err := resolver.ResolveCoordinate(home.Coordinate{
+		Request:   home.WorkspaceRequest{UserID: userID, AgentID: agentID},
+		Scope:     home.RootAgentWorkspace,
+		Value:     value,
+		AllowRoot: true,
+	})
+	if err != nil || scope != home.RootAgentWorkspace {
 		return "", ErrInvalidBaseDir
 	}
-	if value == "." {
-		return value, nil
-	}
-	for segment := range strings.SplitSeq(value, "/") {
-		if segment == "" || segment == "." || segment == ".." {
-			return "", ErrInvalidBaseDir
-		}
-		for _, r := range segment {
-			if r == ':' || r == 0 || r < 0x20 || r == 0x7f {
-				return "", ErrInvalidBaseDir
-			}
-		}
-	}
-	return value, nil
+	return name, nil
 }
 
 // logicalProjectPath accepts legacy absolute rows but never exposes them. New
 // writes persist canonical agent-root-relative paths only.
-func (s *ProjectStore) logicalProjectPath(ctx context.Context, userID, agentID, stored string) (string, error) {
-	if !filepath.IsAbs(stored) {
-		return canonicalProjectPath(stored)
-	}
-	if s.homes == nil {
-		return "", ErrWorkspaceSetup
-	}
-	view, err := s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: userID, AgentID: agentID})
-	if err != nil || ValidateProjectDir(stored, view.AgentRoot) != nil {
-		return "", ErrWorkspaceSetup
-	}
-	relative, err := filepath.Rel(view.AgentRoot, stored)
-	if err != nil {
-		return "", ErrInvalidBaseDir
-	}
-	return canonicalProjectPath(filepath.ToSlash(relative))
+func (s *ProjectStore) logicalProjectPath(_ context.Context, userID, agentID, stored string) (string, error) {
+	return s.projectCoordinate(userID, agentID, stored)
 }
 
 // isProjectNotFound mirrors the transport's not-found predicate: an empty result

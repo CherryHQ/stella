@@ -216,6 +216,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		// Resolve project directory when session has a project.
 		var projectRoot string
 		var projectSkillSnapshot *skillstool.ProjectSnapshot
+		var projectContext prompt.ProjectContext
 		var descriptor ProjectDescriptor
 		if params.ProjectID != "" {
 			if cfg.ProjectResolver == nil {
@@ -228,13 +229,15 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			if !ok {
 				return nil, fmt.Errorf("runner: Home root opener is required for project Skills")
 			}
-			projectSkillSnapshot, descriptor, err = SnapshotAuthorizedProjectSkills(ctx, cfg.ProjectResolver, opener, params.ProjectID, params.UserID, params.AgentID)
+			projectSnapshot, snapshotErr := SnapshotAuthorizedProject(ctx, cfg.ProjectResolver, opener, params.ProjectID, params.UserID, params.AgentID)
+			err = snapshotErr
 			if err != nil {
 				if scratchCleanup != nil {
 					_ = scratchCleanup()
 				}
 				return nil, fmt.Errorf("runner: resolve project %q: %w", params.ProjectID, err)
 			}
+			descriptor, projectContext, projectSkillSnapshot = projectSnapshot.Descriptor, projectSnapshot.Context, projectSnapshot.Skills
 			if descriptor.ID != params.ProjectID || descriptor.UserID != params.UserID || descriptor.AgentID != params.AgentID {
 				if scratchCleanup != nil {
 					_ = scratchCleanup()
@@ -310,23 +313,6 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		promptUserID := params.UserID
 		if params.GroupID != "" {
 			promptUserID = ""
-		}
-		var projectContext prompt.ProjectContext
-		if projectRoot != "" {
-			opener, ok := cfg.WorkspaceViewer.(home.RootOpener)
-			if !ok {
-				if scratchCleanup != nil {
-					_ = scratchCleanup()
-				}
-				return nil, fmt.Errorf("runner: Home root opener is required for project context")
-			}
-			projectContext, _, err = SnapshotAuthorizedProjectContext(ctx, cfg.ProjectResolver, opener, params.ProjectID, params.UserID, params.AgentID)
-			if err != nil {
-				if scratchCleanup != nil {
-					_ = scratchCleanup()
-				}
-				return nil, fmt.Errorf("runner: project context unavailable")
-			}
 		}
 		system := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
 			SystemPrompt:   cfg.Snap.SystemPrompt,

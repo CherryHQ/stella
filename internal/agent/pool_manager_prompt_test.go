@@ -71,9 +71,14 @@ func TestPoolSnapshotPromptUsesAuthorizedRootToLeafProjectContextWithoutHostPath
 			t.Fatal(err)
 		}
 	}
+	resolveCalls := 0
 	pm := &PoolManager{
 		homeWorkspace: testWorkspaceViewer{root: stellaHome},
 		projectResolver: func(_ context.Context, projectID, userID, agentID string) (ProjectDescriptor, error) {
+			resolveCalls++
+			if resolveCalls > 1 {
+				return ProjectDescriptor{ID: projectID, UserID: userID, AgentID: agentID, Path: "changed/generation"}, nil
+			}
 			return ProjectDescriptor{ID: projectID, UserID: userID, AgentID: agentID, Path: "projects/app"}, nil
 		},
 	}
@@ -83,6 +88,9 @@ func TestPoolSnapshotPromptUsesAuthorizedRootToLeafProjectContextWithoutHostPath
 	}
 	if !strings.Contains(got, "pool root instructions") || !strings.Contains(got, "pool project instructions") || strings.Contains(got, stellaHome) {
 		t.Fatalf("snapshot prompt lacks logical root-to-leaf context or leaks host path:\n%s", got)
+	}
+	if resolveCalls != 1 {
+		t.Fatalf("project resolved %d times, want exactly once", resolveCalls)
 	}
 }
 

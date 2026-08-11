@@ -580,14 +580,12 @@ func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentrunti
 			if !ok {
 				return "", errors.New("home root opener is required for project context")
 			}
-			projectSkills, _, err = SnapshotAuthorizedProjectSkills(ctx, pm.projectResolver, opener, info.ProjectID, info.UserID, info.AgentID)
+			projectSnapshot, snapshotErr := SnapshotAuthorizedProject(ctx, pm.projectResolver, opener, info.ProjectID, info.UserID, info.AgentID)
+			err = snapshotErr
 			if err != nil {
 				return "", err
 			}
-			projectContext, _, err = SnapshotAuthorizedProjectContext(ctx, pm.projectResolver, opener, info.ProjectID, info.UserID, info.AgentID)
-			if err != nil {
-				return "", err
-			}
+			projectContext, projectSkills = projectSnapshot.Context, projectSnapshot.Skills
 		}
 		sections := pm.promptSections(ctx, snap, info, userRoot, workspaceRoot, projectSkills)
 

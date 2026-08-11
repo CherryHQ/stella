@@ -248,6 +248,16 @@ func SnapshotProjectContext(ctx context.Context, root ContextRoot, projectPath s
 		return ProjectContext{}, errors.New("prompt: project context root is required")
 	}
 	defer func() { resultErr = errors.Join(resultErr, root.Close()) }()
+	return ReadProjectContext(ctx, root, projectPath)
+}
+
+// ReadProjectContext snapshots bounded context without taking ownership of root.
+// A caller combining several project snapshots can therefore hold one owner gate
+// across all reads and close it before any plugin or template work begins.
+func ReadProjectContext(ctx context.Context, root ContextRoot, projectPath string) (ProjectContext, error) {
+	if root == nil {
+		return ProjectContext{}, errors.New("prompt: project context root is required")
+	}
 	return ProjectContext{files: loadRootProjectContextFiles(ctx, root, projectPath), loaded: true}, nil
 }
 

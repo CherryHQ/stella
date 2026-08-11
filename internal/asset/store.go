@@ -246,8 +246,8 @@ func verifySessionMedia(data []byte, digest [sha256.Size]byte, sizeBytes int64) 
 // persists it in the selected authority, and returns the local materialized
 // path. It replaces the former package-global agent.SaveAsset: the durable write
 // is no longer best-effort — a shared-authority failure fails the call and the
-// local orphan it just created is removed, so a reported failure never leaves a
-// local-only "success" that a channel would treat as saved.
+// a Put failure has unknown outcome because object stores may commit before
+// returning an error; callers must inspect state rather than retrying blindly.
 func (s *Store) SaveAsset(ctx context.Context, assetsDir, fileName string, data []byte) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -263,19 +263,14 @@ func (s *Store) SaveAsset(ctx context.Context, assetsDir, fileName string, data 
 		return "", fmt.Errorf("write asset: %w", err)
 	}
 	if err := s.persist(ctx, dst, data); err != nil {
-		_ = root.Remove(rel) // the timestamped name is always new; drop the orphan
 		return "", err
 	}
 	return dst, nil
 }
 
 // CreateFile creates a file at abs with the given content, materializing it
-// locally and durably persisting it when abs is a user asset. It is atomic with
-// respect to the durable authority: if the durable write fails, the local file
-// this call created is removed (or a pre-existing file restored), so a reported
-// failure never leaves a local-only asset. Non-asset paths are written locally
-// only. It is the create-time entry point for CreateWorkspaceFile; the underlying
-// write matches WriteFile's overwrite-and-rollback semantics.
+// locally and durably persisting it when abs is a user asset. It shares
+// WriteFile's unknown-outcome contract for authority failures.
 func (s *Store) CreateFile(ctx context.Context, abs string, content []byte, perm os.FileMode) error {
 	return s.WriteFile(ctx, abs, content, perm)
 }
@@ -346,10 +341,7 @@ func (s *Store) UploadFile(ctx context.Context, abs string, src io.Reader, perm 
 		putErr := s.authority.Put(ctx, key, staged)
 		closeErr := staged.Close()
 		if err := errors.Join(putErr, closeErr); err != nil {
-			if rollbackErr := s.authority.Delete(ctx, key); rollbackErr != nil {
-				return fmt.Errorf("%w: persist upload failed and durable rollback was incomplete: %w", ErrOutcomeUnknown, errors.Join(err, rollbackErr))
-			}
-			return fmt.Errorf("persist uploaded asset: %w", err)
+			return fmt.Errorf("%w: persist uploaded asset: %w", ErrOutcomeUnknown, err)
 		}
 	}
 	if err := root.Rename(temporary, rel); err != nil {
@@ -375,12 +367,10 @@ func (s *Store) UploadFile(ctx context.Context, abs string, src io.Reader, perm 
 
 // WriteFile materializes data at abs locally (creating parent directories, mode
 // perm) and durably persists it in the shared authority when abs is a user
-// asset. The local write is atomic with the durable write: if the durable write
-// fails, a newly-created file is removed and a pre-existing file is restored to
-// its prior content, so the local state always matches the durable outcome and a
-// reported failure never leaves a local-only or half-updated asset. Non-asset
-// paths are written locally only (rebuildable workspace state). With no shared
-// authority the local write is itself durable.
+// asset. If the durable write fails, its outcome is unknown: object stores may
+// commit before returning an error, so the new local materialization is retained
+// for inspection and callers must not retry. Non-asset paths are written locally
+// only. With no shared authority the local write is itself durable.
 func (s *Store) WriteFile(ctx context.Context, abs string, data []byte, perm os.FileMode) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -393,28 +383,10 @@ func (s *Store) WriteFile(ctx context.Context, abs string, data []byte, perm os.
 	if err := root.MkdirAll(filepath.Dir(rel), 0o755); err != nil {
 		return err
 	}
-	// Snapshot the prior content only when a durable write could actually fail
-	// (an asset path with a shared authority); a non-asset or single-node write
-	// never needs a rollback, so skip the read.
-	var (
-		prior    []byte
-		hadPrior bool
-		willP    = s.willPersist(abs)
-	)
-	if willP {
-		if b, err := root.ReadFile(rel); err == nil {
-			prior, hadPrior = b, true
-		}
-	}
 	if err := root.WriteFile(rel, data, perm); err != nil {
 		return err
 	}
 	if err := s.persist(ctx, abs, data); err != nil {
-		if hadPrior {
-			_ = root.WriteFile(rel, prior, perm) // restore prior content
-		} else {
-			_ = root.Remove(rel) // remove the orphan we just created
-		}
 		return err
 	}
 	return nil
@@ -539,17 +511,6 @@ func (s *Store) RemoveFile(ctx context.Context, abs string) error {
 	return root.RemoveAll(rel)
 }
 
-// willPersist reports whether a write to abs would reach the shared authority
-// (an asset path with a shared authority configured), i.e. whether a durable
-// write could fail and require a local rollback.
-func (s *Store) willPersist(abs string) bool {
-	if s.authority == nil {
-		return false
-	}
-	_, ok := s.assetKey(abs)
-	return ok
-}
-
 // persist durably records a single already-materialized asset file. No-op
 // without a shared authority (local is durable) or for a non-asset path.
 func (s *Store) persist(ctx context.Context, abs string, data []byte) error {
@@ -561,7 +522,7 @@ func (s *Store) persist(ctx context.Context, abs string, data []byte) error {
 		return nil
 	}
 	if err := s.authority.Put(ctx, key, bytes.NewReader(data)); err != nil {
-		return fmt.Errorf("persist asset to shared authority: %w", err)
+		return fmt.Errorf("%w: persist asset to shared authority: %w", ErrOutcomeUnknown, err)
 	}
 	return nil
 }
@@ -592,7 +553,7 @@ func (s *Store) persistTree(ctx context.Context, abs string) ([]string, error) {
 			return err
 		}
 		if err := s.authority.Put(ctx, key, bytes.NewReader(data)); err != nil {
-			return err
+			return fmt.Errorf("%w: persist moved asset %q: %w", ErrOutcomeUnknown, key, err)
 		}
 		written = append(written, key)
 		return nil

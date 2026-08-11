@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/config"
@@ -46,6 +47,26 @@ func (w testWorkspaceViewer) WorkspaceView(_ context.Context, req home.Workspace
 		return shared, nil
 	}
 	return shared, nil
+}
+
+func (w testWorkspaceViewer) ResolveCoordinate(c home.Coordinate) (home.RootScope, string, error) {
+	if scope, name, err := home.ResolveLogicalCoordinate(c.Scope, c.Value, c.AllowRoot); err == nil {
+		return scope, name, nil
+	}
+	view, err := w.WorkspaceView(context.Background(), c.Request)
+	if err != nil {
+		return 0, "", err
+	}
+	for _, candidate := range []struct {
+		scope home.RootScope
+		root  string
+	}{{home.RootAgentWorkspace, view.AgentRoot}, {home.RootPrincipalData, view.DataRoot}} {
+		rel, err := filepath.Rel(candidate.root, c.Value)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return home.ResolveLogicalCoordinate(candidate.scope, filepath.ToSlash(rel), c.AllowRoot)
+		}
+	}
+	return 0, "", errors.New("test coordinate escapes workspace")
 }
 
 func (w testWorkspaceViewer) OpenRoot(ctx context.Context, req home.WorkspaceRequest, scope home.RootScope, _ home.RootAccess) (home.RootOperations, error) {

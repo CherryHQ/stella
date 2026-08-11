@@ -32,6 +32,9 @@ type memAuthority struct {
 	// failDeleteContains, when set, fails Delete only for keys containing it (so a
 	// test can fail the source cleanup of a move without breaking the rollback).
 	failDeleteContains string
+	// commitThenFailPut consumes and stores the bytes before returning an error,
+	// modeling an object API whose reported failure has unknown outcome.
+	commitThenFailPut bool
 	// echoKey, when set, is injected into every List result to simulate a backend
 	// echoing an out-of-band (possibly traversal) key.
 	echoKey string
@@ -44,6 +47,15 @@ func newMemAuthority() *memAuthority {
 func (m *memAuthority) Put(_ context.Context, key string, r io.Reader) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.commitThenFailPut {
+		data, err := io.ReadAll(r)
+		if err != nil {
+			return err
+		}
+		m.objs[key] = data
+		m.puts++
+		return errors.New("authority Put committed then failed")
+	}
 	if m.failPutAfter >= 0 && m.puts >= m.failPutAfter {
 		return errors.New("authority Put failed")
 	}
@@ -423,7 +435,7 @@ func TestSaveAssetPersistsToSharedAuthority(t *testing.T) {
 	}
 }
 
-func TestSaveAssetRemovesLocalOrphanOnAuthorityFailure(t *testing.T) {
+func TestSaveAssetPutFailureHasUnknownOutcome(t *testing.T) {
 	home := t.TempDir()
 	auth := newMemAuthority()
 	auth.failPutAfter = 0 // fail the first Put
@@ -432,52 +444,53 @@ func TestSaveAssetRemovesLocalOrphanOnAuthorityFailure(t *testing.T) {
 	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SaveAsset(context.Background(), assetsDir, "note.txt", []byte("x")); err == nil {
-		t.Fatal("expected SaveAsset to fail when the authority write fails")
+	if _, err := s.SaveAsset(context.Background(), assetsDir, "note.txt", []byte("x")); !errors.Is(err, ErrOutcomeUnknown) {
+		t.Fatalf("SaveAsset error=%v, want ErrOutcomeUnknown", err)
 	}
-	// A reported failure must not leave a local-only orphan.
+	// Keep the local candidate for inspection; deleting it could discard the only
+	// copy when the object API actually committed before reporting failure.
 	entries, _ := os.ReadDir(assetsDir)
-	if len(entries) != 0 {
-		t.Fatalf("SaveAsset left %d local orphan(s) after a durable failure", len(entries))
+	if len(entries) != 1 {
+		t.Fatalf("SaveAsset inspection candidates=%d, want 1", len(entries))
 	}
 }
 
-func TestWriteFileAtomicRollbackOnAuthorityFailure(t *testing.T) {
+func TestWriteFilePutFailureHasUnknownOutcome(t *testing.T) {
 	home := t.TempDir()
 	auth := newMemAuthority()
 	s := mustStore(t, home, auth)
 	abs := filepath.Join(assetsDirFor(home, "u1"), "note.txt")
 
-	// New file + authority failure → orphan removed.
+	// A Put error cannot prove that a new object was not committed.
 	auth.failPutAfter = 0
-	if err := s.WriteFile(context.Background(), abs, []byte("new"), 0o644); err == nil {
-		t.Fatal("expected WriteFile to fail on authority error")
+	if err := s.WriteFile(context.Background(), abs, []byte("new"), 0o644); !errors.Is(err, ErrOutcomeUnknown) {
+		t.Fatalf("WriteFile error=%v, want ErrOutcomeUnknown", err)
 	}
-	if _, err := os.Stat(abs); !os.IsNotExist(err) {
-		t.Fatalf("new-file orphan not removed on failure: %v", err)
+	if got, err := os.ReadFile(abs); err != nil || string(got) != "new" {
+		t.Fatalf("new local inspection candidate=%q err=%v", got, err)
 	}
 
-	// Seed a pre-existing file (authority ok), then fail an update: the local file
-	// must be atomically restored to its prior content, not left half-updated.
+	// Seed a pre-existing file, then retain the updated local candidate when the
+	// authority reports an outcome-unknown failure.
 	auth.failPutAfter = -1
 	if err := s.WriteFile(context.Background(), abs, []byte("v1"), 0o644); err != nil {
 		t.Fatalf("seed WriteFile: %v", err)
 	}
 	auth.failPutAfter = 0
 	auth.puts = 0
-	if err := s.WriteFile(context.Background(), abs, []byte("v2"), 0o644); err == nil {
-		t.Fatal("expected update WriteFile to fail on authority error")
+	if err := s.WriteFile(context.Background(), abs, []byte("v2"), 0o644); !errors.Is(err, ErrOutcomeUnknown) {
+		t.Fatalf("update error=%v, want ErrOutcomeUnknown", err)
 	}
 	data, err := os.ReadFile(abs)
 	if err != nil {
 		t.Fatalf("pre-existing file wrongly removed on failed update: %v", err)
 	}
-	if string(data) != "v1" {
-		t.Fatalf("local content = %q after failed update, want the prior content v1 restored", data)
+	if string(data) != "v2" {
+		t.Fatalf("local content = %q after unknown update, want v2 retained", data)
 	}
 }
 
-func TestCreateFileDurableAndRollsBack(t *testing.T) {
+func TestCreateFileDurableAndRetainsUnknownOutcomeCandidate(t *testing.T) {
 	home := t.TempDir()
 	auth := newMemAuthority()
 	s := mustStore(t, home, auth)
@@ -495,14 +508,14 @@ func TestCreateFileDurableAndRollsBack(t *testing.T) {
 		t.Fatalf("local created asset data=%q err=%v", data, err)
 	}
 
-	// Authority failure rolls back the local creation.
+	// Authority failure is outcome-unknown and retains the local candidate.
 	abs2 := filepath.Join(assetsDirFor(home, "u1"), "failed.txt")
 	auth.failPutAfter = 0
-	if err := s.CreateFile(context.Background(), abs2, []byte("x"), 0o644); err == nil {
-		t.Fatal("expected CreateFile to fail on authority error")
+	if err := s.CreateFile(context.Background(), abs2, []byte("x"), 0o644); !errors.Is(err, ErrOutcomeUnknown) {
+		t.Fatalf("CreateFile error=%v, want ErrOutcomeUnknown", err)
 	}
-	if _, err := os.Stat(abs2); !os.IsNotExist(err) {
-		t.Fatalf("failed CreateFile left a local orphan: %v", err)
+	if got, err := os.ReadFile(abs2); err != nil || string(got) != "x" {
+		t.Fatalf("failed CreateFile inspection candidate=%q err=%v", got, err)
 	}
 
 	// Non-asset create is local only and never touches the authority.
@@ -517,6 +530,27 @@ func TestCreateFileDurableAndRollsBack(t *testing.T) {
 	}
 	if auth.count() != before {
 		t.Fatalf("non-asset create touched the authority (count %d→%d)", before, auth.count())
+	}
+}
+
+func TestWriteFileCommitThenErrorWithObjectOnlyPriorIsOutcomeUnknown(t *testing.T) {
+	home := t.TempDir()
+	auth := newMemAuthority()
+	s := mustStore(t, home, auth)
+	abs := filepath.Join(assetsDirFor(home, "u1"), "object-only.txt")
+	key, _ := blob.KeyForPath(home, abs)
+	auth.objs[key] = []byte("prior object-only bytes")
+	auth.commitThenFailPut = true
+
+	err := s.WriteFile(context.Background(), abs, []byte("new bytes"), 0o644)
+	if !errors.Is(err, ErrOutcomeUnknown) {
+		t.Fatalf("WriteFile error=%v, want ErrOutcomeUnknown", err)
+	}
+	if got, err := os.ReadFile(abs); err != nil || string(got) != "new bytes" {
+		t.Fatalf("local inspection candidate=%q err=%v", got, err)
+	}
+	if got := string(auth.objs[key]); got != "new bytes" {
+		t.Fatalf("committed authority bytes=%q", got)
 	}
 }
 
@@ -771,8 +805,8 @@ func TestMoveFileRollsBackOnAuthorityFailure(t *testing.T) {
 	// Fail the destination Put.
 	auth.failPutAfter = 0
 	auth.puts = 0
-	if err := s.MoveFile(context.Background(), src, dst); err == nil {
-		t.Fatal("expected MoveFile to fail when the destination authority write fails")
+	if err := s.MoveFile(context.Background(), src, dst); !errors.Is(err, ErrOutcomeUnknown) {
+		t.Fatalf("MoveFile error=%v, want ErrOutcomeUnknown", err)
 	}
 	// Source authority must remain intact and the local rename rolled back.
 	if !auth.has(srcKey) {
@@ -788,6 +822,32 @@ func TestMoveFileRollsBackOnAuthorityFailure(t *testing.T) {
 	auth.failPutAfter = -1
 	if err := s.MoveFile(context.Background(), src, dst); err != nil {
 		t.Fatalf("retry MoveFile: %v", err)
+	}
+}
+
+func TestMoveFileCommitThenErrorAndRollbackFailureIsOutcomeUnknown(t *testing.T) {
+	home := t.TempDir()
+	auth := newMemAuthority()
+	s := mustStore(t, home, auth)
+	assetsDir := assetsDirFor(home, "u1")
+	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(assetsDir, "source.txt")
+	dst := filepath.Join(assetsDir, "destination.txt")
+	if err := os.WriteFile(src, []byte("body"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srcKey, _ := blob.KeyForPath(home, src)
+	if err := auth.Put(context.Background(), srcKey, strings.NewReader("body")); err != nil {
+		t.Fatal(err)
+	}
+	auth.commitThenFailPut = true
+	if err := s.MoveFile(context.Background(), src, dst); !errors.Is(err, ErrOutcomeUnknown) {
+		t.Fatalf("MoveFile error=%v, want ErrOutcomeUnknown", err)
+	}
+	if auth.puts < 3 {
+		t.Fatalf("authority Puts=%d, want destination Put plus failed source rollback Put", auth.puts)
 	}
 }
 

@@ -19,6 +19,15 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
+type commitThenErrorBlobStore struct{ blob.Store }
+
+func (s commitThenErrorBlobStore) Put(ctx context.Context, key string, r io.Reader) error {
+	if err := s.Store.Put(ctx, key, r); err != nil {
+		return err
+	}
+	return errors.New("blob Put committed then returned an error")
+}
+
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
 func TestWorkspaceManagerMaterializesDeterministicTypedLayout(t *testing.T) {
@@ -145,6 +154,16 @@ func TestWorkspaceManagerResolvesCompatibilityCoordinates(t *testing.T) {
 	}
 }
 
+func TestResolveLogicalCoordinateAllowsDotOnlyForRoot(t *testing.T) {
+	if _, _, err := ResolveLogicalCoordinate(RootAgentWorkspace, ".", false); err == nil {
+		t.Fatal("dot coordinate accepted without AllowRoot")
+	}
+	scope, name, err := ResolveLogicalCoordinate(RootAgentWorkspace, ".", true)
+	if err != nil || scope != RootAgentWorkspace || name != "." {
+		t.Fatalf("AllowRoot dot = %v %q %v", scope, name, err)
+	}
+}
+
 func TestAssetCompatibilityRestoresObjectOnlyWorkspaceAssetWhileRootIsOpen(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
@@ -230,6 +249,34 @@ func TestAssetCompatibilityRestoresObjectOnlyWorkspaceAssetWhileRootIsOpen(t *te
 	}
 	if _, err := os.Stat(filepath.Join(base, "users", user, "data", "assets", "too-large.txt")); !os.IsNotExist(err) {
 		t.Fatalf("over-limit compatibility upload published: %v", err)
+	}
+	commitAuthority, err := blob.NewFSStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknownTarget := filepath.Join(base, "users", user, "data", "assets", "unknown.txt")
+	unknownKey, err := blob.KeyForPath(base, unknownTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := commitAuthority.Put(ctx, unknownKey, strings.NewReader("object-only prior")); err != nil {
+		t.Fatal(err)
+	}
+	unknownAssets, err := asset.NewStore(base, commitThenErrorBlobStore{Store: commitAuthority}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknownRoot, err := m.OpenRoot(ctx, req, RootPrincipalData, RootReadWrite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = m.WriteAsset(ctx, unknownAssets, Coordinate{Request: req, Scope: RootPrincipalData, Value: "assets/unknown.txt"}, []byte("possibly committed"), 0o600, false)
+	closeErr := unknownRoot.Close()
+	if !errors.Is(err, ErrOutcomeUnknown) {
+		t.Fatalf("WriteAsset error=%v, want ErrOutcomeUnknown", err)
+	}
+	if closeErr != nil {
+		t.Fatal(closeErr)
 	}
 }
 

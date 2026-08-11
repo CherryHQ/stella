@@ -213,30 +213,6 @@ func (a *Access) Detail(ctx context.Context, agentID, sessionID string) (Detail,
 	return Detail{Info: info, AgentName: agent.Name}, nil
 }
 
-// ProjectRoot authorizes the referenced session before resolving its project.
-// Callers that merely use a session ID as optional context therefore cannot
-// bypass session visibility through project-scoped features such as skills.
-func (a *Access) ProjectRoot(ctx context.Context, agentID string, sessionID *string) (string, error) {
-	if sessionID == nil || *sessionID == "" {
-		return "", nil
-	}
-	info, err := a.Read(ctx, agentID, *sessionID)
-	if err != nil {
-		return "", err
-	}
-	if info.ProjectID == "" {
-		return "", nil
-	}
-	project, err := a.svc.q.GetProject(ctx, sqlc.GetProjectParams{ID: info.ProjectID, UserID: info.UserID})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("%w: get session project: %w", ErrUnavailable, err)
-	}
-	return project.BaseDir, nil
-}
-
 // Use resolves a routed session and authorizes a turn on it.
 func (a *Access) Use(ctx context.Context, agentID, sessionID string) (agentsession.Info, error) {
 	return a.session(ctx, agentID, sessionID, authz.ActionExecute)

@@ -11,6 +11,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
+	"github.com/CherryHQ/stella/internal/skills"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -20,7 +21,11 @@ func (promptTestAgents) GetPromptAgent(context.Context, string) (PromptAgent, er
 	return PromptAgent{SystemPrompt: "test", Workspace: "/agent-definition/a1"}, nil
 }
 
-type promptTestProjects struct{ descriptor agent.ProjectDescriptor }
+type promptTestProjects struct {
+	descriptor agent.ProjectDescriptor
+	second     agent.ProjectDescriptor
+	calls      int
+}
 
 type promptTestWorkspace struct{ root string }
 
@@ -52,9 +57,13 @@ func (w promptTestWorkspace) OpenRoot(ctx context.Context, req home.WorkspaceReq
 	return testRootOperations{Root: root}, nil
 }
 
-func (p promptTestProjects) ResolveProject(context.Context, string, string, string) (agent.ProjectDescriptor, error) {
+func (p *promptTestProjects) ResolveProject(context.Context, string, string, string) (agent.ProjectDescriptor, error) {
+	p.calls++
 	if p.descriptor.ID == "" {
 		return agent.ProjectDescriptor{}, agent.ErrProjectNotFound
+	}
+	if p.calls > 1 && p.second.ID != "" {
+		return p.second, nil
 	}
 	return p.descriptor, nil
 }
@@ -67,23 +76,40 @@ func TestPromptPreviewUsesAuthorizedRootToLeafProjectContextWithoutHostPath(t *t
 		t.Fatal(err)
 	}
 	for name, content := range map[string]string{
-		filepath.Join(root, "AGENTS.md"):    "preview root instructions",
-		filepath.Join(project, "AGENTS.md"): "preview project instructions",
+		filepath.Join(root, "AGENTS.md"):                                 "preview root instructions",
+		filepath.Join(project, "AGENTS.md"):                              "preview project instructions",
+		filepath.Join(project, ".agents", "skills", "first", "SKILL.md"): "---\nname: first\ndescription: first skill generation\n---\n",
 	} {
+		if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(name, []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	var build pkgplugins.SystemPromptContext
+	projects := &promptTestProjects{
+		descriptor: agent.ProjectDescriptor{ID: "p1", UserID: "u1", AgentID: "a1", Path: "projects/app"},
+		second:     agent.ProjectDescriptor{ID: "p1", UserID: "u1", AgentID: "a1", Path: "changed/generation"},
+	}
 	builder, err := NewSystemPromptBuilder(SystemPromptDeps{
 		StellaHome: stellaHome,
 		Memory:     memorytest.New(),
 		Agents:     promptTestAgents{},
-		Projects:   promptTestProjects{descriptor: agent.ProjectDescriptor{ID: "p1", UserID: "u1", AgentID: "a1", Path: "projects/app"}}.ResolveProject,
+		Projects:   projects.ResolveProject,
 		Workspace:  promptTestWorkspace{root: stellaHome},
 		Plugins:    promptTestPlugins{build: &build},
 		SkillStore: agentSkillStore{},
-		Skills: func(context.Context, pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
+		Skills: func(ctx context.Context, _ pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
+			merged, err := skills.NewService(agentSkillStore{}, stellaHome).ListMerged(ctx, pkgplugins.SkillViewContext{}, "")
+			if err != nil {
+				return pkgplugins.SystemPromptSection{}, err
+			}
+			for _, resolved := range merged {
+				if resolved.Name == "first" {
+					return pkgplugins.SystemPromptSection{Title: "Snapshot Proof", Content: resolved.Description}, nil
+				}
+			}
 			return pkgplugins.SystemPromptSection{}, nil
 		},
 	})
@@ -94,8 +120,11 @@ func TestPromptPreviewUsesAuthorizedRootToLeafProjectContextWithoutHostPath(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got, "preview root instructions") || !strings.Contains(got, "preview project instructions") || strings.Contains(got, stellaHome) {
+	if !strings.Contains(got, "preview root instructions") || !strings.Contains(got, "preview project instructions") || !strings.Contains(got, "first skill generation") || strings.Contains(got, stellaHome) {
 		t.Fatalf("preview prompt lacks logical root-to-leaf context or leaks host path:\n%s", got)
+	}
+	if projects.calls != 1 {
+		t.Fatalf("project resolved %d times, want exactly once", projects.calls)
 	}
 }
 
@@ -130,7 +159,7 @@ func TestAuthorizedPromptUsesPrincipalWorkspace(t *testing.T) {
 				StellaHome: stellaHome,
 				Memory:     memorytest.New(),
 				Agents:     promptTestAgents{},
-				Projects:   promptTestProjects{}.ResolveProject,
+				Projects:   (&promptTestProjects{}).ResolveProject,
 				Workspace:  promptTestWorkspace{root: stellaHome},
 				Plugins:    promptTestPlugins{build: &build},
 				SkillStore: agentSkillStore{},

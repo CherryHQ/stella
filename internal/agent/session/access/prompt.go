@@ -124,21 +124,18 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 		}
 	}
 
-	hasProject := false
-	projectPath := "."
 	var projectContext prompt.ProjectContext
+	var projectSkills *skills.ProjectSnapshot
 	if info.UserID != "" && info.ProjectID != "" {
 		opener, ok := b.deps.Workspace.(home.RootOpener)
 		if !ok {
 			return "", fmt.Errorf("%w: Home root opener is required for project context", ErrUnavailable)
 		}
-		contextSnapshot, descriptor, err := agent.SnapshotAuthorizedProjectContext(ctx, b.deps.Projects, opener, info.ProjectID, info.UserID, info.AgentID)
+		projectSnapshot, err := agent.SnapshotAuthorizedProject(ctx, b.deps.Projects, opener, info.ProjectID, info.UserID, info.AgentID)
 		if err != nil {
 			return "", fmt.Errorf("%w: project context: %w", ErrUnavailable, err)
 		}
-		projectContext = contextSnapshot
-		projectPath = descriptor.Path
-		hasProject = true
+		projectContext, projectSkills = projectSnapshot.Context, projectSnapshot.Skills
 	}
 
 	pluginView, err := b.deps.Plugins.SessionPluginView(ctx)
@@ -160,22 +157,6 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 	promptSections, err := b.deps.Plugins.SystemPromptSections(ctx, promptBuild)
 	if err != nil {
 		return "", fmt.Errorf("%w: system prompt sections: %w", ErrUnavailable, err)
-	}
-	var projectSkills *skills.ProjectSnapshot
-	if hasProject {
-		opener, ok := b.deps.Workspace.(home.RootOpener)
-		if !ok {
-			return "", fmt.Errorf("%w: Home root opener is required for project Skills", ErrUnavailable)
-		}
-		root, openErr := opener.OpenRoot(ctx, home.WorkspaceRequest{UserID: info.UserID, GroupID: info.GroupID, AgentID: info.AgentID}, home.RootAgentWorkspace, home.RootReadOnly)
-		if openErr != nil {
-			return "", fmt.Errorf("%w: project Skills unavailable", ErrUnavailable)
-		}
-		projectSkills, err = skills.SnapshotProjectSkills(ctx, root, projectPath)
-		closeErr := root.Close()
-		if err != nil || closeErr != nil {
-			return "", fmt.Errorf("%w: project Skills unavailable", ErrUnavailable)
-		}
 	}
 	if skillsSection, err := b.deps.Skills(skills.WithProjectSnapshot(ctx, projectSkills), promptBuild); err != nil {
 		return "", fmt.Errorf("%w: skills prompt section: %w", ErrUnavailable, err)
