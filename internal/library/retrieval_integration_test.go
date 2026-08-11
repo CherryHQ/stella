@@ -139,6 +139,35 @@ func TestLibrarySearchToolReturnsOnlySafeEvidenceFields(t *testing.T) {
 	}
 }
 
+func TestSearchDegradesMalformedLocatorToFilenameOnlyCitation(t *testing.T) {
+	database := dbtest.New(t)
+	seedLibraryPrincipals(t, database)
+	_, service := newLibraryService(t, database)
+	insertRetrievalFixture(t, database, "bad-locator.txt", Owner{Scope: ScopeSystem}, "ready", "ready", true, nil)
+	if _, err := database.Exec(t.Context(), `
+		UPDATE library_chunk AS chunk
+		SET locator = '{"first_page": 4, "last_page": 2}'::jsonb
+		FROM library_chunk_set AS chunk_set
+		JOIN library_file AS file ON file.id = chunk_set.file_id
+		WHERE chunk.chunk_set_id = chunk_set.id
+		  AND file.file_name = 'bad-locator.txt'
+	`); err != nil {
+		t.Fatal(err)
+	}
+
+	authority, err := authz.NewAgentAuthority(authz.UserID(testUserA), authz.AgentID(testAgentA))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits, err := service.Search(t.Context(), authority, "retrievalmarker", 1)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(hits) != 1 || hits[0].FileName != "bad-locator.txt" || hits[0].Locator != nil || hits[0].Content == "" {
+		t.Fatalf("hits = %+v, want content with a filename-only citation", hits)
+	}
+}
+
 func seedRetrievalAgent(t *testing.T, database *pgxpool.Pool, id string) {
 	t.Helper()
 	if _, err := sqlc.New(database).CreateAgent(t.Context(), sqlc.CreateAgentParams{

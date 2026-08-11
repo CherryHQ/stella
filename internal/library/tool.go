@@ -54,7 +54,7 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	// model arguments must never select scope, identity, files, or fetch modes.
 	for name := range args {
 		if name != "query" && name != "limit" {
-			return "", fmt.Errorf("%w: unsupported field %q", ErrInvalidSearch, name)
+			return "", tools.InvalidInput(fmt.Errorf("%w: unsupported field %q", ErrInvalidSearch, name))
 		}
 	}
 	var input struct {
@@ -62,7 +62,7 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 		Limit int    `json:"limit,omitempty"`
 	}
 	if err := tools.DecodeInput(args, &input, []string{"query"}); err != nil {
-		return "", fmt.Errorf("%w: %w", ErrInvalidSearch, err)
+		return "", tools.InvalidInput(fmt.Errorf("%w: %w", ErrInvalidSearch, err))
 	}
 
 	identity, err := authz.ToolIdentity(ctx, ToolName)
@@ -75,6 +75,9 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 	}
 	hits, err := t.service.Search(ctx, authority, input.Query, input.Limit)
 	if err != nil {
+		if errors.Is(err, ErrInvalidSearch) {
+			return "", tools.InvalidInput(err)
+		}
 		if errors.Is(err, ErrForbidden) {
 			return "", fmt.Errorf("this run is not authorized to search the Library")
 		}

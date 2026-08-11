@@ -8,6 +8,7 @@ import (
 
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
+	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
 func TestToolExecution(t *testing.T) {
@@ -57,6 +58,34 @@ func TestToolExecutionEnforcesPerRunCallLimit(t *testing.T) {
 	}
 	if got := ai.FlattenText(results[2].Content); !strings.Contains(got, "at most 2 times") {
 		t.Fatalf("limit result = %q", got)
+	}
+}
+
+func TestToolExecutionDoesNotCountInvalidInputAgainstCallLimit(t *testing.T) {
+	const name = "library.search"
+	actualCalls := 0
+	toolSet := ToolSet{name: func(context.Context, ai.ToolCall) ([]ai.ContentBlock, error) {
+		actualCalls++
+		if actualCalls == 1 {
+			return nil, pkgtools.InvalidInput(errors.New("query is required"))
+		}
+		return []ai.ContentBlock{ai.TextContent{Text: "ok"}}, nil
+	}}
+	ctx := withToolCallLimits(context.Background(), map[string]int{name: 2})
+	results, err := executeToolCalls(ctx, []ai.ToolCall{
+		{ID: "invalid", Name: name},
+		{ID: "first", Name: name},
+		{ID: "second", Name: name},
+		{ID: "limited", Name: name},
+	}, toolSet, toolCallbacks{}, nil, hooks.HookMeta{}, nil, nil)
+	if err != nil {
+		t.Fatalf("executeToolCalls: %v", err)
+	}
+	if actualCalls != 3 {
+		t.Fatalf("actual calls = %d, want one rejected input and two executions", actualCalls)
+	}
+	if len(results) != 4 || !results[0].IsError || results[1].IsError || results[2].IsError || !results[3].IsError {
+		t.Fatalf("results = %+v, want invalid input, two successes, then limit error", results)
 	}
 }
 

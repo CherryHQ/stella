@@ -62,7 +62,13 @@ func (s *Service) Search(
 	for _, row := range rows {
 		locator, err := publicSearchLocator(row.Locator)
 		if err != nil {
-			return nil, fmt.Errorf("decode Library search locator: %w", err)
+			// Locator metadata enriches a citation but never decides whether the
+			// matching content is usable. A malformed optional locator therefore
+			// degrades to a filename-only citation instead of dropping all hits.
+			if s.logger != nil {
+				s.logger.Warn("ignore invalid Library search locator", "error", err)
+			}
+			locator = nil
 		}
 		hits = append(hits, SearchHit{
 			FileName: row.FileName,

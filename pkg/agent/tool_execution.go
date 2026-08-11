@@ -9,6 +9,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/hooks"
+	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
 type toolCallLimitKey struct{}
@@ -39,6 +40,14 @@ func consumeToolCall(ctx context.Context, name string) (bool, int) {
 	}
 	budget.used[name]++
 	return true, limit
+}
+
+func refundToolCall(ctx context.Context, name string) {
+	budget, _ := ctx.Value(toolCallLimitKey{}).(*toolCallBudget)
+	if budget == nil || budget.used[name] == 0 {
+		return
+	}
+	budget.used[name]--
 }
 
 // toolCallbacks emits progress events around tool execution.
@@ -190,6 +199,11 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		toolCtx := pkgchannel.WithNotificationAgentID(execCtx, meta.AgentID)
 		content, err := toolFn(toolCtx, execCall)
 		duration := time.Since(start)
+		if pkgtools.IsInvalidInput(err) {
+			// Argument validation did not run the tool's operation. Return the
+			// slot so the model still has the configured number of real attempts.
+			refundToolCall(execCtx, call.Name)
+		}
 
 		result := ai.ToolResultMessage{ToolCallID: call.ID, ToolName: call.Name, Content: content}
 		if err != nil {

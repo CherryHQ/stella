@@ -7,6 +7,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
 func TestLibrarySearchToolSchemaHasOnlyQueryAndLimit(t *testing.T) {
@@ -36,10 +37,18 @@ func TestLibrarySearchToolRejectsInvalidInputBeforeIdentityLookup(t *testing.T) 
 		"fetch locator": {"query": "one", "locator": map[string]any{}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := tool.Execute(t.Context(), args); !errors.Is(err, ErrInvalidSearch) {
+			if _, err := tool.Execute(t.Context(), args); !errors.Is(err, ErrInvalidSearch) || !pkgtools.IsInvalidInput(err) {
 				t.Fatalf("Execute error = %v, want ErrInvalidSearch", err)
 			}
 		})
+	}
+}
+
+func TestLibrarySearchToolMarksServiceValidationAsInvalidInput(t *testing.T) {
+	tool := NewTool(&Service{q: &sqlc.Queries{}})
+	ctx := authz.WithAgentID(authz.WithUserID(t.Context(), "user-1"), "agent-1")
+	if _, err := tool.Execute(ctx, map[string]any{"query": "   ", "limit": MaxSearchLimit + 1}); !errors.Is(err, ErrInvalidSearch) || !pkgtools.IsInvalidInput(err) {
+		t.Fatalf("Execute error = %v, want marked ErrInvalidSearch", err)
 	}
 }
 

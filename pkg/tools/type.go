@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 )
@@ -20,6 +21,28 @@ type Tool interface {
 // it; ExecuteToolContent wraps their string output automatically.
 type ContentTool interface {
 	ExecuteContent(ctx context.Context, args map[string]any) ([]ai.ContentBlock, error)
+}
+
+type invalidInputError struct{ err error }
+
+func (e invalidInputError) Error() string { return e.err.Error() }
+func (e invalidInputError) Unwrap() error { return e.err }
+
+// InvalidInput marks an error as argument validation that stopped the tool
+// before its operation ran. Runtimes may use the marker to avoid charging an
+// execution budget for a call the model can correct and retry.
+func InvalidInput(err error) error {
+	if err == nil || IsInvalidInput(err) {
+		return err
+	}
+	return invalidInputError{err: err}
+}
+
+// IsInvalidInput reports whether a tool rejected its arguments before running
+// its operation.
+func IsInvalidInput(err error) bool {
+	var target invalidInputError
+	return errors.As(err, &target)
 }
 
 // ExecuteToolContent runs a tool and returns its result as content blocks.
