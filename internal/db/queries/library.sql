@@ -271,16 +271,42 @@ SELECT
   f.updated_at,
   chunk_set.id AS chunk_set_id,
   chunk_set.derivation_key AS chunk_set_derivation_key,
-  chunk_set.processor_key AS chunk_set_processor_key
+  chunk_set.processor_key AS chunk_set_processor_key,
+  active_set.derivation_key AS active_chunk_set_derivation_key,
+  active_set.processor_key AS active_chunk_set_processor_key,
+  desired_set.derivation_key AS desired_chunk_set_derivation_key,
+  desired_set.processor_key AS desired_chunk_set_processor_key,
+  desired_set.status AS desired_chunk_set_status
 FROM library_file AS f
+JOIN ROWS FROM (
+  unnest(sqlc.arg('media_types')::text[]),
+  unnest(sqlc.arg('processor_keys')::text[])
+) AS desired(media_type, processor_key)
+  ON desired.media_type = f.media_type
 LEFT JOIN library_chunk_set AS chunk_set
   ON chunk_set.file_id = f.id
  AND chunk_set.status = 'building'
+LEFT JOIN library_chunk_set AS active_set
+  ON active_set.id = f.active_chunk_set_id
+LEFT JOIN library_chunk_set AS desired_set
+  ON desired_set.file_id = f.id
+ AND desired_set.processor_key = desired.processor_key
 WHERE f.deleted_at IS NULL
   AND f.updated_at < sqlc.arg('stale_before')
   AND (
     f.status = 'processing'
     OR chunk_set.id IS NOT NULL
+    OR (
+      f.status = 'ready'
+      AND (
+        active_set.id IS NULL
+        OR active_set.processor_key <> desired.processor_key
+      )
+      AND (
+        desired_set.id IS NULL
+        OR desired_set.status <> 'failed'
+      )
+    )
   )
 ORDER BY f.updated_at ASC, f.id ASC, chunk_set.created_at ASC, chunk_set.id ASC
 LIMIT sqlc.arg('limit');

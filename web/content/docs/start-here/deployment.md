@@ -49,7 +49,7 @@ cd stella && go build -o dist/bin/stellad ./cmd/stellad/
 
 ## Run
 
-Install the `xberg` command-line executable on the server and make sure it is available on `$PATH`. Stella checks it at startup and uses it to extract PDF and DOCX Knowledge files.
+To enable PDF and DOCX Knowledge uploads, install the `xberg` command-line executable on the server and make sure it is available on `$PATH`. Stella checks it at startup; if it is unavailable, the server continues to run with Markdown and plain-text uploads.
 
 Start the server — the Web UI is available at `http://localhost:25678`:
 

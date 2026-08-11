@@ -24,6 +24,9 @@ func TestRoutingParserCopiesRoutesAndDelegatesProfile(t *testing.T) {
 	if err != nil || profile != "pdf:v1" {
 		t.Fatalf("Profile = %q, %v", profile, err)
 	}
+	if _, err := parser.Profile(MediaTypeDOCX); !errors.Is(err, ErrServiceUnavailable) {
+		t.Fatalf("unavailable document Profile error = %v, want ErrServiceUnavailable", err)
+	}
 	if _, err := parser.Profile("image/png"); !errors.Is(err, ErrUnsupportedFileType) {
 		t.Fatalf("Profile error = %v, want ErrUnsupportedFileType", err)
 	}

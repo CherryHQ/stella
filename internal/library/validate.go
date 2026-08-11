@@ -17,7 +17,22 @@ const (
 	MediaTypeText     = "text/plain"
 	MediaTypePDF      = "application/pdf"
 	MediaTypeDOCX     = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+	maxDOCXEntries                = 10_000
+	maxDOCXEntryUncompressedBytes = 32 << 20
+	maxDOCXTotalUncompressedBytes = 64 << 20
+	maxDOCXCompressionRatio       = 200
+	minDOCXRatioCheckBytes        = 100 << 10
 )
+
+func isSupportedMediaType(mediaType string) bool {
+	switch mediaType {
+	case MediaTypeMarkdown, MediaTypeText, MediaTypePDF, MediaTypeDOCX:
+		return true
+	default:
+		return false
+	}
+}
 
 // validateUploadName determines the canonical media type without trusting a
 // client-provided Content-Type. It runs before the request body is consumed.
@@ -86,19 +101,51 @@ func validateDOCXFile(filePath string) error {
 		return fmt.Errorf("%w: DOCX ZIP is invalid", ErrInvalidFile)
 	}
 	defer func() { _ = reader.Close() }()
-	if len(reader.File) > 10_000 {
+	if len(reader.File) > maxDOCXEntries {
 		return fmt.Errorf("%w: DOCX has too many ZIP entries", ErrInvalidFile)
 	}
 	foundTypes, foundDocument := false, false
+	var declaredTotal uint64
+	var expandedTotal uint64
 	for _, entry := range reader.File {
 		if len(entry.Name) > 4_096 {
 			return fmt.Errorf("%w: DOCX ZIP entry name is too long", ErrInvalidFile)
 		}
+		if entry.UncompressedSize64 > maxDOCXEntryUncompressedBytes {
+			return fmt.Errorf("%w: DOCX ZIP entry is too large", ErrInvalidFile)
+		}
+		if declaredTotal > maxDOCXTotalUncompressedBytes-entry.UncompressedSize64 {
+			return fmt.Errorf("%w: DOCX uncompressed content is too large", ErrInvalidFile)
+		}
+		declaredTotal += entry.UncompressedSize64
 		switch entry.Name {
 		case "[Content_Types].xml":
 			foundTypes = true
 		case "word/document.xml":
 			foundDocument = true
+		}
+
+		content, err := entry.Open()
+		if err != nil {
+			return fmt.Errorf("%w: open DOCX ZIP entry", ErrInvalidFile)
+		}
+		expanded, copyErr := io.Copy(io.Discard, io.LimitReader(content, maxDOCXEntryUncompressedBytes+1))
+		closeErr := content.Close()
+		if copyErr != nil || closeErr != nil {
+			return fmt.Errorf("%w: read DOCX ZIP entry", ErrInvalidFile)
+		}
+		if expanded > maxDOCXEntryUncompressedBytes {
+			return fmt.Errorf("%w: DOCX ZIP entry is too large", ErrInvalidFile)
+		}
+		expandedBytes := uint64(expanded)
+		if expandedTotal > maxDOCXTotalUncompressedBytes-expandedBytes {
+			return fmt.Errorf("%w: DOCX uncompressed content is too large", ErrInvalidFile)
+		}
+		expandedTotal += expandedBytes
+		if expandedBytes > minDOCXRatioCheckBytes && (entry.CompressedSize64 == 0 ||
+			entry.CompressedSize64 < expandedBytes &&
+				expandedBytes > entry.CompressedSize64*maxDOCXCompressionRatio) {
+			return fmt.Errorf("%w: DOCX ZIP compression ratio is too high", ErrInvalidFile)
 		}
 	}
 	if !foundTypes || !foundDocument {

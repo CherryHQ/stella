@@ -28,6 +28,9 @@ func NewRoutingParser(routes map[string]Parser) (*RoutingParser, error) {
 func (p *RoutingParser) parser(mediaType string) (Parser, error) {
 	parser := p.routes[mediaType]
 	if parser == nil {
+		if isSupportedMediaType(mediaType) {
+			return nil, fmt.Errorf("%w: parser for media type %q is unavailable", ErrServiceUnavailable, mediaType)
+		}
 		return nil, fmt.Errorf("%w: media type %q", ErrUnsupportedFileType, mediaType)
 	}
 	return parser, nil

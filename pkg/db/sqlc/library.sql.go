@@ -595,39 +595,77 @@ SELECT
   f.updated_at,
   chunk_set.id AS chunk_set_id,
   chunk_set.derivation_key AS chunk_set_derivation_key,
-  chunk_set.processor_key AS chunk_set_processor_key
+  chunk_set.processor_key AS chunk_set_processor_key,
+  active_set.derivation_key AS active_chunk_set_derivation_key,
+  active_set.processor_key AS active_chunk_set_processor_key,
+  desired_set.derivation_key AS desired_chunk_set_derivation_key,
+  desired_set.processor_key AS desired_chunk_set_processor_key,
+  desired_set.status AS desired_chunk_set_status
 FROM library_file AS f
+JOIN ROWS FROM (
+  unnest($1::text[]),
+  unnest($2::text[])
+) AS desired(media_type, processor_key)
+  ON desired.media_type = f.media_type
 LEFT JOIN library_chunk_set AS chunk_set
   ON chunk_set.file_id = f.id
  AND chunk_set.status = 'building'
+LEFT JOIN library_chunk_set AS active_set
+  ON active_set.id = f.active_chunk_set_id
+LEFT JOIN library_chunk_set AS desired_set
+  ON desired_set.file_id = f.id
+ AND desired_set.processor_key = desired.processor_key
 WHERE f.deleted_at IS NULL
-  AND f.updated_at < $1
+  AND f.updated_at < $3
   AND (
     f.status = 'processing'
     OR chunk_set.id IS NOT NULL
+    OR (
+      f.status = 'ready'
+      AND (
+        active_set.id IS NULL
+        OR active_set.processor_key <> desired.processor_key
+      )
+      AND (
+        desired_set.id IS NULL
+        OR desired_set.status <> 'failed'
+      )
+    )
   )
 ORDER BY f.updated_at ASC, f.id ASC, chunk_set.created_at ASC, chunk_set.id ASC
-LIMIT $2
+LIMIT $4
 `
 
 type ListStaleLibraryDerivationParams struct {
-	StaleBefore time.Time `json:"stale_before"`
-	Limit       int32     `json:"limit"`
+	MediaTypes    []string  `json:"media_types"`
+	ProcessorKeys []string  `json:"processor_keys"`
+	StaleBefore   time.Time `json:"stale_before"`
+	Limit         int32     `json:"limit"`
 }
 
 type ListStaleLibraryDerivationRow struct {
-	ID                    string      `json:"id"`
-	Status                string      `json:"status"`
-	MediaType             string      `json:"media_type"`
-	RawSha256             []byte      `json:"raw_sha256"`
-	UpdatedAt             time.Time   `json:"updated_at"`
-	ChunkSetID            pgtype.Text `json:"chunk_set_id"`
-	ChunkSetDerivationKey pgtype.Text `json:"chunk_set_derivation_key"`
-	ChunkSetProcessorKey  pgtype.Text `json:"chunk_set_processor_key"`
+	ID                           string      `json:"id"`
+	Status                       string      `json:"status"`
+	MediaType                    string      `json:"media_type"`
+	RawSha256                    []byte      `json:"raw_sha256"`
+	UpdatedAt                    time.Time   `json:"updated_at"`
+	ChunkSetID                   pgtype.Text `json:"chunk_set_id"`
+	ChunkSetDerivationKey        pgtype.Text `json:"chunk_set_derivation_key"`
+	ChunkSetProcessorKey         pgtype.Text `json:"chunk_set_processor_key"`
+	ActiveChunkSetDerivationKey  pgtype.Text `json:"active_chunk_set_derivation_key"`
+	ActiveChunkSetProcessorKey   pgtype.Text `json:"active_chunk_set_processor_key"`
+	DesiredChunkSetDerivationKey pgtype.Text `json:"desired_chunk_set_derivation_key"`
+	DesiredChunkSetProcessorKey  pgtype.Text `json:"desired_chunk_set_processor_key"`
+	DesiredChunkSetStatus        pgtype.Text `json:"desired_chunk_set_status"`
 }
 
 func (q *Queries) ListStaleLibraryDerivation(ctx context.Context, arg ListStaleLibraryDerivationParams) ([]ListStaleLibraryDerivationRow, error) {
-	rows, err := q.db.Query(ctx, listStaleLibraryDerivation, arg.StaleBefore, arg.Limit)
+	rows, err := q.db.Query(ctx, listStaleLibraryDerivation,
+		arg.MediaTypes,
+		arg.ProcessorKeys,
+		arg.StaleBefore,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -644,6 +682,11 @@ func (q *Queries) ListStaleLibraryDerivation(ctx context.Context, arg ListStaleL
 			&i.ChunkSetID,
 			&i.ChunkSetDerivationKey,
 			&i.ChunkSetProcessorKey,
+			&i.ActiveChunkSetDerivationKey,
+			&i.ActiveChunkSetProcessorKey,
+			&i.DesiredChunkSetDerivationKey,
+			&i.DesiredChunkSetProcessorKey,
+			&i.DesiredChunkSetStatus,
 		); err != nil {
 			return nil, err
 		}

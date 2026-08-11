@@ -312,14 +312,17 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return nil, fmt.Errorf("build library RawStore: %w", err)
 	}
 	textParser := library.NewTextParser()
+	parserRoutes := map[string]library.Parser{
+		library.MediaTypeText: textParser, library.MediaTypeMarkdown: textParser,
+	}
 	xbergParser, err := library.NewXbergCLIParser(parent, "xberg")
 	if err != nil {
-		return nil, fmt.Errorf("build Library Xberg parser: %w", err)
+		slog.Warn("Xberg CLI unavailable; PDF and DOCX Library uploads are disabled", "error", err)
+	} else {
+		parserRoutes[library.MediaTypePDF] = xbergParser
+		parserRoutes[library.MediaTypeDOCX] = xbergParser
 	}
-	libraryParser, err := library.NewRoutingParser(map[string]library.Parser{
-		library.MediaTypeText: textParser, library.MediaTypeMarkdown: textParser,
-		library.MediaTypePDF: xbergParser, library.MediaTypeDOCX: xbergParser,
-	})
+	libraryParser, err := library.NewRoutingParser(parserRoutes)
 	if err != nil {
 		return nil, fmt.Errorf("build Library parser routes: %w", err)
 	}

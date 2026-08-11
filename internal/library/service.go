@@ -235,6 +235,16 @@ func (s *Service) createSnapshot(
 	if err := owner.Validate(); err != nil {
 		return LibraryFile{}, err
 	}
+	// Reject an unavailable optional parser before consuming upload bytes. The
+	// filename-derived media type is canonical; prepareUpload repeats filename
+	// validation at the acquisition boundary before spooling the representation.
+	_, mediaType, err := validateUploadName(fileName)
+	if err != nil {
+		return LibraryFile{}, err
+	}
+	if _, err := s.parser.Profile(mediaType); err != nil {
+		return LibraryFile{}, fmt.Errorf("profile library upload parser: %w", err)
+	}
 	prepared, err := prepareUpload(ctx, s.tempDir, s.spool, fileName, source)
 	if err != nil {
 		return LibraryFile{}, err

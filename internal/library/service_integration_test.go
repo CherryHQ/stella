@@ -199,6 +199,24 @@ func TestCreateManagedUploadAuthorizesBeforeReadingBody(t *testing.T) {
 	if reader.reads != 0 {
 		t.Fatalf("unauthorized request body was read %d times", reader.reads)
 	}
+
+	textParser := NewTextParser()
+	service.parser, err = NewRoutingParser(map[string]Parser{
+		MediaTypeText: textParser, MediaTypeMarkdown: textParser,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader = &countingReader{reader: stringsReader("%PDF-1.7\ncontent")}
+	_, err = service.CreateManagedUpload(
+		t.Context(), testAuthority(t, testUserA, true), ScopeSystem, "", "document.pdf", reader,
+	)
+	if !errors.Is(err, ErrServiceUnavailable) {
+		t.Fatalf("unavailable parser error = %v, want ErrServiceUnavailable", err)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("unavailable parser upload body was read %d times", reader.reads)
+	}
 }
 
 func TestRawStoreIOCompletesBeforeDatabaseTransactionBegins(t *testing.T) {

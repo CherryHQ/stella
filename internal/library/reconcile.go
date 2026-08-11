@@ -37,17 +37,38 @@ func (s *Service) reconcileStaleDerivations(ctx context.Context) error {
 	if client == nil {
 		return ErrServiceUnavailable
 	}
+	mediaTypes := []string{MediaTypeText, MediaTypeMarkdown, MediaTypePDF, MediaTypeDOCX}
+	processorKeys := make([]string, 0, len(mediaTypes))
+	availableMediaTypes := make([]string, 0, len(mediaTypes))
+	profiles := make(map[string]string, len(mediaTypes))
+	for _, mediaType := range mediaTypes {
+		processorKey, err := s.parser.Profile(mediaType)
+		if errors.Is(err, ErrServiceUnavailable) || errors.Is(err, ErrUnsupportedFileType) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("profile current library parser for %s: %w", mediaType, err)
+		}
+		availableMediaTypes = append(availableMediaTypes, mediaType)
+		processorKeys = append(processorKeys, processorKey)
+		profiles[mediaType] = processorKey
+	}
+	if len(availableMediaTypes) == 0 {
+		return nil
+	}
 	staleBefore := time.Now().UTC().Add(-s.staleDerivationAfter)
 	rows, err := s.q.ListStaleLibraryDerivation(ctx, sqlc.ListStaleLibraryDerivationParams{
-		StaleBefore: staleBefore,
-		Limit:       reconciliationBatchSize,
+		MediaTypes:    availableMediaTypes,
+		ProcessorKeys: processorKeys,
+		StaleBefore:   staleBefore,
+		Limit:         reconciliationBatchSize,
 	})
 	if err != nil {
 		return fmt.Errorf("list stale library derivations: %w", err)
 	}
 	type staleFile struct {
 		needsCurrentWork bool
-		retiredOldSet    bool
+		desiredStatus    ChunkSetStatus
 	}
 	files := make(map[string]*staleFile, len(rows))
 	order := make([]string, 0, len(rows))
@@ -58,10 +79,7 @@ func (s *Service) reconcileStaleDerivations(ctx context.Context) error {
 			files[row.ID] = state
 			order = append(order, row.ID)
 		}
-		processorKey, err := s.parser.Profile(row.MediaType)
-		if err != nil {
-			return fmt.Errorf("profile current library parser for %s: %w", row.ID, err)
-		}
+		processorKey := profiles[row.MediaType]
 		currentKey, err := libraryDerivationKey(row.RawSha256, row.MediaType, processorKey)
 		if err != nil {
 			return fmt.Errorf("derive current library generation for %s: %w", row.ID, err)
@@ -77,16 +95,30 @@ func (s *Service) reconcileStaleDerivations(ctx context.Context) error {
 				if err := s.retireSupersededBuildingSet(ctx, row.ID, row.ChunkSetID.String); err != nil {
 					return fmt.Errorf("retire superseded library generation %s: %w", row.ChunkSetID.String, err)
 				}
-				state.retiredOldSet = true
 			}
 		}
+		desiredCurrent := row.DesiredChunkSetDerivationKey.Valid &&
+			row.DesiredChunkSetProcessorKey.Valid &&
+			row.DesiredChunkSetStatus.Valid &&
+			row.DesiredChunkSetDerivationKey.String == currentKey &&
+			row.DesiredChunkSetProcessorKey.String == processorKey
+		if desiredCurrent {
+			state.desiredStatus = ChunkSetStatus(row.DesiredChunkSetStatus.String)
+		}
 		if FileStatus(row.Status) == FileStatusProcessing {
+			state.needsCurrentWork = true
+		}
+		activeCurrent := row.ActiveChunkSetDerivationKey.Valid &&
+			row.ActiveChunkSetProcessorKey.Valid &&
+			row.ActiveChunkSetDerivationKey.String == currentKey &&
+			row.ActiveChunkSetProcessorKey.String == processorKey
+		if FileStatus(row.Status) == FileStatusReady && !activeCurrent {
 			state.needsCurrentWork = true
 		}
 	}
 	for _, fileID := range order {
 		state := files[fileID]
-		if !state.needsCurrentWork {
+		if !state.needsCurrentWork || state.desiredStatus == ChunkSetStatusFailed {
 			continue
 		}
 		job, found, err := latestLibraryJob(ctx, client, chunkArgs{}.Kind(), fileID)
@@ -95,6 +127,11 @@ func (s *Service) reconcileStaleDerivations(ctx context.Context) error {
 		}
 		if found && slices.Contains(activeLibraryJobStates, job.State) {
 			if job.State != rivertype.JobStateRunning {
+				if affected, err := s.q.TouchLibraryFileDerivation(ctx, fileID); err != nil {
+					return fmt.Errorf("rotate active library derivation %s: %w", fileID, err)
+				} else if affected != 1 {
+					return fmt.Errorf("rotate active library derivation %s: file changed", fileID)
+				}
 				continue
 			}
 			if job.AttemptedAt == nil || !job.AttemptedAt.Before(staleBefore) {
@@ -109,7 +146,7 @@ func (s *Service) reconcileStaleDerivations(ctx context.Context) error {
 			// The stale row no longer occupies River uniqueness, so the idempotent
 			// replacement below can take over without changing the global rescuer.
 		}
-		if found && job.State == rivertype.JobStateDiscarded && !state.retiredOldSet {
+		if found && job.State == rivertype.JobStateDiscarded && state.desiredStatus == ChunkSetStatusBuilding {
 			if err := s.failStaleGeneration(ctx, fileID); err != nil {
 				return err
 			}
@@ -119,6 +156,11 @@ func (s *Service) reconcileStaleDerivations(ctx context.Context) error {
 		options := args.InsertOpts()
 		if _, err := client.Insert(ctx, args, &options); err != nil {
 			return fmt.Errorf("re-enqueue stale library derivation %s: %w", fileID, err)
+		}
+		if affected, err := s.q.TouchLibraryFileDerivation(ctx, fileID); err != nil {
+			return fmt.Errorf("touch re-enqueued library derivation %s: %w", fileID, err)
+		} else if affected != 1 {
+			return fmt.Errorf("touch re-enqueued library derivation %s: file changed", fileID)
 		}
 	}
 	return nil
