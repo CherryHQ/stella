@@ -178,10 +178,18 @@ type PoolManager struct {
 	mem       memory.Provider
 	// ownerFenceMu serializes service publication/removal with retained Home
 	// owner fences. Service admission barriers are always acquired first.
-	ownerFenceMu sync.RWMutex
+	ownerFenceMu contextMutex
 	mu           sync.RWMutex
+	closing      bool
+	closed       bool
 	// homeOwnerFenceSnapshotHook is a deterministic concurrency-test seam.
 	homeOwnerFenceSnapshotHook func()
+	// homeOwnerFenceAdmissionHook is a deterministic concurrency-test seam,
+	// called after each sorted Service admission barrier is acquired.
+	homeOwnerFenceAdmissionHook  func(int)
+	startAgentCandidateHook      func(*Service)
+	startAgentCandidateCloseHook func(*Service)
+	runnerFuncRefreshedHook      func(*Service, *config.Snapshot)
 	// started is set true when StartAll runs. The one-shot pre-start binds
 	// (Bind* below) refuse to run once started, while the dynamic reconfigure
 	// surface (ReloadPlugin*/SyncAgent/Invalidate*) stays available afterward.
@@ -393,14 +401,33 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 	if err != nil {
 		return fmt.Errorf("build service for agent %q: %w", ag.ID, err)
 	}
+	if pm.startAgentCandidateHook != nil {
+		pm.startAgentCandidateHook(svc)
+	}
 
 	// Publish while holding the Service barrier, then take one fresh snapshot.
 	// A policy mutation that began before publication sees no service and commits
 	// normally; this read observes it. One that begins after publication waits
 	// for the barrier, so no caller can admit against the bootstrap snapshot.
 	if err := svc.withAdmissionBarrier(func() error {
-		pm.ownerFenceMu.RLock()
-		defer pm.ownerFenceMu.RUnlock()
+		// Once a candidate exists, cleanup must happen while both structural
+		// barriers are held. Use non-cancelable acquisition, then observe ctx
+		// inside the fenced region; otherwise cancellation while waiting could
+		// expose a still-live rejected runtime to an owner mutation.
+		_ = pm.ownerFenceMu.Lock(context.Background())
+		defer pm.ownerFenceMu.Unlock()
+		published := false
+		defer func() {
+			if !published {
+				if pm.startAgentCandidateCloseHook != nil {
+					pm.startAgentCandidateCloseHook(svc)
+				}
+				_ = svc.Runtime.Close()
+			}
+		}()
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		// A service built before an Agent owner fence acquired the structural
 		// lock must not publish from that stale snapshot after deletion commits.
 		current, err := pm.store.GetAgent(ctx, ag.ID)
@@ -411,7 +438,16 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 			return fmt.Errorf("agent %q became disabled before service publication", ag.ID)
 		}
 		pm.mu.Lock()
+		if pm.closing || pm.closed {
+			pm.mu.Unlock()
+			return errors.New("agent: PoolManager is closing")
+		}
+		if winner := pm.services[ag.ID]; winner != nil {
+			pm.mu.Unlock()
+			return errServiceAlreadyPublished
+		}
 		pm.services[ag.ID] = svc
+		published = true
 		pm.mu.Unlock()
 		if err := pm.rebuildRunnerFuncForServiceLocked(ctx, ag.ID, svc); err != nil {
 			pm.mu.Lock()
@@ -419,17 +455,58 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 				delete(pm.services, ag.ID)
 			}
 			pm.mu.Unlock()
+			published = false
+			if pm.startAgentCandidateCloseHook != nil {
+				pm.startAgentCandidateCloseHook(svc)
+			}
 			_ = svc.Runtime.Close()
+			published = true // already closed; suppress deferred duplicate close
 			return err
 		}
 		return nil
 	}); err != nil {
-		_ = svc.Runtime.Close()
+		if errors.Is(err, errServiceAlreadyPublished) {
+			return pm.syncPublishedService(ctx, ag.ID)
+		}
 		return fmt.Errorf("refresh service snapshot for agent %q: %w", ag.ID, err)
 	}
 
 	pm.log.Info("agent started", "agent_id", ag.ID, "workspace", workspace)
 	return nil
+}
+
+var errServiceAlreadyPublished = errors.New("agent: service already published")
+
+func (pm *PoolManager) syncPublishedService(ctx context.Context, agentID string) error {
+	const maxAttempts = 8
+	for range maxAttempts {
+		pm.mu.RLock()
+		svc := pm.services[agentID]
+		closing := pm.closing || pm.closed
+		pm.mu.RUnlock()
+		if closing {
+			return errors.New("agent: PoolManager is closing")
+		}
+		if svc == nil {
+			continue
+		}
+		err := svc.withAdmissionBarrierContext(ctx, func() error {
+			pm.mu.RLock()
+			current := pm.services[agentID]
+			pm.mu.RUnlock()
+			if current != svc {
+				return errServiceAlreadyPublished
+			}
+			if err := pm.rebuildRunnerFuncForServiceLocked(ctx, agentID, svc); err != nil {
+				return err
+			}
+			return svc.Runtime.ResetRunners()
+		})
+		if !errors.Is(err, errServiceAlreadyPublished) {
+			return err
+		}
+	}
+	return fmt.Errorf("agent: service publication for %q did not stabilize", agentID)
 }
 
 func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory NewRunnerFunc, snap *config.Snapshot) (*Service, error) {
@@ -728,6 +805,9 @@ func (pm *PoolManager) rebuildRunnerFuncForServiceLocked(ctx context.Context, ag
 	svc.Runtime.SetDefaultModel(snap.ResolveModelID(config.ModelTierStrong), snap.ResolveThinkingLevel(config.ModelTierStrong))
 	svc.Runtime.SetHooks(pm.HookPlugins)
 	svc.Runtime.SetPromptBuilders(pm.runtimeBeforeRunFunc(snap), pm.buildSnapshotPromptFunc(snap))
+	if pm.runnerFuncRefreshedHook != nil {
+		pm.runnerFuncRefreshedHook(svc, snap)
+	}
 	return nil
 }
 
@@ -773,20 +853,24 @@ func (pm *PoolManager) removeAgent(agentID string) error {
 		if svc == nil {
 			return nil
 		}
-		svc.admissionMu.Lock()
-		pm.ownerFenceMu.RLock()
+		_ = svc.admissionMu.Lock(context.Background())
+		_ = pm.ownerFenceMu.Lock(context.Background())
 		pm.mu.Lock()
 		if pm.services[agentID] != svc {
 			pm.mu.Unlock()
-			pm.ownerFenceMu.RUnlock()
+			pm.ownerFenceMu.Unlock()
 			svc.admissionMu.Unlock()
 			continue
 		}
-		delete(pm.services, agentID)
 		pm.mu.Unlock()
-		pm.ownerFenceMu.RUnlock()
 		pm.log.Info("removing agent service", "agent_id", agentID)
 		err := svc.Runtime.Close()
+		pm.mu.Lock()
+		if pm.services[agentID] == svc {
+			delete(pm.services, agentID)
+		}
+		pm.mu.Unlock()
+		pm.ownerFenceMu.Unlock()
 		svc.admissionMu.Unlock()
 		return err
 	}
@@ -904,8 +988,8 @@ func (pm *PoolManager) InvalidateAgent(agentID string) error {
 	return nil
 }
 
-// homeOwnerFenceLease retains the exact Service admission barriers, the pool
-// publication barrier, and the service map lock through the owner transaction.
+// homeOwnerFenceLease retains the exact Service admission barriers and pool
+// publication barrier through the owner transaction.
 type homeOwnerFenceLease struct {
 	pm       *PoolManager
 	kind     home.OwnerKind
@@ -924,14 +1008,14 @@ func (l *homeOwnerFenceLease) Commit() {
 		return
 	}
 	svc := l.services[0]
+	if err := svc.Runtime.Close(); err != nil {
+		l.pm.log.Error("close committed deleted Agent service", "agent_id", l.ownerID, "error", err)
+	}
 	l.pm.mu.Lock()
 	if l.pm.services[l.ownerID] == svc {
 		delete(l.pm.services, l.ownerID)
 	}
 	l.pm.mu.Unlock()
-	if err := svc.Runtime.Close(); err != nil {
-		l.pm.log.Error("close committed deleted Agent service", "agent_id", l.ownerID, "error", err)
-	}
 }
 
 func (l *homeOwnerFenceLease) Release() {
@@ -947,7 +1031,7 @@ func (l *homeOwnerFenceLease) Release() {
 // admission and publication exclusion through the caller's database commit.
 // The order is Service barriers (stable Agent ID), pool structural barrier,
 // then service map validation. Home owner gates are acquired by the caller.
-func (pm *PoolManager) AcquireHomeOwnerFence(_ context.Context, kind home.OwnerKind, ownerID string) (home.OwnerFenceLease, error) {
+func (pm *PoolManager) AcquireHomeOwnerFence(ctx context.Context, kind home.OwnerKind, ownerID string) (home.OwnerFenceLease, error) {
 	if ownerID == "" {
 		return nil, errors.New("agent: Home owner ID is required")
 	}
@@ -977,10 +1061,23 @@ func (pm *PoolManager) AcquireHomeOwnerFence(_ context.Context, kind home.OwnerK
 			pm.homeOwnerFenceSnapshotHook()
 		}
 
-		for _, svc := range services {
-			svc.admissionMu.Lock()
+		for i, svc := range services {
+			if err := svc.admissionMu.Lock(ctx); err != nil {
+				for j := i - 1; j >= 0; j-- {
+					services[j].admissionMu.Unlock()
+				}
+				return nil, err
+			}
+			if pm.homeOwnerFenceAdmissionHook != nil {
+				pm.homeOwnerFenceAdmissionHook(i)
+			}
 		}
-		pm.ownerFenceMu.Lock()
+		if err := pm.ownerFenceMu.Lock(ctx); err != nil {
+			for i := len(services) - 1; i >= 0; i-- {
+				services[i].admissionMu.Unlock()
+			}
+			return nil, err
+		}
 		pm.mu.Lock()
 		stable := true
 		switch {
@@ -1196,24 +1293,66 @@ func (pm *PoolManager) WaitInFlight(ctx context.Context) error {
 
 // Close shuts down all services and hook plugins.
 func (pm *PoolManager) Close() error {
-	pm.ownerFenceMu.RLock()
+	var ids []string
+	var services []*Service
+	for {
+		pm.mu.RLock()
+		ids = ids[:0]
+		for id := range pm.services {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		services = make([]*Service, len(ids))
+		for i, id := range ids {
+			services[i] = pm.services[id]
+		}
+		pm.mu.RUnlock()
+		for _, svc := range services {
+			_ = svc.admissionMu.Lock(context.Background())
+		}
+		_ = pm.ownerFenceMu.Lock(context.Background())
+		pm.mu.Lock()
+		stable := len(pm.services) == len(services)
+		for i, id := range ids {
+			if pm.services[id] != services[i] {
+				stable = false
+				break
+			}
+		}
+		if stable {
+			pm.closing = true
+			pm.mu.Unlock()
+			break
+		}
+		pm.mu.Unlock()
+		pm.ownerFenceMu.Unlock()
+		for i := len(services) - 1; i >= 0; i-- {
+			services[i].admissionMu.Unlock()
+		}
+	}
 	pm.mu.Lock()
-	services := pm.services
-	pm.services = make(map[string]*Service)
 	hookPlugins := pm.hookPlugins
 	pm.hookPlugins = nil
 	coreHooks := pm.coreHooks
 	pm.coreHooks = nil
 	pm.mu.Unlock()
-	pm.ownerFenceMu.RUnlock()
 
 	var lastErr error
-	for id, svc := range services {
+	for i, svc := range services {
+		id := ids[i]
 		pm.log.Info("closing agent service", "agent_id", id)
-		if err := svc.withAdmissionBarrier(svc.Runtime.Close); err != nil {
+		if err := svc.Runtime.Close(); err != nil {
 			pm.log.Error("failed to close service runtime", "agent_id", id, "error", err)
 			lastErr = err
 		}
+	}
+	pm.mu.Lock()
+	pm.services = make(map[string]*Service)
+	pm.closed = true
+	pm.mu.Unlock()
+	pm.ownerFenceMu.Unlock()
+	for i := len(services) - 1; i >= 0; i-- {
+		services[i].admissionMu.Unlock()
 	}
 	pluginhooks.CloseHookPlugins(hookPlugins)
 	// Core hooks (trace) are closed last so their end-of-session spans flush

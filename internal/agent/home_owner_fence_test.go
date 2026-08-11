@@ -235,12 +235,16 @@ func TestHomeOwnerFenceRetriesServicePublicationAndConcurrentAcquisition(t *test
 	<-snapshotted
 	svc2, _, _ := newBarrierService(t)
 	svc2.AgentID = "a"
-	svc2.admissionMu.Lock()
-	pm.ownerFenceMu.RLock()
+	if err := svc2.admissionMu.Lock(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := pm.ownerFenceMu.Lock(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	pm.mu.Lock()
 	pm.services["a"] = svc2
 	pm.mu.Unlock()
-	pm.ownerFenceMu.RUnlock()
+	pm.ownerFenceMu.Unlock()
 	svc2.admissionMu.Unlock()
 	close(releaseSnapshot)
 	lease := <-acquired
@@ -270,4 +274,137 @@ func TestHomeOwnerFenceRetriesServicePublicationAndConcurrentAcquisition(t *test
 			t.Fatal("concurrent owner fences deadlocked")
 		}
 	}
+}
+
+func TestAcquireHomeOwnerFenceCancellationCleansStructuralBarriers(t *testing.T) {
+	t.Run("midway through sorted services", func(t *testing.T) {
+		pm := NewPoolManager(nil, memorytest.New())
+		for _, id := range []string{"a", "b"} {
+			svc, _, _ := newBarrierService(t)
+			svc.AgentID = id
+			pm.services[id] = svc
+		}
+		second := pm.services["b"]
+		if err := second.admissionMu.Lock(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		firstHeld := make(chan struct{})
+		pm.homeOwnerFenceAdmissionHook = func(i int) {
+			if i == 0 {
+				close(firstHeld)
+			}
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() {
+			_, err := pm.AcquireHomeOwnerFence(ctx, home.OwnerUser, "user")
+			done <- err
+		}()
+		<-firstHeld
+		cancel()
+		if err := <-done; !errors.Is(err, context.Canceled) {
+			t.Fatalf("acquire error = %v, want context.Canceled", err)
+		}
+		second.admissionMu.Unlock()
+		pm.homeOwnerFenceAdmissionHook = nil
+		lease, err := pm.AcquireHomeOwnerFence(context.Background(), home.OwnerUser, "user")
+		if err != nil {
+			t.Fatalf("acquire after cancellation: %v", err)
+		}
+		lease.Release()
+	})
+
+	t.Run("waiting for publication exclusion", func(t *testing.T) {
+		pm := NewPoolManager(nil, memorytest.New())
+		svc, _, _ := newBarrierService(t)
+		pm.services[svc.AgentID] = svc
+		if err := pm.ownerFenceMu.Lock(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		admissionHeld := make(chan struct{})
+		pm.homeOwnerFenceAdmissionHook = func(int) { close(admissionHeld) }
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() {
+			_, err := pm.AcquireHomeOwnerFence(ctx, home.OwnerUser, "user")
+			done <- err
+		}()
+		<-admissionHeld
+		cancel()
+		if err := <-done; !errors.Is(err, context.Canceled) {
+			t.Fatalf("acquire error = %v, want context.Canceled", err)
+		}
+		pm.ownerFenceMu.Unlock()
+		pm.homeOwnerFenceAdmissionHook = nil
+		lease, err := pm.AcquireHomeOwnerFence(context.Background(), home.OwnerUser, "user")
+		if err != nil {
+			t.Fatalf("acquire after cancellation: %v", err)
+		}
+		lease.Release()
+	})
+}
+
+func TestAcquireHomeOwnerFenceCancellationWhileColdFactoryPrecedesWorkspaceView(t *testing.T) {
+	ctx := context.Background()
+	local, err := home.NewLocalStore("local", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := home.NewRegistry(dbtest.New(t), local.ID(), local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	factoryEntered := make(chan struct{})
+	releaseFactory := make(chan struct{})
+	rt, err := agentruntime.New(agentruntime.Config{
+		Memory: memorytest.New(),
+		NewRunner: func(ctx context.Context, _ agentruntime.RunnerParams) (agentruntime.Runner, error) {
+			close(factoryEntered)
+			<-releaseFactory
+			if _, err := registry.WorkspaceView(ctx, home.WorkspaceRequest{UserID: "user", AgentID: "agent"}); err != nil {
+				return nil, err
+			}
+			return &ownerFenceRunner{}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := &Service{AgentID: "agent", Runtime: rt}
+	pm := NewPoolManager(nil, memorytest.New())
+	pm.services[svc.AgentID] = svc
+	admitted := make(chan error, 1)
+	go func() {
+		_, err := svc.admit(ctx, session.Info{ID: "cold", UserID: "user", AgentID: "agent", Kind: string(session.KindChat), Channel: string(session.ChannelWeb)}, "turn")
+		admitted <- err
+	}()
+	<-factoryEntered // admission barrier held; WorkspaceView Home gate not entered.
+	fenceSnapshotted := make(chan struct{})
+	var snapshotOnce sync.Once
+	pm.homeOwnerFenceSnapshotHook = func() { snapshotOnce.Do(func() { close(fenceSnapshotted) }) }
+	fenceCtx, cancel := context.WithCancel(ctx)
+	fenced := make(chan error, 1)
+	go func() {
+		_, err := pm.AcquireHomeOwnerFence(fenceCtx, home.OwnerUser, "user")
+		fenced <- err
+	}()
+	<-fenceSnapshotted
+	cancel()
+	select {
+	case err := <-fenced:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("owner fence error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("canceled owner fence remained blocked behind cold factory")
+	}
+	close(releaseFactory)
+	if err := <-admitted; err != nil {
+		t.Fatalf("cold admission: %v", err)
+	}
+	lease, err := pm.AcquireHomeOwnerFence(ctx, home.OwnerUser, "user")
+	if err != nil {
+		t.Fatalf("owner fence after cancellation: %v", err)
+	}
+	lease.Release()
 }

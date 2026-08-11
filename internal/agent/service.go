@@ -70,7 +70,7 @@ type Service struct {
 	turnQueue     *turnqueue.Queue
 	// admissionMu linearizes runner selection with committed Agent Skill policy
 	// replacement for this agent. Admitted turns keep their selected snapshot.
-	admissionMu sync.Mutex
+	admissionMu contextMutex
 }
 
 func (s *Service) sessionTurnQueue() *turnqueue.Queue {
@@ -362,7 +362,9 @@ func (s *Service) ChatAdmitted(ctx context.Context, req ChatRequest) (<-chan Eve
 // turn admission point. Every Service turn path uses it so policy commits cannot
 // leave a post-return gap where an old runner is handed to a new turn.
 func (s *Service) admit(ctx context.Context, info session.Info, message MessageContent, opts ...agentruntime.Option) (<-chan Event, error) {
-	s.admissionMu.Lock()
+	if err := s.admissionMu.Lock(ctx); err != nil {
+		return nil, err
+	}
 	defer s.admissionMu.Unlock()
 	return s.admitLocked(ctx, info, message, opts...)
 }
@@ -373,7 +375,9 @@ func (s *Service) admitLocked(ctx context.Context, info session.Info, message Me
 }
 
 func (s *Service) admitControlled(ctx context.Context, info session.Info, message MessageContent, beforeStart func() error, opts ...agentruntime.Option) (<-chan Event, error) {
-	s.admissionMu.Lock()
+	if err := s.admissionMu.Lock(ctx); err != nil {
+		return nil, err
+	}
 	defer s.admissionMu.Unlock()
 	return s.Runtime.ChatAdmittedControlled(ctx, info, message, beforeStart, opts...)
 }
@@ -382,7 +386,15 @@ func (s *Service) admitControlled(ctx context.Context, info session.Info, messag
 // atomically with respect to this agent's turn admission. It is intentionally
 // per-Service rather than process-global; other agents continue admitting.
 func (s *Service) withAdmissionBarrier(fn func() error) error {
-	s.admissionMu.Lock()
+	_ = s.admissionMu.Lock(context.Background())
+	defer s.admissionMu.Unlock()
+	return fn()
+}
+
+func (s *Service) withAdmissionBarrierContext(ctx context.Context, fn func() error) error {
+	if err := s.admissionMu.Lock(ctx); err != nil {
+		return err
+	}
 	defer s.admissionMu.Unlock()
 	return fn()
 }
