@@ -24,7 +24,6 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -190,7 +189,9 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			return nil, fmt.Errorf("resolve Home workspace: %w", err)
 		}
 		var (
-			userRoot string
+			userRoot      string
+			workspaceRoot string
+			userDataDir   string
 			// projectValidateRoot is the per-(principal, agent) dir a project must
 			// live under: a project is owned by the agent (see #442), so it stays
 			// scoped to the agent's subdir of the shared user/group home.
@@ -199,7 +200,8 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		)
 		if params.UserID != "" || params.GroupID != "" {
 			userRoot = view.PrincipalRoot
-			projectValidateRoot = view.AgentRoot
+			workspaceRoot, userDataDir = view.AgentRoot, view.DataRoot
+			projectValidateRoot = workspaceRoot
 		} else {
 			if params.ProjectID != "" {
 				return nil, fmt.Errorf("runner: user-less runs cannot use a project")
@@ -208,7 +210,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			if err != nil {
 				return nil, fmt.Errorf("create user-less scratch: %w", err)
 			}
-			projectValidateRoot = userRoot
+			workspaceRoot, projectValidateRoot = userRoot, userRoot
 		}
 
 		// Resolve project directory when session has a project.
@@ -312,12 +314,13 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			SandboxConfig:    cfg.Snap.Sandbox,
 			SandboxBackendFn: cfg.SandboxBackendFn,
 			Paths: sandbox.Paths{
-				StellaHome:  config.StellaHome(),
-				AgentRoot:   cfg.Snap.Workspace,
-				UserRoot:    userRoot,
-				ProjectRoot: projectRoot,
+				StellaHome:    config.StellaHome(),
+				AgentRoot:     cfg.Snap.Workspace,
+				UserRoot:      userRoot,
+				WorkspaceRoot: workspaceRoot,
+				UserDataDir:   userDataDir,
+				ProjectRoot:   projectRoot,
 			},
-			Homes:               homeAttachments(view),
 			UserID:              params.UserID,
 			GroupID:             params.GroupID,
 			AgentID:             params.AgentID,
@@ -401,16 +404,6 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		}
 		return runner, err
 	}
-}
-
-func homeAttachments(view home.WorkspaceView) []pkgsandbox.HomeAttachment {
-	attachments := make([]pkgsandbox.HomeAttachment, 0, 4)
-	for _, attachment := range []pkgsandbox.HomeAttachment{view.Principal, view.Agent, view.SystemSkillRoot, view.SystemAgentSkillRoot} {
-		if attachment.HomeID != "" {
-			attachments = append(attachments, attachment)
-		}
-	}
-	return attachments
 }
 
 func formatAvailableSecretMetas(metas []vault.AmbientSecretMeta) string {

@@ -24,10 +24,7 @@ func (w failingWorkspaceViewer) WorkspaceView(context.Context, home.WorkspaceReq
 }
 
 func (w testWorkspaceViewer) WorkspaceView(_ context.Context, req home.WorkspaceRequest) (home.WorkspaceView, error) {
-	shared := home.WorkspaceView{
-		SystemSkillRoot:      pkgsandbox.HomeAttachment{HomeID: "system", ReadOnly: true},
-		SystemAgentSkillRoot: pkgsandbox.HomeAttachment{HomeID: "system-agent", ReadOnly: true},
-	}
+	shared := home.WorkspaceView{}
 	if req.GroupID != "" {
 		principal := GroupHomeDir(w.root, req.GroupID)
 		agent := AgentDirInHome(principal, req.AgentID)
@@ -35,8 +32,6 @@ func (w testWorkspaceViewer) WorkspaceView(_ context.Context, req home.Workspace
 			return home.WorkspaceView{}, err
 		}
 		shared.PrincipalRoot, shared.DataRoot, shared.AgentRoot = principal, filepath.Join(principal, "data"), agent
-		shared.Principal = pkgsandbox.HomeAttachment{HomeID: "principal"}
-		shared.Agent = pkgsandbox.HomeAttachment{HomeID: "agent"}
 		return shared, nil
 	}
 	if req.UserID != "" {
@@ -46,8 +41,6 @@ func (w testWorkspaceViewer) WorkspaceView(_ context.Context, req home.Workspace
 			return home.WorkspaceView{}, err
 		}
 		shared.PrincipalRoot, shared.DataRoot, shared.AgentRoot = principal, filepath.Join(principal, "data"), agent
-		shared.Principal = pkgsandbox.HomeAttachment{HomeID: "principal"}
-		shared.Agent = pkgsandbox.HomeAttachment{HomeID: "agent"}
 		return shared, nil
 	}
 	return shared, nil
@@ -109,9 +102,6 @@ func TestNewRunnerFuncUsesPrincipalWorkspace(t *testing.T) {
 				if err != nil || promptErr != nil || impl.sandboxCfg.Paths.AgentRoot != snap.Workspace || workspaceRoot != promptRoot {
 					t.Fatalf("definition/scratch roots = agent %q workspace %q scratch %q", impl.sandboxCfg.Paths.AgentRoot, impl.session.Policy().Filesystem.WorkspaceRoot, promptBuild.UserRoot)
 				}
-				if got := impl.session.Policy().Filesystem.Homes; len(got) != 2 || !got[0].ReadOnly || !got[1].ReadOnly {
-					t.Fatalf("user-less Homes = %#v, want only read-only shared roots", got)
-				}
 				scratch := promptBuild.UserRoot
 				if err := builtRunner.Close(); err != nil {
 					t.Fatal(err)
@@ -125,6 +115,22 @@ func TestNewRunnerFuncUsesPrincipalWorkspace(t *testing.T) {
 				}
 				if got := promptBuild.WorkspaceRoot; got != tt.wantWork {
 					t.Errorf("prompt WorkspaceRoot = %q, want %q", got, tt.wantWork)
+				}
+				mounts := builtRunner.(*runner).session.Policy().Filesystem.Mounts
+				wantMounts := map[string]string{
+					pkgsandbox.MountWorkspace: tt.wantWork,
+					pkgsandbox.MountUserData:  filepath.Join(tt.wantRoot, "data"),
+				}
+				for sandboxPath, hostPath := range wantMounts {
+					found := false
+					for _, mount := range mounts {
+						if mount.SandboxPath == sandboxPath {
+							found = mount.HostPath == hostPath && mount.Access == pkgsandbox.MountReadWrite
+						}
+					}
+					if !found {
+						t.Errorf("mount %s = %#v, want RW host %q", sandboxPath, mounts, hostPath)
+					}
 				}
 			}
 		})

@@ -35,9 +35,11 @@ title: 沙箱后端抽象
 
 Phase 1 仅支持一个副本和一个可信 POSIX `STELLA_HOME`。PostgreSQL owner row 是身份和授权 authority；`STELLA_HOME` 下的确定性路径是布局与字节 authority。`internal/home.WorkspaceManager` 是唯一生产物化器：只有确认 user、group 和 Agent owner 存活后才创建缺失目录，并拒绝 symlink、非目录、不安全 ID 和可信根替换。原始 ID 相同的用户和群组使用不同路径。
 
-用户或群组运行会得到其 Principal、Agent Home attachment，以及只读的共享 Skill 根。无用户运行只得到这些只读共享 Skill 根，没有 Principal 或 Agent Home。群组 Agent Home 的 Skill materialization 不含 user 或 `user_agent` scope：它不会把群组数据变成某个用户的 `user_agent` Skill。
+用户或群组运行使用已授权 `WorkspaceView` 返回的精确 `AgentRoot` 和 `DataRoot`。隔离型 backend 会把这些 root 以读写方式挂载；显式选择的 `none` backend 仍是 trusted-host execution，不提供进程级文件系统隔离。无用户运行保持 disposable scratch 语义，不获得 principal mount。群组 Agent Home 的 Skill materialization 不含 user 或 `user_agent` scope：它不会把群组数据变成某个用户的 `user_agent` Skill。
 
-显式破坏性删除 user、group 或 Agent 时，会先 fence 本地执行，再删除数据库 owner。文件和 inode 保留，但后续 `WorkspaceView` 因 owner 不存在而失败。`agents/{id}` 的任意文件系统条目都会保留全局 Agent ID。这些保证仅适用于可信宿主和单副本；多副本、Kubernetes 与 S3 authority 需要未来重新设计。
+在 Session 执行之外，`WorkspaceManager.OpenRoot` 生成有 scope 的只读或读写操作 capability。类型化 root component 以 no-follow traversal 物化；操作使用 inode-pinned `os.Root`，因此 root 内的相对 symlink 可用，绝对或逃逸 symlink 会 fail closed。这不是 `Session` filesystem transport：Stella 不提供 `stella-fs` 或 Docker exec filesystem RPC。下游文件 consumer 将由后续变更分别迁移。
+
+显式破坏性删除 user、group 或 Agent 时，会先 fence 本地执行，再删除数据库 owner。文件和 inode 保留，但后续 `WorkspaceView` 因 owner 不存在而失败。`agents/{id}` 的任意文件系统条目都会保留全局 Agent ID。这些保证仅适用于可信宿主和单副本。多副本部署保持相同应用模型，但还需要一个强一致 shared POSIX namespace 与 PostgreSQL generation/lease fencing；S3 不是 live Workspace authority。
 
 ## 当前架构
 

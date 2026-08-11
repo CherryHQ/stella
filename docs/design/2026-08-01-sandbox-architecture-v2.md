@@ -1,7 +1,7 @@
 # Sandbox 架构 v2：共享 POSIX Workspace 与多副本执行
 
 - **日期**：2026-08-01（2026-08-11 重写）
-- **状态**：当前架构来源；#862 基础已在待合并 PR 中实现，后续按实施计划推进
+- **状态**：当前架构来源；#862 已以 merge commit `d05375f4e28b364a5023cdf6e15ccf4b83f9d378` 合并，#886 是当前实现
 - **实施计划**：`docs/design/2026-08-02-sandbox-architecture-v2-implementation-plan.md`
 - **范围**：持久 Workspace、Sandbox 边界、多副本生命周期、Kubernetes、文件消费者与 Skill authority
 
@@ -43,9 +43,9 @@ Mutable filesystem bytes 以确定性 POSIX root 为 authority。PostgreSQL 可�
 
 当前单副本 Owner 删除先通过 process-local lifecycle gate 阻止新的相关使用，再删除业务 owner；文件字节与 inode 保留。root 的文件系统占用也继续保留 Agent ID，不能让新 Agent 附着到旧字节。多副本启用前还必须由 PostgreSQL generation/lease fence 所有副本。未来可选清理只能是 stopped/fenced 的 operator maintenance；它不是在线业务生命周期。
 
-## 3. 待合并基础：#862
+## 3. 已合并基础：#862
 
-#862 的当前 exact head 已实现以下单副本正确性基础，但 PR 尚未合并：
+#862 已实现并合并以下单副本正确性基础：
 
 - 唯一注入的 `WorkspaceManager` 是生产代码的 sole materializer；
 - user、group、principal-Agent、global-Agent root 均由类型化身份确定；
@@ -64,15 +64,15 @@ Mutable filesystem bytes 以确定性 POSIX root 为 authority。PostgreSQL 可�
 #886 把现有文件能力收敛为 rooted POSIX operations。每次操作从已授权的类型化 root 开始，使用 root-relative path，并满足：
 
 - root containment，拒绝 `..`、绝对路径和 symlink escape；
-- no-follow traversal 与最终对象类型校验；
+- 类型化 root 物化采用 no-follow traversal；操作使用 inode-pinned contained root，允许仍在 root 内的普通相对 symlink，拒绝绝对或逃逸 symlink，并校验最终对象类型；
 - read-only root 写保护；
 - bounded metadata/read 与 streaming large-file I/O；
-- mode、rename、append、locking、concurrent access、close-to-open consistency 与 fsync durability；
-- write/exec 的结果不明时返回 outcome unknown，绝不自动重试。
+- create mode、same-root rename、append、optional fsync，以及 active-operation owner fencing；
+- write 在已可能修改文件后失败时返回 outcome unknown，绝不自动重试。
 
-Workspace/API 的 durable 文件访问直接经过 authorization 和 `WorkspaceManager`，不依赖 Session compute。Agent 在 Sandbox 中仍看到普通 POSIX mount；Provider 只负责把精确授权 view 挂入固定 guest coordinate。local、Docker 和 Kubernetes 必须通过同一操作与 mount conformance。
+Workspace/API 的 durable 文件访问直接经过 authorization 和 `WorkspaceManager`，不依赖 Session compute。Agent 在 isolating Sandbox 中仍看到普通 POSIX mount；Provider 只负责把精确授权 view 挂入固定 guest coordinate。显式选择 `none` backend 仍是 trusted-host execution，不提供进程级文件系统隔离。local、Docker 和 Kubernetes 必须通过同一操作与 mount conformance。
 
-此边界不增加 durable Workspace transport 或 file-access compute lifecycle。Sandbox 的 containment、只读视图和最小 mount 原则仍是强制要求。
+此边界不增加 Session filesystem transport、`stella-fs`、durable Workspace transport 或 file-access compute lifecycle。Sandbox 的 containment、只读视图和最小 mount 原则仍是强制要求。
 
 ## 5. 消费者与数据分类
 

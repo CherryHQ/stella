@@ -2,7 +2,7 @@
 
 - **Status:** Current execution plan
 - **Architecture:** `docs/design/2026-08-01-sandbox-architecture-v2.md`
-- **Foundation:** #862 implemented on an open PR; supported-host system-test remains open
+- **Foundation:** #862 merged as `d05375f4e28b364a5023cdf6e15ccf4b83f9d378`; #886 is the current implementation
 - **Sequence:** #862 → #886 → #888 → #897 → optional #928 → shared-POSIX readiness + distributed lifecycle fencing → Compose/Kubernetes conformance
 
 This plan is the active implementation source. It intentionally omits obsolete checklists and does not prescribe a fixed full-program PR count or future branch names.
@@ -30,7 +30,7 @@ The program is complete when:
 
 ## Active sequence
 
-### 1. #862 — WorkspaceManager foundation (implemented, pending merge)
+### 1. #862 — WorkspaceManager foundation (merged)
 
 Implemented scope:
 
@@ -53,10 +53,10 @@ Implement a small operation set over an already authorized `WorkspaceManager` ro
 Required work:
 
 - define canonical root-relative paths and an error taxonomy;
-- use root-FD-relative, no-follow traversal for every operation;
+- materialize typed root components with root-FD-relative no-follow traversal, then operate through an inode-pinned contained root that permits ordinary relative symlinks only when they stay inside it;
 - enforce root containment and read-only roots;
 - support bounded reads, streaming large payloads, modes, atomic same-directory rename where requested, and explicit durability behavior;
-- classify interrupted writes/exec as outcome unknown and prove callers do not retry;
+- classify write failures after possible mutation as outcome unknown and prove callers do not retry;
 - expose exact authorized roots to Sandbox providers as POSIX mount views;
 - add shared operation and mount conformance for local, Docker, and later Kubernetes;
 - keep Workspace/API direct access independent of Session lifecycle.
@@ -64,13 +64,13 @@ Required work:
 Acceptance:
 
 - traversal, symlink escape, root replacement and read-only writes fail closed;
-- permissions, append, rename, locking, concurrent access, close-to-open visibility and fsync durability meet the declared contract;
+- create permissions, append, same-root rename, optional fsync, operation limits, and active-operation owner fencing meet the declared contract;
 - large files stream without fixed capture-buffer truncation;
 - a killed/disconnected write is reported as unknown and not replayed;
-- a Sandbox sees only its exact authorized views;
+- an isolating Sandbox sees only its exact authorized views; the explicit `none` backend remains trusted-host execution;
 - a Workspace request succeeds with no AgentRun and no warm Session compute.
 
-Do not implement a per-Session filesystem transport, helper/image protocol, or file-access compute lifecycle.
+Do not implement a per-Session filesystem transport, `stella-fs`, helper/image protocol, or file-access compute lifecycle.
 
 ### 3. #888 — Route durable file consumers
 

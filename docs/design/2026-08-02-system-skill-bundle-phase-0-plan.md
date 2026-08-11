@@ -8,7 +8,7 @@
 - **Parent plan:** `docs/design/2026-08-02-sandbox-architecture-v2-implementation-plan.md`
 - **Umbrella:** CherryHQ/stella#828
 
-The current parent documents supersede this record's original downstream architecture. The merged builtin bundle and Agent policy remain valid; future mutable Skill work follows #886 and #897 in the parent plan. Historical Home, helper-transport, revision-tree, fixed-PR-count, and Kubernetes placement decisions below have no execution authority. Issue #828 is the umbrella tracker; the parent implementation plan is the sole execution source.
+The current parent documents supersede this record's original downstream architecture. The merged builtin bundle and Agent policy remain valid; #862 merged as `d05375f4e28b364a5023cdf6e15ccf4b83f9d378`, #886 is the current rooted-operation implementation, and future mutable Skill work follows #897 in the parent plan. Historical Home, helper-transport, revision-tree, fixed-PR-count, and Kubernetes placement decisions below have no execution authority. Issue #828 is the umbrella tracker; the parent implementation plan is the sole execution source.
 
 ## Problem before PR #831
 

@@ -129,7 +129,6 @@ func buildBasePolicy(ctx context.Context, cfg Config) (Paths, pkgsandbox.Policy,
 	}
 
 	fs := runnerFilesystemPolicy(paths, cfg)
-	fs.Homes = append([]pkgsandbox.HomeAttachment(nil), cfg.Homes...)
 	// Mise tree prep, uniform across backends. EnsureMiseShims relinks the shared
 	// system-tree shims to relative targets so they resolve after STELLA_HOME is
 	// remapped (bwrap's /opt/stella) — otherwise a session started before the next

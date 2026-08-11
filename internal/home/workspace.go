@@ -14,7 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 type PrincipalKind string
@@ -27,8 +26,7 @@ const (
 type WorkspaceRequest struct{ UserID, GroupID, AgentID string }
 
 type WorkspaceView struct {
-	Principal, Agent, SystemSkillRoot, SystemAgentSkillRoot sandbox.HomeAttachment
-	PrincipalRoot, DataRoot, AgentRoot                      string
+	PrincipalRoot, DataRoot, AgentRoot string
 }
 
 type WorkspaceViewer interface {
@@ -119,10 +117,6 @@ func (m *WorkspaceManager) agentExists(ctx context.Context, id string) error {
 	return fmt.Errorf("home: validate durable Agent: %w", err)
 }
 
-func attachment(locator string, readOnly bool) sandbox.HomeAttachment {
-	return sandbox.HomeAttachment{HomeID: locator, Locator: locator, ReadOnly: readOnly}
-}
-
 func (m *WorkspaceManager) WorkspaceView(ctx context.Context, req WorkspaceRequest) (WorkspaceView, error) {
 	if err := validID(req.AgentID); err != nil {
 		return WorkspaceView{}, err
@@ -156,7 +150,7 @@ func (m *WorkspaceManager) WorkspaceView(ctx context.Context, req WorkspaceReque
 	if err := m.ensureChain("agents", req.AgentID, ".agents", "skills"); err != nil {
 		return WorkspaceView{}, err
 	}
-	v := WorkspaceView{AgentRoot: filepath.Join(m.base, "agents", req.AgentID), SystemSkillRoot: attachment(filepath.Join(".agents", "db-skills"), true), SystemAgentSkillRoot: attachment(filepath.Join("agents", req.AgentID, ".agents", "skills"), true)}
+	v := WorkspaceView{AgentRoot: filepath.Join(m.base, "agents", req.AgentID)}
 	if id == "" {
 		return v, nil
 	}
@@ -175,7 +169,6 @@ func (m *WorkspaceManager) WorkspaceView(ctx context.Context, req WorkspaceReque
 		return WorkspaceView{}, err
 	}
 	v.PrincipalRoot, v.DataRoot, v.AgentRoot = principal, filepath.Join(principal, "data"), filepath.Join(principal, "agents", req.AgentID)
-	v.Principal, v.Agent = attachment(rel, false), attachment(filepath.Join(rel, "agents", req.AgentID), false)
 	return v, nil
 }
 
