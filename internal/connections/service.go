@@ -227,16 +227,20 @@ func (s *Service) providerCredentialsWithOrigin(_ context.Context, providerID st
 // providerScopes returns the effective OAuth scopes for providerID: the DB
 // override when a row exists with a non-empty scopes array, otherwise the YAML
 // seed default (D2). Resolution is independent of the client_id credential gate,
-// so an admin can override scopes without also overriding credentials.
+// so an admin can override scopes without also overriding credentials. Both
+// sources are normalized here rather than trusted: the admin write path cleans
+// its input, but a hand-edited manifest is not a write path.
 func (s *Service) providerScopes(ctx context.Context, providerID string) []string {
 	if s.q != nil {
-		if cfg, err := s.q.GetAuthOAuthProvider(ctx, providerID); err == nil && len(cfg.Scopes) > 0 {
-			return cfg.Scopes
+		if cfg, err := s.q.GetAuthOAuthProvider(ctx, providerID); err == nil {
+			if scopes := normalizeScopes(cfg.Scopes); len(scopes) > 0 {
+				return scopes
+			}
 		}
 	}
 	if s.registry != nil {
 		if providerCfg, ok := s.registry.Get(providerID); ok {
-			return providerCfg.Scopes
+			return normalizeScopes(providerCfg.Scopes)
 		}
 	}
 	return nil
@@ -291,7 +295,7 @@ func (s *Service) GetOAuthProviderConfig(ctx context.Context, providerID string)
 			if providerCfg.ClientSecret != "" {
 				out.ClientSecret = "***"
 			}
-			out.DefaultScopes = providerCfg.Scopes
+			out.DefaultScopes = normalizeScopes(providerCfg.Scopes)
 		}
 	}
 
@@ -307,7 +311,7 @@ func (s *Service) GetOAuthProviderConfig(ctx context.Context, providerID string)
 					out.ClientSecret = "***"
 				}
 			}
-			out.Scopes = cfg.Scopes
+			out.Scopes = normalizeScopes(cfg.Scopes)
 		}
 	}
 

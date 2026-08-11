@@ -268,4 +268,23 @@ func TestProviderScopes_OverrideWinsElseDefault(t *testing.T) {
 	if got := svc.providerScopes(ctx, "github"); !reflect.DeepEqual(got, []string{"repo", "read:org"}) {
 		t.Fatalf("override: providerScopes = %v, want [repo read:org]", got)
 	}
+
+	// Neither source is trusted to be clean: duplicates and padding are removed
+	// on read, and a whitespace-only override still counts as no override.
+	if err := q.UpsertAuthOAuthProvider(ctx, pkgdb.UpsertAuthOAuthProviderParams{
+		ID: uuid.Must(uuid.NewV7()).String(), ProviderID: "github", ClientID: "", Scopes: []string{" repo ", "read:org", "repo"},
+	}); err != nil {
+		t.Fatalf("upsert messy override: %v", err)
+	}
+	if got := svc.providerScopes(ctx, "github"); !reflect.DeepEqual(got, []string{"repo", "read:org"}) {
+		t.Fatalf("messy override: providerScopes = %v, want [repo read:org]", got)
+	}
+	if err := q.UpsertAuthOAuthProvider(ctx, pkgdb.UpsertAuthOAuthProviderParams{
+		ID: uuid.Must(uuid.NewV7()).String(), ProviderID: "github", ClientID: "", Scopes: []string{"  "},
+	}); err != nil {
+		t.Fatalf("upsert blank override: %v", err)
+	}
+	if got := svc.providerScopes(ctx, "github"); !reflect.DeepEqual(got, []string{"repo"}) {
+		t.Fatalf("blank override: providerScopes = %v, want [repo]", got)
+	}
 }
