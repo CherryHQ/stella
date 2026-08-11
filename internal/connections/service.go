@@ -291,10 +291,10 @@ func (s *Service) desiredScopes(ctx context.Context, userID, providerID string, 
 
 func bundleDesiredScopes(bundle *oauth.OAuthBundle, defaults []string) []string {
 	if len(bundle.DesiredScopes) > 0 {
-		return append([]string(nil), bundle.DesiredScopes...)
+		return unionScopes(defaults, bundle.DesiredScopes)
 	}
 	if bundle.GrantedScope != "" {
-		return strings.Fields(bundle.GrantedScope)
+		return unionScopes(defaults, strings.Fields(bundle.GrantedScope))
 	}
 	return append([]string(nil), defaults...)
 }

@@ -63,14 +63,17 @@ func TestDesiredScopes_UnionAndPolicy(t *testing.T) {
 }
 
 func TestPolicyNarrowingFiltersHistoricalDesiredScopes(t *testing.T) {
-	bundle := &oauth.OAuthBundle{DesiredScopes: []string{"profile", "documents.read"}}
+	bundle := &oauth.OAuthBundle{DesiredScopes: []string{"documents.read", "admin.write"}}
 	stored := bundleDesiredScopes(bundle, []string{"profile"})
-	policy := []string{"profile"}
-	if removed := missingScopes(stored, policy); !reflect.DeepEqual(removed, []string{"documents.read"}) {
-		t.Fatalf("removed scopes = %v, want [documents.read]", removed)
+	if want := []string{"profile", "documents.read", "admin.write"}; !reflect.DeepEqual(stored, want) {
+		t.Fatalf("desired scopes = %v, want %v", stored, want)
 	}
-	if got := allowedScopes(stored, policy); !reflect.DeepEqual(got, []string{"profile"}) {
-		t.Fatalf("filtered desired scopes = %v, want [profile]", got)
+	policy := []string{"profile", "documents.read"}
+	if removed := missingScopes(stored, policy); !reflect.DeepEqual(removed, []string{"admin.write"}) {
+		t.Fatalf("removed scopes = %v, want [admin.write]", removed)
+	}
+	if got := allowedScopes(stored, policy); !reflect.DeepEqual(got, []string{"profile", "documents.read"}) {
+		t.Fatalf("filtered desired scopes = %v, want [profile documents.read]", got)
 	}
 }
 

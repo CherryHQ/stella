@@ -3,6 +3,10 @@ oauth_providers:
     icon: simpleicons:github
     client_id: 178c6fc778ccc68e1d6a
     scopes:
+      - read:user
+    allowed_scopes:
+      - read:user
+      - public_repo
       - repo
       - workflow
       - gist
@@ -171,6 +175,10 @@ oauth_providers:
   - id: x
     icon: simpleicons:x
     scopes:
+      - tweet.read
+      - users.read
+      - offline.access
+    allowed_scopes:
       - tweet.read
       - tweet.write
       - tweet.moderate.write

@@ -63,7 +63,7 @@ Admins can override either set with its scope editor:
 - **Restore defaults** selects the built-in list and removes custom scopes from the draft.
 - Use the input below the checklist to add scopes that are not in the built-in list. Stella splits pasted lines, commas, and spaces and removes duplicates.
 
-Saving applies the checked policy. Changing defaults does **not** silently widen already-issued tokens. When a tool needs another allowed scope, Stella unions it into that user's desired scopes and asks only that user to authorize again; other users remain connected.
+Saving applies the checked policy. The default scopes are the minimum floor for every user; each user's desired scopes are that floor plus the additional allowed scopes they have requested. Changing defaults does **not** silently widen already-issued tokens, but affected users are asked to reconnect. When a tool needs another allowed scope, Stella unions it into only that user's desired scopes; other users remain connected.
 
 If an administrator narrows the allowlist, Stella removes the disallowed scopes from that user's next authorization request and marks the connection for reconnect. OAuth providers may retain previously granted scopes; disconnect and revoke the provider-side grant when strict removal is required.
 
