@@ -68,9 +68,13 @@ type Service struct {
 	AgentID       string
 	turnQueueOnce sync.Once
 	turnQueue     *turnqueue.Queue
+	// lifecycle is shared by every production Service in one PoolManager. A nil
+	// gate is an explicit standalone-test mode with no PoolManager lifecycle to
+	// coordinate; production buildService always sets it.
+	lifecycle *lifecycleGate
 	// admissionMu linearizes runner selection with committed Agent Skill policy
 	// replacement for this agent. Admitted turns keep their selected snapshot.
-	admissionMu sync.Mutex
+	admissionMu contextMutex
 }
 
 func (s *Service) sessionTurnQueue() *turnqueue.Queue {
@@ -362,7 +366,15 @@ func (s *Service) ChatAdmitted(ctx context.Context, req ChatRequest) (<-chan Eve
 // turn admission point. Every Service turn path uses it so policy commits cannot
 // leave a post-return gap where an old runner is handed to a new turn.
 func (s *Service) admit(ctx context.Context, info session.Info, message MessageContent, opts ...agentruntime.Option) (<-chan Event, error) {
-	s.admissionMu.Lock()
+	if s.lifecycle != nil {
+		if err := s.lifecycle.lockShared(ctx); err != nil {
+			return nil, err
+		}
+		defer s.lifecycle.unlockShared()
+	}
+	if err := s.admissionMu.Lock(ctx); err != nil {
+		return nil, err
+	}
 	defer s.admissionMu.Unlock()
 	return s.admitLocked(ctx, info, message, opts...)
 }
@@ -373,16 +385,28 @@ func (s *Service) admitLocked(ctx context.Context, info session.Info, message Me
 }
 
 func (s *Service) admitControlled(ctx context.Context, info session.Info, message MessageContent, beforeStart func() error, opts ...agentruntime.Option) (<-chan Event, error) {
-	s.admissionMu.Lock()
+	if s.lifecycle != nil {
+		if err := s.lifecycle.lockShared(ctx); err != nil {
+			return nil, err
+		}
+		defer s.lifecycle.unlockShared()
+	}
+	if err := s.admissionMu.Lock(ctx); err != nil {
+		return nil, err
+	}
 	defer s.admissionMu.Unlock()
 	return s.Runtime.ChatAdmittedControlled(ctx, info, message, beforeStart, opts...)
 }
 
-// withAdmissionBarrier runs a committed policy mutation and local invalidation
-// atomically with respect to this agent's turn admission. It is intentionally
-// per-Service rather than process-global; other agents continue admitting.
+// withAdmissionBarrier runs a configuration mutation under lifecycle shared
+// ownership and atomically with respect to this agent's turn admission. Other
+// Services may continue admitting concurrently.
 func (s *Service) withAdmissionBarrier(fn func() error) error {
-	s.admissionMu.Lock()
+	if s.lifecycle != nil {
+		_ = s.lifecycle.lockShared(context.Background())
+		defer s.lifecycle.unlockShared()
+	}
+	_ = s.admissionMu.Lock(context.Background())
 	defer s.admissionMu.Unlock()
 	return fn()
 }

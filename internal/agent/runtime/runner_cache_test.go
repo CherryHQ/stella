@@ -31,6 +31,27 @@ type fakeRunner struct {
 
 func newFakeRunner() *fakeRunner { return &fakeRunner{alive: true, lastAct: time.Now()} }
 
+func TestRunnerCacheCloseWhereTerminallyEvictsBusyAndReserved(t *testing.T) {
+	busy, reserved, keep := newFakeRunner(), newFakeRunner(), newFakeRunner()
+	busy.busy = true
+	cache := newRunnerCache(nil, fakeMemory{}, time.Minute, slog.Default())
+	cache.sessions["busy"] = &cachedSession{r: busy, info: session.Info{ID: "busy", UserID: "gone"}}
+	cache.sessions["reserved"] = &cachedSession{r: reserved, reserved: true, info: session.Info{ID: "reserved", UserID: "gone"}}
+	cache.sessions["keep"] = &cachedSession{r: keep, info: session.Info{ID: "keep", UserID: "stay"}}
+	if err := cache.closeWhere(func(cs *cachedSession) bool { return cs.info.UserID == "gone" }); err != nil {
+		t.Fatalf("closeWhere: %v", err)
+	}
+	if !busy.closed || !reserved.closed {
+		t.Fatalf("matching runners not closed: busy=%v reserved=%v", busy.closed, reserved.closed)
+	}
+	if keep.closed || len(cache.sessions) != 1 || cache.sessions["keep"] == nil {
+		t.Fatalf("nonmatching session was disturbed: %#v", cache.sessions)
+	}
+	if cache.sessions["busy"] != nil || cache.sessions["reserved"] != nil {
+		t.Fatalf("terminally closed runners remain cache-reachable: %#v", cache.sessions)
+	}
+}
+
 func (r *fakeRunner) Chat(ctx context.Context, _ []ai.Message, _ MessageContent) <-chan Event {
 	r.chatSystem, _ = agentctx.SystemOverrideFromContext(ctx)
 	ch := make(chan Event)

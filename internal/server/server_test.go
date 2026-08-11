@@ -33,6 +33,7 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/email"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/inbox"
 	"github.com/CherryHQ/stella/internal/memory"
 	lcmmemory "github.com/CherryHQ/stella/internal/memory/lcm"
@@ -59,6 +60,41 @@ import (
 	telegramplugin "github.com/CherryHQ/stella/plugins/channels/telegram"
 	weixinplugin "github.com/CherryHQ/stella/plugins/channels/weixin"
 )
+
+type testAgentIDOccupancy struct{}
+
+func (testAgentIDOccupancy) AgentIDOccupied(context.Context, string) (bool, error) { return false, nil }
+
+// externalServerTestWorkspace maps each server fixture's temporary legacy Home
+// layout. It is explicit test composition, never a production fallback.
+type externalServerTestWorkspace struct{ root string }
+
+func (w externalServerTestWorkspace) WorkspaceView(_ context.Context, req home.WorkspaceRequest) (home.WorkspaceView, error) {
+	principal := filepath.Join(w.root, "users", req.UserID)
+	if req.GroupID != "" {
+		principal = filepath.Join(w.root, "users", "group-"+req.GroupID)
+	}
+	data, agentRoot := filepath.Join(principal, "data"), filepath.Join(principal, "agents", req.AgentID)
+	if err := os.MkdirAll(filepath.Join(data, "assets"), 0o755); err != nil {
+		return home.WorkspaceView{}, err
+	}
+	if err := os.MkdirAll(agentRoot, 0o755); err != nil {
+		return home.WorkspaceView{}, err
+	}
+	return home.WorkspaceView{PrincipalRoot: principal, DataRoot: data, AgentRoot: agentRoot}, nil
+}
+
+// externalTestTransportOwnerDeletion preserves the HTTP fixture's historical
+// database delete behavior. It is test-only: production uses Home OwnerDeletion.
+type externalTestTransportOwnerDeletion struct {
+	agents interface {
+		DeleteAgent(context.Context, string) error
+	}
+}
+
+func (d externalTestTransportOwnerDeletion) DeleteAgent(ctx context.Context, id, _ string) error {
+	return d.agents.DeleteAgent(ctx, id)
+}
 
 func TestMain(m *testing.M) {
 	// Lower bcrypt cost for the whole package before handing the run+exit to
@@ -239,7 +275,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		Memory:     mem,
 		Agents:     sessionaccess.ConfigPromptAgentStore{Store: store},
 		Projects:   sessionaccess.NewSQLPromptProjectStore(db),
-		Workspace:  sessionaccess.AgentPromptWorkspace{},
+		Workspace:  externalServerTestWorkspace{root: config.StellaHome()},
 		Plugins:    phost,
 		SkillStore: pluginhost.NewSkillStoreAdapter(skillStore),
 		Skills:     skills.BuildPromptSection,
@@ -252,7 +288,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("sessionaccess.NewService: %v", err)
 	}
-	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolManager, testUserDir{users: oidcStore}, agent.NewAgentActivityStore(db), nil, nil, slog.With("component", "agent-management-test"))
+	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolManager, testUserDir{users: oidcStore}, agent.NewAgentActivityStore(db), nil, nil, slog.With("component", "agent-management-test"), agentaccess.WithOwnerDeletion(externalTestTransportOwnerDeletion{agents: store}), agentaccess.WithAgentIDOccupancy(testAgentIDOccupancy{}))
 	accountSvc := account.NewService(oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, as, credFrontDoor, slog.With("component", "account-test"))
 	provisioningSvc := provisioning.New(db, accountSvc, nil, slog.With("component", "provisioning-test"))
 	memoryManagement := memorywrite.NewManagementService(db, mem)
@@ -283,7 +319,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		ControlPlane:        controlplane.NewService(store, phost, poolManager, credSvc, slog.With("component", "controlplane-test")),
 		Webhooks:            webhookSvc,
 		Email:               email.NewService(nil, sqlc.New(db)),
-		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL),
+		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL, sharepkg.WithHomeWorkspace(externalServerTestWorkspace{root: config.StellaHome()})),
 		Assets:              assetStore,
 		Recally:             recally.NewService(recallyStore, t.TempDir()),
 		CredentialFrontDoor: credFrontDoor,

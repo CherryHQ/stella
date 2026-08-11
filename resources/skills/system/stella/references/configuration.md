@@ -124,11 +124,13 @@ All paths are relative to `$STELLA_HOME` (`~/.stella` by default).
 | `postgres/`                                 | Embedded PostgreSQL data directory (all config; absent when `STELLA_DATABASE_URL` points at an external server) |
 | `pg-runtime/`                               | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download`                               |
 | `cache/sandbox-tmp/`                        | Docker sandbox temporary directories; scratch, removed when stale                                               |
-| `agents/{agent_id}/`                        | User-independent agent definition and administrator-managed area                                                |
-| `agents/{agent_id}/.agents/skills/`         | Derived execution materialization of PostgreSQL-backed `system_agent` Skills                                    |
-| `users/{user_id}/agents/{agent_id}/`        | This user's sandbox workspace for this agent; sandbox `$HOME` and initial working directory                     |
-| `users/group-{group_id}/agents/{agent_id}/` | This channel group's sandbox workspace for this agent; sandbox `$HOME` and initial working directory            |
-| `users/{principal}/data/`                   | Shared principal data and uploads; persistent user data lives here                                              |
+| `.agents/db-skills/`                        | Local compatibility coordinate for the narrow system Skill root; PostgreSQL-derived materialization             |
+| `agents/{agent_id}/`                        | User-independent agent definition and administrator-managed compatibility area                                  |
+| `agents/{agent_id}/.agents/skills/`         | Local compatibility coordinate for the narrow system-Agent Skill root; PostgreSQL-derived materialization       |
+| `users/{user_id}/agents/{agent_id}/`        | This user's per-principal Agent Home; sandbox `$HOME` and initial working directory                             |
+| `users/group-{group_id}/agents/{agent_id}/` | This channel group's per-principal Agent Home; sandbox `$HOME` and initial working directory                    |
+| `users/{principal}/data/`                   | User or group Principal Home: shared principal data and uploads                                                 |
+| `runner-scratch/runner-*`                   | Disposable user-less-run workspace; never durable Home authority                                                |
 | `users/{principal}/data/assets/`            | Uploaded assets; inside the sandbox, use `$STELLA_ASSETS_DIR` rather than an operator path                      |
 | `users/{principal}/.mise-tools/`            | Managed per-user or per-group toolchain; shared by that principal's agents                                      |
 
@@ -144,11 +146,29 @@ For an exact operator command syntax, run `stellad system-bundle --help`. Docker
 
 Before upgrading, use the old working binary to import each custom Skill root under legacy `$STELLA_HOME/.agents/skills` as a global (`system`) Skill through **Settings → Skills** on older releases or **Admin Console → Deployment resources → Global Skills** on newer releases. Back up, verify, and remove other residual paths. Current-manifest paths are inert even if their contents or modes differ; every other Skill root or residual path blocks startup without mutation.
 
-`{principal}` is a user ID or `group-{group_id}`. These are operator filesystem
-paths. Agents should use their sandbox variables and ordinary relative paths:
+`{principal}` is a user ID or `group-{group_id}`. These are deterministic paths
+under the single POSIX `STELLA_HOME`, not registry locators. Agents should use their sandbox variables and ordinary relative paths:
 `$HOME` for their workspace and `$STELLA_ASSETS_DIR` for uploaded assets. Persistent
 XDG state is stored under the principal's `data/` tree; it is not an agent
 workspace.
+
+PostgreSQL owner rows authorize workspace access. The sole production
+`WorkspaceManager` creates a missing root for live owners and rejects symlinks,
+non-directories, unsafe IDs, and replacement of the trusted root. The filesystem
+owns the bytes; back it up with PostgreSQL. Any entry at `agents/{id}` reserves
+that global Agent ID. Run restore and root cleanup while Stella is stopped.
+
+An explicit destructive user, group, or Agent delete fences execution before the
+database transaction removes the owner. Physical bytes and inodes remain, while
+subsequent workspace access fails owner validation.
+Removing an assignment or member, archiving a Session, and uninstalling Helm do not
+delete workspace bytes. Do not manually clean workspace roots while Stella is running.
+Multi-replica, Kubernetes, and S3 authority require a future redesign.
+
+`runner-scratch/` is trusted host-owned structural state. Normal close and
+construction failure clean each disposable child best-effort; crash or trusted
+host tampering may leave children. Isolating providers mount only the exact child.
+Clean leftovers only while Stella is stopped or affected consumers are fenced.
 
 ## Environment variables
 

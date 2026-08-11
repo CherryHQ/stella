@@ -62,6 +62,7 @@ type runnerConfig struct {
 	DelegateTimeout     time.Duration // default wall-clock timeout per delegate (0 = 15m)
 	ChatTimeout         time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
 	CanonicalImages     *coreagent.CanonicalImageConfig
+	Cleanup             func() error
 }
 
 // runner implements Runner by calling LLM providers directly via agent.Runner.
@@ -80,6 +81,7 @@ type runner struct {
 	session         pkgsandbox.Session // runner-owned sandbox session lifecycle
 	noCapabilities  bool               // guest runner intentionally has no sandbox session
 	sandboxCfg      sandbox.Config     // retained to refresh OAuth-derived env on long-lived runners
+	cleanup         func() error
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -161,6 +163,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		hookSet:         hookSet,
 		toolLifecycle:   cfg.ToolLifecycle,
 		canonicalImages: cfg.CanonicalImages,
+		cleanup:         cfg.Cleanup,
 		chatTimeout:     cfg.ChatTimeout,
 		session:         session,
 		noCapabilities:  cfg.NoCapabilities,
@@ -281,21 +284,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	if cfg.SkillStore != nil {
 		stellaHome := paths.StellaHome
 		toolProjectRoot := paths.ProjectRoot
-		layout := skillDiskLayout(SystemDBSkillsDir(paths.StellaHome), paths.AgentRoot, paths.UserDataDir, paths.WorkspaceRoot)
-		sv := sandbox.ResolveSkillView(ctx, cfg.Sandbox, paths)
-		view := skillstool.SkillDirView{
-			Isolated:           sv.Isolated,
-			BuiltinSkillsHost:  sv.BuiltinSkillsHost,
-			BuiltinSkillsView:  sv.BuiltinSkillsView,
-			AgentSkillsHost:    sv.AgentSkillsHost,
-			AgentSkillsView:    sv.AgentSkillsView,
-			SystemDBSkillsHost: sv.SystemDBSkillsHost,
-			SystemDBSkillsView: sv.SystemDBSkillsView,
-			UserDataHost:       sv.UserDataHost,
-			UserDataView:       sv.UserDataView,
-			WorkspaceHost:      sv.WorkspaceHost,
-			WorkspaceView:      sv.WorkspaceView,
-		}
+		layout, view := skillRuntimeLayoutAndView(ctx, cfg, paths)
 		registerNonCore(skillstool.NewTool(cfg.SkillStore, stellaHome, toolProjectRoot).
 			WithSkillDiskLayout(layout).
 			WithSkillDirView(view).
@@ -348,6 +337,29 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	}
 
 	return toolReg, hookSet, delegateTool, nil
+}
+
+// skillRuntimeLayoutAndView is the sole production boundary that decides
+// which filesystem Skill tiers a runner can expose to the model.
+func skillRuntimeLayoutAndView(ctx context.Context, cfg runnerConfig, paths sandbox.Paths) (skillstool.SkillDiskLayout, skillstool.SkillDirView) {
+	userDataDir, workspaceRoot := paths.UserDataDir, paths.WorkspaceRoot
+	if cfg.BuiltinParams.GroupID != "" {
+		userDataDir, workspaceRoot = "", ""
+	}
+	layout := skillDiskLayout(SystemDBSkillsDir(paths.StellaHome), paths.AgentRoot, userDataDir, workspaceRoot)
+	sv := sandbox.ResolveSkillView(ctx, cfg.Sandbox, paths)
+	view := skillstool.SkillDirView{
+		Isolated: sv.Isolated, BuiltinSkillsHost: sv.BuiltinSkillsHost, BuiltinSkillsView: sv.BuiltinSkillsView,
+		AgentSkillsHost: sv.AgentSkillsHost, AgentSkillsView: sv.AgentSkillsView,
+		SystemDBSkillsHost: sv.SystemDBSkillsHost, SystemDBSkillsView: sv.SystemDBSkillsView,
+		UserDataHost: sv.UserDataHost, UserDataView: sv.UserDataView,
+		WorkspaceHost: sv.WorkspaceHost, WorkspaceView: sv.WorkspaceView,
+	}
+	if cfg.BuiltinParams.GroupID != "" {
+		view.UserDataHost, view.UserDataView = "", ""
+		view.WorkspaceHost, view.WorkspaceView = "", ""
+	}
+	return layout, view
 }
 
 func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSet, []tools.Definition, error) {
@@ -586,6 +598,12 @@ func (r *runner) Close() error {
 		if err := r.session.Close(); err != nil {
 			errs = append(errs, err)
 		}
+	}
+	if r.cleanup != nil {
+		if err := r.cleanup(); err != nil {
+			errs = append(errs, err)
+		}
+		r.cleanup = nil
 	}
 
 	if len(errs) > 0 {

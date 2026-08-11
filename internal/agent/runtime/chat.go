@@ -32,7 +32,7 @@ const autoCompactionTimeout = 2 * time.Minute
 type BeforeRunFunc func(ctx context.Context, info session.Info, model, msgText, system string, history []ai.Message) (systemOut string, err error)
 
 // SnapshotPromptFunc builds a system prompt from the session's snapshot version.
-type SnapshotPromptFunc func(ctx context.Context, info session.Info, snap memory.SessionSnapshot) string
+type SnapshotPromptFunc func(ctx context.Context, info session.Info, snap memory.SessionSnapshot) (string, error)
 
 // chat is retained for direct internal callers and tests. Runtime.ChatAdmitted
 // uses chatWithRunner after synchronously selecting a runner at admission.
@@ -201,8 +201,12 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 				snap, err := sss.GetOrCreateSessionSnapshot(ctx, info.ID, info.UserID, info.AgentID)
 				if err != nil {
 					rt.log.Warn("snapshot lookup failed, using base system", "session_id", info.ID, "error", err)
+				} else if rebuilt, err := selection.snapshotPrompt(ctx, info, snap); err != nil {
+					out <- Event{Err: fmt.Errorf("snapshot prompt: %w", err)}
+					close(out)
+					return
 				} else {
-					baseSystem = selection.snapshotPrompt(ctx, info, snap)
+					baseSystem = rebuilt
 				}
 			}
 		}

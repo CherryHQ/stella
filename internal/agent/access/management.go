@@ -5,7 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/CherryHQ/stella/internal/agent/providercred"
 	"github.com/CherryHQ/stella/internal/authz"
@@ -29,7 +33,33 @@ type Management struct {
 	activity  ActivityReader
 	creds     CredentialWriter
 	providers ProviderReader
+	deletion  OwnerDeletion
+	occupancy AgentIDOccupancy
 	log       *slog.Logger
+	createMu  sync.Mutex
+}
+
+// OwnerDeletion is the destructive Agent lifecycle boundary. A nil dependency
+// keeps construction source-compatible but makes Delete fail closed.
+type OwnerDeletion interface {
+	DeleteAgent(context.Context, string, string) error
+}
+
+// ManagementOption configures optional Management dependencies.
+type ManagementOption func(*Management)
+
+// WithOwnerDeletion supplies the destructive Home lifecycle for Agent deletion.
+func WithOwnerDeletion(d OwnerDeletion) ManagementOption {
+	return func(m *Management) { m.deletion = d }
+}
+
+// AgentIDOccupancy checks the deterministic global Agent workspace entry.
+type AgentIDOccupancy interface {
+	AgentIDOccupied(context.Context, string) (bool, error)
+}
+
+func WithAgentIDOccupancy(checker AgentIDOccupancy) ManagementOption {
+	return func(m *Management) { m.occupancy = checker }
 }
 
 // AgentWriter persists agent rows. config.Store satisfies it; the interface stays
@@ -116,11 +146,15 @@ var (
 
 // NewManagement builds the Agent management service over the Agent PEP and its
 // write/reload/lookup ports. log defaults to slog.Default() when nil.
-func NewManagement(pep *Service, agents AgentWriter, assign AssignmentWriter, reloader AgentReloader, users UserDirectory, activity ActivityReader, creds CredentialWriter, providers ProviderReader, log *slog.Logger) *Management {
+func NewManagement(pep *Service, agents AgentWriter, assign AssignmentWriter, reloader AgentReloader, users UserDirectory, activity ActivityReader, creds CredentialWriter, providers ProviderReader, log *slog.Logger, opts ...ManagementOption) *Management {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Management{pep: pep, agents: agents, assign: assign, reloader: reloader, users: users, activity: activity, creds: creds, providers: providers, log: log}
+	m := &Management{pep: pep, agents: agents, assign: assign, reloader: reloader, users: users, activity: activity, creds: creds, providers: providers, log: log}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
 // Create authorizes and persists a new agent, enforcing the scope rules,
@@ -131,6 +165,12 @@ func NewManagement(pep *Service, agents AgentWriter, assign AssignmentWriter, re
 // caller supplies a fully transport-validated candidate whose ID is the base
 // slug; Management owns the scope decision, uniqueness, workspace, and creator.
 func (m *Management) Create(ctx context.Context, authority authz.Authority, candidate config.Agent) (config.Agent, error) {
+	m.createMu.Lock()
+	defer m.createMu.Unlock()
+	return m.create(ctx, authority, candidate)
+}
+
+func (m *Management) create(ctx context.Context, authority authz.Authority, candidate config.Agent) (config.Agent, error) {
 	candidate, isAdmin, err := m.prepareCreate(ctx, authority, candidate)
 	if err != nil {
 		return config.Agent{}, err
@@ -149,6 +189,8 @@ func (m *Management) CreateWithProviderCredentials(ctx context.Context, authorit
 	if len(inputs) == 0 {
 		return m.Create(ctx, authority, candidate)
 	}
+	m.createMu.Lock()
+	defer m.createMu.Unlock()
 	if m.creds == nil {
 		return config.Agent{}, ErrCredentialsUnavailable
 	}
@@ -198,7 +240,10 @@ func (m *Management) prepareCreate(ctx context.Context, authority authz.Authorit
 	// Workspace is always the default path — never caller-supplied.
 	candidate.Workspace = ""
 	candidate.CreatorID = string(authority.UserID())
-	candidate.ID = m.uniqueAgentID(ctx, candidate.ID)
+	candidate.ID, err = m.uniqueAgentID(ctx, candidate.ID)
+	if err != nil {
+		return config.Agent{}, false, err
+	}
 	return candidate, isAdmin, nil
 }
 
@@ -212,7 +257,9 @@ func (m *Management) finishCreate(ctx context.Context, isAdmin bool, candidate c
 			// restricted agent, so roll the create back rather than report a false
 			// success. A failed compensation is logged; that residual orphan is the
 			// documented ceiling of compensation without a shared transaction.
-			if delErr := m.agents.DeleteAgent(ctx, candidate.ID); delErr != nil {
+			if m.deletion == nil {
+				m.log.Error("cannot compensate failed auto-assign without fenced owner deletion", "agent_id", candidate.ID)
+			} else if delErr := m.deletion.DeleteAgent(ctx, candidate.ID, candidate.CreatorID); delErr != nil {
 				m.log.Error("compensating delete after failed auto-assign", "agent_id", candidate.ID, "error", delErr)
 			}
 			return config.Agent{}, fmt.Errorf("%w: auto-assign creator: %w", ErrUnavailable, err)
@@ -292,14 +339,21 @@ func (m *Management) Delete(ctx context.Context, authority authz.Authority, agen
 	if _, err := acc.Delete(ctx, agentID); err != nil {
 		return err
 	}
-	if err := m.agents.DeleteAgent(ctx, agentID); err != nil {
-		if errors.Is(err, config.ErrAgentInUse) {
+	if m.deletion == nil {
+		return fmt.Errorf("%w: delete agent lifecycle is not wired", ErrUnavailable)
+	}
+	if err := m.deletion.DeleteAgent(ctx, agentID, string(authority.UserID())); err != nil {
+		if errors.Is(err, config.ErrAgentInUse) || isAgentInUse(err) {
 			return ErrInUse
 		}
 		return fmt.Errorf("%w: delete agent: %w", ErrUnavailable, err)
 	}
-	m.reload(ctx, agentID)
 	return nil
+}
+
+func isAgentInUse(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && (pgErr.Code == "23001" || pgErr.Code == "23503") && pgErr.ConstraintName == "webhook_agent_id_fkey"
 }
 
 // ListProviderCredentials returns secret-free credential metadata for an Agent.
@@ -484,16 +538,29 @@ func (m *Management) ListAgentLastActive(ctx context.Context, userID string) (ma
 }
 
 // uniqueAgentID returns base when free, otherwise the first base-N suffix whose
-// lookup fails. It preserves the legacy dedup: any GetAgent error means the ID is
-// available, so a transient store error can pick a fresh ID rather than collide.
-func (m *Management) uniqueAgentID(ctx context.Context, base string) string {
-	if _, err := m.agents.GetAgent(ctx, base); err != nil {
-		return base
+// lookup reports pgx.ErrNoRows. All other database and filesystem outcomes fail
+// closed; allocation is serialized with insertion by createMu.
+func (m *Management) uniqueAgentID(ctx context.Context, base string) (string, error) {
+	if m.occupancy == nil {
+		return "", fmt.Errorf("%w: Agent workspace occupancy checker is required", ErrUnavailable)
 	}
-	for i := 2; ; i++ {
-		candidate := fmt.Sprintf("%s-%d", base, i)
-		if _, err := m.agents.GetAgent(ctx, candidate); err != nil {
-			return candidate
+	for i := 1; ; i++ {
+		candidate := base
+		if i > 1 {
+			candidate = fmt.Sprintf("%s-%d", base, i)
+		}
+		_, dbErr := m.agents.GetAgent(ctx, candidate)
+		if dbErr != nil && !errors.Is(dbErr, pgx.ErrNoRows) {
+			return "", fmt.Errorf("%w: inspect Agent ID occupancy: %w", ErrUnavailable, dbErr)
+		}
+		occupied := dbErr == nil
+		fsOccupied, err := m.occupancy.AgentIDOccupied(ctx, candidate)
+		if err != nil {
+			return "", fmt.Errorf("%w: inspect Agent workspace occupancy: %w", ErrUnavailable, err)
+		}
+		occupied = occupied || fsOccupied
+		if !occupied {
+			return candidate, nil
 		}
 	}
 }

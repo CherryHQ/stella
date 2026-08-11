@@ -199,6 +199,7 @@ func serverAction(c *ucli.Context) error {
 		cancel()
 		s.waitBackgroundTasks()
 		_ = s.poolManager.Close()
+		_ = s.workspaceManager.Close()
 		// Stop the managed PostgreSQL last, once every DB user is done: close the
 		// pool first so the server shuts down without active connections. Only set
 		// in zero-config mode; an external DSN leaves s.embedded nil.
@@ -312,6 +313,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	var vaultRecipient *age.X25519Recipient
 	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, agentAccess, linkCodes))
 	coordOpts = append(coordOpts, channel.WithCoordinatorAssets(s.assetStore))
+	coordOpts = append(coordOpts, channel.WithHomeWorkspace(s.workspaceManager))
 	if s.vaultSvc != nil {
 		vaultRecipient = s.vaultSvc.MasterRecipient()
 		coordOpts = append(coordOpts, channel.WithVaultRecipient(vaultRecipient))
@@ -387,6 +389,8 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		s.credentialSvc,
 		s.credentialProviders,
 		slog.With("component", "agent-management"),
+		agentaccess.WithOwnerDeletion(s.homeDeletion),
+		agentaccess.WithAgentIDOccupancy(s.workspaceManager),
 	)
 
 	// The Account service owns the user-account application boundary. It composes
@@ -423,7 +427,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// per-agent use authorization, the runtime resolver for agent-name projection,
 	// and the event log + group dispatcher for the send path (nil-tolerant: the
 	// send path degrades to 503 while CRUD stays available).
-	groupSvc := channel.NewGroupService(s.db, agentAccess, channel.NewRuntimeResolver(s.store), elStore, groupDispatcher)
+	groupSvc := channel.NewGroupService(s.db, agentAccess, channel.NewRuntimeResolver(s.store), elStore, groupDispatcher, channel.WithOwnerDeletion(s.homeDeletion))
 
 	// Accepted Web turns outlive their initiating HTTP connections and must also
 	// survive the errgroup cancellation caused by HTTP Shutdown. workCtx is

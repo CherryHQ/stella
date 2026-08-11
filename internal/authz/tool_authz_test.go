@@ -25,6 +25,7 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	emailpkg "github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
+	homepkg "github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/internal/recally"
@@ -249,7 +250,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "report.html"), []byte("<p>ok</p>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	shareSvc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssetStore(t, home), home, "http://stella.test")
+	shareSvc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssetStore(t, home), home, "http://stella.test", sharepkg.WithHomeWorkspace(toolAuthzWorkspaceViewer{root: home}))
 	ownerShare, err := q.CreateShare(ctx, sqlc.CreateShareParams{ID: uuid.NewString(), TokenHash: "owner-share-hash", UserID: ownerUser, Title: "owner share", MediaType: "text/html", Content: []byte("owner secret")})
 	if err != nil {
 		t.Fatalf("CreateShare: %v", err)
@@ -359,4 +360,23 @@ func mustAssetStore(t *testing.T, home string) *asset.Store {
 		t.Fatalf("asset.NewStore: %v", err)
 	}
 	return a
+}
+
+// toolAuthzWorkspaceViewer maps this fixture's user/Agent directories;
+// production wiring uses the authoritative WorkspaceManager instead.
+type toolAuthzWorkspaceViewer struct{ root string }
+
+func (w toolAuthzWorkspaceViewer) WorkspaceView(_ context.Context, req homepkg.WorkspaceRequest) (homepkg.WorkspaceView, error) {
+	principal := filepath.Join(w.root, "users", req.UserID)
+	if req.GroupID != "" {
+		principal = filepath.Join(w.root, "users", "group-"+req.GroupID)
+	}
+	data, agentRoot := filepath.Join(principal, "data"), filepath.Join(principal, "agents", req.AgentID)
+	if err := os.MkdirAll(filepath.Join(data, "assets"), 0o755); err != nil {
+		return homepkg.WorkspaceView{}, err
+	}
+	if err := os.MkdirAll(agentRoot, 0o755); err != nil {
+		return homepkg.WorkspaceView{}, err
+	}
+	return homepkg.WorkspaceView{PrincipalRoot: principal, DataRoot: data, AgentRoot: agentRoot}, nil
 }

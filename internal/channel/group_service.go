@@ -35,6 +35,20 @@ type GroupService struct {
 	eventLog   *eventlog.Store
 	dispatcher GroupDispatchRunner
 	leaseDur   time.Duration
+	deletion   OwnerDeletion
+}
+
+// OwnerDeletion is the destructive group Home lifecycle boundary.
+type OwnerDeletion interface {
+	DeleteGroup(context.Context, string, string) error
+}
+
+// GroupServiceOption configures optional GroupService dependencies.
+type GroupServiceOption func(*GroupService)
+
+// WithOwnerDeletion supplies the destructive Home lifecycle for group deletion.
+func WithOwnerDeletion(d OwnerDeletion) GroupServiceOption {
+	return func(s *GroupService) { s.deletion = d }
 }
 
 // GroupDispatchRunner runs one prepared group turn synchronously, streaming the
@@ -58,8 +72,8 @@ const groupOutboxLeaseDuration = 5 * time.Minute
 // NewGroupService builds the group boundary over the pool, the Agent PEP (agent
 // use authorization), and the runtime resolver (agent-name projection). eventLog
 // and dispatcher may be nil, degrading only the send path to 503.
-func NewGroupService(db *pgxpool.Pool, agents *agentaccess.Service, resolver *RuntimeResolver, eventLog *eventlog.Store, dispatcher GroupDispatchRunner) *GroupService {
-	return &GroupService{
+func NewGroupService(db *pgxpool.Pool, agents *agentaccess.Service, resolver *RuntimeResolver, eventLog *eventlog.Store, dispatcher GroupDispatchRunner, opts ...GroupServiceOption) *GroupService {
+	s := &GroupService{
 		db:         db,
 		agents:     agents,
 		resolver:   resolver,
@@ -67,6 +81,10 @@ func NewGroupService(db *pgxpool.Pool, agents *agentaccess.Service, resolver *Ru
 		dispatcher: dispatcher,
 		leaseDur:   groupOutboxLeaseDuration,
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // Opaque boundary errors. Agent-use denials surface the Agent PEP's own
@@ -280,7 +298,10 @@ func (a *GroupAccess) Delete(ctx context.Context, groupID string) error {
 	if _, err := a.requireOwner(ctx, groupID); err != nil {
 		return err
 	}
-	if err := a.q().DeleteGroupState(ctx, groupID); err != nil {
+	if a.svc.deletion == nil {
+		return fmt.Errorf("%w: delete group lifecycle is not wired", ErrGroupUnavailable)
+	}
+	if err := a.svc.deletion.DeleteGroup(ctx, groupID, a.actorUserID()); err != nil {
 		return fmt.Errorf("delete group state: %w", err)
 	}
 	return nil
