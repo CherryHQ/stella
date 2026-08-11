@@ -20,8 +20,8 @@ type operationHandlerSurface interface {
 	RegisterGroupPublisher(channelID string, publisher GroupPublisher)
 	UnregisterGroupPublisher(channelID string)
 	ProvisionUser(ctx context.Context, req pkgchannel.ProvisionRequest) error
-	ResolveUserRoot(ctx context.Context, msg pkgchannel.IncomingMessage) (string, error)
-	SaveAsset(ctx context.Context, assetsDir, fileName string, data []byte) (string, error)
+	AdmitAssetSave(ctx context.Context, msg pkgchannel.IncomingMessage) error
+	SaveAsset(ctx context.Context, msg pkgchannel.IncomingMessage, fileName string, data []byte) (string, error)
 	EnsurePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error
 	RemovePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error
 }
@@ -86,12 +86,12 @@ func (h operationContextHandler) ProvisionUser(ctx context.Context, req pkgchann
 	return h.operationHandlerSurface.ProvisionUser(operationCallContext(h.opCtx, ctx), req)
 }
 
-func (h operationContextHandler) ResolveUserRoot(ctx context.Context, msg pkgchannel.IncomingMessage) (string, error) {
-	return h.operationHandlerSurface.ResolveUserRoot(operationCallContext(h.opCtx, ctx), msg)
+func (h operationContextHandler) AdmitAssetSave(ctx context.Context, msg pkgchannel.IncomingMessage) error {
+	return h.operationHandlerSurface.AdmitAssetSave(operationCallContext(h.opCtx, ctx), msg)
 }
 
-func (h operationContextHandler) SaveAsset(ctx context.Context, assetsDir, fileName string, data []byte) (string, error) {
-	return h.operationHandlerSurface.SaveAsset(operationCallContext(h.opCtx, ctx), assetsDir, fileName, data)
+func (h operationContextHandler) SaveAsset(ctx context.Context, msg pkgchannel.IncomingMessage, fileName string, data []byte) (string, error) {
+	return h.operationHandlerSurface.SaveAsset(operationCallContext(h.opCtx, ctx), msg, fileName, data)
 }
 
 func (h operationContextHandler) EnsurePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error {

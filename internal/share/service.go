@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"mime"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/recally"
@@ -44,10 +44,9 @@ type Service struct {
 	mem        memory.Provider
 	store      *recally.Store
 	recallySvc *recally.Service
-	assets     *asset.Store
-	stellaHome string
 	baseURL    string
-	homes      home.WorkspaceViewer
+	homes      home.RootOpener
+	agents     AgentReadAuthorizer
 }
 
 // Share is the transport-neutral view of one share row. Content carries the
@@ -109,12 +108,21 @@ func timePtr(n pgtype.Timestamptz) *time.Time {
 
 type Option func(*Service)
 
-func WithHomeWorkspace(viewer home.WorkspaceViewer) Option {
-	return func(s *Service) { s.homes = viewer }
+type AgentReadAuthorizer interface {
+	Read(context.Context, authz.Authority, string) (config.Agent, error)
+}
+
+func WithHomeWorkspace(opener home.RootOpener) Option {
+	return func(s *Service) { s.homes = opener }
+}
+
+func WithAgentAccess(access AgentReadAuthorizer) Option {
+	return func(s *Service) { s.agents = access }
 }
 
 func NewService(q *sqlc.Queries, mem memory.Provider, store *recally.Store, assets *asset.Store, stellaHome, baseURL string, opts ...Option) *Service {
-	s := &Service{q: q, mem: mem, store: store, recallySvc: recally.NewService(store, stellaHome), assets: assets, stellaHome: stellaHome, baseURL: strings.TrimRight(baseURL, "/")}
+	_ = assets // Kept in the constructor until composition callers are migrated.
+	s := &Service{q: q, mem: mem, store: store, recallySvc: recally.NewService(store, stellaHome), baseURL: strings.TrimRight(baseURL, "/")}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -167,10 +175,10 @@ func (s *Service) PublicContent(ctx context.Context, token string) (Share, error
 	return shareFromRow(row), nil
 }
 
-func (s *Service) sessionWorkspaceRoot(ctx context.Context, ident authz.Identity, sessionID, scope string) (string, error) {
+func (s *Service) sessionWorkspaceRoot(ctx context.Context, ident authz.Identity, sessionID, scope string) (home.WorkspaceRequest, home.RootScope, error) {
 	sm, ok := s.mem.(memory.SessionManager)
 	if !ok {
-		return "", authz.ErrNotFound
+		return home.WorkspaceRequest{}, 0, authz.ErrNotFound
 	}
 	loadCtx := authz.WithUserID(ctx, ident.UserID)
 	if ident.AgentID != "" {
@@ -178,58 +186,33 @@ func (s *Service) sessionWorkspaceRoot(ctx context.Context, ident authz.Identity
 	}
 	si, err := sm.LoadInfo(loadCtx, sessionID)
 	if err != nil {
-		return "", authz.ErrNotFound
+		return home.WorkspaceRequest{}, 0, authz.ErrNotFound
 	}
 	if si.UserID != ident.UserID {
-		return "", authz.ErrForbidden
+		return home.WorkspaceRequest{}, 0, authz.ErrForbidden
 	}
 	if ident.AgentID != "" && si.AgentID != ident.AgentID {
 		if ident.AgentScoped {
-			return "", authz.ErrForbidden
+			return home.WorkspaceRequest{}, 0, authz.ErrForbidden
 		}
-		return "", authz.ErrNotFound
+		return home.WorkspaceRequest{}, 0, authz.ErrNotFound
 	}
 	if (si.UserID == "" && si.GroupID == "") || si.AgentID == "" {
-		return "", authz.ErrNotFound
+		return home.WorkspaceRequest{}, 0, authz.ErrNotFound
 	}
 	// Artifact shares are user-owned capabilities. Group sessions are intentionally
 	// not shareable until a group-specific authorization policy exists.
 	if si.GroupID != "" {
-		return "", authz.ErrNotFound
+		return home.WorkspaceRequest{}, 0, authz.ErrNotFound
 	}
 	if s.homes == nil {
-		return "", fmt.Errorf("home workspace resolver not configured")
+		return home.WorkspaceRequest{}, 0, fmt.Errorf("workspace root opener not configured")
 	}
-	view, err := s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: si.UserID, GroupID: si.GroupID, AgentID: si.AgentID})
-	if err != nil {
-		return "", err
-	}
+	req := home.WorkspaceRequest{UserID: si.UserID, GroupID: si.GroupID, AgentID: si.AgentID}
 	if scope == "user" {
-		return view.DataRoot, nil
+		return req, home.RootPrincipalData, nil
 	}
-	return view.AgentRoot, nil
-}
-
-func SafePath(root, rel string) (string, error) {
-	name, err := safePathName(rel)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(root, name), nil
-}
-
-// OpenSafeRoot returns an os.Root and root-relative name. Security-sensitive
-// operations use Root methods so symlink swaps cannot escape the workspace.
-func OpenSafeRoot(root, rel string) (*os.Root, string, error) {
-	name, err := safePathName(rel)
-	if err != nil {
-		return nil, "", err
-	}
-	r, err := os.OpenRoot(root)
-	if err != nil {
-		return nil, "", err
-	}
-	return r, name, nil
+	return req, home.RootAgentWorkspace, nil
 }
 
 func safePathName(rel string) (string, error) {

@@ -148,7 +148,7 @@ func TestShareArticleUsesDatabaseBodyWhenMirrorIsMissing(t *testing.T) {
 	}
 }
 
-func TestShareArtifactRestoresAssetFromBlobOnMiss(t *testing.T) {
+func TestShareArtifactDoesNotRestoreMutableSourceFromBlob(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	q := sqlc.New(db)
@@ -158,7 +158,7 @@ func TestShareArtifactRestoresAssetFromBlobOnMiss(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssets(t, home, remote), home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}))
+	svc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssets(t, home, remote), home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}), sharepkg.WithAgentAccess(allowAgentRead{}))
 	userID := uuid.NewString()
 	agentID := uuid.NewString()
 	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@example.com"); err != nil {
@@ -175,15 +175,12 @@ func TestShareArtifactRestoresAssetFromBlobOnMiss(t *testing.T) {
 	if err := remote.Put(ctx, key, strings.NewReader("restored")); err != nil {
 		t.Fatalf("remote Put: %v", err)
 	}
-	created, err := mustAccess(t, svc, agentAuthority(t, userID, agentID)).ShareArtifact(ctx, "session", "assets/202607/restored.html", "user", agentID, "7d")
-	if err != nil {
-		t.Fatalf("ShareArtifact: %v", err)
+	_, err = mustAccess(t, svc, agentAuthority(t, userID, agentID)).ShareArtifact(ctx, "session", "assets/202607/restored.html", "user", agentID, "7d")
+	if !errors.Is(err, authz.ErrNotFound) {
+		t.Fatalf("ShareArtifact error = %v, want POSIX source not found", err)
 	}
-	if string(created.Share.Content) != "restored" {
-		t.Fatalf("content = %q, want restored", created.Share.Content)
-	}
-	if data, err := os.ReadFile(local); err != nil || string(data) != "restored" {
-		t.Fatalf("local restored data=%q err=%v", data, err)
+	if _, err := os.Stat(local); !os.IsNotExist(err) {
+		t.Fatalf("local source stat = %v, want object bytes to remain non-authoritative", err)
 	}
 }
 
@@ -193,7 +190,7 @@ func TestShareArtifactRestoreMissLeavesNoAssetDir(t *testing.T) {
 	q := sqlc.New(db)
 	mem := memorytest.New()
 	home := t.TempDir()
-	svc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssets(t, home, lazyMissingStore{}), home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}))
+	svc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssets(t, home, lazyMissingStore{}), home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}), sharepkg.WithAgentAccess(allowAgentRead{}))
 	userID := uuid.NewString()
 	agentID := uuid.NewString()
 	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@example.com"); err != nil {
@@ -218,7 +215,7 @@ func TestShareArtifactNormalizesSemanticRoots(t *testing.T) {
 	q := sqlc.New(db)
 	mem := memorytest.New()
 	home := t.TempDir()
-	svc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssets(t, home, nil), home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}))
+	svc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssets(t, home, nil), home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}), sharepkg.WithAgentAccess(allowAgentRead{}))
 	userID := uuid.NewString()
 	agentID := uuid.NewString()
 	if _, err := db.Exec(ctx, `INSERT INTO auth_user (id, email) VALUES ($1, $2)`, userID, userID+"@example.com"); err != nil {
@@ -284,7 +281,7 @@ func TestShareArtifactRejectsUnsafeAndInvalidFiles(t *testing.T) {
 	q := sqlc.New(db)
 	mem := memorytest.New()
 	home := t.TempDir()
-	svc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssets(t, home, nil), home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}))
+	svc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssets(t, home, nil), home, "http://stella.test", sharepkg.WithHomeWorkspace(testWorkspaceViewer{root: home}), sharepkg.WithAgentAccess(allowAgentRead{}))
 	userID := uuid.NewString()
 	foreignUser := uuid.NewString()
 	agentID := uuid.NewString()
@@ -354,6 +351,19 @@ func TestShareArtifactRejectsUnsafeAndInvalidFiles(t *testing.T) {
 	}
 	if created.URL == "" || created.Token == "" {
 		t.Fatalf("created missing URL/token: %+v", created)
+	}
+	if err := os.WriteFile(filepath.Join(root, "ok.html"), []byte("<p>changed</p>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, "ok.html")); err != nil {
+		t.Fatal(err)
+	}
+	public, err := svc.PublicContent(ctx, created.Token)
+	if err != nil {
+		t.Fatalf("PublicContent after source removal: %v", err)
+	}
+	if got := string(public.Content); got != "<p>ok</p>" {
+		t.Fatalf("immutable share content = %q, want original snapshot", got)
 	}
 }
 

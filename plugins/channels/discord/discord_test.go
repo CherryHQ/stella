@@ -203,7 +203,7 @@ func TestAttachmentOwnershipIsResolvedBeforeDownload(t *testing.T) {
 	}
 }
 
-func TestAttachmentRootFailureStillDeliversMessage(t *testing.T) {
+func TestAttachmentAdmissionFailureStopsBeforeDownload(t *testing.T) {
 	h := &rejectingAttachmentHandler{err: errors.New("storage unavailable")}
 	b, err := New(Config{Token: "token", AllowDM: true}, h)
 	if err != nil {
@@ -213,11 +213,11 @@ func TestAttachmentRootFailureStillDeliversMessage(t *testing.T) {
 		ID: "message", ChannelID: "dm", Author: &discordgo.User{ID: "linked-user"}, Content: "hello",
 		Attachments: []*discordgo.MessageAttachment{{ID: "attachment", Filename: "image.png", URL: "https://invalid.example/image.png"}},
 	}
-	if err := b.handleMessage(context.Background(), m); err != nil {
-		t.Fatal(err)
+	if err := b.handleMessage(context.Background(), m); err == nil || !strings.Contains(err.Error(), "storage unavailable") {
+		t.Fatalf("handleMessage() error = %v, want storage admission failure", err)
 	}
-	if h.resolveCalls != 1 || h.handleCalls != 1 {
-		t.Fatalf("calls: resolve=%d handle=%d, want 1 and 1", h.resolveCalls, h.handleCalls)
+	if h.resolveCalls != 1 || h.handleCalls != 0 {
+		t.Fatalf("calls: resolve=%d handle=%d, want 1 and 0", h.resolveCalls, h.handleCalls)
 	}
 }
 
@@ -363,9 +363,9 @@ type rejectingAttachmentHandler struct {
 	resolveCalls int
 }
 
-func (h *rejectingAttachmentHandler) ResolveUserRoot(context.Context, channel.IncomingMessage) (string, error) {
+func (h *rejectingAttachmentHandler) AdmitAssetSave(context.Context, channel.IncomingMessage) error {
 	h.resolveCalls++
-	return "", h.err
+	return h.err
 }
 
 func (h *unregisteringHandler) HandleIncoming(context.Context, channel.IncomingMessage, string, string) (string, bool, *channel.ChatStream, error) {

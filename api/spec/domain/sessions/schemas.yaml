@@ -115,10 +115,7 @@ components:
       properties:
         root:
           type: string
-          description: Absolute host path of the workspace root, used to resolve relative file operations
-        sandbox_root:
-          type: string
-          description: Path the agent sees for this directory inside its sandbox (e.g. /workspace on isolating backends; equals root otherwise). For display.
+          description: Canonical logical workspace root (/workspace for agent scope or /user for user scope), never a host path
         paths:
           type: array
           items: { type: string }
@@ -199,8 +196,8 @@ components:
         path:
           type: string
           description: >-
-            Sandbox-view path of the uploaded file (e.g. /user/assets/...), embedded
-            in the message text the agent reads.
+            Portable logical path of the uploaded file under $STELLA_ASSETS_DIR,
+            embedded in the message text the agent reads; never a host path.
         relative_path:
           type: string
           description: >-

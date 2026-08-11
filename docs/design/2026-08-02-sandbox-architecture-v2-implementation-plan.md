@@ -86,7 +86,11 @@ Required consumer audit:
 
 Immutable session media, content-addressed blobs, artifacts, and published share snapshots remain in `BlobStore`/S3. Share creation reads an authorized filesystem version and emits an immutable snapshot.
 
+The first reviewable replacement slice routes the direct non-Session consumers that currently own mutable bytes: Workspace list/create/delete/move/read/write/upload, pre-session channel attachment publication, project and prompt-context resolution, and Share source reads. Public Workspace and project coordinates are logical; trusted runner/provider code resolves physical mount paths only behind the Home capability boundary. Active Agent `read`/`write`/`edit` tools remain on the existing Session resolver, immutable media and published Share bytes retain their existing authorities, and mutable Skills remain in #897.
+
 For legacy mutable assets, first gather evidence by deployment/configuration and key shape. Add an offline, idempotent, asset-specific migration only if object-only mutable data exists. It must verify principal mapping, path, count, size and digest, preserve the old object copy, and fail closed on incomplete migration. Do not generalize this into a workspace migration/catalog.
+
+No asset migration belongs in this slice. Supported GA single-replica writes already created the POSIX file under the persistent `$STELLA_HOME` before mirroring keys shaped as `users/<principal>/data/assets/...`; upgrades retain that namespace. Object-only mutable assets therefore require an independently lost POSIX copy, which is outside the supported durability contract and has no complete online ownership/count/digest boundary to prove. Existing objects are neither deleted nor treated as restore-on-miss authority; operators with such damage must restore and verify the POSIX files offline before upgrade.
 
 Acceptance:
 

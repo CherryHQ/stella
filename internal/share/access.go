@@ -1,13 +1,16 @@
 package share
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
@@ -17,11 +20,12 @@ import (
 // query is scoped to it. agentScoped/agentID record the actor so an AgentActor
 // (agent tool) is confined to its bound agent's workspace, while a UserActor
 // (HTTP) selects the workspace agent from the request body, not from identity.
-// There is no policy evaluation; the acting user (and, for artifacts, the
-// os.Root-confined workspace) is the boundary. The public capability-URL view
+// Artifact publication additionally takes a fresh Agent read decision before
+// opening the rooted workspace capability. The public capability-URL view
 // (token hash + expiry, no session) is served outside Access entirely.
 type Access struct {
 	svc         *Service
+	authority   authz.Authority
 	userID      string
 	agentID     string
 	agentScoped bool
@@ -46,7 +50,7 @@ func (s *Service) Access(authority authz.Authority) (*Access, error) {
 	if agentScoped {
 		agentID = string(authority.AgentID())
 	}
-	return &Access{svc: s, userID: userID, agentID: agentID, agentScoped: agentScoped}, nil
+	return &Access{svc: s, authority: authority, userID: userID, agentID: agentID, agentScoped: agentScoped}, nil
 }
 
 // ShareArtifact publishes a workspace file for the acting user. requestedAgentID
@@ -68,46 +72,62 @@ func (a *Access) ShareArtifact(ctx context.Context, sessionID, path, scope, requ
 	if path == "" {
 		return Created{}, fmt.Errorf("path is required for artifact shares: %w", ErrInvalidInput)
 	}
+	if a.svc.agents == nil {
+		return Created{}, fmt.Errorf("agent authorization is unavailable")
+	}
+	if _, err := a.svc.agents.Read(ctx, a.authority, requestedAgentID); err != nil {
+		switch {
+		case errors.Is(err, agentaccess.ErrForbidden):
+			return Created{}, authz.ErrForbidden
+		case errors.Is(err, agentaccess.ErrNotFound):
+			return Created{}, authz.ErrNotFound
+		default:
+			return Created{}, err
+		}
+	}
 
 	scope, rel, err := normalizeArtifactPath(path, scope)
 	if err != nil {
 		return Created{}, err
 	}
 	ident := authz.Identity{UserID: a.userID, AgentID: requestedAgentID, AgentScoped: a.agentScoped}
-	root, err := a.svc.sessionWorkspaceRoot(ctx, ident, sessionID, scope)
+	req, rootScope, err := a.svc.sessionWorkspaceRoot(ctx, ident, sessionID, scope)
 	if err != nil {
 		return Created{}, err
 	}
-	rootFS, name, err := OpenSafeRoot(root, rel)
+	root, err := a.svc.homes.OpenRoot(ctx, req, rootScope, home.RootReadOnly)
 	if err != nil {
-		return Created{}, authz.ErrNotFound
+		return Created{}, err
 	}
-	defer func() { _ = rootFS.Close() }()
-	abs := filepath.Join(root, name)
-	fi, err := rootFS.Stat(name)
-	if err != nil {
-		if os.IsNotExist(err) && a.svc.assets.Restore(ctx, abs) == nil {
-			fi, err = rootFS.Stat(name)
-		}
+	snapshot, err := func() (data []byte, resultErr error) {
+		defer func() { resultErr = errors.Join(resultErr, root.Close()) }()
+		fi, err := root.Stat(ctx, rel)
 		if err != nil {
-			return Created{}, authz.ErrNotFound
+			return nil, authz.ErrNotFound
 		}
-	}
-	if fi.IsDir() {
-		return Created{}, ErrDirectory
-	}
-	if fi.Size() > MaxShareSize {
-		return Created{}, ErrTooLarge
+		if fi.IsDir() {
+			return nil, ErrDirectory
+		}
+		if fi.Size() > MaxShareSize {
+			return nil, ErrTooLarge
+		}
+		if ArtifactMediaType(rel) == "" {
+			return nil, ErrUnsupportedType
+		}
+		var content bytes.Buffer
+		if err := root.Read(ctx, rel, &content, home.ReadOptions{MaxBytes: MaxShareSize}); err != nil {
+			if errors.Is(err, home.ErrReadLimit) {
+				return nil, ErrTooLarge
+			}
+			return nil, err
+		}
+		return content.Bytes(), nil
+	}()
+	if err != nil {
+		return Created{}, err
 	}
 	mt := ArtifactMediaType(rel)
-	if mt == "" {
-		return Created{}, ErrUnsupportedType
-	}
-	data, err := rootFS.ReadFile(name)
-	if err != nil {
-		return Created{}, err
-	}
-	return a.svc.create(ctx, a.userID, filepath.Base(rel), mt, data, expiresIn)
+	return a.svc.create(ctx, a.userID, filepath.Base(rel), mt, snapshot, expiresIn)
 }
 
 // normalizeArtifactPath maps model-facing semantic roots to the durable share

@@ -23,6 +23,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/session"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/renderrefs"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
@@ -81,6 +82,10 @@ const (
 	// maxSessionMessageParts caps workspace reads per send while leaving room
 	// for eight images, their file markers, text, and ordinary attachments.
 	maxSessionMessageParts = 32
+	// Multipart framing gets 1 MiB beyond the 32 MiB file ceiling enforced by
+	// session access. MaxBytesReader prevents ParseMultipartForm from spilling an
+	// unbounded request to disk.
+	maxWorkspaceUploadRequestBytes = 33 << 20
 )
 
 // lifecycleValueContext takes cancellation and deadlines from the server
@@ -1009,6 +1014,10 @@ func (s *Server) writeWorkspaceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, "path is a directory")
 	case errors.Is(err, sessionaccess.ErrBinary):
 		writeError(w, http.StatusBadRequest, "file appears to be binary")
+	case home.IsOutcomeUnknown(err):
+		writeError(w, http.StatusConflict, "workspace mutation outcome is unknown; inspect state before retrying")
+	case errors.Is(err, sessionaccess.ErrTooLarge):
+		writeError(w, http.StatusRequestEntityTooLarge, "workspace payload exceeds limit")
 	case errors.Is(err, sessionaccess.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not found")
 	case errors.Is(err, sessionaccess.ErrForbidden), errors.Is(err, sessionaccess.ErrUnavailable):
@@ -1146,7 +1155,13 @@ func (s *Server) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 	if !ok {
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxWorkspaceUploadRequestBytes)
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeError(w, http.StatusRequestEntityTooLarge, "workspace payload exceeds limit")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "invalid multipart form")
 		return
 	}
@@ -1156,7 +1171,7 @@ func (s *Server) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 		return
 	}
 	defer func() { _ = file.Close() }()
-	result, err := access.UploadWorkspacePath(r.Context(), sessionaccess.WorkspaceUploadInput{AgentID: agentID, SessionID: sessionID, Filename: header.Filename, Reader: file, Now: time.Now()})
+	result, err := access.UploadWorkspacePath(r.Context(), sessionaccess.WorkspaceUploadInput{AgentID: agentID, SessionID: sessionID, Filename: header.Filename, Reader: file, ContentLength: &header.Size, Now: time.Now()})
 	if err != nil {
 		s.writeWorkspaceError(w, err)
 		return

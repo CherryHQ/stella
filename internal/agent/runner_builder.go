@@ -215,17 +215,27 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 
 		// Resolve project directory when session has a project.
 		var projectRoot string
-		if params.ProjectID != "" && cfg.ProjectResolver != nil {
+		if params.ProjectID != "" {
+			if cfg.ProjectResolver == nil {
+				if scratchCleanup != nil {
+					_ = scratchCleanup()
+				}
+				return nil, fmt.Errorf("runner: project resolver is required")
+			}
 			dir, err := cfg.ProjectResolver(ctx, params.ProjectID, params.UserID)
 			if err != nil {
-				slog.Warn("project resolution failed", "project_id", params.ProjectID, "error", err)
-			} else if dir != "" {
-				if err := ValidateProjectDir(dir, projectValidateRoot); err != nil {
-					slog.Warn("project dir validation failed", "project_id", params.ProjectID, "base_dir", dir, "error", err)
-				} else {
-					projectRoot = dir
+				if scratchCleanup != nil {
+					_ = scratchCleanup()
 				}
+				return nil, fmt.Errorf("runner: resolve project %q: %w", params.ProjectID, err)
 			}
+			if dir == "" || ValidateProjectDir(dir, projectValidateRoot) != nil {
+				if scratchCleanup != nil {
+					_ = scratchCleanup()
+				}
+				return nil, fmt.Errorf("runner: project %q is outside the agent workspace", params.ProjectID)
+			}
+			projectRoot = dir
 		}
 
 		// Extract memory provider from params (typed as any to avoid circular imports).
@@ -289,18 +299,52 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		if params.GroupID != "" {
 			promptUserID = ""
 		}
+		var projectContext prompt.ProjectContext
+		var projectPath string
+		if projectRoot != "" {
+			relative, relErr := filepath.Rel(workspaceRoot, projectRoot)
+			if relErr != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+				if scratchCleanup != nil {
+					_ = scratchCleanup()
+				}
+				return nil, fmt.Errorf("runner: project %q is outside the workspace", params.ProjectID)
+			}
+			projectPath = filepath.ToSlash(relative)
+			opener, ok := cfg.WorkspaceViewer.(home.RootOpener)
+			if !ok {
+				if scratchCleanup != nil {
+					_ = scratchCleanup()
+				}
+				return nil, fmt.Errorf("runner: Home root opener is required for project context")
+			}
+			contextRoot, openErr := opener.OpenRoot(ctx, home.WorkspaceRequest{UserID: params.UserID, GroupID: params.GroupID, AgentID: params.AgentID}, home.RootAgentWorkspace, home.RootReadOnly)
+			if openErr != nil {
+				if scratchCleanup != nil {
+					_ = scratchCleanup()
+				}
+				return nil, fmt.Errorf("runner: project context unavailable")
+			}
+			projectContext, err = prompt.SnapshotProjectContext(ctx, contextRoot, projectPath)
+			if err != nil {
+				if scratchCleanup != nil {
+					_ = scratchCleanup()
+				}
+				return nil, fmt.Errorf("runner: project context unavailable")
+			}
+		}
 		system := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-			SystemPrompt: cfg.Snap.SystemPrompt,
-			AgentSoul:    cfg.Snap.Soul,
-			Memory:       memProvider,
-			UserID:       promptUserID,
-			AgentID:      params.AgentID,
-			GroupID:      params.GroupID,
-			StellaHome:   config.StellaHome(),
-			AgentRoot:    cfg.Snap.Workspace,
-			ProjectRoot:  projectRoot,
-			UserRoot:     userRoot,
-			Sections:     sections,
+			SystemPrompt:   cfg.Snap.SystemPrompt,
+			AgentSoul:      cfg.Snap.Soul,
+			Memory:         memProvider,
+			UserID:         promptUserID,
+			AgentID:        params.AgentID,
+			GroupID:        params.GroupID,
+			StellaHome:     config.StellaHome(),
+			AgentRoot:      cfg.Snap.Workspace,
+			ProjectRoot:    projectRoot,
+			ProjectContext: projectContext,
+			UserRoot:       userRoot,
+			Sections:       sections,
 		})
 
 		// Resolve hooks from RunnerParams — injected by Pool, not the builder.

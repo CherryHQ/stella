@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
+	"path/filepath"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -36,7 +39,7 @@ type PromptAgentStore interface {
 }
 
 type PromptProjectStore interface {
-	ProjectRoot(context.Context, string, string) (string, error)
+	ProjectRoot(context.Context, string, string, string) (string, error)
 }
 
 type PromptPlugins interface {
@@ -132,11 +135,34 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 
 	projectRoot := ""
 	if info.UserID != "" && info.ProjectID != "" {
-		root, err := b.deps.Projects.ProjectRoot(ctx, info.UserID, info.ProjectID)
+		root, err := b.deps.Projects.ProjectRoot(ctx, info.UserID, info.AgentID, info.ProjectID)
 		if err != nil {
 			return "", fmt.Errorf("%w: project root: %w", ErrUnavailable, err)
 		}
+		if root == "" {
+			return "", fmt.Errorf("%w: project is unavailable for this agent", ErrUnavailable)
+		}
 		projectRoot = root
+	}
+	projectPath := "."
+	if projectRoot != "" {
+		if filepath.IsAbs(projectRoot) {
+			relative, err := filepath.Rel(workspaceRoot, projectRoot)
+			if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+				return "", fmt.Errorf("%w: project path is outside the agent workspace", ErrUnavailable)
+			}
+			projectPath = filepath.ToSlash(relative)
+		} else {
+			projectPath = filepath.ToSlash(projectRoot)
+			if projectPath == "." {
+				projectRoot = workspaceRoot
+			} else {
+				projectRoot = filepath.Join(workspaceRoot, filepath.FromSlash(projectPath))
+			}
+		}
+		if projectPath != "." && (path.IsAbs(projectPath) || path.Clean(projectPath) != projectPath || projectPath == ".." || strings.HasPrefix(projectPath, "../") || strings.Contains(projectPath, `\`)) {
+			return "", fmt.Errorf("%w: invalid project path", ErrUnavailable)
+		}
 	}
 
 	pluginView, err := b.deps.Plugins.SessionPluginView(ctx)
@@ -170,17 +196,35 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 	if info.GroupID != "" {
 		promptUserID = ""
 	}
-	return prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-		SystemPrompt: agentCfg.SystemPrompt,
-		Memory:       b.deps.Memory,
-		UserID:       promptUserID,
-		AgentID:      info.AgentID,
-		GroupID:      info.GroupID,
-		StellaHome:   b.deps.StellaHome,
-		AgentRoot:    agentCfg.Workspace,
-		UserRoot:     userRoot,
-		Sections:     append(promptSections, b.deps.Plugins.ManifestPluginPrompts()...),
-	}), nil
+	var projectContext prompt.ProjectContext
+	if projectRoot != "" {
+		opener, ok := b.deps.Workspace.(home.RootOpener)
+		if !ok {
+			return "", fmt.Errorf("%w: Home root opener is required for project context", ErrUnavailable)
+		}
+		contextRoot, openErr := opener.OpenRoot(ctx, home.WorkspaceRequest{UserID: info.UserID, GroupID: info.GroupID, AgentID: info.AgentID}, home.RootAgentWorkspace, home.RootReadOnly)
+		if openErr != nil {
+			return "", fmt.Errorf("%w: project context unavailable", ErrUnavailable)
+		}
+		projectContext, err = prompt.SnapshotProjectContext(ctx, contextRoot, projectPath)
+		if err != nil {
+			return "", fmt.Errorf("%w: project context unavailable", ErrUnavailable)
+		}
+	}
+	system := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
+		SystemPrompt:   agentCfg.SystemPrompt,
+		Memory:         b.deps.Memory,
+		UserID:         promptUserID,
+		AgentID:        info.AgentID,
+		GroupID:        info.GroupID,
+		StellaHome:     b.deps.StellaHome,
+		AgentRoot:      agentCfg.Workspace,
+		ProjectRoot:    projectRoot,
+		ProjectContext: projectContext,
+		UserRoot:       userRoot,
+		Sections:       append(promptSections, b.deps.Plugins.ManifestPluginPrompts()...),
+	})
+	return system, nil
 }
 
 // ConfigPromptAgentStore adapts the deployment config store to the prompt port.
@@ -201,13 +245,16 @@ func NewSQLPromptProjectStore(db sqlc.DBTX) *SQLPromptProjectStore {
 	return &SQLPromptProjectStore{q: sqlc.New(db)}
 }
 
-func (s *SQLPromptProjectStore) ProjectRoot(ctx context.Context, userID, projectID string) (string, error) {
+func (s *SQLPromptProjectStore) ProjectRoot(ctx context.Context, userID, agentID, projectID string) (string, error) {
 	p, err := s.q.GetProject(ctx, sqlc.GetProjectParams{ID: projectID, UserID: userID})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
 		return "", err
+	}
+	if p.AgentID != agentID {
+		return "", nil
 	}
 	return p.BaseDir, nil
 }

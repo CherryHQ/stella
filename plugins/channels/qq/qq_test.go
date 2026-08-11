@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -500,7 +499,7 @@ func TestStopWithoutCancel(t *testing.T) {
 func TestBuildMessageContentTextOnly(t *testing.T) {
 	bot := &Bot{}
 	msg := &dto.Message{Content: "hello world"}
-	content := bot.buildMessageContent(msg, "")
+	content := bot.buildMessageContent(msg, channel.IncomingMessage{})
 	if len(content) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(content))
 	}
@@ -516,7 +515,7 @@ func TestBuildMessageContentTextOnly(t *testing.T) {
 func TestBuildMessageContentEmpty(t *testing.T) {
 	bot := &Bot{}
 	msg := &dto.Message{Content: "  "}
-	content := bot.buildMessageContent(msg, "")
+	content := bot.buildMessageContent(msg, channel.IncomingMessage{})
 	if content != nil {
 		t.Errorf("expected nil for blank message, got %v", content)
 	}
@@ -525,7 +524,7 @@ func TestBuildMessageContentEmpty(t *testing.T) {
 func TestBuildMessageContentEmptyNoAttachments(t *testing.T) {
 	bot := &Bot{}
 	msg := &dto.Message{}
-	content := bot.buildMessageContent(msg, "")
+	content := bot.buildMessageContent(msg, channel.IncomingMessage{})
 	if content != nil {
 		t.Errorf("expected nil for empty message, got %v", content)
 	}
@@ -583,16 +582,16 @@ type savedAsset struct {
 	data      []byte
 }
 
-func (m *assetMockHandler) ResolveUserRoot(_ context.Context, _ channel.IncomingMessage) (string, error) {
-	return m.userRoot, nil
+func (m *assetMockHandler) AdmitAssetSave(_ context.Context, _ channel.IncomingMessage) error {
+	return nil
 }
 
-func (m *assetMockHandler) SaveAsset(_ context.Context, assetsDir, fileName string, data []byte) (string, error) {
+func (m *assetMockHandler) SaveAsset(_ context.Context, msg channel.IncomingMessage, fileName string, data []byte) (string, error) {
 	if m.saveErr != nil {
 		return "", m.saveErr
 	}
-	m.saveCalls = append(m.saveCalls, savedAsset{assetsDir: assetsDir, fileName: fileName, data: append([]byte(nil), data...)})
-	return filepath.Join(assetsDir, fileName), nil
+	m.saveCalls = append(m.saveCalls, savedAsset{assetsDir: "$STELLA_ASSETS_DIR", fileName: fileName, data: append([]byte(nil), data...)})
+	return "$STELLA_ASSETS_DIR/" + fileName, nil
 }
 
 func TestResolveAssetsDirImageOnlyMessage(t *testing.T) {
@@ -605,7 +604,7 @@ func TestResolveAssetsDirImageOnlyMessage(t *testing.T) {
 	}
 	// Regression: an image-only message (no file attachments) must still resolve a
 	// storage dir so the image is persisted rather than inline-only.
-	if got := bot.resolveAssetsDir(bot.incomingMsg("user1", "", nil), msg); got == "" {
+	if got := bot.resolveAssetsDir(bot.incomingMsg("user1", "", nil), msg); got.Platform == "" {
 		t.Fatal("expected a resolved assets dir for an image-only message, got \"\"")
 	}
 }
@@ -627,7 +626,7 @@ func TestBuildMessageContentPersistsPureImage(t *testing.T) {
 	}
 
 	assetsDir := bot.resolveAssetsDir(bot.incomingMsg("user1", "", nil), msg)
-	if assetsDir == "" {
+	if assetsDir.Platform == "" {
 		t.Fatal("expected a resolved assets dir for an image-only message")
 	}
 

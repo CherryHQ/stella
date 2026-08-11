@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"errors"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -44,6 +46,62 @@ func (w testWorkspaceViewer) WorkspaceView(_ context.Context, req home.Workspace
 		return shared, nil
 	}
 	return shared, nil
+}
+
+func (w testWorkspaceViewer) OpenRoot(ctx context.Context, req home.WorkspaceRequest, scope home.RootScope, _ home.RootAccess) (home.RootOperations, error) {
+	view, err := w.WorkspaceView(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	dir := view.AgentRoot
+	if scope == home.RootPrincipalData {
+		dir = view.DataRoot
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	return runnerTestRoot{Root: root}, nil
+}
+
+type runnerTestRoot struct{ *os.Root }
+
+func (r runnerTestRoot) Stat(_ context.Context, name string) (fs.FileInfo, error) {
+	return r.Root.Stat(name)
+}
+
+func (r runnerTestRoot) List(context.Context, string, home.ListOptions) ([]fs.DirEntry, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r runnerTestRoot) Read(_ context.Context, name string, dst io.Writer, options home.ReadOptions) error {
+	file, err := r.Open(name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+	_, err = io.Copy(dst, io.LimitReader(file, options.MaxBytes))
+	return err
+}
+
+func (r runnerTestRoot) Write(context.Context, string, io.Reader, home.WriteOptions) error {
+	return errors.New("not implemented")
+}
+
+func (r runnerTestRoot) Upload(context.Context, string, io.Reader, home.WriteOptions) error {
+	return errors.New("not implemented")
+}
+
+func (r runnerTestRoot) Mkdir(context.Context, string, fs.FileMode, home.MkdirOptions) error {
+	return errors.New("not implemented")
+}
+
+func (r runnerTestRoot) Remove(context.Context, string, home.RemoveOptions) error {
+	return errors.New("not implemented")
+}
+
+func (r runnerTestRoot) Rename(context.Context, string, string, home.RenameOptions) error {
+	return errors.New("not implemented")
 }
 
 func TestNewRunnerFuncUsesPrincipalWorkspace(t *testing.T) {

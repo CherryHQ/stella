@@ -20,6 +20,9 @@ const (
 	PlatformFeishu   = "feishu"
 	PlatformWeixin   = "weixin"
 	PlatformCLI      = "cli"
+
+	// MaxInboundAttachmentBytes bounds one attachment before durable publication.
+	MaxInboundAttachmentBytes = 32 << 20
 )
 
 // Channel is a messaging platform adapter.
@@ -160,11 +163,10 @@ type Provisioner interface {
 	ProvisionUser(ctx context.Context, req ProvisionRequest) error
 }
 
-// UserRootResolver is an optional capability that a Handler may implement.
-// Channel plugins assert for this interface when they need the per-user
-// writable root path (e.g. to store uploaded files) before calling HandleIncoming.
-type UserRootResolver interface {
-	ResolveUserRoot(ctx context.Context, msg IncomingMessage) (string, error)
+// AssetSaveAdmitter authorizes attachment ingestion before a plugin downloads
+// untrusted bytes. It deliberately exposes no workspace or host path.
+type AssetSaveAdmitter interface {
+	AdmitAssetSave(ctx context.Context, msg IncomingMessage) error
 }
 
 // BotRegistrar is an optional capability that a Handler may implement.
@@ -176,14 +178,9 @@ type BotRegistrar interface {
 }
 
 // AssetSaver is an optional capability that a Handler may implement. Channel
-// plugins assert for it to persist an inbound attachment (file/media) through
-// the deployment's authoritative asset store instead of writing local files that
-// would be lost across replicas. It replaces the former blob process-global: the
-// host owns durable-write semantics, the plugin only supplies the bytes and the
-// resolved per-user assets directory (from UserRootResolver).
+// plugins assert for it to persist inbound bytes. Identity and workspace
+// selection remain entirely host-owned.
 type AssetSaver interface {
-	// SaveAsset writes data as a new file under assetsDir and returns the local
-	// materialized path, durably persisting it in the asset authority. An
-	// authority failure returns an error (the asset is never silently local-only).
-	SaveAsset(ctx context.Context, assetsDir, fileName string, data []byte) (string, error)
+	// SaveAsset returns a portable $STELLA_ASSETS_DIR expression, never a host path.
+	SaveAsset(ctx context.Context, msg IncomingMessage, fileName string, data []byte) (string, error)
 }

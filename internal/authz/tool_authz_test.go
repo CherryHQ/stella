@@ -3,6 +3,9 @@ package authz_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -250,7 +253,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "report.html"), []byte("<p>ok</p>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	shareSvc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssetStore(t, home), home, "http://stella.test", sharepkg.WithHomeWorkspace(toolAuthzWorkspaceViewer{root: home}))
+	shareSvc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssetStore(t, home), home, "http://stella.test", sharepkg.WithHomeWorkspace(toolAuthzWorkspaceViewer{root: home}), sharepkg.WithAgentAccess(agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db))))
 	ownerShare, err := q.CreateShare(ctx, sqlc.CreateShareParams{ID: uuid.NewString(), TokenHash: "owner-share-hash", UserID: ownerUser, Title: "owner share", MediaType: "text/html", Content: []byte("owner secret")})
 	if err != nil {
 		t.Fatalf("CreateShare: %v", err)
@@ -379,4 +382,60 @@ func (w toolAuthzWorkspaceViewer) WorkspaceView(_ context.Context, req homepkg.W
 		return homepkg.WorkspaceView{}, err
 	}
 	return homepkg.WorkspaceView{PrincipalRoot: principal, DataRoot: data, AgentRoot: agentRoot}, nil
+}
+
+func (w toolAuthzWorkspaceViewer) OpenRoot(ctx context.Context, req homepkg.WorkspaceRequest, scope homepkg.RootScope, _ homepkg.RootAccess) (homepkg.RootOperations, error) {
+	view, err := w.WorkspaceView(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	dir := view.AgentRoot
+	if scope == homepkg.RootPrincipalData {
+		dir = view.DataRoot
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	return toolAuthzRoot{Root: root}, nil
+}
+
+type toolAuthzRoot struct{ *os.Root }
+
+func (r toolAuthzRoot) Stat(_ context.Context, name string) (fs.FileInfo, error) {
+	return r.Root.Stat(name)
+}
+
+func (r toolAuthzRoot) List(_ context.Context, _ string, _ homepkg.ListOptions) ([]fs.DirEntry, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r toolAuthzRoot) Read(_ context.Context, name string, dst io.Writer, options homepkg.ReadOptions) error {
+	file, err := r.Open(name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+	_, err = io.Copy(dst, io.LimitReader(file, options.MaxBytes))
+	return err
+}
+
+func (r toolAuthzRoot) Write(context.Context, string, io.Reader, homepkg.WriteOptions) error {
+	return errors.New("not implemented")
+}
+
+func (r toolAuthzRoot) Upload(context.Context, string, io.Reader, homepkg.WriteOptions) error {
+	return errors.New("not implemented")
+}
+
+func (r toolAuthzRoot) Mkdir(context.Context, string, fs.FileMode, homepkg.MkdirOptions) error {
+	return errors.New("not implemented")
+}
+
+func (r toolAuthzRoot) Remove(context.Context, string, homepkg.RemoveOptions) error {
+	return errors.New("not implemented")
+}
+
+func (r toolAuthzRoot) Rename(context.Context, string, string, homepkg.RenameOptions) error {
+	return errors.New("not implemented")
 }

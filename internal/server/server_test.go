@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -82,6 +84,83 @@ func (w externalServerTestWorkspace) WorkspaceView(_ context.Context, req home.W
 		return home.WorkspaceView{}, err
 	}
 	return home.WorkspaceView{PrincipalRoot: principal, DataRoot: data, AgentRoot: agentRoot}, nil
+}
+
+func (w externalServerTestWorkspace) OpenRoot(ctx context.Context, req home.WorkspaceRequest, scope home.RootScope, _ home.RootAccess) (home.RootOperations, error) {
+	view, err := w.WorkspaceView(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	dir := view.AgentRoot
+	if scope == home.RootPrincipalData {
+		dir = view.DataRoot
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	return externalServerTestRoot{Root: root}, nil
+}
+
+type externalServerTestRoot struct{ *os.Root }
+
+func (r externalServerTestRoot) Close() error { return r.Root.Close() }
+func (r externalServerTestRoot) Stat(_ context.Context, name string) (fs.FileInfo, error) {
+	return r.Root.Stat(name)
+}
+
+func (r externalServerTestRoot) List(_ context.Context, name string, options home.ListOptions) ([]fs.DirEntry, error) {
+	dir, err := r.OpenRoot(name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = dir.Close() }()
+	f, err := dir.Open(".")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return f.ReadDir(options.Limit)
+}
+
+func (r externalServerTestRoot) Read(_ context.Context, name string, dst io.Writer, options home.ReadOptions) error {
+	f, err := r.Open(name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	_, err = io.Copy(dst, io.LimitReader(f, options.MaxBytes))
+	return err
+}
+
+func (r externalServerTestRoot) Write(_ context.Context, name string, src io.Reader, options home.WriteOptions) error {
+	data, err := io.ReadAll(src)
+	if err != nil {
+		return err
+	}
+	return r.WriteFile(name, data, options.Mode)
+}
+
+func (r externalServerTestRoot) Upload(ctx context.Context, name string, src io.Reader, options home.WriteOptions) error {
+	return r.Write(ctx, name, src, options)
+}
+
+func (r externalServerTestRoot) Mkdir(_ context.Context, name string, mode fs.FileMode, options home.MkdirOptions) error {
+	if options.Parents {
+		return r.MkdirAll(name, mode)
+	}
+	return r.Root.Mkdir(name, mode)
+}
+
+func (r externalServerTestRoot) Remove(_ context.Context, name string, options home.RemoveOptions) error {
+	if options.Recursive {
+		return r.RemoveAll(name)
+	}
+	return r.Root.Remove(name)
+}
+
+func (r externalServerTestRoot) Rename(_ context.Context, oldName, newName string, _ home.RenameOptions) error {
+	return r.Root.Rename(oldName, newName)
 }
 
 // externalTestTransportOwnerDeletion preserves the HTTP fixture's historical
@@ -319,7 +398,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		ControlPlane:        controlplane.NewService(store, phost, poolManager, credSvc, slog.With("component", "controlplane-test")),
 		Webhooks:            webhookSvc,
 		Email:               email.NewService(nil, sqlc.New(db)),
-		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL, sharepkg.WithHomeWorkspace(externalServerTestWorkspace{root: config.StellaHome()})),
+		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL, sharepkg.WithHomeWorkspace(externalServerTestWorkspace{root: config.StellaHome()}), sharepkg.WithAgentAccess(agentAccess)),
 		Assets:              assetStore,
 		Recally:             recally.NewService(recallyStore, t.TempDir()),
 		CredentialFrontDoor: credFrontDoor,

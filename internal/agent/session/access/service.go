@@ -47,7 +47,7 @@ type Service struct {
 	assets   *asset.Store
 	runtime  RuntimeManager
 	prompts  SystemPromptBuilder
-	homes    home.WorkspaceViewer
+	homes    home.RootOpener
 }
 
 type Option func(*Service)
@@ -56,8 +56,8 @@ func WithSystemPromptBuilder(builder SystemPromptBuilder) Option {
 	return func(s *Service) { s.prompts = builder }
 }
 
-func WithHomeWorkspace(viewer home.WorkspaceViewer) Option {
-	return func(s *Service) { s.homes = viewer }
+func WithHomeWorkspace(opener home.RootOpener) Option {
+	return func(s *Service) { s.homes = opener }
 }
 
 // NewService constructs the only Session/Workspace PEP. The registry remains the

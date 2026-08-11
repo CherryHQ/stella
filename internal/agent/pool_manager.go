@@ -18,7 +18,6 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/agentskillpolicy"
-	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/home"
@@ -148,12 +147,6 @@ func WithHomeWorkspace(v home.WorkspaceViewer) PoolManagerOption {
 	return func(pm *PoolManager) { pm.homeWorkspace = v }
 }
 
-// WithAssetStorePM injects the authoritative asset store used for cold-pod asset
-// hydration. When unset (e.g. in tests), hydration is skipped.
-func WithAssetStorePM(a *asset.Store) PoolManagerOption {
-	return func(pm *PoolManager) { pm.assets = a }
-}
-
 // WithSessionImagePipeline wires the ordinary-session canonical image boundary.
 // Groups deliberately bypass it until their separate ownership model exists.
 func WithSessionImagePipeline(images SessionImagePipeline) PoolManagerOption {
@@ -212,7 +205,6 @@ type PoolManager struct {
 	projectEnsurer           ProjectEnsurerFunc
 	tokenManager             *oauth.TokenManager
 	oauthRegistry            *oauth.ProviderRegistry
-	assets                   *asset.Store
 	sessionImages            SessionImagePipeline
 	sessionAccess            SessionAccessService
 	sessionInbox             SessionInbox
@@ -506,30 +498,11 @@ func (pm *PoolManager) promptScope(ctx context.Context, info session.Info) (user
 			return "", "", "", "", fmt.Errorf("resolve Home workspace: %w", resolveErr)
 		}
 		userRoot, workspaceRoot = workspace.PrincipalRoot, workspace.AgentRoot
-		pm.hydrateAssets(userRoot)
 	}
 	if info.GroupID != "" {
 		return userRoot, workspaceRoot, "", info.GroupID, nil
 	}
 	return userRoot, workspaceRoot, info.UserID, "", nil
-}
-
-// hydrateAssets restores the principal's assets subtree from the shared asset
-// authority in the background, so a cold pod's empty assets tree fills in shortly
-// after the session starts without adding to startup latency. Single-flight per
-// tree lives in asset.Store.HydrateUser. context.Background() (not a request ctx)
-// keeps the copy from being cancelled when the caller returns. No-op when no asset
-// store is configured (e.g. tests) or the deployment has no shared authority.
-func (pm *PoolManager) hydrateAssets(home string) {
-	if pm.assets == nil {
-		return
-	}
-	assets := pm.assets
-	go func() {
-		if err := assets.HydrateUser(context.Background(), UserAssetsDir(home)); err != nil {
-			pm.log.Warn("hydrate user assets failed", "home", home, "error", err)
-		}
-	}()
 }
 
 func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot, info session.Info, userRoot, workspaceRoot string) []pkgplugins.SystemPromptSection {

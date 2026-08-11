@@ -138,7 +138,7 @@ func TestParseSlashCommand(t *testing.T) {
 }
 
 func TestFileReceivedContentUsesXberg(t *testing.T) {
-	blocks := FileReceivedContent("report.pdf", "/home/stella/assets", "/home/stella/assets/report.pdf")
+	blocks := FileReceivedContent("report.pdf", "$STELLA_ASSETS_DIR/report.pdf")
 	got := ai.FlattenText(blocks)
 	if !strings.Contains(got, "Read Xberg skill") || !strings.Contains(got, "`xberg extract") {
 		t.Fatalf("FileReceivedContent() = %q, want Xberg extraction hint", got)
@@ -152,12 +152,12 @@ func TestAttachmentReceivedContentInlinesImages(t *testing.T) {
 	}
 	data := buf.Bytes()
 
-	blocks := AttachmentReceivedContent("photo.png", "/home/stella/assets", "/home/stella/assets/photo.png", data)
+	blocks := AttachmentReceivedContent("photo.png", "$STELLA_ASSETS_DIR/photo.png", data)
 	if len(blocks) != 2 {
 		t.Fatalf("expected note + image blocks, got %d: %#v", len(blocks), blocks)
 	}
 	note, ok := blocks[0].(ai.TextContent)
-	if !ok || !strings.Contains(note.Text, "assets/photo.png") {
+	if !ok || !strings.Contains(note.Text, "$STELLA_ASSETS_DIR/photo.png") {
 		t.Fatalf("note block = %#v, want saved-path note", blocks[0])
 	}
 	if strings.Contains(note.Text, "xberg") {
@@ -173,7 +173,7 @@ func TestAttachmentReceivedContentInlinesImages(t *testing.T) {
 }
 
 func TestAttachmentReceivedContentFallsBackToFileHint(t *testing.T) {
-	blocks := AttachmentReceivedContent("report.pdf", "/home/stella/assets", "/home/stella/assets/report.pdf", []byte("%PDF-1.7 not an image"))
+	blocks := AttachmentReceivedContent("report.pdf", "$STELLA_ASSETS_DIR/report.pdf", []byte("%PDF-1.7 not an image"))
 	got := ai.FlattenText(blocks)
 	if !strings.Contains(got, "`xberg extract") {
 		t.Fatalf("non-image attachment = %q, want Xberg extraction hint", got)
@@ -186,7 +186,7 @@ func TestAttachmentReceivedContentOversizedImageHintsRead(t *testing.T) {
 		t.Fatalf("encode: %v", err)
 	}
 	data := append(buf.Bytes(), make([]byte, ai.MaxImageInputBytes)...)
-	blocks := AttachmentReceivedContent("huge.png", "/home/stella/assets", "/home/stella/assets/huge.png", data)
+	blocks := AttachmentReceivedContent("huge.png", "$STELLA_ASSETS_DIR/huge.png", data)
 	if len(blocks) != 1 || !strings.Contains(ai.FlattenText(blocks), "`read` tool") {
 		t.Fatalf("blocks = %#v, want read hint", blocks)
 	}

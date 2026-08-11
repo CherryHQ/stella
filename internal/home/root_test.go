@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -274,6 +275,35 @@ func TestRootInterruptedWriteReportsOutcomeUnknown(t *testing.T) {
 	err = r.Write(writeCtx, "partial", &cancelAfterChunkReader{cancel: cancel}, WriteOptions{})
 	if !IsOutcomeUnknown(err) || !errors.Is(err, context.Canceled) {
 		t.Fatalf("interrupted write = %v", err)
+	}
+}
+
+func TestRootInterruptedUploadDoesNotPublishPartialTarget(t *testing.T) {
+	db, ctx, base := dbtest.New(t), t.Context(), t.TempDir()
+	user, agentID := uuid.NewString(), "cancel-upload-agent"
+	if _, err := db.Exec(ctx, "INSERT INTO auth_user(id,email) VALUES($1,$2)", user, user+"@test.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO agent (id, name, workspace) VALUES ($1, 'Agent', '')`, agentID); err != nil {
+		t.Fatal(err)
+	}
+	m, err := NewWorkspaceManager(db, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+	root, err := m.OpenRoot(ctx, WorkspaceRequest{UserID: user, AgentID: agentID}, RootAgentWorkspace, RootReadWrite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	uploadCtx, cancel := context.WithCancel(ctx)
+	err = root.Upload(uploadCtx, "published", &cancelAfterChunkReader{cancel: cancel}, WriteOptions{})
+	if !errors.Is(err, context.Canceled) || IsOutcomeUnknown(err) {
+		t.Fatalf("interrupted upload = %v, want known unpublished cancellation", err)
+	}
+	if _, err := root.Stat(ctx, "published"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("partial upload target stat = %v, want not exist", err)
 	}
 }
 

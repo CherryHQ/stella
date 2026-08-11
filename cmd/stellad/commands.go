@@ -471,7 +471,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	recallyStore := recally.NewStore(db)
 	recallySvc := recally.NewService(recallyStore, config.StellaHome())
-	shareSvc := sharepkg.NewServiceForPool(db, memProvider, recallyStore, assetStore, config.StellaHome(), baseURL, sharepkg.WithHomeWorkspace(homeRegistry))
+	shareSvc := sharepkg.NewServiceForPool(db, memProvider, recallyStore, assetStore, config.StellaHome(), baseURL, sharepkg.WithHomeWorkspace(homeRegistry), sharepkg.WithAgentAccess(agentAccess))
 
 	// MCP registration service: one instance shared by the HTTP API and the agent
 	// runtime. Built here (before StartAll) so its tool provider can be bound into
@@ -510,7 +510,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithSnapshotLoader(snapshotLoader),
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
-		agent.WithAssetStorePM(assetStore),
 		agent.WithSessionImagePipeline(sessionImages),
 		agent.WithSessionInboxPM(sessionInbox),
 		agent.WithBuiltinTools(builtinTools),

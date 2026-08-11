@@ -8,7 +8,6 @@ import (
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
-	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -168,10 +167,10 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	// For file and image-bearing messages: resolve the per-user assets directory
 	// before building content so the downloaded attachment lands in the user's
 	// persistent workspace rather than a throwaway temp directory.
-	var assetsDir string
+	var assetMsg channel.IncomingMessage
 	switch derefStr(msg.MessageType) {
 	case "file", "image", "post":
-		resolver, ok := b.handler.(channel.UserRootResolver)
+		resolver, ok := b.handler.(channel.AssetSaveAdmitter)
 		if !ok {
 			logger().Warn("rejecting attachment: user root resolver unavailable")
 			return nil
@@ -180,7 +179,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 			probeMsg := b.incomingMsg(senderIDs, chatID, chatType, nil)
 			probeMsg.ThreadID = rootID
 			resolveCtx, resolveCancel := b.apiContext()
-			userRoot, err := resolver.ResolveUserRoot(resolveCtx, probeMsg)
+			err := resolver.AdmitAssetSave(resolveCtx, probeMsg)
 			resolveCancel()
 			if err != nil {
 				logger().Warn("rejecting attachment: resolve user root failed", "error", err)
@@ -190,15 +189,11 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 				b.replyInThread(replyCtx, messageID, rootID, text)
 				return nil
 			}
-			if userRoot == "" {
-				logger().Warn("rejecting attachment: resolved user root is empty")
-				return nil
-			}
-			assetsDir = agent.UserAssetsDir(userRoot)
+			assetMsg = probeMsg
 		}
 	}
 
-	content := b.buildMessageContent(msg, assetsDir)
+	content := b.buildMessageContent(msg, assetMsg)
 	if content == nil {
 		return nil
 	}
@@ -275,7 +270,7 @@ func prependSystemPrompt(content []ai.ContentBlock, prompt string) []ai.ContentB
 // assets dir (or when saving fails) the image degrades to inline-only. The
 // bool is false when the download fails (already logged), letting callers
 // decide whether to drop the message or emit a text fallback.
-func (b *Bot) imageContentBlocks(messageID, imageKey, assetsDir string) ([]ai.ContentBlock, bool) {
+func (b *Bot) imageContentBlocks(messageID, imageKey string, assetMsg channel.IncomingMessage) ([]ai.ContentBlock, bool) {
 	data, mime, err := b.downloadImage(messageID, imageKey)
 	if err != nil {
 		logger().Error("download image failed", "image_key", imageKey, "error", err)
@@ -283,10 +278,10 @@ func (b *Bot) imageContentBlocks(messageID, imageKey, assetsDir string) ([]ai.Co
 	}
 	logger().Debug("image received", "size", len(data), "mime", mime)
 	fileName := channel.ImageFileName(imageKey, mime)
-	if assetsDir != "" {
-		savedPath, saveErr := b.saveAsset(b.ctx, assetsDir, fileName, data)
+	if assetMsg.Platform != "" {
+		savedPath, saveErr := b.saveAsset(b.ctx, assetMsg, fileName, data)
 		if saveErr == nil {
-			return channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data), true
+			return channel.AttachmentReceivedContent(fileName, savedPath, data), true
 		}
 		logger().Warn("save inbound image failed", "error", saveErr)
 	}
@@ -298,7 +293,7 @@ func (b *Bot) imageContentBlocks(messageID, imageKey, assetsDir string) ([]ai.Co
 // buildMessageContent constructs the message content from a Feishu message.
 // assetsDir is the resolved per-user assets directory; pass "" to fall back to
 // the filename-only placeholder when the path is not yet known.
-func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string) []ai.ContentBlock {
+func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetMsg channel.IncomingMessage) []ai.ContentBlock {
 	msgType := derefStr(msg.MessageType)
 	rawContent := derefStr(msg.Content)
 	messageID := derefStr(msg.MessageId)
@@ -331,7 +326,7 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string) []
 			blocks = append(blocks, ai.TextContent{Text: text})
 		}
 		for _, imgKey := range imageKeys {
-			imgBlocks, ok := b.imageContentBlocks(messageID, imgKey, assetsDir)
+			imgBlocks, ok := b.imageContentBlocks(messageID, imgKey, assetMsg)
 			if !ok {
 				blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[Failed to download image: %s]", imgKey)})
 				continue
@@ -349,7 +344,7 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string) []
 			logger().Warn("image message missing image_key")
 			return nil
 		}
-		blocks, ok := b.imageContentBlocks(messageID, imageKey, assetsDir)
+		blocks, ok := b.imageContentBlocks(messageID, imageKey, assetMsg)
 		if !ok {
 			return channel.TextContent("[Failed to download image]")
 		}
@@ -367,20 +362,20 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetsDir string) []
 		if fileName == "" {
 			fileName = "file"
 		}
-		if fileKey != "" && assetsDir != "" {
+		if fileKey != "" && assetMsg.Platform != "" {
 			data, err := b.downloadFile(messageID, fileKey)
 			if err != nil {
 				logger().Error("download file failed", "file_key", fileKey, "error", err)
 				return channel.TextContent(parseFileContent(rawContent))
 			}
-			savedPath, saveErr := b.saveAsset(b.ctx, assetsDir, fileName, data)
+			savedPath, saveErr := b.saveAsset(b.ctx, assetMsg, fileName, data)
 			if saveErr != nil {
 				// Persistence failed after a successful download — route a fallback
 				// to the agent rather than discarding the bytes.
 				logger().Warn("save inbound file failed", "error", saveErr)
 				return channel.AttachmentSaveFailureContent(fileName, data)
 			}
-			return channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)
+			return channel.AttachmentReceivedContent(fileName, savedPath, data)
 		}
 		return channel.TextContent(parseFileContent(rawContent))
 

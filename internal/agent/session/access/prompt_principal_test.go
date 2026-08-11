@@ -34,7 +34,7 @@ func (w promptTestWorkspace) WorkspaceView(_ context.Context, req home.Workspace
 	return home.WorkspaceView{}, nil
 }
 
-func (promptTestProjects) ProjectRoot(context.Context, string, string) (string, error) {
+func (promptTestProjects) ProjectRoot(context.Context, string, string, string) (string, error) {
 	return "", nil
 }
 

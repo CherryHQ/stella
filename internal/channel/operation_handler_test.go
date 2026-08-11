@@ -34,11 +34,11 @@ func (h *fullSurfaceHandler) ProvisionUser(context.Context, pkgchannel.Provision
 	return nil
 }
 
-func (h *fullSurfaceHandler) ResolveUserRoot(context.Context, pkgchannel.IncomingMessage) (string, error) {
-	return "", nil
+func (h *fullSurfaceHandler) AdmitAssetSave(context.Context, pkgchannel.IncomingMessage) error {
+	return nil
 }
 
-func (h *fullSurfaceHandler) SaveAsset(ctx context.Context, _, _ string, _ []byte) (string, error) {
+func (h *fullSurfaceHandler) SaveAsset(ctx context.Context, _ pkgchannel.IncomingMessage, _ string, _ []byte) (string, error) {
 	h.assetCtx, _ = ctx.Value(marker).(string)
 	return "saved", nil
 }
@@ -94,14 +94,14 @@ func TestWrapOperationHandlerPreservesOptionalInterfaces(t *testing.T) {
 	if _, ok := wrapped.(pkgchannel.Provisioner); !ok {
 		t.Error("wrapper dropped Provisioner")
 	}
-	if _, ok := wrapped.(pkgchannel.UserRootResolver); !ok {
+	if _, ok := wrapped.(pkgchannel.AssetSaveAdmitter); !ok {
 		t.Error("wrapper dropped UserRootResolver")
 	}
 	assetSaver, ok := wrapped.(pkgchannel.AssetSaver)
 	if !ok {
 		t.Fatal("wrapper dropped AssetSaver")
 	}
-	if _, err := assetSaver.SaveAsset(context.WithValue(context.Background(), marker, "asset"), "assets", "file", nil); err != nil {
+	if _, err := assetSaver.SaveAsset(context.WithValue(context.Background(), marker, "asset"), pkgchannel.IncomingMessage{}, "file", nil); err != nil {
 		t.Fatalf("SaveAsset: %v", err)
 	}
 	if inner.assetCtx != "asset" {

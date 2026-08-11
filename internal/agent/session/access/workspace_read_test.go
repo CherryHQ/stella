@@ -1,31 +1,34 @@
 package access
 
 import (
-	"bytes"
 	"errors"
-	"os"
+	"io"
+	"strings"
 	"testing"
 )
 
-func TestReadRootFileEnforcesLimitDuringRead(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(dir+"/large.bin", bytes.Repeat([]byte("x"), 17), 0o600); err != nil {
-		t.Fatal(err)
+func TestWorkspaceReadHasBoundedDefault(t *testing.T) {
+	if workspaceReadMaxBytes != 32<<20 {
+		t.Fatalf("workspaceReadMaxBytes = %d", workspaceReadMaxBytes)
 	}
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = root.Close() }()
+}
 
-	if _, err := readRootFile(root, "large.bin", 16); !errors.Is(err, ErrTooLarge) {
-		t.Fatalf("read error = %v, want ErrTooLarge", err)
-	}
-	got, err := readRootFile(root, "large.bin", 17)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 17 {
-		t.Fatalf("read bytes = %d, want 17", len(got))
+func TestWorkspaceUploadReaderRejectsBytesBeyondLimit(t *testing.T) {
+	for _, tt := range []struct {
+		name, input string
+		wantErr     error
+	}{
+		{name: "exact", input: "four"},
+		{name: "over", input: "fives", wantErr: ErrTooLarge},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			data, err := io.ReadAll(&workspaceUploadReader{reader: strings.NewReader(tt.input), remaining: 4})
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("ReadAll error = %v, want %v", err, tt.wantErr)
+			}
+			if tt.wantErr == nil && string(data) != tt.input {
+				t.Fatalf("data = %q, want %q", data, tt.input)
+			}
+		})
 	}
 }

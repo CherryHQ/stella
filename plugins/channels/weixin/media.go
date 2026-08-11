@@ -7,10 +7,12 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/httpclient"
 )
 
@@ -176,7 +178,7 @@ func DownloadFromCDN(cdnBaseURL, fullURL, encryptedQueryParam string) ([]byte, e
 
 	client := httpclient.NewWithTimeout(60 * time.Second)
 
-	r := client.R()
+	r := client.R().SetDoNotParseResponse(true)
 	var url string
 	if fullURL != "" {
 		url = fullURL
@@ -189,12 +191,21 @@ func DownloadFromCDN(cdnBaseURL, fullURL, encryptedQueryParam string) ([]byte, e
 	if err != nil {
 		return nil, fmt.Errorf("weixin: cdn download: %w", err)
 	}
+	body := resp.RawBody()
+	defer func() { _ = body.Close() }()
 
 	if resp.StatusCode() != http.StatusOK {
 		return nil, fmt.Errorf("weixin: cdn download status %d", resp.StatusCode())
 	}
 
-	return resp.Body(), nil
+	data, err := io.ReadAll(io.LimitReader(body, channel.MaxInboundAttachmentBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("weixin: read cdn download: %w", err)
+	}
+	if len(data) > channel.MaxInboundAttachmentBytes {
+		return nil, fmt.Errorf("weixin: cdn download exceeds %d bytes", channel.MaxInboundAttachmentBytes)
+	}
+	return data, nil
 }
 
 // RandomFileKey generates a random 16-byte hex string for CDN upload filekey.

@@ -1,19 +1,23 @@
 package channel
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"path"
 	"strings"
+	"time"
 
 	"filippo.io/age"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/google/uuid"
+
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
-	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/eventlog"
@@ -72,10 +76,9 @@ type Coordinator struct {
 	publisherRegistry    *PublisherRegistry
 	groupDispatcher      *GroupDispatcher
 	db                   *pgxpool.Pool
-	assets               *asset.Store
+	rootOpener           home.RootOpener
 	guests               GuestStore
 	guestLimiter         *guestRateLimiter
-	homes                home.WorkspaceViewer
 }
 
 // WithGuestStore enables durable unlinked channel principals.
@@ -86,8 +89,8 @@ func WithGuestStore(store GuestStore) CoordinatorOption {
 // CoordinatorOption configures the Coordinator.
 type CoordinatorOption func(*Coordinator)
 
-func WithHomeWorkspace(viewer home.WorkspaceViewer) CoordinatorOption {
-	return func(c *Coordinator) { c.homes = viewer }
+func WithRootOpener(opener home.RootOpener) CoordinatorOption {
+	return func(c *Coordinator) { c.rootOpener = opener }
 }
 
 // WithCoordinatorAuth configures the coordinator with auth support.
@@ -148,14 +151,6 @@ func NewCoordinator(
 func WithVaultService(svc *vault.Service) CoordinatorOption {
 	return func(c *Coordinator) {
 		c.vaultSvc = svc
-	}
-}
-
-// WithCoordinatorAssets injects the authoritative asset store so inbound channel
-// attachments are persisted durably (satisfies pkgchannel.AssetSaver).
-func WithCoordinatorAssets(a *asset.Store) CoordinatorOption {
-	return func(c *Coordinator) {
-		c.assets = a
 	}
 }
 
@@ -662,39 +657,66 @@ func (c *Coordinator) ProvisionUser(ctx context.Context, req pkgchannel.Provisio
 // It performs the same user+agent resolution as HandleIncoming but stops before
 // starting a session, so it is cheap and safe to call before file downloads.
 // For group sessions, returns the group workspace instead of a per-user one.
-func (c *Coordinator) ResolveUserRoot(ctx context.Context, msg pkgchannel.IncomingMessage) (string, error) {
+func (c *Coordinator) attachmentWorkspace(ctx context.Context, msg pkgchannel.IncomingMessage) (home.WorkspaceRequest, error) {
 	rc, err := c.resolve(ctx, msg)
 	if err != nil {
-		return "", fmt.Errorf("resolve user root: %w", err)
+		return home.WorkspaceRequest{}, fmt.Errorf("resolve attachment principal: %w", err)
 	}
 	if rc.GuestID != "" {
-		return "", agentaccess.ErrForbidden
+		return home.WorkspaceRequest{}, agentaccess.ErrForbidden
 	}
-	if c.homes == nil {
-		return "", errors.New("home workspace resolver not configured")
+	if err := rc.AuthorizeUse(ctx, c.agentAccess); err != nil {
+		return home.WorkspaceRequest{}, err
 	}
-	view, err := c.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: rc.User.ID, GroupID: rc.GroupID, AgentID: rc.AgentID})
-	if err != nil {
-		return "", fmt.Errorf("resolve Home workspace: %w", err)
-	}
-	return view.PrincipalRoot, nil
+	return home.WorkspaceRequest{UserID: rc.User.ID, GroupID: rc.GroupID, AgentID: rc.AgentID}, nil
 }
 
-// SaveAsset persists an inbound channel attachment through the authoritative
-// asset store, satisfying pkgchannel.AssetSaver. It fails when no asset store is
-// configured rather than silently dropping the attachment.
-func (c *Coordinator) SaveAsset(ctx context.Context, assetsDir, fileName string, data []byte) (string, error) {
-	if c.assets == nil {
-		return "", fmt.Errorf("asset store is not configured")
+func (c *Coordinator) AdmitAssetSave(ctx context.Context, msg pkgchannel.IncomingMessage) error {
+	_, err := c.attachmentWorkspace(ctx, msg)
+	return err
+}
+
+func (c *Coordinator) SaveAsset(ctx context.Context, msg pkgchannel.IncomingMessage, fileName string, data []byte) (string, error) {
+	req, err := c.attachmentWorkspace(ctx, msg)
+	if err != nil {
+		return "", err
 	}
-	return c.assets.SaveAsset(ctx, assetsDir, fileName, data)
+	if len(data) > pkgchannel.MaxInboundAttachmentBytes {
+		return "", fmt.Errorf("attachment exceeds %d bytes", pkgchannel.MaxInboundAttachmentBytes)
+	}
+	if c.rootOpener == nil {
+		return "", errors.New("home root opener not configured")
+	}
+	root, err := c.rootOpener.OpenRoot(ctx, req, home.RootPrincipalData, home.RootReadWrite)
+	if err != nil {
+		return "", fmt.Errorf("open attachment root: %w", err)
+	}
+	defer func() { _ = root.Close() }()
+	month := time.Now().UTC().Format("200601")
+	if err := root.Mkdir(ctx, path.Join("assets", month), 0o700, home.MkdirOptions{Parents: true}); err != nil {
+		return "", fmt.Errorf("create attachment directory: %w", err)
+	}
+	name := path.Base(strings.ReplaceAll(fileName, "\\", "/"))
+	if name == "." || name == "" {
+		name = "attachment"
+	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return "", fmt.Errorf("generate attachment id: %w", err)
+	}
+	name = id.String() + "-" + name
+	rel := path.Join("assets", month, name)
+	if err := root.Upload(ctx, rel, bytes.NewReader(data), home.WriteOptions{Mode: 0o600, Sync: true}); err != nil {
+		return "", fmt.Errorf("upload attachment: %w", err)
+	}
+	return "$STELLA_ASSETS_DIR/" + path.Join(month, name), nil
 }
 
 // compile-time checks.
 var (
-	_ pkgchannel.Handler          = (*Coordinator)(nil)
-	_ pkgchannel.Provisioner      = (*Coordinator)(nil)
-	_ pkgchannel.UserRootResolver = (*Coordinator)(nil)
-	_ pkgchannel.AssetSaver       = (*Coordinator)(nil)
-	_ pkgchannel.BotRegistrar     = (*Coordinator)(nil)
+	_ pkgchannel.Handler           = (*Coordinator)(nil)
+	_ pkgchannel.Provisioner       = (*Coordinator)(nil)
+	_ pkgchannel.AssetSaveAdmitter = (*Coordinator)(nil)
+	_ pkgchannel.AssetSaver        = (*Coordinator)(nil)
+	_ pkgchannel.BotRegistrar      = (*Coordinator)(nil)
 )
