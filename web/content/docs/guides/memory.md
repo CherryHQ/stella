@@ -8,11 +8,13 @@ Stella remembers everything you tell her — across sessions, across days, acros
 
 Memory is scoped per user per agent, so each agent you create has its own understanding of who you are and what you care about.
 
-Here is what Stella tracks:
+Memory tracks:
 
 - **Your profile** — name, preferences, habits, working style, and anything else you share about yourself.
-- **Conversation history** — every message you exchange, searchable and recoverable even after long conversations.
 - **Constraints** — rules you set that Stella must always follow, like "never delete files without asking."
+- **Knowledge** — durable facts the agent can retrieve when they matter.
+
+Sessions preserve conversation history. Every message stays attached to its session and remains searchable after the session is archived or compacted.
 
 ## How Conversations Stay Manageable
 
@@ -20,7 +22,7 @@ As your conversations grow long, Stella automatically compresses older messages 
 
 The key thing to know: **nothing is lost.** Summaries preserve the important details, and Stella can drill back into them if she needs the specifics. You can talk for weeks in the same session, and Stella will still recall what you discussed on day one.
 
-If you start a new session, Stella carries forward your profile and constraints automatically. Past conversation content is available through search.
+If you start a new session, Stella carries forward your profile and constraints automatically. The agent can find a past session and inspect its bounded transcript when it needs old context.
 
 ## Starting a Fresh Session
 
@@ -73,7 +75,9 @@ You can search through your conversation history at any time:
 - **"What did we talk about last Tuesday?"**
 - **"Find where I mentioned the deployment script."**
 
-Stella searches across your messages and summaries, then reads the full details when she finds a match. Even if a conversation was compressed into a summary, she can expand it to recover the original details.
+Stella searches Session transcripts and returns matching Session cards. She then inspects or pages the selected transcript. This keeps transcript retrieval in Session while Memory remains the home for durable profile, constraint, and knowledge facts.
+
+Messages sent by an agent from another Session display their source. Stella treats them as information from that agent, not as instructions from you.
 
 ## Tips
 

@@ -26,6 +26,13 @@ func (s *guestResolutionConfigStore) ListEnabledAgents(context.Context) ([]confi
 	return nil, nil
 }
 
+func (s *guestResolutionConfigStore) GetAgent(_ context.Context, id string) (config.Agent, error) {
+	if id != s.channel.AgentID {
+		return config.Agent{}, pgx.ErrNoRows
+	}
+	return config.Agent{ID: id, Enabled: true}, nil
+}
+
 type guestResolutionAuthStore struct{ channelAuthStore }
 
 func (guestResolutionAuthStore) GetChannelIdentityByPlatform(context.Context, string, string) (auth.ChannelIdentity, error) {
@@ -55,6 +62,12 @@ func (s *guestResolutionStore) ResolveOrCreateGuest(_ context.Context, channelID
 	s.calls++
 	s.guest.ChannelID, s.guest.Platform, s.guest.ExternalID = channelID, platform, externalID
 	return s.guest, nil
+}
+
+type guestResolutionGroupResolver struct{}
+
+func (guestResolutionGroupResolver) ResolveGroupID(context.Context, string, string, string) (string, error) {
+	return "11111111-1111-4111-8111-111111111111", nil
 }
 
 func TestCoordinatorGuestResolutionIsSupportedPrivateOptInOnly(t *testing.T) {
@@ -131,4 +144,19 @@ func TestCoordinatorGuestResolutionIsSupportedPrivateOptInOnly(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("unlinked Discord group uses channel binding", func(t *testing.T) {
+		store.channel = channel
+		guestStore := &guestResolutionStore{guest: sqlc.ChannelGuest{ID: "unexpected"}}
+		resolved, err := ResolveWithChannel(ctx, manager, store, authStore, nil, guestResolutionGroupResolver{}, guestStore, "discord", channel.ID, "unlinked-member", nil, "Guest", "guild-channel", "", true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolved.AgentID != channel.AgentID || resolved.GroupID == "" || resolved.User.ID != "" {
+			t.Fatalf("resolved group = %#v", resolved)
+		}
+		if guestStore.calls != 0 {
+			t.Fatalf("guest store calls = %d, want 0", guestStore.calls)
+		}
+	})
 }

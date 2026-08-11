@@ -1,18 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { meQueryOptions } from "@/lib/queries/me";
 import {
   createChannel as createChannelRequest,
   deleteChannel,
   listAgents,
   listChannels,
   listProfileIdentities,
-  listPublicChannels,
   unlinkProfileIdentity,
   updateChannel,
 } from "@/lib/api-client/sdk.gen";
-import type { ComponentsPublicChannel } from "@/lib/api-client/types.gen";
 import type { Agent, Channel, Identity } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +38,7 @@ import {
   type NormalizedChannel,
 } from "./ChannelFields";
 import { NewChannelForm, newChannelDraftError } from "./NewChannelForm";
+import { bindableAgents } from "./channel-access";
 import { useAccountLink, weixinQrStatusVariant } from "./use-account-link";
 
 // ─── ChannelDetail ────────────────────────────────────────────────────────────
@@ -198,142 +195,10 @@ function ChannelDetail({
   );
 }
 
-// ─── PublicChannelDetail ──────────────────────────────────────────────────────
-
-interface PublicChannelDetailProps {
-  channel: ComponentsPublicChannel;
-  identity: Identity | null;
-  linked: boolean;
-  generating: boolean;
-  linkPlatform: string;
-  linkCode: string;
-  wxQrUrl: string;
-  wxQrStatus: string;
-  wxQrPolling: boolean;
-  onGenerateCode: (platform: string) => void;
-  onStartWeixinQR: () => void;
-  onUnlink: (id: string | undefined) => void;
-  onCopyLinkCode: () => void;
-  wxQrStatusVariant: (status: string) => "warning" | "info" | "success" | "error" | "secondary";
-  onRefreshWxQr: () => void;
-}
-
-function PublicChannelDetail({
-  channel,
-  identity,
-  linked,
-  generating,
-  linkPlatform,
-  linkCode,
-  wxQrUrl,
-  wxQrStatus,
-  wxQrPolling,
-  onGenerateCode,
-  onStartWeixinQR,
-  onUnlink,
-  onCopyLinkCode,
-  wxQrStatusVariant,
-  onRefreshWxQr,
-}: PublicChannelDetailProps) {
-  const label = platformLabel(channel.type, channel.label);
-
-  return (
-    <DetailPanel>
-      <DetailPanelHeader
-        title={label}
-        subtitle={
-          <Badge size="sm" variant={linked ? "success" : "secondary"}>
-            {linked ? "linked" : "not linked"}
-          </Badge>
-        }
-      />
-
-      {/* My account */}
-      <div className="space-y-3">
-        <FormSectionTitle>My account</FormSectionTitle>
-        {identity ? (
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">Linked identity</p>
-            <p className="font-mono text-sm">
-              {identity.name ? identity.name + " · " : ""}
-              {identity.external_id}
-            </p>
-            <Button
-              onClick={() => onUnlink(identity.id)}
-              variant="ghost"
-              size="sm"
-              className="text-destructive-foreground"
-            >
-              Unlink
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">
-              {channel.type === "weixin"
-                ? "Link your Weixin account by scanning a QR code."
-                : `Link your ${label} account once to chat with Stella on this platform.`}
-            </p>
-            {channel.type !== "weixin" && (
-              <Button
-                onClick={() => onGenerateCode(channel.type)}
-                disabled={generating}
-                loading={generating && linkPlatform === channel.type}
-                size="sm"
-              >
-                Link {label}
-              </Button>
-            )}
-            {channel.type === "weixin" && (
-              <Button onClick={onStartWeixinQR} loading={wxQrPolling} size="sm">
-                Link Weixin
-              </Button>
-            )}
-          </div>
-        )}
-
-        {/* Link code */}
-        {linkCode && linkPlatform === channel.type && (
-          <div className="rounded-lg border border-border bg-card p-4 space-y-2">
-            <p className="text-sm font-medium">Send this command to Stella on {label}:</p>
-            <div className="flex items-center gap-2 flex-wrap">
-              <code className="font-mono text-lg font-semibold bg-muted text-foreground px-3 py-1 rounded select-all">
-                /link {linkCode}
-              </code>
-              <Button onClick={onCopyLinkCode} variant="ghost" size="xs">
-                copy
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">Expires in 5 minutes.</p>
-          </div>
-        )}
-
-        {/* Weixin QR */}
-        {wxQrUrl && channel.type === "weixin" && (
-          <div className="rounded-xl border border-border bg-muted p-6 flex flex-col items-center">
-            <p className="text-sm font-medium mb-2">Scan with WeChat to link your account</p>
-            <img src={wxQrUrl} alt="WeChat QR Code" className="w-48 h-48 border rounded" />
-            <Badge size="sm" variant={wxQrStatusVariant(wxQrStatus)} className="mt-2">
-              {wxQrStatus}
-            </Badge>
-            {wxQrStatus === "expired" && (
-              <Button onClick={onRefreshWxQr} variant="outline" size="xs" className="mt-1">
-                Refresh
-              </Button>
-            )}
-          </div>
-        )}
-      </div>
-    </DetailPanel>
-  );
-}
-
 // ─── main page ────────────────────────────────────────────────────────────────
 
 export function ChannelsPage() {
   const { t } = useI18n();
-  const { data: me } = useQuery(meQueryOptions);
-  const isAdmin = me?.is_admin ?? false;
   const navigate = useNavigate();
   const params = useParams({ strict: false }) as { channelId?: string };
   const channelId = params.channelId;
@@ -341,7 +206,6 @@ export function ChannelsPage() {
   const search = useSearch({ strict: false }) as { agent?: string };
   const initialAgentId = search.agent ?? "";
 
-  const [publicChannels, setPublicChannels] = useState<ComponentsPublicChannel[]>([]);
   const [linkedIdentities, setLinkedIdentities] = useState<Identity[]>([]);
   const [instances, setInstances] = useState<NormalizedChannel[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -356,19 +220,12 @@ export function ChannelsPage() {
 
   // ── derived state ──
 
-  const isCreating = isAdmin && channelId === "new";
+  const isCreating = channelId === "new";
 
   const selectedChannel = useMemo(
     () =>
-      isAdmin && channelId && channelId !== "new"
-        ? instances.find((ch) => ch.id === channelId)
-        : undefined,
-    [isAdmin, channelId, instances],
-  );
-
-  const selectedPublicChannel = useMemo(
-    () => (!isAdmin && channelId ? publicChannels.find((ch) => ch.type === channelId) : undefined),
-    [isAdmin, channelId, publicChannels],
+      channelId && channelId !== "new" ? instances.find((ch) => ch.id === channelId) : undefined,
+    [channelId, instances],
   );
 
   // ── helpers ──
@@ -379,23 +236,12 @@ export function ChannelsPage() {
     [linkedIdentities],
   );
 
-  const isLinked = useCallback((platform: string) => Boolean(identityFor(platform)), [identityFor]);
-
   // ── data loading ──
 
   const loadIdentities = useCallback(async () => {
     try {
       const { data } = await listProfileIdentities({ throwOnError: true });
       setLinkedIdentities((data?.identities as Identity[]) ?? []);
-    } catch (e) {
-      showToast((e as Error).message, "error");
-    }
-  }, [showToast]);
-
-  const loadPublicChannels = useCallback(async () => {
-    try {
-      const { data } = await listPublicChannels({ throwOnError: true });
-      setPublicChannels(data?.channels ?? []);
     } catch (e) {
       showToast((e as Error).message, "error");
     }
@@ -412,6 +258,10 @@ export function ChannelsPage() {
       showToast((e as Error).message, "error");
     }
   }, [showToast]);
+
+  // The picker offers only what the API would accept; a readable-but-foreign
+  // agent would just fail the bind.
+  const pickableAgents = useMemo(() => bindableAgents(agents), [agents]);
 
   const loadInstances = useCallback(async () => {
     setLoadingInstances(true);
@@ -436,12 +286,8 @@ export function ChannelsPage() {
   // ── init ──
 
   useEffect(() => {
-    if (isAdmin) {
-      void Promise.all([loadPublicChannels(), loadIdentities(), loadInstances(), loadAgents()]);
-    } else {
-      void Promise.all([loadPublicChannels(), loadIdentities()]);
-    }
-  }, [isAdmin, loadPublicChannels, loadIdentities, loadInstances, loadAgents]);
+    void Promise.all([loadIdentities(), loadInstances(), loadAgents()]);
+  }, [loadIdentities, loadInstances, loadAgents]);
 
   // ── account linking ──
 
@@ -548,63 +394,40 @@ export function ChannelsPage() {
 
   // ── render ──
 
-  const isLoading = isAdmin && loadingInstances;
+  const isLoading = loadingInstances;
 
   // ── build detail pane ──
 
   let detail: React.ReactNode = undefined;
 
-  if (isAdmin) {
-    if (isCreating) {
-      detail = (
-        <NewChannelForm
-          fallbackChannelType={defaultChannelType}
-          initialAgentId={initialAgentId}
-          agents={agents}
-          channels={instances}
-          onAdd={createNewChannel}
-          onRegistered={finishRegisteredChannel}
-          onCancel={() => void navigate({ to: "/settings/channels" })}
-          creating={creatingInstance}
-        />
-      );
-    } else if (selectedChannel) {
-      detail = (
-        <ChannelDetail
-          key={selectedChannel.id}
-          channel={selectedChannel}
-          identity={identityFor(selectedChannel.type)}
-          generating={link.generating}
-          linkPlatform={link.platform}
-          linkCode={link.code}
-          wxQrUrl={link.qrUrl}
-          wxQrStatus={link.qrStatus}
-          wxQrPolling={link.qrPolling}
-          onUpdate={(key, value) => updateInstance(selectedChannel.id, key, value)}
-          onSave={saveInstance}
-          onRequestDelete={setPendingDelete}
-          onGenerateCode={(platform) => void link.generateCode(platform)}
-          onStartWeixinQR={() => void link.startQr()}
-          onUnlink={unlinkIdentity}
-          onCopyLinkCode={link.copyCode}
-          wxQrStatusVariant={weixinQrStatusVariant}
-          onRefreshWxQr={() => void link.startQr()}
-        />
-      );
-    }
-  } else if (selectedPublicChannel) {
+  if (isCreating) {
     detail = (
-      <PublicChannelDetail
-        key={selectedPublicChannel.type}
-        channel={selectedPublicChannel}
-        identity={identityFor(selectedPublicChannel.type)}
-        linked={isLinked(selectedPublicChannel.type)}
+      <NewChannelForm
+        fallbackChannelType={defaultChannelType}
+        initialAgentId={initialAgentId}
+        agents={pickableAgents}
+        channels={instances}
+        onAdd={createNewChannel}
+        onRegistered={finishRegisteredChannel}
+        onCancel={() => void navigate({ to: "/settings/channels" })}
+        creating={creatingInstance}
+      />
+    );
+  } else if (selectedChannel) {
+    detail = (
+      <ChannelDetail
+        key={selectedChannel.id}
+        channel={selectedChannel}
+        identity={identityFor(selectedChannel.type)}
         generating={link.generating}
         linkPlatform={link.platform}
         linkCode={link.code}
         wxQrUrl={link.qrUrl}
         wxQrStatus={link.qrStatus}
         wxQrPolling={link.qrPolling}
+        onUpdate={(key, value) => updateInstance(selectedChannel.id, key, value)}
+        onSave={saveInstance}
+        onRequestDelete={setPendingDelete}
         onGenerateCode={(platform) => void link.generateCode(platform)}
         onStartWeixinQR={() => void link.startQr()}
         onUnlink={unlinkIdentity}
@@ -617,12 +440,12 @@ export function ChannelsPage() {
 
   // ── build card grid ──
 
-  const sheetOpen = isCreating || !!selectedChannel || !!selectedPublicChannel;
+  const sheetOpen = isCreating || !!selectedChannel;
   const closeSheet = () => void navigate({ to: "/settings/channels" });
 
-  // Admin instances, grouped by platform (the instances list is already sorted
-  // default-instance-first within each type).
-  const adminGroups = Object.values(
+  // Manageable instances, grouped by platform (the instances list is already
+  // sorted default-instance-first within each type).
+  const channelGroups = Object.values(
     instances.reduce<Record<string, { type: string; label: string; items: NormalizedChannel[] }>>(
       (acc, ch) => {
         (acc[ch.type] ??= {
@@ -641,87 +464,61 @@ export function ChannelsPage() {
       <SettingsGridPage
         title={t("channels.title")}
         action={
-          isAdmin ? (
-            <Button
-              render={<Link to="/settings/channels/$channelId" params={{ channelId: "new" }} />}
-              variant="outline"
-              size="sm"
-            >
-              <Plus className="size-4" />
-              {t("channels.addChannel")}
-            </Button>
-          ) : undefined
+          <Button
+            render={<Link to="/settings/channels/$channelId" params={{ channelId: "new" }} />}
+            variant="outline"
+            size="sm"
+          >
+            <Plus className="size-4" />
+            {t("channels.addChannel")}
+          </Button>
         }
       >
-        {isAdmin ? (
-          isLoading ? (
-            <div className="flex justify-center py-8">
-              <Spinner className="size-4" />
-            </div>
-          ) : (
-            adminGroups.map((group) => (
-              <SettingsCardSection
-                key={group.type}
-                icon={<PlatformIcon type={group.type} />}
-                title={group.label}
-                count={group.items.length}
-              >
-                {group.items.map((ch) => {
-                  const label = platformLabel(ch.type);
-                  const isDefault = ch.id === ch.type;
-                  return (
-                    <SettingsCard
-                      key={ch.id}
-                      icon={<PlatformIcon type={ch.type} />}
-                      title={ch.name || label}
-                      badge={
-                        isDefault ? (
-                          <Badge variant="secondary" size="sm">
-                            default
-                          </Badge>
-                        ) : undefined
-                      }
-                      active={channelId === ch.id}
-                      to="/settings/channels/$channelId"
-                      params={{ channelId: ch.id }}
-                      footer={
-                        <>
-                          <span
-                            className={`size-1.5 shrink-0 rounded-full ${
-                              ch.enabled ? "bg-success" : "bg-muted-foreground"
-                            }`}
-                          />
-                          <span className="font-mono text-xs text-muted-foreground">{ch.id}</span>
-                        </>
-                      }
-                    />
-                  );
-                })}
-              </SettingsCardSection>
-            ))
-          )
+        {isLoading ? (
+          <div className="flex justify-center py-8">
+            <Spinner className="size-4" />
+          </div>
         ) : (
-          <SettingsCardSection title={t("channels.title")} count={publicChannels.length}>
-            {publicChannels.map((ch) => {
-              const label = platformLabel(ch.type, ch.label);
-              const linked = isLinked(ch.type);
-              return (
-                <SettingsCard
-                  key={ch.type}
-                  icon={<PlatformIcon type={ch.type} />}
-                  title={label}
-                  active={channelId === ch.type}
-                  to="/settings/channels/$channelId"
-                  params={{ channelId: ch.type }}
-                  footer={
-                    <Badge size="sm" variant={linked ? "success" : "secondary"}>
-                      {linked ? "linked" : "not linked"}
-                    </Badge>
-                  }
-                />
-              );
-            })}
-          </SettingsCardSection>
+          channelGroups.map((group) => (
+            <SettingsCardSection
+              key={group.type}
+              icon={<PlatformIcon type={group.type} />}
+              title={group.label}
+              count={group.items.length}
+            >
+              {group.items.map((ch) => {
+                const label = platformLabel(ch.type);
+                const isDefault = ch.id === ch.type;
+                return (
+                  <SettingsCard
+                    key={ch.id}
+                    icon={<PlatformIcon type={ch.type} />}
+                    title={ch.name || label}
+                    badge={
+                      isDefault ? (
+                        <Badge variant="secondary" size="sm">
+                          default
+                        </Badge>
+                      ) : undefined
+                    }
+                    active={channelId === ch.id}
+                    to="/settings/channels/$channelId"
+                    params={{ channelId: ch.id }}
+                    footer={
+                      <>
+                        <span
+                          className={`size-1.5 shrink-0 rounded-full ${
+                            ch.enabled ? "bg-success" : "bg-muted-foreground"
+                          }`}
+                        />
+                        <span className="font-mono text-xs text-muted-foreground">{ch.id}</span>
+                      </>
+                    }
+                  />
+                );
+              })}
+            </SettingsCardSection>
+          ))
         )}
       </SettingsGridPage>
 

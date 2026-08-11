@@ -104,11 +104,11 @@ func (s *Service) InvalidateAll() error {
 // getBroker constructs a flow broker for providerID on demand from the registry
 // config and current plugin credentials. The flowType selects which flow entry to
 // use when a provider declares multiple flows.
-func (s *Service) getBroker(ctx context.Context, providerID string, flowType string) (oauth.FlowBroker, error) {
-	return s.getBrokerWithOrigin(ctx, providerID, flowType, "")
+func (s *Service) getBroker(ctx context.Context, providerID string, flowType string, scopes []string) (oauth.FlowBroker, error) {
+	return s.getBrokerWithOrigin(ctx, providerID, flowType, "", scopes)
 }
 
-func (s *Service) getBrokerWithOrigin(ctx context.Context, providerID string, flowType string, origin string) (oauth.FlowBroker, error) {
+func (s *Service) getBrokerWithOrigin(ctx context.Context, providerID string, flowType string, origin string, scopes []string) (oauth.FlowBroker, error) {
 	if s.registry == nil {
 		return nil, fmt.Errorf("provider registry not set")
 	}
@@ -152,8 +152,10 @@ func (s *Service) getBrokerWithOrigin(ctx context.Context, providerID string, fl
 		endpoint.AuthStyle = oauth2.AuthStyleInParams
 	}
 
-	// DB override wins over the YAML default, independent of the credential gate.
-	scopes := s.providerScopes(ctx, providerID)
+	if scopes == nil {
+		// DB override wins over the YAML default, independent of the credential gate.
+		scopes = s.providerScopes(ctx, providerID)
+	}
 
 	switch flow.Type {
 	case "authorization_code":
@@ -225,19 +227,60 @@ func (s *Service) providerCredentialsWithOrigin(_ context.Context, providerID st
 // providerScopes returns the effective OAuth scopes for providerID: the DB
 // override when a row exists with a non-empty scopes array, otherwise the YAML
 // seed default (D2). Resolution is independent of the client_id credential gate,
-// so an admin can override scopes without also overriding credentials.
+// so an admin can override scopes without also overriding credentials. Both
+// sources are normalized here rather than trusted: the admin write path cleans
+// its input, but a hand-edited manifest is not a write path.
 func (s *Service) providerScopes(ctx context.Context, providerID string) []string {
 	if s.q != nil {
-		if cfg, err := s.q.GetAuthOAuthProvider(ctx, providerID); err == nil && len(cfg.Scopes) > 0 {
-			return cfg.Scopes
+		if cfg, err := s.q.GetAuthOAuthProvider(ctx, providerID); err == nil {
+			if scopes := normalizeScopes(cfg.Scopes); len(scopes) > 0 {
+				return scopes
+			}
 		}
 	}
 	if s.registry != nil {
 		if providerCfg, ok := s.registry.Get(providerID); ok {
-			return providerCfg.Scopes
+			return normalizeScopes(providerCfg.Scopes)
 		}
 	}
 	return nil
+}
+
+// desiredScopes resolves the complete scope set the next authorization for
+// userID must request: the administrator-configured minimum, the scopes this
+// user already asked for, and whatever the caller is adding now. Stella does not
+// cap the result — the provider's app configuration and consent screen are the
+// authority on what a user can actually grant, and a scope the provider refuses
+// simply comes back missing from the grant (see reconnectDecision).
+func (s *Service) desiredScopes(ctx context.Context, userID, providerID string, requested []string) ([]string, error) {
+	if s.registry == nil {
+		return nil, fmt.Errorf("provider registry not set")
+	}
+	providerCfg, ok := s.registry.Get(providerID)
+	if !ok {
+		return nil, fmt.Errorf("unknown provider: %s", providerID)
+	}
+	base := s.providerScopes(ctx, providerID)
+	if s.vaultSvc != nil {
+		bundle, err := oauth.LoadOAuthBundle(ctx, s.vaultSvc, userID, providerCfg.VaultKey)
+		if err != nil {
+			return nil, fmt.Errorf("load %s oauth scopes: %w", providerID, err)
+		}
+		if bundle != nil {
+			base = bundleDesiredScopes(bundle, base)
+		}
+	}
+	return unionScopes(base, requested), nil
+}
+
+func bundleDesiredScopes(bundle *oauth.OAuthBundle, defaults []string) []string {
+	if len(bundle.DesiredScopes) > 0 {
+		return unionScopes(defaults, bundle.DesiredScopes)
+	}
+	if bundle.GrantedScope != "" {
+		return unionScopes(defaults, strings.Fields(bundle.GrantedScope))
+	}
+	return append([]string(nil), defaults...)
 }
 
 // GetOAuthProviderConfig returns the effective config for a provider:
@@ -252,7 +295,7 @@ func (s *Service) GetOAuthProviderConfig(ctx context.Context, providerID string)
 			if providerCfg.ClientSecret != "" {
 				out.ClientSecret = "***"
 			}
-			out.DefaultScopes = providerCfg.Scopes
+			out.DefaultScopes = normalizeScopes(providerCfg.Scopes)
 		}
 	}
 
@@ -268,7 +311,7 @@ func (s *Service) GetOAuthProviderConfig(ctx context.Context, providerID string)
 					out.ClientSecret = "***"
 				}
 			}
-			out.Scopes = cfg.Scopes
+			out.Scopes = normalizeScopes(cfg.Scopes)
 		}
 	}
 
@@ -310,7 +353,6 @@ func (s *Service) SetOAuthProviderConfig(ctx context.Context, cfg OAuthProviderC
 	if scopes == nil {
 		scopes = []string{}
 	}
-
 	if err := s.q.UpsertAuthOAuthProvider(ctx, pkgdb.UpsertAuthOAuthProviderParams{
 		ID:              uuid.Must(uuid.NewV7()).String(),
 		ProviderID:      cfg.ProviderID,
@@ -353,26 +395,22 @@ func (s *Service) ProviderClientID(ctx context.Context, providerID string) (stri
 
 // saveToken converts an oauth2.Token into an OAuthBundle and persists it under
 // the provider's registered vault key.
-func (s *Service) saveToken(ctx context.Context, providerID string, userID string, tok *oauth2.Token) error {
+func (s *Service) saveToken(ctx context.Context, providerID string, userID string, tok *oauth2.Token, desiredScopes []string) error {
 	var refreshExpiresAt time.Time
 	if ri, ok := tok.Extra("refresh_token_expires_in").(float64); ok && ri > 0 {
 		refreshExpiresAt = time.Now().Add(time.Duration(ri) * time.Second)
 	}
 	grantedScope, _ := tok.Extra("scope").(string)
-	return s.saveBundle(ctx, providerID, userID, tok.AccessToken, tok.RefreshToken, tok.Expiry, refreshExpiresAt, grantedScope)
+	return s.saveBundle(ctx, providerID, userID, tok.AccessToken, tok.RefreshToken, tok.Expiry, refreshExpiresAt, grantedScope, desiredScopes)
 }
 
 // saveBundle is the shared implementation for persisting an OAuth token bundle.
-func (s *Service) saveBundle(ctx context.Context, providerID, userID, accessToken, refreshToken string, accessExpiresAt, refreshExpiresAt time.Time, grantedScope string) error {
+func (s *Service) saveBundle(ctx context.Context, providerID, userID, accessToken, refreshToken string, accessExpiresAt, refreshExpiresAt time.Time, grantedScope string, desiredScopes []string) error {
 	if s.vaultSvc == nil {
 		return fmt.Errorf("vault not configured")
 	}
 	if s.registry == nil {
 		return fmt.Errorf("provider registry not set")
-	}
-	providerCfg, ok := s.registry.Get(providerID)
-	if !ok {
-		return fmt.Errorf("unknown provider: %s", providerID)
 	}
 	clientID, clientSecret, _, err := s.providerCredentials(ctx, providerID)
 	if err != nil {
@@ -386,9 +424,16 @@ func (s *Service) saveBundle(ctx context.Context, providerID, userID, accessToke
 		RefreshToken:     refreshToken,
 		AccessExpiresAt:  accessExpiresAt,
 		RefreshExpiresAt: refreshExpiresAt,
+		DesiredScopes:    normalizeScopes(desiredScopes),
 		GrantedScope:     grantedScope,
 	}
-	return oauth.SaveOAuthBundle(ctx, s.vaultSvc, userID, providerCfg.VaultKey, bundle)
+	switch providerID {
+	case "lark":
+		bundle.Brand = "lark"
+	case "feishu":
+		bundle.Brand = "feishu"
+	}
+	return s.registry.SaveBundle(ctx, s.vaultSvc, providerID, userID, bundle)
 }
 
 // --- vault operations ---
@@ -499,6 +544,7 @@ func (s *Service) getProviderStatus(ctx context.Context, userID string, provider
 		return ps
 	}
 	ps.Icon = providerCfg.Icon
+	ps.RequestedScopes = s.providerScopes(ctx, provider)
 
 	// Configured = DB row exists with a client_id OR YAML has a client_id.
 	if providerCfg.ClientID != "" {
@@ -510,7 +556,7 @@ func (s *Service) getProviderStatus(ctx context.Context, userID string, provider
 		}
 	}
 
-	_, err := s.getBroker(ctx, provider, "")
+	_, err := s.getBroker(ctx, provider, "", nil)
 	if err != nil {
 		ps.Unavailable = err.Error()
 		return ps
@@ -532,8 +578,8 @@ func (s *Service) getProviderStatus(ctx context.Context, userID string, provider
 		ps.AccessExpiresAt = bundle.AccessExpiresAt.UTC()
 		ps.RefreshExpiresAt = bundle.RefreshExpiresAt.UTC()
 
-		requested := s.providerScopes(ctx, provider)
-		ps.RequestedScopes = requested
+		requested := bundleDesiredScopes(bundle, ps.RequestedScopes)
+		ps.RequestedScopes = append([]string(nil), requested...)
 
 		// Empty GrantedScope means unknown (pre-capture bundle), not "no scopes".
 		grantedKnown := bundle.GrantedScope != ""
@@ -574,16 +620,20 @@ func (s *Service) preferredFlowType(provider string) string {
 
 // StartFlow starts an OAuth flow for the given provider and user.
 // It prefers device_code flows when available, making it suitable for agent/CLI use.
-func (s *Service) StartFlow(ctx context.Context, userID string, provider string) (FlowStatus, error) {
+func (s *Service) StartFlow(ctx context.Context, userID string, provider string, requestedScopes []string) (FlowStatus, error) {
 	if s.vaultSvc == nil {
 		return FlowStatus{}, fmt.Errorf("vault not configured")
 	}
 	flowType := s.preferredFlowType(provider)
-	broker, err := s.getBroker(ctx, provider, flowType)
+	desired, err := s.desiredScopes(ctx, userID, provider, requestedScopes)
 	if err != nil {
 		return FlowStatus{}, err
 	}
-	status, err := broker.StartFlow(ctx, oauth.Provider(provider), userID)
+	broker, err := s.getBroker(ctx, provider, flowType, desired)
+	if err != nil {
+		return FlowStatus{}, err
+	}
+	status, err := broker.StartFlow(ctx, oauth.Provider(provider), userID, desired)
 	if err != nil {
 		return FlowStatus{}, fmt.Errorf("start %s %s flow: %w", provider, flowType, err)
 	}
@@ -594,16 +644,20 @@ func (s *Service) StartFlow(ctx context.Context, userID string, provider string)
 // It uses the provider's preferred flow type (device_code when available,
 // otherwise authorization_code). The callback URL is built from origin so
 // browser redirects land on the correct host.
-func (s *Service) StartFlowWithOrigin(ctx context.Context, userID string, provider string, origin string) (FlowStatus, error) {
+func (s *Service) StartFlowWithOrigin(ctx context.Context, userID string, provider string, origin string, requestedScopes []string) (FlowStatus, error) {
 	if s.vaultSvc == nil {
 		return FlowStatus{}, fmt.Errorf("vault not configured")
 	}
 	flowType := s.preferredFlowType(provider)
-	broker, err := s.getBrokerWithOrigin(ctx, provider, flowType, origin)
+	desired, err := s.desiredScopes(ctx, userID, provider, requestedScopes)
 	if err != nil {
 		return FlowStatus{}, err
 	}
-	status, err := broker.StartFlow(ctx, oauth.Provider(provider), userID)
+	broker, err := s.getBrokerWithOrigin(ctx, provider, flowType, origin, desired)
+	if err != nil {
+		return FlowStatus{}, err
+	}
+	status, err := broker.StartFlow(ctx, oauth.Provider(provider), userID, desired)
 	if err != nil {
 		return FlowStatus{}, fmt.Errorf("start %s %s flow: %w", provider, flowType, err)
 	}
@@ -630,7 +684,7 @@ func (s *Service) PollFlow(ctx context.Context, userID string, provider, flowID 
 		return FlowStatus{}, false, fmt.Errorf("unknown or expired flow")
 	}
 
-	broker, err := s.getBroker(ctx, provider, flow.FlowType)
+	broker, err := s.getBroker(ctx, provider, flow.FlowType, flow.DesiredScopes)
 	if err != nil {
 		return FlowStatus{}, false, err
 	}
@@ -659,7 +713,7 @@ func (s *Service) persistDeviceToken(flowID string, tok *oauth2.Token) error {
 	if !ok {
 		return fmt.Errorf("unknown or expired flow")
 	}
-	if err := s.saveToken(context.Background(), string(flow.Provider), flow.UserID, tok); err != nil {
+	if err := s.saveToken(context.Background(), string(flow.Provider), flow.UserID, tok, flow.DesiredScopes); err != nil {
 		return fmt.Errorf("save %s token: %w", flow.Provider, err)
 	}
 	_ = s.InvalidateUser(flow.UserID)
@@ -681,7 +735,7 @@ func (s *Service) CompleteAuthCodeFlowWithOrigin(ctx context.Context, provider, 
 		return fmt.Errorf("unknown or expired flow")
 	}
 
-	broker, err := s.getBrokerWithOrigin(ctx, provider, "authorization_code", origin)
+	broker, err := s.getBrokerWithOrigin(ctx, provider, "authorization_code", origin, flow.DesiredScopes)
 	if err != nil {
 		return err
 	}
@@ -696,9 +750,13 @@ func (s *Service) CompleteAuthCodeFlowWithOrigin(ctx context.Context, provider, 
 		return fmt.Errorf("complete %s flow: %w", provider, err)
 	}
 
-	if err := s.saveToken(ctx, provider, flow.UserID, tok); err != nil {
+	if err := s.saveToken(ctx, provider, flow.UserID, tok, flow.DesiredScopes); err != nil {
+		s.flowStore.Update(flowID, oauth.FlowStateFailed, func(fs *oauth.FlowStatus) { fs.Error = err.Error() })
 		return fmt.Errorf("save %s token: %w", provider, err)
 	}
+	// Match device-flow ordering: persistence is complete before observers can
+	// see an authorized flow and delete its state.
+	s.flowStore.Update(flowID, oauth.FlowStateAuthorized, nil)
 	// Invalidate live runners so the next session picks up the new token.
 	// OAuth tokens are baked into the sandbox env at session-creation time and
 	// cannot be injected into a running process; closing the runner forces a
@@ -715,11 +773,7 @@ func (s *Service) Disconnect(ctx context.Context, userID string, provider string
 	if s.registry == nil {
 		return fmt.Errorf("provider registry not set")
 	}
-	providerCfg, ok := s.registry.Get(provider)
-	if !ok {
-		return fmt.Errorf("unknown provider: %s", provider)
-	}
-	if err := oauth.DeleteBundle(ctx, s.vaultSvc, userID, providerCfg.VaultKey); err != nil {
+	if err := s.registry.DeleteBundle(ctx, s.vaultSvc, provider, userID); err != nil {
 		return err
 	}
 	_ = s.InvalidateUser(userID)
@@ -740,5 +794,6 @@ func toFlowStatus(fs oauth.FlowStatus) FlowStatus {
 		ExpiresAt:       fs.ExpiresAt,
 		State:           string(fs.State),
 		Error:           fs.Error,
+		RequestedScopes: append([]string(nil), fs.DesiredScopes...),
 	}
 }

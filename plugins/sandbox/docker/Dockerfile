@@ -6,7 +6,7 @@
 #
 # The image tag is version-locked to the stella version used at build time:
 # - dev builds      → stella-sandbox:dev            (built locally)
-# - tagged releases → ghcr.io/vaayne/stella-sandbox:<version>
+# - tagged releases → ghcr.io/cherryhq/stella-sandbox:<version>
 
 # Cross-compile from the build host's arch (BUILDPLATFORM) to the target arch so
 # buildx multi-arch builds don't run the Go toolchain under QEMU. TARGETOS/ARCH
@@ -49,6 +49,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     -o /out/stellad ./cmd/stellad
 
 FROM debian:13-slim
+
+ARG BUILTIN_BUNDLE_REVISION
+LABEL org.cherryhq.stella.builtin-bundle-revision=${BUILTIN_BUNDLE_REVISION}
 
 # mise lives at /opt/stella/bin/mise — the same path the bwrap sandbox exposes —
 # so per-user and system shims (which relink to ../../bin/mise) resolve to it.
@@ -104,6 +107,10 @@ ENV PATH=/opt/stella/.mise-tools/shims:/opt/stella/bin:/usr/local/sbin:/usr/loca
 RUN --mount=type=bind,from=stella-builder,source=/out/stellad,target=/usr/local/bin/stellad \
     --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
     STELLA_HOME=/opt/stella stellad mise reconcile-builtins && \
+	STELLA_HOME=/opt/stella stellad system-bundle install && \
+	REVISION="$(STELLA_HOME=/opt/stella stellad system-bundle revision)" && \
+	test "$REVISION" = "$BUILTIN_BUNDLE_REVISION" && \
+	mkdir -p /opt/stella/skills && ln -s "../bundles/$REVISION" /opt/stella/skills/builtin && \
     xberg --version && \
     rm -rf /opt/stella/.mise-tools/cache
 

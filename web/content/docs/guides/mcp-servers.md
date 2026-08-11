@@ -34,6 +34,6 @@ A server may need a bearer token. Pass it with `--auth bearer --token <token>`; 
 
 ## Managing Servers
 
-Manage MCP servers from the Web UI. Open the agent or workspace settings, add the server URL, choose its scope, and provide a bearer token when the server requires one.
+Manage personal `user` and `user_agent` registrations from **Personal Settings → MCP Servers**. Administrators manage deployment-owned `system` and `system_agent` registrations from **Admin Console → Deployment resources → Global MCP**. Add the server URL, choose whether it applies to every agent or one agent, and provide a bearer token when required.
 
 The same operations are available over the HTTP API under `/api/mcp/servers`.

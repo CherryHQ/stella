@@ -2,7 +2,6 @@ package sandbox
 
 import (
 	"context"
-	"path/filepath"
 	"runtime"
 
 	"github.com/CherryHQ/stella/internal/config"
@@ -18,12 +17,9 @@ import (
 // (the skills tool) need not know which backend is active or what its mount
 // points are.
 type SkillView struct {
-	Isolated bool
-	// SystemSkillsHost/View map the system skills dir specifically (only that
-	// subtree of STELLA_HOME is mounted; the sibling users/ and agents/ trees
-	// nested under STELLA_HOME are not, so a broad mapping would mis-map them).
-	SystemSkillsHost string
-	SystemSkillsView string
+	Isolated          bool
+	BuiltinSkillsHost string
+	BuiltinSkillsView string
 	// AgentSkillsHost/View map the admin-managed agent-bound (system_agent) skills
 	// dir. It lives in the user-independent agent definition tree (outside the two
 	// roots), so it gets its own fixed /opt/stella/agent-skills mount rather than
@@ -50,12 +46,11 @@ type SkillView struct {
 //     (/opt/stella, /user, /workspace), so host roots map identically.
 func ResolveSkillView(ctx context.Context, cfg Config, paths Paths) SkillView {
 	backend := resolveBackendName(ctx, cfg)
-	systemSkillsHost := filepath.Join(paths.StellaHome, ".agents", "skills")
 	agentSkillsHost := agentSkillsDirHost(paths)
 	systemDBSkillsHost := systemDBSkillsDirHost(paths)
 	v := SkillView{
-		SystemSkillsHost:   systemSkillsHost,
-		SystemSkillsView:   systemSkillsHost,
+		BuiltinSkillsHost:  paths.BuiltinBundle,
+		BuiltinSkillsView:  paths.BuiltinBundle,
 		AgentSkillsHost:    agentSkillsHost,
 		AgentSkillsView:    agentSkillsHost,
 		SystemDBSkillsHost: systemDBSkillsHost,
@@ -67,7 +62,7 @@ func ResolveSkillView(ctx context.Context, cfg Config, paths Paths) SkillView {
 	}
 	if isolatingBackend(backend) {
 		v.Isolated = true
-		v.SystemSkillsView = filepath.Join(pkgsandbox.MountStellaHome, ".agents", "skills")
+		v.BuiltinSkillsView = pkgsandbox.MountBuiltinSkills
 		v.AgentSkillsView = pkgsandbox.MountAgentSkills
 		v.SystemDBSkillsView = pkgsandbox.MountSystemDBSkills
 		v.UserDataView = pkgsandbox.MountUserData

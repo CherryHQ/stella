@@ -232,6 +232,29 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 		}
 	})
 
+	t.Run("ReadonlyRootfsLeavesMountsWritable", func(t *testing.T) {
+		session, err := factory.CreateSession(ctx, policy)
+		if err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+		defer func() { _ = session.Close() }()
+
+		got, err := session.Exec(ctx, `touch /stella-rootfs-write 2>/dev/null && exit 1; printf workspace > rootfs-workspace.txt; printf tmp > "$TMPDIR/rootfs-tmp.txt"`, sandbox.ExecOptions{})
+		if err != nil || got.ExitCode != 0 {
+			t.Fatalf("exec rootfs/mount writes = %+v, %v", got, err)
+		}
+		if data, err := os.ReadFile(filepath.Join(workspace, "rootfs-workspace.txt")); err != nil || string(data) != "workspace" {
+			t.Fatalf("workspace write = %q, %v", data, err)
+		}
+		tempFile, err := session.ResolvePath("/tmp/rootfs-tmp.txt")
+		if err != nil {
+			t.Fatalf("ResolvePath(temp file): %v", err)
+		}
+		if data, err := os.ReadFile(tempFile); err != nil || string(data) != "tmp" {
+			t.Fatalf("temp write = %q, %v", data, err)
+		}
+	})
+
 	t.Run("Exec", func(t *testing.T) {
 		session, err := factory.CreateSession(ctx, sandbox.Policy{
 			Filesystem: sandbox.FilesystemPolicy{

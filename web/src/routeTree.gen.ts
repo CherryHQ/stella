@@ -23,8 +23,10 @@ import { Route as AppSchedulerRouteImport } from './routes/_app/scheduler'
 import { Route as AppRecallyRouteImport } from './routes/_app/recally'
 import { Route as AppInboxRouteImport } from './routes/_app/inbox'
 import { Route as AppAgentsRouteImport } from './routes/_app/agents'
+import { Route as AppAdminRouteImport } from './routes/_app/admin'
 import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
 import { Route as AppAgentsIndexRouteImport } from './routes/_app/agents.index'
+import { Route as AppAdminIndexRouteImport } from './routes/_app/admin/index'
 import { Route as AppTasksTaskIdRouteImport } from './routes/_app/tasks.$taskId'
 import { Route as AppSettingsWebhooksRouteImport } from './routes/_app/settings/webhooks'
 import { Route as AppSettingsVisionRouteImport } from './routes/_app/settings/vision'
@@ -33,6 +35,7 @@ import { Route as AppSettingsSkillsRouteImport } from './routes/_app/settings/sk
 import { Route as AppSettingsProvisioningRouteImport } from './routes/_app/settings/provisioning'
 import { Route as AppSettingsProvidersRouteImport } from './routes/_app/settings/providers'
 import { Route as AppSettingsPluginsRouteImport } from './routes/_app/settings/plugins'
+import { Route as AppSettingsMcpRouteImport } from './routes/_app/settings/mcp'
 import { Route as AppSettingsLibraryRouteImport } from './routes/_app/settings/library'
 import { Route as AppSettingsEmbeddingRouteImport } from './routes/_app/settings/embedding'
 import { Route as AppSettingsCredentialsRouteImport } from './routes/_app/settings/credentials'
@@ -43,6 +46,9 @@ import { Route as AppSettingsAboutRouteImport } from './routes/_app/settings/abo
 import { Route as AppSessionsSplatRouteImport } from './routes/_app/sessions.$'
 import { Route as AppGroupsGroupIdRouteImport } from './routes/_app/groups.$groupId'
 import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents.$agentId'
+import { Route as AppAdminUsersRouteImport } from './routes/_app/admin/users'
+import { Route as AppAdminOverviewRouteImport } from './routes/_app/admin/overview'
+import { Route as AppSettingsPluginsIndexRouteImport } from './routes/_app/settings/plugins.index'
 import { Route as AppAgentsAgentIdIndexRouteImport } from './routes/_app/agents.$agentId/index'
 import { Route as AppSettingsUsersUserIdRouteImport } from './routes/_app/settings/users.$userId'
 import { Route as AppSettingsProvidersProviderIdRouteImport } from './routes/_app/settings/providers.$providerId'
@@ -53,6 +59,16 @@ import { Route as AppSettingsAgentsAgentIdRouteImport } from './routes/_app/sett
 import { Route as AppAgentsAgentIdThreadsRouteImport } from './routes/_app/agents.$agentId/threads'
 import { Route as AppAgentsAgentIdProfileRouteImport } from './routes/_app/agents.$agentId/profile'
 import { Route as AppAgentsAgentIdMemoriesRouteImport } from './routes/_app/agents.$agentId/memories'
+import { Route as AppAdminUsersUserIdRouteImport } from './routes/_app/admin/users.$userId'
+import { Route as AppAdminResourcesSkillsRouteImport } from './routes/_app/admin/resources/skills'
+import { Route as AppAdminResourcesMcpRouteImport } from './routes/_app/admin/resources/mcp'
+import { Route as AppAdminResourcesLibraryRouteImport } from './routes/_app/admin/resources/library'
+import { Route as AppAdminResourcesCredentialsRouteImport } from './routes/_app/admin/resources/credentials'
+import { Route as AppAdminIntegrationsPluginsRouteImport } from './routes/_app/admin/integrations/plugins'
+import { Route as AppAdminAiVisionRouteImport } from './routes/_app/admin/ai/vision'
+import { Route as AppAdminAiProvidersRouteImport } from './routes/_app/admin/ai/providers'
+import { Route as AppAdminAiEmbeddingRouteImport } from './routes/_app/admin/ai/embedding'
+import { Route as AppAdminAccessProvisioningRouteImport } from './routes/_app/admin/access/provisioning'
 import { Route as AppAgentsAgentIdWorkflowsIndexRouteImport } from './routes/_app/agents.$agentId/workflows/index'
 import { Route as AppAgentsAgentIdSkillsIndexRouteImport } from './routes/_app/agents.$agentId/skills/index'
 import { Route as AppAgentsAgentIdLibraryIndexRouteImport } from './routes/_app/agents.$agentId/library/index'
@@ -64,6 +80,8 @@ import { Route as AppAgentsAgentIdSessionsSessionIdRouteImport } from './routes/
 import { Route as AppAgentsAgentIdGoalsNewRouteImport } from './routes/_app/agents.$agentId/goals/new'
 import { Route as AppAgentsAgentIdGoalsAllRouteImport } from './routes/_app/agents.$agentId/goals/all'
 import { Route as AppAgentsAgentIdGoalsGoalIdRouteImport } from './routes/_app/agents.$agentId/goals/$goalId'
+import { Route as AppAdminIntegrationsPluginsPluginIdRouteImport } from './routes/_app/admin/integrations/plugins.$pluginId'
+import { Route as AppAdminAiProvidersProviderIdRouteImport } from './routes/_app/admin/ai/providers.$providerId'
 import { Route as AppAgentsAgentIdProjectsProjectIdIndexRouteImport } from './routes/_app/agents.$agentId/projects.$projectId/index'
 import { Route as AppAgentsAgentIdSkillsScopeSkillIdRouteImport } from './routes/_app/agents.$agentId/skills/$scope.$skillId'
 import { Route as AppAgentsAgentIdProjectsProjectIdTasksRouteImport } from './routes/_app/agents.$agentId/projects.$projectId/tasks'
@@ -142,6 +160,11 @@ const AppAgentsRoute = AppAgentsRouteImport.update({
   path: '/agents',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAdminRoute = AppAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => AppRoute,
+} as any).lazy(() => import('./routes/_app/admin.lazy').then((d) => d.Route))
 const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -154,6 +177,11 @@ const AppAgentsIndexRoute = AppAgentsIndexRouteImport.update({
 } as any).lazy(() =>
   import('./routes/_app/agents.index.lazy').then((d) => d.Route),
 )
+const AppAdminIndexRoute = AppAdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppAdminRoute,
+} as any)
 const AppTasksTaskIdRoute = AppTasksTaskIdRouteImport.update({
   id: '/$taskId',
   path: '/$taskId',
@@ -205,8 +233,13 @@ const AppSettingsPluginsRoute = AppSettingsPluginsRouteImport.update({
   id: '/plugins',
   path: '/plugins',
   getParentRoute: () => AppSettingsRoute,
+} as any)
+const AppSettingsMcpRoute = AppSettingsMcpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
+  getParentRoute: () => AppSettingsRoute,
 } as any).lazy(() =>
-  import('./routes/_app/settings/plugins.lazy').then((d) => d.Route),
+  import('./routes/_app/settings/mcp.lazy').then((d) => d.Route),
 )
 const AppSettingsLibraryRoute = AppSettingsLibraryRouteImport.update({
   id: '/library',
@@ -276,6 +309,25 @@ const AppAgentsAgentIdRoute = AppAgentsAgentIdRouteImport.update({
 } as any).lazy(() =>
   import('./routes/_app/agents.$agentId.lazy').then((d) => d.Route),
 )
+const AppAdminUsersRoute = AppAdminUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => AppAdminRoute,
+} as any).lazy(() =>
+  import('./routes/_app/admin/users.lazy').then((d) => d.Route),
+)
+const AppAdminOverviewRoute = AppAdminOverviewRouteImport.update({
+  id: '/overview',
+  path: '/overview',
+  getParentRoute: () => AppAdminRoute,
+} as any).lazy(() =>
+  import('./routes/_app/admin/overview.lazy').then((d) => d.Route),
+)
+const AppSettingsPluginsIndexRoute = AppSettingsPluginsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppSettingsPluginsRoute,
+} as any)
 const AppAgentsAgentIdIndexRoute = AppAgentsAgentIdIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -305,11 +357,7 @@ const AppSettingsPluginsPluginIdRoute =
     id: '/$pluginId',
     path: '/$pluginId',
     getParentRoute: () => AppSettingsPluginsRoute,
-  } as any).lazy(() =>
-    import('./routes/_app/settings/plugins.$pluginId.lazy').then(
-      (d) => d.Route,
-    ),
-  )
+  } as any)
 const AppSettingsCredentialsSectionRoute =
   AppSettingsCredentialsSectionRouteImport.update({
     id: '/$section',
@@ -356,6 +404,84 @@ const AppAgentsAgentIdMemoriesRoute =
     path: '/memories',
     getParentRoute: () => AppAgentsAgentIdRoute,
   } as any)
+const AppAdminUsersUserIdRoute = AppAdminUsersUserIdRouteImport.update({
+  id: '/$userId',
+  path: '/$userId',
+  getParentRoute: () => AppAdminUsersRoute,
+} as any).lazy(() =>
+  import('./routes/_app/admin/users.$userId.lazy').then((d) => d.Route),
+)
+const AppAdminResourcesSkillsRoute = AppAdminResourcesSkillsRouteImport.update({
+  id: '/resources/skills',
+  path: '/resources/skills',
+  getParentRoute: () => AppAdminRoute,
+} as any).lazy(() =>
+  import('./routes/_app/admin/resources/skills.lazy').then((d) => d.Route),
+)
+const AppAdminResourcesMcpRoute = AppAdminResourcesMcpRouteImport.update({
+  id: '/resources/mcp',
+  path: '/resources/mcp',
+  getParentRoute: () => AppAdminRoute,
+} as any).lazy(() =>
+  import('./routes/_app/admin/resources/mcp.lazy').then((d) => d.Route),
+)
+const AppAdminResourcesLibraryRoute =
+  AppAdminResourcesLibraryRouteImport.update({
+    id: '/resources/library',
+    path: '/resources/library',
+    getParentRoute: () => AppAdminRoute,
+  } as any).lazy(() =>
+    import('./routes/_app/admin/resources/library.lazy').then((d) => d.Route),
+  )
+const AppAdminResourcesCredentialsRoute =
+  AppAdminResourcesCredentialsRouteImport.update({
+    id: '/resources/credentials',
+    path: '/resources/credentials',
+    getParentRoute: () => AppAdminRoute,
+  } as any).lazy(() =>
+    import('./routes/_app/admin/resources/credentials.lazy').then(
+      (d) => d.Route,
+    ),
+  )
+const AppAdminIntegrationsPluginsRoute =
+  AppAdminIntegrationsPluginsRouteImport.update({
+    id: '/integrations/plugins',
+    path: '/integrations/plugins',
+    getParentRoute: () => AppAdminRoute,
+  } as any).lazy(() =>
+    import('./routes/_app/admin/integrations/plugins.lazy').then(
+      (d) => d.Route,
+    ),
+  )
+const AppAdminAiVisionRoute = AppAdminAiVisionRouteImport.update({
+  id: '/ai/vision',
+  path: '/ai/vision',
+  getParentRoute: () => AppAdminRoute,
+} as any).lazy(() =>
+  import('./routes/_app/admin/ai/vision.lazy').then((d) => d.Route),
+)
+const AppAdminAiProvidersRoute = AppAdminAiProvidersRouteImport.update({
+  id: '/ai/providers',
+  path: '/ai/providers',
+  getParentRoute: () => AppAdminRoute,
+} as any).lazy(() =>
+  import('./routes/_app/admin/ai/providers.lazy').then((d) => d.Route),
+)
+const AppAdminAiEmbeddingRoute = AppAdminAiEmbeddingRouteImport.update({
+  id: '/ai/embedding',
+  path: '/ai/embedding',
+  getParentRoute: () => AppAdminRoute,
+} as any).lazy(() =>
+  import('./routes/_app/admin/ai/embedding.lazy').then((d) => d.Route),
+)
+const AppAdminAccessProvisioningRoute =
+  AppAdminAccessProvisioningRouteImport.update({
+    id: '/access/provisioning',
+    path: '/access/provisioning',
+    getParentRoute: () => AppAdminRoute,
+  } as any).lazy(() =>
+    import('./routes/_app/admin/access/provisioning.lazy').then((d) => d.Route),
+  )
 const AppAgentsAgentIdWorkflowsIndexRoute =
   AppAgentsAgentIdWorkflowsIndexRouteImport.update({
     id: '/workflows/',
@@ -446,6 +572,26 @@ const AppAgentsAgentIdGoalsGoalIdRoute =
       (d) => d.Route,
     ),
   )
+const AppAdminIntegrationsPluginsPluginIdRoute =
+  AppAdminIntegrationsPluginsPluginIdRouteImport.update({
+    id: '/$pluginId',
+    path: '/$pluginId',
+    getParentRoute: () => AppAdminIntegrationsPluginsRoute,
+  } as any).lazy(() =>
+    import('./routes/_app/admin/integrations/plugins.$pluginId.lazy').then(
+      (d) => d.Route,
+    ),
+  )
+const AppAdminAiProvidersProviderIdRoute =
+  AppAdminAiProvidersProviderIdRouteImport.update({
+    id: '/$providerId',
+    path: '/$providerId',
+    getParentRoute: () => AppAdminAiProvidersRoute,
+  } as any).lazy(() =>
+    import('./routes/_app/admin/ai/providers.$providerId.lazy').then(
+      (d) => d.Route,
+    ),
+  )
 const AppAgentsAgentIdProjectsProjectIdIndexRoute =
   AppAgentsAgentIdProjectsProjectIdIndexRouteImport.update({
     id: '/projects/$projectId/',
@@ -516,6 +662,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
   '/signup': typeof SignupRoute
+  '/admin': typeof AppAdminRouteWithChildren
   '/agents': typeof AppAgentsRouteWithChildren
   '/inbox': typeof AppInboxRoute
   '/recally': typeof AppRecallyRoute
@@ -525,6 +672,8 @@ export interface FileRoutesByFullPath {
   '/tasks': typeof AppTasksRouteWithChildren
   '/docs/$': typeof DocsSplatRoute
   '/s/$token': typeof STokenRoute
+  '/admin/overview': typeof AppAdminOverviewRoute
+  '/admin/users': typeof AppAdminUsersRouteWithChildren
   '/agents/$agentId': typeof AppAgentsAgentIdRouteWithChildren
   '/groups/$groupId': typeof AppGroupsGroupIdRoute
   '/sessions/$': typeof AppSessionsSplatRoute
@@ -535,6 +684,7 @@ export interface FileRoutesByFullPath {
   '/settings/credentials': typeof AppSettingsCredentialsRouteWithChildren
   '/settings/embedding': typeof AppSettingsEmbeddingRoute
   '/settings/library': typeof AppSettingsLibraryRoute
+  '/settings/mcp': typeof AppSettingsMcpRoute
   '/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/settings/provisioning': typeof AppSettingsProvisioningRoute
@@ -543,8 +693,19 @@ export interface FileRoutesByFullPath {
   '/settings/vision': typeof AppSettingsVisionRoute
   '/settings/webhooks': typeof AppSettingsWebhooksRoute
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
+  '/admin/': typeof AppAdminIndexRoute
   '/agents/': typeof AppAgentsIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
+  '/admin/access/provisioning': typeof AppAdminAccessProvisioningRoute
+  '/admin/ai/embedding': typeof AppAdminAiEmbeddingRoute
+  '/admin/ai/providers': typeof AppAdminAiProvidersRouteWithChildren
+  '/admin/ai/vision': typeof AppAdminAiVisionRoute
+  '/admin/integrations/plugins': typeof AppAdminIntegrationsPluginsRouteWithChildren
+  '/admin/resources/credentials': typeof AppAdminResourcesCredentialsRoute
+  '/admin/resources/library': typeof AppAdminResourcesLibraryRoute
+  '/admin/resources/mcp': typeof AppAdminResourcesMcpRoute
+  '/admin/resources/skills': typeof AppAdminResourcesSkillsRoute
+  '/admin/users/$userId': typeof AppAdminUsersUserIdRoute
   '/agents/$agentId/memories': typeof AppAgentsAgentIdMemoriesRoute
   '/agents/$agentId/profile': typeof AppAgentsAgentIdProfileRoute
   '/agents/$agentId/threads': typeof AppAgentsAgentIdThreadsRoute
@@ -555,6 +716,9 @@ export interface FileRoutesByFullPath {
   '/settings/providers/$providerId': typeof AppSettingsProvidersProviderIdRoute
   '/settings/users/$userId': typeof AppSettingsUsersUserIdRoute
   '/agents/$agentId/': typeof AppAgentsAgentIdIndexRoute
+  '/settings/plugins/': typeof AppSettingsPluginsIndexRoute
+  '/admin/ai/providers/$providerId': typeof AppAdminAiProvidersProviderIdRoute
+  '/admin/integrations/plugins/$pluginId': typeof AppAdminIntegrationsPluginsPluginIdRoute
   '/agents/$agentId/goals/$goalId': typeof AppAgentsAgentIdGoalsGoalIdRoute
   '/agents/$agentId/goals/all': typeof AppAgentsAgentIdGoalsAllRoute
   '/agents/$agentId/goals/new': typeof AppAgentsAgentIdGoalsNewRoute
@@ -587,6 +751,8 @@ export interface FileRoutesByTo {
   '/tasks': typeof AppTasksRouteWithChildren
   '/docs/$': typeof DocsSplatRoute
   '/s/$token': typeof STokenRoute
+  '/admin/overview': typeof AppAdminOverviewRoute
+  '/admin/users': typeof AppAdminUsersRouteWithChildren
   '/groups/$groupId': typeof AppGroupsGroupIdRoute
   '/sessions/$': typeof AppSessionsSplatRoute
   '/settings/about': typeof AppSettingsAboutRoute
@@ -596,7 +762,7 @@ export interface FileRoutesByTo {
   '/settings/credentials': typeof AppSettingsCredentialsRouteWithChildren
   '/settings/embedding': typeof AppSettingsEmbeddingRoute
   '/settings/library': typeof AppSettingsLibraryRoute
-  '/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
+  '/settings/mcp': typeof AppSettingsMcpRoute
   '/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/settings/provisioning': typeof AppSettingsProvisioningRoute
   '/settings/skills': typeof AppSettingsSkillsRoute
@@ -604,8 +770,19 @@ export interface FileRoutesByTo {
   '/settings/vision': typeof AppSettingsVisionRoute
   '/settings/webhooks': typeof AppSettingsWebhooksRoute
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
+  '/admin': typeof AppAdminIndexRoute
   '/agents': typeof AppAgentsIndexRoute
   '/settings': typeof AppSettingsIndexRoute
+  '/admin/access/provisioning': typeof AppAdminAccessProvisioningRoute
+  '/admin/ai/embedding': typeof AppAdminAiEmbeddingRoute
+  '/admin/ai/providers': typeof AppAdminAiProvidersRouteWithChildren
+  '/admin/ai/vision': typeof AppAdminAiVisionRoute
+  '/admin/integrations/plugins': typeof AppAdminIntegrationsPluginsRouteWithChildren
+  '/admin/resources/credentials': typeof AppAdminResourcesCredentialsRoute
+  '/admin/resources/library': typeof AppAdminResourcesLibraryRoute
+  '/admin/resources/mcp': typeof AppAdminResourcesMcpRoute
+  '/admin/resources/skills': typeof AppAdminResourcesSkillsRoute
+  '/admin/users/$userId': typeof AppAdminUsersUserIdRoute
   '/agents/$agentId/memories': typeof AppAgentsAgentIdMemoriesRoute
   '/agents/$agentId/profile': typeof AppAgentsAgentIdProfileRoute
   '/agents/$agentId/threads': typeof AppAgentsAgentIdThreadsRoute
@@ -616,6 +793,9 @@ export interface FileRoutesByTo {
   '/settings/providers/$providerId': typeof AppSettingsProvidersProviderIdRoute
   '/settings/users/$userId': typeof AppSettingsUsersUserIdRoute
   '/agents/$agentId': typeof AppAgentsAgentIdIndexRoute
+  '/settings/plugins': typeof AppSettingsPluginsIndexRoute
+  '/admin/ai/providers/$providerId': typeof AppAdminAiProvidersProviderIdRoute
+  '/admin/integrations/plugins/$pluginId': typeof AppAdminIntegrationsPluginsPluginIdRoute
   '/agents/$agentId/goals/$goalId': typeof AppAgentsAgentIdGoalsGoalIdRoute
   '/agents/$agentId/goals/all': typeof AppAgentsAgentIdGoalsAllRoute
   '/agents/$agentId/goals/new': typeof AppAgentsAgentIdGoalsNewRoute
@@ -643,6 +823,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
   '/signup': typeof SignupRoute
+  '/_app/admin': typeof AppAdminRouteWithChildren
   '/_app/agents': typeof AppAgentsRouteWithChildren
   '/_app/inbox': typeof AppInboxRoute
   '/_app/recally': typeof AppRecallyRoute
@@ -652,6 +833,8 @@ export interface FileRoutesById {
   '/_app/tasks': typeof AppTasksRouteWithChildren
   '/docs/$': typeof DocsSplatRoute
   '/s/$token': typeof STokenRoute
+  '/_app/admin/overview': typeof AppAdminOverviewRoute
+  '/_app/admin/users': typeof AppAdminUsersRouteWithChildren
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRouteWithChildren
   '/_app/groups/$groupId': typeof AppGroupsGroupIdRoute
   '/_app/sessions/$': typeof AppSessionsSplatRoute
@@ -662,6 +845,7 @@ export interface FileRoutesById {
   '/_app/settings/credentials': typeof AppSettingsCredentialsRouteWithChildren
   '/_app/settings/embedding': typeof AppSettingsEmbeddingRoute
   '/_app/settings/library': typeof AppSettingsLibraryRoute
+  '/_app/settings/mcp': typeof AppSettingsMcpRoute
   '/_app/settings/plugins': typeof AppSettingsPluginsRouteWithChildren
   '/_app/settings/providers': typeof AppSettingsProvidersRouteWithChildren
   '/_app/settings/provisioning': typeof AppSettingsProvisioningRoute
@@ -670,8 +854,19 @@ export interface FileRoutesById {
   '/_app/settings/vision': typeof AppSettingsVisionRoute
   '/_app/settings/webhooks': typeof AppSettingsWebhooksRoute
   '/_app/tasks/$taskId': typeof AppTasksTaskIdRoute
+  '/_app/admin/': typeof AppAdminIndexRoute
   '/_app/agents/': typeof AppAgentsIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
+  '/_app/admin/access/provisioning': typeof AppAdminAccessProvisioningRoute
+  '/_app/admin/ai/embedding': typeof AppAdminAiEmbeddingRoute
+  '/_app/admin/ai/providers': typeof AppAdminAiProvidersRouteWithChildren
+  '/_app/admin/ai/vision': typeof AppAdminAiVisionRoute
+  '/_app/admin/integrations/plugins': typeof AppAdminIntegrationsPluginsRouteWithChildren
+  '/_app/admin/resources/credentials': typeof AppAdminResourcesCredentialsRoute
+  '/_app/admin/resources/library': typeof AppAdminResourcesLibraryRoute
+  '/_app/admin/resources/mcp': typeof AppAdminResourcesMcpRoute
+  '/_app/admin/resources/skills': typeof AppAdminResourcesSkillsRoute
+  '/_app/admin/users/$userId': typeof AppAdminUsersUserIdRoute
   '/_app/agents/$agentId/memories': typeof AppAgentsAgentIdMemoriesRoute
   '/_app/agents/$agentId/profile': typeof AppAgentsAgentIdProfileRoute
   '/_app/agents/$agentId/threads': typeof AppAgentsAgentIdThreadsRoute
@@ -682,6 +877,9 @@ export interface FileRoutesById {
   '/_app/settings/providers/$providerId': typeof AppSettingsProvidersProviderIdRoute
   '/_app/settings/users/$userId': typeof AppSettingsUsersUserIdRoute
   '/_app/agents/$agentId/': typeof AppAgentsAgentIdIndexRoute
+  '/_app/settings/plugins/': typeof AppSettingsPluginsIndexRoute
+  '/_app/admin/ai/providers/$providerId': typeof AppAdminAiProvidersProviderIdRoute
+  '/_app/admin/integrations/plugins/$pluginId': typeof AppAdminIntegrationsPluginsPluginIdRoute
   '/_app/agents/$agentId/goals/$goalId': typeof AppAgentsAgentIdGoalsGoalIdRoute
   '/_app/agents/$agentId/goals/all': typeof AppAgentsAgentIdGoalsAllRoute
   '/_app/agents/$agentId/goals/new': typeof AppAgentsAgentIdGoalsNewRoute
@@ -709,6 +907,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/profile'
     | '/signup'
+    | '/admin'
     | '/agents'
     | '/inbox'
     | '/recally'
@@ -718,6 +917,8 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/docs/$'
     | '/s/$token'
+    | '/admin/overview'
+    | '/admin/users'
     | '/agents/$agentId'
     | '/groups/$groupId'
     | '/sessions/$'
@@ -728,6 +929,7 @@ export interface FileRouteTypes {
     | '/settings/credentials'
     | '/settings/embedding'
     | '/settings/library'
+    | '/settings/mcp'
     | '/settings/plugins'
     | '/settings/providers'
     | '/settings/provisioning'
@@ -736,8 +938,19 @@ export interface FileRouteTypes {
     | '/settings/vision'
     | '/settings/webhooks'
     | '/tasks/$taskId'
+    | '/admin/'
     | '/agents/'
     | '/settings/'
+    | '/admin/access/provisioning'
+    | '/admin/ai/embedding'
+    | '/admin/ai/providers'
+    | '/admin/ai/vision'
+    | '/admin/integrations/plugins'
+    | '/admin/resources/credentials'
+    | '/admin/resources/library'
+    | '/admin/resources/mcp'
+    | '/admin/resources/skills'
+    | '/admin/users/$userId'
     | '/agents/$agentId/memories'
     | '/agents/$agentId/profile'
     | '/agents/$agentId/threads'
@@ -748,6 +961,9 @@ export interface FileRouteTypes {
     | '/settings/providers/$providerId'
     | '/settings/users/$userId'
     | '/agents/$agentId/'
+    | '/settings/plugins/'
+    | '/admin/ai/providers/$providerId'
+    | '/admin/integrations/plugins/$pluginId'
     | '/agents/$agentId/goals/$goalId'
     | '/agents/$agentId/goals/all'
     | '/agents/$agentId/goals/new'
@@ -780,6 +996,8 @@ export interface FileRouteTypes {
     | '/tasks'
     | '/docs/$'
     | '/s/$token'
+    | '/admin/overview'
+    | '/admin/users'
     | '/groups/$groupId'
     | '/sessions/$'
     | '/settings/about'
@@ -789,7 +1007,7 @@ export interface FileRouteTypes {
     | '/settings/credentials'
     | '/settings/embedding'
     | '/settings/library'
-    | '/settings/plugins'
+    | '/settings/mcp'
     | '/settings/providers'
     | '/settings/provisioning'
     | '/settings/skills'
@@ -797,8 +1015,19 @@ export interface FileRouteTypes {
     | '/settings/vision'
     | '/settings/webhooks'
     | '/tasks/$taskId'
+    | '/admin'
     | '/agents'
     | '/settings'
+    | '/admin/access/provisioning'
+    | '/admin/ai/embedding'
+    | '/admin/ai/providers'
+    | '/admin/ai/vision'
+    | '/admin/integrations/plugins'
+    | '/admin/resources/credentials'
+    | '/admin/resources/library'
+    | '/admin/resources/mcp'
+    | '/admin/resources/skills'
+    | '/admin/users/$userId'
     | '/agents/$agentId/memories'
     | '/agents/$agentId/profile'
     | '/agents/$agentId/threads'
@@ -809,6 +1038,9 @@ export interface FileRouteTypes {
     | '/settings/providers/$providerId'
     | '/settings/users/$userId'
     | '/agents/$agentId'
+    | '/settings/plugins'
+    | '/admin/ai/providers/$providerId'
+    | '/admin/integrations/plugins/$pluginId'
     | '/agents/$agentId/goals/$goalId'
     | '/agents/$agentId/goals/all'
     | '/agents/$agentId/goals/new'
@@ -835,6 +1067,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/profile'
     | '/signup'
+    | '/_app/admin'
     | '/_app/agents'
     | '/_app/inbox'
     | '/_app/recally'
@@ -844,6 +1077,8 @@ export interface FileRouteTypes {
     | '/_app/tasks'
     | '/docs/$'
     | '/s/$token'
+    | '/_app/admin/overview'
+    | '/_app/admin/users'
     | '/_app/agents/$agentId'
     | '/_app/groups/$groupId'
     | '/_app/sessions/$'
@@ -854,6 +1089,7 @@ export interface FileRouteTypes {
     | '/_app/settings/credentials'
     | '/_app/settings/embedding'
     | '/_app/settings/library'
+    | '/_app/settings/mcp'
     | '/_app/settings/plugins'
     | '/_app/settings/providers'
     | '/_app/settings/provisioning'
@@ -862,8 +1098,19 @@ export interface FileRouteTypes {
     | '/_app/settings/vision'
     | '/_app/settings/webhooks'
     | '/_app/tasks/$taskId'
+    | '/_app/admin/'
     | '/_app/agents/'
     | '/_app/settings/'
+    | '/_app/admin/access/provisioning'
+    | '/_app/admin/ai/embedding'
+    | '/_app/admin/ai/providers'
+    | '/_app/admin/ai/vision'
+    | '/_app/admin/integrations/plugins'
+    | '/_app/admin/resources/credentials'
+    | '/_app/admin/resources/library'
+    | '/_app/admin/resources/mcp'
+    | '/_app/admin/resources/skills'
+    | '/_app/admin/users/$userId'
     | '/_app/agents/$agentId/memories'
     | '/_app/agents/$agentId/profile'
     | '/_app/agents/$agentId/threads'
@@ -874,6 +1121,9 @@ export interface FileRouteTypes {
     | '/_app/settings/providers/$providerId'
     | '/_app/settings/users/$userId'
     | '/_app/agents/$agentId/'
+    | '/_app/settings/plugins/'
+    | '/_app/admin/ai/providers/$providerId'
+    | '/_app/admin/integrations/plugins/$pluginId'
     | '/_app/agents/$agentId/goals/$goalId'
     | '/_app/agents/$agentId/goals/all'
     | '/_app/agents/$agentId/goals/new'
@@ -1005,6 +1255,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAgentsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/admin': {
+      id: '/_app/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AppAdminRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/': {
       id: '/_app/settings/'
       path: '/'
@@ -1018,6 +1275,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/agents/'
       preLoaderRoute: typeof AppAgentsIndexRouteImport
       parentRoute: typeof AppAgentsRoute
+    }
+    '/_app/admin/': {
+      id: '/_app/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AppAdminIndexRouteImport
+      parentRoute: typeof AppAdminRoute
     }
     '/_app/tasks/$taskId': {
       id: '/_app/tasks/$taskId'
@@ -1073,6 +1337,13 @@ declare module '@tanstack/react-router' {
       path: '/plugins'
       fullPath: '/settings/plugins'
       preLoaderRoute: typeof AppSettingsPluginsRouteImport
+      parentRoute: typeof AppSettingsRoute
+    }
+    '/_app/settings/mcp': {
+      id: '/_app/settings/mcp'
+      path: '/mcp'
+      fullPath: '/settings/mcp'
+      preLoaderRoute: typeof AppSettingsMcpRouteImport
       parentRoute: typeof AppSettingsRoute
     }
     '/_app/settings/library': {
@@ -1145,6 +1416,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAgentsAgentIdRouteImport
       parentRoute: typeof AppAgentsRoute
     }
+    '/_app/admin/users': {
+      id: '/_app/admin/users'
+      path: '/users'
+      fullPath: '/admin/users'
+      preLoaderRoute: typeof AppAdminUsersRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/overview': {
+      id: '/_app/admin/overview'
+      path: '/overview'
+      fullPath: '/admin/overview'
+      preLoaderRoute: typeof AppAdminOverviewRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/settings/plugins/': {
+      id: '/_app/settings/plugins/'
+      path: '/'
+      fullPath: '/settings/plugins/'
+      preLoaderRoute: typeof AppSettingsPluginsIndexRouteImport
+      parentRoute: typeof AppSettingsPluginsRoute
+    }
     '/_app/agents/$agentId/': {
       id: '/_app/agents/$agentId/'
       path: '/'
@@ -1214,6 +1506,76 @@ declare module '@tanstack/react-router' {
       fullPath: '/agents/$agentId/memories'
       preLoaderRoute: typeof AppAgentsAgentIdMemoriesRouteImport
       parentRoute: typeof AppAgentsAgentIdRoute
+    }
+    '/_app/admin/users/$userId': {
+      id: '/_app/admin/users/$userId'
+      path: '/$userId'
+      fullPath: '/admin/users/$userId'
+      preLoaderRoute: typeof AppAdminUsersUserIdRouteImport
+      parentRoute: typeof AppAdminUsersRoute
+    }
+    '/_app/admin/resources/skills': {
+      id: '/_app/admin/resources/skills'
+      path: '/resources/skills'
+      fullPath: '/admin/resources/skills'
+      preLoaderRoute: typeof AppAdminResourcesSkillsRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/resources/mcp': {
+      id: '/_app/admin/resources/mcp'
+      path: '/resources/mcp'
+      fullPath: '/admin/resources/mcp'
+      preLoaderRoute: typeof AppAdminResourcesMcpRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/resources/library': {
+      id: '/_app/admin/resources/library'
+      path: '/resources/library'
+      fullPath: '/admin/resources/library'
+      preLoaderRoute: typeof AppAdminResourcesLibraryRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/resources/credentials': {
+      id: '/_app/admin/resources/credentials'
+      path: '/resources/credentials'
+      fullPath: '/admin/resources/credentials'
+      preLoaderRoute: typeof AppAdminResourcesCredentialsRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/integrations/plugins': {
+      id: '/_app/admin/integrations/plugins'
+      path: '/integrations/plugins'
+      fullPath: '/admin/integrations/plugins'
+      preLoaderRoute: typeof AppAdminIntegrationsPluginsRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/ai/vision': {
+      id: '/_app/admin/ai/vision'
+      path: '/ai/vision'
+      fullPath: '/admin/ai/vision'
+      preLoaderRoute: typeof AppAdminAiVisionRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/ai/providers': {
+      id: '/_app/admin/ai/providers'
+      path: '/ai/providers'
+      fullPath: '/admin/ai/providers'
+      preLoaderRoute: typeof AppAdminAiProvidersRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/ai/embedding': {
+      id: '/_app/admin/ai/embedding'
+      path: '/ai/embedding'
+      fullPath: '/admin/ai/embedding'
+      preLoaderRoute: typeof AppAdminAiEmbeddingRouteImport
+      parentRoute: typeof AppAdminRoute
+    }
+    '/_app/admin/access/provisioning': {
+      id: '/_app/admin/access/provisioning'
+      path: '/access/provisioning'
+      fullPath: '/admin/access/provisioning'
+      preLoaderRoute: typeof AppAdminAccessProvisioningRouteImport
+      parentRoute: typeof AppAdminRoute
     }
     '/_app/agents/$agentId/workflows/': {
       id: '/_app/agents/$agentId/workflows/'
@@ -1292,6 +1654,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAgentsAgentIdGoalsGoalIdRouteImport
       parentRoute: typeof AppAgentsAgentIdRoute
     }
+    '/_app/admin/integrations/plugins/$pluginId': {
+      id: '/_app/admin/integrations/plugins/$pluginId'
+      path: '/$pluginId'
+      fullPath: '/admin/integrations/plugins/$pluginId'
+      preLoaderRoute: typeof AppAdminIntegrationsPluginsPluginIdRouteImport
+      parentRoute: typeof AppAdminIntegrationsPluginsRoute
+    }
+    '/_app/admin/ai/providers/$providerId': {
+      id: '/_app/admin/ai/providers/$providerId'
+      path: '/$providerId'
+      fullPath: '/admin/ai/providers/$providerId'
+      preLoaderRoute: typeof AppAdminAiProvidersProviderIdRouteImport
+      parentRoute: typeof AppAdminAiProvidersRoute
+    }
     '/_app/agents/$agentId/projects/$projectId/': {
       id: '/_app/agents/$agentId/projects/$projectId/'
       path: '/projects/$projectId'
@@ -1350,6 +1726,79 @@ declare module '@tanstack/react-router' {
     }
   }
 }
+
+interface AppAdminUsersRouteChildren {
+  AppAdminUsersUserIdRoute: typeof AppAdminUsersUserIdRoute
+}
+
+const AppAdminUsersRouteChildren: AppAdminUsersRouteChildren = {
+  AppAdminUsersUserIdRoute: AppAdminUsersUserIdRoute,
+}
+
+const AppAdminUsersRouteWithChildren = AppAdminUsersRoute._addFileChildren(
+  AppAdminUsersRouteChildren,
+)
+
+interface AppAdminAiProvidersRouteChildren {
+  AppAdminAiProvidersProviderIdRoute: typeof AppAdminAiProvidersProviderIdRoute
+}
+
+const AppAdminAiProvidersRouteChildren: AppAdminAiProvidersRouteChildren = {
+  AppAdminAiProvidersProviderIdRoute: AppAdminAiProvidersProviderIdRoute,
+}
+
+const AppAdminAiProvidersRouteWithChildren =
+  AppAdminAiProvidersRoute._addFileChildren(AppAdminAiProvidersRouteChildren)
+
+interface AppAdminIntegrationsPluginsRouteChildren {
+  AppAdminIntegrationsPluginsPluginIdRoute: typeof AppAdminIntegrationsPluginsPluginIdRoute
+}
+
+const AppAdminIntegrationsPluginsRouteChildren: AppAdminIntegrationsPluginsRouteChildren =
+  {
+    AppAdminIntegrationsPluginsPluginIdRoute:
+      AppAdminIntegrationsPluginsPluginIdRoute,
+  }
+
+const AppAdminIntegrationsPluginsRouteWithChildren =
+  AppAdminIntegrationsPluginsRoute._addFileChildren(
+    AppAdminIntegrationsPluginsRouteChildren,
+  )
+
+interface AppAdminRouteChildren {
+  AppAdminOverviewRoute: typeof AppAdminOverviewRoute
+  AppAdminUsersRoute: typeof AppAdminUsersRouteWithChildren
+  AppAdminIndexRoute: typeof AppAdminIndexRoute
+  AppAdminAccessProvisioningRoute: typeof AppAdminAccessProvisioningRoute
+  AppAdminAiEmbeddingRoute: typeof AppAdminAiEmbeddingRoute
+  AppAdminAiProvidersRoute: typeof AppAdminAiProvidersRouteWithChildren
+  AppAdminAiVisionRoute: typeof AppAdminAiVisionRoute
+  AppAdminIntegrationsPluginsRoute: typeof AppAdminIntegrationsPluginsRouteWithChildren
+  AppAdminResourcesCredentialsRoute: typeof AppAdminResourcesCredentialsRoute
+  AppAdminResourcesLibraryRoute: typeof AppAdminResourcesLibraryRoute
+  AppAdminResourcesMcpRoute: typeof AppAdminResourcesMcpRoute
+  AppAdminResourcesSkillsRoute: typeof AppAdminResourcesSkillsRoute
+}
+
+const AppAdminRouteChildren: AppAdminRouteChildren = {
+  AppAdminOverviewRoute: AppAdminOverviewRoute,
+  AppAdminUsersRoute: AppAdminUsersRouteWithChildren,
+  AppAdminIndexRoute: AppAdminIndexRoute,
+  AppAdminAccessProvisioningRoute: AppAdminAccessProvisioningRoute,
+  AppAdminAiEmbeddingRoute: AppAdminAiEmbeddingRoute,
+  AppAdminAiProvidersRoute: AppAdminAiProvidersRouteWithChildren,
+  AppAdminAiVisionRoute: AppAdminAiVisionRoute,
+  AppAdminIntegrationsPluginsRoute:
+    AppAdminIntegrationsPluginsRouteWithChildren,
+  AppAdminResourcesCredentialsRoute: AppAdminResourcesCredentialsRoute,
+  AppAdminResourcesLibraryRoute: AppAdminResourcesLibraryRoute,
+  AppAdminResourcesMcpRoute: AppAdminResourcesMcpRoute,
+  AppAdminResourcesSkillsRoute: AppAdminResourcesSkillsRoute,
+}
+
+const AppAdminRouteWithChildren = AppAdminRoute._addFileChildren(
+  AppAdminRouteChildren,
+)
 
 interface AppAgentsAgentIdRouteChildren {
   AppAgentsAgentIdMemoriesRoute: typeof AppAgentsAgentIdMemoriesRoute
@@ -1492,10 +1941,12 @@ const AppSettingsCredentialsRouteWithChildren =
 
 interface AppSettingsPluginsRouteChildren {
   AppSettingsPluginsPluginIdRoute: typeof AppSettingsPluginsPluginIdRoute
+  AppSettingsPluginsIndexRoute: typeof AppSettingsPluginsIndexRoute
 }
 
 const AppSettingsPluginsRouteChildren: AppSettingsPluginsRouteChildren = {
   AppSettingsPluginsPluginIdRoute: AppSettingsPluginsPluginIdRoute,
+  AppSettingsPluginsIndexRoute: AppSettingsPluginsIndexRoute,
 }
 
 const AppSettingsPluginsRouteWithChildren =
@@ -1531,6 +1982,7 @@ interface AppSettingsRouteChildren {
   AppSettingsCredentialsRoute: typeof AppSettingsCredentialsRouteWithChildren
   AppSettingsEmbeddingRoute: typeof AppSettingsEmbeddingRoute
   AppSettingsLibraryRoute: typeof AppSettingsLibraryRoute
+  AppSettingsMcpRoute: typeof AppSettingsMcpRoute
   AppSettingsPluginsRoute: typeof AppSettingsPluginsRouteWithChildren
   AppSettingsProvidersRoute: typeof AppSettingsProvidersRouteWithChildren
   AppSettingsProvisioningRoute: typeof AppSettingsProvisioningRoute
@@ -1549,6 +2001,7 @@ const AppSettingsRouteChildren: AppSettingsRouteChildren = {
   AppSettingsCredentialsRoute: AppSettingsCredentialsRouteWithChildren,
   AppSettingsEmbeddingRoute: AppSettingsEmbeddingRoute,
   AppSettingsLibraryRoute: AppSettingsLibraryRoute,
+  AppSettingsMcpRoute: AppSettingsMcpRoute,
   AppSettingsPluginsRoute: AppSettingsPluginsRouteWithChildren,
   AppSettingsProvidersRoute: AppSettingsProvidersRouteWithChildren,
   AppSettingsProvisioningRoute: AppSettingsProvisioningRoute,
@@ -1576,6 +2029,7 @@ const AppTasksRouteWithChildren = AppTasksRoute._addFileChildren(
 )
 
 interface AppRouteChildren {
+  AppAdminRoute: typeof AppAdminRouteWithChildren
   AppAgentsRoute: typeof AppAgentsRouteWithChildren
   AppInboxRoute: typeof AppInboxRoute
   AppRecallyRoute: typeof AppRecallyRoute
@@ -1587,6 +2041,7 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppAdminRoute: AppAdminRouteWithChildren,
   AppAgentsRoute: AppAgentsRouteWithChildren,
   AppInboxRoute: AppInboxRoute,
   AppRecallyRoute: AppRecallyRoute,

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { PlugZap, Plus } from "lucide-react";
 import {
   createScopedMcpServer,
@@ -10,7 +9,6 @@ import {
 } from "@/lib/api-client/sdk.gen";
 import type { McpServer } from "@/lib/api-client/types.gen";
 import type { Agent } from "@/lib/types";
-import { meQueryOptions } from "@/lib/queries/me";
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { useToast } from "@/hooks/use-toast";
@@ -40,12 +38,18 @@ import {
   SettingsGridPage,
 } from "@/features/settings/SettingsCardGrid";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
+import {
+  isAgentManagedScope,
+  scopeForRange,
+  scopeQueriesForBand,
+  scopesForBand,
+  type ScopeBand,
+} from "@/lib/scope-band";
 
 type MCPScope = McpServer["scope"];
 type MCPTransport = McpTransport;
 type MCPAuthType = McpAuthType;
 
-type ScopeOwner = "me" | "global";
 type ScopeRange = "all" | "specific";
 
 const SCOPE_ORDER: MCPScope[] = ["user", "user_agent", "system", "system_agent"];
@@ -58,18 +62,18 @@ const SCOPE_LABEL_KEY: Record<MCPScope, MessageKey> = {
 };
 
 function isAgentScope(scope: MCPScope) {
-  return scope === "user_agent" || scope === "system_agent";
+  return isAgentManagedScope(scope);
 }
 
-function toScope(owner: ScopeOwner, range: ScopeRange): MCPScope {
-  if (range === "specific") return owner === "global" ? "system_agent" : "user_agent";
-  return owner === "global" ? "system" : "user";
-}
-
-export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
+export function MCPServersPanel({
+  embedded = false,
+  scopeBand,
+}: {
+  embedded?: boolean;
+  scopeBand: ScopeBand;
+}) {
   const { t } = useI18n();
-  const { data: me } = useQuery(meQueryOptions);
-  const isAdmin = me?.is_admin ?? false;
+  const managedScopes = scopesForBand(scopeBand) as readonly MCPScope[];
   const { showToast } = useToast();
 
   const [servers, setServers] = useState<McpServer[]>([]);
@@ -80,7 +84,6 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingServer, setEditingServer] = useState<McpServer | null>(null);
 
-  const [formOwner, setFormOwner] = useState<ScopeOwner>("me");
   const [formRange, setFormRange] = useState<ScopeRange>("all");
   const [formAgentID, setFormAgentID] = useState("");
   const [name, setName] = useState("");
@@ -116,19 +119,17 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
     async (agentList: Agent[]) => {
       setLoading(true);
       try {
-        const jobs: Promise<McpServer[]>[] = [fetchScope("user")];
-        if (isAdmin) jobs.push(fetchScope("system"));
-        for (const agent of agentList) {
-          jobs.push(fetchScope("user_agent", agent.id));
-          if (isAdmin) jobs.push(fetchScope("system_agent", agent.id));
-        }
+        const jobs = scopeQueriesForBand(
+          scopeBand,
+          agentList.map((agent) => agent.id),
+        ).map(({ scope, agentID }) => fetchScope(scope as MCPScope, agentID));
         const results = await Promise.all(jobs);
         setServers(results.flat());
       } finally {
         setLoading(false);
       }
     },
-    [fetchScope, isAdmin],
+    [fetchScope, scopeBand],
   );
 
   const reloadScope = useCallback(
@@ -162,7 +163,6 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
 
   const openAddSheet = useCallback(() => {
     setEditingServer(null);
-    setFormOwner("me");
     setFormRange("all");
     setFormAgentID("");
     setName("");
@@ -175,7 +175,6 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
 
   const openEditSheet = useCallback((server: McpServer) => {
     setEditingServer(server);
-    setFormOwner(server.scope === "system" || server.scope === "system_agent" ? "global" : "me");
     setFormRange(isAgentScope(server.scope) ? "specific" : "all");
     setFormAgentID(server.agent_id ?? "");
     setName(server.name);
@@ -187,7 +186,7 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
   }, []);
 
   const saveServer = useCallback(async () => {
-    const scope = toScope(formOwner, formRange);
+    const scope = scopeForRange(scopeBand, formRange === "specific") as MCPScope;
     const agentScoped = isAgentScope(scope);
     if (!name.trim()) {
       showToast(t("mcp.nameRequired"), "error");
@@ -257,8 +256,8 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
     authType,
     editingServer,
     formAgentID,
-    formOwner,
     formRange,
+    scopeBand,
     name,
     reloadScope,
     showToast,
@@ -314,11 +313,14 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
   );
 
   const sortedServers = useMemo(
-    () => [...servers].sort((a, b) => SCOPE_ORDER.indexOf(a.scope) - SCOPE_ORDER.indexOf(b.scope)),
-    [servers],
+    () =>
+      [...servers]
+        .filter((server) => managedScopes.includes(server.scope))
+        .sort((a, b) => SCOPE_ORDER.indexOf(a.scope) - SCOPE_ORDER.indexOf(b.scope)),
+    [managedScopes, servers],
   );
 
-  const formScope = toScope(formOwner, formRange);
+  const formScope = scopeForRange(scopeBand, formRange === "specific") as MCPScope;
 
   const addPanel = (
     <DetailPanel
@@ -342,7 +344,7 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
             value={formScope}
             onValueChange={(value) => {
               const scope = value as MCPScope;
-              setFormOwner(scope === "system" || scope === "system_agent" ? "global" : "me");
+              if (!managedScopes.includes(scope)) return;
               setFormRange(isAgentScope(scope) ? "specific" : "all");
             }}
           >
@@ -352,9 +354,7 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
               </SelectValue>
             </SelectTrigger>
             <SelectPopup>
-              {SCOPE_ORDER.filter(
-                (scope) => isAdmin || (scope !== "system" && scope !== "system_agent"),
-              ).map((scope) => (
+              {SCOPE_ORDER.filter((scope) => managedScopes.includes(scope)).map((scope) => (
                 <SelectItem key={scope} value={scope}>
                   {t(SCOPE_LABEL_KEY[scope])}
                 </SelectItem>
@@ -422,7 +422,7 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
   ) : (
     <SettingsCardSection
       icon={<PlugZap className="size-4" />}
-      title={t("mcp.title")}
+      title={t(scopeBand === "system" ? "admin.resources.mcp.title" : "mcp.title")}
       description={t("mcp.sectionDescription")}
       count={sortedServers.length}
     >
@@ -479,7 +479,10 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
           {content}
         </div>
       ) : (
-        <SettingsGridPage title={t("mcp.title")} action={action}>
+        <SettingsGridPage
+          title={t(scopeBand === "system" ? "admin.resources.mcp.title" : "mcp.title")}
+          action={action}
+        >
           {content}
         </SettingsGridPage>
       )}
@@ -491,6 +494,14 @@ export function MCPServersPanel({ embedded = false }: { embedded?: boolean }) {
   );
 }
 
-export function MCPServersPage() {
-  return <MCPServersPanel />;
+export function MCPServersPage({ scopeBand }: { scopeBand: ScopeBand }) {
+  return <MCPServersPanel scopeBand={scopeBand} />;
+}
+
+export function PersonalMCPPage() {
+  return <MCPServersPage scopeBand="personal" />;
+}
+
+export function GlobalMCPPage() {
+  return <MCPServersPage scopeBand="system" />;
 }

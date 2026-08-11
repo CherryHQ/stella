@@ -5,7 +5,7 @@ import { ChevronDown } from "lucide-react";
 import { createSession } from "@/lib/api-client/sdk.gen";
 import type { Agent, Session } from "@/lib/types";
 import { agentsQueryOptions } from "@/lib/queries/agents";
-import { agentLevelChats, allChatSessionsQueryOptions } from "@/lib/queries/sessions";
+import { agentLevelThreads, allThreadSessionsQueryOptions } from "@/lib/queries/sessions";
 import { SessionOriginBadge } from "@/components/SessionOriginBadge";
 import { getAgentAvatarStyle } from "@/lib/agent-colors";
 import { sessionDisplayTitle } from "@/lib/session-title";
@@ -86,13 +86,13 @@ export function HomePage() {
   // cross-agent session list yet (#884). Fine for a single-tenant deployment
   // with a handful of agents; replace with the single endpoint when it lands.
   const sessionQueries = useQueries({
-    queries: agents.map((agent) => allChatSessionsQueryOptions(agent.id)),
+    queries: agents.map((agent) => allThreadSessionsQueryOptions(agent.id)),
   });
   const recentRows: { session: Session; agent: Agent; index: number }[] = [];
   agents.forEach((agent, index) => {
     const sessions = sessionQueries[index]?.data;
     if (!sessions) return;
-    for (const session of agentLevelChats(sessions)) recentRows.push({ session, agent, index });
+    for (const session of agentLevelThreads(sessions)) recentRows.push({ session, agent, index });
   });
   const recents = recentRows
     .sort(

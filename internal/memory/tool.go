@@ -17,6 +17,7 @@ import (
 const (
 	actionStatus          = "status"
 	actionSearch          = "search"
+	actionRead            = "read"
 	actionDescribe        = "describe"
 	actionExpand          = "expand"
 	actionGetMessage      = "get_message"
@@ -42,6 +43,8 @@ type toolConfig struct {
 	readOnlyProfile       bool
 	readOnlySoul          bool
 	sessionReadOnlyWrites bool
+	hideTranscriptActions bool
+	recallSource          RecallSource
 	actionsOnly           map[string]bool // nil means all available
 }
 
@@ -66,6 +69,24 @@ func WithReadOnlySoul() ToolOption {
 func WithSessionReadOnlyWrites() ToolOption {
 	return func(c *toolConfig) {
 		c.sessionReadOnlyWrites = true
+	}
+}
+
+// WithoutTranscriptActions removes conversation retrieval from the model-facing
+// memory surface. Kept for specialized compatibility callers; ordinary chat
+// uses WithRecallSource instead.
+func WithoutTranscriptActions() ToolOption {
+	return func(c *toolConfig) {
+		c.hideTranscriptActions = true
+	}
+}
+
+// WithRecallSource replaces the model-facing action surface with one unified
+// search/read facade. Conversation resources stay behind the Session PEP while
+// this tool federates them with snapshot-visible durable memory.
+func WithRecallSource(source RecallSource) ToolOption {
+	return func(c *toolConfig) {
+		c.recallSource = source
 	}
 }
 
@@ -130,6 +151,12 @@ func BuildTool(provider Provider, opts ...ToolOption) tools.Tool {
 	if _, ok := inner.(VersionedFactStore); ok {
 		t.versionedFacts, _ = provider.(VersionedFactStore)
 	}
+	if _, ok := inner.(VersionedProfileStore); ok {
+		t.versionedProfiles, _ = provider.(VersionedProfileStore)
+	}
+	if _, ok := inner.(VersionedConstraintStore); ok {
+		t.versionedConstraints, _ = provider.(VersionedConstraintStore)
+	}
 	if _, ok := inner.(KnowledgeUsageTracker); ok {
 		t.knowledgeUsageTracker, _ = provider.(KnowledgeUsageTracker)
 	}
@@ -160,6 +187,8 @@ type memoryTool struct {
 	snapshotStore         SessionSnapshotStore
 	factStore             FactStore
 	versionedFacts        VersionedFactStore
+	versionedProfiles     VersionedProfileStore
+	versionedConstraints  VersionedConstraintStore
 	knowledgeUsageTracker KnowledgeUsageTracker
 	actions               []actionMeta
 }
@@ -173,20 +202,24 @@ func (t *memoryTool) buildActions() []actionMeta {
 		}
 		actions = append(actions, actionMeta{name: name, desc: desc})
 	}
-
-	add(actionStatus, "Show session memory statistics: message count, token usage, summary count, time range.")
-
-	if t.searcher != nil {
-		add(actionSearch, "Search this user+agent's history by keyword across ALL past sessions, not just the current one. Each hit carries provenance: session_id and conversation_title for origin, and occurred_at (RFC3339) for when the content actually happened — use it to weight recency.")
+	if t.cfg.recallSource != nil {
+		add(actionSearch, "Recall relevant content across session messages, LCM summaries, durable facts, profile, soul, and constraints. The storage scope is selected automatically.")
+		add(actionRead, "Read an opaque ref returned by search, or a well-known ref: profile, soul, constraints, profile_versions, or soul_versions. Summary refs include metadata, lineage, and one bounded expansion level.")
+		return actions
 	}
 
-	if t.explorer != nil {
-		add(actionDescribe, "Inspect a summary's content, metadata, and lineage (parents/children).")
-		add(actionExpand, "Drill into a summary to retrieve original messages (leaf) or child summaries (condensed).")
-	}
-
-	if t.messageReader != nil {
-		add(actionGetMessage, "Fetch one message in full by its ID (the source_id of a 'message' search hit). Use this to read a truncated search snippet in full, including hits from other past sessions of this user+agent.")
+	if !t.cfg.hideTranscriptActions {
+		add(actionStatus, "Show session memory statistics: message count, token usage, summary count, time range.")
+		if t.searcher != nil {
+			add(actionSearch, "Search this user+agent's history by keyword across ALL past sessions, not just the current one. Each hit carries provenance: session_id and conversation_title for origin, and occurred_at (RFC3339) for when the content actually happened — use it to weight recency.")
+		}
+		if t.explorer != nil {
+			add(actionDescribe, "Inspect a summary's content, metadata, and lineage (parents/children).")
+			add(actionExpand, "Drill into a summary to retrieve original messages (leaf) or child summaries (condensed).")
+		}
+		if t.messageReader != nil {
+			add(actionGetMessage, "Fetch one message in full by its ID (the source_id of a 'message' search hit). Use this to read a truncated search snippet in full, including hits from other past sessions of this user+agent.")
+		}
 	}
 
 	if t.profileStore != nil {
@@ -231,7 +264,11 @@ func (t *memoryTool) Definition() tools.Definition {
 
 func (t *memoryTool) buildDescription() string {
 	var b strings.Builder
-	b.WriteString("Manage conversation memory.\n\nActions:\n")
+	if t.cfg.recallSource != nil {
+		b.WriteString("Recall anything remembered for the current user and agent. Search chooses storage automatically and returns opaque refs; read follows those refs or well-known memory refs.\n\nActions:\n")
+	} else {
+		b.WriteString("Read durable knowledge, identity, profile, and constraints. Session transcripts are available through the session tool.\n\nActions:\n")
+	}
 	for _, a := range t.actions {
 		fmt.Fprintf(&b, "- %s: %s\n", a.name, a.desc)
 	}
@@ -255,7 +292,12 @@ func (t *memoryTool) buildInputSchema() map[string]any {
 	}
 
 	// Add action-specific parameters.
-	if t.hasAction(actionSearch) {
+	if t.hasAction(actionSearch) && t.cfg.recallSource != nil {
+		properties["query"] = map[string]any{
+			"type":        "string",
+			"description": "What to recall across all memory (required for search)",
+		}
+	} else if t.hasAction(actionSearch) {
 		properties["pattern"] = map[string]any{
 			"type":        "string",
 			"description": "Keywords to search for (required for search, full-text match ranked by relevance)",
@@ -264,6 +306,18 @@ func (t *memoryTool) buildInputSchema() map[string]any {
 			"type":        "string",
 			"enum":        []any{"messages", "summaries", "both"},
 			"description": "Where to search: 'messages', 'summaries', or 'both' (default). Only for search",
+		}
+	}
+	if t.hasAction(actionRead) {
+		properties["ref"] = map[string]any{
+			"type":        "string",
+			"description": "Opaque ref returned by search, or one of: profile, soul, constraints, profile_versions, soul_versions",
+		}
+		properties["token_cap"] = map[string]any{
+			"type":        "integer",
+			"minimum":     1,
+			"maximum":     maxUnifiedReadTokenCap,
+			"description": "Maximum expansion tokens for a summary ref (default 4000)",
 		}
 	}
 
@@ -277,7 +331,7 @@ func (t *memoryTool) buildInputSchema() map[string]any {
 	if t.hasAction(actionSearch) || t.hasAction(actionSearchKnowledge) {
 		properties["limit"] = map[string]any{
 			"type":        "integer",
-			"description": "Maximum number of results to return (default 20 for search, 10 for search_knowledge)",
+			"description": "Maximum number of results to return",
 		}
 	}
 
@@ -375,7 +429,12 @@ func (t *memoryTool) Execute(ctx context.Context, args map[string]any) (string, 
 	case actionStatus:
 		return t.execStatus(ctx)
 	case actionSearch:
+		if t.cfg.recallSource != nil {
+			return t.execUnifiedSearch(ctx, args)
+		}
 		return t.execSearch(ctx, args)
+	case actionRead:
+		return t.execUnifiedRead(ctx, args)
 	case actionDescribe:
 		return t.execDescribe(ctx, args)
 	case actionExpand:
@@ -463,12 +522,12 @@ func (t *memoryTool) execSearchKnowledge(ctx context.Context, args map[string]an
 	if strings.TrimSpace(query) == "" {
 		return "", fmt.Errorf("memory search_knowledge: query is required")
 	}
-	userID, agentID, err := t.requireKnowledgeCtx(ctx)
+	userID, agentID, err := t.requireKnowledgeCtx(ctx, actionSearchKnowledge)
 	if err != nil {
 		return "", err
 	}
 
-	facts, err := t.searchKnowledgeFacts(ctx, userID, agentID)
+	facts, err := t.searchKnowledgeFacts(ctx, userID, agentID, actionSearchKnowledge)
 	if err != nil {
 		return "", err
 	}
@@ -501,29 +560,29 @@ func (t *memoryTool) touchReturnedKnowledgeUsage(ctx context.Context, userID str
 	}
 }
 
-func (t *memoryTool) requireKnowledgeCtx(ctx context.Context) (string, string, error) {
+func (t *memoryTool) requireKnowledgeCtx(ctx context.Context, action string) (string, string, error) {
 	if t.factStore == nil {
-		return "", "", fmt.Errorf("memory %s: not supported by provider", actionSearchKnowledge)
+		return "", "", fmt.Errorf("memory %s: not supported by provider", action)
 	}
 	userID := authz.UserIDFromContext(ctx)
 	if userID == "" {
-		return "", "", fmt.Errorf("memory %s: no user context", actionSearchKnowledge)
+		return "", "", fmt.Errorf("memory %s: no user context", action)
 	}
 	agentID := authz.AgentIDFromContext(ctx)
 	if agentID == "" {
-		return "", "", fmt.Errorf("memory %s: no agent context", actionSearchKnowledge)
+		return "", "", fmt.Errorf("memory %s: no agent context", action)
 	}
 	return userID, agentID, nil
 }
 
-func (t *memoryTool) searchKnowledgeFacts(ctx context.Context, userID string, agentID string) ([]Fact, error) {
+func (t *memoryTool) searchKnowledgeFacts(ctx context.Context, userID string, agentID string, action string) ([]Fact, error) {
 	snapshotVersion := int64(0)
 	hasSnapshot := false
 	if t.snapshotStore != nil {
 		if sessionID := SessionIDFromContext(ctx); sessionID != "" {
 			snap, err := t.snapshotStore.GetOrCreateSessionSnapshot(ctx, sessionID, userID, agentID)
 			if err != nil {
-				return nil, fmt.Errorf("memory search_knowledge: get snapshot: %w", err)
+				return nil, fmt.Errorf("memory %s: get snapshot: %w", action, err)
 			}
 			snapshotVersion = snap.Version
 			hasSnapshot = true
@@ -531,17 +590,17 @@ func (t *memoryTool) searchKnowledgeFacts(ctx context.Context, userID string, ag
 	}
 	if hasSnapshot {
 		if t.versionedFacts == nil {
-			return nil, fmt.Errorf("memory search_knowledge: snapshot facts are not supported by provider")
+			return nil, fmt.Errorf("memory %s: snapshot facts are not supported by provider", action)
 		}
 		facts, err := t.versionedFacts.ListActiveFactsAt(ctx, userID, agentID, FactSubjectWorld, snapshotVersion)
 		if err != nil {
-			return nil, fmt.Errorf("memory search_knowledge: list snapshot facts: %w", err)
+			return nil, fmt.Errorf("memory %s: list snapshot facts: %w", action, err)
 		}
 		return filterWorldKnowledgeFacts(facts), nil
 	}
 	facts, err := t.factStore.ListActiveFacts(ctx, userID, agentID, FactSubjectWorld)
 	if err != nil {
-		return nil, fmt.Errorf("memory search_knowledge: list active facts: %w", err)
+		return nil, fmt.Errorf("memory %s: list active facts: %w", action, err)
 	}
 	return filterWorldKnowledgeFacts(facts), nil
 }

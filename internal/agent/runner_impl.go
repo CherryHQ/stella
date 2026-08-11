@@ -29,12 +29,13 @@ import (
 
 // providerConfig groups LLM provider settings.
 type providerConfig struct {
-	API     string   // provider key: "anthropic", "openai"
-	Model   string   // e.g. "claude-sonnet-4-20250514"
-	Input   []string // declared model input modalities, e.g. ["text", "image"]; nil when undeclared
-	APIKey  string
-	BaseURL string // optional provider base URL override
-	Builder ProviderStreamBuilder
+	ProviderID string   // canonical provider row ID used in qualified model refs
+	API        string   // provider adapter type: "anthropic", "openai"
+	Model      string   // e.g. "claude-sonnet-4-20250514"
+	Input      []string // declared model input modalities, e.g. ["text", "image"]; nil when undeclared
+	APIKey     string
+	BaseURL    string // optional provider base URL override
+	Builder    ProviderStreamBuilder
 }
 
 // runnerConfig configures the runner implementation.
@@ -47,6 +48,7 @@ type runnerConfig struct {
 	Sections            []pkgplugins.SystemPromptSection
 	BuiltinTools        []BuiltinTool
 	BuiltinParams       RunnerParams
+	DisabledSkillRefs   []string
 	PerRunTools         []tools.Tool
 	SkillStore          pkgplugins.SkillStore
 	SkillReadAuthorizer skillstool.SkillReadAuthorizer
@@ -68,6 +70,7 @@ type runner struct {
 	runner          *coreagent.Runner
 	stream          providers.StreamFunc
 	tools           *tools.Registry
+	delegateTool    *delegatetool.DelegateTool
 	model           ai.Model
 	streamOptions   ai.StreamOptions
 	system          string
@@ -95,7 +98,11 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 
 	systemPrompt := cfg.System
 
-	model := ai.Model{API: cfg.Provider.API, Name: cfg.Provider.Model, Provider: cfg.Provider.API, BaseURL: cfg.Provider.BaseURL, Input: cfg.Provider.Input}
+	providerID := cfg.Provider.ProviderID
+	if providerID == "" {
+		providerID = cfg.Provider.API
+	}
+	model := ai.Model{ID: cfg.Provider.Model, API: cfg.Provider.API, Name: cfg.Provider.Model, Provider: providerID, BaseURL: cfg.Provider.BaseURL, Input: cfg.Provider.Input}
 
 	var session pkgsandbox.Session
 	if !cfg.NoCapabilities {
@@ -128,7 +135,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		})
 	}
 
-	toolReg, hookSet, err := buildToolRegistry(ctx, cfg, session, stream, model, systemPrompt)
+	toolReg, hookSet, delegateTool, err := buildToolRegistry(ctx, cfg, session, stream, model, systemPrompt)
 	if err != nil {
 		if session != nil {
 			_ = session.Close()
@@ -149,6 +156,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		runner:          coreRunner,
 		stream:          stream,
 		tools:           toolReg,
+		delegateTool:    delegateTool,
 		model:           model,
 		streamOptions:   streamOptions,
 		system:          systemPrompt,
@@ -212,10 +220,10 @@ func buildStreamFunc(cfg runnerConfig) (providers.StreamFunc, error) {
 }
 
 // buildToolRegistry creates the tool registry with core, builtin, and external tools.
-func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox.Session, stream providers.StreamFunc, model ai.Model, systemPrompt string) (*tools.Registry, *hooks.HookSet, error) {
+func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox.Session, stream providers.StreamFunc, model ai.Model, systemPrompt string) (*tools.Registry, *hooks.HookSet, *delegatetool.DelegateTool, error) {
 	toolReg := tools.NewRegistry()
 	if cfg.NoCapabilities {
-		return toolReg, nil, nil
+		return toolReg, nil, nil, nil
 	}
 	paths, _ := sandbox.ResolvePaths(cfg.Sandbox)
 
@@ -239,7 +247,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 
 	coreTools := buildSandboxCoreTools(session, bc, cfg.Sandbox.SessionSecretValues)
 	if len(coreTools) == 0 {
-		return nil, nil, fmt.Errorf("runner: sandbox backend unavailable: core tools require an active sandbox host")
+		return nil, nil, nil, fmt.Errorf("runner: sandbox backend unavailable: core tools require an active sandbox host")
 	}
 
 	// Sandbox core tools (bash/read/write/edit) route through the active
@@ -264,7 +272,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 
 	for _, entry := range cfg.BuiltinTools {
 		if entry.Tool == nil {
-			return nil, nil, fmt.Errorf("runner: builtin tool is nil")
+			return nil, nil, nil, fmt.Errorf("runner: builtin tool is nil")
 		}
 		if entry.Available != nil && !entry.Available(ctx, cfg.BuiltinParams) {
 			continue
@@ -281,8 +289,8 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		sv := sandbox.ResolveSkillView(ctx, cfg.Sandbox, paths)
 		view := skillstool.SkillDirView{
 			Isolated:           sv.Isolated,
-			SystemSkillsHost:   sv.SystemSkillsHost,
-			SystemSkillsView:   sv.SystemSkillsView,
+			BuiltinSkillsHost:  sv.BuiltinSkillsHost,
+			BuiltinSkillsView:  sv.BuiltinSkillsView,
 			AgentSkillsHost:    sv.AgentSkillsHost,
 			AgentSkillsView:    sv.AgentSkillsView,
 			SystemDBSkillsHost: sv.SystemDBSkillsHost,
@@ -296,6 +304,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 			WithSkillDiskLayout(layout).
 			WithSkillDirView(view).
 			WithPluginVisibility(cfg.PluginView.RegisteredPluginIDs, cfg.PluginView.EnabledPluginIDs).
+			WithAgentSkillPolicy(cfg.DisabledSkillRefs).
 			WithReadAuthorizer(cfg.SkillReadAuthorizer).
 			WithActionsOnly("search_installed", "load"))
 	}
@@ -311,7 +320,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	}
 
 	hookSet := buildHookSet(cfg)
-	registerNonCore(delegatetool.NewDelegateTool(delegatetool.DelegateConfig{
+	delegateTool := delegatetool.NewDelegateTool(delegatetool.DelegateConfig{
 		Stream:         stream,
 		Registry:       toolReg,
 		Model:          model,
@@ -321,7 +330,9 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		ToolLifecycle:  cfg.ToolLifecycle,
 		SessionRunner:  cfg.DelegateRunner,
 		DefaultTimeout: cfg.DelegateTimeout,
-	}))
+	})
+	// Keep the internal delegate adapter for session.create/send preset execution.
+	// It is intentionally absent from the model-facing registry.
 
 	var overrides []ToolOverride
 	if cfg.ToolOverrideFetcher != nil {
@@ -340,7 +351,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		toolReg.Register(t)
 	}
 
-	return toolReg, hookSet, nil
+	return toolReg, hookSet, delegateTool, nil
 }
 
 func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSet, []tools.Definition, error) {
@@ -549,6 +560,16 @@ func (r *runner) Busy() bool {
 
 // SystemPrompt returns the runner's base system prompt before per-run overrides.
 func (r *runner) SystemPrompt() string { return r.system }
+
+// RunManagedSession invokes the delegate instance configured for this runner.
+// It is the one Session-tool bridge that retains the parent turn's preset,
+// timeout, system-override, and tool-exclusion behavior.
+func (r *runner) RunManagedSession(ctx context.Context, req delegatetool.ManagedSessionRequest) (delegatetool.ManagedSessionResult, error) {
+	if r.delegateTool == nil {
+		return delegatetool.ManagedSessionResult{}, fmt.Errorf("delegate tool is not configured")
+	}
+	return r.delegateTool.RunManagedSession(ctx, req)
+}
 
 // SandboxSession returns the live runner-owned sandbox for pre-close callers.
 // Callers must not retain it after the runner is closed.

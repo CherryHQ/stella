@@ -19,6 +19,7 @@ import (
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
+	sessioninbox "github.com/CherryHQ/stella/internal/agent/session/inbox"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
@@ -38,6 +39,7 @@ var (
 type Service struct {
 	registry *agentsession.Registry
 	memory   memory.SessionManager
+	searcher memory.Searcher
 	q        *sqlc.Queries
 	store    config.Store
 	agents   *agentaccess.Service
@@ -59,6 +61,10 @@ func NewService(mem memory.Provider, db sqlc.DBTX, store config.Store, assets *a
 	if mem == nil || db == nil || store == nil || assets == nil || agents == nil {
 		return nil, fmt.Errorf("session access: missing dependency")
 	}
+	inner := memory.Unwrap(mem)
+	if _, ok := inner.(memory.SessionManager); !ok {
+		return nil, fmt.Errorf("session access: memory provider does not implement SessionManager")
+	}
 	sm, ok := mem.(memory.SessionManager)
 	if !ok {
 		return nil, fmt.Errorf("session access: memory provider does not implement SessionManager")
@@ -67,7 +73,11 @@ func NewService(mem memory.Provider, db sqlc.DBTX, store config.Store, assets *a
 	if err != nil {
 		return nil, fmt.Errorf("session access: registry: %w", err)
 	}
-	svc := &Service{registry: registry, memory: sm, q: sqlc.New(db), store: store, agents: agents, assets: assets}
+	var searcher memory.Searcher
+	if _, ok := inner.(memory.Searcher); ok {
+		searcher, _ = mem.(memory.Searcher)
+	}
+	svc := &Service{registry: registry, memory: sm, searcher: searcher, q: sqlc.New(db), store: store, agents: agents, assets: assets}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(svc)
@@ -109,6 +119,64 @@ func (s *Service) Begin(_ context.Context, authority authz.Authority) (*Access, 
 		return nil, ErrForbidden
 	}
 	return &Access{svc: s, authority: authority}, nil
+}
+
+// ResolveInboxDelivery freshly authorizes both endpoints of one recovered
+// Agent-originated input. It returns only the target scope; recovery remains
+// append-only and cannot reach a runtime through this interface.
+func (s *Service) ResolveInboxDelivery(ctx context.Context, sourceSessionID, targetSessionID, actorID string) (agentsession.Info, error) {
+	if sourceSessionID == "" || targetSessionID == "" || sourceSessionID == targetSessionID || actorID == "" {
+		return agentsession.Info{}, sessioninbox.ErrTargetUnavailable
+	}
+	sourceFacts, err := s.q.GetConversationForSessionAccess(ctx, sourceSessionID)
+	if err != nil {
+		return agentsession.Info{}, inboxRecoveryLookupError("source", err)
+	}
+	targetFacts, err := s.q.GetConversationForSessionAccess(ctx, targetSessionID)
+	if err != nil {
+		return agentsession.Info{}, inboxRecoveryLookupError("target", err)
+	}
+	if sourceFacts.Archived || targetFacts.Archived || !sourceFacts.UserID.Valid || !sourceFacts.AgentID.Valid || !targetFacts.UserID.Valid || !targetFacts.AgentID.Valid ||
+		sourceFacts.UserID.String != targetFacts.UserID.String || sourceFacts.AgentID.String != actorID || targetFacts.AgentID.String != actorID {
+		return agentsession.Info{}, sessioninbox.ErrTargetUnavailable
+	}
+	authority, err := agentaccess.WorkerAgentAuthority(sourceFacts.UserID.String, actorID)
+	if err != nil {
+		return agentsession.Info{}, sessioninbox.ErrTargetUnavailable
+	}
+	access, err := s.Begin(ctx, authority)
+	if err != nil {
+		return agentsession.Info{}, sessioninbox.ErrTargetUnavailable
+	}
+	source, err := access.Use(ctx, actorID, sourceSessionID)
+	if err != nil {
+		return agentsession.Info{}, inboxRecoveryAccessError("source", err)
+	}
+	target, err := access.Use(ctx, actorID, targetSessionID)
+	if err != nil {
+		return agentsession.Info{}, inboxRecoveryAccessError("target", err)
+	}
+	kind := agentsession.Kind(target.Kind)
+	if source.Archived || target.Archived || source.GuestID != "" || target.GuestID != "" || source.GroupID != "" || target.GroupID != "" ||
+		source.UserID != target.UserID || source.AgentID != actorID || target.AgentID != actorID ||
+		(kind != agentsession.KindMain && kind != agentsession.KindChat && kind != agentsession.KindDelegate) {
+		return agentsession.Info{}, sessioninbox.ErrTargetUnavailable
+	}
+	return target, nil
+}
+
+func inboxRecoveryLookupError(endpoint string, err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("%w: %s Session", sessioninbox.ErrTargetUnavailable, endpoint)
+	}
+	return fmt.Errorf("%w: recover %s Session facts: %w", ErrUnavailable, endpoint, err)
+}
+
+func inboxRecoveryAccessError(endpoint string, err error) error {
+	if errors.Is(err, ErrForbidden) || errors.Is(err, ErrNotFound) {
+		return fmt.Errorf("%w: %s Session", sessioninbox.ErrTargetUnavailable, endpoint)
+	}
+	return err
 }
 
 // Read resolves a routed session and authorizes reading it.
@@ -458,6 +526,9 @@ func (a *Access) ListPage(ctx context.Context, agentID string, opts agentsession
 
 // UpdateTitle persists a title after Write has authorized the exact session.
 func (a *Access) UpdateTitle(ctx context.Context, info agentsession.Info, title string) error {
+	if err := agentsession.ValidateTitle(title); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
 	if err := a.svc.q.UpdateConversationTitleBySessionID(ctx, sqlc.UpdateConversationTitleBySessionIDParams{
 		Title: pgtype.Text{String: title, Valid: true}, SessionID: info.ID,
 		UserID: pgtype.Text{String: info.UserID, Valid: true}, AgentID: pgtype.Text{String: info.AgentID, Valid: true},

@@ -450,11 +450,12 @@ function ToolRow({
           </Badge>
         </div>
         <p className="text-xs text-muted-foreground">{tool.description}</p>
-        {canEdit && !togglable && (
-          // MCP rows never reach here — they render as manageable server rows —
-          // so the only non-togglable source left is the core sandbox set.
-          <p className="text-xs text-muted-foreground">{t("agents.tools.locked.core")}</p>
-        )}
+        {canEdit &&
+          !togglable && (
+            // MCP rows never reach here — they render as manageable server rows —
+            // so the only non-togglable source left is the core sandbox set.
+            <p className="text-xs text-muted-foreground">{t("agents.tools.locked.core")}</p>
+          )}
       </div>
       {canEdit && togglable && (
         <div className="flex shrink-0 items-center gap-1">

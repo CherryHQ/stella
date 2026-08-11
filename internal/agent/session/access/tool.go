@@ -2,29 +2,44 @@ package access
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/agentctx"
+	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/agent/session/turnqueue"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 const (
-	sessionToolName           = "session"
-	defaultSessionToolPage    = 20
-	maxSessionToolPage        = 100
-	maxSessionToolMessagePage = 20
-	maxSessionToolMessageText = 12_000
-	maxSessionToolResultText  = 64_000
+	sessionToolName              = "session"
+	defaultSessionToolPage       = 20
+	maxSessionToolPage           = 100
+	defaultSessionTranscriptPage = 3
+	maxSessionTranscriptPage     = 5
+	maxSessionToolMessageText    = 12_000
+	maxSessionToolOutputText     = 8_000
+	maxSessionToolResultText     = agentsession.MaxSynchronousOutputBytes
+	maxSessionToolPreviewText    = 12_000
+	// Metadata counts too. Raise only if tool consumers demonstrate a need for
+	// larger transcript pages and provider payload limits rise with it.
+	maxSessionToolTranscriptBytes  = 72_000
+	maxSessionToolSerializedResult = 96_000
+	sessionTranscriptCursorVersion = 1
 )
 
-// Tool exposes read-only session discovery to an agent. Identity always comes
-// from the runtime context; model arguments cannot select another owner or
-// executor.
+// Tool exposes bounded Session discovery and inspection. Identity always comes
+// from the runtime context; model arguments cannot select another principal or
+// Agent.
 type Tool struct{ svc *Service }
 
 func NewTool(svc *Service) *Tool { return &Tool{svc: svc} }
@@ -32,26 +47,24 @@ func NewTool(svc *Service) *Tool { return &Tool{svc: svc} }
 func (t *Tool) Definition() tools.Definition {
 	return tools.Definition{
 		Name:        sessionToolName,
-		Description: "List and inspect this agent's sessions for the current user. Use delegate to create or resume isolated child sessions, and memory search to find content across session history. This tool is read-only.",
+		Description: "List, inspect, create, and continue this agent's sessions for the current user. List returns structured recent sessions; use memory.search to recall content across sessions. Get returns session state, context statistics, and a compact preview; pass its cursor back to page a bounded raw transcript. Create starts a focused session and waits for its reply. Send continues any sendable session and waits in FIFO order when the target is busy. Agent input retains source provenance. Only wait=true is supported.",
 		InputSchema: tools.MustInputSchema(`{
   "type": "object",
   "properties": {
     "action": {
       "type": "string",
-      "enum": ["get", "list", "messages"],
-      "description": "Required parameters by action: get(session_id); messages(session_id)."
+	      "enum": ["list", "get", "create", "send"],
+	      "description": "Required parameters by action: list(); get(session_id); create(message, optional preset, optional wait=true); send(session_id, message, optional wait=true)."
     },
     "session_id": {"type": "string"},
-    "kind": {
-      "type": "string",
-      "enum": ["main", "chat", "delegate", "task", "scheduler"]
-    },
-    "project_id": {"type": "string"},
+	    "message": {"type": "string", "description": "The Session's initial or next request."},
+	    "preset": {"type": "string", "description": "Optional managed-Session preset for create."},
+	    "wait": {"type": "boolean", "default": true, "description": "Must be true in this phase; asynchronous Session requests are not yet supported."},
     "include_archived": {"type": "boolean", "default": false},
-    "page_size": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
-    "page_token": {"type": "string"},
-    "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 20},
-    "skip": {"type": "integer", "minimum": 0, "default": 0}
+	    "page_size": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Number of cards returned by list."},
+    "page_token": {"type": "string", "description": "Opaque list cursor; pass it back unchanged."},
+    "cursor": {"type": "string", "description": "Opaque get transcript cursor returned by get; pass it back unchanged."},
+    "transcript_page_size": {"type": "integer", "minimum": 1, "maximum": 5, "description": "Number of whole logical turns returned by get when cursor is set."}
   },
   "required": ["action"]
 }`),
@@ -85,55 +98,119 @@ func (t *Tool) Execute(ctx context.Context, args map[string]any) (string, error)
 		result, err = executeSessionList(ctx, access, ident.AgentID, args)
 	case "get":
 		result, err = executeSessionGet(ctx, access, ident.AgentID, args)
-	case "messages":
-		result, err = executeSessionMessages(ctx, access, ident.AgentID, args)
+	case "create":
+		result, err = executeSessionCreate(ctx, t.svc, ident.AgentID, args)
+	case "send":
+		result, err = executeSessionSend(ctx, t.svc, access, ident.AgentID, args)
 	default:
 		return "", fmt.Errorf("unknown session action %q", action)
 	}
 	if err != nil {
 		return "", mapSessionToolError(err)
 	}
-	return tools.MarshalResult(result)
+	output, err := tools.MarshalResult(result)
+	if err == nil && len(output) > maxSessionToolSerializedResult {
+		return "", fmt.Errorf("session.%s exceeded its serialized result limit", action)
+	}
+	return output, err
 }
 
 type sessionListInput struct {
-	Kind            string `json:"kind,omitempty"`
-	ProjectID       string `json:"project_id,omitempty"`
 	IncludeArchived bool   `json:"include_archived,omitempty"`
 	PageSize        int    `json:"page_size,omitempty"`
 	PageToken       string `json:"page_token,omitempty"`
 }
 
-type sessionIDInput struct {
-	SessionID string `json:"session_id"`
+type sessionGetInput struct {
+	SessionID          string `json:"session_id"`
+	Cursor             string `json:"cursor,omitempty"`
+	TranscriptPageSize int    `json:"transcript_page_size,omitempty"`
 }
 
-type sessionMessagesInput struct {
-	SessionID string `json:"session_id"`
-	Limit     int    `json:"limit,omitempty"`
-	Skip      int    `json:"skip,omitempty"`
+type sessionCreateInput struct {
+	Message string `json:"message"`
+	Preset  string `json:"preset,omitempty"`
+	Wait    *bool  `json:"wait,omitempty"`
 }
 
-type sessionToolResponse struct {
-	ID         string `json:"id"`
-	Title      string `json:"title"`
-	Kind       string `json:"kind"`
-	Channel    string `json:"channel"`
-	ProjectID  string `json:"project_id,omitempty"`
-	CreatedAt  string `json:"created_at"`
-	LastActive string `json:"last_active"`
-	Archived   bool   `json:"archived"`
+type sessionSendInput struct {
+	SessionID string `json:"session_id"`
+	Message   string `json:"message"`
+	Wait      *bool  `json:"wait,omitempty"`
+}
+
+type sessionRunResponse struct {
+	SessionID      string `json:"session_id"`
+	Reply          string `json:"reply"`
+	ReplyTruncated bool   `json:"reply_truncated,omitempty"`
+}
+
+type sessionCardResponse struct {
+	ID            string `json:"id"`
+	Title         string `json:"title"`
+	Summary       string `json:"summary"`
+	State         string `json:"state"`
+	Sendable      bool   `json:"sendable"`
+	LastActive    string `json:"last_active"`
+	TurnStartedAt string `json:"turn_started_at,omitempty"`
+}
+
+type sessionGetResponse struct {
+	sessionCardResponse
+	ActiveRequest       any                     `json:"active_request"`
+	LatestResult        *sessionTerminalResult  `json:"latest_result"`
+	SupportedOperations []string                `json:"supported_operations"`
+	ContextStats        sessionContextStats     `json:"context_stats"`
+	Preview             []sessionTranscriptTurn `json:"preview,omitempty"`
+	TranscriptCursor    string                  `json:"transcript_cursor,omitempty"`
+	Transcript          *sessionTranscriptPage  `json:"transcript,omitempty"`
+}
+
+type sessionTerminalResult struct {
+	Status      string `json:"status"`
+	CompletedAt string `json:"completed_at"`
+}
+
+type sessionContextStats struct {
+	MessageCount     int    `json:"message_count"`
+	TokenCount       int    `json:"token_count"`
+	ActiveTokenCount int    `json:"active_token_count"`
+	SummaryCount     int    `json:"summary_count"`
+	SummaryDepth     int    `json:"summary_depth"`
+	OldestAt         string `json:"oldest_at,omitempty"`
+	NewestAt         string `json:"newest_at,omitempty"`
+}
+
+type sessionTranscriptPage struct {
+	Turns      []sessionTranscriptTurn    `json:"turns"`
+	HasMore    bool                       `json:"has_more"`
+	NextCursor string                     `json:"next_cursor,omitempty"`
+	Omitted    *sessionTranscriptOmission `json:"omitted,omitempty"`
+}
+
+type sessionTranscriptOmission struct {
+	MessageCount int  `json:"message_count"`
+	Permanent    bool `json:"permanent"`
+}
+
+type sessionTranscriptTurn struct {
+	Messages []sessionToolMessage `json:"messages"`
 }
 
 type sessionToolMessage struct {
-	ID        string            `json:"id"`
-	Seq       int64             `json:"seq"`
-	Role      string            `json:"role"`
-	EventType string            `json:"event_type,omitempty"`
-	Content   string            `json:"content"`
-	Parts     []toolMessagePart `json:"parts,omitempty"`
-	CreatedAt string            `json:"created_at"`
-	Truncated bool              `json:"truncated,omitempty"`
+	ID              string            `json:"id"`
+	Seq             int64             `json:"seq"`
+	Role            string            `json:"role"`
+	Type            string            `json:"type"`
+	Content         string            `json:"content,omitempty"`
+	ToolCallID      string            `json:"tool_call_id,omitempty"`
+	ToolName        string            `json:"tool_name,omitempty"`
+	Parts           []toolMessagePart `json:"parts,omitempty"`
+	CreatedAt       string            `json:"created_at"`
+	Truncated       bool              `json:"truncated,omitempty"`
+	ActorType       string            `json:"actor_type"`
+	ActorID         string            `json:"actor_id,omitempty"`
+	SourceSessionID string            `json:"source_session_id,omitempty"`
 }
 
 type toolMessagePart struct {
@@ -142,6 +219,14 @@ type toolMessagePart struct {
 	MediaID   string `json:"media_id,omitempty"`
 	MimeType  string `json:"mime_type,omitempty"`
 	Truncated bool   `json:"truncated,omitempty"`
+}
+
+type transcriptCursor struct {
+	Version     int    `json:"v"`
+	SessionID   string `json:"session_id"`
+	AnchorSeq   int64  `json:"anchor_seq,omitempty"`
+	SnapshotSeq int64  `json:"snapshot_seq,omitempty"`
+	Offset      int    `json:"offset,omitempty"`
 }
 
 func executeSessionList(ctx context.Context, access *Access, agentID string, args map[string]any) (any, error) {
@@ -153,35 +238,42 @@ func executeSessionList(ctx context.Context, access *Access, agentID string, arg
 	if err != nil || offset > math.MaxInt32-limit-1 {
 		return nil, fmt.Errorf("invalid pagination — use page_size between 1 and %d and pass next_page_token unchanged", maxSessionToolPage)
 	}
-	opts := agentsession.ListOptions{
+	page, err := access.ListCardPage(ctx, agentID, agentsession.ListOptions{
 		IncludeArchived: in.IncludeArchived,
-		ProjectID:       in.ProjectID,
 		Offset:          offset,
-	}
-	if in.Kind != "" {
-		kind := agentsession.Kind(in.Kind)
-		if !validSessionToolKind(kind) {
-			return nil, fmt.Errorf("invalid session kind %q", in.Kind)
-		}
-		opts.Kinds = []agentsession.Kind{kind}
-	}
-	page, err := access.ListPage(ctx, agentID, opts, limit)
+	}, limit)
 	if err != nil {
 		return nil, err
 	}
-	items := make([]sessionToolResponse, 0, len(page.Sessions))
-	for _, info := range page.Sessions {
-		items = append(items, sessionToolSummary(info))
+	items := make([]sessionCardResponse, 0, len(page.Sessions))
+	for _, card := range page.Sessions {
+		items = append(items, sessionCardFrom(card))
 	}
-	response := map[string]any{"sessions": items}
-	if page.HasMore {
-		response["next_page_token"] = tools.OffsetToken(page.NextOffset)
+	hasMore := page.HasMore
+	nextOffset := page.NextOffset
+	for {
+		response := map[string]any{"sessions": items}
+		if hasMore {
+			response["next_page_token"] = tools.OffsetToken(nextOffset)
+		}
+		serialized, marshalErr := tools.MarshalResult(response)
+		if marshalErr != nil {
+			return nil, marshalErr
+		}
+		if len(serialized) <= maxSessionToolSerializedResult {
+			return response, nil
+		}
+		if len(items) == 0 {
+			return nil, fmt.Errorf("session.list exceeded its serialized result limit")
+		}
+		items = items[:len(items)-1]
+		hasMore = true
+		nextOffset = offset + len(items)
 	}
-	return response, nil
 }
 
 func executeSessionGet(ctx context.Context, access *Access, agentID string, args map[string]any) (any, error) {
-	var in sessionIDInput
+	var in sessionGetInput
 	if err := tools.DecodeInput(args, &in, []string{"session_id"}); err != nil {
 		return nil, err
 	}
@@ -189,98 +281,368 @@ func executeSessionGet(ctx context.Context, access *Access, agentID string, args
 	if err != nil {
 		return nil, err
 	}
-	return sessionToolSummary(info), nil
-}
-
-func executeSessionMessages(ctx context.Context, access *Access, agentID string, args map[string]any) (any, error) {
-	var in sessionMessagesInput
-	if err := tools.DecodeInput(args, &in, []string{"session_id"}); err != nil {
+	cards, err := access.projectCards(ctx, []agentsession.Info{info})
+	if err != nil {
 		return nil, err
 	}
-	if in.Limit == 0 {
-		in.Limit = defaultSessionToolPage
+	contextMeta, err := access.ContextStats(ctx, agentID, in.SessionID)
+	if err != nil {
+		return nil, err
 	}
-	if in.Limit < 1 || in.Limit > maxSessionToolMessagePage || in.Skip < 0 || in.Skip > math.MaxInt32-in.Limit-1 {
-		return nil, fmt.Errorf("invalid message pagination — use limit between 1 and %d and skip of zero or greater", maxSessionToolMessagePage)
+	response := sessionGetResponse{
+		sessionCardResponse: sessionCardFrom(cards[0]),
+		ActiveRequest:       nil, // Session Requests arrive in Phase 3+.
+		SupportedOperations: []string{"get"},
+		ContextStats:        sessionContextStatsFrom(contextMeta),
 	}
-	messages, err := access.ListMessages(ctx, MessageListInput{
-		AgentID: agentID, SessionID: in.SessionID, Limit: in.Limit + 1, Skip: in.Skip,
+	if cards[0].Sendable {
+		response.SupportedOperations = append(response.SupportedOperations, "send")
+	}
+	if info.LastTurnResult.Valid() && !info.LastTurnCompletedAt.IsZero() {
+		response.LatestResult = &sessionTerminalResult{
+			Status: string(info.LastTurnResult), CompletedAt: info.LastTurnCompletedAt.UTC().Format(time.RFC3339),
+		}
+	}
+
+	if in.Cursor == "" {
+		messages, err := access.ListTranscriptPage(ctx, TranscriptPageInput{
+			AgentID: agentID, SessionID: in.SessionID, Limit: 1,
+		})
+		if err != nil {
+			return nil, err
+		}
+		response.Preview = sessionTranscriptTurns(messages, maxSessionToolPreviewText)
+		var anchorSeq int64
+		for _, message := range messages {
+			anchorSeq = max(anchorSeq, message.Seq)
+		}
+		if anchorSeq == 0 {
+			return response, nil
+		}
+		response.TranscriptCursor, err = encodeTranscriptCursor(transcriptCursor{
+			Version: sessionTranscriptCursorVersion, SessionID: in.SessionID,
+			AnchorSeq: anchorSeq, SnapshotSeq: anchorSeq,
+		})
+		return response, err
+	}
+
+	cursor, err := decodeTranscriptCursor(in.Cursor, in.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	pageSize := in.TranscriptPageSize
+	if pageSize == 0 {
+		pageSize = defaultSessionTranscriptPage
+	}
+	if pageSize < 1 || pageSize > maxSessionTranscriptPage || cursor.Offset > math.MaxInt32-pageSize-1 {
+		return nil, fmt.Errorf("invalid transcript pagination — use page_size between 1 and %d and pass cursor unchanged", maxSessionTranscriptPage)
+	}
+	messages, err := access.ListTranscriptPage(ctx, TranscriptPageInput{
+		AgentID: agentID, SessionID: in.SessionID,
+		AnchorSeq: cursor.AnchorSeq, SnapshotSeq: cursor.SnapshotSeq,
+		Offset: cursor.Offset, Limit: pageSize + 1,
 	})
 	if err != nil {
 		return nil, err
 	}
-	groups := groupLogicalMessages(messages)
-	hasMore := len(groups) > in.Limit
+	groups := groupLogicalTurns(messages)
+	hasMore := len(groups) > pageSize
 	if hasMore {
-		groups = groups[len(groups)-in.Limit:]
+		groups = groups[len(groups)-pageSize:]
 	}
-	messages = flattenMessageGroups(groups)
-	items := sessionToolMessagesFrom(messages)
-	response := map[string]any{"messages": items, "has_more": hasMore}
+	turns, omitted := boundedSessionTranscriptTurns(groups, maxSessionToolResultText, maxSessionToolTranscriptBytes)
+	page := &sessionTranscriptPage{Turns: turns, HasMore: hasMore}
 	if hasMore {
-		response["next_skip"] = in.Skip + in.Limit
+		cursor.Offset += pageSize
+		page.NextCursor, err = encodeTranscriptCursor(cursor)
+		if err != nil {
+			return nil, err
+		}
 	}
+	if omitted > 0 {
+		// Transcript pages preserve whole tool call/result pairs. A logical turn
+		// whose serialized metadata exceeds the bounded tool result cannot be
+		// resumed within that turn, so report the omission as permanent instead
+		// of returning a cursor that would replay this exact page forever.
+		page.Omitted = &sessionTranscriptOmission{MessageCount: omitted, Permanent: true}
+	}
+	response.Transcript = page
 	return response, nil
 }
 
-func sessionToolSummary(info agentsession.Info) sessionToolResponse {
-	return sessionToolResponse{
-		ID: info.ID, Title: info.Title, Kind: info.Kind, Channel: info.Channel, ProjectID: info.ProjectID,
-		CreatedAt: info.CreatedAt.UTC().Format(time.RFC3339), LastActive: info.LastActive.UTC().Format(time.RFC3339), Archived: info.Archived,
+func sessionContextStatsFrom(meta ContextMeta) sessionContextStats {
+	out := sessionContextStats{
+		MessageCount: meta.MessageCount, TokenCount: meta.SourceTokenCount,
+		ActiveTokenCount: meta.ActiveTokenCount, SummaryCount: meta.SummaryCount,
+		SummaryDepth: meta.SummaryDepth,
 	}
+	if meta.OldestAt != nil {
+		out.OldestAt = meta.OldestAt.UTC().Format(time.RFC3339)
+	}
+	if meta.NewestAt != nil {
+		out.NewestAt = meta.NewestAt.UTC().Format(time.RFC3339)
+	}
+	return out
 }
 
-func validSessionToolKind(kind agentsession.Kind) bool {
-	switch kind {
-	case agentsession.KindMain, agentsession.KindChat, agentsession.KindDelegate, agentsession.KindTask, agentsession.KindScheduler:
-		return true
+func executeSessionCreate(ctx context.Context, svc *Service, agentID string, args map[string]any) (any, error) {
+	var in sessionCreateInput
+	if err := tools.DecodeInput(args, &in, []string{"message"}); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(in.Message) == "" {
+		return nil, fmt.Errorf("message must not be empty")
+	}
+	if err := requireSynchronousSessionWait(in.Wait); err != nil {
+		return nil, err
+	}
+	return runManagedSession(ctx, svc, agentID, "", in.Message, in.Preset)
+}
+
+func executeSessionSend(ctx context.Context, svc *Service, access *Access, agentID string, args map[string]any) (any, error) {
+	var in sessionSendInput
+	if err := tools.DecodeInput(args, &in, []string{"session_id", "message"}); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(in.Message) == "" {
+		return nil, fmt.Errorf("message must not be empty")
+	}
+	if err := requireSynchronousSessionWait(in.Wait); err != nil {
+		return nil, err
+	}
+	if sourceID := memory.SessionIDFromContext(ctx); sourceID != "" && sourceID == in.SessionID {
+		return nil, fmt.Errorf("cannot send to the current session")
+	}
+	info, err := access.Use(ctx, agentID, in.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	if info.Archived {
+		return nil, fmt.Errorf("cannot send to archived session")
+	}
+	switch agentsession.Kind(info.Kind) {
+	case agentsession.KindDelegate:
+		return runManagedSession(ctx, svc, agentID, info.ID, in.Message, "")
+	case agentsession.KindMain, agentsession.KindChat:
+		callCtx, err := agentctx.EnterSessionCall(ctx, memory.SessionIDFromContext(ctx), info.ID)
+		if err != nil {
+			return nil, err
+		}
+		return runConversationSession(callCtx, svc, info, in.Message)
 	default:
-		return false
+		return nil, fmt.Errorf("session.send does not support control-plane sessions")
 	}
 }
 
-// Keep this logical-message boundary in sync with ListMessagesByLogicalPage in
-// internal/db/queries/ctx_message.sql and serializeDBMessages in
-// internal/server/sessions.go.
-func groupLogicalMessages(messages []Message) [][]Message {
-	groups := make([][]Message, 0, len(messages))
+func requireSynchronousSessionWait(wait *bool) error {
+	if wait != nil && !*wait {
+		return fmt.Errorf("session wait=false is not yet supported; use wait=true")
+	}
+	return nil
+}
+
+func runManagedSession(ctx context.Context, svc *Service, agentID, sessionID, message, preset string) (any, error) {
+	runtime, err := svc.runtimeFor(agentID)
+	if err != nil {
+		return nil, err
+	}
+	result, err := runtime.RunManagedSession(ctx, delegatetool.ManagedSessionRequest{
+		SessionID: sessionID,
+		Message:   message,
+		Preset:    preset,
+	})
+	if err != nil {
+		return nil, err
+	}
+	reply, truncated := tools.TruncateText(result.Output, maxSessionToolResultText)
+	truncated = truncated || result.OutputTruncated
+	return sessionRunResponse{SessionID: result.SessionID, Reply: reply, ReplyTruncated: truncated}, nil
+}
+
+func runConversationSession(ctx context.Context, svc *Service, info agentsession.Info, message string) (any, error) {
+	runtime, err := svc.runtimeFor(info.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	// This stream is consumed only into the synchronous tool result. A target
+	// Session's channel is execution context, not an authorized connector route;
+	// no channel publisher participates in this path.
+	stream := runtime.RunConversationSession(ctx, info, message)
+	var output agentsession.OutputCollector
+	var terminalErr error
+	for event := range stream {
+		if event.Text != "" {
+			output.Write(event.Text)
+		}
+		if terminalErr == nil && event.Err != nil {
+			terminalErr = event.Err
+		}
+	}
+	if terminalErr != nil {
+		return sessionRunResponse{SessionID: info.ID, Reply: output.String(), ReplyTruncated: output.Truncated()}, terminalErr
+	}
+	if err := ctx.Err(); err != nil {
+		return sessionRunResponse{SessionID: info.ID, Reply: output.String(), ReplyTruncated: output.Truncated()}, err
+	}
+	return sessionRunResponse{SessionID: info.ID, Reply: output.String(), ReplyTruncated: output.Truncated()}, nil
+}
+
+func sessionCardFrom(card Card) sessionCardResponse {
+	response := sessionCardResponse{
+		ID: card.ID, Title: card.Title, Summary: card.Summary, State: card.State,
+		Sendable: card.Sendable, LastActive: card.LastActive.UTC().Format(time.RFC3339),
+	}
+	if !card.TurnStartedAt.IsZero() {
+		response.TurnStartedAt = card.TurnStartedAt.UTC().Format(time.RFC3339)
+	}
+	return response
+}
+
+func encodeTranscriptCursor(cursor transcriptCursor) (string, error) {
+	data, err := json.Marshal(cursor)
+	if err != nil {
+		return "", fmt.Errorf("encode transcript cursor: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(data), nil
+}
+
+func decodeTranscriptCursor(value, sessionID string) (transcriptCursor, error) {
+	data, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return transcriptCursor{}, fmt.Errorf("invalid transcript cursor — pass a cursor returned by get unchanged")
+	}
+	var cursor transcriptCursor
+	if err := json.Unmarshal(data, &cursor); err != nil || cursor.Version != sessionTranscriptCursorVersion || cursor.SessionID != sessionID || cursor.AnchorSeq < 0 || cursor.SnapshotSeq < 0 || cursor.Offset < 0 ||
+		(cursor.SnapshotSeq > 0 && cursor.AnchorSeq > cursor.SnapshotSeq) {
+		return transcriptCursor{}, fmt.Errorf("invalid transcript cursor — pass a cursor returned by get unchanged")
+	}
+	return cursor, nil
+}
+
+func groupLogicalTurns(messages []Message) [][]Message {
+	groups := make([][]Message, 0)
 	for _, message := range messages {
-		if len(groups) == 0 || message.Role != "assistant" {
+		if len(groups) == 0 || message.Role == "user" {
 			groups = append(groups, []Message{message})
 			continue
 		}
 		last := len(groups) - 1
-		previous := groups[last][len(groups[last])-1]
-		if previous.Role != "assistant" {
-			groups = append(groups, []Message{message})
-			continue
-		}
 		groups[last] = append(groups[last], message)
 	}
 	return groups
 }
 
-func flattenMessageGroups(groups [][]Message) []Message {
-	var count int
-	for _, group := range groups {
-		count += len(group)
-	}
-	messages := make([]Message, 0, count)
-	for _, group := range groups {
-		messages = append(messages, group...)
-	}
-	return messages
+func sessionTranscriptTurns(messages []Message, budget int) []sessionTranscriptTurn {
+	turns, _ := boundedSessionTranscriptTurns(groupLogicalTurns(messages), budget, maxSessionToolTranscriptBytes)
+	return turns
 }
 
-func sessionToolMessagesFrom(messages []Message) []sessionToolMessage {
-	items := make([]sessionToolMessage, len(messages))
-	remainingText := maxSessionToolResultText
-	// The query returns chronological rows for display, but recent context is
-	// more valuable when the aggregate output budget cannot hold the whole page.
-	for i := len(messages) - 1; i >= 0; i-- {
-		items[i] = sessionToolMessageFrom(messages[i], &remainingText)
+func boundedSessionTranscriptTurns(groups [][]Message, textBudget, byteBudget int) ([]sessionTranscriptTurn, int) {
+	remainingText, remainingBytes := textBudget, byteBudget
+	selected := make([]sessionTranscriptTurn, 0, len(groups))
+	omitted := 0
+	stopped := false
+	for groupIndex := len(groups) - 1; groupIndex >= 0; groupIndex-- {
+		chunks := sessionMessageChunks(groups[groupIndex])
+		selectedMessages := make([]indexedSessionToolMessage, 0, len(groups[groupIndex]))
+		for chunkIndex := len(chunks) - 1; chunkIndex >= 0; chunkIndex-- {
+			if stopped || remainingText <= 0 {
+				stopped = true
+				omitted += len(chunks[chunkIndex].messages)
+				continue
+			}
+			chunkText := remainingText
+			projected := make([]indexedSessionToolMessage, 0, len(chunks[chunkIndex].messages))
+			projectedMessages := make([]sessionToolMessage, 0, len(chunks[chunkIndex].messages))
+			for i, message := range chunks[chunkIndex].messages {
+				toolMessage := sessionToolMessageFrom(message, &chunkText)
+				projected = append(projected, indexedSessionToolMessage{
+					index: chunks[chunkIndex].indices[i], message: toolMessage,
+				})
+				projectedMessages = append(projectedMessages, toolMessage)
+			}
+			encoded, err := json.Marshal(projectedMessages)
+			if err != nil || len(encoded)+1 > remainingBytes {
+				stopped = true
+				omitted += len(chunks[chunkIndex].messages)
+				continue
+			}
+			remainingText = chunkText
+			remainingBytes -= len(encoded) + 1
+			selectedMessages = append(selectedMessages, projected...)
+		}
+		if len(selectedMessages) > 0 {
+			slices.SortFunc(selectedMessages, func(a, b indexedSessionToolMessage) int { return a.index - b.index })
+			messages := make([]sessionToolMessage, 0, len(selectedMessages))
+			for _, selected := range selectedMessages {
+				messages = append(messages, selected.message)
+			}
+			selected = append(selected, sessionTranscriptTurn{Messages: messages})
+		}
 	}
-	return items
+	slices.Reverse(selected)
+	return selected, omitted
+}
+
+type indexedSessionToolMessage struct {
+	index   int
+	message sessionToolMessage
+}
+
+type sessionMessageChunk struct {
+	messages []Message
+	indices  []int
+	latest   int
+}
+
+func sessionMessageChunks(messages []Message) []sessionMessageChunk {
+	resultByCallID := make(map[string]int)
+	for i, message := range messages {
+		if id := storedToolResultID(message); id != "" {
+			resultByCallID[id] = i
+		}
+	}
+	pairedResults := make(map[int]struct{})
+	chunks := make([]sessionMessageChunk, 0, len(messages))
+	for i, message := range messages {
+		if _, paired := pairedResults[i]; paired {
+			continue
+		}
+		if id := storedToolCallID(message); id != "" {
+			if resultIndex, ok := resultByCallID[id]; ok {
+				chunks = append(chunks, sessionMessageChunk{
+					messages: []Message{message, messages[resultIndex]}, indices: []int{i, resultIndex}, latest: max(i, resultIndex),
+				})
+				pairedResults[resultIndex] = struct{}{}
+				continue
+			}
+		}
+		chunks = append(chunks, sessionMessageChunk{messages: []Message{message}, indices: []int{i}, latest: i})
+	}
+	slices.SortFunc(chunks, func(a, b sessionMessageChunk) int { return a.latest - b.latest })
+	return chunks
+}
+
+func storedToolCallID(message Message) string {
+	if message.EventType != "tool_call" {
+		return ""
+	}
+	var call storedToolCall
+	if json.Unmarshal([]byte(message.Content), &call) != nil {
+		return ""
+	}
+	return call.ID
+}
+
+func storedToolResultID(message Message) string {
+	if message.EventType != "tool_result" {
+		return ""
+	}
+	var result storedToolResult
+	if json.Unmarshal([]byte(message.Content), &result) != nil {
+		return ""
+	}
+	return result.ID
 }
 
 func visibleSessionPartText(parts []MessagePart) string {
@@ -293,18 +655,54 @@ func visibleSessionPartText(parts []MessagePart) string {
 	return strings.Join(text, "\n")
 }
 
-func sessionToolMessageFrom(message Message, remainingText *int) sessionToolMessage {
+type storedToolCall struct {
+	ID   string          `json:"id"`
+	Tool string          `json:"tool"`
+	Args json.RawMessage `json:"args"`
+}
+
+type storedToolResult struct {
+	ID     string          `json:"id"`
+	Tool   string          `json:"tool"`
+	Result json.RawMessage `json:"result"`
+	Error  string          `json:"error"`
+}
+
+func sessionToolMessageFrom(message Message, remaining *int) sessionToolMessage {
 	visibleContent := message.Content
+	itemType := message.EventType
+	toolCallID, toolName := "", ""
+	perMessageLimit := maxSessionToolMessageText
+
+	switch message.EventType {
+	case "tool_call":
+		var call storedToolCall
+		if json.Unmarshal([]byte(message.Content), &call) == nil {
+			toolCallID, toolName, visibleContent = call.ID, call.Tool, string(call.Args)
+		}
+	case "tool_result":
+		perMessageLimit = maxSessionToolOutputText
+		var result storedToolResult
+		if json.Unmarshal([]byte(message.Content), &result) == nil {
+			toolCallID, toolName = result.ID, result.Tool
+			visibleContent = rawJSONText(result.Result)
+			if visibleContent == "" {
+				visibleContent = result.Error
+			}
+		}
+	}
 	if len(message.Parts) > 0 {
 		visibleContent = visibleSessionPartText(message.Parts)
 	}
-	content, truncated := truncateSessionToolText(visibleContent, remainingText)
+	content, truncated := truncateSessionToolText(visibleContent, remaining, perMessageLimit)
 	item := sessionToolMessage{
-		ID: message.ID, Seq: message.Seq, Role: message.Role, EventType: message.EventType,
-		Content: content, CreatedAt: message.CreatedAt.UTC().Format(time.RFC3339), Truncated: truncated,
+		ID: message.ID, Seq: message.Seq, Role: message.Role, Type: itemType,
+		Content: content, ToolCallID: toolCallID, ToolName: toolName,
+		CreatedAt: message.CreatedAt.UTC().Format(time.RFC3339), Truncated: truncated,
+		ActorType: message.ActorType, ActorID: message.ActorID, SourceSessionID: message.SourceSessionID,
 	}
 	for _, part := range message.Parts {
-		text, partTruncated := truncateSessionToolText(part.Text, remainingText)
+		text, partTruncated := truncateSessionToolText(part.Text, remaining, perMessageLimit)
 		item.Parts = append(item.Parts, toolMessagePart{
 			Type: part.Type, Text: text, MediaID: part.MediaID, MimeType: part.MimeType, Truncated: partTruncated,
 		})
@@ -312,8 +710,19 @@ func sessionToolMessageFrom(message Message, remainingText *int) sessionToolMess
 	return item
 }
 
-func truncateSessionToolText(text string, remaining *int) (string, bool) {
-	limit := min(maxSessionToolMessageText, *remaining)
+func rawJSONText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text
+	}
+	return string(raw)
+}
+
+func truncateSessionToolText(text string, remaining *int, perMessageLimit int) (string, bool) {
+	limit := min(perMessageLimit, *remaining)
 	if limit <= 0 {
 		return "", text != ""
 	}
@@ -328,6 +737,10 @@ func mapSessionToolError(err error) error {
 		return fmt.Errorf("session not found — check the id with action=list")
 	case errors.Is(err, ErrForbidden):
 		return fmt.Errorf("session access denied — use action=list to see sessions available to this agent")
+	case errors.Is(err, turnqueue.ErrFull):
+		return fmt.Errorf("session queue is full — retry after pending sends finish")
+	case errors.Is(err, turnqueue.ErrTimeout):
+		return fmt.Errorf("timed out waiting for the target session — no turn was started")
 	default:
 		return err
 	}

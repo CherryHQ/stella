@@ -143,8 +143,7 @@ func seedRetrievalAgent(t *testing.T, database *pgxpool.Pool, id string) {
 	t.Helper()
 	if _, err := sqlc.New(database).CreateAgent(t.Context(), sqlc.CreateAgentParams{
 		ID: id, Name: id, Model: "test/model", Workspace: "/tmp/" + id,
-		Sandbox: json.RawMessage(`{}`), EnabledBuiltinSkills: json.RawMessage(`[]`),
-		Scope: string(config.AgentScopeSystem), Enabled: true,
+		Sandbox: json.RawMessage(`{}`), Scope: string(config.AgentScopeSystem), Enabled: true,
 	}); err != nil {
 		t.Fatalf("seed retrieval Agent: %v", err)
 	}

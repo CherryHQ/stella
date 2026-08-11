@@ -7,6 +7,9 @@ import type {
   ComponentsChannel,
   ComponentsIdentity,
   ComponentsJob,
+  ComponentsManifestPlugin,
+  ComponentsManifestPluginDefinition,
+  ComponentsManifestPluginDefinitionField,
   ComponentsOAuthFlowStatus,
   ComponentsOAuthProviderConfig,
   ComponentsOAuthProviderStatus,
@@ -20,6 +23,9 @@ import type {
   ComponentsUserMemory,
   ComponentsVaultEntry,
   JobRun,
+  ManifestBinary as SdkManifestBinary,
+  ManifestOAuthProvider as SdkManifestOAuthProvider,
+  ManifestSessionEnv as SdkManifestSessionEnv,
   Project as SdkProject,
   SessionWorkspace,
 } from "@/lib/api-client/types.gen";
@@ -55,6 +61,11 @@ export type Provider = ComponentsProvider;
 export type ProviderModel = ComponentsProviderModelItem;
 export type Workspace = SessionWorkspace;
 export type SessionMessage = SdkSessionMessage;
+export const SESSION_MESSAGE_ACTOR_TYPE = {
+  human: "human",
+  agent: "agent",
+  system: "system",
+} as const;
 export type Project = SdkProject;
 export type OAuthFlow = ComponentsOAuthFlowStatus;
 
@@ -159,6 +170,9 @@ export interface Message {
   token_count?: number;
   model?: string;
   streaming?: boolean;
+  actor_type?: "human" | "agent" | "system";
+  actor_id?: string;
+  source_session_id?: string;
 }
 
 export interface AgentSandbox {
@@ -185,42 +199,12 @@ export interface Personalisation {
   loaded: boolean;
 }
 
-export interface ManifestBinary {
-  name: string;
-  tool: string;
-  version?: string;
-  bin_path?: string;
-  bin?: string;
-}
-
-export interface ManifestSessionEnv {
-  env_var: string;
-  source: string;
-  value?: string;
-  required?: boolean;
-}
-
-export interface ManifestPlugin {
-  id: string;
-  kind: string;
-  name: string;
-  display_name: string;
-  description: string;
-  enabled: boolean;
-  category?: string;
-  essential?: boolean;
-  prompt?: string;
-  binaries?: ManifestBinary[];
-  session_env?: ManifestSessionEnv[];
-  oauth_provider?: string;
-}
-
-export interface ManifestOAuthProvider {
-  id: string;
-  scopes?: string[];
-  vault_key?: string;
-  client_id?: string;
-}
+export type ManifestBinary = SdkManifestBinary;
+export type ManifestSessionEnv = SdkManifestSessionEnv;
+export type ManifestPluginDefinition = ComponentsManifestPluginDefinition;
+export type ManifestPluginDefinitionField = ComponentsManifestPluginDefinitionField;
+export type ManifestPlugin = ComponentsManifestPlugin;
+export type ManifestOAuthProvider = SdkManifestOAuthProvider;
 
 export interface PluginSchema {
   properties?: Record<string, PluginSchemaProperty>;

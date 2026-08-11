@@ -181,8 +181,7 @@ func UserSkillsDir(userHome string) string {
 }
 
 // SystemDBSkillsDir returns the directory holding DB-installed system-scope
-// skills, a sibling of the shipped built-in skills dir (UserSkillsDir(base),
-// read by ListSystemSkills). Keeping runtime caches apart prevents DB Skills
+// skills, a sibling of the retired extracted builtin projection. Keeping runtime caches apart prevents DB Skills
 // from being mistaken for shipped built-ins. Isolating backends mount it
 // read-only.
 func SystemDBSkillsDir(base string) string {

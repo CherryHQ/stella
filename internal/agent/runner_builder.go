@@ -90,17 +90,22 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		if apiName == "" {
 			apiName = provID
 		}
+		providerID := creds.ProviderID
+		if providerID == "" {
+			providerID = provID
+		}
 
 		if params.GuestID != "" {
 			return newRunner(ctx, runnerConfig{
 				NoCapabilities: true,
 				Provider: providerConfig{
-					API:     apiName,
-					Model:   modelID,
-					Input:   cfg.Snap.ModelInput(provID, modelID),
-					APIKey:  creds.APIKey,
-					BaseURL: creds.BaseURL,
-					Builder: cfg.ProviderStreamBuilder,
+					ProviderID: providerID,
+					API:        apiName,
+					Model:      modelID,
+					Input:      cfg.Snap.ModelInput(provID, modelID),
+					APIKey:     creds.APIKey,
+					BaseURL:    creds.BaseURL,
+					Builder:    cfg.ProviderStreamBuilder,
 				},
 				Thinking: params.Thinking,
 				System:   prompt.BuildGuestSystemPrompt(cfg.Snap.SystemPrompt),
@@ -167,6 +172,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			SkillStore:          cfg.SkillStore,
 			RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
 			EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),
+			DisabledSkillRefs:   append([]string(nil), cfg.Snap.DisabledSkillRefs...),
 		}
 		var sections []pkgplugins.SystemPromptSection
 		if cfg.PromptSectionsBuilder != nil {
@@ -287,12 +293,13 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 
 		return newRunner(ctx, runnerConfig{
 			Provider: providerConfig{
-				API:     apiName,
-				Model:   modelID,
-				Input:   cfg.Snap.ModelInput(provID, modelID),
-				APIKey:  creds.APIKey,
-				BaseURL: creds.BaseURL,
-				Builder: cfg.ProviderStreamBuilder,
+				ProviderID: providerID,
+				API:        apiName,
+				Model:      modelID,
+				Input:      cfg.Snap.ModelInput(provID, modelID),
+				APIKey:     creds.APIKey,
+				BaseURL:    creds.BaseURL,
+				Builder:    cfg.ProviderStreamBuilder,
 			},
 			Thinking:            params.Thinking,
 			Sandbox:             sandboxCfg,
@@ -300,6 +307,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			Sections:            sections,
 			BuiltinTools:        builtinTools,
 			BuiltinParams:       params,
+			DisabledSkillRefs:   append([]string(nil), cfg.Snap.DisabledSkillRefs...),
 			PerRunTools:         perRunTools,
 			SkillStore:          cfg.SkillStore,
 			SkillReadAuthorizer: cfg.SkillReadAuthorizer,

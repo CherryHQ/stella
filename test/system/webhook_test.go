@@ -125,8 +125,23 @@ func containsMessage(messages []string, want string) bool {
 		if strings.Contains(message, want) {
 			return true
 		}
+		start := strings.IndexByte(message, '{')
+		var envelope struct {
+			Content string `json:"content"`
+		}
+		if start >= 0 && json.Unmarshal([]byte(message[start:]), &envelope) == nil && strings.Contains(envelope.Content, want) {
+			return true
+		}
 	}
 	return false
+}
+
+func TestContainsMessageAcceptsInformationOnlyActorEnvelope(t *testing.T) {
+	const payload = `{"ref":"refs/heads/main"}`
+	envelope := "ts:1786432168\n" + `{"stella_actor":{"type":"agent","authority":"information_only"},"content":"{\"ref\":\"refs/heads/main\"}"}`
+	if !containsMessage([]string{envelope}, payload) {
+		t.Fatal("actor envelope did not preserve the webhook payload")
+	}
 }
 
 func (h *harness) createWebhookFakeProvider(t *testing.T, ctx context.Context, baseURL, suffix string) string {

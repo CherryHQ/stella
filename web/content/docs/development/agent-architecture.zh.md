@@ -2,7 +2,7 @@
 title: Agent 架构
 ---
 
-> 本页面面向修改 Stella agent runtime、session、memory、channel、scheduler、delegate tool 或 task system 的开发者。
+> 本页面面向修改 Stella agent runtime、session、memory、channel、scheduler、内部 delegate adapter 或 task system 的开发者。
 
 Stella 的 agent 架构围绕一条规则拆分：
 
@@ -156,7 +156,7 @@ Session kind 描述 session 为什么存在。Channel 描述 session 从哪里�
 
 Typed resume 必须验证 kind。即使 ID 一样，scheduler run 也不能恢复 delegate session。Channel session 虽然 key 是 trusted，也必须要求 `KindChat`。
 
-所有 kind 都接受人工消息。Web UI 可以像给 `chat` session 发消息一样,给 `delegate`、`task`、`scheduler` session 发消息——runtime 的 turn 循环与 kind 无关。turn 进行中发送会以 `ErrSessionBusy` 失败关闭(见并发),因此人工消息不会与服务端驱动的 turn 竞争。
+所有 kind 都接受人工消息。Web UI 可以像给 `chat` session 发消息一样，给 `delegate`、`task`、`scheduler` session 发消息。人工入口直接竞争 runtime guard。Agent 发起的 `session.create` 和 `session.send` 输入会先写入持久 Session inbox，再经过有界的进程内 FIFO 以保证公平，最后进入同一个 runtime admission guard。在正常的输入追加点，LCM 会在同一事务中认领 inbox 行并写入 transcript 消息。该 guard 仍是一 Session 单活跃回合的正确性边界。
 
 ## ID trust model
 
@@ -167,7 +167,7 @@ Typed resume 必须验证 kind。即使 ID 一样，scheduler run 也不能恢�
 这些 ID 来自用户、HTTP path、model tool call，或者任何 agent 能影响的地方。
 
 - `POST /sessions/{sessionId}/messages`
-- delegate tool `session_id`
+- session tool `session_id`
 - 普通 `Service.Chat` request `SessionID`
 
 这些路径里，非空 ID 的意思是：**加载已有 session 并验证 kind/ownership**。如果不存在，返回 not found。不要用这个 exact ID 创建新行。
@@ -207,7 +207,11 @@ Chat timeout 是可恢复停止，不是硬失败。Runtime 会持久化并 stre
 
 ### Concurrency
 
-Runtime 对每个 session 最多允许一个 active turn。第二个 same-session turn 会被 `ErrSessionBusy` 拒绝。Runtime 不排队。排队需要产品层定义 cancellation、ordering 和 backpressure；拒绝更简单也更安全。
+Runtime 对每个 Session 最多允许一个 active turn。admission 竞争失败时，它会在写入对话记录之前返回 `ErrSessionBusy`。人工入口直接处理该结果。Agent 发起的 Session 发送会在 admission 前增加一层公平机制：进程内 FIFO 的等待深度为 32，admission 等待上限为 30 秒。来源 context 会取消排队中和已 admission 的工作。在 transcript 投递前取消会原子终结 inbox 行；投递后取消则保留历史输入并停止实时 turn。FIFO 会轮询忙碌 guard，但正确性仍由 runtime admission 保证。
+
+Stella 启动时会重新鉴权 pending inbox 行，并按入队顺序把有效输入追加到目标 transcript。恢复过程绝不会启动模型或工具 turn，因此这里保证的是持久消息投递，而不是持久 Agent 执行或回复投递。transcript 已提交后崩溃可能留下一个无人回复的 Agent 输入，但不会重放工具副作用。
+
+#643 在 #637 下跟踪集群级序列化。该工作会用共享 Session turn lease 替换所有进程内 admission guard。Agent 发送 FIFO 必须保持为该边界前的本地公平优化。
 
 ### 实时事件扇出
 
@@ -276,24 +280,30 @@ scheduler derives run session ID
 
 如果 job 有明确 `AgentID`，不要 fallback 到任意 default service；那会掩盖 routing bug。
 
-### Delegate tool
+### Session managed-run adapter
 
 ```text
-parent runner executes delegate tool
-    -> tool sends task + optional session_id + inherited ProjectID
+parent runner executes session.create/send
+    -> session tool passes message + optional preset/session_id
+    -> internal DelegateTool resolves preset and run options
     -> Service.RunDelegateSession
     -> Service.Delegate
     -> Registry 创建生成的 delegate session 或恢复已有 delegate session
-    -> Runtime.Chat
+    -> per-Session FIFO fairness
+    -> Runtime.ChatAdmitted
 ```
 
 规则：
 
-- supplied delegate `session_id` 是 resume-only
-- omitted `session_id` 创建生成的 delegate session
+- 面向模型的注册表暴露 `session`，不暴露 `delegate`
+- supplied legacy delegate `session_id` 是 resume-only
+- `session.create` 通过内部 adapter 创建生成的 delegate session
 - child sessions 继承 user、agent、project scope
-- 同一次 tool call 里的重复非空 `session_id` 在启动 goroutine 前拒绝
-- child runner 排除 delegate tool，避免递归
+- 调用深度和 Session 祖先链通过 context 传递；runtime 拒绝深度溢出和循环
+- 同级与嵌套调用共享由根 runtime 回合分配的 16 次原子调用预算
+- 根 deadline 和取消覆盖队列等待及所有嵌套回合
+- runtime option 合并祖先的 excluded tools，嵌套运行不会继承 channel chat binding
+- Agent 输入持久化 actor ID 和来源 Session ID，provider 渲染将其标记为 information-only
 
 ### Task worker session
 

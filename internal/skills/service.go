@@ -2,29 +2,63 @@ package skills
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/resources"
 )
 
 // Service provides unified skill resolution across all 4 levels
 // (project, user, agent, system). Both the CLI tool and HTTP server
 // use this to avoid duplicating the merge/resolve logic.
 type Service struct {
-	store      pkgplugins.SkillStore
-	stellaHome string
+	store       pkgplugins.SkillStore
+	stellaHome  string
+	registry    *resources.Registry
+	registryErr error
 }
 
-func NewService(store pkgplugins.SkillStore, stellaHome string) *Service {
-	return &Service{store: store, stellaHome: stellaHome}
+func NewService(store pkgplugins.SkillStore, stellaHome string, registries ...*resources.Registry) *Service {
+	var registry *resources.Registry
+	if len(registries) > 0 {
+		registry = registries[0]
+	}
+	var err error
+	if registry == nil {
+		registry, err = resources.Default()
+	}
+	return &Service{store: store, stellaHome: stellaHome, registry: registry, registryErr: err}
 }
 
 // ResolvedSkill is a skill with its filesystem directory (if applicable).
 type ResolvedSkill struct {
 	pkgplugins.Skill
-	Dir string // absolute path on disk; empty until a DB-backed Skill is loaded
+	Dir      string // absolute path on disk; empty until a DB-backed Skill is loaded
+	builtin  *resources.BuiltinSkillDescriptor
+	registry *resources.Registry
+}
+
+func (s *ResolvedSkill) LoadBuiltinFile(filePath string) (string, error) {
+	if s.builtin == nil || s.registry == nil {
+		return "", fmt.Errorf("not a builtin skill")
+	}
+	data, _, err := s.registry.ReadBuiltinSkillFile(s.builtin.Name, filePath)
+	return string(data), err
+}
+
+func (s *ResolvedSkill) BuiltinFiles() []string {
+	if s.builtin == nil {
+		return nil
+	}
+	out := make([]string, 0, len(s.builtin.Files))
+	for _, file := range s.builtin.Files {
+		out = append(out, file.Path)
+	}
+	return out
 }
 
 // ListMerged returns all visible skills across project, DB, and system levels,
@@ -39,7 +73,7 @@ func (s *Service) ListMerged(ctx context.Context, vc pkgplugins.SkillViewContext
 			return nil, fmt.Errorf("list db skills: %w", err)
 		}
 	}
-	return s.mergeSkills(dbSkills, projectRoot), nil
+	return filterDisabled(s.mergeSkills(dbSkills, projectRoot), vc.DisabledSkillRefs), nil
 }
 
 // ListMergedWithDB merges the given DB skills with FS skills.
@@ -50,10 +84,13 @@ func (s *Service) ListMergedWithDB(dbSkills []pkgplugins.Skill, projectRoot stri
 
 func (s *Service) mergeSkills(dbSkills []pkgplugins.Skill, projectRoot string) []ResolvedSkill {
 	projSkills, projDirs, _ := ListProjectSkills(projectRoot)
-	sysSkills, sysDirs, _ := ListSystemSkills(s.stellaHome)
+	builtinSkills, err := s.builtinSkills()
+	if err != nil {
+		return nil
+	}
 
-	seen := make(map[string]bool, len(projSkills)+len(dbSkills)+len(sysSkills))
-	out := make([]ResolvedSkill, 0, len(projSkills)+len(dbSkills)+len(sysSkills))
+	seen := make(map[string]bool, len(projSkills)+len(dbSkills)+len(builtinSkills))
+	out := make([]ResolvedSkill, 0, len(projSkills)+len(dbSkills)+len(builtinSkills))
 
 	for _, sk := range projSkills {
 		seen[sk.Name] = true
@@ -66,11 +103,12 @@ func (s *Service) mergeSkills(dbSkills []pkgplugins.Skill, projectRoot string) [
 		seen[sk.Name] = true
 		out = append(out, ResolvedSkill{Skill: sk})
 	}
-	for _, sk := range sysSkills {
+	for _, sk := range builtinSkills {
 		if seen[sk.Name] {
 			continue
 		}
-		out = append(out, ResolvedSkill{Skill: sk, Dir: sysDirs[sk.Name]})
+		seen[sk.Name] = true
+		out = append(out, sk)
 	}
 	return out
 }
@@ -80,9 +118,12 @@ func (s *Service) mergeSkills(dbSkills []pkgplugins.Skill, projectRoot string) [
 // (filesystem) wins outright; DB skills (which already rank user_agent > user >
 // system_agent > system among themselves) shadow filesystem system skills.
 func (s *Service) Resolve(ctx context.Context, name string, vc pkgplugins.SkillViewContext, projectRoot string) (*ResolvedSkill, error) {
+	if builtinName, ok := s.builtinNameForReference(name); ok {
+		name = builtinName
+	}
 	if projectRoot != "" {
 		if rs := findFSSkill(projectRoot, "project", name); rs != nil {
-			return rs, nil
+			return filterResolved(rs, vc.DisabledSkillRefs), nil
 		}
 	}
 
@@ -92,16 +133,54 @@ func (s *Service) Resolve(ctx context.Context, name string, vc pkgplugins.SkillV
 			return nil, err
 		}
 		if sk != nil {
-			return &ResolvedSkill{Skill: *sk}, nil
+			return filterResolved(&ResolvedSkill{Skill: *sk}, vc.DisabledSkillRefs), nil
 		}
 	}
+	rs, err := s.builtinSkill(name)
+	if err != nil {
+		return nil, err
+	}
+	return filterResolved(rs, vc.DisabledSkillRefs), nil
+}
 
-	if s.stellaHome != "" {
-		if rs := findFSSkill(s.stellaHome, "system", name); rs != nil {
-			return rs, nil
+// filterDisabled runs only after precedence resolution. A disabled winner is
+// absent; callers must never retry a lower-precedence implementation by name.
+func filterDisabled(in []ResolvedSkill, disabled []string) []ResolvedSkill {
+	if len(disabled) == 0 {
+		return in
+	}
+	out := make([]ResolvedSkill, 0, len(in))
+	for _, rs := range in {
+		if !isDisabled(rs, disabled) {
+			out = append(out, rs)
 		}
 	}
-	return nil, nil
+	return out
+}
+
+func filterResolved(rs *ResolvedSkill, disabled []string) *ResolvedSkill {
+	if rs == nil || !isDisabled(*rs, disabled) {
+		return rs
+	}
+	return nil
+}
+
+func isDisabled(rs ResolvedSkill, disabled []string) bool {
+	ref, ok := PolicyRef(rs)
+	return ok && slices.Contains(disabled, ref)
+}
+
+// PolicyRef returns the stable policy identity for policy-addressable Skills.
+func PolicyRef(rs ResolvedSkill) (string, bool) {
+	if rs.builtin != nil {
+		return "builtin:" + rs.Name, true
+	}
+	switch rs.Scope {
+	case "system", "system_agent":
+		return rs.Scope + ":" + rs.Name, true
+	default:
+		return "", false
+	}
 }
 
 // findFSSkill returns the named skill from a filesystem scope root, or nil.
@@ -125,13 +204,15 @@ func findFSSkill(root, scope, name string) *ResolvedSkill {
 // effective Resolve query filters out.
 func (s *Service) ResolveScoped(ctx context.Context, name, scope string, vc pkgplugins.SkillViewContext, projectRoot string) (*ResolvedSkill, error) {
 	switch scope {
+	case "builtin":
+		return s.builtinSkill(name)
 	case "project":
 		return findFSSkill(projectRoot, "project", name), nil
 	case "system_agent", "user", "user_agent":
 		return s.dbSkillByScope(ctx, name, scope, vc)
 	case "system":
-		// A system skill may live in the DB (installed via Settings) or on the
-		// filesystem (built-in). Prefer the DB row, fall back to the FS.
+		// A system skill may live in the DB (installed via Settings) or in the
+		// immutable release Registry. Prefer the DB row, then the Registry.
 		rs, err := s.dbSkillByScope(ctx, name, scope, vc)
 		if err != nil {
 			return nil, err
@@ -139,7 +220,7 @@ func (s *Service) ResolveScoped(ctx context.Context, name, scope string, vc pkgp
 		if rs != nil {
 			return rs, nil
 		}
-		return findFSSkill(s.stellaHome, "system", name), nil
+		return s.builtinSkill(name)
 	default:
 		return nil, nil
 	}
@@ -193,6 +274,13 @@ func (s *Service) LoadFile(ctx context.Context, name, path string, vc pkgplugins
 		return "", "", nil, fmt.Errorf("skill %q not found", name)
 	}
 
+	if rs.builtin != nil {
+		data, err := rs.LoadBuiltinFile(path)
+		if err != nil {
+			return "", "", nil, fmt.Errorf("load builtin skill %q file %q: %w", name, path, err)
+		}
+		return data, rs.Dir, rs, nil
+	}
 	if rs.Dir != "" {
 		data, err := loadProjectSkillFile(rs.Dir, path)
 		if err != nil {
@@ -219,6 +307,9 @@ func (s *Service) ListFiles(ctx context.Context, name string, vc pkgplugins.Skil
 	}
 	if rs == nil {
 		return nil, "", fmt.Errorf("skill %q not found", name)
+	}
+	if rs.builtin != nil {
+		return rs.BuiltinFiles(), rs.Dir, nil
 	}
 	if rs.Dir != "" {
 		files, err := ListDirFiles(rs.Dir)
@@ -253,5 +344,77 @@ func ListDirFiles(dir string) ([]string, error) {
 
 // IsWritable returns whether a skill scope supports write operations.
 func IsWritable(scope string) bool {
-	return scope == "user" || scope == "user_agent" || scope == "system_agent"
+	return scope == "user" || scope == "user_agent" || scope == "system" || scope == "system_agent"
+}
+
+func (s *Service) builtinSkills() ([]ResolvedSkill, error) {
+	if s.registryErr != nil {
+		return nil, fmt.Errorf("load builtin registry: %w", s.registryErr)
+	}
+	if s.registry == nil {
+		return nil, fmt.Errorf("builtin registry is unavailable")
+	}
+	descriptors := s.registry.BuiltinSkills()
+	out := make([]ResolvedSkill, 0, len(descriptors))
+	for i := range descriptors {
+		rs, err := s.resolvedBuiltin(&descriptors[i])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rs)
+	}
+	return out, nil
+}
+
+func (s *Service) builtinSkill(name string) (*ResolvedSkill, error) {
+	if s.registryErr != nil {
+		return nil, fmt.Errorf("load builtin registry: %w", s.registryErr)
+	}
+	if s.registry == nil {
+		return nil, fmt.Errorf("builtin registry is unavailable")
+	}
+	descriptor, ok := s.registry.BuiltinSkill(name)
+	if !ok {
+		return nil, nil
+	}
+	rs, err := s.resolvedBuiltin(&descriptor)
+	if err != nil {
+		return nil, err
+	}
+	return &rs, nil
+}
+
+func (s *Service) builtinNameForReference(reference string) (string, bool) {
+	if s.registry == nil {
+		return "", false
+	}
+	for _, descriptor := range s.registry.BuiltinSkills() {
+		if reference == descriptor.APIID || reference == descriptor.Ref {
+			return descriptor.Name, true
+		}
+	}
+	return "", false
+}
+
+func (s *Service) resolvedBuiltin(descriptor *resources.BuiltinSkillDescriptor) (ResolvedSkill, error) {
+	metadata, err := json.Marshal(descriptor.Metadata)
+	if err != nil {
+		return ResolvedSkill{}, fmt.Errorf("encode builtin skill %q metadata: %w", descriptor.Name, err)
+	}
+	dir := ""
+	if s.stellaHome != "" {
+		bundle, err := s.registry.BundlePath(s.stellaHome)
+		if err != nil {
+			return ResolvedSkill{}, err
+		}
+		dir = filepath.Join(bundle, filepath.FromSlash(descriptor.Root))
+	}
+	return ResolvedSkill{
+		Skill: pkgplugins.Skill{
+			ID: descriptor.APIID, Scope: "system", Name: descriptor.Name,
+			Description: descriptor.Description, Status: SkillStatusActive,
+			DisableModelInvocation: descriptor.DisableModelInvocation, Metadata: metadata,
+		},
+		Dir: dir, builtin: descriptor, registry: s.registry,
+	}, nil
 }

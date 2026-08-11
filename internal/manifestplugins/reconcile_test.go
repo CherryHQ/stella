@@ -17,13 +17,13 @@ func makeMinimalManifest(pluginID string, enabled bool, binaryName, version stri
 			{
 				ID:      pluginID,
 				Enabled: enabled,
-				Binaries: []ManifestBinary{
+				ManifestPluginDefinition: ManifestPluginDefinition{Binaries: []ManifestBinary{
 					{
 						Name:    binaryName,
 						Tool:    "github:owner/repo",
 						Version: version,
 					},
-				},
+				}},
 			},
 		},
 	}
@@ -152,35 +152,35 @@ func TestReconcile_EnabledCount(t *testing.T) {
 			{
 				ID:      "enabled-plugin",
 				Enabled: true,
-				Binaries: []ManifestBinary{
+				ManifestPluginDefinition: ManifestPluginDefinition{Binaries: []ManifestBinary{
 					{
 						Name:    "tool-a",
 						Tool:    "github:owner/tool-a",
 						Version: "0.1.0",
 					},
-				},
+				}},
 			},
 			{
 				ID:      "disabled-plugin-1",
 				Enabled: false,
-				Binaries: []ManifestBinary{
+				ManifestPluginDefinition: ManifestPluginDefinition{Binaries: []ManifestBinary{
 					{
 						Name:    "tool-b",
 						Tool:    "github:owner/tool-b",
 						Version: "1.0.0",
 					},
-				},
+				}},
 			},
 			{
 				ID:      "disabled-plugin-2",
 				Enabled: false,
-				Binaries: []ManifestBinary{
+				ManifestPluginDefinition: ManifestPluginDefinition{Binaries: []ManifestBinary{
 					{
 						Name:    "tool-c",
 						Tool:    "github:owner/tool-c",
 						Version: "3.0.0",
 					},
-				},
+				}},
 			},
 		},
 	}

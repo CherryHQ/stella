@@ -98,6 +98,22 @@ Stop everything with `docker compose down`.
 
 The sandbox image bakes its mise toolchain at `/opt/stella` via `stellad mise reconcile-builtins` (the same `resources/tools.yaml` reconcile the host runs), so docker and the Linux `local` backend present identical mise paths.
 
+## Builtin Skill bundle and projection
+
+`resources.Registry` is the sole authority for release-owned builtins. It produces the immutable content-addressed bundle installed at `$STELLA_HOME/bundles/<revision>` for native `local` and `none` execution. Isolating execution projects that exact bundle read-only at `/opt/stella/skills/builtin`; `/opt` is an execution coordinate, not another authority, and bundle executable helper modes must survive the projection.
+
+Project Skills remain ordinary files in durable Agent/project working trees. PostgreSQL remains the authority for mutable `system`, `system_agent`, `user`, and `user_agent` records; their execution materializations are derived caches. The Home filesystem authority cutover is planned and not active.
+
+The Docker sandbox image bakes and labels the exact revision. It has no host-builtin fallback. Docker provider preflight rejects a binary/image revision mismatch, preventing the runner session from starting. Use `stellad system-bundle --help` for operator command syntax. Rebuild the development image with `mise run sandbox:docker:build`; rebuild every custom sandbox image from the matching Stella revision.
+
+Before upgrading, operators must use the old working binary to import each custom Skill root under legacy `$STELLA_HOME/.agents/skills` as a global (`system`) Skill through **Settings → Skills** on older releases or **Admin Console → Deployment resources → Global Skills** on newer releases. They must back up, verify, and remove other residual paths. Startup reports every blocking path and exits without mutation. Current-manifest paths are inert even if their contents or modes differ; every other Skill root or residual path blocks startup.
+
+## Agent Skill policy
+
+The stored scope vocabulary is `system`, `system_agent`, `user`, `user_agent`, and `project`, plus contextual `builtin`. Release `builtin:<name>` is immutable. Administrator-installed `system:<name>` and Agent-bound `system_agent:<name>` are distinct mutable identities.
+
+Resolution selects one winner before policy: `project > user_agent > user > system_agent > system > builtin`. Disabling that winner never exposes a lower same-name Skill. Policy defaults to enabled, is shared per Agent, and is independent of content-edit authorization and `disable_model_invocation`. An admitted turn keeps its snapshot; the next turn sees a successful commit. Legacy non-empty arrays are diagnostic but all-enabled; dangling disabled references have no execution effect and need explicit cleanup.
+
 ## Adding a New Backend
 
 Every new sandbox backend requires changes in all of the following locations — missing any one causes a runtime error:

@@ -98,6 +98,22 @@ Stella 优先选择显式拒绝而非静默降级：
 
 sandbox 镜像通过 `stellad mise reconcile-builtins`（与宿主相同的 `resources/tools.yaml` reconcile）把 mise 工具链烤在 `/opt/stella`，因此 docker 与 Linux `local` 后端呈现完全一致的 mise 路径。
 
+## builtin Skill bundle 与投影
+
+`resources.Registry` 是发行版自带 builtin 的唯一权威。它产出不可变、内容寻址的 bundle，供原生 `local` 和 `none` 执行安装到 `$STELLA_HOME/bundles/<revision>`。隔离执行将这一精确 bundle 以只读方式投影到 `/opt/stella/skills/builtin`；`/opt` 是执行坐标而非另一份权威，bundle 中辅助可执行文件的模式必须在投影中保留。
+
+Project Skill 仍是持久 Agent/项目工作树中的普通文件。PostgreSQL 仍是可变 `system`、`system_agent`、`user` 和 `user_agent` 记录的权威；它们的执行 materialization 是派生缓存。Home 文件系统权威切换已规划但尚未启用。
+
+Docker 沙箱镜像会烤入并标记精确 revision，不会回退到宿主机 builtin。Docker provider preflight 拒绝二进制与镜像 revision 不匹配的组合，从而阻止 runner session 启动。操作员命令语法使用 `stellad system-bundle --help` 查询。开发镜像用 `mise run sandbox:docker:build` 重建；每个自定义沙箱镜像都必须从匹配的 Stella revision 重建。
+
+升级前，操作员必须使用旧的可工作二进制，将遗留 `$STELLA_HOME/.agents/skills` 下的每个自定义 Skill 根导入为全局（`system`）Skill：旧版入口为 **设置 → 技能**，新版入口为 **管理控制台 → 部署资源 → 全局技能**。其他残留路径必须先备份、验证后删除。启动会报告每个阻塞路径并退出，不会修改任何内容。当前 manifest 路径即使内容或模式不同也只是惰性数据；其他每个 Skill 根或残留路径都会阻塞启动。
+
+## Agent Skill 策略
+
+存储的作用域词汇为 `system`、`system_agent`、`user`、`user_agent` 和 `project`，另加上下文作用域 `builtin`。发行版的 `builtin:<name>` 不可变。管理员安装的 `system:<name>` 与绑定 Agent 的 `system_agent:<name>` 是独立的可变身份。
+
+解析会先选择唯一的胜出项，再应用策略：`project > user_agent > user > system_agent > system > builtin`。禁用该胜出项不会暴露同名的低优先级 Skill。策略默认启用、按 Agent 共享，且与编辑内容的授权、`disable_model_invocation` 彼此独立。已接纳的 turn 保留其快照，下一次 turn 才会看到成功提交。旧版非空数组是诊断信息但表示全部启用；悬空的禁用引用不影响执行，需显式清理。
+
 ## 添加新后端
 
 每个新沙箱后端需要在以下所有位置进行修改——遗漏任何一处都会导致运行时错误：
