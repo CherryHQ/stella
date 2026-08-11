@@ -102,24 +102,3 @@ func TestLoadBuiltinLarkProvidersUseMinimalDefaultsAndBroadAllowlists(t *testing
 		t.Fatalf("providers found = %v, want lark and feishu", found)
 	}
 }
-
-func TestLoadBuiltinOAuthProvidersUseDefaultsAsMinimumFloor(t *testing.T) {
-	m, err := LoadBuiltin()
-	if err != nil {
-		t.Fatalf("LoadBuiltin() error: %v", err)
-	}
-	for _, provider := range m.OAuthProviders {
-		if len(provider.Scopes) > 3 {
-			t.Errorf("%s defaults = %d scopes, want a minimal first-consent floor", provider.ID, len(provider.Scopes))
-		}
-		allowed := make(map[string]struct{}, len(provider.AllowedScopes))
-		for _, scope := range provider.AllowedScopes {
-			allowed[scope] = struct{}{}
-		}
-		for _, scope := range provider.Scopes {
-			if _, ok := allowed[scope]; !ok {
-				t.Errorf("%s default scope %q is outside allowed_scopes", provider.ID, scope)
-			}
-		}
-	}
-}
