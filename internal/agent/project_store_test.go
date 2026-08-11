@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
@@ -13,9 +14,26 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+type projectWorkspaceViewer struct {
+	view        home.WorkspaceView
+	err         error
+	expectedCtx context.Context
+	contextOK   []bool
+}
+
+func (v *projectWorkspaceViewer) WorkspaceView(ctx context.Context, _ home.WorkspaceRequest) (home.WorkspaceView, error) {
+	if v.expectedCtx != nil {
+		v.contextOK = append(v.contextOK, ctx.Value(projectContextKey{}) == v.expectedCtx.Value(projectContextKey{}))
+	}
+	return v.view, v.err
+}
+
+type projectContextKey struct{}
 
 func TestProjectStoreResolveAndEnsure(t *testing.T) {
 	ctx := context.Background()
@@ -41,7 +59,7 @@ func TestProjectStoreResolveAndEnsure(t *testing.T) {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 
-	ps := NewProjectStore(db, store.NewDBStore(db), nil, nil)
+	ps := NewProjectStore(db, store.NewDBStore(db), nil, nil, WithProjectHomeWorkspace(testWorkspaceViewer{root: config.StellaHome()}))
 
 	// Resolve returns the base_dir of an existing project.
 	var resolve ProjectResolverFunc = ps.Resolve
@@ -105,6 +123,68 @@ func TestProjectStoreResolveAndEnsure(t *testing.T) {
 	}
 }
 
+func TestProjectStoreEnsurePersistsWorkspaceAgentRoot(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	q := sqlc.New(db)
+	oidc := appdb.NewOIDCStore(db)
+	user, err := oidc.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "ensure-root@example.com"})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	const agentID = "ensure-root-agent"
+	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: agentID, Name: "Ensure Root", Workspace: "/tmp/ignored", Sandbox: json.RawMessage(`{}`), Scope: "system", Enabled: true}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	wantRoot := filepath.Join(t.TempDir(), "exact", "agent-root")
+	ps := NewProjectStore(db, store.NewDBStore(db), nil, nil, WithProjectHomeWorkspace(&projectWorkspaceViewer{view: home.WorkspaceView{AgentRoot: wantRoot}}))
+
+	projectID, err := ps.Ensure(ctx, agentID, user.ID)
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	got, err := ps.Resolve(ctx, projectID, user.ID)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got != wantRoot {
+		t.Fatalf("persisted base_dir = %q, want supplied AgentRoot %q", got, wantRoot)
+	}
+}
+
+func TestProjectStoreCreateAndUpdateForwardContextAndFailClosedOnWorkspaceError(t *testing.T) {
+	ctx := context.WithValue(context.Background(), projectContextKey{}, "marker")
+	db := dbtest.New(t)
+	q := sqlc.New(db)
+	oidc := appdb.NewOIDCStore(db)
+	user, err := oidc.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "workspace-error@example.com"})
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	const agentID = "workspace-error-agent"
+	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: agentID, Name: "Workspace Error", Workspace: "/tmp/ignored", Sandbox: json.RawMessage(`{}`), Scope: "system", Enabled: true}); err != nil {
+		t.Fatalf("CreateAgent: %v", err)
+	}
+	viewer := &projectWorkspaceViewer{expectedCtx: ctx, err: errors.New("home unavailable")}
+	ps := NewProjectStore(db, store.NewDBStore(db), nil, &fakeProjectAuth{}, WithProjectHomeWorkspace(viewer))
+	authority := projectUserAuthority(t, user.ID)
+
+	if _, err := ps.Create(ctx, authority, agentID, "new", "/anywhere", nil); !errors.Is(err, ErrWorkspaceSetup) {
+		t.Fatalf("Create error = %v, want ErrWorkspaceSetup", err)
+	}
+	created, err := q.CreateProject(ctx, sqlc.CreateProjectParams{ID: uuid.NewString(), AgentID: agentID, UserID: user.ID, Name: "existing", BaseDir: "/old"})
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	baseDir := "/new"
+	if _, err := ps.Update(ctx, authority, agentID, created.ID, ProjectUpdate{BaseDir: &baseDir}); !errors.Is(err, ErrWorkspaceSetup) {
+		t.Fatalf("Update error = %v, want ErrWorkspaceSetup", err)
+	}
+	if len(viewer.contextOK) != 2 || !viewer.contextOK[0] || !viewer.contextOK[1] {
+		t.Fatalf("workspace contexts = %v, want caller marker for Create and Update", viewer.contextOK)
+	}
+}
+
 type fakeProjectAuth struct {
 	err   error
 	calls int
@@ -131,7 +211,7 @@ func TestProjectStoreGateFailsClosed(t *testing.T) {
 	ctx := context.Background()
 	denied := errors.New("denied")
 	fa := &fakeProjectAuth{err: denied}
-	ps := NewProjectStore(nil, nil, nil, fa) // nil db: any query before the gate panics
+	ps := NewProjectStore(nil, nil, nil, fa, WithProjectHomeWorkspace(testWorkspaceViewer{root: t.TempDir()})) // nil db: any query before the gate panics
 	auth := projectUserAuthority(t, "u1")
 
 	if _, err := ps.List(ctx, auth, "a", false); !errors.Is(err, denied) {
@@ -189,7 +269,7 @@ func TestProjectStoreCRUDOwnershipAndTraversal(t *testing.T) {
 	mkAgent(agentID)
 	mkAgent(otherAgentID)
 
-	ps := NewProjectStore(db, store.NewDBStore(db), nil, &fakeProjectAuth{})
+	ps := NewProjectStore(db, store.NewDBStore(db), nil, &fakeProjectAuth{}, WithProjectHomeWorkspace(testWorkspaceViewer{root: config.StellaHome()}))
 	auth := projectUserAuthority(t, user.ID)
 
 	// Traversal: a base_dir outside the agent workspace is rejected.

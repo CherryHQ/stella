@@ -3,8 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"fmt"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -245,101 +243,48 @@ func TestAdmissionBarrierTurnPrecedesPolicyCommitAndFailureDoesNotInvalidate(t *
 	}
 }
 
-// A policy mutation that begins before a Service exists must catch up the
-// Service published during its commit. The startup refresh holds that Service's
-// barrier first; only after it finishes may the committed refresh run.
-func TestAgentSkillPolicyNoServicePublicationCatchesUpAfterStartupRefresh(t *testing.T) {
+// A policy mutation that begins before a Service exists holds a shared lifecycle
+// lease. Publication waits for exclusive ownership, then loads committed state.
+func TestAgentSkillPolicyNoServiceBlocksPublicationUntilCommit(t *testing.T) {
 	pm := NewPoolManager(nil, nil)
 	const agentID = "agent"
-	svc, rt, runners := newBarrierService(t)
 	mutationEntered := make(chan struct{})
 	commit := make(chan struct{})
 	published := make(chan struct{})
-	releaseStartup := make(chan struct{})
-	committedRefreshEntered := make(chan struct{})
-	releaseCommittedRefresh := make(chan struct{})
 	result := make(chan error, 1)
-	var (
-		mu        sync.Mutex
-		refreshes []string
-	)
-	refresh := func(_ string, _ *Service) error {
-		mu.Lock()
-		refreshes = append(refreshes, "committed")
-		mu.Unlock()
-		rt.SetNewRunner(func(context.Context, agentruntime.RunnerParams) (agentruntime.Runner, error) {
-			r := &barrierRunner{snapshot: "committed", started: make(chan struct{}), release: make(chan struct{})}
-			runners <- r
-			return r, nil
-		})
-		close(committedRefreshEntered)
-		<-releaseCommittedRefresh
-		return nil
-	}
+	var unexpectedRefresh atomic.Bool
 	go func() {
 		result <- pm.applyAgentSkillPolicyMutation(agentID, func() error {
 			close(mutationEntered)
 			<-commit
-			return fmt.Errorf("simulated commit transport loss: %w", agentskillpolicy.ErrCommitOutcomeUnknown)
-		}, refresh)
-	}()
-	<-mutationEntered
-
-	go func() {
-		_ = svc.withAdmissionBarrier(func() error {
-			pm.mu.Lock()
-			pm.services[agentID] = svc
-			pm.mu.Unlock()
-			close(published)
-			<-releaseStartup
-			mu.Lock()
-			refreshes = append(refreshes, "startup-old")
-			mu.Unlock()
+			return nil
+		}, func(string, *Service) error {
+			unexpectedRefresh.Store(true)
 			return nil
 		})
 	}()
-	<-published
-	close(commit)
-
-	select {
-	case err := <-result:
-		t.Fatalf("policy mutation completed before startup refresh released: %v", err)
-	default:
-	}
-	close(releaseStartup)
-	<-committedRefreshEntered
-	admitted := make(chan (<-chan Event), 1)
+	<-mutationEntered
 	go func() {
-		stream, err := svc.admit(context.Background(), barrierInfo("after-catchup"), "turn")
-		if err != nil {
-			t.Errorf("waiting admission: %v", err)
-			return
-		}
-		admitted <- stream
+		_ = pm.lifecycle.lockExclusive(context.Background())
+		defer pm.lifecycle.unlockExclusive()
+		pm.mu.Lock()
+		pm.services[agentID] = &Service{AgentID: agentID, lifecycle: pm.lifecycle}
+		pm.mu.Unlock()
+		close(published)
 	}()
 	select {
-	case <-admitted:
-		t.Fatal("admission passed while committed refresh held the barrier")
+	case <-published:
+		t.Fatal("Service published before no-Service mutation committed")
 	default:
 	}
-	close(releaseCommittedRefresh)
-	if err := <-result; !errors.Is(err, agentskillpolicy.ErrCommitOutcomeUnknown) {
-		t.Fatalf("policy mutation error=%v; want ErrCommitOutcomeUnknown", err)
+	close(commit)
+	if err := <-result; err != nil {
+		t.Fatal(err)
 	}
-	mu.Lock()
-	defer mu.Unlock()
-	if got, want := refreshes, []string{"startup-old", "committed"}; !slices.Equal(got, want) {
-		t.Fatalf("refresh order=%v, want %v", got, want)
+	if unexpectedRefresh.Load() {
+		t.Fatal("no-Service mutation unexpectedly refreshed a Service")
 	}
-	stream := <-admitted
-	r := waitBarrierRunner(t, runners)
-	if r.snapshot != "committed" {
-		t.Fatalf("waiting admission runner snapshot=%q, want committed", r.snapshot)
-	}
-	close(r.release)
-	if got := waitText(t, stream); got != "committed" {
-		t.Fatalf("waiting admission output=%q, want committed", got)
-	}
+	<-published
 }
 
 func TestAgentSkillPolicyUnknownCommitRefreshesBeforeReturning(t *testing.T) {

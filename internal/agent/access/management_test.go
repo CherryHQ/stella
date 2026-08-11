@@ -116,6 +116,14 @@ type fakeReloader struct {
 	err    error
 }
 
+type fakeOwnerDeletion struct {
+	deleteAgent func(context.Context, string, string) error
+}
+
+func (f fakeOwnerDeletion) DeleteAgent(ctx context.Context, id, actor string) error {
+	return f.deleteAgent(ctx, id, actor)
+}
+
 func (f *fakeReloader) SyncAgent(_ context.Context, id string) error {
 	f.synced = append(f.synced, id)
 	return f.err
@@ -148,13 +156,19 @@ type fakeActivity struct {
 	err error
 }
 
+type freeAgentIDOccupancy struct{}
+
+func (freeAgentIDOccupancy) AgentIDOccupied(context.Context, string) (bool, error) { return false, nil }
+
 func (f fakeActivity) ListAgentLastActive(context.Context, string) (map[string]time.Time, error) {
 	return f.m, f.err
 }
 
 func newManagement(agents *fakeAgents, assign *fakeAssign, reloader AgentReloader, users UserDirectory, activity ActivityReader) *Management {
 	pep := NewService(agents, assign)
-	return NewManagement(pep, agents, assign, reloader, users, activity, nil, nil, nil)
+	return NewManagement(pep, agents, assign, reloader, users, activity, nil, nil, nil, WithOwnerDeletion(fakeOwnerDeletion{deleteAgent: func(ctx context.Context, id, _ string) error {
+		return agents.DeleteAgent(ctx, id)
+	}}), WithAgentIDOccupancy(freeAgentIDOccupancy{}))
 }
 
 func TestManagementCreateNonAdminRestrictedAndAutoAssigns(t *testing.T) {
@@ -349,8 +363,8 @@ func TestManagementDelete(t *testing.T) {
 	if _, ok := agents.agents["a"]; ok {
 		t.Fatal("agent should be deleted")
 	}
-	if len(reloader.synced) != 1 {
-		t.Fatalf("expected reload after delete, got %v", reloader.synced)
+	if len(reloader.synced) != 0 {
+		t.Fatalf("deletion lifecycle owns terminal fencing; unexpected reload %v", reloader.synced)
 	}
 
 	// A non-creator is denied.
@@ -358,6 +372,18 @@ func TestManagementDelete(t *testing.T) {
 	m2 := newManagement(agents2, newFakeAssign(), &fakeReloader{}, fakeUsers{}, fakeActivity{})
 	if err := m2.Delete(ctx, userAuthority(t, "u2", false), "a"); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("non-creator delete = %v, want ErrForbidden", err)
+	}
+}
+
+func TestManagementDeleteFailsClosedWithoutOwnerLifecycle(t *testing.T) {
+	agents := newFakeAgents(config.Agent{ID: "a", Scope: config.AgentScopeRestricted, CreatorID: "u1", Enabled: true})
+	m := NewManagement(NewService(agents, newFakeAssign()), agents, newFakeAssign(), &fakeReloader{}, fakeUsers{}, fakeActivity{}, nil, nil, nil)
+	err := m.Delete(context.Background(), userAuthority(t, "u1", false), "a")
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("Delete = %v, want ErrUnavailable", err)
+	}
+	if _, ok := agents.agents["a"]; !ok {
+		t.Fatal("raw agent delete ran without owner lifecycle")
 	}
 }
 

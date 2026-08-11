@@ -78,7 +78,8 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 
 	var promptBuild plugins.SystemPromptContext
 	build := newRunnerFunc(runnerBuilderConfig{
-		Snap: snap,
+		Snap:            snap,
+		WorkspaceViewer: testWorkspaceViewer{root: stellaHome},
 		PromptSectionsBuilder: func(_ context.Context, build plugins.SystemPromptContext) ([]plugins.SystemPromptSection, error) {
 			promptBuild = build
 			return nil, nil
@@ -175,7 +176,8 @@ func TestNewRunnerFuncCarriesDeclaredModelInput(t *testing.T) {
 	snap.Workspace = t.TempDir()
 
 	build := newRunnerFunc(runnerBuilderConfig{
-		Snap: snap,
+		Snap:            snap,
+		WorkspaceViewer: testWorkspaceViewer{root: stellaHome},
 		ProviderStreamBuilder: func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
 		},
@@ -223,7 +225,8 @@ func TestNewRunnerFuncManagedSessionsPreserveQualifiedModelRef(t *testing.T) {
 	var adapterBuilds int
 	bridge := &rebuildingDelegateRunner{}
 	build := newRunnerFunc(runnerBuilderConfig{
-		Snap: snap,
+		Snap:            snap,
+		WorkspaceViewer: testWorkspaceViewer{root: stellaHome},
 		ProviderStreamBuilder: func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 			if api != providerAPI {
 				return nil, providers.ErrProviderNotFound
@@ -291,7 +294,8 @@ func TestNewRunnerFunc(t *testing.T) {
 	snap.Workspace = t.TempDir()
 
 	build := newRunnerFunc(runnerBuilderConfig{
-		Snap: snap,
+		Snap:            snap,
+		WorkspaceViewer: testWorkspaceViewer{root: stellaHome},
 		ProviderStreamBuilder: func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
 		},

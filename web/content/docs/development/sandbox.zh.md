@@ -31,6 +31,14 @@ title: 沙箱后端抽象
 
 文件 I/O（`read`、`write`、`edit`）由 runner 拥有：runner 调用 `ResolvePath` 获取宿主机路径，然后直接使用 `os.ReadFile`/`os.WriteFile`/`os.MkdirAll`。`Session` 不包含文件读写方法。
 
+## 本地 workspace 所有权
+
+Phase 1 仅支持一个副本和一个可信 POSIX `STELLA_HOME`。PostgreSQL owner row 是身份和授权 authority；`STELLA_HOME` 下的确定性路径是布局与字节 authority。`internal/home.WorkspaceManager` 是唯一生产物化器：只有确认 user、group 和 Agent owner 存活后才创建缺失目录，并拒绝 symlink、非目录、不安全 ID 和可信根替换。原始 ID 相同的用户和群组使用不同路径。
+
+用户或群组运行会得到其 Principal、Agent Home attachment，以及只读的共享 Skill 根。无用户运行只得到这些只读共享 Skill 根，没有 Principal 或 Agent Home。群组 Agent Home 的 Skill materialization 不含 user 或 `user_agent` scope：它不会把群组数据变成某个用户的 `user_agent` Skill。
+
+显式破坏性删除 user、group 或 Agent 时，会先 fence 本地执行，再删除数据库 owner。文件和 inode 保留，但后续 `WorkspaceView` 因 owner 不存在而失败。`agents/{id}` 的任意文件系统条目都会保留全局 Agent ID。这些保证仅适用于可信宿主和单副本；多副本、Kubernetes 与 S3 authority 需要未来重新设计。
+
 ## 当前架构
 
 ### 会话所有权

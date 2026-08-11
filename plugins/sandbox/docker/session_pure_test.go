@@ -346,6 +346,35 @@ func TestConfigureSessionMounts_VolumeModeRejectsStellaHomeAsWorkspace(t *testin
 	}
 }
 
+func TestConfigureSessionMounts_RunnerScratchAcceptedByDockerModes(t *testing.T) {
+	stellaHome := t.TempDir()
+	workspace := filepath.Join(stellaHome, "runner-scratch", "runner-123")
+	if err := os.MkdirAll(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: workspace}}
+
+	t.Run("bind", func(t *testing.T) {
+		f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeBind, StellaHome: stellaHome, ContainerPathPrefix: stellaHome, HostPathPrefix: "/daemon/stella"}}
+		opts := dockerModeCreateOptions(workspace)
+		if _, _, _, err := f.configureSessionMounts(&opts, policy, workspace, "", ""); err != nil {
+			t.Fatalf("runner scratch bind planning: %v", err)
+		}
+		if opts.WorkspaceHost != "/daemon/stella/runner-scratch/runner-123" {
+			t.Fatalf("WorkspaceHost = %q", opts.WorkspaceHost)
+		}
+	})
+
+	t.Run("volume", func(t *testing.T) {
+		f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeVolume, StellaHome: stellaHome, StellaHomeVolume: "stella-data"}}
+		opts := dockerModeCreateOptions(workspace)
+		if _, _, _, err := f.configureSessionMounts(&opts, policy, workspace, "", ""); err != nil {
+			t.Fatalf("runner scratch volume planning: %v", err)
+		}
+		assertMount(t, opts.ExtraMounts, "stella-data", workspaceMount, false, dockerclient.MountTypeVolume, "runner-scratch/runner-123")
+	})
+}
+
 func TestConfigureSessionMounts_DoesNotMountHostBuiltinBundle(t *testing.T) {
 	stellaHome, workspace, extra, tmp := dockerModeTestDirs(t)
 	builtin := filepath.Join(stellaHome, "bundles", "revision")

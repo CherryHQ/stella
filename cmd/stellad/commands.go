@@ -37,6 +37,7 @@ import (
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/embedding"
 	"github.com/CherryHQ/stella/internal/goal"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/library"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -125,6 +126,8 @@ type setupResult struct {
 	shareSvc                 *sharepkg.Service
 	recallySvc               *recally.Service
 	assetStore               *asset.Store
+	workspaceManager         *home.WorkspaceManager
+	homeDeletion             *home.OwnerDeletion
 	workflowSvc              *workflowpkg.Service
 	embeddingSvc             *embedding.Service
 	librarySvc               *library.Service
@@ -192,6 +195,26 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// Every authorization domain owns its own static rules and loads durable facts
 	// before deciding; the Agent domain is the shared read gate the others fold in.
 	agentAccess := agentaccess.NewService(store, authStore)
+
+	// One process-wide manager is the sole materializer beneath STELLA_HOME.
+	homeRegistry, err := home.NewWorkspaceManager(db, config.StellaHome())
+	if err != nil {
+		return nil, fmt.Errorf("build workspace manager: %w", err)
+	}
+	workspaceManagerOwned := true
+	defer func() {
+		if workspaceManagerOwned {
+			_ = homeRegistry.Close()
+		}
+	}()
+	blobStore, err := blob.NewStoreFromConfig(cfg.Blob)
+	if err != nil {
+		return nil, err
+	}
+	assetStore, err := asset.NewStore(config.StellaHome(), blobStore, slog.Default())
+	if err != nil {
+		return nil, err
+	}
 
 	skillStore := setupSkillStore(db)
 	// The Skill domain shares the Agent read gate with the other execution
@@ -280,18 +303,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return phost.BuildEnabledTools(ctx, build)
 	}
 	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(skillStore)
-	// Asset authority is selected by capability: a configured object store is the
-	// shared authority; otherwise the local filesystem under STELLA_HOME is the
-	// single-node authority. This replaces the former blob process-global
-	// (blob.SetDefault/Default) with one service injected into every consumer.
-	blobStore, err := blob.NewStoreFromConfig(cfg.Blob)
-	if err != nil {
-		return nil, err
-	}
-	assetStore, err := asset.NewStore(config.StellaHome(), blobStore, slog.Default())
-	if err != nil {
-		return nil, err
-	}
+	// Asset authority is selected during the pre-runtime Home boot gate above.
 	libraryRaw, err := library.NewRawStoreFromConfig(config.StellaHome(), cfg.Blob, library.RawStoreOptions{
 		TempDir:        os.TempDir(),
 		FSMinFreeBytes: library.DefaultFSMinFreeBytes,
@@ -324,7 +336,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		Memory:     memProvider,
 		Agents:     sessionaccess.ConfigPromptAgentStore{Store: store},
 		Projects:   sessionaccess.NewSQLPromptProjectStore(db),
-		Workspace:  sessionaccess.AgentPromptWorkspace{},
+		Workspace:  homeRegistry,
 		Plugins:    phost,
 		SkillStore: skillStoreAdapter,
 		Skills:     skills.BuildPromptSection,
@@ -332,7 +344,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build session prompt service: %w", err)
 	}
-	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder))
+	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder), sessionaccess.WithHomeWorkspace(homeRegistry))
 	if err != nil {
 		return nil, fmt.Errorf("build session/workspace service: %w", err)
 	}
@@ -444,7 +456,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	recallyStore := recally.NewStore(db)
 	recallySvc := recally.NewService(recallyStore, config.StellaHome())
-	shareSvc := sharepkg.NewServiceForPool(db, memProvider, recallyStore, assetStore, config.StellaHome(), baseURL)
+	shareSvc := sharepkg.NewServiceForPool(db, memProvider, recallyStore, assetStore, config.StellaHome(), baseURL, sharepkg.WithHomeWorkspace(homeRegistry))
 
 	// MCP registration service: one instance shared by the HTTP API and the agent
 	// runtime. Built here (before StartAll) so its tool provider can be bound into
@@ -479,7 +491,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 
 	// The agent domain owns project resolution/ensuring and tool-override
 	// fetching; the composition root passes the pool, not raw queries.
-	projectStore := agent.NewProjectStore(db, store, assetStore, agentAccess)
+	projectStore := agent.NewProjectStore(db, store, assetStore, agentAccess, agent.WithProjectHomeWorkspace(homeRegistry))
 
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithSnapshotLoader(snapshotLoader),
@@ -503,6 +515,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		agent.WithSkillReadAuthorizer(skillAccess),
 		agent.WithProjectResolver(projectStore.Resolve),
 		agent.WithProjectEnsurerPM(projectStore.Ensure),
+		agent.WithHomeWorkspace(homeRegistry),
 	)
 
 	// Bind the static Vault/MCP/OAuth capabilities into the pool BEFORE StartAll,
@@ -563,6 +576,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
 	// inject it back into each. runServer owns its Start/Stop.
+	homeDeletion, err := home.NewOwnerDeletion(db, homeRegistry, poolMgr)
+	if err != nil {
+		return nil, fmt.Errorf("build Home deletion lifecycle: %w", err)
+	}
 	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, librarySvc, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
 	if err != nil {
 		return nil, err
@@ -612,6 +629,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		shareSvc:                 shareSvc,
 		recallySvc:               recallySvc,
 		assetStore:               assetStore,
+		workspaceManager:         homeRegistry,
+		homeDeletion:             homeDeletion,
 		workflowSvc:              workflowSvc,
 		embeddingSvc:             embeddingSvc,
 		librarySvc:               librarySvc,
@@ -629,6 +648,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	// Ownership of the embedded server moves to result; clear the local so the
 	// cleanup defer above becomes a no-op on this success path.
+	workspaceManagerOwned = false
 	embedded = nil
 	return result, nil
 }
