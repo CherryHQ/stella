@@ -46,6 +46,116 @@ func TestProviderRegistry_GetAndVaultKeyAndIDs(t *testing.T) {
 	}
 }
 
+func TestBundleChangedSinceRefreshStartedDetectsNewAuthorization(t *testing.T) {
+	original := &OAuthBundle{
+		ClientID: "client", AccessToken: "old-access", RefreshToken: "old-refresh",
+		DesiredScopes: []string{"profile"}, GrantedScope: "profile",
+	}
+	unchanged := *original
+	if bundleChangedSinceRefreshStarted(original, &unchanged) {
+		t.Fatal("identical bundle reported as changed")
+	}
+	authorized := unchanged
+	authorized.AccessToken = "new-access"
+	authorized.RefreshToken = "new-refresh"
+	authorized.DesiredScopes = []string{"profile", "documents.read"}
+	if !bundleChangedSinceRefreshStarted(original, &authorized) {
+		t.Fatal("new authorization was not detected")
+	}
+}
+
+func TestMeetsMinValidityRejectsNilBundle(t *testing.T) {
+	if meetsMinValidity(nil, time.Minute) {
+		t.Fatal("meetsMinValidity(nil) = true")
+	}
+}
+
+func TestGetTokenReturnsErrorWhenBundleRemovedDuringRefresh(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(entered)
+		<-release
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "refreshed", "token_type": "Bearer", "expires_in": 3600,
+		})
+	}))
+	defer srv.Close()
+
+	reg := NewProviderRegistry()
+	reg.Register(ProviderConfig{ID: "acme", VaultKey: "ACME_OAUTH", Flows: []ProviderFlowConfig{{TokenURL: srv.URL, AuthStyle: oauth2.AuthStyleInParams}}})
+	store := newMockVaultStore()
+	if err := SaveOAuthBundle(context.Background(), store, "user-1", "ACME_OAUTH", OAuthBundle{
+		ClientID: "client", AccessToken: "stale", RefreshToken: "refresh",
+		AccessExpiresAt: time.Now().Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("SaveOAuthBundle: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := reg.GetToken(context.Background(), store, "acme", "user-1", time.Minute)
+		done <- err
+	}()
+	<-entered
+	if err := DeleteBundle(context.Background(), store, "user-1", "ACME_OAUTH"); err != nil {
+		t.Fatalf("DeleteBundle: %v", err)
+	}
+	close(release)
+	if err := <-done; err == nil {
+		t.Fatal("GetToken succeeded after bundle removal")
+	}
+}
+
+func TestRegistryDeleteBundleWaitsForRefreshAndDoesNotResurrect(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(entered)
+		<-release
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token": "refreshed", "token_type": "Bearer", "expires_in": 3600,
+		})
+	}))
+	defer srv.Close()
+
+	reg := NewProviderRegistry()
+	reg.Register(ProviderConfig{ID: "acme", VaultKey: "ACME_OAUTH", Flows: []ProviderFlowConfig{{TokenURL: srv.URL, AuthStyle: oauth2.AuthStyleInParams}}})
+	store := newMockVaultStore()
+	if err := SaveOAuthBundle(context.Background(), store, "user-1", "ACME_OAUTH", OAuthBundle{
+		ClientID: "client", AccessToken: "stale", RefreshToken: "refresh",
+		AccessExpiresAt: time.Now().Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("SaveOAuthBundle: %v", err)
+	}
+
+	refreshDone := make(chan error, 1)
+	go func() {
+		_, err := reg.GetToken(context.Background(), store, "acme", "user-1", time.Minute)
+		refreshDone <- err
+	}()
+	<-entered
+	deleteDone := make(chan error, 1)
+	go func() { deleteDone <- reg.DeleteBundle(context.Background(), store, "acme", "user-1") }()
+	select {
+	case err := <-deleteDone:
+		t.Fatalf("DeleteBundle completed before refresh lock released: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(release)
+	if err := <-refreshDone; err != nil {
+		t.Fatalf("GetToken: %v", err)
+	}
+	if err := <-deleteDone; err != nil {
+		t.Fatalf("DeleteBundle: %v", err)
+	}
+	if bundle, err := LoadOAuthBundle(context.Background(), store, "user-1", "ACME_OAUTH"); err != nil || bundle != nil {
+		t.Fatalf("LoadOAuthBundle after disconnect = (%+v, %v), want nil, nil", bundle, err)
+	}
+}
+
 func TestNeedsRefresh(t *testing.T) {
 	now := time.Now()
 

@@ -261,3 +261,13 @@ func TestBuildSandboxEnvVaultSecretOverridesOAuthSessionEnv(t *testing.T) {
 		})
 	}
 }
+
+func TestOAuthBundleFieldBrandIsInjectableButNotSecret(t *testing.T) {
+	bundle := &oauth.OAuthBundle{Brand: "feishu"}
+	if got, ok := oauthBundleField(bundle, "brand"); !ok || got != "feishu" {
+		t.Fatalf("oauthBundleField(brand) = (%q, %v), want (feishu, true)", got, ok)
+	}
+	if oauthSessionEnvFieldSecret("brand") {
+		t.Fatal("brand must not be treated as secret material")
+	}
+}
