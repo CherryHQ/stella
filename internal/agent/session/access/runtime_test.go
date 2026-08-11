@@ -12,6 +12,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
@@ -26,6 +27,21 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
+type nilAgentServiceManager struct{}
+
+func (nilAgentServiceManager) GetService(string) *agent.Service { return nil }
+func (nilAgentServiceManager) Default() *agent.Service          { return nil }
+
+func TestRuntimeManagerDoesNotLeakTypedNilServices(t *testing.T) {
+	manager := NewRuntimeManager(nilAgentServiceManager{})
+	if manager.GetService("missing") != nil {
+		t.Fatal("GetService returned a typed nil RuntimeService")
+	}
+	if manager.Default() != nil {
+		t.Fatal("Default returned a typed nil RuntimeService")
+	}
+}
+
 type fakeRuntimeManager struct{ svc *fakeRuntimeService }
 
 func (m fakeRuntimeManager) GetService(string) RuntimeService { return m.svc }
@@ -38,16 +54,55 @@ type fakeRuntimeService struct {
 	live           bool
 	events         chan agent.Event
 	chatCtx        context.Context
+	chatRequests   []agent.ChatRequest
+	managedCalls   []delegatetool.ManagedSessionRequest
+	managedResult  delegatetool.ManagedSessionResult
+	managedErr     error
+	chatEvents     []agent.Event
+	chatDone       chan struct{}
 }
 
-func (s *fakeRuntimeService) Chat(ctx context.Context, _ agent.ChatRequest) <-chan agent.Event {
+func (s *fakeRuntimeService) Chat(ctx context.Context, req agent.ChatRequest) <-chan agent.Event {
 	s.chatCalls++
 	s.chatCtx = ctx
+	s.chatRequests = append(s.chatRequests, req)
+	if s.chatEvents != nil {
+		ch := make(chan agent.Event)
+		go func() {
+			defer close(ch)
+			if s.chatDone != nil {
+				defer close(s.chatDone)
+			}
+			for _, event := range s.chatEvents {
+				ch <- event
+			}
+		}()
+		return ch
+	}
 	ch := make(chan agent.Event, 2)
 	ch <- agent.Event{Text: "hello"}
 	ch <- agent.Event{Text: " world"}
 	close(ch)
 	return ch
+}
+
+func (s *fakeRuntimeService) RunManagedSession(_ context.Context, req delegatetool.ManagedSessionRequest) (delegatetool.ManagedSessionResult, error) {
+	s.managedCalls = append(s.managedCalls, req)
+	if s.managedErr != nil {
+		return delegatetool.ManagedSessionResult{SessionID: req.SessionID}, s.managedErr
+	}
+	result := s.managedResult
+	if result.SessionID == "" {
+		result.SessionID = req.SessionID
+	}
+	return result, nil
+}
+
+func (s *fakeRuntimeService) RunConversationSession(ctx context.Context, info agentsession.Info, message agent.MessageContent) <-chan agent.Event {
+	return s.Chat(ctx, agent.ChatRequest{
+		SessionID: info.ID, UserID: info.UserID, AgentID: info.AgentID, ProjectID: info.ProjectID,
+		Kind: agentsession.Kind(info.Kind), Channel: agentsession.Channel(info.Channel), Message: message,
+	})
 }
 
 func (s *fakeRuntimeService) StopSession(context.Context, string) bool {
@@ -152,6 +207,30 @@ func TestRelayPreservesTransientBackpressure(t *testing.T) {
 	}
 }
 
+func TestMarkViewedAuthorizesAndAdvancesDurableWatermark(t *testing.T) {
+	svc, _, _, authority := newRuntimeTestService(t)
+	info, err := svc.memory.LoadInfo(t.Context(), "s1")
+	if err != nil {
+		t.Fatalf("LoadInfo: %v", err)
+	}
+	info.LastTurnCompletedAt = time.Now().UTC().Add(-time.Minute)
+	if err := svc.memory.SaveInfo(t.Context(), info); err != nil {
+		t.Fatalf("SaveInfo: %v", err)
+	}
+	if err := svc.MarkViewed(t.Context(), MarkViewedInput{
+		Authority: authority, AgentID: "a1", SessionID: "s1",
+	}); err != nil {
+		t.Fatalf("MarkViewed: %v", err)
+	}
+	updated, err := svc.memory.LoadInfo(t.Context(), "s1")
+	if err != nil {
+		t.Fatalf("LoadInfo after MarkViewed: %v", err)
+	}
+	if !updated.LastViewedAt.After(updated.LastTurnCompletedAt) {
+		t.Fatalf("last_viewed_at = %v, completion = %v", updated.LastViewedAt, updated.LastTurnCompletedAt)
+	}
+}
+
 func TestStopAuthorizesAndCancelsActiveTurn(t *testing.T) {
 	svc, rt, _, authority := newRuntimeTestService(t)
 	rt.live = true
@@ -162,6 +241,25 @@ func TestStopAuthorizesAndCancelsActiveTurn(t *testing.T) {
 	}
 	if rt.stopCalls != 1 {
 		t.Fatalf("stop calls = %d, want 1", rt.stopCalls)
+	}
+}
+
+func TestSessionRunningUsesAuthorizedRuntimeState(t *testing.T) {
+	svc, rt, _, authority := newRuntimeTestService(t)
+	access, err := svc.Begin(t.Context(), authority)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	info, err := access.Read(t.Context(), "a1", "s1")
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if access.SessionRunning(info) {
+		t.Fatal("idle session reported running")
+	}
+	rt.live = true
+	if !access.SessionRunning(info) {
+		t.Fatal("live session reported idle")
 	}
 }
 

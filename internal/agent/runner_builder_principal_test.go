@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/config"
@@ -90,8 +91,14 @@ func TestNewRunnerFuncUsesPrincipalWorkspace(t *testing.T) {
 			}
 			t.Cleanup(func() { _ = builtRunner.Close() })
 			if tt.name == "user-less" {
-				if promptBuild.UserRoot == "" || promptBuild.UserRoot == snap.Workspace {
+				if promptBuild.UserRoot == "" || filepath.Dir(promptBuild.UserRoot) != filepath.Join(stellaHome, runnerScratchDir) {
 					t.Errorf("user-less root = %q, want disposable scratch", promptBuild.UserRoot)
+				}
+				for _, dir := range []string{filepath.Dir(promptBuild.UserRoot), promptBuild.UserRoot} {
+					info, err := os.Stat(dir)
+					if err != nil || info.Mode().Perm() != 0o700 {
+						t.Fatalf("scratch permissions for %q = %v, %v; want 0700", dir, info, err)
+					}
 				}
 				if err := os.WriteFile(filepath.Join(promptBuild.UserRoot, "owned"), []byte("ok"), 0o600); err != nil {
 					t.Fatalf("scratch is not writable: %v", err)
@@ -142,5 +149,66 @@ func TestNewRunnerFuncRejectsUserlessProject(t *testing.T) {
 	})
 	if _, err := build(context.Background(), RunnerParams{AgentID: "a", ProjectID: "p"}); err == nil {
 		t.Fatal("user-less ProjectID was accepted")
+	}
+}
+
+func TestNewRunnerFuncCleansUserlessScratchOnConstructionFailure(t *testing.T) {
+	stellaHome := t.TempDir()
+	t.Setenv("STELLA_HOME", stellaHome)
+	config.ResetStellaHome()
+	t.Cleanup(config.ResetStellaHome)
+
+	var scratch string
+	build := newRunnerFunc(runnerBuilderConfig{
+		Snap:            &config.Snapshot{AgentID: "a", Provider: "anthropic", Model: "test"},
+		WorkspaceViewer: testWorkspaceViewer{root: stellaHome},
+		PromptSectionsBuilder: func(_ context.Context, build plugins.SystemPromptContext) ([]plugins.SystemPromptSection, error) {
+			scratch = build.UserRoot
+			return nil, nil
+		},
+		ProviderStreamBuilder: func(_, _, _ string) (providers.StreamFunc, error) {
+			return nil, errors.New("provider unavailable")
+		},
+		SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
+	})
+	if _, err := build(context.Background(), RunnerParams{AgentID: "a"}); err == nil {
+		t.Fatal("runner construction succeeded")
+	}
+	if scratch == "" {
+		t.Fatal("scratch was not created before construction failure")
+	}
+	if _, err := os.Stat(scratch); !os.IsNotExist(err) {
+		t.Fatalf("scratch remains after construction failure: %v", err)
+	}
+}
+
+func TestNewRunnerScratchCleanupUsesOpenedRootAfterPathReplacement(t *testing.T) {
+	if runtime.GOOS == "windows" || runtime.GOOS == "plan9" || runtime.GOOS == "js" {
+		t.Skip("open directory handles do not remain usable across rename on this platform")
+	}
+	home := t.TempDir()
+	dir, cleanup, err := newRunnerScratch(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRoot := filepath.Join(home, "old-runner-scratch")
+	if err := os.Rename(filepath.Join(home, runnerScratchDir), oldRoot); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(home, runnerScratchDir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	replacementMarker := filepath.Join(home, runnerScratchDir, "keep")
+	if err := os.WriteFile(replacementMarker, []byte("replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanup(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(oldRoot, filepath.Base(dir))); !os.IsNotExist(err) {
+		t.Fatalf("scratch remains in original opened root: %v", err)
+	}
+	if _, err := os.Stat(replacementMarker); err != nil {
+		t.Fatalf("replacement root was modified: %v", err)
 	}
 }

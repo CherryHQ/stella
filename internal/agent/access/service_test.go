@@ -88,6 +88,97 @@ func TestListReadableFiltersEachRowAndCachesAssignments(t *testing.T) {
 	}
 }
 
+// Disabling your own agent must not hide it: the list is how the UI reaches an
+// agent's configuration, so the creator would lose the switch that turns it
+// back on. Everyone else still sees nothing.
+func TestListReadableKeepsADisabledAgentVisibleToItsCreator(t *testing.T) {
+	store := testStore{agents: map[string]config.Agent{
+		"mine":  {ID: "mine", Scope: config.AgentScopeSystem, CreatorID: "u1", Enabled: false},
+		"other": {ID: "other", Scope: config.AgentScopeSystem, CreatorID: "u2", Enabled: false},
+		"live":  {ID: "live", Scope: config.AgentScopeSystem, CreatorID: "u2", Enabled: true},
+	}}
+	svc := NewService(store, &testAssignments{})
+
+	got, err := svc.ListReadable(context.Background(), userAuthority(t, "u1", false), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := agentIDs(got); len(ids) != 2 || !ids["mine"] || !ids["live"] {
+		t.Fatalf("creator sees %v, want mine and live", ids)
+	}
+
+	// Someone else's disabled agent still takes the deliberate include_all rather
+	// than arriving unasked, admin or not. "live" is scoped to everyone, so it is
+	// in every user's fleet.
+	got, err = svc.ListReadable(context.Background(), userAuthority(t, "root", true), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := agentIDs(got); len(ids) != 1 || !ids["live"] {
+		t.Fatalf("admin sees %v, want live only", ids)
+	}
+
+	// An admin is a creator like anyone else. The page holding the enable switch
+	// does not ask for include_all, so excluding admins here would lock them out
+	// of their own agent exactly the way this test's first case describes.
+	got, err = svc.ListReadable(context.Background(), userAuthority(t, "u2", true), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := agentIDs(got); !ids["other"] {
+		t.Fatalf("admin creator sees %v, want their own disabled agent", ids)
+	}
+	got, err = svc.ListReadable(context.Background(), userAuthority(t, "root", true), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := agentIDs(got); len(ids) != 3 {
+		t.Fatalf("admin with include_all sees %v, want all three", ids)
+	}
+}
+
+// Being able to reach every agent is not a reason to be shown every agent. The
+// default list is the caller's own fleet even on an admin account, so /agents
+// stays a workspace instead of a directory of everybody's agents.
+func TestListReadableGivesAnAdminTheirOwnFleetByDefault(t *testing.T) {
+	store := testStore{agents: map[string]config.Agent{
+		"mine":       {ID: "mine", Scope: config.AgentScopeRestricted, CreatorID: "root", Enabled: true},
+		"assigned":   {ID: "assigned", Scope: config.AgentScopeRestricted, CreatorID: "u2", Enabled: true},
+		"restricted": {ID: "restricted", Scope: config.AgentScopeRestricted, CreatorID: "u2", Enabled: true},
+		"everyone":   {ID: "everyone", Scope: config.AgentScopeSystem, CreatorID: "u2", Enabled: true},
+	}}
+	svc := NewService(store, &testAssignments{ids: []string{"assigned"}})
+
+	got, err := svc.ListReadable(context.Background(), userAuthority(t, "root", true), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := agentIDs(got)
+	if len(ids) != 3 || !ids["mine"] || !ids["assigned"] || !ids["everyone"] {
+		t.Fatalf("admin sees %v, want their own, their assigned, and the shared agent", ids)
+	}
+	if ids["restricted"] {
+		t.Error("admin was handed another user's restricted agent unasked")
+	}
+
+	// The deployment-wide view is still there for the admin who asks for it.
+	got, err = svc.ListReadable(context.Background(), userAuthority(t, "root", true), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := agentIDs(got); len(ids) != 4 {
+		t.Fatalf("admin with include_all sees %v, want all four", ids)
+	}
+}
+
+func agentIDs(agents []config.Agent) map[string]bool {
+	out := make(map[string]bool, len(agents))
+	for _, a := range agents {
+		out[a.ID] = true
+	}
+	return out
+}
+
 func TestFailuresFailClosed(t *testing.T) {
 	ctx := context.Background()
 	user := userAuthority(t, "u1", false)

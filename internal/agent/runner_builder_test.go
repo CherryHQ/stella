@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -20,6 +22,32 @@ type fakeStreamProvider struct{}
 func (fakeStreamProvider) API() string { return "anthropic" }
 func (fakeStreamProvider) Stream(context.Context, ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
 	return nil, errors.New("not implemented")
+}
+
+type rebuildingDelegateRunner struct {
+	build    NewRunnerFunc
+	requests []delegatetool.SessionRunRequest
+}
+
+func (r *rebuildingDelegateRunner) RunDelegateSession(ctx context.Context, req delegatetool.SessionRunRequest) (delegatetool.SessionRunResult, error) {
+	r.requests = append(r.requests, req)
+	if req.SessionID == "" {
+		req.SessionID = "managed-session"
+	}
+	child, err := r.build(ctx, RunnerParams{
+		Model:          req.Model,
+		UserID:         "user-1",
+		AgentID:        "test-agent",
+		SessionID:      req.SessionID,
+		DelegateRunner: r,
+	})
+	if err != nil {
+		return delegatetool.SessionRunResult{SessionID: req.SessionID}, err
+	}
+	if err := child.Close(); err != nil {
+		return delegatetool.SessionRunResult{SessionID: req.SessionID}, err
+	}
+	return delegatetool.SessionRunResult{SessionID: req.SessionID, Output: "done", Complete: true}, nil
 }
 
 func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
@@ -168,6 +196,82 @@ func TestNewRunnerFuncCarriesDeclaredModelInput(t *testing.T) {
 	}
 	if got := impl.model.ImageCapability(); got != ai.ImageUnsupported {
 		t.Fatalf("model.ImageCapability() = %v, want ImageUnsupported (Input=%v)", got, impl.model.Input)
+	}
+}
+
+func TestNewRunnerFuncManagedSessionsPreserveQualifiedModelRef(t *testing.T) {
+	stellaHome := t.TempDir()
+	t.Setenv("STELLA_HOME", stellaHome)
+	config.ResetStellaHome()
+	t.Cleanup(config.ResetStellaHome)
+
+	const (
+		providerID    = "openrouter-production"
+		providerAlias = "openai"
+		providerAPI   = "openai"
+		modelID       = "anthropic/claude-sonnet-4-6"
+		modelRef      = providerID + "/" + modelID
+	)
+	snap := &config.Snapshot{
+		AgentID:  "test-agent",
+		Provider: providerAlias,
+		Model:    providerAlias + "/" + modelID,
+		Providers: map[string]config.ProviderCreds{
+			providerAlias: {Type: providerAPI, APIKey: "test-key", ProviderID: providerID},
+		},
+		Workspace: t.TempDir(),
+	}
+
+	var adapterBuilds int
+	bridge := &rebuildingDelegateRunner{}
+	build := newRunnerFunc(runnerBuilderConfig{
+		Snap:            snap,
+		WorkspaceViewer: testWorkspaceViewer{root: stellaHome},
+		ProviderStreamBuilder: func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
+			if api != providerAPI {
+				return nil, providers.ErrProviderNotFound
+			}
+			adapterBuilds++
+			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
+		},
+		SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
+	})
+	bridge.build = build
+
+	source, err := build(context.Background(), RunnerParams{
+		UserID:         "user-1",
+		AgentID:        snap.AgentID,
+		SessionID:      "source-session",
+		DelegateRunner: bridge,
+	})
+	if err != nil {
+		t.Fatalf("build source runner: %v", err)
+	}
+	t.Cleanup(func() { _ = source.Close() })
+	impl := source.(*runner)
+	if got := impl.model.Provider; got != providerID {
+		t.Fatalf("source model provider = %q, want canonical ID %q", got, providerID)
+	}
+
+	ctx := memory.WithSessionID(context.Background(), "source-session")
+	created, err := impl.delegateTool.RunManagedSession(ctx, delegatetool.ManagedSessionRequest{Message: "create"})
+	if err != nil {
+		t.Fatalf("managed create: %v", err)
+	}
+	if _, err := impl.delegateTool.RunManagedSession(ctx, delegatetool.ManagedSessionRequest{SessionID: created.SessionID, Message: "send"}); err != nil {
+		t.Fatalf("managed send: %v", err)
+	}
+
+	if len(bridge.requests) != 2 {
+		t.Fatalf("managed requests = %d, want 2", len(bridge.requests))
+	}
+	for i, req := range bridge.requests {
+		if req.Model != modelRef {
+			t.Errorf("managed request %d model = %q, want %q", i, req.Model, modelRef)
+		}
+	}
+	if adapterBuilds != 3 {
+		t.Fatalf("provider adapter builds = %d, want source + create + send = 3", adapterBuilds)
 	}
 }
 

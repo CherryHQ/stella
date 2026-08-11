@@ -57,6 +57,16 @@ type reviewHistoryProvider struct {
 	messages []memory.ReviewMessage
 }
 
+type inboxAppendProvider struct {
+	memory.Provider
+	calls int
+}
+
+func (p *inboxAppendProvider) AppendInboxInput(_ context.Context, _ memory.Session, _ string, _ ai.Message) error {
+	p.calls++
+	return nil
+}
+
 func (p *reviewHistoryProvider) LoadReviewHistory(context.Context, string) ([]memory.ReviewMessage, error) {
 	return append([]memory.ReviewMessage(nil), p.messages...), nil
 }
@@ -93,6 +103,30 @@ func TestUnwrap_NonWrapped(t *testing.T) {
 	got := memory.Unwrap(fake)
 	if got != fake {
 		t.Error("Unwrap of non-wrapped should return itself")
+	}
+}
+
+func TestTracedProvider_ForwardsInboxAppenderButUnwrapDeterminesSupport(t *testing.T) {
+	fake := memorytest.New()
+	unsupported := &reviewHistoryProvider{Provider: fake}
+	if _, ok := memory.Unwrap(memory.WithTracing(unsupported, nil)).(memory.InboxAppender); ok {
+		t.Fatal("unwrapped provider unexpectedly supports InboxAppender")
+	}
+
+	inner := &inboxAppendProvider{Provider: fake}
+	traced, collector := newTracedWithCollector(inner)
+	if _, ok := memory.Unwrap(traced).(memory.InboxAppender); !ok {
+		t.Fatal("unwrapped inbox provider does not expose InboxAppender")
+	}
+	appender, ok := traced.(memory.InboxAppender)
+	if !ok {
+		t.Fatal("tracing wrapper does not forward InboxAppender")
+	}
+	if err := appender.AppendInboxInput(t.Context(), testSession, "inbox-1", ai.UserMessage{Content: "hello"}); err != nil {
+		t.Fatalf("AppendInboxInput: %v", err)
+	}
+	if inner.calls != 1 || len(collector.events) != 1 {
+		t.Fatalf("calls/events = %d/%d, want 1/1", inner.calls, len(collector.events))
 	}
 }
 
@@ -580,6 +614,37 @@ func TestTracedProvider_CommitGroupCursor(t *testing.T) {
 	}
 	if err := plainCommitter.CommitGroupCursor(context.Background(), memory.Session{ID: "sess-1"}, 7); err != nil {
 		t.Fatalf("CommitGroupCursor on a provider without the capability = %v, want nil", err)
+	}
+}
+
+func TestTracedProvider_PreservesSessionActivityStore(t *testing.T) {
+	inner := memorytest.New()
+	session := memory.Session{ID: "activity-session", UserID: "user-1", AgentID: "agent-1"}
+	if err := inner.SaveInfo(t.Context(), memory.SessionInfo{
+		ID: session.ID, UserID: session.UserID, AgentID: session.AgentID,
+	}); err != nil {
+		t.Fatalf("SaveInfo: %v", err)
+	}
+	traced, _ := newTracedWithCollector(inner)
+	activity, ok := traced.(memory.SessionActivityStore)
+	if !ok {
+		t.Fatal("traced provider does not expose SessionActivityStore")
+	}
+	if updated, err := activity.MarkSessionTurnStarted(t.Context(), session); err != nil || !updated {
+		t.Fatalf("MarkSessionTurnStarted: updated=%v err=%v", updated, err)
+	}
+	if updated, err := activity.MarkSessionTurnCompleted(t.Context(), session, memory.SessionTurnSuccess); err != nil || !updated {
+		t.Fatalf("MarkSessionTurnCompleted: updated=%v err=%v", updated, err)
+	}
+	if updated, err := activity.MarkSessionViewed(t.Context(), session); err != nil || !updated {
+		t.Fatalf("MarkSessionViewed: updated=%v err=%v", updated, err)
+	}
+	info, err := inner.LoadInfo(t.Context(), session.ID)
+	if err != nil {
+		t.Fatalf("LoadInfo: %v", err)
+	}
+	if info.LastTurnStartedAt.IsZero() || info.LastTurnCompletedAt.IsZero() || info.LastTurnResult != memory.SessionTurnSuccess || info.LastViewedAt.IsZero() {
+		t.Fatalf("activity watermarks were not forwarded: %+v", info)
 	}
 }
 

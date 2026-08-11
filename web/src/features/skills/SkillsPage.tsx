@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import {
   deleteScopedSkill as deleteScopedSkillRequest,
   getScopedSkill,
@@ -38,8 +37,14 @@ import { useI18n } from "@/lib/i18n";
 import { SCOPE_DESC_KEY, SCOPE_LABEL_KEY, isSkillReadOnly } from "@/lib/skill-scope";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useToast } from "@/hooks/use-toast";
-import { meQueryOptions } from "@/lib/queries/me";
 import type { ScopedSkillScope } from "@/lib/queries/skills";
+import {
+  isAgentManagedScope,
+  scopeForRange,
+  scopeQueriesForBand,
+  scopesForBand,
+  type ScopeBand,
+} from "@/lib/scope-band";
 import { SkillFilePreview } from "@/features/sessions/SkillFilePreview";
 import {
   SettingsDetailSheet,
@@ -51,17 +56,11 @@ import {
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
 import { Lock, Plus, Puzzle } from "lucide-react";
 
-type ScopeOwner = "me" | "global";
 type ScopeRange = "all" | "specific";
 type AddMode = "install" | "upload";
 
 function isAgentScope(scope: ScopedSkillScope) {
-  return scope === "user_agent" || scope === "system_agent";
-}
-
-function toScope(owner: ScopeOwner, range: ScopeRange): ScopedSkillScope {
-  if (range === "specific") return owner === "global" ? "system_agent" : "user_agent";
-  return owner === "global" ? "system" : "user";
+  return isAgentManagedScope(scope);
 }
 
 // One hue per scope, drawn from the chart palette tokens: a scope is a category,
@@ -87,10 +86,9 @@ const SCOPE_ORDER: ScopedSkillScope[] = ["user", "user_agent", "system", "system
 // visible.
 const SCOPE_PRIORITY: ScopedSkillScope[] = ["user_agent", "user", "system_agent", "system"];
 
-export function SkillsPage() {
+export function SkillsPage({ scopeBand }: { scopeBand: ScopeBand }) {
   const { t } = useI18n();
-  const { data: me } = useQuery(meQueryOptions);
-  const isAdmin = me?.is_admin ?? false;
+  const managedScopes = scopesForBand(scopeBand) as readonly ScopedSkillScope[];
 
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(false);
@@ -99,7 +97,6 @@ export function SkillsPage() {
 
   // Add-form state, independent of the list (which shows every visible scope).
   const [addMode, setAddMode] = useState<AddMode>("install");
-  const [formOwner, setFormOwner] = useState<ScopeOwner>("me");
   const [formRange, setFormRange] = useState<ScopeRange>("all");
   const [formAgentID, setFormAgentID] = useState("");
   const [source, setSource] = useState("");
@@ -124,7 +121,6 @@ export function SkillsPage() {
     setAddMode("install");
     setSource("");
     setUploadFile(null);
-    setFormOwner("me");
     setFormRange("all");
     setFormAgentID("");
     setAddSheetOpen(true);
@@ -149,19 +145,17 @@ export function SkillsPage() {
     async (agentList: Agent[]) => {
       setLoading(true);
       try {
-        const jobs: Promise<Skill[]>[] = [fetchScope("user")];
-        if (isAdmin) jobs.push(fetchScope("system"));
-        for (const agent of agentList) {
-          jobs.push(fetchScope("user_agent", agent.id));
-          if (isAdmin) jobs.push(fetchScope("system_agent", agent.id));
-        }
+        const jobs = scopeQueriesForBand(
+          scopeBand,
+          agentList.map((agent) => agent.id),
+        ).map(({ scope, agentID }) => fetchScope(scope as ScopedSkillScope, agentID));
         const results = await Promise.all(jobs);
         setSkills(results.flat());
       } finally {
         setLoading(false);
       }
     },
-    [isAdmin, fetchScope],
+    [fetchScope, scopeBand],
   );
 
   // Refetch a single scope (plus agent, for agent-keyed scopes) and splice it
@@ -204,7 +198,7 @@ export function SkillsPage() {
       showToast(t("skills.scope.agentMissing"), "error");
       return;
     }
-    const scope = toScope(formOwner, formRange);
+    const scope = scopeForRange(scopeBand, agentScoped) as ScopedSkillScope;
     setSaving(true);
     try {
       if (addMode === "upload") {
@@ -236,7 +230,7 @@ export function SkillsPage() {
     } finally {
       setSaving(false);
     }
-  }, [addMode, source, uploadFile, formOwner, formRange, formAgentID, showToast, reloadScope, t]);
+  }, [addMode, source, uploadFile, scopeBand, formRange, formAgentID, showToast, reloadScope, t]);
 
   const toggleModelInvocation = useCallback(
     async (skill: Skill) => {
@@ -313,15 +307,17 @@ export function SkillsPage() {
 
   const agentName = (id?: string | null) =>
     (id && agents.find((a) => a.id === id)?.name) || id || "";
-  const skillGroups = SCOPE_ORDER.map((scope) => ({
-    scope,
-    items: skills.filter((s) => s.scope === scope),
-  })).filter((g) => g.items.length > 0);
-  const formScope = toScope(formOwner, formRange);
+  const skillGroups = SCOPE_ORDER.filter((scope) => managedScopes.includes(scope))
+    .map((scope) => ({
+      scope,
+      items: skills.filter((s) => s.scope === scope),
+    }))
+    .filter((g) => g.items.length > 0);
+  const formScope = scopeForRange(scopeBand, formRange === "specific") as ScopedSkillScope;
 
   const selectScope = (scope: ScopedSkillScope) => {
-    setFormOwner(scope === "system" || scope === "system_agent" ? "global" : "me");
-    setFormRange(scope === "user_agent" || scope === "system_agent" ? "specific" : "all");
+    if (!managedScopes.includes(scope)) return;
+    setFormRange(isAgentScope(scope) ? "specific" : "all");
   };
 
   const addPanel = (
@@ -335,9 +331,7 @@ export function SkillsPage() {
           {t("skills.scope.priorityTitle")}
         </p>
         <ul className="space-y-1">
-          {SCOPE_PRIORITY.filter(
-            (scope) => isAdmin || (scope !== "system" && scope !== "system_agent"),
-          ).map((scope) => {
+          {SCOPE_PRIORITY.filter((scope) => managedScopes.includes(scope)).map((scope) => {
             const active = scope === formScope;
             return (
               <li key={scope}>
@@ -501,7 +495,7 @@ export function SkillsPage() {
   return (
     <>
       <SettingsGridPage
-        title={t("skills.title")}
+        title={t(scopeBand === "system" ? "admin.resources.skills.title" : "skills.title")}
         action={
           <Button variant="ghost" size="xs" onClick={openAddSheet} className="cursor-pointer">
             <Plus className="size-3.5" />
@@ -532,7 +526,7 @@ export function SkillsPage() {
                     {group.items.map((skill) => {
                       // Mirror the backend write rules instead of offering a
                       // toggle or a delete that comes back 403.
-                      const readOnly = isSkillReadOnly(skill.scope, isAdmin);
+                      const readOnly = isSkillReadOnly(skill.scope, scopeBand === "system");
                       return (
                         <SettingsRow
                           key={`${skill.scope}:${skill.agent_id ?? ""}:${skill.id}`}
@@ -652,4 +646,12 @@ export function SkillsPage() {
       </AlertDialog>
     </>
   );
+}
+
+export function PersonalSkillsPage() {
+  return <SkillsPage scopeBand="personal" />;
+}
+
+export function GlobalSkillsPage() {
+  return <SkillsPage scopeBand="system" />;
 }

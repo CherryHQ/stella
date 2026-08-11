@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
@@ -593,17 +594,25 @@ func rowToUserMessage(msg sqlc.CtxMessage, partSets ...[]loadedMessagePart) ai.U
 	}
 	ts := msg.CreatedAt.UTC()
 	if len(parts) > 0 {
-		return ai.UserMessage{Content: contentBlocksFromParts(parts), Timestamp: ts}
+		return ai.UserMessage{Content: renderStoredInput(contentBlocksFromParts(parts), msg), Timestamp: ts}
 	}
 	if msg.EventType == eventTypeMultimodal {
 		var blocks []contentBlockJSON
 		if json.Unmarshal([]byte(msg.Content), &blocks) == nil {
 			if content := contentBlocksFromJSON(blocks); content != nil {
-				return ai.UserMessage{Content: content, Timestamp: ts}
+				return ai.UserMessage{Content: renderStoredInput(content, msg), Timestamp: ts}
 			}
 		}
 	}
-	return ai.UserMessage{Content: msg.Content, Timestamp: ts}
+	return ai.UserMessage{Content: renderStoredInput(msg.Content, msg), Timestamp: ts}
+}
+
+func renderStoredInput(content any, msg sqlc.CtxMessage) any {
+	return eventlog.RenderInput(content, eventlog.MessageActor{
+		Type:            eventlog.ActorType(msg.ActorType),
+		ID:              msg.ActorID.String,
+		SourceSessionID: msg.SourceSessionID.String,
+	})
 }
 
 // mergeAssistantRows merges an assistant text row and any following tool_call rows

@@ -24,6 +24,7 @@ import (
 	"github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/resources"
 )
 
 // testSkillStore is a minimal pkgplugins.SkillStore backed directly by sqlc.
@@ -1325,8 +1326,13 @@ func TestLoadFailsClosedWhenMaterializeFails(t *testing.T) {
 func TestListViaStore(t *testing.T) {
 	store, userID, agentID := newTestSkillStore(t)
 	ctx := ctxWithUser(userID, agentID)
+	registry, err := resources.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	builtinName := registry.BuiltinSkills()[0].Name
 
-	_, err := store.Create(ctx, pkgplugins.Skill{
+	_, err = store.Create(ctx, pkgplugins.Skill{
 		Scope:       "user",
 		UserID:      userID,
 		AgentID:     agentID,
@@ -1349,7 +1355,7 @@ func TestListViaStore(t *testing.T) {
 		t.Fatalf("failed to parse result: %v", err)
 	}
 
-	var found bool
+	var found, builtinFound bool
 	for _, s := range skills {
 		if s.Name == "my-skill" {
 			found = true
@@ -1363,9 +1369,18 @@ func TestListViaStore(t *testing.T) {
 				t.Error("expected removable=true for user-scoped skill")
 			}
 		}
+		if s.Name == builtinName {
+			builtinFound = true
+			if s.Removable {
+				t.Error("builtin skill should not be removable")
+			}
+		}
 	}
 	if !found {
 		t.Error("expected my-skill to appear in list results")
+	}
+	if !builtinFound {
+		t.Errorf("expected builtin skill %q in list results", builtinName)
 	}
 }
 

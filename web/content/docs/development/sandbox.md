@@ -31,23 +31,13 @@ Backend identity stays inside the runner and runner-facing sandbox packages. Plu
 
 File I/O (`read`, `write`, `edit`) is runner-owned: the runner calls `ResolvePath` to obtain the host path and then uses `os.ReadFile` / `os.WriteFile` / `os.MkdirAll` directly. `Session` carries no file read/write methods.
 
-## Provider filesystem boundary
+## Local workspace ownership
 
-`pkg/sandbox.Filesystem` is the provider-neutral boundary for persistent file operations. Callers use only canonical sandbox paths under `/workspace`, `/user`, or `/tmp`; the interface never exposes a host path. It supports bounded streaming reads, streaming writes and uploads, stat/list, mkdir, remove, and rename.
-
-`local` and unsafe-gated `none` implement the boundary directly with root-contained filesystem operations. Docker runs one `stella-fs` helper process per operation inside the sandbox container. The protocol has strict request and response framing, preserves stable `io/fs` errors across the process boundary, and rejects malformed or oversized read responses.
-
-An interrupted mutation returns `sandbox.ErrOutcomeUnknown`. Callers must report that state and must not retry automatically because the first operation may have completed. Docker preflight also requires the image's filesystem-helper revision to match the running `stellad` binary.
-
-This boundary currently coexists with `Session.ResolvePath`: `FilesystemSession` exposes the new implementation while existing runtime consumers still use the legacy host-path contract. Subsequent migration changes move those consumers before the host-path methods are removed. There is no production fallback from the provider boundary to `ResolvePath`.
-
-## Typed Home registry and attachments
-
-Phase 1 gives persistent Homes typed identity separate from a machine path. The registry records an immutable Store ID and opaque locator for each user or group Principal Home, per-principal Agent Home, and narrow system or system-Agent Skill root. `sandbox.HomeAttachment` is the stable contract for compute-facing consumers. `internal/home.WorkspaceView` temporarily carries local root projections for migrated current consumers until Phase 2. A user and a group with the same raw ID are distinct principals.
+Phase 1 supports one replica and one trusted POSIX `STELLA_HOME`. PostgreSQL owner rows are identity and authorization authority; deterministic paths under `STELLA_HOME` are layout and byte authority. `internal/home.WorkspaceManager` is the only production component that creates typed roots. It creates a missing root only after confirming its live user, group, and Agent owners, and rejects symlinks, non-directories, unsafe IDs, and replacement of the trusted root. A user and group with the same raw ID use distinct paths.
 
 A user or group run receives its Principal and Agent Home attachments plus read-only shared Skill roots. A user-less run receives only those read-only shared Skill roots and no Principal or Agent Home. Group Agent Home Skill materialization has no user or `user_agent` scope: it does not turn group data into a user's `user_agent` Skill.
 
-Explicit destructive owner deletion tombstones and fences Homes before a shared River purge worker removes bytes. This fencing is single-replica only. Phase 3 must add cross-replica SessionSandbox fencing; it is not implemented now.
+Explicit destructive user, group, or Agent deletion fences local execution before deleting the database owner. Files and inodes are retained, but a later `WorkspaceView` fails because the durable owner is gone. Any filesystem entry at `agents/{id}` reserves that global Agent ID. These guarantees are bounded by the trusted host and are single-replica only. Multi-replica, Kubernetes, and S3 authority require a future redesign rather than reuse of a registry that does not exist.
 
 ## Current Architecture
 
@@ -101,10 +91,6 @@ Stella prefers explicit denial over silent downgrade:
 The abstraction is covered by:
 
 - session/host contract tests
-- shared local, `none`, and Docker filesystem conformance tests
-- strict helper protocol and cancellation tests
-- a real-image Docker filesystem conformance test
-- Docker binary/image helper-revision preflight tests
 - policy compatibility tests
 - core tool parity tests
 - Docker backend integration tests
@@ -128,7 +114,7 @@ Project Skills remain ordinary files in durable Agent/project working trees. Pos
 
 The Docker sandbox image bakes and labels the exact revision. It has no host-builtin fallback. Docker provider preflight rejects a binary/image revision mismatch, preventing the runner session from starting. Use `stellad system-bundle --help` for operator command syntax. Rebuild the development image with `mise run sandbox:docker:build`; rebuild every custom sandbox image from the matching Stella revision.
 
-Before upgrading, operators must use the old working binary to import each custom Skill root under legacy `$STELLA_HOME/.agents/skills` through **Settings → Skills** as a global (`system`) Skill. They must back up, verify, and remove other residual paths. Startup reports every blocking path and exits without mutation. Current-manifest paths are inert even if their contents or modes differ; every other Skill root or residual path blocks startup.
+Before upgrading, operators must use the old working binary to import each custom Skill root under legacy `$STELLA_HOME/.agents/skills` as a global (`system`) Skill through **Settings → Skills** on older releases or **Admin Console → Deployment resources → Global Skills** on newer releases. They must back up, verify, and remove other residual paths. Startup reports every blocking path and exits without mutation. Current-manifest paths are inert even if their contents or modes differ; every other Skill root or residual path blocks startup.
 
 ## Agent Skill policy
 

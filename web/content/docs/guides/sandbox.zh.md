@@ -180,7 +180,7 @@ mise、Lark 和系统目录由其工具托管，不是通用存储位置。
 
 Docker 沙箱镜像会烤入并标记同一 revision，且不会回退到宿主机 builtin。Docker provider preflight 会拒绝 revision 与运行中的 Stella 二进制不匹配的组合，因此 runner session 不会启动。命令语法请运行 `stellad system-bundle --help`。开发者重建本地沙箱镜像时运行 `mise run sandbox:docker:build`；自定义沙箱镜像必须从匹配的 Stella revision 重建。
 
-升级前，请使用旧的可工作二进制，在 **设置 → 技能** 中将遗留 `$STELLA_HOME/.agents/skills` 下的每个自定义 Skill 根导入为全局（`system`）Skill。其他残留路径应先备份、验证后删除。启动会列出每个阻塞路径并停止，不会删除或修改任何内容。当前发行 manifest 所拥有的路径即使内容或模式陈旧也只是惰性数据；其他每个 Skill 根或残留路径都会阻塞启动。
+升级前，请使用旧的可工作二进制，将遗留 `$STELLA_HOME/.agents/skills` 下的每个自定义 Skill 根导入为全局（`system`）Skill：旧版入口为 **设置 → 技能**，新版入口为 **管理控制台 → 部署资源 → 全局技能**。其他残留路径应先备份、验证后删除。启动会列出每个阻塞路径并停止，不会删除或修改任何内容。当前发行 manifest 所拥有的路径即使内容或模式陈旧也只是惰性数据；其他每个 Skill 根或残留路径都会阻塞启动。
 
 ### 升级现有工作区
 

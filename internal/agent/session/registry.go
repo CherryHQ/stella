@@ -78,6 +78,9 @@ func (r *Registry) Ensure(ctx context.Context, req Request) (Info, error) {
 	if err := r.validateScope(req.UserID, req.AgentID); err != nil {
 		return Info{}, err
 	}
+	if err := ValidateTitle(req.Title); err != nil {
+		return Info{}, err
+	}
 	agentID := r.resolveAgentID(req.AgentID)
 
 	if req.ID != "" {

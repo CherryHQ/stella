@@ -81,12 +81,12 @@ Users are created automatically when someone messages a connected channel. Each 
 
 The runner controls how the agent processes messages. You can configure these from the Web UI **Settings** page:
 
-| Setting              | Default       | Description                                               |
-| -------------------- | ------------- | --------------------------------------------------------- |
-| Idle timeout         | 10 min        | Time before idle agent sessions are cleaned up            |
-| Delegate timeout     | 15 min        | Maximum time for delegated tasks                          |
-| Compaction threshold | 80,000 tokens | Auto-compress history when it exceeds this size           |
-| Keep recent messages | 20            | Number of recent messages kept verbatim after compression |
+| Setting                 | Default       | Description                                               |
+| ----------------------- | ------------- | --------------------------------------------------------- |
+| Idle timeout            | 10 min        | Time before idle agent sessions are cleaned up            |
+| Focused session timeout | 15 min        | Maximum time for a synchronous `session.create/send` run  |
+| Compaction threshold    | 80,000 tokens | Auto-compress history when it exceeds this size           |
+| Keep recent messages    | 20            | Number of recent messages kept verbatim after compression |
 
 ## Directory Layout
 

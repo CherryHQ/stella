@@ -8,6 +8,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/embedding"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -37,8 +38,8 @@ func TestIndexer_BackfillPopulatesThenIsIdempotent(t *testing.T) {
 		t.Fatalf("insert conversation: %v", err)
 	}
 	for i := 1; i <= 3; i++ {
-		if _, err := db.Exec(ctx, `INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count) VALUES ($1,$2,$3,'user','text',$4,5)`,
-			uuid.NewString(), convID, i, "message body"); err != nil {
+		if _, err := db.Exec(ctx, `INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, actor_type) VALUES ($1,$2,$3,'user','text',$4,5,$5)`,
+			uuid.NewString(), convID, i, "message body", eventlog.ActorHuman); err != nil {
 			t.Fatalf("insert message %d: %v", i, err)
 		}
 	}

@@ -66,18 +66,10 @@ func resolvePlugin(rp rawManifestPlugin) ManifestPlugin {
 		enabled = *rp.Enabled
 	}
 	return ManifestPlugin{
-		ID:            rp.ID,
-		Kind:          rp.Kind,
-		Name:          rp.Name,
-		DisplayName:   rp.DisplayName,
-		Description:   rp.Description,
-		Enabled:       enabled,
-		Category:      rp.Category,
-		Essential:     rp.Essential,
-		Prompt:        rp.Prompt,
-		Binaries:      rp.Binaries,
-		Skills:        rp.Skills,
-		SessionEnvs:   rp.SessionEnvs,
-		OAuthProvider: rp.OAuthProvider,
+		ID:                       rp.ID,
+		Kind:                     rp.Kind,
+		Enabled:                  enabled,
+		Essential:                rp.Essential,
+		ManifestPluginDefinition: rp.ManifestPluginDefinition,
 	}
 }

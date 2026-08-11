@@ -26,12 +26,6 @@ type Config struct {
 	// Docker readiness rejects an image that labels a different revision.
 	ExpectedBundleRevision string
 
-	// ExpectedHelperRevision is the running stellad's version (internal/version).
-	// The stella-fs helper in the image is the same binary compiled with the
-	// same VERSION, so Docker readiness rejects an image whose helper revision
-	// differs — a mismatched helper could speak an incompatible wire protocol.
-	ExpectedHelperRevision string
-
 	// StellaHome is the stella-process-view home directory. When stellad runs
 	// inside a container this is the in-container path; when it runs on the host
 	// this is the host path. Used for orphan cleanup scoping, preflight checks,

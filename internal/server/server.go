@@ -26,6 +26,7 @@ import (
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/inbox"
+	"github.com/CherryHQ/stella/internal/library"
 	"github.com/CherryHQ/stella/internal/mcp"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/oidc"
@@ -77,6 +78,7 @@ type Server struct {
 	goalSvc          *goal.Service         // optional; if nil, goal endpoints return 503
 	workflowSvc      *workflowpkg.Service  // optional; if nil, workflow endpoints return 503
 	provisioningSvc  *provisioning.Service // provisioned-user lifecycle boundary
+	librarySvc       *library.Service      // optional; if nil, Library file endpoints return 503
 	agentSkillPolicy AgentSkillPolicyStore
 	builtinTools     []agent.BuiltinTool
 	startedAt        time.Time
@@ -211,6 +213,7 @@ type Deps struct {
 	Goal           *goal.Service
 	Workflow       *workflowpkg.Service
 	Provisioning   *provisioning.Service
+	Library        *library.Service
 }
 
 // OIDCDeps groups the login-authentication components produced by oidc.Setup.
@@ -319,6 +322,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		goalSvc:          deps.Goal,
 		workflowSvc:      deps.Workflow,
 		provisioningSvc:  deps.Provisioning,
+		librarySvc:       deps.Library,
 		agentSkillPolicy: deps.AgentSkillPolicy,
 		groupSvc:         deps.Group,
 		assets:           deps.Assets,

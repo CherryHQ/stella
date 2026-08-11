@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/agentctx"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -33,6 +35,21 @@ type recordingMemory struct {
 type snapshotRecordingMemory struct {
 	*recordingMemory
 	snapshot memory.SessionSnapshot
+}
+
+type blockingSnapshotMemory struct {
+	*snapshotRecordingMemory
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (m *blockingSnapshotMemory) Assemble(context.Context, memory.Session, int, int) ([]ai.Message, error) {
+	m.once.Do(func() {
+		close(m.started)
+		<-m.release
+	})
+	return nil, nil
 }
 
 func (m *snapshotRecordingMemory) GetOrCreateSessionSnapshot(context.Context, string, string, string) (memory.SessionSnapshot, error) {
@@ -101,6 +118,38 @@ func (r chatFakeRunner) Busy() bool              { return false }
 func (r chatFakeRunner) LastActivity() time.Time { return time.Now() }
 func (r chatFakeRunner) SystemPrompt() string    { return r.system }
 func (r chatFakeRunner) Close() error            { return nil }
+
+// TestRuntimeChatUnionsAncestorExcludedTools prevents a goal worker from
+// restoring a control-plane tool by delegating. The per-call exclusions model a
+// delegate preset that whitelists "goal" (and therefore excludes every other
+// registry tool); the ancestor exclusion remains authoritative.
+func TestRuntimeChatUnionsAncestorExcludedTools(t *testing.T) {
+	mem := &recordingMemory{}
+	var runnerCtx context.Context
+	rt, err := New(Config{
+		Memory: mem,
+		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+			return chatFakeRunner{ctx: &runnerCtx, events: []Event{{Text: "ok"}}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	parent := agentctx.WithExcludedTools(context.Background(), "goal", "scheduler", "workflow")
+	for event := range rt.Chat(parent, session.Info{ID: "delegate-1", UserID: "user-1", AgentID: "agent-1"}, "work",
+		WithExcludedTools("scheduler", "workflow", "delegate", "read_file"),
+	) {
+		if event.Err != nil {
+			t.Fatalf("chat: %v", event.Err)
+		}
+	}
+
+	want := []string{"goal", "scheduler", "workflow", "delegate", "read_file"}
+	if got := agentctx.ExcludedToolsFromContext(runnerCtx); !slices.Equal(got, want) {
+		t.Fatalf("child excluded tools = %v, want %v", got, want)
+	}
+}
 
 func TestGuestChatCarriesGuestIdentityWithoutUserIdentity(t *testing.T) {
 	const guestID = "11111111-1111-4111-8111-111111111111"
@@ -181,6 +230,66 @@ func TestChatRebuildsSnapshotPromptAtVersionZero(t *testing.T) {
 	}
 	if beforeRunSystem != "frozen snapshot prompt" {
 		t.Fatalf("before-run system = %q, want frozen snapshot prompt", beforeRunSystem)
+	}
+}
+
+func TestAdmittedChatKeepsPromptBuilderSnapshot(t *testing.T) {
+	mem := &blockingSnapshotMemory{
+		snapshotRecordingMemory: &snapshotRecordingMemory{
+			recordingMemory: &recordingMemory{},
+			snapshot:        memory.SessionSnapshot{Version: 1},
+		},
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	systemsSeen := make(chan string, 2)
+	rt, err := New(Config{
+		Memory: mem,
+		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+			return chatFakeRunner{system: "runner prompt", events: []Event{{Text: "ok"}}}, nil
+		},
+		SnapshotPrompt: func(context.Context, session.Info, memory.SessionSnapshot) (string, error) {
+			return "admitted prompt", nil
+		},
+		BeforeRun: func(_ context.Context, _ session.Info, _, _, system string, _ []ai.Message) (string, error) {
+			systemsSeen <- system
+			return "", nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+	first, err := rt.ChatAdmitted(context.Background(), session.Info{ID: "sess-1", UserID: "user-1", AgentID: "agent-1"}, "hello")
+	if err != nil {
+		t.Fatalf("admit first chat: %v", err)
+	}
+	<-mem.started
+	rt.SetPromptBuilders(
+		func(_ context.Context, _ session.Info, _, _, system string, _ []ai.Message) (string, error) {
+			systemsSeen <- system
+			return "", nil
+		},
+		func(context.Context, session.Info, memory.SessionSnapshot) (string, error) {
+			return "refreshed prompt", nil
+		},
+	)
+	close(mem.release)
+	for evt := range first {
+		if evt.Err != nil {
+			t.Fatalf("first chat: %v", evt.Err)
+		}
+	}
+	if got := <-systemsSeen; got != "admitted prompt" {
+		t.Fatalf("admitted chat prompt = %q, want admitted prompt", got)
+	}
+
+	for evt := range rt.Chat(context.Background(), session.Info{ID: "sess-2", UserID: "user-1", AgentID: "agent-1"}, "hello") {
+		if evt.Err != nil {
+			t.Fatalf("second chat: %v", evt.Err)
+		}
+	}
+	if got := <-systemsSeen; got != "refreshed prompt" {
+		t.Fatalf("next chat prompt = %q, want refreshed prompt", got)
 	}
 }
 

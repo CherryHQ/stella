@@ -20,7 +20,9 @@ Create agents around jobs, not around technical integrations. "Finance reimburse
 
 ## Session
 
-A session is an ongoing collaboration between a user and an agent. It preserves conversation context and workspace state so work can continue instead of restarting every message.
+A session is an ongoing collaboration between a user and an agent. It preserves conversation context and workspace state so work can continue instead of restarting every message. An agent can search its sessions, inspect a bounded transcript, open a focused session, and continue an existing session.
+
+Agent messages sent from one session to another keep a source label in the transcript. Stella treats that input as information from the sending agent, not as a human instruction. If the target session is busy, agent sends wait in arrival order instead of running concurrently.
 
 ## Memory
 
@@ -59,8 +61,8 @@ Two concepts carry work in Stella:
 
 Everything else is something you do with a session or a goal, not a third kind of work:
 
-- **Delegating** hands a focused subproblem to an isolated session, so the main conversation stays clean.
-- **Remembering** searches across your past sessions, so context is never lost. Memory is also a feature in its own right — you can review and edit what an agent keeps about you in its settings.
+- **Focused work** opens an isolated session for a bounded subproblem, so the main conversation stays clean.
+- **Remembering** searches across past sessions through the Session tool. Memory stores durable profile, preference, constraint, and knowledge facts that you can review in settings.
 - **Workflows** save an accepted goal so you can run it again with new inputs.
 - **Schedules** add a time trigger — later, or every morning — to a conversation or a workflow. The schedule is the trigger, not the work.
 
@@ -68,7 +70,7 @@ So when you say "save this and run it every morning", the agent saves the accept
 
 The Web UI follows the same split. Each agent has two spaces:
 
-- **Conversations** — the thread list in the sidebar, and the page behind its title: every thread you have with that agent.
+- **Conversations** — the thread list in the sidebar, and the page behind its title: every thread you have with that agent. Each thread uses a colored icon for its latest state: working, succeeded, or failed. Opening a completed thread marks its result read and returns the icon to idle.
 - **Work** — everything that agent is tracking to an outcome, in the order you need it: what **needs you**, what is **active**, what is **scheduled**, what is **repeatable** (your saved workflows), and the **history**.
 
 **Inbox** is the same "needs you", one scope wider: it collects what is waiting on you across every agent, so you never have to check them one by one.

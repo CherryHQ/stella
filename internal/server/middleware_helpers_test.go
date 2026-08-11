@@ -17,7 +17,7 @@ func TestIsAPIRoute(t *testing.T) {
 		{"/api/agents", true},
 		{"/api/providers", true},
 		{"/api/auth/login", true},
-		{"/providers", false},
+		{"/settings/providers", false},
 		{"/login", false},
 		{"/assets/index.js", false},
 		{"/static/js/app.js", false},

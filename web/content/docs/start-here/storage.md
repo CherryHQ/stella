@@ -24,6 +24,7 @@ This page classifies every directory and tells you the volume and backup treatme
 | `pg-runtime/`                                                                                   | Downloaded and extracted embedded-PostgreSQL runtime  | Derived cache  | Ephemeral disk is fine. Re-download with `stellad postgres download`.             |
 | `users/{id}/data/.cache/`                                                                       | Per-user tool cache                                   | Derived cache  | Ephemeral disk is fine.                                                           |
 | `cache/sandbox-tmp/`                                                                            | Docker sandbox temporary directories                  | Scratch        | Ephemeral disk is fine; stale directories are removed at startup.                 |
+| `runner-scratch/runner-*`                                                                       | Disposable workspace for user-less runs               | Scratch        | Never Home authority; clean leftovers only while Stella is stopped or fenced.     |
 | `dumps/`                                                                                        | Diagnostic dumps written on signal                    | Scratch        | Ephemeral disk is fine. Diagnostic only.                                          |
 
 \* Principal data and Agent Homes remain durable. Uploaded assets within a Principal Home become recoverable cache once the S3 mirror is configured — see [User assets](#user-assets-durable-or-mirrored).
@@ -50,13 +51,17 @@ Configuring the mirror is what lets asset-serving replicas be stateless. Set all
 
 The current local store preserves compatibility paths: `users/{id}/data/` and `users/group-{id}/data/` are user and group Principal Homes; `users/{principal}/agents/{id}/` is each Principal's Agent Home. An Agent Home holds that principal's mutable working tree and project files. Nothing mirrors Principal data or Agent Home bytes to PostgreSQL, and S3 only mirrors assets as described above. They are durable data: use persistent storage and pin the workload to one replica. Multi-replica execution with checkpointing is future work — do not assume it yet.
 
-The paths are current local compatibility coordinates, not Home identity. A Home has stable registry metadata, including its Store ID and opaque locator, so future storage implementations need not preserve these path shapes.
+These deterministic paths are the storage layout for the current single-replica POSIX product. PostgreSQL owner rows authorize access, while the filesystem retains the bytes. Future multi-replica, Kubernetes, or S3 storage requires a redesign and need not preserve these path shapes.
+
+Stella supports one replica and one POSIX `STELLA_HOME`. PostgreSQL user, group, Agent, and assignment rows remain identity and authorization authority; there is no PostgreSQL directory catalog. Deterministic roots are `users/<user-id>`, `users/group-<group-id>`, their nested `agents/<agent-id>`, and global `agents/<agent-id>`. The filesystem is layout and data authority. A missing root for a live owner is created with its internal scaffold. Symbolic links, non-directories, and unsafe IDs are rejected. The host is trusted and must preserve normal POSIX semantics.
 
 ## Destructive owner deletion
 
-An explicit destructive deletion of a user, group, or Agent immediately tombstones its Homes and fences local cached execution. A shared worker then purges physical bytes asynchronously and idempotently. This is the only Home-deleting lifecycle: removing an Agent assignment, removing a group member, archiving a Session, and uninstalling Helm do **not** delete Homes.
+An explicit destructive owner deletion takes the process lifecycle fence, then the local owner gate, then deletes the owner in its existing database transaction. Files and inodes are retained. After commit, owner existence checks reject new workspace views and admission. Removing an assignment, removing a group member, archiving a Session, and uninstalling Helm do not delete workspace bytes.
 
-If physical purge fails, the Home remains in `purge_failed` with its audit record. It is not silently discarded; an operator must retry it. For syntax, run `stellad storage retry-purge --help`.
+Within one server process, a writer-prioritized admission barrier prevents runner setup from racing destructive deletion. The barrier is released after synchronous runner selection and Home resolution; it does not wait for an active turn to finish. This is a single-replica guarantee, not a distributed lease. Future multi-replica support requires PostgreSQL-backed generations or leases in addition to each process's local barrier. A failed best-effort runtime refresh after a durable management change can remain stale until a later reconciliation.
+
+An orphaned global `agents/<agent-id>` entry reserves that Agent ID; any file, directory, or symbolic link counts. Trusted-host manual removal permits reuse. Multi-replica storage, S3 data authority, generations, and distributed leases require a future redesign rather than extending this local contract.
 
 ## Legacy article mirror (draining)
 
@@ -68,7 +73,9 @@ Builtin Skills are the exact release bundle at `bundles/{revision}/`. Native `lo
 
 Project Skills are ordinary files in durable Agent/project working trees. PostgreSQL is the authority for mutable `system`, `system_agent`, `user`, and `user_agent` records; `.agents/db-skills/`, `agents/{agent-id}/.agents/skills/`, `users/{principal}/data/.agents/skills/`, and `users/{principal}/agents/{agent-id}/.agents/skills/` are derived mirrors re-materialized on load. Here, `{principal}` is a user ID or `group-{id}`. Phase 1 registers typed Home identities but does not cut over mutable Skill content authority.
 
-Before upgrade, import each custom Skill root under legacy top-level `.agents/skills/` through **Settings → Skills** as a global (`system`) Skill using the old working binary. Back up, verify, and remove other residual paths. New startup lists every blocking path and stops without changing or deleting anything. Paths owned by the current release manifest are inert even when contents or modes are stale; every other Skill root or residual path blocks.
+Before upgrade, use the old working binary to import each custom Skill root under legacy top-level `.agents/skills/` as a global (`system`) Skill through **Settings → Skills** on older releases or **Admin Console → Deployment resources → Global Skills** on newer releases. Back up, verify, and remove other residual paths. New startup lists every blocking path and stops without changing or deleting anything. Paths owned by the current release manifest are inert even when contents or modes are stale; every other Skill root or residual path blocks.
+
+Before downgrade, re-enable every disabled Skill and clear any dangling disabled references. Older binaries may ignore AgentSkillPolicy v1 and overwrite it during ordinary Agent edits. Mixed-version Skill activation is a product preference, not a security guarantee or filesystem access control.
 
 These directories are rebuilt automatically and can live on ephemeral disk:
 
@@ -84,3 +91,5 @@ These directories are rebuilt automatically and can live on ephemeral disk:
 `dumps/` holds diagnostic dumps written when the process receives a debug signal. It is never read back by Stella and is safe to lose.
 
 `cache/sandbox-tmp/` backs Docker sandbox sessions and is scratch space. A legacy `stella.db` file, if present, is only read by the one-time SQLite-to-PostgreSQL migration tool and is untouched by the running server.
+
+`runner-scratch/` is a trusted host-owned structural namespace for disposable user-less-run workspaces. Normal runner close and construction failure perform best-effort cleanup, but a process crash or trusted host tampering can leave child directories behind. Isolating providers mount only the exact `runner-*` child, never the structural parent. Scratch is not a Principal or Agent Home and is never durable authority. Operators should remove leftovers only while Stella is stopped or affected consumers are fenced.

@@ -631,6 +631,13 @@ paths:
       summary: Start an OAuth device flow for a provider
       operationId: startOAuthFlow
       x-agent-tool: { tool: "oauth", action: "connect" }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/StartOAuthFlowRequest",
+            }
       responses:
         "200":
           description: ok

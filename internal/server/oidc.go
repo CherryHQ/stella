@@ -91,7 +91,7 @@ func (s *Server) LoginLocal(w http.ResponseWriter, r *http.Request) {
 	if email != "" {
 		s.rateLimiter.RecordLoginSuccess(email)
 	}
-	writeData(w, http.StatusOK, apitypes.LocalAuthRedirect{RedirectUrl: "/"})
+	writeData(w, http.StatusOK, apitypes.LocalAuthRedirect{RedirectUrl: "/agents"})
 }
 
 func (s *Server) RegisterLocal(w http.ResponseWriter, r *http.Request) {
@@ -143,7 +143,7 @@ func (s *Server) RegisterLocal(w http.ResponseWriter, r *http.Request) {
 	if email != "" {
 		s.rateLimiter.RecordRegistrationSuccess(email)
 	}
-	writeData(w, http.StatusOK, apitypes.LocalAuthRedirect{RedirectUrl: "/"})
+	writeData(w, http.StatusOK, apitypes.LocalAuthRedirect{RedirectUrl: "/agents"})
 }
 
 func (s *Server) writeLocalAuthError(w http.ResponseWriter, err error) {
@@ -355,7 +355,7 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	s.linkFeishuChannelIdentity(r.Context(), result.User.ID, *identity)
 	s.ensureUserVaultKeys(r.Context(), &result)
 	s.finalizeLogin(w, r, result)
-	http.Redirect(w, r, "/", http.StatusFound)
+	http.Redirect(w, r, "/agents", http.StatusFound)
 }
 
 func (s *Server) linkFeishuChannelIdentity(ctx context.Context, userID string, identity auth.ExternalIdentity) {

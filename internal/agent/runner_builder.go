@@ -2,10 +2,15 @@ package agent
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
@@ -40,6 +45,69 @@ type BuiltinTool struct {
 type SessionImagePipeline interface {
 	Enrich(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error)
 	Load(context.Context, string, string) (ai.ImageContent, error)
+}
+
+const runnerScratchDir = "runner-scratch"
+
+// newRunnerScratch creates a disposable runner-owned child outside Home
+// authority. Its structural parent is trusted host-owned state. Close and
+// construction failure clean best-effort; crashes may leave operator-cleaned
+// children. Isolating providers mount only the exact returned child.
+func newRunnerScratch(stellaHome string) (string, func() error, error) {
+	homeRoot, err := os.OpenRoot(stellaHome)
+	if err != nil {
+		return "", nil, err
+	}
+	defer func() { _ = homeRoot.Close() }()
+	if err := homeRoot.Mkdir(runnerScratchDir, 0o700); err != nil && !os.IsExist(err) {
+		return "", nil, err
+	}
+
+	root, err := homeRoot.OpenRoot(runnerScratchDir)
+	if err != nil {
+		return "", nil, err
+	}
+	info, lstatErr := homeRoot.Lstat(runnerScratchDir)
+	openedInfo, statErr := root.Stat(".")
+	if lstatErr != nil || statErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !os.SameFile(info, openedInfo) {
+		_ = root.Close()
+		return "", nil, fmt.Errorf("scratch root %q is not a directory", filepath.Join(stellaHome, runnerScratchDir))
+	}
+	if err := root.Chmod(".", 0o700); err != nil {
+		_ = root.Close()
+		return "", nil, err
+	}
+
+	var name string
+	for range 100 {
+		var random [8]byte
+		if _, err := rand.Read(random[:]); err != nil {
+			_ = root.Close()
+			return "", nil, err
+		}
+		name = "runner-" + hex.EncodeToString(random[:])
+		if err := root.Mkdir(name, 0o700); err == nil {
+			break
+		} else if !os.IsExist(err) {
+			_ = root.Close()
+			return "", nil, err
+		}
+		name = ""
+	}
+	if name == "" {
+		_ = root.Close()
+		return "", nil, fmt.Errorf("create runner scratch: too many collisions")
+	}
+	dir := filepath.Join(stellaHome, runnerScratchDir, name)
+	var once sync.Once
+	var cleanupErr error
+	cleanup := func() error {
+		once.Do(func() {
+			cleanupErr = errors.Join(root.RemoveAll(name), root.Close())
+		})
+		return cleanupErr
+	}
+	return dir, cleanup, nil
 }
 
 func BuiltinToolAvailable(_ context.Context, params RunnerParams) bool {
@@ -92,17 +160,22 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		if apiName == "" {
 			apiName = provID
 		}
+		providerID := creds.ProviderID
+		if providerID == "" {
+			providerID = provID
+		}
 
 		if params.GuestID != "" {
 			return newRunner(ctx, runnerConfig{
 				NoCapabilities: true,
 				Provider: providerConfig{
-					API:     apiName,
-					Model:   modelID,
-					Input:   cfg.Snap.ModelInput(provID, modelID),
-					APIKey:  creds.APIKey,
-					BaseURL: creds.BaseURL,
-					Builder: cfg.ProviderStreamBuilder,
+					ProviderID: providerID,
+					API:        apiName,
+					Model:      modelID,
+					Input:      cfg.Snap.ModelInput(provID, modelID),
+					APIKey:     creds.APIKey,
+					BaseURL:    creds.BaseURL,
+					Builder:    cfg.ProviderStreamBuilder,
 				},
 				Thinking: params.Thinking,
 				System:   prompt.BuildGuestSystemPrompt(cfg.Snap.SystemPrompt),
@@ -131,12 +204,11 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			if params.ProjectID != "" {
 				return nil, fmt.Errorf("runner: user-less runs cannot use a project")
 			}
-			userRoot, err = os.MkdirTemp("", "stella-runner-")
+			userRoot, scratchCleanup, err = newRunnerScratch(config.StellaHome())
 			if err != nil {
 				return nil, fmt.Errorf("create user-less scratch: %w", err)
 			}
 			projectValidateRoot = userRoot
-			scratchCleanup = func() error { return os.RemoveAll(userRoot) }
 		}
 
 		// Resolve project directory when session has a project.
@@ -295,12 +367,13 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 
 		runner, err := newRunner(ctx, runnerConfig{
 			Provider: providerConfig{
-				API:     apiName,
-				Model:   modelID,
-				Input:   cfg.Snap.ModelInput(provID, modelID),
-				APIKey:  creds.APIKey,
-				BaseURL: creds.BaseURL,
-				Builder: cfg.ProviderStreamBuilder,
+				ProviderID: providerID,
+				API:        apiName,
+				Model:      modelID,
+				Input:      cfg.Snap.ModelInput(provID, modelID),
+				APIKey:     creds.APIKey,
+				BaseURL:    creds.BaseURL,
+				Builder:    cfg.ProviderStreamBuilder,
 			},
 			Thinking:            params.Thinking,
 			Sandbox:             sandboxCfg,

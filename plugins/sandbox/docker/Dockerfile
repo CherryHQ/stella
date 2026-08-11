@@ -53,14 +53,6 @@ FROM debian:13-slim
 ARG BUILTIN_BUNDLE_REVISION
 LABEL org.cherryhq.stella.builtin-bundle-revision=${BUILTIN_BUNDLE_REVISION}
 
-# The stella-fs helper is /out/stellad compiled with this exact VERSION, so the
-# label lets preflight refuse an image whose helper revision differs from the
-# running stellad. Derived from the SAME VERSION build arg used above to build
-# /out/stellad — never a workflow-injected OCI label — so local, PR, and release
-# builds stay coherent.
-ARG VERSION=dev
-LABEL org.cherryhq.stella.fs-helper-revision=${VERSION}
-
 # mise lives at /opt/stella/bin/mise — the same path the bwrap sandbox exposes —
 # so per-user and system shims (which relink to ../../bin/mise) resolve to it.
 # bun, uv (+uvx), fd, rg, and lightpanda are NOT vendored here: `stellad mise
@@ -69,7 +61,6 @@ LABEL org.cherryhq.stella.fs-helper-revision=${VERSION}
 # are installed via apt.
 COPY --from=jdxcode/mise:2026.7.18 /usr/local/bin/mise /opt/stella/bin/mise
 COPY --from=libheif-builder /usr/local/lib/libheif.so.1.23.0 /usr/local/lib/
-COPY --from=stella-builder /out/stellad /opt/stella/bin/stella-fs
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \

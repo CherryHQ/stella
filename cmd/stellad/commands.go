@@ -23,6 +23,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
+	sessioninbox "github.com/CherryHQ/stella/internal/agent/session/inbox"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/blob"
 	"github.com/CherryHQ/stella/internal/channel"
@@ -37,6 +38,7 @@ import (
 	"github.com/CherryHQ/stella/internal/embedding"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/library"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
@@ -82,7 +84,6 @@ the server, or use "stellad service" to manage it as a background service.`,
 			miseCommand(),
 			systemBundleCommand(),
 			serviceCommand(),
-			storageCommand(),
 		},
 	}
 }
@@ -125,10 +126,11 @@ type setupResult struct {
 	shareSvc                 *sharepkg.Service
 	recallySvc               *recally.Service
 	assetStore               *asset.Store
-	homeRegistry             *home.Registry
+	workspaceManager         *home.WorkspaceManager
 	homeDeletion             *home.OwnerDeletion
 	workflowSvc              *workflowpkg.Service
 	embeddingSvc             *embedding.Service
+	librarySvc               *library.Service
 	riverClient              *river.Client[pgx.Tx]
 	builtinTools             []agent.BuiltinTool
 	notifier                 *notify.Dispatcher
@@ -147,6 +149,12 @@ type setupResult struct {
 // with it directly, so no service is built with a localhost placeholder and
 // mutated later.
 func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*setupResult, error) {
+	// The legacy Skill inventory is a pre-mutation gate for Stella Home. Run it
+	// before embedded PostgreSQL creates its cluster or runtime directories.
+	if err := ensureEmbeddedAssets(); err != nil {
+		return nil, err
+	}
+
 	dsn := cfg.Database.URL
 	var embedded *appdb.Embedded
 	if dsn == "" {
@@ -188,37 +196,23 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// before deciding; the Agent domain is the shared read gate the others fold in.
 	agentAccess := agentaccess.NewService(store, authStore)
 
-	if err := ensureEmbeddedAssets(); err != nil {
-		return nil, err
-	}
-	// Home registration is deliberately after the Phase 0 legacy-skill and
-	// bundle/tool gates: it may create directories, so it must not mutate a
-	// blocked installation.
-	localHomeStore, err := home.NewLocalStore(cfg.Storage.HomeStoreID, config.StellaHome())
+	// One process-wide manager is the sole materializer beneath STELLA_HOME.
+	homeRegistry, err := home.NewWorkspaceManager(db, config.StellaHome())
 	if err != nil {
-		return nil, fmt.Errorf("configure Home Store: %w", err)
+		return nil, fmt.Errorf("build workspace manager: %w", err)
 	}
-	homeRegistry, err := home.NewRegistry(db, cfg.Storage.HomeStoreID, localHomeStore)
-	if err != nil {
-		return nil, fmt.Errorf("build Home registry: %w", err)
-	}
-	if err := homeRegistry.ValidateConfiguredStores(parent); err != nil {
-		return nil, err
-	}
-	// Record authority observation and adopt existing typed layouts before any
-	// runtime service can consume a Home attachment.
+	workspaceManagerOwned := true
+	defer func() {
+		if workspaceManagerOwned {
+			_ = homeRegistry.Close()
+		}
+	}()
 	blobStore, err := blob.NewStoreFromConfig(cfg.Blob)
 	if err != nil {
 		return nil, err
 	}
 	assetStore, err := asset.NewStore(config.StellaHome(), blobStore, slog.Default())
 	if err != nil {
-		return nil, err
-	}
-	if err := homeRegistry.ObserveMutableAssetObjectAuthority(parent, assetStore.SharedAuthority()); err != nil {
-		return nil, err
-	}
-	if err := homeRegistry.RegisterLegacy(parent); err != nil {
 		return nil, err
 	}
 
@@ -291,10 +285,16 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 
 	var poolMgr *agent.PoolManager
 	memProvider = wrapMemoryWithTracing(memProvider, &poolMgr)
-
-	builtinTools := []agent.BuiltinTool{
-		{Tool: memory.BuildTool(memProvider, memory.WithSessionReadOnlyWrites())},
+	if _, ok := memory.Unwrap(memProvider).(memory.InboxAppender); !ok {
+		return nil, errors.New("memory provider does not support durable Session inbox")
 	}
+	inboxAppender, ok := memProvider.(memory.InboxAppender)
+	if !ok {
+		return nil, errors.New("memory tracing wrapper does not forward durable Session inbox")
+	}
+	sessionInbox := sessioninbox.New(db)
+
+	var builtinTools []agent.BuiltinTool
 	if notifyTool := notify.NewTool(dispatcher); notifyTool != nil {
 		builtinTools = append(builtinTools, agent.BuiltinTool{Tool: notifyTool})
 	}
@@ -304,6 +304,27 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(skillStore)
 	// Asset authority is selected during the pre-runtime Home boot gate above.
+	libraryRaw, err := library.NewRawStoreFromConfig(config.StellaHome(), cfg.Blob, library.RawStoreOptions{
+		TempDir:        os.TempDir(),
+		FSMinFreeBytes: library.DefaultFSMinFreeBytes,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build library RawStore: %w", err)
+	}
+	librarySvc, err := library.NewService(library.ServiceConfig{
+		DB:                   db,
+		RawStore:             libraryRaw,
+		Parser:               library.NewTextParser(),
+		ParserProfile:        library.TextParserProfile,
+		Logger:               slog.With("component", "library"),
+		TempDir:              os.TempDir(),
+		MaxConcurrentUploads: 4,
+		MaxSpoolBytes:        4 * library.MaxFileBytes,
+		AgentAccess:          agentAccess,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build library service: %w", err)
+	}
 	sessionImages, err := sessionmedia.NewPipeline(assetStore.SessionMedia(), db, snapshotLoader, vision.StreamBuilder(providerStreamBuilder), sessionmedia.PipelineOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("build session image pipeline: %w", err)
@@ -327,6 +348,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build session/workspace service: %w", err)
 	}
+	builtinTools = append([]agent.BuiltinTool{{
+		Tool: memory.BuildTool(memProvider, memory.WithRecallSource(sessionAccess)),
+	}}, builtinTools...)
 
 	if err := registerReflectBuiltin(schedulerSvc, reflect.Config{
 		Memory:            memProvider,
@@ -469,6 +493,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
 		agent.WithAssetStorePM(assetStore),
 		agent.WithSessionImagePipeline(sessionImages),
+		agent.WithSessionInboxPM(sessionInbox),
 		agent.WithBuiltinTools(builtinTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
@@ -514,6 +539,11 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err := poolMgr.StartAll(parent); err != nil {
 		return nil, fmt.Errorf("start pool manager: %w", err)
 	}
+	// Drain durable inputs before any server/channel/River ingress can accept
+	// newer work. Recovery appends transcripts only; it never enters Runtime.
+	if err := sessionInbox.Recover(parent, sessionAccess, inboxAppender); err != nil {
+		return nil, fmt.Errorf("recover Session inbox: %w", err)
+	}
 
 	// The runner invalidator lets credential/token refresh propagate to running
 	// pools. It targets the pool but is not a pool capability, so it is wired
@@ -541,11 +571,11 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
 	// inject it back into each. runServer owns its Start/Stop.
-	homeDeletion, err := home.NewOwnerDeletion(db, homeRegistry, nil, poolMgr)
+	homeDeletion, err := home.NewOwnerDeletion(db, homeRegistry, poolMgr)
 	if err != nil {
 		return nil, fmt.Errorf("build Home deletion lifecycle: %w", err)
 	}
-	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, homeDeletion, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
+	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, librarySvc, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
 	if err != nil {
 		return nil, err
 	}
@@ -594,10 +624,11 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		shareSvc:                 shareSvc,
 		recallySvc:               recallySvc,
 		assetStore:               assetStore,
-		homeRegistry:             homeRegistry,
+		workspaceManager:         homeRegistry,
 		homeDeletion:             homeDeletion,
 		workflowSvc:              workflowSvc,
 		embeddingSvc:             embeddingSvc,
+		librarySvc:               librarySvc,
 		riverClient:              riverClient,
 		builtinTools:             builtinTools,
 		notifier:                 dispatcher,
@@ -612,6 +643,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	// Ownership of the embedded server moves to result; clear the local so the
 	// cleanup defer above becomes a no-op on this success path.
+	workspaceManagerOwned = false
 	embedded = nil
 	return result, nil
 }
@@ -630,7 +662,7 @@ func ensureEmbeddedAssets() error {
 		for _, blocker := range blockers {
 			paths = append(paths, blocker.Path)
 		}
-		return fmt.Errorf("cannot activate builtin skill bundle: legacy system skills remain at %s; import or remove them through the current managed system path, then retry", strings.Join(paths, ", "))
+		return fmt.Errorf("cannot activate builtin skill bundle: legacy system skills remain at %s; back up the listed paths, run or roll back to the previous working Stella binary, import each custom root as a global/system Skill through Settings → Skills (older releases) or Admin Console → Deployment resources → Global Skills, verify each import, remove only migrated or residual legacy paths, then retry", strings.Join(paths, ", "))
 	}
 	// Remove assets retired or renamed by newer releases so stale copies do not
 	// remain discoverable beside their replacements.
@@ -672,14 +704,10 @@ func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host, agentAccess *agent
 // electable River client per database (see db.NewWorkingRiverClient); this is
 // where that invariant is enforced. The caller owns the returned client's
 // Start/Stop lifecycle (runServer); the subsystems only use it.
-func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service, homeDeletion *home.OwnerDeletion, softStopTimeout time.Duration, riverLogLevel string) (*river.Client[pgx.Tx], error) {
+func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service, librarySvc *library.Service, softStopTimeout time.Duration, riverLogLevel string) (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	scheduler.RegisterRiverWorker(workers, schedulerSvc)
 	goalSvc.RegisterRiverWorker(workers)
-	if homeDeletion == nil {
-		return nil, errors.New("build shared river client: Home deletion lifecycle is required")
-	}
-	homeDeletion.RegisterRiverWorker(workers)
 
 	queues := map[string]river.QueueConfig{}
 	sn, sc := scheduler.SchedulerQueueConfig()
@@ -688,8 +716,6 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 	queues[gn] = gc
 	gtn, gtc := goalSvc.GoalTickQueueConfig()
 	queues[gtn] = gtc
-	hn, hc := homeDeletion.RiverQueueConfig()
-	queues[hn] = hc
 
 	// The embedding lane is opt-in: only contribute its backfill worker + queue
 	// when an embedding provider is configured.
@@ -697,6 +723,11 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 		embeddingSvc.RegisterRiverWorker(workers)
 		en, ec := embeddingSvc.BackfillQueueConfig()
 		queues[en] = ec
+	}
+	if librarySvc != nil {
+		librarySvc.RegisterRiverWorkers(workers)
+		kn, kc := librarySvc.QueueConfig()
+		queues[kn] = kc
 	}
 
 	// River heartbeats at DEBUG/INFO every few seconds (producer batches, job
@@ -718,11 +749,13 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 	if err := goalSvc.BindRiverClient(client); err != nil {
 		return nil, err
 	}
-	if err := homeDeletion.BindRiverClient(client); err != nil {
-		return nil, err
-	}
 	if embeddingSvc != nil {
 		if err := embeddingSvc.BindRiverClient(client); err != nil {
+			return nil, err
+		}
+	}
+	if librarySvc != nil {
+		if err := librarySvc.BindRiverClient(client); err != nil {
 			return nil, err
 		}
 	}

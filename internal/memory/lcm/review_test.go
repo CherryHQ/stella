@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -40,9 +41,9 @@ func TestBuildReviewContext_BudgetsSummariesBeforeMessages(t *testing.T) {
 		}
 	}
 	if _, err := db.Exec(ctx, `
-		INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, created_at)
-		VALUES ($1, $2, 1, 'user', 'text', 'recent review message', 5, '2026-01-02 00:00:00')
-	`, uuid.NewString(), convID); err != nil {
+		INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type)
+		VALUES ($1, $2, 1, 'user', 'text', 'recent review message', 5, '2026-01-02 00:00:00', $3)
+	`, uuid.NewString(), convID, eventlog.ActorHuman); err != nil {
 		t.Fatalf("insert message: %v", err)
 	}
 

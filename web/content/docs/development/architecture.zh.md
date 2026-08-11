@@ -46,7 +46,7 @@ internal/
     runtime/           Runner cache、turn 执行、event 持久化
     prompt/            系统提示构建器和模板
     sandbox/           核心沙箱工具（bash、read、write、edit）
-    delegate/          Delegate 工具（隔离子循环）
+    delegate/          内部 managed-session adapter 与 preset
   channel/             Channel 接口、身份解析、斜杠命令、入口租约、通知
   memory/              记忆 provider 注册表 + 实现（lcm、simple）
   server/              HTTP API + 嵌入式 React SPA
@@ -55,12 +55,12 @@ internal/
   controlplane/        控制面域（providers、settings、plugins、channels）
   pluginhost/          按能力限定的插件平台宿主
   db/                  PostgreSQL（pgx/v5）、goose 迁移、sqlc 查询
-  home/                类型化 Home registry、local 兼容投影、删除生命周期
+  home/                POSIX workspace 物化、所有者验证、删除 fence
   scheduler/           River 持久化调度服务（供 Web UI 和 Agent 原生工具使用）
   skills/              技能工具（通过 skills.sh 搜索/安装/列出/移除）
 pkg/
   ai/                  Message/Content 类型、Model、Provider 接口、流式事件
-  tools/               Tool 接口、注册表、内置工具（read、bash、write、edit、delegate）
+  tools/               Tool 接口与注册表
 plugins/
   tools/               插件工具注册表 + 插件工具（webfetch）
   hooks/               插件钩子注册表 + 插件钩子（rtk）
@@ -79,9 +79,9 @@ plugins/
 
 ## Home 持久化与生命周期
 
-`internal/home` 自持类型化持久 Home 的身份：用户与群组 Principal Home、每 Principal 的 Agent Home，以及窄范围的 system 与 system-Agent Skill 根。PostgreSQL 存储每个 Home 的不可变 Store ID、不透明 locator 与生命周期状态；Phase 1 的 local store 将当前路径布局保留为内部兼容投影。registry 元数据不能恢复文件字节，因此必须将持久 Principal、Agent Home 存储与 PostgreSQL 一起备份。
+`internal/home.WorkspaceManager` 是单个 POSIX `STELLA_HOME` 下唯一的生产物化器。PostgreSQL user、group 与 Agent row 授权确定性本地路径；文件系统拥有布局和字节。owner 存活时会创建缺失 workspace；symlink、非目录、不安全 ID 或可信根被替换时会 fail closed。Phase 1 不存在 PostgreSQL Home catalog。
 
-显式破坏性删除用户、群组或 Agent 时，会在删除事务中先 tombstone Home、再移除所有者，并持久化地入队一个清除批次。提交后，进程同步 fence 本地缓存的执行；共享 River worker 会在幂等清除字节前再次 fence。物理清除失败会以 `purge_failed` 状态连同审计数据保留，供操作员重试。移除分配、移除成员、归档 Session 和卸载 Helm 都不是 Home 删除操作。这是单副本边界；多副本拓扑和跨副本 SessionSandbox fencing 属于未来工作。
+显式破坏性删除 user、group 或 Agent 时，会先 fence 本地缓存执行，再在既有数据库事务中删除 owner。物理字节和 inode 保留，但 owner 校验阻止后续 workspace 访问。`agents/{id}` 的任意文件系统条目都会保留该全局 Agent ID。移除分配、移除成员、归档 Session 和卸载 Helm 不删除 workspace 字节。这是可信宿主、单副本边界；多副本、Kubernetes 与 S3 authority 需要未来设计。
 
 ## 组合与生命周期
 
@@ -89,10 +89,10 @@ plugins/
 
 1. **启动配置** — `serverAction` 在启动边界一次性解析 `config.LoadServerConfig(os.LookupEnv)` 与 `oidc.LoadLoginConfig(os.LookupEnv, baseURL)`。其它包一律不读环境变量（由测试三线闸强制，仅对 `STELLA_HOME`/OTel/运行时透传保留小白名单）。最终 base URL 在此解析并向下传递，共享服务直接用它构造——绝不用 `localhost` 占位符再事后改写。
 2. **Build（构建）** — `setup()` 一次性构造每个子系统。共享的 credentials/email/share/recally/MCP 服务只建一次（每个域通过 `*ForPool` 构造子自持查询集），因此同一实例同时支撑 agent 工具与 HTTP 端点。
-3. **Bind（绑定）** — 真正的反向边用一次性的预启动绑定闭合，拒绝 nil/重复/迟到绑定：PoolManager 的 `BindVaultEnvLoader`/`BindMCPToolProvider`/`BindOAuthRegistry`（在 `StartAll` 之前）、scheduler/goal/Home-deletion/embedding 服务上共享 River 客户端的 `BindRiverClient`，以及 `AddBuiltinTool`（去重，由 `StartAll` 密封）。普通依赖走构造注入，不走绑定。
+3. **Bind（绑定）** — 真正的反向边用一次性的预启动绑定闭合，拒绝 nil/重复/迟到绑定：PoolManager 的 `BindVaultEnvLoader`/`BindMCPToolProvider`/`BindOAuthRegistry`（在 `StartAll` 之前）、scheduler/goal/embedding 服务上共享 River 客户端的 `BindRiverClient`，以及 `AddBuiltinTool`（去重，由 `StartAll` 密封）。普通依赖走构造注入，不走绑定。
 4. **Validate / Seal（校验/密封）** — `pluginhost.Seal()` 校验全部静态注册与能力绑定后拒绝进一步静态注册；动态期望态接口（`ApplyChannel`/`RegisterManifestPlugins`）保持开放。admin 服务由不可变、已校验的 `server.Deps` 经 `server.New(ctx, deps)` 构建，缺任一必需依赖即快速失败。`server.New` 不读环境、不构造服务、无 setter。
 5. **可观测性** — 全局 OTel 追踪在服务阶段之前初始化，因此任何产生 span 的组件（经 HTTP/通道入口的 agent 运行）都不会在 exporter 装好之前启动。
-6. **Run（运行）** — 至此组合根才启动入口，且必须在其依赖的所有后端就绪之后。先接好静态回调（`notifier.SetAuthService`、scheduler 的 `OnJob` 处理器——均为互斥保护的一次性写入），并启动包含 scheduler、goal、Home purge、embedding worker 的唯一共享 River client，再启动 scheduler、goal 调度 tick、embedding backfill；scheduler 处理器在 River 启动**之前**接好，因为 River 一启动就可能处理已持久化的作业。之后入口才上线——group 调度循环、受管通道运行时，最后是 `httpSrv.Serve`（监听器提前绑定但不 serve）。组合根持有单个 `errgroup`：`httpSrv.Serve` 与 `groupDispatcher.Run(ingressCtx)` 在其下运行。预期的关停错误归一为 `nil`（`http.ErrServerClosed`、`context.Canceled`）；任何其它组件错误取消同伴并成为根错误。组件构造子不启动 goroutine——后台循环由显式阻塞式 `Run(ctx)` 或组合根拥有的 `Start` 进入（例如 trace hook 的空闲会话回收器）。
+6. **Run（运行）** — 至此组合根才启动入口，且必须在其依赖的所有后端就绪之后。先接好静态回调（`notifier.SetAuthService`、scheduler 的 `OnJob` 处理器——均为互斥保护的一次性写入），并启动包含 scheduler、goal、embedding worker 的唯一共享 River client，再启动 scheduler、goal 调度 tick、embedding backfill；scheduler 处理器在 River 启动**之前**接好，因为 River 一启动就可能处理已持久化的作业。之后入口才上线——group 调度循环、受管通道运行时，最后是 `httpSrv.Serve`（监听器提前绑定但不 serve）。组合根持有单个 `errgroup`：`httpSrv.Serve` 与 `groupDispatcher.Run(ingressCtx)` 在其下运行。预期的关停错误归一为 `nil`（`http.ErrServerClosed`、`context.Canceled`）；任何其它组件错误取消同伴并成为根错误。组件构造子不启动 goroutine——后台循环由显式阻塞式 `Run(ctx)` 或组合根拥有的 `Start` 进入（例如 trace hook 的空闲会话回收器）。
 
 **不可变 Server Deps。** `server.Deps` 是由应用服务组成的值结构体：Account、Profile、Project、Inbox、Agent/Session/Skill access、Group、控制面和共享能力服务。`internal/server` 不持有持久化 store、查询句柄或连接池；唯一带数据库形状的依赖是仅用于存活探针的 `DBPinger`。终态 AST 守卫拒绝宽泛 `Deps` 字段、Server 持久化选择器以及 `sqlc`/`pgxpool` 导入；其反例覆盖嵌套字段、别名、无导入的 handler 查询使用、仅 DTO 导入和 dot import。可选能力容忍 nil，并通过单一集中的 503 映射退化。
 
@@ -163,13 +163,12 @@ type Tool interface {
 
 ### 内置工具（始终可用）
 
-| 工具       | 描述                             |
-| ---------- | -------------------------------- |
-| `read`     | 使用 UTF-8 安全截断读取文件内容  |
-| `bash`     | 执行 shell 命令                  |
-| `write`    | 原子性创建/覆盖文件              |
-| `edit`     | 编辑文件部分，保留上下文         |
-| `delegate` | 将专注子任务委派到隔离的子循环中 |
+| 工具    | 描述                            |
+| ------- | ------------------------------- |
+| `read`  | 使用 UTF-8 安全截断读取文件内容 |
+| `bash`  | 执行 shell 命令                 |
+| `write` | 原子性创建/覆盖文件             |
+| `edit`  | 编辑文件部分，保留上下文        |
 
 ### 插件工具（通过Web UI切换）
 
@@ -183,30 +182,32 @@ type Tool interface {
 
 沙箱系统为 agent 工具执行提供进程、文件系统和网络隔离。所有核心工具在每个 runner 中共享同一个 `sandbox.Session`：`bash` 使用 `Session.Exec`；`read`/`write`/`edit` 使用 `Session.ResolvePath` + `os.*`。沙箱后端不可用时 runner 启动失败关闭。详见[沙箱后端抽象](/docs/development/sandbox)了解完整的 Session 接口、执行中介、拒绝失败行为和例外边界。
 
-沙箱工具（bash、read、write、edit）位于 `internal/agent/sandbox/`；其他内置工具位于它们投射的能力包中（例如 delegate 位于 `internal/agent/delegate`）。插件工具（如 webfetch）位于 `plugins/tools/`，通过 `init()` 自注册。添加新的插件工具只需一个空白导入，无需修改组装代码。详见[插件系统](/docs/development/plugin-system)。
+沙箱工具（bash、read、write、edit）位于 `internal/agent/sandbox/`；其他内置工具位于它们投射的能力包中。插件工具（如 webfetch）位于 `plugins/tools/`，通过 `init()` 自注册。添加新的插件工具只需一个空白导入，无需修改组装代码。详见[插件系统](/docs/development/plugin-system)。
 
-### Delegate 工具
+### Session 工具
 
-`delegate` 工具使代理能够将专注子任务委派到具有隔离上下文的子循环中。这对于从新上下文受益的任务（研究、代码审查、起草）很有用，而不会污染父对话。
+面向模型的 `session` 工具统一负责 Session 管理、有界检查、创建和同步通信。内容回忆归 `memory` 工具负责：
 
-- 每个委派任务获得仅包含任务描述的新消息历史
-- 多个任务通过 goroutine 并行运行，支持可配置并发度
-- `delegate` 工具从子任务中排除以防止递归
-- 委派任务输出截断为 ~4096 个 token，以避免膨胀父上下文
-- 支持从带有 YAML 前置数据的 markdown 文件加载预设
-- 每任务选项：`preset`、`context`、`model`（覆盖）、`system`（附加指令）、`tools`（白名单）、`max_turns`（默认 10）、`timeout_seconds`（默认 120）
+- `list` 列出最近、活跃或已归档的 Session 卡片，不做语义搜索。
+- `get` 返回 metadata 与 context stats，并按完整逻辑回合分页。
+- `create` 打开持久的聚焦 Session，并可应用内部 preset。
+- `send` 在当前 Agent 拥有且可发送的 Session 上运行一个回合，包括旧 delegate Session。
+
+runtime 保留 `DelegateTool` 和 delegate Session kind，作为 preset 和已有 ID 的内部兼容机制。模型工具注册表不再注册 `delegate`。
+
+Agent 发送会先持久化一行输入，再进入进程内按 Session 划分的 FIFO，最后经过标准 runtime admission guard。队列限制等待深度和 admission 等待时间，传播来源 context，但不取代 runtime 正确性 guard。LCM 会在追加 transcript 消息的同一事务中认领该行。启动恢复会重新鉴权 pending 行并只追加消息；它绝不会启动模型或工具 turn。嵌套调用在 context 中携带深度和祖先链，拒绝循环，继承根 deadline，并在同一根回合的同级与嵌套调用间共享 16 次调用预算。Agent 输入会持久化 actor 和来源 Session；prompt 渲染把它标记为信息，而不是用户权威。同步 Session 回合不会隐式发布到外部渠道，inbox 持久化也不会让回复或执行本身变得持久。
 
 ### 内置共享工具
 
-| 工具        | 条件                  | 描述                                           |
-| ----------- | --------------------- | ---------------------------------------------- |
-| `memory`    | 始终                  | 自动生成的内存工具（操作根据提供商能力自适应） |
-| `session`   | 一对一 Agent 会话     | 只读会话发现与对话记录查看                     |
-| `skills`    | 始终                  | 技能管理（从 skills.sh 搜索/安装/列出/移除）   |
-| `scheduler` | 始终                  | 安排任务（添加/列出/移除作业）                 |
-| `notify`    | 网关模式 + 通道已配置 | 通过分发器发送通知                             |
+| 工具        | 条件                  | 描述                                         |
+| ----------- | --------------------- | -------------------------------------------- |
+| `memory`    | 始终                  | 跨对话与持久记忆的统一搜索和读取             |
+| `session`   | 一对一 Agent 会话     | Session 列表、有界检查、创建和同步发送       |
+| `skills`    | 始终                  | 技能管理（从 skills.sh 搜索/安装/列出/移除） |
+| `scheduler` | 始终                  | 安排任务（添加/列出/移除作业）               |
+| `notify`    | 网关模式 + 通道已配置 | 通过分发器发送通知                           |
 
-内存工具由 `memory.BuildTool(provider)` 自动生成，它会检查 provider 能力并生成匹配动作。普通聊天 runner 会用 `WithSessionReadOnlyWrites()` 收窄它：使用 LCM provider 时暴露 `status`、`search`、`describe`、`expand`、`get_message`、`profile_get`、`soul_get`、`profile_history` 和 `constraint_list`；Simple provider 暴露对应的只读子集。持久 profile/soul/constraint 写入由 Reflect 或 UI/API 等手动路径完成，并注入新会话的系统提示。
+内存工具由 `memory.BuildTool(provider, memory.WithRecallSource(sessionAccess))` 生成。普通聊天 runner 只暴露 `search` 与 `read`：search 联合检索当前快照可见的 LCM 消息/摘要和持久 facts、profile、soul、constraints；read 解析 opaque result ref 或 well-known 的身份、约束、历史 ref。Dynamic read 会重新经过 Session access 授权；summary read 则通过有界 child ref 保留 LCM describe/expand 能力。对话 `status`/`describe`/`expand`/`get_message` 以及持久 profile、soul、constraint 管理等 provider-oriented actions，只保留给负责它们的 internal、Reflect 或 manual surface。
 
 ## 会话生命周期
 

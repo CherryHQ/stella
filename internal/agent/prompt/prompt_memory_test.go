@@ -261,7 +261,7 @@ func TestKnowledgeFactsNotInjectedIntoPrompt(t *testing.T) {
 	})
 
 	if strings.Contains(p, "## Knowledge") {
-		t.Fatalf("did not expect Knowledge section; knowledge should be retrieved with memory.search_knowledge:\n%s", p)
+		t.Fatalf("did not expect Knowledge section; knowledge should be retrieved with memory.search:\n%s", p)
 	}
 	if strings.Contains(p, "PostgreSQL bundles target Ubuntu LTS runtimes.") {
 		t.Fatalf("did not expect world fact content to be injected into prompt:\n%s", p)

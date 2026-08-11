@@ -362,8 +362,8 @@ func mustAssetStore(t *testing.T, home string) *asset.Store {
 	return a
 }
 
-// toolAuthzWorkspaceViewer maps this fixture's legacy user/Agent directories;
-// production wiring must provide the authoritative Home registry instead.
+// toolAuthzWorkspaceViewer maps this fixture's user/Agent directories;
+// production wiring uses the authoritative WorkspaceManager instead.
 type toolAuthzWorkspaceViewer struct{ root string }
 
 func (w toolAuthzWorkspaceViewer) WorkspaceView(_ context.Context, req homepkg.WorkspaceRequest) (homepkg.WorkspaceView, error) {

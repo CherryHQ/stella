@@ -9,19 +9,40 @@ import (
 	"testing"
 )
 
-// mise.toml is the one place the Node and pnpm versions are pinned. pnpm is the
-// exception that cannot be: the repository runs pnpm from the root, where there
-// is no package.json, so mise has to install a version to bootstrap with — and
-// inside web/ pnpm then self-switches to packageManager. A mismatch therefore
-// never fails anything, it just means the pinned version is not the one that
-// runs, which is how the pin drifted three minor versions out of date unnoticed.
-func TestMisePnpmPinMatchesPackageManager(t *testing.T) {
+// Vite+ deliberately has a global CLI and a local project package. The global
+// CLI drives migration and delegates project work to the local toolchain, so a
+// split version is two build systems hiding behind the same command.
+func TestMiseVPPinMatchesLocalToolchain(t *testing.T) {
 	mise, err := os.ReadFile(filepath.Join("..", "mise.toml"))
 	if err != nil {
 		t.Fatalf("read mise.toml: %v", err)
 	}
-	pinned := firstSubmatch(t, regexp.MustCompile(`(?m)^pnpm\s*=\s*"([^"]+)"`), mise, "pnpm pin in mise.toml")
+	pinned := firstSubmatch(t, regexp.MustCompile(`(?m)^vp\s*=\s*"([^"]+)"`), mise, "vp pin in mise.toml")
 
+	workspace, err := os.ReadFile("pnpm-workspace.yaml")
+	if err != nil {
+		t.Fatalf("read pnpm-workspace.yaml: %v", err)
+	}
+	for name, re := range map[string]*regexp.Regexp{
+		"vite-plus catalog pin": regexp.MustCompile(`(?m)^\s{2}vite-plus:\s*([0-9][^\s]*)\s*$`),
+		"Vite core alias pin":   regexp.MustCompile(`(?m)^\s{2}vite:\s*npm:@voidzero-dev/vite-plus-core@([^\s]+)\s*$`),
+	} {
+		if got := firstSubmatch(t, re, workspace, name); got != pinned {
+			t.Errorf("%s = %q, but mise.toml pins vp %q; upgrade the Vite+ toolchain together with vp migrate", name, got, pinned)
+		}
+	}
+
+	vitest := firstSubmatch(t, regexp.MustCompile(`(?m)^\s{2}vitest:\s*([^\s]+)\s*$`), workspace, "Vitest catalog pin")
+	if strings.ContainsAny(vitest, "^~*") || vitest == "latest" {
+		t.Errorf("Vitest catalog pin = %q; vp test requires the exact version bundled with the pinned Vite+ release", vitest)
+	}
+
+	if regexp.MustCompile(`(?m)^pnpm\s*=`).Match(mise) {
+		t.Error("mise.toml must not pin pnpm; package.json#packageManager owns that version and vp downloads it")
+	}
+}
+
+func TestProjectPinsPackageManager(t *testing.T) {
 	body, err := os.ReadFile("package.json")
 	if err != nil {
 		t.Fatalf("read package.json: %v", err)
@@ -32,10 +53,8 @@ func TestMisePnpmPinMatchesPackageManager(t *testing.T) {
 	if err := json.Unmarshal(body, &pkg); err != nil {
 		t.Fatalf("package.json is not valid JSON: %v", err)
 	}
-	if want := "pnpm@" + pinned; pkg.PackageManager != want {
-		t.Errorf("package.json packageManager = %q, but mise.toml pins %q. "+
-			"pnpm self-switches to packageManager, so the mise pin would silently stop being the version that runs",
-			pkg.PackageManager, want)
+	if !regexp.MustCompile(`^pnpm@[0-9]+\.[0-9]+\.[0-9]+$`).MatchString(pkg.PackageManager) {
+		t.Errorf("package.json packageManager = %q; vp requires an exact pnpm version for deterministic installs", pkg.PackageManager)
 	}
 }
 

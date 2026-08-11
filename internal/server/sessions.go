@@ -194,6 +194,26 @@ func (s *Server) StopSession(w http.ResponseWriter, r *http.Request, agentID str
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) MarkSessionViewed(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "missing session ID")
+		return
+	}
+	authority, ok := s.sessionAuthority(w, r)
+	if !ok {
+		return
+	}
+	if err := s.sessionAccess.MarkViewed(r.Context(), sessionaccess.MarkViewedInput{
+		Authority: authority,
+		AgentID:   agentID,
+		SessionID: sessionID,
+	}); err != nil {
+		s.writeSessionAccessError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // streamAgentEvents encodes a live turn's events to w as a Vercel AI-SDK UI
 // message stream (SSE). Shared by SendSessionMessage (the turn it initiated) and
 // StreamSessionEvents (a read-only subscription to a turn started elsewhere), so
@@ -590,16 +610,17 @@ func detectMIME(name string) string {
 
 // sessionResponse is the HTTP representation of session-domain metadata.
 type sessionResponse struct {
-	ID         string    `json:"id"`
-	Channel    string    `json:"channel"`
-	Kind       string    `json:"kind"`
-	ProjectID  string    `json:"project_id,omitempty"`
-	Title      string    `json:"title"`
-	AgentID    string    `json:"agent_id"`
-	UserID     string    `json:"user_id"`
-	CreatedAt  time.Time `json:"created_at"`
-	LastActive time.Time `json:"last_active"`
-	Archived   bool      `json:"archived"`
+	ID             string    `json:"id"`
+	Channel        string    `json:"channel"`
+	Kind           string    `json:"kind"`
+	ProjectID      string    `json:"project_id,omitempty"`
+	Title          string    `json:"title"`
+	AgentID        string    `json:"agent_id"`
+	UserID         string    `json:"user_id"`
+	CreatedAt      time.Time `json:"created_at"`
+	LastActive     time.Time `json:"last_active"`
+	ActivityStatus string    `json:"activity_status"`
+	Archived       bool      `json:"archived"`
 }
 
 // sessionDetailResponse extends sessionResponse with resolved names.
@@ -613,16 +634,31 @@ type sessionDetailResponse struct {
 // round-tripping through the memory persistence record just to build a DTO.
 func sessionResponseFromInfo(info session.Info) sessionResponse {
 	return sessionResponse{
-		ID:         info.ID,
-		Channel:    info.Channel,
-		Kind:       info.Kind,
-		ProjectID:  info.ProjectID,
-		Title:      info.Title,
-		AgentID:    info.AgentID,
-		UserID:     info.UserID,
-		CreatedAt:  info.CreatedAt.UTC(),
-		LastActive: info.LastActive.UTC(),
-		Archived:   info.Archived,
+		ID:             info.ID,
+		Channel:        info.Channel,
+		Kind:           info.Kind,
+		ProjectID:      info.ProjectID,
+		Title:          info.Title,
+		AgentID:        info.AgentID,
+		UserID:         info.UserID,
+		CreatedAt:      info.CreatedAt.UTC(),
+		LastActive:     info.LastActive.UTC(),
+		ActivityStatus: sessionActivityStatus(info),
+		Archived:       info.Archived,
+	}
+}
+
+func sessionActivityStatus(info session.Info) string {
+	if info.LastTurnCompletedAt.IsZero() || !info.LastTurnCompletedAt.After(info.LastViewedAt) {
+		return "idle"
+	}
+	switch string(info.LastTurnResult) {
+	case "success":
+		return "success"
+	case "error":
+		return "error"
+	default:
+		return "idle"
 	}
 }
 
@@ -657,7 +693,11 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID st
 
 	resp := make([]sessionResponse, 0, len(page.Sessions))
 	for _, si := range page.Sessions {
-		resp = append(resp, sessionResponseFromInfo(si))
+		item := sessionResponseFromInfo(si)
+		if access.SessionRunning(si) {
+			item.ActivityStatus = "working"
+		}
+		resp = append(resp, item)
 	}
 	out := map[string]any{"sessions": resp}
 	if page.HasMore {
@@ -684,6 +724,9 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, agentID stri
 	resp := sessionDetailResponse{
 		sessionResponse: sessionResponseFromInfo(detail.Info),
 		AgentName:       detail.AgentName,
+	}
+	if access.SessionRunning(detail.Info) {
+		resp.ActivityStatus = "working"
 	}
 
 	// Resolve user name from the account system (best-effort display enrichment).
@@ -727,11 +770,19 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, agentID s
 	}
 
 	if err := access.UpdateTitle(r.Context(), si, title); err != nil {
+		if errors.Is(err, sessionaccess.ErrInvalid) {
+			writeError(w, http.StatusBadRequest, "title is too long")
+			return
+		}
 		s.writeSessionAccessError(w, err)
 		return
 	}
 	si.Title = title
-	writeData(w, http.StatusOK, sessionResponseFromInfo(si))
+	resp := sessionResponseFromInfo(si)
+	if access.SessionRunning(si) {
+		resp.ActivityStatus = "working"
+	}
+	writeData(w, http.StatusOK, resp)
 }
 
 func (s *Server) DeleteSession(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
@@ -1139,6 +1190,8 @@ func contextItemsToAPI(items []sessionaccess.ContextItem) []apitypes.SessionCont
 			apiItem.Type = apitypes.Message
 			apiItem.Message = &apitypes.SessionContextMessage{
 				Id: item.Message.ID, Seq: item.Message.Seq, Role: item.Message.Role,
+				ActorType: apitypes.SessionContextMessageActorType(item.Message.ActorType),
+				ActorId:   textPointer(item.Message.ActorID), SourceSessionId: textPointer(item.Message.SourceSessionID),
 				EventType: item.Message.EventType, Content: item.Message.Content,
 				Timestamp: item.Message.Timestamp.UTC(), TokenCount: item.Message.TokenCount,
 			}
@@ -1208,8 +1261,10 @@ func serializeDBMessages(agentID, sessionID string, rows []sessionaccess.Message
 func serializeUserRow(agentID, sessionID string, row sessionaccess.Message) apitypes.SessionMessage {
 	message := apitypes.SessionMessage{
 		Id: row.ID, Role: apitypes.SessionMessageRoleUser,
+		ActorType: apitypes.SessionMessageActorType(row.ActorType),
 		Timestamp: row.CreatedAt.UTC(), TokenCount: row.TokenCount,
 	}
+	setSessionMessageActor(&message, row)
 	setSessionMessagePresentation(&message, agentID, sessionID, row.Content, row.Parts)
 	return message
 }
@@ -1242,6 +1297,8 @@ func serializeAssistantRows(rows []sessionaccess.Message, start int) (apitypes.S
 		// First row's id identifies the merged turn — stable across pagination
 		// regardless of how many earlier pages have been loaded.
 		Id: rows[start].ID, Role: apitypes.SessionMessageRoleAssistant, Blocks: &blocks,
+		ActorType: apitypes.SessionMessageActorType(rows[start].ActorType),
+		ActorId:   textPointer(rows[start].ActorID), SourceSessionId: textPointer(rows[start].SourceSessionID),
 		Timestamp: rows[start].CreatedAt.UTC(), TokenCount: totalTokens,
 	}, consumed
 }
@@ -1268,7 +1325,9 @@ func decodeToolCallBlock(content string) apitypes.SessionMessageBlock {
 func serializeToolRow(agentID, sessionID string, row sessionaccess.Message) apitypes.SessionMessage {
 	message := apitypes.SessionMessage{
 		Id: row.ID, Role: apitypes.SessionMessageRoleTool, Timestamp: row.CreatedAt.UTC(), TokenCount: row.TokenCount,
+		ActorType: apitypes.SessionMessageActorType(row.ActorType),
 	}
+	setSessionMessageActor(&message, row)
 	var env struct {
 		ID         string                 `json:"id"`
 		Tool       string                 `json:"tool"`
@@ -1314,6 +1373,18 @@ func serializeToolRow(agentID, sessionID string, row sessionaccess.Message) apit
 		message.References = &references
 	}
 	return message
+}
+
+func setSessionMessageActor(message *apitypes.SessionMessage, row sessionaccess.Message) {
+	message.ActorId = textPointer(row.ActorID)
+	message.SourceSessionId = textPointer(row.SourceSessionID)
+}
+
+func textPointer(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 // setSessionMessagePresentation uses durable parts as the complete visible

@@ -31,23 +31,13 @@ title: 沙箱后端抽象
 
 文件 I/O（`read`、`write`、`edit`）由 runner 拥有：runner 调用 `ResolvePath` 获取宿主机路径，然后直接使用 `os.ReadFile`/`os.WriteFile`/`os.MkdirAll`。`Session` 不包含文件读写方法。
 
-## Provider 文件系统边界
+## 本地 workspace 所有权
 
-`pkg/sandbox.Filesystem` 是持久文件操作的 provider 中立边界。调用方只能使用 `/workspace`、`/user` 或 `/tmp` 下的规范沙箱路径；该接口不会暴露宿主机路径。它支持有界流式读取、流式写入与上传，以及 stat/list、mkdir、remove 和 rename。
-
-`local` 与受不安全开关约束的 `none` 后端直接使用根目录内受约束的文件操作实现该边界。Docker 则在沙箱容器内为每次操作启动一个 `stella-fs` helper 进程。该协议严格验证请求与响应 framing，在进程边界两端保留稳定的 `io/fs` 错误，并拒绝格式错误或超过上限的读取响应。
-
-写操作被中断时会返回 `sandbox.ErrOutcomeUnknown`。调用方必须报告该状态且不得自动重试，因为第一次操作可能已经完成。Docker preflight 还要求镜像中的文件系统 helper revision 与正在运行的 `stellad` 二进制匹配。
-
-该边界目前与 `Session.ResolvePath` 并存：`FilesystemSession` 暴露新实现，而现有运行时消费者仍使用旧的宿主机路径契约。后续迁移会先移动这些消费者，再删除宿主机路径方法。provider 边界不会在生产环境回退到 `ResolvePath`。
-
-## 类型化 Home registry 与 attachment
-
-Phase 1 将持久 Home 的类型化身份与机器路径分离。registry 为每个用户或群组 Principal Home、每 Principal 的 Agent Home，以及窄范围 system 或 system-Agent Skill 根记录不可变 Store ID 与不透明 locator。`sandbox.HomeAttachment` 是面向计算消费者的稳定契约。`internal/home.WorkspaceView` 会暂时为已迁移的当前消费者携带 local root projection，直到 Phase 2。原始 ID 相同的用户和群组仍是不同 Principal。
+Phase 1 仅支持一个副本和一个可信 POSIX `STELLA_HOME`。PostgreSQL owner row 是身份和授权 authority；`STELLA_HOME` 下的确定性路径是布局与字节 authority。`internal/home.WorkspaceManager` 是唯一生产物化器：只有确认 user、group 和 Agent owner 存活后才创建缺失目录，并拒绝 symlink、非目录、不安全 ID 和可信根替换。原始 ID 相同的用户和群组使用不同路径。
 
 用户或群组运行会得到其 Principal、Agent Home attachment，以及只读的共享 Skill 根。无用户运行只得到这些只读共享 Skill 根，没有 Principal 或 Agent Home。群组 Agent Home 的 Skill materialization 不含 user 或 `user_agent` scope：它不会把群组数据变成某个用户的 `user_agent` Skill。
 
-显式破坏性所有者删除会先 tombstone 并 fence Home，随后共享 River purge worker 清除字节。此 fencing 仅适用于单副本。Phase 3 必须加入跨副本 SessionSandbox fencing；目前尚未实现。
+显式破坏性删除 user、group 或 Agent 时，会先 fence 本地执行，再删除数据库 owner。文件和 inode 保留，但后续 `WorkspaceView` 因 owner 不存在而失败。`agents/{id}` 的任意文件系统条目都会保留全局 Agent ID。这些保证仅适用于可信宿主和单副本；多副本、Kubernetes 与 S3 authority 需要未来重新设计。
 
 ## 当前架构
 
@@ -101,10 +91,6 @@ Stella 优先选择显式拒绝而非静默降级：
 该抽象由以下测试覆盖：
 
 - 会话/宿主机契约测试
-- `local`、`none` 与 Docker 共享的文件系统一致性测试
-- 严格的 helper 协议与取消测试
-- 使用真实镜像的 Docker 文件系统一致性测试
-- Docker 二进制/镜像 helper revision preflight 测试
 - 策略兼容性测试
 - 核心工具一致性测试
 - Docker 后端集成测试
@@ -128,7 +114,7 @@ Project Skill 仍是持久 Agent/项目工作树中的普通文件。PostgreSQL 
 
 Docker 沙箱镜像会烤入并标记精确 revision，不会回退到宿主机 builtin。Docker provider preflight 拒绝二进制与镜像 revision 不匹配的组合，从而阻止 runner session 启动。操作员命令语法使用 `stellad system-bundle --help` 查询。开发镜像用 `mise run sandbox:docker:build` 重建；每个自定义沙箱镜像都必须从匹配的 Stella revision 重建。
 
-升级前，操作员必须使用旧的可工作二进制，在 **设置 → 技能** 中将遗留 `$STELLA_HOME/.agents/skills` 下的每个自定义 Skill 根导入为全局（`system`）Skill。其他残留路径必须先备份、验证后删除。启动会报告每个阻塞路径并退出，不会修改任何内容。当前 manifest 路径即使内容或模式不同也只是惰性数据；其他每个 Skill 根或残留路径都会阻塞启动。
+升级前，操作员必须使用旧的可工作二进制，将遗留 `$STELLA_HOME/.agents/skills` 下的每个自定义 Skill 根导入为全局（`system`）Skill：旧版入口为 **设置 → 技能**，新版入口为 **管理控制台 → 部署资源 → 全局技能**。其他残留路径必须先备份、验证后删除。启动会报告每个阻塞路径并退出，不会修改任何内容。当前 manifest 路径即使内容或模式不同也只是惰性数据；其他每个 Skill 根或残留路径都会阻塞启动。
 
 ## Agent Skill 策略
 

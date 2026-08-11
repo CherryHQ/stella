@@ -16,6 +16,7 @@ components:
         user_id,
         created_at,
         last_active,
+        activity_status,
         archived,
       ]
       properties:
@@ -28,11 +29,18 @@ components:
             value predates the goal rename and is kept for stored sessions.
           enum: [main, chat, delegate, scheduler, task]
         project_id: { type: string }
-        title: { type: string }
+        title: { type: string, maxLength: 1000 }
         agent_id: { type: string }
         user_id: { type: string }
         created_at: { type: string, format: date-time }
         last_active: { type: string, format: date-time }
+        activity_status:
+          type: string
+          readOnly: true
+          description: >-
+            Activity state for this session. Working is live process state;
+            success and error describe an unviewed completed turn.
+          enum: [idle, working, success, error]
         archived: { type: boolean }
 
     SessionDetail:
@@ -55,7 +63,7 @@ components:
     UpdateSessionRequest:
       type: object
       properties:
-        title: { type: string }
+        title: { type: string, maxLength: 1000 }
 
     MessagePart:
       type: object
@@ -262,12 +270,17 @@ components:
 
     SessionMessage:
       type: object
-      required: [id, role, timestamp, token_count]
+      required: [id, role, actor_type, timestamp, token_count]
       properties:
         id: { type: string }
         role:
           type: string
           enum: [user, assistant, tool]
+        actor_type:
+          type: string
+          enum: [human, agent, system]
+        actor_id: { type: string }
+        source_session_id: { type: string }
         content: { type: string }
         blocks:
           type: array
@@ -306,11 +319,16 @@ components:
 
     SessionContextMessage:
       type: object
-      required: [id, seq, role, timestamp, token_count]
+      required: [id, seq, role, actor_type, timestamp, token_count]
       properties:
         id: { type: string }
         seq: { type: integer }
         role: { type: string }
+        actor_type:
+          type: string
+          enum: [human, agent, system]
+        actor_id: { type: string }
+        source_session_id: { type: string }
         event_type: { type: string }
         content: { type: string }
         timestamp: { type: string, format: date-time }

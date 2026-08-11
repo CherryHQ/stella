@@ -39,6 +39,9 @@ func TestCoordinatorResolveUserRootUsesWorkspaceView(t *testing.T) {
 	user := createTestUser(t, ts.oidcStore, "root@example.com")
 	createTestIdentity(t, ts.oidcStore, user.ID, "telegram", "sender", "Root User")
 	agentID := ts.stellaAgentID(t)
+	if _, err := ts.db.Exec(ctx, `INSERT INTO channel (id, name, type, agent_id, enabled) VALUES ('typed-home-test', 'Typed Home Test', 'telegram', $1, true)`, agentID); err != nil {
+		t.Fatalf("create group channel: %v", err)
+	}
 
 	for _, tt := range []struct {
 		name    string
@@ -47,7 +50,7 @@ func TestCoordinatorResolveUserRootUsesWorkspaceView(t *testing.T) {
 		want    home.WorkspaceRequest
 	}{
 		{name: "DM", message: pkgchannel.IncomingMessage{Platform: "telegram", SenderID: "sender"}, want: home.WorkspaceRequest{UserID: user.ID, AgentID: agentID}},
-		{name: "group", message: pkgchannel.IncomingMessage{Platform: "telegram", SenderID: "sender", ChatID: "platform-group", IsGroup: true}, groupID: "canonical-group", want: home.WorkspaceRequest{UserID: user.ID, GroupID: "canonical-group", AgentID: agentID}},
+		{name: "group", message: pkgchannel.IncomingMessage{Platform: "telegram", ChannelID: "typed-home-test", SenderID: "sender", ChatID: "platform-group", IsGroup: true}, groupID: "canonical-group", want: home.WorkspaceRequest{UserID: user.ID, GroupID: "canonical-group", AgentID: agentID}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			viewer := &resolveWorkspaceViewer{view: home.WorkspaceView{PrincipalRoot: "/supplied/" + tt.name}}

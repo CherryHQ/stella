@@ -46,7 +46,7 @@ internal/
     runtime/           Runner cache, turn execution, event persistence
     prompt/            System prompt builder and templates
     sandbox/           Core sandbox tools (bash, read, write, edit)
-    delegate/          Delegate tool (isolated child loops)
+    delegate/          Internal managed-session adapter and presets
   channel/             Channel interface, identity resolution, slash commands, notify
   memory/              Memory provider registry + implementations (lcm, simple)
   server/              HTTP API + embedded React SPA
@@ -55,12 +55,12 @@ internal/
   controlplane/        Control-plane domain (providers, settings, plugins, channels)
   pluginhost/          Capability-scoped plugin platform host
   db/                  PostgreSQL (pgx/v5), goose migrations, sqlc queries
-  home/                Typed Home registry, local compatibility projection, deletion lifecycle
+  home/                POSIX workspace materialization, owner validation, deletion fencing
   scheduler/           River-backed service (durable job scheduling for Web UI and native agent tools)
   skills/              Skills tool (search/install/list/remove via skills.sh)
 pkg/
   ai/                  Message/Content types, Model, Provider interface, streaming events
-  tools/               Tool interface, registry, built-in tools (read, bash, write, edit, delegate)
+  tools/               Tool interface and registry
 plugins/
   tools/               Plugin tool registry + plugin tools (webfetch)
   hooks/               Plugin hook registry + plugin hooks (rtk)
@@ -79,9 +79,9 @@ Configuration is stored in PostgreSQL and accessed through the `config.Store` in
 
 ## Home persistence and lifecycle
 
-`internal/home` owns typed persistent Home identity: user and group Principal Homes, per-principal Agent Homes, and narrow system and system-Agent Skill roots. PostgreSQL stores each Home's immutable Store ID, opaque locator, and lifecycle state; the Phase 1 local store preserves the current path layout as an internal compatibility projection. Registry metadata does not recover file bytes, so durable Principal and Agent Home storage must be backed up with PostgreSQL.
+`internal/home.WorkspaceManager` is the sole production materializer beneath one POSIX `STELLA_HOME`. PostgreSQL user, group, and Agent rows authorize deterministic local paths; the filesystem owns layout and bytes. A missing workspace for live owners is created, while a symlink, non-directory, unsafe ID, or replaced trusted root fails closed. Existing files are never registered into a PostgreSQL Home catalog because Phase 1 has no such catalog.
 
-An explicit destructive user, group, or Agent delete tombstones Homes before removing the owner and durably enqueues one purge batch in the delete transaction. After commit, the process synchronously fences local cached execution; the shared River worker fences again before purging bytes idempotently. A failed physical purge remains `purge_failed` with audit data for operator retry. Assignment removal, member removal, Session archive, and Helm uninstall are not Home deletion operations. This is a single-replica boundary; multi-replica topology and cross-replica SessionSandbox fencing are future work.
+An explicit destructive user, group, or Agent delete fences local cached execution before deleting the owner in the existing database transaction. Physical bytes and inodes remain, but owner validation prevents later workspace access. A filesystem entry of any kind at `agents/{id}` reserves the global Agent ID. Assignment removal, member removal, Session archive, and Helm uninstall do not delete workspace bytes. This is a trusted-host, single-replica boundary; multi-replica, Kubernetes, and S3 storage authority require a future design.
 
 ## Composition & Lifecycle
 
@@ -89,10 +89,10 @@ An explicit destructive user, group, or Agent delete tombstones Homes before rem
 
 1. **Boot config** — `serverAction` parses `config.LoadServerConfig(os.LookupEnv)` and `oidc.LoadLoginConfig(os.LookupEnv, baseURL)` once, at the startup boundary. No other package reads the environment (a test tripwire enforces this, with a small allowlist for `STELLA_HOME`/OTel/runtime passthrough). The final base URL is resolved here and threaded down, so shared services are constructed with it directly — never a `localhost` placeholder mutated later.
 2. **Build** — `setup()` constructs each subsystem once. The shared credentials/email/share/recally/MCP services are built a single time (each domain owns its own query set via a `*ForPool` constructor), so the same instance backs both the agent tools and the HTTP endpoints.
-3. **Bind** — genuine back-edges are closed with one-shot, pre-start binds that reject a nil/duplicate/late bind: the PoolManager's `BindVaultEnvLoader`/`BindMCPToolProvider`/`BindOAuthRegistry` (before `StartAll`), the shared River client's `BindRiverClient` on the scheduler/goal/Home-deletion/embedding services, and `AddBuiltinTool` (duplicate-checked, sealed by `StartAll`). Ordinary dependencies are constructor-injected, not bound.
+3. **Bind** — genuine back-edges are closed with one-shot, pre-start binds that reject a nil/duplicate/late bind: the PoolManager's `BindVaultEnvLoader`/`BindMCPToolProvider`/`BindOAuthRegistry` (before `StartAll`), the shared River client's `BindRiverClient` on the scheduler/goal/embedding services, and `AddBuiltinTool` (duplicate-checked, sealed by `StartAll`). Ordinary dependencies are constructor-injected, not bound.
 4. **Validate / Seal** — `pluginhost.Seal()` validates every static registration and capability binding, then refuses further static registration; the dynamic desired-state surface (`ApplyChannel`/`RegisterManifestPlugins`) stays open. The admin server is built from an immutable, validated `server.Deps` via `server.New(ctx, deps)` which fails fast on a missing required dependency. `server.New` reads no environment, constructs no service, and has no setters.
 5. **Observability** — global OTel tracing initializes before the serving phase, so no span-emitting component (agent runs via HTTP/channel ingress) starts before the exporter is installed.
-6. **Run** — only now does the composition root start ingress, and only after every backend it depends on is up. First it wires the static callbacks (`notifier.SetAuthService`, the scheduler `OnJob` handler — both mutex-guarded one-time writes) and starts the one shared River client with scheduler, goal, Home purge, and embedding workers, then starts the scheduler, goal dispatch tick, and embedding backfill; the scheduler handler is wired **before** River starts, since River may run a persisted job the instant it starts. Only then does ingress come up — the group-dispatch loop, the managed channel runtimes, and finally `httpSrv.Serve` (the listener is bound earlier but not served). The root owns one `errgroup`: `httpSrv.Serve` and `groupDispatcher.Run(ingressCtx)` run under it. Expected shutdown errors normalize to `nil` (`http.ErrServerClosed`, `context.Canceled`); any other component error cancels its peers and becomes the root error. Component constructors start no goroutines — background loops are entered by an explicit blocking `Run(ctx)` or a `Start` owned by the root (e.g. the trace hook's idle-session reaper).
+6. **Run** — only now does the composition root start ingress, and only after every backend it depends on is up. First it wires the static callbacks (`notifier.SetAuthService`, the scheduler `OnJob` handler — both mutex-guarded one-time writes) and starts the one shared River client with scheduler, goal, and embedding workers, then starts the scheduler, goal dispatch tick, and embedding backfill; the scheduler handler is wired **before** River starts, since River may run a persisted job the instant it starts. Only then does ingress come up — the group-dispatch loop, the managed channel runtimes, and finally `httpSrv.Serve` (the listener is bound earlier but not served). The root owns one `errgroup`: `httpSrv.Serve` and `groupDispatcher.Run(ingressCtx)` run under it. Expected shutdown errors normalize to `nil` (`http.ErrServerClosed`, `context.Canceled`); any other component error cancels its peers and becomes the root error. Component constructors start no goroutines — background loops are entered by an explicit blocking `Run(ctx)` or a `Start` owned by the root (e.g. the trace hook's idle-session reaper).
 
 **Immutable Server Deps.** `server.Deps` is a value struct of application services: Account, Profile, Project, Inbox, Agent/Session/Skill access, Group, control-plane, and shared capability services. `internal/server` has no persistence store, query handle, or pool; `DBPinger` is its only database-shaped dependency and is limited to liveness probes. Terminal AST guards reject broad `Deps` fields, server persistence selectors, and `sqlc`/`pgxpool` imports; their counterexamples cover nested fields, aliases, handler query use without an import, DTO-only imports, and dot imports. Optional capabilities are nil-tolerant and degrade through one centralized 503 mapping.
 
@@ -178,13 +178,12 @@ type Tool interface {
 
 ### Built-in Tools (always available)
 
-| Tool       | Description                                       |
-| ---------- | ------------------------------------------------- |
-| `read`     | Read file contents with UTF-8 safe truncation     |
-| `bash`     | Execute shell commands                            |
-| `write`    | Create/overwrite files atomically                 |
-| `edit`     | Edit file sections preserving context             |
-| `delegate` | Delegate focused subtasks to isolated child loops |
+| Tool    | Description                                   |
+| ------- | --------------------------------------------- |
+| `read`  | Read file contents with UTF-8 safe truncation |
+| `bash`  | Execute shell commands                        |
+| `write` | Create/overwrite files atomically             |
+| `edit`  | Edit file sections preserving context         |
 
 ### Plugin Tools (toggleable via admin)
 
@@ -198,30 +197,32 @@ The core local-workspace tools run through a Docker sandbox backend. The `bash` 
 
 The sandbox system provides process, filesystem, and network isolation for agent tool execution. All core tools share the same `sandbox.Session` per runner: `bash` uses `Session.Exec`; `read`/`write`/`edit` use `Session.ResolvePath` + `os.*`. Runner startup fails closed when the sandbox backend is unavailable. See [Sandbox Backend Abstraction](/docs/development/sandbox) for the full Session interface, execution mediation, fail-closed behavior, and exception boundaries.
 
-Sandbox tools (bash, read, write, edit) live in `internal/agent/sandbox/`; other built-in tools live with the capability they project (for example, delegate in `internal/agent/delegate`). Plugin tools (e.g. webfetch) live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/development/plugin-system) for the full plugin architecture.
+Sandbox tools (bash, read, write, edit) live in `internal/agent/sandbox/`; other built-in tools live with the capability they project. Plugin tools (e.g. webfetch) live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/development/plugin-system) for the full plugin architecture.
 
-### Delegate Tool
+### Session Tool
 
-The `delegate` tool enables the agent to delegate focused subtasks to isolated child loops. This is useful for research, code review, or drafting that benefit from fresh context without polluting the parent conversation.
+The model-facing `session` tool owns Session management, bounded inspection, creation, and synchronous communication. Content recall belongs to the `memory` tool:
 
-- Each delegate gets a fresh message history containing only the task description
-- Multiple tasks run in parallel via goroutines with configurable concurrency
-- The `delegate` tool is excluded from children to prevent recursion
-- Delegate output is truncated to ~4096 tokens to avoid bloating the parent context
-- Supports presets loaded from markdown files with YAML frontmatter
-- Per-task options: `preset`, `context`, `model` (override), `system` (additional instructions), `tools` (whitelist), `max_turns` (default 10), `timeout_seconds` (default 120)
+- `list` lists recent, active, or archived Session cards without semantic search.
+- `get` returns metadata and context statistics, and pages bounded logical turns.
+- `create` opens a focused persistent Session and can apply an internal preset.
+- `send` runs one turn on an owned sendable Session, including legacy delegate Sessions.
+
+The runtime keeps `DelegateTool` and delegate Session kinds as internal compatibility machinery for presets and existing IDs. It does not register `delegate` in the model tool registry.
+
+Agent sends first persist an input row, then enter a process-local per-Session FIFO before the standard runtime admission guard. The queue bounds pending depth and admission hold time, propagates the source context, and never replaces the runtime correctness guard. LCM claims the row in the same transaction that appends the transcript message. Startup recovery reauthorizes and append-only delivers pending rows; it never starts a model or tool turn. Nested calls carry depth and ancestry in context, reject cycles, inherit the root deadline, and share a 16-call root-turn budget across sibling and nested calls. Agent-originated input persists its actor and source Session; prompt rendering marks it as information rather than human authority. Synchronous Session turns never publish to an external channel implicitly, and inbox durability does not make replies or execution durable.
 
 ### Builtin Shared Tools
 
-| Tool        | Condition                         | Description                                                         |
-| ----------- | --------------------------------- | ------------------------------------------------------------------- |
-| `memory`    | Always                            | Auto-generated memory tool (actions adapt to provider capabilities) |
-| `session`   | One-to-one agent sessions         | Read-only session discovery and transcript inspection               |
-| `skills`    | Always                            | Skill management (search/install/list/remove from skills.sh)        |
-| `scheduler` | Always                            | Schedule tasks (add/list/remove jobs)                               |
-| `notify`    | Gateway mode + channel configured | Send notifications via dispatcher                                   |
+| Tool        | Condition                         | Description                                                          |
+| ----------- | --------------------------------- | -------------------------------------------------------------------- |
+| `memory`    | Always                            | Unified search and read across conversation and durable memory       |
+| `session`   | One-to-one agent sessions         | Session listing, bounded inspection, creation, and synchronous sends |
+| `skills`    | Always                            | Skill management (search/install/list/remove from skills.sh)         |
+| `scheduler` | Always                            | Schedule tasks (add/list/remove jobs)                                |
+| `notify`    | Gateway mode + channel configured | Send notifications via dispatcher                                    |
 
-The memory tool is auto-generated by `memory.BuildTool(provider)`, which inspects the provider's capabilities and produces a tool with matching actions. Ordinary chat runners narrow it with `WithSessionReadOnlyWrites()`: with the LCM provider they expose `status`, `search`, `describe`, `expand`, `get_message`, `profile_get`, `soul_get`, `profile_history`, and `constraint_list`; with the Simple provider they expose the corresponding read-only subset. Durable profile/soul/constraint writes happen through Reflect or manual UI/API paths and are injected into new session prompts.
+The memory tool is generated by `memory.BuildTool(provider, memory.WithRecallSource(sessionAccess))`. Ordinary chat runners expose exactly `search` and `read`: search federates snapshot-visible LCM messages/summaries with durable facts, profile, soul, and constraints; read resolves an opaque result ref or a well-known identity/constraint/history ref. Dynamic reads reauthorize through Session access, and summary reads preserve LCM describe/expand through bounded child refs. Provider-oriented actions such as transcript `status`/`describe`/`expand`/`get_message` and durable profile, soul, or constraint management remain available only to the internal, Reflect, or manual surfaces that own them.
 
 ## Session Lifecycle
 

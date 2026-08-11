@@ -1,10 +1,9 @@
 package sandbox
 
-// HomeAttachment is an opaque, provider-compatible reference to persistent
-// storage. Physical coordinates stay private to the HomeStore implementation.
+// HomeAttachment identifies a workspace path relative to STELLA_HOME for
+// sandbox mounting.
 type HomeAttachment struct {
 	HomeID   string
-	StoreID  string
 	Locator  string
 	ReadOnly bool
 }

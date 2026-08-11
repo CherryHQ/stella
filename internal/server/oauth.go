@@ -1,6 +1,8 @@
 package server
 
 import (
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -40,6 +42,7 @@ type flowStatusJSON struct {
 	ExpiresAt       time.Time `json:"expires_at"`
 	State           string    `json:"state"`
 	Error           string    `json:"error,omitempty"`
+	RequestedScopes []string  `json:"requested_scopes,omitempty"`
 }
 
 func toFlowStatusJSON(fs connections.FlowStatus) flowStatusJSON {
@@ -51,6 +54,7 @@ func toFlowStatusJSON(fs connections.FlowStatus) flowStatusJSON {
 		ExpiresAt:       fs.ExpiresAt.UTC(),
 		State:           fs.State,
 		Error:           fs.Error,
+		RequestedScopes: fs.RequestedScopes,
 	}
 }
 
@@ -130,7 +134,14 @@ func (s *Server) StartOAuthFlow(w http.ResponseWriter, r *http.Request, provider
 	// matches the Web UI host. CLI/curl requests omit Origin; passing "" lets
 	// the credential service fall back to the configured base URL.
 	origin := strings.TrimRight(r.Header.Get("Origin"), "/")
-	status, err := acc.StartFlow(r.Context(), provider, origin)
+	var body struct {
+		Scopes []string `json:"scopes"`
+	}
+	if err := decodeJSON(r, &body); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	status, err := acc.StartFlow(r.Context(), provider, body.Scopes, origin)
 	if err != nil {
 		s.log.Error("start oauth flow", "provider", provider, "error", err)
 		writeError(w, http.StatusBadRequest, "invalid request")

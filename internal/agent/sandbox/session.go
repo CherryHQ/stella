@@ -9,7 +9,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/version"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
 	localplugin "github.com/CherryHQ/stella/plugins/sandbox/local"
@@ -52,7 +51,6 @@ func createDockerSession(ctx context.Context, cfg Config) (pkgsandbox.Session, e
 	factory, err := dockerplugin.NewFactory(dockerplugin.Config{
 		Image: dockerImage(), StellaHome: paths.StellaHome,
 		ExpectedBundleRevision: registry.BundleRevision(),
-		ExpectedHelperRevision: version.Version,
 	})
 	if err != nil {
 		return nil, err
