@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -23,10 +25,18 @@ const (
 	OwnerAgent OwnerKind = "agent"
 )
 
-// OwnerFencer synchronously makes an owner's cached execution state terminal.
-// It is deliberately narrower than PoolManager's ordinary invalidation surface.
-type OwnerFencer interface {
-	FenceHomeOwner(context.Context, OwnerKind, string) error
+// OwnerFenceLease retains execution admission exclusion until owner deletion
+// commits or rolls back. Commit is called only after the database commit;
+// Release must be idempotent.
+type OwnerFenceLease interface {
+	Commit()
+	Release()
+}
+
+// OwnerFenceAcquirer synchronously fences cached execution and retains the
+// admission barrier needed to prevent publication or admission before commit.
+type OwnerFenceAcquirer interface {
+	AcquireHomeOwnerFence(context.Context, OwnerKind, string) (OwnerFenceLease, error)
 }
 
 // OwnerDeletion is the deep lifecycle boundary for destructive owner deletes.
@@ -34,10 +44,10 @@ type OwnerFencer interface {
 type OwnerDeletion struct {
 	db       *pgxpool.Pool
 	registry *Registry
-	fencer   OwnerFencer
+	fencer   OwnerFenceAcquirer
 }
 
-func NewOwnerDeletion(db *pgxpool.Pool, registry *Registry, fencer OwnerFencer) (*OwnerDeletion, error) {
+func NewOwnerDeletion(db *pgxpool.Pool, registry *Registry, fencer OwnerFenceAcquirer) (*OwnerDeletion, error) {
 	if db == nil || registry == nil || fencer == nil {
 		return nil, errors.New("home: owner deletion requires database, registry, and fencer")
 	}
@@ -82,17 +92,19 @@ func (d *OwnerDeletion) delete(ctx context.Context, kind OwnerKind, id, actor st
 	if err := d.ownerExists(ctx, sqlc.New(d.db), kind, id); err != nil {
 		return err
 	}
-	// Phase-1 local projection holds this same bounded process lock. Fence while
-	// holding it, before opening the mutation transaction, so WorkspaceView
-	// cannot pass between a successful fence and commit.
+	// Admission barriers precede the Home owner gate everywhere. The retained
+	// lease lets a turn already constructing a WorkspaceView finish first, then
+	// prevents any later admission or service publication through DB commit.
+	lease, err := d.fencer.AcquireHomeOwnerFence(ctx, kind, id)
+	if err != nil {
+		return fmt.Errorf("home: fence %s owner %q: %w", kind, id, err)
+	}
+	defer lease.Release()
 	unlock, err := d.registry.lockOwnerKeys(ctx, []string{ownerLockKey(kind, id)})
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	if err := d.fencer.FenceHomeOwner(ctx, kind, id); err != nil {
-		return fmt.Errorf("home: fence %s owner %q: %w", kind, id, err)
-	}
 	tx, err := d.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("home: begin owner deletion: %w", err)
@@ -114,8 +126,32 @@ func (d *OwnerDeletion) delete(ctx context.Context, kind OwnerKind, id, actor st
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
+		// A connection/context failure can lose the COMMIT acknowledgement even
+		// though PostgreSQL committed. Reconcile before reopening admission. A
+		// definite server rollback keeps the Agent service published and usable.
+		if errors.Is(err, pgx.ErrTxCommitRollback) {
+			return fmt.Errorf("home: commit owner deletion: %w", err)
+		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			return fmt.Errorf("home: commit owner deletion: %w", err)
+		}
+		reconcileCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		reconcileErr := d.ownerExists(reconcileCtx, sqlc.New(d.db), kind, id)
+		if errors.Is(reconcileErr, pgx.ErrNoRows) {
+			lease.Commit()
+			return nil
+		}
+		if reconcileErr != nil {
+			// Fail closed on an unknown outcome. For Agent deletion Commit
+			// unpublishes the already fenced service; for principals it is a no-op.
+			lease.Commit()
+			return fmt.Errorf("home: commit owner deletion: %w (reconcile: %w)", err, reconcileErr)
+		}
 		return fmt.Errorf("home: commit owner deletion: %w", err)
 	}
+	lease.Commit()
 	return nil
 }
 

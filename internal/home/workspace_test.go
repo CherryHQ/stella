@@ -16,9 +16,16 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-type testOwnerFencer struct{}
+type (
+	testOwnerFencer     struct{}
+	testOwnerFenceLease struct{}
+)
 
-func (testOwnerFencer) FenceHomeOwner(context.Context, OwnerKind, string) error { return nil }
+func (testOwnerFenceLease) Commit()  {}
+func (testOwnerFenceLease) Release() {}
+func (testOwnerFencer) AcquireHomeOwnerFence(context.Context, OwnerKind, string) (OwnerFenceLease, error) {
+	return testOwnerFenceLease{}, nil
+}
 
 func TestWorkspaceViewKeepsTypedPrincipalsDisjointAndSharedRootsReadOnly(t *testing.T) {
 	ctx := context.Background()

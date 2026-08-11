@@ -19,11 +19,24 @@ import (
 type recordingFencer struct {
 	calls int
 	err   error
+	lease *recordingFenceLease
 }
 
-func (f *recordingFencer) FenceHomeOwner(context.Context, OwnerKind, string) error {
+type recordingFenceLease struct {
+	committed bool
+	released  bool
+}
+
+func (l *recordingFenceLease) Commit()  { l.committed = true }
+func (l *recordingFenceLease) Release() { l.released = true }
+
+func (f *recordingFencer) AcquireHomeOwnerFence(context.Context, OwnerKind, string) (OwnerFenceLease, error) {
 	f.calls++
-	return f.err
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.lease = &recordingFenceLease{}
+	return f.lease, nil
 }
 
 func seedGroup(t *testing.T, q *sqlc.Queries) string {
@@ -82,6 +95,9 @@ func TestOwnerDeletionFenceFailureAndSuccessNeverTouchPhysicalHomes(t *testing.T
 	}
 	if record, _ := r.Record(context.Background(), home.ID); record.State != StateTombstoned {
 		t.Fatalf("Home not tombstoned: %#v", record)
+	}
+	if fencer.lease == nil || !fencer.lease.committed || !fencer.lease.released {
+		t.Fatalf("successful fence lease = %#v", fencer.lease)
 	}
 	after, err = os.Stat(name)
 	if err != nil || !os.SameFile(before, after) {
@@ -166,5 +182,8 @@ func TestOwnerDeletionFKFailureRollsBackHomesButFenceIsAvailabilityOnly(t *testi
 	}
 	if record, _ := r.Record(ctx, home.ID); record.State != StateReady {
 		t.Fatalf("tombstone survived rollback: %#v", record)
+	}
+	if f.lease == nil || f.lease.committed || !f.lease.released {
+		t.Fatalf("rolled-back fence lease = %#v", f.lease)
 	}
 }

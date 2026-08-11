@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
@@ -175,7 +176,12 @@ type PoolManager struct {
 	// Snapshot read is decorated; GetAgent and the rest stay on the base store.
 	snapshots config.SnapshotLoader
 	mem       memory.Provider
-	mu        sync.RWMutex
+	// ownerFenceMu serializes service publication/removal with retained Home
+	// owner fences. Service admission barriers are always acquired first.
+	ownerFenceMu sync.RWMutex
+	mu           sync.RWMutex
+	// homeOwnerFenceSnapshotHook is a deterministic concurrency-test seam.
+	homeOwnerFenceSnapshotHook func()
 	// started is set true when StartAll runs. The one-shot pre-start binds
 	// (Bind* below) refuse to run once started, while the dynamic reconfigure
 	// surface (ReloadPlugin*/SyncAgent/Invalidate*) stays available afterward.
@@ -393,6 +399,17 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 	// normally; this read observes it. One that begins after publication waits
 	// for the barrier, so no caller can admit against the bootstrap snapshot.
 	if err := svc.withAdmissionBarrier(func() error {
+		pm.ownerFenceMu.RLock()
+		defer pm.ownerFenceMu.RUnlock()
+		// A service built before an Agent owner fence acquired the structural
+		// lock must not publish from that stale snapshot after deletion commits.
+		current, err := pm.store.GetAgent(ctx, ag.ID)
+		if err != nil {
+			return fmt.Errorf("revalidate agent before service publication: %w", err)
+		}
+		if !current.Enabled {
+			return fmt.Errorf("agent %q became disabled before service publication", ag.ID)
+		}
 		pm.mu.Lock()
 		pm.services[ag.ID] = svc
 		pm.mu.Unlock()
@@ -407,6 +424,7 @@ func (pm *PoolManager) startAgent(ctx context.Context, ag config.Agent) error {
 		}
 		return nil
 	}); err != nil {
+		_ = svc.Runtime.Close()
 		return fmt.Errorf("refresh service snapshot for agent %q: %w", ag.ID, err)
 	}
 
@@ -748,18 +766,30 @@ func (pm *PoolManager) SyncAgent(ctx context.Context, agentID string) error {
 }
 
 func (pm *PoolManager) removeAgent(agentID string) error {
-	pm.mu.Lock()
-	svc := pm.services[agentID]
-	delete(pm.services, agentID)
-	pm.mu.Unlock()
-	if svc == nil {
-		return nil
+	for {
+		pm.mu.RLock()
+		svc := pm.services[agentID]
+		pm.mu.RUnlock()
+		if svc == nil {
+			return nil
+		}
+		svc.admissionMu.Lock()
+		pm.ownerFenceMu.RLock()
+		pm.mu.Lock()
+		if pm.services[agentID] != svc {
+			pm.mu.Unlock()
+			pm.ownerFenceMu.RUnlock()
+			svc.admissionMu.Unlock()
+			continue
+		}
+		delete(pm.services, agentID)
+		pm.mu.Unlock()
+		pm.ownerFenceMu.RUnlock()
+		pm.log.Info("removing agent service", "agent_id", agentID)
+		err := svc.Runtime.Close()
+		svc.admissionMu.Unlock()
+		return err
 	}
-	pm.log.Info("removing agent service", "agent_id", agentID)
-	// A policy mutation may already own this Service's admission barrier. Wait
-	// for it before closing the Runtime so post-commit invalidation cannot race
-	// a close/use a retired runner.
-	return svc.withAdmissionBarrier(svc.Runtime.Close)
 }
 
 func (pm *PoolManager) loadAgentSnapshot(ctx context.Context, agentID string) (*config.Snapshot, string, error) {
@@ -874,34 +904,132 @@ func (pm *PoolManager) InvalidateAgent(agentID string) error {
 	return nil
 }
 
-// FenceHomeOwner is the terminal execution fence used by Home deletion workers.
-// It intentionally differs from reset-based invalidation: deletion may close a
-// busy/reserved runner so no process retains an attachment while bytes are purged.
-func (pm *PoolManager) FenceHomeOwner(ctx context.Context, kind home.OwnerKind, ownerID string) error {
-	if ownerID == "" {
-		return errors.New("agent: Home owner ID is required")
+// homeOwnerFenceLease retains the exact Service admission barriers, the pool
+// publication barrier, and the service map lock through the owner transaction.
+type homeOwnerFenceLease struct {
+	pm       *PoolManager
+	kind     home.OwnerKind
+	ownerID  string
+	services []*Service
+	once     sync.Once
+}
+
+// Commit applies the only post-commit structural effect: an Agent's closed
+// Service is unpublished after, never before, its durable owner row is gone.
+func (l *homeOwnerFenceLease) Commit() {
+	if l.kind != home.OwnerAgent {
+		return
 	}
-	if kind == home.OwnerAgent {
-		return pm.removeAgent(ownerID)
+	if len(l.services) != 1 {
+		return
 	}
-	if kind != home.OwnerUser && kind != home.OwnerGroup {
-		return fmt.Errorf("agent: unsupported Home owner %q", kind)
+	svc := l.services[0]
+	l.pm.mu.Lock()
+	if l.pm.services[l.ownerID] == svc {
+		delete(l.pm.services, l.ownerID)
 	}
-	pm.mu.RLock()
-	services := make(map[string]*Service, len(pm.services))
-	maps.Copy(services, pm.services)
-	pm.mu.RUnlock()
-	var lastErr error
-	for agentID, svc := range services {
-		err := svc.withAdmissionBarrier(func() error {
-			return svc.Runtime.TerminalCloseWhere(func(info session.Info) bool { return matchesHomeOwner(info, kind, ownerID) })
-		})
-		if err != nil {
-			pm.log.Error("terminal close Home owner runners", "owner", ownerID, "agent_id", agentID, "error", err)
-			lastErr = err
+	l.pm.mu.Unlock()
+	if err := svc.Runtime.Close(); err != nil {
+		l.pm.log.Error("close committed deleted Agent service", "agent_id", l.ownerID, "error", err)
+	}
+}
+
+func (l *homeOwnerFenceLease) Release() {
+	l.once.Do(func() {
+		l.pm.ownerFenceMu.Unlock()
+		for i := len(l.services) - 1; i >= 0; i-- {
+			l.services[i].admissionMu.Unlock()
 		}
+	})
+}
+
+// AcquireHomeOwnerFence closes matching cached execution while retaining all
+// admission and publication exclusion through the caller's database commit.
+// The order is Service barriers (stable Agent ID), pool structural barrier,
+// then service map validation. Home owner gates are acquired by the caller.
+func (pm *PoolManager) AcquireHomeOwnerFence(_ context.Context, kind home.OwnerKind, ownerID string) (home.OwnerFenceLease, error) {
+	if ownerID == "" {
+		return nil, errors.New("agent: Home owner ID is required")
 	}
-	return lastErr
+	if kind != home.OwnerUser && kind != home.OwnerGroup && kind != home.OwnerAgent {
+		return nil, fmt.Errorf("agent: unsupported Home owner %q", kind)
+	}
+	for {
+		pm.mu.RLock()
+		ids := make([]string, 0, len(pm.services))
+		switch kind {
+		case home.OwnerAgent:
+			if pm.services[ownerID] != nil {
+				ids = append(ids, ownerID)
+			}
+		case home.OwnerUser, home.OwnerGroup:
+			for id := range pm.services {
+				ids = append(ids, id)
+			}
+		}
+		sort.Strings(ids)
+		services := make([]*Service, len(ids))
+		for i, id := range ids {
+			services[i] = pm.services[id]
+		}
+		pm.mu.RUnlock()
+		if pm.homeOwnerFenceSnapshotHook != nil {
+			pm.homeOwnerFenceSnapshotHook()
+		}
+
+		for _, svc := range services {
+			svc.admissionMu.Lock()
+		}
+		pm.ownerFenceMu.Lock()
+		pm.mu.Lock()
+		stable := true
+		switch {
+		case kind == home.OwnerAgent:
+			var want *Service
+			if len(services) == 1 {
+				want = services[0]
+			}
+			stable = pm.services[ownerID] == want
+		case len(pm.services) != len(services):
+			stable = false
+		default:
+			for i, id := range ids {
+				if pm.services[id] != services[i] {
+					stable = false
+					break
+				}
+			}
+		}
+		if !stable {
+			pm.mu.Unlock()
+			pm.ownerFenceMu.Unlock()
+			for i := len(services) - 1; i >= 0; i-- {
+				services[i].admissionMu.Unlock()
+			}
+			continue
+		}
+		pm.mu.Unlock()
+
+		lease := &homeOwnerFenceLease{pm: pm, kind: kind, ownerID: ownerID, services: services}
+		var err error
+		if kind == home.OwnerAgent {
+			if len(services) == 1 {
+				err = services[0].Runtime.TerminalCloseWhere(func(session.Info) bool { return true })
+			}
+		} else {
+			for i, svc := range services {
+				if closeErr := svc.Runtime.TerminalCloseWhere(func(info session.Info) bool { return matchesHomeOwner(info, kind, ownerID) }); closeErr != nil {
+					pm.log.Error("terminal close Home owner runners", "owner", ownerID, "agent_id", ids[i], "error", closeErr)
+					err = closeErr
+				}
+			}
+		}
+		if err != nil {
+			lease.Release()
+			return nil, err
+		}
+		return lease, nil
+	}
 }
 
 // matchesHomeOwner identifies sessions owned by a deleted principal. Agent
@@ -1068,6 +1196,7 @@ func (pm *PoolManager) WaitInFlight(ctx context.Context) error {
 
 // Close shuts down all services and hook plugins.
 func (pm *PoolManager) Close() error {
+	pm.ownerFenceMu.RLock()
 	pm.mu.Lock()
 	services := pm.services
 	pm.services = make(map[string]*Service)
@@ -1076,6 +1205,7 @@ func (pm *PoolManager) Close() error {
 	coreHooks := pm.coreHooks
 	pm.coreHooks = nil
 	pm.mu.Unlock()
+	pm.ownerFenceMu.RUnlock()
 
 	var lastErr error
 	for id, svc := range services {
