@@ -2,21 +2,16 @@ package access
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"path"
-	"path/filepath"
-	"strings"
 
-	"github.com/jackc/pgx/v5"
-
+	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/internal/skills"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -36,10 +31,6 @@ type PromptAgent struct {
 
 type PromptAgentStore interface {
 	GetPromptAgent(context.Context, string) (PromptAgent, error)
-}
-
-type PromptProjectStore interface {
-	ProjectRoot(context.Context, string, string, string) (string, error)
 }
 
 type PromptPlugins interface {
@@ -63,7 +54,7 @@ type SystemPromptDeps struct {
 	HomeDir    string
 	Memory     memory.Provider
 	Agents     PromptAgentStore
-	Projects   PromptProjectStore
+	Projects   agent.ProjectResolverFunc
 	Workspace  home.WorkspaceViewer
 	Plugins    PromptPlugins
 	SkillStore pkgplugins.SkillStore
@@ -133,36 +124,21 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 		}
 	}
 
-	projectRoot := ""
-	if info.UserID != "" && info.ProjectID != "" {
-		root, err := b.deps.Projects.ProjectRoot(ctx, info.UserID, info.AgentID, info.ProjectID)
-		if err != nil {
-			return "", fmt.Errorf("%w: project root: %w", ErrUnavailable, err)
-		}
-		if root == "" {
-			return "", fmt.Errorf("%w: project is unavailable for this agent", ErrUnavailable)
-		}
-		projectRoot = root
-	}
+	hasProject := false
 	projectPath := "."
-	if projectRoot != "" {
-		if filepath.IsAbs(projectRoot) {
-			relative, err := filepath.Rel(workspaceRoot, projectRoot)
-			if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-				return "", fmt.Errorf("%w: project path is outside the agent workspace", ErrUnavailable)
-			}
-			projectPath = filepath.ToSlash(relative)
-		} else {
-			projectPath = filepath.ToSlash(projectRoot)
-			if projectPath == "." {
-				projectRoot = workspaceRoot
-			} else {
-				projectRoot = filepath.Join(workspaceRoot, filepath.FromSlash(projectPath))
-			}
+	var projectContext prompt.ProjectContext
+	if info.UserID != "" && info.ProjectID != "" {
+		opener, ok := b.deps.Workspace.(home.RootOpener)
+		if !ok {
+			return "", fmt.Errorf("%w: Home root opener is required for project context", ErrUnavailable)
 		}
-		if projectPath != "." && (path.IsAbs(projectPath) || path.Clean(projectPath) != projectPath || projectPath == ".." || strings.HasPrefix(projectPath, "../") || strings.Contains(projectPath, `\`)) {
-			return "", fmt.Errorf("%w: invalid project path", ErrUnavailable)
+		contextSnapshot, descriptor, err := agent.SnapshotAuthorizedProjectContext(ctx, b.deps.Projects, opener, info.ProjectID, info.UserID, info.AgentID)
+		if err != nil {
+			return "", fmt.Errorf("%w: project context: %w", ErrUnavailable, err)
 		}
+		projectContext = contextSnapshot
+		projectPath = descriptor.Path
+		hasProject = true
 	}
 
 	pluginView, err := b.deps.Plugins.SessionPluginView(ctx)
@@ -173,7 +149,6 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 		StellaHome:          b.deps.StellaHome,
 		HomeDir:             b.deps.HomeDir,
 		AgentRoot:           agentCfg.Workspace,
-		ProjectRoot:         projectRoot,
 		UserID:              info.UserID,
 		AgentID:             info.AgentID,
 		UserRoot:            userRoot,
@@ -186,7 +161,23 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 	if err != nil {
 		return "", fmt.Errorf("%w: system prompt sections: %w", ErrUnavailable, err)
 	}
-	if skillsSection, err := b.deps.Skills(ctx, promptBuild); err != nil {
+	var projectSkills *skills.ProjectSnapshot
+	if hasProject {
+		opener, ok := b.deps.Workspace.(home.RootOpener)
+		if !ok {
+			return "", fmt.Errorf("%w: Home root opener is required for project Skills", ErrUnavailable)
+		}
+		root, openErr := opener.OpenRoot(ctx, home.WorkspaceRequest{UserID: info.UserID, GroupID: info.GroupID, AgentID: info.AgentID}, home.RootAgentWorkspace, home.RootReadOnly)
+		if openErr != nil {
+			return "", fmt.Errorf("%w: project Skills unavailable", ErrUnavailable)
+		}
+		projectSkills, err = skills.SnapshotProjectSkills(ctx, root, projectPath)
+		closeErr := root.Close()
+		if err != nil || closeErr != nil {
+			return "", fmt.Errorf("%w: project Skills unavailable", ErrUnavailable)
+		}
+	}
+	if skillsSection, err := b.deps.Skills(skills.WithProjectSnapshot(ctx, projectSkills), promptBuild); err != nil {
 		return "", fmt.Errorf("%w: skills prompt section: %w", ErrUnavailable, err)
 	} else if skillsSection.Title != "" && skillsSection.Content != "" {
 		promptSections = append(promptSections, skillsSection)
@@ -196,21 +187,6 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 	if info.GroupID != "" {
 		promptUserID = ""
 	}
-	var projectContext prompt.ProjectContext
-	if projectRoot != "" {
-		opener, ok := b.deps.Workspace.(home.RootOpener)
-		if !ok {
-			return "", fmt.Errorf("%w: Home root opener is required for project context", ErrUnavailable)
-		}
-		contextRoot, openErr := opener.OpenRoot(ctx, home.WorkspaceRequest{UserID: info.UserID, GroupID: info.GroupID, AgentID: info.AgentID}, home.RootAgentWorkspace, home.RootReadOnly)
-		if openErr != nil {
-			return "", fmt.Errorf("%w: project context unavailable", ErrUnavailable)
-		}
-		projectContext, err = prompt.SnapshotProjectContext(ctx, contextRoot, projectPath)
-		if err != nil {
-			return "", fmt.Errorf("%w: project context unavailable", ErrUnavailable)
-		}
-	}
 	system := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
 		SystemPrompt:   agentCfg.SystemPrompt,
 		Memory:         b.deps.Memory,
@@ -219,7 +195,6 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 		GroupID:        info.GroupID,
 		StellaHome:     b.deps.StellaHome,
 		AgentRoot:      agentCfg.Workspace,
-		ProjectRoot:    projectRoot,
 		ProjectContext: projectContext,
 		UserRoot:       userRoot,
 		Sections:       append(promptSections, b.deps.Plugins.ManifestPluginPrompts()...),
@@ -236,25 +211,4 @@ func (s ConfigPromptAgentStore) GetPromptAgent(ctx context.Context, agentID stri
 		return PromptAgent{}, err
 	}
 	return PromptAgent{SystemPrompt: agentCfg.SystemPrompt, Workspace: agentCfg.Workspace}, nil
-}
-
-// SQLPromptProjectStore adapts project persistence to a prompt-only root lookup.
-type SQLPromptProjectStore struct{ q *sqlc.Queries }
-
-func NewSQLPromptProjectStore(db sqlc.DBTX) *SQLPromptProjectStore {
-	return &SQLPromptProjectStore{q: sqlc.New(db)}
-}
-
-func (s *SQLPromptProjectStore) ProjectRoot(ctx context.Context, userID, agentID, projectID string) (string, error) {
-	p, err := s.q.GetProject(ctx, sqlc.GetProjectParams{ID: projectID, UserID: userID})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	if p.AgentID != agentID {
-		return "", nil
-	}
-	return p.BaseDir, nil
 }

@@ -182,12 +182,14 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	poolMgr := agent.NewPoolManager(store, mem)
 	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
 	homeDir, _ := os.UserHomeDir()
+	agentAccess := agentaccess.NewService(store, as)
+	projectStore := agent.NewProjectStore(db, store, assetStore, agentAccess, agent.WithProjectHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}))
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		StellaHome: config.StellaHome(),
 		HomeDir:    homeDir,
 		Memory:     mem,
 		Agents:     sessionaccess.ConfigPromptAgentStore{Store: store},
-		Projects:   sessionaccess.NewSQLPromptProjectStore(db),
+		Projects:   projectStore.Resolve,
 		Workspace:  serverTestWorkspace{root: config.StellaHome()},
 		Plugins:    phost,
 		SkillStore: pluginhost.NewSkillStoreAdapter(phost.SkillStore()),
@@ -196,7 +198,6 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	if err != nil {
 		t.Fatalf("sessionaccess.NewSystemPromptBuilder: %v", err)
 	}
-	agentAccess := agentaccess.NewService(store, as)
 	sessionSvc, err := sessionaccess.NewService(mem, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder))
 	if err != nil {
 		t.Fatalf("sessionaccess.NewService: %v", err)
@@ -214,7 +215,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		Group:               channel.NewGroupService(db, agentAccess, channel.NewRuntimeResolver(store), nil, nil),
 		Account:             accountSvc,
 		Profile:             profileSvc,
-		ProjectStore:        agent.NewProjectStore(db, store, assetStore, agentAccess),
+		ProjectStore:        projectStore,
 		Inbox:               inbox.NewService(db),
 		AgentAccess:         agentAccess,
 		AgentManagement:     agentManagement,

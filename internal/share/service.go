@@ -44,6 +44,7 @@ type Service struct {
 	mem        memory.Provider
 	store      *recally.Store
 	recallySvc *recally.Service
+	assets     *asset.Store
 	baseURL    string
 	homes      home.RootOpener
 	agents     AgentReadAuthorizer
@@ -121,8 +122,7 @@ func WithAgentAccess(access AgentReadAuthorizer) Option {
 }
 
 func NewService(q *sqlc.Queries, mem memory.Provider, store *recally.Store, assets *asset.Store, stellaHome, baseURL string, opts ...Option) *Service {
-	_ = assets // Kept in the constructor until composition callers are migrated.
-	s := &Service{q: q, mem: mem, store: store, recallySvc: recally.NewService(store, stellaHome), baseURL: strings.TrimRight(baseURL, "/")}
+	s := &Service{q: q, mem: mem, store: store, recallySvc: recally.NewService(store, stellaHome), assets: assets, baseURL: strings.TrimRight(baseURL, "/")}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -213,14 +213,6 @@ func (s *Service) sessionWorkspaceRoot(ctx context.Context, ident authz.Identity
 		return req, home.RootPrincipalData, nil
 	}
 	return req, home.RootAgentWorkspace, nil
-}
-
-func safePathName(rel string) (string, error) {
-	name := filepath.Clean(filepath.FromSlash(rel))
-	if !filepath.IsLocal(name) {
-		return "", ErrPathEscapes
-	}
-	return name, nil
 }
 
 func ArtifactMediaType(path string) string {

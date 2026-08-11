@@ -1155,6 +1155,10 @@ func (s *Server) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 	if !ok {
 		return
 	}
+	if err := access.AdmitWorkspaceUpload(r.Context(), agentID, sessionID); err != nil {
+		s.writeWorkspaceError(w, err)
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxWorkspaceUploadRequestBytes)
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		var tooLarge *http.MaxBytesError

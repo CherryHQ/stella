@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/home"
@@ -51,6 +52,61 @@ func (w testWorkspaceViewer) OpenRoot(ctx context.Context, req home.WorkspaceReq
 		return nil, err
 	}
 	return testRoot{Root: root}, nil
+}
+
+func (w testWorkspaceViewer) assetPath(ctx context.Context, c home.Coordinate) (string, error) {
+	view, err := w.WorkspaceView(ctx, c.Request)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(view.DataRoot, filepath.FromSlash(c.Value)), nil
+}
+
+func (w testWorkspaceViewer) RestoreAsset(ctx context.Context, store *asset.Store, c home.Coordinate) error {
+	path, err := w.assetPath(ctx, c)
+	if err != nil {
+		return err
+	}
+	return store.Restore(ctx, path)
+}
+
+func (w testWorkspaceViewer) WriteAsset(ctx context.Context, store *asset.Store, c home.Coordinate, data []byte, mode os.FileMode, create bool) error {
+	path, err := w.assetPath(ctx, c)
+	if err != nil {
+		return err
+	}
+	if create {
+		return store.CreateFile(ctx, path, data, mode)
+	}
+	return store.WriteFile(ctx, path, data, mode)
+}
+
+func (w testWorkspaceViewer) UploadAsset(ctx context.Context, store *asset.Store, c home.Coordinate, src io.Reader, options home.WriteOptions) error {
+	path, err := w.assetPath(ctx, c)
+	if err != nil {
+		return err
+	}
+	return store.UploadFile(ctx, path, src, options.Mode, options.MaxBytes, options.Sync)
+}
+
+func (w testWorkspaceViewer) RemoveAsset(ctx context.Context, store *asset.Store, c home.Coordinate) error {
+	path, err := w.assetPath(ctx, c)
+	if err != nil {
+		return err
+	}
+	return store.RemoveFile(ctx, path)
+}
+
+func (w testWorkspaceViewer) MoveAsset(ctx context.Context, store *asset.Store, source, destination home.Coordinate) error {
+	src, err := w.assetPath(ctx, source)
+	if err != nil {
+		return err
+	}
+	dst, err := w.assetPath(ctx, destination)
+	if err != nil {
+		return err
+	}
+	return store.MoveFile(ctx, src, dst)
 }
 
 type testRoot struct{ *os.Root }

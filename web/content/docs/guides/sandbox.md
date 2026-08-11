@@ -152,7 +152,7 @@ Use these environment variables in Agent instructions. They are the filesystem A
 | `$STELLA_ASSETS_DIR` | Durable uploads and final deliverables shared by the same user or group, when available | This is the managed shared location for direct Agent writes.                  |
 | `$TMPDIR`            | Session-private disposable scratch space                                                | Never put final output here or rely on it surviving after the session closes. |
 
-The Web Workspace API addresses files with a typed scope plus canonical relative paths. Project `base_dir` values are likewise relative to the Agent workspace (`.` is its root). These APIs authorize and open the durable POSIX root directly; they do not start or wake Session compute. Active Agent tools still resolve paths through their existing Session mount and policy boundary.
+The Web Workspace API addresses files with a typed scope plus canonical relative paths. Project `base_dir` values are likewise relative to the Agent workspace (`.` is its root). These APIs authorize and open the durable POSIX root directly; they do not start or wake Session compute. The deprecated `sandbox_root` response field, where present, is only an alias of the same logical `/workspace` or `/user` root and never contains a host path. Active Agent tools still resolve paths through their existing Session mount and policy boundary.
 
 ### Managed user and group roots
 

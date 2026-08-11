@@ -1689,8 +1689,8 @@ func TestListMergesProjectSkills(t *testing.T) {
 	// Create a project skill with same name as a DB skill to test shadowing.
 	makeProjectSkill(t, projectRoot, "db-skill", "Project override of db-skill")
 
-	tool := NewTool(store, "", projectRoot).WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
-	result, err := tool.list(WithProjectRoot(ctx, projectRoot))
+	tool := NewTool(store, "", "").WithProjectSnapshot(projectSnapshotFromDisk(t, projectRoot)).WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
+	result, err := tool.list(ctx)
 	if err != nil {
 		t.Fatalf("list error: %v", err)
 	}
@@ -1748,8 +1748,8 @@ func TestLoadPrefersProjectSkill(t *testing.T) {
 	// Create a project skill with the same name.
 	makeProjectSkill(t, projectRoot, "shared", "Project version")
 
-	tool := NewTool(store, "", projectRoot).WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
-	result, err := tool.load(WithProjectRoot(ctx, projectRoot), map[string]any{"name": "shared"})
+	tool := NewTool(store, "", "").WithProjectSnapshot(projectSnapshotFromDisk(t, projectRoot)).WithReadAuthorizer(allowAllSkillReads{}).WithWriteAuthorizer(allowAllSkillWrites{})
+	result, err := tool.load(ctx, map[string]any{"name": "shared"})
 	if err != nil {
 		t.Fatalf("load error: %v", err)
 	}

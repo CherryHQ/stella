@@ -111,11 +111,22 @@ components:
 
     SessionWorkspace:
       type: object
-      required: [root, paths, total_files, total_dirs, total_bytes]
+      required: [
+        root,
+        sandbox_root,
+        paths,
+        total_files,
+        total_dirs,
+        total_bytes,
+      ]
       properties:
         root:
           type: string
           description: Canonical logical workspace root (/workspace for agent scope or /user for user scope), never a host path
+        sandbox_root:
+          type: string
+          deprecated: true
+          description: Deprecated alias of root. Always the same logical /workspace or /user value, never a host path.
         paths:
           type: array
           items: { type: string }

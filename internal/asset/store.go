@@ -30,6 +30,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -42,6 +43,8 @@ import (
 
 var (
 	ErrDestinationExists     = errors.New("asset destination already exists")
+	ErrOutcomeUnknown        = errors.New("asset mutation outcome unknown")
+	ErrUploadLimit           = errors.New("asset upload exceeds byte limit")
 	ErrSessionMediaIntegrity = errors.New("session media integrity check failed")
 )
 
@@ -277,6 +280,99 @@ func (s *Store) CreateFile(ctx context.Context, abs string, content []byte, perm
 	return s.WriteFile(ctx, abs, content, perm)
 }
 
+// UploadFile creates a new asset through a bounded temporary file and publishes
+// it with a same-root rename only after the shared authority accepts the bytes.
+func (s *Store) UploadFile(ctx context.Context, abs string, src io.Reader, perm os.FileMode, maxBytes int64, syncFile bool) error {
+	if src == nil || maxBytes <= 0 {
+		return errors.New("asset upload requires a source and positive byte limit")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	root, rel, _, err := s.openPath(abs)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	if err := root.MkdirAll(filepath.Dir(rel), 0o755); err != nil {
+		return err
+	}
+	if _, err := root.Lstat(rel); err == nil {
+		return ErrDestinationExists
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	key, persists := s.assetKey(abs)
+	if persists && s.authority != nil {
+		exists, err := s.durableDestinationExists(ctx, key)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return ErrDestinationExists
+		}
+	}
+	temporaryFile, temporary, err := createRootTemp(root, filepath.Dir(rel))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Remove(temporary) }()
+	_, copyErr := io.CopyN(temporaryFile, src, maxBytes)
+	if errors.Is(copyErr, io.EOF) {
+		copyErr = nil
+	} else if copyErr == nil {
+		var probe [1]byte
+		if n, probeErr := io.ReadFull(src, probe[:]); n != 0 {
+			copyErr = ErrUploadLimit
+		} else if probeErr != nil && !errors.Is(probeErr, io.EOF) {
+			copyErr = probeErr
+		}
+	}
+	if copyErr == nil {
+		copyErr = ctx.Err()
+	}
+	if copyErr == nil && syncFile {
+		copyErr = temporaryFile.Sync()
+	}
+	copyErr = errors.Join(copyErr, temporaryFile.Close())
+	if copyErr != nil {
+		return copyErr
+	}
+	if persists && s.authority != nil {
+		staged, err := root.Open(temporary)
+		if err != nil {
+			return err
+		}
+		putErr := s.authority.Put(ctx, key, staged)
+		closeErr := staged.Close()
+		if err := errors.Join(putErr, closeErr); err != nil {
+			if rollbackErr := s.authority.Delete(ctx, key); rollbackErr != nil {
+				return fmt.Errorf("%w: persist upload failed and durable rollback was incomplete: %w", ErrOutcomeUnknown, errors.Join(err, rollbackErr))
+			}
+			return fmt.Errorf("persist uploaded asset: %w", err)
+		}
+	}
+	if err := root.Rename(temporary, rel); err != nil {
+		if persists && s.authority != nil {
+			if rollbackErr := s.authority.Delete(ctx, key); rollbackErr != nil {
+				return fmt.Errorf("%w: publish upload failed and durable rollback was incomplete: %w", ErrOutcomeUnknown, errors.Join(err, rollbackErr))
+			}
+		}
+		return fmt.Errorf("publish uploaded asset: %w", err)
+	}
+	if syncFile {
+		parent, err := root.Open(filepath.Dir(rel))
+		if err == nil {
+			err = parent.Sync()
+			err = errors.Join(err, parent.Close())
+		}
+		if err != nil {
+			return fmt.Errorf("%w: sync uploaded asset parent: %w", ErrOutcomeUnknown, err)
+		}
+	}
+	return nil
+}
+
 // WriteFile materializes data at abs locally (creating parent directories, mode
 // perm) and durably persists it in the shared authority when abs is a user
 // asset. The local write is atomic with the durable write: if the durable write
@@ -355,6 +451,17 @@ func (s *Store) MoveFile(ctx context.Context, src, dst string) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
+	if s.authority != nil {
+		if key, ok := s.assetKey(dst); ok {
+			exists, err := s.durableDestinationExists(ctx, key)
+			if err != nil {
+				return err
+			}
+			if exists {
+				return ErrDestinationExists
+			}
+		}
+	}
 	if err := root.MkdirAll(filepath.Dir(dstRel), 0o755); err != nil {
 		return err
 	}
@@ -368,13 +475,17 @@ func (s *Store) MoveFile(ctx context.Context, src, dst string) error {
 	if err != nil {
 		// Source authority was never touched; undo the destination writes and the
 		// local rename so the original state is fully restored.
-		s.rollbackMove(ctx, src, dst, written)
+		if rollbackErr := s.rollbackMove(ctx, src, dst, written); rollbackErr != nil {
+			return fmt.Errorf("%w: destination persistence failed and rollback was incomplete: %w", ErrOutcomeUnknown, errors.Join(err, rollbackErr))
+		}
 		return fmt.Errorf("move asset: persist destination to shared authority: %w", err)
 	}
 	if err := s.deleteTree(ctx, src); err != nil {
 		// The local rename has no retryable source once it stands, so a failed
 		// source cleanup is a move failure: roll the whole move back to the source.
-		s.rollbackMove(ctx, src, dst, written)
+		if rollbackErr := s.rollbackMove(ctx, src, dst, written); rollbackErr != nil {
+			return fmt.Errorf("%w: source cleanup failed and rollback was incomplete: %w", ErrOutcomeUnknown, errors.Join(err, rollbackErr))
+		}
 		return fmt.Errorf("move asset: source authority cleanup failed, move rolled back: %w", err)
 	}
 	return nil
@@ -386,17 +497,23 @@ func (s *Store) MoveFile(ctx context.Context, src, dst string) error {
 // source is repaired. Every authority step is best-effort — a still-unreachable
 // authority leaves local correctly at src and the operation retryable once the
 // authority recovers.
-func (s *Store) rollbackMove(ctx context.Context, src, dst string, written []string) {
+func (s *Store) rollbackMove(ctx context.Context, src, dst string, written []string) error {
+	var result error
 	if root, srcRel, boundary, err := s.openPath(src); err == nil {
 		defer func() { _ = root.Close() }()
 		if dstBoundary, dstRel, err := s.pathBoundary(dst); err == nil && dstBoundary == boundary {
-			_ = root.Rename(dstRel, srcRel)
+			result = errors.Join(result, root.Rename(dstRel, srcRel))
+		} else {
+			result = errors.Join(result, err)
 		}
+	} else {
+		result = errors.Join(result, err)
 	}
 	for _, k := range written {
-		_ = s.authority.Delete(ctx, k)
+		result = errors.Join(result, s.authority.Delete(ctx, k))
 	}
-	_, _ = s.persistTree(ctx, src)
+	_, err := s.persistTree(ctx, src)
+	return errors.Join(result, err)
 }
 
 // RemoveFile deletes abs locally and removes its durable authority keys. The
@@ -642,6 +759,21 @@ func (s *Store) assetKey(abs string) (string, bool) {
 		return "", false
 	}
 	return key, true
+}
+
+func (s *Store) durableDestinationExists(ctx context.Context, key string) (bool, error) {
+	// List the parent because Store.List returns descendants and does not include
+	// an object whose key exactly equals its prefix.
+	keys, err := s.authority.List(ctx, path.Dir(key))
+	if err != nil {
+		return false, fmt.Errorf("check durable asset destination: %w", err)
+	}
+	for _, candidate := range keys {
+		if candidate == key || strings.HasPrefix(candidate, key+"/") {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // restoreKey copies one authority key to abs via a temp file in the target dir,

@@ -12,7 +12,6 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // Access is one share use case bound to one trusted Authority. A share is a
@@ -86,14 +85,23 @@ func (a *Access) ShareArtifact(ctx context.Context, sessionID, path, scope, requ
 		}
 	}
 
-	scope, rel, err := normalizeArtifactPath(path, scope)
-	if err != nil {
-		return Created{}, err
-	}
 	ident := authz.Identity{UserID: a.userID, AgentID: requestedAgentID, AgentScoped: a.agentScoped}
 	req, rootScope, err := a.svc.sessionWorkspaceRoot(ctx, ident, sessionID, scope)
 	if err != nil {
 		return Created{}, err
+	}
+	resolver, ok := a.svc.homes.(home.CoordinateResolver)
+	var rel string
+	if ok {
+		rootScope, rel, err = resolver.ResolveCoordinate(home.Coordinate{Request: req, Scope: rootScope, Value: path})
+	} else {
+		rootScope, rel, err = home.ResolveLogicalCoordinate(rootScope, path, false)
+	}
+	if err != nil {
+		if strings.HasPrefix(path, "$") {
+			return Created{}, fmt.Errorf("%w: %w", ErrInvalidArtifactPath, err)
+		}
+		return Created{}, authz.ErrNotFound
 	}
 	root, err := a.svc.homes.OpenRoot(ctx, req, rootScope, home.RootReadOnly)
 	if err != nil {
@@ -102,6 +110,13 @@ func (a *Access) ShareArtifact(ctx context.Context, sessionID, path, scope, requ
 	snapshot, err := func() (data []byte, resultErr error) {
 		defer func() { resultErr = errors.Join(resultErr, root.Close()) }()
 		fi, err := root.Stat(ctx, rel)
+		if err != nil && rootScope == home.RootPrincipalData && a.svc.assets != nil {
+			if compatibility, ok := a.svc.homes.(home.AssetCompatibility); ok {
+				if restoreErr := compatibility.RestoreAsset(ctx, a.svc.assets, home.Coordinate{Request: req, Scope: rootScope, Value: rel}); restoreErr == nil {
+					fi, err = root.Stat(ctx, rel)
+				}
+			}
+		}
 		if err != nil {
 			return nil, authz.ErrNotFound
 		}
@@ -128,38 +143,6 @@ func (a *Access) ShareArtifact(ctx context.Context, sessionID, path, scope, requ
 	}
 	mt := ArtifactMediaType(rel)
 	return a.svc.create(ctx, a.userID, filepath.Base(rel), mt, snapshot, expiresIn)
-}
-
-// normalizeArtifactPath maps model-facing semantic roots to the durable share
-// scopes before os.Root confinement. Backend mount literals remain accepted for
-// compatibility, but are never suggested to models.
-func normalizeArtifactPath(path, scope string) (string, string, error) {
-	name, suffix, hasVariable, err := pkgsandbox.SplitLeadingPathVariable(path)
-	if err != nil {
-		return "", "", fmt.Errorf("artifact path variable is malformed: %w", ErrInvalidArtifactPath)
-	}
-	if hasVariable {
-		rel, err := safePathName(strings.TrimPrefix(filepath.FromSlash(suffix), string(filepath.Separator)))
-		if err != nil {
-			return "", "", fmt.Errorf("artifact path escapes its semantic root: %w", ErrInvalidArtifactPath)
-		}
-		switch name {
-		case pkgsandbox.EnvHome:
-			return "agent", rel, nil
-		case pkgsandbox.EnvStellaAssetsDir:
-			return "user", filepath.Join("assets", rel), nil
-		default:
-			return "", "", fmt.Errorf("artifact path variable %q is unsupported: %w", "$"+name, ErrInvalidArtifactPath)
-		}
-	}
-
-	if stripped, ok := strings.CutPrefix(path, pkgsandbox.MountUserData+"/"); ok {
-		return "user", stripped, nil
-	}
-	if stripped, ok := strings.CutPrefix(path, pkgsandbox.MountWorkspace+"/"); ok {
-		return "agent", stripped, nil
-	}
-	return scope, path, nil
 }
 
 // ShareArticle publishes a rendered Recally article owned by the acting user.

@@ -70,13 +70,12 @@ func TestProjectStoreResolveAndEnsure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
-	baseDir, err := resolve(ctx, created.ID, user.ID)
+	descriptor, err := resolve(ctx, created.ID, user.ID, agentID)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	wantExplicit := filepath.Join(UserAgentDir(config.StellaHome(), user.ID, agentID), "base")
-	if baseDir != wantExplicit {
-		t.Fatalf("Resolve baseDir = %q, want %q", baseDir, wantExplicit)
+	if descriptor.Path != "base" {
+		t.Fatalf("Resolve path = %q, want base", descriptor.Path)
 	}
 	legacy, err := q.CreateProject(ctx, sqlc.CreateProjectParams{
 		ID: uuid.Must(uuid.NewV7()).String(), AgentID: agentID, UserID: user.ID,
@@ -124,13 +123,12 @@ func TestProjectStoreResolveAndEnsure(t *testing.T) {
 		t.Fatalf("Ensure not idempotent: %q != %q", again, newID)
 	}
 	// The created project's base_dir resolves to the agent's private area.
-	wantBase := UserAgentDir(config.StellaHome(), user.ID, freshAgent)
-	gotBase, err := resolve(ctx, newID, user.ID)
+	gotBase, err := resolve(ctx, newID, user.ID, freshAgent)
 	if err != nil {
 		t.Fatalf("Resolve (created): %v", err)
 	}
-	if gotBase != wantBase {
-		t.Fatalf("created project base_dir = %q, want %q", gotBase, wantBase)
+	if gotBase.Path != "." {
+		t.Fatalf("created project path = %q, want logical root", gotBase.Path)
 	}
 }
 
@@ -154,12 +152,12 @@ func TestProjectStoreEnsurePersistsLogicalRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
-	got, err := ps.Resolve(ctx, projectID, user.ID)
+	got, err := ps.Resolve(ctx, projectID, user.ID, agentID)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if got != wantRoot {
-		t.Fatalf("persisted base_dir = %q, want supplied AgentRoot %q", got, wantRoot)
+	if got.Path != "." {
+		t.Fatalf("persisted project path = %q, want logical root", got.Path)
 	}
 	row, err := q.GetProject(ctx, sqlc.GetProjectParams{ID: projectID, UserID: user.ID})
 	if err != nil {

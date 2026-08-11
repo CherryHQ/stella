@@ -41,11 +41,12 @@ const (
 )
 
 type WorkspaceInfo struct {
-	Root       string   `json:"root"`
-	Paths      []string `json:"paths"`
-	TotalFiles int      `json:"total_files"`
-	TotalDirs  int      `json:"total_dirs"`
-	TotalBytes int64    `json:"total_bytes"`
+	Root        string   `json:"root"`
+	SandboxRoot string   `json:"sandbox_root"`
+	Paths       []string `json:"paths"`
+	TotalFiles  int      `json:"total_files"`
+	TotalDirs   int      `json:"total_dirs"`
+	TotalBytes  int64    `json:"total_bytes"`
 }
 
 type WorkspaceListInput struct {
@@ -140,7 +141,7 @@ func (a *Access) ListWorkspace(ctx context.Context, in WorkspaceListInput) (Work
 		depth = 2
 	}
 	var result WorkspaceInfo
-	err = a.withWorkspaceRoot(ctx, in.AgentID, in.SessionID, scope, authz.ActionList, home.RootReadOnly, func(root home.RootOperations) error {
+	err = a.withWorkspaceRoot(ctx, in.AgentID, in.SessionID, scope, authz.ActionList, home.RootReadOnly, func(root home.RootOperations, _ home.WorkspaceRequest) error {
 		result, err = collectWorkspaceInfo(ctx, root, scope, name, in.ShowHidden, depth)
 		return err
 	})
@@ -159,9 +160,13 @@ func (a *Access) CreateWorkspacePath(ctx context.Context, in WorkspaceCreateInpu
 		return WorkspaceInfo{}, err
 	}
 	var result WorkspaceInfo
-	err = a.withWorkspaceRoot(ctx, in.AgentID, in.SessionID, scope, authz.ActionCreate, home.RootReadWrite, func(root home.RootOperations) error {
+	err = a.withWorkspaceRoot(ctx, in.AgentID, in.SessionID, scope, authz.ActionCreate, home.RootReadWrite, func(root home.RootOperations, req home.WorkspaceRequest) error {
 		if in.IsDir {
 			if err := root.Mkdir(ctx, name, 0o755, home.MkdirOptions{Parents: true}); err != nil {
+				return err
+			}
+		} else if compatibility, ok := a.assetCompatibility(scope, name); ok {
+			if err := compatibility.WriteAsset(ctx, a.svc.assets, home.Coordinate{Request: req, Scope: home.RootPrincipalData, Value: name}, []byte(in.Content), 0o644, true); err != nil {
 				return err
 			}
 		} else {
@@ -189,7 +194,10 @@ func (a *Access) DeleteWorkspacePath(ctx context.Context, in WorkspacePathInput)
 	if err != nil {
 		return err
 	}
-	return a.withWorkspaceRoot(ctx, in.AgentID, in.SessionID, scope, authz.ActionDelete, home.RootReadWrite, func(root home.RootOperations) error {
+	return a.withWorkspaceRoot(ctx, in.AgentID, in.SessionID, scope, authz.ActionDelete, home.RootReadWrite, func(root home.RootOperations, req home.WorkspaceRequest) error {
+		if compatibility, ok := a.assetCompatibility(scope, name); ok {
+			return compatibility.RemoveAsset(ctx, a.svc.assets, home.Coordinate{Request: req, Scope: home.RootPrincipalData, Value: name})
+		}
 		return root.Remove(ctx, name, home.RemoveOptions{Recursive: true})
 	})
 }
@@ -210,12 +218,20 @@ func (a *Access) MoveWorkspacePath(ctx context.Context, in WorkspaceMoveInput) (
 		return WorkspaceInfo{}, ErrInvalid
 	}
 	var result WorkspaceInfo
-	err = a.withWorkspaceRoot(ctx, in.AgentID, in.SessionID, scope, authz.ActionWrite, home.RootReadWrite, func(root home.RootOperations) error {
-		if err := mkdirWorkspaceParent(ctx, root, destination); err != nil {
-			return err
-		}
-		if err := root.Rename(ctx, source, destination, home.RenameOptions{}); err != nil {
-			return err
+	err = a.withWorkspaceRoot(ctx, in.AgentID, in.SessionID, scope, authz.ActionWrite, home.RootReadWrite, func(root home.RootOperations, req home.WorkspaceRequest) error {
+		if compatibility, ok := a.assetCompatibility(scope, source, destination); ok {
+			if err := compatibility.MoveAsset(ctx, a.svc.assets,
+				home.Coordinate{Request: req, Scope: home.RootPrincipalData, Value: source},
+				home.Coordinate{Request: req, Scope: home.RootPrincipalData, Value: destination}); err != nil {
+				return err
+			}
+		} else {
+			if err := mkdirWorkspaceParent(ctx, root, destination); err != nil {
+				return err
+			}
+			if err := root.Rename(ctx, source, destination, home.RenameOptions{}); err != nil {
+				return err
+			}
 		}
 		result, err = collectWorkspaceInfo(ctx, root, scope, ".", false, 0)
 		if err != nil {
@@ -231,6 +247,29 @@ func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (
 		return WorkspaceReadResult{}, ErrInvalid
 	}
 	scope, name, err := canonicalWorkspacePath(in.Scope, in.Path, false)
+	if resolver, ok := a.svc.homes.(home.CoordinateResolver); ok {
+		info, accessErr := a.Workspace(ctx, in.AgentID, in.SessionID, authz.ActionRead)
+		if accessErr != nil {
+			return WorkspaceReadResult{}, accessErr
+		}
+		rootScope := home.RootAgentWorkspace
+		if in.Scope == WorkspaceScopeUser {
+			rootScope = home.RootPrincipalData
+		}
+		resolvedScope, resolvedName, resolveErr := resolver.ResolveCoordinate(home.Coordinate{
+			Request: home.WorkspaceRequest{UserID: info.UserID, GroupID: info.GroupID, AgentID: info.AgentID},
+			Scope:   rootScope,
+			Value:   in.Path,
+		})
+		if resolveErr != nil {
+			return WorkspaceReadResult{}, ErrNotFound
+		}
+		err = nil
+		scope, name = WorkspaceScopeAgent, resolvedName
+		if resolvedScope == home.RootPrincipalData {
+			scope = WorkspaceScopeUser
+		}
+	}
 	if err != nil {
 		return WorkspaceReadResult{}, err
 	}
@@ -239,8 +278,15 @@ func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (
 		maxBytes = workspaceReadMaxBytes
 	}
 	var result WorkspaceReadResult
-	err = a.withWorkspaceRoot(ctx, in.AgentID, in.SessionID, scope, authz.ActionRead, home.RootReadOnly, func(root home.RootOperations) error {
+	err = a.withWorkspaceRoot(ctx, in.AgentID, in.SessionID, scope, authz.ActionRead, home.RootReadOnly, func(root home.RootOperations, req home.WorkspaceRequest) error {
 		info, err := root.Stat(ctx, name)
+		if err != nil && scope == WorkspaceScopeUser {
+			if compatibility, ok := a.assetCompatibility(scope, name); ok {
+				if restoreErr := compatibility.RestoreAsset(ctx, a.svc.assets, home.Coordinate{Request: req, Scope: home.RootPrincipalData, Value: name}); restoreErr == nil {
+					info, err = root.Stat(ctx, name)
+				}
+			}
+		}
 		if err != nil {
 			// Missing files and containment failures are intentionally opaque.
 			return ErrNotFound
@@ -289,7 +335,14 @@ func (a *Access) WriteWorkspacePath(ctx context.Context, in WorkspaceWriteInput)
 		return WorkspaceReadResult{}, err
 	}
 	var result WorkspaceReadResult
-	err = a.withWorkspaceRoot(ctx, in.AgentID, in.SessionID, scope, authz.ActionWrite, home.RootReadWrite, func(root home.RootOperations) error {
+	err = a.withWorkspaceRoot(ctx, in.AgentID, in.SessionID, scope, authz.ActionWrite, home.RootReadWrite, func(root home.RootOperations, req home.WorkspaceRequest) error {
+		if compatibility, ok := a.assetCompatibility(scope, name); ok {
+			if err := compatibility.WriteAsset(ctx, a.svc.assets, home.Coordinate{Request: req, Scope: home.RootPrincipalData, Value: name}, []byte(in.Content), 0o644, false); err != nil {
+				return err
+			}
+			result = WorkspaceReadResult{Path: name, Content: in.Content, Language: DetectLanguage(name)}
+			return nil
+		}
 		if err := mkdirWorkspaceParent(ctx, root, name); err != nil {
 			return err
 		}
@@ -317,17 +370,31 @@ func (a *Access) UploadWorkspacePath(ctx context.Context, in WorkspaceUploadInpu
 	if filename == "" || filename == "." || filename == "/" {
 		return WorkspaceUploadResult{}, ErrInvalid
 	}
+	var staged bytes.Buffer
+	if _, err := io.Copy(&staged, &workspaceUploadReader{reader: in.Reader, remaining: workspaceUploadMaxBytes}); err != nil {
+		return WorkspaceUploadResult{}, err
+	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return WorkspaceUploadResult{}, err
 	}
 	relative := path.Join("assets", now.Format("200601"), fmt.Sprintf("%s-%s-%s", now.Format("20060102"), id, filename))
 	var result WorkspaceUploadResult
-	err = a.withWorkspaceRoot(ctx, in.AgentID, in.SessionID, WorkspaceScopeUser, authz.ActionCreate, home.RootReadWrite, func(root home.RootOperations) error {
+	err = a.withWorkspaceRoot(ctx, in.AgentID, in.SessionID, WorkspaceScopeUser, authz.ActionCreate, home.RootReadWrite, func(root home.RootOperations, req home.WorkspaceRequest) error {
+		if compatibility, ok := a.assetCompatibility(WorkspaceScopeUser, relative); ok {
+			if err := compatibility.UploadAsset(ctx, a.svc.assets, home.Coordinate{Request: req, Scope: home.RootPrincipalData, Value: relative}, bytes.NewReader(staged.Bytes()), home.WriteOptions{Mode: 0o644, MaxBytes: workspaceUploadMaxBytes}); err != nil {
+				return err
+			}
+			result = WorkspaceUploadResult{Path: "$" + pkgsandbox.EnvStellaAssetsDir + "/" + strings.TrimPrefix(relative, "assets/"), RelativePath: relative, Scope: WorkspaceScopeUser}
+			return nil
+		}
 		if err := root.Mkdir(ctx, path.Dir(relative), 0o755, home.MkdirOptions{Parents: true}); err != nil {
 			return err
 		}
-		if err := root.Upload(ctx, relative, &workspaceUploadReader{reader: in.Reader, remaining: workspaceUploadMaxBytes}, home.WriteOptions{Mode: 0o644}); err != nil {
+		if err := root.Upload(ctx, relative, bytes.NewReader(staged.Bytes()), home.WriteOptions{Mode: 0o644, MaxBytes: workspaceUploadMaxBytes}); err != nil {
+			if errors.Is(err, home.ErrUploadLimit) {
+				return ErrTooLarge
+			}
 			return err
 		}
 		result = WorkspaceUploadResult{Path: "$" + pkgsandbox.EnvStellaAssetsDir + "/" + strings.TrimPrefix(relative, "assets/"), RelativePath: relative, Scope: WorkspaceScopeUser}
@@ -359,7 +426,7 @@ func (r *workspaceUploadReader) Read(buffer []byte) (int, error) {
 	return count, err
 }
 
-func (a *Access) withWorkspaceRoot(ctx context.Context, agentID, sessionID string, scope WorkspaceScope, action authz.Action, access home.RootAccess, use func(home.RootOperations) error) (resultErr error) {
+func (a *Access) withWorkspaceRoot(ctx context.Context, agentID, sessionID string, scope WorkspaceScope, action authz.Action, access home.RootAccess, use func(home.RootOperations, home.WorkspaceRequest) error) (resultErr error) {
 	if use == nil || (scope != WorkspaceScopeAgent && scope != WorkspaceScopeUser) {
 		return ErrInvalid
 	}
@@ -377,12 +444,46 @@ func (a *Access) withWorkspaceRoot(ctx context.Context, agentID, sessionID strin
 	if scope == WorkspaceScopeUser {
 		rootScope = home.RootPrincipalData
 	}
-	root, err := a.svc.homes.OpenRoot(ctx, home.WorkspaceRequest{UserID: info.UserID, GroupID: info.GroupID, AgentID: info.AgentID}, rootScope, access)
+	req := home.WorkspaceRequest{UserID: info.UserID, GroupID: info.GroupID, AgentID: info.AgentID}
+	root, err := a.svc.homes.OpenRoot(ctx, req, rootScope, access)
 	if err != nil {
 		return fmt.Errorf("%w: open workspace root: %w", ErrUnavailable, err)
 	}
-	defer func() { resultErr = errors.Join(resultErr, root.Close()) }()
-	return use(root)
+	defer func() {
+		resultErr = classifyWorkspaceRootClose(resultErr, root.Close(), access)
+	}()
+	return use(root, req)
+}
+
+func classifyWorkspaceRootClose(operationErr, closeErr error, access home.RootAccess) error {
+	if closeErr == nil {
+		return operationErr
+	}
+	if access == home.RootReadWrite && operationErr == nil {
+		return fmt.Errorf("%w: close workspace root: %w", home.ErrOutcomeUnknown, closeErr)
+	}
+	return errors.Join(operationErr, closeErr)
+}
+
+func (a *Access) assetCompatibility(scope WorkspaceScope, names ...string) (home.AssetCompatibility, bool) {
+	compatibility, ok := a.svc.homes.(home.AssetCompatibility)
+	if !ok || scope != WorkspaceScopeUser || a.svc.assets == nil {
+		return nil, false
+	}
+	for _, name := range names {
+		if name == "assets" || strings.HasPrefix(name, "assets/") {
+			return compatibility, true
+		}
+	}
+	return nil, false
+}
+
+// AdmitWorkspaceUpload performs lightweight authorization before transport
+// reads the request body. UploadWorkspacePath repeats the same decision at the
+// publication boundary rather than treating this as a durable grant.
+func (a *Access) AdmitWorkspaceUpload(ctx context.Context, agentID, sessionID string) error {
+	_, err := a.Workspace(ctx, agentID, sessionID, authz.ActionCreate)
+	return err
 }
 
 func mkdirWorkspaceParent(ctx context.Context, root home.RootOperations, name string) error {
@@ -393,58 +494,20 @@ func mkdirWorkspaceParent(ctx context.Context, root home.RootOperations, name st
 }
 
 func canonicalWorkspacePath(scope WorkspaceScope, value string, allowRoot bool) (WorkspaceScope, string, error) {
-	if scope != WorkspaceScopeAgent && scope != WorkspaceScopeUser {
+	rootScope := home.RootAgentWorkspace
+	if scope == WorkspaceScopeUser {
+		rootScope = home.RootPrincipalData
+	} else if scope != WorkspaceScopeAgent {
 		return "", "", ErrInvalid
 	}
-	if value == "" {
-		if allowRoot {
-			return scope, ".", nil
-		}
+	resolved, name, err := home.ResolveLogicalCoordinate(rootScope, value, allowRoot)
+	if err != nil {
 		return "", "", ErrInvalid
 	}
-	if strings.Contains(value, `\`) || strings.ContainsRune(value, 0) {
-		return "", "", ErrInvalid
+	if resolved == home.RootPrincipalData {
+		return WorkspaceScopeUser, name, nil
 	}
-	if name, suffix, ok, err := pkgsandbox.SplitLeadingPathVariable(value); err != nil {
-		return "", "", ErrInvalid
-	} else if ok {
-		switch name {
-		case pkgsandbox.EnvHome:
-			scope = WorkspaceScopeAgent
-		case pkgsandbox.EnvStellaAssetsDir:
-			scope, value = WorkspaceScopeUser, "assets"+suffix
-		default:
-			return "", "", ErrInvalid
-		}
-		if name == pkgsandbox.EnvHome {
-			value = strings.TrimPrefix(suffix, "/")
-		}
-	} else if strings.HasPrefix(value, "/") {
-		switch {
-		case value == pkgsandbox.MountWorkspace && allowRoot:
-			return WorkspaceScopeAgent, ".", nil
-		case strings.HasPrefix(value, pkgsandbox.MountWorkspace+"/"):
-			scope, value = WorkspaceScopeAgent, strings.TrimPrefix(value, pkgsandbox.MountWorkspace+"/")
-		case value == pkgsandbox.MountUserData && allowRoot:
-			return WorkspaceScopeUser, ".", nil
-		case strings.HasPrefix(value, pkgsandbox.MountUserData+"/"):
-			scope, value = WorkspaceScopeUser, strings.TrimPrefix(value, pkgsandbox.MountUserData+"/")
-		default:
-			return "", "", ErrInvalid
-		}
-	}
-	if value == "" && allowRoot {
-		return scope, ".", nil
-	}
-	if value == "" || path.Clean(value) != value || strings.HasPrefix(value, "/") {
-		return "", "", ErrInvalid
-	}
-	for segment := range strings.SplitSeq(value, "/") {
-		if segment == "" || segment == "." || segment == ".." {
-			return "", "", ErrInvalid
-		}
-	}
-	return scope, value, nil
+	return WorkspaceScopeAgent, name, nil
 }
 
 func collectWorkspaceInfo(ctx context.Context, root home.RootOperations, scope WorkspaceScope, listName string, showHidden bool, depth int) (WorkspaceInfo, error) {
@@ -462,7 +525,7 @@ func collectWorkspaceInfo(ctx context.Context, root home.RootOperations, scope W
 	if scope == WorkspaceScopeUser {
 		logicalRoot = pkgsandbox.MountUserData
 	}
-	result := WorkspaceInfo{Root: logicalRoot, Paths: []string{}}
+	result := WorkspaceInfo{Root: logicalRoot, SandboxRoot: logicalRoot, Paths: []string{}}
 	var walk func(string, int) error
 	walk = func(directory string, level int) error {
 		entries, err := root.List(ctx, directory, home.ListOptions{Limit: workspaceListLimit})

@@ -5,11 +5,23 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/CherryHQ/stella/internal/home"
 )
 
 func TestWorkspaceReadHasBoundedDefault(t *testing.T) {
 	if workspaceReadMaxBytes != 32<<20 {
 		t.Fatalf("workspaceReadMaxBytes = %d", workspaceReadMaxBytes)
+	}
+}
+
+func TestSuccessfulMutationCloseFailureHasUnknownOutcome(t *testing.T) {
+	closeErr := errors.New("close failed")
+	if err := classifyWorkspaceRootClose(nil, closeErr, home.RootReadWrite); !errors.Is(err, home.ErrOutcomeUnknown) || !errors.Is(err, closeErr) {
+		t.Fatalf("RW close error = %v", err)
+	}
+	if err := classifyWorkspaceRootClose(nil, closeErr, home.RootReadOnly); errors.Is(err, home.ErrOutcomeUnknown) || !errors.Is(err, closeErr) {
+		t.Fatalf("RO close error = %v", err)
 	}
 }
 

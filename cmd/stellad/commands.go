@@ -344,13 +344,14 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build session image pipeline: %w", err)
 	}
+	projectStore := agent.NewProjectStore(db, store, assetStore, agentAccess, agent.WithProjectHomeWorkspace(homeRegistry))
 	homeDir, _ := os.UserHomeDir()
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		StellaHome: config.StellaHome(),
 		HomeDir:    homeDir,
 		Memory:     memProvider,
 		Agents:     sessionaccess.ConfigPromptAgentStore{Store: store},
-		Projects:   sessionaccess.NewSQLPromptProjectStore(db),
+		Projects:   projectStore.Resolve,
 		Workspace:  homeRegistry,
 		Plugins:    phost,
 		SkillStore: skillStoreAdapter,
@@ -503,13 +504,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	builtinTools = append(builtinTools, serviceTools...)
 
-	// The agent domain owns project resolution/ensuring and tool-override
-	// fetching; the composition root passes the pool, not raw queries.
-	projectStore := agent.NewProjectStore(db, store, assetStore, agentAccess, agent.WithProjectHomeWorkspace(homeRegistry))
-
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithSnapshotLoader(snapshotLoader),
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
+		agent.WithAssetStorePM(assetStore),
 		agent.WithSessionImagePipeline(sessionImages),
 		agent.WithSessionInboxPM(sessionInbox),
 		agent.WithBuiltinTools(builtinTools),

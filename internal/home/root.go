@@ -33,6 +33,7 @@ const (
 
 var (
 	ErrReadLimit      = errors.New("home: read limit exceeded")
+	ErrUploadLimit    = errors.New("home: upload limit exceeded")
 	ErrListLimit      = errors.New("home: list limit exceeded")
 	ErrReadOnly       = errors.New("home: root is read-only")
 	ErrOutcomeUnknown = errors.New("home: mutation outcome unknown")
@@ -44,9 +45,10 @@ type (
 	ListOptions  struct{ Limit int }
 	ReadOptions  struct{ MaxBytes int64 }
 	WriteOptions struct {
-		Mode   fs.FileMode
-		Append bool
-		Sync   bool
+		Mode     fs.FileMode
+		Append   bool
+		Sync     bool
+		MaxBytes int64
 	}
 )
 
@@ -398,6 +400,9 @@ func (r *Root) Upload(ctx context.Context, name string, src io.Reader, o WriteOp
 	if src == nil || o.Append {
 		return errors.New("home: upload requires a non-append source")
 	}
+	if o.MaxBytes <= 0 {
+		return errors.New("home: upload requires a positive byte limit")
+	}
 	target, err := cleanName(name, false)
 	if err != nil {
 		return err
@@ -428,7 +433,19 @@ func (r *Root) Upload(ctx context.Context, name string, src io.Reader, o WriteOp
 		return errors.New("home: allocate upload temporary file")
 	}
 	defer func() { _ = r.root.Remove(temporary) }()
-	_, copyErr := io.Copy(file, &contextReader{ctx, src})
+	reader := &contextReader{ctx, src}
+	_, copyErr := io.CopyN(file, reader, o.MaxBytes)
+	if errors.Is(copyErr, io.EOF) {
+		copyErr = nil
+	} else if copyErr == nil {
+		var probe [1]byte
+		count, err := io.ReadFull(reader, probe[:])
+		if count > 0 {
+			copyErr = ErrUploadLimit
+		} else if err != nil && !errors.Is(err, io.EOF) {
+			copyErr = err
+		}
+	}
 	if copyErr == nil {
 		copyErr = ctx.Err()
 	}

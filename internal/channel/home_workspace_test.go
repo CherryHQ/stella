@@ -2,17 +2,32 @@ package channel
 
 import (
 	"context"
+	"log/slog"
+	"sync/atomic"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/asset"
+	"github.com/CherryHQ/stella/internal/home"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
-type resolveServiceManager struct{}
+type resolveServiceManager struct{ lookups *atomic.Int64 }
 
-func (resolveServiceManager) GetService(string) *agent.Service { return &agent.Service{} }
-func (resolveServiceManager) Default() *agent.Service          { return &agent.Service{} }
+func (m resolveServiceManager) GetService(string) *agent.Service {
+	if m.lookups != nil {
+		m.lookups.Add(1)
+	}
+	return &agent.Service{}
+}
+
+func (m resolveServiceManager) Default() *agent.Service {
+	if m.lookups != nil {
+		m.lookups.Add(1)
+	}
+	return &agent.Service{}
+}
 
 type resolveGroup struct{ id string }
 
@@ -48,5 +63,40 @@ func TestCoordinatorAdmitsKnownAttachmentPrincipals(t *testing.T) {
 				t.Fatalf("AdmitAssetSave: %v", err)
 			}
 		})
+	}
+}
+
+func TestPreSessionAttachmentSaveDoesNotStartOrWakeSessionCompute(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+	user := createTestUser(t, ts.oidcStore, "attachment-compute-spy@example.com")
+	createTestIdentity(t, ts.oidcStore, user.ID, "telegram", "compute-spy", "Compute Spy")
+	homeDir := t.TempDir()
+	homes, err := home.NewWorkspaceManager(ts.db, homeDir)
+	if err != nil {
+		t.Fatalf("NewWorkspaceManager: %v", err)
+	}
+	assets, err := asset.NewStore(homeDir, nil, slog.Default())
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	var computeLookups atomic.Int64
+	coord := &Coordinator{
+		serviceManager: resolveServiceManager{lookups: &computeLookups},
+		store:          ts.store,
+		auth:           ts.oidcStore,
+		agentAccess:    agentaccess.NewService(ts.store, ts.authStore),
+		rootOpener:     homes,
+		assets:         assets,
+	}
+	logical, err := coord.SaveAsset(ctx, pkgchannel.IncomingMessage{Platform: "telegram", SenderID: "compute-spy"}, "photo.jpg", []byte("image"))
+	if err != nil {
+		t.Fatalf("SaveAsset: %v", err)
+	}
+	if logical == "" {
+		t.Fatal("SaveAsset returned an empty logical path")
+	}
+	if got := computeLookups.Load(); got != 0 {
+		t.Fatalf("Session compute lookups = %d, want 0", got)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -25,6 +26,7 @@ import (
 	"github.com/CherryHQ/stella/internal/blob"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -86,6 +88,18 @@ type assetSessionAssignments struct{}
 
 func (assetSessionAssignments) ListUserAgentIDs(context.Context, string) ([]string, error) {
 	return nil, nil
+}
+
+type workspaceComputeSpy struct{ lookups int }
+
+func (s *workspaceComputeSpy) GetService(string) sessionaccess.RuntimeService {
+	s.lookups++
+	return nil
+}
+
+func (s *workspaceComputeSpy) Default() sessionaccess.RuntimeService {
+	s.lookups++
+	return nil
 }
 
 type countingOpenStore struct {
@@ -746,6 +760,125 @@ func TestUploadWorkspaceFileMutatesPOSIXWithoutBlobStorePut(t *testing.T) {
 	localData, err := os.ReadFile(local)
 	if err != nil || string(localData) != "upload" {
 		t.Fatalf("local data=%q err=%v", localData, err)
+	}
+}
+
+func TestWorkspaceAPIDoesNotStartOrWakeSessionCompute(t *testing.T) {
+	homeDir := t.TempDir()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, homeDir, failingPutStore{}, mem)
+	workspaceDir := filepath.Join(homeDir, "users", "u1", "agents", "a1")
+	if err := os.MkdirAll(workspaceDir, 0o700); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspaceDir, "ready.txt"), []byte("ready"), 0o600); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	compute := &workspaceComputeSpy{}
+	if err := s.sessionAccess.BindRuntimeManager(compute); err != nil {
+		t.Fatalf("BindRuntimeManager: %v", err)
+	}
+	scope := apitypes.WorkspaceScopeAgent
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.GetSessionWorkspace(rr, req, "a1", "s1", apiserver.GetSessionWorkspaceParams{Scope: &scope})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if compute.lookups != 0 {
+		t.Fatalf("Session compute lookups = %d, want 0", compute.lookups)
+	}
+}
+
+type spyRequestBody struct{ reads, bytes int }
+
+func (b *spyRequestBody) Read(p []byte) (int, error) { b.reads++; b.bytes += len(p); return 0, io.EOF }
+func (*spyRequestBody) Close() error                 { return nil }
+
+type revokingMultipartBody struct {
+	reader *bytes.Reader
+	revoke func()
+	once   bool
+}
+
+func (b *revokingMultipartBody) Read(p []byte) (int, error) {
+	if !b.once {
+		b.once = true
+		b.revoke()
+	}
+	return b.reader.Read(p)
+}
+func (*revokingMultipartBody) Close() error { return nil }
+
+func TestUploadWorkspaceFileDeniedAdmissionDoesNotReadBody(t *testing.T) {
+	homeDir := t.TempDir()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, homeDir, failingPutStore{}, mem)
+	body := &spyRequestBody{}
+	req := httptest.NewRequest(http.MethodPost, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "other"}))
+	req.Body = body
+	rr := httptest.NewRecorder()
+	s.UploadWorkspaceFile(rr, req, "a1", "s1")
+	if rr.Code == http.StatusCreated {
+		t.Fatalf("admission unexpectedly succeeded")
+	}
+	if body.reads != 0 || body.bytes != 0 {
+		t.Fatalf("body reads=%d bytes=%d", body.reads, body.bytes)
+	}
+}
+
+func TestUploadWorkspaceFileReauthorizesAfterBodyStaging(t *testing.T) {
+	homeDir := t.TempDir()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	var encoded bytes.Buffer
+	mw := multipart.NewWriter(&encoded)
+	part, err := mw.CreateFormFile("file", "revoked.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("must not publish")); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	body := &revokingMultipartBody{reader: bytes.NewReader(encoded.Bytes()), revoke: func() {
+		if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "other", AgentID: "a1"}); err != nil {
+			t.Fatalf("revoke session: %v", err)
+		}
+	}}
+	s := assetServer(t, homeDir, failingPutStore{}, mem)
+	req := httptest.NewRequest(http.MethodPost, "/", body).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rr := httptest.NewRecorder()
+	s.UploadWorkspaceFile(rr, req, "a1", "s1")
+	if rr.Code == http.StatusCreated {
+		t.Fatalf("revoked upload published: %s", rr.Body.String())
+	}
+	assetsDir := filepath.Join(homeDir, "users", "u1", "data", "assets")
+	entries, err := os.ReadDir(assetsDir)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("revoked upload left %d asset entries", len(entries))
+	}
+}
+
+func TestWorkspaceUnknownMutationOutcomeReturnsNoRetryConflict(t *testing.T) {
+	rr := httptest.NewRecorder()
+	(&Server{}).writeWorkspaceError(rr, fmt.Errorf("publish: %w", home.ErrOutcomeUnknown))
+	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "inspect state before retrying") {
+		t.Fatalf("response = %d %s", rr.Code, rr.Body.String())
 	}
 }
 

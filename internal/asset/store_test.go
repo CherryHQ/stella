@@ -251,6 +251,38 @@ func TestMoveFileRejectsExistingDestinationWithoutDataLoss(t *testing.T) {
 	}
 }
 
+func TestMoveFileRejectsObjectOnlyDestinationWithoutDataLoss(t *testing.T) {
+	home := t.TempDir()
+	assetsDir := assetsDirFor(home, "u1")
+	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(assetsDir, "source.txt")
+	dst := filepath.Join(assetsDir, "object-only.txt")
+	if err := os.WriteFile(src, []byte("source"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	authority := newMemAuthority()
+	srcKey, _ := blob.KeyForPath(home, src)
+	dstKey, _ := blob.KeyForPath(home, dst)
+	authority.objs[srcKey] = []byte("source")
+	authority.objs[dstKey] = []byte("durable destination")
+	s := mustStore(t, home, authority)
+
+	if err := s.MoveFile(context.Background(), src, dst); !errors.Is(err, ErrDestinationExists) {
+		t.Fatalf("MoveFile error=%v, want ErrDestinationExists", err)
+	}
+	if got, err := os.ReadFile(src); err != nil || string(got) != "source" {
+		t.Fatalf("local source=%q err=%v", got, err)
+	}
+	if _, err := os.Stat(dst); !os.IsNotExist(err) {
+		t.Fatalf("local destination appeared: %v", err)
+	}
+	if string(authority.objs[srcKey]) != "source" || string(authority.objs[dstKey]) != "durable destination" {
+		t.Fatalf("authority changed: src=%q dst=%q", authority.objs[srcKey], authority.objs[dstKey])
+	}
+}
+
 func TestSessionMediaRejectsIntegrityMismatch(t *testing.T) {
 	home := t.TempDir()
 	s := mustStore(t, home, nil)
@@ -485,6 +517,50 @@ func TestCreateFileDurableAndRollsBack(t *testing.T) {
 	}
 	if auth.count() != before {
 		t.Fatalf("non-asset create touched the authority (count %d→%d)", before, auth.count())
+	}
+}
+
+func TestUploadFileIsBoundedAtomicAndMirrored(t *testing.T) {
+	home := t.TempDir()
+	auth := newMemAuthority()
+	s := mustStore(t, home, auth)
+	abs := filepath.Join(assetsDirFor(home, "u1"), "upload.txt")
+	key, _ := blob.KeyForPath(home, abs)
+
+	if err := s.UploadFile(context.Background(), abs, strings.NewReader("exact"), 0o644, 5, true); err != nil {
+		t.Fatalf("UploadFile exact limit: %v", err)
+	}
+	if got, err := os.ReadFile(abs); err != nil || string(got) != "exact" {
+		t.Fatalf("local upload=%q err=%v", got, err)
+	}
+	if got := string(auth.objs[key]); got != "exact" {
+		t.Fatalf("authority upload=%q", got)
+	}
+
+	over := filepath.Join(assetsDirFor(home, "u1"), "over.txt")
+	if err := s.UploadFile(context.Background(), over, strings.NewReader("excess"), 0o644, 5, false); !errors.Is(err, ErrUploadLimit) {
+		t.Fatalf("over-limit error=%v", err)
+	}
+	if _, err := os.Stat(over); !os.IsNotExist(err) {
+		t.Fatalf("over-limit upload published: %v", err)
+	}
+
+	failed := filepath.Join(assetsDirFor(home, "u1"), "failed-upload.txt")
+	auth.failPutAfter = auth.puts
+	if err := s.UploadFile(context.Background(), failed, strings.NewReader("bytes"), 0o644, 5, false); err == nil {
+		t.Fatal("authority failure accepted")
+	}
+	if _, err := os.Stat(failed); !os.IsNotExist(err) {
+		t.Fatalf("authority failure published local target: %v", err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(failed))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".stella-asset-") {
+			t.Fatalf("temporary upload leaked: %s", entry.Name())
+		}
 	}
 }
 

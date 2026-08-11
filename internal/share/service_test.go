@@ -148,7 +148,7 @@ func TestShareArticleUsesDatabaseBodyWhenMirrorIsMissing(t *testing.T) {
 	}
 }
 
-func TestShareArtifactDoesNotRestoreMutableSourceFromBlob(t *testing.T) {
+func TestShareArtifactRestoresMutableSourceFromBlob(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	q := sqlc.New(db)
@@ -175,12 +175,15 @@ func TestShareArtifactDoesNotRestoreMutableSourceFromBlob(t *testing.T) {
 	if err := remote.Put(ctx, key, strings.NewReader("restored")); err != nil {
 		t.Fatalf("remote Put: %v", err)
 	}
-	_, err = mustAccess(t, svc, agentAuthority(t, userID, agentID)).ShareArtifact(ctx, "session", "assets/202607/restored.html", "user", agentID, "7d")
-	if !errors.Is(err, authz.ErrNotFound) {
-		t.Fatalf("ShareArtifact error = %v, want POSIX source not found", err)
+	created, err := mustAccess(t, svc, agentAuthority(t, userID, agentID)).ShareArtifact(ctx, "session", "assets/202607/restored.html", "user", agentID, "7d")
+	if err != nil {
+		t.Fatalf("ShareArtifact: %v", err)
 	}
-	if _, err := os.Stat(local); !os.IsNotExist(err) {
-		t.Fatalf("local source stat = %v, want object bytes to remain non-authoritative", err)
+	if string(created.Share.Content) != "restored" {
+		t.Fatalf("content = %q, want restored", created.Share.Content)
+	}
+	if data, err := os.ReadFile(local); err != nil || string(data) != "restored" {
+		t.Fatalf("restored data = %q, err = %v", data, err)
 	}
 }
 

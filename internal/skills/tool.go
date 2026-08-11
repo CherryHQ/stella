@@ -70,11 +70,12 @@ var skillsInputSchema = func() map[string]any {
 const runtimeUsageTouchTimeout = 500 * time.Millisecond
 
 type Tool struct {
-	svc         *Service
-	store       pkgplugins.SkillStore
-	stellaHome  string
-	projectRoot string
-	actionsOnly map[string]bool
+	svc             *Service
+	store           pkgplugins.SkillStore
+	stellaHome      string
+	projectRoot     string
+	projectSnapshot *ProjectSnapshot
+	actionsOnly     map[string]bool
 	// layout is the single authority for where a DB-backed skill's files live on
 	// disk, by scope; it must agree with the write side that materialized them.
 	layout SkillDiskLayout
@@ -92,6 +93,11 @@ type Tool struct {
 	// create/patch/deprecate. Only callers that expose write actions (the reflect
 	// reviewer) inject it; when a write action runs without it, the write fails closed.
 	writeAuthz SkillWriteAuthorizer
+}
+
+func (t *Tool) WithProjectSnapshot(snapshot *ProjectSnapshot) *Tool {
+	t.projectSnapshot = snapshot
+	return t
 }
 
 // errSkillNotFound is the opaque result of a denied or missing DB skill read; the
@@ -487,6 +493,7 @@ func (t *Tool) allowsAny(actions ...string) bool {
 }
 
 func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
+	ctx = WithProjectSnapshot(ctx, t.projectSnapshot)
 	name, _ := args["name"].(string)
 	if name == "" {
 		return "", fmt.Errorf("name is required for load action")
@@ -532,7 +539,9 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 	}
 	// Remap the host directory to the path the agent sees inside the sandbox; an
 	// unmappable dir on an isolating backend is dropped rather than leaked.
-	skillDir = t.view.apply(skillDir)
+	if resolved == nil || resolved.Scope != "project" {
+		skillDir = t.view.apply(skillDir)
+	}
 
 	var out strings.Builder
 	if skillDir != "" {
@@ -646,6 +655,7 @@ func safeSkillDiskPath(base string, parts ...string) (string, error) {
 }
 
 func (t *Tool) list(ctx context.Context) (string, error) {
+	ctx = WithProjectSnapshot(ctx, t.projectSnapshot)
 	projectRoot := projectRootFromContext(ctx, t.projectRoot)
 	vc := t.viewContext(ctx)
 

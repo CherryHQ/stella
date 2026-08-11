@@ -133,6 +133,33 @@ func (q *Queries) GetProjectByName(ctx context.Context, arg GetProjectByNamePara
 	return i, err
 }
 
+const getProjectByOwner = `-- name: GetProjectByOwner :one
+SELECT id, agent_id, user_id, name, base_dir, description, archived, created_at, updated_at FROM project WHERE id = $1 AND user_id = $2 AND agent_id = $3
+`
+
+type GetProjectByOwnerParams struct {
+	ID      string `json:"id"`
+	UserID  string `json:"user_id"`
+	AgentID string `json:"agent_id"`
+}
+
+func (q *Queries) GetProjectByOwner(ctx context.Context, arg GetProjectByOwnerParams) (Project, error) {
+	row := q.db.QueryRow(ctx, getProjectByOwner, arg.ID, arg.UserID, arg.AgentID)
+	var i Project
+	err := row.Scan(
+		&i.ID,
+		&i.AgentID,
+		&i.UserID,
+		&i.Name,
+		&i.BaseDir,
+		&i.Description,
+		&i.Archived,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listProjects = `-- name: ListProjects :many
 SELECT id, agent_id, user_id, name, base_dir, description, archived, created_at, updated_at FROM project WHERE agent_id = $1 AND user_id = $2 AND archived = false ORDER BY created_at ASC
 `

@@ -2,7 +2,9 @@ package access
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent"
@@ -18,7 +20,7 @@ func (promptTestAgents) GetPromptAgent(context.Context, string) (PromptAgent, er
 	return PromptAgent{SystemPrompt: "test", Workspace: "/agent-definition/a1"}, nil
 }
 
-type promptTestProjects struct{}
+type promptTestProjects struct{ descriptor agent.ProjectDescriptor }
 
 type promptTestWorkspace struct{ root string }
 
@@ -34,8 +36,67 @@ func (w promptTestWorkspace) WorkspaceView(_ context.Context, req home.Workspace
 	return home.WorkspaceView{}, nil
 }
 
-func (promptTestProjects) ProjectRoot(context.Context, string, string, string) (string, error) {
-	return "", nil
+func (w promptTestWorkspace) OpenRoot(ctx context.Context, req home.WorkspaceRequest, scope home.RootScope, _ home.RootAccess) (home.RootOperations, error) {
+	view, err := w.WorkspaceView(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	dir := view.AgentRoot
+	if scope == home.RootPrincipalData {
+		dir = view.DataRoot
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	return testRootOperations{Root: root}, nil
+}
+
+func (p promptTestProjects) ResolveProject(context.Context, string, string, string) (agent.ProjectDescriptor, error) {
+	if p.descriptor.ID == "" {
+		return agent.ProjectDescriptor{}, agent.ErrProjectNotFound
+	}
+	return p.descriptor, nil
+}
+
+func TestPromptPreviewUsesAuthorizedRootToLeafProjectContextWithoutHostPath(t *testing.T) {
+	stellaHome := t.TempDir()
+	root := filepath.Join(stellaHome, "users", "u1", "agents", "a1")
+	project := filepath.Join(root, "projects", "app")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{
+		filepath.Join(root, "AGENTS.md"):    "preview root instructions",
+		filepath.Join(project, "AGENTS.md"): "preview project instructions",
+	} {
+		if err := os.WriteFile(name, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var build pkgplugins.SystemPromptContext
+	builder, err := NewSystemPromptBuilder(SystemPromptDeps{
+		StellaHome: stellaHome,
+		Memory:     memorytest.New(),
+		Agents:     promptTestAgents{},
+		Projects:   promptTestProjects{descriptor: agent.ProjectDescriptor{ID: "p1", UserID: "u1", AgentID: "a1", Path: "projects/app"}}.ResolveProject,
+		Workspace:  promptTestWorkspace{root: stellaHome},
+		Plugins:    promptTestPlugins{build: &build},
+		SkillStore: agentSkillStore{},
+		Skills: func(context.Context, pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
+			return pkgplugins.SystemPromptSection{}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := builder.BuildSessionSystemPrompt(context.Background(), SystemPromptBuildInput{Info: session.Info{UserID: "u1", AgentID: "a1", ProjectID: "p1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "preview root instructions") || !strings.Contains(got, "preview project instructions") || strings.Contains(got, stellaHome) {
+		t.Fatalf("preview prompt lacks logical root-to-leaf context or leaks host path:\n%s", got)
+	}
 }
 
 type promptTestPlugins struct {
@@ -69,7 +130,7 @@ func TestAuthorizedPromptUsesPrincipalWorkspace(t *testing.T) {
 				StellaHome: stellaHome,
 				Memory:     memorytest.New(),
 				Agents:     promptTestAgents{},
-				Projects:   promptTestProjects{},
+				Projects:   promptTestProjects{}.ResolveProject,
 				Workspace:  promptTestWorkspace{root: stellaHome},
 				Plugins:    promptTestPlugins{build: &build},
 				SkillStore: agentSkillStore{},

@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent/session"
@@ -51,6 +53,36 @@ func TestPoolSnapshotPromptPropagatesWorkspaceError(t *testing.T) {
 	_, err := pm.buildSnapshotPromptFunc(&config.Snapshot{AgentID: "a"})(context.Background(), session.Info{UserID: "u", AgentID: "a"}, memory.SessionSnapshot{})
 	if !errors.Is(err, want) {
 		t.Fatalf("snapshot prompt error = %v, want %v", err, want)
+	}
+}
+
+func TestPoolSnapshotPromptUsesAuthorizedRootToLeafProjectContextWithoutHostPath(t *testing.T) {
+	stellaHome := t.TempDir()
+	root := filepath.Join(stellaHome, "users", "u1", "agents", "a1")
+	project := filepath.Join(root, "projects", "app")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{
+		filepath.Join(root, "AGENTS.md"):    "pool root instructions",
+		filepath.Join(project, "AGENTS.md"): "pool project instructions",
+	} {
+		if err := os.WriteFile(name, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pm := &PoolManager{
+		homeWorkspace: testWorkspaceViewer{root: stellaHome},
+		projectResolver: func(_ context.Context, projectID, userID, agentID string) (ProjectDescriptor, error) {
+			return ProjectDescriptor{ID: projectID, UserID: userID, AgentID: agentID, Path: "projects/app"}, nil
+		},
+	}
+	got, err := pm.buildSnapshotPromptFunc(&config.Snapshot{AgentID: "a1"})(context.Background(), session.Info{UserID: "u1", AgentID: "a1", ProjectID: "p1"}, memory.SessionSnapshot{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "pool root instructions") || !strings.Contains(got, "pool project instructions") || strings.Contains(got, stellaHome) {
+		t.Fatalf("snapshot prompt lacks logical root-to-leaf context or leaks host path:\n%s", got)
 	}
 }
 

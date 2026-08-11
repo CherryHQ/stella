@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"path"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/skills"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -37,8 +39,18 @@ type ProjectAgentAuthorizer interface {
 type ProjectStore struct {
 	q      *sqlc.Queries
 	store  config.Store
+	assets *asset.Store
 	agents ProjectAgentAuthorizer
 	homes  home.WorkspaceViewer
+}
+
+// SnapshotSkills resolves exact project ownership and snapshots through Home.
+func (ps *ProjectStore) SnapshotSkills(ctx context.Context, projectID, userID, agentID string) (*skills.ProjectSnapshot, ProjectDescriptor, error) {
+	opener, ok := ps.homes.(home.RootOpener)
+	if !ok {
+		return nil, ProjectDescriptor{}, errors.New("project Home root opener is unavailable")
+	}
+	return SnapshotAuthorizedProjectSkills(ctx, ps.Resolve, opener, projectID, userID, agentID)
 }
 
 // NewProjectStore builds a ProjectStore over the given pool and config store.
@@ -51,8 +63,7 @@ func WithProjectHomeWorkspace(viewer home.WorkspaceViewer) ProjectStoreOption {
 }
 
 func NewProjectStore(db *pgxpool.Pool, store config.Store, assets *asset.Store, agents ProjectAgentAuthorizer, opts ...ProjectStoreOption) *ProjectStore {
-	_ = assets // Kept in the constructor until composition callers are migrated.
-	s := &ProjectStore{q: sqlc.New(db), store: store, agents: agents}
+	s := &ProjectStore{q: sqlc.New(db), store: store, assets: assets, agents: agents}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -317,31 +328,17 @@ func derefString(p *string) string {
 	return *p
 }
 
-// Resolve returns the base directory for the given project owned by the user.
-func (s *ProjectStore) Resolve(ctx context.Context, projectID, userID string) (string, error) {
-	p, err := s.q.GetProject(ctx, sqlc.GetProjectParams{ID: projectID, UserID: userID})
+// Resolve returns the logical descriptor for the exact project owner tuple.
+func (s *ProjectStore) Resolve(ctx context.Context, projectID, userID, agentID string) (ProjectDescriptor, error) {
+	p, err := s.q.GetProjectByOwner(ctx, sqlc.GetProjectByOwnerParams{ID: projectID, UserID: userID, AgentID: agentID})
 	if err != nil {
-		return "", err
+		return ProjectDescriptor{}, err
 	}
 	relative, err := s.logicalProjectPath(ctx, p.UserID, p.AgentID, p.BaseDir)
 	if err != nil {
-		return "", err
+		return ProjectDescriptor{}, err
 	}
-	if s.homes == nil {
-		return "", ErrWorkspaceSetup
-	}
-	view, err := s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: p.UserID, AgentID: p.AgentID})
-	if err != nil {
-		return "", ErrWorkspaceSetup
-	}
-	resolved := view.AgentRoot
-	if relative != "." {
-		resolved = filepath.Join(resolved, filepath.FromSlash(relative))
-	}
-	if ValidateProjectDir(resolved, view.AgentRoot) != nil {
-		return "", ErrInvalidBaseDir
-	}
-	return resolved, nil
+	return ProjectDescriptor{ID: p.ID, UserID: p.UserID, AgentID: p.AgentID, Path: relative}, nil
 }
 
 // Ensure returns the default project ID for the agent+user pair, creating the
@@ -363,8 +360,17 @@ func (s *ProjectStore) Ensure(ctx context.Context, agentID, userID string) (stri
 	if s.homes == nil {
 		return "", ErrWorkspaceSetup
 	}
-	if _, err := s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: userID, AgentID: agentID}); err != nil {
+	view, err := s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: userID, AgentID: agentID})
+	if err != nil {
 		return "", err
+	}
+	if s.assets != nil {
+		assets := s.assets
+		go func() {
+			if err := assets.HydrateUser(context.Background(), filepath.Join(view.DataRoot, "assets")); err != nil {
+				slog.Warn("hydrate user assets failed", "error", err)
+			}
+		}()
 	}
 	// PostgreSQL stores only the logical project root, never the provider path.
 	p, err := s.q.CreateProject(ctx, sqlc.CreateProjectParams{

@@ -40,9 +40,9 @@ Phase 1 also records typed Home identity and lifecycle metadata in PostgreSQL: u
 
 Files users upload are written to `users/{id}/data/assets/` (and `users/group-{id}/data/assets/` for groups). This live mutable tree is part of the Principal Home and has the same durability requirements. Workspace APIs, channel attachment ingestion, and Agent mounts observe the same POSIX bytes.
 
-`STELLA_BLOB_S3_*` configures immutable BlobStore content such as media, artifacts, and published Share snapshots. It does not make S3 the live workspace API, restore a missing mutable asset, or permit an ephemeral Principal Home. Back up the POSIX namespace even when S3 is configured.
+`STELLA_BLOB_S3_*` also retains the GA `asset.Store` compatibility mirror for files under `data/assets/`. Asset mutations are durably mirrored, local read misses can restore object-only assets, and cold session startup hydrates assets. This compatibility remains until a separate asset-specific offline cutover and marker ships.
 
-Upgrades do not copy or delete legacy asset objects. Supported single-replica upgrades retain the existing persistent `$STELLA_HOME`, which already contains the local files written by previous versions. If a deployment has object-only mutable assets because the POSIX copy was independently lost, restore and verify those files before upgrading; Stella does not run a generic workspace migration or restore-on-miss path.
+This mirror does not make the whole Principal Home object-backed: arbitrary POSIX-only mutable files are not upgrade-safe if their volume is lost. Keep and back up persistent POSIX storage even when S3 is configured. Stella does not run a generic workspace migration or catalog.
 
 ## Principal and Agent Homes (durable, single-replica)
 

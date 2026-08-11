@@ -88,9 +88,9 @@ Immutable session media, content-addressed blobs, artifacts, and published share
 
 The first reviewable replacement slice routes the direct non-Session consumers that currently own mutable bytes: Workspace list/create/delete/move/read/write/upload, pre-session channel attachment publication, project and prompt-context resolution, and Share source reads. Public Workspace and project coordinates are logical; trusted runner/provider code resolves physical mount paths only behind the Home capability boundary. Active Agent `read`/`write`/`edit` tools remain on the existing Session resolver, immutable media and published Share bytes retain their existing authorities, and mutable Skills remain in #897.
 
-For legacy mutable assets, first gather evidence by deployment/configuration and key shape. Add an offline, idempotent, asset-specific migration only if object-only mutable data exists. It must verify principal mapping, path, count, size and digest, preserve the old object copy, and fail closed on incomplete migration. Do not generalize this into a workspace migration/catalog.
+GA deployments can contain object-only mutable assets: restore-on-read-miss, cold-user hydration, and object-backed recovery made the object copy authoritative when the local materialization was absent. Removing that authority therefore requires a separate prerequisite: an offline, idempotent, asset-specific cutover with a domain marker that proves principal mapping, path, count, size, and digest; preserves the old object copy; and fails closed on incomplete migration. Do not generalize it into a workspace migration or directory catalog.
 
-No asset migration belongs in this slice. Supported GA single-replica writes already created the POSIX file under the persistent `$STELLA_HOME` before mirroring keys shaped as `users/<principal>/data/assets/...`; upgrades retain that namespace. Object-only mutable assets therefore require an independently lost POSIX copy, which is outside the supported durability contract and has no complete online ownership/count/digest boundary to prove. Existing objects are neither deleted nor treated as restore-on-miss authority; operators with such damage must restore and verify the POSIX files offline before upgrade.
+Until that prerequisite is merged, this slice retains `asset.Store` mutation mirroring, restore-on-miss, cold hydration, and startup/channel wiring. Workspace and Share use the Home capability and coordinate resolver around those compatibility operations, and all public results remain logical paths. The compatibility bridge is deliberately asset-specific so the later authority-removal delta can delete it without changing the Workspace capability model.
 
 Acceptance:
 
@@ -98,7 +98,8 @@ Acceptance:
 - no audited caller constructs or exposes a durable host path;
 - bash/CLI and API mutations become mutually visible through ordinary POSIX semantics;
 - immutable media/blob/share tests remain green;
-- any asset migration has fixtures proving dry-run, idempotency, complete verification and no remote deletion; if no migration is added, the evidence for exclusion is recorded.
+- GA object-only asset fixtures continue to pass until the prerequisite cutover is merged;
+- the prerequisite asset migration has fixtures proving dry-run, idempotency, complete verification, a domain-specific marker, and no remote deletion before compatibility restoration/hydration is removed.
 
 ### 4. #897 — Mutable Skill filesystem authority
 

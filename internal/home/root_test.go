@@ -298,12 +298,40 @@ func TestRootInterruptedUploadDoesNotPublishPartialTarget(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = root.Close() })
 	uploadCtx, cancel := context.WithCancel(ctx)
-	err = root.Upload(uploadCtx, "published", &cancelAfterChunkReader{cancel: cancel}, WriteOptions{})
+	err = root.Upload(uploadCtx, "published", &cancelAfterChunkReader{cancel: cancel}, WriteOptions{MaxBytes: 1024})
 	if !errors.Is(err, context.Canceled) || IsOutcomeUnknown(err) {
 		t.Fatalf("interrupted upload = %v, want known unpublished cancellation", err)
 	}
 	if _, err := root.Stat(ctx, "published"); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("partial upload target stat = %v, want not exist", err)
+	}
+}
+
+func TestRootUploadLimitDoesNotPublishPartialTarget(t *testing.T) {
+	db, ctx, base := dbtest.New(t), t.Context(), t.TempDir()
+	user := uuid.NewString()
+	if _, err := db.Exec(ctx, "INSERT INTO auth_user(id,email) VALUES($1,$2)", user, user+"@test.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO agent (id, name, workspace) VALUES ('limit-agent', 'Agent', '')`); err != nil {
+		t.Fatal(err)
+	}
+	m, err := NewWorkspaceManager(db, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+	root, err := m.OpenRoot(ctx, WorkspaceRequest{UserID: user, AgentID: "limit-agent"}, RootAgentWorkspace, RootReadWrite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	err = root.Upload(ctx, "target", strings.NewReader("too large"), WriteOptions{MaxBytes: 3})
+	if !errors.Is(err, ErrUploadLimit) {
+		t.Fatalf("upload error=%v", err)
+	}
+	if _, err := root.Stat(ctx, "target"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("target stat=%v", err)
 	}
 }
 

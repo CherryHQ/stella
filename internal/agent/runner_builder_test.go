@@ -72,6 +72,9 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 	if err := os.MkdirAll(projectRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(userAgentDir, "AGENTS.md"), []byte("root instructions from runner builder"), 0o644); err != nil {
+		t.Fatalf("WriteFile root AGENTS.md: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(projectRoot, "AGENTS.md"), []byte("project instructions from runner builder"), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -88,11 +91,11 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
 		},
 		SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
-		ProjectResolver: func(ctx context.Context, projectID, userID string) (string, error) {
-			if projectID != "project-1" || userID != "user-1" {
+		ProjectResolver: func(ctx context.Context, projectID, userID, agentID string) (ProjectDescriptor, error) {
+			if projectID != "project-1" || userID != "user-1" || agentID != snap.AgentID {
 				t.Fatalf("ProjectResolver called with projectID=%q userID=%q", projectID, userID)
 			}
-			return projectRoot, nil
+			return ProjectDescriptor{ID: projectID, UserID: userID, AgentID: agentID, Path: "projects/app"}, nil
 		},
 	})
 
@@ -106,8 +109,8 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 		}
 	})
 
-	if got := r.SystemPrompt(); !strings.Contains(got, "project instructions from runner builder") {
-		t.Fatalf("expected system prompt to include project AGENTS.md content, got:\n%s", got)
+	if got := r.SystemPrompt(); !strings.Contains(got, "root instructions from runner builder") || !strings.Contains(got, "project instructions from runner builder") || strings.Contains(got, stellaHome) {
+		t.Fatalf("expected logical root-to-leaf project context without host path, got:\n%s", got)
 	}
 	if got, want := promptBuild.WorkspaceRoot, userAgentDir; got != want {
 		t.Errorf("prompt WorkspaceRoot = %q, want per-agent workspace %q", got, want)

@@ -2,6 +2,7 @@ package access
 
 import (
 	"context"
+	"errors"
 	"io"
 	"io/fs"
 	"os"
@@ -45,6 +46,26 @@ func (testWorkspaceViewer) OpenRoot(_ context.Context, req home.WorkspaceRequest
 }
 
 type testRootOperations struct{ *os.Root }
+
+type closeFailingWorkspace struct {
+	testWorkspaceViewer
+	err error
+}
+
+func (w closeFailingWorkspace) OpenRoot(ctx context.Context, req home.WorkspaceRequest, scope home.RootScope, access home.RootAccess) (home.RootOperations, error) {
+	root, err := w.testWorkspaceViewer.OpenRoot(ctx, req, scope, access)
+	if err != nil {
+		return nil, err
+	}
+	return closeFailingRoot{RootOperations: root, err: w.err}, nil
+}
+
+type closeFailingRoot struct {
+	home.RootOperations
+	err error
+}
+
+func (r closeFailingRoot) Close() error { return errors.Join(r.RootOperations.Close(), r.err) }
 
 func (r testRootOperations) Close() error { return r.Root.Close() }
 func (r testRootOperations) Stat(_ context.Context, name string) (fs.FileInfo, error) {

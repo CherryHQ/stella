@@ -40,9 +40,9 @@ Phase 1 还在 PostgreSQL 中记录了类型化 Home 的身份和生命周期元
 
 用户上传的文件写入 `users/{id}/data/assets/`（群组为 `users/group-{id}/data/assets/`）。这棵可变 live tree 是 Principal Home 的一部分，具有相同的持久化要求。Workspace API、渠道附件写入和 Agent mount 看到的是同一份 POSIX 字节。
 
-`STELLA_BLOB_S3_*` 配置的是 media、artifact 和已发布 Share snapshot 等不可变 BlobStore 内容。它不会让 S3 成为 live workspace API，不会恢复缺失的可变资产，也不允许 Principal Home 使用临时磁盘。即使配置了 S3，也必须备份 POSIX 命名空间。
+`STELLA_BLOB_S3_*` 也会为 `data/assets/` 下的文件保留 GA `asset.Store` 兼容镜像。资产变更会持久镜像，本地读取未命中时可恢复仅存在于 object store 的资产，冷会话启动也会水合资产。在独立的资产离线切换与 marker 发布前，该兼容行为会继续保留。
 
-升级不会复制或删除遗留 asset object。受支持的单副本升级会保留原有持久 `$STELLA_HOME`，其中已经包含旧版本写入的本地文件。如果某部署因 POSIX 副本被独立删除而只剩 object 中的可变资产，请在升级前恢复并验证这些文件；Stella 不会运行通用 workspace migration，也不会在读取未命中时恢复。
+该镜像不会让整个 Principal Home 都由 object store 托管：如果持久卷丢失，任意仅存在于 POSIX 的可变文件并不具备升级安全性。即使配置了 S3，也必须保留并备份持久 POSIX 存储。Stella 不会运行通用 workspace migration 或 catalog。
 
 ## Principal 与 Agent Home（持久数据，单副本）
 

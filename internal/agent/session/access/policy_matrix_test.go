@@ -21,6 +21,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	storepkg "github.com/CherryHQ/stella/internal/store"
@@ -299,6 +300,28 @@ func TestEmbeddedPostgresSessionBehaviorMatrix(t *testing.T) {
 		root := workspaceRootForScope(m.owner, m.agent, WorkspaceScopeUser)
 		if _, err := os.Stat(filepath.Join(filepath.Dir(root), "escaped.txt")); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("path escaped workspace: stat error=%v, want not exist", err)
+		}
+	})
+
+	t.Run("successful workspace mutation with capability close failure has unknown outcome", func(t *testing.T) {
+		closeErr := errors.New("close failed")
+		original := m.svc.homes
+		m.svc.homes = closeFailingWorkspace{err: closeErr}
+		t.Cleanup(func() { m.svc.homes = original })
+		access, err := m.svc.Begin(ctx, user(m.owner))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = access.CreateWorkspacePath(ctx, WorkspaceCreateInput{
+			AgentID: m.agent, SessionID: m.private, Scope: WorkspaceScopeUser,
+			Path: "close-outcome.txt", Content: "published",
+		})
+		if !errors.Is(err, home.ErrOutcomeUnknown) || !errors.Is(err, closeErr) {
+			t.Fatalf("CreateWorkspacePath error=%v, want unknown close outcome", err)
+		}
+		path := filepath.Join(workspaceRootForScope(m.owner, m.agent, WorkspaceScopeUser), "close-outcome.txt")
+		if data, readErr := os.ReadFile(path); readErr != nil || string(data) != "published" {
+			t.Fatalf("published data=%q err=%v", data, readErr)
 		}
 	})
 

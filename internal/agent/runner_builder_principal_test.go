@@ -70,8 +70,20 @@ func (r runnerTestRoot) Stat(_ context.Context, name string) (fs.FileInfo, error
 	return r.Root.Stat(name)
 }
 
-func (r runnerTestRoot) List(context.Context, string, home.ListOptions) ([]fs.DirEntry, error) {
-	return nil, errors.New("not implemented")
+func (r runnerTestRoot) List(_ context.Context, name string, options home.ListOptions) ([]fs.DirEntry, error) {
+	directory, err := r.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = directory.Close() }()
+	entries, err := directory.ReadDir(options.Limit + 1)
+	if err != nil {
+		return nil, err
+	}
+	if options.Limit > 0 && len(entries) > options.Limit {
+		return nil, home.ErrListLimit
+	}
+	return entries, nil
 }
 
 func (r runnerTestRoot) Read(_ context.Context, name string, dst io.Writer, options home.ReadOptions) error {
