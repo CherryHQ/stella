@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -835,6 +836,78 @@ func (q *Queries) PublishLibraryFileChunkSet(ctx context.Context, arg PublishLib
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const searchLibraryChunks = `-- name: SearchLibraryChunks :many
+SELECT
+    f.file_name,
+    c.content,
+    c.locator
+FROM library_chunk AS c
+JOIN library_chunk_set AS chunk_set
+  ON chunk_set.id = c.chunk_set_id
+JOIN library_file AS f
+  ON f.id = chunk_set.file_id
+WHERE c.id @@@ paradedb.match('content', $1::text)
+  AND f.deleted_at IS NULL
+  AND f.status = 'ready'
+  AND chunk_set.status = 'ready'
+  AND f.active_chunk_set_id = chunk_set.id
+  AND (
+    f.scope = 'system'
+    OR (f.scope = 'system_agent' AND f.agent_id = $2)
+    OR (f.scope = 'user' AND f.user_id = $3)
+    OR (
+      f.scope = 'user_agent'
+      AND f.user_id = $3
+      AND f.agent_id = $2
+    )
+  )
+ORDER BY paradedb.score(c.id) DESC, c.id DESC
+LIMIT $4
+`
+
+type SearchLibraryChunksParams struct {
+	Match   string      `json:"match"`
+	AgentID pgtype.Text `json:"agent_id"`
+	UserID  pgtype.Text `json:"user_id"`
+	Limit   int32       `json:"limit"`
+}
+
+type SearchLibraryChunksRow struct {
+	FileName string          `json:"file_name"`
+	Content  string          `json:"content"`
+	Locator  json.RawMessage `json:"locator"`
+}
+
+// Search only the active, published generation of files visible to the trusted
+// (user, agent) runtime identity. Keeping the complete owner predicate inside
+// this one BM25 query prevents an unauthorized candidate from ever leaving SQL.
+// The score stays inside SQL; only safe evidence fields cross the service
+// boundary. UUID is a deterministic tie-breaker for equal BM25 scores.
+func (q *Queries) SearchLibraryChunks(ctx context.Context, arg SearchLibraryChunksParams) ([]SearchLibraryChunksRow, error) {
+	rows, err := q.db.Query(ctx, searchLibraryChunks,
+		arg.Match,
+		arg.AgentID,
+		arg.UserID,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchLibraryChunksRow{}
+	for rows.Next() {
+		var i SearchLibraryChunksRow
+		if err := rows.Scan(&i.FileName, &i.Content, &i.Locator); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const tombstoneLibraryFile = `-- name: TombstoneLibraryFile :execrows
