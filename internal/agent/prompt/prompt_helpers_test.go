@@ -47,7 +47,7 @@ func TestRecallGuidanceMatchesUnifiedAgentActions(t *testing.T) {
 		"system prompt": systemPrompt,
 		"Stella skill":  string(stellaSkill),
 	} {
-		for _, action := range []string{"memory.search", "memory.read", "session.list", "session.get", "session.create", "session.send"} {
+		for _, action := range []string{"memory.search", "memory.read", "library.search", "session.list", "session.get", "session.create", "session.send"} {
 			if !strings.Contains(content, action) {
 				t.Errorf("%s omitted model-facing action %q", surface, action)
 			}

@@ -322,3 +322,36 @@ FROM library_file
 WHERE scope IN ('user', 'user_agent')
   AND user_id = sqlc.arg('user_id')
   AND deleted_at IS NULL;
+
+-- name: SearchLibraryChunks :many
+-- Search only the active, published generation of files visible to the trusted
+-- (user, agent) runtime identity. Keeping the complete owner predicate inside
+-- this one BM25 query prevents an unauthorized candidate from ever leaving SQL.
+SELECT
+    f.file_name,
+    c.content,
+    c.locator
+FROM library_chunk AS c
+JOIN library_chunk_set AS chunk_set
+  ON chunk_set.id = c.chunk_set_id
+JOIN library_file AS f
+  ON f.id = chunk_set.file_id
+WHERE c.id @@@ paradedb.match('content', sqlc.arg('match')::text)
+  AND f.deleted_at IS NULL
+  AND f.status = 'ready'
+  AND chunk_set.status = 'ready'
+  AND f.active_chunk_set_id = chunk_set.id
+  AND (
+    f.scope = 'system'
+    OR (f.scope = 'system_agent' AND f.agent_id = sqlc.arg('agent_id'))
+    OR (f.scope = 'user' AND f.user_id = sqlc.arg('user_id'))
+    OR (
+      f.scope = 'user_agent'
+      AND f.user_id = sqlc.arg('user_id')
+      AND f.agent_id = sqlc.arg('agent_id')
+    )
+  )
+-- The score stays inside SQL; only safe evidence fields cross the service
+-- boundary. UUID is a deterministic tie-breaker for equal BM25 scores.
+ORDER BY paradedb.score(c.id) DESC, c.id DESC
+LIMIT sqlc.arg('limit');

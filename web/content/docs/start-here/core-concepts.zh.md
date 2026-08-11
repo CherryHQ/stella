@@ -30,11 +30,11 @@ Memory 让 Agent 能长期认识一个人。Stella 支持每用户、每 Agent �
 
 当你希望多个 Agent 共享同一套用户偏好时，Stella 也可以使用共享用户记忆。
 
-## Knowledge
+## 知识库
 
-Knowledge 是 Agent 的专业参考资料：制度、流程文档、示例、playbook、PDF、保存的文章，或团队专属上下文。
+知识库是 Agent 的专业参考资料：由用户或管理员明确上传的制度、流程文档、示例、playbook，或团队专属上下文。
 
-Knowledge 回答的问题是：这个 Agent 为了把工作做好，需要知道什么？
+知识库回答的问题是：这个 Agent 为了把工作做好，需要知道什么？当对话需要资料依据时，Agent 会检索知识库；普通对话附件不会自动进入知识库。
 
 ## Skills
 

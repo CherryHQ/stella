@@ -59,6 +59,7 @@ var (
 	ErrGenerationConflict  = errors.New("library chunk generation identity conflicts with durable state")
 	ErrGenerationChanged   = errors.New("library chunk generation state changed")
 	ErrRawIntegrity        = errors.New("library raw snapshot failed integrity validation")
+	ErrInvalidSearch       = errors.New("invalid library search")
 )
 
 // Owner is the normalized four-part scope tuple. Empty IDs are database NULLs.
@@ -112,6 +113,23 @@ type LibraryFile struct {
 	DeletedAt        *time.Time
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+}
+
+// SearchHit is the complete published chunk returned to an Agent. It contains
+// only source-facing citation metadata; internal IDs, owner scope, score, raw
+// bytes, and byte offsets never cross this boundary.
+type SearchHit struct {
+	FileName string         `json:"file_name"`
+	Locator  *SearchLocator `json:"locator,omitempty"`
+	Content  string         `json:"content"`
+}
+
+// SearchLocator is the safe, human-readable part of a parser locator. Page
+// ranges and heading paths may be absent for plain text files.
+type SearchLocator struct {
+	FirstPage   *uint32  `json:"first_page,omitempty"`
+	LastPage    *uint32  `json:"last_page,omitempty"`
+	HeadingPath []string `json:"heading_path,omitempty"`
 }
 
 // ListCursor is the stable position after one management-list item.
