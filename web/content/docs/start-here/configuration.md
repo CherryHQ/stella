@@ -65,6 +65,7 @@ See the channel guides for setup instructions:
 - [Discord](/docs/channels/discord)
 - [QQ](/docs/channels/qq)
 - [Feishu](/docs/channels/feishu)
+- [DingTalk](/docs/channels/dingtalk)
 - [WeChat](/docs/channels/weixin)
 
 ## Authentication
