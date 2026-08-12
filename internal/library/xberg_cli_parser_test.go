@@ -2,7 +2,6 @@ package library
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -27,7 +26,7 @@ func TestXbergCLIParserProfilesAndMapsChunkMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(profile, "cli=1.1.0") || !strings.Contains(profile, "config_sha256=") {
+	if !strings.Contains(profile, "xberg-cli-adapter:v2") || !strings.Contains(profile, "cli=1.1.0") || !strings.Contains(profile, "args_sha256=") {
 		t.Fatalf("profile = %q", profile)
 	}
 	if _, err := parser.Profile(MediaTypeText); !errors.Is(err, ErrUnsupportedFileType) {
@@ -46,41 +45,25 @@ func TestXbergCLIParserProfilesAndMapsChunkMetadata(t *testing.T) {
 		locator.LastPage == nil || *locator.LastPage != 3 || !slices.Equal(locator.HeadingPath, []string{"Policy", "Approval"}) {
 		t.Fatalf("locator = %+v", locator)
 	}
-	if len(calls) != 2 || len(calls[1]) != 7 || calls[1][0] != "extract" || calls[1][2] != "--no-config-discovery" ||
-		calls[1][3] != "--config-json" || calls[1][4] != xbergCanonicalConfig || calls[1][5] != "--format" || calls[1][6] != "json" {
+	if len(calls) != 2 {
+		t.Fatalf("Xberg calls = %v", calls)
+	}
+	wantArgs := append([]string{"extract", calls[1][1]}, xbergCanonicalArgs()...)
+	if !slices.Equal(calls[1], wantArgs) {
 		t.Fatalf("extract arguments = %v", calls[1])
 	}
 }
 
-func TestXbergCanonicalConfigPinsDeterministicExtraction(t *testing.T) {
+func TestXbergCanonicalArgsPinDeterministicExtraction(t *testing.T) {
 	t.Parallel()
-	var config struct {
-		UseCache                bool   `json:"use_cache"`
-		EnableQualityProcessing bool   `json:"enable_quality_processing"`
-		DisableOCR              bool   `json:"disable_ocr"`
-		ForceOCR                bool   `json:"force_ocr"`
-		IncludeStructure        bool   `json:"include_document_structure"`
-		OutputFormat            string `json:"output_format"`
-		Chunking                struct {
-			MaxCharacters int    `json:"max_characters"`
-			Overlap       int    `json:"overlap"`
-			ChunkerType   string `json:"chunker_type"`
-			Sizing        string `json:"sizing"`
-			Trim          bool   `json:"trim"`
-		} `json:"chunking"`
-		Pages struct {
-			ExtractPages      bool `json:"extract_pages"`
-			InsertPageMarkers bool `json:"insert_page_markers"`
-		} `json:"pages"`
+	want := []string{
+		"--no-config-discovery", "--disable-ocr", "true", "--quality", "false", "--force-ocr", "false",
+		"--include-structure", "true", "--content-format", "markdown", "--extract-pages", "true",
+		"--page-markers", "false", "--no-cache", "true", "--chunk", "true", "--chunk-size", "1000",
+		"--chunk-overlap", "200", "--format", "json",
 	}
-	if err := json.Unmarshal([]byte(xbergCanonicalConfig), &config); err != nil {
-		t.Fatal(err)
-	}
-	if config.UseCache || config.EnableQualityProcessing || !config.DisableOCR || config.ForceOCR ||
-		!config.IncludeStructure || config.OutputFormat != "markdown" || config.Chunking.MaxCharacters != 1_000 ||
-		config.Chunking.Overlap != 200 || config.Chunking.ChunkerType != "text" || config.Chunking.Sizing != "characters" ||
-		!config.Chunking.Trim || !config.Pages.ExtractPages || config.Pages.InsertPageMarkers {
-		t.Fatalf("Xberg canonical config drifted: %+v", config)
+	if got := xbergCanonicalArgs(); !slices.Equal(got, want) {
+		t.Fatalf("Xberg canonical args = %v", got)
 	}
 }
 

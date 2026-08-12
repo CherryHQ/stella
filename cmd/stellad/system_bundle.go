@@ -7,6 +7,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/resources"
+	"github.com/CherryHQ/stella/resources/binaries"
 )
 
 func systemBundleCommand() *ucli.Command {
@@ -44,6 +45,12 @@ func systemBundleInstallCommand() *ucli.Command {
 		Name:  "install",
 		Usage: "Install the verified builtin skill bundle into $STELLA_HOME",
 		Action: func(c *ucli.Context) error {
+			if err := binaries.EnsureTools(config.StellaHome()); err != nil {
+				return fmt.Errorf("install embedded runtimes: %w", err)
+			}
+			if err := binaries.VerifyTools(config.StellaHome()); err != nil {
+				return err
+			}
 			registry, err := resources.Default()
 			if err != nil {
 				return fmt.Errorf("load builtin skill bundle: %w", err)

@@ -13,6 +13,8 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -23,7 +25,12 @@ import (
 	"strings"
 )
 
-const miseVersion = "2026.7.18"
+const (
+	miseVersion  = "2026.7.18"
+	// Keep synchronized with xbergVersion in embedded.go; the generated archive
+	// filename is the contract between this build helper and runtime extraction.
+	xbergVersion = "1.0.14"
+)
 
 type miseAsset struct {
 	file   string // filename template with {ver} placeholder
@@ -37,6 +44,18 @@ var miseAssets = map[string]miseAsset{
 	"linux-arm64":   {"mise-{ver}-linux-arm64.tar.gz", "mise"},
 	"windows-amd64": {"mise-{ver}-windows-x64.zip", "mise.exe"},
 	"windows-arm64": {"mise-{ver}-windows-arm64.zip", "mise.exe"},
+}
+
+type xbergAsset struct {
+	file   string
+	sha256 string
+}
+
+var xbergAssets = map[string]xbergAsset{
+	"darwin-amd64": {"xberg-cli-x86_64-apple-darwin.tar.gz", "5ab204912e9585a82790b2b0345f0cd0224bc384047ea831488d85eb0f5e4d2a"},
+	"darwin-arm64": {"xberg-cli-aarch64-apple-darwin.tar.gz", "5e275783ddd21071d3568c523cec61e739b2c3a601ea8042862372bf362ecb77"},
+	"linux-amd64":  {"xberg-cli-x86_64-unknown-linux-gnu.tar.gz", "ca1f61edc8ef274619c676bd96b05800872c88abfaace3d067496f7841a7364c"},
+	"linux-arm64":  {"xberg-cli-aarch64-unknown-linux-gnu.tar.gz", "bab4fadcbdb7d9bac17409efd041808b67a3f0767525481642b2b9f62c4f1fc6"},
 }
 
 func main() {
@@ -56,10 +75,15 @@ func main() {
 	}
 	platform := goos + "-" + goarch
 
-	spec, ok := miseAssets[platform]
-	if !ok {
+	if _, ok := miseAssets[platform]; !ok {
 		fatalf("unsupported platform: %s", platform)
 	}
+	syncMise(platform, goos)
+	syncXberg(platform)
+}
+
+func syncMise(platform, goos string) {
+	spec := miseAssets[platform]
 
 	outDir := filepath.Join("binaries", platform)
 	outName := "mise.gz"
@@ -114,6 +138,56 @@ func main() {
 		fatalf("gzip binary: %v", err)
 	}
 	fmt.Printf("wrote %s\n", outPath)
+}
+
+func syncXberg(platform string) {
+	spec, ok := xbergAssets[platform]
+	if !ok {
+		fmt.Printf("skipping embedded Xberg for unsupported platform %s\n", platform)
+		return
+	}
+	outDir := filepath.Join("binaries", platform)
+	outPath := filepath.Join(outDir, "xberg-v"+xbergVersion+".tar.gz")
+	if fileSHA256(outPath) == spec.sha256 {
+		fmt.Printf("skipping %s (already at %s)\n", outPath, xbergVersion)
+		return
+	}
+	for _, stale := range mustGlob(filepath.Join(outDir, "xberg-v*.tar.gz")) {
+		if err := os.Remove(stale); err != nil {
+			fatalf("remove stale Xberg bundle %s: %v", stale, err)
+		}
+	}
+	url := fmt.Sprintf("https://github.com/xberg-io/xberg/releases/download/v%s/%s", xbergVersion, spec.file)
+	fmt.Printf("downloading Xberg %s for %s...\n", xbergVersion, platform)
+	if err := download(context.Background(), url, outPath); err != nil {
+		fatalf("%v", err)
+	}
+	if got := fileSHA256(outPath); got != spec.sha256 {
+		_ = os.Remove(outPath)
+		fatalf("verify Xberg bundle: SHA-256 %s, want %s", got, spec.sha256)
+	}
+	fmt.Printf("wrote %s\n", outPath)
+}
+
+func mustGlob(pattern string) []string {
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		fatalf("glob %s: %v", pattern, err)
+	}
+	return matches
+}
+
+func fileSHA256(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = f.Close() }()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func fatalf(format string, args ...any) {
