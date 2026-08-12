@@ -16,12 +16,31 @@ import (
 )
 
 const (
-	xbergAdapterContractVersion = "v1"
+	xbergAdapterContractVersion = "v2"
 	xbergTimeout                = 60 * time.Second
 	xbergStdoutLimit            = 48 << 20
 	xbergStderrLimit            = 64 << 10
-	xbergCanonicalConfig        = `{"chunking":{"chunker_type":"text","max_characters":1000,"overlap":200,"sizing":"characters","trim":true},"disable_ocr":true,"enable_quality_processing":false,"force_ocr":false,"include_document_structure":true,"output_format":"markdown","pages":{"extract_pages":true,"insert_page_markers":false},"use_cache":false}`
 )
+
+func xbergCanonicalArgs() []string {
+	// Pin the documented CLI surface instead of Xberg's version-sensitive config
+	// schema. The manifest fixes the CLI version; these flags fix extraction.
+	return []string{
+		"--no-config-discovery",
+		"--disable-ocr", "true",
+		"--quality", "false",
+		"--force-ocr", "false",
+		"--include-structure", "true",
+		"--content-format", "markdown",
+		"--extract-pages", "true",
+		"--page-markers", "false",
+		"--no-cache", "true",
+		"--chunk", "true",
+		"--chunk-size", "1000",
+		"--chunk-overlap", "200",
+		"--format", "json",
+	}
+}
 
 type xbergCommandRunner func(context.Context, string, []string) ([]byte, []byte, error)
 
@@ -30,16 +49,35 @@ type XbergCLIParser struct {
 	run                      xbergCommandRunner
 }
 
+// XbergCLIParserConfig describes a concrete Xberg process. Env is nil for the
+// inherited daemon environment; managed mise shims pass an isolated environment
+// so they never depend on the operator's PATH or mise configuration.
+type XbergCLIParserConfig struct {
+	Binary string
+	Env    []string
+}
+
 func NewXbergCLIParser(ctx context.Context, binary string) (*XbergCLIParser, error) {
-	resolved, err := exec.LookPath(binary)
+	return NewXbergCLIParserWithConfig(ctx, XbergCLIParserConfig{Binary: binary})
+}
+
+func NewXbergCLIParserWithConfig(ctx context.Context, cfg XbergCLIParserConfig) (*XbergCLIParser, error) {
+	resolved, err := exec.LookPath(cfg.Binary)
 	if err != nil {
-		return nil, fmt.Errorf("resolve Xberg CLI %q: %w", binary, err)
+		return nil, fmt.Errorf("resolve Xberg CLI %q: %w", cfg.Binary, err)
 	}
 	resolved, err = filepath.Abs(resolved)
 	if err != nil {
 		return nil, fmt.Errorf("resolve absolute Xberg CLI path: %w", err)
 	}
-	return newXbergCLIParser(ctx, resolved, runBoundedXbergCommand)
+	run := runBoundedXbergCommand
+	if cfg.Env != nil {
+		env := append([]string(nil), cfg.Env...)
+		run = func(ctx context.Context, binary string, args []string) ([]byte, []byte, error) {
+			return runBoundedXbergCommandWithEnv(ctx, binary, args, env)
+		}
+	}
+	return newXbergCLIParser(ctx, resolved, run)
 }
 
 func newXbergCLIParser(ctx context.Context, binary string, run xbergCommandRunner) (*XbergCLIParser, error) {
@@ -65,8 +103,8 @@ func newXbergCLIParser(ctx context.Context, binary string, run xbergCommandRunne
 	if version == "" {
 		return nil, fmt.Errorf("probe Xberg CLI version JSON: version is missing")
 	}
-	configHash := sha256.Sum256([]byte(xbergCanonicalConfig))
-	profile := "xberg-cli-adapter:" + xbergAdapterContractVersion + ";cli=" + version + ";config_sha256=" + hex.EncodeToString(configHash[:])
+	argsHash := sha256.Sum256([]byte(strings.Join(xbergCanonicalArgs(), "\x00")))
+	profile := "xberg-cli-adapter:" + xbergAdapterContractVersion + ";cli=" + version + ";args_sha256=" + hex.EncodeToString(argsHash[:])
 	return &XbergCLIParser{binary: binary, version: version, profile: profile, run: run}, nil
 }
 
@@ -87,7 +125,7 @@ func (p *XbergCLIParser) Parse(ctx context.Context, path, mediaType string) ([]P
 	}
 	ctx, cancel := context.WithTimeout(ctx, xbergTimeout)
 	defer cancel()
-	args := []string{"extract", absolute, "--no-config-discovery", "--config-json", xbergCanonicalConfig, "--format", "json"}
+	args := append([]string{"extract", absolute}, xbergCanonicalArgs()...)
 	stdout, _, runErr := p.run(ctx, p.binary, args)
 	if runErr != nil {
 		return nil, fmt.Errorf("run Xberg extraction: %w", runErr)
@@ -145,9 +183,20 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 }
 
 func runBoundedXbergCommand(ctx context.Context, binary string, args []string) ([]byte, []byte, error) {
+	return runBoundedXbergCommandWithEnv(ctx, binary, args, nil)
+}
+
+func runBoundedXbergCommandWithEnv(ctx context.Context, binary string, args, env []string) ([]byte, []byte, error) {
 	stdout := &cappedBuffer{max: xbergStdoutLimit}
 	stderr := &cappedBuffer{max: xbergStderrLimit}
 	cmd := exec.CommandContext(ctx, binary, args...)
+	// Xberg inputs are absolute and config discovery is disabled. Anchoring the
+	// shim away from stellad's cwd also prevents mise from loading an unrelated
+	// project configuration owned by the operator.
+	cmd.Dir = filepath.Dir(binary)
+	if env != nil {
+		cmd.Env = env
+	}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	err := cmd.Run()

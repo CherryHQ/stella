@@ -315,13 +315,12 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	parserRoutes := map[string]library.Parser{
 		library.MediaTypeText: textParser, library.MediaTypeMarkdown: textParser,
 	}
-	xbergParser, err := library.NewXbergCLIParser(parent, "xberg")
-	if err != nil {
-		slog.Warn("Xberg CLI unavailable; PDF and DOCX Library uploads are disabled", "error", err)
-	} else {
-		parserRoutes[library.MediaTypePDF] = xbergParser
-		parserRoutes[library.MediaTypeDOCX] = xbergParser
+	xbergParser := &deferredLibraryParser{}
+	if err := activateManagedXbergParser(parent, xbergParser, config.StellaHome()); err != nil {
+		slog.Warn("Xberg CLI unavailable; PDF and DOCX Library uploads are temporarily disabled", "error", err)
 	}
+	parserRoutes[library.MediaTypePDF] = xbergParser
+	parserRoutes[library.MediaTypeDOCX] = xbergParser
 	libraryParser, err := library.NewRoutingParser(parserRoutes)
 	if err != nil {
 		return nil, fmt.Errorf("build Library parser routes: %w", err)
@@ -609,7 +608,13 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 
 	backgroundTasks := &sync.WaitGroup{}
 	if ps.manifestToReconcile != nil {
-		reconcileManifestPluginsInBackground(parent, backgroundTasks, ps.manifestToReconcile, config.StellaHome())
+		reconcileManifestPluginsInBackground(parent, backgroundTasks, ps.manifestToReconcile, config.StellaHome(), func(ctx context.Context) {
+			if err := activateManagedXbergParser(ctx, xbergParser, config.StellaHome()); err != nil {
+				slog.Warn("Xberg CLI still unavailable after manifest reconcile; PDF and DOCX Library uploads remain disabled", "error", err)
+				return
+			}
+			slog.Info("Xberg CLI ready for PDF and DOCX Library uploads")
+		})
 	}
 	backfillRecallyContentInBackground(parent, backgroundTasks, recallySvc)
 
