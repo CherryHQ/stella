@@ -6,6 +6,9 @@ RETURNING *;
 -- name: GetProject :one
 SELECT * FROM project WHERE id = $1 AND user_id = $2;
 
+-- name: GetProjectByOwner :one
+SELECT * FROM project WHERE id = $1 AND user_id = $2 AND agent_id = $3;
+
 -- name: GetProjectByName :one
 SELECT * FROM project WHERE agent_id = $1 AND user_id = $2 AND name = $3;
 

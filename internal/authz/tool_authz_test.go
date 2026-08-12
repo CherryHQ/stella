@@ -3,6 +3,11 @@ package authz_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +15,8 @@ import (
 	"filippo.io/age"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/CherryHQ/stella/internal/agent"
 
 	"github.com/CherryHQ/stella/internal/connections"
 	credoauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -20,6 +27,9 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	emailpkg "github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
+	homepkg "github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/internal/scheduler"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
@@ -225,8 +235,24 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 		t.Fatalf("oauth unauthenticated err=%v, want no user identity", err)
 	}
 
+	mem := memorytest.New()
 	home := t.TempDir()
-	shareSvc := sharepkg.NewService(q, nil, recally.NewService(recally.NewStore(db), home), "http://stella.test")
+	ownerSession := "owner-session"
+	foreignSession := "foreign-session"
+	if err := mem.SaveInfo(ctx, memory.SessionInfo{ID: ownerSession, UserID: ownerUser, AgentID: agentID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.SaveInfo(ctx, memory.SessionInfo{ID: foreignSession, UserID: foreignUser, AgentID: agentID}); err != nil {
+		t.Fatal(err)
+	}
+	root := agent.UserAgentDir(home, foreignUser, agentID)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "report.html"), []byte("<p>ok</p>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	shareSvc := sharepkg.NewService(q, mem, recally.NewStore(db), home, "http://stella.test", sharepkg.WithHomeWorkspace(toolAuthzWorkspaceViewer{root: home}), sharepkg.WithAgentAccess(agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db))))
 	ownerShare, err := q.CreateShare(ctx, sqlc.CreateShareParams{ID: uuid.NewString(), TokenHash: "owner-share-hash", UserID: ownerUser, Title: "owner share", MediaType: "text/html", Content: []byte("owner secret")})
 	if err != nil {
 		t.Fatalf("CreateShare: %v", err)
@@ -239,6 +265,12 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	}
 	if out, err := shareTool.Execute(foreignCtx, map[string]any{"action": "revoke", "id": ownerShare.ID}); err == nil || !strings.Contains(err.Error(), "not found") || out != "" {
 		t.Fatalf("share foreign revoke out=%q err=%v, want not found", out, err)
+	}
+	shareCtx := memory.WithSessionID(foreignCtx, foreignSession)
+	if out, err := shareTool.Execute(shareCtx, map[string]any{"action": "artifact", "path": "report.html"}); err != nil {
+		t.Fatalf("share artifact err=%v", err)
+	} else if !strings.Contains(out, "http://stella.test/s/") || strings.Contains(out, "<p>ok</p>") {
+		t.Fatalf("share artifact bad response/leaked content: %s", out)
 	}
 	if _, err := shareTool.Execute(context.Background(), map[string]any{"action": "list"}); err == nil || !strings.Contains(err.Error(), "no user identity") {
 		t.Fatalf("share unauthenticated err=%v, want no user identity", err)
@@ -321,4 +353,79 @@ func newVaultToolTestService(t *testing.T, db *pgxpool.Pool, userIDs ...string) 
 		}
 	}
 	return svc
+}
+
+// toolAuthzWorkspaceViewer maps this fixture's user/Agent directories;
+// production wiring uses the authoritative WorkspaceManager instead.
+type toolAuthzWorkspaceViewer struct{ root string }
+
+func (w toolAuthzWorkspaceViewer) WorkspaceView(_ context.Context, req homepkg.WorkspaceRequest) (homepkg.WorkspaceView, error) {
+	principal := filepath.Join(w.root, "users", req.UserID)
+	if req.GroupID != "" {
+		principal = filepath.Join(w.root, "users", "group-"+req.GroupID)
+	}
+	data, agentRoot := filepath.Join(principal, "data"), filepath.Join(principal, "agents", req.AgentID)
+	if err := os.MkdirAll(filepath.Join(data, "assets"), 0o755); err != nil {
+		return homepkg.WorkspaceView{}, err
+	}
+	if err := os.MkdirAll(agentRoot, 0o755); err != nil {
+		return homepkg.WorkspaceView{}, err
+	}
+	return homepkg.WorkspaceView{PrincipalRoot: principal, DataRoot: data, AgentRoot: agentRoot}, nil
+}
+
+func (w toolAuthzWorkspaceViewer) OpenRoot(ctx context.Context, req homepkg.WorkspaceRequest, scope homepkg.RootScope, _ homepkg.RootAccess) (homepkg.RootOperations, error) {
+	view, err := w.WorkspaceView(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	dir := view.AgentRoot
+	if scope == homepkg.RootPrincipalData {
+		dir = view.DataRoot
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	return toolAuthzRoot{Root: root}, nil
+}
+
+type toolAuthzRoot struct{ *os.Root }
+
+func (r toolAuthzRoot) Stat(_ context.Context, name string) (fs.FileInfo, error) {
+	return r.Root.Stat(name)
+}
+
+func (r toolAuthzRoot) List(_ context.Context, _ string, _ homepkg.ListOptions) ([]fs.DirEntry, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r toolAuthzRoot) Read(_ context.Context, name string, dst io.Writer, options homepkg.ReadOptions) error {
+	file, err := r.Open(name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+	_, err = io.Copy(dst, io.LimitReader(file, options.MaxBytes))
+	return err
+}
+
+func (r toolAuthzRoot) Write(context.Context, string, io.Reader, homepkg.WriteOptions) error {
+	return errors.New("not implemented")
+}
+
+func (r toolAuthzRoot) Upload(context.Context, string, io.Reader, homepkg.WriteOptions) error {
+	return errors.New("not implemented")
+}
+
+func (r toolAuthzRoot) Mkdir(context.Context, string, fs.FileMode, homepkg.MkdirOptions) error {
+	return errors.New("not implemented")
+}
+
+func (r toolAuthzRoot) Remove(context.Context, string, homepkg.RemoveOptions) error {
+	return errors.New("not implemented")
+}
+
+func (r toolAuthzRoot) Rename(context.Context, string, string, homepkg.RenameOptions) error {
+	return errors.New("not implemented")
 }

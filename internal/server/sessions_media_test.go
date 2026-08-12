@@ -16,6 +16,7 @@ import (
 
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -143,7 +144,7 @@ func seedSessionImage(t *testing.T, env *testEnv, agentID string) (mediaID, sess
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := env.media.PutSessionMedia(ctx, userID, digest, data); err != nil {
+	if err := env.deps.Assets.SessionMedia().PutSessionMedia(ctx, userID, digest, data); err != nil {
 		t.Fatal(err)
 	}
 	media, err := q.CreateMediaIfAbsent(ctx, sqlc.CreateMediaIfAbsentParams{UserID: userID.String(), Sha256: digest[:], MimeType: "image/png", SizeBytes: int64(len(data))})
@@ -151,11 +152,11 @@ func seedSessionImage(t *testing.T, env *testEnv, agentID string) (mediaID, sess
 		t.Fatal(err)
 	}
 	mediaID = media.ID
-	user, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{ID: uuid.NewString(), ConversationID: conversation.ID, Seq: 1, Role: "user", EventType: "multimodal", Content: "before\nstored baseline\nafter", TokenCount: 1})
+	user, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{ID: uuid.NewString(), ConversationID: conversation.ID, Seq: 1, Role: "user", EventType: "multimodal", Content: "before\nstored baseline\nafter", TokenCount: 1, ActorType: string(eventlog.ActorHuman)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	tool, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{ID: uuid.NewString(), ConversationID: conversation.ID, Seq: 2, Role: "tool", EventType: "tool_result", Content: `{"id":"call-1","tool":"read","result":"stored baseline","is_error":true}`, TokenCount: 1})
+	tool, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{ID: uuid.NewString(), ConversationID: conversation.ID, Seq: 2, Role: "tool", EventType: "tool_result", Content: `{"id":"call-1","tool":"read","result":"stored baseline","is_error":true}`, TokenCount: 1, ActorType: string(eventlog.ActorAgent)})
 	if err != nil {
 		t.Fatal(err)
 	}

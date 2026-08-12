@@ -112,14 +112,16 @@ SET description              = sqlc.arg(description),
     metadata                 = sqlc.arg(metadata),
     updated_at               = now()
 WHERE id = sqlc.arg(id)
-  AND ((scope='system_agent' AND agent_id=sqlc.narg(agent_id))
+  AND ((scope='system')
+    OR (scope='system_agent' AND agent_id=sqlc.narg(agent_id))
     OR (scope='user'         AND user_id=sqlc.narg(user_id))
     OR (scope='user_agent'   AND user_id=sqlc.narg(user_id) AND agent_id=sqlc.narg(agent_id)));
 
 -- name: DeleteSkill :exec
 DELETE FROM skill
 WHERE id = sqlc.arg(id)
-  AND ((scope='system_agent' AND agent_id=sqlc.narg(agent_id))
+  AND ((scope='system')
+    OR (scope='system_agent' AND agent_id=sqlc.narg(agent_id))
     OR (scope='user'         AND user_id=sqlc.narg(user_id))
     OR (scope='user_agent'   AND user_id=sqlc.narg(user_id) AND agent_id=sqlc.narg(agent_id)));
 

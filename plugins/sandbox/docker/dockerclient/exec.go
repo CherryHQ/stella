@@ -39,13 +39,8 @@ type ExecHandle struct {
 	Stderr io.ReadCloser
 	// Wait blocks until the exec finishes and returns the exit code.
 	Wait func() (int, error)
-	// Kill aborts a still-running exec: it tears down the attach and the demux
-	// pipes, interrupting the process.
+	// Kill terminates the underlying exec attach.
 	Kill func() error
-	// Release closes the attach connection after a clean Wait, without implying
-	// an abort. Callers that reach normal completion must call it (or Kill) so
-	// the hijacked connection is not leaked.
-	Release func() error
 }
 
 // Exec runs a blocking exec, collecting stdout/stderr into memory.
@@ -62,12 +57,6 @@ func (c *Client) Exec(ctx context.Context, opts ExecOptions) (*ExecResult, error
 		return nil, fmt.Errorf("dockerclient: exec attach: %w", err)
 	}
 	defer attach.Close()
-
-	// Closing the hijacked connection on cancellation unblocks a demux (and stdin
-	// copy) that would otherwise wait forever on a peer that never writes. stop()
-	// releases the watcher on normal completion so it never leaks.
-	stop := context.AfterFunc(ctx, func() { attach.Close() })
-	defer stop()
 
 	if opts.Stdin != nil {
 		go func() {
@@ -141,17 +130,6 @@ func (c *Client) StartExec(ctx context.Context, opts ExecOptions) (*ExecHandle, 
 	handle.Stdout = stdoutR
 	handle.Stderr = stderrR
 
-	// On cancellation, tear the transport down so a blocked demux, a blocked
-	// DecodeResponse read on Stdout, or a blocked Stdin write all return promptly
-	// with the context error. stopCancel() (called by Kill/Release) releases the
-	// watcher on normal completion so it never leaks. Every close below is
-	// idempotent, so the watcher racing with Kill/Release is safe.
-	stopCancel := context.AfterFunc(ctx, func() {
-		attach.Close()
-		_ = stdoutW.CloseWithError(ctx.Err())
-		_ = stderrW.CloseWithError(ctx.Err())
-	})
-
 	demuxDone := make(chan error, 1)
 	go func() {
 		err := demuxStreams(stdoutW, stderrW, attach, opts.Tty)
@@ -168,19 +146,9 @@ func (c *Client) StartExec(ctx context.Context, opts ExecOptions) (*ExecHandle, 
 	}
 
 	handle.Kill = func() error {
-		stopCancel()
 		attach.Close()
 		_ = stdoutW.Close()
 		_ = stderrW.Close()
-		return nil
-	}
-
-	// Release only closes the hijacked connection; the demux goroutine has
-	// already closed the pipe writers by the time a caller reaches Wait. Close
-	// is idempotent, so a later Kill (or a second Release) is harmless.
-	handle.Release = func() error {
-		stopCancel()
-		attach.Close()
 		return nil
 	}
 

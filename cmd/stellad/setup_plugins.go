@@ -78,16 +78,20 @@ func loadBuiltinManifestWithOverrides(ctx context.Context, store config.Store) (
 	if err != nil {
 		return nil, fmt.Errorf("list manifest plugin overrides: %w", err)
 	}
-	byID := make(map[string]config.ManifestPluginOverride, len(overrides))
+	rows := make([]manifestplugins.StoredOverride, 0, len(overrides))
 	for _, ov := range overrides {
-		byID[ov.PluginID] = ov
+		rows = append(rows, manifestplugins.StoredOverride{
+			PluginID: ov.PluginID,
+			Enabled:  ov.Enabled,
+			Config:   ov.Config,
+		})
 	}
-	for i := range builtin.Plugins {
-		if ov, ok := byID[builtin.Plugins[i].ID]; ok && ov.Enabled != nil {
-			builtin.Plugins[i].Enabled = *ov.Enabled
-		}
-	}
-	return builtin, nil
+	// The same resolve the admin API uses. Applying only the enable flag here is
+	// what used to make a customization evaporate on restart: the plugin host and
+	// the binary reconcile would both be handed the untouched builtin.
+	return manifestplugins.Resolve(builtin, rows, func(id string, err error) {
+		slog.Warn("manifest plugin: ignoring corrupt override", "plugin", id, "error", err)
+	}), nil
 }
 
 func buildOAuthRegistry(merged *manifestplugins.Manifest) *oauth.ProviderRegistry {

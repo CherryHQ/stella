@@ -2,7 +2,7 @@
 title: Agent architecture
 ---
 
-> This page is for developers changing Stella's agent runtime, sessions, memory, channels, scheduler, delegate tool, or task system.
+> This page is for developers changing Stella's agent runtime, sessions, memory, channels, scheduler, internal delegate adapter, or task system.
 
 Stella's agent architecture is split around one rule:
 
@@ -156,7 +156,7 @@ Session kind describes why the session exists. Channel describes where it origin
 
 Typed resume must validate kind. A scheduler run must not resume a delegate session even if the ID matches. A channel session must require `KindChat` even though channel keys are trusted.
 
-Human messages are accepted on every kind. The web UI may send a message to a `delegate`, `task`, or `scheduler` session just like a `chat` session — the runtime turn loop is kind-agnostic. A send during an in-flight turn fails closed with `ErrSessionBusy` (see Concurrency), so manual messages never race a server-driven turn.
+Human messages are accepted on every kind. The web UI may send a message to a `delegate`, `task`, or `scheduler` session just like a `chat` session. Human ingress contends for the runtime guard directly. Agent-originated `session.create` and `session.send` inputs are first recorded in the durable Session inbox, then use a bounded process-local FIFO for fairness before entering the same runtime admission guard. At the normal input-append point, LCM claims the inbox row and writes the transcript message in one transaction. The guard remains the one-active-turn correctness boundary.
 
 ## ID trust model
 
@@ -167,7 +167,7 @@ Not all session IDs are equal.
 These IDs come from users, HTTP paths, model tool calls, or any place the agent can influence.
 
 - `POST /sessions/{sessionId}/messages`
-- delegate tool `session_id`
+- session tool `session_id`
 - regular `Service.Chat` request `SessionID`
 
 For these paths, a non-empty ID means: **load an existing session and validate kind/ownership**. If it is missing, return not found. Do not create a new row with that exact ID.
@@ -207,7 +207,11 @@ This matters for delegate and scheduler callers because they treat any stream er
 
 ### Concurrency
 
-Runtime allows at most one active turn per session. It rejects a second same-session turn with `ErrSessionBusy`. It does not queue. Queueing requires product-level semantics for cancellation, ordering, and backpressure; rejection is simple and safe.
+Runtime allows at most one active turn per session and returns `ErrSessionBusy` before transcript side effects when admission loses. Human ingress handles that result directly. Agent-originated Session sends add a fairness layer in front of admission: a process-local FIFO with a pending depth of 32 and a 30-second admission hold limit. The source context cancels queued and admitted work. Cancellation before transcript delivery atomically terminalizes the inbox row; cancellation after delivery leaves the input in history and stops the live turn. The FIFO polls a busy guard holder and still relies on runtime admission for correctness.
+
+On startup, Stella reauthorizes pending inbox rows and appends valid inputs to their target transcripts in enqueue order. Recovery never starts a model or tool turn, so this is durable message delivery—not durable Agent execution or reply delivery. A crash after transcript commit can therefore leave an unanswered Agent input, but it cannot replay tool side effects.
+
+Cluster-wide serialization is tracked in #643 under #637. That work will replace all process-local admission guards with one shared Session turn lease. The agent-send FIFO must remain a local fairness optimization in front of that seam.
 
 ### Live event fan-out
 
@@ -276,24 +280,30 @@ scheduler derives run session ID
 
 Do not fall back to an arbitrary default service when a job has an explicit `AgentID`; that hides routing bugs.
 
-### Delegate tool
+### Session managed-run adapter
 
 ```text
-parent runner executes delegate tool
-    -> tool sends task + optional session_id + inherited ProjectID
+parent runner executes session.create/send
+    -> session tool passes message + optional preset/session_id
+    -> internal DelegateTool resolves preset and run options
     -> Service.RunDelegateSession
     -> Service.Delegate
     -> Registry creates generated delegate session or resumes existing delegate session
-    -> Runtime.Chat
+    -> per-Session FIFO fairness
+    -> Runtime.ChatAdmitted
 ```
 
 Rules:
 
-- supplied delegate `session_id` is resume-only
-- omitted `session_id` creates a generated delegate session
+- the model-facing registry exposes `session`, not `delegate`
+- supplied legacy delegate `session_id` is resume-only
+- `session.create` creates a generated delegate session through the internal adapter
 - child sessions inherit user, agent, and project scope
-- duplicate non-empty `session_id` values in one tool call are rejected before goroutines start
-- delegate recursion remains blocked by excluding the delegate tool in child runners
+- call depth and Session ancestry travel in context; the runtime rejects depth overflow and cycles
+- sibling and nested calls share a 16-call atomic budget allocated by the root runtime turn
+- the root deadline and cancellation cover queue hold and every nested turn
+- runtime options union ancestor excluded tools, while nested runs drop inherited channel chat binding
+- agent input persists actor ID and source Session ID, and provider rendering marks it information-only
 
 ### Task worker session
 

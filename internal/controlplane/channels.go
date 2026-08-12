@@ -100,6 +100,13 @@ func (s *Service) saveChannel(ctx context.Context, ch config.Channel, cfgMap map
 	if err := s.validateBinding(ctx, ch); err != nil {
 		return config.Channel{}, err
 	}
+	// Weixin is a singleton: one iLink account, one row, one well-known id. The
+	// create path checks this too, but the invariant belongs here — otherwise an
+	// update could retype an ordinary channel into a second Weixin and, through
+	// the credential mirror below, take over the deployment-wide Weixin row.
+	if ch.Type == pkgchannel.PlatformWeixin && ch.ID != pkgchannel.PlatformWeixin {
+		return config.Channel{}, invalid(`weixin channel id must be "weixin"`)
+	}
 	pluginID := config.PluginID(config.PluginKindChannel, ch.Type)
 	if err := s.plugins.ValidateConfig(pluginID, cfgMap); err != nil {
 		return config.Channel{}, invalid("invalid request")
@@ -128,7 +135,7 @@ func (s *Service) saveChannel(ctx context.Context, ch config.Channel, cfgMap map
 			return config.Channel{}, saveErr
 		}
 	}
-	if err := s.ensureChannelPluginEnabled(ctx, ch.Type, cfgMap); err != nil {
+	if err := s.mirrorWeixinPluginConfig(ctx, ch.Type, cfgMap); err != nil {
 		return config.Channel{}, err
 	}
 	if err := s.plugins.ApplyChannel(ctx, ch); err != nil {
@@ -249,6 +256,116 @@ func (a *Access) DeleteChannel(ctx context.Context, id string) error {
 	return a.svc.store.DeleteChannel(ctx, id)
 }
 
+// ChannelAccess is the channel-management surface the transport talks to. Two
+// authorized implementations satisfy it: the admin Access, which reaches every
+// channel in the deployment, and AgentChannels, which reaches only the channels
+// of the agents its caller manages. The handlers are identical either way — the
+// scope decision is made once, when the access is opened.
+type ChannelAccess interface {
+	ListChannels(ctx context.Context) ([]config.Channel, error)
+	GetChannel(ctx context.Context, id string) (config.Channel, error)
+	SaveChannel(ctx context.Context, ch config.Channel, cfgMap map[string]any, create bool) (config.Channel, error)
+	DeleteChannel(ctx context.Context, id string) error
+}
+
+// AgentChannels is channel management confined to one caller's agents.
+//
+// A channel is an agent's phone number, so the person who owns the agent owns
+// its channels: they hold the bot token, they answer for what it says. The
+// deployment-wide control plane stays admin-only — this reaches exactly the
+// channels bound to agents the caller may manage, and a channel outside that set
+// is as opaque as a missing one.
+type AgentChannels struct {
+	svc      *Service
+	agentIDs map[string]bool
+}
+
+// BeginAgentChannels opens agent-scoped channel management for the agents the
+// caller was already found to manage.
+//
+// The Agent decision is deliberately not made here: the caller must clear the
+// Agent PEP for every id it passes, so the "which agents may this user manage"
+// rule stays in the one domain that owns it — the same split BeginChannelBinding
+// uses. An empty set is forbidden rather than an empty listing, so a user with
+// no agents of their own cannot probe channel ids at all.
+func (s *Service) BeginAgentChannels(_ context.Context, authority authz.Authority, managedAgentIDs []string) (*AgentChannels, error) {
+	if s == nil {
+		return nil, ErrUnavailable
+	}
+	if err := requireCatalogReader(authority); err != nil {
+		return nil, err
+	}
+	if len(managedAgentIDs) == 0 {
+		return nil, authz.ErrForbidden
+	}
+	ids := make(map[string]bool, len(managedAgentIDs))
+	for _, id := range managedAgentIDs {
+		if id != "" {
+			ids[id] = true
+		}
+	}
+	if len(ids) == 0 {
+		return nil, authz.ErrForbidden
+	}
+	return &AgentChannels{svc: s, agentIDs: ids}, nil
+}
+
+// ListChannels returns the channels bound to the caller's agents.
+func (a *AgentChannels) ListChannels(ctx context.Context) ([]config.Channel, error) {
+	channels, err := a.svc.store.ListChannels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]config.Channel, 0, len(channels))
+	for _, ch := range channels {
+		if a.agentIDs[ch.AgentID] {
+			out = append(out, ch)
+		}
+	}
+	return out, nil
+}
+
+// GetChannel returns one of the caller's channels; anything else is a 404.
+func (a *AgentChannels) GetChannel(ctx context.Context, id string) (config.Channel, error) {
+	ch, err := a.svc.store.GetChannel(ctx, id)
+	if err != nil || !a.agentIDs[ch.AgentID] {
+		return config.Channel{}, notFound("channel not found")
+	}
+	return ch, nil
+}
+
+// SaveChannel persists a channel that stays bound to one of the caller's agents.
+// Both ends are checked: an update must target a channel they already own, and
+// the saved row must still name an agent they manage — so a channel can neither
+// be taken from another owner nor handed to an agent the caller cannot manage.
+func (a *AgentChannels) SaveChannel(ctx context.Context, ch config.Channel, cfgMap map[string]any, create bool) (config.Channel, error) {
+	// Ownership of the target is decided before the candidate is judged, so
+	// editing someone else's channel stays a 404 rather than leaking its
+	// existence through a validation error.
+	if !create {
+		if _, err := a.GetChannel(ctx, ch.ID); err != nil {
+			return config.Channel{}, err
+		}
+	}
+	if !a.agentIDs[ch.AgentID] {
+		return config.Channel{}, invalid("channel must belong to an agent you manage")
+	}
+	return a.svc.saveChannel(ctx, ch, cfgMap, create)
+}
+
+// DeleteChannel removes one of the caller's channels.
+func (a *AgentChannels) DeleteChannel(ctx context.Context, id string) error {
+	ch, err := a.GetChannel(ctx, id)
+	if err != nil {
+		return err
+	}
+	ch.Enabled = false
+	if err := a.svc.plugins.ApplyChannel(ctx, ch); err != nil {
+		a.svc.log.Error("failed to stop channel runtime", "channel_id", ch.ID, "channel_type", ch.Type, "error", err)
+	}
+	return a.svc.store.DeleteChannel(ctx, ch.ID)
+}
+
 // channelAgentPlatformBindingConflict enforces one bidirectional-channel binding
 // per (agent, platform).
 // A non-empty string is the client-facing conflict message.
@@ -279,21 +396,28 @@ func (s *Service) channelAgentPlatformBindingConflict(ctx context.Context, ch co
 	return "", nil
 }
 
-// ensureChannelPluginEnabled upserts the channel-kind plugin row as enabled so a
-// newly saved channel's runtime is registered.
-func (s *Service) ensureChannelPluginEnabled(ctx context.Context, channelType string, cfg map[string]any) error {
-	pluginID := config.PluginID(config.PluginKindChannel, channelType)
-	pluginConfig := map[string]any{}
-	// Weixin's status surface reads its singleton credentials from the channel
-	// plugin row. Other channel instances keep credentials only on their rows.
-	if channelType == pkgchannel.PlatformWeixin {
-		pluginConfig = cfg
+// mirrorWeixinPluginConfig copies a saved Weixin channel's credentials onto its
+// plugin row, which is where the Weixin status and QR surfaces read them from.
+//
+// Weixin is the one singleton platform — one iLink account backs one bot — so
+// its instance and its platform are the same thing and writing the row carries
+// no cross-user consequence. Every other platform keeps credentials solely on
+// the channel row and needs no plugin row: saving a channel must not flip a
+// deployment-wide switch, so nothing is upserted for them.
+//
+// Credentials are all this mirrors. The same row doubles as the admin kill
+// switch, so the write never reads or touches the enabled column — saving a
+// channel must not be able to re-enable a platform an admin turned off, not
+// even by losing a concurrent toggle's update.
+func (s *Service) mirrorWeixinPluginConfig(ctx context.Context, channelType string, cfg map[string]any) error {
+	if channelType != pkgchannel.PlatformWeixin {
+		return nil
 	}
-	return s.store.UpsertPlugin(ctx, config.Plugin{
-		ID:      pluginID,
-		Kind:    config.PluginKindChannel,
-		Name:    channelType,
-		Enabled: true,
-		Config:  pluginConfig,
-	})
+	return s.store.SetChannelPluginConfig(
+		ctx,
+		config.PluginID(config.PluginKindChannel, channelType),
+		config.PluginKindChannel,
+		channelType,
+		cfg,
+	)
 }

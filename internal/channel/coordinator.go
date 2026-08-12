@@ -1,15 +1,20 @@
 package channel
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"path"
 	"strings"
+	"time"
 
 	"filippo.io/age"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
@@ -71,11 +76,9 @@ type Coordinator struct {
 	publisherRegistry    *PublisherRegistry
 	groupDispatcher      *GroupDispatcher
 	db                   *pgxpool.Pool
+	rootOpener           home.RootOpener
 	guests               GuestStore
 	guestLimiter         *guestRateLimiter
-	ingressAssets        interface {
-		WriteInboundAsset(context.Context, home.Key, string, []byte) (string, error)
-	}
 }
 
 // WithGuestStore enables durable unlinked channel principals.
@@ -85,6 +88,10 @@ func WithGuestStore(store GuestStore) CoordinatorOption {
 
 // CoordinatorOption configures the Coordinator.
 type CoordinatorOption func(*Coordinator)
+
+func WithRootOpener(opener home.RootOpener) CoordinatorOption {
+	return func(c *Coordinator) { c.rootOpener = opener }
+}
 
 // WithCoordinatorAuth configures the coordinator with auth support.
 func WithCoordinatorAuth(store channelAuthStore, agentAccess *agentaccess.Service, linkCodes *auth.LinkCodeStore) CoordinatorOption {
@@ -145,15 +152,6 @@ func WithVaultService(svc *vault.Service) CoordinatorOption {
 	return func(c *Coordinator) {
 		c.vaultSvc = svc
 	}
-}
-
-// WithHomeAssetIngress supplies the narrow typed-Principal asset writer used
-// before HandleIncoming creates or uses any agent Session.
-func WithHomeAssetIngress(writer interface {
-	WriteInboundAsset(context.Context, home.Key, string, []byte) (string, error)
-},
-) CoordinatorOption {
-	return func(c *Coordinator) { c.ingressAssets = writer }
 }
 
 func WithIntentClassifier(classifier IntentClassifier) CoordinatorOption {
@@ -655,44 +653,79 @@ func (c *Coordinator) ProvisionUser(ctx context.Context, req pkgchannel.Provisio
 	return nil
 }
 
-// SaveAsset persists an inbound channel attachment through the authoritative
-// asset store, satisfying pkgchannel.AssetSaver. It fails when no asset store is
-// configured rather than silently dropping the attachment.
-func (c *Coordinator) SaveAsset(ctx context.Context, msg pkgchannel.IncomingMessage, fileName string, data []byte) (string, error) {
-	if c.ingressAssets == nil {
-		return "", fmt.Errorf("home asset ingress is not configured")
+// ResolveUserRoot resolves the per-user writable root for the sender in msg.
+// It performs the same user+agent resolution as HandleIncoming but stops before
+// starting a session, so it is cheap and safe to call before file downloads.
+// For group sessions, returns the group workspace instead of a per-user one.
+func (c *Coordinator) attachmentWorkspace(ctx context.Context, msg pkgchannel.IncomingMessage) (home.WorkspaceRequest, error) {
+	channelID := msg.ChannelID
+	if channelID == "" {
+		channelID = msg.Platform
 	}
-	rc, err := c.resolve(ctx, msg)
+	rc, err := resolveAttachmentPrincipal(ctx, c.store, c.auth, c.agentAccess, c.groupResolver, c.guests, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.ThreadID, msg.IsGroup)
 	if err != nil {
-		return "", fmt.Errorf("resolve inbound asset owner: %w", err)
-	}
-	key := home.Principal(home.UserPrincipal, rc.User.ID)
-	if rc.GroupID != "" {
-		key = home.Principal(home.GroupPrincipal, rc.GroupID)
-	}
-	return c.ingressAssets.WriteInboundAsset(ctx, key, fileName, data)
-}
-
-// AdmitAssetSave verifies attachment ownership before a plugin downloads bytes.
-func (c *Coordinator) AdmitAssetSave(ctx context.Context, msg pkgchannel.IncomingMessage) error {
-	if c.ingressAssets == nil {
-		return errors.New("home asset ingress is not configured")
-	}
-	rc, err := c.resolve(ctx, msg)
-	if err != nil {
-		return fmt.Errorf("resolve inbound asset owner: %w", err)
+		return home.WorkspaceRequest{}, fmt.Errorf("resolve attachment principal: %w", err)
 	}
 	if rc.GuestID != "" {
-		return agentaccess.ErrForbidden
+		return home.WorkspaceRequest{}, agentaccess.ErrForbidden
 	}
-	return nil
+	if err := rc.AuthorizeUse(ctx, c.agentAccess); err != nil {
+		return home.WorkspaceRequest{}, err
+	}
+	return home.WorkspaceRequest{UserID: rc.User.ID, GroupID: rc.GroupID, AgentID: rc.AgentID}, nil
+}
+
+func (c *Coordinator) AdmitAssetSave(ctx context.Context, msg pkgchannel.IncomingMessage) error {
+	_, err := c.attachmentWorkspace(ctx, msg)
+	return err
+}
+
+func (c *Coordinator) SaveAsset(ctx context.Context, msg pkgchannel.IncomingMessage, fileName string, data []byte) (_ string, resultErr error) {
+	req, err := c.attachmentWorkspace(ctx, msg)
+	if err != nil {
+		return "", err
+	}
+	if len(data) > pkgchannel.MaxInboundAttachmentBytes {
+		return "", fmt.Errorf("attachment exceeds %d bytes", pkgchannel.MaxInboundAttachmentBytes)
+	}
+	if c.rootOpener == nil {
+		return "", errors.New("home root opener not configured")
+	}
+	root, err := c.rootOpener.OpenRoot(ctx, req, home.RootPrincipalData, home.RootReadWrite)
+	if err != nil {
+		return "", fmt.Errorf("open attachment root: %w", err)
+	}
+	defer func() {
+		closeErr := root.Close()
+		if closeErr != nil && resultErr == nil {
+			resultErr = fmt.Errorf("%w: close attachment root: %w", home.ErrOutcomeUnknown, closeErr)
+		} else {
+			resultErr = errors.Join(resultErr, closeErr)
+		}
+	}()
+	name := path.Base(strings.ReplaceAll(fileName, "\\", "/"))
+	if name == "." || name == "" {
+		name = "attachment"
+	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return "", fmt.Errorf("generate attachment id: %w", err)
+	}
+	assetName := fmt.Sprintf("%d_%s-%s", time.Now().UnixNano(), id.String(), name)
+	if err := root.Mkdir(ctx, "assets", 0o700, home.MkdirOptions{Parents: true}); err != nil {
+		return "", err
+	}
+	if err := root.Upload(ctx, path.Join("assets", assetName), bytes.NewReader(data), home.WriteOptions{Mode: 0o600, MaxBytes: pkgchannel.MaxInboundAttachmentBytes, Sync: true}); err != nil {
+		return "", err
+	}
+	return "$STELLA_ASSETS_DIR/" + assetName, nil
 }
 
 // compile-time checks.
 var (
 	_ pkgchannel.Handler           = (*Coordinator)(nil)
 	_ pkgchannel.Provisioner       = (*Coordinator)(nil)
-	_ pkgchannel.AssetSaver        = (*Coordinator)(nil)
 	_ pkgchannel.AssetSaveAdmitter = (*Coordinator)(nil)
+	_ pkgchannel.AssetSaver        = (*Coordinator)(nil)
 	_ pkgchannel.BotRegistrar      = (*Coordinator)(nil)
 )

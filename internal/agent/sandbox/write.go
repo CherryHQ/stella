@@ -1,11 +1,10 @@
 package sandbox
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io/fs"
-	"path"
+	"os"
+	"path/filepath"
 
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
@@ -26,32 +25,35 @@ func writeDefinition() pkgtools.Definition {
 	}
 }
 
-func newWriteTool(session pkgsandbox.FilesystemSession) pkgtools.Tool {
-	return &hostWriteTool{session: session}
+func newWriteTool(host pkgsandbox.Host, projectRoot string) pkgtools.Tool {
+	return &hostWriteTool{host: host, projectRoot: projectRoot}
 }
 
-type hostWriteTool struct{ session pkgsandbox.FilesystemSession }
+type hostWriteTool struct {
+	host        pkgsandbox.Host
+	projectRoot string
+}
 
 func (t *hostWriteTool) Definition() pkgtools.Definition { return writeDefinition() }
-func (t *hostWriteTool) Execute(ctx context.Context, args map[string]any) (string, error) {
-	input := pkgtools.StringArg(args, "path")
+
+func (t *hostWriteTool) Execute(_ context.Context, args map[string]any) (string, error) {
+	path := pkgtools.StringArg(args, "path")
 	content, _ := args["content"].(string)
-	if input == "" {
+	if path == "" {
 		return "", fmt.Errorf("write: path is required")
 	}
-	p, err := resolveToolPath(t.session, input)
+
+	resolvedPath, err := resolveWritableToolPath(t.host, t.projectRoot, path)
 	if err != nil {
-		return "", fmt.Errorf("write %s: %w", input, err)
+		return "", fmt.Errorf("write %s: %w", path, err)
 	}
-	length := int64(len(content))
-	err = withFilesystem(t.session, func(filesystem pkgsandbox.Filesystem) error {
-		if err := filesystem.Mkdir(ctx, path.Dir(p), 0o755); err != nil {
-			return fmt.Errorf("mkdir %s: %w", path.Dir(p), err)
-		}
-		return filesystem.Write(ctx, p, bytes.NewReader([]byte(content)), pkgsandbox.WriteOptions{Perm: fs.FileMode(0o644), ContentLength: &length})
-	})
-	if err != nil {
-		return "", fmt.Errorf("write %s: %w", input, err)
+
+	if err := os.MkdirAll(filepath.Dir(resolvedPath), 0o755); err != nil {
+		return "", fmt.Errorf("write: mkdir %s: %w", filepath.Dir(resolvedPath), err)
 	}
-	return fmt.Sprintf("Wrote %s (%d bytes)", input, len(content)), nil
+
+	if err := os.WriteFile(resolvedPath, []byte(content), 0o644); err != nil {
+		return "", fmt.Errorf("write %s: %w", path, err)
+	}
+	return fmt.Sprintf("Wrote %s (%d bytes)", path, len(content)), nil
 }

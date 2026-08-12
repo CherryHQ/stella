@@ -4,14 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/memory"
 )
 
 // recordingRuntime stands in for the agent pool and reports whether a turn was
@@ -23,6 +29,17 @@ type recordingRuntime struct {
 }
 
 func (r *recordingRuntime) Chat(context.Context, agent.ChatRequest) <-chan agent.Event {
+	r.chats.Add(1)
+	ch := make(chan agent.Event)
+	close(ch)
+	return ch
+}
+
+func (r *recordingRuntime) RunManagedSession(context.Context, delegatetool.ManagedSessionRequest) (delegatetool.ManagedSessionResult, error) {
+	return delegatetool.ManagedSessionResult{}, nil
+}
+
+func (r *recordingRuntime) RunConversationSession(context.Context, agentsession.Info, agent.MessageContent) <-chan agent.Event {
 	r.chats.Add(1)
 	ch := make(chan agent.Event)
 	close(ch)
@@ -46,10 +63,24 @@ func (r *recordingRuntime) CompactAuthorizedSession(context.Context, agentsessio
 	return "", nil
 }
 
-type recordingRuntimeManager struct{ rt *recordingRuntime }
+type recordingRuntimeManager struct {
+	rt      *recordingRuntime
+	lookups *atomic.Int64
+}
 
-func (m recordingRuntimeManager) GetService(string) sessionaccess.RuntimeService { return m.rt }
-func (m recordingRuntimeManager) Default() sessionaccess.RuntimeService          { return m.rt }
+func (m recordingRuntimeManager) GetService(string) sessionaccess.RuntimeService {
+	if m.lookups != nil {
+		m.lookups.Add(1)
+	}
+	return m.rt
+}
+
+func (m recordingRuntimeManager) Default() sessionaccess.RuntimeService {
+	if m.lookups != nil {
+		m.lookups.Add(1)
+	}
+	return m.rt
+}
 
 // TestSendToArchivedSessionConflicts covers the archived-send answer at the
 // transport, which is where the distinction actually matters. `/new` archives
@@ -137,5 +168,36 @@ func TestSendToArchivedSessionConflicts(t *testing.T) {
 	}
 	if n := rt.stops.Load(); n != 1 {
 		t.Fatalf("denied stop reached runtime: stops = %d, want 1", n)
+	}
+}
+
+func TestSharePublicationDoesNotStartOrWakeSessionCompute(t *testing.T) {
+	env := setupAdmin(t)
+	rt := &recordingRuntime{}
+	var lookups atomic.Int64
+	if err := env.deps.SessionAccess.BindRuntimeManager(recordingRuntimeManager{rt: rt, lookups: &lookups}); err != nil {
+		t.Fatalf("BindRuntimeManager: %v", err)
+	}
+	agentID := createAgentAsUser(t, env, env.bearerToken, "Share Compute Spy Agent")
+	sessionID := "share-compute-" + uuid.NewString()
+	now := time.Now().UTC()
+	if err := env.mem.(memory.SessionManager).SaveInfo(context.Background(), memory.SessionInfo{ID: sessionID, UserID: env.adminUser.ID, AgentID: agentID, Channel: "web", Kind: "chat", CreatedAt: now, LastActive: now}); err != nil {
+		t.Fatalf("SaveInfo: %v", err)
+	}
+	workspace := agent.AgentDirInHome(agent.UserHomeDir(config.StellaHome(), env.adminUser.ID), agentID)
+	if err := os.MkdirAll(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "artifact.html"), []byte("immutable snapshot"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rr := doRequest(t, env, http.MethodPost, "/api/shares", map[string]any{
+		"source": "artifact", "session_id": sessionID, "path": "artifact.html", "scope": "agent", "agent_id": agentID,
+	})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("POST /api/shares = %d, want %d: %s", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+	if lookups.Load() != 0 || rt.chats.Load() != 0 || rt.stops.Load() != 0 {
+		t.Fatalf("share publication touched Session compute: lookups=%d chats=%d stops=%d", lookups.Load(), rt.chats.Load(), rt.stops.Load())
 	}
 }

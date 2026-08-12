@@ -22,20 +22,20 @@ Stella 中每个受保护的操作都从一个可信的 `authz.Authority` 开始
 
 ## 资源矩阵
 
-| 资源                | 形态               | 执行者                                                                                 |
-| ------------------- | ------------------ | -------------------------------------------------------------------------------------- |
-| Agent               | 规则自持           | `agentaccess.Service`                                                                  |
-| Session / Workspace | 规则自持           | `agent/session/access.Service`                                                         |
-| Goal                | 规则自持           | `goal.Service`（持久 worker authority）                                                |
-| Workflow            | 规则自持           | `workflow.Service`                                                                     |
-| Scheduler           | 规则自持           | `scheduler.Service`（system/plugin job 隐藏）                                          |
-| Skill               | 规则自持           | `skillaccess.Service`（四个 scope）                                                    |
-| Vault               | 规则自持           | `vault.Service`（user/user_agent/system/system_agent + agent-read 门禁）               |
-| 控制面              | 规则自持（管理员） | `controlplane.Service`（`Begin` 处的管理员门禁）                                       |
-| Connections         | 归属/能力          | `connections.Service.Access`——OAuth bundle/flow 以用户为键                             |
-| Email               | 归属/能力          | `email.Service.Access`——配置存于用户 vault 命名空间                                    |
-| Share               | 归属/能力          | `share.Service.Access` 限定用户归属，并经 provider-neutral Filesystem 读取精确 session |
-| Recally             | 归属/能力          | `recally.Service.Access`——按 uid 限定的 store                                          |
+| 资源                | 形态               | 执行者                                                                   |
+| ------------------- | ------------------ | ------------------------------------------------------------------------ |
+| Agent               | 规则自持           | `agentaccess.Service`                                                    |
+| Session / Workspace | 规则自持           | `agent/session/access.Service`                                           |
+| Goal                | 规则自持           | `goal.Service`（持久 worker authority）                                  |
+| Workflow            | 规则自持           | `workflow.Service`                                                       |
+| Scheduler           | 规则自持           | `scheduler.Service`（system/plugin job 隐藏）                            |
+| Skill               | 规则自持           | `skillaccess.Service`（四个 scope）                                      |
+| Vault               | 规则自持           | `vault.Service`（user/user_agent/system/system_agent + agent-read 门禁） |
+| 控制面              | 规则自持（管理员） | `controlplane.Service`（`Begin` 处的管理员门禁）                         |
+| Connections         | 归属/能力          | `connections.Service.Access`——OAuth bundle/flow 以用户为键               |
+| Email               | 归属/能力          | `email.Service.Access`——配置存于用户 vault 命名空间                      |
+| Share               | 归属/能力          | `share.Service.Access`——`WHERE user_id = ?` + os.Root 工件               |
+| Recally             | 归属/能力          | `recally.Service.Access`——按 uid 限定的 store                            |
 
 公开分享内容两者皆非：它是一个能力 URL（见下方配方）。
 
@@ -88,7 +88,7 @@ func (s *Service) Access(authority authz.Authority) (*Access, error) {
 这些域还有两项额外义务：
 
 - **以父为键的写入。** 仅以父 id 为键的表（recally 文章正文、feed entry）不能信任“已加载父对象”的调用方。在写入内部以 uid 限定加载父对象，使外来父对象在任何变更前即不存在。
-- **Share 限制。** Share 工件读取经由精确 session 的 provider-neutral Filesystem。agent 作用域的行为方受限于其绑定 agent 和用户。Share 保存不可变 PostgreSQL snapshot，没有宿主 `os.Root` 或恢复路径。
+- **工作区限制。** Share 工件读取必须停留在行为 agent 的工作区内：agent 作用域的行为方受限于其绑定 agent，且文件通过 `os.Root` 读取，故 symlink 替换无法逃逸。
 
 ### 服务一个公开能力 URL
 

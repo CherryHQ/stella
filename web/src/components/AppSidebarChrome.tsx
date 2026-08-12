@@ -1,7 +1,15 @@
 import { useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Bell, ChevronsUpDown, FileText, LogOut, Search, Settings, UserCog } from "lucide-react";
+import {
+  Bell,
+  ChevronsUpDown,
+  FileText,
+  LogOut,
+  Search,
+  Settings,
+  ShieldCheck,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { logout as logoutRequest } from "@/lib/api-client/sdk.gen";
 import { useI18n, SUPPORTED_LOCALES } from "@/lib/i18n";
@@ -291,17 +299,20 @@ export function AppChromeFooter() {
             </DropdownMenuLabel>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
-          {/* Destinations, widest first: the whole settings surface, then the
-              one page in it that is about you, then the docs. */}
+          {/* Personal and deployment controls are separate destinations. The
+              server remains the security boundary; this role check only keeps
+              an irrelevant destination out of the menu. */}
           <DropdownMenuGroup>
             <DropdownMenuItem render={<Link to="/settings" />}>
               <Settings className="size-4" />
-              {t("nav.settings")}
+              {t("nav.personalSettings")}
             </DropdownMenuItem>
-            <DropdownMenuItem render={<Link to="/settings/account" />}>
-              <UserCog className="size-4" />
-              {t("settings.nav.account")}
-            </DropdownMenuItem>
+            {me.is_admin && (
+              <DropdownMenuItem render={<Link to="/admin" />}>
+                <ShieldCheck className="size-4" />
+                {t("nav.adminConsole")}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem render={<Link to={"/docs" as never} />}>
               <FileText className="size-4" />
               {t("nav.docs")}

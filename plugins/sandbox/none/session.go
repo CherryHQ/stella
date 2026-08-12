@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/CherryHQ/stella/internal/fsops"
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
@@ -30,8 +29,6 @@ type Config struct {
 type Factory struct {
 	cfg Config
 }
-
-var _ sandboxpkg.FilesystemSession = (*noneSession)(nil)
 
 // NewFactory returns a Factory for the none backend.
 func NewFactory(cfg ...Config) sandboxpkg.Factory {
@@ -147,33 +144,6 @@ func (s *noneSession) WorkingDir() string {
 	}
 	wd, _ := os.Getwd()
 	return wd
-}
-
-// Filesystem is deliberately mediated even for unsafe none: the unsafe gate
-// changes process isolation, never the containment rules of trusted file APIs.
-//
-// fsops opens each mount through os.OpenRoot, which requires the root directory
-// to already exist. The none backend shares the host filesystem and does not
-// pre-materialize its roots the way the local backend does, so a writable mount
-// root is created here on demand. Read-only mounts are never created: a missing
-// read-only root must fail closed.
-func (s *noneSession) Filesystem() (sandboxpkg.Filesystem, error) {
-	mounts := make([]fsops.Mount, 0, len(s.policy.Filesystem.Mounts))
-	for _, mount := range s.policy.Filesystem.Mounts {
-		if mount.SandboxPath != sandboxpkg.PathWorkspace && mount.SandboxPath != sandboxpkg.PathUser && mount.SandboxPath != sandboxpkg.PathTemp {
-			continue
-		}
-		if mount.Access != sandboxpkg.MountReadOnly {
-			if err := os.MkdirAll(mount.HostPath, 0o755); err != nil {
-				return nil, err
-			}
-		}
-		mounts = append(mounts, fsops.Mount{Path: mount.SandboxPath, Directory: mount.HostPath, ReadOnly: mount.Access == sandboxpkg.MountReadOnly})
-	}
-	if len(mounts) == 0 {
-		mounts = append(mounts, fsops.Mount{Path: sandboxpkg.PathWorkspace, Directory: s.WorkingDir()})
-	}
-	return fsops.NewFilesystem(mounts)
 }
 
 func (s *noneSession) Alive() bool {

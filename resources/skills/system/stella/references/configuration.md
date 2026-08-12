@@ -130,6 +130,7 @@ All paths are relative to `$STELLA_HOME` (`~/.stella` by default).
 | `users/{user_id}/agents/{agent_id}/`        | This user's per-principal Agent Home; sandbox `$HOME` and initial working directory                             |
 | `users/group-{group_id}/agents/{agent_id}/` | This channel group's per-principal Agent Home; sandbox `$HOME` and initial working directory                    |
 | `users/{principal}/data/`                   | User or group Principal Home: shared principal data and uploads                                                 |
+| `runner-scratch/runner-*`                   | Disposable user-less-run workspace; never durable Home authority                                                |
 | `users/{principal}/data/assets/`            | Uploaded assets; inside the sandbox, use `$STELLA_ASSETS_DIR` rather than an operator path                      |
 | `users/{principal}/.mise-tools/`            | Managed per-user or per-group toolchain; shared by that principal's agents                                      |
 
@@ -143,32 +144,31 @@ Skills are enabled per Agent by default. An administrator or durable Agent creat
 
 For an exact operator command syntax, run `stellad system-bundle --help`. Docker sandbox images bake and label the matching bundle revision, never fall back to host builtins, and Docker provider preflight prevents a runner session from starting if their revision differs from the binary. Developers rebuild the local image with `mise run sandbox:docker:build`; rebuild custom images from the matching Stella revision.
 
-Before upgrading, use the old working binary to import each custom Skill root under legacy `$STELLA_HOME/.agents/skills` through **Settings → Skills** as a global (`system`) Skill. Back up, verify, and remove other residual paths. Current-manifest paths are inert even if their contents or modes differ; every other Skill root or residual path blocks startup without mutation.
+Before upgrading, use the old working binary to import each custom Skill root under legacy `$STELLA_HOME/.agents/skills` as a global (`system`) Skill through **Settings → Skills** on older releases or **Admin Console → Deployment resources → Global Skills** on newer releases. Back up, verify, and remove other residual paths. Current-manifest paths are inert even if their contents or modes differ; every other Skill root or residual path blocks startup without mutation.
 
-`{principal}` is a user ID or `group-{group_id}`. These operator filesystem
-paths are local compatibility coordinates, not Home identity. A typed Home has
-an immutable Store ID and opaque locator in PostgreSQL. Agents should use their sandbox variables and ordinary relative paths:
+`{principal}` is a user ID or `group-{group_id}`. These are deterministic paths
+under the single POSIX `STELLA_HOME`, not registry locators. Agents should use their sandbox variables and ordinary relative paths:
 `$HOME` for their workspace and `$STELLA_ASSETS_DIR` for uploaded assets. Persistent
 XDG state is stored under the principal's `data/` tree; it is not an agent
 workspace.
 
-PostgreSQL records typed user/group Principal Homes, per-principal Agent Homes,
-and narrow system/system-Agent Skill roots, but registry metadata cannot recover
-their file bytes. Back up PostgreSQL with durable Home storage. An explicit
-destructive user, group, or Agent delete tombstones and fences Homes, then
-purges bytes asynchronously. Removing an assignment or member, archiving a
-Session, and uninstalling Helm do not delete Homes. A physical-purge failure is
-retained as `purge_failed` for operator retry; use `stellad storage retry-purge --help`
-for syntax.
+PostgreSQL owner rows authorize workspace access. The sole production
+`WorkspaceManager` creates a missing root for live owners and rejects symlinks,
+non-directories, unsafe IDs, and replacement of the trusted root. The filesystem
+owns the bytes; back it up with PostgreSQL. Any entry at `agents/{id}` reserves
+that global Agent ID. Run restore and root cleanup while Stella is stopped.
 
-When complete legacy `STELLA_BLOB_S3_*` asset authority is configured, startup fails
-closed until object-only mutable assets are present and verified in their typed
-Principal Homes. Stop all old asset writers, retain the original S3 and database
-configuration, and follow `stellad storage migrate-assets --help`. The command
-is idempotent and leaves every remote object untouched. After the marker is
-complete, mutable-asset authority is the Principal Home. Remote legacy objects
-are not a runtime authority or fallback. Keep the blob-store configuration:
-the same Store remains the authority for immutable content-addressed session media.
+An explicit destructive user, group, or Agent delete fences execution before the
+database transaction removes the owner. Physical bytes and inodes remain, while
+subsequent workspace access fails owner validation.
+Removing an assignment or member, archiving a Session, and uninstalling Helm do not
+delete workspace bytes. Do not manually clean workspace roots while Stella is running.
+Multi-replica, Kubernetes, and S3 authority require a future redesign.
+
+`runner-scratch/` is trusted host-owned structural state. Normal close and
+construction failure clean each disposable child best-effort; crash or trusted
+host tampering may leave children. Isolating providers mount only the exact child.
+Clean leftovers only while Stella is stopped or affected consumers are fenced.
 
 ## Environment variables
 

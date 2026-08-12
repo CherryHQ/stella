@@ -32,6 +32,7 @@ var catalog = []Scope{
 	{Resource: "webhooks", Description: "Manage personal webhook invocation capabilities", ExposableToOAuth: true},
 	{Resource: "scheduler", Description: "Manage scheduled jobs", ExposableToOAuth: true},
 	{Resource: "skills", Description: "Manage skills, including installing and uploading skills that run as code in your sandbox", ExposableToOAuth: true},
+	{Resource: "library", Description: "Manage Library files used for agent retrieval", ExposableToOAuth: true},
 	{Resource: "shares", Description: "Manage public shares", ExposableToOAuth: true},
 	{Resource: "recally", Description: "Manage Recally articles, feeds, and digests", ExposableToOAuth: true},
 	{Resource: "email", Description: "Read and send email", ExposableToOAuth: true},

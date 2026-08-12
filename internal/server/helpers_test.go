@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -57,6 +59,83 @@ func (w serverTestWorkspace) WorkspaceView(_ context.Context, req home.Workspace
 	return home.WorkspaceView{PrincipalRoot: principal, DataRoot: data, AgentRoot: agentRoot}, nil
 }
 
+func (w serverTestWorkspace) OpenRoot(ctx context.Context, req home.WorkspaceRequest, scope home.RootScope, _ home.RootAccess) (home.RootOperations, error) {
+	view, err := w.WorkspaceView(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	dir := view.AgentRoot
+	if scope == home.RootPrincipalData {
+		dir = view.DataRoot
+	}
+	r, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	return serverRootOperations{Root: r}, nil
+}
+
+type serverRootOperations struct{ *os.Root }
+
+func (r serverRootOperations) Close() error { return r.Root.Close() }
+func (r serverRootOperations) Stat(_ context.Context, name string) (fs.FileInfo, error) {
+	return r.Root.Stat(name)
+}
+
+func (r serverRootOperations) List(_ context.Context, name string, o home.ListOptions) ([]fs.DirEntry, error) {
+	d, err := r.OpenRoot(name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = d.Close() }()
+	f, err := d.Open(".")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return f.ReadDir(o.Limit)
+}
+
+func (r serverRootOperations) Read(_ context.Context, name string, dst io.Writer, o home.ReadOptions) error {
+	f, err := r.Open(name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	_, err = io.Copy(dst, io.LimitReader(f, o.MaxBytes))
+	return err
+}
+
+func (r serverRootOperations) Write(_ context.Context, name string, src io.Reader, o home.WriteOptions) error {
+	data, err := io.ReadAll(src)
+	if err != nil {
+		return err
+	}
+	return r.WriteFile(name, data, o.Mode)
+}
+
+func (r serverRootOperations) Upload(ctx context.Context, name string, src io.Reader, o home.WriteOptions) error {
+	return r.Write(ctx, name, src, o)
+}
+
+func (r serverRootOperations) Mkdir(_ context.Context, name string, mode fs.FileMode, o home.MkdirOptions) error {
+	if o.Parents {
+		return r.MkdirAll(name, mode)
+	}
+	return r.Root.Mkdir(name, mode)
+}
+
+func (r serverRootOperations) Remove(_ context.Context, name string, o home.RemoveOptions) error {
+	if o.Recursive {
+		return r.RemoveAll(name)
+	}
+	return r.Root.Remove(name)
+}
+
+func (r serverRootOperations) Rename(_ context.Context, old, new string, _ home.RenameOptions) error {
+	return r.Root.Rename(old, new)
+}
+
 // testTransportOwnerDeletion preserves the HTTP fixture's historical database
 // delete behavior. It is test-only: production uses Home OwnerDeletion.
 type testTransportOwnerDeletion struct {
@@ -64,6 +143,10 @@ type testTransportOwnerDeletion struct {
 		DeleteAgent(context.Context, string) error
 	}
 }
+
+type testAgentIDOccupancy struct{}
+
+func (testAgentIDOccupancy) AgentIDOccupied(context.Context, string) (bool, error) { return false, nil }
 
 func (d testTransportOwnerDeletion) DeleteAgent(ctx context.Context, id, _ string) error {
 	return d.agents.DeleteAgent(ctx, id)
@@ -92,19 +175,21 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		t.Fatal("test memory provider does not implement ChangelogPageReader")
 	}
 	assetHome := t.TempDir()
-	assetStore, err := asset.NewStore(assetHome, nil)
+	assetStore, err := asset.NewStore(assetHome, nil, nil)
 	if err != nil {
 		t.Fatalf("asset.NewStore: %v", err)
 	}
 	poolMgr := agent.NewPoolManager(store, mem)
 	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
 	homeDir, _ := os.UserHomeDir()
+	agentAccess := agentaccess.NewService(store, as)
+	projectStore := agent.NewProjectStore(db, store, agentAccess, agent.WithProjectHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}))
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		StellaHome: config.StellaHome(),
 		HomeDir:    homeDir,
 		Memory:     mem,
 		Agents:     sessionaccess.ConfigPromptAgentStore{Store: store},
-		Projects:   sessionaccess.NewSQLPromptProjectStore(db),
+		Projects:   projectStore.Resolve,
 		Workspace:  serverTestWorkspace{root: config.StellaHome()},
 		Plugins:    phost,
 		SkillStore: pluginhost.NewSkillStoreAdapter(phost.SkillStore()),
@@ -113,15 +198,13 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	if err != nil {
 		t.Fatalf("sessionaccess.NewSystemPromptBuilder: %v", err)
 	}
-	agentAccess := agentaccess.NewService(store, as)
-	sessionSvc, err := sessionaccess.NewService(mem, db, store, assetStore.SessionMedia(), agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder))
+	sessionSvc, err := sessionaccess.NewService(mem, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder))
 	if err != nil {
 		t.Fatalf("sessionaccess.NewService: %v", err)
 	}
-	recallySvc := recally.NewService(recallyStore, t.TempDir())
 	toolOverrides := agent.NewToolOverrideStore(db)
 	agentSkillPolicy, _ := store.(AgentSkillPolicyStore)
-	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolMgr, testUserDirectory{users: oidcStore}, agent.NewAgentActivityStore(db), nil, nil, slog.With("component", "agent-management-test"), agentaccess.WithOwnerDeletion(testTransportOwnerDeletion{agents: store}))
+	agentManagement := agentaccess.NewManagement(agentAccess, store, as, poolMgr, testUserDirectory{users: oidcStore}, agent.NewAgentActivityStore(db), nil, nil, slog.With("component", "agent-management-test"), agentaccess.WithOwnerDeletion(testTransportOwnerDeletion{agents: store}), agentaccess.WithAgentIDOccupancy(testAgentIDOccupancy{}))
 	accountSvc := account.NewService(oidcStore, oidcStore, oidcStore, oidcStore, oidcStore, as, credFrontDoor, slog.With("component", "account-test"))
 	memProfiles, _ := mem.(memory.ProfileStore)
 	memChangelog, _ := mem.(memory.ChangelogReader)
@@ -132,7 +215,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		Group:               channel.NewGroupService(db, agentAccess, channel.NewRuntimeResolver(store), nil, nil),
 		Account:             accountSvc,
 		Profile:             profileSvc,
-		ProjectStore:        agent.NewProjectStore(db, store, agentAccess),
+		ProjectStore:        projectStore,
 		Inbox:               inbox.NewService(db),
 		AgentAccess:         agentAccess,
 		AgentManagement:     agentManagement,
@@ -148,10 +231,11 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		Credentials:         credSvc,
 		ControlPlane:        controlplane.NewService(store, phost, poolMgr, credSvc, slog.With("component", "controlplane-test")),
 		Email:               email.NewService(nil, sqlc.New(db)),
-		Share:               sharepkg.NewService(sqlc.New(db), sessionSvc, recallySvc, baseURL),
-		Recally:             recallySvc,
+		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetHome, baseURL, sharepkg.WithHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}), sharepkg.WithAgentAccess(agentAccess)),
+		Recally:             recally.NewService(recallyStore, t.TempDir()),
 		CredentialFrontDoor: credFrontDoor,
 		OAuthAuthServer:     oauthAuthServer,
+		Assets:              assetStore,
 		OIDC: OIDCDeps{
 			AuthSvc:    authSvc,
 			SessionMgr: sessionMgr,

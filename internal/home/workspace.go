@@ -1,162 +1,221 @@
+// Package home owns the single-replica POSIX workspace layout beneath STELLA_HOME.
 package home
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
+	"strings"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-// WorkspaceRequest selects exactly one principal. Group wins because channel
-// sessions carry a synthetic user ID as well.
-type WorkspaceRequest struct {
-	UserID  string
-	GroupID string
-	AgentID string
-}
+type PrincipalKind string
 
-// WorkspaceView is the Phase-1 bridge from durable Home identity to the local
-// compatibility layout. Paths are deliberately internal-only and disappear
-// when the Phase-2 filesystem boundary consumes attachments directly.
+const (
+	UserPrincipal  PrincipalKind = "user"
+	GroupPrincipal PrincipalKind = "group"
+)
+
+type WorkspaceRequest struct{ UserID, GroupID, AgentID string }
+
 type WorkspaceView struct {
-	Principal            sandbox.HomeAttachment
-	Agent                sandbox.HomeAttachment
-	SystemSkillRoot      sandbox.HomeAttachment
-	SystemAgentSkillRoot sandbox.HomeAttachment
-	PrincipalRoot        string
-	DataRoot             string
-	AgentRoot            string
+	PrincipalRoot, DataRoot, AgentRoot string
 }
 
-// WorkspaceViewer is the single runner/prompt dependency on persistent Homes.
 type WorkspaceViewer interface {
 	WorkspaceView(context.Context, WorkspaceRequest) (WorkspaceView, error)
 }
 
-// localWorkspaceProjector is deliberately narrower than Store: only adapters
-// that can safely materialize and project the legacy local layout implement it.
-// It is not a generic host-path API.
-type localWorkspaceProjector interface {
-	PrepareWorkspace(Record, Record) error
-	WorkspacePaths(Record, Record) (principalRoot, dataRoot, agentRoot string, err error)
+// WorkspaceManager is the sole production materializer of typed workspace roots.
+// PostgreSQL remains owner authority; the filesystem is layout and data authority.
+type WorkspaceManager struct {
+	db         *pgxpool.Pool
+	base       string
+	rootFD     int
+	ownerLocks [257]chan struct{}
 }
 
-// WorkspaceView projects compatibility paths outside a DB transaction, then
-// captures ready attachments behind the owner advisory gate. The bounded local
-// owner lock is a Phase-1 one-replica ceiling: it keeps deletion from purging a
-// Home while a local Store call is in flight; Phase 3 uses SessionSandbox fencing.
-func (r *Registry) WorkspaceView(ctx context.Context, req WorkspaceRequest) (WorkspaceView, error) {
-	if req.AgentID == "" {
-		return WorkspaceView{}, fmt.Errorf("home: workspace agent ID is required")
+// Close releases the pinned STELLA_HOME descriptor. The manager must not be
+// used after Close.
+func (m *WorkspaceManager) Close() error { return closeWorkspaceRoot(m.rootFD) }
+
+func NewWorkspaceManager(db *pgxpool.Pool, base string) (*WorkspaceManager, error) {
+	if db == nil || base == "" {
+		return nil, errors.New("home: database and STELLA_HOME are required")
 	}
-	principalKey, hasPrincipal := workspacePrincipal(req)
-	ownerKeys := workspaceOwnerKeys(req.AgentID, principalKey, hasPrincipal)
-	unlock, err := r.lockOwnerKeys(ctx, ownerKeys)
+	abs, err := filepath.Abs(base)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(abs)
+	if err != nil {
+		return nil, fmt.Errorf("home: inspect STELLA_HOME: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return nil, errors.New("home: STELLA_HOME must be a real directory")
+	}
+	rootFD, err := openWorkspaceRoot(abs)
+	if err != nil {
+		return nil, err
+	}
+	m := &WorkspaceManager{db: db, base: abs, rootFD: rootFD}
+	for i := range m.ownerLocks {
+		m.ownerLocks[i] = make(chan struct{}, 1)
+		m.ownerLocks[i] <- struct{}{}
+	}
+	return m, nil
+}
+
+func validID(id string) error {
+	if id == "" || id == "." || id == ".." || strings.ContainsAny(id, `/\\`) || filepath.Base(id) != id {
+		return errors.New("home: unsafe ID")
+	}
+	return nil
+}
+
+func (m *WorkspaceManager) principalPath(kind PrincipalKind, id string) (string, error) {
+	if err := validID(id); err != nil {
+		return "", err
+	}
+	if kind == GroupPrincipal {
+		id = "group-" + id
+	} else if kind != UserPrincipal {
+		return "", errors.New("home: invalid principal kind")
+	}
+	return filepath.Join(m.base, "users", id), nil
+}
+
+func (m *WorkspaceManager) ownerExists(ctx context.Context, kind PrincipalKind, id string) error {
+	q := sqlc.New(m.db)
+	var err error
+	if kind == GroupPrincipal {
+		_, err = q.GetGroupStateByID(ctx, id)
+	} else {
+		_, err = q.GetAuthUser(ctx, id)
+	}
+	if err != nil {
+		return fmt.Errorf("home: live owner required: %w", err)
+	}
+	return nil
+}
+
+func (m *WorkspaceManager) agentExists(ctx context.Context, id string) error {
+	_, err := sqlc.New(m.db).GetAgent(ctx, id)
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("home: live Agent required: %w", pgx.ErrNoRows)
+	}
+	return fmt.Errorf("home: validate durable Agent: %w", err)
+}
+
+func (m *WorkspaceManager) WorkspaceView(ctx context.Context, req WorkspaceRequest) (WorkspaceView, error) {
+	if err := validID(req.AgentID); err != nil {
+		return WorkspaceView{}, err
+	}
+	kind, id := UserPrincipal, req.UserID
+	if req.GroupID != "" {
+		kind, id = GroupPrincipal, req.GroupID
+	}
+	keys := []string{"agent:" + req.AgentID}
+	if id != "" {
+		keys = append(keys, string(kind)+":"+id)
+	}
+	unlock, err := m.lock(ctx, keys)
 	if err != nil {
 		return WorkspaceView{}, err
 	}
 	defer unlock()
-
-	// Store Ensure and local compatibility preparation perform filesystem I/O and
-	// must not retain a database connection or advisory transaction lock.
-	system, err := r.Ensure(ctx, SystemSkills())
-	if err != nil {
-		return WorkspaceView{}, fmt.Errorf("home: ensure system Skill root: %w", err)
+	// Durable owners are authority. Validate all rows while their gates are held,
+	// before creating even a shared scaffold.
+	if err := m.agentExists(ctx, req.AgentID); err != nil {
+		return WorkspaceView{}, err
 	}
-	systemAgent, err := r.Ensure(ctx, SystemAgentSkills(req.AgentID))
-	if err != nil {
-		return WorkspaceView{}, fmt.Errorf("home: ensure system Agent Skill root: %w", err)
-	}
-	var principal, agent Record
-	var projector localWorkspaceProjector
-	var principalRoot, dataRoot, agentRoot string
-	if hasPrincipal {
-		principal, err = r.Ensure(ctx, principalKey)
-		if err != nil {
-			return WorkspaceView{}, fmt.Errorf("home: ensure principal workspace: %w", err)
-		}
-		agent, err = r.Ensure(ctx, Agent(principalKey.PrincipalKind, principalKey.PrincipalID, req.AgentID))
-		if err != nil {
-			return WorkspaceView{}, fmt.Errorf("home: ensure Agent workspace: %w", err)
-		}
-		var ok bool
-		projector, ok = r.stores[principal.StoreID].(localWorkspaceProjector)
-		if !ok || agent.StoreID != principal.StoreID {
-			return WorkspaceView{}, fmt.Errorf("home: Store %q has no local workspace projection", principal.StoreID)
-		}
-		if err := projector.PrepareWorkspace(principal, agent); err != nil {
-			return WorkspaceView{}, err
-		}
-		principalRoot, dataRoot, agentRoot, err = projector.WorkspacePaths(principal, agent)
-		if err != nil {
+	if id != "" {
+		if err := m.ownerExists(ctx, kind, id); err != nil {
 			return WorkspaceView{}, err
 		}
 	}
-
-	// The final transaction is DB-only. It serializes with owner deletion and
-	// revalidates every record captured above before any attachment is returned.
-	tx, err := r.db.Begin(ctx)
+	if err := m.ensureChain(".agents", "db-skills"); err != nil {
+		return WorkspaceView{}, err
+	}
+	if err := m.ensureChain("agents", req.AgentID, ".agents", "skills"); err != nil {
+		return WorkspaceView{}, err
+	}
+	v := WorkspaceView{AgentRoot: filepath.Join(m.base, "agents", req.AgentID)}
+	if id == "" {
+		return v, nil
+	}
+	principal, err := m.principalPath(kind, id)
 	if err != nil {
-		return WorkspaceView{}, fmt.Errorf("home: begin workspace owner gate: %w", err)
+		return WorkspaceView{}, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := sqlc.New(tx)
-	locks := append([]string(nil), ownerKeys...)
-	sort.Strings(locks)
-	for _, lock := range locks {
-		if err := q.LockStorageHomeOwner(ctx, lock); err != nil {
-			return WorkspaceView{}, fmt.Errorf("home: lock workspace owner gate: %w", err)
-		}
+	rel, _ := filepath.Rel(m.base, principal)
+	if err := m.ensureChain(strings.Split(rel, string(filepath.Separator))...); err != nil {
+		return WorkspaceView{}, err
 	}
-	view := WorkspaceView{}
-	view.SystemSkillRoot, err = r.resolveRecordWithQueries(ctx, q, system, true)
-	if err != nil {
-		return WorkspaceView{}, fmt.Errorf("home: resolve system Skill root: %w", err)
+	if err := m.ensureChain(append(strings.Split(rel, string(filepath.Separator)), "data")...); err != nil {
+		return WorkspaceView{}, err
 	}
-	view.SystemAgentSkillRoot, err = r.resolveRecordWithQueries(ctx, q, systemAgent, true)
-	if err != nil {
-		return WorkspaceView{}, fmt.Errorf("home: resolve system Agent Skill root: %w", err)
+	if err := m.ensureChain(append(strings.Split(rel, string(filepath.Separator)), "agents", req.AgentID, ".agents", "skills")...); err != nil {
+		return WorkspaceView{}, err
 	}
-	if hasPrincipal {
-		view.Principal, err = r.resolveRecordWithQueries(ctx, q, principal, false)
-		if err != nil {
-			return WorkspaceView{}, err
-		}
-		view.Agent, err = r.resolveRecordWithQueries(ctx, q, agent, false)
-		if err != nil {
-			return WorkspaceView{}, err
-		}
-		if agent.StoreID != principal.StoreID {
-			return WorkspaceView{}, fmt.Errorf("home: Store %q changed during workspace projection", principal.StoreID)
-		}
-		view.PrincipalRoot, view.DataRoot, view.AgentRoot = principalRoot, dataRoot, agentRoot
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return WorkspaceView{}, fmt.Errorf("home: commit workspace view: %w", err)
-	}
-	return view, nil
+	v.PrincipalRoot, v.DataRoot, v.AgentRoot = principal, filepath.Join(principal, "data"), filepath.Join(principal, "agents", req.AgentID)
+	return v, nil
 }
 
-func workspaceOwnerKeys(agentID string, principal Key, hasPrincipal bool) []string {
-	keys := []string{ownerLockKey(OwnerAgent, agentID)}
-	if !hasPrincipal {
-		return keys
+func (m *WorkspaceManager) lock(ctx context.Context, keys []string) (func(), error) {
+	indices := make([]int, 0, len(keys))
+	seen := make(map[int]struct{}, len(keys))
+	for _, key := range keys {
+		h := uint32(2166136261)
+		for i := range len(key) {
+			h = (h ^ uint32(key[i])) * 16777619
+		}
+		idx := int(h) % len(m.ownerLocks)
+		if _, ok := seen[idx]; !ok {
+			seen[idx] = struct{}{}
+			indices = append(indices, idx)
+		}
 	}
-	kind := OwnerUser
-	if principal.PrincipalKind == GroupPrincipal {
-		kind = OwnerGroup
+	sort.Ints(indices)
+	locked := make([]chan struct{}, 0, len(indices))
+	for _, idx := range indices {
+		ch := m.ownerLocks[idx]
+		select {
+		case <-ch:
+			locked = append(locked, ch)
+		case <-ctx.Done():
+			for i := len(locked) - 1; i >= 0; i-- {
+				locked[i] <- struct{}{}
+			}
+			return nil, ctx.Err()
+		}
 	}
-	return append(keys, ownerLockKey(kind, principal.PrincipalID))
+	return func() {
+		for i := len(locked) - 1; i >= 0; i-- {
+			locked[i] <- struct{}{}
+		}
+	}, nil
 }
 
-func workspacePrincipal(req WorkspaceRequest) (Key, bool) {
-	if req.GroupID != "" {
-		return Principal(GroupPrincipal, req.GroupID), true
+// AgentIDOccupied reserves deterministic global Agent roots. Any entry type is
+// occupied and inspection errors fail closed.
+func (m *WorkspaceManager) AgentIDOccupied(_ context.Context, id string) (bool, error) {
+	if err := validID(id); err != nil {
+		return true, err
 	}
-	if req.UserID != "" {
-		return Principal(UserPrincipal, req.UserID), true
-	}
-	return Key{}, false
+	return m.agentIDOccupied(id)
+}
+
+func (m *WorkspaceManager) ownerGate(ctx context.Context, kind OwnerKind, id string) (func(), error) {
+	return m.lock(ctx, []string{string(kind) + ":" + id})
 }

@@ -217,23 +217,34 @@ func (s *Server) requireAgentAction(ctx context.Context, agentID, action string,
 
 // ---- helpers ----------------------------------------------------------------
 
-func (s *Server) projectRootForSession(ctx context.Context, agentID string, sessionID *string) (string, error) {
+func (s *Server) projectSkillSnapshotForSession(ctx context.Context, agentID string, sessionID *string) (*skills.ProjectSnapshot, error) {
 	if sessionID == nil || *sessionID == "" {
-		return "", nil
+		return nil, nil
 	}
 	info := UserFromContext(ctx)
 	if info == nil {
-		return "", fmt.Errorf("unauthorized")
+		return nil, errors.New("unauthorized")
 	}
 	authority, err := info.authority()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	access, err := s.sessionAccess.Begin(ctx, authority)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return access.ProjectRoot(ctx, agentID, sessionID)
+	session, err := access.Read(ctx, agentID, *sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if session.ProjectID == "" {
+		return nil, nil
+	}
+	if s.projectStore == nil {
+		return nil, errors.New("project store unavailable")
+	}
+	snapshot, _, err := s.projectStore.SnapshotSkills(ctx, session.ProjectID, session.UserID, session.AgentID)
+	return snapshot, err
 }
 
 func dbSkillsToPluginSkills(rows []skills.Skill) []pkgplugins.Skill {
@@ -255,8 +266,8 @@ func dbSkillToPluginSkill(sk skills.Skill) pkgplugins.Skill {
 
 func resolvedSkillToView(rs skills.ResolvedSkill) skillView {
 	var files []string
-	if builtinFiles := rs.BuiltinFiles(); builtinFiles != nil {
-		files = builtinFiles
+	if immutableFiles := rs.ImmutableFiles(); immutableFiles != nil {
+		files = immutableFiles
 	} else if rs.Dir != "" {
 		files, _ = skills.ListDirFiles(rs.Dir)
 	}
@@ -372,12 +383,13 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 	// through the merged catalog so a project/PG shadow still wins after one
 	// store lookup, rather than probing the store for every builtin descriptor.
 	if strings.HasPrefix(ref, "builtin-") {
-		projectRoot, err := s.projectRootForSession(ctx, agentID, sessionID)
+		snapshot, err := s.projectSkillSnapshotForSession(ctx, agentID, sessionID)
 		if err != nil {
 			return nil, nil, "", http.StatusInternalServerError, "internal error"
 		}
 		vc := pkgplugins.SkillViewContext{UserID: info.UserID, AgentID: agentID}
-		rs, err := s.skillService().Resolve(ctx, ref, vc, projectRoot)
+		ctx = skills.WithProjectSnapshot(ctx, snapshot)
+		rs, err := s.skillService().Resolve(ctx, ref, vc, "")
 		if err != nil {
 			s.log.Error("resolve builtin skill reference", "agent_id", agentID, "skill", ref, "error", err)
 			return nil, nil, "", http.StatusInternalServerError, "internal error"
@@ -396,7 +408,7 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 		if exactScope && contextualScope != scope {
 			return nil, nil, "", http.StatusNotFound, "skill not found"
 		}
-		return rs, acc, projectRoot, 0, ""
+		return rs, acc, "", 0, ""
 	}
 
 	sk, err := s.findSkillByID(ctx, ref)
@@ -421,13 +433,14 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 		return nil, nil, "", http.StatusInternalServerError, "internal error"
 	}
 
-	projectRoot, _ := s.projectRootForSession(ctx, agentID, sessionID)
+	snapshot, _ := s.projectSkillSnapshotForSession(ctx, agentID, sessionID)
+	ctx = skills.WithProjectSnapshot(ctx, snapshot)
 	vc := pkgplugins.SkillViewContext{UserID: info.UserID, AgentID: agentID}
 	var rs *skills.ResolvedSkill
 	if exactScope {
-		rs, err = s.skillService().ResolveScoped(ctx, ref, scope, vc, projectRoot)
+		rs, err = s.skillService().ResolveScoped(ctx, ref, scope, vc, "")
 	} else {
-		rs, err = s.skillService().Resolve(ctx, ref, vc, projectRoot)
+		rs, err = s.skillService().Resolve(ctx, ref, vc, "")
 	}
 	if err != nil {
 		s.log.Error("resolve skill reference", "agent_id", agentID, "skill", ref, "error", err)
@@ -436,13 +449,16 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 	if rs == nil || rs.Status == "deprecated" {
 		return nil, nil, "", http.StatusNotFound, "skill not found"
 	}
-	return rs, acc, projectRoot, 0, ""
+	return rs, acc, "", 0, ""
 }
 
 // loadSkillFile loads a file from an already-resolved skill.
 func (s *Server) loadSkillFile(ctx context.Context, rs *skills.ResolvedSkill, path string) (string, error) {
 	if rs.BuiltinFiles() != nil {
 		return rs.LoadBuiltinFile(path)
+	}
+	if rs.Scope == "project" {
+		return rs.LoadImmutableFile(path)
 	}
 	if rs.Dir != "" {
 		fp, err := safeSkillFilePath(rs.Dir, path)
@@ -523,7 +539,7 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 	if params.Q != nil {
 		query = strings.TrimSpace(*params.Q)
 	}
-	projectRoot, err := s.projectRootForSession(r.Context(), agentID, params.SessionId)
+	projectSnapshot, err := s.projectSkillSnapshotForSession(r.Context(), agentID, params.SessionId)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -539,7 +555,7 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 	if !ok {
 		return
 	}
-	merged := s.skillService().ListMergedWithDB(dbSkillsToPluginSkills(dbSkills), projectRoot)
+	merged := s.skillService().ListMergedWithDBSnapshot(dbSkillsToPluginSkills(dbSkills), projectSnapshot)
 	filtered := make([]skills.ResolvedSkill, 0, len(merged))
 	queryLower := strings.ToLower(query)
 	for _, rs := range merged {

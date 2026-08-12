@@ -58,7 +58,7 @@ func ResolveS3Config(c config.BlobS3Config) (*S3Config, error) {
 	}, nil
 }
 
-// NewStoreFromConfig builds the mutable asset blob store from deployment S3.
+// NewStoreFromConfig builds the immutable blob store from deployment S3.
 // It preserves the historical nil result when no S3 group is configured.
 func NewStoreFromConfig(c config.BlobS3Config) (Store, error) {
 	cfg, err := ResolveS3Config(c)

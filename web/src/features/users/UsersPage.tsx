@@ -1,4 +1,4 @@
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useNavigate, useParams, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { authUsersQueryOptions } from "@/lib/queries/users";
 import { useI18n } from "@/lib/i18n";
@@ -11,6 +11,11 @@ import { UserDetailPanel } from "./UserDetailPanel";
 export function UsersPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const isAdminSurface = useRouterState({
+    select: (state) => state.location.pathname.startsWith("/admin/"),
+  });
+  const listRoute = isAdminSurface ? "/admin/users" : "/settings/users";
+  const detailRoute = isAdminSurface ? "/admin/users/$userId" : "/settings/users/$userId";
   const params = useParams({ strict: false }) as { userId?: string };
   const userId = params.userId;
 
@@ -58,9 +63,7 @@ export function UsersPage() {
                 {sorted.map((u) => (
                   <tr
                     key={u.id}
-                    onClick={() =>
-                      void navigate({ to: "/settings/users/$userId", params: { userId: u.id } })
-                    }
+                    onClick={() => void navigate({ to: detailRoute, params: { userId: u.id } })}
                     className={`cursor-pointer hover:bg-muted/50 ${
                       userId === u.id ? "bg-muted/60" : ""
                     }`}
@@ -94,7 +97,7 @@ export function UsersPage() {
         )}
       </SettingsGridPage>
 
-      <SettingsDetailSheet open={!!userId} onClose={() => void navigate({ to: "/settings/users" })}>
+      <SettingsDetailSheet open={!!userId} onClose={() => void navigate({ to: listRoute })}>
         {userId ? <UserDetailPanel key={userId} userId={userId} /> : null}
       </SettingsDetailSheet>
     </>

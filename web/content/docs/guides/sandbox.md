@@ -152,6 +152,8 @@ Use these environment variables in Agent instructions. They are the filesystem A
 | `$STELLA_ASSETS_DIR` | Durable uploads and final deliverables shared by the same user or group, when available | This is the managed shared location for direct Agent writes.                  |
 | `$TMPDIR`            | Session-private disposable scratch space                                                | Never put final output here or rely on it surviving after the session closes. |
 
+The Web Workspace API addresses files with a typed scope plus canonical relative paths. Project `base_dir` values are likewise relative to the Agent workspace (`.` is its root). These APIs authorize and open the durable POSIX root directly; they do not start or wake Session compute. The deprecated `sandbox_root` response field, where present, is only an alias of the same logical `/workspace` or `/user` root and never contains a host path. Active Agent tools still resolve paths through their existing Session mount and policy boundary.
+
 ### Managed user and group roots
 
 `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, and `XDG_CACHE_HOME` are shared by the same user's or group's Agents and managed for command-line tools. They are not general Agent storage. If no user/group root is available, all four fall back under `$HOME`. `XDG_RUNTIME_DIR` is unset.
@@ -180,7 +182,7 @@ Native `local` and `none` installs use the exact release bundle at `$STELLA_HOME
 
 The Docker sandbox image bakes and labels the same revision. It does not fall back to host builtins. Docker provider preflight rejects a revision mismatch, so the runner session does not start. For command syntax, run `stellad system-bundle --help`. Developers rebuilding the local sandbox image run `mise run sandbox:docker:build`; custom sandbox images must be rebuilt from the matching Stella revision.
 
-Before upgrading, import each custom Skill root under legacy `$STELLA_HOME/.agents/skills` through **Settings → Skills** as a global (`system`) Skill with the old working binary. Back up, verify, and remove other residual paths. Startup lists every blocking path and stops without deleting or changing anything. Paths owned by the current release manifest are inert even when their contents or modes are stale; every other Skill root or residual path blocks startup.
+Before upgrading, use the old working binary to import each custom Skill root under legacy `$STELLA_HOME/.agents/skills` as a global (`system`) Skill through **Settings → Skills** on older releases or **Admin Console → Deployment resources → Global Skills** on newer releases. Back up, verify, and remove other residual paths. Startup lists every blocking path and stops without deleting or changing anything. Paths owned by the current release manifest are inert even when their contents or modes are stale; every other Skill root or residual path blocks startup.
 
 ### Upgrading existing workspaces
 
@@ -220,8 +222,8 @@ Session creation fails and the runner does not start. Ensure the Docker daemon i
 **Volume mode: "workspace is not inside STELLA_HOME":**
 All sandbox workspaces must be subdirectories of `STELLA_HOME` in volume mode. This error means a workspace path was resolved outside the volume boundary. Check that `STELLA_HOME` and `STELLA_HOME_VOLUME` are correctly configured.
 
-**Xberg fails to load `libheif`:**
-Stella's Docker images include the compatible library. Native Linux deployments need libheif 1.21 or newer; Debian 13's package is too old. On macOS, install it with `brew install libheif`. If you cannot provide a compatible native library, use the Docker sandbox backend.
+**Xberg is unavailable after upgrading:**
+Current Linux and macOS releases bundle Xberg and its native libraries. Restart Stella with the upgraded `stellad` binary so it can install the matching runtime into `STELLA_HOME`; do not install a separate `libheif` package.
 
 **Bind-mount performance is slow on macOS/Windows:**
 Docker Desktop uses a virtualized filesystem layer for bind mounts. For heavy I/O workloads, consider using a named volume (`volume` mode) or running stellad natively on the host with `host` mode.

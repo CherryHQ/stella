@@ -5,7 +5,6 @@ import { formatTime } from "@/lib/time";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import {
-  AlertCircle,
   ChevronDown,
   Copy,
   Check,
@@ -18,6 +17,7 @@ import {
   Library,
   Send,
   ListTodo,
+  MessagesSquare,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -25,8 +25,9 @@ import { getAgentAvatarStyle } from "@/lib/agent-colors";
 import { CollapsibleThinking } from "./CollapsibleThinking";
 import { CopyButton, REVEAL_ON_HOVER } from "./CopyButton";
 import { RenderableReferenceList } from "./references";
-import { EXIT_TRAILER, toolCallFailed } from "./utils";
+import { EXIT_TRAILER, formatToolOutput, toolCallFailed } from "./utils";
 import { SessionTrace } from "./SessionTrace";
+import { Spinner } from "@/components/ui/spinner";
 
 export interface AssistantMessageProps {
   agentName: string;
@@ -257,11 +258,6 @@ function StepsGroup({ blocks, active }: { blocks: ContentBlock[]; active: boolea
     labelText = t("sessions.transcript.worked");
   }
 
-  // A collapsed group reports only how long it took, so a failed tool call
-  // inside it left no trace on screen — the reader had to open every group to
-  // find out whether the work actually landed. Surface the count on the label.
-  const failedCount = blocks.filter((b) => b.type === "tool_call" && toolCallFailed(b)).length;
-
   // Renderable references the agent emitted while creating entities in this
   // step group. Surfaced as cards OUTSIDE the collapsible — the raw tool output
   // defaults to collapsed, so a card buried inside would read as "not done".
@@ -271,19 +267,7 @@ function StepsGroup({ blocks, active }: { blocks: ContentBlock[]; active: boolea
 
   return (
     <div className="space-y-3">
-      <CollapsibleThinking
-        labelText={labelText}
-        badge={
-          failedCount > 0 ? (
-            <span className="inline-flex items-center gap-1 text-destructive-foreground">
-              <AlertCircle className="size-3.5 shrink-0" />
-              {t("sessions.transcript.failedSteps", { count: failedCount })}
-            </span>
-          ) : null
-        }
-        expanded={expanded}
-        onToggle={setExpanded}
-      >
+      <CollapsibleThinking labelText={labelText} expanded={expanded} onToggle={setExpanded}>
         <div className="space-y-3">
           {blocks.map((block, idx) => {
             if (block.type === "thinking" && block.thinking) {
@@ -299,7 +283,7 @@ function StepsGroup({ blocks, active }: { blocks: ContentBlock[]; active: boolea
             if (block.type === "tool_call") {
               // Keyed by the stable tool-call id so an appended sibling never
               // remounts an existing row (which would drop its open state).
-              return <ToolStepRow key={block.id || `i${idx}`} block={block} />;
+              return <ToolStepRow key={block.id || `i${idx}`} block={block} active={active} />;
             }
             return null;
           })}
@@ -320,6 +304,7 @@ const TOOL_META: Record<string, { icon: LucideIcon; verb: string; surface: strin
   memory: { icon: Library, verb: "Memory", surface: "Memory" },
   notify: { icon: Send, verb: "Notified", surface: "Message" },
   task_control: { icon: ListTodo, verb: "Task", surface: "Task" },
+  session: { icon: MessagesSquare, verb: "Session", surface: "Session" },
 };
 
 // memory's verb depends on the `action` arg so the line reads as a sentence.
@@ -330,18 +315,28 @@ const MEMORY_VERBS: Record<string, string> = {
   delete: "Removed from memory",
 };
 
-function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } }) {
+function ToolStepRow({
+  block,
+  active,
+}: {
+  block: ContentBlock & { type: "tool_call" };
+  active: boolean;
+}) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const panelId = useId();
   const n = block.name ?? "tool";
   const args = block.arguments ?? {};
+  const failed = toolCallFailed(block);
+  const running = active && !block.result;
 
   const meta = TOOL_META[n] ?? { icon: Wrench, verb: n, surface: n };
   const Icon = meta.icon;
   let verb = meta.verb;
   const isFileTool = n === "read" || n === "write" || n === "edit";
   const isBash = n === "bash";
+  const isSession = n === "session";
 
   let cmdPreview = "";
   if (isBash) {
@@ -360,6 +355,29 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
     cmdPreview = toolArgText(args.pattern ?? args.query ?? args.content ?? args.scope ?? "");
   } else if (n === "notify") {
     cmdPreview = toolArgText(args.message ?? args.text ?? args.content ?? "");
+  } else if (isSession) {
+    const action = typeof args.action === "string" ? args.action : "";
+    if (action === "create") {
+      verb = failed
+        ? t("sessions.tool.createSessionFailed")
+        : running
+          ? t("sessions.tool.creatingSession")
+          : block.result
+            ? t("sessions.tool.createdSession")
+            : meta.verb;
+      if (!running && !block.result) cmdPreview = action;
+    } else if (action === "send") {
+      verb = failed
+        ? t("sessions.tool.sendFailed")
+        : running
+          ? t("sessions.tool.waitingForReply")
+          : block.result
+            ? t("sessions.tool.receivedReply")
+            : meta.verb;
+      if (!running && !block.result) cmdPreview = action;
+    } else {
+      cmdPreview = firstScalarArg(args);
+    }
   } else {
     // Unknown / plugin tool: show the first scalar arg, never the raw JSON blob.
     cmdPreview = firstScalarArg(args);
@@ -385,6 +403,7 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
       outputText = outputText.slice(0, exitMatch.index).replace(/\s+$/, "");
       duration = exitMatch[2];
     }
+    outputText = formatToolOutput(outputText);
     return { inputText, outputText, outputBlocks, duration, exitOk: !toolCallFailed(block) };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- args derives from block
   }, [open, block]);
@@ -403,15 +422,30 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 py-0.5 font-mono text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer min-w-0 max-w-full"
+        className={cn(
+          "flex max-w-full min-w-0 cursor-pointer items-center gap-1.5 py-0.5 font-mono text-xs transition-colors",
+          failed
+            ? "text-destructive-foreground hover:text-destructive-foreground"
+            : "text-muted-foreground hover:text-foreground",
+        )}
       >
-        <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+        {running ? (
+          <Spinner className="size-3.5 shrink-0 text-info" />
+        ) : (
+          <Icon
+            className={cn(
+              "size-3.5 shrink-0",
+              failed ? "text-destructive-foreground" : "text-muted-foreground",
+            )}
+          />
+        )}
         <span className="truncate">
           {verb} {cmdPreview}
         </span>
         <ChevronDown
           className={cn(
-            "size-3.5 shrink-0 text-muted-foreground transition-transform duration-150",
+            "size-3.5 shrink-0 transition-transform duration-150",
+            failed ? "text-destructive-foreground" : "text-muted-foreground",
             open && "rotate-180",
           )}
         />
@@ -439,7 +473,7 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
             <pre
               className={cn(
                 "mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-all leading-relaxed",
-                block.result.is_error ? "text-destructive-foreground" : "text-muted-foreground",
+                failed ? "text-destructive-foreground" : "text-muted-foreground",
               )}
             >
               {details!.outputText}
@@ -452,12 +486,10 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
                   key={`text-${index}`}
                   className={cn(
                     "mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-all leading-relaxed",
-                    block.result?.is_error
-                      ? "text-destructive-foreground"
-                      : "text-muted-foreground",
+                    failed ? "text-destructive-foreground" : "text-muted-foreground",
                   )}
                 >
-                  {output.text}
+                  {formatToolOutput(output.text)}
                 </pre>
               ) : (
                 <a
@@ -480,7 +512,7 @@ function ToolStepRow({ block }: { block: ContentBlock & { type: "tool_call" } })
             <div
               className={cn(
                 "mt-2 text-right text-muted-foreground",
-                block.result.is_error && "text-destructive-foreground",
+                failed && "text-destructive-foreground",
               )}
             >
               {details!.exitOk ? "✓ Success" : "✕ Failed"}

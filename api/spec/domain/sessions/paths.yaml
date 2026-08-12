@@ -248,6 +248,23 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
+  /api/agents/{agentId}/sessions/{sessionId}/view:
+    parameters:
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: sessionId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [sessions]
+      summary: Mark a session viewed
+      description: Clear its terminal status after the user opens the session.
+      operationId: markSessionViewed
+      responses:
+        "204": { description: Session was marked viewed }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
   /api/agents/{agentId}/sessions/{sessionId}/events:
     parameters:
       - { name: agentId, in: path, required: true, schema: { type: string } }
@@ -367,6 +384,13 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "413":
+          description: workspace listing exceeds the supported entry limit
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
 
   /api/agents/{agentId}/sessions/{sessionId}/workspace/files:
     parameters:
@@ -406,6 +430,13 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          description: mutation outcome is unknown; inspect workspace state before retrying
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
     delete:
       tags: [sessions]
       summary: Delete a file or directory from the session workspace
@@ -435,6 +466,13 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          description: mutation outcome is unknown; inspect workspace state before retrying
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
     patch:
       tags: [sessions]
       summary: Rename or move a file or directory in the session workspace
@@ -464,13 +502,18 @@ paths:
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
-        "409":
-          description: A file or directory already exists at new_path
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          description: mutation outcome is unknown; inspect workspace state before retrying
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
 
   /api/agents/{agentId}/sessions/{sessionId}/workspace/file-content:
     parameters:
@@ -486,10 +529,9 @@ paths:
           required: true
           schema: { type: string }
           description: >-
-            Slash-relative path within scope. $HOME selects the agent workspace
-            and $STELLA_ASSETS_DIR selects the shared user assets directory.
-            Canonical /workspace/... and /user/... markers are accepted; other
-            absolute paths and unknown or malformed variables are rejected.
+            A canonical workspace-relative path paired with scope. Portable
+            $HOME, $STELLA_ASSETS_DIR, /workspace, and /user logical forms are
+            accepted and mapped to their typed root. Host paths are rejected.
         - name: raw
           in: query
           required: false
@@ -514,13 +556,18 @@ paths:
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
-        "413":
-          description: File exceeds the workspace read limit
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "413":
+          description: file exceeds the supported read size
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
     patch:
       tags: [sessions]
       summary: Write content to a file in the session workspace
@@ -555,6 +602,13 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          description: mutation outcome is unknown; inspect workspace state before retrying
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
 
   /api/agents/{agentId}/sessions/{sessionId}/workspace/upload:
     parameters:
@@ -575,7 +629,7 @@ paths:
                 file:
                   type: string
                   format: binary
-                  description: The file to upload (maximum 100 MiB)
+                  description: The file to upload
       responses:
         "201":
           description: uploaded
@@ -587,13 +641,25 @@ paths:
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",
         }
-        "413":
-          description: File exceeds the 100 MiB upload limit
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+        "409":
+          description: mutation outcome is unknown; inspect workspace state before retrying
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
+        "413":
+          description: file exceeds the supported upload size
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/Error",
+              }
 
   /api/agents/{agentId}/sessions/{sessionId}/system-prompt:
     parameters:

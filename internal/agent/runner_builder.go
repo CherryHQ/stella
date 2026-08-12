@@ -2,10 +2,15 @@ package agent
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
@@ -19,7 +24,6 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -40,6 +44,69 @@ type BuiltinTool struct {
 type SessionImagePipeline interface {
 	Enrich(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error)
 	Load(context.Context, string, string) (ai.ImageContent, error)
+}
+
+const runnerScratchDir = "runner-scratch"
+
+// newRunnerScratch creates a disposable runner-owned child outside Home
+// authority. Its structural parent is trusted host-owned state. Close and
+// construction failure clean best-effort; crashes may leave operator-cleaned
+// children. Isolating providers mount only the exact returned child.
+func newRunnerScratch(stellaHome string) (string, func() error, error) {
+	homeRoot, err := os.OpenRoot(stellaHome)
+	if err != nil {
+		return "", nil, err
+	}
+	defer func() { _ = homeRoot.Close() }()
+	if err := homeRoot.Mkdir(runnerScratchDir, 0o700); err != nil && !os.IsExist(err) {
+		return "", nil, err
+	}
+
+	root, err := homeRoot.OpenRoot(runnerScratchDir)
+	if err != nil {
+		return "", nil, err
+	}
+	info, lstatErr := homeRoot.Lstat(runnerScratchDir)
+	openedInfo, statErr := root.Stat(".")
+	if lstatErr != nil || statErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !os.SameFile(info, openedInfo) {
+		_ = root.Close()
+		return "", nil, fmt.Errorf("scratch root %q is not a directory", filepath.Join(stellaHome, runnerScratchDir))
+	}
+	if err := root.Chmod(".", 0o700); err != nil {
+		_ = root.Close()
+		return "", nil, err
+	}
+
+	var name string
+	for range 100 {
+		var random [8]byte
+		if _, err := rand.Read(random[:]); err != nil {
+			_ = root.Close()
+			return "", nil, err
+		}
+		name = "runner-" + hex.EncodeToString(random[:])
+		if err := root.Mkdir(name, 0o700); err == nil {
+			break
+		} else if !os.IsExist(err) {
+			_ = root.Close()
+			return "", nil, err
+		}
+		name = ""
+	}
+	if name == "" {
+		_ = root.Close()
+		return "", nil, fmt.Errorf("create runner scratch: too many collisions")
+	}
+	dir := filepath.Join(stellaHome, runnerScratchDir, name)
+	var once sync.Once
+	var cleanupErr error
+	cleanup := func() error {
+		once.Do(func() {
+			cleanupErr = errors.Join(root.RemoveAll(name), root.Close())
+		})
+		return cleanupErr
+	}
+	return dir, cleanup, nil
 }
 
 func BuiltinToolAvailable(_ context.Context, params RunnerParams) bool {
@@ -92,17 +159,22 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		if apiName == "" {
 			apiName = provID
 		}
+		providerID := creds.ProviderID
+		if providerID == "" {
+			providerID = provID
+		}
 
 		if params.GuestID != "" {
 			return newRunner(ctx, runnerConfig{
 				NoCapabilities: true,
 				Provider: providerConfig{
-					API:     apiName,
-					Model:   modelID,
-					Input:   cfg.Snap.ModelInput(provID, modelID),
-					APIKey:  creds.APIKey,
-					BaseURL: creds.BaseURL,
-					Builder: cfg.ProviderStreamBuilder,
+					ProviderID: providerID,
+					API:        apiName,
+					Model:      modelID,
+					Input:      cfg.Snap.ModelInput(provID, modelID),
+					APIKey:     creds.APIKey,
+					BaseURL:    creds.BaseURL,
+					Builder:    cfg.ProviderStreamBuilder,
 				},
 				Thinking: params.Thinking,
 				System:   prompt.BuildGuestSystemPrompt(cfg.Snap.SystemPrompt),
@@ -117,7 +189,9 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			return nil, fmt.Errorf("resolve Home workspace: %w", err)
 		}
 		var (
-			userRoot string
+			userRoot      string
+			workspaceRoot string
+			userDataDir   string
 			// projectValidateRoot is the per-(principal, agent) dir a project must
 			// live under: a project is owned by the agent (see #442), so it stays
 			// scoped to the agent's subdir of the shared user/group home.
@@ -126,31 +200,56 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		)
 		if params.UserID != "" || params.GroupID != "" {
 			userRoot = view.PrincipalRoot
-			projectValidateRoot = view.AgentRoot
+			workspaceRoot, userDataDir = view.AgentRoot, view.DataRoot
+			projectValidateRoot = workspaceRoot
 		} else {
 			if params.ProjectID != "" {
 				return nil, fmt.Errorf("runner: user-less runs cannot use a project")
 			}
-			userRoot, err = os.MkdirTemp("", "stella-runner-")
+			userRoot, scratchCleanup, err = newRunnerScratch(config.StellaHome())
 			if err != nil {
 				return nil, fmt.Errorf("create user-less scratch: %w", err)
 			}
-			projectValidateRoot = userRoot
-			scratchCleanup = func() error { return os.RemoveAll(userRoot) }
+			workspaceRoot, projectValidateRoot = userRoot, userRoot
 		}
 
 		// Resolve project directory when session has a project.
 		var projectRoot string
-		if params.ProjectID != "" && cfg.ProjectResolver != nil {
-			dir, err := cfg.ProjectResolver(ctx, params.ProjectID, params.UserID)
-			if err != nil {
-				slog.Warn("project resolution failed", "project_id", params.ProjectID, "error", err)
-			} else if dir != "" {
-				if err := ValidateProjectDir(dir, projectValidateRoot); err != nil {
-					slog.Warn("project dir validation failed", "project_id", params.ProjectID, "base_dir", dir, "error", err)
-				} else {
-					projectRoot = dir
+		var projectSkillSnapshot *skillstool.ProjectSnapshot
+		var projectContext prompt.ProjectContext
+		var descriptor ProjectDescriptor
+		if params.ProjectID != "" {
+			if cfg.ProjectResolver == nil {
+				if scratchCleanup != nil {
+					_ = scratchCleanup()
 				}
+				return nil, fmt.Errorf("runner: project resolver is required")
+			}
+			opener, ok := cfg.WorkspaceViewer.(home.RootOpener)
+			if !ok {
+				return nil, fmt.Errorf("runner: Home root opener is required for project Skills")
+			}
+			projectSnapshot, snapshotErr := SnapshotAuthorizedProject(ctx, cfg.ProjectResolver, opener, params.ProjectID, params.UserID, params.AgentID)
+			err = snapshotErr
+			if err != nil {
+				if scratchCleanup != nil {
+					_ = scratchCleanup()
+				}
+				return nil, fmt.Errorf("runner: resolve project %q: %w", params.ProjectID, err)
+			}
+			descriptor, projectContext, projectSkillSnapshot = projectSnapshot.Descriptor, projectSnapshot.Context, projectSnapshot.Skills
+			if descriptor.ID != params.ProjectID || descriptor.UserID != params.UserID || descriptor.AgentID != params.AgentID {
+				if scratchCleanup != nil {
+					_ = scratchCleanup()
+				}
+				return nil, fmt.Errorf("runner: project %q is outside the agent workspace", params.ProjectID)
+			}
+			projectRoot = projectValidateRoot
+			if descriptor.Path != "." {
+				projectRoot = filepath.Join(projectValidateRoot, filepath.FromSlash(descriptor.Path))
+			}
+			if ValidateProjectDir(projectRoot, projectValidateRoot) != nil {
+				return nil, fmt.Errorf("runner: invalid project descriptor")
 			}
 		}
 
@@ -169,7 +268,6 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			StellaHome:          config.StellaHome(),
 			HomeDir:             homeDir,
 			AgentRoot:           cfg.Snap.Workspace,
-			ProjectRoot:         projectRoot,
 			UserID:              params.UserID,
 			AgentID:             params.AgentID,
 			UserRoot:            userRoot,
@@ -187,7 +285,8 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		if params.GroupID != "" {
 			skillPromptBuild.UserID, skillPromptBuild.UserRoot, skillPromptBuild.WorkspaceRoot = "", "", ""
 		}
-		if skillsSection, err := skillstool.BuildPromptSection(ctx, skillPromptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
+		skillCtx := skillstool.WithProjectSnapshot(ctx, projectSkillSnapshot)
+		if skillsSection, err := skillstool.BuildPromptSection(skillCtx, skillPromptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
 			sections = append(sections, skillsSection)
 		}
 		if params.GroupID == "" && cfg.VaultEnvLoader != nil {
@@ -216,17 +315,17 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			promptUserID = ""
 		}
 		system := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-			SystemPrompt: cfg.Snap.SystemPrompt,
-			AgentSoul:    cfg.Snap.Soul,
-			Memory:       memProvider,
-			UserID:       promptUserID,
-			AgentID:      params.AgentID,
-			GroupID:      params.GroupID,
-			StellaHome:   config.StellaHome(),
-			AgentRoot:    cfg.Snap.Workspace,
-			ProjectRoot:  projectRoot,
-			UserRoot:     userRoot,
-			Sections:     sections,
+			SystemPrompt:   cfg.Snap.SystemPrompt,
+			AgentSoul:      cfg.Snap.Soul,
+			Memory:         memProvider,
+			UserID:         promptUserID,
+			AgentID:        params.AgentID,
+			GroupID:        params.GroupID,
+			StellaHome:     config.StellaHome(),
+			AgentRoot:      cfg.Snap.Workspace,
+			ProjectContext: projectContext,
+			UserRoot:       userRoot,
+			Sections:       sections,
 		})
 
 		// Resolve hooks from RunnerParams — injected by Pool, not the builder.
@@ -240,12 +339,13 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			SandboxConfig:    cfg.Snap.Sandbox,
 			SandboxBackendFn: cfg.SandboxBackendFn,
 			Paths: sandbox.Paths{
-				StellaHome:  config.StellaHome(),
-				AgentRoot:   cfg.Snap.Workspace,
-				UserRoot:    userRoot,
-				ProjectRoot: projectRoot,
+				StellaHome:    config.StellaHome(),
+				AgentRoot:     cfg.Snap.Workspace,
+				UserRoot:      userRoot,
+				WorkspaceRoot: workspaceRoot,
+				UserDataDir:   userDataDir,
+				ProjectRoot:   projectRoot,
 			},
-			Homes:               homeAttachments(view),
 			UserID:              params.UserID,
 			GroupID:             params.GroupID,
 			AgentID:             params.AgentID,
@@ -295,49 +395,41 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 
 		runner, err := newRunner(ctx, runnerConfig{
 			Provider: providerConfig{
-				API:     apiName,
-				Model:   modelID,
-				Input:   cfg.Snap.ModelInput(provID, modelID),
-				APIKey:  creds.APIKey,
-				BaseURL: creds.BaseURL,
-				Builder: cfg.ProviderStreamBuilder,
+				ProviderID: providerID,
+				API:        apiName,
+				Model:      modelID,
+				Input:      cfg.Snap.ModelInput(provID, modelID),
+				APIKey:     creds.APIKey,
+				BaseURL:    creds.BaseURL,
+				Builder:    cfg.ProviderStreamBuilder,
 			},
-			Thinking:            params.Thinking,
-			Sandbox:             sandboxCfg,
-			System:              system,
-			Sections:            sections,
-			BuiltinTools:        builtinTools,
-			BuiltinParams:       params,
-			DisabledSkillRefs:   append([]string(nil), cfg.Snap.DisabledSkillRefs...),
-			PerRunTools:         perRunTools,
-			SkillStore:          cfg.SkillStore,
-			SkillReadAuthorizer: cfg.SkillReadAuthorizer,
-			PluginView:          pluginView,
-			MCPToolProvider:     cfg.MCPToolProvider,
-			ToolOverrideFetcher: cfg.ToolOverrideFetcher,
-			PluginTools:         cfg.PluginToolsBuilder,
-			HookPlugins:         hookPlugins,
-			ToolLifecycle:       cfg.ToolLifecycle,
-			DelegateRunner:      params.DelegateRunner,
-			DelegateTimeout:     cfg.Snap.Runner.DelegateTimeoutDuration(),
-			CanonicalImages:     canonicalImages,
-			Cleanup:             scratchCleanup,
+			Thinking:             params.Thinking,
+			Sandbox:              sandboxCfg,
+			System:               system,
+			Sections:             sections,
+			BuiltinTools:         builtinTools,
+			BuiltinParams:        params,
+			DisabledSkillRefs:    append([]string(nil), cfg.Snap.DisabledSkillRefs...),
+			PerRunTools:          perRunTools,
+			SkillStore:           cfg.SkillStore,
+			ProjectSkillSnapshot: projectSkillSnapshot,
+			SkillReadAuthorizer:  cfg.SkillReadAuthorizer,
+			PluginView:           pluginView,
+			MCPToolProvider:      cfg.MCPToolProvider,
+			ToolOverrideFetcher:  cfg.ToolOverrideFetcher,
+			PluginTools:          cfg.PluginToolsBuilder,
+			HookPlugins:          hookPlugins,
+			ToolLifecycle:        cfg.ToolLifecycle,
+			DelegateRunner:       params.DelegateRunner,
+			DelegateTimeout:      cfg.Snap.Runner.DelegateTimeoutDuration(),
+			CanonicalImages:      canonicalImages,
+			Cleanup:              scratchCleanup,
 		})
 		if err != nil && scratchCleanup != nil {
 			_ = scratchCleanup()
 		}
 		return runner, err
 	}
-}
-
-func homeAttachments(view home.WorkspaceView) []pkgsandbox.HomeAttachment {
-	attachments := make([]pkgsandbox.HomeAttachment, 0, 4)
-	for _, attachment := range []pkgsandbox.HomeAttachment{view.Principal, view.Agent, view.SystemSkillRoot, view.SystemAgentSkillRoot} {
-		if attachment.HomeID != "" {
-			attachments = append(attachments, attachment)
-		}
-	}
-	return attachments
 }
 
 func formatAvailableSecretMetas(metas []vault.AmbientSecretMeta) string {

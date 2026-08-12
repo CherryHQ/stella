@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -32,6 +34,17 @@ func (v *projectWorkspaceViewer) WorkspaceView(ctx context.Context, _ home.Works
 		v.contextOK = append(v.contextOK, ctx.Value(projectContextKey{}) == v.expectedCtx.Value(projectContextKey{}))
 	}
 	return v.view, v.err
+}
+
+func (v *projectWorkspaceViewer) ResolveCoordinate(c home.Coordinate) (home.RootScope, string, error) {
+	if scope, name, err := home.ResolveLogicalCoordinate(c.Scope, c.Value, c.AllowRoot); err == nil {
+		return scope, name, nil
+	}
+	rel, err := filepath.Rel(v.view.AgentRoot, c.Value)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return 0, "", errors.New("coordinate escapes test workspace")
+	}
+	return home.ResolveLogicalCoordinate(home.RootAgentWorkspace, filepath.ToSlash(rel), c.AllowRoot)
 }
 
 type projectContextKey struct{}
@@ -62,21 +75,31 @@ func TestProjectStoreResolveAndEnsure(t *testing.T) {
 
 	ps := NewProjectStore(db, store.NewDBStore(db), nil, WithProjectHomeWorkspace(testWorkspaceViewer{root: config.StellaHome()}))
 
-	// Resolve returns the base_dir of an existing project.
+	// Resolve converts a logical persisted path only at the trusted runtime boundary.
 	var resolve ProjectResolverFunc = ps.Resolve
 	created, err := q.CreateProject(ctx, sqlc.CreateProjectParams{
 		ID: uuid.Must(uuid.NewV7()).String(), AgentID: agentID, UserID: user.ID,
-		Name: "explicit", BaseDir: "/tmp/projects-agent/base",
+		Name: "explicit", BaseDir: "base",
 	})
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
-	baseDir, err := resolve(ctx, created.ID, user.ID)
+	descriptor, err := resolve(ctx, created.ID, user.ID, agentID)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if baseDir != "/tmp/projects-agent/base" {
-		t.Fatalf("Resolve baseDir = %q, want /tmp/projects-agent/base", baseDir)
+	if descriptor.Path != "base" {
+		t.Fatalf("Resolve path = %q, want base", descriptor.Path)
+	}
+	legacy, err := q.CreateProject(ctx, sqlc.CreateProjectParams{
+		ID: uuid.Must(uuid.NewV7()).String(), AgentID: agentID, UserID: user.ID,
+		Name: "legacy", BaseDir: filepath.Join(UserAgentDir(config.StellaHome(), user.ID, agentID), "legacy"),
+	})
+	if err != nil {
+		t.Fatalf("CreateProject legacy: %v", err)
+	}
+	if got, err := ps.projectFromRow(ctx, legacy); err != nil || got.BaseDir != "legacy" {
+		t.Fatalf("legacy public path = %+v, %v", got, err)
 	}
 
 	// Ensure returns an existing project for the pair rather than creating a new one.
@@ -114,17 +137,16 @@ func TestProjectStoreResolveAndEnsure(t *testing.T) {
 		t.Fatalf("Ensure not idempotent: %q != %q", again, newID)
 	}
 	// The created project's base_dir resolves to the agent's private area.
-	wantBase := UserAgentDir(config.StellaHome(), user.ID, freshAgent)
-	gotBase, err := resolve(ctx, newID, user.ID)
+	gotBase, err := resolve(ctx, newID, user.ID, freshAgent)
 	if err != nil {
 		t.Fatalf("Resolve (created): %v", err)
 	}
-	if gotBase != wantBase {
-		t.Fatalf("created project base_dir = %q, want %q", gotBase, wantBase)
+	if gotBase.Path != "." {
+		t.Fatalf("created project path = %q, want logical root", gotBase.Path)
 	}
 }
 
-func TestProjectStoreEnsurePersistsWorkspaceAgentRoot(t *testing.T) {
+func TestProjectStoreEnsurePersistsLogicalRoot(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	q := sqlc.New(db)
@@ -144,16 +166,23 @@ func TestProjectStoreEnsurePersistsWorkspaceAgentRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ensure: %v", err)
 	}
-	got, err := ps.Resolve(ctx, projectID, user.ID)
+	got, err := ps.Resolve(ctx, projectID, user.ID, agentID)
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if got != wantRoot {
-		t.Fatalf("persisted base_dir = %q, want supplied AgentRoot %q", got, wantRoot)
+	if got.Path != "." {
+		t.Fatalf("persisted project path = %q, want logical root", got.Path)
+	}
+	row, err := q.GetProject(ctx, sqlc.GetProjectParams{ID: projectID, UserID: user.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.BaseDir != "." {
+		t.Fatalf("stored base_dir = %q, want logical root", row.BaseDir)
 	}
 }
 
-func TestProjectStoreCreateAndUpdateForwardContextAndFailClosedOnWorkspaceError(t *testing.T) {
+func TestProjectStoreCreateAndUpdateLogicalPathsNeedNoFilesystem(t *testing.T) {
 	ctx := context.WithValue(context.Background(), projectContextKey{}, "marker")
 	db := dbtest.New(t)
 	q := sqlc.New(db)
@@ -170,19 +199,147 @@ func TestProjectStoreCreateAndUpdateForwardContextAndFailClosedOnWorkspaceError(
 	ps := NewProjectStore(db, store.NewDBStore(db), &fakeProjectAuth{}, WithProjectHomeWorkspace(viewer))
 	authority := projectUserAuthority(t, user.ID)
 
-	if _, err := ps.Create(ctx, authority, agentID, "new", "anywhere", nil); !errors.Is(err, ErrWorkspaceSetup) {
-		t.Fatalf("Create error = %v, want ErrWorkspaceSetup", err)
+	createdProject, err := ps.Create(ctx, authority, agentID, "new", "anywhere", nil)
+	if err != nil || createdProject.BaseDir != "anywhere" {
+		t.Fatalf("Create = %+v, %v", createdProject, err)
 	}
-	created, err := q.CreateProject(ctx, sqlc.CreateProjectParams{ID: uuid.NewString(), AgentID: agentID, UserID: user.ID, Name: "existing", BaseDir: "/old"})
+	created, err := q.CreateProject(ctx, sqlc.CreateProjectParams{ID: uuid.NewString(), AgentID: agentID, UserID: user.ID, Name: "existing", BaseDir: "old"})
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
-	projectPath := "new"
-	if _, err := ps.Update(ctx, authority, agentID, created.ID, ProjectUpdate{Path: &projectPath}); !errors.Is(err, ErrWorkspaceSetup) {
-		t.Fatalf("Update error = %v, want ErrWorkspaceSetup", err)
+	baseDir := "new"
+	updated, err := ps.Update(ctx, authority, agentID, created.ID, ProjectUpdate{BaseDir: &baseDir})
+	if err != nil || updated.BaseDir != "new" {
+		t.Fatalf("Update = %+v, %v", updated, err)
 	}
-	if len(viewer.contextOK) != 2 || !viewer.contextOK[0] || !viewer.contextOK[1] {
-		t.Fatalf("workspace contexts = %v, want caller marker for Create and Update", viewer.contextOK)
+	if len(viewer.contextOK) != 0 {
+		t.Fatalf("logical metadata mutation touched filesystem %v", viewer.contextOK)
+	}
+}
+
+func TestProjectStoreCanonicalizesHomeCoordinates(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	q := sqlc.New(db)
+	oidc := appdb.NewOIDCStore(db)
+	user, err := oidc.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "project-coordinates@example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const agentID = "project-coordinate-agent"
+	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: agentID, Name: "Coordinates", Workspace: "", Sandbox: json.RawMessage(`{}`), Scope: "system", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	base := t.TempDir()
+	homes, err := home.NewWorkspaceManager(db, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = homes.Close() })
+	root, err := homes.OpenRoot(ctx, home.WorkspaceRequest{UserID: user.ID, AgentID: agentID}, home.RootAgentWorkspace, home.RootReadWrite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := root.Close(); err != nil {
+		t.Fatal(err)
+	}
+	agentRoot := filepath.Join(base, "users", user.ID, "agents", agentID)
+	aliasParent := t.TempDir()
+	alias := filepath.Join(aliasParent, "private")
+	if err := os.Symlink(base, alias); err != nil {
+		t.Fatal(err)
+	}
+	ps := NewProjectStore(db, store.NewDBStore(db), &fakeProjectAuth{}, WithProjectHomeWorkspace(homes))
+	authority := projectUserAuthority(t, user.ID)
+	var updateProjectID string
+	for i, tc := range []struct {
+		value, want string
+	}{
+		{"", "."},
+		{".", "."},
+		{"$HOME", "."},
+		{"/workspace", "."},
+		{"$HOME/projects/app", "projects/app"},
+		{"/workspace/projects/app", "projects/app"},
+		{filepath.Join(agentRoot, "historical", "missing"), "historical/missing"},
+		{filepath.Join(alias, "users", user.ID, "agents", agentID, "aliased", "missing"), "aliased/missing"},
+	} {
+		created, err := ps.Create(ctx, authority, agentID, fmt.Sprintf("coordinate-%d", i), tc.value, nil)
+		if err != nil {
+			t.Fatalf("Create(%q): %v", tc.value, err)
+		}
+		if created.BaseDir != tc.want {
+			t.Fatalf("Create(%q) BaseDir=%q, want %q", tc.value, created.BaseDir, tc.want)
+		}
+		row, err := q.GetProject(ctx, sqlc.GetProjectParams{ID: created.ID, UserID: user.ID})
+		if err != nil || row.BaseDir != tc.want {
+			t.Fatalf("stored Create(%q)=%q err=%v", tc.value, row.BaseDir, err)
+		}
+		if updateProjectID == "" {
+			updateProjectID = created.ID
+		}
+		updated, err := ps.Update(ctx, authority, agentID, updateProjectID, ProjectUpdate{BaseDir: &tc.value})
+		if err != nil || updated.BaseDir != tc.want {
+			t.Fatalf("Update(%q)=%q err=%v", tc.value, updated.BaseDir, err)
+		}
+		updatedRow, err := q.GetProject(ctx, sqlc.GetProjectParams{ID: updateProjectID, UserID: user.ID})
+		if err != nil || updatedRow.BaseDir != tc.want {
+			t.Fatalf("stored Update(%q)=%q err=%v", tc.value, updatedRow.BaseDir, err)
+		}
+		legacy, err := q.CreateProject(ctx, sqlc.CreateProjectParams{ID: uuid.NewString(), AgentID: agentID, UserID: user.ID, Name: fmt.Sprintf("legacy-%d", i), BaseDir: tc.value})
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded, err := ps.projectFromRow(ctx, legacy)
+		if err != nil || decoded.BaseDir != tc.want || filepath.IsAbs(decoded.BaseDir) {
+			t.Fatalf("decode persisted %q=%q err=%v", tc.value, decoded.BaseDir, err)
+		}
+	}
+	for _, value := range []string{"/user", "$STELLA_ASSETS_DIR/x", "../escape", filepath.Join(base, "outside")} {
+		if _, err := ps.Create(ctx, authority, agentID, "escape", value, nil); !errors.Is(err, ErrInvalidBaseDir) {
+			t.Fatalf("Create(%q) error=%v, want ErrInvalidBaseDir", value, err)
+		}
+	}
+	for _, value := range []string{
+		"C:/outside/project",
+		"project:name",
+		"control/\x00child",
+		"control/\x1fchild",
+		"control/\x7fchild",
+	} {
+		if _, err := ps.Create(ctx, authority, agentID, "portable-invalid", value, nil); !errors.Is(err, ErrInvalidBaseDir) {
+			t.Errorf("Create(%q) error=%v, want ErrInvalidBaseDir", value, err)
+		}
+		if _, err := ps.Update(ctx, authority, agentID, updateProjectID, ProjectUpdate{BaseDir: &value}); !errors.Is(err, ErrInvalidBaseDir) {
+			t.Errorf("Update(%q) error=%v, want ErrInvalidBaseDir", value, err)
+		}
+		persisted := sqlc.Project{UserID: user.ID, AgentID: agentID, BaseDir: value}
+		if _, err := ps.projectFromRow(ctx, persisted); !errors.Is(err, ErrInvalidBaseDir) {
+			t.Errorf("decode persisted %q error=%v, want ErrInvalidBaseDir", value, err)
+		}
+	}
+	legacyPhysical, err := q.CreateProject(ctx, sqlc.CreateProjectParams{ID: uuid.NewString(), AgentID: agentID, UserID: user.ID, Name: "legacy metadata update", BaseDir: filepath.Join(agentRoot, "legacy", "project")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	renamed := "canonicalized metadata update"
+	if _, err := ps.Update(ctx, authority, agentID, legacyPhysical.ID, ProjectUpdate{Name: &renamed}); err != nil {
+		t.Fatal(err)
+	}
+	canonicalized, err := q.GetProject(ctx, sqlc.GetProjectParams{ID: legacyPhysical.ID, UserID: user.ID})
+	if err != nil || canonicalized.BaseDir != "legacy/project" {
+		t.Fatalf("metadata update base_dir=%q err=%v", canonicalized.BaseDir, err)
+	}
+	escaping, err := q.CreateProject(ctx, sqlc.CreateProjectParams{ID: uuid.NewString(), AgentID: agentID, UserID: user.ID, Name: "must remain", BaseDir: filepath.Join(base, "outside")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ps.Update(ctx, authority, agentID, escaping.ID, ProjectUpdate{Name: &renamed}); !errors.Is(err, ErrInvalidBaseDir) {
+		t.Fatalf("metadata update escape error=%v", err)
+	}
+	unchanged, err := q.GetProject(ctx, sqlc.GetProjectParams{ID: escaping.ID, UserID: user.ID})
+	if err != nil || unchanged.Name != "must remain" {
+		t.Fatalf("rejected metadata update changed name=%q err=%v", unchanged.Name, err)
 	}
 }
 
@@ -218,7 +375,7 @@ func TestProjectStoreGateFailsClosed(t *testing.T) {
 	if _, err := ps.List(ctx, auth, "a", false); !errors.Is(err, denied) {
 		t.Fatalf("List = %v, want denied", err)
 	}
-	if _, err := ps.Create(ctx, auth, "a", "n", "x", nil); !errors.Is(err, denied) {
+	if _, err := ps.Create(ctx, auth, "a", "n", "/x", nil); !errors.Is(err, denied) {
 		t.Fatalf("Create = %v, want denied", err)
 	}
 	if _, err := ps.Get(ctx, auth, "a", "p"); !errors.Is(err, denied) {
@@ -236,7 +393,7 @@ func TestProjectStoreGateFailsClosed(t *testing.T) {
 }
 
 // TestProjectStoreCRUDOwnershipAndTraversal exercises the durable use cases:
-// path traversal rejection, deterministic create, route-agent-mismatch and
+// base_dir traversal rejection, deterministic create, route-agent-mismatch and
 // foreign-owner opacity, and delete.
 func TestProjectStoreCRUDOwnershipAndTraversal(t *testing.T) {
 	ctx := context.Background()
@@ -273,25 +430,21 @@ func TestProjectStoreCRUDOwnershipAndTraversal(t *testing.T) {
 	ps := NewProjectStore(db, store.NewDBStore(db), &fakeProjectAuth{}, WithProjectHomeWorkspace(testWorkspaceViewer{root: config.StellaHome()}))
 	auth := projectUserAuthority(t, user.ID)
 
-	// Absolute host coordinates are rejected.
+	// Traversal: a base_dir outside the agent workspace is rejected.
 	if _, err := ps.Create(ctx, auth, agentID, "p1", "/etc/passwd", nil); !errors.Is(err, ErrInvalidBaseDir) {
 		t.Fatalf("traversal create = %v, want ErrInvalidBaseDir", err)
 	}
 
-	// Valid create under the agent's workspace.
-	created, err := ps.Create(ctx, auth, agentID, "p1", "", nil)
+	// Valid canonical relative path under the agent's workspace.
+	created, err := ps.Create(ctx, auth, agentID, "p1", "project", nil)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	if created.ID == "" || created.AgentID != agentID || created.UserID != user.ID {
 		t.Fatalf("created = %+v", created)
 	}
-	if created.Path != "" {
-		t.Fatalf("created path = %q, want workspace root", created.Path)
-	}
-	stored, err := q.GetProject(ctx, sqlc.GetProjectParams{ID: created.ID, UserID: user.ID})
-	if err != nil || stored.BaseDir != UserAgentDir(config.StellaHome(), user.ID, agentID) {
-		t.Fatalf("private base_dir = %q, %v", stored.BaseDir, err)
+	if created.BaseDir != "project" {
+		t.Fatalf("created base_dir = %q, want logical project", created.BaseDir)
 	}
 
 	// Get with the correct route agent succeeds.
@@ -321,14 +474,6 @@ func TestProjectStoreCRUDOwnershipAndTraversal(t *testing.T) {
 	if updated, err := ps.Update(ctx, auth, agentID, created.ID, ProjectUpdate{Name: &newName}); err != nil || updated.Name != "renamed" {
 		t.Fatalf("update = (%+v, %v)", updated, err)
 	}
-	nested := "nested/project"
-	if updated, err := ps.Update(ctx, auth, agentID, created.ID, ProjectUpdate{Path: &nested}); err != nil || updated.Path != nested {
-		t.Fatalf("path update = (%+v, %v)", updated, err)
-	}
-	stored, err = q.GetProject(ctx, sqlc.GetProjectParams{ID: created.ID, UserID: user.ID})
-	if err != nil || stored.BaseDir != filepath.Join(UserAgentDir(config.StellaHome(), user.ID, agentID), "nested", "project") {
-		t.Fatalf("updated private base_dir = %q, %v", stored.BaseDir, err)
-	}
 
 	// List returns the project; delete then get is opaque.
 	if list, err := ps.List(ctx, auth, agentID, false); err != nil || len(list) != 1 {
@@ -339,34 +484,5 @@ func TestProjectStoreCRUDOwnershipAndTraversal(t *testing.T) {
 	}
 	if _, err := ps.Get(ctx, auth, agentID, created.ID); !errors.Is(err, ErrProjectNotFound) {
 		t.Fatalf("get after delete = %v, want ErrProjectNotFound", err)
-	}
-}
-
-func TestValidateProjectPathRejectsAmbiguousCoordinates(t *testing.T) {
-	for _, value := range []string{"/absolute", `C:\\windows`, "C:/windows", "C:relative", "nested:child", "nested\x00child", "nested\x1fchild", `nested\\child`, "nested//child", "nested/", "./nested", "nested/../child", ".."} {
-		if err := validateProjectPath(value); !errors.Is(err, ErrInvalidBaseDir) {
-			t.Fatalf("validateProjectPath(%q) = %v, want invalid", value, err)
-		}
-	}
-	if err := validateProjectPath(""); err != nil {
-		t.Fatalf("root path: %v", err)
-	}
-	if err := validateProjectPath("nested/project"); err != nil {
-		t.Fatalf("nested path: %v", err)
-	}
-}
-
-func TestProjectFromRowFailsClosedOutsideCurrentAgentRoot(t *testing.T) {
-	viewer := &projectWorkspaceViewer{view: home.WorkspaceView{AgentRoot: filepath.Join(t.TempDir(), "agents", "a")}}
-	if err := os.MkdirAll(viewer.view.AgentRoot, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	ps := NewProjectStore(nil, nil, nil, WithProjectHomeWorkspace(viewer))
-	if _, err := ps.projectFromRow(context.Background(), sqlc.Project{AgentID: "a", UserID: "u", BaseDir: filepath.Join(filepath.Dir(viewer.view.AgentRoot), "outside")}); !errors.Is(err, ErrInvalidBaseDir) {
-		t.Fatalf("outside historical base_dir = %v, want invalid path", err)
-	}
-	project, err := ps.projectFromRow(context.Background(), sqlc.Project{AgentID: "a", UserID: "u", BaseDir: filepath.Join(viewer.view.AgentRoot, "nested", "project")})
-	if err != nil || project.Path != "nested/project" {
-		t.Fatalf("historical contained base_dir = %+v, %v", project, err)
 	}
 }

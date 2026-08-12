@@ -79,9 +79,7 @@ type Bot struct {
 	listChats               listChatsFunc
 	fetchTenantProfileFn    tenantProfileFetcher   // test seam; production uses Contact API
 	resolveMessageContextFn messageContextResolver // test seam; production uses Message and Chat APIs
-	// downloadFileFn is injected by tests; production always uses downloadFile.
-	downloadFileFn func(string, string) ([]byte, error)
-	handler        channel.Handler
+	handler                 channel.Handler
 
 	botOpenID atomic.Value // bot's own open_id (string), fetched on startup
 

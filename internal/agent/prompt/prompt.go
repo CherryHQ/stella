@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"errors"
+	"io"
+	"io/fs"
 	"path"
 	"path/filepath"
 	"slices"
 	"strings"
 	"text/template"
 
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/sandbox"
@@ -17,6 +21,19 @@ import (
 )
 
 type SectionsBuilder func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
+
+type ContextRoot interface {
+	Close() error
+	Stat(context.Context, string) (fs.FileInfo, error)
+	Read(context.Context, string, io.Writer, home.ReadOptions) error
+}
+
+// ProjectContext is a bounded immutable snapshot of project instruction files.
+// Its contents are captured while an authorized Home root capability is open.
+type ProjectContext struct {
+	files  []contextFile
+	loaded bool
+}
 
 //go:embed template/system_prompt.tmpl
 var systemTemplate string
@@ -85,19 +102,20 @@ type promptData struct {
 
 // DBPromptParams holds the parameters for building a system prompt from DB-backed config.
 type DBPromptParams struct {
-	SystemPrompt string          // agent's base system prompt from DB
-	AgentSoul    string          // agent's default soul from DB (fallback for all users)
-	Memory       memory.Provider // active provider for profile loading (may be nil)
-	UserID       string          // auth user ID for profile lookup
-	AgentID      string          // agent ID for profile lookup
-	GroupID      string          // group ID for group memory lookup (D4); mutually exclusive with UserID
-	GroupMemory  string          // pre-loaded group memory content; injected when non-empty
-	StellaHome   string
-	AgentRoot    string
-	ProjectRoot  string // optional project root for local/project-attached runs
-	UserRoot     string // per-user writable root
-	Sections     []pkgplugins.SystemPromptSection
-	Host         sandbox.Host
+	SystemPrompt   string          // agent's base system prompt from DB
+	AgentSoul      string          // agent's default soul from DB (fallback for all users)
+	Memory         memory.Provider // active provider for profile loading (may be nil)
+	UserID         string          // auth user ID for profile lookup
+	AgentID        string          // agent ID for profile lookup
+	GroupID        string          // group ID for group memory lookup (D4); mutually exclusive with UserID
+	GroupMemory    string          // pre-loaded group memory content; injected when non-empty
+	StellaHome     string
+	AgentRoot      string
+	ProjectRoot    string // optional project root for local/project-attached runs
+	UserRoot       string // per-user writable root
+	Sections       []pkgplugins.SystemPromptSection
+	Host           sandbox.Host
+	ProjectContext ProjectContext
 	// nil means current memory; non-nil values, including zero, are frozen snapshots.
 	SnapshotVersion *int64
 
@@ -197,7 +215,7 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	// Runtime injects it as per-turn message context instead, preserving the group
 	// system prompt prefix across speakers for provider prompt caches.
 	// World facts are deliberately search-first: they remain available through
-	// memory.search_knowledge under the same snapshot/version semantics, but are
+	// memory.search under the same snapshot/version semantics, but are
 	// not injected into every prompt by default.
 
 	for _, s := range p.Sections {
@@ -209,10 +227,12 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	}
 
 	// Project context.
-	filesystem, closeFilesystem, injected := promptFilesystem(p.Host)
-	defer closeFilesystem()
-	if !injected || filesystem != nil {
-		data.ContextFiles = loadProjectContextFiles(ctx, filesystem, promptPath(p.Host, p.ProjectRoot, filesystem), injected)
+	if p.ProjectContext.loaded {
+		data.ContextFiles = p.ProjectContext.files
+	} else {
+		contextHost, closeContextHost := resolvePromptContextHost(ctx, p.Host, p.ProjectRoot)
+		defer closeContextHost()
+		data.ContextFiles = loadProjectContextFiles(contextHost, p.ProjectRoot)
 	}
 
 	var buf bytes.Buffer
@@ -220,37 +240,111 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	return buf.String()
 }
 
-func loadProjectContextFiles(ctx context.Context, filesystem sandbox.Filesystem, cwd string, injected bool) []contextFile {
+// SnapshotProjectContext reads bounded context through an authorized root and
+// always closes it before returning, so owner deletion is fenced only during
+// active filesystem I/O rather than memory reads or template rendering.
+func SnapshotProjectContext(ctx context.Context, root ContextRoot, projectPath string) (snapshot ProjectContext, resultErr error) {
+	if root == nil {
+		return ProjectContext{}, errors.New("prompt: project context root is required")
+	}
+	defer func() { resultErr = errors.Join(resultErr, root.Close()) }()
+	return ReadProjectContext(ctx, root, projectPath)
+}
+
+// ReadProjectContext snapshots bounded context without taking ownership of root.
+// A caller combining several project snapshots can therefore hold one owner gate
+// across all reads and close it before any plugin or template work begins.
+func ReadProjectContext(ctx context.Context, root ContextRoot, projectPath string) (ProjectContext, error) {
+	if root == nil {
+		return ProjectContext{}, errors.New("prompt: project context root is required")
+	}
+	return ProjectContext{files: loadRootProjectContextFiles(ctx, root, projectPath), loaded: true}, nil
+}
+
+const (
+	promptContextMaxBytes      = int64(256 * 1024)
+	promptContextTotalMaxBytes = int64(512 * 1024)
+	promptContextMaxFiles      = 32
+)
+
+func loadRootProjectContextFiles(ctx context.Context, root ContextRoot, projectPath string) []contextFile {
+	if projectPath == "" {
+		projectPath = "."
+	}
+	if projectPath != "." && (path.IsAbs(projectPath) || path.Clean(projectPath) != projectPath) {
+		return nil
+	}
+	directories := []string{"."}
+	if projectPath != "." {
+		current := ""
+		for segment := range strings.SplitSeq(projectPath, "/") {
+			if segment == "" || segment == "." || segment == ".." {
+				return nil
+			}
+			current = path.Join(current, segment)
+			directories = append(directories, current)
+			if len(directories) > promptContextMaxFiles {
+				return nil
+			}
+		}
+	}
+	files := make([]contextFile, 0, len(directories))
+	remaining := promptContextTotalMaxBytes
+	for _, directory := range directories {
+		if remaining == 0 {
+			break
+		}
+		name := path.Join(directory, "AGENTS.md")
+		info, err := root.Stat(ctx, name)
+		if err != nil || !info.Mode().IsRegular() || info.Size() > promptContextMaxBytes || info.Size() > remaining {
+			continue
+		}
+		var content bytes.Buffer
+		limit := min(promptContextMaxBytes, remaining)
+		if err := root.Read(ctx, name, &content, home.ReadOptions{MaxBytes: limit}); err != nil {
+			if errors.Is(err, home.ErrReadLimit) {
+				continue
+			}
+			continue
+		}
+		files = append(files, contextFile{Path: name, Content: content.String()})
+		remaining -= int64(content.Len())
+	}
+	return files
+}
+
+// resolvePromptContextHost returns the host to use for reading prompt context
+// files. When a session host is already available it is used directly. When no
+// host is present (prompt rendering outside of a runner session) the function
+// returns nil and host.go falls back to plain os.* calls.
+func resolvePromptContextHost(_ context.Context, host sandbox.Host, _ string) (sandbox.Host, func()) {
+	return host, func() {}
+}
+
+func loadProjectContextFiles(host sandbox.Host, cwd string) []contextFile {
 	if cwd == "" {
 		return nil
 	}
 
-	absDir := cwd
-	if !injected {
-		var err error
-		absDir, err = filepath.Abs(cwd)
-		if err != nil {
-			return nil
-		}
+	absDir, err := filepath.Abs(cwd)
+	if err != nil {
+		return nil
 	}
 
 	var files []contextFile
 	seen := map[string]bool{}
 
 	for {
-		if filePath := resolveFile(ctx, filesystem, absDir, "AGENTS.md"); filePath != "" {
-			if !seen[filePath] {
-				seen[filePath] = true
-				if content, ok := readPromptFile(ctx, filesystem, filePath); ok {
-					files = append(files, contextFile{Path: filePath, Content: content})
+		if path := resolveFile(host, absDir, "AGENTS.md"); path != "" {
+			if !seen[path] {
+				seen[path] = true
+				if content, ok := readPromptFile(host, path); ok {
+					files = append(files, contextFile{Path: path, Content: content})
 				}
 			}
 		}
 
 		parent := filepath.Dir(absDir)
-		if injected {
-			parent = path.Dir(absDir)
-		}
 		if parent == absDir {
 			break
 		}
@@ -267,24 +361,18 @@ func loadProjectContextFiles(ctx context.Context, filesystem sandbox.Filesystem,
 
 // resolveFile finds a file in dir with case-insensitive matching.
 // Returns the full path if found, empty string otherwise.
-func resolveFile(ctx context.Context, filesystem sandbox.Filesystem, dir, name string) string {
+func resolveFile(host sandbox.Host, dir, name string) string {
 	exact := filepath.Join(dir, name)
-	if filesystem != nil {
-		exact = path.Join(dir, name)
+	if path, ok := statPromptFile(host, exact); ok {
+		return path
 	}
-	if filePath, ok := statPromptFile(ctx, filesystem, exact); ok {
-		return filePath
-	}
-	entries, err := readPromptDir(ctx, filesystem, dir)
+	entries, err := readPromptDir(host, dir)
 	if err != nil {
 		return ""
 	}
 	target := strings.ToLower(name)
 	for _, e := range entries {
 		if strings.ToLower(e.Name) == target {
-			if filesystem != nil {
-				return path.Join(dir, e.Name)
-			}
 			return filepath.Join(dir, e.Name)
 		}
 	}

@@ -238,7 +238,8 @@ export function AgentDetailPanel({
 
   // The user list used to load when its tab was opened; as a section it is
   // always one scroll away, so an admin editing an existing agent fetches it
-  // up front. Non-admins never see the section and never pay for it.
+  // up front. A non-admin only sees the section's visibility control, never the
+  // assignment list, so they never make this call.
   useEffect(() => {
     if (!agentId || !data.isAdmin) return;
     void loadAssignedUsers(agentId);

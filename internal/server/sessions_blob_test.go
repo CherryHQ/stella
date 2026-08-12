@@ -5,351 +5,937 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
-	"io/fs"
 	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
-	"path"
-	"sort"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
-	"time"
+
+	apiserver "github.com/CherryHQ/stella/api/server"
+	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
+	"github.com/CherryHQ/stella/internal/asset"
+	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/blob"
+	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/memory"
+	cfgstore "github.com/CherryHQ/stella/internal/store"
+	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	apiserver "github.com/CherryHQ/stella/api/server"
-	apitypes "github.com/CherryHQ/stella/api/types"
-
-	"github.com/CherryHQ/stella/internal/agent"
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
-	agentsession "github.com/CherryHQ/stella/internal/agent/session"
-	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
-	"github.com/CherryHQ/stella/internal/asset"
-	"github.com/CherryHQ/stella/internal/blob"
-	"github.com/CherryHQ/stella/internal/config"
-	appdb "github.com/CherryHQ/stella/internal/db"
-	"github.com/CherryHQ/stella/internal/db/dbtest"
-	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
-	cfgstore "github.com/CherryHQ/stella/internal/store"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
-	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-// workspaceTestFilesystem is a provider-shaped test double. It has no host
-// root, so a passing server test proves workspace handlers use only canonical
-// Filesystem coordinates through the runtime callback.
-type workspaceTestFilesystem struct {
-	files map[string][]byte
-	dirs  map[string]bool
-	err   error
-}
-
-func newWorkspaceTestFilesystem() *workspaceTestFilesystem {
-	return &workspaceTestFilesystem{files: map[string][]byte{}, dirs: map[string]bool{"/workspace": true, "/user": true, "/user/assets": true}}
-}
-func (*workspaceTestFilesystem) Close() error { return nil }
-func (f *workspaceTestFilesystem) Read(_ context.Context, name string, options pkgsandbox.ReadOptions) (io.ReadCloser, pkgsandbox.FileInfo, error) {
-	if f.err != nil {
-		return nil, pkgsandbox.FileInfo{}, f.err
-	}
-	data, ok := f.files[name]
-	if !ok {
-		return nil, pkgsandbox.FileInfo{}, fs.ErrNotExist
-	}
-	if int64(len(data)) > options.MaxBytes {
-		return io.NopCloser(bytes.NewReader(data[:options.MaxBytes])), pkgsandbox.FileInfo{Size: int64(len(data))}, pkgsandbox.ErrReadLimit
-	}
-	return io.NopCloser(bytes.NewReader(data)), pkgsandbox.FileInfo{Name: path.Base(name), Size: int64(len(data)), Mode: 0o644, ModTime: time.Unix(1, 0).UTC()}, nil
-}
-
-func (f *workspaceTestFilesystem) Write(_ context.Context, name string, reader io.Reader, _ pkgsandbox.WriteOptions) error {
-	if f.err != nil {
-		return f.err
-	}
-	data, err := io.ReadAll(reader)
-	if err == nil {
-		f.files[name] = data
-	}
-	return err
-}
-
-func (f *workspaceTestFilesystem) Upload(ctx context.Context, name string, reader io.Reader, options pkgsandbox.WriteOptions) error {
-	return f.Write(ctx, name, reader, options)
-}
-
-func (f *workspaceTestFilesystem) Stat(_ context.Context, name string) (pkgsandbox.FileInfo, error) {
-	if f.err != nil {
-		return pkgsandbox.FileInfo{}, f.err
-	}
-	if f.dirs[name] {
-		return pkgsandbox.FileInfo{Name: path.Base(name), IsDir: true, Mode: fs.ModeDir}, nil
-	}
-	data, ok := f.files[name]
-	if !ok {
-		return pkgsandbox.FileInfo{}, fs.ErrNotExist
-	}
-	return pkgsandbox.FileInfo{Name: path.Base(name), Size: int64(len(data)), Mode: 0o644, ModTime: time.Unix(1, 0).UTC()}, nil
-}
-
-func (f *workspaceTestFilesystem) List(_ context.Context, directory string) ([]pkgsandbox.DirEntry, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	if !f.dirs[directory] {
-		return nil, fs.ErrNotExist
-	}
-	entries := map[string]pkgsandbox.DirEntry{}
-	for name, data := range f.files {
-		if rel, ok := strings.CutPrefix(name, directory+"/"); ok && !strings.Contains(rel, "/") {
-			entries[rel] = pkgsandbox.DirEntry{Name: rel, Size: int64(len(data))}
-		}
-	}
-	for name := range f.dirs {
-		if rel, ok := strings.CutPrefix(name, directory+"/"); ok && !strings.Contains(rel, "/") {
-			entries[rel] = pkgsandbox.DirEntry{Name: rel, IsDir: true}
-		}
-	}
-	out := make([]pkgsandbox.DirEntry, 0, len(entries))
-	for _, entry := range entries {
-		out = append(out, entry)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out, nil
-}
-
-func (f *workspaceTestFilesystem) Mkdir(_ context.Context, name string, _ fs.FileMode) error {
-	if f.err != nil {
-		return f.err
-	}
-	for current := name; current != "/"; current = path.Dir(current) {
-		f.dirs[current] = true
-		if current == "/workspace" || current == "/user" {
-			break
-		}
-	}
-	return nil
-}
-
-func (f *workspaceTestFilesystem) Remove(_ context.Context, name string, _ bool) error {
-	if f.err != nil {
-		return f.err
-	}
-	if _, ok := f.files[name]; ok {
-		delete(f.files, name)
-		return nil
-	}
-	if !f.dirs[name] {
-		return fs.ErrNotExist
-	}
-	for candidate := range f.files {
-		if strings.HasPrefix(candidate, name+"/") {
-			delete(f.files, candidate)
-		}
-	}
-	return nil
-}
-
-func (f *workspaceTestFilesystem) Rename(_ context.Context, oldName, newName string) error {
-	if f.err != nil {
-		return f.err
-	}
-	if _, exists := f.files[newName]; exists || f.dirs[newName] {
-		return fs.ErrExist
-	}
-	data, ok := f.files[oldName]
-	if !ok {
-		return fs.ErrNotExist
-	}
-	delete(f.files, oldName)
-	f.files[newName] = data
-	return nil
-}
-
-type workspaceTestRuntime struct {
-	filesystem pkgsandbox.Filesystem
-	calls      int
-	info       agentsession.Info
-}
-
-func (*workspaceTestRuntime) Chat(context.Context, agent.ChatRequest) <-chan agent.Event { return nil }
-func (*workspaceTestRuntime) StopSession(context.Context, string) bool                   { return false }
-func (*workspaceTestRuntime) SubscribeSession(string) (<-chan agent.Event, func()) {
-	ch := make(chan agent.Event)
-	close(ch)
-	return ch, func() {}
-}
-func (*workspaceTestRuntime) SessionLive(string) bool { return false }
-func (*workspaceTestRuntime) CompactAuthorizedSession(context.Context, agentsession.Info) (string, error) {
-	return "", nil
-}
-
-func (r *workspaceTestRuntime) UseFilesystem(ctx context.Context, info agentsession.Info, use func(pkgsandbox.Filesystem) error) error {
-	r.calls++
-	r.info = info
-	return use(r.filesystem)
-}
-
-type workspaceTestRuntimeManager struct{ runtime *workspaceTestRuntime }
-
-func (m workspaceTestRuntimeManager) GetService(string) sessionaccess.RuntimeService {
-	return m.runtime
-}
-func (m workspaceTestRuntimeManager) Default() sessionaccess.RuntimeService { return m.runtime }
-
-func workspaceServer(t *testing.T) (*Server, *workspaceTestRuntime) {
+// assetServer builds a Server with an asset BlobStore configured. Workspace
+// operations must nevertheless use the home RootOperations POSIX authority.
+func assetServer(t *testing.T, home string, authority blob.Store, mem memory.Provider) *Server {
 	t.Helper()
-	ctx := context.Background()
-	mem := memorytest.New()
-	now := time.Date(2026, 8, 5, 0, 0, 0, 0, time.UTC)
-	if err := mem.SaveInfo(ctx, memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1", Kind: string(agentsession.KindChat), Channel: string(agentsession.ChannelWeb), CreatedAt: now, LastActive: now}); err != nil {
-		t.Fatal(err)
+	assets, err := asset.NewStore(home, authority, nil)
+	if err != nil {
+		t.Fatalf("asset.NewStore: %v", err)
 	}
 	db := dbtest.New(t)
 	store := cfgstore.NewDBStore(db)
-	if err := store.CreateAgent(ctx, config.Agent{ID: "a1", Scope: config.AgentScopeSystem, Enabled: true}); err != nil {
-		t.Fatal(err)
+	if err := store.CreateAgent(context.Background(), config.Agent{ID: "a1", Scope: config.AgentScopeSystem, Enabled: true}); err != nil {
+		t.Fatalf("create agent: %v", err)
 	}
-	if _, err := sqlc.New(db).CreateConversation(ctx, sqlc.CreateConversationParams{ID: uuid.NewString(), SessionID: "s1", UserID: pgtype.Text{String: "u1", Valid: true}, AgentID: pgtype.Text{String: "a1", Valid: true}, Channel: string(agentsession.ChannelWeb), Kind: string(agentsession.KindChat), LastActive: now}); err != nil {
-		t.Fatal(err)
-	}
-	blobStore, err := blob.NewFSStore(t.TempDir())
+	record, err := mem.(memory.SessionManager).LoadInfo(authz.WithAgentID(authz.WithUserID(context.Background(), "u1"), "a1"), "s1")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("load session fixture: %v", err)
 	}
-	assets, err := asset.NewStore(t.TempDir(), blobStore)
+	if _, err := sqlc.New(db).CreateConversation(context.Background(), sqlc.CreateConversationParams{
+		ID: uuid.NewString(), SessionID: record.ID, UserID: pgtype.Text{String: record.UserID, Valid: true},
+		AgentID: pgtype.Text{String: record.AgentID, Valid: true}, Channel: record.Channel, Kind: record.Kind,
+		Archived: record.Archived, LastActive: record.LastActive,
+	}); err != nil {
+		t.Fatalf("create session fixture: %v", err)
+	}
+	agentAccess := agentaccess.NewService(assetSessionAgents{}, assetSessionAssignments{})
+	sessions, err := sessionaccess.NewService(mem, db, store, assets, agentAccess, sessionaccess.WithHomeWorkspace(serverTestWorkspace{root: home}))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("sessionaccess.NewService: %v", err)
 	}
-	sessions, err := sessionaccess.NewService(mem, db, store, assets.SessionMedia(), agentaccess.NewService(store, appdb.NewAuthStore(db)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	runtime := &workspaceTestRuntime{filesystem: newWorkspaceTestFilesystem()}
-	if err := sessions.BindRuntimeManager(workspaceTestRuntimeManager{runtime}); err != nil {
-		t.Fatal(err)
-	}
-	return &Server{sessionAccess: sessions, log: slog.New(slog.NewTextHandler(io.Discard, nil))}, runtime
-}
-
-func workspaceRequest(method string, body io.Reader) *http.Request {
-	return httptest.NewRequest(method, "/", body).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
-}
-
-func TestWorkspaceHandlersUseOneExactFilesystemCallback(t *testing.T) {
-	s, runtime := workspaceServer(t)
-	filesystem := runtime.filesystem.(*workspaceTestFilesystem)
-	filesystem.files["/workspace/read.txt"] = []byte("read")
-	filesystem.files["/workspace/move.txt"] = []byte("move")
-	scope := apitypes.WorkspaceScopeAgent
-	operations := []struct {
-		name string
-		call func(*httptest.ResponseRecorder)
-	}{
-		{"list", func(w *httptest.ResponseRecorder) {
-			s.GetSessionWorkspace(w, workspaceRequest(http.MethodGet, nil), "a1", "s1", apiserver.GetSessionWorkspaceParams{Scope: &scope})
-		}},
-		{"create", func(w *httptest.ResponseRecorder) {
-			s.CreateWorkspaceFile(w, workspaceRequest(http.MethodPost, strings.NewReader(`{"path":"new.txt","content":"new"}`)), "a1", "s1", apiserver.CreateWorkspaceFileParams{Scope: &scope})
-		}},
-		{"delete", func(w *httptest.ResponseRecorder) {
-			s.DeleteWorkspaceFile(w, workspaceRequest(http.MethodDelete, strings.NewReader(`{"path":"new.txt"}`)), "a1", "s1", apiserver.DeleteWorkspaceFileParams{Scope: &scope})
-		}},
-		{"move", func(w *httptest.ResponseRecorder) {
-			s.MoveWorkspaceFile(w, workspaceRequest(http.MethodPatch, strings.NewReader(`{"path":"move.txt","new_path":"moved.txt"}`)), "a1", "s1", apiserver.MoveWorkspaceFileParams{Scope: &scope})
-		}},
-		{"read", func(w *httptest.ResponseRecorder) {
-			s.GetWorkspaceFileContent(w, workspaceRequest(http.MethodGet, nil), "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: "read.txt", Scope: &scope})
-		}},
-		{"write", func(w *httptest.ResponseRecorder) {
-			s.UpdateWorkspaceFileContent(w, workspaceRequest(http.MethodPatch, strings.NewReader(`{"path":"write.txt","content":"write"}`)), "a1", "s1", apiserver.UpdateWorkspaceFileContentParams{Scope: &scope})
-		}},
-	}
-	for _, operation := range operations {
-		t.Run(operation.name, func(t *testing.T) {
-			before := runtime.calls
-			response := httptest.NewRecorder()
-			operation.call(response)
-			if response.Code < 200 || response.Code >= 300 {
-				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
-			}
-			if operation.name == "list" && (strings.Contains(response.Body.String(), "\"root\"") || strings.Contains(response.Body.String(), "STELLA_HOME")) {
-				t.Fatalf("workspace response leaked a coordinate: %s", response.Body.String())
-			}
-			if runtime.calls != before+1 {
-				t.Fatalf("callbacks=%d, want 1", runtime.calls-before)
-			}
-			if runtime.info.ID != "s1" || runtime.info.AgentID != "a1" {
-				t.Fatalf("runtime info=%+v", runtime.info)
-			}
-		})
+	return &Server{
+		assets:        assets,
+		sessionAccess: sessions,
+		log:           slog.New(slog.NewTextHandler(io.Discard, nil)),
+		agentAccess:   agentAccess,
 	}
 }
 
-func TestWorkspaceRejectsForeignSessionAndHostCoordinatesBeforeCallback(t *testing.T) {
-	s, runtime := workspaceServer(t)
-	scope := apitypes.WorkspaceScopeAgent
-	response := httptest.NewRecorder()
-	s.GetWorkspaceFileContent(response, workspaceRequest(http.MethodGet, nil), "a1", "foreign", apiserver.GetWorkspaceFileContentParams{Path: "file.txt", Scope: &scope})
-	if response.Code != http.StatusNotFound || runtime.calls != 0 {
-		t.Fatalf("foreign response=%d callbacks=%d", response.Code, runtime.calls)
-	}
-	response = httptest.NewRecorder()
-	s.GetWorkspaceFileContent(response, workspaceRequest(http.MethodGet, nil), "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: "/private/stella/file.txt", Scope: &scope})
-	if response.Code != http.StatusBadRequest || runtime.calls != 0 {
-		t.Fatalf("host response=%d callbacks=%d", response.Code, runtime.calls)
-	}
+// assetSessionAgents/assetSessionAssignments back a real agent PEP with fixed
+// fakes so the asset-focused tests exercise the Session PEP's Agent gate without
+// standing up the agent tables.
+type assetSessionAgents struct{}
+
+func (assetSessionAgents) GetAgent(context.Context, string) (config.Agent, error) {
+	return config.Agent{ID: "a1", Scope: config.AgentScopeSystem, Enabled: true}, nil
+}
+func (assetSessionAgents) ListAgents(context.Context) ([]config.Agent, error) { return nil, nil }
+
+type assetSessionAssignments struct{}
+
+func (assetSessionAssignments) ListUserAgentIDs(context.Context, string) ([]string, error) {
+	return nil, nil
 }
 
-func TestWorkspaceAliasProviderErrorAndUploadReadRoundTrip(t *testing.T) {
-	s, runtime := workspaceServer(t)
-	filesystem := runtime.filesystem.(*workspaceTestFilesystem)
-	filesystem.files["/user/assets/202608/alias.txt"] = []byte("alias")
-	response := httptest.NewRecorder()
-	s.GetWorkspaceFileContent(response, workspaceRequest(http.MethodGet, nil), "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: "$STELLA_ASSETS_DIR/202608/alias.txt"})
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "alias") {
-		t.Fatalf("alias response=%d body=%s", response.Code, response.Body.String())
-	}
-	filesystem.err = errors.New("provider down")
-	response = httptest.NewRecorder()
-	s.GetSessionWorkspace(response, workspaceRequest(http.MethodGet, nil), "a1", "s1", apiserver.GetSessionWorkspaceParams{})
-	if response.Code != http.StatusInternalServerError {
-		t.Fatalf("provider response=%d", response.Code)
-	}
-	filesystem.err = nil
-	var form bytes.Buffer
-	writer := multipart.NewWriter(&form)
-	part, err := writer.CreateFormFile("file", "roundtrip.txt")
+type workspaceComputeSpy struct{ lookups int }
+
+func (s *workspaceComputeSpy) GetService(string) sessionaccess.RuntimeService {
+	s.lookups++
+	return nil
+}
+
+func (s *workspaceComputeSpy) Default() sessionaccess.RuntimeService {
+	s.lookups++
+	return nil
+}
+
+type countingOpenStore struct {
+	blob.Store
+	openCalls *int
+}
+
+func (s countingOpenStore) Open(ctx context.Context, key string) (io.ReadCloser, error) {
+	(*s.openCalls)++
+	return s.Store.Open(ctx, key)
+}
+
+func TestGetWorkspaceFileContentDoesNotRestoreBlobOnPOSIXMiss(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	remote, err := blob.NewFSStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := part.Write([]byte("roundtrip")); err != nil {
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := writer.Close(); err != nil {
+	local := filepath.Join(agent.UserAssetsDir(agent.UserHomeDir(home, "u1")), "202607", "note.txt")
+	key, err := blob.KeyForPath(home, local)
+	if err != nil {
 		t.Fatal(err)
 	}
-	request := workspaceRequest(http.MethodPost, &form)
-	request.Header.Set("Content-Type", writer.FormDataContentType())
-	response = httptest.NewRecorder()
-	s.UploadWorkspaceFile(response, request, "a1", "s1")
-	if response.Code != http.StatusCreated {
-		t.Fatalf("upload status=%d body=%s", response.Code, response.Body.String())
-	}
-	var upload apitypes.WorkspaceUploadResponse
-	if err := json.Unmarshal(response.Body.Bytes(), &upload); err != nil {
+	if err := remote.Put(context.Background(), key, strings.NewReader("hello")); err != nil {
 		t.Fatal(err)
 	}
-	if upload.Scope != apitypes.WorkspaceScopeUser || !strings.HasPrefix(upload.RelativePath, "assets/") || upload.Path != "$STELLA_ASSETS_DIR/"+strings.TrimPrefix(upload.RelativePath, "assets/") || strings.Contains(upload.Path, "STELLA_HOME") {
-		t.Fatalf("upload=%+v", upload)
+	openCalls := 0
+	s := assetServer(t, home, countingOpenStore{Store: remote, openCalls: &openCalls}, mem)
+	scope := apitypes.WorkspaceScopeUser
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.GetWorkspaceFileContent(rr, req, "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: "assets/202607/note.txt", Scope: &scope})
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s, want 404", rr.Code, rr.Body.String())
 	}
+	if _, err := os.Stat(local); !os.IsNotExist(err) {
+		t.Fatalf("object-only file was materialized locally: %v", err)
+	}
+	if openCalls != 0 {
+		t.Fatalf("BlobStore open calls=%d, want 0", openCalls)
+	}
+}
+
+// Public workspace APIs accept logical/canonical coordinates, never host paths,
+// even when the host path points inside the caller's user root.
+func TestGetWorkspaceFileContentAbsoluteHostPathInsideRootRejected(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607", "note.txt")
+	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(local, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, home, nil, mem)
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.GetWorkspaceFileContent(rr, req, "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: local})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s, want 400", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "hello") {
+		t.Fatalf("served file via host path: %s", rr.Body.String())
+	}
+}
+
+// TestGetWorkspaceFileContentAbsolutePathOutsideRootsRejected asserts an
+// absolute path that lies inside neither workspace root is never served.
+func TestGetWorkspaceFileContentAbsolutePathOutsideRootsRejected(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, home, nil, mem)
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.GetWorkspaceFileContent(rr, req, "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: "/etc/passwd"})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s, want 400", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "root:") {
+		t.Fatalf("served host file contents: %s", rr.Body.String())
+	}
+}
+
+// TestGetWorkspaceFileContentAbsoluteTraversalRejected asserts an absolute path
+// that descends into a workspace root then climbs back out (via ..) resolves,
+// after cleaning, to a location outside the root and is rejected — the sibling
+// secret is never served.
+func TestGetWorkspaceFileContentAbsoluteTraversalRejected(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	// A secret outside both workspace roots (roots live under home/users/u1/).
+	secret := filepath.Join(home, "secret.txt")
+	if err := os.WriteFile(secret, []byte("top secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	userData := agent.UserDataDir(agent.UserHomeDir(home, "u1"))
+	if err := os.MkdirAll(userData, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// userData is home/users/u1/data; three ".." climb out to home/secret.txt.
+	escape := userData + "/../../../secret.txt"
+	s := assetServer(t, home, nil, mem)
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.GetWorkspaceFileContent(rr, req, "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: escape})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s, want 400", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "top secret") {
+		t.Fatalf("served secret outside root: %s", rr.Body.String())
+	}
+}
+
+// TestGetWorkspaceFileContentSandboxViewUserPathResolves is the isolating-backend
+// repro (docker, linux local): an uploaded file is referenced in a chat message
+// by its sandbox-view mount path (/user/...), which lives under no host root. The
+// client sends it verbatim with no scope; the server must map the /user mount to
+// the user-data root and serve the file. This is the Major-1 regression guard —
+// before mount mapping the path failed host containment and 404'd.
+func TestGetWorkspaceFileContentSandboxViewUserPathResolves(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607", "note.txt")
+	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(local, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, home, nil, mem)
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.GetWorkspaceFileContent(rr, req, "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: "/user/assets/202607/note.txt"})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil || body.Content != "hello" {
+		t.Fatalf("body=%s err=%v", rr.Body.String(), err)
+	}
+}
+
+// TestGetWorkspaceFileContentSandboxViewMountTraversalRejected asserts a mount
+// path that climbs out of its mount with ".." before descending into the other
+// mount (/workspace/../user/...) is rejected, not silently re-mapped to the user
+// root. Mount matching keys off the leading /workspace segment; the "../user/..."
+// remainder is non-local and OpenSafeRoot rejects it.
+func TestGetWorkspaceFileContentSandboxViewMountTraversalRejected(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607", "note.txt")
+	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(local, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, home, nil, mem)
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.GetWorkspaceFileContent(rr, req, "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: "/workspace/../user/assets/202607/note.txt"})
+	if rr.Code == http.StatusOK {
+		t.Fatalf("status=%d body=%s, want rejection", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "hello") {
+		t.Fatalf("served file via mount traversal: %s", rr.Body.String())
+	}
+}
+
+// Canonicalizing a host path through a symlink must not turn it into a public
+// workspace coordinate. Absolute host coordinates are rejected in every form.
+func TestGetWorkspaceFileContentCanonicalHostPathViaSymlinkRejected(t *testing.T) {
+	realHome := t.TempDir()
+	aliasHome := filepath.Join(t.TempDir(), "home-alias")
+	if err := os.Symlink(realHome, aliasHome); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	t.Setenv("STELLA_HOME", aliasHome)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	// Written through the alias-form root the server computes from STELLA_HOME.
+	aliasLocal := filepath.Join(agent.UserDataDir(agent.UserHomeDir(aliasHome, "u1")), "assets", "202607", "note.txt")
+	if err := os.MkdirAll(filepath.Dir(aliasLocal), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(aliasLocal, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The request carries the fully-resolved canonical path, which differs in
+	// symlink form from the alias-form root; only symlink resolution reconciles them.
+	canonical, err := filepath.EvalSymlinks(aliasLocal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if canonical == aliasLocal {
+		t.Skipf("temp dir not symlinked; alias and canonical paths identical")
+	}
+	s := assetServer(t, aliasHome, nil, mem)
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.GetWorkspaceFileContent(rr, req, "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: canonical})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s, want 400", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "hello") {
+		t.Fatalf("served file via canonical host path: %s", rr.Body.String())
+	}
+}
+
+func TestGetWorkspaceRawContentUsesConstrainedInlineResponse(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "page.html")
+	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(local, []byte("<script>parent.pwned=true</script>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, home, nil, mem)
+	scope := apitypes.WorkspaceScopeUser
 	raw := true
-	response = httptest.NewRecorder()
-	s.GetWorkspaceFileContent(response, workspaceRequest(http.MethodGet, nil), "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: upload.RelativePath, Scope: &upload.Scope, Raw: &raw})
-	if response.Code != http.StatusOK || response.Body.String() != "roundtrip" {
-		t.Fatalf("roundtrip status=%d body=%q", response.Code, response.Body.String())
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.GetWorkspaceFileContent(rr, req, "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: "page.html", Scope: &scope, Raw: &raw})
+	if rr.Code != http.StatusOK || rr.Body.String() != "<script>parent.pwned=true</script>" {
+		t.Fatalf("status=%d body=%q", rr.Code, rr.Body.String())
+	}
+	if got := rr.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("X-Content-Type-Options=%q", got)
+	}
+	if got := rr.Header().Get("Content-Security-Policy"); !strings.Contains(got, "sandbox") || !strings.Contains(got, "default-src 'none'") {
+		t.Fatalf("Content-Security-Policy=%q", got)
+	}
+	if got := rr.Header().Get("Content-Disposition"); !strings.HasPrefix(got, "inline") {
+		t.Fatalf("Content-Disposition=%q", got)
+	}
+}
+
+// failingPutStore proves workspace POSIX writes do not depend on BlobStore
+// writes. Any attempted object write fails.
+type failingPutStore struct{ blob.Store }
+
+func (failingPutStore) Put(context.Context, string, io.Reader) error {
+	return errors.New("intentional put failure")
+}
+
+type failingDeleteStore struct {
+	blob.Store
+	deleteCalls *int
+}
+
+func (f failingDeleteStore) Delete(context.Context, string) error {
+	(*f.deleteCalls)++
+	return errors.New("intentional delete failure")
+}
+
+func TestCreateWorkspaceFileMutatesPOSIXOnly(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	remote, err := blob.NewFSStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607", "made.txt")
+	key, err := blob.KeyForPath(home, local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.Put(context.Background(), key, strings.NewReader("preexisting object")); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, home, remote, mem)
+	scope := apitypes.WorkspaceScopeUser
+	body := strings.NewReader(`{"path":"assets/202607/made.txt","content":"created"}`)
+	req := httptest.NewRequest(http.MethodPost, "/", body).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.CreateWorkspaceFile(rr, req, "a1", "s1", apiserver.CreateWorkspaceFileParams{Scope: &scope})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if data, err := os.ReadFile(local); err != nil || string(data) != "created" {
+		t.Fatalf("local data=%q err=%v", data, err)
+	}
+	rc, err := remote.Open(context.Background(), key)
+	if err != nil {
+		t.Fatalf("remote Open: %v", err)
+	}
+	data, _ := io.ReadAll(rc)
+	_ = rc.Close()
+	if string(data) != "preexisting object" {
+		t.Fatalf("object data=%q, want preexisting object", data)
+	}
+}
+
+func TestCreateWorkspaceFileSucceedsWhenBlobStorePutFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, home, failingPutStore{}, mem)
+	scope := apitypes.WorkspaceScopeUser
+	body := strings.NewReader(`{"path":"assets/202607/made.txt","content":"created"}`)
+	req := httptest.NewRequest(http.MethodPost, "/", body).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.CreateWorkspaceFile(rr, req, "a1", "s1", apiserver.CreateWorkspaceFileParams{Scope: &scope})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607", "made.txt")
+	if data, err := os.ReadFile(local); err != nil || string(data) != "created" {
+		t.Fatalf("local data=%q err=%v", data, err)
+	}
+}
+
+type lazyMissingStore struct{}
+
+func (lazyMissingStore) Put(context.Context, string, io.Reader) error   { return nil }
+func (lazyMissingStore) Delete(context.Context, string) error           { return nil }
+func (lazyMissingStore) List(context.Context, string) ([]string, error) { return nil, nil }
+func (lazyMissingStore) Open(context.Context, string) (io.ReadCloser, error) {
+	return io.NopCloser(lazyMissingReader{}), nil
+}
+
+type lazyMissingReader struct{}
+
+func (lazyMissingReader) Read([]byte) (int, error) { return 0, os.ErrNotExist }
+
+func TestDeleteWorkspaceFileRemovesPOSIXOnly(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	remote, err := blob.NewFSStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607", "delete.txt")
+	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(local, []byte("delete me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	key, err := blob.KeyForPath(home, local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.Put(context.Background(), key, strings.NewReader("delete me")); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, home, remote, mem)
+	scope := apitypes.WorkspaceScopeUser
+	req := httptest.NewRequest(http.MethodDelete, "/", strings.NewReader(`{"path":"assets/202607/delete.txt"}`)).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.DeleteWorkspaceFile(rr, req, "a1", "s1", apiserver.DeleteWorkspaceFileParams{Scope: &scope})
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if _, err := os.Stat(local); !os.IsNotExist(err) {
+		t.Fatalf("local file after delete: %v, want not exist", err)
+	}
+	rc, err := remote.Open(context.Background(), key)
+	if err != nil {
+		t.Fatalf("object file after POSIX delete: %v", err)
+	}
+	data, err := io.ReadAll(rc)
+	_ = rc.Close()
+	if err != nil || string(data) != "delete me" {
+		t.Fatalf("object data after POSIX delete=%q err=%v", data, err)
+	}
+}
+
+func TestDeleteWorkspaceFileDoesNotCallFailingBlobStore(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	remote, err := blob.NewFSStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607", "keep.txt")
+	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(local, []byte("keep me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	key, err := blob.KeyForPath(home, local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.Put(context.Background(), key, strings.NewReader("keep me")); err != nil {
+		t.Fatal(err)
+	}
+	deleteCalls := 0
+	s := assetServer(t, home, failingDeleteStore{Store: remote, deleteCalls: &deleteCalls}, mem)
+	scope := apitypes.WorkspaceScopeUser
+	req := httptest.NewRequest(http.MethodDelete, "/", strings.NewReader(`{"path":"assets/202607/keep.txt"}`)).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.DeleteWorkspaceFile(rr, req, "a1", "s1", apiserver.DeleteWorkspaceFileParams{Scope: &scope})
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if deleteCalls != 0 {
+		t.Fatalf("BlobStore delete calls = %d, want 0", deleteCalls)
+	}
+	if _, err := os.Stat(local); !os.IsNotExist(err) {
+		t.Fatalf("local file after delete: %v, want not exist", err)
+	}
+	body, err := remote.Open(context.Background(), key)
+	if err != nil {
+		t.Fatalf("object file after POSIX delete: %v", err)
+	}
+	data, err := io.ReadAll(body)
+	_ = body.Close()
+	if err != nil || string(data) != "keep me" {
+		t.Fatalf("object data after POSIX delete = %q, err=%v", data, err)
+	}
+}
+
+func TestMoveWorkspaceFileMutatesPOSIXOnly(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	remote, err := blob.NewFSStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	root := agent.UserDataDir(agent.UserHomeDir(home, "u1"))
+	oldLocal := filepath.Join(root, "assets", "202607", "old.txt")
+	newLocal := filepath.Join(root, "assets", "202607", "new.txt")
+	if err := os.MkdirAll(filepath.Dir(oldLocal), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oldLocal, []byte("moved"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldKey, err := blob.KeyForPath(home, oldLocal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newKey, err := blob.KeyForPath(home, newLocal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.Put(context.Background(), oldKey, strings.NewReader("old remote")); err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.Put(context.Background(), newKey, strings.NewReader("new remote")); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, home, remote, mem)
+	scope := apitypes.WorkspaceScopeUser
+	body := strings.NewReader(`{"path":"assets/202607/old.txt","new_path":"assets/202607/new.txt"}`)
+	req := httptest.NewRequest(http.MethodPost, "/", body).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.MoveWorkspaceFile(rr, req, "a1", "s1", apiserver.MoveWorkspaceFileParams{Scope: &scope})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if _, err := os.Stat(oldLocal); !os.IsNotExist(err) {
+		t.Fatalf("old local path after move: %v", err)
+	}
+	if data, err := os.ReadFile(newLocal); err != nil || string(data) != "moved" {
+		t.Fatalf("new local data=%q err=%v", data, err)
+	}
+	for key, want := range map[string]string{oldKey: "old remote", newKey: "new remote"} {
+		rc, err := remote.Open(context.Background(), key)
+		if err != nil {
+			t.Fatalf("remote Open(%q): %v", key, err)
+		}
+		data, readErr := io.ReadAll(rc)
+		_ = rc.Close()
+		if readErr != nil || string(data) != want {
+			t.Fatalf("object %q data=%q err=%v, want %q", key, data, readErr, want)
+		}
+	}
+}
+
+func TestUpdateWorkspaceFileContentMutatesPOSIXOnly(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	remote, err := blob.NewFSStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607", "note.txt")
+	key, err := blob.KeyForPath(home, local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.Put(context.Background(), key, strings.NewReader("preexisting object")); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, home, remote, mem)
+	scope := apitypes.WorkspaceScopeUser
+	body := strings.NewReader(`{"path":"assets/202607/note.txt","content":"new bytes"}`)
+	req := httptest.NewRequest(http.MethodPost, "/", body).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.UpdateWorkspaceFileContent(rr, req, "a1", "s1", apiserver.UpdateWorkspaceFileContentParams{Scope: &scope})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if data, err := os.ReadFile(local); err != nil || string(data) != "new bytes" {
+		t.Fatalf("local data=%q err=%v", data, err)
+	}
+	rc, err := remote.Open(context.Background(), key)
+	if err != nil {
+		t.Fatalf("remote Open: %v", err)
+	}
+	data, err := io.ReadAll(rc)
+	_ = rc.Close()
+	if err != nil || string(data) != "preexisting object" {
+		t.Fatalf("object data=%q err=%v", data, err)
+	}
+}
+
+func TestGetWorkspaceFileContentPOSIXMissLeavesNoAssetDir(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, home, lazyMissingStore{}, mem)
+	scope := apitypes.WorkspaceScopeUser
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.GetWorkspaceFileContent(rr, req, "a1", "s1", apiserver.GetWorkspaceFileContentParams{Path: "assets/202607/missing.txt", Scope: &scope})
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	dir := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), "assets", "202607")
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("read miss dir err=%v, want not exist", err)
+	}
+}
+
+func TestUploadWorkspaceFileMutatesPOSIXWithoutBlobStorePut(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	part, err := mw.CreateFormFile("file", "photo.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("upload")); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, home, failingPutStore{}, mem)
+	req := httptest.NewRequest(http.MethodPost, "/", &buf).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rr := httptest.NewRecorder()
+	s.UploadWorkspaceFile(rr, req, "a1", "s1")
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var body struct {
+		RelativePath string `json:"relative_path"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	local := filepath.Join(agent.UserDataDir(agent.UserHomeDir(home, "u1")), filepath.FromSlash(body.RelativePath))
+	localData, err := os.ReadFile(local)
+	if err != nil || string(localData) != "upload" {
+		t.Fatalf("local data=%q err=%v", localData, err)
+	}
+}
+
+func TestWorkspaceAPIDoesNotStartOrWakeSessionCompute(t *testing.T) {
+	homeDir := t.TempDir()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, homeDir, failingPutStore{}, mem)
+	workspaceDir := filepath.Join(homeDir, "users", "u1", "agents", "a1")
+	if err := os.MkdirAll(workspaceDir, 0o700); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspaceDir, "ready.txt"), []byte("ready"), 0o600); err != nil {
+		t.Fatalf("seed workspace: %v", err)
+	}
+	compute := &workspaceComputeSpy{}
+	if err := s.sessionAccess.BindRuntimeManager(compute); err != nil {
+		t.Fatalf("BindRuntimeManager: %v", err)
+	}
+	scope := apitypes.WorkspaceScopeAgent
+	req := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	rr := httptest.NewRecorder()
+	s.GetSessionWorkspace(rr, req, "a1", "s1", apiserver.GetSessionWorkspaceParams{Scope: &scope})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if compute.lookups != 0 {
+		t.Fatalf("Session compute lookups = %d, want 0", compute.lookups)
+	}
+}
+
+type spyRequestBody struct{ reads, bytes int }
+
+func (b *spyRequestBody) Read(p []byte) (int, error) { b.reads++; b.bytes += len(p); return 0, io.EOF }
+func (*spyRequestBody) Close() error                 { return nil }
+
+type revokingMultipartBody struct {
+	reader *bytes.Reader
+	revoke func()
+	once   bool
+}
+
+func (b *revokingMultipartBody) Read(p []byte) (int, error) {
+	if !b.once {
+		b.once = true
+		b.revoke()
+	}
+	return b.reader.Read(p)
+}
+func (*revokingMultipartBody) Close() error { return nil }
+
+func TestUploadWorkspaceFileDeniedAdmissionDoesNotReadBody(t *testing.T) {
+	homeDir := t.TempDir()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, homeDir, failingPutStore{}, mem)
+	body := &spyRequestBody{}
+	req := httptest.NewRequest(http.MethodPost, "/", nil).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "other"}))
+	req.Body = body
+	rr := httptest.NewRecorder()
+	s.UploadWorkspaceFile(rr, req, "a1", "s1")
+	if rr.Code == http.StatusCreated {
+		t.Fatalf("admission unexpectedly succeeded")
+	}
+	if body.reads != 0 || body.bytes != 0 {
+		t.Fatalf("body reads=%d bytes=%d", body.reads, body.bytes)
+	}
+}
+
+func TestUploadWorkspaceFileReauthorizesAfterBodyStaging(t *testing.T) {
+	homeDir := t.TempDir()
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	var encoded bytes.Buffer
+	mw := multipart.NewWriter(&encoded)
+	part, err := mw.CreateFormFile("file", "revoked.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("must not publish")); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	body := &revokingMultipartBody{reader: bytes.NewReader(encoded.Bytes()), revoke: func() {
+		if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "other", AgentID: "a1"}); err != nil {
+			t.Fatalf("revoke session: %v", err)
+		}
+	}}
+	s := assetServer(t, homeDir, failingPutStore{}, mem)
+	req := httptest.NewRequest(http.MethodPost, "/", body).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rr := httptest.NewRecorder()
+	s.UploadWorkspaceFile(rr, req, "a1", "s1")
+	if rr.Code == http.StatusCreated {
+		t.Fatalf("revoked upload published: %s", rr.Body.String())
+	}
+	assetsDir := filepath.Join(homeDir, "users", "u1", "data", "assets")
+	entries, err := os.ReadDir(assetsDir)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("revoked upload left %d asset entries", len(entries))
+	}
+}
+
+func TestWorkspaceUnknownMutationOutcomeReturnsNoRetryConflict(t *testing.T) {
+	rr := httptest.NewRecorder()
+	(&Server{}).writeWorkspaceError(rr, fmt.Errorf("publish: %w", home.ErrOutcomeUnknown))
+	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "inspect state before retrying") {
+		t.Fatalf("response = %d %s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestUploadWorkspaceFileReturnsRelativePathAndScope asserts the upload response
+// exposes the workspace-relative path and scope the web chat needs to build a
+// working file-content read URL, alongside the sandbox-view path the agent reads.
+func TestUploadWorkspaceFileReturnsRelativePathAndScope(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("STELLA_HOME", home)
+	config.ResetStellaHome()
+	defer config.ResetStellaHome()
+	remote, err := blob.NewFSStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mem := memorytest.New()
+	if err := mem.SaveInfo(context.Background(), memory.SessionInfo{ID: "s1", UserID: "u1", AgentID: "a1"}); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	part, err := mw.CreateFormFile("file", "photo.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("upload")); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s := assetServer(t, home, remote, mem)
+	req := httptest.NewRequest(http.MethodPost, "/", &buf).WithContext(withAuthInfo(context.Background(), &AuthInfo{UserID: "u1"}))
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rr := httptest.NewRecorder()
+	s.UploadWorkspaceFile(rr, req, "a1", "s1")
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var body apitypes.WorkspaceUploadResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Scope != apitypes.WorkspaceScopeUser {
+		t.Fatalf("scope=%q, want %q", body.Scope, apitypes.WorkspaceScopeUser)
+	}
+	rel := filepath.ToSlash(body.RelativePath)
+	if rel == "" || strings.HasPrefix(rel, "/") || strings.Contains(rel, "..") {
+		t.Fatalf("relative_path=%q, want a non-empty local path", rel)
+	}
+	if !strings.HasPrefix(rel, "assets/") || !strings.HasSuffix(rel, "-photo.png") {
+		t.Fatalf("relative_path=%q, want assets/...-photo.png", rel)
+	}
+	// The model-facing path is portable and never exposes a host or provider
+	// coordinate. $STELLA_ASSETS_DIR already denotes relative_path's assets root.
+	wantPath := "$STELLA_ASSETS_DIR/" + strings.TrimPrefix(rel, "assets/")
+	if body.Path != wantPath {
+		t.Fatalf("path=%q, want %q", body.Path, wantPath)
 	}
 }

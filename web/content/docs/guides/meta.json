@@ -2,6 +2,7 @@
   "title": "Features",
   "pages": [
     "memory",
+    "library",
     "scheduling",
     "reading-assistant",
     "secrets-and-keys",

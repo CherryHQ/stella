@@ -1,26 +1,38 @@
 package share
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"strings"
 
-	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// Access is one share use case bound to one trusted Authority. Share snapshots
-// are owned by its captured user; artifact and article reads perform their own
-// source-specific authorization with this same Authority.
+// Access is one share use case bound to one trusted Authority. A share is a
+// user-owned capability: ownership is the captured userID, and every durable
+// query is scoped to it. agentScoped/agentID record the actor so an AgentActor
+// (agent tool) is confined to its bound agent's workspace, while a UserActor
+// (HTTP) selects the workspace agent from the request body, not from identity.
+// Artifact publication additionally takes a fresh Agent read decision before
+// opening the rooted workspace capability. The public capability-URL view
+// (token hash + expiry, no session) is served outside Access entirely.
 type Access struct {
-	svc       *Service
-	authority authz.Authority
-	userID    string
+	svc         *Service
+	authority   authz.Authority
+	userID      string
+	agentID     string
+	agentScoped bool
 }
 
 // Access binds one share use case to a trusted Authority. It rejects an invalid
-// Authority (403) and one carrying no user (401) up front.
+// Authority (403) and one carrying no user (401) up front, so every method can
+// assume a non-empty acting user.
 func (s *Service) Access(authority authz.Authority) (*Access, error) {
 	if s == nil {
 		return nil, fmt.Errorf("share service is unavailable — try again later")
@@ -32,80 +44,113 @@ func (s *Service) Access(authority authz.Authority) (*Access, error) {
 	if userID == "" {
 		return nil, authz.ErrUnauthenticated
 	}
-	return &Access{svc: s, authority: authority, userID: userID}, nil
+	agentScoped := authority.Kind() == authz.ActorAgent
+	agentID := ""
+	if agentScoped {
+		agentID = string(authority.AgentID())
+	}
+	return &Access{svc: s, authority: authority, userID: userID, agentID: agentID, agentScoped: agentScoped}, nil
 }
 
-// ShareArtifact copies one exact session artifact into an immutable PostgreSQL
-// snapshot. The source is never a host path and is never restored from blob.
-func (a *Access) ShareArtifact(ctx context.Context, sessionID, artifactPath, scope, requestedAgentID, expiresIn string) (Created, error) {
+// ShareArtifact publishes a workspace file for the acting user. requestedAgentID
+// selects which session/workspace to read: for a UserActor it is the request-body
+// agent id (a resource selector, not identity); for an agent-scoped AgentActor it
+// must equal the bound agent, so a delegated turn can never reach another agent's
+// workspace. The UserID/AgentID/AgentScoped semantics passed to
+// sessionWorkspaceRoot preserve the workspace confinement exactly.
+func (a *Access) ShareArtifact(ctx context.Context, sessionID, path, scope, requestedAgentID, expiresIn string) (Created, error) {
+	if a.agentScoped && requestedAgentID != a.agentID {
+		return Created{}, authz.ErrForbidden
+	}
 	if requestedAgentID == "" {
 		return Created{}, fmt.Errorf("agent_id is required for artifact shares: %w", ErrInvalidInput)
 	}
 	if sessionID == "" {
 		return Created{}, fmt.Errorf("session_id is required for artifact shares: %w", ErrInvalidInput)
 	}
-	if artifactPath == "" {
+	if path == "" {
 		return Created{}, fmt.Errorf("path is required for artifact shares: %w", ErrInvalidInput)
 	}
-	if a.svc.sessions == nil {
-		return Created{}, fmt.Errorf("session artifact reader is unavailable")
+	if a.svc.agents == nil {
+		return Created{}, fmt.Errorf("agent authorization is unavailable")
 	}
-	artifactScope := sessionaccess.WorkspaceScope(scope)
-	if artifactScope == "" {
-		artifactScope = sessionaccess.WorkspaceScopeAgent
+	if _, err := a.svc.agents.Read(ctx, a.authority, requestedAgentID); err != nil {
+		switch {
+		case errors.Is(err, agentaccess.ErrForbidden):
+			return Created{}, authz.ErrForbidden
+		case errors.Is(err, agentaccess.ErrNotFound):
+			return Created{}, authz.ErrNotFound
+		default:
+			return Created{}, err
+		}
 	}
-	reader, err := a.svc.sessions.Begin(ctx, a.authority)
+
+	ident := authz.Identity{UserID: a.userID, AgentID: requestedAgentID, AgentScoped: a.agentScoped}
+	req, rootScope, err := a.svc.sessionWorkspaceRoot(ctx, ident, sessionID, scope)
 	if err != nil {
-		return Created{}, mapArtifactError(err)
+		return Created{}, err
 	}
-	artifact, err := reader.ReadArtifact(ctx, sessionaccess.ArtifactReadInput{
-		AgentID: requestedAgentID, SessionID: sessionID, Scope: artifactScope, Path: artifactPath, MaxBytes: MaxShareSize,
-	})
+	resolver, ok := a.svc.homes.(home.CoordinateResolver)
+	var rel string
+	if ok {
+		rootScope, rel, err = resolver.ResolveCoordinate(home.Coordinate{Request: req, Scope: rootScope, Value: path})
+	} else {
+		rootScope, rel, err = home.ResolveLogicalCoordinate(rootScope, path, false)
+	}
 	if err != nil {
-		return Created{}, mapArtifactError(err)
+		if strings.HasPrefix(path, "$") {
+			return Created{}, fmt.Errorf("%w: %w", ErrInvalidArtifactPath, err)
+		}
+		return Created{}, authz.ErrNotFound
 	}
-	mediaType := ArtifactMediaType(artifact.Name)
-	if mediaType == "" {
-		return Created{}, ErrUnsupportedType
+	root, err := a.svc.homes.OpenRoot(ctx, req, rootScope, home.RootReadOnly)
+	if err != nil {
+		return Created{}, err
 	}
-	return a.svc.create(ctx, a.userID, artifact.Name, mediaType, artifact.Content, expiresIn)
+	snapshot, err := func() (data []byte, resultErr error) {
+		defer func() { resultErr = errors.Join(resultErr, root.Close()) }()
+		fi, err := root.Stat(ctx, rel)
+		if err != nil {
+			return nil, authz.ErrNotFound
+		}
+		if fi.IsDir() {
+			return nil, ErrDirectory
+		}
+		if fi.Size() > MaxShareSize {
+			return nil, ErrTooLarge
+		}
+		if ArtifactMediaType(rel) == "" {
+			return nil, ErrUnsupportedType
+		}
+		var content bytes.Buffer
+		if err := root.Read(ctx, rel, &content, home.ReadOptions{MaxBytes: MaxShareSize}); err != nil {
+			if errors.Is(err, home.ErrReadLimit) {
+				return nil, ErrTooLarge
+			}
+			return nil, err
+		}
+		return content.Bytes(), nil
+	}()
+	if err != nil {
+		return Created{}, err
+	}
+	mt := ArtifactMediaType(rel)
+	return a.svc.create(ctx, a.userID, filepath.Base(rel), mt, snapshot, expiresIn)
 }
 
-func mapArtifactError(err error) error {
-	switch {
-	case errors.Is(err, sessionaccess.ErrNotFound):
-		return authz.ErrNotFound
-	case errors.Is(err, sessionaccess.ErrForbidden):
-		return authz.ErrForbidden
-	case errors.Is(err, sessionaccess.ErrIsDir):
-		return ErrDirectory
-	case errors.Is(err, sessionaccess.ErrTooLarge):
-		return ErrTooLarge
-	case errors.Is(err, sessionaccess.ErrInvalid):
-		return ErrInvalidArtifactPath
-	default:
-		return err
-	}
-}
-
-// ShareArticle renders an owner-scoped Recally article into an immutable share
-// snapshot. Recally owns article authorization; Share does not repeat it.
+// ShareArticle publishes a rendered Recally article owned by the acting user.
 func (a *Access) ShareArticle(ctx context.Context, articleID, expiresIn string) (Created, error) {
 	if articleID == "" {
 		return Created{}, fmt.Errorf("article_id is required for article shares: %w", ErrInvalidInput)
 	}
-	if a.svc.recally == nil {
-		return Created{}, fmt.Errorf("recally service is unavailable")
-	}
-	recallyAccess, err := a.svc.recally.Access(a.authority)
+	article, err := a.svc.store.GetArticle(ctx, a.userID, articleID)
 	if err != nil {
-		return Created{}, err
+		return Created{}, authz.ErrNotFound
 	}
-	article, err := recallyAccess.GetArticle(ctx, articleID)
-	if err != nil {
-		return Created{}, err
+	if article.UserID != a.userID {
+		return Created{}, authz.ErrForbidden
 	}
-	md, err := recallyAccess.ReadArticleBody(ctx, article)
+	md, err := a.svc.recallySvc.ReadArticleBody(ctx, article)
 	if err != nil {
 		return Created{}, err
 	}
@@ -119,6 +164,8 @@ func (a *Access) ShareArticle(ctx context.Context, articleID, expiresIn string) 
 	return a.svc.create(ctx, a.userID, article.Title, "text/html; charset=utf-8", rendered, expiresIn)
 }
 
+// List returns the acting user's own shares. The query is scoped to the captured
+// userID, so it can never surface another user's shares.
 func (a *Access) List(ctx context.Context, limit, offset int) (ListResult, error) {
 	rows, err := a.svc.q.ListSharesByUser(ctx, sqlc.ListSharesByUserParams{UserID: a.userID, Limit: int32(limit + 1), Offset: int32(offset)})
 	if err != nil {
@@ -132,6 +179,9 @@ func (a *Access) List(ctx context.Context, limit, offset int) (ListResult, error
 	return ListResult{Shares: shares, NextPageToken: next}, nil
 }
 
+// Revoke disables one of the acting user's shares. The delete is scoped to the
+// captured userID, so a share owned by another user is never touched; a missing
+// (or foreign) row is ErrNotFound.
 func (a *Access) Revoke(ctx context.Context, id string) error {
 	rows, err := a.svc.q.DeleteShareByUser(ctx, sqlc.DeleteShareByUserParams{ID: id, UserID: a.userID})
 	if err != nil {

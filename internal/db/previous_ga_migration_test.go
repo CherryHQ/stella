@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -15,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
+	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -23,30 +25,41 @@ const (
 	// representative fixture/assertions for the newly crossed migrations turns
 	// this test into a green lie.
 	previousGAVersion = int64(20260725161331)
-	// Knowledge V1 and channel guest sessions/indexes are the post-anchor migrations
-	// exercised by the assertions below.
-	currentMigrationVersion = sequentialAnchor + 6
+	// Library V1, channel guest sessions/indexes, channel allowlist backfill, and
+	// session activity, per-message actor provenance and summary authority,
+	// the durable Session inbox, and restrictive Library ownership are the
+	// post-anchor migrations exercised below. Library chunk locator integrity is
+	// covered by inserting a chunk through the rolling-deployment default.
+	currentMigrationVersion = sequentialAnchor + 12
 
-	previousGAUserID         = "00000000-0000-0000-0000-000000000001"
-	previousGAGroupID        = "00000000-0000-0000-0000-000000000002"
-	previousGAOlderChatID    = "00000000-0000-0000-0000-000000000009"
-	previousGAOldChatID      = "00000000-0000-0000-0000-000000000003"
-	previousGANewChatID      = "00000000-0000-0000-0000-000000000004"
-	previousGAMessageID      = "00000000-0000-0000-0000-000000000005"
-	previousGAPartID         = "00000000-0000-0000-0000-000000000006"
-	previousGAMediaID        = "00000000-0000-0000-0000-000000000007"
-	previousGAWebhookID      = "00000000-0000-0000-0000-000000000008"
-	previousGAKnowledgeFile  = "00000000-0000-0000-0000-000000000041"
-	previousGAChunkSet       = "00000000-0000-0000-0000-000000000042"
-	previousGAChunk          = "00000000-0000-0000-0000-000000000043"
-	previousGAGuestID        = "00000000-0000-0000-0000-000000000044"
-	previousGAGuestChatID    = "00000000-0000-0000-0000-000000000045"
-	previousGAAgentID        = "previous-ga-agent"
-	previousGACascadeAgentID = "previous-ga-cascade-agent"
-	previousGAProviderID     = "previous-ga-provider"
-	previousGAOlderSession   = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:zz"
-	previousGAOldSession     = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:a"
-	previousGANewSession     = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:z"
+	previousGAUserID           = "00000000-0000-0000-0000-000000000001"
+	previousGAGroupID          = "00000000-0000-0000-0000-000000000002"
+	previousGAOlderChatID      = "00000000-0000-0000-0000-000000000009"
+	previousGAOldChatID        = "00000000-0000-0000-0000-000000000003"
+	previousGANewChatID        = "00000000-0000-0000-0000-000000000004"
+	previousGAMessageID        = "00000000-0000-0000-0000-000000000005"
+	previousGAPartID           = "00000000-0000-0000-0000-000000000006"
+	previousGAMediaID          = "00000000-0000-0000-0000-000000000007"
+	previousGAWebhookID        = "00000000-0000-0000-0000-000000000008"
+	previousGADelegateChatID   = "00000000-0000-0000-0000-000000000051"
+	previousGASchedulerChatID  = "00000000-0000-0000-0000-000000000052"
+	previousGATaskChatID       = "00000000-0000-0000-0000-000000000053"
+	previousGADelegateMsgID    = "00000000-0000-0000-0000-000000000054"
+	previousGASchedulerMsgID   = "00000000-0000-0000-0000-000000000055"
+	previousGATaskMsgID        = "00000000-0000-0000-0000-000000000056"
+	previousGALibraryFile      = "00000000-0000-0000-0000-000000000041"
+	previousGAAgentLibraryFile = "00000000-0000-0000-0000-000000000047"
+	previousGAChunkSet         = "00000000-0000-0000-0000-000000000042"
+	previousGAChunk            = "00000000-0000-0000-0000-000000000043"
+	previousGAGuestID          = "00000000-0000-0000-0000-000000000044"
+	previousGAGuestChatID      = "00000000-0000-0000-0000-000000000045"
+	previousGAAgentID          = "previous-ga-agent"
+	previousGACascadeAgentID   = "previous-ga-cascade-agent"
+	previousGALibraryAgentID   = "previous-ga-library-agent"
+	previousGAProviderID       = "previous-ga-provider"
+	previousGAOlderSession     = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:zz"
+	previousGAOldSession       = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:a"
+	previousGANewSession       = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:z"
 )
 
 var previousGATime = time.Date(2026, time.July, 25, 12, 0, 0, 0, time.UTC)
@@ -55,6 +68,16 @@ var previousGATime = time.Date(2026, time.July, 25, 12, 0, 0, 0, time.UTC)
 // boundary from immutable migration history, then uses the production OpenDB
 // path to upgrade persisted rows through every candidate migration.
 func TestPreviousGAPostgresForwardMigration(t *testing.T) {
+	ctx := context.Background()
+	candidate := PreviousGAUpgradedDBForTest(t)
+	assertPreviousGAUpgrade(t, ctx, candidate)
+}
+
+// PreviousGAUpgradedDBForTest exposes the real forward-migration fixture to
+// external-package integration tests that cannot import LCM from package db
+// without creating the lcm -> eventlog -> db import cycle.
+func PreviousGAUpgradedDBForTest(t *testing.T) *pgxpool.Pool {
+	t.Helper()
 	ctx := context.Background()
 	dsn, legacy := newPreviousGADB(t, ctx)
 	seedPreviousGAData(t, ctx, legacy)
@@ -65,8 +88,7 @@ func TestPreviousGAPostgresForwardMigration(t *testing.T) {
 		t.Fatalf("OpenDB upgrades v0.60.4 database: %v", err)
 	}
 	t.Cleanup(candidate.Close)
-
-	assertPreviousGAUpgrade(t, ctx, candidate)
+	return candidate
 }
 
 // newPreviousGADB intentionally starts with an empty database instead of
@@ -163,6 +185,31 @@ func seedPreviousGAData(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
 		previousGANewChatID, previousGANewSession)
 	exec("legacy message", `INSERT INTO ctx_message (id, conversation_id, seq, role, content, token_count, created_at) VALUES ($1, $2, 1, 'user', 'legacy media parent', 1, $3)`, previousGAMessageID, previousGANewChatID, previousGATime)
 	exec("legacy message part", `INSERT INTO ctx_message_part (id, message_id, part_type, ordinal, text_content) VALUES ($1, $2, 'text', 0, 'legacy media child')`, previousGAPartID, previousGAMessageID)
+	exec("legacy internal conversations", `
+		INSERT INTO ctx_conversation (id, session_id, channel, kind, archived, last_active, agent_id, user_id, created_at, updated_at)
+		VALUES
+			($1, 'previous-ga-delegate', 'delegate', $4, false, $7, $8, $9, $7, $7),
+			($2, 'previous-ga-scheduler', 'scheduler', $5, false, $7, $8, $9, $7, $7),
+			($3, 'previous-ga-task', 'task', $6, false, $7, $8, $9, $7, $7)`,
+		previousGADelegateChatID, previousGASchedulerChatID, previousGATaskChatID,
+		string(session.KindDelegate), string(session.KindScheduler), string(session.KindTask),
+		previousGATime, previousGAAgentID, previousGAUserID)
+	exec("legacy internal user-role messages", `
+		INSERT INTO ctx_message (id, conversation_id, seq, role, content, token_count, created_at)
+		VALUES
+			($1, $4, 1, 'user', 'legacy delegate input', 1, $7),
+			($2, $5, 1, 'user', 'legacy scheduler input', 1, $7),
+			($3, $6, 1, 'user', 'legacy task input', 1, $7)`,
+		previousGADelegateMsgID, previousGASchedulerMsgID, previousGATaskMsgID,
+		previousGADelegateChatID, previousGASchedulerChatID, previousGATaskChatID, previousGATime)
+	exec("legacy internal context items", `
+		INSERT INTO ctx_item (conversation_id, ordinal, item_type, message_id, event_type, role, created_at)
+		VALUES
+			($1, 1, 'message', $4, 'text', 'user', $7),
+			($2, 1, 'message', $5, 'text', 'user', $7),
+			($3, 1, 'message', $6, 'text', 'user', $7)`,
+		previousGADelegateChatID, previousGASchedulerChatID, previousGATaskChatID,
+		previousGADelegateMsgID, previousGASchedulerMsgID, previousGATaskMsgID, previousGATime)
 
 	exec("vault entries", `
 		INSERT INTO vault_entry (id, scope, name, ciphertext, created_at, updated_at) VALUES
@@ -201,6 +248,41 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	if tokenUse != "personal" || issuedByProvisioning {
 		t.Fatalf("migrated personal access token use=%q issued_by_provisioning=%v, want personal/false", tokenUse, issuedByProvisioning)
 	}
+	var legacyActorType string
+	if err := db.QueryRow(ctx, `SELECT actor_type FROM ctx_message WHERE id = $1`, previousGAMessageID).Scan(&legacyActorType); err != nil {
+		t.Fatalf("read defaulted legacy message actor: %v", err)
+	}
+	if legacyActorType != "human" {
+		t.Fatalf("defaulted legacy message actor=%q, want human", legacyActorType)
+	}
+	if got := count("session inbox table", `SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ctx_session_inbox'`); got != 1 {
+		t.Fatalf("session inbox tables = %d, want 1", got)
+	}
+	if got := count("message inbox column", `SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'ctx_message' AND column_name = 'inbox_id'`); got != 1 {
+		t.Fatalf("message inbox columns = %d, want 1", got)
+	}
+	if got := count("message inbox unique index", `SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'ctx_message' AND indexname = 'idx_ctx_message_inbox_id'`); got != 1 {
+		t.Fatalf("message inbox indexes = %d, want 1", got)
+	}
+	for _, tc := range []struct {
+		name, messageID string
+	}{
+		{name: "delegate", messageID: previousGADelegateMsgID},
+		{name: "scheduler", messageID: previousGASchedulerMsgID},
+		{name: "task", messageID: previousGATaskMsgID},
+	} {
+		var actorType string
+		var actorID pgtype.Text
+		if err := db.QueryRow(ctx, `SELECT actor_type, actor_id FROM ctx_message WHERE id = $1`, tc.messageID).Scan(&actorType, &actorID); err != nil {
+			t.Fatalf("read legacy %s actor: %v", tc.name, err)
+		}
+		if actorType != "human" {
+			t.Fatalf("legacy %s actor=%q, want conservative human default", tc.name, actorType)
+		}
+		if actorID.Valid {
+			t.Fatalf("legacy %s actor ID=%#v, want NULL without row-level provenance", tc.name, actorID)
+		}
+	}
 	if _, err := db.Exec(ctx, `
 		INSERT INTO auth_provisioned_user (id, external_id, user_id, created_by_user_id, created_by_token_id)
 		VALUES ('00000000-0000-0000-0000-000000000015', 'previous-ga-external', $1, $1, '00000000-0000-0000-0000-000000000014')`, previousGAUserID); err != nil {
@@ -224,16 +306,18 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	if got := count("custom OAuth provider", `SELECT count(*) FROM plugin_oauth_provider WHERE provider_id = 'custom'`); got != 1 {
 		t.Fatalf("custom OAuth providers = %d, want 1", got)
 	}
-	var larkClean, larkCustom, unrelatedPreserved bool
+	var larkClean, larkSparse, larkSnapshotPreserved, larkCustom, unrelatedPreserved bool
 	if err := db.QueryRow(ctx, `
 		SELECT NOT (config::jsonb ? 'oauth_provider') AND NOT (config::jsonb ? 'session_env'),
+		       config::jsonb @> '{"$sparse": true}',
+		       config::jsonb->'name' = 'null'::jsonb AND config::jsonb->'binaries' = 'null'::jsonb,
 		       config::jsonb->>'prompt' = 'custom prompt' AND config::jsonb->>'custom' = 'keep' AND session_env_vault_key = 'custom-vault-key',
 		       EXISTS (SELECT 1 FROM plugin_override WHERE plugin_id = 'tool/custom' AND enabled = false AND config::jsonb->>'custom' = 'untouched')
-		FROM plugin_override WHERE plugin_id = 'tool/lark-cli'`).Scan(&larkClean, &larkCustom, &unrelatedPreserved); err != nil {
+		FROM plugin_override WHERE plugin_id = 'tool/lark-cli'`).Scan(&larkClean, &larkSparse, &larkSnapshotPreserved, &larkCustom, &unrelatedPreserved); err != nil {
 		t.Fatalf("read cleaned Lark override: %v", err)
 	}
-	if !larkClean || !larkCustom || !unrelatedPreserved {
-		t.Fatalf("Lark cleanup = fields removed %v, custom preserved %v, unrelated preserved %v; want true, true, true", larkClean, larkCustom, unrelatedPreserved)
+	if !larkClean || !larkSparse || !larkSnapshotPreserved || !larkCustom || !unrelatedPreserved {
+		t.Fatalf("Lark cleanup = fields removed %v, sparse %v, snapshot preserved %v, custom preserved %v, unrelated preserved %v; want all true", larkClean, larkSparse, larkSnapshotPreserved, larkCustom, unrelatedPreserved)
 	}
 	if got := count("deleted sandbox plugins", `SELECT count(*) FROM plugin WHERE id LIKE 'sandbox/%'`); got != 0 {
 		t.Fatalf("sandbox plugin rows = %d, want 0", got)
@@ -412,44 +496,111 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 		t.Fatalf("create channel guest above cap = %v, want no rows", err)
 	}
 
-	// Exercise the complete Knowledge snapshot publication relationship after
+	// Exercise the complete Library snapshot publication relationship after
 	// upgrading the previous GA database, rather than checking table names only.
 	if _, err := db.Exec(ctx, `
-		INSERT INTO knowledge_file (
+		INSERT INTO library_file (
 			id, scope, user_id, agent_id, file_name, media_type,
 			size_bytes, raw_sha256, status
 		) VALUES ($1, 'user_agent', $2, $3, 'previous-ga.txt', 'text/plain', 1, $4, 'ready')
-	`, previousGAKnowledgeFile, previousGAUserID, previousGAAgentID, hash); err != nil {
-		t.Fatalf("insert knowledge file after previous-GA upgrade: %v", err)
+	`, previousGALibraryFile, previousGAUserID, previousGAAgentID, hash); err != nil {
+		t.Fatalf("insert Library file after previous-GA upgrade: %v", err)
 	}
 	if _, err := db.Exec(ctx, `
-		INSERT INTO knowledge_chunk_set (
-			id, file_id, derivation_key, processor_key, raw_sha256,
-			status, chunk_count, content_digest, completed_at
-		) VALUES ($1, $2, 'previous-ga-derivation', 'previous-ga-processor', $3, 'ready', 1, $3, $4)
-	`, previousGAChunkSet, previousGAKnowledgeFile, hash, previousGATime); err != nil {
-		t.Fatalf("insert knowledge ChunkSet after previous-GA upgrade: %v", err)
+		INSERT INTO agent (id, name, workspace) VALUES ($1, 'Library Agent', '/tmp')
+	`, previousGALibraryAgentID); err != nil {
+		t.Fatalf("insert Library Agent after previous-GA upgrade: %v", err)
 	}
 	if _, err := db.Exec(ctx, `
-		INSERT INTO knowledge_chunk (
+		INSERT INTO library_file (
+			id, scope, agent_id, file_name, media_type,
+			size_bytes, raw_sha256, status
+		) VALUES ($1, 'system_agent', $2, 'agent-owned.txt', 'text/plain', 1, $3, 'ready')
+	`, previousGAAgentLibraryFile, previousGALibraryAgentID, hash); err != nil {
+		t.Fatalf("insert Agent-scoped Library file after previous-GA upgrade: %v", err)
+	}
+	_, err = db.Exec(ctx, `DELETE FROM agent WHERE id = $1`, previousGALibraryAgentID)
+	assertConstraintViolation(t, err, "library_file_agent_id_fkey")
+	if _, err := db.Exec(ctx, `
+		INSERT INTO library_chunk_set (
+			id, file_id, derivation_key, processor_key, raw_sha256, status
+		) VALUES ($1, $2, 'previous-ga-derivation', 'previous-ga-processor', $3, 'building')
+	`, previousGAChunkSet, previousGALibraryFile, hash); err != nil {
+		t.Fatalf("insert Library ChunkSet after previous-GA upgrade: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO library_chunk (
 			id, chunk_set_id, ordinal, content, content_sha256
-		) VALUES ($1, $2, 0, 'previous GA knowledge', $3)
+		) VALUES ($1, $2, 0, 'previous GA library content', $3)
 	`, previousGAChunk, previousGAChunkSet, hash); err != nil {
-		t.Fatalf("insert knowledge chunk after previous-GA upgrade: %v", err)
+		t.Fatalf("insert Library chunk after previous-GA upgrade: %v", err)
+	}
+	var locatorDigestBytes int
+	var locatorDigestMatches bool
+	if err := db.QueryRow(ctx, `
+		SELECT
+			octet_length(locator_sha256),
+			locator_sha256 = sha256(convert_to(locator::text, 'UTF8'))
+		FROM library_chunk
+		WHERE id = $1
+	`, previousGAChunk).Scan(&locatorDigestBytes, &locatorDigestMatches); err != nil {
+		t.Fatalf("read Library chunk locator digest after previous-GA upgrade: %v", err)
+	}
+	if locatorDigestBytes != sha256.Size || !locatorDigestMatches {
+		t.Fatalf("Library chunk locator digest bytes = %d, matches locator = %t", locatorDigestBytes, locatorDigestMatches)
+	}
+	// Simulate an old worker submitting its content-only aggregate. The migration
+	// trigger must replace it before the generation can become ready.
+	if _, err := db.Exec(ctx, `
+		UPDATE library_chunk_set
+		SET status = 'ready', chunk_count = 1, content_digest = $1, completed_at = $2
+		WHERE id = $3
+	`, hash, previousGATime, previousGAChunkSet); err != nil {
+		t.Fatalf("mark old-worker Library ChunkSet ready: %v", err)
+	}
+	var readyDigestMatches bool
+	if err := db.QueryRow(ctx, `
+		SELECT chunk_set.content_digest = sha256(decode(
+			lpad(to_hex(chunk.ordinal), 16, '0') ||
+			encode(chunk.content_sha256, 'hex') ||
+			encode(chunk.locator_sha256, 'hex'),
+			'hex'
+		))
+		FROM library_chunk_set AS chunk_set
+		JOIN library_chunk AS chunk ON chunk.chunk_set_id = chunk_set.id
+		WHERE chunk_set.id = $1
+	`, previousGAChunkSet).Scan(&readyDigestMatches); err != nil {
+		t.Fatalf("read old-worker Library ChunkSet digest: %v", err)
+	}
+	if !readyDigestMatches {
+		t.Fatal("old-worker Library ChunkSet became ready without locator-aware integrity")
 	}
 	if _, err := db.Exec(ctx, `
-		UPDATE knowledge_file SET active_chunk_set_id = $1 WHERE id = $2
-	`, previousGAChunkSet, previousGAKnowledgeFile); err != nil {
-		t.Fatalf("publish knowledge ChunkSet after previous-GA upgrade: %v", err)
+		UPDATE library_file SET active_chunk_set_id = $1 WHERE id = $2
+	`, previousGAChunkSet, previousGALibraryFile); err != nil {
+		t.Fatalf("publish Library ChunkSet after previous-GA upgrade: %v", err)
 	}
-	if got := count("published knowledge chunks", `
+	if got := count("published Library chunks", `
 		SELECT count(*)
-		FROM knowledge_file AS file
-		JOIN knowledge_chunk_set AS chunk_set ON chunk_set.id = file.active_chunk_set_id
-		JOIN knowledge_chunk AS chunk ON chunk.chunk_set_id = chunk_set.id
+		FROM library_file AS file
+		JOIN library_chunk_set AS chunk_set ON chunk_set.id = file.active_chunk_set_id
+		JOIN library_chunk AS chunk ON chunk.chunk_set_id = chunk_set.id
 		WHERE file.id = $1
-	`, previousGAKnowledgeFile); got != 1 {
-		t.Fatalf("published knowledge chunks = %d, want 1", got)
+	`, previousGALibraryFile); got != 1 {
+		t.Fatalf("published Library chunks = %d, want 1", got)
+	}
+
+	var lastTurnStartedAt, lastTurnCompletedAt, lastViewedAt pgtype.Timestamptz
+	var lastTurnResult pgtype.Text
+	if err := db.QueryRow(ctx, `
+		SELECT last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at
+		FROM ctx_conversation
+		WHERE id = $1
+	`, previousGANewChatID).Scan(&lastTurnStartedAt, &lastTurnCompletedAt, &lastTurnResult, &lastViewedAt); err != nil {
+		t.Fatalf("read migrated session activity: %v", err)
+	}
+	if lastTurnStartedAt.Valid || lastTurnCompletedAt.Valid || lastTurnResult.Valid || lastViewedAt.Valid {
+		t.Fatalf("migrated session activity = %v/%v/%v/%v, want all null", lastTurnStartedAt, lastTurnCompletedAt, lastTurnResult, lastViewedAt)
 	}
 
 	if _, err := db.Exec(ctx, `UPDATE channel_guest SET updated_at = now() - interval '31 days' WHERE id = $1`, previousGAGuestID); err != nil {

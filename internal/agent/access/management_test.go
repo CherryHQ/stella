@@ -156,6 +156,10 @@ type fakeActivity struct {
 	err error
 }
 
+type freeAgentIDOccupancy struct{}
+
+func (freeAgentIDOccupancy) AgentIDOccupied(context.Context, string) (bool, error) { return false, nil }
+
 func (f fakeActivity) ListAgentLastActive(context.Context, string) (map[string]time.Time, error) {
 	return f.m, f.err
 }
@@ -164,7 +168,7 @@ func newManagement(agents *fakeAgents, assign *fakeAssign, reloader AgentReloade
 	pep := NewService(agents, assign)
 	return NewManagement(pep, agents, assign, reloader, users, activity, nil, nil, nil, WithOwnerDeletion(fakeOwnerDeletion{deleteAgent: func(ctx context.Context, id, _ string) error {
 		return agents.DeleteAgent(ctx, id)
-	}}))
+	}}), WithAgentIDOccupancy(freeAgentIDOccupancy{}))
 }
 
 func TestManagementCreateNonAdminRestrictedAndAutoAssigns(t *testing.T) {
@@ -173,12 +177,12 @@ func TestManagementCreateNonAdminRestrictedAndAutoAssigns(t *testing.T) {
 	reloader := &fakeReloader{}
 	m := newManagement(agents, assign, reloader, fakeUsers{}, fakeActivity{})
 
-	got, err := m.Create(context.Background(), userAuthority(t, "u1", false), config.Agent{ID: "foo", Name: "Foo", Scope: config.AgentScopeSystem, Workspace: "/hack"})
+	got, err := m.Create(context.Background(), userAuthority(t, "u1", false), config.Agent{ID: "foo", Name: "Foo", Workspace: "/hack"})
 	if err != nil {
 		t.Fatalf("create = %v", err)
 	}
 	if got.Scope != config.AgentScopeRestricted {
-		t.Fatalf("scope = %q, want restricted (non-admin is forced restricted)", got.Scope)
+		t.Fatalf("scope = %q, want restricted (non-admin default)", got.Scope)
 	}
 	if got.CreatorID != "u1" {
 		t.Fatalf("creator = %q, want u1", got.CreatorID)
@@ -222,6 +226,26 @@ func TestManagementCreateAdminScope(t *testing.T) {
 	}
 	// A bogus admin scope is a validation error.
 	if _, err := m.Create(context.Background(), userAuthority(t, "admin", true), config.Agent{ID: "b", Name: "B", Scope: "bogus"}); !errors.Is(err, ErrInvalidScope) {
+		t.Fatalf("bad scope = %v, want ErrInvalidScope", err)
+	}
+}
+
+func TestManagementCreateNonAdminMayOpenToEveryone(t *testing.T) {
+	// Opening an agent to everyone names no other user, so an ordinary creator
+	// may ask for it; no assignment row is needed for a system agent.
+	assign := newFakeAssign()
+	m := newManagement(newFakeAgents(), assign, &fakeReloader{}, fakeUsers{}, fakeActivity{})
+	got, err := m.Create(context.Background(), userAuthority(t, "u1", false), config.Agent{ID: "a", Name: "A", Scope: config.AgentScopeSystem})
+	if err != nil {
+		t.Fatalf("create = %v", err)
+	}
+	if got.Scope != config.AgentScopeSystem {
+		t.Fatalf("scope = %q, want system", got.Scope)
+	}
+	if assign.assignCalls != 0 {
+		t.Fatalf("system create must not auto-assign, calls=%d", assign.assignCalls)
+	}
+	if _, err := m.Create(context.Background(), userAuthority(t, "u1", false), config.Agent{ID: "b", Name: "B", Scope: "bogus"}); !errors.Is(err, ErrInvalidScope) {
 		t.Fatalf("bad scope = %v, want ErrInvalidScope", err)
 	}
 }
@@ -272,21 +296,47 @@ func TestManagementUpdateScopeRules(t *testing.T) {
 	ctx := context.Background()
 	seed := config.Agent{ID: "a", Scope: config.AgentScopeRestricted, CreatorID: "u1", Enabled: true}
 
-	// Non-admin creator cannot change scope.
+	// The creator opens their own agent to every user, and cannot spoof the
+	// server-owned workspace or creator while doing it.
 	agents := newFakeAgents(seed)
 	m := newManagement(agents, newFakeAssign(), &fakeReloader{}, fakeUsers{}, fakeActivity{})
 	got, err := m.Update(ctx, userAuthority(t, "u1", false), config.Agent{ID: "a", Name: "A", Scope: config.AgentScopeSystem, Workspace: "/caller/path", CreatorID: "spoofed"})
 	if err != nil {
 		t.Fatalf("update = %v", err)
 	}
-	if got.Scope != config.AgentScopeRestricted {
-		t.Fatalf("scope = %q, want restricted preserved", got.Scope)
+	if got.Scope != config.AgentScopeSystem {
+		t.Fatalf("scope = %q, want system", got.Scope)
 	}
 	if got.Workspace != "" {
 		t.Fatalf("workspace = %q, want canonical default", got.Workspace)
 	}
 	if got.CreatorID != "u1" {
 		t.Fatalf("creator = %q, want persisted creator u1", got.CreatorID)
+	}
+
+	// An omitted scope keeps the persisted one for a creator.
+	got, err = m.Update(ctx, userAuthority(t, "u1", false), config.Agent{ID: "a", Name: "A"})
+	if err != nil {
+		t.Fatalf("update without scope = %v", err)
+	}
+	if got.Scope != config.AgentScopeSystem {
+		t.Fatalf("scope = %q, want persisted system", got.Scope)
+	}
+
+	// Narrowing back to restricted re-assigns the creator, so the manager of a
+	// system-created agent does not lose access to it.
+	assign := newFakeAssign()
+	narrowing := newManagement(newFakeAgents(config.Agent{ID: "b", Scope: config.AgentScopeSystem, CreatorID: "u1", Enabled: true}), assign, &fakeReloader{}, fakeUsers{}, fakeActivity{})
+	if _, err := narrowing.Update(ctx, userAuthority(t, "u1", false), config.Agent{ID: "b", Name: "B", Scope: config.AgentScopeRestricted}); err != nil {
+		t.Fatalf("narrow to restricted = %v", err)
+	}
+	if assign.assignCalls != 1 {
+		t.Fatalf("assign calls = %d, want 1 (creator kept access)", assign.assignCalls)
+	}
+
+	// A creator supplying a bogus scope is a validation error, same as an admin.
+	if _, err := m.Update(ctx, userAuthority(t, "u1", false), config.Agent{ID: "a", Name: "A", Scope: "bogus"}); !errors.Is(err, ErrInvalidScope) {
+		t.Fatalf("bad creator scope = %v, want ErrInvalidScope", err)
 	}
 
 	// A non-creator, non-admin is denied by the Manage decision.

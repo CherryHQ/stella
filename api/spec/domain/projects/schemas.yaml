@@ -12,7 +12,7 @@ components:
         agent_id,
         user_id,
         name,
-        path,
+        base_dir,
         archived,
         created_at,
         updated_at,
@@ -22,9 +22,9 @@ components:
         agent_id: { type: string }
         user_id: { type: string }
         name: { type: string }
-        path:
+        base_dir:
           type: string
-          description: Canonical path relative to the agent workspace; empty selects its root.
+          description: Canonical path relative to the agent workspace root; `.` selects the root. Never a host path.
         description: { type: string }
         archived: { type: boolean }
         created_at: { type: string, format: date-time }
@@ -32,17 +32,21 @@ components:
 
     CreateProjectRequest:
       type: object
-      required: [name, path]
+      required: [name, base_dir]
       properties:
         name: { type: string }
-        path: { type: string }
+        base_dir:
+          type: string
+          description: Canonical path relative to the agent workspace root; `.` selects the root. Never a host path.
         description: { type: string }
 
     UpdateProjectRequest:
       type: object
       properties:
         name: { type: string }
-        path: { type: string }
+        base_dir:
+          type: string
+          description: Canonical path relative to the agent workspace root; `.` selects the root. Never a host path.
         description: { type: string }
 
     ProjectList:

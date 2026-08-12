@@ -81,12 +81,12 @@ Users are created automatically when someone messages a connected channel. Each 
 
 The runner controls how the agent processes messages. You can configure these from the Web UI **Settings** page:
 
-| Setting              | Default       | Description                                               |
-| -------------------- | ------------- | --------------------------------------------------------- |
-| Idle timeout         | 10 min        | Time before idle agent sessions are cleaned up            |
-| Delegate timeout     | 15 min        | Maximum time for delegated tasks                          |
-| Compaction threshold | 80,000 tokens | Auto-compress history when it exceeds this size           |
-| Keep recent messages | 20            | Number of recent messages kept verbatim after compression |
+| Setting                 | Default       | Description                                               |
+| ----------------------- | ------------- | --------------------------------------------------------- |
+| Idle timeout            | 10 min        | Time before idle agent sessions are cleaned up            |
+| Focused session timeout | 15 min        | Maximum time for a synchronous `session.create/send` run  |
+| Compaction threshold    | 80,000 tokens | Auto-compress history when it exceeds this size           |
+| Keep recent messages    | 20            | Number of recent messages kept verbatim after compression |
 
 ## Directory Layout
 
@@ -105,23 +105,21 @@ All data lives under `~/.stella` (configurable via `STELLA_HOME`):
 
 Only a small set of environment variables is recognized:
 
-| Variable                      | Description                                                                                                               |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `STELLA_HOME`                 | Override the home directory (default `~/.stella`)                                                                         |
-| `STELLA_DATABASE_URL`         | Use an external PostgreSQL database instead of the embedded cluster                                                       |
-| `STELLA_BLOB_S3_ENDPOINT`     | Optional S3-compatible endpoint for the legacy mutable-asset migration source and immutable session media                 |
-| `STELLA_BLOB_S3_BUCKET`       | Object-store bucket for the legacy migration source and immutable session media; set with endpoint/access/secret or unset |
-| `STELLA_BLOB_S3_ACCESS_KEY`   | Access key for that object store                                                                                          |
-| `STELLA_BLOB_S3_SECRET_KEY`   | Secret key for that object store                                                                                          |
-| `STELLA_BLOB_S3_REGION`       | Optional S3 region                                                                                                        |
-| `STELLA_BLOB_S3_USE_SSL`      | Use HTTPS for S3-compatible storage; defaults to `true`                                                                   |
-| `STELLA_VAULT_KEY`            | Master key for the [secret vault](/docs/guides/secrets-and-keys) — required for secrets, OAuth, and bearer tokens         |
-| `STELLA_DOCKER_SANDBOX_MODE`  | Required only for the `docker` sandbox backend: `host`, `bind`, or `volume`                                               |
-| `STELLA_HOME_HOST`            | Host-side path for `STELLA_HOME`; required only when `STELLA_DOCKER_SANDBOX_MODE=bind`                                    |
-| `STELLA_HOME_VOLUME`          | Docker named volume for `STELLA_HOME`; required only when `STELLA_DOCKER_SANDBOX_MODE=volume`                             |
-| `STELLA_REFLECT_CURATOR_MODE` | Lifecycle curator: `armed` (default) or non-mutating emergency-stop mode `shadow`                                         |
-
-When the full `STELLA_BLOB_S3_*` group is configured, server startup is blocked until object-only mutable assets have been verified into Principal Homes. Keep those values available and follow `stellad storage migrate-assets --help`; do not remove the S3 configuration to bypass a pending marker. The migration never deletes remote objects. After the marker is complete, mutable assets are live only in Principal Homes and remote legacy objects are not a fallback. Keep the configuration because the object store remains the authority for immutable content-addressed session media.
+| Variable                      | Description                                                                                                       |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `STELLA_HOME`                 | Override the home directory (default `~/.stella`)                                                                 |
+| `STELLA_DATABASE_URL`         | Use an external PostgreSQL database instead of the embedded cluster                                               |
+| `STELLA_BLOB_S3_ENDPOINT`     | Optional S3-compatible endpoint for immutable BlobStore data                                                      |
+| `STELLA_BLOB_S3_BUCKET`       | Bucket for immutable BlobStore data; set with endpoint/access/secret or leave all unset                           |
+| `STELLA_BLOB_S3_ACCESS_KEY`   | Access key for immutable BlobStore data                                                                           |
+| `STELLA_BLOB_S3_SECRET_KEY`   | Secret key for immutable BlobStore data                                                                           |
+| `STELLA_BLOB_S3_REGION`       | Optional S3 region                                                                                                |
+| `STELLA_BLOB_S3_USE_SSL`      | Use HTTPS for S3-compatible storage; defaults to `true`                                                           |
+| `STELLA_VAULT_KEY`            | Master key for the [secret vault](/docs/guides/secrets-and-keys) — required for secrets, OAuth, and bearer tokens |
+| `STELLA_DOCKER_SANDBOX_MODE`  | Required only for the `docker` sandbox backend: `host`, `bind`, or `volume`                                       |
+| `STELLA_HOME_HOST`            | Host-side path for `STELLA_HOME`; required only when `STELLA_DOCKER_SANDBOX_MODE=bind`                            |
+| `STELLA_HOME_VOLUME`          | Docker named volume for `STELLA_HOME`; required only when `STELLA_DOCKER_SANDBOX_MODE=volume`                     |
+| `STELLA_REFLECT_CURATOR_MODE` | Lifecycle curator: `armed` (default) or non-mutating emergency-stop mode `shadow`                                 |
 
 Structured Reflect is the only writer. Remove the obsolete `STELLA_REFLECT_MODE` variable before upgrading; the transition release rejects an explicit `legacy` value instead of silently changing behavior. Curator mode is read at server startup, so restart Stella after changing it. Invalid curator modes stop startup. See [Deployment](/docs/start-here/deployment#structured-reflect-and-curator) for operational checks and [Memory internals](/docs/development/memory-internals#structured-reflect-and-curator) for the detailed mechanism.
 

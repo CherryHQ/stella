@@ -23,6 +23,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/session"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/renderrefs"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
@@ -81,10 +82,10 @@ const (
 	// maxSessionMessageParts caps workspace reads per send while leaving room
 	// for eight images, their file markers, text, and ordinary attachments.
 	maxSessionMessageParts = 32
-	// Workspace uploads spool temporarily so Docker receives an exact
-	// ContentLength. The body allowance includes bounded multipart framing.
-	workspaceUploadMaxFileBytes      int64 = 100 << 20
-	workspaceUploadMultipartOverhead int64 = 1 << 20
+	// Multipart framing gets 1 MiB beyond the 32 MiB file ceiling enforced by
+	// session access. MaxBytesReader prevents ParseMultipartForm from spilling an
+	// unbounded request to disk.
+	maxWorkspaceUploadRequestBytes = 33 << 20
 )
 
 // lifecycleValueContext takes cancellation and deadlines from the server
@@ -188,6 +189,26 @@ func (s *Server) StopSession(w http.ResponseWriter, r *http.Request, agentID str
 		return
 	}
 	if err := s.sessionAccess.Stop(r.Context(), sessionaccess.StopInput{
+		Authority: authority,
+		AgentID:   agentID,
+		SessionID: sessionID,
+	}); err != nil {
+		s.writeSessionAccessError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) MarkSessionViewed(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "missing session ID")
+		return
+	}
+	authority, ok := s.sessionAuthority(w, r)
+	if !ok {
+		return
+	}
+	if err := s.sessionAccess.MarkViewed(r.Context(), sessionaccess.MarkViewedInput{
 		Authority: authority,
 		AgentID:   agentID,
 		SessionID: sessionID,
@@ -594,16 +615,17 @@ func detectMIME(name string) string {
 
 // sessionResponse is the HTTP representation of session-domain metadata.
 type sessionResponse struct {
-	ID         string    `json:"id"`
-	Channel    string    `json:"channel"`
-	Kind       string    `json:"kind"`
-	ProjectID  string    `json:"project_id,omitempty"`
-	Title      string    `json:"title"`
-	AgentID    string    `json:"agent_id"`
-	UserID     string    `json:"user_id"`
-	CreatedAt  time.Time `json:"created_at"`
-	LastActive time.Time `json:"last_active"`
-	Archived   bool      `json:"archived"`
+	ID             string    `json:"id"`
+	Channel        string    `json:"channel"`
+	Kind           string    `json:"kind"`
+	ProjectID      string    `json:"project_id,omitempty"`
+	Title          string    `json:"title"`
+	AgentID        string    `json:"agent_id"`
+	UserID         string    `json:"user_id"`
+	CreatedAt      time.Time `json:"created_at"`
+	LastActive     time.Time `json:"last_active"`
+	ActivityStatus string    `json:"activity_status"`
+	Archived       bool      `json:"archived"`
 }
 
 // sessionDetailResponse extends sessionResponse with resolved names.
@@ -617,16 +639,31 @@ type sessionDetailResponse struct {
 // round-tripping through the memory persistence record just to build a DTO.
 func sessionResponseFromInfo(info session.Info) sessionResponse {
 	return sessionResponse{
-		ID:         info.ID,
-		Channel:    info.Channel,
-		Kind:       info.Kind,
-		ProjectID:  info.ProjectID,
-		Title:      info.Title,
-		AgentID:    info.AgentID,
-		UserID:     info.UserID,
-		CreatedAt:  info.CreatedAt.UTC(),
-		LastActive: info.LastActive.UTC(),
-		Archived:   info.Archived,
+		ID:             info.ID,
+		Channel:        info.Channel,
+		Kind:           info.Kind,
+		ProjectID:      info.ProjectID,
+		Title:          info.Title,
+		AgentID:        info.AgentID,
+		UserID:         info.UserID,
+		CreatedAt:      info.CreatedAt.UTC(),
+		LastActive:     info.LastActive.UTC(),
+		ActivityStatus: sessionActivityStatus(info),
+		Archived:       info.Archived,
+	}
+}
+
+func sessionActivityStatus(info session.Info) string {
+	if info.LastTurnCompletedAt.IsZero() || !info.LastTurnCompletedAt.After(info.LastViewedAt) {
+		return "idle"
+	}
+	switch string(info.LastTurnResult) {
+	case "success":
+		return "success"
+	case "error":
+		return "error"
+	default:
+		return "idle"
 	}
 }
 
@@ -661,7 +698,11 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID st
 
 	resp := make([]sessionResponse, 0, len(page.Sessions))
 	for _, si := range page.Sessions {
-		resp = append(resp, sessionResponseFromInfo(si))
+		item := sessionResponseFromInfo(si)
+		if access.SessionRunning(si) {
+			item.ActivityStatus = "working"
+		}
+		resp = append(resp, item)
 	}
 	out := map[string]any{"sessions": resp}
 	if page.HasMore {
@@ -688,6 +729,9 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, agentID stri
 	resp := sessionDetailResponse{
 		sessionResponse: sessionResponseFromInfo(detail.Info),
 		AgentName:       detail.AgentName,
+	}
+	if access.SessionRunning(detail.Info) {
+		resp.ActivityStatus = "working"
 	}
 
 	// Resolve user name from the account system (best-effort display enrichment).
@@ -731,11 +775,19 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, agentID s
 	}
 
 	if err := access.UpdateTitle(r.Context(), si, title); err != nil {
+		if errors.Is(err, sessionaccess.ErrInvalid) {
+			writeError(w, http.StatusBadRequest, "title is too long")
+			return
+		}
 		s.writeSessionAccessError(w, err)
 		return
 	}
 	si.Title = title
-	writeData(w, http.StatusOK, sessionResponseFromInfo(si))
+	resp := sessionResponseFromInfo(si)
+	if access.SessionRunning(si) {
+		resp.ActivityStatus = "working"
+	}
+	writeData(w, http.StatusOK, resp)
 }
 
 func (s *Server) DeleteSession(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
@@ -925,11 +977,7 @@ func (s *Server) GetSessionWorkspace(w http.ResponseWriter, r *http.Request, age
 		listPath = *params.Path
 	}
 	depth := 2
-	if params.Depth != nil {
-		if *params.Depth <= 0 {
-			writeError(w, http.StatusBadRequest, "depth must be positive")
-			return
-		}
+	if params.Depth != nil && *params.Depth > 0 {
 		depth = *params.Depth
 	}
 	info, err := access.ListWorkspace(r.Context(), sessionaccess.WorkspaceListInput{
@@ -966,10 +1014,10 @@ func (s *Server) writeWorkspaceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, "path is a directory")
 	case errors.Is(err, sessionaccess.ErrBinary):
 		writeError(w, http.StatusBadRequest, "file appears to be binary")
+	case home.IsOutcomeUnknown(err):
+		writeError(w, http.StatusConflict, "workspace mutation outcome is unknown; inspect state before retrying")
 	case errors.Is(err, sessionaccess.ErrTooLarge):
-		writeError(w, http.StatusRequestEntityTooLarge, "file exceeds read limit")
-	case errors.Is(err, sessionaccess.ErrAlreadyExists):
-		writeError(w, http.StatusConflict, "destination already exists")
+		writeError(w, http.StatusRequestEntityTooLarge, "workspace payload exceeds limit")
 	case errors.Is(err, sessionaccess.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not found")
 	case errors.Is(err, sessionaccess.ErrForbidden), errors.Is(err, sessionaccess.ErrUnavailable):
@@ -1107,18 +1155,18 @@ func (s *Server) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, workspaceUploadMaxFileBytes+workspaceUploadMultipartOverhead)
-	defer func() {
-		if r.MultipartForm != nil {
-			_ = r.MultipartForm.RemoveAll()
-		}
-	}()
+	if err := access.AdmitWorkspaceUpload(r.Context(), agentID, sessionID); err != nil {
+		s.writeWorkspaceError(w, err)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxWorkspaceUploadRequestBytes)
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		if workspaceUploadBodyTooLarge(err) {
-			writeError(w, http.StatusRequestEntityTooLarge, "file exceeds upload limit")
-		} else {
-			writeError(w, http.StatusBadRequest, "invalid multipart form")
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeError(w, http.StatusRequestEntityTooLarge, "workspace payload exceeds limit")
+			return
 		}
+		writeError(w, http.StatusBadRequest, "invalid multipart form")
 		return
 	}
 	file, header, err := r.FormFile("file")
@@ -1126,27 +1174,13 @@ func (s *Server) UploadWorkspaceFile(w http.ResponseWriter, r *http.Request, age
 		writeError(w, http.StatusBadRequest, "missing file field")
 		return
 	}
-	if !validWorkspaceUploadSize(header.Size) {
-		writeError(w, http.StatusRequestEntityTooLarge, "file exceeds upload limit")
-		return
-	}
 	defer func() { _ = file.Close() }()
-	contentLength := header.Size
-	result, err := access.UploadWorkspacePath(r.Context(), sessionaccess.WorkspaceUploadInput{AgentID: agentID, SessionID: sessionID, Filename: header.Filename, Reader: file, ContentLength: &contentLength, Now: time.Now().UTC()})
+	result, err := access.UploadWorkspacePath(r.Context(), sessionaccess.WorkspaceUploadInput{AgentID: agentID, SessionID: sessionID, Filename: header.Filename, Reader: file, ContentLength: &header.Size, Now: time.Now()})
 	if err != nil {
 		s.writeWorkspaceError(w, err)
 		return
 	}
 	writeData(w, http.StatusCreated, result)
-}
-
-func validWorkspaceUploadSize(size int64) bool {
-	return size >= 0 && size <= workspaceUploadMaxFileBytes
-}
-
-func workspaceUploadBodyTooLarge(err error) bool {
-	var tooLarge *http.MaxBytesError
-	return errors.As(err, &tooLarge)
 }
 
 func (s *Server) GetSessionSystemPrompt(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
@@ -1175,6 +1209,8 @@ func contextItemsToAPI(items []sessionaccess.ContextItem) []apitypes.SessionCont
 			apiItem.Type = apitypes.Message
 			apiItem.Message = &apitypes.SessionContextMessage{
 				Id: item.Message.ID, Seq: item.Message.Seq, Role: item.Message.Role,
+				ActorType: apitypes.SessionContextMessageActorType(item.Message.ActorType),
+				ActorId:   textPointer(item.Message.ActorID), SourceSessionId: textPointer(item.Message.SourceSessionID),
 				EventType: item.Message.EventType, Content: item.Message.Content,
 				Timestamp: item.Message.Timestamp.UTC(), TokenCount: item.Message.TokenCount,
 			}
@@ -1244,8 +1280,10 @@ func serializeDBMessages(agentID, sessionID string, rows []sessionaccess.Message
 func serializeUserRow(agentID, sessionID string, row sessionaccess.Message) apitypes.SessionMessage {
 	message := apitypes.SessionMessage{
 		Id: row.ID, Role: apitypes.SessionMessageRoleUser,
+		ActorType: apitypes.SessionMessageActorType(row.ActorType),
 		Timestamp: row.CreatedAt.UTC(), TokenCount: row.TokenCount,
 	}
+	setSessionMessageActor(&message, row)
 	setSessionMessagePresentation(&message, agentID, sessionID, row.Content, row.Parts)
 	return message
 }
@@ -1278,6 +1316,8 @@ func serializeAssistantRows(rows []sessionaccess.Message, start int) (apitypes.S
 		// First row's id identifies the merged turn — stable across pagination
 		// regardless of how many earlier pages have been loaded.
 		Id: rows[start].ID, Role: apitypes.SessionMessageRoleAssistant, Blocks: &blocks,
+		ActorType: apitypes.SessionMessageActorType(rows[start].ActorType),
+		ActorId:   textPointer(rows[start].ActorID), SourceSessionId: textPointer(rows[start].SourceSessionID),
 		Timestamp: rows[start].CreatedAt.UTC(), TokenCount: totalTokens,
 	}, consumed
 }
@@ -1304,7 +1344,9 @@ func decodeToolCallBlock(content string) apitypes.SessionMessageBlock {
 func serializeToolRow(agentID, sessionID string, row sessionaccess.Message) apitypes.SessionMessage {
 	message := apitypes.SessionMessage{
 		Id: row.ID, Role: apitypes.SessionMessageRoleTool, Timestamp: row.CreatedAt.UTC(), TokenCount: row.TokenCount,
+		ActorType: apitypes.SessionMessageActorType(row.ActorType),
 	}
+	setSessionMessageActor(&message, row)
 	var env struct {
 		ID         string                 `json:"id"`
 		Tool       string                 `json:"tool"`
@@ -1350,6 +1392,18 @@ func serializeToolRow(agentID, sessionID string, row sessionaccess.Message) apit
 		message.References = &references
 	}
 	return message
+}
+
+func setSessionMessageActor(message *apitypes.SessionMessage, row sessionaccess.Message) {
+	message.ActorId = textPointer(row.ActorID)
+	message.SourceSessionId = textPointer(row.SourceSessionID)
+}
+
+func textPointer(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 // setSessionMessagePresentation uses durable parts as the complete visible

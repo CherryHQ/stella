@@ -311,6 +311,70 @@ func TestFeishuEnrollmentIsIdempotentAndConcurrent(t *testing.T) {
 	}
 }
 
+type blockingChannelIdentityStore struct {
+	auth.ChannelIdentityStore
+	block func()
+}
+
+func (s blockingChannelIdentityStore) GetChannelIdentityByPlatform(ctx context.Context, platform, externalID string) (auth.ChannelIdentity, error) {
+	identity, err := s.ChannelIdentityStore.GetChannelIdentityByPlatform(ctx, platform, externalID)
+	s.block()
+	return identity, err
+}
+
+type blockingChannelEnrollmentTransactioner struct {
+	store   *OIDCStore
+	checked chan<- struct{}
+	release <-chan struct{}
+	once    sync.Once
+}
+
+func (t *blockingChannelEnrollmentTransactioner) BeginAuthTx(ctx context.Context) (auth.AuthStores, func() error, func(), error) {
+	stores, commit, rollback, err := t.store.BeginAuthTx(ctx)
+	if err == nil {
+		stores.Channels = blockingChannelIdentityStore{
+			ChannelIdentityStore: stores.Channels,
+			block: func() {
+				t.once.Do(func() {
+					close(t.checked)
+					<-t.release
+				})
+			},
+		}
+	}
+	return stores, commit, rollback, err
+}
+
+func TestFeishuEnrollmentRetriesWhenPeerCommitsAfterIdentityLookup(t *testing.T) {
+	store, peer, ctx := setupEnrollment(t, nil)
+	checked := make(chan struct{})
+	release := make(chan struct{})
+	enrollment := auth.NewFeishuEnrollmentService(&blockingChannelEnrollmentTransactioner{
+		store: store, checked: checked, release: release,
+	}, nil)
+
+	result := make(chan auth.FeishuEnrollmentResult, 1)
+	errs := make(chan error, 1)
+	go func() {
+		enrolled, err := enrollment.Enroll(ctx, enrollmentInput())
+		result <- enrolled
+		errs <- err
+	}()
+
+	<-checked
+	peerResult, err := peer.Enroll(ctx, enrollmentInput())
+	close(release)
+	if err != nil {
+		t.Fatalf("peer Enroll: %v", err)
+	}
+	if err := <-errs; err != nil {
+		t.Fatalf("concurrent Enroll: %v", err)
+	}
+	if enrolled := <-result; enrolled.User.ID != peerResult.User.ID {
+		t.Fatalf("concurrent user ID = %s, want %s", enrolled.User.ID, peerResult.User.ID)
+	}
+}
+
 type blockingActiveUserStore struct {
 	auth.ActiveUserStore
 	locked  chan<- struct{}

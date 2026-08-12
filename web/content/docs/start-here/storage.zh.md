@@ -8,25 +8,24 @@ Stella 写入磁盘的所有内容都位于 `$STELLA_HOME` 下（默认为 `~/.s
 
 ## 分类速览
 
-| `$STELLA_HOME` 下的路径                                                                         | 存放内容                                     | 分类     | Kubernetes / 临时磁盘处理方式                              |
-| ----------------------------------------------------------------------------------------------- | -------------------------------------------- | -------- | ---------------------------------------------------------- |
-| `postgres/`                                                                                     | 内嵌 PostgreSQL 集群——事实来源               | 持久数据 | 持久卷**并**备份。设置 `STELLA_DATABASE_URL` 时不存在。    |
-| `users/{id}/data/`                                                                              | 用户 Principal Home：用户数据与上传文件      | 持久数据 | 持久卷**并**固定到单一副本。                               |
-| `users/group-{id}/data/`                                                                        | 群组 Principal Home：群组数据与上传文件      | 持久数据 | 同按用户 Principal 数据。                                  |
-| `users/{principal}/agents/{id}/`                                                                | 每 Principal 的 Agent Home：工作区与项目文件 | 持久数据 | 持久卷**并**固定到单一副本。                               |
-| `library/`                                                                                      | 旧版文章镜像（正被迁移进 PostgreSQL）        | 遗留     | 保留在卷上，直到回填报告缺失为零，之后可归档或删除。       |
-| `bundles/{revision}/`                                                                           | 与发行版完全一致的 builtin Skill bundle      | 派生缓存 | 从匹配的二进制重新安装；不要修改。                         |
-| `.agents/skills/`                                                                               | 遗留 Skill 清单                              | 迁移门槛 | 自定义根必须先导入或安全删除。                             |
-| `.agents/db-skills/`、`agents/{agent-id}/.agents/skills/`                                       | 窄范围的 system 与 system-Agent Skill 根     | 派生缓存 | 由 PostgreSQL 派生、加载时重新 materialize；临时磁盘即可。 |
-| `users/{principal}/data/.agents/skills/`、`users/{principal}/agents/{agent-id}/.agents/skills/` | Principal 与 Agent 的可变 Skill 镜像         | 派生缓存 | 由 PostgreSQL 派生、加载时重新 materialize；临时磁盘即可。 |
-| `bin/`                                                                                          | 内嵌工具与 `stella` CLI                      | 派生缓存 | 临时磁盘即可。启动时重新解压。                             |
-| `.mise-tools/`、`users/{id}/.mise-tools/`                                                       | 沙箱工具链                                   | 派生缓存 | 临时磁盘即可。按需重新安装。                               |
-| `pg-runtime/`                                                                                   | 下载并解压的内嵌 PostgreSQL runtime          | 派生缓存 | 临时磁盘即可。用 `stellad postgres download` 重新下载。    |
-| `users/{id}/data/.cache/`                                                                       | 每用户工具缓存                               | 派生缓存 | 临时磁盘即可。                                             |
-| `cache/sandbox-tmp/`                                                                            | Docker 沙箱临时目录                          | 临时数据 | 临时磁盘即可；启动时会删除遗留目录。                       |
-| `dumps/`                                                                                        | 收到信号时写出的诊断转储                     | 临时数据 | 临时磁盘即可。仅用于诊断。                                 |
-
-Principal Home 和 Agent Home 的文件字节都是持久数据，也是其可变文件的运行时权威。必须与 PostgreSQL 一起备份其存储。
+| `$STELLA_HOME` 下的路径                                                                         | 存放内容                                     | 分类     | Kubernetes / 临时磁盘处理方式                               |
+| ----------------------------------------------------------------------------------------------- | -------------------------------------------- | -------- | ----------------------------------------------------------- |
+| `postgres/`                                                                                     | 内嵌 PostgreSQL 集群——事实来源               | 持久数据 | 持久卷**并**备份。设置 `STELLA_DATABASE_URL` 时不存在。     |
+| `users/{id}/data/`                                                                              | 用户 Principal Home：用户数据与上传文件      | 持久数据 | 持久 POSIX 存储；单副本使用本地 `$STELLA_HOME`。            |
+| `users/group-{id}/data/`                                                                        | 群组 Principal Home：群组数据与上传文件      | 持久数据 | 同按用户 Principal 数据。                                   |
+| `users/{principal}/agents/{id}/`                                                                | 每 Principal 的 Agent Home：工作区与项目文件 | 持久数据 | 持久卷**并**固定到单一副本。不在任何地方镜像。              |
+| `library/`                                                                                      | 旧版文章镜像（正被迁移进 PostgreSQL）        | 遗留     | 保留在卷上，直到回填报告缺失为零，之后可归档或删除。        |
+| `bundles/{revision}/`                                                                           | 与发行版完全一致的 builtin Skill bundle      | 派生缓存 | 从匹配的二进制重新安装；不要修改。                          |
+| `.agents/skills/`                                                                               | 遗留 Skill 清单                              | 迁移门槛 | 自定义根必须先导入或安全删除。                              |
+| `.agents/db-skills/`、`agents/{agent-id}/.agents/skills/`                                       | 窄范围的 system 与 system-Agent Skill 根     | 派生缓存 | 由 PostgreSQL 派生、加载时重新 materialize；临时磁盘即可。  |
+| `users/{principal}/data/.agents/skills/`、`users/{principal}/agents/{agent-id}/.agents/skills/` | Principal 与 Agent 的可变 Skill 镜像         | 派生缓存 | 由 PostgreSQL 派生、加载时重新 materialize；临时磁盘即可。  |
+| `bin/`                                                                                          | 内嵌工具与 `stella` CLI                      | 派生缓存 | 临时磁盘即可。启动时重新解压。                              |
+| `.mise-tools/`、`users/{id}/.mise-tools/`                                                       | 沙箱工具链                                   | 派生缓存 | 临时磁盘即可。按需重新安装。                                |
+| `pg-runtime/`                                                                                   | 下载并解压的内嵌 PostgreSQL runtime          | 派生缓存 | 临时磁盘即可。用 `stellad postgres download` 重新下载。     |
+| `users/{id}/data/.cache/`                                                                       | 每用户工具缓存                               | 派生缓存 | 临时磁盘即可。                                              |
+| `cache/sandbox-tmp/`                                                                            | Docker 沙箱临时目录                          | 临时数据 | 临时磁盘即可；启动时会删除遗留目录。                        |
+| `runner-scratch/runner-*`                                                                       | 无用户运行使用的可丢弃工作区                 | 临时数据 | 永远不是 Home 权威；仅在 Stella 停止或已 fence 时清理遗留。 |
+| `dumps/`                                                                                        | 收到信号时写出的诊断转储                     | 临时数据 | 临时磁盘即可。仅用于诊断。                                  |
 
 ## PostgreSQL 是事实来源（持久数据）
 
@@ -37,39 +36,27 @@ Phase 1 还在 PostgreSQL 中记录了类型化 Home 的身份和生命周期元
 - **内嵌集群（默认）：** 数据位于 `$STELLA_HOME/postgres/`。该目录必须置于持久卷上并加以备份（先停止服务，或使用文件系统快照）。`pg-runtime/` 下下载的 runtime 只是程序代码，可重新获取。
 - **外部服务器（`STELLA_DATABASE_URL`）：** 数据库完全移出 `$STELLA_HOME`。用 `pg_dump` 对你的数据库进行备份。这是 Kubernetes 的推荐方案——它把最难管理的有状态目录从 pod 上移走。
 
-## 用户资产（持久 Principal Home 文件）
+## 用户资产（持久 POSIX 数据）
 
-用户上传的文件写入 `users/{id}/data/assets/`（群组为 `users/group-{id}/data/assets/`）。它们是所有者 Principal Home 中的普通持久文件。
+用户上传的文件写入 `users/{id}/data/assets/`（群组为 `users/group-{id}/data/assets/`）。这棵可变 live tree 是 Principal Home 的一部分，具有相同的持久化要求。Workspace API、渠道附件写入和 Agent mount 看到的是同一份 POSIX 字节。
 
-上传、工件分享、频道附件和项目/会话操作都使用这些 Home 文件。它们不会在对象存储中镜像、缓存、水合、恢复、回滚或删除可变资产。
-
-必须持久化并备份每个 Principal Home。如果已配置 object store，也要为不可变、内容寻址 session media 备份它。Principal Home 和 Agent Home 存储在后续 Compose 或 Kubernetes 拓扑门槛之前仍是单副本持久存储。
-
-### S3 资产迁移门槛
-
-完整的 `STELLA_BLOB_S3_*` 配置标识遗留可变资产权威时，必须先把仅存在于对象存储中的每个可变资产写入正确的用户或群组 Principal Home。迁移未完成时，启动会 fail closed；即使 bucket 为空也一样。Stella 不会删除、移动或猜测缺失数据。
-
-请按以下步骤安全解除门槛：
-
-1. 停止所有可能写入资产的旧 Stella 二进制、服务、pod 和 job。
-2. 保留原有 `STELLA_BLOB_S3_*` 值与数据库配置，并备份 bucket、PostgreSQL 和 Principal Home 存储。
-3. 运行 `stellad storage migrate-assets --help`，再按帮助执行 dry run。
-4. 执行真实迁移。命令只通过已知用户和群组身份映射 bucket key，校验文件数、字节数和 SHA-256 内容摘要，并保留全部远端对象。
-5. 仅在命令报告迁移 marker 已完成后启动 Stella。
-
-该命令可幂等重跑：若执行中断，请再次停止 writer 后重跑。目标中存在内容冲突的本地文件时，迁移会失败而不是覆盖。marker 完成后，Principal Home 是可变资产的运行时权威。遗留远端对象保持不变，但不再是运行时权威或回退来源。保留 blob store 配置：同一个对象存储仍是不可变、内容寻址 session media 的权威。
+S3 不是这棵可变树的镜像或恢复权威。受支持的升级群体从未部署 legacy mutable-asset S3 authority，因此不需要可变资产迁移或 marker。必须保留并备份持久 POSIX 存储。`STELLA_BLOB_S3_*` 仍用于独立的 immutable BlobStore 职责（例如内容寻址的 session media），但不能让 Principal Home 可恢复。
 
 ## Principal 与 Agent Home（持久数据，单副本）
 
-当前 local store 保留兼容路径：`users/{id}/data/` 和 `users/group-{id}/data/` 分别是用户和群组 Principal Home；`users/{principal}/agents/{id}/` 是每个 Principal 的 Agent Home。Agent Home 保存该 Principal 的可变工作树与项目文件。Home 文件字节不能从 PostgreSQL 或对象存储恢复。它们属于持久数据：使用持久存储并将工作负载固定到一个副本。带检查点的多副本执行属于未来工作。
+当前 local store 使用 `users/{id}/data/` 和 `users/group-{id}/data/` 作为用户和群组 Principal Home；`users/{principal}/agents/{id}/` 是每个 Principal 的 Agent Home。Agent Home 保存该 Principal 的可变工作树与项目文件。这些可变字节不会镜像到 PostgreSQL 或 S3。它们属于持久数据，必须使用持久 POSIX 存储；当前产品仅支持一个副本。
 
-这些路径是当前 local 的兼容坐标，不是 Home 身份。Home 具有稳定的 registry 元数据，包括 Store ID 和不透明 locator，因此未来的存储实现无需保留这些路径形状。
+这些确定性路径是当前单副本 POSIX 产品的存储布局。PostgreSQL owner row 授权访问，文件系统保留字节。未来副本必须挂载同一个全局共享、强一致 POSIX 命名空间并保留相同确定性布局；S3 不能替代它。
+
+Stella 仅支持一个副本和一个 POSIX `STELLA_HOME`。PostgreSQL 中的用户、群组、Agent 与分配记录仍是身份和授权权威；目录没有 PostgreSQL catalog。确定性根目录为 `users/<user-id>`、`users/group-<group-id>`、其中的 `agents/<agent-id>`，以及全局 `agents/<agent-id>`。文件系统是布局和数据权威。活跃所有者缺少根目录时会创建根及内部 scaffold；符号链接、非目录和不安全 ID 会被拒绝。主机属于受信任边界。
 
 ## 破坏性所有者删除
 
-显式破坏性删除用户、群组或 Agent 时，其 Home 会立刻被 tombstone，并 fence 本地缓存的执行；随后共享 worker 会异步且幂等地清除物理字节。这是唯一会删除 Home 的生命周期：移除 Agent 分配、移除群成员、归档 Session 和卸载 Helm 都**不会**删除 Home。
+显式破坏性删除按“进程生命周期 fence → 本地所有者 gate → 现有数据库删除事务”的顺序执行。文件字节和 inode 保留；提交后，所有者存在性检查会拒绝新的 workspace view 和 admission。全局 `agents/<agent-id>` 中的任何孤儿条目（文件、目录或符号链接）都会保留该 Agent ID；受信任主机手动删除后才允许复用。未来的多副本、S3 数据权威、generation 和分布式 lease 需要重新设计。
 
-物理清除失败时，Home 会以 `purge_failed` 状态连同审计记录保留，不会被静默丢弃；操作员必须重试。命令语法请运行 `stellad storage retry-purge --help`。
+在单个 server 进程内，一个 writer-prioritized admission barrier 防止 runner setup 与破坏性删除竞态。同步 runner 选择与 Home 解析结束后即释放 barrier，不等待 active Turn 完成。这是 single-replica 保证，不是 distributed lease。未来 multi-replica 必须在每个进程的本地 barrier 之外增加 PostgreSQL generation/lease。durable management 变更后的 best-effort runtime refresh 若失败，可能保持 stale，直到后续 reconcile。
+
+Phase 1 不包含 Home 物理清除、重试命令或 Store 迁移/切换。在 provider/filesystem 边界能够正确 fence 物理操作之前，暂时留下孤立字节比提前删除更安全。Stella 运行时不得手动删除 Home 根目录。provider/filesystem 边界之后的专用清除变更将负责在停机或完成 fence 后清理。
 
 ## 遗留文章镜像（迁移中）
 
@@ -81,7 +68,9 @@ builtin Skill 是位于 `bundles/{revision}/` 的精确发行 bundle。原生 `l
 
 Project Skill 是持久 Agent/项目工作树中的普通文件。PostgreSQL 是可变 `system`、`system_agent`、`user` 和 `user_agent` 记录的权威；`.agents/db-skills/`、`agents/{agent-id}/.agents/skills/`、`users/{principal}/data/.agents/skills/` 和 `users/{principal}/agents/{agent-id}/.agents/skills/` 是加载时重新 materialize 的派生镜像。这里的 `{principal}` 是用户 ID 或 `group-{id}`。Phase 1 注册类型化 Home 身份，但不会切换可变 Skill 内容的权威。
 
-升级前，请使用旧的可工作二进制，在 **设置 → 技能** 中将遗留顶层 `.agents/skills/` 下的每个自定义 Skill 根导入为全局（`system`）Skill。其他残留路径应先备份、验证后删除。新版本启动会列出每个阻塞路径并停止，不会修改或删除任何内容。当前发行 manifest 所拥有的路径即使内容或模式陈旧也只是惰性数据；其他每个 Skill 根或残留路径都会阻塞启动。
+升级前，请使用旧的可工作二进制，将遗留顶层 `.agents/skills/` 下的每个自定义 Skill 根导入为全局（`system`）Skill：旧版入口为 **设置 → 技能**，新版入口为 **管理控制台 → 部署资源 → 全局技能**。其他残留路径应先备份、验证后删除。新版本启动会列出每个阻塞路径并停止，不会修改或删除任何内容。当前发行 manifest 所拥有的路径即使内容或模式陈旧也只是惰性数据；其他每个 Skill 根或残留路径都会阻塞启动。
+
+降级前，请重新启用每个已禁用的 Skill，并清除所有悬空的禁用引用。旧版二进制可能忽略 AgentSkillPolicy v1，并在普通 Agent 编辑时覆盖它。混合版本部署中的 Skill 启用状态只是产品偏好设置，不是安全保证或文件系统访问控制。
 
 这些目录会自动重建，可置于临时磁盘上：
 
@@ -97,3 +86,5 @@ Project Skill 是持久 Agent/项目工作树中的普通文件。PostgreSQL 是
 `dumps/` 保存进程收到调试信号时写出的诊断转储。Stella 从不回读它，可安全丢弃。
 
 `cache/sandbox-tmp/` 为 Docker 沙箱会话提供后端目录，属于临时空间。若存在遗留的 `stella.db` 文件，它仅被一次性的 SQLite 到 PostgreSQL 迁移工具读取，运行中的服务不会触碰它。
+
+`runner-scratch/` 是由受信任主机拥有的结构命名空间，其中保存无用户运行使用的可丢弃工作区。正常关闭 runner 或构造失败时会尽力清理，但进程崩溃或受信任主机篡改仍可能留下子目录。隔离型 provider 只挂载精确的 `runner-*` 子目录，从不挂载结构父目录。Scratch 不是 Principal Home 或 Agent Home，也永远不是持久权威。操作员只能在 Stella 已停止或相关消费者已 fence 时清理遗留目录。

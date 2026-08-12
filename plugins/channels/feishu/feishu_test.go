@@ -1040,18 +1040,10 @@ func testStringPtr(v string) *string { return &v }
 func testBoolPtr(v bool) *bool { return &v }
 
 type mockHandler struct {
-	handleIncomingFn func(context.Context, channel.IncomingMessage, string, string) (string, bool, *channel.ChatStream, error)
-	admitAssetSaveFn func(context.Context, channel.IncomingMessage) error
-	saveAssetFn      func(context.Context, channel.IncomingMessage, string, []byte) (string, error)
-	models           []channel.ModelOption
-	switchErr        error
-}
-
-func (m *mockHandler) AdmitAssetSave(ctx context.Context, msg channel.IncomingMessage) error {
-	if m.admitAssetSaveFn != nil {
-		return m.admitAssetSaveFn(ctx, msg)
-	}
-	return nil
+	handleIncomingFn  func(context.Context, channel.IncomingMessage, string, string) (string, bool, *channel.ChatStream, error)
+	resolveUserRootFn func(context.Context, channel.IncomingMessage) (string, error)
+	models            []channel.ModelOption
+	switchErr         error
 }
 
 func (m *mockHandler) HandleIncoming(ctx context.Context, msg channel.IncomingMessage, cmd, args string) (string, bool, *channel.ChatStream, error) {
@@ -1069,11 +1061,12 @@ func (m *mockHandler) SwitchAgent(_ context.Context, _ channel.IncomingMessage, 
 	return nil
 }
 
-func (m *mockHandler) SaveAsset(ctx context.Context, msg channel.IncomingMessage, filename string, data []byte) (string, error) {
-	if m.saveAssetFn != nil {
-		return m.saveAssetFn(ctx, msg, filename, data)
+func (m *mockHandler) AdmitAssetSave(ctx context.Context, msg channel.IncomingMessage) error {
+	if m.resolveUserRootFn != nil {
+		_, err := m.resolveUserRootFn(ctx, msg)
+		return err
 	}
-	return "", fmt.Errorf("asset ingress not configured")
+	return fmt.Errorf("asset save admission not configured")
 }
 
 func (m *mockHandler) ListModels() []channel.ModelOption {

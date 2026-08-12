@@ -2,12 +2,10 @@ package blob_test
 
 // Architecture boundary tripwire for #709 (stack 4 of #703).
 //
-// The blob package no longer exposes a process-global store: blob.Default /
-// blob.SetDefault / blob.ResetDefaultForTest were deleted when the authoritative
-// asset service (internal/asset) took ownership of durable-write, local
-// materialization, restore, move, delete, and cold-pod hydration. Raw blob
-// storage is now injected only into asset.Store; transports and channel plugins
-// receive narrow ports (server.Deps.Assets, channel.AssetSaver).
+// The blob package exposes no process-global store: blob.Default / blob.SetDefault
+// / blob.ResetDefaultForTest remain deleted. Raw blob storage is injected into
+// immutable domain services such as session media and library raw content;
+// mutable workspace and user-data consumers use Home rooted POSIX capabilities.
 //
 // This guard keeps the global deleted: it walks the whole module and fails on any
 // production call to blob.Default / blob.SetDefault. The symbols are gone, so such
@@ -104,7 +102,7 @@ func TestNoBlobProcessGlobal(t *testing.T) {
 		ast.Inspect(f, func(n ast.Node) bool {
 			if call, ok := n.(*ast.CallExpr); ok && isBlobDefaultCall(call, local) {
 				t.Errorf("%s: production code calls a blob process-global (Default/SetDefault/ResetDefaultForTest); "+
-					"the global was deleted in #709 — inject an asset.Store or a narrow asset port instead", rel)
+					"inject the blob store into the owning immutable domain instead", rel)
 			}
 			return true
 		})

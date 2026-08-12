@@ -125,6 +125,24 @@ func (t *tracedProvider) Append(ctx context.Context, session Session, msgs ...ai
 	return err
 }
 
+// AppendInboxInput preserves the atomic durable-inbox capability through the
+// tracing layer. Callers must inspect Unwrap first: this method exists on every
+// traced provider so a wrapper-only type assertion is not a capability check.
+func (t *tracedProvider) AppendInboxInput(ctx context.Context, session Session, inboxID string, msg ai.Message) error {
+	appender, ok := t.inner.(InboxAppender)
+	if !ok {
+		return errCapabilityNotSupported("InboxAppender")
+	}
+	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpAppend, SessionID: session.ID}
+	ctx, start := t.begin(ctx, hctx)
+	err := appender.AppendInboxInput(ctx, session, inboxID, msg)
+	hctx.Error = err
+	hctx.MessageCount = 1
+	hctx.Detail = formatMessages("appended inbox input", []ai.Message{msg})
+	t.finish(ctx, start, hctx)
+	return err
+}
+
 func (t *tracedProvider) Assemble(ctx context.Context, session Session, budget, freshTail int) ([]ai.Message, error) {
 	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpAssemble, SessionID: session.ID}
 	ctx, start := t.begin(ctx, hctx)
@@ -479,6 +497,33 @@ func (t *tracedProvider) CommitGroupCursor(ctx context.Context, session Session,
 		return nil
 	}
 	return committer.CommitGroupCursor(ctx, session, triggerSeq)
+}
+
+// Session activity is durable session metadata rather than memory content, so
+// the tracing wrapper preserves the optional capability without emitting a
+// memory hook for each turn-state write.
+func (t *tracedProvider) MarkSessionTurnStarted(ctx context.Context, session Session) (bool, error) {
+	activity, ok := t.inner.(SessionActivityStore)
+	if !ok {
+		return false, errCapabilityNotSupported("SessionActivityStore")
+	}
+	return activity.MarkSessionTurnStarted(ctx, session)
+}
+
+func (t *tracedProvider) MarkSessionTurnCompleted(ctx context.Context, session Session, result SessionTurnResult) (bool, error) {
+	activity, ok := t.inner.(SessionActivityStore)
+	if !ok {
+		return false, errCapabilityNotSupported("SessionActivityStore")
+	}
+	return activity.MarkSessionTurnCompleted(ctx, session, result)
+}
+
+func (t *tracedProvider) MarkSessionViewed(ctx context.Context, session Session) (bool, error) {
+	activity, ok := t.inner.(SessionActivityStore)
+	if !ok {
+		return false, errCapabilityNotSupported("SessionActivityStore")
+	}
+	return activity.MarkSessionViewed(ctx, session)
 }
 
 func (t *tracedProvider) LoadInfo(ctx context.Context, sessionID string) (SessionInfo, error) {

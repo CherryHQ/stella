@@ -10,10 +10,11 @@ import (
 	"strings"
 )
 
-// Store is a low-level object-store port keyed by validated slash paths. It is
-// used by immutable session media and by the read-only legacy migration source;
-// runtime mutable user assets are owned by Home. There is no process-global
-// default: composition injects the selected implementation.
+// Store is the low-level object-store port for immutable blob-backed domains.
+// Domain services own their keys and integrity rules; mutable workspace and
+// user-data paths never use this interface. There is deliberately no
+// process-global default: composition roots inject a Store into narrow domain
+// services such as immutable session media and library raw content.
 type Store interface {
 	Put(ctx context.Context, key string, r io.Reader) error
 	Open(ctx context.Context, key string) (io.ReadCloser, error)
@@ -23,6 +24,15 @@ type Store interface {
 	// (traversal/absolute rejected). A prefix pointing at nothing yields an
 	// empty slice, not an error.
 	List(ctx context.Context, prefix string) ([]string, error)
+}
+
+// KeyForPath returns the slash-separated key for abs relative to stellaHome.
+func KeyForPath(stellaHome, abs string) (string, error) {
+	rel, err := filepath.Rel(stellaHome, abs)
+	if err != nil {
+		return "", err
+	}
+	return ValidateKey(filepath.ToSlash(rel))
 }
 
 // ValidateKey rejects absolute and traversal keys while preserving slash paths.

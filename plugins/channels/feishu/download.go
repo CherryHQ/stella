@@ -6,6 +6,8 @@ import (
 	"net/http"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
+
+	"github.com/CherryHQ/stella/pkg/channel"
 )
 
 // maxImageBytes caps a single downloaded image. base64-encoding holds ~1.33x of
@@ -76,16 +78,12 @@ func (b *Bot) downloadFile(messageID, fileKey string) ([]byte, error) {
 		defer func() { _ = closer.Close() }()
 	}
 
-	data, err := io.ReadAll(resp.File)
+	data, err := io.ReadAll(io.LimitReader(resp.File, channel.MaxInboundAttachmentBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read file: %w", err)
 	}
-	return data, nil
-}
-
-func (b *Bot) fetchFile(messageID, fileKey string) ([]byte, error) {
-	if b.downloadFileFn != nil {
-		return b.downloadFileFn(messageID, fileKey)
+	if len(data) > channel.MaxInboundAttachmentBytes {
+		return nil, fmt.Errorf("file exceeds %d bytes", channel.MaxInboundAttachmentBytes)
 	}
-	return b.downloadFile(messageID, fileKey)
+	return data, nil
 }

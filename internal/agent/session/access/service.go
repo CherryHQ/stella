@@ -3,7 +3,7 @@
 // materialization, and the policy enforcement point for those resources.
 //
 // Transport code passes a trusted authz.Authority and typed input; it never
-// receives a sqlc query handle, memory.SessionManager, config.Store, or media
+// receives a sqlc query handle, memory.SessionManager, config.Store, or asset
 // store. Session and Workspace decisions are direct, domain-owned rules; every
 // Agent gate is delegated to the Agent PEP so those rules live in one place.
 package access
@@ -19,6 +19,7 @@ import (
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
+	sessioninbox "github.com/CherryHQ/stella/internal/agent/session/inbox"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
@@ -39,13 +40,14 @@ var (
 type Service struct {
 	registry *agentsession.Registry
 	memory   memory.SessionManager
+	searcher memory.Searcher
 	q        *sqlc.Queries
 	store    config.Store
 	agents   *agentaccess.Service
-	media    asset.SessionMediaStore
+	assets   *asset.Store
 	runtime  RuntimeManager
 	prompts  SystemPromptBuilder
-	homes    home.WorkspaceViewer
+	homes    home.RootOpener
 }
 
 type Option func(*Service)
@@ -54,16 +56,20 @@ func WithSystemPromptBuilder(builder SystemPromptBuilder) Option {
 	return func(s *Service) { s.prompts = builder }
 }
 
-func WithHomeWorkspace(viewer home.WorkspaceViewer) Option {
-	return func(s *Service) { s.homes = viewer }
+func WithHomeWorkspace(opener home.RootOpener) Option {
+	return func(s *Service) { s.homes = opener }
 }
 
 // NewService constructs the only Session/Workspace PEP. The registry remains the
 // canonical lifecycle owner; this service owns its policy-scoped use and routes
 // every Agent decision through the shared Agent PEP.
-func NewService(mem memory.Provider, db sqlc.DBTX, store config.Store, media asset.SessionMediaStore, agents *agentaccess.Service, opts ...Option) (*Service, error) {
-	if mem == nil || db == nil || store == nil || media == nil || agents == nil {
+func NewService(mem memory.Provider, db sqlc.DBTX, store config.Store, assets *asset.Store, agents *agentaccess.Service, opts ...Option) (*Service, error) {
+	if mem == nil || db == nil || store == nil || assets == nil || agents == nil {
 		return nil, fmt.Errorf("session access: missing dependency")
+	}
+	inner := memory.Unwrap(mem)
+	if _, ok := inner.(memory.SessionManager); !ok {
+		return nil, fmt.Errorf("session access: memory provider does not implement SessionManager")
 	}
 	sm, ok := mem.(memory.SessionManager)
 	if !ok {
@@ -73,7 +79,11 @@ func NewService(mem memory.Provider, db sqlc.DBTX, store config.Store, media ass
 	if err != nil {
 		return nil, fmt.Errorf("session access: registry: %w", err)
 	}
-	svc := &Service{registry: registry, memory: sm, q: sqlc.New(db), store: store, agents: agents, media: media}
+	var searcher memory.Searcher
+	if _, ok := inner.(memory.Searcher); ok {
+		searcher, _ = mem.(memory.Searcher)
+	}
+	svc := &Service{registry: registry, memory: sm, searcher: searcher, q: sqlc.New(db), store: store, agents: agents, assets: assets}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(svc)
@@ -117,6 +127,64 @@ func (s *Service) Begin(_ context.Context, authority authz.Authority) (*Access, 
 	return &Access{svc: s, authority: authority}, nil
 }
 
+// ResolveInboxDelivery freshly authorizes both endpoints of one recovered
+// Agent-originated input. It returns only the target scope; recovery remains
+// append-only and cannot reach a runtime through this interface.
+func (s *Service) ResolveInboxDelivery(ctx context.Context, sourceSessionID, targetSessionID, actorID string) (agentsession.Info, error) {
+	if sourceSessionID == "" || targetSessionID == "" || sourceSessionID == targetSessionID || actorID == "" {
+		return agentsession.Info{}, sessioninbox.ErrTargetUnavailable
+	}
+	sourceFacts, err := s.q.GetConversationForSessionAccess(ctx, sourceSessionID)
+	if err != nil {
+		return agentsession.Info{}, inboxRecoveryLookupError("source", err)
+	}
+	targetFacts, err := s.q.GetConversationForSessionAccess(ctx, targetSessionID)
+	if err != nil {
+		return agentsession.Info{}, inboxRecoveryLookupError("target", err)
+	}
+	if sourceFacts.Archived || targetFacts.Archived || !sourceFacts.UserID.Valid || !sourceFacts.AgentID.Valid || !targetFacts.UserID.Valid || !targetFacts.AgentID.Valid ||
+		sourceFacts.UserID.String != targetFacts.UserID.String || sourceFacts.AgentID.String != actorID || targetFacts.AgentID.String != actorID {
+		return agentsession.Info{}, sessioninbox.ErrTargetUnavailable
+	}
+	authority, err := agentaccess.WorkerAgentAuthority(sourceFacts.UserID.String, actorID)
+	if err != nil {
+		return agentsession.Info{}, sessioninbox.ErrTargetUnavailable
+	}
+	access, err := s.Begin(ctx, authority)
+	if err != nil {
+		return agentsession.Info{}, sessioninbox.ErrTargetUnavailable
+	}
+	source, err := access.Use(ctx, actorID, sourceSessionID)
+	if err != nil {
+		return agentsession.Info{}, inboxRecoveryAccessError("source", err)
+	}
+	target, err := access.Use(ctx, actorID, targetSessionID)
+	if err != nil {
+		return agentsession.Info{}, inboxRecoveryAccessError("target", err)
+	}
+	kind := agentsession.Kind(target.Kind)
+	if source.Archived || target.Archived || source.GuestID != "" || target.GuestID != "" || source.GroupID != "" || target.GroupID != "" ||
+		source.UserID != target.UserID || source.AgentID != actorID || target.AgentID != actorID ||
+		(kind != agentsession.KindMain && kind != agentsession.KindChat && kind != agentsession.KindDelegate) {
+		return agentsession.Info{}, sessioninbox.ErrTargetUnavailable
+	}
+	return target, nil
+}
+
+func inboxRecoveryLookupError(endpoint string, err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("%w: %s Session", sessioninbox.ErrTargetUnavailable, endpoint)
+	}
+	return fmt.Errorf("%w: recover %s Session facts: %w", ErrUnavailable, endpoint, err)
+}
+
+func inboxRecoveryAccessError(endpoint string, err error) error {
+	if errors.Is(err, ErrForbidden) || errors.Is(err, ErrNotFound) {
+		return fmt.Errorf("%w: %s Session", sessioninbox.ErrTargetUnavailable, endpoint)
+	}
+	return err
+}
+
 // Read resolves a routed session and authorizes reading it.
 func (a *Access) Read(ctx context.Context, agentID, sessionID string) (agentsession.Info, error) {
 	return a.session(ctx, agentID, sessionID, authz.ActionRead)
@@ -143,30 +211,6 @@ func (a *Access) Detail(ctx context.Context, agentID, sessionID string) (Detail,
 		return Detail{}, fmt.Errorf("%w: get session agent: %w", ErrUnavailable, err)
 	}
 	return Detail{Info: info, AgentName: agent.Name}, nil
-}
-
-// ProjectRoot authorizes the referenced session before resolving its project.
-// Callers that merely use a session ID as optional context therefore cannot
-// bypass session visibility through project-scoped features such as skills.
-func (a *Access) ProjectRoot(ctx context.Context, agentID string, sessionID *string) (string, error) {
-	if sessionID == nil || *sessionID == "" {
-		return "", nil
-	}
-	info, err := a.Read(ctx, agentID, *sessionID)
-	if err != nil {
-		return "", err
-	}
-	if info.ProjectID == "" {
-		return "", nil
-	}
-	project, err := a.svc.q.GetProject(ctx, sqlc.GetProjectParams{ID: info.ProjectID, UserID: info.UserID})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("%w: get session project: %w", ErrUnavailable, err)
-	}
-	return project.BaseDir, nil
 }
 
 // Use resolves a routed session and authorizes a turn on it.
@@ -464,6 +508,9 @@ func (a *Access) ListPage(ctx context.Context, agentID string, opts agentsession
 
 // UpdateTitle persists a title after Write has authorized the exact session.
 func (a *Access) UpdateTitle(ctx context.Context, info agentsession.Info, title string) error {
+	if err := agentsession.ValidateTitle(title); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
 	if err := a.svc.q.UpdateConversationTitleBySessionID(ctx, sqlc.UpdateConversationTitleBySessionIDParams{
 		Title: pgtype.Text{String: title, Valid: true}, SessionID: info.ID,
 		UserID: pgtype.Text{String: info.UserID, Valid: true}, AgentID: pgtype.Text{String: info.AgentID, Valid: true},

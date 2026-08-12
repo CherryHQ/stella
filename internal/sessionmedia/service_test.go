@@ -21,6 +21,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/vision"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -32,7 +33,7 @@ func TestMain(m *testing.M) { dbtest.Main(m) }
 func TestPipelineEnrichAndLoadRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
-	assets, err := asset.NewStore(t.TempDir(), nil)
+	assets, err := asset.NewStore(t.TempDir(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +105,7 @@ func TestPersistDeduplicatesPerUserAndSeparatesUsers(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	home := t.TempDir()
-	assets, err := asset.NewStore(home, nil)
+	assets, err := asset.NewStore(home, nil, nil)
 	if err != nil {
 		t.Fatalf("new asset store: %v", err)
 	}
@@ -170,7 +171,7 @@ func TestPersistDeduplicatesPerUserAndSeparatesUsers(t *testing.T) {
 func TestLoadIsUserScopedAndVerifiesImmutableBytes(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
-	assets, err := asset.NewStore(t.TempDir(), nil)
+	assets, err := asset.NewStore(t.TempDir(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +205,7 @@ func TestLoadIsUserScopedAndVerifiesImmutableBytes(t *testing.T) {
 func TestLoadPreparesProviderPayloadWithoutMutatingStoredOriginal(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
-	assets, err := asset.NewStore(t.TempDir(), nil)
+	assets, err := asset.NewStore(t.TempDir(), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +273,7 @@ func TestSessionScopedMediaLookupAndPartBatch(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	q := sqlc.New(db)
-	assets, err := asset.NewStore(t.TempDir(), nil)
+	assets, err := asset.NewStore(t.TempDir(), nil, nil)
 	if err != nil {
 		t.Fatalf("new asset store: %v", err)
 	}
@@ -301,8 +302,8 @@ func TestSessionScopedMediaLookupAndPartBatch(t *testing.T) {
 	}
 	messageID := uuid.NewString()
 	if _, err := db.Exec(ctx, `
-		INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count)
-		VALUES ($1, $2, 1, 'user', 'text', 'baseline text', 2)`, messageID, conversationID); err != nil {
+		INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, actor_type)
+		VALUES ($1, $2, 1, 'user', 'text', 'baseline text', 2, $3)`, messageID, conversationID, eventlog.ActorHuman); err != nil {
 		t.Fatalf("seed message: %v", err)
 	}
 	if _, err := q.CreateMessagePart(ctx, sqlc.CreateMessagePartParams{

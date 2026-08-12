@@ -1,10 +1,12 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   Bot,
   ChevronDown,
   ChevronRight,
+  CircleAlert,
+  CircleCheck,
   Folder,
   FolderPlus,
   List,
@@ -26,6 +28,7 @@ import {
   deleteProject as sdkDeleteProject,
   deleteSession as sdkDeleteSession,
   getSessionWorkspace,
+  markSessionViewed as sdkMarkSessionViewed,
   updateSession as sdkUpdateSession,
 } from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
@@ -35,11 +38,10 @@ import { cn } from "@/lib/utils";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import { goalCountsOptions } from "@/lib/queries/goals";
 import {
-  agentLevelChats,
+  agentLevelThreads,
+  allThreadSessionsQueryOptions,
   mainSessionQueryOptions,
-  projectSessionsQueryOptions,
-  sessionsInfiniteQueryOptions,
-  sortedChats,
+  sortedThreads,
 } from "@/lib/queries/sessions";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { groupsQueryOptions, groupMembersQueryOptions } from "@/lib/queries/groups";
@@ -47,6 +49,7 @@ import { inboxQueryOptions } from "@/lib/queries/inbox";
 import { sessionDisplayTitle } from "@/lib/session-title";
 import { SidebarItem, SidebarSection } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Dialog,
   DialogDescription,
@@ -71,6 +74,58 @@ import { CreateGroupDialog } from "@/features/groups/CreateGroupDialog";
 const RECENT_THREAD_PAGE = 5;
 /** How many threads are inlined under the project the URL points at. */
 const PROJECT_THREAD_LIMIT = 5;
+
+function SessionActivityIcon({ status }: { status: Session["activity_status"] }) {
+  const { t } = useI18n();
+  if (status === "working") {
+    return (
+      <span
+        aria-label={t("sessions.sidebar.working")}
+        className="inline-flex shrink-0 text-info"
+        role="status"
+        title={t("sessions.sidebar.working")}
+      >
+        <Spinner aria-hidden="true" className="size-4" role="presentation" />
+      </span>
+    );
+  }
+  if (status === "success") {
+    return (
+      <span
+        aria-label={t("sessions.sidebar.success")}
+        className="inline-flex shrink-0 text-success motion-safe:animate-pulse"
+        role="status"
+        title={t("sessions.sidebar.success")}
+      >
+        <CircleCheck aria-hidden="true" className="size-4" />
+      </span>
+    );
+  }
+  if (status === "error") {
+    return (
+      <span
+        aria-label={t("sessions.sidebar.error")}
+        className="inline-flex shrink-0 text-destructive-foreground motion-safe:animate-pulse"
+        role="status"
+        title={t("sessions.sidebar.error")}
+      >
+        <CircleAlert aria-hidden="true" className="size-4" />
+      </span>
+    );
+  }
+  return null;
+}
+
+function SessionRowIcon({ session, idle }: { session: Session | null; idle: ReactNode }) {
+  if (session?.activity_status && session.activity_status !== "idle") {
+    return <SessionActivityIcon status={session.activity_status} />;
+  }
+  return idle;
+}
+
+function SessionMeta({ session }: { session: Session }) {
+  return <time className="font-mono text-xs">{relativeTime(session.last_active)}</time>;
+}
 
 /**
  * An icon action inside a sidebar row. SidebarItem already renders the row as a
@@ -147,11 +202,13 @@ function FolderTree({
   sessionId,
   selected,
   onSelect,
+  onRootResolved,
 }: {
   agentId: string;
   sessionId: string;
   selected: string;
   onSelect: (path: string) => void;
+  onRootResolved: (root: string) => void;
 }) {
   const { t } = useI18n();
   const [dirs, setDirs] = useState<DirEntry[]>([]);
@@ -169,6 +226,7 @@ function FolderTree({
       ({ data }) => {
         if (cancelled) return;
         setDirs(parseDirs(data.paths));
+        if (data.root) onRootResolved(data.root);
         setLoading(false);
       },
       () => {
@@ -178,7 +236,7 @@ function FolderTree({
     return () => {
       cancelled = true;
     };
-  }, [agentId, sessionId]);
+  }, [agentId, sessionId, onRootResolved]);
 
   if (loading) {
     return <p className="px-2 py-3 text-xs text-muted-foreground">{t("common.loading")}</p>;
@@ -255,6 +313,7 @@ function CreateProjectDialog({
   onClose: () => void;
 }) {
   const { t } = useI18n();
+  const [root, setRoot] = useState("");
   const [selectedDir, setSelectedDir] = useState("");
   const [name, setName] = useState("");
   const [showLocation, setShowLocation] = useState(false);
@@ -270,7 +329,7 @@ function CreateProjectDialog({
   const relDir = custom ? selectedDir : segment;
   const folderBasename = selectedDir.split("/").pop() ?? "";
   const effectiveName = custom ? name.trim() || folderBasename : name.trim();
-  const canSubmit = !!relDir && !!effectiveName && !submitting;
+  const canSubmit = !!root && !!relDir && !!effectiveName && !submitting;
 
   const submit = useCallback(async () => {
     if (!canSubmit) return;
@@ -279,7 +338,7 @@ function CreateProjectDialog({
     try {
       await createProject({
         path: { agentId },
-        body: { name: effectiveName, path: relDir },
+        body: { name: effectiveName, base_dir: relDir || "." },
         throwOnError: true,
       });
       onCreated();
@@ -287,7 +346,7 @@ function CreateProjectDialog({
       setError(err instanceof Error ? err.message : "Failed to create project");
       setSubmitting(false);
     }
-  }, [agentId, canSubmit, effectiveName, onCreated, relDir]);
+  }, [agentId, canSubmit, effectiveName, onCreated, relDir, root]);
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -337,6 +396,7 @@ function CreateProjectDialog({
                     sessionId={sessionId}
                     selected={selectedDir}
                     onSelect={setSelectedDir}
+                    onRootResolved={setRoot}
                   />
                 </div>
               </CollapsibleContent>
@@ -523,6 +583,7 @@ function AgentNode({
   onNavigate: () => void;
 }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const queryClient = useQueryClient();
   const { data: mainSession = null } = useQuery({
     ...mainSessionQueryOptions(target.id),
     enabled: expanded,
@@ -533,6 +594,19 @@ function AgentNode({
     expanded &&
     (pathname === `/agents/${target.id}` || (!!mainSession && activeSessionId === mainSession.id));
 
+  const openAgent = useCallback(() => {
+    onNavigate();
+    if (mainSession?.activity_status !== "success" && mainSession?.activity_status !== "error") {
+      return;
+    }
+    void sdkMarkSessionViewed({
+      path: { agentId: target.id, sessionId: mainSession.id },
+      throwOnError: true,
+    })
+      .then(() => queryClient.invalidateQueries({ queryKey: ["sessions", target.id] }))
+      .catch((error) => console.error("[session viewed]", error));
+  }, [mainSession, onNavigate, queryClient, target.id]);
+
   return (
     <div className="min-w-0">
       <SidebarItem
@@ -541,12 +615,17 @@ function AgentNode({
         active={active}
         emphasized={expanded && !active}
         icon={
-          <span
-            className="grid size-6 place-items-center rounded-full text-xs font-semibold text-primary-foreground"
-            style={getAgentAvatarStyle(target.id, target.colorIndex)}
-          >
-            {target.label[0]?.toUpperCase()}
-          </span>
+          <SessionRowIcon
+            session={mainSession}
+            idle={
+              <span
+                className="grid size-6 place-items-center rounded-full text-xs font-semibold text-primary-foreground"
+                style={getAgentAvatarStyle(target.id, target.colorIndex)}
+              >
+                {target.label[0]?.toUpperCase()}
+              </span>
+            }
+          />
         }
         label={target.label}
         badge={
@@ -557,13 +636,15 @@ function AgentNode({
           ) : undefined
         }
         meta={
-          target.updatedAt ? (
+          mainSession ? (
+            <SessionMeta session={mainSession} />
+          ) : target.updatedAt ? (
             <span className="font-mono text-xs">{relativeTime(target.updatedAt)}</span>
           ) : undefined
         }
         to="/agents/$agentId"
         params={{ agentId: target.id }}
-        onClick={onNavigate}
+        onClick={openAgent}
       />
       {expanded && <AgentBranch agentId={target.id} onNavigate={onNavigate} />}
     </div>
@@ -589,7 +670,10 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
   const { data: mainSession = null } = useQuery(mainSessionQueryOptions(agentId));
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
   const { data: goalCounts } = useQuery(goalCountsOptions(agentId));
-  const chatsQuery = useInfiniteQuery(sessionsInfiniteQueryOptions(agentId, "chat"));
+  const threadsQuery = useQuery({
+    ...allThreadSessionsQueryOptions(agentId),
+    refetchInterval: 3000,
+  });
 
   const activeSessionId = pathname.match(/\/sessions\/([^/]+)/)?.[1] ?? "";
   const activeProjectId = pathname.match(/\/projects\/([^/]+)/)?.[1] ?? "";
@@ -600,19 +684,22 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
     pathname.includes(`/agents/${agentId}/workflows`);
   const onProfile = pathname === `/agents/${agentId}/profile`;
 
-  const projectSessions = useQuery(projectSessionsQueryOptions(agentId, activeProjectId));
+  const projectSessions = useQuery({
+    ...allThreadSessionsQueryOptions(agentId, !!activeProjectId, activeProjectId),
+    refetchInterval: 3000,
+  });
 
-  // "main" is the pinned conversation and scheduler/task/delegate sessions are
-  // machine-owned; recent only ever lists what the user started by hand, and
-  // only at agent level — a project thread's home is its project.
+  // "main" is pinned and scheduler/task sessions belong to Work. Delegate
+  // sessions created through the Session tool remain ordinary discoverable
+  // conversations; a project chat's home is still its project.
   const recentThreads = useMemo(
-    () => agentLevelChats(chatsQuery.data?.pages.flatMap((page) => page.sessions) ?? []),
-    [chatsQuery.data],
+    () => agentLevelThreads(threadsQuery.data ?? []),
+    [threadsQuery.data],
   );
   // Only the project the URL points at gets its threads inlined — every other
   // project stays a single row so the section keeps its flat shape.
   const activeProjectThreads = useMemo(
-    () => sortedChats(projectSessions.data ?? []).slice(0, PROJECT_THREAD_LIMIT),
+    () => sortedThreads(projectSessions.data ?? []).slice(0, PROJECT_THREAD_LIMIT),
     [projectSessions.data],
   );
 
@@ -626,6 +713,20 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
   const refreshSessions = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ["sessions", agentId] });
   }, [agentId, queryClient]);
+
+  const openSession = useCallback(
+    (session: Session) => {
+      onNavigate();
+      if (session.activity_status !== "success" && session.activity_status !== "error") return;
+      void sdkMarkSessionViewed({
+        path: { agentId, sessionId: session.id },
+        throwOnError: true,
+      })
+        .then(() => queryClient.invalidateQueries({ queryKey: ["sessions", agentId] }))
+        .catch((error) => console.error("[session viewed]", error));
+    },
+    [agentId, onNavigate, queryClient],
+  );
 
   const createChat = useCallback(async () => {
     const { data } = await sdkCreateSession({
@@ -804,14 +905,17 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
                   <SidebarItem
                     key={session.id}
                     active={activeSessionId === session.id}
-                    icon={<MessageSquare className="size-4" />}
-                    label={sessionDisplayTitle(session.title, t("sessions.untitled"))}
-                    meta={
-                      <time className="font-mono text-xs">{relativeTime(session.last_active)}</time>
+                    icon={
+                      <SessionRowIcon
+                        session={session}
+                        idle={<MessageSquare className="size-4" />}
+                      />
                     }
+                    label={sessionDisplayTitle(session.title, t("sessions.untitled"))}
+                    meta={<SessionMeta session={session} />}
                     to="/agents/$agentId/projects/$projectId/sessions/$sessionId"
                     params={{ agentId, projectId: project.id, sessionId: session.id }}
-                    onClick={onNavigate}
+                    onClick={() => openSession(session)}
                   />
                 ))}
               </div>
@@ -855,7 +959,9 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
                 key={session.id}
                 active={activeSessionId === session.id}
                 className="group/chat"
-                icon={<MessageSquare className="size-4" />}
+                icon={
+                  <SessionRowIcon session={session} idle={<MessageSquare className="size-4" />} />
+                }
                 label={
                   editingSessionId === session.id ? (
                     <Input
@@ -884,9 +990,7 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
                     label
                   )
                 }
-                meta={
-                  <time className="font-mono text-xs">{relativeTime(session.last_active)}</time>
-                }
+                meta={<SessionMeta session={session} />}
                 trailing={
                   editingSessionId === session.id ? undefined : (
                     <DropdownMenu>
@@ -934,23 +1038,15 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
                 }
                 to="/agents/$agentId/sessions/$sessionId"
                 params={{ agentId, sessionId: session.id }}
-                onClick={onNavigate}
+                onClick={() => openSession(session)}
               />
             );
           })}
-          {(recentThreads.length > visibleThreads || chatsQuery.hasNextPage) && (
+          {recentThreads.length > visibleThreads && (
             <SidebarItem
               label={t("sidebar.showMore")}
               onClick={() => {
                 setVisibleThreads((count) => count + RECENT_THREAD_PAGE);
-                // Local slice first, network only once the cache runs dry.
-                if (
-                  recentThreads.length <= visibleThreads + RECENT_THREAD_PAGE &&
-                  chatsQuery.hasNextPage &&
-                  !chatsQuery.isFetchingNextPage
-                ) {
-                  void chatsQuery.fetchNextPage();
-                }
               }}
             />
           )}

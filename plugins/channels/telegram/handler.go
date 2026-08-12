@@ -122,8 +122,9 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 	if photo == nil {
 		return c.Send("No photo found in message.")
 	}
-	if err := b.admitAssetSave(c); err != nil {
-		return b.rejectAttachment(c, err)
+	assetMsg, resolveErr := b.resolveAssetsDir(c)
+	if resolveErr != nil {
+		return b.rejectAttachment(c, resolveErr)
 	}
 
 	file, err := b.bot.File(&photo.File)
@@ -152,7 +153,7 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 		}
 		content = append(content, ai.TextContent{Text: caption})
 	}
-	content = append(content, b.imageContent(c, photo.UniqueID, mimeType, data)...)
+	content = append(content, b.imageContent(assetMsg, photo.UniqueID, mimeType, data)...)
 
 	logger().Debug("photo received", "chat_id", c.Chat().ID, "size", len(data), "mime", mimeType)
 
@@ -177,30 +178,35 @@ func (b *Bot) rejectAttachment(c tele.Context, err error) error {
 	return c.Send("Unable to process this attachment.")
 }
 
-// admitAssetSave verifies identity and Home authority before downloading bytes.
-func (b *Bot) admitAssetSave(c tele.Context) error {
-	admitter, ok := b.handler.(channel.AssetSaveAdmitter)
+// resolveAssetsDir resolves the per-user assets directory for the message's
+// author, or "" when the handler cannot resolve a user root.
+func (b *Bot) resolveAssetsDir(c tele.Context) (channel.IncomingMessage, error) {
+	resolver, ok := b.handler.(channel.AssetSaveAdmitter)
 	if !ok {
-		return errors.New("asset admission unavailable")
+		return channel.IncomingMessage{}, errors.New("asset save admitter unavailable")
 	}
-	err := admitter.AdmitAssetSave(b.ctx, b.incomingMsg(c, nil))
+	probeMsg := b.incomingMsg(c, nil)
+	err := resolver.AdmitAssetSave(b.ctx, probeMsg)
 	if err != nil {
-		logger().Warn("asset admission failed", "error", err)
+		logger().Warn("resolve user root failed", "error", err)
+		return channel.IncomingMessage{}, err
 	}
-	return err
+	return probeMsg, nil
 }
 
 // imageContent persists an inbound image message to the user's assets and
 // returns the unified attachment blocks. When persistence is unavailable the
 // image degrades via the shared inline fallback (inline within the ceiling, else
 // a text note) so the message still reaches the agent.
-func (b *Bot) imageContent(c tele.Context, uniqueID, mimeType string, data []byte) []ai.ContentBlock {
+func (b *Bot) imageContent(assetMsg channel.IncomingMessage, uniqueID, mimeType string, data []byte) []ai.ContentBlock {
 	fileName := channel.ImageFileName(uniqueID, mimeType)
-	savedPath, err := b.saveAsset(b.ctx, b.incomingMsg(c, nil), fileName, data)
-	if err == nil {
-		return channel.AttachmentReceivedContent(fileName, savedPath, data)
+	if assetMsg.Platform != "" {
+		savedPath, err := b.saveAsset(b.ctx, assetMsg, fileName, data)
+		if err == nil {
+			return channel.AttachmentReceivedContent(fileName, savedPath, data)
+		}
+		logger().Warn("save inbound image failed", "error", err)
 	}
-	logger().Warn("save inbound image failed", "error", err)
 	return channel.InlineImageFallback(fileName, mimeType, data)
 }
 
@@ -254,9 +260,10 @@ func (b *Bot) handleDocument(c tele.Context) error {
 // placeholder). The bool is false only when the download itself failed and the
 // error was already replied to the chat, so nothing can be given to the agent.
 func (b *Bot) documentAttachment(c tele.Context, doc *tele.Document, fileName string) ([]ai.ContentBlock, bool) {
-	// Resolve identity and Home authority before downloading.
-	if err := b.admitAssetSave(c); err != nil {
-		_ = b.rejectAttachment(c, err)
+	// Resolve the per-user assets directory before downloading.
+	assetMsg, resolveErr := b.resolveAssetsDir(c)
+	if resolveErr != nil {
+		_ = b.rejectAttachment(c, resolveErr)
 		return nil, false
 	}
 
@@ -270,19 +277,21 @@ func (b *Bot) documentAttachment(c tele.Context, doc *tele.Document, fileName st
 	}
 	defer func() { _ = file.Close() }()
 
-	const maxFileSize = 50 << 20 // 50 MB
-	data, err := io.ReadAll(io.LimitReader(file, maxFileSize+1))
+	data, err := io.ReadAll(io.LimitReader(file, channel.MaxInboundAttachmentBytes+1))
 	if err != nil {
 		logger().Error("read document failed", "error", err)
 		_ = c.Send(fmt.Sprintf("Failed to read file: %v", err))
 		return nil, false
 	}
-	if len(data) > maxFileSize {
-		_ = c.Send("File too large (max 50 MB).")
+	if len(data) > channel.MaxInboundAttachmentBytes {
+		_ = c.Send("File too large (max 32 MiB).")
 		return nil, false
 	}
 
-	savedPath, err := b.saveAsset(b.ctx, b.incomingMsg(c, nil), fileName, data)
+	if assetMsg.Platform == "" {
+		return channel.AttachmentSaveFailureContent(fileName, data), true
+	}
+	savedPath, err := b.saveAsset(b.ctx, assetMsg, fileName, data)
 	if err != nil {
 		logger().Warn("save document failed", "error", err)
 		return channel.AttachmentSaveFailureContent(fileName, data), true

@@ -3,9 +3,8 @@ package sandbox
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
-	"io"
+	"os"
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/vision"
@@ -13,11 +12,6 @@ import (
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
-
-// coreToolReadMaxBytes bounds a whole-file core-tool read before allocation. It
-// follows canonical image ingress (30 MiB); raise it only with a streaming tool
-// design, never by loosening this ceiling.
-const coreToolReadMaxBytes int64 = vision.MaxImageInputBytes
 
 func readDefinition() pkgtools.Definition {
 	return pkgtools.Definition{
@@ -35,11 +29,14 @@ func readDefinition() pkgtools.Definition {
 	}
 }
 
-func newReadTool(session pkgsandbox.FilesystemSession) pkgtools.Tool {
-	return &hostReadTool{session: session}
+func newReadTool(host pkgsandbox.Host, projectRoot string) pkgtools.Tool {
+	return &hostReadTool{host: host, projectRoot: projectRoot}
 }
 
-type hostReadTool struct{ session pkgsandbox.FilesystemSession }
+type hostReadTool struct {
+	host        pkgsandbox.Host
+	projectRoot string
+}
 
 func (t *hostReadTool) Definition() pkgtools.Definition { return readDefinition() }
 
@@ -60,17 +57,13 @@ func (t *hostReadTool) ExecuteContent(ctx context.Context, args map[string]any) 
 	offset := max(toolIntArg(args, "offset", 1), 1)
 	limit := toolIntArg(args, "limit", 0)
 
-	resolvedPath, err := resolveToolPath(t.session, path)
+	resolvedPath, err := resolveToolPath(t.host, t.projectRoot, path)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 
-	var content []byte
-	if err := withFilesystem(t.session, func(filesystem pkgsandbox.Filesystem) error {
-		data, err := readAll(ctx, filesystem, resolvedPath)
-		content = data
-		return err
-	}); err != nil {
+	content, err := os.ReadFile(resolvedPath)
+	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 
@@ -134,26 +127,6 @@ func (t *hostReadTool) imageBlocks(ctx context.Context, displayPath string, cont
 		ai.TextContent{Text: fmt.Sprintf("Read image file [%s]", outMime)},
 		ai.ImageContent{Data: base64.StdEncoding.EncodeToString(data), MimeType: outMime},
 	}
-}
-
-// readAll reads a whole file under the core-tool ceiling. The bound is applied
-// before allocation and ErrReadLimit is mapped to a caller-facing message from
-// both the initial Read (remote providers that know the size up front) and the
-// bounded stream. The reader is always closed.
-func readAll(ctx context.Context, filesystem pkgsandbox.Filesystem, p string) ([]byte, error) {
-	r, _, err := filesystem.Read(ctx, p, pkgsandbox.ReadOptions{MaxBytes: coreToolReadMaxBytes})
-	if errors.Is(err, pkgsandbox.ErrReadLimit) {
-		return nil, fmt.Errorf("file exceeds the %d byte read limit", coreToolReadMaxBytes)
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = r.Close() }()
-	data, err := io.ReadAll(r)
-	if errors.Is(err, pkgsandbox.ErrReadLimit) {
-		return nil, fmt.Errorf("file exceeds the %d byte read limit", coreToolReadMaxBytes)
-	}
-	return data, err
 }
 
 func paginateReadContent(content string, offset, limit int) (string, int) {

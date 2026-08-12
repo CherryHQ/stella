@@ -10,6 +10,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
@@ -22,6 +23,23 @@ type SessionStats struct {
 	SummaryCount int       // number of summaries (0 for providers without Compactor)
 	OldestAt     time.Time // timestamp of the earliest message (zero if empty)
 	NewestAt     time.Time // timestamp of the most recent message (zero if empty)
+}
+
+// ErrInboxNotPending reports that an inbox-backed input could not claim its
+// pending row. Cancellation, prior delivery, and immutable-fact mismatch all
+// fail closed through this one sentinel before model execution.
+var ErrInboxNotPending = errors.New("session inbox message is not pending")
+
+// ErrInboxAppendOutcomeUnknown reports a commit-acknowledgement failure after
+// the inbox claim and transcript writes were sent. The transaction may have
+// committed; callers must resolve the pending row before promising no delivery.
+var ErrInboxAppendOutcomeUnknown = errors.New("session inbox append outcome unknown")
+
+// InboxAppender is implemented by providers that can atomically claim a durable
+// Session inbox row and append its input to the transcript. Callers must verify
+// the unwrapped provider supports this capability before relying on a wrapper.
+type InboxAppender interface {
+	AppendInboxInput(ctx context.Context, session Session, inboxID string, msg ai.Message) error
 }
 
 // Provider is the memory plugin contract.
@@ -156,6 +174,71 @@ type SearchResult struct {
 // Searcher is implemented by providers that support history search.
 type Searcher interface {
 	Search(ctx context.Context, session Session, query SearchQuery) ([]SearchResult, error)
+}
+
+// RecallReference identifies one conversation-memory resource behind the
+// Session policy boundary. It is an internal transport value: model-facing
+// callers receive an opaque encoded ref and every read reauthorizes this tuple.
+type RecallReference struct {
+	Kind      string
+	ID        string
+	SessionID string
+}
+
+// RecallSearchResult is one authorized message or summary match. Source kinds
+// stay inside the recall facade; the memory tool returns one uniform result
+// shape and an opaque ref instead.
+type RecallSearchResult struct {
+	Reference         RecallReference
+	Content           string
+	Score             float64
+	OccurredAt        time.Time
+	SessionID         string
+	ConversationTitle string
+}
+
+// RecallFragment is one authorized, one-level expansion item for a summary.
+type RecallFragment struct {
+	Reference  RecallReference
+	Role       string
+	Authority  string
+	Kind       string
+	Depth      *int
+	Content    string
+	OccurredAt time.Time
+}
+
+// RecallSummaryDetail preserves LCM's describe and bounded one-level expand
+// capabilities without exposing provider actions to the model.
+type RecallSummaryDetail struct {
+	Kind            string
+	Depth           int
+	DescendantCount int
+	EarliestAt      *time.Time
+	LatestAt        *time.Time
+	Parents         []RecallReference
+	Children        []RecallReference
+	Expanded        []RecallFragment
+}
+
+// RecallDocument is one fully authorized conversation-memory read.
+type RecallDocument struct {
+	Reference         RecallReference
+	Content           string
+	Role              string
+	Authority         string
+	OccurredAt        time.Time
+	SessionID         string
+	ConversationTitle string
+	Summary           *RecallSummaryDetail
+}
+
+// RecallSource is the authorized Session facade used by the model-facing
+// memory tool. It keeps transcript policy in Session while memory presents one
+// search/read mental model across transcripts and durable memory.
+type RecallSource interface {
+	SearchRecall(ctx context.Context, authority authz.Authority, agentID, query string, limit int) ([]RecallSearchResult, error)
+	ReadRecall(ctx context.Context, authority authz.Authority, agentID string, ref RecallReference, tokenCap int) (RecallDocument, error)
 }
 
 // ---------------------------------------------------------------------------
@@ -376,6 +459,15 @@ type SessionManager interface {
 	// LoadHistory returns the complete raw message history for a session
 	// in chronological order. Used by the Web UI viewer and export.
 	LoadHistory(ctx context.Context, sessionID string) ([]ai.Message, error)
+}
+
+// SessionActivityStore persists the latest terminal turn result and view
+// watermark. Working remains process-local runtime truth; unread terminal
+// results survive navigation and refresh until the session is opened.
+type SessionActivityStore interface {
+	MarkSessionTurnStarted(ctx context.Context, session Session) (bool, error)
+	MarkSessionTurnCompleted(ctx context.Context, session Session, result SessionTurnResult) (bool, error)
+	MarkSessionViewed(ctx context.Context, session Session) (bool, error)
 }
 
 // ReviewMessage is a logical message with the underlying storage boundary kept

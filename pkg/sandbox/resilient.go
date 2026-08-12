@@ -187,19 +187,3 @@ func (r *ResilientSession) ResolveWritePath(path string) (string, error) {
 	}
 	return s.ResolveWritePath(path)
 }
-
-// Filesystem preserves the mediated filesystem capability across reconnectable
-// sessions. Callers still own and close each returned short-lived handle.
-func (r *ResilientSession) Filesystem() (Filesystem, error) {
-	r.mu.Lock()
-	s := r.inner
-	r.mu.Unlock()
-	if s == nil {
-		return nil, fmt.Errorf("sandbox: no active session")
-	}
-	withFS, ok := s.(FilesystemSession)
-	if !ok {
-		return nil, fmt.Errorf("sandbox: filesystem capability unavailable")
-	}
-	return withFS.Filesystem()
-}

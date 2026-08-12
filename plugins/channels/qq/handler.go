@@ -3,6 +3,7 @@ package qq
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -20,7 +21,8 @@ func (b *Bot) c2cMessageHandler() event.C2CMessageEventHandler {
 		msg := (*dto.Message)(data)
 		authorID := msg.Author.ID
 
-		content := b.buildMessageContent(msg, b.incomingMsg(authorID, "", nil))
+		assetMsg := b.resolveAssetsDir(b.incomingMsg(authorID, "", nil), msg)
+		content := b.buildMessageContent(msg, assetMsg)
 		if content == nil {
 			return nil
 		}
@@ -47,7 +49,8 @@ func (b *Bot) groupATMessageHandler() event.GroupATMessageEventHandler {
 		authorID := msg.Author.ID
 		groupID := msg.GroupID
 
-		content := b.buildMessageContent(msg, b.incomingMsg(authorID, groupID, nil))
+		assetMsg := b.resolveAssetsDir(b.incomingMsg(authorID, groupID, nil), msg)
+		content := b.buildMessageContent(msg, assetMsg)
 		if content == nil {
 			return nil
 		}
@@ -76,9 +79,10 @@ const (
 )
 
 // buildMessageContent constructs the message content from a QQ message.
-// incoming carries the authoritative channel identity used by Home ingress.
+// assetsDir is the resolved per-user assets directory; pass "" when unavailable
+// (file attachments will be represented as placeholder text instead).
 // Returns nil if the message has no usable content.
-func (b *Bot) buildMessageContent(msg *dto.Message, incoming channel.IncomingMessage) []ai.ContentBlock {
+func (b *Bot) buildMessageContent(msg *dto.Message, assetMsg channel.IncomingMessage) []ai.ContentBlock {
 	text := strings.TrimSpace(msg.Content)
 	images := extractImageAttachments(msg)
 	files := extractFileAttachments(msg)
@@ -91,6 +95,23 @@ func (b *Bot) buildMessageContent(msg *dto.Message, incoming channel.IncomingMes
 	if text != "" {
 		blocks = append(blocks, ai.TextContent{Text: text})
 	}
+	if assetMsg.Platform == "" {
+		for _, img := range images {
+			name := img.FileName
+			if name == "" {
+				name = "image"
+			}
+			blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[Image: %s] (storage unavailable)", name)})
+		}
+		for _, file := range files {
+			name := file.FileName
+			if name == "" {
+				name = "file"
+			}
+			blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[File: %s] (storage unavailable)", name)})
+		}
+		return blocks
+	}
 	for _, img := range images {
 		data, mime, err := downloadImage(b.ctx, img.URL)
 		if err != nil {
@@ -102,12 +123,14 @@ func (b *Bot) buildMessageContent(msg *dto.Message, incoming channel.IncomingMes
 		if fileName == "" {
 			fileName = channel.ImageFileName("image", mime)
 		}
-		savedPath, saveErr := b.saveAsset(b.ctx, incoming, fileName, data)
-		if saveErr == nil {
-			blocks = append(blocks, channel.AttachmentReceivedContent(fileName, savedPath, data)...)
-			continue
+		if assetMsg.Platform != "" {
+			savedPath, saveErr := b.saveAsset(b.ctx, assetMsg, fileName, data)
+			if saveErr == nil {
+				blocks = append(blocks, channel.AttachmentReceivedContent(fileName, savedPath, data)...)
+				continue
+			}
+			logger().Warn("save inbound image failed", "error", saveErr)
 		}
-		logger().Warn("save inbound image failed", "error", saveErr)
 		// Persistence unavailable — degrade to inline within the ceiling; images
 		// past the inline limit become an explicit text note instead.
 		blocks = append(blocks, channel.InlineImageFallback(fileName, mime, data)...)
@@ -117,20 +140,24 @@ func (b *Bot) buildMessageContent(msg *dto.Message, incoming channel.IncomingMes
 		if fileName == "" {
 			fileName = "file"
 		}
-		data, _, err := downloadImage(b.ctx, f.URL) // reuse HTTP downloader
-		if err != nil {
-			logger().Warn("download file attachment failed", "url", f.URL, "error", err)
-			blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[File: %s] (download failed)", fileName)})
-			continue
+		if assetMsg.Platform != "" {
+			data, _, err := downloadImage(b.ctx, f.URL) // reuse HTTP downloader
+			if err != nil {
+				logger().Warn("download file attachment failed", "url", f.URL, "error", err)
+				blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[File: %s] (download failed)", fileName)})
+				continue
+			}
+			savedPath, err := b.saveAsset(b.ctx, assetMsg, fileName, data)
+			if err != nil {
+				logger().Warn("save file attachment failed", "error", err)
+				blocks = append(blocks, channel.AttachmentSaveFailureContent(fileName, data)...)
+				continue
+			}
+			logger().Debug("file attachment received", "file_name", fileName, "size", len(data))
+			blocks = append(blocks, channel.AttachmentReceivedContent(fileName, savedPath, data)...)
+		} else {
+			blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[File: %s]", fileName)})
 		}
-		savedPath, err := b.saveAsset(b.ctx, incoming, fileName, data)
-		if err != nil {
-			logger().Warn("save file attachment failed", "error", err)
-			blocks = append(blocks, channel.AttachmentSaveFailureContent(fileName, data)...)
-			continue
-		}
-		logger().Debug("file attachment received", "file_name", fileName, "size", len(data))
-		blocks = append(blocks, channel.AttachmentReceivedContent(fileName, savedPath, data)...)
 	}
 
 	if len(blocks) == 0 {
@@ -166,6 +193,25 @@ func extractFileAttachments(msg *dto.Message) []*dto.MessageAttachment {
 	return files
 }
 
+// resolveAssetsDir returns the per-user assets directory if the handler supports
+// UserRootResolver and the message contains image or file attachments to persist.
+// Returns "" otherwise.
+func (b *Bot) resolveAssetsDir(probeMsg channel.IncomingMessage, msg *dto.Message) channel.IncomingMessage {
+	if len(extractImageAttachments(msg)) == 0 && len(extractFileAttachments(msg)) == 0 {
+		return channel.IncomingMessage{}
+	}
+	resolver, ok := b.handler.(channel.AssetSaveAdmitter)
+	if !ok {
+		return channel.IncomingMessage{}
+	}
+	err := resolver.AdmitAssetSave(b.ctx, probeMsg)
+	if err != nil {
+		logger().Warn("resolve user root failed for file attachment", "error", err)
+		return channel.IncomingMessage{}
+	}
+	return probeMsg
+}
+
 const maxImageSize = 20 << 20 // 20 MB
 
 // downloadImage fetches an image from a URL and returns the raw bytes and MIME type.
@@ -176,16 +222,22 @@ func downloadImage(ctx context.Context, rawURL string) ([]byte, string, error) {
 
 	resp, err := httpclient.New().R().
 		SetContext(ctx).
+		SetDoNotParseResponse(true).
 		Get(rawURL)
 	if err != nil {
 		return nil, "", fmt.Errorf("fetch image: %w", err)
 	}
+	body := resp.RawBody()
+	defer func() { _ = body.Close() }()
 
 	if resp.StatusCode() != http.StatusOK {
 		return nil, "", fmt.Errorf("unexpected status %d", resp.StatusCode())
 	}
 
-	data := resp.Body()
+	data, err := io.ReadAll(io.LimitReader(body, maxImageSize+1))
+	if err != nil {
+		return nil, "", fmt.Errorf("read image: %w", err)
+	}
 	if len(data) > maxImageSize {
 		return nil, "", fmt.Errorf("image too large (max %d bytes)", maxImageSize)
 	}

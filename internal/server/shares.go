@@ -174,6 +174,8 @@ func (s *Server) writeShareError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, "file is too large to share")
 	case errors.Is(err, sharepkg.ErrUnsupportedType):
 		writeError(w, http.StatusBadRequest, "unsupported artifact type")
+	case errors.Is(err, sharepkg.ErrPathEscapes):
+		writeError(w, http.StatusBadRequest, "invalid request")
 	case errors.Is(err, sharepkg.ErrNoContent):
 		writeError(w, http.StatusBadRequest, "article has no content")
 	case errors.Is(err, sharepkg.ErrInvalidInput):

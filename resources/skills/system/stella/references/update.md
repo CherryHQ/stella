@@ -50,17 +50,15 @@ Tags: `latest` (stable), `vX.Y.Z` (specific release).
 
 ## After updating
 
-- Back up PostgreSQL's Home registry and all durable Principal and Agent Home bytes before upgrading; database migrations run automatically when the new release starts
+- Back up PostgreSQL and all durable workspace bytes before upgrading; database migrations run automatically when the new release starts
 - Review release notes and resolve any startup-reported blockers before serving traffic
 - Refresh the model cache from the Web UI if new models are available
 - Builtin skills update with the binary through its immutable release bundle
 
-If `STELLA_BLOB_S3_*` is configured, stop every old asset-writing binary, service, pod, and job before starting the new server. Keep the original S3 and database configuration, back up the bucket and Home storage, then follow `stellad storage migrate-assets --help`. The server fails closed until that command has copied and digest-verified object-only mutable assets into Principal Homes. The migration is idempotent and never deletes remote objects. After the marker is complete, mutable assets are live only in Principal Homes and remote legacy objects are not a fallback. Keep the configuration because the Store remains the authority for immutable content-addressed session media.
-
 ## Skill upgrade and downgrade checks
 
-Before upgrading, inspect legacy `$STELLA_HOME/.agents/skills`. Using the old working binary, import each custom Skill root through **Settings → Skills** as a managed global (`system`) Skill. Back up, verify, and remove other residual paths. The new binary lists every blocking path and stops without deleting or changing anything. Paths owned by the current release manifest are inert even when their contents or modes are stale; every other Skill root or residual path blocks startup.
+Before upgrading, inspect legacy `$STELLA_HOME/.agents/skills`. Using the old working binary, import each custom Skill root as a managed global (`system`) Skill through **Settings → Skills** on older releases or **Admin Console → Deployment resources → Global Skills** on newer releases. Back up, verify, and remove other residual paths. The new binary lists every blocking path and stops without deleting or changing anything. Paths owned by the current release manifest are inert even when their contents or modes are stale; every other Skill root or residual path blocks startup.
 
 Before downgrading to a binary that predates AgentSkillPolicy v1, re-enable every disabled Skill and explicitly clear dangling disablements in the Web UI. Older binaries ignore canonical policy, and ordinary Agent edits can overwrite the reused column. Retained bundle directories are derived and inert after rollback.
 
-An explicit destructive user, group, or Agent delete is the only lifecycle that purges Homes. Routine upgrades and Helm uninstall do not purge them. If a physical purge is retained as `purge_failed`, use `stellad storage retry-purge --help` for retry syntax.
+Explicit destructive user, group, and Agent deletion fence execution before removing the database owner. Workspace bytes and inodes remain, but subsequent access fails owner validation. For live owners, the sole `WorkspaceManager` creates missing deterministic roots and rejects non-directories, symlinks, unsafe IDs, and trusted-root replacement. Any filesystem entry at `agents/{id}` reserves that Agent ID. Run restore and root cleanup while Stella is stopped. Routine upgrades and Helm uninstall do not delete workspace bytes. This is a trusted-host, single-replica POSIX contract; multi-replica, Kubernetes, and S3 authority require a future redesign.

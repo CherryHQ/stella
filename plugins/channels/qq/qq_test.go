@@ -567,24 +567,46 @@ func TestIncomingMsgGroup(t *testing.T) {
 
 // --- pure-image persistence (regression: image-only messages must persist) ---
 
-// assetMockHandler supplies the portable ingress writer capability.
+// assetMockHandler extends mockHandler with the UserRootResolver and AssetSaver
+// capabilities so buildMessageContent can resolve a storage dir and persist.
 type assetMockHandler struct {
 	mockHandler
+	userRoot  string
 	saveErr   error
 	saveCalls []savedAsset
 }
 
 type savedAsset struct {
-	fileName string
-	data     []byte
+	assetsDir string
+	fileName  string
+	data      []byte
 }
 
-func (m *assetMockHandler) SaveAsset(_ context.Context, _ channel.IncomingMessage, fileName string, data []byte) (string, error) {
+func (m *assetMockHandler) AdmitAssetSave(_ context.Context, _ channel.IncomingMessage) error {
+	return nil
+}
+
+func (m *assetMockHandler) SaveAsset(_ context.Context, msg channel.IncomingMessage, fileName string, data []byte) (string, error) {
 	if m.saveErr != nil {
 		return "", m.saveErr
 	}
-	m.saveCalls = append(m.saveCalls, savedAsset{fileName: fileName, data: append([]byte(nil), data...)})
-	return "$STELLA_ASSETS_DIR/test/" + fileName, nil
+	m.saveCalls = append(m.saveCalls, savedAsset{assetsDir: "$STELLA_ASSETS_DIR", fileName: fileName, data: append([]byte(nil), data...)})
+	return "$STELLA_ASSETS_DIR/" + fileName, nil
+}
+
+func TestResolveAssetsDirImageOnlyMessage(t *testing.T) {
+	h := &assetMockHandler{userRoot: "/home/stella"}
+	bot := &Bot{handler: h, ctx: context.Background()}
+	msg := &dto.Message{
+		Attachments: []*dto.MessageAttachment{
+			{URL: "https://example.com/a.png", ContentType: "image/png"},
+		},
+	}
+	// Regression: an image-only message (no file attachments) must still resolve a
+	// storage dir so the image is persisted rather than inline-only.
+	if got := bot.resolveAssetsDir(bot.incomingMsg("user1", "", nil), msg); got.Platform == "" {
+		t.Fatal("expected a resolved assets dir for an image-only message, got \"\"")
+	}
 }
 
 func TestBuildMessageContentPersistsPureImage(t *testing.T) {
@@ -595,7 +617,7 @@ func TestBuildMessageContentPersistsPureImage(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	h := &assetMockHandler{}
+	h := &assetMockHandler{userRoot: "/home/stella"}
 	bot := &Bot{handler: h, ctx: context.Background()}
 	msg := &dto.Message{
 		Attachments: []*dto.MessageAttachment{
@@ -603,7 +625,12 @@ func TestBuildMessageContentPersistsPureImage(t *testing.T) {
 		},
 	}
 
-	content := bot.buildMessageContent(msg, bot.incomingMsg("user1", "", nil))
+	assetsDir := bot.resolveAssetsDir(bot.incomingMsg("user1", "", nil), msg)
+	if assetsDir.Platform == "" {
+		t.Fatal("expected a resolved assets dir for an image-only message")
+	}
+
+	content := bot.buildMessageContent(msg, assetsDir)
 	if len(h.saveCalls) != 1 {
 		t.Fatalf("expected the image to be persisted once, got %d save calls", len(h.saveCalls))
 	}
@@ -624,7 +651,7 @@ func TestBuildMessageContentImageSaveFailureInlines(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	h := &assetMockHandler{saveErr: fmt.Errorf("storage down")}
+	h := &assetMockHandler{userRoot: "/home/stella", saveErr: fmt.Errorf("storage down")}
 	bot := &Bot{handler: h, ctx: context.Background()}
 	msg := &dto.Message{
 		Attachments: []*dto.MessageAttachment{
@@ -632,7 +659,8 @@ func TestBuildMessageContentImageSaveFailureInlines(t *testing.T) {
 		},
 	}
 
-	content := bot.buildMessageContent(msg, bot.incomingMsg("user1", "", nil))
+	assetsDir := bot.resolveAssetsDir(bot.incomingMsg("user1", "", nil), msg)
+	content := bot.buildMessageContent(msg, assetsDir)
 
 	// Save failed, but the turn must not be dropped: a small image degrades to an
 	// inline image block via the shared fallback.

@@ -23,6 +23,17 @@ export function toolCallFailed(block: ContentBlock & { type: "tool_call" }): boo
   return exit ? exit[1] !== "0" : false;
 }
 
+/** Pretty-print a complete JSON object/array without rewriting ordinary tool output. */
+export function formatToolOutput(content: string): string {
+  const trimmed = content.trim();
+  if (!trimmed || (trimmed[0] !== "{" && trimmed[0] !== "[")) return content;
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2);
+  } catch {
+    return content;
+  }
+}
+
 export function isImagePath(path: string): boolean {
   return IMAGE_EXT.test(path);
 }
@@ -32,9 +43,11 @@ export function basename(path: string): string {
 }
 
 // workspaceFileURL builds a raw file-content read URL for a message-embedded
-// file path. The path is passed verbatim: the server accepts only canonical
-// sandbox views (/user/... or /workspace/...), portable aliases, or relative
-// paths. Host paths are rejected; scope resolution remains server-owned.
+// file path. The path is passed verbatim: an absolute sandbox-view (/user/...,
+// /workspace/...) or host path is self-describing, and the server resolves which
+// authorized workspace root contains it (host containment first, then sandbox
+// mount mapping). The client cannot disambiguate mount views from real host
+// paths, so it must not guess a scope — that decision belongs to the server.
 export function workspaceFileURL(agentId: string, sessionId: string, path: string): string {
   return `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(
     sessionId,

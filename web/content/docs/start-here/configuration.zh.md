@@ -72,12 +72,12 @@ title: 配置
 
 Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面进行配置：
 
-| 设置         | 默认值        | 描述                           |
-| ------------ | ------------- | ------------------------------ |
-| 空闲超时     | 10 分钟       | 空闲代理会话被清理前的等待时间 |
-| 委派超时     | 15 分钟       | 委派任务的最长时间             |
-| 压缩阈值     | 80,000 tokens | 历史记录超过此大小时自动压缩   |
-| 保留最近消息 | 20            | 压缩后保持原文的最近消息数量   |
+| 设置              | 默认值        | 描述                                      |
+| ----------------- | ------------- | ----------------------------------------- |
+| 空闲超时          | 10 分钟       | 空闲代理会话被清理前的等待时间            |
+| 聚焦 Session 超时 | 15 分钟       | 同步 `session.create/send` 运行的最长时间 |
+| 压缩阈值          | 80,000 tokens | 历史记录超过此大小时自动压缩              |
+| 保留最近消息      | 20            | 压缩后保持原文的最近消息数量              |
 
 ## 目录结构
 
@@ -96,23 +96,21 @@ Runner 控制代理如何处理消息。你可以在Web UI的 **设置** 页面�
 
 仅识别少量环境变量：
 
-| 变量                          | 描述                                                                                                              |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `STELLA_HOME`                 | 覆盖主目录（默认 `~/.stella`）                                                                                    |
-| `STELLA_DATABASE_URL`         | 使用外部 PostgreSQL 数据库，而不是内嵌集群                                                                        |
-| `STELLA_BLOB_S3_ENDPOINT`     | 可选的 S3 兼容 endpoint，用于遗留可变资产迁移来源和不可变 session media                                           |
-| `STELLA_BLOB_S3_BUCKET`       | 遗留迁移来源和不可变 session media 使用的 Object-store bucket；需与 endpoint/access/secret 同时设置，或全部不设置 |
-| `STELLA_BLOB_S3_ACCESS_KEY`   | 该对象存储 使用的 access key                                                                                      |
-| `STELLA_BLOB_S3_SECRET_KEY`   | 该对象存储 使用的 secret key                                                                                      |
-| `STELLA_BLOB_S3_REGION`       | 可选 S3 region                                                                                                    |
-| `STELLA_BLOB_S3_USE_SSL`      | S3 兼容存储是否使用 HTTPS；默认 `true`                                                                            |
-| `STELLA_VAULT_KEY`            | [密钥库](/docs/guides/secrets-and-keys)的主密钥 — 密钥管理、OAuth 和 Bearer Token 所必需                          |
-| `STELLA_DOCKER_SANDBOX_MODE`  | 仅 `docker` 沙箱后端需要：`host`、`bind` 或 `volume`                                                              |
-| `STELLA_HOME_HOST`            | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                                         |
-| `STELLA_HOME_VOLUME`          | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要                          |
-| `STELLA_REFLECT_CURATOR_MODE` | 生命周期 curator：`armed`（默认值）或不产生写入的紧急停止模式 `shadow`                                            |
-
-完整配置 `STELLA_BLOB_S3_*` 后，服务器会在仅存在于对象存储的可变资产校验进入 Principal Home 前阻止启动。请保留这些变量并按 `stellad storage migrate-assets --help` 操作；不要通过删除 S3 配置绕过 pending marker。迁移不会删除远端对象。marker 完成后，可变资产只以 Principal Home 为运行时权威，远端遗留对象不是回退来源。保留配置，因为该对象存储 仍是不可变、内容寻址 session media 的权威。
+| 变量                          | 描述                                                                                     |
+| ----------------------------- | ---------------------------------------------------------------------------------------- |
+| `STELLA_HOME`                 | 覆盖主目录（默认 `~/.stella`）                                                           |
+| `STELLA_DATABASE_URL`         | 使用外部 PostgreSQL 数据库，而不是内嵌集群                                               |
+| `STELLA_BLOB_S3_ENDPOINT`     | 可选的 S3 兼容 endpoint，用于 immutable BlobStore 数据                                   |
+| `STELLA_BLOB_S3_BUCKET`       | immutable BlobStore 数据的 bucket；需与 endpoint/access/secret 同时设置，或全部不设置    |
+| `STELLA_BLOB_S3_ACCESS_KEY`   | immutable BlobStore 数据使用的 access key                                                |
+| `STELLA_BLOB_S3_SECRET_KEY`   | immutable BlobStore 数据使用的 secret key                                                |
+| `STELLA_BLOB_S3_REGION`       | 可选 S3 region                                                                           |
+| `STELLA_BLOB_S3_USE_SSL`      | S3 兼容存储是否使用 HTTPS；默认 `true`                                                   |
+| `STELLA_VAULT_KEY`            | [密钥库](/docs/guides/secrets-and-keys)的主密钥 — 密钥管理、OAuth 和 Bearer Token 所必需 |
+| `STELLA_DOCKER_SANDBOX_MODE`  | 仅 `docker` 沙箱后端需要：`host`、`bind` 或 `volume`                                     |
+| `STELLA_HOME_HOST`            | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                |
+| `STELLA_HOME_VOLUME`          | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要 |
+| `STELLA_REFLECT_CURATOR_MODE` | 生命周期 curator：`armed`（默认值）或不产生写入的紧急停止模式 `shadow`                   |
 
 Structured Reflect 是唯一写入器。升级前请删除已经废弃的 `STELLA_REFLECT_MODE` 环境变量；过渡版本遇到显式 `legacy` 值时会拒绝启动，而不会静默改变行为。Curator 模式在服务启动时读取，修改后需要重启 Stella；非法值会阻止启动。运行检查见[部署](/docs/start-here/deployment#structured-reflect-与-curator)，详细机制见[记忆系统内部原理](/docs/development/memory-internals#structured-reflect-与-curator)。
 

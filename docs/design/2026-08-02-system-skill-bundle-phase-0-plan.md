@@ -1,29 +1,30 @@
 # Plan: Phase 0 — Builtin Skill bundle and Agent Skill policy
 
-- **Revision:** 6 — latest-main rebase reconciliation
-- **Status:** IMPLEMENTED — Phase 0 acceptance gates complete; Draft PR #831 remains Draft
+- **Revision:** 4 — merged Phase 0 record reconciled with the current POSIX workspace plan
+- **Status:** COMPLETED — PR #831 merged; this file is an implementation record, not the active downstream plan
 - **Issue:** CherryHQ/stella#828 (umbrella; V requested no child Issue)
-- **Branch:** `refactor/system-skill-bundle`
-- **PR base:** `design/sandbox-architecture-v2` (stacked above Draft PR #829; retarget to `main` after #829 merges)
-- **Parent architecture:** `docs/design/2026-08-01-sandbox-architecture-v2.md` rev 8, D1–D60
+- **Delivered PR:** CherryHQ/stella#831 (merged into `main`)
+- **Parent architecture:** `docs/design/2026-08-01-sandbox-architecture-v2.md`
 - **Parent plan:** `docs/design/2026-08-02-sandbox-architecture-v2-implementation-plan.md`
 - **Umbrella:** CherryHQ/stella#828
 
-## Problem
+The current parent documents supersede this record's original downstream architecture. The merged builtin bundle and Agent policy remain valid; #862 merged as `d05375f4e28b364a5023cdf6e15ccf4b83f9d378`, #886 is the current rooted-operation implementation, and future mutable Skill work follows #897 in the parent plan. Historical Home, helper-transport, revision-tree, fixed-PR-count, and Kubernetes placement decisions below have no execution authority. Issue #828 is the umbrella tracker; the parent implementation plan is the sole execution source.
 
-Stella currently calls two different things “system Skill”:
+## Problem before PR #831
+
+Before PR #831, Stella called two different things “system Skill”:
 
 1. release-owned builtin Skills under `resources/skills/system/` are embedded, rewritten into `$STELLA_HOME/.agents/skills` at startup, scanned back from disk, and host-mounted into sandboxes;
 2. administrator/user-installed Skills use PostgreSQL `skill`/`skill_file`, then materialize into derived host directories.
 
-The complete Sandbox v2 target has only two Skill current-state authorities:
+The current Sandbox v2 target has two Skill byte authorities:
 
 - immutable builtin release bundle;
-- mutable Home filesystem roots for `system`, `system_agent`, `user`, `user_agent`, and `project`.
+- deterministic POSIX roots for mutable `system`, `system_agent`, `user`, `user_agent`, and `project` content. PostgreSQL retains policy, narrowly justified migration state, and Reflect business telemetry rather than a mutable content mirror.
 
-Phase 0 can safely establish the first authority and a storage-independent Agent policy now. It cannot move mutable PG Skills before typed Homes and provider-native `stella-fs` exist; doing so would create another host-coupled directory that Phase 2 immediately deletes.
+Phase 0 established the first authority and a storage-independent Agent policy. Mutable PG Skill bytes move only after #886 provides rooted POSIX operations; #897 owns that domain-specific cutover through deterministic `WorkspaceManager` roots.
 
-Current builtin handling also has concrete defects:
+The pre-#831 builtin handling also had concrete defects:
 
 - startup rewrites roughly 322 files / 2.8 MiB and forces `0644`, losing executable mode;
 - `internal/skills.Service` scans the extracted filesystem instead of using the process-wide `resources.Registry`;
@@ -34,16 +35,16 @@ Current builtin handling also has concrete defects:
 
 V also requires an administrator or an Agent’s durable creator to enable/disable individual builtin, `system`, and matching `system_agent` Skills for that Agent. The existing `agent.enabled_builtin_skills` JSONB column must be reused; no activation table or global hard-lock hierarchy is needed.
 
-## Evidence and existing mechanisms
+## Evidence at Phase 0 planning time
 
 - `resources/{embed,registry,extract,skills_tree}.go` already provides embed and process-wide registry foundations.
 - `BundledSkillSpec` and plugin bundle sync already define build-time external Skill ingestion.
 - `internal/skills/{service,prompt,tool,fs_project}.go` owns catalog precedence and every model-reachable prompt/search/load path.
 - `internal/agent/access/` already defines `Manage = admin OR durable creator`; delegated/group/system actors cannot manage an Agent.
-- `agent.enabled_builtin_skills` exists as JSONB but has no runtime reader. Current broad Agent create/update adapters write `[]`, so neither empty nor non-empty legacy arrays have trustworthy current allowlist semantics.
-- `PoolManager.InvalidateAgent` already invalidates one Agent’s current-process runner.
-- Docker already builds restricted tools from the build-mounted `stellad` binary and supports image-provided Stella directories.
-- Parent rev 8 owns the later SystemSkillRoot/SystemAgentSkillRoot and PG→Home cutover; Phase 0 must not duplicate them.
+- `agent.enabled_builtin_skills` existed as JSONB but had no runtime reader. Broad Agent create/update adapters wrote `[]`, so neither empty nor non-empty legacy arrays had trustworthy allowlist semantics.
+- `PoolManager.InvalidateAgent` already invalidated one Agent’s current-process runner.
+- Docker already built restricted tools from the build-mounted `stellad` binary and supported image-provided Stella directories.
+- The current parent plan assigns rooted POSIX operations to #886 and the mutable Skill byte cutover to #897; Phase 0 does not duplicate either responsibility.
 
 ## Design decisions
 
@@ -65,7 +66,7 @@ project > user_agent > user > system_agent > system > builtin
 
 `system` and `system_agent` keep their current wire names and PG lifecycle. Phase 0 does not migrate/drop `skill`, `skill_file`, `skill_usage`, or `skill_changelog`, and it does not add a temporary PG→host snapshot protocol.
 
-Parent Phase 2, after Homes + `stella-fs`, performs the one-time mutable authority cutover described by D59/D60. Parent Phase 3 no longer implements PG `LoadSnapshot` or DB Skill scratch.
+Parent #897 performs any required one-time mutable byte-authority cutover after #886 rooted operations exist. PostgreSQL may retain Skill policy, narrowly scoped migration records, and Reflect business telemetry, but not a mutable Skill content mirror or restore-on-miss path.
 
 ### 2. One deterministic manifest and bundle own builtins
 
@@ -100,7 +101,7 @@ Current extraction preserves non-builtin entries. Phase 0 therefore inventories 
 - nothing is deleted or silently hidden;
 - the operator stays on the old binary or imports those entries through the current managed system path before retrying.
 
-This is intentionally strict. Creating a throwaway “legacy custom root” protocol before HomeStore would preserve the host coupling Phase 0 is meant to stop.
+This is intentionally strict. Creating a throwaway legacy mutable-root protocol would preserve the host coupling Phase 0 is meant to stop.
 
 ### 5. Reuse the Agent JSONB column as a versioned policy
 
@@ -146,25 +147,24 @@ Direct IDs cannot bypass a disabled or shadowed winner. `disable_model_invocatio
 
 The activation API starts in OpenAPI and uses exact logical refs under the Agent route. Writes authorize with `agentAccess.Manage`; content edit/delete remains under existing Skill policy, so an owner may toggle admin content but cannot mutate it.
 
-Commit refreshes and invalidates the affected local runner behind a per-Agent admission barrier. Admission atomically reserves the selected runner and captures runner/model/thinking in one immutable lease; every non-terminal reset preserves admitted or busy work and marks it stale for replacement. An in-flight turn keeps that snapshot; the next turn reloads. Terminal shutdown and Session removal remain explicit eager-close paths.
+Commit invalidates the affected local runner. An in-flight turn keeps its built snapshot; the next turn reloads. Future distributed lifecycle work must provide cross-replica policy invalidation and decide whether AgentRun persists or pins a policy digest for a whole Run.
 
-A PostgreSQL `COMMIT` error is outcome unknown and is never retried. Before another local turn can admit, Stella reloads durable Agent policy under the same barrier. If that refresh cannot prove a safe current snapshot, the runtime installs a rejecting factory and invalidates old runners so subsequent admission fails closed. Parent Phase 4 later adds policy digest `NOTIFY`; parent AgentRun persists/pins the digest for a whole Run.
+### 7. Mutable POSIX authority is deferred to the active parent plan
 
-### 7. Mutable Home authority is a hard deferred dependency, not a Phase 0 cache
-
-The approved parent order is:
+The current parent order is:
 
 ```text
-Phase 0 builtin/policy
-→ Phase 1 typed Homes + shared Skill roots
-→ Phase 2a stella-fs/publication
-→ Phase 2b offline PG Skill/Reflect cutover
-→ Phase 3 AgentRun catalog/policy pin + revision GC
-→ Phase 4 Compose multi-replica
-→ Phase 5 Kubernetes
+#831 builtin bundle and policy (merged)
+→ #862 local WorkspaceManager foundation
+→ #886 rooted POSIX operations and Sandbox mount boundary
+→ #888 durable file consumers
+→ #897 mutable Skill filesystem authority
+→ optional #928 residual path cleanup
+→ shared-POSIX readiness + distributed lifecycle fencing
+→ Compose/Kubernetes conformance
 ```
 
-Phase 2b migrates active rows into exact Home roots, deprecated/changelog state into an archive, and Reflect to filesystem digest identity plus logical usage telemetry. Marker before/after each has one authority. This plan changes the parent documents but does not implement that cutover.
+#897 must first prove which mutable Skill data requires migration. Any cutover is Skill-specific, offline, and verified, with one content authority before and after. It targets deterministic POSIX roots and does not add a directory catalog. This completed Phase 0 record does not implement or further constrain that cutover.
 
 ## Alternatives rejected
 
@@ -188,7 +188,7 @@ Phase 2b migrates active rows into exact Home roots, deprecated/changelog state 
 | `api/spec/domain/agents/`, generated SDK                             | readable builtin scope, contextual enabled state, exact logical-ref policy mutation                                                         |
 | `web/src/features/agents/`                                           | true activation switch/filter separate from `disable_model_invocation` and content permissions                                              |
 | local/none/Docker providers                                          | content-addressed bundle placement, current-revision view, image marker/readiness, removal of builtin host mount                            |
-| architecture and parent plan                                         | rev 8 two-authority target and the Homes/stella-fs/offline-cutover order                                                                    |
+| architecture and parent plan                                         | current builtin-versus-mutable-byte authority and the #862/#886/#888/#897 sequence                                                          |
 
 ## Compatibility and rollback
 
@@ -201,81 +201,85 @@ Phase 2b migrates active rows into exact Home roots, deprecated/changelog state 
 
 ## Tasks
 
+The checklist below records how merged PR #831 was planned. It is not the live program dashboard and does not authorize the superseded downstream architecture; Issue #828 is the umbrella tracker and the parent implementation plan is the sole execution source.
+
 ### Phase 1: Deterministic builtin manifest and Registry
 
 **Why first:** runtime cannot leave the extracted tree until the release catalog independently represents every builtin byte, mode and metadata field.
 
-- [x] Generate one deterministic manifest from synced nested builtin roots and integrate it into `mise run generate`/drift checks.
-- [x] Extend `resources.Registry` with stable descriptors, complete metadata, file reads, source mode, per-Skill digest and bundle revision.
-- [x] Implement the content-addressed installer with ceilings, canonical path checks, digest/mode verification, temporary publication, winner verification and read-only completion marker.
-- [x] Add the minimum `stellad system-bundle revision|install|verify` build/operator surface needed by image builds; command help remains the syntax source of truth.
-- [x] Test nested roots, executable scripts, duplicate/name mismatch, traversal/symlink rejection, deterministic output, tampering, concurrency and no-op reinstall mtime.
+- [ ] Generate one deterministic manifest from synced nested builtin roots and integrate it into `mise run generate`/drift checks.
+- [ ] Extend `resources.Registry` with stable descriptors, complete metadata, file reads, source mode, per-Skill digest and bundle revision.
+- [ ] Implement the content-addressed installer with ceilings, canonical path checks, digest/mode verification, temporary publication, winner verification and read-only completion marker.
+- [ ] Add the minimum `stellad system-bundle revision|install|verify` build/operator surface needed by image builds; command help remains the syntax source of truth.
+- [ ] Test nested roots, executable scripts, duplicate/name mismatch, traversal/symlink rejection, deterministic output, tampering, concurrency and no-op reinstall mtime.
 
 **Acceptance:**
 
-- [x] `mise run generate && git diff --exit-code -- resources/` proves committed generation is deterministic.
-- [x] Focused resources/command tests exit 0 for manifest, installer, tamper, concurrent publication and source mode cases.
-- [x] A second verified install performs no file rewrite; partial/tampered final trees are never returned.
-- [x] No new dependency, service, table, cache watcher or host-path public contract is introduced.
+- [ ] `mise run generate && git diff --exit-code -- resources/` proves committed generation is deterministic.
+- [ ] Focused resources/command tests exit 0 for manifest, installer, tamper, concurrent publication and source mode cases.
+- [ ] A second verified install performs no file rewrite; partial/tampered final trees are never returned.
+- [ ] No new dependency, service, table, cache watcher or host-path public contract is introduced.
 
 ### Phase 2: Provider bundle cutover and legacy gate
 
 **Why after Phase 1:** bundle readiness and legacy safety must be proven before removing the extracted builtin source.
 
-- [x] Add nested skill-root inventory against the generated manifest; list every custom/residual blocker and fail the new capability gate without deleting anything.
-- [x] Inject `resources.Registry` into Service/Tool/prompt/API builtin composition; preserve project and PG adapters plus existing precedence.
-- [x] Install the exact revision for local/none; map it read-only to `/opt/stella/skills/builtin` for isolating local, bake/label/verify and expose the same view in Docker, and stop mounting the host builtin tree. Non-isolating Providers retain exact paths through `SkillView`.
-- [x] Fail Docker Provider preflight on mismatch with expected/actual revisions and actionable dev/custom-image rebuild instructions.
-- [x] Remove generic startup builtin extraction and filesystem builtin scan only after the legacy gate passes.
-- [x] Correct the touched Dockerfile’s stale registry comment without unrelated cleanup.
+- [ ] Add nested skill-root inventory against the generated manifest; list every custom/residual blocker and fail the new capability gate without deleting anything.
+- [ ] Inject `resources.Registry` into Service/Tool/prompt/API builtin composition; preserve project and PG adapters plus existing precedence.
+- [ ] Install the exact revision for local/none; map it read-only to `/opt/stella/skills/builtin` for isolating local, bake/label/verify and expose the same view in Docker, and stop mounting the host builtin tree. Non-isolating Providers retain exact paths through `SkillView`.
+- [ ] Fail complete Docker readiness on mismatch with expected/actual revisions and actionable dev/custom-image rebuild instructions.
+- [ ] Remove generic startup builtin extraction and filesystem builtin scan only after the legacy gate passes.
+- [ ] Correct the touched Dockerfile’s stale registry comment without unrelated cleanup.
 
 **Acceptance:**
 
-- [x] A nested custom system Skill fixture blocks activation and reports its exact skill root; manifest roots pass and no fixture bytes are changed.
-- [x] Direct builtin list/file reads use Registry/embed without SkillStore calls or runtime mirror writes; merged name resolution still checks PG shadowing once.
-- [x] Local/none/provider tests prove the exact revision path, read-only `/opt/stella/skills/builtin` view where isolation exists, and executable helpers; Docker tests prove no host builtin mount and fail-closed revision mismatch.
-- [x] `mise run sandbox:docker:build` and focused provider contract tests pass on a supported trusted runner.
+- [ ] A nested custom system Skill fixture blocks activation and reports its exact skill root; manifest roots pass and no fixture bytes are changed.
+- [ ] Direct builtin list/file reads use Registry/embed without SkillStore calls or runtime mirror writes; merged name resolution still checks PG shadowing once.
+- [ ] Local/none/provider tests prove the exact revision path, read-only `/opt/stella/skills/builtin` view where isolation exists, and executable helpers; Docker tests prove no host builtin mount and fail-closed revision mismatch.
+- [ ] `mise run sandbox:docker:build` and focused provider contract tests pass on a supported trusted runner.
 
 ### Phase 3: Existing-column Agent Skill policy
 
 **Why after Phase 2:** stable builtin refs must exist before an Agent policy can safely name them.
 
-- [x] Add strict versioned `AgentSkillPolicy` parsing/canonicalization and logical-ref validation. Treat every legacy array as no disables; diagnose only non-empty arrays.
-- [x] Remove `enabled_builtin_skills` from broad Agent update SQL/adapters; create/seed uses the existing default. Add a dedicated row-locked policy read/mutate query/service.
-- [x] Add spec-first contextual Agent Skill enabled state and exact logical-ref activation endpoint; regenerate Go/TypeScript clients before server/Web changes.
-- [x] Authorize policy writes through `agentAccess.Manage`; retain existing Skill content PEP and test owner-toggle/admin-content separation.
-- [x] Apply one effective policy filter after precedence to prompt/search/load/file/helper and all future Skills-tool read actions. Keep disabled entries visible in management views.
-- [x] Invalidate the affected local runner only after commit; document in-flight-turn/next-turn behavior and parent multi-replica policy-digest handoff.
-- [x] Update Agent Skills UI with real activation switches, enabled filter, dangling-ref diagnostic and separate content controls.
+- [ ] Add strict versioned `AgentSkillPolicy` parsing/canonicalization and logical-ref validation. Treat every legacy array as no disables; diagnose only non-empty arrays.
+- [ ] Remove `enabled_builtin_skills` from broad Agent update SQL/adapters; create/seed uses the existing default. Add a dedicated row-locked policy read/mutate query/service.
+- [ ] Add spec-first contextual Agent Skill enabled state and exact logical-ref activation endpoint; regenerate Go/TypeScript clients before server/Web changes.
+- [ ] Authorize policy writes through `agentAccess.Manage`; retain existing Skill content PEP and test owner-toggle/admin-content separation.
+- [ ] Apply one effective policy filter after precedence to prompt/search/load/file/helper and all future Skills-tool read actions. Keep disabled entries visible in management views.
+- [ ] Invalidate the affected local runner only after commit; document in-flight-turn/next-turn behavior and parent multi-replica policy-digest handoff.
+- [ ] Update Agent Skills UI with real activation switches, enabled filter, dangling-ref diagnostic and separate content controls.
 
 **Acceptance:**
 
-- [x] Changing every ordinary Agent field preserves canonical policy bytes; two concurrent policy mutations serialize without losing either committed logical ref.
-- [x] Empty/non-empty legacy arrays keep all applicable Skills enabled; non-empty diagnostics appear; first explicit write produces canonical v1 JSON without inferred disables.
-- [x] Admin/creator/other/delegated/group/system authorization matrix passes; owner toggles system content but cannot edit/delete it.
-- [x] Disabled winner never falls back; exact ID/name/file/helper paths cannot bypass; policy read/decode errors fail closed; `disable_model_invocation` remains independent.
-- [x] Current turn keeps its snapshot and the next turn observes commit after runner invalidation.
-- [x] OpenAPI generation, focused backend tests and `cd web && vp test run` exit 0.
+- [ ] Changing every ordinary Agent field preserves canonical policy bytes; two concurrent policy mutations serialize without losing either committed logical ref.
+- [ ] Empty/non-empty legacy arrays keep all applicable Skills enabled; non-empty diagnostics appear; first explicit write produces canonical v1 JSON without inferred disables.
+- [ ] Admin/creator/other/delegated/group/system authorization matrix passes; owner toggles system content but cannot edit/delete it.
+- [ ] Disabled winner never falls back; exact ID/name/file/helper paths cannot bypass; policy read/decode errors fail closed; `disable_model_invocation` remains independent.
+- [ ] Current turn keeps its snapshot and the next turn observes commit after runner invalidation.
+- [ ] OpenAPI generation, focused backend tests and `cd web && vp test run` exit 0.
 
 ### Phase 4: Architecture reconciliation and PR gate
 
 **Why last:** final docs must describe the proven Phase 0 behavior and the approved later authority cutover without claiming it already landed.
 
-- [x] Keep architecture rev 8 and the parent plan synchronized with implementation discoveries; preserve Phase 2b PG→Home/Reflect marker and Docker-before-Kubernetes gates.
-- [x] Update README and EN/ZH user/developer Skill/storage/sandbox docs plus builtin Stella Skill for builtin/system distinction, activation semantics, custom-image rebuild, legacy gate and downgrade behavior.
-- [x] Run adversarial bug/security/architecture/correctness review; resolve findings affecting legacy data, policy clobber/bypass, bundle integrity, provider isolation or future Home cutover.
-- [x] Run mandatory local checks and the lowest sufficient startup/image system seam.
-- [x] Commit each phase, push the stacked branch, and open one Draft PR based on `design/sandbox-architecture-v2` whose body says `Refs #828`. Do not create a child Issue or mark the PR ready without V's instruction.
+- [ ] Keep the current parent architecture and plan synchronized with implementation discoveries; preserve the builtin-versus-mutable-byte authority boundary without prescribing a Home catalog, filesystem RPC, or Kubernetes placement model.
+- [ ] Update README and EN/ZH user/developer Skill/storage/sandbox docs plus builtin Stella Skill for builtin/system distinction, activation semantics, custom-image rebuild, legacy gate and downgrade behavior.
+- [ ] Run adversarial bug/security/architecture/correctness review; resolve findings affecting legacy data, policy clobber/bypass, bundle integrity, provider isolation or the future mutable POSIX Skill cutover.
+- [ ] Run mandatory local checks and the lowest sufficient startup/image system seam.
+- [ ] Commit each phase, push the stacked branch, and open one Draft PR based on `design/sandbox-architecture-v2` whose body says `Refs #828`. Do not create a child Issue or mark the PR ready without V's instruction.
 
 **Acceptance:**
 
-- [x] `mise run format && mise run build && mise run test` exits 0.
-- [x] `mise run system-test` exits 0 or records the project-defined unsupported-host skip.
-- [x] `git diff --check`, generated-code drift checks and focused dprint checks exit 0.
-- [x] Startup never rewrites the legacy builtin tree; custom legacy roots block before any Home mutation; Docker uses only its matching read-only image bundle; Agent policy survives restart and ordinary Agent updates.
-- [x] `gh pr view <new-pr> --json baseRefName,headRefName,isDraft,body` shows the correct stack, linked Issue, Fable-approved decisions and verification.
+- [ ] `mise run format && mise run build && mise run test` exits 0.
+- [ ] `mise run system-test` exits 0 or records the project-defined unsupported-host skip.
+- [ ] `git diff --check`, generated-code drift checks and focused dprint checks exit 0.
+- [ ] Fresh startup performs no builtin rewrite; custom legacy roots block safely; Docker uses only its matching image bundle; Agent policy survives restart and ordinary Agent updates.
+- [ ] `gh pr view <new-pr> --json baseRefName,headRefName,isDraft,body` shows the correct stack, linked Issue, Fable-approved decisions and verification.
 
 ## Review log
+
+The reviews below are historical evidence for the merged Phase 0 implementation. Their approval of then-proposed Home, helper transport, revision-tree, or fixed-stack details does not approve or override the current parent architecture and plan.
 
 ### Revision 1 — superseded
 
@@ -300,46 +304,24 @@ Kept system scopes but added `agent_skill_disablement`. Fable approved after sta
 
 ### Revision 3 architecture review — Fable round 2
 
-**Review: APPROVED.** No unresolved mandatory finding. Fable approved the two-authority model, this Phase 0 scope, the later Homes/stella-fs/offline-cutover order, and the required acceptance gates.
+**Historical review: APPROVED.** No unresolved mandatory finding for revision 3. Its approval of the then-proposed Homes/helper/offline-cutover order is superseded; only the merged Phase 0 bundle and policy result remains current.
 
 ### Revision 3 exact-plan transcription review
 
 **Review (Fable, round 1): CHANGES REQUIRED.** The parent Phase 2 no-GC ceiling lacked an observable disk-growth task and runnable acceptance.
 
-**Resolved:** The parent plan now uses the existing OTel pipeline for aggregate retained revision count/bytes/oldest-age, root-threshold structured warnings without high-cardinality labels, capacity-response docs, and a known-size fixture. It also hardens policy-digest and Reflect-marker wording.
+**Historical resolution:** The revision 3 parent plan then added OTel retained-revision metrics, threshold warnings, capacity-response docs, and a fixture. That revision-tree requirement is superseded; #897 must justify any revision protocol independently.
 
 **Review (Fable, round 2): APPROVED.** Fable re-read architecture rev 8, the parent plan, and this byte-identical exact plan, found no mandatory issue, and confirmed the `/opt/stella/skills/builtin` Phase 0 view remains a projection of the immutable bundle rather than another authority.
 
-**Resolved:** Final plan gate satisfied. Implementation may start with Phase 1 of this standalone Phase 0 plan.
+**Historical resolution:** The revision 3 plan gate was satisfied. Current sequencing follows the parent implementation plan; Issue #828 remains the umbrella tracker.
 
 ### Full-program execution map
 
 **Decision (V):** Implement all parent phases under umbrella Issue #828, create no child Issues, and open every PR as Draft. The initial 23-PR decomposition was too granular; V authorized Sol self-review instead of another Fable pass.
 
-**Resolved:** The parent plan now uses 15 vertical Draft PRs. Phase 0 remains one PR with four implementation phase commits, stacked on #829 and retargeted to `main` after #829 merges. A later upstream rebase may add one generated reconciliation commit when release-owned builtin source bytes change. Its body uses `Refs #828`, never `Closes #828`; it stays Draft until V says otherwise.
-
-### Revision 4 implementation reconciliation — Sol
-
-**Review: APPROVED FOR FINAL GATE.** Phase 3 exposed two local linearization requirements that the Revision 3 behavior contract implied but did not spell out: admission must reserve its runner and visible metadata atomically, and a PostgreSQL commit error must not reopen admission on an unproved policy snapshot.
-
-**Resolved:** The as-built design uses one per-Agent admission barrier, an immutable `runnerSelection`, reservation-aware non-terminal reset/invalidation, and fail-closed refresh after commit-outcome-unknown. These are Phase 0 current-process mechanisms, not new durable authorities. Architecture rev 8 and the parent plan therefore need no dependency or phase-order change: AgentRun still owns the future whole-Run digest pin, Compose remains the multi-replica gate, and Kubernetes remains blocked behind Compose.
-
-### Revision 5 final gate review — Sol and independent Terra
-
-**Review: APPROVED.** The aggregate four-lens review and executable Docker image gate found two final contract violations: blocked legacy startup changed `bin/` before inventory, and Docker shell execution could mutate the builtin image projection.
-
-**Resolved:** Registry inventory now runs before every Stella Home mutation and locks the ordering with a retired-binary sentinel test. Docker sandbox containers use the platform's read-only root filesystem while keeping only the explicit workspace, principal-data and temporary mounts writable; pure wiring, real-daemon contract and exact-image checks prove the boundary. The independent final reviewer returned `APPROVED` after both corrections. These changes enforce existing Phase 0 contracts and do not alter parent dependencies or authority order.
-
-### Revision 6 latest-main rebase reconciliation — Sol and independent Terra
-
-**Review: APPROVED.** V requested a rebase onto latest `main`, completed at `b5f4718e` after the release changelog landed. Upstream had removed database-backed sandbox plugins in favor of deployment-owned `STELLA_SANDBOX_BACKEND`, added atomic Agent-specific Provider credentials, and changed builtin Stella Skill documentation.
-
-**Resolved:** The shared plugin catalog no longer imports the retired sandbox plugin package; daemon and generator still import the same current plugin set. `DBStore.pool` is the single transaction capability for both AgentSkillPolicy and Agent+credential writes, while broad Agent create/update/seed paths continue to leave policy to its database default or preserve committed bytes. The exact upstream builtin content regenerated bundle revision `55cd41879df458f2b2c50f14d87695067dbc578fe183fc2fea1084af796b1d3e`. Independent re-review returned `APPROVED`; mandatory local, subprocess system, cross-platform, Docker build, real-daemon and exact-image gates passed. Architecture and parent phase order remain unchanged.
+**Historical resolution:** the old parent plan used 15 vertical Draft PRs. That fixed map is superseded. PR #831 subsequently merged, and the current parent plan intentionally has no fixed full-program PR count.
 
 ## Handoffs
 
-- Phase 1: deterministic Registry/bundle landed after generation, installer, mode, tamper and cross-platform gates.
-- Phase 2: Provider projection and legacy gate landed after local/none/Docker contract and dual-review approval.
-- Phase 3: Agent policy/API/UI and admission safety landed after security/correctness approval and full local gates.
-- Phase 4: EN/ZH docs, plan reconciliation, legacy zero-mutation ordering, Docker read-only rootfs, aggregate review and full local/system/image gates landed; Draft PR #831 remains Draft.
-- Latest-main reconciliation: stack rebased onto `b5f4718e`; upstream plugin/credential contracts were preserved and builtin revision `55cd41879df458f2b2c50f14d87695067dbc578fe183fc2fea1084af796b1d3e` was regenerated and reverified. Live rebased commit IDs remain in Issue #828 rather than this plan because every future trunk rebase legitimately rewrites them.
+<!-- Mason appends one concrete handoff after each completed phase. -->

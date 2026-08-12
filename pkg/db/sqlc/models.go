@@ -379,21 +379,25 @@ type CtxAgentMemorySnapshot struct {
 }
 
 type CtxConversation struct {
-	ID             string             `json:"id"`
-	SessionID      string             `json:"session_id"`
-	Title          pgtype.Text        `json:"title"`
-	Channel        string             `json:"channel"`
-	Kind           string             `json:"kind"`
-	ProjectID      pgtype.Text        `json:"project_id"`
-	Archived       bool               `json:"archived"`
-	LastActive     time.Time          `json:"last_active"`
-	BootstrappedAt pgtype.Timestamptz `json:"bootstrapped_at"`
-	AgentID        pgtype.Text        `json:"agent_id"`
-	UserID         pgtype.Text        `json:"user_id"`
-	CreatedAt      time.Time          `json:"created_at"`
-	UpdatedAt      time.Time          `json:"updated_at"`
-	GroupID        pgtype.Text        `json:"group_id"`
-	GuestID        pgtype.Text        `json:"guest_id"`
+	ID                  string             `json:"id"`
+	SessionID           string             `json:"session_id"`
+	Title               pgtype.Text        `json:"title"`
+	Channel             string             `json:"channel"`
+	Kind                string             `json:"kind"`
+	ProjectID           pgtype.Text        `json:"project_id"`
+	Archived            bool               `json:"archived"`
+	LastActive          time.Time          `json:"last_active"`
+	BootstrappedAt      pgtype.Timestamptz `json:"bootstrapped_at"`
+	AgentID             pgtype.Text        `json:"agent_id"`
+	UserID              pgtype.Text        `json:"user_id"`
+	CreatedAt           time.Time          `json:"created_at"`
+	UpdatedAt           time.Time          `json:"updated_at"`
+	GroupID             pgtype.Text        `json:"group_id"`
+	GuestID             pgtype.Text        `json:"guest_id"`
+	LastTurnStartedAt   pgtype.Timestamptz `json:"last_turn_started_at"`
+	LastTurnCompletedAt pgtype.Timestamptz `json:"last_turn_completed_at"`
+	LastTurnResult      pgtype.Text        `json:"last_turn_result"`
+	LastViewedAt        pgtype.Timestamptz `json:"last_viewed_at"`
 }
 
 type CtxGroupDispatch struct {
@@ -502,14 +506,18 @@ type CtxMedium struct {
 }
 
 type CtxMessage struct {
-	ID             string    `json:"id"`
-	ConversationID string    `json:"conversation_id"`
-	Seq            int64     `json:"seq"`
-	Role           string    `json:"role"`
-	EventType      string    `json:"event_type"`
-	Content        string    `json:"content"`
-	TokenCount     int64     `json:"token_count"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID              string      `json:"id"`
+	ConversationID  string      `json:"conversation_id"`
+	Seq             int64       `json:"seq"`
+	Role            string      `json:"role"`
+	EventType       string      `json:"event_type"`
+	Content         string      `json:"content"`
+	TokenCount      int64       `json:"token_count"`
+	CreatedAt       time.Time   `json:"created_at"`
+	ActorType       string      `json:"actor_type"`
+	ActorID         pgtype.Text `json:"actor_id"`
+	SourceSessionID pgtype.Text `json:"source_session_id"`
+	InboxID         pgtype.Text `json:"inbox_id"`
 }
 
 type CtxMessageEmbedding struct {
@@ -537,19 +545,34 @@ type CtxMessagePart struct {
 	UpdatedAt   time.Time   `json:"updated_at"`
 }
 
+type CtxSessionInbox struct {
+	ID              string             `json:"id"`
+	EnqueueSeq      pgtype.Int8        `json:"enqueue_seq"`
+	SourceSessionID string             `json:"source_session_id"`
+	TargetSessionID string             `json:"target_session_id"`
+	ActorID         string             `json:"actor_id"`
+	Content         string             `json:"content"`
+	DeliveredAt     pgtype.Timestamptz `json:"delivered_at"`
+	FailedAt        pgtype.Timestamptz `json:"failed_at"`
+	ErrorCode       string             `json:"error_code"`
+	CreatedAt       time.Time          `json:"created_at"`
+	UpdatedAt       time.Time          `json:"updated_at"`
+}
+
 type CtxSummary struct {
-	ID                      string             `json:"id"`
-	ConversationID          string             `json:"conversation_id"`
-	Kind                    string             `json:"kind"`
-	Depth                   int64              `json:"depth"`
-	Content                 string             `json:"content"`
-	TokenCount              int64              `json:"token_count"`
-	EarliestAt              pgtype.Timestamptz `json:"earliest_at"`
-	LatestAt                pgtype.Timestamptz `json:"latest_at"`
-	DescendantCount         int64              `json:"descendant_count"`
-	DescendantTokenCount    int64              `json:"descendant_token_count"`
-	SourceMessageTokenCount int64              `json:"source_message_token_count"`
-	CreatedAt               time.Time          `json:"created_at"`
+	ID                        string             `json:"id"`
+	ConversationID            string             `json:"conversation_id"`
+	Kind                      string             `json:"kind"`
+	Depth                     int64              `json:"depth"`
+	Content                   string             `json:"content"`
+	TokenCount                int64              `json:"token_count"`
+	EarliestAt                pgtype.Timestamptz `json:"earliest_at"`
+	LatestAt                  pgtype.Timestamptz `json:"latest_at"`
+	DescendantCount           int64              `json:"descendant_count"`
+	DescendantTokenCount      int64              `json:"descendant_token_count"`
+	SourceMessageTokenCount   int64              `json:"source_message_token_count"`
+	CreatedAt                 time.Time          `json:"created_at"`
+	ContainsNonPrincipalInput bool               `json:"contains_non_principal_input"`
 }
 
 type CtxSummaryEmbedding struct {
@@ -598,7 +621,15 @@ type Fact struct {
 	UpdatedAt  time.Time       `json:"updated_at"`
 }
 
-type KnowledgeChunk struct {
+type KnowledgeUsage struct {
+	FactID     string    `json:"fact_id"`
+	UserID     string    `json:"user_id"`
+	AgentID    string    `json:"agent_id"`
+	LastUsedAt time.Time `json:"last_used_at"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+type LibraryChunk struct {
 	ID            string          `json:"id"`
 	ChunkSetID    string          `json:"chunk_set_id"`
 	Ordinal       int64           `json:"ordinal"`
@@ -607,9 +638,10 @@ type KnowledgeChunk struct {
 	ContentSha256 []byte          `json:"content_sha256"`
 	CreatedAt     time.Time       `json:"created_at"`
 	UpdatedAt     time.Time       `json:"updated_at"`
+	LocatorSha256 []byte          `json:"locator_sha256"`
 }
 
-type KnowledgeChunkSet struct {
+type LibraryChunkSet struct {
 	ID            string             `json:"id"`
 	FileID        string             `json:"file_id"`
 	DerivationKey string             `json:"derivation_key"`
@@ -624,7 +656,7 @@ type KnowledgeChunkSet struct {
 	CompletedAt   pgtype.Timestamptz `json:"completed_at"`
 }
 
-type KnowledgeFile struct {
+type LibraryFile struct {
 	ID               string             `json:"id"`
 	Scope            string             `json:"scope"`
 	UserID           pgtype.Text        `json:"user_id"`
@@ -639,14 +671,6 @@ type KnowledgeFile struct {
 	DeletedAt        pgtype.Timestamptz `json:"deleted_at"`
 	CreatedAt        time.Time          `json:"created_at"`
 	UpdatedAt        time.Time          `json:"updated_at"`
-}
-
-type KnowledgeUsage struct {
-	FactID     string    `json:"fact_id"`
-	UserID     string    `json:"user_id"`
-	AgentID    string    `json:"agent_id"`
-	LastUsedAt time.Time `json:"last_used_at"`
-	CreatedAt  time.Time `json:"created_at"`
 }
 
 type McpServer struct {
@@ -1003,40 +1027,6 @@ type SkillUsage struct {
 	UseCount   int64     `json:"use_count"`
 	LastUsedAt time.Time `json:"last_used_at"`
 	CreatedAt  time.Time `json:"created_at"`
-}
-
-type StorageHome struct {
-	ID               string             `json:"id"`
-	HomeKind         string             `json:"home_kind"`
-	PrincipalKind    pgtype.Text        `json:"principal_kind"`
-	PrincipalID      pgtype.Text        `json:"principal_id"`
-	AgentID          pgtype.Text        `json:"agent_id"`
-	StoreID          string             `json:"store_id"`
-	Locator          string             `json:"locator"`
-	State            string             `json:"state"`
-	MaintenanceOwner pgtype.Text        `json:"maintenance_owner"`
-	MaintenanceUntil pgtype.Timestamptz `json:"maintenance_until"`
-	TombstonedAt     pgtype.Timestamptz `json:"tombstoned_at"`
-	TombstonedBy     pgtype.Text        `json:"tombstoned_by"`
-	PurgeAttempts    int32              `json:"purge_attempts"`
-	PurgeRequestedAt pgtype.Timestamptz `json:"purge_requested_at"`
-	PurgeStartedAt   pgtype.Timestamptz `json:"purge_started_at"`
-	PurgeFailedAt    pgtype.Timestamptz `json:"purge_failed_at"`
-	LastPurgeError   pgtype.Text        `json:"last_purge_error"`
-	PurgedAt         pgtype.Timestamptz `json:"purged_at"`
-	PurgedBy         pgtype.Text        `json:"purged_by"`
-	CreatedAt        time.Time          `json:"created_at"`
-	UpdatedAt        time.Time          `json:"updated_at"`
-}
-
-type StorageMigration struct {
-	Name                      string             `json:"name"`
-	State                     string             `json:"state"`
-	ObjectAuthorityConfigured bool               `json:"object_authority_configured"`
-	Metadata                  json.RawMessage    `json:"metadata"`
-	CompletedAt               pgtype.Timestamptz `json:"completed_at"`
-	CreatedAt                 time.Time          `json:"created_at"`
-	UpdatedAt                 time.Time          `json:"updated_at"`
 }
 
 type ToolOverride struct {

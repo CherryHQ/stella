@@ -14,6 +14,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
+	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/account"
 	authoidc "github.com/CherryHQ/stella/internal/auth/oidc"
@@ -25,6 +26,7 @@ import (
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/inbox"
+	"github.com/CherryHQ/stella/internal/library"
 	"github.com/CherryHQ/stella/internal/mcp"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/oidc"
@@ -76,6 +78,7 @@ type Server struct {
 	goalSvc          *goal.Service         // optional; if nil, goal endpoints return 503
 	workflowSvc      *workflowpkg.Service  // optional; if nil, workflow endpoints return 503
 	provisioningSvc  *provisioning.Service // provisioned-user lifecycle boundary
+	librarySvc       *library.Service      // optional; if nil, Library file endpoints return 503
 	agentSkillPolicy AgentSkillPolicyStore
 	builtinTools     []agent.BuiltinTool
 	startedAt        time.Time
@@ -91,6 +94,9 @@ type Server struct {
 	// messages, send). Its send path degrades to 503 when the event log or group
 	// dispatcher is absent; the read/CRUD path stays available.
 	groupSvc *channel.GroupService
+	// assets is the immutable session-media persistence service used by transcript
+	// media handlers; mutable workspace files use Home rooted POSIX capabilities.
+	assets *asset.Store
 	// runtimeCtx is canceled by the process/service lifecycle; request handlers
 	// derive long-running work from it instead of client connections.
 	runtimeCtx context.Context
@@ -191,6 +197,9 @@ type Deps struct {
 	// It holds the event log and group dispatcher internally, so the transport no
 	// longer reaches the query layer or sqlc for groups.
 	Group *channel.GroupService
+	// Assets provides immutable content-addressed session media. Mutable Workspace
+	// and user-data handlers use Home rooted POSIX capabilities instead.
+	Assets *asset.Store
 
 	// Optional capabilities. A nil field is a supported configuration: the
 	// matching endpoints report 503 through the centralized unavailable mapping
@@ -203,6 +212,7 @@ type Deps struct {
 	Goal           *goal.Service
 	Workflow       *workflowpkg.Service
 	Provisioning   *provisioning.Service
+	Library        *library.Service
 }
 
 // OIDCDeps groups the login-authentication components produced by oidc.Setup.
@@ -252,6 +262,7 @@ func (d Deps) validate() error {
 	req(d.Email != nil, "Email")
 	req(d.Share != nil, "Share")
 	req(d.Recally != nil, "Recally")
+	req(d.Assets != nil, "Assets")
 	req(d.OIDC.AuthSvc != nil, "OIDC.AuthSvc")
 	req(d.OIDC.SessionMgr != nil, "OIDC.SessionMgr")
 	if len(missing) > 0 {
@@ -310,8 +321,10 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		goalSvc:          deps.Goal,
 		workflowSvc:      deps.Workflow,
 		provisioningSvc:  deps.Provisioning,
+		librarySvc:       deps.Library,
 		agentSkillPolicy: deps.AgentSkillPolicy,
 		groupSvc:         deps.Group,
+		assets:           deps.Assets,
 		authProviders:    deps.OIDC.Providers,
 		authSvc:          deps.OIDC.AuthSvc,
 		sessionMgr:       deps.OIDC.SessionMgr,

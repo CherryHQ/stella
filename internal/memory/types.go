@@ -123,20 +123,41 @@ type GroupCursorCommitter interface {
 	CommitGroupCursor(ctx context.Context, session Session, triggerSeq int64) error
 }
 
+type SessionTurnResult string
+
+const (
+	SessionTurnSuccess  SessionTurnResult = "success"
+	SessionTurnError    SessionTurnResult = "error"
+	SessionTurnCanceled SessionTurnResult = "canceled"
+)
+
+func (r SessionTurnResult) Valid() bool {
+	switch r {
+	case SessionTurnSuccess, SessionTurnError, SessionTurnCanceled:
+		return true
+	default:
+		return false
+	}
+}
+
 // SessionInfo holds metadata about a session.
 type SessionInfo struct {
-	ID         string
-	AgentID    string
-	UserID     string
-	GroupID    string // non-empty for group sessions; runtime uses this to isolate identity surfaces
-	GuestID    string // non-empty for a persistent channel guest; equals UserID
-	Channel    string
-	Kind       string // session kind: main, chat, scheduler, task
-	ProjectID  string // set for project-scoped sessions
-	Title      string // auto-generated from first message
-	CreatedAt  time.Time
-	LastActive time.Time
-	Archived   bool
+	ID                  string
+	AgentID             string
+	UserID              string
+	GroupID             string // non-empty for group sessions; runtime uses this to isolate identity surfaces
+	GuestID             string // non-empty for a persistent channel guest; equals UserID
+	Channel             string
+	Kind                string // session kind: main, chat, scheduler, task
+	ProjectID           string // set for project-scoped sessions
+	Title               string // auto-generated from first message
+	CreatedAt           time.Time
+	LastActive          time.Time
+	LastTurnStartedAt   time.Time
+	LastTurnCompletedAt time.Time
+	LastTurnResult      SessionTurnResult
+	LastViewedAt        time.Time
+	Archived            bool
 	// LatestSeq is the latest persisted message sequence when supplied by a
 	// review-aware listing. Zero means the provider has no stable sequence.
 	LatestSeq int64

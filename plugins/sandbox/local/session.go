@@ -17,7 +17,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/CherryHQ/stella/internal/fsops"
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
@@ -38,8 +37,6 @@ type Config struct {
 type Factory struct {
 	cfg Config
 }
-
-var _ sandboxpkg.FilesystemSession = (*localSession)(nil)
 
 // NewFactory returns a Factory for the local backend.
 func NewFactory(cfg ...Config) sandboxpkg.Factory {
@@ -149,13 +146,6 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, 
 	}
 	env["PATH"] = sandboxpkg.HostEnvBuildPath(sandboxSH, userShims)
 	env["STELLA_HOME"] = sandboxSH
-	// lark-cli's native config and token store live under the user's shared data
-	// root. Rewrite their host paths to the /user sandbox view.
-	for _, key := range []string{"LARKSUITE_CLI_CONFIG_DIR", "LARKSUITE_CLI_DATA_DIR"} {
-		if value := env[key]; value != "" {
-			env[key] = remapMise(value)
-		}
-	}
 	// Rewrite MISE_* path-valued env vars to the agent's view (see remapMise): both
 	// the per-user tree and the system tree land under the sandbox STELLA_HOME, so
 	// their host-relative seed/shim symlinks resolve identically in the sandbox.
@@ -298,22 +288,6 @@ func (s *localSession) WorkingDir() string {
 	return wd
 }
 
-// Filesystem creates a contained, provider-private adapter for the session's
-// mounted roots. The legacy host resolver remains until its callers migrate.
-func (s *localSession) Filesystem() (sandboxpkg.Filesystem, error) {
-	mounts := make([]fsops.Mount, 0, len(s.policy.Filesystem.Mounts))
-	for _, mount := range s.policy.Filesystem.Mounts {
-		if mount.SandboxPath != sandboxpkg.PathWorkspace && mount.SandboxPath != sandboxpkg.PathUser && mount.SandboxPath != sandboxpkg.PathTemp {
-			continue
-		}
-		mounts = append(mounts, fsops.Mount{Path: mount.SandboxPath, Directory: mount.HostPath, ReadOnly: mount.Access == sandboxpkg.MountReadOnly})
-	}
-	if len(mounts) == 0 {
-		mounts = append(mounts, fsops.Mount{Path: sandboxpkg.PathWorkspace, Directory: s.realRoot})
-	}
-	return fsops.NewFilesystem(mounts)
-}
-
 func (s *localSession) Alive() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -351,6 +325,39 @@ func cleanupOwnedTmpMounts(mounts []tmpMount) {
 			_ = os.RemoveAll(mount.realPath)
 		}
 	}
+}
+
+// ensureOwnedTmpMounts restores session-owned temporary directories removed by
+// host cleanup services while a long-lived session is still active. Borrowed
+// mounts are deliberately ignored: their lifecycle belongs to the operator,
+// and a missing source must still fail closed in the platform sandbox.
+func ensureOwnedTmpMounts(mounts []tmpMount) error {
+	for _, mount := range mounts {
+		if !mount.owned {
+			continue
+		}
+		info, err := os.Lstat(mount.realPath)
+		switch {
+		case err == nil:
+			if !info.IsDir() {
+				return fmt.Errorf("temporary mount source %q is not a directory", mount.realPath)
+			}
+		case errors.Is(err, os.ErrNotExist):
+			if err := os.Mkdir(mount.realPath, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+				return fmt.Errorf("recreate temporary mount source %q: %w", mount.realPath, err)
+			}
+			info, err = os.Lstat(mount.realPath)
+			if err != nil {
+				return fmt.Errorf("verify temporary mount source %q: %w", mount.realPath, err)
+			}
+			if !info.IsDir() {
+				return fmt.Errorf("temporary mount source %q is not a directory", mount.realPath)
+			}
+		default:
+			return fmt.Errorf("inspect temporary mount source %q: %w", mount.realPath, err)
+		}
+	}
+	return nil
 }
 
 // deregisterProcess removes a process handle from the session's tracked list.
@@ -482,6 +489,9 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 	if closed {
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local: session is closed")
 	}
+	if err := ensureOwnedTmpMounts(s.tmpMounts); err != nil {
+		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: prepare temporary mounts: %w", err)
+	}
 
 	sandboxCwd := opts.Cwd
 	if sandboxCwd == "" {
@@ -562,8 +572,15 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRequest) (sandboxpkg.ProcessHandle, error) {
 	// Per-exec env reads take a policy snapshot under the lock.
 	s.mu.RLock()
+	closed := s.closed
 	policy := s.policy
 	s.mu.RUnlock()
+	if closed {
+		return nil, fmt.Errorf("local: session is closed")
+	}
+	if err := ensureOwnedTmpMounts(s.tmpMounts); err != nil {
+		return nil, fmt.Errorf("local start_process: prepare temporary mounts: %w", err)
+	}
 
 	sandboxCwd := req.Cwd
 	if sandboxCwd == "" {

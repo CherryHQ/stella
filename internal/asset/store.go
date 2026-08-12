@@ -1,6 +1,6 @@
-// Package asset persists immutable session media. Mutable user assets are owned
-// directly by Home after the migration gate; this package deliberately has no
-// workspace-path or hydration API.
+// Package asset stores immutable session media outside mutable workspace and
+// user-data trees. Session media is content-addressed and backed by blob.Store
+// when one is configured, or by the local filesystem otherwise.
 package asset
 
 import (
@@ -12,8 +12,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -31,25 +33,26 @@ type SessionMediaStore interface {
 	OpenSessionMedia(context.Context, uuid.UUID, [sha256.Size]byte, int64) ([]byte, error)
 }
 
-// Store implements write-once session media over either the local filesystem or
-// a configured blob authority. Its local and blob keys are content-addressed.
+// Store provides immutable, content-addressed session media storage. It is safe
+// for concurrent use.
 type Store struct {
 	home      string
-	authority blob.Store
+	blobStore blob.Store
 	mu        sync.Mutex
 }
 
-// NewStore builds the immutable media store. home is required. When authority
-// is nil, local storage is the authority; otherwise media is read and written
-// directly through the configured blob store.
-func NewStore(home string, authority blob.Store) (*Store, error) {
+// NewStore builds the immutable session media store. home is required. The
+// BlobStore remains optional: configured deployments store media there, while
+// deployments without one store media beneath home.
+func NewStore(home string, blobStore blob.Store, _ *slog.Logger) (*Store, error) {
 	if home == "" {
 		return nil, fmt.Errorf("asset store: home directory is required")
 	}
-	return &Store{home: home, authority: authority}, nil
+	return &Store{home: home, blobStore: blobStore}, nil
 }
 
-// SessionMedia returns the narrow, write-once media facet.
+// SessionMedia returns the narrow, write-once media facet. It is intentionally
+// not a path API: only this facet derives users/<id>/session-media/<sha256>.
 func (s *Store) SessionMedia() SessionMediaStore { return sessionMediaStore{store: s} }
 
 type sessionMediaStore struct{ store *Store }
@@ -71,21 +74,22 @@ func (s *Store) putSessionMedia(ctx context.Context, userID uuid.UUID, digest [s
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.authority != nil {
-		if existing, err := s.readAuthoritySessionMedia(ctx, key); err == nil {
+	if s.blobStore != nil {
+		if existing, err := s.readBlobSessionMedia(ctx, key); err == nil {
 			return verifySessionMedia(existing, digest, int64(len(data)))
-		} else if !errors.Is(err, os.ErrNotExist) {
+		} else if !os.IsNotExist(err) {
 			return fmt.Errorf("open existing session media: %w", err)
 		}
-		if err := s.authority.Put(ctx, key, bytes.NewReader(data)); err != nil {
+		if err := s.blobStore.Put(ctx, key, bytes.NewReader(data)); err != nil {
 			return fmt.Errorf("persist session media: %w", err)
 		}
-		stored, err := s.readAuthoritySessionMedia(ctx, key)
+		stored, err := s.readBlobSessionMedia(ctx, key)
 		if err != nil {
 			return fmt.Errorf("verify persisted session media: %w", err)
 		}
 		return verifySessionMedia(stored, digest, int64(len(data)))
 	}
+
 	return s.writeLocalSessionMedia(userID, digest, data)
 }
 
@@ -98,12 +102,10 @@ func (s *Store) openSessionMedia(ctx context.Context, userID uuid.UUID, digest [
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var (
-		data []byte
-		err  error
-	)
-	if s.authority != nil {
-		data, err = s.readAuthoritySessionMedia(ctx, key)
+	var data []byte
+	var err error
+	if s.blobStore != nil {
+		data, err = s.readBlobSessionMedia(ctx, key)
 	} else {
 		data, err = s.readLocalSessionMedia(userID, digest)
 	}
@@ -116,58 +118,61 @@ func (s *Store) openSessionMedia(ctx context.Context, userID uuid.UUID, digest [
 	return data, nil
 }
 
-func (s *Store) readAuthoritySessionMedia(ctx context.Context, key string) ([]byte, error) {
-	rc, err := s.authority.Open(ctx, key)
+func (s *Store) readBlobSessionMedia(ctx context.Context, key string) ([]byte, error) {
+	rc, err := s.blobStore.Open(ctx, key)
 	if err != nil {
 		return nil, err
 	}
 	data, readErr := io.ReadAll(rc)
 	closeErr := rc.Close()
-	return data, errors.Join(readErr, closeErr)
+	if readErr != nil {
+		return nil, readErr
+	}
+	return data, closeErr
 }
 
 func (s *Store) writeLocalSessionMedia(userID uuid.UUID, digest [sha256.Size]byte, data []byte) error {
-	root, err := os.OpenRoot(s.home)
+	root, rel, err := s.openPath(filepath.Join(s.home, filepath.FromSlash(sessionMediaKey(userID, digest))))
 	if err != nil {
 		return err
 	}
 	defer func() { _ = root.Close() }()
-	key := sessionMediaKey(userID, digest)
-	if existing, err := root.ReadFile(key); err == nil {
+	if existing, err := root.ReadFile(rel); err == nil {
 		return verifySessionMedia(existing, digest, int64(len(data)))
-	} else if !errors.Is(err, os.ErrNotExist) {
+	} else if !os.IsNotExist(err) {
 		return err
 	}
-	if err := root.MkdirAll(filepath.Dir(key), 0o700); err != nil {
+	if err := root.MkdirAll(filepath.Dir(rel), 0o700); err != nil {
 		return err
 	}
-	tmp, tmpName, err := createRootTemp(root, filepath.Dir(key))
+
+	f, tmp, err := createRootTemp(root, filepath.Dir(rel))
 	if err != nil {
 		return err
 	}
-	defer func() { _ = root.Remove(tmpName) }()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
+	defer func() { _ = root.Remove(tmp) }()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
 		return err
 	}
-	if err := tmp.Close(); err != nil {
+	if err := f.Close(); err != nil {
 		return err
 	}
-	if existing, err := root.ReadFile(key); err == nil {
+	if existing, err := root.ReadFile(rel); err == nil {
 		return verifySessionMedia(existing, digest, int64(len(data)))
-	} else if !errors.Is(err, os.ErrNotExist) {
+	} else if !os.IsNotExist(err) {
 		return err
 	}
-	return root.Rename(tmpName, key)
+	return root.Rename(tmp, rel)
 }
 
 func (s *Store) readLocalSessionMedia(userID uuid.UUID, digest [sha256.Size]byte) ([]byte, error) {
-	root, err := os.OpenRoot(s.home)
+	root, rel, err := s.openPath(filepath.Join(s.home, filepath.FromSlash(sessionMediaKey(userID, digest))))
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = root.Close() }()
-	return root.ReadFile(sessionMediaKey(userID, digest))
+	return root.ReadFile(rel)
 }
 
 func sessionMediaKey(userID uuid.UUID, digest [sha256.Size]byte) string {
@@ -181,18 +186,70 @@ func verifySessionMedia(data []byte, digest [sha256.Size]byte, sizeBytes int64) 
 	return nil
 }
 
+func (s *Store) openPath(abs string) (*os.Root, string, error) {
+	boundary, rel, err := s.pathBoundary(abs)
+	if err != nil {
+		return nil, "", err
+	}
+	homeRoot, err := os.OpenRoot(s.home)
+	if err != nil {
+		return nil, "", err
+	}
+	if boundary == s.home {
+		return homeRoot, rel, nil
+	}
+	boundaryRel, err := filepath.Rel(s.home, boundary)
+	if err != nil {
+		_ = homeRoot.Close()
+		return nil, "", err
+	}
+	if info, err := homeRoot.Lstat(boundaryRel); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			_ = homeRoot.Close()
+			return nil, "", fmt.Errorf("session media principal boundary is a symlink: %q", boundary)
+		}
+	} else if os.IsNotExist(err) {
+		if err := homeRoot.MkdirAll(boundaryRel, 0o755); err != nil {
+			_ = homeRoot.Close()
+			return nil, "", err
+		}
+	} else {
+		_ = homeRoot.Close()
+		return nil, "", err
+	}
+	root, err := homeRoot.OpenRoot(boundaryRel)
+	_ = homeRoot.Close()
+	if err != nil {
+		return nil, "", err
+	}
+	return root, rel, nil
+}
+
+func (s *Store) pathBoundary(abs string) (string, string, error) {
+	homeRel, err := filepath.Rel(s.home, abs)
+	if err != nil || filepath.IsAbs(homeRel) || homeRel == ".." || strings.HasPrefix(homeRel, ".."+string(filepath.Separator)) {
+		return "", "", fmt.Errorf("session media path escapes home: %q", abs)
+	}
+	parts := strings.Split(homeRel, string(filepath.Separator))
+	if len(parts) >= 3 && parts[0] == "users" {
+		boundary := filepath.Join(s.home, parts[0], parts[1])
+		return boundary, filepath.Join(parts[2:]...), nil
+	}
+	return s.home, homeRel, nil
+}
+
 func createRootTemp(root *os.Root, dir string) (*os.File, string, error) {
 	for range 100 {
 		var random [8]byte
 		if _, err := rand.Read(random[:]); err != nil {
 			return nil, "", err
 		}
-		name := filepath.Join(dir, ".stella-media-"+hex.EncodeToString(random[:]))
+		name := filepath.Join(dir, ".stella-asset-"+hex.EncodeToString(random[:]))
 		f, err := root.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 		if err == nil {
 			return f, name, nil
 		}
-		if !errors.Is(err, os.ErrExist) {
+		if !os.IsExist(err) {
 			return nil, "", err
 		}
 	}

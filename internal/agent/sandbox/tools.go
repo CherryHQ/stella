@@ -1,96 +1,67 @@
 package sandbox
 
 import (
-	"fmt"
-	"path"
 	"strings"
 
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
-// NewTools returns the four standard sandbox-backed tools. bash retains the
-// Session process capability; read, write, and edit use only Filesystem.
-func NewTools(session pkgsandbox.Session, toolsBinDir string, sessionSecretValues *SessionSecretValues) []pkgtools.Tool {
-	if session == nil {
+// NewTools returns the four standard sandbox-backed tools (bash, read, write, edit).
+func NewTools(host pkgsandbox.Host, toolsBinDir, projectRoot string, sessionSecretValues *SessionSecretValues) []pkgtools.Tool {
+	if host == nil {
 		return nil
 	}
-	fsSession, ok := session.(pkgsandbox.FilesystemSession)
-	if !ok {
-		return nil
-	}
-	// Fail runner construction closed when the provider cannot open the mediated
-	// filesystem the read/write/edit tools require. A nil Filesystem with a nil
-	// error is treated as a failure, never dereferenced. Each tool opens its own
-	// short-lived Filesystem per call below.
-	probe, err := fsSession.Filesystem()
-	if err != nil || probe == nil {
-		return nil
-	}
-	_ = probe.Close()
 	return []pkgtools.Tool{
-		newBashTool(session, toolsBinDir, session.WorkingDir(), sessionSecretValues),
-		newReadTool(fsSession),
-		newWriteTool(fsSession),
-		newEditTool(fsSession),
+		newBashTool(host, toolsBinDir, projectRoot, sessionSecretValues),
+		newReadTool(host, projectRoot),
+		newWriteTool(host, projectRoot),
+		newEditTool(host, projectRoot),
 	}
 }
 
 // ToolDefinitions returns the canonical definitions for all core tools.
 // No sandbox session is required — useful for API metadata endpoints.
 func ToolDefinitions() []pkgtools.Definition {
-	return []pkgtools.Definition{bashDefinition(), readDefinition(), writeDefinition(), editDefinition()}
+	return []pkgtools.Definition{
+		bashDefinition(),
+		readDefinition(),
+		writeDefinition(),
+		editDefinition(),
+	}
 }
 
-// resolveToolPath returns a canonical sandbox path. Relative paths deliberately
-// use the active Session's logical working directory, never the caller's host
-// project root.
-func resolveToolPath(session pkgsandbox.Session, input string) (string, error) {
-	if session == nil {
-		return "", fmt.Errorf("sandbox session is required")
+func resolveToolPath(host pkgsandbox.Host, projectRoot, path string) (string, error) {
+	resolved, err := resolveToolExpression(host, projectRoot, path)
+	if err != nil {
+		return "", err
 	}
-	resolved := input
-	if strings.HasPrefix(input, "$") {
-		policy := session.Policy()
+	return host.ResolvePath(resolved)
+}
+
+func resolveWritableToolPath(host pkgsandbox.Host, projectRoot, path string) (string, error) {
+	resolved, err := resolveToolExpression(host, projectRoot, path)
+	if err != nil {
+		return "", err
+	}
+	return host.ResolveWritePath(resolved)
+}
+
+// resolveToolExpression expands only the model-authored leading filesystem
+// variable before project resolution; session path resolvers stay literal.
+func resolveToolExpression(host pkgsandbox.Host, projectRoot, path string) (string, error) {
+	expanded := path
+	if strings.HasPrefix(path, "$") {
 		var err error
-		resolved, err = pkgsandbox.ExpandPathVariables(input, policy.Env)
+		expanded, err = pkgsandbox.ExpandPathVariables(path, host.Policy().Env)
 		if err != nil {
 			return "", err
 		}
-		// Variables are trusted session-policy aliases. A non-isolating backend
-		// expands them to a host path, which must be projected back into the
-		// Filesystem's canonical mount view. Literal host paths never take this
-		// branch and remain forbidden at the Filesystem boundary.
-		resolver := pkgsandbox.NewPathResolver(pkgsandbox.PathResolverConfig{
-			WorkspaceRoot: policy.Filesystem.WorkspaceRoot,
-			WorkingDir:    policy.Filesystem.WorkingDir,
-			Mounts:        policy.Filesystem.Mounts,
-		})
-		if sandboxPath, ok := resolver.ToSandboxPath(resolved); ok {
-			resolved = sandboxPath
-		}
 	}
-	if !strings.HasPrefix(resolved, "/") {
-		resolved = path.Join(session.WorkingDir(), resolved)
+	if projectRoot == "" {
+		return expanded, nil
 	}
-	return path.Clean(resolved), nil
-}
-
-// withFilesystem opens a short-lived mediated Filesystem for one tool operation
-// and always closes it. read/write/edit each canonicalize their path first, so
-// the Filesystem only ever sees confined canonical coordinates.
-func withFilesystem(session pkgsandbox.FilesystemSession, fn func(pkgsandbox.Filesystem) error) error {
-	fs, err := session.Filesystem()
-	if err != nil {
-		return err
-	}
-	// A provider must never hand back a nil Filesystem with a nil error: reject it
-	// rather than dereference it, and never fall back to host I/O.
-	if fs == nil {
-		return fmt.Errorf("sandbox returned a nil filesystem")
-	}
-	defer func() { _ = fs.Close() }()
-	return fn(fs)
+	return pkgtools.ResolveProjectPath(projectRoot, expanded)
 }
 
 func toolIntArg(args map[string]any, key string, defaultVal int) int {

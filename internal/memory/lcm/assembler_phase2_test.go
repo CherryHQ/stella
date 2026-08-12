@@ -13,14 +13,14 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-func TestAssemblerSummaryParentsBatchPreservesXML(t *testing.T) {
+func TestAssemblerSummaryChildrenBatchPreservesXML(t *testing.T) {
 	db := newAssemblerTestDB(t)
 	defer func() { db.Close() }()
 
 	ctx := context.Background()
 	q := sqlc.New(db)
 	convID := uuid.NewString()
-	if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind) VALUES ($1, $2, 'test', 'chat')`, convID, "sess-summary-parents"); err != nil {
+	if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind) VALUES ($1, $2, 'test', 'chat')`, convID, "sess-summary-children"); err != nil {
 		t.Fatalf("insert conversation: %v", err)
 	}
 
@@ -43,17 +43,17 @@ func TestAssemblerSummaryParentsBatchPreservesXML(t *testing.T) {
 		return sum
 	}
 
-	parentsBySummary := map[string][]sqlc.CtxSummary{
+	childrenBySummary := map[string][]sqlc.CtxSummary{
 		"sum-child-1": {
-			createSummary("sum-parent-1b", kindLeaf, 0, "parent 1b"),
-			createSummary("sum-parent-1a", kindLeaf, 0, "parent 1a"),
+			createSummary("sum-constituent-1b", kindLeaf, 0, "constituent 1b"),
+			createSummary("sum-constituent-1a", kindLeaf, 0, "constituent 1a"),
 		},
 		"sum-child-2": {
-			createSummary("sum-parent-2", kindLeaf, 0, "parent 2"),
+			createSummary("sum-constituent-2", kindLeaf, 0, "constituent 2"),
 		},
 		"sum-child-3": {
-			createSummary("sum-parent-3a", kindLeaf, 0, "parent 3a"),
-			createSummary("sum-parent-3b", kindLeaf, 0, "parent 3b"),
+			createSummary("sum-constituent-3a", kindLeaf, 0, "constituent 3a"),
+			createSummary("sum-constituent-3b", kindLeaf, 0, "constituent 3b"),
 		},
 	}
 
@@ -72,13 +72,13 @@ func TestAssemblerSummaryParentsBatchPreservesXML(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("append context item %s: %v", child.ID, err)
 		}
-		for ordinal, parent := range parentsBySummary[child.ID] {
+		for ordinal, constituent := range childrenBySummary[child.ID] {
 			if err := q.LinkSummaryToParent(ctx, sqlc.LinkSummaryToParentParams{
 				SummaryID:       child.ID,
-				ParentSummaryID: parent.ID,
+				ParentSummaryID: constituent.ID,
 				Ordinal:         int64(ordinal),
 			}); err != nil {
-				t.Fatalf("link parent %s -> %s: %v", child.ID, parent.ID, err)
+				t.Fatalf("link constituent %s -> %s: %v", child.ID, constituent.ID, err)
 			}
 		}
 	}
@@ -99,7 +99,7 @@ func TestAssemblerSummaryParentsBatchPreservesXML(t *testing.T) {
 		if !ok {
 			t.Fatalf("msg[%d].Content = %T, want string", i, userMsg.Content)
 		}
-		want := FormatSummaryXML(child, parentsBySummary[child.ID])
+		want := FormatSummaryXML(child, childrenBySummary[child.ID])
 		if got != want {
 			t.Fatalf("summary XML for %s changed\ngot:\n%s\nwant:\n%s", child.ID, got, want)
 		}

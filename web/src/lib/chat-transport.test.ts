@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
-import type { SessionMessage } from "./types";
+import { SESSION_MESSAGE_ACTOR_TYPE, type SessionMessage } from "./types";
 import {
   mergeToolResults,
   messageToUIMessage,
@@ -17,6 +17,7 @@ describe("session history conversion", () => {
       {
         id: "canonical-user",
         role: "user",
+        actor_type: SESSION_MESSAGE_ACTOR_TYPE.human,
         timestamp: "2026-08-01T00:00:00Z",
         token_count: 3,
         content: "baseline text must not render beside the image",
@@ -40,12 +41,34 @@ describe("session history conversion", () => {
     expect(restored.blocks).toEqual(message.blocks);
   });
 
+  it("preserves Agent and source Session provenance through the AI SDK message cache", () => {
+    const message = sessionMessagesToMessages([
+      {
+        id: "agent-input",
+        role: "user",
+        actor_type: SESSION_MESSAGE_ACTOR_TYPE.agent,
+        actor_id: "stella",
+        source_session_id: "source-session",
+        timestamp: "2026-08-01T00:00:00Z",
+        token_count: 3,
+        content: "Review this.",
+      },
+    ])[0];
+
+    expect(uiMessageToMessage(messageToUIMessage(message))).toMatchObject({
+      actor_type: "agent",
+      actor_id: "stella",
+      source_session_id: "source-session",
+    });
+  });
+
   it("hides only an upload marker directly before a durable image in Web presentation", () => {
     const marker = "[file: /user/assets/photo.png]";
     const message = sessionMessagesToMessages([
       {
         id: "canonical-user",
         role: "user",
+        actor_type: SESSION_MESSAGE_ACTOR_TYPE.human,
         timestamp: "2026-08-01T00:00:00Z",
         token_count: 1,
         content: `caption\n${marker}`,
@@ -69,6 +92,7 @@ describe("session history conversion", () => {
       {
         id: "canonical-bracket",
         role: "user",
+        actor_type: SESSION_MESSAGE_ACTOR_TYPE.human,
         timestamp: "2026-08-01T00:00:00Z",
         token_count: 1,
         blocks: [
@@ -102,6 +126,7 @@ describe("session history conversion", () => {
         {
           id: "assistant",
           role: "assistant",
+          actor_type: SESSION_MESSAGE_ACTOR_TYPE.agent,
           timestamp: "2026-08-01T00:00:01Z",
           token_count: 1,
           blocks: [{ type: "tool_call", id: "call", name: "read", arguments: {} }],
@@ -109,6 +134,7 @@ describe("session history conversion", () => {
         {
           id: "tool",
           role: "tool",
+          actor_type: SESSION_MESSAGE_ACTOR_TYPE.agent,
           timestamp: "2026-08-01T00:00:02Z",
           token_count: 1,
           tool_call_id: "call",
@@ -151,6 +177,7 @@ describe("session history conversion", () => {
         {
           id: "canonical",
           role: "user",
+          actor_type: SESSION_MESSAGE_ACTOR_TYPE.human,
           timestamp: "2026-08-01T00:00:00Z",
           token_count: 1,
           blocks: [
@@ -180,6 +207,7 @@ describe("session history conversion", () => {
         {
           id: "canonical-mixed",
           role: "user",
+          actor_type: SESSION_MESSAGE_ACTOR_TYPE.human,
           timestamp: "2026-08-01T00:00:00Z",
           token_count: 1,
           blocks: [
@@ -210,6 +238,7 @@ describe("session history conversion", () => {
         {
           id: "canonical-partial",
           role: "user",
+          actor_type: SESSION_MESSAGE_ACTOR_TYPE.human,
           timestamp: "2026-08-01T00:00:00Z",
           token_count: 1,
           blocks: [
@@ -231,6 +260,7 @@ describe("session history conversion", () => {
         {
           id: "canonical",
           role: "user",
+          actor_type: SESSION_MESSAGE_ACTOR_TYPE.human,
           timestamp: "2026-08-01T00:00:00Z",
           token_count: 1,
           blocks: [
@@ -260,6 +290,7 @@ describe("session history conversion", () => {
         {
           id: "canonical",
           role: "user",
+          actor_type: SESSION_MESSAGE_ACTOR_TYPE.human,
           timestamp: "2026-08-01T00:00:20Z",
           token_count: 1,
           blocks: [
@@ -300,6 +331,7 @@ describe("session history conversion", () => {
         {
           id: "old-canonical",
           role: "user",
+          actor_type: SESSION_MESSAGE_ACTOR_TYPE.human,
           timestamp: "2026-08-01T00:00:00Z",
           token_count: 1,
           blocks: [

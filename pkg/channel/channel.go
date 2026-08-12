@@ -20,6 +20,9 @@ const (
 	PlatformFeishu   = "feishu"
 	PlatformWeixin   = "weixin"
 	PlatformCLI      = "cli"
+
+	// MaxInboundAttachmentBytes bounds one attachment before durable publication.
+	MaxInboundAttachmentBytes = 32 << 20
 )
 
 // Channel is a messaging platform adapter.
@@ -160,6 +163,12 @@ type Provisioner interface {
 	ProvisionUser(ctx context.Context, req ProvisionRequest) error
 }
 
+// AssetSaveAdmitter authorizes attachment ingestion before a plugin downloads
+// untrusted bytes. It deliberately exposes no workspace or host path.
+type AssetSaveAdmitter interface {
+	AdmitAssetSave(ctx context.Context, msg IncomingMessage) error
+}
+
 // BotRegistrar is an optional capability that a Handler may implement.
 // Channel adapters call RegisterBotIdentity at startup to record their
 // bot's platform identity (e.g., Telegram username), enabling the group
@@ -169,15 +178,9 @@ type BotRegistrar interface {
 }
 
 // AssetSaver is an optional capability that a Handler may implement. Channel
-// plugins assert for it to persist an inbound attachment through the typed
-// Principal Home. The plugin supplies identity and bytes only, never a path.
+// plugins assert for it to persist inbound bytes. Identity and workspace
+// selection remain entirely host-owned.
 type AssetSaver interface {
-	// SaveAsset returns a portable $STELLA_ASSETS_DIR expression.
+	// SaveAsset returns a portable $STELLA_ASSETS_DIR expression, never a host path.
 	SaveAsset(ctx context.Context, msg IncomingMessage, fileName string, data []byte) (string, error)
-}
-
-// AssetSaveAdmitter is an optional preflight capability for plugins that must
-// reject an attachment before downloading untrusted bytes.
-type AssetSaveAdmitter interface {
-	AdmitAssetSave(ctx context.Context, msg IncomingMessage) error
 }

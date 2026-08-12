@@ -352,7 +352,8 @@ func (s *DBStore) UpdateAgent(ctx context.Context, a config.Agent) error {
 func (s *DBStore) DeleteAgent(ctx context.Context, id string) error {
 	err := s.q.DeleteAgent(ctx, id)
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && (pgErr.Code == "23001" || pgErr.Code == "23503") && pgErr.ConstraintName == "webhook_agent_id_fkey" {
+	if errors.As(err, &pgErr) && (pgErr.Code == "23001" || pgErr.Code == "23503") &&
+		(pgErr.ConstraintName == "webhook_agent_id_fkey" || pgErr.ConstraintName == "library_file_agent_id_fkey") {
 		return config.ErrAgentInUse
 	}
 	return err
@@ -542,13 +543,36 @@ func (s *DBStore) UpsertPlugin(ctx context.Context, p config.Plugin) error {
 	})
 }
 
+// SetPluginEnabled and SetPluginConfig each write one column. They are the
+// admin kill switch and the channel credential mirror, and those two run
+// concurrently: a read-modify-write of the whole row would let either one
+// silently restore the other's previous value. The read stays only to name a
+// row that may not exist yet.
 func (s *DBStore) SetPluginEnabled(ctx context.Context, id string, enabled bool) error {
 	p, err := s.GetPlugin(ctx, id)
 	if err != nil {
 		return fmt.Errorf("set plugin enabled: %w", err)
 	}
-	p.Enabled = enabled
-	return s.UpsertPlugin(ctx, p)
+	return s.q.UpsertPluginEnabled(ctx, sqlc.UpsertPluginEnabledParams{
+		ID:      id,
+		Kind:    p.Kind,
+		Name:    p.Name,
+		Enabled: enabled,
+	})
+}
+
+func (s *DBStore) SetChannelPluginConfig(ctx context.Context, id, kind, name string, cfg map[string]any) error {
+	configJSON, err := json.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal plugin config %q: %w", id, err)
+	}
+	return s.q.UpsertPluginConfig(ctx, sqlc.UpsertPluginConfigParams{
+		ID:      id,
+		Kind:    kind,
+		Name:    name,
+		Enabled: true,
+		Config:  configJSON,
+	})
 }
 
 func (s *DBStore) SetPluginConfig(ctx context.Context, id string, cfg map[string]any) error {
@@ -556,8 +580,17 @@ func (s *DBStore) SetPluginConfig(ctx context.Context, id string, cfg map[string
 	if err != nil {
 		return fmt.Errorf("set plugin config: %w", err)
 	}
-	p.Config = cfg
-	return s.UpsertPlugin(ctx, p)
+	configJSON, err := json.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal plugin config %q: %w", id, err)
+	}
+	return s.q.UpsertPluginConfig(ctx, sqlc.UpsertPluginConfigParams{
+		ID:      id,
+		Kind:    p.Kind,
+		Name:    p.Name,
+		Enabled: p.Enabled,
+		Config:  configJSON,
+	})
 }
 
 func (s *DBStore) DeletePlugin(ctx context.Context, id string) error {

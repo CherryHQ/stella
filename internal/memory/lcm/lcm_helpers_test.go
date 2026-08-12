@@ -129,8 +129,8 @@ func TestFormatSummaryXML_Condensed(t *testing.T) {
 		EarliestAt:      pgtype.Timestamptz{Valid: true, Time: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)},
 		LatestAt:        pgtype.Timestamptz{Valid: true, Time: time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)},
 	}
-	parent := sqlc.CtxSummary{ID: "parent-1"}
-	got := FormatSummaryXML(sum, []sqlc.CtxSummary{parent})
+	child := sqlc.CtxSummary{ID: "child-1"}
+	got := FormatSummaryXML(sum, []sqlc.CtxSummary{child})
 
 	if !strings.Contains(got, `descendant_count="5"`) {
 		t.Errorf("expected descendant_count, got %q", got)
@@ -138,8 +138,11 @@ func TestFormatSummaryXML_Condensed(t *testing.T) {
 	if !strings.Contains(got, `earliest_at=`) {
 		t.Errorf("expected earliest_at, got %q", got)
 	}
-	if !strings.Contains(got, `<summary_ref id="parent-1"`) {
-		t.Errorf("expected parent ref, got %q", got)
+	if !strings.Contains(got, `<children>`) || !strings.Contains(got, `<summary_ref id="child-1"`) {
+		t.Errorf("expected child ref, got %q", got)
+	}
+	if strings.Contains(got, `<parents>`) {
+		t.Errorf("constituents must not be labeled as parents, got %q", got)
 	}
 }
 

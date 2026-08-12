@@ -10,7 +10,6 @@ import (
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
-	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 // VaultEnvLoader is the vault surface an agent session needs.
@@ -28,7 +27,6 @@ type Config struct {
 	SandboxConfig       config.SandboxConfig
 	SandboxBackendFn    func(ctx context.Context) string
 	Paths               Paths
-	Homes               []pkgsandbox.HomeAttachment
 	UserID              string
 	GroupID             string // non-empty for group sessions; vault/env use group principal
 	AgentID             string

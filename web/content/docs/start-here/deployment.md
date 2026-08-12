@@ -49,6 +49,8 @@ cd stella && go build -o dist/bin/stellad ./cmd/stellad/
 
 ## Run
 
+Stella bundles the Xberg document runtime on Linux and macOS, so PDF and DOCX Knowledge uploads need no separate system package or startup download. Windows deployments currently support Markdown and plain-text Knowledge uploads; PDF and DOCX runtime support is not guaranteed there.
+
 Start the server — the Web UI is available at `http://localhost:25678`:
 
 ```bash
@@ -207,7 +209,7 @@ docker run -d \
   stellad server
 ```
 
-The container runs as `nonroot` user. Mount `$STELLA_HOME` (usually `~/.stella`) to preserve durable Principal and Agent Homes, including mutable assets and project Skills. Database-backed mutable Skills remain in external PostgreSQL. Release-provided builtins come from the image's immutable bundle, not the host. You can set `STELLA_HOME` to change the data directory inside the container. The `--security-opt seccomp=unconfined` flag is required for the local sandbox backend (bwrap) to call `unshare(2)` inside the container.
+The container runs as `nonroot` user. Mount `$STELLA_HOME` (usually `~/.stella`) to preserve Agent working trees and project Skills, unmirrored assets, and caches; database-backed mutable Skills remain in external PostgreSQL. Release-provided builtins come from the image's immutable bundle, not the host. You can set `STELLA_HOME` to change the data directory inside the container. The `--security-opt seccomp=unconfined` flag is required for the local sandbox backend (bwrap) to call `unshare(2)` inside the container.
 
 ### Docker Compose
 
@@ -265,9 +267,7 @@ Binding to `0.0.0.0` (`HOST`) does **not** give you a public URL: with `STELLA_B
 
 The Docker image sets `STELLA_REQUIRE_EXTERNAL_DB=1`: startup fails with an actionable error when `STELLA_DATABASE_URL` is unset, instead of silently starting the embedded PostgreSQL cluster on the container's ephemeral filesystem — with multiple replicas, each pod would even create its own database. Point `STELLA_DATABASE_URL` at an external PostgreSQL with `pgvector` and `pg_search`. To deliberately run embedded PostgreSQL in a single container backed by a persistent volume, set `STELLA_REQUIRE_EXTERNAL_DB=0`.
 
-Uploaded user assets are durable Principal Home files and must be persisted with the other Home data. Configuring `STELLA_BLOB_S3_*` does not change their live authority. The configured object store is the legacy mutable-asset migration source and the authority for immutable content-addressed session media. Stella currently exposes only the single-replica Helm topology. Principal Home and Agent Home storage remains single-replica until a later Compose or Kubernetes topology gate.
-
-A deployment with `STELLA_BLOB_S3_*` configured must pass the offline mutable-asset migration gate before the server starts, even for an empty bucket. Stop all old asset writers, retain the original S3 and database configuration, and follow `stellad storage migrate-assets --help`. The command copies and verifies object-only assets into typed Principal Homes without deleting remote objects. See [S3 asset migration gate](/docs/start-here/storage#s3-asset-migration-gate) for the upgrade sequence.
+Uploaded user assets need durable POSIX storage under `STELLA_HOME`; S3 configuration does not mirror or recover this mutable tree. Stella currently exposes only the single-replica Helm topology. Future replicas will require one shared, strongly consistent POSIX namespace. `STELLA_BLOB_S3_*` is optional and serves separate immutable BlobStore data such as content-addressed session media.
 
 A loopback base URL is never a startup error — it is legitimate when you reach Stella via `localhost` or `kubectl port-forward` — but Stella logs a loud warning when OAuth/OIDC login is configured against one, because login redirects would point back at the pod. Deployment charts should make `STELLA_BASE_URL` a required value; that layer knows it sits behind an ingress.
 
@@ -354,7 +354,7 @@ All data lives under the stella home directory (`~/.stella` by default, configur
 | `~/.stella/agents/{agent-id}/SOUL.md`         | Optional per-agent soul/identity override                                                     |
 | `~/.stella/cache/sandbox-tmp/`                | Docker sandbox temporary directories; scratch, stale directories removed at startup           |
 
-Preserve PostgreSQL and every durable Principal and Agent Home, including mutable asset trees and project Skills. PostgreSQL contains configuration, message history, summaries, scheduler jobs, and mutable `system`, `system_agent`, `user`, and `user_agent` Skills. With the embedded cluster, back up `~/.stella/postgres/` with the server stopped; `~/.stella/pg-runtime/`, `~/.stella/bundles/{revision}/`, and Skill execution caches are derived and can be recreated. With an external server, use `pg_dump` against your `STELLA_DATABASE_URL` database. Keep and back up the configured object store because it holds immutable content-addressed session media.
+Preserve PostgreSQL, durable Agent/project working trees including project Skills, and unmirrored asset trees. PostgreSQL contains configuration, message history, summaries, scheduler jobs, and mutable `system`, `system_agent`, `user`, and `user_agent` Skills. With the embedded cluster, back up `~/.stella/postgres/` with the server stopped; `~/.stella/pg-runtime/`, `~/.stella/bundles/{revision}/`, and Skill execution caches are derived and can be recreated. With an external server, use `pg_dump` against your `STELLA_DATABASE_URL` database.
 
 For a full breakdown of which directories are durable data, derived cache, or scratch — and the volume and backup treatment each needs on Kubernetes or ephemeral disks — see [Storage & Durability](/docs/start-here/storage).
 
@@ -370,10 +370,10 @@ Configuration is managed through the Web UI (default `http://localhost:25678`; u
 | `STELLA_REQUIRE_EXTERNAL_DB`     | No                        | Fail startup when `STELLA_DATABASE_URL` is unset instead of starting embedded PostgreSQL; the Docker image sets `1`, override with `0` for embedded PG on a persistent volume |
 | `STELLA_HTTP_SHUTDOWN_TIMEOUT`   | No                        | Graceful-shutdown drain budget for in-flight HTTP requests (Go duration, default `60s`, `> 0`)                                                                                |
 | `STELLA_RIVER_SOFT_STOP_TIMEOUT` | No                        | Graceful-shutdown drain budget for in-flight background jobs (Go duration, default `120s`, `> 0`)                                                                             |
-| `STELLA_BLOB_S3_ENDPOINT`        | No§                       | S3-compatible endpoint for the legacy mutable-asset migration source and immutable session media                                                                              |
-| `STELLA_BLOB_S3_BUCKET`          | No§                       | Object-store bucket for the legacy migration source and immutable session media                                                                                               |
-| `STELLA_BLOB_S3_ACCESS_KEY`      | No§                       | Access key for that object store                                                                                                                                              |
-| `STELLA_BLOB_S3_SECRET_KEY`      | No§                       | Secret key for that object store                                                                                                                                              |
+| `STELLA_BLOB_S3_ENDPOINT`        | No§                       | S3-compatible endpoint for immutable BlobStore data                                                                                                                           |
+| `STELLA_BLOB_S3_BUCKET`          | No§                       | Bucket for immutable BlobStore data                                                                                                                                           |
+| `STELLA_BLOB_S3_ACCESS_KEY`      | No§                       | Access key for immutable BlobStore data                                                                                                                                       |
+| `STELLA_BLOB_S3_SECRET_KEY`      | No§                       | Secret key for immutable BlobStore data                                                                                                                                       |
 | `STELLA_BLOB_S3_REGION`          | No                        | Optional S3 region                                                                                                                                                            |
 | `STELLA_BLOB_S3_USE_SSL`         | No                        | Use HTTPS for S3-compatible storage; defaults to `true`                                                                                                                       |
 | `STELLA_VAULT_KEY`               | Yes†                      | age secret key for the vault — required for secrets, OAuth, and bearer tokens                                                                                                 |
@@ -385,7 +385,7 @@ Configuration is managed through the Web UI (default `http://localhost:25678`; u
 
 ‡ Required only when agents use the `docker` sandbox backend. Use `host` when stellad runs on the host, `bind` when stellad runs in Docker with a host bind mount, and `volume` when stellad runs in Docker with a named volume.
 
-§ Set all four required S3 variables together, or leave all unset. Partial blob-store configuration fails startup. A complete configuration activates the offline asset migration gate described above. After cutover, mutable assets remain live only in Principal Homes; remote legacy objects are untouched and are not a fallback. The object store remains required for immutable content-addressed session media.
+§ Set all four required S3 variables together, or leave all unset. Partial blob-store configuration fails startup. Mutable assets never require these variables.
 
 ¶ Required for managed deployments, and whenever OAuth login or channel deep links are used. See [Managed Deployment](#managed-deployment).
 

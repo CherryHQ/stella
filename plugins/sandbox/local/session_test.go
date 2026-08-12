@@ -118,6 +118,58 @@ func TestCleanupOwnedTmpMountsLeavesBorrowedMounts(t *testing.T) {
 	}
 }
 
+func TestEnsureOwnedTmpMountsRestoresOnlyManagedDirectories(t *testing.T) {
+	root := t.TempDir()
+	owned := filepath.Join(root, "owned")
+	borrowed := filepath.Join(root, "borrowed")
+	mounts := []tmpMount{
+		{realPath: owned, owned: true},
+		{realPath: borrowed},
+	}
+
+	if err := ensureOwnedTmpMounts(mounts); err != nil {
+		t.Fatalf("ensureOwnedTmpMounts: %v", err)
+	}
+	info, err := os.Stat(owned)
+	if err != nil {
+		t.Fatalf("stat restored owned mount: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Fatalf("restored owned mount mode = %o, want 700", got)
+	}
+	if _, err := os.Stat(borrowed); !os.IsNotExist(err) {
+		t.Fatalf("borrowed mount was created: %v", err)
+	}
+}
+
+func TestLocalSessionExecRestoresRemovedManagedTempDirectory(t *testing.T) {
+	skipIfBwrapNotFunctional(t)
+	root := t.TempDir()
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root},
+		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
+	}
+	session, err := NewFactory().CreateSession(context.Background(), policy)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	s := session.(*localSession)
+	defer s.Close() //nolint:errcheck
+
+	tmpDir := s.tmpMounts[0].realPath
+	if err := os.RemoveAll(tmpDir); err != nil {
+		t.Fatalf("remove managed temp directory: %v", err)
+	}
+	result, err := s.Exec(context.Background(), `printf recovered > "$TMPDIR/recovered"`, sandboxpkg.ExecOptions{})
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("Exec after temp removal = %+v, %v", result, err)
+	}
+	data, err := os.ReadFile(filepath.Join(tmpDir, "recovered"))
+	if err != nil || string(data) != "recovered" {
+		t.Fatalf("restored temp output = %q, %v", data, err)
+	}
+}
+
 func TestLocalSession_closeAndAlive(t *testing.T) {
 	s, _ := newTestSession(t)
 	if !s.Alive() {
@@ -771,8 +823,6 @@ func TestAdjustPolicy_perUserMiseInStellaHomeFrame(t *testing.T) {
 			"MISE_CACHE_DIR":            miseHome + "/cache",
 			"MISE_GLOBAL_CONFIG_FILE":   hostSH + "/.mise-tools/configs/_builtin.toml",
 			"MISE_TRUSTED_CONFIG_PATHS": hostSH + "/.mise-tools/configs/_builtin.toml:/workspace:" + agentDir,
-			"LARKSUITE_CLI_CONFIG_DIR":  userData + "/.lark-cli",
-			"LARKSUITE_CLI_DATA_DIR":    userData + "/.lark-cli/data",
 		},
 	}
 	f := &Factory{cfg: Config{StellaHome: hostSH}}
@@ -788,8 +838,6 @@ func TestAdjustPolicy_perUserMiseInStellaHomeFrame(t *testing.T) {
 		{"MISE_CACHE_DIR", sandboxSH + "/users/u1/.mise-tools/cache"},
 		{"MISE_GLOBAL_CONFIG_FILE", sandboxSH + "/.mise-tools/configs/_builtin.toml"},
 		{"MISE_TRUSTED_CONFIG_PATHS", sandboxSH + "/.mise-tools/configs/_builtin.toml:/workspace"},
-		{"LARKSUITE_CLI_CONFIG_DIR", "/user/.lark-cli"},
-		{"LARKSUITE_CLI_DATA_DIR", "/user/.lark-cli/data"},
 	} {
 		if got := adjusted.Env[tc.key]; got != tc.want {
 			t.Errorf("env[%s] = %q, want %q", tc.key, got, tc.want)

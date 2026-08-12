@@ -3,9 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"path"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,6 +14,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/skills"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -38,6 +36,15 @@ type ProjectStore struct {
 	store  config.Store
 	agents ProjectAgentAuthorizer
 	homes  home.WorkspaceViewer
+}
+
+// SnapshotSkills resolves exact project ownership and snapshots through Home.
+func (ps *ProjectStore) SnapshotSkills(ctx context.Context, projectID, userID, agentID string) (*skills.ProjectSnapshot, ProjectDescriptor, error) {
+	opener, ok := ps.homes.(home.RootOpener)
+	if !ok {
+		return nil, ProjectDescriptor{}, errors.New("project Home root opener is unavailable")
+	}
+	return SnapshotAuthorizedProjectSkills(ctx, ps.Resolve, opener, projectID, userID, agentID)
 }
 
 // NewProjectStore builds a ProjectStore over the given pool and config store.
@@ -64,7 +71,7 @@ type Project struct {
 	AgentID     string
 	UserID      string
 	Name        string
-	Path        string
+	BaseDir     string
 	Description string
 	Archived    bool
 	CreatedAt   time.Time
@@ -78,8 +85,8 @@ var (
 	// project owned by another user, or one bound to a different route agent (a
 	// route-agent mismatch never confirms the project exists).
 	ErrProjectNotFound = errors.New("project not found")
-	// ErrInvalidBaseDir reports a project path that escapes the agent workspace (400).
-	ErrInvalidBaseDir = errors.New("invalid path")
+	// ErrInvalidBaseDir reports a base_dir that escapes the agent workspace (400).
+	ErrInvalidBaseDir = errors.New("invalid base_dir")
 	// ErrWorkspaceSetup reports a failure to resolve/create the agent workspace (500).
 	ErrWorkspaceSetup = errors.New("failed to resolve workspace")
 )
@@ -88,7 +95,7 @@ var (
 // stored value unchanged.
 type ProjectUpdate struct {
 	Name        *string
-	Path        *string
+	BaseDir     *string
 	Description *string
 }
 
@@ -126,13 +133,13 @@ func (s *ProjectStore) List(ctx context.Context, authority authz.Authority, agen
 }
 
 // Create persists a new project for the caller under the agent, after validating
-// that path is contained in the agent workspace. Gated on agent read access.
-func (s *ProjectStore) Create(ctx context.Context, authority authz.Authority, agentID, name, projectPath string, description *string) (Project, error) {
+// that base_dir is contained in the agent workspace. Gated on agent read access.
+func (s *ProjectStore) Create(ctx context.Context, authority authz.Authority, agentID, name, baseDir string, description *string) (Project, error) {
 	if err := s.gate(ctx, authority, agentID); err != nil {
 		return Project{}, err
 	}
 	userID := string(authority.UserID())
-	baseDir, err := s.absoluteProjectPath(ctx, userID, agentID, projectPath)
+	baseDir, err := s.projectCoordinate(userID, agentID, baseDir)
 	if err != nil {
 		return Project{}, err
 	}
@@ -178,13 +185,13 @@ func (s *ProjectStore) Update(ctx context.Context, authority authz.Authority, ag
 	if in.Name != nil {
 		name = *in.Name
 	}
-	baseDir := existing.BaseDir
-	if in.Path != nil {
-		resolved, err := s.absoluteProjectPath(ctx, userID, agentID, *in.Path)
-		if err != nil {
-			return Project{}, err
-		}
-		baseDir = resolved
+	baseDirValue := existing.BaseDir
+	if in.BaseDir != nil {
+		baseDirValue = *in.BaseDir
+	}
+	baseDir, err := s.projectCoordinate(userID, agentID, baseDirValue)
+	if err != nil {
+		return Project{}, err
 	}
 	description := existing.Description
 	if in.Description != nil {
@@ -234,71 +241,10 @@ func (s *ProjectStore) getOwned(ctx context.Context, userID, agentID, projectID 
 	return p, nil
 }
 
-// absoluteProjectPath converts the public canonical relative path into the
-// private legacy absolute base_dir the current runner still consumes.
-func (s *ProjectStore) absoluteProjectPath(ctx context.Context, userID, agentID, relative string) (string, error) {
-	if s.homes == nil {
-		return "", ErrWorkspaceSetup
-	}
-	view, err := s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: userID, AgentID: agentID})
-	if err != nil {
-		return "", ErrWorkspaceSetup
-	}
-	if err := validateProjectPath(relative); err != nil {
-		return "", ErrInvalidBaseDir
-	}
-	baseDir := view.AgentRoot
-	if relative != "" {
-		baseDir = filepath.Join(view.AgentRoot, filepath.FromSlash(relative))
-	}
-	if err := ValidateProjectDir(baseDir, view.AgentRoot); err != nil {
-		return "", ErrInvalidBaseDir
-	}
-	return baseDir, nil
-}
-
-func validateProjectPath(value string) error {
-	if value == "" {
-		return nil
-	}
-	if path.IsAbs(value) || filepath.IsAbs(value) || strings.Contains(value, `\`) || path.Clean(value) != value {
-		return ErrInvalidBaseDir
-	}
-	for segment := range strings.SplitSeq(value, "/") {
-		if segment == "" || segment == "." || segment == ".." {
-			return ErrInvalidBaseDir
-		}
-		for _, r := range segment {
-			if r == ':' || r == 0 || r < 0x20 || r == 0x7f {
-				return ErrInvalidBaseDir
-			}
-		}
-	}
-	return nil
-}
-
 func (s *ProjectStore) projectFromRow(ctx context.Context, p sqlc.Project) (Project, error) {
-	if s.homes == nil {
-		return Project{}, ErrWorkspaceSetup
-	}
-	view, err := s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: p.UserID, AgentID: p.AgentID})
+	baseDir, err := s.logicalProjectPath(ctx, p.UserID, p.AgentID, p.BaseDir)
 	if err != nil {
-		return Project{}, ErrWorkspaceSetup
-	}
-	if err := ValidateProjectDir(p.BaseDir, view.AgentRoot); err != nil {
-		return Project{}, ErrInvalidBaseDir
-	}
-	relative, err := filepath.Rel(view.AgentRoot, p.BaseDir)
-	if err != nil {
-		return Project{}, ErrInvalidBaseDir
-	}
-	if relative == "." {
-		relative = ""
-	} else {
-		relative = filepath.ToSlash(relative)
-	}
-	if err := validateProjectPath(relative); err != nil {
-		return Project{}, ErrInvalidBaseDir
+		return Project{}, err
 	}
 	description := ""
 	if p.Description.Valid {
@@ -309,12 +255,38 @@ func (s *ProjectStore) projectFromRow(ctx context.Context, p sqlc.Project) (Proj
 		AgentID:     p.AgentID,
 		UserID:      p.UserID,
 		Name:        p.Name,
-		Path:        relative,
+		BaseDir:     baseDir,
 		Description: description,
 		Archived:    p.Archived,
 		CreatedAt:   p.CreatedAt.UTC(),
 		UpdatedAt:   p.UpdatedAt.UTC(),
 	}, nil
+}
+
+func (s *ProjectStore) projectCoordinate(userID, agentID, value string) (string, error) {
+	if value == "" {
+		value = "."
+	}
+	resolver, ok := s.homes.(home.CoordinateResolver)
+	if !ok {
+		return "", ErrWorkspaceSetup
+	}
+	scope, name, err := resolver.ResolveCoordinate(home.Coordinate{
+		Request:   home.WorkspaceRequest{UserID: userID, AgentID: agentID},
+		Scope:     home.RootAgentWorkspace,
+		Value:     value,
+		AllowRoot: true,
+	})
+	if err != nil || scope != home.RootAgentWorkspace {
+		return "", ErrInvalidBaseDir
+	}
+	return name, nil
+}
+
+// logicalProjectPath accepts legacy absolute rows but never exposes them. New
+// writes persist canonical agent-root-relative paths only.
+func (s *ProjectStore) logicalProjectPath(_ context.Context, userID, agentID, stored string) (string, error) {
+	return s.projectCoordinate(userID, agentID, stored)
 }
 
 // isProjectNotFound mirrors the transport's not-found predicate: an empty result
@@ -334,13 +306,17 @@ func derefString(p *string) string {
 	return *p
 }
 
-// Resolve returns the base directory for the given project owned by the user.
-func (s *ProjectStore) Resolve(ctx context.Context, projectID, userID string) (string, error) {
-	p, err := s.q.GetProject(ctx, sqlc.GetProjectParams{ID: projectID, UserID: userID})
+// Resolve returns the logical descriptor for the exact project owner tuple.
+func (s *ProjectStore) Resolve(ctx context.Context, projectID, userID, agentID string) (ProjectDescriptor, error) {
+	p, err := s.q.GetProjectByOwner(ctx, sqlc.GetProjectByOwnerParams{ID: projectID, UserID: userID, AgentID: agentID})
 	if err != nil {
-		return "", err
+		return ProjectDescriptor{}, err
 	}
-	return p.BaseDir, nil
+	relative, err := s.logicalProjectPath(ctx, p.UserID, p.AgentID, p.BaseDir)
+	if err != nil {
+		return ProjectDescriptor{}, err
+	}
+	return ProjectDescriptor{ID: p.ID, UserID: p.UserID, AgentID: p.AgentID, Path: relative}, nil
 }
 
 // Ensure returns the default project ID for the agent+user pair, creating the
@@ -362,19 +338,17 @@ func (s *ProjectStore) Ensure(ctx context.Context, agentID, userID string) (stri
 	if s.homes == nil {
 		return "", ErrWorkspaceSetup
 	}
-	view, err := s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: userID, AgentID: agentID})
+	_, err = s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: userID, AgentID: agentID})
 	if err != nil {
 		return "", err
 	}
-	// The default project's working tree is the agent's private area under the
-	// user home (a project is owned by the agent, #442).
-	baseDir := view.AgentRoot
+	// PostgreSQL stores only the logical project root, never the provider path.
 	p, err := s.q.CreateProject(ctx, sqlc.CreateProjectParams{
 		ID:      uuid.Must(uuid.NewV7()).String(),
 		AgentID: agentID,
 		UserID:  userID,
 		Name:    agentName,
-		BaseDir: baseDir,
+		BaseDir: ".",
 	})
 	if err != nil {
 		if existing, err2 := s.q.ListProjects(ctx, sqlc.ListProjectsParams{AgentID: agentID, UserID: userID}); err2 == nil && len(existing) > 0 {

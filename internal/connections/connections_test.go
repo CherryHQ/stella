@@ -123,7 +123,7 @@ func TestGetProviderStatusesYAMLCredentials(t *testing.T) {
 
 func TestStartFlowNilVault(t *testing.T) {
 	svc := newService(t)
-	_, err := svc.StartFlow(context.Background(), "1", "github")
+	_, err := svc.StartFlow(context.Background(), "1", "github", nil)
 	if err == nil {
 		t.Error("expected error when vault is nil")
 	}
@@ -139,7 +139,7 @@ func TestPollFlowUnknownFlow(t *testing.T) {
 
 func TestStartFlowUnsupportedProvider(t *testing.T) {
 	svc := newService(t)
-	_, err := svc.StartFlow(context.Background(), "1", "unsupported-provider")
+	_, err := svc.StartFlow(context.Background(), "1", "unsupported-provider", nil)
 	if err == nil {
 		t.Error("expected error for unsupported provider")
 	}

@@ -2,25 +2,36 @@ package prompt_test
 
 import (
 	"context"
-	"errors"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
-	"github.com/CherryHQ/stella/internal/fsops"
-	"github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/internal/home"
 )
 
-type contextFilesystemSession struct {
-	sandbox.Session
-	root string
+type promptMapRoot struct{ files fstest.MapFS }
+
+func (promptMapRoot) Close() error { return nil }
+
+func (r promptMapRoot) Stat(_ context.Context, name string) (fs.FileInfo, error) {
+	return fs.Stat(r.files, name)
 }
 
-func (s contextFilesystemSession) WorkingDir() string { return "/workspace/project/app" }
-func (s contextFilesystemSession) Filesystem() (sandbox.Filesystem, error) {
-	return fsops.NewFilesystem([]fsops.Mount{{Path: sandbox.PathWorkspace, Directory: s.root}})
+func (r promptMapRoot) Read(_ context.Context, name string, dst io.Writer, options home.ReadOptions) error {
+	data, err := fs.ReadFile(r.files, name)
+	if err != nil {
+		return err
+	}
+	if int64(len(data)) > options.MaxBytes {
+		return home.ErrReadLimit
+	}
+	_, err = dst.Write(data)
+	return err
 }
 
 func TestBuildSystemPromptLoadsProjectContextWithoutInjectedHost(t *testing.T) {
@@ -50,123 +61,35 @@ func TestBuildSystemPromptLoadsProjectContextWithoutInjectedHost(t *testing.T) {
 	}
 }
 
-func TestBuildSystemPromptLoadsActiveContextFromFilesystem(t *testing.T) {
-	root := t.TempDir()
-	project := filepath.Join(root, "project", "app")
-	if err := os.MkdirAll(project, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("root instructions"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(project, "agents.MD"), []byte("project instructions"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	p := prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{SystemPrompt: "You are Stella.", ProjectRoot: "/a/host/path/must/not/be/read", Host: contextFilesystemSession{Session: sandbox.NopSession(), root: root}})
-	if !strings.Contains(p, "root instructions") || !strings.Contains(p, "project instructions") {
-		t.Fatalf("filesystem context missing: %s", p)
-	}
-	if strings.Index(p, "root instructions") > strings.Index(p, "project instructions") {
-		t.Fatal("ancestor context ordering changed")
-	}
-}
+func TestBuildSystemPromptLoadsBoundedContextThroughAuthorizedRoot(t *testing.T) {
+	root := promptMapRoot{files: fstest.MapFS{
+		"AGENTS.md":             {Data: []byte("root capability instructions")},
+		"project/AGENTS.md":     {Data: []byte("project capability instructions")},
+		"project/app/AGENTS.md": {Data: []byte("app capability instructions")},
+		"outside/AGENTS.md":     {Data: []byte("must not appear")},
+	}}
 
-type brokenContextSession struct{ sandbox.Session }
-
-func (brokenContextSession) WorkingDir() string { return "/workspace" }
-func (brokenContextSession) Filesystem() (sandbox.Filesystem, error) {
-	return nil, errors.New("provider unavailable")
-}
-
-func TestBuildSystemPromptDoesNotFallbackAfterInjectedFilesystemFailure(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("host secret"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	p := prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{SystemPrompt: "You are Stella.", ProjectRoot: root, Host: brokenContextSession{Session: sandbox.NopSession()}})
-	if strings.Contains(p, "host secret") {
-		t.Fatal("injected filesystem failure fell back to host path")
-	}
-}
-
-type nilFilesystemContextSession struct{ sandbox.Session }
-
-func (nilFilesystemContextSession) WorkingDir() string { return "/workspace" }
-func (nilFilesystemContextSession) Filesystem() (sandbox.Filesystem, error) {
-	return nil, nil
-}
-
-func TestBuildSystemPromptRejectsNilInjectedFilesystem(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("host secret"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// A nil Filesystem with a nil error must neither panic nor fall back to host
-	// I/O; the injected session stays authoritative.
-	p := prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{SystemPrompt: "You are Stella.", ProjectRoot: root, Host: nilFilesystemContextSession{Session: sandbox.NopSession()}})
-	if strings.Contains(p, "host secret") {
-		t.Fatal("nil injected filesystem fell back to host path")
-	}
-}
-
-func TestBuildSystemPromptSkipsOversizedContextFile(t *testing.T) {
-	root := t.TempDir()
-	oversized := append([]byte("OVERSIZED_MARKER\n"), make([]byte, 256*1024)...)
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), oversized, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	p := prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{SystemPrompt: "You are Stella.", Host: brokenSizeSession{Session: sandbox.NopSession(), root: root}})
-	if strings.Contains(p, "OVERSIZED_MARKER") {
-		t.Fatal("context file above the 256 KiB bound was injected")
-	}
-}
-
-type brokenSizeSession struct {
-	sandbox.Session
-	root string
-}
-
-func (s brokenSizeSession) WorkingDir() string { return "/workspace" }
-func (s brokenSizeSession) Filesystem() (sandbox.Filesystem, error) {
-	return fsops.NewFilesystem([]fsops.Mount{{Path: sandbox.PathWorkspace, Directory: s.root}})
-}
-
-type closeCountingFilesystem struct {
-	sandbox.Filesystem
-	closed *int
-}
-
-func (c closeCountingFilesystem) Close() error {
-	*c.closed++
-	return c.Filesystem.Close()
-}
-
-type closeSpySession struct {
-	sandbox.Session
-	root   string
-	closed *int
-}
-
-func (s closeSpySession) WorkingDir() string { return "/workspace" }
-func (s closeSpySession) Filesystem() (sandbox.Filesystem, error) {
-	fs, err := fsops.NewFilesystem([]fsops.Mount{{Path: sandbox.PathWorkspace, Directory: s.root}})
+	projectContext, err := prompt.SnapshotProjectContext(context.Background(), root, "project/app")
 	if err != nil {
-		return nil, err
-	}
-	return closeCountingFilesystem{Filesystem: fs, closed: s.closed}, nil
-}
-
-func TestBuildSystemPromptClosesInjectedFilesystem(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("root instructions"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	closed := 0
-	p := prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{SystemPrompt: "You are Stella.", Host: closeSpySession{Session: sandbox.NopSession(), root: root, closed: &closed}})
-	if !strings.Contains(p, "root instructions") {
-		t.Fatalf("expected injected context in prompt: %s", p)
+	result := prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{SystemPrompt: "You are Stella.", ProjectContext: projectContext})
+	for _, want := range []string{"root capability instructions", "project capability instructions", "app capability instructions"} {
+		if !strings.Contains(result, want) {
+			t.Fatalf("prompt missing %q", want)
+		}
 	}
-	if closed != 1 {
-		t.Fatalf("injected filesystem closed %d times, want exactly 1", closed)
+	if strings.Contains(result, "must not appear") {
+		t.Fatal("prompt crossed the authorized project ancestry")
+	}
+
+	root.files["project/app/AGENTS.md"] = &fstest.MapFile{Data: []byte(strings.Repeat("x", 256*1024+1))}
+	projectContext, err = prompt.SnapshotProjectContext(context.Background(), root, "project/app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result = prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{SystemPrompt: "You are Stella.", ProjectContext: projectContext})
+	if strings.Contains(result, strings.Repeat("x", 128)) {
+		t.Fatal("oversized context was included")
 	}
 }

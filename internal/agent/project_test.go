@@ -22,7 +22,6 @@ func TestValidateProjectDir(t *testing.T) {
 		{"equal to userRoot", userRoot, false},
 		{"subpath", subDir, false},
 		{"deeper subpath", filepath.Join(subDir, "deep", "nested"), false},
-		{"contained dot-dot prefix child", filepath.Join(userRoot, "..foo"), false},
 		{"parent traversal", filepath.Join(userRoot, "..", "bob"), true},
 		{"absolute outside", "/etc/passwd", true},
 		{"relative path", "projects/myapp", true},

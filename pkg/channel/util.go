@@ -144,9 +144,12 @@ func TextContent(text string) []ai.ContentBlock {
 	return []ai.ContentBlock{ai.TextContent{Text: text}}
 }
 
-// AttachmentReceivedContent returns content blocks for an inbound attachment
-// saved through Home ingress. savedPath is a portable sandbox expression;
-// images also carry inline bytes, while other files get the Xberg hint.
+// AttachmentReceivedContent returns the content blocks for an inbound
+// attachment that has been saved to disk. Images are presented as a saved-path
+// note plus the inline image so the model sees the pixels immediately and can
+// still reach the file later; everything else gets the Xberg extraction hint
+// via FileReceivedContent. data is the raw file content used for image
+// detection and inlining.
 func AttachmentReceivedContent(fileName, savedPath string, data []byte) []ai.ContentBlock {
 	mime := tools.DetectImageMime(data)
 	if mime == "" {
@@ -216,8 +219,8 @@ func humanReadableSize(n int) string {
 }
 
 // FileReceivedContent returns the standard content block telling the agent
-// about a file that has been saved to disk, with an Xberg extraction hint.
-// savedPath is the portable expression returned by AssetSaver.
+// about a file that has been saved to durable storage, with an Xberg extraction
+// hint. savedPath is a portable logical path, never a host path.
 func FileReceivedContent(fileName, savedPath string) []ai.ContentBlock {
 	displayPath := savedPath
 	return TextContent(fmt.Sprintf(

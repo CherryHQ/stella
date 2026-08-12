@@ -152,6 +152,8 @@ bubblewrap 必须实际可用，仅安装不够。在未启用 `--privileged` �
 | `$STELLA_ASSETS_DIR` | 可用时，存放同一用户或群组共享的持久上传文件和最终交付物 | 这是供 Agent 直接写入的托管共享位置。                |
 | `$TMPDIR`            | 每个会话私有的可丢弃临时工作区                           | 不要放置最终输出，也不要依赖它在会话结束后继续存在。 |
 
+Web Workspace API 使用类型化 scope 与规范相对路径定位文件。项目 `base_dir` 同样相对于 Agent workspace（`.` 表示其根）。这些 API 在授权后直接打开持久 POSIX 根，不会启动或唤醒 Session compute。已弃用的 `sandbox_root` 响应字段（如存在）仅是同一逻辑 `/workspace` 或 `/user` 根的别名，绝不包含宿主路径。活跃 Agent 工具仍通过既有 Session mount 与策略边界解析路径。
+
 ### 托管用户与群组根目录
 
 `XDG_CONFIG_HOME`、`XDG_DATA_HOME`、`XDG_STATE_HOME` 和 `XDG_CACHE_HOME` 由同一用户或群组的 Agent 共享，并由命令行工具托管。它们不是通用的 Agent 存储位置。没有用户/群组根目录时，这四个目录都会回退到 `$HOME` 下。`XDG_RUNTIME_DIR` 未设置。
@@ -180,7 +182,7 @@ mise、Lark 和系统目录由其工具托管，不是通用存储位置。
 
 Docker 沙箱镜像会烤入并标记同一 revision，且不会回退到宿主机 builtin。Docker provider preflight 会拒绝 revision 与运行中的 Stella 二进制不匹配的组合，因此 runner session 不会启动。命令语法请运行 `stellad system-bundle --help`。开发者重建本地沙箱镜像时运行 `mise run sandbox:docker:build`；自定义沙箱镜像必须从匹配的 Stella revision 重建。
 
-升级前，请使用旧的可工作二进制，在 **设置 → 技能** 中将遗留 `$STELLA_HOME/.agents/skills` 下的每个自定义 Skill 根导入为全局（`system`）Skill。其他残留路径应先备份、验证后删除。启动会列出每个阻塞路径并停止，不会删除或修改任何内容。当前发行 manifest 所拥有的路径即使内容或模式陈旧也只是惰性数据；其他每个 Skill 根或残留路径都会阻塞启动。
+升级前，请使用旧的可工作二进制，将遗留 `$STELLA_HOME/.agents/skills` 下的每个自定义 Skill 根导入为全局（`system`）Skill：旧版入口为 **设置 → 技能**，新版入口为 **管理控制台 → 部署资源 → 全局技能**。其他残留路径应先备份、验证后删除。启动会列出每个阻塞路径并停止，不会删除或修改任何内容。当前发行 manifest 所拥有的路径即使内容或模式陈旧也只是惰性数据；其他每个 Skill 根或残留路径都会阻塞启动。
 
 ### 升级现有工作区
 
@@ -220,8 +222,8 @@ Docker 和 Linux 本地后端会在会话创建时验证网络模式，如果后
 **Volume 模式："workspace is not inside STELLA_HOME"：**
 在 volume 模式下，所有沙箱工作区必须是 `STELLA_HOME` 的子目录。此错误意味着工作区路径解析到了 volume 边界之外。检查 `STELLA_HOME` 和 `STELLA_HOME_VOLUME` 配置是否正确。
 
-**Xberg 无法加载 `libheif`：**
-Stella 的 Docker 镜像已包含兼容版本。本机 Linux 部署需要 libheif 1.21 或更高版本；Debian 13 的软件包版本过旧。macOS 可运行 `brew install libheif` 安装。如果无法提供兼容的本机动态库，请使用 Docker 沙箱后端。
+**升级后 Xberg 不可用：**
+当前 Linux 和 macOS 版本已内置 Xberg 及其原生动态库。请使用升级后的 `stellad` 二进制重启 Stella，让它把匹配的运行时安装到 `STELLA_HOME`；不要另行安装 `libheif`。
 
 **macOS/Windows 上绑定挂载性能慢：**
 Docker Desktop 对绑定挂载使用虚拟化文件系统层。对于高 I/O 工作负载，考虑使用 named volume（`volume` 模式）或在宿主机上原生运行 stellad（`host` 模式）。

@@ -53,21 +53,23 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
 		content = append(content, ai.TextContent{Text: text})
 	}
 	probe := b.incomingMessage(m, nil)
+	var assetMsg channel.IncomingMessage
 	if len(m.Attachments) > 0 {
-		if admitter, ok := b.handler.(channel.AssetSaveAdmitter); ok {
-			err := admitter.AdmitAssetSave(deliveryCtx, probe)
-			if err != nil {
-				// Resolve ownership before fetching untrusted content. In particular,
-				// guest sessions have no workspace and must not trigger downloads.
-				if errors.Is(err, agentaccess.ErrForbidden) {
-					return errGuestAttachmentsUnsupported
-				}
-				logger().Warn("resolve attachment storage failed; using inline fallback", "error", err)
-			}
+		resolver, ok := b.handler.(channel.AssetSaveAdmitter)
+		if !ok {
+			return errors.New("attachment storage admission unavailable")
 		}
+		if err := resolver.AdmitAssetSave(deliveryCtx, probe); err != nil {
+			// Resolve and authorize ownership before fetching untrusted content.
+			if errors.Is(err, agentaccess.ErrForbidden) {
+				return errGuestAttachmentsUnsupported
+			}
+			return fmt.Errorf("admit attachment storage: %w", err)
+		}
+		assetMsg = probe
 	}
 	for _, attachment := range m.Attachments {
-		content = append(content, b.attachmentContent(deliveryCtx, probe, attachment)...)
+		content = append(content, b.attachmentContent(deliveryCtx, assetMsg, attachment)...)
 	}
 	if len(content) == 0 {
 		return nil
@@ -165,7 +167,7 @@ func collectResponse(ctx context.Context, stream *channel.ChatStream) (string, [
 	}
 }
 
-func (b *Bot) attachmentContent(ctx context.Context, msg channel.IncomingMessage, a *discordgo.MessageAttachment) []ai.ContentBlock {
+func (b *Bot) attachmentContent(ctx context.Context, assetMsg channel.IncomingMessage, a *discordgo.MessageAttachment) []ai.ContentBlock {
 	if a == nil {
 		return nil
 	}
@@ -180,8 +182,8 @@ func (b *Bot) attachmentContent(ctx context.Context, msg channel.IncomingMessage
 	}
 	mime := http.DetectContentType(data)
 	saver, ok := b.handler.(channel.AssetSaver)
-	if ok {
-		path, err := saver.SaveAsset(ctx, msg, name, data)
+	if ok && assetMsg.Platform != "" {
+		path, err := saver.SaveAsset(ctx, assetMsg, name, data)
 		if err != nil {
 			logger().Warn("save attachment failed", "attachment_id", a.ID, "file_name", name, "error", err)
 		} else {

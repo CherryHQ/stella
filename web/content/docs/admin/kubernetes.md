@@ -20,8 +20,8 @@ two-phase graceful drain. Multiple replicas are not supported — see
   same key.
 - **An ingress** (or another way to expose the Service) and the public URL clients
   will use.
-- Optional: an S3-compatible object store for legacy mutable-asset migration and immutable
-  session media, and an OIDC provider for login. Both are passed through `extraEnv` (see below).
+- Optional: an S3-compatible bucket for immutable BlobStore data, and an
+  OIDC provider for login. Both are passed through `extraEnv` (see below).
 
 ### Create the Secret
 
@@ -125,7 +125,7 @@ install with `-f values.yaml`.
 
 The chart keeps its values surface small; optional integrations go through
 `extraEnv` (a list of `name`/`value` entries) and, for secret values, the Secret
-you reference. For example, S3 configuration for legacy migration and session media, and OIDC login:
+you reference. For example, immutable S3 blob storage and OIDC login:
 
 ```yaml
 extraEnv:
@@ -197,8 +197,9 @@ the moment a second pod runs.
   output to the browser, live in the memory of the pod running the turn. A second
   pod would run concurrent turns for the same session and could not stream a turn
   it isn't running.
-- **Principal and Agent Homes are durable, pod-local data.** User workspaces,
-  mutable assets, and project files remain in their owning Homes. A second pod with
+- **`STELLA_HOME` is treated as durable, pod-local data.** User workspaces,
+  uploaded and channel attachments, and Recally article bodies are written to
+  `STELLA_HOME` files (the database stores only relative paths). A second pod with
   its own volume would not see them.
 
 `Recreate` guarantees a clean rollout: the old pod is fully gone before the new one
@@ -259,9 +260,6 @@ the old pod stops and the new one starts and passes its startup probe.
 it, the PVC carries `helm.sh/resource-policy: keep`, so `helm uninstall` leaves the
 volume — and your data — in place. Delete it deliberately when you mean to:
 
-An S3-compatible object store supports legacy mutable-asset migration and immutable
-session media. It does not replace the PVC or make Principal and Agent Homes stateless.
-
 ```bash
 kubectl -n stella delete pvc stella-data
 ```
@@ -287,8 +285,7 @@ Stella needs outbound access to:
 - **PostgreSQL** — your external database (usually `5432`).
 - **LLM provider APIs** — Anthropic, OpenAI, or whichever providers you configure.
 - **IM platform APIs** — Telegram, Discord, QQ, Feishu, WeChat, for any channels you enable.
-- **S3 / object storage** — only if you configure `STELLA_BLOB_S3_*` for legacy
-  migration or immutable session media.
+- **S3 / object storage** — only if you configure `STELLA_BLOB_S3_*` for immutable BlobStore data.
 
 If your cluster restricts egress, allow these destinations. The chart does not ship
 a NetworkPolicy.

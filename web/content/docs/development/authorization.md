@@ -22,20 +22,20 @@ Do not add scope/admin rules "for symmetry." If the only rule you would write is
 
 ## Resource matrix
 
-| Resource            | Shape                | Enforced by                                                                                                    |
-| ------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Agent               | Rule-owning          | `agentaccess.Service`                                                                                          |
-| Session / Workspace | Rule-owning          | `agent/session/access.Service`                                                                                 |
-| Goal                | Rule-owning          | `goal.Service` (durable-worker authority)                                                                      |
-| Workflow            | Rule-owning          | `workflow.Service`                                                                                             |
-| Scheduler           | Rule-owning          | `scheduler.Service` (system/plugin jobs hidden)                                                                |
-| Skill               | Rule-owning          | `skillaccess.Service` (four scopes)                                                                            |
-| Vault               | Rule-owning          | `vault.Service` (user/user_agent/system/system_agent + agent-read gate)                                        |
-| Control plane       | Rule-owning (admin)  | `controlplane.Service` (admin gate at `Begin`)                                                                 |
-| Connections         | Ownership/capability | `connections.Service.Access` — OAuth bundles/flows keyed by user                                               |
-| Email               | Ownership/capability | `email.Service.Access` — config in the user's vault namespace                                                  |
-| Share               | Ownership/capability | `share.Service.Access` scopes user ownership and reads the exact session through a provider-neutral Filesystem |
-| Recally             | Ownership/capability | `recally.Service.Access` — uid-scoped store                                                                    |
+| Resource            | Shape                | Enforced by                                                             |
+| ------------------- | -------------------- | ----------------------------------------------------------------------- |
+| Agent               | Rule-owning          | `agentaccess.Service`                                                   |
+| Session / Workspace | Rule-owning          | `agent/session/access.Service`                                          |
+| Goal                | Rule-owning          | `goal.Service` (durable-worker authority)                               |
+| Workflow            | Rule-owning          | `workflow.Service`                                                      |
+| Scheduler           | Rule-owning          | `scheduler.Service` (system/plugin jobs hidden)                         |
+| Skill               | Rule-owning          | `skillaccess.Service` (four scopes)                                     |
+| Vault               | Rule-owning          | `vault.Service` (user/user_agent/system/system_agent + agent-read gate) |
+| Control plane       | Rule-owning (admin)  | `controlplane.Service` (admin gate at `Begin`)                          |
+| Connections         | Ownership/capability | `connections.Service.Access` — OAuth bundles/flows keyed by user        |
+| Email               | Ownership/capability | `email.Service.Access` — config in the user's vault namespace           |
+| Share               | Ownership/capability | `share.Service.Access` — `WHERE user_id = ?` + os.Root artifacts        |
+| Recally             | Ownership/capability | `recally.Service.Access` — uid-scoped store                             |
 
 Public share content is neither: it is a capability URL (see the recipe below).
 
@@ -88,7 +88,7 @@ Reject an invalid or no-user Authority up front, so every method can assume a re
 Two extra obligations show up in these domains:
 
 - **Parent-keyed writes.** A table keyed only by a parent id (recally article content, feed entries) cannot be trusted to a caller who "already loaded" the parent. Load the parent uid-scoped inside the write, so a foreign parent is not-found before any mutation.
-- **Share containment.** A Share artifact read uses the exact session's provider-neutral Filesystem. An agent-scoped actor is confined to its bound agent and user. Share stores an immutable PostgreSQL snapshot and has no host `os.Root` or restore path.
+- **Workspace confinement.** A Share artifact read must stay inside the acting agent's workspace: an agent-scoped actor is confined to its bound agent, and files are read through `os.Root` so a symlink swap cannot escape.
 
 ### Serve a public capability URL
 

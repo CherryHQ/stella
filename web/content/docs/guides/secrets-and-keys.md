@@ -37,8 +37,8 @@ That is all the setup you need. Stella automatically handles per-user encryption
 
 ### From the Web UI
 
-1. Open the Web UI and go to Credentials.
-2. In the Vault section, choose the secret's scope.
+1. For your own `user` or `user_agent` secret, open **Personal Settings → Connections & Vault**. For an admin-managed `system` or `system_agent` secret, open **Admin Console → Deployment resources → System Credentials**.
+2. In the Vault section, choose whether the secret applies to every agent or one agent. The page already fixes who owns it.
 3. Enter the secret name, exactly matching the environment variable the tool expects.
 4. Enter the value and save.
 

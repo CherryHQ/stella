@@ -4,12 +4,39 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 
 	apitypes "github.com/CherryHQ/stella/api/types"
+	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 )
+
+func TestUpdateSessionRejectsTitleOverDomainByteBound(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := createAgentAsUser(t, env, env.bearerToken, "Session Title Bound Agent")
+	_, err := env.db.Exec(context.Background(), `
+		INSERT INTO ctx_conversation (id, session_id, title, channel, kind, agent_id, user_id, last_active)
+		VALUES ($1, 'session-title-bound', 'Old title', 'web', 'chat', $2, $3, now())
+	`, uuid.NewString(), agentID, env.adminUser.ID)
+	if err != nil {
+		t.Fatalf("seed conversation: %v", err)
+	}
+
+	title := strings.Repeat("界", agentsession.MaxTitleBytes/len("界")+1)
+	rr := doRequest(t, env, http.MethodPatch, "/api/agents/"+agentID+"/sessions/session-title-bound", map[string]string{"title": title})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH oversized title status = %d, want %d (body: %s)", rr.Code, http.StatusBadRequest, rr.Body.String())
+	}
+	var stored string
+	if err := env.db.QueryRow(context.Background(), `SELECT title FROM ctx_conversation WHERE session_id = 'session-title-bound'`).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored != "Old title" {
+		t.Fatalf("stored title = %q, want unchanged", stored)
+	}
+}
 
 func TestUpdateAndDeleteSession(t *testing.T) {
 	env := setupAdmin(t)
@@ -46,6 +73,51 @@ func TestUpdateAndDeleteSession(t *testing.T) {
 	}
 	if !archived {
 		t.Fatalf("archived = %v, want true", archived)
+	}
+}
+
+func TestSessionActivityReturnsDurableTerminalResult(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := createAgentAsUser(t, env, env.bearerToken, "Session Activity Agent")
+	_, err := env.db.Exec(context.Background(), `
+		INSERT INTO ctx_conversation (
+			id, session_id, title, channel, kind, agent_id, user_id, last_active,
+			last_turn_started_at, last_turn_completed_at, last_turn_result
+		)
+		VALUES ($1, 'session-activity', 'Background turn', 'web', 'chat', $2, $3, now(), now(), now(), 'success')
+	`, uuid.NewString(), agentID, env.adminUser.ID)
+	if err != nil {
+		t.Fatalf("seed conversation: %v", err)
+	}
+
+	listSessions := func() apitypes.Session {
+		rr := doRequest(t, env, http.MethodGet, "/api/agents/"+agentID+"/sessions?kind=chat", nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("GET sessions status = %d, want %d (body: %s)", rr.Code, http.StatusOK, rr.Body.String())
+		}
+		resp := parseResponse(t, rr)
+		var list apitypes.SessionList
+		if err := json.Unmarshal(resp.Data, &list); err != nil {
+			t.Fatalf("unmarshal session list: %v", err)
+		}
+		if len(list.Sessions) != 1 {
+			t.Fatalf("sessions = %d, want 1", len(list.Sessions))
+		}
+		return list.Sessions[0]
+	}
+
+	got := listSessions()
+	if got.ActivityStatus == nil || *got.ActivityStatus != apitypes.SessionActivityStatusSuccess {
+		t.Fatalf("activity status = %v, want success", got.ActivityStatus)
+	}
+
+	rr := doRequest(t, env, http.MethodPost, "/api/agents/"+agentID+"/sessions/session-activity/view", nil)
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("POST view status = %d, want %d (body: %s)", rr.Code, http.StatusNoContent, rr.Body.String())
+	}
+	viewed := listSessions()
+	if viewed.ActivityStatus == nil || *viewed.ActivityStatus != apitypes.SessionActivityStatusIdle {
+		t.Fatalf("viewed activity status = %v, want idle", viewed.ActivityStatus)
 	}
 }
 

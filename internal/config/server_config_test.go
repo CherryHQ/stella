@@ -36,54 +36,8 @@ func TestLoadServerConfigDefaults(t *testing.T) {
 	if cfg.Database.URL != "" {
 		t.Errorf("Database.URL = %q, want empty", cfg.Database.URL)
 	}
-	if cfg.Storage.HomeStoreID != "local" {
-		t.Errorf("HomeStoreID = %q, want local", cfg.Storage.HomeStoreID)
-	}
 	if cfg.ServerURL != "http://127.0.0.1:25678" {
 		t.Errorf("ServerURL = %q, want default", cfg.ServerURL)
-	}
-}
-
-func TestLoadServerConfigHomeStoreID(t *testing.T) {
-	cfg, err := LoadServerConfig(lookupFrom(map[string]string{homeStoreIDEnv: " durable-local "}))
-	if err != nil || cfg.Storage.HomeStoreID != "durable-local" {
-		t.Fatalf("HomeStoreID = %q, %v", cfg.Storage.HomeStoreID, err)
-	}
-	if _, err := LoadServerConfig(lookupFrom(map[string]string{homeStoreIDEnv: "bad/store"})); err == nil {
-		t.Fatal("path-like Home Store ID accepted")
-	}
-}
-
-func TestLoadHomeMaintenanceConfig(t *testing.T) {
-	cfg, err := LoadHomeMaintenanceConfig(lookupFrom(nil))
-	if err != nil || cfg.HomeStoreID != "local" || cfg.DatabaseURL != "" {
-		t.Fatalf("defaults = %#v, %v", cfg, err)
-	}
-	cfg, err = LoadHomeMaintenanceConfig(lookupFrom(map[string]string{homeStoreIDEnv: "store-2", databaseURLEnv: "postgres://db/stella"}))
-	if err != nil || cfg.HomeStoreID != "store-2" || cfg.DatabaseURL != "postgres://db/stella" {
-		t.Fatalf("custom = %#v, %v", cfg, err)
-	}
-	if _, err := LoadHomeMaintenanceConfig(lookupFrom(map[string]string{homeStoreIDEnv: "bad/store"})); err == nil {
-		t.Fatal("invalid Store ID accepted")
-	}
-}
-
-func TestLoadAssetMigrationConfigReadsOnlyMigrationDependencies(t *testing.T) {
-	cfg, err := LoadAssetMigrationConfig(lookupFrom(map[string]string{
-		databaseURLEnv:     "postgres://db/stella",
-		homeStoreIDEnv:     "migration-local",
-		blobS3EndpointEnv:  "s3.example.test",
-		blobS3BucketEnv:    "assets",
-		blobS3AccessKeyEnv: "access",
-		blobS3SecretKeyEnv: "secret",
-		blobS3RegionEnv:    "test-1",
-		blobS3UseSSLEnv:    "no",
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.DatabaseURL != "postgres://db/stella" || cfg.HomeStoreID != "migration-local" || cfg.Blob.Endpoint != "s3.example.test" || cfg.Blob.UseSSL != "no" {
-		t.Fatalf("config = %#v", cfg)
 	}
 }
 
