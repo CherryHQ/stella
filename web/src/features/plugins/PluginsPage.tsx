@@ -177,9 +177,8 @@ export function AdminPluginsPage() {
 
   // manifestPluginPath addresses a manifest plugin by its stable ID, not by its
   // name. `name` is an editable definition field and is allowed to differ from
-  // the ID's suffix — tool/kreuzberg ships as "xberg" because persisted
-  // overrides and install state key on the historical ID — so routing by name
-  // would miss the plugin, and on a write create a second one beside it.
+  // the ID's suffix, so routing by name could miss the plugin and create a
+  // second one beside it on a write.
   function manifestPluginPath(id: string) {
     const slash = id.indexOf("/");
     return slash !== -1

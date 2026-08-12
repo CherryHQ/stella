@@ -153,7 +153,7 @@ func applyEnvPathMaps(maps []envPathMap, hostPath string) (string, bool) {
 // It is used as the base when building a container exec PATH that prepends
 // container-native user tool cache paths. Keep in sync with the ENV PATH line
 // in plugins/sandbox/docker/Dockerfile.
-const containerDefaultPATH = "/opt/stella/.mise-tools/shims:/opt/stella/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+const containerDefaultPATH = "/opt/stella/bin:/opt/stella/.mise-tools/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 // injectToolPaths prepends container-native tool directories to PATH (the
 // per-user mise shims so an agent's own installs win, then any manifest tool

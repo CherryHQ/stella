@@ -130,7 +130,7 @@ func buildOAuthRegistry(merged *manifestplugins.Manifest) *oauth.ProviderRegistr
 	return registry
 }
 
-func reconcileManifestPluginsInBackground(ctx context.Context, wg *sync.WaitGroup, m *manifestplugins.Manifest, stellaHome string, after func(context.Context)) {
+func reconcileManifestPluginsInBackground(ctx context.Context, wg *sync.WaitGroup, m *manifestplugins.Manifest, stellaHome string) {
 	wg.Go(func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -139,8 +139,5 @@ func reconcileManifestPluginsInBackground(ctx context.Context, wg *sync.WaitGrou
 		}()
 		slog.Info("manifest plugin reconcile queued in background")
 		manifestplugins.Reconcile(ctx, m, stellaHome)
-		if after != nil && ctx.Err() == nil {
-			after(ctx)
-		}
 	})
 }

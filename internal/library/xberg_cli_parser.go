@@ -24,7 +24,7 @@ const (
 
 func xbergCanonicalArgs() []string {
 	// Pin the documented CLI surface instead of Xberg's version-sensitive config
-	// schema. The manifest fixes the CLI version; these flags fix extraction.
+	// schema. The embedded runtime fixes the CLI version; these flags fix extraction.
 	return []string{
 		"--no-config-discovery",
 		"--disable-ocr", "true",
@@ -49,35 +49,16 @@ type XbergCLIParser struct {
 	run                      xbergCommandRunner
 }
 
-// XbergCLIParserConfig describes a concrete Xberg process. Env is nil for the
-// inherited daemon environment; managed mise shims pass an isolated environment
-// so they never depend on the operator's PATH or mise configuration.
-type XbergCLIParserConfig struct {
-	Binary string
-	Env    []string
-}
-
 func NewXbergCLIParser(ctx context.Context, binary string) (*XbergCLIParser, error) {
-	return NewXbergCLIParserWithConfig(ctx, XbergCLIParserConfig{Binary: binary})
-}
-
-func NewXbergCLIParserWithConfig(ctx context.Context, cfg XbergCLIParserConfig) (*XbergCLIParser, error) {
-	resolved, err := exec.LookPath(cfg.Binary)
+	resolved, err := exec.LookPath(binary)
 	if err != nil {
-		return nil, fmt.Errorf("resolve Xberg CLI %q: %w", cfg.Binary, err)
+		return nil, fmt.Errorf("resolve Xberg CLI %q: %w", binary, err)
 	}
 	resolved, err = filepath.Abs(resolved)
 	if err != nil {
 		return nil, fmt.Errorf("resolve absolute Xberg CLI path: %w", err)
 	}
-	run := runBoundedXbergCommand
-	if cfg.Env != nil {
-		env := append([]string(nil), cfg.Env...)
-		run = func(ctx context.Context, binary string, args []string) ([]byte, []byte, error) {
-			return runBoundedXbergCommandWithEnv(ctx, binary, args, env)
-		}
-	}
-	return newXbergCLIParser(ctx, resolved, run)
+	return newXbergCLIParser(ctx, resolved, runBoundedXbergCommand)
 }
 
 func newXbergCLIParser(ctx context.Context, binary string, run xbergCommandRunner) (*XbergCLIParser, error) {
@@ -183,20 +164,12 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 }
 
 func runBoundedXbergCommand(ctx context.Context, binary string, args []string) ([]byte, []byte, error) {
-	return runBoundedXbergCommandWithEnv(ctx, binary, args, nil)
-}
-
-func runBoundedXbergCommandWithEnv(ctx context.Context, binary string, args, env []string) ([]byte, []byte, error) {
 	stdout := &cappedBuffer{max: xbergStdoutLimit}
 	stderr := &cappedBuffer{max: xbergStderrLimit}
 	cmd := exec.CommandContext(ctx, binary, args...)
-	// Xberg inputs are absolute and config discovery is disabled. Anchoring the
-	// shim away from stellad's cwd also prevents mise from loading an unrelated
-	// project configuration owned by the operator.
+	// Xberg inputs are absolute and config discovery is disabled. Its official
+	// Linux and macOS bundles resolve adjacent dynamic libraries from this dir.
 	cmd.Dir = filepath.Dir(binary)
-	if env != nil {
-		cmd.Env = env
-	}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	err := cmd.Run()
