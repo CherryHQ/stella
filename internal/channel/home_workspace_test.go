@@ -2,6 +2,9 @@ package channel
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -91,5 +94,44 @@ func TestPreSessionAttachmentSaveDoesNotStartOrWakeSessionCompute(t *testing.T) 
 	}
 	if got := computeLookups.Load(); got != 0 {
 		t.Fatalf("Session compute lookups = %d, want 0", got)
+	}
+}
+
+func TestCoordinatorSaveAssetPublishesEmptyFile(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+	user := createTestUser(t, ts.oidcStore, "empty-attachment@example.com")
+	createTestIdentity(t, ts.oidcStore, user.ID, "telegram", "empty-attachment", "Empty Attachment")
+	agentID := ts.stellaAgentID(t)
+	homeDir := t.TempDir()
+	homes, err := home.NewWorkspaceManager(ts.db, homeDir)
+	if err != nil {
+		t.Fatalf("NewWorkspaceManager: %v", err)
+	}
+	coord := &Coordinator{
+		serviceManager: resolveServiceManager{},
+		store:          ts.store,
+		auth:           ts.oidcStore,
+		agentAccess:    agentaccess.NewService(ts.store, ts.authStore),
+		rootOpener:     homes,
+	}
+	logical, err := coord.SaveAsset(ctx, pkgchannel.IncomingMessage{Platform: "telegram", SenderID: "empty-attachment"}, "empty.txt", nil)
+	if err != nil {
+		t.Fatalf("SaveAsset: %v", err)
+	}
+	const prefix = "$STELLA_ASSETS_DIR/"
+	if !strings.HasPrefix(logical, prefix) || strings.TrimPrefix(logical, prefix) == "" {
+		t.Fatalf("SaveAsset path = %q, want %s<name>", logical, prefix)
+	}
+	view, err := homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: user.ID, AgentID: agentID})
+	if err != nil {
+		t.Fatalf("WorkspaceView: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(view.DataRoot, "assets", filepath.FromSlash(strings.TrimPrefix(logical, prefix))))
+	if err != nil {
+		t.Fatalf("read published attachment: %v", err)
+	}
+	if len(data) != 0 {
+		t.Fatalf("published attachment size = %d, want 0", len(data))
 	}
 }

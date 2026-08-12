@@ -50,8 +50,3 @@ func ValidateKey(key string) (string, error) {
 	}
 	return clean, nil
 }
-
-func IsUserAssetKey(key string) bool {
-	key = filepath.ToSlash(key)
-	return strings.HasPrefix(key, "users/") && strings.Contains(key, "/data/assets/")
-}
