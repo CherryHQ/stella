@@ -516,8 +516,9 @@ func (m *SkillHomeMigrator) verifyCompletedAuthority(ctx context.Context, record
 			if !sameSkillIdentity(*currentIdentity, identity) {
 				return fmt.Errorf("verify current Skill %s: %w", item.SkillID, ErrInvalidSkillRevision)
 			}
-			if _, err := m.store.loadIdentity(ctx, *currentIdentity); err != nil {
-				return fmt.Errorf("verify current Skill %s: %w", item.SkillID, err)
+			current, err := m.store.loadIdentity(ctx, *currentIdentity)
+			if err != nil || current.Skill.ContentDigest != item.ContentDigest {
+				return fmt.Errorf("verify current Skill %s: %w", item.SkillID, errors.Join(err, ErrSkillDigestConflict))
 			}
 		}
 	}

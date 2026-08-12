@@ -667,9 +667,9 @@ func (t *Tool) loadManagedOrImmutable(ctx context.Context, name, filename string
 }
 
 func (t *Tool) projectRevision(revision ManagedRevision) (string, error) {
-	// One Tool belongs to one active Session. Serialize publication and retirement
-	// so concurrent loads cannot replace or remove a digest path while another
-	// projection publication is still deciding its exact Session view.
+	// One Tool belongs to one active Session. Serialize publication so concurrent
+	// loads cannot replace a digest path while another publication is deciding
+	// its exact Session view.
 	t.projectionMu.Lock()
 	defer t.projectionMu.Unlock()
 
@@ -693,12 +693,19 @@ func (t *Tool) projectRevision(revision ManagedRevision) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	temp := t.session.Policy().Env[pkgsandbox.EnvTempDir]
-	if temp == "" {
+	policyTemp := t.session.Policy().Env[pkgsandbox.EnvTempDir]
+	if policyTemp == "" {
 		return "", errors.New("sandbox Session has no TMPDIR")
 	}
-	visibleParent := filepath.Join(temp, "stella-skills", revision.Skill.Scope, revision.Skill.ID)
-	hostTemp, err := t.session.ResolveWritePath(temp)
+	visibleTemp := policyTemp
+	if t.view.Isolated {
+		// Docker retains the host backing directory in Policy while the process
+		// sees that private mount at /tmp. Resolve from process space so the
+		// returned skill_dir never leaks the host path.
+		visibleTemp = "/tmp"
+	}
+	visibleParent := filepath.Join(visibleTemp, "stella-skills", revision.Skill.Scope, revision.Skill.ID)
+	hostTemp, err := t.session.ResolveWritePath(visibleTemp)
 	if err != nil {
 		return "", err
 	}
@@ -785,24 +792,6 @@ func (t *Tool) projectRevision(revision ManagedRevision) (string, error) {
 		}
 	}
 	published = true
-	// Retire only complete historical digest projections. Never remove a sibling
-	// stage, which may belong to a concurrent authorized load.
-	parentDir, err := tempRoot.Open(parent)
-	if err != nil {
-		return "", err
-	}
-	entries, readErr := parentDir.ReadDir(-1)
-	closeErr := parentDir.Close()
-	if readErr != nil || closeErr != nil {
-		return "", errors.Join(readErr, closeErr)
-	}
-	for _, entry := range entries {
-		if entry.Name() != revision.Skill.ContentDigest && validSkillDigest(entry.Name()) {
-			if err := tempRoot.RemoveAll(filepath.Join(parent, entry.Name())); err != nil {
-				return "", err
-			}
-		}
-	}
 	return visible, nil
 }
 

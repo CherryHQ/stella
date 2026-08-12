@@ -405,14 +405,23 @@ func (r *projectionReader) LoadExactRevision(_ context.Context, identity Skill, 
 type projectionSession struct {
 	tempVisible string
 	tempHost    string
+	isolated    bool
 }
 
 func (s projectionSession) Policy() pkgsandbox.Policy {
-	return pkgsandbox.Policy{Env: map[string]string{pkgsandbox.EnvTempDir: s.tempVisible}}
+	temp := s.tempVisible
+	if s.isolated {
+		temp = s.tempHost
+	}
+	return pkgsandbox.Policy{Env: map[string]string{pkgsandbox.EnvTempDir: temp}}
 }
 
 func (s projectionSession) ResolveWritePath(name string) (string, error) {
-	rel, err := filepath.Rel(s.tempVisible, name)
+	visible := s.tempVisible
+	if s.isolated {
+		visible = "/tmp"
+	}
+	rel, err := filepath.Rel(visible, name)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", os.ErrPermission
 	}
@@ -481,6 +490,33 @@ func TestManagedLoadAuthorizesIdentityBeforeHomeAndProjectsExactRevision(t *test
 	}
 }
 
+func TestManagedLoadUsesIsolatedSessionTempView(t *testing.T) {
+	digest := strings.Repeat("9", 64)
+	identity := projectionSkill("docker-view", "docker-view", "")
+	reader := &projectionReader{
+		identities: []Skill{identity},
+		revisions: map[string]ManagedRevision{identity.ID: {
+			Skill: projectionSkill(identity.ID, identity.Name, digest),
+			Files: map[string][]byte{MainFile: []byte("isolated current"), "scripts/run.sh": []byte("#!/bin/sh\nprintf isolated")},
+		}},
+	}
+	session := projectionSession{tempVisible: "/tmp", tempHost: t.TempDir(), isolated: true}
+	tool := NewTool(nil, "", "").WithManagedRevisions(reader, session).
+		WithReadAuthorizer(selectedSkillReads{}).WithSkillDirView(SkillDirView{Isolated: true})
+	out, err := tool.load(t.Context(), map[string]any{"name": identity.Name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantVisible := filepath.Join("/tmp", "stella-skills", identity.Scope, identity.ID, digest)
+	if !strings.Contains(out, "<skill_dir>"+wantVisible+"</skill_dir>") || strings.Contains(out, session.tempHost) {
+		t.Fatalf("isolated load output = %q", out)
+	}
+	hostFile := filepath.Join(session.tempHost, "stella-skills", identity.Scope, identity.ID, digest, "scripts", "run.sh")
+	if content, err := os.ReadFile(hostFile); err != nil || string(content) != "#!/bin/sh\nprintf isolated" {
+		t.Fatalf("isolated host projection = %q, %v", content, err)
+	}
+}
+
 func TestManagedProjectionConcurrentExactDigestPublishesOneCompletePath(t *testing.T) {
 	digest := strings.Repeat("f", 64)
 	session := projectionSession{tempVisible: "/session/tmp", tempHost: t.TempDir()}
@@ -534,7 +570,7 @@ func TestManagedProjectionConcurrentExactDigestPublishesOneCompletePath(t *testi
 	}
 }
 
-func TestManagedLoadRetiresOldDigestAndExcludesDisabledOrPolicyDeniedSkills(t *testing.T) {
+func TestManagedLoadPinsEverySessionDigestAndExcludesDisabledOrPolicyDeniedSkills(t *testing.T) {
 	oldDigest, newDigest := strings.Repeat("b", 64), strings.Repeat("c", 64)
 	current := projectionSkill("current-id", "current", "")
 	disabled := projectionSkill("disabled-id", "disabled", "")
@@ -567,8 +603,12 @@ func TestManagedLoadRetiresOldDigestAndExcludesDisabledOrPolicyDeniedSkills(t *t
 	if _, err := tool.load(t.Context(), map[string]any{"name": current.Name}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(oldHost); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("historical projection remained traversable after exact update: %v", err)
+	if content, err := os.ReadFile(filepath.Join(oldHost, MainFile)); err != nil || string(content) != "old-current" {
+		t.Fatalf("pinned historical projection = %q, %v", content, err)
+	}
+	newHost := filepath.Join(session.tempHost, "stella-skills", current.Scope, current.ID, newDigest)
+	if content, err := os.ReadFile(filepath.Join(newHost, MainFile)); err != nil || string(content) != "new-current" {
+		t.Fatalf("new exact projection = %q, %v", content, err)
 	}
 	if _, err := tool.load(t.Context(), map[string]any{"name": disabled.Name}); !errors.Is(err, errSkillNotFound) {
 		t.Fatalf("disable_model_invocation load = %v", err)

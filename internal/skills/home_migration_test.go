@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -284,6 +285,31 @@ func TestSkillHomeMigrationCompletedVerificationHonorsCurrentAuthorityAndOwnerDe
 	}
 	if err := f.migrator.EnsureReady(t.Context()); err == nil || !strings.Contains(err.Error(), "verify current Skill") {
 		t.Fatalf("missing live current authority = %v", err)
+	}
+}
+
+func TestSkillHomeMigrationCompletedVerificationRejectsDifferentCurrentRevision(t *testing.T) {
+	f := newSkillMigrationFixture(t)
+	f.insertLegacySkill(t, "changed-current", "user_agent", false)
+	applySkillMigration(t, f)
+	identity, err := f.migrator.store.GetIdentity(t.Context(), "changed-current")
+	if err != nil || identity == nil {
+		t.Fatalf("migrated identity = %#v, %v", identity, err)
+	}
+	before, err := f.migrator.store.loadIdentity(t.Context(), *identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := before.Skill
+	after.Description = "valid second revision"
+	after.Version++
+	after.UpdatedAt = after.UpdatedAt.Add(time.Nanosecond)
+	published, err := f.migrator.store.publish(t.Context(), after, before.Files, before.Skill.ContentDigest, false)
+	if err != nil || published.Skill.ContentDigest == before.Skill.ContentDigest {
+		t.Fatalf("publish second current revision = %q, %v", published.Skill.ContentDigest, err)
+	}
+	if err := f.migrator.EnsureReady(t.Context()); err == nil || !strings.Contains(err.Error(), "verify current Skill") {
+		t.Fatalf("different live current authority = %v", err)
 	}
 }
 
