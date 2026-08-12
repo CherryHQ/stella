@@ -315,10 +315,11 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	parserRoutes := map[string]library.Parser{
 		library.MediaTypeText: textParser, library.MediaTypeMarkdown: textParser,
 	}
-	xbergParser, err := library.NewXbergCLIParser(parent, "xberg")
-	if err != nil {
-		slog.Warn("Xberg CLI unavailable; PDF and DOCX Library uploads are disabled", "error", err)
-	} else {
+	if xbergBinary := binaries.ToolPath(config.StellaHome(), "xberg"); xbergBinary != "" {
+		xbergParser, probeErr := library.NewXbergCLIParser(parent, xbergBinary)
+		if probeErr != nil {
+			return nil, fmt.Errorf("start embedded Xberg parser: %w", probeErr)
+		}
 		parserRoutes[library.MediaTypePDF] = xbergParser
 		parserRoutes[library.MediaTypeDOCX] = xbergParser
 	}
