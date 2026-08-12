@@ -49,7 +49,7 @@ cd stella && go build -o dist/bin/stellad ./cmd/stellad/
 
 ## 运行
 
-如需启用 PDF 和 DOCX Knowledge 上传，请在服务器上安装 `xberg` 命令行程序，并确保可以从 `$PATH` 找到它。Stella 会在启动时检查该程序；如果不可用，服务器仍会继续运行并支持 Markdown 和纯文本上传。
+Stella 在 Linux 和 macOS 上内置 Xberg 文档运行时，PDF 和 DOCX Knowledge 上传不需要额外安装系统软件包，也不会在启动后下载依赖。Windows 部署目前支持 Markdown 和纯文本 Knowledge 上传，但不保证 PDF 和 DOCX 运行时可用。
 
 启动服务器 —— Web UI访问地址：`http://localhost:25678`：
 

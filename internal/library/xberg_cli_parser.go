@@ -16,12 +16,31 @@ import (
 )
 
 const (
-	xbergAdapterContractVersion = "v1"
+	xbergAdapterContractVersion = "v2"
 	xbergTimeout                = 60 * time.Second
 	xbergStdoutLimit            = 48 << 20
 	xbergStderrLimit            = 64 << 10
-	xbergCanonicalConfig        = `{"chunking":{"chunker_type":"text","max_characters":1000,"overlap":200,"sizing":"characters","trim":true},"disable_ocr":true,"enable_quality_processing":false,"force_ocr":false,"include_document_structure":true,"output_format":"markdown","pages":{"extract_pages":true,"insert_page_markers":false},"use_cache":false}`
 )
+
+func xbergCanonicalArgs() []string {
+	// Pin the documented CLI surface instead of Xberg's version-sensitive config
+	// schema. The embedded runtime fixes the CLI version; these flags fix extraction.
+	return []string{
+		"--no-config-discovery",
+		"--disable-ocr", "true",
+		"--quality", "false",
+		"--force-ocr", "false",
+		"--include-structure", "true",
+		"--content-format", "markdown",
+		"--extract-pages", "true",
+		"--page-markers", "false",
+		"--no-cache", "true",
+		"--chunk", "true",
+		"--chunk-size", "1000",
+		"--chunk-overlap", "200",
+		"--format", "json",
+	}
+}
 
 type xbergCommandRunner func(context.Context, string, []string) ([]byte, []byte, error)
 
@@ -65,8 +84,8 @@ func newXbergCLIParser(ctx context.Context, binary string, run xbergCommandRunne
 	if version == "" {
 		return nil, fmt.Errorf("probe Xberg CLI version JSON: version is missing")
 	}
-	configHash := sha256.Sum256([]byte(xbergCanonicalConfig))
-	profile := "xberg-cli-adapter:" + xbergAdapterContractVersion + ";cli=" + version + ";config_sha256=" + hex.EncodeToString(configHash[:])
+	argsHash := sha256.Sum256([]byte(strings.Join(xbergCanonicalArgs(), "\x00")))
+	profile := "xberg-cli-adapter:" + xbergAdapterContractVersion + ";cli=" + version + ";args_sha256=" + hex.EncodeToString(argsHash[:])
 	return &XbergCLIParser{binary: binary, version: version, profile: profile, run: run}, nil
 }
 
@@ -87,7 +106,7 @@ func (p *XbergCLIParser) Parse(ctx context.Context, path, mediaType string) ([]P
 	}
 	ctx, cancel := context.WithTimeout(ctx, xbergTimeout)
 	defer cancel()
-	args := []string{"extract", absolute, "--no-config-discovery", "--config-json", xbergCanonicalConfig, "--format", "json"}
+	args := append([]string{"extract", absolute}, xbergCanonicalArgs()...)
 	stdout, _, runErr := p.run(ctx, p.binary, args)
 	if runErr != nil {
 		return nil, fmt.Errorf("run Xberg extraction: %w", runErr)
@@ -148,6 +167,9 @@ func runBoundedXbergCommand(ctx context.Context, binary string, args []string) (
 	stdout := &cappedBuffer{max: xbergStdoutLimit}
 	stderr := &cappedBuffer{max: xbergStderrLimit}
 	cmd := exec.CommandContext(ctx, binary, args...)
+	// Xberg inputs are absolute and config discovery is disabled. Its official
+	// Linux and macOS bundles resolve adjacent dynamic libraries from this dir.
+	cmd.Dir = filepath.Dir(binary)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	err := cmd.Run()

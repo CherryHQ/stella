@@ -1881,41 +1881,34 @@ func TestResetManifestPluginFieldReleasesOneFieldOnly(t *testing.T) {
 	}
 }
 
-// A plugin's ID and its name are different things: resources/tools.yaml ships
-// tool/kreuzberg under the name "xberg", with a comment saying the ID is kept
-// because persisted overrides and install state key on it. Every write therefore
-// has to address the row by ID. Routing by name would find no row, and the save
-// would quietly create a second plugin beside the one being edited.
+// A plugin's stable ID and editable name are different things. Every write must
+// address the row by ID; routing by name would miss it and create a second row.
 func TestWritesAddressAPluginWhoseNameIsNotItsID(t *testing.T) {
 	env := setupAdmin(t)
 	octx := context.Background()
 
-	const pluginID = "tool/kreuzberg"
-	shipped := manifestPluginByID(t, env, pluginID)
-	if shipped["name"] == "kreuzberg" {
-		t.Fatalf("this test needs a builtin whose name differs from its ID suffix; %s is named %v", pluginID, shipped["name"])
+	const pluginID = "tool/historical-id"
+	if rr := saveManifestDefinition(t, env, pluginID, map[string]any{
+		"name":         "current-name",
+		"display_name": "Current name",
+		"description":  "",
+		"enabled":      true,
+		"binaries":     []map[string]any{{"name": "current-name", "tool": "github:owner/repo"}},
+	}, nil); rr.Code != http.StatusOK {
+		t.Fatalf("create: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	if rr := toggleManifestPlugin(t, env, pluginID, false); rr.Code != http.StatusOK {
 		t.Fatalf("disable: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
-	edited := manifestPluginByID(t, env, pluginID)
-	edited["display_name"] = "Ours"
-	if rr := saveManifestDefinition(t, env, pluginID, edited, []string{"display_name"}); rr.Code != http.StatusOK {
-		t.Fatalf("save: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-
 	after := manifestPluginByID(t, env, pluginID)
-	if after["display_name"] != "Ours" || after["enabled"] != false {
-		t.Fatalf("plugin = %v, want the edit and the disable to have landed on it", after)
-	}
-	if after["name"] != shipped["name"] {
-		t.Errorf("name = %v, want the shipped %v — the URL addresses the ID, not the name", after["name"], shipped["name"])
+	if after["name"] != "current-name" || after["enabled"] != false {
+		t.Fatalf("plugin = %v, want stable ID with edited name and disabled state", after)
 	}
 	if _, _, err := env.store.GetManifestPluginOverride(octx, pluginID); err != nil {
 		t.Fatalf("get override: %v", err)
 	}
-	// Nothing was created beside it.
+
 	rr := doRequest(t, env, "GET", "/api/manifest-plugins", nil)
 	var resp struct {
 		Plugins []map[string]any `json:"plugins"`
@@ -1924,17 +1917,9 @@ func TestWritesAddressAPluginWhoseNameIsNotItsID(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	for _, p := range resp.Plugins {
-		if p["id"] == "tool/"+shipped["name"].(string) {
+		if p["id"] == "tool/current-name" {
 			t.Fatalf("a second plugin appeared at %v; the write addressed the name instead of the ID", p["id"])
 		}
-	}
-
-	if rr := doRequest(t, env, "POST", "/api/manifest-plugins/"+pluginID+"/reset",
-		map[string]any{"field": "display_name"}); rr.Code != http.StatusOK {
-		t.Fatalf("reset field: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
-	}
-	if released := manifestPluginByID(t, env, pluginID); released["display_name"] != shipped["display_name"] {
-		t.Errorf("display_name = %v, want the shipped %v", released["display_name"], shipped["display_name"])
 	}
 }
 

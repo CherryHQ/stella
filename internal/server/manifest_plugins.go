@@ -31,10 +31,7 @@ func (s *Server) ListManifestPlugins(w http.ResponseWriter, r *http.Request) {
 // manifestPluginID rebuilds the plugin ID a two-segment route addresses.
 //
 // The second segment is the ID's own suffix, not the plugin's name: `name` is an
-// ordinary definition field and is allowed to differ. tool/kreuzberg ships as
-// "xberg" precisely because persisted overrides and install state key on the
-// historical ID, so addressing by name would miss the plugin entirely — and, on
-// a write, create a second one beside it.
+// ordinary definition field and is allowed to differ.
 func manifestPluginID(kind, idSuffix string) string { return kind + "/" + idSuffix }
 
 // SaveManifestPluginDefinition writes one plugin's definition. `fields` names
