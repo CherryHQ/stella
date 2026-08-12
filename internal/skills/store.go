@@ -22,6 +22,7 @@ type Skill struct {
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
 	Version                int64
+	ContentDigest          string
 }
 
 // SkillSnapshot is the committed representation returned by an atomic Skill
@@ -40,6 +41,7 @@ type SkillChangelog struct {
 	Action        string
 	VersionBefore int64
 	VersionAfter  int64
+	ContentDigest string
 	Metadata      json.RawMessage
 	CreatedAt     time.Time
 }
@@ -74,6 +76,7 @@ type ManagedSkillUpdate struct {
 	Patch           UpdatePatch
 	Files           map[string]string
 	ConvertToManual bool
+	ExpectedDigest  string
 }
 
 // Store is the persistence interface for skills.

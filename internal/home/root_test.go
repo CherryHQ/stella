@@ -141,6 +141,8 @@ func TestOpenRootSelectsExactTypedScopes(t *testing.T) {
 		{name: "principal data", req: WorkspaceRequest{UserID: user, AgentID: agentID}, scope: RootPrincipalData, path: filepath.Join(base, "users", user, "data")},
 		{name: "system skills", scope: RootSystemSkills, path: filepath.Join(base, ".agents", "db-skills")},
 		{name: "system agent skills", req: WorkspaceRequest{AgentID: agentID}, scope: RootSystemAgentSkills, path: filepath.Join(base, "agents", agentID, ".agents", "skills")},
+		{name: "user skills", req: WorkspaceRequest{UserID: user}, scope: RootUserSkills, path: filepath.Join(base, "users", user, ".agents", "skills")},
+		{name: "user agent skills", req: WorkspaceRequest{UserID: user, AgentID: agentID}, scope: RootUserAgentSkills, path: filepath.Join(base, "users", user, ".agents", "agent-skills", agentID)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r, err := m.OpenRoot(ctx, tc.req, tc.scope, RootReadWrite)
@@ -437,5 +439,19 @@ func TestOpenRootMissingOwnerDoesNotMaterialize(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(base, "users")); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("filesystem mutated: %v", statErr)
+	}
+	for _, tc := range []struct {
+		req   WorkspaceRequest
+		scope RootScope
+	}{
+		{req: WorkspaceRequest{UserID: "missing"}, scope: RootUserSkills},
+		{req: WorkspaceRequest{UserID: "missing", AgentID: "missing"}, scope: RootUserAgentSkills},
+	} {
+		if _, err := m.OpenRoot(context.Background(), tc.req, tc.scope, RootReadWrite); err == nil {
+			t.Fatal("missing Skill owner opened a root")
+		}
+	}
+	if _, statErr := os.Stat(filepath.Join(base, "users")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("Skill root materialized for missing owner: %v", statErr)
 	}
 }
