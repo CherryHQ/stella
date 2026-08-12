@@ -1881,6 +1881,48 @@ func TestResetManifestPluginFieldReleasesOneFieldOnly(t *testing.T) {
 	}
 }
 
+// A plugin's stable ID and editable name are different things. Every write must
+// address the row by ID; routing by name would miss it and create a second row.
+func TestWritesAddressAPluginWhoseNameIsNotItsID(t *testing.T) {
+	env := setupAdmin(t)
+	octx := context.Background()
+
+	const pluginID = "tool/historical-id"
+	if rr := saveManifestDefinition(t, env, pluginID, map[string]any{
+		"name":         "current-name",
+		"display_name": "Current name",
+		"description":  "",
+		"enabled":      true,
+		"binaries":     []map[string]any{{"name": "current-name", "tool": "github:owner/repo"}},
+	}, nil); rr.Code != http.StatusOK {
+		t.Fatalf("create: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	if rr := toggleManifestPlugin(t, env, pluginID, false); rr.Code != http.StatusOK {
+		t.Fatalf("disable: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	after := manifestPluginByID(t, env, pluginID)
+	if after["name"] != "current-name" || after["enabled"] != false {
+		t.Fatalf("plugin = %v, want stable ID with edited name and disabled state", after)
+	}
+	if _, _, err := env.store.GetManifestPluginOverride(octx, pluginID); err != nil {
+		t.Fatalf("get override: %v", err)
+	}
+
+	rr := doRequest(t, env, "GET", "/api/manifest-plugins", nil)
+	var resp struct {
+		Plugins []map[string]any `json:"plugins"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, p := range resp.Plugins {
+		if p["id"] == "tool/current-name" {
+			t.Fatalf("a second plugin appeared at %v; the write addressed the name instead of the ID", p["id"])
+		}
+	}
+}
+
 // kind and essential belong to the server. kind is part of the plugin's identity
 // — the ID is prefixed with it and the runtime reloads by it — and essential is
 // the server's statement that disabling this plugin breaks a core tool, which the
