@@ -69,7 +69,7 @@ All local execution paths that must obey sandbox policy are mediated through the
 
 Some code paths need local filesystem access without an already-injected runtime, such as prompt rendering or metadata discovery outside an active agent run.
 
-Prompt rendering falls back to direct `os.*` calls when it has no runner session. Skills and agent preset discovery use `pkg/plugins.NewLocalToolRuntime(...)` when called outside an active runner. These are intentional non-runner paths, not fallbacks for sandboxed tool execution.
+Project prompt context and project-scoped Skill reads outside a runner resolve the exact user, Agent, and project, open a read-only Agent Home capability, copy bounded logical content, and close the capability before prompt or Skill processing. They do not treat a logical project `base_dir` as a process working directory. Other trusted non-project metadata discovery may still use the local runtime. These are intentional non-runner paths, not fallbacks for sandboxed tool execution.
 
 ### Explicit exception boundary
 
@@ -112,7 +112,7 @@ The sandbox image bakes its mise toolchain at `/opt/stella` via `stellad mise re
 
 `resources.Registry` is the sole authority for release-owned builtins. It produces the immutable content-addressed bundle installed at `$STELLA_HOME/bundles/<revision>` for native `local` and `none` execution. Isolating execution projects that exact bundle read-only at `/opt/stella/skills/builtin`; `/opt` is an execution coordinate, not another authority, and bundle executable helper modes must survive the projection.
 
-Project Skills remain ordinary files in durable Agent/project working trees. PostgreSQL remains the authority for mutable `system`, `system_agent`, `user`, and `user_agent` records; their execution materializations are derived caches. The Home filesystem authority cutover is planned and not active.
+Project Skills remain ordinary files in durable Agent/project working trees and are read through bounded read-only Home snapshots outside active execution. PostgreSQL remains the authority for mutable `system`, `system_agent`, `user`, and `user_agent` records; their execution materializations are derived caches. The broader mutable Skill authority cutover remains planned in #897 and is not part of the Workspace slice.
 
 The Docker sandbox image bakes and labels the exact revision. It has no host-builtin fallback. Docker provider preflight rejects a binary/image revision mismatch, preventing the runner session from starting. Use `stellad system-bundle --help` for operator command syntax. Rebuild the development image with `mise run sandbox:docker:build`; rebuild every custom sandbox image from the matching Stella revision.
 

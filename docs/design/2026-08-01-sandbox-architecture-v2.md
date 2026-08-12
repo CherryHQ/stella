@@ -84,7 +84,7 @@ business authorization -> typed WorkspaceManager root -> rooted POSIX operation
 
 调用方不能绕过该链条使用宿主绝对路径。share 发布先读取一个确定版本，再写 immutable snapshot；immutable media、snapshot、blob 与 artifact 继续由 `BlobStore`/S3 保存。
 
-Legacy mutable asset 是否需要迁移必须按 asset 领域证据决定。允许增加 asset-specific、离线、可验证的迁移，但不得把它扩展成通用 Workspace 迁移或 catalog 协议。没有 object-only legacy 数据证据时，不增加迁移状态机。
+支持的升级群体从未部署 legacy mutable-asset S3 authority，也没有 object-only mutable asset 数据，因此 #888 不需要 asset migration、marker、witness、inventory 或 remote purge。`data/assets/` 直接以 Principal Home 中的 POSIX bytes 为唯一 authority。该结论不影响 immutable media、snapshot、blob 与 artifact 的 `BlobStore`/S3 authority。
 
 ## 6. Skill authority
 

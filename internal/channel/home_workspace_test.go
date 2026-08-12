@@ -2,7 +2,10 @@ package channel
 
 import (
 	"context"
-	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent"
@@ -11,21 +14,21 @@ import (
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
-type resolveWorkspaceViewer struct {
-	request home.WorkspaceRequest
-	view    home.WorkspaceView
-	err     error
+type resolveServiceManager struct{ lookups *atomic.Int64 }
+
+func (m resolveServiceManager) GetService(string) *agent.Service {
+	if m.lookups != nil {
+		m.lookups.Add(1)
+	}
+	return &agent.Service{}
 }
 
-func (v *resolveWorkspaceViewer) WorkspaceView(_ context.Context, req home.WorkspaceRequest) (home.WorkspaceView, error) {
-	v.request = req
-	return v.view, v.err
+func (m resolveServiceManager) Default() *agent.Service {
+	if m.lookups != nil {
+		m.lookups.Add(1)
+	}
+	return &agent.Service{}
 }
-
-type resolveServiceManager struct{}
-
-func (resolveServiceManager) GetService(string) *agent.Service { return &agent.Service{} }
-func (resolveServiceManager) Default() *agent.Service          { return &agent.Service{} }
 
 type resolveGroup struct{ id string }
 
@@ -33,7 +36,7 @@ func (g resolveGroup) ResolveGroupID(context.Context, string, string, string) (s
 	return g.id, nil
 }
 
-func TestCoordinatorResolveUserRootUsesWorkspaceView(t *testing.T) {
+func TestCoordinatorAdmitsKnownAttachmentPrincipals(t *testing.T) {
 	ts := setupStores(t)
 	ctx := context.Background()
 	user := createTestUser(t, ts.oidcStore, "root@example.com")
@@ -47,38 +50,88 @@ func TestCoordinatorResolveUserRootUsesWorkspaceView(t *testing.T) {
 		name    string
 		message pkgchannel.IncomingMessage
 		groupID string
-		want    home.WorkspaceRequest
 	}{
-		{name: "DM", message: pkgchannel.IncomingMessage{Platform: "telegram", SenderID: "sender"}, want: home.WorkspaceRequest{UserID: user.ID, AgentID: agentID}},
-		{name: "group", message: pkgchannel.IncomingMessage{Platform: "telegram", ChannelID: "typed-home-test", SenderID: "sender", ChatID: "platform-group", IsGroup: true}, groupID: "canonical-group", want: home.WorkspaceRequest{UserID: user.ID, GroupID: "canonical-group", AgentID: agentID}},
+		{name: "DM", message: pkgchannel.IncomingMessage{Platform: "telegram", SenderID: "sender"}},
+		{name: "group", message: pkgchannel.IncomingMessage{Platform: "telegram", ChannelID: "typed-home-test", SenderID: "sender", ChatID: "platform-group", IsGroup: true}, groupID: "canonical-group"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			viewer := &resolveWorkspaceViewer{view: home.WorkspaceView{PrincipalRoot: "/supplied/" + tt.name}}
-			coord := &Coordinator{serviceManager: resolveServiceManager{}, store: ts.store, auth: ts.oidcStore, agentAccess: agentaccess.NewService(ts.store, ts.authStore), homes: viewer}
+			coord := &Coordinator{serviceManager: resolveServiceManager{}, store: ts.store, auth: ts.oidcStore, agentAccess: agentaccess.NewService(ts.store, ts.authStore)}
 			if tt.groupID != "" {
 				coord.groupResolver = resolveGroup{id: tt.groupID}
 			}
-			got, err := coord.ResolveUserRoot(ctx, tt.message)
+			err := coord.AdmitAssetSave(ctx, tt.message)
 			if err != nil {
-				t.Fatalf("ResolveUserRoot: %v", err)
-			}
-			if got != viewer.view.PrincipalRoot {
-				t.Fatalf("root = %q, want PrincipalRoot %q", got, viewer.view.PrincipalRoot)
-			}
-			if viewer.request != tt.want {
-				t.Fatalf("workspace request = %+v, want %+v", viewer.request, tt.want)
+				t.Fatalf("AdmitAssetSave: %v", err)
 			}
 		})
 	}
 }
 
-func TestCoordinatorResolveUserRootPropagatesWorkspaceError(t *testing.T) {
+func TestPreSessionAttachmentSaveDoesNotStartOrWakeSessionCompute(t *testing.T) {
 	ts := setupStores(t)
-	user := createTestUser(t, ts.oidcStore, "root-error@example.com")
-	createTestIdentity(t, ts.oidcStore, user.ID, "telegram", "error-sender", "Root Error")
-	want := errors.New("home unavailable")
-	coord := &Coordinator{serviceManager: resolveServiceManager{}, store: ts.store, auth: ts.oidcStore, agentAccess: agentaccess.NewService(ts.store, ts.authStore), homes: &resolveWorkspaceViewer{err: want}}
-	if _, err := coord.ResolveUserRoot(context.Background(), pkgchannel.IncomingMessage{Platform: "telegram", SenderID: "error-sender"}); !errors.Is(err, want) {
-		t.Fatalf("ResolveUserRoot error = %v, want workspace error", err)
+	ctx := context.Background()
+	user := createTestUser(t, ts.oidcStore, "attachment-compute-spy@example.com")
+	createTestIdentity(t, ts.oidcStore, user.ID, "telegram", "compute-spy", "Compute Spy")
+	homeDir := t.TempDir()
+	homes, err := home.NewWorkspaceManager(ts.db, homeDir)
+	if err != nil {
+		t.Fatalf("NewWorkspaceManager: %v", err)
+	}
+	var computeLookups atomic.Int64
+	coord := &Coordinator{
+		serviceManager: resolveServiceManager{lookups: &computeLookups},
+		store:          ts.store,
+		auth:           ts.oidcStore,
+		agentAccess:    agentaccess.NewService(ts.store, ts.authStore),
+		rootOpener:     homes,
+	}
+	logical, err := coord.SaveAsset(ctx, pkgchannel.IncomingMessage{Platform: "telegram", SenderID: "compute-spy"}, "photo.jpg", []byte("image"))
+	if err != nil {
+		t.Fatalf("SaveAsset: %v", err)
+	}
+	if logical == "" {
+		t.Fatal("SaveAsset returned an empty logical path")
+	}
+	if got := computeLookups.Load(); got != 0 {
+		t.Fatalf("Session compute lookups = %d, want 0", got)
+	}
+}
+
+func TestCoordinatorSaveAssetPublishesEmptyFile(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+	user := createTestUser(t, ts.oidcStore, "empty-attachment@example.com")
+	createTestIdentity(t, ts.oidcStore, user.ID, "telegram", "empty-attachment", "Empty Attachment")
+	agentID := ts.stellaAgentID(t)
+	homeDir := t.TempDir()
+	homes, err := home.NewWorkspaceManager(ts.db, homeDir)
+	if err != nil {
+		t.Fatalf("NewWorkspaceManager: %v", err)
+	}
+	coord := &Coordinator{
+		serviceManager: resolveServiceManager{},
+		store:          ts.store,
+		auth:           ts.oidcStore,
+		agentAccess:    agentaccess.NewService(ts.store, ts.authStore),
+		rootOpener:     homes,
+	}
+	logical, err := coord.SaveAsset(ctx, pkgchannel.IncomingMessage{Platform: "telegram", SenderID: "empty-attachment"}, "empty.txt", nil)
+	if err != nil {
+		t.Fatalf("SaveAsset: %v", err)
+	}
+	const prefix = "$STELLA_ASSETS_DIR/"
+	if !strings.HasPrefix(logical, prefix) || strings.TrimPrefix(logical, prefix) == "" {
+		t.Fatalf("SaveAsset path = %q, want %s<name>", logical, prefix)
+	}
+	view, err := homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: user.ID, AgentID: agentID})
+	if err != nil {
+		t.Fatalf("WorkspaceView: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(view.DataRoot, "assets", filepath.FromSlash(strings.TrimPrefix(logical, prefix))))
+	if err != nil {
+		t.Fatalf("read published attachment: %v", err)
+	}
+	if len(data) != 0 {
+		t.Fatalf("published attachment size = %d, want 0", len(data))
 	}
 }

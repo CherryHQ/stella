@@ -215,16 +215,41 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 
 		// Resolve project directory when session has a project.
 		var projectRoot string
-		if params.ProjectID != "" && cfg.ProjectResolver != nil {
-			dir, err := cfg.ProjectResolver(ctx, params.ProjectID, params.UserID)
-			if err != nil {
-				slog.Warn("project resolution failed", "project_id", params.ProjectID, "error", err)
-			} else if dir != "" {
-				if err := ValidateProjectDir(dir, projectValidateRoot); err != nil {
-					slog.Warn("project dir validation failed", "project_id", params.ProjectID, "base_dir", dir, "error", err)
-				} else {
-					projectRoot = dir
+		var projectSkillSnapshot *skillstool.ProjectSnapshot
+		var projectContext prompt.ProjectContext
+		var descriptor ProjectDescriptor
+		if params.ProjectID != "" {
+			if cfg.ProjectResolver == nil {
+				if scratchCleanup != nil {
+					_ = scratchCleanup()
 				}
+				return nil, fmt.Errorf("runner: project resolver is required")
+			}
+			opener, ok := cfg.WorkspaceViewer.(home.RootOpener)
+			if !ok {
+				return nil, fmt.Errorf("runner: Home root opener is required for project Skills")
+			}
+			projectSnapshot, snapshotErr := SnapshotAuthorizedProject(ctx, cfg.ProjectResolver, opener, params.ProjectID, params.UserID, params.AgentID)
+			err = snapshotErr
+			if err != nil {
+				if scratchCleanup != nil {
+					_ = scratchCleanup()
+				}
+				return nil, fmt.Errorf("runner: resolve project %q: %w", params.ProjectID, err)
+			}
+			descriptor, projectContext, projectSkillSnapshot = projectSnapshot.Descriptor, projectSnapshot.Context, projectSnapshot.Skills
+			if descriptor.ID != params.ProjectID || descriptor.UserID != params.UserID || descriptor.AgentID != params.AgentID {
+				if scratchCleanup != nil {
+					_ = scratchCleanup()
+				}
+				return nil, fmt.Errorf("runner: project %q is outside the agent workspace", params.ProjectID)
+			}
+			projectRoot = projectValidateRoot
+			if descriptor.Path != "." {
+				projectRoot = filepath.Join(projectValidateRoot, filepath.FromSlash(descriptor.Path))
+			}
+			if ValidateProjectDir(projectRoot, projectValidateRoot) != nil {
+				return nil, fmt.Errorf("runner: invalid project descriptor")
 			}
 		}
 
@@ -243,7 +268,6 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			StellaHome:          config.StellaHome(),
 			HomeDir:             homeDir,
 			AgentRoot:           cfg.Snap.Workspace,
-			ProjectRoot:         projectRoot,
 			UserID:              params.UserID,
 			AgentID:             params.AgentID,
 			UserRoot:            userRoot,
@@ -261,7 +285,8 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		if params.GroupID != "" {
 			skillPromptBuild.UserID, skillPromptBuild.UserRoot, skillPromptBuild.WorkspaceRoot = "", "", ""
 		}
-		if skillsSection, err := skillstool.BuildPromptSection(ctx, skillPromptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
+		skillCtx := skillstool.WithProjectSnapshot(ctx, projectSkillSnapshot)
+		if skillsSection, err := skillstool.BuildPromptSection(skillCtx, skillPromptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
 			sections = append(sections, skillsSection)
 		}
 		if params.GroupID == "" && cfg.VaultEnvLoader != nil {
@@ -290,17 +315,17 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			promptUserID = ""
 		}
 		system := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-			SystemPrompt: cfg.Snap.SystemPrompt,
-			AgentSoul:    cfg.Snap.Soul,
-			Memory:       memProvider,
-			UserID:       promptUserID,
-			AgentID:      params.AgentID,
-			GroupID:      params.GroupID,
-			StellaHome:   config.StellaHome(),
-			AgentRoot:    cfg.Snap.Workspace,
-			ProjectRoot:  projectRoot,
-			UserRoot:     userRoot,
-			Sections:     sections,
+			SystemPrompt:   cfg.Snap.SystemPrompt,
+			AgentSoul:      cfg.Snap.Soul,
+			Memory:         memProvider,
+			UserID:         promptUserID,
+			AgentID:        params.AgentID,
+			GroupID:        params.GroupID,
+			StellaHome:     config.StellaHome(),
+			AgentRoot:      cfg.Snap.Workspace,
+			ProjectContext: projectContext,
+			UserRoot:       userRoot,
+			Sections:       sections,
 		})
 
 		// Resolve hooks from RunnerParams — injected by Pool, not the builder.
@@ -378,26 +403,27 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 				BaseURL:    creds.BaseURL,
 				Builder:    cfg.ProviderStreamBuilder,
 			},
-			Thinking:            params.Thinking,
-			Sandbox:             sandboxCfg,
-			System:              system,
-			Sections:            sections,
-			BuiltinTools:        builtinTools,
-			BuiltinParams:       params,
-			DisabledSkillRefs:   append([]string(nil), cfg.Snap.DisabledSkillRefs...),
-			PerRunTools:         perRunTools,
-			SkillStore:          cfg.SkillStore,
-			SkillReadAuthorizer: cfg.SkillReadAuthorizer,
-			PluginView:          pluginView,
-			MCPToolProvider:     cfg.MCPToolProvider,
-			ToolOverrideFetcher: cfg.ToolOverrideFetcher,
-			PluginTools:         cfg.PluginToolsBuilder,
-			HookPlugins:         hookPlugins,
-			ToolLifecycle:       cfg.ToolLifecycle,
-			DelegateRunner:      params.DelegateRunner,
-			DelegateTimeout:     cfg.Snap.Runner.DelegateTimeoutDuration(),
-			CanonicalImages:     canonicalImages,
-			Cleanup:             scratchCleanup,
+			Thinking:             params.Thinking,
+			Sandbox:              sandboxCfg,
+			System:               system,
+			Sections:             sections,
+			BuiltinTools:         builtinTools,
+			BuiltinParams:        params,
+			DisabledSkillRefs:    append([]string(nil), cfg.Snap.DisabledSkillRefs...),
+			PerRunTools:          perRunTools,
+			SkillStore:           cfg.SkillStore,
+			ProjectSkillSnapshot: projectSkillSnapshot,
+			SkillReadAuthorizer:  cfg.SkillReadAuthorizer,
+			PluginView:           pluginView,
+			MCPToolProvider:      cfg.MCPToolProvider,
+			ToolOverrideFetcher:  cfg.ToolOverrideFetcher,
+			PluginTools:          cfg.PluginToolsBuilder,
+			HookPlugins:          hookPlugins,
+			ToolLifecycle:        cfg.ToolLifecycle,
+			DelegateRunner:       params.DelegateRunner,
+			DelegateTimeout:      cfg.Snap.Runner.DelegateTimeoutDuration(),
+			CanonicalImages:      canonicalImages,
+			Cleanup:              scratchCleanup,
 		})
 		if err != nil && scratchCleanup != nil {
 			_ = scratchCleanup()

@@ -20,7 +20,7 @@ two-phase graceful drain. Multiple replicas are not supported — see
   same key.
 - **An ingress** (or another way to expose the Service) and the public URL clients
   will use.
-- Optional: an S3-compatible bucket for the durable user-asset mirror, and an
+- Optional: an S3-compatible bucket for immutable BlobStore data, and an
   OIDC provider for login. Both are passed through `extraEnv` (see below).
 
 ### Create the Secret
@@ -125,7 +125,7 @@ install with `-f values.yaml`.
 
 The chart keeps its values surface small; optional integrations go through
 `extraEnv` (a list of `name`/`value` entries) and, for secret values, the Secret
-you reference. For example, the S3 asset mirror and OIDC login:
+you reference. For example, immutable S3 blob storage and OIDC login:
 
 ```yaml
 extraEnv:
@@ -285,7 +285,7 @@ Stella needs outbound access to:
 - **PostgreSQL** — your external database (usually `5432`).
 - **LLM provider APIs** — Anthropic, OpenAI, or whichever providers you configure.
 - **IM platform APIs** — Telegram, Discord, QQ, Feishu, WeChat, for any channels you enable.
-- **S3 / object storage** — only if you configure the `STELLA_BLOB_S3_*` asset mirror.
+- **S3 / object storage** — only if you configure `STELLA_BLOB_S3_*` for immutable BlobStore data.
 
 If your cluster restricts egress, allow these destinations. The chart does not ship
 a NetworkPolicy.

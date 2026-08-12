@@ -22,6 +22,7 @@ type installedSkillSearchResult struct {
 }
 
 func (t *Tool) searchInstalled(ctx context.Context, args map[string]any) (string, error) {
+	ctx = WithProjectSnapshot(ctx, t.projectSnapshot)
 	query, _ := args["query"].(string)
 	if strings.TrimSpace(query) == "" {
 		return "", fmt.Errorf("query is required for search_installed action")

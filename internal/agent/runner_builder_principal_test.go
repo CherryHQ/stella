@@ -3,9 +3,12 @@ package agent
 import (
 	"context"
 	"errors"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/config"
@@ -44,6 +47,94 @@ func (w testWorkspaceViewer) WorkspaceView(_ context.Context, req home.Workspace
 		return shared, nil
 	}
 	return shared, nil
+}
+
+func (w testWorkspaceViewer) ResolveCoordinate(c home.Coordinate) (home.RootScope, string, error) {
+	if scope, name, err := home.ResolveLogicalCoordinate(c.Scope, c.Value, c.AllowRoot); err == nil {
+		return scope, name, nil
+	}
+	view, err := w.WorkspaceView(context.Background(), c.Request)
+	if err != nil {
+		return 0, "", err
+	}
+	for _, candidate := range []struct {
+		scope home.RootScope
+		root  string
+	}{{home.RootAgentWorkspace, view.AgentRoot}, {home.RootPrincipalData, view.DataRoot}} {
+		rel, err := filepath.Rel(candidate.root, c.Value)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return home.ResolveLogicalCoordinate(candidate.scope, filepath.ToSlash(rel), c.AllowRoot)
+		}
+	}
+	return 0, "", errors.New("test coordinate escapes workspace")
+}
+
+func (w testWorkspaceViewer) OpenRoot(ctx context.Context, req home.WorkspaceRequest, scope home.RootScope, _ home.RootAccess) (home.RootOperations, error) {
+	view, err := w.WorkspaceView(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	dir := view.AgentRoot
+	if scope == home.RootPrincipalData {
+		dir = view.DataRoot
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	return runnerTestRoot{Root: root}, nil
+}
+
+type runnerTestRoot struct{ *os.Root }
+
+func (r runnerTestRoot) Stat(_ context.Context, name string) (fs.FileInfo, error) {
+	return r.Root.Stat(name)
+}
+
+func (r runnerTestRoot) List(_ context.Context, name string, options home.ListOptions) ([]fs.DirEntry, error) {
+	directory, err := r.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = directory.Close() }()
+	entries, err := directory.ReadDir(options.Limit + 1)
+	if err != nil {
+		return nil, err
+	}
+	if options.Limit > 0 && len(entries) > options.Limit {
+		return nil, home.ErrListLimit
+	}
+	return entries, nil
+}
+
+func (r runnerTestRoot) Read(_ context.Context, name string, dst io.Writer, options home.ReadOptions) error {
+	file, err := r.Open(name)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+	_, err = io.Copy(dst, io.LimitReader(file, options.MaxBytes))
+	return err
+}
+
+func (r runnerTestRoot) Write(context.Context, string, io.Reader, home.WriteOptions) error {
+	return errors.New("not implemented")
+}
+
+func (r runnerTestRoot) Upload(context.Context, string, io.Reader, home.WriteOptions) error {
+	return errors.New("not implemented")
+}
+
+func (r runnerTestRoot) Mkdir(context.Context, string, fs.FileMode, home.MkdirOptions) error {
+	return errors.New("not implemented")
+}
+
+func (r runnerTestRoot) Remove(context.Context, string, home.RemoveOptions) error {
+	return errors.New("not implemented")
+}
+
+func (r runnerTestRoot) Rename(context.Context, string, string, home.RenameOptions) error {
+	return errors.New("not implemented")
 }
 
 func TestNewRunnerFuncUsesPrincipalWorkspace(t *testing.T) {

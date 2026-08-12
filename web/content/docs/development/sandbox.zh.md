@@ -69,7 +69,7 @@ runner 会根据插件状态解析当前活动后端，并分派到对应的后�
 
 某些代码路径需要在没有已注入运行时的情况下访问本地文件系统，例如活动代理运行之外的提示渲染或元数据发现。
 
-当没有 runner 会话时，提示渲染回退到直接 `os.*` 调用。在活动 runner 外部调用时，技能和代理预设发现使用 `pkg/plugins.NewLocalToolRuntime(...)`。这些是有意为之的非 runner 路径，而不是沙箱化工具执行的回退。
+runner 外的项目提示上下文与项目级 Skill 读取会解析精确的用户、Agent 与项目，打开只读 Agent Home capability，复制有界逻辑内容，并在提示或 Skill 处理前关闭 capability。逻辑项目 `base_dir` 不会被当作进程工作目录。其他可信的非项目元数据发现仍可使用 local runtime。这些是有意为之的非 runner 路径，而不是沙箱化工具执行的回退。
 
 ### 显式例外边界
 
@@ -112,7 +112,7 @@ sandbox 镜像通过 `stellad mise reconcile-builtins`（与宿主相同的 `res
 
 `resources.Registry` 是发行版自带 builtin 的唯一权威。它产出不可变、内容寻址的 bundle，供原生 `local` 和 `none` 执行安装到 `$STELLA_HOME/bundles/<revision>`。隔离执行将这一精确 bundle 以只读方式投影到 `/opt/stella/skills/builtin`；`/opt` 是执行坐标而非另一份权威，bundle 中辅助可执行文件的模式必须在投影中保留。
 
-Project Skill 仍是持久 Agent/项目工作树中的普通文件。PostgreSQL 仍是可变 `system`、`system_agent`、`user` 和 `user_agent` 记录的权威；它们的执行 materialization 是派生缓存。Home 文件系统权威切换已规划但尚未启用。
+Project Skill 仍是持久 Agent/项目工作树中的普通文件；在活动执行之外通过有界、只读的 Home snapshot 读取。PostgreSQL 仍是可变 `system`、`system_agent`、`user` 和 `user_agent` 记录的权威；它们的执行 materialization 是派生缓存。更广泛的可变 Skill 权威切换仍由 #897 规划，不属于 Workspace slice。
 
 Docker 沙箱镜像会烤入并标记精确 revision，不会回退到宿主机 builtin。Docker provider preflight 拒绝二进制与镜像 revision 不匹配的组合，从而阻止 runner session 启动。操作员命令语法使用 `stellad system-bundle --help` 查询。开发镜像用 `mise run sandbox:docker:build` 重建；每个自定义沙箱镜像都必须从匹配的 Stella revision 重建。
 

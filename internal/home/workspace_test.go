@@ -83,6 +83,85 @@ func TestWorkspaceManagerRejectsUnsafeTypedRoots(t *testing.T) {
 	}
 }
 
+func TestWorkspaceManagerResolvesCompatibilityCoordinates(t *testing.T) {
+	base := t.TempDir()
+	m := &WorkspaceManager{base: base}
+	req := WorkspaceRequest{UserID: "u", AgentID: "a"}
+	agentRoot := filepath.Join(base, "users", "u", "agents", "a")
+	dataRoot := filepath.Join(base, "users", "u", "data")
+	if err := os.MkdirAll(filepath.Join(agentRoot, "dir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dataRoot, "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentRoot, "dir", "file"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		value           string
+		selected, scope RootScope
+		name            string
+	}{
+		{"plain/file", RootPrincipalData, RootPrincipalData, "plain/file"},
+		{"/workspace/dir/file", RootPrincipalData, RootAgentWorkspace, "dir/file"},
+		{"/user/assets", RootAgentWorkspace, RootPrincipalData, "assets"},
+		{"$HOME/dir/file", RootPrincipalData, RootAgentWorkspace, "dir/file"},
+		{"$STELLA_ASSETS_DIR/x", RootAgentWorkspace, RootPrincipalData, "assets/x"},
+		{filepath.Join(agentRoot, "dir", "file"), RootPrincipalData, RootAgentWorkspace, "dir/file"},
+		{filepath.Join(agentRoot, "dir", "historical", "deleted.txt"), RootPrincipalData, RootAgentWorkspace, "dir/historical/deleted.txt"},
+	} {
+		scope, name, err := m.ResolveCoordinate(Coordinate{Request: req, Scope: tc.selected, Value: tc.value})
+		if err != nil || scope != tc.scope || name != tc.name {
+			t.Fatalf("resolve %q = %v %q %v", tc.value, scope, name, err)
+		}
+	}
+	for _, value := range []string{"../escape", "$HOMELESS/x", filepath.Join(base, "outside")} {
+		if _, _, err := m.ResolveCoordinate(Coordinate{Request: req, Scope: RootAgentWorkspace, Value: value}); err == nil {
+			t.Fatalf("escape %q accepted", value)
+		}
+	}
+	if err := os.Symlink(t.TempDir(), filepath.Join(agentRoot, "escape")); err == nil {
+		if _, _, err := m.ResolveCoordinate(Coordinate{Request: req, Scope: RootAgentWorkspace, Value: filepath.Join(agentRoot, "escape", "missing.txt")}); err == nil {
+			t.Fatal("escaping symlink accepted")
+		}
+	}
+	if err := os.Symlink(filepath.Join(t.TempDir(), "missing"), filepath.Join(agentRoot, "dangling-escape")); err == nil {
+		if _, _, err := m.ResolveCoordinate(Coordinate{Request: req, Scope: RootAgentWorkspace, Value: filepath.Join(agentRoot, "dangling-escape", "file.txt")}); err == nil {
+			t.Fatal("dangling escaping symlink accepted")
+		}
+	}
+	aliasParent := t.TempDir()
+	alias := filepath.Join(aliasParent, "var")
+	if err := os.Symlink(base, alias); err == nil {
+		scope, name, err := m.ResolveCoordinate(Coordinate{Request: req, Scope: RootPrincipalData, Value: filepath.Join(alias, "users", "u", "agents", "a", "dir", "file")})
+		if err != nil || scope != RootAgentWorkspace || name != "dir/file" {
+			t.Fatalf("symlink alias = %v %q %v", scope, name, err)
+		}
+	}
+}
+
+func TestResolveLogicalCoordinateAllowsDotOnlyForRoot(t *testing.T) {
+	if _, _, err := ResolveLogicalCoordinate(RootAgentWorkspace, ".", false); err == nil {
+		t.Fatal("dot coordinate accepted without AllowRoot")
+	}
+	scope, name, err := ResolveLogicalCoordinate(RootAgentWorkspace, ".", true)
+	if err != nil || scope != RootAgentWorkspace || name != "." {
+		t.Fatalf("AllowRoot dot = %v %q %v", scope, name, err)
+	}
+	for _, value := range []string{
+		"C:/outside/project",
+		"project:name",
+		"control/\x00child",
+		"control/\x1fchild",
+		"control/\x7fchild",
+	} {
+		if _, _, err := ResolveLogicalCoordinate(RootAgentWorkspace, value, true); err == nil {
+			t.Errorf("portable-invalid coordinate %q accepted", value)
+		}
+	}
+}
+
 func TestAgentIDOccupancyTreatsEveryEntryAsReserved(t *testing.T) {
 	m, _ := NewWorkspaceManager(dbtest.New(t), t.TempDir())
 	t.Cleanup(func() { _ = m.Close() })

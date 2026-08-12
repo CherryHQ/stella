@@ -102,6 +102,10 @@ func (m *WorkspaceManager) openOperationsRoot(parts ...string) (*os.Root, error)
 	rootPath := filepath.Join(append([]string{m.base}, parts...)...)
 	r, err := os.OpenRoot(rootPath)
 	if err != nil {
+		var pathErr *os.PathError
+		if errors.As(err, &pathErr) {
+			err = pathErr.Err
+		}
 		return nil, fmt.Errorf("home: open operation root: %w", err)
 	}
 	actual, err := r.Stat(".")

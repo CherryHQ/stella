@@ -201,6 +201,16 @@ func Resolve(ctx context.Context, sm agent.ServiceManager, store config.Store, a
 }
 
 func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store config.Store, authStore channelAuthStore, accessService *agentaccess.Service, groupResolver GroupResolver, guests GuestStore, platform, channelID, senderID string, senderIDs []string, senderName, chatID, threadID string, isGroup bool) (*ResolvedChat, error) {
+	return resolveWithChannel(ctx, sm, store, authStore, accessService, groupResolver, guests, platform, channelID, senderID, senderIDs, senderName, chatID, threadID, isGroup, true)
+}
+
+// resolveAttachmentPrincipal resolves durable identity, agent selection, and
+// authorization coordinates without looking up Session compute.
+func resolveAttachmentPrincipal(ctx context.Context, store config.Store, authStore channelAuthStore, accessService *agentaccess.Service, groupResolver GroupResolver, guests GuestStore, platform, channelID, senderID string, senderIDs []string, senderName, chatID, threadID string, isGroup bool) (*ResolvedChat, error) {
+	return resolveWithChannel(ctx, nil, store, authStore, accessService, groupResolver, guests, platform, channelID, senderID, senderIDs, senderName, chatID, threadID, isGroup, false)
+}
+
+func resolveWithChannel(ctx context.Context, sm agent.ServiceManager, store config.Store, authStore channelAuthStore, accessService *agentaccess.Service, groupResolver GroupResolver, guests GuestStore, platform, channelID, senderID string, senderIDs []string, senderName, chatID, threadID string, isGroup, resolveSession bool) (*ResolvedChat, error) {
 	if channelID == "" {
 		channelID = platform
 	}
@@ -309,6 +319,20 @@ func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store conf
 		}
 	}
 
+	result := &ResolvedChat{
+		User:                       resolved.User,
+		AgentID:                    agentID,
+		ChatCtx:                    chatCtx,
+		GroupID:                    groupID,
+		GuestID:                    guestID,
+		GuestMessageLimitPerMinute: guestMessageLimitPerMinute,
+		Authority:                  authority,
+		DedicatedChannelID:         dedicatedChannelID,
+	}
+	if !resolveSession {
+		return result, nil
+	}
+
 	svc := sm.GetService(agentID)
 	if svc == nil {
 		return nil, fmt.Errorf("agent service %q not found", agentID)
@@ -339,17 +363,8 @@ func ResolveWithChannel(ctx context.Context, sm agent.ServiceManager, store conf
 		ch = session.Channel(channelCtx)
 	}
 
-	return &ResolvedChat{
-		Service:                    svc,
-		User:                       resolved.User,
-		AgentID:                    agentID,
-		SessionKey:                 sessionKey,
-		Channel:                    ch,
-		ChatCtx:                    chatCtx,
-		GroupID:                    groupID,
-		GuestID:                    guestID,
-		GuestMessageLimitPerMinute: guestMessageLimitPerMinute,
-		Authority:                  authority,
-		DedicatedChannelID:         dedicatedChannelID,
-	}, nil
+	result.Service = svc
+	result.SessionKey = sessionKey
+	result.Channel = ch
+	return result, nil
 }

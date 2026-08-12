@@ -152,6 +152,8 @@ bubblewrap 必须实际可用，仅安装不够。在未启用 `--privileged` �
 | `$STELLA_ASSETS_DIR` | 可用时，存放同一用户或群组共享的持久上传文件和最终交付物 | 这是供 Agent 直接写入的托管共享位置。                |
 | `$TMPDIR`            | 每个会话私有的可丢弃临时工作区                           | 不要放置最终输出，也不要依赖它在会话结束后继续存在。 |
 
+Web Workspace API 使用类型化 scope 与规范相对路径定位文件。项目 `base_dir` 同样相对于 Agent workspace（`.` 表示其根）。这些 API 在授权后直接打开持久 POSIX 根，不会启动或唤醒 Session compute。已弃用的 `sandbox_root` 响应字段（如存在）仅是同一逻辑 `/workspace` 或 `/user` 根的别名，绝不包含宿主路径。活跃 Agent 工具仍通过既有 Session mount 与策略边界解析路径。
+
 ### 托管用户与群组根目录
 
 `XDG_CONFIG_HOME`、`XDG_DATA_HOME`、`XDG_STATE_HOME` 和 `XDG_CACHE_HOME` 由同一用户或群组的 Agent 共享，并由命令行工具托管。它们不是通用的 Agent 存储位置。没有用户/群组根目录时，这四个目录都会回退到 `$HOME` 下。`XDG_RUNTIME_DIR` 未设置。

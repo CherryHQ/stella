@@ -3,8 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"log/slog"
-	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,10 +11,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/skills"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -36,14 +34,20 @@ type ProjectAgentAuthorizer interface {
 type ProjectStore struct {
 	q      *sqlc.Queries
 	store  config.Store
-	assets *asset.Store
 	agents ProjectAgentAuthorizer
 	homes  home.WorkspaceViewer
 }
 
+// SnapshotSkills resolves exact project ownership and snapshots through Home.
+func (ps *ProjectStore) SnapshotSkills(ctx context.Context, projectID, userID, agentID string) (*skills.ProjectSnapshot, ProjectDescriptor, error) {
+	opener, ok := ps.homes.(home.RootOpener)
+	if !ok {
+		return nil, ProjectDescriptor{}, errors.New("project Home root opener is unavailable")
+	}
+	return SnapshotAuthorizedProjectSkills(ctx, ps.Resolve, opener, projectID, userID, agentID)
+}
+
 // NewProjectStore builds a ProjectStore over the given pool and config store.
-// assets is the authoritative asset store used to hydrate a cold pod's asset
-// tree when a project is first created; it may be nil (hydration is skipped).
 // agents is the Agent PEP the CRUD use cases gate on; it may be nil for the
 // runtime-only Resolve/Ensure paths (which perform no authorization).
 type ProjectStoreOption func(*ProjectStore)
@@ -52,8 +56,8 @@ func WithProjectHomeWorkspace(viewer home.WorkspaceViewer) ProjectStoreOption {
 	return func(s *ProjectStore) { s.homes = viewer }
 }
 
-func NewProjectStore(db *pgxpool.Pool, store config.Store, assets *asset.Store, agents ProjectAgentAuthorizer, opts ...ProjectStoreOption) *ProjectStore {
-	s := &ProjectStore{q: sqlc.New(db), store: store, assets: assets, agents: agents}
+func NewProjectStore(db *pgxpool.Pool, store config.Store, agents ProjectAgentAuthorizer, opts ...ProjectStoreOption) *ProjectStore {
+	s := &ProjectStore{q: sqlc.New(db), store: store, agents: agents}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -119,7 +123,11 @@ func (s *ProjectStore) List(ctx context.Context, authority authz.Authority, agen
 	}
 	out := make([]Project, 0, len(rows))
 	for _, p := range rows {
-		out = append(out, projectFromRow(p))
+		project, err := s.projectFromRow(ctx, p)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, project)
 	}
 	return out, nil
 }
@@ -131,7 +139,8 @@ func (s *ProjectStore) Create(ctx context.Context, authority authz.Authority, ag
 		return Project{}, err
 	}
 	userID := string(authority.UserID())
-	if err := s.validateBaseDir(ctx, userID, agentID, baseDir); err != nil {
+	baseDir, err := s.projectCoordinate(userID, agentID, baseDir)
+	if err != nil {
 		return Project{}, err
 	}
 	p, err := s.q.CreateProject(ctx, sqlc.CreateProjectParams{
@@ -145,7 +154,7 @@ func (s *ProjectStore) Create(ctx context.Context, authority authz.Authority, ag
 	if err != nil {
 		return Project{}, err
 	}
-	return projectFromRow(p), nil
+	return s.projectFromRow(ctx, p)
 }
 
 // Get returns one owned project bound to the route agent. A missing project, a
@@ -158,7 +167,7 @@ func (s *ProjectStore) Get(ctx context.Context, authority authz.Authority, agent
 	if err != nil {
 		return Project{}, err
 	}
-	return projectFromRow(p), nil
+	return s.projectFromRow(ctx, p)
 }
 
 // Update merges the provided fields into an owned project bound to the route
@@ -176,12 +185,13 @@ func (s *ProjectStore) Update(ctx context.Context, authority authz.Authority, ag
 	if in.Name != nil {
 		name = *in.Name
 	}
-	baseDir := existing.BaseDir
+	baseDirValue := existing.BaseDir
 	if in.BaseDir != nil {
-		if err := s.validateBaseDir(ctx, userID, agentID, *in.BaseDir); err != nil {
-			return Project{}, err
-		}
-		baseDir = *in.BaseDir
+		baseDirValue = *in.BaseDir
+	}
+	baseDir, err := s.projectCoordinate(userID, agentID, baseDirValue)
+	if err != nil {
+		return Project{}, err
 	}
 	description := existing.Description
 	if in.Description != nil {
@@ -200,7 +210,7 @@ func (s *ProjectStore) Update(ctx context.Context, authority authz.Authority, ag
 	if err != nil {
 		return Project{}, err
 	}
-	return projectFromRow(updated), nil
+	return s.projectFromRow(ctx, updated)
 }
 
 // Delete removes an owned project bound to the route agent.
@@ -231,24 +241,11 @@ func (s *ProjectStore) getOwned(ctx context.Context, userID, agentID, projectID 
 	return p, nil
 }
 
-// validateBaseDir ensures the agent workspace exists and base_dir is contained in
-// it (a project is owned by the agent, #442, so it must live under the agent's
-// subdir of the user home). It resolves the process-global home once.
-func (s *ProjectStore) validateBaseDir(ctx context.Context, userID, agentID, baseDir string) error {
-	if s.homes == nil {
-		return ErrWorkspaceSetup
-	}
-	view, err := s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: userID, AgentID: agentID})
+func (s *ProjectStore) projectFromRow(ctx context.Context, p sqlc.Project) (Project, error) {
+	baseDir, err := s.logicalProjectPath(ctx, p.UserID, p.AgentID, p.BaseDir)
 	if err != nil {
-		return ErrWorkspaceSetup
+		return Project{}, err
 	}
-	if err := ValidateProjectDir(baseDir, view.AgentRoot); err != nil {
-		return ErrInvalidBaseDir
-	}
-	return nil
-}
-
-func projectFromRow(p sqlc.Project) Project {
 	description := ""
 	if p.Description.Valid {
 		description = p.Description.String
@@ -258,12 +255,38 @@ func projectFromRow(p sqlc.Project) Project {
 		AgentID:     p.AgentID,
 		UserID:      p.UserID,
 		Name:        p.Name,
-		BaseDir:     p.BaseDir,
+		BaseDir:     baseDir,
 		Description: description,
 		Archived:    p.Archived,
 		CreatedAt:   p.CreatedAt.UTC(),
 		UpdatedAt:   p.UpdatedAt.UTC(),
+	}, nil
+}
+
+func (s *ProjectStore) projectCoordinate(userID, agentID, value string) (string, error) {
+	if value == "" {
+		value = "."
 	}
+	resolver, ok := s.homes.(home.CoordinateResolver)
+	if !ok {
+		return "", ErrWorkspaceSetup
+	}
+	scope, name, err := resolver.ResolveCoordinate(home.Coordinate{
+		Request:   home.WorkspaceRequest{UserID: userID, AgentID: agentID},
+		Scope:     home.RootAgentWorkspace,
+		Value:     value,
+		AllowRoot: true,
+	})
+	if err != nil || scope != home.RootAgentWorkspace {
+		return "", ErrInvalidBaseDir
+	}
+	return name, nil
+}
+
+// logicalProjectPath accepts legacy absolute rows but never exposes them. New
+// writes persist canonical agent-root-relative paths only.
+func (s *ProjectStore) logicalProjectPath(_ context.Context, userID, agentID, stored string) (string, error) {
+	return s.projectCoordinate(userID, agentID, stored)
 }
 
 // isProjectNotFound mirrors the transport's not-found predicate: an empty result
@@ -283,13 +306,17 @@ func derefString(p *string) string {
 	return *p
 }
 
-// Resolve returns the base directory for the given project owned by the user.
-func (s *ProjectStore) Resolve(ctx context.Context, projectID, userID string) (string, error) {
-	p, err := s.q.GetProject(ctx, sqlc.GetProjectParams{ID: projectID, UserID: userID})
+// Resolve returns the logical descriptor for the exact project owner tuple.
+func (s *ProjectStore) Resolve(ctx context.Context, projectID, userID, agentID string) (ProjectDescriptor, error) {
+	p, err := s.q.GetProjectByOwner(ctx, sqlc.GetProjectByOwnerParams{ID: projectID, UserID: userID, AgentID: agentID})
 	if err != nil {
-		return "", err
+		return ProjectDescriptor{}, err
 	}
-	return p.BaseDir, nil
+	relative, err := s.logicalProjectPath(ctx, p.UserID, p.AgentID, p.BaseDir)
+	if err != nil {
+		return ProjectDescriptor{}, err
+	}
+	return ProjectDescriptor{ID: p.ID, UserID: p.UserID, AgentID: p.AgentID, Path: relative}, nil
 }
 
 // Ensure returns the default project ID for the agent+user pair, creating the
@@ -311,31 +338,17 @@ func (s *ProjectStore) Ensure(ctx context.Context, agentID, userID string) (stri
 	if s.homes == nil {
 		return "", ErrWorkspaceSetup
 	}
-	view, err := s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: userID, AgentID: agentID})
+	_, err = s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: userID, AgentID: agentID})
 	if err != nil {
 		return "", err
 	}
-	// Restore the user's assets subtree from the shared asset authority in the
-	// background, so a cold pod fills its empty assets tree without blocking
-	// project setup. No-op when no asset store is configured or there is no shared
-	// authority (single-node, where the local tree is already the authority).
-	if s.assets != nil {
-		assets := s.assets
-		go func() {
-			if err := assets.HydrateUser(context.Background(), filepath.Join(view.DataRoot, "assets")); err != nil {
-				slog.Warn("hydrate user assets failed", "home", view.PrincipalRoot, "error", err)
-			}
-		}()
-	}
-	// The default project's working tree is the agent's private area under the
-	// user home (a project is owned by the agent, #442).
-	baseDir := view.AgentRoot
+	// PostgreSQL stores only the logical project root, never the provider path.
 	p, err := s.q.CreateProject(ctx, sqlc.CreateProjectParams{
 		ID:      uuid.Must(uuid.NewV7()).String(),
 		AgentID: agentID,
 		UserID:  userID,
 		Name:    agentName,
-		BaseDir: baseDir,
+		BaseDir: ".",
 	})
 	if err != nil {
 		if existing, err2 := s.q.ListProjects(ctx, sqlc.ListProjectsParams{AgentID: agentID, UserID: userID}); err2 == nil && len(existing) > 0 {

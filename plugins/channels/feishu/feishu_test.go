@@ -695,7 +695,7 @@ func TestBuildMessageContentUnsupportedType(t *testing.T) {
 		Content:     &content,
 		MessageId:   &msgID,
 	}
-	got := bot.buildMessageContent(msg, "")
+	got := bot.buildMessageContent(msg, channel.IncomingMessage{})
 	if len(got) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(got))
 	}
@@ -1061,11 +1061,12 @@ func (m *mockHandler) SwitchAgent(_ context.Context, _ channel.IncomingMessage, 
 	return nil
 }
 
-func (m *mockHandler) ResolveUserRoot(ctx context.Context, msg channel.IncomingMessage) (string, error) {
+func (m *mockHandler) AdmitAssetSave(ctx context.Context, msg channel.IncomingMessage) error {
 	if m.resolveUserRootFn != nil {
-		return m.resolveUserRootFn(ctx, msg)
+		_, err := m.resolveUserRootFn(ctx, msg)
+		return err
 	}
-	return "", fmt.Errorf("resolve user root not configured")
+	return fmt.Errorf("asset save admission not configured")
 }
 
 func (m *mockHandler) ListModels() []channel.ModelOption {

@@ -86,7 +86,9 @@ Required consumer audit:
 
 Immutable session media, content-addressed blobs, artifacts, and published share snapshots remain in `BlobStore`/S3. Share creation reads an authorized filesystem version and emits an immutable snapshot.
 
-For legacy mutable assets, first gather evidence by deployment/configuration and key shape. Add an offline, idempotent, asset-specific migration only if object-only mutable data exists. It must verify principal mapping, path, count, size and digest, preserve the old object copy, and fail closed on incomplete migration. Do not generalize this into a workspace migration/catalog.
+The first reviewable replacement slice routes the direct non-Session consumers that currently own mutable bytes: Workspace list/create/delete/move/read/write/upload, pre-session channel attachment publication, project and prompt-context resolution, and Share source reads. Public Workspace and project coordinates are logical; trusted runner/provider code resolves physical mount paths only behind the Home capability boundary. Active Agent `read`/`write`/`edit` tools remain on the existing Session resolver, immutable media and published Share bytes retain their existing authorities, and mutable Skills remain in #897.
+
+The supported upgrade population never deployed the legacy mutable-asset S3 authority and contains no object-only mutable assets. #888 therefore removes mutation mirroring, restore-on-miss, cold hydration, and their startup/channel wiring directly. No migration, marker, witness, inventory, remote delete/purge, or generic storage state is required. Mutable `data/assets/` bytes use the same POSIX Home authority as other Principal data; immutable session media, blobs, artifacts, and published Share snapshots retain `BlobStore`/S3 authority.
 
 Acceptance:
 
@@ -94,7 +96,8 @@ Acceptance:
 - no audited caller constructs or exposes a durable host path;
 - bash/CLI and API mutations become mutually visible through ordinary POSIX semantics;
 - immutable media/blob/share tests remain green;
-- any asset migration has fixtures proving dry-run, idempotency, complete verification and no remote deletion; if no migration is added, the evidence for exclusion is recorded.
+- mutable asset reads and writes use only the authorized Principal POSIX root and do not depend on S3 configuration;
+- immutable media/blob/share tests remain green and no mutable-asset migration state is introduced.
 
 ### 4. #897 — Mutable Skill filesystem authority
 

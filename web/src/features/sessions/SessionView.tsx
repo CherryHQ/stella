@@ -127,14 +127,8 @@ export function SessionView() {
         });
         const workspace = data;
         setWorkspace(workspace);
-        if (
-          !scopePath &&
-          project?.base_dir &&
-          workspace.root &&
-          project.base_dir.startsWith(workspace.root + "/")
-        ) {
-          const rel = project.base_dir.slice(workspace.root.length + 1);
-          if (rel) setProjectDir(rel);
+        if (!scopePath && project?.base_dir && project.base_dir !== ".") {
+          setProjectDir(project.base_dir);
         }
       } catch {
         setWorkspace(null);

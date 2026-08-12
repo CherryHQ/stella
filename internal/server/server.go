@@ -94,8 +94,8 @@ type Server struct {
 	// messages, send). Its send path degrades to 503 when the event log or group
 	// dispatcher is absent; the read/CRUD path stays available.
 	groupSvc *channel.GroupService
-	// assets is the authoritative asset persistence service backing the session
-	// workspace file handlers (durable-write/restore/move/delete for user assets).
+	// assets is the immutable session-media persistence service used by transcript
+	// media handlers; mutable workspace files use Home rooted POSIX capabilities.
 	assets *asset.Store
 	// runtimeCtx is canceled by the process/service lifecycle; request handlers
 	// derive long-running work from it instead of client connections.
@@ -197,9 +197,8 @@ type Deps struct {
 	// It holds the event log and group dispatcher internally, so the transport no
 	// longer reaches the query layer or sqlc for groups.
 	Group *channel.GroupService
-	// Assets is the authoritative asset persistence service. Session workspace
-	// handlers use its narrow durable-write/restore/move/delete ports instead of a
-	// raw blob store, so the HTTP transport never holds process-global blob state.
+	// Assets provides immutable content-addressed session media. Mutable Workspace
+	// and user-data handlers use Home rooted POSIX capabilities instead.
 	Assets *asset.Store
 
 	// Optional capabilities. A nil field is a supported configuration: the

@@ -10,12 +10,11 @@ import (
 	"strings"
 )
 
-// Store persists durable user assets by STELLA_HOME-relative slash keys. It is a
-// low-level object-store port: the authoritative asset semantics (durable-write,
-// local materialization, restore, move, delete, cold-pod hydration) live in
-// internal/asset, which is the only package that holds a Store. Transports and
-// channel plugins receive the narrow asset ports, never this interface, and
-// there is deliberately no process-global default: an asset store is injected.
+// Store is the low-level object-store port for immutable blob-backed domains.
+// Domain services own their keys and integrity rules; mutable workspace and
+// user-data paths never use this interface. There is deliberately no
+// process-global default: composition roots inject a Store into narrow domain
+// services such as immutable session media and library raw content.
 type Store interface {
 	Put(ctx context.Context, key string, r io.Reader) error
 	Open(ctx context.Context, key string) (io.ReadCloser, error)
@@ -50,9 +49,4 @@ func ValidateKey(key string) (string, error) {
 		return "", fmt.Errorf("invalid blob key %q", key)
 	}
 	return clean, nil
-}
-
-func IsUserAssetKey(key string) bool {
-	key = filepath.ToSlash(key)
-	return strings.HasPrefix(key, "users/") && strings.Contains(key, "/data/assets/")
 }
