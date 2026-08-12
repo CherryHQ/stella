@@ -122,9 +122,9 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 	if photo == nil {
 		return c.Send("No photo found in message.")
 	}
-	assetMsg, resolveErr := b.resolveAssetsDir(c)
-	if resolveErr != nil {
-		return b.rejectAttachment(c, resolveErr)
+	assetMsg, admitErr := b.admitAttachmentSave(c)
+	if admitErr != nil {
+		return b.rejectAttachment(c, admitErr)
 	}
 
 	file, err := b.bot.File(&photo.File)
@@ -178,9 +178,9 @@ func (b *Bot) rejectAttachment(c tele.Context, err error) error {
 	return c.Send("Unable to process this attachment.")
 }
 
-// resolveAssetsDir resolves the per-user assets directory for the message's
-// author, or "" when the handler cannot resolve a user root.
-func (b *Bot) resolveAssetsDir(c tele.Context) (channel.IncomingMessage, error) {
+// admitAttachmentSave authorizes rooted attachment publication before the
+// plugin downloads untrusted bytes.
+func (b *Bot) admitAttachmentSave(c tele.Context) (channel.IncomingMessage, error) {
 	resolver, ok := b.handler.(channel.AssetSaveAdmitter)
 	if !ok {
 		return channel.IncomingMessage{}, errors.New("asset save admitter unavailable")
@@ -188,7 +188,7 @@ func (b *Bot) resolveAssetsDir(c tele.Context) (channel.IncomingMessage, error) 
 	probeMsg := b.incomingMsg(c, nil)
 	err := resolver.AdmitAssetSave(b.ctx, probeMsg)
 	if err != nil {
-		logger().Warn("resolve user root failed", "error", err)
+		logger().Warn("admit attachment save failed", "error", err)
 		return channel.IncomingMessage{}, err
 	}
 	return probeMsg, nil
@@ -255,15 +255,15 @@ func (b *Bot) handleDocument(c tele.Context) error {
 
 // documentAttachment downloads a Telegram document and returns the content
 // blocks to route to the agent. It persists the file to the user's assets when a
-// storage directory is available; on save failure the turn is never dropped
+// rooted publication is authorized; on save failure the turn is never dropped
 // (image bytes degrade via the shared inline fallback, other files get a
 // placeholder). The bool is false only when the download itself failed and the
 // error was already replied to the chat, so nothing can be given to the agent.
 func (b *Bot) documentAttachment(c tele.Context, doc *tele.Document, fileName string) ([]ai.ContentBlock, bool) {
-	// Resolve the per-user assets directory before downloading.
-	assetMsg, resolveErr := b.resolveAssetsDir(c)
-	if resolveErr != nil {
-		_ = b.rejectAttachment(c, resolveErr)
+	// Authorize attachment publication before downloading untrusted bytes.
+	assetMsg, admitErr := b.admitAttachmentSave(c)
+	if admitErr != nil {
+		_ = b.rejectAttachment(c, admitErr)
 		return nil, false
 	}
 
