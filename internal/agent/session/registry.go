@@ -235,8 +235,9 @@ func (r *Registry) ResolveMain(ctx context.Context, req MainRequest) (Info, erro
 
 // RotateMain archives the user's current main session and returns its
 // successor, so the next turn starts with an empty context while the old
-// session stays searchable. The archive and the create are one store-level
-// transaction: the binding is never left without an active main.
+// session remains stored but leaves the recall corpus. The archive and the
+// create are one store-level transaction: the binding is never left without an
+// active main.
 //
 // When req.ExpectedSessionID is set it must still be the current main;
 // otherwise the rotation is stale (another /new already ran) and reports
@@ -358,8 +359,9 @@ func (r *Registry) ResolveChatChannel(ctx context.Context, req ChannelRequest) (
 
 // RotateChannel archives the chat channel's current session and returns its
 // successor, so the next turn starts with an empty context while the old session
-// stays searchable. The archive and the create are one store-level transaction,
-// so the binding is never left without an active session.
+// remains stored but leaves the recall corpus. The archive and the create are
+// one store-level transaction, so the binding is never left without an active
+// session.
 //
 // When req.ExpectedSessionID is set it must still be the binding's current
 // session; otherwise the rotation is stale (another `/new` already ran) and

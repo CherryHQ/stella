@@ -209,12 +209,12 @@ Guest traffic is limited per sender, each channel has a durable guest cap, and i
 
 Feishu supports the standard chat commands:
 
-| Command    | Description                                               |
-| ---------- | --------------------------------------------------------- |
-| `/new`     | Start a fresh session (previous history stays searchable) |
-| `/compact` | Compress the current session in place                     |
-| `/abort`   | Cancel the in-progress response                           |
-| `/whoami`  | Show your platform identity                               |
+| Command    | Description                                                   |
+| ---------- | ------------------------------------------------------------- |
+| `/new`     | Start a fresh session (previous history leaves memory search) |
+| `/compact` | Compress the current session in place                         |
+| `/abort`   | Cancel the in-progress response                               |
+| `/whoami`  | Show your platform identity                                   |
 
 `/new` works in a direct message only. A group's context is shared by everyone in it, so `/new` in a group replies that the shared session cannot be reset and changes nothing; the command itself never becomes part of the group's history. See [Memory](/docs/guides/memory) for what a fresh session keeps.
 

@@ -157,10 +157,10 @@ type SearchQuery struct {
 	Limit int         // max results (default 20)
 }
 
-// SearchResult represents a single search hit. Results span every session of
-// the current (user_id, agent_id), so each hit carries provenance — which
-// conversation it came from — plus the time the content actually occurred so
-// the agent can weight recency.
+// SearchResult represents a single search hit. Results span every active
+// session of the current (user_id, agent_id), so each hit carries provenance —
+// which conversation it came from — plus the time the content actually occurred
+// so the agent can weight recency.
 type SearchResult struct {
 	SourceType        string    `json:"source_type"`        // "message" or "summary"
 	SourceID          string    `json:"source_id"`          // message ID or summary ID

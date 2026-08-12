@@ -85,4 +85,39 @@ func TestSearchMessageEmbeddings_RanksByCosineAndIsolatesSpace(t *testing.T) {
 	if res[1].ID != ids["B"] || res[1].Score > 0.01 {
 		t.Fatalf("B should rank last with ~0 similarity, got id %s score %f", res[1].ID, res[1].Score)
 	}
+
+	const summaryID = "summary-knn"
+	if _, err := db.Exec(ctx, `INSERT INTO ctx_summary (id, conversation_id, kind, depth, content, token_count) VALUES ($1,$2,'leaf',0,'summary vector content',5)`, summaryID, convID); err != nil {
+		t.Fatalf("insert summary: %v", err)
+	}
+	if err := q.UpsertSummaryEmbedding(ctx, sqlc.UpsertSummaryEmbeddingParams{
+		SummaryID: summaryID, Model: "space-a", ContentHash: []byte("h"), Embedding: vec1536(1, 0, 0),
+	}); err != nil {
+		t.Fatalf("upsert summary embedding: %v", err)
+	}
+	summaries, err := q.SearchSummaryEmbeddings(ctx, sqlc.SearchSummaryEmbeddingsParams{
+		Query: vec1536(1, 0, 0), Model: "space-a",
+		UserID: pgtype.Text{String: userID, Valid: true}, AgentID: pgtype.Text{String: agentID, Valid: true}, Limit: 10,
+	})
+	if err != nil || len(summaries) != 1 {
+		t.Fatalf("active summary vector search = %#v, err=%v; want one hit", summaries, err)
+	}
+
+	if _, err := db.Exec(ctx, `UPDATE ctx_conversation SET archived = true WHERE id = $1`, convID); err != nil {
+		t.Fatalf("archive conversation: %v", err)
+	}
+	res, err = q.SearchMessageEmbeddings(ctx, sqlc.SearchMessageEmbeddingsParams{
+		Query: vec1536(1, 0, 0), Model: "space-a",
+		UserID: pgtype.Text{String: userID, Valid: true}, AgentID: pgtype.Text{String: agentID, Valid: true}, Limit: 10,
+	})
+	if err != nil || len(res) != 0 {
+		t.Fatalf("archived message vector search = %#v, err=%v; want no hits", res, err)
+	}
+	summaries, err = q.SearchSummaryEmbeddings(ctx, sqlc.SearchSummaryEmbeddingsParams{
+		Query: vec1536(1, 0, 0), Model: "space-a",
+		UserID: pgtype.Text{String: userID, Valid: true}, AgentID: pgtype.Text{String: agentID, Valid: true}, Limit: 10,
+	})
+	if err != nil || len(summaries) != 0 {
+		t.Fatalf("archived summary vector search = %#v, err=%v; want no hits", summaries, err)
+	}
 }

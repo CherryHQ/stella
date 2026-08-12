@@ -306,6 +306,7 @@ JOIN ctx_conversation c ON c.id = m.conversation_id
 WHERE m.id = $1
   AND c.user_id = $2
   AND c.agent_id IS NOT DISTINCT FROM $3
+  AND c.archived = false
 `
 
 type GetMessageScopedParams struct {
@@ -916,6 +917,7 @@ JOIN ctx_conversation c ON c.id = m.conversation_id
 WHERE e.model = $2
   AND c.user_id = $3
   AND c.agent_id IS NOT DISTINCT FROM $4
+  AND c.archived = false
 ORDER BY e.embedding <=> $1::vector(1536), m.created_at DESC, m.id DESC
 LIMIT $5
 `
@@ -1006,6 +1008,7 @@ JOIN ctx_conversation c ON c.id = m.conversation_id
 WHERE m.id @@@ paradedb.match('content', $1::text)
   AND c.user_id = $2
   AND c.agent_id IS NOT DISTINCT FROM $3
+  AND c.archived = false
 ORDER BY score DESC, m.created_at DESC, m.id DESC
 LIMIT $4
 `
@@ -1036,8 +1039,8 @@ type SearchMessagesRow struct {
 	Score             float64     `json:"score"`
 }
 
-// Spans every conversation of the current (user_id, agent_id) so memory recall
-// survives across sessions. Joins ctx_conversation to pin the scope and surface
+// Spans every active conversation of the current (user_id, agent_id). Joins
+// ctx_conversation to pin the scope and surface
 // provenance (session_id, title). Global ORDER BY score + LIMIT keeps the best
 // matches across the merged corpus, not per-conversation truncations. Lexical
 // ranking is pg_search BM25; paradedb.match tokenizes the raw user text with the

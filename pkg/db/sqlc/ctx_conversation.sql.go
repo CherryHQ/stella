@@ -718,6 +718,7 @@ func (q *Queries) ListConversationsForAdminFiltered(ctx context.Context, arg Lis
 const listConversationsForRecallAccess = `-- name: ListConversationsForRecallAccess :many
 SELECT id, session_id, title, channel, kind, project_id, archived, last_active, bootstrapped_at, agent_id, user_id, created_at, updated_at, group_id, guest_id, last_turn_started_at, last_turn_completed_at, last_turn_result, last_viewed_at FROM ctx_conversation
 WHERE session_id = ANY($1::text[])
+  AND archived = false
 ORDER BY session_id
 `
 

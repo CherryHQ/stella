@@ -22,7 +22,8 @@ FROM ctx_message m
 JOIN ctx_conversation c ON c.id = m.conversation_id
 WHERE m.id = sqlc.arg('id')
   AND c.user_id = sqlc.arg('user_id')
-  AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id');
+  AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
+  AND c.archived = false;
 
 -- name: GetMessagesByConversation :many
 SELECT * FROM ctx_message WHERE conversation_id = $1 ORDER BY seq ASC;
@@ -171,8 +172,8 @@ WHERE p.message_id = ANY(sqlc.arg('message_ids')::uuid[])
 ORDER BY p.message_id, p.ordinal;
 
 -- name: SearchMessages :many
--- Spans every conversation of the current (user_id, agent_id) so memory recall
--- survives across sessions. Joins ctx_conversation to pin the scope and surface
+-- Spans every active conversation of the current (user_id, agent_id). Joins
+-- ctx_conversation to pin the scope and surface
 -- provenance (session_id, title). Global ORDER BY score + LIMIT keeps the best
 -- matches across the merged corpus, not per-conversation truncations. Lexical
 -- ranking is pg_search BM25; paradedb.match tokenizes the raw user text with the
@@ -191,6 +192,7 @@ JOIN ctx_conversation c ON c.id = m.conversation_id
 WHERE m.id @@@ paradedb.match('content', sqlc.arg('match')::text)
   AND c.user_id = sqlc.arg('user_id')
   AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
+  AND c.archived = false
 -- created_at, id break score ties deterministically: cross-source RRF uses each
 -- row's rank, so a stable order keeps the same query from reshuffling the merge.
 ORDER BY score DESC, m.created_at DESC, m.id DESC
@@ -240,6 +242,7 @@ JOIN ctx_conversation c ON c.id = m.conversation_id
 WHERE e.model = sqlc.arg('model')
   AND c.user_id = sqlc.arg('user_id')
   AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
+  AND c.archived = false
 ORDER BY e.embedding <=> sqlc.arg('query')::vector(1536), m.created_at DESC, m.id DESC
 LIMIT sqlc.arg('limit');
 

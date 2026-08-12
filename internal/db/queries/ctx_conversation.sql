@@ -27,6 +27,7 @@ WHERE session_id = $1;
 -- message or summary IDs. No transport may call this query.
 SELECT * FROM ctx_conversation
 WHERE session_id = ANY(sqlc.arg('session_ids')::text[])
+  AND archived = false
 ORDER BY session_id;
 
 -- name: GetConversationAgentBySessionID :one

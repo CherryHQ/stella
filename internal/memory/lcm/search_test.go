@@ -153,6 +153,28 @@ func TestSearch_SummariesReturnHits(t *testing.T) {
 	}
 }
 
+func TestSearch_ExcludesArchivedConversationMessagesAndSummaries(t *testing.T) {
+	db, p, sess := newSearchTestEnv(t, "fts-archived")
+	convID := conversationID(t, db, sess.ID)
+	appendUser(t, p, sess, "archivedrecallneedle in a message")
+	insertSummary(t, db, convID, "sum-fts-archived", "archivedrecallneedle in a summary")
+
+	for _, scope := range []memory.SearchScope{memory.SearchScopeMessages, memory.SearchScopeSummaries} {
+		if results := runSearch(t, p, sess, memory.SearchQuery{Text: "archivedrecallneedle", Scope: scope}); len(results) != 1 {
+			t.Fatalf("active conversation scope %d returned %d hits, want 1: %+v", scope, len(results), results)
+		}
+	}
+
+	if _, err := db.Exec(context.Background(), `UPDATE ctx_conversation SET archived = true WHERE id = $1`, convID); err != nil {
+		t.Fatalf("archive conversation: %v", err)
+	}
+	for _, scope := range []memory.SearchScope{memory.SearchScopeMessages, memory.SearchScopeSummaries, memory.SearchScopeBoth} {
+		if results := runSearch(t, p, sess, memory.SearchQuery{Text: "archivedrecallneedle", Scope: scope}); len(results) != 0 {
+			t.Fatalf("archived conversation scope %d leaked hits: %+v", scope, results)
+		}
+	}
+}
+
 func TestSearch_ScopeIsolation(t *testing.T) {
 	db, p, sess := newSearchTestEnv(t, "fts-scope")
 	convID := conversationID(t, db, sess.ID)

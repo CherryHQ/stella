@@ -106,11 +106,12 @@ JOIN ctx_conversation c ON c.id = s.conversation_id
 WHERE e.model = sqlc.arg('model')
   AND c.user_id = sqlc.arg('user_id')
   AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
+  AND c.archived = false
 ORDER BY e.embedding <=> sqlc.arg('query')::vector(1536), COALESCE(s.latest_at, s.created_at) DESC, s.id DESC
 LIMIT sqlc.arg('limit');
 
 -- name: SearchSummaries :many
--- Spans every conversation of the current (user_id, agent_id); see SearchMessages.
+-- Spans every active conversation of the current (user_id, agent_id); see SearchMessages.
 -- Lexical ranking is pg_search BM25; paradedb.match tokenizes the raw user text
 -- with the jieba tokenizer (dictionary + statistical CJK word segmentation, CJK
 -- matches natively) and never errors on punctuation. The match arg is the raw
@@ -126,6 +127,7 @@ JOIN ctx_conversation c ON c.id = s.conversation_id
 WHERE s.id @@@ paradedb.match('content', sqlc.arg('match')::text)
   AND c.user_id = sqlc.arg('user_id')
   AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
+  AND c.archived = false
 -- Stable score tie-break (see SearchMessages): content time, then id, so the
 -- per-source rank that cross-source RRF consumes is deterministic.
 ORDER BY score DESC, COALESCE(s.latest_at, s.created_at) DESC, s.id DESC
