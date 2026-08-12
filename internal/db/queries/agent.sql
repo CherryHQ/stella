@@ -1,15 +1,18 @@
 -- name: CreateAgent :one
-INSERT INTO agent (id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, enabled_builtin_skills, scope, creator_id, enabled)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+INSERT INTO agent (id, name, model, model_thinking, model_strong, model_strong_thinking, model_fast, model_fast_thinking, system_prompt, soul, workspace, sandbox, scope, creator_id, enabled)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 RETURNING *;
 
 -- name: SeedAgent :exec
-INSERT INTO agent (id, name, model, system_prompt, workspace, sandbox, enabled_builtin_skills, scope, enabled)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO agent (id, name, model, system_prompt, workspace, sandbox, scope, enabled)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (id) DO NOTHING;
 
 -- name: GetAgent :one
 SELECT * FROM agent WHERE id = $1;
+
+-- name: GetAgentForUpdate :one
+SELECT * FROM agent WHERE id = $1 FOR UPDATE;
 
 -- name: ListAgents :many
 SELECT * FROM agent ORDER BY name;
@@ -36,11 +39,18 @@ UPDATE agent SET
     soul = $9,
     workspace = $10,
     sandbox = $11,
-    enabled_builtin_skills = $12,
-    scope = $13,
-    enabled = $14,
+    scope = $12,
+    enabled = $13,
     updated_at = now()
-WHERE id = $15;
+WHERE id = $14;
+
+-- name: GetAgentSkillPolicyForUpdate :one
+SELECT enabled_builtin_skills FROM agent WHERE id = $1 FOR UPDATE;
+
+-- name: UpdateAgentSkillPolicy :exec
+UPDATE agent
+SET enabled_builtin_skills = $1, updated_at = now()
+WHERE id = $2;
 
 -- name: DeleteAgent :exec
 DELETE FROM agent WHERE id = $1;

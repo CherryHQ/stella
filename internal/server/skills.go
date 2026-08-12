@@ -27,6 +27,9 @@ type skillView struct {
 	Version                string    `json:"version,omitempty"`
 	LifecycleVersion       int64     `json:"lifecycle_version"`
 	CreatedBy              string    `json:"created_by"`
+	Builtin                *bool     `json:"builtin,omitempty"`
+	LogicalRef             string    `json:"logical_ref,omitempty"`
+	Enabled                *bool     `json:"enabled,omitempty"`
 	CreatedAt              time.Time `json:"created_at"`
 	UpdatedAt              time.Time `json:"updated_at"`
 }
@@ -100,10 +103,6 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, sk *sk
 		Description:            req.Description,
 		DisableModelInvocation: req.DisableModelInvocation,
 	}
-	if sk.Scope == "system" {
-		writeError(w, http.StatusForbidden, "system skills are read-only")
-		return
-	}
 	if sk.Status == "deprecated" {
 		writeError(w, http.StatusConflict, "deprecated skills cannot be edited")
 		return
@@ -169,16 +168,12 @@ func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string
 		}
 		return
 	}
-	if sk.Scope == "system" {
-		writeError(w, http.StatusForbidden, "system skills are read-only")
-		return
-	}
 	info := UserFromContext(r.Context())
 	if info == nil || info.UserID == "" {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
-	if sk.Scope != "user" && sk.Scope != "user_agent" && sk.Scope != "system_agent" {
+	if sk.Scope != "user" && sk.Scope != "user_agent" && sk.Scope != "system" && sk.Scope != "system_agent" {
 		// Project skills are deleted by their existing filesystem handler and do
 		// not reach this DB-backed lifecycle path.
 		writeError(w, http.StatusBadRequest, "skill scope is not lifecycle-managed")

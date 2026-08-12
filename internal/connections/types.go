@@ -46,8 +46,11 @@ type OAuthProviderConfig struct {
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
 	RedirectURL  string `json:"redirect_url,omitempty"`
-	// Scopes is the admin scope override; empty means "no override, use the
-	// YAML default" (D2).
+	// Scopes is the administrator-configured minimum that every authorization
+	// request includes. Empty means "no override, use the YAML default" (D2). It
+	// is a floor, not a ceiling: a user may request additional scopes on top of
+	// it, and the provider's own app configuration and consent screen bound what
+	// can actually be granted.
 	Scopes []string `json:"scopes,omitempty"`
 	// DefaultScopes is the YAML seed default, output-only, so the UI can diff
 	// and reset without a second call (D7). Ignored on writes.
@@ -63,6 +66,7 @@ type FlowStatus struct {
 	ExpiresAt       time.Time
 	State           string
 	Error           string // failure reason when State is "failed" (D5)
+	RequestedScopes []string
 }
 
 // VaultEntry holds non-sensitive metadata for a stored secret.

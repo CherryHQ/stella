@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -21,6 +22,7 @@ import (
 // Compile-time interface checks.
 var (
 	_ memory.Provider              = (*Provider)(nil)
+	_ memory.InboxAppender         = (*Provider)(nil)
 	_ memory.Compactor             = (*Provider)(nil)
 	_ memory.Searcher              = (*Provider)(nil)
 	_ memory.Explorer              = (*Provider)(nil)
@@ -133,7 +135,45 @@ func (p *Provider) Append(ctx context.Context, session memory.Session, msgs ...a
 			return err
 		})
 	}
-	return p.appendRows(ctx, session, rows)
+	return p.appendRows(ctx, session, rows, nil)
+}
+
+// AppendInboxInput atomically claims one durable Session inbox row and appends
+// its text input. The inbox facts are runtime-authored, so every immutable fact
+// is rechecked at the write boundary before the model can observe success.
+func (p *Provider) AppendInboxInput(ctx context.Context, session memory.Session, inboxID string, msg ai.Message) error {
+	if inboxID == "" {
+		return errors.New("append inbox input: empty inbox ID")
+	}
+	if session.GroupID != "" {
+		return errors.New("append inbox input: group sessions are not supported")
+	}
+	userMsg, ok := msg.(ai.UserMessage)
+	if !ok {
+		return fmt.Errorf("append inbox input: got %T, want ai.UserMessage", msg)
+	}
+	content, ok := userMsg.Content.(string)
+	if !ok {
+		return errors.New("append inbox input: content must be text")
+	}
+	actor, ok := eventlog.MessageActorFromContext(ctx)
+	if !ok || actor.Type != eventlog.ActorAgent || actor.SourceSessionID == "" {
+		return errors.New("append inbox input: trusted agent provenance is required")
+	}
+	rows, err := canonicalMessageToRows(msg)
+	if err != nil {
+		return fmt.Errorf("canonical inbox message: %w", err)
+	}
+	if len(rows) != 1 || rows[0].role != roleUser {
+		return errors.New("append inbox input: expected one canonical user row")
+	}
+	return p.appendRows(ctx, session, rows, &inboxClaim{
+		id:              inboxID,
+		sourceSessionID: actor.SourceSessionID,
+		targetSessionID: session.ID,
+		actorID:         actor.ID,
+		content:         content,
+	})
 }
 
 var errCanonicalMediaUnavailable = errors.New("canonical media unavailable")
@@ -202,7 +242,15 @@ func createMessagePart(ctx context.Context, q *sqlc.Queries, messageID string, o
 	return nil
 }
 
-func (p *Provider) appendRows(ctx context.Context, session memory.Session, rows []storageRow) error {
+type inboxClaim struct {
+	id              string
+	sourceSessionID string
+	targetSessionID string
+	actorID         string
+	content         string
+}
+
+func (p *Provider) appendRows(ctx context.Context, session memory.Session, rows []storageRow, claim *inboxClaim) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -231,6 +279,21 @@ func (p *Provider) appendRows(ctx context.Context, session memory.Session, rows 
 		if err = qtx.LockConversationForWrite(ctx, convID); err != nil {
 			return fmt.Errorf("lock conversation: %w", err)
 		}
+		if claim != nil {
+			_, err = qtx.ClaimSessionInboxDelivery(ctx, sqlc.ClaimSessionInboxDeliveryParams{
+				ID:              claim.id,
+				SourceSessionID: claim.sourceSessionID,
+				TargetSessionID: claim.targetSessionID,
+				ActorID:         claim.actorID,
+				Content:         claim.content,
+			})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return memory.ErrInboxNotPending
+			}
+			if err != nil {
+				return fmt.Errorf("claim session inbox: %w", err)
+			}
+		}
 
 		seq, err := qtx.GetMaxSeq(ctx, convID)
 		if err != nil {
@@ -244,16 +307,25 @@ func (p *Provider) appendRows(ctx context.Context, session memory.Session, rows 
 			return err
 		}
 
-		for _, row := range rows {
+		for rowIndex, row := range rows {
 			seq++
+			actor := actorForStorageRow(ctx, session, row)
+			inboxID := pgtype.Text{}
+			if claim != nil && rowIndex == 0 {
+				inboxID = pgtype.Text{String: claim.id, Valid: true}
+			}
 			dbMsg, err := qtx.CreateMessage(ctx, sqlc.CreateMessageParams{
-				ID:             uuid.Must(uuid.NewV7()).String(),
-				ConversationID: convID,
-				Seq:            seq,
-				Role:           row.role,
-				EventType:      row.eventType,
-				Content:        row.content,
-				TokenCount:     int64(memory.EstimateTokens(row.tokenText)),
+				ID:              uuid.Must(uuid.NewV7()).String(),
+				ConversationID:  convID,
+				Seq:             seq,
+				Role:            row.role,
+				EventType:       row.eventType,
+				Content:         row.content,
+				TokenCount:      int64(memory.EstimateTokens(row.tokenText)),
+				ActorType:       string(actor.Type),
+				ActorID:         pgtype.Text{String: actor.ID, Valid: actor.ID != ""},
+				SourceSessionID: pgtype.Text{String: actor.SourceSessionID, Valid: actor.SourceSessionID != ""},
+				InboxID:         inboxID,
 			})
 			if err != nil {
 				return fmt.Errorf("create message: %w", err)
@@ -277,9 +349,36 @@ func (p *Provider) appendRows(ctx context.Context, session memory.Session, rows 
 				return fmt.Errorf("append context item: %w", err)
 			}
 		}
+		if claim != nil {
+			if err := qtx.UpdateConversationLastActive(ctx, sqlc.UpdateConversationLastActiveParams{
+				SessionID: session.ID,
+				UserID:    pgtype.Text{String: session.UserID, Valid: session.UserID != ""},
+				AgentID:   pgtype.Text{String: session.AgentID, Valid: session.AgentID != ""},
+			}); err != nil {
+				return fmt.Errorf("touch inbox conversation: %w", err)
+			}
+		}
 
-		return tx.Commit(ctx)
+		if err := tx.Commit(ctx); err != nil {
+			if claim != nil {
+				return fmt.Errorf("%w: %w", memory.ErrInboxAppendOutcomeUnknown, err)
+			}
+			return err
+		}
+		return nil
 	})
+}
+
+func actorForStorageRow(ctx context.Context, session memory.Session, row storageRow) eventlog.MessageActor {
+	if row.role == roleUser {
+		if actor, ok := eventlog.MessageActorFromContext(ctx); ok {
+			return actor
+		}
+		// Direct provider callers are human-history import paths. Unknown legacy
+		// identity may remain NULL, but the actor type is never inferred from text.
+		return eventlog.MessageActor{Type: eventlog.ActorHuman, ID: session.UserID}
+	}
+	return eventlog.MessageActor{Type: eventlog.ActorAgent, ID: session.AgentID}
 }
 
 // Assemble implements memory.Provider.

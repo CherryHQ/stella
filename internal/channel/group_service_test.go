@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
@@ -39,6 +41,12 @@ type fakeDispatchRunner struct {
 	err      error
 }
 
+type fakeGroupOwnerDeletion struct{ db *pgxpool.Pool }
+
+func (f fakeGroupOwnerDeletion) DeleteGroup(ctx context.Context, id, _ string) error {
+	return sqlc.New(f.db).DeleteGroupState(ctx, id)
+}
+
 func (f *fakeDispatchRunner) DispatchSync(_ context.Context, outbox sqlc.CtxGroupOutbox, _ GroupPublisher) error {
 	f.called = true
 	f.outboxID = outbox.ID
@@ -57,7 +65,7 @@ func setupGroupFixture(t *testing.T) groupFixture {
 	ts := setupStores(t)
 	access := agentaccess.NewService(ts.store, ts.authStore)
 	runner := &fakeDispatchRunner{}
-	svc := NewGroupService(ts.db, access, NewRuntimeResolver(ts.store), eventlog.NewStore(ts.db), runner)
+	svc := NewGroupService(ts.db, access, NewRuntimeResolver(ts.store), eventlog.NewStore(ts.db), runner, WithOwnerDeletion(fakeGroupOwnerDeletion{db: ts.db}))
 	return groupFixture{svc: svc, ts: ts, runner: runner, stella: ts.stellaAgentID(t)}
 }
 
@@ -139,6 +147,27 @@ func TestGroupOwnerVisibilityIsOpaque(t *testing.T) {
 	}
 	if len(list) != 0 {
 		t.Fatalf("foreign List = %d groups, want 0", len(list))
+	}
+}
+
+func TestGroupDeleteFailsClosedWithoutOwnerLifecycle(t *testing.T) {
+	ts := setupStores(t)
+	access := agentaccess.NewService(ts.store, ts.authStore)
+	svc := NewGroupService(ts.db, access, NewRuntimeResolver(ts.store), eventlog.NewStore(ts.db), &fakeDispatchRunner{})
+	user := createTestUser(t, ts.oidcStore, "owner@example.com")
+	acc, err := svc.Begin(ts.ctx(), groupUserAuthority(t, user.ID, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	group, err := acc.Create(ts.ctx(), "team", []string{ts.stellaAgentID(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := acc.Delete(ts.ctx(), group.ID); !errors.Is(err, ErrGroupUnavailable) {
+		t.Fatalf("Delete = %v, want ErrGroupUnavailable", err)
+	}
+	if _, err := acc.Get(ts.ctx(), group.ID); err != nil {
+		t.Fatalf("raw group delete ran without lifecycle: %v", err)
 	}
 }
 

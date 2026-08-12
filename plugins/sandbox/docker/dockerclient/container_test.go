@@ -75,6 +75,9 @@ func TestBuildHostConfigHardening(t *testing.T) {
 	if len(hc.SecurityOpt) != 1 || hc.SecurityOpt[0] != "no-new-privileges" {
 		t.Fatalf("SecurityOpt = %v, want [no-new-privileges]", hc.SecurityOpt)
 	}
+	if !hc.ReadonlyRootfs {
+		t.Fatal("ReadonlyRootfs = false, want true")
+	}
 }
 
 func TestBuildMounts(t *testing.T) {

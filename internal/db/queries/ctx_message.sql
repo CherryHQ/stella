@@ -1,6 +1,9 @@
 -- name: CreateMessage :one
-INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO ctx_message (
+    id, conversation_id, seq, role, event_type, content, token_count,
+    actor_type, actor_id, source_session_id, inbox_id
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, sqlc.narg('inbox_id'))
 RETURNING *;
 
 -- name: CreateMessageWithGroupOrigin :one
@@ -52,6 +55,20 @@ SELECT MIN(created_at) AS earliest_at, MAX(created_at) AS latest_at
 FROM ctx_message
 WHERE conversation_id = $1;
 
+-- name: GetContextTimeBounds :one
+SELECT oldest.created_at AS oldest_at, newest.created_at AS newest_at
+FROM ctx_message oldest
+JOIN LATERAL (
+    SELECT newest_message.created_at
+    FROM ctx_message newest_message
+    WHERE newest_message.conversation_id = sqlc.arg('conversation_id')
+    ORDER BY newest_message.seq DESC
+    LIMIT 1
+) newest ON true
+WHERE oldest.conversation_id = sqlc.arg('conversation_id')
+ORDER BY oldest.seq ASC
+LIMIT 1;
+
 -- name: ListMessagesByLogicalPage :many
 -- Keep this logical-message boundary in sync with serializeDBMessages in
 -- internal/server/sessions.go: consecutive assistant rows render as one
@@ -77,9 +94,56 @@ WITH ordered AS (
     ORDER BY logical_idx DESC
     LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset')
 )
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, origin_group_message_id
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at,
+       actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id
 FROM grouped
 WHERE logical_idx IN (SELECT logical_idx FROM selected_groups)
+ORDER BY seq ASC;
+
+-- name: ListSessionTranscriptPage :many
+-- Agent-facing transcript pages use a whole user turn as the atomic boundary:
+-- one user row plus every assistant/tool row until the next user row. This keeps
+-- tool calls and their results together even when a page boundary falls nearby.
+WITH ordered AS (
+    SELECT
+        *,
+        lag(seq) OVER (ORDER BY seq ASC) AS prev_seq
+    FROM ctx_message
+    WHERE conversation_id = sqlc.arg('conversation_id')
+      AND (
+          sqlc.narg('snapshot_seq')::bigint IS NULL
+          OR seq <= sqlc.narg('snapshot_seq')::bigint
+      )
+), grouped AS (
+    SELECT
+        *,
+        sum(CASE WHEN role = 'user' OR prev_seq IS NULL THEN 1 ELSE 0 END)
+            OVER (ORDER BY seq ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS turn_idx
+    FROM ordered
+), anchor AS (
+    SELECT COALESCE(
+        (
+            SELECT turn_idx
+            FROM grouped
+            WHERE sqlc.narg('anchor_seq')::bigint IS NULL
+               OR seq <= sqlc.narg('anchor_seq')::bigint
+            ORDER BY seq DESC
+            LIMIT 1
+        ),
+        0
+    ) AS turn_idx
+), selected_turns AS (
+    SELECT turn_idx
+    FROM grouped
+    WHERE turn_idx <= (SELECT turn_idx FROM anchor)
+    GROUP BY turn_idx
+    ORDER BY turn_idx DESC
+    LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset')
+)
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at,
+       actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id
+FROM grouped
+WHERE turn_idx IN (SELECT turn_idx FROM selected_turns)
 ORDER BY seq ASC;
 
 -- name: GetMessagesByConversationRange :many
@@ -103,6 +167,15 @@ RETURNING *;
 
 -- name: ListMessagesByIDs :many
 SELECT * FROM ctx_message WHERE conversation_id = $1 AND id = ANY(sqlc.arg('message_ids')::uuid[]) ORDER BY seq ASC;
+
+-- name: ListRecallMessageByIDs :many
+-- Recall hits are untrusted hints spanning authorized conversations. Return
+-- only identity and ownership facts so the PEP can match each hit back to the
+-- exact conversation authorized in the same search operation.
+SELECT id, conversation_id
+FROM ctx_message
+WHERE id = ANY(sqlc.arg('message_ids')::uuid[])
+ORDER BY id;
 
 -- name: GetMessageParts :many
 SELECT * FROM ctx_message_part WHERE message_id = $1 ORDER BY ordinal ASC;

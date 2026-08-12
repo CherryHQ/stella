@@ -32,6 +32,13 @@ const InputSchemaJSON = `{
     },
     "provider": {
       "type": "string"
+    },
+    "scopes": {
+      "description": "Additional scopes to union into this user's desired set.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
     }
   },
   "required": [
@@ -49,6 +56,7 @@ type Handler interface {
 
 type ConnectInput struct {
 	Provider string `json:"provider,omitempty"`
+	Scopes   []any  `json:"scopes,omitempty"`
 }
 
 type DisconnectInput struct {

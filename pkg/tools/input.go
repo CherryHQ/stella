@@ -3,6 +3,7 @@ package tools
 import (
 	"encoding/json"
 	"fmt"
+	"unicode/utf8"
 )
 
 func MustInputSchema(data string) map[string]any {
@@ -29,6 +30,9 @@ func DecodeInput(args map[string]any, dst any, required []string) error {
 func TruncateText(s string, max int) (string, bool) {
 	if len(s) <= max {
 		return s, false
+	}
+	for max > 0 && !utf8.RuneStart(s[max]) {
+		max--
 	}
 	return s[:max], true
 }

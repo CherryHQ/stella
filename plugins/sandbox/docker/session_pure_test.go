@@ -346,24 +346,52 @@ func TestConfigureSessionMounts_VolumeModeRejectsStellaHomeAsWorkspace(t *testin
 	}
 }
 
-func TestConfigureSessionMounts_BindModeUsesConfigStellaHome(t *testing.T) {
+func TestConfigureSessionMounts_RunnerScratchAcceptedByDockerModes(t *testing.T) {
+	stellaHome := t.TempDir()
+	workspace := filepath.Join(stellaHome, "runner-scratch", "runner-123")
+	if err := os.MkdirAll(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: workspace}}
+
+	t.Run("bind", func(t *testing.T) {
+		f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeBind, StellaHome: stellaHome, ContainerPathPrefix: stellaHome, HostPathPrefix: "/daemon/stella"}}
+		opts := dockerModeCreateOptions(workspace)
+		if _, _, _, err := f.configureSessionMounts(&opts, policy, workspace, "", ""); err != nil {
+			t.Fatalf("runner scratch bind planning: %v", err)
+		}
+		if opts.WorkspaceHost != "/daemon/stella/runner-scratch/runner-123" {
+			t.Fatalf("WorkspaceHost = %q", opts.WorkspaceHost)
+		}
+	})
+
+	t.Run("volume", func(t *testing.T) {
+		f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeVolume, StellaHome: stellaHome, StellaHomeVolume: "stella-data"}}
+		opts := dockerModeCreateOptions(workspace)
+		if _, _, _, err := f.configureSessionMounts(&opts, policy, workspace, "", ""); err != nil {
+			t.Fatalf("runner scratch volume planning: %v", err)
+		}
+		assertMount(t, opts.ExtraMounts, "stella-data", workspaceMount, false, dockerclient.MountTypeVolume, "runner-scratch/runner-123")
+	})
+}
+
+func TestConfigureSessionMounts_DoesNotMountHostBuiltinBundle(t *testing.T) {
 	stellaHome, workspace, extra, tmp := dockerModeTestDirs(t)
-	// A host-mounted stella-home dir (skills) is the witness that the factory reads
-	// STELLA_HOME from cfg, not policy.Env — bin/.mise-tools are image-provided.
-	skills := filepath.Join(stellaHome, ".agents", "skills")
-	if err := os.MkdirAll(skills, 0o755); err != nil {
+	builtin := filepath.Join(stellaHome, "bundles", "revision")
+	if err := os.MkdirAll(builtin, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeHost, StellaHome: stellaHome}}
 	opts := dockerModeCreateOptions(workspace)
 	policy := dockerModePolicy(stellaHome, workspace, extra, tmp)
+	policy.Filesystem.Mounts = append(policy.Filesystem.Mounts, sandboxpkg.Mount{HostPath: builtin, SandboxPath: sandboxpkg.MountBuiltinSkills, Access: sandboxpkg.MountReadOnly})
 	policy.Env = nil
 	_, _, _, err := f.configureSessionMounts(&opts, policy, workspace, "", tmp)
 	if err != nil {
 		t.Fatalf("configureSessionMounts: %v", err)
 	}
 	assertNoMountTo(t, opts.ExtraMounts, filepath.Join(stellaHomeMount, "bin"))
-	assertMount(t, opts.ExtraMounts, skills, filepath.Join(stellaHomeMount, ".agents", "skills"), true, dockerclient.MountType(""), "")
+	assertNoMountTo(t, opts.ExtraMounts, sandboxpkg.MountBuiltinSkills)
 }
 
 // TestConfigureSessionMounts_UserDataRoot verifies the shared user-data root is

@@ -39,6 +39,14 @@ func missingScopes(requested, granted []string) []string {
 	return out
 }
 
+func unionScopes(groups ...[]string) []string {
+	var combined []string
+	for _, group := range groups {
+		combined = append(combined, group...)
+	}
+	return normalizeScopes(combined)
+}
+
 // reconnectDecision computes whether a connected user must re-authorize and why
 // (D4). grantedKnown is false when the stored bundle predates granted-scope
 // capture, in which case scope drift cannot be asserted (unknown, not missing).

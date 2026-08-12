@@ -179,7 +179,7 @@ func agentIDForScope(scope string, agentID string) string {
 func createToolTestAgent(t *testing.T, q *sqlc.Queries, agentID string) {
 	t.Helper()
 	if _, err := q.CreateAgent(context.Background(), sqlc.CreateAgentParams{
-		ID: agentID, Name: "Tool Test Agent", Model: "test/model", Workspace: "workspace", Sandbox: json.RawMessage("{}"), EnabledBuiltinSkills: json.RawMessage("[]"), Scope: "system", Enabled: true,
+		ID: agentID, Name: "Tool Test Agent", Model: "test/model", Workspace: "workspace", Sandbox: json.RawMessage("{}"), Scope: "system", Enabled: true,
 	}); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tencent-connect/botgo"
@@ -39,11 +40,10 @@ type Bot struct {
 	sessionManager botgo.SessionManager
 	handler        channel.Handler
 
-	chatModels map[string]channel.ModelOption
-
-	cfg    Config
-	ctx    context.Context
-	cancel context.CancelFunc
+	cfg          Config
+	ctx          context.Context
+	cancel       context.CancelFunc
+	finalizeOnce sync.Once
 }
 
 // New creates a QQ bot. Call Start to begin receiving events.
@@ -53,9 +53,8 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	}
 
 	b := &Bot{
-		handler:    handler,
-		chatModels: make(map[string]channel.ModelOption),
-		cfg:        cfg,
+		handler: handler,
+		cfg:     cfg,
 	}
 	if registrar, ok := handler.(interface {
 		RegisterGroupPublisher(string, internalchannel.GroupPublisher)
@@ -118,6 +117,15 @@ func (b *Bot) Stop() {
 	if b.cancel != nil {
 		b.cancel()
 	}
+}
+
+// Finalize removes routing registrations after accepted work has drained.
+func (b *Bot) Finalize() {
+	b.finalizeOnce.Do(func() {
+		if registrar, ok := b.handler.(interface{ UnregisterGroupPublisher(string) }); ok {
+			registrar.UnregisterGroupPublisher(b.Name())
+		}
+	})
 }
 
 // Name returns the channel name. Implements channel.Channel.

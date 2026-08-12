@@ -14,19 +14,26 @@ import (
 )
 
 const createMessage = `-- name: CreateMessage :one
-INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, conversation_id, seq, role, event_type, content, token_count, created_at, origin_group_message_id
+INSERT INTO ctx_message (
+    id, conversation_id, seq, role, event_type, content, token_count,
+    actor_type, actor_id, source_session_id, inbox_id
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id
 `
 
 type CreateMessageParams struct {
-	ID             string `json:"id"`
-	ConversationID string `json:"conversation_id"`
-	Seq            int64  `json:"seq"`
-	Role           string `json:"role"`
-	EventType      string `json:"event_type"`
-	Content        string `json:"content"`
-	TokenCount     int64  `json:"token_count"`
+	ID              string      `json:"id"`
+	ConversationID  string      `json:"conversation_id"`
+	Seq             int64       `json:"seq"`
+	Role            string      `json:"role"`
+	EventType       string      `json:"event_type"`
+	Content         string      `json:"content"`
+	TokenCount      int64       `json:"token_count"`
+	ActorType       string      `json:"actor_type"`
+	ActorID         pgtype.Text `json:"actor_id"`
+	SourceSessionID pgtype.Text `json:"source_session_id"`
+	InboxID         pgtype.Text `json:"inbox_id"`
 }
 
 func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (CtxMessage, error) {
@@ -38,6 +45,10 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (C
 		arg.EventType,
 		arg.Content,
 		arg.TokenCount,
+		arg.ActorType,
+		arg.ActorID,
+		arg.SourceSessionID,
+		arg.InboxID,
 	)
 	var i CtxMessage
 	err := row.Scan(
@@ -49,6 +60,10 @@ func (q *Queries) CreateMessage(ctx context.Context, arg CreateMessageParams) (C
 		&i.Content,
 		&i.TokenCount,
 		&i.CreatedAt,
+		&i.ActorType,
+		&i.ActorID,
+		&i.SourceSessionID,
+		&i.InboxID,
 		&i.OriginGroupMessageID,
 	)
 	return i, err
@@ -125,7 +140,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (conversation_id, origin_group_message_id)
   WHERE origin_group_message_id IS NOT NULL
 DO NOTHING
-RETURNING id, conversation_id, seq, role, event_type, content, token_count, created_at, origin_group_message_id
+RETURNING id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id
 `
 
 type CreateMessageWithGroupOriginParams struct {
@@ -160,8 +175,39 @@ func (q *Queries) CreateMessageWithGroupOrigin(ctx context.Context, arg CreateMe
 		&i.Content,
 		&i.TokenCount,
 		&i.CreatedAt,
+		&i.ActorType,
+		&i.ActorID,
+		&i.SourceSessionID,
+		&i.InboxID,
 		&i.OriginGroupMessageID,
 	)
+	return i, err
+}
+
+const getContextTimeBounds = `-- name: GetContextTimeBounds :one
+SELECT oldest.created_at AS oldest_at, newest.created_at AS newest_at
+FROM ctx_message oldest
+JOIN LATERAL (
+    SELECT newest_message.created_at
+    FROM ctx_message newest_message
+    WHERE newest_message.conversation_id = $1
+    ORDER BY newest_message.seq DESC
+    LIMIT 1
+) newest ON true
+WHERE oldest.conversation_id = $1
+ORDER BY oldest.seq ASC
+LIMIT 1
+`
+
+type GetContextTimeBoundsRow struct {
+	OldestAt time.Time `json:"oldest_at"`
+	NewestAt time.Time `json:"newest_at"`
+}
+
+func (q *Queries) GetContextTimeBounds(ctx context.Context, conversationID string) (GetContextTimeBoundsRow, error) {
+	row := q.db.QueryRow(ctx, getContextTimeBounds, conversationID)
+	var i GetContextTimeBoundsRow
+	err := row.Scan(&i.OldestAt, &i.NewestAt)
 	return i, err
 }
 
@@ -195,7 +241,7 @@ func (q *Queries) GetMaxSeq(ctx context.Context, conversationID string) (int64, 
 }
 
 const getMessage = `-- name: GetMessage :one
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, origin_group_message_id FROM ctx_message WHERE id = $1 AND conversation_id = $2
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id FROM ctx_message WHERE id = $1 AND conversation_id = $2
 `
 
 type GetMessageParams struct {
@@ -215,13 +261,17 @@ func (q *Queries) GetMessage(ctx context.Context, arg GetMessageParams) (CtxMess
 		&i.Content,
 		&i.TokenCount,
 		&i.CreatedAt,
+		&i.ActorType,
+		&i.ActorID,
+		&i.SourceSessionID,
+		&i.InboxID,
 		&i.OriginGroupMessageID,
 	)
 	return i, err
 }
 
 const getMessageByGroupOrigin = `-- name: GetMessageByGroupOrigin :one
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, origin_group_message_id
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id
 FROM ctx_message
 WHERE conversation_id = $1
   AND origin_group_message_id = $2
@@ -244,6 +294,10 @@ func (q *Queries) GetMessageByGroupOrigin(ctx context.Context, arg GetMessageByG
 		&i.Content,
 		&i.TokenCount,
 		&i.CreatedAt,
+		&i.ActorType,
+		&i.ActorID,
+		&i.SourceSessionID,
+		&i.InboxID,
 		&i.OriginGroupMessageID,
 	)
 	return i, err
@@ -338,7 +392,7 @@ func (q *Queries) GetMessagePartsByMessages(ctx context.Context, messageIds []st
 
 const getMessageScoped = `-- name: GetMessageScoped :one
 SELECT
-    m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at, m.origin_group_message_id,
+    m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at, m.actor_type, m.actor_id, m.source_session_id, m.inbox_id, m.origin_group_message_id,
     c.session_id AS session_id,
     c.title AS conversation_title
 FROM ctx_message m
@@ -363,6 +417,10 @@ type GetMessageScopedRow struct {
 	Content              string      `json:"content"`
 	TokenCount           int64       `json:"token_count"`
 	CreatedAt            time.Time   `json:"created_at"`
+	ActorType            string      `json:"actor_type"`
+	ActorID              pgtype.Text `json:"actor_id"`
+	SourceSessionID      pgtype.Text `json:"source_session_id"`
+	InboxID              pgtype.Text `json:"inbox_id"`
 	OriginGroupMessageID pgtype.Text `json:"origin_group_message_id"`
 	SessionID            string      `json:"session_id"`
 	ConversationTitle    pgtype.Text `json:"conversation_title"`
@@ -384,6 +442,10 @@ func (q *Queries) GetMessageScoped(ctx context.Context, arg GetMessageScopedPara
 		&i.Content,
 		&i.TokenCount,
 		&i.CreatedAt,
+		&i.ActorType,
+		&i.ActorID,
+		&i.SourceSessionID,
+		&i.InboxID,
 		&i.OriginGroupMessageID,
 		&i.SessionID,
 		&i.ConversationTitle,
@@ -392,7 +454,7 @@ func (q *Queries) GetMessageScoped(ctx context.Context, arg GetMessageScopedPara
 }
 
 const getMessagesByConversation = `-- name: GetMessagesByConversation :many
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, origin_group_message_id FROM ctx_message WHERE conversation_id = $1 ORDER BY seq ASC
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id FROM ctx_message WHERE conversation_id = $1 ORDER BY seq ASC
 `
 
 func (q *Queries) GetMessagesByConversation(ctx context.Context, conversationID string) ([]CtxMessage, error) {
@@ -413,6 +475,10 @@ func (q *Queries) GetMessagesByConversation(ctx context.Context, conversationID 
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.SourceSessionID,
+			&i.InboxID,
 			&i.OriginGroupMessageID,
 		); err != nil {
 			return nil, err
@@ -426,7 +492,7 @@ func (q *Queries) GetMessagesByConversation(ctx context.Context, conversationID 
 }
 
 const getMessagesByConversationRange = `-- name: GetMessagesByConversationRange :many
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, origin_group_message_id FROM ctx_message
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id FROM ctx_message
 WHERE conversation_id = $1 AND seq >= $2 AND seq <= $3
 ORDER BY seq ASC
 `
@@ -455,6 +521,10 @@ func (q *Queries) GetMessagesByConversationRange(ctx context.Context, arg GetMes
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.SourceSessionID,
+			&i.InboxID,
 			&i.OriginGroupMessageID,
 		); err != nil {
 			return nil, err
@@ -468,7 +538,7 @@ func (q *Queries) GetMessagesByConversationRange(ctx context.Context, arg GetMes
 }
 
 const getMessagesSince = `-- name: GetMessagesSince :many
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, origin_group_message_id FROM ctx_message
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id FROM ctx_message
 WHERE conversation_id = $1 AND created_at > $2
 ORDER BY seq ASC
 `
@@ -496,6 +566,10 @@ func (q *Queries) GetMessagesSince(ctx context.Context, arg GetMessagesSincePara
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.SourceSessionID,
+			&i.InboxID,
 			&i.OriginGroupMessageID,
 		); err != nil {
 			return nil, err
@@ -599,7 +673,7 @@ func (q *Queries) ListMessagePartsWithMediaByMessages(ctx context.Context, messa
 }
 
 const listMessagesByIDs = `-- name: ListMessagesByIDs :many
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, origin_group_message_id FROM ctx_message WHERE conversation_id = $1 AND id = ANY($2::uuid[]) ORDER BY seq ASC
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id FROM ctx_message WHERE conversation_id = $1 AND id = ANY($2::uuid[]) ORDER BY seq ASC
 `
 
 type ListMessagesByIDsParams struct {
@@ -625,6 +699,10 @@ func (q *Queries) ListMessagesByIDs(ctx context.Context, arg ListMessagesByIDsPa
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.SourceSessionID,
+			&i.InboxID,
 			&i.OriginGroupMessageID,
 		); err != nil {
 			return nil, err
@@ -640,7 +718,7 @@ func (q *Queries) ListMessagesByIDs(ctx context.Context, arg ListMessagesByIDsPa
 const listMessagesByLogicalPage = `-- name: ListMessagesByLogicalPage :many
 WITH ordered AS (
     SELECT
-        id, conversation_id, seq, role, event_type, content, token_count, created_at, origin_group_message_id,
+        id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id,
         lag(role) OVER (ORDER BY seq ASC) AS prev_role
     FROM ctx_message
     WHERE conversation_id = $1
@@ -648,7 +726,7 @@ WITH ordered AS (
       AND ($3::timestamptz IS NULL OR created_at <= $3)
 ), grouped AS (
     SELECT
-        id, conversation_id, seq, role, event_type, content, token_count, created_at, origin_group_message_id, prev_role,
+        id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id, prev_role,
         sum(CASE WHEN role = 'assistant' AND prev_role = 'assistant' THEN 0 ELSE 1 END)
             OVER (ORDER BY seq ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS logical_idx
     FROM ordered
@@ -659,7 +737,8 @@ WITH ordered AS (
     ORDER BY logical_idx DESC
     LIMIT $5 OFFSET $4
 )
-SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at, origin_group_message_id
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at,
+       actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id
 FROM grouped
 WHERE logical_idx IN (SELECT logical_idx FROM selected_groups)
 ORDER BY seq ASC
@@ -682,6 +761,10 @@ type ListMessagesByLogicalPageRow struct {
 	Content              string      `json:"content"`
 	TokenCount           int64       `json:"token_count"`
 	CreatedAt            time.Time   `json:"created_at"`
+	ActorType            string      `json:"actor_type"`
+	ActorID              pgtype.Text `json:"actor_id"`
+	SourceSessionID      pgtype.Text `json:"source_session_id"`
+	InboxID              pgtype.Text `json:"inbox_id"`
 	OriginGroupMessageID pgtype.Text `json:"origin_group_message_id"`
 }
 
@@ -712,6 +795,10 @@ func (q *Queries) ListMessagesByLogicalPage(ctx context.Context, arg ListMessage
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.SourceSessionID,
+			&i.InboxID,
 			&i.OriginGroupMessageID,
 		); err != nil {
 			return nil, err
@@ -775,9 +862,155 @@ func (q *Queries) ListMessagesNeedingEmbedding(ctx context.Context, arg ListMess
 	return items, nil
 }
 
+const listRecallMessageByIDs = `-- name: ListRecallMessageByIDs :many
+SELECT id, conversation_id
+FROM ctx_message
+WHERE id = ANY($1::uuid[])
+ORDER BY id
+`
+
+type ListRecallMessageByIDsRow struct {
+	ID             string `json:"id"`
+	ConversationID string `json:"conversation_id"`
+}
+
+// Recall hits are untrusted hints spanning authorized conversations. Return
+// only identity and ownership facts so the PEP can match each hit back to the
+// exact conversation authorized in the same search operation.
+func (q *Queries) ListRecallMessageByIDs(ctx context.Context, messageIds []string) ([]ListRecallMessageByIDsRow, error) {
+	rows, err := q.db.Query(ctx, listRecallMessageByIDs, messageIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRecallMessageByIDsRow{}
+	for rows.Next() {
+		var i ListRecallMessageByIDsRow
+		if err := rows.Scan(&i.ID, &i.ConversationID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSessionTranscriptPage = `-- name: ListSessionTranscriptPage :many
+WITH ordered AS (
+    SELECT
+        id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id,
+        lag(seq) OVER (ORDER BY seq ASC) AS prev_seq
+    FROM ctx_message
+    WHERE conversation_id = $1
+      AND (
+          $2::bigint IS NULL
+          OR seq <= $2::bigint
+      )
+), grouped AS (
+    SELECT
+        id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id, prev_seq,
+        sum(CASE WHEN role = 'user' OR prev_seq IS NULL THEN 1 ELSE 0 END)
+            OVER (ORDER BY seq ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS turn_idx
+    FROM ordered
+), anchor AS (
+    SELECT COALESCE(
+        (
+            SELECT turn_idx
+            FROM grouped
+            WHERE $3::bigint IS NULL
+               OR seq <= $3::bigint
+            ORDER BY seq DESC
+            LIMIT 1
+        ),
+        0
+    ) AS turn_idx
+), selected_turns AS (
+    SELECT turn_idx
+    FROM grouped
+    WHERE turn_idx <= (SELECT turn_idx FROM anchor)
+    GROUP BY turn_idx
+    ORDER BY turn_idx DESC
+    LIMIT $5 OFFSET $4
+)
+SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at,
+       actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id
+FROM grouped
+WHERE turn_idx IN (SELECT turn_idx FROM selected_turns)
+ORDER BY seq ASC
+`
+
+type ListSessionTranscriptPageParams struct {
+	ConversationID string      `json:"conversation_id"`
+	SnapshotSeq    pgtype.Int8 `json:"snapshot_seq"`
+	AnchorSeq      pgtype.Int8 `json:"anchor_seq"`
+	Offset         int32       `json:"offset"`
+	Limit          int32       `json:"limit"`
+}
+
+type ListSessionTranscriptPageRow struct {
+	ID                   string      `json:"id"`
+	ConversationID       string      `json:"conversation_id"`
+	Seq                  int64       `json:"seq"`
+	Role                 string      `json:"role"`
+	EventType            string      `json:"event_type"`
+	Content              string      `json:"content"`
+	TokenCount           int64       `json:"token_count"`
+	CreatedAt            time.Time   `json:"created_at"`
+	ActorType            string      `json:"actor_type"`
+	ActorID              pgtype.Text `json:"actor_id"`
+	SourceSessionID      pgtype.Text `json:"source_session_id"`
+	InboxID              pgtype.Text `json:"inbox_id"`
+	OriginGroupMessageID pgtype.Text `json:"origin_group_message_id"`
+}
+
+// Agent-facing transcript pages use a whole user turn as the atomic boundary:
+// one user row plus every assistant/tool row until the next user row. This keeps
+// tool calls and their results together even when a page boundary falls nearby.
+func (q *Queries) ListSessionTranscriptPage(ctx context.Context, arg ListSessionTranscriptPageParams) ([]ListSessionTranscriptPageRow, error) {
+	rows, err := q.db.Query(ctx, listSessionTranscriptPage,
+		arg.ConversationID,
+		arg.SnapshotSeq,
+		arg.AnchorSeq,
+		arg.Offset,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSessionTranscriptPageRow{}
+	for rows.Next() {
+		var i ListSessionTranscriptPageRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConversationID,
+			&i.Seq,
+			&i.Role,
+			&i.EventType,
+			&i.Content,
+			&i.TokenCount,
+			&i.CreatedAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.SourceSessionID,
+			&i.InboxID,
+			&i.OriginGroupMessageID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const searchMessageEmbeddings = `-- name: SearchMessageEmbeddings :many
 SELECT
-    m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at, m.origin_group_message_id,
+    m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at, m.actor_type, m.actor_id, m.source_session_id, m.inbox_id, m.origin_group_message_id,
     c.session_id AS session_id,
     c.title AS conversation_title,
     (1 - (e.embedding <=> $1::vector(1536)))::double precision AS score
@@ -808,6 +1041,10 @@ type SearchMessageEmbeddingsRow struct {
 	Content              string      `json:"content"`
 	TokenCount           int64       `json:"token_count"`
 	CreatedAt            time.Time   `json:"created_at"`
+	ActorType            string      `json:"actor_type"`
+	ActorID              pgtype.Text `json:"actor_id"`
+	SourceSessionID      pgtype.Text `json:"source_session_id"`
+	InboxID              pgtype.Text `json:"inbox_id"`
 	OriginGroupMessageID pgtype.Text `json:"origin_group_message_id"`
 	SessionID            string      `json:"session_id"`
 	ConversationTitle    pgtype.Text `json:"conversation_title"`
@@ -844,6 +1081,10 @@ func (q *Queries) SearchMessageEmbeddings(ctx context.Context, arg SearchMessage
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.SourceSessionID,
+			&i.InboxID,
 			&i.OriginGroupMessageID,
 			&i.SessionID,
 			&i.ConversationTitle,
@@ -861,7 +1102,7 @@ func (q *Queries) SearchMessageEmbeddings(ctx context.Context, arg SearchMessage
 
 const searchMessages = `-- name: SearchMessages :many
 SELECT
-    m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at, m.origin_group_message_id,
+    m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at, m.actor_type, m.actor_id, m.source_session_id, m.inbox_id, m.origin_group_message_id,
     c.session_id AS session_id,
     c.title AS conversation_title,
     paradedb.snippet(m.content)::text AS snippet,
@@ -891,6 +1132,10 @@ type SearchMessagesRow struct {
 	Content              string      `json:"content"`
 	TokenCount           int64       `json:"token_count"`
 	CreatedAt            time.Time   `json:"created_at"`
+	ActorType            string      `json:"actor_type"`
+	ActorID              pgtype.Text `json:"actor_id"`
+	SourceSessionID      pgtype.Text `json:"source_session_id"`
+	InboxID              pgtype.Text `json:"inbox_id"`
 	OriginGroupMessageID pgtype.Text `json:"origin_group_message_id"`
 	SessionID            string      `json:"session_id"`
 	ConversationTitle    pgtype.Text `json:"conversation_title"`
@@ -932,6 +1177,10 @@ func (q *Queries) SearchMessages(ctx context.Context, arg SearchMessagesParams) 
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.SourceSessionID,
+			&i.InboxID,
 			&i.OriginGroupMessageID,
 			&i.SessionID,
 			&i.ConversationTitle,

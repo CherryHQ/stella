@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -26,7 +27,7 @@ func (panicRunner) Close() error            { return nil }
 // still closes, the busy guard clears, and the hub stops reporting the session
 // as live (otherwise SSE watchers would poll a never-closing stream forever).
 func TestChat_PanicRecovers_FreesSessionAndHub(t *testing.T) {
-	mem := &recordingMemory{}
+	mem := &activityRecordingMemory{}
 	rt, _ := New(Config{
 		NewRunner: func(_ context.Context, _ RunnerParams) (Runner, error) {
 			return panicRunner{}, nil
@@ -42,6 +43,9 @@ func TestChat_PanicRecovers_FreesSessionAndHub(t *testing.T) {
 	waitSessionFree(t, rt, info.ID)
 	if rt.SessionLive(info.ID) {
 		t.Fatal("session stuck live after a panicking turn")
+	}
+	if got := mem.activitySnapshot(); !reflect.DeepEqual(got, []string{"started", "completed:error"}) {
+		t.Fatalf("panicked turn activity = %v, want [started completed:error]", got)
 	}
 }
 

@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import {
   Brain,
   ChevronRight,
+  Library,
   ListTodo,
   MessageCircle,
   Puzzle,
@@ -12,11 +13,10 @@ import {
 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { getAgentAvatarStyle } from "@/lib/agent-colors";
-import { agentsQueryOptions, agentSkillsOptions, agentToolsOptions } from "@/lib/queries/agents";
+import { agentQueryOptions, agentSkillsOptions, agentToolsOptions } from "@/lib/queries/agents";
 import { agentSettingsQueryOptions } from "@/lib/queries/agent-settings";
 import { goalCountsOptions } from "@/lib/queries/goals";
 import { agentMemoryOptions } from "@/lib/queries/memories";
-import { meQueryOptions } from "@/lib/queries/me";
 import { modelsQueryOptions } from "@/lib/queries/models";
 import { agentProjectsOptions } from "@/lib/queries/projects";
 import { formatTime } from "@/lib/time";
@@ -62,21 +62,17 @@ export function ProfilePage() {
   const search = useSearch({ strict: false }) as MemorySearch;
   const knowledgeState = search.knowledge === "removed" ? "removed" : "active";
 
-  const { data: agents = [] } = useQuery(agentsQueryOptions);
-  const { data: me } = useQuery(meQueryOptions);
+  const { data: agent } = useQuery(agentQueryOptions(agentId));
   const { data: models = [] } = useQuery(modelsQueryOptions);
   const { data: memory } = useQuery(agentMemoryOptions(agentId));
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
 
-  const agentIndex = agents.findIndex((agent) => agent.id === agentId);
-  const agent = agentIndex >= 0 ? agents[agentIndex] : undefined;
   const project = projects.find((candidate) => candidate.id === projectId);
   const title = project?.name ?? agent?.name ?? "";
 
   // Projects inherit their agent's configuration and tool catalog; both belong
   // to the agent's own profile, so those tabs only appear there.
-  const canConfigure =
-    !projectId && !!agent && canEditAgent(agent, me?.is_admin ?? false, me?.id ?? "");
+  const canConfigure = !projectId && canEditAgent(agent);
 
   const tabs: ProfileTab[] = [
     "overview",
@@ -145,7 +141,7 @@ export function ProfilePage() {
         <header className="flex items-center gap-3">
           <span
             className="grid size-10 place-items-center rounded-full text-sm font-semibold text-primary-foreground"
-            style={getAgentAvatarStyle(agentId, agentIndex >= 0 ? agentIndex : undefined)}
+            style={getAgentAvatarStyle(agentId)}
           >
             {title[0]?.toUpperCase()}
           </span>
@@ -166,16 +162,31 @@ export function ProfilePage() {
 
         <Tabs value={tab} onValueChange={(value) => selectTab(value as ProfileTab)}>
           <TabsList variant="underline">
-            {tabs.map((value) => (
-              <TabsTab key={value} value={value}>
-                {TAB_LABEL[value]}
-              </TabsTab>
-            ))}
+            {tabs
+              .filter((value) => value !== "config")
+              .map((value) => (
+                <TabsTab key={value} value={value}>
+                  {TAB_LABEL[value]}
+                </TabsTab>
+              ))}
+            {!projectId && (
+              // Library is a sibling route, not a profile panel. Keep link
+              // semantics while presenting it alongside the profile tabs.
+              <Link
+                to="/agents/$agentId/library"
+                params={{ agentId }}
+                className="relative flex h-9 shrink-0 grow items-center justify-center whitespace-nowrap rounded-md border border-transparent px-[calc(--spacing(2.5)-1px)] text-base font-medium outline-none transition-[color,background-color,box-shadow] hover:bg-accent hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring sm:h-8 sm:text-sm"
+              >
+                {t("library.title")}
+              </Link>
+            )}
+            {canConfigure && <TabsTab value="config">{TAB_LABEL.config}</TabsTab>}
           </TabsList>
 
           <TabsPanel value="overview" className="pt-4">
             <OverviewTab
               agentId={agentId}
+              agentName={title}
               projectId={projectId}
               facts={
                 agent && !projectId
@@ -292,6 +303,7 @@ interface Fact {
  */
 function OverviewTab({
   agentId,
+  agentName,
   projectId,
   facts,
   memoryUpdatedAt,
@@ -299,6 +311,7 @@ function OverviewTab({
   onSelectTab,
 }: {
   agentId: string;
+  agentName: string;
   projectId?: string;
   facts: Fact[];
   memoryUpdatedAt?: string;
@@ -367,10 +380,19 @@ function OverviewTab({
           />
         )}
         {!projectId && (
+          <Link to="/agents/$agentId/library" params={{ agentId }} className={SUMMARY_CARD_CLS}>
+            <SummaryCardBody
+              icon={<Library size={16} />}
+              title={t("library.title")}
+              detail={t("library.description.userAgent", { agent: agentName })}
+            />
+          </Link>
+        )}
+        {!projectId && (
           <Link to="/agents/$agentId/goals" params={{ agentId }} className={SUMMARY_CARD_CLS}>
             <SummaryCardBody
               icon={<ListTodo size={16} />}
-              title={t("sidebar.goals")}
+              title={t("sidebar.work")}
               detail={t("profile.goalCount", { count: goalCounts?.active ?? 0 })}
             />
           </Link>

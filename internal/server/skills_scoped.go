@@ -15,12 +15,14 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
+	"github.com/CherryHQ/stella/internal/agentskillpolicy"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/resources"
 )
 
 // beginSkillAccess opens one Skill policy evaluation for an authenticated caller.
@@ -253,7 +255,9 @@ func dbSkillToPluginSkill(sk skills.Skill) pkgplugins.Skill {
 
 func resolvedSkillToView(rs skills.ResolvedSkill) skillView {
 	var files []string
-	if rs.Dir != "" {
+	if builtinFiles := rs.BuiltinFiles(); builtinFiles != nil {
+		files = builtinFiles
+	} else if rs.Dir != "" {
 		files, _ = skills.ListDirFiles(rs.Dir)
 	}
 	if files == nil {
@@ -364,6 +368,36 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 	if code != 0 {
 		return nil, nil, "", code, msg
 	}
+	// Builtin IDs are release identities, not PostgreSQL row IDs. Resolve them
+	// through the merged catalog so a project/PG shadow still wins after one
+	// store lookup, rather than probing the store for every builtin descriptor.
+	if strings.HasPrefix(ref, "builtin-") {
+		projectRoot, err := s.projectRootForSession(ctx, agentID, sessionID)
+		if err != nil {
+			return nil, nil, "", http.StatusInternalServerError, "internal error"
+		}
+		vc := pkgplugins.SkillViewContext{UserID: info.UserID, AgentID: agentID}
+		rs, err := s.skillService().Resolve(ctx, ref, vc, projectRoot)
+		if err != nil {
+			s.log.Error("resolve builtin skill reference", "agent_id", agentID, "skill", ref, "error", err)
+			return nil, nil, "", http.StatusInternalServerError, "internal error"
+		}
+		// Release builtins retain Scope="system" internally for prompt/PG
+		// compatibility, but their externally addressable identity is builtin.
+		// Keep Resolve's normal precedence behavior: a shadowing DB row is not a
+		// builtin and therefore cannot make a hidden builtin reappear by ID.
+		if rs == nil || rs.Status == "deprecated" {
+			return nil, nil, "", http.StatusNotFound, "skill not found"
+		}
+		contextualScope := rs.Scope
+		if rs.BuiltinFiles() != nil {
+			contextualScope = "builtin"
+		}
+		if exactScope && contextualScope != scope {
+			return nil, nil, "", http.StatusNotFound, "skill not found"
+		}
+		return rs, acc, projectRoot, 0, ""
+	}
 
 	sk, err := s.findSkillByID(ctx, ref)
 	if err == nil {
@@ -407,6 +441,9 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 
 // loadSkillFile loads a file from an already-resolved skill.
 func (s *Server) loadSkillFile(ctx context.Context, rs *skills.ResolvedSkill, path string) (string, error) {
+	if rs.BuiltinFiles() != nil {
+		return rs.LoadBuiltinFile(path)
+	}
 	if rs.Dir != "" {
 		fp, err := safeSkillFilePath(rs.Dir, path)
 		if err != nil {
@@ -440,6 +477,16 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 	if code != 0 {
 		writeError(w, code, msg)
 		return
+	}
+	policy := agentskillpolicy.Policy{}
+	diagnostics := agentskillpolicy.Diagnostics{}
+	if s.agentSkillPolicy != nil {
+		var err error
+		policy, diagnostics, err = s.agentSkillPolicy.ReadAgentSkillPolicy(r.Context(), agentID)
+		if err != nil {
+			s.writeInternalError(w, err)
+			return
+		}
 	}
 	if params.Scope != nil && params.ScopeGroup != nil {
 		writeError(w, http.StatusBadRequest, "scope and scope_group are mutually exclusive")
@@ -505,6 +552,12 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 	counts := agentSkillScopeCounts(filtered)
 	selected := make([]skills.ResolvedSkill, 0, len(filtered))
 	for _, rs := range filtered {
+		if params.Scope != nil && string(*params.Scope) == "builtin" {
+			if rs.BuiltinFiles() != nil {
+				selected = append(selected, rs)
+			}
+			continue
+		}
 		if agentSkillScopeSelected(rs.Scope, params) {
 			selected = append(selected, rs)
 		}
@@ -533,10 +586,28 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 	}
 	out := make([]skillView, len(selected))
 	for i := range selected {
-		out[i] = resolvedSkillToView(selected[i])
+		out[i] = s.contextualSkillView(selected[i], policy)
+	}
+	canManage := false
+	if authority, err := info.authority(); err == nil {
+		_, err = s.agentAccess.Manage(r.Context(), authority, agentID)
+		canManage = err == nil
+	}
+	policyRefs, err := policyAddressableSkillRefs(dbSkills)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
+	}
+	dangling := make([]string, 0, len(policy.Disabled))
+	for _, ref := range policy.Disabled {
+		if !policyRefs[ref] {
+			dangling = append(dangling, ref)
+		}
 	}
 	response := map[string]any{
 		"skills": out, "total_size": total, "scope_counts": counts, "next_page_token": nil,
+		"can_manage_activation": canManage,
+		"policy_diagnostics":    map[string]any{"legacy_non_empty_array": diagnostics.LegacyArray, "dangling_disabled_refs": dangling},
 	}
 	if hasMore {
 		last := selected[len(selected)-1]
@@ -548,6 +619,29 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		response["next_page_token"] = token
 	}
 	writeData(w, http.StatusOK, response)
+}
+
+// policyAddressableSkillRefs builds diagnostics from the full applicable DB
+// catalog, before precedence merging hides shadowed rows. Policy refs describe
+// addressable catalog entries, not the one current UI winner.
+func policyAddressableSkillRefs(dbSkills []skills.Skill) (map[string]bool, error) {
+	refs := make(map[string]bool, len(dbSkills))
+	for _, sk := range dbSkills {
+		if sk.Status == skills.SkillStatusDeprecated {
+			continue
+		}
+		if sk.Scope == "system" || sk.Scope == "system_agent" {
+			refs[sk.Scope+":"+sk.Name] = true
+		}
+	}
+	registry, err := resources.Default()
+	if err != nil {
+		return nil, fmt.Errorf("load builtin Skill catalog: %w", err)
+	}
+	for _, descriptor := range registry.BuiltinSkills() {
+		refs["builtin:"+descriptor.Name] = true
+	}
+	return refs, nil
 }
 
 func normalizedSkillPageQuery(userID, agentID string, params apiserver.ListAgentSkillsParams) skillPageQuery {
@@ -584,6 +678,9 @@ func agentSkillScopeGroup(scope string) string {
 
 func agentSkillScopeSelected(scope string, params apiserver.ListAgentSkillsParams) bool {
 	if params.Scope != nil {
+		if string(*params.Scope) == "builtin" {
+			return false // Builtins are identified from the resolved descriptor above.
+		}
 		return scope == string(*params.Scope)
 	}
 	if params.ScopeGroup != nil {
@@ -593,8 +690,12 @@ func agentSkillScopeSelected(scope string, params apiserver.ListAgentSkillsParam
 }
 
 func agentSkillScopeCounts(items []skills.ResolvedSkill) map[string]int {
-	counts := map[string]int{"all": len(items), "system": 0, "agent": 0, "user": 0, "project": 0}
+	counts := map[string]int{"all": len(items), "builtin": 0, "system": 0, "agent": 0, "user": 0, "project": 0}
 	for i := range items {
+		if items[i].BuiltinFiles() != nil {
+			counts["builtin"]++
+			continue
+		}
 		if group := agentSkillScopeGroup(items[i].Scope); group != "" {
 			counts[group]++
 		}
@@ -675,7 +776,16 @@ func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string
 	if !s.authorizeDBSkillRead(w, r, acc, rs) {
 		return
 	}
-	view := resolvedSkillToView(*rs)
+	policy := agentskillpolicy.Policy{}
+	if s.agentSkillPolicy != nil {
+		var err error
+		policy, _, err = s.agentSkillPolicy.ReadAgentSkillPolicy(r.Context(), id)
+		if err != nil {
+			s.writeInternalError(w, err)
+			return
+		}
+	}
+	view := s.contextualSkillView(*rs, policy)
 	if rs.Dir == "" && s.skillStore() != nil {
 		sk, err := s.findSkillByID(r.Context(), rs.ID)
 		if err != nil {
@@ -687,6 +797,12 @@ func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string
 			s.writeInternalError(w, err)
 			return
 		}
+		enabled := true
+		if ref, ok := skills.PolicyRef(*rs); ok {
+			view.LogicalRef = ref
+			enabled = !policy.DisabledRef(ref)
+		}
+		view.Enabled = &enabled
 	}
 	writeData(w, http.StatusOK, view)
 }

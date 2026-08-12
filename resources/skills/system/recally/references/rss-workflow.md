@@ -16,19 +16,21 @@ If you need to resume or inspect pending work, use `recally` with
 `page_token`.
 After marking entries via `entry_update`, re-list from the start instead of paging — the pending set shifts as entries are processed.
 
-## 2. Process Entries in Parallel
+## 2. Process Entries Sequentially
 
-Use the `delegate` tool to spawn one delegate per pending entry. Each delegate
-independently runs the full save workflow from [save-workflow.md](save-workflow.md)
-with `source_type=rss`, then updates the entry.
+Loop over pending entries one at a time. For each entry, call `session.create`
+with a focused request to run the full [save workflow](save-workflow.md) with
+`source_type=rss`, then update that entry before starting the next one. The call
+is synchronous. If the focused Session needs a correction, continue its Session
+ID with `session.send` before moving on.
 
 Use `recally` with `action=entry_update`, `feed_id`, the entry `id`, and `status`:
 `saved` with `article_id`, `error` with `error_msg`, or `skipped` for duplicates,
 off-topic items, or paywalled content.
 
-Each delegate is self-contained — on failure it marks its own entry as error and
-exits without affecting others. Wait for all delegates to finish before counting
-results.
+Each focused Session is self-contained. On failure, mark that entry as error and
+continue the loop; do not let one entry block the rest. Count results after the
+sequential loop finishes.
 
 Entries with `error` status and fewer than 3 attempts are retried on the next poll
 cycle.

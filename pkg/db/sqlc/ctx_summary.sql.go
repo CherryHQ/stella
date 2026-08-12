@@ -14,22 +14,23 @@ import (
 )
 
 const createSummary = `-- name: CreateSummary :exec
-INSERT INTO ctx_summary (id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+INSERT INTO ctx_summary (id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, contains_non_principal_input)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 `
 
 type CreateSummaryParams struct {
-	ID                      string             `json:"id"`
-	ConversationID          string             `json:"conversation_id"`
-	Kind                    string             `json:"kind"`
-	Depth                   int64              `json:"depth"`
-	Content                 string             `json:"content"`
-	TokenCount              int64              `json:"token_count"`
-	EarliestAt              pgtype.Timestamptz `json:"earliest_at"`
-	LatestAt                pgtype.Timestamptz `json:"latest_at"`
-	DescendantCount         int64              `json:"descendant_count"`
-	DescendantTokenCount    int64              `json:"descendant_token_count"`
-	SourceMessageTokenCount int64              `json:"source_message_token_count"`
+	ID                        string             `json:"id"`
+	ConversationID            string             `json:"conversation_id"`
+	Kind                      string             `json:"kind"`
+	Depth                     int64              `json:"depth"`
+	Content                   string             `json:"content"`
+	TokenCount                int64              `json:"token_count"`
+	EarliestAt                pgtype.Timestamptz `json:"earliest_at"`
+	LatestAt                  pgtype.Timestamptz `json:"latest_at"`
+	DescendantCount           int64              `json:"descendant_count"`
+	DescendantTokenCount      int64              `json:"descendant_token_count"`
+	SourceMessageTokenCount   int64              `json:"source_message_token_count"`
+	ContainsNonPrincipalInput bool               `json:"contains_non_principal_input"`
 }
 
 func (q *Queries) CreateSummary(ctx context.Context, arg CreateSummaryParams) error {
@@ -45,12 +46,13 @@ func (q *Queries) CreateSummary(ctx context.Context, arg CreateSummaryParams) er
 		arg.DescendantCount,
 		arg.DescendantTokenCount,
 		arg.SourceMessageTokenCount,
+		arg.ContainsNonPrincipalInput,
 	)
 	return err
 }
 
 const getSummariesByConversation = `-- name: GetSummariesByConversation :many
-SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at FROM ctx_summary WHERE conversation_id = $1 ORDER BY created_at ASC
+SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at, contains_non_principal_input FROM ctx_summary WHERE conversation_id = $1 ORDER BY created_at ASC
 `
 
 func (q *Queries) GetSummariesByConversation(ctx context.Context, conversationID string) ([]CtxSummary, error) {
@@ -75,6 +77,7 @@ func (q *Queries) GetSummariesByConversation(ctx context.Context, conversationID
 			&i.DescendantTokenCount,
 			&i.SourceMessageTokenCount,
 			&i.CreatedAt,
+			&i.ContainsNonPrincipalInput,
 		); err != nil {
 			return nil, err
 		}
@@ -87,7 +90,7 @@ func (q *Queries) GetSummariesByConversation(ctx context.Context, conversationID
 }
 
 const getSummariesByDepth = `-- name: GetSummariesByDepth :many
-SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at FROM ctx_summary
+SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at, contains_non_principal_input FROM ctx_summary
 WHERE conversation_id = $1 AND depth = $2
 ORDER BY created_at ASC
 `
@@ -119,6 +122,7 @@ func (q *Queries) GetSummariesByDepth(ctx context.Context, arg GetSummariesByDep
 			&i.DescendantTokenCount,
 			&i.SourceMessageTokenCount,
 			&i.CreatedAt,
+			&i.ContainsNonPrincipalInput,
 		); err != nil {
 			return nil, err
 		}
@@ -131,7 +135,7 @@ func (q *Queries) GetSummariesByDepth(ctx context.Context, arg GetSummariesByDep
 }
 
 const getSummary = `-- name: GetSummary :one
-SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at FROM ctx_summary WHERE id = $1 AND conversation_id = $2
+SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at, contains_non_principal_input FROM ctx_summary WHERE id = $1 AND conversation_id = $2
 `
 
 type GetSummaryParams struct {
@@ -155,12 +159,13 @@ func (q *Queries) GetSummary(ctx context.Context, arg GetSummaryParams) (CtxSumm
 		&i.DescendantTokenCount,
 		&i.SourceMessageTokenCount,
 		&i.CreatedAt,
+		&i.ContainsNonPrincipalInput,
 	)
 	return i, err
 }
 
 const getSummaryByID = `-- name: GetSummaryByID :one
-SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at FROM ctx_summary WHERE id = $1
+SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at, contains_non_principal_input FROM ctx_summary WHERE id = $1
 `
 
 func (q *Queries) GetSummaryByID(ctx context.Context, id string) (CtxSummary, error) {
@@ -179,12 +184,13 @@ func (q *Queries) GetSummaryByID(ctx context.Context, id string) (CtxSummary, er
 		&i.DescendantTokenCount,
 		&i.SourceMessageTokenCount,
 		&i.CreatedAt,
+		&i.ContainsNonPrincipalInput,
 	)
 	return i, err
 }
 
 const getSummaryChildren = `-- name: GetSummaryChildren :many
-SELECT s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at FROM ctx_summary s
+SELECT s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at, s.contains_non_principal_input FROM ctx_summary s
 JOIN ctx_summary_parent sp ON sp.summary_id = s.id
 WHERE sp.parent_summary_id = $1
 ORDER BY sp.ordinal ASC
@@ -212,6 +218,7 @@ func (q *Queries) GetSummaryChildren(ctx context.Context, parentSummaryID string
 			&i.DescendantTokenCount,
 			&i.SourceMessageTokenCount,
 			&i.CreatedAt,
+			&i.ContainsNonPrincipalInput,
 		); err != nil {
 			return nil, err
 		}
@@ -245,7 +252,7 @@ func (q *Queries) GetSummaryMessageSeqRange(ctx context.Context, summaryID strin
 }
 
 const getSummaryMessages = `-- name: GetSummaryMessages :many
-SELECT m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at, m.origin_group_message_id FROM ctx_message m
+SELECT m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at, m.actor_type, m.actor_id, m.source_session_id, m.inbox_id, m.origin_group_message_id FROM ctx_message m
 JOIN ctx_summary_message sm ON sm.message_id = m.id
 WHERE sm.summary_id = $1
 ORDER BY sm.ordinal ASC
@@ -269,6 +276,10 @@ func (q *Queries) GetSummaryMessages(ctx context.Context, summaryID string) ([]C
 			&i.Content,
 			&i.TokenCount,
 			&i.CreatedAt,
+			&i.ActorType,
+			&i.ActorID,
+			&i.SourceSessionID,
+			&i.InboxID,
 			&i.OriginGroupMessageID,
 		); err != nil {
 			return nil, err
@@ -282,12 +293,16 @@ func (q *Queries) GetSummaryMessages(ctx context.Context, summaryID string) ([]C
 }
 
 const getSummaryParents = `-- name: GetSummaryParents :many
-SELECT s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at FROM ctx_summary s
+SELECT s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at, s.contains_non_principal_input FROM ctx_summary s
 JOIN ctx_summary_parent sp ON sp.parent_summary_id = s.id
 WHERE sp.summary_id = $1
 ORDER BY sp.ordinal ASC
 `
 
+// Legacy naming note: compaction stores the containing condensed summary in
+// summary_id and each constituent summary in parent_summary_id. Consequently,
+// GetSummaryParents returns conceptual children/constituents, while
+// GetSummaryChildren returns conceptual parents/containers.
 func (q *Queries) GetSummaryParents(ctx context.Context, summaryID string) ([]CtxSummary, error) {
 	rows, err := q.db.Query(ctx, getSummaryParents, summaryID)
 	if err != nil {
@@ -310,6 +325,7 @@ func (q *Queries) GetSummaryParents(ctx context.Context, summaryID string) ([]Ct
 			&i.DescendantTokenCount,
 			&i.SourceMessageTokenCount,
 			&i.CreatedAt,
+			&i.ContainsNonPrincipalInput,
 		); err != nil {
 			return nil, err
 		}
@@ -353,8 +369,42 @@ func (q *Queries) LinkSummaryToParent(ctx context.Context, arg LinkSummaryToPare
 	return err
 }
 
+const listRecallSummaryByIDs = `-- name: ListRecallSummaryByIDs :many
+SELECT id, conversation_id
+FROM ctx_summary
+WHERE id = ANY($1::text[])
+ORDER BY id
+`
+
+type ListRecallSummaryByIDsRow struct {
+	ID             string `json:"id"`
+	ConversationID string `json:"conversation_id"`
+}
+
+// As with recall messages, return only the resource ID and its exact owning
+// conversation for a bounded, fail-closed batch verification.
+func (q *Queries) ListRecallSummaryByIDs(ctx context.Context, summaryIds []string) ([]ListRecallSummaryByIDsRow, error) {
+	rows, err := q.db.Query(ctx, listRecallSummaryByIDs, summaryIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRecallSummaryByIDsRow{}
+	for rows.Next() {
+		var i ListRecallSummaryByIDsRow
+		if err := rows.Scan(&i.ID, &i.ConversationID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSummariesByIDs = `-- name: ListSummariesByIDs :many
-SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at FROM ctx_summary WHERE conversation_id = $1 AND id = ANY($2::text[]) ORDER BY created_at ASC
+SELECT id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at, descendant_count, descendant_token_count, source_message_token_count, created_at, contains_non_principal_input FROM ctx_summary WHERE conversation_id = $1 AND id = ANY($2::text[]) ORDER BY created_at ASC
 `
 
 type ListSummariesByIDsParams struct {
@@ -384,6 +434,7 @@ func (q *Queries) ListSummariesByIDs(ctx context.Context, arg ListSummariesByIDs
 			&i.DescendantTokenCount,
 			&i.SourceMessageTokenCount,
 			&i.CreatedAt,
+			&i.ContainsNonPrincipalInput,
 		); err != nil {
 			return nil, err
 		}
@@ -472,7 +523,7 @@ func (q *Queries) ListSummaryParentsBySummaryIDs(ctx context.Context, summaryIds
 
 const searchSummaries = `-- name: SearchSummaries :many
 SELECT
-    s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at,
+    s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at, s.contains_non_principal_input,
     c.session_id AS session_id,
     c.title AS conversation_title,
     paradedb.snippet(s.content)::text AS snippet,
@@ -494,22 +545,23 @@ type SearchSummariesParams struct {
 }
 
 type SearchSummariesRow struct {
-	ID                      string             `json:"id"`
-	ConversationID          string             `json:"conversation_id"`
-	Kind                    string             `json:"kind"`
-	Depth                   int64              `json:"depth"`
-	Content                 string             `json:"content"`
-	TokenCount              int64              `json:"token_count"`
-	EarliestAt              pgtype.Timestamptz `json:"earliest_at"`
-	LatestAt                pgtype.Timestamptz `json:"latest_at"`
-	DescendantCount         int64              `json:"descendant_count"`
-	DescendantTokenCount    int64              `json:"descendant_token_count"`
-	SourceMessageTokenCount int64              `json:"source_message_token_count"`
-	CreatedAt               time.Time          `json:"created_at"`
-	SessionID               string             `json:"session_id"`
-	ConversationTitle       pgtype.Text        `json:"conversation_title"`
-	Snippet                 string             `json:"snippet"`
-	Score                   float64            `json:"score"`
+	ID                        string             `json:"id"`
+	ConversationID            string             `json:"conversation_id"`
+	Kind                      string             `json:"kind"`
+	Depth                     int64              `json:"depth"`
+	Content                   string             `json:"content"`
+	TokenCount                int64              `json:"token_count"`
+	EarliestAt                pgtype.Timestamptz `json:"earliest_at"`
+	LatestAt                  pgtype.Timestamptz `json:"latest_at"`
+	DescendantCount           int64              `json:"descendant_count"`
+	DescendantTokenCount      int64              `json:"descendant_token_count"`
+	SourceMessageTokenCount   int64              `json:"source_message_token_count"`
+	CreatedAt                 time.Time          `json:"created_at"`
+	ContainsNonPrincipalInput bool               `json:"contains_non_principal_input"`
+	SessionID                 string             `json:"session_id"`
+	ConversationTitle         pgtype.Text        `json:"conversation_title"`
+	Snippet                   string             `json:"snippet"`
+	Score                     float64            `json:"score"`
 }
 
 // Spans every conversation of the current (user_id, agent_id); see SearchMessages.
@@ -546,6 +598,7 @@ func (q *Queries) SearchSummaries(ctx context.Context, arg SearchSummariesParams
 			&i.DescendantTokenCount,
 			&i.SourceMessageTokenCount,
 			&i.CreatedAt,
+			&i.ContainsNonPrincipalInput,
 			&i.SessionID,
 			&i.ConversationTitle,
 			&i.Snippet,
@@ -563,7 +616,7 @@ func (q *Queries) SearchSummaries(ctx context.Context, arg SearchSummariesParams
 
 const searchSummaryEmbeddings = `-- name: SearchSummaryEmbeddings :many
 SELECT
-    s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at,
+    s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at, s.contains_non_principal_input,
     c.session_id AS session_id,
     c.title AS conversation_title,
     (1 - (e.embedding <=> $1::vector(1536)))::double precision AS score
@@ -586,21 +639,22 @@ type SearchSummaryEmbeddingsParams struct {
 }
 
 type SearchSummaryEmbeddingsRow struct {
-	ID                      string             `json:"id"`
-	ConversationID          string             `json:"conversation_id"`
-	Kind                    string             `json:"kind"`
-	Depth                   int64              `json:"depth"`
-	Content                 string             `json:"content"`
-	TokenCount              int64              `json:"token_count"`
-	EarliestAt              pgtype.Timestamptz `json:"earliest_at"`
-	LatestAt                pgtype.Timestamptz `json:"latest_at"`
-	DescendantCount         int64              `json:"descendant_count"`
-	DescendantTokenCount    int64              `json:"descendant_token_count"`
-	SourceMessageTokenCount int64              `json:"source_message_token_count"`
-	CreatedAt               time.Time          `json:"created_at"`
-	SessionID               string             `json:"session_id"`
-	ConversationTitle       pgtype.Text        `json:"conversation_title"`
-	Score                   float64            `json:"score"`
+	ID                        string             `json:"id"`
+	ConversationID            string             `json:"conversation_id"`
+	Kind                      string             `json:"kind"`
+	Depth                     int64              `json:"depth"`
+	Content                   string             `json:"content"`
+	TokenCount                int64              `json:"token_count"`
+	EarliestAt                pgtype.Timestamptz `json:"earliest_at"`
+	LatestAt                  pgtype.Timestamptz `json:"latest_at"`
+	DescendantCount           int64              `json:"descendant_count"`
+	DescendantTokenCount      int64              `json:"descendant_token_count"`
+	SourceMessageTokenCount   int64              `json:"source_message_token_count"`
+	CreatedAt                 time.Time          `json:"created_at"`
+	ContainsNonPrincipalInput bool               `json:"contains_non_principal_input"`
+	SessionID                 string             `json:"session_id"`
+	ConversationTitle         pgtype.Text        `json:"conversation_title"`
+	Score                     float64            `json:"score"`
 }
 
 // Vector KNN over summary embeddings; mirror of SearchMessageEmbeddings (same
@@ -634,6 +688,7 @@ func (q *Queries) SearchSummaryEmbeddings(ctx context.Context, arg SearchSummary
 			&i.DescendantTokenCount,
 			&i.SourceMessageTokenCount,
 			&i.CreatedAt,
+			&i.ContainsNonPrincipalInput,
 			&i.SessionID,
 			&i.ConversationTitle,
 			&i.Score,

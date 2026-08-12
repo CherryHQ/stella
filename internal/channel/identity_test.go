@@ -21,6 +21,18 @@ import (
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
+type fakeFeishuEnroller struct {
+	input auth.FeishuEnrollmentInput
+	err   error
+	calls int
+}
+
+func (e *fakeFeishuEnroller) Enroll(_ context.Context, input auth.FeishuEnrollmentInput) (auth.FeishuEnrollmentResult, error) {
+	e.calls++
+	e.input = input
+	return auth.FeishuEnrollmentResult{}, e.err
+}
+
 type testStores struct {
 	store     config.Store
 	authStore *appdb.AuthStore // policy/token store
@@ -213,16 +225,36 @@ func TestMaybeCanonicalizeIdentityPromotesFeishuOpenIDToUnionID(t *testing.T) {
 	}
 }
 
-func TestResolveUserDeactivated(t *testing.T) {
-	// With auth.User there is no IsActive field; deactivated state is tracked
-	// via membership. ResolveUser no longer checks IsActive, so this test is
-	// adjusted to verify that a user without an identity still returns empty.
+func TestResolveUserDeactivatedChannelIdentityDenied(t *testing.T) {
 	ts := setupStores(t)
 	ctx := context.Background()
+	user := createTestUser(t, ts.oidcStore, "inactive-channel@example.com")
+	createTestIdentity(t, ts.oidcStore, user.ID, "qq", "111", "Inactive")
+	if err := ts.oidcStore.UpdateUserActive(ctx, user.ID, false); err != nil {
+		t.Fatalf("UpdateUserActive: %v", err)
+	}
 
 	_, err := ResolveUser(ctx, ts.oidcStore, "qq", "111")
-	if err != nil {
-		t.Errorf("ResolveUser: unexpected error: %v", err)
+	if !errors.Is(err, ErrAgentAccessDenied) {
+		t.Fatalf("ResolveUser error = %v, want authorization denial", err)
+	}
+}
+
+func TestResolveUserDeactivatedLoginIdentityDeniedWithoutLinking(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+	user := createTestUser(t, ts.oidcStore, "inactive-login@example.com")
+	createTestLoginIdentity(t, ts.oidcStore, user.ID, "feishu", "on_inactive", user.Email, "Inactive")
+	if err := ts.oidcStore.UpdateUserActive(ctx, user.ID, false); err != nil {
+		t.Fatalf("UpdateUserActive: %v", err)
+	}
+
+	_, err := ResolveUser(ctx, ts.oidcStore, "feishu", "on_inactive")
+	if !errors.Is(err, ErrAgentAccessDenied) {
+		t.Fatalf("ResolveUser error = %v, want authorization denial", err)
+	}
+	if _, err := ts.oidcStore.GetChannelIdentityByPlatform(ctx, "feishu", "on_inactive"); !isNotFound(err) {
+		t.Fatalf("inactive login identity created channel link: %v", err)
 	}
 }
 
@@ -372,84 +404,29 @@ func TestTryLinkCodeExpiredOrInvalid(t *testing.T) {
 	}
 }
 
-func TestCoordinatorProvisionUserAuthNotConfigured(t *testing.T) {
-	coord := &Coordinator{}
-	err := coord.ProvisionUser(context.Background(), pkgchannel.ProvisionRequest{})
-	if err == nil {
-		t.Fatal("expected error when auth is not configured")
-	}
-	if !strings.Contains(err.Error(), "auth not configured") {
-		t.Fatalf("error = %v, want auth-not-configured message", err)
+func TestCoordinatorProvisionUserEnrollmentNotConfigured(t *testing.T) {
+	err := (&Coordinator{}).ProvisionUser(context.Background(), pkgchannel.ProvisionRequest{})
+	if err == nil || !strings.Contains(err.Error(), "enrollment not configured") {
+		t.Fatalf("error = %v, want enrollment-not-configured message", err)
 	}
 }
 
-func TestCoordinatorProvisionUserUnknownIdentityReturnsError(t *testing.T) {
-	ts := setupStores(t)
-	coord := &Coordinator{auth: ts.oidcStore}
-
-	err := coord.ProvisionUser(context.Background(), pkgchannel.ProvisionRequest{
-		Platform:   "telegram",
-		ExternalID: "u-unknown",
-		Name:       "Unknown",
-	})
-	if err == nil {
-		t.Fatal("expected error for unknown channel identity")
-	}
-	if !strings.Contains(err.Error(), "channel identity not found") {
-		t.Fatalf("error = %v, want channel-identity-not-found message", err)
-	}
-}
-
-func TestCoordinatorProvisionUserKnownLoginIdentityLinksChannel(t *testing.T) {
-	ts := setupStores(t)
-	ctx := context.Background()
-
-	user := createTestUser(t, ts.oidcStore, "feishu-oauth@example.com")
-	createTestLoginIdentity(t, ts.oidcStore, user.ID, "feishu", "on_union", "feishu-oauth@example.com", "Feishu User")
-
-	coord := &Coordinator{auth: ts.oidcStore}
-	if err := coord.ProvisionUser(ctx, pkgchannel.ProvisionRequest{
-		Platform:   "feishu",
-		ExternalID: "on_union",
-		Name:       "Feishu Sender",
-	}); err != nil {
+func TestCoordinatorProvisionUserDelegatesVerifiedFeishuEvidence(t *testing.T) {
+	enroller := &fakeFeishuEnroller{}
+	coord := &Coordinator{feishuEnroller: enroller}
+	req := pkgchannel.ProvisionRequest{Platform: "feishu", ExternalID: "on_canonical", TenantKey: "tenant", Email: "member@example.com", Name: "Member", AvatarURL: "https://avatar"}
+	if err := coord.ProvisionUser(context.Background(), req); err != nil {
 		t.Fatalf("ProvisionUser: %v", err)
 	}
-
-	identity, err := ts.oidcStore.GetChannelIdentityByPlatform(ctx, "feishu", "on_union")
-	if err != nil {
-		t.Fatalf("GetChannelIdentityByPlatform: %v", err)
-	}
-	if identity.UserID != user.ID {
-		t.Fatalf("identity.UserID = %q, want %q", identity.UserID, user.ID)
-	}
-	if identity.Name != "Feishu Sender" {
-		t.Fatalf("identity.Name = %q, want Feishu Sender", identity.Name)
+	if enroller.calls != 1 || enroller.input != (auth.FeishuEnrollmentInput{UnionID: req.ExternalID, TenantKey: req.TenantKey, Email: req.Email, Name: req.Name, AvatarURL: req.AvatarURL}) {
+		t.Fatalf("enrollment input = %+v, calls=%d", enroller.input, enroller.calls)
 	}
 }
 
-func TestCoordinatorProvisionUserKnownIdentitySucceeds(t *testing.T) {
-	ts := setupStores(t)
-	ctx := context.Background()
-
-	user := createTestUser(t, ts.oidcStore, "linked@example.com")
-	_, err := ts.oidcStore.CreateChannelIdentity(ctx, auth.ChannelIdentity{
-		ID:         uuid.NewString(),
-		UserID:     user.ID,
-		Platform:   "telegram",
-		ExternalID: "u-linked",
-		Name:       "Linked User",
-	})
-	if err != nil {
-		t.Fatalf("CreateChannelIdentity: %v", err)
-	}
-
-	coord := &Coordinator{auth: ts.oidcStore}
-	if err := coord.ProvisionUser(ctx, pkgchannel.ProvisionRequest{
-		Platform:   "telegram",
-		ExternalID: "u-linked",
-		Name:       "Linked User",
-	}); err != nil {
-		t.Fatalf("ProvisionUser: %v", err)
+func TestCoordinatorProvisionUserRejectsOtherPlatforms(t *testing.T) {
+	enroller := &fakeFeishuEnroller{}
+	err := (&Coordinator{feishuEnroller: enroller}).ProvisionUser(context.Background(), pkgchannel.ProvisionRequest{Platform: "telegram"})
+	if err == nil || enroller.calls != 0 {
+		t.Fatalf("error = %v, calls=%d; want rejected without enrollment", err, enroller.calls)
 	}
 }

@@ -32,7 +32,7 @@ export function SiteHeader() {
   const appNavItems = [
     { label: t("nav.sessions"), href: "/agents" },
     { label: t("nav.recally"), href: "/recally" },
-    { label: t("nav.settings"), href: "/settings" },
+    { label: t("nav.personalSettings"), href: "/settings" },
   ];
 
   const utilNavItems = [

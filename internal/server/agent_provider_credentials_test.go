@@ -54,6 +54,7 @@ func enableProviderCredentialAPI(t *testing.T, env *testEnv) providerCredentialT
 			creds,
 			store,
 			slog.With("component", "agent-provider-credential-test"),
+			agentaccess.WithAgentIDOccupancy(testAgentIDOccupancy{}),
 		)
 	})
 	return store

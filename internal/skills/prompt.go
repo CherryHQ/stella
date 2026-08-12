@@ -15,11 +15,15 @@ func BuildPromptSection(ctx context.Context, build pkgplugins.SystemPromptContex
 	} else if build.Platform != nil {
 		store = build.Platform.SkillStore()
 	}
+	if store == nil {
+		return pkgplugins.SystemPromptSection{}, nil
+	}
 
 	svc := NewService(store, build.StellaHome)
 	vc := pkgplugins.SkillViewContext{
-		UserID:  build.UserID,
-		AgentID: build.AgentID,
+		UserID:            build.UserID,
+		AgentID:           build.AgentID,
+		DisabledSkillRefs: append([]string(nil), build.DisabledSkillRefs...),
 	}
 
 	merged, err := svc.ListMerged(ctx, vc, build.ProjectRoot)
@@ -105,7 +109,7 @@ func filterVisibleSkills(skills []pkgplugins.Skill, build pkgplugins.SystemPromp
 
 	out := make([]pkgplugins.Skill, 0, len(skills))
 	for _, skill := range skills {
-		if skill.Scope != "system" {
+		if skill.Scope != "system" && skill.Scope != "builtin" {
 			out = append(out, skill)
 			continue
 		}
@@ -134,5 +138,10 @@ func ownerPlugin(raw json.RawMessage) string {
 		return ""
 	}
 	owner, _ := meta["owner_plugin"].(string)
+	if owner != "" {
+		return owner
+	}
+	nested, _ := meta["metadata"].(map[string]any)
+	owner, _ = nested["owner_plugin"].(string)
 	return owner
 }

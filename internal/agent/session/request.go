@@ -76,6 +76,8 @@ type MainRequest struct {
 type ChannelRequest struct {
 	UserID  string
 	AgentID string
+	// GuestID marks a persistent guest binding and must equal UserID.
+	GuestID string
 	// GroupID marks a group binding. When set it must equal UserID.
 	GroupID string
 	// Channel is the durable channel value the binding carries. It is part of the
@@ -99,6 +101,9 @@ func (r ChannelRequest) validate() error {
 	if r.GroupID != "" && r.GroupID != r.UserID {
 		return fmt.Errorf("chat channel binding: group session UserID %q must equal GroupID %q", r.UserID, r.GroupID)
 	}
+	if r.GuestID != "" && (r.GuestID != r.UserID || r.GroupID != "") {
+		return fmt.Errorf("chat channel binding: guest session requires UserID == GuestID and no group")
+	}
 	if r.GroupID == "" && r.Channel.isZero() {
 		return fmt.Errorf("chat channel binding requires Channel")
 	}
@@ -119,7 +124,7 @@ func (r ChannelRequest) bindingKey() string {
 	if r.GroupID != "" {
 		channel = ""
 	}
-	return r.AgentID + "\x00" + r.UserID + "\x00" + r.GroupID + "\x00" + channel
+	return r.AgentID + "\x00" + r.UserID + "\x00" + r.GroupID + "\x00" + r.GuestID + "\x00" + channel
 }
 
 // ReviewRequest describes which sessions are candidates for reflect review.

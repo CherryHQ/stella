@@ -90,6 +90,7 @@ func New() *Fake {
 // Compile-time interface checks.
 var (
 	_ memory.Provider                 = (*Fake)(nil)
+	_ memory.InboxAppender            = (*Fake)(nil)
 	_ memory.Compactor                = (*Fake)(nil)
 	_ memory.Searcher                 = (*Fake)(nil)
 	_ memory.Explorer                 = (*Fake)(nil)
@@ -166,6 +167,12 @@ func (f *Fake) AppendGroupTurn(
 // cursor, so committing a successful group turn is intentionally a no-op.
 func (f *Fake) CommitGroupCursor(context.Context, memory.Session, int64) error {
 	return nil
+}
+
+// AppendInboxInput implements memory.InboxAppender for unit tests. Durable CAS
+// semantics belong to LCM integration tests; Fake preserves the append boundary.
+func (f *Fake) AppendInboxInput(ctx context.Context, session memory.Session, _ string, msg ai.Message) error {
+	return f.Append(ctx, session, msg)
 }
 
 // Assemble implements memory.Provider.
@@ -502,6 +509,49 @@ func (f *Fake) TouchActiveInfo(_ context.Context, info memory.SessionInfo) (bool
 	}
 	si.info.LastActive = time.Now().UTC()
 	f.sessionInfos[info.ID] = si
+	return true, nil
+}
+
+// MarkSessionTurnStarted implements memory.SessionActivityStore.
+func (f *Fake) MarkSessionTurnStarted(_ context.Context, session memory.Session) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	si, ok := f.sessionInfos[session.ID]
+	if !ok || si.info.Archived || si.info.UserID != session.UserID || si.info.AgentID != session.AgentID {
+		return false, nil
+	}
+	si.info.LastTurnStartedAt = time.Now().UTC()
+	f.sessionInfos[session.ID] = si
+	return true, nil
+}
+
+// MarkSessionTurnCompleted implements memory.SessionActivityStore.
+func (f *Fake) MarkSessionTurnCompleted(_ context.Context, session memory.Session, result memory.SessionTurnResult) (bool, error) {
+	if !result.Valid() {
+		return false, fmt.Errorf("invalid session turn result %q", result)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	si, ok := f.sessionInfos[session.ID]
+	if !ok || si.info.Archived || si.info.UserID != session.UserID || si.info.AgentID != session.AgentID {
+		return false, nil
+	}
+	si.info.LastTurnCompletedAt = time.Now().UTC()
+	si.info.LastTurnResult = result
+	f.sessionInfos[session.ID] = si
+	return true, nil
+}
+
+// MarkSessionViewed implements memory.SessionActivityStore.
+func (f *Fake) MarkSessionViewed(_ context.Context, session memory.Session) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	si, ok := f.sessionInfos[session.ID]
+	if !ok || si.info.UserID != session.UserID || si.info.AgentID != session.AgentID {
+		return false, nil
+	}
+	si.info.LastViewedAt = time.Now().UTC()
+	f.sessionInfos[session.ID] = si
 	return true, nil
 }
 

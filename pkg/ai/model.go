@@ -135,6 +135,10 @@ type UsageCost struct {
 }
 
 // Usage tracks token accounting returned by providers.
+// InputTokens preserves provider semantics: some providers include cached input
+// in this value while others report cache categories separately. TotalTokens is
+// the complete normalized total with cache categories counted exactly once;
+// consumers must not derive it by blindly summing the other fields.
 type Usage struct {
 	InputTokens  int
 	OutputTokens int

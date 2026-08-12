@@ -16,6 +16,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/agenterr"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/hooks"
@@ -35,33 +36,51 @@ const (
 type BeforeRunFunc func(ctx context.Context, info session.Info, model, msgText, system string, history []ai.Message) (systemOut string, err error)
 
 // SnapshotPromptFunc builds a system prompt from the session's snapshot version.
-type SnapshotPromptFunc func(ctx context.Context, info session.Info, snap memory.SessionSnapshot) string
+type SnapshotPromptFunc func(ctx context.Context, info session.Info, snap memory.SessionSnapshot) (string, error)
 
-// chat is the goroutine body for Runtime.Chat.
+// chat is retained for direct internal callers and tests. Runtime.ChatAdmitted
+// uses chatWithRunner after synchronously selecting a runner at admission.
 func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info, msg MessageContent, co chatOptions) {
-	// A closed event stream means the complete turn, including durable group
-	// cursor commit, has finished.
-	defer close(out)
-
-	cs, r, err := rt.getOrCreateRunner(ctx, info, co.model, co.extraTools)
+	ctx = withSessionIdentity(ctx, info)
+	selection, err := rt.getOrCreateReservedRunner(ctx, info, co.model, co.extraTools)
 	if err != nil {
 		out <- Event{Err: fmt.Errorf("get runner: %w", err)}
+		close(out)
 		return
 	}
+	rt.capturePromptBuilders(&selection)
+	rt.chatWithRunner(ctx, out, info, msg, co, selection)
+}
 
-	if info.GroupID == "" {
-		ctx = authz.WithUserID(ctx, info.UserID)
-	} else {
+// chatWithRunner is the goroutine body for Runtime.Chat. The runner was selected and
+// reserved synchronously by ChatAdmitted, so a policy invalidation cannot slip
+// between admission and runner selection.
+func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info session.Info, msg MessageContent, co chatOptions, selection runnerSelection) {
+	defer rt.cache.releaseReservation(selection.session)
+
+	isGuest := info.GuestID != ""
+	ctx = withSessionIdentity(ctx, info)
+	if info.GroupID != "" {
 		// Group turns: carry the group id (not a user) so trusted adapters can mint
 		// a confined GroupAgentActor. authz.WithUserID stays unset so runtime
 		// identity remains the group (D9).
-		ctx = authz.WithGroupID(ctx, info.GroupID)
 		if co.hasSpeaker {
 			// Attach the speaker as a personalization target only.
 			ctx = memory.WithCurrentSpeaker(ctx, co.currentSpeaker)
 		}
 	}
 	ctx = authz.WithAgentID(ctx, info.AgentID)
+	ctx = agentctx.WithSessionCallBudget(ctx)
+	inputActor := co.inputActor
+	if !inputActor.Valid() {
+		// Runtime callers predating provenance are human ingress. Keeping the
+		// fallback here makes the trusted runtime, not model text, choose it.
+		inputActor = eventlog.MessageActor{Type: eventlog.ActorHuman, ID: info.UserID}
+		if isGuest {
+			inputActor.ID = info.GuestID
+		}
+	}
+	ctx = eventlog.WithMessageActor(ctx, inputActor)
 	if info.ProjectID != "" {
 		ctx = memory.WithProjectID(ctx, info.ProjectID)
 	}
@@ -72,15 +91,19 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	memSess, err := info.MemoryScope()
 	if err != nil {
 		out <- Event{Err: fmt.Errorf("session scope: %w", err)}
+		close(out)
 		return
 	}
 
 	msgText := MessageText(msg)
 	rt.log.Debug("chat started", "session_id", info.ID, "message_len", len(msgText))
 
-	// Fire PreAgentCall hook.
+	// Fire PreAgentCall hooks for authenticated sessions only.
 	chatStart := time.Now()
-	hookPlugins := rt.hookPlugins()
+	var hookPlugins []hooks.HookPlugin
+	if !isGuest {
+		hookPlugins = rt.hookPlugins()
+	}
 	hs := hooks.NewHookSet(hookPlugins)
 	hookMeta := hooks.HookMeta{
 		SessionID: info.ID,
@@ -88,28 +111,33 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		AgentID:   info.AgentID,
 		Channel:   info.Channel,
 	}
-	hs.RunPreAgentCall(ctx, &hooks.PreAgentCallContext{
-		HookMeta:   hookMeta,
-		MessageLen: len(msgText),
-		Channel:    info.Channel,
-	})
+	if !isGuest {
+		hs.RunPreAgentCall(ctx, &hooks.PreAgentCallContext{
+			HookMeta:   hookMeta,
+			MessageLen: len(msgText),
+			Channel:    info.Channel,
+		})
+	}
 
-	// Public group events must enter the per-agent LCM before compaction. The
-	// triggering event itself remains excluded until the turn succeeds.
+	// Copy prior public events before compaction. The current trigger remains
+	// outside the LCM until the turn has completed successfully.
 	var groupCommitter memory.GroupCursorCommitter
 	if memSess.GroupID != "" {
 		ingestor, ok := rt.mem.(memory.GroupEventIngestor)
 		if !ok {
 			out <- Event{Err: errors.New("memory provider does not support group event ingestion")}
+			close(out)
 			return
 		}
 		groupCommitter, ok = rt.mem.(memory.GroupCursorCommitter)
 		if !ok {
 			out <- Event{Err: errors.New("memory provider does not support group cursor commits")}
+			close(out)
 			return
 		}
 		if err := ingestor.SyncGroupEventsBefore(ctx, memSess, memory.GroupSeqFromContext(ctx)); err != nil {
 			out <- Event{Err: fmt.Errorf("sync group events: %w", err)}
+			close(out)
 			return
 		}
 	}
@@ -119,18 +147,22 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	// Auto-compact.
 	if rt.needsCompaction(ctx, memSess, maxTokens) {
 		rt.log.Info("auto-compaction triggered", "session_id", info.ID)
-		compactCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), autoCompactionTimeout)
+		compactParent := context.WithoutCancel(ctx)
+		if _, synchronous := agentctx.SessionCallFromContext(ctx); synchronous {
+			// A Session/delegate call holds its caller and target admission until
+			// completion, so source cancellation must also stop compaction.
+			compactParent = ctx
+		}
+		compactCtx, cancel := context.WithTimeout(compactParent, autoCompactionTimeout)
 		if summary, err := rt.compact_(compactCtx, memSess); err != nil {
 			cancel()
 			rt.log.Warn("auto-compaction failed", "session_id", info.ID, "error", err)
 		} else {
 			cancel()
 			rt.log.Info("auto-compaction succeeded", "session_id", info.ID, "summary_len", len(summary))
-			cs, r, err = rt.getOrCreateRunner(ctx, info, co.model, co.extraTools)
-			if err != nil {
-				out <- Event{Err: fmt.Errorf("get runner after compaction: %w", err)}
-				return
-			}
+			// The admission lease owns this runner and its metadata for the
+			// full turn. Re-selecting through mutable cache state here would let
+			// a concurrent non-terminal reset change beforeRun's model midway.
 		}
 	}
 
@@ -142,7 +174,10 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		if updated.Title == "" && len(msgText) > 0 {
 			updated.Title = autoTitle(msgText)
 		}
-		saveCtx := authz.WithUserID(ctx, info.UserID)
+		saveCtx := ctx
+		if !isGuest {
+			saveCtx = authz.WithUserID(saveCtx, info.UserID)
+		}
 		saveCtx = authz.WithAgentID(saveCtx, info.AgentID)
 		// TouchActiveInfo, not SaveInfo: a `/new` rotation can archive this
 		// session after the turn resolved it, and
@@ -169,6 +204,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		rt.log.Warn("memory assemble failed", "session_id", info.ID, "error", err)
 		if memSess.GroupID != "" {
 			out <- Event{Err: fmt.Errorf("assemble group memory: %w", err)}
+			close(out)
 			return
 		}
 	} else {
@@ -178,9 +214,14 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 
 	// Resolve system prompt.
 	baseSystem := co.systemOverride
+	if isGuest {
+		// A caller override is another capability surface. Guest runners always
+		// use the minimal prompt selected from durable GuestID at construction.
+		baseSystem = selection.runner.SystemPrompt()
+	}
 	if baseSystem == "" {
-		baseSystem = r.SystemPrompt()
-		if info.GroupID == "" && rt.snapshotPrompt != nil && info.UserID != "" && info.AgentID != "" {
+		baseSystem = selection.runner.SystemPrompt()
+		if !isGuest && info.GroupID == "" && selection.snapshotPrompt != nil && info.UserID != "" && info.AgentID != "" {
 			// DM per-turn snapshot prompt: rebuild system with frozen memory
 			// version. Skipped when systemOverride is set (e.g. delegate custom
 			// system).
@@ -189,16 +230,21 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 				snap, err := sss.GetOrCreateSessionSnapshot(ctx, info.ID, info.UserID, info.AgentID)
 				if err != nil {
 					rt.log.Warn("snapshot lookup failed, using base system", "session_id", info.ID, "error", err)
+				} else if rebuilt, err := selection.snapshotPrompt(ctx, info, snap); err != nil {
+					out <- Event{Err: fmt.Errorf("snapshot prompt: %w", err)}
+					close(out)
+					return
 				} else {
-					baseSystem = rt.snapshotPrompt(ctx, info, snap)
+					baseSystem = rebuilt
 				}
 			}
 		}
 	}
-	if rt.beforeRun != nil {
-		systemOut, err := rt.beforeRun(ctx, info, cs.model, msgText, baseSystem, history)
+	if !isGuest && selection.beforeRun != nil {
+		systemOut, err := selection.beforeRun(ctx, info, selection.model, msgText, baseSystem, history)
 		if err != nil {
 			out <- Event{Err: fmt.Errorf("before run: %w", err)}
+			close(out)
 			return
 		}
 		if systemOut != "" {
@@ -219,6 +265,7 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	// duplicate it on the next attempt.
 	userMsg := ai.UserMessage{Content: msg, Timestamp: time.Now()}
 	modelMsg := userMsg
+	modelMsg.Content = eventlog.RenderInput(modelMsg.Content, inputActor)
 	if memSess.GroupID != "" {
 		// Group media stays in the public Event Log until group-owned canonical
 		// media receives its own authorization model. AppendGroupTurn persists the
@@ -239,15 +286,17 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 		case []ai.ContentBlock:
 			blocks = content
 		}
-		if blocks != nil {
+		if blocks != nil && !isGuest {
 			if ai.HasImage(blocks) {
 				if rt.sessionImages == nil {
 					out <- Event{Err: errors.New("session image enrichment is not configured")}
+					close(out)
 					return
 				}
 				enriched, err := rt.sessionImages.Enrich(ctx, info.UserID, info.AgentID, blocks)
 				if err != nil {
 					out <- Event{Err: fmt.Errorf("enrich user images: %w", err)}
+					close(out)
 					return
 				}
 				blocks = enriched
@@ -255,17 +304,31 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 			hasCanonicalImage = ai.HasImageRef(blocks)
 			userMsg.Content = blocks
 			modelMsg = userMsg
+			modelMsg.Content = eventlog.RenderInput(modelMsg.Content, inputActor)
 		}
-		if err := rt.mem.Append(ctx, memSess, userMsg); err != nil {
+		if co.inboxID != "" {
+			appender, ok := rt.mem.(memory.InboxAppender)
+			if !ok {
+				out <- Event{Err: errors.New("memory provider does not support durable Session inbox")}
+				close(out)
+				return
+			}
+			if err := appender.AppendInboxInput(ctx, memSess, co.inboxID, userMsg); err != nil {
+				out <- Event{Err: fmt.Errorf("persist Session inbox input: %w", err)}
+				close(out)
+				return
+			}
+		} else if err := rt.mem.Append(ctx, memSess, userMsg); err != nil {
 			if hasCanonicalImage {
 				out <- Event{Err: fmt.Errorf("persist canonical user message: %w", err)}
+				close(out)
 				return
 			}
 			rt.log.Warn("memory append user message failed", "session_id", info.ID, "error", err)
 		}
 	}
 
-	stream := r.Chat(ctx, history, modelMsg)
+	stream := selection.runner.Chat(ctx, history, modelMsg)
 	chatErr := rt.streamEvents(
 		ctx,
 		info.ID,
@@ -286,11 +349,15 @@ func (rt *Runtime) chat(ctx context.Context, out chan<- Event, info session.Info
 	}
 }
 
-func (rt *Runtime) getOrCreateRunner(ctx context.Context, info session.Info, model string, extraTools []tools.Tool) (*cachedSession, Runner, error) {
+func (rt *Runtime) getOrCreateReservedRunner(ctx context.Context, info session.Info, model string, extraTools []tools.Tool) (runnerSelection, error) {
 	attrs := []attribute.KeyValue{
 		attribute.String("gen_ai.conversation.id", info.ID),
-		attribute.String("user_id", info.UserID),
 		attribute.String("agent_id", info.AgentID),
+	}
+	if info.GuestID == "" {
+		attrs = append(attrs, attribute.String("user_id", info.UserID))
+	} else {
+		attrs = append(attrs, attribute.String("guest_id", info.GuestID))
 	}
 	if info.ProjectID != "" {
 		attrs = append(attrs, attribute.String("project_id", info.ProjectID))
@@ -305,16 +372,29 @@ func (rt *Runtime) getOrCreateRunner(ctx context.Context, info session.Info, mod
 	spanCtx, span := otel.Tracer("stella").Start(ctx, "agent.runner_get_or_create", trace.WithAttributes(attrs...))
 	defer span.End()
 
-	cs, r, err := rt.cache.getOrCreate(spanCtx, info, model, "", extraTools...)
+	selection, err := rt.cache.getOrCreateReserved(spanCtx, info, model, "", extraTools...)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return nil, nil, err
+		return runnerSelection{}, err
 	}
-	if cs != nil && cs.model != "" {
-		span.SetAttributes(attribute.String("gen_ai.response.model", cs.model))
+	if selection.model != "" {
+		span.SetAttributes(attribute.String("gen_ai.response.model", selection.model))
 	}
-	return cs, r, nil
+	return selection, nil
+}
+
+func withSessionIdentity(ctx context.Context, info session.Info) context.Context {
+	switch {
+	case info.GuestID != "":
+		// Guest mode is derived exclusively from durable session metadata. Never
+		// mint a Stella user identity for the guest's UUID-shaped owner key.
+		return authz.WithGuestID(ctx, info.GuestID)
+	case info.GroupID != "":
+		return authz.WithGroupID(ctx, info.GroupID)
+	default:
+		return authz.WithUserID(ctx, info.UserID)
+	}
 }
 
 func (rt *Runtime) hookPlugins() []hooks.HookPlugin {
@@ -398,6 +478,8 @@ func (rt *Runtime) streamEvents(
 	isGroup := memSess.GroupID != ""
 	var chatErr error
 	var pendingStores []ai.Message
+	var textBuf strings.Builder
+	var reasoningBuf strings.Builder
 	storeCurrent := func(msgs ...ai.Message) error {
 		if isGroup {
 			pendingStores = append(pendingStores, msgs...)
@@ -405,27 +487,33 @@ func (rt *Runtime) streamEvents(
 		}
 		return rt.mem.Append(persistCtx, memSess, msgs...)
 	}
+	flushInterruptedAssistant := func() {
+		if isGroup || (textBuf.Len() == 0 && reasoningBuf.Len() == 0) {
+			return
+		}
+		if err := rt.mem.Append(persistCtx, memSess, bufferedAssistantMessage(textBuf.String(), reasoningBuf.String())); err != nil {
+			rt.log.Warn("memory append interrupted assistant failed", "session_id", sessionID, "error", err)
+		}
+		textBuf.Reset()
+		reasoningBuf.Reset()
+	}
 	defer func() {
 		hs.RunPostAgentCall(ctx, &hooks.PostAgentCallContext{
 			HookMeta: hookMeta,
 			Duration: time.Since(chatStart),
 			Error:    chatErr,
 		})
+		close(out)
 	}()
-
-	var textBuf strings.Builder
-	var reasoningBuf strings.Builder
 
 	for evt := range stream {
 		if evt.Err != nil {
 			chatErr = evt.Err
-			if !isGroup && (textBuf.Len() > 0 || reasoningBuf.Len() > 0) {
-				flush := bufferedAssistantMessage(textBuf.String(), reasoningBuf.String())
-				if err := rt.mem.Append(persistCtx, memSess, flush); err != nil {
-					rt.log.Warn("memory append error-flush failed", "session_id", sessionID, "error", err)
-				}
-				textBuf.Reset()
-				reasoningBuf.Reset()
+			flushInterruptedAssistant()
+			// Explicit stop and lifecycle shutdown are normal cancellation paths,
+			// not failed turns to surface as an in-band chat error.
+			if ctx.Err() != nil && errors.Is(evt.Err, context.Canceled) {
+				return ctx.Err()
 			}
 			if errors.Is(evt.Err, ErrChatTimeout) {
 				notice := "I've been working on this for a while and have reached the time limit. Here's where things stand — feel free to send a message to continue or change direction."
@@ -464,6 +552,7 @@ func (rt *Runtime) streamEvents(
 		if evt.ToolUse != nil {
 			if !sendEvent(ctx, out, evt) {
 				chatErr = ctx.Err()
+				flushInterruptedAssistant()
 				return chatErr
 			}
 			continue
@@ -477,11 +566,13 @@ func (rt *Runtime) streamEvents(
 		}
 		if !sendEvent(ctx, out, evt) {
 			chatErr = ctx.Err()
+			flushInterruptedAssistant()
 			return chatErr
 		}
 	}
 
 	if ctx.Err() != nil {
+		flushInterruptedAssistant()
 		return ctx.Err()
 	}
 	if textBuf.Len() > 0 || reasoningBuf.Len() > 0 {
@@ -529,5 +620,9 @@ func withChannel(ctx context.Context, channel string) context.Context {
 }
 
 func withExcludedTools(ctx context.Context, names ...string) context.Context {
+	// Child runs must retain every exclusion their ancestor applied. In
+	// particular, delegate adds its recursion guard here without restoring a
+	// goal worker's control-plane tools.
+	names = append(agentctx.ExcludedToolsFromContext(ctx), names...)
 	return agentctx.WithExcludedTools(ctx, names...)
 }

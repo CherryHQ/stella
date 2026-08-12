@@ -539,7 +539,7 @@ const PILLARS: Pillar[] = [
     icon: Shield,
     title: { en: "It works within your limits", zh: "它在你的边界内做事" },
     body: {
-      en: "Connect your tools and your knowledge base. The agent does the work — and stops for a human on anything you mark as risky.",
+      en: "Connect your tools and your Library. The agent does the work — and stops for a human on anything you mark as risky.",
       zh: "接上你的工具和知识库。agent 把活干完，但凡你标为高风险的事，都会停下来等人确认。",
     },
   },
@@ -559,7 +559,7 @@ function PillarsSection({ lang }: { lang: Lang }) {
             <p className="home-lead">
               {isZh
                 ? "一个部门负责人把 agent 装好——挂上工具、政策和知识库。从那一刻起，组织里的每个人都能直接对话调用，零配置、零学习成本。"
-                : "A department lead sets the agent up — tools, policy, knowledge base. From then on, anyone in the org uses it by chatting. Nothing to configure, nothing to learn."}
+                : "A department lead sets the agent up — tools, policy, Library. From then on, anyone in the org uses it by chatting. Nothing to configure, nothing to learn."}
             </p>
           </div>
           <ul className="pillars-list">
@@ -796,7 +796,7 @@ function RecallySection({ lang }: { lang: Lang }) {
                   </div>
                   <div className="reader-item">
                     <div className="reader-item-title">
-                      {isZh ? "知识库怎么不变成垃圾场" : "Keeping a knowledge base usable"}
+                      {isZh ? "知识库怎么不变成垃圾场" : "Keeping a Library usable"}
                     </div>
                     <div className="reader-item-meta">notes · {isZh ? "3 天前" : "3d ago"}</div>
                   </div>

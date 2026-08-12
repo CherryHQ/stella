@@ -86,8 +86,12 @@ func (h *RuntimeHost) ApplyPlugin(ctx context.Context, pluginID string) error {
 	if channelType, ok := strings.CutPrefix(pluginID, config.PluginKindChannel+"/"); ok {
 		channels, err := h.host.store.ListChannelsByType(ctx, channelType)
 		if err == nil && len(channels) > 0 {
+			off, offErr := h.channelPlatformDisabled(ctx, channelType)
+			if offErr != nil {
+				return offErr
+			}
 			for _, channel := range channels {
-				if !desired.Enabled {
+				if off {
 					channel.Enabled = false
 				}
 				if err := h.ApplyChannel(ctx, channel); err != nil {
@@ -106,12 +110,37 @@ func (h *RuntimeHost) ApplyPlugin(ctx context.Context, pluginID string) error {
 	return nil
 }
 
+// channelPlatformDisabled reports whether an admin has switched a whole channel
+// platform off. Only a stored override row counts: the builtin default for a
+// channel plugin is "disabled" because a platform with no channel has nothing to
+// run, and reading that default as a veto would mean every channel instance
+// needed its plugin row flipped on first — a deployment-wide write as the price
+// of creating one channel. A channel instance is governed by its own Enabled
+// column; this is the kill switch above it.
+func (h *RuntimeHost) channelPlatformDisabled(ctx context.Context, channelType string) (bool, error) {
+	overrides, err := h.host.store.ListPluginOverrides(ctx)
+	if err != nil {
+		return false, err
+	}
+	pluginID := config.PluginID(config.PluginKindChannel, channelType)
+	for _, override := range overrides {
+		if override.ID == pluginID {
+			return !override.Enabled, nil
+		}
+	}
+	return false, nil
+}
+
 func (h *RuntimeHost) ApplyChannel(ctx context.Context, channel config.Channel) error {
 	if channel.Type == "" {
 		channel.Type = channel.ID
 	}
 	pluginID := config.PluginID(config.PluginKindChannel, channel.Type)
-	if desired, err := h.host.config.Get(ctx, pluginID); err == nil && !desired.Enabled {
+	off, err := h.channelPlatformDisabled(ctx, channel.Type)
+	if err != nil {
+		return err
+	}
+	if off {
 		channel.Enabled = false
 	}
 	regs := h.registrations(pluginID)

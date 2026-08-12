@@ -408,7 +408,7 @@ export function RecallyReader({
                 {summaryExpanded && (
                   <MarkdownPreview
                     content={selectedArticle.summary}
-                    className="mt-2 text-foreground leading-relaxed prose-headings:text-foreground prose-a:text-primary"
+                    className="mt-2 text-foreground"
                   />
                 )}
               </div>
@@ -418,7 +418,7 @@ export function RecallyReader({
             {parsed.body ? (
               <MarkdownPreview
                 content={parsed.body}
-                className="prose-neutral text-foreground leading-relaxed md:prose-base prose-headings:text-foreground prose-a:text-primary prose-a:no-underline hover:prose-a:underline font-sans text-[15px]"
+                className="text-foreground leading-relaxed font-sans text-base"
               />
             ) : (
               <div className="rounded-xl border border-border bg-card p-6 text-center space-y-3">

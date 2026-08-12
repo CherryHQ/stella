@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CherryHQ/stella/internal/eventlog"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -27,13 +28,12 @@ func addSecondMember(t *testing.T, fx dispatcherFixture) {
 	t.Helper()
 	ctx := context.Background()
 	if _, err := fx.q.CreateAgent(ctx, sqlc.CreateAgentParams{
-		ID:                   "agent-2",
-		Name:                 "Agent Two",
-		Workspace:            t.TempDir(),
-		Sandbox:              json.RawMessage("{}"),
-		EnabledBuiltinSkills: json.RawMessage("[]"),
-		Scope:                "system",
-		Enabled:              true,
+		ID:        "agent-2",
+		Name:      "Agent Two",
+		Workspace: t.TempDir(),
+		Sandbox:   json.RawMessage("{}"),
+		Scope:     "system",
+		Enabled:   true,
 	}); err != nil {
 		t.Fatalf("create agent-2: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestSemanticDispatchRecentContextExcludesFutureMessages(t *testing.T) {
 		ID:        "a1a1a1a1-0000-0000-0000-000000000000",
 		GroupID:   "11111111-1111-1111-1111-111111111111",
 		Seq:       0,
-		ActorType: "human",
+		ActorType: string(eventlog.ActorHuman),
 		ActorID:   "user-0",
 		Content:   "past",
 	}); err != nil {
@@ -344,7 +344,7 @@ func TestSemanticDispatchRecentContextExcludesFutureMessages(t *testing.T) {
 			ID:        msg.id,
 			GroupID:   "11111111-1111-1111-1111-111111111111",
 			Seq:       msg.seq,
-			ActorType: "human",
+			ActorType: string(eventlog.ActorHuman),
 			ActorID:   "user-future",
 			Content:   msg.content,
 		}); err != nil {

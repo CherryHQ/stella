@@ -9,6 +9,7 @@ import (
 	pgvector "github.com/pgvector/pgvector-go"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -42,8 +43,8 @@ func TestSearchMessageEmbeddings_RanksByCosineAndIsolatesSpace(t *testing.T) {
 		id := uuid.NewString()
 		ids[name] = id
 		seq++
-		if _, err := db.Exec(ctx, `INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count) VALUES ($1,$2,$3,'user','text',$4,5)`,
-			id, convID, seq, "msg "+name); err != nil {
+		if _, err := db.Exec(ctx, `INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, actor_type) VALUES ($1,$2,$3,'user','text',$4,5,$5)`,
+			id, convID, seq, "msg "+name, eventlog.ActorHuman); err != nil {
 			t.Fatalf("insert message %s: %v", name, err)
 		}
 	}

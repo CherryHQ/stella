@@ -239,7 +239,7 @@ export function GroupChat({ groupId }: Props) {
   const mentionOverlay =
     mentionQuery !== null && mentionCandidates.length > 0 ? (
       <div className="absolute bottom-full left-4 right-4 mb-1 max-h-40 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg sm:left-8 sm:right-8">
-        <div className="mx-auto max-w-3xl">
+        <div className="mx-auto max-w-[var(--chat-column)]">
           {mentionCandidates.map((m) => (
             <button
               key={m.agent_id}

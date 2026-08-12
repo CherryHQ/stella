@@ -13,13 +13,14 @@ import (
 // fakeBotChannel is a minimal channel whose Start blocks on the poll context, so
 // tests can observe when polling stops.
 type fakeBotChannel struct {
-	name    string
-	started chan struct{}
-	stopped chan struct{}
+	name      string
+	started   chan struct{}
+	stopped   chan struct{}
+	finalized chan struct{}
 }
 
 func newFakeBotChannel(name string) *fakeBotChannel {
-	return &fakeBotChannel{name: name, started: make(chan struct{}), stopped: make(chan struct{})}
+	return &fakeBotChannel{name: name, started: make(chan struct{}), stopped: make(chan struct{}), finalized: make(chan struct{})}
 }
 
 func (c *fakeBotChannel) Name() string { return c.name }
@@ -31,6 +32,7 @@ func (c *fakeBotChannel) Start(ctx context.Context) error {
 }
 func (c *fakeBotChannel) Stop()                                                 {}
 func (c *fakeBotChannel) Notify(context.Context, pkgchannel.Notification) error { return nil }
+func (c *fakeBotChannel) Finalize()                                             { close(c.finalized) }
 
 // fakeNotifier records channel registrations.
 type fakeNotifier struct {
@@ -137,6 +139,11 @@ func TestBotRuntimeQuiesceTwoPhase(t *testing.T) {
 	if !notifier.has("tg") {
 		t.Fatal("Quiesce unregistered the notifier; accepted work could not deliver")
 	}
+	select {
+	case <-ch.finalized:
+		t.Fatal("Quiesce finalized channel routing before accepted work drained")
+	default:
+	}
 	cancelParent()
 	if opCtx.Err() != nil {
 		t.Fatalf("work-context cancellation reached accepted operation before final Stop: %v", opCtx.Err())
@@ -163,4 +170,5 @@ func TestBotRuntimeQuiesceTwoPhase(t *testing.T) {
 	if notifier.has("tg") {
 		t.Fatal("final Stop did not unregister the notifier")
 	}
+	waitClosed(t, ch.finalized, "channel finalization")
 }

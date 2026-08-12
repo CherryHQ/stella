@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { providersQueryOptions, providerTypesQueryOptions } from "@/lib/queries/providers";
 import { useI18n } from "@/lib/i18n";
@@ -19,6 +19,13 @@ import { NewProviderForm } from "./NewProviderForm";
 export function ProvidersPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const isAdminSurface = useRouterState({
+    select: (state) => state.location.pathname.startsWith("/admin/"),
+  });
+  const listRoute = isAdminSurface ? "/admin/ai/providers" : "/settings/providers";
+  const detailRoute = isAdminSurface
+    ? "/admin/ai/providers/$providerId"
+    : "/settings/providers/$providerId";
   const params = useParams({ strict: false }) as { providerId?: string };
   const providerId = params.providerId;
 
@@ -92,10 +99,8 @@ export function ProvidersPage() {
         providerTypes={sortedTypes}
         providerDefaults={providerDefaults}
         existingIds={existingIds}
-        onCreated={(id) =>
-          void navigate({ to: "/settings/providers/$providerId", params: { providerId: id } })
-        }
-        onCancel={() => void navigate({ to: "/settings/providers" })}
+        onCreated={(id) => void navigate({ to: detailRoute, params: { providerId: id } })}
+        onCancel={() => void navigate({ to: listRoute })}
       />
     );
   } else if (selectedProvider) {
@@ -105,7 +110,7 @@ export function ProvidersPage() {
         provider={selectedProvider}
         providerTypes={sortedTypes}
         providerDefaults={providerDefaults}
-        onDeleted={() => void navigate({ to: "/settings/providers" })}
+        onDeleted={() => void navigate({ to: listRoute })}
       />
     );
   }
@@ -116,7 +121,7 @@ export function ProvidersPage() {
         title={t("providers.title")}
         action={
           <Button
-            render={<Link to="/settings/providers/$providerId" params={{ providerId: "new" }} />}
+            render={<Link to={detailRoute} params={{ providerId: "new" }} />}
             variant="outline"
             size="sm"
             // The form is built out of the provider-type registry. Without it
@@ -157,7 +162,7 @@ export function ProvidersPage() {
                     icon={<Boxes className="size-4" />}
                     title={p.name || p.id}
                     active={providerId === p.id}
-                    to="/settings/providers/$providerId"
+                    to={detailRoute}
                     params={{ providerId: p.id }}
                     footer={
                       <>
@@ -179,10 +184,7 @@ export function ProvidersPage() {
         )}
       </SettingsGridPage>
 
-      <SettingsDetailSheet
-        open={sheetOpen}
-        onClose={() => void navigate({ to: "/settings/providers" })}
-      >
+      <SettingsDetailSheet open={sheetOpen} onClose={() => void navigate({ to: listRoute })}>
         {detail}
       </SettingsDetailSheet>
     </>

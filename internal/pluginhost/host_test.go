@@ -96,6 +96,19 @@ func (s *stubStore) SetPluginConfig(_ context.Context, id string, cfg map[string
 	s.plugins[id] = p
 	return nil
 }
+
+// The real store writes only the config column here; the stub mirrors that by
+// leaving Enabled alone, and creating a missing row enabled.
+func (s *stubStore) SetChannelPluginConfig(_ context.Context, id, kind, name string, cfg map[string]any) error {
+	p, ok := s.plugins[id]
+	if !ok {
+		p = config.Plugin{ID: id, Kind: kind, Name: name, Enabled: true}
+	}
+	p.Config = cfg
+	s.plugins[id] = p
+	return nil
+}
+
 func (s *stubStore) DeletePlugin(context.Context, string) error { return nil }
 func (s *stubStore) GetManifestPluginOverride(context.Context, string) (config.ManifestPluginOverride, bool, error) {
 	return config.ManifestPluginOverride{}, false, nil
@@ -348,8 +361,8 @@ func TestValidateRegistrationsAcceptsToolLifecycleOnly(t *testing.T) {
 func TestSessionPluginViewRegistersDisabledManifestPlugins(t *testing.T) {
 	host := New(&stubStore{plugins: map[string]config.Plugin{}})
 	host.RegisterManifestPlugins(&manifestplugins.Manifest{Plugins: []manifestplugins.ManifestPlugin{
-		{ID: "tool/xberg", Kind: "tool", Name: "xberg", Enabled: false, Binaries: []manifestplugins.ManifestBinary{{Name: "xberg", Tool: "github:xberg-io/xberg"}}},
-		{ID: "tool/enabled", Kind: "tool", Name: "enabled", Enabled: true, Prompt: "enabled"},
+		{ID: "tool/xberg", Kind: "tool", Enabled: false, ManifestPluginDefinition: manifestplugins.ManifestPluginDefinition{Name: "xberg", Binaries: []manifestplugins.ManifestBinary{{Name: "xberg", Tool: "github:xberg-io/xberg"}}}},
+		{ID: "tool/enabled", Kind: "tool", Enabled: true, ManifestPluginDefinition: manifestplugins.ManifestPluginDefinition{Name: "enabled", Prompt: "enabled"}},
 	}})
 
 	view, err := host.SessionPluginView(context.Background())
@@ -375,12 +388,14 @@ func TestValidateRegistrationsAcceptsCLIBackedPromptOnlyTool(t *testing.T) {
 	host.RegisterManifestPlugins(&manifestplugins.Manifest{
 		Plugins: []manifestplugins.ManifestPlugin{
 			{
-				ID:          "tool/mise",
-				Kind:        "tool",
-				Name:        "mise",
-				DisplayName: "mise",
-				Enabled:     enabled,
-				Prompt:      "Use mise to manage runtimes and tools.",
+				ID:      "tool/mise",
+				Kind:    "tool",
+				Enabled: enabled,
+				ManifestPluginDefinition: manifestplugins.ManifestPluginDefinition{
+					Name:        "mise",
+					DisplayName: "mise",
+					Prompt:      "Use mise to manage runtimes and tools.",
+				},
 			},
 		},
 	})
@@ -397,13 +412,15 @@ func TestManifestSessionEnvPropagatesOAuthProvider(t *testing.T) {
 		Plugins: []manifestplugins.ManifestPlugin{{
 			ID:      "tool/acme-cli",
 			Kind:    "tool",
-			Name:    "acme-cli",
 			Enabled: true,
-			SessionEnvs: []manifestplugins.ManifestSessionEnv{{
-				EnvVar: "ACME_ACCESS_TOKEN",
-				Source: "oauth.access_token",
-			}},
-			OAuthProvider: "acme",
+			ManifestPluginDefinition: manifestplugins.ManifestPluginDefinition{
+				Name: "acme-cli",
+				SessionEnvs: []manifestplugins.ManifestSessionEnv{{
+					EnvVar: "ACME_ACCESS_TOKEN",
+					Source: "oauth.access_token",
+				}},
+				OAuthProvider: "acme",
+			},
 		}},
 	}
 	host.RegisterManifestPlugins(manifest)
