@@ -134,9 +134,12 @@ INSERT INTO ctx_message (
   event_type,
   content,
   token_count,
+  actor_type,
+  actor_id,
+  source_session_id,
   origin_group_message_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (conversation_id, origin_group_message_id)
   WHERE origin_group_message_id IS NOT NULL
 DO NOTHING
@@ -151,6 +154,9 @@ type CreateMessageWithGroupOriginParams struct {
 	EventType            string      `json:"event_type"`
 	Content              string      `json:"content"`
 	TokenCount           int64       `json:"token_count"`
+	ActorType            string      `json:"actor_type"`
+	ActorID              pgtype.Text `json:"actor_id"`
+	SourceSessionID      pgtype.Text `json:"source_session_id"`
 	OriginGroupMessageID pgtype.Text `json:"origin_group_message_id"`
 }
 
@@ -163,6 +169,9 @@ func (q *Queries) CreateMessageWithGroupOrigin(ctx context.Context, arg CreateMe
 		arg.EventType,
 		arg.Content,
 		arg.TokenCount,
+		arg.ActorType,
+		arg.ActorID,
+		arg.SourceSessionID,
 		arg.OriginGroupMessageID,
 	)
 	var i CtxMessage

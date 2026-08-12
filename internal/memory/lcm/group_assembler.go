@@ -28,6 +28,7 @@ type groupHistoryMessage struct {
 	Seq              int64
 	ActorType        string
 	ActorID          string
+	AgentSessionID   string
 	ActorDisplayName pgtype.Text
 	Content          string
 	ContentBlocks    []byte
@@ -78,6 +79,7 @@ func (p *Provider) SyncGroupEventsBefore(ctx context.Context, session memory.Ses
 			Seq:              row.Seq,
 			ActorType:        row.ActorType,
 			ActorID:          row.ActorID,
+			AgentSessionID:   row.AgentSessionID,
 			ActorDisplayName: row.ActorDisplayName,
 			Content:          row.Content,
 		})
@@ -120,6 +122,7 @@ func (p *Provider) AppendGroupTurn(
 		Seq:              row.Seq,
 		ActorType:        row.ActorType,
 		ActorID:          row.ActorID,
+		AgentSessionID:   row.AgentSessionID,
 		ActorDisplayName: row.ActorDisplayName,
 		Content:          row.Content,
 		ContentBlocks:    row.ContentBlocks,
@@ -188,9 +191,13 @@ func (p *Provider) appendGroupHistory(
 			return fmt.Errorf("get max ordinal: %w", err)
 		}
 
-		appendMessage := func(msg ai.Message, originGroupMessageID string) error {
+		appendMessage := func(msg ai.Message, originGroupMessageID string, originActor *eventlog.MessageActor) error {
 			for rowIndex, row := range messageToRows(msg) {
 				seq++
+				actor := actorForStorageRow(ctx, session, row)
+				if originActor != nil {
+					actor = *originActor
+				}
 				var dbMsg sqlc.CtxMessage
 				if originGroupMessageID != "" && rowIndex == 0 {
 					dbMsg, err = qtx.CreateMessageWithGroupOrigin(ctx, sqlc.CreateMessageWithGroupOriginParams{
@@ -201,6 +208,9 @@ func (p *Provider) appendGroupHistory(
 						EventType:            row.eventType,
 						Content:              row.content,
 						TokenCount:           int64(memory.EstimateTokens(row.content)),
+						ActorType:            string(actor.Type),
+						ActorID:              pgtype.Text{String: actor.ID, Valid: actor.ID != ""},
+						SourceSessionID:      pgtype.Text{String: actor.SourceSessionID, Valid: actor.SourceSessionID != ""},
 						OriginGroupMessageID: pgtype.Text{String: originGroupMessageID, Valid: true},
 					})
 				} else {
@@ -212,6 +222,12 @@ func (p *Provider) appendGroupHistory(
 						EventType:      row.eventType,
 						Content:        row.content,
 						TokenCount:     int64(memory.EstimateTokens(row.content)),
+						ActorType:      string(actor.Type),
+						ActorID:        pgtype.Text{String: actor.ID, Valid: actor.ID != ""},
+						SourceSessionID: pgtype.Text{
+							String: actor.SourceSessionID,
+							Valid:  actor.SourceSessionID != "",
+						},
 					})
 				}
 				if err != nil {
@@ -250,12 +266,17 @@ func (p *Provider) appendGroupHistory(
 			if !ok {
 				continue
 			}
-			if err := appendMessage(msg, publicRow.ID); err != nil {
+			actor := eventlog.MessageActor{
+				Type:            eventlog.ActorType(publicRow.ActorType),
+				ID:              publicRow.ActorID,
+				SourceSessionID: publicRow.AgentSessionID,
+			}
+			if err := appendMessage(msg, publicRow.ID, &actor); err != nil {
 				return err
 			}
 		}
 		for _, msg := range continuation {
-			if err := appendMessage(msg, ""); err != nil {
+			if err := appendMessage(msg, "", nil); err != nil {
 				return err
 			}
 		}

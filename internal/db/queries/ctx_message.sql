@@ -15,9 +15,12 @@ INSERT INTO ctx_message (
   event_type,
   content,
   token_count,
+  actor_type,
+  actor_id,
+  source_session_id,
   origin_group_message_id
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (conversation_id, origin_group_message_id)
   WHERE origin_group_message_id IS NOT NULL
 DO NOTHING
