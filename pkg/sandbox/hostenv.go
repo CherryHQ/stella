@@ -17,7 +17,6 @@ func StellaHomeSandboxDirs() []string {
 	return []string{
 		"bin",
 		".mise-tools",
-		filepath.Join(".agents", "skills"),
 	}
 }
 
@@ -87,7 +86,7 @@ func PerUserMiseDataDir(env map[string]string, stellaHome string) string {
 
 // HostEnvBuildPath returns a sanitized PATH suitable for host-execution sandbox
 // backends (local, none). It prepends the per-user mise shims (so a user's own
-// tool versions win), then the system mise shims and stella bin directories, and
+// tool versions win), then Stella's embedded runtimes and the system mise shims, and
 // filters host PATH entries to a safe allowlist on Linux. An empty userShimsDir
 // is dropped, so callers without a per-user tree pass "".
 func HostEnvBuildPath(stellaHome, userShimsDir string) string {
@@ -95,11 +94,11 @@ func HostEnvBuildPath(stellaHome, userShimsDir string) string {
 	shimsDir := MiseShimsDir(stellaHome)
 	if runtime.GOOS != "linux" {
 		return strings.Join(hostEnvDedupeEntries([]string{
-			userShimsDir, shimsDir, stellaBin, os.Getenv("PATH"),
+			userShimsDir, stellaBin, shimsDir, os.Getenv("PATH"),
 		}), string(os.PathListSeparator))
 	}
 
-	entries := []string{userShimsDir, shimsDir, stellaBin}
+	entries := []string{userShimsDir, stellaBin, shimsDir}
 	for entry := range strings.SplitSeq(os.Getenv("PATH"), string(os.PathListSeparator)) {
 		if hostEnvPathAllowed(entry, stellaBin) {
 			entries = append(entries, entry)

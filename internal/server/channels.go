@@ -49,6 +49,7 @@ type channelWriteRequest struct {
 
 var channelLinkLabels = map[string]string{
 	pkgchannel.PlatformTelegram: "Telegram",
+	pkgchannel.PlatformDiscord:  "Discord",
 	pkgchannel.PlatformQQ:       "QQ",
 	pkgchannel.PlatformFeishu:   "Feishu",
 	pkgchannel.PlatformWeixin:   "Weixin",
@@ -56,6 +57,7 @@ var channelLinkLabels = map[string]string{
 
 var channelLinkOrder = []string{
 	pkgchannel.PlatformTelegram,
+	pkgchannel.PlatformDiscord,
 	pkgchannel.PlatformQQ,
 	pkgchannel.PlatformFeishu,
 	pkgchannel.PlatformWeixin,
@@ -83,7 +85,7 @@ func (s *Server) ListPublicChannels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	enabledTypes, err := s.controlPlane.EnabledChannelTypes(r.Context(), authority)
+	disabledTypes, err := s.controlPlane.DisabledChannelTypes(r.Context(), authority)
 	if err != nil {
 		s.writeControlPlaneError(w, err)
 		return
@@ -101,7 +103,7 @@ func (s *Server) ListPublicChannels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeData(w, http.StatusOK, map[string]any{"channels": buildPublicChannelViews(channels, enabledTypes, agentNames)})
+	writeData(w, http.StatusOK, map[string]any{"channels": buildPublicChannelViews(channels, disabledTypes, agentNames)})
 }
 
 func (s *Server) accessibleAgentNames(r *http.Request, info *AuthInfo) (map[string]string, error) {
@@ -110,6 +112,8 @@ func (s *Server) accessibleAgentNames(r *http.Request, info *AuthInfo) (map[stri
 	if err != nil {
 		return nil, agentaccess.ErrForbidden
 	}
+	// An admin's channel list spans the deployment, so the names that label those
+	// channels must too. Everyone else names the agents in their own fleet.
 	agents, err := s.agentAccess.ListReadable(ctx, authority, info.IsAdmin)
 	if err != nil {
 		return nil, err
@@ -123,11 +127,15 @@ func (s *Server) accessibleAgentNames(r *http.Request, info *AuthInfo) (map[stri
 	return names, nil
 }
 
-func buildPublicChannelViews(channels []controlplane.PublicChannel, enabledTypes map[string]bool, agentNames map[string]string) []publicChannelView {
+// buildPublicChannelViews projects the channels a signed-in caller may see. A
+// channel is visible when its own row is enabled and an admin has not switched
+// the whole platform off; a platform with no plugin row is usable, so a freshly
+// created channel appears without anyone enabling its plugin.
+func buildPublicChannelViews(channels []controlplane.PublicChannel, disabledTypes map[string]bool, agentNames map[string]string) []publicChannelView {
 	views := make([]publicChannelView, 0, len(channels))
 	for _, ch := range channels {
 		channelType := ch.Type
-		if !ch.Enabled || !enabledTypes[channelType] {
+		if !ch.Enabled || disabledTypes[channelType] {
 			continue
 		}
 		agentName := ""
@@ -249,7 +257,7 @@ func (s *Server) BindChannelAgent(w http.ResponseWriter, r *http.Request, id str
 }
 
 func (s *Server) ListChannels(w http.ResponseWriter, r *http.Request) {
-	access, ok := s.beginControlPlane(w, r)
+	access, ok := s.beginChannelAccess(w, r)
 	if !ok {
 		return
 	}
@@ -266,7 +274,7 @@ func (s *Server) ListChannels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) GetChannel(w http.ResponseWriter, r *http.Request, id string) {
-	access, ok := s.beginControlPlane(w, r)
+	access, ok := s.beginChannelAccess(w, r)
 	if !ok {
 		return
 	}
@@ -279,7 +287,7 @@ func (s *Server) GetChannel(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string) {
-	access, ok := s.beginControlPlane(w, r)
+	access, ok := s.beginChannelAccess(w, r)
 	if !ok {
 		return
 	}
@@ -292,11 +300,18 @@ func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string
 
 	ctx := r.Context()
 	// Load the current row only to merge unspecified write fields (a PUT is a
-	// partial update). The read goes through the authorized Access — beginControlPlane
-	// already 403'd a non-admin before any state is observed — so the transport never
-	// holds the aggregate config store.
+	// partial update). The read goes through the authorized Access — which scoped
+	// the caller to their own channels before any state is observed — so the
+	// transport never holds the aggregate config store.
 	existing, existingErr := access.GetChannel(ctx, id)
 	hasExisting := existingErr == nil
+	// The platform a channel speaks is fixed at creation. Retyping it would carry
+	// the old row's credentials into a different platform's validation and, for
+	// the singleton platforms, past the id rules the create path enforces.
+	if requested := requestChannelType(req); hasExisting && requested != "" && requested != effectiveChannelType(existing) {
+		writeError(w, http.StatusBadRequest, "channel type cannot be changed")
+		return
+	}
 	// Save overwrites the stored config unconditionally, so an omitted config must
 	// resolve to the current row's config or a PATCH of an unrelated field would
 	// wipe the channel's credentials.
@@ -316,7 +331,7 @@ func (s *Server) UpdateChannel(w http.ResponseWriter, r *http.Request, id string
 }
 
 func (s *Server) CreateChannel(w http.ResponseWriter, r *http.Request) {
-	access, ok := s.beginControlPlane(w, r)
+	access, ok := s.beginChannelAccess(w, r)
 	if !ok {
 		return
 	}
@@ -470,7 +485,7 @@ func parseChannelConfig(raw string) (map[string]any, error) {
 }
 
 func (s *Server) DeleteChannel(w http.ResponseWriter, r *http.Request, id string) {
-	access, ok := s.beginControlPlane(w, r)
+	access, ok := s.beginChannelAccess(w, r)
 	if !ok {
 		return
 	}

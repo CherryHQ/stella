@@ -1,6 +1,9 @@
 -- name: GetChannel :one
 SELECT * FROM channel WHERE id = $1;
 
+-- name: GetChannelForUpdate :one
+SELECT * FROM channel WHERE id = $1 FOR UPDATE;
+
 -- name: CreateChannel :one
 INSERT INTO channel (id, name, type, agent_id, enabled, config)
 VALUES ($1, $2, $3, $4, $5, $6)

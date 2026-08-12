@@ -238,8 +238,9 @@ func appendWorkspaceRelativeReadOnlyMount(opts *dockerclient.CreateOptions, sour
 // whose binaries may be a different platform — so the /opt/stella image versions
 // win and the per-user relative symlinks resolve against a runnable system tree.
 var dockerImageProvidedStellaDirs = map[string]struct{}{
-	"bin":         {},
-	".mise-tools": {},
+	"bin":            {},
+	".mise-tools":    {},
+	"skills/builtin": {},
 }
 
 // writableMount is a per-user writable tree mounted into the container, recording

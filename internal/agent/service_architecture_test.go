@@ -67,6 +67,7 @@ func TestService_Delegate_EmptySessionIDCreatesNew(t *testing.T) {
 
 	ctx := authz.WithUserID(context.Background(), "u1")
 	ctx = authz.WithAgentID(ctx, "agent1")
+	ctx = memory.WithSessionID(ctx, "source-session")
 
 	res, err := svc.Delegate(ctx, agent.DelegateRequest{
 		UserID:  "u1",
@@ -86,6 +87,7 @@ func TestService_Delegate_EmptySessionIDCreatesNew(t *testing.T) {
 func TestService_RunDelegateSessionUsesFreshPEP(t *testing.T) {
 	svc, _ := newTestService(t, []agentruntime.Event{{Text: "done"}})
 	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), "u1"), "agent1")
+	ctx = memory.WithSessionID(ctx, "source-session")
 
 	res, err := svc.RunDelegateSession(ctx, delegatetool.SessionRunRequest{Task: "work"})
 	if err != nil {

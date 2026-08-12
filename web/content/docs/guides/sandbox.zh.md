@@ -172,7 +172,15 @@ mise、Lark 和系统目录由其工具托管，不是通用存储位置。
 
 每个后端都会为每个沙箱会话创建私有临时目录，并在会话关闭时删除。Docker 的 backing 目录位于 `$STELLA_HOME/cache/sandbox-tmp/` 下并挂载到 `/tmp`，因此 shell 命令和文件工具访问的是同一份内容；启动清理会删除遗留的 Docker 临时目录。这是临时工作区，不承诺持久性。
 
-隔离型后端还会将系统安装树以只读方式渲染到 `/opt/stella`。其中只挂载 `bin`、`.mise-tools` 和 `.agents/skills` 子树；`STELLA_HOME` 下同级的 `users/` 和 `agents/` 树不会暴露。Docker 后端会将 mise 工具链置于该路径，Linux `local` 则在该路径渲染对应的系统树，因此工具解析在各隔离型后端之间保持一致。`MISE_DATA_DIR` 及相关变量固定指向这个由工具托管的目录树。
+隔离型后端还会将系统安装树以只读方式渲染到 `/opt/stella`。其中保留由工具托管的 `bin` 和 `.mise-tools` 树，builtin 位于 `/opt/stella/skills/builtin`，选定的 PostgreSQL 派生只读镜像位于 `/opt/stella/db-skills` 和 `/opt/stella/agent-skills`；`STELLA_HOME` 下同级的 `users/` 和 `agents/` 树不会暴露。Docker 后端会将 mise 工具链置于该路径，Linux `local` 则在该路径渲染对应的系统树，因此工具解析在各隔离型后端之间保持一致。`MISE_DATA_DIR` 及相关变量固定指向这个由工具托管的目录树。
+
+### builtin Skill bundle
+
+原生 `local` 和 `none` 安装使用 `$STELLA_HOME/bundles/<revision>` 中与发行版完全一致的 bundle。只读挂载 `/opt/stella/skills/builtin` 只是隔离执行视图，绝不是第二个权威。bundle 中辅助可执行文件的模式会被保留。
+
+Docker 沙箱镜像会烤入并标记同一 revision，且不会回退到宿主机 builtin。Docker provider preflight 会拒绝 revision 与运行中的 Stella 二进制不匹配的组合，因此 runner session 不会启动。命令语法请运行 `stellad system-bundle --help`。开发者重建本地沙箱镜像时运行 `mise run sandbox:docker:build`；自定义沙箱镜像必须从匹配的 Stella revision 重建。
+
+升级前，请使用旧的可工作二进制，将遗留 `$STELLA_HOME/.agents/skills` 下的每个自定义 Skill 根导入为全局（`system`）Skill：旧版入口为 **设置 → 技能**，新版入口为 **管理控制台 → 部署资源 → 全局技能**。其他残留路径应先备份、验证后删除。启动会列出每个阻塞路径并停止，不会删除或修改任何内容。当前发行 manifest 所拥有的路径即使内容或模式陈旧也只是惰性数据；其他每个 Skill 根或残留路径都会阻塞启动。
 
 ### 升级现有工作区
 
@@ -212,8 +220,8 @@ Docker 和 Linux 本地后端会在会话创建时验证网络模式，如果后
 **Volume 模式："workspace is not inside STELLA_HOME"：**
 在 volume 模式下，所有沙箱工作区必须是 `STELLA_HOME` 的子目录。此错误意味着工作区路径解析到了 volume 边界之外。检查 `STELLA_HOME` 和 `STELLA_HOME_VOLUME` 配置是否正确。
 
-**Xberg 无法加载 `libheif`：**
-Stella 的 Docker 镜像已包含兼容版本。本机 Linux 部署需要 libheif 1.21 或更高版本；Debian 13 的软件包版本过旧。macOS 可运行 `brew install libheif` 安装。如果无法提供兼容的本机动态库，请使用 Docker 沙箱后端。
+**升级后 Xberg 不可用：**
+当前 Linux 和 macOS 版本已内置 Xberg 及其原生动态库。请使用升级后的 `stellad` 二进制重启 Stella，让它把匹配的运行时安装到 `STELLA_HOME`；不要另行安装 `libheif`。
 
 **macOS/Windows 上绑定挂载性能慢：**
 Docker Desktop 对绑定挂载使用虚拟化文件系统层。对于高 I/O 工作负载，考虑使用 named volume（`volume` 模式）或在宿主机上原生运行 stellad（`host` 模式）。

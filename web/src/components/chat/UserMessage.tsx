@@ -1,8 +1,10 @@
 import { FileText } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { useI18n } from "@/lib/i18n";
 import { formatTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type { ContentBlock } from "@/lib/types";
+import { Badge } from "@/components/ui/badge";
 import { CopyButton, REVEAL_ON_HOVER } from "./CopyButton";
 import { basename, replaceUUIDMentions, userMessageRenderInput, workspaceFileURL } from "./utils";
 
@@ -18,6 +20,9 @@ export interface UserMessageProps {
   agentNames?: Map<string, string>;
   sameRoleAsPrev?: boolean;
   showTimestamp?: boolean;
+  actorType?: "human" | "agent" | "system";
+  actorId?: string;
+  sourceSessionId?: string;
 }
 
 export function UserMessage({
@@ -27,20 +32,47 @@ export function UserMessage({
   agentNames,
   sameRoleAsPrev,
   showTimestamp,
+  actorType,
+  actorId,
+  sourceSessionId,
 }: UserMessageProps) {
   const { t } = useI18n();
   const { canonicalBlocks, hasCanonicalImage, text, images, otherFiles } = userMessageRenderInput(
     msg,
     agentNames,
   );
+  const nonHuman = actorType === "agent" || actorType === "system";
+  const actorLabel =
+    actorType === "agent"
+      ? (agentNames?.get(actorId ?? "") ?? actorId ?? t("chat.agentMessage"))
+      : actorType === "system"
+        ? t("chat.systemMessage")
+        : t("chat.you");
 
   return (
     <div className="group w-full min-w-0 flex flex-col items-end gap-1.5">
       {!sameRoleAsPrev && (
         <div className="flex items-center gap-2 mb-0.5">
-          <span className="text-xs font-semibold text-foreground">{t("chat.you")}</span>
+          <span className="text-xs font-semibold text-foreground">{actorLabel}</span>
+          {sourceSessionId && (
+            <Badge
+              variant="secondary"
+              size="sm"
+              title={sourceSessionId}
+              render={
+                agentId ? (
+                  <Link
+                    to="/agents/$agentId/sessions/$sessionId"
+                    params={{ agentId, sessionId: sourceSessionId }}
+                  />
+                ) : undefined
+              }
+            >
+              {t("chat.fromSession")}
+            </Badge>
+          )}
           <span className="grid size-5 place-items-center rounded-full bg-foreground/15 text-xs font-semibold text-foreground shrink-0">
-            Y
+            {nonHuman ? (actorType === "agent" ? "A" : "S") : "Y"}
           </span>
         </div>
       )}
@@ -50,7 +82,7 @@ export function UserMessage({
               block.type === "text" ? (
                 <div
                   key={`text-${index}`}
-                  className="min-w-0 max-w-[85%] break-words rounded-2xl rounded-tr-md border border-border bg-secondary px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-foreground font-sans text-left"
+                  className="min-w-0 max-w-[85%] break-words rounded-2xl rounded-tr-md border border-border bg-secondary px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-foreground font-sans text-left"
                 >
                   {renderMentionedText(replaceUUIDMentions(block.text, agentNames), agentNames)}
                 </div>
@@ -72,7 +104,7 @@ export function UserMessage({
               ),
             )
           : text && (
-              <div className="min-w-0 max-w-[85%] break-words rounded-2xl rounded-tr-md border border-border bg-secondary px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap text-foreground font-sans text-left">
+              <div className="min-w-0 max-w-[85%] break-words rounded-2xl rounded-tr-md border border-border bg-secondary px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap text-foreground font-sans text-left">
                 {renderMentionedText(text, agentNames)}
               </div>
             )}
@@ -120,7 +152,7 @@ export function UserMessage({
         {(hasCanonicalImage || text || (showTimestamp && msg.timestamp)) && (
           <div
             className={cn(
-              "flex items-center gap-2 text-xs font-mono text-muted-foreground/60",
+              "flex items-center gap-2 text-xs font-mono text-muted-foreground",
               REVEAL_ON_HOVER,
             )}
           >

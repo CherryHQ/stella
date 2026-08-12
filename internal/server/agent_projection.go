@@ -73,10 +73,30 @@ func createAgentFromAPI(in apitypes.CreateAgentRequest) (config.Agent, string, [
 	return agent, stringValue(in.TemplateId), inputs
 }
 
+// agentViewer is the caller a projection is written for. Two of the Agent
+// fields are viewer-dependent, so the projection cannot be a pure function of
+// the domain row.
+type agentViewer struct {
+	userID  string
+	isAdmin bool
+}
+
+func viewerFrom(info *AuthInfo) agentViewer {
+	if info == nil {
+		return agentViewer{}
+	}
+	return agentViewer{userID: info.UserID, isAdmin: info.IsAdmin}
+}
+
 // agentToAPI is the explicit secret-free domain-to-transport projection. Keep
 // this field list in sync with the public Agent schema rather than serializing a
 // domain struct whose internals may grow.
-func agentToAPI(in config.Agent) apitypes.Agent {
+//
+// can_manage is the server's answer to "may I configure this?", so no client
+// has to rebuild the rule from ids. creator_id rides along only for a viewer
+// who may manage the agent: it is a stable user identifier, and a readable
+// system-scope agent would otherwise hand every user a directory of user ids.
+func agentToAPI(in config.Agent, viewer agentViewer) apitypes.Agent {
 	out := apitypes.Agent{
 		Id:                  stringPtr(in.ID),
 		Name:                stringPtr(in.Name),
@@ -90,12 +110,16 @@ func agentToAPI(in config.Agent) apitypes.Agent {
 		Soul:                stringPtr(in.Soul),
 		Workspace:           stringPtr(in.Workspace),
 		Scope:               stringPtr(in.Scope),
-		CreatorId:           stringPtr(in.CreatorID),
 		Enabled:             boolPtrValue(in.Enabled),
 		Sandbox: &apitypes.SandboxConfig{Network: &apitypes.SandboxNetworkConfig{
 			Mode:      stringPtr(in.Sandbox.Network.Mode),
 			Allowlist: stringsPtr(in.Sandbox.Network.Allowlist),
 		}},
+	}
+	canManage := viewer.isAdmin || (in.CreatorID != "" && in.CreatorID == viewer.userID)
+	out.CanManage = &canManage
+	if canManage {
+		out.CreatorId = stringPtr(in.CreatorID)
 	}
 	if in.LastActive != nil {
 		lastActive := in.LastActive.UTC()

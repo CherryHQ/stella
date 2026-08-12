@@ -137,6 +137,72 @@ describe("semantic color pairs resolve to defined theme tokens", () => {
     expect([...seen.keys()].sort()).toEqual([...VENDORED_ALLOWANCE.keys()].sort());
   });
 
+  it("keeps alpha off text, where it dilutes a passing token below the floor", () => {
+    // The pair check above reads `(?:\/\d+)?` and throws the alpha away, so
+    // `text-muted-foreground/40` resolves to a defined token and passes. Every
+    // token named there is measured at full strength: `muted-foreground` is
+    // 5.61:1 on `background`. Composited at 40% it is 1.82:1, and nothing in
+    // the suite noticed, because the guard was built to catch an *undefined*
+    // token, not a diluted one.
+    //
+    // The chat surface had drifted to seven tiers (/30 through /80) used as a
+    // hierarchy. Five of them failed 4.5:1 at 12px; the run verdict sat at
+    // 2.29:1. `web-design.md` computes exactly this alpha composite for status
+    // colors on tinted surfaces — it was body copy that never got the same
+    // arithmetic.
+    //
+    // Size and weight carry hierarchy. Opacity does not, because the floor is
+    // absolute and a second tier of a passing token is a failing token.
+    //
+    // Scoped to `text-*`: `bg-primary/10` as a wash and `border-border/50` as a
+    // hairline are legitimate — a surface owes 3:1 only when it carries meaning,
+    // and these sit under content that carries its own contrast.
+    const TEXT_ALPHA =
+      /\btext-(?:foreground|muted-foreground|primary|secondary|destructive|accent|card|popover|sidebar|success|warning|info)(?:-foreground)?\/\d+\b/g;
+
+    // Files still on the old scale, pinned at their current count so the number
+    // can only go down. CossUI is vendored and regenerated, so its six live here
+    // for the same reason the `text-destructive` allowance above does: an
+    // exception the next `coss add` can reintroduce silently is a blind spot.
+    const ALLOWANCE = new Map([
+      [join("components", "ui", "calendar.tsx"), 4],
+      [join("components", "ui", "command.tsx"), 1],
+      [join("components", "ui", "input.tsx"), 1],
+      [join("components", "ui", "menu.tsx"), 1],
+      [join("components", "ui", "select.tsx"), 1],
+      [join("components", "ui", "tabs.tsx"), 1],
+      [join("features", "agents", "tabs", "AdvancedTab.tsx"), 1],
+      [join("features", "goals", "GoalPage.tsx"), 2],
+      [join("features", "goals", "GoalsPage.tsx"), 2],
+      [join("features", "memories", "ProfileSection.tsx"), 1],
+      [join("features", "recally", "components", "RecallyArticleList.tsx"), 3],
+      [join("features", "recally", "components", "RecallyChat.tsx"), 2],
+      [join("features", "recally", "components", "RecallyReader.tsx"), 4],
+      [join("features", "recally", "components", "RecallySourceNav.tsx"), 3],
+    ]);
+
+    const offenders: string[] = [];
+    const seen = new Map<string, number>();
+    for (const file of walk(SRC)) {
+      const where = file.slice(SRC.length + 1);
+      const hits = [...readFileSync(file, "utf8").matchAll(TEXT_ALPHA)];
+      if (!hits.length) continue;
+      seen.set(where, hits.length);
+      const allowed = ALLOWANCE.get(where) ?? 0;
+      if (hits.length <= allowed) continue;
+      offenders.push(
+        `${where}: ${hits.length}x alpha on text (${allowed} allowed) — ${hits[0][0]}; ` +
+          `drop the alpha, or carry the tier with size and weight`,
+      );
+    }
+    expect(offenders).toEqual([]);
+
+    // A file that finished migrating has to drop off the list rather than sit
+    // here as a standing permission to regress.
+    const stale = [...ALLOWANCE.keys()].filter((f) => (seen.get(f) ?? 0) < (ALLOWANCE.get(f) ?? 0));
+    expect(stale, "allowance entries above the real count — lower or remove them").toEqual([]);
+  });
+
   it("defines the status pairs the vendored CossUI variants consume", () => {
     const defined = definedColorTokens();
     // badge.tsx, alert.tsx and toast.tsx ship success/warning/info variants that

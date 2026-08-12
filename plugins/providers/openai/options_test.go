@@ -20,6 +20,9 @@ func TestBuildParamsBasic(t *testing.T) {
 	if len(params.Messages) != 1 {
 		t.Errorf("expected 1 message, got %d", len(params.Messages))
 	}
+	if !params.StreamOptions.IncludeUsage.Value {
+		t.Error("stream_options.include_usage = false, want true")
+	}
 }
 
 func TestBuildParamsWithTemperature(t *testing.T) {

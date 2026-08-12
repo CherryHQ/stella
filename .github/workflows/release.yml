@@ -13,8 +13,8 @@ env:
   IMAGE_NAME: cherryhq/stella
 
 jobs:
-  validate:
-    name: Validate Tagged Commit
+  source:
+    name: Verify Release Source
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -25,7 +25,7 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Verify tagged commit identity
+      - name: Verify tag identity and release branch
         env:
           EVENT_REF: ${{ github.ref }}
           EVENT_SHA: ${{ github.sha }}
@@ -36,11 +36,26 @@ jobs:
           tag_commit="$(git rev-parse "${EVENT_REF}^{commit}")"
           test "$head_commit" = "$event_commit"
           test "$head_commit" = "$tag_commit"
+
+          release_branch="$(.github/scripts/verify-release-source.sh "$GITHUB_REF_NAME" "$head_commit")"
           {
             echo "### Validated release source"
             echo "- Tag: \`${GITHUB_REF_NAME}\`"
+            echo "- Branch: \`${release_branch}\`"
             echo "- Commit: \`${head_commit}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  quality:
+    name: Quality and Build
+    needs: source
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
 
       - name: Setup mise
         uses: jdx/mise-action@v4
@@ -50,20 +65,21 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install bubblewrap
-        run: |
-          set -euo pipefail
-          sudo apt-get install -y bubblewrap
-          # Ubuntu 24.04 blocks unprivileged user namespaces through AppArmor, so
-          # an installed bwrap still cannot create a sandbox. The local sandbox
-          # backend probes exactly this, and the System Test runs real agent
-          # turns through it — without the sysctl every turn fails at runtime.
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          # Fail here, with the reason visible, rather than inside a test run.
-          bwrap --unshare-pid --unshare-ipc --unshare-uts --dev-bind / / -- true
+      - name: Cache Go build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
 
       - name: Generate code and check drift
         run: mise run generate:check
+
+      - name: Test release source policy
+        run: bash .github/scripts/verify-release-source_test.sh
 
       - name: Check formatting and lint
         run: |
@@ -74,10 +90,50 @@ jobs:
       - name: Build
         run: mise run build
 
-      # go:embed snapshots web/static/dist at compile time, so the SPA has to
-      # exist before the test binaries are built. GoReleaser builds it later in
-      # this job anyway — building it here is what lets the PWA build contract
-      # be checked instead of skipped.
+  tests:
+    name: Go and Web Tests
+    needs: source
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+        with:
+          experimental: true
+          install: true
+          cache: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Go build and PostgreSQL runtime
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            ~/.stella/pg-runtime
+          key: ${{ runner.os }}-tests-${{ hashFiles('**/go.sum', 'internal/pgruntime/**') }}
+          restore-keys: |
+            ${{ runner.os }}-tests-
+            ${{ runner.os }}-go-
+
+      - name: Install bubblewrap
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --unshare-pid --unshare-ipc --unshare-uts --dev-bind / / -- true
+
+      - name: Generate code and check drift
+        run: mise run generate:check
+
+      # go:embed snapshots web/static/dist at compile time. Build the SPA before
+      # test binaries so the PWA contract cannot silently skip.
       - name: Build web assets
         run: mise run build:web
 
@@ -86,6 +142,45 @@ jobs:
         env:
           STELLA_TEST_REQUIRE_BWRAP: "1"
           STELLA_TEST_REQUIRE_SPA: "1"
+
+  system:
+    name: System Test
+    needs: source
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+        with:
+          experimental: true
+          install: true
+          cache: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Go build and PostgreSQL runtime
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            ~/.stella/pg-runtime
+          key: ${{ runner.os }}-system-${{ hashFiles('**/go.sum', 'internal/pgruntime/**') }}
+          restore-keys: |
+            ${{ runner.os }}-system-
+            ${{ runner.os }}-go-
+
+      - name: Install bubblewrap
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --unshare-pid --unshare-ipc --unshare-uts --dev-bind / / -- true
 
       - name: Run System Test
         run: mise run system-test
@@ -99,6 +194,38 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  snapshot:
+    name: Release Snapshot
+    needs: source
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Setup mise
+        uses: jdx/mise-action@v4
+        with:
+          experimental: true
+          install: true
+          cache: true
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Go build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-snapshot-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-snapshot-
+            ${{ runner.os }}-go-
+
       - name: Check GoReleaser configuration
         run: mise run release:check
 
@@ -107,7 +234,7 @@ jobs:
 
   goreleaser:
     name: GoReleaser
-    needs: validate
+    needs: [quality, tests, system, snapshot]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -126,11 +253,8 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      # No pnpm/Node setup here on purpose. mise-action installed both from
-      # mise.toml above; adding actions/setup-node prepended a different Node to
-      # PATH and silently won, so the release built the embedded SPA on Node 22
-      # while every PR built it on Node 24. The validate job above already runs
-      # the same SPA build on mise alone.
+      # No setup-vp or setup-node action: mise owns global Vite+ and Node for
+      # every build. Vite+ resolves pnpm from web/package.json.
       - name: Cache Go build
         uses: actions/cache@v4
         with:
@@ -153,7 +277,7 @@ jobs:
 
   docker:
     name: Docker Release
-    needs: validate
+    needs: [quality, tests, system, snapshot]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

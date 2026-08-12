@@ -29,8 +29,8 @@ func TestToolOverrideStoreRoundTrip(t *testing.T) {
 	agentID := "tool-override-agent"
 	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
 		ID: agentID, Name: "Tools Agent", Workspace: "/tmp/tools-agent",
-		Sandbox: json.RawMessage(`{}`), EnabledBuiltinSkills: json.RawMessage(`[]`),
-		Scope: "system", Enabled: true,
+		Sandbox: json.RawMessage(`{}`),
+		Scope:   "system", Enabled: true,
 	}); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}

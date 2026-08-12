@@ -11,13 +11,13 @@ Completion is **derived, never asserted**. A goal converges through a bounded re
 Two surfaces author goals, both over the same goal HTTP API:
 
 - **You, the agent** — via the `goal` tool when available. `action=create` creates a goal and runs it autonomously: the server **plans first** (decomposes it into verifiable sub-tasks), then the dispatcher runs each child and converges to acceptance, with no further prompting. You do not choose leaf vs composite or call plan/approve/activate — just write a clear, self-contained intent. This is how you give yourself long-running work that outlives the current conversation; check back with `action=list` or `action=get`. For goals that need a human approval gate (`review_policy=human`), the dispatcher still plans automatically but parks the composite at `blocked(needs_plan_approval)` for the user to approve from the Web UI operator surface. When you report a created goal back to the user, mention its title — chat surfaces render a rich status card for it automatically, so never paste only the raw UUID.
-- **The user** — from the Web UI (Goals tab), backed by the same goal HTTP API.
+- **The user** — from the Web UI (Work space), backed by the same goal HTTP API.
 
 Authoring and working are separate roles: once a goal is active you may also be handed it as a **worker** (see the `goal_control` contract below).
 
 Before reaching for a goal at all, check you actually need one:
 
-- `delegate` — synchronous focused subtask in a persistent child session, returns inline. Use this first for short research, review, or drafting.
+- `session.create` — synchronous focused work in a persistent child session, returned inline. Use this first for short research, review, or drafting.
 - **goal** — async, durable, survives restarts, can block on input, converges through an acceptance contract. This is for work tracked to acceptance: create it yourself with the `goal` tool, or the user authors it from the Web UI.
 - **workflow** — a reusable versioned plan saved from an accepted composite goal. Running a workflow creates a fresh goal tree; it never reopens a done goal. Use it when the same accepted plan should replay with only inputs changing.
 - `scheduler` — a time trigger, not the work itself. For long or reviewable scheduled work, schedule a workflow or a prompt that creates a goal rather than doing the work inline.

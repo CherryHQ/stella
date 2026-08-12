@@ -38,8 +38,8 @@ func TestActionCatalog(t *testing.T) {
 // TestActorKindCatalog covers the actor-kind catalog.
 func TestActorKindCatalog(t *testing.T) {
 	all := authz.AllActorKinds()
-	if len(all) != 4 {
-		t.Fatalf("actor-kind catalog size = %d, want 4", len(all))
+	if len(all) != 5 {
+		t.Fatalf("actor-kind catalog size = %d, want 5", len(all))
 	}
 	seen := map[string]bool{}
 	for _, k := range all {

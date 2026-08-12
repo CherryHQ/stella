@@ -31,12 +31,11 @@ const drainFlipBudget = 15 * time.Second
 //   - an attach subscription is drain-cancelled: its read-only event stream ends
 //     promptly rather than blocking the shutdown budget;
 //
-//   - the pinned send turn completes across the drain: the send stream is
-//     deliberately not drain-cancelled (sessions.go), so once the gate releases
-//     the client must still receive the full text, finish, and [DONE] — the
-//     drain budget exists to finish exactly this work (#742);
+//   - the initiating send observer is drain-cancelled promptly while its
+//     server-owned turn remains accepted work;
 //
-//   - the process then exits 0.
+//   - once the gate releases, the detached turn completes and persists its full
+//     reply before the process exits 0.
 //
 // The gated turn both pins real work across SIGTERM and gives the attach
 // subscription something live to attach to (204 otherwise).
@@ -119,28 +118,23 @@ func (h *harness) testGracefulDrain(t *testing.T) {
 	}
 	t.Logf("graceful_drain: attach stream ended %s after SIGTERM", attachAt.Sub(sigAt))
 
-	// 6. Release the pinned turn so the fake's handler unblocks and the turn can
-	//    run to completion inside the drain budget.
-	gate.Release()
-
-	// 7. The send turn must complete cleanly across the drain: full scripted
-	//    text, a finish frame, and the [DONE] sentinel. A truncation here means
-	//    process teardown raced the drain's active-connection wait again (#742).
+	// 6. The initiating send observer is drain-cancelled too. It receives a clean
+	//    SSE epilogue for the first half, but not the still-gated second half.
 	var completion turnCompletion
 	select {
 	case completion = <-sendResult:
 	case <-time.After(drainFlipBudget):
-		t.Fatalf("send turn did not report within %s of release; the drained turn never finished\n%s", drainFlipBudget, h.proc.logTail(40))
+		t.Fatalf("send observer did not end within %s of SIGTERM\n%s", drainFlipBudget, h.proc.logTail(40))
 	}
-	if completion.err != nil {
-		t.Fatalf("send stream truncated during drain (#742 regression): %v\n%s", completion.err, h.proc.logTail(40))
+	if completion.err != nil || completion.text != part1 || !completion.sawFinish || !completion.sawDone {
+		t.Fatalf("send observer did not detach cleanly: err=%v text=%q want=%q finish=%t done=%t frames=%v\n%s",
+			completion.err, completion.text, part1, completion.sawFinish, completion.sawDone, completion.types, h.proc.logTail(40))
 	}
+
+	// 7. Release the pinned turn. HTTP has already drained, so accepted-work drain
+	//    must now wait for the detached producer to persist the complete reply.
+	gate.Release()
 	want := part1 + part2
-	if completion.text != want || !completion.sawFinish || !completion.sawDone {
-		t.Fatalf("send turn ended without a clean epilogue across drain (#742 regression): text=%q want=%q finish=%t done=%t frames=%v\n%s",
-			completion.text, want, completion.sawFinish, completion.sawDone, completion.types, h.proc.logTail(40))
-	}
-	t.Logf("graceful_drain: send turn completed cleanly across drain (%d frames, full text, finish, [DONE])", len(completion.types))
 
 	// 8. The process must exit 0 once the drain completes. This is the reliable
 	//    proof the graceful shutdown finished. The cleanup stop() then takes its
@@ -154,6 +148,7 @@ func (h *harness) testGracefulDrain(t *testing.T) {
 		t.Fatalf("server did not exit within %s of the drained turn completing\n%s", gracefulTimeout, h.proc.logTail(40))
 	}
 	t.Logf("graceful_drain: server exited 0 %s after SIGTERM", time.Since(sigAt))
+	h.assertChatRowsPersisted(t, ctx, sessionID, agentID, "ping "+h.runID, want)
 }
 
 // createDrainProvider registers the run-scoped Anthropic provider for the drain

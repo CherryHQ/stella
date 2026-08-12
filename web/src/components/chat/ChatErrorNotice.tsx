@@ -21,7 +21,7 @@ export function ChatErrorNotice({ error, className }: Props) {
   if (!error) return null;
   const detail = error.message?.trim();
   return (
-    <div className={cn("mx-auto w-full max-w-3xl px-4 pb-3 sm:px-8", className)}>
+    <div className={cn("mx-auto w-full max-w-[var(--chat-column)] px-4 pb-3 sm:px-8", className)}>
       <Alert variant="error">
         <AlertCircle />
         <AlertTitle>{t("chat.error.title")}</AlertTitle>

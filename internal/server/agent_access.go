@@ -60,7 +60,7 @@ func agentManagementError(err error) (int, string) {
 	case errors.Is(err, agentaccess.ErrUserNotFound):
 		return http.StatusNotFound, "user not found"
 	case errors.Is(err, agentaccess.ErrInUse):
-		return http.StatusConflict, "agent is still used by a webhook"
+		return http.StatusConflict, "agent is still in use"
 	default:
 		return agentAccessError(err)
 	}

@@ -1,106 +1,169 @@
 package resources
 
 import (
-	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
-	"testing/fstest"
+	"time"
 )
 
-func TestExtractSkills(t *testing.T) {
-	dir := t.TempDir()
-	if err := ExtractSkills(dir); err != nil {
-		t.Fatalf("ExtractSkills: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "system", "stella", "SKILL.md")); err != nil {
-		t.Fatalf("system/stella/SKILL.md missing: %v", err)
-	}
-}
-
-func TestExtractDelegates(t *testing.T) {
-	dir := t.TempDir()
-	if err := ExtractDelegates(dir); err != nil {
-		t.Fatalf("ExtractDelegates: %v", err)
-	}
-	entries, err := os.ReadDir(dir)
+func legacyInventoryFixture(t *testing.T) (*Registry, string, string) {
+	registry, err := Default()
 	if err != nil {
-		t.Fatalf("read dir: %v", err)
+		t.Fatal(err)
 	}
-	if len(entries) == 0 {
-		t.Fatal("expected delegate files")
-	}
+	home := t.TempDir()
+	legacy := filepath.Join(home, ".agents", "skills")
+	return registry, legacy, registry.BuiltinSkills()[0].Root
 }
 
-func TestEnsureBuiltinSkills_EmptyDir(t *testing.T) {
-	if err := EnsureBuiltinSkills(""); err != nil {
-		t.Fatalf("empty dir should be no-op: %v", err)
+func TestInventoryLegacySkillsAllowsKnownProjectionPathsWithOldBytes(t *testing.T) {
+	registry, legacy, owned := legacyInventoryFixture(t)
+	if err := os.MkdirAll(filepath.Join(legacy, filepath.FromSlash(owned)), 0o755); err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestEnsureBuiltinSkills_Idempotent(t *testing.T) {
-	dir := t.TempDir()
-	if err := EnsureBuiltinSkills(dir); err != nil {
-		t.Fatalf("first call: %v", err)
+	known := filepath.Join(legacy, filepath.FromSlash(owned), "SKILL.md")
+	if err := os.WriteFile(known, []byte("old derived bytes"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	// Mutate the extracted file to verify Ensure doesn't re-extract.
-	target := filepath.Join(dir, "system", "stella", "SKILL.md")
-	if err := os.WriteFile(target, []byte("sentinel"), 0o644); err != nil {
-		t.Fatalf("overwrite: %v", err)
+	oldTime := time.Unix(1_700_000_000, 0)
+	if err := os.Chtimes(known, oldTime, oldTime); err != nil {
+		t.Fatal(err)
 	}
-	if err := EnsureBuiltinSkills(dir); err != nil {
-		t.Fatalf("second call: %v", err)
-	}
-	data, err := os.ReadFile(target)
+	before, err := os.Stat(known)
 	if err != nil {
-		t.Fatalf("re-read: %v", err)
+		t.Fatal(err)
 	}
-	if string(data) != "sentinel" {
-		t.Fatalf("EnsureBuiltinSkills should be idempotent (once-per-dir), got content re-extracted")
+
+	blockers, err := registry.InventoryLegacySkills(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blockers) != 0 {
+		t.Fatalf("blockers = %#v, want none", blockers)
+	}
+	after, err := os.Stat(known)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bytes, err := os.ReadFile(known)
+	if err != nil || string(bytes) != "old derived bytes" {
+		t.Fatalf("known projection bytes changed: %q, %v", bytes, err)
+	}
+	if before.Mode() != after.Mode() || !before.ModTime().Equal(after.ModTime()) {
+		t.Fatalf("known projection metadata changed: before=%v/%v after=%v/%v", before.Mode(), before.ModTime(), after.Mode(), after.ModTime())
 	}
 }
 
-func TestExtractSkillsNestedRoots(t *testing.T) {
-	fakeFS := fstest.MapFS{
-		"system/lark-cli/SKILL.md":        {Data: []byte("---\nname: lark-cli\n---\n")},
-		"system/lark-cli/references/a.md": {Data: []byte("a")},
-		"tap-web/SKILL.md":                {Data: []byte("---\nname: tap-web\n---\n")},
+func TestInventoryLegacySkillsAllowsNestedKnownProjectionPath(t *testing.T) {
+	registry, legacy, _ := legacyInventoryFixture(t)
+	for _, skill := range registry.BuiltinSkills() {
+		for _, file := range skill.Files {
+			if file.Path == "SKILL.md" {
+				continue
+			}
+			filename := filepath.Join(legacy, filepath.FromSlash(skill.Root), filepath.FromSlash(file.Path))
+			if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filename, []byte("old nested bytes"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			blockers, err := registry.InventoryLegacySkills(legacy)
+			if err != nil || len(blockers) != 0 {
+				t.Fatalf("nested known projection blockers = %#v, %v", blockers, err)
+			}
+			return
+		}
 	}
-	dir := t.TempDir()
-	if err := extractSkillsFS(fakeFS, dir); err != nil {
-		t.Fatalf("extractSkillsFS: %v", err)
+	t.Fatal("manifest has no nested builtin file")
+}
+
+func TestInventoryLegacySkillsFindsExtraFileAndNestedCustomSkill(t *testing.T) {
+	registry, legacy, owned := legacyInventoryFixture(t)
+	root := filepath.Join(legacy, filepath.FromSlash(owned))
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "system", "lark-cli", "SKILL.md")); err != nil {
-		t.Fatalf("system/lark-cli/SKILL.md missing: %v", err)
+	if err := os.WriteFile(filepath.Join(root, "extra.txt"), []byte("extra"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "tap-web", "SKILL.md")); err != nil {
-		t.Fatalf("tap-web/SKILL.md missing: %v", err)
+	custom := filepath.Join(root, "nested", "custom")
+	if err := os.MkdirAll(custom, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(custom, "SKILL.md"), []byte("custom"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	blockers, err := registry.InventoryLegacySkills(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []LegacySkillBlocker{{Path: pathJoin(owned, "extra.txt"), Kind: "residual_path"}, {Path: pathJoin(owned, "nested/custom"), Kind: "skill_root"}}
+	if !reflect.DeepEqual(blockers, want) {
+		t.Fatalf("blockers = %#v, want %#v", blockers, want)
+	}
+	if got, err := os.ReadFile(filepath.Join(custom, "SKILL.md")); err != nil || string(got) != "custom" {
+		t.Fatalf("custom skill changed: %q, %v", got, err)
 	}
 }
 
-func TestExtractSkillsReplacesStaleEntries(t *testing.T) {
-	dir := t.TempDir()
-	stale := filepath.Join(dir, "system", "stella", "stale.md")
-	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
+func TestInventoryLegacySkillsRejectsInvalidRootAndManifestPath(t *testing.T) {
+	registry, legacy, owned := legacyInventoryFixture(t)
+	if err := os.MkdirAll(filepath.Dir(legacy), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if err := os.WriteFile(stale, []byte("old"), 0o644); err != nil {
-		t.Fatalf("seed stale: %v", err)
+	if err := os.WriteFile(legacy, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if err := ExtractSkills(dir); err != nil {
-		t.Fatalf("ExtractSkills: %v", err)
+	if _, err := registry.InventoryLegacySkills(legacy); err == nil {
+		t.Fatal("expected regular legacy root to fail closed")
 	}
-	if _, err := os.Stat(stale); !os.IsNotExist(err) {
-		t.Fatalf("stale file should be removed, err=%v", err)
+
+	link := filepath.Join(t.TempDir(), "skills-link")
+	if err := os.Symlink(t.TempDir(), link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	if _, err := registry.InventoryLegacySkills(link); err == nil {
+		t.Fatal("expected symlink legacy root to fail closed")
+	}
+
+	legacy = filepath.Join(t.TempDir(), ".agents", "skills")
+	root := filepath.Join(legacy, filepath.FromSlash(owned))
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("target", filepath.Join(root, "SKILL.md")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	if _, err := registry.InventoryLegacySkills(legacy); err == nil {
+		t.Fatal("expected manifest-owned symlink to fail closed")
 	}
 }
 
-func TestSubFSContainsStella(t *testing.T) {
-	sub, ok := SubFS(KindSkill)
-	if !ok {
-		t.Fatal("skill SubFS not available")
+func TestInventoryLegacySkillsOrdersBlockersStably(t *testing.T) {
+	registry, legacy, owned := legacyInventoryFixture(t)
+	root := filepath.Join(legacy, filepath.FromSlash(owned))
+	if err := os.MkdirAll(filepath.Join(root, "middle-custom"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := fs.Stat(sub, "system/stella"); err != nil {
-		t.Fatalf("system/stella dir not found: %v", err)
+	for _, name := range []string{"zzz-extra", "aaa-extra", "middle-custom/SKILL.md"} {
+		if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(name)), []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []LegacySkillBlocker{
+		{Path: pathJoin(owned, "aaa-extra"), Kind: "residual_path"},
+		{Path: pathJoin(owned, "middle-custom"), Kind: "skill_root"},
+		{Path: pathJoin(owned, "zzz-extra"), Kind: "residual_path"},
+	}
+	for i := range 3 {
+		got, err := registry.InventoryLegacySkills(legacy)
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatalf("run %d blockers = %#v, %v; want %#v", i, got, err, want)
+		}
 	}
 }
+
+func pathJoin(base, child string) string { return filepath.ToSlash(filepath.Join(base, child)) }

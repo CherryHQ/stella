@@ -27,8 +27,9 @@ type Skill struct {
 // SkillViewContext describes who is asking and from where.
 // Empty fields mean no such context (e.g. empty UserID → only system skills visible).
 type SkillViewContext struct {
-	UserID  string
-	AgentID string
+	UserID            string
+	AgentID           string
+	DisabledSkillRefs []string // immutable AgentSkillPolicy snapshot for this operation
 }
 
 // SkillUpdatePatch carries optional updates for a skill's metadata fields.

@@ -18,6 +18,13 @@ type oauthProviderStatusGetter interface {
 	AnyProviderConfigured(ctx context.Context, userID string) (bool, error)
 }
 
+// libraryToolAvailable accepts every authorized user-representing Agent run,
+// independent of channel or session kind. Group runs stay excluded because
+// they deliberately carry no trusted user identity.
+func libraryToolAvailable(ctx context.Context, params agent.RunnerParams) bool {
+	return params.GroupID == "" && agent.BuiltinToolAvailable(ctx, params)
+}
+
 func emailToolAvailable(v emailConfigMetaGetter) func(context.Context, agent.RunnerParams) bool {
 	return func(ctx context.Context, params agent.RunnerParams) bool {
 		if !agent.BuiltinToolAvailable(ctx, params) {

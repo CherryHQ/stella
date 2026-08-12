@@ -86,6 +86,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 			AgentID:    pgnull.Text(info.AgentID),
 			UserID:     pgtype.Text{String: info.UserID, Valid: true},
 			GroupID:    pgnull.Text(info.GroupID),
+			GuestID:    pgnull.Text(info.GuestID),
 		})
 		if err != nil {
 			return fmt.Errorf("create conversation: %w", err)
@@ -103,6 +104,7 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		Channel:   pgnull.Text(info.Channel),
 		ProjectID: pgnull.Text(info.ProjectID),
 		GroupID:   pgnull.Text(info.GroupID),
+		GuestID:   pgnull.Text(info.GuestID),
 		SessionID: info.ID,
 		UserID:    pgtype.Text{String: info.UserID, Valid: true},
 		AgentID:   pgnull.Text(info.AgentID),
@@ -124,12 +126,68 @@ func (p *Provider) TouchActiveInfo(ctx context.Context, info memory.SessionInfo)
 		Title:     pgnull.Text(info.Title),
 		Channel:   pgnull.Text(info.Channel),
 		GroupID:   pgnull.Text(info.GroupID),
+		GuestID:   pgnull.Text(info.GuestID),
 		SessionID: info.ID,
 		UserID:    pgtype.Text{String: userID, Valid: true},
 		AgentID:   pgnull.Text(agentID),
 	})
 	if err != nil {
 		return false, fmt.Errorf("touch conversation: %w", err)
+	}
+	return rows > 0, nil
+}
+
+// MarkSessionTurnStarted implements memory.SessionActivityStore.
+func (p *Provider) MarkSessionTurnStarted(ctx context.Context, session memory.Session) (bool, error) {
+	session, err := requireMemorySessionScope(ctx, session)
+	if err != nil {
+		return false, err
+	}
+	rows, err := p.q.MarkConversationTurnStarted(ctx, sqlc.MarkConversationTurnStartedParams{
+		SessionID: session.ID,
+		UserID:    pgtype.Text{String: session.UserID, Valid: true},
+		AgentID:   pgnull.Text(session.AgentID),
+	})
+	if err != nil {
+		return false, fmt.Errorf("mark session turn started: %w", err)
+	}
+	return rows > 0, nil
+}
+
+// MarkSessionTurnCompleted implements memory.SessionActivityStore.
+func (p *Provider) MarkSessionTurnCompleted(ctx context.Context, session memory.Session, result memory.SessionTurnResult) (bool, error) {
+	if !result.Valid() {
+		return false, fmt.Errorf("mark session turn completed: invalid result %q", result)
+	}
+	session, err := requireMemorySessionScope(ctx, session)
+	if err != nil {
+		return false, err
+	}
+	rows, err := p.q.MarkConversationTurnCompleted(ctx, sqlc.MarkConversationTurnCompletedParams{
+		SessionID: session.ID,
+		UserID:    pgtype.Text{String: session.UserID, Valid: true},
+		AgentID:   pgnull.Text(session.AgentID),
+		Result:    pgtype.Text{String: string(result), Valid: true},
+	})
+	if err != nil {
+		return false, fmt.Errorf("mark session turn completed: %w", err)
+	}
+	return rows > 0, nil
+}
+
+// MarkSessionViewed implements memory.SessionActivityStore.
+func (p *Provider) MarkSessionViewed(ctx context.Context, session memory.Session) (bool, error) {
+	session, err := requireMemorySessionScope(ctx, session)
+	if err != nil {
+		return false, err
+	}
+	rows, err := p.q.MarkConversationViewed(ctx, sqlc.MarkConversationViewedParams{
+		SessionID: session.ID,
+		UserID:    pgtype.Text{String: session.UserID, Valid: true},
+		AgentID:   pgnull.Text(session.AgentID),
+	})
+	if err != nil {
+		return false, fmt.Errorf("mark session viewed: %w", err)
 	}
 	return rows > 0, nil
 }
@@ -190,6 +248,7 @@ func (p *Provider) RotateInfo(ctx context.Context, expectedSessionID string, suc
 		AgentID:    pgnull.Text(successor.AgentID),
 		UserID:     pgtype.Text{String: successor.UserID, Valid: true},
 		GroupID:    pgnull.Text(successor.GroupID),
+		GuestID:    pgnull.Text(successor.GuestID),
 	}); err != nil {
 		return fmt.Errorf("create successor conversation: %w", err)
 	}
@@ -228,6 +287,7 @@ func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]mem
 	}
 	convs, err := p.q.ListConversationsFiltered(ctx, sqlc.ListConversationsFilteredParams{
 		UserID:          pgtype.Text{String: userID, Valid: true},
+		GuestID:         pgnull.Text(opts.GuestID),
 		AgentID:         pgnull.Text(agentIDValue),
 		IncludeArchived: boolToInt(opts.IncludeArchived),
 		ExcludeInternal: opts.ExcludeInternal,
@@ -240,6 +300,29 @@ func (p *Provider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]mem
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list conversations: %w", err)
+	}
+	return convsToSessionInfo(convs), nil
+}
+
+// ListInfoForAdmin lists all durable owners for one agent. The session access
+// layer restricts this capability to administrators and rechecks every row.
+func (p *Provider) ListInfoForAdmin(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error) {
+	if opts.AgentID == "" {
+		return nil, fmt.Errorf("missing agent context")
+	}
+	convs, err := p.q.ListConversationsForAdminFiltered(ctx, sqlc.ListConversationsForAdminFilteredParams{
+		AgentID:         pgnull.Text(opts.AgentID),
+		UserID:          pgnull.Text(opts.UserID),
+		IncludeArchived: boolToInt(opts.IncludeArchived),
+		ExcludeInternal: opts.ExcludeInternal,
+		Kind:            pgnull.Text(opts.Kind),
+		ProjectIDIsNull: boolToInt(opts.ProjectIDIsNull),
+		ProjectID:       pgnull.Text(opts.ProjectID),
+		Offset:          nonNegativeOffset(opts.Offset),
+		Limit:           listLimit(opts.Limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list admin conversations: %w", err)
 	}
 	return convsToSessionInfo(convs), nil
 }
@@ -370,11 +453,26 @@ func convToSessionInfo(conv sqlc.CtxConversation) memory.SessionInfo {
 	if conv.GroupID.Valid {
 		info.GroupID = conv.GroupID.String
 	}
+	if conv.GuestID.Valid {
+		info.GuestID = conv.GuestID.String
+	}
 	if conv.ProjectID.Valid {
 		info.ProjectID = conv.ProjectID.String
 	}
 	info.CreatedAt = conv.CreatedAt.UTC()
 	info.LastActive = conv.LastActive.UTC()
+	if conv.LastTurnStartedAt.Valid {
+		info.LastTurnStartedAt = conv.LastTurnStartedAt.Time.UTC()
+	}
+	if conv.LastTurnCompletedAt.Valid {
+		info.LastTurnCompletedAt = conv.LastTurnCompletedAt.Time.UTC()
+	}
+	if conv.LastTurnResult.Valid {
+		info.LastTurnResult = memory.SessionTurnResult(conv.LastTurnResult.String)
+	}
+	if conv.LastViewedAt.Valid {
+		info.LastViewedAt = conv.LastViewedAt.Time.UTC()
+	}
 	return info
 }
 

@@ -5,67 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sync"
 )
-
-var (
-	ensureSkillsMu    sync.Mutex
-	ensureSkillsState = map[string]*ensureOnce{}
-)
-
-type ensureOnce struct {
-	once sync.Once
-	err  error
-}
-
-// EnsureBuiltinSkills extracts builtin skills once per (process, skillsDir) for
-// callers that need a lazy, idempotent fallback outside normal app startup.
-func EnsureBuiltinSkills(skillsDir string) error {
-	if skillsDir == "" {
-		return nil
-	}
-	skillsDir = filepath.Clean(skillsDir)
-	ensureSkillsMu.Lock()
-	state, ok := ensureSkillsState[skillsDir]
-	if !ok {
-		state = &ensureOnce{}
-		ensureSkillsState[skillsDir] = state
-	}
-	ensureSkillsMu.Unlock()
-	state.once.Do(func() { state.err = ExtractSkills(skillsDir) })
-	return state.err
-}
-
-// ExtractSkills writes every builtin skill directory into skillsDir.
-// Each detected skill root (including nested paths like system/foo) is replaced
-// atomically; other entries in skillsDir are preserved.
-func ExtractSkills(skillsDir string) error {
-	sub, ok := SubFS(KindSkill)
-	if !ok {
-		return nil
-	}
-	return extractSkillsFS(sub, skillsDir)
-}
-
-func extractSkillsFS(sub fs.FS, skillsDir string) error {
-	roots, err := listSkillRoots(sub)
-	if err != nil {
-		return fmt.Errorf("read builtin skills: %w", err)
-	}
-	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
-		return fmt.Errorf("create skills dir: %w", err)
-	}
-	for _, root := range roots {
-		target := filepath.Join(skillsDir, filepath.FromSlash(root.Path))
-		if err := os.RemoveAll(target); err != nil {
-			return fmt.Errorf("clean builtin skill %q: %w", root.Path, err)
-		}
-		if err := copySubtree(sub, root.Path, target); err != nil {
-			return fmt.Errorf("extract builtin skill %q: %w", root.Path, err)
-		}
-	}
-	return nil
-}
 
 // ExtractDelegates writes builtin delegate preset files into delegatesDir.
 // Individual files are overwritten; other content in delegatesDir is preserved.
@@ -94,25 +34,4 @@ func ExtractDelegates(delegatesDir string) error {
 		}
 	}
 	return nil
-}
-
-func copySubtree(srcFS fs.FS, root, dst string) error {
-	return fs.WalkDir(srcFS, root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-		if d.IsDir() {
-			return os.MkdirAll(target, 0o755)
-		}
-		data, err := fs.ReadFile(srcFS, path)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(target, data, 0o644)
-	})
 }

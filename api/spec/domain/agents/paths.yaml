@@ -2,15 +2,20 @@ paths:
   /api/agents:
     get:
       tags: [agents]
-      summary: List agents visible to the current user
+      summary: List the caller's own agents
+      description: >-
+        The agents the caller can use, plus the ones they created whatever state
+        those are in. An admin gets the same personal fleet by default; set
+        include_all to ask for the deployment-wide view instead.
       operationId: listAgents
       parameters:
-        - {
-            name: include_all,
-            in: query,
-            required: false,
-            schema: { type: boolean, default: false },
-          }
+        - name: include_all
+          in: query
+          required: false
+          description: >-
+            Return every agent in the deployment, disabled ones included.
+            Ignored for a non-admin caller.
+          schema: { type: boolean, default: false }
       responses:
         "200":
           description: ok
@@ -355,7 +360,7 @@ paths:
           required: false
           schema: {
             type: string,
-            enum: [project, user, user_agent, system, system_agent],
+            enum: [project, user, user_agent, system, system_agent, builtin],
           }
         - name: scope_group
           in: query
@@ -502,7 +507,7 @@ paths:
           required: false
           schema: {
             type: string,
-            enum: [project, user, user_agent, system, system_agent],
+            enum: [project, user, user_agent, system, system_agent, builtin],
           }
         - name: session_id
           in: query
@@ -647,7 +652,7 @@ paths:
           required: false
           schema: {
             type: string,
-            enum: [project, user, user_agent, system, system_agent],
+            enum: [project, user, user_agent, system, system_agent, builtin],
           }
         - name: session_id
           in: query
@@ -669,6 +674,7 @@ paths:
         }
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
     delete:
       tags: [skills]
       summary: Delete a skill file
@@ -689,6 +695,44 @@ paths:
       responses:
         "204":
           description: deleted
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/agents/{id}/skills/{skillRef}/activation:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - {
+          name: skillRef,
+          in: path,
+          required: true,
+          schema: { type: string },
+          description: Exact logical AgentSkillPolicy ref.,
+        }
+    patch:
+      tags: [skills]
+      summary: Enable or disable one policy-addressable Agent Skill
+      operationId: updateAgentSkillActivation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {
+              $ref: "../../components.yaml#/components/schemas/UpdateAgentSkillActivationRequest",
+            }
+      responses:
+        "200":
+          description: committed activation
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/AgentSkillActivation",
+              }
+        "400": {
+          $ref: "../../components.yaml#/components/responses/BadRequest",
+        }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }

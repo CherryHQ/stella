@@ -17,13 +17,13 @@ func makeMinimalManifest(pluginID string, enabled bool, binaryName, version stri
 			{
 				ID:      pluginID,
 				Enabled: enabled,
-				Binaries: []ManifestBinary{
+				ManifestPluginDefinition: ManifestPluginDefinition{Binaries: []ManifestBinary{
 					{
 						Name:    binaryName,
 						Tool:    "github:owner/repo",
 						Version: version,
 					},
-				},
+				}},
 			},
 		},
 	}
@@ -103,23 +103,6 @@ func TestReconcile_CacheHit(t *testing.T) {
 
 // TestReconcile_DisabledPlugin verifies that disabled plugins are skipped entirely
 // and do not appear in the result map.
-func TestReconcile_XbergDoesNotReuseLegacyBinaryState(t *testing.T) {
-	// Keep the historical plugin ID so persisted overrides and state remain in
-	// place, but a prior executable must never satisfy Xberg's cache entry.
-	const pluginID = "tool/kreuzberg"
-	state := &ManifestState{Plugins: map[string]PluginInstallState{
-		pluginID: {Binaries: []BinaryInstallState{{Name: "kreuzberg", Spec: "1.0.0-rc.28"}}},
-	}}
-	if isCacheHit(state, pluginID, "xberg", "1.0.0-rc.29") {
-		t.Fatal("legacy binary state must not be an Xberg cache hit")
-	}
-
-	upsertBinaryState(state, pluginID, BinaryInstallState{Name: "xberg", Spec: "1.0.0-rc.29"})
-	if !isCacheHit(state, pluginID, "xberg", "1.0.0-rc.29") {
-		t.Fatal("Xberg state was not recorded under the stable plugin ID")
-	}
-}
-
 func TestReconcile_DisabledPlugin(t *testing.T) {
 	stellaHome := t.TempDir()
 	const (
@@ -152,35 +135,35 @@ func TestReconcile_EnabledCount(t *testing.T) {
 			{
 				ID:      "enabled-plugin",
 				Enabled: true,
-				Binaries: []ManifestBinary{
+				ManifestPluginDefinition: ManifestPluginDefinition{Binaries: []ManifestBinary{
 					{
 						Name:    "tool-a",
 						Tool:    "github:owner/tool-a",
 						Version: "0.1.0",
 					},
-				},
+				}},
 			},
 			{
 				ID:      "disabled-plugin-1",
 				Enabled: false,
-				Binaries: []ManifestBinary{
+				ManifestPluginDefinition: ManifestPluginDefinition{Binaries: []ManifestBinary{
 					{
 						Name:    "tool-b",
 						Tool:    "github:owner/tool-b",
 						Version: "1.0.0",
 					},
-				},
+				}},
 			},
 			{
 				ID:      "disabled-plugin-2",
 				Enabled: false,
-				Binaries: []ManifestBinary{
+				ManifestPluginDefinition: ManifestPluginDefinition{Binaries: []ManifestBinary{
 					{
 						Name:    "tool-c",
 						Tool:    "github:owner/tool-c",
 						Version: "3.0.0",
 					},
-				},
+				}},
 			},
 		},
 	}

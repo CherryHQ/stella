@@ -51,8 +51,10 @@ func TestAgentAccessMatrix(t *testing.T) {
 		{"delegated actor cannot manage", mustWorkerAuthority(t, "owner", "owned"), authz.ActionManage, "owned", ErrForbidden},
 		{"group agent exact executor", mustGroupAuthority(t, "g1", "owned"), authz.ActionExecute, "owned", nil},
 		{"group agent cannot switch executor", mustGroupAuthority(t, "g1", "system"), authz.ActionRead, "owned", ErrForbidden},
+		{"group actor cannot manage", mustGroupAuthority(t, "g1", "owned"), authz.ActionManage, "owned", ErrForbidden},
 		{"system reads", mustSystemAuthority(t), authz.ActionRead, "owned", nil},
 		{"system executes", mustSystemAuthority(t), authz.ActionExecute, "owned", nil},
+		{"system actor cannot manage", mustSystemAuthority(t), authz.ActionManage, "owned", ErrForbidden},
 		{"unknown action denies", owner, authz.ActionWrite, "owned", ErrForbidden},
 		{"unknown action denies admin", admin, authz.ActionWrite, "owned", ErrForbidden},
 		{"missing agent remains not found", owner, authz.ActionRead, "missing", ErrNotFound},
@@ -66,6 +68,12 @@ func TestAgentAccessMatrix(t *testing.T) {
 				t.Fatalf("error = %v, want %v", err, tc.wantErr)
 			}
 		})
+	}
+	disabled := store.agents["owned"]
+	disabled.Enabled = false
+	store.agents["owned"] = disabled
+	if err := access.Authorize(ctx, mustGroupAuthority(t, "g1", "owned"), "owned", authz.ActionExecute); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("disabled group agent execute = %v, want forbidden", err)
 	}
 
 	if err := access.CanList(ctx, owner); err != nil {
@@ -90,7 +98,7 @@ func TestDedicatedChannelUseRequiresExactBindingAndCurrentBinding(t *testing.T) 
 	}
 	store := testStore{
 		agents:   map[string]config.Agent{"dedicated": {ID: "dedicated", Scope: config.AgentScopeRestricted, CreatorID: "owner", Enabled: true}},
-		channels: map[string]config.Channel{"channel-1": {ID: "channel-1", AgentID: "dedicated"}},
+		channels: map[string]config.Channel{"channel-1": {ID: "channel-1", AgentID: "dedicated", Type: "discord", Enabled: true}},
 	}
 	access := NewService(store, &testAssignments{})
 	// The plain Use path never infers a dedicated channel binding: a held binding
@@ -104,6 +112,12 @@ func TestDedicatedChannelUseRequiresExactBindingAndCurrentBinding(t *testing.T) 
 	}
 	if _, err := bound.UseDedicated(ctx, "dedicated", "channel-1"); err != nil {
 		t.Fatalf("dedicated use = %v", err)
+	}
+	if _, err := bound.UseDedicatedForType(ctx, "dedicated", "channel-1", "discord"); err != nil {
+		t.Fatalf("typed dedicated use = %v", err)
+	}
+	if _, err := bound.UseDedicatedForType(ctx, "dedicated", "channel-1", "telegram"); !errors.Is(err, ErrForbidden) {
+		t.Fatalf("mismatched channel type = %v", err)
 	}
 	bound, err = access.Begin(ctx, authority)
 	if err != nil {
@@ -127,6 +141,53 @@ func TestDedicatedChannelUseRequiresExactBindingAndCurrentBinding(t *testing.T) 
 	}
 	if _, err := access.Begin(ctx, authz.Authority{}); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("invalid authority = %v", err)
+	}
+}
+
+func TestGuestDedicatedChannelUseRequiresEnabledOptInChannelBinding(t *testing.T) {
+	ctx := context.Background()
+	guest, err := authz.NewGuestAuthority("guest-1", "channel-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := config.Agent{ID: "dedicated", Scope: config.AgentScopeRestricted, Enabled: true}
+	valid := config.Channel{ID: "channel-1", AgentID: agent.ID, Type: "discord", Enabled: true, Config: `{"allow_dm":true,"allow_unlinked_dm":true}`}
+
+	for _, tc := range []struct {
+		name    string
+		channel config.Channel
+		binding string
+		wantOK  bool
+	}{
+		{name: "enabled opted-in Discord channel", channel: valid, binding: "channel-1", wantOK: true},
+		{name: "enabled opted-in Telegram channel", channel: func() config.Channel { c := valid; c.Type = "telegram"; return c }(), binding: "channel-1", wantOK: true},
+		{name: "enabled opted-in Feishu channel", channel: func() config.Channel { c := valid; c.Type = "feishu"; return c }(), binding: "channel-1", wantOK: true},
+		{name: "allow dm disabled", channel: func() config.Channel { c := valid; c.Config = `{"allow_dm":false,"allow_unlinked_dm":true}`; return c }(), binding: "channel-1"},
+		{name: "unlinked dm disabled", channel: func() config.Channel { c := valid; c.Config = `{"allow_dm":true,"allow_unlinked_dm":false}`; return c }(), binding: "channel-1"},
+		{name: "channel disabled", channel: func() config.Channel { c := valid; c.Enabled = false; return c }(), binding: "channel-1"},
+		{name: "agent disabled", channel: valid, binding: "channel-1"},
+		{name: "unsupported channel type", channel: func() config.Channel { c := valid; c.Type = "qq"; return c }(), binding: "channel-1"},
+		{name: "agent binding differs", channel: func() config.Channel { c := valid; c.AgentID = "other"; return c }(), binding: "channel-1"},
+		{name: "authority binding differs", channel: valid, binding: "channel-2"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			storedAgent := agent
+			if tc.name == "agent disabled" {
+				storedAgent.Enabled = false
+			}
+			store := testStore{agents: map[string]config.Agent{agent.ID: storedAgent}, channels: map[string]config.Channel{"channel-1": tc.channel}}
+			decision, beginErr := NewService(store, &testAssignments{}).Begin(ctx, guest)
+			if beginErr != nil {
+				t.Fatal(beginErr)
+			}
+			_, useErr := decision.UseDedicated(ctx, agent.ID, tc.binding)
+			if tc.wantOK && useErr != nil {
+				t.Fatalf("UseDedicated() = %v", useErr)
+			}
+			if !tc.wantOK && !errors.Is(useErr, ErrForbidden) {
+				t.Fatalf("UseDedicated() = %v, want forbidden", useErr)
+			}
+		})
 	}
 }
 

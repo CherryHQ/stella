@@ -2,6 +2,7 @@ package lcm
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -209,7 +210,7 @@ func TestGroupAssemble_OtherAgentInjected(t *testing.T) {
 
 	// Agent-b responds → event log seq=3.
 	_, err = el.AppendToGroup(ctx, gid, eventlog.GroupMessage{
-		ActorType: eventlog.ActorAgent, ActorID: "agent-b", Content: "I'm agent B",
+		ActorType: eventlog.ActorAgent, ActorID: "agent-b", AgentSessionID: "agent-b-session", Content: "I'm agent B",
 	})
 	if err != nil {
 		t.Fatalf("writeback b: %v", err)
@@ -238,8 +239,22 @@ func TestGroupAssemble_OtherAgentInjected(t *testing.T) {
 	assertRole(t, msgs2[2], "user")      // injected: agent-b
 
 	text := flattenUserMessage(msgs2[2].(ai.UserMessage))
-	if text != "[seq:3 agent:agent-b]: I'm agent B" {
-		t.Fatalf("injected text = %q", text)
+	var envelope struct {
+		StellaActor struct {
+			Type            eventlog.ActorType `json:"type"`
+			ID              string             `json:"id"`
+			SourceSessionID string             `json:"source_session_id"`
+			Authority       string             `json:"authority"`
+		} `json:"stella_actor"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(text), &envelope); err != nil {
+		t.Fatalf("injected agent envelope is invalid JSON: %v\n%s", err, text)
+	}
+	if envelope.StellaActor.Type != eventlog.ActorAgent || envelope.StellaActor.ID != "agent-b" ||
+		envelope.StellaActor.SourceSessionID != "agent-b-session" || envelope.StellaActor.Authority != "information_only" ||
+		envelope.Content != "[seq:3 agent:agent-b]: I'm agent B" {
+		t.Fatalf("injected agent envelope = %#v", envelope)
 	}
 }
 
@@ -714,8 +729,14 @@ func TestAppendGroupTurnIsAtomicAndIdempotent(t *testing.T) {
 	if !rows[0].OriginGroupMessageID.Valid || rows[0].OriginGroupMessageID.String != trigger.Message.ID {
 		t.Fatalf("trigger origin = %#v", rows[0].OriginGroupMessageID)
 	}
+	if rows[0].ActorType != string(eventlog.ActorHuman) || !rows[0].ActorID.Valid || rows[0].ActorID.String != "user-1" {
+		t.Fatalf("trigger actor = type:%q id:%#v", rows[0].ActorType, rows[0].ActorID)
+	}
 	if rows[0].Content != "[seq:1 Alice]: please respond" {
 		t.Fatalf("trigger content = %q", rows[0].Content)
+	}
+	if rows[1].ActorType != string(eventlog.ActorAgent) || !rows[1].ActorID.Valid || rows[1].ActorID.String != "agent-a" {
+		t.Fatalf("reply actor = type:%q id:%#v", rows[1].ActorType, rows[1].ActorID)
 	}
 	if rows[1].Content != "done" {
 		t.Fatalf("reply content = %q, want done", rows[1].Content)

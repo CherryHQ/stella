@@ -31,6 +31,16 @@ Backend identity stays inside the runner and runner-facing sandbox packages. Plu
 
 File I/O (`read`, `write`, `edit`) is runner-owned: the runner calls `ResolvePath` to obtain the host path and then uses `os.ReadFile` / `os.WriteFile` / `os.MkdirAll` directly. `Session` carries no file read/write methods.
 
+## Local workspace ownership
+
+Phase 1 supports one replica and one trusted POSIX `STELLA_HOME`. PostgreSQL owner rows are identity and authorization authority; deterministic paths under `STELLA_HOME` are layout and byte authority. `internal/home.WorkspaceManager` is the only production component that creates typed roots. It creates a missing root only after confirming its live user, group, and Agent owners, and rejects symlinks, non-directories, unsafe IDs, and replacement of the trusted root. A user and group with the same raw ID use distinct paths.
+
+A user or group run uses the exact `AgentRoot` and `DataRoot` returned by its authorized `WorkspaceView`. Isolating backends mount those roots read-write; the explicit `none` backend remains trusted-host execution and provides no process-level filesystem isolation. A user-less run retains disposable scratch semantics and receives no principal mount. Group Agent Home Skill materialization has no user or `user_agent` scope: it does not turn group data into a user's `user_agent` Skill.
+
+Outside Session execution, `WorkspaceManager.OpenRoot` mints a scoped read-only or read-write operation capability. Typed root components are materialized with no-follow traversal; operations use an inode-pinned `os.Root`, so contained relative symlinks work while absolute and escaping symlinks fail closed. This is not a `Session` filesystem transport: Stella has no `stella-fs` or Docker-exec filesystem RPC. Downstream file consumers are migrated separately.
+
+Explicit destructive user, group, or Agent deletion fences local execution before deleting the database owner. Files and inodes are retained, but a later `WorkspaceView` fails because the durable owner is gone. Any filesystem entry at `agents/{id}` reserves that global Agent ID. These guarantees are bounded by the trusted host and are single-replica only. Multi-replica deployment keeps the same application model but additionally requires one strongly consistent shared POSIX namespace plus PostgreSQL generation/lease fencing; S3 is not the live workspace authority.
+
 ## Current Architecture
 
 ### Session ownership
@@ -97,6 +107,22 @@ The in-container Go server serves its baked-in embedded SPA at `localhost:25688`
 Stop everything with `docker compose down`.
 
 The sandbox image bakes its mise toolchain at `/opt/stella` via `stellad mise reconcile-builtins` (the same `resources/tools.yaml` reconcile the host runs), so docker and the Linux `local` backend present identical mise paths.
+
+## Builtin Skill bundle and projection
+
+`resources.Registry` is the sole authority for release-owned builtins. It produces the immutable content-addressed bundle installed at `$STELLA_HOME/bundles/<revision>` for native `local` and `none` execution. Isolating execution projects that exact bundle read-only at `/opt/stella/skills/builtin`; `/opt` is an execution coordinate, not another authority, and bundle executable helper modes must survive the projection.
+
+Project Skills remain ordinary files in durable Agent/project working trees. PostgreSQL remains the authority for mutable `system`, `system_agent`, `user`, and `user_agent` records; their execution materializations are derived caches. The Home filesystem authority cutover is planned and not active.
+
+The Docker sandbox image bakes and labels the exact revision. It has no host-builtin fallback. Docker provider preflight rejects a binary/image revision mismatch, preventing the runner session from starting. Use `stellad system-bundle --help` for operator command syntax. Rebuild the development image with `mise run sandbox:docker:build`; rebuild every custom sandbox image from the matching Stella revision.
+
+Before upgrading, operators must use the old working binary to import each custom Skill root under legacy `$STELLA_HOME/.agents/skills` as a global (`system`) Skill through **Settings → Skills** on older releases or **Admin Console → Deployment resources → Global Skills** on newer releases. They must back up, verify, and remove other residual paths. Startup reports every blocking path and exits without mutation. Current-manifest paths are inert even if their contents or modes differ; every other Skill root or residual path blocks startup.
+
+## Agent Skill policy
+
+The stored scope vocabulary is `system`, `system_agent`, `user`, `user_agent`, and `project`, plus contextual `builtin`. Release `builtin:<name>` is immutable. Administrator-installed `system:<name>` and Agent-bound `system_agent:<name>` are distinct mutable identities.
+
+Resolution selects one winner before policy: `project > user_agent > user > system_agent > system > builtin`. Disabling that winner never exposes a lower same-name Skill. Policy defaults to enabled, is shared per Agent, and is independent of content-edit authorization and `disable_model_invocation`. An admitted turn keeps its snapshot; the next turn sees a successful commit. Legacy non-empty arrays are diagnostic but all-enabled; dangling disabled references have no execution effect and need explicit cleanup.
 
 ## Adding a New Backend
 

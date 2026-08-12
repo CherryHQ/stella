@@ -19,9 +19,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/recally"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -47,6 +47,7 @@ type Service struct {
 	assets     *asset.Store
 	stellaHome string
 	baseURL    string
+	homes      home.WorkspaceViewer
 }
 
 // Share is the transport-neutral view of one share row. Content carries the
@@ -106,14 +107,24 @@ func timePtr(n pgtype.Timestamptz) *time.Time {
 	return &t
 }
 
-func NewService(q *sqlc.Queries, mem memory.Provider, store *recally.Store, assets *asset.Store, stellaHome, baseURL string) *Service {
-	return &Service{q: q, mem: mem, store: store, recallySvc: recally.NewService(store, stellaHome), assets: assets, stellaHome: stellaHome, baseURL: strings.TrimRight(baseURL, "/")}
+type Option func(*Service)
+
+func WithHomeWorkspace(viewer home.WorkspaceViewer) Option {
+	return func(s *Service) { s.homes = viewer }
+}
+
+func NewService(q *sqlc.Queries, mem memory.Provider, store *recally.Store, assets *asset.Store, stellaHome, baseURL string, opts ...Option) *Service {
+	s := &Service{q: q, mem: mem, store: store, recallySvc: recally.NewService(store, stellaHome), assets: assets, stellaHome: stellaHome, baseURL: strings.TrimRight(baseURL, "/")}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // NewServiceForPool creates a share service that owns the sqlc query set for the
 // share tables, so callers pass only the pgx pool.
-func NewServiceForPool(pool *pgxpool.Pool, mem memory.Provider, store *recally.Store, assets *asset.Store, stellaHome, baseURL string) *Service {
-	return NewService(sqlc.New(pool), mem, store, assets, stellaHome, baseURL)
+func NewServiceForPool(pool *pgxpool.Pool, mem memory.Provider, store *recally.Store, assets *asset.Store, stellaHome, baseURL string, opts ...Option) *Service {
+	return NewService(sqlc.New(pool), mem, store, assets, stellaHome, baseURL, opts...)
 }
 
 func (s *Service) PublicURL(token string) string {
@@ -178,20 +189,25 @@ func (s *Service) sessionWorkspaceRoot(ctx context.Context, ident authz.Identity
 		}
 		return "", authz.ErrNotFound
 	}
-	if si.UserID == "" || si.AgentID == "" {
+	if (si.UserID == "" && si.GroupID == "") || si.AgentID == "" {
 		return "", authz.ErrNotFound
 	}
-	if _, err := agent.SetupUserWorkspace(s.stellaHome, si.UserID, si.AgentID); err != nil {
+	// Artifact shares are user-owned capabilities. Group sessions are intentionally
+	// not shareable until a group-specific authorization policy exists.
+	if si.GroupID != "" {
+		return "", authz.ErrNotFound
+	}
+	if s.homes == nil {
+		return "", fmt.Errorf("home workspace resolver not configured")
+	}
+	view, err := s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: si.UserID, GroupID: si.GroupID, AgentID: si.AgentID})
+	if err != nil {
 		return "", err
 	}
-	return WorkspaceRootForScope(s.stellaHome, si.UserID, si.AgentID, scope), nil
-}
-
-func WorkspaceRootForScope(stellaHome, userID, agentID, scope string) string {
 	if scope == "user" {
-		return agent.UserDataDir(agent.UserHomeDir(stellaHome, userID))
+		return view.DataRoot, nil
 	}
-	return agent.UserAgentDir(stellaHome, userID, agentID)
+	return view.AgentRoot, nil
 }
 
 func SafePath(root, rel string) (string, error) {

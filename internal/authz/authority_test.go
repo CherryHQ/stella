@@ -40,8 +40,27 @@ func TestConstructorsRejectMissingIDs(t *testing.T) {
 	if _, err := authz.NewGroupAgentAuthority("g", ""); err == nil {
 		t.Error("group-agent without agent must fail")
 	}
+	if _, err := authz.NewGuestAuthority("", "chan"); err == nil {
+		t.Error("guest without id must fail")
+	}
+	if _, err := authz.NewGuestAuthority("guest", ""); err == nil {
+		t.Error("guest without binding must fail")
+	}
 	if _, err := authz.NewSystemAuthority(""); err == nil {
 		t.Error("unnamed system actor must fail")
+	}
+}
+
+func TestGuestAuthorityShape(t *testing.T) {
+	a, err := authz.NewGuestAuthority("guest-1", "chan-1")
+	if err != nil {
+		t.Fatalf("NewGuestAuthority: %v", err)
+	}
+	if !a.Valid() || a.Kind() != authz.ActorGuest || a.GuestID() != "guest-1" || a.ChannelBindingID() != "chan-1" {
+		t.Fatalf("bad guest actor: %+v", a)
+	}
+	if a.UserID() != "" || a.AgentID() != "" || a.GroupID() != "" || a.Component() != "" || a.IsAdmin() {
+		t.Fatalf("guest actor leaked a foreign field: %+v", a)
 	}
 }
 

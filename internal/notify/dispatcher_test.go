@@ -261,6 +261,9 @@ func TestNotifyUserSendsToFirstLinked(t *testing.T) {
 	if tg.calls[0].ChatID != "tg-123" {
 		t.Errorf("telegram ChatID = %q, want %q", tg.calls[0].ChatID, "tg-123")
 	}
+	if tg.calls[0].RecipientID != "tg-123" {
+		t.Errorf("telegram RecipientID = %q, want %q", tg.calls[0].RecipientID, "tg-123")
+	}
 	if len(fs.calls) != 0 {
 		t.Errorf("feishu got %d calls, want 0", len(fs.calls))
 	}

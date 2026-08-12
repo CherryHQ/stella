@@ -37,6 +37,4 @@ An administrator configures image understanding once for the deployment under **
 
 ## Runtime switching
 
-- **CLI**: `/model` in-chat command
-- **Telegram**: inline keyboard model picker
-- **Web UI**: switch the active model from the Models page
+Use the Models page in the Web UI to switch the active model.

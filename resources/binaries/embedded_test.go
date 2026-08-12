@@ -2,7 +2,10 @@ package binaries
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -23,6 +26,23 @@ func TestToolNameForEntry(t *testing.T) {
 			t.Errorf("toolNameForEntry(%q) = (%q, %v), want (%q, %v)",
 				c.entry, name, ok, c.wantName, c.wantOK)
 		}
+	}
+}
+
+func TestEmbeddedXbergRuns(t *testing.T) {
+	if !slices.Contains(ToolNames(), "xberg") {
+		t.Skip("Xberg is not bundled for this platform")
+	}
+	home := t.TempDir()
+	if err := EnsureTools(home); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(ToolPath(home, "xberg"), "--version").CombinedOutput()
+	if err != nil {
+		t.Fatalf("run embedded Xberg: %v: %s", err, out)
+	}
+	if got := strings.TrimSpace(string(out)); got != "xberg "+xbergVersion {
+		t.Fatalf("Xberg version = %q, want %q", got, "xberg "+xbergVersion)
 	}
 }
 

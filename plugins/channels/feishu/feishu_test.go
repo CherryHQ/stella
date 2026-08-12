@@ -181,44 +181,6 @@ func TestToolLineUnknownTool(t *testing.T) {
 	}
 }
 
-// --- filterModels (now uses channel.FilterModels) ---
-
-func TestFilterModelsIndexed(t *testing.T) {
-	models := []channel.ModelOption{
-		{Provider: "openai", Model: "gpt-4"},
-		{Provider: "anthropic", Model: "claude-3"},
-		{Provider: "openai", Model: "gpt-3.5"},
-	}
-
-	result := channel.FilterModels(models, "openai")
-	if len(result) != 2 {
-		t.Fatalf("expected 2 matches, got %d", len(result))
-	}
-	if result[0].GlobalIdx != 1 || result[1].GlobalIdx != 3 {
-		t.Errorf("global indices should be 1 and 3, got %d and %d", result[0].GlobalIdx, result[1].GlobalIdx)
-	}
-}
-
-func TestFilterModelsIndexedNoMatch(t *testing.T) {
-	models := []channel.ModelOption{
-		{Provider: "openai", Model: "gpt-4"},
-	}
-	result := channel.FilterModels(models, "gemini")
-	if len(result) != 0 {
-		t.Errorf("expected 0 matches, got %d", len(result))
-	}
-}
-
-func TestFilterModelsIndexedCaseInsensitive(t *testing.T) {
-	models := []channel.ModelOption{
-		{Provider: "Anthropic", Model: "Claude-3"},
-	}
-	result := channel.FilterModels(models, "CLAUDE")
-	if len(result) != 1 {
-		t.Fatalf("expected 1 match, got %d", len(result))
-	}
-}
-
 // --- New ---
 
 func TestNewValidConfig(t *testing.T) {
@@ -325,118 +287,6 @@ func TestDerefStrValue(t *testing.T) {
 	s := "hello"
 	if derefStr(&s) != "hello" {
 		t.Error("derefStr should return value")
-	}
-}
-
-// --- formatModelList ---
-
-func TestFormatModelListNoQuery(t *testing.T) {
-	models := channel.IndexModels([]channel.ModelOption{
-		{Provider: "openai", Model: "gpt-4"},
-		{Provider: "anthropic", Model: "claude-3"},
-	})
-	out := channel.FormatNumberedModelList(models, "")
-	if !strings.Contains(out, "1. openai/gpt-4") {
-		t.Errorf("missing model entry in output: %s", out)
-	}
-	if !strings.Contains(out, "2. anthropic/claude-3") {
-		t.Errorf("missing model entry in output: %s", out)
-	}
-}
-
-func TestFormatModelListWithQuery(t *testing.T) {
-	models := channel.IndexModels([]channel.ModelOption{
-		{Provider: "openai", Model: "gpt-4"},
-	})
-	out := channel.FormatNumberedModelList(models, "openai")
-	if !strings.Contains(out, `filter: "openai"`) {
-		t.Errorf("should show filter query: %s", out)
-	}
-}
-
-// --- handleModelCommand ---
-
-func TestHandleModelCommandListModels(t *testing.T) {
-	models := []channel.ModelOption{
-		{Provider: "openai", Model: "gpt-4"},
-	}
-	bot := &Bot{
-		handler:    &mockHandler{models: models},
-		chatModels: make(map[string]channel.ModelOption),
-	}
-
-	var reply string
-	bot.handleModelCommand("", func(s string) { reply = s })
-	if !strings.Contains(reply, "openai/gpt-4") {
-		t.Errorf("expected model list, got: %s", reply)
-	}
-}
-
-func TestHandleModelCommandFilter(t *testing.T) {
-	models := []channel.ModelOption{
-		{Provider: "openai", Model: "gpt-4"},
-		{Provider: "anthropic", Model: "claude-3"},
-	}
-	bot := &Bot{
-		handler:    &mockHandler{models: models},
-		chatModels: make(map[string]channel.ModelOption),
-	}
-
-	var reply string
-	bot.handleModelCommand("claude", func(s string) { reply = s })
-	if !strings.Contains(reply, "claude-3") {
-		t.Errorf("expected filtered results with claude, got: %s", reply)
-	}
-	if strings.Contains(reply, "gpt-4") {
-		t.Errorf("should not contain non-matching model: %s", reply)
-	}
-}
-
-func TestHandleModelCommandFilterNoMatch(t *testing.T) {
-	models := []channel.ModelOption{
-		{Provider: "openai", Model: "gpt-4"},
-	}
-	bot := &Bot{
-		handler:    &mockHandler{models: models},
-		chatModels: make(map[string]channel.ModelOption),
-	}
-
-	var reply string
-	bot.handleModelCommand("gemini", func(s string) { reply = s })
-	if !strings.Contains(reply, "No models matching") {
-		t.Errorf("expected no match message, got: %s", reply)
-	}
-}
-
-func TestHandleModelCommandSwitchByName(t *testing.T) {
-	models := []channel.ModelOption{
-		{Provider: "openai", Model: "gpt-4"},
-	}
-	bot := &Bot{
-		handler:    &mockHandler{models: models},
-		chatModels: make(map[string]channel.ModelOption),
-	}
-
-	var reply string
-	bot.handleModelCommand("openai/gpt-4", func(s string) { reply = s })
-	if !strings.Contains(reply, "Switched to openai/gpt-4") {
-		t.Errorf("expected switch confirmation, got: %s", reply)
-	}
-}
-
-func TestHandleModelCommandSwitchError(t *testing.T) {
-	models := []channel.ModelOption{
-		{Provider: "openai", Model: "gpt-4"},
-	}
-	bot := &Bot{
-		handler:    &mockHandler{models: models, switchErr: fmt.Errorf("switch failed")},
-		chatModels: make(map[string]channel.ModelOption),
-	}
-
-	var reply string
-	bot.handleModelCommand("openai/gpt-4", func(s string) { reply = s })
-	if !strings.Contains(reply, "Error switching model") {
-		t.Errorf("expected switch error, got: %s", reply)
 	}
 }
 
@@ -1024,7 +874,7 @@ func TestSyncGroupsEnsuresMembersAcrossPages(t *testing.T) {
 	calls := 0
 	bot := &Bot{
 		handler: provisioner,
-		cfg:     Config{InstanceID: "feishu-work"},
+		cfg:     Config{InstanceID: "feishu-work", AllowedChatIDs: "oc_1, oc_2, oc_3"},
 		listChats: func(_ context.Context, _ *larkim.ListChatReq) (*larkim.ListChatResp, error) {
 			calls++
 			switch calls {
@@ -1289,10 +1139,15 @@ func TestCardActionSelfClick(t *testing.T) {
 func TestCardActionReturnsToast(t *testing.T) {
 	bot := &Bot{
 		handler:     &mockHandler{},
-		chatModels:  make(map[string]channel.ModelOption),
+		cfg:         Config{AllowDM: true},
 		seenMsgs:    make(map[string]time.Time),
 		provisioned: make(map[string]time.Time),
+		resolveMessageContextFn: func(string) (string, string, string, bool, bool) {
+			return "oc_chat1", "p2p", "", true, true
+		},
 	}
+	bot.botOpenID.Store("ou_bot")
+	bot.unionIDs.Store("ou_user1", "on_user1")
 	resp, err := bot.onCardAction(context.Background(), &callback.CardActionTriggerEvent{
 		Event: &callback.CardActionTriggerRequest{
 			Operator: &callback.Operator{OpenID: "ou_user1"},
@@ -1325,10 +1180,15 @@ func TestCardActionSyntheticMessageDoesNotReuseCardMessageID(t *testing.T) {
 				return "", false, nil, nil
 			},
 		},
-		chatModels:  make(map[string]channel.ModelOption),
+		cfg:         Config{AllowDM: true},
 		seenMsgs:    make(map[string]time.Time),
 		provisioned: make(map[string]time.Time),
+		resolveMessageContextFn: func(string) (string, string, string, bool, bool) {
+			return "oc_chat1", "p2p", "", true, true
+		},
 	}
+	bot.botOpenID.Store("ou_bot")
+	bot.unionIDs.Store("ou_user1", "on_user1")
 	_, err := bot.onCardAction(context.Background(), &callback.CardActionTriggerEvent{
 		Event: &callback.CardActionTriggerRequest{
 			Operator: &callback.Operator{OpenID: "ou_user1"},
@@ -1347,6 +1207,37 @@ func TestCardActionSyntheticMessageDoesNotReuseCardMessageID(t *testing.T) {
 	msg := waitMessage(t, captured)
 	if msg.MessageID != "" {
 		t.Errorf("MessageID = %q, want empty synthetic action id", msg.MessageID)
+	}
+}
+
+func TestCardActionUnknownCanonicalOperatorCannotMintGuest(t *testing.T) {
+	captured := make(chan channel.IncomingMessage, 1)
+	bot := &Bot{
+		handler: &mockHandler{
+			handleIncomingFn: func(_ context.Context, msg channel.IncomingMessage, _, _ string) (string, bool, *channel.ChatStream, error) {
+				captured <- msg
+				return "", false, nil, nil
+			},
+		},
+		cfg: Config{AllowDM: true},
+		resolveMessageContextFn: func(string) (string, string, string, bool, bool) {
+			return "oc_chat1", "p2p", "", true, true
+		},
+	}
+	bot.botOpenID.Store("ou_bot")
+	resp, err := bot.onCardAction(context.Background(), &callback.CardActionTriggerEvent{
+		Event: &callback.CardActionTriggerRequest{
+			Operator: &callback.Operator{OpenID: "ou_user1"},
+			Action:   &callback.CallBackAction{Value: map[string]any{"action": "retry"}},
+			Context:  &callback.Context{OpenChatID: "oc_chat1", OpenMessageID: "om_card1"},
+		},
+	})
+	if err != nil || resp == nil {
+		t.Fatalf("unknown canonical operator: resp=%v err=%v", resp, err)
+	}
+	msg := waitMessage(t, captured)
+	if msg.SenderID != "" || len(msg.SenderIDs) != 1 || msg.SenderIDs[0] != "ou_user1" {
+		t.Fatalf("operator identity = canonical %q candidates %#v, want empty canonical and open_id candidate", msg.SenderID, msg.SenderIDs)
 	}
 }
 
