@@ -6,6 +6,7 @@ require (
 	filippo.io/age v1.3.1
 	github.com/Mad-Pixels/goldmark-tgmd v0.0.10
 	github.com/anthropics/anthropic-sdk-go v1.26.0
+	github.com/bwmarrin/discordgo v0.29.0
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/containerd/errdefs v1.0.0
 	github.com/coreos/go-oidc/v3 v3.18.0
@@ -31,6 +32,7 @@ require (
 	github.com/pgvector/pgvector-go/pgx v0.4.0
 	github.com/pressly/goose/v3 v3.27.1
 	github.com/riverqueue/river v0.39.0
+	github.com/riverqueue/river/riverdriver v0.39.0
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.39.0
 	github.com/riverqueue/river/rivertype v0.39.0
 	github.com/robfig/cron/v3 v3.0.1
@@ -141,7 +143,6 @@ require (
 	github.com/prometheus/common v0.67.5 // indirect
 	github.com/prometheus/otlptranslator v1.0.0 // indirect
 	github.com/prometheus/procfs v0.20.1 // indirect
-	github.com/riverqueue/river/riverdriver v0.39.0 // indirect
 	github.com/riverqueue/river/rivershared v0.39.0 // indirect
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect

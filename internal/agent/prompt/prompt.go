@@ -26,6 +26,19 @@ var defaultSystemPrompt string
 // DefaultSystemPrompt returns the default system prompt text.
 func DefaultSystemPrompt() string { return strings.TrimSpace(defaultSystemPrompt) }
 
+const guestLimitations = `You are serving an unauthenticated guest. You may converse using only the visible conversation history. You have no tools, files, workspace, skills, plugins, memories, profile, reflection, delegation, secrets, OAuth connections, or other Stella capabilities. Do not claim to access or retain anything beyond this conversation.`
+
+// BuildGuestSystemPrompt returns the deliberately minimal guest prompt. The
+// configured agent base prompt is operator-visible and is the only agent
+// customization guests receive.
+func BuildGuestSystemPrompt(base string) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		base = "You are a conversational assistant."
+	}
+	return base + "\n\n# Guest limitations\n\n" + guestLimitations
+}
+
 // DefaultAgentSoul returns the first soul tagged "default" from the builtin
 // registry, used as the fallback persona when an agent has no override in memory.
 func DefaultAgentSoul() string {
@@ -183,7 +196,7 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	// Runtime injects it as per-turn message context instead, preserving the group
 	// system prompt prefix across speakers for provider prompt caches.
 	// World facts are deliberately search-first: they remain available through
-	// memory.search_knowledge under the same snapshot/version semantics, but are
+	// memory.search under the same snapshot/version semantics, but are
 	// not injected into every prompt by default.
 
 	for _, s := range p.Sections {

@@ -161,9 +161,10 @@ func TestProviderStreamToolLoopContract(t *testing.T) {
 func chatCompletionRequest(model string, messages []any, schema map[string]any) func(map[string]any) error {
 	return func(body map[string]any) error {
 		want := map[string]any{
-			"model":    model,
-			"stream":   true,
-			"messages": messages,
+			"model":          model,
+			"stream":         true,
+			"stream_options": map[string]any{"include_usage": true},
+			"messages":       messages,
 			"tools": []any{map[string]any{
 				"type": "function",
 				"function": map[string]any{

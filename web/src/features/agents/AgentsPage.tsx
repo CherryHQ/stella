@@ -66,7 +66,7 @@ export function AgentsPage() {
     >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {(data?.agents ?? []).map((a: AgentDetail) => {
-          const canEdit = canEditAgent(a, data?.isAdmin ?? false, data?.currentUserId ?? "");
+          const canEdit = canEditAgent(a);
           return (
             <SettingsCard
               key={a.id}

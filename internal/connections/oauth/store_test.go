@@ -106,3 +106,55 @@ func TestFlowStore_DeleteMissingIsNoOp(t *testing.T) {
 	// Should not panic.
 	s.Delete("not-there")
 }
+
+func TestFlowStoreCreateExclusiveSupersedesPendingButNotCompletingFlow(t *testing.T) {
+	s := NewFlowStore()
+	first := FlowStatus{
+		FlowID: "first", UserID: "user-1", Provider: ProviderGitHub,
+		State: FlowStatePending, ExpiresAt: time.Now().Add(time.Minute),
+	}
+	if !s.CreateExclusive(first) {
+		t.Fatal("first CreateExclusive rejected")
+	}
+	second := first
+	second.FlowID = "second"
+	if !s.CreateExclusive(second) {
+		t.Fatal("replacement CreateExclusive rejected")
+	}
+	if _, ok := s.Get("first"); ok {
+		t.Fatal("superseded pending flow still exists")
+	}
+	if _, ok := s.Claim("second"); !ok {
+		t.Fatal("Claim(second) failed")
+	}
+	third := second
+	third.FlowID = "third"
+	if s.CreateExclusive(third) {
+		t.Fatal("CreateExclusive replaced a completing flow")
+	}
+	third.UserID = "user-2"
+	if !s.CreateExclusive(third) {
+		t.Fatal("different user should have an independent flow")
+	}
+}
+
+func TestFlowStoreClaimRejectsReplayAndExpiredFlow(t *testing.T) {
+	s := NewFlowStore()
+	s.Create(FlowStatus{FlowID: "live", State: FlowStatePending, ExpiresAt: time.Now().Add(time.Minute)})
+	claimed, ok := s.Claim("live")
+	if !ok || claimed.State != FlowStateCompleting {
+		t.Fatalf("Claim(live) = (%+v, %v), want completing", claimed, ok)
+	}
+	if _, ok := s.Claim("live"); ok {
+		t.Fatal("replayed Claim(live) succeeded")
+	}
+
+	s.Create(FlowStatus{FlowID: "expired", State: FlowStatePending, ExpiresAt: time.Now().Add(-time.Second)})
+	if _, ok := s.Claim("expired"); ok {
+		t.Fatal("Claim(expired) succeeded")
+	}
+	got, _ := s.Get("expired")
+	if got.State != FlowStateExpired {
+		t.Fatalf("expired state = %q, want %q", got.State, FlowStateExpired)
+	}
+}

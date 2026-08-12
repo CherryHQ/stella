@@ -44,11 +44,11 @@ func (a *Access) Statuses(ctx context.Context) ([]ProviderStatus, error) {
 }
 
 // StartFlow starts an OAuth flow for the acting user.
-func (a *Access) StartFlow(ctx context.Context, provider string, origin ...string) (FlowStatus, error) {
+func (a *Access) StartFlow(ctx context.Context, provider string, requestedScopes []string, origin ...string) (FlowStatus, error) {
 	if len(origin) > 0 && origin[0] != "" {
-		return a.svc.StartFlowWithOrigin(ctx, a.userID, provider, origin[0])
+		return a.svc.StartFlowWithOrigin(ctx, a.userID, provider, origin[0], requestedScopes)
 	}
-	return a.svc.StartFlow(ctx, a.userID, provider)
+	return a.svc.StartFlow(ctx, a.userID, provider, requestedScopes)
 }
 
 // PollFlow polls an in-flight OAuth flow. Ownership is proven against the

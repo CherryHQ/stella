@@ -11,6 +11,26 @@ import (
 	"github.com/CherryHQ/stella/internal/vault"
 )
 
+func TestLibraryToolAvailable(t *testing.T) {
+	tests := []struct {
+		name   string
+		params agent.RunnerParams
+		want   bool
+	}{
+		{name: "trusted user Agent run", params: agent.RunnerParams{UserID: "u1", AgentID: "a1"}, want: true},
+		{name: "group run", params: agent.RunnerParams{GroupID: "g1", AgentID: "a1"}, want: false},
+		{name: "missing user", params: agent.RunnerParams{AgentID: "a1"}, want: false},
+		{name: "missing Agent", params: agent.RunnerParams{UserID: "u1"}, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := libraryToolAvailable(context.Background(), test.params); got != test.want {
+				t.Fatalf("libraryToolAvailable = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 type fakeEmailMetaGetter struct{ err error }
 
 func (f fakeEmailMetaGetter) GetScopedMeta(context.Context, string, string, string, string) (vault.EntryMeta, error) {

@@ -7,16 +7,12 @@ import (
 	"github.com/CherryHQ/stella/internal/version"
 )
 
-// redirectRoot sends unauthenticated users to /login, admins to /providers,
-// and regular users to /agents.
+// redirectRoot sends unauthenticated users to /login and authenticated users
+// to /agents.
 func (s *Server) redirectRoot(w http.ResponseWriter, r *http.Request) {
 	info := UserFromContext(r.Context())
 	if info == nil {
 		http.Redirect(w, r, "/login", http.StatusFound)
-		return
-	}
-	if info.IsAdmin {
-		http.Redirect(w, r, "/providers", http.StatusFound)
 		return
 	}
 	http.Redirect(w, r, "/agents", http.StatusFound)

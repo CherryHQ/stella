@@ -8,7 +8,7 @@ title: Architecture
 
 stella is structured as a set of loosely coupled packages wired together at startup. The system supports multiple users and multiple agents, with routing handled per message. The core flow:
 
-1. The **Web UI or a channel** (Telegram, QQ, Feishu, or WeChat) receives user input.
+1. The **Web UI or a channel** (Telegram, Discord, QQ, Feishu, or WeChat) receives user input.
 2. The channel **resolves the user** (upsert by external ID + platform) and **resolves the agent** (DM default, group binding, or fallback).
 3. The **ServiceManager** looks up the agent's `agent.Service` by agent ID.
 4. `agent.Service` resolves session intent through `session.Registry`.
@@ -17,7 +17,7 @@ stella is structured as a set of loosely coupled packages wired together at star
 7. Responses stream back through the channel to the user.
 
 ```
-Web UI / Channel (Telegram / QQ / Feishu / WeChat)
+Web UI / Channel (Telegram / Discord / QQ / Feishu / WeChat)
     |
     v
 Resolve user  -->  Resolve agent
@@ -46,7 +46,7 @@ internal/
     runtime/           Runner cache, turn execution, event persistence
     prompt/            System prompt builder and templates
     sandbox/           Core sandbox tools (bash, read, write, edit)
-    delegate/          Delegate tool (isolated child loops)
+    delegate/          Internal managed-session adapter and presets
   channel/             Channel interface, identity resolution, slash commands, notify
   memory/              Memory provider registry + implementations (lcm, simple)
   server/              HTTP API + embedded React SPA
@@ -55,15 +55,16 @@ internal/
   controlplane/        Control-plane domain (providers, settings, plugins, channels)
   pluginhost/          Capability-scoped plugin platform host
   db/                  PostgreSQL (pgx/v5), goose migrations, sqlc queries
+  home/                POSIX workspace materialization, owner validation, deletion fencing
   scheduler/           River-backed service (durable job scheduling for Web UI and native agent tools)
   skills/              Skills tool (search/install/list/remove via skills.sh)
 pkg/
   ai/                  Message/Content types, Model, Provider interface, streaming events
-  tools/               Tool interface, registry, built-in tools (read, bash, write, edit, delegate)
+  tools/               Tool interface and registry
 plugins/
   tools/               Plugin tool registry + plugin tools (webfetch)
   hooks/               Plugin hook registry + plugin hooks (rtk)
-  channels/            Channel plugins (telegram, qq, feishu, weixin)
+  channels/            Channel plugins (telegram, discord, qq, feishu, weixin)
   providers/           Provider plugin registry + LLM adapters (anthropic, openai, openai-response)
   sandbox/             Sandbox backend plugins
 ```
@@ -76,6 +77,12 @@ Configuration is stored in PostgreSQL and accessed through the `config.Store` in
 - **DBStore** (`config.DBStore`) -- PostgreSQL-backed implementation using sqlc-generated queries.
 - **Snapshot** (`config.Snapshot`) -- Read-only view of configuration for a single agent. Assembled from the Store at pool creation time. Contains resolved provider credentials, model names, workspace path, system prompt, and runner settings. Passed to the runner factory and tools that need per-agent config.
 
+## Home persistence and lifecycle
+
+`internal/home.WorkspaceManager` is the sole production materializer beneath one POSIX `STELLA_HOME`. PostgreSQL user, group, and Agent rows authorize deterministic local paths; the filesystem owns layout and bytes. A missing workspace for live owners is created, while a symlink, non-directory, unsafe ID, or replaced trusted root fails closed. Existing files are never registered into a PostgreSQL Home catalog because Phase 1 has no such catalog.
+
+An explicit destructive user, group, or Agent delete fences local cached execution before deleting the owner in the existing database transaction. Physical bytes and inodes remain, but owner validation prevents later workspace access. A filesystem entry of any kind at `agents/{id}` reserves the global Agent ID. Assignment removal, member removal, Session archive, and Helm uninstall do not delete workspace bytes. This is a trusted-host, single-replica boundary; multi-replica, Kubernetes, and S3 storage authority require a future design.
+
 ## Composition & Lifecycle
 
 `cmd/stellad` is the single manual composition root. There is no DI framework and no generic `Lifecycle` interface — subsystems are constructed and wired explicitly, in one place, so the wiring is auditable. Startup runs in strict phases, and each phase must complete before the next:
@@ -85,7 +92,7 @@ Configuration is stored in PostgreSQL and accessed through the `config.Store` in
 3. **Bind** — genuine back-edges are closed with one-shot, pre-start binds that reject a nil/duplicate/late bind: the PoolManager's `BindVaultEnvLoader`/`BindMCPToolProvider`/`BindOAuthRegistry` (before `StartAll`), the shared River client's `BindRiverClient` on the scheduler/goal/embedding services, and `AddBuiltinTool` (duplicate-checked, sealed by `StartAll`). Ordinary dependencies are constructor-injected, not bound.
 4. **Validate / Seal** — `pluginhost.Seal()` validates every static registration and capability binding, then refuses further static registration; the dynamic desired-state surface (`ApplyChannel`/`RegisterManifestPlugins`) stays open. The admin server is built from an immutable, validated `server.Deps` via `server.New(ctx, deps)` which fails fast on a missing required dependency. `server.New` reads no environment, constructs no service, and has no setters.
 5. **Observability** — global OTel tracing initializes before the serving phase, so no span-emitting component (agent runs via HTTP/channel ingress) starts before the exporter is installed.
-6. **Run** — only now does the composition root start ingress, and only after every backend it depends on is up. First it wires the static callbacks (`notifier.SetAuthService`, the scheduler `OnJob` handler — both mutex-guarded one-time writes) and starts River, the scheduler, the goal dispatch tick, and the embedding backfill; the scheduler handler is wired **before** River starts, since River may run a persisted job the instant it starts. Only then does ingress come up — the group-dispatch loop, the managed channel runtimes, and finally `httpSrv.Serve` (the listener is bound earlier but not served). The root owns one `errgroup`: `httpSrv.Serve` and `groupDispatcher.Run(ingressCtx)` run under it. Expected shutdown errors normalize to `nil` (`http.ErrServerClosed`, `context.Canceled`); any other component error cancels its peers and becomes the root error. Component constructors start no goroutines — background loops are entered by an explicit blocking `Run(ctx)` or a `Start` owned by the root (e.g. the trace hook's idle-session reaper).
+6. **Run** — only now does the composition root start ingress, and only after every backend it depends on is up. First it wires the static callbacks (`notifier.SetAuthService`, the scheduler `OnJob` handler — both mutex-guarded one-time writes) and starts the one shared River client with scheduler, goal, and embedding workers, then starts the scheduler, goal dispatch tick, and embedding backfill; the scheduler handler is wired **before** River starts, since River may run a persisted job the instant it starts. Only then does ingress come up — the group-dispatch loop, the managed channel runtimes, and finally `httpSrv.Serve` (the listener is bound earlier but not served). The root owns one `errgroup`: `httpSrv.Serve` and `groupDispatcher.Run(ingressCtx)` run under it. Expected shutdown errors normalize to `nil` (`http.ErrServerClosed`, `context.Canceled`); any other component error cancels its peers and becomes the root error. Component constructors start no goroutines — background loops are entered by an explicit blocking `Run(ctx)` or a `Start` owned by the root (e.g. the trace hook's idle-session reaper).
 
 **Immutable Server Deps.** `server.Deps` is a value struct of application services: Account, Profile, Project, Inbox, Agent/Session/Skill access, Group, control-plane, and shared capability services. `internal/server` has no persistence store, query handle, or pool; `DBPinger` is its only database-shaped dependency and is limited to liveness probes. Terminal AST guards reject broad `Deps` fields, server persistence selectors, and `sqlc`/`pgxpool` imports; their counterexamples cover nested fields, aliases, handler query use without an import, DTO-only imports, and dot imports. Optional capabilities are nil-tolerant and degrade through one centralized 503 mapping.
 
@@ -115,9 +122,9 @@ The resolved user and agent are bundled into a `ResolvedChat` struct that thread
 
 The `ServiceManager` (implemented by `PoolManager`) maintains a `map[agentID]*Service` and lazily creates services on first access. Each service is configured with its agent's `Snapshot` (model, credentials, workspace, system prompt) via the runner factory.
 
-### Agent Switching
+### Agent Routing
 
-The `/agent` slash command (handled by `AgentCommander`) lets users list enabled agents and switch the active agent for their DM or group chat. In DMs this updates `default_agent_id`; in groups it updates the `chat_agents` binding. `/model` remains per-session within the current agent.
+Channel configuration selects a dedicated agent when one is bound. Otherwise, direct messages use the user's default agent and groups use their assigned agent, falling back to the first enabled agent.
 
 ## Providers
 
@@ -171,13 +178,12 @@ type Tool interface {
 
 ### Built-in Tools (always available)
 
-| Tool       | Description                                       |
-| ---------- | ------------------------------------------------- |
-| `read`     | Read file contents with UTF-8 safe truncation     |
-| `bash`     | Execute shell commands                            |
-| `write`    | Create/overwrite files atomically                 |
-| `edit`     | Edit file sections preserving context             |
-| `delegate` | Delegate focused subtasks to isolated child loops |
+| Tool    | Description                                   |
+| ------- | --------------------------------------------- |
+| `read`  | Read file contents with UTF-8 safe truncation |
+| `bash`  | Execute shell commands                        |
+| `write` | Create/overwrite files atomically             |
+| `edit`  | Edit file sections preserving context         |
 
 ### Plugin Tools (toggleable via admin)
 
@@ -191,29 +197,32 @@ The core local-workspace tools run through a Docker sandbox backend. The `bash` 
 
 The sandbox system provides process, filesystem, and network isolation for agent tool execution. All core tools share the same `sandbox.Session` per runner: `bash` uses `Session.Exec`; `read`/`write`/`edit` use `Session.ResolvePath` + `os.*`. Runner startup fails closed when the sandbox backend is unavailable. See [Sandbox Backend Abstraction](/docs/development/sandbox) for the full Session interface, execution mediation, fail-closed behavior, and exception boundaries.
 
-Sandbox tools (bash, read, write, edit) live in `internal/agent/sandbox/`; other built-in tools live with the capability they project (for example, delegate in `internal/agent/delegate`). Plugin tools (e.g. webfetch) live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/development/plugin-system) for the full plugin architecture.
+Sandbox tools (bash, read, write, edit) live in `internal/agent/sandbox/`; other built-in tools live with the capability they project. Plugin tools (e.g. webfetch) live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/development/plugin-system) for the full plugin architecture.
 
-### Delegate Tool
+### Session Tool
 
-The `delegate` tool enables the agent to delegate focused subtasks to isolated child loops. This is useful for research, code review, or drafting that benefit from fresh context without polluting the parent conversation.
+The model-facing `session` tool owns Session management, bounded inspection, creation, and synchronous communication. Content recall belongs to the `memory` tool:
 
-- Each delegate gets a fresh message history containing only the task description
-- Multiple tasks run in parallel via goroutines with configurable concurrency
-- The `delegate` tool is excluded from children to prevent recursion
-- Delegate output is truncated to ~4096 tokens to avoid bloating the parent context
-- Supports presets loaded from markdown files with YAML frontmatter
-- Per-task options: `preset`, `context`, `model` (override), `system` (additional instructions), `tools` (whitelist), `max_turns` (default 10), `timeout_seconds` (default 120)
+- `list` lists recent, active, or archived Session cards without semantic search.
+- `get` returns metadata and context statistics, and pages bounded logical turns.
+- `create` opens a focused persistent Session and can apply an internal preset.
+- `send` runs one turn on an owned sendable Session, including legacy delegate Sessions.
+
+The runtime keeps `DelegateTool` and delegate Session kinds as internal compatibility machinery for presets and existing IDs. It does not register `delegate` in the model tool registry.
+
+Agent sends first persist an input row, then enter a process-local per-Session FIFO before the standard runtime admission guard. The queue bounds pending depth and admission hold time, propagates the source context, and never replaces the runtime correctness guard. LCM claims the row in the same transaction that appends the transcript message. Startup recovery reauthorizes and append-only delivers pending rows; it never starts a model or tool turn. Nested calls carry depth and ancestry in context, reject cycles, inherit the root deadline, and share a 16-call root-turn budget across sibling and nested calls. Agent-originated input persists its actor and source Session; prompt rendering marks it as information rather than human authority. Synchronous Session turns never publish to an external channel implicitly, and inbox durability does not make replies or execution durable.
 
 ### Builtin Shared Tools
 
-| Tool        | Condition                         | Description                                                         |
-| ----------- | --------------------------------- | ------------------------------------------------------------------- |
-| `memory`    | Always                            | Auto-generated memory tool (actions adapt to provider capabilities) |
-| `skills`    | Always                            | Skill management (search/install/list/remove from skills.sh)        |
-| `scheduler` | Always                            | Schedule tasks (add/list/remove jobs)                               |
-| `notify`    | Gateway mode + channel configured | Send notifications via dispatcher                                   |
+| Tool        | Condition                         | Description                                                          |
+| ----------- | --------------------------------- | -------------------------------------------------------------------- |
+| `memory`    | Always                            | Unified search and read across conversation and durable memory       |
+| `session`   | One-to-one agent sessions         | Session listing, bounded inspection, creation, and synchronous sends |
+| `skills`    | Always                            | Skill management (search/install/list/remove from skills.sh)         |
+| `scheduler` | Always                            | Schedule tasks (add/list/remove jobs)                                |
+| `notify`    | Gateway mode + channel configured | Send notifications via dispatcher                                    |
 
-The memory tool is auto-generated by `memory.BuildTool(provider)`, which inspects the provider's capabilities and produces a tool with matching actions. Ordinary chat runners narrow it with `WithSessionReadOnlyWrites()`: with the LCM provider they expose `status`, `search`, `describe`, `expand`, `get_message`, `profile_get`, `soul_get`, `profile_history`, and `constraint_list`; with the Simple provider they expose the corresponding read-only subset. Durable profile/soul/constraint writes happen through Reflect or manual UI/API paths and are injected into new session prompts.
+The memory tool is generated by `memory.BuildTool(provider, memory.WithRecallSource(sessionAccess))`. Ordinary chat runners expose exactly `search` and `read`: search federates snapshot-visible LCM messages/summaries with durable facts, profile, soul, and constraints; read resolves an opaque result ref or a well-known identity/constraint/history ref. Dynamic reads reauthorize through Session access, and summary reads preserve LCM describe/expand through bounded child refs. Provider-oriented actions such as transcript `status`/`describe`/`expand`/`get_message` and durable profile, soul, or constraint management remain available only to the internal, Reflect, or manual surfaces that own them.
 
 ## Session Lifecycle
 
@@ -239,11 +248,11 @@ type Channel interface {
 }
 ```
 
-Shared command logic for `/new`, `/compact`, `/abort`, and `/whoami` lives in the channel coordination layer, which each channel delegates to for the core logic. `/new` rotates the chat onto a fresh session — the previous one is archived, never deleted — and runs as a control operation on the same per-session queue as chat turns, so it never races an in-flight turn. `/new` applies to direct messages only: a group's context is shared, so a group `/new` is refused before the shared event log is written, which keeps the refused command out of every agent's context. `/model` and `/agent` remain per-channel because they require platform-specific UI (Telegram uses inline keyboards; QQ, Feishu, and WeChat use text lists). Chat turns are serialized per resolved Stella session so overlapping channel messages cannot race the same session history; `/abort` cancels the currently running turn for that session.
+Shared command logic for `/new`, `/compact`, and `/abort` lives in the channel coordination layer, which each channel delegates to for the core logic; adapters can provide platform-specific help and identity commands. `/new` rotates the chat onto a fresh session — the previous one is archived, never deleted — and runs as a control operation on the same per-session queue as chat turns, so it never races an in-flight turn. `/new` applies to direct messages only: a group's context is shared, so a group `/new` is refused before the shared event log is written, which keeps the refused command out of every agent's context. Chat turns are serialized per resolved Stella session so overlapping channel messages cannot race the same session history; `/abort` cancels the currently running turn for that session.
 
 ### Channel ingress ownership
 
-Stella supports one server replica ([#637](https://github.com/CherryHQ/stella/issues/637)). The Helm chart enforces `replicaCount: 1` and a `Recreate` rollout, so managed channel bot pollers start unconditionally once their dependencies are wired. Running two `stellad` processes against the same channel configuration is unsupported: Telegram may return 409 and WeChat, QQ, or Feishu may duplicate delivery. Multi-replica channel ingress needs a complete offset and fencing design; a database lease alone is not that design.
+Stella supports one server replica ([#637](https://github.com/CherryHQ/stella/issues/637)). The Helm chart enforces `replicaCount: 1` and a `Recreate` rollout, so managed channel bot pollers start unconditionally once their dependencies are wired. Running two `stellad` processes against the same channel configuration is unsupported: Telegram may return 409 and Discord, QQ, Feishu, or WeChat may duplicate delivery. Multi-replica channel ingress needs a complete offset and fencing design; a database lease alone is not that design.
 
 During graceful drain, `pluginHost.Quiesce` stops new channel polling while accepted work and notifier senders remain alive. Final `pluginHost.Stop` runs only after River drains, preserving outbound delivery for accepted work.
 
@@ -260,8 +269,8 @@ The `internal/server/` package provides an HTTP API and embedded SPA for managin
 ## Notification Flow
 
 ```
-Agent notify tool      --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
-Scheduler job result   --> Dispatcher --> Channel (Telegram/QQ/Feishu/WeChat)
+Agent notify tool      --> Dispatcher --> Channel (Telegram/Discord/QQ/Feishu/WeChat)
+Scheduler job result   --> Dispatcher --> Channel (Telegram/Discord/QQ/Feishu/WeChat)
 ```
 
 The dispatcher is created early in setup, but backends are registered later when gateway services start. The ServiceManager wires per-agent notification tool injection through the `BuiltinToolsFactory`, keeping notifications in the always-on builtin tool set while external tools remain plugin-managed.

@@ -1,9 +1,9 @@
 ---
 description: |
   Lark/Feishu CLI skills for Stella sessions. Covers workspace operations — calendar,
-  docs, tasks, mail, and messenger — via the user-managed lark-cli tool. Stella installs
-  the binary and keeps its native configuration and auth state in the user's shared
-  sandbox directory; lark-cli itself owns setup, authorization, and refresh. Always
+  docs, tasks, mail, and messenger — via the Stella-managed lark-cli tool. Stella installs
+  the binary and injects a managed per-user OAuth token; no native CLI bootstrap is
+  required. Always
   read lark-shared first for identity selection and permission-denied handling.
 metadata:
   generated: true
@@ -21,11 +21,11 @@ tags:
 
 This skill aggregates Lark/Feishu CLI modules synced from `larksuite/cli` and adapted for Stella sessions.
 
-**Stella boundary** — Stella only installs `lark-cli` and redirects its native config and data directories to the user's shared sandbox state. Stella does not inject credentials, initialize an app, bind a Channel app, or choose an authorization flow. A setup or login completed in one private Agent workspace is available from the same user's other Agent workspaces.
+**Stella boundary** — Stella manages the OAuth application credentials, user token, refresh, and sandbox environment injection. `lark-cli` is the API client; do not initialize another app or token store inside the sandbox. Feishu/Lark Channel credentials and Stella login remain separate from tool OAuth.
 
 **Identity** — follow the user's configured lark-cli identity. Use `--as user` for personal resources and actions attributed to the employee; never switch to `--as bot` merely to bypass an auth or scope failure.
 
-**Authorization boundary** — Stella's generic `oauth` tool, Feishu Channel credentials, and Feishu login do not authorize lark-cli. Diagnose and manage lark-cli only through its own `config` and `auth` commands. In non-interactive sessions, follow the two-turn setup and device-code login flow in `lark-shared`; never send an authorization URL and block waiting for the user in the same turn.
+**Authorization boundary** — use Stella's `oauth` tool for lark-cli authorization. When an API error reports missing user scopes, request only those scopes with `oauth connect`; Stella unions them into this user's desired set and validates administrator policy. Never run `lark-cli config init` or `lark-cli auth login` inside Stella.
 
 ## Modules
 

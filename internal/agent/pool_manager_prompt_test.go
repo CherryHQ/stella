@@ -2,11 +2,13 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -29,13 +31,46 @@ func TestPoolSnapshotPromptUsesPrincipalWorkspace(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var got pkgplugins.SystemPromptContext
-			pm := &PoolManager{promptSectionsBuilder: func(_ context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
+			pm := &PoolManager{homeWorkspace: testWorkspaceViewer{root: stellaHome}, promptSectionsBuilder: func(_ context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {
 				got = build
 				return nil, nil
 			}}
-			pm.buildSnapshotPromptFunc(snap)(context.Background(), tt.info, memory.SessionSnapshot{})
+			if _, err := pm.buildSnapshotPromptFunc(snap)(context.Background(), tt.info, memory.SessionSnapshot{}); err != nil {
+				t.Fatal(err)
+			}
 			if got.WorkspaceRoot != tt.want {
 				t.Errorf("WorkspaceRoot = %q, want %q", got.WorkspaceRoot, tt.want)
+			}
+		})
+	}
+}
+
+func TestPoolSnapshotPromptPropagatesWorkspaceError(t *testing.T) {
+	want := errors.New("Home unavailable")
+	pm := &PoolManager{homeWorkspace: failingWorkspaceViewer{err: want}}
+	_, err := pm.buildSnapshotPromptFunc(&config.Snapshot{AgentID: "a"})(context.Background(), session.Info{UserID: "u", AgentID: "a"}, memory.SessionSnapshot{})
+	if !errors.Is(err, want) {
+		t.Fatalf("snapshot prompt error = %v, want %v", err, want)
+	}
+}
+
+func TestMatchesHomeOwnerKeepsUserAndGroupScopesDisjoint(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		info session.Info
+		kind home.OwnerKind
+		id   string
+		want bool
+	}{
+		{name: "user private session", info: session.Info{UserID: "same"}, kind: home.OwnerUser, id: "same", want: true},
+		{name: "user excludes group session sharing raw ID", info: session.Info{UserID: "same", GroupID: "same"}, kind: home.OwnerUser, id: "same", want: false},
+		{name: "group matches exact GroupID", info: session.Info{UserID: "same", GroupID: "same"}, kind: home.OwnerGroup, id: "same", want: true},
+		{name: "group ignores matching user ID", info: session.Info{UserID: "same"}, kind: home.OwnerGroup, id: "same", want: false},
+		{name: "agent uses removeAgent path", info: session.Info{UserID: "same"}, kind: home.OwnerAgent, id: "same", want: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := matchesHomeOwner(tt.info, tt.kind, tt.id); got != tt.want {
+				t.Fatalf("matchesHomeOwner(%+v, %q, %q) = %t, want %t", tt.info, tt.kind, tt.id, got, tt.want)
 			}
 		})
 	}

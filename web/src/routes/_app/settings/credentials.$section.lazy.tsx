@@ -1,6 +1,6 @@
 import { createLazyFileRoute } from "@tanstack/react-router";
-import { CredentialsPage } from "@/features/credentials/CredentialsPage";
+import { PersonalCredentialsPage } from "@/features/credentials/CredentialsPage";
 
 export const Route = createLazyFileRoute("/_app/settings/credentials/$section")({
-  component: CredentialsPage,
+  component: PersonalCredentialsPage,
 });

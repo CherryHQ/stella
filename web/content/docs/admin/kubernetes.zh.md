@@ -171,7 +171,7 @@ chart 写死了 `replicaCount: 1` 与 `strategy: Recreate`。Stella 不是无状
 多副本就绪度审计发现三类状态，一旦跑起第二个 pod 立刻出错。
 
 - **IM 通道在每个副本上全量启动。** 每个 pod 各自启动所有已配置的
-  Telegram/QQ/Feishu/微信连接。两个 pod 就是同一个 bot token 上两条 long-poll 或
+  Telegram/Discord/QQ/Feishu/微信连接。两个 pod 就是同一个 bot token 上两条 long-poll 或
   WebSocket 会话 —— 平台会返回冲突（如 Telegram `409`）或把每条消息投递两次。
 - **实时推送与 per-session 串行化是进程内存态。** “同一 session 只有一个进行中
   turn” 的保证，以及把 turn 输出推给浏览器的 SSE hub，都只存在于跑该 turn 的那个
@@ -252,7 +252,7 @@ Stella 需要出站访问：
 
 - **PostgreSQL** —— 你的外部数据库（通常 `5432`）。
 - **LLM provider API** —— Anthropic、OpenAI，或你配置的任意 provider。
-- **IM 平台 API** —— 你启用的通道对应的 Telegram、QQ、Feishu、微信。
+- **IM 平台 API** —— 你启用的通道对应的 Telegram、Discord、QQ、Feishu、微信。
 - **S3 / 对象存储** —— 仅当你配置了 `STELLA_BLOB_S3_*` 附件镜像时。
 
 若集群限制出站，请放行这些目标。chart 不提供 NetworkPolicy。

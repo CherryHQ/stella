@@ -11,7 +11,6 @@ import (
 )
 
 // HandleCommand processes common bot commands shared across all channels.
-// /model and /agent are left to each channel because they need platform-specific UI.
 //
 // /new is deliberately absent: rotating a session must run in the same
 // per-session FIFO queue as chat turns, so the coordinator owns it (see

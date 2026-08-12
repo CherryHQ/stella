@@ -38,6 +38,10 @@ const (
 	// skills. They live in a dedicated dir (a sibling of the shipped built-ins
 	// under STELLA_HOME, not mixed into it), so they get their own fixed mount.
 	MountSystemDBSkills = "/opt/stella/db-skills"
+	// MountBuiltinSkills is the immutable release bundle view. Isolating
+	// backends expose the image/verified-revision projection here, never the
+	// retired $STELLA_HOME/.agents/skills mirror.
+	MountBuiltinSkills = "/opt/stella/skills/builtin"
 )
 
 // Policy is an immutable, backend-agnostic session policy describing requested limits

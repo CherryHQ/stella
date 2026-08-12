@@ -130,7 +130,7 @@ func boostSkillNameMatches(query string, hits []searchrank.Result) {
 		name := strings.ToLower(hits[i].ID)
 		switch {
 		case name == q:
-			hits[i].Score += 3
+			hits[i].Score += 10
 		case strings.Contains(name, q) || strings.Contains(q, name):
 			hits[i].Score += 1
 		}

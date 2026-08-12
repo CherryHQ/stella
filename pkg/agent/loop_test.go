@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -51,6 +52,16 @@ func countEvents[T LoopEvent](events []LoopEvent) int {
 	return n
 }
 
+func toolCallIDs(blocks []ai.ContentBlock) []string {
+	ids := make([]string, 0, len(blocks))
+	for _, block := range blocks {
+		if call, ok := block.(ai.ToolCall); ok {
+			ids = append(ids, call.ID)
+		}
+	}
+	return ids
+}
+
 func TestRunEmitsStreamingEvents(t *testing.T) {
 	runner := newTestRunner(defaultFakeStream())
 	history, events, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "hello"}})
@@ -97,6 +108,105 @@ func TestRunEmitsStreamingEvents(t *testing.T) {
 	tc, ok := finished.Message.Content[0].(ai.TextContent)
 	if !ok || tc.Text != "response" {
 		t.Fatalf("expected text 'response', got %v", finished.Message.Content[0])
+	}
+}
+
+func TestRunPreservesToolCallOrder(t *testing.T) {
+	wantIDs := []string{"call-e", "call-d", "call-c", "call-b", "call-a"}
+	providerCalls := 0
+	stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		providerCalls++
+		providerCall := providerCalls
+		out := providers.NewChannelEventStream(32)
+		go func() {
+			if providerCall == 1 {
+				for _, id := range wantIDs {
+					out.Emit(ai.EventToolCallDelta{ID: id, Name: "ordered"})
+				}
+				// Argument chunks may interleave without changing first-seen order.
+				for i := len(wantIDs) - 1; i >= 0; i-- {
+					out.Emit(ai.EventToolCallDelta{ID: wantIDs[i], Arguments: `{"index":`})
+				}
+				for i := len(wantIDs) - 1; i >= 0; i-- {
+					out.Emit(ai.EventToolCallDelta{ID: wantIDs[i], Arguments: fmt.Sprintf("%d}", i)})
+				}
+				out.Emit(ai.EventStop{Reason: ai.StopReasonToolUse})
+			} else {
+				out.Emit(ai.EventTextDelta{Text: "done"})
+				out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+			}
+			out.Finish(nil)
+		}()
+		return out, nil
+	}
+
+	runner := newTestRunner(stream)
+	var executed []string
+	runner.tools = ToolSet{"ordered": func(_ context.Context, call ai.ToolCall) ([]ai.ContentBlock, error) {
+		executed = append(executed, call.ID)
+		return []ai.ContentBlock{ai.TextContent{Text: call.ID}}, nil
+	}}
+
+	history, events, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(executed, wantIDs) {
+		t.Fatalf("execution order = %v, want %v", executed, wantIDs)
+	}
+
+	var partialIDs, finalIDs, startedIDs, finishedIDs []string
+	for _, event := range events {
+		switch e := event.(type) {
+		case AssistantDelta:
+			if _, ok := e.Event.(ai.EventStop); ok && len(partialIDs) == 0 {
+				partialIDs = toolCallIDs(e.Message.Content)
+			}
+		case AssistantFinished:
+			if ids := toolCallIDs(e.Message.Content); len(ids) > 0 {
+				finalIDs = ids
+			}
+		case ToolStarted:
+			startedIDs = append(startedIDs, e.ToolCall.ID)
+		case ToolFinished:
+			finishedIDs = append(finishedIDs, e.Result.ToolCallID)
+		}
+	}
+	for label, got := range map[string][]string{
+		"partial":  partialIDs,
+		"final":    finalIDs,
+		"started":  startedIDs,
+		"finished": finishedIDs,
+	} {
+		if !slices.Equal(got, wantIDs) {
+			t.Errorf("%s order = %v, want %v", label, got, wantIDs)
+		}
+	}
+
+	if len(history) != len(wantIDs)+3 {
+		t.Fatalf("history length = %d, want %d", len(history), len(wantIDs)+3)
+	}
+	assistant, ok := history[1].(ai.AssistantMessage)
+	if !ok || !slices.Equal(toolCallIDs(assistant.Content), wantIDs) {
+		t.Fatalf("persisted assistant order = %v, want %v", toolCallIDs(assistant.Content), wantIDs)
+	}
+	for i, wantID := range wantIDs {
+		result, ok := history[i+2].(ai.ToolResultMessage)
+		if !ok || result.ToolCallID != wantID {
+			t.Fatalf("persisted result %d = %#v, want %q", i, history[i+2], wantID)
+		}
+	}
+}
+
+func TestBuildPartialUsesFirstSeenToolCallOrder(t *testing.T) {
+	calls := map[string]ai.ToolCall{
+		"a": {ID: "a", Name: "first"},
+		"b": {ID: "b", Name: "second"},
+		"c": {ID: "c", Name: "third"},
+	}
+	partial := buildPartial(ai.AssistantMessage{}, "", "", calls, []string{"c", "a", "b"})
+	if got, want := toolCallIDs(partial.Content), []string{"c", "a", "b"}; !slices.Equal(got, want) {
+		t.Fatalf("partial order = %v, want %v", got, want)
 	}
 }
 

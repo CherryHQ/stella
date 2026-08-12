@@ -24,6 +24,15 @@ run it in a dedicated terminal or background task.
 mise run testbed:start
 ```
 
+If the default port 25678 is occupied (a dev server usually owns it), build and
+start the testbed binary directly on a free port — the URL and credentials print
+accordingly, and `mise run testbed:stop` still cleans it up:
+
+```bash
+go build -o dist/bin/testbed ./test/testbed
+./dist/bin/testbed start -port 25811
+```
+
 Start prints the server URL and a temporary credentials path. The credentials
 artifact is mode `0600`; it contains both identities and roles, the admin
 email/password/PAT, and the passwordless user's PAT. Treat it as a secret: do
@@ -99,6 +108,15 @@ sleep 1
 tap browser text | head -20
 ```
 
+If the page is still on `/login` after fill+submit, the controlled React inputs
+ignored the CDP-filled values. Log in through the API from inside the page (the
+session cookie is set the same way), then navigate:
+
+```bash
+tap browser evaluate "fetch('/api/auth/local/login',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({email:'$ADMIN_EMAIL',password:'$ADMIN_PASSWORD'})}).then(r=>r.status)"
+tap browser open "$URL/agents"
+```
+
 ### Register (only when registration UI is under test)
 
 ```bash
@@ -135,6 +153,37 @@ After each action, verify the result before moving on:
 
 If an assertion fails, report what was expected vs what was found. Do not silently continue.
 
+## Seeding UI states
+
+The testbed has no model provider, so goals never advance on their own: they
+stay in `draft`, and `activate` returns 409 ("plan gate not satisfied"). Create
+plain fixtures through the API; fabricate lifecycle-dependent states directly in
+the embedded database. DB fabrication is for **visual verification only** —
+behavior tests must reach states through real paths.
+
+```bash
+# API-creatable: draft goals and scheduler jobs
+curl -X POST -H "Authorization: Bearer $ADMIN_PAT" -H 'Content-Type: application/json' \
+  "$URL/api/goals" -d '{"agent_id":"stella","title":"…","intent":"…"}'
+curl -X POST -H "Authorization: Bearer $ADMIN_PAT" -H 'Content-Type: application/json' \
+  "$URL/api/agents/stella/scheduler/jobs" \
+  -d '{"name":"…","cron":"0 8 * * *","message":"…"}'   # or "every": "4h"
+
+# DB access: DSN from the running process, psql from the managed pg runtime
+DSN=$(ps -wwE -p "$(lsof -t -iTCP:25811 -sTCP:LISTEN)" -o command= \
+  | tr ' ' '\n' | grep -m1 STELLA_DATABASE_URL | cut -d= -f2-)
+PSQL=("$HOME"/.stella/pg-runtime/*/downloaded/postgresapp/postgres/bin/psql)
+"$PSQL" "$DSN" -c "…"
+```
+
+States the Work UI and Inbox key on, all in table `agent_goal`:
+
+- **Needs you / Inbox item**: `lifecycle='blocked'` (any `block_reason`, e.g. `budget_exhausted`). `needs_attention` is derived, not a column.
+- **Active**: `lifecycle='active'`.
+- **Accepted history**: `lifecycle='done', done_reason='accepted'` — a check constraint also requires `acceptance_state='passed'` and non-null `accepted_output`.
+- **Cancelled history**: `POST /api/goals/{id}/cancel` works without any DB write.
+- **Repeatable**: insert an `agent_workflow` row with `owner_kind='agent'`, `payload_format='frozen/v0'`, `payload='{"children":[],"edges":[]}'::jsonb`, and `source_goal_id` pointing at the accepted goal.
+
 ## Related
 
 This covers the browser layer. To assert what a UI action actually wrote, pair it
@@ -151,6 +200,7 @@ through browser automation.
 ## Notes
 
 - Snapshot refs (`@e1`, `@e2`, ...) are invalidated after navigation — always re-snapshot.
+- `tap browser screenshot <path>` may ignore the path argument and write `screenshot-*.png` into the current directory — move the file afterward.
 - Password minimum length is 8 characters.
 - The login form uses `placeholder` attributes: `username`, `password`.
 - After login, the app redirects to `/agents`.

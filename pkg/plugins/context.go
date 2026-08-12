@@ -95,6 +95,9 @@ type SystemPromptContext struct {
 	// prompt builders that need plugin-state-aware output such as skill catalogs.
 	RegisteredPluginIDs []string
 	EnabledPluginIDs    []string
+	// DisabledSkillRefs is copied from the Agent runner snapshot. Prompt and
+	// Skills-tool reads receive the same value for the life of that runner.
+	DisabledSkillRefs []string
 }
 
 // SessionPluginView is the runner-facing view of enabled plugin-owned session

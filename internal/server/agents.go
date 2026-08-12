@@ -71,8 +71,11 @@ func (s *Server) ListAgents(w http.ResponseWriter, r *http.Request, params apise
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
-	includeAll := info.IsAdmin && params.IncludeAll != nil && *params.IncludeAll
-	agents, err := s.agentAccess.ListReadable(ctx, authority, includeAll)
+	// include_all is the admin's deployment-wide view. The default list is the
+	// caller's own fleet for everyone, admin included: reaching every agent is
+	// not a reason to be shown every agent.
+	deploymentWide := info.IsAdmin && params.IncludeAll != nil && *params.IncludeAll
+	agents, err := s.agentAccess.ListReadable(ctx, authority, deploymentWide)
 	if err != nil {
 		code, msg := agentAccessError(err)
 		writeError(w, code, msg)
@@ -95,7 +98,7 @@ func (s *Server) ListAgents(w http.ResponseWriter, r *http.Request, params apise
 	}
 	result := make([]apitypes.Agent, len(agents))
 	for i := range agents {
-		result[i] = agentToAPI(agents[i])
+		result[i] = agentToAPI(agents[i], viewerFrom(info))
 	}
 	writeData(w, http.StatusOK, apitypes.AgentList{Agents: result})
 }
@@ -151,7 +154,7 @@ func (s *Server) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeData(w, http.StatusCreated, agentToAPI(created))
+	writeData(w, http.StatusCreated, agentToAPI(created, viewerFrom(info)))
 }
 
 func (s *Server) GetAgent(w http.ResponseWriter, r *http.Request, id string) {
@@ -163,7 +166,7 @@ func (s *Server) GetAgent(w http.ResponseWriter, r *http.Request, id string) {
 	}
 
 	fillAgentDefaults(&a)
-	writeData(w, http.StatusOK, agentToAPI(a))
+	writeData(w, http.StatusOK, agentToAPI(a, viewerFrom(UserFromContext(ctx))))
 }
 
 func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) {
@@ -209,7 +212,7 @@ func (s *Server) UpdateAgent(w http.ResponseWriter, r *http.Request, id string) 
 		writeError(w, code, msg)
 		return
 	}
-	writeData(w, http.StatusOK, agentToAPI(updated))
+	writeData(w, http.StatusOK, agentToAPI(updated, viewerFrom(info)))
 }
 
 func (s *Server) DeleteAgent(w http.ResponseWriter, r *http.Request, id string) {

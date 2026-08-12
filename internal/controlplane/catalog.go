@@ -133,26 +133,34 @@ func (s *Service) PublicChannels(ctx context.Context, authority authz.Authority)
 	return out, nil
 }
 
-// EnabledChannelTypes returns the set of enabled channel-plugin names, used by
-// the transport to hide channels whose plugin is disabled.
-func (s *Service) EnabledChannelTypes(ctx context.Context, authority authz.Authority) (map[string]bool, error) {
+// DisabledChannelTypes returns the set of channel-plugin names an admin has
+// explicitly switched off, used by the transport to hide their channels.
+//
+// A platform is usable unless an admin explicitly switched it off, so this reads
+// the stored override rows rather than the merged plugin list: the builtin
+// default for a channel plugin is "disabled" (a platform with no channel has
+// nothing to run), and treating that default as a veto would hide every channel
+// whose plugin row nobody flipped on. The runtime applies the same rule to
+// instances (RuntimeHost.channelPlatformDisabled), so creating a channel needs
+// no plugin row at all.
+func (s *Service) DisabledChannelTypes(ctx context.Context, authority authz.Authority) (map[string]bool, error) {
 	if s == nil {
 		return nil, ErrUnavailable
 	}
 	if err := requireCatalogReader(authority); err != nil {
 		return nil, err
 	}
-	plugins, err := s.store.ListPluginsByKind(ctx, config.PluginKindChannel)
+	overrides, err := s.store.ListPluginOverrides(ctx)
 	if err != nil {
 		return nil, err
 	}
-	enabled := make(map[string]bool, len(plugins))
-	for _, plugin := range plugins {
-		if plugin.Enabled {
-			enabled[plugin.Name] = true
+	disabled := make(map[string]bool, len(overrides))
+	for _, override := range overrides {
+		if override.Kind == config.PluginKindChannel && !override.Enabled {
+			disabled[override.Name] = true
 		}
 	}
-	return enabled, nil
+	return disabled, nil
 }
 
 // effectiveChannelType resolves a channel's type, falling back to its id when the

@@ -48,6 +48,7 @@ tags:
   - name: shares
   - name: agents
   - name: skills
+  - name: library-files
   - name: mcp
   - name: clawhub
   - name: users
@@ -111,6 +112,8 @@ paths:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}~1upgrade"
   /api/agents/{id}/skills/{skillId}/file:
     $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillId}~1file"
+  /api/agents/{id}/skills/{skillRef}/activation:
+    $ref: "./domain/agents/paths.yaml#/paths/~1api~1agents~1{id}~1skills~1{skillRef}~1activation"
   # ── Inbox ──────────────────────────────────────────────────────────────────
   /api/inbox:
     $ref: "./domain/inbox/paths.yaml#/paths/~1api~1inbox"
@@ -132,6 +135,10 @@ paths:
     $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1{id}"
   /api/skills/{id}/file:
     $ref: "./domain/skills/paths.yaml#/paths/~1api~1skills~1{id}~1file"
+  /api/library-files:
+    $ref: "./domain/library/paths.yaml#/paths/~1api~1library-files"
+  /api/library-files/{id}:
+    $ref: "./domain/library/paths.yaml#/paths/~1api~1library-files~1{id}"
   # ── MCP ────────────────────────────────────────────────────────────────────
   /api/mcp/servers:
     $ref: "./domain/mcp/paths.yaml#/paths/~1api~1mcp~1servers"
@@ -225,6 +232,10 @@ paths:
     $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}~1messages"
   /api/agents/{agentId}/sessions/{sessionId}/media/{mediaId}:
     $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}~1media~1{mediaId}"
+  /api/agents/{agentId}/sessions/{sessionId}/stop:
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}~1stop"
+  /api/agents/{agentId}/sessions/{sessionId}/view:
+    $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}~1view"
   /api/agents/{agentId}/sessions/{sessionId}/events:
     $ref: "./domain/sessions/paths.yaml#/paths/~1api~1agents~1{agentId}~1sessions~1{sessionId}~1events"
   /api/agents/{agentId}/sessions/{sessionId}/context-items:
@@ -455,6 +466,12 @@ paths:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins"
   /api/manifest-plugins/sync:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins~1sync"
+  /api/manifest-plugins/{kind}/{name}:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins~1{kind}~1{name}"
+  /api/manifest-plugins/{kind}/{name}/enabled:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins~1{kind}~1{name}~1enabled"
+  /api/manifest-plugins/{kind}/{name}/reset:
+    $ref: "./domain/plugins/paths.yaml#/paths/~1api~1manifest-plugins~1{kind}~1{name}~1reset"
   /api/cli-tools/registry:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1cli-tools~1registry"
   /api/cli-tools/latest:
@@ -711,6 +728,27 @@ components:
     }
     ManifestPlugin: {
       $ref: "./components.yaml#/components/schemas/ManifestPlugin",
+    }
+    ManifestPluginDefinition: {
+      $ref: "./components.yaml#/components/schemas/ManifestPluginDefinition",
+    }
+    ManifestPluginInput: {
+      $ref: "./components.yaml#/components/schemas/ManifestPluginInput",
+    }
+    ManifestPluginDefinitionField: {
+      $ref: "./components.yaml#/components/schemas/ManifestPluginDefinitionField",
+    }
+    SaveBuiltinManifestPluginDefinitionRequest: {
+      $ref: "./components.yaml#/components/schemas/SaveBuiltinManifestPluginDefinitionRequest",
+    }
+    ManifestPluginReplacement: {
+      $ref: "./components.yaml#/components/schemas/ManifestPluginReplacement",
+    }
+    ReplaceCustomManifestPluginDefinitionRequest: {
+      $ref: "./components.yaml#/components/schemas/ReplaceCustomManifestPluginDefinitionRequest",
+    }
+    SaveManifestPluginDefinitionRequest: {
+      $ref: "./components.yaml#/components/schemas/SaveManifestPluginDefinitionRequest",
     }
     Goal: { $ref: "./components.yaml#/components/schemas/Goal" }
     GoalList: {

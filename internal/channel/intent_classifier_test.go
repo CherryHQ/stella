@@ -291,7 +291,7 @@ func TestCoordinatorCompactIntentStillFastPaths(t *testing.T) {
 		t.Fatalf("ResolveSession: %v", err)
 	}
 
-	coordinator := &Coordinator{queue: newSessionQueue(), intentClassifier: stubIntentClassifier(IntentCompact)}
+	coordinator := &Coordinator{queue: newSessionQueue(), intentClassifier: stubIntentClassifier(IntentCompact), agentAccess: newRotationAgentAccess(true)}
 	resp, handled, stream, err := coordinator.handleResolvedIncoming(ctx, rc, incomingText("压缩会话"), "", "")
 	if err != nil {
 		t.Fatalf("err = %v", err)

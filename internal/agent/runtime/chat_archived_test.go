@@ -144,6 +144,31 @@ func TestChatDoesNotResurrectSessionArchivedMidTurn(t *testing.T) {
 	}
 }
 
+func TestGuestChatRunsAutoCompaction(t *testing.T) {
+	const guestID = "22222222-2222-4222-8222-222222222222"
+	info := session.Info{ID: "sess-guest", UserID: guestID, GuestID: guestID, AgentID: "agent-1", Kind: string(session.KindChat)}
+	rec, err := info.Record()
+	if err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	mem := newRotatingMemory(rec)
+	mem.archiveDuringCompaction = true
+	rt, err := New(Config{
+		Memory: mem, Compaction: CompactionConfig{MaxTokens: 1000, KeepTail: 4},
+		NewRunner: func(context.Context, RunnerParams) (Runner, error) {
+			return chatFakeRunner{events: []Event{{Text: "ok"}}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	runOneTurn(t, rt, info)
+	if !mem.archived() {
+		t.Fatal("guest auto-compaction was not invoked")
+	}
+}
+
 // TestChatSavesInfoForActiveSession is the other half of the contract: the
 // archived check must not cost an ordinary turn its title and last-active
 // timestamp.

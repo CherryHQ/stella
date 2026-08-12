@@ -216,14 +216,17 @@ func (p *OAuthProvider) fetchFeishuProfile(ctx context.Context, accessToken stri
 	}
 	claims := out.Data
 	profile := profileFromClaims(claims)
-	profile.Subject = firstClaim(claims, "union_id", "open_id", "user_id")
+	profile.Subject = firstClaim(claims, "union_id")
+	if profile.Subject == "" {
+		return nil, errors.New("oauth login: Feishu user info missing union_id")
+	}
 	profile.Email = firstClaim(claims, "email", "enterprise_email")
 	profile.EmailVerified = true
 	profile.Name = firstClaim(claims, "name", "en_name")
 	profile.AvatarURL = firstClaim(claims, "avatar_url", "avatar_big", "avatar_middle", "avatar_thumb")
 	profile.TenantKey = firstClaim(claims, "tenant_key")
 	if profile.Email == "" && profile.Subject != "" {
-		profile.Email = syntheticFeishuEmail(profile.Subject, profile.TenantKey)
+		profile.Email = auth.SyntheticFeishuEmail(profile.Subject, profile.TenantKey)
 		claims["email_synthetic"] = true
 	}
 	return profile, nil
@@ -373,48 +376,6 @@ func firstClaim(claims map[string]any, names ...string) string {
 		}
 	}
 	return ""
-}
-
-func syntheticFeishuEmail(subject, tenantKey string) string {
-	subject = emailLocalPart(subject)
-	if tenantKey == "" {
-		return subject + "@feishu.local"
-	}
-	return subject + "@" + emailDomainLabel(tenantKey) + ".feishu.local"
-}
-
-func emailLocalPart(s string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(strings.TrimSpace(s)) {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
-			b.WriteRune(r)
-		default:
-			b.WriteByte('-')
-		}
-	}
-	out := strings.Trim(b.String(), ".-")
-	if out == "" {
-		return "feishu-user"
-	}
-	return out
-}
-
-func emailDomainLabel(s string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(strings.TrimSpace(s)) {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-':
-			b.WriteRune(r)
-		default:
-			b.WriteByte('-')
-		}
-	}
-	out := strings.Trim(b.String(), "-")
-	if out == "" {
-		return "tenant"
-	}
-	return out
 }
 
 func containsFold(values []string, want string) bool {

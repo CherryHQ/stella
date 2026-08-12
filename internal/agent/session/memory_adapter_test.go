@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 )
@@ -11,12 +12,18 @@ import (
 // fakeSessionManager returns caller-supplied records so the adapter's fail-closed
 // behaviour on corrupt persisted rows can be exercised without a database.
 type fakeSessionManager struct {
-	rec  memory.SessionInfo
-	recs []memory.SessionInfo
+	rec     memory.SessionInfo
+	recs    []memory.SessionInfo
+	lastCtx context.Context
 }
 
-func (f *fakeSessionManager) SaveInfo(context.Context, memory.SessionInfo) error { return nil }
-func (f *fakeSessionManager) RotateInfo(context.Context, string, memory.SessionInfo) error {
+func (f *fakeSessionManager) SaveInfo(ctx context.Context, _ memory.SessionInfo) error {
+	f.lastCtx = ctx
+	return nil
+}
+
+func (f *fakeSessionManager) RotateInfo(ctx context.Context, _ string, _ memory.SessionInfo) error {
+	f.lastCtx = ctx
 	return nil
 }
 
@@ -24,11 +31,13 @@ func (f *fakeSessionManager) TouchActiveInfo(context.Context, memory.SessionInfo
 	return true, nil
 }
 
-func (f *fakeSessionManager) LoadInfo(context.Context, string) (memory.SessionInfo, error) {
+func (f *fakeSessionManager) LoadInfo(ctx context.Context, _ string) (memory.SessionInfo, error) {
+	f.lastCtx = ctx
 	return f.rec, nil
 }
 
-func (f *fakeSessionManager) ListInfo(context.Context, memory.ListOptions) ([]memory.SessionInfo, error) {
+func (f *fakeSessionManager) ListInfo(ctx context.Context, _ memory.ListOptions) ([]memory.SessionInfo, error) {
+	f.lastCtx = ctx
 	return f.recs, nil
 }
 
@@ -45,6 +54,46 @@ var corruptGroupRecord = memory.SessionInfo{
 	UserID:  "some-user", // != GroupID
 	GroupID: "11111111-1111-4111-8111-111111111111",
 	Kind:    "chat",
+}
+
+func TestMemoryAdapterGuestScopeNeverMintsUserIdentity(t *testing.T) {
+	const guestID = "11111111-1111-4111-8111-111111111111"
+	rec := memory.SessionInfo{ID: "guest-session", AgentID: "a", UserID: guestID, GuestID: guestID, Kind: "chat"}
+	fake := &fakeSessionManager{rec: rec, recs: []memory.SessionInfo{rec}}
+	a := newMemoryAdapter(fake)
+	ctx := authz.WithGuestID(context.Background(), guestID)
+	assertGuest := func(operation string) {
+		t.Helper()
+		if got := authz.UserIDFromContext(fake.lastCtx); got != "" {
+			t.Fatalf("%s UserID = %q, want empty", operation, got)
+		}
+		if got := authz.GuestIDFromContext(fake.lastCtx); got != guestID {
+			t.Fatalf("%s GuestID = %q, want %q", operation, got, guestID)
+		}
+	}
+	info, err := InfoFromRecord(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.save(ctx, info); err != nil {
+		t.Fatal(err)
+	}
+	assertGuest("save")
+	if _, err := a.load(ctx, rec.ID, guestID, rec.AgentID); err != nil {
+		t.Fatal(err)
+	}
+	assertGuest("load")
+	if _, err := a.list(ctx, guestID, rec.AgentID, memory.ListOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	assertGuest("list")
+	if err := a.rotate(ctx, rec.ID, info); err != nil {
+		t.Fatal(err)
+	}
+	assertGuest("rotate")
+	if got := memory.ScopeUserIDFromContext(fake.lastCtx); got != guestID {
+		t.Fatalf("guest conversation scope = %q, want %q", got, guestID)
+	}
 }
 
 func TestMemoryAdapter_LoadFailsClosedOnCorruptRecord(t *testing.T) {
@@ -108,6 +157,19 @@ func TestMemoryAdapter_ListForReviewSkipsOwnerlessKeepsValid(t *testing.T) {
 	t.Run("ListInfo fallback branch", func(t *testing.T) {
 		assertKeepsValid(t, newMemoryAdapter(&fakeSessionManager{recs: recs}))
 	})
+}
+
+func TestMemoryAdapterListForReviewExcludesGuest(t *testing.T) {
+	const guestID = "11111111-1111-4111-8111-111111111111"
+	guest := memory.SessionInfo{ID: "guest", AgentID: "a", UserID: guestID, GuestID: guestID, Kind: "chat"}
+	a := newMemoryAdapter(&fakeReviewSessionManager{reviewRecs: []memory.SessionInfo{validReviewRecordA, guest}})
+	got, err := a.listForReview(context.Background(), "a", memory.ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != validReviewRecordA.ID {
+		t.Fatalf("review infos = %#v, want only ordinary session", got)
+	}
 }
 
 // TestMemoryAdapter_ListForReviewFailsClosedOnMalformedOwned proves a non-empty

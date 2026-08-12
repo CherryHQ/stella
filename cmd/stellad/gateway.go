@@ -199,6 +199,7 @@ func serverAction(c *ucli.Context) error {
 		cancel()
 		s.waitBackgroundTasks()
 		_ = s.poolManager.Close()
+		_ = s.workspaceManager.Close()
 		// Stop the managed PostgreSQL last, once every DB user is done: close the
 		// pool first so the server shuts down without active connections. Only set
 		// in zero-config mode; an external DSN leaves s.embedded nil.
@@ -312,6 +313,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	var vaultRecipient *age.X25519Recipient
 	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, agentAccess, linkCodes))
 	coordOpts = append(coordOpts, channel.WithCoordinatorAssets(s.assetStore))
+	coordOpts = append(coordOpts, channel.WithHomeWorkspace(s.workspaceManager))
 	if s.vaultSvc != nil {
 		vaultRecipient = s.vaultSvc.MasterRecipient()
 		coordOpts = append(coordOpts, channel.WithVaultRecipient(vaultRecipient))
@@ -332,6 +334,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		return fmt.Errorf("oidc: setup: %w", err)
 	}
 	slog.Info("oidc: authentication configured")
+	coordOpts = append(coordOpts, channel.WithFeishuEnrollment(auth.NewFeishuEnrollmentService(oidcStore, vaultRecipient)))
 
 	intentClassifier := newIntentClassifier(s.snapshotLoader, s.pluginHost)
 	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))
@@ -344,6 +347,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	botRegistry := channel.NewBotIdentityRegistry()
 	publisherRegistry := channel.NewPublisherRegistry()
 	coordOpts = append(coordOpts, channel.WithDB(s.db))
+	coordOpts = append(coordOpts, channel.WithGuestStore(channel.NewGuestStore(s.db)))
 	coordOpts = append(coordOpts, channel.WithEventLog(elStore))
 	coordOpts = append(coordOpts, channel.WithBotRegistry(botRegistry))
 	coordOpts = append(coordOpts, channel.WithPublisherRegistry(publisherRegistry))
@@ -371,6 +375,10 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// user directory backs assignment views with the account user store (per-id
 	// lookups; the assignment set per agent is small and admin-only).
 	toolOverrides := agent.NewToolOverrideStore(s.db)
+	agentSkillPolicy, ok := s.store.(server.AgentSkillPolicyStore)
+	if !ok {
+		return fmt.Errorf("agent Skill policy store is unavailable")
+	}
 	agentManagement := agentaccess.NewManagement(
 		agentAccess,
 		s.store,
@@ -381,6 +389,8 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		s.credentialSvc,
 		s.credentialProviders,
 		slog.With("component", "agent-management"),
+		agentaccess.WithOwnerDeletion(s.homeDeletion),
+		agentaccess.WithAgentIDOccupancy(s.workspaceManager),
 	)
 
 	// The Account service owns the user-account application boundary. It composes
@@ -417,9 +427,12 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// per-agent use authorization, the runtime resolver for agent-name projection,
 	// and the event log + group dispatcher for the send path (nil-tolerant: the
 	// send path degrades to 503 while CRUD stays available).
-	groupSvc := channel.NewGroupService(s.db, agentAccess, channel.NewRuntimeResolver(s.store), elStore, groupDispatcher)
+	groupSvc := channel.NewGroupService(s.db, agentAccess, channel.NewRuntimeResolver(s.store), elStore, groupDispatcher, channel.WithOwnerDeletion(s.homeDeletion))
 
-	adminSrv, err := server.New(gctx, server.Deps{
+	// Accepted Web turns outlive their initiating HTTP connections and must also
+	// survive the errgroup cancellation caused by HTTP Shutdown. workCtx is
+	// canceled only after the graceful-drain accepted-work wait completes.
+	adminSrv, err := server.New(workCtx, server.Deps{
 		Pinger:              s.db,
 		Account:             accountSvc,
 		Profile:             profileSvc,
@@ -427,6 +440,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		Inbox:               inbox.NewService(s.db),
 		AgentAccess:         agentAccess,
 		AgentManagement:     agentManagement,
+		AgentSkillPolicy:    agentSkillPolicy,
 		ToolOverrides:       toolOverrides,
 		SessionAccess:       s.sessionAccess,
 		SkillAccess:         s.skillAccess,
@@ -453,6 +467,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		Goal:                s.goalSvc,
 		Workflow:            s.workflowSvc,
 		Provisioning:        provisioningSvc,
+		Library:             s.librarySvc,
 		OIDC: server.OIDCDeps{
 			Providers:  oidcResult.Providers,
 			AuthSvc:    oidcResult.AuthSvc,
@@ -516,7 +531,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// Idempotent stop-once ingress closures. Each halts a source of NEW work; they
 	// are invoked by stopIngress at the start of a graceful drain AND deferred for
 	// the crash / startup-error teardown path, so double invocation is safe.
-	var quiesceChanOnce, stopSchedOnce, stopGoalOnce, stopEmbedOnce sync.Once
+	var quiesceChanOnce, stopSchedOnce, stopGoalOnce, stopEmbedOnce, stopLibraryOnce sync.Once
 	// quiesceChannelIngress stops channel polling but preserves work already
 	// accepted and the notifier senders that deliver it; the SEPARATE final Stop
 	// defer below (not sharing this once) tears the runtimes down fully.
@@ -572,6 +587,20 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		defer stopEmbeddingBackfill()
 	}
 
+	// Library reconciliation is an internal single-leader periodic. It is
+	// started only after all workers and the shared River client are live.
+	stopLibraryReconciliation := func() {}
+	if s.librarySvc != nil && s.riverClient != nil {
+		handle, err := s.librarySvc.StartReconciliation()
+		if err != nil {
+			return fmt.Errorf("start library reconciliation: %w", err)
+		}
+		stopLibraryReconciliation = func() {
+			stopLibraryOnce.Do(func() { s.librarySvc.StopReconciliation(handle) })
+		}
+		defer stopLibraryReconciliation()
+	}
+
 	// ---- Ingress (starts only now, with every backend + callback ready) -----
 	// ingressCtx is a child of the errgroup context: stopIngress cancels it to
 	// halt the in-process group-dispatch loop WITHOUT cancelling workCtx, so River
@@ -623,11 +652,12 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		// workers then drain in-flight jobs with outbound deps still alive; no
 		// periodic or new dispatch runs after this point.
 		stopIngress: func() {
-			stopGroupDispatch()     // group-dispatch acceptance
-			quiesceChannelIngress() // channel / plugin runtimes (polling only)
-			stopSchedulerDispatch() // scheduler periodic + one-time dispatch
-			stopGoalDispatch()      // goal tick + dispatcher claims
-			stopEmbeddingBackfill() // embedding backfill periodic
+			stopGroupDispatch()         // group-dispatch acceptance
+			quiesceChannelIngress()     // channel / plugin runtimes (polling only)
+			stopSchedulerDispatch()     // scheduler periodic + one-time dispatch
+			stopGoalDispatch()          // goal tick + dispatcher claims
+			stopEmbeddingBackfill()     // embedding backfill periodic
+			stopLibraryReconciliation() // Library recovery periodic
 		},
 		httpTimeout:  s.cfg.Lifecycle.HTTPShutdownTimeout,
 		shutdownHTTP: httpSrv.Shutdown,

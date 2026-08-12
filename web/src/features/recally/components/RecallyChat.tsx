@@ -270,7 +270,7 @@ export function RecallyChat({ articleId, onClose }: Props) {
                   <div className="text-xs leading-relaxed text-foreground font-sans">
                     <MarkdownPreview
                       content={text}
-                      className="prose-headings:text-foreground [&_code]:text-xs [&_pre]:bg-muted/40 [&_pre]:p-1.5 leading-relaxed text-xs"
+                      className="[&_code]:text-xs [&_pre]:bg-muted/40 [&_pre]:p-1.5 text-xs"
                     />
                   </div>
                 )}

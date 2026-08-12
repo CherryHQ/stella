@@ -6,13 +6,15 @@ import (
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/resources"
 )
 
 // Paths is the path set sandbox policy creation and tool registration depend on.
 type Paths struct {
-	StellaHome string
-	AgentRoot  string
-	UserRoot   string
+	StellaHome    string
+	BuiltinBundle string
+	AgentRoot     string
+	UserRoot      string
 	// WorkspaceRoot is the agent's private workspace root — sandbox HOME and cwd
 	// in the two-root layout.
 	WorkspaceRoot string
@@ -34,6 +36,14 @@ func ResolvePaths(cfg Config) (Paths, error) {
 	}
 	if resolved, err := filepath.EvalSymlinks(p.StellaHome); err == nil {
 		p.StellaHome = resolved
+	}
+	registry, err := resources.Default()
+	if err != nil {
+		return Paths{}, fmt.Errorf("load builtin skill bundle: %w", err)
+	}
+	p.BuiltinBundle, err = registry.BundlePath(p.StellaHome)
+	if err != nil {
+		return Paths{}, fmt.Errorf("resolve builtin skill bundle: %w", err)
 	}
 	if p.AgentRoot == "" {
 		return Paths{}, fmt.Errorf("agent_root is required")
@@ -62,11 +72,40 @@ func ResolvePaths(cfg Config) (Paths, error) {
 	// Two-root layout: WorkspaceRoot is the per-agent dir (sandbox HOME/cwd =
 	// /workspace), UserDataDir is the shared user-data root (mounted as /user).
 	// A user-less job has no principal home, so its workspace is the home itself.
-	p.WorkspaceRoot = workspaceRoot(userRoot, cfg)
-	if resolved, err := filepath.EvalSymlinks(p.WorkspaceRoot); err == nil {
-		p.WorkspaceRoot = resolved
+	expectedWorkspace := workspaceRoot(userRoot, cfg)
+	if resolved, err := filepath.EvalSymlinks(expectedWorkspace); err == nil {
+		expectedWorkspace = resolved
 	}
-	p.UserDataDir = filepath.Join(userRoot, "data")
+	switch {
+	case p.WorkspaceRoot == "":
+		p.WorkspaceRoot = expectedWorkspace
+	case !filepath.IsAbs(p.WorkspaceRoot):
+		return Paths{}, fmt.Errorf("workspace_root must be absolute")
+	default:
+		if resolved, err := filepath.EvalSymlinks(p.WorkspaceRoot); err == nil {
+			p.WorkspaceRoot = resolved
+		}
+		if filepath.Clean(p.WorkspaceRoot) != filepath.Clean(expectedWorkspace) {
+			return Paths{}, fmt.Errorf("workspace_root must match the authorized agent workspace")
+		}
+	}
+	expectedDataDir := filepath.Join(userRoot, "data")
+	if resolved, err := filepath.EvalSymlinks(expectedDataDir); err == nil {
+		expectedDataDir = resolved
+	}
+	switch {
+	case p.UserDataDir == "":
+		p.UserDataDir = expectedDataDir
+	case !filepath.IsAbs(p.UserDataDir):
+		return Paths{}, fmt.Errorf("user_data_dir must be absolute")
+	default:
+		if resolved, err := filepath.EvalSymlinks(p.UserDataDir); err == nil {
+			p.UserDataDir = resolved
+		}
+		if filepath.Clean(p.UserDataDir) != filepath.Clean(expectedDataDir) {
+			return Paths{}, fmt.Errorf("user_data_dir must match the authorized principal data root")
+		}
+	}
 	p.WorkDir = p.WorkspaceRoot
 
 	if p.ProjectRoot != "" {

@@ -60,6 +60,11 @@ export interface AgentsSettingsLoaderData {
   builtinTemplates: BuiltinItem[];
   builtinSouls: BuiltinItem[];
   agentSkills: Skill[];
+  agentSkillCanManageActivation: boolean;
+  agentSkillPolicyDiagnostics: {
+    legacy_non_empty_array: boolean;
+    dangling_disabled_refs: string[];
+  };
   personalisation: Personalisation;
   selectedAgent?: AgentDetail;
 }
@@ -95,13 +100,10 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
   })) as AgentDetail[];
   const selectedAgent = agentId ? agents.find((a) => a.id === agentId) : undefined;
   const allUsers = isAdmin ? await fetchAllAuthUsers() : [];
-  const agentSkills = (
-    agentId
-      ? ((await listAgentSkills({ path: { id: agentId }, throwOnError: true }).then(
-          ({ data }) => data?.skills ?? [],
-        )) ?? [])
-      : []
-  ) as Skill[];
+  const agentSkillResponse = agentId
+    ? await listAgentSkills({ path: { id: agentId }, throwOnError: true }).then(({ data }) => data)
+    : undefined;
+  const agentSkills = (agentSkillResponse?.skills ?? []) as Skill[];
   let personalisation: Personalisation = {
     soul: "",
     soulDraft: "",
@@ -130,6 +132,11 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
     builtinTemplates: builtinTemplates ?? [],
     builtinSouls: builtinSouls ?? [],
     agentSkills,
+    agentSkillCanManageActivation: agentSkillResponse?.can_manage_activation ?? false,
+    agentSkillPolicyDiagnostics: agentSkillResponse?.policy_diagnostics ?? {
+      legacy_non_empty_array: false,
+      dangling_disabled_refs: [],
+    },
     selectedAgent,
     personalisation,
   };

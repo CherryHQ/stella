@@ -5,7 +5,11 @@ import { AlertCircle, CheckCircle2, CircleAlert, ExternalLink } from "lucide-rea
 import { ConversationSidebar } from "@/features/sessions/ConversationSidebar";
 import { AppShell } from "@/layouts/AppShell";
 import { useI18n } from "@/lib/i18n";
-import { inboxInfiniteQueryOptions } from "@/lib/queries/inbox";
+import {
+  INBOX_SOURCE_LABELS,
+  inboxInfiniteQueryOptions,
+  useInboxAgentName,
+} from "@/lib/queries/inbox";
 import type { InboxItem } from "@/lib/api-client/types.gen";
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/RouteFallback";
@@ -16,14 +20,10 @@ const kindLabels = {
   failed: "inbox.kind.failed",
 } as const;
 
-const sourceLabels = {
-  goal: "inbox.source.goal",
-  scheduler_run: "inbox.source.scheduler_run",
-} as const;
-
 export function InboxPage() {
   const { t } = useI18n();
   const inboxQuery = useInfiniteQuery(inboxInfiniteQueryOptions());
+  const agentName = useInboxAgentName();
   const isLoading = inboxQuery.isLoading;
   const items = useMemo(
     () => inboxQuery.data?.pages.flatMap((page) => page.items ?? []) ?? [],
@@ -79,7 +79,7 @@ export function InboxPage() {
             <div className="mx-auto w-full max-w-4xl">
               <div className="divide-y divide-border/70 border-y border-border/70">
                 {items.map((item) => (
-                  <InboxRow key={item.id} item={item} />
+                  <InboxRow key={item.id} item={item} agentName={agentName(item.agent_id)} />
                 ))}
               </div>
               {inboxQuery.hasNextPage && (
@@ -110,7 +110,7 @@ function Metric({ label, value }: { label: string; value: number }) {
   );
 }
 
-function InboxRow({ item }: { item: InboxItem }) {
+function InboxRow({ item, agentName }: { item: InboxItem; agentName: string }) {
   const { t } = useI18n();
   const icon =
     item.kind === "failed" ? (
@@ -132,7 +132,8 @@ function InboxRow({ item }: { item: InboxItem }) {
           </span>
         </div>
         <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
-          {item.detail || t(sourceLabels[item.source_type])}
+          {agentName ? `${agentName} · ` : ""}
+          {item.detail || t(INBOX_SOURCE_LABELS[item.source_type])}
         </p>
       </div>
       <Button

@@ -194,6 +194,10 @@ func RequiredScope(method, path string) (scope string, registered bool) {
 	switch resource {
 	case "status":
 		return "agent:" + ActionRead, true
+	case "library-files":
+		// Keep the HTTP noun explicit while presenting the shorter
+		// library:read/write capability in PAT and OAuth consent surfaces.
+		return scopeForMethod("library", method), true
 	case "agents":
 		return agentRouteScope(method, rest[1:])
 	case "users":
