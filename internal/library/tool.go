@@ -9,7 +9,10 @@ import (
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
-const ToolName = "library.search"
+// ToolName is the provider-facing function name. Keep it compatible with the
+// common OpenAI function-name contract; product documentation may still refer
+// to the conceptual operation as library.search.
+const ToolName = "library_search"
 
 // Tool exposes the single read-only Library retrieval operation. Identity and
 // scope are deliberately absent from its arguments and come only from runtime.
