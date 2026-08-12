@@ -68,11 +68,14 @@ func mapEvent(event sdk.MessageStreamEventUnion, blockToID map[int]string) []ai.
 		if event.Delta.StopReason != "" {
 			events = append(events, ai.EventStop{Reason: mapStopReason(string(event.Delta.StopReason))})
 		}
-		if event.Usage.InputTokens > 0 || event.Usage.OutputTokens > 0 {
+		if event.Usage.InputTokens > 0 || event.Usage.OutputTokens > 0 || event.Usage.CacheReadInputTokens > 0 || event.Usage.CacheCreationInputTokens > 0 {
 			events = append(events, ai.EventUsage{Usage: ai.Usage{
 				InputTokens:  int(event.Usage.InputTokens),
 				OutputTokens: int(event.Usage.OutputTokens),
-				TotalTokens:  int(event.Usage.InputTokens + event.Usage.OutputTokens),
+				CacheRead:    int(event.Usage.CacheReadInputTokens),
+				CacheWrite:   int(event.Usage.CacheCreationInputTokens),
+				TotalTokens: int(event.Usage.InputTokens + event.Usage.OutputTokens +
+					event.Usage.CacheReadInputTokens + event.Usage.CacheCreationInputTokens),
 			}})
 		}
 		return events

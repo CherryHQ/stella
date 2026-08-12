@@ -372,6 +372,66 @@ func (q *Queries) ListAttemptByGoal(ctx context.Context, arg ListAttemptByGoalPa
 	return items, nil
 }
 
+const listAttemptSummaryByGoal = `-- name: ListAttemptSummaryByGoal :many
+SELECT id, purpose, attempt_no, status, session_id, error, failure_class,
+       started_at, finished_at, updated_at
+FROM agent_goal_attempt
+WHERE goal_id = $1
+ORDER BY attempt_no DESC
+LIMIT $2
+`
+
+type ListAttemptSummaryByGoalParams struct {
+	GoalID string `json:"goal_id"`
+	Limit  int32  `json:"limit"`
+}
+
+type ListAttemptSummaryByGoalRow struct {
+	ID           string             `json:"id"`
+	Purpose      string             `json:"purpose"`
+	AttemptNo    int64              `json:"attempt_no"`
+	Status       string             `json:"status"`
+	SessionID    string             `json:"session_id"`
+	Error        string             `json:"error"`
+	FailureClass string             `json:"failure_class"`
+	StartedAt    pgtype.Timestamptz `json:"started_at"`
+	FinishedAt   pgtype.Timestamptz `json:"finished_at"`
+	UpdatedAt    time.Time          `json:"updated_at"`
+}
+
+// Agent-facing status only needs lightweight execution metadata. Keep the
+// large input/evidence/output/gaps payloads out of this bounded projection.
+func (q *Queries) ListAttemptSummaryByGoal(ctx context.Context, arg ListAttemptSummaryByGoalParams) ([]ListAttemptSummaryByGoalRow, error) {
+	rows, err := q.db.Query(ctx, listAttemptSummaryByGoal, arg.GoalID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAttemptSummaryByGoalRow{}
+	for rows.Next() {
+		var i ListAttemptSummaryByGoalRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Purpose,
+			&i.AttemptNo,
+			&i.Status,
+			&i.SessionID,
+			&i.Error,
+			&i.FailureClass,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listInflightAttemptsByGoal = `-- name: ListInflightAttemptsByGoal :many
 SELECT id, goal_id, user_id, agent_id, executor_agent_id, session_id, purpose, attempt_no, status, input_context, evidence, output, gaps, error, heartbeat_at, lease_expires_at, worker_id, started_at, finished_at, created_at, updated_at, failure_class, repair_rounds, previous_failure_class FROM agent_goal_attempt
 WHERE goal_id = $1

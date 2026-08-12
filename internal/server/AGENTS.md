@@ -17,7 +17,7 @@ All page routes fall through to `web.SPAHandler()`, which serves files from the 
 
 ```
 GET /static/    → web.StaticHandler()           (legacy assets: fonts, JS utils)
-GET /{$}        → redirectRoot                  (exact root — redirects to /providers or /agents)
+GET /{$}        → redirectRoot                  (exact root — redirects to /login or /agents)
 GET /api/*      → apiserver.HandlerFromMux       (all API routes from OpenAPI spec)
 GET /{path...}  → web.SPAHandler()              (serves dist files or index.html fallback)
 ```

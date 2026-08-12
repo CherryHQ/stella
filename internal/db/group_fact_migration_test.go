@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	groupFactBeforeMigration = 90000000000006
-	groupFactMigration       = 90000000000007
+	groupFactBeforeMigration = 90000000000015
+	groupFactMigration       = 90000000000016
 )
 
 func TestGroupFactMigrationCreatesAtomicFactSchema(t *testing.T) {

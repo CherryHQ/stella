@@ -8,6 +8,8 @@ import (
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 )
 
+const builtinBundleRevisionLabel = "org.cherryhq.stella.builtin-bundle-revision"
+
 // PreflightConfig configures a Preflight check.
 type PreflightConfig struct {
 	StellaHome string
@@ -58,6 +60,15 @@ func preflightWithClient(ctx context.Context, cfg PreflightConfig, client *docke
 
 	if err := client.EnsureImageReady(ctx, cfg.Docker.Image, "preflight"); err != nil {
 		return fmt.Errorf("docker preflight: %w", err)
+	}
+	if expected := cfg.Docker.ExpectedBundleRevision; expected != "" {
+		actual, err := client.ImageLabel(ctx, cfg.Docker.Image, builtinBundleRevisionLabel)
+		if err != nil {
+			return fmt.Errorf("docker preflight: inspect builtin bundle revision: %w", err)
+		}
+		if actual != expected {
+			return fmt.Errorf("docker preflight: builtin bundle revision mismatch (expected %s, image has %s); run `mise run sandbox:docker:build` for the local image or rebuild your custom sandbox image from this Stella revision", expected, actual)
+		}
 	}
 
 	return nil

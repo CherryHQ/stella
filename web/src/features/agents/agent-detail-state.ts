@@ -71,6 +71,12 @@ export interface AgentsPageState {
   confirmAction: () => void;
   agentSkills: Skill[];
   agentSkillsLoading: boolean;
+  agentSkillCanManageActivation: boolean;
+  agentSkillActivationPending: boolean;
+  agentSkillPolicyDiagnostics: {
+    legacy_non_empty_array: boolean;
+    dangling_disabled_refs: string[];
+  };
   userSkills: Skill[];
   skillViewFilter: string;
   skillScopeFilter: string;
@@ -137,6 +143,9 @@ export function initialAgentDetailState(
     confirmAction: () => {},
     agentSkills: data.agentSkills,
     agentSkillsLoading: false,
+    agentSkillCanManageActivation: data.agentSkillCanManageActivation,
+    agentSkillActivationPending: false,
+    agentSkillPolicyDiagnostics: data.agentSkillPolicyDiagnostics,
     userSkills: [],
     skillViewFilter: "enabled",
     skillScopeFilter: "all",
@@ -162,11 +171,13 @@ export function initialAgentDetailState(
   };
 }
 
-/** Admin, or the user who created the agent. */
-export function canEditAgent(
-  agent: Pick<AgentDetail, "creator_id">,
-  isAdmin: boolean,
-  currentUserId: string,
-): boolean {
-  return isAdmin || (!!agent.creator_id && agent.creator_id === currentUserId);
+/**
+ * Whether the caller may configure this agent.
+ *
+ * The server decides and says so in can_manage. A client that rebuilt the rule
+ * from creator_id would need every agent's owner id, and that is exactly the
+ * user directory an ordinary user must not be handed.
+ */
+export function canEditAgent(agent: Pick<AgentDetail, "can_manage"> | undefined): boolean {
+  return agent?.can_manage === true;
 }

@@ -30,7 +30,7 @@ All channel configuration (credentials, allowed IDs, etc.) is managed through th
 
 ## Multi-User Support
 
-Each QQ user is automatically identified from their platform identity. Sessions are scoped per user per agent. No manual user setup is required. The QQ channel currently uses the default agent (the `/agent` command is not yet available for QQ).
+Each QQ user is automatically identified from their platform identity. Sessions are scoped per user per agent. No manual user setup is required. A channel-bound agent takes precedence; otherwise, groups use their assigned agent and direct messages use the user's default agent, with the first enabled agent as fallback.
 
 ## Streaming Responses
 
@@ -82,9 +82,6 @@ Send these commands as text messages to the bot:
 | `/new`              | Start a fresh session (previous history stays searchable) |
 | `/compact`          | Compress the current session in place                     |
 | `/abort`            | Cancel the in-progress response                           |
-| `/model`            | List available models                                     |
-| `/model <number>`   | Switch to model by number                                 |
-| `/model <query>`    | Filter models by name                                     |
 | `/whoami`           | Show your user ID for config                              |
 
 `/new` works in a direct message only. A group's context is shared by everyone in it, so `/new` in a group replies that the shared session cannot be reset and changes nothing; the command itself never becomes part of the group's history. See [Memory](/docs/guides/memory) for what a fresh session keeps.

@@ -19,9 +19,11 @@ import (
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
+	sessioninbox "github.com/CherryHQ/stella/internal/agent/session/inbox"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -38,18 +40,24 @@ var (
 type Service struct {
 	registry *agentsession.Registry
 	memory   memory.SessionManager
+	searcher memory.Searcher
 	q        *sqlc.Queries
 	store    config.Store
 	agents   *agentaccess.Service
 	assets   *asset.Store
 	runtime  RuntimeManager
 	prompts  SystemPromptBuilder
+	homes    home.WorkspaceViewer
 }
 
 type Option func(*Service)
 
 func WithSystemPromptBuilder(builder SystemPromptBuilder) Option {
 	return func(s *Service) { s.prompts = builder }
+}
+
+func WithHomeWorkspace(viewer home.WorkspaceViewer) Option {
+	return func(s *Service) { s.homes = viewer }
 }
 
 // NewService constructs the only Session/Workspace PEP. The registry remains the
@@ -59,6 +67,10 @@ func NewService(mem memory.Provider, db sqlc.DBTX, store config.Store, assets *a
 	if mem == nil || db == nil || store == nil || assets == nil || agents == nil {
 		return nil, fmt.Errorf("session access: missing dependency")
 	}
+	inner := memory.Unwrap(mem)
+	if _, ok := inner.(memory.SessionManager); !ok {
+		return nil, fmt.Errorf("session access: memory provider does not implement SessionManager")
+	}
 	sm, ok := mem.(memory.SessionManager)
 	if !ok {
 		return nil, fmt.Errorf("session access: memory provider does not implement SessionManager")
@@ -67,7 +79,11 @@ func NewService(mem memory.Provider, db sqlc.DBTX, store config.Store, assets *a
 	if err != nil {
 		return nil, fmt.Errorf("session access: registry: %w", err)
 	}
-	svc := &Service{registry: registry, memory: sm, q: sqlc.New(db), store: store, agents: agents, assets: assets}
+	var searcher memory.Searcher
+	if _, ok := inner.(memory.Searcher); ok {
+		searcher, _ = mem.(memory.Searcher)
+	}
+	svc := &Service{registry: registry, memory: sm, searcher: searcher, q: sqlc.New(db), store: store, agents: agents, assets: assets}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(svc)
@@ -109,6 +125,64 @@ func (s *Service) Begin(_ context.Context, authority authz.Authority) (*Access, 
 		return nil, ErrForbidden
 	}
 	return &Access{svc: s, authority: authority}, nil
+}
+
+// ResolveInboxDelivery freshly authorizes both endpoints of one recovered
+// Agent-originated input. It returns only the target scope; recovery remains
+// append-only and cannot reach a runtime through this interface.
+func (s *Service) ResolveInboxDelivery(ctx context.Context, sourceSessionID, targetSessionID, actorID string) (agentsession.Info, error) {
+	if sourceSessionID == "" || targetSessionID == "" || sourceSessionID == targetSessionID || actorID == "" {
+		return agentsession.Info{}, sessioninbox.ErrTargetUnavailable
+	}
+	sourceFacts, err := s.q.GetConversationForSessionAccess(ctx, sourceSessionID)
+	if err != nil {
+		return agentsession.Info{}, inboxRecoveryLookupError("source", err)
+	}
+	targetFacts, err := s.q.GetConversationForSessionAccess(ctx, targetSessionID)
+	if err != nil {
+		return agentsession.Info{}, inboxRecoveryLookupError("target", err)
+	}
+	if sourceFacts.Archived || targetFacts.Archived || !sourceFacts.UserID.Valid || !sourceFacts.AgentID.Valid || !targetFacts.UserID.Valid || !targetFacts.AgentID.Valid ||
+		sourceFacts.UserID.String != targetFacts.UserID.String || sourceFacts.AgentID.String != actorID || targetFacts.AgentID.String != actorID {
+		return agentsession.Info{}, sessioninbox.ErrTargetUnavailable
+	}
+	authority, err := agentaccess.WorkerAgentAuthority(sourceFacts.UserID.String, actorID)
+	if err != nil {
+		return agentsession.Info{}, sessioninbox.ErrTargetUnavailable
+	}
+	access, err := s.Begin(ctx, authority)
+	if err != nil {
+		return agentsession.Info{}, sessioninbox.ErrTargetUnavailable
+	}
+	source, err := access.Use(ctx, actorID, sourceSessionID)
+	if err != nil {
+		return agentsession.Info{}, inboxRecoveryAccessError("source", err)
+	}
+	target, err := access.Use(ctx, actorID, targetSessionID)
+	if err != nil {
+		return agentsession.Info{}, inboxRecoveryAccessError("target", err)
+	}
+	kind := agentsession.Kind(target.Kind)
+	if source.Archived || target.Archived || source.GuestID != "" || target.GuestID != "" || source.GroupID != "" || target.GroupID != "" ||
+		source.UserID != target.UserID || source.AgentID != actorID || target.AgentID != actorID ||
+		(kind != agentsession.KindMain && kind != agentsession.KindChat && kind != agentsession.KindDelegate) {
+		return agentsession.Info{}, sessioninbox.ErrTargetUnavailable
+	}
+	return target, nil
+}
+
+func inboxRecoveryLookupError(endpoint string, err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("%w: %s Session", sessioninbox.ErrTargetUnavailable, endpoint)
+	}
+	return fmt.Errorf("%w: recover %s Session facts: %w", ErrUnavailable, endpoint, err)
+}
+
+func inboxRecoveryAccessError(endpoint string, err error) error {
+	if errors.Is(err, ErrForbidden) || errors.Is(err, ErrNotFound) {
+		return fmt.Errorf("%w: %s Session", sessioninbox.ErrTargetUnavailable, endpoint)
+	}
+	return err
 }
 
 // Read resolves a routed session and authorizes reading it.
@@ -278,6 +352,9 @@ func (a *Access) ResolveChatChannel(ctx context.Context, req agentsession.Channe
 	if err := a.authorizeChannelBinding(ctx, req, authz.ActionCreate); err != nil {
 		return agentsession.Info{}, err
 	}
+	if req.GuestID != "" {
+		ctx = authz.WithGuestID(ctx, req.GuestID)
+	}
 	info, err := a.svc.registry.ResolveChatChannel(ctx, req)
 	if err != nil {
 		return agentsession.Info{}, err
@@ -296,6 +373,9 @@ func (a *Access) ResolveChatChannel(ctx context.Context, req agentsession.Channe
 func (a *Access) RotateChannel(ctx context.Context, req agentsession.ChannelRequest) (agentsession.Info, error) {
 	if err := a.authorizeChannelBinding(ctx, req, authz.ActionDelete); err != nil {
 		return agentsession.Info{}, err
+	}
+	if req.GuestID != "" {
+		ctx = authz.WithGuestID(ctx, req.GuestID)
 	}
 	info, err := a.svc.registry.RotateChannel(ctx, req)
 	if err != nil {
@@ -324,10 +404,12 @@ func (a *Access) authorizeChannelBinding(ctx context.Context, req agentsession.C
 	}
 	actor := a.authority
 	facts := sessionFacts{
-		isOwner:     string(actor.UserID()) != "" && string(actor.UserID()) == req.UserID,
-		isExecutor:  string(actor.AgentID()) != "" && string(actor.AgentID()) == req.AgentID,
-		isGroup:     req.GroupID != "",
-		isSameGroup: req.GroupID != "" && string(actor.GroupID()) == req.GroupID,
+		isOwner:        string(actor.UserID()) != "" && string(actor.UserID()) == req.UserID,
+		isGuestSession: req.GuestID != "" && req.UserID == req.GuestID,
+		isSameGuest:    req.GuestID != "" && string(actor.GuestID()) == req.GuestID,
+		isExecutor:     string(actor.AgentID()) != "" && string(actor.AgentID()) == req.AgentID,
+		isGroup:        req.GroupID != "",
+		isSameGroup:    req.GroupID != "" && string(actor.GroupID()) == req.GroupID,
 	}
 	if !a.allowSession(authz.ActionCreate, facts) || !a.allowSession(extra, facts) {
 		return ErrNotFound
@@ -338,24 +420,37 @@ func (a *Access) authorizeChannelBinding(ctx context.Context, req agentsession.C
 // assertChannelBinding fails closed when the registry hands back a session that
 // does not carry the binding that was authorized.
 func assertChannelBinding(req agentsession.ChannelRequest, info agentsession.Info) error {
-	if info.UserID != req.UserID || info.AgentID != req.AgentID || info.GroupID != req.GroupID {
+	if info.UserID != req.UserID || info.AgentID != req.AgentID || info.GroupID != req.GroupID || info.GuestID != req.GuestID {
 		return ErrForbidden
 	}
 	return nil
 }
 
 // List lists the actor's sessions and filters every row through the same
-// evaluation. Collection visibility and individual visibility therefore cannot
-// drift apart.
+// evaluation, so the collection can never show a row the actor could not read
+// individually. The converse does not hold for an administrator: the durable
+// query deliberately returns only their own sessions plus this agent's guest
+// sessions, while allowSession still grants an admin Read on any single session
+// they name. Discovery is narrower than access on purpose — an admin's own
+// session list is not a directory of every user's private conversations.
 func (a *Access) List(ctx context.Context, agentID string, opts agentsession.ListOptions) ([]agentsession.Info, error) {
 	if !a.allowSessionList() {
 		return nil, ErrNotFound
+	}
+	if err := a.allowSessionListAgent(agentID); err != nil {
+		return nil, err
 	}
 	userID := string(a.authority.UserID())
 	if userID == "" {
 		return nil, ErrForbidden
 	}
-	infos, err := a.svc.registry.List(ctx, agentsession.Scope{UserID: userID, AgentID: agentID}, opts)
+	var infos []agentsession.Info
+	var err error
+	if a.authority.IsAdmin() {
+		infos, err = a.svc.registry.ListForAdmin(ctx, userID, agentID, opts)
+	} else {
+		infos, err = a.svc.registry.List(ctx, agentsession.Scope{UserID: userID, AgentID: agentID}, opts)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: list sessions: %w", ErrUnavailable, err)
 	}
@@ -384,6 +479,9 @@ func (a *Access) ListPage(ctx context.Context, agentID string, opts agentsession
 	if !a.allowSessionList() {
 		return ListPage{}, ErrNotFound
 	}
+	if err := a.allowSessionListAgent(agentID); err != nil {
+		return ListPage{}, err
+	}
 	userID := string(a.authority.UserID())
 	if userID == "" {
 		return ListPage{}, ErrForbidden
@@ -403,7 +501,13 @@ func (a *Access) ListPage(ctx context.Context, agentID string, opts agentsession
 		query.Kinds = nil // filter here so the durable cursor counts every candidate
 		query.Offset = offset
 		query.Limit = batchSize
-		candidates, err := a.svc.registry.List(ctx, agentsession.Scope{UserID: userID, AgentID: agentID}, query)
+		var candidates []agentsession.Info
+		var err error
+		if a.authority.IsAdmin() {
+			candidates, err = a.svc.registry.ListForAdmin(ctx, userID, agentID, query)
+		} else {
+			candidates, err = a.svc.registry.List(ctx, agentsession.Scope{UserID: userID, AgentID: agentID}, query)
+		}
 		if err != nil {
 			return ListPage{}, fmt.Errorf("%w: list sessions: %w", ErrUnavailable, err)
 		}
@@ -428,6 +532,9 @@ func (a *Access) ListPage(ctx context.Context, agentID string, opts agentsession
 
 // UpdateTitle persists a title after Write has authorized the exact session.
 func (a *Access) UpdateTitle(ctx context.Context, info agentsession.Info, title string) error {
+	if err := agentsession.ValidateTitle(title); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
 	if err := a.svc.q.UpdateConversationTitleBySessionID(ctx, sqlc.UpdateConversationTitleBySessionIDParams{
 		Title: pgtype.Text{String: title, Valid: true}, SessionID: info.ID,
 		UserID: pgtype.Text{String: info.UserID, Valid: true}, AgentID: pgtype.Text{String: info.AgentID, Valid: true},
@@ -451,6 +558,13 @@ func (a *Access) Archive(ctx context.Context, info agentsession.Info) error {
 func (a *Access) ensure(ctx context.Context, req agentsession.Request, action authz.Action) (agentsession.Info, error) {
 	if req.AgentID == "" || (req.ID == "" && !req.CreateIfMissing) {
 		return agentsession.Info{}, ErrNotFound
+	}
+	if a.authority.Kind() == authz.ActorGuest {
+		guestID := string(a.authority.GuestID())
+		if guestID == "" || req.UserID != guestID {
+			return agentsession.Info{}, ErrNotFound
+		}
+		ctx = authz.WithGuestID(ctx, guestID)
 	}
 	if req.CreateIfMissing {
 		if req.UserID == "" || req.Kind == "" || req.Channel == "" {
@@ -516,7 +630,12 @@ func (a *Access) session(ctx context.Context, routeAgentID, sessionID string, ac
 	if !conv.UserID.Valid || !conv.AgentID.Valid || (routeAgentID != "" && routeAgentID != conv.AgentID.String) {
 		return agentsession.Info{}, ErrNotFound
 	}
-	loadCtx := authz.WithAgentID(authz.WithUserID(ctx, conv.UserID.String), conv.AgentID.String)
+	loadCtx := authz.WithAgentID(ctx, conv.AgentID.String)
+	if conv.GuestID.Valid {
+		loadCtx = authz.WithGuestID(loadCtx, conv.GuestID.String)
+	} else {
+		loadCtx = authz.WithUserID(loadCtx, conv.UserID.String)
+	}
 	record, err := a.svc.memory.LoadInfo(loadCtx, sessionID)
 	if err != nil {
 		return agentsession.Info{}, ErrNotFound
@@ -565,26 +684,39 @@ func (a *Access) authorizeAgent(ctx context.Context, agentID string, action auth
 // compare. They are derived at the PEP from immutable authority plus durable
 // conversation facts; a transport never supplies them.
 type sessionFacts struct {
-	isOwner     bool
-	isExecutor  bool
-	isGroup     bool
-	isSameGroup bool
+	isOwner        bool
+	isGuestSession bool
+	isSameGuest    bool
+	isExecutor     bool
+	isGroup        bool
+	isSameGroup    bool
 }
 
 func sessionFactsFor(info agentsession.Info, authority authz.Authority) sessionFacts {
 	actor := authority
 	return sessionFacts{
-		isOwner:     string(actor.UserID()) != "" && string(actor.UserID()) == info.UserID,
-		isExecutor:  string(actor.AgentID()) != "" && string(actor.AgentID()) == info.AgentID,
-		isGroup:     info.GroupID != "",
-		isSameGroup: info.GroupID != "" && string(actor.GroupID()) == info.GroupID,
+		isOwner:        info.GuestID == "" && string(actor.UserID()) != "" && string(actor.UserID()) == info.UserID,
+		isGuestSession: info.GuestID != "",
+		isSameGuest:    info.GuestID != "" && string(actor.GuestID()) == info.GuestID,
+		isExecutor:     string(actor.AgentID()) != "" && string(actor.AgentID()) == info.AgentID,
+		isGroup:        info.GroupID != "",
+		isSameGroup:    info.GroupID != "" && string(actor.GroupID()) == info.GroupID,
 	}
 }
 
 // allowSessionList is the collection-level Session decision: admin and any
-// user-role actor may list; every other actor is denied.
+// user-role actor may list. A durable agent may list because List derives the
+// owner and executor from its immutable Authority and still filters every row
+// through the exact Session read rule. Group and system actors remain denied.
 func (a *Access) allowSessionList() bool {
-	return a.authority.IsAdmin() || a.authority.Kind() == authz.ActorUser
+	return a.authority.IsAdmin() || a.authority.Kind() == authz.ActorUser || a.authority.Kind() == authz.ActorAgent
+}
+
+func (a *Access) allowSessionListAgent(agentID string) error {
+	if a.authority.Kind() == authz.ActorAgent && string(a.authority.AgentID()) != agentID {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // allowSession decides one non-list action against a durable Session's facts.
@@ -595,6 +727,12 @@ func (a *Access) allowSessionList() bool {
 func (a *Access) allowSession(action authz.Action, f sessionFacts) bool {
 	if !isSessionAction(action) {
 		return false
+	}
+	if f.isGuestSession || a.authority.Kind() == authz.ActorGuest {
+		if a.authority.IsAdmin() && f.isGuestSession {
+			return action == authz.ActionRead || action == authz.ActionDelete
+		}
+		return a.authority.Kind() == authz.ActorGuest && f.isGuestSession && f.isSameGuest && isWorkerSessionAction(action)
 	}
 	if a.authority.IsAdmin() {
 		return true
@@ -642,6 +780,9 @@ func (a *Access) allowWorkspace(action authz.Action, f sessionFacts) bool {
 	switch action {
 	case authz.ActionRead, authz.ActionList, authz.ActionCreate, authz.ActionWrite, authz.ActionDelete:
 	default:
+		return false
+	}
+	if f.isGuestSession {
 		return false
 	}
 	if a.authority.IsAdmin() {

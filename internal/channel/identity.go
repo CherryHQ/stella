@@ -75,6 +75,11 @@ func ResolveUserCandidates(ctx context.Context, store channelAuthStore, platform
 			return ResolvedIdentity{}, identityMatch{}, fmt.Errorf("lookup auth user: %w", err)
 		}
 
+		if !user.IsActive {
+			// Do not disclose whether this sender is linked to a deactivated account.
+			return ResolvedIdentity{}, identityMatch{}, ErrAgentAccessDenied
+		}
+
 		return ResolvedIdentity{User: user}, identityMatch{Identity: identity, Matched: externalID}, nil
 	}
 
@@ -100,6 +105,11 @@ func linkLoginIdentityAsChannelIdentity(ctx context.Context, store channelAuthSt
 			return ResolvedIdentity{}, identityMatch{}, true, nil
 		}
 		return ResolvedIdentity{}, identityMatch{}, false, fmt.Errorf("lookup login identity user: %w", err)
+	}
+
+	if !user.IsActive {
+		// Linking must not turn a deactivated login account into usable channel access.
+		return ResolvedIdentity{}, identityMatch{}, true, ErrAgentAccessDenied
 	}
 
 	name := senderName
@@ -204,9 +214,13 @@ func ResolveAgent(ctx context.Context, store config.Store, accessService *agenta
 	if channelID == "" {
 		channelID = chat.Platform
 	}
+	explicitChannelID := chat.ChannelID != "" && chat.ChannelID != chat.Platform
 	if channelID != "" {
 		ch, err := store.GetChannel(ctx, channelID)
 		if err == nil && ch.AgentID != "" {
+			if !ch.Enabled || ch.Type != chat.Platform {
+				return "", ErrAgentAccessDenied
+			}
 			// A dedicated channel is a distinct use case. Its Authority carries the
 			// exact persisted channel binding and cannot be minted from message data.
 			authority, err := subject.ChannelAuthority(ch.ID)
@@ -217,11 +231,22 @@ func ResolveAgent(ctx context.Context, store config.Store, accessService *agenta
 			if err != nil {
 				return "", ErrAgentAccessDenied
 			}
-			agent, err := access.UseDedicated(ctx, ch.AgentID, ch.ID)
+			agent, err := access.UseDedicatedForType(ctx, ch.AgentID, ch.ID, chat.Platform)
 			if err != nil || !agent.Enabled {
 				return "", ErrAgentAccessDenied
 			}
 			return agent.ID, nil
+		}
+		if err == nil && explicitChannelID && ch.Enabled && ch.Type == chat.Platform && ch.AgentID == "" {
+			// Historically, linked users arriving through an explicitly configured
+			// but non-dedicated channel used ordinary default/assignment fallback.
+			// An empty binding grants nothing, so preserve that behavior.
+		} else if explicitChannelID {
+			// A platform adapter that supplies a distinct channel ID is naming a
+			// configured dedicated channel, not offering a hint for ordinary agent
+			// selection. Never turn a stale or invalid dedicated binding into access
+			// to the user's default (or the first enabled) agent.
+			return "", ErrAgentAccessDenied
 		}
 	}
 

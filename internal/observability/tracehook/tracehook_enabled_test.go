@@ -69,7 +69,7 @@ func driveSession(h *Hook, sessionID string, llmErr error) {
 	})
 	h.OnPostLLMCall(context.Background(), &hooks.PostLLMCallContext{
 		HookMeta: meta, Model: "claude-3", API: "anthropic",
-		Usage: ai.Usage{InputTokens: 10, OutputTokens: 5}, Duration: time.Second,
+		Usage: ai.Usage{InputTokens: 10, OutputTokens: 5, CacheRead: 7, CacheWrite: 3}, Duration: time.Second,
 		Error: llmErr,
 	})
 	h.OnPostAgentCall(context.Background(), &hooks.PostAgentCallContext{
@@ -133,6 +133,12 @@ func TestHook_EnabledSpanHierarchy(t *testing.T) {
 	assertChildOf(t, "gen_ai.chat", chat, turn)
 	assertChildOf(t, "gen_ai.execute_tool", tool, turn)
 	assertChildOf(t, "memory.search", mem, turn)
+	if got, ok := attrValue(chat, "gen_ai.usage.cache_read.input_tokens"); !ok || got.AsInt64() != 7 {
+		t.Errorf("cache read tokens = %d (ok=%v), want 7", got.AsInt64(), ok)
+	}
+	if got, ok := attrValue(chat, "gen_ai.usage.cache_creation.input_tokens"); !ok || got.AsInt64() != 3 {
+		t.Errorf("cache creation tokens = %d (ok=%v), want 3", got.AsInt64(), ok)
+	}
 }
 
 func TestHook_ToolIORecording(t *testing.T) {

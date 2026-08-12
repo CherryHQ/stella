@@ -52,26 +52,44 @@ type Config struct {
 	Groups            map[string]GroupConfig `json:"groups"` // per-group overrides keyed by chat_id
 	TenantKey         string                 `json:"tenant_key"`
 	AutoProvision     bool                   `json:"auto_provision"`
+	AllowedChatIDs    string                 `json:"allowed_chat_ids"`
+	AllowDM           bool                   `json:"allow_dm"`
+	RequireMention    bool                   `json:"require_mention"`
+}
+
+func (b *Bot) chatAllowed(chatID string) bool {
+	for allowed := range strings.SplitSeq(b.cfg.AllowedChatIDs, ",") {
+		if strings.TrimSpace(allowed) == chatID && chatID != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // Bot wraps a Feishu bot with agent pool integration.
-type listChatsFunc func(context.Context, *larkim.ListChatReq) (*larkim.ListChatResp, error)
+type (
+	listChatsFunc          func(context.Context, *larkim.ListChatReq) (*larkim.ListChatResp, error)
+	tenantProfileFetcher   func(context.Context, string) *TenantProfile
+	messageContextResolver func(string) (string, string, string, bool, bool)
+)
 
 type Bot struct {
-	client    *lark.Client
-	wsClient  *larkws.Client
-	listChats listChatsFunc
-	handler   channel.Handler
+	client                  *lark.Client
+	wsClient                *larkws.Client
+	listChats               listChatsFunc
+	fetchTenantProfileFn    tenantProfileFetcher   // test seam; production uses Contact API
+	resolveMessageContextFn messageContextResolver // test seam; production uses Message and Chat APIs
+	handler                 channel.Handler
 
 	botOpenID atomic.Value // bot's own open_id (string), fetched on startup
 
 	mu            sync.RWMutex
-	chatModels    map[string]channel.ModelOption
 	seenMsgs      map[string]time.Time // message ID -> first seen time
 	lastSeenSweep time.Time            // last time seenMsgs was swept
 
-	provisionedMu sync.Mutex
-	provisioned   map[string]time.Time // union_id -> last provision time (1h TTL)
+	provisionedMu      sync.Mutex
+	provisioned        map[string]time.Time // union_id -> last provision time (1h TTL)
+	lastProvisionSweep time.Time
 
 	learnedTenantKeyMu sync.RWMutex
 	learnedTenantKey   string // tenant_key auto-detected at startup via tenant API
@@ -82,6 +100,10 @@ type Bot struct {
 	cfg    Config
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	routingMu        sync.Mutex
+	routingFinalized bool
+	registeredBotID  string
 }
 
 // New creates a Feishu bot. Call Start to begin receiving events.
@@ -92,7 +114,6 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 
 	b := &Bot{
 		handler:     handler,
-		chatModels:  make(map[string]channel.ModelOption),
 		seenMsgs:    make(map[string]time.Time),
 		provisioned: make(map[string]time.Time),
 		cfg:         cfg,
@@ -110,6 +131,7 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 // a WebSocket connection. It blocks until ctx is cancelled.
 func (b *Bot) Start(ctx context.Context) error {
 	b.ctx, b.cancel = context.WithCancel(ctx)
+	defer b.cancel()
 
 	b.client = lark.NewClient(b.cfg.AppID, b.cfg.AppSecret,
 		lark.WithLogLevel(larkcore.LogLevelInfo),
@@ -117,11 +139,10 @@ func (b *Bot) Start(ctx context.Context) error {
 	)
 
 	if err := b.fetchBotOpenID(b.ctx); err != nil {
-		logger().Warn("failed to fetch bot open_id, self-message filtering disabled", "error", err)
-	} else if registrar, ok := b.handler.(channel.BotRegistrar); ok {
-		if botID, _ := b.botOpenID.Load().(string); botID != "" {
-			registrar.RegisterBotIdentity(channel.PlatformFeishu, botID, b.cfg.InstanceID)
-		}
+		logger().Warn("failed to fetch bot open_id; ingress remains closed and lookup will be retried", "error", err)
+		go b.retryBotOpenID()
+	} else {
+		b.registerBotIdentity()
 	}
 
 	if b.cfg.AutoProvision && b.cfg.TenantKey == "" {
@@ -169,11 +190,63 @@ func (b *Bot) Start(ctx context.Context) error {
 	}
 }
 
+func (b *Bot) registerBotIdentity() {
+	registrar, ok := b.handler.(channel.BotRegistrar)
+	botID, _ := b.botOpenID.Load().(string)
+	if !ok || botID == "" {
+		return
+	}
+	b.routingMu.Lock()
+	defer b.routingMu.Unlock()
+	if !b.routingFinalized && b.registeredBotID == "" {
+		registrar.RegisterBotIdentity(channel.PlatformFeishu, botID, b.cfg.InstanceID)
+		b.registeredBotID = botID
+	}
+}
+
+func (b *Bot) retryBotOpenID() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-b.ctx.Done():
+			return
+		case <-ticker.C:
+			if err := b.fetchBotOpenID(b.ctx); err != nil {
+				logger().Warn("bot open_id retry failed; ingress remains closed", "error", err)
+				continue
+			}
+			b.registerBotIdentity()
+			return
+		}
+	}
+}
+
 // Stop cancels the bot context.
 func (b *Bot) Stop() {
 	logger().Info("stopping feishu bot")
 	if b.cancel != nil {
 		b.cancel()
+	}
+}
+
+// Finalize removes routing registrations after accepted work has drained.
+func (b *Bot) Finalize() {
+	b.routingMu.Lock()
+	defer b.routingMu.Unlock()
+	if b.routingFinalized {
+		return
+	}
+	b.routingFinalized = true
+	if b.registeredBotID != "" {
+		if registrar, ok := b.handler.(interface {
+			UnregisterBotIdentity(string, string, string)
+		}); ok {
+			registrar.UnregisterBotIdentity(channel.PlatformFeishu, b.registeredBotID, b.cfg.InstanceID)
+		}
+	}
+	if registrar, ok := b.handler.(interface{ UnregisterGroupPublisher(string) }); ok {
+		registrar.UnregisterGroupPublisher(b.Name())
 	}
 }
 

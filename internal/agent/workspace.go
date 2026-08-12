@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/CherryHQ/stella/internal/skills"
@@ -63,102 +61,6 @@ func GroupAgentDir(base, groupID, agentID string) string {
 	return AgentDirInHome(GroupHomeDir(base, groupID), agentID)
 }
 
-// SetupAgentWorkspace ensures the user-independent agent directory exists.
-// Creates {base}/agents/{agentID}/.agents/skills/ and returns the agent directory.
-func SetupAgentWorkspace(base, agentID string) (string, error) {
-	if agentID == "" {
-		return "", fmt.Errorf("agent ID must not be empty")
-	}
-	dir := AgentWorkspaceDir(base, agentID)
-	if err := os.MkdirAll(filepath.Join(dir, ".agents", "skills"), 0o755); err != nil {
-		return "", fmt.Errorf("create agent workspace for agent %q: %w", agentID, err)
-	}
-	return dir, nil
-}
-
-// PrincipalWorkspace is the materialized on-disk layout for one user or group.
-// GroupID takes precedence because group sessions also carry UserID == GroupID.
-type PrincipalWorkspace struct {
-	HomeDir  string
-	DataDir  string
-	AgentDir string
-}
-
-// SetupPrincipalWorkspace selects the session principal, materializes its home,
-// and returns its shared and per-agent roots. A group is always selected before
-// a user so a group ID can never resolve to the same home as a user ID.
-func SetupPrincipalWorkspace(base, userID, groupID, agentID string) (PrincipalWorkspace, error) {
-	var home string
-	switch {
-	case groupID != "":
-		home = GroupHomeDir(base, groupID)
-	case userID != "":
-		home = UserHomeDir(base, userID)
-	default:
-		return PrincipalWorkspace{}, fmt.Errorf("principal ID must not be empty")
-	}
-	workspace := PrincipalWorkspace{
-		HomeDir:  home,
-		DataDir:  UserDataDir(home),
-		AgentDir: AgentDirInHome(home, agentID),
-	}
-	if _, err := setupHome(workspace.HomeDir, workspace.AgentDir, agentID); err != nil {
-		return PrincipalWorkspace{}, err
-	}
-	return workspace, nil
-}
-
-// SetupUserWorkspace ensures a user home and the per-(user, agent) area exist.
-// Creates the shared data subtree (including .agents/skills and assets) and the
-// agent's private subdir (where its projects live). Returns the user home
-// directory, which is the shared principal root; the sandbox workspace root and
-// HOME are its per-agent subdirectory.
-func SetupUserWorkspace(base, userID, agentID string) (string, error) {
-	if userID == "" {
-		return "", fmt.Errorf("user ID must not be empty")
-	}
-	workspace, err := SetupPrincipalWorkspace(base, userID, "", agentID)
-	return workspace.HomeDir, err
-}
-
-// SetupGroupWorkspace mirrors SetupUserWorkspace for a group account.
-func SetupGroupWorkspace(base, groupID, agentID string) (string, error) {
-	if groupID == "" {
-		return "", fmt.Errorf("group ID must not be empty")
-	}
-	workspace, err := SetupPrincipalWorkspace(base, "", groupID, agentID)
-	return workspace.HomeDir, err
-}
-
-// setupHome creates the shared home directories and, when agentDir is non-empty,
-// the agent's private subdir under the home.
-func setupHome(home, agentDir, agentID string) (string, error) {
-	if agentID == "" {
-		return "", fmt.Errorf("agent ID must not be empty")
-	}
-	// data/ is the shared user-data root mounted as /user. Its subtree holds the
-	// per-user cache, user-level skills/delegates, and uploads — all shared across
-	// the user's agents. The per-user mise tree is a sibling of data/ (under the
-	// STELLA_HOME frame, created on demand by EnsureUserMiseHome), not here.
-	for _, sub := range [][]string{
-		{"data"},
-		{"data", ".cache"},
-		{"data", ".agents", "skills"},
-		{"data", ".agents", "delegates"},
-		{"data", "assets"},
-	} {
-		if err := os.MkdirAll(filepath.Join(home, filepath.Join(sub...)), 0o755); err != nil {
-			return "", fmt.Errorf("create home dir %q: %w", home, err)
-		}
-	}
-	if agentDir != "" {
-		if err := os.MkdirAll(agentDir, 0o755); err != nil {
-			return "", fmt.Errorf("create per-agent area %q: %w", agentDir, err)
-		}
-	}
-	return home, nil
-}
-
 // UserDataDir returns the shared user-data root within a user home. Toolchains,
 // caches, user-level skills/delegates, and uploaded assets live here, shared by
 // all the user's agents; it is mounted as /user in the two-root sandbox layout.
@@ -181,8 +83,7 @@ func UserSkillsDir(userHome string) string {
 }
 
 // SystemDBSkillsDir returns the directory holding DB-installed system-scope
-// skills, a sibling of the shipped built-in skills dir (UserSkillsDir(base),
-// read by ListSystemSkills). Keeping runtime caches apart prevents DB Skills
+// skills, a sibling of the retired extracted builtin projection. Keeping runtime caches apart prevents DB Skills
 // from being mistaken for shipped built-ins. Isolating backends mount it
 // read-only.
 func SystemDBSkillsDir(base string) string {

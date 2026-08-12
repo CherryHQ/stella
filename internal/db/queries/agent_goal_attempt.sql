@@ -51,6 +51,16 @@ WHERE goal_id = sqlc.arg(goal_id)
   AND (sqlc.narg(purpose)::text IS NULL OR purpose = sqlc.narg(purpose)::text)
 ORDER BY attempt_no DESC;
 
+-- name: ListAttemptSummaryByGoal :many
+-- Agent-facing status only needs lightweight execution metadata. Keep the
+-- large input/evidence/output/gaps payloads out of this bounded projection.
+SELECT id, purpose, attempt_no, status, session_id, error, failure_class,
+       started_at, finished_at, updated_at
+FROM agent_goal_attempt
+WHERE goal_id = sqlc.arg(goal_id)
+ORDER BY attempt_no DESC
+LIMIT sqlc.arg('limit');
+
 -- name: GetActiveAttempt :one
 SELECT * FROM agent_goal_attempt
 WHERE goal_id = sqlc.arg(goal_id)

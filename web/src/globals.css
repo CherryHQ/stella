@@ -5,6 +5,14 @@
  */
 @import "./tokens.css";
 @import "tailwindcss";
+@import "streamdown/styles.css";
+
+/*
+ * Streamdown styles its markdown output with Tailwind utilities compiled into
+ * its dist bundle. Tailwind only emits rules for classes it can see, so without
+ * this @source its code-block chrome and list markers render as unstyled boxes.
+ */
+@source "../node_modules/streamdown/dist/*.js";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -88,6 +96,14 @@
     @apply border-border outline-ring/50;
   }
 
+  :root {
+    /* Width of the conversation column, shared by the transcript, the composer
+       and everything docked to them. chat-width.ts overrides this inline on the
+       document element from the stored preference; the value here is what the
+       column measures before that runs, and equals `max-w-3xl`. */
+    --chat-column: 48rem;
+  }
+
   body {
     @apply bg-background text-foreground;
     letter-spacing: var(--tracking-normal);
@@ -123,5 +139,89 @@
 
   .stella-transcript-scroll:hover::-webkit-scrollbar-thumb {
     background: color-mix(in oklch, var(--muted-foreground) 32%, transparent);
+  }
+}
+
+/*
+ * Markdown density.
+ *
+ * Streamdown ships spacing tuned for a wide, sparse chat column: `space-y-4`
+ * between blocks, `py-1` per list item, `mt-6 mb-2` on headings. web-design.md
+ * asks the opposite of the app surface — dense and functional, wall-of-text is
+ * a bug — so the rhythm is retuned here, in one place, instead of being fought
+ * with per-call-site overrides.
+ *
+ * The selectors key on `data-streamdown`, which the library stamps on every
+ * element it renders and documents as its styling hook. Matching its utility
+ * classes instead would break on any upgrade that renames them.
+ *
+ * Specificity, deliberately: these sit in `utilities` alongside Streamdown's
+ * own classes, and an attribute selector under a class (0,2,0) outranks the
+ * single utility class (0,1,0) it overrides — no `!important` anywhere. The one
+ * thing it does *not* outrank is `space-y-3`'s own `> :not([hidden]) ~ ...`
+ * (0,3,0), which is why block separation is set through that utility on the
+ * root and the rules below only ever touch padding or margin-bottom.
+ */
+@layer utilities {
+  .stella-markdown {
+    line-height: 1.6;
+  }
+
+  /* Was `py-1`: 8px between items reads as a gap, not a list. */
+  .stella-markdown [data-streamdown="list-item"] {
+    padding-block: 0.125rem;
+  }
+
+  /*
+   * Headings earn air above (padding, so it stacks on the 12px rhythm rather
+   * than losing to it) and none below — the rhythm already separates them.
+   */
+  .stella-markdown
+    :is(
+      [data-streamdown="heading-1"],
+      [data-streamdown="heading-2"],
+      [data-streamdown="heading-3"],
+      [data-streamdown="heading-4"],
+      [data-streamdown="heading-5"],
+      [data-streamdown="heading-6"]
+    ) {
+    padding-top: 0.5rem;
+    margin-bottom: 0;
+  }
+
+  /*
+   * `space-y-*` only sets margin-top, so every `my-*` block below leaked its
+   * bottom half and sat asymmetrically in the flow.
+   */
+  .stella-markdown
+    :is(
+      [data-streamdown="code-block"],
+      [data-streamdown="blockquote"],
+      [data-streamdown="mermaid-block"],
+      [data-streamdown="table-wrapper"],
+      [data-streamdown="horizontal-rule"]
+    ) {
+    margin-bottom: 0;
+  }
+
+  /*
+   * Code blocks ship as two nested boxes: a `bg-sidebar` shell with `p-2` and a
+   * `bg-background` body with its own border and `p-4`. That reads as a frame
+   * around a frame and spends 64px of chrome above the first line of code.
+   * Collapse it to one box — the shell keeps the border and the tint, the body
+   * keeps only its horizontal scroll.
+   *
+   * What is deliberately NOT touched: the header's `h-8` and the shell's
+   * `gap-2`. The action pill is pulled onto the header row by `-mt-10` (40px),
+   * which is exactly 32px + 8px. Change either and the buttons leave the box.
+   */
+  .stella-markdown [data-streamdown="code-block"] {
+    padding: 0.25rem 0.5rem 0.5rem;
+  }
+
+  .stella-markdown [data-streamdown="code-block-body"] {
+    border: 0;
+    background: transparent;
+    padding: 0;
   }
 }

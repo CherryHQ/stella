@@ -87,8 +87,8 @@ func setup(t *testing.T) (svc *mcp.Service, q *sqlc.Queries, userID, agentID str
 
 	agent, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
 		ID: "mcp-test-agent", Name: "Agent", Workspace: "/tmp/agent",
-		Sandbox: json.RawMessage(`{}`), EnabledBuiltinSkills: json.RawMessage(`[]`),
-		Scope: "system", Enabled: true,
+		Sandbox: json.RawMessage(`{}`),
+		Scope:   "system", Enabled: true,
 	})
 	if err != nil {
 		t.Fatalf("CreateAgent: %v", err)

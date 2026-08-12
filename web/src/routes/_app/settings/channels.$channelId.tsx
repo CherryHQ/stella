@@ -1,13 +1,10 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
-import { meQueryOptions } from "@/lib/queries/me";
+import { createFileRoute } from "@tanstack/react-router";
 
+// No admin guard: the API scopes a non-admin to the channels of the agents they
+// manage, so an unreachable id resolves to an empty detail pane.
 export const Route = createFileRoute("/_app/settings/channels/$channelId")({
   // `agent` preselects the bound agent when creation starts from an agent's
   // profile, where the agent is already known.
   validateSearch: (search: Record<string, unknown>): { agent?: string } =>
     typeof search.agent === "string" && search.agent ? { agent: search.agent } : {},
-  beforeLoad: async ({ context: { queryClient } }) => {
-    const me = await queryClient.ensureQueryData(meQueryOptions);
-    if (!me?.is_admin) throw redirect({ to: "/settings/webhooks" });
-  },
 });

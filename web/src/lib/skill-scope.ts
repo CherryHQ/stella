@@ -29,11 +29,11 @@ export const INSTALL_SCOPES: Extract<SkillScope, "user" | "user_agent" | "system
   "system_agent",
 ];
 
-const WRITABLE = new Set<SkillScope>(["user", "user_agent", "system_agent"]);
+const WRITABLE = new Set<SkillScope>(["user", "user_agent", "system", "system_agent"]);
 
 // Mirror the backend write rules so the UI never offers an edit that 403s:
-// system_agent is admin-managed; project/system are managed outside the web UI.
+// system scopes are admin-managed; project skills stay filesystem-owned.
 export function isSkillReadOnly(scope: string, isAdmin: boolean): boolean {
-  if (scope === "system_agent") return !isAdmin;
+  if (scope === "system" || scope === "system_agent") return !isAdmin;
   return !WRITABLE.has(scope as SkillScope);
 }

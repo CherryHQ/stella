@@ -1,23 +1,22 @@
 ---
 title: Manifest Tool Plugins
-description: File-driven CLI tool integrations loaded from $STELLA_HOME/plugins.yaml.
+description: Declarative CLI tool integrations, shipped with the server and customized from the admin UI.
 ---
 
 ## Overview
 
-Manifest tool plugins are a lightweight alternative to full Go-compiled plugins for simple CLI tool integrations. Instead of writing a Go package, you declare the tool in a YAML file or add it from the Plugins admin UI, and Stella reconciles the binary download automatically.
+Manifest tool plugins are a lightweight alternative to full Go-compiled plugins for simple CLI tool integrations. Instead of writing a Go package, the tool is declared as data, and Stella reconciles the binary download automatically.
 
-Stella ships with a built-in manifest that declares the default manifest-managed CLI integrations (`tap-web`, `gh`, `lark-cli`, `rtk`). They appear in their semantic tabs, such as **Tools** or **Hooks**, with a `manifest` badge. You can override or extend them in `$STELLA_HOME/plugins.yaml` or from the admin UI.
+Stella ships with a built-in manifest that declares the default manifest-managed CLI integrations (`tap-web`, `gh`, `lark-cli`, `rtk`). They appear in their semantic tabs, such as **Tools** or **Hooks**, with a `manifest` badge. You override or extend them from the Plugins admin UI; your changes are stored in the database, and the manifest compiled into the server is never modified.
 
 ## How It Works
 
 At startup, Stella:
 
 1. Loads the embedded built-in manifests (`resources/oauth.yaml` and `resources/tools.yaml`)
-2. Loads your user manifest (`$STELLA_HOME/plugins.yaml`) if it exists
-3. Merges them: user entries override built-in entries per plugin ID
-4. Registers enabled manifest plugins into the plugin host
-5. Starts binary reconciliation in the background: downloads missing binaries into `$STELLA_HOME/bin`
+2. Loads your stored customizations from the database and lays them over the built-in definitions, adding any plugin you created that has no built-in behind it
+3. Registers enabled manifest plugins into the plugin host
+4. Starts binary reconciliation in the background: downloads missing binaries into `$STELLA_HOME/bin`
 
 Startup is not blocked by binary downloads. A newly added or updated manifest binary becomes available on `PATH` inside agent sandbox sessions after the background sync completes. For local sandbox sessions the binary is available from `$STELLA_HOME/bin`. Docker sandbox sessions need separate handling because host binaries may target the host OS/architecture rather than Linux.
 
@@ -28,22 +27,22 @@ Do not treat host `$STELLA_HOME/bin` as the source of Docker sandbox executables
 For Docker:
 
 - Built-in CLI plugins that must work out of the box are pre-installed in the versioned sandbox image. The sandbox image tag is tied to the Stella release, so one release image can contain the built-in tool set for that Stella version. The image build runs `stellad mise reconcile-builtins` — the same reconcile path the daemon uses — so it installs the exact identifiers and versions declared in `resources/tools.yaml`. There is no separate Docker tool list to keep in sync.
-- `$STELLA_HOME/plugins.yaml` remains the source of plugin metadata, enablement, session environment, OAuth injection, and local-sandbox binary installation.
+- The resolved manifest — built-in definitions plus your stored customizations — remains the source of plugin metadata, enablement, session environment, OAuth injection, and local-sandbox binary installation.
 - User-configured CLI binaries need a container-native provisioning path. They should be installed for Linux inside the Docker environment, not copied from the host's `$STELLA_HOME/bin`.
 
 A safe Docker loading design for user-configured CLIs is:
 
-1. Build a container tool manifest from enabled user manifest plugins' `binaries` entries, excluding built-in tools already present in the release image.
+1. Build a container tool manifest from enabled manifest plugins' `binaries` entries, excluding built-in tools already present in the release image.
 2. Use a short-lived helper container based on the same sandbox image to run `mise install` in a Linux context.
-3. Store the resulting tools in a Docker-managed tool cache or volume keyed by the sandbox image tag plus user manifest hash.
+3. Store the resulting tools in a Docker-managed tool cache or volume keyed by the sandbox image tag plus a hash of the resolved manifest.
 4. Mount that cache into sandbox sessions at a container-only path and prepend it to the in-container `PATH`.
-5. Rebuild or refresh the cache when the enabled user plugin set or binary versions change.
+5. Rebuild or refresh the cache when the enabled plugin set or binary versions change.
 
 This keeps the release sandbox image stable while still allowing user-added CLIs. The installed user binaries are Linux container binaries, and the host `$STELLA_HOME/bin` is not part of Docker executable resolution.
 
-## The manifest file format
+## The plugin definition
 
-`$STELLA_HOME/plugins.yaml`:
+A manifest plugin is the same set of fields whether it ships in `resources/tools.yaml` or you fill it in from the admin UI. The YAML form below is the clearest way to read that shape; the admin UI edits the same fields as form rows.
 
 ```yaml
 plugins:
@@ -186,32 +185,7 @@ Platform-specific asset patterns (`platforms:` map) are not supported in the man
 
 ## State and caching
 
-Stella tracks installed binary versions in `$STELLA_HOME/plugin-manifest-state.json`. On subsequent startups, binaries at the correct version are skipped. Change the `version` field in `plugins.yaml` to trigger a re-download. Startup reconciliation runs in the background and is cancelled on shutdown; Stella also terminates any child processes spawned by the installer.
-
-## Overriding built-in plugins
-
-To disable a built-in plugin, add an entry with `enabled: false`:
-
-```yaml
-plugins:
-  - id: tool/tap-web
-    enabled: false
-```
-
-To pin a built-in binary to a specific version:
-
-```yaml
-plugins:
-  - id: tool/tap-web
-    enabled: true
-    binaries:
-      - name: tap
-        tool: github:vaayne/tap
-        version: "0.5.0"
-```
-
-Built-in plugin overrides are full-entry replacements. If you override a built-in
-plugin to change one field, include the rest of the fields you still need.
+Stella tracks installed binary versions in `$STELLA_HOME/plugin-manifest-state.json`. On subsequent startups, binaries at the correct version are skipped. Change a binary's `version` to trigger a re-download. Startup reconciliation runs in the background and is cancelled on shutdown; Stella also terminates any child processes spawned by the installer.
 
 ## Admin UI
 
@@ -220,9 +194,11 @@ Manifest-backed plugins are shown once, in the tab that matches their kind:
 - `tool/gh`, `tool/lark-cli`, and `tool/tap-web` appear in **Tools**.
 - `hook/rtk` appears in **Hooks**.
 
-Rows with manifest backing show a `manifest` badge and an **Edit definition** action for the YAML-backed plugin definition. Binaries and session environment variables are edited as form rows. If the same plugin also exposes runtime config, the row also shows **Configure**.
+Rows with manifest backing show a `manifest` badge and an **Edit definition** action for the plugin definition. Binaries and session environment variables are edited as form rows. If the same plugin also exposes runtime config, the row also shows **Configure**. The enable switch is stored separately from the definition, so disabling a built-in does not count as customizing it, and pinning a binary to a specific version is an ordinary definition edit.
 
-The **Tools** tab includes **Add Tool** for creating a new manifest-backed CLI from a GitHub release binary. Saving writes `$STELLA_HOME/plugins.yaml`, registers the plugin, and syncs binaries automatically without a restart. The embedded built-in manifest is never modified.
+The **Tools** tab includes **Add Tool** for creating a new manifest-backed CLI from a GitHub release binary. Saving registers the plugin and syncs binaries automatically without a restart. The embedded built-in manifest is never modified.
+
+Editing a built-in stores only the fields you changed, so the rest keep following the definition shipped with the server and still improve when you upgrade. Such a plugin is marked **customized** and offers **Reset to default**, which drops the stored edits and leaves the enable switch as it is. Lists — binaries, skills, session environment variables — are stored whole: edit one binary and you own that list. A customization saved before this behaviour existed holds a whole definition and stays frozen at it; saving that plugin once rewrites the row and it starts following upgrades again.
 
 ## Limitations in v1
 

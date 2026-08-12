@@ -1,10 +1,18 @@
 package delegate
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/CherryHQ/stella/pkg/ai"
 )
+
+type failingManagedSessionRunner struct{ err error }
+
+func (r failingManagedSessionRunner) RunDelegateSession(_ context.Context, _ SessionRunRequest) (SessionRunResult, error) {
+	return SessionRunResult{SessionID: "managed-session"}, r.err
+}
 
 // --- DelegateConfig defaults ---
 
@@ -19,6 +27,18 @@ func TestDelegateConfig_CustomValues(t *testing.T) {
 	cfg := DelegateConfig{MaxConcurrency: 1}
 	if cfg.maxConcurrency() != 1 {
 		t.Errorf("expected maxConcurrency=1, got %d", cfg.maxConcurrency())
+	}
+}
+
+func TestRunManagedSessionPreservesRunnerError(t *testing.T) {
+	want := errors.New("session busy")
+	tool := NewDelegateTool(DelegateConfig{SessionRunner: failingManagedSessionRunner{err: want}})
+	result, err := tool.RunManagedSession(context.Background(), ManagedSessionRequest{Message: "continue"})
+	if !errors.Is(err, want) {
+		t.Fatalf("RunManagedSession error=%v, want wrapped %v", err, want)
+	}
+	if result.SessionID != "managed-session" {
+		t.Fatalf("result=%#v", result)
 	}
 }
 

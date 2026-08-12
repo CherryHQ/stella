@@ -2,11 +2,15 @@ package feishu
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -29,11 +33,11 @@ func newThreadRoutingBotWithHandler(t *testing.T) (*Bot, *mockHandler, <-chan ch
 	}
 	b := &Bot{
 		handler:     h,
-		cfg:         Config{AppID: "a", AppSecret: "s"},
-		chatModels:  make(map[string]channel.ModelOption),
+		cfg:         Config{AppID: "a", AppSecret: "s", AllowedChatIDs: "oc_chat", AllowDM: true, RequireMention: false},
 		seenMsgs:    make(map[string]time.Time),
 		provisioned: make(map[string]time.Time),
 	}
+	b.botOpenID.Store("ou_bot")
 	return b, h, captured
 }
 
@@ -45,6 +49,15 @@ func waitMessage(t *testing.T, ch <-chan channel.IncomingMessage) channel.Incomi
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for handler to receive message")
 		return channel.IncomingMessage{}
+	}
+}
+
+func assertNoMessage(t *testing.T, ch <-chan channel.IncomingMessage) {
+	t.Helper()
+	select {
+	case msg := <-ch:
+		t.Fatalf("unexpected forwarded message: %#v", msg)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 
@@ -77,6 +90,186 @@ func receiveEvent(chatID, chatType, messageID, rootID, parentID, msgType, conten
 			},
 		},
 	}
+}
+
+func TestFeishuIngressAdmission(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		cfg       Config
+		chatID    string
+		chatType  string
+		mentioned bool
+		want      bool
+	}{
+		{name: "direct messages disabled", cfg: Config{}, chatID: "oc_dm", chatType: "p2p"},
+		{name: "group not allowlisted", cfg: Config{AllowedChatIDs: "oc_other", RequireMention: false}, chatID: "oc_chat", chatType: "group"},
+		{name: "allowlisted group requires mention", cfg: Config{AllowedChatIDs: "oc_chat", RequireMention: true}, chatID: "oc_chat", chatType: "group"},
+		{name: "allowlisted mentioned group", cfg: Config{AllowedChatIDs: "oc_chat", RequireMention: true}, chatID: "oc_chat", chatType: "group", mentioned: true, want: true},
+		{name: "direct messages enabled", cfg: Config{AllowDM: true}, chatID: "oc_dm", chatType: "p2p", want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, captured := newThreadRoutingBot(t)
+			b.cfg = tc.cfg
+			b.botOpenID.Store("ou_bot")
+			event := textReceiveEvent(tc.chatID, tc.chatType, "om_admission", "", "", "hello")
+			if tc.mentioned {
+				name, key, botID := "Stella", "@_user_1", "ou_bot"
+				event.Event.Message.Mentions = []*larkim.MentionEvent{{Name: &name, Key: &key, Id: &larkim.UserId{OpenId: &botID}}}
+			}
+			if err := b.onMessage(context.Background(), event); err != nil {
+				t.Fatal(err)
+			}
+			if tc.want {
+				_ = waitMessage(t, captured)
+			} else {
+				assertNoMessage(t, captured)
+			}
+		})
+	}
+}
+
+func TestNormalizeFeishuTopicChatTypes(t *testing.T) {
+	for _, chatType := range []string{"topic", "topic_group", "group"} {
+		if got := normalizeChatType(chatType); got != "group" {
+			t.Errorf("normalizeChatType(%q) = %q, want group", chatType, got)
+		}
+	}
+	b, _ := newThreadRoutingBot(t)
+	b.chatTypes.Store("oc_topic", "topic_group")
+	if got, ok := b.getChatType("oc_topic"); !ok || got != "group" {
+		t.Fatalf("cached topic chat type = %q, %v; want group, true", got, ok)
+	}
+}
+
+func TestReplyToBotMessageIsDirectedAfterAuthoritativeLookup(t *testing.T) {
+	b, captured := newThreadRoutingBot(t)
+	b.cfg.RequireMention = true
+	b.resolveMessageContextFn = func(messageID string) (string, string, string, bool, bool) {
+		if messageID != "om_parent" {
+			t.Fatalf("resolved message %q, want parent", messageID)
+		}
+		return "oc_chat", "topic", "om_root", true, true
+	}
+	if err := b.onMessage(context.Background(), textReceiveEvent("oc_chat", "topic_group", "om_reply", "om_root", "om_parent", "reply")); err != nil {
+		t.Fatal(err)
+	}
+	msg := waitMessage(t, captured)
+	if !msg.IsGroup {
+		t.Fatal("topic reply was not normalized to a group message")
+	}
+}
+
+func TestReplyLookupFailureDoesNotBypassMentionRequirement(t *testing.T) {
+	b, captured := newThreadRoutingBot(t)
+	b.cfg.RequireMention = true
+	b.resolveMessageContextFn = func(string) (string, string, string, bool, bool) {
+		return "", "", "", false, false
+	}
+	if err := b.onMessage(context.Background(), textReceiveEvent("oc_chat", "group", "om_reply", "", "om_parent", "reply")); err != nil {
+		t.Fatal(err)
+	}
+	assertNoMessage(t, captured)
+}
+
+func TestReplyLookupRunsOnlyWhenItCanChangeAdmission(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		cfg      Config
+		chatType string
+		wantMsg  bool
+	}{
+		{name: "direct message", cfg: Config{AllowDM: true, RequireMention: true}, chatType: "p2p", wantMsg: true},
+		{name: "disallowed group", cfg: Config{AllowedChatIDs: "oc_other", RequireMention: true}, chatType: "group"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, captured := newThreadRoutingBot(t)
+			b.cfg = tc.cfg
+			lookups := 0
+			b.resolveMessageContextFn = func(string) (string, string, string, bool, bool) {
+				lookups++
+				return "oc_chat", tc.chatType, "", true, true
+			}
+			if err := b.onMessage(context.Background(), textReceiveEvent("oc_chat", tc.chatType, "om_reply", "", "om_parent", "reply")); err != nil {
+				t.Fatal(err)
+			}
+			if lookups != 0 {
+				t.Fatalf("parent lookups = %d, want 0", lookups)
+			}
+			if tc.wantMsg {
+				_ = waitMessage(t, captured)
+			} else {
+				assertNoMessage(t, captured)
+			}
+		})
+	}
+}
+
+func TestAlternateEventIngressAdmission(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		cfg         Config
+		chatID      string
+		chatType    string
+		lookupOK    bool
+		botAuthored bool
+		want        bool
+	}{
+		{name: "disallowed group", cfg: Config{AllowedChatIDs: "oc_other"}, chatID: "oc_chat", chatType: "group", lookupOK: true},
+		{name: "direct messages disabled", cfg: Config{}, chatID: "oc_dm", chatType: "p2p", lookupOK: true},
+		{name: "lookup failure", cfg: Config{AllowDM: true}, lookupOK: false},
+		{name: "reaction to user message does not bypass mention", cfg: Config{AllowedChatIDs: "oc_chat", RequireMention: true}, chatID: "oc_chat", chatType: "group", lookupOK: true},
+		{name: "reaction to bot message bypasses mention", cfg: Config{AllowedChatIDs: "oc_chat", RequireMention: true}, chatID: "oc_chat", chatType: "group", lookupOK: true, botAuthored: true, want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b, captured := newThreadRoutingBot(t)
+			b.cfg = tc.cfg
+			b.resolveMessageContextFn = func(string) (string, string, string, bool, bool) {
+				return tc.chatID, tc.chatType, "om_root", tc.botAuthored, tc.lookupOK
+			}
+			operatorType, openID, messageID, emoji := "user", "ou_sender", "om_reacted", "THUMBSUP"
+			event := &larkim.P2MessageReactionCreatedV1{Event: &larkim.P2MessageReactionCreatedV1Data{
+				OperatorType: &operatorType,
+				UserId:       &larkim.UserId{OpenId: &openID},
+				MessageId:    &messageID,
+				ReactionType: &larkim.Emoji{EmojiType: &emoji},
+			}}
+			if err := b.onReaction(context.Background(), event); err != nil {
+				t.Fatal(err)
+			}
+			if tc.want {
+				msg := waitMessage(t, captured)
+				if msg.ChatID != tc.chatID || !msg.IsGroup || msg.ThreadID != "om_root" {
+					t.Fatalf("forwarded context = (%q, group=%v, %q)", msg.ChatID, msg.IsGroup, msg.ThreadID)
+				}
+			} else {
+				assertNoMessage(t, captured)
+			}
+		})
+	}
+}
+
+func TestCardActionIngressDeniedBeforeIdentityLookup(t *testing.T) {
+	b, captured := newThreadRoutingBot(t)
+	b.cfg = Config{AllowedChatIDs: "oc_other", AllowDM: true}
+	b.resolveMessageContextFn = func(string) (string, string, string, bool, bool) {
+		return "oc_disallowed", "group", "", true, true
+	}
+	b.fetchTenantProfileFn = func(context.Context, string) *TenantProfile {
+		t.Fatal("identity lookup occurred before ingress admission")
+		return nil
+	}
+	response, err := b.onCardAction(context.Background(), &callback.CardActionTriggerEvent{Event: &callback.CardActionTriggerRequest{
+		Operator: &callback.Operator{OpenID: "ou_sender"},
+		Action:   &callback.CallBackAction{Value: map[string]any{"action": "retry"}},
+		Context:  &callback.Context{OpenChatID: "oc_forged", OpenMessageID: "om_card"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response != nil {
+		t.Fatalf("denied action returned response: %#v", response)
+	}
+	assertNoMessage(t, captured)
 }
 
 // TestOnMessageThreadIDFromRootID proves a threaded Feishu message resolves to
@@ -197,5 +390,53 @@ func TestOnMessageFileResolveUserRootPreservesThreadID(t *testing.T) {
 	msg := waitMessage(t, captured)
 	if msg.ThreadID != "om_root" {
 		t.Errorf("ThreadID = %q, want %q", msg.ThreadID, "om_root")
+	}
+}
+
+func TestBotAuthoredMessageRequiresAuthoritativeSender(t *testing.T) {
+	botAppID, app, user, openID, appID, otherAppID := "cli_bot", "app", "user", "open_id", "app_id", "cli_other"
+	for _, tc := range []struct {
+		name   string
+		sender *larkim.Sender
+		want   bool
+	}{
+		{name: "matching bot app id", sender: &larkim.Sender{Id: &botAppID, IdType: &appID, SenderType: &app}, want: true},
+		{name: "user with matching id", sender: &larkim.Sender{Id: &botAppID, IdType: &appID, SenderType: &user}},
+		{name: "bot open id is not app id", sender: &larkim.Sender{Id: &botAppID, IdType: &openID, SenderType: &app}},
+		{name: "different app", sender: &larkim.Sender{Id: &otherAppID, IdType: &appID, SenderType: &app}},
+		{name: "missing sender"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isBotAuthoredMessage(&larkim.Message{Sender: tc.sender}, botAppID); got != tc.want {
+				t.Fatalf("isBotAuthoredMessage() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAttachmentResolverErrorsFailClosed(t *testing.T) {
+	for _, resolveErr := range []error{errors.New("resolver unavailable"), internalchannel.ErrAgentAccessDenied} {
+		t.Run(resolveErr.Error(), func(t *testing.T) {
+			b, h, captured := newThreadRoutingBotWithHandler(t)
+			h.resolveUserRootFn = func(context.Context, channel.IncomingMessage) (string, error) {
+				return "", resolveErr
+			}
+			event := receiveEvent("oc_chat", "group", "om_image", "", "", "image", `{"image_key":"img_secret"}`)
+			if err := b.onMessage(context.Background(), event); err != nil {
+				t.Fatal(err)
+			}
+			assertNoMessage(t, captured)
+		})
+	}
+}
+
+func TestAttachmentRejectionText(t *testing.T) {
+	for _, err := range []error{internalchannel.ErrAgentAccessDenied, agentaccess.ErrForbidden} {
+		if got := attachmentRejectionText(err); got != "Guest chat currently supports text messages only." {
+			t.Fatalf("attachmentRejectionText(%v) = %q", err, got)
+		}
+	}
+	if got := attachmentRejectionText(errors.New("resolver unavailable")); got != "Unable to process this attachment right now." {
+		t.Fatalf("generic attachment rejection = %q", got)
 	}
 }

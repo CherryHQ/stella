@@ -55,10 +55,11 @@ func mapChunk(chunk sdk.ChatCompletionChunk, indexToID map[int]string) []ai.Assi
 		}
 	}
 
-	if chunk.Usage.TotalTokens > 0 || chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
+	if chunk.Usage.TotalTokens > 0 || chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 || chunk.Usage.PromptTokensDetails.CachedTokens > 0 {
 		events = append(events, ai.EventUsage{Usage: ai.Usage{
 			InputTokens:  int(chunk.Usage.PromptTokens),
 			OutputTokens: int(chunk.Usage.CompletionTokens),
+			CacheRead:    int(chunk.Usage.PromptTokensDetails.CachedTokens),
 			TotalTokens:  int(chunk.Usage.TotalTokens),
 		}})
 	}

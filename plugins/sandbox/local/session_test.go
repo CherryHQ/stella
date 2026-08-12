@@ -118,6 +118,58 @@ func TestCleanupOwnedTmpMountsLeavesBorrowedMounts(t *testing.T) {
 	}
 }
 
+func TestEnsureOwnedTmpMountsRestoresOnlyManagedDirectories(t *testing.T) {
+	root := t.TempDir()
+	owned := filepath.Join(root, "owned")
+	borrowed := filepath.Join(root, "borrowed")
+	mounts := []tmpMount{
+		{realPath: owned, owned: true},
+		{realPath: borrowed},
+	}
+
+	if err := ensureOwnedTmpMounts(mounts); err != nil {
+		t.Fatalf("ensureOwnedTmpMounts: %v", err)
+	}
+	info, err := os.Stat(owned)
+	if err != nil {
+		t.Fatalf("stat restored owned mount: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Fatalf("restored owned mount mode = %o, want 700", got)
+	}
+	if _, err := os.Stat(borrowed); !os.IsNotExist(err) {
+		t.Fatalf("borrowed mount was created: %v", err)
+	}
+}
+
+func TestLocalSessionExecRestoresRemovedManagedTempDirectory(t *testing.T) {
+	skipIfBwrapNotFunctional(t)
+	root := t.TempDir()
+	policy := sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root},
+		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
+	}
+	session, err := NewFactory().CreateSession(context.Background(), policy)
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	s := session.(*localSession)
+	defer s.Close() //nolint:errcheck
+
+	tmpDir := s.tmpMounts[0].realPath
+	if err := os.RemoveAll(tmpDir); err != nil {
+		t.Fatalf("remove managed temp directory: %v", err)
+	}
+	result, err := s.Exec(context.Background(), `printf recovered > "$TMPDIR/recovered"`, sandboxpkg.ExecOptions{})
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("Exec after temp removal = %+v, %v", result, err)
+	}
+	data, err := os.ReadFile(filepath.Join(tmpDir, "recovered"))
+	if err != nil || string(data) != "recovered" {
+		t.Fatalf("restored temp output = %q, %v", data, err)
+	}
+}
+
 func TestLocalSession_closeAndAlive(t *testing.T) {
 	s, _ := newTestSession(t)
 	if !s.Alive() {
@@ -457,13 +509,13 @@ func TestResolveWritePath_rejectsExtraMount(t *testing.T) {
 // TestSystemTree_readableButNotWritable verifies that on an isolating backend
 // (sandbox STELLA_HOME differs from host), the read-only system install tree
 // addressed as /opt/stella is resolvable for reads and rejected for writes.
-func TestSystemTree_readableButNotWritable(t *testing.T) {
+func TestBuiltinBundleReadableButNotWritable(t *testing.T) {
 	root := t.TempDir()
 	root, _ = filepath.EvalSymlinks(root)
 	hostSH := t.TempDir()
 	hostSH, _ = filepath.EvalSymlinks(hostSH)
 
-	skillDir := filepath.Join(hostSH, ".agents", "skills", "demo")
+	skillDir := filepath.Join(hostSH, "bundles", "revision", "system", "demo")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -473,7 +525,7 @@ func TestSystemTree_readableButNotWritable(t *testing.T) {
 
 	s := &localSession{
 		id:                "test",
-		policy:            sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root}},
+		policy:            sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, Mounts: []sandboxpkg.Mount{{HostPath: root, SandboxPath: root, Access: sandboxpkg.MountReadWrite}, {HostPath: filepath.Join(hostSH, "bundles", "revision"), SandboxPath: sandboxpkg.MountBuiltinSkills, Access: sandboxpkg.MountReadOnly}}}},
 		realRoot:          root,
 		sandboxRoot:       root,
 		stellaHomeHost:    hostSH,
@@ -481,8 +533,8 @@ func TestSystemTree_readableButNotWritable(t *testing.T) {
 		done:              make(chan struct{}),
 	}
 
-	// The agent addresses the system tree via its sandbox view (/opt/stella/...).
-	sandboxPath := "/opt/stella/.agents/skills/demo/refs.md"
+	// The agent addresses the exact release bundle through its fixed sandbox view.
+	sandboxPath := sandboxpkg.MountBuiltinSkills + "/system/demo/refs.md"
 	real, _, err := s.resolvePath(sandboxPath)
 	if err != nil {
 		t.Fatalf("resolvePath rejected system-tree read: %v", err)
@@ -491,18 +543,17 @@ func TestSystemTree_readableButNotWritable(t *testing.T) {
 		t.Errorf("resolvePath real = %q, want %q", real, want)
 	}
 
-	// Writes into the system tree must be rejected.
+	// Writes into the bundle must be rejected.
 	if _, err := s.ResolveWritePath(sandboxPath); err == nil {
 		t.Fatal("expected ResolveWritePath to reject system-tree path, got nil")
 	}
 
-	// Only the RO-mounted subtrees are reachable: sibling host trees nested under
-	// STELLA_HOME (users/, agents/) must stay invisible even via /opt/stella.
+	// The old STELLA_HOME projection is not a fallback mount.
 	if err := os.MkdirAll(filepath.Join(hostSH, "users", "u1"), 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if _, _, err := s.resolvePath("/opt/stella/users/u1/secret"); err == nil {
-		t.Fatal("expected resolvePath to reject /opt/stella/users (not a mounted subtree), got nil")
+	if _, _, err := s.resolvePath("/opt/stella/.agents/skills/demo/refs.md"); err == nil {
+		t.Fatal("expected resolvePath to reject the retired extracted builtin path, got nil")
 	}
 }
 
@@ -772,8 +823,6 @@ func TestAdjustPolicy_perUserMiseInStellaHomeFrame(t *testing.T) {
 			"MISE_CACHE_DIR":            miseHome + "/cache",
 			"MISE_GLOBAL_CONFIG_FILE":   hostSH + "/.mise-tools/configs/_builtin.toml",
 			"MISE_TRUSTED_CONFIG_PATHS": hostSH + "/.mise-tools/configs/_builtin.toml:/workspace:" + agentDir,
-			"LARKSUITE_CLI_CONFIG_DIR":  userData + "/.lark-cli",
-			"LARKSUITE_CLI_DATA_DIR":    userData + "/.lark-cli/data",
 		},
 	}
 	f := &Factory{cfg: Config{StellaHome: hostSH}}
@@ -789,8 +838,6 @@ func TestAdjustPolicy_perUserMiseInStellaHomeFrame(t *testing.T) {
 		{"MISE_CACHE_DIR", sandboxSH + "/users/u1/.mise-tools/cache"},
 		{"MISE_GLOBAL_CONFIG_FILE", sandboxSH + "/.mise-tools/configs/_builtin.toml"},
 		{"MISE_TRUSTED_CONFIG_PATHS", sandboxSH + "/.mise-tools/configs/_builtin.toml:/workspace"},
-		{"LARKSUITE_CLI_CONFIG_DIR", "/user/.lark-cli"},
-		{"LARKSUITE_CLI_DATA_DIR", "/user/.lark-cli/data"},
 	} {
 		if got := adjusted.Env[tc.key]; got != tc.want {
 			t.Errorf("env[%s] = %q, want %q", tc.key, got, tc.want)

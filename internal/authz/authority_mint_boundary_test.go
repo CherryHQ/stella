@@ -42,6 +42,7 @@ var (
 	_ = authz.NewChannelAuthority
 	_ = authz.NewAgentAuthority
 	_ = authz.NewGroupAgentAuthority
+	_ = authz.NewGuestAuthority
 	_ = authz.NewSystemAuthority
 )
 
@@ -51,6 +52,7 @@ var authorityConstructors = map[string]bool{
 	"NewChannelAuthority":    true,
 	"NewAgentAuthority":      true,
 	"NewGroupAgentAuthority": true,
+	"NewGuestAuthority":      true,
 	"NewSystemAuthority":     true,
 }
 
@@ -63,6 +65,7 @@ var authorityMintAllowset = map[string]string{
 	"internal/auth":         "auth.Subject session → Authority adapter (authority.go)",
 	"internal/credential":   "credential.Principal → Authority adapter (authority.go)",
 	"internal/agent/access": "trusted worker/group authority adapter; durable capability reconstruction",
+	"internal/channel":      "trusted channel ingress adapter; durable guest capability reconstruction",
 }
 
 const authzImportPath = "github.com/CherryHQ/stella/internal/authz"

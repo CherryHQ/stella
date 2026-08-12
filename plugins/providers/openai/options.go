@@ -14,6 +14,9 @@ func buildParams(model ai.Model, ctx ai.Context, opts ai.StreamOptions) sdk.Chat
 	params := sdk.ChatCompletionNewParams{
 		Model:    model.Name,
 		Messages: messages,
+		StreamOptions: sdk.ChatCompletionStreamOptionsParam{
+			IncludeUsage: sdk.Bool(true),
+		},
 	}
 
 	if opts.Temperature != nil {

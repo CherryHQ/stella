@@ -19,7 +19,7 @@ paths:
   /api/channels:
     get:
       tags: [channels]
-      summary: List deployment channels (admin only)
+      summary: List channels the caller may manage
       operationId: listChannels
       responses:
         "200":
@@ -35,7 +35,7 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
     post:
       tags: [channels]
-      summary: Create a deployment channel (admin only)
+      summary: Create a channel (admin, or the owner of the bound agent)
       description: >-
         `type` is required. `id` is optional: the server mints a uuid when it is
         omitted, except for the singleton weixin channel, which always gets the
@@ -70,7 +70,7 @@ paths:
       - { name: id, in: path, required: true, schema: { type: string } }
     get:
       tags: [channels]
-      summary: Get a deployment channel (admin only)
+      summary: Get a channel the caller may manage
       operationId: getChannel
       responses:
         "200":
@@ -87,7 +87,7 @@ paths:
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     patch:
       tags: [channels]
-      summary: Update a deployment channel (admin only)
+      summary: Update a channel the caller may manage
       operationId: updateChannel
       requestBody:
         required: true
@@ -114,7 +114,7 @@ paths:
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
     delete:
       tags: [channels]
-      summary: Delete a deployment channel (admin only)
+      summary: Delete a channel the caller may manage
       operationId: deleteChannel
       responses:
         "204":

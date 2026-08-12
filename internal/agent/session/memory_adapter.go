@@ -22,7 +22,7 @@ func (a *memoryAdapter) save(ctx context.Context, info Info) error {
 	if err != nil {
 		return err
 	}
-	ctx = authz.WithUserID(ctx, info.UserID)
+	ctx = withSessionOwner(ctx, info.UserID, info.GuestID)
 	ctx = authz.WithAgentID(ctx, info.AgentID)
 	return a.sm.SaveInfo(ctx, rec)
 }
@@ -32,13 +32,13 @@ func (a *memoryAdapter) rotate(ctx context.Context, expectedSessionID string, su
 	if err != nil {
 		return err
 	}
-	ctx = authz.WithUserID(ctx, successor.UserID)
+	ctx = withSessionOwner(ctx, successor.UserID, successor.GuestID)
 	ctx = authz.WithAgentID(ctx, successor.AgentID)
 	return a.sm.RotateInfo(ctx, expectedSessionID, rec)
 }
 
 func (a *memoryAdapter) load(ctx context.Context, sessionID, userID, agentID string) (Info, error) {
-	ctx = authz.WithUserID(ctx, userID)
+	ctx = withSessionOwner(ctx, userID, authz.GuestIDFromContext(ctx))
 	ctx = authz.WithAgentID(ctx, agentID)
 	rec, err := a.sm.LoadInfo(ctx, sessionID)
 	if err != nil {
@@ -54,13 +54,36 @@ func (a *memoryAdapter) load(ctx context.Context, sessionID, userID, agentID str
 func (a *memoryAdapter) list(ctx context.Context, userID, agentID string, opts memory.ListOptions) ([]Info, error) {
 	opts.UserID = userID
 	opts.AgentID = agentID
-	ctx = authz.WithUserID(ctx, userID)
+	ctx = withSessionOwner(ctx, userID, authz.GuestIDFromContext(ctx))
 	ctx = authz.WithAgentID(ctx, agentID)
 	recs, err := a.sm.ListInfo(ctx, opts)
 	if err != nil {
 		return nil, err
 	}
 	return infosFromRecords(recs)
+}
+
+func (a *memoryAdapter) listForAdmin(ctx context.Context, userID, agentID string, opts memory.ListOptions) ([]Info, error) {
+	opts.UserID = userID
+	opts.AgentID = agentID
+	lister, ok := a.sm.(interface {
+		ListInfoForAdmin(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("memory provider does not support administrative session listing")
+	}
+	recs, err := lister.ListInfoForAdmin(authz.WithAgentID(ctx, agentID), opts)
+	if err != nil {
+		return nil, err
+	}
+	return infosFromRecords(recs)
+}
+
+func withSessionOwner(ctx context.Context, userID, guestID string) context.Context {
+	if guestID != "" && guestID == userID {
+		return authz.WithGuestID(ctx, guestID)
+	}
+	return authz.WithUserID(ctx, userID)
 }
 
 func (a *memoryAdapter) listForReview(ctx context.Context, agentID string, opts memory.ListOptions) ([]Info, error) {

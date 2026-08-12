@@ -1,12 +1,20 @@
 import { useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { Bell, ChevronsUpDown, FileText, LogOut, Search, Settings, UserCog } from "lucide-react";
+import {
+  Bell,
+  ChevronsUpDown,
+  FileText,
+  LogOut,
+  Search,
+  Settings,
+  ShieldCheck,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { logout as logoutRequest } from "@/lib/api-client/sdk.gen";
 import { useI18n, SUPPORTED_LOCALES } from "@/lib/i18n";
 import { meQueryOptions } from "@/lib/queries/me";
-import { inboxQueryOptions } from "@/lib/queries/inbox";
+import { INBOX_SOURCE_LABELS, inboxQueryOptions, useInboxAgentName } from "@/lib/queries/inbox";
 import { ThemeAppearanceControl } from "@/components/ThemeControls";
 import { SegmentedField } from "@/components/SegmentedField";
 import { useGlobalSearch } from "@/components/GlobalSearch";
@@ -24,12 +32,6 @@ import {
 } from "@/components/ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
-
-const INBOX_KIND_LABELS = {
-  blocked: "inbox.kind.blocked",
-  review: "inbox.kind.review",
-  failed: "inbox.kind.failed",
-} as const;
 
 interface AppEntry {
   key: string;
@@ -115,6 +117,7 @@ export function AppChromeHeader() {
 function InboxBell() {
   const { t } = useI18n();
   const { data: inbox } = useQuery(inboxQueryOptions(undefined, 20));
+  const agentName = useInboxAgentName();
   const items = inbox?.items ?? [];
 
   return (
@@ -151,22 +154,31 @@ function InboxBell() {
               {t("inbox.empty")}
             </p>
           ) : (
-            items.map((item) => (
-              <Button
-                key={item.id}
-                variant="ghost"
-                size="sm"
-                className="h-auto w-full justify-start py-2"
-                render={<Link to={item.target_path} />}
-              >
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
-                  <span className="truncate text-sm">{item.title}</span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    {item.detail || t(INBOX_KIND_LABELS[item.kind])}
+            items.map((item) => {
+              const agent = agentName(item.agent_id);
+              return (
+                <Button
+                  key={item.id}
+                  variant="ghost"
+                  size="sm"
+                  // A two-line row has to outgrow the size variant's fixed
+                  // height, and the variant pins it twice — `h-8 sm:h-7`. Only
+                  // naming both frees it; `h-auto` alone leaves `sm:h-7`
+                  // standing, which clipped the title and put a scrollbar on a
+                  // single-item list.
+                  className="h-auto w-full justify-start py-2 sm:h-auto"
+                  render={<Link to={item.target_path} />}
+                >
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5 text-left">
+                    <span className="truncate text-sm">{item.title}</span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {agent ? `${agent} · ` : ""}
+                      {item.detail || t(INBOX_SOURCE_LABELS[item.source_type])}
+                    </span>
                   </span>
-                </span>
-              </Button>
-            ))
+                </Button>
+              );
+            })
           )}
         </div>
       </PopoverPopup>
@@ -287,17 +299,20 @@ export function AppChromeFooter() {
             </DropdownMenuLabel>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
-          {/* Destinations, widest first: the whole settings surface, then the
-              one page in it that is about you, then the docs. */}
+          {/* Personal and deployment controls are separate destinations. The
+              server remains the security boundary; this role check only keeps
+              an irrelevant destination out of the menu. */}
           <DropdownMenuGroup>
             <DropdownMenuItem render={<Link to="/settings" />}>
               <Settings className="size-4" />
-              {t("nav.settings")}
+              {t("nav.personalSettings")}
             </DropdownMenuItem>
-            <DropdownMenuItem render={<Link to="/settings/account" />}>
-              <UserCog className="size-4" />
-              {t("settings.nav.account")}
-            </DropdownMenuItem>
+            {me.is_admin && (
+              <DropdownMenuItem render={<Link to="/admin" />}>
+                <ShieldCheck className="size-4" />
+                {t("nav.adminConsole")}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem render={<Link to={"/docs" as never} />}>
               <FileText className="size-4" />
               {t("nav.docs")}
