@@ -18,7 +18,6 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/agentskillpolicy"
-	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/home"
@@ -148,12 +147,6 @@ func WithHomeWorkspace(v home.WorkspaceViewer) PoolManagerOption {
 	return func(pm *PoolManager) { pm.homeWorkspace = v }
 }
 
-// WithAssetStorePM retains GA object-backed user-asset hydration until the
-// asset-specific offline cutover marker exists.
-func WithAssetStorePM(a *asset.Store) PoolManagerOption {
-	return func(pm *PoolManager) { pm.assets = a }
-}
-
 // WithSessionImagePipeline wires the ordinary-session canonical image boundary.
 // Groups deliberately bypass it until their separate ownership model exists.
 func WithSessionImagePipeline(images SessionImagePipeline) PoolManagerOption {
@@ -216,7 +209,6 @@ type PoolManager struct {
 	sessionAccess            SessionAccessService
 	sessionInbox             SessionInbox
 	homeWorkspace            home.WorkspaceViewer
-	assets                   *asset.Store
 	log                      *slog.Logger
 }
 
@@ -506,24 +498,11 @@ func (pm *PoolManager) promptScope(ctx context.Context, info session.Info) (user
 			return "", "", "", "", fmt.Errorf("resolve Home workspace: %w", resolveErr)
 		}
 		userRoot, workspaceRoot = workspace.PrincipalRoot, workspace.AgentRoot
-		pm.hydrateAssets(userRoot)
 	}
 	if info.GroupID != "" {
 		return userRoot, workspaceRoot, "", info.GroupID, nil
 	}
 	return userRoot, workspaceRoot, info.UserID, "", nil
-}
-
-func (pm *PoolManager) hydrateAssets(principalRoot string) {
-	if pm.assets == nil {
-		return
-	}
-	assets := pm.assets
-	go func() {
-		if err := assets.HydrateUser(context.Background(), UserAssetsDir(principalRoot)); err != nil {
-			pm.log.Warn("hydrate user assets failed", "error", err)
-		}
-	}()
 }
 
 func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot, info session.Info, userRoot, workspaceRoot string, projectSkills *skillstool.ProjectSnapshot) []pkgplugins.SystemPromptSection {

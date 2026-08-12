@@ -183,7 +183,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
 	homeDir, _ := os.UserHomeDir()
 	agentAccess := agentaccess.NewService(store, as)
-	projectStore := agent.NewProjectStore(db, store, assetStore, agentAccess, agent.WithProjectHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}))
+	projectStore := agent.NewProjectStore(db, store, agentAccess, agent.WithProjectHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}))
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		StellaHome: config.StellaHome(),
 		HomeDir:    homeDir,
@@ -231,7 +231,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		Credentials:         credSvc,
 		ControlPlane:        controlplane.NewService(store, phost, poolMgr, credSvc, slog.With("component", "controlplane-test")),
 		Email:               email.NewService(nil, sqlc.New(db)),
-		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetStore, assetHome, baseURL, sharepkg.WithHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}), sharepkg.WithAgentAccess(agentAccess)),
+		Share:               sharepkg.NewService(sqlc.New(db), mem, recallyStore, assetHome, baseURL, sharepkg.WithHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}), sharepkg.WithAgentAccess(agentAccess)),
 		Recally:             recally.NewService(recallyStore, t.TempDir()),
 		CredentialFrontDoor: credFrontDoor,
 		OAuthAuthServer:     oauthAuthServer,

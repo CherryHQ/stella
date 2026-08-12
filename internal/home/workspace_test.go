@@ -3,30 +3,17 @@ package home
 import (
 	"context"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/CherryHQ/stella/internal/asset"
-	"github.com/CherryHQ/stella/internal/blob"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
-
-type commitThenErrorBlobStore struct{ blob.Store }
-
-func (s commitThenErrorBlobStore) Put(ctx context.Context, key string, r io.Reader) error {
-	if err := s.Store.Put(ctx, key, r); err != nil {
-		return err
-	}
-	return errors.New("blob Put committed then returned an error")
-}
 
 func TestMain(m *testing.M) { dbtest.Main(m) }
 
@@ -172,122 +159,6 @@ func TestResolveLogicalCoordinateAllowsDotOnlyForRoot(t *testing.T) {
 		if _, _, err := ResolveLogicalCoordinate(RootAgentWorkspace, value, true); err == nil {
 			t.Errorf("portable-invalid coordinate %q accepted", value)
 		}
-	}
-}
-
-func TestAssetCompatibilityRestoresObjectOnlyWorkspaceAssetWhileRootIsOpen(t *testing.T) {
-	ctx := context.Background()
-	db := dbtest.New(t)
-	user := uuid.NewString()
-	agentID := "asset-restore-agent"
-	if _, err := db.Exec(ctx, "INSERT INTO auth_user(id,email) VALUES($1,$2)", user, user+"@test.invalid"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(ctx, `INSERT INTO agent (id, name, workspace) VALUES ($1, 'Agent', '')`, agentID); err != nil {
-		t.Fatal(err)
-	}
-	base := t.TempDir()
-	m, err := NewWorkspaceManager(db, base)
-	if err != nil {
-		t.Fatal(err)
-	}
-	remote, err := blob.NewFSStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	assets, err := asset.NewStore(base, remote, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := WorkspaceRequest{UserID: user, AgentID: agentID}
-	target := filepath.Join(base, "users", user, "data", "assets", "legacy.txt")
-	key, err := blob.KeyForPath(base, target)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := remote.Put(ctx, key, strings.NewReader("legacy object")); err != nil {
-		t.Fatal(err)
-	}
-	root, err := m.OpenRoot(ctx, req, RootPrincipalData, RootReadOnly)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := m.RestoreAsset(ctx, assets, Coordinate{Request: req, Scope: RootPrincipalData, Value: "assets/legacy.txt"}); err != nil {
-		_ = root.Close()
-		t.Fatal(err)
-	}
-	var restored strings.Builder
-	if err := root.Read(ctx, "assets/legacy.txt", &restored, ReadOptions{MaxBytes: 1024}); err != nil {
-		_ = root.Close()
-		t.Fatal(err)
-	}
-	if err := root.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if restored.String() != "legacy object" {
-		t.Fatalf("restored = %q", restored.String())
-	}
-	rw, err := m.OpenRoot(ctx, req, RootPrincipalData, RootReadWrite)
-	if err != nil {
-		t.Fatal(err)
-	}
-	upload := Coordinate{Request: req, Scope: RootPrincipalData, Value: "assets/uploaded.txt"}
-	if err := m.UploadAsset(ctx, assets, upload, strings.NewReader("exact"), WriteOptions{Mode: 0o600, MaxBytes: 5, Sync: true}); err != nil {
-		_ = rw.Close()
-		t.Fatalf("UploadAsset: %v", err)
-	}
-	if err := m.UploadAsset(ctx, assets, Coordinate{Request: req, Scope: RootPrincipalData, Value: "assets/too-large.txt"}, strings.NewReader("excess"), WriteOptions{MaxBytes: 5}); !errors.Is(err, ErrUploadLimit) {
-		_ = rw.Close()
-		t.Fatalf("over-limit UploadAsset error=%v", err)
-	}
-	if err := rw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	uploadedKey, err := blob.KeyForPath(base, filepath.Join(base, "users", user, "data", "assets", "uploaded.txt"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	rc, err := remote.Open(ctx, uploadedKey)
-	if err != nil {
-		t.Fatalf("open mirrored upload: %v", err)
-	}
-	mirrored, readErr := io.ReadAll(rc)
-	if err := errors.Join(readErr, rc.Close()); err != nil {
-		t.Fatal(err)
-	}
-	if string(mirrored) != "exact" {
-		t.Fatalf("mirrored upload=%q", mirrored)
-	}
-	if _, err := os.Stat(filepath.Join(base, "users", user, "data", "assets", "too-large.txt")); !os.IsNotExist(err) {
-		t.Fatalf("over-limit compatibility upload published: %v", err)
-	}
-	commitAuthority, err := blob.NewFSStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	unknownTarget := filepath.Join(base, "users", user, "data", "assets", "unknown.txt")
-	unknownKey, err := blob.KeyForPath(base, unknownTarget)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := commitAuthority.Put(ctx, unknownKey, strings.NewReader("object-only prior")); err != nil {
-		t.Fatal(err)
-	}
-	unknownAssets, err := asset.NewStore(base, commitThenErrorBlobStore{Store: commitAuthority}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	unknownRoot, err := m.OpenRoot(ctx, req, RootPrincipalData, RootReadWrite)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = m.WriteAsset(ctx, unknownAssets, Coordinate{Request: req, Scope: RootPrincipalData, Value: "assets/unknown.txt"}, []byte("possibly committed"), 0o600, false)
-	closeErr := unknownRoot.Close()
-	if !errors.Is(err, ErrOutcomeUnknown) {
-		t.Fatalf("WriteAsset error=%v, want ErrOutcomeUnknown", err)
-	}
-	if closeErr != nil {
-		t.Fatal(closeErr)
 	}
 }
 

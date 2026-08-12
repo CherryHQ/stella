@@ -88,9 +88,7 @@ Immutable session media, content-addressed blobs, artifacts, and published share
 
 The first reviewable replacement slice routes the direct non-Session consumers that currently own mutable bytes: Workspace list/create/delete/move/read/write/upload, pre-session channel attachment publication, project and prompt-context resolution, and Share source reads. Public Workspace and project coordinates are logical; trusted runner/provider code resolves physical mount paths only behind the Home capability boundary. Active Agent `read`/`write`/`edit` tools remain on the existing Session resolver, immutable media and published Share bytes retain their existing authorities, and mutable Skills remain in #897.
 
-GA deployments can contain object-only mutable assets: restore-on-read-miss, cold-user hydration, and object-backed recovery made the object copy authoritative when the local materialization was absent. Removing that authority therefore requires a separate prerequisite: an offline, idempotent, asset-specific cutover with a domain marker that proves principal mapping, path, count, size, and digest; preserves the old object copy; and fails closed on incomplete migration. Do not generalize it into a workspace migration or directory catalog.
-
-Until that prerequisite is merged, this slice retains `asset.Store` mutation mirroring, restore-on-miss, cold hydration, and startup/channel wiring. Workspace and Share use the Home capability and coordinate resolver around those compatibility operations, and all public results remain logical paths. The compatibility bridge is deliberately asset-specific so the later authority-removal delta can delete it without changing the Workspace capability model.
+The supported upgrade population never deployed the legacy mutable-asset S3 authority and contains no object-only mutable assets. #888 therefore removes mutation mirroring, restore-on-miss, cold hydration, and their startup/channel wiring directly. No migration, marker, witness, inventory, remote delete/purge, or generic storage state is required. Mutable `data/assets/` bytes use the same POSIX Home authority as other Principal data; immutable session media, blobs, artifacts, and published Share snapshots retain `BlobStore`/S3 authority.
 
 Acceptance:
 
@@ -98,8 +96,8 @@ Acceptance:
 - no audited caller constructs or exposes a durable host path;
 - bash/CLI and API mutations become mutually visible through ordinary POSIX semantics;
 - immutable media/blob/share tests remain green;
-- GA object-only asset fixtures continue to pass until the prerequisite cutover is merged;
-- the prerequisite asset migration has fixtures proving dry-run, idempotency, complete verification, a domain-specific marker, and no remote deletion before compatibility restoration/hydration is removed.
+- mutable asset reads and writes use only the authorized Principal POSIX root and do not depend on S3 configuration;
+- immutable media/blob/share tests remain green and no mutable-asset migration state is introduced.
 
 ### 4. #897 — Mutable Skill filesystem authority
 

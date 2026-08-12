@@ -18,7 +18,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
-	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/eventlog"
@@ -78,7 +77,6 @@ type Coordinator struct {
 	groupDispatcher      *GroupDispatcher
 	db                   *pgxpool.Pool
 	rootOpener           home.RootOpener
-	assets               *asset.Store
 	guests               GuestStore
 	guestLimiter         *guestRateLimiter
 }
@@ -93,12 +91,6 @@ type CoordinatorOption func(*Coordinator)
 
 func WithRootOpener(opener home.RootOpener) CoordinatorOption {
 	return func(c *Coordinator) { c.rootOpener = opener }
-}
-
-// WithCoordinatorAssets retains the GA mutable user-asset authority for
-// pre-session channel attachments.
-func WithCoordinatorAssets(store *asset.Store) CoordinatorOption {
-	return func(c *Coordinator) { c.assets = store }
 }
 
 // WithCoordinatorAuth configures the coordinator with auth support.
@@ -696,8 +688,8 @@ func (c *Coordinator) SaveAsset(ctx context.Context, msg pkgchannel.IncomingMess
 	if len(data) > pkgchannel.MaxInboundAttachmentBytes {
 		return "", fmt.Errorf("attachment exceeds %d bytes", pkgchannel.MaxInboundAttachmentBytes)
 	}
-	if c.rootOpener == nil || c.assets == nil {
-		return "", errors.New("home root opener or asset store not configured")
+	if c.rootOpener == nil {
+		return "", errors.New("home root opener not configured")
 	}
 	root, err := c.rootOpener.OpenRoot(ctx, req, home.RootPrincipalData, home.RootReadWrite)
 	if err != nil {
@@ -719,12 +711,11 @@ func (c *Coordinator) SaveAsset(ctx context.Context, msg pkgchannel.IncomingMess
 	if err != nil {
 		return "", fmt.Errorf("generate attachment id: %w", err)
 	}
-	compatibility, ok := c.rootOpener.(home.AssetCompatibility)
-	if !ok {
-		return "", errors.New("home workspace compatibility resolver not configured")
-	}
 	assetName := fmt.Sprintf("%d_%s-%s", time.Now().UnixNano(), id.String(), name)
-	if err := compatibility.UploadAsset(ctx, c.assets, home.Coordinate{Request: req, Scope: home.RootPrincipalData, Value: path.Join("assets", assetName)}, bytes.NewReader(data), home.WriteOptions{Mode: 0o600, MaxBytes: int64(len(data)), Sync: true}); err != nil {
+	if err := root.Mkdir(ctx, "assets", 0o700, home.MkdirOptions{Parents: true}); err != nil {
+		return "", err
+	}
+	if err := root.Upload(ctx, path.Join("assets", assetName), bytes.NewReader(data), home.WriteOptions{Mode: 0o600, MaxBytes: int64(len(data)), Sync: true}); err != nil {
 		return "", err
 	}
 	return "$STELLA_ASSETS_DIR/" + assetName, nil

@@ -109,10 +109,10 @@ Only a small set of environment variables is recognized:
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `STELLA_HOME`                 | Override the home directory (default `~/.stella`)                                                                 |
 | `STELLA_DATABASE_URL`         | Use an external PostgreSQL database instead of the embedded cluster                                               |
-| `STELLA_BLOB_S3_ENDPOINT`     | Optional S3-compatible endpoint for the durable user-asset mirror                                                 |
-| `STELLA_BLOB_S3_BUCKET`       | Bucket for mirrored user-uploaded assets; set with endpoint/access/secret or leave all unset                      |
-| `STELLA_BLOB_S3_ACCESS_KEY`   | Access key for the asset mirror                                                                                   |
-| `STELLA_BLOB_S3_SECRET_KEY`   | Secret key for the asset mirror                                                                                   |
+| `STELLA_BLOB_S3_ENDPOINT`     | Optional S3-compatible endpoint for immutable BlobStore data                                                      |
+| `STELLA_BLOB_S3_BUCKET`       | Bucket for immutable BlobStore data; set with endpoint/access/secret or leave all unset                           |
+| `STELLA_BLOB_S3_ACCESS_KEY`   | Access key for immutable BlobStore data                                                                           |
+| `STELLA_BLOB_S3_SECRET_KEY`   | Secret key for immutable BlobStore data                                                                           |
 | `STELLA_BLOB_S3_REGION`       | Optional S3 region                                                                                                |
 | `STELLA_BLOB_S3_USE_SSL`      | Use HTTPS for S3-compatible storage; defaults to `true`                                                           |
 | `STELLA_VAULT_KEY`            | Master key for the [secret vault](/docs/guides/secrets-and-keys) — required for secrets, OAuth, and bearer tokens |

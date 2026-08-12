@@ -110,13 +110,6 @@ func (a *Access) ShareArtifact(ctx context.Context, sessionID, path, scope, requ
 	snapshot, err := func() (data []byte, resultErr error) {
 		defer func() { resultErr = errors.Join(resultErr, root.Close()) }()
 		fi, err := root.Stat(ctx, rel)
-		if err != nil && rootScope == home.RootPrincipalData && a.svc.assets != nil {
-			if compatibility, ok := a.svc.homes.(home.AssetCompatibility); ok {
-				if restoreErr := compatibility.RestoreAsset(ctx, a.svc.assets, home.Coordinate{Request: req, Scope: rootScope, Value: rel}); restoreErr == nil {
-					fi, err = root.Stat(ctx, rel)
-				}
-			}
-		}
 		if err != nil {
 			return nil, authz.ErrNotFound
 		}

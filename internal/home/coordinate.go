@@ -1,16 +1,12 @@
 package home
 
 import (
-	"context"
 	"errors"
-	"fmt"
-	"io"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 
-	"github.com/CherryHQ/stella/internal/asset"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
@@ -29,17 +25,6 @@ type Coordinate struct {
 // only; callers never receive a physical root.
 type CoordinateResolver interface {
 	ResolveCoordinate(Coordinate) (RootScope, string, error)
-}
-
-// AssetCompatibility is the temporary GA mutable-asset bridge. Callers must
-// already hold the corresponding Home root capability; physical coordinates
-// remain inside Home and asset.Store.
-type AssetCompatibility interface {
-	RestoreAsset(context.Context, *asset.Store, Coordinate) error
-	WriteAsset(context.Context, *asset.Store, Coordinate, []byte, os.FileMode, bool) error
-	UploadAsset(context.Context, *asset.Store, Coordinate, io.Reader, WriteOptions) error
-	RemoveAsset(context.Context, *asset.Store, Coordinate) error
-	MoveAsset(context.Context, *asset.Store, Coordinate, Coordinate) error
 }
 
 // ResolveLogicalCoordinate canonicalizes portable sandbox coordinates. It is
@@ -120,84 +105,6 @@ func (m *WorkspaceManager) ResolveCoordinate(c Coordinate) (RootScope, string, e
 		}
 	}
 	return 0, "", errors.New("home: coordinate is outside authorized roots")
-}
-
-func (m *WorkspaceManager) assetCoordinate(c Coordinate) (string, error) {
-	scope, name, err := m.ResolveCoordinate(c)
-	if err != nil {
-		return "", err
-	}
-	if scope != RootPrincipalData || !strings.HasPrefix(name, "assets/") {
-		return "", errors.New("home: coordinate is not a mutable user asset")
-	}
-	parts, _, err := m.rootSelection(c.Request, scope)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(append([]string{m.base}, append(parts, filepath.FromSlash(name))...)...), nil
-}
-
-func (m *WorkspaceManager) RestoreAsset(ctx context.Context, store *asset.Store, c Coordinate) error {
-	abs, err := m.assetCoordinate(c)
-	if err != nil {
-		return err
-	}
-	return store.Restore(ctx, abs)
-}
-
-func (m *WorkspaceManager) WriteAsset(ctx context.Context, store *asset.Store, c Coordinate, data []byte, mode os.FileMode, create bool) error {
-	abs, err := m.assetCoordinate(c)
-	if err != nil {
-		return err
-	}
-	if create {
-		err = store.CreateFile(ctx, abs, data, mode)
-	} else {
-		err = store.WriteFile(ctx, abs, data, mode)
-	}
-	if errors.Is(err, asset.ErrOutcomeUnknown) {
-		return fmt.Errorf("%w: %w", ErrOutcomeUnknown, err)
-	}
-	return err
-}
-
-func (m *WorkspaceManager) UploadAsset(ctx context.Context, store *asset.Store, c Coordinate, src io.Reader, options WriteOptions) error {
-	abs, err := m.assetCoordinate(c)
-	if err != nil {
-		return err
-	}
-	err = store.UploadFile(ctx, abs, src, options.Mode, options.MaxBytes, options.Sync)
-	if errors.Is(err, asset.ErrUploadLimit) {
-		return ErrUploadLimit
-	}
-	if errors.Is(err, asset.ErrOutcomeUnknown) {
-		return fmt.Errorf("%w: %w", ErrOutcomeUnknown, err)
-	}
-	return err
-}
-
-func (m *WorkspaceManager) RemoveAsset(ctx context.Context, store *asset.Store, c Coordinate) error {
-	abs, err := m.assetCoordinate(c)
-	if err != nil {
-		return err
-	}
-	return store.RemoveFile(ctx, abs)
-}
-
-func (m *WorkspaceManager) MoveAsset(ctx context.Context, store *asset.Store, source, destination Coordinate) error {
-	src, err := m.assetCoordinate(source)
-	if err != nil {
-		return err
-	}
-	dst, err := m.assetCoordinate(destination)
-	if err != nil {
-		return err
-	}
-	err = store.MoveFile(ctx, src, dst)
-	if errors.Is(err, asset.ErrOutcomeUnknown) {
-		return fmt.Errorf("%w: %w", ErrOutcomeUnknown, err)
-	}
-	return err
 }
 
 func containedCoordinate(root, value string, allowRoot bool) (string, bool) {

@@ -2,13 +2,11 @@ package channel
 
 import (
 	"context"
-	"log/slog"
 	"sync/atomic"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
-	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/home"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
@@ -76,10 +74,6 @@ func TestPreSessionAttachmentSaveDoesNotStartOrWakeSessionCompute(t *testing.T) 
 	if err != nil {
 		t.Fatalf("NewWorkspaceManager: %v", err)
 	}
-	assets, err := asset.NewStore(homeDir, nil, slog.Default())
-	if err != nil {
-		t.Fatalf("NewStore: %v", err)
-	}
 	var computeLookups atomic.Int64
 	coord := &Coordinator{
 		serviceManager: resolveServiceManager{lookups: &computeLookups},
@@ -87,7 +81,6 @@ func TestPreSessionAttachmentSaveDoesNotStartOrWakeSessionCompute(t *testing.T) 
 		auth:           ts.oidcStore,
 		agentAccess:    agentaccess.NewService(ts.store, ts.authStore),
 		rootOpener:     homes,
-		assets:         assets,
 	}
 	logical, err := coord.SaveAsset(ctx, pkgchannel.IncomingMessage{Platform: "telegram", SenderID: "compute-spy"}, "photo.jpg", []byte("image"))
 	if err != nil {

@@ -22,7 +22,6 @@ import (
 	credoauth "github.com/CherryHQ/stella/internal/connections/oauth"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
-	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -253,7 +252,7 @@ func TestBuiltinToolsDenyForeignResourceAccess(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "report.html"), []byte("<p>ok</p>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	shareSvc := sharepkg.NewService(q, mem, recally.NewStore(db), mustAssetStore(t, home), home, "http://stella.test", sharepkg.WithHomeWorkspace(toolAuthzWorkspaceViewer{root: home}), sharepkg.WithAgentAccess(agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db))))
+	shareSvc := sharepkg.NewService(q, mem, recally.NewStore(db), home, "http://stella.test", sharepkg.WithHomeWorkspace(toolAuthzWorkspaceViewer{root: home}), sharepkg.WithAgentAccess(agentaccess.NewService(storepkg.NewDBStore(db), appdb.NewAuthStore(db))))
 	ownerShare, err := q.CreateShare(ctx, sqlc.CreateShareParams{ID: uuid.NewString(), TokenHash: "owner-share-hash", UserID: ownerUser, Title: "owner share", MediaType: "text/html", Content: []byte("owner secret")})
 	if err != nil {
 		t.Fatalf("CreateShare: %v", err)
@@ -354,15 +353,6 @@ func newVaultToolTestService(t *testing.T, db *pgxpool.Pool, userIDs ...string) 
 		}
 	}
 	return svc
-}
-
-func mustAssetStore(t *testing.T, home string) *asset.Store {
-	t.Helper()
-	a, err := asset.NewStore(home, nil, nil)
-	if err != nil {
-		t.Fatalf("asset.NewStore: %v", err)
-	}
-	return a
 }
 
 // toolAuthzWorkspaceViewer maps this fixture's user/Agent directories;

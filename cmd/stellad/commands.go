@@ -303,7 +303,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return phost.BuildEnabledTools(ctx, build)
 	}
 	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(skillStore)
-	// Asset authority is selected during the pre-runtime Home boot gate above.
+	// Immutable library raw content may use the configured BlobStore independently
+	// of mutable Home files.
 	libraryRaw, err := library.NewRawStoreFromConfig(config.StellaHome(), cfg.Blob, library.RawStoreOptions{
 		TempDir:        os.TempDir(),
 		FSMinFreeBytes: library.DefaultFSMinFreeBytes,
@@ -344,7 +345,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build session image pipeline: %w", err)
 	}
-	projectStore := agent.NewProjectStore(db, store, assetStore, agentAccess, agent.WithProjectHomeWorkspace(homeRegistry))
+	projectStore := agent.NewProjectStore(db, store, agentAccess, agent.WithProjectHomeWorkspace(homeRegistry))
 	homeDir, _ := os.UserHomeDir()
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		StellaHome: config.StellaHome(),
@@ -472,7 +473,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	recallyStore := recally.NewStore(db)
 	recallySvc := recally.NewService(recallyStore, config.StellaHome())
-	shareSvc := sharepkg.NewServiceForPool(db, memProvider, recallyStore, assetStore, config.StellaHome(), baseURL, sharepkg.WithHomeWorkspace(homeRegistry), sharepkg.WithAgentAccess(agentAccess))
+	shareSvc := sharepkg.NewServiceForPool(db, memProvider, recallyStore, config.StellaHome(), baseURL, sharepkg.WithHomeWorkspace(homeRegistry), sharepkg.WithAgentAccess(agentAccess))
 
 	// MCP registration service: one instance shared by the HTTP API and the agent
 	// runtime. Built here (before StartAll) so its tool provider can be bound into
@@ -507,7 +508,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	poolMgr = agent.NewPoolManager(store, memProvider,
 		agent.WithSnapshotLoader(snapshotLoader),
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
-		agent.WithAssetStorePM(assetStore),
 		agent.WithSessionImagePipeline(sessionImages),
 		agent.WithSessionInboxPM(sessionInbox),
 		agent.WithBuiltinTools(builtinTools),

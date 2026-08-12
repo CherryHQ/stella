@@ -267,7 +267,7 @@ Binding to `0.0.0.0` (`HOST`) does **not** give you a public URL: with `STELLA_B
 
 The Docker image sets `STELLA_REQUIRE_EXTERNAL_DB=1`: startup fails with an actionable error when `STELLA_DATABASE_URL` is unset, instead of silently starting the embedded PostgreSQL cluster on the container's ephemeral filesystem — with multiple replicas, each pod would even create its own database. Point `STELLA_DATABASE_URL` at an external PostgreSQL with `pgvector` and `pg_search`. To deliberately run embedded PostgreSQL in a single container backed by a persistent volume, set `STELLA_REQUIRE_EXTERNAL_DB=0`.
 
-Uploaded user assets also need durable storage. Without `STELLA_BLOB_S3_*`, the filesystem under `STELLA_HOME` is the single-node authority and must be persisted. Configuring an S3-compatible object store makes it the shared authority and treats local files as materializations. Stella currently exposes only the single-replica Helm topology; the future multi-replica topology will require the shared authority directly rather than introducing a second mode switch.
+Uploaded user assets need durable POSIX storage under `STELLA_HOME`; S3 configuration does not mirror or recover this mutable tree. Stella currently exposes only the single-replica Helm topology. Future replicas will require one shared, strongly consistent POSIX namespace. `STELLA_BLOB_S3_*` is optional and serves separate immutable BlobStore data such as content-addressed session media.
 
 A loopback base URL is never a startup error — it is legitimate when you reach Stella via `localhost` or `kubectl port-forward` — but Stella logs a loud warning when OAuth/OIDC login is configured against one, because login redirects would point back at the pod. Deployment charts should make `STELLA_BASE_URL` a required value; that layer knows it sits behind an ingress.
 
@@ -370,10 +370,10 @@ Configuration is managed through the Web UI (default `http://localhost:25678`; u
 | `STELLA_REQUIRE_EXTERNAL_DB`     | No                        | Fail startup when `STELLA_DATABASE_URL` is unset instead of starting embedded PostgreSQL; the Docker image sets `1`, override with `0` for embedded PG on a persistent volume |
 | `STELLA_HTTP_SHUTDOWN_TIMEOUT`   | No                        | Graceful-shutdown drain budget for in-flight HTTP requests (Go duration, default `60s`, `> 0`)                                                                                |
 | `STELLA_RIVER_SOFT_STOP_TIMEOUT` | No                        | Graceful-shutdown drain budget for in-flight background jobs (Go duration, default `120s`, `> 0`)                                                                             |
-| `STELLA_BLOB_S3_ENDPOINT`        | No§                       | S3-compatible endpoint for the durable user-asset mirror                                                                                                                      |
-| `STELLA_BLOB_S3_BUCKET`          | No§                       | Bucket for mirrored user-uploaded assets                                                                                                                                      |
-| `STELLA_BLOB_S3_ACCESS_KEY`      | No§                       | Access key for the asset mirror                                                                                                                                               |
-| `STELLA_BLOB_S3_SECRET_KEY`      | No§                       | Secret key for the asset mirror                                                                                                                                               |
+| `STELLA_BLOB_S3_ENDPOINT`        | No§                       | S3-compatible endpoint for immutable BlobStore data                                                                                                                           |
+| `STELLA_BLOB_S3_BUCKET`          | No§                       | Bucket for immutable BlobStore data                                                                                                                                           |
+| `STELLA_BLOB_S3_ACCESS_KEY`      | No§                       | Access key for immutable BlobStore data                                                                                                                                       |
+| `STELLA_BLOB_S3_SECRET_KEY`      | No§                       | Secret key for immutable BlobStore data                                                                                                                                       |
 | `STELLA_BLOB_S3_REGION`          | No                        | Optional S3 region                                                                                                                                                            |
 | `STELLA_BLOB_S3_USE_SSL`         | No                        | Use HTTPS for S3-compatible storage; defaults to `true`                                                                                                                       |
 | `STELLA_VAULT_KEY`               | Yes†                      | age secret key for the vault — required for secrets, OAuth, and bearer tokens                                                                                                 |
@@ -385,7 +385,7 @@ Configuration is managed through the Web UI (default `http://localhost:25678`; u
 
 ‡ Required only when agents use the `docker` sandbox backend. Use `host` when stellad runs on the host, `bind` when stellad runs in Docker with a host bind mount, and `volume` when stellad runs in Docker with a named volume.
 
-§ Set all four required S3 mirror variables together, or leave all unset. Partial blob-store configuration fails startup.
+§ Set all four required S3 variables together, or leave all unset. Partial blob-store configuration fails startup. Mutable assets never require these variables.
 
 ¶ Required for managed deployments, and whenever OAuth login or channel deep links are used. See [Managed Deployment](#managed-deployment).
 

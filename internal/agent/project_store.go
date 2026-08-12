@@ -3,8 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"log/slog"
-	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/home"
@@ -37,7 +34,6 @@ type ProjectAgentAuthorizer interface {
 type ProjectStore struct {
 	q      *sqlc.Queries
 	store  config.Store
-	assets *asset.Store
 	agents ProjectAgentAuthorizer
 	homes  home.WorkspaceViewer
 }
@@ -60,8 +56,8 @@ func WithProjectHomeWorkspace(viewer home.WorkspaceViewer) ProjectStoreOption {
 	return func(s *ProjectStore) { s.homes = viewer }
 }
 
-func NewProjectStore(db *pgxpool.Pool, store config.Store, assets *asset.Store, agents ProjectAgentAuthorizer, opts ...ProjectStoreOption) *ProjectStore {
-	s := &ProjectStore{q: sqlc.New(db), store: store, assets: assets, agents: agents}
+func NewProjectStore(db *pgxpool.Pool, store config.Store, agents ProjectAgentAuthorizer, opts ...ProjectStoreOption) *ProjectStore {
+	s := &ProjectStore{q: sqlc.New(db), store: store, agents: agents}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -342,17 +338,9 @@ func (s *ProjectStore) Ensure(ctx context.Context, agentID, userID string) (stri
 	if s.homes == nil {
 		return "", ErrWorkspaceSetup
 	}
-	view, err := s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: userID, AgentID: agentID})
+	_, err = s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: userID, AgentID: agentID})
 	if err != nil {
 		return "", err
-	}
-	if s.assets != nil {
-		assets := s.assets
-		go func() {
-			if err := assets.HydrateUser(context.Background(), filepath.Join(view.DataRoot, "assets")); err != nil {
-				slog.Warn("hydrate user assets failed", "error", err)
-			}
-		}()
 	}
 	// PostgreSQL stores only the logical project root, never the provider path.
 	p, err := s.q.CreateProject(ctx, sqlc.CreateProjectParams{
