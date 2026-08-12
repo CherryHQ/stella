@@ -9,7 +9,7 @@ import { useI18n } from "@/lib/i18n";
  * The backend rejects any other platform on POST /api/users/me/link-code, so
  * the UI must not offer the button for one.
  */
-export const LINK_CODE_PLATFORMS = new Set(["telegram", "qq", "feishu"]);
+export const LINK_CODE_PLATFORMS = new Set(["telegram", "discord", "qq", "feishu"]);
 
 /** Weixin links by QR scan instead of a code. */
 export const QR_PLATFORM = "weixin";

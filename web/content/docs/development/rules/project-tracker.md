@@ -266,6 +266,23 @@ no `status:ready` when a PR is already open), add the matching status label, and
 return the Issue URL. Do not bulk-create issues without confirmation, and prefer
 closing over deleting.
 
+## Weekly delivery review
+
+Every Tuesday, reconcile the week that just closed against the Base: collect the
+merged PRs, create or refresh the matching tasks, and report what shipped. The
+delivery week runs Tuesday to Tuesday.
+
+The `weekly-delivery` skill in `.agents/skills/weekly-delivery/` carries the
+procedure. Its scripts own the mechanical half — window arithmetic, PR
+collection, telling issue numbers from PR numbers, diffing against the task
+table — and stop for a human on every judgement: task title, status, product
+line, milestone, and acceptance criteria.
+
+Tasks record delivery in `完成日期`, the merge date of the last PR that
+delivered them. `截止日期` stays a deadline. The `交付周` and `周次` formulas
+derive from `完成日期`, so the `上周交付` view and the `交付总览` dashboard roll
+over on their own.
+
 ## Automation boundary
 
 The workflow is manual until repeated evidence justifies automation. The only

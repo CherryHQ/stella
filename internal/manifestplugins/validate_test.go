@@ -6,7 +6,7 @@ import (
 
 func TestValidate_NoID(t *testing.T) {
 	m := &Manifest{Plugins: []ManifestPlugin{
-		{Binaries: []ManifestBinary{{Name: "x", Tool: "github:a/b"}}},
+		{ManifestPluginDefinition: ManifestPluginDefinition{Binaries: []ManifestBinary{{Name: "x", Tool: "github:a/b"}}}},
 	}}
 	if err := Validate(m); err == nil {
 		t.Error("expected error for plugin with no ID")
@@ -25,8 +25,8 @@ func TestValidate_RequiresManifestContent(t *testing.T) {
 func TestValidate_BinaryNoTool(t *testing.T) {
 	m := &Manifest{Plugins: []ManifestPlugin{
 		{
-			ID:       "tool/x",
-			Binaries: []ManifestBinary{{Name: "x"}},
+			ID:                       "tool/x",
+			ManifestPluginDefinition: ManifestPluginDefinition{Binaries: []ManifestBinary{{Name: "x"}}},
 		},
 	}}
 	if err := Validate(m); err == nil {
@@ -37,8 +37,8 @@ func TestValidate_BinaryNoTool(t *testing.T) {
 func TestValidate_BinaryMiseRegistryTool(t *testing.T) {
 	m := &Manifest{Plugins: []ManifestPlugin{
 		{
-			ID:       "tool/uv",
-			Binaries: []ManifestBinary{{Name: "uv", Tool: "uv"}},
+			ID:                       "tool/uv",
+			ManifestPluginDefinition: ManifestPluginDefinition{Binaries: []ManifestBinary{{Name: "uv", Tool: "uv"}}},
 		},
 	}}
 	if err := Validate(m); err != nil {
@@ -49,8 +49,8 @@ func TestValidate_BinaryMiseRegistryTool(t *testing.T) {
 func TestValidate_LeavesToolKeysToMise(t *testing.T) {
 	m := &Manifest{Plugins: []ManifestPlugin{
 		{
-			ID:       "tool/x",
-			Binaries: []ManifestBinary{{Name: "x", Tool: "github:repo"}},
+			ID:                       "tool/x",
+			ManifestPluginDefinition: ManifestPluginDefinition{Binaries: []ManifestBinary{{Name: "x", Tool: "github:repo"}}},
 		},
 	}}
 	if err := Validate(m); err != nil {
@@ -62,8 +62,10 @@ func TestValidate_SessionEnvInvalidSource(t *testing.T) {
 	m := &Manifest{Plugins: []ManifestPlugin{
 		{
 			ID: "tool/x",
-			SessionEnvs: []ManifestSessionEnv{
-				{EnvVar: "MY_TOKEN", Source: "invalid_source"},
+			ManifestPluginDefinition: ManifestPluginDefinition{
+				SessionEnvs: []ManifestSessionEnv{
+					{EnvVar: "MY_TOKEN", Source: "invalid_source"},
+				},
 			},
 		},
 	}}

@@ -115,20 +115,9 @@ func (b *Bot) handleText(msg WeixinMessage, text string) {
 		return
 	}
 
-	reply := func(resp string) { b.sendReply(msg, resp) }
 	incoming := b.incomingMsg(msg, channel.TextContent(text))
 
-	// Handle plugin-local commands first.
 	cmd, args := channel.ParseSlashCommand(text)
-	switch cmd {
-	case "/model":
-		b.handleModelCommand(args, reply)
-		return
-	case "/agent":
-		b.handleAgentCommand(msg, args, reply)
-		return
-	}
-
 	// Delegate to coordinator (shared commands + chat streaming).
 	b.handleIncoming(msg, incoming, cmd, args)
 }
@@ -419,33 +408,6 @@ func (b *Bot) handleIncoming(msg WeixinMessage, incoming channel.IncomingMessage
 
 	b.sendFinalResponse(msg, response, images)
 	logger().Debug("response sent", "user_id", msg.FromUserID, "response_len", len(response))
-}
-
-// handleModelCommand processes /model with optional arguments.
-func (b *Bot) handleModelCommand(args string, reply func(string)) {
-	channel.HandleModelCommand(channel.ModelCommandHandler{
-		Args:        args,
-		Reply:       reply,
-		ListModels:  b.handler.ListModels,
-		SwitchModel: b.handler.SwitchModel,
-		OnSwitched: func(selected channel.ModelOption) {
-			logger().Info("model switched", "provider", selected.Provider, "model", selected.Model)
-		},
-	})
-}
-
-// handleAgentCommand processes /agent with optional arguments.
-func (b *Bot) handleAgentCommand(msg WeixinMessage, args string, reply func(string)) {
-	channel.HandleAgentCommand(channel.AgentCommandHandler{
-		Incoming:    b.incomingMsg(msg, nil),
-		Args:        args,
-		Reply:       reply,
-		ListAgents:  b.handler.ListAgents,
-		SwitchAgent: b.handler.SwitchAgent,
-		OnSwitched: func(agentID string) {
-			logger().Info("agent switched", "agent_id", agentID)
-		},
-	})
 }
 
 // sendReply sends a text reply to the message sender using the cached context_token.

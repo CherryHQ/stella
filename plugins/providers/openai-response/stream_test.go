@@ -93,6 +93,9 @@ func TestMapEventCompleted(t *testing.T) {
 				InputTokens:  10,
 				OutputTokens: 5,
 				TotalTokens:  15,
+				InputTokensDetails: responses.ResponseUsageInputTokensDetails{
+					CachedTokens: 7,
+				},
 			},
 		},
 	}
@@ -104,8 +107,9 @@ func TestMapEventCompleted(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected EventUsage, got %T", events[0])
 	}
-	if usage.Usage.InputTokens != 10 || usage.Usage.OutputTokens != 5 || usage.Usage.TotalTokens != 15 {
-		t.Fatalf("unexpected usage: %+v", usage.Usage)
+	wantUsage := ai.Usage{InputTokens: 10, OutputTokens: 5, CacheRead: 7, TotalTokens: 15}
+	if usage.Usage != wantUsage {
+		t.Fatalf("usage = %+v, want %+v", usage.Usage, wantUsage)
 	}
 	stop, ok := events[1].(ai.EventStop)
 	if !ok {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	sessionaccess "github.com/CherryHQ/stella/internal/agent/session/access"
 	"github.com/CherryHQ/stella/internal/asset"
@@ -72,6 +73,14 @@ func (m stubRuntimeManager) Default() sessionaccess.RuntimeService          { re
 type stubRuntimeService struct{ events chan agent.Event }
 
 func (s *stubRuntimeService) Chat(context.Context, agent.ChatRequest) <-chan agent.Event { return nil }
+func (s *stubRuntimeService) RunManagedSession(context.Context, delegatetool.ManagedSessionRequest) (delegatetool.ManagedSessionResult, error) {
+	return delegatetool.ManagedSessionResult{}, nil
+}
+
+func (s *stubRuntimeService) RunConversationSession(context.Context, agentsession.Info, agent.MessageContent) <-chan agent.Event {
+	return nil
+}
+func (s *stubRuntimeService) StopSession(context.Context, string) bool { return false }
 func (s *stubRuntimeService) SubscribeSession(string) (<-chan agent.Event, func()) {
 	return s.events, func() {}
 }

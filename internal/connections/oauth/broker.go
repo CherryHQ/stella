@@ -13,7 +13,7 @@ import (
 // FlowBroker is the common interface for both device-code and authorization-code
 // OAuth flows.
 type FlowBroker interface {
-	StartFlow(ctx context.Context, provider Provider, userID string) (FlowStatus, error)
+	StartFlow(ctx context.Context, provider Provider, userID string, desiredScopes []string) (FlowStatus, error)
 	Poll(ctx context.Context, flowID string) (FlowStatus, error)
 }
 
@@ -40,7 +40,7 @@ func NewDeviceCodeBroker(cfg *oauth2.Config, store *FlowStore, onAuthorized func
 // StartFlow requests a device code, stores pending state, and returns the
 // FlowStatus the caller should display. A background goroutine polls the
 // token endpoint until the user authorizes or the flow expires.
-func (b *DeviceCodeBroker) StartFlow(ctx context.Context, provider Provider, userID string) (FlowStatus, error) {
+func (b *DeviceCodeBroker) StartFlow(ctx context.Context, provider Provider, userID string, desiredScopes []string) (FlowStatus, error) {
 	// RFC 8628 public-client device auth omits client_secret, but some providers
 	// require it. Inject it when present so the device auth request is accepted
 	// without changing the token exchange path.
@@ -65,12 +65,15 @@ func (b *DeviceCodeBroker) StartFlow(ctx context.Context, provider Provider, use
 		ExpiresAt:       expiresAt,
 		State:           FlowStatePending,
 		FlowType:        "device_code",
+		DesiredScopes:   append([]string(nil), desiredScopes...),
 	}
 	if status.VerificationURI == "" {
 		status.VerificationURI = da.VerificationURI
 	}
 
-	b.store.Create(status)
+	if !b.store.CreateExclusive(status) {
+		return FlowStatus{}, fmt.Errorf("oauth: a flow is already pending for provider %s", provider)
+	}
 
 	bgCtx, cancel := context.WithDeadline(context.Background(), expiresAt)
 	go func() {
@@ -80,6 +83,13 @@ func (b *DeviceCodeBroker) StartFlow(ctx context.Context, provider Provider, use
 			slog.Warn("oauth: device flow poll failed",
 				"provider", provider, "user_id", userID, "flow_id", flowID, "error", err)
 			b.store.Update(flowID, FlowStateFailed, func(fs *FlowStatus) { fs.Error = err.Error() })
+			return
+		}
+		// Claim before persistence so a newer flow that superseded this one
+		// cannot save an out-of-date desired-scope snapshot.
+		if _, ok := b.store.Claim(flowID); !ok {
+			slog.Info("oauth: device flow superseded or expired; discarding token",
+				"provider", provider, "user_id", userID, "flow_id", flowID)
 			return
 		}
 		// Persist before marking authorized so the token is in the vault the
@@ -105,6 +115,10 @@ func (b *DeviceCodeBroker) Poll(ctx context.Context, flowID string) (FlowStatus,
 		return FlowStatus{}, fmt.Errorf("oauth: unknown flow %q", flowID)
 	}
 
+	if status.State == FlowStateCompleting {
+		status.State = FlowStatePending
+		return status, nil
+	}
 	if status.State != FlowStatePending {
 		return status, nil
 	}
@@ -136,7 +150,7 @@ func NewAuthCodeBroker(cfg *oauth2.Config, store *FlowStore, pkce bool) *AuthCod
 
 // StartFlow generates a state token, constructs the authorization URL, and
 // stores a pending FlowStatus. The user must navigate to VerificationURI.
-func (b *AuthCodeBroker) StartFlow(ctx context.Context, provider Provider, userID string) (FlowStatus, error) {
+func (b *AuthCodeBroker) StartFlow(ctx context.Context, provider Provider, userID string, desiredScopes []string) (FlowStatus, error) {
 	flowID := uuid.Must(uuid.NewV7()).String()
 	var verifier string
 	var authURLOpts []oauth2.AuthCodeOption
@@ -152,9 +166,12 @@ func (b *AuthCodeBroker) StartFlow(ctx context.Context, provider Provider, userI
 		ExpiresAt:       time.Now().Add(10 * time.Minute),
 		State:           FlowStatePending,
 		FlowType:        "authorization_code",
+		DesiredScopes:   append([]string(nil), desiredScopes...),
 		PKCEVerifier:    verifier,
 	}
-	b.store.Create(status)
+	if !b.store.CreateExclusive(status) {
+		return FlowStatus{}, fmt.Errorf("oauth: a flow is already pending for provider %s", provider)
+	}
 	return status, nil
 }
 
@@ -163,6 +180,10 @@ func (b *AuthCodeBroker) Poll(ctx context.Context, flowID string) (FlowStatus, e
 	status, ok := b.store.Get(flowID)
 	if !ok {
 		return FlowStatus{}, fmt.Errorf("oauth: unknown flow %q", flowID)
+	}
+	if status.State == FlowStateCompleting {
+		status.State = FlowStatePending
+		return status, nil
 	}
 	if status.State != FlowStatePending {
 		return status, nil
@@ -177,9 +198,9 @@ func (b *AuthCodeBroker) Poll(ctx context.Context, flowID string) (FlowStatus, e
 // Complete exchanges an authorization code for tokens and returns the token.
 // The code comes from the OAuth callback handler's query parameter.
 func (b *AuthCodeBroker) Complete(ctx context.Context, flowID string, code string) (*oauth2.Token, error) {
-	flow, ok := b.store.Get(flowID)
+	flow, ok := b.store.Claim(flowID)
 	if !ok {
-		return nil, fmt.Errorf("oauth: unknown flow %q", flowID)
+		return nil, fmt.Errorf("oauth: flow %q is expired, already completing, or already completed", flowID)
 	}
 
 	var opts []oauth2.AuthCodeOption
@@ -188,9 +209,9 @@ func (b *AuthCodeBroker) Complete(ctx context.Context, flowID string, code strin
 	}
 	tok, err := b.cfg.Exchange(ctx, code, opts...)
 	if err != nil {
+		b.store.Update(flowID, FlowStateFailed, func(fs *FlowStatus) { fs.Error = err.Error() })
 		return nil, fmt.Errorf("oauth: exchange code: %w", err)
 	}
 
-	b.store.Update(flowID, FlowStateAuthorized, nil)
 	return tok, nil
 }

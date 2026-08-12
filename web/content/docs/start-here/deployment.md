@@ -49,6 +49,8 @@ cd stella && go build -o dist/bin/stellad ./cmd/stellad/
 
 ## Run
 
+Stella bundles the Xberg document runtime on Linux and macOS, so PDF and DOCX Knowledge uploads need no separate system package or startup download. Windows deployments currently support Markdown and plain-text Knowledge uploads; PDF and DOCX runtime support is not guaranteed there.
+
 Start the server — the Web UI is available at `http://localhost:25678`:
 
 ```bash
@@ -207,7 +209,7 @@ docker run -d \
   stellad server
 ```
 
-The container runs as `nonroot` user. Mount `~/.stella` to persist skills and cache; PostgreSQL data lives in the external database. You can set `STELLA_HOME` to change the data directory inside the container. The `--security-opt seccomp=unconfined` flag is required for the local sandbox backend (bwrap) to call `unshare(2)` inside the container.
+The container runs as `nonroot` user. Mount `$STELLA_HOME` (usually `~/.stella`) to preserve Agent working trees and project Skills, unmirrored assets, and caches; database-backed mutable Skills remain in external PostgreSQL. Release-provided builtins come from the image's immutable bundle, not the host. You can set `STELLA_HOME` to change the data directory inside the container. The `--security-opt seccomp=unconfined` flag is required for the local sandbox backend (bwrap) to call `unshare(2)` inside the container.
 
 ### Docker Compose
 
@@ -291,7 +293,7 @@ Stella exposes two unauthenticated infrastructure endpoints for orchestrators:
 
 On the first `SIGTERM`/`SIGINT` the daemon runs a **two-phase graceful drain** rather than stopping immediately:
 
-1. `/readyz` flips to `503` and idle watch streams (SSE subscriptions) end, so load balancers stop routing new traffic. Streams carrying an in-flight turn keep running so the turn can finish.
+1. `/readyz` flips to `503` and SSE observers detach, so load balancers stop routing new traffic. In-flight turns continue as server-owned accepted work and persist before shutdown completes.
 2. In-flight HTTP requests drain within `STELLA_HTTP_SHUTDOWN_TIMEOUT`; anything still open when the budget is spent is force-closed.
 3. Background jobs (goal and scheduler agent runs) keep executing and drain within `STELLA_RIVER_SOFT_STOP_TIMEOUT`; jobs still running when that budget is spent are cancelled.
 
@@ -343,15 +345,16 @@ Running Stella inside a Docker container (described above) is separate from usin
 
 All data lives under the stella home directory (`~/.stella` by default, configurable via `STELLA_HOME`).
 
-| Path                                  | Purpose                                                                                       |
-| ------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `~/.stella/postgres/`                 | Embedded PostgreSQL data (config, memory, scheduler); absent when using `STELLA_DATABASE_URL` |
-| `~/.stella/pg-runtime/`               | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download`             |
-| `~/.stella/agents/{agent-id}/skills/` | Per-agent installed skills                                                                    |
-| `~/.stella/agents/{agent-id}/SOUL.md` | Optional per-agent soul/identity override                                                     |
-| `~/.stella/cache/`                    | Model cache (regenerable, safe to delete)                                                     |
+| Path                                          | Purpose                                                                                       |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `~/.stella/postgres/`                         | Embedded PostgreSQL data (config, memory, scheduler); absent when using `STELLA_DATABASE_URL` |
+| `~/.stella/pg-runtime/`                       | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download`             |
+| `~/.stella/bundles/{revision}/`               | Exact release-provided builtin Skill bundle; derived from the matching binary                 |
+| `~/.stella/agents/{agent-id}/.agents/skills/` | Derived `system_agent` Skill execution cache                                                  |
+| `~/.stella/agents/{agent-id}/SOUL.md`         | Optional per-agent soul/identity override                                                     |
+| `~/.stella/cache/sandbox-tmp/`                | Docker sandbox temporary directories; scratch, stale directories removed at startup           |
 
-The PostgreSQL data is the only critical data to back up. It contains all configuration, message history, summaries, and scheduler jobs. With the embedded cluster, back up the `~/.stella/postgres/` directory (with the server stopped); `~/.stella/pg-runtime/` is downloaded code and can be recreated. With an external server, use `pg_dump` against your `STELLA_DATABASE_URL` database.
+Preserve PostgreSQL, durable Agent/project working trees including project Skills, and unmirrored asset trees. PostgreSQL contains configuration, message history, summaries, scheduler jobs, and mutable `system`, `system_agent`, `user`, and `user_agent` Skills. With the embedded cluster, back up `~/.stella/postgres/` with the server stopped; `~/.stella/pg-runtime/`, `~/.stella/bundles/{revision}/`, and Skill execution caches are derived and can be recreated. With an external server, use `pg_dump` against your `STELLA_DATABASE_URL` database.
 
 For a full breakdown of which directories are durable data, derived cache, or scratch — and the volume and backup treatment each needs on Kubernetes or ephemeral disks — see [Storage & Durability](/docs/start-here/storage).
 

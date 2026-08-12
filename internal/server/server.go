@@ -26,6 +26,7 @@ import (
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/inbox"
+	"github.com/CherryHQ/stella/internal/library"
 	"github.com/CherryHQ/stella/internal/mcp"
 	memprofile "github.com/CherryHQ/stella/internal/memory/profile"
 	"github.com/CherryHQ/stella/internal/oidc"
@@ -59,26 +60,28 @@ type Server struct {
 	// pinger is the narrow database-liveness port backing the /healthz, /readyz,
 	// and admin status probes. It is the injected pool viewed as DBPinger, so the
 	// probes can never reach an application query.
-	pinger          DBPinger
-	mux             *http.ServeMux
-	log             *slog.Logger
-	vaultRecipient  *age.X25519Recipient  // optional; if set, age keys are generated for new users
-	vaultSvc        *vault.Service        // optional; if nil, vault endpoints return 503
-	mcpSvc          *mcp.Service          // optional; if nil, MCP endpoints return 503
-	credResolver    *credential.Service   // unified bearer credential front door
-	oauthAS         *oidc.Service         // OAuth2 authorization server
-	controlPlane    *controlplane.Service // control-plane PEP (providers/settings/plugins/channels)
-	credSvc         *connections.Service  // shared credentials service
-	emailSvc        *email.Service        // shared email service
-	shareSvc        *sharepkg.Service     // shared share service
-	recallySvc      *recally.Service      // shared recally service
-	recally         *recallyHandlers      // recally HTTP API (articles, feeds, digest)
-	schedulerSvc    *scheduler.Service    // optional; if set, create/delete go through the live scheduler
-	goalSvc         *goal.Service         // optional; if nil, goal endpoints return 503
-	workflowSvc     *workflowpkg.Service  // optional; if nil, workflow endpoints return 503
-	provisioningSvc *provisioning.Service // provisioned-user lifecycle boundary
-	builtinTools    []agent.BuiltinTool
-	startedAt       time.Time
+	pinger           DBPinger
+	mux              *http.ServeMux
+	log              *slog.Logger
+	vaultRecipient   *age.X25519Recipient  // optional; if set, age keys are generated for new users
+	vaultSvc         *vault.Service        // optional; if nil, vault endpoints return 503
+	mcpSvc           *mcp.Service          // optional; if nil, MCP endpoints return 503
+	credResolver     *credential.Service   // unified bearer credential front door
+	oauthAS          *oidc.Service         // OAuth2 authorization server
+	controlPlane     *controlplane.Service // control-plane PEP (providers/settings/plugins/channels)
+	credSvc          *connections.Service  // shared credentials service
+	emailSvc         *email.Service        // shared email service
+	shareSvc         *sharepkg.Service     // shared share service
+	recallySvc       *recally.Service      // shared recally service
+	recally          *recallyHandlers      // recally HTTP API (articles, feeds, digest)
+	schedulerSvc     *scheduler.Service    // optional; if set, create/delete go through the live scheduler
+	goalSvc          *goal.Service         // optional; if nil, goal endpoints return 503
+	workflowSvc      *workflowpkg.Service  // optional; if nil, workflow endpoints return 503
+	provisioningSvc  *provisioning.Service // provisioned-user lifecycle boundary
+	librarySvc       *library.Service      // optional; if nil, Library file endpoints return 503
+	agentSkillPolicy AgentSkillPolicyStore
+	builtinTools     []agent.BuiltinTool
+	startedAt        time.Time
 	// OIDC auth (optional; if nil, OIDC login is disabled)
 	authProviders []auth.AuthProvider
 	authSvc       *auth.AuthService
@@ -153,7 +156,8 @@ type Deps struct {
 	AgentManagement *agentaccess.Management
 	// ToolOverrides persists per-agent tool-visibility overrides. The transport
 	// holds this narrow domain store instead of the aggregate query handle.
-	ToolOverrides *agent.ToolOverrideStore
+	ToolOverrides    *agent.ToolOverrideStore
+	AgentSkillPolicy AgentSkillPolicyStore
 	// SkillAccess is the DB-backed Skill enforcement point. When nil the
 	// skill endpoints report 503 through the centralized unavailable mapping.
 	SkillAccess *skillaccess.Service
@@ -209,6 +213,7 @@ type Deps struct {
 	Goal           *goal.Service
 	Workflow       *workflowpkg.Service
 	Provisioning   *provisioning.Service
+	Library        *library.Service
 }
 
 // OIDCDeps groups the login-authentication components produced by oidc.Setup.
@@ -246,6 +251,7 @@ func (d Deps) validate() error {
 	req(d.AgentAccess != nil, "AgentAccess")
 	req(d.AgentManagement != nil, "AgentManagement")
 	req(d.ToolOverrides != nil, "ToolOverrides")
+	req(d.AgentSkillPolicy != nil, "AgentSkillPolicy")
 	req(d.SessionAccess != nil, "SessionAccess")
 	req(d.LinkCodes != nil, "LinkCodes")
 	req(d.PoolManager != nil, "PoolManager")
@@ -281,50 +287,52 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 
 	log := slog.With("component", "admin")
 	s := &Server{
-		account:         deps.Account,
-		profileSvc:      deps.Profile,
-		projectStore:    deps.ProjectStore,
-		inboxSvc:        deps.Inbox,
-		agentAccess:     deps.AgentAccess,
-		agentManagement: deps.AgentManagement,
-		toolOverrides:   deps.ToolOverrides,
-		sessionAccess:   deps.SessionAccess,
-		skillAccess:     deps.SkillAccess,
-		rateLimiter:     auth.NewRateLimiter(),
-		webhookLimiter:  newWebhookLimiter(5, 20),
-		linkCodes:       deps.LinkCodes,
-		poolManager:     deps.PoolManager,
-		pinger:          deps.Pinger,
-		pluginHost:      deps.PluginHost,
-		weixinRegistrar: deps.WeixinRegistrar,
-		mux:             http.NewServeMux(),
-		log:             log,
-		baseURL:         deps.BaseURL,
-		builtinTools:    append([]agent.BuiltinTool(nil), deps.BuiltinTools...),
-		vaultRecipient:  deps.VaultRecipient,
-		vaultSvc:        deps.Vault,
-		mcpSvc:          deps.MCP,
-		credResolver:    deps.CredentialFrontDoor,
-		oauthAS:         deps.OAuthAuthServer,
-		controlPlane:    deps.ControlPlane,
-		credSvc:         deps.Credentials,
-		emailSvc:        deps.Email,
-		shareSvc:        deps.Share,
-		recallySvc:      deps.Recally,
-		recally:         newRecallyHandlersWithService(deps.Recally, log),
-		schedulerSvc:    deps.Scheduler,
-		goalSvc:         deps.Goal,
-		workflowSvc:     deps.Workflow,
-		provisioningSvc: deps.Provisioning,
-		groupSvc:        deps.Group,
-		assets:          deps.Assets,
-		authProviders:   deps.OIDC.Providers,
-		authSvc:         deps.OIDC.AuthSvc,
-		sessionMgr:      deps.OIDC.SessionMgr,
-		stateMgr:        deps.OIDC.StateMgr,
-		localAuth:       deps.OIDC.LocalAuth,
-		startedAt:       time.Now(),
-		runtimeCtx:      ctx,
+		account:          deps.Account,
+		profileSvc:       deps.Profile,
+		projectStore:     deps.ProjectStore,
+		inboxSvc:         deps.Inbox,
+		agentAccess:      deps.AgentAccess,
+		agentManagement:  deps.AgentManagement,
+		toolOverrides:    deps.ToolOverrides,
+		sessionAccess:    deps.SessionAccess,
+		skillAccess:      deps.SkillAccess,
+		rateLimiter:      auth.NewRateLimiter(),
+		webhookLimiter:   newWebhookLimiter(5, 20),
+		linkCodes:        deps.LinkCodes,
+		poolManager:      deps.PoolManager,
+		pinger:           deps.Pinger,
+		pluginHost:       deps.PluginHost,
+		weixinRegistrar:  deps.WeixinRegistrar,
+		mux:              http.NewServeMux(),
+		log:              log,
+		baseURL:          deps.BaseURL,
+		builtinTools:     append([]agent.BuiltinTool(nil), deps.BuiltinTools...),
+		vaultRecipient:   deps.VaultRecipient,
+		vaultSvc:         deps.Vault,
+		mcpSvc:           deps.MCP,
+		credResolver:     deps.CredentialFrontDoor,
+		oauthAS:          deps.OAuthAuthServer,
+		controlPlane:     deps.ControlPlane,
+		credSvc:          deps.Credentials,
+		emailSvc:         deps.Email,
+		shareSvc:         deps.Share,
+		recallySvc:       deps.Recally,
+		recally:          newRecallyHandlersWithService(deps.Recally, log),
+		schedulerSvc:     deps.Scheduler,
+		goalSvc:          deps.Goal,
+		workflowSvc:      deps.Workflow,
+		provisioningSvc:  deps.Provisioning,
+		librarySvc:       deps.Library,
+		agentSkillPolicy: deps.AgentSkillPolicy,
+		groupSvc:         deps.Group,
+		assets:           deps.Assets,
+		authProviders:    deps.OIDC.Providers,
+		authSvc:          deps.OIDC.AuthSvc,
+		sessionMgr:       deps.OIDC.SessionMgr,
+		stateMgr:         deps.OIDC.StateMgr,
+		localAuth:        deps.OIDC.LocalAuth,
+		startedAt:        time.Now(),
+		runtimeCtx:       ctx,
 	}
 	// Assign the ingress port only when configured, so a nil *webhook.Service
 	// never becomes a non-nil interface whose methods would panic. Handlers treat

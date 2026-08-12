@@ -32,8 +32,6 @@ Session control
              When enabled, short phrases like: "help", "what can you do", "帮助"
 
 Other commands
-  /model     Switch between models
-  /agent     List or switch agents
   /whoami    Show your user ID
 
 If a short phrase is unclear, Stella treats it as a normal chat message.
@@ -126,7 +124,7 @@ func FormatDuration(d time.Duration) string {
 }
 
 // ParseCommandArgs extracts arguments after the command token.
-// Example: ParseCommandArgs("/agent foo", "/agent") returns "foo".
+// Example: ParseCommandArgs("/command foo", "/command") returns "foo".
 func ParseCommandArgs(text, cmd string) string {
 	return strings.TrimSpace(strings.TrimPrefix(text, cmd))
 }

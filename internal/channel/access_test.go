@@ -199,3 +199,28 @@ func TestResolveAgentDedicatedChannelBypassesAgentAssignment(t *testing.T) {
 		t.Errorf("agentID = %q, want %q", agentID, "dedicated")
 	}
 }
+
+func TestResolveAgentExplicitUnboundChannelUsesLinkedUserFallback(t *testing.T) {
+	ts := setupStoresWithEngine(t)
+	ctx := ts.ctx()
+	if err := ts.store.UpsertChannel(ctx, config.Channel{
+		ID:      "telegram-unbound",
+		Type:    "telegram",
+		Enabled: true,
+		Config:  `{"token":"tg-token"}`,
+	}); err != nil {
+		t.Fatalf("UpsertChannel: %v", err)
+	}
+
+	authUser := createTestUser(t, ts.oidcStore, "unbound@example.com")
+	want := ts.stellaAgentID(t)
+	agentID, err := ResolveAgent(ctx, ts.store, ts.access, ResolvedIdentity{User: authUser}, ChatContext{
+		Platform: "telegram", ChannelID: "telegram-unbound", ChatID: "123",
+	})
+	if err != nil {
+		t.Fatalf("ResolveAgent: %v", err)
+	}
+	if agentID != want {
+		t.Fatalf("agentID = %q, want fallback %q", agentID, want)
+	}
+}

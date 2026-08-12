@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"io/fs"
 	"strings"
 	"testing"
@@ -11,6 +12,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+
+	"github.com/CherryHQ/stella/internal/manifestplugins"
 )
 
 func TestOpenDBFreshInstallDoesNotCreateFeishuTokensTable(t *testing.T) {
@@ -23,7 +26,205 @@ func TestOpenDBFreshInstallDoesNotCreateFeishuTokensTable(t *testing.T) {
 	}
 }
 
-func TestKnowledgeFilesMigrationUpgradesDatabaseAtMainLatest(t *testing.T) {
+func TestLarkCLIOverrideRepairMigration(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	sub, err := fs.Sub(MigrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("open migrations fs: %v", err)
+	}
+	sqlDB := stdlib.OpenDBFromPool(db)
+	defer func() { _ = sqlDB.Close() }()
+	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, sub)
+	if err != nil {
+		t.Fatalf("create migration provider: %v", err)
+	}
+	if _, err := provider.DownTo(ctx, sequentialAnchor+10); err != nil {
+		t.Fatalf("goose down lark-cli override repair: %v", err)
+	}
+
+	legacy := `{"name":"custom-lark","prompt":"custom prompt","custom":"keep"}`
+	if _, err := db.Exec(ctx, `INSERT INTO plugin_override (plugin_id, enabled, config) VALUES ('tool/lark-cli', true, $1)`, legacy); err != nil {
+		t.Fatalf("seed legacy lark-cli override: %v", err)
+	}
+	if _, err := provider.UpTo(ctx, sequentialAnchor+11); err != nil {
+		t.Fatalf("goose up lark-cli override repair: %v", err)
+	}
+
+	var repaired string
+	if err := db.QueryRow(ctx, `SELECT config FROM plugin_override WHERE plugin_id = 'tool/lark-cli'`).Scan(&repaired); err != nil {
+		t.Fatalf("read repaired lark-cli override: %v", err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal([]byte(repaired), &fields); err != nil {
+		t.Fatalf("decode repaired lark-cli override: %v", err)
+	}
+	if fields["$sparse"] != true || fields["name"] != "custom-lark" || fields["prompt"] != "custom prompt" || fields["custom"] != "keep" {
+		t.Fatalf("repaired override = %s, want sparse marker and preserved custom fields", repaired)
+	}
+	for _, field := range []string{"display_name", "description", "category", "binaries", "skills"} {
+		if value, ok := fields[field]; !ok || value != nil {
+			t.Fatalf("repaired override field %q = %#v, want explicit null to preserve the legacy snapshot", field, value)
+		}
+	}
+	for _, released := range []string{"oauth_provider", "session_env"} {
+		if _, ok := fields[released]; ok {
+			t.Fatalf("repaired override still owns %q: %s", released, repaired)
+		}
+	}
+
+	builtin, err := manifestplugins.LoadBuiltin()
+	if err != nil {
+		t.Fatalf("load builtin manifest: %v", err)
+	}
+	resolved := manifestplugins.Resolve(builtin, []manifestplugins.StoredOverride{{
+		PluginID: "tool/lark-cli",
+		Config:   repaired,
+	}}, nil)
+	var larkPlugin *manifestplugins.ManifestPlugin
+	for i := range resolved.Plugins {
+		if resolved.Plugins[i].ID == "tool/lark-cli" {
+			larkPlugin = &resolved.Plugins[i]
+			break
+		}
+	}
+	if larkPlugin == nil {
+		t.Fatal("repaired manifest has no tool/lark-cli plugin")
+	}
+	if larkPlugin.OAuthProvider != "feishu" {
+		t.Fatalf("repaired Lark OAuth provider = %q, want feishu", larkPlugin.OAuthProvider)
+	}
+	gotSessionEnvs := make(map[string]string, len(larkPlugin.SessionEnvs))
+	for _, spec := range larkPlugin.SessionEnvs {
+		gotSessionEnvs[spec.EnvVar] = spec.Source
+	}
+	wantSessionEnvs := map[string]string{
+		"LARKSUITE_CLI_USER_ACCESS_TOKEN": "oauth.access_token",
+		"LARKSUITE_CLI_APP_ID":            "oauth.client_id",
+		"LARKSUITE_CLI_BRAND":             "oauth.brand",
+	}
+	for envVar, source := range wantSessionEnvs {
+		if gotSessionEnvs[envVar] != source {
+			t.Fatalf("repaired Lark session env %s = %q, want %q", envVar, gotSessionEnvs[envVar], source)
+		}
+	}
+	if _, exposed := gotSessionEnvs["LARKSUITE_CLI_APP_SECRET"]; exposed {
+		t.Fatal("repaired Lark session envs expose the OAuth app secret")
+	}
+
+	if _, err := provider.DownTo(ctx, sequentialAnchor+10); err != nil {
+		t.Fatalf("goose down lark-cli override repair for inherited prompt case: %v", err)
+	}
+	withoutPrompt := `{"name":"lark-cli"}`
+	if _, err := db.Exec(ctx, `UPDATE plugin_override SET config = $1 WHERE plugin_id = 'tool/lark-cli'`, withoutPrompt); err != nil {
+		t.Fatalf("seed lark-cli override without prompt: %v", err)
+	}
+	if _, err := provider.UpTo(ctx, sequentialAnchor+11); err != nil {
+		t.Fatalf("goose up lark-cli override repair for inherited prompt case: %v", err)
+	}
+	var promptReleased bool
+	if err := db.QueryRow(ctx, `SELECT NOT (config::jsonb ? 'prompt') FROM plugin_override WHERE plugin_id = 'tool/lark-cli'`).Scan(&promptReleased); err != nil {
+		t.Fatalf("read repaired lark-cli prompt ownership: %v", err)
+	}
+	if !promptReleased {
+		t.Fatal("migration prevented the lark-cli override from inheriting the managed OAuth prompt")
+	}
+
+	if _, err := provider.DownTo(ctx, sequentialAnchor+10); err != nil {
+		t.Fatalf("goose down lark-cli override repair for sparse case: %v", err)
+	}
+	sparse := `{"$sparse":true,"oauth_provider":"lark","session_env":[],"prompt":"intentional"}`
+	if _, err := db.Exec(ctx, `UPDATE plugin_override SET config = $1 WHERE plugin_id = 'tool/lark-cli'`, sparse); err != nil {
+		t.Fatalf("seed sparse lark-cli override: %v", err)
+	}
+	if _, err := provider.UpTo(ctx, sequentialAnchor+11); err != nil {
+		t.Fatalf("goose up lark-cli override repair for sparse case: %v", err)
+	}
+	var sparsePreserved bool
+	if err := db.QueryRow(ctx, `SELECT config::jsonb = $1::jsonb FROM plugin_override WHERE plugin_id = 'tool/lark-cli'`, sparse).Scan(&sparsePreserved); err != nil {
+		t.Fatalf("read sparse lark-cli override: %v", err)
+	}
+	if !sparsePreserved {
+		t.Fatal("migration changed an intentional sparse lark-cli override")
+	}
+}
+
+func TestChannelGroupAllowlistMigrationPreservesKnownGroups(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	sub, err := fs.Sub(MigrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("open migrations fs: %v", err)
+	}
+	sqlDB := stdlib.OpenDBFromPool(db)
+	defer func() { _ = sqlDB.Close() }()
+	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, sub)
+	if err != nil {
+		t.Fatalf("create migration provider: %v", err)
+	}
+	if _, err := provider.DownTo(ctx, sequentialAnchor+5); err != nil {
+		t.Fatalf("goose down allowlist migration: %v", err)
+	}
+
+	if _, err := db.Exec(ctx, `INSERT INTO agent (id, name, workspace) VALUES ('allowlist-agent', 'Allowlist Agent', '/tmp')`); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO channel (id, name, type, config) VALUES
+			('telegram-known', 'Telegram known', 'telegram', '{}'),
+			('telegram-explicit', 'Telegram explicit', 'telegram', '{"allowed_chat_ids":""}'),
+			('telegram-malformed', 'Telegram malformed', 'telegram', '{'),
+			('feishu-known', 'Feishu known', 'feishu', '{"groups":{"oc_legacy":{}}}')`); err != nil {
+		t.Fatalf("seed channels: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO ctx_group_state (id, platform, platform_group_id) VALUES
+			('00000000-0000-0000-0000-000000000101', 'telegram', '-100'),
+			('00000000-0000-0000-0000-000000000102', 'telegram', '-200'),
+			('00000000-0000-0000-0000-000000000103', 'feishu', 'oc_member'),
+			('00000000-0000-0000-0000-000000000104', 'telegram', '-300')`); err != nil {
+		t.Fatalf("seed group states: %v", err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO channel_group_member (group_id, agent_id, reply_channel_id) VALUES
+			('00000000-0000-0000-0000-000000000101', 'allowlist-agent', 'telegram-known'),
+			('00000000-0000-0000-0000-000000000102', 'allowlist-agent', 'telegram-explicit'),
+			('00000000-0000-0000-0000-000000000103', 'allowlist-agent', 'feishu-known'),
+			('00000000-0000-0000-0000-000000000104', 'allowlist-agent', 'telegram-malformed')`); err != nil {
+		t.Fatalf("seed group membership: %v", err)
+	}
+
+	if _, err := provider.UpTo(ctx, sequentialAnchor+6); err != nil {
+		t.Fatalf("goose up allowlist migration: %v", err)
+	}
+	for _, tc := range []struct {
+		channelID string
+		want      string
+	}{
+		{channelID: "telegram-known", want: "-100"},
+		{channelID: "telegram-explicit", want: ""},
+		{channelID: "feishu-known", want: "oc_legacy,oc_member"},
+	} {
+		var got string
+		if err := db.QueryRow(ctx, `SELECT config::jsonb->>'allowed_chat_ids' FROM channel WHERE id = $1`, tc.channelID).Scan(&got); err != nil {
+			t.Fatalf("read %s allowlist: %v", tc.channelID, err)
+		}
+		if got != tc.want {
+			t.Fatalf("%s allowlist = %q, want %q", tc.channelID, got, tc.want)
+		}
+	}
+	var malformed string
+	if err := db.QueryRow(ctx, `SELECT config FROM channel WHERE id = 'telegram-malformed'`).Scan(&malformed); err != nil {
+		t.Fatalf("read malformed config: %v", err)
+	}
+	if malformed != "{" {
+		t.Fatalf("malformed config = %q, want original value", malformed)
+	}
+}
+
+func TestLibraryMigrationReplacesUnreleasedKnowledgeSchema(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 
@@ -38,24 +239,76 @@ func TestKnowledgeFilesMigrationUpgradesDatabaseAtMainLatest(t *testing.T) {
 		t.Fatalf("create migration provider: %v", err)
 	}
 
-	// newTestDB starts fully migrated. Rolling back only the unpublished
-	// Knowledge migration leaves the exact schema an existing current-main
-	// deployment has before this PR is installed.
+	// The old Knowledge schema existed only in unreleased development commits.
+	// The forward migration deliberately replaces it instead of
+	// preserving rows under obsolete names.
 	if _, err := provider.DownTo(ctx, 20260804120000); err != nil {
-		t.Fatalf("goose down knowledge migration: %v", err)
+		t.Fatalf("goose down post-anchor migrations: %v", err)
 	}
 	if tableExists(t, db, "knowledge_file") ||
 		tableExists(t, db, "knowledge_chunk_set") ||
-		tableExists(t, db, "knowledge_chunk") {
-		t.Fatal("knowledge tables should not exist after down")
+		tableExists(t, db, "knowledge_chunk") ||
+		tableExists(t, db, "library_file") ||
+		tableExists(t, db, "library_chunk_set") ||
+		tableExists(t, db, "library_chunk") {
+		t.Fatal("Library tables should not exist before the post-anchor migrations")
 	}
-	if _, err := provider.Up(ctx); err != nil {
-		t.Fatalf("goose up knowledge migration: %v", err)
+	if _, err := provider.UpTo(ctx, sequentialAnchor+1); err != nil {
+		t.Fatalf("goose up unreleased Knowledge schema: %v", err)
 	}
 	if !tableExists(t, db, "knowledge_file") ||
 		!tableExists(t, db, "knowledge_chunk_set") ||
 		!tableExists(t, db, "knowledge_chunk") {
-		t.Fatal("knowledge tables should exist after up")
+		t.Fatal("unreleased Knowledge tables should exist before replacement")
+	}
+
+	fileID := uuid.NewString()
+	if _, err := db.Exec(ctx, `
+		INSERT INTO knowledge_file (id, scope, file_name, media_type, size_bytes, raw_sha256)
+		VALUES ($1, 'system', 'unreleased.txt', 'text/plain', 1, $2)
+	`, fileID, make([]byte, 32)); err != nil {
+		t.Fatalf("seed unreleased Knowledge row: %v", err)
+	}
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatalf("goose up Library replacement migration: %v", err)
+	}
+	if tableExists(t, db, "knowledge_file") ||
+		tableExists(t, db, "knowledge_chunk_set") ||
+		tableExists(t, db, "knowledge_chunk") {
+		t.Fatal("legacy Knowledge tables should not remain after replacement")
+	}
+	if !tableExists(t, db, "library_file") ||
+		!tableExists(t, db, "library_chunk_set") ||
+		!tableExists(t, db, "library_chunk") {
+		t.Fatal("Library tables should exist after replacement")
+	}
+	var rows int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM library_file WHERE id = $1`, fileID).Scan(&rows); err != nil {
+		t.Fatalf("read replacement Library row: %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("replacement Library rows = %d, want 0", rows)
+	}
+
+	var legacySchemaNames string
+	if err := db.QueryRow(ctx, `
+		SELECT coalesce(string_agg(name, ', ' ORDER BY name), '') FROM (
+			SELECT conname AS name
+			FROM pg_constraint
+			WHERE connamespace = current_schema()::regnamespace
+			  AND conname ~ '^knowledge_(file|chunk)'
+			UNION ALL
+			SELECT relname AS name
+			FROM pg_class
+			WHERE relnamespace = current_schema()::regnamespace
+			  AND relkind = 'i'
+			  AND relname ~ '^(knowledge_(file|chunk)|idx_knowledge_(file|chunk))'
+		) AS legacy_names
+	`).Scan(&legacySchemaNames); err != nil {
+		t.Fatalf("inspect replacement Library schema objects: %v", err)
+	}
+	if legacySchemaNames != "" {
+		t.Fatalf("legacy Knowledge schema object names remain: %s", legacySchemaNames)
 	}
 }
 

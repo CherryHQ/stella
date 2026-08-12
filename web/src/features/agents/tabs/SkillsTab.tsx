@@ -7,8 +7,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Spinner } from "@/components/ui/spinner";
+import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { SkillFilePreview } from "@/features/sessions/SkillFilePreview";
 import { SCOPE_LABEL_KEY, type SkillScope } from "@/lib/skill-scope";
+import { activationControlState, danglingClearControlState } from "./skills-tab-state";
 
 interface Props {
   state: AgentsPageState;
@@ -19,6 +21,8 @@ interface Props {
   onSelectSkillFile: (path: string, skipDirtyCheck?: boolean) => void;
   onDeleteSkillFile: () => void;
   onOpenSkillInstallModal: (scope?: "user_agent" | "system_agent") => void;
+  onToggleActivation: (skill: Skill, enabled: boolean) => void;
+  onClearDanglingActivation: (ref: string) => void;
 }
 
 function skillKey(sk: { scope: string; id: string }) {
@@ -47,6 +51,8 @@ export function SkillsTab({
   onSelectSkillFile,
   onDeleteSkillFile,
   onOpenSkillInstallModal,
+  onToggleActivation,
+  onClearDanglingActivation,
 }: Props) {
   const {
     agentSkills,
@@ -70,6 +76,9 @@ export function SkillsTab({
     selectedSkillNewFileName,
     editingId,
     isAdmin,
+    agentSkillCanManageActivation,
+    agentSkillActivationPending,
+    agentSkillPolicyDiagnostics,
   } = state;
 
   const { t } = useI18n();
@@ -81,9 +90,17 @@ export function SkillsTab({
     scope === "user" || scope === "user_agent" || (scope === "system_agent" && isAdmin);
   const canEdit = !!selectedSkill && canManageScope(selectedSkill.scope);
   const canDelete = canEdit;
+  const scopeLabel = (skill: Skill) =>
+    skill.builtin ? t("agents.skills.scopeBuiltin") : t(SCOPE_LABEL_KEY[skill.scope as SkillScope]);
 
   const allSkills = (): Skill[] => {
-    const ordered: Record<string, number> = { system: 0, system_agent: 1, user_agent: 2, user: 3 };
+    const ordered: Record<string, number> = {
+      builtin: 0,
+      system: 1,
+      system_agent: 2,
+      user_agent: 3,
+      user: 4,
+    };
     return [...agentSkills].sort((a, b) => {
       const diff = (ordered[a.scope] ?? 99) - (ordered[b.scope] ?? 99);
       if (diff !== 0) return diff;
@@ -94,8 +111,8 @@ export function SkillsTab({
   const filteredSkills = (): Skill[] => {
     const q = skillListQuery.trim().toLowerCase();
     return allSkills().filter((sk) => {
-      if (skillViewFilter === "enabled" && sk.disable_model_invocation) return false;
-      if (skillViewFilter === "modified" && sk.scope === "system") return false;
+      if (skillViewFilter === "enabled" && sk.enabled === false) return false;
+      if (skillViewFilter === "modified" && (sk.scope === "system" || sk.builtin)) return false;
       if (skillScopeFilter !== "all") {
         const matches =
           skillScopeFilter === "agent"
@@ -133,6 +150,7 @@ export function SkillsTab({
   ];
   const scopeFilters = [
     { id: "all", label: t("agents.skills.scopeAll") },
+    { id: "builtin", label: t("agents.skills.scopeBuiltin") },
     { id: "system", label: t("agents.skills.scopeSystem") },
     { id: "user", label: t("agents.skills.scopeUser") },
     { id: "agent", label: t("agents.skills.scopeAgent") },
@@ -190,6 +208,36 @@ export function SkillsTab({
           {!editingId && (
             <div className="text-xs text-muted-foreground">{t("agents.skills.saveFirst")}</div>
           )}
+          {agentSkillPolicyDiagnostics.legacy_non_empty_array && (
+            <Alert variant="warning">
+              <AlertTitle>{t("agents.skills.legacyPolicyTitle")}</AlertTitle>
+              <AlertDescription>{t("agents.skills.legacyPolicyDescription")}</AlertDescription>
+            </Alert>
+          )}
+          {agentSkillPolicyDiagnostics.dangling_disabled_refs.map((ref) => (
+            <Alert key={ref} variant="warning">
+              <AlertTitle>{t("agents.skills.danglingPolicyTitle", { ref })}</AlertTitle>
+              <AlertDescription>{t("agents.skills.danglingPolicyDescription")}</AlertDescription>
+              {danglingClearControlState(agentSkillCanManageActivation, agentSkillActivationPending)
+                .visible && (
+                <AlertAction>
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    disabled={
+                      danglingClearControlState(
+                        agentSkillCanManageActivation,
+                        agentSkillActivationPending,
+                      ).disabled
+                    }
+                    onClick={() => onClearDanglingActivation(ref)}
+                  >
+                    {t("agents.skills.clearDangling")}
+                  </Button>
+                </AlertAction>
+              )}
+            </Alert>
+          ))}
         </div>
         <div className="p-3 space-y-2 max-h-[70vh] overflow-y-auto min-w-0">
           {agentSkillsLoading && (
@@ -216,9 +264,7 @@ export function SkillsTab({
                   <div className="min-w-0 flex-1 overflow-hidden">
                     <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                       <p className="text-sm font-mono truncate min-w-0 font-medium">{sk.name}</p>
-                      <Badge variant={skillScopeBadgeVariant(sk.scope)}>
-                        {t(SCOPE_LABEL_KEY[sk.scope as SkillScope])}
-                      </Badge>
+                      <Badge variant={skillScopeBadgeVariant(sk.scope)}>{scopeLabel(sk)}</Badge>
                     </div>
                     {sk.description && (
                       <p className="text-xs text-muted-foreground truncate mt-1">
@@ -256,7 +302,7 @@ export function SkillsTab({
                     {selectedSkill.name}
                   </h3>
                   <Badge variant={skillScopeBadgeVariant(selectedSkill.scope)}>
-                    {t(SCOPE_LABEL_KEY[selectedSkill.scope as SkillScope])}
+                    {scopeLabel(selectedSkill)}
                   </Badge>
                 </div>
                 <p className="text-xs text-muted-foreground mt-2 break-words leading-relaxed">
@@ -271,6 +317,26 @@ export function SkillsTab({
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2 flex-wrap">
+                {activationControlState(
+                  selectedSkill.logical_ref,
+                  agentSkillCanManageActivation,
+                  agentSkillActivationPending,
+                ).visible && (
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Switch
+                      checked={selectedSkill.enabled !== false}
+                      disabled={
+                        activationControlState(
+                          selectedSkill.logical_ref,
+                          agentSkillCanManageActivation,
+                          agentSkillActivationPending,
+                        ).disabled
+                      }
+                      onCheckedChange={(enabled) => onToggleActivation(selectedSkill, enabled)}
+                    />
+                    {t("agents.skills.activation")}
+                  </label>
+                )}
                 {canEdit && !selectedSkillEditMode && (
                   <Button
                     onClick={() => onSetState({ selectedSkillEditMode: true })}
@@ -324,7 +390,7 @@ export function SkillsTab({
                   {t("agents.form.scope")}
                 </p>
                 <div className="text-xs font-mono font-medium text-foreground">
-                  {t(SCOPE_LABEL_KEY[selectedSkill.scope as SkillScope])}
+                  {scopeLabel(selectedSkill)}
                 </div>
                 {selectedSkillEditMode && (
                   <label className="flex items-center gap-2 cursor-pointer pt-1">

@@ -21,6 +21,13 @@ func TestDefaultLoadsBuiltinResources(t *testing.T) {
 	if stella.Hash == "" {
 		t.Error("skill hash is empty")
 	}
+	stellaDescriptor, ok := r.BuiltinSkill("stella")
+	if !ok || stellaDescriptor.Ref != "builtin:stella" || stellaDescriptor.APIID != "builtin-stella" || stellaDescriptor.Digest == "" || len(stellaDescriptor.Files) == 0 {
+		t.Fatalf("incomplete stella builtin descriptor: %#v", stellaDescriptor)
+	}
+	if _, _, err := r.ReadBuiltinSkillFile("stella", "SKILL.md"); err != nil {
+		t.Fatalf("ReadBuiltinSkillFile(stella/SKILL.md): %v", err)
+	}
 
 	if _, ok := r.Get(KindSoul, "stella"); !ok {
 		t.Error("expected builtin soul 'stella'")

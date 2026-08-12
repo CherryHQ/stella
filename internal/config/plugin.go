@@ -40,8 +40,8 @@ func PluginID(kind, name string) string { return kind + "/" + name }
 // Core tools (read, bash, edit, write) are always-on and no longer managed as plugins.
 var BuiltinToolNames = []string{"gh", "lark-cli", "mise", "tap-web", "webfetch"}
 
-// BuiltinChannelNames lists the 4 built-in channel plugins.
-var BuiltinChannelNames = []string{"telegram", "qq", "feishu", "weixin"}
+// BuiltinChannelNames lists the built-in channel plugins.
+var BuiltinChannelNames = []string{"telegram", "discord", "qq", "feishu", "weixin"}
 
 // BuiltinHookNames lists the built-in hook plugins.
 var BuiltinHookNames = []string{"rtk"}

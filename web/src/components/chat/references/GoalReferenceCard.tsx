@@ -74,7 +74,7 @@ export function GoalReferenceCard({ reference }: { reference: RenderableReferenc
         }
       />
       {r && r.total > 0 && (
-        <div className="pl-12 text-[11px] text-muted-foreground/70">
+        <div className="pl-12 text-[11px] text-muted-foreground">
           {t("goals.requiredOf", { accepted: r.accepted, total: r.total })}
         </div>
       )}

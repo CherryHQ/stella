@@ -3,6 +3,7 @@ package access
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
@@ -25,6 +27,21 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
+type nilAgentServiceManager struct{}
+
+func (nilAgentServiceManager) GetService(string) *agent.Service { return nil }
+func (nilAgentServiceManager) Default() *agent.Service          { return nil }
+
+func TestRuntimeManagerDoesNotLeakTypedNilServices(t *testing.T) {
+	manager := NewRuntimeManager(nilAgentServiceManager{})
+	if manager.GetService("missing") != nil {
+		t.Fatal("GetService returned a typed nil RuntimeService")
+	}
+	if manager.Default() != nil {
+		t.Fatal("Default returned a typed nil RuntimeService")
+	}
+}
+
 type fakeRuntimeManager struct{ svc *fakeRuntimeService }
 
 func (m fakeRuntimeManager) GetService(string) RuntimeService { return m.svc }
@@ -32,18 +49,65 @@ func (m fakeRuntimeManager) Default() RuntimeService          { return m.svc }
 
 type fakeRuntimeService struct {
 	chatCalls      int
+	stopCalls      int
 	subscribeCalls int
 	live           bool
 	events         chan agent.Event
+	chatCtx        context.Context
+	chatRequests   []agent.ChatRequest
+	managedCalls   []delegatetool.ManagedSessionRequest
+	managedResult  delegatetool.ManagedSessionResult
+	managedErr     error
+	chatEvents     []agent.Event
+	chatDone       chan struct{}
 }
 
-func (s *fakeRuntimeService) Chat(context.Context, agent.ChatRequest) <-chan agent.Event {
+func (s *fakeRuntimeService) Chat(ctx context.Context, req agent.ChatRequest) <-chan agent.Event {
 	s.chatCalls++
+	s.chatCtx = ctx
+	s.chatRequests = append(s.chatRequests, req)
+	if s.chatEvents != nil {
+		ch := make(chan agent.Event)
+		go func() {
+			defer close(ch)
+			if s.chatDone != nil {
+				defer close(s.chatDone)
+			}
+			for _, event := range s.chatEvents {
+				ch <- event
+			}
+		}()
+		return ch
+	}
 	ch := make(chan agent.Event, 2)
 	ch <- agent.Event{Text: "hello"}
 	ch <- agent.Event{Text: " world"}
 	close(ch)
 	return ch
+}
+
+func (s *fakeRuntimeService) RunManagedSession(_ context.Context, req delegatetool.ManagedSessionRequest) (delegatetool.ManagedSessionResult, error) {
+	s.managedCalls = append(s.managedCalls, req)
+	if s.managedErr != nil {
+		return delegatetool.ManagedSessionResult{SessionID: req.SessionID}, s.managedErr
+	}
+	result := s.managedResult
+	if result.SessionID == "" {
+		result.SessionID = req.SessionID
+	}
+	return result, nil
+}
+
+func (s *fakeRuntimeService) RunConversationSession(ctx context.Context, info agentsession.Info, message agent.MessageContent) <-chan agent.Event {
+	return s.Chat(ctx, agent.ChatRequest{
+		SessionID: info.ID, UserID: info.UserID, AgentID: info.AgentID, ProjectID: info.ProjectID,
+		Kind: agentsession.Kind(info.Kind), Channel: agentsession.Channel(info.Channel), Message: message,
+	})
+}
+
+func (s *fakeRuntimeService) StopSession(context.Context, string) bool {
+	s.stopCalls++
+	return s.live
 }
 
 func (s *fakeRuntimeService) SubscribeSession(string) (<-chan agent.Event, func()) {
@@ -62,7 +126,7 @@ func TestMain(m *testing.M) { dbtest.Main(m) }
 
 func TestSendStartsOneTurnAndChunksDoNotReevaluate(t *testing.T) {
 	svc, rt, _, authority := newRuntimeTestService(t)
-	result, err := svc.Send(context.Background(), SendInput{Authority: authority, AgentID: "a1", SessionID: "s1", Message: "hello"})
+	result, err := svc.Send(context.Background(), context.Background(), SendInput{Authority: authority, AgentID: "a1", SessionID: "s1", Message: "hello"})
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
@@ -70,6 +134,132 @@ func TestSendStartsOneTurnAndChunksDoNotReevaluate(t *testing.T) {
 	}
 	if rt.chatCalls != 1 || rt.subscribeCalls != 0 {
 		t.Fatalf("chat=%d subscribe=%d, want one chat and no subscribe", rt.chatCalls, rt.subscribeCalls)
+	}
+}
+
+func TestSendUsesLifecycleContextNotObserverContext(t *testing.T) {
+	svc, rt, _, authority := newRuntimeTestService(t)
+	observerCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runCtx := t.Context()
+	result, err := svc.Send(observerCtx, runCtx, SendInput{
+		Authority: authority, AgentID: "a1", SessionID: "s1", Message: "hello",
+	})
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	cancel()
+	for range result.Events {
+	}
+	if rt.chatCtx != runCtx {
+		t.Fatal("runtime did not receive the independent lifecycle context")
+	}
+}
+
+func TestRelayDrainsRuntimeAfterObserverDisconnect(t *testing.T) {
+	observerCtx, cancel := context.WithCancel(context.Background())
+	source := make(chan agent.Event)
+	output := relayEventsUntilDone(observerCtx, source)
+	cancel()
+
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		for range 200 {
+			source <- agent.Event{Text: "chunk"}
+		}
+		close(source)
+	}()
+
+	select {
+	case <-drained:
+	case <-time.After(time.Second):
+		t.Fatal("runtime source stalled after observer disconnect")
+	}
+	for range output {
+	}
+}
+
+func TestRelayPreservesTransientBackpressure(t *testing.T) {
+	source := make(chan agent.Event)
+	output := relayEventsUntilDone(t.Context(), source)
+	bufferFilled := make(chan struct{})
+
+	go func() {
+		for i := range 150 {
+			source <- agent.Event{Text: fmt.Sprintf("%d", i)}
+			if i == cap(output) {
+				// The relay has received the first event beyond its output capacity
+				// and must now be applying backpressure until the reader starts.
+				close(bufferFilled)
+			}
+		}
+		close(source)
+	}()
+
+	<-bufferFilled
+	var got []string
+	for event := range output {
+		got = append(got, event.Text)
+	}
+	if len(got) != 150 || got[149] != "149" {
+		t.Fatalf("relayed events = %d (tail %q), want all 150", len(got), got[len(got)-1])
+	}
+}
+
+func TestMarkViewedAuthorizesAndAdvancesDurableWatermark(t *testing.T) {
+	svc, _, _, authority := newRuntimeTestService(t)
+	info, err := svc.memory.LoadInfo(t.Context(), "s1")
+	if err != nil {
+		t.Fatalf("LoadInfo: %v", err)
+	}
+	info.LastTurnCompletedAt = time.Now().UTC().Add(-time.Minute)
+	if err := svc.memory.SaveInfo(t.Context(), info); err != nil {
+		t.Fatalf("SaveInfo: %v", err)
+	}
+	if err := svc.MarkViewed(t.Context(), MarkViewedInput{
+		Authority: authority, AgentID: "a1", SessionID: "s1",
+	}); err != nil {
+		t.Fatalf("MarkViewed: %v", err)
+	}
+	updated, err := svc.memory.LoadInfo(t.Context(), "s1")
+	if err != nil {
+		t.Fatalf("LoadInfo after MarkViewed: %v", err)
+	}
+	if !updated.LastViewedAt.After(updated.LastTurnCompletedAt) {
+		t.Fatalf("last_viewed_at = %v, completion = %v", updated.LastViewedAt, updated.LastTurnCompletedAt)
+	}
+}
+
+func TestStopAuthorizesAndCancelsActiveTurn(t *testing.T) {
+	svc, rt, _, authority := newRuntimeTestService(t)
+	rt.live = true
+	if err := svc.Stop(context.Background(), StopInput{
+		Authority: authority, AgentID: "a1", SessionID: "s1",
+	}); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if rt.stopCalls != 1 {
+		t.Fatalf("stop calls = %d, want 1", rt.stopCalls)
+	}
+}
+
+func TestSessionRunningUsesAuthorizedRuntimeState(t *testing.T) {
+	svc, rt, _, authority := newRuntimeTestService(t)
+	access, err := svc.Begin(t.Context(), authority)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	info, err := access.Read(t.Context(), "a1", "s1")
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if access.SessionRunning(info) {
+		t.Fatal("idle session reported running")
+	}
+	rt.live = true
+	if !access.SessionRunning(info) {
+		t.Fatal("live session reported idle")
 	}
 }
 
@@ -142,7 +332,7 @@ func TestSendRejectsArchivedSessionDistinguishably(t *testing.T) {
 		t.Fatalf("SaveInfo: %v", err)
 	}
 
-	_, err = svc.Send(ctx, SendInput{Authority: authority, AgentID: "a1", SessionID: "s1", Message: "hello"})
+	_, err = svc.Send(ctx, ctx, SendInput{Authority: authority, AgentID: "a1", SessionID: "s1", Message: "hello"})
 	if !errors.Is(err, agentsession.ErrArchived) {
 		t.Fatalf("Send = %v, want ErrArchived", err)
 	}

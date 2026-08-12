@@ -7,19 +7,17 @@ import (
 	"testing"
 
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/resources"
 )
 
-// writeFSSystemSkill drops a filesystem system skill under stellaHome.
-func writeFSSystemSkill(t *testing.T, stellaHome, name, description string) {
-	t.Helper()
-	dir := filepath.Join(stellaHome, ".agents", "skills", name)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("mkdir skill dir: %v", err)
-	}
-	body := "---\nname: " + name + "\ndescription: " + description + "\n---\n# " + name + "\n"
-	if err := os.WriteFile(filepath.Join(dir, pkgplugins.SkillMainFile), []byte(body), 0o644); err != nil {
-		t.Fatalf("write SKILL.md: %v", err)
-	}
+type countingResolveStore struct {
+	*testSkillStore
+	resolveCalls int
+}
+
+func (s *countingResolveStore) Resolve(ctx context.Context, name string, vc pkgplugins.SkillViewContext) (*pkgplugins.Skill, error) {
+	s.resolveCalls++
+	return s.testSkillStore.Resolve(ctx, name, vc)
 }
 
 func mustCreateDBSkill(t *testing.T, store *testSkillStore, sk pkgplugins.Skill) {
@@ -91,30 +89,109 @@ func TestResolveScopedFindsDisabledAndDBSystem(t *testing.T) {
 
 // TestResolvePrecedenceDBOverFSSystem guards CR-003: a DB user/agent skill must
 // shadow a filesystem system skill of the same name during model resolution.
-func TestResolvePrecedenceDBOverFSSystem(t *testing.T) {
+func TestResolvePrecedenceDBOverBuiltinSystem(t *testing.T) {
 	store, userID, agentID := newTestSkillStore(t)
 	stellaHome := t.TempDir()
-	writeFSSystemSkill(t, stellaHome, "shared", "from filesystem system")
 	svc := NewService(store, stellaHome)
 	ctx := context.Background()
 	vc := pkgplugins.SkillViewContext{UserID: userID, AgentID: agentID}
 
-	// With only the FS system skill, Resolve returns it.
-	rs, err := svc.Resolve(ctx, "shared", vc, "")
+	// With only the release builtin, Resolve returns the Registry descriptor.
+	rs, err := svc.Resolve(ctx, "stella", vc, "")
 	if err != nil {
-		t.Fatalf("Resolve (fs only): %v", err)
+		t.Fatalf("Resolve (builtin only): %v", err)
 	}
 	if rs == nil || rs.Scope != "system" {
-		t.Fatalf("Resolve (fs only) = %#v, want system scope", rs)
+		t.Fatalf("Resolve (builtin only) = %#v, want system scope", rs)
 	}
 
 	// Once a DB user skill of the same name exists, it must win.
-	mustCreateDBSkill(t, store, pkgplugins.Skill{Scope: "user", Name: "shared", UserID: userID})
-	rs, err = svc.Resolve(ctx, "shared", vc, "")
+	mustCreateDBSkill(t, store, pkgplugins.Skill{Scope: "user", Name: "stella", UserID: userID})
+	rs, err = svc.Resolve(ctx, "stella", vc, "")
 	if err != nil {
 		t.Fatalf("Resolve (db+fs): %v", err)
 	}
 	if rs == nil || rs.Scope != "user" {
 		t.Fatalf("Resolve (db+fs) = %#v, want user scope to shadow fs system", rs)
+	}
+}
+
+func TestBuiltinRegistryReadsDoNotNeedAStoreOrMirror(t *testing.T) {
+	home := t.TempDir()
+	registry, err := resources.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor := registry.BuiltinSkills()[0]
+	svc := NewService(nil, home, registry)
+	merged, err := svc.ListMerged(context.Background(), pkgplugins.SkillViewContext{}, "")
+	if err != nil || len(merged) == 0 {
+		t.Fatalf("ListMerged() = %d, %v", len(merged), err)
+	}
+	content, dir, resolved, err := svc.LoadFile(context.Background(), descriptor.APIID, pkgplugins.SkillMainFile, pkgplugins.SkillViewContext{}, "")
+	if err != nil || resolved == nil || content == "" {
+		t.Fatalf("LoadFile builtin = %q, %#v, %v", content, resolved, err)
+	}
+	wantDir, err := registry.BundlePath(home)
+	if err != nil || dir != filepath.Join(wantDir, filepath.FromSlash(descriptor.Root)) {
+		t.Fatalf("builtin dir = %q, want %q (%v)", dir, filepath.Join(wantDir, filepath.FromSlash(descriptor.Root)), err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "bundles")); !os.IsNotExist(err) {
+		t.Fatalf("registry read created a runtime mirror: %v", err)
+	}
+}
+
+func TestBuiltinStableIDChecksPGShadowOnce(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	counting := &countingResolveStore{testSkillStore: store}
+	mustCreateDBSkill(t, store, pkgplugins.Skill{Scope: "user", Name: "stella", UserID: userID})
+	registry, err := resources.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := registry.BuiltinSkills()[0]
+	if ref.Name != "stella" {
+		for _, descriptor := range registry.BuiltinSkills() {
+			if descriptor.Name == "stella" {
+				ref = descriptor
+				break
+			}
+		}
+	}
+	svc := NewService(counting, t.TempDir(), registry)
+	rs, err := svc.Resolve(context.Background(), ref.APIID, pkgplugins.SkillViewContext{UserID: userID, AgentID: agentID}, "")
+	if err != nil || rs == nil || rs.Scope != "user" {
+		t.Fatalf("Resolve(%q) = %#v, %v; want PG user shadow", ref.APIID, rs, err)
+	}
+	if counting.resolveCalls != 1 {
+		t.Fatalf("PG Resolve calls = %d, want 1", counting.resolveCalls)
+	}
+}
+
+func TestAgentSkillPolicyFiltersOnlyTheResolvedWinner(t *testing.T) {
+	store, userID, agentID := newTestSkillStore(t)
+	svc := NewService(store, t.TempDir())
+	ctx := context.Background()
+	vc := pkgplugins.SkillViewContext{UserID: userID, AgentID: agentID}
+
+	// A DB system Skill shadows the builtin. Disabling that winner must produce
+	// no lower-precedence fallback, regardless of whether it is named by API ID
+	// or ordinary name.
+	mustCreateDBSkill(t, store, pkgplugins.Skill{Scope: "system", Name: "stella"})
+	vc.DisabledSkillRefs = []string{"system:stella"}
+	for _, name := range []string{"stella", "builtin-stella", "builtin:stella"} {
+		rs, err := svc.Resolve(ctx, name, vc, "")
+		if err != nil || rs != nil {
+			t.Fatalf("Resolve(%q) = %#v, %v; disabled winner must not fall back", name, rs, err)
+		}
+	}
+
+	// Activation is independent from disable_model_invocation: an active policy
+	// leaves a model-disabled skill to the existing invocation filter, rather
+	// than treating its content state as an activation disablement.
+	vc.DisabledSkillRefs = nil
+	rs, err := svc.Resolve(ctx, "stella", vc, "")
+	if err != nil || rs == nil || rs.Scope != "system" {
+		t.Fatalf("Resolve active policy = %#v, %v; want system winner", rs, err)
 	}
 }

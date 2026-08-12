@@ -16,6 +16,7 @@ import (
 	"github.com/CherryHQ/stella/internal/authz"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/home"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -51,7 +52,12 @@ func (fakeVaultEnvLoader) ListAmbientSecretMetas(context.Context, string, string
 func newPool(t *testing.T) *PoolManager {
 	t.Helper()
 	db := dbtest.New(t)
-	return NewPoolManager(cfgstore.NewDBStore(db), nil)
+	workspaces, err := home.NewWorkspaceManager(db, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = workspaces.Close() })
+	return NewPoolManager(cfgstore.NewDBStore(db), nil, WithHomeWorkspace(workspaces))
 }
 
 func startPool(t *testing.T, pm *PoolManager) {

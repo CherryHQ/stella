@@ -1,6 +1,8 @@
 package telegram
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +11,56 @@ import (
 
 	tgmd "github.com/Mad-Pixels/goldmark-tgmd"
 )
+
+type telegramProvisioningHandler struct {
+	fakeChannelHandler
+	calls int
+	err   error
+}
+
+func (h *telegramProvisioningHandler) EnsurePlatformGroupMember(ctx context.Context, _, _, _ string) error {
+	h.calls++
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return h.err
+}
+
+func TestEnsureGroupMemberFailsClosedAndCachesOnlySuccess(t *testing.T) {
+	lifecycle, cancel := context.WithCancel(context.Background())
+	if (&Bot{handler: fakeChannelHandler{}, ctx: lifecycle}).ensureGroupMember("-100") {
+		t.Fatal("admitted without capability")
+	}
+	h := &telegramProvisioningHandler{err: errors.New("unavailable")}
+	b := &Bot{handler: h, ctx: lifecycle}
+	if b.ensureGroupMember("-100") {
+		t.Fatal("admitted after failure")
+	}
+	if b.ensureGroupMember("-100") {
+		t.Fatal("admitted cached failure")
+	}
+	if h.calls != 1 {
+		t.Fatalf("calls = %d, want 1 during failure TTL", h.calls)
+	}
+	h.err = nil
+	b.provisionMu.Lock()
+	b.provisionFailures["-100"] = time.Now().Add(-time.Second)
+	b.provisionMu.Unlock()
+	if !b.ensureGroupMember("-100") {
+		t.Fatal("rejected success")
+	}
+	if !b.ensureGroupMember("-100") {
+		t.Fatal("rejected cached success")
+	}
+	if h.calls != 2 {
+		t.Fatalf("calls = %d, want 2", h.calls)
+	}
+	cancel()
+	other := &telegramProvisioningHandler{}
+	if (&Bot{handler: other, ctx: lifecycle}).ensureGroupMember("-200") {
+		t.Fatal("admitted after lifecycle cancellation")
+	}
+}
 
 func TestSplitMessageShort(t *testing.T) {
 	chunks := channel.SplitMessage("hello", telegramMaxMessageLen)
@@ -121,11 +173,11 @@ func TestRenderMarkdownEmpty(t *testing.T) {
 
 func TestBotCommands(t *testing.T) {
 	commands := botCommands()
-	if len(commands) != 7 {
-		t.Fatalf("len(commands) = %d, want 7", len(commands))
+	if len(commands) != 5 {
+		t.Fatalf("len(commands) = %d, want 5", len(commands))
 	}
 
-	want := []string{"start", "new", "compact", "abort", "model", "agent", "whoami"}
+	want := []string{"start", "new", "compact", "abort", "whoami"}
 	for i, cmd := range commands {
 		if cmd.Text != want[i] {
 			t.Errorf("commands[%d].Text = %q, want %q", i, cmd.Text, want[i])
@@ -532,38 +584,6 @@ func TestBuildStreamDisplay_LongSuffix(t *testing.T) {
 	}
 }
 
-// --- atoiOr ---
-
-func TestAtoiOrValid(t *testing.T) {
-	if got := atoiOr("42", 0); got != 42 {
-		t.Errorf("atoiOr(42) = %d, want 42", got)
-	}
-}
-
-func TestAtoiOrInvalid(t *testing.T) {
-	if got := atoiOr("abc", 99); got != 99 {
-		t.Errorf("atoiOr(abc) = %d, want 99", got)
-	}
-}
-
-func TestAtoiOrEmpty(t *testing.T) {
-	if got := atoiOr("", 5); got != 5 {
-		t.Errorf("atoiOr('') = %d, want 5", got)
-	}
-}
-
-func TestAtoiOrNegative(t *testing.T) {
-	if got := atoiOr("-3", 0); got != -3 {
-		t.Errorf("atoiOr(-3) = %d, want -3", got)
-	}
-}
-
-func TestAtoiOrZero(t *testing.T) {
-	if got := atoiOr("0", 10); got != 0 {
-		t.Errorf("atoiOr(0) = %d, want 0", got)
-	}
-}
-
 // --- truncate edge cases ---
 
 func TestTruncateEmpty(t *testing.T) {
@@ -591,9 +611,17 @@ func TestChatRefFormatsCorrectly(t *testing.T) {
 
 func TestWelcomeMessageContainsCommands(t *testing.T) {
 	msg := channel.WelcomeMessage
-	for _, cmd := range []string{"/new", "/compact", "/abort", "/model", "/whoami"} {
+	for _, cmd := range []string{"/new", "/compact", "/abort", "/whoami"} {
 		if !strings.Contains(msg, cmd) {
 			t.Errorf("WelcomeMessage missing %q", cmd)
+		}
+	}
+}
+
+func TestBotCommandsExcludeModelAndAgent(t *testing.T) {
+	for _, command := range botCommands() {
+		if command.Text == "model" || command.Text == "agent" {
+			t.Errorf("botCommands includes removed /%s command", command.Text)
 		}
 	}
 }

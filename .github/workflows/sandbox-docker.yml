@@ -6,11 +6,13 @@ on:
     tags: ["v*.*.*"]
     paths:
       - "plugins/sandbox/docker/**"
+      - "resources/**"
       - ".github/workflows/sandbox-docker.yml"
   pull_request:
     branches: [main]
     paths:
       - "plugins/sandbox/docker/**"
+      - "resources/**"
       - ".github/workflows/sandbox-docker.yml"
 
 permissions:
@@ -46,6 +48,10 @@ jobs:
 
       - name: Generate code
         run: mise run generate
+
+      - name: Resolve builtin bundle revision
+        id: builtin-bundle
+        run: echo "revision=$(go run ./cmd/stellad system-bundle revision)" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -87,6 +93,7 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
           build-args: |
             VERSION=${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || github.sha }}
+            BUILTIN_BUNDLE_REVISION=${{ steps.builtin-bundle.outputs.revision }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
           cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0}/{1}:buildcache,mode=max', env.REGISTRY, env.IMAGE_NAME) || '' }}
           secrets: |

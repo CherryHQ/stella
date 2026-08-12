@@ -15,7 +15,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// ErrSkillNotMutable rejects system, filesystem, deprecated, and project writes.
+// ErrSkillNotMutable rejects filesystem, deprecated, and project writes.
 var ErrSkillNotMutable = errors.New("skill is not mutable")
 
 // ErrInvalidSkillFilePath rejects keys whose runtime path would differ from the
@@ -122,7 +122,7 @@ func lockedManagedSkill(ctx context.Context, q *sqlc.Queries, id, scope, userID,
 }
 
 func isMutableSkillScope(scope string) bool {
-	return scope == "user" || scope == "user_agent" || scope == "system_agent"
+	return scope == "user" || scope == "user_agent" || scope == "system" || scope == "system_agent"
 }
 
 func managedOwnerMatches(sk Skill, userID, agentID string) bool {
@@ -133,6 +133,8 @@ func managedOwnerMatches(sk Skill, userID, agentID string) bool {
 		return userID != "" && agentID != "" && sk.UserID == userID && sk.AgentID == agentID
 	case "system_agent":
 		return agentID != "" && sk.AgentID == agentID
+	case "system":
+		return sk.UserID == "" && sk.AgentID == ""
 	default:
 		return false
 	}

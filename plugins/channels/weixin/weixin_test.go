@@ -952,39 +952,6 @@ func TestRenderToolRecord(t *testing.T) {
 	}
 }
 
-// --- formatModelList ---
-
-func TestFormatModelListNoQuery(t *testing.T) {
-	t.Parallel()
-
-	models := channel.IndexModels([]channel.ModelOption{
-		{Provider: "openai", Model: "gpt-4"},
-		{Provider: "anthropic", Model: "claude-3"},
-	})
-	out := channel.FormatModelList(models, "")
-	if !strings.Contains(out, "openai/gpt-4") {
-		t.Errorf("missing model entry: %s", out)
-	}
-	if !strings.Contains(out, "anthropic/claude-3") {
-		t.Errorf("missing model entry: %s", out)
-	}
-	if strings.Contains(out, "filter") {
-		t.Error("should not show filter when query is empty")
-	}
-}
-
-func TestFormatModelListWithQuery(t *testing.T) {
-	t.Parallel()
-
-	models := channel.IndexModels([]channel.ModelOption{
-		{Provider: "openai", Model: "gpt-4"},
-	})
-	out := channel.FormatModelList(models, "openai")
-	if !strings.Contains(out, `filter: "openai"`) {
-		t.Errorf("should show filter query: %s", out)
-	}
-}
-
 // --- checkError ---
 
 func TestCheckErrorSuccess(t *testing.T) {

@@ -67,9 +67,9 @@ func TestHandleCommandEmpty(t *testing.T) {
 
 func TestHandleCommandModel(t *testing.T) {
 	rc := &ResolvedChat{SessionKey: "ch"}
-	_, ok := HandleCommand(context.Background(), rc, "/model gpt-4", "user1")
+	_, ok := HandleCommand(context.Background(), rc, "/unknown value", "user1")
 	if ok {
-		t.Error("/model should NOT be handled (left to channels)")
+		t.Error("unknown commands should not be handled")
 	}
 }
 

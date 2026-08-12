@@ -13,6 +13,7 @@
 package session
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -20,6 +21,20 @@ import (
 
 	"github.com/CherryHQ/stella/internal/memory"
 )
+
+const MaxTitleBytes = 1_000
+
+var ErrTitleTooLong = errors.New("session title exceeds maximum length")
+
+// ValidateTitle enforces the canonical title write bound in UTF-8 bytes. A
+// byte bound matches the serialized payloads titles are copied into and avoids
+// allowing multibyte Unicode to exceed those budgets.
+func ValidateTitle(title string) error {
+	if len(title) > MaxTitleBytes {
+		return fmt.Errorf("%w: got %d bytes, maximum is %d", ErrTitleTooLong, len(title), MaxTitleBytes)
+	}
+	return nil
+}
 
 // Kind is the typed session kind.
 type Kind string
@@ -56,17 +71,22 @@ const (
 // group read, write, and compaction resolve one memory partition; it is enforced
 // by Validate at every use boundary rather than left as an undeclared convention.
 type Info struct {
-	ID         string
-	AgentID    string
-	UserID     string
-	GroupID    string
-	Channel    string
-	Kind       string
-	ProjectID  string
-	Title      string
-	CreatedAt  time.Time
-	LastActive time.Time
-	Archived   bool
+	ID                  string
+	AgentID             string
+	UserID              string
+	GroupID             string
+	GuestID             string
+	Channel             string
+	Kind                string
+	ProjectID           string
+	Title               string
+	CreatedAt           time.Time
+	LastActive          time.Time
+	LastTurnStartedAt   time.Time
+	LastTurnCompletedAt time.Time
+	LastTurnResult      memory.SessionTurnResult
+	LastViewedAt        time.Time
+	Archived            bool
 	// LatestSeq is populated by review listings and is not session metadata.
 	LatestSeq int64
 }
@@ -100,6 +120,9 @@ func (i Info) Validate() error {
 		return fmt.Errorf("session info %q: missing UserID", i.ID)
 	}
 	if i.GroupID != "" {
+		if i.GuestID != "" {
+			return fmt.Errorf("session info %q: group session cannot have GuestID", i.ID)
+		}
 		if i.UserID != i.GroupID {
 			return fmt.Errorf("session info %q: group session UserID %q must equal GroupID %q", i.ID, i.UserID, i.GroupID)
 		}
@@ -113,6 +136,18 @@ func (i Info) Validate() error {
 		}
 		if parsed.String() != i.GroupID {
 			return fmt.Errorf("session info %q: GroupID %q is not in canonical UUID form", i.ID, i.GroupID)
+		}
+	}
+	if i.GuestID != "" {
+		if i.UserID != i.GuestID {
+			return fmt.Errorf("session info %q: guest session UserID %q must equal GuestID %q", i.ID, i.UserID, i.GuestID)
+		}
+		parsed, err := uuid.Parse(i.GuestID)
+		if err != nil || parsed.String() != i.GuestID {
+			return fmt.Errorf("session info %q: GuestID %q is not a canonical UUID", i.ID, i.GuestID)
+		}
+		if i.GroupID != "" || i.ProjectID != "" || Kind(i.Kind) != KindChat {
+			return fmt.Errorf("session info %q: guest session must be chat kind without group or project", i.ID)
 		}
 	}
 	return nil
@@ -139,6 +174,7 @@ func (i Info) MemoryScope() (memory.Session, error) {
 		UserID:  i.UserID,
 		Channel: i.Channel,
 		GroupID: i.GroupID,
+		GuestID: i.GuestID,
 	}, nil
 }
 
@@ -149,19 +185,27 @@ func (i Info) Record() (memory.SessionInfo, error) {
 	if err := i.Validate(); err != nil {
 		return memory.SessionInfo{}, err
 	}
+	if err := ValidateTitle(i.Title); err != nil {
+		return memory.SessionInfo{}, fmt.Errorf("session info %q: %w", i.ID, err)
+	}
 	return memory.SessionInfo{
-		ID:         i.ID,
-		AgentID:    i.AgentID,
-		UserID:     i.UserID,
-		GroupID:    i.GroupID,
-		Channel:    i.Channel,
-		Kind:       i.Kind,
-		ProjectID:  i.ProjectID,
-		Title:      i.Title,
-		CreatedAt:  i.CreatedAt,
-		LastActive: i.LastActive,
-		Archived:   i.Archived,
-		LatestSeq:  i.LatestSeq,
+		ID:                  i.ID,
+		AgentID:             i.AgentID,
+		UserID:              i.UserID,
+		GroupID:             i.GroupID,
+		GuestID:             i.GuestID,
+		Channel:             i.Channel,
+		Kind:                i.Kind,
+		ProjectID:           i.ProjectID,
+		Title:               i.Title,
+		CreatedAt:           i.CreatedAt,
+		LastActive:          i.LastActive,
+		LastTurnStartedAt:   i.LastTurnStartedAt,
+		LastTurnCompletedAt: i.LastTurnCompletedAt,
+		LastTurnResult:      i.LastTurnResult,
+		LastViewedAt:        i.LastViewedAt,
+		Archived:            i.Archived,
+		LatestSeq:           i.LatestSeq,
 	}, nil
 }
 
@@ -172,18 +216,23 @@ func (i Info) Record() (memory.SessionInfo, error) {
 // session invariant.
 func InfoFromRecord(r memory.SessionInfo) (Info, error) {
 	info := Info{
-		ID:         r.ID,
-		AgentID:    r.AgentID,
-		UserID:     r.UserID,
-		GroupID:    r.GroupID,
-		Channel:    r.Channel,
-		Kind:       r.Kind,
-		ProjectID:  r.ProjectID,
-		Title:      r.Title,
-		CreatedAt:  r.CreatedAt,
-		LastActive: r.LastActive,
-		Archived:   r.Archived,
-		LatestSeq:  r.LatestSeq,
+		ID:                  r.ID,
+		AgentID:             r.AgentID,
+		UserID:              r.UserID,
+		GroupID:             r.GroupID,
+		GuestID:             r.GuestID,
+		Channel:             r.Channel,
+		Kind:                r.Kind,
+		ProjectID:           r.ProjectID,
+		Title:               r.Title,
+		CreatedAt:           r.CreatedAt,
+		LastActive:          r.LastActive,
+		LastTurnStartedAt:   r.LastTurnStartedAt,
+		LastTurnCompletedAt: r.LastTurnCompletedAt,
+		LastTurnResult:      r.LastTurnResult,
+		LastViewedAt:        r.LastViewedAt,
+		Archived:            r.Archived,
+		LatestSeq:           r.LatestSeq,
 	}
 	if err := info.Validate(); err != nil {
 		return Info{}, err
@@ -213,7 +262,7 @@ func infosFromRecords(rs []memory.SessionInfo) ([]Info, error) {
 func infosFromReviewRecords(rs []memory.SessionInfo) ([]Info, error) {
 	out := make([]Info, 0, len(rs))
 	for i, r := range rs {
-		if r.UserID == "" {
+		if r.UserID == "" || r.GuestID != "" {
 			continue
 		}
 		info, err := InfoFromRecord(r)

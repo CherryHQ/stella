@@ -83,6 +83,32 @@ const (
 	maxSessionMessageParts = 32
 )
 
+// lifecycleValueContext takes cancellation and deadlines from the server
+// lifecycle while preserving request-scoped values for tracing and downstream
+// hooks. A browser disconnect therefore detaches transport without orphaning
+// the turn from process shutdown.
+type lifecycleValueContext struct {
+	context.Context
+	values context.Context
+}
+
+func (c lifecycleValueContext) Value(key any) any {
+	if value := c.values.Value(key); value != nil {
+		return value
+	}
+	return c.Context.Value(key)
+}
+
+func (s *Server) turnContext(requestCtx context.Context) context.Context {
+	lifecycle := s.runtimeCtx
+	if lifecycle == nil {
+		// Production always injects runtimeCtx. The fallback keeps directly-built
+		// handler tests safe without coupling a turn to their request recorder.
+		lifecycle = context.Background()
+	}
+	return lifecycleValueContext{Context: lifecycle, values: context.WithoutCancel(requestCtx)}
+}
+
 func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "missing session ID")
@@ -122,7 +148,7 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 		return
 	}
 
-	result, err := s.sessionAccess.Send(r.Context(), sessionaccess.SendInput{Authority: authority, AgentID: agentID, SessionID: sessionID, Message: message})
+	result, err := s.sessionAccess.Send(r.Context(), s.turnContext(r.Context()), sessionaccess.SendInput{Authority: authority, AgentID: agentID, SessionID: sessionID, Message: message})
 	if err != nil {
 		// An archived session is a state conflict, not a missing one: the client
 		// holds a session that was rotated away and needs to move to the new one
@@ -138,11 +164,54 @@ func (s *Server) SendSessionMessage(w http.ResponseWriter, r *http.Request, agen
 		streamPlainReply(w, flusher, result.PlainReply)
 		return
 	}
-	// Deliberately NOT drain-cancelled: the turn above runs on the request
-	// context, so ending this stream at drain start would kill the in-flight
-	// turn — the exact work the graceful HTTP shutdown budget exists to finish.
-	// The stream ends when the turn completes; force-close is the backstop.
-	streamAgentEvents(r.Context(), w, flusher, agentID, sessionID, result.Events, nil)
+	// The response follows the request and drain contexts, but the admitted turn
+	// follows the server work lifecycle. Navigation, connection loss, or graceful
+	// HTTP drain ends this observer only; accepted-work drain owns the turn.
+	sctx, cancel := s.readiness.streamContext(r.Context())
+	defer cancel()
+	streamAgentEvents(sctx, w, flusher, agentID, sessionID, result.Events, nil)
+}
+
+// StopSession explicitly cancels an in-flight turn. Transport disconnects never
+// call this endpoint; they only detach an SSE observer.
+func (s *Server) StopSession(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "missing session ID")
+		return
+	}
+	authority, ok := s.sessionAuthority(w, r)
+	if !ok {
+		return
+	}
+	if err := s.sessionAccess.Stop(r.Context(), sessionaccess.StopInput{
+		Authority: authority,
+		AgentID:   agentID,
+		SessionID: sessionID,
+	}); err != nil {
+		s.writeSessionAccessError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) MarkSessionViewed(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "missing session ID")
+		return
+	}
+	authority, ok := s.sessionAuthority(w, r)
+	if !ok {
+		return
+	}
+	if err := s.sessionAccess.MarkViewed(r.Context(), sessionaccess.MarkViewedInput{
+		Authority: authority,
+		AgentID:   agentID,
+		SessionID: sessionID,
+	}); err != nil {
+		s.writeSessionAccessError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // streamAgentEvents encodes a live turn's events to w as a Vercel AI-SDK UI
@@ -541,16 +610,17 @@ func detectMIME(name string) string {
 
 // sessionResponse is the HTTP representation of session-domain metadata.
 type sessionResponse struct {
-	ID         string    `json:"id"`
-	Channel    string    `json:"channel"`
-	Kind       string    `json:"kind"`
-	ProjectID  string    `json:"project_id,omitempty"`
-	Title      string    `json:"title"`
-	AgentID    string    `json:"agent_id"`
-	UserID     string    `json:"user_id"`
-	CreatedAt  time.Time `json:"created_at"`
-	LastActive time.Time `json:"last_active"`
-	Archived   bool      `json:"archived"`
+	ID             string    `json:"id"`
+	Channel        string    `json:"channel"`
+	Kind           string    `json:"kind"`
+	ProjectID      string    `json:"project_id,omitempty"`
+	Title          string    `json:"title"`
+	AgentID        string    `json:"agent_id"`
+	UserID         string    `json:"user_id"`
+	CreatedAt      time.Time `json:"created_at"`
+	LastActive     time.Time `json:"last_active"`
+	ActivityStatus string    `json:"activity_status"`
+	Archived       bool      `json:"archived"`
 }
 
 // sessionDetailResponse extends sessionResponse with resolved names.
@@ -564,16 +634,31 @@ type sessionDetailResponse struct {
 // round-tripping through the memory persistence record just to build a DTO.
 func sessionResponseFromInfo(info session.Info) sessionResponse {
 	return sessionResponse{
-		ID:         info.ID,
-		Channel:    info.Channel,
-		Kind:       info.Kind,
-		ProjectID:  info.ProjectID,
-		Title:      info.Title,
-		AgentID:    info.AgentID,
-		UserID:     info.UserID,
-		CreatedAt:  info.CreatedAt.UTC(),
-		LastActive: info.LastActive.UTC(),
-		Archived:   info.Archived,
+		ID:             info.ID,
+		Channel:        info.Channel,
+		Kind:           info.Kind,
+		ProjectID:      info.ProjectID,
+		Title:          info.Title,
+		AgentID:        info.AgentID,
+		UserID:         info.UserID,
+		CreatedAt:      info.CreatedAt.UTC(),
+		LastActive:     info.LastActive.UTC(),
+		ActivityStatus: sessionActivityStatus(info),
+		Archived:       info.Archived,
+	}
+}
+
+func sessionActivityStatus(info session.Info) string {
+	if info.LastTurnCompletedAt.IsZero() || !info.LastTurnCompletedAt.After(info.LastViewedAt) {
+		return "idle"
+	}
+	switch string(info.LastTurnResult) {
+	case "success":
+		return "success"
+	case "error":
+		return "error"
+	default:
+		return "idle"
 	}
 }
 
@@ -608,7 +693,11 @@ func (s *Server) ListSessions(w http.ResponseWriter, r *http.Request, agentID st
 
 	resp := make([]sessionResponse, 0, len(page.Sessions))
 	for _, si := range page.Sessions {
-		resp = append(resp, sessionResponseFromInfo(si))
+		item := sessionResponseFromInfo(si)
+		if access.SessionRunning(si) {
+			item.ActivityStatus = "working"
+		}
+		resp = append(resp, item)
 	}
 	out := map[string]any{"sessions": resp}
 	if page.HasMore {
@@ -635,6 +724,9 @@ func (s *Server) GetSession(w http.ResponseWriter, r *http.Request, agentID stri
 	resp := sessionDetailResponse{
 		sessionResponse: sessionResponseFromInfo(detail.Info),
 		AgentName:       detail.AgentName,
+	}
+	if access.SessionRunning(detail.Info) {
+		resp.ActivityStatus = "working"
 	}
 
 	// Resolve user name from the account system (best-effort display enrichment).
@@ -678,11 +770,19 @@ func (s *Server) UpdateSession(w http.ResponseWriter, r *http.Request, agentID s
 	}
 
 	if err := access.UpdateTitle(r.Context(), si, title); err != nil {
+		if errors.Is(err, sessionaccess.ErrInvalid) {
+			writeError(w, http.StatusBadRequest, "title is too long")
+			return
+		}
 		s.writeSessionAccessError(w, err)
 		return
 	}
 	si.Title = title
-	writeData(w, http.StatusOK, sessionResponseFromInfo(si))
+	resp := sessionResponseFromInfo(si)
+	if access.SessionRunning(si) {
+		resp.ActivityStatus = "working"
+	}
+	writeData(w, http.StatusOK, resp)
 }
 
 func (s *Server) DeleteSession(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
@@ -1090,6 +1190,8 @@ func contextItemsToAPI(items []sessionaccess.ContextItem) []apitypes.SessionCont
 			apiItem.Type = apitypes.Message
 			apiItem.Message = &apitypes.SessionContextMessage{
 				Id: item.Message.ID, Seq: item.Message.Seq, Role: item.Message.Role,
+				ActorType: apitypes.SessionContextMessageActorType(item.Message.ActorType),
+				ActorId:   textPointer(item.Message.ActorID), SourceSessionId: textPointer(item.Message.SourceSessionID),
 				EventType: item.Message.EventType, Content: item.Message.Content,
 				Timestamp: item.Message.Timestamp.UTC(), TokenCount: item.Message.TokenCount,
 			}
@@ -1159,8 +1261,10 @@ func serializeDBMessages(agentID, sessionID string, rows []sessionaccess.Message
 func serializeUserRow(agentID, sessionID string, row sessionaccess.Message) apitypes.SessionMessage {
 	message := apitypes.SessionMessage{
 		Id: row.ID, Role: apitypes.SessionMessageRoleUser,
+		ActorType: apitypes.SessionMessageActorType(row.ActorType),
 		Timestamp: row.CreatedAt.UTC(), TokenCount: row.TokenCount,
 	}
+	setSessionMessageActor(&message, row)
 	setSessionMessagePresentation(&message, agentID, sessionID, row.Content, row.Parts)
 	return message
 }
@@ -1193,6 +1297,8 @@ func serializeAssistantRows(rows []sessionaccess.Message, start int) (apitypes.S
 		// First row's id identifies the merged turn — stable across pagination
 		// regardless of how many earlier pages have been loaded.
 		Id: rows[start].ID, Role: apitypes.SessionMessageRoleAssistant, Blocks: &blocks,
+		ActorType: apitypes.SessionMessageActorType(rows[start].ActorType),
+		ActorId:   textPointer(rows[start].ActorID), SourceSessionId: textPointer(rows[start].SourceSessionID),
 		Timestamp: rows[start].CreatedAt.UTC(), TokenCount: totalTokens,
 	}, consumed
 }
@@ -1219,7 +1325,9 @@ func decodeToolCallBlock(content string) apitypes.SessionMessageBlock {
 func serializeToolRow(agentID, sessionID string, row sessionaccess.Message) apitypes.SessionMessage {
 	message := apitypes.SessionMessage{
 		Id: row.ID, Role: apitypes.SessionMessageRoleTool, Timestamp: row.CreatedAt.UTC(), TokenCount: row.TokenCount,
+		ActorType: apitypes.SessionMessageActorType(row.ActorType),
 	}
+	setSessionMessageActor(&message, row)
 	var env struct {
 		ID         string                 `json:"id"`
 		Tool       string                 `json:"tool"`
@@ -1265,6 +1373,18 @@ func serializeToolRow(agentID, sessionID string, row sessionaccess.Message) apit
 		message.References = &references
 	}
 	return message
+}
+
+func setSessionMessageActor(message *apitypes.SessionMessage, row sessionaccess.Message) {
+	message.ActorId = textPointer(row.ActorID)
+	message.SourceSessionId = textPointer(row.SourceSessionID)
+}
+
+func textPointer(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 // setSessionMessagePresentation uses durable parts as the complete visible

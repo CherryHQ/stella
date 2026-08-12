@@ -31,7 +31,7 @@ const translations = {
       "Agents work in dedicated workspaces with sandbox policies and controlled tool access, so useful work has clear boundaries.",
     feature4Title: "Meets you in chat",
     feature4Body:
-      "Telegram, QQ, Feishu, WeChat, the Web UI, and the terminal all become front doors to the same AI partner system.",
+      "Telegram, Discord, QQ, Feishu, WeChat, the Web UI, and the terminal all become front doors to the same AI partner system.",
     feature5Title: "Keeps routines moving",
     feature5Body:
       "Schedule reminders, recurring jobs, reading digests, and background tasks that persist across restarts and notify the right people.",
@@ -162,7 +162,8 @@ const translations = {
     feature3Title: "在安全边界内行动",
     feature3Body: "agent 在专属工作区和沙箱策略中使用工具，让有用的工作始终有清晰边界。",
     feature4Title: "出现在你已经聊天的地方",
-    feature4Body: "Telegram、QQ、飞书、微信、Web UI 和终端都可以成为同一套 AI 伙伴系统的入口。",
+    feature4Body:
+      "Telegram、Discord、QQ、飞书、微信、Web UI 和终端都可以成为同一套 AI 伙伴系统的入口。",
     feature5Title: "持续推动日常事务",
     feature5Body: "设置提醒、周期性任务、阅读摘要和后台任务；它们可以跨重启保留，并通知正确的人。",
     capabilitiesTitle: "内置能力",

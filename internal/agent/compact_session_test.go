@@ -7,6 +7,7 @@ import (
 
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 )
@@ -15,11 +16,15 @@ import (
 // test can assert whether the compactor was reached.
 type compactSpy struct {
 	*memorytest.Fake
-	calls int
+	calls    int
+	contexts []context.Context
+	sessions []memory.Session
 }
 
-func (s *compactSpy) Compact(context.Context, memory.Session, memory.CompactionMode) (*memory.CompactionResult, error) {
+func (s *compactSpy) Compact(ctx context.Context, session memory.Session, _ memory.CompactionMode) (*memory.CompactionResult, error) {
 	s.calls++
+	s.contexts = append(s.contexts, ctx)
+	s.sessions = append(s.sessions, session)
 	return &memory.CompactionResult{}, nil
 }
 
@@ -59,5 +64,23 @@ func TestCompactSession_GroupRejectedBeforeCompactor(t *testing.T) {
 	}
 	if spy.calls != 1 {
 		t.Fatalf("compactor calls = %d for a private session; want 1", spy.calls)
+	}
+
+	const guestID = "22222222-2222-4222-8222-222222222222"
+	guest := session.Info{ID: "a:guest:" + guestID, AgentID: "a", UserID: guestID, GuestID: guestID, Kind: string(session.KindChat)}
+	if _, err := svc.CompactAuthorizedSession(context.Background(), guest); err != nil {
+		t.Fatalf("guest CompactSession: %v", err)
+	}
+	if spy.calls != 2 {
+		t.Fatalf("compactor calls = %d after guest session; want 2", spy.calls)
+	}
+	if got := authz.GuestIDFromContext(spy.contexts[1]); got != guestID {
+		t.Fatalf("guest compaction context GuestID = %q, want %q", got, guestID)
+	}
+	if got := authz.AgentIDFromContext(spy.contexts[1]); got != guest.AgentID {
+		t.Fatalf("guest compaction context AgentID = %q, want %q", got, guest.AgentID)
+	}
+	if got := spy.sessions[1].GuestID; got != guestID {
+		t.Fatalf("guest compaction session GuestID = %q, want %q", got, guestID)
 	}
 }
