@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft } from "lucide-react";
 import QRCode from "qrcode";
 import {
@@ -25,6 +26,7 @@ import {
   FormSectionTitle,
 } from "@/features/settings/SettingsDetailPanel";
 import { useI18n } from "@/lib/i18n";
+import { meQueryOptions } from "@/lib/queries/me";
 import {
   ChannelConfigFields,
   channelTypes,
@@ -86,6 +88,7 @@ export function NewChannelForm({
   creating,
 }: NewChannelFormProps) {
   const { t } = useI18n();
+  const { data: me } = useQuery(meQueryOptions);
   const [draft, setDraft] = useState<Record<string, unknown>>(() => ({
     ...newInstanceDraft(fallbackChannelType),
     agent_id: initialAgentId,
@@ -291,6 +294,10 @@ export function NewChannelForm({
   };
 
   const requiresBoundAgent = draft.type === "feishu" || draft.type === "weixin";
+  // QR registration talks to the deployment-wide control plane and stays
+  // admin-only on the server. Showing an owner a button that can only 403 is
+  // worse than not showing it: the manual setup below is their real path.
+  const canRegisterByScan = requiresBoundAgent && !!me?.is_admin;
 
   const availableAgents = agents.filter(
     (agent) =>
@@ -402,7 +409,7 @@ export function NewChannelForm({
           {!!draft.type && (
             <div className="space-y-4">
               <FormSectionTitle>{t("channels.configuration")}</FormSectionTitle>
-              {requiresBoundAgent && (
+              {canRegisterByScan && (
                 <div className="space-y-2">
                   <Button
                     type="button"
@@ -421,7 +428,7 @@ export function NewChannelForm({
                 </div>
               )}
               {requiresBoundAgent ? (
-                <details className="space-y-4">
+                <details className="space-y-4" open={!canRegisterByScan}>
                   <summary className="cursor-pointer text-sm font-medium">
                     {isWeixin ? t("channels.manualWeixinSetup") : t("channels.manualFeishuSetup")}
                   </summary>

@@ -41,6 +41,21 @@ func testProviderStreamBuilder(api, apiKey, baseURL string) (providers.StreamFun
 	return providers.AdapterStreamFunc(&stubProvider{}), nil
 }
 
+func TestRunnerAliveWithoutSandboxOnlyForNoCapabilities(t *testing.T) {
+	if (&runner{}).Alive() {
+		t.Fatal("runner with an unexpectedly missing sandbox session reported alive")
+	}
+	if !(&runner{noCapabilities: true}).Alive() {
+		t.Fatal("no-capabilities runner was treated as dead without a sandbox session")
+	}
+	if (&runner{session: &fakeSession{alive: false}}).Alive() {
+		t.Fatal("runner ignored a dead sandbox session")
+	}
+	if !(&runner{session: &fakeSession{alive: true}}).Alive() {
+		t.Fatal("runner ignored a live sandbox session")
+	}
+}
+
 func testRunnerPaths(t *testing.T) (stellaHome, workspace, userRoot string) {
 	t.Helper()
 	stellaHome = t.TempDir()
@@ -93,6 +108,23 @@ func TestFilterRunnerTools(t *testing.T) {
 	}
 	if ai.FlattenText(result) != "alpha" {
 		t.Fatalf("filtered alpha result = %q, want alpha", ai.FlattenText(result))
+	}
+}
+
+func TestGroupSkillRuntimeBoundaryExcludesPrincipalTiers(t *testing.T) {
+	paths := sandbox.Paths{
+		StellaHome: "/stella", BuiltinBundle: "/bundle", AgentRoot: "/agent-definition",
+		UserDataDir: "/group/data", WorkspaceRoot: "/group/agents/a", ProjectRoot: "/group/agents/a/projects/p",
+	}
+	layout, view := skillRuntimeLayoutAndView(context.Background(), runnerConfig{BuiltinParams: RunnerParams{GroupID: "g"}}, paths)
+	if layout.BaseDir("user") != "" || layout.BaseDir("user_agent") != "" {
+		t.Fatalf("group model Skill layout exposes principal tiers: %+v", layout)
+	}
+	if view.UserDataHost != "" || view.WorkspaceHost != "" {
+		t.Fatalf("group model Skill view exposes principal mounts: %+v", view)
+	}
+	if layout.BaseDir("system") == "" || layout.BaseDir("system_agent") == "" || view.BuiltinSkillsHost == "" || paths.ProjectRoot == "" {
+		t.Fatalf("group lost retained Skill/project tiers: layout=%+v view=%+v project=%q", layout, view, paths.ProjectRoot)
 	}
 }
 

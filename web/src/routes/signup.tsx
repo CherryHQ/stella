@@ -6,7 +6,7 @@ export const Route = createFileRoute("/signup")({
   beforeLoad: async ({ context: { queryClient } }) => {
     try {
       const me = await queryClient.ensureQueryData(meQueryOptions);
-      if (me) throw redirect({ to: "/sessions" as any });
+      if (me) throw redirect({ to: "/agents" });
     } catch (e) {
       if ((e as any)?.isRedirect) throw e;
       const status = authErrorStatus(e);

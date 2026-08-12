@@ -91,6 +91,21 @@ type Attempt struct {
 	UpdatedAt       time.Time
 }
 
+// AttemptSummary is the bounded, lightweight execution state used by status
+// projections. It deliberately excludes large attempt payloads.
+type AttemptSummary struct {
+	ID           string
+	Purpose      string
+	AttemptNo    int64
+	Status       string
+	SessionID    string
+	Error        string
+	FailureClass string
+	StartedAt    *time.Time
+	FinishedAt   *time.Time
+	UpdatedAt    time.Time
+}
+
 // AcceptanceEvent is one row of a goal's acceptance ledger.
 type AcceptanceEvent struct {
 	ID                string

@@ -13,6 +13,7 @@ import (
 
 	apitypes "github.com/CherryHQ/stella/api/types"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 )
 
@@ -114,11 +115,11 @@ func TestSessionContextItemsFallbackUsesMessagePaging(t *testing.T) {
 	}
 	fallbackMsg1, fallbackMsg2 := uuid.NewString(), uuid.NewString()
 	if _, err := env.db.Exec(context.Background(), `
-		INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, created_at)
+		INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type)
 		VALUES
-		($1, $2, 1, 'user', 'text', 'first', 10, '2026-06-10 02:00:00'),
-		($3, $4, 2, 'assistant', 'text', 'second', 20, '2026-06-10 02:01:00')
-	`, fallbackMsg1, conversationID, fallbackMsg2, conversationID); err != nil {
+		($1, $2, 1, 'user', 'text', 'first', 10, '2026-06-10 02:00:00', $5),
+		($3, $4, 2, 'assistant', 'text', 'second', 20, '2026-06-10 02:01:00', $6)
+	`, fallbackMsg1, conversationID, fallbackMsg2, conversationID, eventlog.ActorHuman, eventlog.ActorAgent); err != nil {
 		t.Fatalf("seed fallback messages: %v", err)
 	}
 
@@ -183,13 +184,14 @@ func TestSessionSummaryCondensedAggregatesChildren(t *testing.T) {
 	}
 	cm1, cm2, cm3, cm4 := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
 	mustExec(`
-		INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, created_at)
+		INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type)
 		VALUES
-		($1, $2, 1, 'user', 'text', 'one', 10, '2026-06-10 03:00:00'),
-		($3, $4, 2, 'assistant', 'text', 'two', 10, '2026-06-10 03:01:00'),
-		($5, $6, 3, 'user', 'text', 'three', 10, '2026-06-10 03:02:00'),
-		($7, $8, 4, 'assistant', 'text', 'four', 10, '2026-06-10 03:03:00')
-	`, cm1, conversationID, cm2, conversationID, cm3, conversationID, cm4, conversationID)
+		($1, $2, 1, 'user', 'text', 'one', 10, '2026-06-10 03:00:00', $9),
+		($3, $4, 2, 'assistant', 'text', 'two', 10, '2026-06-10 03:01:00', $10),
+		($5, $6, 3, 'user', 'text', 'three', 10, '2026-06-10 03:02:00', $11),
+		($7, $8, 4, 'assistant', 'text', 'four', 10, '2026-06-10 03:03:00', $12)
+	`, cm1, conversationID, cm2, conversationID, cm3, conversationID, cm4, conversationID,
+		eventlog.ActorHuman, eventlog.ActorAgent, eventlog.ActorHuman, eventlog.ActorAgent)
 	mustExec(`
 		INSERT INTO ctx_summary (
 			id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at,
@@ -316,12 +318,13 @@ func seedContextItems(t *testing.T, env *testEnv, conversationID string) {
 	}
 	msg1, msg2, msg3 := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	mustExec(`
-		INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, created_at)
+		INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, created_at, actor_type)
 		VALUES
-		($1, $2, 1, 'user', 'text', 'hello', 10, '2026-06-10 01:00:00'),
-		($3, $4, 2, 'assistant', 'text', 'first', 20, '2026-06-10 01:01:00'),
-		($5, $6, 3, 'assistant', 'text', 'second', 30, '2026-06-10 01:02:00')
-	`, msg1, conversationID, msg2, conversationID, msg3, conversationID)
+		($1, $2, 1, 'user', 'text', 'hello', 10, '2026-06-10 01:00:00', $7),
+		($3, $4, 2, 'assistant', 'text', 'first', 20, '2026-06-10 01:01:00', $8),
+		($5, $6, 3, 'assistant', 'text', 'second', 30, '2026-06-10 01:02:00', $9)
+	`, msg1, conversationID, msg2, conversationID, msg3, conversationID,
+		eventlog.ActorHuman, eventlog.ActorAgent, eventlog.ActorAgent)
 	mustExec(`
 		INSERT INTO ctx_summary (
 			id, conversation_id, kind, depth, content, token_count, earliest_at, latest_at,

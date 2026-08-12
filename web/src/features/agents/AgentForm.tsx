@@ -3,6 +3,7 @@ import type { AgentsPageState } from "./agent-detail-state";
 import { Button } from "@/components/ui/button";
 import { ProfilePanelSection } from "./ProfilePanelSection";
 import { useI18n } from "@/lib/i18n";
+import { canEditAgent } from "./agent-detail-state";
 import { ConfigTab } from "./tabs/ConfigTab";
 import { PromptTab } from "./tabs/PromptTab";
 import { SkillsTab } from "./tabs/SkillsTab";
@@ -33,6 +34,8 @@ interface Props {
   onSelectSkillFile: (path: string, skipDirtyCheck?: boolean) => void;
   onDeleteSkillFile: () => void;
   onOpenSkillInstallModal: (scope?: "user_agent" | "system_agent") => void;
+  onToggleActivation: (skill: Skill, enabled: boolean) => void;
+  onClearDanglingActivation: (ref: string) => void;
   onDelete?: () => void;
 }
 
@@ -52,13 +55,16 @@ export function AgentForm({
   onSelectSkillFile,
   onDeleteSkillFile,
   onOpenSkillInstallModal,
+  onToggleActivation,
+  onClearDanglingActivation,
   onDelete,
 }: Props) {
   const { t } = useI18n();
-  const { editingId, isAdmin, form, currentUserId } = state;
+  const { editingId, form } = state;
   const embedded = layout === "embedded";
 
-  const canEdit = isAdmin || !editingId || (form.creator_id && form.creator_id === currentUserId);
+  // A form with nothing saved yet has no agent to manage: creation is the edit.
+  const canEdit = !editingId || canEditAgent(form);
 
   const availableUsers = state.allUsers.filter(
     (u: User) => !state.assignedUsers.some((a: User) => a.id === u.id),
@@ -115,20 +121,24 @@ export function AgentForm({
               onSelectSkillFile={onSelectSkillFile}
               onDeleteSkillFile={onDeleteSkillFile}
               onOpenSkillInstallModal={onOpenSkillInstallModal}
+              onToggleActivation={onToggleActivation}
+              onClearDanglingActivation={onClearDanglingActivation}
             />
           </ProfilePanelSection>
         )}
         {shows("tools") && (
           <ProfilePanelSection collapsible title={t("agents.tabs.tools")}>
-            <ToolsTab state={state} />
+            <ToolsTab state={state} canEdit={canEdit} />
           </ProfilePanelSection>
         )}
         {shows("advanced") && (
           <ProfilePanelSection collapsible title={t("agents.tabs.advanced")}>
-            <AdvancedTab state={state} onSetState={onSetState} />
+            <AdvancedTab state={state} canEdit={canEdit} onSetState={onSetState} />
           </ProfilePanelSection>
         )}
-        {isAdmin && shows("users") && (
+        {/* Not admin-only: the owner sets the agent's reach here. The tab keeps
+            the per-user assignment list behind the admin check itself. */}
+        {canEdit && shows("users") && (
           <ProfilePanelSection collapsible title={t("agents.tabs.users")}>
             <UsersTab
               state={state}

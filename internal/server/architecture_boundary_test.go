@@ -794,7 +794,6 @@ func TestWorkspaceHandlersStayTransportOnly(t *testing.T) {
 		"UploadWorkspaceFile":        true,
 	}
 	forbiddenPkgs := map[string]map[string]bool{
-		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/agent"):         {"SetupUserWorkspace": true},
 		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/agent/sandbox"): {"UserDataViewFor": true, "WorkspaceViewFor": true},
 		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/config"):        {"StellaHome": true, "Store": true},
 		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/share"):         {"SafePath": true},
@@ -987,7 +986,6 @@ func TestSystemPromptHandlerStaysTransportOnly(t *testing.T) {
 	}
 
 	forbiddenImports := map[string]map[string]bool{
-		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/agent"):        {"SetupUserWorkspace": true},
 		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/agent/prompt"): {"BuildSystemPromptFromDB": true},
 		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/config"):       {"StellaHome": true, "Agent": true, "Store": true},
 		localImportName(sessions.file, "github.com/CherryHQ/stella/internal/memory"):       {"SessionManager": true},

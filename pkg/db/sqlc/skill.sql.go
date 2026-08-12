@@ -107,7 +107,8 @@ func (q *Queries) DeleteReflectOwnedUserAgentSkill(ctx context.Context, arg Dele
 const deleteSkill = `-- name: DeleteSkill :exec
 DELETE FROM skill
 WHERE id = $1
-  AND ((scope='system_agent' AND agent_id=$2)
+  AND ((scope='system')
+    OR (scope='system_agent' AND agent_id=$2)
     OR (scope='user'         AND user_id=$3)
     OR (scope='user_agent'   AND user_id=$3 AND agent_id=$2))
 `
@@ -1016,7 +1017,8 @@ SET description              = $1,
     metadata                 = $4,
     updated_at               = now()
 WHERE id = $5
-  AND ((scope='system_agent' AND agent_id=$6)
+  AND ((scope='system')
+    OR (scope='system_agent' AND agent_id=$6)
     OR (scope='user'         AND user_id=$7)
     OR (scope='user_agent'   AND user_id=$7 AND agent_id=$6))
 `

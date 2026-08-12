@@ -57,7 +57,7 @@ Start by understanding the user's intent. The current conversation might already
 
 Proactively ask questions about edge cases, input/output formats, example files, success criteria, and dependencies. Wait to write test prompts until you've got this part ironed out.
 
-Check available MCPs - if useful for research (searching docs, finding similar skills, looking up best practices), research in parallel via delegates if available, otherwise inline. Come prepared with context to reduce burden on the user.
+Check available MCPs. If research would help (searching docs, finding similar skills, or looking up best practices), do it inline or open one focused Session with `session.create`. Focused Session calls are synchronous, so run them sequentially and come prepared with context to reduce burden on the user.
 
 ### Write the SKILL.md
 
@@ -178,9 +178,13 @@ This section is one continuous sequence — don't stop partway through. Do NOT u
 
 Put results in `<skill-name>-workspace/` as a sibling to the skill directory. Within the workspace, organize results by iteration (`iteration-1/`, `iteration-2/`, etc.) and within that, each test case gets a directory (`eval-0/`, `eval-1/`, etc.). Don't create all of this upfront — just create directories as you go.
 
-### Step 1: Spawn all runs (with-skill AND baseline) in the same turn
+### Step 1: Prepare all runs and assertions
 
-For each test case, spawn two delegates in the same turn — one with the skill, one without. This is important: don't spawn the with-skill runs first and then come back for baselines later. Launch everything at once so it all finishes around the same time.
+Create `eval_metadata.json` for every test case and draft its assertions before execution. Keep the with-skill and baseline prompts identical except for the skill input. This prevents later observations from changing the baseline.
+
+### Step 2: Run each focused Session sequentially
+
+For each test case, call `session.create` for the with-skill run, wait for its result, then call `session.create` for the baseline and wait again. Finish both runs before moving to the next test case. The Session surface is synchronous; do not claim or simulate parallel execution. If a run needs a correction, use `session.send` with the returned Session ID.
 
 **With-skill run:**
 
@@ -196,7 +200,7 @@ Execute this task:
 **Baseline run** (same prompt, but the baseline depends on context):
 
 - **Creating a new skill**: no skill at all. Same prompt, no skill path, save to `without_skill/outputs/`.
-- **Improving an existing skill**: the old version. Before editing, snapshot the skill (`cp -r <skill-path> <workspace>/skill-snapshot/`), then point the baseline delegate at the snapshot. Save to `old_skill/outputs/`.
+- **Improving an existing skill**: the old version. Before editing, snapshot the skill (`cp -r <skill-path> <workspace>/skill-snapshot/`), then point the baseline focused Session at the snapshot. Save to `old_skill/outputs/`.
 
 Write an `eval_metadata.json` for each test case (assertions can be empty for now). Give each eval a descriptive name based on what it's testing — not just "eval-0". Use this name for the directory too. If this iteration uses new or modified eval prompts, create these files for each new eval directory — don't assume they carry over from previous iterations.
 
@@ -209,33 +213,30 @@ Write an `eval_metadata.json` for each test case (assertions can be empty for no
 }
 ```
 
-### Step 2: While runs are in progress, draft assertions
+### Step 3: Verify assertions and capture available timing
 
-Don't just wait for the runs to finish — you can use this time productively. Draft quantitative assertions for each test case and explain them to the user. If assertions already exist in `evals/evals.json`, review them and explain what they check.
+Review the assertions drafted before execution and explain what they check. Do not change an assertion merely because a run missed it; changes apply to the next iteration.
 
 Good assertions are objectively verifiable and have descriptive names — they should read clearly in the benchmark viewer so someone glancing at the results immediately understands what each one checks. Subjective skills (writing style, design quality) are better evaluated qualitatively — don't force assertions onto things that need human judgment.
 
 Update the `eval_metadata.json` files and `evals/evals.json` with the assertions once drafted. Also explain to the user what they'll see in the viewer — both the qualitative outputs and the quantitative benchmark.
 
-### Step 3: As runs complete, capture timing data
+If the execution harness reports timing, save it in `timing.json`. The Session tool does not report token usage or duration, so omit unavailable fields instead of inventing them.
 
-When each delegate task completes, you receive a notification containing `total_tokens` and `duration_ms`. Save this data immediately to `timing.json` in the run directory:
+Example when wall-clock duration is available:
 
 ```json
 {
-  "total_tokens": 84852,
   "duration_ms": 23332,
   "total_duration_seconds": 23.3
 }
 ```
 
-This is the only opportunity to capture this data — it comes through the task notification and isn't persisted elsewhere. Process each notification as it arrives rather than trying to batch them.
-
 ### Step 4: Grade, aggregate, and launch the viewer
 
 Once all runs are done:
 
-1. **Grade each run** — spawn a grader delegate (or grade inline) that reads `agents/grader.md` and evaluates each assertion against the outputs. Save results to `grading.json` in each run directory. The grading.json expectations array must use the fields `text`, `passed`, and `evidence` (not `name`/`met`/`details` or other variants) — the viewer depends on these exact field names. For assertions that can be checked programmatically, write and run a script rather than eyeballing it — scripts are faster, more reliable, and can be reused across iterations.
+1. **Grade each run** — grade inline or call `session.create` for one grader at a time. The grader reads `agents/grader.md` and evaluates each assertion against the outputs. Save results to `grading.json` in each run directory. The grading.json expectations array must use the fields `text`, `passed`, and `evidence` (not `name`/`met`/`details` or other variants) — the viewer depends on these exact field names. For assertions that can be checked programmatically, write and run a script rather than eyeballing it — scripts are faster, more reliable, and can be reused across iterations.
 
 2. **Aggregate into benchmark** — run the aggregation script from the skill-creator directory:
    ```bash
@@ -323,7 +324,7 @@ This is the heart of the loop. You've run the test cases, the user has reviewed 
 
 3. **Explain the why.** Try hard to explain the **why** behind everything you're asking the model to do. Today's LLMs are _smart_. They have good theory of mind and when given a good harness can go beyond rote instructions and really make things happen. Even if the feedback from the user is terse or frustrated, try to actually understand the task and why the user is writing what they wrote, and what they actually wrote, and then transmit this understanding into the instructions. If you find yourself writing ALWAYS or NEVER in all caps, or using super rigid structures, that's a yellow flag — if possible, reframe and explain the reasoning so that the model understands why the thing you're asking for is important. That's a more humane, powerful, and effective approach.
 
-4. **Look for repeated work across test cases.** Read the transcripts from the test runs and notice if the delegates all independently wrote similar helper scripts or took the same multi-step approach to something. If all 3 test cases resulted in the delegate writing a `create_docx.py` or a `build_chart.py`, that's a strong signal the skill should bundle that script. Write it once, put it in `scripts/`, and tell the skill to use it. This saves every future invocation from reinventing the wheel.
+4. **Look for repeated work across test cases.** Read the focused Session transcripts and notice if the runs independently wrote similar helper scripts or took the same multi-step approach. If all 3 test cases produced a `create_docx.py` or a `build_chart.py`, that's a strong signal the skill should bundle that script. Write it once, put it in `scripts/`, and tell the skill to use it. This saves every future invocation from reinventing the wheel.
 
 This task is pretty important (we are trying to create billions a year in economic value here!) and your thinking time is not the blocker; take your time and really mull things over. I'd suggest writing a draft revision and then looking at it anew and making improvements. Really do your best to get into the head of the user and understand what they want and need.
 
@@ -349,7 +350,7 @@ Keep going until:
 
 For situations where you want a more rigorous comparison between two versions of a skill (e.g., the user asks "is the new version actually better?"), there's a blind comparison system. Read `agents/comparator.md` and `agents/analyzer.md` for the details. The basic idea is: give two outputs to an independent agent without telling it which is which, and let it judge quality. Then analyze why the winner won.
 
-This is optional, requires delegates, and most users won't need it. The human review loop is usually sufficient.
+This is optional. Run each independent comparison in a focused Session with `session.create`; calls remain sequential. Most users will not need it because the human review loop is usually sufficient.
 
 ---
 
@@ -442,19 +443,19 @@ After packaging, direct the user to the resulting `.skill` file path so they can
 
 ## Claude.ai-specific instructions
 
-In Claude.ai, the core workflow is the same (draft → test → review → improve → repeat), but because Claude.ai doesn't have delegates, some mechanics change. Here's what to adapt:
+In Claude.ai, the core workflow is the same (draft → test → review → improve → repeat), but isolated focused Sessions may be unavailable. Here's what to adapt:
 
-**Running test cases**: No delegates means no parallel execution. For each test case, read the skill's SKILL.md, then follow its instructions to accomplish the test prompt yourself. Do them one at a time. This is less rigorous than independent delegates (you wrote the skill and you're also running it, so you have full context), but it's a useful sanity check — and the human review step compensates. Skip the baseline runs — just use the skill to complete the task as requested.
+**Running test cases**: Without focused Sessions, read the skill's SKILL.md and follow its instructions to accomplish each test prompt yourself, one at a time. This is less rigorous than independent Session runs because you wrote the skill and retain its context, but it is still a useful sanity check. Skip baseline runs and use the skill to complete the task as requested.
 
 **Reviewing results**: If you can't open a browser (e.g., Claude.ai's VM has no display, or you're on a remote server), skip the browser reviewer entirely. Instead, present results directly in the conversation. For each test case, show the prompt and the output. If the output is a file the user needs to see (like a .docx or .xlsx), save it to the filesystem and tell them where it is so they can download and inspect it. Ask for feedback inline: "How does this look? Anything you'd change?"
 
-**Benchmarking**: Skip the quantitative benchmarking — it relies on baseline comparisons which aren't meaningful without delegates. Focus on qualitative feedback from the user.
+**Benchmarking**: Skip quantitative benchmarking because baseline comparisons are not meaningful without isolated runs. Focus on qualitative feedback from the user.
 
 **The iteration loop**: Same as before — improve the skill, rerun the test cases, ask for feedback — just without the browser reviewer in the middle. You can still organize results into iteration directories on the filesystem if you have one.
 
 **Description optimization**: This section requires the `claude` CLI tool (specifically `claude -p`) which is only available in Claude Code. Skip it if you're on Claude.ai.
 
-**Blind comparison**: Requires delegates. Skip it.
+**Blind comparison**: Requires independent focused Sessions. Skip it.
 
 **Packaging**: The `package_skill.py` script works anywhere with Python and a filesystem. On Claude.ai, you can run it and the user can download the resulting `.skill` file.
 
@@ -470,7 +471,7 @@ In Claude.ai, the core workflow is the same (draft → test → review → impro
 
 If you're in Cowork, the main things to know are:
 
-- You have delegates, so the main workflow (spawn test cases in parallel, run baselines, grade, etc.) all works. (However, if you run into severe problems with timeouts, it's OK to run the test prompts in series rather than parallel.)
+- Use `session.create` for focused test and grading runs. Calls are synchronous, so run the with-skill and baseline cases sequentially in the fixed order described above.
 - You don't have a browser or display, so when generating the eval viewer, use `--static <output_path>` to write a standalone HTML file instead of starting a server. Then proffer a link that the user can click to open the HTML in their browser.
 - For whatever reason, the Cowork setup seems to disincline Claude from generating the eval viewer after running the tests, so just to reiterate: whether you're in Cowork or in Claude Code, after running tests, you should always generate the eval viewer for the human to look at examples before revising the skill yourself and trying to make corrections, using `generate_review.py` (not writing your own boutique html code). Sorry in advance but I'm gonna go all caps here: GENERATE THE EVAL VIEWER _BEFORE_ evaluating inputs yourself. You want to get them in front of the human ASAP!
 - Feedback works differently: since there's no running server, the viewer's "Submit All Reviews" button will download `feedback.json` as a file. You can then read it from there (you may have to request access first).
@@ -482,7 +483,7 @@ If you're in Cowork, the main things to know are:
 
 ## Reference files
 
-The agents/ directory contains instructions for specialized delegates. Read them when you need to spawn the relevant delegate.
+The agents/ directory contains instructions for specialized focused Sessions. Read the relevant file before starting that Session with `session.create`.
 
 - `agents/grader.md` — How to evaluate assertions against outputs
 - `agents/comparator.md` — How to do blind A/B comparison between two outputs

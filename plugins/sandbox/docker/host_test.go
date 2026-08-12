@@ -211,23 +211,21 @@ func TestTranslateEnvPaths(t *testing.T) {
 	}
 
 	env := map[string]string{
-		"PATH":                     "/host/tools/bin:/usr/bin", // host-only — should drop
-		"STELLA_USER_DIR":          "/host/data",               // removed — always drop
-		"HOME":                     "/host/workspace",          // mounted — should translate
-		"XDG_CONFIG_HOME":          "/host/data/.config",
-		"XDG_DATA_HOME":            "/host/data/.local/share",
-		"XDG_STATE_HOME":           "/host/data/.local/state",
-		"XDG_CACHE_HOME":           "/host/data/.cache",
-		"STELLA_HOME":              "/host/.stella",     // envMap — should translate
-		"STELLA_ASSETS_DIR":        "/host/data/assets", // mounted at /user — should translate
-		"TMPDIR":                   "/host/tmp",         // mounted at /tmp — should translate
-		"WORKING_DIR":              "/host/workspace",   // unknown key — absolute-looking literal
-		"ABSOLUTE_SECRET":          "/host/secret",      // unknown key — must remain literal
-		"MISE_CACHE_DIR":           "/outside/cache",    // declared path — unmapped, so drop
-		"LARKSUITE_CLI_CONFIG_DIR": "/host/data/.lark-cli",
-		"LARKSUITE_CLI_DATA_DIR":   "/host/data/.lark-cli/data",
-		"TERM":                     "xterm-256color", // non-path — pass through
-		"LANG":                     "en_US.UTF-8",    // non-path — pass through
+		"PATH":              "/host/tools/bin:/usr/bin", // host-only — should drop
+		"STELLA_USER_DIR":   "/host/data",               // removed — always drop
+		"HOME":              "/host/workspace",          // mounted — should translate
+		"XDG_CONFIG_HOME":   "/host/data/.config",
+		"XDG_DATA_HOME":     "/host/data/.local/share",
+		"XDG_STATE_HOME":    "/host/data/.local/state",
+		"XDG_CACHE_HOME":    "/host/data/.cache",
+		"STELLA_HOME":       "/host/.stella",     // envMap — should translate
+		"STELLA_ASSETS_DIR": "/host/data/assets", // mounted at /user — should translate
+		"TMPDIR":            "/host/tmp",         // mounted at /tmp — should translate
+		"WORKING_DIR":       "/host/workspace",   // unknown key — absolute-looking literal
+		"ABSOLUTE_SECRET":   "/host/secret",      // unknown key — must remain literal
+		"MISE_CACHE_DIR":    "/outside/cache",    // declared path — unmapped, so drop
+		"TERM":              "xterm-256color",    // non-path — pass through
+		"LANG":              "en_US.UTF-8",       // non-path — pass through
 	}
 
 	got := translateEnvPaths(env, mounts, envMaps)
@@ -265,12 +263,6 @@ func TestTranslateEnvPaths(t *testing.T) {
 	}
 	if _, ok := got["MISE_CACHE_DIR"]; ok {
 		t.Errorf("unmapped declared host path must be dropped, got %q", got["MISE_CACHE_DIR"])
-	}
-	if got["LARKSUITE_CLI_CONFIG_DIR"] != "/user/.lark-cli" {
-		t.Errorf("LARKSUITE_CLI_CONFIG_DIR: got %q, want /user/.lark-cli", got["LARKSUITE_CLI_CONFIG_DIR"])
-	}
-	if got["LARKSUITE_CLI_DATA_DIR"] != "/user/.lark-cli/data" {
-		t.Errorf("LARKSUITE_CLI_DATA_DIR: got %q, want /user/.lark-cli/data", got["LARKSUITE_CLI_DATA_DIR"])
 	}
 	if got["TERM"] != "xterm-256color" {
 		t.Errorf("TERM: got %q, want xterm-256color", got["TERM"])

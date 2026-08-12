@@ -18,7 +18,7 @@ import (
 // Its identity is the message's physical delivery coordinates — channel
 // instance, physical chat, message id — never routing state. Which agent the
 // command executed against can change between delivery and redelivery
-// (`/agent`, link changes), and the same physical message must stay the same
+// (link changes and channel reconfiguration), and the same physical message must stay the same
 // message across that: a routing-derived key would let a redelivery execute a
 // second time against the new target.
 //

@@ -57,11 +57,12 @@ in the Web UI yet.
 
 Open the **Channels** page to connect messaging platforms. You can create multiple instances of the same platform (e.g. two Telegram bots for different agents).
 
-Each channel instance can optionally be bound to a specific agent. If unbound, users can switch agents with the `/agent` command.
+Each channel instance can optionally be bound to a specific agent in the Web UI.
 
 See the channel guides for setup instructions:
 
 - [Telegram](/docs/channels/telegram)
+- [Discord](/docs/channels/discord)
 - [QQ](/docs/channels/qq)
 - [Feishu](/docs/channels/feishu)
 - [WeChat](/docs/channels/weixin)
@@ -80,12 +81,12 @@ Users are created automatically when someone messages a connected channel. Each 
 
 The runner controls how the agent processes messages. You can configure these from the Web UI **Settings** page:
 
-| Setting              | Default       | Description                                               |
-| -------------------- | ------------- | --------------------------------------------------------- |
-| Idle timeout         | 10 min        | Time before idle agent sessions are cleaned up            |
-| Delegate timeout     | 15 min        | Maximum time for delegated tasks                          |
-| Compaction threshold | 80,000 tokens | Auto-compress history when it exceeds this size           |
-| Keep recent messages | 20            | Number of recent messages kept verbatim after compression |
+| Setting                 | Default       | Description                                               |
+| ----------------------- | ------------- | --------------------------------------------------------- |
+| Idle timeout            | 10 min        | Time before idle agent sessions are cleaned up            |
+| Focused session timeout | 15 min        | Maximum time for a synchronous `session.create/send` run  |
+| Compaction threshold    | 80,000 tokens | Auto-compress history when it exceeds this size           |
+| Keep recent messages    | 20            | Number of recent messages kept verbatim after compression |
 
 ## Directory Layout
 

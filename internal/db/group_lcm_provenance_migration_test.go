@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	groupLCMBeforeMigration = 90000000000003
-	groupLCMMigration       = 90000000000006
+	groupLCMBeforeMigration = 90000000000012
+	groupLCMMigration       = 90000000000015
 )
 
 func TestGroupLCMProvenanceMigrationLeavesLegacyRowsUnbackfilled(t *testing.T) {

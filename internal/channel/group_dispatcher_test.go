@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -70,13 +71,12 @@ func newDispatcherFixture(t *testing.T, platform, envelope string) dispatcherFix
 	q := sqlc.New(db)
 	ctx := context.Background()
 	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
-		ID:                   "agent-1",
-		Name:                 "Agent One",
-		Workspace:            t.TempDir(),
-		Sandbox:              json.RawMessage("{}"),
-		EnabledBuiltinSkills: json.RawMessage("[]"),
-		Scope:                "system",
-		Enabled:              true,
+		ID:        "agent-1",
+		Name:      "Agent One",
+		Workspace: t.TempDir(),
+		Sandbox:   json.RawMessage("{}"),
+		Scope:     "system",
+		Enabled:   true,
 	}); err != nil {
 		t.Fatalf("create agent: %v", err)
 	}
@@ -108,7 +108,7 @@ func newDispatcherFixture(t *testing.T, platform, envelope string) dispatcherFix
 		ID:        "a1a1a1a1-0000-0000-0000-000000000001",
 		GroupID:   state.ID,
 		Seq:       1,
-		ActorType: "human",
+		ActorType: string(eventlog.ActorHuman),
 		ActorID:   "user-1",
 		Content:   "hello",
 	})
@@ -165,7 +165,7 @@ func createGroupMessageWithSeq(t *testing.T, q *sqlc.Queries, groupID, id string
 		ID:        id,
 		GroupID:   groupID,
 		Seq:       seq,
-		ActorType: "human",
+		ActorType: string(eventlog.ActorHuman),
 		ActorID:   "user-1",
 		Content:   "hello",
 	})
@@ -281,7 +281,7 @@ func TestListPendingGroupDispatchGateIsPerGroupAgent(t *testing.T) {
 		t.Fatalf("complete outbox: %v", err)
 	}
 	now := time.Now().UTC()
-	if _, err := fx.q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: "agent-2", Name: "Agent Two", Workspace: t.TempDir(), Sandbox: json.RawMessage("{}"), EnabledBuiltinSkills: json.RawMessage("[]"), Scope: "system", Enabled: true}); err != nil {
+	if _, err := fx.q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: "agent-2", Name: "Agent Two", Workspace: t.TempDir(), Sandbox: json.RawMessage("{}"), Scope: "system", Enabled: true}); err != nil {
 		t.Fatalf("create agent-2: %v", err)
 	}
 	state2, err := fx.q.CreateGroupState(ctx, sqlc.CreateGroupStateParams{ID: "22222222-2222-2222-2222-222222222222", Platform: "web", PlatformGroupID: "physical-group-2", GroupName: "Group Two"})

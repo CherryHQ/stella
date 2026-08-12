@@ -23,6 +23,16 @@ func (r *BotIdentityRegistry) Register(platform, platformBotID, channelID string
 	r.entries[platform+"\x00"+platformBotID] = channelID
 }
 
+// Unregister removes a bot identity only when it still belongs to channelID.
+func (r *BotIdentityRegistry) Unregister(platform, platformBotID, channelID string) {
+	key := platform + "\x00" + platformBotID
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.entries[key] == channelID {
+		delete(r.entries, key)
+	}
+}
+
 // ChannelIDForBot returns the channel that owns the bot identified by
 // (platform, platformBotID). Returns ("", false) if unknown.
 func (r *BotIdentityRegistry) ChannelIDForBot(platform, platformBotID string) (string, bool) {

@@ -1,29 +1,25 @@
 package main
 
 import (
-	"slices"
+	"context"
 	"testing"
+
+	"github.com/CherryHQ/stella/internal/agent"
 )
 
-func TestStructuredGroupMemoryToolExcludesPrivateActions(t *testing.T) {
-	want := []string{"status", "search", "describe", "expand", "get_message"}
-	if !slices.Equal(structuredGroupMemoryActions, want) {
-		t.Fatalf("structured group memory actions = %v, want %v", structuredGroupMemoryActions, want)
+func TestModelMemoryToolAvailability(t *testing.T) {
+	if got := modelMemoryToolAvailability(false); got != nil {
+		t.Fatal("legacy mode unexpectedly restricts the model memory tool")
 	}
-	for _, private := range []string{
-		"profile_get",
-		"profile_update",
-		"profile_history",
-		"profile_rollback",
-		"soul_get",
-		"soul_update",
-		"constraint_list",
-		"constraint_add",
-		"constraint_remove",
-		"search_knowledge",
-	} {
-		if slices.Contains(structuredGroupMemoryActions, private) {
-			t.Fatalf("structured group memory exposed private action %q", private)
-		}
+
+	available := modelMemoryToolAvailability(true)
+	if available == nil {
+		t.Fatal("structured mode did not install a memory tool boundary")
+	}
+	if !available(context.Background(), agent.RunnerParams{UserID: "user-1", AgentID: "agent-1"}) {
+		t.Fatal("structured mode hid the model memory tool from a DM")
+	}
+	if available(context.Background(), agent.RunnerParams{UserID: "group-1", GroupID: "group-1", AgentID: "agent-1"}) {
+		t.Fatal("structured mode exposed the model memory tool to a group")
 	}
 }

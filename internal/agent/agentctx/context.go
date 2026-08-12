@@ -1,6 +1,21 @@
 package agentctx
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"slices"
+	"sync/atomic"
+)
+
+// MaxCallDepth bounds synchronous Session/delegate nesting. Raise it only when
+// real workflows need deeper collaboration and root turn budgets still bound
+// the resulting fan-out safely.
+const MaxCallDepth = 4
+
+// MaxTotalSessionCalls bounds sibling fan-out across one root turn. Raise it
+// only when measured workflows need more focused calls and the root timeout
+// remains a sufficient aggregate cost bound.
+const MaxTotalSessionCalls = 16
 
 type (
 	systemOverrideKey struct{}
@@ -8,7 +23,108 @@ type (
 	excludedToolsKey  struct{}
 	chatBindingKey    struct{}
 	turnKey           struct{}
+	sessionCallKey    struct{}
+	sessionBudgetKey  struct{}
 )
+
+type sessionCallBudget struct{ used atomic.Int32 }
+
+// SessionCall is the live synchronous Session-call chain. It is deliberately
+// context-only: the caller and every child die together, so persistence would
+// create replay risk rather than durability.
+type SessionCall struct {
+	Depth    int
+	Ancestry []string
+}
+
+// EnterSessionCall increments nesting and optionally appends a known target.
+// sourceSessionID seeds a top-level chain; inherited chains already contain it.
+func EnterSessionCall(ctx context.Context, sourceSessionID, targetSessionID string) (context.Context, error) {
+	ctx, budget := withSessionCallBudget(ctx)
+	if !chargeSessionCall(budget) {
+		return ctx, fmt.Errorf("session call budget exhausted (maximum %d calls per root turn)", MaxTotalSessionCalls)
+	}
+	call, _ := SessionCallFromContext(ctx)
+	if len(call.Ancestry) == 0 && sourceSessionID != "" {
+		call.Ancestry = append(call.Ancestry, sourceSessionID)
+	}
+	if call.Depth >= MaxCallDepth {
+		return ctx, fmt.Errorf("session call depth limit reached (maximum %d)", MaxCallDepth)
+	}
+	call.Depth++
+	if targetSessionID != "" {
+		if slices.Contains(call.Ancestry, targetSessionID) {
+			return ctx, fmt.Errorf("session call cycle detected: target session %s is already in the active ancestry", targetSessionID)
+		}
+		call.Ancestry = append(call.Ancestry, targetSessionID)
+	}
+	return withSessionCall(ctx, call), nil
+}
+
+// WithSessionCallBudget allocates the shared call counter at a root runtime
+// turn. Nested turns retain the same pointer through context inheritance.
+func WithSessionCallBudget(ctx context.Context) context.Context {
+	ctx, _ = withSessionCallBudget(ctx)
+	return ctx
+}
+
+func withSessionCallBudget(ctx context.Context) (context.Context, *sessionCallBudget) {
+	if budget, ok := ctx.Value(sessionBudgetKey{}).(*sessionCallBudget); ok {
+		return ctx, budget
+	}
+	budget := &sessionCallBudget{}
+	return context.WithValue(ctx, sessionBudgetKey{}, budget), budget
+}
+
+func chargeSessionCall(budget *sessionCallBudget) bool {
+	for {
+		used := budget.used.Load()
+		if used >= MaxTotalSessionCalls {
+			return false
+		}
+		if budget.used.CompareAndSwap(used, used+1) {
+			return true
+		}
+	}
+}
+
+// BindSessionCallTarget adds a target resolved after call entry (session.create).
+// Binding the current tail is idempotent for known-target send paths.
+func BindSessionCallTarget(ctx context.Context, targetSessionID string) (context.Context, error) {
+	if targetSessionID == "" {
+		return ctx, nil
+	}
+	call, ok := SessionCallFromContext(ctx)
+	if !ok {
+		return ctx, nil
+	}
+	if len(call.Ancestry) > 0 && call.Ancestry[len(call.Ancestry)-1] == targetSessionID {
+		return ctx, nil
+	}
+	if slices.Contains(call.Ancestry, targetSessionID) {
+		return ctx, fmt.Errorf("session call cycle detected: target session %s is already in the active ancestry", targetSessionID)
+	}
+	call.Ancestry = append(call.Ancestry, targetSessionID)
+	return withSessionCall(ctx, call), nil
+}
+
+func withSessionCall(ctx context.Context, call SessionCall) context.Context {
+	call.Ancestry = append([]string(nil), call.Ancestry...)
+	return context.WithValue(ctx, sessionCallKey{}, call)
+}
+
+// SessionCallFromContext returns a defensive copy of the active call chain.
+func SessionCallFromContext(ctx context.Context) (SessionCall, bool) {
+	if ctx == nil {
+		return SessionCall{}, false
+	}
+	call, ok := ctx.Value(sessionCallKey{}).(SessionCall)
+	if !ok {
+		return SessionCall{}, false
+	}
+	call.Ancestry = append([]string(nil), call.Ancestry...)
+	return call, true
+}
 
 // ChatBinding describes the durable channel binding a chat turn entered
 // through. Only the chat channel adapters attach it, so its absence is the

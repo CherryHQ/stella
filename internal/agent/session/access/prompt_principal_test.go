@@ -7,6 +7,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -18,6 +19,20 @@ func (promptTestAgents) GetPromptAgent(context.Context, string) (PromptAgent, er
 }
 
 type promptTestProjects struct{}
+
+type promptTestWorkspace struct{ root string }
+
+func (w promptTestWorkspace) WorkspaceView(_ context.Context, req home.WorkspaceRequest) (home.WorkspaceView, error) {
+	if req.GroupID != "" {
+		principal := filepath.Join(w.root, "users", "group-"+req.GroupID)
+		return home.WorkspaceView{PrincipalRoot: principal, AgentRoot: filepath.Join(principal, "agents", req.AgentID)}, nil
+	}
+	if req.UserID != "" {
+		principal := filepath.Join(w.root, "users", req.UserID)
+		return home.WorkspaceView{PrincipalRoot: principal, AgentRoot: filepath.Join(principal, "agents", req.AgentID)}, nil
+	}
+	return home.WorkspaceView{}, nil
+}
 
 func (promptTestProjects) ProjectRoot(context.Context, string, string) (string, error) {
 	return "", nil
@@ -55,7 +70,7 @@ func TestAuthorizedPromptUsesPrincipalWorkspace(t *testing.T) {
 				Memory:     memorytest.New(),
 				Agents:     promptTestAgents{},
 				Projects:   promptTestProjects{},
-				Workspace:  AgentPromptWorkspace{},
+				Workspace:  promptTestWorkspace{root: stellaHome},
 				Plugins:    promptTestPlugins{build: &build},
 				SkillStore: agentSkillStore{},
 				Skills: func(context.Context, pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {

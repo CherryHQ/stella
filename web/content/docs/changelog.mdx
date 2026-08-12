@@ -11,10 +11,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- Upgraded deployments now restore Stella-managed Lark/Feishu credentials to new `lark-cli` sessions instead of letting a legacy plugin override hide the token, App ID, and brand environment variables. Stella also stops forcing the retired user-managed CLI config and data directories. ([#987](https://github.com/CherryHQ/stella/pull/987), [#986](https://github.com/CherryHQ/stella/issues/986))
+
+## [0.63.3] - 2026-08-11
+
 ### ✨ Features
 
-- Enterprise integrations can now create passwordless, API-only provisioned users through a restricted, expiring provisioning token. Administrators create, copy, revoke, and manage planned credential rotation in Settings; user creation and rotation return bearer secrets once, preserve unrelated personal tokens, and deactivation revokes sessions and every token through the normal account lockdown lifecycle. ([#891](https://github.com/CherryHQ/stella/issues/891))
-- Personal access tokens now inherit their owner's current account permissions, including admin authority. Creating a token no longer requires API scopes, existing tokens adopt the new behavior automatically, and the account UI is reduced to naming and creating the token. To prevent credential multiplication or account takeover, PATs cannot manage authentication credentials, browser sessions, identities, roles, or account activation. OAuth access tokens remain scoped. ([#889](https://github.com/CherryHQ/stella/issues/889))
+- Agents now use one bounded Session interface to find, inspect, create, and send to their own execution threads. Busy targets queue synchronously, message actors are persisted by the runtime, and nested calls enforce depth, ancestry, and inherited tool exclusions. ([#962](https://github.com/CherryHQ/stella/pull/962), [#958](https://github.com/CherryHQ/stella/issues/958))
+- Agents can now ask for additional OAuth permissions for one user on demand. A provider's configured scopes are the minimum every connection requests, each user's own added scopes are remembered across authorizations, and only that user re-authorizes — other connections are untouched. Requested, granted, and missing permissions are visible per connection, and a missing grant produces an actionable reconnect state. ([#978](https://github.com/CherryHQ/stella/pull/978), [#977](https://github.com/CherryHQ/stella/issues/977))
+- Lark and Feishu return as Stella-managed OAuth providers, with the bundled Lark CLI's full permission set recommended by default so one authorization covers its documented commands. Users connect from the Web UI or chat without host-shell access, and the app secret is never exposed to the agent or its sandbox. ([#978](https://github.com/CherryHQ/stella/pull/978), [#977](https://github.com/CherryHQ/stella/issues/977))
+
+### 🐛 Bug Fixes
+
+- An Agent's Channels tab now shows only channels bound to that Agent, removing cross-Agent bind and transfer actions from the Agent-scoped inventory while preserving channel creation, editing, account linking, and confirmed unbinding. ([#982](https://github.com/CherryHQ/stella/pull/982), [#981](https://github.com/CherryHQ/stella/issues/981))
+
+**Full Changelog**: [v0.63.2...v0.63.3](https://github.com/CherryHQ/stella/compare/v0.63.2...v0.63.3)
+
+## [0.63.2] - 2026-08-09
+
+### 🔐 Security
+
+- Delegated Agent runs can no longer regain control-plane tools excluded by an ancestor, including through a preset allowlist. ([#961](https://github.com/CherryHQ/stella/pull/961), [#677](https://github.com/CherryHQ/stella/issues/677))
+
+### 🐛 Bug Fixes
+
+- Discord group channels now honor their configured Agent binding for unlinked server members while preserving private-message and linked-user authorization. ([#954](https://github.com/CherryHQ/stella/pull/954), [#953](https://github.com/CherryHQ/stella/issues/953))
+- Agent owners can again manage their own channels and applicable Agent settings, while goal lists stay scoped to their owner. Custom manifest plugins can also be removed instead of becoming permanent after a mistaken setup. ([#956](https://github.com/CherryHQ/stella/pull/956), [#955](https://github.com/CherryHQ/stella/issues/955), [#957](https://github.com/CherryHQ/stella/issues/957))
+- Successful local and single sign-on authentication now opens the Agents page instead of a removed provider route. ([#966](https://github.com/CherryHQ/stella/pull/966), [#965](https://github.com/CherryHQ/stella/issues/965))
+- Editing a built-in plugin now stores only the changed fields, so untouched settings continue to inherit improvements from future Stella releases. Administrators can reset a customization to its shipped default, and existing full-definition overrides remain compatible. ([#964](https://github.com/CherryHQ/stella/pull/964), [#963](https://github.com/CherryHQ/stella/issues/963))
+
+### ♻️ Refactoring
+
+- Manifest plugin definitions now have concrete Go, OpenAPI, and generated TypeScript contracts separate from resolved runtime state. ([#968](https://github.com/CherryHQ/stella/pull/968), [#967](https://github.com/CherryHQ/stella/issues/967))
+
+### 🔧 CI
+
+- Web builds now use one deterministic Vite+ and pnpm version path across local development, CI, and Docker, including non-interactive dependency installation. ([#970](https://github.com/CherryHQ/stella/pull/970), [#969](https://github.com/CherryHQ/stella/issues/969))
+
+**Full Changelog**: [v0.63.1...v0.63.2](https://github.com/CherryHQ/stella/compare/v0.63.1...v0.63.2)
+
+## [0.63.1] - 2026-08-08
+
+### 🔧 CI
+
+- Releases now use maintained `release/vX.Y` branches, so each minor line has a stable base for patch releases while `main` remains the default development branch. Tag validation rejects commits outside the matching branch and runs quality/build, Go and Web tests, the System Test, and release packaging in parallel. Feature branches also avoid duplicate push and pull-request checks. ([#948](https://github.com/CherryHQ/stella/pull/948), [#947](https://github.com/CherryHQ/stella/issues/947))
+
+**Full Changelog**: [v0.63.0...v0.63.1](https://github.com/CherryHQ/stella/compare/v0.63.0...v0.63.1)
+
+## [0.63.0] - 2026-08-08
+
+### ✨ Features
+
+- Knowledge now has an immutable snapshot storage core and a deterministic derivation lifecycle for PDF, DOCX, Markdown, and text files. Publication, deletion, cleanup, and recovery remain atomic or retry-safe across PostgreSQL and raw object storage. This is backend groundwork for the upcoming Knowledge management and retrieval surfaces. ([#779](https://github.com/CherryHQ/stella/pull/779), [#855](https://github.com/CherryHQ/stella/pull/855), [#841](https://github.com/CherryHQ/stella/issues/841))
+- Enterprise integrations can create passwordless, API-only managed users through restricted, expiring provisioning tokens. Administrators can create, copy, rotate, and revoke those credentials in Settings. User creation and rotation return bearer secrets once, preserve unrelated personal tokens, and deactivation revokes sessions and every token through the normal account lockdown lifecycle. ([#892](https://github.com/CherryHQ/stella/pull/892), [#893](https://github.com/CherryHQ/stella/pull/893), [#899](https://github.com/CherryHQ/stella/pull/899), [#891](https://github.com/CherryHQ/stella/issues/891))
+- Personal access tokens now inherit their owner's current account permissions, including admin authority. Creating a token no longer requires API scopes, existing tokens adopt the new behavior automatically, and the account UI now asks only for a name. PATs still cannot manage authentication credentials, browser sessions, identities, roles, or account activation. OAuth access tokens remain scoped. ([#890](https://github.com/CherryHQ/stella/pull/890), [#889](https://github.com/CherryHQ/stella/issues/889))
+- Feishu can automatically provision verified tenant members as Stella users while preserving the existing account-linking and administrator controls. ([#753](https://github.com/CherryHQ/stella/pull/753), [#751](https://github.com/CherryHQ/stella/issues/751))
+- Discord is now a built-in channel with direct-message and guild controls, mention gates, allowlists, and opt-in persistent guest sessions. Guest sessions use restricted principals, rate limits, retention, compaction, and per-channel caps instead of shadow Stella users. ([#903](https://github.com/CherryHQ/stella/pull/903), [#921](https://github.com/CherryHQ/stella/pull/921), [#900](https://github.com/CherryHQ/stella/issues/900), [#920](https://github.com/CherryHQ/stella/issues/920))
+- Chat turns now survive navigation and expose durable queued, running, waiting, failed, and completed activity. Agents can also list and inspect their own sessions and goal execution state for ongoing work. ([#902](https://github.com/CherryHQ/stella/pull/902), [#938](https://github.com/CherryHQ/stella/pull/938), [#940](https://github.com/CherryHQ/stella/pull/940), [#901](https://github.com/CherryHQ/stella/issues/901), [#937](https://github.com/CherryHQ/stella/issues/937), [#939](https://github.com/CherryHQ/stella/issues/939))
+- The Web UI and agent guidance now organize work around Conversations and Work, with sessions and goals as the two places where work lives. The Work page uses one vocabulary for active, scheduled, repeatable, and historical work. ([#922](https://github.com/CherryHQ/stella/pull/922), [#923](https://github.com/CherryHQ/stella/pull/923), [#908](https://github.com/CherryHQ/stella/issues/908))
+
+### 🔐 Security
+
+- Telegram and Feishu now enforce fail-closed controls for private messages, group allowlists, mention requirements, and opt-in restricted guest access before downloading media or dispatching work. ([#935](https://github.com/CherryHQ/stella/pull/935), [#932](https://github.com/CherryHQ/stella/issues/932))
+
+### 🐛 Bug Fixes
+
+- The Web UI now renders structured API errors, long identifiers, machine-authored conversations, markdown, and session activity without silent failures or unreadable layouts. ([#896](https://github.com/CherryHQ/stella/pull/896), [#934](https://github.com/CherryHQ/stella/pull/934), [#895](https://github.com/CherryHQ/stella/issues/895), [#898](https://github.com/CherryHQ/stella/issues/898), [#933](https://github.com/CherryHQ/stella/issues/933))
+- Provider tool calls keep their emitted order through streaming, execution, events, and persisted history. Provider prompt-cache usage is also reported in usage logs and OpenTelemetry spans. ([#931](https://github.com/CherryHQ/stella/pull/931), [#930](https://github.com/CherryHQ/stella/issues/930))
+- The sandbox restores missing managed temporary mount sources before execution, so cleanup or a host restart no longer leaves otherwise valid sandboxes unable to start. ([#942](https://github.com/CherryHQ/stella/pull/942), [#941](https://github.com/CherryHQ/stella/issues/941))
+
+### 🔧 CI
+
+- Contributors and agents can create disposable Stella testbeds with isolated ports, state, logs, and browser-ready credentials for repeatable UI and API verification. ([#907](https://github.com/CherryHQ/stella/pull/907), [#905](https://github.com/CherryHQ/stella/issues/905))
+
+### 📝 Documentation
+
+- The Web UI testing rules now cover testbed port overrides, login fallback, state seeding, and the difference between DOM presence and visible, styled output. ([#926](https://github.com/CherryHQ/stella/pull/926), [#925](https://github.com/CherryHQ/stella/issues/925))
+
+### 📦 Dependencies
+
+- Updated Mermaid from 11.15.0 to 11.16.1. ([#927](https://github.com/CherryHQ/stella/pull/927))
+
+**Full Changelog**: [v0.62.0...v0.63.0](https://github.com/CherryHQ/stella/compare/v0.62.0...v0.63.0)
 
 ## [0.62.0] - 2026-08-05
 

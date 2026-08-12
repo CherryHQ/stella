@@ -15,9 +15,9 @@ import (
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/eventlog"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -32,9 +32,15 @@ type channelAuthStore interface {
 	ListUserAgentIDs(ctx context.Context, userID string) ([]string, error)
 }
 
+// feishuEnroller is the auth-owned admission boundary for verified Feishu
+// members. The coordinator translates the plugin-neutral request only.
+type feishuEnroller interface {
+	Enroll(ctx context.Context, input auth.FeishuEnrollmentInput) (auth.FeishuEnrollmentResult, error)
+}
+
 // Coordinator implements pkgchannel.Handler. It owns all business logic
 // that channels previously called directly: user/agent resolution, session
-// management, command handling, account linking, and model/agent switching.
+// management, command handling, and account linking.
 // A per-session message queue ensures that only one chat turn runs at a time
 // per resolved Stella session; later messages are serialised in arrival order.
 // userInvalidator is satisfied by *agent.PoolManager so the coordinator can
@@ -48,6 +54,7 @@ type Coordinator struct {
 	invalidator          userInvalidator
 	store                config.Store
 	auth                 channelAuthStore
+	feishuEnroller       feishuEnroller
 	agentAccess          *agentaccess.Service
 	linkCodes            *auth.LinkCodeStore
 	vaultRecipient       *age.X25519Recipient
@@ -66,10 +73,22 @@ type Coordinator struct {
 	groupDispatcher      *GroupDispatcher
 	db                   *pgxpool.Pool
 	assets               *asset.Store
+	guests               GuestStore
+	guestLimiter         *guestRateLimiter
+	homes                home.WorkspaceViewer
+}
+
+// WithGuestStore enables durable unlinked channel principals.
+func WithGuestStore(store GuestStore) CoordinatorOption {
+	return func(c *Coordinator) { c.guests = store }
 }
 
 // CoordinatorOption configures the Coordinator.
 type CoordinatorOption func(*Coordinator)
+
+func WithHomeWorkspace(viewer home.WorkspaceViewer) CoordinatorOption {
+	return func(c *Coordinator) { c.homes = viewer }
+}
 
 // WithCoordinatorAuth configures the coordinator with auth support.
 func WithCoordinatorAuth(store channelAuthStore, agentAccess *agentaccess.Service, linkCodes *auth.LinkCodeStore) CoordinatorOption {
@@ -77,6 +96,15 @@ func WithCoordinatorAuth(store channelAuthStore, agentAccess *agentaccess.Servic
 		c.auth = store
 		c.agentAccess = agentAccess
 		c.linkCodes = linkCodes
+	}
+}
+
+// WithFeishuEnrollment configures verified-member enrollment. It is separate
+// from identity lookup because only the composition root may supply the
+// transactional auth service.
+func WithFeishuEnrollment(enroller feishuEnroller) CoordinatorOption {
+	return func(c *Coordinator) {
+		c.feishuEnroller = enroller
 	}
 }
 
@@ -108,6 +136,7 @@ func NewCoordinator(
 		listFn:         listFn,
 		switchFn:       switchFn,
 		queue:          newSessionQueue(),
+		guestLimiter:   newGuestRateLimiter(),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -216,20 +245,58 @@ func (c *Coordinator) EnsurePlatformGroupMember(ctx context.Context, platform, p
 	if err != nil {
 		return fmt.Errorf("resolve group: %w", err)
 	}
-	ch, err := c.store.GetChannel(ctx, channelID)
+	tx, err := c.db.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("get channel %q: %w", channelID, err)
+		return fmt.Errorf("begin group member update: %w", err)
 	}
-	if ch.AgentID == "" {
-		return fmt.Errorf("channel %q has no agent", channelID)
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := sqlc.New(tx)
+	lockedChannel, err := q.GetChannelForUpdate(ctx, channelID)
+	if err != nil {
+		return fmt.Errorf("lock channel %q: %w", channelID, err)
 	}
-	q := sqlc.New(c.db)
+	if !lockedChannel.AgentID.Valid {
+		return fmt.Errorf("channel %q has no bound agent", channelID)
+	}
+	ch := config.Channel{
+		ID:      lockedChannel.ID,
+		Type:    lockedChannel.Type,
+		AgentID: lockedChannel.AgentID.String,
+		Enabled: lockedChannel.Enabled,
+	}
+	if err := validateGroupChannel(ch, platform, ch.AgentID); err != nil {
+		return fmt.Errorf("channel %q cannot join platform group: %w", channelID, err)
+	}
+	boundAgent, err := q.GetAgent(ctx, ch.AgentID)
+	if err != nil {
+		return fmt.Errorf("get channel agent %q: %w", ch.AgentID, err)
+	}
+	if !boundAgent.Enabled {
+		return fmt.Errorf("channel agent %q is disabled", ch.AgentID)
+	}
+	if _, err := q.GetGroupStateByIDForUpdate(ctx, groupID); err != nil {
+		return fmt.Errorf("lock group: %w", err)
+	}
+	members, err := q.ListGroupMembers(ctx, groupID)
+	if err != nil {
+		return fmt.Errorf("list group members: %w", err)
+	}
+	for _, member := range members {
+		if member.ReplyChannelID == channelID && member.AgentID != ch.AgentID {
+			if err := q.RemoveGroupMember(ctx, sqlc.RemoveGroupMemberParams{GroupID: groupID, AgentID: member.AgentID}); err != nil {
+				return fmt.Errorf("remove stale group member: %w", err)
+			}
+		}
+	}
 	if _, err := q.AddGroupMember(ctx, sqlc.AddGroupMemberParams{
 		GroupID:        groupID,
 		AgentID:        ch.AgentID,
 		ReplyChannelID: channelID,
 	}); err != nil {
 		return fmt.Errorf("add group member: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit group member update: %w", err)
 	}
 	slog.Info("ensured platform group member", "platform", platform, "platform_group_id", platformGroupID, "group_id", groupID, "agent_id", ch.AgentID, "channel_id", channelID)
 	return nil
@@ -271,11 +338,25 @@ func (c *Coordinator) RegisterBotIdentity(platform, platformBotID, channelID str
 	c.botRegistry.Register(platform, platformBotID, channelID)
 }
 
+func (c *Coordinator) UnregisterBotIdentity(platform, platformBotID, channelID string) {
+	if c.botRegistry == nil {
+		return
+	}
+	c.botRegistry.Unregister(platform, platformBotID, channelID)
+}
+
 func (c *Coordinator) RegisterGroupPublisher(channelID string, publisher GroupPublisher) {
 	if c.publisherRegistry == nil {
 		return
 	}
 	c.publisherRegistry.Register(channelID, publisher)
+}
+
+func (c *Coordinator) UnregisterGroupPublisher(channelID string) {
+	if c.publisherRegistry == nil {
+		return
+	}
+	c.publisherRegistry.Unregister(channelID)
 }
 
 // resolve performs the full user -> agent -> pool -> session key resolution.
@@ -285,7 +366,7 @@ func (c *Coordinator) resolve(ctx context.Context, msg pkgchannel.IncomingMessag
 		channelID = msg.Platform
 	}
 
-	return ResolveWithChannel(ctx, c.serviceManager, c.store, c.auth, c.agentAccess, c.groupResolver, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.ThreadID, msg.IsGroup)
+	return ResolveWithChannel(ctx, c.serviceManager, c.store, c.auth, c.agentAccess, c.groupResolver, c.guests, msg.Platform, channelID, msg.SenderID, msg.SenderIDs, msg.SenderName, msg.ChatID, msg.ThreadID, msg.IsGroup)
 }
 
 // HandleIncoming resolves the user once, tries command handling, and if the
@@ -311,11 +392,24 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 	if err != nil {
 		return "", false, nil, err
 	}
+	if rc.GuestID != "" && !c.guestLimiter.allow(rc.GuestID, rc.GuestMessageLimitPerMinute) {
+		return "Guest message rate limit exceeded. Try again in a minute.", true, nil, nil
+	}
 
 	return c.handleResolvedIncoming(ctx, rc, msg, command, args)
 }
 
 func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
+	if rc.GuestID != "" {
+		if !textOnly(msg.Content) {
+			return "Guest chat currently supports text messages only.", true, nil, nil
+		}
+		switch strings.ToLower(command) {
+		case "", "/new", "/abort", "/help", "/compact":
+		default:
+			return "This command is not available in guest chat.", true, nil, nil
+		}
+	}
 	// Try shared commands.
 	if command != "" {
 		command = strings.ToLower(command)
@@ -331,12 +425,17 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 		if command == "/new" {
 			return c.handleNewSessionCommand(ctx, rc, msg), true, nil, nil
 		}
+		if command == "/compact" {
+			if err := rc.AuthorizeUse(ctx, c.agentAccess); err != nil {
+				return fmt.Sprintf("Compaction failed: %v", err), true, nil, nil
+			}
+		}
 		if resp, ok := HandleCommand(ctx, rc, command+" "+args, msg.SenderID); ok {
 			return resp, true, nil, nil
 		}
 	}
 
-	if c.intentClassifier != nil {
+	if rc.GuestID == "" && c.intentClassifier != nil {
 		intent := c.intentClassifier.Classify(ctx, rc.AgentID, msg.Content)
 		switch intent {
 		case IntentAbort:
@@ -346,7 +445,14 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 			// "新会话" from a short phrase is not, and a wrong guess throws away the
 			// user's context. The message falls through to a normal turn, where the
 			// agent answers in words and points the user at the explicit command.
-		case IntentHelp, IntentCompact:
+		case IntentCompact:
+			if err := rc.AuthorizeUse(ctx, c.agentAccess); err != nil {
+				return fmt.Sprintf("Compaction failed: %v", err), true, nil, nil
+			}
+			if resp, ok := HandleCommand(ctx, rc, IntentToCommand(intent), msg.SenderID); ok {
+				return resp, true, nil, nil
+			}
+		case IntentHelp:
 			if resp, ok := HandleCommand(ctx, rc, IntentToCommand(intent), msg.SenderID); ok {
 				return resp, true, nil, nil
 			}
@@ -359,6 +465,15 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 		return "", false, nil, err
 	}
 	return "", false, stream, nil
+}
+
+func textOnly(content []ai.ContentBlock) bool {
+	for _, block := range content {
+		if _, ok := block.(ai.TextContent); !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // handleConfigCommand handles /config KEY VALUE: writes to vault, invalidates
@@ -396,7 +511,9 @@ func (c *Coordinator) handleConfigCommand(ctx context.Context, rc *ResolvedChat,
 // would land its reply in a session the user already left.
 func (c *Coordinator) handleNewSessionCommand(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage) string {
 	receipt := chatReceiptForMessage(c.receiptQueries(), rc, msg, newSessionCommand)
-	return rotateChatSession(ctx, rc, receipt, c.queue)
+	return rotateChatSession(ctx, rc, receipt, c.queue, func(authCtx context.Context) error {
+		return rc.AuthorizeUse(authCtx, c.agentAccess)
+	})
 }
 
 // receiptQueries returns the store backing command receipts, or nil when the
@@ -479,65 +596,6 @@ func (c *Coordinator) chatWithRC(ctx context.Context, rc *ResolvedChat, content 
 	}, nil
 }
 
-// ListAgents returns enabled agents the user can access and the current agent ID.
-func (c *Coordinator) ListAgents(ctx context.Context, msg pkgchannel.IncomingMessage) ([]pkgchannel.AgentInfo, string, error) {
-	rc, err := c.resolve(ctx, msg)
-	if err != nil {
-		return nil, "", err
-	}
-
-	authority, err := channelUserAuthority(rc.User)
-	if err != nil {
-		return nil, "", err
-	}
-	ac := NewAgentCommander(c.store, c.auth, c.agentAccess)
-	agents, err := ac.ListForChat(ctx, authority, rc.ChatCtx)
-	if err != nil {
-		return nil, "", err
-	}
-
-	infos := make([]pkgchannel.AgentInfo, len(agents))
-	for i, a := range agents {
-		infos[i] = pkgchannel.AgentInfo{ID: a.ID, Name: a.Name}
-	}
-	return infos, rc.AgentID, nil
-}
-
-// SwitchAgent switches the active agent for the chat context.
-func (c *Coordinator) SwitchAgent(ctx context.Context, msg pkgchannel.IncomingMessage, agentSlug string) error {
-	rc, err := c.resolve(ctx, msg)
-	if err != nil {
-		return err
-	}
-
-	authority, err := channelUserAuthority(rc.User)
-	if err != nil {
-		return err
-	}
-	ac := NewAgentCommander(c.store, c.auth, c.agentAccess)
-	return ac.Switch(ctx, authority, rc.User, rc.ChatCtx, agentSlug)
-}
-
-// channelUserAuthority converts a resolved, persisted user into the same trusted
-// authority used by HTTP. An unlinked channel user has no authority and cannot
-// enumerate or switch agents.
-func channelUserAuthority(user auth.User) (authz.Authority, error) {
-	if user.ID == "" {
-		return authz.Authority{}, agentaccess.ErrForbidden
-	}
-	return (auth.Subject{UserID: user.ID, Roles: []string{user.Role}}).Authority()
-}
-
-// ListModels returns available models.
-func (c *Coordinator) ListModels() []pkgchannel.ModelOption {
-	return c.listFn()
-}
-
-// SwitchModel switches the active model.
-func (c *Coordinator) SwitchModel(provider, model string) error {
-	return c.switchFn(provider, model)
-}
-
 func convertEvent(evt agent.Event) pkgchannel.Event {
 	out := pkgchannel.Event{
 		Text:       evt.Text,
@@ -578,28 +636,26 @@ func convertEvent(evt agent.Event) pkgchannel.Event {
 	return out
 }
 
-// ProvisionUser checks whether a channel identity exists for the sender.
-// Returns an error if the identity is not found — the user must first log in
-// via OIDC and link their channel account.
+// ProvisionUser delegates verified Feishu-member enrollment to auth. It never
+// performs account or identity policy in the channel domain.
 func (c *Coordinator) ProvisionUser(ctx context.Context, req pkgchannel.ProvisionRequest) error {
-	if c.auth == nil {
-		return errors.New("provision: auth not configured")
+	if c.feishuEnroller == nil {
+		return errors.New("provision: Feishu enrollment not configured")
 	}
-	_, err := c.auth.GetChannelIdentityByPlatform(ctx, req.Platform, req.ExternalID)
-	if err == nil {
-		return nil
+	if req.Platform != pkgchannel.PlatformFeishu {
+		return errors.New("provision: unsupported platform")
 	}
-	if !isNotFound(err) {
-		return fmt.Errorf("provision: lookup channel identity: %w", err)
+	_, err := c.feishuEnroller.Enroll(ctx, auth.FeishuEnrollmentInput{
+		UnionID:   req.ExternalID,
+		TenantKey: req.TenantKey,
+		Email:     req.Email,
+		Name:      req.Name,
+		AvatarURL: req.AvatarURL,
+	})
+	if err != nil {
+		return fmt.Errorf("provision: enroll verified Feishu member: %w", err)
 	}
-	_, _, ok, linkErr := linkLoginIdentityAsChannelIdentity(ctx, c.auth, req.Platform, req.ExternalID, req.Name)
-	if linkErr != nil {
-		return fmt.Errorf("provision: link login identity: %w", linkErr)
-	}
-	if ok {
-		return nil
-	}
-	return fmt.Errorf("provision: channel identity not found (user must link account via OIDC first): %w", err)
+	return nil
 }
 
 // ResolveUserRoot resolves the per-user writable root for the sender in msg.
@@ -611,18 +667,17 @@ func (c *Coordinator) ResolveUserRoot(ctx context.Context, msg pkgchannel.Incomi
 	if err != nil {
 		return "", fmt.Errorf("resolve user root: %w", err)
 	}
-	if rc.GroupID != "" {
-		dir, err := agent.SetupGroupWorkspace(config.StellaHome(), rc.GroupID, rc.AgentID)
-		if err != nil {
-			return "", fmt.Errorf("setup group workspace: %w", err)
-		}
-		return dir, nil
+	if rc.GuestID != "" {
+		return "", agentaccess.ErrForbidden
 	}
-	userDir, err := agent.SetupUserWorkspace(config.StellaHome(), rc.User.ID, rc.AgentID)
+	if c.homes == nil {
+		return "", errors.New("home workspace resolver not configured")
+	}
+	view, err := c.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: rc.User.ID, GroupID: rc.GroupID, AgentID: rc.AgentID})
 	if err != nil {
-		return "", fmt.Errorf("setup user workspace: %w", err)
+		return "", fmt.Errorf("resolve Home workspace: %w", err)
 	}
-	return userDir, nil
+	return view.PrincipalRoot, nil
 }
 
 // SaveAsset persists an inbound channel attachment through the authoritative

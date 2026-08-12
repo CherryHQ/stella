@@ -357,10 +357,14 @@ func (a *Access) listRootParams(filter GoalFilter, limit, offset int64) sqlc.Lis
 	}
 }
 
+// listUserID is the durable owner scope of every goal collection. It stays
+// owner-bound even for an admin: goal lists back per-user workspace surfaces
+// (an agent's goal board, its counts), so an admin must see their own goals
+// there, not every user's. This mirrors Scheduler's ListJobs and Session's
+// ListPage, which are owner-bound for admins too. Admin superuser reach is
+// unchanged for a resolved row (Get/Write) and for the explicitly user-scoped
+// HealthReport.
 func (a *Access) listUserID() string {
-	if a.authority.IsAdmin() {
-		return ""
-	}
 	return a.userID
 }
 
@@ -537,6 +541,27 @@ func (a *Access) ListAttempts(ctx context.Context, id string) ([]Attempt, error)
 		return nil, err
 	}
 	return attemptsFromRows(rows), nil
+}
+
+// ListAttemptSummaries authorizes the goal, then returns at most limit
+// lightweight attempt rows for read-only status projection.
+func (a *Access) ListAttemptSummaries(ctx context.Context, id string, limit int32) ([]AttemptSummary, error) {
+	if _, err := a.getRow(ctx, id); err != nil {
+		return nil, err
+	}
+	rows, err := a.svc.q.ListAttemptSummaryByGoal(ctx, sqlc.ListAttemptSummaryByGoalParams{GoalID: id, Limit: limit})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]AttemptSummary, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, AttemptSummary{
+			ID: row.ID, Purpose: row.Purpose, AttemptNo: row.AttemptNo, Status: row.Status,
+			SessionID: row.SessionID, Error: row.Error, FailureClass: row.FailureClass,
+			StartedAt: timePtr(row.StartedAt), FinishedAt: timePtr(row.FinishedAt), UpdatedAt: row.UpdatedAt.UTC(),
+		})
+	}
+	return out, nil
 }
 
 // GetAttempt authorizes the goal, then returns one attempt scoped to it.

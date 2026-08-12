@@ -35,7 +35,7 @@ func (p *recordingMCPToolProvider) ToolsForContext(_ context.Context, userID, ag
 func TestBuildToolRegistryAppliesToolOverrides(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
-	reg, _, err := buildToolRegistry(ctx, runnerConfig{
+	reg, _, _, err := buildToolRegistry(ctx, runnerConfig{
 		Sandbox: sandbox.Config{Paths: sandbox.Paths{
 			StellaHome: home,
 			AgentRoot:  filepath.Join(home, "agents", "agent-1"),
@@ -58,13 +58,38 @@ func TestBuildToolRegistryAppliesToolOverrides(t *testing.T) {
 	}
 }
 
+func TestBuildToolRegistryKeepsDelegateInternalOnly(t *testing.T) {
+	home := t.TempDir()
+	reg, _, delegateTool, err := buildToolRegistry(context.Background(), runnerConfig{
+		Sandbox: sandbox.Config{Paths: sandbox.Paths{
+			StellaHome: home,
+			AgentRoot:  filepath.Join(home, "agents", "agent-1"),
+			UserRoot:   filepath.Join(home, "users", "user-1"),
+		}},
+		BuiltinParams: RunnerParams{UserID: "user-1", AgentID: "agent-1"},
+		BuiltinTools:  []BuiltinTool{{Tool: staticTool{name: "session"}}},
+	}, &fakeSession{alive: true}, nil, ai.Model{}, "")
+	if err != nil {
+		t.Fatalf("buildToolRegistry: %v", err)
+	}
+	if delegateTool == nil {
+		t.Fatal("internal delegate adapter is unavailable to session.create/send")
+	}
+	if reg.Has("delegate") {
+		t.Fatal("delegate is still registered on the model-facing tool surface")
+	}
+	if !reg.Has("session") {
+		t.Fatal("session replacement is absent from the model-facing tool surface")
+	}
+}
+
 func TestBuildToolRegistryDoesNotResolvePrivateToolConfigurationForGroup(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
 	mcpProvider := &recordingMCPToolProvider{}
 	var overrideUserID, overrideAgentID string
 
-	_, _, err := buildToolRegistry(ctx, runnerConfig{
+	_, _, _, err := buildToolRegistry(ctx, runnerConfig{
 		Sandbox: sandbox.Config{Paths: sandbox.Paths{
 			StellaHome: home,
 			AgentRoot:  filepath.Join(home, "agents", "agent-1"),

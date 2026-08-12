@@ -29,16 +29,18 @@ import (
 
 // providerConfig groups LLM provider settings.
 type providerConfig struct {
-	API     string   // provider key: "anthropic", "openai"
-	Model   string   // e.g. "claude-sonnet-4-20250514"
-	Input   []string // declared model input modalities, e.g. ["text", "image"]; nil when undeclared
-	APIKey  string
-	BaseURL string // optional provider base URL override
-	Builder ProviderStreamBuilder
+	ProviderID string   // canonical provider row ID used in qualified model refs
+	API        string   // provider adapter type: "anthropic", "openai"
+	Model      string   // e.g. "claude-sonnet-4-20250514"
+	Input      []string // declared model input modalities, e.g. ["text", "image"]; nil when undeclared
+	APIKey     string
+	BaseURL    string // optional provider base URL override
+	Builder    ProviderStreamBuilder
 }
 
 // runnerConfig configures the runner implementation.
 type runnerConfig struct {
+	NoCapabilities      bool // guest mode: empty tool registry, no hooks or media
 	Provider            providerConfig
 	Thinking            ai.ThinkingLevel
 	Sandbox             sandbox.Config
@@ -46,6 +48,7 @@ type runnerConfig struct {
 	Sections            []pkgplugins.SystemPromptSection
 	BuiltinTools        []BuiltinTool
 	BuiltinParams       RunnerParams
+	DisabledSkillRefs   []string
 	PerRunTools         []tools.Tool
 	SkillStore          pkgplugins.SkillStore
 	SkillReadAuthorizer skillstool.SkillReadAuthorizer
@@ -59,6 +62,7 @@ type runnerConfig struct {
 	DelegateTimeout     time.Duration // default wall-clock timeout per delegate (0 = 15m)
 	ChatTimeout         time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
 	CanonicalImages     *coreagent.CanonicalImageConfig
+	Cleanup             func() error
 }
 
 // runner implements Runner by calling LLM providers directly via agent.Runner.
@@ -66,6 +70,7 @@ type runner struct {
 	runner          *coreagent.Runner
 	stream          providers.StreamFunc
 	tools           *tools.Registry
+	delegateTool    *delegatetool.DelegateTool
 	model           ai.Model
 	streamOptions   ai.StreamOptions
 	system          string
@@ -74,7 +79,9 @@ type runner struct {
 	canonicalImages *coreagent.CanonicalImageConfig
 	chatTimeout     time.Duration
 	session         pkgsandbox.Session // runner-owned sandbox session lifecycle
+	noCapabilities  bool               // guest runner intentionally has no sandbox session
 	sandboxCfg      sandbox.Config     // retained to refresh OAuth-derived env on long-lived runners
+	cleanup         func() error
 
 	mu           sync.Mutex
 	lastActivity time.Time
@@ -91,23 +98,33 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 
 	systemPrompt := cfg.System
 
-	model := ai.Model{API: cfg.Provider.API, Name: cfg.Provider.Model, Provider: cfg.Provider.API, BaseURL: cfg.Provider.BaseURL, Input: cfg.Provider.Input}
-
-	// Propagate the turn budget into the sandbox config so both initial OAuth env
-	// injection and per-turn refresh size their min-validity to the actual chat
-	// timeout (#722). cfg is a value copy, so this stays local to this runner.
-	cfg.Sandbox.ChatTimeout = cfg.ChatTimeout
-
-	session, err := sandbox.ResolveSession(ctx, cfg.Sandbox)
-	if err != nil {
-		return nil, fmt.Errorf("runner: %w", err)
+	providerID := cfg.Provider.ProviderID
+	if providerID == "" {
+		providerID = cfg.Provider.API
 	}
-	paths, err := sandbox.ResolvePaths(cfg.Sandbox)
-	if err != nil {
-		return nil, fmt.Errorf("runner: %w", err)
+	model := ai.Model{ID: cfg.Provider.Model, API: cfg.Provider.API, Name: cfg.Provider.Model, Provider: providerID, BaseURL: cfg.Provider.BaseURL, Input: cfg.Provider.Input}
+
+	var session pkgsandbox.Session
+	if !cfg.NoCapabilities {
+		// Propagate the turn budget into the sandbox config so both initial OAuth env
+		// injection and per-turn refresh size their min-validity to the actual chat
+		// timeout (#722). cfg is a value copy, so this stays local to this runner.
+		cfg.Sandbox.ChatTimeout = cfg.ChatTimeout
+
+		session, err = sandbox.ResolveSession(ctx, cfg.Sandbox)
+		if err != nil {
+			return nil, fmt.Errorf("runner: %w", err)
+		}
 	}
 
 	if systemPrompt == "" {
+		paths, err := sandbox.ResolvePaths(cfg.Sandbox)
+		if err != nil {
+			if session != nil {
+				_ = session.Close()
+			}
+			return nil, fmt.Errorf("runner: %w", err)
+		}
 		systemPrompt = prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{
 			StellaHome:  paths.StellaHome,
 			AgentRoot:   paths.AgentRoot,
@@ -118,7 +135,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		})
 	}
 
-	toolReg, hookSet, err := buildToolRegistry(ctx, cfg, session, stream, model, systemPrompt)
+	toolReg, hookSet, delegateTool, err := buildToolRegistry(ctx, cfg, session, stream, model, systemPrompt)
 	if err != nil {
 		if session != nil {
 			_ = session.Close()
@@ -139,14 +156,17 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 		runner:          coreRunner,
 		stream:          stream,
 		tools:           toolReg,
+		delegateTool:    delegateTool,
 		model:           model,
 		streamOptions:   streamOptions,
 		system:          systemPrompt,
 		hookSet:         hookSet,
 		toolLifecycle:   cfg.ToolLifecycle,
 		canonicalImages: cfg.CanonicalImages,
+		cleanup:         cfg.Cleanup,
 		chatTimeout:     cfg.ChatTimeout,
 		session:         session,
+		noCapabilities:  cfg.NoCapabilities,
 		sandboxCfg:      cfg.Sandbox,
 		lastActivity:    time.Now(),
 		log:             slog.With("component", "go_runner"),
@@ -199,9 +219,12 @@ func buildStreamFunc(cfg runnerConfig) (providers.StreamFunc, error) {
 }
 
 // buildToolRegistry creates the tool registry with core, builtin, and external tools.
-func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox.Session, stream providers.StreamFunc, model ai.Model, systemPrompt string) (*tools.Registry, *hooks.HookSet, error) {
-	paths, _ := sandbox.ResolvePaths(cfg.Sandbox)
+func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox.Session, stream providers.StreamFunc, model ai.Model, systemPrompt string) (*tools.Registry, *hooks.HookSet, *delegatetool.DelegateTool, error) {
 	toolReg := tools.NewRegistry()
+	if cfg.NoCapabilities {
+		return toolReg, nil, nil, nil
+	}
+	paths, _ := sandbox.ResolvePaths(cfg.Sandbox)
 	toolUserID := cfg.BuiltinParams.UserID
 	if cfg.BuiltinParams.GroupID != "" {
 		// A group runner uses UserID only as a storage owner. Never resolve
@@ -229,7 +252,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 
 	coreTools := buildSandboxCoreTools(session, bc, cfg.Sandbox.SessionSecretValues)
 	if len(coreTools) == 0 {
-		return nil, nil, fmt.Errorf("runner: sandbox backend unavailable: core tools require an active sandbox host")
+		return nil, nil, nil, fmt.Errorf("runner: sandbox backend unavailable: core tools require an active sandbox host")
 	}
 
 	// Sandbox core tools (bash/read/write/edit) route through the active
@@ -254,7 +277,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 
 	for _, entry := range cfg.BuiltinTools {
 		if entry.Tool == nil {
-			return nil, nil, fmt.Errorf("runner: builtin tool is nil")
+			return nil, nil, nil, fmt.Errorf("runner: builtin tool is nil")
 		}
 		if entry.Available != nil && !entry.Available(ctx, cfg.BuiltinParams) {
 			continue
@@ -267,25 +290,12 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	if cfg.SkillStore != nil {
 		stellaHome := paths.StellaHome
 		toolProjectRoot := paths.ProjectRoot
-		layout := skillDiskLayout(SystemDBSkillsDir(paths.StellaHome), paths.AgentRoot, paths.UserDataDir, paths.WorkspaceRoot)
-		sv := sandbox.ResolveSkillView(ctx, cfg.Sandbox, paths)
-		view := skillstool.SkillDirView{
-			Isolated:           sv.Isolated,
-			SystemSkillsHost:   sv.SystemSkillsHost,
-			SystemSkillsView:   sv.SystemSkillsView,
-			AgentSkillsHost:    sv.AgentSkillsHost,
-			AgentSkillsView:    sv.AgentSkillsView,
-			SystemDBSkillsHost: sv.SystemDBSkillsHost,
-			SystemDBSkillsView: sv.SystemDBSkillsView,
-			UserDataHost:       sv.UserDataHost,
-			UserDataView:       sv.UserDataView,
-			WorkspaceHost:      sv.WorkspaceHost,
-			WorkspaceView:      sv.WorkspaceView,
-		}
+		layout, view := skillRuntimeLayoutAndView(ctx, cfg, paths)
 		registerNonCore(skillstool.NewTool(cfg.SkillStore, stellaHome, toolProjectRoot).
 			WithSkillDiskLayout(layout).
 			WithSkillDirView(view).
 			WithPluginVisibility(cfg.PluginView.RegisteredPluginIDs, cfg.PluginView.EnabledPluginIDs).
+			WithAgentSkillPolicy(cfg.DisabledSkillRefs).
 			WithReadAuthorizer(cfg.SkillReadAuthorizer).
 			WithActionsOnly("search_installed", "load"))
 	}
@@ -301,7 +311,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	}
 
 	hookSet := buildHookSet(cfg)
-	registerNonCore(delegatetool.NewDelegateTool(delegatetool.DelegateConfig{
+	delegateTool := delegatetool.NewDelegateTool(delegatetool.DelegateConfig{
 		Stream:         stream,
 		Registry:       toolReg,
 		Model:          model,
@@ -311,7 +321,9 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		ToolLifecycle:  cfg.ToolLifecycle,
 		SessionRunner:  cfg.DelegateRunner,
 		DefaultTimeout: cfg.DelegateTimeout,
-	}))
+	})
+	// Keep the internal delegate adapter for session.create/send preset execution.
+	// It is intentionally absent from the model-facing registry.
 
 	var overrides []ToolOverride
 	if cfg.ToolOverrideFetcher != nil {
@@ -330,7 +342,30 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		toolReg.Register(t)
 	}
 
-	return toolReg, hookSet, nil
+	return toolReg, hookSet, delegateTool, nil
+}
+
+// skillRuntimeLayoutAndView is the sole production boundary that decides
+// which filesystem Skill tiers a runner can expose to the model.
+func skillRuntimeLayoutAndView(ctx context.Context, cfg runnerConfig, paths sandbox.Paths) (skillstool.SkillDiskLayout, skillstool.SkillDirView) {
+	userDataDir, workspaceRoot := paths.UserDataDir, paths.WorkspaceRoot
+	if cfg.BuiltinParams.GroupID != "" {
+		userDataDir, workspaceRoot = "", ""
+	}
+	layout := skillDiskLayout(SystemDBSkillsDir(paths.StellaHome), paths.AgentRoot, userDataDir, workspaceRoot)
+	sv := sandbox.ResolveSkillView(ctx, cfg.Sandbox, paths)
+	view := skillstool.SkillDirView{
+		Isolated: sv.Isolated, BuiltinSkillsHost: sv.BuiltinSkillsHost, BuiltinSkillsView: sv.BuiltinSkillsView,
+		AgentSkillsHost: sv.AgentSkillsHost, AgentSkillsView: sv.AgentSkillsView,
+		SystemDBSkillsHost: sv.SystemDBSkillsHost, SystemDBSkillsView: sv.SystemDBSkillsView,
+		UserDataHost: sv.UserDataHost, UserDataView: sv.UserDataView,
+		WorkspaceHost: sv.WorkspaceHost, WorkspaceView: sv.WorkspaceView,
+	}
+	if cfg.BuiltinParams.GroupID != "" {
+		view.UserDataHost, view.UserDataView = "", ""
+		view.WorkspaceHost, view.WorkspaceView = "", ""
+	}
+	return layout, view
 }
 
 func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSet, []tools.Definition, error) {
@@ -514,11 +549,11 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 	return out
 }
 
-// Alive reports whether the runner is healthy.
-// Delegates to the session's lifecycle state.
+// Alive reports whether the runner is healthy. Capability-bearing runners
+// delegate to the sandbox lifecycle; guest runners have no sandbox by design.
 func (r *runner) Alive() bool {
 	if r.session == nil {
-		return false
+		return r.noCapabilities
 	}
 	return r.session.Alive()
 }
@@ -540,6 +575,16 @@ func (r *runner) Busy() bool {
 // SystemPrompt returns the runner's base system prompt before per-run overrides.
 func (r *runner) SystemPrompt() string { return r.system }
 
+// RunManagedSession invokes the delegate instance configured for this runner.
+// It is the one Session-tool bridge that retains the parent turn's preset,
+// timeout, system-override, and tool-exclusion behavior.
+func (r *runner) RunManagedSession(ctx context.Context, req delegatetool.ManagedSessionRequest) (delegatetool.ManagedSessionResult, error) {
+	if r.delegateTool == nil {
+		return delegatetool.ManagedSessionResult{}, fmt.Errorf("delegate tool is not configured")
+	}
+	return r.delegateTool.RunManagedSession(ctx, req)
+}
+
 // SandboxSession returns the live runner-owned sandbox for pre-close callers.
 // Callers must not retain it after the runner is closed.
 func (r *runner) SandboxSession() pkgsandbox.Session { return r.session }
@@ -559,6 +604,12 @@ func (r *runner) Close() error {
 		if err := r.session.Close(); err != nil {
 			errs = append(errs, err)
 		}
+	}
+	if r.cleanup != nil {
+		if err := r.cleanup(); err != nil {
+			errs = append(errs, err)
+		}
+		r.cleanup = nil
 	}
 
 	if len(errs) > 0 {

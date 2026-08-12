@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -137,6 +138,24 @@ func TestLeafPassWritesSummariesInRunOrder(t *testing.T) {
 	}
 }
 
+func TestCondensedSummaryPropagatesMixedNonPrincipalDescendants(t *testing.T) {
+	engine := &compactionEngine{summarizer: &trackingSummarizer{}}
+	run := summaryRun{items: []sqlc.CtxItem{
+		{SummaryID: pgtype.Text{String: "human-summary", Valid: true}},
+		{SummaryID: pgtype.Text{String: "agent-summary", Valid: true}},
+	}}
+	got, err := engine.summarizeCondensedRun(t.Context(), run, map[string]sqlc.CtxSummary{
+		"human-summary": {ID: "human-summary", Content: "human context"},
+		"agent-summary": {ID: "agent-summary", Content: "agent context", ContainsNonPrincipalInput: true},
+	})
+	if err != nil {
+		t.Fatalf("summarize mixed descendants: %v", err)
+	}
+	if !got.containsNonPrincipalInput {
+		t.Fatal("condensed summary promoted mixed descendants by dropping non-principal provenance")
+	}
+}
+
 func seedLeafRuns(t *testing.T, ctx context.Context, q *sqlc.Queries, runs, runSize int) (string, []sqlc.CtxItem) {
 	t.Helper()
 	convID := uuid.NewString()
@@ -157,6 +176,7 @@ func seedLeafRuns(t *testing.T, ctx context.Context, q *sqlc.Queries, runs, runS
 			EventType:      eventTypeText,
 			Content:        content,
 			TokenCount:     int64(memory.EstimateTokens(content)),
+			ActorType:      string(eventlog.ActorHuman),
 		}); err != nil {
 			t.Fatalf("create message: %v", err)
 		}

@@ -15,7 +15,6 @@ import { Button } from "@/components/ui/button";
 import { PlatformIcon, platformLabel } from "@/components/PlatformIcon";
 import { bindChannelAgent, unlinkProfileIdentity } from "@/lib/api-client/sdk.gen";
 import { apiErrorMessage } from "@/lib/api-error";
-import { agentsQueryOptions } from "@/lib/queries/agents";
 import {
   channelsQueryOptions,
   profileIdentitiesQueryOptions,
@@ -49,7 +48,6 @@ interface ChannelRow {
   type: string;
   name: string;
   agentId: string;
-  agentName: string;
   enabled: boolean;
 }
 
@@ -64,10 +62,8 @@ interface Props {
 }
 
 /**
- * Every channel this viewer can see, as one list grouped by platform: binding a
- * channel to an agent is a per-user action, so the list is not split by role —
- * an admin simply also sees disabled channels and the edit/create affordances
- * that lead to the settings page which owns channel credentials.
+ * Channels bound to this agent, grouped by platform. Admins also see disabled
+ * bound channels and the edit/create affordances that manage credentials.
  *
  * Linking your own chat account is per platform, not per channel, so it lives
  * in each platform's group header ("my account: …") instead of a section
@@ -86,10 +82,9 @@ export function AgentChannelsPanel({ agentId }: Props) {
   const publicChannels = useQuery({ ...publicChannelsQueryOptions, enabled: !isAdmin });
   const adminChannels = useQuery({ ...channelsQueryOptions, enabled: isAdmin });
   const identities = useQuery(profileIdentitiesQueryOptions);
-  const { data: agents = [] } = useQuery(agentsQueryOptions);
 
   const [pendingUnlink, setPendingUnlink] = useState<Identity | null>(null);
-  const [pendingBind, setPendingBind] = useState<{ row: ChannelRow; target: string } | null>(null);
+  const [pendingChannelUnbind, setPendingChannelUnbind] = useState<ChannelRow | null>(null);
   // Editing a channel happens here rather than on /settings/channels: leaving
   // the profile to rename a channel loses the agent you were configuring.
   const [editing, setEditing] = useState<NormalizedChannel | null>(null);
@@ -122,13 +117,13 @@ export function AgentChannelsPanel({ agentId }: Props) {
       showToast(apiErrorMessage(error, t("agents.channels.unlinkFailed")), "error"),
   });
 
-  // The dedicated bind endpoint moves only agent_id, so this tab never becomes a
-  // second writer of the credentials it does not read.
-  const bind = useMutation({
-    mutationFn: ({ row, target }: { row: ChannelRow; target: string }) =>
-      bindChannelAgent({ path: { id: row.id }, body: { agent_id: target }, throwOnError: true }),
-    onSuccess: async (_data, variables) => {
-      showToast(variables.target ? t("agents.channels.bound") : t("agents.channels.unbound"));
+  // The dedicated endpoint clears only agent_id, so this tab never becomes a
+  // second writer of channel credentials.
+  const unbindChannel = useMutation({
+    mutationFn: (row: ChannelRow) =>
+      bindChannelAgent({ path: { id: row.id }, body: { agent_id: "" }, throwOnError: true }),
+    onSuccess: async () => {
+      showToast(t("agents.channels.unbound"));
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["channels"] }),
         queryClient.invalidateQueries({ queryKey: ["public-channels"] }),
@@ -142,34 +137,33 @@ export function AgentChannelsPanel({ agentId }: Props) {
     },
   });
 
-  const agentName = (id: string, fallback = "") =>
-    agents.find((agent) => agent.id === id)?.name || fallback || id;
-
   const rows = useMemo<ChannelRow[]>(() => {
     if (isAdmin) {
-      return (adminChannels.data ?? []).map((channel) => {
-        // A row written before `type` existed carries its platform in the id,
-        // the same fallback the backend applies.
-        const type = channel.type || channel.id;
-        return {
-          id: channel.id,
-          type,
-          name: channel.name || platformLabel(type),
-          agentId: channel.agent_id ?? "",
-          agentName: "",
-          enabled: channel.enabled ?? false,
-        };
-      });
+      return (adminChannels.data ?? [])
+        .map((channel) => {
+          // A row written before `type` existed carries its platform in the id,
+          // the same fallback the backend applies.
+          const type = channel.type || channel.id;
+          return {
+            id: channel.id,
+            type,
+            name: channel.name || platformLabel(type),
+            agentId: channel.agent_id ?? "",
+            enabled: channel.enabled ?? false,
+          };
+        })
+        .filter((channel) => channel.agentId === agentId);
     }
-    return (publicChannels.data ?? []).map((channel) => ({
-      id: channel.id,
-      type: channel.type,
-      name: platformLabel(channel.type, channel.label),
-      agentId: channel.agent_id ?? "",
-      agentName: channel.agent_name ?? "",
-      enabled: channel.enabled,
-    }));
-  }, [isAdmin, adminChannels.data, publicChannels.data]);
+    return (publicChannels.data ?? [])
+      .map((channel) => ({
+        id: channel.id,
+        type: channel.type,
+        name: platformLabel(channel.type, channel.label),
+        agentId: channel.agent_id ?? "",
+        enabled: channel.enabled,
+      }))
+      .filter((channel) => channel.agentId === agentId);
+  }, [agentId, isAdmin, adminChannels.data, publicChannels.data]);
 
   // One group per platform: an account is linked per platform, so the link
   // affordance belongs to the group while the rows carry the routing.
@@ -292,8 +286,7 @@ export function AgentChannelsPanel({ agentId }: Props) {
                   </div>
 
                   {group.rows.map((row) => {
-                    const boundHere = row.agentId === agentId;
-                    const busy = bind.isPending && bind.variables?.row.id === row.id;
+                    const busy = unbindChannel.isPending && unbindChannel.variables?.id === row.id;
                     // The id only earns a line when it says something the name
                     // doesn't; the badge already carries the binding, so the
                     // subtitle never repeats it.
@@ -313,17 +306,9 @@ export function AgentChannelsPanel({ agentId }: Props) {
                             <span className="truncate text-sm font-medium text-foreground">
                               {row.name}
                             </span>
-                            {boundHere ? (
-                              <Badge variant="success" size="sm">
-                                {t("agents.channels.boundHere")}
-                              </Badge>
-                            ) : row.agentId ? (
-                              <Badge variant="secondary" size="sm">
-                                {t("agents.channels.boundElsewhere", {
-                                  name: agentName(row.agentId, row.agentName),
-                                })}
-                              </Badge>
-                            ) : null}
+                            <Badge variant="success" size="sm">
+                              {t("agents.channels.boundHere")}
+                            </Badge>
                           </div>
                           {subtitle && (
                             <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
@@ -341,20 +326,12 @@ export function AgentChannelsPanel({ agentId }: Props) {
                             </Button>
                           )}
                           <Button
-                            variant={boundHere ? "ghost" : "outline"}
+                            variant="ghost"
                             size="sm"
                             loading={busy}
-                            onClick={() => {
-                              if (boundHere) {
-                                setPendingBind({ row, target: "" });
-                              } else if (row.agentId) {
-                                setPendingBind({ row, target: agentId });
-                              } else {
-                                bind.mutate({ row, target: agentId });
-                              }
-                            }}
+                            onClick={() => setPendingChannelUnbind(row)}
                           >
-                            {boundHere ? t("agents.channels.unbind") : t("agents.channels.bind")}
+                            {t("agents.channels.unbind")}
                           </Button>
                         </div>
                       </div>
@@ -456,21 +433,15 @@ export function AgentChannelsPanel({ agentId }: Props) {
         </AlertDialogPopup>
       </AlertDialog>
 
-      <AlertDialog open={!!pendingBind} onOpenChange={(open) => !open && setPendingBind(null)}>
+      <AlertDialog
+        open={!!pendingChannelUnbind}
+        onOpenChange={(open) => !open && setPendingChannelUnbind(null)}
+      >
         <AlertDialogPopup>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {pendingBind?.target
-                ? t("agents.channels.rebindTitle")
-                : t("agents.channels.unbindTitle")}
-            </AlertDialogTitle>
+            <AlertDialogTitle>{t("agents.channels.unbindTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {pendingBind?.target
-                ? t("agents.channels.rebindConfirm", {
-                    channel: pendingBind.row.name,
-                    agent: agentName(pendingBind.row.agentId, pendingBind.row.agentName),
-                  })
-                : t("agents.channels.unbindConfirm", { channel: pendingBind?.row.name ?? "" })}
+              {t("agents.channels.unbindConfirm", { channel: pendingChannelUnbind?.name ?? "" })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -478,14 +449,14 @@ export function AgentChannelsPanel({ agentId }: Props) {
               {t("common.cancel")}
             </AlertDialogClose>
             <Button
-              variant={pendingBind?.target ? "default" : "destructive"}
+              variant="destructive"
               onClick={() => {
-                const target = pendingBind;
-                setPendingBind(null);
-                if (target) bind.mutate(target);
+                const target = pendingChannelUnbind;
+                setPendingChannelUnbind(null);
+                if (target) unbindChannel.mutate(target);
               }}
             >
-              {pendingBind?.target ? t("agents.channels.bind") : t("agents.channels.unbind")}
+              {t("agents.channels.unbind")}
             </Button>
           </AlertDialogFooter>
         </AlertDialogPopup>

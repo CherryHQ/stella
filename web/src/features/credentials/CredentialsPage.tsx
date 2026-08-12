@@ -6,6 +6,7 @@ import {
   disconnectOAuth as disconnectOAuthRequest,
   getScopedVaultEntry,
   listAgents,
+  listManifestPlugins,
   listScopedVaultEntries,
   pollOAuthFlow,
   setOAuthProviderConfig,
@@ -19,6 +20,7 @@ import {
 } from "@/lib/queries/oauth";
 import { formatTime } from "@/lib/time";
 import type { Agent, OAuthFlow, OAuthProvider, VaultEntry } from "@/lib/types";
+import type { ManifestPluginsResponse } from "@/lib/api-client/types.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
@@ -34,7 +36,6 @@ import {
 import { useI18n } from "@/lib/i18n";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { useToast } from "@/hooks/use-toast";
-import { meQueryOptions } from "@/lib/queries/me";
 import { EmailAccountsPanel } from "@/features/credentials/EmailAccountsPanel";
 import { buildOAuthScopeDraft, ScopeEditor } from "@/features/credentials/ScopeEditor";
 import { ConfirmDialog } from "@/features/settings/ConfirmDialog";
@@ -49,6 +50,13 @@ import type { RowAction } from "@/features/settings/SettingsCardGrid";
 import { DetailPanel, DetailPanelHeader } from "@/features/settings/SettingsDetailPanel";
 import { KeyRound, Lock, Plug, Plus } from "lucide-react";
 import { siGithub, siX } from "simple-icons";
+import {
+  isAgentManagedScope,
+  scopeForRange,
+  scopeQueriesForBand,
+  scopesForBand,
+  type ScopeBand,
+} from "@/lib/scope-band";
 
 // Brand marks carried by simple-icons, resolved by slug. Adding a simple-icons
 // brand is one named import + one entry here; unknown slugs fall through to the
@@ -59,7 +67,6 @@ const SIMPLE_ICONS: Record<string, { path: string }> = {
 };
 
 type VaultScope = VaultEntry["scope"];
-type ScopeOwner = "me" | "global";
 type ScopeRange = "all" | "specific";
 
 // Reserved keys are written and rotated by stella itself. Surface them as
@@ -75,12 +82,7 @@ function isReservedVaultKey(name: string) {
 }
 
 function isAgentVaultScope(scope: VaultScope) {
-  return scope === "user_agent" || scope === "system_agent";
-}
-
-function toVaultScope(owner: ScopeOwner, range: ScopeRange): VaultScope {
-  if (range === "specific") return owner === "global" ? "system_agent" : "user_agent";
-  return owner === "global" ? "system" : "user";
+  return isAgentManagedScope(scope);
 }
 
 function sameScopeSet(a: string[], b: string[]) {
@@ -142,10 +144,10 @@ function ProviderIcon({ icon, label }: { icon?: string; label: string }) {
   return <Plug className="size-4" />;
 }
 
-export function CredentialsPage() {
+export function CredentialsPage({ scopeBand }: { scopeBand: ScopeBand }) {
   const { t } = useI18n();
-  const { data: me } = useQuery(meQueryOptions);
-  const isAdmin = me?.is_admin ?? false;
+  const managedScopes = scopesForBand(scopeBand) as readonly VaultScope[];
+  const personalSurface = scopeBand === "personal";
 
   const [vaultEntries, setVaultEntries] = useState<VaultEntry[]>([]);
   const [vaultLoading, setVaultLoading] = useState(false);
@@ -155,7 +157,6 @@ export function CredentialsPage() {
   const [editingEntry, setEditingEntry] = useState<VaultEntry | null>(null);
   const [existingSecretValue, setExistingSecretValue] = useState("");
   // Add-form scope state, independent of the list (which shows every visible scope).
-  const [formOwner, setFormOwner] = useState<ScopeOwner>("me");
   const [formRange, setFormRange] = useState<ScopeRange>("all");
   const [formAgentID, setFormAgentID] = useState("");
   const [newSecretName, setNewSecretName] = useState("");
@@ -167,7 +168,6 @@ export function CredentialsPage() {
     setNewSecretValue("");
     setExistingSecretValue("");
     setEditingEntry(null);
-    setFormOwner("me");
     setFormRange("all");
     setFormAgentID("");
   }, []);
@@ -181,9 +181,24 @@ export function CredentialsPage() {
   // The provider list (with per-user connection/reconnect state) is server
   // cache: one query drives the whole OAuth section. Connect/disconnect/save
   // invalidate it instead of hand-refetching.
-  const { data: oauthProviders = [], isLoading: oauthLoading } = useQuery(
-    oauthProvidersQueryOptions,
-  );
+  const { data: oauthProviders = [], isLoading: oauthLoading } = useQuery({
+    ...oauthProvidersQueryOptions,
+    enabled: personalSurface,
+  });
+  const { data: systemOAuthProviders = [] } = useQuery({
+    queryKey: ["manifest-oauth-providers"],
+    queryFn: async () => {
+      const { data } = await listManifestPlugins({ throwOnError: true });
+      const manifest = data as ManifestPluginsResponse;
+      return (manifest.oauth_providers ?? [])
+        .filter((provider) => !!provider.id)
+        .map((provider) => ({
+          provider: provider.id as string,
+          configured: !!provider.client_id,
+        }));
+    },
+    enabled: !personalSurface,
+  });
   // Flow progress and the last failure reason are ephemeral connect-flow UI,
   // not server cache, so they stay local.
   const [oauthFlow, setOauthFlow] = useState<Record<string, OAuthFlow | null>>({});
@@ -232,12 +247,10 @@ export function CredentialsPage() {
             return [];
           }
         };
-        const jobs: Promise<VaultEntry[]>[] = [fetchScope("user")];
-        if (isAdmin) jobs.push(fetchScope("system"));
-        for (const agent of agentList) {
-          jobs.push(fetchScope("user_agent", agent.id));
-          if (isAdmin) jobs.push(fetchScope("system_agent", agent.id));
-        }
+        const jobs = scopeQueriesForBand(
+          scopeBand,
+          agentList.map((agent) => agent.id),
+        ).map(({ scope, agentID }) => fetchScope(scope as VaultScope, agentID));
         const results = await Promise.all(jobs);
         setVaultEntries(results.flat());
       } finally {
@@ -245,7 +258,7 @@ export function CredentialsPage() {
         setVaultLoaded(true);
       }
     },
-    [isAdmin],
+    [scopeBand],
   );
 
   // Refetch a single scope (plus agent, for agent-keyed scopes) and splice it
@@ -293,7 +306,7 @@ export function CredentialsPage() {
   // live in local state (configValues/scopeDraft), seeded from this query when
   // it loads; the query stays the source of truth for the saved baseline.
   const { data: providerConfig } = useQuery(
-    oauthProviderConfigOptions(sheetProvider, isAdmin && !!sheetProvider),
+    oauthProviderConfigOptions(sheetProvider, !personalSurface && !!sheetProvider),
   );
 
   useEffect(() => {
@@ -338,7 +351,6 @@ export function CredentialsPage() {
     setNewSecretName(entry.name);
     setNewSecretValue("");
     setExistingSecretValue("");
-    setFormOwner(entry.scope === "system" || entry.scope === "system_agent" ? "global" : "me");
     setFormRange(isAgentVaultScope(entry.scope) ? "specific" : "all");
     setFormAgentID(entry.agent_id ?? "");
     setAddSheetOpen(true);
@@ -371,7 +383,7 @@ export function CredentialsPage() {
       showToast(t("credentials.secretValueRequired"), "error");
       return;
     }
-    const scope = toVaultScope(formOwner, formRange);
+    const scope = scopeForRange(scopeBand, formRange === "specific") as VaultScope;
     const agentScoped = isAgentVaultScope(scope);
     if (agentScoped && !formAgentID) {
       showToast(t("credentials.scope.agentMissing"), "error");
@@ -407,8 +419,8 @@ export function CredentialsPage() {
     newSecretName,
     newSecretValue,
     existingSecretValue,
-    formOwner,
     formRange,
+    scopeBand,
     formAgentID,
     editingEntry,
     showToast,
@@ -497,6 +509,7 @@ export function CredentialsPage() {
       try {
         const { data } = await startOAuthFlow({
           path: { provider },
+          body: { scopes: [] },
           throwOnError: true,
         });
         const flow = data as OAuthFlow;
@@ -642,17 +655,19 @@ export function CredentialsPage() {
   const filteredVaultEntries = vaultEntries.filter((entry) => entry.name !== "EMAIL_CONFIG");
   const agentName = (id?: string | null) =>
     (id && agents.find((a) => a.id === id)?.name) || id || "";
-  const vaultGroups = SCOPE_ORDER.map((scope) => ({
-    scope,
-    entries: filteredVaultEntries.filter((e) => e.scope === scope),
-  })).filter((g) => g.entries.length > 0);
-  const formScope = toVaultScope(formOwner, formRange);
+  const vaultGroups = SCOPE_ORDER.filter((scope) => managedScopes.includes(scope))
+    .map((scope) => ({
+      scope,
+      entries: filteredVaultEntries.filter((e) => e.scope === scope),
+    }))
+    .filter((g) => g.entries.length > 0);
+  const formScope = scopeForRange(scopeBand, formRange === "specific") as VaultScope;
   const editingVault = !!editingEntry;
 
   const selectScope = (scope: VaultScope) => {
     if (editingVault) return;
-    setFormOwner(scope === "system" || scope === "system_agent" ? "global" : "me");
-    setFormRange(scope === "user_agent" || scope === "system_agent" ? "specific" : "all");
+    if (!managedScopes.includes(scope)) return;
+    setFormRange(isAgentVaultScope(scope) ? "specific" : "all");
   };
 
   const vaultAddPanel = (
@@ -673,9 +688,7 @@ export function CredentialsPage() {
           {t("credentials.scope.priorityTitle")}
         </p>
         <ul className="space-y-1">
-          {SCOPE_PRIORITY.filter(
-            (scope) => isAdmin || (scope !== "system" && scope !== "system_agent"),
-          ).map((scope) => {
+          {SCOPE_PRIORITY.filter((scope) => managedScopes.includes(scope)).map((scope) => {
             const active = scope === formScope;
             return (
               <li key={scope}>
@@ -830,19 +843,9 @@ export function CredentialsPage() {
   const spConnected = sp?.connected ?? false;
   const spFlow = sp ? oauthFlow[sp.provider] : null;
   const spFlowError = sp ? oauthFlowError[sp.provider] : null;
-  const spMeta = sp ? scopeMeta[sp.provider] : undefined;
   const spMissingScopes = sp ? missingScopes(sp) : [];
   const providerSheet = sp ? (
-    <DetailPanel
-      onSave={isAdmin ? () => saveProviderConfig(sp.provider) : undefined}
-      isSaving={isAdmin ? configSaving[sp.provider] : undefined}
-      saveLabel={t("common.save")}
-      isSavingLabel={t("common.saving")}
-      onDelete={
-        isAdmin && sp.configured ? () => confirmResetProviderConfig(sp.provider) : undefined
-      }
-      deleteLabel={t("credentials.oauth.reset")}
-    >
+    <DetailPanel>
       <DetailPanelHeader title={sp.provider} subtitle={statusBadge(sp)} />
 
       {sp.available && !spConnected && (sp.required_by?.length ?? 0) > 0 && (
@@ -962,20 +965,40 @@ export function CredentialsPage() {
           </p>
         </div>
       )}
+    </DetailPanel>
+  ) : null;
 
-      {isAdmin && (
-        <Fieldset className="flex flex-1 min-h-0 flex-col gap-3 border-t border-border pt-4">
+  const selectedSystemProvider = sheetProvider
+    ? systemOAuthProviders.find((provider) => provider.provider === sheetProvider)
+    : undefined;
+  const systemProviderMeta = sheetProvider ? scopeMeta[sheetProvider] : undefined;
+  const systemProviderSheet =
+    sheetProvider && !personalSurface ? (
+      <DetailPanel
+        onSave={() => saveProviderConfig(sheetProvider)}
+        isSaving={configSaving[sheetProvider]}
+        saveLabel={t("common.save")}
+        isSavingLabel={t("common.saving")}
+        onDelete={
+          selectedSystemProvider?.configured
+            ? () => confirmResetProviderConfig(sheetProvider)
+            : undefined
+        }
+        deleteLabel={t("credentials.oauth.reset")}
+      >
+        <DetailPanelHeader title={sheetProvider} />
+        <Fieldset className="flex flex-1 min-h-0 flex-col gap-3">
           <FieldsetLegend>{t("credentials.oauth.app")}</FieldsetLegend>
           <Field>
             <FieldLabel>{t("credentials.oauth.clientId")}</FieldLabel>
             <Input
               type="text"
-              value={configValues[sp.provider]?.clientId ?? ""}
+              value={configValues[sheetProvider]?.clientId ?? ""}
               onChange={(e) =>
                 setConfigValues((prev) => ({
                   ...prev,
-                  [sp.provider]: {
-                    ...prev[sp.provider],
+                  [sheetProvider]: {
+                    ...prev[sheetProvider],
                     clientId: e.target.value,
                   },
                 }))
@@ -989,20 +1012,20 @@ export function CredentialsPage() {
             <FieldLabel>{t("credentials.oauth.clientSecret")}</FieldLabel>
             <Input
               type="password"
-              value={configValues[sp.provider]?.clientSecret ?? ""}
+              value={configValues[sheetProvider]?.clientSecret ?? ""}
               onChange={(e) =>
                 setConfigValues((prev) => ({
                   ...prev,
-                  [sp.provider]: {
-                    ...prev[sp.provider],
+                  [sheetProvider]: {
+                    ...prev[sheetProvider],
                     clientSecret: e.target.value,
                   },
                 }))
               }
               placeholder={
-                hasExistingSecret[sp.provider]
+                hasExistingSecret[sheetProvider]
                   ? t("credentials.oauth.keepExistingSecret")
-                  : sp.configured
+                  : selectedSystemProvider?.configured
                     ? t("credentials.oauth.configured")
                     : t("credentials.oauth.clientSecretPlaceholder")
               }
@@ -1013,77 +1036,61 @@ export function CredentialsPage() {
           <Field className="min-h-0 flex-1">
             <ScopeEditor
               value={
-                scopeDraft[sp.provider] ??
-                buildOAuthScopeDraft(spMeta?.saved ?? [], spMeta?.defaults ?? [])
+                scopeDraft[sheetProvider] ??
+                buildOAuthScopeDraft(
+                  systemProviderMeta?.saved ?? [],
+                  systemProviderMeta?.defaults ?? [],
+                )
               }
-              defaults={spMeta?.defaults ?? []}
-              onChange={(next) => setScopeDraft((prev) => ({ ...prev, [sp.provider]: next }))}
+              defaults={systemProviderMeta?.defaults ?? []}
+              onChange={(next) => setScopeDraft((prev) => ({ ...prev, [sheetProvider]: next }))}
             />
             <FieldDescription>{t("credentials.oauth.scopes.saveHint")}</FieldDescription>
           </Field>
         </Fieldset>
-      )}
-    </DetailPanel>
-  ) : null;
+      </DetailPanel>
+    ) : null;
 
   return (
     <>
-      <SettingsGridPage title={t("credentials.title")}>
-        <SettingsSection
-          icon={<Plug className="size-4" />}
-          title={t("credentials.tab.oauth")}
-          count={oauthProviders.length}
-        >
-          {oauthProviders.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t("credentials.oauth.noProviders")}</p>
-          ) : (
-            <SettingsList>
-              {oauthProviders.map((p) => {
-                const connected = p.connected;
-                const ready = p.available && !connected;
-                const needsSetup = !p.available;
-                const clientId = configValues[p.provider]?.clientId ?? "";
-                const clientIdPreview =
-                  clientId.length > 12 ? `${clientId.slice(0, 6)}…${clientId.slice(-4)}` : clientId;
-                const requiredBy = p.required_by ?? [];
-                const subtitle = !p.configured
-                  ? t("credentials.oauth.appNotConfigured")
-                  : connected
-                    ? clientIdPreview
-                      ? t("credentials.oauth.connectedWithClient", {
-                          client: clientIdPreview,
-                        })
-                      : t("credentials.oauth.status.connected")
-                    : requiredBy.length > 0
-                      ? t("credentials.oauth.connectToEnable", {
-                          tools: requiredBy.join(", "),
-                        })
-                      : t("credentials.oauth.notConnectedWithClient", {
-                          client: clientIdPreview || t("credentials.oauth.configured"),
-                        });
+      <SettingsGridPage
+        title={t(personalSurface ? "credentials.title" : "admin.resources.credentials.title")}
+      >
+        {personalSurface && (
+          <SettingsSection
+            icon={<Plug className="size-4" />}
+            title={t("credentials.tab.oauth")}
+            count={oauthProviders.length}
+          >
+            {oauthProviders.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t("credentials.oauth.noProviders")}</p>
+            ) : (
+              <SettingsList>
+                {oauthProviders.map((p) => {
+                  const connected = p.connected;
+                  const ready = p.available && !connected;
+                  const requiredBy = p.required_by ?? [];
+                  const subtitle = !p.configured
+                    ? t("credentials.oauth.appNotConfigured")
+                    : connected
+                      ? t("credentials.oauth.status.connected")
+                      : requiredBy.length > 0
+                        ? t("credentials.oauth.connectToEnable", {
+                            tools: requiredBy.join(", "),
+                          })
+                        : t("credentials.oauth.status.ready");
 
-                const menu: RowAction[] = [];
-                if (isAdmin)
-                  menu.push({
-                    label: t("credentials.oauth.editApp"),
-                    onClick: () => setSheetProvider(p.provider),
-                  });
-                if (connected && p.available)
-                  menu.push({
-                    label: t("credentials.oauth.disconnect"),
-                    destructive: true,
-                    onClick: () => confirmDisconnectOAuth(p.provider),
-                  });
+                  const menu: RowAction[] = connected
+                    ? [
+                        {
+                          label: t("credentials.oauth.disconnect"),
+                          destructive: true,
+                          onClick: () => confirmDisconnectOAuth(p.provider),
+                        },
+                      ]
+                    : [];
 
-                let primary: React.ReactNode = undefined;
-                if (needsSetup && isAdmin) {
-                  primary = (
-                    <Button size="sm" variant="ghost" onClick={() => setSheetProvider(p.provider)}>
-                      {t("credentials.oauth.setUp")}
-                    </Button>
-                  );
-                } else if (ready) {
-                  primary = (
+                  const primary = ready ? (
                     <Button
                       size="sm"
                       variant="ghost"
@@ -1095,36 +1102,79 @@ export function CredentialsPage() {
                     >
                       {t("credentials.oauth.connect")}
                     </Button>
+                  ) : undefined;
+
+                  return (
+                    <SettingsRow
+                      key={p.provider}
+                      icon={<ProviderIcon icon={p.icon} label={p.provider} />}
+                      title={p.provider}
+                      subtitle={subtitle}
+                      status={statusBadge(p)}
+                      primary={primary}
+                      menu={menu}
+                      onClick={() => setSheetProvider(p.provider)}
+                    />
                   );
-                }
+                })}
+              </SettingsList>
+            )}
+          </SettingsSection>
+        )}
 
-                return (
+        {!personalSurface && (
+          <SettingsSection
+            icon={<Plug className="size-4" />}
+            title={t("admin.resources.credentials.oauthApps")}
+            count={systemOAuthProviders.length}
+          >
+            {systemOAuthProviders.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t("credentials.oauth.noProviders")}</p>
+            ) : (
+              <SettingsList>
+                {systemOAuthProviders.map((provider) => (
                   <SettingsRow
-                    key={p.provider}
-                    icon={<ProviderIcon icon={p.icon} label={p.provider} />}
-                    title={p.provider}
-                    subtitle={subtitle}
-                    status={statusBadge(p)}
-                    primary={primary}
-                    menu={menu}
-                    onClick={() => setSheetProvider(p.provider)}
+                    key={provider.provider}
+                    icon={<Plug className="size-4" />}
+                    title={provider.provider}
+                    subtitle={
+                      provider.configured
+                        ? t("credentials.oauth.configured")
+                        : t("credentials.oauth.appNotConfigured")
+                    }
+                    primary={
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setSheetProvider(provider.provider)}
+                      >
+                        {t(
+                          provider.configured
+                            ? "credentials.oauth.editApp"
+                            : "credentials.oauth.setUp",
+                        )}
+                      </Button>
+                    }
+                    onClick={() => setSheetProvider(provider.provider)}
                   />
-                );
-              })}
-            </SettingsList>
-          )}
-        </SettingsSection>
+                ))}
+              </SettingsList>
+            )}
+          </SettingsSection>
+        )}
 
-        <EmailAccountsPanel
-          showToast={showToast}
-          hasStoredConfig={hasStoredEmailConfig}
-          vaultLoaded={vaultLoaded}
-          onConfigChanged={reloadEmailConfigMetadata}
-        />
+        {personalSurface && (
+          <EmailAccountsPanel
+            showToast={showToast}
+            hasStoredConfig={hasStoredEmailConfig}
+            vaultLoaded={vaultLoaded}
+            onConfigChanged={reloadEmailConfigMetadata}
+          />
+        )}
 
         <SettingsSection
           icon={<KeyRound className="size-4" />}
-          title={t("credentials.tab.vault")}
+          title={t(personalSurface ? "credentials.tab.vault" : "admin.resources.credentials.vault")}
           count={filteredVaultEntries.length}
           action={
             <Button variant="ghost" size="xs" onClick={openAddSheet} className="cursor-pointer">
@@ -1206,7 +1256,7 @@ export function CredentialsPage() {
       </SettingsGridPage>
 
       <SettingsDetailSheet open={!!sheetProvider} onClose={() => setSheetProvider(null)}>
-        {providerSheet}
+        {personalSurface ? providerSheet : systemProviderSheet}
       </SettingsDetailSheet>
 
       <SettingsDetailSheet
@@ -1231,4 +1281,12 @@ export function CredentialsPage() {
       />
     </>
   );
+}
+
+export function PersonalCredentialsPage() {
+  return <CredentialsPage scopeBand="personal" />;
+}
+
+export function SystemCredentialsPage() {
+  return <CredentialsPage scopeBand="system" />;
 }

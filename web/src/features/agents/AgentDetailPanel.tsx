@@ -15,10 +15,12 @@ import {
   listProfileMemories,
   removeAgentUser,
   updateAgent,
+  updateAgentSkillActivation,
   updateAgentSkill,
   uploadAgentSkill,
 } from "@/lib/api-client/sdk.gen";
 import type {
+  GetAgentSkillData,
   InstallAgentSkillData,
   UpdateAgentData,
   UpdateAgentSkillData,
@@ -107,7 +109,15 @@ export function AgentDetailPanel({
 
   const loadAgentSkills = useCallback(async (id: string | null) => {
     if (!id) {
-      setState((prev) => ({ ...prev, agentSkills: [] }));
+      setState((prev) => ({
+        ...prev,
+        agentSkills: [],
+        agentSkillCanManageActivation: false,
+        agentSkillPolicyDiagnostics: {
+          legacy_non_empty_array: false,
+          dangling_disabled_refs: [],
+        },
+      }));
       return [];
     }
     setState((prev) => ({ ...prev, agentSkillsLoading: true }));
@@ -118,13 +128,78 @@ export function AgentDetailPanel({
         ...prev,
         agentSkills: agentSkills as Skill[],
         agentSkillsLoading: false,
+        agentSkillCanManageActivation: res?.can_manage_activation ?? false,
+        agentSkillPolicyDiagnostics: res?.policy_diagnostics ?? {
+          legacy_non_empty_array: false,
+          dangling_disabled_refs: [],
+        },
       }));
       return agentSkills;
     } catch {
-      setState((prev) => ({ ...prev, agentSkills: [], agentSkillsLoading: false }));
+      setState((prev) => ({
+        ...prev,
+        agentSkills: [],
+        agentSkillsLoading: false,
+        agentSkillCanManageActivation: false,
+        agentSkillPolicyDiagnostics: {
+          legacy_non_empty_array: false,
+          dangling_disabled_refs: [],
+        },
+      }));
       return [];
     }
   }, []);
+
+  const setAgentSkillActivation = useCallback(
+    async (skillRef: string, enabled: boolean) => {
+      const current = state;
+      const id = current.editingId;
+      if (!id || !skillRef || current.agentSkillActivationPending) return;
+      setState((prev) => ({ ...prev, agentSkillActivationPending: true }));
+      try {
+        const { data: activation } = await updateAgentSkillActivation({
+          path: { id, skillRef },
+          body: { enabled },
+          throwOnError: true,
+        });
+        await loadAgentSkills(id);
+        if (current.selectedSkill?.logical_ref === skillRef) {
+          const { data: detail } = await getAgentSkill({
+            path: { id, skillId: current.selectedSkill.name },
+            query: {
+              scope: current.selectedSkill.scope as NonNullable<
+                GetAgentSkillData["query"]
+              >["scope"],
+            },
+            throwOnError: true,
+          });
+          setState((prev) => ({
+            ...prev,
+            selectedSkill: { ...(detail as Skill), scope: current.selectedSkill!.scope },
+          }));
+        }
+        setState((prev) => {
+          if (prev.selectedSkill?.logical_ref !== skillRef) return prev;
+          return {
+            ...prev,
+            selectedSkill: { ...prev.selectedSkill, enabled: activation?.enabled ?? enabled },
+          };
+        });
+      } catch (error) {
+        showToast(apiErrorMessage(error, t("common.error")), "error");
+      } finally {
+        setState((prev) => ({ ...prev, agentSkillActivationPending: false }));
+      }
+    },
+    [loadAgentSkills, showToast, state, t],
+  );
+
+  const toggleAgentSkillActivation = useCallback(
+    (skill: Skill, enabled: boolean) => {
+      if (skill.logical_ref) void setAgentSkillActivation(skill.logical_ref, enabled);
+    },
+    [setAgentSkillActivation],
+  );
 
   const loadPersonalisation = useCallback(async (id: string) => {
     if (!id) return;
@@ -163,7 +238,8 @@ export function AgentDetailPanel({
 
   // The user list used to load when its tab was opened; as a section it is
   // always one scroll away, so an admin editing an existing agent fetches it
-  // up front. Non-admins never see the section and never pay for it.
+  // up front. A non-admin only sees the section's visibility control, never the
+  // assignment list, so they never make this call.
   useEffect(() => {
     if (!agentId || !data.isAdmin) return;
     void loadAssignedUsers(agentId);
@@ -628,6 +704,8 @@ export function AgentDetailPanel({
                 scope ?? (prev.isAdmin && prev.editingId ? "system_agent" : "user_agent"),
             }))
           }
+          onToggleActivation={toggleAgentSkillActivation}
+          onClearDanglingActivation={(ref) => void setAgentSkillActivation(ref, true)}
           onDelete={state.editingId ? () => doDeleteAgent(state.editingId!) : undefined}
         />
       )}

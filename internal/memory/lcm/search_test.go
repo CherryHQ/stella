@@ -535,6 +535,82 @@ func TestExpand_CrossSessionSummaryReturnsFullMessages(t *testing.T) {
 	}
 }
 
+func TestExplorer_CondensedSummaryUsesCompactionRelationDirection(t *testing.T) {
+	db, p, sess := newSearchTestEnv(t, "explorer-condensed")
+	convID := conversationID(t, db, sess.ID)
+	insertSummary(t, db, convID, "sum-child-a", "first constituent")
+	insertSummary(t, db, convID, "sum-child-b", "second constituent")
+	if _, err := db.Exec(context.Background(), `
+		INSERT INTO ctx_summary (id, conversation_id, kind, depth, content, token_count)
+		VALUES ('sum-root', $1, 'condensed', 1, 'combined summary', 10)`, convID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(context.Background(), `
+		INSERT INTO ctx_summary_parent (summary_id, parent_summary_id, ordinal)
+		VALUES ('sum-root', 'sum-child-a', 1), ('sum-root', 'sum-child-b', 2)`); err != nil {
+		t.Fatal(err)
+	}
+
+	explorer := p.(memory.Explorer)
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), sess.UserID), sess.AgentID)
+	description, err := explorer.Describe(ctx, "sum-root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(description.ParentIDs) != 0 || strings.Join(description.ChildIDs, ",") != "sum-child-a,sum-child-b" {
+		t.Fatalf("root lineage was reversed: %#v", description)
+	}
+	childDescription, err := explorer.Describe(ctx, "sum-child-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(childDescription.ParentIDs, ",") != "sum-root" || len(childDescription.ChildIDs) != 0 {
+		t.Fatalf("child lineage was reversed: %#v", childDescription)
+	}
+	expansion, err := explorer.Expand(ctx, "sum-root", 4_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(expansion.Children) != 2 || expansion.Children[0].SummaryID != "sum-child-a" || expansion.Children[1].SummaryID != "sum-child-b" {
+		t.Fatalf("condensed expansion did not return ordered constituents: %#v", expansion)
+	}
+
+	foreign := newLCMTestSession("explorer-condensed-foreign")
+	if err := p.Bootstrap(context.Background(), foreign); err != nil {
+		t.Fatal(err)
+	}
+	appendUser(t, p, foreign, "foreign source message")
+	foreignConvID := conversationID(t, db, foreign.ID)
+	foreignMessageIDs := messageIDs(t, db, foreignConvID)
+	if len(foreignMessageIDs) != 1 {
+		t.Fatalf("foreign message count = %d, want 1", len(foreignMessageIDs))
+	}
+	linkSummaryMessage(t, db, "sum-child-b", foreignMessageIDs[0], 1)
+	if _, err := explorer.Expand(ctx, "sum-child-b", 4_000); err == nil {
+		t.Fatal("Expand accepted a cross-conversation source message")
+	}
+	insertSummary(t, db, foreignConvID, "sum-foreign", "foreign constituent")
+	if _, err := db.Exec(context.Background(), `
+		INSERT INTO ctx_summary_parent (summary_id, parent_summary_id, ordinal)
+		VALUES ('sum-root', 'sum-foreign', 3)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := explorer.Describe(ctx, "sum-root"); err == nil {
+		t.Fatal("Describe accepted a cross-conversation constituent")
+	}
+	if _, err := explorer.Expand(ctx, "sum-root", 4_000); err == nil {
+		t.Fatal("Expand accepted a cross-conversation constituent")
+	}
+	if _, err := db.Exec(context.Background(), `
+		INSERT INTO ctx_summary_parent (summary_id, parent_summary_id, ordinal)
+		VALUES ('sum-foreign', 'sum-child-a', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := explorer.Describe(ctx, "sum-child-a"); err == nil {
+		t.Fatal("Describe accepted a cross-conversation container")
+	}
+}
+
 // TestGetMessage_CrossSessionAndIsolation verifies the read-in-full companion to
 // cross-session search: a message ID surfaced from another session of the same
 // user+agent resolves to its complete content (search returns only a snippet),

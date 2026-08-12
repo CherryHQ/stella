@@ -47,6 +47,15 @@ func (r *PublisherRegistry) Register(channelID string, publisher GroupPublisher)
 	r.publishers[channelID] = publisher
 }
 
+func (r *PublisherRegistry) Unregister(channelID string) {
+	if r == nil || channelID == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.publishers, channelID)
+}
+
 func (r *PublisherRegistry) Get(channelID string) (GroupPublisher, bool) {
 	if r == nil || channelID == "" {
 		return nil, false

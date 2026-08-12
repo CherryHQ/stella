@@ -21,6 +21,9 @@ func TestMapChunkTextAndStop(t *testing.T) {
 			PromptTokens:     5,
 			CompletionTokens: 1,
 			TotalTokens:      6,
+			PromptTokensDetails: sdk.CompletionUsagePromptTokensDetails{
+				CachedTokens: 4,
+			},
 		},
 	}
 	events := mapChunk(chunk, indexToID)
@@ -33,8 +36,13 @@ func TestMapChunkTextAndStop(t *testing.T) {
 	if _, ok := events[1].(ai.EventStop); !ok {
 		t.Fatalf("expected second event stop")
 	}
-	if _, ok := events[2].(ai.EventUsage); !ok {
+	usage, ok := events[2].(ai.EventUsage)
+	if !ok {
 		t.Fatalf("expected third event usage")
+	}
+	want := ai.Usage{InputTokens: 5, OutputTokens: 1, CacheRead: 4, TotalTokens: 6}
+	if usage.Usage != want {
+		t.Fatalf("usage = %+v, want %+v", usage.Usage, want)
 	}
 }
 

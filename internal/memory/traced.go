@@ -56,6 +56,9 @@ func (t *tracedProvider) hooks() *hooks.HookSet {
 }
 
 func (t *tracedProvider) begin(ctx context.Context, hctx *hooks.PostMemoryCallContext) (context.Context, time.Time) {
+	if authz.GuestIDFromContext(ctx) != "" {
+		return ctx, time.Now()
+	}
 	hs := t.hooks()
 	if hs == nil || hs.Empty() {
 		return ctx, time.Now()
@@ -72,6 +75,9 @@ func (t *tracedProvider) begin(ctx context.Context, hctx *hooks.PostMemoryCallCo
 }
 
 func (t *tracedProvider) emit(ctx context.Context, hctx *hooks.PostMemoryCallContext) {
+	if authz.GuestIDFromContext(ctx) != "" {
+		return
+	}
 	hs := t.hooks()
 	if hs == nil || hs.Empty() {
 		return
@@ -171,6 +177,24 @@ func (t *tracedProvider) AppendGroupTurn(
 	hctx.Error = err
 	hctx.MessageCount = len(continuation) + 1
 	hctx.Detail = fmt.Sprintf("appended group turn origin=%s", groupMessageID)
+	t.finish(ctx, start, hctx)
+	return err
+}
+
+// AppendInboxInput preserves the atomic durable-inbox capability through the
+// tracing layer. Callers must inspect Unwrap first: this method exists on every
+// traced provider so a wrapper-only type assertion is not a capability check.
+func (t *tracedProvider) AppendInboxInput(ctx context.Context, session Session, inboxID string, msg ai.Message) error {
+	appender, ok := t.inner.(InboxAppender)
+	if !ok {
+		return errCapabilityNotSupported("InboxAppender")
+	}
+	hctx := &hooks.PostMemoryCallContext{HookMeta: metaFromSession(session), Op: hooks.MemoryOpAppend, SessionID: session.ID}
+	ctx, start := t.begin(ctx, hctx)
+	err := appender.AppendInboxInput(ctx, session, inboxID, msg)
+	hctx.Error = err
+	hctx.MessageCount = 1
+	hctx.Detail = formatMessages("appended inbox input", []ai.Message{msg})
 	t.finish(ctx, start, hctx)
 	return err
 }
@@ -561,6 +585,33 @@ func (t *tracedProvider) CommitGroupCursor(ctx context.Context, session Session,
 	return err
 }
 
+// Session activity is durable session metadata rather than memory content, so
+// the tracing wrapper preserves the optional capability without emitting a
+// memory hook for each turn-state write.
+func (t *tracedProvider) MarkSessionTurnStarted(ctx context.Context, session Session) (bool, error) {
+	activity, ok := t.inner.(SessionActivityStore)
+	if !ok {
+		return false, errCapabilityNotSupported("SessionActivityStore")
+	}
+	return activity.MarkSessionTurnStarted(ctx, session)
+}
+
+func (t *tracedProvider) MarkSessionTurnCompleted(ctx context.Context, session Session, result SessionTurnResult) (bool, error) {
+	activity, ok := t.inner.(SessionActivityStore)
+	if !ok {
+		return false, errCapabilityNotSupported("SessionActivityStore")
+	}
+	return activity.MarkSessionTurnCompleted(ctx, session, result)
+}
+
+func (t *tracedProvider) MarkSessionViewed(ctx context.Context, session Session) (bool, error) {
+	activity, ok := t.inner.(SessionActivityStore)
+	if !ok {
+		return false, errCapabilityNotSupported("SessionActivityStore")
+	}
+	return activity.MarkSessionViewed(ctx, session)
+}
+
 func (t *tracedProvider) LoadInfo(ctx context.Context, sessionID string) (SessionInfo, error) {
 	sm, ok := t.inner.(SessionManager)
 	if !ok {
@@ -610,6 +661,19 @@ func (t *tracedProvider) ListInfoForReview(ctx context.Context, opts ListOptions
 	hctx.Detail = fmt.Sprintf("agent=%s limit=%d → %d results", opts.AgentID, opts.Limit, len(infos))
 	t.finish(ctx, start, hctx)
 	return infos, err
+}
+
+// ListInfoForAdmin preserves the optional administrative listing capability.
+// It deliberately bypasses memory hooks: listing guest metadata must not enter
+// any user or guest memory lifecycle.
+func (t *tracedProvider) ListInfoForAdmin(ctx context.Context, opts ListOptions) ([]SessionInfo, error) {
+	lister, ok := t.inner.(interface {
+		ListInfoForAdmin(ctx context.Context, opts ListOptions) ([]SessionInfo, error)
+	})
+	if !ok {
+		return nil, errCapabilityNotSupported("ListInfoForAdmin")
+	}
+	return lister.ListInfoForAdmin(ctx, opts)
 }
 
 func (t *tracedProvider) LoadHistory(ctx context.Context, sessionID string) ([]ai.Message, error) {

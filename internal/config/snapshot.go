@@ -83,12 +83,38 @@ type Snapshot struct {
 	// of ProviderModel has no consumer here. A missing entry means the
 	// deployment never declared modalities, not that there are none.
 	ModelInputs map[ModelKey][]string
+
+	// DisabledSkillRefs is the immutable Agent Skill policy snapshot. A runner
+	// captures it once; an explicit activation commit invalidates future runners.
+	DisabledSkillRefs []string
+}
+
+// lookupProvider returns credentials by their snapshot key or canonical
+// provider row ID. The latter matters when a model was originally configured
+// through a unique provider-type alias but is later passed between runners by
+// its stable canonical ID.
+func (s *Snapshot) lookupProvider(providerID string) (string, ProviderCreds, bool) {
+	if creds, ok := s.Providers[providerID]; ok {
+		return providerID, creds, true
+	}
+	if providerID != "" {
+		for lookupID, creds := range s.Providers {
+			if creds.ProviderID == providerID {
+				return lookupID, creds, true
+			}
+		}
+	}
+	return "", ProviderCreds{}, false
 }
 
 // ModelInput returns the input modalities declared for a provider's model, or
 // nil when none were declared.
 func (s *Snapshot) ModelInput(providerID, modelID string) []string {
-	return s.ModelInputs[ModelKey{Provider: providerID, Model: modelID}]
+	lookupID := providerID
+	if id, _, ok := s.lookupProvider(providerID); ok {
+		lookupID = id
+	}
+	return s.ModelInputs[ModelKey{Provider: lookupID, Model: modelID}]
 }
 
 // ParseModelRef splits a "provider/model" string into its parts.
@@ -163,7 +189,7 @@ func (s *Snapshot) ResolveModelRef(modelRef string) ai.Model {
 	api := provID
 	baseURL := s.BaseURL
 	var metadata ProviderModel
-	if creds, ok := s.Providers[provID]; ok {
+	if _, creds, ok := s.lookupProvider(provID); ok {
 		if creds.Type != "" {
 			api = creds.Type
 		}
@@ -215,7 +241,7 @@ func (s *Snapshot) ResolveProviderCreds(providerID string) ProviderCreds {
 	if providerID == "" {
 		providerID = s.Provider
 	}
-	if creds, ok := s.Providers[providerID]; ok {
+	if _, creds, ok := s.lookupProvider(providerID); ok {
 		return creds
 	}
 	return ProviderCreds{Type: s.Provider, APIKey: s.APIKey, BaseURL: s.BaseURL}

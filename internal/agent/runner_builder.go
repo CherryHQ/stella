@@ -2,15 +2,21 @@ package agent
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	skillstool "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/internal/vault"
@@ -38,6 +44,69 @@ type BuiltinTool struct {
 type SessionImagePipeline interface {
 	Enrich(context.Context, string, string, []ai.ContentBlock) ([]ai.ContentBlock, error)
 	Load(context.Context, string, string) (ai.ImageContent, error)
+}
+
+const runnerScratchDir = "runner-scratch"
+
+// newRunnerScratch creates a disposable runner-owned child outside Home
+// authority. Its structural parent is trusted host-owned state. Close and
+// construction failure clean best-effort; crashes may leave operator-cleaned
+// children. Isolating providers mount only the exact returned child.
+func newRunnerScratch(stellaHome string) (string, func() error, error) {
+	homeRoot, err := os.OpenRoot(stellaHome)
+	if err != nil {
+		return "", nil, err
+	}
+	defer func() { _ = homeRoot.Close() }()
+	if err := homeRoot.Mkdir(runnerScratchDir, 0o700); err != nil && !os.IsExist(err) {
+		return "", nil, err
+	}
+
+	root, err := homeRoot.OpenRoot(runnerScratchDir)
+	if err != nil {
+		return "", nil, err
+	}
+	info, lstatErr := homeRoot.Lstat(runnerScratchDir)
+	openedInfo, statErr := root.Stat(".")
+	if lstatErr != nil || statErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !os.SameFile(info, openedInfo) {
+		_ = root.Close()
+		return "", nil, fmt.Errorf("scratch root %q is not a directory", filepath.Join(stellaHome, runnerScratchDir))
+	}
+	if err := root.Chmod(".", 0o700); err != nil {
+		_ = root.Close()
+		return "", nil, err
+	}
+
+	var name string
+	for range 100 {
+		var random [8]byte
+		if _, err := rand.Read(random[:]); err != nil {
+			_ = root.Close()
+			return "", nil, err
+		}
+		name = "runner-" + hex.EncodeToString(random[:])
+		if err := root.Mkdir(name, 0o700); err == nil {
+			break
+		} else if !os.IsExist(err) {
+			_ = root.Close()
+			return "", nil, err
+		}
+		name = ""
+	}
+	if name == "" {
+		_ = root.Close()
+		return "", nil, fmt.Errorf("create runner scratch: too many collisions")
+	}
+	dir := filepath.Join(stellaHome, runnerScratchDir, name)
+	var once sync.Once
+	var cleanupErr error
+	cleanup := func() error {
+		once.Do(func() {
+			cleanupErr = errors.Join(root.RemoveAll(name), root.Close())
+		})
+		return cleanupErr
+	}
+	return dir, cleanup, nil
 }
 
 func BuiltinToolAvailable(_ context.Context, params RunnerParams) bool {
@@ -71,6 +140,7 @@ type runnerBuilderConfig struct {
 	ProjectResolver          ProjectResolverFunc
 	StructuredGroupMemory    bool
 	SessionImages            SessionImagePipeline
+	WorkspaceViewer          home.WorkspaceViewer
 }
 
 // newRunnerFunc assembles a NewRunnerFunc for a given config snapshot.
@@ -109,27 +179,58 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		if apiName == "" {
 			apiName = provID
 		}
+		providerID := creds.ProviderID
+		if providerID == "" {
+			providerID = provID
+		}
 
-		stellaHome := config.StellaHome()
+		if params.GuestID != "" {
+			return newRunner(ctx, runnerConfig{
+				NoCapabilities: true,
+				Provider: providerConfig{
+					ProviderID: providerID,
+					API:        apiName,
+					Model:      modelID,
+					Input:      cfg.Snap.ModelInput(provID, modelID),
+					APIKey:     creds.APIKey,
+					BaseURL:    creds.BaseURL,
+					Builder:    cfg.ProviderStreamBuilder,
+				},
+				Thinking: params.Thinking,
+				System:   prompt.BuildGuestSystemPrompt(cfg.Snap.SystemPrompt),
+			})
+		}
+		if cfg.WorkspaceViewer == nil {
+			return nil, fmt.Errorf("runner: Home workspace resolver is required")
+		}
+
+		view, err := cfg.WorkspaceViewer.WorkspaceView(ctx, home.WorkspaceRequest{UserID: params.UserID, GroupID: params.GroupID, AgentID: params.AgentID})
+		if err != nil {
+			return nil, fmt.Errorf("resolve Home workspace: %w", err)
+		}
 		var (
-			userRoot string
+			userRoot      string
+			workspaceRoot string
+			userDataDir   string
 			// projectValidateRoot is the per-(principal, agent) dir a project must
 			// live under: a project is owned by the agent (see #442), so it stays
 			// scoped to the agent's subdir of the shared user/group home.
 			projectValidateRoot string
+			scratchCleanup      func() error
 		)
 		if params.UserID != "" || params.GroupID != "" {
-			principal, err := SetupPrincipalWorkspace(stellaHome, params.UserID, params.GroupID, cfg.Snap.AgentID)
-			if err != nil {
-				return nil, fmt.Errorf("setup workspace: %w", err)
-			}
-			userRoot = principal.HomeDir
-			projectValidateRoot = principal.AgentDir
+			userRoot = view.PrincipalRoot
+			workspaceRoot, userDataDir = view.AgentRoot, view.DataRoot
+			projectValidateRoot = workspaceRoot
 		} else {
-			// A user-less agent job (e.g. a builtin scheduled job) has no
-			// principal home; it runs in the agent's own pool workspace (#442).
-			userRoot = cfg.Snap.Workspace
-			projectValidateRoot = userRoot
+			if params.ProjectID != "" {
+				return nil, fmt.Errorf("runner: user-less runs cannot use a project")
+			}
+			userRoot, scratchCleanup, err = newRunnerScratch(config.StellaHome())
+			if err != nil {
+				return nil, fmt.Errorf("create user-less scratch: %w", err)
+			}
+			workspaceRoot, projectValidateRoot = userRoot, userRoot
 		}
 
 		// Resolve project directory when session has a project.
@@ -176,12 +277,17 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			SkillStore:          cfg.SkillStore,
 			RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
 			EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),
+			DisabledSkillRefs:   append([]string(nil), cfg.Snap.DisabledSkillRefs...),
 		}
 		var sections []pkgplugins.SystemPromptSection
 		if cfg.PromptSectionsBuilder != nil {
 			sections, _ = cfg.PromptSectionsBuilder(ctx, promptBuild)
 		}
-		if skillsSection, err := skillstool.BuildPromptSection(ctx, promptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
+		skillPromptBuild := promptBuild
+		if params.GroupID != "" {
+			skillPromptBuild.UserID, skillPromptBuild.UserRoot, skillPromptBuild.WorkspaceRoot = "", "", ""
+		}
+		if skillsSection, err := skillstool.BuildPromptSection(ctx, skillPromptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
 			sections = append(sections, skillsSection)
 		}
 		if params.GroupID == "" && cfg.VaultEnvLoader != nil {
@@ -231,10 +337,12 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			SandboxConfig:    cfg.Snap.Sandbox,
 			SandboxBackendFn: cfg.SandboxBackendFn,
 			Paths: sandbox.Paths{
-				StellaHome:  config.StellaHome(),
-				AgentRoot:   cfg.Snap.Workspace,
-				UserRoot:    userRoot,
-				ProjectRoot: projectRoot,
+				StellaHome:    config.StellaHome(),
+				AgentRoot:     cfg.Snap.Workspace,
+				UserRoot:      userRoot,
+				WorkspaceRoot: workspaceRoot,
+				UserDataDir:   userDataDir,
+				ProjectRoot:   projectRoot,
 			},
 			UserID:              params.UserID,
 			GroupID:             params.GroupID,
@@ -283,14 +391,15 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			canonicalImages = &coreagent.CanonicalImageConfig{Load: load, CanonicalizeToolResult: canonicalize}
 		}
 
-		return newRunner(ctx, runnerConfig{
+		runner, err := newRunner(ctx, runnerConfig{
 			Provider: providerConfig{
-				API:     apiName,
-				Model:   modelID,
-				Input:   cfg.Snap.ModelInput(provID, modelID),
-				APIKey:  creds.APIKey,
-				BaseURL: creds.BaseURL,
-				Builder: cfg.ProviderStreamBuilder,
+				ProviderID: providerID,
+				API:        apiName,
+				Model:      modelID,
+				Input:      cfg.Snap.ModelInput(provID, modelID),
+				APIKey:     creds.APIKey,
+				BaseURL:    creds.BaseURL,
+				Builder:    cfg.ProviderStreamBuilder,
 			},
 			Thinking:            params.Thinking,
 			Sandbox:             sandboxCfg,
@@ -298,6 +407,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			Sections:            sections,
 			BuiltinTools:        builtinTools,
 			BuiltinParams:       params,
+			DisabledSkillRefs:   append([]string(nil), cfg.Snap.DisabledSkillRefs...),
 			PerRunTools:         perRunTools,
 			SkillStore:          cfg.SkillStore,
 			SkillReadAuthorizer: cfg.SkillReadAuthorizer,
@@ -310,7 +420,12 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			DelegateRunner:      params.DelegateRunner,
 			DelegateTimeout:     cfg.Snap.Runner.DelegateTimeoutDuration(),
 			CanonicalImages:     canonicalImages,
+			Cleanup:             scratchCleanup,
 		})
+		if err != nil && scratchCleanup != nil {
+			_ = scratchCleanup()
+		}
+		return runner, err
 	}
 }
 

@@ -7,10 +7,24 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
+
+type rotationAgentStore struct{ enabled bool }
+
+func (s rotationAgentStore) GetAgent(context.Context, string) (config.Agent, error) {
+	return config.Agent{ID: "cmd-agent", Scope: config.AgentScopeSystem, Enabled: s.enabled}, nil
+}
+
+func (s rotationAgentStore) ListAgents(context.Context) ([]config.Agent, error) { return nil, nil }
+
+func newRotationAgentAccess(enabled bool) *agentaccess.Service {
+	return agentaccess.NewService(rotationAgentStore{enabled: enabled}, nil)
+}
 
 // newRotateTestChat builds a DM chat pinned to the user's main session — the
 // only shape `/new` rotates in this phase.
@@ -26,6 +40,73 @@ func newRotateTestChat(t *testing.T, user auth.User) *ResolvedChat {
 // a zero-value chat receipt is inert by construction.
 func inertClaim() commandClaim { return chatCommandReceipt{} }
 
+func allowRotation(context.Context) error { return nil }
+
+type trackingClaim struct {
+	claimed  bool
+	releases int
+}
+
+func (c *trackingClaim) claim(context.Context) (bool, error) { return c.claimed, nil }
+func (c *trackingClaim) release(context.Context)             { c.releases++ }
+
+func TestRotateChatSessionDeniedBeforeResolveReleasesClaim(t *testing.T) {
+	ctx := context.Background()
+	rc := newRotateTestChat(t, auth.User{ID: "user-1", Role: auth.RoleUser})
+	before, err := rc.CurrentSessionForRotation(ctx)
+	if err != nil {
+		t.Fatalf("CurrentSessionForRotation: %v", err)
+	}
+	claim := &trackingClaim{claimed: true}
+	if reply := rotateChatSession(ctx, rc, claim, nil, func(context.Context) error { return errors.New("denied") }); reply == pkgchannel.NewSessionStartedMessage {
+		t.Fatalf("reply = %q, want authorization failure", reply)
+	}
+	if claim.releases != 1 {
+		t.Fatalf("receipt releases = %d, want 1", claim.releases)
+	}
+	after, err := rc.ResolveSession(ctx)
+	if err != nil {
+		t.Fatalf("ResolveSession: %v", err)
+	}
+	if after.ID != before.ID {
+		t.Fatalf("denied rotation changed session: %q -> %q", before.ID, after.ID)
+	}
+}
+
+func TestRotateChatSessionDeniedAtDequeueReleasesClaim(t *testing.T) {
+	ctx := context.Background()
+	rc := newRotateTestChat(t, auth.User{ID: "user-1", Role: auth.RoleUser})
+	before, err := rc.CurrentSessionForRotation(ctx)
+	if err != nil {
+		t.Fatalf("CurrentSessionForRotation: %v", err)
+	}
+	claim := &trackingClaim{claimed: true}
+	authorizations := 0
+	authorize := func(context.Context) error {
+		authorizations++
+		if authorizations == 2 {
+			return errors.New("binding changed")
+		}
+		return nil
+	}
+	if reply := rotateChatSession(ctx, rc, claim, newSessionQueue(), authorize); reply == pkgchannel.NewSessionStartedMessage {
+		t.Fatalf("reply = %q, want authorization failure", reply)
+	}
+	if authorizations != 2 {
+		t.Fatalf("authorization calls = %d, want 2", authorizations)
+	}
+	if claim.releases != 1 {
+		t.Fatalf("receipt releases = %d, want 1", claim.releases)
+	}
+	after, err := rc.ResolveSession(ctx)
+	if err != nil {
+		t.Fatalf("ResolveSession: %v", err)
+	}
+	if after.ID != before.ID {
+		t.Fatalf("dequeue denial changed session: %q -> %q", before.ID, after.ID)
+	}
+}
+
 func TestRotateChatSessionRotatesMainSession(t *testing.T) {
 	ctx := context.Background()
 	rc := newRotateTestChat(t, auth.User{ID: "user-1", Role: auth.RoleUser})
@@ -34,7 +115,7 @@ func TestRotateChatSessionRotatesMainSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CurrentSessionForRotation: %v", err)
 	}
-	if reply := rotateChatSession(ctx, rc, inertClaim(), nil); reply != pkgchannel.NewSessionStartedMessage {
+	if reply := rotateChatSession(ctx, rc, inertClaim(), nil, allowRotation); reply != pkgchannel.NewSessionStartedMessage {
 		t.Fatalf("reply = %q, want %q", reply, pkgchannel.NewSessionStartedMessage)
 	}
 
@@ -93,7 +174,7 @@ func TestRotateChatSessionRotatesPrivateChannelSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CurrentSessionForRotation: %v", err)
 	}
-	if reply := rotateChatSession(ctx, rc, inertClaim(), nil); reply != pkgchannel.NewSessionStartedMessage {
+	if reply := rotateChatSession(ctx, rc, inertClaim(), nil, allowRotation); reply != pkgchannel.NewSessionStartedMessage {
 		t.Fatalf("reply = %q, want %q", reply, pkgchannel.NewSessionStartedMessage)
 	}
 	after, err := rc.ResolveSession(ctx)
@@ -119,7 +200,7 @@ func TestRotateChatSessionRotatesPrivateChannelSession(t *testing.T) {
 // still running on another.
 func TestHandleNewSessionCommandWaitsForActiveTurn(t *testing.T) {
 	ctx := context.Background()
-	c := &Coordinator{queue: newSessionQueue()}
+	c := &Coordinator{queue: newSessionQueue(), agentAccess: newRotationAgentAccess(true)}
 	rc := newRotateTestChat(t, auth.User{ID: "user-1", Role: auth.RoleUser})
 
 	turnChat := newRotateTestChat(t, auth.User{ID: "user-1", Role: auth.RoleUser})
@@ -196,6 +277,13 @@ func TestHandleNewSessionCommandWaitsForActiveTurn(t *testing.T) {
 	}
 	if rotated.ID == before.ID {
 		t.Fatal("/new must rotate once the turn completes")
+	}
+}
+
+func TestSessionRotationAuthorizationRejectsDisabledAgent(t *testing.T) {
+	rc := newRotateTestChat(t, auth.User{ID: "user-1", Role: auth.RoleUser})
+	if err := rc.AuthorizeUse(context.Background(), newRotationAgentAccess(false)); !errors.Is(err, agentaccess.ErrForbidden) {
+		t.Fatalf("AuthorizeUse disabled agent = %v, want forbidden", err)
 	}
 }
 

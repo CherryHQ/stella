@@ -1,6 +1,6 @@
 # stella
 
-Stella is a single-tenant, multi-user, multi-agent AI assistant platform written in Go. Each deployment is one tenant and trust boundary. It pairs each user with personalized AI agents that have their own memory, tools, schedules, and sandbox policies. Users interact through Telegram, QQ, Feishu, WeChat, or the Web UI. The backend is a single `stellad` binary backed by PostgreSQL (an embedded cluster by default, or an external server via `STELLA_DATABASE_URL`).
+Stella is a single-tenant, multi-user, multi-agent AI assistant platform written in Go. Each deployment is one tenant and trust boundary. It pairs each user with personalized AI agents that have their own memory, tools, schedules, and sandbox policies. Users interact through Telegram, Discord, QQ, Feishu, WeChat, or the Web UI. The backend is a single `stellad` binary backed by PostgreSQL (an embedded cluster by default, or an external server via `STELLA_DATABASE_URL`).
 
 ## Layout
 

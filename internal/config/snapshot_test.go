@@ -188,6 +188,34 @@ func TestSnapshotModelInputHandlesNestedModelID(t *testing.T) {
 	}
 }
 
+func TestSnapshotResolvesCanonicalProviderThroughTypeAlias(t *testing.T) {
+	const (
+		providerID = "openrouter-production"
+		modelID    = "anthropic/claude-sonnet-4-6"
+	)
+	snap := Snapshot{
+		Provider: "openai",
+		Model:    providerID + "/" + modelID,
+		Providers: map[string]ProviderCreds{
+			"openai": {Type: "openai", APIKey: "test-key", ProviderID: providerID},
+		},
+		ModelInputs: map[ModelKey][]string{
+			{Provider: "openai", Model: modelID}: {"text", "image"},
+		},
+	}
+
+	model := snap.ResolveModel()
+	if model.Provider != providerID || model.API != "openai" {
+		t.Fatalf("model provider/API = %q/%q, want %q/openai", model.Provider, model.API, providerID)
+	}
+	if got := model.ImageCapability(); got != ai.ImageSupported {
+		t.Fatalf("ImageCapability = %v, want ImageSupported (Input=%v)", got, model.Input)
+	}
+	if got := snap.ResolveProviderCreds(providerID); got.APIKey != "test-key" || got.ProviderID != providerID {
+		t.Fatalf("canonical provider credentials = %+v, want alias entry", got)
+	}
+}
+
 func TestParseModelRef(t *testing.T) {
 	tests := []struct {
 		ref      string

@@ -35,7 +35,7 @@ export function ReferenceCardShell({
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             {kind}
           </span>
           {status}

@@ -51,13 +51,13 @@ Stella 采用编译内置的插件系统。插件内置于 `stellad` 二进制�
 
 Stella 在多个领域提供内置插件：
 
-| 类型     | 示例                                     |
-| -------- | ---------------------------------------- |
-| tool     | `webfetch`、`notify`                     |
-| channel  | `telegram`、`qq`、`feishu`、`weixin`     |
-| hook     | `trace`、`rtk`                           |
-| provider | `anthropic`、`openai`、`openai-response` |
-| memory   | `lcm`、`simple`                          |
+| 类型     | 示例                                            |
+| -------- | ----------------------------------------------- |
+| tool     | `webfetch`、`notify`                            |
+| channel  | `telegram`、`discord`、`qq`、`feishu`、`weixin` |
+| hook     | `trace`、`rtk`                                  |
+| provider | `anthropic`、`openai`、`openai-response`        |
+| memory   | `lcm`、`simple`                                 |
 
 ## 声明式能力
 

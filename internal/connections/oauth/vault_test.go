@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"context"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -94,9 +95,11 @@ func TestSaveLoadOAuthBundle_GrantedScopeRoundTrip(t *testing.T) {
 	userID := "gs"
 
 	bundle := OAuthBundle{
-		Version:      1,
-		AccessToken:  "tok",
-		GrantedScope: "im:message docs:read offline_access",
+		Version:       1,
+		AccessToken:   "tok",
+		GrantedScope:  "im:message docs:read offline_access",
+		DesiredScopes: []string{"offline_access", "docs:read"},
+		Brand:         "feishu",
 	}
 	if err := SaveOAuthBundle(ctx, vs, userID, VaultKeyGitHub, bundle); err != nil {
 		t.Fatalf("SaveOAuthBundle: %v", err)
@@ -107,6 +110,12 @@ func TestSaveLoadOAuthBundle_GrantedScopeRoundTrip(t *testing.T) {
 	}
 	if got.GrantedScope != bundle.GrantedScope {
 		t.Errorf("GrantedScope = %q, want %q", got.GrantedScope, bundle.GrantedScope)
+	}
+	if !reflect.DeepEqual(got.DesiredScopes, bundle.DesiredScopes) {
+		t.Errorf("DesiredScopes = %v, want %v", got.DesiredScopes, bundle.DesiredScopes)
+	}
+	if got.Brand != bundle.Brand {
+		t.Errorf("Brand = %q, want %q", got.Brand, bundle.Brand)
 	}
 }
 

@@ -59,9 +59,6 @@ To let a multimodal model receive image pixels during its active turn, open **Se
 
 ## Switching models
 
-You can switch models mid-conversation without losing context:
-
-- **In any channel** -- type `/model` to see available models and pick a different one. On Telegram, this shows an inline keyboard for quick selection.
-- **In the Web UI** -- go to the **Models** page to browse available models and switch the active model.
+You can switch models from the **Models** page in the Web UI. Open the page to browse available models and switch the active model.
 
 The change takes effect on the next message.

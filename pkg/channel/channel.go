@@ -15,6 +15,7 @@ import (
 // Platform identifiers for each messaging channel.
 const (
 	PlatformTelegram = "telegram"
+	PlatformDiscord  = "discord"
 	PlatformQQ       = "qq"
 	PlatformFeishu   = "feishu"
 	PlatformWeixin   = "weixin"
@@ -49,32 +50,9 @@ type MessageHandler interface {
 	HandleIncoming(ctx context.Context, msg IncomingMessage, command, args string) (string, bool, *ChatStream, error)
 }
 
-// ModelManager provides model listing and switching for channel plugins
-// that support the /model command.
-type ModelManager interface {
-	// ListModels returns available models.
-	ListModels() []ModelOption
-
-	// SwitchModel switches the active model.
-	SwitchModel(provider, model string) error
-}
-
-// AgentManager provides agent listing and switching for channel plugins
-// that support the /agent command.
-type AgentManager interface {
-	// ListAgents returns enabled agents the user can access and the current agent ID.
-	ListAgents(ctx context.Context, msg IncomingMessage) ([]AgentInfo, string, error)
-
-	// SwitchAgent switches the active agent for this chat context.
-	SwitchAgent(ctx context.Context, msg IncomingMessage, agentSlug string) error
-}
-
-// Handler combines message routing with model and agent management.
-// Channel plugins typically need all three capabilities.
+// Handler is the message-routing contract used by channel plugins.
 type Handler interface {
 	MessageHandler
-	ModelManager
-	AgentManager
 }
 
 // IncomingMessage is the normalised input from any platform.
@@ -149,11 +127,12 @@ type ToolUseEvent struct {
 
 // Notification is a push message to send to a chat.
 type Notification struct {
-	Channel string // optional: route to a specific backend
-	ChatID  string // target chat/channel within the backend
-	AgentID string // optional: agent that produced the notification
-	Text    string // markdown content
-	Silent  bool   // send without notification sound
+	Channel     string // optional: route to a specific backend
+	ChatID      string // target chat/channel within the backend
+	RecipientID string // linked platform user identity; empty for explicit ChatID targets
+	AgentID     string // optional: agent that produced the notification
+	Text        string // markdown content
+	Silent      bool   // send without notification sound
 }
 
 // AgentInfo is agent metadata for display in channel UIs.
@@ -162,11 +141,16 @@ type AgentInfo struct {
 	Name string
 }
 
-// ProvisionRequest carries the information needed to look up a channel user.
+// ProvisionRequest carries verified platform evidence for enrollment. Plugins
+// remain independent of internal auth types; ExternalID is the platform's
+// canonical identity subject (Feishu union_id for Feishu enrollment).
 type ProvisionRequest struct {
 	Platform   string
 	ExternalID string
+	TenantKey  string
+	Email      string
 	Name       string
+	AvatarURL  string
 }
 
 // Provisioner is an optional capability that a Handler may implement.

@@ -61,6 +61,8 @@ Ubuntu runner，并调用 `mise run system-test`；若该 runner 将来变得不
 - `readiness` —— 子进程迁移了交给它的数据库、绑定了 TCP 监听、并报告 ready。
 - `startup_and_auth` —— bootstrap 注册与 session 认证后的访问。
 - `chat_sse` —— 一次端到端 chat 轮次，以实时 SSE 流的方式消费。
+- `chat_disconnect_resume` —— 在 turn 中途断开发消息的初始 stream，通过只读 events
+  stream 重连，回放前半段并继续完成，且不发起第二次模型请求。
 - `image_history` —— 上传图片通过 fake provider 完成 baseline 渲染和当前回答，随后持久化为
   canonical media 与该精确 baseline；下一次回答请求不含像素、只投影 baseline，并可通过鉴权
   历史接口逐字节加载原图。
@@ -76,9 +78,9 @@ Ubuntu runner，并调用 `mise run system-test`；若该 runner 将来变得不
   发送，收到异步 `202`，并且其原始 payload 恰好一次、完整地抵达 fake model。
 - `scheduler_one_time_job_survives_forced_restart` —— 持久化一个未来触发的一次性 chat job，在到期前
   强杀服务器，再由连接同一数据库的替代进程恰好执行并退役该 job 一次。
-- `graceful_drain` —— 在一个轮次仍在途中时发送 SIGTERM：`/readyz` 从 ready 翻转，一个 attach
-  订阅被 drain 取消，被钉住的轮次仍在其流上完整收尾（全文、finish、[DONE]），进程以 0 退出。
-  它最后运行，因为会消费掉共享服务器。
+- `graceful_drain` —— 在一个轮次仍在途中时发送 SIGTERM：`/readyz` 从 ready 翻转，attach 与
+  send 观察者迅速断开，服务端持有的 turn 在 accepted-work drain 内持久化完整回复，进程以 0
+  退出。它最后运行，因为会消费掉共享服务器。
 
 `startup_and_auth` 还覆盖个人访问令牌（PAT）的 bearer 生命周期：一个 session 铸造出一个
 PAT，仅凭该令牌即可用其所有者当前的权限认证普通 API 路由，撤销后同一个 bearer 会 fail closed。

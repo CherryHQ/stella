@@ -17,6 +17,9 @@ export interface TranscriptMessage {
   tokenCount?: number;
   streaming?: boolean;
   agentSessionId?: string;
+  actorType?: "human" | "agent" | "system";
+  actorId?: string;
+  sourceSessionId?: string;
 }
 
 interface Props {
@@ -71,6 +74,9 @@ const MessageRow = memo(function MessageRow({
       {msg.role === "user" ? (
         <UserMessage
           msg={{ content: msg.content, blocks: msg.blocks, timestamp: msg.timestamp }}
+          actorType={msg.actorType}
+          actorId={msg.actorId}
+          sourceSessionId={msg.sourceSessionId}
           agentId={fileAgentId}
           sessionId={fileSessionId}
           agentNames={agentNames}
@@ -110,7 +116,12 @@ export function MessageList({
           key={msg.id}
           msg={msg}
           sameRoleAsPrev={
-            i > 0 && messages[i - 1].role === msg.role && messages[i - 1].agentId === msg.agentId
+            i > 0 &&
+            messages[i - 1].role === msg.role &&
+            messages[i - 1].agentId === msg.agentId &&
+            messages[i - 1].actorType === msg.actorType &&
+            messages[i - 1].actorId === msg.actorId &&
+            messages[i - 1].sourceSessionId === msg.sourceSessionId
           }
           showTimestamp={i === messages.length - 1 || messages[i + 1].role !== msg.role}
           fileAgentId={fileAgentId}
@@ -129,8 +140,13 @@ export const ChatTranscript = forwardRef<HTMLDivElement, Props>(function ChatTra
   const { t } = useI18n();
 
   return (
+    // `log` is the role for a running conversation: assistive tech announces
+    // messages as they arrive without stealing focus, which `alert` would.
+    // It carries an implicit `aria-live="polite"`, so that is not restated.
     <div
       ref={ref}
+      role="log"
+      aria-label={t("sessions.transcript.label")}
       className="stella-transcript-scroll min-w-0 flex-1 overflow-y-auto bg-background px-4 py-6 sm:px-8 sm:py-8"
       onScroll={onScroll}
     >
@@ -145,7 +161,7 @@ export const ChatTranscript = forwardRef<HTMLDivElement, Props>(function ChatTra
       {header}
       {messages.length === 0 && !loading && !header && (
         <div className="py-20 text-center">
-          <p className="font-mono text-xs text-muted-foreground/60">
+          <p className="font-mono text-xs text-muted-foreground">
             {t("sessions.transcript.empty")}
           </p>
         </div>
@@ -155,7 +171,7 @@ export const ChatTranscript = forwardRef<HTMLDivElement, Props>(function ChatTra
         fileAgentId={fileAgentId}
         fileSessionId={fileSessionId}
         agentNames={agentNames}
-        className="mx-auto w-full max-w-3xl"
+        className="mx-auto w-full max-w-[var(--chat-column)]"
       />
     </div>
   );

@@ -189,14 +189,13 @@ func TestSeedAgentConflictDoesNotOverwriteExistingAgent(t *testing.T) {
 	q := sqlc.New(db)
 
 	first := sqlc.SeedAgentParams{
-		ID:                   "stella",
-		Name:                 "first",
-		Model:                "test/model",
-		Workspace:            "/tmp/first",
-		Sandbox:              json.RawMessage(`{}`),
-		EnabledBuiltinSkills: json.RawMessage(`[]`),
-		Scope:                config.AgentScopeSystem,
-		Enabled:              true,
+		ID:        "stella",
+		Name:      "first",
+		Model:     "test/model",
+		Workspace: "/tmp/first",
+		Sandbox:   json.RawMessage(`{}`),
+		Scope:     config.AgentScopeSystem,
+		Enabled:   true,
 	}
 	if err := q.SeedAgent(ctx, first); err != nil {
 		t.Fatalf("seed first agent: %v", err)

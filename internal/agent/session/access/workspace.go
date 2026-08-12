@@ -13,10 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
+	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/home"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
@@ -469,20 +470,24 @@ func (a *Access) workspaceRoot(ctx context.Context, agentID, sessionID string, s
 	if err != nil {
 		return "", err
 	}
-	if info.UserID == "" || info.AgentID == "" {
+	if info.AgentID == "" || (info.UserID == "" && info.GroupID == "") {
 		return "", ErrNotFound
 	}
-	if _, err := agent.SetupUserWorkspace(config.StellaHome(), info.UserID, info.AgentID); err != nil {
-		return "", err
-	}
-	return workspaceRootForScope(info.UserID, info.AgentID, scope), nil
+	return resolveWorkspaceRoot(ctx, a.svc.homes, info, scope)
 }
 
-func workspaceRootForScope(userID, agentID string, scope WorkspaceScope) string {
-	if scope == WorkspaceScopeUser {
-		return agent.UserDataDir(agent.UserHomeDir(config.StellaHome(), userID))
+func resolveWorkspaceRoot(ctx context.Context, viewer home.WorkspaceViewer, info agentsession.Info, scope WorkspaceScope) (string, error) {
+	if viewer == nil {
+		return "", fmt.Errorf("%w: Home workspace resolver not configured", ErrUnavailable)
 	}
-	return agent.UserAgentDir(config.StellaHome(), userID, agentID)
+	view, err := viewer.WorkspaceView(ctx, home.WorkspaceRequest{UserID: info.UserID, GroupID: info.GroupID, AgentID: info.AgentID})
+	if err != nil {
+		return "", fmt.Errorf("%w: resolve Home workspace: %w", ErrUnavailable, err)
+	}
+	if scope == WorkspaceScopeUser {
+		return view.DataRoot, nil
+	}
+	return view.AgentRoot, nil
 }
 
 func scopeSandboxView(backend, root string, scope WorkspaceScope) string {

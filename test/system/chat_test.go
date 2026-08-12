@@ -111,8 +111,13 @@ func (h *harness) createFakeProviderNamedWithKey(t *testing.T, ctx context.Conte
 // rather than assumed).
 func (h *harness) createAgent(t *testing.T, ctx context.Context, model string) string {
 	t.Helper()
+	return h.createAgentNamed(t, ctx, model, "sys-test-agent-"+h.runID)
+}
+
+func (h *harness) createAgentNamed(t *testing.T, ctx context.Context, model, name string) string {
+	t.Helper()
 	body := map[string]any{
-		"name":    "sys-test-agent-" + h.runID,
+		"name":    name,
 		"model":   model,
 		"enabled": true,
 	}

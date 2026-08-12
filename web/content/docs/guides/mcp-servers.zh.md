@@ -34,6 +34,6 @@ Stella 仅作为基于 HTTP 传输的 MCP **客户端**：
 
 ## 管理服务器
 
-在 Web UI 中管理 MCP 服务器。打开智能体或工作区设置，添加服务器 URL，选择作用域；如果服务器需要认证，再提供 bearer 令牌。
+在 **个人设置 → MCP 服务器** 管理个人的 `user` 与 `user_agent` 注册。管理员在 **管理控制台 → 部署资源 → 全局 MCP** 管理部署所有的 `system` 与 `system_agent` 注册。添加服务器 URL，选择适用于全部智能体或单个智能体；如果服务器需要认证，再提供 bearer 令牌。
 
 同样的操作也可通过 HTTP API 的 `/api/mcp/servers` 使用。

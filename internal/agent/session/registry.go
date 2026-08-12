@@ -78,6 +78,9 @@ func (r *Registry) Ensure(ctx context.Context, req Request) (Info, error) {
 	if err := r.validateScope(req.UserID, req.AgentID); err != nil {
 		return Info{}, err
 	}
+	if err := ValidateTitle(req.Title); err != nil {
+		return Info{}, err
+	}
 	agentID := r.resolveAgentID(req.AgentID)
 
 	if req.ID != "" {
@@ -147,6 +150,47 @@ func (r *Registry) List(ctx context.Context, scope Scope, opts ListOptions) ([]I
 	out := all[:0]
 	for _, info := range all {
 		if _, ok := kindSet[Kind(info.Kind)]; ok {
+			out = append(out, info)
+		}
+	}
+	return out, nil
+}
+
+// ListForAdmin returns an admin's own sessions plus agent-scoped guest sessions.
+// The caller must enforce administrator authority and per-row authorization.
+func (r *Registry) ListForAdmin(ctx context.Context, userID, agentID string, opts ListOptions) ([]Info, error) {
+	if userID == "" {
+		return nil, fmt.Errorf("ListForAdmin requires UserID")
+	}
+	agentID = r.resolveAgentID(agentID)
+	if agentID == "" {
+		return nil, fmt.Errorf("ListForAdmin requires AgentID")
+	}
+	lister, ok := r.store.(interface {
+		listForAdmin(context.Context, string, string, memory.ListOptions) ([]Info, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("session store does not support administrative listing")
+	}
+	all, err := lister.listForAdmin(ctx, userID, agentID, memory.ListOptions{
+		UserID:          userID,
+		AgentID:         agentID,
+		IncludeArchived: opts.IncludeArchived,
+		ExcludeInternal: opts.ExcludeInternal,
+		ProjectID:       opts.ProjectID,
+		Limit:           opts.Limit,
+		Offset:          opts.Offset,
+	})
+	if err != nil || len(opts.Kinds) == 0 {
+		return all, err
+	}
+	kindSet := make(map[Kind]struct{}, len(opts.Kinds))
+	for _, kind := range opts.Kinds {
+		kindSet[kind] = struct{}{}
+	}
+	out := all[:0]
+	for _, info := range all {
+		if _, allowed := kindSet[Kind(info.Kind)]; allowed {
 			out = append(out, info)
 		}
 	}
@@ -358,6 +402,7 @@ func (r *Registry) RotateChannel(ctx context.Context, req ChannelRequest) (Info,
 func (r *Registry) currentChannelLocked(ctx context.Context, req ChannelRequest) (Info, bool, error) {
 	opts := memory.ListOptions{
 		UserID:          req.UserID,
+		GuestID:         req.GuestID,
 		AgentID:         req.AgentID,
 		Kind:            string(KindChat),
 		ProjectIDIsNull: true,
@@ -418,7 +463,7 @@ func (r *Registry) currentChannelLocked(ctx context.Context, req ChannelRequest)
 // for, backfilling the fields a legacy row may lack. It fails closed on a
 // mismatch: the durable group owner is an ownership claim, never a rebind.
 func (r *Registry) bindChannelInfo(info Info, req ChannelRequest) (Info, error) {
-	if info.UserID != req.UserID || info.AgentID != req.AgentID {
+	if info.UserID != req.UserID || info.AgentID != req.AgentID || info.GuestID != req.GuestID {
 		return Info{}, fmt.Errorf("%w: %s", ErrForbidden, info.ID)
 	}
 	if info.Channel == "" && !req.Channel.isZero() {
@@ -448,6 +493,7 @@ func newChannelInfo(req ChannelRequest) Info {
 	id := uuid.Must(uuid.NewV7()).String()
 	info := NewInfo(id, req.AgentID, req.UserID, string(req.Channel), KindChat, "", now)
 	info.GroupID = req.GroupID
+	info.GuestID = req.GuestID
 	return info
 }
 

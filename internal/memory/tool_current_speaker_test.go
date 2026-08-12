@@ -115,6 +115,29 @@ func TestMemoryToolCurrentSpeaker_DMUnchanged(t *testing.T) {
 	}
 }
 
+func TestUnifiedMemoryReadPreservesOnlyProfileSpeakerFallback(t *testing.T) {
+	fake := memorytest.New()
+	ctx := groupSpeakerCtx("agent1", memory.CurrentSpeaker{UserID: "speaker1"})
+	if err := fake.SetProfile(ctx, "speaker1", "agent1", "Speaker likes tea"); err != nil {
+		t.Fatal(err)
+	}
+	tool := memory.BuildTool(fake, memory.WithRecallSource(&fakeRecallSource{}))
+
+	result, err := tool.Execute(ctx, map[string]any{"action": "read", "ref": "profile"})
+	if err != nil || !containsString(result, "Speaker likes tea") {
+		t.Fatalf("read profile fallback: result=%q err=%v", result, err)
+	}
+	for _, args := range []map[string]any{
+		{"action": "read", "ref": "soul"},
+		{"action": "read", "ref": "constraints"},
+		{"action": "search", "query": "tea"},
+	} {
+		if _, err := tool.Execute(ctx, args); err == nil {
+			t.Fatalf("group unified action unexpectedly widened access: %#v", args)
+		}
+	}
+}
+
 func TestMemoryToolCurrentSpeaker_ForbiddenActionsFailClosed(t *testing.T) {
 	fake := memorytest.New()
 	tool := memory.BuildTool(fake)

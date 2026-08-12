@@ -145,7 +145,6 @@ func executeToolCalls(ctx context.Context, calls []ai.ToolCall, tools ToolSet, c
 		toolCtx := pkgchannel.WithNotificationAgentID(execCtx, meta.AgentID)
 		content, err := toolFn(toolCtx, execCall)
 		duration := time.Since(start)
-
 		result := ai.ToolResultMessage{ToolCallID: call.ID, ToolName: call.Name, Content: content}
 		if err != nil {
 			result.IsError = true

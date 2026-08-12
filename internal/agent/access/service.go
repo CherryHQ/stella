@@ -11,6 +11,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
 var (
@@ -80,10 +81,24 @@ func (a *Access) Delete(ctx context.Context, agentID string) (config.Agent, erro
 }
 
 // UseDedicated requires both the authority's exact held channel binding and a
-// current DB binding from that channel to this exact agent. Either mismatch
-// fails closed; channel ID by itself is never an agent-use capability.
+// current enabled DB binding from that channel to this exact agent. Either
+// mismatch fails closed; channel ID by itself is never an agent-use capability.
 func (a *Access) UseDedicated(ctx context.Context, agentID, channelID string) (config.Agent, error) {
-	if channelID == "" || a.authority.Kind() != authz.ActorUser || a.authority.ChannelBindingID() != channelID {
+	return a.useDedicated(ctx, agentID, channelID, "")
+}
+
+// UseDedicatedForType additionally requires the current channel type to match
+// the platform that minted the queued chat. This prevents a channel record that
+// was reconfigured for another platform from authorizing stale queued work.
+func (a *Access) UseDedicatedForType(ctx context.Context, agentID, channelID, channelType string) (config.Agent, error) {
+	if channelType == "" {
+		return config.Agent{}, ErrForbidden
+	}
+	return a.useDedicated(ctx, agentID, channelID, channelType)
+}
+
+func (a *Access) useDedicated(ctx context.Context, agentID, channelID, channelType string) (config.Agent, error) {
+	if channelID == "" || (a.authority.Kind() != authz.ActorUser && a.authority.Kind() != authz.ActorGuest) || a.authority.ChannelBindingID() != channelID {
 		return config.Agent{}, ErrForbidden
 	}
 	channels, ok := a.svc.agents.(dedicatedChannelStore)
@@ -97,8 +112,13 @@ func (a *Access) UseDedicated(ctx context.Context, agentID, channelID string) (c
 		}
 		return config.Agent{}, fmt.Errorf("%w: get channel: %w", ErrUnavailable, err)
 	}
-	if channel.AgentID != agentID {
+	if !channel.Enabled || channel.AgentID != agentID || (channelType != "" && channel.Type != channelType) {
 		return config.Agent{}, ErrForbidden
+	}
+	if a.authority.Kind() == authz.ActorGuest {
+		if !pkgchannel.AllowsUnlinkedGuestDM(channel.Type, channel.Enabled, channel.Config) {
+			return config.Agent{}, ErrForbidden
+		}
 	}
 	return a.decide(ctx, agentID, authz.ActionExecute, true)
 }
@@ -154,10 +174,16 @@ func (a *Access) CanCreate() error {
 	return ErrForbidden
 }
 
-// ListReadable applies both the collection list decision and a read decision to
-// every candidate. SQL may narrow candidates for performance, but never decides
+// ListReadable returns the caller's own fleet: the agents they can actually
+// use, plus the ones they created whatever state those are in.
+//
+// deploymentWide is the admin's separate, explicit ask for everyone's agents.
+// Without it an admin gets the same personal fleet as anyone else — being able
+// to reach every agent is not a reason to be shown every agent, and the pages
+// that browse your own agents should not turn into a directory of everybody's
+// on one account. SQL may narrow candidates for performance, but never decides
 // visibility.
-func (a *Access) ListReadable(ctx context.Context, includeDisabled bool) ([]config.Agent, error) {
+func (a *Access) ListReadable(ctx context.Context, deploymentWide bool) ([]config.Agent, error) {
 	if err := a.CanList(); err != nil {
 		return nil, err
 	}
@@ -165,18 +191,48 @@ func (a *Access) ListReadable(ctx context.Context, includeDisabled bool) ([]conf
 	if err != nil {
 		return nil, fmt.Errorf("%w: list agents: %w", ErrUnavailable, err)
 	}
+	admin := a.authority.IsAdmin()
 	out := make([]config.Agent, 0, len(agents))
 	for _, agent := range agents {
-		if !includeDisabled && !agent.Enabled {
+		if deploymentWide && admin {
+			out = append(out, agent)
 			continue
 		}
-		if _, err := a.Read(ctx, agent.ID); err == nil {
-			out = append(out, agent)
-		} else if !errors.Is(err, ErrForbidden) && !errors.Is(err, ErrNotFound) {
+		ok, err := a.inOwnFleet(ctx, agent)
+		if err != nil {
 			return nil, err
+		}
+		if ok {
+			out = append(out, agent)
 		}
 	}
 	return out, nil
+}
+
+// inOwnFleet is the collection-membership rule, deliberately written without the
+// admin superuser reach that decide() applies. Read authority answers "may I
+// look at this if I ask for it"; this answers the narrower "is this mine",
+// which is what a list of your agents should show.
+func (a *Access) inOwnFleet(ctx context.Context, ag config.Agent) (bool, error) {
+	// Your own agent stays listed whatever its state. You are the one person who
+	// can turn a disabled one back on, and the UI reaches an agent's
+	// configuration through this list — dropping it would make "disable" a
+	// one-way door out of your own agent.
+	if a.isCreator(ag) {
+		return true, nil
+	}
+	if !ag.Enabled {
+		return false, nil
+	}
+	// An agent open to everyone is in everyone's fleet. An unreadable scope is
+	// simply not that, and fails closed into the assignment lookup below.
+	if scope, err := canonicalScope(ag.Scope); err == nil && scope == config.AgentScopeSystem {
+		return true, nil
+	}
+	if a.authority.Kind() != authz.ActorUser || a.userID == "" {
+		return false, nil
+	}
+	return a.assignedTo(ctx, ag.ID)
 }
 
 func (s *Service) Read(ctx context.Context, authority authz.Authority, agentID string) (config.Agent, error) {
@@ -226,12 +282,12 @@ func (s *Service) CanCreate(ctx context.Context, authority authz.Authority) erro
 	return a.CanCreate()
 }
 
-func (s *Service) ListReadable(ctx context.Context, authority authz.Authority, includeDisabled bool) ([]config.Agent, error) {
+func (s *Service) ListReadable(ctx context.Context, authority authz.Authority, deploymentWide bool) ([]config.Agent, error) {
 	a, err := s.Begin(ctx, authority)
 	if err != nil {
 		return nil, err
 	}
-	return a.ListReadable(ctx, includeDisabled)
+	return a.ListReadable(ctx, deploymentWide)
 }
 
 // Authorize is the narrow cross-domain Agent port. It reads the durable Agent
@@ -256,6 +312,9 @@ func (a *Access) decide(ctx context.Context, agentID string, action authz.Action
 	ag, err := a.load(ctx, agentID)
 	if err != nil {
 		return config.Agent{}, err
+	}
+	if action == authz.ActionExecute && !ag.Enabled {
+		return config.Agent{}, ErrForbidden
 	}
 	scope, err := canonicalScope(ag.Scope)
 	if err != nil {
@@ -296,6 +355,8 @@ func (a *Access) allowed(ctx context.Context, ag config.Agent, scope string, act
 				return true, nil
 			}
 			return a.assignedTo(ctx, ag.ID)
+		case authz.ActorGuest:
+			return dedicated, nil
 		case authz.ActorAgent, authz.ActorGroupAgent:
 			return string(a.authority.AgentID()) == ag.ID, nil
 		case authz.ActorSystem:
@@ -304,10 +365,17 @@ func (a *Access) allowed(ctx context.Context, ag config.Agent, scope string, act
 			return false, nil
 		}
 	case authz.ActionManage, authz.ActionDelete:
-		return a.authority.Kind() == authz.ActorUser && a.userID != "" && a.userID == ag.CreatorID, nil
+		return a.isCreator(ag), nil
 	default:
 		return false, nil
 	}
+}
+
+// isCreator is the ownership half of the Manage decision, without the admin
+// superuser reach that decide() applies before ever getting here. Listing uses
+// it directly, which is how an admin's own list stays their own fleet.
+func (a *Access) isCreator(ag config.Agent) bool {
+	return a.authority.Kind() == authz.ActorUser && a.userID != "" && a.userID == ag.CreatorID
 }
 
 func (a *Access) load(ctx context.Context, agentID string) (config.Agent, error) {

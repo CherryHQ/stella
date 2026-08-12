@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -36,7 +37,7 @@ func newAssembler(q *sqlc.Queries, log *slog.Logger) *assembler {
 // It protects the freshTail most recent user turns from being excluded, subject to a tail token cap.
 // Returns ai.Messages for direct use by the runner pipeline.
 func (a *assembler) assemble(ctx context.Context, convID string, budget int, freshTail int) ([]ai.Message, error) {
-	items, messages, summaries, parents, partsByMessage, err := a.loadContextWindow(ctx, convID)
+	items, messages, summaries, children, partsByMessage, err := a.loadContextWindow(ctx, convID)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +52,7 @@ func (a *assembler) assemble(ctx context.Context, convID string, budget int, fre
 
 	// Resolve fresh tail — these are always included unless the token cap pushes
 	// whole oldest turns back into older budget competition below.
-	tailMsgs, tailTokens, compacted, err := resolveTailFromCaches(tail, messages, summaries, parents, partsByMessage)
+	tailMsgs, tailTokens, compacted, err := resolveTailFromCaches(tail, messages, summaries, children, partsByMessage)
 	if err != nil {
 		return nil, fmt.Errorf("resolve tail: %w", err)
 	}
@@ -65,7 +66,7 @@ func (a *assembler) assemble(ctx context.Context, convID string, budget int, fre
 		splitIdx = nextSplitIdx
 		tail = items[splitIdx:]
 		older = items[:splitIdx]
-		tailMsgs, tailTokens, compacted, err = resolveTailFromCaches(tail, messages, summaries, parents, partsByMessage)
+		tailMsgs, tailTokens, compacted, err = resolveTailFromCaches(tail, messages, summaries, children, partsByMessage)
 		if err != nil {
 			return nil, fmt.Errorf("resolve tail: %w", err)
 		}
@@ -96,7 +97,7 @@ func (a *assembler) assemble(ctx context.Context, convID string, budget int, fre
 	remaining := max(budget-tailTokens, 0)
 
 	// Select older items that fit within remaining budget, newest first.
-	olderMsgs, err := resolveOlderWithinBudget(older, messages, summaries, parents, partsByMessage, remaining)
+	olderMsgs, err := resolveOlderWithinBudget(older, messages, summaries, children, partsByMessage, remaining)
 	if err != nil {
 		return nil, err
 	}
@@ -259,11 +260,11 @@ func advancePastOldestTurn(items []sqlc.CtxItem, splitIdx int) (int, bool) {
 	return splitIdx, false
 }
 
-func resolveOlderWithinBudget(older []sqlc.CtxItem, messages map[string]sqlc.CtxMessage, summaries map[string]sqlc.CtxSummary, parents map[string][]sqlc.CtxSummary, partsByMessage map[string][]loadedMessagePart, remaining int) ([]ai.Message, error) {
+func resolveOlderWithinBudget(older []sqlc.CtxItem, messages map[string]sqlc.CtxMessage, summaries map[string]sqlc.CtxSummary, children map[string][]sqlc.CtxSummary, partsByMessage map[string][]loadedMessagePart, remaining int) ([]ai.Message, error) {
 	var olderMsgs []ai.Message
 	for i := len(older) - 1; i >= 0; i-- {
 		item := older[i]
-		msgs, err := resolveItemsFromCaches(older[i:i+1], messages, summaries, parents, partsByMessage)
+		msgs, err := resolveItemsFromCaches(older[i:i+1], messages, summaries, children, partsByMessage)
 		if err != nil {
 			return nil, fmt.Errorf("resolve item %d: %w", item.Ordinal, err)
 		}
@@ -312,8 +313,8 @@ func stripTrailingOrphanResults(msgs []ai.Message) []ai.Message {
 // resolveTailFromCaches resolves tail items and replaces oversized processed
 // tool results with placeholders before costing, so the token cap and the
 // remaining-budget computation both see what the model will actually receive.
-func resolveTailFromCaches(items []sqlc.CtxItem, messages map[string]sqlc.CtxMessage, summaries map[string]sqlc.CtxSummary, parents map[string][]sqlc.CtxSummary, partsByMessage map[string][]loadedMessagePart) ([]ai.Message, int, int, error) {
-	msgs, err := resolveItemsFromCaches(items, messages, summaries, parents, partsByMessage)
+func resolveTailFromCaches(items []sqlc.CtxItem, messages map[string]sqlc.CtxMessage, summaries map[string]sqlc.CtxSummary, children map[string][]sqlc.CtxSummary, partsByMessage map[string][]loadedMessagePart) ([]ai.Message, int, int, error) {
+	msgs, err := resolveItemsFromCaches(items, messages, summaries, children, partsByMessage)
 	if err != nil {
 		return nil, 0, 0, err
 	}
@@ -326,7 +327,7 @@ func resolveTailFromCaches(items []sqlc.CtxItem, messages map[string]sqlc.CtxMes
 }
 
 // resolveItemsFromCaches resolves a slice of context items to ai.Messages.
-func resolveItemsFromCaches(items []sqlc.CtxItem, messages map[string]sqlc.CtxMessage, summaries map[string]sqlc.CtxSummary, parents map[string][]sqlc.CtxSummary, partsByMessage map[string][]loadedMessagePart) ([]ai.Message, error) {
+func resolveItemsFromCaches(items []sqlc.CtxItem, messages map[string]sqlc.CtxMessage, summaries map[string]sqlc.CtxSummary, children map[string][]sqlc.CtxSummary, partsByMessage map[string][]loadedMessagePart) ([]ai.Message, error) {
 	var result []ai.Message
 	for _, item := range items {
 		switch item.ItemType {
@@ -348,7 +349,14 @@ func resolveItemsFromCaches(items []sqlc.CtxItem, messages map[string]sqlc.CtxMe
 			if !ok {
 				return nil, fmt.Errorf("get summary %s: %w", item.SummaryID.String, pgx.ErrNoRows)
 			}
-			result = append(result, ai.UserMessage{Content: FormatSummaryXML(sum, parents[sum.ID])})
+			content := any(FormatSummaryXML(sum, children[sum.ID]))
+			if sum.ContainsNonPrincipalInput {
+				content = eventlog.RenderInput(content, eventlog.MessageActor{
+					Type: eventlog.ActorAgent,
+					ID:   "compacted-agent-input",
+				})
+			}
+			result = append(result, ai.UserMessage{Content: content})
 		}
 	}
 	return result, nil
@@ -383,31 +391,35 @@ func (a *assembler) loadContextWindow(ctx context.Context, convID string) ([]sql
 
 		if item.ItemType == itemTypeMessage && row.MessageID.Valid {
 			messages[row.MessageID.String] = sqlc.CtxMessage{
-				ID:             row.MessageID.String,
-				ConversationID: convID,
-				Seq:            row.MessageSeq.Int64,
-				Role:           row.MessageRole.String,
-				EventType:      row.MessageEventType.String,
-				Content:        row.MessageContent.String,
-				TokenCount:     row.MessageTokenCount.Int64,
-				CreatedAt:      row.MessageCreatedAt.Time.UTC(),
+				ID:              row.MessageID.String,
+				ConversationID:  convID,
+				Seq:             row.MessageSeq.Int64,
+				Role:            row.MessageRole.String,
+				EventType:       row.MessageEventType.String,
+				Content:         row.MessageContent.String,
+				TokenCount:      row.MessageTokenCount.Int64,
+				CreatedAt:       row.MessageCreatedAt.Time.UTC(),
+				ActorType:       row.MessageActorType.String,
+				ActorID:         row.MessageActorID,
+				SourceSessionID: row.MessageSourceSessionID,
 			}
 		}
 		if item.ItemType == itemTypeSummary && row.SummaryID.Valid {
 			id := row.SummaryID.String
 			summaries[id] = sqlc.CtxSummary{
-				ID:                      id,
-				ConversationID:          convID,
-				Kind:                    row.SummaryKind.String,
-				Depth:                   row.SummaryDepth.Int64,
-				Content:                 row.SummaryContent.String,
-				TokenCount:              row.SummaryTokenCount.Int64,
-				EarliestAt:              row.SummaryEarliestAt,
-				LatestAt:                row.SummaryLatestAt,
-				DescendantCount:         row.SummaryDescendantCount.Int64,
-				DescendantTokenCount:    row.SummaryDescendantTokenCount.Int64,
-				SourceMessageTokenCount: row.SummarySourceMessageTokenCount.Int64,
-				CreatedAt:               row.SummaryCreatedAt.Time.UTC(),
+				ID:                        id,
+				ConversationID:            convID,
+				Kind:                      row.SummaryKind.String,
+				Depth:                     row.SummaryDepth.Int64,
+				Content:                   row.SummaryContent.String,
+				TokenCount:                row.SummaryTokenCount.Int64,
+				EarliestAt:                row.SummaryEarliestAt,
+				LatestAt:                  row.SummaryLatestAt,
+				DescendantCount:           row.SummaryDescendantCount.Int64,
+				DescendantTokenCount:      row.SummaryDescendantTokenCount.Int64,
+				SourceMessageTokenCount:   row.SummarySourceMessageTokenCount.Int64,
+				ContainsNonPrincipalInput: row.SummaryContainsNonPrincipalInput.Bool,
+				CreatedAt:                 row.SummaryCreatedAt.Time.UTC(),
 			}
 			if _, ok := seenSummaryIDs[id]; !ok {
 				seenSummaryIDs[id] = struct{}{}
@@ -416,14 +428,14 @@ func (a *assembler) loadContextWindow(ctx context.Context, convID string) ([]sql
 		}
 	}
 
-	parents := make(map[string][]sqlc.CtxSummary)
+	children := make(map[string][]sqlc.CtxSummary)
 	if len(summaryIDs) > 0 {
-		parentRefs, err := a.q.ListSummaryParentsBySummaryIDs(ctx, summaryIDs)
+		childRefs, err := a.q.ListSummaryParentsBySummaryIDs(ctx, summaryIDs)
 		if err != nil {
-			return nil, nil, nil, nil, nil, fmt.Errorf("list summary parents: %w", err)
+			return nil, nil, nil, nil, nil, fmt.Errorf("list summary children: %w", err)
 		}
-		for _, ref := range parentRefs {
-			parents[ref.SummaryID] = append(parents[ref.SummaryID], sqlc.CtxSummary{ID: ref.ParentSummaryID})
+		for _, ref := range childRefs {
+			children[ref.SummaryID] = append(children[ref.SummaryID], sqlc.CtxSummary{ID: ref.ParentSummaryID})
 		}
 	}
 	messageRows := make([]sqlc.CtxMessage, 0, len(messages))
@@ -434,7 +446,7 @@ func (a *assembler) loadContextWindow(ctx context.Context, convID string) ([]sql
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
-	return items, messages, summaries, parents, partsByMessage, nil
+	return items, messages, summaries, children, partsByMessage, nil
 }
 
 // sanitizeToolPairs is a defense-in-depth pass that enforces the tool pairing
@@ -501,7 +513,7 @@ func sanitizeToolPairs(msgs []ai.Message) []ai.Message {
 }
 
 // FormatSummaryXML formats a summary as XML for model consumption.
-func FormatSummaryXML(sum sqlc.CtxSummary, parents []sqlc.CtxSummary) string {
+func FormatSummaryXML(sum sqlc.CtxSummary, children []sqlc.CtxSummary) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, `<summary id="%s" kind="%s" depth="%d"`, sum.ID, sum.Kind, sum.Depth)
@@ -516,12 +528,12 @@ func FormatSummaryXML(sum sqlc.CtxSummary, parents []sqlc.CtxSummary) string {
 	}
 	b.WriteString(">\n")
 
-	if len(parents) > 0 {
-		b.WriteString("  <parents>\n")
-		for _, p := range parents {
-			fmt.Fprintf(&b, "    <summary_ref id=\"%s\" />\n", p.ID)
+	if len(children) > 0 {
+		b.WriteString("  <children>\n")
+		for _, child := range children {
+			fmt.Fprintf(&b, "    <summary_ref id=\"%s\" />\n", child.ID)
 		}
-		b.WriteString("  </parents>\n")
+		b.WriteString("  </children>\n")
 	}
 
 	content := memory.NeutralizeTags(sum.Content, "content", "summary")

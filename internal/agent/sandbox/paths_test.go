@@ -76,3 +76,42 @@ func TestResolvePaths_projectRootSymlink(t *testing.T) {
 		t.Errorf("WorkDir = %q, want %q (symlink resolved)", paths.WorkDir, subDir)
 	}
 }
+
+func TestResolvePathsAcceptsOnlyExactAuthorizedRoots(t *testing.T) {
+	userRoot := t.TempDir()
+	workspace := filepath.Join(userRoot, "agents", "agent")
+	data := filepath.Join(userRoot, "data")
+	for _, dir := range []string{workspace, data} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := Config{
+		UserID:  "user",
+		AgentID: "agent",
+		Paths: Paths{
+			StellaHome:    t.TempDir(),
+			AgentRoot:     t.TempDir(),
+			UserRoot:      userRoot,
+			WorkspaceRoot: workspace,
+			UserDataDir:   data,
+		},
+	}
+	paths, err := ResolvePaths(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paths.WorkspaceRoot != workspace || paths.UserDataDir != data {
+		t.Fatalf("explicit roots = %q, %q", paths.WorkspaceRoot, paths.UserDataDir)
+	}
+
+	cfg.Paths.WorkspaceRoot = filepath.Join(userRoot, "agents", "other")
+	if _, err := ResolvePaths(cfg); err == nil {
+		t.Fatal("mismatched workspace root accepted")
+	}
+	cfg.Paths.WorkspaceRoot = workspace
+	cfg.Paths.UserDataDir = filepath.Join(userRoot, "other-data")
+	if _, err := ResolvePaths(cfg); err == nil {
+		t.Fatal("mismatched user data root accepted")
+	}
+}

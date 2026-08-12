@@ -1,12 +1,22 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { BookOpen, Bot, Folder, MessageSquare, Search, Settings, Users } from "lucide-react";
+import {
+  BookOpen,
+  Bot,
+  Folder,
+  MessageSquare,
+  Search,
+  Settings,
+  ShieldCheck,
+  Users,
+} from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { agentsQueryOptions } from "@/lib/queries/agents";
 import { groupsQueryOptions } from "@/lib/queries/groups";
+import { meQueryOptions } from "@/lib/queries/me";
 import { agentProjectsOptions } from "@/lib/queries/projects";
-import { agentLevelChats, allChatSessionsQueryOptions } from "@/lib/queries/sessions";
+import { agentLevelThreads, allThreadSessionsQueryOptions } from "@/lib/queries/sessions";
 import { sessionDisplayTitle } from "@/lib/session-title";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,9 +43,9 @@ function match(haystack: string, needle: string): boolean {
 
 /**
  * Global search over the conversation targets a user can reach: agents, groups,
- * the current agent's projects, and its full chat history.
+ * the current agent's projects, and its full visible thread history.
  *
- * The sessions API has no server-side search and no cross-agent list, so chat
+ * The sessions API has no server-side search and no cross-agent list, so thread
  * results are scoped to the agent in the URL — surfaced to the user as a hint
  * rather than silently dropped.
  */
@@ -52,15 +62,16 @@ export function GlobalSearchDialog({
   const agentId = pathname.match(/\/agents\/([^/]+)/)?.[1] ?? "";
 
   const { data: agents = [] } = useQuery(agentsQueryOptions);
+  const { data: me } = useQuery(meQueryOptions);
   const { data: groups = [] } = useQuery(groupsQueryOptions);
   const { data: projects = [] } = useQuery(agentProjectsOptions(agentId));
-  const { data: chats = [] } = useQuery(allChatSessionsQueryOptions(agentId, open));
+  const { data: threads = [] } = useQuery(allThreadSessionsQueryOptions(agentId, open));
 
   const needle = query.trim().toLowerCase();
 
   const sections = useMemo(() => {
     const limit = (items: Result[]) => (needle ? items.slice(0, 8) : items.slice(0, 5));
-    // The three top-level destinations, so the palette can also answer
+    // Top-level destinations, so the palette can also answer
     // "take me to X" and not just "find me X".
     const pageResults: Result[] = [
       { key: "page:agents", icon: Bot, label: t("nav.agents"), to: "/agents", params: {} },
@@ -68,10 +79,21 @@ export function GlobalSearchDialog({
       {
         key: "page:settings",
         icon: Settings,
-        label: t("nav.settings"),
+        label: t("nav.personalSettings"),
         to: "/settings",
         params: {},
       },
+      ...(me?.is_admin
+        ? [
+            {
+              key: "page:admin",
+              icon: ShieldCheck,
+              label: t("nav.adminConsole"),
+              to: "/admin",
+              params: {},
+            },
+          ]
+        : []),
     ].filter((page) => !needle || match(page.label, needle));
     const agentResults: Result[] = agents
       .filter((agent) => !needle || match(agent.name, needle))
@@ -102,7 +124,7 @@ export function GlobalSearchDialog({
       }));
     // Agent-level only: a project thread's home is its project, and the
     // threads page is where the two lists come back together.
-    const chatResults: Result[] = agentLevelChats(chats)
+    const chatResults: Result[] = agentLevelThreads(threads)
       .filter(
         (session) =>
           !needle ||
@@ -123,7 +145,7 @@ export function GlobalSearchDialog({
       { key: "projects", label: t("search.projects"), items: limit(projectResults) },
       { key: "chats", label: t("search.chats"), items: limit(chatResults) },
     ].filter((section) => section.items.length > 0);
-  }, [agentId, agents, chats, groups, needle, projects, t]);
+  }, [agentId, agents, groups, me?.is_admin, needle, projects, t, threads]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

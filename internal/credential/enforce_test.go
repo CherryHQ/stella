@@ -168,3 +168,22 @@ func TestRequiredScopeUnknownAgentSubResourceFailsClosed(t *testing.T) {
 		}
 	}
 }
+
+func TestLibraryFileRoutesRequireLibraryScopes(t *testing.T) {
+	readScope, registered := RequiredScope("GET", "/api/library-files/file-id")
+	if !registered || readScope != "library:read" {
+		t.Fatalf("GET Library scope = %q registered=%v, want library:read true", readScope, registered)
+	}
+	writeScope, registered := RequiredScope("POST", "/api/library-files")
+	if !registered || writeScope != "library:write" {
+		t.Fatalf("POST Library scope = %q registered=%v, want library:write true", writeScope, registered)
+	}
+
+	readOnly := &Principal{Kind: KindOAuth, UserID: "u1", Scopes: []string{"library:read"}}
+	if err := Enforce(readOnly, "GET", "/api/library-files"); err != nil {
+		t.Fatalf("library:read should reach the list: %v", err)
+	}
+	if err := Enforce(readOnly, "DELETE", "/api/library-files/file-id"); err == nil {
+		t.Fatal("library:read must not allow file deletion")
+	}
+}

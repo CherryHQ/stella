@@ -13,6 +13,7 @@ import (
 	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
 	localplugin "github.com/CherryHQ/stella/plugins/sandbox/local"
 	noneplugin "github.com/CherryHQ/stella/plugins/sandbox/none"
+	"github.com/CherryHQ/stella/resources"
 )
 
 // SyncSession copies changed files from the session overlay back to the source
@@ -43,9 +44,13 @@ func createDockerSession(ctx context.Context, cfg Config) (pkgsandbox.Session, e
 		"network_mode", cfg.SandboxConfig.Network.Mode,
 	)
 
+	registry, err := resources.Default()
+	if err != nil {
+		return nil, fmt.Errorf("load builtin skill bundle: %w", err)
+	}
 	factory, err := dockerplugin.NewFactory(dockerplugin.Config{
-		Image:      dockerImage(),
-		StellaHome: paths.StellaHome,
+		Image: dockerImage(), StellaHome: paths.StellaHome,
+		ExpectedBundleRevision: registry.BundleRevision(),
 	})
 	if err != nil {
 		return nil, err

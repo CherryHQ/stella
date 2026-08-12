@@ -3,10 +3,12 @@ package memory_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -354,6 +356,350 @@ func TestBuildTool_WithSessionReadOnlyWrites(t *testing.T) {
 	}
 }
 
+func TestBuildTool_WithoutTranscriptActions(t *testing.T) {
+	provider := fakeWithMessages{memorytest.New()}
+	tool := memory.BuildTool(provider, memory.WithSessionReadOnlyWrites(), memory.WithoutTranscriptActions())
+	def := tool.Definition()
+	actions := extractActionEnum(t, def.InputSchema)
+
+	for _, removed := range []string{"status", "search", "describe", "expand", "get_message"} {
+		if slices.Contains(actions, removed) {
+			t.Fatalf("model-facing memory tool exposed transcript action %q: %v", removed, actions)
+		}
+	}
+	for _, kept := range []string{"soul_get", "profile_get", "profile_history", "constraint_list", "search_knowledge"} {
+		if !slices.Contains(actions, kept) {
+			t.Fatalf("model-facing memory tool omitted non-transcript action %q: %v", kept, actions)
+		}
+	}
+	if _, err := tool.Execute(t.Context(), map[string]any{"action": "search", "pattern": "old chat"}); err == nil || !strings.Contains(err.Error(), "unknown action") {
+		t.Fatalf("removed search action error = %v", err)
+	}
+}
+
+type fakeRecallSource struct {
+	hits               []memory.RecallSearchResult
+	docs               map[string]memory.RecallDocument
+	requestedSearchCap int
+	requestedReadCap   int
+}
+
+func (f *fakeRecallSource) SearchRecall(_ context.Context, _ authz.Authority, _, _ string, limit int) ([]memory.RecallSearchResult, error) {
+	f.requestedSearchCap = limit
+	return f.hits, nil
+}
+
+func (f *fakeRecallSource) ReadRecall(_ context.Context, _ authz.Authority, _ string, ref memory.RecallReference, tokenCap int) (memory.RecallDocument, error) {
+	f.requestedReadCap = tokenCap
+	doc, ok := f.docs[ref.Kind+":"+ref.ID+":"+ref.SessionID]
+	if !ok {
+		return memory.RecallDocument{}, fmt.Errorf("not found")
+	}
+	return doc, nil
+}
+
+func TestBuildTool_WithRecallSourceExposesOnlyUnifiedActions(t *testing.T) {
+	tool := memory.BuildTool(memorytest.New(), memory.WithRecallSource(&fakeRecallSource{}))
+	actions := extractActionEnum(t, tool.Definition().InputSchema)
+	assertActions(t, actions, []string{"search", "read"})
+
+	properties := tool.Definition().InputSchema["properties"].(map[string]any)
+	for _, required := range []string{"query", "limit", "ref", "token_cap"} {
+		if _, ok := properties[required]; !ok {
+			t.Fatalf("unified memory schema omitted %q", required)
+		}
+	}
+	for _, hidden := range []string{"pattern", "scope", "summary_id", "message_id", "history_scope", "constraint_id"} {
+		if _, ok := properties[hidden]; ok {
+			t.Fatalf("unified memory schema exposed internal selector %q", hidden)
+		}
+	}
+}
+
+func TestUnifiedMemorySearchAndReadFederatesRecallAndDurableMemory(t *testing.T) {
+	fake := memorytest.New()
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), "user-1"), "agent-1")
+	if err := fake.SetProfile(ctx, "user-1", "agent-1", "Prefers jasmine tea"); err != nil {
+		t.Fatal(err)
+	}
+	if err := fake.SetAgentSoul(ctx, "user-1", "agent-1", "Be concise and calm"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fake.AddConstraint(ctx, "user-1", "agent-1", "Ask before deleting files"); err != nil {
+		t.Fatal(err)
+	}
+	version := int64(1)
+	for _, scope := range []string{"profile", "soul"} {
+		if err := fake.WriteChangelog(ctx, memory.ChangeEntry{
+			ID: scope + "-version", UserID: "user-1", AgentID: "agent-1", Scope: scope,
+			Action: "update", Source: memory.SourceManual, MemoryVersionAfter: &version,
+			AfterText: scope + " version one", CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fake.AddFact("user-1", "agent-1", memory.Fact{
+		ID: "fact-1", Subject: memory.FactSubjectWorld, Scope: "user_agent", UserID: "user-1", AgentID: "agent-1",
+		Content: "Tea meeting is on Friday", Status: memory.FactStatusActive, Source: memory.SourceReflect, UpdatedAt: time.Now().UTC(),
+	})
+	now := time.Now().UTC()
+	messageRef := memory.RecallReference{Kind: "message", ID: "message-1", SessionID: "session-1"}
+	source := &fakeRecallSource{
+		hits: []memory.RecallSearchResult{{
+			Reference: messageRef, Content: "We discussed tea yesterday", OccurredAt: now,
+			SessionID: "session-1", ConversationTitle: "Tea plans",
+		}},
+		docs: map[string]memory.RecallDocument{
+			"message:message-1:session-1": {
+				Reference: messageRef, Content: "We discussed tea yesterday in full", Role: "user", OccurredAt: now,
+				SessionID: "session-1", ConversationTitle: "Tea plans",
+			},
+		},
+	}
+	tool := memory.BuildTool(fake, memory.WithRecallSource(source))
+
+	out, err := tool.Execute(ctx, map[string]any{"action": "search", "query": "tea"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var search struct {
+		Results []struct {
+			Ref        string `json:"ref"`
+			Snippet    string `json:"snippet"`
+			Provenance *struct {
+				SessionID string `json:"session_id"`
+			} `json:"provenance"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(out), &search); err != nil {
+		t.Fatal(err)
+	}
+	if len(search.Results) != 3 {
+		t.Fatalf("unified results=%#v, want transcript, profile, and fact", search.Results)
+	}
+	if strings.Contains(out, "source_type") || strings.Contains(out, "source_id") || strings.Contains(out, "fact_id") {
+		t.Fatalf("unified search leaked storage selectors: %s", out)
+	}
+	var transcriptRef, factRef string
+	for _, result := range search.Results {
+		if result.Provenance != nil && result.Provenance.SessionID == "session-1" {
+			transcriptRef = result.Ref
+		}
+		if strings.Contains(result.Snippet, "Friday") {
+			factRef = result.Ref
+		}
+	}
+	if transcriptRef == "" || factRef == "" {
+		t.Fatalf("search did not return readable refs: %s", out)
+	}
+
+	read, err := tool.Execute(ctx, map[string]any{"action": "read", "ref": transcriptRef})
+	if err != nil || !strings.Contains(read, "in full") || !strings.Contains(read, "session-1") {
+		t.Fatalf("read transcript ref: output=%s err=%v", read, err)
+	}
+	read, err = tool.Execute(ctx, map[string]any{"action": "read", "ref": factRef})
+	if err != nil || !strings.Contains(read, "Friday") {
+		t.Fatalf("read fact ref: output=%s err=%v", read, err)
+	}
+	foreignCtx := authz.WithAgentID(authz.WithUserID(context.Background(), "user-2"), "agent-1")
+	if _, err := tool.Execute(foreignCtx, map[string]any{"action": "read", "ref": factRef}); err == nil {
+		t.Fatal("foreign user read a forged durable-memory ref")
+	}
+	read, err = tool.Execute(ctx, map[string]any{"action": "read", "ref": "profile"})
+	if err != nil || !strings.Contains(read, "jasmine tea") {
+		t.Fatalf("read well-known profile: output=%s err=%v", read, err)
+	}
+	for _, tc := range []struct {
+		ref  string
+		want string
+	}{
+		{ref: "soul", want: "concise and calm"},
+		{ref: "constraints", want: "Ask before deleting files"},
+		{ref: "profile_versions", want: "profile version one"},
+		{ref: "soul_versions", want: "soul version one"},
+	} {
+		read, err = tool.Execute(ctx, map[string]any{"action": "read", "ref": tc.ref})
+		if err != nil || !strings.Contains(read, tc.want) {
+			t.Fatalf("read well-known %s: output=%s err=%v", tc.ref, read, err)
+		}
+	}
+	if _, err := tool.Execute(ctx, map[string]any{"action": "read", "ref": "mem1.not-valid"}); err == nil {
+		t.Fatal("malformed memory ref was accepted")
+	}
+	if _, err := tool.Execute(ctx, map[string]any{"action": "read", "ref": strings.Repeat("x", 4_097)}); err == nil {
+		t.Fatal("oversized memory ref was accepted")
+	}
+}
+
+func TestUnifiedMemorySearchAndReadAreBounded(t *testing.T) {
+	const sessionID = "session-1"
+	oversizedTitle := strings.Repeat("界", 50_000)
+	hits := make([]memory.RecallSearchResult, 60)
+	docs := make(map[string]memory.RecallDocument, len(hits))
+	for i := range hits {
+		ref := memory.RecallReference{Kind: "message", ID: fmt.Sprintf("message-%d", i), SessionID: sessionID}
+		hits[i] = memory.RecallSearchResult{Reference: ref, Content: strings.Repeat("x", 2_000), SessionID: sessionID, ConversationTitle: oversizedTitle}
+		docs[fmt.Sprintf("message:message-%d:%s", i, sessionID)] = memory.RecallDocument{
+			Reference: ref, Content: strings.Repeat("y", 100_000), SessionID: sessionID, ConversationTitle: oversizedTitle,
+		}
+	}
+	source := &fakeRecallSource{hits: hits, docs: docs}
+	tool := memory.BuildTool(memorytest.New(), memory.WithRecallSource(source))
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), "user-1"), "agent-1")
+
+	out, err := tool.Execute(ctx, map[string]any{"action": "search", "query": "x", "limit": 1_000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var search struct {
+		Results []struct {
+			Ref     string `json:"ref"`
+			Snippet string `json:"snippet"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(out), &search); err != nil {
+		t.Fatal(err)
+	}
+	if source.requestedSearchCap != 100 || len(search.Results) != 50 {
+		t.Fatalf("search bounds: source cap=%d results=%d", source.requestedSearchCap, len(search.Results))
+	}
+	for _, result := range search.Results {
+		if len(result.Snippet) > 1_000 {
+			t.Fatalf("search snippet bytes=%d, want <=1000", len(result.Snippet))
+		}
+	}
+
+	read, err := tool.Execute(ctx, map[string]any{"action": "read", "ref": search.Results[0].Ref, "token_cap": 100_000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response struct {
+		Content    string `json:"content"`
+		Truncated  bool   `json:"truncated"`
+		Provenance struct {
+			Title string `json:"title"`
+		} `json:"provenance"`
+	}
+	if err := json.Unmarshal([]byte(read), &response); err != nil {
+		t.Fatal(err)
+	}
+	if source.requestedReadCap != 8_000 || len(response.Content) != 64_000 || !response.Truncated {
+		t.Fatalf("read bounds: source cap=%d bytes=%d truncated=%t", source.requestedReadCap, len(response.Content), response.Truncated)
+	}
+	if len(response.Provenance.Title) > 1_000 || !utf8.ValidString(response.Provenance.Title) {
+		t.Fatalf("read provenance title bytes=%d valid_utf8=%t, want <=1000 valid bytes", len(response.Provenance.Title), utf8.ValidString(response.Provenance.Title))
+	}
+	if len(read) > 128_000 {
+		t.Fatalf("serialized memory.read bytes=%d, want <=128000", len(read))
+	}
+}
+
+func TestUnifiedMemoryReadPreservesCondensedSummaryMetadata(t *testing.T) {
+	depth := 0
+	ref := memory.RecallReference{Kind: "summary", ID: "root", SessionID: "session-1"}
+	children := make([]memory.RecallReference, 1_000)
+	expanded := make([]memory.RecallFragment, len(children))
+	for i := range children {
+		children[i] = memory.RecallReference{Kind: "summary", ID: fmt.Sprintf("child-%d", i), SessionID: "session-1"}
+		expanded[i] = memory.RecallFragment{Reference: children[i], Kind: "leaf", Depth: &depth, Content: ""}
+	}
+	source := &fakeRecallSource{
+		hits: []memory.RecallSearchResult{{Reference: ref, Content: "condensed root", SessionID: "session-1"}},
+		docs: map[string]memory.RecallDocument{
+			"summary:root:session-1": {
+				Reference: ref, Content: "condensed root", Authority: "information_only", SessionID: "session-1",
+				Summary: &memory.RecallSummaryDetail{
+					Kind: "condensed", Depth: 1,
+					Children: children,
+					Expanded: expanded,
+				},
+			},
+		},
+	}
+	tool := memory.BuildTool(memorytest.New(), memory.WithRecallSource(source))
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), "user-1"), "agent-1")
+	out, err := tool.Execute(ctx, map[string]any{"action": "search", "query": "condensed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var search struct {
+		Results []struct {
+			Ref string `json:"ref"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(out), &search); err != nil || len(search.Results) != 1 {
+		t.Fatalf("summary search: output=%s err=%v", out, err)
+	}
+	read, err := tool.Execute(ctx, map[string]any{"action": "read", "ref": search.Results[0].Ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response struct {
+		Authority string `json:"authority"`
+		Summary   struct {
+			ChildRefs []string `json:"child_refs"`
+			Expanded  []struct {
+				Kind  string `json:"kind"`
+				Depth *int   `json:"depth"`
+			} `json:"expanded"`
+			Truncated bool `json:"truncated"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal([]byte(read), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Authority != "information_only" {
+		t.Fatalf("model-facing summary authority was lost: %s", read)
+	}
+	if len(response.Summary.Expanded) == 0 || len(response.Summary.Expanded) > 200 || len(response.Summary.ChildRefs) == 0 || len(response.Summary.ChildRefs) > 200 || !response.Summary.Truncated {
+		t.Fatalf("model-facing summary arrays were not bounded: %s", read)
+	}
+	if response.Summary.Expanded[0].Kind != "leaf" || response.Summary.Expanded[0].Depth == nil || *response.Summary.Expanded[0].Depth != 0 {
+		t.Fatalf("model-facing condensed metadata was lost: %s", read)
+	}
+	if len(read) > 128_000 {
+		t.Fatalf("serialized summary read bytes=%d, want <=128000", len(read))
+	}
+}
+
+func TestUnifiedMemoryReadBoundsConstraints(t *testing.T) {
+	fake := memorytest.New()
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), "user-1"), "agent-1")
+	for i := range 150 {
+		text := fmt.Sprintf("constraint-%d-%s", i, strings.Repeat("x", 5_000))
+		if i == 149 {
+			text += " unique-tail-needle"
+		}
+		if _, err := fake.AddConstraint(ctx, "user-1", "agent-1", text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tool := memory.BuildTool(fake, memory.WithRecallSource(&fakeRecallSource{}))
+	out, err := tool.Execute(ctx, map[string]any{"action": "read", "ref": "constraints"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var response struct {
+		Constraints []memory.ConstraintEntry `json:"constraints"`
+		Truncated   bool                     `json:"truncated"`
+	}
+	if err := json.Unmarshal([]byte(out), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Constraints) == 0 || len(response.Constraints) > 100 || !response.Truncated || len(out) > 128_000 {
+		t.Fatalf("bounded constraints: count=%d truncated=%t bytes=%d", len(response.Constraints), response.Truncated, len(out))
+	}
+	for _, constraint := range response.Constraints {
+		if len(constraint.Text) > 4_000 {
+			t.Fatalf("constraint text bytes=%d, want <=4000", len(constraint.Text))
+		}
+	}
+	search, err := tool.Execute(ctx, map[string]any{"action": "search", "query": "unique-tail-needle"})
+	if err != nil || !strings.Contains(search, `"ref": "constraints"`) {
+		t.Fatalf("memory.search did not search constraints beyond read output window: output=%s err=%v", search, err)
+	}
+}
+
 func TestExecute_Status(t *testing.T) {
 	tool := memory.BuildTool(&bareProvider{})
 	ctx := memory.WithSessionID(context.Background(), "test-session")
@@ -654,6 +1000,40 @@ func TestExecute_SearchKnowledgeUsesSessionSnapshot(t *testing.T) {
 	}
 	if !strings.Contains(out, "snapshot-world") {
 		t.Fatalf("expected snapshot-visible fact in results: %s", out)
+	}
+}
+
+func TestUnifiedMemorySearchAndReadUseSessionSnapshot(t *testing.T) {
+	provider := &snapshotKnowledgeProvider{Fake: memorytest.New(), snapshotVersion: 7}
+	tool := memory.BuildTool(provider, memory.WithRecallSource(&fakeRecallSource{}))
+	execCtx := memory.WithSessionID(context.Background(), "s1")
+	execCtx = authz.WithUserID(execCtx, "1")
+	execCtx = authz.WithAgentID(execCtx, "agent1")
+
+	out, err := tool.Execute(execCtx, map[string]any{
+		"action": "search",
+		"query":  "deployment region",
+	})
+	if err != nil {
+		t.Fatalf("memory.search: %v", err)
+	}
+	var search struct {
+		Results []struct {
+			Ref string `json:"ref"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(out), &search); err != nil {
+		t.Fatal(err)
+	}
+	if provider.atVersion != 7 || provider.currentCalls != 0 || len(search.Results) != 1 {
+		t.Fatalf("snapshot search: version=%d current_calls=%d results=%s", provider.atVersion, provider.currentCalls, out)
+	}
+	read, err := tool.Execute(execCtx, map[string]any{"action": "read", "ref": search.Results[0].Ref})
+	if err != nil || !strings.Contains(read, "us-west") {
+		t.Fatalf("snapshot memory.read: output=%s err=%v", read, err)
+	}
+	if provider.atVersion != 7 || provider.currentCalls != 0 {
+		t.Fatalf("snapshot read: version=%d current_calls=%d", provider.atVersion, provider.currentCalls)
 	}
 }
 

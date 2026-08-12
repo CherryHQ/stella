@@ -30,6 +30,96 @@ func TestSessionHubFanOutAndClose(t *testing.T) {
 	}
 }
 
+func TestSessionHubReplaysActiveTurnBeforeLiveEvents(t *testing.T) {
+	h := NewSessionHub()
+	h.begin("s1")
+	h.publish("s1", Event{Text: "before"})
+
+	ch, cancel := h.Subscribe("s1")
+	defer cancel()
+	h.publish("s1", Event{Text: "after"})
+
+	if event := <-ch; event.Text != "before" {
+		t.Fatalf("first event = %q, want replayed event", event.Text)
+	}
+	if event := <-ch; event.Text != "after" {
+		t.Fatalf("second event = %q, want live event", event.Text)
+	}
+	h.end("s1")
+}
+
+func TestSessionHubReplayCeilingFailsClosed(t *testing.T) {
+	h := NewSessionHub()
+	h.begin("s1")
+	h.publish("s1", Event{Text: string(make([]byte, replayMaxBytes+1))})
+
+	ch, cancel := h.Subscribe("s1")
+	defer cancel()
+	select {
+	case event := <-ch:
+		t.Fatalf("oversized replay unexpectedly delivered: %d bytes", len(event.Text))
+	default:
+	}
+	h.end("s1")
+}
+
+func TestSessionHubCoalescesTextBeforeEventCeiling(t *testing.T) {
+	h := NewSessionHub()
+	h.begin("s1")
+	for range replayMaxEvents + 1 {
+		h.publish("s1", Event{Text: "x"})
+	}
+
+	h.mu.Lock()
+	events := append([]Event(nil), h.replay["s1"].events...)
+	h.mu.Unlock()
+	if len(events) != 3 {
+		t.Fatalf("coalesced replay events = %d, want 3 bounded chunks", len(events))
+	}
+	length := 0
+	for _, event := range events {
+		length += len(event.Text)
+	}
+	if length != replayMaxEvents+1 {
+		t.Fatalf("coalesced replay length = %d, want %d", length, replayMaxEvents+1)
+	}
+	h.end("s1")
+}
+
+func TestSessionHubCoalescedByteAccountingChargesOneEntry(t *testing.T) {
+	h := NewSessionHub()
+	h.begin("s1")
+	for range 100 {
+		h.publish("s1", Event{Text: "x"})
+	}
+
+	h.mu.Lock()
+	state := h.replay["s1"]
+	got := state.bytes
+	h.mu.Unlock()
+	if want := 64 + 100; got != want {
+		t.Fatalf("coalesced replay bytes = %d, want %d", got, want)
+	}
+	h.end("s1")
+}
+
+func TestSessionHubEventCeilingFailsClosed(t *testing.T) {
+	h := NewSessionHub()
+	h.begin("s1")
+	for range replayMaxEvents + 1 {
+		h.publish("s1", Event{Step: &StepEvent{Kind: "start"}})
+	}
+
+	ch, cancel := h.Subscribe("s1")
+	defer cancel()
+	select {
+	case event := <-ch:
+		t.Fatalf("event-count overflow unexpectedly replayed: %#v", event)
+	default:
+	}
+	h.end("s1")
+}
+
 func TestSessionHubCancelUnsubscribes(t *testing.T) {
 	h := NewSessionHub()
 	ch, cancel := h.Subscribe("s1")
