@@ -6,9 +6,8 @@ description: >-
 license: MIT
 metadata:
   author: xberg-io
-  version: "1.0"
+  version: "1.0.14"
   repository: https://github.com/xberg-io/xberg
-  owner_plugin: tool/kreuzberg
 ---
 
 # Xberg Document Extraction

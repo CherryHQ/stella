@@ -1,8 +1,10 @@
 package binaries
 
 import (
+	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -11,6 +13,9 @@ import (
 	"strings"
 	"sync"
 )
+
+// Keep synchronized with xbergVersion in gen.go.
+const xbergVersion = "1.0.14"
 
 type ensureState struct {
 	once sync.Once
@@ -22,11 +27,10 @@ var (
 	ensureStates = make(map[string]*ensureState)
 )
 
-// EnsureTools extracts the embedded infrastructure binaries (see infraTools)
-// to stellaHome/bin/. Gzip-compressed binaries in the embed FS are
-// decompressed on extraction. All other embedded archives are ignored — those
-// tools resolve through mise shims, not bin. Already-extracted binaries are
-// skipped. Safe for concurrent calls.
+// EnsureTools extracts Stella's embedded runtimes to stellaHome/bin/. mise is a
+// single compressed executable; Xberg is kept as a directory because its
+// official Linux and macOS bundles include adjacent dynamic libraries.
+// Already-extracted runtimes are skipped. Safe for concurrent calls.
 func EnsureTools(stellaHome string) error {
 	destDir := BinDir(stellaHome)
 
@@ -66,7 +70,7 @@ func ToolNames() []string {
 	}
 	var names []string
 	for _, e := range entries {
-		name, ok := toolNameForEntry(e.Name())
+		name, ok := embeddedToolName(e.Name())
 		if ok {
 			names = append(names, name)
 		}
@@ -100,7 +104,7 @@ func VerifyTools(stellaHome string) error {
 
 func allToolsExtracted(destDir string, entries []fs.DirEntry) bool {
 	for _, e := range entries {
-		name, ok := toolNameForEntry(e.Name())
+		name, ok := embeddedToolName(e.Name())
 		if !ok {
 			continue
 		}
@@ -130,14 +134,17 @@ func extractTools(destDir string) error {
 	}
 
 	for _, entry := range entries {
-		name, ok := toolNameForEntry(entry.Name())
-		if !ok {
+		name := entry.Name()
+		if tool, ok := toolNameForEntry(name); ok {
+			if err := extractGzip(toolsDir+"/"+name, filepath.Join(destDir, tool)); err != nil {
+				return fmt.Errorf("extract %s: %w", tool, err)
+			}
 			continue
 		}
-		destPath := filepath.Join(destDir, name)
-
-		if err := extractGzip(toolsDir+"/"+entry.Name(), destPath); err != nil {
-			return fmt.Errorf("extract %s: %w", name, err)
+		if name == xbergArchiveName() {
+			if err := extractXbergBundle(toolsDir+"/"+name, destDir); err != nil {
+				return fmt.Errorf("extract Xberg: %w", err)
+			}
 		}
 	}
 
@@ -170,20 +177,27 @@ func platformEntries() ([]fs.DirEntry, error) {
 		if entry.IsDir() {
 			continue
 		}
-		if _, ok := toolNameForEntry(entry.Name()); ok {
+		if _, ok := embeddedToolName(entry.Name()); ok {
 			filtered = append(filtered, entry)
 		}
 	}
 	return filtered, nil
 }
 
-// infraTools lists the embedded binaries that are extracted to
-// $STELLA_HOME/bin. Only mise belongs here: it bootstraps the install/shim
-// machinery before any shim exists. Every other tool (gh, fd, rg, tap,
-// lark-cli, boxsh, rtk, ...) is provided through mise shims on the sandbox
-// PATH and must never be copied into bin, even if a stale archive happens to
-// sit in the embed directory.
+// infraTools lists standalone gzip binaries extracted to $STELLA_HOME/bin.
+// Only mise belongs here: it bootstraps the install/shim machinery before any
+// shim exists. Xberg is handled separately as a versioned runtime bundle;
+// ordinary tools (gh, fd, rg, tap, lark-cli, rtk, ...) stay behind mise shims.
 var infraTools = map[string]bool{"mise": true}
+
+func xbergArchiveName() string { return "xberg-v" + xbergVersion + ".tar.gz" }
+
+func embeddedToolName(entry string) (string, bool) {
+	if entry == xbergArchiveName() {
+		return "xberg", true
+	}
+	return toolNameForEntry(entry)
+}
 
 func toolNameForEntry(entry string) (string, bool) {
 	if !strings.HasSuffix(entry, ".gz") {
@@ -221,4 +235,79 @@ func extractGzip(srcPath, destPath string) error {
 		return err
 	}
 	return f.Close()
+}
+
+func extractXbergBundle(srcPath, destDir string) error {
+	data, err := toolsFS.ReadFile(srcPath)
+	if err != nil {
+		return err
+	}
+	gr, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = gr.Close() }()
+
+	runtimeDir := filepath.Join(destDir, "xberg-v"+xbergVersion)
+	tmpDir, err := os.MkdirTemp(destDir, ".xberg-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	const maxBundleSize = 300 << 20
+	var written int64
+	tr := tar.NewReader(gr)
+	for {
+		h, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if h.Typeflag != tar.TypeReg {
+			continue
+		}
+		name := filepath.Base(filepath.Clean(h.Name))
+		if name == "." || name == string(filepath.Separator) {
+			return fmt.Errorf("invalid bundle entry %q", h.Name)
+		}
+		if h.Size < 0 || written+h.Size > maxBundleSize {
+			return fmt.Errorf("bundle exceeds %d bytes", maxBundleSize)
+		}
+		mode := os.FileMode(0o644)
+		if name == "xberg" {
+			mode = 0o755
+		}
+		out, err := os.OpenFile(filepath.Join(tmpDir, name), os.O_CREATE|os.O_WRONLY|os.O_EXCL, mode)
+		if err != nil {
+			return err
+		}
+		_, copyErr := io.CopyN(out, tr, h.Size)
+		closeErr := out.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		written += h.Size
+	}
+	if _, err := os.Stat(filepath.Join(tmpDir, "xberg")); err != nil {
+		return fmt.Errorf("bundle executable missing: %w", err)
+	}
+	if err := os.RemoveAll(runtimeDir); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpDir, runtimeDir); err != nil {
+		return err
+	}
+	launcher := filepath.Join(destDir, "xberg")
+	launcherTmp := launcher + ".tmp"
+	_ = os.Remove(launcherTmp)
+	if err := os.Symlink(filepath.Join(filepath.Base(runtimeDir), "xberg"), launcherTmp); err != nil {
+		return err
+	}
+	return os.Rename(launcherTmp, launcher)
 }
