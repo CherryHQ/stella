@@ -2,12 +2,24 @@ package library
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+func TestLibrarySearchToolNameIsProviderCompatible(t *testing.T) {
+	if ToolName != "library_search" {
+		t.Fatalf("ToolName = %q, want library_search", ToolName)
+	}
+	// OpenAI-compatible function calling permits only letters, digits,
+	// underscores, and dashes, with a maximum length of 64 characters.
+	if !regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`).MatchString(ToolName) {
+		t.Fatalf("ToolName = %q, want an OpenAI-compatible function name", ToolName)
+	}
+}
 
 func TestLibrarySearchToolSchemaHasOnlyQueryAndLimit(t *testing.T) {
 	definition := NewTool(&Service{}).Definition()
