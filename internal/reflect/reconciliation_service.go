@@ -71,6 +71,14 @@ func (s *Service) reconcileSkillCandidates(ctx context.Context, target reviewTar
 
 	userID := target.session.UserID
 	agentID := target.session.AgentID
+	if s.skillAuthorizer == nil {
+		return reconciliationWriteStats{}, fmt.Errorf("skill reconciliation: skill authorization unavailable")
+	}
+	// Authorize the trusted review pair before the catalog opens any Home
+	// revision. The catalog is restricted to this exact user-agent scope.
+	if err := s.skillAuthorizer.AuthorizeWorkerWrite(ctx, userID, agentID, "", true); err != nil {
+		return reconciliationWriteStats{}, err
+	}
 	candidates := skillCandidatesFromDecisions(decisions)
 	catalog, err := buildSkillRelatedCatalog(ctx, bundleStore, userID, agentID)
 	if err != nil {

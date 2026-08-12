@@ -6,6 +6,8 @@ import (
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
+const testSkillContentDigest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
 func TestValidateSkillReconciliationPlanAcceptsCreateAndPatch(t *testing.T) {
 	first := validSkillCandidate("skill-0001")
 	second := validSkillCandidate("skill-0002")
@@ -13,11 +15,12 @@ func TestValidateSkillReconciliationPlanAcceptsCreateAndPatch(t *testing.T) {
 		Candidates: []skillCandidate{first, second},
 		RelatedRecords: []skillRelatedRecord{{
 			Skill: pkgplugins.Skill{
-				ID:       "old-skill",
-				Scope:    "user_agent",
-				Status:   "active",
-				Version:  3,
-				Metadata: []byte(`{"created_by":"reflect"}`),
+				ID:            "old-skill",
+				Scope:         "user_agent",
+				Status:        "active",
+				Version:       3,
+				ContentDigest: testSkillContentDigest,
+				Metadata:      []byte(`{"created_by":"reflect"}`),
 			},
 			MainFileContent: "# Old skill\n",
 		}},
@@ -35,6 +38,7 @@ func TestValidateSkillReconciliationPlanAcceptsCreateAndPatch(t *testing.T) {
 			CandidateRefs:        []CandidateRef{"skill-0002"},
 			TargetSkillID:        "old-skill",
 			ExpectedSkillVersion: 3,
+			ExpectedSkillDigest:  testSkillContentDigest,
 			Description:          "Updated reusable reflect workflow.",
 			MainFileContent:      "# Updated skill\n",
 		},
@@ -60,11 +64,11 @@ func TestValidateSkillReconciliationPlanRejectsPatchTargetOutsideBundle(t *testi
 	}
 }
 
-func TestValidateSkillReconciliationPlanRejectsVersionMismatch(t *testing.T) {
+func TestValidateSkillReconciliationPlanRejectsDigestMismatch(t *testing.T) {
 	bundle := skillRelatedBundle{
 		Candidates: []skillCandidate{validSkillCandidate("skill-0001")},
 		RelatedRecords: []skillRelatedRecord{{
-			Skill: pkgplugins.Skill{ID: "old-skill", Scope: "user_agent", Status: "active", Version: 3, Metadata: []byte(`{"created_by":"reflect"}`)},
+			Skill: pkgplugins.Skill{ID: "old-skill", Scope: "user_agent", Status: "active", Version: 3, ContentDigest: testSkillContentDigest, Metadata: []byte(`{"created_by":"reflect"}`)},
 		}},
 	}
 	plan := skillReconciliationPlan{Operations: []skillWriteOperation{{
@@ -72,11 +76,12 @@ func TestValidateSkillReconciliationPlanRejectsVersionMismatch(t *testing.T) {
 		CandidateRefs:        []CandidateRef{"skill-0001"},
 		TargetSkillID:        "old-skill",
 		ExpectedSkillVersion: 2,
+		ExpectedSkillDigest:  "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		MainFileContent:      "# Updated skill\n",
 	}}}
 
 	if err := validateSkillReconciliationPlan(bundle, plan); err == nil {
-		t.Fatal("expected stale skill version to be rejected")
+		t.Fatal("expected stale skill digest to be rejected")
 	}
 }
 

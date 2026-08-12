@@ -110,6 +110,10 @@ func WithSkillStore(s pkgplugins.SkillStore) PoolManagerOption {
 	return func(pm *PoolManager) { pm.skillStore = s }
 }
 
+func WithSkillRevisionReader(r skillstool.IdentityReader) PoolManagerOption {
+	return func(pm *PoolManager) { pm.skillRevisionReader = r }
+}
+
 // WithSkillReadAuthorizer injects Skill domain read access into every runner's
 // skills tool, so DB-backed reads (load/search_installed) are authorized.
 func WithSkillReadAuthorizer(a skillstool.SkillReadAuthorizer) PoolManagerOption {
@@ -197,6 +201,7 @@ type PoolManager struct {
 	toolLifecycle            *coreagent.ToolLifecycle
 	providerStreamBuilder    ProviderStreamBuilder
 	skillStore               pkgplugins.SkillStore
+	skillRevisionReader      skillstool.IdentityReader
 	skillReadAuthz           skillstool.SkillReadAuthorizer
 	mcpToolProvider          MCPToolProvider
 	toolOverrideFetcher      ToolOverrideFetcher
@@ -535,7 +540,7 @@ func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot
 	if info.GroupID != "" {
 		skillBuild.UserID, skillBuild.UserRoot, skillBuild.WorkspaceRoot = "", "", ""
 	}
-	if skillsSection, err := skillstool.BuildPromptSection(skillstool.WithProjectSnapshot(ctx, projectSkills), skillBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
+	if skillsSection, err := skillstool.BuildAuthorizedPromptSection(skillstool.WithProjectSnapshot(ctx, projectSkills), skillBuild, pm.skillRevisionReader, pm.skillReadAuthz); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
 		sections = append(sections, skillsSection)
 	}
 	return sections
@@ -877,6 +882,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		PromptSectionsBuilder:    pm.promptSectionsBuilder,
 		SessionPluginViewBuilder: pm.sessionPluginViewBuilder,
 		SkillStore:               pm.skillStore,
+		SkillRevisionReader:      pm.skillRevisionReader,
 		SkillReadAuthorizer:      pm.skillReadAuthz,
 		MCPToolProvider:          pm.mcpToolProvider,
 		ToolOverrideFetcher:      pm.toolOverrideFetcher,

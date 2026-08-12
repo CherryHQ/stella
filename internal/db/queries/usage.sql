@@ -40,31 +40,32 @@ DELETE FROM knowledge_usage
 WHERE fact_id = sqlc.arg(fact_id);
 
 -- name: UpsertSkillUsageOnReflectCreate :exec
-INSERT INTO skill_usage (skill_id, user_id, agent_id, use_count, last_used_at)
-VALUES (sqlc.arg(skill_id), sqlc.arg(user_id), sqlc.arg(agent_id), 1, now())
+INSERT INTO skill_usage (skill_id, user_id, agent_id, content_digest, use_count, last_used_at)
+VALUES (sqlc.arg(skill_id), sqlc.arg(user_id), sqlc.arg(agent_id), sqlc.arg(content_digest), 1, now())
 ON CONFLICT (skill_id) DO UPDATE
 SET user_id = excluded.user_id,
     agent_id = excluded.agent_id,
+    content_digest = excluded.content_digest,
     use_count = excluded.use_count,
     last_used_at = excluded.last_used_at;
 
 -- name: RefreshSkillUsageOnReflectPatch :exec
-INSERT INTO skill_usage (skill_id, user_id, agent_id, use_count, last_used_at)
-SELECT s.id, s.user_id, s.agent_id, 0, now()
+INSERT INTO skill_usage (skill_id, user_id, agent_id, content_digest, use_count, last_used_at)
+SELECT s.id, s.user_id, s.agent_id, sqlc.arg(content_digest), 0, now()
 FROM skill s
 WHERE s.id = sqlc.arg(skill_id)
   AND s.user_id = sqlc.arg(user_id)::uuid
   AND s.agent_id = sqlc.arg(agent_id)::text
   AND s.scope = 'user_agent'
-  AND s.status = 'active'
-  AND s.metadata->>'created_by' = 'reflect'
 ON CONFLICT (skill_id) DO UPDATE
-SET last_used_at = excluded.last_used_at;
+SET content_digest = excluded.content_digest,
+    last_used_at = excluded.last_used_at;
 
 -- name: TouchReflectSkillRuntimeUse :execrows
 UPDATE skill_usage su
 SET use_count = su.use_count + 1,
-    last_used_at = now()
+    last_used_at = now(),
+    content_digest = sqlc.arg(content_digest)
 FROM skill s
 WHERE su.skill_id = sqlc.arg(skill_id)
   AND su.user_id = sqlc.arg(user_id)::uuid
@@ -73,9 +74,7 @@ WHERE su.skill_id = sqlc.arg(skill_id)
   AND s.user_id = su.user_id
   AND s.agent_id = su.agent_id
   AND s.scope = 'user_agent'
-  AND s.status = 'active'
-  AND s.disable_model_invocation = false
-  AND s.metadata->>'created_by' = 'reflect';
+  AND su.content_digest IS NOT DISTINCT FROM sqlc.arg(content_digest);
 
 -- name: GetSkillUsageForUpdate :one
 SELECT *
@@ -147,6 +146,7 @@ SELECT
   s.user_id::text AS user_id,
   s.agent_id::text AS agent_id,
   s.version,
+  su.content_digest,
   su.use_count,
   su.last_used_at,
   pair_activity.latest AS pair_latest_activity_at,
@@ -160,8 +160,7 @@ CROSS JOIN pair_activity
 WHERE su.user_id = sqlc.arg(user_id)::uuid
   AND su.agent_id = sqlc.arg(agent_id)::text
   AND s.scope = 'user_agent'
-  AND s.status = 'active'
-  AND s.metadata->>'created_by' = 'reflect'
+  AND su.content_digest IS NOT NULL
   AND (
     su.last_used_at < sqlc.arg(stale_before)
     OR (

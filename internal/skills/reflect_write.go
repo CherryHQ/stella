@@ -45,6 +45,7 @@ type ReflectSkillPatch struct {
 	UserID                 string
 	AgentID                string
 	ExpectedVersion        int64
+	ExpectedDigest         string
 	Description            *string
 	Status                 *string
 	DisableModelInvocation *bool
@@ -60,6 +61,7 @@ type ReflectSkillDelete struct {
 	UserID                  string
 	AgentID                 string
 	ExpectedVersion         int64
+	ExpectedDigest          string
 	ExpectedUsageLastUsedAt time.Time
 }
 

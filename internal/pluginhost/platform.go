@@ -2,6 +2,7 @@ package pluginhost
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/CherryHQ/stella/internal/skills"
@@ -87,6 +88,16 @@ func (a skillStoreAdapter) LoadFile(ctx context.Context, skillID, path string) (
 	return a.s.LoadFile(ctx, skillID, path)
 }
 
+func (a skillStoreAdapter) LoadFileRevision(ctx context.Context, skillID, path, digest string) (string, error) {
+	reader, ok := a.s.(interface {
+		LoadFileRevision(context.Context, string, string, string) (string, error)
+	})
+	if !ok {
+		return "", errors.New("skill store does not support exact revision reads")
+	}
+	return reader.LoadFileRevision(ctx, skillID, path, digest)
+}
+
 func (a skillStoreAdapter) ListFiles(ctx context.Context, skillID string) ([]string, error) {
 	return a.s.ListFiles(ctx, skillID)
 }
@@ -168,6 +179,7 @@ func skillToPlugin(r skills.Skill) pkgplugins.Skill {
 		CreatedAt:              r.CreatedAt,
 		UpdatedAt:              r.UpdatedAt,
 		Version:                r.Version,
+		ContentDigest:          r.ContentDigest,
 	}
 }
 
@@ -185,6 +197,7 @@ func skillFromPlugin(s pkgplugins.Skill) skills.Skill {
 		CreatedAt:              s.CreatedAt,
 		UpdatedAt:              s.UpdatedAt,
 		Version:                s.Version,
+		ContentDigest:          s.ContentDigest,
 	}
 }
 
@@ -277,14 +290,10 @@ func (p pluginPlatform) ChannelPlatform() pkgplugins.ChannelPlatform {
 }
 
 func (p pluginPlatform) SkillStore() pkgplugins.SkillStore {
-	if !p.has(pkgplugins.CapabilitySkillStore) {
-		return nil
-	}
-	s := p.host.SkillStore()
-	if s == nil {
-		return nil
-	}
-	return skillStoreAdapter{s: s}
+	// Plugin capabilities do not carry a trusted actor binding. Exposing this
+	// ambient interface would let an untrusted plugin select another actor's
+	// Home identity, so the platform boundary fails closed in full.
+	return nil
 }
 
 type scopedConfigStore struct {

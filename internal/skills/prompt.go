@@ -3,8 +3,10 @@ package skills
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 
+	"github.com/CherryHQ/stella/internal/authz"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
@@ -31,6 +33,66 @@ func BuildPromptSection(ctx context.Context, build pkgplugins.SystemPromptContex
 		return pkgplugins.SystemPromptSection{}, err
 	}
 
+	return buildPromptSection(build, merged)
+}
+
+// BuildAuthorizedPromptSection admits mutable Home metadata only after the
+// runtime actor has authorized its PostgreSQL identity. Immutable project and
+// release-builtin metadata remain filesystem/Registry reads.
+func BuildAuthorizedPromptSection(ctx context.Context, build pkgplugins.SystemPromptContext, reader IdentityReader, authorizer SkillReadAuthorizer) (pkgplugins.SystemPromptSection, error) {
+	if reader == nil {
+		return BuildPromptSection(ctx, build)
+	}
+	identities, err := reader.ListIdentityVisible(ctx, ViewContext{UserID: build.UserID, AgentID: build.AgentID})
+	if err != nil {
+		return pkgplugins.SystemPromptSection{}, err
+	}
+	db := make([]pkgplugins.Skill, len(identities))
+	for i := range identities {
+		db[i] = internalSkillToPlugin(identities[i])
+	}
+	svc := NewService(nil, build.StellaHome)
+	merged := filterDisabled(svc.ListMergedWithDBSnapshot(db, projectSnapshotFromContext(ctx)), build.DisabledSkillRefs)
+	var decision SkillReadDecision
+	if authorizer != nil {
+		decision, err = authorizer.BeginRead(ctx)
+		if errors.Is(err, authz.ErrUnauthenticated) {
+			decision, err = nil, nil
+		}
+		if err != nil {
+			return pkgplugins.SystemPromptSection{}, err
+		}
+	}
+	authorized := make([]ResolvedSkill, 0, len(merged))
+	for _, rs := range merged {
+		if !isDBSkill(rs) {
+			authorized = append(authorized, rs)
+			continue
+		}
+		if decision == nil {
+			continue
+		}
+		allowed, err := decision.AllowRead(ctx, rs.ID, rs.Scope, rs.UserID, rs.AgentID)
+		if err != nil {
+			return pkgplugins.SystemPromptSection{}, err
+		}
+		if !allowed {
+			continue
+		}
+		revision, err := reader.LoadCurrentRevision(ctx, resolvedIdentity(rs))
+		if err != nil {
+			return pkgplugins.SystemPromptSection{}, err
+		}
+		if !sameSkillIdentity(resolvedIdentity(rs), revision.Skill) || !invocationVisible(revision.Skill) {
+			continue
+		}
+		rs.Skill = internalSkillToPlugin(revision.Skill)
+		authorized = append(authorized, rs)
+	}
+	return buildPromptSection(build, authorized)
+}
+
+func buildPromptSection(build pkgplugins.SystemPromptContext, merged []ResolvedSkill) (pkgplugins.SystemPromptSection, error) {
 	// Apply plugin visibility filtering.
 	all := make([]pkgplugins.Skill, 0, len(merged))
 	for _, rs := range merged {

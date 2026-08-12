@@ -582,6 +582,11 @@ paths:
           in: query
           required: false
           schema: { type: string }
+        - name: expected_digest
+          in: query
+          required: false
+          description: Required when deleting a Home-backed Skill; omitted for project Skills.
+          schema: { type: string, pattern: "^[0-9a-f]{64}$" }
       responses:
         "204":
           description: deleted
@@ -614,6 +619,10 @@ paths:
           in: query
           required: false
           schema: { type: string }
+        - name: expected_digest
+          in: query
+          required: true
+          schema: { type: string, pattern: "^[0-9a-f]{64}$" }
       responses:
         "200":
           description: ok
@@ -692,6 +701,11 @@ paths:
           in: query
           required: false
           schema: { type: string }
+        - name: expected_digest
+          in: query
+          required: false
+          description: Required when deleting from a Home-backed Skill; omitted for project Skills.
+          schema: { type: string, pattern: "^[0-9a-f]{64}$" }
       responses:
         "204":
           description: deleted

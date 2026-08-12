@@ -31,10 +31,18 @@ func (t *Tool) searchInstalled(ctx context.Context, args map[string]any) (string
 
 	projectRoot := projectRootFromContext(ctx, t.projectRoot)
 	merged, err := t.svc.ListMerged(ctx, t.viewContext(ctx), projectRoot)
+	if t.revisions != nil {
+		merged, err = t.identityMerged(ctx, t.viewContext(ctx))
+	}
 	if err != nil {
 		return "", fmt.Errorf("search installed skills: %w", err)
 	}
-	if merged, err = t.authorizeReadable(ctx, merged); err != nil {
+	if t.revisions != nil {
+		merged, err = t.hydrateAuthorized(ctx, merged)
+	} else {
+		merged, err = t.authorizeReadable(ctx, merged)
+	}
+	if err != nil {
 		return "", fmt.Errorf("search installed skills: %w", err)
 	}
 

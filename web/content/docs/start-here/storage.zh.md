@@ -8,28 +8,28 @@ Stella 写入磁盘的所有内容都位于 `$STELLA_HOME` 下（默认为 `~/.s
 
 ## 分类速览
 
-| `$STELLA_HOME` 下的路径                                                                         | 存放内容                                     | 分类     | Kubernetes / 临时磁盘处理方式                               |
-| ----------------------------------------------------------------------------------------------- | -------------------------------------------- | -------- | ----------------------------------------------------------- |
-| `postgres/`                                                                                     | 内嵌 PostgreSQL 集群——事实来源               | 持久数据 | 持久卷**并**备份。设置 `STELLA_DATABASE_URL` 时不存在。     |
-| `users/{id}/data/`                                                                              | 用户 Principal Home：用户数据与上传文件      | 持久数据 | 持久 POSIX 存储；单副本使用本地 `$STELLA_HOME`。            |
-| `users/group-{id}/data/`                                                                        | 群组 Principal Home：群组数据与上传文件      | 持久数据 | 同按用户 Principal 数据。                                   |
-| `users/{principal}/agents/{id}/`                                                                | 每 Principal 的 Agent Home：工作区与项目文件 | 持久数据 | 持久卷**并**固定到单一副本。不在任何地方镜像。              |
-| `library/`                                                                                      | 旧版文章镜像（正被迁移进 PostgreSQL）        | 遗留     | 保留在卷上，直到回填报告缺失为零，之后可归档或删除。        |
-| `bundles/{revision}/`                                                                           | 与发行版完全一致的 builtin Skill bundle      | 派生缓存 | 从匹配的二进制重新安装；不要修改。                          |
-| `.agents/skills/`                                                                               | 遗留 Skill 清单                              | 迁移门槛 | 自定义根必须先导入或安全删除。                              |
-| `.agents/db-skills/`、`agents/{agent-id}/.agents/skills/`                                       | 窄范围的 system 与 system-Agent Skill 根     | 派生缓存 | 由 PostgreSQL 派生、加载时重新 materialize；临时磁盘即可。  |
-| `users/{principal}/data/.agents/skills/`、`users/{principal}/agents/{agent-id}/.agents/skills/` | Principal 与 Agent 的可变 Skill 镜像         | 派生缓存 | 由 PostgreSQL 派生、加载时重新 materialize；临时磁盘即可。  |
-| `bin/`                                                                                          | 内嵌工具与 `stella` CLI                      | 派生缓存 | 临时磁盘即可。启动时重新解压。                              |
-| `.mise-tools/`、`users/{id}/.mise-tools/`                                                       | 沙箱工具链                                   | 派生缓存 | 临时磁盘即可。按需重新安装。                                |
-| `pg-runtime/`                                                                                   | 下载并解压的内嵌 PostgreSQL runtime          | 派生缓存 | 临时磁盘即可。用 `stellad postgres download` 重新下载。     |
-| `users/{id}/data/.cache/`                                                                       | 每用户工具缓存                               | 派生缓存 | 临时磁盘即可。                                              |
-| `cache/sandbox-tmp/`                                                                            | Docker 沙箱临时目录                          | 临时数据 | 临时磁盘即可；启动时会删除遗留目录。                        |
-| `runner-scratch/runner-*`                                                                       | 无用户运行使用的可丢弃工作区                 | 临时数据 | 永远不是 Home 权威；仅在 Stella 停止或已 fence 时清理遗留。 |
-| `dumps/`                                                                                        | 收到信号时写出的诊断转储                     | 临时数据 | 临时磁盘即可。仅用于诊断。                                  |
+| `$STELLA_HOME` 下的路径                                                               | 存放内容                                     | 分类     | Kubernetes / 临时磁盘处理方式                               |
+| ------------------------------------------------------------------------------------- | -------------------------------------------- | -------- | ----------------------------------------------------------- |
+| `postgres/`                                                                           | 内嵌 PostgreSQL 集群——事实来源               | 持久数据 | 持久卷**并**备份。设置 `STELLA_DATABASE_URL` 时不存在。     |
+| `users/{id}/data/`                                                                    | 用户 Principal Home：用户数据与上传文件      | 持久数据 | 持久 POSIX 存储；单副本使用本地 `$STELLA_HOME`。            |
+| `users/group-{id}/data/`                                                              | 群组 Principal Home：群组数据与上传文件      | 持久数据 | 同按用户 Principal 数据。                                   |
+| `users/{principal}/agents/{id}/`                                                      | 每 Principal 的 Agent Home：工作区与项目文件 | 持久数据 | 持久卷**并**固定到单一副本。不在任何地方镜像。              |
+| `library/`                                                                            | 旧版文章镜像（正被迁移进 PostgreSQL）        | 遗留     | 保留在卷上，直到回填报告缺失为零，之后可归档或删除。        |
+| `bundles/{revision}/`                                                                 | 与发行版完全一致的 builtin Skill bundle      | 派生缓存 | 从匹配的二进制重新安装；不要修改。                          |
+| `.agents/skills/`                                                                     | 遗留 Skill 清单                              | 迁移门槛 | 自定义根必须先导入或安全删除。                              |
+| `.agents/db-skills/`、`agents/{agent-id}/.agents/skills/`                             | 可变 system 与 system-Agent Skill 权威       | 持久数据 | 持久 POSIX 存储并备份；绝不能向沙箱暴露完整根目录。         |
+| `users/{user-id}/.agents/skills/`、`users/{user-id}/.agents/agent-skills/{agent-id}/` | 可变 user 与 user-Agent Skill 权威           | 持久数据 | 持久 POSIX 存储并备份；这些字节不会镜像到 PostgreSQL。      |
+| `bin/`                                                                                | 内嵌工具与 `stella` CLI                      | 派生缓存 | 临时磁盘即可。启动时重新解压。                              |
+| `.mise-tools/`、`users/{id}/.mise-tools/`                                             | 沙箱工具链                                   | 派生缓存 | 临时磁盘即可。按需重新安装。                                |
+| `pg-runtime/`                                                                         | 下载并解压的内嵌 PostgreSQL runtime          | 派生缓存 | 临时磁盘即可。用 `stellad postgres download` 重新下载。     |
+| `users/{id}/data/.cache/`                                                             | 每用户工具缓存                               | 派生缓存 | 临时磁盘即可。                                              |
+| `cache/sandbox-tmp/`                                                                  | Docker 沙箱临时目录                          | 临时数据 | 临时磁盘即可；启动时会删除遗留目录。                        |
+| `runner-scratch/runner-*`                                                             | 无用户运行使用的可丢弃工作区                 | 临时数据 | 永远不是 Home 权威；仅在 Stella 停止或已 fence 时清理遗留。 |
+| `dumps/`                                                                              | 收到信号时写出的诊断转储                     | 临时数据 | 临时磁盘即可。仅用于诊断。                                  |
 
 ## PostgreSQL 是事实来源（持久数据）
 
-PostgreSQL 保存了几乎全部状态：配置、密钥元数据、消息历史与摘要、可变 Skill 记录、Recally 文章及其正文、已获取模型缓存、目标、计划任务以及调度队列。必须与持久的项目 Skill 数据一起保留，二者都无法重建。
+PostgreSQL 保存了几乎全部状态：配置、密钥元数据、消息历史与摘要、Skill 身份和策略记录、Recally 文章及其正文、已获取模型缓存、目标、计划任务以及调度队列。可变 Skill 的当前状态元数据和文件字节是例外：它们位于类型化 Home 根目录中。必须同时保留 PostgreSQL、持久 Home 和 Project Skill 数据；三者无法相互重建。
 
 Phase 1 还在 PostgreSQL 中记录了类型化 Home 的身份和生命周期元数据：用户与群组 Principal Home、每 Principal 的 Agent Home，以及窄范围的 system 与 system-Agent Skill 根。这些稳定元数据**不能**让 Home 的文件字节恢复。必须将 PostgreSQL 与全部持久 Principal Home、Agent Home 的存储位置一起备份。
 
@@ -62,11 +62,32 @@ Phase 1 不包含 Home 物理清除、重试命令或 Store 迁移/切换。在 
 
 `library/` 是 Recally 文章正文曾以磁盘文件存储时留下的遗物。正文现已存于 PostgreSQL，如今唯一仍会读取这些文件的是一个启动任务，它将仅存于文件的正文回填进数据库——文章读取只从 PostgreSQL 取数，绝不回退到磁盘。也不再有任何代码在此写入新文件。将该目录保留在卷上，直到某次回填运行记录缺失正文为零；此后这些文件即为惰性遗留数据，可安全归档或删除。
 
-## Skill 与派生缓存
+## Skill
 
 builtin Skill 是位于 `bundles/{revision}/` 的精确发行 bundle。原生 `local` 和 `none` 执行会安装该 bundle；隔离执行从 `/opt/stella/skills/builtin` 读取它。`/opt` 路径是执行坐标，不是第二个内容权威。
 
-Project Skill 是持久 Agent/项目工作树中的普通文件。PostgreSQL 是可变 `system`、`system_agent`、`user` 和 `user_agent` 记录的权威；`.agents/db-skills/`、`agents/{agent-id}/.agents/skills/`、`users/{principal}/data/.agents/skills/` 和 `users/{principal}/agents/{agent-id}/.agents/skills/` 是加载时重新 materialize 的派生镜像。这里的 `{principal}` 是用户 ID 或 `group-{id}`。Phase 1 注册类型化 Home 身份，但不会切换可变 Skill 内容的权威。
+Project Skill 仍是持久 Agent/项目工作树中的普通文件。可变 `system`、`system_agent`、`user` 和 `user_agent` Skill 在以下类型化 Home 根目录中使用不可变 digest revision：
+
+- `system`：`.agents/db-skills/`
+- `system_agent`：`agents/{agent-id}/.agents/skills/`
+- `user`：`users/{user-id}/.agents/skills/`
+- `user_agent`：`users/{user-id}/.agents/agent-skills/{agent-id}/`
+
+每个逻辑 Skill 都有一个原子 current selector。切换完成后，PostgreSQL 只保留身份、所有权、策略、用量、provenance 和迁移证据，不再保留可变当前状态的字节。必须同时备份 PostgreSQL 和以上四类 Home 根目录。
+
+模型不会获得这些权威根目录。当前 actor 与 Agent 策略授权一次加载后，Stella 只会把该 Skill 的一个精确当前 revision 复制到 active sandbox Session 的临时目录。这个可丢弃执行投影只包含选中的 revision，并随 Session 临时数据清理；它不是备份或第二权威。
+
+### PostgreSQL 到 Home 的 Skill 迁移
+
+如果升级时存在 PostgreSQL Skill 文件，启动会停止，而不是重建或丢弃它们。停止所有可能写 Skill 的进程，验证一份可恢复的 PostgreSQL 备份和 `$STELLA_HOME` 备份，然后查看 `stellad storage migrate-skills --help`。该专用迁移是单向的，并且只支持 Linux/macOS。它会对旧数据做两次 inventory，发布并验证精确 Home revision，然后在同一个数据库事务中 scrub 旧文件字节并记录完成状态。
+
+除非同时传入 `--apply` 和两个必要 attestation，否则命令只执行 dry-run。dry-run 不发布 Home revision 或 selector，不写 Skill 迁移证据或完成状态，也不 scrub 旧 Skill 字节。但它**不是**进程级或数据库级只读：加载配置可能 bootstrap 内嵌 PostgreSQL runtime，打开数据库也可能执行普通 schema migration。
+
+### 保留 revision 的容量
+
+不可变 revision 默认无限期保留。Stella 目前没有自动 prune、单 Skill quota、部署 quota 或受支持的手工 prune 流程。一个完整 revision 最多包含 512 个文件和 32 MiB。catalog 与 revision 读取刻意设置了上限，因此 limit 错误表示实际用量可能大于 Stella 已检查的范围；它不代表存储健康。
+
+必须独立监控承载 `$STELLA_HOME` 的文件系统剩余字节和 inode。不要直接删除 retained revision 目录：旧的精确 digest 仍可能用于 reconcile acknowledgement 不确定的 compare-and-swap 重试，或保留 Reflect provenance。只能在 Stella 停止时从已验证的备份恢复或修复权威。
 
 升级前，请使用旧的可工作二进制，将遗留顶层 `.agents/skills/` 下的每个自定义 Skill 根导入为全局（`system`）Skill：旧版入口为 **设置 → 技能**，新版入口为 **管理控制台 → 部署资源 → 全局技能**。其他残留路径应先备份、验证后删除。新版本启动会列出每个阻塞路径并停止，不会修改或删除任何内容。当前发行 manifest 所拥有的路径即使内容或模式陈旧也只是惰性数据；其他每个 Skill 根或残留路径都会阻塞启动。
 
@@ -75,7 +96,7 @@ Project Skill 是持久 Agent/项目工作树中的普通文件。PostgreSQL 是
 这些目录会自动重建，可置于临时磁盘上：
 
 - **builtin bundle**（`bundles/{revision}/`）：从运行中二进制的不可变发行 bundle 安装。
-- **PostgreSQL 派生的 Skill 镜像**（`.agents/db-skills/`、`agents/{agent-id}/.agents/skills/`、`users/{principal}/data/.agents/skills/` 和 `users/{principal}/agents/{agent-id}/.agents/skills/`）：加载时重新 materialize。
+- **Session Skill 投影**：把授权后的精确 revision 复制到一个 active Session 的临时目录，并随该临时数据清理。上文列出的类型化 Home 根是持久权威，不是缓存。
 - **`bin/`**：内嵌工具与 `stella` CLI，启动时重新解压。
 - **工具链**（`.mise-tools/`、每用户 `.mise-tools/`）：按需重新安装。
 - **`pg-runtime/`**：下载的内嵌 PostgreSQL runtime；用 `stellad postgres download` 重新下载。每个 runtime 版本安装在各自的目录中，旧版本不会被自动清理，每个约数百 MB。执行 `stellad postgres prune` 查看哪些已不再使用，加 `--force` 才会真正删除。

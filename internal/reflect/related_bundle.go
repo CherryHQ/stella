@@ -247,7 +247,15 @@ func buildSkillRelatedBundle(ctx context.Context, store skillRelatedBundleStore,
 				continue
 			}
 			item := byID[hint.SkillID]
-			content, err := store.LoadFile(ctx, item.ID, pkgplugins.SkillMainFile)
+			var content string
+			var err error
+			if exact, ok := store.(interface {
+				LoadFileRevision(context.Context, string, string, string) (string, error)
+			}); ok {
+				content, err = exact.LoadFileRevision(ctx, item.ID, pkgplugins.SkillMainFile, item.Record.ContentDigest)
+			} else {
+				content, err = store.LoadFile(ctx, item.ID, pkgplugins.SkillMainFile)
+			}
 			if err != nil {
 				return skillRelatedBundle{}, err
 			}

@@ -82,6 +82,7 @@ func (s sqlUsageCuratorStore) ListStaleReflectSkills(ctx context.Context, query 
 			UserID:               row.UserID,
 			AgentID:              row.AgentID,
 			Version:              row.Version,
+			ContentDigest:        row.ContentDigest.String,
 			UseCount:             row.UseCount,
 			LastUsedAt:           row.LastUsedAt,
 			PairLatestActivityAt: row.PairLatestActivityAt,

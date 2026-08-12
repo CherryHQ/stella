@@ -25,12 +25,12 @@ const (
 	// representative fixture/assertions for the newly crossed migrations turns
 	// this test into a green lie.
 	previousGAVersion = int64(20260725161331)
-	// Library V1, channel guest sessions/indexes, channel allowlist backfill, and
+	// Library V1, channel guest sessions/indexes, channel allowlist backfill,
 	// session activity, per-message actor provenance and summary authority,
 	// the durable Session inbox, and restrictive Library ownership are the
-	// post-anchor migrations exercised below. Library chunk locator integrity is
-	// covered by inserting a chunk through the rolling-deployment default.
-	currentMigrationVersion = sequentialAnchor + 12
+	// post-anchor migrations exercised below. Library chunk locator integrity and
+	// the dedicated Skill Home cutover evidence schema are checked explicitly.
+	currentMigrationVersion = sequentialAnchor + 13
 
 	previousGAUserID           = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID          = "00000000-0000-0000-0000-000000000002"
@@ -57,6 +57,7 @@ const (
 	previousGACascadeAgentID   = "previous-ga-cascade-agent"
 	previousGALibraryAgentID   = "previous-ga-library-agent"
 	previousGAProviderID       = "previous-ga-provider"
+	previousGASkillID          = "previous-ga-skill"
 	previousGAOlderSession     = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:zz"
 	previousGAOldSession       = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:a"
 	previousGANewSession       = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:z"
@@ -173,6 +174,14 @@ func seedPreviousGAData(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
 		('sandbox/local', 'system', 'sandbox-state', '{"keep":"no"}', $1, $1),
 		('sandbox', 'system', 'near-miss-state', '{"keep":"yes"}', $1, $1),
 		('tool/unrelated', 'system', 'unrelated-state', '{"keep":"yes"}', $1, $1)`, previousGATime)
+	exec("legacy mutable Skill", `
+		INSERT INTO skill (id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at)
+		VALUES ($1, 'user_agent', $2, $3, 'Previous GA / Skill', 'legacy description', 'active', true, '{"created_by":"reflect"}', $4, $4)`,
+		previousGASkillID, previousGAUserID, previousGAAgentID, previousGATime)
+	exec("legacy mutable Skill files", `
+		INSERT INTO skill_file (skill_id, path, content) VALUES
+			($1, 'SKILL.md', '# Previous GA Skill'),
+			($1, 'references/raw.bin', E'\\x00ff78')`, previousGASkillID)
 	exec("group", `INSERT INTO ctx_group_state (id, platform, platform_group_id, created_at, updated_at) VALUES ($1, 'test', 'previous-ga-group', $2, $2)`, previousGAGroupID, previousGATime)
 	exec("duplicate group chats", `
 		INSERT INTO ctx_conversation (id, session_id, channel, kind, archived, last_active, agent_id, user_id, group_id, created_at, updated_at)
@@ -247,6 +256,23 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 	if tokenUse != "personal" || issuedByProvisioning {
 		t.Fatalf("migrated personal access token use=%q issued_by_provisioning=%v, want personal/false", tokenUse, issuedByProvisioning)
+	}
+	var legacySkillName string
+	var legacySkillFileCount, legacySkillBytes int64
+	if err := db.QueryRow(ctx, `
+		SELECT s.name, count(f.path), sum(octet_length(f.content))
+		FROM skill s JOIN skill_file f ON f.skill_id=s.id
+		WHERE s.id=$1 GROUP BY s.name`, previousGASkillID).Scan(&legacySkillName, &legacySkillFileCount, &legacySkillBytes); err != nil {
+		t.Fatalf("read previous-GA mutable Skill after schema migration: %v", err)
+	}
+	if legacySkillName != "Previous GA / Skill" || legacySkillFileCount != 2 || legacySkillBytes <= 0 {
+		t.Fatalf("previous-GA Skill = name %q files %d bytes %d", legacySkillName, legacySkillFileCount, legacySkillBytes)
+	}
+	if got := count("Skill Home migration evidence table", `SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='skill_home_migration'`); got != 1 {
+		t.Fatalf("Skill Home migration evidence tables = %d, want 1", got)
+	}
+	if got := count("uninitialized Skill Home migration evidence", `SELECT count(*) FROM skill_home_migration`); got != 0 {
+		t.Fatalf("ordinary schema migration wrote %d Skill cutover markers, want 0", got)
 	}
 	var legacyActorType string
 	if err := db.QueryRow(ctx, `SELECT actor_type FROM ctx_message WHERE id = $1`, previousGAMessageID).Scan(&legacyActorType); err != nil {

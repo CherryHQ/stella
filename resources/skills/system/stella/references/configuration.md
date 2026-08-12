@@ -119,32 +119,36 @@ Global settings are stored in the `settings` table as JSON values:
 
 All paths are relative to `$STELLA_HOME` (`~/.stella` by default).
 
-| Operator path                               | Purpose                                                                                                         |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `postgres/`                                 | Embedded PostgreSQL data directory (all config; absent when `STELLA_DATABASE_URL` points at an external server) |
-| `pg-runtime/`                               | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download`                               |
-| `cache/sandbox-tmp/`                        | Docker sandbox temporary directories; scratch, removed when stale                                               |
-| `.agents/db-skills/`                        | Local compatibility coordinate for the narrow system Skill root; PostgreSQL-derived materialization             |
-| `agents/{agent_id}/`                        | User-independent agent definition and administrator-managed compatibility area                                  |
-| `agents/{agent_id}/.agents/skills/`         | Local compatibility coordinate for the narrow system-Agent Skill root; PostgreSQL-derived materialization       |
-| `users/{user_id}/agents/{agent_id}/`        | This user's per-principal Agent Home; sandbox `$HOME` and initial working directory                             |
-| `users/group-{group_id}/agents/{agent_id}/` | This channel group's per-principal Agent Home; sandbox `$HOME` and initial working directory                    |
-| `users/{principal}/data/`                   | User or group Principal Home: shared principal data and uploads                                                 |
-| `runner-scratch/runner-*`                   | Disposable user-less-run workspace; never durable Home authority                                                |
-| `users/{principal}/data/assets/`            | Uploaded assets; inside the sandbox, use `$STELLA_ASSETS_DIR` rather than an operator path                      |
-| `users/{principal}/.mise-tools/`            | Managed per-user or per-group toolchain; shared by that principal's agents                                      |
+| Operator path                                      | Purpose                                                                                                         |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `postgres/`                                        | Embedded PostgreSQL data directory (all config; absent when `STELLA_DATABASE_URL` points at an external server) |
+| `pg-runtime/`                                      | Downloaded embedded PostgreSQL runtime; recreate with `stellad postgres download`                               |
+| `cache/sandbox-tmp/`                               | Docker sandbox temporary directories; scratch, removed when stale                                               |
+| `.agents/db-skills/`                               | Mutable system Skill authority: immutable digest revisions plus atomic current selectors                        |
+| `agents/{agent_id}/`                               | User-independent Agent definition tree                                                                          |
+| `agents/{agent_id}/.agents/skills/`                | Mutable system-Agent Skill authority: immutable digest revisions plus atomic current selectors                  |
+| `users/{user_id}/.agents/skills/`                  | Mutable user Skill authority: immutable digest revisions plus atomic current selectors                          |
+| `users/{user_id}/.agents/agent-skills/{agent_id}/` | Mutable user-Agent Skill authority: immutable digest revisions plus atomic current selectors                    |
+| `users/{user_id}/agents/{agent_id}/`               | This user's per-principal Agent Home; sandbox `$HOME` and initial working directory                             |
+| `users/group-{group_id}/agents/{agent_id}/`        | This channel group's per-principal Agent Home; sandbox `$HOME` and initial working directory                    |
+| `users/{principal}/data/`                          | User or group Principal Home: shared principal data and uploads                                                 |
+| `runner-scratch/runner-*`                          | Disposable user-less-run workspace; never durable Home authority                                                |
+| `users/{principal}/data/assets/`                   | Uploaded assets; inside the sandbox, use `$STELLA_ASSETS_DIR` rather than an operator path                      |
+| `users/{principal}/.mise-tools/`                   | Managed per-user or per-group toolchain; shared by that principal's agents                                      |
 
 ## Skills and release bundles
 
 Release-provided builtins are immutable `builtin:<name>` entries from `resources.Registry`. Their only authority is the content-addressed release bundle. Native `local` and `none` execution installs the exact bundle at `$STELLA_HOME/bundles/<revision>`; isolating execution sees that bundle read-only at `/opt/stella/skills/builtin`. `/opt` is only an execution coordinate. Helper executable modes are preserved.
 
-Project Skills remain ordinary files in durable Agent/project working trees. PostgreSQL remains the authority for mutable `system`, `system_agent`, `user`, and `user_agent` records; their on-disk materializations are derived caches. The Home filesystem authority cutover is planned and not active. `system:<name>` is a mutable administrator-installed global Skill, `system_agent:<name>` is a mutable Agent-bound administrator Skill, and neither is a release builtin.
+Project Skills remain ordinary files in durable Agent/project working trees. Mutable `system`, `system_agent`, `user`, and `user_agent` current-state metadata and complete file trees are authoritative only in the typed Home roots above. Each current selector names one immutable content-digest revision; PostgreSQL keeps identity, policy, usage, provenance, and migration evidence, not mutable current-state bytes. `system:<name>` is a mutable administrator-installed global Skill, `system_agent:<name>` is a mutable Agent-bound administrator Skill, and neither is a release builtin.
+
+The model never receives a complete mutable Skill authority root. After identity and actor/Agent policy authorization, `skills.load` copies only the selected exact current revision to the active sandbox Session's temporary directory and returns that disposable execution path. Historical, deleted, disabled, deprecated, and other actors' revisions are not part of that view.
 
 Skills are enabled per Agent by default. An administrator or durable Agent creator changes one shared setting. Stella selects the precedence winner before applying that policy, so disabling it never reveals a lower same-name Skill. Activation is independent of content-edit permission and `disable_model_invocation`. An admitted turn keeps its snapshot; the next turn sees a committed change. Legacy non-empty arrays diagnose all-enabled, and dangling disabled references are inert until explicitly cleared.
 
 For an exact operator command syntax, run `stellad system-bundle --help`. Docker sandbox images bake and label the matching bundle revision, never fall back to host builtins, and Docker provider preflight prevents a runner session from starting if their revision differs from the binary. Developers rebuild the local image with `mise run sandbox:docker:build`; rebuild custom images from the matching Stella revision.
 
-Before upgrading, use the old working binary to import each custom Skill root under legacy `$STELLA_HOME/.agents/skills` as a global (`system`) Skill through **Settings → Skills** on older releases or **Admin Console → Deployment resources → Global Skills** on newer releases. Back up, verify, and remove other residual paths. Current-manifest paths are inert even if their contents or modes differ; every other Skill root or residual path blocks startup without mutation.
+An upgrade with existing PostgreSQL `skill_file` bytes stops at the Skill authority gate. Stop every Skill writer, verify restorable PostgreSQL and `$STELLA_HOME` backups, and run `stellad storage migrate-skills` first as a dry-run. Apply the dedicated one-way migration on Linux or macOS only with `--apply --confirm-writers-stopped --confirm-backup-verified`. The dry-run does not publish Home revisions/selectors, write completion evidence, or scrub legacy Skill bytes, but it is not process- or database-wide read-only: embedded PostgreSQL bootstrap and ordinary schema migrations may write.
 
 `{principal}` is a user ID or `group-{group_id}`. These are deterministic paths
 under the single POSIX `STELLA_HOME`, not registry locators. Agents should use their sandbox variables and ordinary relative paths:

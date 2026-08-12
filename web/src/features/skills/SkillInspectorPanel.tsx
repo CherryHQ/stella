@@ -151,6 +151,7 @@ export function SkillInspectorPanel({
           ...(sessionId ? { session_id: sessionId } : {}),
         },
         body: {
+          expected_digest: detail.data?.content_digest ?? skill.content_digest,
           description,
           disable_model_invocation: !modelEnabled,
           version,
@@ -171,7 +172,10 @@ export function SkillInspectorPanel({
     try {
       const res = await upgradeAgentSkill({
         path: { id: agentId, skillId: skill.id },
-        query: { scope: skill.scope as SkillScope },
+        query: {
+          scope: skill.scope as SkillScope,
+          expected_digest: (detail.data?.content_digest ?? skill.content_digest)!,
+        },
         throwOnError: true,
       });
       if (res.data?.updated) {
@@ -197,6 +201,7 @@ export function SkillInspectorPanel({
         query: {
           scope: skill.scope as SkillScope,
           ...(sessionId ? { session_id: sessionId } : {}),
+          ...(skill.content_digest ? { expected_digest: skill.content_digest } : {}),
         },
         throwOnError: true,
       });
@@ -479,6 +484,7 @@ function SkillFileView({
           ...(sessionId ? { session_id: sessionId } : {}),
         },
         body: {
+          expected_digest: skill.content_digest,
           files: { [path]: draft },
           ...(shouldConvertToManual ? { convert_to_manual: true } : {}),
         },

@@ -36,7 +36,22 @@ ORDER BY CASE scope
     WHEN 'user'         THEN 2
     WHEN 'system_agent' THEN 3
     WHEN 'system'       THEN 4
-  END, created_at;
+  END, created_at
+LIMIT 10001;
+
+-- name: ListSkillIdentityVisible :many
+SELECT * FROM skill
+WHERE scope = 'system'
+   OR (scope = 'system_agent' AND agent_id = sqlc.narg(agent_id))
+   OR (scope = 'user'         AND user_id = sqlc.narg(user_id))
+   OR (scope = 'user_agent'   AND user_id = sqlc.narg(user_id) AND agent_id = sqlc.narg(agent_id))
+ORDER BY CASE scope
+    WHEN 'user_agent'   THEN 1
+    WHEN 'user'         THEN 2
+    WHEN 'system_agent' THEN 3
+    WHEN 'system'       THEN 4
+  END, created_at
+LIMIT 10001;
 
 -- ListSkillsForAgentContext returns the visible skills for one (user, agent),
 -- ordered most-specific-first so a name-dedup downstream keeps the effective
@@ -55,20 +70,23 @@ ORDER BY CASE scope
     WHEN 'user'         THEN 2
     WHEN 'system_agent' THEN 3
     WHEN 'system'       THEN 4
-  END, created_at;
+  END, created_at
+LIMIT 10001;
 
 -- name: ListSkillsByScope :many
 SELECT * FROM skill
 WHERE scope = sqlc.arg(scope)
   AND coalesce(user_id::text, '') = coalesce(sqlc.narg(user_id)::text, '')
   AND coalesce(agent_id, '') = coalesce(sqlc.narg(agent_id), '')
-ORDER BY created_at;
+ORDER BY created_at
+LIMIT 10001;
 
 -- name: ListSkillsForAdmin :many
 SELECT * FROM skill
 WHERE scope NOT IN ('user', 'user_agent')
       OR user_id = sqlc.arg(user_id)
-ORDER BY scope, created_at;
+ORDER BY scope, created_at
+LIMIT 10001;
 
 -- name: ListSkillsForUser :many
 SELECT * FROM skill
@@ -80,7 +98,8 @@ WHERE status != 'deprecated'
     OR (scope = 'user_agent' AND user_id = sqlc.arg(user_id)
         AND strpos(',' || sqlc.arg(agent_ids_csv) || ',', ',' || agent_id || ',') > 0)
   )
-ORDER BY scope, created_at;
+ORDER BY scope, created_at
+LIMIT 10001;
 
 -- ResolveSkill returns the single effective skill for a name in a (user, agent)
 -- context. Precedence: user_agent > user > system_agent > system.
@@ -178,6 +197,7 @@ INSERT INTO skill_changelog (
   action,
   version_before,
   version_after,
+  content_digest,
   metadata
 )
 VALUES (
@@ -188,6 +208,7 @@ VALUES (
   sqlc.arg(action),
   sqlc.narg(version_before),
   sqlc.arg(version_after),
+  sqlc.narg(content_digest),
   sqlc.arg(metadata)
 )
 RETURNING *;
@@ -227,7 +248,7 @@ WHERE scope = 'user_agent'
   AND name = sqlc.arg(name);
 
 -- name: ListAllSkills :many
-SELECT * FROM skill ORDER BY scope, created_at;
+SELECT * FROM skill ORDER BY scope, created_at LIMIT 10001;
 
 -- name: UpdateManagedSkill :one
 UPDATE skill

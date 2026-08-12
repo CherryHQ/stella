@@ -174,6 +174,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
           path: { id: agentId, skillId },
           query: { scope: scope as UpdateAgentSkillData["query"]["scope"] },
           body: {
+            expected_digest: skill?.content_digest,
             description: form.description,
             disable_model_invocation: form.disable_model_invocation,
             files: { "SKILL.md": form.content },
@@ -189,7 +190,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     } finally {
       setSaving(false);
     }
-  }, [isNew, skillId, scope, agentId, form, onSaved]);
+  }, [isNew, skillId, scope, agentId, skill?.content_digest, form, onSaved]);
 
   const remove = useCallback(async () => {
     if (!skillId) return;
@@ -197,7 +198,10 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     try {
       await deleteAgentSkill({
         path: { id: agentId, skillId },
-        query: { scope: scope as UpdateAgentSkillData["query"]["scope"] },
+        query: {
+          scope: scope as UpdateAgentSkillData["query"]["scope"],
+          ...(skill?.content_digest ? { expected_digest: skill.content_digest } : {}),
+        },
         throwOnError: true,
       });
       onDeleted();
@@ -206,7 +210,7 @@ export function SkillPanel({ skillId, scope, agentId, onSaved, onDeleted }: Prop
     } finally {
       setDeleting(false);
     }
-  }, [skillId, scope, agentId, onDeleted]);
+  }, [skillId, scope, agentId, skill?.content_digest, onDeleted]);
 
   const cancelEdit = () => {
     setForm(savedForm);

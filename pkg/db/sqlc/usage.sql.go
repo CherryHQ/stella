@@ -8,6 +8,8 @@ package sqlc
 import (
 	"context"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const deleteKnowledgeUsage = `-- name: DeleteKnowledgeUsage :exec
@@ -59,7 +61,7 @@ func (q *Queries) GetKnowledgeUsageForUpdate(ctx context.Context, arg GetKnowled
 }
 
 const getSkillUsageForUpdate = `-- name: GetSkillUsageForUpdate :one
-SELECT skill_id, user_id, agent_id, use_count, last_used_at, created_at
+SELECT skill_id, user_id, agent_id, use_count, last_used_at, created_at, content_digest
 FROM skill_usage
 WHERE skill_id = $1
   AND user_id = $2::uuid
@@ -83,6 +85,7 @@ func (q *Queries) GetSkillUsageForUpdate(ctx context.Context, arg GetSkillUsageF
 		&i.UseCount,
 		&i.LastUsedAt,
 		&i.CreatedAt,
+		&i.ContentDigest,
 	)
 	return i, err
 }
@@ -235,6 +238,7 @@ SELECT
   s.user_id::text AS user_id,
   s.agent_id::text AS agent_id,
   s.version,
+  su.content_digest,
   su.use_count,
   su.last_used_at,
   pair_activity.latest AS pair_latest_activity_at,
@@ -248,8 +252,7 @@ CROSS JOIN pair_activity
 WHERE su.user_id = $2::uuid
   AND su.agent_id = $3::text
   AND s.scope = 'user_agent'
-  AND s.status = 'active'
-  AND s.metadata->>'created_by' = 'reflect'
+  AND su.content_digest IS NOT NULL
   AND (
     su.last_used_at < $1
     OR (
@@ -270,14 +273,15 @@ type ListStaleReflectSkillsForCuratorParams struct {
 }
 
 type ListStaleReflectSkillsForCuratorRow struct {
-	SkillID              string    `json:"skill_id"`
-	UserID               string    `json:"user_id"`
-	AgentID              string    `json:"agent_id"`
-	Version              int64     `json:"version"`
-	UseCount             int64     `json:"use_count"`
-	LastUsedAt           time.Time `json:"last_used_at"`
-	PairLatestActivityAt time.Time `json:"pair_latest_activity_at"`
-	Rule                 string    `json:"rule"`
+	SkillID              string      `json:"skill_id"`
+	UserID               string      `json:"user_id"`
+	AgentID              string      `json:"agent_id"`
+	Version              int64       `json:"version"`
+	ContentDigest        pgtype.Text `json:"content_digest"`
+	UseCount             int64       `json:"use_count"`
+	LastUsedAt           time.Time   `json:"last_used_at"`
+	PairLatestActivityAt time.Time   `json:"pair_latest_activity_at"`
+	Rule                 string      `json:"rule"`
 }
 
 // The same activity gate applies here: at least one non-archived conversation
@@ -302,6 +306,7 @@ func (q *Queries) ListStaleReflectSkillsForCurator(ctx context.Context, arg List
 			&i.UserID,
 			&i.AgentID,
 			&i.Version,
+			&i.ContentDigest,
 			&i.UseCount,
 			&i.LastUsedAt,
 			&i.PairLatestActivityAt,
@@ -318,27 +323,32 @@ func (q *Queries) ListStaleReflectSkillsForCurator(ctx context.Context, arg List
 }
 
 const refreshSkillUsageOnReflectPatch = `-- name: RefreshSkillUsageOnReflectPatch :exec
-INSERT INTO skill_usage (skill_id, user_id, agent_id, use_count, last_used_at)
-SELECT s.id, s.user_id, s.agent_id, 0, now()
+INSERT INTO skill_usage (skill_id, user_id, agent_id, content_digest, use_count, last_used_at)
+SELECT s.id, s.user_id, s.agent_id, $1, 0, now()
 FROM skill s
-WHERE s.id = $1
-  AND s.user_id = $2::uuid
-  AND s.agent_id = $3::text
+WHERE s.id = $2
+  AND s.user_id = $3::uuid
+  AND s.agent_id = $4::text
   AND s.scope = 'user_agent'
-  AND s.status = 'active'
-  AND s.metadata->>'created_by' = 'reflect'
 ON CONFLICT (skill_id) DO UPDATE
-SET last_used_at = excluded.last_used_at
+SET content_digest = excluded.content_digest,
+    last_used_at = excluded.last_used_at
 `
 
 type RefreshSkillUsageOnReflectPatchParams struct {
-	SkillID string `json:"skill_id"`
-	UserID  string `json:"user_id"`
-	AgentID string `json:"agent_id"`
+	ContentDigest pgtype.Text `json:"content_digest"`
+	SkillID       string      `json:"skill_id"`
+	UserID        string      `json:"user_id"`
+	AgentID       string      `json:"agent_id"`
 }
 
 func (q *Queries) RefreshSkillUsageOnReflectPatch(ctx context.Context, arg RefreshSkillUsageOnReflectPatchParams) error {
-	_, err := q.db.Exec(ctx, refreshSkillUsageOnReflectPatch, arg.SkillID, arg.UserID, arg.AgentID)
+	_, err := q.db.Exec(ctx, refreshSkillUsageOnReflectPatch,
+		arg.ContentDigest,
+		arg.SkillID,
+		arg.UserID,
+		arg.AgentID,
+	)
 	return err
 }
 
@@ -372,28 +382,33 @@ func (q *Queries) TouchKnowledgeUsage(ctx context.Context, arg TouchKnowledgeUsa
 const touchReflectSkillRuntimeUse = `-- name: TouchReflectSkillRuntimeUse :execrows
 UPDATE skill_usage su
 SET use_count = su.use_count + 1,
-    last_used_at = now()
+    last_used_at = now(),
+    content_digest = $1
 FROM skill s
-WHERE su.skill_id = $1
-  AND su.user_id = $2::uuid
-  AND su.agent_id = $3::text
+WHERE su.skill_id = $2
+  AND su.user_id = $3::uuid
+  AND su.agent_id = $4::text
   AND s.id = su.skill_id
   AND s.user_id = su.user_id
   AND s.agent_id = su.agent_id
   AND s.scope = 'user_agent'
-  AND s.status = 'active'
-  AND s.disable_model_invocation = false
-  AND s.metadata->>'created_by' = 'reflect'
+  AND su.content_digest IS NOT DISTINCT FROM $1
 `
 
 type TouchReflectSkillRuntimeUseParams struct {
-	SkillID string `json:"skill_id"`
-	UserID  string `json:"user_id"`
-	AgentID string `json:"agent_id"`
+	ContentDigest pgtype.Text `json:"content_digest"`
+	SkillID       string      `json:"skill_id"`
+	UserID        string      `json:"user_id"`
+	AgentID       string      `json:"agent_id"`
 }
 
 func (q *Queries) TouchReflectSkillRuntimeUse(ctx context.Context, arg TouchReflectSkillRuntimeUseParams) (int64, error) {
-	result, err := q.db.Exec(ctx, touchReflectSkillRuntimeUse, arg.SkillID, arg.UserID, arg.AgentID)
+	result, err := q.db.Exec(ctx, touchReflectSkillRuntimeUse,
+		arg.ContentDigest,
+		arg.SkillID,
+		arg.UserID,
+		arg.AgentID,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -427,22 +442,29 @@ func (q *Queries) UpsertKnowledgeUsage(ctx context.Context, arg UpsertKnowledgeU
 }
 
 const upsertSkillUsageOnReflectCreate = `-- name: UpsertSkillUsageOnReflectCreate :exec
-INSERT INTO skill_usage (skill_id, user_id, agent_id, use_count, last_used_at)
-VALUES ($1, $2, $3, 1, now())
+INSERT INTO skill_usage (skill_id, user_id, agent_id, content_digest, use_count, last_used_at)
+VALUES ($1, $2, $3, $4, 1, now())
 ON CONFLICT (skill_id) DO UPDATE
 SET user_id = excluded.user_id,
     agent_id = excluded.agent_id,
+    content_digest = excluded.content_digest,
     use_count = excluded.use_count,
     last_used_at = excluded.last_used_at
 `
 
 type UpsertSkillUsageOnReflectCreateParams struct {
-	SkillID string `json:"skill_id"`
-	UserID  string `json:"user_id"`
-	AgentID string `json:"agent_id"`
+	SkillID       string      `json:"skill_id"`
+	UserID        string      `json:"user_id"`
+	AgentID       string      `json:"agent_id"`
+	ContentDigest pgtype.Text `json:"content_digest"`
 }
 
 func (q *Queries) UpsertSkillUsageOnReflectCreate(ctx context.Context, arg UpsertSkillUsageOnReflectCreateParams) error {
-	_, err := q.db.Exec(ctx, upsertSkillUsageOnReflectCreate, arg.SkillID, arg.UserID, arg.AgentID)
+	_, err := q.db.Exec(ctx, upsertSkillUsageOnReflectCreate,
+		arg.SkillID,
+		arg.UserID,
+		arg.AgentID,
+		arg.ContentDigest,
+	)
 	return err
 }

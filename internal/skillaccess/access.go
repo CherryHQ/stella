@@ -192,19 +192,16 @@ func (a *Access) AuthorizeAgent(ctx context.Context, agentID string) error {
 	return a.authorizeAgent(ctx, agentID)
 }
 
-// load resolves a skill row by id, opaque on a miss. The store has no Get-by-id,
-// so it scans ListAll — correct at current volumes, matching the transports.
+// load resolves only PostgreSQL identity before the policy decision.
 func (a *Access) load(ctx context.Context, id string) (skills.Skill, error) {
-	rows, err := a.svc.store.ListAll(ctx)
+	row, err := a.svc.store.GetIdentity(ctx, id)
 	if err != nil {
-		return skills.Skill{}, fmt.Errorf("%w: list skills: %w", ErrUnavailable, err)
+		return skills.Skill{}, fmt.Errorf("%w: get skill identity: %w", ErrUnavailable, err)
 	}
-	for i := range rows {
-		if rows[i].ID == id {
-			return rows[i], nil
-		}
+	if row == nil {
+		return skills.Skill{}, ErrNotFound
 	}
-	return skills.Skill{}, ErrNotFound
+	return *row, nil
 }
 
 // decide applies Skill's direct rule for one scope/owner and maps a denial to the
