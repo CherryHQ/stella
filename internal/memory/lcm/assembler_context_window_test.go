@@ -140,6 +140,117 @@ func TestAssembleContextWindowLoaderMixedLargeWindow(t *testing.T) {
 	}
 }
 
+func TestAssembleParallelToolCallsRemainOneAssistantTurn(t *testing.T) {
+	tests := []struct {
+		name       string
+		freshTail  int
+		appendNext bool
+	}{
+		{name: "fresh tail", freshTail: 1},
+		{name: "older budget history", freshTail: 1, appendNext: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := newAssemblerTestDB(t)
+			defer db.Close()
+
+			ctx := context.Background()
+			q := sqlc.New(db)
+			convID := uuid.NewString()
+			if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind) VALUES ($1, $2, 'test', 'chat')`, convID, uuid.NewString()); err != nil {
+				t.Fatalf("insert conversation: %v", err)
+			}
+
+			ordinal := int64(0)
+			seq := int64(0)
+			appendMessage := func(role, eventType, content string) {
+				t.Helper()
+				ordinal++
+				seq++
+				id := uuid.NewString()
+				if _, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
+					ID:             id,
+					ConversationID: convID,
+					Seq:            seq,
+					Role:           role,
+					EventType:      eventType,
+					Content:        content,
+					ActorType:      string(eventlog.ActorAgent),
+					TokenCount:     int64(memoryEstimate(content)),
+				}); err != nil {
+					t.Fatalf("create message: %v", err)
+				}
+				if err := q.AppendContextItem(ctx, sqlc.AppendContextItemParams{
+					ConversationID: convID,
+					Ordinal:        ordinal,
+					ItemType:       itemTypeMessage,
+					MessageID:      pgtype.Text{String: id, Valid: true},
+					EventType:      eventType,
+					Role:           role,
+				}); err != nil {
+					t.Fatalf("append context item: %v", err)
+				}
+			}
+
+			appendMessage(roleUser, eventTypeText, "look up both values")
+			for _, call := range []toolCallEnvelope{
+				{ID: "call-a", Tool: "search", Args: json.RawMessage(`{"query":"a"}`)},
+				{ID: "call-b", Tool: "search", Args: json.RawMessage(`{"query":"b"}`)},
+			} {
+				data, err := json.Marshal(call)
+				if err != nil {
+					t.Fatalf("marshal tool call: %v", err)
+				}
+				appendMessage(roleAssistant, eventTypeToolCall, string(data))
+			}
+			for _, result := range []toolResultEnvelope{
+				{ID: "call-a", Tool: "search", Result: json.RawMessage(`"result-a"`)},
+				{ID: "call-b", Tool: "search", Result: json.RawMessage(`"result-b"`)},
+			} {
+				data, err := json.Marshal(result)
+				if err != nil {
+					t.Fatalf("marshal tool result: %v", err)
+				}
+				appendMessage(roleTool, eventTypeToolResult, string(data))
+			}
+			appendMessage(roleAssistant, eventTypeText, "combined answer")
+			if tt.appendNext {
+				// This user turn makes the parallel-tool turn compete in the older
+				// budget path instead of remaining in the protected fresh tail.
+				appendMessage(roleUser, eventTypeText, "next turn")
+			}
+
+			got, err := newAssembler(q, nil).assemble(ctx, convID, 100_000, tt.freshTail)
+			if err != nil {
+				t.Fatalf("assemble: %v", err)
+			}
+			if len(got) < 5 {
+				t.Fatalf("assembled %d messages, want at least 5", len(got))
+			}
+			assistant, ok := got[1].(ai.AssistantMessage)
+			if !ok {
+				t.Fatalf("parallel tool turn = %T, want ai.AssistantMessage", got[1])
+			}
+			if len(assistant.Content) != 2 {
+				t.Fatalf("parallel tool blocks = %d, want 2: %#v", len(assistant.Content), assistant.Content)
+			}
+			for i, wantID := range []string{"call-a", "call-b"} {
+				call, ok := assistant.Content[i].(ai.ToolCall)
+				if !ok || call.ID != wantID {
+					t.Fatalf("tool call %d = %#v, want %s", i, assistant.Content[i], wantID)
+				}
+			}
+			for i, wantID := range []string{"call-a", "call-b"} {
+				result, ok := got[i+2].(ai.ToolResultMessage)
+				if !ok || result.ToolCallID != wantID {
+					t.Fatalf("tool result %d = %#v, want %s", i, got[i+2], wantID)
+				}
+			}
+		})
+	}
+}
+
 type queryCountingDB struct {
 	*pgxpool.Pool
 	queries int

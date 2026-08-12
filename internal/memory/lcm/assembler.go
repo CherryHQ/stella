@@ -263,10 +263,10 @@ func advancePastOldestTurn(items []sqlc.CtxItem, splitIdx int) (int, bool) {
 func resolveOlderWithinBudget(older []sqlc.CtxItem, messages map[string]sqlc.CtxMessage, summaries map[string]sqlc.CtxSummary, children map[string][]sqlc.CtxSummary, partsByMessage map[string][]loadedMessagePart, remaining int) ([]ai.Message, error) {
 	var olderMsgs []ai.Message
 	for i := len(older) - 1; i >= 0; i-- {
-		item := older[i]
-		msgs, err := resolveItemsFromCaches(older[i:i+1], messages, summaries, children, partsByMessage)
+		start := contextItemGroupStart(older, i)
+		msgs, err := resolveItemsFromCaches(older[start:i+1], messages, summaries, children, partsByMessage)
 		if err != nil {
-			return nil, fmt.Errorf("resolve item %d: %w", item.Ordinal, err)
+			return nil, fmt.Errorf("resolve item %d: %w", older[start].Ordinal, err)
 		}
 		tokens := 0
 		for _, m := range msgs {
@@ -278,8 +278,28 @@ func resolveOlderWithinBudget(older []sqlc.CtxItem, messages map[string]sqlc.Ctx
 		}
 		remaining -= tokens
 		olderMsgs = append(olderMsgs, msgs...)
+		i = start
 	}
 	return olderMsgs, nil
+}
+
+// contextItemGroupStart returns the first item in the logical message ending at
+// end. Assistant blocks from one model turn are stored as adjacent rows, so the
+// older-history budget must admit or reject the whole run instead of splitting
+// parallel tool calls into separate assistant messages.
+func contextItemGroupStart(items []sqlc.CtxItem, end int) int {
+	if end < 0 || end >= len(items) || !isAssistantMessageItem(items[end]) {
+		return end
+	}
+	start := end
+	for start > 0 && isAssistantMessageItem(items[start-1]) {
+		start--
+	}
+	return start
+}
+
+func isAssistantMessageItem(item sqlc.CtxItem) bool {
+	return item.ItemType == itemTypeMessage && item.Role == roleAssistant
 }
 
 // stripTrailingOrphanResults removes ToolResultMessages from the end of msgs
@@ -329,17 +349,36 @@ func resolveTailFromCaches(items []sqlc.CtxItem, messages map[string]sqlc.CtxMes
 // resolveItemsFromCaches resolves a slice of context items to ai.Messages.
 func resolveItemsFromCaches(items []sqlc.CtxItem, messages map[string]sqlc.CtxMessage, summaries map[string]sqlc.CtxSummary, children map[string][]sqlc.CtxSummary, partsByMessage map[string][]loadedMessagePart) ([]ai.Message, error) {
 	var result []ai.Message
-	for _, item := range items {
+	for i := 0; i < len(items); i++ {
+		item := items[i]
 		switch item.ItemType {
 		case itemTypeMessage:
 			if !item.MessageID.Valid {
+				continue
+			}
+			if item.Role == roleAssistant {
+				// Reconstruct all adjacent rows from one assistant turn together so
+				// rowsToMessages can merge parallel tool calls into one message.
+				rows := make([]sqlc.CtxMessage, 0, 1)
+				for ; i < len(items) && isAssistantMessageItem(items[i]); i++ {
+					assistantItem := items[i]
+					if !assistantItem.MessageID.Valid {
+						continue
+					}
+					msg, ok := messages[assistantItem.MessageID.String]
+					if !ok {
+						return nil, fmt.Errorf("get message %s: %w", assistantItem.MessageID.String, pgx.ErrNoRows)
+					}
+					rows = append(rows, msg)
+				}
+				i--
+				result = append(result, rowsToMessages(rows, partsByMessage)...)
 				continue
 			}
 			msg, ok := messages[item.MessageID.String]
 			if !ok {
 				return nil, fmt.Errorf("get message %s: %w", item.MessageID.String, pgx.ErrNoRows)
 			}
-			// Preserve the pre-existing one-context-item-to-one-message reconstruction.
 			result = append(result, rowsToMessages([]sqlc.CtxMessage{msg}, partsByMessage)...)
 		case itemTypeSummary:
 			if !item.SummaryID.Valid {
@@ -449,67 +488,102 @@ func (a *assembler) loadContextWindow(ctx context.Context, convID string) ([]sql
 	return items, messages, summaries, children, partsByMessage, nil
 }
 
-// sanitizeToolPairs is a defense-in-depth pass that enforces the tool pairing
-// contract: every ToolResultMessage must have a *preceding* AssistantMessage
-// containing a ToolCall with the same ID. Orphan tool_results are dropped
-// (not promoted to UserMessage — tool output is untrusted and must not gain
-// user-role privilege). Orphan tool_calls are stripped from assembled history;
-// memory assembly always runs before the next live user message is appended.
+// sanitizeToolPairs is a defense-in-depth pass that enforces the provider tool
+// protocol: one assistant turn contains every parallel call, followed immediately
+// by the consecutive results for that turn. Orphan results are dropped rather
+// than promoted to user input, and calls without an adjacent result are stripped.
+// Memory assembly always runs before the next live user message is appended.
 func sanitizeToolPairs(msgs []ai.Message) []ai.Message {
-	// Forward scan: track call IDs as they appear, validate results against
-	// only previously-seen calls.
-	seenCalls := make(map[string]struct{})
+	msgs = mergeAdjacentAssistantMessages(msgs)
 	result := make([]ai.Message, 0, len(msgs))
-	for _, m := range msgs {
-		switch msg := m.(type) {
-		case ai.AssistantMessage:
-			for _, b := range msg.Content {
-				if tc, ok := b.(ai.ToolCall); ok {
-					seenCalls[tc.ID] = struct{}{}
-				}
-			}
-			result = append(result, m)
-		case ai.ToolResultMessage:
-			if _, found := seenCalls[msg.ToolCallID]; found {
-				result = append(result, m)
-			}
-			// Orphan tool_result: drop silently.
-		default:
-			result = append(result, m)
-		}
-	}
-
-	// Strip orphan tool_calls from assistant messages. Although a final assistant
-	// tool_call can be valid while a model turn is in progress, assembled memory
-	// history is always followed by the next live user message before provider IO.
-	resultIDs := make(map[string]struct{})
-	for _, m := range result {
-		if tr, ok := m.(ai.ToolResultMessage); ok {
-			resultIDs[tr.ToolCallID] = struct{}{}
-		}
-	}
-	for i, m := range result {
-		am, ok := m.(ai.AssistantMessage)
+	for i := 0; i < len(msgs); i++ {
+		assistant, ok := msgs[i].(ai.AssistantMessage)
 		if !ok {
+			// A result outside the consecutive run owned by the immediately
+			// preceding assistant turn is an orphan and remains untrusted.
+			if _, orphan := msgs[i].(ai.ToolResultMessage); !orphan {
+				result = append(result, msgs[i])
+			}
 			continue
 		}
-		var filtered []ai.ContentBlock
-		for _, b := range am.Content {
-			if tc, isTC := b.(ai.ToolCall); isTC {
-				if _, found := resultIDs[tc.ID]; !found {
-					continue
-				}
-			}
-			filtered = append(filtered, b)
-		}
-		if len(filtered) == 0 {
-			filtered = []ai.ContentBlock{ai.TextContent{Text: "[tool calls compacted]"}}
-		}
-		am.Content = filtered
-		result[i] = am
-	}
 
+		calls := toolCallsByID(assistant)
+		if len(calls) == 0 {
+			result = append(result, assistant)
+			continue
+		}
+
+		matched := make(map[string]struct{}, len(calls))
+		var toolResults []ai.Message
+		j := i + 1
+		for ; j < len(msgs); j++ {
+			toolResult, isResult := msgs[j].(ai.ToolResultMessage)
+			if !isResult {
+				break
+			}
+			if _, belongs := calls[toolResult.ToolCallID]; !belongs {
+				continue
+			}
+			if _, duplicate := matched[toolResult.ToolCallID]; duplicate {
+				continue
+			}
+			matched[toolResult.ToolCallID] = struct{}{}
+			toolResults = append(toolResults, toolResult)
+		}
+
+		assistant.Content = filterAssistantToolCalls(assistant.Content, matched)
+		result = append(result, assistant)
+		result = append(result, toolResults...)
+		i = j - 1
+	}
 	return result
+}
+
+// mergeAdjacentAssistantMessages restores the message boundary lost when one
+// assistant response is persisted as separate text, thinking, and tool-call rows.
+func mergeAdjacentAssistantMessages(msgs []ai.Message) []ai.Message {
+	result := make([]ai.Message, 0, len(msgs))
+	for _, msg := range msgs {
+		assistant, ok := msg.(ai.AssistantMessage)
+		if !ok || len(result) == 0 {
+			result = append(result, msg)
+			continue
+		}
+		previous, adjacent := result[len(result)-1].(ai.AssistantMessage)
+		if !adjacent {
+			result = append(result, msg)
+			continue
+		}
+		previous.Content = append(previous.Content, assistant.Content...)
+		result[len(result)-1] = previous
+	}
+	return result
+}
+
+func toolCallsByID(message ai.AssistantMessage) map[string]struct{} {
+	calls := make(map[string]struct{})
+	for _, block := range message.Content {
+		if call, ok := block.(ai.ToolCall); ok && call.ID != "" {
+			calls[call.ID] = struct{}{}
+		}
+	}
+	return calls
+}
+
+func filterAssistantToolCalls(content []ai.ContentBlock, matched map[string]struct{}) []ai.ContentBlock {
+	filtered := make([]ai.ContentBlock, 0, len(content))
+	for _, block := range content {
+		if call, ok := block.(ai.ToolCall); ok {
+			if _, found := matched[call.ID]; !found {
+				continue
+			}
+		}
+		filtered = append(filtered, block)
+	}
+	if len(filtered) == 0 {
+		return []ai.ContentBlock{ai.TextContent{Text: "[tool calls compacted]"}}
+	}
+	return filtered
 }
 
 // FormatSummaryXML formats a summary as XML for model consumption.

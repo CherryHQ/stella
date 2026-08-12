@@ -892,6 +892,63 @@ func TestSanitizeToolPairs_NoOrphans(t *testing.T) {
 	}
 }
 
+func TestSanitizeToolPairs_MergesParallelAssistantCalls(t *testing.T) {
+	// Durable storage keeps each assistant content block in a separate row. A
+	// defensive cleanup must restore those rows to one assistant turn before
+	// validating the immediately following tool results.
+	callA := ai.ToolCall{ID: "call-a", Name: "search"}
+	callB := ai.ToolCall{ID: "call-b", Name: "search"}
+	resultA := ai.ToolResultMessage{ToolCallID: "call-a", ToolName: "search", Content: []ai.ContentBlock{ai.TextContent{Text: "a"}}}
+	resultB := ai.ToolResultMessage{ToolCallID: "call-b", ToolName: "search", Content: []ai.ContentBlock{ai.TextContent{Text: "b"}}}
+
+	got := sanitizeToolPairs([]ai.Message{
+		ai.AssistantMessage{Content: []ai.ContentBlock{callA}},
+		ai.AssistantMessage{Content: []ai.ContentBlock{callB}},
+		resultA,
+		resultB,
+	})
+	if len(got) != 3 {
+		t.Fatalf("expected one assistant plus two results, got %d messages", len(got))
+	}
+	assistant, ok := got[0].(ai.AssistantMessage)
+	if !ok {
+		t.Fatalf("message 0 = %T, want ai.AssistantMessage", got[0])
+	}
+	if len(assistant.Content) != 2 {
+		t.Fatalf("assistant blocks = %d, want 2", len(assistant.Content))
+	}
+	for i, wantID := range []string{"call-a", "call-b"} {
+		call, ok := assistant.Content[i].(ai.ToolCall)
+		if !ok || call.ID != wantID {
+			t.Fatalf("tool call %d = %#v, want %s", i, assistant.Content[i], wantID)
+		}
+	}
+}
+
+func TestSanitizeToolPairs_RequiresImmediatelyFollowingResult(t *testing.T) {
+	call := ai.ToolCall{ID: "call-a", Name: "search"}
+	lateResult := ai.ToolResultMessage{ToolCallID: "call-a", ToolName: "search", Content: []ai.ContentBlock{ai.TextContent{Text: "late"}}}
+
+	got := sanitizeToolPairs([]ai.Message{
+		ai.AssistantMessage{Content: []ai.ContentBlock{call}},
+		ai.UserMessage{Content: "intervening turn"},
+		lateResult,
+	})
+	if len(got) != 2 {
+		t.Fatalf("expected assistant placeholder and user message, got %d messages", len(got))
+	}
+	assistant, ok := got[0].(ai.AssistantMessage)
+	if !ok || len(assistant.Content) != 1 {
+		t.Fatalf("message 0 = %#v, want one-block assistant placeholder", got[0])
+	}
+	if text, ok := assistant.Content[0].(ai.TextContent); !ok || !strings.Contains(text.Text, "compacted") {
+		t.Fatalf("assistant content = %#v, want compacted placeholder", assistant.Content)
+	}
+	if _, ok := got[1].(ai.UserMessage); !ok {
+		t.Fatalf("message 1 = %T, want ai.UserMessage", got[1])
+	}
+}
+
 func TestSanitizeToolPairs_EmptyOrphanResultDropped(t *testing.T) {
 	msgs := []ai.Message{
 		ai.ToolResultMessage{
