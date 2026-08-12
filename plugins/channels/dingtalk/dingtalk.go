@@ -24,6 +24,7 @@ import (
 const (
 	dingTalkMaxMessageLen = 18000
 	seenMessageTTL        = 5 * time.Minute
+	dingTalkTurnTimeout   = 15 * time.Minute
 )
 
 type Config struct {
@@ -41,6 +42,17 @@ type streamClient interface {
 	Close()
 }
 
+type dingTalkStreamClient struct {
+	*streamclient.StreamClient
+}
+
+func (c *dingTalkStreamClient) Close() {
+	// The SDK's reconnect loop ignores the Start context. Disable it before
+	// closing so a reconciled or stopped plugin cannot resurrect its connection.
+	c.AutoReconnect = false
+	c.StreamClient.Close()
+}
+
 type webhookSession struct {
 	URL       string
 	ExpiresAt time.Time
@@ -56,9 +68,10 @@ type Bot struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 	client         streamClient
-	sessions       map[string]webhookSession
+	dmSessions     map[string]webhookSession
+	groupSessions  map[string]webhookSession
 	seenMessages   map[string]time.Time
-	registeredBot  string
+	registeredBots map[string]struct{}
 	finalized      bool
 	provisioned    map[string]struct{}
 	clientFactory  func() streamClient
@@ -72,16 +85,18 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		return nil, fmt.Errorf("dingtalk: client_id and client_secret are required")
 	}
 	b := &Bot{
-		handler:      handler,
-		cfg:          cfg,
-		sessions:     make(map[string]webhookSession),
-		seenMessages: make(map[string]time.Time),
-		provisioned:  make(map[string]struct{}),
+		handler:        handler,
+		cfg:            cfg,
+		dmSessions:     make(map[string]webhookSession),
+		groupSessions:  make(map[string]webhookSession),
+		seenMessages:   make(map[string]time.Time),
+		registeredBots: make(map[string]struct{}),
+		provisioned:    make(map[string]struct{}),
 	}
 	b.clientFactory = func() streamClient {
-		return streamclient.NewStreamClient(streamclient.WithAppCredential(
+		return &dingTalkStreamClient{StreamClient: streamclient.NewStreamClient(streamclient.WithAppCredential(
 			streamclient.NewAppCredentialConfig(cfg.ClientID, cfg.ClientSecret),
-		))
+		))}
 	}
 	b.replyToWebhook = sendWebhookText
 	if registrar, ok := handler.(interface {
@@ -157,10 +172,13 @@ func (b *Bot) Finalize() {
 		return
 	}
 	b.finalized = true
-	botID := b.registeredBot
-	b.registeredBot = ""
+	botIDs := make([]string, 0, len(b.registeredBots))
+	for botID := range b.registeredBots {
+		botIDs = append(botIDs, botID)
+	}
+	clear(b.registeredBots)
 	b.mu.Unlock()
-	if botID != "" {
+	for _, botID := range botIDs {
 		if registrar, ok := b.handler.(interface {
 			UnregisterBotIdentity(string, string, string)
 		}); ok {
@@ -173,10 +191,26 @@ func (b *Bot) Finalize() {
 }
 
 func (b *Bot) onMessage(_ context.Context, data *chatbot.BotCallbackDataModel) ([]byte, error) {
+	if b.pollStopped() {
+		return nil, nil
+	}
 	if data == nil || strings.TrimSpace(data.Text.Content) == "" || b.markSeen(data.MsgId) {
 		return nil, nil
 	}
-	isGroup := data.ConversationType == "2"
+	if data.SenderCorpId == "" || data.ChatbotCorpId == "" || data.SenderCorpId != data.ChatbotCorpId {
+		logger().Warn("ignoring DingTalk callback outside the bot's enterprise", "sender_corp_id", data.SenderCorpId)
+		return nil, nil
+	}
+	var isGroup bool
+	switch data.ConversationType {
+	case "1":
+		isGroup = false
+	case "2":
+		isGroup = true
+	default:
+		logger().Warn("ignoring DingTalk callback with unknown conversation type", "conversation_type", data.ConversationType)
+		return nil, nil
+	}
 	if !b.admit(data, isGroup) {
 		return nil, nil
 	}
@@ -184,7 +218,7 @@ func (b *Bot) onMessage(_ context.Context, data *chatbot.BotCallbackDataModel) (
 	if len(senderIDs) == 0 || data.ConversationId == "" || data.SessionWebhook == "" {
 		return nil, nil
 	}
-	b.rememberSession(data, senderIDs)
+	b.rememberSession(data, senderIDs, isGroup)
 	b.registerBotIdentity(data.ChatbotUserId)
 
 	msg := channel.IncomingMessage{
@@ -228,7 +262,8 @@ func (b *Bot) admit(data *chatbot.BotCallbackDataModel, isGroup bool) bool {
 }
 
 func (b *Bot) handleIncoming(msg channel.IncomingMessage, webhook string) {
-	ctx := b.botContext()
+	ctx, cancel := context.WithTimeout(context.Background(), dingTalkTurnTimeout)
+	defer cancel()
 	if msg.IsGroup {
 		if err := b.ensureGroupMember(ctx, msg.ChatID); err != nil {
 			logger().Error("ensure group member failed", "conversation_id", msg.ChatID, "error", err)
@@ -303,7 +338,7 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 	if strings.TrimSpace(response) == "" {
 		response = "(empty response)"
 	}
-	session, ok := b.sessionFor(req.PlatformGroupID)
+	session, ok := b.groupSessionFor(req.PlatformGroupID)
 	if !ok {
 		return fmt.Errorf("dingtalk: no active session webhook for group %q", req.PlatformGroupID)
 	}
@@ -315,7 +350,7 @@ func (b *Bot) Notify(ctx context.Context, n channel.Notification) error {
 	if target == "" {
 		target = strings.TrimPrefix(n.RecipientID, "dingtalk:")
 	}
-	session, ok := b.sessionFor(target)
+	session, ok := b.dmSessionFor(target)
 	if !ok {
 		return fmt.Errorf("dingtalk: no active session webhook for %q; ask the user to message the bot again", target)
 	}
@@ -352,33 +387,72 @@ func sendWebhookText(ctx context.Context, webhook, text string) error {
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if readErr != nil {
+		return fmt.Errorf("read webhook response: %w", readErr)
+	}
 	if resp.StatusCode != http.StatusOK {
-		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return fmt.Errorf("webhook returned %s: %s", resp.Status, strings.TrimSpace(string(data)))
+	}
+	var result struct {
+		ErrCode int    `json:"errcode"`
+		ErrMsg  string `json:"errmsg"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return fmt.Errorf("decode webhook response: %w", err)
+	}
+	if result.ErrCode != 0 {
+		return fmt.Errorf("webhook rejected message: errcode=%d errmsg=%s", result.ErrCode, result.ErrMsg)
 	}
 	return nil
 }
 
-func (b *Bot) rememberSession(data *chatbot.BotCallbackDataModel, senderIDs []string) {
+func (b *Bot) rememberSession(data *chatbot.BotCallbackDataModel, senderIDs []string, isGroup bool) {
 	expiresAt := time.UnixMilli(data.SessionWebhookExpiredTime).UTC()
 	if data.SessionWebhookExpiredTime <= 0 {
 		expiresAt = time.Now().UTC().Add(time.Hour)
 	}
 	session := webhookSession{URL: data.SessionWebhook, ExpiresAt: expiresAt}
 	b.mu.Lock()
-	b.sessions[data.ConversationId] = session
-	for _, id := range senderIDs {
-		b.sessions[id] = session
+	b.pruneSessionsLocked(time.Now().UTC())
+	if isGroup {
+		b.groupSessions[data.ConversationId] = session
+	} else {
+		b.dmSessions[data.ConversationId] = session
+		for _, id := range senderIDs {
+			b.dmSessions[id] = session
+		}
 	}
 	b.mu.Unlock()
 }
 
-func (b *Bot) sessionFor(target string) (webhookSession, bool) {
+func (b *Bot) dmSessionFor(target string) (webhookSession, bool) {
 	target = strings.TrimPrefix(target, "dingtalk:")
 	b.mu.RLock()
-	session, ok := b.sessions[target]
+	session, ok := b.dmSessions[target]
 	b.mu.RUnlock()
 	return session, ok && session.URL != "" && time.Now().UTC().Before(session.ExpiresAt)
+}
+
+func (b *Bot) groupSessionFor(target string) (webhookSession, bool) {
+	target = strings.TrimPrefix(target, "dingtalk:")
+	b.mu.RLock()
+	session, ok := b.groupSessions[target]
+	b.mu.RUnlock()
+	return session, ok && session.URL != "" && time.Now().UTC().Before(session.ExpiresAt)
+}
+
+func (b *Bot) pruneSessionsLocked(now time.Time) {
+	for target, session := range b.dmSessions {
+		if !now.Before(session.ExpiresAt) {
+			delete(b.dmSessions, target)
+		}
+	}
+	for target, session := range b.groupSessions {
+		if !now.Before(session.ExpiresAt) {
+			delete(b.groupSessions, target)
+		}
+	}
 }
 
 func dingTalkEventTime(milliseconds int64) time.Time {
@@ -412,24 +486,21 @@ func (b *Bot) registerBotIdentity(botID string) {
 		return
 	}
 	b.mu.Lock()
-	if b.registeredBot != "" || b.finalized {
+	if _, ok := b.registeredBots[botID]; ok || b.finalized {
 		b.mu.Unlock()
 		return
 	}
-	b.registeredBot = botID
+	b.registeredBots[botID] = struct{}{}
 	b.mu.Unlock()
 	if registrar, ok := b.handler.(channel.BotRegistrar); ok {
 		registrar.RegisterBotIdentity(channel.PlatformDingTalk, botID, b.Name())
 	}
 }
 
-func (b *Bot) botContext() context.Context {
+func (b *Bot) pollStopped() bool {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	if b.ctx != nil {
-		return b.ctx
-	}
-	return context.Background()
+	return b.ctx != nil && b.ctx.Err() != nil
 }
 
 func orderedIDs(ids ...string) []string {

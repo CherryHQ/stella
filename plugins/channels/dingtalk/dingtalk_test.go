@@ -3,10 +3,14 @@ package dingtalk
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/open-dingtalk/dingtalk-stream-sdk-go/chatbot"
+	streamclient "github.com/open-dingtalk/dingtalk-stream-sdk-go/client"
 
 	"github.com/CherryHQ/stella/pkg/channel"
 )
@@ -44,6 +48,8 @@ func TestOnMessageNormalizesAndReplies(t *testing.T) {
 	_, err = bot.onMessage(context.Background(), &chatbot.BotCallbackDataModel{
 		ConversationId:            "cid-private",
 		ConversationType:          "1",
+		SenderCorpId:              "corp-1",
+		ChatbotCorpId:             "corp-1",
 		MsgId:                     "msg-1",
 		SenderStaffId:             "staff-1",
 		SenderId:                  "encrypted-1",
@@ -132,14 +138,92 @@ func TestDuplicateMessageIsIgnored(t *testing.T) {
 	}
 }
 
+func TestStreamClientCloseDisablesSDKReconnect(t *testing.T) {
+	client := streamclient.NewStreamClient()
+	if !client.AutoReconnect {
+		t.Fatal("SDK client unexpectedly starts with reconnect disabled")
+	}
+	wrapped := &dingTalkStreamClient{StreamClient: client}
+	wrapped.Close()
+	if client.AutoReconnect {
+		t.Fatal("Close left SDK reconnect enabled")
+	}
+}
+
 func TestExpiredSessionCannotNotify(t *testing.T) {
 	bot, err := New(Config{ClientID: "client", ClientSecret: "secret"}, &capturingHandler{messages: make(chan handledMessage, 1)})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	bot.sessions["staff-1"] = webhookSession{URL: "https://example.test/session", ExpiresAt: time.Now().Add(-time.Minute)}
+	bot.dmSessions["staff-1"] = webhookSession{URL: "https://example.test/session", ExpiresAt: time.Now().Add(-time.Minute)}
 	if err := bot.Notify(context.Background(), channel.Notification{ChatID: "staff-1", Text: "notice"}); err == nil {
 		t.Fatal("expected expired session error")
+	}
+}
+
+func TestGroupSessionCannotReplaceDirectMessageSession(t *testing.T) {
+	bot, err := New(Config{ClientID: "client", ClientSecret: "secret"}, &capturingHandler{messages: make(chan handledMessage, 1)})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	expires := time.Now().Add(time.Hour).UnixMilli()
+	bot.rememberSession(&chatbot.BotCallbackDataModel{
+		ConversationId: "dm-1", SessionWebhook: "https://example.test/dm", SessionWebhookExpiredTime: expires,
+	}, []string{"staff-1"}, false)
+	bot.rememberSession(&chatbot.BotCallbackDataModel{
+		ConversationId: "group-1", SessionWebhook: "https://example.test/group", SessionWebhookExpiredTime: expires,
+	}, []string{"staff-1"}, true)
+
+	dm, ok := bot.dmSessionFor("staff-1")
+	if !ok || dm.URL != "https://example.test/dm" {
+		t.Fatalf("DM session = %#v, %v", dm, ok)
+	}
+	group, ok := bot.groupSessionFor("group-1")
+	if !ok || group.URL != "https://example.test/group" {
+		t.Fatalf("group session = %#v, %v", group, ok)
+	}
+}
+
+func TestSendWebhookTextRejectsDingTalkApplicationError(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errcode":130101,"errmsg":"send too fast"}`))
+	}))
+	defer server.Close()
+
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = server.Client().Transport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+
+	err := sendWebhookText(context.Background(), server.URL, "hello")
+	if err == nil || !strings.Contains(err.Error(), "errcode=130101") {
+		t.Fatalf("sendWebhookText error = %v", err)
+	}
+}
+
+func TestOnMessageRejectsUnknownConversationAndExternalCorp(t *testing.T) {
+	handler := &capturingHandler{messages: make(chan handledMessage, 1)}
+	bot, err := New(Config{ClientID: "client", ClientSecret: "secret", AllowDM: true}, handler)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	base := chatbot.BotCallbackDataModel{
+		ConversationId: "cid", MsgId: "msg", SenderStaffId: "staff", SessionWebhook: "https://example.test/session",
+		SessionWebhookExpiredTime: time.Now().Add(time.Hour).UnixMilli(), Text: chatbot.BotCallbackDataTextModel{Content: "hello"},
+		SenderCorpId: "corp-1", ChatbotCorpId: "corp-1",
+	}
+	unknown := base
+	unknown.ConversationType = "unexpected"
+	_, _ = bot.onMessage(context.Background(), &unknown)
+	external := base
+	external.MsgId = "msg-2"
+	external.ConversationType = "1"
+	external.SenderCorpId = "corp-2"
+	_, _ = bot.onMessage(context.Background(), &external)
+	select {
+	case got := <-handler.messages:
+		t.Fatalf("unexpected message: %#v", got)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 
