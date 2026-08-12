@@ -95,7 +95,7 @@ func TestPublishRevisionRoundTripsBoundedWideDirectoryTree(t *testing.T) {
 	skill.UserID = uuid.NewString()
 	root := testSkillRoot(t, skill)
 	files := []revisionFile{{Path: MainFile, Mode: 0o644, Content: []byte("main")}}
-	for index := 0; index < 260; index++ {
+	for index := range 260 {
 		files = append(files, revisionFile{
 			Path:    fmt.Sprintf("references-%03d/item", index),
 			Mode:    0o644,
