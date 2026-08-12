@@ -34,8 +34,8 @@ type attachmentResolverHandler struct {
 	err error
 }
 
-func (h attachmentResolverHandler) ResolveUserRoot(context.Context, pkgchannel.IncomingMessage) (string, error) {
-	return "", h.err
+func (h attachmentResolverHandler) AdmitAssetSave(context.Context, pkgchannel.IncomingMessage) error {
+	return h.err
 }
 
 type telegramRequestCounter struct{ getFileCalls int }

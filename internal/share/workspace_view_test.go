@@ -17,18 +17,32 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-type recordingShareWorkspaceViewer struct {
-	view  home.WorkspaceView
-	err   error
-	calls int
+type recordingShareRootOpener struct {
+	view   home.WorkspaceView
+	err    error
+	calls  int
+	scope  home.RootScope
+	access home.RootAccess
 }
 
-func (v *recordingShareWorkspaceViewer) WorkspaceView(context.Context, home.WorkspaceRequest) (home.WorkspaceView, error) {
+func (v *recordingShareRootOpener) OpenRoot(_ context.Context, _ home.WorkspaceRequest, scope home.RootScope, access home.RootAccess) (home.RootOperations, error) {
 	v.calls++
-	return v.view, v.err
+	v.scope, v.access = scope, access
+	if v.err != nil {
+		return nil, v.err
+	}
+	dir := v.view.AgentRoot
+	if scope == home.RootPrincipalData {
+		dir = v.view.DataRoot
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	return testRoot{Root: root}, nil
 }
 
-func TestShareArtifactUsesWorkspaceViewRoots(t *testing.T) {
+func TestShareArtifactUsesReadOnlyWorkspaceRoots(t *testing.T) {
 	for _, tt := range []struct {
 		name, scope, rootField string
 	}{
@@ -54,8 +68,8 @@ func TestShareArtifactUsesWorkspaceViewRoots(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(root, "artifact.html"), []byte(tt.name), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			viewer := &recordingShareWorkspaceViewer{view: view}
-			svc := sharepkg.NewService(sqlc.New(db), mem, recally.NewStore(db), mustAssets(t, t.TempDir(), nil), t.TempDir(), "http://stella.test", sharepkg.WithHomeWorkspace(viewer))
+			viewer := &recordingShareRootOpener{view: view}
+			svc := sharepkg.NewService(sqlc.New(db), mem, recally.NewStore(db), t.TempDir(), "http://stella.test", sharepkg.WithHomeWorkspace(viewer), sharepkg.WithAgentAccess(allowAgentRead{}))
 			created, err := mustAccess(t, svc, agentAuthority(t, userID, agentID)).ShareArtifact(ctx, "session", "artifact.html", tt.scope, agentID, "7d")
 			if err != nil {
 				t.Fatalf("ShareArtifact: %v", err)
@@ -63,11 +77,18 @@ func TestShareArtifactUsesWorkspaceViewRoots(t *testing.T) {
 			if string(created.Share.Content) != tt.name || viewer.calls != 1 {
 				t.Fatalf("content/calls = %q/%d, want %q/1", created.Share.Content, viewer.calls, tt.name)
 			}
+			wantScope := home.RootPrincipalData
+			if tt.rootField == "agent" {
+				wantScope = home.RootAgentWorkspace
+			}
+			if viewer.scope != wantScope || viewer.access != home.RootReadOnly {
+				t.Fatalf("scope/access = %v/%v, want %v/%v", viewer.scope, viewer.access, wantScope, home.RootReadOnly)
+			}
 		})
 	}
 }
 
-func TestShareArtifactWorkspaceViewFailuresAndGroupSessionsFailClosed(t *testing.T) {
+func TestShareArtifactWorkspaceRootFailuresAndGroupSessionsFailClosed(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	mem := memorytest.New()
@@ -76,8 +97,8 @@ func TestShareArtifactWorkspaceViewFailuresAndGroupSessionsFailClosed(t *testing
 		t.Fatal(err)
 	}
 	want := errors.New("home unavailable")
-	viewer := &recordingShareWorkspaceViewer{err: want}
-	svc := sharepkg.NewService(sqlc.New(db), mem, recally.NewStore(db), mustAssets(t, t.TempDir(), nil), t.TempDir(), "http://stella.test", sharepkg.WithHomeWorkspace(viewer))
+	viewer := &recordingShareRootOpener{err: want}
+	svc := sharepkg.NewService(sqlc.New(db), mem, recally.NewStore(db), t.TempDir(), "http://stella.test", sharepkg.WithHomeWorkspace(viewer), sharepkg.WithAgentAccess(allowAgentRead{}))
 	acc := mustAccess(t, svc, agentAuthority(t, userID, agentID))
 	if _, err := acc.ShareArtifact(ctx, "user-session", "artifact.html", "agent", agentID, "7d"); !errors.Is(err, want) {
 		t.Fatalf("workspace failure = %v, want viewer error", err)

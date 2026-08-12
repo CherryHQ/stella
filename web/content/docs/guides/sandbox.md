@@ -152,6 +152,8 @@ Use these environment variables in Agent instructions. They are the filesystem A
 | `$STELLA_ASSETS_DIR` | Durable uploads and final deliverables shared by the same user or group, when available | This is the managed shared location for direct Agent writes.                  |
 | `$TMPDIR`            | Session-private disposable scratch space                                                | Never put final output here or rely on it surviving after the session closes. |
 
+The Web Workspace API addresses files with a typed scope plus canonical relative paths. Project `base_dir` values are likewise relative to the Agent workspace (`.` is its root). These APIs authorize and open the durable POSIX root directly; they do not start or wake Session compute. The deprecated `sandbox_root` response field, where present, is only an alias of the same logical `/workspace` or `/user` root and never contains a host path. Active Agent tools still resolve paths through their existing Session mount and policy boundary.
+
 ### Managed user and group roots
 
 `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, and `XDG_CACHE_HOME` are shared by the same user's or group's Agents and managed for command-line tools. They are not general Agent storage. If no user/group root is available, all four fall back under `$HOME`. `XDG_RUNTIME_DIR` is unset.

@@ -1,103 +1,187 @@
 package skills
 
 import (
+	"bytes"
+	"context"
 	"errors"
+	"fmt"
 	"io/fs"
-	"log/slog"
-	"os"
-	"path/filepath"
+	"path"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/home"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-// ListProjectSkills walks {root}/.agents/skills/ and returns skill metadata structs
-// with Scope="project". The second return value maps skill name → skill directory path
-// so callers can read file content off disk for a given project skill.
-func ListProjectSkills(root string) ([]pkgplugins.Skill, map[string]string, error) {
-	return listFSSkills(root, "project")
+const (
+	ProjectSnapshotMaxFiles    = 512
+	ProjectSnapshotMaxFileSize = int64(1 << 20)
+	ProjectSnapshotMaxBytes    = int64(16 << 20)
+	ProjectSnapshotMaxEntries  = 4096
+	ProjectSnapshotMaxDepth    = 64
+	projectSnapshotListLimit   = 1024
+)
+
+var ErrProjectSnapshotLimit = errors.New("skills: project snapshot limit exceeded")
+
+// ProjectSnapshot is an immutable, bounded copy of project Skills. It contains
+// logical sandbox identities and bytes only; it never retains a root capability
+// or a provider/host pathname.
+type ProjectSnapshot struct {
+	logicalRoot string
+	skills      []pkgplugins.Skill
+	dirs        map[string]string
+	files       map[string]string
 }
 
-func listFSSkills(root, scope string) ([]pkgplugins.Skill, map[string]string, error) {
-	if root == "" {
-		return nil, nil, nil
+// SnapshotProjectSkills consumes an already-authorized agent-workspace root.
+// projectPath must be its canonical relative ProjectDescriptor.Path.
+func SnapshotProjectSkills(ctx context.Context, root home.RootOperations, projectPath string) (*ProjectSnapshot, error) {
+	if root == nil {
+		return nil, errors.New("skills: project root is required")
 	}
-
-	skillsDir := filepath.Join(root, ".agents", "skills")
-	if _, err := os.Stat(skillsDir); err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil, nil
+	projectPath, err := canonicalProjectPath(projectPath)
+	if err != nil {
+		return nil, err
+	}
+	s := &ProjectSnapshot{logicalRoot: path.Join("/workspace", projectPath, ".agents/skills"), dirs: map[string]string{}, files: map[string]string{}}
+	base := path.Join(projectPath, ".agents/skills")
+	if projectPath == "." {
+		base = ".agents/skills"
+	}
+	fileCount, entryCount := 0, 0
+	var total int64
+	var walk func(string, int) error
+	walk = func(dir string, depth int) error {
+		if depth > ProjectSnapshotMaxDepth {
+			return ErrProjectSnapshotLimit
 		}
-		return nil, nil, err
-	}
-
-	var out []pkgplugins.Skill
-	dirs := make(map[string]string)
-
-	err := filepath.WalkDir(skillsDir, func(path string, d fs.DirEntry, err error) error {
+		entries, err := root.List(ctx, dir, home.ListOptions{Limit: projectSnapshotListLimit})
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
-		if !d.IsDir() || path == skillsDir {
-			return nil
+		for _, entry := range entries {
+			entryCount++
+			if entryCount > ProjectSnapshotMaxEntries {
+				return ErrProjectSnapshotLimit
+			}
+			name := entry.Name()
+			if name == "" || name == "." || strings.Contains(name, "/") {
+				return fs.ErrPermission
+			}
+			child := path.Join(dir, name)
+			if entry.IsDir() {
+				if strings.HasPrefix(name, ".") || name == "node_modules" {
+					continue
+				}
+				if err := walk(child, depth+1); err != nil {
+					return err
+				}
+				continue
+			}
+			fileCount++
+			if fileCount > ProjectSnapshotMaxFiles {
+				return ErrProjectSnapshotLimit
+			}
+			var data bytes.Buffer
+			if err := root.Read(ctx, child, &data, home.ReadOptions{MaxBytes: ProjectSnapshotMaxFileSize}); err != nil {
+				return err
+			}
+			total += int64(data.Len())
+			if total > ProjectSnapshotMaxBytes {
+				return ErrProjectSnapshotLimit
+			}
+			rel, ok := strings.CutPrefix(child, base+"/")
+			if !ok || !canonicalRelative(rel) {
+				return fs.ErrPermission
+			}
+			s.files[rel] = data.String()
 		}
-		name := d.Name()
-		if strings.HasPrefix(name, ".") || name == "node_modules" {
-			return filepath.SkipDir
+		return nil
+	}
+	if err := walk(base, 0); err != nil {
+		return nil, fmt.Errorf("snapshot project skills: %w", err)
+	}
+	for file, data := range s.files {
+		if path.Base(file) != pkgplugins.SkillMainFile {
+			continue
 		}
-
-		skillMD := filepath.Join(path, pkgplugins.SkillMainFile)
-		data, err := os.ReadFile(skillMD)
-		if err != nil {
-			return nil //nolint:nilerr // no SKILL.md — recurse into subdirectories
+		dir := path.Dir(file)
+		name := path.Base(dir)
+		fm, err := parseFrontmatter(data)
+		if err != nil || strings.TrimSpace(fm.Description) == "" {
+			continue
 		}
-
-		fm, parseErr := parseFrontmatter(string(data))
-		if parseErr != nil {
-			slog.Warn("fs_skill: cannot parse frontmatter", "scope", scope, "path", skillMD, "err", parseErr)
-			return filepath.SkipDir
-		}
-
 		skillName := strings.TrimSpace(fm.Name)
 		if skillName == "" {
 			skillName = name
 		}
-		if strings.TrimSpace(fm.Description) == "" {
-			return filepath.SkipDir
-		}
 		if skillName != name {
-			slog.Warn("fs_skill: skill name does not match directory, skipping",
-				"scope", scope, "name", skillName, "dir", name)
-			return filepath.SkipDir
+			continue
 		}
-
-		out = append(out, pkgplugins.Skill{
-			ID:                     scope + ":" + path,
-			Scope:                  scope,
-			Name:                   skillName,
-			Description:            fm.Description,
-			Status:                 SkillStatusActive,
-			DisableModelInvocation: fm.DisableModelInvocation,
-			CreatedAt:              time.Time{},
-		})
-		dirs[skillName] = path
-		return filepath.SkipDir
-	})
-	if err != nil {
-		return nil, nil, err
+		s.skills = append(s.skills, pkgplugins.Skill{ID: "project:" + dir, Scope: "project", Name: name, Description: fm.Description, Status: SkillStatusActive, DisableModelInvocation: fm.DisableModelInvocation, CreatedAt: time.Time{}})
+		s.dirs[name] = dir
 	}
-
-	return out, dirs, nil
+	sort.Slice(s.skills, func(i, j int) bool { return s.skills[i].Name < s.skills[j].Name })
+	return s, nil
 }
 
-// loadProjectSkillFile reads a file from a project skill directory.
-// skillDir is the absolute path to the skill directory.
-func loadProjectSkillFile(skillDir, path string) (string, error) {
-	fullPath := filepath.Join(skillDir, path)
-	data, err := os.ReadFile(fullPath)
-	if err != nil {
-		return "", err
+func canonicalProjectPath(p string) (string, error) {
+	if p == "" {
+		return "", errors.New("skills: project path is required")
 	}
-	return string(data), nil
+	if strings.Contains(p, `\`) || !canonicalRelativeAllowDot(p) {
+		return "", fs.ErrPermission
+	}
+	return p, nil
+}
+func canonicalRelative(p string) bool { return p != "" && p != "." && canonicalRelativeAllowDot(p) }
+func canonicalRelativeAllowDot(p string) bool {
+	return !path.IsAbs(p) && path.Clean(p) == p && p != ".." && !strings.HasPrefix(p, "../")
+}
+
+func (s *ProjectSnapshot) list() ([]pkgplugins.Skill, map[string]string) {
+	if s == nil {
+		return nil, nil
+	}
+	return append([]pkgplugins.Skill(nil), s.skills...), s.dirs
+}
+
+func (s *ProjectSnapshot) load(name, file string) (string, string, error) {
+	dir, ok := s.dirs[name]
+	if !ok {
+		return "", "", fs.ErrNotExist
+	}
+	if file == "" {
+		file = pkgplugins.SkillMainFile
+	}
+	if !canonicalRelative(file) {
+		return "", "", fs.ErrPermission
+	}
+	data, ok := s.files[path.Join(dir, file)]
+	if !ok {
+		return "", "", fs.ErrNotExist
+	}
+	return data, path.Join(s.logicalRoot, dir), nil
+}
+
+func (s *ProjectSnapshot) listFiles(name string) ([]string, string, error) {
+	dir, ok := s.dirs[name]
+	if !ok {
+		return nil, "", fs.ErrNotExist
+	}
+	prefix := dir + "/"
+	var out []string
+	for file := range s.files {
+		if rel, ok := strings.CutPrefix(file, prefix); ok {
+			out = append(out, rel)
+		}
+	}
+	sort.Strings(out)
+	return out, path.Join(s.logicalRoot, dir), nil
 }

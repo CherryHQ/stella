@@ -4,11 +4,16 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"errors"
+	"io"
+	"io/fs"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
 	"text/template"
 
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/sandbox"
@@ -16,6 +21,19 @@ import (
 )
 
 type SectionsBuilder func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error)
+
+type ContextRoot interface {
+	Close() error
+	Stat(context.Context, string) (fs.FileInfo, error)
+	Read(context.Context, string, io.Writer, home.ReadOptions) error
+}
+
+// ProjectContext is a bounded immutable snapshot of project instruction files.
+// Its contents are captured while an authorized Home root capability is open.
+type ProjectContext struct {
+	files  []contextFile
+	loaded bool
+}
 
 //go:embed template/system_prompt.tmpl
 var systemTemplate string
@@ -101,6 +119,7 @@ type DBPromptParams struct {
 	UserRoot              string // per-user writable root
 	Sections              []pkgplugins.SystemPromptSection
 	Host                  sandbox.Host
+	ProjectContext        ProjectContext
 	// nil means current memory; non-nil values, including zero, are frozen snapshots.
 	SnapshotVersion *int64
 
@@ -213,13 +232,90 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	}
 
 	// Project context.
-	contextHost, closeContextHost := resolvePromptContextHost(ctx, p.Host, p.ProjectRoot)
-	defer closeContextHost()
-	data.ContextFiles = loadProjectContextFiles(contextHost, p.ProjectRoot)
+	if p.ProjectContext.loaded {
+		data.ContextFiles = p.ProjectContext.files
+	} else {
+		contextHost, closeContextHost := resolvePromptContextHost(ctx, p.Host, p.ProjectRoot)
+		defer closeContextHost()
+		data.ContextFiles = loadProjectContextFiles(contextHost, p.ProjectRoot)
+	}
 
 	var buf bytes.Buffer
 	_ = systemTmpl.Execute(&buf, data)
 	return buf.String()
+}
+
+// SnapshotProjectContext reads bounded context through an authorized root and
+// always closes it before returning, so owner deletion is fenced only during
+// active filesystem I/O rather than memory reads or template rendering.
+func SnapshotProjectContext(ctx context.Context, root ContextRoot, projectPath string) (snapshot ProjectContext, resultErr error) {
+	if root == nil {
+		return ProjectContext{}, errors.New("prompt: project context root is required")
+	}
+	defer func() { resultErr = errors.Join(resultErr, root.Close()) }()
+	return ReadProjectContext(ctx, root, projectPath)
+}
+
+// ReadProjectContext snapshots bounded context without taking ownership of root.
+// A caller combining several project snapshots can therefore hold one owner gate
+// across all reads and close it before any plugin or template work begins.
+func ReadProjectContext(ctx context.Context, root ContextRoot, projectPath string) (ProjectContext, error) {
+	if root == nil {
+		return ProjectContext{}, errors.New("prompt: project context root is required")
+	}
+	return ProjectContext{files: loadRootProjectContextFiles(ctx, root, projectPath), loaded: true}, nil
+}
+
+const (
+	promptContextMaxBytes      = int64(256 * 1024)
+	promptContextTotalMaxBytes = int64(512 * 1024)
+	promptContextMaxFiles      = 32
+)
+
+func loadRootProjectContextFiles(ctx context.Context, root ContextRoot, projectPath string) []contextFile {
+	if projectPath == "" {
+		projectPath = "."
+	}
+	if projectPath != "." && (path.IsAbs(projectPath) || path.Clean(projectPath) != projectPath) {
+		return nil
+	}
+	directories := []string{"."}
+	if projectPath != "." {
+		current := ""
+		for segment := range strings.SplitSeq(projectPath, "/") {
+			if segment == "" || segment == "." || segment == ".." {
+				return nil
+			}
+			current = path.Join(current, segment)
+			directories = append(directories, current)
+			if len(directories) > promptContextMaxFiles {
+				return nil
+			}
+		}
+	}
+	files := make([]contextFile, 0, len(directories))
+	remaining := promptContextTotalMaxBytes
+	for _, directory := range directories {
+		if remaining == 0 {
+			break
+		}
+		name := path.Join(directory, "AGENTS.md")
+		info, err := root.Stat(ctx, name)
+		if err != nil || !info.Mode().IsRegular() || info.Size() > promptContextMaxBytes || info.Size() > remaining {
+			continue
+		}
+		var content bytes.Buffer
+		limit := min(promptContextMaxBytes, remaining)
+		if err := root.Read(ctx, name, &content, home.ReadOptions{MaxBytes: limit}); err != nil {
+			if errors.Is(err, home.ErrReadLimit) {
+				continue
+			}
+			continue
+		}
+		files = append(files, contextFile{Path: name, Content: content.String()})
+		remaining -= int64(content.Len())
+	}
+	return files
 }
 
 // resolvePromptContextHost returns the host to use for reading prompt context

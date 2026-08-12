@@ -10,7 +10,6 @@ import (
 
 	tele "gopkg.in/telebot.v4"
 
-	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -123,9 +122,9 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 	if photo == nil {
 		return c.Send("No photo found in message.")
 	}
-	assetsDir, resolveErr := b.resolveAssetsDir(c)
-	if resolveErr != nil {
-		return b.rejectAttachment(c, resolveErr)
+	assetMsg, admitErr := b.admitAttachmentSave(c)
+	if admitErr != nil {
+		return b.rejectAttachment(c, admitErr)
 	}
 
 	file, err := b.bot.File(&photo.File)
@@ -154,7 +153,7 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 		}
 		content = append(content, ai.TextContent{Text: caption})
 	}
-	content = append(content, b.imageContent(assetsDir, photo.UniqueID, mimeType, data)...)
+	content = append(content, b.imageContent(assetMsg, photo.UniqueID, mimeType, data)...)
 
 	logger().Debug("photo received", "chat_id", c.Chat().ID, "size", len(data), "mime", mimeType)
 
@@ -179,35 +178,32 @@ func (b *Bot) rejectAttachment(c tele.Context, err error) error {
 	return c.Send("Unable to process this attachment.")
 }
 
-// resolveAssetsDir resolves the per-user assets directory for the message's
-// author, or "" when the handler cannot resolve a user root.
-func (b *Bot) resolveAssetsDir(c tele.Context) (string, error) {
-	resolver, ok := b.handler.(channel.UserRootResolver)
+// admitAttachmentSave authorizes rooted attachment publication before the
+// plugin downloads untrusted bytes.
+func (b *Bot) admitAttachmentSave(c tele.Context) (channel.IncomingMessage, error) {
+	resolver, ok := b.handler.(channel.AssetSaveAdmitter)
 	if !ok {
-		return "", errors.New("user root resolver unavailable")
+		return channel.IncomingMessage{}, errors.New("asset save admitter unavailable")
 	}
 	probeMsg := b.incomingMsg(c, nil)
-	userRoot, err := resolver.ResolveUserRoot(b.ctx, probeMsg)
+	err := resolver.AdmitAssetSave(b.ctx, probeMsg)
 	if err != nil {
-		logger().Warn("resolve user root failed", "error", err)
-		return "", err
+		logger().Warn("admit attachment save failed", "error", err)
+		return channel.IncomingMessage{}, err
 	}
-	if userRoot == "" {
-		return "", errors.New("resolved user root is empty")
-	}
-	return agent.UserAssetsDir(userRoot), nil
+	return probeMsg, nil
 }
 
 // imageContent persists an inbound image message to the user's assets and
 // returns the unified attachment blocks. When persistence is unavailable the
 // image degrades via the shared inline fallback (inline within the ceiling, else
 // a text note) so the message still reaches the agent.
-func (b *Bot) imageContent(assetsDir, uniqueID, mimeType string, data []byte) []ai.ContentBlock {
+func (b *Bot) imageContent(assetMsg channel.IncomingMessage, uniqueID, mimeType string, data []byte) []ai.ContentBlock {
 	fileName := channel.ImageFileName(uniqueID, mimeType)
-	if assetsDir != "" {
-		savedPath, err := b.saveAsset(b.ctx, assetsDir, fileName, data)
+	if assetMsg.Platform != "" {
+		savedPath, err := b.saveAsset(b.ctx, assetMsg, fileName, data)
 		if err == nil {
-			return channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data)
+			return channel.AttachmentReceivedContent(fileName, savedPath, data)
 		}
 		logger().Warn("save inbound image failed", "error", err)
 	}
@@ -259,15 +255,15 @@ func (b *Bot) handleDocument(c tele.Context) error {
 
 // documentAttachment downloads a Telegram document and returns the content
 // blocks to route to the agent. It persists the file to the user's assets when a
-// storage directory is available; on save failure the turn is never dropped
+// rooted publication is authorized; on save failure the turn is never dropped
 // (image bytes degrade via the shared inline fallback, other files get a
 // placeholder). The bool is false only when the download itself failed and the
 // error was already replied to the chat, so nothing can be given to the agent.
 func (b *Bot) documentAttachment(c tele.Context, doc *tele.Document, fileName string) ([]ai.ContentBlock, bool) {
-	// Resolve the per-user assets directory before downloading.
-	assetsDir, resolveErr := b.resolveAssetsDir(c)
-	if resolveErr != nil {
-		_ = b.rejectAttachment(c, resolveErr)
+	// Authorize attachment publication before downloading untrusted bytes.
+	assetMsg, admitErr := b.admitAttachmentSave(c)
+	if admitErr != nil {
+		_ = b.rejectAttachment(c, admitErr)
 		return nil, false
 	}
 
@@ -281,29 +277,28 @@ func (b *Bot) documentAttachment(c tele.Context, doc *tele.Document, fileName st
 	}
 	defer func() { _ = file.Close() }()
 
-	const maxFileSize = 50 << 20 // 50 MB
-	data, err := io.ReadAll(io.LimitReader(file, maxFileSize+1))
+	data, err := io.ReadAll(io.LimitReader(file, channel.MaxInboundAttachmentBytes+1))
 	if err != nil {
 		logger().Error("read document failed", "error", err)
 		_ = c.Send(fmt.Sprintf("Failed to read file: %v", err))
 		return nil, false
 	}
-	if len(data) > maxFileSize {
-		_ = c.Send("File too large (max 50 MB).")
+	if len(data) > channel.MaxInboundAttachmentBytes {
+		_ = c.Send("File too large (max 32 MiB).")
 		return nil, false
 	}
 
-	if assetsDir == "" {
+	if assetMsg.Platform == "" {
 		return channel.AttachmentSaveFailureContent(fileName, data), true
 	}
-	savedPath, err := b.saveAsset(b.ctx, assetsDir, fileName, data)
+	savedPath, err := b.saveAsset(b.ctx, assetMsg, fileName, data)
 	if err != nil {
 		logger().Warn("save document failed", "error", err)
 		return channel.AttachmentSaveFailureContent(fileName, data), true
 	}
 
 	logger().Debug("document received", "file_name", fileName, "size", len(data), "path", savedPath)
-	return channel.AttachmentReceivedContent(fileName, assetsDir, savedPath, data), true
+	return channel.AttachmentReceivedContent(fileName, savedPath, data), true
 }
 
 // handleStream renders a ChatStream to the Telegram chat.

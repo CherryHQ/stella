@@ -11,8 +11,8 @@ This page classifies every directory and tells you the volume and backup treatme
 | Path under `$STELLA_HOME`                                                                       | Holds                                                 | Classification | Kubernetes / ephemeral-disk treatment                                             |
 | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------- | -------------- | --------------------------------------------------------------------------------- |
 | `postgres/`                                                                                     | Embedded PostgreSQL cluster — the source of truth     | Durable        | Persistent volume **and** back it up. Absent when you set `STELLA_DATABASE_URL`.  |
-| `users/{id}/data/`                                                                              | User Principal Home: user data and uploads            | Durable\*      | Persistent volume **and** pin to a single replica; only assets can be mirrored.   |
-| `users/group-{id}/data/`                                                                        | Group Principal Home: group data and uploads          | Durable\*      | Same as per-user Principal data.                                                  |
+| `users/{id}/data/`                                                                              | User Principal Home: user data and uploads            | Durable        | Persistent POSIX storage; one replica uses local `$STELLA_HOME`.                  |
+| `users/group-{id}/data/`                                                                        | Group Principal Home: group data and uploads          | Durable        | Same as per-user Principal data.                                                  |
 | `users/{principal}/agents/{id}/`                                                                | Per-principal Agent Home: workspace and project files | Durable        | Persistent volume **and** pin to a single replica. Not mirrored anywhere.         |
 | `library/`                                                                                      | Legacy article mirror (being drained into PostgreSQL) | Legacy         | Keep on a volume until the backfill reports zero missing, then archive or delete. |
 | `bundles/{revision}/`                                                                           | Exact release-provided builtin Skill bundle           | Derived cache  | Reinstalled from the matching binary; do not modify it.                           |
@@ -27,8 +27,6 @@ This page classifies every directory and tells you the volume and backup treatme
 | `runner-scratch/runner-*`                                                                       | Disposable workspace for user-less runs               | Scratch        | Never Home authority; clean leftovers only while Stella is stopped or fenced.     |
 | `dumps/`                                                                                        | Diagnostic dumps written on signal                    | Scratch        | Ephemeral disk is fine. Diagnostic only.                                          |
 
-\* Principal data and Agent Homes remain durable. Uploaded assets within a Principal Home become recoverable cache once the S3 mirror is configured — see [User assets](#user-assets-durable-or-mirrored).
-
 ## PostgreSQL is the source of truth (durable)
 
 PostgreSQL holds nearly all state: configuration, secrets metadata, message history and summaries, mutable Skill records, Recally articles and their bodies, the fetched-models cache, goals, schedules, and the scheduler queue. Preserve it together with durable project Skill data; neither can be reconstructed.
@@ -38,20 +36,17 @@ Phase 1 also records typed Home identity and lifecycle metadata in PostgreSQL: u
 - **Embedded cluster (default):** the data lives in `$STELLA_HOME/postgres/`. This directory must sit on a persistent volume and be backed up (stop the server first, or use a filesystem snapshot). The downloaded runtime under `pg-runtime/` is just code and can be re-fetched.
 - **External server (`STELLA_DATABASE_URL`):** the database moves out of `$STELLA_HOME` entirely. Back it up with `pg_dump` against your database. This is the recommended setup for Kubernetes — it takes the single hardest-to-manage stateful directory off the pod.
 
-## User assets (durable, or mirrored)
+## User assets (durable POSIX data)
 
-Files users upload are written to `users/{id}/data/assets/` (and `users/group-{id}/data/assets/` for groups). How you treat this tree depends on whether the S3 mirror is configured:
+Files users upload are written to `users/{id}/data/assets/` (and `users/group-{id}/data/assets/` for groups). This live mutable tree is part of the Principal Home and has the same durability requirements. Workspace APIs, channel attachment ingestion, and Agent mounts observe the same POSIX bytes.
 
-- **Without S3** (`STELLA_BLOB_S3_*` unset): the local copy is the only copy. This tree is durable data and needs a persistent volume; losing the disk loses the files.
-- **With S3** (all four `STELLA_BLOB_S3_*` variables set): every write is mirrored to the bucket, a read that misses locally restores the file from the bucket, and a cold pod re-hydrates its assets from the bucket at session setup. The local tree becomes a recoverable cache, so pods can run on ephemeral disk and the bucket is what you back up.
-
-Configuring the mirror is what lets asset-serving replicas be stateless. Set all four required S3 variables together — partial configuration fails startup. Startup records whether mutable asset object authority is configured as migration metadata only; Phase 1 does not change mirror/hydrate behavior or authority.
+S3 is not a mirror or recovery authority for this mutable tree. The legacy mutable-asset S3 authority was not deployed in the supported upgrade population, so no mutable-asset migration or marker is required. Keep and back up persistent POSIX storage. `STELLA_BLOB_S3_*` remains available for separate immutable BlobStore responsibilities such as content-addressed session media; it does not make Principal Home recoverable.
 
 ## Principal and Agent Homes (durable, single-replica)
 
-The current local store preserves compatibility paths: `users/{id}/data/` and `users/group-{id}/data/` are user and group Principal Homes; `users/{principal}/agents/{id}/` is each Principal's Agent Home. An Agent Home holds that principal's mutable working tree and project files. Nothing mirrors Principal data or Agent Home bytes to PostgreSQL, and S3 only mirrors assets as described above. They are durable data: use persistent storage and pin the workload to one replica. Multi-replica execution with checkpointing is future work — do not assume it yet.
+The current local store uses `users/{id}/data/` and `users/group-{id}/data/` as user and group Principal Homes; `users/{principal}/agents/{id}/` is each Principal's Agent Home. An Agent Home holds that principal's mutable working tree and project files. Nothing mirrors these mutable bytes to PostgreSQL or S3. They are durable data: use persistent POSIX storage. The current product supports one replica.
 
-These deterministic paths are the storage layout for the current single-replica POSIX product. PostgreSQL owner rows authorize access, while the filesystem retains the bytes. Future multi-replica, Kubernetes, or S3 storage requires a redesign and need not preserve these path shapes.
+These deterministic paths are the storage layout for the current single-replica POSIX product. PostgreSQL owner rows authorize access, while the filesystem retains the bytes. Future replicas must mount one globally shared, strongly consistent POSIX namespace with the same deterministic layout; S3 is not a replacement for it.
 
 Stella supports one replica and one POSIX `STELLA_HOME`. PostgreSQL user, group, Agent, and assignment rows remain identity and authorization authority; there is no PostgreSQL directory catalog. Deterministic roots are `users/<user-id>`, `users/group-<group-id>`, their nested `agents/<agent-id>`, and global `agents/<agent-id>`. The filesystem is layout and data authority. A missing root for a live owner is created with its internal scaffold. Symbolic links, non-directories, and unsafe IDs are rejected. The host is trusted and must preserve normal POSIX semantics.
 

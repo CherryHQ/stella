@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 
@@ -37,7 +38,8 @@ func NewService(store pkgplugins.SkillStore, stellaHome string, registries ...*r
 // ResolvedSkill is a skill with its filesystem directory (if applicable).
 type ResolvedSkill struct {
 	pkgplugins.Skill
-	Dir      string // absolute path on disk; empty until a DB-backed Skill is loaded
+	Dir      string // logical path for project Skills; host path only for immutable builtins/runtime DB cache
+	project  *ProjectSnapshot
 	builtin  *resources.BuiltinSkillDescriptor
 	registry *resources.Registry
 }
@@ -61,6 +63,27 @@ func (s *ResolvedSkill) BuiltinFiles() []string {
 	return out
 }
 
+// ImmutableFiles lists files from an immutable builtin or project snapshot.
+// A nil result means the Skill is backed by the trusted runtime cache instead.
+func (s *ResolvedSkill) ImmutableFiles() []string {
+	if s.project != nil {
+		files, _, err := s.project.listFiles(s.Name)
+		if err != nil {
+			return []string{}
+		}
+		return files
+	}
+	return s.BuiltinFiles()
+}
+
+func (s *ResolvedSkill) LoadImmutableFile(filePath string) (string, error) {
+	if s.project != nil {
+		data, _, err := s.project.load(s.Name, filePath)
+		return data, err
+	}
+	return s.LoadBuiltinFile(filePath)
+}
+
 // ListMerged returns all visible skills across project, DB, and system levels,
 // deduplicated by name with priority: project > DB (user/agent) > system.
 // It uses the store's default List query which filters deprecated/disabled skills.
@@ -73,17 +96,21 @@ func (s *Service) ListMerged(ctx context.Context, vc pkgplugins.SkillViewContext
 			return nil, fmt.Errorf("list db skills: %w", err)
 		}
 	}
-	return filterDisabled(s.mergeSkills(dbSkills, projectRoot), vc.DisabledSkillRefs), nil
+	return filterDisabled(s.mergeSkills(dbSkills, projectSnapshotFromContext(ctx)), vc.DisabledSkillRefs), nil
 }
 
 // ListMergedWithDB merges the given DB skills with FS skills.
 // Use this when the caller needs a different DB query (e.g. including disabled skills).
 func (s *Service) ListMergedWithDB(dbSkills []pkgplugins.Skill, projectRoot string) []ResolvedSkill {
-	return s.mergeSkills(dbSkills, projectRoot)
+	return s.mergeSkills(dbSkills, nil)
 }
 
-func (s *Service) mergeSkills(dbSkills []pkgplugins.Skill, projectRoot string) []ResolvedSkill {
-	projSkills, projDirs, _ := ListProjectSkills(projectRoot)
+func (s *Service) ListMergedWithDBSnapshot(dbSkills []pkgplugins.Skill, snapshot *ProjectSnapshot) []ResolvedSkill {
+	return s.mergeSkills(dbSkills, snapshot)
+}
+
+func (s *Service) mergeSkills(dbSkills []pkgplugins.Skill, snapshot *ProjectSnapshot) []ResolvedSkill {
+	projSkills, projDirs := snapshot.list()
 	builtinSkills, err := s.builtinSkills()
 	if err != nil {
 		return nil
@@ -94,7 +121,7 @@ func (s *Service) mergeSkills(dbSkills []pkgplugins.Skill, projectRoot string) [
 
 	for _, sk := range projSkills {
 		seen[sk.Name] = true
-		out = append(out, ResolvedSkill{Skill: sk, Dir: projDirs[sk.Name]})
+		out = append(out, ResolvedSkill{Skill: sk, Dir: path.Join(snapshot.logicalRoot, projDirs[sk.Name]), project: snapshot})
 	}
 	for _, sk := range dbSkills {
 		if seen[sk.Name] {
@@ -121,8 +148,8 @@ func (s *Service) Resolve(ctx context.Context, name string, vc pkgplugins.SkillV
 	if builtinName, ok := s.builtinNameForReference(name); ok {
 		name = builtinName
 	}
-	if projectRoot != "" {
-		if rs := findFSSkill(projectRoot, "project", name); rs != nil {
+	if snapshot := projectSnapshotFromContext(ctx); snapshot != nil {
+		if rs := findProjectSkill(snapshot, name); rs != nil {
 			return filterResolved(rs, vc.DisabledSkillRefs), nil
 		}
 	}
@@ -183,15 +210,11 @@ func PolicyRef(rs ResolvedSkill) (string, bool) {
 	}
 }
 
-// findFSSkill returns the named skill from a filesystem scope root, or nil.
-func findFSSkill(root, scope, name string) *ResolvedSkill {
-	skills, dirs, err := listFSSkills(root, scope)
-	if err != nil {
-		return nil
-	}
+func findProjectSkill(snapshot *ProjectSnapshot, name string) *ResolvedSkill {
+	skills, dirs := snapshot.list()
 	for _, sk := range skills {
 		if sk.Name == name {
-			return &ResolvedSkill{Skill: sk, Dir: dirs[name]}
+			return &ResolvedSkill{Skill: sk, Dir: path.Join(snapshot.logicalRoot, dirs[name]), project: snapshot}
 		}
 	}
 	return nil
@@ -207,7 +230,7 @@ func (s *Service) ResolveScoped(ctx context.Context, name, scope string, vc pkgp
 	case "builtin":
 		return s.builtinSkill(name)
 	case "project":
-		return findFSSkill(projectRoot, "project", name), nil
+		return findProjectSkill(projectSnapshotFromContext(ctx), name), nil
 	case "system_agent", "user", "user_agent":
 		return s.dbSkillByScope(ctx, name, scope, vc)
 	case "system":
@@ -281,12 +304,12 @@ func (s *Service) LoadFile(ctx context.Context, name, path string, vc pkgplugins
 		}
 		return data, rs.Dir, rs, nil
 	}
-	if rs.Dir != "" {
-		data, err := loadProjectSkillFile(rs.Dir, path)
+	if rs.project != nil {
+		data, logicalDir, err := rs.project.load(rs.Name, path)
 		if err != nil {
 			return "", "", nil, fmt.Errorf("load %s skill %q file %q: %w", rs.Scope, name, path, err)
 		}
-		return data, rs.Dir, rs, nil
+		return data, logicalDir, rs, nil
 	}
 
 	if s.store == nil {
@@ -310,6 +333,9 @@ func (s *Service) ListFiles(ctx context.Context, name string, vc pkgplugins.Skil
 	}
 	if rs.builtin != nil {
 		return rs.BuiltinFiles(), rs.Dir, nil
+	}
+	if rs.project != nil {
+		return rs.project.listFiles(rs.Name)
 	}
 	if rs.Dir != "" {
 		files, err := ListDirFiles(rs.Dir)

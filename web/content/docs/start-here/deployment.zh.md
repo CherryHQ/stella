@@ -256,7 +256,7 @@ Stella 使用三个不同的地址，务必区分：
 
 Docker 镜像设置了 `STELLA_REQUIRE_EXTERNAL_DB=1`：当 `STELLA_DATABASE_URL` 未设置时，启动会以可操作的错误快速失败，而不是在容器的临时文件系统上静默启动内嵌 PostgreSQL 集群——多副本时每个 pod 甚至会各建一套数据库。请将 `STELLA_DATABASE_URL` 指向带 `pgvector` 与 `pg_search` 的外部 PostgreSQL。若要有意在挂载持久卷的单容器中运行内嵌 PostgreSQL，设置 `STELLA_REQUIRE_EXTERNAL_DB=0`。
 
-上传的用户资产同样需要持久化。未配置 `STELLA_BLOB_S3_*` 时，`STELLA_HOME` 下的文件系统是单节点权威，必须挂载持久卷；配置 S3 兼容对象存储后，它成为共享权威，本地文件只作为 materialization。Stella 当前只开放单副本 Helm 拓扑；未来唯一的多副本拓扑会直接要求共享权威，而不是再引入一个可能与实际存储冲突的模式开关。
+上传的用户资产需要位于 `STELLA_HOME` 下的持久 POSIX 存储；S3 配置不会镜像或恢复这棵可变树。Stella 当前只开放单副本 Helm 拓扑；未来副本需要同一个共享、强一致 POSIX 命名空间。`STELLA_BLOB_S3_*` 是可选配置，仅服务于内容寻址 session media 等独立的 immutable BlobStore 数据。
 
 loopback base URL 永远不是启动错误——通过 `localhost` 或 `kubectl port-forward` 访问 Stella 时它是合法的——但当配置了 OAuth/OIDC 登录时 Stella 会发出响亮警告，因为登录跳转会指回 pod 自身。部署 chart 应将 `STELLA_BASE_URL` 作为必填值：那一层才知道自己位于 ingress 之后。
 
@@ -359,10 +359,10 @@ terminationGracePeriodSeconds: 200
 | `STELLA_REQUIRE_EXTERNAL_DB`     | 否                        | `STELLA_DATABASE_URL` 未设置时快速失败而非启动内嵌 PostgreSQL；Docker 镜像默认设为 `1`，设 `0` 可在持久卷上运行内嵌 PG |
 | `STELLA_HTTP_SHUTDOWN_TIMEOUT`   | 否                        | 优雅停机时排空进行中 HTTP 请求的预算（Go duration，默认 `60s`，`> 0`）                                                 |
 | `STELLA_RIVER_SOFT_STOP_TIMEOUT` | 否                        | 优雅停机时排空进行中后台任务的预算（Go duration，默认 `120s`，`> 0`）                                                  |
-| `STELLA_BLOB_S3_ENDPOINT`        | 否§                       | 持久化用户资产镜像使用的 S3 兼容 endpoint                                                                              |
-| `STELLA_BLOB_S3_BUCKET`          | 否§                       | 镜像用户上传资产的 bucket                                                                                              |
-| `STELLA_BLOB_S3_ACCESS_KEY`      | 否§                       | 资产镜像使用的 access key                                                                                              |
-| `STELLA_BLOB_S3_SECRET_KEY`      | 否§                       | 资产镜像使用的 secret key                                                                                              |
+| `STELLA_BLOB_S3_ENDPOINT`        | 否§                       | immutable BlobStore 数据使用的 S3 兼容 endpoint                                                                        |
+| `STELLA_BLOB_S3_BUCKET`          | 否§                       | immutable BlobStore 数据使用的 bucket                                                                                  |
+| `STELLA_BLOB_S3_ACCESS_KEY`      | 否§                       | immutable BlobStore 数据使用的 access key                                                                              |
+| `STELLA_BLOB_S3_SECRET_KEY`      | 否§                       | immutable BlobStore 数据使用的 secret key                                                                              |
 | `STELLA_BLOB_S3_REGION`          | 否                        | 可选 S3 region                                                                                                         |
 | `STELLA_BLOB_S3_USE_SSL`         | 否                        | S3 兼容存储是否使用 HTTPS；默认 `true`                                                                                 |
 | `STELLA_VAULT_KEY`               | 是†                       | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                                                        |
@@ -374,7 +374,7 @@ terminationGracePeriodSeconds: 200
 
 ‡ 仅当 agent 使用 `docker` 沙箱后端时需要。stellad 在宿主机上运行用 `host`；stellad 在 Docker 内且使用 host bind mount 用 `bind`；stellad 在 Docker 内且使用 named volume 用 `volume`。
 
-§ 四个必需的 S3 镜像变量必须同时设置，或全部不设置。部分设置会导致启动失败。
+§ 四个必需的 S3 变量必须同时设置，或全部不设置。部分设置会导致启动失败；可变资产不需要这些变量。
 
 ¶ 受管部署所必需，以及在使用 OAuth 登录或频道外链时必需。参见[受管部署](#受管部署)。
 

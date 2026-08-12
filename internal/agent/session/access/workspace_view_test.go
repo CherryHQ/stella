@@ -1,43 +1,30 @@
 package access
 
 import (
-	"context"
-	"errors"
 	"testing"
 
-	"github.com/CherryHQ/stella/internal/agent/session"
-	"github.com/CherryHQ/stella/internal/home"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-type recordingWorkspaceViewer struct {
-	req  home.WorkspaceRequest
-	view home.WorkspaceView
-	err  error
-}
-
-func (v *recordingWorkspaceViewer) WorkspaceView(_ context.Context, req home.WorkspaceRequest) (home.WorkspaceView, error) {
-	v.req = req
-	return v.view, v.err
-}
-
-func TestResolveWorkspaceRootSelectsGroupView(t *testing.T) {
-	v := &recordingWorkspaceViewer{view: home.WorkspaceView{DataRoot: "/group/data", AgentRoot: "/group/agent"}}
-	info := session.Info{UserID: "same", GroupID: "same", AgentID: "a"}
-	for scope, want := range map[WorkspaceScope]string{WorkspaceScopeUser: "/group/data", WorkspaceScopeAgent: "/group/agent"} {
-		got, err := resolveWorkspaceRoot(context.Background(), v, info, scope)
-		if err != nil || got != want {
-			t.Fatalf("%s = %q, %v", scope, got, err)
+func TestCanonicalWorkspacePathAcceptsOnlyLogicalCoordinates(t *testing.T) {
+	for _, tt := range []struct {
+		input string
+		scope WorkspaceScope
+		want  string
+	}{
+		{"file.txt", WorkspaceScopeAgent, "file.txt"},
+		{"$HOME/file.txt", WorkspaceScopeAgent, "file.txt"},
+		{"$STELLA_ASSETS_DIR/202608/file.txt", WorkspaceScopeUser, "assets/202608/file.txt"},
+		{pkgsandbox.MountUserData + "/assets/file.txt", WorkspaceScopeUser, "assets/file.txt"},
+	} {
+		scope, got, err := canonicalWorkspacePath(WorkspaceScopeAgent, tt.input, false)
+		if err != nil || scope != tt.scope || got != tt.want {
+			t.Fatalf("canonicalWorkspacePath(%q) = %q, %q, %v", tt.input, scope, got, err)
 		}
 	}
-	if v.req.GroupID != "same" || v.req.UserID != "same" || v.req.AgentID != "a" {
-		t.Fatalf("request=%+v", v.req)
-	}
-}
-
-func TestResolveWorkspaceRootFailsClosed(t *testing.T) {
-	want := errors.New("tombstoned")
-	_, err := resolveWorkspaceRoot(context.Background(), &recordingWorkspaceViewer{err: want}, session.Info{UserID: "u", AgentID: "a"}, WorkspaceScopeUser)
-	if !errors.Is(err, ErrUnavailable) || !errors.Is(err, want) {
-		t.Fatalf("error=%v", err)
+	for _, input := range []string{"/tmp/file", "../file", `C:\\file`, "$TMPDIR/file"} {
+		if _, _, err := canonicalWorkspacePath(WorkspaceScopeAgent, input, false); err == nil {
+			t.Fatalf("canonicalWorkspacePath(%q) succeeded", input)
+		}
 	}
 }

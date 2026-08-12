@@ -197,11 +197,6 @@ function toFolderSegment(name: string): string {
     .replace(/^\.+/, "");
 }
 
-function joinPath(root: string, rel: string): string {
-  const base = root.replace(/\/$/, "");
-  return rel ? `${base}/${rel}` : base;
-}
-
 function FolderTree({
   agentId,
   sessionId,
@@ -343,7 +338,7 @@ function CreateProjectDialog({
     try {
       await createProject({
         path: { agentId },
-        body: { name: effectiveName, base_dir: joinPath(root, relDir) },
+        body: { name: effectiveName, base_dir: relDir || "." },
         throwOnError: true,
       });
       onCreated();

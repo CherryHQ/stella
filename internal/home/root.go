@@ -2,6 +2,8 @@ package home
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -31,6 +33,7 @@ const (
 
 var (
 	ErrReadLimit      = errors.New("home: read limit exceeded")
+	ErrUploadLimit    = errors.New("home: upload limit exceeded")
 	ErrListLimit      = errors.New("home: list limit exceeded")
 	ErrReadOnly       = errors.New("home: root is read-only")
 	ErrOutcomeUnknown = errors.New("home: mutation outcome unknown")
@@ -42,9 +45,10 @@ type (
 	ListOptions  struct{ Limit int }
 	ReadOptions  struct{ MaxBytes int64 }
 	WriteOptions struct {
-		Mode   fs.FileMode
-		Append bool
-		Sync   bool
+		Mode     fs.FileMode
+		Append   bool
+		Sync     bool
+		MaxBytes int64
 	}
 )
 
@@ -64,7 +68,28 @@ type Root struct {
 	unlock func()
 }
 
-func (m *WorkspaceManager) OpenRoot(ctx context.Context, req WorkspaceRequest, scope RootScope, access RootAccess) (*Root, error) {
+// RootOperations is the callback-scoped durable filesystem capability exposed
+// to post-authorization consumers. It intentionally contains no physical root
+// path or provider/session coordinate.
+type RootOperations interface {
+	Close() error
+	Stat(context.Context, string) (fs.FileInfo, error)
+	List(context.Context, string, ListOptions) ([]fs.DirEntry, error)
+	Read(context.Context, string, io.Writer, ReadOptions) error
+	Write(context.Context, string, io.Reader, WriteOptions) error
+	Upload(context.Context, string, io.Reader, WriteOptions) error
+	Mkdir(context.Context, string, fs.FileMode, MkdirOptions) error
+	Remove(context.Context, string, RemoveOptions) error
+	Rename(context.Context, string, string, RenameOptions) error
+}
+
+// RootOpener is the narrow capability-minting port for direct durable file
+// consumers. WorkspaceManager is the production implementation.
+type RootOpener interface {
+	OpenRoot(context.Context, WorkspaceRequest, RootScope, RootAccess) (RootOperations, error)
+}
+
+func (m *WorkspaceManager) OpenRoot(ctx context.Context, req WorkspaceRequest, scope RootScope, access RootAccess) (RootOperations, error) {
 	if err := checkContext(ctx); err != nil {
 		return nil, err
 	}
@@ -361,8 +386,86 @@ func (r *Root) Write(ctx context.Context, name string, src io.Reader, o WriteOpt
 	return e
 }
 
-func (r *Root) Upload(ctx context.Context, n string, src io.Reader, o WriteOptions) error {
-	return r.Write(ctx, n, src, o)
+func (r *Root) Upload(ctx context.Context, name string, src io.Reader, o WriteOptions) error {
+	if err := checkContext(ctx); err != nil {
+		return err
+	}
+	if err := r.begin(); err != nil {
+		return err
+	}
+	defer r.end()
+	if err := r.writable(); err != nil {
+		return err
+	}
+	if src == nil || o.Append {
+		return errors.New("home: upload requires a non-append source")
+	}
+	if o.MaxBytes <= 0 {
+		return errors.New("home: upload requires a positive byte limit")
+	}
+	target, err := cleanName(name, false)
+	if err != nil {
+		return err
+	}
+	mode := o.Mode.Perm()
+	if mode == 0 {
+		mode = 0o600
+	}
+	parent, base := filepath.Dir(target), filepath.Base(target)
+	var temporary string
+	var file *os.File
+	for range 100 {
+		var random [8]byte
+		if _, err := rand.Read(random[:]); err != nil {
+			return err
+		}
+		temporary = filepath.Join(parent, "."+base+".upload-"+hex.EncodeToString(random[:]))
+		file, err = openRootFile(r.root, temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			return err
+		}
+		temporary = ""
+	}
+	if temporary == "" {
+		return errors.New("home: allocate upload temporary file")
+	}
+	defer func() { _ = r.root.Remove(temporary) }()
+	reader := &contextReader{ctx, src}
+	_, copyErr := io.CopyN(file, reader, o.MaxBytes)
+	if errors.Is(copyErr, io.EOF) {
+		copyErr = nil
+	} else if copyErr == nil {
+		var probe [1]byte
+		count, err := io.ReadFull(reader, probe[:])
+		if count > 0 {
+			copyErr = ErrUploadLimit
+		} else if err != nil && !errors.Is(err, io.EOF) {
+			copyErr = err
+		}
+	}
+	if copyErr == nil {
+		copyErr = ctx.Err()
+	}
+	syncErr := error(nil)
+	if copyErr == nil && o.Sync {
+		syncErr = file.Sync()
+	}
+	closeErr := file.Close()
+	if err := errors.Join(copyErr, syncErr, closeErr); err != nil {
+		return err
+	}
+	if err := r.root.Rename(temporary, target); err != nil {
+		return fmt.Errorf("%w: publish upload: %w", ErrOutcomeUnknown, err)
+	}
+	if o.Sync {
+		if err := syncRootDirectory(r.root, parent); err != nil {
+			return fmt.Errorf("%w: sync upload parent: %w", ErrOutcomeUnknown, err)
+		}
+	}
+	return nil
 }
 
 func (r *Root) Mkdir(ctx context.Context, name string, mode fs.FileMode, o MkdirOptions) error {
@@ -385,7 +488,10 @@ func (r *Root) Mkdir(ctx context.Context, name string, mode fs.FileMode, o Mkdir
 		mode = 0o755
 	}
 	if o.Parents {
-		return r.root.MkdirAll(n, mode)
+		if e := r.root.MkdirAll(n, mode); e != nil {
+			return fmt.Errorf("%w: create directory chain: %w", ErrOutcomeUnknown, e)
+		}
+		return nil
 	}
 	return r.root.Mkdir(n, mode)
 }
@@ -406,7 +512,10 @@ func (r *Root) Remove(ctx context.Context, name string, o RemoveOptions) error {
 		return e
 	}
 	if o.Recursive {
-		return r.root.RemoveAll(n)
+		if e := r.root.RemoveAll(n); e != nil {
+			return fmt.Errorf("%w: remove recursively: %w", ErrOutcomeUnknown, e)
+		}
+		return nil
 	}
 	return r.root.Remove(n)
 }
@@ -431,7 +540,7 @@ func (r *Root) Rename(ctx context.Context, old, new string, o RenameOptions) err
 		return e
 	}
 	if e = r.root.Rename(a, b); e != nil {
-		return e
+		return fmt.Errorf("%w: rename: %w", ErrOutcomeUnknown, e)
 	}
 	if o.SyncParent {
 		parents := []string{filepath.Dir(b)}

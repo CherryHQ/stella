@@ -40,29 +40,30 @@ type providerConfig struct {
 
 // runnerConfig configures the runner implementation.
 type runnerConfig struct {
-	NoCapabilities      bool // guest mode: empty tool registry, no hooks or media
-	Provider            providerConfig
-	Thinking            ai.ThinkingLevel
-	Sandbox             sandbox.Config
-	System              string // optional system prompt override (bypasses default prompt building)
-	Sections            []pkgplugins.SystemPromptSection
-	BuiltinTools        []BuiltinTool
-	BuiltinParams       RunnerParams
-	DisabledSkillRefs   []string
-	PerRunTools         []tools.Tool
-	SkillStore          pkgplugins.SkillStore
-	SkillReadAuthorizer skillstool.SkillReadAuthorizer
-	PluginView          pkgplugins.SessionPluginView
-	MCPToolProvider     MCPToolProvider
-	ToolOverrideFetcher ToolOverrideFetcher
-	PluginTools         func(context.Context, pkgplugins.ToolBuildContext) []tools.Tool
-	HookPlugins         []hooks.HookPlugin // hook plugins for the engine loop
-	ToolLifecycle       *coreagent.ToolLifecycle
-	DelegateRunner      delegatetool.SessionRunner
-	DelegateTimeout     time.Duration // default wall-clock timeout per delegate (0 = 15m)
-	ChatTimeout         time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
-	CanonicalImages     *coreagent.CanonicalImageConfig
-	Cleanup             func() error
+	NoCapabilities       bool // guest mode: empty tool registry, no hooks or media
+	Provider             providerConfig
+	Thinking             ai.ThinkingLevel
+	Sandbox              sandbox.Config
+	System               string // optional system prompt override (bypasses default prompt building)
+	Sections             []pkgplugins.SystemPromptSection
+	BuiltinTools         []BuiltinTool
+	BuiltinParams        RunnerParams
+	DisabledSkillRefs    []string
+	PerRunTools          []tools.Tool
+	SkillStore           pkgplugins.SkillStore
+	ProjectSkillSnapshot *skillstool.ProjectSnapshot
+	SkillReadAuthorizer  skillstool.SkillReadAuthorizer
+	PluginView           pkgplugins.SessionPluginView
+	MCPToolProvider      MCPToolProvider
+	ToolOverrideFetcher  ToolOverrideFetcher
+	PluginTools          func(context.Context, pkgplugins.ToolBuildContext) []tools.Tool
+	HookPlugins          []hooks.HookPlugin // hook plugins for the engine loop
+	ToolLifecycle        *coreagent.ToolLifecycle
+	DelegateRunner       delegatetool.SessionRunner
+	DelegateTimeout      time.Duration // default wall-clock timeout per delegate (0 = 15m)
+	ChatTimeout          time.Duration // wall-clock timeout per main agent chat turn (0 = 30m)
+	CanonicalImages      *coreagent.CanonicalImageConfig
+	Cleanup              func() error
 }
 
 // runner implements Runner by calling LLM providers directly via agent.Runner.
@@ -292,6 +293,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		toolProjectRoot := paths.ProjectRoot
 		layout, view := skillRuntimeLayoutAndView(ctx, cfg, paths)
 		registerNonCore(skillstool.NewTool(cfg.SkillStore, stellaHome, toolProjectRoot).
+			WithProjectSnapshot(cfg.ProjectSkillSnapshot).
 			WithSkillDiskLayout(layout).
 			WithSkillDirView(view).
 			WithPluginVisibility(cfg.PluginView.RegisteredPluginIDs, cfg.PluginView.EnabledPluginIDs).
