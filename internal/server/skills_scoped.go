@@ -105,7 +105,7 @@ func (s *Server) authorizeReadableDBSkills(w http.ResponseWriter, r *http.Reques
 		case err == nil:
 			if reader, ok := s.skillStore().(skills.IdentityReader); ok {
 				revision, loadErr := reader.LoadCurrentRevision(r.Context(), sk)
-				if errors.Is(loadErr, fs.ErrNotExist) {
+				if skills.IsCurrentSelectorMissing(loadErr) {
 					s.warnMissingSkillSelector(sk, loadErr)
 					continue
 				}
@@ -468,7 +468,7 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 				return nil, nil, "", http.StatusInternalServerError, "internal error"
 			}
 			revision, err := reader.LoadCurrentRevision(ctx, candidate)
-			if errors.Is(err, fs.ErrNotExist) {
+			if skills.IsCurrentSelectorMissing(err) {
 				s.warnMissingSkillSelector(candidate, err)
 				continue
 			}

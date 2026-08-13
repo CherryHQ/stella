@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net/http"
 	"strings"
 
@@ -121,7 +120,7 @@ func (s *Server) policyRefExists(ctx context.Context, agentID, ref string) (bool
 					return false, authErr
 				}
 				revision, loadErr := reader.LoadCurrentRevision(ctx, rows[i])
-				if errors.Is(loadErr, fs.ErrNotExist) {
+				if skills.IsCurrentSelectorMissing(loadErr) {
 					s.warnMissingSkillSelector(rows[i], loadErr)
 					continue
 				}

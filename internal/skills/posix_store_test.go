@@ -490,6 +490,28 @@ func TestPOSIXStoreDeleteChecksDigestBeforeRemovingIdentity(t *testing.T) {
 	if revision, loadErr := f.store.LoadCurrentRevision(t.Context(), created.Skill); loadErr != nil || revision.Skill.ContentDigest != created.Skill.ContentDigest {
 		t.Fatalf("current revision after stale delete = %#v, %v", revision.Skill, loadErr)
 	}
+	root := filepath.Join(f.base, ".agents", "db-skills")
+	selector := filepath.Join(root, created.Skill.ID)
+	if err := os.Remove(selector); err != nil {
+		t.Fatal(err)
+	}
+	missingDigest := strings.Repeat("2", 64)
+	if err := os.Symlink(filepath.ToSlash(filepath.Join(managedRevisionRoot, created.Skill.ID, missingDigest)), selector); err != nil {
+		t.Fatal(err)
+	}
+	err = f.store.DeleteManagedSkill(t.Context(), ManagedSkillDelete{
+		ID: created.Skill.ID, Scope: created.Skill.Scope, ExpectedDigest: created.Skill.ContentDigest,
+	})
+	if err == nil || !errors.Is(err, fs.ErrNotExist) || IsCurrentSelectorMissing(err) {
+		t.Fatalf("delete against dangling newer selector = %v, want non-selector fs.ErrNotExist", err)
+	}
+	if identity, getErr := f.store.GetIdentity(t.Context(), created.Skill.ID); getErr != nil || identity == nil {
+		t.Fatalf("identity removed through stale exact revision fallback: %#v, %v", identity, getErr)
+	}
+	target, readlinkErr := os.Readlink(selector)
+	if readlinkErr != nil || !strings.HasSuffix(target, missingDigest) {
+		t.Fatalf("dangling current selector was removed: %q, %v", target, readlinkErr)
+	}
 }
 
 func TestPOSIXStoreCatalogSkipsMissingSelectorButRejectsInvalidRevision(t *testing.T) {
@@ -514,11 +536,11 @@ func TestPOSIXStoreCatalogSkipsMissingSelectorButRejectsInvalidRevision(t *testi
 	if err := os.Remove(selector); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(filepath.ToSlash(filepath.Join(managedRevisionRoot, retained.Skill.ID, "not-a-digest")), selector); err != nil {
+	if err := os.Symlink(filepath.ToSlash(filepath.Join(managedRevisionRoot, retained.Skill.ID, strings.Repeat("1", 64))), selector); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.store.List(t.Context(), ViewContext{UserID: f.userID}); !errors.Is(err, ErrInvalidSkillRevision) {
-		t.Fatalf("catalog with invalid selector = %v, want ErrInvalidSkillRevision", err)
+	if _, err := f.store.List(t.Context(), ViewContext{UserID: f.userID}); err == nil || !errors.Is(err, fs.ErrNotExist) || IsCurrentSelectorMissing(err) {
+		t.Fatalf("catalog with missing selected revision = %v, want non-selector fs.ErrNotExist", err)
 	}
 }
 
@@ -558,6 +580,35 @@ func TestPOSIXStoreReflectDeleteLeavesCatalogHealthyWhenSelectorCleanupFails(t *
 	}
 	if rows, listErr := f.store.List(t.Context(), ViewContext{UserID: f.userID, AgentID: f.agentID}); listErr != nil || len(rows) != 0 {
 		t.Fatalf("catalog after interrupted Reflect cleanup = %#v, %v", rows, listErr)
+	}
+}
+
+func TestPOSIXStoreReflectDeleteRejectsStaleRevisionBehindDanglingSelector(t *testing.T) {
+	f := newPOSIXStoreFixture(t)
+	created, err := f.store.CreateReflectOwnedUserAgentSkill(t.Context(), ReflectSkillCreate{
+		UserID: f.userID, AgentID: f.agentID, Name: "reflect-delete-dangling", MainFileContent: "# Reflect dangling\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(f.base, "users", f.userID, ".agents", "agent-skills", f.agentID)
+	selector := filepath.Join(root, created.ID)
+	if err := os.Remove(selector); err != nil {
+		t.Fatal(err)
+	}
+	missingDigest := strings.Repeat("3", 64)
+	if err := os.Symlink(filepath.ToSlash(filepath.Join(managedRevisionRoot, created.ID, missingDigest)), selector); err != nil {
+		t.Fatal(err)
+	}
+	_, deleteErr := f.store.DeleteReflectOwnedUserAgentSkill(t.Context(), ReflectSkillDelete{
+		ID: created.ID, UserID: f.userID, AgentID: f.agentID, ExpectedVersion: created.Version,
+		ExpectedDigest: created.ContentDigest, ExpectedUsageLastUsedAt: time.Now().UTC(),
+	})
+	if deleteErr == nil || !errors.Is(deleteErr, fs.ErrNotExist) || IsCurrentSelectorMissing(deleteErr) {
+		t.Fatalf("Reflect delete against dangling newer selector = %v, want non-selector fs.ErrNotExist", deleteErr)
+	}
+	if identity, getErr := f.store.GetIdentity(t.Context(), created.ID); getErr != nil || identity == nil {
+		t.Fatalf("Reflect identity removed through stale exact revision fallback: %#v, %v", identity, getErr)
 	}
 }
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io/fs"
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/authz"
@@ -81,7 +80,7 @@ func BuildAuthorizedPromptSection(ctx context.Context, build pkgplugins.SystemPr
 			continue
 		}
 		revision, err := reader.LoadCurrentRevision(ctx, resolvedIdentity(rs))
-		if errors.Is(err, fs.ErrNotExist) {
+		if errors.Is(err, errCurrentSkillSelectorMissing) {
 			continue
 		}
 		if err != nil {

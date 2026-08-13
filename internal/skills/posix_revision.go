@@ -19,6 +19,8 @@ const managedRevisionRoot = ".stella-revisions"
 
 const publicationReconcileTimeout = 5 * time.Second
 
+var errCurrentSkillSelectorMissing = errors.New("skills: current selector is missing")
+
 type managedSnapshot struct {
 	Skill Skill
 	Files []revisionFile
@@ -73,6 +75,9 @@ func readRootBytes(ctx context.Context, root home.RootOperations, filename strin
 
 func readCurrentSnapshot(ctx context.Context, root home.SkillRootOperations, identity Skill) (managedSnapshot, error) {
 	target, err := root.Readlink(ctx, identity.ID)
+	if errors.Is(err, fs.ErrNotExist) {
+		return managedSnapshot{}, errors.Join(errCurrentSkillSelectorMissing, err)
+	}
 	if err != nil {
 		return managedSnapshot{}, err
 	}

@@ -3,6 +3,7 @@ package skills
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"time"
 )
@@ -112,6 +113,12 @@ type IdentityReader interface {
 	ListIdentityCandidate(context.Context, string, ViewContext) ([]Skill, error)
 	LoadCurrentRevision(context.Context, Skill) (ManagedRevision, error)
 	LoadExactRevision(context.Context, Skill, string) (ManagedRevision, error)
+}
+
+// IsCurrentSelectorMissing reports the narrow recoverable catalog state where
+// the identity still exists but its Home current-selector entry is absent.
+func IsCurrentSelectorMissing(err error) bool {
+	return errors.Is(err, errCurrentSkillSelectorMissing)
 }
 
 // ManagedDeleter is the digest-CAS delete surface used by authorized internal

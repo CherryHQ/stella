@@ -327,7 +327,7 @@ func (s *POSIXStore) loadRows(ctx context.Context, rows []sqlc.Skill, visible fu
 	out := make([]Skill, 0, len(rows))
 	for _, row := range rows {
 		snapshot, err := s.loadIdentity(ctx, identityFromRow(row))
-		if errors.Is(err, fs.ErrNotExist) {
+		if errors.Is(err, errCurrentSkillSelectorMissing) {
 			// A missing selector is fail-closed for this identity but must not
 			// make one interrupted cleanup take down the whole catalog.
 			continue
@@ -606,7 +606,7 @@ func (s *POSIXStore) removeSelection(ctx context.Context, identity Skill, expect
 		return err
 	}
 	current, err := readCurrentSnapshot(ctx, root, identity)
-	if errors.Is(err, fs.ErrNotExist) {
+	if errors.Is(err, errCurrentSkillSelectorMissing) {
 		syncErr := root.SyncDirectory(ctx, ".")
 		_, verifyErr := readRevisionSnapshot(ctx, root, identity, expected)
 		return errors.Join(syncErr, verifyErr, root.Close())
@@ -861,7 +861,7 @@ func (s *POSIXStore) loadManagedDeleteSnapshot(ctx context.Context, identity Ski
 		return managedSnapshot{}, ErrSkillDigestRequired
 	}
 	before, err := s.loadIdentity(ctx, identity)
-	if errors.Is(err, fs.ErrNotExist) {
+	if errors.Is(err, errCurrentSkillSelectorMissing) {
 		// Reconcile an interrupted selector-first delete from an older writer.
 		// The authorized caller still has to name an exact immutable revision.
 		before, err = s.loadIdentityRevision(ctx, identity, expected)
