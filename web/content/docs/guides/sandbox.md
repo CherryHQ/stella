@@ -124,7 +124,7 @@ The local backend runs commands directly on the host OS. It is intended for envi
 | -------- | --------------------------------------------------------------------------------------------------------------------------- |
 | Linux    | `bwrap` (bubblewrap) — mandatory. Minimal Linux root with `/workspace` read-write, scoped `/tmp`, network namespace control |
 | macOS    | No additional sandboxing. Commands run directly on the host                                                                 |
-| Windows  | Native `stellad` servers are not supported                                                                                   |
+| Windows  | Native `stellad` servers are not supported                                                                                  |
 
 ### Installing bubblewrap (Linux)
 

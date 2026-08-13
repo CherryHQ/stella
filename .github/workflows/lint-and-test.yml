@@ -156,5 +156,5 @@ jobs:
       - name: Test Windows resource bundle portability
         run: mise exec -- go test ./resources -run '^TestBuiltinBundleWindowsFilesystemModes$' -count=1
 
-      - name: Compile Windows command surface without running the server
-        run: mise exec -- go test -c -o "$env:RUNNER_TEMP/stellad.test.exe" ./cmd/stellad
+      - name: Compile portable Home and Skill packages without running tests
+        run: mise exec -- go test ./internal/home/... ./internal/skills/... ./internal/reflect/... -run '^$'
