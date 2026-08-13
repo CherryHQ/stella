@@ -21,11 +21,13 @@ import (
 // Mount is a provider-private mapping from one process-visible root to its
 // physical backing directory.
 type Mount struct {
-	HostPath     string
-	SandboxPath  string
-	ReadOnly     bool
-	physicalPath string
-	root         *os.Root
+	HostPath              string
+	SandboxPath           string
+	ReadOnly              bool
+	ResolveSymlinkAliases bool
+	physicalPath          string
+	processAliases        []string
+	root                  *os.Root
 }
 
 // Resolved is a provider-private path resolution. Upper layers receive only
@@ -99,6 +101,21 @@ func NewResolver(workingDir string, mounts []Mount) (*Resolver, error) {
 			closeNormalized()
 			return nil, fmt.Errorf("sandbox: mount path %q is not an absolute process path", mount.SandboxPath)
 		}
+		// Direct-execution providers may opt in to a second spelling for the
+		// same process-visible root (notably macOS /var -> /private/var). The
+		// opt-in is deliberately provider-private: remapping providers such as
+		// Docker must never turn a physical mount source into an upper-layer
+		// coordinate merely because it can be resolved in the host namespace.
+		if mount.ResolveSymlinkAliases {
+			alias := path.Clean(filepath.ToSlash(mount.physicalPath))
+			if path.IsAbs(alias) && alias != mount.SandboxPath {
+				if pathsOverlap(alias, mount.SandboxPath, pkgsandbox.POSIXPathRelative) {
+					closeNormalized()
+					return nil, fmt.Errorf("sandbox: process mount %q overlaps its symlink alias %q", mount.SandboxPath, alias)
+				}
+				mount.processAliases = []string{alias}
+			}
+		}
 		if _, ok := seen[mount.SandboxPath]; ok {
 			closeNormalized()
 			return nil, fmt.Errorf("sandbox: duplicate process mount %q", mount.SandboxPath)
@@ -135,7 +152,7 @@ func NewResolver(workingDir string, mounts []Mount) (*Resolver, error) {
 				return nil, fmt.Errorf("sandbox: inspect mount source for %q: %w", existing.SandboxPath, statErr)
 			}
 			switch {
-			case pathsOverlap(existing.SandboxPath, mount.SandboxPath, pkgsandbox.POSIXPathRelative):
+			case processCoordinatesOverlap(existing, mount):
 				_ = root.Close()
 				closeNormalized()
 				return nil, fmt.Errorf("sandbox: process mounts %q and %q overlap", existing.SandboxPath, mount.SandboxPath)
@@ -208,8 +225,9 @@ func (r *Resolver) Close() error {
 	return r.closeErr
 }
 
-// Resolve maps only canonical process coordinates. Physical paths supplied by
-// upper layers are never accepted as an alternate coordinate system.
+// Resolve maps canonical process coordinates and provider-declared
+// same-namespace symlink aliases. Physical paths supplied by upper layers are
+// never accepted as an alternate coordinate system by remapping providers.
 func (r *Resolver) Resolve(name string, write bool) (Resolved, error) {
 	if name == "" {
 		return Resolved{}, errors.New("sandbox: path is required")
@@ -222,13 +240,27 @@ func (r *Resolver) Resolve(name string, write bool) (Resolved, error) {
 
 	best := -1
 	bestRelative := ""
+	bestRootLength := -1
 	for index, mount := range r.mounts {
 		relative, ok := pkgsandbox.POSIXPathRelative(mount.SandboxPath, candidate)
 		if !ok {
 			continue
 		}
-		if best < 0 || len(mount.SandboxPath) > len(r.mounts[best].SandboxPath) {
+		if len(mount.SandboxPath) > bestRootLength {
 			best, bestRelative = index, relative
+			bestRootLength = len(mount.SandboxPath)
+		}
+	}
+	if best < 0 {
+		for index, mount := range r.mounts {
+			for _, alias := range mount.processAliases {
+				relative, ok := pkgsandbox.POSIXPathRelative(alias, candidate)
+				if !ok || len(alias) <= bestRootLength {
+					continue
+				}
+				best, bestRelative = index, relative
+				bestRootLength = len(alias)
+			}
 		}
 	}
 	if best < 0 {
@@ -287,12 +319,17 @@ func PolicyMounts(mounts []Mount) []pkgsandbox.Mount {
 // validation never produces a host string that a later os.* call can race.
 type Access struct {
 	resolver *Resolver
+	tempDir  string
 	mu       sync.Mutex
 }
 
 func NewAccess(resolver *Resolver) *Access { return &Access{resolver: resolver} }
 
-func (a *Access) withRoot(name string, write bool, fn func(*os.Root, string) error) error {
+func NewAccessWithTempDir(resolver *Resolver, tempDir string) *Access {
+	return &Access{resolver: resolver, tempDir: path.Clean(tempDir)}
+}
+
+func (a *Access) withRoot(name string, write bool, fn func(*os.Root, string, Resolved) error) error {
 	a.resolver.mu.RLock()
 	defer a.resolver.mu.RUnlock()
 	if a.resolver.closed {
@@ -305,7 +342,7 @@ func (a *Access) withRoot(name string, write bool, fn func(*os.Root, string) err
 	if resolved.Mount.root == nil {
 		return errors.New("sandbox: filesystem capability is closed")
 	}
-	return fn(resolved.Mount.root, filepath.FromSlash(resolved.Relative))
+	return fn(resolved.Mount.root, filepath.FromSlash(resolved.Relative), resolved)
 }
 
 func pathsOverlap(a, b string, relative func(string, string) (string, bool)) bool {
@@ -325,9 +362,22 @@ func filesystemPathsOverlap(a, b string) bool {
 	return pathsOverlap(a, b, relative)
 }
 
+func processCoordinatesOverlap(a, b Mount) bool {
+	aCoordinates := append([]string{a.SandboxPath}, a.processAliases...)
+	bCoordinates := append([]string{b.SandboxPath}, b.processAliases...)
+	for _, aCoordinate := range aCoordinates {
+		for _, bCoordinate := range bCoordinates {
+			if pathsOverlap(aCoordinate, bCoordinate, pkgsandbox.POSIXPathRelative) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (a *Access) ReadFile(name string) ([]byte, error) {
 	var content []byte
-	err := a.withRoot(name, false, func(root *os.Root, relative string) error {
+	err := a.withRoot(name, false, func(root *os.Root, relative string, _ Resolved) error {
 		var err error
 		content, err = root.ReadFile(relative)
 		return err
@@ -337,7 +387,7 @@ func (a *Access) ReadFile(name string) ([]byte, error) {
 
 func (a *Access) ReadDir(name string) ([]pkgsandbox.DirEntry, error) {
 	var out []pkgsandbox.DirEntry
-	err := a.withRoot(name, false, func(root *os.Root, relative string) error {
+	err := a.withRoot(name, false, func(root *os.Root, relative string, _ Resolved) error {
 		directory, err := root.Open(relative)
 		if err != nil {
 			return err
@@ -361,7 +411,7 @@ func (a *Access) ReadDir(name string) ([]pkgsandbox.DirEntry, error) {
 
 func (a *Access) Stat(name string) (pkgsandbox.FileInfo, error) {
 	var out pkgsandbox.FileInfo
-	err := a.withRoot(name, false, func(root *os.Root, relative string) error {
+	err := a.withRoot(name, false, func(root *os.Root, relative string, _ Resolved) error {
 		info, err := root.Stat(relative)
 		if err == nil {
 			out = pkgsandbox.FileInfo{IsDir: info.IsDir(), Size: info.Size()}
@@ -372,7 +422,7 @@ func (a *Access) Stat(name string) (pkgsandbox.FileInfo, error) {
 }
 
 func (a *Access) WriteFile(name string, content []byte, mode fs.FileMode) error {
-	return a.withRoot(name, true, func(root *os.Root, relative string) error {
+	return a.withRoot(name, true, func(root *os.Root, relative string, _ Resolved) error {
 		if parent := filepath.Dir(relative); parent != "." {
 			if err := root.MkdirAll(parent, 0o755); err != nil {
 				return err
@@ -387,19 +437,15 @@ func (a *Access) ProjectFiles(name string, files []pkgsandbox.ProjectedFile) err
 	if err != nil {
 		return err
 	}
-	resolved, err := a.resolver.Resolve(name, true)
-	if err != nil {
-		return err
-	}
-	for _, mount := range a.resolver.mounts {
-		relative, within := pkgsandbox.POSIXPathRelative(resolved.SandboxPath, mount.SandboxPath)
-		if within && relative != "." {
-			return fmt.Errorf("%w: projection %q crosses process mount %q", pkgsandbox.ErrProjectionConflict, resolved.SandboxPath, mount.SandboxPath)
-		}
-	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.withRoot(name, true, func(root *os.Root, target string) error {
+	return a.withRoot(name, true, func(root *os.Root, target string, resolved Resolved) error {
+		for _, mount := range a.resolver.mounts {
+			relative, within := pkgsandbox.POSIXPathRelative(resolved.SandboxPath, mount.SandboxPath)
+			if within && relative != "." {
+				return fmt.Errorf("%w: projection %q crosses process mount %q", pkgsandbox.ErrProjectionConflict, resolved.SandboxPath, mount.SandboxPath)
+			}
+		}
 		if verifyErr := verifyProjectedFiles(root, target, validated); verifyErr == nil {
 			return nil
 		} else if !errors.Is(verifyErr, fs.ErrNotExist) || errors.Is(verifyErr, pkgsandbox.ErrProjectionConflict) {
@@ -468,6 +514,20 @@ func (a *Access) ProjectFiles(name string, files []pkgsandbox.ProjectedFile) err
 		published = true
 		return nil
 	})
+}
+
+func (a *Access) ProjectTempFiles(name string, files []pkgsandbox.ProjectedFile) (string, error) {
+	if a.tempDir == "." || !path.IsAbs(a.tempDir) {
+		return "", errors.New("sandbox: Session has no process-visible temporary root")
+	}
+	if !fs.ValidPath(name) || name == "." {
+		return "", fmt.Errorf("sandbox: invalid temporary projection path %q", name)
+	}
+	visible := path.Join(a.tempDir, name)
+	if err := a.ProjectFiles(visible, files); err != nil {
+		return "", err
+	}
+	return visible, nil
 }
 
 func validateProjectedFiles(files []pkgsandbox.ProjectedFile) ([]pkgsandbox.ProjectedFile, error) {

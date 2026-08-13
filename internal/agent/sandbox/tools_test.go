@@ -68,6 +68,10 @@ func (f stubFiles) ProjectFiles(string, []pkgsandbox.ProjectedFile) error {
 	return os.ErrPermission
 }
 
+func (f stubFiles) ProjectTempFiles(string, []pkgsandbox.ProjectedFile) (string, error) {
+	return "", os.ErrPermission
+}
+
 type policylessHost struct{ pkgsandbox.Session }
 
 func (s *policylessHost) Files() pkgsandbox.FileAccess { return stubFiles{host: &stubHost{}} }

@@ -18,14 +18,14 @@ func createSessionTmpMounts() ([]tmpMount, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []tmpMount{{sandboxPath: tmpDir, realPath: tmpDir, owned: true}}, nil
+	return []tmpMount{{sandboxPath: tmpDir, realPath: tmpDir, owned: true, environment: true}}, nil
 }
 
 // filesystemTempDir returns the real temporary directory from the identity
 // process-view mount, falling back to the host temporary directory safely.
 func filesystemTempDir(mounts []tmpMount) string {
 	for _, mount := range mounts {
-		if mount.sandboxPath == mount.realPath && mount.realPath != "" {
+		if mount.environment && mount.sandboxPath == mount.realPath && mount.realPath != "" {
 			return mount.realPath
 		}
 	}

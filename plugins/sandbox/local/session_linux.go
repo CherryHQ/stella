@@ -109,7 +109,7 @@ func createSessionTmpMounts() ([]tmpMount, error) {
 		return nil, err
 	}
 	return []tmpMount{
-		{sandboxPath: "/tmp", realPath: tmp, owned: true},
+		{sandboxPath: "/tmp", realPath: tmp, owned: true, environment: true},
 		{sandboxPath: "/var/tmp", realPath: varTmp, owned: true},
 	}, nil
 }

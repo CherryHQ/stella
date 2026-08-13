@@ -60,6 +60,7 @@ type tmpMount struct {
 	sandboxPath string // absolute path the agent sees (e.g. /tmp)
 	realPath    string // absolute host path backing it
 	owned       bool   // true when the session created this directory and should remove it on close
+	environment bool   // true for the one mount published as TMPDIR
 }
 
 // CreateSession creates a new localSession. The factory always sets HOME and
@@ -107,14 +108,18 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 	}
 	allMounts := append([]sessionfs.Mount(nil), providerMounts...)
 	for _, mount := range tmpMounts {
-		allMounts = append(allMounts, sessionfs.Mount{HostPath: mount.realPath, SandboxPath: mount.sandboxPath})
+		allMounts = append(allMounts, sessionfs.Mount{
+			HostPath:              mount.realPath,
+			SandboxPath:           mount.sandboxPath,
+			ResolveSymlinkAliases: filepath.Clean(mount.realPath) == filepath.Clean(mount.sandboxPath),
+		})
 	}
 	resolver, err := sessionfs.NewResolver(workingDir, allMounts)
 	if err != nil {
 		return nil, fmt.Errorf("local: open filesystem plan: %w", err)
 	}
 	s.resolver = resolver
-	s.files = sessionfs.NewAccess(resolver)
+	s.files = sessionfs.NewAccessWithTempDir(resolver, filesystemTempDir(tmpMounts))
 	policy.Filesystem.Mounts = sessionfs.PolicyMounts(allMounts)
 	s.policy = policy
 	transferredTmpOwnership = true
@@ -269,7 +274,12 @@ func providerFilesystem(policy sandboxpkg.Policy, sources map[string]string) ([]
 		}
 		visible := processVisiblePath(mount.SandboxPath, source)
 		canonical = append(canonical, sessionfs.Mount{HostPath: source, SandboxPath: mount.SandboxPath, ReadOnly: readOnly})
-		actual = append(actual, sessionfs.Mount{HostPath: source, SandboxPath: visible, ReadOnly: readOnly})
+		actual = append(actual, sessionfs.Mount{
+			HostPath:              source,
+			SandboxPath:           visible,
+			ReadOnly:              readOnly,
+			ResolveSymlinkAliases: filepath.Clean(source) == filepath.Clean(visible),
+		})
 		switch filepath.Clean(mount.SandboxPath) {
 		case sandboxpkg.MountWorkspace:
 			realRoot, sandboxRoot = source, visible
@@ -447,6 +457,15 @@ func (s *localSession) resolvePath(agentPath string) (realPath, sandboxPath stri
 	return resolved.HostPath(), resolved.SandboxPath, nil
 }
 
+func (s *localSession) invalidateFilesystemPlan(err error) error {
+	// A pinned source that disappeared or was replaced cannot be rebound into
+	// this Session safely. Mark the whole generation dead so ResilientSession
+	// can recreate a fresh resolver and fresh owned temporary directories on the
+	// next operation instead of leaving an apparently-live, permanently broken
+	// session behind.
+	return errors.Join(err, s.Close())
+}
+
 // Exec runs a shell command via sh -c on the host.
 func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
 	// Finding 5: check closed before starting. Per-exec env reads take a policy
@@ -459,7 +478,7 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local: session is closed")
 	}
 	if err := s.resolver.ValidateBackingPaths(); err != nil {
-		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: validate filesystem plan: %w", err)
+		return sandboxpkg.ExecResult{}, s.invalidateFilesystemPlan(fmt.Errorf("local exec: validate filesystem plan: %w", err))
 	}
 
 	sandboxCwd := opts.Cwd
@@ -548,7 +567,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 		return nil, fmt.Errorf("local: session is closed")
 	}
 	if err := s.resolver.ValidateBackingPaths(); err != nil {
-		return nil, fmt.Errorf("local start_process: validate filesystem plan: %w", err)
+		return nil, s.invalidateFilesystemPlan(fmt.Errorf("local start_process: validate filesystem plan: %w", err))
 	}
 
 	sandboxCwd := req.Cwd

@@ -78,13 +78,13 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 		ownedTempDir: tmpDir,
 		done:         make(chan struct{}),
 	}
-	mounts = append(mounts, sessionfs.Mount{HostPath: tmpDir, SandboxPath: tmpDir})
+	mounts = append(mounts, sessionfs.Mount{HostPath: tmpDir, SandboxPath: tmpDir, ResolveSymlinkAliases: true})
 	resolver, err := sessionfs.NewResolver(workingDir, mounts)
 	if err != nil {
 		return nil, fmt.Errorf("none: open filesystem plan: %w", err)
 	}
 	s.resolver = resolver
-	s.files = sessionfs.NewAccess(resolver)
+	s.files = sessionfs.NewAccessWithTempDir(resolver, tmpDir)
 	policy.Filesystem.Mounts = sessionfs.PolicyMounts(mounts)
 	s.policy = policy
 	transferredTempOwnership = true
@@ -132,7 +132,7 @@ func noneFilesystem(policy sandboxpkg.Policy, sources map[string]string) ([]sess
 		if err != nil {
 			return nil, "", "", "", err
 		}
-		mount := sessionfs.Mount{HostPath: host, SandboxPath: host}
+		mount := sessionfs.Mount{HostPath: host, SandboxPath: host, ResolveSymlinkAliases: true}
 		return []sessionfs.Mount{mount}, host, host, "", nil
 	}
 	canonical := make([]sessionfs.Mount, 0, len(policy.Filesystem.Mounts))
@@ -148,7 +148,7 @@ func noneFilesystem(policy sandboxpkg.Policy, sources map[string]string) ([]sess
 			continue
 		}
 		canonical = append(canonical, sessionfs.Mount{HostPath: source, SandboxPath: mount.SandboxPath, ReadOnly: readOnly})
-		identity = append(identity, sessionfs.Mount{HostPath: source, SandboxPath: source, ReadOnly: readOnly})
+		identity = append(identity, sessionfs.Mount{HostPath: source, SandboxPath: source, ReadOnly: readOnly, ResolveSymlinkAliases: true})
 		switch filepath.Clean(mount.SandboxPath) {
 		case sandboxpkg.MountWorkspace:
 			workspace = source

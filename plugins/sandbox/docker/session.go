@@ -406,10 +406,12 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		policy:       policy,
 		client:       client,
 		containerID:  containerID,
+		mountTable:   mountTable,
+		envPathMaps:  envMaps,
 		toolBinPaths: toolBinPaths,
 		ownedTempDir: tempDir,
 		resolver:     resolver,
-		files:        sessionfs.NewAccess(resolver),
+		files:        sessionfs.NewAccessWithTempDir(resolver, policy.Env[sandboxpkg.EnvTempDir]),
 		done:         make(chan struct{}),
 		traceSpan:    span,
 	}
@@ -439,6 +441,8 @@ type dockerSession struct {
 	policy       sandboxpkg.Policy
 	client       *dockerclient.Client
 	containerID  string
+	mountTable   []dockerclient.Mount
+	envPathMaps  []envPathMap
 	toolBinPaths []string
 	ownedTempDir string
 	host         *dockerHost
@@ -607,7 +611,7 @@ func (h *dockerHost) Exec(ctx context.Context, command string, opts sandboxpkg.E
 	h.session.mu.RLock()
 	policyEnv := h.session.policy.Env
 	h.session.mu.RUnlock()
-	env := injectToolPaths(mergeEnv(policyEnv, opts.Env), h.session.toolBinPaths)
+	env := dockerExecEnvironment(policyEnv, opts.Env, h.session.mountTable, h.session.envPathMaps, h.session.toolBinPaths)
 
 	timeout := opts.Timeout
 	if timeout == 0 {
@@ -652,7 +656,7 @@ func (h *dockerHost) StartProcess(ctx context.Context, req sandboxpkg.ProcessReq
 	h.session.mu.RLock()
 	policyEnv := h.session.policy.Env
 	h.session.mu.RUnlock()
-	env := injectToolPaths(mergeEnv(policyEnv, req.Env), h.session.toolBinPaths)
+	env := dockerExecEnvironment(policyEnv, req.Env, h.session.mountTable, h.session.envPathMaps, h.session.toolBinPaths)
 
 	timeout := req.Timeout
 	if timeout == 0 {

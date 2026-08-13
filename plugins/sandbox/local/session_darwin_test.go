@@ -13,7 +13,7 @@ import (
 )
 
 func TestFilesystemTempDirDarwinUsesIdentityTmpMount(t *testing.T) {
-	if got, want := filesystemTempDir([]tmpMount{{sandboxPath: "/private/var/folders/principal-tmp", realPath: "/private/var/folders/principal-tmp"}}), "/private/var/folders/principal-tmp"; got != want {
+	if got, want := filesystemTempDir([]tmpMount{{sandboxPath: "/private/var/folders/principal-tmp", realPath: "/private/var/folders/principal-tmp", environment: true}}), "/private/var/folders/principal-tmp"; got != want {
 		t.Errorf("filesystemTempDir = %q, want %q", got, want)
 	}
 	if got, want := filesystemTempDir(nil), os.TempDir(); got != want {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -735,6 +736,14 @@ func (a projectionAccess) ProjectFiles(name string, files []pkgsandbox.Projected
 		}
 	}
 	return os.Rename(stage, target)
+}
+
+func (a projectionAccess) ProjectTempFiles(name string, files []pkgsandbox.ProjectedFile) (string, error) {
+	visible := path.Join(a.session.tempVisible, name)
+	if err := a.ProjectFiles(visible, files); err != nil {
+		return "", err
+	}
+	return visible, nil
 }
 
 type resilientProjectionSession struct {

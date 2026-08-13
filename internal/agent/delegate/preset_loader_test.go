@@ -41,6 +41,10 @@ func (testPresetFiles) ProjectFiles(string, []pkgsandbox.ProjectedFile) error {
 	return fs.ErrPermission
 }
 
+func (testPresetFiles) ProjectTempFiles(string, []pkgsandbox.ProjectedFile) (string, error) {
+	return "", fs.ErrPermission
+}
+
 func writeTestFile(t *testing.T, path string, data []byte, perm os.FileMode) {
 	t.Helper()
 	if err := os.WriteFile(path, data, perm); err != nil {

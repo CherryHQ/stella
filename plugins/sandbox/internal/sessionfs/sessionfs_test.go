@@ -57,6 +57,54 @@ func TestAccessPinsMountSourceAcrossPathReplacement(t *testing.T) {
 	}
 }
 
+func TestResolverAcceptsOnlyExplicitSameNamespaceSymlinkAliases(t *testing.T) {
+	physical := t.TempDir()
+	if err := os.Mkdir(filepath.Join(physical, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(physical, "nested", "value"), []byte("alias"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(physical, alias); err != nil {
+		t.Fatal(err)
+	}
+	physicalNested := filepath.Join(physical, "nested")
+
+	strict, err := NewResolver(alias, []Mount{{HostPath: alias, SandboxPath: filepath.ToSlash(alias)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := strict.ResolveDirectory(filepath.ToSlash(physicalNested)); err == nil {
+		_ = strict.Close()
+		t.Fatal("physical alias was accepted without a same-namespace opt-in")
+	}
+	if err := strict.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	resolver, err := NewResolver(alias, []Mount{{
+		HostPath:              alias,
+		SandboxPath:           filepath.ToSlash(alias),
+		ResolveSymlinkAliases: true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = resolver.Close() })
+	resolved, err := resolver.ResolveDirectory(filepath.ToSlash(physicalNested))
+	if err != nil {
+		t.Fatalf("resolve physical spelling of same process path: %v", err)
+	}
+	if resolved.Relative != "nested" {
+		t.Fatalf("relative path = %q, want nested", resolved.Relative)
+	}
+	content, err := NewAccess(resolver).ReadFile(filepath.ToSlash(filepath.Join(physicalNested, "value")))
+	if err != nil || string(content) != "alias" {
+		t.Fatalf("alias read = %q, %v", content, err)
+	}
+}
+
 func TestAccessConfinesSymlinksAndEnforcesReadOnlyMounts(t *testing.T) {
 	writable := t.TempDir()
 	readOnly := t.TempDir()
@@ -277,6 +325,34 @@ func TestProjectFilesPublishesOneExactTreeAndRejectsPoisoning(t *testing.T) {
 	}
 	if content, err := os.ReadFile(poisoned); err != nil || string(content) != "poisoned" {
 		t.Fatalf("poisoned target was replaced: %q, %v", content, err)
+	}
+}
+
+func TestProjectTempFilesChoosesConfiguredProcessRoot(t *testing.T) {
+	root := t.TempDir()
+	resolver, err := NewResolver("/tmp", []Mount{{HostPath: root, SandboxPath: "/tmp"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = resolver.Close() })
+	access := NewAccessWithTempDir(resolver, "/tmp")
+	files := []pkgsandbox.ProjectedFile{{Path: "SKILL.md", Content: []byte("# exact\n"), Mode: 0o444}}
+	visible, err := access.ProjectTempFiles("stella-skills/digest", files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if visible != "/tmp/stella-skills/digest" {
+		t.Fatalf("visible path = %q", visible)
+	}
+	content, err := os.ReadFile(filepath.Join(root, "stella-skills", "digest", "SKILL.md"))
+	if err != nil || string(content) != "# exact\n" {
+		t.Fatalf("projected content = %q, %v", content, err)
+	}
+	if _, err := access.ProjectTempFiles("../escape", files); err == nil {
+		t.Fatal("temporary projection accepted a parent traversal")
+	}
+	if _, err := NewAccess(resolver).ProjectTempFiles("stella-skills/digest", files); err == nil {
+		t.Fatal("temporary projection succeeded without an active temporary root")
 	}
 }
 

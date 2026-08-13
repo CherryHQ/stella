@@ -498,7 +498,11 @@ func newTestSession(t *testing.T) *noneSession {
 		policy: sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: workingDir}},
 		done:   make(chan struct{}),
 	}
-	resolver, err := sessionfs.NewResolver(workingDir, []sessionfs.Mount{{HostPath: workingDir, SandboxPath: workingDir}})
+	resolver, err := sessionfs.NewResolver(workingDir, []sessionfs.Mount{{
+		HostPath:              workingDir,
+		SandboxPath:           workingDir,
+		ResolveSymlinkAliases: true,
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -107,6 +107,9 @@ func (passthroughFiles) WriteFile(name string, content []byte, mode fs.FileMode)
 	return os.WriteFile(name, content, mode)
 }
 func (passthroughFiles) ProjectFiles(string, []sandbox.ProjectedFile) error { return fs.ErrPermission }
+func (passthroughFiles) ProjectTempFiles(string, []sandbox.ProjectedFile) (string, error) {
+	return "", fs.ErrPermission
+}
 
 func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 	t.Setenv("STELLA_HOME", t.TempDir())

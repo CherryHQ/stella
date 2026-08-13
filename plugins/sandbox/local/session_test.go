@@ -156,6 +156,14 @@ func TestLocalSessionExecRejectsRemovedManagedTempDirectory(t *testing.T) {
 	if _, err := s.Exec(context.Background(), `printf unsafe > "$TMPDIR/unsafe"`, sandboxpkg.ExecOptions{}); err == nil {
 		t.Fatal("Exec accepted a removed managed temp directory")
 	}
+	if s.Alive() {
+		t.Fatal("session with an invalid backing plan remained alive")
+	}
+	select {
+	case <-s.Done():
+	default:
+		t.Fatal("invalid backing plan did not close the session generation")
+	}
 	if _, err := os.Stat(tmpDir); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("removed managed temp directory was rebound: %v", err)
 	}

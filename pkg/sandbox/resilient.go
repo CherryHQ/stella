@@ -16,10 +16,12 @@ type SessionCreator func(ctx context.Context) (Session, error)
 // ResilientSession wraps a Session and transparently recreates it when the
 // underlying session has been closed unexpectedly (e.g. container exited or
 // sandbox process crashed). Explicit Close calls are permanent — no recreation
-// after that. Recreation selection is atomic per method call, not across a
-// caller's separate Policy, WorkingDir, and Files operations. A generation-
-// scoped coordinate that becomes stale therefore fails closed; callers retry
-// the complete composed operation.
+// after that. Policy and WorkingDir are cheap snapshots of the retained
+// generation and never create a container; operational methods recreate with
+// their caller context. Selection is atomic per method call, not across a
+// caller's separate metadata and Files operations. A generation-scoped
+// coordinate that becomes stale therefore fails closed; callers retry the
+// complete composed operation.
 type ResilientSession struct {
 	create     SessionCreator
 	mu         sync.Mutex
@@ -73,24 +75,24 @@ func (r *ResilientSession) ensureAlive(ctx context.Context) (Session, error) {
 
 func (r *ResilientSession) Policy() Policy {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	s, err := r.ensureAliveLocked(context.Background())
-	if err != nil {
-		r.log.Warn("cannot read sandbox policy", "error", err)
+	s := r.inner
+	updates := maps.Clone(r.envUpdates)
+	closed := r.closed
+	r.mu.Unlock()
+	if closed || s == nil {
 		return Policy{}
 	}
 	policy := s.Policy()
-	updates := maps.Clone(r.envUpdates)
 	policy.Env = mergeEnvUpdates(policy.Env, updates)
 	return policy
 }
 
 func (r *ResilientSession) WorkingDir() string {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	s, err := r.ensureAliveLocked(context.Background())
-	if err != nil {
-		r.log.Warn("cannot read sandbox working directory", "error", err)
+	s := r.inner
+	closed := r.closed
+	r.mu.Unlock()
+	if closed || s == nil {
 		return ""
 	}
 	return s.WorkingDir()
@@ -234,4 +236,12 @@ func (a resilientFileAccess) ProjectFiles(path string, projected []ProjectedFile
 		return err
 	}
 	return files.ProjectFiles(path, projected)
+}
+
+func (a resilientFileAccess) ProjectTempFiles(path string, projected []ProjectedFile) (string, error) {
+	files, err := a.current()
+	if err != nil {
+		return "", err
+	}
+	return files.ProjectTempFiles(path, projected)
 }

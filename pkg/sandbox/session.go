@@ -104,6 +104,12 @@ type FileAccess interface {
 	Stat(path string) (FileInfo, error)
 	WriteFile(path string, content []byte, mode fs.FileMode) error
 	ProjectFiles(path string, files []ProjectedFile) error
+	// ProjectTempFiles publishes an exact tree beneath the active Session's
+	// process-visible temporary root and returns that visible absolute path.
+	// Choosing the generation, temporary root, and FileAccess capability is one
+	// operation so resilient recreation cannot combine coordinates from one
+	// generation with files from another.
+	ProjectTempFiles(path string, files []ProjectedFile) (string, error)
 }
 
 // NopSession returns a no-op session for tests that need only lifecycle or
@@ -152,3 +158,6 @@ func (deniedFileAccess) ReadDir(string) ([]DirEntry, error)          { return ni
 func (deniedFileAccess) Stat(string) (FileInfo, error)               { return FileInfo{}, fs.ErrPermission }
 func (deniedFileAccess) WriteFile(string, []byte, fs.FileMode) error { return fs.ErrPermission }
 func (deniedFileAccess) ProjectFiles(string, []ProjectedFile) error  { return fs.ErrPermission }
+func (deniedFileAccess) ProjectTempFiles(string, []ProjectedFile) (string, error) {
+	return "", fs.ErrPermission
+}

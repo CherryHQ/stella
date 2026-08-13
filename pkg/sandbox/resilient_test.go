@@ -112,6 +112,13 @@ func (directTestFileAccess) ProjectFiles(name string, files []ProjectedFile) err
 	return nil
 }
 
+func (a directTestFileAccess) ProjectTempFiles(name string, files []ProjectedFile) (string, error) {
+	if err := a.ProjectFiles(name, files); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
 type rootedTestAccess struct{ root string }
 
 func (a rootedTestAccess) resolve(name string) string { return filepath.Join(a.root, name) }
@@ -139,6 +146,13 @@ func (a rootedTestAccess) ProjectFiles(name string, files []ProjectedFile) error
 		}
 	}
 	return nil
+}
+
+func (a rootedTestAccess) ProjectTempFiles(name string, files []ProjectedFile) (string, error) {
+	if err := a.ProjectFiles(name, files); err != nil {
+		return "", err
+	}
+	return name, nil
 }
 
 func TestResilientSession_ExecUsesExistingSession(t *testing.T) {
@@ -301,56 +315,34 @@ func TestResilientSessionFileAccessRecreatesDeadInner(t *testing.T) {
 	}
 }
 
-func TestResilientSessionCoordinatesRecreateDeadInner(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		read func(*ResilientSession) string
-		want string
-	}{
-		{name: "policy", read: func(session *ResilientSession) string { return session.Policy().Env[EnvTempDir] }, want: "/new/tmp"},
-		{name: "working directory", read: func(session *ResilientSession) string { return session.WorkingDir() }, want: "/new/workspace"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			first := newMockSession()
-			first.policy.Env = map[string]string{EnvTempDir: "/old/tmp"}
-			first.workingDir = "/old/workspace"
-			second := newMockSession()
-			second.policy.Env = map[string]string{EnvTempDir: "/new/tmp"}
-			second.workingDir = "/new/workspace"
-
-			var createCount atomic.Int32
-			session := NewResilientSession(first, func(context.Context) (Session, error) {
-				createCount.Add(1)
-				return second, nil
-			})
-			if err := first.Close(); err != nil {
-				t.Fatal(err)
-			}
-			if got := test.read(session); got != test.want {
-				t.Fatalf("coordinate = %q, want %q", got, test.want)
-			}
-			if createCount.Load() != 1 {
-				t.Fatalf("create called %d times, want 1", createCount.Load())
-			}
-		})
-	}
-}
-
-func TestResilientSessionCoordinatesFailClosed(t *testing.T) {
+func TestResilientSessionMetadataGettersNeverRecreate(t *testing.T) {
 	first := newMockSession()
 	first.policy.Env = map[string]string{EnvTempDir: "/stale/tmp"}
 	first.workingDir = "/stale/workspace"
 	if err := first.Close(); err != nil {
 		t.Fatal(err)
 	}
+	var createCount atomic.Int32
+	second := newMockSession()
+	second.files = rootedTestAccess{root: t.TempDir()}
 	session := NewResilientSession(first, func(context.Context) (Session, error) {
-		return nil, errors.New("recreation failed")
+		createCount.Add(1)
+		return second, nil
 	})
-	if got := session.Policy().Env[EnvTempDir]; got != "" {
-		t.Fatalf("failed recreation exposed stale TMPDIR %q", got)
+	if got := session.Policy().Env[EnvTempDir]; got != "/stale/tmp" {
+		t.Fatalf("Policy TMPDIR = %q, want retained generation snapshot", got)
 	}
-	if got := session.WorkingDir(); got != "" {
-		t.Fatalf("failed recreation exposed stale working directory %q", got)
+	if got := session.WorkingDir(); got != "/stale/workspace" {
+		t.Fatalf("WorkingDir = %q, want retained generation snapshot", got)
+	}
+	if createCount.Load() != 0 {
+		t.Fatalf("metadata getter recreated %d sessions", createCount.Load())
+	}
+	if _, err := session.Files().Stat("value"); err == nil {
+		t.Fatal("operational access unexpectedly succeeded")
+	}
+	if createCount.Load() != 1 {
+		t.Fatalf("operational access recreated %d sessions, want 1", createCount.Load())
 	}
 }
 

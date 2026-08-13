@@ -113,7 +113,7 @@ func translateDeclaredEnvPath(value string, mountTable []dockerclient.Mount, env
 	if mapped, ok := applyEnvPathMaps(envMaps, value); ok {
 		return mapped, true
 	}
-	if isContainerPath(mountTable, value) {
+	if isContainerPath(mountTable, value) || isEnvMappedContainerPath(envMaps, value) {
 		return cleanContainerPath(value), true
 	}
 	return "", false
@@ -147,6 +147,25 @@ func applyEnvPathMaps(maps []envPathMap, hostPath string) (string, bool) {
 		return path.Join(cleanContainerPath(m.ContainerPrefix), strings.ReplaceAll(rel, "\\", "/")), true
 	}
 	return "", false
+}
+
+func isEnvMappedContainerPath(maps []envPathMap, value string) bool {
+	value = cleanContainerPath(value)
+	for _, mapping := range maps {
+		containerPrefix := cleanContainerPath(mapping.ContainerPrefix)
+		if value == containerPrefix || strings.HasPrefix(value, containerPrefix+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// dockerExecEnvironment keeps the creation-time policy in its already-rendered
+// container coordinates while applying the declared path schema and drop list
+// to every per-call override. Unknown variables remain literals by contract.
+func dockerExecEnvironment(policyEnv, overrides map[string]string, mountTable []dockerclient.Mount, envMaps []envPathMap, toolBinPaths []string) map[string]string {
+	overrides = translateEnvPaths(overrides, mountTable, envMaps)
+	return injectToolPaths(mergeEnv(policyEnv, overrides), toolBinPaths)
 }
 
 // containerDefaultPATH is the image-baked PATH from the Dockerfile ENV directive.

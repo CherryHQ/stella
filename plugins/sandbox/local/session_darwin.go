@@ -62,16 +62,16 @@ func createSessionTmpMounts() ([]tmpMount, error) {
 		return nil, err
 	}
 	return []tmpMount{
-		{sandboxPath: tmp, realPath: tmp, owned: true},
+		{sandboxPath: tmp, realPath: tmp, owned: true, environment: true},
 		{sandboxPath: varTmp, realPath: varTmp, owned: true},
 	}, nil
 }
 
 // filesystemTempDir returns the macOS process view: Seatbelt has no path
-// remapping, so TMPDIR names the first session-private identity mount.
+// remapping, so TMPDIR names the designated session-private identity mount.
 func filesystemTempDir(mounts []tmpMount) string {
 	for _, mount := range mounts {
-		if mount.sandboxPath != "" && mount.sandboxPath == mount.realPath {
+		if mount.environment && mount.sandboxPath != "" && mount.sandboxPath == mount.realPath {
 			return mount.sandboxPath
 		}
 	}

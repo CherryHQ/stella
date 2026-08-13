@@ -77,7 +77,6 @@ func (t *Tool) WithProjectSnapshot(snapshot *ProjectSnapshot) *Tool {
 var errSkillNotFound = errors.New("skill not found")
 
 type sandboxSession interface {
-	Policy() pkgsandbox.Policy
 	Files() pkgsandbox.FileAccess
 }
 
@@ -380,11 +379,7 @@ func (t *Tool) projectSkill(projection immutableSkillProjection) (string, error)
 	if !validInventoryComponent(projection.kind) || !validInventoryComponent(projection.id) || !validSkillDigest(projection.digest) || len(projection.files) == 0 {
 		return "", ErrInvalidSkillRevision
 	}
-	policyTemp := t.session.Policy().Env[pkgsandbox.EnvTempDir]
-	if policyTemp == "" || !path.IsAbs(policyTemp) || path.Clean(policyTemp) != policyTemp {
-		return "", errors.New("sandbox Session has no TMPDIR")
-	}
-	visible := path.Join(policyTemp, "stella-skills", projection.kind, projection.id, projection.digest)
+	relative := path.Join("stella-skills", projection.kind, projection.id, projection.digest)
 	projected := make([]pkgsandbox.ProjectedFile, 0, len(projection.files))
 	for _, file := range projection.files {
 		projected = append(projected, pkgsandbox.ProjectedFile{Path: file.path, Content: file.content, Mode: file.mode})
@@ -393,11 +388,15 @@ func (t *Tool) projectSkill(projection immutableSkillProjection) (string, error)
 	// on every load, but it is not an isolation boundary from same-UID commands.
 	// A concurrent command can race that verification or modify the copy later;
 	// any mismatch the next load observes fails closed instead of replacing it.
-	if err := t.session.Files().ProjectFiles(visible, projected); err != nil {
+	visible, err := t.session.Files().ProjectTempFiles(relative, projected)
+	if err != nil {
 		if errors.Is(err, pkgsandbox.ErrProjectionConflict) {
 			return "", errors.Join(ErrInvalidSkillRevision, err)
 		}
 		return "", err
+	}
+	if !path.IsAbs(visible) || path.Clean(visible) != visible {
+		return "", errors.New("sandbox Session returned an invalid projection path")
 	}
 	return visible, nil
 }

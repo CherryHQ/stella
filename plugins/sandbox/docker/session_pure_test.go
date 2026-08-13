@@ -198,6 +198,40 @@ func TestInjectToolPaths_NoOpWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestDockerExecEnvironmentFiltersAndTranslatesPerCallOverrides(t *testing.T) {
+	mountTable := []dockerclient.Mount{
+		{HostPath: "/host/workspace", ContainerPath: "/workspace"},
+		{HostPath: "/host/tmp", ContainerPath: "/tmp"},
+	}
+	envMaps := []envPathMap{{HostPrefix: "/host/stella", ContainerPrefix: "/opt/stella"}}
+	got := dockerExecEnvironment(
+		map[string]string{"HOME": "/workspace", "STELLA_HOME": "/opt/stella", "POLICY": "kept"},
+		map[string]string{
+			"PATH":        "/host/bin:/usr/bin",
+			"TMPDIR":      "/host/tmp/nested",
+			"STELLA_HOME": "/host/stella/revision",
+			"LITERAL":     "/host/workspace/not-a-declared-path",
+		},
+		mountTable,
+		envMaps,
+		nil,
+	)
+	for key, want := range map[string]string{
+		"HOME":        "/workspace",
+		"TMPDIR":      "/tmp/nested",
+		"STELLA_HOME": "/opt/stella/revision",
+		"LITERAL":     "/host/workspace/not-a-declared-path",
+		"POLICY":      "kept",
+	} {
+		if got[key] != want {
+			t.Errorf("%s = %q, want %q", key, got[key], want)
+		}
+	}
+	if _, ok := got["PATH"]; ok {
+		t.Fatalf("host PATH reached docker exec: %q", got["PATH"])
+	}
+}
+
 func TestPrepareSessionTempDir(t *testing.T) {
 	stellaHome := t.TempDir()
 	for _, tt := range []struct {
