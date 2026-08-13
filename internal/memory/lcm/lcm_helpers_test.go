@@ -902,7 +902,11 @@ func TestSanitizeToolPairs_MergesParallelAssistantCalls(t *testing.T) {
 	resultB := ai.ToolResultMessage{ToolCallID: "call-b", ToolName: "search", Content: []ai.ContentBlock{ai.TextContent{Text: "b"}}}
 
 	got := sanitizeToolPairs([]ai.Message{
-		ai.AssistantMessage{Content: []ai.ContentBlock{callA}},
+		ai.AssistantMessage{Content: []ai.ContentBlock{
+			ai.ThinkingContent{Thinking: "checking both sources"},
+			ai.TextContent{Text: "running searches"},
+			callA,
+		}},
 		ai.AssistantMessage{Content: []ai.ContentBlock{callB}},
 		resultA,
 		resultB,
@@ -914,14 +918,122 @@ func TestSanitizeToolPairs_MergesParallelAssistantCalls(t *testing.T) {
 	if !ok {
 		t.Fatalf("message 0 = %T, want ai.AssistantMessage", got[0])
 	}
-	if len(assistant.Content) != 2 {
-		t.Fatalf("assistant blocks = %d, want 2", len(assistant.Content))
+	if len(assistant.Content) != 4 {
+		t.Fatalf("assistant blocks = %d, want thinking, text, and 2 calls", len(assistant.Content))
 	}
 	for i, wantID := range []string{"call-a", "call-b"} {
-		call, ok := assistant.Content[i].(ai.ToolCall)
+		call, ok := assistant.Content[i+2].(ai.ToolCall)
 		if !ok || call.ID != wantID {
-			t.Fatalf("tool call %d = %#v, want %s", i, assistant.Content[i], wantID)
+			t.Fatalf("tool call %d = %#v, want %s", i, assistant.Content[i+2], wantID)
 		}
+	}
+}
+
+func TestSanitizeToolPairs_PreservesSeparateOrdinaryAssistantMessages(t *testing.T) {
+	// Separate runtime appends can be adjacent in storage, for example an
+	// interrupted partial response followed by the timeout notice. Adjacency
+	// alone must not collapse those two user-visible messages into one turn.
+	got := sanitizeToolPairs([]ai.Message{
+		ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "partial response"}}},
+		ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "timeout notice"}}},
+	})
+	if len(got) != 2 {
+		t.Fatalf("ordinary assistant messages = %d, want 2", len(got))
+	}
+	for i, want := range []string{"partial response", "timeout notice"} {
+		assistant, ok := got[i].(ai.AssistantMessage)
+		if !ok || ai.FlattenText(assistant.Content) != want {
+			t.Fatalf("assistant %d = %#v, want %q", i, got[i], want)
+		}
+	}
+}
+
+func TestSanitizeToolPairs_DropsInvalidCallIDGroups(t *testing.T) {
+	tests := []struct {
+		name     string
+		messages []ai.Message
+	}{
+		{
+			name: "empty ID",
+			messages: []ai.Message{
+				ai.AssistantMessage{Content: []ai.ContentBlock{
+					ai.ThinkingContent{Thinking: "safe thinking"},
+					ai.TextContent{Text: "safe text"},
+					ai.ToolCall{ID: "", Name: "search"},
+				}},
+				ai.ToolResultMessage{ToolCallID: "", ToolName: "search", Content: []ai.ContentBlock{ai.TextContent{Text: "unsafe"}}},
+			},
+		},
+		{
+			name: "duplicate call ID",
+			messages: []ai.Message{
+				ai.AssistantMessage{Content: []ai.ContentBlock{
+					ai.ThinkingContent{Thinking: "safe thinking"},
+					ai.TextContent{Text: "safe text"},
+					ai.ToolCall{ID: "duplicate", Name: "search", Arguments: map[string]any{"query": "first"}},
+					ai.ToolCall{ID: "duplicate", Name: "search", Arguments: map[string]any{"query": "second"}},
+				}},
+				ai.ToolResultMessage{ToolCallID: "duplicate", ToolName: "search", Content: []ai.ContentBlock{ai.TextContent{Text: "first result"}}},
+				ai.ToolResultMessage{ToolCallID: "duplicate", ToolName: "search", Content: []ai.ContentBlock{ai.TextContent{Text: "second result"}}, IsError: true},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sanitizeToolPairs(tt.messages)
+			if len(got) != 1 {
+				t.Fatalf("sanitized messages = %d, want safe assistant only", len(got))
+			}
+			assistant, ok := got[0].(ai.AssistantMessage)
+			if !ok || ai.FlattenText(assistant.Content) != "safe text" || len(assistant.Content) != 2 {
+				t.Fatalf("safe assistant content = %#v", got[0])
+			}
+			if thinking, ok := assistant.Content[0].(ai.ThinkingContent); !ok || thinking.Thinking != "safe thinking" {
+				t.Fatalf("safe thinking content = %#v", assistant.Content)
+			}
+			for _, message := range ai.TransformMessages(got) {
+				switch value := message.(type) {
+				case ai.AssistantMessage:
+					for _, block := range value.Content {
+						if _, isCall := block.(ai.ToolCall); isCall {
+							t.Fatalf("provider input retained invalid call: %#v", block)
+						}
+					}
+				case ai.ToolResultMessage:
+					t.Fatalf("provider input retained invalid result: %#v", value)
+				}
+			}
+		})
+	}
+}
+
+func TestSanitizeToolPairs_DropsOnlyDuplicateIDGroup(t *testing.T) {
+	got := sanitizeToolPairs([]ai.Message{
+		ai.AssistantMessage{Content: []ai.ContentBlock{
+			ai.TextContent{Text: "safe text"},
+			ai.ToolCall{ID: "duplicate", Name: "search", Arguments: map[string]any{"query": "first"}},
+			ai.ToolCall{ID: "duplicate", Name: "search", Arguments: map[string]any{"query": "second"}},
+			ai.ToolCall{ID: "valid", Name: "search", Arguments: map[string]any{"query": "valid"}},
+		}},
+		ai.ToolResultMessage{ToolCallID: "duplicate", ToolName: "search", Content: []ai.ContentBlock{ai.TextContent{Text: "first result"}}},
+		ai.ToolResultMessage{ToolCallID: "duplicate", ToolName: "search", Content: []ai.ContentBlock{ai.TextContent{Text: "second result"}}, IsError: true},
+		ai.ToolResultMessage{ToolCallID: "valid", ToolName: "search", Content: []ai.ContentBlock{ai.TextContent{Text: "valid result"}}},
+	})
+	if len(got) != 2 {
+		t.Fatalf("sanitized messages = %#v, want assistant and valid result", got)
+	}
+	assistant, ok := got[0].(ai.AssistantMessage)
+	if !ok || len(assistant.Content) != 2 {
+		t.Fatalf("sanitized assistant = %#v", got[0])
+	}
+	call, ok := assistant.Content[1].(ai.ToolCall)
+	if !ok || call.ID != "valid" {
+		t.Fatalf("remaining tool call = %#v, want valid", assistant.Content[1])
+	}
+	result, ok := got[1].(ai.ToolResultMessage)
+	if !ok || result.ToolCallID != "valid" || result.IsError {
+		t.Fatalf("remaining tool result = %#v, want valid success", got[1])
 	}
 }
 

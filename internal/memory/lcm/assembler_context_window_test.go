@@ -194,6 +194,8 @@ func TestAssembleParallelToolCallsRemainOneAssistantTurn(t *testing.T) {
 			}
 
 			appendMessage(roleUser, eventTypeText, "look up both values")
+			appendMessage(roleAssistant, eventTypeThinking, "checking both sources")
+			appendMessage(roleAssistant, eventTypeText, "running searches")
 			for _, call := range []toolCallEnvelope{
 				{ID: "call-a", Tool: "search", Args: json.RawMessage(`{"query":"a"}`)},
 				{ID: "call-b", Tool: "search", Args: json.RawMessage(`{"query":"b"}`)},
@@ -232,19 +234,128 @@ func TestAssembleParallelToolCallsRemainOneAssistantTurn(t *testing.T) {
 			if !ok {
 				t.Fatalf("parallel tool turn = %T, want ai.AssistantMessage", got[1])
 			}
-			if len(assistant.Content) != 2 {
-				t.Fatalf("parallel tool blocks = %d, want 2: %#v", len(assistant.Content), assistant.Content)
+			if len(assistant.Content) != 4 {
+				t.Fatalf("parallel tool blocks = %d, want thinking, text, and 2 calls: %#v", len(assistant.Content), assistant.Content)
 			}
 			for i, wantID := range []string{"call-a", "call-b"} {
-				call, ok := assistant.Content[i].(ai.ToolCall)
+				call, ok := assistant.Content[i+2].(ai.ToolCall)
 				if !ok || call.ID != wantID {
-					t.Fatalf("tool call %d = %#v, want %s", i, assistant.Content[i], wantID)
+					t.Fatalf("tool call %d = %#v, want %s", i, assistant.Content[i+2], wantID)
 				}
 			}
 			for i, wantID := range []string{"call-a", "call-b"} {
 				result, ok := got[i+2].(ai.ToolResultMessage)
 				if !ok || result.ToolCallID != wantID {
 					t.Fatalf("tool result %d = %#v, want %s", i, got[i+2], wantID)
+				}
+			}
+		})
+	}
+}
+
+func TestAssembleKeepsAdjacentOrdinaryAssistantMessagesSeparate(t *testing.T) {
+	db := newAssemblerTestDB(t)
+	defer db.Close()
+
+	ctx := context.Background()
+	q := sqlc.New(db)
+	convID := uuid.NewString()
+	if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind) VALUES ($1, $2, 'test', 'chat')`, convID, uuid.NewString()); err != nil {
+		t.Fatalf("insert conversation: %v", err)
+	}
+	for i, content := range []string{"partial response", "timeout notice"} {
+		id := uuid.NewString()
+		seq := int64(i + 1)
+		if _, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
+			ID: id, ConversationID: convID, Seq: seq, Role: roleAssistant,
+			EventType: eventTypeText, Content: content, ActorType: string(eventlog.ActorAgent),
+			TokenCount: int64(memoryEstimate(content)),
+		}); err != nil {
+			t.Fatalf("create assistant message: %v", err)
+		}
+		if err := q.AppendContextItem(ctx, sqlc.AppendContextItemParams{
+			ConversationID: convID, Ordinal: seq, ItemType: itemTypeMessage,
+			MessageID: pgtype.Text{String: id, Valid: true}, EventType: eventTypeText, Role: roleAssistant,
+		}); err != nil {
+			t.Fatalf("append assistant item: %v", err)
+		}
+	}
+
+	got, err := newAssembler(q, nil).assemble(ctx, convID, 100_000, 1)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("assembled ordinary assistant messages = %d, want 2", len(got))
+	}
+	for i, want := range []string{"partial response", "timeout notice"} {
+		assistant, ok := got[i].(ai.AssistantMessage)
+		if !ok || ai.FlattenText(assistant.Content) != want {
+			t.Fatalf("assistant %d = %#v, want %q", i, got[i], want)
+		}
+	}
+}
+
+func TestAssembleDropsEmptyToolCallIDBeforeProviderReplay(t *testing.T) {
+	for _, appendNext := range []bool{false, true} {
+		name := "fresh tail"
+		if appendNext {
+			name = "older budget history"
+		}
+		t.Run(name, func(t *testing.T) {
+			db := newAssemblerTestDB(t)
+			defer db.Close()
+
+			ctx := context.Background()
+			q := sqlc.New(db)
+			convID := uuid.NewString()
+			if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind) VALUES ($1, $2, 'test', 'chat')`, convID, uuid.NewString()); err != nil {
+				t.Fatalf("insert conversation: %v", err)
+			}
+			ordinal := int64(0)
+			appendMessage := func(role, eventType, content string) {
+				t.Helper()
+				ordinal++
+				id := uuid.NewString()
+				if _, err := q.CreateMessage(ctx, sqlc.CreateMessageParams{
+					ID: id, ConversationID: convID, Seq: ordinal, Role: role,
+					EventType: eventType, Content: content, ActorType: string(eventlog.ActorAgent),
+					TokenCount: int64(memoryEstimate(content)),
+				}); err != nil {
+					t.Fatalf("create message: %v", err)
+				}
+				if err := q.AppendContextItem(ctx, sqlc.AppendContextItemParams{
+					ConversationID: convID, Ordinal: ordinal, ItemType: itemTypeMessage,
+					MessageID: pgtype.Text{String: id, Valid: true}, EventType: eventType, Role: role,
+				}); err != nil {
+					t.Fatalf("append context item: %v", err)
+				}
+			}
+
+			appendMessage(roleUser, eventTypeText, "run malformed tool")
+			call, _ := json.Marshal(toolCallEnvelope{ID: "", Tool: "search", Args: json.RawMessage(`{"query":"unsafe"}`)})
+			appendMessage(roleAssistant, eventTypeToolCall, string(call))
+			result, _ := json.Marshal(toolResultEnvelope{ID: "", Tool: "search", Result: json.RawMessage(`"unsafe result"`)})
+			appendMessage(roleTool, eventTypeToolResult, string(result))
+			appendMessage(roleAssistant, eventTypeText, "safe final answer")
+			if appendNext {
+				appendMessage(roleUser, eventTypeText, "next turn")
+			}
+
+			got, err := newAssembler(q, nil).assemble(ctx, convID, 100_000, 1)
+			if err != nil {
+				t.Fatalf("assemble: %v", err)
+			}
+			for _, message := range ai.TransformMessages(got) {
+				switch value := message.(type) {
+				case ai.AssistantMessage:
+					for _, block := range value.Content {
+						if call, isCall := block.(ai.ToolCall); isCall {
+							t.Fatalf("provider replay retained malformed call: %#v", call)
+						}
+					}
+				case ai.ToolResultMessage:
+					t.Fatalf("provider replay retained malformed result: %#v", value)
 				}
 			}
 		})
