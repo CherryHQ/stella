@@ -79,6 +79,9 @@ func TestResolvePaths_projectRootSymlink(t *testing.T) {
 
 func TestResolvePathsAcceptsOnlyExactAuthorizedRoots(t *testing.T) {
 	userRoot := t.TempDir()
+	// ResolvePaths compares fully resolved paths, and macOS hands out temp dirs
+	// under the /var -> /private/var symlink. Resolve here like the tests above.
+	userRoot, _ = filepath.EvalSymlinks(userRoot)
 	workspace := filepath.Join(userRoot, "agents", "agent")
 	data := filepath.Join(userRoot, "data")
 	for _, dir := range []string{workspace, data} {
