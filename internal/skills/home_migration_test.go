@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -288,7 +287,7 @@ func TestSkillHomeMigrationCompletedVerificationHonorsCurrentAuthorityAndOwnerDe
 	}
 }
 
-func TestSkillHomeMigrationCompletedVerificationRejectsDifferentCurrentRevision(t *testing.T) {
+func TestSkillHomeMigrationCompletedVerificationAllowsManagedUpdate(t *testing.T) {
 	f := newSkillMigrationFixture(t)
 	f.insertLegacySkill(t, "changed-current", "user_agent", false)
 	applySkillMigration(t, f)
@@ -300,16 +299,20 @@ func TestSkillHomeMigrationCompletedVerificationRejectsDifferentCurrentRevision(
 	if err != nil {
 		t.Fatal(err)
 	}
-	after := before.Skill
-	after.Description = "valid second revision"
-	after.Version++
-	after.UpdatedAt = after.UpdatedAt.Add(time.Nanosecond)
-	published, err := f.migrator.store.publish(t.Context(), after, before.Files, before.Skill.ContentDigest, false)
-	if err != nil || published.Skill.ContentDigest == before.Skill.ContentDigest {
-		t.Fatalf("publish second current revision = %q, %v", published.Skill.ContentDigest, err)
+	description := "valid managed update"
+	updated, err := f.migrator.store.UpdateManagedSkill(t.Context(), ManagedSkillUpdate{
+		ID:             before.Skill.ID,
+		UserID:         before.Skill.UserID,
+		AgentID:        before.Skill.AgentID,
+		Scope:          before.Skill.Scope,
+		Patch:          UpdatePatch{Description: &description},
+		ExpectedDigest: before.Skill.ContentDigest,
+	})
+	if err != nil || updated.Skill.ContentDigest == before.Skill.ContentDigest {
+		t.Fatalf("managed update = %q, %v", updated.Skill.ContentDigest, err)
 	}
-	if err := f.migrator.EnsureReady(t.Context()); err == nil || !strings.Contains(err.Error(), "verify current Skill") {
-		t.Fatalf("different live current authority = %v", err)
+	if err := f.migrator.EnsureReady(t.Context()); err != nil {
+		t.Fatalf("completed verification after managed update: %v", err)
 	}
 }
 

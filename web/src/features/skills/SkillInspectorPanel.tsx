@@ -32,6 +32,10 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "@/components/ui/tooltip";
 import { SkillFilePreview } from "@/features/sessions/SkillFilePreview";
 import { SkillGlyph } from "@/features/skills/SkillGlyph";
 import {
+  refreshSkillMutationBaseline,
+  skillMutationDigest,
+} from "@/features/skills/skill-mutation-baseline";
+import {
   deleteAgentSkill,
   getAgentSkill,
   getAgentSkillFile,
@@ -108,8 +112,15 @@ export function SkillInspectorPanel({
   const canUpgrade = !readOnly && isUpdatableSource(skill.source);
   const scoped = skill.scope === "project";
   const ready = !scoped || !!sessionId;
+  const detailQueryKey = [
+    "agent-skill",
+    agentId,
+    sessionId ?? "",
+    skill.scope,
+    skill.id,
+  ] as const;
   const detail = useQuery({
-    queryKey: ["agent-skill", agentId, sessionId ?? "", skill.scope, skill.id],
+    queryKey: detailQueryKey,
     queryFn: async () =>
       (
         await getAgentSkill({
@@ -124,6 +135,7 @@ export function SkillInspectorPanel({
     enabled: ready,
   });
   const files = detail.data?.files ?? skill.files ?? [];
+  const currentDigest = skillMutationDigest(skill, detail.data);
 
   useEffect(() => {
     setDescription(skill.description ?? "");
@@ -133,25 +145,22 @@ export function SkillInspectorPanel({
     setViewer(null);
   }, [skill]);
 
-  function invalidateSkillQueries() {
+  function invalidateSkillList() {
     void queryClient.invalidateQueries({ queryKey: ["agent-skills", agentId] });
-    void queryClient.invalidateQueries({
-      queryKey: ["agent-skill", agentId, sessionId ?? "", skill.scope, skill.id],
-    });
   }
 
   async function save() {
     // Keep the conversion decision stable while local form state is reset after saving.
     const shouldConvertToManual = convertToManual;
     try {
-      await updateAgentSkill({
+      const response = await updateAgentSkill({
         path: { id: agentId, skillId: skill.id },
         query: {
           scope: skill.scope as SkillScope,
           ...(sessionId ? { session_id: sessionId } : {}),
         },
         body: {
-          expected_digest: detail.data?.content_digest ?? skill.content_digest,
+          expected_digest: currentDigest,
           description,
           disable_model_invocation: !modelEnabled,
           version,
@@ -159,8 +168,13 @@ export function SkillInspectorPanel({
         },
         throwOnError: true,
       });
+      await refreshSkillMutationBaseline(
+        queryClient,
+        detailQueryKey,
+        response.data as Skill | undefined,
+      );
       notify(t("sessions.skillsList.saved"), "success");
-      invalidateSkillQueries();
+      invalidateSkillList();
       if (shouldConvertToManual) onClose();
     } catch (error) {
       notify(apiErrorMessage(error, t("common.error")), "error");
@@ -174,7 +188,7 @@ export function SkillInspectorPanel({
         path: { id: agentId, skillId: skill.id },
         query: {
           scope: skill.scope as SkillScope,
-          expected_digest: (detail.data?.content_digest ?? skill.content_digest)!,
+          expected_digest: currentDigest!,
         },
         throwOnError: true,
       });
@@ -183,7 +197,8 @@ export function SkillInspectorPanel({
           t("sessions.skillsList.upgradeDone", { version: res.data.version ?? "" }),
           "success",
         );
-        invalidateSkillQueries();
+        await queryClient.refetchQueries({ queryKey: detailQueryKey, exact: true });
+        invalidateSkillList();
       } else {
         notify(t("sessions.skillsList.upgradeUpToDate"), "success");
       }
@@ -201,7 +216,7 @@ export function SkillInspectorPanel({
         query: {
           scope: skill.scope as SkillScope,
           ...(sessionId ? { session_id: sessionId } : {}),
-          ...(skill.content_digest ? { expected_digest: skill.content_digest } : {}),
+          ...(currentDigest ? { expected_digest: currentDigest } : {}),
         },
         throwOnError: true,
       });
@@ -224,6 +239,7 @@ export function SkillInspectorPanel({
         agentId={agentId}
         sessionId={sessionId}
         skill={skill}
+        contentDigest={currentDigest}
         path={viewer}
         readOnly={readOnly}
         notify={notify}
@@ -422,6 +438,7 @@ function SkillFileView({
   agentId,
   sessionId,
   skill,
+  contentDigest,
   path,
   readOnly,
   notify,
@@ -431,6 +448,7 @@ function SkillFileView({
   agentId: string;
   sessionId?: string;
   skill: Skill;
+  contentDigest?: string;
   path: string;
   readOnly: boolean;
   notify: SkillNotify;
@@ -477,19 +495,24 @@ function SkillFileView({
     // Keep the conversion decision stable while local editor state is reset after saving.
     const shouldConvertToManual = convertToManual;
     try {
-      await updateAgentSkill({
+      const response = await updateAgentSkill({
         path: { id: agentId, skillId: skill.id },
         query: {
           scope: skill.scope as SkillScope,
           ...(sessionId ? { session_id: sessionId } : {}),
         },
         body: {
-          expected_digest: skill.content_digest,
+          expected_digest: contentDigest,
           files: { [path]: draft },
           ...(shouldConvertToManual ? { convert_to_manual: true } : {}),
         },
         throwOnError: true,
       });
+      await refreshSkillMutationBaseline(
+        queryClient,
+        ["agent-skill", agentId, sessionId ?? "", skill.scope, skill.id],
+        response.data as Skill | undefined,
+      );
       setEditing(false);
       setConvertToManual(false);
       notify(t("sessions.skillsList.saved"), "success");
