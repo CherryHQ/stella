@@ -58,6 +58,11 @@ func (m *rotatingMemory) SaveInfo(_ context.Context, info memory.SessionInfo) er
 	return nil
 }
 
+func (m *rotatingMemory) ArchiveInfo(_ context.Context, _ memory.SessionInfo) (bool, error) {
+	m.archive()
+	return true, nil
+}
+
 // TouchActiveInfo mirrors the guarded UPDATE: matching an active row and writing
 // it are one step, so nothing an archive committed in between can be replayed.
 func (m *rotatingMemory) TouchActiveInfo(_ context.Context, info memory.SessionInfo) (bool, error) {

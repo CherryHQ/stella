@@ -306,6 +306,7 @@ JOIN ctx_conversation c ON c.id = m.conversation_id
 WHERE m.id = $1
   AND c.user_id = $2
   AND c.agent_id IS NOT DISTINCT FROM $3
+  AND c.archived = false
 `
 
 type GetMessageScopedParams struct {
@@ -712,8 +713,10 @@ func (q *Queries) ListMessagesByLogicalPage(ctx context.Context, arg ListMessage
 const listMessagesNeedingEmbedding = `-- name: ListMessagesNeedingEmbedding :many
 SELECT m.id, m.content, e.model AS embedded_model, e.content_hash AS embedded_hash
 FROM ctx_message m
+JOIN ctx_conversation c ON c.id = m.conversation_id
 LEFT JOIN ctx_message_embedding e ON e.message_id = m.id
-WHERE e.message_id IS NULL OR e.model <> $1
+WHERE c.archived = false
+  AND (e.message_id IS NULL OR e.model <> $1)
 ORDER BY m.created_at DESC
 LIMIT $2
 `
@@ -905,27 +908,40 @@ func (q *Queries) ListSessionTranscriptPage(ctx context.Context, arg ListSession
 }
 
 const searchMessageEmbeddings = `-- name: SearchMessageEmbeddings :many
+WITH candidates AS MATERIALIZED (
+    SELECT
+        e.message_id,
+        e.embedding,
+        m.created_at
+    FROM ctx_message_embedding e
+    JOIN ctx_message m ON m.id = e.message_id
+    JOIN ctx_conversation c ON c.id = m.conversation_id
+    WHERE e.model = $3
+      AND c.user_id = $4
+      AND c.agent_id IS NOT DISTINCT FROM $5
+      AND c.archived = false
+      -- Old deployments may already contain zero sidecars, which have no
+      -- cosine direction and otherwise produce NaN distances under exact KNN.
+      AND vector_norm(e.embedding) > 0
+)
 SELECT
     m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at, m.actor_type, m.actor_id, m.source_session_id, m.inbox_id,
     c.session_id AS session_id,
     c.title AS conversation_title,
     (1 - (e.embedding <=> $1::vector(1536)))::double precision AS score
-FROM ctx_message_embedding e
+FROM candidates e
 JOIN ctx_message m ON m.id = e.message_id
 JOIN ctx_conversation c ON c.id = m.conversation_id
-WHERE e.model = $2
-  AND c.user_id = $3
-  AND c.agent_id IS NOT DISTINCT FROM $4
-ORDER BY e.embedding <=> $1::vector(1536), m.created_at DESC, m.id DESC
-LIMIT $5
+ORDER BY e.embedding <=> $1::vector(1536), e.created_at DESC, e.message_id DESC
+LIMIT $2
 `
 
 type SearchMessageEmbeddingsParams struct {
 	Query   pgvector_go.Vector `json:"query"`
+	Limit   int32              `json:"limit"`
 	Model   string             `json:"model"`
 	UserID  pgtype.Text        `json:"user_id"`
 	AgentID pgtype.Text        `json:"agent_id"`
-	Limit   int32              `json:"limit"`
 }
 
 type SearchMessageEmbeddingsRow struct {
@@ -946,19 +962,18 @@ type SearchMessageEmbeddingsRow struct {
 	Score             float64     `json:"score"`
 }
 
-// Vector KNN over message embeddings, scoped to (user_id, agent_id) across every
-// session like SearchMessages. WHERE model pins the query to a single vector
-// space so a vector produced by a different model never matches; ORDER BY the
-// <=> operator lets the HNSW cosine index drive the scan. score is cosine
-// similarity (1 - distance), higher is better, matching the BM25 lane's score
-// orientation for fusion. created_at, id break ties deterministically.
+// Exact KNN over the complete authorized candidate set. Materializing scope,
+// archive, and model filters before ordering deliberately prevents a global
+// approximate index walk from dropping legal rows behind foreign candidates.
+// The complete SQL order makes every LIMIT deterministic, including distance
+// ties, before the Go fusion layer sees the results.
 func (q *Queries) SearchMessageEmbeddings(ctx context.Context, arg SearchMessageEmbeddingsParams) ([]SearchMessageEmbeddingsRow, error) {
 	rows, err := q.db.Query(ctx, searchMessageEmbeddings,
 		arg.Query,
+		arg.Limit,
 		arg.Model,
 		arg.UserID,
 		arg.AgentID,
-		arg.Limit,
 	)
 	if err != nil {
 		return nil, err
@@ -1006,6 +1021,7 @@ JOIN ctx_conversation c ON c.id = m.conversation_id
 WHERE m.id @@@ paradedb.match('content', $1::text)
   AND c.user_id = $2
   AND c.agent_id IS NOT DISTINCT FROM $3
+  AND c.archived = false
 ORDER BY score DESC, m.created_at DESC, m.id DESC
 LIMIT $4
 `
@@ -1036,8 +1052,8 @@ type SearchMessagesRow struct {
 	Score             float64     `json:"score"`
 }
 
-// Spans every conversation of the current (user_id, agent_id) so memory recall
-// survives across sessions. Joins ctx_conversation to pin the scope and surface
+// Spans every active conversation of the current (user_id, agent_id). Joins
+// ctx_conversation to pin the scope and surface
 // provenance (session_id, title). Global ORDER BY score + LIMIT keeps the best
 // matches across the merged corpus, not per-conversation truncations. Lexical
 // ranking is pg_search BM25; paradedb.match tokenizes the raw user text with the

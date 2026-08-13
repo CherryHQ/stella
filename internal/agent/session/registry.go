@@ -203,8 +203,14 @@ func (r *Registry) Archive(ctx context.Context, scope Scope, id string) error {
 	if err != nil {
 		return err
 	}
-	info.Archived = true
-	return r.store.save(ctx, info)
+	applied, err := r.store.archive(ctx, info)
+	if err != nil {
+		return err
+	}
+	if !applied {
+		return fmt.Errorf("%w: %s", ErrArchived, id)
+	}
+	return nil
 }
 
 // ResolveMain returns the main session for a user+agent pair.
@@ -235,8 +241,9 @@ func (r *Registry) ResolveMain(ctx context.Context, req MainRequest) (Info, erro
 
 // RotateMain archives the user's current main session and returns its
 // successor, so the next turn starts with an empty context while the old
-// session stays searchable. The archive and the create are one store-level
-// transaction: the binding is never left without an active main.
+// session remains stored but leaves the recall corpus. The archive and the
+// create are one store-level transaction: the binding is never left without an
+// active main.
 //
 // When req.ExpectedSessionID is set it must still be the current main;
 // otherwise the rotation is stale (another /new already ran) and reports
@@ -278,46 +285,56 @@ func (r *Registry) RotateMain(ctx context.Context, req MainRequest) (Info, error
 // already exists: an active main-kind session, or the most recent promotable
 // chat candidate. Callers must hold the per-(agent,user) main lock.
 func (r *Registry) currentMainLocked(ctx context.Context, userID, agentID string) (Info, bool, error) {
-	mains, err := r.store.list(ctx, userID, agentID, memory.ListOptions{
-		Kind:            string(KindMain),
-		UserID:          userID,
-		AgentID:         agentID,
-		ProjectIDIsNull: true,
-	})
-	if err == nil {
-		for _, info := range mains {
-			return info, true, nil
+	// Archive runs outside mainMu. If it wins after list but before a legacy
+	// promotion save, the store's active-row CAS returns ErrInactiveSession.
+	// Re-resolve once while keeping this keyed lock so the same request selects
+	// the new active row or creates one instead of surfacing a transient 404.
+	for attempt := range 2 {
+		mains, err := r.store.list(ctx, userID, agentID, memory.ListOptions{
+			Kind:            string(KindMain),
+			UserID:          userID,
+			AgentID:         agentID,
+			ProjectIDIsNull: true,
+		})
+		if err == nil {
+			for _, info := range mains {
+				return info, true, nil
+			}
 		}
-	}
 
-	// No main session: look for the most recent chat candidate.
-	candidates, err := r.store.list(ctx, userID, agentID, memory.ListOptions{
-		UserID:  userID,
-		AgentID: agentID,
-	})
-	if err != nil {
-		candidates = nil
-	}
-
-	var best *Info
-	for i := range candidates {
-		c := &candidates[i]
-		if !isMainCandidate(*c, userID) {
-			continue
+		// No main session: look for the most recent chat candidate.
+		candidates, err := r.store.list(ctx, userID, agentID, memory.ListOptions{
+			UserID:  userID,
+			AgentID: agentID,
+		})
+		if err != nil {
+			candidates = nil
 		}
-		if best == nil || c.LastActive.After(best.LastActive) {
-			best = c
-		}
-	}
-	if best == nil {
-		return Info{}, false, nil
-	}
 
-	best.Kind = string(KindMain)
-	if err := r.store.save(ctx, *best); err != nil {
-		return Info{}, false, fmt.Errorf("promote session to main: %w", err)
+		var best *Info
+		for i := range candidates {
+			c := &candidates[i]
+			if !isMainCandidate(*c, userID) {
+				continue
+			}
+			if best == nil || c.LastActive.After(best.LastActive) {
+				best = c
+			}
+		}
+		if best == nil {
+			return Info{}, false, nil
+		}
+
+		best.Kind = string(KindMain)
+		if err := r.store.save(ctx, *best); err != nil {
+			if errors.Is(err, memory.ErrInactiveSession) && attempt == 0 {
+				continue
+			}
+			return Info{}, false, fmt.Errorf("promote session to main: %w", err)
+		}
+		return *best, true, nil
 	}
-	return *best, true, nil
+	panic("unreachable")
 }
 
 // newMainInfo builds a fresh main session. Main sessions use a private user
@@ -358,8 +375,9 @@ func (r *Registry) ResolveChatChannel(ctx context.Context, req ChannelRequest) (
 
 // RotateChannel archives the chat channel's current session and returns its
 // successor, so the next turn starts with an empty context while the old session
-// stays searchable. The archive and the create are one store-level transaction,
-// so the binding is never left without an active session.
+// remains stored but leaves the recall corpus. The archive and the create are
+// one store-level transaction, so the binding is never left without an active
+// session.
 //
 // When req.ExpectedSessionID is set it must still be the binding's current
 // session; otherwise the rotation is stale (another `/new` already ran) and
@@ -400,63 +418,75 @@ func (r *Registry) RotateChannel(ctx context.Context, req ChannelRequest) (Info,
 // the newest active kind=chat session matching the binding, else the legacy
 // key-as-ID session adopted into the binding. Callers must hold the binding lock.
 func (r *Registry) currentChannelLocked(ctx context.Context, req ChannelRequest) (Info, bool, error) {
-	opts := memory.ListOptions{
-		UserID:          req.UserID,
-		GuestID:         req.GuestID,
-		AgentID:         req.AgentID,
-		Kind:            string(KindChat),
-		ProjectIDIsNull: true,
-	}
-	// A group's channel varies with the reply channel a message arrives through,
-	// so only a private chat channel binds on it. The group binds on its owner.
-	if req.GroupID == "" {
-		opts.Channel = string(req.Channel)
-	}
-	matches, err := r.store.list(ctx, req.UserID, req.AgentID, opts)
-	if err != nil {
-		return Info{}, false, fmt.Errorf("list chat channel sessions: %w", err)
-	}
-	// The listing is newest-first, so the most recent match is the live one; older
-	// matches are pre-rotation sessions the binding has already left behind.
-	if len(matches) > 0 {
-		bound, err := r.bindChannelInfo(matches[0], req)
+	// HTTP archive is deliberately independent of channelMu. Re-run the binding
+	// lookup once when its active-row CAS loses that race; this covers both the
+	// listed legacy binding and key-as-ID adoption paths without retrying forever.
+	for attempt := range 2 {
+		opts := memory.ListOptions{
+			UserID:          req.UserID,
+			GuestID:         req.GuestID,
+			AgentID:         req.AgentID,
+			Kind:            string(KindChat),
+			ProjectIDIsNull: true,
+		}
+		// A group's channel varies with the reply channel a message arrives through,
+		// so only a private chat channel binds on it. The group binds on its owner.
+		if req.GroupID == "" {
+			opts.Channel = string(req.Channel)
+		}
+		matches, err := r.store.list(ctx, req.UserID, req.AgentID, opts)
 		if err != nil {
-			return Info{}, false, err
+			return Info{}, false, fmt.Errorf("list chat channel sessions: %w", err)
 		}
-		// bindChannelInfo backfills a legacy row's binding fields in memory only.
-		// Persist them here, exactly as the legacy fallback below does: every later
-		// resolve reads the durable row, so an adoption that stays in memory is
-		// re-done on every turn and the row's group ownership never becomes real.
-		if bound.Channel != matches[0].Channel || bound.GroupID != matches[0].GroupID {
-			if err := r.store.save(ctx, bound); err != nil {
-				return Info{}, false, fmt.Errorf("persist adopted chat channel binding: %w", err)
+		// The listing is newest-first, so the most recent match is the live one; older
+		// matches are pre-rotation sessions the binding has already left behind.
+		if len(matches) > 0 {
+			bound, err := r.bindChannelInfo(matches[0], req)
+			if err != nil {
+				return Info{}, false, err
 			}
+			// bindChannelInfo backfills a legacy row's binding fields in memory only.
+			// Persist them here, exactly as the legacy fallback below does: every later
+			// resolve reads the durable row, so an adoption that stays in memory is
+			// re-done on every turn and the row's group ownership never becomes real.
+			if bound.Channel != matches[0].Channel || bound.GroupID != matches[0].GroupID {
+				if err := r.store.save(ctx, bound); err != nil {
+					if errors.Is(err, memory.ErrInactiveSession) && attempt == 0 {
+						continue
+					}
+					return Info{}, false, fmt.Errorf("persist adopted chat channel binding: %w", err)
+				}
+			}
+			return bound, true, nil
 		}
-		return bound, true, nil
-	}
 
-	// Legacy fallback: before the binding existed a chat was pinned to a session
-	// whose id was its derived key. Such a row is invisible to the binding query
-	// when its channel was never recorded (the column defaults to ''), so adopt it
-	// once instead of stranding the user's history behind a new empty session.
-	if req.LegacyID == "" {
+		// Legacy fallback: before the binding existed a chat was pinned to a session
+		// whose id was its derived key. Such a row is invisible to the binding query
+		// when its channel was never recorded (the column defaults to ''), so adopt it
+		// once instead of stranding the user's history behind a new empty session.
+		if req.LegacyID == "" {
+			return Info{}, false, nil
+		}
+		// A load miss is the ordinary case (most chats never had a legacy row), and a
+		// row this binding must not claim is equivalent to none: either way the caller
+		// starts a fresh session rather than failing the turn.
+		legacy, loadErr := r.store.load(ctx, req.LegacyID, req.UserID, req.AgentID)
+		if loadErr == nil && !legacy.Archived && Kind(legacy.Kind) == KindChat && legacy.ProjectID == "" {
+			bound, err := r.bindChannelInfo(legacy, req)
+			if err != nil {
+				return Info{}, false, err
+			}
+			if err := r.store.save(ctx, bound); err != nil {
+				if errors.Is(err, memory.ErrInactiveSession) && attempt == 0 {
+					continue
+				}
+				return Info{}, false, fmt.Errorf("adopt legacy chat channel session: %w", err)
+			}
+			return bound, true, nil
+		}
 		return Info{}, false, nil
 	}
-	// A load miss is the ordinary case (most chats never had a legacy row), and a
-	// row this binding must not claim is equivalent to none: either way the caller
-	// starts a fresh session rather than failing the turn.
-	legacy, loadErr := r.store.load(ctx, req.LegacyID, req.UserID, req.AgentID)
-	if loadErr == nil && !legacy.Archived && Kind(legacy.Kind) == KindChat && legacy.ProjectID == "" {
-		bound, err := r.bindChannelInfo(legacy, req)
-		if err != nil {
-			return Info{}, false, err
-		}
-		if err := r.store.save(ctx, bound); err != nil {
-			return Info{}, false, fmt.Errorf("adopt legacy chat channel session: %w", err)
-		}
-		return bound, true, nil
-	}
-	return Info{}, false, nil
+	panic("unreachable")
 }
 
 // bindChannelInfo reconciles a candidate against the binding it was resolved

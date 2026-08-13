@@ -69,15 +69,41 @@ func TestToStorageVector_Normalizes(t *testing.T) {
 	}
 }
 
-func TestToStorageVector_ZeroVectorUnchanged(t *testing.T) {
-	out, err := ToStorageVector([]float32{0, 0, 0}, true)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+func TestToStorageVector_RejectsInvalidCosineVectors(t *testing.T) {
+	tests := []struct {
+		name string
+		vec  []float32
+	}{
+		{name: "empty", vec: nil},
+		{name: "zero norm", vec: []float32{0, 0, 0}},
+		{name: "NaN", vec: []float32{1, float32(math.NaN())}},
+		{name: "positive infinity", vec: []float32{1, float32(math.Inf(1))}},
+		{name: "negative infinity", vec: []float32{1, float32(math.Inf(-1))}},
 	}
-	for _, x := range out {
-		if x != 0 {
-			t.Fatal("zero vector must stay zero after normalize")
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := ToStorageVector(tt.vec, true); err == nil {
+				t.Fatalf("ToStorageVector(%v) succeeded, want invalid cosine vector error", tt.vec)
+			}
+		})
+	}
+}
+
+func TestValidateStorageVector(t *testing.T) {
+	valid := make([]float32, StorageDim)
+	valid[0] = 1
+	if err := ValidateStorageVector(valid); err != nil {
+		t.Fatalf("valid storage vector rejected: %v", err)
+	}
+	for name, vector := range map[string][]float32{
+		"wrong dimension": {1},
+		"zero norm":       make([]float32, StorageDim),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidateStorageVector(vector); err == nil {
+				t.Fatal("invalid storage vector accepted")
+			}
+		})
 	}
 }
 

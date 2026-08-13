@@ -30,6 +30,7 @@ import (
 
 type sessionMatrix struct {
 	svc            *Service
+	provider       memory.Provider
 	db             sqlc.DBTX
 	owner          string
 	other          string
@@ -608,7 +609,7 @@ func newSessionMatrix(t *testing.T) sessionMatrix {
 		t.Fatalf("NewService: %v", err)
 	}
 	return sessionMatrix{
-		svc: svc, db: pool,
+		svc: svc, provider: mem, db: pool,
 		owner: owner, other: other, group: groupID, agent: agentID,
 		private: private, internal: internal, groupSID: groupSession,
 		dedicatedAgent: dedicatedAgent, dedicatedChan: dedicatedChan,

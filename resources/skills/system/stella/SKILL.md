@@ -2,11 +2,11 @@
 name: stella
 description: >
   Self-knowledge about stella, the self-hosted AI assistant. Use when the user asks about
-  stella itself: configuration, setup, onboarding, providers, models, agents, channels (Telegram/Discord/QQ/Feishu/WeChat), webhooks,
+  stella itself: configuration, setup, onboarding, providers, models, agents, channels (Telegram/Discord/QQ/Feishu/DingTalk/WeChat), webhooks,
   memory system (LCM), scheduled jobs, reusable workflows, goals (objectives that converge through acceptance), workers/decomposition/dependencies,
   skills, plugins, session compaction, notifications,
   self-update, multi-agent, multi-user, or general "how does stella work" / "help me get started" questions.
-  Also triggers on "change my model", "set up telegram", "set up discord", "set up wechat", "set up webhook", "configure provider", "update stella",
+  Also triggers on "change my model", "set up telegram", "set up discord", "set up dingtalk", "set up wechat", "set up webhook", "configure provider", "update stella",
   "what can you do", "how do I install skills", "stella onboard", "switch agent".
   Also triggers when the user wants to report a bug or file a GitHub issue about stella:
   "report this bug", "create an issue for this", "报告这个 issue", "帮我建个 issue".
@@ -26,7 +26,7 @@ stella is a self-hosted AI assistant with multi-user and multi-agent support. Sh
 
 Run mode:
 
-- **Server**: `stellad server` (Telegram, Discord, QQ, Feishu, WeChat bots + scheduler + Web UI)
+- **Server**: `stellad server` (Telegram, Discord, QQ, Feishu, DingTalk, WeChat bots + scheduler + Web UI)
 
 Setup: run `stellad server` and open `http://localhost:25678` to configure everything via the Web UI. Configuration and most runtime state live in PostgreSQL: an embedded cluster managed under the operator's `$STELLA_HOME` (install its runtime with `stellad postgres download` if missing), or an external server when `STELLA_DATABASE_URL` is set. `$STELLA_HOME` is an operator configuration location, not an Agent sandbox path.
 
@@ -48,7 +48,7 @@ Release builtins (`builtin:<name>`) are immutable and come only from the release
 
 - **Multi-agent**: Multiple agents can run simultaneously, each with its own global Provider/model selection, optional API-key override, system prompt, and workspace. Provider endpoints, types, models, and enabled state remain administrator-controlled; per-Agent key overrides are API-only.
 - **Multi-user**: Channel identities resolve users. Verified Feishu tenant members can be auto-provisioned when their channel enables it; each user has per-agent memory that persists across sessions.
-- **Single bot per platform**: One Telegram/Discord/QQ/Feishu/WeChat bot can serve an agent selected through channel configuration.
+- **Single bot per platform**: One Telegram/Discord/QQ/Feishu/DingTalk/WeChat bot can serve an agent selected through channel configuration.
 - **Agent routing**: DMs use the user's default agent. Groups use the group's assigned agent. Fallback: first enabled agent.
 - **Session scoping**: Sessions are scoped to (agent, platform, user, chat context) so switching agents gives you a fresh conversation.
 
@@ -73,7 +73,7 @@ Read the relevant reference file for detailed guidance:
 | ------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | Configuration | [references/configuration.md](references/configuration.md) | Config fields, env vars, directory layout, defaults                                                          |
 | Models        | [references/models.md](references/models.md)               | Model tiers, switching, and provider setup                                                                   |
-| Channels      | [references/channels.md](references/channels.md)           | Telegram/Discord/QQ/Feishu/WeChat bot setup, groups, access control                                          |
+| Channels      | [references/channels.md](references/channels.md)           | Telegram/Discord/QQ/Feishu/DingTalk/WeChat bot setup, groups, access control                                 |
 | Webhooks      | [references/webhooks.md](references/webhooks.md)           | Personal HTTP invocation capabilities, one-time URLs, options, and lifecycle                                 |
 | Update        | [references/update.md](references/update.md)               | How to update stella to the latest version                                                                   |
 | Goals         | [references/goals.md](references/goals.md)                 | Goal model: root/child, leaf/composite, derived acceptance, convergence, worker `goal_control`, deps, blocks |
@@ -81,13 +81,13 @@ Read the relevant reference file for detailed guidance:
 
 ## In-chat commands
 
-Available in CLI, Telegram, Discord, QQ, Feishu, and WeChat:
+Available in CLI, Telegram, Discord, QQ, Feishu, DingTalk, and WeChat:
 
-| Command    | Description                                                              |
-| ---------- | ------------------------------------------------------------------------ |
-| `/new`     | Start a fresh session; the previous one is archived and stays searchable |
-| `/compact` | Compress the current session in place (same session, shorter context)    |
-| `/whoami`  | Show your user/chat ID                                                   |
+| Command    | Description                                                                  |
+| ---------- | ---------------------------------------------------------------------------- |
+| `/new`     | Start a fresh session; the previous one is archived and leaves memory search |
+| `/compact` | Compress the current session in place (same session, shorter context)        |
+| `/whoami`  | Show your user/chat ID                                                       |
 
 `/new` works in direct messages only. A group's context is shared by every
 member, so a group `/new` is refused and resets nothing; `/compact` does not
@@ -151,7 +151,7 @@ Project-local presets override builtins with the same name. Use presets for comm
 
 Memory, Library retrieval, scheduler, goals, vault, OAuth connections, Recally, email, and sharing are built-in agent tools when available; skills use the `skills` tool; notifications and operator surfaces remain available through the Web UI. Briefly:
 
-- **LCM memory**: Lossless Context Management (default memory plugin). Every message is stored in PostgreSQL and organized into a DAG of summaries. Conversation context never gets truncated, only compressed. Use `memory.search` to recall relevant messages or summaries, then `memory.read` to inspect a result and follow bounded child references through compacted history. Use `session.get` when you already know which Session to inspect. Alternative: Simple plugin (sliding-window, no summaries).
+- **LCM memory**: Lossless Context Management (default memory plugin). Every message is stored in PostgreSQL and organized into a DAG of summaries. Conversation context never gets truncated, only compressed. Use `memory.search` to recall relevant messages or summaries from active Sessions, then `memory.read` to inspect a result and follow bounded child references through compacted history. Archived transcripts remain available through explicit `session.get`, but are excluded from recall. Alternative: Simple plugin (sliding-window, no summaries).
 - **Four memory spaces**: Constraints (hard user-approved rules), Identity (agent soul + user profile), Conversation (messages/summaries), and Knowledge (`subject=world` facts). Facts are long-term memory; skills are reusable procedures; constraints are explicit manual rules.
 - **Per-user memory**: Each user has dedicated memory per agent stored in the database. User profile, soul, and constraints are injected into your system prompt for the session snapshot; `memory.search` recalls relevant content across conversation history and durable memory. Session management is available through `session.list/get`; durable profile edits happen through Reflect or manual memory settings. Recommended profile structure: `## User Preferences`, `## About the User`, `## Notes`. Keep it high-level, like how a person remembers someone they know. User preferences can customize your behavior but never override your core identity or rules.
 - **Constraints**: Constraints are already injected into the system prompt and can be explicitly read with `memory.read` using the well-known `constraints` reference. Constraint writes are manual UI/API/CLI operations; Reflect and normal session tools must not add or remove constraints.
@@ -165,10 +165,10 @@ Memory, Library retrieval, scheduler, goals, vault, OAuth connections, Recally, 
 - **Workflows**: agents use the `workflow` tool to save/list/get/run reusable workflow definitions. For "save this goal and run it every morning", save the accepted goal first, then schedule the workflow; users can inspect workflow-backed runs in the Web UI.
 - **Scheduler**: agents use the `scheduler` tool to add/list/update/delete/pause/resume scheduled or one-time jobs, including workflow jobs when exposed. Jobs route to the correct agent's pool. Some jobs are available as platform-managed **templates** (e.g. `recally-rss` for feed polling, `recally-digest` for daily digests). Templates are opt-in: use the `scheduler` tool with `action=create` and `template_key`, the Web UI (Work space, Scheduled section), or the HTTP API. Each user gets one subscription per template; the prompt is platform-managed and read-only. If a user asks why RSS polling or digests stopped working after an upgrade, guide them to subscribe via the Web UI.
 - **Vault/OAuth/Recally/Email/Share**: agents use built-in tools. OAuth connect returns a verification URI and user code; give those to the user, wait for authorization, then poll status with the returned flow id. Recally save requires the agent to fetch article content first. Email send requires explicit user confirmation and an idempotency key. Share creates public links only when the user asks.
-- **Notifications**: `notify` plugin (gateway mode only, optional) -- send messages via Telegram/Discord/QQ/Feishu/WeChat dispatcher.
-- **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable in settings. Compaction keeps the same session; `/new` instead rotates the chat onto a fresh session and archives the old one, which stays searchable through memory.
+- **Notifications**: `notify` plugin (gateway mode only, optional) -- send messages via Telegram/Discord/QQ/Feishu/DingTalk/WeChat dispatcher. DingTalk requires a still-valid session Webhook learned from a recent inbound message.
+- **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable in settings. Compaction keeps the same session; `/new` instead rotates the chat onto a fresh session and archives the old one. Archived transcripts remain available through explicit Session inspection, but leave `memory.search`.
 - **Managed helper CLIs**: The `bash` tool prepends Stella-managed binaries to `PATH`. Expect `fd`, `rg`, `mise`, and `tap` to be available even when the host machine doesn't have them installed separately.
 - **Vault secrets**: scope-matching vault secrets are already available as sandbox environment variables by name. Never print secret values; use the `vault` tool or Web UI to inspect secret metadata.
 - **GitHub CLI authorization**: `gh` uses Stella's GitHub OAuth connection and receives a refreshed runtime token.
-- **Plugins**: Stella uses a unified plugin host. A plugin owns its config, runtime lifecycle, status, and capability registrations. Built-in capabilities currently cover tools (`webfetch`), channels (telegram, discord, qq, feishu, weixin), hooks (rtk), providers (anthropic, openai, openai-response), and memory (`lcm`, `simple`). Core tools (read/bash/edit/write/agent/memory) and the scheduler-builtin Structured Reflect pipeline are not plugins. Skills and notify are optional plugins. The `telegram`, `discord`, `qq`, `feishu`, and `weixin` channels all use the same host-backed config/runtime/status path while keeping their existing `channel/...` rows and `/settings/channels` Web UI. Manage plugins through the Web UI.
+- **Plugins**: Stella uses a unified plugin host. A plugin owns its config, runtime lifecycle, status, and capability registrations. Built-in capabilities currently cover tools (`webfetch`), channels (telegram, discord, qq, feishu, dingtalk, weixin), hooks (rtk), providers (anthropic, openai, openai-response), and memory (`lcm`, `simple`). Core tools (read/bash/edit/write/agent/memory) and the scheduler-builtin Structured Reflect pipeline are not plugins. Skills and notify are optional plugins. The `telegram`, `discord`, `qq`, `feishu`, `dingtalk`, and `weixin` channels all use the same host-backed config/runtime/status path while keeping their existing `channel/...` rows and `/settings/channels` Web UI. Manage plugins through the Web UI.
 - **Observability**: Tracing is server-level infrastructure, not a plugin. The server logs all LLM calls, tool executions, and memory operations via slog, and traces inbound HTTP requests. Set `OTEL_EXPORTER_OTLP_ENDPOINT` to also export OpenTelemetry traces using standard OTel env vars. Both OTLP/gRPC and OTLP/HTTP are supported, including auth headers via `OTEL_EXPORTER_OTLP_HEADERS` or `OTEL_EXPORTER_OTLP_TRACES_HEADERS`. Always include a scheme in the endpoint (for example `http://localhost:4317` or `https://collector.example.com/api/default`). No code changes needed -- just set the env vars and restart.

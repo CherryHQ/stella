@@ -86,6 +86,10 @@ Guest direct messages retain and compact conversation history but have no profil
 
 Feishu `allowed_chat_ids` is a comma-separated, fail-closed group `chat_id` allowlist. Direct messages default on, group mentions default required, and restricted guest direct messages default off. Guest sessions use the same isolation and resource limits described for Discord.
 
+**DingTalk config fields:** `client_id`, `client_secret`, `allowed_conversation_ids`, `allow_dm`, `allow_unlinked_dm`, `guest_message_limit_per_minute`, `guest_max_per_channel`, `guest_retention_days`, `require_mention`
+
+DingTalk uses Stream mode and requires no public callback URL. `allowed_conversation_ids` is a comma-separated, fail-closed group allowlist. Text messages, direct messages, group @mentions, account linking, and restricted guest DMs are supported. Notifications require a temporary session Webhook learned from a recent inbound message and stop working after restart or expiry until the user or group messages the bot again.
+
 ## Login providers
 
 Stella supports local password login, one external OIDC provider, and multiple OAuth login providers.

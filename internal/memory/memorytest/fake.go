@@ -453,8 +453,29 @@ func (f *Fake) RemoveConstraint(_ context.Context, userID string, agentID string
 func (f *Fake) SaveInfo(_ context.Context, info memory.SessionInfo) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if existing, ok := f.sessionInfos[info.ID]; ok {
+		if existing.info.Archived {
+			return fmt.Errorf("%w: %s", memory.ErrInactiveSession, info.ID)
+		}
+		// Existing lifecycle state is not generic metadata. Tests using the fake
+		// observe the same one-way transition contract as the SQL provider.
+		info.Archived = false
+	}
 	f.sessionInfos[info.ID] = fakeSessionInfo{info: info}
 	return nil
+}
+
+// ArchiveInfo implements memory.SessionManager.
+func (f *Fake) ArchiveInfo(_ context.Context, info memory.SessionInfo) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	existing, ok := f.sessionInfos[info.ID]
+	if !ok || existing.info.Archived || existing.info.UserID != info.UserID || existing.info.AgentID != info.AgentID {
+		return false, nil
+	}
+	existing.info.Archived = true
+	f.sessionInfos[info.ID] = existing
+	return true, nil
 }
 
 // TouchActiveInfo implements memory.SessionManager. The mutex stands in for the

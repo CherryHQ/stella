@@ -54,11 +54,9 @@ func searchAsGroupTurn(t *testing.T, p *Provider, groupID, agentID, sessionID, p
 	return results
 }
 
-// TestGroupSearch_FindsArchivedPredecessorMessages proves a group turn can search
-// its own history, including a session `/new` rotated away. Before the scope fix
-// the search failed with "missing user context", which broke the promise that
-// earlier messages stay searchable after a reset.
-func TestGroupSearch_FindsArchivedPredecessorMessages(t *testing.T) {
+// TestGroupSearch_ExcludesArchivedPredecessorMessages proves a reset removes the
+// archived predecessor from recall without deleting its stored transcript.
+func TestGroupSearch_ExcludesArchivedPredecessorMessages(t *testing.T) {
 	db := openTestDB(t)
 	p, err := New(db, nil, nil)
 	if err != nil {
@@ -92,17 +90,11 @@ func TestGroupSearch_FindsArchivedPredecessorMessages(t *testing.T) {
 		t.Fatal("predecessor should be archived after rotation")
 	}
 
-	// The turn now runs in the successor session and searches for something only
-	// the archived predecessor said.
+	// The turn now runs in the successor session. Content that exists only in the
+	// archived predecessor must no longer be recalled.
 	results := searchAsGroupTurn(t, p, gid, agentID, successorID, "kumquat")
-	if len(results) != 1 {
-		t.Fatalf("expected the archived predecessor message, got %d hits: %+v", len(results), results)
-	}
-	if results[0].SessionID != predecessorID {
-		t.Errorf("hit came from session %q, want the archived %q", results[0].SessionID, predecessorID)
-	}
-	if !strings.Contains(results[0].Content, "kumquat") {
-		t.Errorf("unexpected hit content %q", results[0].Content)
+	if len(results) != 0 {
+		t.Fatalf("archived predecessor leaked into recall: %+v", results)
 	}
 }
 

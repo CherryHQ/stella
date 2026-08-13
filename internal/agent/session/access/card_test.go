@@ -129,15 +129,8 @@ func TestSessionCardsDeriveSummaryStateAndSendabilityInOneBatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	controlInfo.Archived = true
-	if err := m.svc.memory.SaveInfo(ctx, controlInfo); err != nil {
-		t.Fatal(err)
-	}
-	if err := q.UpdateConversationArchived(ctx, sqlc.UpdateConversationArchivedParams{
-		Archived: true, SessionID: m.internal,
-		UserID: pgtype.Text{String: m.owner, Valid: true}, AgentID: pgtype.Text{String: m.agent, Valid: true},
-	}); err != nil {
-		t.Fatal(err)
+	if applied, err := m.svc.memory.ArchiveInfo(ctx, controlInfo); err != nil || !applied {
+		t.Fatalf("archive internal session: applied=%v err=%v", applied, err)
 	}
 
 	runtime := &fakeRuntimeService{live: true}
