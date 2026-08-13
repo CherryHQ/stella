@@ -224,6 +224,81 @@ func TestChannelGroupAllowlistMigrationPreservesKnownGroups(t *testing.T) {
 	}
 }
 
+func TestChannelGroupSwitchMigrationCollapsesAllowlists(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	sub, err := fs.Sub(MigrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("open migrations fs: %v", err)
+	}
+	sqlDB := stdlib.OpenDBFromPool(db)
+	defer func() { _ = sqlDB.Close() }()
+	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, sub)
+	if err != nil {
+		t.Fatalf("create migration provider: %v", err)
+	}
+	if _, err := provider.DownTo(ctx, sequentialAnchor+13); err != nil {
+		t.Fatalf("goose down group switch migration: %v", err)
+	}
+
+	if _, err := db.Exec(ctx, `
+		INSERT INTO channel (id, name, type, config) VALUES
+			('telegram-listed', 'Telegram listed', 'telegram', '{"token":"t","allowed_chat_ids":"-100,-200"}'),
+			('telegram-empty', 'Telegram empty', 'telegram', '{"token":"t","allowed_chat_ids":"  "}'),
+			('feishu-absent', 'Feishu absent', 'feishu', '{"app_id":"a"}'),
+			('dingtalk-listed', 'DingTalk listed', 'dingtalk', '{"allowed_conversation_ids":"cid-1"}'),
+			('discord-listed', 'Discord listed', 'discord', '{"allowed_guild_ids":"guild"}'),
+			('telegram-malformed-switch', 'Telegram malformed', 'telegram', '{'),
+			('qq-untouched', 'QQ untouched', 'qq', '{"app_id":"q"}')`); err != nil {
+		t.Fatalf("seed channels: %v", err)
+	}
+
+	if _, err := provider.UpTo(ctx, sequentialAnchor+14); err != nil {
+		t.Fatalf("goose up group switch migration: %v", err)
+	}
+	for _, tc := range []struct {
+		channelID string
+		want      bool
+	}{
+		{channelID: "telegram-listed", want: true},
+		{channelID: "telegram-empty"},
+		{channelID: "feishu-absent"},
+		{channelID: "dingtalk-listed", want: true},
+		{channelID: "discord-listed", want: true},
+	} {
+		var got bool
+		var hasAllowlist bool
+		if err := db.QueryRow(ctx, `
+			SELECT (config::jsonb ->> 'allow_group')::boolean,
+			       config::jsonb ?| array['allowed_chat_ids', 'allowed_conversation_ids', 'allowed_guild_ids']
+			FROM channel WHERE id = $1`, tc.channelID).Scan(&got, &hasAllowlist); err != nil {
+			t.Fatalf("read %s group switch: %v", tc.channelID, err)
+		}
+		if got != tc.want {
+			t.Fatalf("%s allow_group = %v, want %v", tc.channelID, got, tc.want)
+		}
+		if hasAllowlist {
+			t.Fatalf("%s kept a per-chat allowlist key", tc.channelID)
+		}
+	}
+	for _, tc := range []struct {
+		channelID string
+		want      string
+	}{
+		{channelID: "telegram-malformed-switch", want: "{"},
+		{channelID: "qq-untouched", want: `{"app_id":"q"}`},
+	} {
+		var got string
+		if err := db.QueryRow(ctx, `SELECT config FROM channel WHERE id = $1`, tc.channelID).Scan(&got); err != nil {
+			t.Fatalf("read %s config: %v", tc.channelID, err)
+		}
+		if got != tc.want {
+			t.Fatalf("%s config = %q, want %q", tc.channelID, got, tc.want)
+		}
+	}
+}
+
 func TestLibraryMigrationReplacesUnreleasedKnowledgeSchema(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()

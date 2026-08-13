@@ -28,7 +28,7 @@ type GuestConfig struct {
 type DiscordConfig struct {
 	InstanceID                 string `json:"-"`
 	Token                      string `json:"token"`
-	AllowedGuildIDs            string `json:"allowed_guild_ids"`
+	AllowGroup                 bool   `json:"allow_group"`
 	AllowDM                    bool   `json:"allow_dm"`
 	AllowUnlinkedDM            bool   `json:"allow_unlinked_dm"`
 	GuestMessageLimitPerMinute int    `json:"guest_message_limit_per_minute"`
@@ -108,7 +108,7 @@ type TelegramConfig struct {
 	InstanceID                 string `json:"-"`
 	Token                      string `json:"token"`
 	ChannelID                  string `json:"channel_id"`
-	AllowedChatIDs             string `json:"allowed_chat_ids"`
+	AllowGroup                 bool   `json:"allow_group"`
 	AllowDM                    bool   `json:"allow_dm"`
 	AllowUnlinkedDM            bool   `json:"allow_unlinked_dm"`
 	GuestMessageLimitPerMinute int    `json:"guest_message_limit_per_minute"`
@@ -153,7 +153,7 @@ type FeishuConfig struct {
 	EncryptKey                 string                 `json:"encrypt_key"`
 	VerificationToken          string                 `json:"verification_token"`
 	Groups                     map[string]FeishuGroup `json:"groups"`
-	AllowedChatIDs             string                 `json:"allowed_chat_ids"`
+	AllowGroup                 bool                   `json:"allow_group"`
 	AllowDM                    bool                   `json:"allow_dm"`
 	AllowUnlinkedDM            bool                   `json:"allow_unlinked_dm"`
 	GuestMessageLimitPerMinute int                    `json:"guest_message_limit_per_minute"`
@@ -182,7 +182,7 @@ type DingTalkConfig struct {
 	InstanceID                 string `json:"-"`
 	ClientID                   string `json:"client_id"`
 	ClientSecret               string `json:"client_secret"`
-	AllowedConversationIDs     string `json:"allowed_conversation_ids"`
+	AllowGroup                 bool   `json:"allow_group"`
 	AllowDM                    bool   `json:"allow_dm"`
 	AllowUnlinkedDM            bool   `json:"allow_unlinked_dm"`
 	GuestMessageLimitPerMinute int    `json:"guest_message_limit_per_minute"`

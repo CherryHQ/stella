@@ -30,7 +30,7 @@ const (
 	// the durable Session inbox, and restrictive Library ownership are the
 	// post-anchor migrations exercised below. Library chunk locator integrity and
 	// the dedicated Skill Home cutover evidence schema are checked explicitly.
-	currentMigrationVersion = sequentialAnchor + 13
+	currentMigrationVersion = sequentialAnchor + 14
 
 	previousGAUserID           = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID          = "00000000-0000-0000-0000-000000000002"

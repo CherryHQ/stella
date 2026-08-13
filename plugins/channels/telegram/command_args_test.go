@@ -109,7 +109,7 @@ func TestSharedCommandForwardsPayload(t *testing.T) {
 				t.Fatalf("offline bot: %v", err)
 			}
 			handler := &capturingHandler{}
-			b := &Bot{bot: bot, handler: handler, ctx: context.Background(), cfg: Config{AllowedChatIDs: "-100", RequireMention: true}}
+			b := &Bot{bot: bot, handler: handler, ctx: context.Background(), cfg: Config{AllowGroup: true, RequireMention: true}}
 			b.registerHandlers()
 
 			bot.ProcessUpdate(tele.Update{Message: &tele.Message{
@@ -145,16 +145,16 @@ func TestTelegramIngressAdmission(t *testing.T) {
 			},
 		},
 		{
-			name: "group not allowlisted",
-			cfg:  Config{AllowedChatIDs: "-200", RequireMention: false},
+			name: "group chats disabled",
+			cfg:  Config{AllowGroup: false, RequireMention: false},
 			message: tele.Message{
 				Text: "hello", Sender: &tele.User{ID: 7},
 				Chat: &tele.Chat{ID: -100, Type: tele.ChatSuperGroup},
 			},
 		},
 		{
-			name: "allowlisted group requires mention",
-			cfg:  Config{AllowedChatIDs: "-100", RequireMention: true},
+			name: "allowed group requires mention",
+			cfg:  Config{AllowGroup: true, RequireMention: true},
 			message: tele.Message{
 				Text: "hello", Sender: &tele.User{ID: 7},
 				Chat: &tele.Chat{ID: -100, Type: tele.ChatSuperGroup},
@@ -162,23 +162,23 @@ func TestTelegramIngressAdmission(t *testing.T) {
 		},
 		{
 			name: "unknown slash command still requires mention",
-			cfg:  Config{AllowedChatIDs: "-100", RequireMention: true},
+			cfg:  Config{AllowGroup: true, RequireMention: true},
 			message: tele.Message{
 				Text: "/anything", Sender: &tele.User{ID: 7},
 				Chat: &tele.Chat{ID: -100, Type: tele.ChatSuperGroup},
 			},
 		},
 		{
-			name: "allowlisted mentioned group",
-			cfg:  Config{AllowedChatIDs: "-100", RequireMention: true},
+			name: "allowed mentioned group",
+			cfg:  Config{AllowGroup: true, RequireMention: true},
 			message: tele.Message{
 				Text: "@stella_bot hello", Entities: tele.Entities{{Type: tele.EntityMention, Offset: 0, Length: 11}}, Sender: &tele.User{ID: 7},
 				Chat: &tele.Chat{ID: -100, Type: tele.ChatSuperGroup},
 			},
 			want: true,
 		},
-		{name: "reply to bot is directed", cfg: Config{AllowedChatIDs: "-100", RequireMention: true}, message: tele.Message{Text: "follow up", Sender: &tele.User{ID: 7}, Chat: &tele.Chat{ID: -100, Type: tele.ChatSuperGroup}, ReplyTo: &tele.Message{Sender: &tele.User{ID: 1, Username: "stella_bot"}}}, want: true},
-		{name: "reply to lookalike is not directed", cfg: Config{AllowedChatIDs: "-100", RequireMention: true}, message: tele.Message{Text: "follow up", Sender: &tele.User{ID: 7}, Chat: &tele.Chat{ID: -100, Type: tele.ChatSuperGroup}, ReplyTo: &tele.Message{Sender: &tele.User{ID: 99, Username: "stella_bot"}}}},
+		{name: "reply to bot is directed", cfg: Config{AllowGroup: true, RequireMention: true}, message: tele.Message{Text: "follow up", Sender: &tele.User{ID: 7}, Chat: &tele.Chat{ID: -100, Type: tele.ChatSuperGroup}, ReplyTo: &tele.Message{Sender: &tele.User{ID: 1, Username: "stella_bot"}}}, want: true},
+		{name: "reply to lookalike is not directed", cfg: Config{AllowGroup: true, RequireMention: true}, message: tele.Message{Text: "follow up", Sender: &tele.User{ID: 7}, Chat: &tele.Chat{ID: -100, Type: tele.ChatSuperGroup}, ReplyTo: &tele.Message{Sender: &tele.User{ID: 99, Username: "stella_bot"}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			bot, err := tele.NewBot(tele.Settings{Offline: true, Synchronous: true})

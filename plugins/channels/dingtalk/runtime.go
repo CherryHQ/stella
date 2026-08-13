@@ -26,12 +26,12 @@ func NewManagedRuntime(deps RuntimeDeps) pkgplugins.Runtime {
 	if deps.NewChannel == nil {
 		deps.NewChannel = func(cfg pkgchannel.DingTalkConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{
-				InstanceID:             cfg.InstanceID,
-				ClientID:               cfg.ClientID,
-				ClientSecret:           cfg.ClientSecret,
-				AllowedConversationIDs: cfg.AllowedConversationIDs,
-				AllowDM:                cfg.AllowDM,
-				RequireMention:         cfg.RequireMention,
+				InstanceID:     cfg.InstanceID,
+				ClientID:       cfg.ClientID,
+				ClientSecret:   cfg.ClientSecret,
+				AllowGroup:     cfg.AllowGroup,
+				AllowDM:        cfg.AllowDM,
+				RequireMention: cfg.RequireMention,
 			}, handler)
 		}
 	}

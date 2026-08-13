@@ -19,7 +19,7 @@ export const platformDefaults: Record<string, PlatformDefaults> = {
   telegram: {
     token: "",
     channel_id: "",
-    allowed_chat_ids: "",
+    allow_group: false,
     allow_dm: true,
     allow_unlinked_dm: false,
     guest_message_limit_per_minute: 10,
@@ -29,7 +29,7 @@ export const platformDefaults: Record<string, PlatformDefaults> = {
   },
   discord: {
     token: "",
-    allowed_guild_ids: "",
+    allow_group: false,
     allow_dm: true,
     allow_unlinked_dm: false,
     guest_message_limit_per_minute: 10,
@@ -45,7 +45,7 @@ export const platformDefaults: Record<string, PlatformDefaults> = {
     verification_token: "",
     tenant_key: "",
     auto_provision: false,
-    allowed_chat_ids: "",
+    allow_group: false,
     allow_dm: true,
     allow_unlinked_dm: false,
     guest_message_limit_per_minute: 10,
@@ -56,7 +56,7 @@ export const platformDefaults: Record<string, PlatformDefaults> = {
   dingtalk: {
     client_id: "",
     client_secret: "",
-    allowed_conversation_ids: "",
+    allow_group: false,
     allow_dm: true,
     allow_unlinked_dm: false,
     guest_message_limit_per_minute: 10,
@@ -229,9 +229,17 @@ export function ChannelConfigFields({
     );
   };
 
-  const accessFields = (allowlistKey: string, allowlistLabel: string, placeholder: string) => (
+  const accessFields = (groupLabel: string, groupDescription: string) => (
     <>
-      {field(allowlistKey, allowlistLabel, "text", placeholder)}
+      <Field>
+        <FieldLabel>{groupLabel}</FieldLabel>
+        <Switch
+          checked={Boolean(channel.allow_group)}
+          aria-label={groupLabel}
+          onCheckedChange={(checked) => onChange("allow_group", checked)}
+        />
+        <FieldDescription>{groupDescription}</FieldDescription>
+      </Field>
       <Field>
         <FieldLabel>{t("channels.allowDm")}</FieldLabel>
         <Switch
@@ -291,22 +299,14 @@ export function ChannelConfigFields({
         <>
           {field("token", "Bot Token", "password", "From @BotFather")}
           {field("channel_id", "Channel ID", "text", "Default channel")}
-          {accessFields(
-            "allowed_chat_ids",
-            t("channels.allowedChatIds"),
-            t("channels.allowedTelegramChatIdsPlaceholder"),
-          )}
+          {accessFields(t("channels.allowGroup"), t("channels.allowGroupDesc"))}
         </>
       )}
 
       {type === "discord" && (
         <>
           {field("token", "Bot Token", "password", "Discord Developer Portal")}
-          {accessFields(
-            "allowed_guild_ids",
-            t("channels.allowedGuildIds"),
-            t("channels.allowedDiscordGuildIdsPlaceholder"),
-          )}
+          {accessFields(t("channels.allowGuild"), t("channels.allowGuildDesc"))}
         </>
       )}
 
@@ -335,11 +335,7 @@ export function ChannelConfigFields({
             />
             <FieldDescription>{t("channels.autoProvisionDesc")}</FieldDescription>
           </Field>
-          {accessFields(
-            "allowed_chat_ids",
-            t("channels.allowedChatIds"),
-            t("channels.allowedFeishuChatIdsPlaceholder"),
-          )}
+          {accessFields(t("channels.allowGroup"), t("channels.allowGroupDesc"))}
         </>
       )}
 
@@ -349,11 +345,7 @@ export function ChannelConfigFields({
             {field("client_id", "Client ID", "text", "DingTalk application Client ID")}
             {field("client_secret", "Client Secret", "password")}
           </div>
-          {accessFields(
-            "allowed_conversation_ids",
-            t("channels.allowedConversationIds"),
-            t("channels.allowedDingTalkConversationIdsPlaceholder"),
-          )}
+          {accessFields(t("channels.allowGroup"), t("channels.allowGroupDesc"))}
           {/* A standalone note, not a field: Base UI's Description must stay inside a Field.Root. */}
           <p className="text-muted-foreground text-xs">{t("channels.dingtalkNotifyDesc")}</p>
         </>

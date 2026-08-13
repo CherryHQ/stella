@@ -191,9 +191,9 @@ When you message inside a Feishu thread, Stella keeps the response in that threa
 
 ## Group Behavior
 
-The bot participates only in explicitly allowed group chats. Add each Feishu `chat_id` to **Allowed group chat IDs** in the Web UI. An empty list rejects every group message and does not provision group membership.
+Group chats are off until you turn on **Allow group chats** in the Web UI. Once on, every group the bot has been added to can use it; while off, every group message is rejected and no group membership is provisioned.
 
-Group messages must @mention the bot by default. You can turn off **Require a mention** to enable Stella's semantic group routing. Every member of an allowed group can address the bound agent, so add only trusted groups.
+Group messages must @mention the bot by default. You can turn off **Require a mention** to enable Stella's semantic group routing. Every member of a group the bot joined can address the bound agent, so control access through who can add the bot to a group.
 
 You can also set per-group overrides with the `groups` map in channel config.
 
@@ -229,7 +229,7 @@ Feishu supports the standard chat commands:
   "enable_notify": false,
   "tenant_key": "",
   "auto_provision": false,
-  "allowed_chat_ids": "oc_trusted_group",
+  "allow_group": false,
   "allow_dm": true,
   "allow_unlinked_dm": false,
   "guest_message_limit_per_minute": 10,
@@ -253,15 +253,15 @@ Feishu supports the standard chat commands:
 | `enable_notify`      | Allow scheduler and notify output to target Feishu                                                                     |
 | `tenant_key`         | Your enterprise tenant key. Optional: Stella can auto-detect it at startup, but setting it explicitly is recommended   |
 | `auto_provision`     | Create accounts only for verified tenant members: a direct message, or a group message explicitly @mentioning this bot |
-| `allowed_chat_ids`   | Comma-separated Feishu group `chat_id` values; empty rejects all group messages                                        |
+| `allow_group`        | Accept messages from Feishu groups the bot was added to; defaults to `false`                                           |
 | `allow_dm`           | Accept private messages, account linking, and private-message auto-provisioning; defaults to `true`                    |
 | `allow_unlinked_dm`  | Allow restricted guest sessions for unlinked private senders; defaults to `false`                                      |
-| `require_mention`    | Require an @mention in allowed groups; defaults to `true`                                                              |
+| `require_mention`    | Require an @mention in group chats; defaults to `true`                                                                 |
 | `groups`             | Optional per-chat overrides keyed by Feishu `chat_id`                                                                  |
 
 Guest limits use `guest_message_limit_per_minute` (default `10`), `guest_max_per_channel` (default `1000`), and `guest_retention_days` (default `30`).
 
-When upgrading, Stella adds groups already present in durable group membership or legacy `groups` overrides to `allowed_chat_ids` once. Explicit allowlists, including an empty deny-all value, are not changed. Review the generated list after upgrading; newly encountered groups remain blocked until you add them.
+`allow_group` replaces the former `allowed_chat_ids` allowlist. When upgrading, a channel that listed at least one `chat_id` keeps serving groups (`allow_group` becomes `true`); an empty or absent list stays closed.
 
 ## Troubleshooting
 
@@ -274,7 +274,7 @@ When upgrading, Stella adds groups already present in durable group membership o
 **Bot not responding in groups?**
 
 - @mention the bot for the most reliable trigger.
-- Add the group's `chat_id` to **Allowed group chat IDs**. The allowlist is fail-closed.
+- Turn on **Allow group chats**. It is off by default and rejects every group message.
 - If you expect replies without @mentions, make sure at least one group agent has a routing-capable model and that the message is a clear request, not casual chatter.
 
 **Auto-provisioning not creating users?**
