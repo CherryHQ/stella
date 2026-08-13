@@ -162,6 +162,33 @@ Connects via WebSocket (no public URL or webhook needed).
 
 `allowed_chat_ids` is a comma-separated, fail-closed Feishu group `chat_id` allowlist, and `require_mention` defaults to `true`. `allow_dm` controls private chat, account linking, and private-message auto-provisioning. `allow_unlinked_dm` has the same restricted guest semantics and operational limits as Telegram and Discord; it is disabled by default and requires a channel-bound agent. Guest attachments are rejected before download.
 
+## DingTalk bot
+
+1. Create and publish an internal enterprise application in the DingTalk Developer Console
+2. Add the Robot capability and choose Stream mode for message receiving
+3. Copy the Client ID and Client Secret
+4. Add a DingTalk channel in the Web UI and bind an enabled agent for group use
+
+DingTalk channel config (JSON):
+
+```json
+{
+  "client_id": "YOUR_CLIENT_ID",
+  "client_secret": "YOUR_CLIENT_SECRET",
+  "allowed_conversation_ids": "cid_trusted_group",
+  "allow_dm": true,
+  "allow_unlinked_dm": false,
+  "guest_message_limit_per_minute": 10,
+  "guest_max_per_channel": 1000,
+  "guest_retention_days": 30,
+  "require_mention": true
+}
+```
+
+DingTalk connects through Stream mode, so Stella needs no public callback URL. It supports direct text messages, trusted group @mentions, account linking, shared commands, and final text replies. `allowed_conversation_ids` is comma-separated and fail-closed; an empty value disables every group while DMs continue to work. To discover a group ID without opening access, @mention the bot once and read the rejected `conversation_id` from the Stella server log.
+
+Unlinked direct messages use the same restricted guest policy and limits as Telegram, Discord, and Feishu. Attachments and rich messages are not yet supported. Notifications use temporary session Webhooks cached from inbound messages; after process restart or Webhook expiry, the user or group must message the bot again before notifications can resume.
+
 ## WeChat bot (iLink)
 
 1. Open the Web UI and go to Channels → New Channel

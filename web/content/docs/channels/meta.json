@@ -1,4 +1,4 @@
 {
   "title": "Channels",
-  "pages": ["telegram", "discord", "qq", "feishu", "weixin"]
+  "pages": ["telegram", "discord", "qq", "feishu", "dingtalk", "weixin"]
 }

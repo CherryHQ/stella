@@ -10,7 +10,7 @@ Tenant 是组织边界。它把用户、Agent、凭证和数据限制在正确�
 
 ## User
 
-User 是和 Agent 协作的人。用户可以从 Web UI、终端，或 Telegram、Discord、QQ、飞书、微信等渠道聊天。
+User 是和 Agent 协作的人。用户可以从 Web UI、终端，或 Telegram、Discord、QQ、飞书、钉钉、微信等渠道聊天。
 
 ## Agent
 

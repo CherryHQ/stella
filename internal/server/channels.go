@@ -52,6 +52,7 @@ var channelLinkLabels = map[string]string{
 	pkgchannel.PlatformDiscord:  "Discord",
 	pkgchannel.PlatformQQ:       "QQ",
 	pkgchannel.PlatformFeishu:   "Feishu",
+	pkgchannel.PlatformDingTalk: "DingTalk",
 	pkgchannel.PlatformWeixin:   "Weixin",
 }
 
@@ -60,6 +61,7 @@ var channelLinkOrder = []string{
 	pkgchannel.PlatformDiscord,
 	pkgchannel.PlatformQQ,
 	pkgchannel.PlatformFeishu,
+	pkgchannel.PlatformDingTalk,
 	pkgchannel.PlatformWeixin,
 }
 

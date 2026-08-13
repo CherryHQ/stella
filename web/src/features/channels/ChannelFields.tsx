@@ -53,6 +53,17 @@ export const platformDefaults: Record<string, PlatformDefaults> = {
     guest_retention_days: 30,
     require_mention: true,
   },
+  dingtalk: {
+    client_id: "",
+    client_secret: "",
+    allowed_conversation_ids: "",
+    allow_dm: true,
+    allow_unlinked_dm: false,
+    guest_message_limit_per_minute: 10,
+    guest_max_per_channel: 1000,
+    guest_retention_days: 30,
+    require_mention: true,
+  },
   weixin: { bot_token: "", base_url: "", bot_id: "", user_id: "" },
 };
 
@@ -329,6 +340,21 @@ export function ChannelConfigFields({
             t("channels.allowedChatIds"),
             t("channels.allowedFeishuChatIdsPlaceholder"),
           )}
+        </>
+      )}
+
+      {type === "dingtalk" && (
+        <>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {field("client_id", "Client ID", "text", "DingTalk application Client ID")}
+            {field("client_secret", "Client Secret", "password")}
+          </div>
+          {accessFields(
+            "allowed_conversation_ids",
+            t("channels.allowedConversationIds"),
+            t("channels.allowedDingTalkConversationIdsPlaceholder"),
+          )}
+          <FieldDescription>{t("channels.dingtalkNotifyDesc")}</FieldDescription>
         </>
       )}
 
