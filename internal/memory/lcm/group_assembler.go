@@ -76,18 +76,32 @@ func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, bu
 		agentHistory = append(agentHistory, injected...)
 	}
 
-	// 4. Apply token budget: trim oldest messages first.
-	total := 0
-	for _, m := range agentHistory {
-		total += estimateMessageTokens(m)
-	}
-	cutIdx := 0
-	for total > budget && cutIdx < len(agentHistory) {
-		total -= estimateMessageTokens(agentHistory[cutIdx])
-		cutIdx++
-	}
+	// 4. Apply the post-injection budget by whole user turns. The ordinary
+	// assembler has already made tool turns provider-safe; a second message-level
+	// trim must not detach tool results or a final answer from their user turn.
+	agentHistory = trimOldestCompleteTurns(agentHistory, budget)
+	return sanitizeToolPairs(agentHistory), nil
+}
 
-	return sanitizeToolPairs(agentHistory[cutIdx:]), nil
+func trimOldestCompleteTurns(messages []ai.Message, budget int) []ai.Message {
+	total := 0
+	for _, message := range messages {
+		total += estimateMessageTokens(message)
+	}
+	for len(messages) > 0 && total > budget {
+		end := len(messages)
+		for i := 1; i < len(messages); i++ {
+			if _, startsNextTurn := messages[i].(ai.UserMessage); startsNextTurn {
+				end = i
+				break
+			}
+		}
+		for _, message := range messages[:end] {
+			total -= estimateMessageTokens(message)
+		}
+		messages = messages[end:]
+	}
+	return messages
 }
 
 func (p *Provider) CommitGroupCursor(ctx context.Context, session memory.Session, triggerSeq int64) error {
