@@ -42,6 +42,69 @@ func TestRuntimeManagerDoesNotLeakTypedNilServices(t *testing.T) {
 	}
 }
 
+// inactivePromotionProvider models an archive that commits after Registry has
+// selected a promotable row but before its metadata save. Embedding the two
+// interfaces preserves every unrelated provider capability for this Access test.
+type inactivePromotionProvider struct {
+	memory.Provider
+	memory.SessionManager
+	targetID  string
+	triggered bool
+}
+
+func (p *inactivePromotionProvider) SaveInfo(ctx context.Context, info memory.SessionInfo) error {
+	if !p.triggered && info.ID == p.targetID && info.Kind == string(agentsession.KindMain) {
+		p.triggered = true
+		if applied, err := p.ArchiveInfo(ctx, info); err != nil {
+			return err
+		} else if !applied {
+			return fmt.Errorf("archive promotion-race target %s", info.ID)
+		}
+		return fmt.Errorf("%w: %s", memory.ErrInactiveSession, info.ID)
+	}
+	return p.SessionManager.SaveInfo(ctx, info)
+}
+
+func TestAccessResolveMainReResolvesAfterArchiveRace(t *testing.T) {
+	m := newSessionMatrix(t)
+	ctx := context.Background()
+	const targetID = "access-promotion-race"
+	now := time.Now().UTC()
+	candidate := memory.SessionInfo{
+		ID: targetID, UserID: m.owner, AgentID: m.agent,
+		Kind: string(agentsession.KindChat), Channel: m.agent + ":user:" + m.owner + ":private",
+		CreatedAt: now, LastActive: now,
+	}
+	manager := m.svc.memory
+	if err := manager.SaveInfo(ctx, candidate); err != nil {
+		t.Fatalf("seed promotable session: %v", err)
+	}
+	provider := &inactivePromotionProvider{Provider: m.provider, SessionManager: manager, targetID: targetID}
+	svc, err := NewService(provider, m.db, m.svc.store, m.svc.assets, m.svc.agents)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	access, err := svc.Begin(ctx, sessionWorkerAuthority(t, m.owner, m.agent))
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+
+	resolved, err := access.ResolveMain(ctx, m.owner, m.agent)
+	if err != nil {
+		t.Fatalf("ResolveMain after archive race: %v", err)
+	}
+	if resolved.ID == targetID || resolved.Archived || resolved.Kind != string(agentsession.KindMain) {
+		t.Fatalf("resolved = %+v, want a fresh active main", resolved)
+	}
+	archived, err := manager.LoadInfo(ctx, targetID)
+	if err != nil {
+		t.Fatalf("load raced candidate: %v", err)
+	}
+	if !archived.Archived {
+		t.Fatal("Access resolution revived the archived candidate")
+	}
+}
+
 type fakeRuntimeManager struct{ svc *fakeRuntimeService }
 
 func (m fakeRuntimeManager) GetService(string) RuntimeService { return m.svc }

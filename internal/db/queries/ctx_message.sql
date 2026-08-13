@@ -244,6 +244,9 @@ WITH candidates AS MATERIALIZED (
       AND c.user_id = sqlc.arg('user_id')
       AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
       AND c.archived = false
+      -- Old deployments may already contain zero sidecars, which have no
+      -- cosine direction and otherwise produce NaN distances under exact KNN.
+      AND vector_norm(e.embedding) > 0
 )
 SELECT
     m.*,

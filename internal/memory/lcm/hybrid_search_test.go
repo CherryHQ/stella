@@ -120,6 +120,75 @@ func TestHybridSearch_VectorLaneSurfacesNonLexicalHit(t *testing.T) {
 	}
 }
 
+func TestHybridSearch_InvalidQueryVectorFallsBackToLexical(t *testing.T) {
+	db := newLCMTestDB(t)
+	t.Cleanup(func() { db.Close() })
+	ctx := context.Background()
+	sess := newLCMTestSession("invalid-query-vector")
+
+	// A zero query has no cosine direction. The semantic lane must fail closed
+	// while the ordinary BM25 result remains available to the caller.
+	p, err := lcm.New(db, nil, nil, lcm.WithQueryEmbedder(fakeQueryEmbedder{
+		vec:   pgvector.NewVector(make([]float32, 1536)),
+		model: "space-invalid-query",
+	}))
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	t.Cleanup(func() { _ = p.Close() })
+	if err := p.Bootstrap(ctx, sess); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	appendUser(t, p, sess, "platinum refund policy", "ordinary response")
+
+	results := runSearch(t, p, sess, memory.SearchQuery{Text: "platinum", Scope: memory.SearchScopeMessages})
+	if len(results) == 0 || !strings.Contains(results[0].Content, "platinum") {
+		t.Fatalf("invalid query vector dropped lexical recall: %+v", results)
+	}
+}
+
+func TestHybridSearch_StoredZeroVectorsAreExcluded(t *testing.T) {
+	db := newLCMTestDB(t)
+	t.Cleanup(func() { db.Close() })
+	ctx := context.Background()
+	const space = "space-stored-zero"
+	sess := newLCMTestSession("stored-zero")
+	p, err := lcm.New(db, nil, nil, lcm.WithQueryEmbedder(fakeQueryEmbedder{vec: vec1536(1, 0), model: space}))
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	t.Cleanup(func() { _ = p.Close() })
+	if err := p.Bootstrap(ctx, sess); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	appendUser(t, p, sess, "zero vector message", "zero vector response")
+
+	q := sqlc.New(db)
+	convID := conversationID(t, db, sess.ID)
+	var messageID string
+	if err := db.QueryRow(ctx, `SELECT id FROM ctx_message WHERE conversation_id = $1 ORDER BY seq LIMIT 1`, convID).Scan(&messageID); err != nil {
+		t.Fatalf("load message: %v", err)
+	}
+	zero := pgvector.NewVector(make([]float32, 1536))
+	if err := q.UpsertMessageEmbedding(ctx, sqlc.UpsertMessageEmbeddingParams{MessageID: messageID, Model: space, ContentHash: []byte("h"), Embedding: zero}); err != nil {
+		t.Fatalf("seed historical zero message sidecar: %v", err)
+	}
+	const summaryID = "stored-zero-summary"
+	if _, err := db.Exec(ctx, `INSERT INTO ctx_summary (id, conversation_id, kind, depth, content, token_count) VALUES ($1,$2,'leaf',0,'zero vector summary',5)`, summaryID, convID); err != nil {
+		t.Fatalf("insert summary: %v", err)
+	}
+	if err := q.UpsertSummaryEmbedding(ctx, sqlc.UpsertSummaryEmbeddingParams{SummaryID: summaryID, Model: space, ContentHash: []byte("h"), Embedding: zero}); err != nil {
+		t.Fatalf("seed historical zero summary sidecar: %v", err)
+	}
+
+	for _, scope := range []memory.SearchScope{memory.SearchScopeMessages, memory.SearchScopeSummaries} {
+		results := runSearch(t, p, sess, memory.SearchQuery{Text: "semantic-only-query", Scope: scope})
+		if len(results) != 0 {
+			t.Fatalf("scope %d returned stored zero-vector hits: %+v", scope, results)
+		}
+	}
+}
+
 func TestHybridSearch_ExactScopeFindsActiveRowsPastArchivedCandidates(t *testing.T) {
 	db := newLCMTestDB(t)
 	t.Cleanup(func() { db.Close() })

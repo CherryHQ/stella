@@ -629,6 +629,9 @@ WITH candidates AS MATERIALIZED (
       AND c.user_id = $4
       AND c.agent_id IS NOT DISTINCT FROM $5
       AND c.archived = false
+      -- Keep historical zero sidecars out of exact cosine ranking; see the
+      -- corresponding message query for the migration-compatibility rationale.
+      AND vector_norm(e.embedding) > 0
 )
 SELECT
     s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at, s.contains_non_principal_input,

@@ -920,6 +920,9 @@ WITH candidates AS MATERIALIZED (
       AND c.user_id = $4
       AND c.agent_id IS NOT DISTINCT FROM $5
       AND c.archived = false
+      -- Old deployments may already contain zero sidecars, which have no
+      -- cosine direction and otherwise produce NaN distances under exact KNN.
+      AND vector_norm(e.embedding) > 0
 )
 SELECT
     m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at, m.actor_type, m.actor_id, m.source_session_id, m.inbox_id,

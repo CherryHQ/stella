@@ -109,6 +109,9 @@ WITH candidates AS MATERIALIZED (
       AND c.user_id = sqlc.arg('user_id')
       AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
       AND c.archived = false
+      -- Keep historical zero sidecars out of exact cosine ranking; see the
+      -- corresponding message query for the migration-compatibility rationale.
+      AND vector_norm(e.embedding) > 0
 )
 SELECT
     s.*,
