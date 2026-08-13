@@ -30,28 +30,28 @@ func TestResolveSkillViewUsesExactBuiltinBundle(t *testing.T) {
 
 func TestRunnerFilesystemPolicyMountsExactBuiltinBundleReadOnly(t *testing.T) {
 	paths := Paths{StellaHome: "/srv/stella", AgentRoot: "/srv/stella/agents/a1", BuiltinBundle: "/srv/stella/bundles/revision", WorkspaceRoot: "/work", WorkDir: "/work"}
-	policy := runnerFilesystemPolicy(paths, Config{})
+	policy, sources := runnerFilesystemPolicy(paths, Config{})
 	foundBuiltin := false
 	for _, mount := range policy.Mounts {
 		if mount.SandboxPath == pkgsandbox.MountBuiltinSkills {
-			if mount.HostPath != paths.BuiltinBundle || mount.Access != pkgsandbox.MountReadOnly {
+			if sources[mount.SandboxPath] != paths.BuiltinBundle || mount.Access != pkgsandbox.MountReadOnly {
 				t.Fatalf("builtin mount = %#v", mount)
 			}
 			foundBuiltin = true
 		}
-		if mount.HostPath == filepath.Join(paths.StellaHome, ".agents", "skills") {
-			t.Fatalf("legacy builtin host path leaked into policy: %#v", mount)
-		}
-		for _, authority := range []string{
-			filepath.Join(paths.StellaHome, ".agents", "db-skills"),
-			filepath.Join(paths.AgentRoot, ".agents", "skills"),
-		} {
-			if mount.HostPath == authority {
-				t.Fatalf("managed Skill authority root leaked into sandbox policy: %#v", mount)
-			}
-		}
 	}
 	if !foundBuiltin {
 		t.Fatal("missing builtin bundle mount")
+	}
+	for sandboxPath, source := range sources {
+		for _, authority := range []string{
+			filepath.Join(paths.StellaHome, ".agents", "skills"),
+			filepath.Join(paths.StellaHome, ".agents", "db-skills"),
+			filepath.Join(paths.AgentRoot, ".agents", "skills"),
+		} {
+			if source == authority {
+				t.Fatalf("managed Skill authority %q leaked into private mount source %q", authority, sandboxPath)
+			}
+		}
 	}
 }

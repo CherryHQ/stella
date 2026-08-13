@@ -133,55 +133,31 @@ func TestReadTextFileReturnsTextBlock(t *testing.T) {
 	}
 }
 
-// unshadowedTempDir returns a temporary directory outside the system temp tree.
-// A local sandbox session binds session-private directories over /tmp and
-// /var/tmp, so a host path under them is ambiguous with sandbox-space temp paths
-// and resolves into the private backing instead of the host file. Tests that
-// hand host paths to a real session must stay clear of that overlap.
-func unshadowedTempDir(t *testing.T) string {
-	t.Helper()
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("UserHomeDir: %v", err)
-	}
-	dir, err := os.MkdirTemp(home, "stella-sandbox-test-*")
-	if err != nil {
-		t.Fatalf("MkdirTemp(%q): %v", home, err)
-	}
-	t.Cleanup(func() { os.RemoveAll(dir) }) //nolint:errcheck
-	resolved, err := filepath.EvalSymlinks(dir)
-	if err != nil {
-		t.Fatalf("EvalSymlinks(%q): %v", dir, err)
-	}
-	return resolved
-}
-
-func TestReadToolProjectRootAbsolutePathUsesHostBoundary(t *testing.T) {
-	workspace := unshadowedTempDir(t)
-	inside := filepath.Join(workspace, "inside.txt")
-	if err := os.WriteFile(inside, []byte("inside workspace\n"), 0o644); err != nil {
+func TestReadToolUsesSessionProcessViewBoundary(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "inside.txt"), []byte("inside workspace\n"), 0o644); err != nil {
 		t.Fatalf("write inside: %v", err)
 	}
-	outside := filepath.Join(unshadowedTempDir(t), "secret.txt")
+	outside := filepath.Join(t.TempDir(), "secret.txt")
 	if err := os.WriteFile(outside, []byte("outside workspace\n"), 0o644); err != nil {
 		t.Fatalf("write outside: %v", err)
 	}
 
 	policy := pkgsandbox.Policy{
 		Filesystem: pkgsandbox.FilesystemPolicy{
-			WorkspaceRoot: workspace,
-			WorkingDir:    workspace,
+			WorkingDir: pkgsandbox.MountWorkspace,
+			Mounts:     []pkgsandbox.Mount{{SandboxPath: pkgsandbox.MountWorkspace, Access: pkgsandbox.MountReadWrite}},
 		},
 		Network: pkgsandbox.NetworkPolicy{Mode: pkgsandbox.NetworkAllowAll},
 	}
-	session, err := localplugin.NewFactory().CreateSession(context.Background(), policy)
+	session, err := localplugin.NewFactoryWithMountSources(map[string]string{pkgsandbox.MountWorkspace: workspace}).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Skipf("local sandbox unavailable: %v", err)
 	}
 	defer session.Close() //nolint:errcheck
 
-	tool := newReadTool(session, workspace)
-	out, err := tool.Execute(context.Background(), map[string]any{"path": inside})
+	tool := newReadTool(session, session.WorkingDir())
+	out, err := tool.Execute(context.Background(), map[string]any{"path": "inside.txt"})
 	if err != nil {
 		t.Fatalf("read inside workspace: %v", err)
 	}

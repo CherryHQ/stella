@@ -18,33 +18,69 @@ type stubHost struct {
 
 func (s *stubHost) Policy() pkgsandbox.Policy { return s.policy }
 
-func (s *stubHost) ResolvePath(path string) (string, error) {
+func (s *stubHost) resolve(path string) (string, error) {
 	if s.resolvePath != nil {
 		return s.resolvePath(path)
 	}
 	return path, nil
 }
 
-func (s *stubHost) ResolveWritePath(path string) (string, error) {
-	return s.ResolvePath(path)
+func (s *stubHost) Files() pkgsandbox.FileAccess { return stubFiles{host: s} }
+
+type stubFiles struct{ host *stubHost }
+
+func (f stubFiles) ReadFile(path string) ([]byte, error) {
+	resolved, err := f.host.resolve(path)
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(resolved)
+}
+
+func (f stubFiles) ReadDir(path string) ([]pkgsandbox.DirEntry, error) {
+	return nil, os.ErrPermission
+}
+
+func (f stubFiles) Stat(path string) (pkgsandbox.FileInfo, error) {
+	resolved, err := f.host.resolve(path)
+	if err != nil {
+		return pkgsandbox.FileInfo{}, err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return pkgsandbox.FileInfo{}, err
+	}
+	return pkgsandbox.FileInfo{IsDir: info.IsDir(), Size: info.Size()}, nil
+}
+
+func (f stubFiles) WriteFile(path string, content []byte, mode os.FileMode) error {
+	resolved, err := f.host.resolve(path)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(resolved, content, mode)
+}
+
+func (f stubFiles) ProjectFiles(string, []pkgsandbox.ProjectedFile) error {
+	return os.ErrPermission
 }
 
 type policylessHost struct{ pkgsandbox.Session }
 
-func (s *policylessHost) ResolvePath(path string) (string, error)      { return path, nil }
-func (s *policylessHost) ResolveWritePath(path string) (string, error) { return path, nil }
+func (s *policylessHost) Files() pkgsandbox.FileAccess { return stubFiles{host: &stubHost{}} }
 
 func TestLiteralToolPathsDoNotRequireSessionPolicy(t *testing.T) {
 	host := &policylessHost{}
 	for _, path := range []string{filepath.Join(t.TempDir(), "literal.txt"), "relative.txt"} {
-		for _, resolve := range []func(pkgsandbox.Host, string, string) (string, error){resolveToolPath, resolveWritableToolPath} {
-			got, err := resolve(host, "", path)
-			if err != nil {
-				t.Fatalf("resolve literal path: %v", err)
-			}
-			if got != path {
-				t.Errorf("resolved literal path = %q, want %q", got, path)
-			}
+		got, err := resolveToolExpression(host, "", path)
+		if err != nil {
+			t.Fatalf("resolve literal path: %v", err)
+		}
+		if got != path {
+			t.Errorf("resolved literal path = %q, want %q", got, path)
 		}
 	}
 }
@@ -155,24 +191,6 @@ func TestWriteTool_CreatesFile(t *testing.T) {
 	}
 }
 
-type resolverHost struct {
-	pkgsandbox.Session
-	policy   pkgsandbox.Policy
-	resolver *pkgsandbox.PathResolver
-}
-
-func (s *resolverHost) Policy() pkgsandbox.Policy { return s.policy }
-
-func (s *resolverHost) ResolvePath(path string) (string, error) {
-	resolved, err := s.resolver.ResolvePath(path)
-	return resolved.HostPath, err
-}
-
-func (s *resolverHost) ResolveWritePath(path string) (string, error) {
-	resolved, err := s.resolver.ResolveWritePath(path)
-	return resolved.HostPath, err
-}
-
 func TestFileToolPathDescriptionsUseSemanticRoots(t *testing.T) {
 	for _, definition := range ToolDefinitions() {
 		if definition.Name != "read" && definition.Name != "write" && definition.Name != "edit" {
@@ -209,21 +227,22 @@ func TestToolPathsExpandSandboxViewAndRemainConfined(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, "edit.txt"), []byte("before"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	host := &resolverHost{
+	mounts := map[string]string{"/workspace": workspace, "/user": userData, "/tmp": tmp}
+	host := &stubHost{
 		policy: pkgsandbox.Policy{Env: map[string]string{
 			pkgsandbox.EnvHome:            "/workspace",
 			pkgsandbox.EnvStellaAssetsDir: "/user/assets",
 			pkgsandbox.EnvTempDir:         "/tmp",
 		}},
-		resolver: pkgsandbox.NewPathResolver(pkgsandbox.PathResolverConfig{
-			WorkspaceRoot: workspace,
-			WorkingDir:    workspace,
-			Mounts: []pkgsandbox.Mount{
-				{HostPath: workspace, SandboxPath: "/workspace", Access: pkgsandbox.MountReadWrite},
-				{HostPath: userData, SandboxPath: "/user", Access: pkgsandbox.MountReadWrite},
-				{HostPath: tmp, SandboxPath: "/tmp", Access: pkgsandbox.MountReadWrite},
-			},
-		}),
+		resolvePath: func(name string) (string, error) {
+			for visible, physical := range mounts {
+				rel, ok := pkgsandbox.POSIXPathRelative(visible, name)
+				if ok {
+					return filepath.Join(physical, filepath.FromSlash(rel)), nil
+				}
+			}
+			return "", os.ErrPermission
+		},
 	}
 
 	read, err := newReadTool(host, "").Execute(context.Background(), map[string]any{"path": "$STELLA_ASSETS_DIR/upload.txt"})

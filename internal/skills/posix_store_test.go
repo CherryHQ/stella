@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io/fs"
@@ -659,27 +660,103 @@ func (r *projectionReader) LoadExactRevision(_ context.Context, identity Skill, 
 type projectionSession struct {
 	tempVisible string
 	tempHost    string
-	isolated    bool
 }
 
 func (s projectionSession) Policy() pkgsandbox.Policy {
-	temp := s.tempVisible
-	if s.isolated {
-		temp = s.tempHost
-	}
-	return pkgsandbox.Policy{Env: map[string]string{pkgsandbox.EnvTempDir: temp}}
+	return pkgsandbox.Policy{Env: map[string]string{pkgsandbox.EnvTempDir: s.tempVisible}}
 }
 
-func (s projectionSession) ResolveWritePath(name string) (string, error) {
-	visible := s.tempVisible
-	if s.isolated {
-		visible = "/tmp"
-	}
-	rel, err := filepath.Rel(visible, name)
+func (s projectionSession) Files() pkgsandbox.FileAccess { return projectionAccess{session: s} }
+
+type projectionAccess struct{ session projectionSession }
+
+func (a projectionAccess) hostPath(name string) (string, error) {
+	s := a.session
+	rel, err := filepath.Rel(s.tempVisible, name)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", os.ErrPermission
 	}
 	return filepath.Join(s.tempHost, rel), nil
+}
+
+func (a projectionAccess) ReadFile(string) ([]byte, error) { return nil, os.ErrPermission }
+func (a projectionAccess) ReadDir(string) ([]pkgsandbox.DirEntry, error) {
+	return nil, os.ErrPermission
+}
+
+func (a projectionAccess) Stat(string) (pkgsandbox.FileInfo, error) {
+	return pkgsandbox.FileInfo{}, os.ErrPermission
+}
+func (a projectionAccess) WriteFile(string, []byte, fs.FileMode) error { return os.ErrPermission }
+func (a projectionAccess) ProjectFiles(name string, files []pkgsandbox.ProjectedFile) error {
+	target, err := a.hostPath(name)
+	if err != nil {
+		return err
+	}
+	if info, err := os.Lstat(target); err == nil {
+		if !info.IsDir() {
+			return pkgsandbox.ErrProjectionConflict
+		}
+		for _, file := range files {
+			content, readErr := os.ReadFile(filepath.Join(target, filepath.FromSlash(file.Path)))
+			fileInfo, statErr := os.Lstat(filepath.Join(target, filepath.FromSlash(file.Path)))
+			if readErr != nil || statErr != nil || !bytes.Equal(content, file.Content) || fileInfo.Mode().Perm() != file.Mode.Perm() {
+				return pkgsandbox.ErrProjectionConflict
+			}
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		return err
+	}
+	stage, err := os.MkdirTemp(filepath.Dir(target), ".project-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(stage) //nolint:errcheck
+	for _, file := range files {
+		path := filepath.Join(stage, filepath.FromSlash(file.Path))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, file.Content, file.Mode); err != nil {
+			return err
+		}
+	}
+	return os.Rename(stage, target)
+}
+
+type resilientProjectionSession struct {
+	projectionSession
+	alive     atomic.Bool
+	closeOnce sync.Once
+	done      chan struct{}
+}
+
+func newResilientProjectionSession(visible, host string) *resilientProjectionSession {
+	session := &resilientProjectionSession{
+		projectionSession: projectionSession{tempVisible: visible, tempHost: host},
+		done:              make(chan struct{}),
+	}
+	session.alive.Store(true)
+	return session
+}
+
+func (s *resilientProjectionSession) Alive() bool           { return s.alive.Load() }
+func (s *resilientProjectionSession) Done() <-chan struct{} { return s.done }
+func (s *resilientProjectionSession) WorkingDir() string    { return s.tempVisible }
+func (s *resilientProjectionSession) Close() error {
+	s.alive.Store(false)
+	s.closeOnce.Do(func() { close(s.done) })
+	return nil
+}
+
+func (s *resilientProjectionSession) Exec(context.Context, string, pkgsandbox.ExecOptions) (pkgsandbox.ExecResult, error) {
+	return pkgsandbox.ExecResult{}, nil
+}
+
+func (s *resilientProjectionSession) StartProcess(context.Context, pkgsandbox.ProcessRequest) (pkgsandbox.ProcessHandle, error) {
+	return nil, nil
 }
 
 type selectedSkillReads struct{ denied map[string]bool }
@@ -754,7 +831,7 @@ func TestManagedLoadUsesIsolatedSessionTempView(t *testing.T) {
 			Files: map[string][]byte{MainFile: []byte("isolated current"), "scripts/run.sh": []byte("#!/bin/sh\nprintf isolated")},
 		}},
 	}
-	session := projectionSession{tempVisible: "/tmp", tempHost: t.TempDir(), isolated: true}
+	session := projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}
 	tool := NewTool(nil, "", "").WithManagedRevisions(reader, session).
 		WithReadAuthorizer(selectedSkillReads{}).WithSkillDirView(SkillDirView{Isolated: true})
 	out, err := tool.load(t.Context(), map[string]any{"name": identity.Name})
@@ -768,6 +845,42 @@ func TestManagedLoadUsesIsolatedSessionTempView(t *testing.T) {
 	hostFile := filepath.Join(session.tempHost, "stella-skills", identity.Scope, identity.ID, digest, "scripts", "run.sh")
 	if content, err := os.ReadFile(hostFile); err != nil || string(content) != "#!/bin/sh\nprintf isolated" {
 		t.Fatalf("isolated host projection = %q, %v", content, err)
+	}
+}
+
+func TestManagedLoadRefreshesSessionTempBeforeProjection(t *testing.T) {
+	digest := strings.Repeat("8", 64)
+	identity := projectionSkill("recreated-view", "recreated-view", "")
+	reader := &projectionReader{
+		identities: []Skill{identity},
+		revisions: map[string]ManagedRevision{identity.ID: {
+			Skill: projectionSkill(identity.ID, identity.Name, digest),
+			Files: map[string][]byte{MainFile: []byte("recreated current")},
+		}},
+	}
+	first := newResilientProjectionSession("/old/tmp", t.TempDir())
+	second := newResilientProjectionSession("/new/tmp", t.TempDir())
+	session := pkgsandbox.NewResilientSession(first, func(context.Context) (pkgsandbox.Session, error) {
+		return second, nil
+	})
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewTool(nil, "", "").WithManagedRevisions(reader, session).WithReadAuthorizer(selectedSkillReads{})
+	out, err := tool.load(t.Context(), map[string]any{"name": identity.Name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantVisible := filepath.Join("/new/tmp", "stella-skills", identity.Scope, identity.ID, digest)
+	if !strings.Contains(out, "<skill_dir>"+wantVisible+"</skill_dir>") || strings.Contains(out, "/old/tmp") {
+		t.Fatalf("recreated load output = %q", out)
+	}
+	if content, err := os.ReadFile(filepath.Join(second.tempHost, "stella-skills", identity.Scope, identity.ID, digest, MainFile)); err != nil || string(content) != "recreated current" {
+		t.Fatalf("recreated projection = %q, %v", content, err)
+	}
+	if _, err := os.Stat(filepath.Join(first.tempHost, "stella-skills")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("dead Session received projection: %v", err)
 	}
 }
 

@@ -101,6 +101,9 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 	// of the user home (#442).
 	userAgentDir := filepath.Join(stellaHome, "users", "user-1", "agents", snap.AgentID)
 	projectRoot := filepath.Join(userAgentDir, "projects", "app")
+	if err := os.MkdirAll(filepath.Join(stellaHome, "users", "user-1", "data"), 0o700); err != nil {
+		t.Fatalf("MkdirAll user data: %v", err)
+	}
 	if err := os.MkdirAll(projectRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -244,6 +247,9 @@ func TestNewRunnerFuncCarriesDeclaredModelInput(t *testing.T) {
 		},
 	}
 	snap.Workspace = t.TempDir()
+	if err := os.MkdirAll(filepath.Join(stellaHome, "users", "user-1", "data"), 0o700); err != nil {
+		t.Fatalf("MkdirAll user data: %v", err)
+	}
 
 	build := newRunnerFunc(runnerBuilderConfig{
 		Snap:            snap,
@@ -290,6 +296,9 @@ func TestNewRunnerFuncManagedSessionsPreserveQualifiedModelRef(t *testing.T) {
 			providerAlias: {Type: providerAPI, APIKey: "test-key", ProviderID: providerID},
 		},
 		Workspace: t.TempDir(),
+	}
+	if err := os.MkdirAll(filepath.Join(stellaHome, "users", "user-1", "data"), 0o700); err != nil {
+		t.Fatalf("MkdirAll user data: %v", err)
 	}
 
 	var adapterBuilds int

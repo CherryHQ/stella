@@ -156,6 +156,11 @@ func TestNewRunnerFuncUsesPrincipalWorkspace(t *testing.T) {
 		{name: "user-less", params: RunnerParams{AgentID: "a1"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.wantRoot != "" {
+				if err := os.MkdirAll(filepath.Join(tt.wantRoot, "data"), 0o700); err != nil {
+					t.Fatalf("create principal data root: %v", err)
+				}
+			}
 			var promptBuild plugins.SystemPromptContext
 			build := newRunnerFunc(runnerBuilderConfig{
 				Snap:            snap,
@@ -188,10 +193,10 @@ func TestNewRunnerFuncUsesPrincipalWorkspace(t *testing.T) {
 					t.Fatalf("scratch is not writable: %v", err)
 				}
 				impl := builtRunner.(*runner)
-				workspaceRoot, err := filepath.EvalSymlinks(impl.session.Policy().Filesystem.WorkspaceRoot)
+				workspaceRoot, err := filepath.EvalSymlinks(impl.sandboxCfg.Paths.WorkspaceRoot)
 				promptRoot, promptErr := filepath.EvalSymlinks(promptBuild.UserRoot)
 				if err != nil || promptErr != nil || impl.sandboxCfg.Paths.AgentRoot != snap.Workspace || workspaceRoot != promptRoot {
-					t.Fatalf("definition/scratch roots = agent %q workspace %q scratch %q", impl.sandboxCfg.Paths.AgentRoot, impl.session.Policy().Filesystem.WorkspaceRoot, promptBuild.UserRoot)
+					t.Fatalf("definition/scratch roots = agent %q workspace %q scratch %q", impl.sandboxCfg.Paths.AgentRoot, impl.sandboxCfg.Paths.WorkspaceRoot, promptBuild.UserRoot)
 				}
 				scratch := promptBuild.UserRoot
 				if err := builtRunner.Close(); err != nil {
@@ -207,20 +212,24 @@ func TestNewRunnerFuncUsesPrincipalWorkspace(t *testing.T) {
 				if got := promptBuild.WorkspaceRoot; got != tt.wantWork {
 					t.Errorf("prompt WorkspaceRoot = %q, want %q", got, tt.wantWork)
 				}
-				mounts := builtRunner.(*runner).session.Policy().Filesystem.Mounts
+				impl := builtRunner.(*runner)
+				mounts := impl.session.Policy().Filesystem.Mounts
 				wantMounts := map[string]string{
-					pkgsandbox.MountWorkspace: tt.wantWork,
-					pkgsandbox.MountUserData:  filepath.Join(tt.wantRoot, "data"),
+					tt.wantWork:                        impl.sandboxCfg.Paths.WorkspaceRoot,
+					filepath.Join(tt.wantRoot, "data"): impl.sandboxCfg.Paths.UserDataDir,
 				}
-				for sandboxPath, hostPath := range wantMounts {
+				for processPath, source := range wantMounts {
 					found := false
 					for _, mount := range mounts {
-						if mount.SandboxPath == sandboxPath {
-							found = mount.HostPath == hostPath && mount.Access == pkgsandbox.MountReadWrite
+						if mount.SandboxPath == processPath {
+							found = mount.Access == pkgsandbox.MountReadWrite
 						}
 					}
 					if !found {
-						t.Errorf("mount %s = %#v, want RW host %q", sandboxPath, mounts, hostPath)
+						t.Errorf("mount %s = %#v, want RW", processPath, mounts)
+					}
+					if source != processPath {
+						t.Errorf("none backend private mount source for %s = %q", processPath, source)
 					}
 				}
 			}

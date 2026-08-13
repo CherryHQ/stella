@@ -1,16 +1,11 @@
 package skills
 
 import (
-	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -123,7 +118,7 @@ type reflectSkillRuntimeDigestTracker interface {
 
 type sandboxSession interface {
 	Policy() pkgsandbox.Policy
-	ResolveWritePath(string) (string, error)
+	Files() pkgsandbox.FileAccess
 }
 
 func NewTool(store pkgplugins.SkillStore, stellaHome, projectRoot string) *Tool {
@@ -671,86 +666,6 @@ func (t *Tool) loadManagedOrImmutable(ctx context.Context, name, filename string
 	return out.String(), nil
 }
 
-func verifyProjectedRevision(root *os.Root, directory string, files []revisionFile) error {
-	type expectedEntry struct {
-		directory bool
-		file      *revisionFile
-	}
-	expected := map[string]map[string]expectedEntry{".": {}}
-	for index := range files {
-		file := &files[index]
-		parts := strings.Split(file.Path, "/")
-		parent := "."
-		for partIndex, part := range parts {
-			if partIndex == len(parts)-1 {
-				expected[parent][part] = expectedEntry{file: file}
-				continue
-			}
-			expected[parent][part] = expectedEntry{directory: true}
-			parent = filepath.Join(parent, part)
-			if expected[parent] == nil {
-				expected[parent] = map[string]expectedEntry{}
-			}
-		}
-	}
-
-	info, err := root.Lstat(directory)
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() || info.Mode()&fs.ModeSymlink != 0 {
-		return fmt.Errorf("%w: Session projection root is not a directory", ErrInvalidSkillRevision)
-	}
-	for relative, wanted := range expected {
-		name := directory
-		if relative != "." {
-			name = filepath.Join(directory, relative)
-		}
-		dir, openErr := root.Open(name)
-		if openErr != nil {
-			return errors.Join(ErrInvalidSkillRevision, openErr)
-		}
-		entries, readErr := dir.ReadDir(len(wanted) + 1)
-		closeErr := dir.Close()
-		if readErr != nil && !errors.Is(readErr, io.EOF) || closeErr != nil {
-			return errors.Join(ErrInvalidSkillRevision, readErr, closeErr)
-		}
-		if len(entries) != len(wanted) {
-			return fmt.Errorf("%w: Session projection directory %q has unexpected entries", ErrInvalidSkillRevision, relative)
-		}
-		for _, entry := range entries {
-			want, ok := wanted[entry.Name()]
-			if !ok {
-				return fmt.Errorf("%w: Session projection contains unexpected entry %q", ErrInvalidSkillRevision, filepath.Join(relative, entry.Name()))
-			}
-			entryName := filepath.Join(name, entry.Name())
-			entryInfo, statErr := root.Lstat(entryName)
-			if statErr != nil {
-				return errors.Join(ErrInvalidSkillRevision, statErr)
-			}
-			if want.directory {
-				if !entryInfo.IsDir() || entryInfo.Mode()&fs.ModeSymlink != 0 {
-					return fmt.Errorf("%w: Session projection entry %q is not a directory", ErrInvalidSkillRevision, filepath.Join(relative, entry.Name()))
-				}
-				continue
-			}
-			if want.file == nil || !entryInfo.Mode().IsRegular() || entryInfo.Mode().Perm() != want.file.Mode.Perm() || entryInfo.Size() != int64(len(want.file.Content)) {
-				return fmt.Errorf("%w: Session projection file metadata differs for %q", ErrInvalidSkillRevision, want.file.Path)
-			}
-			in, openErr := root.Open(entryName)
-			if openErr != nil {
-				return errors.Join(ErrInvalidSkillRevision, openErr)
-			}
-			content, readErr := io.ReadAll(io.LimitReader(in, int64(len(want.file.Content))+1))
-			closeErr := in.Close()
-			if readErr != nil || closeErr != nil || !bytes.Equal(content, want.file.Content) {
-				return errors.Join(ErrInvalidSkillRevision, readErr, closeErr)
-			}
-		}
-	}
-	return nil
-}
-
 func (t *Tool) projectRevision(revision ManagedRevision) (string, error) {
 	// One Tool belongs to one active Session. Serialize publication so concurrent
 	// loads cannot replace a digest path while another publication is deciding
@@ -782,106 +697,21 @@ func (t *Tool) projectRevision(revision ManagedRevision) (string, error) {
 	if policyTemp == "" {
 		return "", errors.New("sandbox Session has no TMPDIR")
 	}
-	visibleTemp := policyTemp
-	if t.view.Isolated {
-		// Docker retains the host backing directory in Policy while the process
-		// sees that private mount at /tmp. Resolve from process space so the
-		// returned skill_dir never leaks the host path.
-		visibleTemp = "/tmp"
-	}
-	visibleParent := filepath.Join(visibleTemp, "stella-skills", revision.Skill.Scope, revision.Skill.ID)
-	hostTemp, err := t.session.ResolveWritePath(visibleTemp)
-	if err != nil {
-		return "", err
-	}
-	tempRoot, err := os.OpenRoot(hostTemp)
-	if err != nil {
-		return "", err
-	}
-	defer tempRoot.Close() //nolint:errcheck
-	parent := filepath.Join("stella-skills", revision.Skill.Scope, revision.Skill.ID)
-	if err := tempRoot.MkdirAll(parent, 0o700); err != nil {
-		return "", err
-	}
-	visible := filepath.Join(visibleParent, revision.Skill.ContentDigest)
-	host := filepath.Join(parent, revision.Skill.ContentDigest)
-	// A Session projection is a disposable convenience copy, not an isolation
-	// boundary: same-UID commands can modify it. Reuse only after checking the
-	// complete bounded tree, file modes, and bytes against the exact revision.
-	// Fail closed on a poisoned path rather than replacing a directory that an
-	// already-running command may still be traversing.
-	if verifyErr := verifyProjectedRevision(tempRoot, host, files); verifyErr == nil {
-		return visible, nil
-	} else if !errors.Is(verifyErr, fs.ErrNotExist) {
-		return "", verifyErr
-	}
-	var entropy [12]byte
-	if _, err := rand.Read(entropy[:]); err != nil {
-		return "", err
-	}
-	stage := filepath.Join(parent, ".stage-"+hex.EncodeToString(entropy[:]))
-	if err := tempRoot.Mkdir(stage, 0o700); err != nil {
-		return "", err
-	}
-	published := false
-	defer func() {
-		if !published {
-			_ = tempRoot.RemoveAll(stage)
-		}
-	}()
-	root, err := tempRoot.OpenRoot(stage)
-	if err != nil {
-		return "", err
-	}
+	visible := filepath.Join(policyTemp, "stella-skills", revision.Skill.Scope, revision.Skill.ID, revision.Skill.ContentDigest)
+	projected := make([]pkgsandbox.ProjectedFile, 0, len(files))
 	for _, file := range files {
-		filename := filepath.FromSlash(file.Path)
-		if parent := filepath.Dir(filename); parent != "." {
-			if err := root.MkdirAll(parent, 0o700); err != nil {
-				_ = root.Close()
-				return "", err
-			}
-		}
-		out, err := root.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_EXCL, file.Mode)
-		if err != nil {
-			_ = root.Close()
-			return "", err
-		}
-		_, writeErr := out.Write(file.Content)
-		if writeErr == nil {
-			// Creation mode is umask-filtered; restore the requested read/execute
-			// projection mode before the complete tree becomes visible.
-			writeErr = out.Chmod(file.Mode)
-		}
-		closeErr := out.Close()
-		if writeErr != nil || closeErr != nil {
-			_ = root.Close()
-			return "", errors.Join(writeErr, closeErr)
-		}
+		projected = append(projected, pkgsandbox.ProjectedFile{Path: file.Path, Content: file.Content, Mode: file.Mode})
 	}
-	if err := root.Close(); err != nil {
+	// This Session-private convenience copy is atomically published and verified
+	// on every load, but it is not an isolation boundary from same-UID commands.
+	// A concurrent command can race that verification or modify the copy later;
+	// any mismatch the next load observes fails closed instead of replacing it.
+	if err := t.session.Files().ProjectFiles(visible, projected); err != nil {
+		if errors.Is(err, pkgsandbox.ErrProjectionConflict) {
+			return "", errors.Join(ErrInvalidSkillRevision, err)
+		}
 		return "", err
 	}
-	// The final digest path appears only after the complete bounded tree is
-	// closed. Concurrent loads of the same exact digest reuse the complete winner
-	// rather than replacing a path that an already-running tool may be traversing.
-	if verifyErr := verifyProjectedRevision(tempRoot, host, files); verifyErr == nil {
-		if err := tempRoot.RemoveAll(stage); err != nil {
-			return "", err
-		}
-	} else if !errors.Is(verifyErr, fs.ErrNotExist) {
-		return "", verifyErr
-	} else if err := tempRoot.Rename(stage, host); err != nil {
-		if verifyErr := verifyProjectedRevision(tempRoot, host, files); verifyErr != nil {
-			return "", errors.Join(err, verifyErr)
-		}
-		if removeErr := tempRoot.RemoveAll(stage); removeErr != nil {
-			return "", errors.Join(err, removeErr)
-		}
-	}
-	if err := verifyProjectedRevision(tempRoot, host, files); err != nil {
-		return "", err
-	}
-	published = true
 	return visible, nil
 }
 

@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"maps"
 	"sync"
@@ -15,7 +16,10 @@ type SessionCreator func(ctx context.Context) (Session, error)
 // ResilientSession wraps a Session and transparently recreates it when the
 // underlying session has been closed unexpectedly (e.g. container exited or
 // sandbox process crashed). Explicit Close calls are permanent — no recreation
-// after that.
+// after that. Recreation selection is atomic per method call, not across a
+// caller's separate Policy, WorkingDir, and Files operations. A generation-
+// scoped coordinate that becomes stale therefore fails closed; callers retry
+// the complete composed operation.
 type ResilientSession struct {
 	create     SessionCreator
 	mu         sync.Mutex
@@ -34,12 +38,9 @@ func NewResilientSession(session Session, create SessionCreator) *ResilientSessi
 	}
 }
 
-// ensureAlive returns the inner session if alive, or recreates it.
-// Caller must NOT hold r.mu.
-func (r *ResilientSession) ensureAlive(ctx context.Context) (Session, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
+// ensureAliveLocked returns the inner session if alive, or recreates it.
+// Caller must hold r.mu.
+func (r *ResilientSession) ensureAliveLocked(ctx context.Context) (Session, error) {
 	if r.closed {
 		return nil, fmt.Errorf("sandbox: session is permanently closed")
 	}
@@ -62,24 +63,34 @@ func (r *ResilientSession) ensureAlive(ctx context.Context) (Session, error) {
 	return session, nil
 }
 
+// ensureAlive returns the inner session if alive, or recreates it.
+// Caller must NOT hold r.mu.
+func (r *ResilientSession) ensureAlive(ctx context.Context) (Session, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.ensureAliveLocked(ctx)
+}
+
 func (r *ResilientSession) Policy() Policy {
 	r.mu.Lock()
-	s := r.inner
-	updates := maps.Clone(r.envUpdates)
-	r.mu.Unlock()
-	if s == nil {
+	defer r.mu.Unlock()
+	s, err := r.ensureAliveLocked(context.Background())
+	if err != nil {
+		r.log.Warn("cannot read sandbox policy", "error", err)
 		return Policy{}
 	}
 	policy := s.Policy()
+	updates := maps.Clone(r.envUpdates)
 	policy.Env = mergeEnvUpdates(policy.Env, updates)
 	return policy
 }
 
 func (r *ResilientSession) WorkingDir() string {
 	r.mu.Lock()
-	s := r.inner
-	r.mu.Unlock()
-	if s == nil {
+	defer r.mu.Unlock()
+	s, err := r.ensureAliveLocked(context.Background())
+	if err != nil {
+		r.log.Warn("cannot read sandbox working directory", "error", err)
 		return ""
 	}
 	return s.WorkingDir()
@@ -168,22 +179,59 @@ func mergeEnvUpdates(base, overrides map[string]string) map[string]string {
 	return merged
 }
 
-func (r *ResilientSession) ResolvePath(path string) (string, error) {
-	r.mu.Lock()
-	s := r.inner
-	r.mu.Unlock()
-	if s == nil {
-		return "", fmt.Errorf("sandbox: no active session")
-	}
-	return s.ResolvePath(path)
+func (r *ResilientSession) Files() FileAccess {
+	return resilientFileAccess{session: r}
 }
 
-func (r *ResilientSession) ResolveWritePath(path string) (string, error) {
-	r.mu.Lock()
-	s := r.inner
-	r.mu.Unlock()
-	if s == nil {
-		return "", fmt.Errorf("sandbox: no active session")
+type resilientFileAccess struct{ session *ResilientSession }
+
+func (a resilientFileAccess) current() (FileAccess, error) {
+	// FileAccess operations have no caller context, but they must share the same
+	// transparent recreation boundary as Exec and StartProcess. The creator owns
+	// any backend-specific setup timeout.
+	s, err := a.session.ensureAlive(context.Background())
+	if err != nil {
+		return nil, err
 	}
-	return s.ResolveWritePath(path)
+	return s.Files(), nil
+}
+
+func (a resilientFileAccess) ReadFile(path string) ([]byte, error) {
+	files, err := a.current()
+	if err != nil {
+		return nil, err
+	}
+	return files.ReadFile(path)
+}
+
+func (a resilientFileAccess) ReadDir(path string) ([]DirEntry, error) {
+	files, err := a.current()
+	if err != nil {
+		return nil, err
+	}
+	return files.ReadDir(path)
+}
+
+func (a resilientFileAccess) Stat(path string) (FileInfo, error) {
+	files, err := a.current()
+	if err != nil {
+		return FileInfo{}, err
+	}
+	return files.Stat(path)
+}
+
+func (a resilientFileAccess) WriteFile(path string, content []byte, mode fs.FileMode) error {
+	files, err := a.current()
+	if err != nil {
+		return err
+	}
+	return files.WriteFile(path, content, mode)
+}
+
+func (a resilientFileAccess) ProjectFiles(path string, projected []ProjectedFile) error {
+	files, err := a.current()
+	if err != nil {
+		return err
+	}
+	return files.ProjectFiles(path, projected)
 }

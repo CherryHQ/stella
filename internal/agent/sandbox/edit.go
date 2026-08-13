@@ -3,7 +3,6 @@ package sandbox
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
@@ -48,12 +47,12 @@ func (t *hostEditTool) Execute(_ context.Context, args map[string]any) (string, 
 		return "", fmt.Errorf("edit: old_string is required")
 	}
 
-	resolvedPath, err := resolveWritableToolPath(t.host, t.projectRoot, path)
+	resolvedPath, err := resolveToolExpression(t.host, t.projectRoot, path)
 	if err != nil {
 		return "", fmt.Errorf("edit %s: %w", path, err)
 	}
 
-	raw, err := os.ReadFile(resolvedPath)
+	raw, err := t.host.Files().ReadFile(resolvedPath)
 	if err != nil {
 		return "", fmt.Errorf("edit: read %s: %w", path, err)
 	}
@@ -67,7 +66,7 @@ func (t *hostEditTool) Execute(_ context.Context, args map[string]any) (string, 
 	}
 
 	updated := strings.Replace(fileContent, oldStr, newStr, 1)
-	if err := os.WriteFile(resolvedPath, []byte(updated), 0o644); err != nil {
+	if err := t.host.Files().WriteFile(resolvedPath, []byte(updated), 0o644); err != nil {
 		return "", fmt.Errorf("edit %s: %w", path, err)
 	}
 	return fmt.Sprintf("Edited %s", path), nil

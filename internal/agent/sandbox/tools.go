@@ -8,10 +8,11 @@ import (
 )
 
 // NewTools returns the four standard sandbox-backed tools (bash, read, write, edit).
-func NewTools(host pkgsandbox.Host, toolsBinDir, projectRoot string, sessionSecretValues *SessionSecretValues) []pkgtools.Tool {
+func NewTools(host pkgsandbox.Host, toolsBinDir string, sessionSecretValues *SessionSecretValues) []pkgtools.Tool {
 	if host == nil {
 		return nil
 	}
+	projectRoot := host.WorkingDir()
 	return []pkgtools.Tool{
 		newBashTool(host, toolsBinDir, projectRoot, sessionSecretValues),
 		newReadTool(host, projectRoot),
@@ -29,22 +30,6 @@ func ToolDefinitions() []pkgtools.Definition {
 		writeDefinition(),
 		editDefinition(),
 	}
-}
-
-func resolveToolPath(host pkgsandbox.Host, projectRoot, path string) (string, error) {
-	resolved, err := resolveToolExpression(host, projectRoot, path)
-	if err != nil {
-		return "", err
-	}
-	return host.ResolvePath(resolved)
-}
-
-func resolveWritableToolPath(host pkgsandbox.Host, projectRoot, path string) (string, error) {
-	resolved, err := resolveToolExpression(host, projectRoot, path)
-	if err != nil {
-		return "", err
-	}
-	return host.ResolveWritePath(resolved)
 }
 
 // resolveToolExpression expands only the model-authored leading filesystem

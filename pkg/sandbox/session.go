@@ -2,7 +2,11 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -20,12 +24,9 @@ type Session interface {
 	Exec(ctx context.Context, command string, opts ExecOptions) (ExecResult, error)
 	StartProcess(ctx context.Context, req ProcessRequest) (ProcessHandle, error)
 
-	// Path resolution — use os.* with the resolved path for file I/O.
-	// ResolvePath validates read access; use ResolveWritePath for write operations.
-	ResolvePath(path string) (string, error)
-	// ResolveWritePath is like ResolvePath but additionally rejects paths in
-	// read-only mounts.
-	ResolveWritePath(path string) (string, error)
+	// Files returns mediated access to the process-visible filesystem. Physical
+	// provider paths never cross this boundary.
+	Files() FileAccess
 	WorkingDir() string
 }
 
@@ -71,15 +72,48 @@ type ProcessHandle interface {
 	Close() error
 }
 
-// DirEntry is retained for use by prompt_host.go which reads directories via os.ReadDir
-// and needs a uniform entry type shared with sandbox callers.
+// DirEntry is the provider-neutral directory metadata used by prompt and tool
+// callers without exposing an os.DirEntry backed by a physical provider path.
 type DirEntry struct {
 	Name  string
 	IsDir bool
 	Size  int64
 }
 
-// NopSession returns a no-op session for testing.
+// FileInfo is the metadata core tools need without exposing an os.FileInfo
+// backed by a provider path.
+type FileInfo struct {
+	IsDir bool
+	Size  int64
+}
+
+// ProjectedFile is one file in an exact-at-publication, no-replace, disposable
+// Session projection.
+type ProjectedFile struct {
+	Path    string
+	Content []byte
+	Mode    fs.FileMode
+}
+
+// ErrProjectionConflict reports that an exact projection path already exists
+// with a different tree, mode, or content.
+var ErrProjectionConflict = errors.New("sandbox: projection conflicts with exact files")
+
+// FileAccess is the narrow data-filesystem capability used by prompt
+// construction, core tools, and exact per-Session projections. Paths use the
+// same coordinates as WorkingDir and Policy.Env. Provider runtime/image paths
+// may be executable by a process without belonging to this authorized data
+// view; cross-mount symlinks fail closed rather than changing capabilities.
+type FileAccess interface {
+	ReadFile(path string) ([]byte, error)
+	ReadDir(path string) ([]DirEntry, error)
+	Stat(path string) (FileInfo, error)
+	WriteFile(path string, content []byte, mode fs.FileMode) error
+	ProjectFiles(path string, files []ProjectedFile) error
+}
+
+// NopSession returns an identity-view no-op session for testing. Its FileAccess
+// delegates directly to the host filesystem and is not a sandbox boundary.
 func NopSession() Session {
 	return &nopSession{
 		policy: Policy{
@@ -113,6 +147,43 @@ func (s *nopSession) Exec(_ context.Context, _ string, _ ExecOptions) (ExecResul
 func (s *nopSession) StartProcess(_ context.Context, _ ProcessRequest) (ProcessHandle, error) {
 	return nil, nil
 }
-func (s *nopSession) ResolvePath(path string) (string, error)      { return path, nil }
-func (s *nopSession) ResolveWritePath(path string) (string, error) { return path, nil }
-func (s *nopSession) WorkingDir() string                           { return "" }
+func (s *nopSession) Files() FileAccess  { return directFileAccess{} }
+func (s *nopSession) WorkingDir() string { return "" }
+
+type directFileAccess struct{}
+
+func (directFileAccess) ReadFile(path string) ([]byte, error) { return os.ReadFile(path) }
+
+func (directFileAccess) ReadDir(path string) ([]DirEntry, error) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]DirEntry, 0, len(entries))
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err == nil {
+			out = append(out, DirEntry{Name: entry.Name(), IsDir: entry.IsDir(), Size: info.Size()})
+		}
+	}
+	return out, nil
+}
+
+func (directFileAccess) Stat(path string) (FileInfo, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return FileInfo{}, err
+	}
+	return FileInfo{IsDir: info.IsDir(), Size: info.Size()}, nil
+}
+
+func (directFileAccess) WriteFile(path string, content []byte, mode fs.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, content, mode)
+}
+
+func (directFileAccess) ProjectFiles(string, []ProjectedFile) error {
+	return os.ErrPermission
+}

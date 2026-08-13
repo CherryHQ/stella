@@ -70,8 +70,8 @@ func (h *passthroughHost) Exec(_ context.Context, command string, opts sandbox.E
 	return sandbox.ExecResult{Stdout: string(out), ExitCode: exitCode}, nil
 }
 
-func (h *passthroughHost) ResolvePath(path string) (string, error)      { return path, nil }
-func (h *passthroughHost) ResolveWritePath(path string) (string, error) { return path, nil }
+func (h *passthroughHost) Files() sandbox.FileAccess { return sandbox.NopSession().Files() }
+func (h *passthroughHost) WorkingDir() string        { return h.workDir }
 
 func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 	t.Setenv("STELLA_HOME", t.TempDir())
@@ -84,7 +84,7 @@ func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 
 	host := &passthroughHost{workDir: dir}
 	reg := pkgtools.NewRegistry()
-	for _, tool := range agentsandbox.NewTools(host, "", "", nil) {
+	for _, tool := range agentsandbox.NewTools(host, "", nil) {
 		reg.Register(tool)
 	}
 	defer func() { _ = reg.Close() }()
@@ -144,7 +144,7 @@ func TestDirectToolRegistryExecuteBashAndWebFetch(t *testing.T) {
 	workDir := t.TempDir()
 	host := &passthroughHost{workDir: workDir}
 	reg := pkgtools.NewRegistry()
-	for _, tool := range agentsandbox.NewTools(host, "", "", nil) {
+	for _, tool := range agentsandbox.NewTools(host, "", nil) {
 		reg.Register(tool)
 	}
 	reg.Register(webfetch.New())

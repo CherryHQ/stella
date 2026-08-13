@@ -232,7 +232,11 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	} else {
 		contextHost, closeContextHost := resolvePromptContextHost(ctx, p.Host, p.ProjectRoot)
 		defer closeContextHost()
-		data.ContextFiles = loadProjectContextFiles(contextHost, p.ProjectRoot)
+		projectRoot := p.ProjectRoot
+		if contextHost != nil {
+			projectRoot = contextHost.WorkingDir()
+		}
+		data.ContextFiles = loadProjectContextFiles(contextHost, projectRoot)
 	}
 
 	var buf bytes.Buffer

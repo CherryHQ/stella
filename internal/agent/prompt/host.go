@@ -8,8 +8,11 @@ import (
 )
 
 func readPromptFile(host sandbox.Host, path string) (string, bool) {
-	resolved := resolvePromptPath(host, path)
-	content, err := os.ReadFile(resolved)
+	if host == nil {
+		content, err := os.ReadFile(resolvePromptPath(path))
+		return string(content), err == nil
+	}
+	content, err := host.Files().ReadFile(path)
 	if err != nil {
 		return "", false
 	}
@@ -17,45 +20,38 @@ func readPromptFile(host sandbox.Host, path string) (string, bool) {
 }
 
 func statPromptFile(host sandbox.Host, path string) (string, bool) {
-	resolved := resolvePromptPath(host, path)
-	info, err := os.Stat(resolved)
-	if err != nil || info.IsDir() {
+	if host == nil {
+		info, err := os.Stat(resolvePromptPath(path))
+		return path, err == nil && !info.IsDir()
+	}
+	info, err := host.Files().Stat(path)
+	if err != nil || info.IsDir {
 		return "", false
 	}
 	return path, true
 }
 
 func readPromptDir(host sandbox.Host, path string) ([]sandbox.DirEntry, error) {
-	resolved := resolvePromptPath(host, path)
-	entries, err := os.ReadDir(resolved)
+	if host != nil {
+		return host.Files().ReadDir(path)
+	}
+	entries, err := os.ReadDir(resolvePromptPath(path))
 	if err != nil {
 		return nil, err
 	}
 	result := make([]sandbox.DirEntry, 0, len(entries))
-	for _, e := range entries {
-		info, err := e.Info()
-		if err != nil {
-			continue
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err == nil {
+			result = append(result, sandbox.DirEntry{Name: entry.Name(), IsDir: entry.IsDir(), Size: info.Size()})
 		}
-		result = append(result, sandbox.DirEntry{
-			Name:  e.Name(),
-			IsDir: e.IsDir(),
-			Size:  info.Size(),
-		})
 	}
 	return result, nil
 }
 
-// resolvePromptPath resolves a path through the session (if present) or falls
-// back to the raw path. Relative paths without a session are joined against the
-// working directory.
-func resolvePromptPath(host sandbox.Host, path string) string {
-	if host != nil {
-		resolved, err := host.ResolvePath(path)
-		if err == nil {
-			return resolved
-		}
-	}
+// resolvePromptPath anchors the no-Session fallback. Active Sessions always use
+// their mediated filesystem capability.
+func resolvePromptPath(path string) string {
 	if filepath.IsAbs(path) {
 		return path
 	}

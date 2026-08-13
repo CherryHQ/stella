@@ -1,12 +1,16 @@
 package docker
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
+	"github.com/CherryHQ/stella/plugins/sandbox/internal/sessionfs"
 )
 
 // TestToContainerPath verifies host→container path translation.
@@ -65,58 +69,50 @@ func TestToContainerPath_DeepestMount(t *testing.T) {
 	}
 }
 
-// TestDockerHostResolvePath verifies relative paths are joined to WorkingDir,
-// absolute paths inside the mount set are passed through, and absolute paths
-// outside any mount are rejected.
-func TestDockerHostResolvePath(t *testing.T) {
+// TestDockerProviderResolver verifies relative paths are joined to the canonical
+// WorkingDir and physical coordinates supplied by upper layers are rejected.
+func TestDockerProviderResolver(t *testing.T) {
 	dir := t.TempDir()
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: dir,
-			WorkingDir:    dir,
+			WorkingDir: "/workspace",
 		},
 	}
 	session := &dockerSession{
 		id:     "test-session",
 		policy: policy,
-		mountTable: []dockerclient.Mount{
-			{HostPath: dir, ContainerPath: "/workspace"},
-		},
-		done: make(chan struct{}),
+		done:   make(chan struct{}),
 	}
-	host := &dockerHost{session: session}
+	attachDockerTestFiles(t, session, []sessionfs.Mount{{HostPath: dir, SandboxPath: "/workspace"}})
 
-	abs, err := host.ResolvePath("relative/path")
+	resolved, err := session.resolver.Resolve("relative/path", false)
 	if err != nil {
-		t.Fatalf("ResolvePath: %v", err)
+		t.Fatalf("Resolve: %v", err)
 	}
 	want := filepath.Join(dir, "relative/path")
-	if abs != want {
-		t.Errorf("got %q, want %q", abs, want)
+	if got := resolved.HostPath(); got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 
-	// Absolute path inside a mounted tree passes through unchanged.
-	insideMount := filepath.Join(dir, "sub/file.txt")
-	got, err := host.ResolvePath(insideMount)
+	resolved, err = session.resolver.Resolve("/workspace/sub/file.txt", false)
 	if err != nil {
-		t.Fatalf("ResolvePath inside mount: %v", err)
+		t.Fatalf("Resolve inside mount: %v", err)
 	}
-	if got != insideMount {
-		t.Errorf("got %q, want %q", got, insideMount)
+	if got, want := resolved.HostPath(), filepath.Join(dir, "sub/file.txt"); got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 
-	// Absolute path outside every mount must be rejected so filesystem
-	// policies (workspace-only, read-only trees) cannot be bypassed.
-	if _, err := host.ResolvePath("/absolute/path"); err == nil {
-		t.Error("ResolvePath: expected error for path outside mount set")
+	if _, err := session.resolver.Resolve(dir, false); err == nil {
+		t.Error("Resolve accepted a provider physical coordinate")
+	}
+	if _, err := session.resolver.Resolve("/absolute/path", false); err == nil {
+		t.Error("Resolve accepted a canonical path outside the mount set")
 	}
 }
 
-// TestDockerHostResolvePath_RejectsSymlinks verifies that any symlink in
-// the resolved path is rejected, closing the escape where an agent
-// creates a symlink in the workspace (via the sandbox-routed bash tool)
-// and then reads/writes/edits through it from the stella-process side.
-func TestDockerHostResolvePath_RejectsSymlinks(t *testing.T) {
+// TestDockerFileAccessConfinesSymlinks verifies rooted operations may follow an
+// in-root symlink but cannot escape through a leaf or ancestor symlink.
+func TestDockerFileAccessConfinesSymlinks(t *testing.T) {
 	workspace := t.TempDir()
 	outside := t.TempDir()
 
@@ -126,61 +122,48 @@ func TestDockerHostResolvePath_RejectsSymlinks(t *testing.T) {
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: workspace,
-			WorkingDir:    workspace,
+			WorkingDir: "/workspace",
 		},
 	}
 	session := &dockerSession{
 		id:     "test-session",
 		policy: policy,
-		mountTable: []dockerclient.Mount{
-			{HostPath: workspace, ContainerPath: "/workspace"},
-		},
-		done: make(chan struct{}),
+		done:   make(chan struct{}),
 	}
-	host := &dockerHost{session: session}
+	attachDockerTestFiles(t, session, []sessionfs.Mount{{HostPath: workspace, SandboxPath: "/workspace"}})
 
-	// Baseline: a regular file in the workspace resolves normally.
 	regular := filepath.Join(workspace, "regular.txt")
 	if err := os.WriteFile(regular, []byte("ok"), 0o644); err != nil {
 		t.Fatalf("seed regular: %v", err)
 	}
-	if _, err := host.ResolvePath("regular.txt"); err != nil {
+	if got, err := session.Files().ReadFile("regular.txt"); err != nil || string(got) != "ok" {
 		t.Fatalf("regular file: %v", err)
 	}
 
-	// Baseline: a non-existent leaf in a clean directory resolves — writes
-	// of new files must still work.
-	if _, err := host.ResolvePath("newfile.txt"); err != nil {
+	if err := session.Files().WriteFile("newfile.txt", []byte("new"), 0o600); err != nil {
 		t.Fatalf("non-existent leaf in clean dir: %v", err)
 	}
 
-	// Leaf is a symlink pointing outside the mount → reject.
 	linkOut := filepath.Join(workspace, "leak")
 	if err := os.Symlink(filepath.Join(outside, "secret.txt"), linkOut); err != nil {
 		t.Fatalf("seed outward symlink: %v", err)
 	}
-	if _, err := host.ResolvePath("leak"); err == nil {
+	if _, err := session.Files().ReadFile("leak"); err == nil {
 		t.Error("expected rejection for leaf symlink pointing outside mount")
 	}
 
-	// Leaf is a symlink pointing inside the mount → still rejected, by
-	// policy. Legit code does not create symlinks in a session workspace;
-	// the strict rule keeps the escape surface zero.
-	if err := os.Symlink(regular, filepath.Join(workspace, "inside-link")); err != nil {
+	if err := os.Symlink("regular.txt", filepath.Join(workspace, "inside-link")); err != nil {
 		t.Fatalf("seed inward symlink: %v", err)
 	}
-	if _, err := host.ResolvePath("inside-link"); err == nil {
-		t.Error("expected rejection for any leaf symlink, even inside mount")
+	if got, err := session.Files().ReadFile("inside-link"); err != nil || string(got) != "ok" {
+		t.Errorf("in-root symlink read = %q, %v", got, err)
 	}
 
-	// Ancestor directory is a symlink → reject writes through it. This
-	// catches the "ln -s /outside dirlink && write dirlink/new.txt" case.
 	dirlink := filepath.Join(workspace, "dirlink")
 	if err := os.Symlink(outside, dirlink); err != nil {
 		t.Fatalf("seed ancestor symlink: %v", err)
 	}
-	if _, err := host.ResolvePath("dirlink/new.txt"); err == nil {
+	if err := session.Files().WriteFile("dirlink/new.txt", []byte("escape"), 0o600); err == nil {
 		t.Error("expected rejection for write through symlinked ancestor")
 	}
 
@@ -190,8 +173,45 @@ func TestDockerHostResolvePath_RejectsSymlinks(t *testing.T) {
 			t.Fatalf("cleanup %s: %v", name, err)
 		}
 	}
-	if _, err := host.ResolvePath("leak"); err != nil {
+	if err := session.Files().WriteFile("leak", []byte("safe"), 0o600); err != nil {
 		t.Fatalf("non-existent leaf after cleanup: %v", err)
+	}
+}
+
+func attachDockerTestFiles(t *testing.T, session *dockerSession, mounts []sessionfs.Mount) {
+	t.Helper()
+	resolver, err := sessionfs.NewResolver(session.policy.Filesystem.WorkingDir, mounts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = resolver.Close() })
+	session.resolver = resolver
+	session.files = sessionfs.NewAccess(resolver)
+}
+
+func TestDockerPromptProjectContextUsesCanonicalWorkingDir(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("canonical docker instructions"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := &dockerSession{
+		id:     "prompt-canonical",
+		policy: sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: "/workspace"}},
+		done:   make(chan struct{}),
+	}
+	s.host = &dockerHost{session: s}
+	attachDockerTestFiles(t, s, []sessionfs.Mount{{HostPath: root, SandboxPath: "/workspace"}})
+
+	got := prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{
+		SystemPrompt: "You are Stella.",
+		ProjectRoot:  root,
+		Host:         s,
+	})
+	if !strings.Contains(got, "canonical docker instructions") {
+		t.Fatalf("prompt did not discover AGENTS.md through canonical project view: %s", got)
+	}
+	if _, err := s.Files().ReadFile(filepath.Join(root, "AGENTS.md")); err == nil {
+		t.Fatal("resolver accepted the physical ProjectRoot coordinate")
 	}
 }
 

@@ -29,15 +29,6 @@ const (
 	MountUserData = "/user"
 	// MountStellaHome is the read-only system install tree (STELLA_HOME).
 	MountStellaHome = "/opt/stella"
-	// MountAgentSkills is the read-only mount of the admin-managed, agent-bound
-	// (system_agent scope) skills dir. It lives outside the two roots (its host
-	// dir is the user-independent agent definition tree, not the per-agent
-	// workspace), so it gets its own fixed mount instead of mapping onto /workspace.
-	MountAgentSkills = "/opt/stella/agent-skills"
-	// MountSystemDBSkills is the read-only mount of DB-installed system-scope
-	// skills. They live in a dedicated dir (a sibling of the shipped built-ins
-	// under STELLA_HOME, not mixed into it), so they get their own fixed mount.
-	MountSystemDBSkills = "/opt/stella/db-skills"
 	// MountBuiltinSkills is the immutable release bundle view. Isolating
 	// backends expose the image/verified-revision projection here, never the
 	// retired $STELLA_HOME/.agents/skills mirror.
@@ -74,25 +65,19 @@ const (
 	MountReadWrite
 )
 
-// Mount maps a host path into the sandbox view.
+// Mount declares one process-visible data root authorized through Session.Files.
+// Provider-private physical backing paths deliberately do not belong to Policy.
 type Mount struct {
-	HostPath    string
 	SandboxPath string
 	Access      MountAccess
 }
 
 // FilesystemPolicy defines filesystem constraints for a sandbox session.
 type FilesystemPolicy struct {
-	// WorkspaceRoot is the host workspace root. When empty, WorkingDir is used for
-	// backwards compatibility and for relative-path anchoring in non-isolating code.
-	WorkspaceRoot string
-
-	// WorkingDir is the requested working directory. Producers may provide either
-	// a host path under WorkspaceRoot or the corresponding sandbox path; backends
-	// normalize it through Mounts before execution.
+	// WorkingDir is the process-visible POSIX working directory.
 	WorkingDir string
 
-	// Mounts is the complete host→sandbox mount plan for isolating backends.
+	// Mounts contains the authorized data roots in the active process view.
 	Mounts []Mount
 }
 
@@ -117,9 +102,6 @@ func (p Policy) Validate() error {
 	if p.Filesystem.WorkingDir == "" {
 		return fmt.Errorf("sandbox: working directory is required")
 	}
-	if p.Filesystem.WorkspaceRoot == "" {
-		p.Filesystem.WorkspaceRoot = p.Filesystem.WorkingDir
-	}
 
 	return nil
 }
@@ -130,14 +112,6 @@ func (p Policy) NetworkModeOrDefault() NetworkMode {
 		return NetworkAllowAll
 	}
 	return p.Network.Mode
-}
-
-// WorkspaceRootOrDefault returns the mounted sandbox root on the host.
-func (p Policy) WorkspaceRootOrDefault() string {
-	if p.Filesystem.WorkspaceRoot != "" {
-		return p.Filesystem.WorkspaceRoot
-	}
-	return p.Filesystem.WorkingDir
 }
 
 // PolicyCompatibilityError indicates a policy is not compatible with a backend.

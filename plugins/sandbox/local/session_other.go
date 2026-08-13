@@ -6,23 +6,10 @@ import (
 	"os"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/internal/sessionfs"
 )
 
-// resolveSandboxRoot returns the sandbox-space root and the real host root.
-// On platforms other than Linux and macOS there is no path remapping.
-func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
-	real := policy.WorkspaceRootOrDefault()
-	return real, real
-}
-
-// resolveUserDataRoot returns the shared user-data root. There is no path
-// remapping on this platform, so the sandbox-space and host paths are identical.
-func resolveUserDataRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
-	if m, ok := mountBySandboxPath(policy.Filesystem.Mounts, sandboxpkg.MountUserData); ok {
-		return m.HostPath, m.HostPath
-	}
-	return "", ""
-}
+func processVisiblePath(_ string, hostPath string) string { return hostPath }
 
 // createSessionTmpMounts returns an identity mount for a session-private host
 // directory. Non-isolating platforms do not remap paths, but the path resolver
@@ -54,6 +41,6 @@ func checkSandboxRequirements() error { return nil }
 
 // wrapCommand is a no-op on platforms other than Linux and macOS.
 // Commands run unwrapped on the host OS.
-func wrapCommand(_ sandboxpkg.Policy, _ string, _ []tmpMount, _ string, name string, args []string) (string, []string, error) {
+func wrapCommand(_ sandboxpkg.Policy, _ string, _ []tmpMount, _ []sessionfs.Mount, _, _ string, name string, args []string) (string, []string, error) {
 	return name, args, nil
 }

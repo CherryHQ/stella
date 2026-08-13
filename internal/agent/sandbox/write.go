@@ -3,8 +3,6 @@ package sandbox
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
@@ -43,16 +41,12 @@ func (t *hostWriteTool) Execute(_ context.Context, args map[string]any) (string,
 		return "", fmt.Errorf("write: path is required")
 	}
 
-	resolvedPath, err := resolveWritableToolPath(t.host, t.projectRoot, path)
+	resolvedPath, err := resolveToolExpression(t.host, t.projectRoot, path)
 	if err != nil {
 		return "", fmt.Errorf("write %s: %w", path, err)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(resolvedPath), 0o755); err != nil {
-		return "", fmt.Errorf("write: mkdir %s: %w", filepath.Dir(resolvedPath), err)
-	}
-
-	if err := os.WriteFile(resolvedPath, []byte(content), 0o644); err != nil {
+	if err := t.host.Files().WriteFile(resolvedPath, []byte(content), 0o644); err != nil {
 		return "", fmt.Errorf("write %s: %w", path, err)
 	}
 	return fmt.Sprintf("Wrote %s (%d bytes)", path, len(content)), nil

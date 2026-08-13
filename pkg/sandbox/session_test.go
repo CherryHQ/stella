@@ -2,6 +2,8 @@ package sandbox
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -26,13 +28,12 @@ func TestNopSession(t *testing.T) {
 		t.Errorf("Exec exit code = %d, want 0", result.ExitCode)
 	}
 
-	// ResolvePath should be an identity.
-	resolved, err := s.ResolvePath("/some/path")
-	if err != nil {
-		t.Errorf("ResolvePath: unexpected error: %v", err)
+	file := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(file, []byte("content"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if resolved != "/some/path" {
-		t.Errorf("ResolvePath = %q, want /some/path", resolved)
+	if content, err := s.Files().ReadFile(file); err != nil || string(content) != "content" {
+		t.Errorf("Files.ReadFile = %q, %v", content, err)
 	}
 
 	// Policy should be the default no-op policy.

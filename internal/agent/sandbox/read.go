@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/vision"
@@ -57,12 +56,12 @@ func (t *hostReadTool) ExecuteContent(ctx context.Context, args map[string]any) 
 	offset := max(toolIntArg(args, "offset", 1), 1)
 	limit := toolIntArg(args, "limit", 0)
 
-	resolvedPath, err := resolveToolPath(t.host, t.projectRoot, path)
+	resolvedPath, err := resolveToolExpression(t.host, t.projectRoot, path)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 
-	content, err := os.ReadFile(resolvedPath)
+	content, err := t.host.Files().ReadFile(resolvedPath)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}

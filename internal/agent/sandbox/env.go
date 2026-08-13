@@ -15,35 +15,40 @@ import (
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy {
+func runnerFilesystemPolicy(paths Paths, cfg Config) (pkgsandbox.FilesystemPolicy, map[string]string) {
 	mounts := []pkgsandbox.Mount{
-		{HostPath: paths.WorkspaceRoot, SandboxPath: pkgsandbox.MountWorkspace, Access: pkgsandbox.MountReadWrite},
+		{SandboxPath: pkgsandbox.MountWorkspace, Access: pkgsandbox.MountReadWrite},
 	}
+	sources := map[string]string{pkgsandbox.MountWorkspace: paths.WorkspaceRoot}
 	if userData := userDataDirHost(paths, cfg); userData != "" {
-		mounts = append(mounts, pkgsandbox.Mount{HostPath: userData, SandboxPath: pkgsandbox.MountUserData, Access: pkgsandbox.MountReadWrite})
+		mounts = append(mounts, pkgsandbox.Mount{SandboxPath: pkgsandbox.MountUserData, Access: pkgsandbox.MountReadWrite})
+		sources[pkgsandbox.MountUserData] = userData
 	}
 	for _, name := range pkgsandbox.StellaHomeSandboxDirs() {
+		sandboxPath := path.Join(pkgsandbox.MountStellaHome, strings.ReplaceAll(name, "\\", "/"))
 		mounts = append(mounts, pkgsandbox.Mount{
-			HostPath:    filepath.Join(paths.StellaHome, name),
-			SandboxPath: path.Join(pkgsandbox.MountStellaHome, strings.ReplaceAll(name, "\\", "/")),
+			SandboxPath: sandboxPath,
 			Access:      pkgsandbox.MountReadOnly,
 		})
+		sources[sandboxPath] = filepath.Join(paths.StellaHome, name)
 	}
 	if paths.BuiltinBundle != "" {
-		mounts = append(mounts, pkgsandbox.Mount{HostPath: paths.BuiltinBundle, SandboxPath: pkgsandbox.MountBuiltinSkills, Access: pkgsandbox.MountReadOnly})
+		mounts = append(mounts, pkgsandbox.Mount{SandboxPath: pkgsandbox.MountBuiltinSkills, Access: pkgsandbox.MountReadOnly})
+		sources[pkgsandbox.MountBuiltinSkills] = paths.BuiltinBundle
 	}
 	if miseDir := miseUserDirHost(paths, cfg); miseDir != "" {
+		sandboxPath := remapStellaHomePolicyPath(miseDir, paths.StellaHome)
 		mounts = append(mounts, pkgsandbox.Mount{
-			HostPath:    miseDir,
-			SandboxPath: remapStellaHomePolicyPath(miseDir, paths.StellaHome),
+			SandboxPath: sandboxPath,
 			Access:      pkgsandbox.MountReadWrite,
 		})
+		sources[sandboxPath] = miseDir
 	}
-	return pkgsandbox.FilesystemPolicy{
-		WorkspaceRoot: paths.WorkspaceRoot,
-		WorkingDir:    paths.WorkDir,
-		Mounts:        mounts,
+	workingDir := pkgsandbox.MountWorkspace
+	if rel, ok := pkgsandbox.POSIXPathRelative(paths.WorkspaceRoot, paths.WorkDir); ok && rel != "." {
+		workingDir = path.Join(workingDir, filepath.ToSlash(rel))
 	}
+	return pkgsandbox.FilesystemPolicy{WorkingDir: workingDir, Mounts: mounts}, sources
 }
 
 func remapStellaHomePolicyPath(hostPath, stellaHome string) string {
