@@ -375,7 +375,11 @@ func assistantItemRunOwnsImmediateResults(items []sqlc.CtxItem, start, end int, 
 		resultCounts[envelope.ID]++
 		end++
 	}
-	return validUniqueToolPairs(callCounts, resultCounts)
+	// A crash or cancellation may persist only a subset of parallel results.
+	// One unambiguous completed pair is enough to prove that these adjacent
+	// assistant rows belong to the result run; sanitizeToolPairs later removes
+	// incomplete and conflicting ID groups from the reconstructed turn.
+	return hasUniqueCompletedToolPair(callCounts, resultCounts)
 }
 
 // stripTrailingOrphanResults removes ToolResultMessages from the end of msgs
@@ -620,7 +624,8 @@ func sanitizeToolPairs(msgs []ai.Message) []ai.Message {
 }
 
 // mergeAssistantRunsWithImmediateResults restores assistant blocks persisted as
-// separate rows only when the following result set proves a unique tool turn.
+// separate rows when the following results prove at least one completed tool
+// pair. The sanitizer then keeps only completed, unambiguous ID groups.
 func mergeAssistantRunsWithImmediateResults(msgs []ai.Message) []ai.Message {
 	result := make([]ai.Message, 0, len(msgs))
 	for i := 0; i < len(msgs); {
@@ -649,7 +654,7 @@ func mergeAssistantRunsWithImmediateResults(msgs []ai.Message) []ai.Message {
 			resultEnd++
 		}
 		callCounts, hasCalls := toolCallIDCounts(combined)
-		if end == i+1 || !hasCalls || !validUniqueToolPairs(callCounts, toolResultIDCounts(msgs[end:resultEnd])) {
+		if end == i+1 || !hasCalls || !hasUniqueCompletedToolPair(callCounts, toolResultIDCounts(msgs[end:resultEnd])) {
 			result = append(result, msgs[i:end]...)
 			i = end
 			continue
@@ -682,16 +687,13 @@ func toolResultIDCounts(messages []ai.Message) map[string]int {
 	return counts
 }
 
-func validUniqueToolPairs(callCounts, resultCounts map[string]int) bool {
-	if len(callCounts) == 0 || len(callCounts) != len(resultCounts) {
-		return false
-	}
+func hasUniqueCompletedToolPair(callCounts, resultCounts map[string]int) bool {
 	for id, count := range callCounts {
-		if id == "" || count != 1 || resultCounts[id] != 1 {
-			return false
+		if id != "" && count == 1 && resultCounts[id] == 1 {
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 func filterAssistantToolCalls(content []ai.ContentBlock, matched map[string]struct{}) []ai.ContentBlock {
