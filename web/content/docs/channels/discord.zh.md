@@ -16,9 +16,8 @@ title: Discord 机器人
 2. 打开 **Bot**，按需创建机器人，然后复制 token。请将 token 作为 secret 保管。
 3. 在 **Privileged Gateway Intents** 下启用 **Message Content Intent**。如果只有你的组织可以安装此机器人，请关闭 **Public Bot**。
 4. 在 **OAuth2 → URL Generator** 中选择 `bot` scope，授予 **View Channels**、**Send Messages**、**Read Message History** 和 **Attach Files**，然后用生成的 URL 邀请机器人。
-5. 启用 Discord Developer Mode，右键点击每个你信任且希望 Stella 服务的服务器，然后选择 **Copy Server ID**。
-6. 在 Stella Web UI 中打开 **Channels**，创建 Discord 渠道，粘贴 bot token，并将可信服务器 ID 填入**允许的服务器 ID**，然后启用。多个 ID 之间使用英文逗号分隔。
-7. 如果渠道未自动启动，请重启 `stellad server`。
+5. 在 Stella Web UI 中打开 **Channels**，创建 Discord 渠道，粘贴 bot token；如果希望机器人服务它已加入的服务器，打开**允许服务器频道**，然后启用。
+6. 如果渠道未自动启动，请重启 `stellad server`。
 
 已关联的用户可以在私信中使用自己选择的 agent。默认情况下，未关联的 Discord 用户可以请求关联账号，但无法访问 agent。你可以按下文说明选择启用持久化访客私信。使用服务器频道前，请将 Discord 渠道实例绑定到一个 agent，以便 Stella 将该 agent 加入所遇频道的群聊路由。
 
@@ -34,7 +33,7 @@ title: Discord 机器人
 
 ## 使用机器人
 
-向机器人发送私信，或在允许的服务器频道中 @提及它。未列入**允许的服务器 ID** 的服务器消息会被忽略。默认情况下，未 @提及机器人的服务器消息也会在进入共享历史或调用 agent 前被忽略。任何能访问允许频道的成员都可以 @机器人，因此请使用 Discord 频道和 Role 权限控制访问。Agent 输出不会触发 `@everyone` 等 Discord 提及。
+向机器人发送私信，或在服务器频道中 @提及它。关闭**允许服务器频道**时，所有服务器消息都会被忽略。默认情况下，未 @提及机器人的服务器消息也会在进入共享历史或调用 agent 前被忽略。任何能访问机器人可读频道的成员都可以 @机器人，因此请使用 Discord 频道和 Role 权限控制访问，并只把机器人邀请到可信服务器。Agent 输出不会触发 `@everyone` 等 Discord 提及。
 
 机器人在私信中支持 `/start`、`/help`、`/new`、`/compact`、`/abort`、`/whoami` 和 `/link`。Discord 将命令作为普通文本消息接收，无需注册 Discord application commands。
 
@@ -48,16 +47,16 @@ title: Discord 机器人
 
 ## 配置参考
 
-| 字段                             | 描述                                    | 默认值  |
-| -------------------------------- | --------------------------------------- | ------- |
-| `token`                          | Discord bot token                       | 必需    |
-| `allowed_guild_ids`              | 允许使用 Stella 的服务器 ID，以逗号分隔 | 无      |
-| `allow_dm`                       | 接受账号关联和已关联用户的私信          | `true`  |
-| `allow_unlinked_dm`              | 允许访客使用渠道绑定 agent 的受限私信   | `false` |
-| `guest_message_limit_per_minute` | 每位访客每分钟可发送的消息和命令数      | `10`    |
-| `guest_max_per_channel`          | 渠道可持久保存的访客身份上限            | `1000`  |
-| `guest_retention_days`           | 访客停止活动多少天后删除身份及 session  | `30`    |
-| `require_mention`                | 服务器频道消息必须 @机器人              | `true`  |
+| 字段                             | 描述                                   | 默认值  |
+| -------------------------------- | -------------------------------------- | ------- |
+| `token`                          | Discord bot token                      | 必需    |
+| `allow_group`                    | 接受机器人可读服务器频道的消息         | `false` |
+| `allow_dm`                       | 接受账号关联和已关联用户的私信         | `true`  |
+| `allow_unlinked_dm`              | 允许访客使用渠道绑定 agent 的受限私信  | `false` |
+| `guest_message_limit_per_minute` | 每位访客每分钟可发送的消息和命令数     | `10`    |
+| `guest_max_per_channel`          | 渠道可持久保存的访客身份上限           | `1000`  |
+| `guest_retention_days`           | 访客停止活动多少天后删除身份及 session | `30`    |
+| `require_mention`                | 服务器频道消息必须 @机器人             | `true`  |
 
 ## 故障排除
 
@@ -67,6 +66,6 @@ title: Discord 机器人
 
 **机器人忽略私信：** 将 `allow_dm` 设为 `true`。若要接受未关联用户作为受限访客，还需绑定专用且对访客安全的 agent，并将 `allow_unlinked_dm` 设为 `true`。
 
-**机器人在服务器频道中不响应：** 先将该服务器 ID 加入**允许的服务器 ID**，再 @提及机器人。若需要无 @提及的语义路由，请将 `require_mention` 设为 `false`，并确认已配置可用的群聊路由模型。
+**机器人在服务器频道中不响应：** 先打开**允许服务器频道**，再 @提及机器人。若需要无 @提及的语义路由，请将 `require_mention` 设为 `false`，并确认已配置可用的群聊路由模型。
 
 **渠道报告认证错误：** 在 Developer Portal 中重置 token，在 Stella 中替换它，切勿将 token 粘贴到聊天或日志中。

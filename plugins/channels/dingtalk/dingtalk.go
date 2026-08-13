@@ -28,12 +28,12 @@ const (
 )
 
 type Config struct {
-	InstanceID             string
-	ClientID               string
-	ClientSecret           string
-	AllowedConversationIDs string
-	AllowDM                bool
-	RequireMention         bool
+	InstanceID     string
+	ClientID       string
+	ClientSecret   string
+	AllowGroup     bool
+	AllowDM        bool
+	RequireMention bool
 }
 
 type streamClient interface {
@@ -246,19 +246,15 @@ func (b *Bot) admit(data *chatbot.BotCallbackDataModel, isGroup bool) bool {
 		}
 		return true
 	}
+	if !b.cfg.AllowGroup {
+		logger().Debug("ignoring group message because group chats are disabled", "conversation_id", data.ConversationId)
+		return false
+	}
 	if b.cfg.RequireMention && !data.IsInAtList {
 		logger().Debug("ignoring group message without bot mention", "conversation_id", data.ConversationId)
 		return false
 	}
-	for id := range strings.FieldsFuncSeq(b.cfg.AllowedConversationIDs, func(r rune) bool {
-		return r == ',' || r == ';' || r == '\n' || r == '\r' || r == '\t' || r == ' '
-	}) {
-		if id == data.ConversationId {
-			return true
-		}
-	}
-	logger().Info("ignoring message from unconfigured DingTalk group; add its conversation ID to allowed_conversation_ids", "conversation_id", data.ConversationId)
-	return false
+	return true
 }
 
 func (b *Bot) handleIncoming(msg channel.IncomingMessage, webhook string) {

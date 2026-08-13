@@ -19,7 +19,7 @@ var newRuntime = func(rc plugins.RuntimeContext) (plugins.Runtime, error) {
 		return nil, fmt.Errorf("discord: channel runtime services unavailable")
 	}
 	return NewManagedRuntime(RuntimeDeps{Parent: r.ParentContext(), Handler: r.Handler(), Notifications: r.Notifications(), Log: platform.Logger(), NewChannel: func(cfg channel.DiscordConfig, h channel.Handler) (channel.Channel, error) {
-		return New(Config{InstanceID: cfg.InstanceID, Token: cfg.Token, AllowedGuildIDs: cfg.AllowedGuildIDs, AllowDM: cfg.AllowDM, RequireMention: cfg.RequireMention}, h)
+		return New(Config{InstanceID: cfg.InstanceID, Token: cfg.Token, AllowGroup: cfg.AllowGroup, AllowDM: cfg.AllowDM, RequireMention: cfg.RequireMention}, h)
 	}}), nil
 }
 
@@ -33,7 +33,7 @@ func init() {
 			},
 			DefaultConfig: func() map[string]any {
 				return map[string]any{
-					"allow_dm": true, "allow_unlinked_dm": false, "require_mention": true,
+					"allow_group": false, "allow_dm": true, "allow_unlinked_dm": false, "require_mention": true,
 					"guest_message_limit_per_minute": channel.DefaultGuestMessageLimitPerMinute,
 					"guest_max_per_channel":          channel.DefaultGuestMaxPerChannel,
 					"guest_retention_days":           channel.DefaultGuestRetentionDays,
@@ -59,7 +59,7 @@ func init() {
 func configSchema() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{
 		"token":                          map[string]any{"type": "string", "description": "Discord bot token."},
-		"allowed_guild_ids":              map[string]any{"type": "string", "description": "Comma-separated Discord guild IDs allowed to send server-channel messages."},
+		"allow_group":                    map[string]any{"type": "boolean", "description": "Accept messages from server channels in the servers this bot joined.", "default": false},
 		"allow_dm":                       map[string]any{"type": "boolean", "description": "Accept direct messages for linked-user chat and account linking.", "default": true},
 		"allow_unlinked_dm":              map[string]any{"type": "boolean", "description": "Allow unlinked Discord users to use the bound agent in restricted guest sessions.", "default": false},
 		"guest_message_limit_per_minute": map[string]any{"type": "integer", "description": "Maximum accepted guest messages per minute and guest.", "minimum": 1, "maximum": channel.MaxGuestMessageLimitPerMinute, "default": channel.DefaultGuestMessageLimitPerMinute},

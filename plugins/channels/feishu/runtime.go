@@ -33,7 +33,7 @@ func NewFeishuManagedRuntime(deps FeishuRuntimeDeps) pkgplugins.Runtime {
 				Groups:            groupsToPluginConfig(cfg.Groups),
 				TenantKey:         cfg.TenantKey,
 				AutoProvision:     cfg.AutoProvision,
-				AllowedChatIDs:    cfg.AllowedChatIDs,
+				AllowGroup:        cfg.AllowGroup,
 				AllowDM:           cfg.AllowDM,
 				RequireMention:    cfg.RequireMention,
 			}, handler)
@@ -143,7 +143,7 @@ func configSchema() map[string]any {
 				"description": "Automatically create Stella accounts for members of the bot's Feishu tenant.",
 				"default":     false,
 			},
-			"allowed_chat_ids":               map[string]any{"type": "string", "description": "Comma-separated Feishu chat IDs allowed to send group messages."},
+			"allow_group":                    map[string]any{"type": "boolean", "description": "Accept messages from Feishu group chats the bot is a member of.", "default": false},
 			"allow_dm":                       map[string]any{"type": "boolean", "description": "Accept direct messages for linked-user chat and account linking.", "default": true},
 			"allow_unlinked_dm":              map[string]any{"type": "boolean", "description": "Allow unlinked Feishu users to use the bound agent in restricted guest sessions.", "default": false},
 			"guest_message_limit_per_minute": map[string]any{"type": "integer", "minimum": 1, "maximum": pkgchannel.MaxGuestMessageLimitPerMinute, "default": pkgchannel.DefaultGuestMessageLimitPerMinute},

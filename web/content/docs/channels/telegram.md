@@ -28,7 +28,7 @@ Before you start, make sure you have:
 
 You can create multiple Telegram channel instances if you have multiple bots. Each instance can optionally be bound to a dedicated agent in the Web UI.
 
-All channel configuration (token, allowed IDs, dedicated agent binding, etc.) is managed through the Web UI.
+All channel configuration (token, group access, dedicated agent binding, etc.) is managed through the Web UI.
 
 ## Multi-User Support
 
@@ -87,9 +87,9 @@ For non-image files, the agent can then use the `xberg extract` command to parse
 
 ## Group Support
 
-The bot supports explicitly allowed group chats. Add each numeric Telegram group or supergroup ID to **Allowed group chat IDs** in the Web UI. An empty list rejects every group message.
+Group chats are off until you turn on **Allow group chats** in the Web UI. Once on, every group and supergroup the bot has been added to can use it; while off, every group message is rejected.
 
-Group messages must @mention the bot by default. You can turn off **Require a mention** to enable Stella's semantic group routing; also disable privacy mode for the bot in BotFather so it can read ordinary messages. Every member of an allowed group can address the bound agent, so add only trusted groups.
+Group messages must @mention the bot by default. You can turn off **Require a mention** to enable Stella's semantic group routing; also disable privacy mode for the bot in BotFather so it can read ordinary messages. Every member of a group the bot joined can address the bound agent, so control access through who can add the bot to a group.
 
 ## Access Control
 
@@ -128,15 +128,15 @@ All settings below are managed through the Web UI.
 | -------------------------------- | ------------------------------------------------------------- | ---------- |
 | `token`                          | Bot API token                                                 | (required) |
 | `channel_id`                     | Default proactive notification target (@name or numeric ID)   |            |
-| `allowed_chat_ids`               | Comma-separated numeric group IDs; empty rejects all groups   |            |
+| `allow_group`                    | Accept messages from groups the bot was added to              | `false`    |
 | `allow_dm`                       | Accept private messages and account linking                   | `true`     |
 | `allow_unlinked_dm`              | Allow restricted guest sessions for unlinked private senders  | `false`    |
 | `guest_message_limit_per_minute` | Per-guest message and command limit                           | `10`       |
 | `guest_max_per_channel`          | Maximum durable guest identities for this channel             | `1000`     |
 | `guest_retention_days`           | Delete inactive guest identities and sessions after this time | `30`       |
-| `require_mention`                | Require an @mention in allowed groups                         | `true`     |
+| `require_mention`                | Require an @mention in group chats                            | `true`     |
 
-When upgrading, Stella adds groups already present in durable group membership to `allowed_chat_ids` once. Explicit allowlists, including an empty deny-all value, are not changed. Review the generated list after upgrading; newly encountered groups remain blocked until you add them.
+`allow_group` replaces the former `allowed_chat_ids` allowlist. When upgrading, a channel that listed at least one chat ID keeps serving groups (`allow_group` becomes `true`); an empty or absent list stays closed. Note the widened reach: the switch cannot express "these chats only", so after the upgrade every group the bot belongs to can reach the agent, not just the ones you had listed. Review the bot's group memberships after upgrading, and turn the switch off if you were relying on the allowlist to exclude a group.
 
 ## Troubleshooting
 
@@ -149,7 +149,7 @@ When upgrading, Stella adds groups already present in durable group membership t
 **Bot not responding in groups?**
 
 - @mention the bot for the most reliable trigger.
-- Add the group's numeric chat ID to **Allowed group chat IDs**. The allowlist is fail-closed.
+- Turn on **Allow group chats**. It is off by default and rejects every group message.
 - If you expect replies without @mentions, make sure at least one group agent has a routing-capable model and that the message is a clear request, not casual chatter.
 - Make sure the bot has been added to the group and has permission to read messages. For Telegram, disable bot privacy mode in BotFather if you want no-mention routing.
 

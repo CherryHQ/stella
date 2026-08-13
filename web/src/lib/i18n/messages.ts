@@ -2163,14 +2163,12 @@ const en = {
   "channels.allowDm": "Allow direct messages",
   "channels.allowDmDesc":
     "Accept account linking and direct-message chat. Disable this to reject all DMs.",
-  "channels.allowedGuildIds": "Allowed server IDs",
-  "channels.allowedChatIds": "Allowed group chat IDs",
-  "channels.allowedConversationIds": "Allowed group conversation IDs",
-  "channels.allowedDiscordGuildIdsPlaceholder": "Comma-separated Discord server IDs",
-  "channels.allowedTelegramChatIdsPlaceholder": "Comma-separated Telegram group chat IDs",
-  "channels.allowedFeishuChatIdsPlaceholder": "Comma-separated Feishu group chat IDs",
-  "channels.allowedDingTalkConversationIdsPlaceholder":
-    "Comma-separated DingTalk group conversation IDs",
+  "channels.allowGroup": "Allow group chats",
+  "channels.allowGroupDesc":
+    "Serve every group the bot has been added to. Disable this to answer direct messages only.",
+  "channels.allowGuild": "Allow server channels",
+  "channels.allowGuildDesc":
+    "Serve the server channels the bot can read in the servers it joined. Disable this to answer direct messages only.",
   "channels.dingtalkNotifyDesc":
     "Notifications use DingTalk's temporary session webhook and become available again after the user sends the bot a message.",
   "channels.allowUnlinkedDm": "Allow guest direct messages",
@@ -4419,13 +4417,10 @@ const zh: Record<MessageKey, string> = {
   "channels.autoProvisionDesc": "为企业内的每位成员自动创建 Stella 账号。",
   "channels.allowDm": "允许私信",
   "channels.allowDmDesc": "接受账号关联和私信聊天。关闭后拒绝所有私信。",
-  "channels.allowedGuildIds": "允许的服务器 ID",
-  "channels.allowedChatIds": "允许的群聊 ID",
-  "channels.allowedConversationIds": "允许的群会话 ID",
-  "channels.allowedDiscordGuildIdsPlaceholder": "以英文逗号分隔 Discord 服务器 ID",
-  "channels.allowedTelegramChatIdsPlaceholder": "以英文逗号分隔 Telegram 群聊 ID",
-  "channels.allowedFeishuChatIdsPlaceholder": "以英文逗号分隔飞书群聊 ID",
-  "channels.allowedDingTalkConversationIdsPlaceholder": "以英文逗号分隔钉钉群会话 ID",
+  "channels.allowGroup": "允许群聊",
+  "channels.allowGroupDesc": "机器人被拉进的群聊都可以使用。关闭后只响应私信。",
+  "channels.allowGuild": "允许服务器频道",
+  "channels.allowGuildDesc": "机器人已加入的服务器中，可读频道都可以使用。关闭后只响应私信。",
   "channels.dingtalkNotifyDesc":
     "通知使用钉钉的临时会话 Webhook；用户再次向机器人发消息后，通知能力会恢复。",
   "channels.allowUnlinkedDm": "允许访客私信",

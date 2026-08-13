@@ -33,7 +33,7 @@ func newThreadRoutingBotWithHandler(t *testing.T) (*Bot, *mockHandler, <-chan ch
 	}
 	b := &Bot{
 		handler:     h,
-		cfg:         Config{AppID: "a", AppSecret: "s", AllowedChatIDs: "oc_chat", AllowDM: true, RequireMention: false},
+		cfg:         Config{AppID: "a", AppSecret: "s", AllowGroup: true, AllowDM: true, RequireMention: false},
 		seenMsgs:    make(map[string]time.Time),
 		provisioned: make(map[string]time.Time),
 	}
@@ -102,9 +102,9 @@ func TestFeishuIngressAdmission(t *testing.T) {
 		want      bool
 	}{
 		{name: "direct messages disabled", cfg: Config{}, chatID: "oc_dm", chatType: "p2p"},
-		{name: "group not allowlisted", cfg: Config{AllowedChatIDs: "oc_other", RequireMention: false}, chatID: "oc_chat", chatType: "group"},
-		{name: "allowlisted group requires mention", cfg: Config{AllowedChatIDs: "oc_chat", RequireMention: true}, chatID: "oc_chat", chatType: "group"},
-		{name: "allowlisted mentioned group", cfg: Config{AllowedChatIDs: "oc_chat", RequireMention: true}, chatID: "oc_chat", chatType: "group", mentioned: true, want: true},
+		{name: "group chats disabled", cfg: Config{AllowGroup: false, RequireMention: false}, chatID: "oc_chat", chatType: "group"},
+		{name: "allowed group requires mention", cfg: Config{AllowGroup: true, RequireMention: true}, chatID: "oc_chat", chatType: "group"},
+		{name: "allowed mentioned group", cfg: Config{AllowGroup: true, RequireMention: true}, chatID: "oc_chat", chatType: "group", mentioned: true, want: true},
 		{name: "direct messages enabled", cfg: Config{AllowDM: true}, chatID: "oc_dm", chatType: "p2p", want: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -179,7 +179,7 @@ func TestReplyLookupRunsOnlyWhenItCanChangeAdmission(t *testing.T) {
 		wantMsg  bool
 	}{
 		{name: "direct message", cfg: Config{AllowDM: true, RequireMention: true}, chatType: "p2p", wantMsg: true},
-		{name: "disallowed group", cfg: Config{AllowedChatIDs: "oc_other", RequireMention: true}, chatType: "group"},
+		{name: "disallowed group", cfg: Config{AllowGroup: false, RequireMention: true}, chatType: "group"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			b, captured := newThreadRoutingBot(t)
@@ -214,11 +214,11 @@ func TestAlternateEventIngressAdmission(t *testing.T) {
 		botAuthored bool
 		want        bool
 	}{
-		{name: "disallowed group", cfg: Config{AllowedChatIDs: "oc_other"}, chatID: "oc_chat", chatType: "group", lookupOK: true},
+		{name: "disallowed group", cfg: Config{AllowGroup: false}, chatID: "oc_chat", chatType: "group", lookupOK: true},
 		{name: "direct messages disabled", cfg: Config{}, chatID: "oc_dm", chatType: "p2p", lookupOK: true},
 		{name: "lookup failure", cfg: Config{AllowDM: true}, lookupOK: false},
-		{name: "reaction to user message does not bypass mention", cfg: Config{AllowedChatIDs: "oc_chat", RequireMention: true}, chatID: "oc_chat", chatType: "group", lookupOK: true},
-		{name: "reaction to bot message bypasses mention", cfg: Config{AllowedChatIDs: "oc_chat", RequireMention: true}, chatID: "oc_chat", chatType: "group", lookupOK: true, botAuthored: true, want: true},
+		{name: "reaction to user message does not bypass mention", cfg: Config{AllowGroup: true, RequireMention: true}, chatID: "oc_chat", chatType: "group", lookupOK: true},
+		{name: "reaction to bot message bypasses mention", cfg: Config{AllowGroup: true, RequireMention: true}, chatID: "oc_chat", chatType: "group", lookupOK: true, botAuthored: true, want: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			b, captured := newThreadRoutingBot(t)
@@ -250,7 +250,7 @@ func TestAlternateEventIngressAdmission(t *testing.T) {
 
 func TestCardActionIngressDeniedBeforeIdentityLookup(t *testing.T) {
 	b, captured := newThreadRoutingBot(t)
-	b.cfg = Config{AllowedChatIDs: "oc_other", AllowDM: true}
+	b.cfg = Config{AllowGroup: false, AllowDM: true}
 	b.resolveMessageContextFn = func(string) (string, string, string, bool, bool) {
 		return "oc_disallowed", "group", "", true, true
 	}

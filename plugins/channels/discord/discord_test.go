@@ -17,8 +17,8 @@ import (
 )
 
 func TestConfigDecodeRedactSchemaAndValidation(t *testing.T) {
-	cfg, err := DecodeConfig(map[string]any{"token": "secret", "allowed_guild_ids": "one, two"})
-	if err != nil || cfg.Token != "secret" || cfg.AllowedGuildIDs != "one, two" || !cfg.AllowDM || cfg.AllowUnlinkedDM || !cfg.RequireMention || cfg.GuestMessageLimitPerMinute != 10 || cfg.GuestMaxPerChannel != 1000 || cfg.GuestRetentionDays != 30 {
+	cfg, err := DecodeConfig(map[string]any{"token": "secret", "allow_group": true})
+	if err != nil || cfg.Token != "secret" || !cfg.AllowGroup || !cfg.AllowDM || cfg.AllowUnlinkedDM || !cfg.RequireMention || cfg.GuestMessageLimitPerMinute != 10 || cfg.GuestMaxPerChannel != 1000 || cfg.GuestRetentionDays != 30 {
 		t.Fatalf("DecodeConfig() = %#v, %v", cfg, err)
 	}
 	cfg, err = DecodeConfig(map[string]any{"token": "secret", "allow_dm": false, "allow_unlinked_dm": true, "require_mention": false})
@@ -83,7 +83,7 @@ func TestAttachmentURLAllowlist(t *testing.T) {
 
 func TestGuildMessageEnsuresGroupMembership(t *testing.T) {
 	h := &provisioningHandler{fakeHandler: fakeHandler{}}
-	b, err := New(Config{InstanceID: "discord-main", Token: "token", AllowedGuildIDs: "other, guild"}, h)
+	b, err := New(Config{InstanceID: "discord-main", Token: "token", AllowGroup: true}, h)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,28 +108,28 @@ func TestGuildMessageEnsuresGroupMembership(t *testing.T) {
 	}
 }
 
-func TestGuildMessageRejectsUnconfiguredGuild(t *testing.T) {
+func TestGuildMessageRejectedWhenGuildsDisabled(t *testing.T) {
 	h := &provisioningHandler{fakeHandler: fakeHandler{}}
-	b, err := New(Config{InstanceID: "discord-main", Token: "token", AllowedGuildIDs: "trusted"}, h)
+	b, err := New(Config{InstanceID: "discord-main", Token: "token"}, h)
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := &discordgo.Message{ID: "message", ChannelID: "discord-channel", GuildID: "untrusted", Author: &discordgo.User{ID: "sender"}, Content: "hello"}
+	m := &discordgo.Message{ID: "message", ChannelID: "discord-channel", GuildID: "guild", Author: &discordgo.User{ID: "sender"}, Content: "hello"}
 	if err := b.handleMessage(context.Background(), m); err != nil {
 		t.Fatal(err)
 	}
 	if h.calls != 0 {
-		t.Fatalf("unconfigured guild caused %d provisioning calls", h.calls)
+		t.Fatalf("guild message caused %d provisioning calls while allow_group is off", h.calls)
 	}
 }
 
 func TestGuildMessageRequiresMentionByDefault(t *testing.T) {
 	h := &provisioningHandler{fakeHandler: fakeHandler{}}
-	cfg, err := DecodeConfig(map[string]any{"token": "token", "allowed_guild_ids": "guild"})
+	cfg, err := DecodeConfig(map[string]any{"token": "token", "allow_group": true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := New(Config{Token: cfg.Token, AllowedGuildIDs: cfg.AllowedGuildIDs, RequireMention: cfg.RequireMention}, h)
+	b, err := New(Config{Token: cfg.Token, AllowGroup: cfg.AllowGroup, RequireMention: cfg.RequireMention}, h)
 	if err != nil {
 		t.Fatal(err)
 	}
