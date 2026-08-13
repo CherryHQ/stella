@@ -176,11 +176,11 @@ type Tool interface {
 | ---------- | ------------ |
 | `webfetch` | 获取网页内容 |
 
-核心本地工作区工具通过 Docker 沙箱后端运行。`bash` 工具通过 `Session.Exec` 执行；`read`、`write` 和 `edit` 工具使用 `Session.ResolvePath` 获取主机路径，然后直接调用 `os.*`。Runner 启动时如果 Docker 不可用则失败关闭。
+核心本地工作区工具通过 Docker 沙箱后端运行。`bash` 工具通过 `Session.Exec` 执行；`read`、`write` 和 `edit` 工具使用进程可见路径与中介的 `Session.Files` capability。Provider backing path 不会进入工具层。Runner 启动时如果 Docker 不可用则失败关闭。
 
 ### 沙箱
 
-沙箱系统为 agent 工具执行提供进程、文件系统和网络隔离。所有核心工具在每个 runner 中共享同一个 `sandbox.Session`：`bash` 使用 `Session.Exec`；`read`/`write`/`edit` 使用 `Session.ResolvePath` + `os.*`。沙箱后端不可用时 runner 启动失败关闭。详见[沙箱后端抽象](/docs/development/sandbox)了解完整的 Session 接口、执行中介、拒绝失败行为和例外边界。
+沙箱系统为 agent 工具执行提供进程、文件系统和网络隔离。所有核心工具在每个 runner 中共享同一个 `sandbox.Session`：`bash` 使用 `Session.Exec`；`read`/`write`/`edit` 使用 `Session.Files`。公开 policy 只包含进程可见 root；物理 mount 映射和 rooted file capability 由各 provider 持有。沙箱后端不可用时 runner 启动失败关闭。详见[沙箱后端抽象](/docs/development/sandbox)了解完整的 Session 接口、执行中介、拒绝失败行为和例外边界。
 
 沙箱工具（bash、read、write、edit）位于 `internal/agent/sandbox/`；其他内置工具位于它们投射的能力包中。插件工具（如 webfetch）位于 `plugins/tools/`，通过 `init()` 自注册。添加新的插件工具只需一个空白导入，无需修改组装代码。详见[插件系统](/docs/development/plugin-system)。
 

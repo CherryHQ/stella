@@ -8,9 +8,9 @@ title: 沙箱后端抽象
 
 沙箱抽象的目的是使 runner 代码、插件配置和工具执行不依赖于具体的后端类型。执行总是通过 runner 选中的活动后端进行。
 
-- `pkg/sandbox.Policy` — 不可变的、后端无关的执行策略（文件系统根目录、工作目录、网络模式、环境变量、超时）
+- `pkg/sandbox.Policy` — 不可变的、后端无关的执行策略（进程可见的文件系统根目录、工作目录、网络模式、环境变量、超时）
 - `pkg/sandbox.Session` — 每次运行的执行边界和生命周期所有者；将生命周期和宿主机访问合并为单一接口
-- Runner 拥有的文件 I/O — runner 使用 `os.*` 配合 `Session.ResolvePath` 读写文件；`Session` 上没有 `ReadFile`/`WriteFile` 方法
+- `pkg/sandbox.FileAccess` — 由 `Session.Files` 返回的中介文件 capability；调用方与命令使用同一套进程可见坐标，且永远不会获得 provider backing path
 
 后端标识保留在 runner 和面向 runner 的 sandbox 包内部。插件包不导入 `internal/agent/sandbox`。
 
@@ -18,18 +18,20 @@ title: 沙箱后端抽象
 
 `pkg/sandbox.Session` 暴露 8 个方法：
 
-| 方法                                                       | 描述                                               |
-| ---------------------------------------------------------- | -------------------------------------------------- |
-| `Policy() Policy`                                          | 返回会话创建时使用的不可变策略                     |
-| `Exec(ctx, command, ExecOptions) (ExecResult, error)`      | 运行命令并等待结果                                 |
-| `StartProcess(ctx, ProcessRequest) (ProcessHandle, error)` | 启动带 stdio 句柄的长期运行进程                    |
-| `ResolvePath(path string) (string, error)`                 | 将沙箱相对路径转换为宿主机路径，供 `os.*` 调用使用 |
-| `WorkingDir() string`                                      | 返回沙箱内的逻辑工作目录                           |
-| `Close() error`                                            | 关闭会话并释放资源                                 |
-| `Alive() bool`                                             | 报告会话是否仍然活跃                               |
-| `Done() <-chan struct{}`                                   | 会话终止时关闭的 channel                           |
+| 方法                                                       | 描述                                     |
+| ---------------------------------------------------------- | ---------------------------------------- |
+| `Policy() Policy`                                          | 返回会话创建时使用的不可变策略           |
+| `Exec(ctx, command, ExecOptions) (ExecResult, error)`      | 运行命令并等待结果                       |
+| `StartProcess(ctx, ProcessRequest) (ProcessHandle, error)` | 启动带 stdio 句柄的长期运行进程          |
+| `Files() FileAccess`                                       | 返回对已授权进程可见数据 root 的中介访问 |
+| `WorkingDir() string`                                      | 返回沙箱内的逻辑工作目录                 |
+| `Close() error`                                            | 关闭会话并释放资源                       |
+| `Alive() bool`                                             | 报告会话是否仍然活跃                     |
+| `Done() <-chan struct{}`                                   | 会话终止时关闭的 channel                 |
 
-文件 I/O（`read`、`write`、`edit`）由 runner 拥有：runner 调用 `ResolvePath` 获取宿主机路径，然后直接使用 `os.ReadFile`/`os.WriteFile`/`os.MkdirAll`。`Session` 不包含文件读写方法。
+`FileAccess` 提供 prompt 构建与核心 `read`、`write`、`edit` 工具所需的有界操作，以及 managed Skill 在发布时精确、no-replace、disposable 的文件投影。路径相对于 `WorkingDir`，或使用进程视图中的绝对路径。公开的 `Policy`、`Session` 与 `FileAccess` contract 不包含宿主机 mount source、路径 resolver 或路径转换结果。
+
+每个 backend 都在 provider 内部把公开的进程 root 绑定到物理 mount plan。文件操作使用 Session 创建时固定的目录 capability，执行只读 root 约束，并对逃逸或跨 mount symlink fail closed。Provider 的进程准备代码可以读取自己的私有映射，但上层无法先取得物理路径，再用 `os.*` 绕过 capability。
 
 ## 本地 workspace 所有权
 
@@ -56,10 +58,13 @@ runner 会根据插件状态解析当前活动后端，并分派到对应的后�
 所有必须遵守沙箱策略的本地执行路径都通过活动 runner 会话进行中介：
 
 - 核心工具（`bash`）通过 runner 拥有的会话使用 `Session.Exec`
-- `read`、`write`、`edit` 使用 `Session.ResolvePath` 然后通过 `os.*` 进行文件 I/O
+- `read`、`write`、`edit` 与活动 prompt context 读取使用 `Session.Files`
+- managed Skill revision 通过 `FileAccess.ProjectFiles` 复制到精确、no-replace 的 Session 投影；已存在但内容冲突的 tree 会 fail closed
 - 插件工具接收 `ToolContext.Runtime`，这是活动会话上的 `pkg/plugins.ToolRuntime` 适配器
 - 技能和代理预设加载在代理会话内运行时使用 `ToolRuntime`
 - MCP stdio 进程派生使用 `Session.StartProcess`
+
+managed Skill 投影会原子发布，并在每次 load 时校验，但它不是针对同一用户身份运行命令的独立隔离边界。此类命令可能与校验并发，或在校验后修改 disposable tree。只要 load 观察到不一致，就会 fail closed，而不会替换该路径。Session 关闭时会删除其临时 backing；Docker 启动清理还会移除被中断 Session 遗留的临时目录。
 
 ### stdio-MCP 优势
 
@@ -112,7 +117,7 @@ sandbox 镜像通过 `stellad mise reconcile-builtins`（与宿主相同的 `res
 
 `resources.Registry` 是发行版自带 builtin 的唯一权威。它产出不可变、内容寻址的 bundle，供原生 `local` 和 `none` 执行安装到 `$STELLA_HOME/bundles/<revision>`。隔离执行将这一精确 bundle 以只读方式投影到 `/opt/stella/skills/builtin`；`/opt` 是执行坐标而非另一份权威，bundle 中辅助可执行文件的模式必须在投影中保留。
 
-Project Skill 仍是持久 Agent/项目工作树中的普通文件；在活动执行之外通过有界、只读的 Home snapshot 读取。PostgreSQL 仍是可变 `system`、`system_agent`、`user` 和 `user_agent` 记录的权威；它们的执行 materialization 是派生缓存。更广泛的可变 Skill 权威切换仍由 #897 规划，不属于 Workspace slice。
+Project Skill 仍是持久 Agent/项目工作树中的普通文件；在活动执行之外通过有界、只读的 Home snapshot 读取。可变 `system`、`system_agent`、`user` 和 `user_agent` identity 仍登记在 PostgreSQL 中，其当前选中 revision 的 manifest 与 bytes 则以持久 Home storage 为权威。活动 Session 只获得 disposable、digest-pinned 的精确投影；revision history 不会进入 Agent workspace 的搜索树。
 
 Docker 沙箱镜像会烤入并标记精确 revision，不会回退到宿主机 builtin。Docker provider preflight 拒绝二进制与镜像 revision 不匹配的组合，从而阻止 runner session 启动。操作员命令语法使用 `stellad system-bundle --help` 查询。开发镜像用 `mise run sandbox:docker:build` 重建；每个自定义沙箱镜像都必须从匹配的 Stella revision 重建。
 

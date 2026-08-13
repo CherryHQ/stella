@@ -8,9 +8,9 @@ title: Sandbox Backend Abstraction
 
 The sandbox abstraction exists so runner code, plugin wiring, and tool execution do not depend on concrete backend types. Execution always runs through the active backend selected by the runner.
 
-- `pkg/sandbox.Policy` — immutable backend-agnostic execution policy (filesystem root, working dir, network mode, env, timeout)
+- `pkg/sandbox.Policy` — immutable backend-agnostic execution policy (process-visible filesystem roots, working dir, network mode, env, timeout)
 - `pkg/sandbox.Session` — per-run execution boundary and lifecycle owner; combines lifecycle and host-access into one interface
-- Runner-owned file I/O — the runner uses `os.*` with `Session.ResolvePath` to read and write files; there is no `ReadFile`/`WriteFile` on `Session`
+- `pkg/sandbox.FileAccess` — mediated file capability returned by `Session.Files`; callers use the same process-visible coordinates as commands and never receive provider backing paths
 
 Backend identity stays inside the runner and runner-facing sandbox packages. Plugin packages do not import `internal/agent/sandbox`.
 
@@ -18,18 +18,20 @@ Backend identity stays inside the runner and runner-facing sandbox packages. Plu
 
 `pkg/sandbox.Session` exposes 8 methods:
 
-| Method                                                     | Description                                                       |
-| ---------------------------------------------------------- | ----------------------------------------------------------------- |
-| `Policy() Policy`                                          | Returns the immutable policy the session was created with         |
-| `Exec(ctx, command, ExecOptions) (ExecResult, error)`      | Run a command and wait for its result                             |
-| `StartProcess(ctx, ProcessRequest) (ProcessHandle, error)` | Spawn a long-lived process with stdio handles                     |
-| `ResolvePath(path string) (string, error)`                 | Translate a sandbox-relative path to a host path for `os.*` calls |
-| `WorkingDir() string`                                      | Returns the logical working directory inside the sandbox          |
-| `Close() error`                                            | Tear down the session and release resources                       |
-| `Alive() bool`                                             | Reports whether the session is still active                       |
-| `Done() <-chan struct{}`                                   | Channel closed when the session terminates                        |
+| Method                                                     | Description                                                      |
+| ---------------------------------------------------------- | ---------------------------------------------------------------- |
+| `Policy() Policy`                                          | Returns the immutable policy the session was created with        |
+| `Exec(ctx, command, ExecOptions) (ExecResult, error)`      | Run a command and wait for its result                            |
+| `StartProcess(ctx, ProcessRequest) (ProcessHandle, error)` | Spawn a long-lived process with stdio handles                    |
+| `Files() FileAccess`                                       | Returns mediated access to authorized process-visible data roots |
+| `WorkingDir() string`                                      | Returns the logical working directory inside the sandbox         |
+| `Close() error`                                            | Tear down the session and release resources                      |
+| `Alive() bool`                                             | Reports whether the session is still active                      |
+| `Done() <-chan struct{}`                                   | Channel closed when the session terminates                       |
 
-File I/O (`read`, `write`, `edit`) is runner-owned: the runner calls `ResolvePath` to obtain the host path and then uses `os.ReadFile` / `os.WriteFile` / `os.MkdirAll` directly. `Session` carries no file read/write methods.
+`FileAccess` supports the bounded operations needed by prompt construction and the core `read`, `write`, and `edit` tools, plus exact-at-publication, no-replace, disposable file projection for managed Skills. A path is relative to `WorkingDir` or absolute in the process view. The public `Policy`, `Session`, and `FileAccess` contracts contain no host-side mount source, path resolver, or path translation result.
+
+Each backend binds the public process roots to a provider-private physical mount plan. File operations use directory capabilities pinned when the Session is created, enforce read-only roots, and fail closed on escapes or cross-mount symlinks. Provider process setup may inspect its private mapping, but no upper layer can obtain a physical path and then bypass the capability with `os.*`.
 
 ## Local workspace ownership
 
@@ -56,10 +58,13 @@ The runner resolves the active backend from plugin state and dispatches to a bac
 All local execution paths that must obey sandbox policy are mediated through the active runner session:
 
 - core tools (`bash`) use `Session.Exec` through the runner-owned session
-- `read`, `write`, `edit` use `Session.ResolvePath` then `os.*` for file I/O
+- `read`, `write`, `edit` and active prompt context reads use `Session.Files`
+- managed Skill revisions are copied into an exact, no-replace Session projection through `FileAccess.ProjectFiles`; a conflicting existing tree fails closed
 - plugin tools receive `ToolContext.Runtime`, a `pkg/plugins.ToolRuntime` adapter over the active session
 - skills and agent preset loading use `ToolRuntime` when running inside an agent session
 - MCP stdio process spawning uses `Session.StartProcess`
+
+A managed Skill projection is atomically published and verified on every load, but it is not a separate isolation boundary from commands running as the same user. Such a command can race verification or modify the disposable tree afterward. A load that observes a mismatch fails closed instead of replacing the path. Session close removes its temporary backing; Docker startup cleanup also removes stale temporary directories left by interrupted sessions.
 
 ### stdio-MCP benefit
 
@@ -112,7 +117,7 @@ The sandbox image bakes its mise toolchain at `/opt/stella` via `stellad mise re
 
 `resources.Registry` is the sole authority for release-owned builtins. It produces the immutable content-addressed bundle installed at `$STELLA_HOME/bundles/<revision>` for native `local` and `none` execution. Isolating execution projects that exact bundle read-only at `/opt/stella/skills/builtin`; `/opt` is an execution coordinate, not another authority, and bundle executable helper modes must survive the projection.
 
-Project Skills remain ordinary files in durable Agent/project working trees and are read through bounded read-only Home snapshots outside active execution. PostgreSQL remains the authority for mutable `system`, `system_agent`, `user`, and `user_agent` records; their execution materializations are derived caches. The broader mutable Skill authority cutover remains planned in #897 and is not part of the Workspace slice.
+Project Skills remain ordinary files in durable Agent/project working trees and are read through bounded read-only Home snapshots outside active execution. Mutable `system`, `system_agent`, `user`, and `user_agent` identities remain cataloged in PostgreSQL, while their selected revision manifests and bytes are authoritative in durable Home storage. An active Session receives only a disposable, digest-pinned exact projection; revision history never becomes part of the Agent workspace search tree.
 
 The Docker sandbox image bakes and labels the exact revision. It has no host-builtin fallback. Docker provider preflight rejects a binary/image revision mismatch, preventing the runner session from starting. Use `stellad system-bundle --help` for operator command syntax. Rebuild the development image with `mise run sandbox:docker:build`; rebuild every custom sandbox image from the matching Stella revision.
 
