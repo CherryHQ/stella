@@ -292,6 +292,10 @@ components:
         lifecycle_version:
           type: integer
           format: int64
+        content_digest:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: Exact immutable revision digest for mutable Home-backed Skills.
         created_by:
           type: string
           enum: [manual, reflect]
@@ -387,6 +391,10 @@ components:
     UpdateSkillRequest:
       type: object
       properties:
+        expected_digest:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: Required exact current digest when mutating a Home-backed Skill.
         description:
           type: string
           nullable: true

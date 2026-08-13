@@ -87,6 +87,21 @@ func TestPlatformWithoutMetadataFailsClosed(t *testing.T) {
 	}
 }
 
+func TestPlatformSkillStoreFailsClosedEvenWhenDeclared(t *testing.T) {
+	host := New(&stubStore{plugins: map[string]config.Plugin{}})
+	host.RegisterPluginID("tool/skills-reader")
+	host.SetInfo(pkgplugins.PluginInfo{
+		ID:                   "tool/skills-reader",
+		Kind:                 "tool",
+		Name:                 "skills-reader",
+		DisplayName:          "Skills Reader",
+		RequiredCapabilities: []pkgplugins.Capability{pkgplugins.CapabilitySkillStore},
+	})
+	if store := host.platform("tool/skills-reader").SkillStore(); store != nil {
+		t.Fatalf("actor-unbound plugin received ambient Skill store %#v", store)
+	}
+}
+
 // TestValidateRejectsUnbackedRequiredCapability proves Seal/ValidateRegistrations
 // fail closed when a plugin declares a capability the host cannot serve.
 func TestValidateRejectsUnbackedRequiredCapability(t *testing.T) {

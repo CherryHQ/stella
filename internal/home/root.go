@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -22,6 +23,8 @@ const (
 	RootPrincipalData
 	RootSystemSkills
 	RootSystemAgentSkills
+	RootUserSkills
+	RootUserAgentSkills
 )
 
 type RootAccess uint8
@@ -45,17 +48,21 @@ type (
 	ListOptions  struct{ Limit int }
 	ReadOptions  struct{ MaxBytes int64 }
 	WriteOptions struct {
-		Mode     fs.FileMode
-		Append   bool
-		Sync     bool
-		MaxBytes int64
+		Mode      fs.FileMode
+		Append    bool
+		Exclusive bool
+		Sync      bool
+		MaxBytes  int64
 	}
 )
 
 type (
 	MkdirOptions  struct{ Parents bool }
 	RemoveOptions struct{ Recursive bool }
-	RenameOptions struct{ SyncParent bool }
+	RenameOptions struct {
+		SyncParent bool
+		NoReplace  bool
+	}
 )
 
 type Root struct {
@@ -83,13 +90,38 @@ type RootOperations interface {
 	Rename(context.Context, string, string, RenameOptions) error
 }
 
+// SkillRootOperations is the POSIX-only extension needed to publish immutable
+// Skill revisions beneath an already-authorized typed Home root.
+type SkillRootOperations interface {
+	RootOperations
+	Lstat(context.Context, string) (fs.FileInfo, error)
+	Symlink(context.Context, string, string) error
+	Readlink(context.Context, string) (string, error)
+	SyncDirectory(context.Context, string) error
+}
+
 // RootOpener is the narrow capability-minting port for direct durable file
 // consumers. WorkspaceManager is the production implementation.
 type RootOpener interface {
 	OpenRoot(context.Context, WorkspaceRequest, RootScope, RootAccess) (RootOperations, error)
 }
 
+// ExistingRootOpener opens an existing root without materializing a missing
+// chain. Offline migration dry-runs use it to remain free of Home writes.
+type ExistingRootOpener interface {
+	RootOpener
+	OpenExistingRoot(context.Context, WorkspaceRequest, RootScope) (RootOperations, error)
+}
+
 func (m *WorkspaceManager) OpenRoot(ctx context.Context, req WorkspaceRequest, scope RootScope, access RootAccess) (RootOperations, error) {
+	return m.openRoot(ctx, req, scope, access, true)
+}
+
+func (m *WorkspaceManager) OpenExistingRoot(ctx context.Context, req WorkspaceRequest, scope RootScope) (RootOperations, error) {
+	return m.openRoot(ctx, req, scope, RootReadOnly, false)
+}
+
+func (m *WorkspaceManager) openRoot(ctx context.Context, req WorkspaceRequest, scope RootScope, access RootAccess, create bool) (RootOperations, error) {
 	if err := checkContext(ctx); err != nil {
 		return nil, err
 	}
@@ -110,22 +142,36 @@ func (m *WorkspaceManager) OpenRoot(ctx context.Context, req WorkspaceRequest, s
 			unlock()
 		}
 	}()
-	if scope != RootSystemSkills {
+	if scope == RootAgentWorkspace || scope == RootPrincipalData || scope == RootSystemAgentSkills || scope == RootUserAgentSkills {
 		if err = m.agentExists(ctx, req.AgentID); err != nil {
 			return nil, err
 		}
 	}
-	if scope == RootAgentWorkspace || scope == RootPrincipalData {
+	switch scope {
+	case RootAgentWorkspace, RootPrincipalData:
 		kind, id := principal(req)
 		if err = m.ownerExists(ctx, kind, id); err != nil {
+			return nil, err
+		}
+	case RootUserSkills, RootUserAgentSkills:
+		if err = m.ownerExists(ctx, UserPrincipal, req.UserID); err != nil {
 			return nil, err
 		}
 	}
 	if err = checkContext(ctx); err != nil {
 		return nil, err
 	}
-	if err = m.ensureChain(parts...); err != nil {
-		return nil, err
+	if create {
+		if err = m.ensureChain(parts...); err != nil {
+			return nil, err
+		}
+	}
+	if access == RootReadWrite && isSkillRootScope(scope) {
+		// Fence every visible component, including components created by an
+		// interrupted earlier attempt, before publication can proceed.
+		if err = m.syncChain(parts...); err != nil {
+			return nil, fmt.Errorf("home: sync typed Skill root ancestry: %w", err)
+		}
 	}
 	or, err := m.openOperationsRoot(parts...)
 	if err != nil {
@@ -133,6 +179,10 @@ func (m *WorkspaceManager) OpenRoot(ctx context.Context, req WorkspaceRequest, s
 	}
 	ok = true
 	return &Root{root: or, access: access, unlock: unlock}, nil
+}
+
+func isSkillRootScope(scope RootScope) bool {
+	return scope == RootSystemSkills || scope == RootSystemAgentSkills || scope == RootUserSkills || scope == RootUserAgentSkills
 }
 
 func principal(req WorkspaceRequest) (PrincipalKind, string) {
@@ -151,6 +201,25 @@ func (m *WorkspaceManager) rootSelection(req WorkspaceRequest, scope RootScope) 
 			return nil, nil, err
 		}
 		return []string{"agents", req.AgentID, ".agents", "skills"}, []string{"agent:" + req.AgentID}, nil
+	case RootUserSkills:
+		if req.GroupID != "" {
+			return nil, nil, errors.New("home: user Skill root does not accept group owner")
+		}
+		if err := validID(req.UserID); err != nil {
+			return nil, nil, err
+		}
+		return []string{"users", req.UserID, ".agents", "skills"}, []string{"user:" + req.UserID}, nil
+	case RootUserAgentSkills:
+		if req.GroupID != "" {
+			return nil, nil, errors.New("home: user-Agent Skill root does not accept group owner")
+		}
+		if err := validID(req.UserID); err != nil {
+			return nil, nil, err
+		}
+		if err := validID(req.AgentID); err != nil {
+			return nil, nil, err
+		}
+		return []string{"users", req.UserID, ".agents", "agent-skills", req.AgentID}, []string{"agent:" + req.AgentID, "user:" + req.UserID}, nil
 	case RootAgentWorkspace, RootPrincipalData:
 		if err := validID(req.AgentID); err != nil {
 			return nil, nil, err
@@ -195,6 +264,13 @@ func cleanName(name string, dot bool) (string, error) {
 	return name, nil
 }
 
+func cleanSymlinkTarget(target string) (string, error) {
+	if target == "" || strings.HasPrefix(target, "/") || strings.ContainsRune(target, '\x00') || strings.Contains(target, `\`) || path.Clean(target) != target || target == "." || target == ".." || strings.HasPrefix(target, "../") {
+		return "", errors.New("home: canonical non-escaping relative symlink target required")
+	}
+	return target, nil
+}
+
 func checkContext(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("home: context is required")
@@ -233,6 +309,21 @@ func (r *Root) Stat(ctx context.Context, name string) (fs.FileInfo, error) {
 		return nil, e
 	}
 	return r.root.Stat(n)
+}
+
+func (r *Root) Lstat(ctx context.Context, name string) (fs.FileInfo, error) {
+	if err := checkContext(ctx); err != nil {
+		return nil, err
+	}
+	if err := r.begin(); err != nil {
+		return nil, err
+	}
+	defer r.end()
+	n, err := cleanName(name, true)
+	if err != nil {
+		return nil, err
+	}
+	return r.root.Lstat(n)
 }
 
 func (r *Root) List(ctx context.Context, name string, o ListOptions) ([]fs.DirEntry, error) {
@@ -351,6 +442,9 @@ func (r *Root) Write(ctx context.Context, name string, src io.Reader, o WriteOpt
 		mode = 0o600
 	}
 	flags := os.O_WRONLY | os.O_CREATE
+	if o.Exclusive {
+		flags |= os.O_EXCL
+	}
 	if o.Append {
 		flags |= os.O_APPEND
 	}
@@ -364,6 +458,14 @@ func (r *Root) Write(ctx context.Context, name string, src io.Reader, o WriteOpt
 	} else if !info.Mode().IsRegular() {
 		_ = f.Close()
 		return errors.New("home: write requires regular file")
+	} else if o.Exclusive && info.Mode().Perm() != mode {
+		// Open creation modes are filtered through the process umask. Exclusive
+		// immutable publications require the requested mode to be exact because
+		// it participates in the revision digest, so restore it before syncing.
+		if chmodErr := f.Chmod(mode); chmodErr != nil {
+			_ = f.Close()
+			return fmt.Errorf("%w: set exclusive write mode: %w", ErrOutcomeUnknown, chmodErr)
+		}
 	}
 	if !o.Append {
 		if truncateErr := f.Truncate(0); truncateErr != nil {
@@ -539,7 +641,15 @@ func (r *Root) Rename(ctx context.Context, old, new string, o RenameOptions) err
 	if e != nil {
 		return e
 	}
-	if e = r.root.Rename(a, b); e != nil {
+	if o.NoReplace {
+		e = renameRootNoReplace(r.root, a, b)
+	} else {
+		e = r.root.Rename(a, b)
+	}
+	if e != nil {
+		if o.NoReplace {
+			return e
+		}
 		return fmt.Errorf("%w: rename: %w", ErrOutcomeUnknown, e)
 	}
 	if o.SyncParent {
@@ -552,6 +662,64 @@ func (r *Root) Rename(ctx context.Context, old, new string, o RenameOptions) err
 				return fmt.Errorf("%w: sync rename parent: %w", ErrOutcomeUnknown, e)
 			}
 		}
+	}
+	return nil
+}
+
+func (r *Root) Symlink(ctx context.Context, target, name string) error {
+	if err := checkContext(ctx); err != nil {
+		return err
+	}
+	if err := r.begin(); err != nil {
+		return err
+	}
+	defer r.end()
+	if err := r.writable(); err != nil {
+		return err
+	}
+	t, err := cleanSymlinkTarget(target)
+	if err != nil {
+		return err
+	}
+	n, err := cleanName(name, false)
+	if err != nil {
+		return err
+	}
+	return symlinkRoot(r.root, t, n)
+}
+
+func (r *Root) Readlink(ctx context.Context, name string) (string, error) {
+	if err := checkContext(ctx); err != nil {
+		return "", err
+	}
+	if err := r.begin(); err != nil {
+		return "", err
+	}
+	defer r.end()
+	n, err := cleanName(name, false)
+	if err != nil {
+		return "", err
+	}
+	return readlinkRoot(r.root, n)
+}
+
+func (r *Root) SyncDirectory(ctx context.Context, name string) error {
+	if err := checkContext(ctx); err != nil {
+		return err
+	}
+	if err := r.begin(); err != nil {
+		return err
+	}
+	defer r.end()
+	if err := r.writable(); err != nil {
+		return err
+	}
+	n, err := cleanName(name, true)
+	if err != nil {
+		return err
+	}
+	if err := syncRootDirectory(r.root, n); err != nil {
+		return fmt.Errorf("%w: sync directory: %w", ErrOutcomeUnknown, err)
 	}
 	return nil
 }

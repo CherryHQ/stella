@@ -372,6 +372,7 @@ INSERT INTO skill_changelog (
   action,
   version_before,
   version_after,
+  content_digest,
   metadata
 )
 VALUES (
@@ -382,9 +383,10 @@ VALUES (
   $5,
   $6,
   $7,
-  $8
+  $8,
+  $9
 )
-RETURNING id, skill_id, user_id, agent_id, scope, action, version_before, version_after, metadata, created_at
+RETURNING id, skill_id, user_id, agent_id, scope, action, version_before, version_after, metadata, created_at, content_digest
 `
 
 type InsertSkillChangelogParams struct {
@@ -395,6 +397,7 @@ type InsertSkillChangelogParams struct {
 	Action        string          `json:"action"`
 	VersionBefore pgtype.Int8     `json:"version_before"`
 	VersionAfter  int64           `json:"version_after"`
+	ContentDigest pgtype.Text     `json:"content_digest"`
 	Metadata      json.RawMessage `json:"metadata"`
 }
 
@@ -407,6 +410,7 @@ func (q *Queries) InsertSkillChangelog(ctx context.Context, arg InsertSkillChang
 		arg.Action,
 		arg.VersionBefore,
 		arg.VersionAfter,
+		arg.ContentDigest,
 		arg.Metadata,
 	)
 	var i SkillChangelog
@@ -421,6 +425,7 @@ func (q *Queries) InsertSkillChangelog(ctx context.Context, arg InsertSkillChang
 		&i.VersionAfter,
 		&i.Metadata,
 		&i.CreatedAt,
+		&i.ContentDigest,
 	)
 	return i, err
 }
@@ -474,7 +479,7 @@ func (q *Queries) ListActiveReflectOwnedUserAgentSkills(ctx context.Context, arg
 }
 
 const listAllSkills = `-- name: ListAllSkills :many
-SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version FROM skill ORDER BY scope, created_at
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version FROM skill ORDER BY scope, created_at LIMIT 10001
 `
 
 func (q *Queries) ListAllSkills(ctx context.Context) ([]Skill, error) {
@@ -511,7 +516,7 @@ func (q *Queries) ListAllSkills(ctx context.Context) ([]Skill, error) {
 }
 
 const listSkillChangelogBySkill = `-- name: ListSkillChangelogBySkill :many
-SELECT id, skill_id, user_id, agent_id, scope, action, version_before, version_after, metadata, created_at FROM skill_changelog
+SELECT id, skill_id, user_id, agent_id, scope, action, version_before, version_after, metadata, created_at, content_digest FROM skill_changelog
 WHERE skill_id = $1
 ORDER BY version_after DESC, created_at DESC, id DESC
 LIMIT $2
@@ -542,6 +547,7 @@ func (q *Queries) ListSkillChangelogBySkill(ctx context.Context, arg ListSkillCh
 			&i.VersionAfter,
 			&i.Metadata,
 			&i.CreatedAt,
+			&i.ContentDigest,
 		); err != nil {
 			return nil, err
 		}
@@ -601,12 +607,66 @@ func (q *Queries) ListSkillFiles(ctx context.Context, skillID string) ([]SkillFi
 	return items, nil
 }
 
+const listSkillIdentityVisible = `-- name: ListSkillIdentityVisible :many
+SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version FROM skill
+WHERE scope = 'system'
+   OR (scope = 'system_agent' AND agent_id = $1)
+   OR (scope = 'user'         AND user_id = $2)
+   OR (scope = 'user_agent'   AND user_id = $2 AND agent_id = $1)
+ORDER BY CASE scope
+    WHEN 'user_agent'   THEN 1
+    WHEN 'user'         THEN 2
+    WHEN 'system_agent' THEN 3
+    WHEN 'system'       THEN 4
+  END, created_at
+LIMIT 10001
+`
+
+type ListSkillIdentityVisibleParams struct {
+	AgentID pgtype.Text `json:"agent_id"`
+	UserID  pgtype.Text `json:"user_id"`
+}
+
+func (q *Queries) ListSkillIdentityVisible(ctx context.Context, arg ListSkillIdentityVisibleParams) ([]Skill, error) {
+	rows, err := q.db.Query(ctx, listSkillIdentityVisible, arg.AgentID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Skill{}
+	for rows.Next() {
+		var i Skill
+		if err := rows.Scan(
+			&i.ID,
+			&i.Scope,
+			&i.UserID,
+			&i.AgentID,
+			&i.Name,
+			&i.Description,
+			&i.Status,
+			&i.DisableModelInvocation,
+			&i.Metadata,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Version,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSkillsByScope = `-- name: ListSkillsByScope :many
 SELECT id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at, version FROM skill
 WHERE scope = $1
   AND coalesce(user_id::text, '') = coalesce($2::text, '')
   AND coalesce(agent_id, '') = coalesce($3, '')
 ORDER BY created_at
+LIMIT 10001
 `
 
 type ListSkillsByScopeParams struct {
@@ -653,6 +713,7 @@ SELECT id, scope, user_id, agent_id, name, description, status, disable_model_in
 WHERE scope NOT IN ('user', 'user_agent')
       OR user_id = $1
 ORDER BY scope, created_at
+LIMIT 10001
 `
 
 func (q *Queries) ListSkillsForAdmin(ctx context.Context, userID pgtype.Text) ([]Skill, error) {
@@ -703,6 +764,7 @@ ORDER BY CASE scope
     WHEN 'system_agent' THEN 3
     WHEN 'system'       THEN 4
   END, created_at
+LIMIT 10001
 `
 
 type ListSkillsForAgentContextParams struct {
@@ -757,6 +819,7 @@ WHERE status != 'deprecated'
         AND strpos(',' || $1 || ',', ',' || agent_id || ',') > 0)
   )
 ORDER BY scope, created_at
+LIMIT 10001
 `
 
 type ListSkillsForUserParams struct {
@@ -813,6 +876,7 @@ ORDER BY CASE scope
     WHEN 'system_agent' THEN 3
     WHEN 'system'       THEN 4
   END, created_at
+LIMIT 10001
 `
 
 type ListSkillsVisibleParams struct {

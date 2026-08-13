@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -48,6 +49,15 @@ import (
 )
 
 const defaultAdminPort = 25678
+
+var nativeServerGOOS = runtime.GOOS
+
+func checkNativeServerPlatform(goos string) error {
+	if goos != "linux" && goos != "darwin" {
+		return errors.New("native Stella server and durable Skill Home are supported only on Linux and macOS")
+	}
+	return nil
+}
 
 // userDirectory adapts the account user store to the Agent domain's UserDirectory
 // port so agent-assignment views can show a target's email without the transport
@@ -107,6 +117,11 @@ func serverCommand() *ucli.Command {
 }
 
 func serverAction(c *ucli.Context) error {
+	// Reject unsupported hosts before configuration, database startup, schema
+	// migration, or any durable filesystem mutation.
+	if err := checkNativeServerPlatform(nativeServerGOOS); err != nil {
+		return err
+	}
 	// Parse the full server environment once, up front, so a misconfigured
 	// value (bad duration, non-boolean guard) fails fast before any subsystem
 	// starts. This is the single startup boundary that reads ServerConfig;

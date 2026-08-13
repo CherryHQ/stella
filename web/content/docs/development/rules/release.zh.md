@@ -84,6 +84,6 @@ System Test 同时在本地门禁和 tag 触发的 validation job 中运行。�
 
 ## 发布工件
 
-- **二进制**：linux/darwin/windows × amd64/arm64（GoReleaser）
+- **二进制**：linux/darwin × amd64/arm64（GoReleaser）。Windows 仅保留 compile-only 可移植性覆盖，不是发布的服务端目标。
 - **Docker**：`ghcr.io/cherryhq/stella` — linux/amd64 + linux/arm64
 - **Docker tags**：`latest`（稳定版）、`vX.Y.Z`（发布版）、SHA（每次构建）

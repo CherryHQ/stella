@@ -45,11 +45,10 @@ const (
 	ScopeSystemAgent = "system_agent"
 )
 
-// SkillStore is the narrow read port the PEP needs to resolve one skill row by
-// id. The skills store has no direct Get-by-id yet, so the PEP scans ListAll —
-// the same approach the transports used, correct at current volumes.
+// SkillStore is the identity-only port the PEP uses before any mutable Home
+// bytes or lifecycle metadata are opened.
 type SkillStore interface {
-	ListAll(ctx context.Context) ([]skills.Skill, error)
+	GetIdentity(ctx context.Context, id string) (*skills.Skill, error)
 }
 
 // Service is the composition-root-owned Skill authorization domain. It holds the

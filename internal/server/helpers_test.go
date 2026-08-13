@@ -25,6 +25,7 @@ import (
 	"github.com/CherryHQ/stella/internal/controlplane"
 	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/inbox"
@@ -38,6 +39,7 @@ import (
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 // serverTestWorkspace maps each helper fixture's temporary legacy Home layout.
@@ -210,6 +212,12 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	memChangelog, _ := mem.(memory.ChangelogReader)
 	memoryManagement := memorywrite.NewManagementService(db, changelogPageReader)
 	profileSvc := memprofile.NewService(db, memProfiles, memChangelog, memoryManagement, agentAccess, prompt.DefaultAgentSoul, slog.With("component", "profile-test"))
+	skillIdentities, ok := phost.SkillStore().(skillaccess.SkillStore)
+	if !ok {
+		// A few dependency-identity tests deliberately inject a narrow Store
+		// wrapper. Keep their authorization inventory on the same database.
+		skillIdentities = skills.New(db)
+	}
 	return Deps{
 		Pinger:              db,
 		Group:               channel.NewGroupService(db, agentAccess, channel.NewRuntimeResolver(store), nil, nil),
@@ -222,7 +230,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		AgentSkillPolicy:    agentSkillPolicy,
 		ToolOverrides:       toolOverrides,
 		SessionAccess:       sessionSvc,
-		SkillAccess:         skillaccess.NewService(phost.SkillStore(), agentAccess),
+		SkillAccess:         skillaccess.NewService(skillIdentities, agentAccess),
 		LinkCodes:           auth.NewLinkCodeStore(),
 		PoolManager:         poolMgr,
 		PluginHost:          phost,
@@ -279,4 +287,50 @@ func newTestServer(t *testing.T, store config.Store, as *appdb.AuthStore, mem me
 		t.Fatalf("server.New: %v", err)
 	}
 	return srv
+}
+
+func TestResolvedToDBSkillPreservesExactRevisionIdentity(t *testing.T) {
+	const digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	resolved := &skills.ResolvedSkill{Skill: pkgplugins.Skill{
+		ID: "skill-id", Scope: "user_agent", UserID: "user-id", AgentID: "agent-id",
+		Name: "review-notes", ContentDigest: digest,
+	}}
+	got := resolvedToDBSkill(resolved)
+	if got.ID != resolved.ID || got.Scope != resolved.Scope || got.UserID != resolved.UserID || got.AgentID != resolved.AgentID ||
+		got.Name != resolved.Name || got.ContentDigest != digest {
+		t.Fatalf("exact Home identity lost in conversion: %#v", got)
+	}
+}
+
+func TestManagedSkillAgentFileLoadPreservesExactRevisionDigest(t *testing.T) {
+	db := dbtest.New(t)
+	manager, err := home.NewWorkspaceManager(db, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+	store, err := skills.NewPOSIXStore(db, manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.CreateManagedSkill(t.Context(), skills.Skill{
+		ID: "server-exact-revision", Scope: "system", Name: "server-exact-revision",
+	}, map[string]string{
+		skills.MainFile: "# Server exact revision",
+		"reference.md":  "exact managed content",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := pluginhost.New(nil)
+	host.SetSkillStore(store)
+	srv := &Server{pluginHost: host}
+	resolved := &skills.ResolvedSkill{Skill: dbSkillToPluginSkill(snapshot.Skill)}
+	if resolved.ContentDigest != snapshot.Skill.ContentDigest {
+		t.Fatalf("converted digest = %q, want %q", resolved.ContentDigest, snapshot.Skill.ContentDigest)
+	}
+	content, err := srv.loadSkillFile(t.Context(), resolved, "reference.md")
+	if err != nil || content != "exact managed content" {
+		t.Fatalf("managed file = %q, %v", content, err)
+	}
 }

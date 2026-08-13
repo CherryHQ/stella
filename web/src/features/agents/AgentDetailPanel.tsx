@@ -446,6 +446,7 @@ export function AgentDetailPanel({
           path: { id: currentState.editingId ?? "", skillId: selectedSkill.name },
           query: { scope: selectedSkill.scope as UpdateAgentSkillData["query"]["scope"] },
           body: {
+            expected_digest: selectedSkill.content_digest,
             description: selectedSkill.description,
             disable_model_invocation: !!selectedSkill.disable_model_invocation,
             ...(activeFileEditable
@@ -491,7 +492,10 @@ export function AgentDetailPanel({
       try {
         await deleteAgentSkill({
           path: { id: currentState.editingId ?? "", skillId: sk.name },
-          query: { scope: sk.scope as UpdateAgentSkillData["query"]["scope"] },
+          query: {
+            scope: sk.scope as UpdateAgentSkillData["query"]["scope"],
+            ...(sk.content_digest ? { expected_digest: sk.content_digest } : {}),
+          },
           throwOnError: true,
         });
         setState((prev) => {
@@ -583,6 +587,9 @@ export function AgentDetailPanel({
           query: {
             path: selectedSkillActiveFile,
             scope: selectedSkill.scope as UpdateAgentSkillData["query"]["scope"],
+            ...(selectedSkill.content_digest
+              ? { expected_digest: selectedSkill.content_digest }
+              : {}),
           },
           throwOnError: true,
         });

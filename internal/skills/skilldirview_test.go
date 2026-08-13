@@ -9,17 +9,13 @@ import (
 // isolatingView mirrors what runner_builder builds for the bwrap backend.
 func isolatingView() SkillDirView {
 	return SkillDirView{
-		Isolated:           true,
-		BuiltinSkillsHost:  "/srv/.stella/bundles/revision",
-		BuiltinSkillsView:  "/opt/stella/skills/builtin",
-		AgentSkillsHost:    "/srv/.stella/agents/a1/.agents/skills",
-		AgentSkillsView:    "/opt/stella/agent-skills",
-		SystemDBSkillsHost: "/srv/.stella/.agents/db-skills",
-		SystemDBSkillsView: "/opt/stella/db-skills",
-		UserDataHost:       "/srv/.stella/users/u1/data",
-		UserDataView:       "/user",
-		WorkspaceHost:      "/srv/.stella/users/u1/agents/a1",
-		WorkspaceView:      "/workspace",
+		Isolated:          true,
+		BuiltinSkillsHost: "/srv/.stella/bundles/revision",
+		BuiltinSkillsView: "/opt/stella/skills/builtin",
+		UserDataHost:      "/srv/.stella/users/u1/data",
+		UserDataView:      "/user",
+		WorkspaceHost:     "/srv/.stella/users/u1/agents/a1",
+		WorkspaceView:     "/workspace",
 	}
 }
 
@@ -34,12 +30,24 @@ func TestSkillDirView_remapsReachableTiers(t *testing.T) {
 		{"user", "/srv/.stella/users/u1/data/.agents/skills/bar", "/user/.agents/skills/bar"},
 		{"project", "/srv/.stella/users/u1/agents/a1/projects/p1/.agents/skills/baz", "/workspace/projects/p1/.agents/skills/baz"},
 		{"workspace-root", "/srv/.stella/users/u1/agents/a1/.agents/skills/qux", "/workspace/.agents/skills/qux"},
-		{"agent", "/srv/.stella/agents/a1/.agents/skills/agentlevel", "/opt/stella/agent-skills/agentlevel"},
-		{"system-db", "/srv/.stella/.agents/db-skills/installed", "/opt/stella/db-skills/installed"},
 	}
 	for _, c := range cases {
 		if got := v.apply(c.host); got != c.want {
 			t.Errorf("%s: apply(%q) = %q, want %q", c.name, c.host, got, c.want)
+		}
+	}
+}
+
+func TestSkillDirView_omitsManagedAuthorityRoots(t *testing.T) {
+	v := isolatingView()
+	for _, authority := range []string{
+		"/srv/.stella/.agents/db-skills/installed",
+		"/srv/.stella/agents/a1/.agents/skills/agentlevel",
+		"/srv/.stella/users/u1/.agents/skills/personal",
+		"/srv/.stella/users/u1/.agents/agent-skills/a1/personal-agent",
+	} {
+		if got := v.apply(authority); got != "" {
+			t.Errorf("managed authority %q mapped into isolated view as %q", authority, got)
 		}
 	}
 }

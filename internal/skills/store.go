@@ -3,6 +3,8 @@ package skills
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"time"
 )
 
@@ -22,6 +24,7 @@ type Skill struct {
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
 	Version                int64
+	ContentDigest          string
 }
 
 // SkillSnapshot is the committed representation returned by an atomic Skill
@@ -40,6 +43,7 @@ type SkillChangelog struct {
 	Action        string
 	VersionBefore int64
 	VersionAfter  int64
+	ContentDigest string
 	Metadata      json.RawMessage
 	CreatedAt     time.Time
 }
@@ -73,7 +77,55 @@ type ManagedSkillUpdate struct {
 	Scope           string
 	Patch           UpdatePatch
 	Files           map[string]string
+	DeleteFiles     []string
 	ConvertToManual bool
+	ExpectedDigest  string
+}
+
+type ManagedSkillDelete struct {
+	ID             string
+	UserID         string
+	AgentID        string
+	Scope          string
+	ExpectedDigest string
+}
+
+type ManagedSkillFileDelete struct {
+	ManagedSkillDelete
+	Path string
+}
+
+// ManagedRevision is one fully verified immutable Home revision. Files and
+// Modes are the complete bounded file tree and ContentDigest identifies these
+// exact bytes and modes.
+type ManagedRevision struct {
+	Skill Skill
+	Files map[string][]byte
+	Modes map[string]fs.FileMode
+}
+
+// IdentityReader exposes PostgreSQL identity inventory separately from Home
+// current state so consumers can authorize an actor before opening Home.
+type IdentityReader interface {
+	GetIdentity(context.Context, string) (*Skill, error)
+	ListIdentityVisible(context.Context, ViewContext) ([]Skill, error)
+	ListIdentityByScope(context.Context, string, string, string) ([]Skill, error)
+	ListIdentityCandidate(context.Context, string, ViewContext) ([]Skill, error)
+	LoadCurrentRevision(context.Context, Skill) (ManagedRevision, error)
+	LoadExactRevision(context.Context, Skill, string) (ManagedRevision, error)
+}
+
+// IsCurrentSelectorMissing reports the narrow recoverable catalog state where
+// the identity still exists but its Home current-selector entry is absent.
+func IsCurrentSelectorMissing(err error) bool {
+	return errors.Is(err, errCurrentSkillSelectorMissing)
+}
+
+// ManagedDeleter is the digest-CAS delete surface used by authorized internal
+// transports. Ambient plugin mutations remain unavailable.
+type ManagedDeleter interface {
+	DeleteManagedSkill(context.Context, ManagedSkillDelete) error
+	DeleteManagedSkillFile(context.Context, ManagedSkillFileDelete) (SkillSnapshot, error)
 }
 
 // Store is the persistence interface for skills.

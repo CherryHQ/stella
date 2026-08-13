@@ -81,7 +81,10 @@ export function ProfileSkillsTab({ agentId, projectId }: { agentId: string; proj
       updateAgentSkill({
         path: { id: agentId, skillId: skill.id },
         query: { scope: skill.scope as SkillScope },
-        body: { disable_model_invocation: !invocable },
+        body: {
+          expected_digest: skill.content_digest,
+          disable_model_invocation: !invocable,
+        },
         throwOnError: true,
       }),
     onSuccess: invalidate,
@@ -92,7 +95,10 @@ export function ProfileSkillsTab({ agentId, projectId }: { agentId: string; proj
     mutationFn: (skill: Skill) =>
       deleteAgentSkill({
         path: { id: agentId, skillId: skill.id },
-        query: { scope: skill.scope as SkillScope },
+        query: {
+          scope: skill.scope as SkillScope,
+          ...(skill.content_digest ? { expected_digest: skill.content_digest } : {}),
+        },
         throwOnError: true,
       }),
     onSuccess: invalidate,

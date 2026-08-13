@@ -26,6 +26,7 @@ type skillView struct {
 	Source                 string    `json:"source,omitempty"`
 	Version                string    `json:"version,omitempty"`
 	LifecycleVersion       int64     `json:"lifecycle_version"`
+	ContentDigest          string    `json:"content_digest,omitempty"`
 	CreatedBy              string    `json:"created_by"`
 	Builtin                *bool     `json:"builtin,omitempty"`
 	LogicalRef             string    `json:"logical_ref,omitempty"`
@@ -54,6 +55,7 @@ type updateSkillRequest struct {
 	Version                *string           `json:"version"`
 	ConvertToManual        bool              `json:"convert_to_manual"`
 	Files                  map[string]string `json:"files"`
+	ExpectedDigest         string            `json:"expected_digest"`
 }
 
 type installSkillRequest struct {
@@ -82,7 +84,8 @@ func storedSkillToView(sk skills.Skill, files []string) skillView {
 		Name: sk.Name, Description: sk.Description,
 		DisableModelInvocation: sk.DisableModelInvocation, Files: files,
 		Source: skillSource(sk.Metadata), Version: skillVersion(sk.Metadata),
-		LifecycleVersion: sk.Version, CreatedBy: skillCreatedBy(sk.Metadata),
+		LifecycleVersion: sk.Version, ContentDigest: sk.ContentDigest,
+		CreatedBy: skillCreatedBy(sk.Metadata),
 		CreatedAt: sk.CreatedAt.UTC(), UpdatedAt: sk.UpdatedAt.UTC(),
 	}
 }
@@ -118,17 +121,14 @@ func (s *Server) applySkillUpdate(w http.ResponseWriter, r *http.Request, sk *sk
 	updated, err := store.UpdateManagedSkill(r.Context(), skills.ManagedSkillUpdate{
 		ID: sk.ID, UserID: sk.UserID, AgentID: sk.AgentID, Scope: sk.Scope,
 		Patch: patch, Files: req.Files, ConvertToManual: req.ConvertToManual,
+		ExpectedDigest: req.ExpectedDigest,
 	})
-	if errors.Is(err, skills.ErrSkillNotMutable) || errors.Is(err, skills.ErrSkillNotReflectOwned) {
-		writeError(w, http.StatusConflict, err.Error())
-		return
-	}
 	if errors.Is(err, skills.ErrInvalidSkillFilePath) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeSkillMutationError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, committedSkillView(updated))
@@ -152,25 +152,22 @@ func mergeMetadataVersion(metadata json.RawMessage, version string) (json.RawMes
 	return json.Marshal(m)
 }
 
+func (s *Server) writeSkillMutationError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, skills.ErrSkillDigestRequired):
+		writeError(w, http.StatusBadRequest, "expected_digest is required")
+	case errors.Is(err, skills.ErrSkillDigestConflict), errors.Is(err, skills.ErrSkillNotMutable), errors.Is(err, skills.ErrSkillNotReflectOwned):
+		writeError(w, http.StatusConflict, err.Error())
+	default:
+		s.writeInternalError(w, err)
+	}
+}
+
 // doDeleteSkill is the shared body for DELETE .../skills/{id}.
-func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, sk skills.Skill, expectedDigest string) {
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
-		return
-	}
-	sk, err := s.findSkillByID(r.Context(), id)
-	if err != nil {
-		if isNotFound(err) {
-			writeError(w, http.StatusNotFound, "skill not found")
-		} else {
-			s.writeInternalError(w, err)
-		}
-		return
-	}
-	info := UserFromContext(r.Context())
-	if info == nil || info.UserID == "" {
-		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}
 	if sk.Scope != "user" && sk.Scope != "user_agent" && sk.Scope != "system" && sk.Scope != "system_agent" {
@@ -179,15 +176,27 @@ func (s *Server) doDeleteSkill(w http.ResponseWriter, r *http.Request, id string
 		writeError(w, http.StatusBadRequest, "skill scope is not lifecycle-managed")
 		return
 	}
-	if err := store.Delete(r.Context(), id, skills.ViewContext{UserID: info.UserID, AgentID: sk.AgentID}); err != nil {
-		s.writeInternalError(w, err)
+	deleter, ok := store.(skills.ManagedDeleter)
+	if !ok {
+		if err := store.Delete(r.Context(), sk.ID, skills.ViewContext{UserID: sk.UserID, AgentID: sk.AgentID}); err != nil {
+			s.writeInternalError(w, err)
+			return
+		}
+		writeNoContent(w)
+		return
+	}
+	if err := deleter.DeleteManagedSkill(r.Context(), skills.ManagedSkillDelete{
+		ID: sk.ID, UserID: sk.UserID, AgentID: sk.AgentID, Scope: sk.Scope,
+		ExpectedDigest: expectedDigest,
+	}); err != nil {
+		s.writeSkillMutationError(w, err)
 		return
 	}
 	writeNoContent(w)
 }
 
 // doDeleteSkillFile is the shared body of DELETE .../skills/{id}/file?path=...
-func (s *Server) doDeleteSkillFile(w http.ResponseWriter, r *http.Request, id, path string) {
+func (s *Server) doDeleteSkillFile(w http.ResponseWriter, r *http.Request, sk skills.Skill, path, expectedDigest string) {
 	store := s.skillStore()
 	if store == nil {
 		writeError(w, http.StatusServiceUnavailable, "skills store not available")
@@ -201,8 +210,23 @@ func (s *Server) doDeleteSkillFile(w http.ResponseWriter, r *http.Request, id, p
 		writeError(w, http.StatusBadRequest, "cannot delete SKILL.md")
 		return
 	}
-	if err := store.DeleteFile(r.Context(), id, path); err != nil {
-		s.writeInternalError(w, err)
+	deleter, ok := store.(skills.ManagedDeleter)
+	if !ok {
+		if err := store.DeleteFile(r.Context(), sk.ID, path); err != nil {
+			s.writeInternalError(w, err)
+			return
+		}
+		writeNoContent(w)
+		return
+	}
+	if _, err := deleter.DeleteManagedSkillFile(r.Context(), skills.ManagedSkillFileDelete{
+		ManagedSkillDelete: skills.ManagedSkillDelete{
+			ID: sk.ID, UserID: sk.UserID, AgentID: sk.AgentID, Scope: sk.Scope,
+			ExpectedDigest: expectedDigest,
+		},
+		Path: path,
+	}); err != nil {
+		s.writeSkillMutationError(w, err)
 		return
 	}
 	writeNoContent(w)

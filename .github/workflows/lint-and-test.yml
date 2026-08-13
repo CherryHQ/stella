@@ -138,7 +138,7 @@ jobs:
           retention-days: 7
 
   windows-bundle:
-    name: Windows Bundle
+    name: Windows compile-only portability
     runs-on: windows-latest
     steps:
       - name: Checkout code
@@ -153,5 +153,8 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Test native Windows bundle projection
+      - name: Test Windows resource bundle portability
         run: mise exec -- go test ./resources -run '^TestBuiltinBundleWindowsFilesystemModes$' -count=1
+
+      - name: Compile portable Home and Skill packages without running tests
+        run: mise exec -- go test ./internal/home/... ./internal/skills/... ./internal/reflect/... -run '^$'

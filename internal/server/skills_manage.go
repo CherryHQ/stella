@@ -3,7 +3,9 @@ package server
 import (
 	"encoding/base64"
 	"errors"
+	"io/fs"
 	"net/http"
+	"sort"
 	"unicode/utf8"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
@@ -123,6 +125,18 @@ func (s *Server) scopedSkillByID(w http.ResponseWriter, r *http.Request, id stri
 }
 
 func (s *Server) dbSkillView(r *http.Request, sk *skills.Skill) (skillView, error) {
+	if reader, ok := s.skillStore().(skills.IdentityReader); ok {
+		revision, err := reader.LoadCurrentRevision(r.Context(), *sk)
+		if err != nil {
+			return skillView{}, err
+		}
+		files := make([]string, 0, len(revision.Files))
+		for path := range revision.Files {
+			files = append(files, path)
+		}
+		sort.Strings(files)
+		return storedSkillToView(revision.Skill, files), nil
+	}
 	files, err := s.skillStore().ListFiles(r.Context(), sk.ID)
 	if err != nil {
 		return skillView{}, err
@@ -153,7 +167,13 @@ func (s *Server) ListScopedSkills(w http.ResponseWriter, r *http.Request, params
 	if !ok {
 		return
 	}
-	rows, err := s.skillStore().ListByScope(r.Context(), scope, userID, agentID)
+	var rows []skills.Skill
+	var err error
+	if reader, ok := s.skillStore().(skills.IdentityReader); ok {
+		rows, err = reader.ListIdentityByScope(r.Context(), scope, userID, agentID)
+	} else {
+		rows, err = s.skillStore().ListByScope(r.Context(), scope, userID, agentID)
+	}
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -168,6 +188,10 @@ func (s *Server) ListScopedSkills(w http.ResponseWriter, r *http.Request, params
 			return
 		}
 		view, err := s.dbSkillView(r, &rows[i])
+		if skills.IsCurrentSelectorMissing(err) {
+			s.warnMissingSkillSelector(rows[i], err)
+			continue
+		}
 		if err != nil {
 			s.writeInternalError(w, err)
 			return
@@ -332,12 +356,16 @@ func (s *Server) UpdateScopedSkill(w http.ResponseWriter, r *http.Request, id st
 }
 
 // DeleteScopedSkill handles DELETE /api/skills/{id}.
-func (s *Server) DeleteScopedSkill(w http.ResponseWriter, r *http.Request, id string) {
+func (s *Server) DeleteScopedSkill(w http.ResponseWriter, r *http.Request, id string, params apiserver.DeleteScopedSkillParams) {
 	sk := s.scopedSkillByID(w, r, id, authz.ActionDelete)
 	if sk == nil {
 		return
 	}
-	s.doDeleteSkill(w, r, sk.ID)
+	expectedDigest := ""
+	if params.ExpectedDigest != nil {
+		expectedDigest = *params.ExpectedDigest
+	}
+	s.doDeleteSkill(w, r, *sk, expectedDigest)
 }
 
 // GetScopedSkillFile handles GET /api/skills/{id}/file.
@@ -346,7 +374,19 @@ func (s *Server) GetScopedSkillFile(w http.ResponseWriter, r *http.Request, id s
 	if sk == nil {
 		return
 	}
-	content, err := s.skillStore().LoadFile(r.Context(), sk.ID, params.Path)
+	var content string
+	var err error
+	if reader, ok := s.skillStore().(skills.IdentityReader); ok {
+		revision, loadErr := reader.LoadCurrentRevision(r.Context(), *sk)
+		err = loadErr
+		if data, exists := revision.Files[params.Path]; err == nil && exists {
+			content = string(data)
+		} else if err == nil {
+			err = fs.ErrNotExist
+		}
+	} else {
+		content, err = s.skillStore().LoadFile(r.Context(), sk.ID, params.Path)
+	}
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -360,5 +400,9 @@ func (s *Server) DeleteScopedSkillFile(w http.ResponseWriter, r *http.Request, i
 	if sk == nil {
 		return
 	}
-	s.doDeleteSkillFile(w, r, sk.ID, params.Path)
+	expectedDigest := ""
+	if params.ExpectedDigest != nil {
+		expectedDigest = *params.ExpectedDigest
+	}
+	s.doDeleteSkillFile(w, r, *sk, params.Path, expectedDigest)
 }

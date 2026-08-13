@@ -122,6 +122,7 @@ type runnerBuilderConfig struct {
 	PromptSectionsBuilder    prompt.SectionsBuilder
 	SessionPluginViewBuilder SessionPluginViewBuilder
 	SkillStore               pkgplugins.SkillStore
+	SkillRevisionReader      skillstool.IdentityReader
 	SkillReadAuthorizer      skillstool.SkillReadAuthorizer
 	MCPToolProvider          MCPToolProvider
 	ToolOverrideFetcher      ToolOverrideFetcher
@@ -286,7 +287,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			skillPromptBuild.UserID, skillPromptBuild.UserRoot, skillPromptBuild.WorkspaceRoot = "", "", ""
 		}
 		skillCtx := skillstool.WithProjectSnapshot(ctx, projectSkillSnapshot)
-		if skillsSection, err := skillstool.BuildPromptSection(skillCtx, skillPromptBuild); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
+		if skillsSection, err := skillstool.BuildAuthorizedPromptSection(skillCtx, skillPromptBuild, cfg.SkillRevisionReader, cfg.SkillReadAuthorizer); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
 			sections = append(sections, skillsSection)
 		}
 		if params.GroupID == "" && cfg.VaultEnvLoader != nil {
@@ -412,6 +413,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			DisabledSkillRefs:    append([]string(nil), cfg.Snap.DisabledSkillRefs...),
 			PerRunTools:          perRunTools,
 			SkillStore:           cfg.SkillStore,
+			SkillRevisionReader:  cfg.SkillRevisionReader,
 			ProjectSkillSnapshot: projectSkillSnapshot,
 			SkillReadAuthorizer:  cfg.SkillReadAuthorizer,
 			PluginView:           pluginView,

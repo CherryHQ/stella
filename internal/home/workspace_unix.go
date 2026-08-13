@@ -12,6 +12,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+var fsyncWorkspaceFD = unix.Fsync
+
 func openWorkspaceRoot(path string) (int, error) {
 	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
@@ -58,6 +60,43 @@ func (m *WorkspaceManager) ensureChain(parts ...string) error {
 		}
 		if openErr != nil {
 			return fmt.Errorf("home: open typed root %q: %w", part, openErr)
+		}
+		_ = unix.Close(fd)
+		fd = next
+	}
+	return nil
+}
+
+// syncChain fences the complete typed-root ancestry using only descriptors
+// beneath the pinned STELLA_HOME. It deliberately re-fsyncs visible components
+// so a crash after mkdir but before its parent fence is repaired on resume.
+func (m *WorkspaceManager) syncChain(parts ...string) error {
+	if err := m.verifyPinnedRoot(); err != nil {
+		return err
+	}
+	fd, err := unix.Dup(m.rootFD)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = unix.Close(fd) }()
+	if err := fsyncWorkspaceFD(fd); err != nil {
+		return err
+	}
+	for _, part := range parts {
+		if err := validID(part); err != nil {
+			return err
+		}
+		next, err := unix.Openat(fd, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		if err != nil {
+			return fmt.Errorf("home: open typed root %q for sync: %w", part, err)
+		}
+		if err := fsyncWorkspaceFD(fd); err != nil {
+			_ = unix.Close(next)
+			return err
+		}
+		if err := fsyncWorkspaceFD(next); err != nil {
+			_ = unix.Close(next)
+			return err
 		}
 		_ = unix.Close(fd)
 		fd = next

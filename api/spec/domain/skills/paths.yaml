@@ -202,6 +202,12 @@ paths:
       tags: [skills]
       summary: Delete a scoped skill
       operationId: deleteScopedSkill
+      parameters:
+        - name: expected_digest
+          in: query
+          required: false
+          description: Required for mutable Home-backed Skills; validated after authorization.
+          schema: { type: string, pattern: "^[0-9a-f]{64}$" }
       responses:
         "204":
           description: deleted
@@ -251,6 +257,11 @@ paths:
           in: query
           required: true
           schema: { type: string }
+        - name: expected_digest
+          in: query
+          required: false
+          description: Required for mutable Home-backed Skills; validated after authorization.
+          schema: { type: string, pattern: "^[0-9a-f]{64}$" }
       responses:
         "204":
           description: deleted

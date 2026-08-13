@@ -20,22 +20,10 @@ type SkillView struct {
 	Isolated          bool
 	BuiltinSkillsHost string
 	BuiltinSkillsView string
-	// AgentSkillsHost/View map the admin-managed agent-bound (system_agent) skills
-	// dir. It lives in the user-independent agent definition tree (outside the two
-	// roots), so it gets its own fixed /opt/stella/agent-skills mount rather than
-	// mapping onto /workspace.
-	AgentSkillsHost string
-	AgentSkillsView string
-	// SystemDBSkillsHost/View map the DB-installed system skills dir
-	// (STELLA_HOME/.agents/db-skills), a sibling of the shipped built-ins. It gets
-	// its own fixed /opt/stella/db-skills mount rather than mixing into the
-	// built-in system skills view.
-	SystemDBSkillsHost string
-	SystemDBSkillsView string
-	UserDataHost       string
-	UserDataView       string
-	WorkspaceHost      string
-	WorkspaceView      string
+	UserDataHost      string
+	UserDataView      string
+	WorkspaceHost     string
+	WorkspaceView     string
 }
 
 // ResolveSkillView returns the skill-root remapping for cfg's active backend:
@@ -46,25 +34,17 @@ type SkillView struct {
 //     (/opt/stella, /user, /workspace), so host roots map identically.
 func ResolveSkillView(ctx context.Context, cfg Config, paths Paths) SkillView {
 	backend := resolveBackendName(ctx, cfg)
-	agentSkillsHost := agentSkillsDirHost(paths)
-	systemDBSkillsHost := systemDBSkillsDirHost(paths)
 	v := SkillView{
-		BuiltinSkillsHost:  paths.BuiltinBundle,
-		BuiltinSkillsView:  paths.BuiltinBundle,
-		AgentSkillsHost:    agentSkillsHost,
-		AgentSkillsView:    agentSkillsHost,
-		SystemDBSkillsHost: systemDBSkillsHost,
-		SystemDBSkillsView: systemDBSkillsHost,
-		UserDataHost:       paths.UserDataDir,
-		UserDataView:       paths.UserDataDir,
-		WorkspaceHost:      paths.WorkspaceRoot,
-		WorkspaceView:      paths.WorkspaceRoot,
+		BuiltinSkillsHost: paths.BuiltinBundle,
+		BuiltinSkillsView: paths.BuiltinBundle,
+		UserDataHost:      paths.UserDataDir,
+		UserDataView:      paths.UserDataDir,
+		WorkspaceHost:     paths.WorkspaceRoot,
+		WorkspaceView:     paths.WorkspaceRoot,
 	}
 	if isolatingBackend(backend) {
 		v.Isolated = true
 		v.BuiltinSkillsView = pkgsandbox.MountBuiltinSkills
-		v.AgentSkillsView = pkgsandbox.MountAgentSkills
-		v.SystemDBSkillsView = pkgsandbox.MountSystemDBSkills
 		v.UserDataView = pkgsandbox.MountUserData
 		v.WorkspaceView = pkgsandbox.MountWorkspace
 	}

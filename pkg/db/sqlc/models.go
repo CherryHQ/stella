@@ -1012,6 +1012,7 @@ type SkillChangelog struct {
 	VersionAfter  int64           `json:"version_after"`
 	Metadata      json.RawMessage `json:"metadata"`
 	CreatedAt     time.Time       `json:"created_at"`
+	ContentDigest pgtype.Text     `json:"content_digest"`
 }
 
 type SkillFile struct {
@@ -1020,13 +1021,29 @@ type SkillFile struct {
 	Content []byte `json:"content"`
 }
 
+type SkillHomeMigration struct {
+	ID                       string          `json:"id"`
+	State                    string          `json:"state"`
+	SourceSkillCount         int64           `json:"source_skill_count"`
+	SourceFileCount          int64           `json:"source_file_count"`
+	SourceContentBytes       int64           `json:"source_content_bytes"`
+	SourceInventoryDigest    string          `json:"source_inventory_digest"`
+	Inventory                json.RawMessage `json:"inventory"`
+	WritersStoppedAttestedAt time.Time       `json:"writers_stopped_attested_at"`
+	BackupVerifiedAttestedAt time.Time       `json:"backup_verified_attested_at"`
+	CompletedAt              time.Time       `json:"completed_at"`
+	CreatedAt                time.Time       `json:"created_at"`
+	UpdatedAt                time.Time       `json:"updated_at"`
+}
+
 type SkillUsage struct {
-	SkillID    string    `json:"skill_id"`
-	UserID     string    `json:"user_id"`
-	AgentID    string    `json:"agent_id"`
-	UseCount   int64     `json:"use_count"`
-	LastUsedAt time.Time `json:"last_used_at"`
-	CreatedAt  time.Time `json:"created_at"`
+	SkillID       string      `json:"skill_id"`
+	UserID        string      `json:"user_id"`
+	AgentID       string      `json:"agent_id"`
+	UseCount      int64       `json:"use_count"`
+	LastUsedAt    time.Time   `json:"last_used_at"`
+	CreatedAt     time.Time   `json:"created_at"`
+	ContentDigest pgtype.Text `json:"content_digest"`
 }
 
 type ToolOverride struct {

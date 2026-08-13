@@ -32,12 +32,6 @@ func runnerFilesystemPolicy(paths Paths, cfg Config) pkgsandbox.FilesystemPolicy
 	if paths.BuiltinBundle != "" {
 		mounts = append(mounts, pkgsandbox.Mount{HostPath: paths.BuiltinBundle, SandboxPath: pkgsandbox.MountBuiltinSkills, Access: pkgsandbox.MountReadOnly})
 	}
-	if agentSkills := agentSkillsDirHost(paths); agentSkills != "" {
-		mounts = append(mounts, pkgsandbox.Mount{HostPath: agentSkills, SandboxPath: pkgsandbox.MountAgentSkills, Access: pkgsandbox.MountReadOnly})
-	}
-	if systemSkills := systemDBSkillsDirHost(paths); systemSkills != "" {
-		mounts = append(mounts, pkgsandbox.Mount{HostPath: systemSkills, SandboxPath: pkgsandbox.MountSystemDBSkills, Access: pkgsandbox.MountReadOnly})
-	}
 	if miseDir := miseUserDirHost(paths, cfg); miseDir != "" {
 		mounts = append(mounts, pkgsandbox.Mount{
 			HostPath:    miseDir,
@@ -57,28 +51,6 @@ func remapStellaHomePolicyPath(hostPath, stellaHome string) string {
 		return path.Join(pkgsandbox.MountStellaHome, rel)
 	}
 	return hostPath
-}
-
-// systemDBSkillsDirHost returns the host path of the DB-installed system-scope
-// skills dir, STELLA_HOME/.agents/db-skills (a sibling of the shipped built-ins).
-// Isolating backends mount it read-only at /opt/stella/db-skills.
-func systemDBSkillsDirHost(paths Paths) string {
-	if paths.StellaHome == "" {
-		return ""
-	}
-	return filepath.Join(paths.StellaHome, ".agents", "db-skills")
-}
-
-// agentSkillsDirHost returns the host path of the admin-managed, agent-bound
-// (system_agent scope) skills dir, AgentRoot/.agents/skills. Isolating backends
-// mount it read-only at /opt/stella/agent-skills so those skills stay loadable
-// without leaking the host path. Empty when the session has no agent definition
-// root.
-func agentSkillsDirHost(paths Paths) string {
-	if paths.AgentRoot == "" {
-		return ""
-	}
-	return filepath.Join(paths.AgentRoot, ".agents", "skills")
 }
 
 // userDataDirHost returns the host path of the shared user-data root mounted as

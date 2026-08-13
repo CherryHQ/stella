@@ -237,7 +237,10 @@ export function SkillsPage({ scopeBand }: { scopeBand: ScopeBand }) {
       try {
         await updateScopedSkill({
           path: { id: skill.id },
-          body: { disable_model_invocation: !skill.disable_model_invocation },
+          body: {
+            expected_digest: skill.content_digest,
+            disable_model_invocation: !skill.disable_model_invocation,
+          },
           throwOnError: true,
         });
         await reloadScope(
@@ -254,7 +257,11 @@ export function SkillsPage({ scopeBand }: { scopeBand: ScopeBand }) {
   const deleteSkill = useCallback(
     async (skill: Skill) => {
       try {
-        await deleteScopedSkillRequest({ path: { id: skill.id }, throwOnError: true });
+        await deleteScopedSkillRequest({
+          path: { id: skill.id },
+          query: { expected_digest: skill.content_digest! },
+          throwOnError: true,
+        });
         showToast(t("skills.deleted"));
         if (detailSkill?.id === skill.id) setDetailSkill(null);
         await reloadScope(

@@ -8,28 +8,28 @@ This page classifies every directory and tells you the volume and backup treatme
 
 ## Classification at a glance
 
-| Path under `$STELLA_HOME`                                                                       | Holds                                                 | Classification | Kubernetes / ephemeral-disk treatment                                             |
-| ----------------------------------------------------------------------------------------------- | ----------------------------------------------------- | -------------- | --------------------------------------------------------------------------------- |
-| `postgres/`                                                                                     | Embedded PostgreSQL cluster — the source of truth     | Durable        | Persistent volume **and** back it up. Absent when you set `STELLA_DATABASE_URL`.  |
-| `users/{id}/data/`                                                                              | User Principal Home: user data and uploads            | Durable        | Persistent POSIX storage; one replica uses local `$STELLA_HOME`.                  |
-| `users/group-{id}/data/`                                                                        | Group Principal Home: group data and uploads          | Durable        | Same as per-user Principal data.                                                  |
-| `users/{principal}/agents/{id}/`                                                                | Per-principal Agent Home: workspace and project files | Durable        | Persistent volume **and** pin to a single replica. Not mirrored anywhere.         |
-| `library/`                                                                                      | Legacy article mirror (being drained into PostgreSQL) | Legacy         | Keep on a volume until the backfill reports zero missing, then archive or delete. |
-| `bundles/{revision}/`                                                                           | Exact release-provided builtin Skill bundle           | Derived cache  | Reinstalled from the matching binary; do not modify it.                           |
-| `.agents/skills/`                                                                               | Legacy Skill inventory                                | Migration gate | Preserve custom roots until they are imported or safely removed.                  |
-| `.agents/db-skills/`, `agents/{agent-id}/.agents/skills/`                                       | Narrow system and system-Agent Skill roots            | Derived cache  | PostgreSQL-derived, re-materialized on load; ephemeral disk is fine.              |
-| `users/{principal}/data/.agents/skills/`, `users/{principal}/agents/{agent-id}/.agents/skills/` | Principal and Agent mutable Skill mirrors             | Derived cache  | PostgreSQL-derived, re-materialized on load; ephemeral disk is fine.              |
-| `bin/`                                                                                          | Embedded tools and the `stella` CLI                   | Derived cache  | Ephemeral disk is fine. Re-extracted at startup.                                  |
-| `.mise-tools/`, `users/{id}/.mise-tools/`                                                       | Toolchains for the sandbox                            | Derived cache  | Ephemeral disk is fine. Re-installed on demand.                                   |
-| `pg-runtime/`                                                                                   | Downloaded and extracted embedded-PostgreSQL runtime  | Derived cache  | Ephemeral disk is fine. Re-download with `stellad postgres download`.             |
-| `users/{id}/data/.cache/`                                                                       | Per-user tool cache                                   | Derived cache  | Ephemeral disk is fine.                                                           |
-| `cache/sandbox-tmp/`                                                                            | Docker sandbox temporary directories                  | Scratch        | Ephemeral disk is fine; stale directories are removed at startup.                 |
-| `runner-scratch/runner-*`                                                                       | Disposable workspace for user-less runs               | Scratch        | Never Home authority; clean leftovers only while Stella is stopped or fenced.     |
-| `dumps/`                                                                                        | Diagnostic dumps written on signal                    | Scratch        | Ephemeral disk is fine. Diagnostic only.                                          |
+| Path under `$STELLA_HOME`                                                             | Holds                                                 | Classification | Kubernetes / ephemeral-disk treatment                                                  |
+| ------------------------------------------------------------------------------------- | ----------------------------------------------------- | -------------- | -------------------------------------------------------------------------------------- |
+| `postgres/`                                                                           | Embedded PostgreSQL cluster — the source of truth     | Durable        | Persistent volume **and** back it up. Absent when you set `STELLA_DATABASE_URL`.       |
+| `users/{id}/data/`                                                                    | User Principal Home: user data and uploads            | Durable        | Persistent POSIX storage; one replica uses local `$STELLA_HOME`.                       |
+| `users/group-{id}/data/`                                                              | Group Principal Home: group data and uploads          | Durable        | Same as per-user Principal data.                                                       |
+| `users/{principal}/agents/{id}/`                                                      | Per-principal Agent Home: workspace and project files | Durable        | Persistent volume **and** pin to a single replica. Not mirrored anywhere.              |
+| `library/`                                                                            | Legacy article mirror (being drained into PostgreSQL) | Legacy         | Keep on a volume until the backfill reports zero missing, then archive or delete.      |
+| `bundles/{revision}/`                                                                 | Exact release-provided builtin Skill bundle           | Derived cache  | Reinstalled from the matching binary; do not modify it.                                |
+| `.agents/skills/`                                                                     | Legacy Skill inventory                                | Migration gate | Preserve custom roots until they are imported or safely removed.                       |
+| `.agents/db-skills/`, `agents/{agent-id}/.agents/skills/`                             | Mutable system and system-Agent Skill authority       | Durable        | Persistent POSIX storage **and** backup; never expose the complete roots to a sandbox. |
+| `users/{user-id}/.agents/skills/`, `users/{user-id}/.agents/agent-skills/{agent-id}/` | Mutable user and user-Agent Skill authority           | Durable        | Persistent POSIX storage **and** backup; these bytes are not mirrored to PostgreSQL.   |
+| `bin/`                                                                                | Embedded tools and the `stella` CLI                   | Derived cache  | Ephemeral disk is fine. Re-extracted at startup.                                       |
+| `.mise-tools/`, `users/{id}/.mise-tools/`                                             | Toolchains for the sandbox                            | Derived cache  | Ephemeral disk is fine. Re-installed on demand.                                        |
+| `pg-runtime/`                                                                         | Downloaded and extracted embedded-PostgreSQL runtime  | Derived cache  | Ephemeral disk is fine. Re-download with `stellad postgres download`.                  |
+| `users/{id}/data/.cache/`                                                             | Per-user tool cache                                   | Derived cache  | Ephemeral disk is fine.                                                                |
+| `cache/sandbox-tmp/`                                                                  | Docker sandbox temporary directories                  | Scratch        | Ephemeral disk is fine; stale directories are removed at startup.                      |
+| `runner-scratch/runner-*`                                                             | Disposable workspace for user-less runs               | Scratch        | Never Home authority; clean leftovers only while Stella is stopped or fenced.          |
+| `dumps/`                                                                              | Diagnostic dumps written on signal                    | Scratch        | Ephemeral disk is fine. Diagnostic only.                                               |
 
 ## PostgreSQL is the source of truth (durable)
 
-PostgreSQL holds nearly all state: configuration, secrets metadata, message history and summaries, mutable Skill records, Recally articles and their bodies, the fetched-models cache, goals, schedules, and the scheduler queue. Preserve it together with durable project Skill data; neither can be reconstructed.
+PostgreSQL holds nearly all state: configuration, secrets metadata, message history and summaries, Skill identity and policy records, Recally articles and their bodies, the fetched-models cache, goals, schedules, and the scheduler queue. Mutable Skill current-state metadata and file bytes are an exception: they live in typed Home roots. Preserve PostgreSQL together with durable Home and project Skill data; none can be reconstructed from the others.
 
 Phase 1 also records typed Home identity and lifecycle metadata in PostgreSQL: user and group Principal Homes, per-principal Agent Homes, and the narrow system and system-Agent Skill roots. That stable metadata does **not** make Home file bytes recoverable. Back up PostgreSQL together with every durable Principal Home and Agent Home storage location.
 
@@ -62,11 +62,32 @@ An orphaned global `agents/<agent-id>` entry reserves that Agent ID; any file, d
 
 `library/` is a leftover from when Recally article bodies were stored as files on disk. Bodies now live in PostgreSQL, and the only thing that still reads these files is a startup job that backfills any file-only bodies into the database — article reads serve exclusively from PostgreSQL and never fall back to disk. Nothing writes new files here. Keep the directory on a volume until a backfill run logs zero missing bodies; after that the files are inert legacy data and are safe to archive or delete.
 
-## Skills and derived cache
+## Skills
 
 Builtin Skills are the exact release bundle at `bundles/{revision}/`. Native `local` and `none` execution installs that bundle; isolating execution reads it at `/opt/stella/skills/builtin`. The `/opt` path is an execution coordinate, not a second content authority.
 
-Project Skills are ordinary files in durable Agent/project working trees. PostgreSQL is the authority for mutable `system`, `system_agent`, `user`, and `user_agent` records; `.agents/db-skills/`, `agents/{agent-id}/.agents/skills/`, `users/{principal}/data/.agents/skills/`, and `users/{principal}/agents/{agent-id}/.agents/skills/` are derived mirrors re-materialized on load. Here, `{principal}` is a user ID or `group-{id}`. Phase 1 registers typed Home identities but does not cut over mutable Skill content authority.
+Project Skills remain ordinary files in durable Agent/project working trees. Mutable `system`, `system_agent`, `user`, and `user_agent` Skills use immutable digest revisions in these typed Home roots:
+
+- `system`: `.agents/db-skills/`
+- `system_agent`: `agents/{agent-id}/.agents/skills/`
+- `user`: `users/{user-id}/.agents/skills/`
+- `user_agent`: `users/{user-id}/.agents/agent-skills/{agent-id}/`
+
+Each logical Skill has an atomic current selector. PostgreSQL retains identity, ownership, policy, usage, provenance, and migration evidence, but not mutable current-state bytes after cutover. Back up both PostgreSQL and all four typed Home roots.
+
+The model does not receive these authority roots. After the current actor and Agent policy authorize a load, Stella copies that one exact current revision into the active sandbox Session's temporary directory. That disposable execution projection contains only the selected revision and is removed with Session temporary data; it is not a backup or second authority.
+
+### PostgreSQL-to-Home Skill migration
+
+An upgrade with existing PostgreSQL Skill files stops at startup rather than rebuilding or discarding them. Stop every process that can write Skills, verify a restorable PostgreSQL backup and a backup of `$STELLA_HOME`, then consult `stellad storage migrate-skills --help`. The dedicated migration is one-way and Linux/macOS only. It inventories the legacy rows twice, publishes and verifies exact Home revisions, then scrubs the legacy file bytes and records completion in one database transaction.
+
+The command is a dry-run unless you pass `--apply` with both required attestations. A dry-run does not publish Home revisions or selectors, write Skill migration evidence or completion, or scrub legacy Skill bytes. It is **not** process-wide or database-wide read-only: loading configuration can bootstrap the embedded PostgreSQL runtime, and opening the database can apply ordinary schema migrations.
+
+### Retained revision capacity
+
+Immutable revisions are retained indefinitely. Stella currently has no automatic pruning, per-Skill quota, deployment quota, or supported manual-pruning procedure. One complete revision is bounded to 512 files and 32 MiB. Catalog and revision reads are deliberately bounded, so a limit error means usage may be larger than Stella inspected; it is not evidence that storage is healthy.
+
+Independently monitor free bytes and inodes on the filesystem that carries `$STELLA_HOME`. Do not delete retained revision directories directly: an older exact digest can still be required to reconcile an uncertain compare-and-swap retry or preserve Reflect provenance. Restore and repair authority only while Stella is stopped and from a verified backup.
 
 Before upgrade, use the old working binary to import each custom Skill root under legacy top-level `.agents/skills/` as a global (`system`) Skill through **Settings → Skills** on older releases or **Admin Console → Deployment resources → Global Skills** on newer releases. Back up, verify, and remove other residual paths. New startup lists every blocking path and stops without changing or deleting anything. Paths owned by the current release manifest are inert even when contents or modes are stale; every other Skill root or residual path blocks.
 
@@ -75,7 +96,7 @@ Before downgrade, re-enable every disabled Skill and clear any dangling disabled
 These directories are rebuilt automatically and can live on ephemeral disk:
 
 - **Builtin bundle** (`bundles/{revision}/`): installed from the running binary's immutable release bundle.
-- **PostgreSQL-derived Skill mirrors** (`.agents/db-skills/`, `agents/{agent-id}/.agents/skills/`, `users/{principal}/data/.agents/skills/`, and `users/{principal}/agents/{agent-id}/.agents/skills/`): re-materialized on load.
+- **Session Skill projections**: authorized exact revisions copied into one active Session's temporary directory and removed with that temporary data. The typed Home roots listed above are durable authority, not cache.
 - **`bin/`**: embedded tools and the `stella` CLI, re-extracted at startup.
 - **Toolchains** (`.mise-tools/`, per-user `.mise-tools/`): re-installed on demand.
 - **`pg-runtime/`**: the downloaded embedded-PostgreSQL runtime; re-download with `stellad postgres download`. Each runtime version installs into its own directory and older ones are never removed automatically — a few hundred megabytes each. Run `stellad postgres prune` to see what is unused, and again with `--force` to remove it.

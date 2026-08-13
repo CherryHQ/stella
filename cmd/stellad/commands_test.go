@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	ucli "github.com/urfave/cli/v2"
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
@@ -276,5 +279,90 @@ func TestRunHelpShort(t *testing.T) {
 	err := app.Run([]string{"stellad", "-h"})
 	if err != nil {
 		t.Fatalf("run -h: %v", err)
+	}
+}
+
+func TestStorageMigrateSkillsCommandDocumentsDryRunBoundary(t *testing.T) {
+	command := storageCommand()
+	if command.Name != "storage" || len(command.Subcommands) != 1 || command.Subcommands[0].Name != "migrate-skills" {
+		t.Fatalf("unexpected command shape: %#v", command)
+	}
+	flags := map[string]bool{}
+	for _, commandFlag := range command.Subcommands[0].Flags {
+		for _, name := range commandFlag.Names() {
+			flags[name] = true
+		}
+	}
+	for _, name := range []string{"apply", "confirm-writers-stopped", "confirm-backup-verified", "json"} {
+		if !flags[name] {
+			t.Errorf("missing --%s", name)
+		}
+	}
+	description := command.Subcommands[0].Description
+	for _, boundary := range []string{"does not publish Skill Home revisions or selectors", "write migration completion evidence", "scrub PostgreSQL Skill bytes", "not process-wide or database-wide read-only", "embedded PostgreSQL runtime", "apply ordinary schema migrations"} {
+		if !strings.Contains(description, boundary) {
+			t.Errorf("migrate-skills help omits boundary %q: %q", boundary, description)
+		}
+	}
+}
+
+func TestMigrateSkillsApplyAttestationsFailBeforeSetup(t *testing.T) {
+	for _, present := range []string{"", "confirm-writers-stopped", "confirm-backup-verified"} {
+		t.Run(present, func(t *testing.T) {
+			set := flag.NewFlagSet("migrate-skills", flag.ContinueOnError)
+			set.Bool("apply", true, "")
+			set.Bool("confirm-writers-stopped", false, "")
+			set.Bool("confirm-backup-verified", false, "")
+			if present != "" {
+				if err := set.Set(present, "true"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ctx := ucli.NewContext(ucli.NewApp(), set, nil)
+			setupCalled := false
+			err := runMigrateSkillsWithSetup(ctx, func(*ucli.Context) error {
+				setupCalled = true
+				return nil
+			})
+			if err == nil || !strings.Contains(err.Error(), "are required with --apply") {
+				t.Fatalf("apply boundary = %v", err)
+			}
+			if setupCalled {
+				t.Fatal("configuration/database setup ran before apply attestations")
+			}
+		})
+	}
+}
+
+func TestMigrateSkillsUnsupportedPlatformFailsBeforeSetup(t *testing.T) {
+	original := migrateSkillsGOOS
+	migrateSkillsGOOS = "freebsd"
+	t.Cleanup(func() { migrateSkillsGOOS = original })
+	c := ucli.NewContext(ucli.NewApp(), flag.NewFlagSet("migrate-skills", flag.ContinueOnError), nil)
+	setupCalled := false
+	err := runMigrateSkillsWithSetup(c, func(*ucli.Context) error {
+		setupCalled = true
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "supported only on Linux and macOS") {
+		t.Fatalf("unsupported migrate-skills error = %v", err)
+	}
+	if setupCalled {
+		t.Fatal("configuration/database setup ran on unsupported platform")
+	}
+}
+
+func TestNativeServerUnsupportedPlatformFailsBeforeConfiguration(t *testing.T) {
+	original := nativeServerGOOS
+	nativeServerGOOS = "windows"
+	t.Cleanup(func() { nativeServerGOOS = original })
+	c := ucli.NewContext(ucli.NewApp(), flag.NewFlagSet("server", flag.ContinueOnError), nil)
+	err := serverAction(c)
+	if err == nil || !strings.Contains(err.Error(), "supported only on Linux and macOS") {
+		t.Fatalf("unsupported server error = %v", err)
+	}
+	upgradeCtx := ucli.NewContext(ucli.NewApp(), flag.NewFlagSet("upgrade", flag.ContinueOnError), nil)
+	if err := upgradeCommand().Action(upgradeCtx); err == nil || !strings.Contains(err.Error(), "supported only on Linux and macOS") {
+		t.Fatalf("unsupported upgrade error = %v", err)
 	}
 }

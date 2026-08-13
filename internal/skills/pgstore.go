@@ -27,6 +27,18 @@ func New(db *pgxpool.Pool) *PGStore {
 	return &PGStore{db: db, q: sqlc.New(db)}
 }
 
+func (s *PGStore) GetIdentity(ctx context.Context, id string) (*Skill, error) {
+	row, err := s.q.GetSkillByID(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	skill := mapRow(row)
+	return &skill, nil
+}
+
 func viewSQLParams(vc ViewContext) (pgtype.Text, pgtype.Text) {
 	return pgtype.Text{String: vc.AgentID, Valid: vc.AgentID != ""}, pgtype.Text{String: vc.UserID, Valid: vc.UserID != ""}
 }
@@ -443,6 +455,7 @@ func mapChangelogRow(r sqlc.SkillChangelog) SkillChangelog {
 		Action:        r.Action,
 		VersionBefore: r.VersionBefore.Int64,
 		VersionAfter:  r.VersionAfter,
+		ContentDigest: r.ContentDigest.String,
 		Metadata:      r.Metadata,
 		CreatedAt:     r.CreatedAt.UTC(),
 	}

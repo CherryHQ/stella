@@ -124,6 +124,7 @@ type usageCuratorSkillCandidate struct {
 	UserID               string
 	AgentID              string
 	Version              int64
+	ContentDigest        string
 	UseCount             int64
 	LastUsedAt           time.Time
 	PairLatestActivityAt time.Time
@@ -379,6 +380,7 @@ func deleteCuratorSkills(ctx context.Context, writer usageCuratorSkillWriter, au
 			UserID:                  candidate.UserID,
 			AgentID:                 candidate.AgentID,
 			ExpectedVersion:         candidate.Version,
+			ExpectedDigest:          candidate.ContentDigest,
 			ExpectedUsageLastUsedAt: candidate.LastUsedAt,
 		})
 		if errors.Is(err, skills.ErrSkillUsageChanged) {

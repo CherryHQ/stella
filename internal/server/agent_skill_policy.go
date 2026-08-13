@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/CherryHQ/stella/internal/agentskillpolicy"
+	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/resources"
 )
@@ -93,11 +94,47 @@ func (s *Server) policyRefExists(ctx context.Context, agentID, ref string) (bool
 		if s.skillStore() == nil {
 			return false, errors.New("skills store unavailable")
 		}
+		acc, code, msg := s.beginAgentSkillAccess(ctx, agentID)
+		if code != 0 {
+			return false, fmt.Errorf("authorize Agent Skill policy catalog: %s", msg)
+		}
 		agent := ""
 		if scope == "system_agent" {
 			agent = agentID
 		}
-		rows, err := s.skillStore().ListByScope(ctx, scope, "", agent)
+		var rows []skills.Skill
+		var err error
+		if reader, ok := s.skillStore().(skills.IdentityReader); ok {
+			rows, err = reader.ListIdentityByScope(ctx, scope, "", agent)
+			if err != nil {
+				return false, fmt.Errorf("list %s Skill identities: %w", scope, err)
+			}
+			for i := range rows {
+				if rows[i].Name != name {
+					continue
+				}
+				if authErr := acc.AuthorizeRead(ctx, rows[i]); authErr != nil {
+					if errors.Is(authErr, skillaccess.ErrNotFound) || errors.Is(authErr, skillaccess.ErrForbidden) {
+						continue
+					}
+					return false, authErr
+				}
+				revision, loadErr := reader.LoadCurrentRevision(ctx, rows[i])
+				if skills.IsCurrentSelectorMissing(loadErr) {
+					s.warnMissingSkillSelector(rows[i], loadErr)
+					continue
+				}
+				if loadErr != nil {
+					return false, loadErr
+				}
+				if revision.Skill.Name == name && revision.Skill.Status != skills.SkillStatusDeprecated {
+					return true, nil
+				}
+			}
+			return false, nil
+		} else {
+			rows, err = s.skillStore().ListByScope(ctx, scope, "", agent)
+		}
 		if err != nil {
 			return false, fmt.Errorf("list %s Skills: %w", scope, err)
 		}

@@ -93,11 +93,12 @@ type factProvenanceRelatedRecord struct {
 }
 
 type skillProvenanceRelatedRecord struct {
-	CandidateRef CandidateRef      `json:"candidate_ref"`
-	SkillID      string            `json:"skill_id"`
-	Version      int64             `json:"version"`
-	Relation     skillRelationKind `json:"relation"`
-	Reason       string            `json:"reason,omitempty"`
+	CandidateRef  CandidateRef      `json:"candidate_ref"`
+	SkillID       string            `json:"skill_id"`
+	Version       int64             `json:"version"`
+	ContentDigest string            `json:"content_digest"`
+	Relation      skillRelationKind `json:"relation"`
+	Reason        string            `json:"reason,omitempty"`
 }
 
 type factProvenanceReconciliation struct {
@@ -114,6 +115,7 @@ type skillProvenanceReconciliation struct {
 	CoveredCandidateRefs []CandidateRef `json:"covered_candidate_refs,omitempty"`
 	TargetSkillID        string         `json:"target_skill_id,omitempty"`
 	ExpectedSkillVersion int64          `json:"expected_skill_version,omitempty"`
+	ExpectedSkillDigest  string         `json:"expected_skill_digest,omitempty"`
 	Name                 string         `json:"name,omitempty"`
 	Description          string         `json:"description,omitempty"`
 	MainFileSHA256       string         `json:"main_file_sha256"`
@@ -239,6 +241,7 @@ func buildSkillOperationProvenance(input skillProvenanceInput, bundle skillRelat
 			CoveredCandidateRefs: append([]CandidateRef(nil), operation.CoveredCandidateRefs...),
 			TargetSkillID:        operation.TargetSkillID,
 			ExpectedSkillVersion: operation.ExpectedSkillVersion,
+			ExpectedSkillDigest:  operation.ExpectedSkillDigest,
 			Name:                 operation.Name,
 			Description:          operation.Description,
 			MainFileSHA256:       fmt.Sprintf("%x", contentHash),
@@ -380,11 +383,12 @@ func projectSkillProvenanceRelatedRecords(bundle skillRelatedBundle, selectedRef
 				return nil, fmt.Errorf("reflect provenance: related skill %q is missing from bundle", hint.SkillID)
 			}
 			out = append(out, skillProvenanceRelatedRecord{
-				CandidateRef: selection.CandidateRef,
-				SkillID:      hint.SkillID,
-				Version:      record.Skill.Version,
-				Relation:     hint.Relation,
-				Reason:       selection.Reason,
+				CandidateRef:  selection.CandidateRef,
+				SkillID:       hint.SkillID,
+				Version:       record.Skill.Version,
+				ContentDigest: record.Skill.ContentDigest,
+				Relation:      hint.Relation,
+				Reason:        selection.Reason,
 			})
 		}
 	}

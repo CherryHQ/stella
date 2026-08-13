@@ -51,6 +51,7 @@ type runnerConfig struct {
 	DisabledSkillRefs    []string
 	PerRunTools          []tools.Tool
 	SkillStore           pkgplugins.SkillStore
+	SkillRevisionReader  skillstool.IdentityReader
 	ProjectSkillSnapshot *skillstool.ProjectSnapshot
 	SkillReadAuthorizer  skillstool.SkillReadAuthorizer
 	PluginView           pkgplugins.SessionPluginView
@@ -285,10 +286,10 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	if cfg.SkillStore != nil {
 		stellaHome := paths.StellaHome
 		toolProjectRoot := paths.ProjectRoot
-		layout, view := skillRuntimeLayoutAndView(ctx, cfg, paths)
+		_, view := skillRuntimeLayoutAndView(ctx, cfg, paths)
 		registerNonCore(skillstool.NewTool(cfg.SkillStore, stellaHome, toolProjectRoot).
 			WithProjectSnapshot(cfg.ProjectSkillSnapshot).
-			WithSkillDiskLayout(layout).
+			WithManagedRevisions(cfg.SkillRevisionReader, session).
 			WithSkillDirView(view).
 			WithPluginVisibility(cfg.PluginView.RegisteredPluginIDs, cfg.PluginView.EnabledPluginIDs).
 			WithAgentSkillPolicy(cfg.DisabledSkillRefs).
@@ -352,8 +353,6 @@ func skillRuntimeLayoutAndView(ctx context.Context, cfg runnerConfig, paths sand
 	sv := sandbox.ResolveSkillView(ctx, cfg.Sandbox, paths)
 	view := skillstool.SkillDirView{
 		Isolated: sv.Isolated, BuiltinSkillsHost: sv.BuiltinSkillsHost, BuiltinSkillsView: sv.BuiltinSkillsView,
-		AgentSkillsHost: sv.AgentSkillsHost, AgentSkillsView: sv.AgentSkillsView,
-		SystemDBSkillsHost: sv.SystemDBSkillsHost, SystemDBSkillsView: sv.SystemDBSkillsView,
 		UserDataHost: sv.UserDataHost, UserDataView: sv.UserDataView,
 		WorkspaceHost: sv.WorkspaceHost, WorkspaceView: sv.WorkspaceView,
 	}

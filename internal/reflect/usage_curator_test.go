@@ -627,16 +627,16 @@ func TestSQLUsageCuratorStoreListsOnlyStaleReflectRecordsWithActivity(t *testing
 	}
 	if _, err := db.Exec(ctx, `
 		UPDATE skill_usage
-		SET last_used_at = $1, use_count = 2
+		SET last_used_at = $1, use_count = 2, content_digest = $3
 		WHERE skill_id = $2
-	`, now.Add(-25*24*time.Hour), staleSkill.ID); err != nil {
+	`, now.Add(-25*24*time.Hour), staleSkill.ID, testSkillContentDigest); err != nil {
 		t.Fatalf("seed stale skill usage: %v", err)
 	}
 	if _, err := db.Exec(ctx, `
 		UPDATE skill_usage
-		SET last_used_at = $1, use_count = 8
+		SET last_used_at = $1, use_count = 8, content_digest = $3
 		WHERE skill_id = $2
-	`, now.Add(-25*24*time.Hour), highUseSkill.ID); err != nil {
+	`, now.Add(-25*24*time.Hour), highUseSkill.ID, testSkillContentDigest); err != nil {
 		t.Fatalf("seed high-use skill usage: %v", err)
 	}
 

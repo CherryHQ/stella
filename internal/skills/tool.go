@@ -3,18 +3,23 @@ package skills
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -72,14 +77,14 @@ const runtimeUsageTouchTimeout = 500 * time.Millisecond
 type Tool struct {
 	svc             *Service
 	store           pkgplugins.SkillStore
+	revisions       IdentityReader
+	session         sandboxSession
 	stellaHome      string
 	projectRoot     string
 	projectSnapshot *ProjectSnapshot
 	actionsOnly     map[string]bool
-	// layout is the single authority for where a DB-backed skill's files live on
-	// disk, by scope; it must agree with the write side that materialized them.
-	layout SkillDiskLayout
-	view   SkillDirView
+	view            SkillDirView
+	projectionMu    sync.Mutex
 	// Plugin visibility is captured at runner construction so tool search and
 	// prompt search instructions use the same visible system-skill set.
 	registeredPluginIDs []string
@@ -112,6 +117,15 @@ type reflectSkillRuntimeUsageTracker interface {
 	TouchReflectSkillRuntimeUse(ctx context.Context, skillID string, userID string, agentID string) error
 }
 
+type reflectSkillRuntimeDigestTracker interface {
+	TouchReflectSkillRuntimeUseDigest(ctx context.Context, skillID string, userID string, agentID string, digest string) error
+}
+
+type sandboxSession interface {
+	Policy() pkgsandbox.Policy
+	ResolveWritePath(string) (string, error)
+}
+
 func NewTool(store pkgplugins.SkillStore, stellaHome, projectRoot string) *Tool {
 	return &Tool{
 		svc:         NewService(store, stellaHome),
@@ -121,10 +135,11 @@ func NewTool(store pkgplugins.SkillStore, stellaHome, projectRoot string) *Tool 
 	}
 }
 
-// WithSkillDiskLayout sets the runtime-cache roots for DB-backed Skills. The
-// zero value emits no directory for DB Skills.
-func (t *Tool) WithSkillDiskLayout(l SkillDiskLayout) *Tool {
-	t.layout = l
+// WithManagedRevisions binds the identity-first Home reader and the already
+// active sandbox Session used for one-turn execution projections.
+func (t *Tool) WithManagedRevisions(reader IdentityReader, session sandboxSession) *Tool {
+	t.revisions = reader
+	t.session = session
 	return t
 }
 
@@ -281,15 +296,6 @@ type SkillDirView struct {
 	// BuiltinSkillsHost/View map the exact immutable release bundle projection.
 	BuiltinSkillsHost string
 	BuiltinSkillsView string
-	// AgentSkillsHost/View map the admin-managed agent-bound (system_agent) skills
-	// dir, mounted at its own fixed path (/opt/stella/agent-skills) since it lives
-	// in the user-independent agent definition tree, outside the two roots.
-	AgentSkillsHost string
-	AgentSkillsView string
-	// SystemDBSkillsHost/View map the DB-installed system skills dir, mounted at
-	// /opt/stella/db-skills; release builtins map via BuiltinSkillsHost/View.
-	SystemDBSkillsHost string
-	SystemDBSkillsView string
 	// UserData and Workspace are full binds, so their whole root maps (this lets
 	// project skills under <workspace>/projects/<id>/.agents/skills map too).
 	UserDataHost  string
@@ -310,8 +316,6 @@ func (v SkillDirView) apply(hostDir string) string {
 		{v.WorkspaceHost, v.WorkspaceView},
 		{v.UserDataHost, v.UserDataView},
 		{v.BuiltinSkillsHost, v.BuiltinSkillsView},
-		{v.AgentSkillsHost, v.AgentSkillsView},
-		{v.SystemDBSkillsHost, v.SystemDBSkillsView},
 	} {
 		if m[0] == "" {
 			continue
@@ -503,6 +507,9 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 	projectRoot := projectRootFromContext(ctx, t.projectRoot)
 	vc := t.viewContext(ctx)
 
+	if t.revisions != nil {
+		return t.loadManagedOrImmutable(ctx, name, path, vc)
+	}
 	data, skillDir, resolved, err := t.svc.LoadFile(ctx, name, path, vc, projectRoot)
 	if err != nil {
 		return "", err
@@ -524,19 +531,6 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 		path = pkgplugins.SkillMainFile
 	}
 
-	// DB-backed Skill files are materialized only when loaded. PostgreSQL remains
-	// authoritative; the stable-ID directory is a derived runtime cache and is
-	// never used as a fallback when refresh fails.
-	if skillDir == "" {
-		if resolved != nil {
-			skillDir = t.layout.Dir(resolved.Scope, resolved.ID)
-			if skillDir != "" {
-				if err := t.materializeDBSkill(ctx, resolved.ID, skillDir); err != nil {
-					return "", fmt.Errorf("materialize DB skill %q: %w", resolved.Name, err)
-				}
-			}
-		}
-	}
 	// Remap the host directory to the path the agent sees inside the sandbox; an
 	// unmappable dir on an isolating backend is dropped rather than leaked.
 	if resolved == nil || resolved.Scope != "project" {
@@ -552,9 +546,347 @@ func (t *Tool) load(ctx context.Context, args map[string]any) (string, error) {
 	return out.String(), nil
 }
 
+func internalSkillToPlugin(skill Skill) pkgplugins.Skill {
+	return pkgplugins.Skill{
+		ID: skill.ID, Scope: skill.Scope, UserID: skill.UserID, AgentID: skill.AgentID,
+		Name: skill.Name, Description: skill.Description, Status: skill.Status,
+		DisableModelInvocation: skill.DisableModelInvocation, Metadata: skill.Metadata,
+		CreatedAt: skill.CreatedAt, UpdatedAt: skill.UpdatedAt, Version: skill.Version, ContentDigest: skill.ContentDigest,
+	}
+}
+
+func resolvedIdentity(rs ResolvedSkill) Skill {
+	return Skill{ID: rs.ID, Scope: rs.Scope, UserID: rs.UserID, AgentID: rs.AgentID, Name: rs.Name}
+}
+
+func (t *Tool) identityMerged(ctx context.Context, vc pkgplugins.SkillViewContext) ([]ResolvedSkill, error) {
+	rows, err := t.revisions.ListIdentityVisible(ctx, ViewContext{UserID: vc.UserID, AgentID: vc.AgentID})
+	if err != nil {
+		return nil, err
+	}
+	db := make([]pkgplugins.Skill, len(rows))
+	for i := range rows {
+		db[i] = internalSkillToPlugin(rows[i])
+	}
+	merged := t.svc.ListMergedWithDBSnapshot(db, t.projectSnapshot)
+	return filterDisabled(merged, vc.DisabledSkillRefs), nil
+}
+
+func (t *Tool) hydrateAuthorized(ctx context.Context, merged []ResolvedSkill) ([]ResolvedSkill, error) {
+	authorized, err := t.authorizeReadable(ctx, merged)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ResolvedSkill, 0, len(authorized))
+	for _, rs := range authorized {
+		if !isDBSkill(rs) {
+			out = append(out, rs)
+			continue
+		}
+		revision, err := t.revisions.LoadCurrentRevision(ctx, resolvedIdentity(rs))
+		if errors.Is(err, errCurrentSkillSelectorMissing) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !sameSkillIdentity(resolvedIdentity(rs), revision.Skill) {
+			return nil, ErrInvalidSkillRevision
+		}
+		if !invocationVisible(revision.Skill) {
+			continue
+		}
+		rs.Skill = internalSkillToPlugin(revision.Skill)
+		out = append(out, rs)
+	}
+	return out, nil
+}
+
+func (t *Tool) loadManagedOrImmutable(ctx context.Context, name, filename string, vc pkgplugins.SkillViewContext) (string, error) {
+	if filename == "" {
+		filename = MainFile
+	}
+	if err := validateSkillPath(filename); err != nil {
+		return "", err
+	}
+	merged, err := t.identityMerged(ctx, vc)
+	if err != nil {
+		return "", fmt.Errorf("resolve skill %q: %w", name, err)
+	}
+	var resolved *ResolvedSkill
+	for i := range merged {
+		if merged[i].Name == name {
+			resolved = &merged[i]
+			break
+		}
+	}
+	if resolved == nil {
+		return "", fmt.Errorf("skill %q not found", name)
+	}
+	if err := t.authorizeLoadable(ctx, resolved); err != nil {
+		return "", err
+	}
+
+	var data, skillDir string
+	if !isDBSkill(*resolved) {
+		data, err = resolved.LoadImmutableFile(filename)
+		skillDir = resolved.Dir
+		if err != nil {
+			return "", fmt.Errorf("load %s skill %q file %q: %w", resolved.Scope, name, filename, err)
+		}
+		if resolved.Scope != "project" {
+			skillDir = t.view.apply(skillDir)
+		}
+	} else {
+		revision, readErr := t.revisions.LoadCurrentRevision(ctx, resolvedIdentity(*resolved))
+		if readErr != nil {
+			return "", fmt.Errorf("load skill %q: %w", name, readErr)
+		}
+		if !sameSkillIdentity(resolvedIdentity(*resolved), revision.Skill) || !validSkillDigest(revision.Skill.ContentDigest) {
+			return "", ErrInvalidSkillRevision
+		}
+		if !invocationVisible(revision.Skill) {
+			return "", errSkillNotFound
+		}
+		dataBytes, ok := revision.Files[filename]
+		if !ok {
+			return "", fmt.Errorf("load skill %q file %q: %w", name, filename, fs.ErrNotExist)
+		}
+		resolved.Skill = internalSkillToPlugin(revision.Skill)
+		if err := t.touchReflectSkillRuntimeUse(ctx, resolved, vc); err != nil {
+			return "", err
+		}
+		skillDir, err = t.projectRevision(revision)
+		if err != nil {
+			return "", fmt.Errorf("project skill %q: %w", name, err)
+		}
+		data = string(dataBytes)
+	}
+
+	var out strings.Builder
+	if skillDir != "" {
+		fmt.Fprintf(&out, "<skill_dir>%s</skill_dir>\n", skillDir)
+	}
+	fmt.Fprintf(&out, "<skill_content name=%q path=%q>\n%s\n</skill_content>", name, filename, data)
+	return out.String(), nil
+}
+
+func verifyProjectedRevision(root *os.Root, directory string, files []revisionFile) error {
+	type expectedEntry struct {
+		directory bool
+		file      *revisionFile
+	}
+	expected := map[string]map[string]expectedEntry{".": {}}
+	for index := range files {
+		file := &files[index]
+		parts := strings.Split(file.Path, "/")
+		parent := "."
+		for partIndex, part := range parts {
+			if partIndex == len(parts)-1 {
+				expected[parent][part] = expectedEntry{file: file}
+				continue
+			}
+			expected[parent][part] = expectedEntry{directory: true}
+			parent = filepath.Join(parent, part)
+			if expected[parent] == nil {
+				expected[parent] = map[string]expectedEntry{}
+			}
+		}
+	}
+
+	info, err := root.Lstat(directory)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&fs.ModeSymlink != 0 {
+		return fmt.Errorf("%w: Session projection root is not a directory", ErrInvalidSkillRevision)
+	}
+	for relative, wanted := range expected {
+		name := directory
+		if relative != "." {
+			name = filepath.Join(directory, relative)
+		}
+		dir, openErr := root.Open(name)
+		if openErr != nil {
+			return errors.Join(ErrInvalidSkillRevision, openErr)
+		}
+		entries, readErr := dir.ReadDir(len(wanted) + 1)
+		closeErr := dir.Close()
+		if readErr != nil && !errors.Is(readErr, io.EOF) || closeErr != nil {
+			return errors.Join(ErrInvalidSkillRevision, readErr, closeErr)
+		}
+		if len(entries) != len(wanted) {
+			return fmt.Errorf("%w: Session projection directory %q has unexpected entries", ErrInvalidSkillRevision, relative)
+		}
+		for _, entry := range entries {
+			want, ok := wanted[entry.Name()]
+			if !ok {
+				return fmt.Errorf("%w: Session projection contains unexpected entry %q", ErrInvalidSkillRevision, filepath.Join(relative, entry.Name()))
+			}
+			entryName := filepath.Join(name, entry.Name())
+			entryInfo, statErr := root.Lstat(entryName)
+			if statErr != nil {
+				return errors.Join(ErrInvalidSkillRevision, statErr)
+			}
+			if want.directory {
+				if !entryInfo.IsDir() || entryInfo.Mode()&fs.ModeSymlink != 0 {
+					return fmt.Errorf("%w: Session projection entry %q is not a directory", ErrInvalidSkillRevision, filepath.Join(relative, entry.Name()))
+				}
+				continue
+			}
+			if want.file == nil || !entryInfo.Mode().IsRegular() || entryInfo.Mode().Perm() != want.file.Mode.Perm() || entryInfo.Size() != int64(len(want.file.Content)) {
+				return fmt.Errorf("%w: Session projection file metadata differs for %q", ErrInvalidSkillRevision, want.file.Path)
+			}
+			in, openErr := root.Open(entryName)
+			if openErr != nil {
+				return errors.Join(ErrInvalidSkillRevision, openErr)
+			}
+			content, readErr := io.ReadAll(io.LimitReader(in, int64(len(want.file.Content))+1))
+			closeErr := in.Close()
+			if readErr != nil || closeErr != nil || !bytes.Equal(content, want.file.Content) {
+				return errors.Join(ErrInvalidSkillRevision, readErr, closeErr)
+			}
+		}
+	}
+	return nil
+}
+
+func (t *Tool) projectRevision(revision ManagedRevision) (string, error) {
+	// One Tool belongs to one active Session. Serialize publication so concurrent
+	// loads cannot replace a digest path while another publication is deciding
+	// its exact Session view.
+	t.projectionMu.Lock()
+	defer t.projectionMu.Unlock()
+
+	if t.session == nil {
+		return "", errors.New("active sandbox Session is required")
+	}
+	if !validInventoryComponent(revision.Skill.Scope) || !validInventoryComponent(revision.Skill.ID) || !validSkillDigest(revision.Skill.ContentDigest) {
+		return "", ErrInvalidSkillRevision
+	}
+	files := make([]revisionFile, 0, len(revision.Files))
+	for name, content := range revision.Files {
+		mode := revision.Modes[name].Perm() & 0o555
+		if mode == 0 {
+			// Narrow test/compatibility readers may omit Modes. The disposable
+			// projection remains readable but not writable in that case.
+			mode = 0o444
+		}
+		files = append(files, revisionFile{Path: name, Mode: mode, Content: content})
+	}
+	files, err := validateRevisionFiles(files)
+	if err != nil {
+		return "", err
+	}
+	policyTemp := t.session.Policy().Env[pkgsandbox.EnvTempDir]
+	if policyTemp == "" {
+		return "", errors.New("sandbox Session has no TMPDIR")
+	}
+	visibleTemp := policyTemp
+	if t.view.Isolated {
+		// Docker retains the host backing directory in Policy while the process
+		// sees that private mount at /tmp. Resolve from process space so the
+		// returned skill_dir never leaks the host path.
+		visibleTemp = "/tmp"
+	}
+	visibleParent := filepath.Join(visibleTemp, "stella-skills", revision.Skill.Scope, revision.Skill.ID)
+	hostTemp, err := t.session.ResolveWritePath(visibleTemp)
+	if err != nil {
+		return "", err
+	}
+	tempRoot, err := os.OpenRoot(hostTemp)
+	if err != nil {
+		return "", err
+	}
+	defer tempRoot.Close() //nolint:errcheck
+	parent := filepath.Join("stella-skills", revision.Skill.Scope, revision.Skill.ID)
+	if err := tempRoot.MkdirAll(parent, 0o700); err != nil {
+		return "", err
+	}
+	visible := filepath.Join(visibleParent, revision.Skill.ContentDigest)
+	host := filepath.Join(parent, revision.Skill.ContentDigest)
+	// A Session projection is a disposable convenience copy, not an isolation
+	// boundary: same-UID commands can modify it. Reuse only after checking the
+	// complete bounded tree, file modes, and bytes against the exact revision.
+	// Fail closed on a poisoned path rather than replacing a directory that an
+	// already-running command may still be traversing.
+	if verifyErr := verifyProjectedRevision(tempRoot, host, files); verifyErr == nil {
+		return visible, nil
+	} else if !errors.Is(verifyErr, fs.ErrNotExist) {
+		return "", verifyErr
+	}
+	var entropy [12]byte
+	if _, err := rand.Read(entropy[:]); err != nil {
+		return "", err
+	}
+	stage := filepath.Join(parent, ".stage-"+hex.EncodeToString(entropy[:]))
+	if err := tempRoot.Mkdir(stage, 0o700); err != nil {
+		return "", err
+	}
+	published := false
+	defer func() {
+		if !published {
+			_ = tempRoot.RemoveAll(stage)
+		}
+	}()
+	root, err := tempRoot.OpenRoot(stage)
+	if err != nil {
+		return "", err
+	}
+	for _, file := range files {
+		filename := filepath.FromSlash(file.Path)
+		if parent := filepath.Dir(filename); parent != "." {
+			if err := root.MkdirAll(parent, 0o700); err != nil {
+				_ = root.Close()
+				return "", err
+			}
+		}
+		out, err := root.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_EXCL, file.Mode)
+		if err != nil {
+			_ = root.Close()
+			return "", err
+		}
+		_, writeErr := out.Write(file.Content)
+		if writeErr == nil {
+			// Creation mode is umask-filtered; restore the requested read/execute
+			// projection mode before the complete tree becomes visible.
+			writeErr = out.Chmod(file.Mode)
+		}
+		closeErr := out.Close()
+		if writeErr != nil || closeErr != nil {
+			_ = root.Close()
+			return "", errors.Join(writeErr, closeErr)
+		}
+	}
+	if err := root.Close(); err != nil {
+		return "", err
+	}
+	// The final digest path appears only after the complete bounded tree is
+	// closed. Concurrent loads of the same exact digest reuse the complete winner
+	// rather than replacing a path that an already-running tool may be traversing.
+	if verifyErr := verifyProjectedRevision(tempRoot, host, files); verifyErr == nil {
+		if err := tempRoot.RemoveAll(stage); err != nil {
+			return "", err
+		}
+	} else if !errors.Is(verifyErr, fs.ErrNotExist) {
+		return "", verifyErr
+	} else if err := tempRoot.Rename(stage, host); err != nil {
+		if verifyErr := verifyProjectedRevision(tempRoot, host, files); verifyErr != nil {
+			return "", errors.Join(err, verifyErr)
+		}
+		if removeErr := tempRoot.RemoveAll(stage); removeErr != nil {
+			return "", errors.Join(err, removeErr)
+		}
+	}
+	if err := verifyProjectedRevision(tempRoot, host, files); err != nil {
+		return "", err
+	}
+	published = true
+	return visible, nil
+}
+
 func (t *Tool) touchReflectSkillRuntimeUse(ctx context.Context, resolved *ResolvedSkill, vc pkgplugins.SkillViewContext) error {
-	tracker, ok := t.store.(reflectSkillRuntimeUsageTracker)
-	if !ok || vc.UserID == "" || vc.AgentID == "" {
+	if vc.UserID == "" || vc.AgentID == "" {
 		return nil
 	}
 	if resolved == nil || resolved.Scope != skillScopeAgent || resolved.UserID != vc.UserID || resolved.AgentID != vc.AgentID {
@@ -565,7 +897,13 @@ func (t *Tool) touchReflectSkillRuntimeUse(ctx context.Context, resolved *Resolv
 	}
 	touchCtx, cancel := context.WithTimeout(ctx, runtimeUsageTouchTimeout)
 	defer cancel()
-	if err := tracker.TouchReflectSkillRuntimeUse(touchCtx, resolved.ID, vc.UserID, vc.AgentID); err != nil {
+	var err error
+	if tracker, ok := t.revisions.(reflectSkillRuntimeDigestTracker); ok {
+		err = tracker.TouchReflectSkillRuntimeUseDigest(touchCtx, resolved.ID, vc.UserID, vc.AgentID, resolved.ContentDigest)
+	} else if tracker, ok := t.store.(reflectSkillRuntimeUsageTracker); ok {
+		err = tracker.TouchReflectSkillRuntimeUse(touchCtx, resolved.ID, vc.UserID, vc.AgentID)
+	}
+	if err != nil {
 		return fmt.Errorf("claim runtime use for skill %q: %w", resolved.Name, err)
 	}
 	return nil
@@ -579,91 +917,24 @@ type installedSkill struct {
 	Removable   bool   `json:"removable"`
 }
 
-func (t *Tool) materializeDBSkill(ctx context.Context, skillID, skillDir string) error {
-	if t.store == nil || skillID == "" || skillDir == "" {
-		return nil
-	}
-	paths, err := t.store.ListFiles(ctx, skillID)
-	if err != nil {
-		return fmt.Errorf("materialize skill files: %w", err)
-	}
-	// A loadable skill always has SKILL.md in the store; an empty listing is an
-	// inconsistency, and pruning against it would wipe the whole mirror.
-	if len(paths) == 0 {
-		return fmt.Errorf("materialize skill files: store listed no files for skill %s", skillID)
-	}
-	seen := make(map[string]struct{}, len(paths))
-	for _, p := range paths {
-		content, err := t.store.LoadFile(ctx, skillID, p)
-		if err != nil {
-			return fmt.Errorf("materialize skill file %q: %w", p, err)
-		}
-		diskPath, err := safeSkillDiskPath(skillDir, filepath.FromSlash(p))
-		if err != nil {
-			return fmt.Errorf("materialize skill file %q: %w", p, err)
-		}
-		if err := os.MkdirAll(filepath.Dir(diskPath), 0o755); err != nil {
-			return fmt.Errorf("materialize skill file %q: %w", p, err)
-		}
-		data := []byte(content)
-		if existing, err := readDiskFile(diskPath); err == nil && bytes.Equal(existing, data) {
-			// Already current.
-		} else if err := os.WriteFile(diskPath, data, 0o644); err != nil {
-			return fmt.Errorf("materialize skill file %q: %w", p, err)
-		}
-		rel, err := filepath.Rel(skillDir, diskPath)
-		if err != nil {
-			return fmt.Errorf("materialize skill file %q: %w", p, err)
-		}
-		seen[filepath.ToSlash(rel)] = struct{}{}
-	}
-	if err := filepath.WalkDir(skillDir, func(p string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil || d.IsDir() {
-			return walkErr
-		}
-		rel, err := filepath.Rel(skillDir, p)
-		if err != nil {
-			return err
-		}
-		if _, ok := seen[filepath.ToSlash(rel)]; !ok {
-			_ = os.Remove(p)
-		}
-		return nil
-	}); err != nil {
-		return fmt.Errorf("materialize skill files: prune stale files: %w", err)
-	}
-	return nil
-}
-
-func readDiskFile(path string) ([]byte, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close() //nolint:errcheck
-	return io.ReadAll(f)
-}
-
-func safeSkillDiskPath(base string, parts ...string) (string, error) {
-	joined := filepath.Join(append([]string{base}, parts...)...)
-	cleaned := filepath.Clean(joined)
-	base = filepath.Clean(base)
-	if cleaned != base && !strings.HasPrefix(cleaned, base+string(filepath.Separator)) {
-		return "", fmt.Errorf("path %q escapes base %q", cleaned, base)
-	}
-	return cleaned, nil
-}
-
 func (t *Tool) list(ctx context.Context) (string, error) {
 	ctx = WithProjectSnapshot(ctx, t.projectSnapshot)
 	projectRoot := projectRootFromContext(ctx, t.projectRoot)
 	vc := t.viewContext(ctx)
 
 	merged, err := t.svc.ListMerged(ctx, vc, projectRoot)
+	if t.revisions != nil {
+		merged, err = t.identityMerged(ctx, vc)
+	}
 	if err != nil {
 		return "", fmt.Errorf("list skills: %w", err)
 	}
-	if merged, err = t.authorizeReadable(ctx, merged); err != nil {
+	if t.revisions != nil {
+		merged, err = t.hydrateAuthorized(ctx, merged)
+	} else {
+		merged, err = t.authorizeReadable(ctx, merged)
+	}
+	if err != nil {
 		return "", fmt.Errorf("list skills: %w", err)
 	}
 

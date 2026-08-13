@@ -38,6 +38,7 @@ type skillWriteOperation struct {
 	CoveredCandidateRefs []CandidateRef          `json:"covered_candidate_refs,omitempty"`
 	TargetSkillID        string                  `json:"target_skill_id,omitempty"`
 	ExpectedSkillVersion int64                   `json:"expected_skill_version,omitempty"`
+	ExpectedSkillDigest  string                  `json:"expected_skill_digest,omitempty"`
 	Name                 string                  `json:"name,omitempty"`
 	Description          string                  `json:"description,omitempty"`
 	MainFileContent      string                  `json:"main_file_content,omitempty"`
@@ -78,8 +79,8 @@ func validateSkillReconciliationPlan(bundle skillRelatedBundle, plan skillReconc
 			if !isReflectOwnedActiveUserAgentSkill(record.Skill) {
 				return fmt.Errorf("skill reconciliation: patch target %q is not active reflect-owned user_agent", op.TargetSkillID)
 			}
-			if op.ExpectedSkillVersion <= 0 || op.ExpectedSkillVersion != record.Skill.Version {
-				return fmt.Errorf("skill reconciliation: stale expected version for %q", op.TargetSkillID)
+			if op.ExpectedSkillDigest == "" || op.ExpectedSkillDigest != record.Skill.ContentDigest {
+				return fmt.Errorf("skill reconciliation: stale expected digest for %q", op.TargetSkillID)
 			}
 			if strings.TrimSpace(op.MainFileContent) == "" {
 				return fmt.Errorf("skill reconciliation: patch_skill requires SKILL.md")

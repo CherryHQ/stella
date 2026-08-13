@@ -215,6 +215,10 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         lifecycle_version: { type: integer, format: int64 }
+        content_digest:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: Exact immutable revision digest for mutable Home-backed Skills.
         created_by: { type: string, enum: [manual, reflect] }
         builtin:
           type: boolean
@@ -289,6 +293,10 @@ components:
     UpdateSkillRequest:
       type: object
       properties:
+        expected_digest:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: Required exact current digest when mutating a Home-backed Skill.
         description: { type: string, nullable: true }
         disable_model_invocation: { type: boolean, nullable: true }
         # Overwrites only the "version" key in the skill's metadata; source and

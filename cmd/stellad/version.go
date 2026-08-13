@@ -97,12 +97,15 @@ func upgradeCommand() *ucli.Command {
 			},
 		},
 		Action: func(c *ucli.Context) error {
+			if err := checkNativeServerPlatform(nativeServerGOOS); err != nil {
+				return fmt.Errorf("upgrade: %w", err)
+			}
 			installDir, err := resolveUpgradeDir(c.String("install-dir"))
 			if err != nil {
 				return err
 			}
 
-			result, err := runUpgrade(c.Context, os.Stdout, installDir, version.DisplayVersion(), c.Args().First(), runtime.GOOS, runtime.GOARCH)
+			result, err := runUpgrade(c.Context, os.Stdout, installDir, version.DisplayVersion(), c.Args().First(), nativeServerGOOS, runtime.GOARCH)
 			if err != nil {
 				return err
 			}
@@ -113,7 +116,7 @@ func upgradeCommand() *ucli.Command {
 
 			fmt.Printf("\n%s Upgraded stella %s -> %s\n", okMark(os.Stdout), result.CurrentVersion, result.LatestVersion)
 			fmt.Printf("  Installed to %s\n", installDir)
-			syncPostgresRuntime(c.Context, os.Stdout, installDir, config.StellaHome(), runtime.GOOS)
+			syncPostgresRuntime(c.Context, os.Stdout, installDir, config.StellaHome(), nativeServerGOOS)
 			return nil
 		},
 	}

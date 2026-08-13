@@ -103,6 +103,18 @@ func (s *Server) authorizeReadableDBSkills(w http.ResponseWriter, r *http.Reques
 		err := acc.AuthorizeRead(r.Context(), sk)
 		switch {
 		case err == nil:
+			if reader, ok := s.skillStore().(skills.IdentityReader); ok {
+				revision, loadErr := reader.LoadCurrentRevision(r.Context(), sk)
+				if skills.IsCurrentSelectorMissing(loadErr) {
+					s.warnMissingSkillSelector(sk, loadErr)
+					continue
+				}
+				if loadErr != nil {
+					s.writeInternalError(w, loadErr)
+					return nil, false
+				}
+				sk = revision.Skill
+			}
 			out = append(out, sk)
 		case errors.Is(err, skillaccess.ErrNotFound), errors.Is(err, skillaccess.ErrForbidden):
 			// filtered
@@ -113,6 +125,12 @@ func (s *Server) authorizeReadableDBSkills(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	return out, true
+}
+
+func (s *Server) warnMissingSkillSelector(identity skills.Skill, err error) {
+	if s.log != nil {
+		s.log.Warn("skip Skill with missing current selector", "skill_id", identity.ID, "scope", identity.Scope, "error", err)
+	}
 }
 
 // authorizeDBSkillRead authorizes reading one resolved DB-backed skill (Dir=="")
@@ -135,31 +153,18 @@ func (s *Server) authorizeDBSkillRead(w http.ResponseWriter, r *http.Request, ac
 // facts the Skill PEP authorizes against. Only DB rows reach it.
 func resolvedToDBSkill(rs *skills.ResolvedSkill) skills.Skill {
 	return skills.Skill{
-		ID:       rs.ID,
-		Scope:    rs.Scope,
-		UserID:   rs.UserID,
-		AgentID:  rs.AgentID,
-		Metadata: rs.Metadata,
+		ID:            rs.ID,
+		Scope:         rs.Scope,
+		UserID:        rs.UserID,
+		AgentID:       rs.AgentID,
+		Name:          rs.Name,
+		Metadata:      rs.Metadata,
+		ContentDigest: rs.ContentDigest,
 	}
 }
 
 func (s *Server) skillService() *skills.Service {
 	return skills.NewService(pluginhost.NewSkillStoreAdapter(s.skillStore()), config.StellaHome())
-}
-
-// findSkillByID linear-scans ListAll. The store has no Get(ctx, id) yet —
-// see handoff.md "Blockers/Gotchas". Fine at current volumes.
-func (s *Server) findSkillByID(ctx context.Context, id string) (*skills.Skill, error) {
-	rows, err := s.skillStore().ListAll(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for i := range rows {
-		if rows[i].ID == id {
-			return &rows[i], nil
-		}
-	}
-	return nil, pgx.ErrNoRows
 }
 
 // requireAgentAccess authorizes read/use access to an agent through the agent
@@ -261,6 +266,7 @@ func dbSkillToPluginSkill(sk skills.Skill) pkgplugins.Skill {
 		Name: sk.Name, Description: sk.Description,
 		DisableModelInvocation: sk.DisableModelInvocation, Metadata: sk.Metadata,
 		CreatedAt: sk.CreatedAt, UpdatedAt: sk.UpdatedAt, Version: sk.Version,
+		ContentDigest: sk.ContentDigest,
 	}
 }
 
@@ -286,6 +292,7 @@ func resolvedSkillToView(rs skills.ResolvedSkill) skillView {
 		Source:                 skillSource(rs.Metadata),
 		Version:                skillVersion(rs.Metadata),
 		LifecycleVersion:       rs.Version,
+		ContentDigest:          rs.ContentDigest,
 		CreatedBy:              skillCreatedBy(rs.Metadata),
 		CreatedAt:              rs.CreatedAt.UTC(),
 		UpdatedAt:              rs.UpdatedAt.UTC(),
@@ -379,46 +386,50 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 	if code != 0 {
 		return nil, nil, "", code, msg
 	}
-	// Builtin IDs are release identities, not PostgreSQL row IDs. Resolve them
-	// through the merged catalog so a project/PG shadow still wins after one
-	// store lookup, rather than probing the store for every builtin descriptor.
-	if strings.HasPrefix(ref, "builtin-") {
-		snapshot, err := s.projectSkillSnapshotForSession(ctx, agentID, sessionID)
-		if err != nil {
-			return nil, nil, "", http.StatusInternalServerError, "internal error"
+	identityReader, hasIdentityReader := s.skillStore().(interface {
+		GetIdentity(context.Context, string) (*skills.Skill, error)
+	})
+	var identity *skills.Skill
+	var err error
+	builtinReference := strings.HasPrefix(ref, "builtin-") || strings.HasPrefix(ref, "builtin:")
+	if hasIdentityReader && !builtinReference {
+		identity, err = identityReader.GetIdentity(ctx, ref)
+	} else if !hasIdentityReader && !builtinReference {
+		// Legacy test adapters do not expose the identity-only port. Production
+		// composition always installs POSIXStore and takes the branch above.
+		rows, listErr := s.skillStore().ListAll(ctx)
+		err = listErr
+		for i := range rows {
+			if rows[i].ID == ref {
+				identity = &rows[i]
+				break
+			}
 		}
-		vc := pkgplugins.SkillViewContext{UserID: info.UserID, AgentID: agentID}
-		ctx = skills.WithProjectSnapshot(ctx, snapshot)
-		rs, err := s.skillService().Resolve(ctx, ref, vc, "")
-		if err != nil {
-			s.log.Error("resolve builtin skill reference", "agent_id", agentID, "skill", ref, "error", err)
-			return nil, nil, "", http.StatusInternalServerError, "internal error"
-		}
-		// Release builtins retain Scope="system" internally for prompt/PG
-		// compatibility, but their externally addressable identity is builtin.
-		// Keep Resolve's normal precedence behavior: a shadowing DB row is not a
-		// builtin and therefore cannot make a hidden builtin reappear by ID.
-		if rs == nil || rs.Status == "deprecated" {
-			return nil, nil, "", http.StatusNotFound, "skill not found"
-		}
-		contextualScope := rs.Scope
-		if rs.BuiltinFiles() != nil {
-			contextualScope = "builtin"
-		}
-		if exactScope && contextualScope != scope {
-			return nil, nil, "", http.StatusNotFound, "skill not found"
-		}
-		return rs, acc, "", 0, ""
 	}
-
-	sk, err := s.findSkillByID(ctx, ref)
+	if err == nil && identity == nil {
+		err = pgx.ErrNoRows
+	}
 	if err == nil {
-		applicable := (!exactScope || sk.Scope == scope) && ((sk.Scope != "user_agent" && sk.Scope != "system_agent") || sk.AgentID == agentID)
+		applicable := (!exactScope || identity.Scope == scope) && ((identity.Scope != "user_agent" && identity.Scope != "system_agent") || identity.AgentID == agentID)
 		if applicable {
+			if err := acc.AuthorizeRead(ctx, *identity); err != nil {
+				code, msg := skillAccessError(err)
+				return nil, nil, "", code, msg
+			}
+			sk := *identity
+			if reader, ok := s.skillStore().(interface {
+				LoadCurrentRevision(context.Context, skills.Skill) (skills.ManagedRevision, error)
+			}); ok {
+				revision, loadErr := reader.LoadCurrentRevision(ctx, *identity)
+				if loadErr != nil {
+					return nil, nil, "", http.StatusInternalServerError, "internal error"
+				}
+				sk = revision.Skill
+			}
 			if sk.Status == "deprecated" {
 				return nil, nil, "", http.StatusNotFound, "skill not found"
 			}
-			return &skills.ResolvedSkill{Skill: dbSkillToPluginSkill(*sk)}, acc, "", 0, ""
+			return &skills.ResolvedSkill{Skill: dbSkillToPluginSkill(sk)}, acc, "", 0, ""
 		}
 		if !exactScope {
 			return nil, nil, "", http.StatusNotFound, "skill not found"
@@ -433,13 +444,74 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 		return nil, nil, "", http.StatusInternalServerError, "internal error"
 	}
 
-	snapshot, _ := s.projectSkillSnapshotForSession(ctx, agentID, sessionID)
+	snapshot, snapshotErr := s.projectSkillSnapshotForSession(ctx, agentID, sessionID)
+	if snapshotErr != nil {
+		return nil, nil, "", http.StatusInternalServerError, "internal error"
+	}
 	ctx = skills.WithProjectSnapshot(ctx, snapshot)
 	vc := pkgplugins.SkillViewContext{UserID: info.UserID, AgentID: agentID}
+	if reader, ok := s.skillStore().(skills.IdentityReader); ok {
+		if err := acc.AuthorizeList(); err != nil {
+			code, msg := skillAccessError(err)
+			return nil, nil, "", code, msg
+		}
+		identities, err := reader.ListIdentityVisible(ctx, skills.ViewContext{UserID: info.UserID, AgentID: agentID})
+		if err != nil {
+			return nil, nil, "", http.StatusInternalServerError, "internal error"
+		}
+		dbSkills := make([]skills.Skill, 0, len(identities))
+		for _, candidate := range identities {
+			if err := acc.AuthorizeRead(ctx, candidate); err != nil {
+				if errors.Is(err, skillaccess.ErrNotFound) || errors.Is(err, skillaccess.ErrForbidden) {
+					continue
+				}
+				return nil, nil, "", http.StatusInternalServerError, "internal error"
+			}
+			revision, err := reader.LoadCurrentRevision(ctx, candidate)
+			if skills.IsCurrentSelectorMissing(err) {
+				s.warnMissingSkillSelector(candidate, err)
+				continue
+			}
+			if err != nil {
+				return nil, nil, "", http.StatusInternalServerError, "internal error"
+			}
+			dbSkills = append(dbSkills, revision.Skill)
+		}
+		// Exact mutable-scope management must not be hidden by a higher-priority
+		// same-name project Skill. The identity and actor were authorized before
+		// the revision was opened above.
+		if exactScope && scope != "project" && scope != "builtin" {
+			for _, candidate := range dbSkills {
+				if candidate.Scope == scope && candidate.Name == ref && candidate.Status != skills.SkillStatusDeprecated {
+					return &skills.ResolvedSkill{Skill: dbSkillToPluginSkill(candidate)}, acc, "", 0, ""
+				}
+			}
+			if scope != "system" {
+				return nil, nil, "", http.StatusNotFound, "skill not found"
+			}
+		}
+		merged := s.skillService().ListMergedWithDBSnapshot(dbSkillsToPluginSkills(dbSkills), snapshot)
+		builtinName := strings.TrimPrefix(strings.TrimPrefix(ref, "builtin:"), "builtin-")
+		for i := range merged {
+			contextualScope := merged[i].Scope
+			if merged[i].BuiltinFiles() != nil {
+				contextualScope = "builtin"
+			}
+			matches := merged[i].ID == ref || merged[i].Name == ref || (builtinReference && merged[i].Name == builtinName)
+			if matches && (!exactScope || contextualScope == scope) && merged[i].Status != skills.SkillStatusDeprecated {
+				return &merged[i], acc, "", 0, ""
+			}
+		}
+		return nil, nil, "", http.StatusNotFound, "skill not found"
+	}
+
 	var rs *skills.ResolvedSkill
-	if exactScope {
+	switch {
+	case builtinReference:
+		rs, err = s.skillService().Resolve(ctx, ref, vc, "")
+	case exactScope:
 		rs, err = s.skillService().ResolveScoped(ctx, ref, scope, vc, "")
-	} else {
+	default:
 		rs, err = s.skillService().Resolve(ctx, ref, vc, "")
 	}
 	if err != nil {
@@ -447,6 +519,13 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 		return nil, nil, "", http.StatusInternalServerError, "internal error"
 	}
 	if rs == nil || rs.Status == "deprecated" {
+		return nil, nil, "", http.StatusNotFound, "skill not found"
+	}
+	contextualScope := rs.Scope
+	if rs.BuiltinFiles() != nil {
+		contextualScope = "builtin"
+	}
+	if exactScope && contextualScope != scope {
 		return nil, nil, "", http.StatusNotFound, "skill not found"
 	}
 	return rs, acc, "", 0, ""
@@ -474,6 +553,17 @@ func (s *Server) loadSkillFile(ctx context.Context, rs *skills.ResolvedSkill, pa
 	store := s.skillStore()
 	if store == nil {
 		return "", errors.New("skills store not available")
+	}
+	if reader, ok := store.(skills.IdentityReader); ok {
+		revision, err := reader.LoadExactRevision(ctx, resolvedToDBSkill(rs), rs.ContentDigest)
+		if err != nil {
+			return "", err
+		}
+		content, ok := revision.Files[path]
+		if !ok {
+			return "", fs.ErrNotExist
+		}
+		return string(content), nil
 	}
 	return store.LoadFile(ctx, rs.ID, path)
 }
@@ -544,7 +634,12 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		s.writeInternalError(w, err)
 		return
 	}
-	dbSkills, err := s.skillStore().ListForAgentContext(r.Context(), info.UserID, agentID)
+	var dbSkills []skills.Skill
+	if reader, ok := s.skillStore().(skills.IdentityReader); ok {
+		dbSkills, err = reader.ListIdentityVisible(r.Context(), skills.ViewContext{UserID: info.UserID, AgentID: agentID})
+	} else {
+		dbSkills, err = s.skillStore().ListForAgentContext(r.Context(), info.UserID, agentID)
+	}
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -803,16 +898,13 @@ func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string
 	}
 	view := s.contextualSkillView(*rs, policy)
 	if rs.Dir == "" && s.skillStore() != nil {
-		sk, err := s.findSkillByID(r.Context(), rs.ID)
+		sk := resolvedToDBSkill(rs)
+		managedView, err := s.dbSkillView(r, &sk)
 		if err != nil {
 			s.writeInternalError(w, err)
 			return
 		}
-		view, err = s.dbSkillView(r, sk)
-		if err != nil {
-			s.writeInternalError(w, err)
-			return
-		}
+		view = managedView
 		enabled := true
 		if ref, ok := skills.PolicyRef(*rs); ok {
 			view.LogicalRef = ref
@@ -907,10 +999,14 @@ func (s *Server) UpgradeAgentSkill(w http.ResponseWriter, r *http.Request, id st
 		}
 	}
 
-	res, err := skills.UpgradeInStore(ctx, pluginhost.NewSkillStoreAdapter(s.skillStore()), rs.ID, rs.Metadata)
+	res, err := skills.UpgradeInStore(ctx, s.skillStore(), resolvedToDBSkill(rs), params.ExpectedDigest, rs.Metadata)
 	if err != nil {
 		if errors.Is(err, skills.ErrNoUpgradeSource) {
 			writeError(w, http.StatusBadRequest, "skill was not installed from an upgradable source")
+			return
+		}
+		if errors.Is(err, skills.ErrSkillDigestRequired) || errors.Is(err, skills.ErrSkillDigestConflict) {
+			s.writeSkillMutationError(w, err)
 			return
 		}
 		s.writeBadGatewayError(w, err)
@@ -948,7 +1044,11 @@ func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		writeError(w, code, msg)
 		return
 	}
-	s.doDeleteSkill(w, r, rs.ID)
+	expectedDigest := ""
+	if params.ExpectedDigest != nil {
+		expectedDigest = *params.ExpectedDigest
+	}
+	s.doDeleteSkill(w, r, resolvedToDBSkill(rs), expectedDigest)
 }
 
 func (s *Server) GetAgentSkillFile(w http.ResponseWriter, r *http.Request, id string, skillId string, params apiserver.GetAgentSkillFileParams) {
@@ -1007,7 +1107,11 @@ func (s *Server) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id
 		writeError(w, code, msg)
 		return
 	}
-	s.doDeleteSkillFile(w, r, rs.ID, params.Path)
+	expectedDigest := ""
+	if params.ExpectedDigest != nil {
+		expectedDigest = *params.ExpectedDigest
+	}
+	s.doDeleteSkillFile(w, r, resolvedToDBSkill(rs), params.Path, expectedDigest)
 }
 
 func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id string) {
