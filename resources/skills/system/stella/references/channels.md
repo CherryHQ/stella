@@ -73,8 +73,7 @@ Set `enable_notify: true` for proactive messages (scheduler results, notify tool
 1. Create an application and bot in the [Discord Developer Portal](https://discord.com/developers/applications)
 2. Enable the **Message Content Intent** on the bot page; turn off **Public Bot** for private deployments
 3. Invite the bot with permission to view channels, send messages, read message history, and attach files
-4. Enable Discord Developer Mode and copy the server IDs that Stella should trust
-5. Open the Web UI, add a Discord channel, paste the bot token, and enter the trusted server IDs under **Allowed Guild IDs**
+4. Open the Web UI, add a Discord channel, paste the bot token, and turn on **Allow server channels** if the bot should serve the servers it joined
 
 Discord channel config (JSON):
 

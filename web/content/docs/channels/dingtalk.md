@@ -54,6 +54,6 @@ DingTalk only delivers group messages addressed to the bot. Keep **Require a men
 
 **Direct messages get no response:** enable **Allow direct messages**, then check that your DingTalk identity is linked or that guest direct messages are explicitly enabled on a channel bound to a guest-safe agent.
 
-**A group gets no response:** @mention the bot, bind the channel to an enabled agent, and confirm the exact `conversation_id` is in the allowlist.
+**A group gets no response:** turn on **Allow group chats**, @mention the bot, and bind the channel to an enabled agent.
 
 **Notifications fail after a restart:** send the bot any direct message to refresh its temporary session Webhook, then retry the notification.

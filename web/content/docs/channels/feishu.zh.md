@@ -259,7 +259,7 @@ Agent 可以在回复中使用双花括号语法嵌入可点击的按钮，格�
 
 访客限制使用 `guest_message_limit_per_minute`（默认 `10`）、`guest_max_per_channel`（默认 `1000`）和 `guest_retention_days`（默认 `30`）。
 
-`allow_group` 取代了原来的 `allowed_chat_ids` allowlist。升级时，原先至少填写了一个 `chat_id` 的渠道会继续服务群聊（`allow_group` 置为 `true`）；列表为空或不存在的渠道保持关闭。
+`allow_group` 取代了原来的 `allowed_chat_ids` allowlist。升级时，原先至少填写了一个 `chat_id` 的渠道会继续服务群聊（`allow_group` 置为 `true`）；列表为空或不存在的渠道保持关闭。请注意范围会变大：开关无法表达「只允许这几个群」，升级后机器人所在的**所有**群都能触达 Agent，而不只是原先列出的那些。飞书会在启动时为这些群全部建立群成员关系，因此升级后请检查机器人的群成员关系；如果你原本依赖 allowlist 把某个群挡在外面，请关闭该开关。
 
 ## 故障排除
 

@@ -249,6 +249,8 @@ func TestChannelGroupSwitchMigrationCollapsesAllowlists(t *testing.T) {
 			('feishu-absent', 'Feishu absent', 'feishu', '{"app_id":"a"}'),
 			('dingtalk-listed', 'DingTalk listed', 'dingtalk', '{"allowed_conversation_ids":"cid-1"}'),
 			('discord-listed', 'Discord listed', 'discord', '{"allowed_guild_ids":"guild"}'),
+			('telegram-list-typed', 'Telegram wrong type', 'telegram', '{"allowed_chat_ids":[]}'),
+			('discord-bool-typed', 'Discord wrong type', 'discord', '{"allowed_guild_ids":false}'),
 			('telegram-malformed-switch', 'Telegram malformed', 'telegram', '{'),
 			('qq-untouched', 'QQ untouched', 'qq', '{"app_id":"q"}')`); err != nil {
 		t.Fatalf("seed channels: %v", err)
@@ -266,6 +268,10 @@ func TestChannelGroupSwitchMigrationCollapsesAllowlists(t *testing.T) {
 		{channelID: "feishu-absent"},
 		{channelID: "dingtalk-listed", want: true},
 		{channelID: "discord-listed", want: true},
+		// A non-string allowlist never decoded in Go, so the channel was closed.
+		// The switch must not repair it into working, open group access.
+		{channelID: "telegram-list-typed"},
+		{channelID: "discord-bool-typed"},
 	} {
 		var got bool
 		var hasAllowlist bool

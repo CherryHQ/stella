@@ -50,7 +50,7 @@ func (b *Bot) onBotDeleted(_ context.Context, event *larkim.P2ChatMemberBotDelet
 	}
 	chatID := *event.Event.ChatId
 	if !b.chatAllowed(chatID) {
-		logger().Warn("ignoring bot_deleted for chat outside the allowlist", "chat_id", chatID)
+		logger().Warn("ignoring bot_deleted while group chats are disabled", "chat_id", chatID)
 		return nil
 	}
 	name := derefStr(event.Event.Name)

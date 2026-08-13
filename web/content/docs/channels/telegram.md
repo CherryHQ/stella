@@ -136,7 +136,7 @@ All settings below are managed through the Web UI.
 | `guest_retention_days`           | Delete inactive guest identities and sessions after this time | `30`       |
 | `require_mention`                | Require an @mention in group chats                            | `true`     |
 
-`allow_group` replaces the former `allowed_chat_ids` allowlist. When upgrading, a channel that listed at least one chat ID keeps serving groups (`allow_group` becomes `true`); an empty or absent list stays closed.
+`allow_group` replaces the former `allowed_chat_ids` allowlist. When upgrading, a channel that listed at least one chat ID keeps serving groups (`allow_group` becomes `true`); an empty or absent list stays closed. Note the widened reach: the switch cannot express "these chats only", so after the upgrade every group the bot belongs to can reach the agent, not just the ones you had listed. Review the bot's group memberships after upgrading, and turn the switch off if you were relying on the allowlist to exclude a group.
 
 ## Troubleshooting
 

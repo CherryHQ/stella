@@ -136,7 +136,7 @@ Stella 内置了一个通过长轮询连接的 Telegram 机器人 —— 无需 
 | `guest_retention_days`           | 超过此时间未活动时删除访客身份及 session | `30`     |
 | `require_mention`                | 在群聊中要求 @机器人                     | `true`   |
 
-`allow_group` 取代了原来的 `allowed_chat_ids` allowlist。升级时，原先至少填写了一个群聊 ID 的渠道会继续服务群聊（`allow_group` 置为 `true`）；列表为空或不存在的渠道保持关闭。
+`allow_group` 取代了原来的 `allowed_chat_ids` allowlist。升级时，原先至少填写了一个群聊 ID 的渠道会继续服务群聊（`allow_group` 置为 `true`）；列表为空或不存在的渠道保持关闭。请注意范围会变大：开关无法表达「只允许这几个群」，升级后机器人所在的**所有**群都能触达 Agent，而不只是原先列出的那些。升级后请检查机器人的群成员关系；如果你原本依赖 allowlist 把某个群挡在外面，请关闭该开关。
 
 ## 故障排除
 

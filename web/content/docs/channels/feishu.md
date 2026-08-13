@@ -261,7 +261,7 @@ Feishu supports the standard chat commands:
 
 Guest limits use `guest_message_limit_per_minute` (default `10`), `guest_max_per_channel` (default `1000`), and `guest_retention_days` (default `30`).
 
-`allow_group` replaces the former `allowed_chat_ids` allowlist. When upgrading, a channel that listed at least one `chat_id` keeps serving groups (`allow_group` becomes `true`); an empty or absent list stays closed.
+`allow_group` replaces the former `allowed_chat_ids` allowlist. When upgrading, a channel that listed at least one `chat_id` keeps serving groups (`allow_group` becomes `true`); an empty or absent list stays closed. Note the widened reach: the switch cannot express "these chats only", so after the upgrade every group the bot belongs to can reach the agent, not just the ones you had listed. Feishu provisions group membership for all of them at startup, so review the bot's group memberships after upgrading and turn the switch off if you were relying on the allowlist to exclude a group.
 
 ## Troubleshooting
 
