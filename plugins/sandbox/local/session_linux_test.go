@@ -31,7 +31,8 @@ func TestWrapCommand_linux_networkDisabled(t *testing.T) {
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkDisabled},
 	}
 
-	path, args, err := wrapCommand(policy, sandboxCwd, nil, nil, root, "", "sh", []string{"-c", "echo hi"})
+	session := &localSession{realRoot: root}
+	path, args, err := session.wrapCommand(policy, sandboxCwd, "sh", []string{"-c", "echo hi"})
 
 	if !bwrapFunctional() {
 		if err == nil {
@@ -68,7 +69,8 @@ func TestWrapCommand_linux_allowAllNoWrap(t *testing.T) {
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
 
-	_, args, err := wrapCommand(policy, sandboxCwd, nil, nil, root, "", "sh", []string{"-c", "echo hi"})
+	session := &localSession{realRoot: root}
+	_, args, err := session.wrapCommand(policy, sandboxCwd, "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error for allow_all network: %v", err)
 	}
@@ -159,7 +161,8 @@ func TestWrapCommand_linux_bwrapWorkspaceRemap(t *testing.T) {
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
 
-	execPath, args, err := wrapCommand(policy, sandboxCwd, nil, nil, root, "", "sh", []string{"-c", "echo hi"})
+	session := &localSession{realRoot: root}
+	execPath, args, err := session.wrapCommand(policy, sandboxCwd, "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -250,7 +253,8 @@ func TestWrapCommand_linux_outOfRootWritableBind(t *testing.T) {
 	}
 	mounts := []sessionfs.Mount{{HostPath: "/tmp/test-workspace", SandboxPath: "/workspace"}, {HostPath: userDir, SandboxPath: sandboxUserDir}}
 
-	_, args, err := wrapCommand(policy, "/workspace", nil, mounts, "/tmp/test-workspace", stellaHome, "sh", []string{"-c", "echo hi"})
+	session := &localSession{providerMounts: mounts, realRoot: "/tmp/test-workspace", stellaHomeHost: stellaHome}
+	_, args, err := session.wrapCommand(policy, "/workspace", "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -286,7 +290,8 @@ func TestWrapCommand_linux_twoRoots(t *testing.T) {
 	}
 	mounts := []sessionfs.Mount{{HostPath: agentDir, SandboxPath: "/workspace"}, {HostPath: userData, SandboxPath: "/user"}}
 
-	_, args, err := wrapCommand(policy, "/workspace/projects/p", nil, mounts, agentDir, "", "sh", []string{"-c", "echo hi"})
+	session := &localSession{providerMounts: mounts, realRoot: agentDir}
+	_, args, err := session.wrapCommand(policy, "/workspace/projects/p", "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

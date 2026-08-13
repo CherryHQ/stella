@@ -86,7 +86,8 @@ func TestScopedSkills_AdminManagesGlobalSystemSkill(t *testing.T) {
 		t.Fatalf("install system skill status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
 	}
 	var installed struct {
-		ID string `json:"id"`
+		ID            string `json:"id"`
+		ContentDigest string `json:"content_digest"`
 	}
 	if err := json.Unmarshal(parseResponse(t, rr).Data, &installed); err != nil {
 		t.Fatalf("unmarshal install response: %v", err)
@@ -106,12 +107,13 @@ func TestScopedSkills_AdminManagesGlobalSystemSkill(t *testing.T) {
 
 	rr = doRequest(t, env, "PATCH", "/api/skills/"+installed.ID, map[string]any{
 		"disable_model_invocation": true,
+		"expected_digest":          installed.ContentDigest,
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("disable system skill status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "DELETE", "/api/skills/"+installed.ID, nil)
+	rr = doRequest(t, env, "DELETE", "/api/skills/"+installed.ID+"?expected_digest="+responseSkillDigest(t, rr), nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("delete system skill status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -175,7 +177,7 @@ func TestScopedSkills_DeleteRemovesMutableRows(t *testing.T) {
 		{name: "system_agent", sid: env.bearerToken, id: systemAgentID, scope: "system_agent", agent: agentID},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			rr := doRequestWithSession(t, env.srv, tc.sid, "DELETE", "/api/skills/"+tc.id, nil)
+			rr := doRequestWithSession(t, env.srv, tc.sid, "DELETE", "/api/skills/"+tc.id+"?expected_digest="+currentSkillDigest(t, env, tc.id), nil)
 			if rr.Code != http.StatusNoContent {
 				t.Fatalf("delete status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 			}

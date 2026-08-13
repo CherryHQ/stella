@@ -79,7 +79,7 @@ stellad upgrade --install-dir "$HOME/.local/bin"  # 自定义安装路径
 
 ### Structured Reflect 与 Curator
 
-Structured Reflect 始终启用，生命周期 curator 默认使用 `armed`。从双模式版本升级前，请删除部署中的 `STELLA_REFLECT_MODE=legacy`；过渡版本检测到该旧值时会拒绝启动。
+Structured Reflect 始终启用，生命周期 curator 默认使用 `armed`。
 
 部署后执行以下检查：
 

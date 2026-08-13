@@ -17,6 +17,7 @@ import (
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 	localplugin "github.com/CherryHQ/stella/plugins/sandbox/local"
+	noneplugin "github.com/CherryHQ/stella/plugins/sandbox/none"
 )
 
 func writePNG(t *testing.T, path string, w, h int) {
@@ -34,16 +35,29 @@ func writePNG(t *testing.T, path string, w, h int) {
 	}
 }
 
-func newTestReadTool(projectRoot string) *hostReadTool {
-	return &hostReadTool{host: pkgsandbox.NopSession(), projectRoot: projectRoot}
+func newTestReadTool(t *testing.T, projectRoot string) pkgtools.Tool {
+	t.Helper()
+	policy := pkgsandbox.Policy{
+		Filesystem: pkgsandbox.FilesystemPolicy{
+			WorkingDir: pkgsandbox.MountWorkspace,
+			Mounts:     []pkgsandbox.Mount{{SandboxPath: pkgsandbox.MountWorkspace, Access: pkgsandbox.MountReadWrite}},
+		},
+		Network: pkgsandbox.NetworkPolicy{Mode: pkgsandbox.NetworkAllowAll},
+	}
+	session, err := noneplugin.NewFactoryWithMountSources(map[string]string{pkgsandbox.MountWorkspace: projectRoot}, noneplugin.Config{}).CreateSession(context.Background(), policy)
+	if err != nil {
+		t.Fatalf("create test sandbox Session: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	return newReadTool(session, session.WorkingDir())
 }
 
 func TestReadImageVisionReturnsImageBlock(t *testing.T) {
 	dir := t.TempDir()
 	writePNG(t, filepath.Join(dir, "pic.png"), 10, 10)
-	tool := newTestReadTool(dir)
+	tool := newTestReadTool(t, dir)
 
-	blocks, err := tool.ExecuteContent(context.Background(), map[string]any{"path": "pic.png"})
+	blocks, err := pkgtools.ExecuteToolContent(context.Background(), tool, map[string]any{"path": "pic.png"})
 	if err != nil {
 		t.Fatalf("ExecuteContent: %v", err)
 	}
@@ -67,9 +81,9 @@ func TestReadImageVisionReturnsImageBlock(t *testing.T) {
 func TestReadImageResizesLargeImage(t *testing.T) {
 	dir := t.TempDir()
 	writePNG(t, filepath.Join(dir, "big.png"), 3000, 100)
-	tool := newTestReadTool(dir)
+	tool := newTestReadTool(t, dir)
 
-	blocks, err := tool.ExecuteContent(context.Background(), map[string]any{"path": "big.png"})
+	blocks, err := pkgtools.ExecuteToolContent(context.Background(), tool, map[string]any{"path": "big.png"})
 	if err != nil {
 		t.Fatalf("ExecuteContent: %v", err)
 	}
@@ -100,7 +114,7 @@ func TestReadImageCanonicalResultKeepsOriginalForTransform(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	blocks, err := newTestReadTool(dir).ExecuteContent(pkgtools.WithImageResultMode(context.Background(), pkgtools.ImageResultCanonical), map[string]any{"path": "pic.png"})
+	blocks, err := pkgtools.ExecuteToolContent(pkgtools.WithImageResultMode(context.Background(), pkgtools.ImageResultCanonical), newTestReadTool(t, dir), map[string]any{"path": "pic.png"})
 	if err != nil || !ai.HasImage(blocks) {
 		t.Fatalf("canonical read = %#v, %v", blocks, err)
 	}
@@ -119,9 +133,9 @@ func TestReadTextFileReturnsTextBlock(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("line1\nline2\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	tool := newTestReadTool(dir)
+	tool := newTestReadTool(t, dir)
 
-	blocks, err := tool.ExecuteContent(context.Background(), map[string]any{"path": "a.txt"})
+	blocks, err := pkgtools.ExecuteToolContent(context.Background(), tool, map[string]any{"path": "a.txt"})
 	if err != nil {
 		t.Fatalf("ExecuteContent: %v", err)
 	}
@@ -150,7 +164,7 @@ func TestReadToolUsesSessionProcessViewBoundary(t *testing.T) {
 		},
 		Network: pkgsandbox.NetworkPolicy{Mode: pkgsandbox.NetworkAllowAll},
 	}
-	session, err := localplugin.NewFactoryWithMountSources(map[string]string{pkgsandbox.MountWorkspace: workspace}).CreateSession(context.Background(), policy)
+	session, err := localplugin.NewFactoryWithMountSources(map[string]string{pkgsandbox.MountWorkspace: workspace}, localplugin.Config{}).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Skipf("local sandbox unavailable: %v", err)
 	}

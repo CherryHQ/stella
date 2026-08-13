@@ -17,7 +17,6 @@ import (
 	"github.com/CherryHQ/stella/internal/notify"
 	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/pluginstate"
-	skills "github.com/CherryHQ/stella/internal/skills"
 )
 
 type pluginSetup struct {
@@ -27,7 +26,7 @@ type pluginSetup struct {
 	manifestToReconcile    *manifestplugins.Manifest
 }
 
-func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, skillStore skills.Store, dispatcher *notify.Dispatcher) (*pluginSetup, error) {
+func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, dispatcher *notify.Dispatcher) (*pluginSetup, error) {
 	oidcStore := appdb.NewOIDCStore(db)
 	channelRuntimeServices := pluginhost.NewChannelRuntimeServices()
 	stateStore := pluginstate.New(db)
@@ -36,7 +35,6 @@ func setupPlugins(ctx context.Context, db *pgxpool.Pool, store config.Store, ski
 		pluginhost.WithAuthService(pluginhost.NewAuthService(oidcStore)),
 		pluginhost.WithNotificationService(dispatcher),
 		pluginhost.WithStateStore(stateStore),
-		pluginhost.WithSkillStore(skillStore),
 		pluginhost.WithChannelRuntimeServices(channelRuntimeServices),
 	)
 

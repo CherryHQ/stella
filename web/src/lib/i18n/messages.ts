@@ -632,9 +632,6 @@ const en = {
   "agents.skills.disableModelInvocation": "Disable model invocation",
   "agents.skills.activation": "Enabled",
   "agents.skills.scopeBuiltin": "Built-in",
-  "agents.skills.legacyPolicyTitle": "Legacy skill policy",
-  "agents.skills.legacyPolicyDescription":
-    "This agent has a legacy policy. All skills remain enabled until you change an activation.",
   "agents.skills.danglingPolicyTitle": "Disabled skill {{ref}} no longer exists",
   "agents.skills.danglingPolicyDescription":
     "Clear this saved disablement explicitly; it has no effect while the skill is absent.",
@@ -2918,9 +2915,6 @@ const zh: Record<MessageKey, string> = {
   "agents.skills.disableModelInvocation": "禁用模型调用",
   "agents.skills.activation": "已启用",
   "agents.skills.scopeBuiltin": "内置",
-  "agents.skills.legacyPolicyTitle": "旧版技能策略",
-  "agents.skills.legacyPolicyDescription":
-    "此智能体使用旧版策略。在你修改启用状态前，所有技能都保持启用。",
   "agents.skills.danglingPolicyTitle": "已禁用的技能 {{ref}} 已不存在",
   "agents.skills.danglingPolicyDescription": "请显式清除此保存的禁用项；技能不存在时它不会生效。",
   "agents.skills.clearDangling": "清除禁用项",

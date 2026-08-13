@@ -7,7 +7,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/internal/skills"
 )
 
 func TestBuildFactRelatedBundleSplitsSingletonsAndCatalogsReflectWorldFacts(t *testing.T) {
@@ -81,7 +81,7 @@ func TestBuildFactRelatedBundleSplitsSingletonsAndCatalogsReflectWorldFacts(t *t
 func TestBuildSkillRelatedCatalogUsesReflectOwnedStoreView(t *testing.T) {
 	ctx := context.Background()
 	store := &fakeReflectSkillCatalogStore{
-		rows: []pkgplugins.Skill{{
+		rows: []skills.Skill{{
 			ID:          "skill-1",
 			Scope:       "user_agent",
 			UserID:      "user-1",
@@ -113,7 +113,7 @@ func TestBuildSkillRelatedCatalogUsesReflectOwnedStoreView(t *testing.T) {
 func TestBuildSkillRelatedBundleLoadsDuplicateSkillOnlyOnce(t *testing.T) {
 	store := &fakeSkillRelatedBundleStore{
 		fakeReflectSkillCatalogStore: fakeReflectSkillCatalogStore{
-			rows: []pkgplugins.Skill{{ID: "skill-shared", Name: "shared", Scope: "user_agent", Status: "active"}},
+			rows: []skills.Skill{{ID: "skill-shared", Name: "shared", Scope: "user_agent", Status: "active", ContentDigest: testSkillContentDigest}},
 		},
 		files: map[string]string{"skill-shared": "# Shared\n"},
 	}
@@ -134,13 +134,13 @@ func TestBuildSkillRelatedBundleLoadsDuplicateSkillOnlyOnce(t *testing.T) {
 }
 
 type fakeReflectSkillCatalogStore struct {
-	rows        []pkgplugins.Skill
+	rows        []skills.Skill
 	listUserID  string
 	listAgentID string
 }
 
-func (s *fakeReflectSkillCatalogStore) ListActiveReflectOwnedUserAgentSkills(_ context.Context, userID string, agentID string) ([]pkgplugins.Skill, error) {
+func (s *fakeReflectSkillCatalogStore) ListActiveReflectOwnedUserAgentSkills(_ context.Context, userID string, agentID string) ([]skills.Skill, error) {
 	s.listUserID = userID
 	s.listAgentID = agentID
-	return append([]pkgplugins.Skill(nil), s.rows...), nil
+	return append([]skills.Skill(nil), s.rows...), nil
 }

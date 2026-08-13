@@ -10,7 +10,6 @@ import (
 	"io/fs"
 	"path"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -41,14 +40,14 @@ type managedSkillLockSession struct {
 type POSIXStore struct {
 	db                 *pgxpool.Pool
 	q                  *sqlc.Queries
-	roots              home.RootOpener
+	roots              home.SkillRootOpener
 	now                func() time.Time
 	random             func([]byte) error
 	acquireManagedLock func(context.Context) (managedSkillLockSession, error)
 	cleanupContext     func() (context.Context, context.CancelFunc)
 }
 
-func NewPOSIXStore(db *pgxpool.Pool, roots home.RootOpener) (*POSIXStore, error) {
+func NewPOSIXStore(db *pgxpool.Pool, roots home.SkillRootOpener) (*POSIXStore, error) {
 	if db == nil || roots == nil {
 		return nil, errors.New("skills: database and Home roots are required")
 	}
@@ -176,37 +175,15 @@ func (s *POSIXStore) openSkillRoot(ctx context.Context, identity Skill, access h
 	if err != nil {
 		return nil, err
 	}
-	root, err := s.roots.OpenRoot(ctx, request, scope, access)
-	if err != nil {
-		return nil, err
-	}
-	posix, ok := root.(home.SkillRootOperations)
-	if !ok {
-		_ = root.Close()
-		return nil, errors.New("skills: Home root lacks POSIX publication operations")
-	}
-	return posix, nil
+	return s.roots.OpenSkillRoot(ctx, request, scope, access)
 }
 
 func (s *POSIXStore) openExistingSkillRoot(ctx context.Context, identity Skill) (home.SkillRootOperations, error) {
-	opener, ok := s.roots.(home.ExistingRootOpener)
-	if !ok {
-		return nil, errors.New("skills: Home roots cannot inspect without materializing")
-	}
 	request, scope, err := skillRootSelection(identity)
 	if err != nil {
 		return nil, err
 	}
-	root, err := opener.OpenExistingRoot(ctx, request, scope)
-	if err != nil {
-		return nil, err
-	}
-	posix, ok := root.(home.SkillRootOperations)
-	if !ok {
-		_ = root.Close()
-		return nil, errors.New("skills: Home root lacks POSIX inspection operations")
-	}
-	return posix, nil
+	return s.roots.OpenExistingSkillRoot(ctx, request, scope)
 }
 
 func freshSkillContext() (context.Context, context.CancelFunc) {
@@ -318,15 +295,14 @@ func (s *POSIXStore) ListIdentityByScope(ctx context.Context, scope, userID, age
 func invocationVisible(sk Skill) bool {
 	return sk.Status != SkillStatusDeprecated && !sk.DisableModelInvocation
 }
-func lifecycleVisible(sk Skill) bool { return sk.Status != SkillStatusDeprecated }
 
-func (s *POSIXStore) loadRows(ctx context.Context, rows []sqlc.Skill, visible func(Skill) bool) ([]Skill, error) {
+func (s *POSIXStore) loadRows(ctx context.Context, rows []Skill, visible func(Skill) bool) ([]Skill, error) {
 	if len(rows) > MaxManagedSkillCatalogEntries {
 		return nil, ErrSkillCatalogLimit
 	}
 	out := make([]Skill, 0, len(rows))
 	for _, row := range rows {
-		snapshot, err := s.loadIdentity(ctx, identityFromRow(row))
+		snapshot, err := s.loadIdentity(ctx, row)
 		if errors.Is(err, errCurrentSkillSelectorMissing) {
 			// A missing selector is fail-closed for this identity but must not
 			// make one interrupted cleanup take down the whole catalog.
@@ -342,80 +318,23 @@ func (s *POSIXStore) loadRows(ctx context.Context, rows []sqlc.Skill, visible fu
 	return out, nil
 }
 
-func (s *POSIXStore) List(ctx context.Context, vc ViewContext) ([]Skill, error) {
-	rows, err := s.q.ListSkillIdentityVisible(ctx, sqlc.ListSkillIdentityVisibleParams{
-		AgentID: pgtype.Text{String: vc.AgentID, Valid: vc.AgentID != ""}, UserID: pgtype.Text{String: vc.UserID, Valid: vc.UserID != ""},
-	})
-	if err != nil {
-		return nil, err
-	}
-	return s.loadRows(ctx, rows, invocationVisible)
-}
-
-func (s *POSIXStore) ListAll(ctx context.Context) ([]Skill, error) {
-	rows, err := s.q.ListAllSkills(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return identitiesFromRows(rows)
-}
-
-func (s *POSIXStore) ListForAgentContext(ctx context.Context, userID, agentID string) ([]Skill, error) {
-	rows, err := s.q.ListSkillsForAgentContext(ctx, sqlc.ListSkillsForAgentContextParams{
-		UserID: pgtype.Text{String: userID, Valid: userID != ""}, AgentID: pgtype.Text{String: agentID, Valid: agentID != ""},
-	})
-	if err != nil {
-		return nil, err
-	}
-	return identitiesFromRows(rows)
-}
-
-func (s *POSIXStore) ListByScope(ctx context.Context, scope, userID, agentID string) ([]Skill, error) {
-	rows, err := s.q.ListSkillsByScope(ctx, sqlc.ListSkillsByScopeParams{
-		Scope: scope, UserID: pgtype.Text{String: userID, Valid: userID != ""}, AgentID: pgtype.Text{String: agentID, Valid: agentID != ""},
-	})
-	if err != nil {
-		return nil, err
-	}
-	return s.loadRows(ctx, rows, nil)
-}
-
-func (s *POSIXStore) ListForAdmin(ctx context.Context, userID string) ([]Skill, error) {
-	rows, err := s.q.ListSkillsForAdmin(ctx, pgtype.Text{String: userID, Valid: userID != ""})
-	if err != nil {
-		return nil, err
-	}
-	return s.loadRows(ctx, rows, nil)
-}
-
-func (s *POSIXStore) ListForUser(ctx context.Context, userID string, agentIDs []string) ([]Skill, error) {
-	rows, err := s.q.ListSkillsForUser(ctx, sqlc.ListSkillsForUserParams{
-		UserID: pgtype.Text{String: userID, Valid: userID != ""}, AgentIdsCsv: pgtype.Text{String: strings.Join(agentIDs, ","), Valid: len(agentIDs) > 0},
-	})
-	if err != nil {
-		return nil, err
-	}
-	return s.loadRows(ctx, rows, lifecycleVisible)
-}
-
-func (s *POSIXStore) Resolve(ctx context.Context, name string, vc ViewContext) (*Skill, error) {
-	rows, err := s.ListIdentityCandidate(ctx, name, vc)
-	if err != nil {
-		return nil, err
-	}
-	for i := range rows {
-		return &rows[i], nil
-	}
-	return nil, nil
-}
-
 func (s *POSIXStore) ListActiveReflectOwnedUserAgentSkills(ctx context.Context, userID, agentID string) ([]Skill, error) {
-	rows, err := s.ListByScope(ctx, "user_agent", userID, agentID)
+	rows, err := s.q.ListSkillsByScope(ctx, sqlc.ListSkillsByScopeParams{
+		Scope: "user_agent", UserID: pgtype.Text{String: userID, Valid: userID != ""}, AgentID: pgtype.Text{String: agentID, Valid: agentID != ""},
+	})
 	if err != nil {
 		return nil, err
 	}
-	out := rows[:0]
-	for _, skill := range rows {
+	identities, err := identitiesFromRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	loaded, err := s.loadRows(ctx, identities, nil)
+	if err != nil {
+		return nil, err
+	}
+	out := loaded[:0]
+	for _, skill := range loaded {
 		if skill.Status == SkillStatusActive && IsReflectOwned(skill) {
 			out = append(out, skill)
 		}
@@ -429,78 +348,12 @@ func (s *POSIXStore) ListActiveReflectOwnedUserAgentSkills(ctx context.Context, 
 	return out, nil
 }
 
-func (s *POSIXStore) snapshotByID(ctx context.Context, id string) (managedSnapshot, error) {
-	identity, err := s.GetIdentity(ctx, id)
-	if err != nil {
-		return managedSnapshot{}, err
-	}
-	if identity == nil {
-		return managedSnapshot{}, pgx.ErrNoRows
-	}
-	return s.loadIdentity(ctx, *identity)
-}
-
-func fileFromSnapshot(snapshot managedSnapshot, id, filename string) (string, error) {
-	for _, file := range snapshot.Files {
-		if file.Path == filename {
-			return string(file.Content), nil
-		}
-	}
-	return "", fmt.Errorf("skills: file %q not found on skill %s: %w", filename, id, pgx.ErrNoRows)
-}
-
-func (s *POSIXStore) LoadFile(ctx context.Context, id, filename string) (string, error) {
-	if err := validateSkillPath(filename); err != nil {
-		return "", err
-	}
-	snapshot, err := s.snapshotByID(ctx, id)
-	if err != nil {
-		return "", err
-	}
-	return fileFromSnapshot(snapshot, id, filename)
-}
-
-func (s *POSIXStore) LoadFileRevision(ctx context.Context, id, filename, digest string) (string, error) {
-	if err := validateSkillPath(filename); err != nil {
-		return "", err
-	}
-	identity, err := s.GetIdentity(ctx, id)
-	if err != nil || identity == nil {
-		return "", errors.Join(err, pgx.ErrNoRows)
-	}
-	snapshot, err := s.loadIdentityRevision(ctx, *identity, digest)
-	if err != nil {
-		return "", err
-	}
-	return fileFromSnapshot(snapshot, id, filename)
-}
-
 func snapshotPaths(snapshot managedSnapshot) []string {
 	paths := make([]string, 0, len(snapshot.Files))
 	for _, file := range snapshot.Files {
 		paths = append(paths, file.Path)
 	}
 	return paths
-}
-
-func (s *POSIXStore) ListFiles(ctx context.Context, id string) ([]string, error) {
-	snapshot, err := s.snapshotByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	return snapshotPaths(snapshot), nil
-}
-
-func (s *POSIXStore) ListFilesWithContent(ctx context.Context, id string) (map[string]string, error) {
-	snapshot, err := s.snapshotByID(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	files := make(map[string]string, len(snapshot.Files))
-	for _, file := range snapshot.Files {
-		files[file.Path] = string(file.Content)
-	}
-	return files, nil
 }
 
 func mergeRevisionFiles(before []revisionFile, upserts map[string]string, deletions []string) ([]revisionFile, error) {
@@ -861,11 +714,6 @@ func (s *POSIXStore) loadManagedDeleteSnapshot(ctx context.Context, identity Ski
 		return managedSnapshot{}, ErrSkillDigestRequired
 	}
 	before, err := s.loadIdentity(ctx, identity)
-	if errors.Is(err, errCurrentSkillSelectorMissing) {
-		// Reconcile an interrupted selector-first delete from an older writer.
-		// The authorized caller still has to name an exact immutable revision.
-		before, err = s.loadIdentityRevision(ctx, identity, expected)
-	}
 	if err != nil {
 		return managedSnapshot{}, err
 	}
@@ -917,24 +765,6 @@ func (s *POSIXStore) DeleteManagedSkillFile(ctx context.Context, in ManagedSkill
 	})
 }
 
-func (s *POSIXStore) Create(ctx context.Context, skill Skill, files map[string]string) (string, error) {
-	snapshot, err := s.CreateManagedSkill(ctx, skill, files)
-	return snapshot.Skill.ID, err
-}
-
-// Ambient mutation methods cannot express digest CAS and therefore fail closed.
-func (*POSIXStore) Update(context.Context, string, ViewContext, UpdatePatch) error {
-	return ErrSkillDigestRequired
-}
-
-func (*POSIXStore) UpsertFile(context.Context, string, string, string) error {
-	return ErrSkillDigestRequired
-}
-func (*POSIXStore) DeleteFile(context.Context, string, string) error { return ErrSkillDigestRequired }
-func (*POSIXStore) Delete(context.Context, string, ViewContext) error {
-	return ErrSkillDigestRequired
-}
-
 func (s *POSIXStore) ListSkillChangelogBySkill(ctx context.Context, skillID string, limit int) ([]SkillChangelog, error) {
 	if limit <= 0 {
 		limit = 20
@@ -950,8 +780,27 @@ func (s *POSIXStore) ListSkillChangelogBySkill(ctx context.Context, skillID stri
 	return out, nil
 }
 
+func viewSQLParams(vc ViewContext) (pgtype.Text, pgtype.Text) {
+	return pgtype.Text{String: vc.AgentID, Valid: vc.AgentID != ""}, pgtype.Text{String: vc.UserID, Valid: vc.UserID != ""}
+}
+
+func mapChangelogRow(row sqlc.SkillChangelog) SkillChangelog {
+	return SkillChangelog{
+		ID:            row.ID,
+		SkillID:       row.SkillID,
+		UserID:        row.UserID.String,
+		AgentID:       row.AgentID.String,
+		Scope:         row.Scope,
+		Action:        row.Action,
+		VersionBefore: row.VersionBefore.Int64,
+		VersionAfter:  row.VersionAfter,
+		ContentDigest: row.ContentDigest.String,
+		Metadata:      row.Metadata,
+		CreatedAt:     row.CreatedAt.UTC(),
+	}
+}
+
 var (
-	_ Store          = (*POSIXStore)(nil)
 	_ IdentityReader = (*POSIXStore)(nil)
 	_ ManagedDeleter = (*POSIXStore)(nil)
 )

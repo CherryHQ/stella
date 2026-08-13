@@ -82,7 +82,7 @@ type SkillHomeMigrator struct {
 	commit func(context.Context, pgx.Tx) error
 }
 
-func NewSkillHomeMigrator(db *pgxpool.Pool, roots home.RootOpener) (*SkillHomeMigrator, error) {
+func NewSkillHomeMigrator(db *pgxpool.Pool, roots home.SkillRootOpener) (*SkillHomeMigrator, error) {
 	store, err := NewPOSIXStore(db, roots)
 	if err != nil {
 		return nil, err

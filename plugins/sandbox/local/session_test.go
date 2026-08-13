@@ -14,11 +14,11 @@ import (
 )
 
 func newWorkspaceFactory(workspace string) sandboxpkg.Factory {
-	return NewFactoryWithMountSources(map[string]string{sandboxpkg.MountWorkspace: workspace})
+	return NewFactoryWithMountSources(map[string]string{sandboxpkg.MountWorkspace: workspace}, Config{})
 }
 
 func TestFactory_basics(t *testing.T) {
-	f := NewFactory()
+	f := NewFactoryWithMountSources(nil, Config{})
 	if f.(*Factory).Name() != "local" {
 		t.Error("expected name 'local'")
 	}
@@ -471,8 +471,7 @@ func TestPromptProjectContextUsesCanonicalWorkingDir(t *testing.T) {
 
 	got := prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{
 		SystemPrompt: "You are Stella.",
-		ProjectRoot:  root,
-		Host:         s,
+		Session:      s,
 	})
 	if !strings.Contains(got, "canonical local instructions") {
 		t.Fatalf("prompt did not discover AGENTS.md through canonical project view: %s", got)

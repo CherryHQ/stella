@@ -204,8 +204,7 @@ func TestDockerPromptProjectContextUsesCanonicalWorkingDir(t *testing.T) {
 
 	got := prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{
 		SystemPrompt: "You are Stella.",
-		ProjectRoot:  root,
-		Host:         s,
+		Session:      s,
 	})
 	if !strings.Contains(got, "canonical docker instructions") {
 		t.Fatalf("prompt did not discover AGENTS.md through canonical project view: %s", got)

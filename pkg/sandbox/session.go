@@ -5,8 +5,6 @@ import (
 	"errors"
 	"io"
 	"io/fs"
-	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -29,10 +27,6 @@ type Session interface {
 	Files() FileAccess
 	WorkingDir() string
 }
-
-// Host is an alias for Session kept for internal use by the runner and core tools.
-// New code should use Session directly.
-type Host = Session
 
 // EnvRefresher is implemented by sessions whose injected environment can be
 // updated after creation, so a caller can rotate a credential (e.g. an expiring
@@ -112,8 +106,9 @@ type FileAccess interface {
 	ProjectFiles(path string, files []ProjectedFile) error
 }
 
-// NopSession returns an identity-view no-op session for testing. Its FileAccess
-// delegates directly to the host filesystem and is not a sandbox boundary.
+// NopSession returns a no-op session for tests that need only lifecycle or
+// process behavior. Its filesystem capability fails closed; filesystem tests
+// must use a real provider session or inject an explicit FileAccess fake.
 func NopSession() Session {
 	return &nopSession{
 		policy: Policy{
@@ -147,43 +142,13 @@ func (s *nopSession) Exec(_ context.Context, _ string, _ ExecOptions) (ExecResul
 func (s *nopSession) StartProcess(_ context.Context, _ ProcessRequest) (ProcessHandle, error) {
 	return nil, nil
 }
-func (s *nopSession) Files() FileAccess  { return directFileAccess{} }
+func (s *nopSession) Files() FileAccess  { return deniedFileAccess{} }
 func (s *nopSession) WorkingDir() string { return "" }
 
-type directFileAccess struct{}
+type deniedFileAccess struct{}
 
-func (directFileAccess) ReadFile(path string) ([]byte, error) { return os.ReadFile(path) }
-
-func (directFileAccess) ReadDir(path string) ([]DirEntry, error) {
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]DirEntry, 0, len(entries))
-	for _, entry := range entries {
-		info, err := entry.Info()
-		if err == nil {
-			out = append(out, DirEntry{Name: entry.Name(), IsDir: entry.IsDir(), Size: info.Size()})
-		}
-	}
-	return out, nil
-}
-
-func (directFileAccess) Stat(path string) (FileInfo, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return FileInfo{}, err
-	}
-	return FileInfo{IsDir: info.IsDir(), Size: info.Size()}, nil
-}
-
-func (directFileAccess) WriteFile(path string, content []byte, mode fs.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, content, mode)
-}
-
-func (directFileAccess) ProjectFiles(string, []ProjectedFile) error {
-	return os.ErrPermission
-}
+func (deniedFileAccess) ReadFile(string) ([]byte, error)             { return nil, fs.ErrPermission }
+func (deniedFileAccess) ReadDir(string) ([]DirEntry, error)          { return nil, fs.ErrPermission }
+func (deniedFileAccess) Stat(string) (FileInfo, error)               { return FileInfo{}, fs.ErrPermission }
+func (deniedFileAccess) WriteFile(string, []byte, fs.FileMode) error { return fs.ErrPermission }
+func (deniedFileAccess) ProjectFiles(string, []ProjectedFile) error  { return fs.ErrPermission }

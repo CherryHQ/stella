@@ -208,12 +208,6 @@ export function SkillsTab({
           {!editingId && (
             <div className="text-xs text-muted-foreground">{t("agents.skills.saveFirst")}</div>
           )}
-          {agentSkillPolicyDiagnostics.legacy_non_empty_array && (
-            <Alert variant="warning">
-              <AlertTitle>{t("agents.skills.legacyPolicyTitle")}</AlertTitle>
-              <AlertDescription>{t("agents.skills.legacyPolicyDescription")}</AlertDescription>
-            </Alert>
-          )}
           {agentSkillPolicyDiagnostics.dangling_disabled_refs.map((ref) => (
             <Alert key={ref} variant="warning">
               <AlertTitle>{t("agents.skills.danglingPolicyTitle", { ref })}</AlertTitle>

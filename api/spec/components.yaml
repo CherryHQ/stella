@@ -349,10 +349,8 @@ components:
           $ref: "#/components/schemas/AgentSkillPolicyDiagnostics"
     AgentSkillPolicyDiagnostics:
       type: object
-      required: [legacy_non_empty_array, dangling_disabled_refs]
+      required: [dangling_disabled_refs]
       properties:
-        legacy_non_empty_array:
-          type: boolean
         dangling_disabled_refs:
           type: array
           items:
@@ -414,7 +412,7 @@ components:
             type: string
     InstallSkillRequest:
       type: object
-      required: [source]
+      required: [source, scope]
       properties:
         source:
           type: string
@@ -4428,22 +4426,11 @@ components:
         Which root to operate on: agent — the agent work root ($HOME); user — shared user files, including $STELLA_ASSETS_DIR for assets.
     SessionWorkspace:
       type: object
-      required: [
-        root,
-        sandbox_root,
-        paths,
-        total_files,
-        total_dirs,
-        total_bytes,
-      ]
+      required: [root, paths, total_files, total_dirs, total_bytes]
       properties:
         root:
           type: string
           description: Canonical logical workspace root (/workspace for agent scope or /user for user scope), never a host path
-        sandbox_root:
-          type: string
-          deprecated: true
-          description: Deprecated alias of root. Always the same logical /workspace or /user value, never a host path.
         paths:
           type: array
           items:

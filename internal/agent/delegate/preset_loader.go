@@ -1,31 +1,39 @@
 package delegate
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
-	"path/filepath"
+	"path"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/resources"
 )
 
-// LoadDelegatePresetsConfig configures the delegate preset discovery paths.
-type LoadDelegatePresetsConfig struct {
-	StellaHome  string // stella home dir (e.g. ~/.stella)
-	AgentRoot   string // agent root dir (e.g. ~/.stella/agents/{agentID})
-	UserRoot    string // shared user-data root, mounted as /user (e.g. ~/.stella/users/{userID}/data)
-	ProjectRoot string // optional project root for local/project-attached runs
+// PresetRoot is one process-visible delegate search tier.
+type PresetRoot struct {
+	Path   string
+	Source string
 }
 
-// LoadDelegatePresets discovers delegate presets in increasing priority order:
-// STELLA_HOME -> agent root -> user root -> project root.
-func LoadDelegatePresets(cfg LoadDelegatePresetsConfig) []DelegatePreset {
-	return loadDelegatePresets(context.Background(), cfg.StellaHome, cfg.AgentRoot, cfg.UserRoot, cfg.ProjectRoot)
+// LoadDelegatePresets loads embedded release presets, then discovers overrides
+// through the active Session filesystem in increasing priority order.
+func LoadDelegatePresets(files pkgsandbox.FileAccess, roots []PresetRoot) []DelegatePreset {
+	registry, err := resources.Default()
+	if err != nil {
+		slog.Error("failed to load builtin delegate presets", "error", err)
+		return nil
+	}
+	return mergeDelegatePresets(builtinDelegatePresets(registry), loadDelegatePresets(files, roots))
 }
 
-func loadDelegatePresets(ctx context.Context, stellaHome, agentRoot, userRoot, projectRoot string) []DelegatePreset {
+func loadDelegatePresets(files pkgsandbox.FileAccess, roots []PresetRoot) []DelegatePreset {
+	if files == nil {
+		return nil
+	}
 	indexByName := map[string]int{}
 	var presets []DelegatePreset
 
@@ -40,44 +48,97 @@ func loadDelegatePresets(ctx context.Context, stellaHome, agentRoot, userRoot, p
 
 	dedupPaths := map[string]bool{}
 	addDir := func(dir, source string) {
-		abs, _ := filepath.Abs(dir)
-		if dedupPaths[abs] {
+		clean := path.Clean(dir)
+		if dir == "" || dedupPaths[clean] {
 			return
 		}
-		dedupPaths[abs] = true
-		for _, p := range loadPresetsFromDir(ctx, dir, source) {
+		dedupPaths[clean] = true
+		for _, p := range loadPresetsFromDir(files, dir, source) {
 			add(p)
 		}
 	}
 
-	scanTier := func(root, source string) {
-		addDir(filepath.Join(root, ".agents", "delegates"), source)
-	}
-
-	if stellaHome != "" {
-		scanTier(stellaHome, "stella")
-	}
-	if agentRoot != "" {
-		scanTier(agentRoot, "agent")
-	}
-	if userRoot != "" {
-		scanTier(userRoot, "user")
-	}
-	if projectRoot != "" {
-		scanTier(projectRoot, "project")
+	for _, root := range roots {
+		if root.Path != "" && root.Source != "" {
+			addDir(path.Join(root.Path, ".agents", "delegates"), root.Source)
+		}
 	}
 
 	return presets
 }
 
+func mergeDelegatePresets(base, overrides []DelegatePreset) []DelegatePreset {
+	indexByName := make(map[string]int, len(base)+len(overrides))
+	out := append([]DelegatePreset(nil), base...)
+	for i := range out {
+		indexByName[out[i].Name] = i
+	}
+	for _, preset := range overrides {
+		if index, ok := indexByName[preset.Name]; ok {
+			out[index] = preset
+			continue
+		}
+		indexByName[preset.Name] = len(out)
+		out = append(out, preset)
+	}
+	return out
+}
+
+func builtinDelegatePresets(registry *resources.Registry) []DelegatePreset {
+	var presets []DelegatePreset
+	for _, resource := range registry.List(resources.KindDelegate) {
+		preset := DelegatePreset{
+			Name: resource.Name, Description: resource.Description,
+			System: strings.TrimSpace(resource.Content), Source: "builtin",
+		}
+		if preset.Name == "" {
+			preset.Name = resource.ID
+		}
+		if value, ok := resource.Metadata["model"].(string); ok {
+			preset.Model = value
+		}
+		if value, exists := resource.Metadata["tools"]; exists {
+			preset.HasTools = true
+			switch tools := value.(type) {
+			case []string:
+				preset.Tools = append([]string(nil), tools...)
+			case []any:
+				for _, tool := range tools {
+					name, ok := tool.(string)
+					if !ok {
+						preset.Tools = nil
+						break
+					}
+					preset.Tools = append(preset.Tools, name)
+				}
+			default:
+				continue
+			}
+		}
+		if value, ok := resource.Metadata["timeout"].(string); ok && value != "" {
+			timeout, err := time.ParseDuration(value)
+			if err != nil {
+				slog.Error("invalid builtin delegate timeout", "delegate", preset.Name, "timeout", value, "error", err)
+				continue
+			}
+			preset.Timeout = timeout
+		}
+		if preset.Name == "" || strings.TrimSpace(preset.Description) == "" {
+			continue
+		}
+		presets = append(presets, preset)
+	}
+	return presets
+}
+
 // loadPresetsFromDir scans a directory for delegate preset .md files.
-func loadPresetsFromDir(ctx context.Context, dir, source string) []DelegatePreset {
-	info, err := statHostPath(ctx, dir)
-	if err != nil || !info.Exists || !info.IsDir {
+func loadPresetsFromDir(files pkgsandbox.FileAccess, dir, source string) []DelegatePreset {
+	info, err := files.Stat(dir)
+	if err != nil || !info.IsDir {
 		return nil
 	}
 
-	entries, err := readHostDir(ctx, dir)
+	entries, err := files.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
@@ -91,8 +152,8 @@ func loadPresetsFromDir(ctx context.Context, dir, source string) []DelegatePrese
 			continue
 		}
 
-		filePath := filepath.Join(dir, entry.Name)
-		if p, ok := loadPresetFromFile(ctx, filePath, source); ok {
+		filePath := path.Join(dir, entry.Name)
+		if p, ok := loadPresetFromFile(files, filePath, source); ok {
 			presets = append(presets, p)
 		}
 	}
@@ -101,8 +162,8 @@ func loadPresetsFromDir(ctx context.Context, dir, source string) []DelegatePrese
 }
 
 // loadPresetFromFile parses an delegate preset from a markdown file with YAML frontmatter.
-func loadPresetFromFile(ctx context.Context, filePath, source string) (DelegatePreset, bool) {
-	data, err := readHostFile(ctx, filePath)
+func loadPresetFromFile(files pkgsandbox.FileAccess, filePath, source string) (DelegatePreset, bool) {
+	data, err := files.ReadFile(filePath)
 	if err != nil {
 		slog.Debug("failed to read delegate preset file", "path", filePath, "error", err)
 		return DelegatePreset{}, false
@@ -118,7 +179,7 @@ func loadPresetFromFile(ctx context.Context, filePath, source string) (DelegateP
 	// Name is required — fall back to filename without extension.
 	name := fm.Name
 	if name == "" {
-		name = strings.TrimSuffix(filepath.Base(filePath), ".md")
+		name = strings.TrimSuffix(path.Base(filePath), ".md")
 	}
 
 	// Description is required.
@@ -144,7 +205,6 @@ func loadPresetFromFile(ctx context.Context, filePath, source string) (DelegateP
 		HasTools:    fm.HasTools,
 		Timeout:     timeout,
 		Model:       fm.Model,
-		FilePath:    filePath,
 		Source:      source,
 	}, true
 }

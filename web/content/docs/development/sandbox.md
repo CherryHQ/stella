@@ -127,7 +127,7 @@ Before upgrading, operators must use the old working binary to import each custo
 
 The stored scope vocabulary is `system`, `system_agent`, `user`, `user_agent`, and `project`, plus contextual `builtin`. Release `builtin:<name>` is immutable. Administrator-installed `system:<name>` and Agent-bound `system_agent:<name>` are distinct mutable identities.
 
-Resolution selects one winner before policy: `project > user_agent > user > system_agent > system > builtin`. Disabling that winner never exposes a lower same-name Skill. Policy defaults to enabled, is shared per Agent, and is independent of content-edit authorization and `disable_model_invocation`. An admitted turn keeps its snapshot; the next turn sees a successful commit. Legacy non-empty arrays are diagnostic but all-enabled; dangling disabled references have no execution effect and need explicit cleanup.
+Resolution selects one winner before policy: `project > user_agent > user > system_agent > system > builtin`. Disabling that winner never exposes a lower same-name Skill. Policy defaults to enabled, is shared per Agent, and is independent of content-edit authorization and `disable_model_invocation`. An admitted turn keeps its snapshot; the next turn sees a successful commit. Dangling disabled references have no execution effect and need explicit cleanup.
 
 ## Adding a New Backend
 

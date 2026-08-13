@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -194,6 +196,15 @@ func seedFakeSession(t *testing.T, fake *memorytest.Fake, id, agentID string, us
 	}
 }
 
+func listUnreviewedFromTestRegistry(t *testing.T, svc *Service, provider memory.Provider, agentID string) ([]reviewTarget, error) {
+	t.Helper()
+	registry, err := session.NewRegistry(provider, agentID)
+	if err != nil {
+		return nil, err
+	}
+	return svc.listUnreviewedFromRegistry(context.Background(), registry, agentID)
+}
+
 func TestListUnreviewed_SkipsAnonymous(t *testing.T) {
 	fake := memorytest.New()
 	svc := &Service{memory: fake, wm: newFakeWatermarks(), log: testLogger()}
@@ -202,7 +213,7 @@ func TestListUnreviewed_SkipsAnonymous(t *testing.T) {
 	seedFakeSession(t, fake, "s1", "a", "", now)  // anonymous
 	seedFakeSession(t, fake, "s2", "a", "1", now) // has user
 
-	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := listUnreviewedFromTestRegistry(t, svc, fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +232,7 @@ func TestListUnreviewed_ReturnsReviewTargets(t *testing.T) {
 	now := time.Now().UTC()
 	seedFakeSession(t, fake, "s1", "a", "1", now)
 
-	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := listUnreviewedFromTestRegistry(t, svc, fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +251,7 @@ func TestListUnreviewed_UsesReviewListerWithoutUserScope(t *testing.T) {
 	svc := &Service{memory: fake, wm: newFakeWatermarks(), log: testLogger()}
 
 	seedFakeSession(t, fake.Fake, "s1", "a", "1", time.Now().UTC())
-	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := listUnreviewedFromTestRegistry(t, svc, fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +276,7 @@ func TestListUnreviewed_SkipsAlreadyReviewed(t *testing.T) {
 	wm.setLineMark("s1", reflectLineFact, now)
 	wm.setLineMark("s1", reflectLineSkill, now)
 
-	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := listUnreviewedFromTestRegistry(t, svc, fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +298,7 @@ func TestListUnreviewed_StructuredUsesOldestIncompleteLine(t *testing.T) {
 	wm.setLineMark("s1", reflectLineFact, lastActive)
 	wm.setLineMark("s1", reflectLineSkill, lastActive.Add(-time.Hour))
 
-	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := listUnreviewedFromTestRegistry(t, svc, fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,7 +343,7 @@ func TestListUnreviewedStructuredSeqDetectsConcurrentSuffix(t *testing.T) {
 	}
 	svc := &Service{memory: fake, wm: wm, log: testLogger()}
 
-	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := listUnreviewedFromTestRegistry(t, svc, fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +365,7 @@ func TestListUnreviewed_OldestFirst(t *testing.T) {
 	wm.setLineMark("new", reflectLineFact, now.Add(-10*time.Minute))
 	wm.setLineMark("new", reflectLineSkill, now.Add(-10*time.Minute))
 
-	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := listUnreviewedFromTestRegistry(t, svc, fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,7 +388,7 @@ func TestListUnreviewed_ZeroWatermarkTiebreaker(t *testing.T) {
 	seedFakeSession(t, fake, "newer", "a", "1", now)
 	seedFakeSession(t, fake, "older", "a", "2", now.Add(-3*time.Hour))
 
-	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := listUnreviewedFromTestRegistry(t, svc, fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +409,7 @@ func TestListUnreviewed_PerAgentLimit(t *testing.T) {
 		seedFakeSession(t, fake, fmt.Sprintf("s%d", i), "a", fmt.Sprintf("%d", i+1), now.Add(time.Duration(i)*time.Minute))
 	}
 
-	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := listUnreviewedFromTestRegistry(t, svc, fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,7 +432,7 @@ func TestListUnreviewed_UsesMaxReviewTargetsPerAgent(t *testing.T) {
 		seedFakeSession(t, fake, fmt.Sprintf("s%02d", i), "a", fmt.Sprintf("%d", i+1), now.Add(time.Duration(i)*time.Minute))
 	}
 
-	targets, err := svc.listUnreviewed(context.Background(), fake, "a")
+	targets, err := listUnreviewedFromTestRegistry(t, svc, fake, "a")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -480,6 +491,15 @@ func (s softBudgetReflectStore) Snapshot(_ context.Context, agentID string) (*co
 	return &config.Snapshot{AgentID: agentID}, nil
 }
 
+type reflectTestServiceManager struct {
+	services map[string]*agent.Service
+}
+
+func (m reflectTestServiceManager) GetService(agentID string) *agent.Service {
+	return m.services[agentID]
+}
+func (m reflectTestServiceManager) Default() *agent.Service { return nil }
+
 func TestRunCycleSoftBudgetFinishesCurrentTargetThenRunsCurator(t *testing.T) {
 	ctx := context.Background()
 	fakeMemory := memorytest.New()
@@ -489,9 +509,14 @@ func TestRunCycleSoftBudgetFinishesCurrentTargetThenRunsCurator(t *testing.T) {
 	state := newMapStateStore()
 	now := base
 	reviewed := 0
+	registry, err := session.NewRegistry(fakeMemory, "agent-a")
+	if err != nil {
+		t.Fatalf("new session registry: %v", err)
+	}
 	svc := &Service{
 		memory:                   fakeMemory,
 		store:                    softBudgetReflectStore{agents: []config.Agent{{ID: "agent-a"}, {ID: "agent-b"}}},
+		snapshots:                softBudgetReflectStore{},
 		stateStore:               state,
 		wm:                       newFakeWatermarks(),
 		maxReviewTargetsPerAgent: 30,
@@ -500,6 +525,7 @@ func TestRunCycleSoftBudgetFinishesCurrentTargetThenRunsCurator(t *testing.T) {
 		usageCuratorStore:        fakeUsageCuratorStore{pairs: []usageCuratorPair{{UserID: "curator-user", AgentID: "curator-agent"}}},
 		usageCuratorSettings:     UsageCuratorSettings{Mode: UsageCuratorModeShadow, Now: func() time.Time { return base }},
 		log:                      testLogger(),
+		services:                 reflectTestServiceManager{services: map[string]*agent.Service{"agent-a": {Sessions: registry}}},
 	}
 	reviewer := func(context.Context, *config.Snapshot, reviewTarget) error {
 		reviewed++

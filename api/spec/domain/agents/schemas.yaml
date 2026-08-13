@@ -258,9 +258,8 @@ components:
 
     AgentSkillPolicyDiagnostics:
       type: object
-      required: [legacy_non_empty_array, dangling_disabled_refs]
+      required: [dangling_disabled_refs]
       properties:
-        legacy_non_empty_array: { type: boolean }
         dangling_disabled_refs: { type: array, items: { type: string } }
 
     AgentSkillActivation:
@@ -309,7 +308,7 @@ components:
 
     InstallSkillRequest:
       type: object
-      required: [source]
+      required: [source, scope]
       properties:
         source: { type: string }
         scope:

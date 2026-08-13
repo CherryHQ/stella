@@ -2,10 +2,11 @@ package reflect
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/memory"
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/internal/skills"
 )
 
 const (
@@ -55,25 +56,24 @@ type factCatalogItem struct {
 }
 
 type skillCatalogItem struct {
-	ID          string           `json:"id"`
-	Name        string           `json:"name"`
-	Description string           `json:"description"`
-	Scope       string           `json:"scope"`
-	UpdatedAt   time.Time        `json:"updated_at"`
-	Version     int64            `json:"version"`
-	Record      pkgplugins.Skill `json:"-"`
+	ID          string       `json:"id"`
+	Name        string       `json:"name"`
+	Description string       `json:"description"`
+	Scope       string       `json:"scope"`
+	UpdatedAt   time.Time    `json:"updated_at"`
+	Version     int64        `json:"version"`
+	Record      skills.Skill `json:"-"`
 }
 
-// reflectSkillCatalogStore is intentionally narrower than the plugin-facing
-// skill store. Only Reflect-owned active user_agent skills may enter #531's
-// automatic maintenance pool.
+// reflectSkillCatalogStore admits only Reflect-owned active user_agent skills
+// into reconciliation discovery.
 type reflectSkillCatalogStore interface {
-	ListActiveReflectOwnedUserAgentSkills(ctx context.Context, userID string, agentID string) ([]pkgplugins.Skill, error)
+	ListActiveReflectOwnedUserAgentSkills(ctx context.Context, userID string, agentID string) ([]skills.Skill, error)
 }
 
 type skillRelatedBundleStore interface {
 	reflectSkillCatalogStore
-	LoadFile(ctx context.Context, skillID string, path string) (string, error)
+	LoadExactRevision(ctx context.Context, identity skills.Skill, digest string) (skills.ManagedRevision, error)
 }
 
 func buildFactRelatedBundle(ctx context.Context, facts memory.FactStore, constraints memory.ConstraintStore, userID string, agentID string, candidates []factCandidate) (factRelatedBundle, error) {
@@ -199,9 +199,6 @@ func attachKnowledgeRelatedRecords(bundle knowledgeRelatedBundle, selections []k
 }
 
 func buildSkillRelatedCatalog(ctx context.Context, store reflectSkillCatalogStore, userID string, agentID string) ([]skillCatalogItem, error) {
-	if store == nil {
-		return nil, nil
-	}
 	rows, err := store.ListActiveReflectOwnedUserAgentSkills(ctx, userID, agentID)
 	if err != nil {
 		return nil, err
@@ -247,21 +244,17 @@ func buildSkillRelatedBundle(ctx context.Context, store skillRelatedBundleStore,
 				continue
 			}
 			item := byID[hint.SkillID]
-			var content string
-			var err error
-			if exact, ok := store.(interface {
-				LoadFileRevision(context.Context, string, string, string) (string, error)
-			}); ok {
-				content, err = exact.LoadFileRevision(ctx, item.ID, pkgplugins.SkillMainFile, item.Record.ContentDigest)
-			} else {
-				content, err = store.LoadFile(ctx, item.ID, pkgplugins.SkillMainFile)
-			}
+			revision, err := store.LoadExactRevision(ctx, item.Record, item.Record.ContentDigest)
 			if err != nil {
 				return skillRelatedBundle{}, err
 			}
+			content, ok := revision.Files[skills.MainFile]
+			if !ok {
+				return skillRelatedBundle{}, fmt.Errorf("reflect: exact Skill revision %q is missing %s", item.ID, skills.MainFile)
+			}
 			bundle.RelatedRecords = append(bundle.RelatedRecords, skillRelatedRecord{
 				Skill:           item.Record,
-				MainFileContent: content,
+				MainFileContent: string(content),
 			})
 			seen[hint.SkillID] = struct{}{}
 		}

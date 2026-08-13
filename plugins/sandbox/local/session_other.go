@@ -6,7 +6,6 @@ import (
 	"os"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
-	"github.com/CherryHQ/stella/plugins/sandbox/internal/sessionfs"
 )
 
 func processVisiblePath(_ string, hostPath string) string { return hostPath }
@@ -41,6 +40,6 @@ func checkSandboxRequirements() error { return nil }
 
 // wrapCommand is a no-op on platforms other than Linux and macOS.
 // Commands run unwrapped on the host OS.
-func wrapCommand(_ sandboxpkg.Policy, _ string, _ []tmpMount, _ []sessionfs.Mount, _, _ string, name string, args []string) (string, []string, error) {
+func (*localSession) wrapCommand(_ sandboxpkg.Policy, _, name string, args []string) (string, []string, error) {
 	return name, args, nil
 }

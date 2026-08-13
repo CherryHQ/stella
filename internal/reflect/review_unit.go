@@ -258,12 +258,14 @@ func renderedReviewLinesLength(lines []reviewLine) int {
 }
 
 func (s *Service) buildReviewLines(ctx context.Context, target reviewTarget, mark reviewWatermark) ([]string, []reviewLine, reviewWatermark, error) {
-	if _, supported := memory.Unwrap(s.memory).(memory.ReviewHistoryReader); supported {
-		if rr, ok := s.memory.(memory.ReviewHistoryReader); ok {
-			return s.buildReviewLinesFromReviewHistory(ctx, target, mark, rr)
-		}
+	if _, supported := memory.Unwrap(s.memory).(memory.ReviewHistoryReader); !supported {
+		return nil, nil, reviewWatermark{}, fmt.Errorf("reflect: Memory provider does not support exact review history")
 	}
-	return s.buildReviewLinesFromLoadHistory(ctx, target, mark)
+	rr, ok := s.memory.(memory.ReviewHistoryReader)
+	if !ok {
+		return nil, nil, reviewWatermark{}, fmt.Errorf("reflect: Memory provider wrapper does not preserve exact review history")
+	}
+	return s.buildReviewLinesFromReviewHistory(ctx, target, mark, rr)
 }
 
 func (s *Service) buildReviewLinesFromReviewHistory(ctx context.Context, target reviewTarget, mark reviewWatermark, rr memory.ReviewHistoryReader) ([]string, []reviewLine, reviewWatermark, error) {
@@ -312,56 +314,6 @@ func (s *Service) buildReviewLinesFromReviewHistory(ctx context.Context, target 
 		}
 		line.usages = usages
 		if reviewLineBeforeOrAtWatermark(line, mark) {
-			priorLines = append(priorLines, line.text)
-			continue
-		}
-		fresh = append(fresh, line)
-	}
-	return priorLines, fresh, observed, nil
-}
-
-func (s *Service) buildReviewLinesFromLoadHistory(ctx context.Context, target reviewTarget, mark reviewWatermark) ([]string, []reviewLine, reviewWatermark, error) {
-	sm, ok := s.memory.(memory.SessionManager)
-	if !ok {
-		return nil, nil, reviewWatermark{}, nil
-	}
-
-	msgs, err := sm.LoadHistory(ctx, target.session.ID)
-	if err != nil {
-		return nil, nil, reviewWatermark{}, err
-	}
-	if len(msgs) == 0 {
-		return nil, nil, reviewWatermark{}, nil
-	}
-
-	sort.SliceStable(msgs, func(i, j int) bool {
-		ti, tj := memory.MessageTimestamp(msgs[i]), memory.MessageTimestamp(msgs[j])
-		if ti.IsZero() || tj.IsZero() {
-			return i < j
-		}
-		return ti.Before(tj)
-	})
-
-	var priorLines []string
-	var fresh []reviewLine
-	var observed reviewWatermark
-	skillUsageByCall := map[string]reviewSkillUsage{}
-	for _, msg := range msgs {
-		if at := memory.MessageTimestamp(msg); at.After(observed.At) {
-			observed.At = at
-		}
-		usages := collectReviewSkillUsage(msg)
-		for _, usage := range usages {
-			if usage.CallID != "" {
-				skillUsageByCall[usage.CallID] = usage
-			}
-		}
-		line := renderReviewLine(msg, skillUsageByCall)
-		if line.text == "" {
-			continue
-		}
-		line.usages = usages
-		if !mark.At.IsZero() && !line.at.IsZero() && !line.at.After(mark.At) {
 			priorLines = append(priorLines, line.text)
 			continue
 		}

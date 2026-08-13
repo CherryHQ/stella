@@ -254,7 +254,7 @@ func linuxPolicyMounts(mounts []sessionfs.Mount, realRoot, stellaHomeHost string
 // isolation on Linux. bwrap is mandatory — returns an error if not functional.
 //
 //   - sandboxCwd: working directory in sandbox space (e.g. /workspace/sub).
-func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMount, mounts []sessionfs.Mount, realRoot, stellaHomeHost string, name string, args []string) (execPath string, execArgs []string, err error) {
+func (s *localSession) wrapCommand(policy sandboxpkg.Policy, sandboxCwd, name string, args []string) (execPath string, execArgs []string, err error) {
 	if !bwrapFunctional() {
 		return "", nil, fmt.Errorf(
 			"local sandbox: bwrap (bubblewrap) is required on Linux but is not available or not functional; " +
@@ -264,7 +264,7 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 	}
 
 	networkMode := policy.NetworkModeOrDefault()
-	mounts = linuxPolicyMounts(mounts, realRoot, stellaHomeHost)
+	mounts := linuxPolicyMounts(s.providerMounts, s.realRoot, s.stellaHomeHost)
 
 	bwrapArgs := []string{
 		"--die-with-parent",
@@ -283,7 +283,7 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 	// Mount temp directories: bind each per-session host dir so file tools on
 	// the host share the same view as bash running inside bwrap.
 	// See createSessionTmpMounts for how to add a new temp path.
-	for _, m := range tmpMounts {
+	for _, m := range s.tmpMounts {
 		bwrapArgs = append(bwrapArgs, "--dir", m.sandboxPath, "--bind", m.realPath, m.sandboxPath)
 	}
 	bwrapArgs = appendLinuxRuntimeMounts(bwrapArgs)
@@ -299,7 +299,7 @@ func wrapCommand(policy sandboxpkg.Policy, sandboxCwd string, tmpMounts []tmpMou
 	}
 	workspaceMount, _ := mountBySandboxPath(mounts, sandboxpkg.MountWorkspace)
 	if workspaceMount.HostPath == "" {
-		workspaceMount = sessionfs.Mount{HostPath: realRoot, SandboxPath: sandboxpkg.MountWorkspace}
+		workspaceMount = sessionfs.Mount{HostPath: s.realRoot, SandboxPath: sandboxpkg.MountWorkspace}
 	}
 	bwrapArgs = append(bwrapArgs,
 		"--dir", workspaceMount.SandboxPath,

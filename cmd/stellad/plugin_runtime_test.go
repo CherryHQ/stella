@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -41,7 +42,7 @@ func newTestHTTPServer(t *testing.T, handler http.Handler) (srv *httptest.Server
 	return httptest.NewServer(handler)
 }
 
-// passthroughHost is a minimal sandbox.Host that executes commands directly.
+// passthroughHost is a minimal sandbox.Session that executes commands directly.
 type passthroughHost struct {
 	sandbox.Session
 	workDir string
@@ -70,8 +71,42 @@ func (h *passthroughHost) Exec(_ context.Context, command string, opts sandbox.E
 	return sandbox.ExecResult{Stdout: string(out), ExitCode: exitCode}, nil
 }
 
-func (h *passthroughHost) Files() sandbox.FileAccess { return sandbox.NopSession().Files() }
+func (h *passthroughHost) Files() sandbox.FileAccess { return passthroughFiles{} }
 func (h *passthroughHost) WorkingDir() string        { return h.workDir }
+
+type passthroughFiles struct{}
+
+func (passthroughFiles) ReadFile(name string) ([]byte, error) { return os.ReadFile(name) }
+func (passthroughFiles) ReadDir(name string) ([]sandbox.DirEntry, error) {
+	entries, err := os.ReadDir(name)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]sandbox.DirEntry, 0, len(entries))
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err == nil {
+			out = append(out, sandbox.DirEntry{Name: entry.Name(), IsDir: entry.IsDir(), Size: info.Size()})
+		}
+	}
+	return out, nil
+}
+
+func (passthroughFiles) Stat(name string) (sandbox.FileInfo, error) {
+	info, err := os.Stat(name)
+	if err != nil {
+		return sandbox.FileInfo{}, err
+	}
+	return sandbox.FileInfo{IsDir: info.IsDir(), Size: info.Size()}, nil
+}
+
+func (passthroughFiles) WriteFile(name string, content []byte, mode fs.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(name, content, mode)
+}
+func (passthroughFiles) ProjectFiles(string, []sandbox.ProjectedFile) error { return fs.ErrPermission }
 
 func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 	t.Setenv("STELLA_HOME", t.TempDir())
@@ -84,7 +119,7 @@ func TestDirectToolRegistryExecuteReadWriteEdit(t *testing.T) {
 
 	host := &passthroughHost{workDir: dir}
 	reg := pkgtools.NewRegistry()
-	for _, tool := range agentsandbox.NewTools(host, "", nil) {
+	for _, tool := range agentsandbox.NewTools(host, nil) {
 		reg.Register(tool)
 	}
 	defer func() { _ = reg.Close() }()
@@ -144,7 +179,7 @@ func TestDirectToolRegistryExecuteBashAndWebFetch(t *testing.T) {
 	workDir := t.TempDir()
 	host := &passthroughHost{workDir: workDir}
 	reg := pkgtools.NewRegistry()
-	for _, tool := range agentsandbox.NewTools(host, "", nil) {
+	for _, tool := range agentsandbox.NewTools(host, nil) {
 		reg.Register(tool)
 	}
 	reg.Register(webfetch.New())

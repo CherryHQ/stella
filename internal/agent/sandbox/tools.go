@@ -8,13 +8,13 @@ import (
 )
 
 // NewTools returns the four standard sandbox-backed tools (bash, read, write, edit).
-func NewTools(host pkgsandbox.Host, toolsBinDir string, sessionSecretValues *SessionSecretValues) []pkgtools.Tool {
+func NewTools(host pkgsandbox.Session, sessionSecretValues *SessionSecretValues) []pkgtools.Tool {
 	if host == nil {
 		return nil
 	}
 	projectRoot := host.WorkingDir()
 	return []pkgtools.Tool{
-		newBashTool(host, toolsBinDir, projectRoot, sessionSecretValues),
+		newBashTool(host, projectRoot, sessionSecretValues),
 		newReadTool(host, projectRoot),
 		newWriteTool(host, projectRoot),
 		newEditTool(host, projectRoot),
@@ -34,7 +34,7 @@ func ToolDefinitions() []pkgtools.Definition {
 
 // resolveToolExpression expands only the model-authored leading filesystem
 // variable before project resolution; session path resolvers stay literal.
-func resolveToolExpression(host pkgsandbox.Host, projectRoot, path string) (string, error) {
+func resolveToolExpression(host pkgsandbox.Session, projectRoot, path string) (string, error) {
 	expanded := path
 	if strings.HasPrefix(path, "$") {
 		var err error

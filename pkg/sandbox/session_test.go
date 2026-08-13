@@ -2,8 +2,8 @@ package sandbox
 
 import (
 	"context"
-	"os"
-	"path/filepath"
+	"errors"
+	"io/fs"
 	"testing"
 )
 
@@ -28,12 +28,8 @@ func TestNopSession(t *testing.T) {
 		t.Errorf("Exec exit code = %d, want 0", result.ExitCode)
 	}
 
-	file := filepath.Join(t.TempDir(), "file")
-	if err := os.WriteFile(file, []byte("content"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if content, err := s.Files().ReadFile(file); err != nil || string(content) != "content" {
-		t.Errorf("Files.ReadFile = %q, %v", content, err)
+	if _, err := s.Files().ReadFile("/host/file"); !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("Files.ReadFile error = %v, want permission denied", err)
 	}
 
 	// Policy should be the default no-op policy.

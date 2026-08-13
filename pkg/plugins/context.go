@@ -8,31 +8,14 @@ import (
 	"github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-// ToolPaths is the tool-facing session path surface.
-// UserRoot is the shared principal home. WorkspaceRoot is the per-agent execution
-// root and process HOME/cwd. ProjectRoot is the tool-facing current-project
-// directory; relative paths in project-aware tools resolve against it. StellaHome
-// and AgentRoot are discovery roots.
-type ToolPaths struct {
-	UserRoot      string
-	WorkspaceRoot string
-	ToolsBinDir   string
-	StellaHome    string
-	AgentRoot     string
-	ProjectRoot   string // tool-facing project root for relative path resolution
-}
-
 // ToolContext is the narrow build context for tool capabilities.
 type ToolContext struct {
 	Platform Platform
-	Paths    ToolPaths
 	Runtime  sandbox.Session
 }
 
-// ToolBuildContext carries per-session configuration for tool construction.
-// It is the runner-facing subset of ToolContext without the Platform field.
+// ToolBuildContext carries the active runtime for per-session tool construction.
 type ToolBuildContext struct {
-	Paths   ToolPaths
 	Runtime sandbox.Session
 }
 
@@ -75,22 +58,13 @@ type PromptInventoryContext struct {
 }
 
 // SystemPromptContext is the shared build context for prompt contributions.
-// HomeDir is host-scoped discovery context; UserRoot is the shared principal home,
-// and WorkspaceRoot is the per-agent runtime workspace.
+// It carries logical identity and immutable plugin/policy state only; filesystem
+// access belongs to the active Session or to an explicitly captured snapshot.
 type SystemPromptContext struct {
-	Platform      Platform
-	State         PluginState
-	StellaHome    string
-	HomeDir       string
-	AgentRoot     string
-	ProjectRoot   string
-	UserID        string
-	AgentID       string
-	UserRoot      string
-	WorkspaceRoot string
-	// SkillStore is a direct shortcut for callers that have a SkillStore but no Platform.
-	// BuildPromptSection uses this when Platform is nil.
-	SkillStore SkillStore
+	Platform Platform
+	State    PluginState
+	UserID   string
+	AgentID  string
 	// RegisteredPluginIDs and EnabledPluginIDs describe plugin visibility for
 	// prompt builders that need plugin-state-aware output such as skill catalogs.
 	RegisteredPluginIDs []string

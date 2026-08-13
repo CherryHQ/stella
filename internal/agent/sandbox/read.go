@@ -28,12 +28,12 @@ func readDefinition() pkgtools.Definition {
 	}
 }
 
-func newReadTool(host pkgsandbox.Host, projectRoot string) pkgtools.Tool {
+func newReadTool(host pkgsandbox.Session, projectRoot string) pkgtools.Tool {
 	return &hostReadTool{host: host, projectRoot: projectRoot}
 }
 
 type hostReadTool struct {
-	host        pkgsandbox.Host
+	host        pkgsandbox.Session
 	projectRoot string
 }
 

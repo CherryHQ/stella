@@ -458,6 +458,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		ToolOverrides:       toolOverrides,
 		SessionAccess:       s.sessionAccess,
 		SkillAccess:         s.skillAccess,
+		Skills:              s.skillStore,
 		LinkCodes:           linkCodes,
 		PoolManager:         s.poolManager,
 		PluginHost:          s.pluginHost,

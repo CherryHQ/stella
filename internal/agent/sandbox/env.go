@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,12 @@ func runnerFilesystemPolicy(paths Paths, cfg Config) (pkgsandbox.FilesystemPolic
 			Access:      pkgsandbox.MountReadOnly,
 		})
 		sources[sandboxPath] = filepath.Join(paths.StellaHome, name)
+	}
+	agentDelegates := filepath.Join(paths.AgentRoot, ".agents", "delegates")
+	if info, err := os.Stat(agentDelegates); cfg.AgentID != "" && filepath.Clean(paths.AgentRoot) != filepath.Clean(paths.WorkspaceRoot) && err == nil && info.IsDir() {
+		sandboxPath := path.Join(pkgsandbox.MountStellaHome, "agents", cfg.AgentID, ".agents", "delegates")
+		mounts = append(mounts, pkgsandbox.Mount{SandboxPath: sandboxPath, Access: pkgsandbox.MountReadOnly})
+		sources[sandboxPath] = agentDelegates
 	}
 	if paths.BuiltinBundle != "" {
 		mounts = append(mounts, pkgsandbox.Mount{SandboxPath: pkgsandbox.MountBuiltinSkills, Access: pkgsandbox.MountReadOnly})

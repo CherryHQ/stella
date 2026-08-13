@@ -23,7 +23,7 @@ func TestEmbeddedPostgresSkillAccessMatrix(t *testing.T) {
 	store := storepkg.NewDBStore(pool)
 	oidc := appdb.NewOIDCStore(pool)
 	assign := appdb.NewAuthStore(pool)
-	skillStore := skills.New(pool)
+	skillStore := skillIdentityFixture{}
 
 	owner, err := oidc.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "owner@sk.test", Name: "owner", Role: auth.RoleUser})
 	if err != nil {
@@ -237,14 +237,22 @@ func TestEmbeddedPostgresSkillAccessMatrix(t *testing.T) {
 	})
 }
 
-func mustCreateSkill(t *testing.T, store *skills.PGStore, sk skills.Skill) string {
+type skillIdentityFixture map[string]skills.Skill
+
+func (store skillIdentityFixture) GetIdentity(_ context.Context, id string) (*skills.Skill, error) {
+	skill, ok := store[id]
+	if !ok {
+		return nil, nil
+	}
+	return &skill, nil
+}
+
+func mustCreateSkill(t *testing.T, store skillIdentityFixture, sk skills.Skill) string {
 	t.Helper()
 	if sk.Status == "" {
 		sk.Status = "active"
 	}
-	id, err := store.Create(context.Background(), sk, map[string]string{skills.MainFile: "---\nname: " + sk.Name + "\n---\n"})
-	if err != nil {
-		t.Fatalf("create skill %q: %v", sk.Name, err)
-	}
-	return id
+	sk.ID = uuid.NewString()
+	store[sk.ID] = sk
+	return sk.ID
 }

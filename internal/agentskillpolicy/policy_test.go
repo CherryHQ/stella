@@ -6,18 +6,17 @@ import (
 	"testing"
 )
 
-func TestDecodeStrictAndLegacyCompatibility(t *testing.T) {
+func TestDecodeStrict(t *testing.T) {
 	tests := []struct {
 		name    string
 		raw     string
 		want    []string
-		legacy  bool
 		wantErr bool
 	}{
-		{name: "missing", raw: "", want: nil},
-		{name: "null", raw: "null", want: nil},
-		{name: "empty legacy", raw: "[]", want: nil},
-		{name: "non-empty legacy", raw: `["formerly-an-allowlist"]`, want: nil, legacy: true},
+		{name: "missing", raw: "", wantErr: true},
+		{name: "null", raw: "null", wantErr: true},
+		{name: "empty array", raw: "[]", wantErr: true},
+		{name: "non-empty array", raw: `["formerly-an-allowlist"]`, wantErr: true},
 		{name: "canonical", raw: `{"version":1,"disabled":["builtin:alpha","system:beta"]}`, want: []string{"builtin:alpha", "system:beta"}},
 		{name: "missing version", raw: `{"disabled":[]}`, wantErr: true},
 		{name: "missing disabled", raw: `{"version":1}`, wantErr: true},
@@ -36,7 +35,7 @@ func TestDecodeStrictAndLegacyCompatibility(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, diagnostics, err := Decode(json.RawMessage(tt.raw))
+			got, err := Decode(json.RawMessage(tt.raw))
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("Decode() error = nil")
@@ -46,8 +45,8 @@ func TestDecodeStrictAndLegacyCompatibility(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Decode() error = %v", err)
 			}
-			if !reflect.DeepEqual(got.Disabled, tt.want) || diagnostics.LegacyArray != tt.legacy {
-				t.Fatalf("Decode() = %#v, %#v; want disabled=%#v legacy=%t", got, diagnostics, tt.want, tt.legacy)
+			if !reflect.DeepEqual(got.Disabled, tt.want) {
+				t.Fatalf("Decode() = %#v; want disabled=%#v", got, tt.want)
 			}
 		})
 	}

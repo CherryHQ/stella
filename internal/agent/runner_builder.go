@@ -121,8 +121,7 @@ type runnerBuilderConfig struct {
 	ProviderStreamBuilder    ProviderStreamBuilder
 	PromptSectionsBuilder    prompt.SectionsBuilder
 	SessionPluginViewBuilder SessionPluginViewBuilder
-	SkillStore               pkgplugins.SkillStore
-	SkillRevisionReader      skillstool.IdentityReader
+	SkillRevisionReader      skillstool.RuntimeReader
 	SkillReadAuthorizer      skillstool.SkillReadAuthorizer
 	MCPToolProvider          MCPToolProvider
 	ToolOverrideFetcher      ToolOverrideFetcher
@@ -132,7 +131,7 @@ type runnerBuilderConfig struct {
 	TokenManager             *oauth.TokenManager
 	ProjectResolver          ProjectResolverFunc
 	SessionImages            SessionImagePipeline
-	WorkspaceViewer          home.WorkspaceViewer
+	Home                     home.Workspace
 }
 
 // newRunnerFunc assembles a NewRunnerFunc for a given config snapshot.
@@ -181,11 +180,11 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 				System:   prompt.BuildGuestSystemPrompt(cfg.Snap.SystemPrompt),
 			})
 		}
-		if cfg.WorkspaceViewer == nil {
+		if cfg.Home == nil {
 			return nil, fmt.Errorf("runner: Home workspace resolver is required")
 		}
 
-		view, err := cfg.WorkspaceViewer.WorkspaceView(ctx, home.WorkspaceRequest{UserID: params.UserID, GroupID: params.GroupID, AgentID: params.AgentID})
+		view, err := cfg.Home.WorkspaceView(ctx, home.WorkspaceRequest{UserID: params.UserID, GroupID: params.GroupID, AgentID: params.AgentID})
 		if err != nil {
 			return nil, fmt.Errorf("resolve Home workspace: %w", err)
 		}
@@ -226,11 +225,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 				}
 				return nil, fmt.Errorf("runner: project resolver is required")
 			}
-			opener, ok := cfg.WorkspaceViewer.(home.RootOpener)
-			if !ok {
-				return nil, fmt.Errorf("runner: Home root opener is required for project Skills")
-			}
-			projectSnapshot, snapshotErr := SnapshotAuthorizedProject(ctx, cfg.ProjectResolver, opener, params.ProjectID, params.UserID, params.AgentID)
+			projectSnapshot, snapshotErr := SnapshotAuthorizedProject(ctx, cfg.ProjectResolver, cfg.Home, params.ProjectID, params.UserID, params.AgentID)
 			err = snapshotErr
 			if err != nil {
 				if scratchCleanup != nil {
@@ -260,20 +255,13 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			memProvider, _ = params.Memory.(memory.Provider)
 		}
 
-		homeDir, _ := os.UserHomeDir()
 		pluginView := pkgplugins.SessionPluginView{}
 		if cfg.SessionPluginViewBuilder != nil {
 			pluginView, _ = cfg.SessionPluginViewBuilder(ctx)
 		}
 		promptBuild := pkgplugins.SystemPromptContext{
-			StellaHome:          config.StellaHome(),
-			HomeDir:             homeDir,
-			AgentRoot:           cfg.Snap.Workspace,
 			UserID:              params.UserID,
 			AgentID:             params.AgentID,
-			UserRoot:            userRoot,
-			WorkspaceRoot:       projectValidateRoot,
-			SkillStore:          cfg.SkillStore,
 			RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
 			EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),
 			DisabledSkillRefs:   append([]string(nil), cfg.Snap.DisabledSkillRefs...),
@@ -284,10 +272,13 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 		}
 		skillPromptBuild := promptBuild
 		if params.GroupID != "" {
-			skillPromptBuild.UserID, skillPromptBuild.UserRoot, skillPromptBuild.WorkspaceRoot = "", "", ""
+			skillPromptBuild.UserID = ""
 		}
-		skillCtx := skillstool.WithProjectSnapshot(ctx, projectSkillSnapshot)
-		if skillsSection, err := skillstool.BuildAuthorizedPromptSection(skillCtx, skillPromptBuild, cfg.SkillRevisionReader, cfg.SkillReadAuthorizer); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
+		skillsSection, err := skillstool.BuildAuthorizedPromptSection(ctx, skillPromptBuild, projectSkillSnapshot, cfg.SkillRevisionReader, cfg.SkillReadAuthorizer)
+		if err != nil {
+			return nil, fmt.Errorf("runner: build skills prompt: %w", err)
+		}
+		if skillsSection.Title != "" && skillsSection.Content != "" {
 			sections = append(sections, skillsSection)
 		}
 		if params.GroupID == "" && cfg.VaultEnvLoader != nil {
@@ -322,10 +313,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			UserID:         promptUserID,
 			AgentID:        params.AgentID,
 			GroupID:        params.GroupID,
-			StellaHome:     config.StellaHome(),
-			AgentRoot:      cfg.Snap.Workspace,
 			ProjectContext: projectContext,
-			UserRoot:       userRoot,
 			Sections:       sections,
 		})
 
@@ -412,7 +400,6 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			BuiltinParams:        params,
 			DisabledSkillRefs:    append([]string(nil), cfg.Snap.DisabledSkillRefs...),
 			PerRunTools:          perRunTools,
-			SkillStore:           cfg.SkillStore,
 			SkillRevisionReader:  cfg.SkillRevisionReader,
 			ProjectSkillSnapshot: projectSkillSnapshot,
 			SkillReadAuthorizer:  cfg.SkillReadAuthorizer,

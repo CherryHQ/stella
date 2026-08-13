@@ -57,7 +57,7 @@ internal/
   db/                  PostgreSQL（pgx/v5）、goose 迁移、sqlc 查询
   home/                POSIX workspace 物化、所有者验证、删除 fence
   scheduler/           River 持久化调度服务（供 Web UI 和 Agent 原生工具使用）
-  skills/              技能工具（通过 skills.sh 搜索/安装/列出/移除）
+  skills/              托管 Skill 权威、精确 revision、搜索与加载
 pkg/
   ai/                  Message/Content 类型、Model、Provider 接口、流式事件
   tools/               Tool 接口与注册表
@@ -199,13 +199,13 @@ Agent 发送会先持久化一行输入，再进入进程内按 Session 划分�
 
 ### 内置共享工具
 
-| 工具        | 条件                  | 描述                                         |
-| ----------- | --------------------- | -------------------------------------------- |
-| `memory`    | 始终                  | 跨对话与持久记忆的统一搜索和读取             |
-| `session`   | 一对一 Agent 会话     | Session 列表、有界检查、创建和同步发送       |
-| `skills`    | 始终                  | 技能管理（从 skills.sh 搜索/安装/列出/移除） |
-| `scheduler` | 始终                  | 安排任务（添加/列出/移除作业）               |
-| `notify`    | 网关模式 + 通道已配置 | 通过分发器发送通知                           |
+| 工具        | 条件                  | 描述                                        |
+| ----------- | --------------------- | ------------------------------------------- |
+| `memory`    | 始终                  | 跨对话与持久记忆的统一搜索和读取            |
+| `session`   | 一对一 Agent 会话     | Session 列表、有界检查、创建和同步发送      |
+| `skills`    | 始终                  | 搜索已安装 Skill，并加载选中的精确 revision |
+| `scheduler` | 始终                  | 安排任务（添加/列出/移除作业）              |
+| `notify`    | 网关模式 + 通道已配置 | 通过分发器发送通知                          |
 
 内存工具由 `memory.BuildTool(provider, memory.WithRecallSource(sessionAccess))` 生成。普通聊天 runner 只暴露 `search` 与 `read`：search 联合检索当前快照可见的 LCM 消息/摘要和持久 facts、profile、soul、constraints；read 解析 opaque result ref 或 well-known 的身份、约束、历史 ref。Dynamic read 会重新经过 Session access 授权；summary read 则通过有界 child ref 保留 LCM describe/expand 能力。对话 `status`/`describe`/`expand`/`get_message` 以及持久 profile、soul、constraint 管理等 provider-oriented actions，只保留给负责它们的 internal、Reflect 或 manual surface。
 

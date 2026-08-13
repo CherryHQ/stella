@@ -41,12 +41,11 @@ const (
 )
 
 type WorkspaceInfo struct {
-	Root        string   `json:"root"`
-	SandboxRoot string   `json:"sandbox_root"`
-	Paths       []string `json:"paths"`
-	TotalFiles  int      `json:"total_files"`
-	TotalDirs   int      `json:"total_dirs"`
-	TotalBytes  int64    `json:"total_bytes"`
+	Root       string   `json:"root"`
+	Paths      []string `json:"paths"`
+	TotalFiles int      `json:"total_files"`
+	TotalDirs  int      `json:"total_dirs"`
+	TotalBytes int64    `json:"total_bytes"`
 }
 
 type WorkspaceListInput struct {
@@ -232,29 +231,6 @@ func (a *Access) ReadWorkspacePath(ctx context.Context, in WorkspaceReadInput) (
 		return WorkspaceReadResult{}, ErrInvalid
 	}
 	scope, name, err := canonicalWorkspacePath(in.Scope, in.Path, false)
-	if resolver, ok := a.svc.homes.(home.CoordinateResolver); ok {
-		info, accessErr := a.Workspace(ctx, in.AgentID, in.SessionID, authz.ActionRead)
-		if accessErr != nil {
-			return WorkspaceReadResult{}, accessErr
-		}
-		rootScope := home.RootAgentWorkspace
-		if in.Scope == WorkspaceScopeUser {
-			rootScope = home.RootPrincipalData
-		}
-		resolvedScope, resolvedName, resolveErr := resolver.ResolveCoordinate(home.Coordinate{
-			Request: home.WorkspaceRequest{UserID: info.UserID, GroupID: info.GroupID, AgentID: info.AgentID},
-			Scope:   rootScope,
-			Value:   in.Path,
-		})
-		if resolveErr != nil {
-			return WorkspaceReadResult{}, ErrNotFound
-		}
-		err = nil
-		scope, name = WorkspaceScopeAgent, resolvedName
-		if resolvedScope == home.RootPrincipalData {
-			scope = WorkspaceScopeUser
-		}
-	}
 	if err != nil {
 		return WorkspaceReadResult{}, err
 	}
@@ -476,7 +452,7 @@ func collectWorkspaceInfo(ctx context.Context, root home.RootOperations, scope W
 	if scope == WorkspaceScopeUser {
 		logicalRoot = pkgsandbox.MountUserData
 	}
-	result := WorkspaceInfo{Root: logicalRoot, SandboxRoot: logicalRoot, Paths: []string{}}
+	result := WorkspaceInfo{Root: logicalRoot, Paths: []string{}}
 	var walk func(string, int) error
 	walk = func(directory string, level int) error {
 		entries, err := root.List(ctx, directory, home.ListOptions{Limit: workspaceListLimit})

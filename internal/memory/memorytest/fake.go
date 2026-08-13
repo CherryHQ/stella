@@ -108,6 +108,7 @@ var (
 	_ memory.GroupMemoryStore         = (*Fake)(nil)
 	_ memory.FactStore                = (*Fake)(nil)
 	_ memory.VersionedFactStore       = (*Fake)(nil)
+	_ memory.ReviewHistoryReader      = (*Fake)(nil)
 )
 
 // ---------------------------------------------------------------------------
@@ -650,6 +651,28 @@ func (f *Fake) LoadHistory(_ context.Context, sessionID string) ([]ai.Message, e
 	// Return a copy to prevent mutation.
 	out := make([]ai.Message, len(msgs))
 	copy(out, msgs)
+	return out, nil
+}
+
+// LoadReviewHistory implements memory.ReviewHistoryReader with one stable
+// storage boundary per appended message.
+func (f *Fake) LoadReviewHistory(_ context.Context, sessionID string) ([]memory.ReviewMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	msgs, ok := f.sessions[sessionID]
+	if !ok {
+		return nil, nil
+	}
+	out := make([]memory.ReviewMessage, len(msgs))
+	for index, msg := range msgs {
+		seq := int64(index + 1)
+		out[index] = memory.ReviewMessage{
+			ID:       fmt.Sprintf("%s:%d", sessionID, seq),
+			FirstSeq: seq,
+			LastSeq:  seq,
+			Message:  msg,
+		}
+	}
 	return out, nil
 }
 

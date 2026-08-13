@@ -215,6 +215,7 @@ type testEnv struct {
 	db          *pgxpool.Pool
 	store       config.Store
 	pluginHost  *pluginhost.Host
+	skillStore  *skills.POSIXStore
 	authStore   *appdb.AuthStore
 	oidcStore   *appdb.OIDCStore
 	mem         memory.Provider
@@ -321,8 +322,15 @@ func setupAdmin(t *testing.T) *testEnv {
 	if err := phost.LoadDefaultCatalog(); err != nil {
 		t.Fatalf("LoadDefaultCatalog: %v", err)
 	}
-	skillStore := skills.New(db)
-	phost.SetSkillStore(skillStore)
+	homeManager, err := home.NewWorkspaceManager(db, t.TempDir())
+	if err != nil {
+		t.Fatalf("home.NewWorkspaceManager: %v", err)
+	}
+	t.Cleanup(func() { _ = homeManager.Close() })
+	skillStore, err := skills.NewPOSIXStore(db, homeManager)
+	if err != nil {
+		t.Fatalf("skills.NewPOSIXStore: %v", err)
+	}
 
 	oidcStore := appdb.NewOIDCStore(db)
 	authSvc := auth.NewAuthService(db, oidcStore, oidcStore, oidcStore)
@@ -347,19 +355,18 @@ func setupAdmin(t *testing.T) *testEnv {
 	credFrontDoor := credential.NewService(credential.Config{PATs: credPATStore, OAuth: oauthStore, Users: credPATStore, Logger: credLog})
 	oauthAuthServer := oauthserver.NewService(oauthserver.Config{Store: oauthStore, Issuer: credFrontDoor, Logger: credLog})
 	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
-	homeDir, _ := os.UserHomeDir()
 	agentAccess := agentaccess.NewService(store, as)
+	skillAccess := skillaccess.NewService(skillStore, agentAccess)
 	projectStore := agent.NewProjectStore(db, store, agentAccess, agent.WithProjectHomeWorkspace(externalServerTestWorkspace{root: config.StellaHome()}))
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
-		StellaHome: config.StellaHome(),
-		HomeDir:    homeDir,
-		Memory:     mem,
-		Agents:     sessionaccess.ConfigPromptAgentStore{Store: store},
-		Projects:   projectStore.Resolve,
-		Workspace:  externalServerTestWorkspace{root: config.StellaHome()},
-		Plugins:    phost,
-		SkillStore: pluginhost.NewSkillStoreAdapter(skillStore),
-		Skills:     skills.BuildPromptSection,
+		Memory:    mem,
+		Agents:    sessionaccess.ConfigPromptAgentStore{Store: store},
+		Projects:  projectStore.Resolve,
+		Workspace: externalServerTestWorkspace{root: config.StellaHome()},
+		Plugins:   phost,
+		Skills: func(ctx context.Context, build pkgplugins.SystemPromptContext, project *skills.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
+			return skills.BuildAuthorizedPromptSection(ctx, build, project, skillStore, skillAccess)
+		},
 	})
 	if err != nil {
 		t.Fatalf("sessionaccess.NewSystemPromptBuilder: %v", err)
@@ -389,7 +396,8 @@ func setupAdmin(t *testing.T) *testEnv {
 		AgentSkillPolicy:    store,
 		ToolOverrides:       agent.NewToolOverrideStore(db),
 		SessionAccess:       sessionSvc,
-		SkillAccess:         skillaccess.NewService(skillStore, agentAccess),
+		SkillAccess:         skillAccess,
+		Skills:              skillStore,
 		LinkCodes:           auth.NewLinkCodeStore(),
 		PoolManager:         poolManager,
 		PluginHost:          phost,
@@ -436,6 +444,7 @@ func setupAdmin(t *testing.T) *testEnv {
 		db:          db,
 		store:       store,
 		pluginHost:  phost,
+		skillStore:  skillStore,
 		authStore:   as,
 		oidcStore:   oidcStore,
 		mem:         mem,

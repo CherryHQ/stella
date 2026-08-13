@@ -3,7 +3,6 @@ package sandbox
 import (
 	"context"
 	"fmt"
-	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -28,14 +27,13 @@ func bashDefinition() pkgtools.Definition {
 	}
 }
 
-func newBashTool(host pkgsandbox.Host, toolsBinDir, projectRoot string, sessionSecretValues *SessionSecretValues) pkgtools.Tool {
-	return &hostBashTool{host: host, normalizer: newToolNormalizer(), toolsBinDir: toolsBinDir, projectRoot: projectRoot, sessionSecretValues: sessionSecretValues}
+func newBashTool(host pkgsandbox.Session, projectRoot string, sessionSecretValues *SessionSecretValues) pkgtools.Tool {
+	return &hostBashTool{host: host, normalizer: newToolNormalizer(), projectRoot: projectRoot, sessionSecretValues: sessionSecretValues}
 }
 
 type hostBashTool struct {
-	host                pkgsandbox.Host
+	host                pkgsandbox.Session
 	normalizer          *toolNormalizer
-	toolsBinDir         string
 	projectRoot         string
 	sessionSecretValues *SessionSecretValues
 }
@@ -49,11 +47,7 @@ func (t *hostBashTool) Execute(ctx context.Context, args map[string]any) (string
 	}
 	start := time.Now()
 	timeoutSeconds := toolIntArg(args, "timeout", 0)
-	env := map[string]string{}
-	if t.toolsBinDir != "" {
-		env["PATH"] = t.toolsBinDir + string(os.PathListSeparator) + os.Getenv("PATH")
-	}
-	execOpts := pkgsandbox.ExecOptions{Timeout: time.Duration(timeoutSeconds) * time.Second, Env: env}
+	execOpts := pkgsandbox.ExecOptions{Timeout: time.Duration(timeoutSeconds) * time.Second}
 	if t.projectRoot != "" {
 		execOpts.Cwd = t.projectRoot
 	}

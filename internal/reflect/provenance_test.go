@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/memory"
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/internal/skills"
 )
 
 func TestBuildFactBatchOperationsSelectsOnlyWrittenOperationData(t *testing.T) {
@@ -126,7 +126,7 @@ func TestBuildSkillPlanProvenanceUsesPlanIndexAndContentDigest(t *testing.T) {
 	bundle := skillRelatedBundle{
 		Candidates: []skillCandidate{candidate},
 		RelatedRecords: []skillRelatedRecord{{
-			Skill: pkgplugins.Skill{
+			Skill: skills.Skill{
 				ID:      "skill-old",
 				Version: 4,
 			},
@@ -148,13 +148,12 @@ func TestBuildSkillPlanProvenanceUsesPlanIndexAndContentDigest(t *testing.T) {
 			Rationale:     "unrelated noop",
 		},
 		{
-			Operation:            skillOperationPatch,
-			CandidateRefs:        []CandidateRef{candidate.Ref},
-			TargetSkillID:        "skill-old",
-			ExpectedSkillVersion: 4,
-			Description:          "updated description",
-			MainFileContent:      mainFile,
-			Rationale:            "candidate closes the workflow gap",
+			Operation:       skillOperationPatch,
+			CandidateRefs:   []CandidateRef{candidate.Ref},
+			TargetSkillID:   "skill-old",
+			Description:     "updated description",
+			MainFileContent: mainFile,
+			Rationale:       "candidate closes the workflow gap",
 		},
 	}}
 
@@ -261,7 +260,7 @@ func TestBuildSkillPlanProvenanceRejectsSecretsInPersistedModelFields(t *testing
 			name: "related selection reason",
 			mutate: func(decision *skillCandidateDecision, _ *skillWriteOperation, bundle *skillRelatedBundle) {
 				bundle.RelatedRecords = []skillRelatedRecord{{
-					Skill: pkgplugins.Skill{ID: "related-skill", Version: 2},
+					Skill: skills.Skill{ID: "related-skill", Version: 2},
 				}}
 				bundle.RelationHints = []skillRelatedSelection{{
 					CandidateRef: decision.Candidate.Ref,

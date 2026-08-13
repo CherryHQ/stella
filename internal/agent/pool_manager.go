@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"os"
 	"sort"
 	"sync"
 	"time"
@@ -106,11 +105,7 @@ func WithProviderStreamBuilder(b ProviderStreamBuilder) PoolManagerOption {
 	return func(pm *PoolManager) { pm.providerStreamBuilder = b }
 }
 
-func WithSkillStore(s pkgplugins.SkillStore) PoolManagerOption {
-	return func(pm *PoolManager) { pm.skillStore = s }
-}
-
-func WithSkillRevisionReader(r skillstool.IdentityReader) PoolManagerOption {
+func WithSkillRevisionReader(r skillstool.RuntimeReader) PoolManagerOption {
 	return func(pm *PoolManager) { pm.skillRevisionReader = r }
 }
 
@@ -147,7 +142,7 @@ func WithProjectEnsurerPM(fn ProjectEnsurerFunc) PoolManagerOption {
 }
 
 // WithHomeWorkspace supplies the sole persistent Home resolver for runners.
-func WithHomeWorkspace(v home.WorkspaceViewer) PoolManagerOption {
+func WithHomeWorkspace(v home.Workspace) PoolManagerOption {
 	return func(pm *PoolManager) { pm.homeWorkspace = v }
 }
 
@@ -200,8 +195,7 @@ type PoolManager struct {
 	beforeRunBuilder         BeforeRunBuilder
 	toolLifecycle            *coreagent.ToolLifecycle
 	providerStreamBuilder    ProviderStreamBuilder
-	skillStore               pkgplugins.SkillStore
-	skillRevisionReader      skillstool.IdentityReader
+	skillRevisionReader      skillstool.RuntimeReader
 	skillReadAuthz           skillstool.SkillReadAuthorizer
 	mcpToolProvider          MCPToolProvider
 	toolOverrideFetcher      ToolOverrideFetcher
@@ -213,7 +207,7 @@ type PoolManager struct {
 	sessionImages            SessionImagePipeline
 	sessionAccess            SessionAccessService
 	sessionInbox             SessionInbox
-	homeWorkspace            home.WorkspaceViewer
+	homeWorkspace            home.Workspace
 	log                      *slog.Logger
 }
 
@@ -349,7 +343,7 @@ func (pm *PoolManager) StartAll(ctx context.Context) error {
 	}
 	if pm.homeWorkspace == nil {
 		pm.mu.Unlock()
-		return errors.New("agent: PoolManager.StartAll requires WorkspaceViewer")
+		return errors.New("agent: PoolManager.StartAll requires Home workspace")
 	}
 	pm.started = true
 	pm.mu.Unlock()
@@ -489,45 +483,23 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 	return svc, nil
 }
 
-// promptScope computes the per-session workspace root and the prompt subject for
-// profile rendering. Group sessions blank the prompt UserID so the group id is
-// never treated as a human profile subject (D9); plugin/skill sections still use
-// the session's UserID (the group id) so they match the cached group runner.
-func (pm *PoolManager) promptScope(ctx context.Context, info session.Info) (userRoot, workspaceRoot, promptUserID, groupID string, err error) {
-	if info.GroupID != "" || info.UserID != "" {
-		if pm.homeWorkspace == nil {
-			return "", "", "", "", errors.New("home workspace resolver is not configured")
-		}
-		workspace, resolveErr := pm.homeWorkspace.WorkspaceView(ctx, home.WorkspaceRequest{UserID: info.UserID, GroupID: info.GroupID, AgentID: info.AgentID})
-		if resolveErr != nil {
-			return "", "", "", "", fmt.Errorf("resolve Home workspace: %w", resolveErr)
-		}
-		userRoot, workspaceRoot = workspace.PrincipalRoot, workspace.AgentRoot
-	}
+// promptScope computes only the logical profile subject. Group sessions blank
+// the prompt UserID so a group identifier is never treated as a human profile.
+func (pm *PoolManager) promptScope(info session.Info) (promptUserID, groupID string) {
 	if info.GroupID != "" {
-		return userRoot, workspaceRoot, "", info.GroupID, nil
+		return "", info.GroupID
 	}
-	return userRoot, workspaceRoot, info.UserID, "", nil
+	return info.UserID, ""
 }
 
-func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot, info session.Info, userRoot, workspaceRoot string, projectSkills *skillstool.ProjectSnapshot) []pkgplugins.SystemPromptSection {
-	homeDir, _ := os.UserHomeDir()
+func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot, info session.Info, projectSkills *skillstool.ProjectSnapshot) ([]pkgplugins.SystemPromptSection, error) {
 	pluginView := pkgplugins.SessionPluginView{}
 	if pm.sessionPluginViewBuilder != nil {
 		pluginView, _ = pm.sessionPluginViewBuilder(ctx)
 	}
-	if workspaceRoot == "" {
-		workspaceRoot = snap.Workspace
-	}
 	promptBuild := pkgplugins.SystemPromptContext{
-		StellaHome:          config.StellaHome(),
-		HomeDir:             homeDir,
-		AgentRoot:           snap.Workspace,
 		UserID:              info.UserID,
 		AgentID:             info.AgentID,
-		UserRoot:            userRoot,
-		WorkspaceRoot:       workspaceRoot,
-		SkillStore:          pm.skillStore,
 		RegisteredPluginIDs: append([]string(nil), pluginView.RegisteredPluginIDs...),
 		EnabledPluginIDs:    append([]string(nil), pluginView.EnabledPluginIDs...),
 		DisabledSkillRefs:   append([]string(nil), snap.DisabledSkillRefs...),
@@ -538,40 +510,39 @@ func (pm *PoolManager) promptSections(ctx context.Context, snap *config.Snapshot
 	}
 	skillBuild := promptBuild
 	if info.GroupID != "" {
-		skillBuild.UserID, skillBuild.UserRoot, skillBuild.WorkspaceRoot = "", "", ""
+		skillBuild.UserID = ""
 	}
-	if skillsSection, err := skillstool.BuildAuthorizedPromptSection(skillstool.WithProjectSnapshot(ctx, projectSkills), skillBuild, pm.skillRevisionReader, pm.skillReadAuthz); err == nil && skillsSection.Title != "" && skillsSection.Content != "" {
+	skillsSection, err := skillstool.BuildAuthorizedPromptSection(ctx, skillBuild, projectSkills, pm.skillRevisionReader, pm.skillReadAuthz)
+	if err != nil {
+		return nil, fmt.Errorf("build skills prompt: %w", err)
+	}
+	if skillsSection.Title != "" && skillsSection.Content != "" {
 		sections = append(sections, skillsSection)
 	}
-	return sections
+	return sections, nil
 }
 
 func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentruntime.SnapshotPromptFunc {
 	return func(ctx context.Context, info session.Info, ss memory.SessionSnapshot) (string, error) {
 		// Keep an addressable copy so version zero remains an explicit snapshot.
 		version := ss.Version
-		userRoot, workspaceRoot, promptUserID, groupID, err := pm.promptScope(ctx, info)
-		if err != nil {
-			return "", err
-		}
+		promptUserID, groupID := pm.promptScope(info)
 		var projectContext prompt.ProjectContext
 		var projectSkills *skillstool.ProjectSnapshot
 		if info.ProjectID != "" {
 			if pm.projectResolver == nil {
 				return "", errors.New("project resolver is not configured")
 			}
-			opener, ok := pm.homeWorkspace.(home.RootOpener)
-			if !ok {
-				return "", errors.New("home root opener is required for project context")
-			}
-			projectSnapshot, snapshotErr := SnapshotAuthorizedProject(ctx, pm.projectResolver, opener, info.ProjectID, info.UserID, info.AgentID)
-			err = snapshotErr
+			projectSnapshot, err := SnapshotAuthorizedProject(ctx, pm.projectResolver, pm.homeWorkspace, info.ProjectID, info.UserID, info.AgentID)
 			if err != nil {
 				return "", err
 			}
 			projectContext, projectSkills = projectSnapshot.Context, projectSnapshot.Skills
 		}
-		sections := pm.promptSections(ctx, snap, info, userRoot, workspaceRoot, projectSkills)
+		sections, err := pm.promptSections(ctx, snap, info, projectSkills)
+		if err != nil {
+			return "", err
+		}
 
 		return prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
 			SystemPrompt:    snap.SystemPrompt,
@@ -580,9 +551,6 @@ func (pm *PoolManager) buildSnapshotPromptFunc(snap *config.Snapshot) agentrunti
 			UserID:          promptUserID,
 			AgentID:         info.AgentID,
 			GroupID:         groupID,
-			StellaHome:      config.StellaHome(),
-			AgentRoot:       snap.Workspace,
-			UserRoot:        userRoot,
 			Sections:        sections,
 			ProjectContext:  projectContext,
 			SnapshotVersion: &version,
@@ -788,7 +756,7 @@ func (pm *PoolManager) rebuildRunnerFuncForServiceLocked(ctx context.Context, ag
 // runners are rebuilt.
 func (pm *PoolManager) SyncAgent(ctx context.Context, agentID string) error {
 	if pm.homeWorkspace == nil {
-		return errors.New("agent: PoolManager.SyncAgent requires WorkspaceViewer")
+		return errors.New("agent: PoolManager.SyncAgent requires Home workspace")
 	}
 	if pm.syncAgentBeforeLifecycleHook != nil {
 		pm.syncAgentBeforeLifecycleHook()
@@ -852,7 +820,7 @@ func (pm *PoolManager) removeAgentLocked(agentID string) error {
 
 func (pm *PoolManager) loadAgentSnapshot(ctx context.Context, agentID string) (*config.Snapshot, string, error) {
 	if pm.homeWorkspace == nil {
-		return nil, "", errors.New("agent: load snapshot requires WorkspaceViewer")
+		return nil, "", errors.New("agent: load snapshot requires Home workspace")
 	}
 	view, err := pm.homeWorkspace.WorkspaceView(ctx, home.WorkspaceRequest{AgentID: agentID})
 	if err != nil {
@@ -881,7 +849,6 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		ProviderStreamBuilder:    pm.providerStreamBuilder,
 		PromptSectionsBuilder:    pm.promptSectionsBuilder,
 		SessionPluginViewBuilder: pm.sessionPluginViewBuilder,
-		SkillStore:               pm.skillStore,
 		SkillRevisionReader:      pm.skillRevisionReader,
 		SkillReadAuthorizer:      pm.skillReadAuthz,
 		MCPToolProvider:          pm.mcpToolProvider,
@@ -892,7 +859,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		TokenManager:             pm.tokenManager,
 		ProjectResolver:          pm.projectResolver,
 		SessionImages:            pm.sessionImages,
-		WorkspaceViewer:          pm.homeWorkspace,
+		Home:                     pm.homeWorkspace,
 	})
 }
 

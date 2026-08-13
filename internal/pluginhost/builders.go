@@ -32,7 +32,6 @@ func (h *Host) BuildEnabledTools(ctx context.Context, bc pkgplugins.ToolBuildCon
 		}
 		t, err := reg.Build(pkgplugins.ToolContext{
 			Platform: h.platform(reg.PluginID),
-			Paths:    bc.Paths,
 			Runtime:  bc.Runtime,
 		})
 		if err == nil && t != nil {

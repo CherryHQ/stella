@@ -18,8 +18,8 @@ var errPolicyStore = errors.New("policy store unavailable")
 
 type failingAgentSkillPolicyStore struct{}
 
-func (failingAgentSkillPolicyStore) ReadAgentSkillPolicy(context.Context, string) (agentskillpolicy.Policy, agentskillpolicy.Diagnostics, error) {
-	return agentskillpolicy.Policy{}, agentskillpolicy.Diagnostics{}, errPolicyStore
+func (failingAgentSkillPolicyStore) ReadAgentSkillPolicy(context.Context, string) (agentskillpolicy.Policy, error) {
+	return agentskillpolicy.Policy{}, errPolicyStore
 }
 
 func (failingAgentSkillPolicyStore) SetAgentSkillPolicy(context.Context, string, string, bool) (agentskillpolicy.Policy, error) {
@@ -91,7 +91,7 @@ func TestAgentSkillActivationAuthorizationAndErrors(t *testing.T) {
 	if rr := patch(creatorToken, "system:removed-skill", true); rr.Code != http.StatusOK {
 		t.Fatalf("clear dangling: status=%d body=%s", rr.Code, rr.Body.String())
 	}
-	policy, _, err := policyStore.ReadAgentSkillPolicy(context.Background(), agentID)
+	policy, err := policyStore.ReadAgentSkillPolicy(context.Background(), agentID)
 	if err != nil || policy.DisabledRef("system:removed-skill") {
 		t.Fatalf("dangling clear policy=%#v err=%v", policy, err)
 	}
@@ -115,24 +115,6 @@ func TestAgentSkillActivationAuthorizationAndErrors(t *testing.T) {
 		"/api/agents/"+agentID+"/skills/activation-system?scope=system", nil)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("creator deletes admin system skill: status=%d want 403 body=%s", rr.Code, rr.Body.String())
-	}
-
-	// Historical non-empty arrays never become an allowlist; they remain
-	// enabled and are only surfaced as a management diagnostic.
-	if _, err := env.db.Exec(context.Background(), `UPDATE agent SET enabled_builtin_skills = '["legacy"]'::jsonb WHERE id = $1`, agentID); err != nil {
-		t.Fatalf("seed legacy policy: %v", err)
-	}
-	rr = doRequestWithSession(t, env.srv, creatorToken, http.MethodGet, "/api/agents/"+agentID+"/skills", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("list legacy policy: status=%d body=%s", rr.Code, rr.Body.String())
-	}
-	var list struct {
-		PolicyDiagnostics struct {
-			LegacyNonEmptyArray bool `json:"legacy_non_empty_array"`
-		} `json:"policy_diagnostics"`
-	}
-	if err := json.Unmarshal(parseResponse(t, rr).Data, &list); err != nil || !list.PolicyDiagnostics.LegacyNonEmptyArray {
-		t.Fatalf("legacy policy diagnostics = %#v, err=%v; want legacy_non_empty_array", list, err)
 	}
 
 	// Persistence/catalog failures are internal errors, never an opaque clean

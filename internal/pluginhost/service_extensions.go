@@ -4,7 +4,6 @@ import (
 	"context"
 	"sync"
 
-	"github.com/CherryHQ/stella/internal/skills"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -155,26 +154,4 @@ func (s *ChannelPlatform) Notifications() pkgplugins.ChannelRegistry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.notifications
-}
-
-// WithSkillStore injects the skill store available to plugins.
-func WithSkillStore(store skills.Store) Option {
-	return func(h *Host) {
-		h.skillStore = store
-	}
-}
-
-// SetSkillStore updates the skill store after host construction.
-func (h *Host) SetSkillStore(store skills.Store) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.requireUnsealedLocked("SetSkillStore")
-	h.skillStore = store
-}
-
-// SkillStore returns the injected skill store, if any.
-func (h *Host) SkillStore() skills.Store {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return h.skillStore
 }

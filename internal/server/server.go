@@ -52,6 +52,7 @@ type Server struct {
 	toolOverrides   *agent.ToolOverrideStore
 	sessionAccess   *sessionaccess.Service
 	skillAccess     *skillaccess.Service
+	skills          SkillStore
 	rateLimiter     *auth.RateLimiter
 	linkCodes       *auth.LinkCodeStore
 	poolManager     *agent.PoolManager
@@ -161,8 +162,12 @@ type Deps struct {
 	// SkillAccess is the DB-backed Skill enforcement point. When nil the
 	// skill endpoints report 503 through the centralized unavailable mapping.
 	SkillAccess *skillaccess.Service
-	LinkCodes   *auth.LinkCodeStore
-	OIDC        OIDCDeps
+	// Skills is the single managed-Skill authority used by HTTP transports. The
+	// exact revision and digest-CAS surfaces are mandatory; no plugin service
+	// locator or capability assertion participates in management requests.
+	Skills    SkillStore
+	LinkCodes *auth.LinkCodeStore
+	OIDC      OIDCDeps
 
 	// Agent runtime + plugins.
 	PoolManager  *agent.PoolManager
@@ -252,6 +257,7 @@ func (d Deps) validate() error {
 	req(d.ToolOverrides != nil, "ToolOverrides")
 	req(d.AgentSkillPolicy != nil, "AgentSkillPolicy")
 	req(d.SessionAccess != nil, "SessionAccess")
+	req(d.Skills != nil, "Skills")
 	req(d.LinkCodes != nil, "LinkCodes")
 	req(d.PoolManager != nil, "PoolManager")
 	req(d.PluginHost != nil, "PluginHost")
@@ -295,6 +301,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 		toolOverrides:    deps.ToolOverrides,
 		sessionAccess:    deps.SessionAccess,
 		skillAccess:      deps.SkillAccess,
+		skills:           deps.Skills,
 		rateLimiter:      auth.NewRateLimiter(),
 		webhookLimiter:   newWebhookLimiter(5, 20),
 		linkCodes:        deps.LinkCodes,

@@ -125,23 +125,16 @@ func (s *Server) scopedSkillByID(w http.ResponseWriter, r *http.Request, id stri
 }
 
 func (s *Server) dbSkillView(r *http.Request, sk *skills.Skill) (skillView, error) {
-	if reader, ok := s.skillStore().(skills.IdentityReader); ok {
-		revision, err := reader.LoadCurrentRevision(r.Context(), *sk)
-		if err != nil {
-			return skillView{}, err
-		}
-		files := make([]string, 0, len(revision.Files))
-		for path := range revision.Files {
-			files = append(files, path)
-		}
-		sort.Strings(files)
-		return storedSkillToView(revision.Skill, files), nil
-	}
-	files, err := s.skillStore().ListFiles(r.Context(), sk.ID)
+	revision, err := s.skills.LoadCurrentRevision(r.Context(), *sk)
 	if err != nil {
 		return skillView{}, err
 	}
-	return storedSkillToView(*sk, files), nil
+	files := make([]string, 0, len(revision.Files))
+	for path := range revision.Files {
+		files = append(files, path)
+	}
+	sort.Strings(files)
+	return storedSkillToView(revision.Skill, files), nil
 }
 
 func committedSkillView(snapshot skills.SkillSnapshot) skillView {
@@ -167,13 +160,7 @@ func (s *Server) ListScopedSkills(w http.ResponseWriter, r *http.Request, params
 	if !ok {
 		return
 	}
-	var rows []skills.Skill
-	var err error
-	if reader, ok := s.skillStore().(skills.IdentityReader); ok {
-		rows, err = reader.ListIdentityByScope(r.Context(), scope, userID, agentID)
-	} else {
-		rows, err = s.skillStore().ListByScope(r.Context(), scope, userID, agentID)
-	}
+	rows, err := s.skills.ListIdentityByScope(r.Context(), scope, userID, agentID)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -245,7 +232,7 @@ func (s *Server) CreateScopedSkill(w http.ResponseWriter, r *http.Request) {
 		Description:            req.Description,
 		DisableModelInvocation: req.DisableModelInvocation,
 	}
-	snapshot, err := s.skillStore().CreateManagedSkill(r.Context(), sk, files)
+	snapshot, err := s.skills.CreateManagedSkill(r.Context(), sk, files)
 	if err != nil {
 		s.writeConflictOrInternal(w, err)
 		return
@@ -285,7 +272,7 @@ func (s *Server) InstallScopedSkill(w http.ResponseWriter, r *http.Request) {
 			ctx = skills.WithGitHubToken(ctx, token)
 		}
 	}
-	snapshot, err := skills.InstallToStore(ctx, s.skillStore(), req.Source, req.Scope, userID, agentID)
+	snapshot, err := skills.InstallToStore(ctx, s.skills, req.Source, req.Scope, userID, agentID)
 	if err != nil {
 		s.writeConflictOrInternal(w, err)
 		return
@@ -324,7 +311,7 @@ func (s *Server) UploadScopedSkill(w http.ResponseWriter, r *http.Request) {
 		DisableModelInvocation: up.disableModelInvocation,
 		Metadata:               up.metadata,
 	}
-	snapshot, err := s.skillStore().CreateManagedSkill(r.Context(), sk, up.files)
+	snapshot, err := s.skills.CreateManagedSkill(r.Context(), sk, up.files)
 	if err != nil {
 		s.writeConflictOrInternal(w, err)
 		return
@@ -374,18 +361,12 @@ func (s *Server) GetScopedSkillFile(w http.ResponseWriter, r *http.Request, id s
 	if sk == nil {
 		return
 	}
-	var content string
-	var err error
-	if reader, ok := s.skillStore().(skills.IdentityReader); ok {
-		revision, loadErr := reader.LoadCurrentRevision(r.Context(), *sk)
-		err = loadErr
-		if data, exists := revision.Files[params.Path]; err == nil && exists {
-			content = string(data)
-		} else if err == nil {
-			err = fs.ErrNotExist
-		}
-	} else {
-		content, err = s.skillStore().LoadFile(r.Context(), sk.ID, params.Path)
+	revision, err := s.skills.LoadCurrentRevision(r.Context(), *sk)
+	content := ""
+	if data, exists := revision.Files[params.Path]; err == nil && exists {
+		content = string(data)
+	} else if err == nil {
+		err = fs.ErrNotExist
 	}
 	if err != nil {
 		writeError(w, http.StatusNotFound, "not found")

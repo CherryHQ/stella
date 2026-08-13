@@ -25,12 +25,12 @@ func editDefinition() pkgtools.Definition {
 	}
 }
 
-func newEditTool(host pkgsandbox.Host, projectRoot string) pkgtools.Tool {
+func newEditTool(host pkgsandbox.Session, projectRoot string) pkgtools.Tool {
 	return &hostEditTool{host: host, projectRoot: projectRoot}
 }
 
 type hostEditTool struct {
-	host        pkgsandbox.Host
+	host        pkgsandbox.Session
 	projectRoot string
 }
 

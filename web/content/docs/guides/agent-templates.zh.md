@@ -50,4 +50,4 @@ Stella 包含以下内置模板：
 
 当一个有边界的任务需要独立上下文时，Agent 可以打开一个聚焦 Session。这个 Session 保存自己的对话记录，并把回复返回原对话。Agent 之后可以通过 Session ID 继续它。
 
-Session preset 为这类工作提供标准角色、工具集、系统指令和超时时间。Stella 当前内置 `coder` preset。你可以在项目的 `.agents/delegates/` 目录中覆盖它或添加 preset。该目录名为了兼容而保留；Agent 通过 Session 工具启动 preset。
+Session preset 为这类工作提供标准角色、工具集、系统指令和超时时间。Stella 当前内置 `coder` preset。你可以在项目的 `.agents/delegates/` 目录中覆盖它或添加 preset。Agent 通过 Session 工具启动 preset。

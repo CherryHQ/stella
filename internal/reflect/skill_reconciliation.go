@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/internal/skills"
 )
 
 type skillWritePlanOperation string
@@ -24,8 +24,8 @@ type skillRelatedBundle struct {
 }
 
 type skillRelatedRecord struct {
-	Skill           pkgplugins.Skill `json:"skill"`
-	MainFileContent string           `json:"main_file_content"`
+	Skill           skills.Skill `json:"skill"`
+	MainFileContent string       `json:"main_file_content"`
 }
 
 type skillReconciliationPlan struct {
@@ -37,7 +37,6 @@ type skillWriteOperation struct {
 	CandidateRefs        []CandidateRef          `json:"candidate_refs,omitempty"`
 	CoveredCandidateRefs []CandidateRef          `json:"covered_candidate_refs,omitempty"`
 	TargetSkillID        string                  `json:"target_skill_id,omitempty"`
-	ExpectedSkillVersion int64                   `json:"expected_skill_version,omitempty"`
 	ExpectedSkillDigest  string                  `json:"expected_skill_digest,omitempty"`
 	Name                 string                  `json:"name,omitempty"`
 	Description          string                  `json:"description,omitempty"`
@@ -119,7 +118,7 @@ func skillRefsFromCandidates(candidates []skillCandidate) []CandidateRef {
 	return refs
 }
 
-func isReflectOwnedActiveUserAgentSkill(skill pkgplugins.Skill) bool {
+func isReflectOwnedActiveUserAgentSkill(skill skills.Skill) bool {
 	if skill.Scope != "user_agent" || skill.Status != "active" {
 		return false
 	}

@@ -7,7 +7,8 @@ import (
 )
 
 func TestSkillsToolAgentPolicyBlocksAllModelReachableReads(t *testing.T) {
-	tool := NewTool(nil, t.TempDir(), "").WithAgentSkillPolicy([]string{"builtin:stella"})
+	tool := newProjectionTool(t, &projectionReader{}, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{}).
+		WithAgentSkillPolicy([]string{"builtin:stella"})
 	ctx := context.Background()
 
 	// Name, stable API ID, logical ref, and a file/reference read all resolve the
@@ -25,7 +26,7 @@ func TestSkillsToolAgentPolicyBlocksAllModelReachableReads(t *testing.T) {
 		}
 	}
 
-	for _, args := range []map[string]any{{"action": "search_installed", "query": "stella"}, {"action": "list"}} {
+	for _, args := range []map[string]any{{"action": "search_installed", "query": "stella"}} {
 		out, err := tool.Execute(ctx, args)
 		if err != nil {
 			t.Fatalf("Execute(%#v): %v", args, err)

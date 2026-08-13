@@ -13,7 +13,7 @@ import (
 )
 
 func TestFactory_basics(t *testing.T) {
-	f := NewFactory()
+	f := NewFactoryWithMountSources(nil, Config{})
 	if f.Name() != "none" {
 		t.Errorf("expected name 'none', got %q", f.Name())
 	}
@@ -37,7 +37,7 @@ func TestFactory_createSession(t *testing.T) {
 		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 		InheritEnv: true,
 	}
-	f := NewFactory()
+	f := NewFactoryWithMountSources(nil, Config{})
 	sess, err := f.CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
@@ -65,7 +65,7 @@ func TestFactoryCreateSession_setsHostXDGPaths(t *testing.T) {
 			},
 		},
 	}
-	sess, err := NewFactoryWithMountSources(map[string]string{sandboxpkg.MountWorkspace: workspace, sandboxpkg.MountUserData: userData}).CreateSession(context.Background(), policy)
+	sess, err := NewFactoryWithMountSources(map[string]string{sandboxpkg.MountWorkspace: workspace, sandboxpkg.MountUserData: userData}, Config{}).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestFactoryCreateSession_setsHostXDGPaths(t *testing.T) {
 
 func TestFactoryCreateSession_withoutUserDataFallsBackToWorkspace(t *testing.T) {
 	workspace := t.TempDir()
-	sess, err := NewFactory().CreateSession(context.Background(), sandboxpkg.Policy{
+	sess, err := NewFactoryWithMountSources(nil, Config{}).CreateSession(context.Background(), sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: workspace},
 	})
 	if err != nil {
@@ -146,7 +146,7 @@ func TestFactoryCreateSession_errorRemovesOwnedTempDir(t *testing.T) {
 	for _, path := range before {
 		known[path] = struct{}{}
 	}
-	if _, err := NewFactory().CreateSession(context.Background(), sandboxpkg.Policy{}); err == nil {
+	if _, err := NewFactoryWithMountSources(nil, Config{}).CreateSession(context.Background(), sandboxpkg.Policy{}); err == nil {
 		t.Fatal("CreateSession accepted policy without a workspace")
 	}
 	after, err := filepath.Glob(filepath.Join(os.TempDir(), "stella-none-session-tmp-*"))
@@ -164,11 +164,11 @@ func TestFactoryCreateSession_errorRemovesOwnedTempDir(t *testing.T) {
 func TestFactoryCreateSession_ownsDistinctTempDirs(t *testing.T) {
 	workspace := t.TempDir()
 	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: workspace}}
-	first, err := NewFactory().CreateSession(context.Background(), policy)
+	first, err := NewFactoryWithMountSources(nil, Config{}).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Fatalf("CreateSession(first): %v", err)
 	}
-	second, err := NewFactory().CreateSession(context.Background(), policy)
+	second, err := NewFactoryWithMountSources(nil, Config{}).CreateSession(context.Background(), policy)
 	if err != nil {
 		first.Close() //nolint:errcheck
 		t.Fatalf("CreateSession(second): %v", err)

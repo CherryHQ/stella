@@ -7,21 +7,14 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
-
 	apiserver "github.com/CherryHQ/stella/api/server"
-	"github.com/CherryHQ/stella/internal/agentskillpolicy"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/pluginhost"
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/resources"
 )
 
@@ -103,18 +96,16 @@ func (s *Server) authorizeReadableDBSkills(w http.ResponseWriter, r *http.Reques
 		err := acc.AuthorizeRead(r.Context(), sk)
 		switch {
 		case err == nil:
-			if reader, ok := s.skillStore().(skills.IdentityReader); ok {
-				revision, loadErr := reader.LoadCurrentRevision(r.Context(), sk)
-				if skills.IsCurrentSelectorMissing(loadErr) {
-					s.warnMissingSkillSelector(sk, loadErr)
-					continue
-				}
-				if loadErr != nil {
-					s.writeInternalError(w, loadErr)
-					return nil, false
-				}
-				sk = revision.Skill
+			revision, loadErr := s.skills.LoadCurrentRevision(r.Context(), sk)
+			if skills.IsCurrentSelectorMissing(loadErr) {
+				s.warnMissingSkillSelector(sk, loadErr)
+				continue
 			}
+			if loadErr != nil {
+				s.writeInternalError(w, loadErr)
+				return nil, false
+			}
+			sk = revision.Skill
 			out = append(out, sk)
 		case errors.Is(err, skillaccess.ErrNotFound), errors.Is(err, skillaccess.ErrForbidden):
 			// filtered
@@ -133,12 +124,12 @@ func (s *Server) warnMissingSkillSelector(identity skills.Skill, err error) {
 	}
 }
 
-// authorizeDBSkillRead authorizes reading one resolved DB-backed skill (Dir=="")
+// authorizeDBSkillRead authorizes reading one resolved DB-backed skill
 // through the Skill read PEP, reusing the acc that already gated the route agent
-// so the agent and skill decisions share one evaluation. Filesystem project/
+// so the agent and skill decisions share one evaluation. Immutable project and
 // built-in skills pass. On denial it writes the response and returns false.
 func (s *Server) authorizeDBSkillRead(w http.ResponseWriter, r *http.Request, acc *skillaccess.Access, rs *skills.ResolvedSkill) bool {
-	if rs == nil || rs.Dir != "" {
+	if rs == nil || rs.IsImmutable() {
 		return true
 	}
 	if err := acc.AuthorizeRead(r.Context(), resolvedToDBSkill(rs)); err != nil {
@@ -164,7 +155,7 @@ func resolvedToDBSkill(rs *skills.ResolvedSkill) skills.Skill {
 }
 
 func (s *Server) skillService() *skills.Service {
-	return skills.NewService(pluginhost.NewSkillStoreAdapter(s.skillStore()), config.StellaHome())
+	return skills.NewService()
 }
 
 // requireAgentAccess authorizes read/use access to an agent through the agent
@@ -252,30 +243,10 @@ func (s *Server) projectSkillSnapshotForSession(ctx context.Context, agentID str
 	return snapshot, err
 }
 
-func dbSkillsToPluginSkills(rows []skills.Skill) []pkgplugins.Skill {
-	out := make([]pkgplugins.Skill, len(rows))
-	for i, r := range rows {
-		out[i] = dbSkillToPluginSkill(r)
-	}
-	return out
-}
-
-func dbSkillToPluginSkill(sk skills.Skill) pkgplugins.Skill {
-	return pkgplugins.Skill{
-		ID: sk.ID, Scope: sk.Scope, UserID: sk.UserID, AgentID: sk.AgentID,
-		Name: sk.Name, Description: sk.Description,
-		DisableModelInvocation: sk.DisableModelInvocation, Metadata: sk.Metadata,
-		CreatedAt: sk.CreatedAt, UpdatedAt: sk.UpdatedAt, Version: sk.Version,
-		ContentDigest: sk.ContentDigest,
-	}
-}
-
 func resolvedSkillToView(rs skills.ResolvedSkill) skillView {
 	var files []string
 	if immutableFiles := rs.ImmutableFiles(); immutableFiles != nil {
 		files = immutableFiles
-	} else if rs.Dir != "" {
-		files, _ = skills.ListDirFiles(rs.Dir)
 	}
 	if files == nil {
 		files = []string{}
@@ -324,17 +295,6 @@ func skillMeta(metadata json.RawMessage) struct {
 	return m
 }
 
-// defaultAgentSkillScope picks the write scope when the client omits one:
-// admins manage the shared system_agent scope, everyone else writes their own
-// per-agent (user_agent) skills. This keeps the legacy install/upload entry
-// points from defaulting non-admins into the admin-only system_agent scope.
-func defaultAgentSkillScope(ctx context.Context) string {
-	if info := UserFromContext(ctx); info != nil && info.IsAdmin {
-		return "system_agent"
-	}
-	return "user_agent"
-}
-
 // agentSkillWriteScope validates a DB-backed write scope reached through an
 // agent-scoped path and authorizes it through the Skill PEP, returning the acting
 // user id used for owner columns, install attribution, and token lookup. The
@@ -367,16 +327,9 @@ func (s *Server) agentSkillWriteScope(ctx context.Context, agentID, scope string
 	return info.UserID, 0, ""
 }
 
-func safeSkillFilePath(skillDir, filePath string) (string, error) {
-	clean := filepath.Clean(filePath)
-	if clean == "." || filepath.IsAbs(clean) || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || clean == ".." {
-		return "", fs.ErrPermission
-	}
-	return filepath.Join(skillDir, clean), nil
-}
-
-// resolveAgentSkillReference treats a retained DB ID as authoritative, then
-// falls back to the legacy active-name resolver for filesystem and old clients.
+// resolveAgentSkillReference treats a managed Skill ID as authoritative, then
+// resolves the API's name-based project and builtin references from one exact
+// identity/revision snapshot.
 func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, scope string, exactScope bool, sessionID *string) (*skills.ResolvedSkill, *skillaccess.Access, string, int, string) {
 	info := UserFromContext(ctx)
 	if info == nil {
@@ -386,186 +339,113 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 	if code != 0 {
 		return nil, nil, "", code, msg
 	}
-	identityReader, hasIdentityReader := s.skillStore().(interface {
-		GetIdentity(context.Context, string) (*skills.Skill, error)
-	})
 	var identity *skills.Skill
-	var err error
 	builtinReference := strings.HasPrefix(ref, "builtin-") || strings.HasPrefix(ref, "builtin:")
-	if hasIdentityReader && !builtinReference {
-		identity, err = identityReader.GetIdentity(ctx, ref)
-	} else if !hasIdentityReader && !builtinReference {
-		// Legacy test adapters do not expose the identity-only port. Production
-		// composition always installs POSIXStore and takes the branch above.
-		rows, listErr := s.skillStore().ListAll(ctx)
-		err = listErr
-		for i := range rows {
-			if rows[i].ID == ref {
-				identity = &rows[i]
-				break
-			}
+	if !builtinReference {
+		var err error
+		identity, err = s.skills.GetIdentity(ctx, ref)
+		if err != nil {
+			s.log.Error("find skill by stable id", "agent_id", agentID, "skill", ref, "error", err)
+			return nil, nil, "", http.StatusInternalServerError, "internal error"
 		}
 	}
-	if err == nil && identity == nil {
-		err = pgx.ErrNoRows
-	}
-	if err == nil {
+	if identity != nil {
 		applicable := (!exactScope || identity.Scope == scope) && ((identity.Scope != "user_agent" && identity.Scope != "system_agent") || identity.AgentID == agentID)
 		if applicable {
 			if err := acc.AuthorizeRead(ctx, *identity); err != nil {
 				code, msg := skillAccessError(err)
 				return nil, nil, "", code, msg
 			}
-			sk := *identity
-			if reader, ok := s.skillStore().(interface {
-				LoadCurrentRevision(context.Context, skills.Skill) (skills.ManagedRevision, error)
-			}); ok {
-				revision, loadErr := reader.LoadCurrentRevision(ctx, *identity)
-				if loadErr != nil {
-					return nil, nil, "", http.StatusInternalServerError, "internal error"
-				}
-				sk = revision.Skill
+			revision, loadErr := s.skills.LoadCurrentRevision(ctx, *identity)
+			if loadErr != nil {
+				return nil, nil, "", http.StatusInternalServerError, "internal error"
 			}
+			sk := revision.Skill
 			if sk.Status == "deprecated" {
 				return nil, nil, "", http.StatusNotFound, "skill not found"
 			}
-			return &skills.ResolvedSkill{Skill: dbSkillToPluginSkill(sk)}, acc, "", 0, ""
+			return &skills.ResolvedSkill{Skill: sk}, acc, "", 0, ""
 		}
 		if !exactScope {
 			return nil, nil, "", http.StatusNotFound, "skill not found"
 		}
 		// In an exact-scope request, an ID collision outside the requested
-		// scope/agent is not authoritative. Continue with legacy scoped-name
+		// scope/agent is not authoritative. Continue with the API's scoped-name
 		// resolution so a legal hexadecimal Skill name remains reachable.
-		err = pgx.ErrNoRows
-	}
-	if !isNotFound(err) {
-		s.log.Error("find skill by stable id", "agent_id", agentID, "skill", ref, "error", err)
-		return nil, nil, "", http.StatusInternalServerError, "internal error"
 	}
 
 	snapshot, snapshotErr := s.projectSkillSnapshotForSession(ctx, agentID, sessionID)
 	if snapshotErr != nil {
 		return nil, nil, "", http.StatusInternalServerError, "internal error"
 	}
-	ctx = skills.WithProjectSnapshot(ctx, snapshot)
-	vc := pkgplugins.SkillViewContext{UserID: info.UserID, AgentID: agentID}
-	if reader, ok := s.skillStore().(skills.IdentityReader); ok {
-		if err := acc.AuthorizeList(); err != nil {
-			code, msg := skillAccessError(err)
-			return nil, nil, "", code, msg
+	if err := acc.AuthorizeList(); err != nil {
+		code, msg := skillAccessError(err)
+		return nil, nil, "", code, msg
+	}
+	identities, err := s.skills.ListIdentityVisible(ctx, skills.ViewContext{UserID: info.UserID, AgentID: agentID})
+	if err != nil {
+		return nil, nil, "", http.StatusInternalServerError, "internal error"
+	}
+	dbSkills := make([]skills.Skill, 0, len(identities))
+	for _, candidate := range identities {
+		if err := acc.AuthorizeRead(ctx, candidate); err != nil {
+			if errors.Is(err, skillaccess.ErrNotFound) || errors.Is(err, skillaccess.ErrForbidden) {
+				continue
+			}
+			return nil, nil, "", http.StatusInternalServerError, "internal error"
 		}
-		identities, err := reader.ListIdentityVisible(ctx, skills.ViewContext{UserID: info.UserID, AgentID: agentID})
+		revision, err := s.skills.LoadCurrentRevision(ctx, candidate)
+		if skills.IsCurrentSelectorMissing(err) {
+			s.warnMissingSkillSelector(candidate, err)
+			continue
+		}
 		if err != nil {
 			return nil, nil, "", http.StatusInternalServerError, "internal error"
 		}
-		dbSkills := make([]skills.Skill, 0, len(identities))
-		for _, candidate := range identities {
-			if err := acc.AuthorizeRead(ctx, candidate); err != nil {
-				if errors.Is(err, skillaccess.ErrNotFound) || errors.Is(err, skillaccess.ErrForbidden) {
-					continue
-				}
-				return nil, nil, "", http.StatusInternalServerError, "internal error"
-			}
-			revision, err := reader.LoadCurrentRevision(ctx, candidate)
-			if skills.IsCurrentSelectorMissing(err) {
-				s.warnMissingSkillSelector(candidate, err)
-				continue
-			}
-			if err != nil {
-				return nil, nil, "", http.StatusInternalServerError, "internal error"
-			}
-			dbSkills = append(dbSkills, revision.Skill)
-		}
-		// Exact mutable-scope management must not be hidden by a higher-priority
-		// same-name project Skill. The identity and actor were authorized before
-		// the revision was opened above.
-		if exactScope && scope != "project" && scope != "builtin" {
-			for _, candidate := range dbSkills {
-				if candidate.Scope == scope && candidate.Name == ref && candidate.Status != skills.SkillStatusDeprecated {
-					return &skills.ResolvedSkill{Skill: dbSkillToPluginSkill(candidate)}, acc, "", 0, ""
-				}
-			}
-			if scope != "system" {
-				return nil, nil, "", http.StatusNotFound, "skill not found"
+		dbSkills = append(dbSkills, revision.Skill)
+	}
+	// Exact mutable-scope management must not be hidden by a higher-priority
+	// same-name project Skill. The identity and actor were authorized before
+	// the revision was opened above.
+	if exactScope && scope != "project" && scope != "builtin" {
+		for _, candidate := range dbSkills {
+			if candidate.Scope == scope && candidate.Name == ref && candidate.Status != skills.SkillStatusDeprecated {
+				return &skills.ResolvedSkill{Skill: candidate}, acc, "", 0, ""
 			}
 		}
-		merged := s.skillService().ListMergedWithDBSnapshot(dbSkillsToPluginSkills(dbSkills), snapshot)
-		builtinName := strings.TrimPrefix(strings.TrimPrefix(ref, "builtin:"), "builtin-")
-		for i := range merged {
-			contextualScope := merged[i].Scope
-			if merged[i].BuiltinFiles() != nil {
-				contextualScope = "builtin"
-			}
-			matches := merged[i].ID == ref || merged[i].Name == ref || (builtinReference && merged[i].Name == builtinName)
-			if matches && (!exactScope || contextualScope == scope) && merged[i].Status != skills.SkillStatusDeprecated {
-				return &merged[i], acc, "", 0, ""
-			}
+		if scope != "system" {
+			return nil, nil, "", http.StatusNotFound, "skill not found"
 		}
-		return nil, nil, "", http.StatusNotFound, "skill not found"
 	}
-
-	var rs *skills.ResolvedSkill
-	switch {
-	case builtinReference:
-		rs, err = s.skillService().Resolve(ctx, ref, vc, "")
-	case exactScope:
-		rs, err = s.skillService().ResolveScoped(ctx, ref, scope, vc, "")
-	default:
-		rs, err = s.skillService().Resolve(ctx, ref, vc, "")
+	merged := s.skillService().ListMerged(dbSkills, snapshot)
+	builtinName := strings.TrimPrefix(strings.TrimPrefix(ref, "builtin:"), "builtin-")
+	for i := range merged {
+		contextualScope := merged[i].Scope
+		if merged[i].BuiltinFiles() != nil {
+			contextualScope = "builtin"
+		}
+		matches := merged[i].ID == ref || merged[i].Name == ref || (builtinReference && merged[i].Name == builtinName)
+		if matches && (!exactScope || contextualScope == scope) && merged[i].Status != skills.SkillStatusDeprecated {
+			return &merged[i], acc, "", 0, ""
+		}
 	}
-	if err != nil {
-		s.log.Error("resolve skill reference", "agent_id", agentID, "skill", ref, "error", err)
-		return nil, nil, "", http.StatusInternalServerError, "internal error"
-	}
-	if rs == nil || rs.Status == "deprecated" {
-		return nil, nil, "", http.StatusNotFound, "skill not found"
-	}
-	contextualScope := rs.Scope
-	if rs.BuiltinFiles() != nil {
-		contextualScope = "builtin"
-	}
-	if exactScope && contextualScope != scope {
-		return nil, nil, "", http.StatusNotFound, "skill not found"
-	}
-	return rs, acc, "", 0, ""
+	return nil, nil, "", http.StatusNotFound, "skill not found"
 }
 
 // loadSkillFile loads a file from an already-resolved skill.
 func (s *Server) loadSkillFile(ctx context.Context, rs *skills.ResolvedSkill, path string) (string, error) {
-	if rs.BuiltinFiles() != nil {
-		return rs.LoadBuiltinFile(path)
-	}
-	if rs.Scope == "project" {
+	if rs.IsImmutable() {
 		return rs.LoadImmutableFile(path)
 	}
-	if rs.Dir != "" {
-		fp, err := safeSkillFilePath(rs.Dir, path)
-		if err != nil {
-			return "", err
-		}
-		data, err := os.ReadFile(fp)
-		if err != nil {
-			return "", err
-		}
-		return string(data), nil
+	revision, err := s.skills.LoadExactRevision(ctx, resolvedToDBSkill(rs), rs.ContentDigest)
+	if err != nil {
+		return "", err
 	}
-	store := s.skillStore()
-	if store == nil {
-		return "", errors.New("skills store not available")
+	content, ok := revision.Files[path]
+	if !ok {
+		return "", fs.ErrNotExist
 	}
-	if reader, ok := store.(skills.IdentityReader); ok {
-		revision, err := reader.LoadExactRevision(ctx, resolvedToDBSkill(rs), rs.ContentDigest)
-		if err != nil {
-			return "", err
-		}
-		content, ok := revision.Files[path]
-		if !ok {
-			return "", fs.ErrNotExist
-		}
-		return string(content), nil
-	}
-	return store.LoadFile(ctx, rs.ID, path)
+	return string(content), nil
 }
 
 // ---- Agent skills: /api/agents/{id}/skills* ---------------------------------
@@ -584,15 +464,10 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		writeError(w, code, msg)
 		return
 	}
-	policy := agentskillpolicy.Policy{}
-	diagnostics := agentskillpolicy.Diagnostics{}
-	if s.agentSkillPolicy != nil {
-		var err error
-		policy, diagnostics, err = s.agentSkillPolicy.ReadAgentSkillPolicy(r.Context(), agentID)
-		if err != nil {
-			s.writeInternalError(w, err)
-			return
-		}
+	policy, err := s.agentSkillPolicy.ReadAgentSkillPolicy(r.Context(), agentID)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
 	}
 	if params.Scope != nil && params.ScopeGroup != nil {
 		writeError(w, http.StatusBadRequest, "scope and scope_group are mutually exclusive")
@@ -634,12 +509,7 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		s.writeInternalError(w, err)
 		return
 	}
-	var dbSkills []skills.Skill
-	if reader, ok := s.skillStore().(skills.IdentityReader); ok {
-		dbSkills, err = reader.ListIdentityVisible(r.Context(), skills.ViewContext{UserID: info.UserID, AgentID: agentID})
-	} else {
-		dbSkills, err = s.skillStore().ListForAgentContext(r.Context(), info.UserID, agentID)
-	}
+	dbSkills, err := s.skills.ListIdentityVisible(r.Context(), skills.ViewContext{UserID: info.UserID, AgentID: agentID})
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -650,10 +520,13 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 	if !ok {
 		return
 	}
-	merged := s.skillService().ListMergedWithDBSnapshot(dbSkillsToPluginSkills(dbSkills), projectSnapshot)
+	merged := s.skillService().ListMerged(dbSkills, projectSnapshot)
 	filtered := make([]skills.ResolvedSkill, 0, len(merged))
 	queryLower := strings.ToLower(query)
 	for _, rs := range merged {
+		if rs.Status == skills.SkillStatusDeprecated {
+			continue
+		}
 		if queryLower != "" && !strings.Contains(strings.ToLower(rs.Name), queryLower) && !strings.Contains(strings.ToLower(rs.Description), queryLower) {
 			continue
 		}
@@ -674,24 +547,21 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		}
 	}
 	total := len(selected)
-	legacyFullList := params.ScopeGroup == nil && params.Q == nil && params.PageSize == nil && params.PageToken == nil
-	if !legacyFullList {
-		sort.SliceStable(selected, func(i, j int) bool {
-			if selected[i].UpdatedAt.Equal(selected[j].UpdatedAt) {
-				return selected[i].ID > selected[j].ID
-			}
-			return selected[i].UpdatedAt.After(selected[j].UpdatedAt)
-		})
-		if cursor != nil {
-			position := 0
-			for position < len(selected) && !skillFollowsCursor(selected[position], *cursor) {
-				position++
-			}
-			selected = selected[position:]
+	sort.SliceStable(selected, func(i, j int) bool {
+		if selected[i].UpdatedAt.Equal(selected[j].UpdatedAt) {
+			return selected[i].ID > selected[j].ID
 		}
+		return selected[i].UpdatedAt.After(selected[j].UpdatedAt)
+	})
+	if cursor != nil {
+		position := 0
+		for position < len(selected) && !skillFollowsCursor(selected[position], *cursor) {
+			position++
+		}
+		selected = selected[position:]
 	}
 
-	hasMore := !legacyFullList && len(selected) > pageSize
+	hasMore := len(selected) > pageSize
 	if hasMore {
 		selected = selected[:pageSize]
 	}
@@ -718,7 +588,7 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 	response := map[string]any{
 		"skills": out, "total_size": total, "scope_counts": counts, "next_page_token": nil,
 		"can_manage_activation": canManage,
-		"policy_diagnostics":    map[string]any{"legacy_non_empty_array": diagnostics.LegacyArray, "dangling_disabled_refs": dangling},
+		"policy_diagnostics":    map[string]any{"dangling_disabled_refs": dangling},
 	}
 	if hasMore {
 		last := selected[len(selected)-1]
@@ -861,7 +731,7 @@ func (s *Server) CreateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 	case "system_agent":
 		sk.AgentID = agentID
 	}
-	snapshot, err := s.skillStore().CreateManagedSkill(r.Context(), sk, files)
+	snapshot, err := s.skills.CreateManagedSkill(r.Context(), sk, files)
 	if err != nil {
 		if errors.Is(err, skills.ErrInvalidSkillFilePath) {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -887,17 +757,13 @@ func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string
 	if !s.authorizeDBSkillRead(w, r, acc, rs) {
 		return
 	}
-	policy := agentskillpolicy.Policy{}
-	if s.agentSkillPolicy != nil {
-		var err error
-		policy, _, err = s.agentSkillPolicy.ReadAgentSkillPolicy(r.Context(), id)
-		if err != nil {
-			s.writeInternalError(w, err)
-			return
-		}
+	policy, err := s.agentSkillPolicy.ReadAgentSkillPolicy(r.Context(), id)
+	if err != nil {
+		s.writeInternalError(w, err)
+		return
 	}
 	view := s.contextualSkillView(*rs, policy)
-	if rs.Dir == "" && s.skillStore() != nil {
+	if !rs.IsImmutable() {
 		sk := resolvedToDBSkill(rs)
 		managedView, err := s.dbSkillView(r, &sk)
 		if err != nil {
@@ -922,33 +788,12 @@ func (s *Server) UpdateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 
-	// Project/system skills live on the filesystem.
-	if rs.Dir != "" {
+	if rs.IsImmutable() {
 		if rs.Scope == "system" {
 			writeError(w, http.StatusForbidden, "system skills are read-only")
 			return
 		}
-		var req updateSkillRequest
-		if err := decodeJSON(r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid JSON")
-			return
-		}
-		for p, content := range req.Files {
-			file, err := safeSkillFilePath(rs.Dir, p)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, "invalid path")
-				return
-			}
-			if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
-				s.writeInternalError(w, err)
-				return
-			}
-			if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
-				s.writeInternalError(w, err)
-				return
-			}
-		}
-		writeData(w, http.StatusOK, resolvedSkillToView(*rs))
+		writeError(w, http.StatusBadRequest, "project skills are read-only; edit them in the project workspace")
 		return
 	}
 
@@ -976,8 +821,7 @@ func (s *Server) UpgradeAgentSkill(w http.ResponseWriter, r *http.Request, id st
 		writeError(w, code, msg)
 		return
 	}
-	// Project/system skills live on disk and are managed via the filesystem/CLI.
-	if rs.Dir != "" {
+	if rs.IsImmutable() {
 		writeError(w, http.StatusBadRequest, "only installed skills can be upgraded")
 		return
 	}
@@ -999,7 +843,7 @@ func (s *Server) UpgradeAgentSkill(w http.ResponseWriter, r *http.Request, id st
 		}
 	}
 
-	res, err := skills.UpgradeInStore(ctx, s.skillStore(), resolvedToDBSkill(rs), params.ExpectedDigest, rs.Metadata)
+	res, err := skills.UpgradeInStore(ctx, s.skills, resolvedToDBSkill(rs), params.ExpectedDigest, rs.Metadata)
 	if err != nil {
 		if errors.Is(err, skills.ErrNoUpgradeSource) {
 			writeError(w, http.StatusBadRequest, "skill was not installed from an upgradable source")
@@ -1026,16 +870,12 @@ func (s *Server) DeleteAgentSkill(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 
-	if rs.Dir != "" {
+	if rs.IsImmutable() {
 		if rs.Scope == "system" {
 			writeError(w, http.StatusForbidden, "system skills are read-only")
 			return
 		}
-		if err := os.RemoveAll(rs.Dir); err != nil {
-			s.writeInternalError(w, err)
-			return
-		}
-		writeNoContent(w)
+		writeError(w, http.StatusBadRequest, "project skills are read-only; delete them in the project workspace")
 		return
 	}
 
@@ -1080,25 +920,12 @@ func (s *Server) DeleteAgentSkillFile(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 
-	if rs.Dir != "" {
+	if rs.IsImmutable() {
 		if rs.Scope == "system" {
 			writeError(w, http.StatusForbidden, "system skills are read-only")
 			return
 		}
-		if params.Path == skills.MainFile {
-			writeError(w, http.StatusBadRequest, "cannot delete SKILL.md")
-			return
-		}
-		file, err := safeSkillFilePath(rs.Dir, params.Path)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid path")
-			return
-		}
-		if err := os.Remove(file); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			s.writeInternalError(w, err)
-			return
-		}
-		writeNoContent(w)
+		writeError(w, http.StatusBadRequest, "project skills are read-only; edit them in the project workspace")
 		return
 	}
 
@@ -1127,7 +954,8 @@ func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id st
 	}
 	scope := req.Scope
 	if scope == "" {
-		scope = defaultAgentSkillScope(r.Context())
+		writeError(w, http.StatusBadRequest, "scope is required")
+		return
 	}
 	userID, code, msg := s.agentSkillWriteScope(r.Context(), agentID, scope)
 	if code != 0 {
@@ -1144,7 +972,7 @@ func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id st
 			ctx = skills.WithGitHubToken(ctx, token)
 		}
 	}
-	snapshot, err := skills.InstallToStore(ctx, s.skillStore(), req.Source, scope, storeUserID, agentID)
+	snapshot, err := skills.InstallToStore(ctx, s.skills, req.Source, scope, storeUserID, agentID)
 	if err != nil {
 		if isUniqueViolation(err) {
 			writeError(w, http.StatusConflict, "a skill with this name is already installed in this scope")

@@ -4,12 +4,10 @@
 // request/model input can forge:
 //   - HTTP transports call the Begin/Authorize* methods with the caller's
 //     Authority;
-//   - the agent skills tool (reads) and the reflect reviewer tool (reads and its
-//     prompt-driven create/patch/deprecate) reach the decisions through the
-//     consumer-owned skills.SkillReadAuthorizer / SkillWriteAuthorizer ports
-//     (BeginRead / BeginWrite), which reconstruct the turn/worker identity from
-//     context — a user or delegated agent, or a confined GroupAgentActor for a
-//     group turn;
+//   - the agent skills tool reaches read decisions through the consumer-owned
+//     skills.SkillReadAuthorizer port, which reconstructs the turn/worker
+//     identity from context — a user or delegated agent, or a confined
+//     GroupAgentActor for a group turn;
 //   - reflect's staged skill reconciliation and usage curation authorize each
 //     write through AuthorizeWorkerWrite under a fresh WorkerAgentAuthority.
 //
@@ -65,12 +63,9 @@ func NewService(store SkillStore, agents *agentaccess.Service) *Service {
 	return &Service{store: store, agents: agents}
 }
 
-// The Skill PEP is the read + write authorizer the skills tool consumes through
-// its consumer-owned ports (no skills→skillaccess import).
-var (
-	_ skills.SkillReadAuthorizer  = (*Service)(nil)
-	_ skills.SkillWriteAuthorizer = (*Service)(nil)
-)
+// The Skill PEP satisfies the read authorizer consumed by the runtime Skill
+// tool without creating a skills→skillaccess import cycle.
+var _ skills.SkillReadAuthorizer = (*Service)(nil)
 
 // BeginRead implements skills.SkillReadAuthorizer for the skills tool. It derives
 // the trusted turn/worker identity from the runtime context (an agent turn or the
@@ -112,38 +107,6 @@ func contextReadAuthority(ctx context.Context) (authz.Authority, error) {
 		return agentaccess.GroupAgentAuthority(groupID, authz.AgentIDFromContext(ctx))
 	}
 	return authz.Authority{}, authz.ErrUnauthenticated
-}
-
-// BeginWrite implements skills.SkillWriteAuthorizer for the reflect reviewer
-// tool. It reconstructs the trusted turn identity from context (the reflect
-// review target's WithUserID+WithAgentID → an AgentActor) and authorizes
-// each create/patch/deprecate before the store mutation.
-func (s *Service) BeginWrite(ctx context.Context) (skills.SkillWriteDecision, error) {
-	if s.agents == nil {
-		return nil, ErrUnavailable
-	}
-	authority, err := contextReadAuthority(ctx)
-	if err != nil {
-		return nil, err
-	}
-	acc, err := s.Begin(ctx, authority)
-	if err != nil {
-		return nil, err
-	}
-	return &writeDecision{acc: acc}, nil
-}
-
-// writeDecision authorizes individual DB-skill writes within one evaluation.
-type writeDecision struct{ acc *Access }
-
-func (d *writeDecision) AllowCreate(ctx context.Context, scope, agentID string) error {
-	_, _, err := d.acc.AuthorizeManageScope(ctx, scope, agentID)
-	return err
-}
-
-func (d *writeDecision) AllowWrite(ctx context.Context, id string) error {
-	_, err := d.acc.AuthorizeManageByID(ctx, id, authz.ActionWrite)
-	return err
 }
 
 // readDecision decides individual DB-skill reads for one turn, mapping a rule

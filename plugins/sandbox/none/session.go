@@ -32,23 +32,10 @@ type Factory struct {
 	mountSources map[string]string
 }
 
-// NewFactory returns a Factory for the none backend.
-func NewFactory(cfg ...Config) sandboxpkg.Factory {
-	return newFactory(nil, cfg...)
-}
-
 // NewFactoryWithMountSources binds process-visible policy roots to
 // provider-private physical sources.
-func NewFactoryWithMountSources(mountSources map[string]string, cfg ...Config) sandboxpkg.Factory {
-	return newFactory(mountSources, cfg...)
-}
-
-func newFactory(mountSources map[string]string, cfg ...Config) sandboxpkg.Factory {
-	var c Config
-	if len(cfg) > 0 {
-		c = cfg[0]
-	}
-	return &Factory{cfg: c, mountSources: maps.Clone(mountSources)}
+func NewFactoryWithMountSources(mountSources map[string]string, cfg Config) sandboxpkg.Factory {
+	return &Factory{cfg: cfg, mountSources: maps.Clone(mountSources)}
 }
 
 // Name returns the backend name.

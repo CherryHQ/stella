@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,7 +31,7 @@ const (
 	// the durable Session inbox, and restrictive Library ownership are the
 	// post-anchor migrations exercised below. Library chunk locator integrity and
 	// the dedicated Skill Home cutover evidence schema are checked explicitly.
-	currentMigrationVersion = sequentialAnchor + 13
+	currentMigrationVersion = sequentialAnchor + 15
 
 	previousGAUserID           = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID          = "00000000-0000-0000-0000-000000000002"
@@ -162,9 +163,9 @@ func seedPreviousGAData(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
 	exec("user", `INSERT INTO auth_user (id, email, created_at, updated_at) VALUES ($1, 'previous-ga@test.invalid', $2, $2)`, previousGAUserID, previousGATime)
 	exec("personal access token", `INSERT INTO personal_access_token (id, public_id, user_id, name, token_hash, last4, scopes, created_at, updated_at)
 		VALUES ('00000000-0000-0000-0000-000000000014', 'previous-ga-pat', $1, 'previous GA PAT', 'previous-ga-hash', '1234', ARRAY['goals:read'], $2, $2)`, previousGAUserID, previousGATime)
-	exec("agents", `INSERT INTO agent (id, name, workspace, created_at, updated_at) VALUES
-		($1, 'Previous GA Agent', '/tmp', $3, $3),
-		($2, 'Previous GA Cascade Agent', '/tmp', $3, $3)`, previousGAAgentID, previousGACascadeAgentID, previousGATime)
+	exec("agents", `INSERT INTO agent (id, name, workspace, enabled_builtin_skills, created_at, updated_at) VALUES
+		($1, 'Previous GA Agent', '/tmp', '["historical-allowlist-entry"]'::jsonb, $3, $3),
+		($2, 'Previous GA Cascade Agent', '/tmp', 'null'::jsonb, $3, $3)`, previousGAAgentID, previousGACascadeAgentID, previousGATime)
 	exec("canonical provider", `INSERT INTO provider (id, type, name, created_at, updated_at) VALUES ($1, 'anthropic', 'Previous GA Provider', $2, $2)`, previousGAProviderID, previousGATime)
 	exec("sandbox plugin rows", `INSERT INTO plugin (id, kind, name, created_at, updated_at) VALUES
 		('sandbox/local', 'sandbox', 'Local sandbox', $1, $1),
@@ -248,6 +249,36 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 			t.Fatalf("count %s: %v", name, err)
 		}
 		return got
+	}
+	for _, agentID := range []string{previousGAAgentID, previousGACascadeAgentID} {
+		var policy string
+		if err := db.QueryRow(ctx, `SELECT enabled_builtin_skills::text FROM agent WHERE id = $1`, agentID).Scan(&policy); err != nil {
+			t.Fatalf("read migrated Agent Skill policy for %s: %v", agentID, err)
+		}
+		if policy != `{"version": 1, "disabled": []}` {
+			t.Fatalf("migrated Agent Skill policy for %s = %s, want canonical empty v1", agentID, policy)
+		}
+	}
+	for _, invalid := range []string{
+		`null`,
+		`[]`,
+		`{"version":1.0,"disabled":[]}`,
+		`{"version":1,"disabled":[1]}`,
+		`{"version":1,"disabled":[null]}`,
+		`{"version":1,"disabled":[{"system":"a"}]}`,
+		`{"version":1,"disabled":["system:z","builtin:a"]}`,
+		`{"version":1,"disabled":["system:a","system:a"]}`,
+		`{"version":1,"disabled":["user:a"]}`,
+		`{"version":1,"disabled":["system:Upper"]}`,
+		`{"version":1,"disabled":["system:` + strings.Repeat("a", 65) + `"]}`,
+	} {
+		if _, err := db.Exec(ctx, `UPDATE agent SET enabled_builtin_skills = $1::jsonb WHERE id = $2`, invalid, previousGAAgentID); err == nil {
+			t.Errorf("canonical Agent Skill policy constraint accepted %s", invalid)
+		}
+	}
+	const validPolicy = `{"version":1,"disabled":["builtin:a","system:b","system_agent:c"]}`
+	if _, err := db.Exec(ctx, `UPDATE agent SET enabled_builtin_skills = $1::jsonb WHERE id = $2`, validPolicy, previousGACascadeAgentID); err != nil {
+		t.Fatalf("canonical Agent Skill policy constraint rejected valid policy: %v", err)
 	}
 	var tokenUse string
 	var issuedByProvisioning bool

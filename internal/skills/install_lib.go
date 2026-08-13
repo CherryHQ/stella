@@ -16,14 +16,15 @@ import (
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	mcpskills "github.com/vaayne/mcphub/pkg/skills"
 	_ "github.com/vaayne/mcphub/pkg/skills/providers"
-
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 // InstallToStore fetches a skill and commits it through the internal Store.
 // scope must be one of "user", "user_agent", or "system_agent".
 // user uses userID; user_agent uses both; system_agent uses agentID.
-func InstallToStore(ctx context.Context, store Store, source, scope string, userID string, agentID string) (SkillSnapshot, error) {
+func InstallToStore(ctx context.Context, store interface {
+	CreateManagedSkill(context.Context, Skill, map[string]string) (SkillSnapshot, error)
+}, source, scope string, userID string, agentID string,
+) (SkillSnapshot, error) {
 	skillName, files, version, cleanup, err := FetchSkillFiles(ctx, source)
 	if err != nil {
 		return SkillSnapshot{}, err
@@ -107,7 +108,11 @@ type UpgradeResult struct {
 // For github.com sources a token carried via WithGitHubToken authenticates the
 // fetch, exactly as during install. metadata is the skill's current metadata blob;
 // its created-at and source are preserved while version is bumped.
-func UpgradeInStore(ctx context.Context, store Store, skill Skill, expectedDigest string, metadata json.RawMessage) (UpgradeResult, error) {
+func UpgradeInStore(ctx context.Context, store interface {
+	LoadExactRevision(context.Context, Skill, string) (ManagedRevision, error)
+	UpdateManagedSkill(context.Context, ManagedSkillUpdate) (SkillSnapshot, error)
+}, skill Skill, expectedDigest string, metadata json.RawMessage,
+) (UpgradeResult, error) {
 	meta := map[string]any{}
 	if len(metadata) > 0 {
 		_ = json.Unmarshal(metadata, &meta)
@@ -136,7 +141,7 @@ func UpgradeInStore(ctx context.Context, store Store, skill Skill, expectedDiges
 		return UpgradeResult{Updated: false, Version: version}, nil
 	}
 
-	mainContent, ok := files[pkgplugins.SkillMainFile]
+	mainContent, ok := files[MainFile]
 	if !ok {
 		return UpgradeResult{}, fmt.Errorf("fetched skill %q is missing SKILL.md", name)
 	}
@@ -145,16 +150,16 @@ func UpgradeInStore(ctx context.Context, store Store, skill Skill, expectedDiges
 		return UpgradeResult{}, fmt.Errorf("parse SKILL.md for %q: %w", name, err)
 	}
 
-	existing, err := store.ListFiles(ctx, skill.ID)
+	existing, err := store.LoadExactRevision(ctx, skill, expectedDigest)
 	if err != nil {
-		return UpgradeResult{}, fmt.Errorf("list installed files: %w", err)
+		return UpgradeResult{}, fmt.Errorf("load installed revision: %w", err)
 	}
 	keep := make(map[string]bool, len(files))
 	for path := range files {
 		keep[path] = true
 	}
-	deleteFiles := make([]string, 0, len(existing))
-	for _, path := range existing {
+	deleteFiles := make([]string, 0, len(existing.Files))
+	for path := range existing.Files {
 		if !keep[path] {
 			deleteFiles = append(deleteFiles, path)
 		}

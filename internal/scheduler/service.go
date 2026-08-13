@@ -16,7 +16,6 @@ import (
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/authz"
-	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -209,22 +208,6 @@ func (s *Service) BindRiverClient(c *river.Client[pgx.Tx]) error {
 	}
 	s.river = c
 	return nil
-}
-
-// NewFromPath creates a scheduler service that opens its own PostgreSQL
-// database from the given DSN. The database is closed when Stop is called.
-func NewFromPath(dsn string) (*Service, error) {
-	db, err := appdb.OpenDB(dsn)
-	if err != nil {
-		return nil, err
-	}
-	svc, err := New(db)
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
-	svc.ownsDB = true
-	return svc, nil
 }
 
 // SetUserJobsEnabled controls whether persisted user-owned scheduler jobs are loaded.

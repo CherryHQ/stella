@@ -26,7 +26,7 @@ func TestBashSessionSecretValueRedactedFromStdout(t *testing.T) {
 	secrets := NewSessionSecretValues()
 	secrets.Set([]string{"vault-secret-value"})
 	session := &bashSecretSession{Session: pkgsandbox.NopSession(), result: pkgsandbox.ExecResult{Stdout: "vault-secret-value\n", ExitCode: 0}}
-	tool := newBashTool(session, "", "", secrets)
+	tool := newBashTool(session, "", secrets)
 
 	content, err := tool.Execute(context.Background(), map[string]any{"command": "printf $MY_SECRET"})
 	if err != nil {
@@ -39,7 +39,7 @@ func TestBashSessionSecretValueRedactedFromExitCodeResult(t *testing.T) {
 	secrets := NewSessionSecretValues()
 	secrets.Set([]string{"vault-secret-value"})
 	session := &bashSecretSession{Session: pkgsandbox.NopSession(), result: pkgsandbox.ExecResult{Stderr: "bad vault-secret-value\n", ExitCode: 1}}
-	tool := newBashTool(session, "", "", secrets)
+	tool := newBashTool(session, "", secrets)
 
 	content, err := tool.Execute(context.Background(), map[string]any{"command": "false"})
 	if err == nil {
@@ -52,7 +52,7 @@ func TestBashSessionSecretValueRedactedFromExecError(t *testing.T) {
 	secrets := NewSessionSecretValues()
 	secrets.Set([]string{"vault-secret-value"})
 	session := &bashSecretSession{Session: pkgsandbox.NopSession(), execErr: errors.New("runner failed with vault-secret-value")}
-	tool := newBashTool(session, "", "", secrets)
+	tool := newBashTool(session, "", secrets)
 
 	content, err := tool.Execute(context.Background(), map[string]any{"command": "printf $MY_SECRET"})
 	if err == nil {
@@ -73,7 +73,7 @@ func TestRedactSecretValuesReplacesLongestSecretsFirst(t *testing.T) {
 
 func TestBashNilAndEmptySessionSecretValuesSafe(t *testing.T) {
 	session := &bashSecretSession{Session: pkgsandbox.NopSession(), result: pkgsandbox.ExecResult{Stdout: "plain\n", ExitCode: 0}}
-	tool := newBashTool(session, "", "", nil)
+	tool := newBashTool(session, "", nil)
 
 	content, err := tool.Execute(context.Background(), map[string]any{"command": "printf plain"})
 	if err != nil {

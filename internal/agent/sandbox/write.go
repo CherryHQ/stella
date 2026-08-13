@@ -23,12 +23,12 @@ func writeDefinition() pkgtools.Definition {
 	}
 }
 
-func newWriteTool(host pkgsandbox.Host, projectRoot string) pkgtools.Tool {
+func newWriteTool(host pkgsandbox.Session, projectRoot string) pkgtools.Tool {
 	return &hostWriteTool{host: host, projectRoot: projectRoot}
 }
 
 type hostWriteTool struct {
-	host        pkgsandbox.Host
+	host        pkgsandbox.Session
 	projectRoot string
 }
 

@@ -168,7 +168,7 @@ Normal conversation tools do not directly write facts. Structured Reflect genera
 
 ## Structured Reflect and Curator
 
-Structured Reflect is the only scheduler writer. It runs the Fact and Skill lines concurrently with independent failures and watermarks; one failed line does not cancel or advance the other. The obsolete `STELLA_REFLECT_MODE` variable no longer selects a writer. During the transition release, an empty value or `structured` is accepted for deployment compatibility, while an explicit `legacy` or unknown value fails startup.
+Structured Reflect is the only scheduler writer. It runs the Fact and Skill lines concurrently with independent failures and watermarks; one failed line does not cancel or advance the other.
 
 The cutover migration copies every legacy session `review_watermark` into missing `reflect_watermark:fact` and `reflect_watermark:skill` state. When a line already exists, the newer timestamp wins; if the legacy timestamp wins, the old line sequence is cleared because it belongs to an earlier boundary. The migration is idempotent and leaves global rows untouched as inert rollback data. Runtime code reads and advances only the two line watermarks.
 

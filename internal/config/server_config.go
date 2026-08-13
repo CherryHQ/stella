@@ -37,7 +37,6 @@ const (
 	riverLogLevelEnv = "LOG_LEVEL_RIVER"
 
 	reflectIntervalEnv    = "STELLA_REFLECT_INTERVAL"
-	reflectModeEnv        = "STELLA_REFLECT_MODE"
 	reflectCuratorModeEnv = "STELLA_REFLECT_CURATOR_MODE"
 
 	oidcProviderNameEnv = "OIDC_PROVIDER_NAME"
@@ -140,13 +139,10 @@ type BlobS3Config struct {
 	UseSSL    string
 }
 
-// ReflectConfig carries raw reflect-scheduler settings. LegacyModeGuard is only
-// used to reject stale STELLA_REFLECT_MODE values during the structured-only
-// transition; it does not select a writer.
+// ReflectConfig carries raw reflect-scheduler settings.
 type ReflectConfig struct {
-	Interval        string
-	LegacyModeGuard string
-	CuratorMode     string
+	Interval    string
+	CuratorMode string
 }
 
 // DiagnosticsConfig holds optional local debug-server settings.
@@ -278,9 +274,8 @@ func LoadServerConfig(lookup func(string) (string, bool)) (ServerConfig, error) 
 		UseSSL:    get(blobS3UseSSLEnv),
 	}
 	cfg.Reflect = ReflectConfig{
-		Interval:        get(reflectIntervalEnv),
-		LegacyModeGuard: get(reflectModeEnv),
-		CuratorMode:     get(reflectCuratorModeEnv),
+		Interval:    get(reflectIntervalEnv),
+		CuratorMode: get(reflectCuratorModeEnv),
 	}
 	cfg.Diagnostics.PprofAddr = get(pprofAddrEnv)
 	cfg.Observability.RecordToolIO = get(recordToolIOEnv) == "true"

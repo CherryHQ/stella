@@ -57,7 +57,7 @@ internal/
   db/                  PostgreSQL (pgx/v5), goose migrations, sqlc queries
   home/                POSIX workspace materialization, owner validation, deletion fencing
   scheduler/           River-backed service (durable job scheduling for Web UI and native agent tools)
-  skills/              Skills tool (search/install/list/remove via skills.sh)
+  skills/              Managed Skill authority, exact revisions, search, and loading
 pkg/
   ai/                  Message/Content types, Model, Provider interface, streaming events
   tools/               Tool interface and registry
@@ -218,7 +218,7 @@ Agent sends first persist an input row, then enter a process-local per-Session F
 | ----------- | --------------------------------- | -------------------------------------------------------------------- |
 | `memory`    | Always                            | Unified search and read across conversation and durable memory       |
 | `session`   | One-to-one agent sessions         | Session listing, bounded inspection, creation, and synchronous sends |
-| `skills`    | Always                            | Skill management (search/install/list/remove from skills.sh)         |
+| `skills`    | Always                            | Search installed Skills and load one exact selected revision         |
 | `scheduler` | Always                            | Schedule tasks (add/list/remove jobs)                                |
 | `notify`    | Gateway mode + channel configured | Send notifications via dispatcher                                    |
 

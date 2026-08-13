@@ -10,7 +10,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/manifestplugins"
-	"github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -37,7 +36,6 @@ type Host struct {
 	notifications      pkgplugins.Notifier
 	scheduler          SchedulerBackend
 	stateStore         StateStoreBackend
-	skillStore         skills.Store
 	authService        pkgplugins.Auth
 	channelRuntime     pkgplugins.ChannelPlatform
 	toolRegs           map[string]pkgplugins.ToolSpec
@@ -558,14 +556,8 @@ func (h *Host) SystemPromptSections(ctx context.Context, build pkgplugins.System
 		section, err := reg.Build(ctx, pkgplugins.SystemPromptContext{
 			Platform:            h.platform(reg.PluginID),
 			State:               state,
-			StellaHome:          build.StellaHome,
-			HomeDir:             build.HomeDir,
-			AgentRoot:           build.AgentRoot,
-			ProjectRoot:         build.ProjectRoot,
 			UserID:              build.UserID,
 			AgentID:             build.AgentID,
-			UserRoot:            build.UserRoot,
-			WorkspaceRoot:       build.WorkspaceRoot,
 			RegisteredPluginIDs: append([]string(nil), build.RegisteredPluginIDs...),
 			EnabledPluginIDs:    append([]string(nil), build.EnabledPluginIDs...),
 		})

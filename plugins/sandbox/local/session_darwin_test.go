@@ -78,7 +78,8 @@ func TestWrapCommand_darwin_usesSeatbelt(t *testing.T) {
 	root := t.TempDir()
 	policy := makePolicy(root, sandboxpkg.NetworkDisabled)
 
-	execPath, args, err := wrapCommand(policy, root, nil, darwinTestMounts(root), root, "", "sh", []string{"-c", "echo hi"})
+	session := &localSession{providerMounts: darwinTestMounts(root), realRoot: root}
+	execPath, args, err := session.wrapCommand(policy, root, "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -287,11 +288,12 @@ func TestBuildSeatbeltProfile_networkDisabledVsAllowAll(t *testing.T) {
 	}
 	root := t.TempDir()
 
-	_, disabledArgs, err := wrapCommand(makePolicy(root, sandboxpkg.NetworkDisabled), root, nil, darwinTestMounts(root), root, "", "sh", []string{"-c", "echo"})
+	session := &localSession{providerMounts: darwinTestMounts(root), realRoot: root}
+	_, disabledArgs, err := session.wrapCommand(makePolicy(root, sandboxpkg.NetworkDisabled), root, "sh", []string{"-c", "echo"})
 	if err != nil {
 		t.Fatalf("disabled wrapCommand error: %v", err)
 	}
-	_, allowArgs, err := wrapCommand(makePolicy(root, sandboxpkg.NetworkAllowAll), root, nil, darwinTestMounts(root), root, "", "sh", []string{"-c", "echo"})
+	_, allowArgs, err := session.wrapCommand(makePolicy(root, sandboxpkg.NetworkAllowAll), root, "sh", []string{"-c", "echo"})
 	if err != nil {
 		t.Fatalf("allow_all wrapCommand error: %v", err)
 	}

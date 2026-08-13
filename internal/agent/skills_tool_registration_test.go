@@ -1,50 +1,81 @@
 package agent
 
 import (
-	"os"
+	"context"
+	"io/fs"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/CherryHQ/stella/internal/agent/sandbox"
+	skillstool "github.com/CherryHQ/stella/internal/skills"
+	"github.com/CherryHQ/stella/pkg/ai"
 )
 
-// TestSkillsToolRegistrationIsReadOnlyAndAuthorized freezes the agent-facing
-// skills tool registration: it must stay restricted to read actions and must
-// inject the ResourceSkill read PEP. A regression that broadens the action set or
-// drops the authorizer would let an agent turn read or mutate DB skills outside
-// the policy, so this guards runner_impl against exactly that.
-func TestSkillsToolRegistrationIsReadOnlyAndAuthorized(t *testing.T) {
-	src := readSource(t, "runner_impl.go")
-	if !strings.Contains(src, `WithReadAuthorizer(cfg.SkillReadAuthorizer)`) {
-		t.Fatal("runner_impl skills tool must be constructed WithReadAuthorizer(cfg.SkillReadAuthorizer)")
-	}
-	if !strings.Contains(src, `WithActionsOnly("search_installed", "load")`) {
-		t.Fatal(`runner_impl skills tool must be restricted to WithActionsOnly("search_installed", "load")`)
-	}
-	for _, write := range []string{`"install"`, `"remove"`, `"create"`, `"patch"`, `"deprecate"`} {
-		if strings.Contains(src, "WithActionsOnly(") && strings.Contains(actionsOnlyArgs(src), write) {
-			t.Fatalf("runner_impl skills tool must not expose write action %s", write)
-		}
-	}
+type oneSkillRuntime struct {
+	emptySkillRuntime
+	skill skillstool.Skill
 }
 
-// actionsOnlyArgs returns the argument text of the WithActionsOnly(...) call so a
-// write action anywhere else in the file (e.g. a comment) does not trip the guard.
-func actionsOnlyArgs(src string) string {
-	_, after, ok := strings.Cut(src, "WithActionsOnly(")
-	if !ok {
-		return ""
-	}
-	rest := after
-	if before, _, ok := strings.Cut(rest, ")"); ok {
-		return before
-	}
-	return rest
+func (r oneSkillRuntime) ListIdentityVisible(context.Context, skillstool.ViewContext) ([]skillstool.Skill, error) {
+	return []skillstool.Skill{r.skill}, nil
 }
 
-func readSource(t *testing.T, name string) string {
-	t.Helper()
-	b, err := os.ReadFile(name)
+func (r oneSkillRuntime) LoadCurrentRevision(context.Context, skillstool.Skill) (skillstool.ManagedRevision, error) {
+	return skillstool.ManagedRevision{
+		Skill: r.skill,
+		Files: map[string][]byte{skillstool.MainFile: []byte("# Private")},
+		Modes: map[string]fs.FileMode{skillstool.MainFile: 0o444},
+	}, nil
+}
+
+type recordingSkillReadAuthorizer struct{ calls int }
+
+func (a *recordingSkillReadAuthorizer) BeginRead(context.Context) (skillstool.SkillReadDecision, error) {
+	return a, nil
+}
+
+func (a *recordingSkillReadAuthorizer) AllowRead(context.Context, string, string, string, string) (bool, error) {
+	a.calls++
+	return false, nil
+}
+
+func TestBuildToolRegistryRegistersAuthorizedReadOnlySkillsTool(t *testing.T) {
+	home := t.TempDir()
+	identity := skillstool.Skill{
+		ID:            "private",
+		Scope:         "user",
+		UserID:        "user-1",
+		Name:          "private-runbook",
+		Description:   "private incident response",
+		Status:        skillstool.SkillStatusActive,
+		ContentDigest: strings.Repeat("a", 64),
+	}
+	authorizer := &recordingSkillReadAuthorizer{}
+	reg, _, _, err := buildToolRegistry(t.Context(), runnerConfig{
+		Sandbox: sandbox.Config{Paths: sandbox.Paths{
+			StellaHome: home,
+			AgentRoot:  filepath.Join(home, "agents", "agent-1"),
+			UserRoot:   filepath.Join(home, "users", "user-1"),
+		}},
+		BuiltinParams:       RunnerParams{UserID: identity.UserID, AgentID: "agent-1"},
+		SkillRevisionReader: oneSkillRuntime{skill: identity},
+		SkillReadAuthorizer: authorizer,
+	}, &fakeSession{alive: true}, nil, ai.Model{}, "")
 	if err != nil {
-		t.Fatalf("read %s: %v", name, err)
+		t.Fatalf("buildToolRegistry: %v", err)
 	}
-	return string(b)
+	if !reg.Has("skills") {
+		t.Fatal("skills tool is not registered")
+	}
+	out, err := reg.Execute(t.Context(), "skills", map[string]any{"action": "search_installed", "query": "incident response"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authorizer.calls != 1 || out != "No installed skills found." {
+		t.Fatalf("denied Skill search = %q with %d authorization calls", out, authorizer.calls)
+	}
+	if _, err := reg.Execute(t.Context(), "skills", map[string]any{"action": "install"}); err == nil {
+		t.Fatal("agent-facing skills tool accepted a management action")
+	}
 }

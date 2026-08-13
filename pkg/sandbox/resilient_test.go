@@ -66,7 +66,50 @@ func (m *mockSession) Files() FileAccess {
 	if m.files != nil {
 		return m.files
 	}
-	return directFileAccess{}
+	return directTestFileAccess{}
+}
+
+type directTestFileAccess struct{}
+
+func (directTestFileAccess) ReadFile(name string) ([]byte, error) { return os.ReadFile(name) }
+
+func (directTestFileAccess) ReadDir(name string) ([]DirEntry, error) {
+	entries, err := os.ReadDir(name)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]DirEntry, 0, len(entries))
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err == nil {
+			out = append(out, DirEntry{Name: entry.Name(), IsDir: entry.IsDir(), Size: info.Size()})
+		}
+	}
+	return out, nil
+}
+
+func (directTestFileAccess) Stat(name string) (FileInfo, error) {
+	info, err := os.Stat(name)
+	if err != nil {
+		return FileInfo{}, err
+	}
+	return FileInfo{IsDir: info.IsDir(), Size: info.Size()}, nil
+}
+
+func (directTestFileAccess) WriteFile(name string, content []byte, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(name, content, mode)
+}
+
+func (directTestFileAccess) ProjectFiles(name string, files []ProjectedFile) error {
+	for _, file := range files {
+		if err := (directTestFileAccess{}).WriteFile(filepath.Join(name, filepath.FromSlash(file.Path)), file.Content, file.Mode); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type rootedTestAccess struct{ root string }
@@ -77,21 +120,21 @@ func (a rootedTestAccess) ReadFile(name string) ([]byte, error) {
 }
 
 func (a rootedTestAccess) ReadDir(name string) ([]DirEntry, error) {
-	return directFileAccess{}.ReadDir(a.resolve(name))
+	return directTestFileAccess{}.ReadDir(a.resolve(name))
 }
 
 func (a rootedTestAccess) Stat(name string) (FileInfo, error) {
-	return directFileAccess{}.Stat(a.resolve(name))
+	return directTestFileAccess{}.Stat(a.resolve(name))
 }
 
 func (a rootedTestAccess) WriteFile(name string, content []byte, mode os.FileMode) error {
-	return directFileAccess{}.WriteFile(a.resolve(name), content, mode)
+	return directTestFileAccess{}.WriteFile(a.resolve(name), content, mode)
 }
 
 func (a rootedTestAccess) ProjectFiles(name string, files []ProjectedFile) error {
 	root := a.resolve(name)
 	for _, file := range files {
-		if err := (directFileAccess{}).WriteFile(filepath.Join(root, filepath.FromSlash(file.Path)), file.Content, file.Mode); err != nil {
+		if err := (directTestFileAccess{}).WriteFile(filepath.Join(root, filepath.FromSlash(file.Path)), file.Content, file.Mode); err != nil {
 			return err
 		}
 	}

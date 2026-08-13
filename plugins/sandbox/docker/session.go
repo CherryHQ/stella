@@ -63,7 +63,9 @@ func (f *dockerFactory) client() (*dockerclient.Client, error) {
 	return getSharedClient()
 }
 
-// NewFactory returns a Factory backed by a Docker container-per-session strategy.
+// NewFactoryWithMountSources returns a Factory backed by a Docker
+// container-per-session strategy and binds process-visible policy roots to
+// provider-private physical sources.
 //
 // When cfg.StellaHome is non-empty, construction performs I/O:
 //   - Runtime mode resolution: reads $STELLA_DOCKER_SANDBOX_MODE and the
@@ -74,12 +76,6 @@ func (f *dockerFactory) client() (*dockerclient.Client, error) {
 //
 // Both steps are skipped when StellaHome is empty (e.g. unit tests), making
 // construction cheap and infallible in that case.
-func NewFactory(cfg Config) (sandboxpkg.Factory, error) {
-	return NewFactoryWithMountSources(cfg, nil)
-}
-
-// NewFactoryWithMountSources binds process-visible policy roots to
-// provider-private physical sources.
 func NewFactoryWithMountSources(cfg Config, mountSources map[string]string) (sandboxpkg.Factory, error) {
 	if cfg.StellaHome != "" {
 		var err error

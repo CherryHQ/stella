@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -13,7 +14,6 @@ import (
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	skillstool "github.com/CherryHQ/stella/internal/skills"
 	coreagent "github.com/CherryHQ/stella/pkg/agent"
@@ -24,7 +24,6 @@ import (
 	"github.com/CherryHQ/stella/pkg/renderrefs"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/pkg/tools"
-	"github.com/CherryHQ/stella/resources"
 )
 
 // providerConfig groups LLM provider settings.
@@ -50,8 +49,7 @@ type runnerConfig struct {
 	BuiltinParams        RunnerParams
 	DisabledSkillRefs    []string
 	PerRunTools          []tools.Tool
-	SkillStore           pkgplugins.SkillStore
-	SkillRevisionReader  skillstool.IdentityReader
+	SkillRevisionReader  skillstool.RuntimeReader
 	ProjectSkillSnapshot *skillstool.ProjectSnapshot
 	SkillReadAuthorizer  skillstool.SkillReadAuthorizer
 	PluginView           pkgplugins.SessionPluginView
@@ -120,21 +118,7 @@ func newRunner(ctx context.Context, cfg runnerConfig) (*runner, error) {
 	}
 
 	if systemPrompt == "" {
-		paths, err := sandbox.ResolvePaths(cfg.Sandbox)
-		if err != nil {
-			if session != nil {
-				_ = session.Close()
-			}
-			return nil, fmt.Errorf("runner: %w", err)
-		}
-		systemPrompt = prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{
-			StellaHome:  paths.StellaHome,
-			AgentRoot:   paths.AgentRoot,
-			ProjectRoot: paths.ProjectRoot,
-			UserRoot:    paths.UserRoot,
-			Sections:    cfg.Sections,
-			Host:        session,
-		})
+		systemPrompt = prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{Sections: cfg.Sections, Session: session})
 	}
 
 	toolReg, hookSet, delegateTool, err := buildToolRegistry(ctx, cfg, session, stream, model, systemPrompt)
@@ -226,27 +210,16 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	if cfg.NoCapabilities {
 		return toolReg, nil, nil, nil
 	}
-	paths, _ := sandbox.ResolvePaths(cfg.Sandbox)
 
 	// Core tools (read, bash, edit, write) are always provided by the active
 	// sandbox session.
 
-	toolsBinDir := resolveToolsBinDir(paths, config.SandboxBackendDocker)
-
 	// Runtime capabilities are injected from the active runner session.
 	bc := pkgplugins.ToolBuildContext{
-		Paths: pkgplugins.ToolPaths{
-			UserRoot:      paths.UserRoot,
-			WorkspaceRoot: paths.WorkspaceRoot,
-			ToolsBinDir:   toolsBinDir,
-			StellaHome:    paths.StellaHome,
-			AgentRoot:     paths.AgentRoot,
-			ProjectRoot:   paths.ProjectRoot,
-		},
 		Runtime: session,
 	}
 
-	coreTools := buildSandboxCoreTools(session, bc, cfg.Sandbox.SessionSecretValues)
+	coreTools := buildSandboxCoreTools(session, cfg.Sandbox.SessionSecretValues)
 	if len(coreTools) == 0 {
 		return nil, nil, nil, fmt.Errorf("runner: sandbox backend unavailable: core tools require an active sandbox host")
 	}
@@ -283,19 +256,14 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	for _, t := range cfg.PerRunTools {
 		registerNonCore(t)
 	}
-	if cfg.SkillStore != nil {
-		stellaHome := paths.StellaHome
-		toolProjectRoot := paths.ProjectRoot
-		_, view := skillRuntimeLayoutAndView(ctx, cfg, paths)
-		registerNonCore(skillstool.NewTool(cfg.SkillStore, stellaHome, toolProjectRoot).
-			WithProjectSnapshot(cfg.ProjectSkillSnapshot).
-			WithManagedRevisions(cfg.SkillRevisionReader, session).
-			WithSkillDirView(view).
-			WithPluginVisibility(cfg.PluginView.RegisteredPluginIDs, cfg.PluginView.EnabledPluginIDs).
-			WithAgentSkillPolicy(cfg.DisabledSkillRefs).
-			WithReadAuthorizer(cfg.SkillReadAuthorizer).
-			WithActionsOnly("search_installed", "load"))
+	skillsTool, err := skillstool.NewTool(cfg.SkillRevisionReader, session, cfg.SkillReadAuthorizer)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("runner: build skills tool: %w", err)
 	}
+	registerNonCore(skillsTool.
+		WithProjectSnapshot(cfg.ProjectSkillSnapshot).
+		WithPluginVisibility(cfg.PluginView.RegisteredPluginIDs, cfg.PluginView.EnabledPluginIDs).
+		WithAgentSkillPolicy(cfg.DisabledSkillRefs))
 	if cfg.MCPToolProvider != nil {
 		for _, t := range cfg.MCPToolProvider.ToolsForContext(ctx, cfg.BuiltinParams.UserID, cfg.BuiltinParams.AgentID) {
 			registerNonCore(t)
@@ -313,7 +281,7 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 		Registry:       toolReg,
 		Model:          model,
 		System:         systemPrompt,
-		Presets:        buildDelegatePresets(cfg),
+		Presets:        buildDelegatePresets(cfg, session),
 		Hooks:          hookSet,
 		ToolLifecycle:  cfg.ToolLifecycle,
 		SessionRunner:  cfg.DelegateRunner,
@@ -342,27 +310,6 @@ func buildToolRegistry(ctx context.Context, cfg runnerConfig, session pkgsandbox
 	return toolReg, hookSet, delegateTool, nil
 }
 
-// skillRuntimeLayoutAndView is the sole production boundary that decides
-// which filesystem Skill tiers a runner can expose to the model.
-func skillRuntimeLayoutAndView(ctx context.Context, cfg runnerConfig, paths sandbox.Paths) (skillstool.SkillDiskLayout, skillstool.SkillDirView) {
-	userDataDir, workspaceRoot := paths.UserDataDir, paths.WorkspaceRoot
-	if cfg.BuiltinParams.GroupID != "" {
-		userDataDir, workspaceRoot = "", ""
-	}
-	layout := skillDiskLayout(SystemDBSkillsDir(paths.StellaHome), paths.AgentRoot, userDataDir, workspaceRoot)
-	sv := sandbox.ResolveSkillView(ctx, cfg.Sandbox, paths)
-	view := skillstool.SkillDirView{
-		Isolated: sv.Isolated, BuiltinSkillsHost: sv.BuiltinSkillsHost, BuiltinSkillsView: sv.BuiltinSkillsView,
-		UserDataHost: sv.UserDataHost, UserDataView: sv.UserDataView,
-		WorkspaceHost: sv.WorkspaceHost, WorkspaceView: sv.WorkspaceView,
-	}
-	if cfg.BuiltinParams.GroupID != "" {
-		view.UserDataHost, view.UserDataView = "", ""
-		view.WorkspaceHost, view.WorkspaceView = "", ""
-	}
-	return layout, view
-}
-
 func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSet, []tools.Definition, error) {
 	if len(excluded) == 0 {
 		return coreagent.ToolSetFromRegistry(reg), reg.Definitions(), nil
@@ -384,18 +331,28 @@ func filterRunnerTools(reg *tools.Registry, excluded []string) (coreagent.ToolSe
 	return coreagent.ToolSetFromRegistryFiltered(reg, allowed)
 }
 
-func buildDelegatePresets(cfg runnerConfig) *delegatetool.PresetRegistry {
-	paths, _ := sandbox.ResolvePaths(cfg.Sandbox)
-	if err := resources.ExtractDelegates(stellaDelegatesDir(paths)); err != nil {
-		slog.Warn("failed to extract builtin delegates", "error", err)
+func buildDelegatePresets(cfg runnerConfig, session pkgsandbox.Session) *delegatetool.PresetRegistry {
+	env := session.Policy().Env
+	roots := make([]delegatetool.PresetRoot, 0, 3)
+	agentDelegatesSuffix := path.Join(".agents", "delegates")
+	for _, mount := range session.Policy().Filesystem.Mounts {
+		processPath := path.Clean(strings.ReplaceAll(mount.SandboxPath, "\\", "/"))
+		if before, ok := strings.CutSuffix(processPath, "/"+agentDelegatesSuffix); ok {
+			roots = append(roots, delegatetool.PresetRoot{
+				Path:   before,
+				Source: "agent",
+			})
+			break
+		}
 	}
-	return delegatetool.NewPresetRegistry(delegatetool.LoadDelegatePresets(delegatetool.LoadDelegatePresetsConfig{
-		StellaHome: paths.StellaHome,
-		AgentRoot:  paths.AgentRoot,
-		// User-level presets live under the shared user-data root (mounted as /user).
-		UserRoot:    paths.UserDataDir,
-		ProjectRoot: paths.ProjectRoot,
-	}))
+	if len(roots) == 0 && cfg.BuiltinParams.UserID == "" && cfg.BuiltinParams.GroupID == "" && env[pkgsandbox.EnvHome] != "" {
+		roots = append(roots, delegatetool.PresetRoot{Path: env[pkgsandbox.EnvHome], Source: "agent"})
+	}
+	if assets := env[pkgsandbox.EnvStellaAssetsDir]; assets != "" {
+		roots = append(roots, delegatetool.PresetRoot{Path: path.Dir(strings.ReplaceAll(assets, "\\", "/")), Source: "user"})
+	}
+	roots = append(roots, delegatetool.PresetRoot{Path: session.WorkingDir(), Source: "project"})
+	return delegatetool.NewPresetRegistry(delegatetool.LoadDelegatePresets(session.Files(), roots))
 }
 
 // buildHookSet creates the hook set from configured hook plugins.

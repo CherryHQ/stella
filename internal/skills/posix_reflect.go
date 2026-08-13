@@ -381,12 +381,6 @@ func (s *POSIXStore) DeleteReflectOwnedUserAgentSkill(ctx context.Context, in Re
 	return before.Skill, nil
 }
 
-// TouchReflectSkillRuntimeUse retains the legacy interface only to fail closed;
-// execution callers must bind the exact revision digest.
-func (*POSIXStore) TouchReflectSkillRuntimeUse(context.Context, string, string, string) error {
-	return ErrSkillDigestRequired
-}
-
 func (s *POSIXStore) TouchReflectSkillRuntimeUseDigest(ctx context.Context, id, userID, agentID, digest string) error {
 	identity, err := s.GetIdentity(ctx, id)
 	if err != nil || identity == nil {

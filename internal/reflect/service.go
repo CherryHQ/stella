@@ -8,6 +8,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/skills"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
@@ -24,18 +25,27 @@ type skillWriteAuthorizer interface {
 	AuthorizeWorkerWrite(ctx context.Context, userID, agentID, skillID string, create bool) error
 }
 
+// reflectSkillStore is the exact managed-Skill boundary Reflect requires. It is
+// deliberately one mandatory contract: reconciliation and curation cannot fall
+// back to mutable current-file reads or discover optional write capabilities at
+// runtime.
+type reflectSkillStore interface {
+	ListActiveReflectOwnedUserAgentSkills(context.Context, string, string) ([]skills.Skill, error)
+	LoadExactRevision(context.Context, skills.Skill, string) (skills.ManagedRevision, error)
+	CreateReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillCreate) (skills.Skill, error)
+	PatchReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillPatch) (skills.Skill, error)
+	DeleteReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillDelete) (skills.Skill, error)
+}
+
 // Config holds dependencies for the reflect service.
 type Config struct {
 	StateStore pkgplugins.StateStore
 	Memory     memory.Provider
 	Store      Store
-	// Snapshots loads per-agent Snapshots for review. The composition root passes
-	// the credential-aware loader so reviews use each Agent's Provider key
-	// overrides; when nil it falls back to Store, which also satisfies the loader.
+	// Snapshots loads credential-aware per-agent snapshots for review.
 	Snapshots  config.SnapshotLoader
-	SkillStore pkgplugins.SkillStore
-	// SkillAuthorizer applies Skill domain rules to reflect's staged writes (the
-	// reconciliation-plan/usage-curator path); when nil those fail closed.
+	SkillStore reflectSkillStore
+	// SkillAuthorizer applies Skill domain rules to Reflect's staged writes.
 	SkillAuthorizer   skillWriteAuthorizer
 	UsageCuratorStore UsageCuratorStore
 	Log               *slog.Logger
@@ -44,9 +54,8 @@ type Config struct {
 	// UsageCuratorSettings defaults to armed. Operators may switch to shadow to
 	// stop lifecycle writes while keeping scans and telemetry active.
 	UsageCuratorSettings UsageCuratorSettings
-	// Services provides per-agent session registries for review target listing.
-	// When set, reflect uses Registry.ListForReview and Registry.MemoryScope
-	// instead of calling memory.SessionManager directly.
+	// Services provides the per-agent session registry used for review target
+	// listing and owner-scoped memory coordinates.
 	Services agent.ServiceManager
 }
 
@@ -61,7 +70,7 @@ type Service struct {
 	memory                   memory.Provider
 	store                    Store
 	snapshots                config.SnapshotLoader
-	skillStore               pkgplugins.SkillStore
+	skillStore               reflectSkillStore
 	skillAuthorizer          skillWriteAuthorizer
 	stateStore               pkgplugins.StateStore
 	usageCuratorStore        UsageCuratorStore
@@ -76,31 +85,15 @@ type Service struct {
 	services                 agent.ServiceManager
 }
 
-// snapshotLoader returns the configured credential-aware loader, falling back to
-// store (which also satisfies config.SnapshotLoader) when unset — e.g. tests that
-// construct Service directly rather than through New.
-func (s *Service) snapshotLoader() config.SnapshotLoader {
-	if s.snapshots != nil {
-		return s.snapshots
-	}
-	return s.store
-}
-
 // New creates a new reflect service.
 func New(cfg Config) *Service {
 	if cfg.Log == nil {
 		cfg.Log = slog.Default()
 	}
-	snapshots := cfg.Snapshots
-	if snapshots == nil {
-		// Store also satisfies config.SnapshotLoader, so an unset loader keeps the
-		// prior undecorated behavior.
-		snapshots = cfg.Store
-	}
 	return &Service{
 		memory:                   cfg.Memory,
 		store:                    cfg.Store,
-		snapshots:                snapshots,
+		snapshots:                cfg.Snapshots,
 		skillStore:               cfg.SkillStore,
 		skillAuthorizer:          cfg.SkillAuthorizer,
 		stateStore:               cfg.StateStore,

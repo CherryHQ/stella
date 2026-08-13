@@ -79,18 +79,11 @@ function stripFrontmatter(md: string): string {
   return match ? md.slice(match[0].length) : md;
 }
 
-// Source is the reliable install key (the slug can differ from the SKILL.md name);
-// name/slug are a fallback for skills installed before the source was recorded.
 function isSkillInstalled(
-  skill: Pick<ClawhubSkill, "name" | "slug">,
-  installedNames: Set<string>,
+  skill: Pick<ClawhubSkill, "slug">,
   installedSources: Set<string>,
 ): boolean {
-  return (
-    installedSources.has(`clawhub:${skill.slug}`) ||
-    installedNames.has(skill.name) ||
-    installedNames.has(skill.slug)
-  );
+  return installedSources.has(`clawhub:${skill.slug}`);
 }
 
 // Build an mcphub shorthand source from a GitHub repo, the skill to select inside
@@ -232,7 +225,6 @@ export function SkillInstallSheet({
     enabled: marketActive,
   });
   const skills = useMemo(() => installedLookup.data ?? [], [installedLookup.data]);
-  const installedNames = useMemo(() => new Set(skills.map((s) => s.name)), [skills]);
   const installedSources = useMemo(
     () => new Set(skills.map((s) => s.source).filter((src): src is string => !!src)),
     [skills],
@@ -336,7 +328,6 @@ export function SkillInstallSheet({
             <DiscoverDetail
               slug={detailSlug}
               row={detailRow}
-              installedNames={installedNames}
               installedSources={installedSources}
               installingSlug={installingSlug}
               onInstall={(slug) => requestMarketInstall({ slug, name: detailRow?.name ?? slug })}
@@ -397,7 +388,6 @@ export function SkillInstallSheet({
                   <MarketGrid
                     query={market}
                     rows={rows}
-                    installedNames={installedNames}
                     installedSources={installedSources}
                     installingSlug={installingSlug}
                     sentinelRef={sentinelRef}
@@ -443,7 +433,6 @@ export function SkillInstallSheet({
 function MarketGrid({
   query,
   rows,
-  installedNames,
   installedSources,
   installingSlug,
   sentinelRef,
@@ -459,7 +448,6 @@ function MarketGrid({
     hasNextPage: boolean;
   };
   rows: ClawhubSkill[];
-  installedNames: Set<string>;
   installedSources: Set<string>;
   installingSlug: string | null;
   sentinelRef: RefObject<HTMLDivElement | null>;
@@ -514,7 +502,7 @@ function MarketGrid({
           <MarketCard
             key={skill.slug}
             skill={skill}
-            installed={isSkillInstalled(skill, installedNames, installedSources)}
+            installed={isSkillInstalled(skill, installedSources)}
             installing={installingSlug === skill.slug}
             installDisabled={installingSlug !== null}
             onOpen={() => onOpen(skill.slug)}
@@ -611,7 +599,6 @@ function MarketCard({
 function DiscoverDetail({
   slug,
   row,
-  installedNames,
   installedSources,
   installingSlug,
   onInstall,
@@ -619,7 +606,6 @@ function DiscoverDetail({
 }: {
   slug: string;
   row?: ClawhubSkill;
-  installedNames: Set<string>;
   installedSources: Set<string>;
   installingSlug: string | null;
   onInstall: (slug: string) => void;
@@ -631,7 +617,7 @@ function DiscoverDetail({
   const version = data?.version ?? row?.version;
   const summary = data?.summary ?? row?.summary;
   const count = row?.installs ?? row?.downloads;
-  const installed = isSkillInstalled({ name, slug }, installedNames, installedSources);
+  const installed = isSkillInstalled({ slug }, installedSources);
   const readme = stripFrontmatter(data?.readme ?? "").trim();
   const files = data?.files ?? [];
 

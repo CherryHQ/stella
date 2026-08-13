@@ -28,7 +28,6 @@ func TestBuildEnabledToolsBuildsOptionalAndRequiredToolsWithRuntimeContext(t *te
 	host.RegisterPluginID("tool/c")
 
 	var runtimeSeen int
-	var seenPaths []pkgplugins.ToolPaths
 	fakeRuntime := sandbox.NopSession()
 	host.AddTool(pkgplugins.ToolSpec{
 		PluginID: "tool/a",
@@ -37,7 +36,6 @@ func TestBuildEnabledToolsBuildsOptionalAndRequiredToolsWithRuntimeContext(t *te
 			if ctx.Runtime != nil {
 				runtimeSeen++
 			}
-			seenPaths = append(seenPaths, ctx.Paths)
 			return &testTool{name: "a"}, nil
 		},
 	})
@@ -49,7 +47,6 @@ func TestBuildEnabledToolsBuildsOptionalAndRequiredToolsWithRuntimeContext(t *te
 			if ctx.Runtime != nil {
 				runtimeSeen++
 			}
-			seenPaths = append(seenPaths, ctx.Paths)
 			return &testTool{name: "b"}, nil
 		},
 	})
@@ -62,16 +59,7 @@ func TestBuildEnabledToolsBuildsOptionalAndRequiredToolsWithRuntimeContext(t *te
 		},
 	})
 
-	build := pkgplugins.ToolBuildContext{
-		Paths: pkgplugins.ToolPaths{
-			UserRoot:    "/user",
-			ToolsBinDir: "/tools/bin",
-			StellaHome:  "/stella",
-			AgentRoot:   "/agent",
-			ProjectRoot: "/project",
-		},
-		Runtime: fakeRuntime,
-	}
+	build := pkgplugins.ToolBuildContext{Runtime: fakeRuntime}
 	got := host.BuildEnabledTools(context.Background(), build)
 	if len(got) != 2 {
 		t.Fatalf("BuildEnabledTools() len = %d, want 2", len(got))
@@ -81,10 +69,5 @@ func TestBuildEnabledToolsBuildsOptionalAndRequiredToolsWithRuntimeContext(t *te
 	}
 	if runtimeSeen != 2 {
 		t.Fatalf("runtime seen = %d, want 2", runtimeSeen)
-	}
-	for i, paths := range seenPaths {
-		if paths != build.Paths {
-			t.Fatalf("paths[%d] = %+v, want %+v", i, paths, build.Paths)
-		}
 	}
 }

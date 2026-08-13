@@ -3,7 +3,6 @@ package server_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -17,14 +16,6 @@ type agentSkillListResponse struct {
 	TotalSize     int              `json:"total_size"`
 	ScopeCounts   map[string]int   `json:"scope_counts"`
 	NextPageToken *string          `json:"next_page_token"`
-}
-
-type listFilesFailingStore struct {
-	skills.Store
-}
-
-func (s listFilesFailingStore) ListFiles(context.Context, string) ([]string, error) {
-	return nil, errors.New("injected ListFiles failure")
 }
 
 func decodeAgentSkillListResponse(t *testing.T, rrBody json.RawMessage) agentSkillListResponse {
@@ -65,13 +56,9 @@ func TestAgentSkillsLifecycleActiveKeysetAndCompatibility(t *testing.T) {
 		wantIDs[createTestSkill(t, env, "user_agent", user.ID, agentID, name)] = true
 	}
 
-	// Explicit pagination must not change the legacy no-parameter full-list contract.
-	legacy := listAgentSkillsLifecycle(t, env, sid, agentID, "")
-	legacyIDs := skillIDs(legacy.Skills)
-	for id := range wantIDs {
-		if !legacyIDs[id] {
-			t.Fatalf("legacy list omitted created skill %s", id)
-		}
+	defaultPage := listAgentSkillsLifecycle(t, env, sid, agentID, "")
+	if len(defaultPage.Skills) != 20 || defaultPage.TotalSize < len(wantIDs) || defaultPage.NextPageToken == nil {
+		t.Fatalf("default page = %#v, want 20 results with next token", defaultPage)
 	}
 
 	first := listAgentSkillsLifecycle(t, env, sid, agentID, "?scope=user_agent&page_size=12")
@@ -119,7 +106,7 @@ func TestAgentSkillsLifecycleScopeCountsAndSearch(t *testing.T) {
 
 	createTestSkill(t, env, "user", user.ID, "", "task5-filter-manual-user")
 	createTestSkill(t, env, "user_agent", user.ID, agentID, "task5-filter-manual-agent")
-	reflectSkill, err := env.pluginHost.SkillStore().CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
+	reflectSkill, err := env.skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
 		UserID: user.ID, AgentID: agentID, Name: "task5-filter-reflect-agent",
 		Description: "Needle Description", MainFileContent: "reflect body",
 	})
@@ -150,8 +137,12 @@ func TestAgentSkillsLifecycleDeleteUsesStableIDAndActiveName(t *testing.T) {
 	user, sid := newNonAdmin(t, env, "skill-lifecycle-delete-reference")
 	agentID := createAgentAsUser(t, env, sid, "skill-lifecycle-delete-reference-agent")
 	deprecatedID := createTestSkill(t, env, "user_agent", user.ID, agentID, "legacy-deprecated")
-	if _, err := env.db.Exec(context.Background(), `UPDATE skill SET status = 'deprecated' WHERE id = $1`, deprecatedID); err != nil {
-		t.Fatalf("mark legacy skill deprecated: %v", err)
+	deprecated := skills.SkillStatusDeprecated
+	if _, err := env.skillStore.UpdateManagedSkill(t.Context(), skills.ManagedSkillUpdate{
+		ID: deprecatedID, UserID: user.ID, AgentID: agentID, Scope: "user_agent",
+		Patch: skills.UpdatePatch{Status: &deprecated}, ExpectedDigest: currentSkillDigest(t, env, deprecatedID),
+	}); err != nil {
+		t.Fatalf("deprecate Skill through managed authority: %v", err)
 	}
 	rr := doRequestWithSession(t, env.srv, sid, http.MethodGet, "/api/agents/"+agentID+"/skills/"+deprecatedID+"?scope=user_agent", nil)
 	if rr.Code != http.StatusNotFound {
@@ -159,13 +150,13 @@ func TestAgentSkillsLifecycleDeleteUsesStableIDAndActiveName(t *testing.T) {
 	}
 
 	stableID := createTestSkill(t, env, "user_agent", user.ID, agentID, "delete-by-id")
-	rr = doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/"+stableID+"?scope=user_agent", nil)
+	rr = doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/"+stableID+"?scope=user_agent&expected_digest="+currentSkillDigest(t, env, stableID), nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("stable ID delete status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 	}
 
 	replacementID := createTestSkill(t, env, "user_agent", user.ID, agentID, "delete-by-id")
-	rr = doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/delete-by-id?scope=user_agent", nil)
+	rr = doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/delete-by-id?scope=user_agent&expected_digest="+currentSkillDigest(t, env, replacementID), nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("active-name delete status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 	}
@@ -186,7 +177,7 @@ func TestAgentSkillsLifecycleExactScopeFallsBackAfterIDCollision(t *testing.T) {
 	agentID := createAgentAsUser(t, env, sid, "skill-id-name-collision-agent")
 	ctx := context.Background()
 
-	if _, err := env.pluginHost.SkillStore().Create(ctx, skills.Skill{
+	if _, err := env.skillStore.CreateManagedSkill(ctx, skills.Skill{
 		ID: "deadbeef", Scope: "system_agent", AgentID: agentID,
 		Name: "system-collision", Description: "ID occupies the hexadecimal reference",
 	}, map[string]string{skills.MainFile: "# System collision\n"}); err != nil {
@@ -211,7 +202,7 @@ func TestAgentSkillsLifecycleAtomicEditPreservesOrConvertsReflectOwnership(t *te
 	user, sid := newNonAdmin(t, env, "skill-lifecycle-edit")
 	agentID := createAgentAsUser(t, env, sid, "skill-lifecycle-edit-agent")
 	ctx := context.Background()
-	created, err := env.pluginHost.SkillStore().CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
+	created, err := env.skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
 		UserID: user.ID, AgentID: agentID, Name: "task5-reflect-edit", Description: "before", MainFileContent: "before body",
 	})
 	if err != nil {
@@ -219,7 +210,7 @@ func TestAgentSkillsLifecycleAtomicEditPreservesOrConvertsReflectOwnership(t *te
 	}
 	path := "/api/agents/" + agentID + "/skills/" + created.ID + "?scope=user_agent"
 	rr := doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{
-		"description": "must not commit", "files": map[string]string{"../escape.md": "invalid"},
+		"description": "must not commit", "files": map[string]string{"../escape.md": "invalid"}, "expected_digest": created.ContentDigest,
 	})
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("invalid file patch status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
@@ -228,43 +219,45 @@ func TestAgentSkillsLifecycleAtomicEditPreservesOrConvertsReflectOwnership(t *te
 
 	// An ordinary edit keeps Reflect ownership while committing metadata and files together.
 	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{
-		"description": "ordinary edit", "files": map[string]string{"SKILL.md": "ordinary body"},
+		"description": "ordinary edit", "files": map[string]string{"SKILL.md": "ordinary body"}, "expected_digest": created.ContentDigest,
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("ordinary reflect patch status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
 	assertFullSkillMutationResponse(t, rr, created.ID, "reflect")
 	assertManagedSkillState(t, env, created.ID, "reflect", "ordinary edit", "ordinary body")
+	ordinaryDigest := responseSkillDigest(t, rr)
 
 	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{
 		"description": "manual edit", "convert_to_manual": true,
-		"files": map[string]string{"SKILL.md": "manual body", "references/note.md": "note"},
+		"files":           map[string]string{"SKILL.md": "manual body", "references/note.md": "note"},
+		"expected_digest": ordinaryDigest,
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("convert patch status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
 	assertFullSkillMutationResponse(t, rr, created.ID, "manual")
 	assertManagedSkillState(t, env, created.ID, "manual", "manual edit", "manual body")
+	manualDigest := responseSkillDigest(t, rr)
 
 	// Conversion is one-way; a second conversion request is an explicit conflict.
-	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{"convert_to_manual": true})
+	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, path, map[string]any{"convert_to_manual": true, "expected_digest": manualDigest})
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("second conversion status = %d, want 409 (body: %s)", rr.Code, rr.Body.String())
 	}
 }
 
-func TestSkillMutationResponseUsesCommittedSnapshotWhenListFilesFails(t *testing.T) {
+func TestSkillMutationResponseUsesCommittedSnapshot(t *testing.T) {
 	env := setupAdmin(t)
 	_, sid := newNonAdmin(t, env, "skill-snapshot-response")
 	agentID := createAgentAsUser(t, env, sid, "skill-snapshot-agent")
-	env.pluginHost.SetSkillStore(listFilesFailingStore{Store: env.pluginHost.SkillStore()})
 
 	rr := doRequestWithSession(t, env.srv, sid, http.MethodPost, "/api/agents/"+agentID+"/skills", map[string]any{
 		"scope": "user_agent", "name": "snapshot-response",
 		"files": map[string]string{skills.MainFile: "# Snapshot\n", "references/note.md": "note\n"},
 	})
 	if rr.Code != http.StatusCreated {
-		t.Fatalf("create with failing ListFiles status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
+		t.Fatalf("create status = %d, want 201 (body: %s)", rr.Code, rr.Body.String())
 	}
 	assertFullSkillMutationResponse(t, rr, "", "manual")
 	var got map[string]any
@@ -277,10 +270,10 @@ func TestSkillMutationResponseUsesCommittedSnapshotWhenListFilesFails(t *testing
 	}
 	id, _ := got["id"].(string)
 	rr = doRequestWithSession(t, env.srv, sid, http.MethodPatch, "/api/agents/"+agentID+"/skills/"+id+"?scope=user_agent", map[string]any{
-		"files": map[string]string{"scripts/run.sh": "#!/bin/sh\n"},
+		"files": map[string]string{"scripts/run.sh": "#!/bin/sh\n"}, "expected_digest": got["content_digest"],
 	})
 	if rr.Code != http.StatusOK {
-		t.Fatalf("update with failing ListFiles status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+		t.Fatalf("update status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
 	if err := json.Unmarshal(parseResponse(t, rr).Data, &got); err != nil {
 		t.Fatalf("unmarshal updated snapshot response: %v", err)
@@ -307,18 +300,19 @@ func assertFullSkillMutationResponse(t *testing.T, rr *httptest.ResponseRecorder
 
 func assertManagedSkillState(t *testing.T, env *testEnv, id, createdBy, description, mainFile string) {
 	t.Helper()
-	var row struct {
-		Description string          `json:"description"`
-		Metadata    json.RawMessage `json:"metadata"`
+	identity, err := env.skillStore.GetIdentity(context.Background(), id)
+	if err != nil || identity == nil {
+		t.Fatalf("skill %s identity = %#v, %v", id, identity, err)
 	}
-	if err := env.db.QueryRow(context.Background(), `SELECT description, metadata FROM skill WHERE id = $1`, id).Scan(&row.Description, &row.Metadata); err != nil {
-		t.Fatalf("read managed skill %s: %v", id, err)
+	revision, err := env.skillStore.LoadCurrentRevision(context.Background(), *identity)
+	if err != nil {
+		t.Fatalf("load managed Skill %s: %v", id, err)
 	}
-	if row.Description != description || skills.CreatedBy(skills.Skill{Metadata: row.Metadata}) != createdBy {
-		t.Fatalf("skill %s state description=%q created_by=%q", id, row.Description, skills.CreatedBy(skills.Skill{Metadata: row.Metadata}))
+	if revision.Skill.Description != description || skills.CreatedBy(revision.Skill) != createdBy {
+		t.Fatalf("skill %s state description=%q created_by=%q", id, revision.Skill.Description, skills.CreatedBy(revision.Skill))
 	}
-	content, err := env.pluginHost.SkillStore().LoadFile(context.Background(), id, skills.MainFile)
-	if err != nil || content != mainFile {
-		t.Fatalf("skill %s main file = %q, %v; want %q", id, content, err, mainFile)
+	content := string(revision.Files[skills.MainFile])
+	if content != mainFile {
+		t.Fatalf("skill %s main file = %q; want %q", id, content, mainFile)
 	}
 }

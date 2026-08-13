@@ -24,6 +24,9 @@ func NewBuiltinHandler(cfg Config) (scheduler.OnJobFunc, error) {
 	if cfg.Store == nil {
 		return nil, fmt.Errorf("reflect: Store is required")
 	}
+	if cfg.Snapshots == nil {
+		return nil, fmt.Errorf("reflect: Snapshots loader is required")
+	}
 	if cfg.StateStore == nil {
 		return nil, fmt.Errorf("reflect: StateStore is required")
 	}
@@ -36,11 +39,14 @@ func NewBuiltinHandler(cfg Config) (scheduler.OnJobFunc, error) {
 	if _, ok := memory.Unwrap(cfg.Memory).(factBatchWriter); !ok {
 		return nil, fmt.Errorf("reflect: Memory provider must support fact batch writes")
 	}
-	if _, ok := cfg.SkillStore.(skillRelatedBundleStore); !ok {
-		return nil, fmt.Errorf("reflect: SkillStore must support related bundle reads")
+	if _, ok := memory.Unwrap(cfg.Memory).(memory.ReviewHistoryReader); !ok {
+		return nil, fmt.Errorf("reflect: Memory provider must support exact review history")
 	}
-	if _, ok := cfg.SkillStore.(reflectSkillWriter); !ok {
-		return nil, fmt.Errorf("reflect: SkillStore must support reflect writes")
+	if _, ok := cfg.Memory.(memory.ReviewHistoryReader); !ok {
+		return nil, fmt.Errorf("reflect: Memory provider wrapper must preserve exact review history")
+	}
+	if cfg.SkillStore == nil {
+		return nil, fmt.Errorf("reflect: SkillStore is required")
 	}
 	if cfg.SkillAuthorizer == nil {
 		return nil, fmt.Errorf("reflect: SkillAuthorizer is required")
@@ -48,12 +54,8 @@ func NewBuiltinHandler(cfg Config) (scheduler.OnJobFunc, error) {
 	if cfg.UsageCuratorStore == nil {
 		return nil, fmt.Errorf("reflect: UsageCuratorStore is required")
 	}
-	if cfg.UsageCuratorSettings.withDefaults().Mode == UsageCuratorModeArmed {
-		// Structured Reflect already requires the shared Fact writer and Skill
-		// authorizer. Armed mode additionally needs the Skill delete capability.
-		if _, ok := cfg.SkillStore.(usageCuratorSkillWriter); !ok {
-			return nil, fmt.Errorf("reflect: SkillStore must support reflect skill delete for armed usage curator")
-		}
+	if cfg.Services == nil {
+		return nil, fmt.Errorf("reflect: Services is required")
 	}
 	if cfg.Log == nil {
 		cfg.Log = slog.Default()

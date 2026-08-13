@@ -15,6 +15,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
@@ -24,6 +25,33 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
+
+func newReflectPOSIXSkillStore(t *testing.T, db *pgxpool.Pool) *skills.POSIXStore {
+	t.Helper()
+	manager, err := home.NewWorkspaceManager(db, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+	store, err := skills.NewPOSIXStore(db, manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
+
+func currentReflectSkill(t *testing.T, store *skills.POSIXStore, id string) *skills.Skill {
+	t.Helper()
+	identity, err := store.GetIdentity(t.Context(), id)
+	if err != nil || identity == nil {
+		return nil
+	}
+	revision, err := store.LoadCurrentRevision(t.Context(), *identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &revision.Skill
+}
 
 func TestUsageCuratorSettingsDefaultArmed(t *testing.T) {
 	settings := (UsageCuratorSettings{}).withDefaults()
@@ -38,7 +66,7 @@ func TestUsageCuratorShadowReportsWithoutWriting(t *testing.T) {
 			FactID: "fact-1", UserID: "user-1", AgentID: "agent-1",
 		}},
 		skill: []usageCuratorSkillCandidate{{
-			SkillID: "skill-1", UserID: "user-1", AgentID: "agent-1", Version: 3, Rule: usageCuratorSkillRuleLowUse,
+			SkillID: "skill-1", UserID: "user-1", AgentID: "agent-1", Rule: usageCuratorSkillRuleLowUse,
 		}},
 	}
 	factWriter := &fakeUsageCuratorFactWriter{}
@@ -109,7 +137,7 @@ func TestUsageCuratorArmedDeprecatesKnowledgeAndDeletesSkills(t *testing.T) {
 			{FactID: "fact-2", UserID: "user-1", AgentID: "agent-1"},
 		},
 		skill: []usageCuratorSkillCandidate{{
-			SkillID: "skill-1", UserID: "user-1", AgentID: "agent-1", Version: 3, UseCount: 2, Rule: usageCuratorSkillRuleLowUse,
+			SkillID: "skill-1", UserID: "user-1", AgentID: "agent-1", UseCount: 2, Rule: usageCuratorSkillRuleLowUse,
 		}},
 	}
 	factWriter := &fakeUsageCuratorFactWriter{}
@@ -149,8 +177,8 @@ func TestUsageCuratorArmedDeprecatesKnowledgeAndDeletesSkills(t *testing.T) {
 	if len(skillWriter.inputs) != 1 {
 		t.Fatalf("skill writes = %#v, want one", skillWriter.inputs)
 	}
-	if got := skillWriter.inputs[0]; got.ID != "skill-1" || got.ExpectedVersion != 3 {
-		t.Fatalf("skill delete input = %#v, want skill-1 v3", got)
+	if got := skillWriter.inputs[0]; got.ID != "skill-1" {
+		t.Fatalf("skill delete input = %#v, want skill-1", got)
 	}
 }
 
@@ -469,7 +497,7 @@ func TestUsageCuratorArmedSkipsSkillWhenUsageChangedAfterSelection(t *testing.T)
 	ctx := context.Background()
 	db := dbtest.New(t)
 	userID, agentID := seedUsageCuratorDB(t, ctx, db)
-	skillStore := skills.New(db)
+	skillStore := newReflectPOSIXSkillStore(t, db)
 	created, err := skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
 		UserID:          userID,
 		AgentID:         agentID,
@@ -488,18 +516,18 @@ func TestUsageCuratorArmedSkipsSkillWhenUsageChangedAfterSelection(t *testing.T)
 	`, selectedLastUsed, created.ID); err != nil {
 		t.Fatalf("seed stale skill usage: %v", err)
 	}
-	if err := skillStore.TouchReflectSkillRuntimeUse(ctx, created.ID, userID, agentID); err != nil {
-		t.Fatalf("TouchReflectSkillRuntimeUse: %v", err)
+	if err := skillStore.TouchReflectSkillRuntimeUseDigest(ctx, created.ID, userID, agentID, created.ContentDigest); err != nil {
+		t.Fatalf("TouchReflectSkillRuntimeUseDigest: %v", err)
 	}
 
 	deleted, err := deleteCuratorSkills(ctx, skillStore, &stubSkillAuthorizer{}, []usageCuratorSkillCandidate{{
-		SkillID:    created.ID,
-		UserID:     userID,
-		AgentID:    agentID,
-		Version:    created.Version,
-		UseCount:   2,
-		LastUsedAt: selectedLastUsed,
-		Rule:       usageCuratorSkillRuleLowUse,
+		SkillID:       created.ID,
+		UserID:        userID,
+		AgentID:       agentID,
+		ContentDigest: created.ContentDigest,
+		UseCount:      2,
+		LastUsedAt:    selectedLastUsed,
+		Rule:          usageCuratorSkillRuleLowUse,
 	}})
 	if err != nil {
 		t.Fatalf("deleteCuratorSkills: %v", err)
@@ -507,10 +535,7 @@ func TestUsageCuratorArmedSkipsSkillWhenUsageChangedAfterSelection(t *testing.T)
 	if deleted != 0 {
 		t.Fatalf("deleted = %d, want 0", deleted)
 	}
-	skill, err := skillStore.Resolve(ctx, created.Name, skills.ViewContext{UserID: userID, AgentID: agentID})
-	if err != nil {
-		t.Fatalf("resolve skill after curator: %v", err)
-	}
+	skill := currentReflectSkill(t, skillStore, created.ID)
 	if skill == nil || skill.Status != skills.SkillStatusActive {
 		t.Fatalf("skill after curator = %#v, want active", skill)
 	}
@@ -520,7 +545,7 @@ func TestUsageCuratorArmedSkipsSkillWhenEligibleActivityDisappearsAfterSelection
 	ctx := context.Background()
 	db := dbtest.New(t)
 	userID, agentID := seedUsageCuratorDB(t, ctx, db)
-	skillStore := skills.New(db)
+	skillStore := newReflectPOSIXSkillStore(t, db)
 	created, err := skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
 		UserID: userID, AgentID: agentID, Name: "curator-skill-activity-disappeared",
 		Description: "selected before archive", MainFileContent: "# Selected Before Archive\n",
@@ -545,8 +570,9 @@ func TestUsageCuratorArmedSkipsSkillWhenEligibleActivityDisappearsAfterSelection
 	}
 
 	deleted, err := deleteCuratorSkills(ctx, skillStore, &stubSkillAuthorizer{}, []usageCuratorSkillCandidate{{
-		SkillID: created.ID, UserID: userID, AgentID: agentID, Version: created.Version,
-		UseCount: 2, LastUsedAt: lastUsed, PairLatestActivityAt: activityAt,
+		SkillID: created.ID, UserID: userID, AgentID: agentID,
+		ContentDigest: created.ContentDigest,
+		UseCount:      2, LastUsedAt: lastUsed, PairLatestActivityAt: activityAt,
 		Rule: usageCuratorSkillRuleLowUse,
 	}})
 	if err != nil {
@@ -555,10 +581,7 @@ func TestUsageCuratorArmedSkipsSkillWhenEligibleActivityDisappearsAfterSelection
 	if deleted != 0 {
 		t.Fatalf("deleted = %d, want 0 after activity gate disappeared", deleted)
 	}
-	resolved, err := skillStore.Resolve(ctx, created.Name, skills.ViewContext{UserID: userID, AgentID: agentID})
-	if err != nil {
-		t.Fatalf("resolve skill after curator: %v", err)
-	}
+	resolved := currentReflectSkill(t, skillStore, created.ID)
 	if resolved == nil || resolved.Status != skills.SkillStatusActive {
 		t.Fatalf("skill after curator = %#v, want active", resolved)
 	}
@@ -612,7 +635,7 @@ func TestSQLUsageCuratorStoreListsOnlyStaleReflectRecordsWithActivity(t *testing
 		t.Fatalf("seed manual knowledge usage: %v", err)
 	}
 
-	skillStore := skills.New(db)
+	skillStore := newReflectPOSIXSkillStore(t, db)
 	staleSkill, err := skillStore.CreateReflectOwnedUserAgentSkill(ctx, skills.ReflectSkillCreate{
 		UserID: userID, AgentID: agentID, Name: "curator-stale-skill", Description: "stale", MainFileContent: "# Stale\n",
 	})

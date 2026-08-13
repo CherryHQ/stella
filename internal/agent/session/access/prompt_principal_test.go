@@ -18,7 +18,7 @@ import (
 type promptTestAgents struct{}
 
 func (promptTestAgents) GetPromptAgent(context.Context, string) (PromptAgent, error) {
-	return PromptAgent{SystemPrompt: "test", Workspace: "/agent-definition/a1"}, nil
+	return PromptAgent{SystemPrompt: "test"}, nil
 }
 
 type promptTestProjects struct {
@@ -93,18 +93,13 @@ func TestPromptPreviewUsesAuthorizedRootToLeafProjectContextWithoutHostPath(t *t
 		second:     agent.ProjectDescriptor{ID: "p1", UserID: "u1", AgentID: "a1", Path: "changed/generation"},
 	}
 	builder, err := NewSystemPromptBuilder(SystemPromptDeps{
-		StellaHome: stellaHome,
-		Memory:     memorytest.New(),
-		Agents:     promptTestAgents{},
-		Projects:   projects.ResolveProject,
-		Workspace:  promptTestWorkspace{root: stellaHome},
-		Plugins:    promptTestPlugins{build: &build},
-		SkillStore: agentSkillStore{},
-		Skills: func(ctx context.Context, _ pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
-			merged, err := skills.NewService(agentSkillStore{}, stellaHome).ListMerged(ctx, pkgplugins.SkillViewContext{}, "")
-			if err != nil {
-				return pkgplugins.SystemPromptSection{}, err
-			}
+		Memory:    memorytest.New(),
+		Agents:    promptTestAgents{},
+		Projects:  projects.ResolveProject,
+		Workspace: promptTestWorkspace{root: stellaHome},
+		Plugins:   promptTestPlugins{build: &build},
+		Skills: func(_ context.Context, _ pkgplugins.SystemPromptContext, project *skills.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
+			merged := skills.NewService().ListMerged(nil, project)
 			for _, resolved := range merged {
 				if resolved.Name == "first" {
 					return pkgplugins.SystemPromptSection{Title: "Snapshot Proof", Content: resolved.Description}, nil
@@ -142,28 +137,25 @@ func (p promptTestPlugins) SystemPromptSections(_ context.Context, build pkgplug
 }
 func (promptTestPlugins) ManifestPluginPrompts() []pkgplugins.SystemPromptSection { return nil }
 
-func TestAuthorizedPromptUsesPrincipalWorkspace(t *testing.T) {
+func TestAuthorizedPromptPassesLogicalIdentityWithoutPhysicalPaths(t *testing.T) {
 	stellaHome := t.TempDir()
 	for _, tt := range []struct {
 		name string
 		info session.Info
-		want string
 	}{
-		{name: "personal", info: session.Info{UserID: "u1", AgentID: "a1"}, want: filepath.Join(stellaHome, "users", "u1", "agents", "a1")},
-		{name: "group", info: session.Info{UserID: "g1", GroupID: "g1", AgentID: "a1"}, want: filepath.Join(stellaHome, "users", "group-g1", "agents", "a1")},
-		{name: "user-less", info: session.Info{AgentID: "a1"}, want: "/agent-definition/a1"},
+		{name: "personal", info: session.Info{UserID: "u1", AgentID: "a1"}},
+		{name: "group", info: session.Info{UserID: "g1", GroupID: "g1", AgentID: "a1"}},
+		{name: "user-less", info: session.Info{AgentID: "a1"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var build pkgplugins.SystemPromptContext
 			builder, err := NewSystemPromptBuilder(SystemPromptDeps{
-				StellaHome: stellaHome,
-				Memory:     memorytest.New(),
-				Agents:     promptTestAgents{},
-				Projects:   (&promptTestProjects{}).ResolveProject,
-				Workspace:  promptTestWorkspace{root: stellaHome},
-				Plugins:    promptTestPlugins{build: &build},
-				SkillStore: agentSkillStore{},
-				Skills: func(context.Context, pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
+				Memory:    memorytest.New(),
+				Agents:    promptTestAgents{},
+				Projects:  (&promptTestProjects{}).ResolveProject,
+				Workspace: promptTestWorkspace{root: stellaHome},
+				Plugins:   promptTestPlugins{build: &build},
+				Skills: func(context.Context, pkgplugins.SystemPromptContext, *skills.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
 					return pkgplugins.SystemPromptSection{}, nil
 				},
 			})
@@ -173,39 +165,9 @@ func TestAuthorizedPromptUsesPrincipalWorkspace(t *testing.T) {
 			if _, err := builder.BuildSessionSystemPrompt(context.Background(), SystemPromptBuildInput{Info: tt.info}); err != nil {
 				t.Fatal(err)
 			}
-			if build.WorkspaceRoot != tt.want {
-				t.Errorf("WorkspaceRoot = %q, want %q", build.WorkspaceRoot, tt.want)
-			}
-			if tt.info.GroupID != "" {
-				if build.UserRoot != agent.GroupHomeDir(stellaHome, tt.info.GroupID) {
-					t.Errorf("UserRoot = %q, want group root", build.UserRoot)
-				}
+			if build.UserID != tt.info.UserID || build.AgentID != tt.info.AgentID {
+				t.Errorf("prompt identity = (%q, %q), want (%q, %q)", build.UserID, build.AgentID, tt.info.UserID, tt.info.AgentID)
 			}
 		})
 	}
 }
-
-// agentSkillStore is inert: this test exercises prompt workspace resolution,
-// and the injected Skills builder prevents any store access.
-type agentSkillStore struct{}
-
-func (agentSkillStore) List(context.Context, pkgplugins.SkillViewContext) ([]pkgplugins.Skill, error) {
-	return nil, nil
-}
-
-func (agentSkillStore) Resolve(context.Context, string, pkgplugins.SkillViewContext) (*pkgplugins.Skill, error) {
-	return nil, nil
-}
-
-func (agentSkillStore) ListByScope(context.Context, string, string, string) ([]pkgplugins.Skill, error) {
-	return nil, nil
-}
-func (agentSkillStore) LoadFile(context.Context, string, string) (string, error) { return "", nil }
-func (agentSkillStore) ListFiles(context.Context, string) ([]string, error)      { return nil, nil }
-func (agentSkillStore) Create(context.Context, pkgplugins.Skill, map[string]string) (string, error) {
-	return "", nil
-}
-func (agentSkillStore) Update(context.Context, string, pkgplugins.SkillUpdatePatch) error { return nil }
-func (agentSkillStore) UpsertFile(context.Context, string, string, string) error          { return nil }
-func (agentSkillStore) DeleteFile(context.Context, string, string) error                  { return nil }
-func (agentSkillStore) Delete(context.Context, string) error                              { return nil }

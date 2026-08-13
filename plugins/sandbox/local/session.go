@@ -40,23 +40,10 @@ type Factory struct {
 	mountSources map[string]string
 }
 
-// NewFactory returns a Factory for the local backend.
-func NewFactory(cfg ...Config) sandboxpkg.Factory {
-	return newFactory(nil, cfg...)
-}
-
 // NewFactoryWithMountSources binds process-visible policy roots to
 // provider-private physical sources.
-func NewFactoryWithMountSources(mountSources map[string]string, cfg ...Config) sandboxpkg.Factory {
-	return newFactory(mountSources, cfg...)
-}
-
-func newFactory(mountSources map[string]string, cfg ...Config) sandboxpkg.Factory {
-	var c Config
-	if len(cfg) > 0 {
-		c = cfg[0]
-	}
-	return &Factory{cfg: c, mountSources: maps.Clone(mountSources)}
+func NewFactoryWithMountSources(mountSources map[string]string, cfg Config) sandboxpkg.Factory {
+	return &Factory{cfg: cfg, mountSources: maps.Clone(mountSources)}
 }
 
 // Name returns the backend name.
@@ -495,7 +482,7 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: resolve cwd: %w", err)
 	}
 
-	execPath, execArgs, err := wrapCommand(policy, sandboxCwd, s.tmpMounts, s.providerMounts, s.realRoot, s.stellaHomeHost, "sh", []string{"-c", command})
+	execPath, execArgs, err := s.wrapCommand(policy, sandboxCwd, "sh", []string{"-c", command})
 	if err != nil {
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: wrap: %w", err)
 	}
@@ -593,7 +580,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 		return nil, fmt.Errorf("local start_process: resolve cwd: %w", err)
 	}
 
-	execPath, execArgs, err := wrapCommand(policy, sandboxCwd, s.tmpMounts, s.providerMounts, s.realRoot, s.stellaHomeHost, req.Path, args)
+	execPath, execArgs, err := s.wrapCommand(policy, sandboxCwd, req.Path, args)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("local start_process: wrap: %w", err)

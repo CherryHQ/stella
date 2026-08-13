@@ -1,35 +1,26 @@
 package home
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-// Coordinate describes an already-authorized workspace coordinate. Scope is
-// retained for an unqualified relative name and replaced when Coordinate names
-// one of the explicit logical or physical roots.
-type Coordinate struct {
-	Request   WorkspaceRequest
-	Scope     RootScope
-	Value     string
-	AllowRoot bool
+const projectCoordinateConstraint = "project_base_dir_canonical_check"
+
+type persistedProjectCoordinate struct {
+	id, userID, agentID, value string
 }
 
-// CoordinateResolver is the Home-owned compatibility boundary for persisted
-// and current workspace coordinates. Its result contains logical authority
-// only; callers never receive a physical root.
-type CoordinateResolver interface {
-	ResolveCoordinate(Coordinate) (RootScope, string, error)
-}
-
-// ResolveLogicalCoordinate canonicalizes portable sandbox coordinates. It is
-// exported so consumers with no host-coordinate compatibility requirement can
-// use the same Home-owned normalization rules.
+// ResolveLogicalCoordinate canonicalizes portable sandbox coordinates.
 func ResolveLogicalCoordinate(scope RootScope, value string, allowRoot bool) (RootScope, string, error) {
 	if scope != RootAgentWorkspace && scope != RootPrincipalData {
 		return 0, "", errors.New("home: invalid workspace scope")
@@ -87,29 +78,149 @@ func ResolveLogicalCoordinate(scope RootScope, value string, allowRoot bool) (Ro
 	return scope, value, nil
 }
 
-func (m *WorkspaceManager) ResolveCoordinate(c Coordinate) (RootScope, string, error) {
-	if scope, name, err := ResolveLogicalCoordinate(c.Scope, c.Value, c.AllowRoot); err == nil {
-		return scope, name, nil
+// EnsureProjectCoordinates completes the one-time physical-to-logical project
+// migration before project runtime wiring. The SQL migration preserves every
+// historical value and installs a NOT VALID constraint; this filesystem-aware
+// pass resolves physical paths and symlink aliases under the exact durable owner
+// root, then validates that constraint. Once validated, the method is a read-only
+// no-op and no runtime compatibility path remains.
+func (m *WorkspaceManager) EnsureProjectCoordinates(ctx context.Context) error {
+	if err := m.verifyPinnedRoot(); err != nil {
+		return err
 	}
-	if !filepath.IsAbs(c.Value) || strings.ContainsRune(c.Value, 0) {
-		return 0, "", errors.New("home: invalid workspace coordinate")
+	validated, err := m.projectCoordinateConstraintValidated(ctx, m.db)
+	if err != nil {
+		return err
 	}
-	for _, scope := range []RootScope{RootAgentWorkspace, RootPrincipalData} {
-		parts, _, err := m.rootSelection(c.Request, scope)
+	if validated {
+		return nil
+	}
+
+	// Resolve filesystem-dependent historical coordinates before opening the
+	// database transaction. The pending CHECK already rejects new noncanonical
+	// values; conditional updates below tolerate rows concurrently deleted or
+	// canonicalized while keeping slow filesystem inspection outside DB locks.
+	rows, err := m.db.Query(ctx, "SELECT id, user_id, agent_id, base_dir FROM project ORDER BY id")
+	if err != nil {
+		return fmt.Errorf("home: inventory project coordinates: %w", err)
+	}
+	var projects []persistedProjectCoordinate
+	for rows.Next() {
+		var project persistedProjectCoordinate
+		if err := rows.Scan(&project.id, &project.userID, &project.agentID, &project.value); err != nil {
+			rows.Close()
+			return fmt.Errorf("home: scan project coordinate: %w", err)
+		}
+		projects = append(projects, project)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("home: inventory project coordinates: %w", err)
+	}
+	rows.Close()
+	type projectCoordinateUpdate struct {
+		project   persistedProjectCoordinate
+		canonical string
+	}
+	updates := make([]projectCoordinateUpdate, 0, len(projects))
+	for _, project := range projects {
+		canonical, err := m.canonicalProjectCoordinate(project)
 		if err != nil {
-			continue
+			return fmt.Errorf("home: project %s has an unresolvable legacy base_dir: %w", project.id, err)
 		}
-		root := filepath.Join(append([]string{m.base}, parts...)...)
-		if name, ok := containedCoordinate(root, c.Value, c.AllowRoot); ok {
-			return scope, name, nil
+		if canonical != project.value {
+			updates = append(updates, projectCoordinateUpdate{project: project, canonical: canonical})
 		}
 	}
-	return 0, "", errors.New("home: coordinate is outside authorized roots")
+
+	tx, err := m.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("home: begin project coordinate migration: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "SET LOCAL lock_timeout = '10s'"); err != nil {
+		return fmt.Errorf("home: bound project coordinate migration lock: %w", err)
+	}
+	if err := m.verifyPinnedRoot(); err != nil {
+		return err
+	}
+	validated, err = m.projectCoordinateConstraintValidated(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if validated {
+		return tx.Commit(ctx)
+	}
+
+	for _, update := range updates {
+		project := update.project
+		if _, err := tx.Exec(ctx, `
+			UPDATE project SET base_dir = $1
+			WHERE id = $2 AND user_id = $3 AND agent_id = $4 AND base_dir = $5
+		`, update.canonical, project.id, project.userID, project.agentID, project.value); err != nil {
+			return fmt.Errorf("home: migrate project %s coordinate: %w", project.id, err)
+		}
+	}
+	if _, err := tx.Exec(ctx, "ALTER TABLE project VALIDATE CONSTRAINT "+projectCoordinateConstraint); err != nil {
+		return fmt.Errorf("home: validate project coordinates: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("home: commit project coordinate migration: %w", err)
+	}
+	return nil
 }
 
-func containedCoordinate(root, value string, allowRoot bool) (string, bool) {
-	root, rootOK := resolveExistingPrefix(filepath.Clean(root))
-	value, valueOK := resolveExistingPrefix(filepath.Clean(value))
+type projectCoordinateConstraintReader interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func (m *WorkspaceManager) projectCoordinateConstraintValidated(ctx context.Context, reader projectCoordinateConstraintReader) (bool, error) {
+	var validated bool
+	err := reader.QueryRow(ctx, `
+		SELECT convalidated
+		FROM pg_constraint
+		WHERE conrelid = 'project'::regclass AND conname = $1
+	`, projectCoordinateConstraint).Scan(&validated)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, errors.New("home: project coordinate schema migration is missing")
+	}
+	if err != nil {
+		return false, fmt.Errorf("home: inspect project coordinate migration: %w", err)
+	}
+	return validated, nil
+}
+
+func (m *WorkspaceManager) canonicalProjectCoordinate(project persistedProjectCoordinate) (string, error) {
+	value := project.value
+	if value == "" {
+		value = "."
+	}
+	if scope, name, err := ResolveLogicalCoordinate(RootAgentWorkspace, value, true); err == nil && scope == RootAgentWorkspace {
+		return name, nil
+	}
+	if strings.ContainsRune(project.value, 0) {
+		return "", errors.New("coordinate is neither canonical nor an absolute historical path")
+	}
+	if !filepath.IsAbs(project.value) {
+		return "", errors.New("coordinate is neither canonical nor an absolute historical path")
+	}
+	parts, _, err := m.rootSelection(WorkspaceRequest{UserID: project.userID, AgentID: project.agentID}, RootAgentWorkspace)
+	if err != nil {
+		return "", err
+	}
+	root := filepath.Join(append([]string{m.base}, parts...)...)
+	name, ok := containedProjectMigrationCoordinate(root, project.value)
+	if !ok {
+		return "", errors.New("physical coordinate is outside its durable owner root")
+	}
+	return name, nil
+}
+
+// containedProjectMigrationCoordinate is deliberately migration-only. Runtime
+// consumers accept logical coordinates exclusively.
+func containedProjectMigrationCoordinate(root, value string) (string, bool) {
+	root, rootOK := resolveProjectMigrationPrefix(filepath.Clean(root))
+	value, valueOK := resolveProjectMigrationPrefix(filepath.Clean(value))
 	if !rootOK || !valueOK {
 		return "", false
 	}
@@ -118,18 +229,14 @@ func containedCoordinate(root, value string, allowRoot bool) (string, bool) {
 		return "", false
 	}
 	if rel == "." {
-		return ".", allowRoot
+		return ".", true
 	}
 	name := filepath.ToSlash(rel)
-	_, name, err = ResolveLogicalCoordinate(RootAgentWorkspace, name, false)
-	return name, err == nil
+	scope, name, err := ResolveLogicalCoordinate(RootAgentWorkspace, name, false)
+	return name, err == nil && scope == RootAgentWorkspace
 }
 
-// resolveExistingPrefix resolves the longest existing prefix and appends only
-// lexical missing descendants. This accepts historical links to deleted files
-// while still detecting an escaping symlink in any existing parent. It also
-// canonicalizes platform aliases such as macOS /var -> /private/var.
-func resolveExistingPrefix(value string) (string, bool) {
+func resolveProjectMigrationPrefix(value string) (string, bool) {
 	current := value
 	var missing []string
 	for {
@@ -141,9 +248,6 @@ func resolveExistingPrefix(value string) (string, bool) {
 			return resolved, true
 		}
 		if _, lstatErr := os.Lstat(current); lstatErr == nil || !errors.Is(lstatErr, os.ErrNotExist) {
-			// The component itself exists but cannot resolve (for example, a
-			// dangling/looping symlink), or cannot be inspected. It is not a
-			// lexical missing descendant and must fail closed.
 			return "", false
 		}
 		parent := filepath.Dir(current)

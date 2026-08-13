@@ -10,7 +10,7 @@ Skills are written in plain markdown — they are essentially cheat sheets that 
 
 ## Skill scopes and priority
 
-Stella has two Skill authorities today. Release-provided builtins come only from the immutable, content-addressed release bundle. Project Skills are ordinary files in durable Agent/project working trees. Global, Agent-bound, user, and user-Agent Skills remain stored in PostgreSQL, with execution mirrors derived from them. The later Home filesystem authority cutover has not landed.
+Each kind of Skill has one content authority. Release-provided builtins come from the immutable, content-addressed release bundle. Project Skills are ordinary files in durable Agent/project working trees. Managed global, Agent-bound, user, and user-Agent Skills use immutable revisions in typed Stella Home roots; a current selector chooses the exact revision Stella loads.
 
 The stored scopes are `project`, `user_agent`, `user`, `system_agent`, and `system`. `builtin` is contextual: a release Skill has the immutable identity `builtin:<name>`. An administrator-installed global Skill is the separate mutable identity `system:<name>`, and an Agent-bound administrator Skill is `system_agent:<name>`.
 
@@ -34,32 +34,29 @@ Skills are enabled for an Agent by default. An administrator or durable Agent cr
 
 Activation is separate from permission to edit Skill content and from `disable_model_invocation`. A turn already admitted keeps its Skill snapshot; the next turn sees a committed activation change.
 
-Older non-empty activation lists are shown as diagnostics but mean all Skills are enabled. Disabled references to Skills that no longer exist do not affect execution; clear them explicitly in the Web UI.
-
-Before downgrading Stella, re-enable every disabled Skill and clear any dangling disabled references. Older binaries may ignore AgentSkillPolicy v1 and overwrite it during ordinary Agent edits. Do not treat Skill activation in a mixed-version deployment as a security guarantee; it is a product preference, not a filesystem access control.
+Disabled references to Skills that no longer exist do not affect execution; clear them explicitly in the Web UI. Skill activation is a product preference, not a filesystem access control.
 
 Manage personal `user` and `user_agent` skills from **Personal Settings → Skills**. Administrators manage deployment-owned `system` and `system_agent` skills from **Admin Console → Deployment resources → Global Skills**. The two pages never mix ownership scopes.
 
 ## Installing Skills
 
-### From a Conversation
+### Choose a destination
 
-Ask Stella to find and install skills:
+Every install and upload requires a destination. Stella never infers it from a conversation or remembers it as authorization for a later write.
 
-- **"Search for a skill about git releases."**
-- **"Install the git-helper skill."**
-- **"Find skills related to code review."**
+- In an Agent's **Skills** tab, choose **Only me · this Agent** (`user_agent`) or, for administrators, **Everyone · this Agent** (`system_agent`).
+- In **Personal Settings → Skills**, choose a personal destination (`user` or `user_agent`).
+- In **Admin Console → Deployment resources → Global Skills**, choose a deployment-owned destination (`system` or `system_agent`).
 
-Stella searches across registries and shows you what is available. You can then choose which one to install.
+The Web UI asks you to confirm the destination immediately before it writes.
 
-### From Registries
+### Choose a source
 
 Stella can install skills from several sources:
 
-- **[clawhub.ai](https://clawhub.ai)** — the primary skill registry. Search and install directly from conversation.
-- **[skills.sh](https://skills.sh)** — a secondary registry. Results are merged with clawhub.ai searches.
-- **GitHub / GitLab** — install any skill hosted in a Git repository.
-- **Local paths** — install from a directory on your filesystem.
+- **[clawhub.ai](https://clawhub.ai)** — browse or search the marketplace in the Web UI.
+- **GitHub / GitLab** — enter a repository source in the install form.
+- **ZIP upload** — upload a Skill directory containing `SKILL.md`.
 
 If you hit rate limits on clawhub.ai, you can set a free API token:
 
@@ -71,9 +68,10 @@ If you hit rate limits on clawhub.ai, you can set a free API token:
 
 ### From a Conversation
 
-- **"List my installed skills."**
-- **"Remove the git-helper skill."**
-- **"Load the deployment skill."** — Stella reads the skill's instructions for the current task.
+- **"Find an installed skill for deploying this service."** — Stella searches only Skills already visible to the active Agent.
+- **"Load the deployment skill."** — Stella loads the selected exact revision for the current task.
+
+The conversation tool is read-only. It cannot install, create, edit, upgrade, deprecate, or remove a Skill.
 
 ### From the Web UI
 
@@ -105,23 +103,19 @@ Always ask the user for confirmation before pushing to production.
 
 ### Frontmatter Fields
 
-| Field         | Required | Description                               |
-| ------------- | -------- | ----------------------------------------- |
-| `name`        | Yes      | Lowercase with hyphens, max 64 characters |
-| `description` | Yes      | One-line summary shown in search results  |
-| `status`      | No       | `draft`, `active` (default), `deprecated` |
+| Field                      | Required | Description                                           |
+| -------------------------- | -------- | ----------------------------------------------------- |
+| `name`                     | Yes      | Lowercase with hyphens, max 64 characters             |
+| `description`              | Yes      | One-line summary shown in search results              |
+| `disable-model-invocation` | No       | Prevent automatic selection while allowing direct use |
 
 ### Saving a Custom Skill
 
-You can create skills in conversation:
-
-- **"Create a skill called 'deploy' that describes our deployment process."**
-
-Stella uses the skills tool to create and manage skills directly — no CLI needed.
+For a managed Skill, create the directory locally, package it as a ZIP, and upload it in the Web UI to an explicit destination. For a project Skill, add the directory directly under `.agents/skills/` in the project repository.
 
 ## Tips
 
-- **Start by searching.** Before creating a skill from scratch, check if one already exists in the registries.
+- **Start by searching.** Before creating a skill from scratch, check the marketplace in the Web UI.
 - **Keep skills focused.** One skill per task. A skill for "deploy" and a skill for "rollback" is better than one skill that tries to do both.
 - **Use project skills for team workflows.** Put shared skills in `.agents/skills/` in your repository so everyone on the team benefits.
 - **Test skills by loading them.** After creating a skill, ask Stella to load it and try the workflow to verify the instructions work.

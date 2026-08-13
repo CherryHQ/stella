@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
@@ -35,7 +34,7 @@ func (f *fakeSession) Files() pkgsandbox.FileAccess { return pkgsandbox.NopSessi
 func (f *fakeSession) WorkingDir() string           { return "/tmp" }
 
 func TestBuildSandboxCoreTools_NoSessionFailsClosed(t *testing.T) {
-	tools := buildSandboxCoreTools(nil, pkgplugins.ToolBuildContext{Paths: pkgplugins.ToolPaths{ToolsBinDir: "/tmp/bin"}}, nil)
+	tools := buildSandboxCoreTools(nil, nil)
 	if tools != nil {
 		t.Fatalf("expected no tools without sandbox session, got %v", tools)
 	}
@@ -43,7 +42,7 @@ func TestBuildSandboxCoreTools_NoSessionFailsClosed(t *testing.T) {
 
 func TestBuildSandboxCoreTools_WithSessionUsesHostTools(t *testing.T) {
 	session := &fakeSession{alive: true}
-	tools := buildSandboxCoreTools(session, pkgplugins.ToolBuildContext{Paths: pkgplugins.ToolPaths{ProjectRoot: "/host/private/project"}}, nil)
+	tools := buildSandboxCoreTools(session, nil)
 	if len(tools) != 4 {
 		t.Fatalf("expected 4 tools, got %d", len(tools))
 	}

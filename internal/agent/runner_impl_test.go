@@ -111,23 +111,6 @@ func TestFilterRunnerTools(t *testing.T) {
 	}
 }
 
-func TestGroupSkillRuntimeBoundaryExcludesPrincipalTiers(t *testing.T) {
-	paths := sandbox.Paths{
-		StellaHome: "/stella", BuiltinBundle: "/bundle", AgentRoot: "/agent-definition",
-		UserDataDir: "/group/data", WorkspaceRoot: "/group/agents/a", ProjectRoot: "/group/agents/a/projects/p",
-	}
-	layout, view := skillRuntimeLayoutAndView(context.Background(), runnerConfig{BuiltinParams: RunnerParams{GroupID: "g"}}, paths)
-	if layout.BaseDir("user") != "" || layout.BaseDir("user_agent") != "" {
-		t.Fatalf("group model Skill layout exposes principal tiers: %+v", layout)
-	}
-	if view.UserDataHost != "" || view.WorkspaceHost != "" {
-		t.Fatalf("group model Skill view exposes principal mounts: %+v", view)
-	}
-	if layout.BaseDir("system") == "" || layout.BaseDir("system_agent") == "" || view.BuiltinSkillsHost == "" || paths.ProjectRoot == "" {
-		t.Fatalf("group lost retained Skill/project tiers: layout=%+v view=%+v project=%q", layout, view, paths.ProjectRoot)
-	}
-}
-
 func TestNewRunnerRequiresConfig(t *testing.T) {
 	tests := []struct {
 		name string

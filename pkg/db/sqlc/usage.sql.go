@@ -237,7 +237,6 @@ SELECT
   s.id AS skill_id,
   s.user_id::text AS user_id,
   s.agent_id::text AS agent_id,
-  s.version,
   su.content_digest,
   su.use_count,
   su.last_used_at,
@@ -276,7 +275,6 @@ type ListStaleReflectSkillsForCuratorRow struct {
 	SkillID              string      `json:"skill_id"`
 	UserID               string      `json:"user_id"`
 	AgentID              string      `json:"agent_id"`
-	Version              int64       `json:"version"`
 	ContentDigest        pgtype.Text `json:"content_digest"`
 	UseCount             int64       `json:"use_count"`
 	LastUsedAt           time.Time   `json:"last_used_at"`
@@ -305,7 +303,6 @@ func (q *Queries) ListStaleReflectSkillsForCurator(ctx context.Context, arg List
 			&i.SkillID,
 			&i.UserID,
 			&i.AgentID,
-			&i.Version,
 			&i.ContentDigest,
 			&i.UseCount,
 			&i.LastUsedAt,

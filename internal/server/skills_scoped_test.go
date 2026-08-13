@@ -58,14 +58,41 @@ func createTestSkill(t *testing.T, env *testEnv, scope string, userID string, ag
 		Status:      "active",
 	}
 	ctx := context.Background()
-	id, err := env.pluginHost.SkillStore().Create(ctx, sk, map[string]string{
+	snapshot, err := env.skillStore.CreateManagedSkill(ctx, sk, map[string]string{
 		skills.MainFile: "# " + name,
 		"reference.md":  "reference content",
 	})
 	if err != nil {
 		t.Fatalf("Create skill: %v", err)
 	}
-	return id
+	return snapshot.Skill.ID
+}
+
+func currentSkillDigest(t *testing.T, env *testEnv, id string) string {
+	t.Helper()
+	identity, err := env.skillStore.GetIdentity(t.Context(), id)
+	if err != nil || identity == nil {
+		t.Fatalf("load Skill identity %s: %#v, %v", id, identity, err)
+	}
+	revision, err := env.skillStore.LoadCurrentRevision(t.Context(), *identity)
+	if err != nil {
+		t.Fatalf("load current Skill revision %s: %v", id, err)
+	}
+	return revision.Skill.ContentDigest
+}
+
+func responseSkillDigest(t *testing.T, rr *httptest.ResponseRecorder) string {
+	t.Helper()
+	var got struct {
+		ContentDigest string `json:"content_digest"`
+	}
+	if err := json.Unmarshal(parseResponse(t, rr).Data, &got); err != nil {
+		t.Fatalf("unmarshal Skill mutation digest: %v", err)
+	}
+	if got.ContentDigest == "" {
+		t.Fatal("Skill mutation response omitted content_digest")
+	}
+	return got.ContentDigest
 }
 
 func createSkillZip(t *testing.T, files map[string]string) []byte {
@@ -243,11 +270,13 @@ func TestAgentSkills_ListVisibleSkills(t *testing.T) {
 	createTestSkill(t, env, "system", "", "", "system-skill")
 	createTestSkill(t, env, "system_agent", "", agentID, "agent-skill")
 	createTestSkill(t, env, "user_agent", creator.ID, agentID, "creator-user-skill")
-	orgCtx := context.Background()
 	deprecatedID := createTestSkill(t, env, "user_agent", creator.ID, agentID, "deprecated-skill")
-	// Seed legacy state directly; users can no longer deprecate skills.
-	if _, err := env.db.Exec(orgCtx, `UPDATE skill SET status = 'deprecated' WHERE id = $1`, deprecatedID); err != nil {
-		t.Fatalf("mark legacy skill deprecated: %v", err)
+	deprecated := skills.SkillStatusDeprecated
+	if _, err := env.skillStore.UpdateManagedSkill(t.Context(), skills.ManagedSkillUpdate{
+		ID: deprecatedID, UserID: creator.ID, AgentID: agentID, Scope: "user_agent",
+		Patch: skills.UpdatePatch{Status: &deprecated}, ExpectedDigest: currentSkillDigest(t, env, deprecatedID),
+	}); err != nil {
+		t.Fatalf("deprecate Skill through managed authority: %v", err)
 	}
 
 	rr := doRequestWithSession(t, env.srv, creatorSID, "GET", "/api/agents/"+agentID+"/skills", nil)
@@ -355,30 +384,34 @@ func TestAgentSkills_CreateUpdateDeleteFile(t *testing.T) {
 	}
 
 	// Create an agent-scoped skill for update/delete tests; admins manage it.
-	createTestSkill(t, env, "system_agent", "", agentID, "skill-ud")
+	updatedID := createTestSkill(t, env, "system_agent", "", agentID, "skill-ud")
+	updatedDigest := currentSkillDigest(t, env, updatedID)
 
 	rr = doRequest(t, env, "PATCH", "/api/agents/"+agentID+"/skills/skill-ud?scope=system_agent", map[string]any{
-		"description": "updated",
-		"files":       map[string]string{"SKILL.md": "# updated body"},
+		"description":     "updated",
+		"files":           map[string]string{"SKILL.md": "# updated body"},
+		"expected_digest": updatedDigest,
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("admin update status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
+	updatedDigest = responseSkillDigest(t, rr)
 
 	// Non-admin creator cannot update the admin-managed system_agent skill.
 	rr = doRequestWithSession(t, env.srv, sid, "PATCH", "/api/agents/"+agentID+"/skills/skill-ud?scope=system_agent", map[string]any{
-		"description": "creator edit",
+		"description":     "creator edit",
+		"expected_digest": updatedDigest,
 	})
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("creator system_agent update status = %d, want 403 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?scope=system_agent&path=reference.md", nil)
+	rr = doRequest(t, env, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?scope=system_agent&path=reference.md&expected_digest="+updatedDigest, nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("admin delete file status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	rr = doRequest(t, env, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?scope=system_agent&path=SKILL.md", nil)
+	rr = doRequest(t, env, "DELETE", "/api/agents/"+agentID+"/skills/skill-ud/file?scope=system_agent&path=SKILL.md&expected_digest="+currentSkillDigest(t, env, updatedID), nil)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("admin delete SKILL.md status = %d, want 400", rr.Code)
 	}
@@ -392,7 +425,7 @@ func TestAgentSkills_DeleteRemovesUserAgentSkill(t *testing.T) {
 	agentID := createAgentAsUser(t, env, sid, "agent-delete-lifecycle-agent")
 	id := createTestSkill(t, env, "user_agent", user.ID, agentID, "agent-delete-lifecycle-skill")
 
-	rr := doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/agent-delete-lifecycle-skill?scope=user_agent", nil)
+	rr := doRequestWithSession(t, env.srv, sid, http.MethodDelete, "/api/agents/"+agentID+"/skills/agent-delete-lifecycle-skill?scope=user_agent&expected_digest="+currentSkillDigest(t, env, id), nil)
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d, want 204 (body: %s)", rr.Code, rr.Body.String())
 	}

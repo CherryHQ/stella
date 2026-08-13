@@ -35,16 +35,12 @@ type ProjectStore struct {
 	q      *sqlc.Queries
 	store  config.Store
 	agents ProjectAgentAuthorizer
-	homes  home.WorkspaceViewer
+	homes  home.Workspace
 }
 
 // SnapshotSkills resolves exact project ownership and snapshots through Home.
 func (ps *ProjectStore) SnapshotSkills(ctx context.Context, projectID, userID, agentID string) (*skills.ProjectSnapshot, ProjectDescriptor, error) {
-	opener, ok := ps.homes.(home.RootOpener)
-	if !ok {
-		return nil, ProjectDescriptor{}, errors.New("project Home root opener is unavailable")
-	}
-	return SnapshotAuthorizedProjectSkills(ctx, ps.Resolve, opener, projectID, userID, agentID)
+	return SnapshotAuthorizedProjectSkills(ctx, ps.Resolve, ps.homes, projectID, userID, agentID)
 }
 
 // NewProjectStore builds a ProjectStore over the given pool and config store.
@@ -52,7 +48,7 @@ func (ps *ProjectStore) SnapshotSkills(ctx context.Context, projectID, userID, a
 // runtime-only Resolve/Ensure paths (which perform no authorization).
 type ProjectStoreOption func(*ProjectStore)
 
-func WithProjectHomeWorkspace(viewer home.WorkspaceViewer) ProjectStoreOption {
+func WithProjectHomeWorkspace(viewer home.Workspace) ProjectStoreOption {
 	return func(s *ProjectStore) { s.homes = viewer }
 }
 
@@ -139,7 +135,7 @@ func (s *ProjectStore) Create(ctx context.Context, authority authz.Authority, ag
 		return Project{}, err
 	}
 	userID := string(authority.UserID())
-	baseDir, err := s.projectCoordinate(userID, agentID, baseDir)
+	baseDir, err := projectCoordinate(baseDir)
 	if err != nil {
 		return Project{}, err
 	}
@@ -189,7 +185,7 @@ func (s *ProjectStore) Update(ctx context.Context, authority authz.Authority, ag
 	if in.BaseDir != nil {
 		baseDirValue = *in.BaseDir
 	}
-	baseDir, err := s.projectCoordinate(userID, agentID, baseDirValue)
+	baseDir, err := projectCoordinate(baseDirValue)
 	if err != nil {
 		return Project{}, err
 	}
@@ -242,7 +238,7 @@ func (s *ProjectStore) getOwned(ctx context.Context, userID, agentID, projectID 
 }
 
 func (s *ProjectStore) projectFromRow(ctx context.Context, p sqlc.Project) (Project, error) {
-	baseDir, err := s.logicalProjectPath(ctx, p.UserID, p.AgentID, p.BaseDir)
+	baseDir, err := projectCoordinate(p.BaseDir)
 	if err != nil {
 		return Project{}, err
 	}
@@ -263,30 +259,15 @@ func (s *ProjectStore) projectFromRow(ctx context.Context, p sqlc.Project) (Proj
 	}, nil
 }
 
-func (s *ProjectStore) projectCoordinate(userID, agentID, value string) (string, error) {
+func projectCoordinate(value string) (string, error) {
 	if value == "" {
 		value = "."
 	}
-	resolver, ok := s.homes.(home.CoordinateResolver)
-	if !ok {
-		return "", ErrWorkspaceSetup
-	}
-	scope, name, err := resolver.ResolveCoordinate(home.Coordinate{
-		Request:   home.WorkspaceRequest{UserID: userID, AgentID: agentID},
-		Scope:     home.RootAgentWorkspace,
-		Value:     value,
-		AllowRoot: true,
-	})
+	scope, name, err := home.ResolveLogicalCoordinate(home.RootAgentWorkspace, value, true)
 	if err != nil || scope != home.RootAgentWorkspace {
 		return "", ErrInvalidBaseDir
 	}
 	return name, nil
-}
-
-// logicalProjectPath accepts legacy absolute rows but never exposes them. New
-// writes persist canonical agent-root-relative paths only.
-func (s *ProjectStore) logicalProjectPath(_ context.Context, userID, agentID, stored string) (string, error) {
-	return s.projectCoordinate(userID, agentID, stored)
 }
 
 // isProjectNotFound mirrors the transport's not-found predicate: an empty result
@@ -312,7 +293,7 @@ func (s *ProjectStore) Resolve(ctx context.Context, projectID, userID, agentID s
 	if err != nil {
 		return ProjectDescriptor{}, err
 	}
-	relative, err := s.logicalProjectPath(ctx, p.UserID, p.AgentID, p.BaseDir)
+	relative, err := projectCoordinate(p.BaseDir)
 	if err != nil {
 		return ProjectDescriptor{}, err
 	}
