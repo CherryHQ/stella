@@ -41,7 +41,7 @@ var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) 
 				Groups:            groupsToPluginConfig(cfg.Groups),
 				TenantKey:         cfg.TenantKey,
 				AutoProvision:     cfg.AutoProvision,
-				AllowedChatIDs:    cfg.AllowedChatIDs,
+				AllowGroup:        cfg.AllowGroup,
 				AllowDM:           cfg.AllowDM,
 				RequireMention:    cfg.RequireMention,
 			}, handler)
@@ -74,7 +74,7 @@ func init() {
 			},
 			DefaultConfig: func() map[string]any {
 				return map[string]any{
-					"allow_dm": true, "allow_unlinked_dm": false, "require_mention": true,
+					"allow_group": false, "allow_dm": true, "allow_unlinked_dm": false, "require_mention": true,
 					"guest_message_limit_per_minute": pkgchannel.DefaultGuestMessageLimitPerMinute,
 					"guest_max_per_channel":          pkgchannel.DefaultGuestMaxPerChannel,
 					"guest_retention_days":           pkgchannel.DefaultGuestRetentionDays,

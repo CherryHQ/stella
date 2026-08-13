@@ -99,25 +99,25 @@ func TestOnMessageNormalizesAndReplies(t *testing.T) {
 }
 
 func TestAdmissionIsFailClosedForGroups(t *testing.T) {
-	bot, err := New(Config{
-		ClientID: "client", ClientSecret: "secret", AllowDM: true, RequireMention: true,
-		AllowedConversationIDs: "cid-1, cid-2",
-	}, &capturingHandler{messages: make(chan handledMessage, 1)})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-
 	tests := []struct {
-		name string
-		data chatbot.BotCallbackDataModel
-		want bool
+		name       string
+		allowGroup bool
+		data       chatbot.BotCallbackDataModel
+		want       bool
 	}{
-		{name: "allowed and mentioned", data: chatbot.BotCallbackDataModel{ConversationId: "cid-1", IsInAtList: true}, want: true},
-		{name: "not allowlisted", data: chatbot.BotCallbackDataModel{ConversationId: "cid-3", IsInAtList: true}},
-		{name: "not mentioned", data: chatbot.BotCallbackDataModel{ConversationId: "cid-1"}},
+		{name: "allowed and mentioned", allowGroup: true, data: chatbot.BotCallbackDataModel{ConversationId: "cid-1", IsInAtList: true}, want: true},
+		{name: "groups disabled", data: chatbot.BotCallbackDataModel{ConversationId: "cid-1", IsInAtList: true}},
+		{name: "not mentioned", allowGroup: true, data: chatbot.BotCallbackDataModel{ConversationId: "cid-1"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			bot, err := New(Config{
+				ClientID: "client", ClientSecret: "secret", AllowDM: true, RequireMention: true,
+				AllowGroup: tt.allowGroup,
+			}, &capturingHandler{messages: make(chan handledMessage, 1)})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
 			if got := bot.admit(&tt.data, true); got != tt.want {
 				t.Fatalf("admit = %v, want %v", got, tt.want)
 			}

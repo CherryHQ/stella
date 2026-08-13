@@ -31,7 +31,7 @@ var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) 
 		Handler:       handler,
 		Notifications: channelRuntime.Notifications(),
 		NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
-			return New(Config{InstanceID: cfg.InstanceID, Token: cfg.Token, ChannelID: cfg.ChannelID, AllowedChatIDs: cfg.AllowedChatIDs, AllowDM: cfg.AllowDM, RequireMention: cfg.RequireMention}, handler)
+			return New(Config{InstanceID: cfg.InstanceID, Token: cfg.Token, ChannelID: cfg.ChannelID, AllowGroup: cfg.AllowGroup, AllowDM: cfg.AllowDM, RequireMention: cfg.RequireMention}, handler)
 		},
 	}), nil
 }
@@ -60,7 +60,7 @@ func init() {
 			},
 			DefaultConfig: func() map[string]any {
 				return map[string]any{
-					"allow_dm": true, "allow_unlinked_dm": false, "require_mention": true,
+					"allow_group": false, "allow_dm": true, "allow_unlinked_dm": false, "require_mention": true,
 					"guest_message_limit_per_minute": pkgchannel.DefaultGuestMessageLimitPerMinute,
 					"guest_max_per_channel":          pkgchannel.DefaultGuestMaxPerChannel,
 					"guest_retention_days":           pkgchannel.DefaultGuestRetentionDays,
@@ -99,7 +99,7 @@ func configSchema() map[string]any {
 				"type":        "string",
 				"description": "Optional default channel or chat ID.",
 			},
-			"allowed_chat_ids":               map[string]any{"type": "string", "description": "Comma-separated Telegram group and supergroup chat IDs allowed to interact with the bot."},
+			"allow_group":                    map[string]any{"type": "boolean", "description": "Accept messages from Telegram groups and supergroups the bot is a member of.", "default": false},
 			"allow_dm":                       map[string]any{"type": "boolean", "default": true},
 			"allow_unlinked_dm":              map[string]any{"type": "boolean", "default": false},
 			"guest_message_limit_per_minute": map[string]any{"type": "integer", "minimum": 1, "maximum": pkgchannel.MaxGuestMessageLimitPerMinute, "default": pkgchannel.DefaultGuestMessageLimitPerMinute},

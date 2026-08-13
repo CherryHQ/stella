@@ -58,11 +58,11 @@ Channels are stored in the `channel` table. Each row is a channel instance with 
 
 - `token` -- Bot token
 - `channel_id` -- Broadcast channel ID or @username
-- `allowed_chat_ids` -- Comma-separated trusted numeric group IDs; empty rejects all group messages
+- `allow_group` -- Accept messages from groups the bot was added to; defaults to `false`, which rejects all group messages
 - `allow_dm` -- Accept private messages and account linking; defaults to `true`
 - `allow_unlinked_dm` -- Allow persistent restricted guest private messages; defaults to `false`
 - `guest_message_limit_per_minute`, `guest_max_per_channel`, `guest_retention_days` -- Guest resource limits
-- `require_mention` -- Require a bot mention in allowed groups; defaults to `true`
+- `require_mention` -- Require a bot mention in group chats; defaults to `true`
 - `enable_notify` -- Allow notify output for this channel
 
 Channel access is enforced by Stella's trusted Authority-based domain services; notification targets are resolved from linked identities.
@@ -70,7 +70,7 @@ Channel access is enforced by Stella's trusted Authority-based domain services; 
 **Discord config fields:**
 
 - `token` -- Bot token
-- `allowed_guild_ids` -- Comma-separated trusted server IDs; empty disables all guild messages but not direct messages
+- `allow_group` -- Accept messages from server channels the bot can read; defaults to `false`, which disables all guild messages but not direct messages
 - `allow_dm` -- Accept account linking and linked-user direct messages; defaults to `true`
 - `allow_unlinked_dm` -- Allow persistent restricted guest direct messages on the channel-bound agent; defaults to `false` and requires `allow_dm`
 - `guest_message_limit_per_minute` -- Per-guest message and command limit; defaults to `10`
@@ -82,13 +82,13 @@ Guest direct messages retain and compact conversation history but have no profil
 
 **QQ config fields:** `app_id`, `app_secret`, `enable_notify`
 
-**Feishu config fields:** `app_id`, `app_secret`, `encrypt_key`, `verification_token`, `enable_notify`, `tenant_key`, `auto_provision`, `allowed_chat_ids`, `allow_dm`, `allow_unlinked_dm`, `guest_message_limit_per_minute`, `guest_max_per_channel`, `guest_retention_days`, `require_mention`
+**Feishu config fields:** `app_id`, `app_secret`, `encrypt_key`, `verification_token`, `enable_notify`, `tenant_key`, `auto_provision`, `allow_group`, `allow_dm`, `allow_unlinked_dm`, `guest_message_limit_per_minute`, `guest_max_per_channel`, `guest_retention_days`, `require_mention`
 
-Feishu `allowed_chat_ids` is a comma-separated, fail-closed group `chat_id` allowlist. Direct messages default on, group mentions default required, and restricted guest direct messages default off. Guest sessions use the same isolation and resource limits described for Discord.
+Feishu `allow_group` is one fail-closed switch for every group the bot was added to and defaults to `false`. Direct messages default on, group mentions default required, and restricted guest direct messages default off. Guest sessions use the same isolation and resource limits described for Discord.
 
-**DingTalk config fields:** `client_id`, `client_secret`, `allowed_conversation_ids`, `allow_dm`, `allow_unlinked_dm`, `guest_message_limit_per_minute`, `guest_max_per_channel`, `guest_retention_days`, `require_mention`
+**DingTalk config fields:** `client_id`, `client_secret`, `allow_group`, `allow_dm`, `allow_unlinked_dm`, `guest_message_limit_per_minute`, `guest_max_per_channel`, `guest_retention_days`, `require_mention`
 
-DingTalk uses Stream mode and requires no public callback URL. `allowed_conversation_ids` is a comma-separated, fail-closed group allowlist. Text messages, direct messages, group @mentions, account linking, and restricted guest DMs are supported. Notifications require a temporary session Webhook learned from a recent inbound message and stop working after restart or expiry until the user or group messages the bot again.
+DingTalk uses Stream mode and requires no public callback URL. `allow_group` is one fail-closed switch for group conversations and defaults to `false`. Text messages, direct messages, group @mentions, account linking, and restricted guest DMs are supported. Notifications require a temporary session Webhook learned from a recent inbound message and stop working after restart or expiry until the user or group messages the bot again.
 
 ## Login providers
 

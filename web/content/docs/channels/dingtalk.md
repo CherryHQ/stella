@@ -26,12 +26,10 @@ To link your DingTalk identity to an existing Stella account, create a link code
 
 ## Allow a group
 
-Group access is fail-closed. An empty **Allowed group conversation IDs** field disables every group while direct messages continue to work.
+Group access is off by default: every group message is rejected while direct messages continue to work.
 
-1. Add the bot to the DingTalk group and @mention it once.
-2. Read the `conversation_id` from the Stella server log entry for the rejected group.
-3. Add that ID to **Allowed group conversation IDs**. Separate multiple IDs with commas.
-4. Save the channel and @mention the bot again.
+1. Turn on **Allow group chats** in the channel settings and save.
+2. Add the bot to the DingTalk group and @mention it.
 
 DingTalk only delivers group messages addressed to the bot. Keep **Require a mention** enabled unless your DingTalk application has a specific reason to accept another callback form.
 
@@ -56,6 +54,6 @@ DingTalk only delivers group messages addressed to the bot. Keep **Require a men
 
 **Direct messages get no response:** enable **Allow direct messages**, then check that your DingTalk identity is linked or that guest direct messages are explicitly enabled on a channel bound to a guest-safe agent.
 
-**A group gets no response:** @mention the bot, bind the channel to an enabled agent, and confirm the exact `conversation_id` is in the allowlist.
+**A group gets no response:** turn on **Allow group chats**, @mention the bot, and bind the channel to an enabled agent.
 
 **Notifications fail after a restart:** send the bot any direct message to refresh its temporary session Webhook, then retry the notification.

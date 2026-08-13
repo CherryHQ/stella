@@ -270,7 +270,7 @@ func TestDecodeConfigAppliesAdmissionDefaults(t *testing.T) {
 		t.Fatalf("explicit false values lost: %#v", explicit)
 	}
 	properties := configSchema()["properties"].(map[string]any)
-	for _, key := range []string{"allowed_chat_ids", "allow_dm", "allow_unlinked_dm", "guest_message_limit_per_minute", "guest_max_per_channel", "guest_retention_days", "require_mention"} {
+	for _, key := range []string{"allow_group", "allow_dm", "allow_unlinked_dm", "guest_message_limit_per_minute", "guest_max_per_channel", "guest_retention_days", "require_mention"} {
 		if properties[key] == nil {
 			t.Fatalf("schema missing %s", key)
 		}

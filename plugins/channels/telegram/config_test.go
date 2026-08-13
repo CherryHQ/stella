@@ -33,7 +33,7 @@ func TestDecodeConfig(t *testing.T) {
 
 func TestTelegramConfigSchemaGuestBounds(t *testing.T) {
 	properties := configSchema()["properties"].(map[string]any)
-	for _, key := range []string{"allowed_chat_ids", "allow_dm", "allow_unlinked_dm", "guest_message_limit_per_minute", "guest_max_per_channel", "guest_retention_days", "require_mention"} {
+	for _, key := range []string{"allow_group", "allow_dm", "allow_unlinked_dm", "guest_message_limit_per_minute", "guest_max_per_channel", "guest_retention_days", "require_mention"} {
 		if properties[key] == nil {
 			t.Fatalf("schema missing %s", key)
 		}

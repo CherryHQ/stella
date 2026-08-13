@@ -41,7 +41,7 @@ type Config struct {
 	InstanceID     string
 	Token          string
 	ChannelID      string
-	AllowedChatIDs string
+	AllowGroup     bool
 	AllowDM        bool
 	RequireMention bool
 }
@@ -205,15 +205,8 @@ func (b *Bot) admit(c tele.Context, directed bool) bool {
 		return b.cfg.AllowDM
 	}
 	chatID := strconv.FormatInt(c.Chat().ID, 10)
-	allowed := false
-	for id := range strings.SplitSeq(b.cfg.AllowedChatIDs, ",") {
-		if strings.TrimSpace(id) == chatID {
-			allowed = true
-			break
-		}
-	}
-	if !allowed {
-		b.warnGroupRejectionOnce(chatID, "not_allowlisted", nil)
+	if !b.cfg.AllowGroup {
+		b.warnGroupRejectionOnce(chatID, "groups_disabled", nil)
 		return false
 	}
 	if b.cfg.RequireMention && !directed && !b.botMentioned(c.Message()) && !b.replyToBot(c.Message()) {

@@ -52,18 +52,16 @@ type Config struct {
 	Groups            map[string]GroupConfig `json:"groups"` // per-group overrides keyed by chat_id
 	TenantKey         string                 `json:"tenant_key"`
 	AutoProvision     bool                   `json:"auto_provision"`
-	AllowedChatIDs    string                 `json:"allowed_chat_ids"`
+	AllowGroup        bool                   `json:"allow_group"`
 	AllowDM           bool                   `json:"allow_dm"`
 	RequireMention    bool                   `json:"require_mention"`
 }
 
+// chatAllowed reports whether group traffic for chatID may reach an agent.
+// Group access is one switch rather than a chat_id allowlist: a Feishu chat_id
+// is not visible anywhere in the client, so per-chat entry cannot be typed.
 func (b *Bot) chatAllowed(chatID string) bool {
-	for allowed := range strings.SplitSeq(b.cfg.AllowedChatIDs, ",") {
-		if strings.TrimSpace(allowed) == chatID && chatID != "" {
-			return true
-		}
-	}
-	return false
+	return b.cfg.AllowGroup && chatID != ""
 }
 
 // Bot wraps a Feishu bot with agent pool integration.

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sort"
 	"strings"
 	"sync"
 
@@ -18,18 +17,17 @@ import (
 const maxMessageLength = 2000
 
 type Config struct {
-	InstanceID      string
-	Token           string
-	AllowedGuildIDs string
-	AllowDM         bool
-	RequireMention  bool
+	InstanceID     string
+	Token          string
+	AllowGroup     bool
+	AllowDM        bool
+	RequireMention bool
 }
 
 type Bot struct {
 	session           *discordgo.Session
 	handler           channel.Handler
 	cfg               Config
-	allowedGuilds     map[string]struct{}
 	ctx               context.Context
 	mu                sync.RWMutex
 	provisionMu       sync.Mutex
@@ -48,13 +46,7 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		return nil, fmt.Errorf("create discord session: %w", err)
 	}
 	s.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentsMessageContent
-	allowedGuilds := make(map[string]struct{})
-	for _, guildID := range strings.FieldsFunc(cfg.AllowedGuildIDs, func(r rune) bool {
-		return r == ',' || r == ';' || r == '\n' || r == '\r' || r == '\t' || r == ' '
-	}) {
-		allowedGuilds[guildID] = struct{}{}
-	}
-	return &Bot{session: s, handler: handler, cfg: cfg, allowedGuilds: allowedGuilds, provisionedGroups: make(map[string]struct{})}, nil
+	return &Bot{session: s, handler: handler, cfg: cfg, provisionedGroups: make(map[string]struct{})}, nil
 }
 
 func (b *Bot) Name() string {
@@ -65,12 +57,10 @@ func (b *Bot) Name() string {
 }
 func (b *Bot) Platform() string { return channel.PlatformDiscord }
 
+// guildAllowed reports whether a message may be served. An empty guild ID is a
+// direct message, which `allow_dm` governs instead.
 func (b *Bot) guildAllowed(guildID string) bool {
-	if guildID == "" {
-		return true
-	}
-	_, ok := b.allowedGuilds[guildID]
-	return ok
+	return guildID == "" || b.cfg.AllowGroup
 }
 
 func (b *Bot) mentioned(m *discordgo.Message) bool {
@@ -123,15 +113,8 @@ func (b *Bot) activate(ctx context.Context) error {
 	}); ok {
 		r.RegisterGroupPublisher(b.Name(), b)
 	}
-	if len(b.allowedGuilds) == 0 {
-		logger().Info("discord guild messages disabled; configure allowed_guild_ids to enable trusted servers")
-	} else {
-		guildIDs := make([]string, 0, len(b.allowedGuilds))
-		for guildID := range b.allowedGuilds {
-			guildIDs = append(guildIDs, guildID)
-		}
-		sort.Strings(guildIDs)
-		logger().Info("discord guild allowlist configured", "guild_ids", guildIDs)
+	if !b.cfg.AllowGroup {
+		logger().Info("discord server-channel messages disabled; enable allow_group to serve the servers this bot joined")
 	}
 	// Publishing the context is the ingress activation point. Keep it last so
 	// event handlers cannot accept traffic before all routing state is ready.

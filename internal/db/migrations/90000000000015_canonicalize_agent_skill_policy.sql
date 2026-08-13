@@ -6,7 +6,7 @@ SET enabled_builtin_skills = '{"version": 1, "disabled": []}'::jsonb
 WHERE jsonb_typeof(enabled_builtin_skills) = 'array'
    OR enabled_builtin_skills = 'null'::jsonb;
 
--- Keep the database constraint identical to the strict runtime decoder: exact
+-- Keep this database constraint identical to the strict runtime decoder: exact
 -- fields, integer version 1, canonical refs, bytewise sort order, and no
 -- duplicates. Historical arrays were consumed above; malformed v1 objects are
 -- not guessed at and make the migration fail closed during validation.

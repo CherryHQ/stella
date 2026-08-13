@@ -25,12 +25,12 @@ var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) 
 		Log:           platform.Logger(),
 		NewChannel: func(cfg pkgchannel.DingTalkConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
 			return New(Config{
-				InstanceID:             cfg.InstanceID,
-				ClientID:               cfg.ClientID,
-				ClientSecret:           cfg.ClientSecret,
-				AllowedConversationIDs: cfg.AllowedConversationIDs,
-				AllowDM:                cfg.AllowDM,
-				RequireMention:         cfg.RequireMention,
+				InstanceID:     cfg.InstanceID,
+				ClientID:       cfg.ClientID,
+				ClientSecret:   cfg.ClientSecret,
+				AllowGroup:     cfg.AllowGroup,
+				AllowDM:        cfg.AllowDM,
+				RequireMention: cfg.RequireMention,
 			}, handler)
 		},
 	}), nil
@@ -57,7 +57,7 @@ func init() {
 			},
 			DefaultConfig: func() map[string]any {
 				return map[string]any{
-					"allow_dm": true, "allow_unlinked_dm": false, "require_mention": true,
+					"allow_group": false, "allow_dm": true, "allow_unlinked_dm": false, "require_mention": true,
 					"guest_message_limit_per_minute": pkgchannel.DefaultGuestMessageLimitPerMinute,
 					"guest_max_per_channel":          pkgchannel.DefaultGuestMaxPerChannel,
 					"guest_retention_days":           pkgchannel.DefaultGuestRetentionDays,
@@ -90,7 +90,7 @@ func configSchema() map[string]any {
 		"properties": map[string]any{
 			"client_id":                      map[string]any{"type": "string", "description": "DingTalk application Client ID."},
 			"client_secret":                  map[string]any{"type": "string", "description": "DingTalk application Client Secret."},
-			"allowed_conversation_ids":       map[string]any{"type": "string", "description": "Comma-separated DingTalk group conversation IDs allowed to send messages."},
+			"allow_group":                    map[string]any{"type": "boolean", "description": "Accept messages from DingTalk group conversations the bot is a member of.", "default": false},
 			"allow_dm":                       map[string]any{"type": "boolean", "description": "Accept direct messages for linked-user chat and account linking.", "default": true},
 			"allow_unlinked_dm":              map[string]any{"type": "boolean", "description": "Allow unlinked DingTalk users to use the bound agent in restricted guest sessions.", "default": false},
 			"guest_message_limit_per_minute": map[string]any{"type": "integer", "minimum": 1, "maximum": pkgchannel.MaxGuestMessageLimitPerMinute, "default": pkgchannel.DefaultGuestMessageLimitPerMinute},

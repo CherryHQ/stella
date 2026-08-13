@@ -874,7 +874,7 @@ func TestSyncGroupsEnsuresMembersAcrossPages(t *testing.T) {
 	calls := 0
 	bot := &Bot{
 		handler: provisioner,
-		cfg:     Config{InstanceID: "feishu-work", AllowedChatIDs: "oc_1, oc_2, oc_3"},
+		cfg:     Config{InstanceID: "feishu-work", AllowGroup: true},
 		listChats: func(_ context.Context, _ *larkim.ListChatReq) (*larkim.ListChatResp, error) {
 			calls++
 			switch calls {

@@ -19,7 +19,7 @@ import (
 	"github.com/CherryHQ/stella/internal/home"
 )
 
-const projectBaseDirMigration = sequentialAnchor + 15
+const projectBaseDirMigration = sequentialAnchor + 16
 
 func TestProjectBaseDirMigrationCanonicalizesPhysicalOwnerPaths(t *testing.T) {
 	db := newTestDB(t)

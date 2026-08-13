@@ -1,7 +1,7 @@
 -- +goose Up
 SET LOCAL lock_timeout = '10s';
 
--- Keep every historical value intact until the Home-aware startup migration can
+-- Preserve every historical value until the Home-aware startup migration can
 -- resolve it against the durable owner root. PostgreSQL cannot safely decide
 -- whether an arbitrary physical prefix or symlink aliases the configured Home.
 ALTER TABLE project
