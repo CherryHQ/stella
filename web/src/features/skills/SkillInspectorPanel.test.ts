@@ -25,4 +25,25 @@ describe("Skill inspector mutation digest", () => {
       "digest-saved-d3",
     );
   });
+
+  it("rejects a failed readback without advancing the cached baseline", async () => {
+    const queryClient = new QueryClient();
+    const queryKey = ["agent-skill", "agent-1", "", "user", "skill-1"] as const;
+    const listed = skill("digest-list-d1");
+    const detail = skill("digest-detail-d2");
+    queryClient.setQueryDefaults(queryKey, {
+      queryFn: async () => {
+        throw new Error("detail readback failed");
+      },
+      retry: false,
+    });
+    queryClient.setQueryData(queryKey, detail);
+
+    await expect(refreshSkillMutationBaseline(queryClient, queryKey)).rejects.toThrow(
+      "detail readback failed",
+    );
+    expect(skillMutationDigest(listed, queryClient.getQueryData<Skill>(queryKey))).toBe(
+      "digest-detail-d2",
+    );
+  });
 });

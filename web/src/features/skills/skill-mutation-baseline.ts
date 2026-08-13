@@ -17,5 +17,5 @@ export async function refreshSkillMutationBaseline(
     queryClient.setQueryData(queryKey, updated);
     return;
   }
-  await queryClient.refetchQueries({ queryKey, exact: true });
+  await queryClient.refetchQueries({ queryKey, exact: true }, { throwOnError: true });
 }

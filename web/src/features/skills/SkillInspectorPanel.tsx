@@ -112,13 +112,7 @@ export function SkillInspectorPanel({
   const canUpgrade = !readOnly && isUpdatableSource(skill.source);
   const scoped = skill.scope === "project";
   const ready = !scoped || !!sessionId;
-  const detailQueryKey = [
-    "agent-skill",
-    agentId,
-    sessionId ?? "",
-    skill.scope,
-    skill.id,
-  ] as const;
+  const detailQueryKey = ["agent-skill", agentId, sessionId ?? "", skill.scope, skill.id] as const;
   const detail = useQuery({
     queryKey: detailQueryKey,
     queryFn: async () =>
@@ -193,11 +187,14 @@ export function SkillInspectorPanel({
         throwOnError: true,
       });
       if (res.data?.updated) {
+        await queryClient.refetchQueries(
+          { queryKey: detailQueryKey, exact: true },
+          { throwOnError: true },
+        );
         notify(
           t("sessions.skillsList.upgradeDone", { version: res.data.version ?? "" }),
           "success",
         );
-        await queryClient.refetchQueries({ queryKey: detailQueryKey, exact: true });
         invalidateSkillList();
       } else {
         notify(t("sessions.skillsList.upgradeUpToDate"), "success");
