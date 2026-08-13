@@ -354,7 +354,8 @@ export function ChannelConfigFields({
             t("channels.allowedConversationIds"),
             t("channels.allowedDingTalkConversationIdsPlaceholder"),
           )}
-          <FieldDescription>{t("channels.dingtalkNotifyDesc")}</FieldDescription>
+          {/* A standalone note, not a field: Base UI's Description must stay inside a Field.Root. */}
+          <p className="text-muted-foreground text-xs">{t("channels.dingtalkNotifyDesc")}</p>
         </>
       )}
 
