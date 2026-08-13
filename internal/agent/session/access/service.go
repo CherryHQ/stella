@@ -522,10 +522,11 @@ func (a *Access) UpdateTitle(ctx context.Context, info agentsession.Info, title 
 
 // Archive persists archival after Delete has authorized the exact session.
 func (a *Access) Archive(ctx context.Context, info agentsession.Info) error {
-	if err := a.svc.q.UpdateConversationArchived(ctx, sqlc.UpdateConversationArchivedParams{
-		Archived: true, SessionID: info.ID,
-		UserID: pgtype.Text{String: info.UserID, Valid: true}, AgentID: pgtype.Text{String: info.AgentID, Valid: true},
-	}); err != nil {
+	rec, err := info.Record()
+	if err != nil {
+		return fmt.Errorf("%w: invalid session: %w", ErrUnavailable, err)
+	}
+	if _, err := a.svc.memory.ArchiveInfo(ctx, rec); err != nil {
 		return fmt.Errorf("%w: archive session: %w", ErrUnavailable, err)
 	}
 	return nil

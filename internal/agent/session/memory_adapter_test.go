@@ -22,6 +22,11 @@ func (f *fakeSessionManager) SaveInfo(ctx context.Context, _ memory.SessionInfo)
 	return nil
 }
 
+func (f *fakeSessionManager) ArchiveInfo(ctx context.Context, _ memory.SessionInfo) (bool, error) {
+	f.lastCtx = ctx
+	return true, nil
+}
+
 func (f *fakeSessionManager) RotateInfo(ctx context.Context, _ string, _ memory.SessionInfo) error {
 	f.lastCtx = ctx
 	return nil

@@ -448,8 +448,10 @@ func (q *Queries) ListSummariesByIDs(ctx context.Context, arg ListSummariesByIDs
 const listSummariesNeedingEmbedding = `-- name: ListSummariesNeedingEmbedding :many
 SELECT s.id, s.content, e.model AS embedded_model, e.content_hash AS embedded_hash
 FROM ctx_summary s
+JOIN ctx_conversation c ON c.id = s.conversation_id
 LEFT JOIN ctx_summary_embedding e ON e.summary_id = s.id
-WHERE e.summary_id IS NULL OR e.model <> $1
+WHERE c.archived = false
+  AND (e.summary_id IS NULL OR e.model <> $1)
 ORDER BY s.created_at DESC
 LIMIT $2
 `
@@ -532,6 +534,7 @@ JOIN ctx_conversation c ON c.id = s.conversation_id
 WHERE s.id @@@ paradedb.match('content', $1::text)
   AND c.user_id = $2
   AND c.agent_id IS NOT DISTINCT FROM $3
+  AND c.archived = false
 ORDER BY score DESC, COALESCE(s.latest_at, s.created_at) DESC, s.id DESC
 LIMIT $4
 `
@@ -563,7 +566,7 @@ type SearchSummariesRow struct {
 	Score                     float64            `json:"score"`
 }
 
-// Spans every conversation of the current (user_id, agent_id); see SearchMessages.
+// Spans every active conversation of the current (user_id, agent_id); see SearchMessages.
 // Lexical ranking is pg_search BM25; paradedb.match tokenizes the raw user text
 // with the jieba tokenizer (dictionary + statistical CJK word segmentation, CJK
 // matches natively) and never errors on punctuation. The match arg is the raw
@@ -614,27 +617,40 @@ func (q *Queries) SearchSummaries(ctx context.Context, arg SearchSummariesParams
 }
 
 const searchSummaryEmbeddings = `-- name: SearchSummaryEmbeddings :many
+WITH candidates AS MATERIALIZED (
+    SELECT
+        e.summary_id,
+        e.embedding,
+        COALESCE(s.latest_at, s.created_at) AS content_time
+    FROM ctx_summary_embedding e
+    JOIN ctx_summary s ON s.id = e.summary_id
+    JOIN ctx_conversation c ON c.id = s.conversation_id
+    WHERE e.model = $3
+      AND c.user_id = $4
+      AND c.agent_id IS NOT DISTINCT FROM $5
+      AND c.archived = false
+      -- Keep historical zero sidecars out of exact cosine ranking; see the
+      -- corresponding message query for the migration-compatibility rationale.
+      AND vector_norm(e.embedding) > 0
+)
 SELECT
     s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at, s.contains_non_principal_input,
     c.session_id AS session_id,
     c.title AS conversation_title,
     (1 - (e.embedding <=> $1::vector(1536)))::double precision AS score
-FROM ctx_summary_embedding e
+FROM candidates e
 JOIN ctx_summary s ON s.id = e.summary_id
 JOIN ctx_conversation c ON c.id = s.conversation_id
-WHERE e.model = $2
-  AND c.user_id = $3
-  AND c.agent_id IS NOT DISTINCT FROM $4
-ORDER BY e.embedding <=> $1::vector(1536), COALESCE(s.latest_at, s.created_at) DESC, s.id DESC
-LIMIT $5
+ORDER BY e.embedding <=> $1::vector(1536), e.content_time DESC, e.summary_id DESC
+LIMIT $2
 `
 
 type SearchSummaryEmbeddingsParams struct {
 	Query   pgvector_go.Vector `json:"query"`
+	Limit   int32              `json:"limit"`
 	Model   string             `json:"model"`
 	UserID  pgtype.Text        `json:"user_id"`
 	AgentID pgtype.Text        `json:"agent_id"`
-	Limit   int32              `json:"limit"`
 }
 
 type SearchSummaryEmbeddingsRow struct {
@@ -656,16 +672,16 @@ type SearchSummaryEmbeddingsRow struct {
 	Score                     float64            `json:"score"`
 }
 
-// Vector KNN over summary embeddings; mirror of SearchMessageEmbeddings (same
-// space + scope guards, cosine similarity score). Tie-break by content time then
-// id. Keep ASCII.
+// Exact KNN over the complete authorized candidate set; see the message query
+// for why scope is materialized before distance ordering. Summary content time
+// and id complete the stable order before LIMIT.
 func (q *Queries) SearchSummaryEmbeddings(ctx context.Context, arg SearchSummaryEmbeddingsParams) ([]SearchSummaryEmbeddingsRow, error) {
 	rows, err := q.db.Query(ctx, searchSummaryEmbeddings,
 		arg.Query,
+		arg.Limit,
 		arg.Model,
 		arg.UserID,
 		arg.AgentID,
-		arg.Limit,
 	)
 	if err != nil {
 		return nil, err

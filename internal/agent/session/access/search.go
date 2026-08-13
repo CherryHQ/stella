@@ -178,7 +178,9 @@ func (a *Access) searchRecall(ctx context.Context, agentID, query string, limit 
 }
 
 func (a *Access) authorizeRecallConversationRecord(agentID string, conv sqlc.CtxConversation) (agentsession.Info, bool) {
-	if !conv.UserID.Valid || !conv.AgentID.Valid || conv.AgentID.String != agentID || conv.UserID.String != string(a.authority.UserID()) || conv.GroupID.Valid || conv.GuestID.Valid {
+	// Archived conversations remain available for explicit Session inspection,
+	// but they are no longer part of the model-facing recall corpus.
+	if conv.Archived || !conv.UserID.Valid || !conv.AgentID.Valid || conv.AgentID.String != agentID || conv.UserID.String != string(a.authority.UserID()) || conv.GroupID.Valid || conv.GuestID.Valid {
 		return agentsession.Info{}, false
 	}
 	info, err := agentsession.InfoFromRecord(memory.SessionInfo{
@@ -257,12 +259,17 @@ func (a *Access) authorizedRecallConversation(ctx context.Context, agentID, sess
 	}
 	// Recall is deliberately narrower than administrator exact-ID inspection:
 	// it is always the current owner's private corpus for this exact Agent.
-	if info.UserID != string(a.authority.UserID()) || info.AgentID != agentID || info.GroupID != "" {
+	if info.Archived || info.UserID != string(a.authority.UserID()) || info.AgentID != agentID || info.GroupID != "" {
 		return agentsession.Info{}, sqlc.CtxConversation{}, false, nil
 	}
 	conv, err = a.conversation(ctx, info)
 	if err != nil {
 		return agentsession.Info{}, sqlc.CtxConversation{}, false, err
+	}
+	// Read uses the durable row as the final archive authority because Session
+	// metadata may still be cached briefly after a user archives a conversation.
+	if conv.Archived {
+		return agentsession.Info{}, sqlc.CtxConversation{}, false, nil
 	}
 	return info, conv, true, nil
 }

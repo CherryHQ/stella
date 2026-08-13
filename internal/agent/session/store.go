@@ -11,6 +11,8 @@ import (
 // memory.SessionManager. Tests may substitute a fake.
 type store interface {
 	save(ctx context.Context, info Info) error
+	// archive performs the one-way active-to-archived lifecycle transition.
+	archive(ctx context.Context, info Info) (bool, error)
 	// rotate archives expectedSessionID and creates successor atomically,
 	// reporting ErrStaleRotation when expectedSessionID is no longer active.
 	rotate(ctx context.Context, expectedSessionID string, successor Info) error

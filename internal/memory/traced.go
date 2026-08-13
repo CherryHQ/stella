@@ -458,6 +458,20 @@ func (t *tracedProvider) SaveInfo(ctx context.Context, info SessionInfo) error {
 	return err
 }
 
+func (t *tracedProvider) ArchiveInfo(ctx context.Context, info SessionInfo) (bool, error) {
+	sm, ok := t.inner.(SessionManager)
+	if !ok {
+		return false, errCapabilityNotSupported("SessionManager")
+	}
+	hctx := &hooks.PostMemoryCallContext{HookMeta: hooks.HookMeta{SessionID: info.ID, UserID: info.UserID, AgentID: info.AgentID}, Op: hooks.MemoryOpArchiveInfo, SessionID: info.ID}
+	ctx, start := t.begin(ctx, hctx)
+	applied, err := sm.ArchiveInfo(ctx, info)
+	hctx.Error = err
+	hctx.Detail = fmt.Sprintf("applied=%v", applied)
+	t.finish(ctx, start, hctx)
+	return applied, err
+}
+
 func (t *tracedProvider) TouchActiveInfo(ctx context.Context, info SessionInfo) (bool, error) {
 	sm, ok := t.inner.(SessionManager)
 	if !ok {

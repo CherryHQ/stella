@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -73,6 +75,88 @@ func TestUpdateAndDeleteSession(t *testing.T) {
 	}
 	if !archived {
 		t.Fatalf("archived = %v, want true", archived)
+	}
+}
+
+func TestCreateMainSessionReResolvesWhenArchiveWinsPromotionRace(t *testing.T) {
+	env := setupAdmin(t)
+	agentID := createAgentAsUser(t, env, env.bearerToken, "Session Promotion Race Agent")
+	const staleSessionID = "session-promotion-race"
+	channel := agentID + ":user:" + env.adminUser.ID + ":private"
+	if _, err := env.db.Exec(context.Background(), `
+		INSERT INTO ctx_conversation (id, session_id, channel, kind, agent_id, user_id, last_active)
+		VALUES ($1, $2, $3, 'chat', $4, $5, now())
+	`, uuid.NewString(), staleSessionID, channel, agentID, env.adminUser.ID); err != nil {
+		t.Fatalf("seed promotable session: %v", err)
+	}
+
+	ctx := context.Background()
+	archiveTx, err := env.db.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin archive: %v", err)
+	}
+	archiveOpen := true
+	defer func() {
+		if archiveOpen {
+			_ = archiveTx.Rollback(ctx)
+		}
+	}()
+	// Keep the archive uncommitted so ResolveMain reads the active candidate and
+	// then blocks when its promotion save reaches the row lock.
+	if _, err := archiveTx.Exec(ctx, `UPDATE ctx_conversation SET archived = true WHERE session_id = $1`, staleSessionID); err != nil {
+		t.Fatalf("stage archive: %v", err)
+	}
+
+	response := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		response <- doRequest(t, env, http.MethodPost, "/api/agents/"+agentID+"/sessions", map[string]string{"kind": "main"})
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	waiting := false
+	for time.Now().Before(deadline) {
+		if err := env.db.QueryRow(ctx, `SELECT EXISTS (
+			SELECT 1 FROM pg_stat_activity
+			WHERE datname = current_database()
+			  AND wait_event_type = 'Lock'
+			  AND query LIKE '%UPDATE ctx_conversation%'
+		)`).Scan(&waiting); err != nil {
+			t.Fatalf("observe blocked promotion: %v", err)
+		}
+		if waiting {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !waiting {
+		_ = archiveTx.Rollback(ctx)
+		archiveOpen = false
+		<-response
+		t.Fatal("main-session promotion never reached the archive row lock")
+	}
+	if err := archiveTx.Commit(ctx); err != nil {
+		t.Fatalf("commit archive: %v", err)
+	}
+	archiveOpen = false
+
+	rr := <-response
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("POST main after archive race status=%d, want %d (body: %s)", rr.Code, http.StatusCreated, rr.Body.String())
+	}
+	resp := parseResponse(t, rr)
+	var created apitypes.Session
+	if err := json.Unmarshal(resp.Data, &created); err != nil {
+		t.Fatalf("unmarshal created session: %v", err)
+	}
+	if created.Id == staleSessionID || created.Archived {
+		t.Fatalf("created session = %+v, want a fresh active main", created)
+	}
+	var archived bool
+	if err := env.db.QueryRow(ctx, `SELECT archived FROM ctx_conversation WHERE session_id = $1`, staleSessionID).Scan(&archived); err != nil {
+		t.Fatalf("load raced session: %v", err)
+	}
+	if !archived {
+		t.Fatal("the session archived by the concurrent DELETE path was revived")
 	}
 }
 

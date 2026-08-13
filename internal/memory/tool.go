@@ -211,7 +211,7 @@ func (t *memoryTool) buildActions() []actionMeta {
 	if !t.cfg.hideTranscriptActions {
 		add(actionStatus, "Show session memory statistics: message count, token usage, summary count, time range.")
 		if t.searcher != nil {
-			add(actionSearch, "Search this user+agent's history by keyword across ALL past sessions, not just the current one. Each hit carries provenance: session_id and conversation_title for origin, and occurred_at (RFC3339) for when the content actually happened — use it to weight recency.")
+			add(actionSearch, "Search this user+agent's history by keyword across all active sessions, not just the current one. Each hit carries provenance: session_id and conversation_title for origin, and occurred_at (RFC3339) for when the content actually happened — use it to weight recency.")
 		}
 		if t.explorer != nil {
 			add(actionDescribe, "Inspect a summary's content, metadata, and lineage (parents/children).")

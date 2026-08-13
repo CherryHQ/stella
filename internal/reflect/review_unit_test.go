@@ -865,6 +865,10 @@ func (p *nonReviewerProvider) SaveInfo(ctx context.Context, info memory.SessionI
 	return p.inner.SaveInfo(ctx, info)
 }
 
+func (p *nonReviewerProvider) ArchiveInfo(ctx context.Context, info memory.SessionInfo) (bool, error) {
+	return p.inner.ArchiveInfo(ctx, info)
+}
+
 func (p *nonReviewerProvider) LoadInfo(ctx context.Context, sessionID string) (memory.SessionInfo, error) {
 	return p.inner.LoadInfo(ctx, sessionID)
 }

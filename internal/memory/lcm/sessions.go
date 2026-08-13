@@ -97,9 +97,8 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		return fmt.Errorf("get conversation: %w", err)
 	}
 
-	if err := p.q.UpdateConversationInfoBySessionID(ctx, sqlc.UpdateConversationInfoBySessionIDParams{
+	rows, err := p.q.UpdateConversationInfoBySessionID(ctx, sqlc.UpdateConversationInfoBySessionIDParams{
 		Title:     pgnull.Text(info.Title),
-		Archived:  info.Archived,
 		Kind:      pgnull.Text(info.Kind),
 		Channel:   pgnull.Text(info.Channel),
 		ProjectID: pgnull.Text(info.ProjectID),
@@ -108,10 +107,33 @@ func (p *Provider) SaveInfo(ctx context.Context, info memory.SessionInfo) error 
 		SessionID: info.ID,
 		UserID:    pgtype.Text{String: info.UserID, Valid: true},
 		AgentID:   pgnull.Text(info.AgentID),
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("update conversation info: %w", err)
 	}
+	if rows == 0 {
+		return fmt.Errorf("%w: %s", memory.ErrInactiveSession, info.ID)
+	}
 	return nil
+}
+
+// ArchiveInfo implements memory.SessionManager. The active predicate makes the
+// lifecycle check and transition one atomic write; stale callers cannot revive
+// the row through the generic metadata path.
+func (p *Provider) ArchiveInfo(ctx context.Context, info memory.SessionInfo) (bool, error) {
+	userID, agentID, err := requireSessionScope(ctx, info.UserID, info.AgentID)
+	if err != nil {
+		return false, err
+	}
+	rows, err := p.q.ArchiveConversationBySessionID(ctx, sqlc.ArchiveConversationBySessionIDParams{
+		SessionID: info.ID,
+		UserID:    pgtype.Text{String: userID, Valid: true},
+		AgentID:   pgnull.Text(agentID),
+	})
+	if err != nil {
+		return false, fmt.Errorf("archive conversation: %w", err)
+	}
+	return rows > 0, nil
 }
 
 // TouchActiveInfo implements memory.SessionManager. The guard lives in the

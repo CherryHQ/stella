@@ -157,10 +157,10 @@ type SearchQuery struct {
 	Limit int         // max results (default 20)
 }
 
-// SearchResult represents a single search hit. Results span every session of
-// the current (user_id, agent_id), so each hit carries provenance — which
-// conversation it came from — plus the time the content actually occurred so
-// the agent can weight recency.
+// SearchResult represents a single search hit. Results span every active
+// session of the current (user_id, agent_id), so each hit carries provenance —
+// which conversation it came from — plus the time the content actually occurred
+// so the agent can weight recency.
 type SearchResult struct {
 	SourceType        string    `json:"source_type"`        // "message" or "summary"
 	SourceID          string    `json:"source_id"`          // message ID or summary ID
@@ -419,6 +419,11 @@ type ConstraintStore interface {
 // compare-and-rotate, so a stale caller changed nothing and must not retry.
 var ErrStaleRotation = errors.New("session rotation is stale")
 
+// ErrInactiveSession reports that a metadata write lost a race with archival
+// (or the scoped session no longer exists). Callers must not retry the stale
+// snapshot because doing so could revive lifecycle state that has moved on.
+var ErrInactiveSession = errors.New("session is not active")
+
 // ErrRotationOutcomeUnknown reports that a rotation failed at the commit
 // acknowledgement: the server may or may not have committed (e.g. the
 // connection to an external PostgreSQL dropped after COMMIT was sent). Every
@@ -429,8 +434,14 @@ var ErrRotationOutcomeUnknown = errors.New("session rotation outcome unknown")
 
 // SessionManager is implemented by providers that support session lifecycle management.
 type SessionManager interface {
-	// SaveInfo persists or updates session metadata.
+	// SaveInfo creates a session or updates metadata while it remains active.
+	// Archived is only honored when creating a new row; lifecycle transitions
+	// for an existing row must use ArchiveInfo or RotateInfo.
 	SaveInfo(ctx context.Context, info SessionInfo) error
+
+	// ArchiveInfo atomically transitions an active session to archived. It
+	// reports false without writing when the scoped session is already inactive.
+	ArchiveInfo(ctx context.Context, info SessionInfo) (bool, error)
 
 	// RotateInfo archives expectedSessionID and creates successor as one atomic
 	// unit, so a durable binding is never left without an active session and a

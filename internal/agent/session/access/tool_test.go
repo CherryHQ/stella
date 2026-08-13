@@ -82,6 +82,10 @@ func (p *sessionOnlyProvider) SaveInfo(ctx context.Context, info memory.SessionI
 	return p.inner.SaveInfo(ctx, info)
 }
 
+func (p *sessionOnlyProvider) ArchiveInfo(ctx context.Context, info memory.SessionInfo) (bool, error) {
+	return p.inner.ArchiveInfo(ctx, info)
+}
+
 func (p *sessionOnlyProvider) RotateInfo(ctx context.Context, expectedSessionID string, successor memory.SessionInfo) error {
 	return p.inner.RotateInfo(ctx, expectedSessionID, successor)
 }
@@ -394,6 +398,22 @@ func TestSessionRecallSearchUsesLCMRetrievalAndExactPrincipalAgentScope(t *testi
 	}
 	if _, err := m.svc.ReadRecall(ctx, foreignAuthority, m.agent, results[0].Reference, 4_000); err == nil || !errors.Is(err, ErrNotFound) {
 		t.Fatalf("foreign caller read a forged owner ref: %v", err)
+	}
+
+	// Archiving is the shared outcome of `/new` and user deletion. It must remove
+	// the transcript from search and invalidate refs issued while it was active.
+	if _, err := m.db.Exec(ctx, `UPDATE ctx_conversation SET archived = true WHERE session_id = $1`, m.private); err != nil {
+		t.Fatalf("archive recalled session: %v", err)
+	}
+	archivedResults, err := m.svc.SearchRecall(ctx, authority, m.agent, "rotatedtokenneedle", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(archivedResults) != 0 {
+		t.Fatalf("archived session leaked into recall search: %#v", archivedResults)
+	}
+	if _, err := m.svc.ReadRecall(ctx, authority, m.agent, results[0].Reference, 4_000); err == nil || !errors.Is(err, ErrNotFound) {
+		t.Fatalf("archived recall ref remained readable: %v", err)
 	}
 }
 

@@ -22,7 +22,8 @@ FROM ctx_message m
 JOIN ctx_conversation c ON c.id = m.conversation_id
 WHERE m.id = sqlc.arg('id')
   AND c.user_id = sqlc.arg('user_id')
-  AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id');
+  AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
+  AND c.archived = false;
 
 -- name: GetMessagesByConversation :many
 SELECT * FROM ctx_message WHERE conversation_id = $1 ORDER BY seq ASC;
@@ -171,8 +172,8 @@ WHERE p.message_id = ANY(sqlc.arg('message_ids')::uuid[])
 ORDER BY p.message_id, p.ordinal;
 
 -- name: SearchMessages :many
--- Spans every conversation of the current (user_id, agent_id) so memory recall
--- survives across sessions. Joins ctx_conversation to pin the scope and surface
+-- Spans every active conversation of the current (user_id, agent_id). Joins
+-- ctx_conversation to pin the scope and surface
 -- provenance (session_id, title). Global ORDER BY score + LIMIT keeps the best
 -- matches across the merged corpus, not per-conversation truncations. Lexical
 -- ranking is pg_search BM25; paradedb.match tokenizes the raw user text with the
@@ -191,6 +192,7 @@ JOIN ctx_conversation c ON c.id = m.conversation_id
 WHERE m.id @@@ paradedb.match('content', sqlc.arg('match')::text)
   AND c.user_id = sqlc.arg('user_id')
   AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
+  AND c.archived = false
 -- created_at, id break score ties deterministically: cross-source RRF uses each
 -- row's rank, so a stable order keeps the same query from reshuffling the merge.
 ORDER BY score DESC, m.created_at DESC, m.id DESC
@@ -217,30 +219,44 @@ SET model        = EXCLUDED.model,
 -- can skip rows already current. Keep ASCII.
 SELECT m.id, m.content, e.model AS embedded_model, e.content_hash AS embedded_hash
 FROM ctx_message m
+JOIN ctx_conversation c ON c.id = m.conversation_id
 LEFT JOIN ctx_message_embedding e ON e.message_id = m.id
-WHERE e.message_id IS NULL OR e.model <> sqlc.arg('model')
+WHERE c.archived = false
+  AND (e.message_id IS NULL OR e.model <> sqlc.arg('model'))
 ORDER BY m.created_at DESC
 LIMIT sqlc.arg('limit');
 
 -- name: SearchMessageEmbeddings :many
--- Vector KNN over message embeddings, scoped to (user_id, agent_id) across every
--- session like SearchMessages. WHERE model pins the query to a single vector
--- space so a vector produced by a different model never matches; ORDER BY the
--- <=> operator lets the HNSW cosine index drive the scan. score is cosine
--- similarity (1 - distance), higher is better, matching the BM25 lane's score
--- orientation for fusion. created_at, id break ties deterministically.
+-- Exact KNN over the complete authorized candidate set. Materializing scope,
+-- archive, and model filters before ordering deliberately prevents a global
+-- approximate index walk from dropping legal rows behind foreign candidates.
+-- The complete SQL order makes every LIMIT deterministic, including distance
+-- ties, before the Go fusion layer sees the results.
+WITH candidates AS MATERIALIZED (
+    SELECT
+        e.message_id,
+        e.embedding,
+        m.created_at
+    FROM ctx_message_embedding e
+    JOIN ctx_message m ON m.id = e.message_id
+    JOIN ctx_conversation c ON c.id = m.conversation_id
+    WHERE e.model = sqlc.arg('model')
+      AND c.user_id = sqlc.arg('user_id')
+      AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
+      AND c.archived = false
+      -- Old deployments may already contain zero sidecars, which have no
+      -- cosine direction and otherwise produce NaN distances under exact KNN.
+      AND vector_norm(e.embedding) > 0
+)
 SELECT
     m.*,
     c.session_id AS session_id,
     c.title AS conversation_title,
     (1 - (e.embedding <=> sqlc.arg('query')::vector(1536)))::double precision AS score
-FROM ctx_message_embedding e
+FROM candidates e
 JOIN ctx_message m ON m.id = e.message_id
 JOIN ctx_conversation c ON c.id = m.conversation_id
-WHERE e.model = sqlc.arg('model')
-  AND c.user_id = sqlc.arg('user_id')
-  AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
-ORDER BY e.embedding <=> sqlc.arg('query')::vector(1536), m.created_at DESC, m.id DESC
+ORDER BY e.embedding <=> sqlc.arg('query')::vector(1536), e.created_at DESC, e.message_id DESC
 LIMIT sqlc.arg('limit');
 
 -- name: GetMessagesSince :many

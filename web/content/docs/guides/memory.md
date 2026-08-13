@@ -14,7 +14,7 @@ Memory tracks:
 - **Constraints** — rules you set that Stella must always follow, like "never delete files without asking."
 - **Knowledge** — durable facts the agent can retrieve when they matter.
 
-Sessions preserve conversation history. Every message stays attached to its session and remains searchable after the session is archived or compacted.
+Sessions preserve conversation history. Messages in active sessions remain searchable after compaction. Archived transcripts stay stored for explicit Session inspection, but leave `memory.search`.
 
 ## How Conversations Stay Manageable
 
@@ -22,13 +22,13 @@ As your conversations grow long, Stella automatically compresses older messages 
 
 The key thing to know: **nothing is lost.** Summaries preserve the important details, and Stella can drill back into them if she needs the specifics. You can talk for weeks in the same session, and Stella will still recall what you discussed on day one.
 
-If you start a new session, Stella carries forward your profile and constraints automatically. The agent can find a past session and inspect its bounded transcript when it needs old context.
+If you start a new session, Stella carries forward your profile and constraints automatically. The archived transcript remains available through explicit Session inspection, but is not recalled automatically.
 
 ## Starting a Fresh Session
 
 Sometimes you do not want a shorter conversation, you want a clean one. Two commands cover the difference:
 
-- **`/new`** starts a fresh session. The previous one is archived, not deleted — it stays searchable, and your profile and constraints carry over.
+- **`/new`** starts a fresh session. The previous one is archived, not deleted — it leaves `memory.search` but remains available through explicit Session inspection, while your profile and constraints carry over.
 - **`/compact`** keeps the session you are in and compresses its history, so the context gets shorter without losing the thread.
 
 `/new` only works in a direct message. A group's context is shared by everyone in it, so no single member's command may clear it for the rest — `/new` in a group replies saying so and resets nothing. `/compact` does not apply to group chats either.
@@ -75,7 +75,7 @@ You can search through your conversation history at any time:
 - **"What did we talk about last Tuesday?"**
 - **"Find where I mentioned the deployment script."**
 
-Stella searches Session transcripts and returns matching Session cards. She then inspects or pages the selected transcript. This keeps transcript retrieval in Session while Memory remains the home for durable profile, constraint, and knowledge facts.
+Stella searches active Session transcripts and returns matching Session cards. She then inspects or pages the selected transcript. Archived transcripts can still be opened explicitly through Session management, but are excluded from search. This keeps transcript retrieval in Session while Memory remains the home for durable profile, constraint, and knowledge facts.
 
 Messages sent by an agent from another Session display their source. Stella treats them as information from that agent, not as instructions from you.
 
@@ -84,4 +84,4 @@ Messages sent by an agent from another Session display their source. Stella trea
 - **Be explicit about what matters.** If you want Stella to remember something long-term, say so: "Remember that my production server is at 10.0.1.5."
 - **Use constraints for safety rules.** Constraints are enforced more strictly than profile preferences.
 - **Start new sessions when switching topics.** Each session has its own conversation history. Starting fresh keeps things focused, while your profile and constraints carry over automatically.
-- **Search when you need old context.** Rather than keeping one infinitely long session, use search to pull in relevant history from past conversations.
+- **Search when you need active context.** Rather than keeping one infinitely long session, use search to pull in relevant history from active conversations; inspect an archived Session explicitly when needed.

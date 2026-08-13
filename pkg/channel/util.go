@@ -21,7 +21,7 @@ Some agents/channels also support a few short natural-language controls.
 For those shortcuts, keep them short and command-like.
 
 Session control
-  /new       Start a fresh session (previous history stays searchable)
+  /new       Start a fresh session (previous history leaves memory search)
              Direct messages only — a group's shared session cannot be reset
   /compact   Compress the current session in place (same session, shorter context)
              When enabled, short phrases like: "compact", "summarize history", "压缩会话", "总结历史"
@@ -43,9 +43,9 @@ Just send a message to get started.`
 const GroupCompactUnsupportedMessage = "⚠️ Group memory is managed automatically from the shared event log, so manual compaction is not available in group chats."
 
 // NewSessionStartedMessage is the shared reply after `/new` rotated the chat
-// onto a fresh session. The previous session is archived, not deleted, so it
-// stays reachable through cross-session memory search.
-const NewSessionStartedMessage = "Started a fresh session. Previous history stays searchable via memory."
+// onto a fresh session. The previous session is archived and retained for
+// explicit Session inspection, but excluded from memory search.
+const NewSessionStartedMessage = "Started a fresh session. Previous history was archived and removed from memory search."
 
 // SessionAlreadyResetMessage is the shared reply when a `/new` arrives after
 // another one already rotated the same chat, so it has nothing left to do.

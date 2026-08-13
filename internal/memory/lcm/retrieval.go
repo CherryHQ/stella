@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	pgvector "github.com/pgvector/pgvector-go"
 
+	"github.com/CherryHQ/stella/internal/embedding"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -173,6 +174,12 @@ func (r *retrievalEngine) vectorSearch(ctx context.Context, userID, agentID, tex
 	// the caller use lexical results unchanged.
 	if model == "" {
 		return nil, nil
+	}
+	// QueryEmbedder is intentionally an interface, so validate here as well as in
+	// embedding.Service. An invalid cosine direction disables only the semantic
+	// lane; search() will keep the lexical results.
+	if err := embedding.ValidateStorageVector(qvec.Slice()); err != nil {
+		return nil, fmt.Errorf("invalid query vector: %w", err)
 	}
 
 	var results []memory.SearchResult

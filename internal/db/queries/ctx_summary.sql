@@ -76,8 +76,10 @@ ORDER BY sp.ordinal ASC;
 -- content is immutable, so missing or model-mismatch are the only cases. ASCII.
 SELECT s.id, s.content, e.model AS embedded_model, e.content_hash AS embedded_hash
 FROM ctx_summary s
+JOIN ctx_conversation c ON c.id = s.conversation_id
 LEFT JOIN ctx_summary_embedding e ON e.summary_id = s.id
-WHERE e.summary_id IS NULL OR e.model <> sqlc.arg('model')
+WHERE c.archived = false
+  AND (e.summary_id IS NULL OR e.model <> sqlc.arg('model'))
 ORDER BY s.created_at DESC
 LIMIT sqlc.arg('limit');
 
@@ -92,25 +94,38 @@ SET model        = EXCLUDED.model,
     updated_at   = now();
 
 -- name: SearchSummaryEmbeddings :many
--- Vector KNN over summary embeddings; mirror of SearchMessageEmbeddings (same
--- space + scope guards, cosine similarity score). Tie-break by content time then
--- id. Keep ASCII.
+-- Exact KNN over the complete authorized candidate set; see the message query
+-- for why scope is materialized before distance ordering. Summary content time
+-- and id complete the stable order before LIMIT.
+WITH candidates AS MATERIALIZED (
+    SELECT
+        e.summary_id,
+        e.embedding,
+        COALESCE(s.latest_at, s.created_at) AS content_time
+    FROM ctx_summary_embedding e
+    JOIN ctx_summary s ON s.id = e.summary_id
+    JOIN ctx_conversation c ON c.id = s.conversation_id
+    WHERE e.model = sqlc.arg('model')
+      AND c.user_id = sqlc.arg('user_id')
+      AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
+      AND c.archived = false
+      -- Keep historical zero sidecars out of exact cosine ranking; see the
+      -- corresponding message query for the migration-compatibility rationale.
+      AND vector_norm(e.embedding) > 0
+)
 SELECT
     s.*,
     c.session_id AS session_id,
     c.title AS conversation_title,
     (1 - (e.embedding <=> sqlc.arg('query')::vector(1536)))::double precision AS score
-FROM ctx_summary_embedding e
+FROM candidates e
 JOIN ctx_summary s ON s.id = e.summary_id
 JOIN ctx_conversation c ON c.id = s.conversation_id
-WHERE e.model = sqlc.arg('model')
-  AND c.user_id = sqlc.arg('user_id')
-  AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
-ORDER BY e.embedding <=> sqlc.arg('query')::vector(1536), COALESCE(s.latest_at, s.created_at) DESC, s.id DESC
+ORDER BY e.embedding <=> sqlc.arg('query')::vector(1536), e.content_time DESC, e.summary_id DESC
 LIMIT sqlc.arg('limit');
 
 -- name: SearchSummaries :many
--- Spans every conversation of the current (user_id, agent_id); see SearchMessages.
+-- Spans every active conversation of the current (user_id, agent_id); see SearchMessages.
 -- Lexical ranking is pg_search BM25; paradedb.match tokenizes the raw user text
 -- with the jieba tokenizer (dictionary + statistical CJK word segmentation, CJK
 -- matches natively) and never errors on punctuation. The match arg is the raw
@@ -126,6 +141,7 @@ JOIN ctx_conversation c ON c.id = s.conversation_id
 WHERE s.id @@@ paradedb.match('content', sqlc.arg('match')::text)
   AND c.user_id = sqlc.arg('user_id')
   AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
+  AND c.archived = false
 -- Stable score tie-break (see SearchMessages): content time, then id, so the
 -- per-source rank that cross-source RRF consumes is deterministic.
 ORDER BY score DESC, COALESCE(s.latest_at, s.created_at) DESC, s.id DESC

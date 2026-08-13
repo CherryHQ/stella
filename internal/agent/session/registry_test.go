@@ -14,6 +14,14 @@ import (
 // fakeStore is an in-memory store for tests.
 type fakeStore struct {
 	sessions map[string]Info
+	// saveErrOnce injects one save failure after the resolver has read its
+	// candidate. Tests use it to model an archive winning that exact race.
+	saveErrOnce error
+	// afterSaveErr mutates durable state after saveErrOnce is observed, before the
+	// resolver performs its bounded re-read.
+	afterSaveErr func()
+	// saveCalls lets retry tests prove the inactive-session path is bounded.
+	saveCalls int
 	// rotateErr, when set, fails rotate so callers can prove a failed rotation
 	// leaves the predecessor active (the store's transaction rolled back).
 	rotateErr error
@@ -27,8 +35,27 @@ func newFakeStore() *fakeStore {
 }
 
 func (f *fakeStore) save(_ context.Context, info Info) error {
+	f.saveCalls++
+	if f.saveErrOnce != nil {
+		err := f.saveErrOnce
+		f.saveErrOnce = nil
+		if f.afterSaveErr != nil {
+			f.afterSaveErr()
+		}
+		return err
+	}
 	f.sessions[info.ID] = info
 	return nil
+}
+
+func (f *fakeStore) archive(_ context.Context, info Info) (bool, error) {
+	existing, ok := f.sessions[info.ID]
+	if !ok || existing.Archived {
+		return false, nil
+	}
+	existing.Archived = true
+	f.sessions[info.ID] = existing
+	return true, nil
 }
 
 func TestEnsureRejectsOversizedTitleBeforeStorage(t *testing.T) {
@@ -433,6 +460,73 @@ func TestResolveMain_CreatesAgentMainWhenOnlyProjectMainExists(t *testing.T) {
 	}
 	if !strings.Contains(info.Channel, ":user:u1:") {
 		t.Errorf("Channel = %q, want private user channel", info.Channel)
+	}
+}
+
+func TestResolveMain_ReResolvesAfterPromotionLosesArchiveRace(t *testing.T) {
+	r, s := newTestRegistry(t)
+	now := time.Now().UTC()
+	s.sessions["chat-raced"] = NewInfo("chat-raced", "agent1", "u1", "agent1:user:u1:private", KindChat, "", now)
+	s.saveErrOnce = memory.ErrInactiveSession
+	s.afterSaveErr = func() {
+		archived := s.sessions["chat-raced"]
+		archived.Archived = true
+		s.sessions[archived.ID] = archived
+	}
+
+	resolved, err := r.ResolveMain(context.Background(), MainRequest{UserID: "u1", AgentID: "agent1"})
+	if err != nil {
+		t.Fatalf("ResolveMain after archive race: %v", err)
+	}
+	if resolved.ID == "chat-raced" || resolved.Kind != string(KindMain) || resolved.Archived {
+		t.Fatalf("resolved = %+v, want a fresh active main", resolved)
+	}
+	if !s.sessions["chat-raced"].Archived {
+		t.Fatal("raced candidate must remain archived")
+	}
+}
+
+func TestResolveChatChannel_ReResolvesAfterLegacyAdoptionLosesArchiveRace(t *testing.T) {
+	r, s := newTestRegistry(t)
+	now := time.Now().UTC()
+	s.sessions["legacy-chat"] = NewInfo("legacy-chat", "agent1", "u1", "", KindChat, "", now)
+	s.saveErrOnce = memory.ErrInactiveSession
+	s.afterSaveErr = func() {
+		archived := s.sessions["legacy-chat"]
+		archived.Archived = true
+		s.sessions[archived.ID] = archived
+	}
+	req := ChannelRequest{UserID: "u1", AgentID: "agent1", Channel: ChannelWeb, LegacyID: "legacy-chat"}
+
+	resolved, err := r.ResolveChatChannel(context.Background(), req)
+	if err != nil {
+		t.Fatalf("ResolveChatChannel after archive race: %v", err)
+	}
+	if resolved.ID == "legacy-chat" || resolved.Channel != string(ChannelWeb) || resolved.Archived {
+		t.Fatalf("resolved = %+v, want a fresh active channel session", resolved)
+	}
+	if !s.sessions["legacy-chat"].Archived {
+		t.Fatal("raced legacy session must remain archived")
+	}
+}
+
+func TestResolveMain_InactiveRetryIsBounded(t *testing.T) {
+	r, s := newTestRegistry(t)
+	now := time.Now().UTC()
+	s.sessions["chat-still-active"] = NewInfo("chat-still-active", "agent1", "u1", "agent1:user:u1:private", KindChat, "", now)
+	s.saveErrOnce = memory.ErrInactiveSession
+	s.afterSaveErr = func() {
+		// Inject the second failure without changing the candidate so a broken
+		// unbounded retry would spin forever.
+		s.saveErrOnce = memory.ErrInactiveSession
+	}
+
+	_, err := r.ResolveMain(context.Background(), MainRequest{UserID: "u1", AgentID: "agent1"})
+	if !errors.Is(err, memory.ErrInactiveSession) {
+		t.Fatalf("ResolveMain = %v, want ErrInactiveSession after bounded retry", err)
+	}
+	if s.saveCalls != 2 {
+		t.Fatalf("save calls = %d, want exactly 2", s.saveCalls)
 	}
 }
 

@@ -2,6 +2,7 @@ package lcm_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -759,37 +760,121 @@ func TestLCMProvider_SaveInfoSingleUpdateSemantics(t *testing.T) {
 	if err := p.SaveInfo(ctx, initial); err != nil {
 		t.Fatalf("SaveInfo initial: %v", err)
 	}
-	if err := p.SaveInfo(ctx, memory.SessionInfo{ID: "save-info", AgentID: "test", UserID: testUserID, Archived: true}); err != nil {
-		t.Fatalf("SaveInfo partial: %v", err)
+	if err := p.SaveInfo(ctx, memory.SessionInfo{ID: "save-info", AgentID: "test", UserID: testUserID, Title: "Renamed", Kind: "task", ProjectID: "p2", Archived: true}); err != nil {
+		t.Fatalf("SaveInfo metadata: %v", err)
 	}
 	info, err := p.LoadInfo(ctx, "save-info")
 	if err != nil {
-		t.Fatalf("LoadInfo partial: %v", err)
-	}
-	if info.Title != "Original" || !info.Archived || info.Kind != "chat" || info.ProjectID != "p1" {
-		t.Fatalf("partial update clobbered fields: %+v", info)
-	}
-
-	if err := p.SaveInfo(ctx, memory.SessionInfo{ID: "save-info", AgentID: "test", UserID: testUserID, Title: "Renamed", Kind: "task", ProjectID: "p2"}); err != nil {
-		t.Fatalf("SaveInfo full: %v", err)
-	}
-	info, err = p.LoadInfo(ctx, "save-info")
-	if err != nil {
-		t.Fatalf("LoadInfo full: %v", err)
+		t.Fatalf("LoadInfo metadata: %v", err)
 	}
 	if info.Title != "Renamed" || info.Archived || info.Kind != "task" || info.ProjectID != "p2" {
-		t.Fatalf("full update = %+v", info)
+		t.Fatalf("metadata update changed lifecycle or missed fields: %+v", info)
 	}
 
-	if err := p.SaveInfo(ctx, memory.SessionInfo{ID: "save-info", AgentID: "test", UserID: testUserID, Title: ""}); err != nil {
-		t.Fatalf("SaveInfo empty title/project: %v", err)
+	// Capture a stale active snapshot, archive through the dedicated transition,
+	// then replay it. The guarded metadata UPDATE must match zero rows and leave
+	// the archived lifecycle state untouched.
+	stale := info
+	applied, err := p.ArchiveInfo(ctx, info)
+	if err != nil || !applied {
+		t.Fatalf("ArchiveInfo: applied=%v err=%v", applied, err)
+	}
+	stale.Title = "Stale rename"
+	if err := p.SaveInfo(ctx, stale); !errors.Is(err, memory.ErrInactiveSession) {
+		t.Fatalf("SaveInfo stale snapshot = %v, want ErrInactiveSession", err)
 	}
 	info, err = p.LoadInfo(ctx, "save-info")
 	if err != nil {
-		t.Fatalf("LoadInfo final: %v", err)
+		t.Fatalf("LoadInfo archived: %v", err)
 	}
-	if info.Title != "Renamed" || info.ProjectID != "p2" {
-		t.Fatalf("empty title/project should preserve existing values: %+v", info)
+	if !info.Archived || info.Title != "Renamed" {
+		t.Fatalf("stale metadata save resurrected or changed archived row: %+v", info)
+	}
+	applied, err = p.ArchiveInfo(ctx, info)
+	if err != nil || applied {
+		t.Fatalf("second ArchiveInfo: applied=%v err=%v, want no-op", applied, err)
+	}
+}
+
+// TestLCMProvider_SaveInfoCannotResurrectConcurrentArchive forces SaveInfo to
+// read an active snapshot while an uncommitted archive owns the row lock. After
+// the archive commits, PostgreSQL rechecks SaveInfo's archived=false predicate;
+// the stale metadata write must affect zero rows instead of reviving the row.
+func TestLCMProvider_SaveInfoCannotResurrectConcurrentArchive(t *testing.T) {
+	db := newLCMTestDB(t)
+	defer func() { db.Close() }()
+
+	p, err := lcm.New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), testUserID), "test")
+	stale := memory.SessionInfo{ID: "save-info-race", AgentID: "test", UserID: testUserID, Channel: "web", Kind: "chat", Title: "Before archive"}
+	if err := p.SaveInfo(ctx, stale); err != nil {
+		t.Fatalf("SaveInfo initial: %v", err)
+	}
+
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin archive: %v", err)
+	}
+	archiveOpen := true
+	defer func() {
+		if archiveOpen {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	if _, err := tx.Exec(ctx, `UPDATE ctx_conversation SET archived = true WHERE session_id = $1 AND user_id = $2 AND agent_id = $3`, stale.ID, stale.UserID, stale.AgentID); err != nil {
+		t.Fatalf("stage archive: %v", err)
+	}
+
+	stale.Title = "Stale rename"
+	saveDone := make(chan error, 1)
+	go func() {
+		saveDone <- p.SaveInfo(ctx, stale)
+	}()
+
+	// Observe the metadata UPDATE waiting on the archive transaction before
+	// committing it; this pins the intended interleaving instead of relying on a
+	// scheduler sleep.
+	deadline := time.Now().Add(5 * time.Second)
+	waiting := false
+	for time.Now().Before(deadline) {
+		if err := db.QueryRow(ctx, `SELECT EXISTS (
+			SELECT 1 FROM pg_stat_activity
+			WHERE datname = current_database()
+			  AND wait_event_type = 'Lock'
+			  AND query LIKE '%UPDATE ctx_conversation%'
+		)`).Scan(&waiting); err != nil {
+			t.Fatalf("observe blocked metadata save: %v", err)
+		}
+		if waiting {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !waiting {
+		_ = tx.Rollback(ctx)
+		archiveOpen = false
+		<-saveDone
+		t.Fatal("SaveInfo never reached the archive row lock")
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit archive: %v", err)
+	}
+	archiveOpen = false
+	if err := <-saveDone; !errors.Is(err, memory.ErrInactiveSession) {
+		t.Fatalf("concurrent SaveInfo = %v, want ErrInactiveSession", err)
+	}
+
+	info, err := p.LoadInfo(ctx, stale.ID)
+	if err != nil {
+		t.Fatalf("LoadInfo archived: %v", err)
+	}
+	if !info.Archived || info.Title != "Before archive" {
+		t.Fatalf("concurrent metadata save resurrected or changed archived row: %+v", info)
 	}
 }
 

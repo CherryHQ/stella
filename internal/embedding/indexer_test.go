@@ -2,9 +2,11 @@ package embedding_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
+	pgvector "github.com/pgvector/pgvector-go"
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/embedding"
@@ -75,5 +77,71 @@ func TestIndexer_BackfillPopulatesThenIsIdempotent(t *testing.T) {
 	}
 	if emb.calls != callsAfterFirst {
 		t.Fatalf("embedder called again on idempotent pass: %d -> %d", callsAfterFirst, emb.calls)
+	}
+}
+
+func TestIndexer_BackfillSkipsArchivedMessagesAndSummariesAfterModelSwitch(t *testing.T) {
+	db := dbtest.New(t)
+	q := sqlc.New(db)
+	ctx := context.Background()
+
+	activeConversationID := uuid.NewString()
+	archivedConversationID := uuid.NewString()
+	for _, fixture := range []struct {
+		id, sessionID string
+		archived      bool
+	}{
+		{id: activeConversationID, sessionID: "sess-active"},
+		{id: archivedConversationID, sessionID: "sess-archived", archived: true},
+	} {
+		if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind, agent_id, user_id, archived) VALUES ($1,$2,'test','chat','agent','user',$3)`, fixture.id, fixture.sessionID, fixture.archived); err != nil {
+			t.Fatalf("insert conversation %s: %v", fixture.sessionID, err)
+		}
+	}
+
+	for i, conversationID := range []string{activeConversationID, archivedConversationID} {
+		messageID := uuid.NewString()
+		if _, err := db.Exec(ctx, `INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, actor_type) VALUES ($1,$2,1,'user','text',$3,5,$4)`,
+			messageID, conversationID, "message body", eventlog.ActorHuman); err != nil {
+			t.Fatalf("insert message %d: %v", i, err)
+		}
+		summaryID := fmt.Sprintf("summary-%d", i)
+		if _, err := db.Exec(ctx, `INSERT INTO ctx_summary (id, conversation_id, kind, depth, content, token_count) VALUES ($1,$2,'leaf',0,'summary body',5)`, summaryID, conversationID); err != nil {
+			t.Fatalf("insert summary %d: %v", i, err)
+		}
+		// Seed an old vector space so this specifically proves model-switch
+		// backfill does not revisit archived transcript sources.
+		if err := q.UpsertMessageEmbedding(ctx, sqlc.UpsertMessageEmbeddingParams{MessageID: messageID, Model: "space-old", ContentHash: []byte("old"), Embedding: pgvector.NewVector(make([]float32, 1536))}); err != nil {
+			t.Fatalf("seed message embedding %d: %v", i, err)
+		}
+		if err := q.UpsertSummaryEmbedding(ctx, sqlc.UpsertSummaryEmbeddingParams{SummaryID: summaryID, Model: "space-old", ContentHash: []byte("old"), Embedding: pgvector.NewVector(make([]float32, 1536))}); err != nil {
+			t.Fatalf("seed summary embedding %d: %v", i, err)
+		}
+	}
+
+	emb := &fakeEmbedder{model: "space-new"}
+	ix := embedding.NewIndexer(q, emb, embedding.IndexConfig{Model: "space-new", BatchSize: 100})
+	n, err := ix.BackfillOnce(ctx)
+	if err != nil {
+		t.Fatalf("model-switch backfill: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("embedded rows=%d, want active message and summary only", n)
+	}
+
+	var activeCount, archivedCount int
+	if err := db.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE c.archived = false), count(*) FILTER (WHERE c.archived = true)
+		FROM (
+			SELECT m.conversation_id, e.model FROM ctx_message_embedding e JOIN ctx_message m ON m.id = e.message_id
+			UNION ALL
+			SELECT s.conversation_id, e.model FROM ctx_summary_embedding e JOIN ctx_summary s ON s.id = e.summary_id
+		) embedded
+		JOIN ctx_conversation c ON c.id = embedded.conversation_id
+		WHERE embedded.model = 'space-new'`).Scan(&activeCount, &archivedCount); err != nil {
+		t.Fatalf("count switched embeddings: %v", err)
+	}
+	if activeCount != 2 || archivedCount != 0 {
+		t.Fatalf("new-space embeddings active=%d archived=%d, want 2/0", activeCount, archivedCount)
 	}
 }

@@ -2,11 +2,14 @@ package lcm_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	pgvector "github.com/pgvector/pgvector-go"
 
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/lcm"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -113,6 +116,143 @@ func TestHybridSearch_VectorLaneSurfacesNonLexicalHit(t *testing.T) {
 	for _, r := range lexOnly {
 		if strings.Contains(r.Content, "zzz unrelated") {
 			t.Errorf("pure-BM25 provider leaked a vector-only hit: %+v", lexOnly)
+		}
+	}
+}
+
+func TestHybridSearch_InvalidQueryVectorFallsBackToLexical(t *testing.T) {
+	db := newLCMTestDB(t)
+	t.Cleanup(func() { db.Close() })
+	ctx := context.Background()
+	sess := newLCMTestSession("invalid-query-vector")
+
+	// A zero query has no cosine direction. The semantic lane must fail closed
+	// while the ordinary BM25 result remains available to the caller.
+	p, err := lcm.New(db, nil, nil, lcm.WithQueryEmbedder(fakeQueryEmbedder{
+		vec:   pgvector.NewVector(make([]float32, 1536)),
+		model: "space-invalid-query",
+	}))
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	t.Cleanup(func() { _ = p.Close() })
+	if err := p.Bootstrap(ctx, sess); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	appendUser(t, p, sess, "platinum refund policy", "ordinary response")
+
+	results := runSearch(t, p, sess, memory.SearchQuery{Text: "platinum", Scope: memory.SearchScopeMessages})
+	if len(results) == 0 || !strings.Contains(results[0].Content, "platinum") {
+		t.Fatalf("invalid query vector dropped lexical recall: %+v", results)
+	}
+}
+
+func TestHybridSearch_StoredZeroVectorsAreExcluded(t *testing.T) {
+	db := newLCMTestDB(t)
+	t.Cleanup(func() { db.Close() })
+	ctx := context.Background()
+	const space = "space-stored-zero"
+	sess := newLCMTestSession("stored-zero")
+	p, err := lcm.New(db, nil, nil, lcm.WithQueryEmbedder(fakeQueryEmbedder{vec: vec1536(1, 0), model: space}))
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	t.Cleanup(func() { _ = p.Close() })
+	if err := p.Bootstrap(ctx, sess); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	appendUser(t, p, sess, "zero vector message", "zero vector response")
+
+	q := sqlc.New(db)
+	convID := conversationID(t, db, sess.ID)
+	var messageID string
+	if err := db.QueryRow(ctx, `SELECT id FROM ctx_message WHERE conversation_id = $1 ORDER BY seq LIMIT 1`, convID).Scan(&messageID); err != nil {
+		t.Fatalf("load message: %v", err)
+	}
+	zero := pgvector.NewVector(make([]float32, 1536))
+	if err := q.UpsertMessageEmbedding(ctx, sqlc.UpsertMessageEmbeddingParams{MessageID: messageID, Model: space, ContentHash: []byte("h"), Embedding: zero}); err != nil {
+		t.Fatalf("seed historical zero message sidecar: %v", err)
+	}
+	const summaryID = "stored-zero-summary"
+	if _, err := db.Exec(ctx, `INSERT INTO ctx_summary (id, conversation_id, kind, depth, content, token_count) VALUES ($1,$2,'leaf',0,'zero vector summary',5)`, summaryID, convID); err != nil {
+		t.Fatalf("insert summary: %v", err)
+	}
+	if err := q.UpsertSummaryEmbedding(ctx, sqlc.UpsertSummaryEmbeddingParams{SummaryID: summaryID, Model: space, ContentHash: []byte("h"), Embedding: zero}); err != nil {
+		t.Fatalf("seed historical zero summary sidecar: %v", err)
+	}
+
+	for _, scope := range []memory.SearchScope{memory.SearchScopeMessages, memory.SearchScopeSummaries} {
+		results := runSearch(t, p, sess, memory.SearchQuery{Text: "semantic-only-query", Scope: scope})
+		if len(results) != 0 {
+			t.Fatalf("scope %d returned stored zero-vector hits: %+v", scope, results)
+		}
+	}
+}
+
+func TestHybridSearch_ExactScopeFindsActiveRowsPastArchivedCandidates(t *testing.T) {
+	db := newLCMTestDB(t)
+	t.Cleanup(func() { db.Close() })
+	ctx := context.Background()
+	const userID, agentID, space = "user-filtered-hnsw", "agent-filtered-hnsw", "space-filtered-hnsw"
+	queryVector := vec1536(1, 0, 0)
+
+	insertConversation := func(sessionID string, archived bool) string {
+		t.Helper()
+		id := uuid.NewString()
+		if _, err := db.Exec(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind, agent_id, user_id, archived) VALUES ($1,$2,'test','chat',$3,$4,$5)`, id, sessionID, agentID, userID, archived); err != nil {
+			t.Fatalf("insert conversation %s: %v", sessionID, err)
+		}
+		return id
+	}
+	q := sqlc.New(db)
+	insertMessage := func(conversationID string, seq int, content string, vector pgvector.Vector) {
+		t.Helper()
+		id := uuid.NewString()
+		if _, err := db.Exec(ctx, `INSERT INTO ctx_message (id, conversation_id, seq, role, event_type, content, token_count, actor_type) VALUES ($1,$2,$3,'user','text',$4,5,$5)`, id, conversationID, seq, content, eventlog.ActorHuman); err != nil {
+			t.Fatalf("insert message %d: %v", seq, err)
+		}
+		if err := q.UpsertMessageEmbedding(ctx, sqlc.UpsertMessageEmbeddingParams{MessageID: id, Model: space, ContentHash: []byte("h"), Embedding: vector}); err != nil {
+			t.Fatalf("upsert message embedding %d: %v", seq, err)
+		}
+	}
+	insertSummary := func(conversationID, id, content string, vector pgvector.Vector) {
+		t.Helper()
+		if _, err := db.Exec(ctx, `INSERT INTO ctx_summary (id, conversation_id, kind, depth, content, token_count) VALUES ($1,$2,'leaf',0,$3,5)`, id, conversationID, content); err != nil {
+			t.Fatalf("insert summary %s: %v", id, err)
+		}
+		if err := q.UpsertSummaryEmbedding(ctx, sqlc.UpsertSummaryEmbeddingParams{SummaryID: id, Model: space, ContentHash: []byte("h"), Embedding: vector}); err != nil {
+			t.Fatalf("upsert summary embedding %s: %v", id, err)
+		}
+	}
+
+	archivedConversationID := insertConversation("archived-hnsw", true)
+	for i := 1; i <= 60; i++ {
+		// These archived rows are exact matches and exceed the default ef_search=40
+		// candidate window, so a non-iterative filtered scan can stop too early.
+		insertMessage(archivedConversationID, i, "archived vector decoy", queryVector)
+		insertSummary(archivedConversationID, fmt.Sprintf("archived-summary-%d", i), "archived summary vector decoy", queryVector)
+	}
+	activeConversationID := insertConversation("active-hnsw", false)
+	insertMessage(activeConversationID, 1, "active vector first", vec1536(1, 0.01, 0))
+	insertMessage(activeConversationID, 2, "active vector second", vec1536(1, 0.20, 0))
+	insertSummary(activeConversationID, "active-summary-first", "active summary vector first", vec1536(1, 0.01, 0))
+	insertSummary(activeConversationID, "active-summary-second", "active summary vector second", vec1536(1, 0.20, 0))
+	if _, err := db.Exec(ctx, "ANALYZE ctx_message_embedding, ctx_summary_embedding, ctx_message, ctx_summary, ctx_conversation"); err != nil {
+		t.Fatalf("analyze vector fixtures: %v", err)
+	}
+
+	p, err := lcm.New(db, nil, nil, lcm.WithQueryEmbedder(fakeQueryEmbedder{vec: queryVector, model: space}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = p.Close() })
+	for _, scope := range []memory.SearchScope{memory.SearchScopeMessages, memory.SearchScopeSummaries} {
+		results := runSearch(t, p, memory.Session{ID: "active-hnsw", UserID: userID, AgentID: agentID}, memory.SearchQuery{Text: "semantic-only-query", Scope: scope, Limit: 2})
+		if len(results) != 2 {
+			t.Fatalf("exact scoped search %d results=%d, want 2 active rows: %+v", scope, len(results), results)
+		}
+		if !strings.Contains(results[0].Content, "first") || !strings.Contains(results[1].Content, "second") {
+			t.Fatalf("exact scoped search %d order/content mismatch: %+v", scope, results)
 		}
 	}
 }
