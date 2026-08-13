@@ -43,9 +43,14 @@ WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id) AND agent_id IS NOT DIST
 UPDATE ctx_conversation SET bootstrapped_at = now(), updated_at = now()
 WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id) AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id);
 
--- name: UpdateConversationArchived :exec
-UPDATE ctx_conversation SET archived = sqlc.arg(archived), updated_at = now()
-WHERE session_id = sqlc.arg(session_id) AND user_id = sqlc.arg(user_id) AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id);
+-- name: ArchiveConversationBySessionID :execrows
+-- Archival is a one-way lifecycle transition. Keeping the active guard and the
+-- write in one statement prevents a stale metadata save from racing an archive.
+UPDATE ctx_conversation SET archived = true, updated_at = now()
+WHERE session_id = sqlc.arg(session_id)
+  AND user_id = sqlc.arg(user_id)
+  AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)
+  AND archived = false;
 
 -- name: ArchiveActiveConversationBySessionID :execrows
 -- Compare-and-rotate half of a session rotation: the row is archived only while
@@ -92,14 +97,15 @@ WHERE session_id = sqlc.arg(session_id)
 UPDATE ctx_conversation SET title = sqlc.arg(title), updated_at = now()
 WHERE session_id = sqlc.arg(session_id) AND user_id = sqlc.arg(user_id) AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id);
 
--- name: UpdateConversationInfoBySessionID :exec
+-- name: UpdateConversationInfoBySessionID :execrows
+-- Generic metadata saves never change lifecycle state and only update a row
+-- while it is active. Archival has its own one-way operation above.
 UPDATE ctx_conversation
 SET
   title = CASE
     WHEN sqlc.narg(title)::text IS NOT NULL AND (title IS NULL OR title != sqlc.narg(title)) THEN sqlc.narg(title)
     ELSE title
   END,
-  archived = CASE WHEN archived != sqlc.arg(archived) THEN sqlc.arg(archived) ELSE archived END,
   kind = CASE WHEN sqlc.narg(kind)::text IS NOT NULL AND kind != sqlc.narg(kind) THEN sqlc.narg(kind) ELSE kind END,
   project_id = CASE
     WHEN sqlc.narg(project_id)::text IS NOT NULL AND (project_id IS NULL OR project_id != sqlc.narg(project_id)) THEN sqlc.narg(project_id)
@@ -127,7 +133,8 @@ SET
   updated_at = now()
 WHERE session_id = sqlc.arg(session_id)
   AND user_id = sqlc.arg(user_id)
-  AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id);
+  AND agent_id IS NOT DISTINCT FROM sqlc.narg(agent_id)
+  AND archived = false;
 
 -- name: UpdateConversationTurnMetaBySessionID :execrows
 -- The turn path's only write to a conversation row, guarded on that row still

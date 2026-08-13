@@ -10,9 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	pgvector "github.com/pgvector/pgvector-go"
 
 	"github.com/CherryHQ/stella/internal/memory"
@@ -36,17 +34,16 @@ type QueryEmbedder interface {
 
 // retrievalEngine provides search and exploration of compacted history.
 type retrievalEngine struct {
-	db       *pgxpool.Pool
 	q        *sqlc.Queries
 	embedder QueryEmbedder // nil => lexical-only (no semantic lane)
 	log      *slog.Logger
 }
 
-func newRetrievalEngine(db *pgxpool.Pool, q *sqlc.Queries, log *slog.Logger) *retrievalEngine {
+func newRetrievalEngine(q *sqlc.Queries, log *slog.Logger) *retrievalEngine {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &retrievalEngine{db: db, q: q, log: log}
+	return &retrievalEngine{q: q, log: log}
 }
 
 // Search implements memory.Searcher.
@@ -178,23 +175,9 @@ func (r *retrievalEngine) vectorSearch(ctx context.Context, userID, agentID, tex
 		return nil, nil
 	}
 
-	// HNSW applies tenant/archive filters after its approximate candidate scan.
-	// Strict iterative scans keep expanding the index walk until enough filtered
-	// rows are found while preserving exact distance order. SET LOCAL confines the
-	// setting to this read-only search transaction and does not affect the pool.
-	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
-	if err != nil {
-		return nil, fmt.Errorf("begin vector search: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, "SET LOCAL hnsw.iterative_scan = strict_order"); err != nil {
-		return nil, fmt.Errorf("enable filtered HNSW scan: %w", err)
-	}
-	q := r.q.WithTx(tx)
-
 	var results []memory.SearchResult
 	if scope == scopeMessages || scope == scopeBoth {
-		rows, err := q.SearchMessageEmbeddings(ctx, sqlc.SearchMessageEmbeddingsParams{
+		rows, err := r.q.SearchMessageEmbeddings(ctx, sqlc.SearchMessageEmbeddingsParams{
 			Query:   qvec,
 			Model:   model,
 			UserID:  pgtype.Text{String: userID, Valid: true},
@@ -217,7 +200,7 @@ func (r *retrievalEngine) vectorSearch(ctx context.Context, userID, agentID, tex
 		}
 	}
 	if scope == scopeSummaries || scope == scopeBoth {
-		rows, err := q.SearchSummaryEmbeddings(ctx, sqlc.SearchSummaryEmbeddingsParams{
+		rows, err := r.q.SearchSummaryEmbeddings(ctx, sqlc.SearchSummaryEmbeddingsParams{
 			Query:   qvec,
 			Model:   model,
 			UserID:  pgtype.Text{String: userID, Valid: true},

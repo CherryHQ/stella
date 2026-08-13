@@ -203,8 +203,14 @@ func (r *Registry) Archive(ctx context.Context, scope Scope, id string) error {
 	if err != nil {
 		return err
 	}
-	info.Archived = true
-	return r.store.save(ctx, info)
+	applied, err := r.store.archive(ctx, info)
+	if err != nil {
+		return err
+	}
+	if !applied {
+		return fmt.Errorf("%w: %s", ErrArchived, id)
+	}
+	return nil
 }
 
 // ResolveMain returns the main session for a user+agent pair.

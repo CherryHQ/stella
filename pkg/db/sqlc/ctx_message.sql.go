@@ -908,36 +908,37 @@ func (q *Queries) ListSessionTranscriptPage(ctx context.Context, arg ListSession
 }
 
 const searchMessageEmbeddings = `-- name: SearchMessageEmbeddings :many
+WITH candidates AS MATERIALIZED (
+    SELECT
+        e.message_id,
+        e.embedding,
+        m.created_at
+    FROM ctx_message_embedding e
+    JOIN ctx_message m ON m.id = e.message_id
+    JOIN ctx_conversation c ON c.id = m.conversation_id
+    WHERE e.model = $3
+      AND c.user_id = $4
+      AND c.agent_id IS NOT DISTINCT FROM $5
+      AND c.archived = false
+)
 SELECT
     m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at, m.actor_type, m.actor_id, m.source_session_id, m.inbox_id,
     c.session_id AS session_id,
     c.title AS conversation_title,
-    (1 - e.distance)::double precision AS score
-FROM (
-    -- OFFSET 0 keeps this as an ordered, lazily-consumed HNSW subquery. The
-    -- outer LIMIT can then request more candidates when later joins reject
-    -- archived or out-of-scope rows, while strict iterative scan expands HNSW.
-    SELECT message_id, embedding <=> $1::vector(1536) AS distance
-    FROM ctx_message_embedding
-    WHERE model = $2
-    ORDER BY embedding <=> $1::vector(1536)
-    OFFSET 0
-) e
+    (1 - (e.embedding <=> $1::vector(1536)))::double precision AS score
+FROM candidates e
 JOIN ctx_message m ON m.id = e.message_id
 JOIN ctx_conversation c ON c.id = m.conversation_id
-WHERE c.user_id = $3
-  AND c.agent_id IS NOT DISTINCT FROM $4
-  AND c.archived = false
-ORDER BY e.distance
-LIMIT $5
+ORDER BY e.embedding <=> $1::vector(1536), e.created_at DESC, e.message_id DESC
+LIMIT $2
 `
 
 type SearchMessageEmbeddingsParams struct {
 	Query   pgvector_go.Vector `json:"query"`
+	Limit   int32              `json:"limit"`
 	Model   string             `json:"model"`
 	UserID  pgtype.Text        `json:"user_id"`
 	AgentID pgtype.Text        `json:"agent_id"`
-	Limit   int32              `json:"limit"`
 }
 
 type SearchMessageEmbeddingsRow struct {
@@ -958,20 +959,18 @@ type SearchMessageEmbeddingsRow struct {
 	Score             float64     `json:"score"`
 }
 
-// Vector KNN over message embeddings, scoped to (user_id, agent_id) across every
-// session like SearchMessages. WHERE model pins the query to a single vector
-// space so a vector produced by a different model never matches; ORDER BY the
-// <=> operator lets the HNSW cosine index drive the scan. score is cosine
-// similarity (1 - distance), higher is better, matching the BM25 lane's score
-// orientation for fusion. Keep ORDER BY limited to distance so HNSW can drive
-// the scan; the Go merge layer applies stable content-time ordering to ties.
+// Exact KNN over the complete authorized candidate set. Materializing scope,
+// archive, and model filters before ordering deliberately prevents a global
+// approximate index walk from dropping legal rows behind foreign candidates.
+// The complete SQL order makes every LIMIT deterministic, including distance
+// ties, before the Go fusion layer sees the results.
 func (q *Queries) SearchMessageEmbeddings(ctx context.Context, arg SearchMessageEmbeddingsParams) ([]SearchMessageEmbeddingsRow, error) {
 	rows, err := q.db.Query(ctx, searchMessageEmbeddings,
 		arg.Query,
+		arg.Limit,
 		arg.Model,
 		arg.UserID,
 		arg.AgentID,
-		arg.Limit,
 	)
 	if err != nil {
 		return nil, err

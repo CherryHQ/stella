@@ -31,6 +31,16 @@ func (f *fakeStore) save(_ context.Context, info Info) error {
 	return nil
 }
 
+func (f *fakeStore) archive(_ context.Context, info Info) (bool, error) {
+	existing, ok := f.sessions[info.ID]
+	if !ok || existing.Archived {
+		return false, nil
+	}
+	existing.Archived = true
+	f.sessions[info.ID] = existing
+	return true, nil
+}
+
 func TestEnsureRejectsOversizedTitleBeforeStorage(t *testing.T) {
 	store := newFakeStore()
 	r := NewRegistryWithStore(store, "agent")

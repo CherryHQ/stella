@@ -327,9 +327,8 @@ func TestSendRejectsArchivedSessionDistinguishably(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadInfo: %v", err)
 	}
-	info.Archived = true
-	if err := svc.memory.SaveInfo(ctx, info); err != nil {
-		t.Fatalf("SaveInfo: %v", err)
+	if applied, err := svc.memory.ArchiveInfo(ctx, info); err != nil || !applied {
+		t.Fatalf("ArchiveInfo: applied=%v err=%v", applied, err)
 	}
 
 	_, err = svc.Send(ctx, ctx, SendInput{Authority: authority, AgentID: "a1", SessionID: "s1", Message: "hello"})

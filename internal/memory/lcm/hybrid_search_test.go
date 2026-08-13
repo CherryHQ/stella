@@ -120,7 +120,7 @@ func TestHybridSearch_VectorLaneSurfacesNonLexicalHit(t *testing.T) {
 	}
 }
 
-func TestHybridSearch_FilteredHNSWFindsActiveRowsPastArchivedCandidates(t *testing.T) {
+func TestHybridSearch_ExactScopeFindsActiveRowsPastArchivedCandidates(t *testing.T) {
 	db := newLCMTestDB(t)
 	t.Cleanup(func() { db.Close() })
 	ctx := context.Background()
@@ -172,77 +172,6 @@ func TestHybridSearch_FilteredHNSWFindsActiveRowsPastArchivedCandidates(t *testi
 		t.Fatalf("analyze vector fixtures: %v", err)
 	}
 
-	// Prove the production query shape has an HNSW plan available; the result
-	// assertion below then exercises the provider's strict iterative scan.
-	tx, err := db.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, "SET LOCAL enable_seqscan = off"); err != nil {
-		t.Fatal(err)
-	}
-	planRows, err := tx.Query(ctx, `EXPLAIN (COSTS OFF)
-		SELECT m.id
-		FROM (
-			SELECT message_id, embedding <=> $1::vector(1536) AS distance
-			FROM ctx_message_embedding
-			WHERE model = $2
-			ORDER BY embedding <=> $1::vector(1536)
-			OFFSET 0
-		) e
-		JOIN ctx_message m ON m.id = e.message_id
-		JOIN ctx_conversation c ON c.id = m.conversation_id
-		WHERE c.user_id = $3 AND c.agent_id = $4 AND c.archived = false
-		ORDER BY e.distance
-		LIMIT 2`, queryVector, space, userID, agentID)
-	if err != nil {
-		t.Fatalf("explain filtered HNSW query: %v", err)
-	}
-	var plan strings.Builder
-	for planRows.Next() {
-		var line string
-		if err := planRows.Scan(&line); err != nil {
-			t.Fatal(err)
-		}
-		plan.WriteString(line)
-		plan.WriteByte('\n')
-	}
-	planRows.Close()
-	if !strings.Contains(plan.String(), "idx_ctx_message_embedding_hnsw") {
-		t.Fatalf("filtered vector query did not use HNSW:\n%s", plan.String())
-	}
-	summaryPlanRows, err := tx.Query(ctx, `EXPLAIN (COSTS OFF)
-		SELECT s.id
-		FROM (
-			SELECT summary_id, embedding <=> $1::vector(1536) AS distance
-			FROM ctx_summary_embedding
-			WHERE model = $2
-			ORDER BY embedding <=> $1::vector(1536)
-			OFFSET 0
-		) e
-		JOIN ctx_summary s ON s.id = e.summary_id
-		JOIN ctx_conversation c ON c.id = s.conversation_id
-		WHERE c.user_id = $3 AND c.agent_id = $4 AND c.archived = false
-		ORDER BY e.distance
-		LIMIT 2`, queryVector, space, userID, agentID)
-	if err != nil {
-		t.Fatalf("explain filtered summary HNSW query: %v", err)
-	}
-	plan.Reset()
-	for summaryPlanRows.Next() {
-		var line string
-		if err := summaryPlanRows.Scan(&line); err != nil {
-			t.Fatal(err)
-		}
-		plan.WriteString(line)
-		plan.WriteByte('\n')
-	}
-	summaryPlanRows.Close()
-	if !strings.Contains(plan.String(), "idx_ctx_summary_embedding_hnsw") {
-		t.Fatalf("filtered summary vector query did not use HNSW:\n%s", plan.String())
-	}
-
 	p, err := lcm.New(db, nil, nil, lcm.WithQueryEmbedder(fakeQueryEmbedder{vec: queryVector, model: space}))
 	if err != nil {
 		t.Fatal(err)
@@ -251,10 +180,10 @@ func TestHybridSearch_FilteredHNSWFindsActiveRowsPastArchivedCandidates(t *testi
 	for _, scope := range []memory.SearchScope{memory.SearchScopeMessages, memory.SearchScopeSummaries} {
 		results := runSearch(t, p, memory.Session{ID: "active-hnsw", UserID: userID, AgentID: agentID}, memory.SearchQuery{Text: "semantic-only-query", Scope: scope, Limit: 2})
 		if len(results) != 2 {
-			t.Fatalf("filtered HNSW scope %d results=%d, want 2 active rows: %+v", scope, len(results), results)
+			t.Fatalf("exact scoped search %d results=%d, want 2 active rows: %+v", scope, len(results), results)
 		}
 		if !strings.Contains(results[0].Content, "first") || !strings.Contains(results[1].Content, "second") {
-			t.Fatalf("filtered HNSW scope %d order/content mismatch: %+v", scope, results)
+			t.Fatalf("exact scoped search %d order/content mismatch: %+v", scope, results)
 		}
 	}
 }

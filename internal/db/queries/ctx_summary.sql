@@ -94,29 +94,31 @@ SET model        = EXCLUDED.model,
     updated_at   = now();
 
 -- name: SearchSummaryEmbeddings :many
--- Vector KNN over summary embeddings; mirror of SearchMessageEmbeddings (same
--- space + scope guards, cosine similarity score). Keep ORDER BY limited to
--- distance so HNSW can drive the scan; the Go merge layer orders score ties.
+-- Exact KNN over the complete authorized candidate set; see the message query
+-- for why scope is materialized before distance ordering. Summary content time
+-- and id complete the stable order before LIMIT.
+WITH candidates AS MATERIALIZED (
+    SELECT
+        e.summary_id,
+        e.embedding,
+        COALESCE(s.latest_at, s.created_at) AS content_time
+    FROM ctx_summary_embedding e
+    JOIN ctx_summary s ON s.id = e.summary_id
+    JOIN ctx_conversation c ON c.id = s.conversation_id
+    WHERE e.model = sqlc.arg('model')
+      AND c.user_id = sqlc.arg('user_id')
+      AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
+      AND c.archived = false
+)
 SELECT
     s.*,
     c.session_id AS session_id,
     c.title AS conversation_title,
-    (1 - e.distance)::double precision AS score
-FROM (
-    -- Keep the HNSW distance stream lazy so the outer scope/archive filters can
-    -- consume more candidates under strict iterative scan when needed.
-    SELECT summary_id, embedding <=> sqlc.arg('query')::vector(1536) AS distance
-    FROM ctx_summary_embedding
-    WHERE model = sqlc.arg('model')
-    ORDER BY embedding <=> sqlc.arg('query')::vector(1536)
-    OFFSET 0
-) e
+    (1 - (e.embedding <=> sqlc.arg('query')::vector(1536)))::double precision AS score
+FROM candidates e
 JOIN ctx_summary s ON s.id = e.summary_id
 JOIN ctx_conversation c ON c.id = s.conversation_id
-WHERE c.user_id = sqlc.arg('user_id')
-  AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
-  AND c.archived = false
-ORDER BY e.distance
+ORDER BY e.embedding <=> sqlc.arg('query')::vector(1536), e.content_time DESC, e.summary_id DESC
 LIMIT sqlc.arg('limit');
 
 -- name: SearchSummaries :many

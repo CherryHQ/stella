@@ -152,6 +152,7 @@ const (
 	MemoryOpGetAgentSoulAt             MemoryOp = "get_agent_soul_at"
 	MemoryOpSetAgentSoul               MemoryOp = "set_agent_soul"
 	MemoryOpSaveInfo                   MemoryOp = "save_info"
+	MemoryOpArchiveInfo                MemoryOp = "archive_info"
 	MemoryOpRotateInfo                 MemoryOp = "rotate_info"
 	MemoryOpTouchActiveInfo            MemoryOp = "touch_active_info"
 	MemoryOpLoadInfo                   MemoryOp = "load_info"

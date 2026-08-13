@@ -27,6 +27,16 @@ func (a *memoryAdapter) save(ctx context.Context, info Info) error {
 	return a.sm.SaveInfo(ctx, rec)
 }
 
+func (a *memoryAdapter) archive(ctx context.Context, info Info) (bool, error) {
+	rec, err := info.Record()
+	if err != nil {
+		return false, err
+	}
+	ctx = withSessionOwner(ctx, info.UserID, info.GuestID)
+	ctx = authz.WithAgentID(ctx, info.AgentID)
+	return a.sm.ArchiveInfo(ctx, rec)
+}
+
 func (a *memoryAdapter) rotate(ctx context.Context, expectedSessionID string, successor Info) error {
 	rec, err := successor.Record()
 	if err != nil {

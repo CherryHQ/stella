@@ -617,35 +617,37 @@ func (q *Queries) SearchSummaries(ctx context.Context, arg SearchSummariesParams
 }
 
 const searchSummaryEmbeddings = `-- name: SearchSummaryEmbeddings :many
+WITH candidates AS MATERIALIZED (
+    SELECT
+        e.summary_id,
+        e.embedding,
+        COALESCE(s.latest_at, s.created_at) AS content_time
+    FROM ctx_summary_embedding e
+    JOIN ctx_summary s ON s.id = e.summary_id
+    JOIN ctx_conversation c ON c.id = s.conversation_id
+    WHERE e.model = $3
+      AND c.user_id = $4
+      AND c.agent_id IS NOT DISTINCT FROM $5
+      AND c.archived = false
+)
 SELECT
     s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at, s.contains_non_principal_input,
     c.session_id AS session_id,
     c.title AS conversation_title,
-    (1 - e.distance)::double precision AS score
-FROM (
-    -- Keep the HNSW distance stream lazy so the outer scope/archive filters can
-    -- consume more candidates under strict iterative scan when needed.
-    SELECT summary_id, embedding <=> $1::vector(1536) AS distance
-    FROM ctx_summary_embedding
-    WHERE model = $2
-    ORDER BY embedding <=> $1::vector(1536)
-    OFFSET 0
-) e
+    (1 - (e.embedding <=> $1::vector(1536)))::double precision AS score
+FROM candidates e
 JOIN ctx_summary s ON s.id = e.summary_id
 JOIN ctx_conversation c ON c.id = s.conversation_id
-WHERE c.user_id = $3
-  AND c.agent_id IS NOT DISTINCT FROM $4
-  AND c.archived = false
-ORDER BY e.distance
-LIMIT $5
+ORDER BY e.embedding <=> $1::vector(1536), e.content_time DESC, e.summary_id DESC
+LIMIT $2
 `
 
 type SearchSummaryEmbeddingsParams struct {
 	Query   pgvector_go.Vector `json:"query"`
+	Limit   int32              `json:"limit"`
 	Model   string             `json:"model"`
 	UserID  pgtype.Text        `json:"user_id"`
 	AgentID pgtype.Text        `json:"agent_id"`
-	Limit   int32              `json:"limit"`
 }
 
 type SearchSummaryEmbeddingsRow struct {
@@ -667,16 +669,16 @@ type SearchSummaryEmbeddingsRow struct {
 	Score                     float64            `json:"score"`
 }
 
-// Vector KNN over summary embeddings; mirror of SearchMessageEmbeddings (same
-// space + scope guards, cosine similarity score). Keep ORDER BY limited to
-// distance so HNSW can drive the scan; the Go merge layer orders score ties.
+// Exact KNN over the complete authorized candidate set; see the message query
+// for why scope is materialized before distance ordering. Summary content time
+// and id complete the stable order before LIMIT.
 func (q *Queries) SearchSummaryEmbeddings(ctx context.Context, arg SearchSummaryEmbeddingsParams) ([]SearchSummaryEmbeddingsRow, error) {
 	rows, err := q.db.Query(ctx, searchSummaryEmbeddings,
 		arg.Query,
+		arg.Limit,
 		arg.Model,
 		arg.UserID,
 		arg.AgentID,
-		arg.Limit,
 	)
 	if err != nil {
 		return nil, err

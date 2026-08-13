@@ -49,6 +49,30 @@ func (q *Queries) ArchiveActiveConversationBySessionID(ctx context.Context, arg 
 	return result.RowsAffected(), nil
 }
 
+const archiveConversationBySessionID = `-- name: ArchiveConversationBySessionID :execrows
+UPDATE ctx_conversation SET archived = true, updated_at = now()
+WHERE session_id = $1
+  AND user_id = $2
+  AND agent_id IS NOT DISTINCT FROM $3
+  AND archived = false
+`
+
+type ArchiveConversationBySessionIDParams struct {
+	SessionID string      `json:"session_id"`
+	UserID    pgtype.Text `json:"user_id"`
+	AgentID   pgtype.Text `json:"agent_id"`
+}
+
+// Archival is a one-way lifecycle transition. Keeping the active guard and the
+// write in one statement prevents a stale metadata save from racing an archive.
+func (q *Queries) ArchiveConversationBySessionID(ctx context.Context, arg ArchiveConversationBySessionIDParams) (int64, error) {
+	result, err := q.db.Exec(ctx, archiveConversationBySessionID, arg.SessionID, arg.UserID, arg.AgentID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createConversation = `-- name: CreateConversation :one
 INSERT INTO ctx_conversation (id, session_id, title, channel, kind, project_id, archived, last_active, agent_id, user_id, group_id, guest_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
@@ -996,28 +1020,6 @@ func (q *Queries) MarkConversationViewed(ctx context.Context, arg MarkConversati
 	return result.RowsAffected(), nil
 }
 
-const updateConversationArchived = `-- name: UpdateConversationArchived :exec
-UPDATE ctx_conversation SET archived = $1, updated_at = now()
-WHERE session_id = $2 AND user_id = $3 AND agent_id IS NOT DISTINCT FROM $4
-`
-
-type UpdateConversationArchivedParams struct {
-	Archived  bool        `json:"archived"`
-	SessionID string      `json:"session_id"`
-	UserID    pgtype.Text `json:"user_id"`
-	AgentID   pgtype.Text `json:"agent_id"`
-}
-
-func (q *Queries) UpdateConversationArchived(ctx context.Context, arg UpdateConversationArchivedParams) error {
-	_, err := q.db.Exec(ctx, updateConversationArchived,
-		arg.Archived,
-		arg.SessionID,
-		arg.UserID,
-		arg.AgentID,
-	)
-	return err
-}
-
 const updateConversationBootstrapped = `-- name: UpdateConversationBootstrapped :exec
 UPDATE ctx_conversation SET bootstrapped_at = now(), updated_at = now()
 WHERE id = $1 AND user_id = $2 AND agent_id IS NOT DISTINCT FROM $3
@@ -1034,17 +1036,16 @@ func (q *Queries) UpdateConversationBootstrapped(ctx context.Context, arg Update
 	return err
 }
 
-const updateConversationInfoBySessionID = `-- name: UpdateConversationInfoBySessionID :exec
+const updateConversationInfoBySessionID = `-- name: UpdateConversationInfoBySessionID :execrows
 UPDATE ctx_conversation
 SET
   title = CASE
     WHEN $1::text IS NOT NULL AND (title IS NULL OR title != $1) THEN $1
     ELSE title
   END,
-  archived = CASE WHEN archived != $2 THEN $2 ELSE archived END,
-  kind = CASE WHEN $3::text IS NOT NULL AND kind != $3 THEN $3 ELSE kind END,
+  kind = CASE WHEN $2::text IS NOT NULL AND kind != $2 THEN $2 ELSE kind END,
   project_id = CASE
-    WHEN $4::text IS NOT NULL AND (project_id IS NULL OR project_id != $4) THEN $4
+    WHEN $3::text IS NOT NULL AND (project_id IS NULL OR project_id != $3) THEN $3
     ELSE project_id
   END,
   -- Make a legacy row's durable channel binding stick: adopt the supplied channel
@@ -1052,29 +1053,29 @@ SET
   -- sessions are resolved by this binding, so a row written before the binding
   -- existed has to acquire it once. Never overwrite an existing channel.
   channel = CASE
-    WHEN channel = '' AND $5::text IS NOT NULL THEN $5
+    WHEN channel = '' AND $4::text IS NOT NULL THEN $4
     ELSE channel
   END,
   -- Make a legacy canonical group row durable: adopt the supplied group_id only
   -- when the stored value is NULL. Never overwrite or clear an existing group_id.
   group_id = CASE
-    WHEN group_id IS NULL AND $6::uuid IS NOT NULL THEN $6
+    WHEN group_id IS NULL AND $5::uuid IS NOT NULL THEN $5
     ELSE group_id
   END,
   guest_id = CASE
-    WHEN guest_id IS NULL AND $7::uuid IS NOT NULL THEN $7
+    WHEN guest_id IS NULL AND $6::uuid IS NOT NULL THEN $6
     ELSE guest_id
   END,
   last_active = now(),
   updated_at = now()
-WHERE session_id = $8
-  AND user_id = $9
-  AND agent_id IS NOT DISTINCT FROM $10
+WHERE session_id = $7
+  AND user_id = $8
+  AND agent_id IS NOT DISTINCT FROM $9
+  AND archived = false
 `
 
 type UpdateConversationInfoBySessionIDParams struct {
 	Title     pgtype.Text `json:"title"`
-	Archived  bool        `json:"archived"`
 	Kind      pgtype.Text `json:"kind"`
 	ProjectID pgtype.Text `json:"project_id"`
 	Channel   pgtype.Text `json:"channel"`
@@ -1085,10 +1086,11 @@ type UpdateConversationInfoBySessionIDParams struct {
 	AgentID   pgtype.Text `json:"agent_id"`
 }
 
-func (q *Queries) UpdateConversationInfoBySessionID(ctx context.Context, arg UpdateConversationInfoBySessionIDParams) error {
-	_, err := q.db.Exec(ctx, updateConversationInfoBySessionID,
+// Generic metadata saves never change lifecycle state and only update a row
+// while it is active. Archival has its own one-way operation above.
+func (q *Queries) UpdateConversationInfoBySessionID(ctx context.Context, arg UpdateConversationInfoBySessionIDParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateConversationInfoBySessionID,
 		arg.Title,
-		arg.Archived,
 		arg.Kind,
 		arg.ProjectID,
 		arg.Channel,
@@ -1098,7 +1100,10 @@ func (q *Queries) UpdateConversationInfoBySessionID(ctx context.Context, arg Upd
 		arg.UserID,
 		arg.AgentID,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateConversationKindProject = `-- name: UpdateConversationKindProject :exec

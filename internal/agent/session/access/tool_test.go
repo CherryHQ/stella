@@ -82,6 +82,10 @@ func (p *sessionOnlyProvider) SaveInfo(ctx context.Context, info memory.SessionI
 	return p.inner.SaveInfo(ctx, info)
 }
 
+func (p *sessionOnlyProvider) ArchiveInfo(ctx context.Context, info memory.SessionInfo) (bool, error) {
+	return p.inner.ArchiveInfo(ctx, info)
+}
+
 func (p *sessionOnlyProvider) RotateInfo(ctx context.Context, expectedSessionID string, successor memory.SessionInfo) error {
 	return p.inner.RotateInfo(ctx, expectedSessionID, successor)
 }
