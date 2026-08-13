@@ -136,8 +136,8 @@ func validateMigrateSkillsCommand(c *ucli.Context) error {
 var migrateSkillsGOOS = runtime.GOOS
 
 func checkMigrateSkillsPlatform() error {
-	if migrateSkillsGOOS != "linux" && migrateSkillsGOOS != "darwin" {
-		return errors.New("storage migrate-skills: immutable no-replace Skill publication is supported only on Linux and macOS")
+	if err := checkNativeServerPlatform(migrateSkillsGOOS); err != nil {
+		return fmt.Errorf("storage migrate-skills: %w", err)
 	}
 	return nil
 }

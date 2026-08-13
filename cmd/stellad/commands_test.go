@@ -351,3 +351,18 @@ func TestMigrateSkillsUnsupportedPlatformFailsBeforeSetup(t *testing.T) {
 		t.Fatal("configuration/database setup ran on unsupported platform")
 	}
 }
+
+func TestNativeServerUnsupportedPlatformFailsBeforeConfiguration(t *testing.T) {
+	original := nativeServerGOOS
+	nativeServerGOOS = "windows"
+	t.Cleanup(func() { nativeServerGOOS = original })
+	c := ucli.NewContext(ucli.NewApp(), flag.NewFlagSet("server", flag.ContinueOnError), nil)
+	err := serverAction(c)
+	if err == nil || !strings.Contains(err.Error(), "supported only on Linux and macOS") {
+		t.Fatalf("unsupported server error = %v", err)
+	}
+	upgradeCtx := ucli.NewContext(ucli.NewApp(), flag.NewFlagSet("upgrade", flag.ContinueOnError), nil)
+	if err := upgradeCommand().Action(upgradeCtx); err == nil || !strings.Contains(err.Error(), "supported only on Linux and macOS") {
+		t.Fatalf("unsupported upgrade error = %v", err)
+	}
+}

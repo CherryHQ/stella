@@ -11,7 +11,7 @@ Stella 在沙箱内运行 agent 代码。沙箱后端由运维在部署时统一
 | 生产环境 / 多用户                   | `docker` | 完整的容器级进程、文件系统和网络隔离 |
 | 无 Docker 的 Linux                  | `local`  | 通过 bubblewrap 实现操作系统级隔离   |
 | 无 Docker 的 macOS                  | `none`   | `local` 在 macOS 上不提供额外隔离    |
-| Windows                             | `docker` | `local` 不支持 Windows               |
+| 原生 Windows 宿主机                 | —        | 不支持原生 `stellad` 服务端          |
 | 可信的单用户本地开发                | `none`   | 零依赖，无隔离                       |
 | 自定义工具链（特定 Python/Node/Go） | `docker` | 独立于宿主机的干净 Linux 用户空间    |
 
@@ -25,19 +25,18 @@ STELLA_SANDBOX_BACKEND=docker   # docker | local | none
 
 ## Docker 后端
 
-Docker 提供完整的容器级进程、文件系统和网络隔离。Docker 守护进程必须正在运行且可访问。支持所有平台（Linux、macOS、Windows）。
+Docker 提供完整的容器级进程、文件系统和网络隔离。在受支持的 Linux 或 macOS 服务端宿主机上，Docker 守护进程必须正在运行且可访问。
 
 ### 何时使用
 
 - 需要 agent 与宿主机之间的强隔离。
 - 需要带有特定工具链的可复现 Linux 环境。
-- 在 Windows 上运行（唯一的沙箱选项）。
 - 需要副作用隔离——agent 脚本无法修改挂载工作区之外的宿主机文件系统。
 
 ### 权衡取舍
 
 - **启动延迟**：容器热启动约 200ms；首次拉取镜像约 1–3s。
-- **绑定挂载性能**：在 macOS/Windows 的 Docker Desktop 上，绑定挂载文件系统操作比原生磁盘慢 5–20 倍。这些平台上有大量读写操作的工作流应避免使用。
+- **绑定挂载性能**：在 macOS 的 Docker Desktop 上，绑定挂载文件系统操作比原生磁盘慢 5–20 倍。大量读写操作的工作流应避免使用。
 - **无写时复制隔离**：与本地后端（在 Linux 上使用 overlayfs）不同，Docker 后端不提供基于 overlay 的 COW。失控脚本可能修改或损坏已挂载的工作区。
 
 ### 运行模式
@@ -125,7 +124,7 @@ agent 使用 `local` 或 `none` 时，这些变量都不需要。
 | ------- | -------------------------------------------------------------------------------------------------- |
 | Linux   | `bwrap`（bubblewrap）— 必需。最小 Linux 根环境，`/workspace` 读写，隔离的 `/tmp`，网络命名空间控制 |
 | macOS   | 无额外沙箱。命令直接在宿主机上运行                                                                 |
-| Windows | 不支持，请使用 Docker 后端                                                                         |
+| Windows | 不支持原生 `stellad` 服务端                                                                         |
 
 ### 安装 bubblewrap（Linux）
 

@@ -149,6 +149,6 @@ so failed subprocess journeys remain diagnosable. See `system-test.md`.
 
 ## Artifacts
 
-- **Binaries**: linux/darwin/windows × amd64/arm64 (GoReleaser)
+- **Binaries**: linux/darwin × amd64/arm64 (GoReleaser). Windows remains compile-only portability coverage, not a published server target.
 - **Docker**: `ghcr.io/cherryhq/stella` — linux/amd64 + linux/arm64
 - **Docker tags**: `latest` (stable), `vX.Y.Z` (release), SHA (every build)

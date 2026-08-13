@@ -138,7 +138,7 @@ jobs:
           retention-days: 7
 
   windows-bundle:
-    name: Windows Bundle
+    name: Windows compile-only portability
     runs-on: windows-latest
     steps:
       - name: Checkout code
@@ -153,5 +153,8 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Test native Windows bundle projection
+      - name: Test Windows resource bundle portability
         run: mise exec -- go test ./resources -run '^TestBuiltinBundleWindowsFilesystemModes$' -count=1
+
+      - name: Compile Windows command surface without running the server
+        run: mise exec -- go test -c -o "$env:RUNNER_TEMP/stellad.test.exe" ./cmd/stellad

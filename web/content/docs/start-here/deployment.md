@@ -28,7 +28,7 @@ If you do not set `STELLA_DATABASE_URL`, run `stellad postgres download` once be
 
 ### Binary
 
-Download a pre-built binary from [GitHub Releases](https://github.com/CherryHQ/stella/releases) for linux, macOS, or Windows (amd64/arm64), then place it on your `$PATH`.
+Download a pre-built binary from [GitHub Releases](https://github.com/CherryHQ/stella/releases) for Linux or macOS (amd64/arm64), then place it on your `$PATH`.
 
 ```bash
 # Example: Linux amd64
@@ -49,7 +49,9 @@ cd stella && go build -o dist/bin/stellad ./cmd/stellad/
 
 ## Run
 
-Stella bundles the Xberg document runtime on Linux and macOS, so PDF and DOCX Knowledge uploads need no separate system package or startup download. Windows deployments currently support Markdown and plain-text Knowledge uploads; PDF and DOCX runtime support is not guaranteed there.
+Native Stella servers are supported on Linux and macOS. Durable Home and mutable Skill authority require POSIX `openat`, atomic no-replace publication, and filesystem durability semantics; releases therefore do not publish Windows server binaries. A source-built Windows binary rejects `server`, `upgrade`, and `storage migrate-skills` before configuration, database startup, or storage mutation. Move an existing Windows deployment's database and complete `STELLA_HOME` to durable POSIX storage on Linux or macOS before upgrading. Running Stella inside a Linux VM or container on a Windows machine is supported only when `STELLA_HOME` is backed by storage with those POSIX semantics, not a Windows filesystem bind mount.
+
+Stella bundles the Xberg document runtime on Linux and macOS, so PDF and DOCX Knowledge uploads need no separate system package or startup download.
 
 Start the server — the Web UI is available at `http://localhost:25678`:
 

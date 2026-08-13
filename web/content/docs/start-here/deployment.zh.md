@@ -28,7 +28,7 @@ sudo dnf install ./stella_*_linux_amd64.rpm
 
 ### 二进制文件
 
-从 [GitHub Releases](https://github.com/CherryHQ/stella/releases) 下载适用于 linux、macOS 或 Windows（amd64/arm64）的预编译二进制文件，然后将其放置在 `$PATH` 中。
+从 [GitHub Releases](https://github.com/CherryHQ/stella/releases) 下载适用于 Linux 或 macOS（amd64/arm64）的预编译二进制文件，然后将其放置在 `$PATH` 中。
 
 ```bash
 # 示例：Linux amd64
@@ -49,7 +49,9 @@ cd stella && go build -o dist/bin/stellad ./cmd/stellad/
 
 ## 运行
 
-Stella 在 Linux 和 macOS 上内置 Xberg 文档运行时，PDF 和 DOCX Knowledge 上传不需要额外安装系统软件包，也不会在启动后下载依赖。Windows 部署目前支持 Markdown 和纯文本 Knowledge 上传，但不保证 PDF 和 DOCX 运行时可用。
+Stella 原生服务端支持 Linux 和 macOS。持久 Home 与可变 Skill authority 依赖 POSIX `openat`、原子 no-replace publication 和文件系统持久性语义，因此 release 不再发布 Windows 服务端二进制文件。从源码构建的 Windows 二进制会在读取配置、启动数据库或修改存储之前拒绝 `server`、`upgrade` 和 `storage migrate-skills`。现有 Windows 部署必须先把数据库与完整的 `STELLA_HOME` 搬到 Linux 或 macOS 的持久 POSIX 存储，再执行升级。可以在 Windows 机器上的 Linux 虚拟机或容器中运行 Stella，但 `STELLA_HOME` 必须由具备这些 POSIX 语义的存储承载，不能使用 Windows 文件系统 bind mount。
+
+Stella 在 Linux 和 macOS 上内置 Xberg 文档运行时，PDF 和 DOCX Knowledge 上传不需要额外安装系统软件包，也不会在启动后下载依赖。
 
 启动服务器 —— Web UI访问地址：`http://localhost:25678`：
 

@@ -11,7 +11,7 @@ Stella runs agent code inside a sandbox. The backend is a deployment-wide choice
 | Production / multi-user                    | `docker`    | Full container-level process, filesystem, and network isolation |
 | Linux without Docker                       | `local`     | OS-level isolation via bubblewrap                               |
 | macOS without Docker                       | `none`      | `local` provides no extra isolation on macOS                    |
-| Windows                                    | `docker`    | `local` is not supported on Windows                             |
+| Native Windows host                        | —           | Native `stellad` servers are not supported                      |
 | Trusted single-user local dev              | `none`      | Zero dependencies, no isolation                                 |
 | Custom toolchain (specific Python/Node/Go) | `docker`    | Clean Linux userspace independent of host                       |
 
@@ -25,19 +25,18 @@ The default is `local`. An unset or unrecognized value also resolves to `local`,
 
 ## Docker Backend
 
-Docker provides full container-level process, filesystem, and network isolation. The Docker daemon must be running and reachable. All platforms (Linux, macOS, Windows) are supported.
+Docker provides full container-level process, filesystem, and network isolation. The Docker daemon must be running and reachable on the supported Linux or macOS server host.
 
 ### When to Use
 
 - You need strong isolation between the agent and the host.
 - You need a reproducible Linux environment with a specific toolchain.
-- You are running on Windows (the only sandbox option).
 - You want side-effect isolation — agent scripts cannot modify the host filesystem outside the mounted workspace.
 
 ### Tradeoffs
 
 - **Startup latency**: ~200ms for a warm container start; ~1–3s on first pull.
-- **Bind-mount performance**: On Docker Desktop for macOS/Windows, bind-mount filesystem operations are 5–20× slower than native disk. Avoid for heavy read/write workloads on those platforms.
+- **Bind-mount performance**: On Docker Desktop for macOS, bind-mount filesystem operations are 5–20× slower than native disk. Avoid it for heavy read/write workflows.
 - **No copy-on-write isolation**: Unlike the local backend (which uses overlayfs on Linux), the Docker backend does not provide overlay-based COW. A runaway script can modify or damage the mounted workspace.
 
 ### Runtime Modes
@@ -125,7 +124,7 @@ The local backend runs commands directly on the host OS. It is intended for envi
 | -------- | --------------------------------------------------------------------------------------------------------------------------- |
 | Linux    | `bwrap` (bubblewrap) — mandatory. Minimal Linux root with `/workspace` read-write, scoped `/tmp`, network namespace control |
 | macOS    | No additional sandboxing. Commands run directly on the host                                                                 |
-| Windows  | Not supported. Use the Docker backend                                                                                       |
+| Windows  | Native `stellad` servers are not supported                                                                                   |
 
 ### Installing bubblewrap (Linux)
 
