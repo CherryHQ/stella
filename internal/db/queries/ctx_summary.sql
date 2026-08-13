@@ -76,8 +76,10 @@ ORDER BY sp.ordinal ASC;
 -- content is immutable, so missing or model-mismatch are the only cases. ASCII.
 SELECT s.id, s.content, e.model AS embedded_model, e.content_hash AS embedded_hash
 FROM ctx_summary s
+JOIN ctx_conversation c ON c.id = s.conversation_id
 LEFT JOIN ctx_summary_embedding e ON e.summary_id = s.id
-WHERE e.summary_id IS NULL OR e.model <> sqlc.arg('model')
+WHERE c.archived = false
+  AND (e.summary_id IS NULL OR e.model <> sqlc.arg('model'))
 ORDER BY s.created_at DESC
 LIMIT sqlc.arg('limit');
 
@@ -93,21 +95,28 @@ SET model        = EXCLUDED.model,
 
 -- name: SearchSummaryEmbeddings :many
 -- Vector KNN over summary embeddings; mirror of SearchMessageEmbeddings (same
--- space + scope guards, cosine similarity score). Tie-break by content time then
--- id. Keep ASCII.
+-- space + scope guards, cosine similarity score). Keep ORDER BY limited to
+-- distance so HNSW can drive the scan; the Go merge layer orders score ties.
 SELECT
     s.*,
     c.session_id AS session_id,
     c.title AS conversation_title,
-    (1 - (e.embedding <=> sqlc.arg('query')::vector(1536)))::double precision AS score
-FROM ctx_summary_embedding e
+    (1 - e.distance)::double precision AS score
+FROM (
+    -- Keep the HNSW distance stream lazy so the outer scope/archive filters can
+    -- consume more candidates under strict iterative scan when needed.
+    SELECT summary_id, embedding <=> sqlc.arg('query')::vector(1536) AS distance
+    FROM ctx_summary_embedding
+    WHERE model = sqlc.arg('model')
+    ORDER BY embedding <=> sqlc.arg('query')::vector(1536)
+    OFFSET 0
+) e
 JOIN ctx_summary s ON s.id = e.summary_id
 JOIN ctx_conversation c ON c.id = s.conversation_id
-WHERE e.model = sqlc.arg('model')
-  AND c.user_id = sqlc.arg('user_id')
+WHERE c.user_id = sqlc.arg('user_id')
   AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
   AND c.archived = false
-ORDER BY e.embedding <=> sqlc.arg('query')::vector(1536), COALESCE(s.latest_at, s.created_at) DESC, s.id DESC
+ORDER BY e.distance
 LIMIT sqlc.arg('limit');
 
 -- name: SearchSummaries :many

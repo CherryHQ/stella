@@ -448,8 +448,10 @@ func (q *Queries) ListSummariesByIDs(ctx context.Context, arg ListSummariesByIDs
 const listSummariesNeedingEmbedding = `-- name: ListSummariesNeedingEmbedding :many
 SELECT s.id, s.content, e.model AS embedded_model, e.content_hash AS embedded_hash
 FROM ctx_summary s
+JOIN ctx_conversation c ON c.id = s.conversation_id
 LEFT JOIN ctx_summary_embedding e ON e.summary_id = s.id
-WHERE e.summary_id IS NULL OR e.model <> $1
+WHERE c.archived = false
+  AND (e.summary_id IS NULL OR e.model <> $1)
 ORDER BY s.created_at DESC
 LIMIT $2
 `
@@ -619,15 +621,22 @@ SELECT
     s.id, s.conversation_id, s.kind, s.depth, s.content, s.token_count, s.earliest_at, s.latest_at, s.descendant_count, s.descendant_token_count, s.source_message_token_count, s.created_at, s.contains_non_principal_input,
     c.session_id AS session_id,
     c.title AS conversation_title,
-    (1 - (e.embedding <=> $1::vector(1536)))::double precision AS score
-FROM ctx_summary_embedding e
+    (1 - e.distance)::double precision AS score
+FROM (
+    -- Keep the HNSW distance stream lazy so the outer scope/archive filters can
+    -- consume more candidates under strict iterative scan when needed.
+    SELECT summary_id, embedding <=> $1::vector(1536) AS distance
+    FROM ctx_summary_embedding
+    WHERE model = $2
+    ORDER BY embedding <=> $1::vector(1536)
+    OFFSET 0
+) e
 JOIN ctx_summary s ON s.id = e.summary_id
 JOIN ctx_conversation c ON c.id = s.conversation_id
-WHERE e.model = $2
-  AND c.user_id = $3
+WHERE c.user_id = $3
   AND c.agent_id IS NOT DISTINCT FROM $4
   AND c.archived = false
-ORDER BY e.embedding <=> $1::vector(1536), COALESCE(s.latest_at, s.created_at) DESC, s.id DESC
+ORDER BY e.distance
 LIMIT $5
 `
 
@@ -659,8 +668,8 @@ type SearchSummaryEmbeddingsRow struct {
 }
 
 // Vector KNN over summary embeddings; mirror of SearchMessageEmbeddings (same
-// space + scope guards, cosine similarity score). Tie-break by content time then
-// id. Keep ASCII.
+// space + scope guards, cosine similarity score). Keep ORDER BY limited to
+// distance so HNSW can drive the scan; the Go merge layer orders score ties.
 func (q *Queries) SearchSummaryEmbeddings(ctx context.Context, arg SearchSummaryEmbeddingsParams) ([]SearchSummaryEmbeddingsRow, error) {
 	rows, err := q.db.Query(ctx, searchSummaryEmbeddings,
 		arg.Query,

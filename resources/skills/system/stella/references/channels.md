@@ -13,7 +13,7 @@ In the Web UI, groups appear alongside agents in the main agent sidebar. A group
 
 Commands available in all channels:
 
-- `/new` -- Start a fresh session; the previous one is archived and stays searchable
+- `/new` -- Start a fresh session; the previous one is archived and leaves memory search
 - `/compact` -- Compress the current session in place (same session, shorter context)
 - `/whoami` -- Show your user/chat ID
 

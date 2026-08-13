@@ -219,8 +219,10 @@ SET model        = EXCLUDED.model,
 -- can skip rows already current. Keep ASCII.
 SELECT m.id, m.content, e.model AS embedded_model, e.content_hash AS embedded_hash
 FROM ctx_message m
+JOIN ctx_conversation c ON c.id = m.conversation_id
 LEFT JOIN ctx_message_embedding e ON e.message_id = m.id
-WHERE e.message_id IS NULL OR e.model <> sqlc.arg('model')
+WHERE c.archived = false
+  AND (e.message_id IS NULL OR e.model <> sqlc.arg('model'))
 ORDER BY m.created_at DESC
 LIMIT sqlc.arg('limit');
 
@@ -230,20 +232,29 @@ LIMIT sqlc.arg('limit');
 -- space so a vector produced by a different model never matches; ORDER BY the
 -- <=> operator lets the HNSW cosine index drive the scan. score is cosine
 -- similarity (1 - distance), higher is better, matching the BM25 lane's score
--- orientation for fusion. created_at, id break ties deterministically.
+-- orientation for fusion. Keep ORDER BY limited to distance so HNSW can drive
+-- the scan; the Go merge layer applies stable content-time ordering to ties.
 SELECT
     m.*,
     c.session_id AS session_id,
     c.title AS conversation_title,
-    (1 - (e.embedding <=> sqlc.arg('query')::vector(1536)))::double precision AS score
-FROM ctx_message_embedding e
+    (1 - e.distance)::double precision AS score
+FROM (
+    -- OFFSET 0 keeps this as an ordered, lazily-consumed HNSW subquery. The
+    -- outer LIMIT can then request more candidates when later joins reject
+    -- archived or out-of-scope rows, while strict iterative scan expands HNSW.
+    SELECT message_id, embedding <=> sqlc.arg('query')::vector(1536) AS distance
+    FROM ctx_message_embedding
+    WHERE model = sqlc.arg('model')
+    ORDER BY embedding <=> sqlc.arg('query')::vector(1536)
+    OFFSET 0
+) e
 JOIN ctx_message m ON m.id = e.message_id
 JOIN ctx_conversation c ON c.id = m.conversation_id
-WHERE e.model = sqlc.arg('model')
-  AND c.user_id = sqlc.arg('user_id')
+WHERE c.user_id = sqlc.arg('user_id')
   AND c.agent_id IS NOT DISTINCT FROM sqlc.narg('agent_id')
   AND c.archived = false
-ORDER BY e.embedding <=> sqlc.arg('query')::vector(1536), m.created_at DESC, m.id DESC
+ORDER BY e.distance
 LIMIT sqlc.arg('limit');
 
 -- name: GetMessagesSince :many

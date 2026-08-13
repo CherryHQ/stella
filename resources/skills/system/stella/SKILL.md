@@ -83,11 +83,11 @@ Read the relevant reference file for detailed guidance:
 
 Available in CLI, Telegram, Discord, QQ, Feishu, and WeChat:
 
-| Command    | Description                                                              |
-| ---------- | ------------------------------------------------------------------------ |
-| `/new`     | Start a fresh session; the previous one is archived and stays searchable |
-| `/compact` | Compress the current session in place (same session, shorter context)    |
-| `/whoami`  | Show your user/chat ID                                                   |
+| Command    | Description                                                                  |
+| ---------- | ---------------------------------------------------------------------------- |
+| `/new`     | Start a fresh session; the previous one is archived and leaves memory search |
+| `/compact` | Compress the current session in place (same session, shorter context)        |
+| `/whoami`  | Show your user/chat ID                                                       |
 
 `/new` works in direct messages only. A group's context is shared by every
 member, so a group `/new` is refused and resets nothing; `/compact` does not
@@ -151,7 +151,7 @@ Project-local presets override builtins with the same name. Use presets for comm
 
 Memory, Library retrieval, scheduler, goals, vault, OAuth connections, Recally, email, and sharing are built-in agent tools when available; skills use the `skills` tool; notifications and operator surfaces remain available through the Web UI. Briefly:
 
-- **LCM memory**: Lossless Context Management (default memory plugin). Every message is stored in PostgreSQL and organized into a DAG of summaries. Conversation context never gets truncated, only compressed. Use `memory.search` to recall relevant messages or summaries, then `memory.read` to inspect a result and follow bounded child references through compacted history. Use `session.get` when you already know which Session to inspect. Alternative: Simple plugin (sliding-window, no summaries).
+- **LCM memory**: Lossless Context Management (default memory plugin). Every message is stored in PostgreSQL and organized into a DAG of summaries. Conversation context never gets truncated, only compressed. Use `memory.search` to recall relevant messages or summaries from active Sessions, then `memory.read` to inspect a result and follow bounded child references through compacted history. Archived transcripts remain available through explicit `session.get`, but are excluded from recall. Alternative: Simple plugin (sliding-window, no summaries).
 - **Four memory spaces**: Constraints (hard user-approved rules), Identity (agent soul + user profile), Conversation (messages/summaries), and Knowledge (`subject=world` facts). Facts are long-term memory; skills are reusable procedures; constraints are explicit manual rules.
 - **Per-user memory**: Each user has dedicated memory per agent stored in the database. User profile, soul, and constraints are injected into your system prompt for the session snapshot; `memory.search` recalls relevant content across conversation history and durable memory. Session management is available through `session.list/get`; durable profile edits happen through Reflect or manual memory settings. Recommended profile structure: `## User Preferences`, `## About the User`, `## Notes`. Keep it high-level, like how a person remembers someone they know. User preferences can customize your behavior but never override your core identity or rules.
 - **Constraints**: Constraints are already injected into the system prompt and can be explicitly read with `memory.read` using the well-known `constraints` reference. Constraint writes are manual UI/API/CLI operations; Reflect and normal session tools must not add or remove constraints.
@@ -166,7 +166,7 @@ Memory, Library retrieval, scheduler, goals, vault, OAuth connections, Recally, 
 - **Scheduler**: agents use the `scheduler` tool to add/list/update/delete/pause/resume scheduled or one-time jobs, including workflow jobs when exposed. Jobs route to the correct agent's pool. Some jobs are available as platform-managed **templates** (e.g. `recally-rss` for feed polling, `recally-digest` for daily digests). Templates are opt-in: use the `scheduler` tool with `action=create` and `template_key`, the Web UI (Work space, Scheduled section), or the HTTP API. Each user gets one subscription per template; the prompt is platform-managed and read-only. If a user asks why RSS polling or digests stopped working after an upgrade, guide them to subscribe via the Web UI.
 - **Vault/OAuth/Recally/Email/Share**: agents use built-in tools. OAuth connect returns a verification URI and user code; give those to the user, wait for authorization, then poll status with the returned flow id. Recally save requires the agent to fetch article content first. Email send requires explicit user confirmation and an idempotency key. Share creates public links only when the user asks.
 - **Notifications**: `notify` plugin (gateway mode only, optional) -- send messages via Telegram/Discord/QQ/Feishu/WeChat dispatcher.
-- **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable in settings. Compaction keeps the same session; `/new` instead rotates the chat onto a fresh session and archives the old one, which stays searchable through memory.
+- **Session compaction**: auto-triggers at 80k tokens, or manually via `/compact`. Configurable in settings. Compaction keeps the same session; `/new` instead rotates the chat onto a fresh session and archives the old one. Archived transcripts remain available through explicit Session inspection, but leave `memory.search`.
 - **Managed helper CLIs**: The `bash` tool prepends Stella-managed binaries to `PATH`. Expect `fd`, `rg`, `mise`, and `tap` to be available even when the host machine doesn't have them installed separately.
 - **Vault secrets**: scope-matching vault secrets are already available as sandbox environment variables by name. Never print secret values; use the `vault` tool or Web UI to inspect secret metadata.
 - **GitHub CLI authorization**: `gh` uses Stella's GitHub OAuth connection and receives a refreshed runtime token.

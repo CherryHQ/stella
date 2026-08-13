@@ -713,8 +713,10 @@ func (q *Queries) ListMessagesByLogicalPage(ctx context.Context, arg ListMessage
 const listMessagesNeedingEmbedding = `-- name: ListMessagesNeedingEmbedding :many
 SELECT m.id, m.content, e.model AS embedded_model, e.content_hash AS embedded_hash
 FROM ctx_message m
+JOIN ctx_conversation c ON c.id = m.conversation_id
 LEFT JOIN ctx_message_embedding e ON e.message_id = m.id
-WHERE e.message_id IS NULL OR e.model <> $1
+WHERE c.archived = false
+  AND (e.message_id IS NULL OR e.model <> $1)
 ORDER BY m.created_at DESC
 LIMIT $2
 `
@@ -910,15 +912,23 @@ SELECT
     m.id, m.conversation_id, m.seq, m.role, m.event_type, m.content, m.token_count, m.created_at, m.actor_type, m.actor_id, m.source_session_id, m.inbox_id,
     c.session_id AS session_id,
     c.title AS conversation_title,
-    (1 - (e.embedding <=> $1::vector(1536)))::double precision AS score
-FROM ctx_message_embedding e
+    (1 - e.distance)::double precision AS score
+FROM (
+    -- OFFSET 0 keeps this as an ordered, lazily-consumed HNSW subquery. The
+    -- outer LIMIT can then request more candidates when later joins reject
+    -- archived or out-of-scope rows, while strict iterative scan expands HNSW.
+    SELECT message_id, embedding <=> $1::vector(1536) AS distance
+    FROM ctx_message_embedding
+    WHERE model = $2
+    ORDER BY embedding <=> $1::vector(1536)
+    OFFSET 0
+) e
 JOIN ctx_message m ON m.id = e.message_id
 JOIN ctx_conversation c ON c.id = m.conversation_id
-WHERE e.model = $2
-  AND c.user_id = $3
+WHERE c.user_id = $3
   AND c.agent_id IS NOT DISTINCT FROM $4
   AND c.archived = false
-ORDER BY e.embedding <=> $1::vector(1536), m.created_at DESC, m.id DESC
+ORDER BY e.distance
 LIMIT $5
 `
 
@@ -953,7 +963,8 @@ type SearchMessageEmbeddingsRow struct {
 // space so a vector produced by a different model never matches; ORDER BY the
 // <=> operator lets the HNSW cosine index drive the scan. score is cosine
 // similarity (1 - distance), higher is better, matching the BM25 lane's score
-// orientation for fusion. created_at, id break ties deterministically.
+// orientation for fusion. Keep ORDER BY limited to distance so HNSW can drive
+// the scan; the Go merge layer applies stable content-time ordering to ties.
 func (q *Queries) SearchMessageEmbeddings(ctx context.Context, arg SearchMessageEmbeddingsParams) ([]SearchMessageEmbeddingsRow, error) {
 	rows, err := q.db.Query(ctx, searchMessageEmbeddings,
 		arg.Query,

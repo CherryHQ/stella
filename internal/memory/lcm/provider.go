@@ -88,7 +88,7 @@ func New(db *pgxpool.Pool, summarizerFn func(ctx context.Context, prompt string)
 		db:        db,
 		q:         q,
 		assembler: newAssembler(q, slog.Default()),
-		retrieval: newRetrievalEngine(q, slog.Default()),
+		retrieval: newRetrievalEngine(db, q, slog.Default()),
 		freshTail: freshTail,
 		log:       slog.Default(),
 	}
