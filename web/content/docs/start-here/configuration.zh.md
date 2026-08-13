@@ -56,6 +56,7 @@ title: 配置
 - [Discord](/docs/channels/discord)
 - [QQ](/docs/channels/qq)
 - [飞书](/docs/channels/feishu)
+- [钉钉](/docs/channels/dingtalk)
 - [微信](/docs/channels/weixin)
 
 ## 认证

@@ -11,6 +11,7 @@ export const PLATFORM_LABELS: Record<string, string> = {
   discord: "Discord",
   qq: "QQ",
   feishu: "Feishu",
+  dingtalk: "DingTalk",
   weixin: "Weixin",
 };
 

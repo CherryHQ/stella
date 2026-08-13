@@ -89,6 +89,15 @@ func DecodeGuestConfig(channelType, rawConfig string) (GuestConfig, error) {
 			GuestMaxPerChannel:         cfg.GuestMaxPerChannel,
 			GuestRetentionDays:         cfg.GuestRetentionDays,
 		}, err
+	case PlatformDingTalk:
+		cfg, err := DecodeDingTalkConfig([]byte(rawConfig))
+		return GuestConfig{
+			AllowDM:                    cfg.AllowDM,
+			AllowUnlinkedDM:            cfg.AllowUnlinkedDM,
+			GuestMessageLimitPerMinute: cfg.GuestMessageLimitPerMinute,
+			GuestMaxPerChannel:         cfg.GuestMaxPerChannel,
+			GuestRetentionDays:         cfg.GuestRetentionDays,
+		}, err
 	default:
 		return GuestConfig{}, errors.New("channel does not support guest sessions")
 	}
@@ -159,6 +168,32 @@ type FeishuConfig struct {
 // DecodeFeishuConfig applies stable admission defaults before decoding JSON.
 func DecodeFeishuConfig(data []byte) (FeishuConfig, error) {
 	cfg := FeishuConfig{
+		AllowDM:                    true,
+		GuestMessageLimitPerMinute: DefaultGuestMessageLimitPerMinute,
+		GuestMaxPerChannel:         DefaultGuestMaxPerChannel,
+		GuestRetentionDays:         DefaultGuestRetentionDays,
+		RequireMention:             true,
+	}
+	return cfg, json.Unmarshal(data, &cfg)
+}
+
+// DingTalkConfig is the persisted DingTalk channel plugin configuration.
+type DingTalkConfig struct {
+	InstanceID                 string `json:"-"`
+	ClientID                   string `json:"client_id"`
+	ClientSecret               string `json:"client_secret"`
+	AllowedConversationIDs     string `json:"allowed_conversation_ids"`
+	AllowDM                    bool   `json:"allow_dm"`
+	AllowUnlinkedDM            bool   `json:"allow_unlinked_dm"`
+	GuestMessageLimitPerMinute int    `json:"guest_message_limit_per_minute"`
+	GuestMaxPerChannel         int    `json:"guest_max_per_channel"`
+	GuestRetentionDays         int    `json:"guest_retention_days"`
+	RequireMention             bool   `json:"require_mention"`
+}
+
+// DecodeDingTalkConfig applies stable admission defaults before decoding JSON.
+func DecodeDingTalkConfig(data []byte) (DingTalkConfig, error) {
+	cfg := DingTalkConfig{
 		AllowDM:                    true,
 		GuestMessageLimitPerMinute: DefaultGuestMessageLimitPerMinute,
 		GuestMaxPerChannel:         DefaultGuestMaxPerChannel,

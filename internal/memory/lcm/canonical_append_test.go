@@ -97,6 +97,267 @@ func TestAppendThenAssemblePreservesAgentInputEnvelope(t *testing.T) {
 	}
 }
 
+func TestAppendThenAssemblePreservesCompletedPartialParallelToolSubset(t *testing.T) {
+	for _, appendNextTurn := range []bool{false, true} {
+		name := "fresh tail"
+		if appendNextTurn {
+			name = "older budget history"
+		}
+		t.Run(name, func(t *testing.T) {
+			db := newLCMTestDB(t)
+			defer db.Close()
+
+			p, err := lcm.New(db, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = p.Close() }()
+
+			sess := newLCMTestSession("partial-parallel-" + name)
+			ctx := authz.WithAgentID(authz.WithUserID(context.Background(), sess.UserID), sess.AgentID)
+			if err := p.Append(ctx, sess, ai.UserMessage{Content: "look up both values"}); err != nil {
+				t.Fatalf("append user: %v", err)
+			}
+			// The runtime persists the full assistant call set before executing
+			// tools, then persists each completed result independently.
+			if err := p.Append(ctx, sess, ai.AssistantMessage{Content: []ai.ContentBlock{
+				ai.ThinkingContent{Thinking: "checking both sources"},
+				ai.TextContent{Text: "running searches"},
+				ai.ToolCall{ID: "call-a", Name: "search", Arguments: map[string]any{"query": "a"}},
+				ai.ToolCall{ID: "call-b", Name: "search", Arguments: map[string]any{"query": "b"}},
+			}}); err != nil {
+				t.Fatalf("append assistant calls: %v", err)
+			}
+			if err := p.Append(ctx, sess, ai.ToolResultMessage{
+				ToolCallID: "call-a",
+				ToolName:   "search",
+				Content:    []ai.ContentBlock{ai.TextContent{Text: "result-a"}},
+			}); err != nil {
+				t.Fatalf("append completed result: %v", err)
+			}
+			if appendNextTurn {
+				if err := p.Append(ctx, sess, ai.UserMessage{Content: "next turn"}); err != nil {
+					t.Fatalf("append next user turn: %v", err)
+				}
+			}
+
+			got, err := p.Assemble(ctx, sess, 100_000, 1)
+			if err != nil {
+				t.Fatalf("assemble: %v", err)
+			}
+			if len(got) < 5 {
+				t.Fatalf("assembled history = %#v, want user, thinking, text, completed call, and result", got)
+			}
+			thinking, ok := got[1].(ai.AssistantMessage)
+			if !ok {
+				t.Fatalf("thinking row = %T, want ai.AssistantMessage", got[1])
+			}
+			if len(thinking.Content) != 1 {
+				t.Fatalf("thinking row merged into tool suffix: %#v", thinking.Content)
+			}
+			if _, ok := thinking.Content[0].(ai.ThinkingContent); !ok {
+				t.Fatalf("thinking content = %#v", thinking.Content[0])
+			}
+			text, ok := got[2].(ai.AssistantMessage)
+			if !ok || ai.FlattenText(text.Content) != "running searches" || len(text.Content) != 1 {
+				t.Fatalf("text row merged into tool suffix: %#v", got[2])
+			}
+			assistant, ok := got[3].(ai.AssistantMessage)
+			if !ok || len(assistant.Content) != 1 {
+				t.Fatalf("completed tool suffix = %#v, want one call", got[3])
+			}
+			call, ok := assistant.Content[0].(ai.ToolCall)
+			if !ok || call.ID != "call-a" {
+				t.Fatalf("completed call = %#v, want call-a", assistant.Content[0])
+			}
+			result, ok := got[4].(ai.ToolResultMessage)
+			if !ok || result.ToolCallID != "call-a" || ai.FlattenText(result.Content) != "result-a" {
+				t.Fatalf("completed result = %#v, want result-a", got[4])
+			}
+		})
+	}
+}
+
+func TestAppendThenAssembleDropsSplitDuplicateToolCallIDGroup(t *testing.T) {
+	for _, appendNextTurn := range []bool{false, true} {
+		name := "fresh tail"
+		if appendNextTurn {
+			name = "older budget history"
+		}
+		t.Run(name, func(t *testing.T) {
+			db := newLCMTestDB(t)
+			defer db.Close()
+
+			p, err := lcm.New(db, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = p.Close() }()
+
+			sess := newLCMTestSession("duplicate-parallel-" + name)
+			ctx := authz.WithAgentID(authz.WithUserID(context.Background(), sess.UserID), sess.AgentID)
+			if err := p.Append(ctx, sess,
+				ai.UserMessage{Content: "run both calls"},
+				ai.AssistantMessage{Content: []ai.ContentBlock{
+					ai.ToolCall{ID: "duplicate", Name: "search", Arguments: map[string]any{"query": "first"}},
+					ai.ToolCall{ID: "duplicate", Name: "search", Arguments: map[string]any{"query": "second"}},
+				}},
+				ai.ToolResultMessage{
+					ToolCallID: "duplicate",
+					ToolName:   "search",
+					Content:    []ai.ContentBlock{ai.TextContent{Text: "ambiguous result"}},
+				},
+			); err != nil {
+				t.Fatalf("append duplicate tool turn: %v", err)
+			}
+			if appendNextTurn {
+				if err := p.Append(ctx, sess, ai.UserMessage{Content: "next turn"}); err != nil {
+					t.Fatalf("append next user turn: %v", err)
+				}
+			}
+
+			got, err := p.Assemble(ctx, sess, 100_000, 1)
+			if err != nil {
+				t.Fatalf("assemble: %v", err)
+			}
+			for _, message := range got {
+				switch value := message.(type) {
+				case ai.AssistantMessage:
+					for _, block := range value.Content {
+						if _, isCall := block.(ai.ToolCall); isCall {
+							t.Fatalf("assembled history retained ambiguous call: %#v", got)
+						}
+					}
+				case ai.ToolResultMessage:
+					t.Fatalf("assembled history retained ambiguous result: %#v", got)
+				}
+			}
+		})
+	}
+}
+
+func TestAppendThenAssembleBudgetsSanitizedPartialToolSubset(t *testing.T) {
+	db := newLCMTestDB(t)
+	defer db.Close()
+
+	p, err := lcm.New(db, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = p.Close() }()
+
+	sess := newLCMTestSession("partial-parallel-budget")
+	ctx := authz.WithAgentID(authz.WithUserID(context.Background(), sess.UserID), sess.AgentID)
+	if err := p.Append(ctx, sess,
+		ai.UserMessage{Content: "look up both values"},
+		ai.AssistantMessage{Content: []ai.ContentBlock{
+			ai.ToolCall{ID: "call-a", Name: "search", Arguments: map[string]any{"query": "a"}},
+			ai.ToolCall{ID: "call-b", Name: "search", Arguments: map[string]any{"query": strings.Repeat("b", 40_000)}},
+		}},
+		ai.ToolResultMessage{
+			ToolCallID: "call-a",
+			ToolName:   "search",
+			Content:    []ai.ContentBlock{ai.TextContent{Text: "result-a"}},
+		},
+		ai.UserMessage{Content: "next turn"},
+	); err != nil {
+		t.Fatalf("append budgeted partial turn: %v", err)
+	}
+
+	// The completed A/resultA projection fits this budget; the persisted but
+	// incomplete B arguments do not. Admission must cost what the provider sees.
+	got, err := p.Assemble(ctx, sess, 200, 1)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	var sawCallA, sawResultA bool
+	for _, message := range got {
+		switch value := message.(type) {
+		case ai.AssistantMessage:
+			for _, block := range value.Content {
+				if call, ok := block.(ai.ToolCall); ok {
+					if call.ID == "call-b" {
+						t.Fatalf("provider-visible history retained incomplete call B: %#v", got)
+					}
+					sawCallA = sawCallA || call.ID == "call-a"
+				}
+			}
+		case ai.ToolResultMessage:
+			sawResultA = sawResultA || value.ToolCallID == "call-a"
+		}
+	}
+	if !sawCallA || !sawResultA {
+		t.Fatalf("budgeted history lost completed A/resultA subset: %#v", got)
+	}
+}
+
+func TestAppendThenAssembleMergesOnlyToolCallSuffixBeforeResults(t *testing.T) {
+	for _, appendNextTurn := range []bool{false, true} {
+		name := "fresh tail"
+		if appendNextTurn {
+			name = "older budget history"
+		}
+		t.Run(name, func(t *testing.T) {
+			db := newLCMTestDB(t)
+			defer db.Close()
+
+			p, err := lcm.New(db, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = p.Close() }()
+
+			sess := newLCMTestSession("tool-suffix-" + name)
+			ctx := authz.WithAgentID(authz.WithUserID(context.Background(), sess.UserID), sess.AgentID)
+			if err := p.Append(ctx, sess, ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "old text"}}}); err != nil {
+				t.Fatalf("append earlier assistant text: %v", err)
+			}
+			if err := p.Append(ctx, sess,
+				ai.AssistantMessage{Content: []ai.ContentBlock{
+					ai.ToolCall{ID: "call-a", Name: "search", Arguments: map[string]any{"query": "a"}},
+					ai.ToolCall{ID: "call-b", Name: "search", Arguments: map[string]any{"query": "b"}},
+				}},
+				ai.ToolResultMessage{
+					ToolCallID: "call-a",
+					ToolName:   "search",
+					Content:    []ai.ContentBlock{ai.TextContent{Text: "result-a"}},
+				},
+			); err != nil {
+				t.Fatalf("append partial tool suffix: %v", err)
+			}
+			if appendNextTurn {
+				if err := p.Append(ctx, sess, ai.UserMessage{Content: "next turn"}); err != nil {
+					t.Fatalf("append next user turn: %v", err)
+				}
+			}
+
+			got, err := p.Assemble(ctx, sess, 100_000, 1)
+			if err != nil {
+				t.Fatalf("assemble: %v", err)
+			}
+			if len(got) < 3 {
+				t.Fatalf("assembled history = %#v, want old text plus completed tool subset", got)
+			}
+			oldText, ok := got[0].(ai.AssistantMessage)
+			if !ok || ai.FlattenText(oldText.Content) != "old text" || len(oldText.Content) != 1 {
+				t.Fatalf("earlier assistant row was merged into tool suffix: %#v", got[0])
+			}
+			toolTurn, ok := got[1].(ai.AssistantMessage)
+			if !ok || len(toolTurn.Content) != 1 {
+				t.Fatalf("tool suffix = %#v, want one completed call", got[1])
+			}
+			call, ok := toolTurn.Content[0].(ai.ToolCall)
+			if !ok || call.ID != "call-a" {
+				t.Fatalf("completed suffix call = %#v, want call-a", toolTurn.Content[0])
+			}
+			result, ok := got[2].(ai.ToolResultMessage)
+			if !ok || result.ToolCallID != "call-a" {
+				t.Fatalf("completed suffix result = %#v, want call-a", got[2])
+			}
+		})
+	}
+}
+
 func TestAgentInputCompactionKeepsNonPrincipalAttribution(t *testing.T) {
 	db := newLCMTestDB(t)
 	defer db.Close()

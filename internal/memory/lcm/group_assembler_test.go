@@ -3,6 +3,7 @@ package lcm
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -354,6 +355,60 @@ func TestGroupAssemble_TokenBudget(t *testing.T) {
 	}
 	if len(msgs) >= 5 {
 		t.Fatalf("expected fewer than 5 messages with tight budget, got %d", len(msgs))
+	}
+}
+
+func TestGroupAssemble_BudgetDropsParallelToolTurnAtomically(t *testing.T) {
+	db := openTestDB(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+
+	res, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "group-parallel-budget", ActorType: eventlog.ActorHuman,
+		ActorID: "user1", Content: "new injected context", PlatformMessageID: "injected-1",
+	})
+	if err != nil {
+		t.Fatalf("seed injected context: %v", err)
+	}
+	trigger, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "group-parallel-budget", ActorType: eventlog.ActorHuman,
+		ActorID: "user1", Content: "trigger", PlatformMessageID: "trigger-2",
+	})
+	if err != nil {
+		t.Fatalf("seed trigger: %v", err)
+	}
+
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	sess := groupSess("agent-a", res.GroupID)
+	if err := p.Append(groupCtx(0), sess,
+		ai.UserMessage{Content: "old tool turn"},
+		ai.AssistantMessage{Content: []ai.ContentBlock{
+			ai.ToolCall{ID: "call-a", Name: "search"},
+			ai.ToolCall{ID: "call-b", Name: "search"},
+		}},
+		ai.ToolResultMessage{ToolCallID: "call-a", ToolName: "search", Content: []ai.ContentBlock{ai.TextContent{Text: "result-a"}}},
+		ai.ToolResultMessage{ToolCallID: "call-b", ToolName: "search", Content: []ai.ContentBlock{ai.TextContent{Text: "result-b"}}},
+		ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "old final answer"}}},
+	); err != nil {
+		t.Fatalf("append parallel tool turn: %v", err)
+	}
+
+	// The injected group message pushes the assembled history over this budget.
+	// The older user/tool turn must disappear as a whole, never as surviving
+	// results or a detached final assistant response.
+	msgs, err := p.Assemble(groupCtx(trigger.Seq), sess, 19, 20)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("budgeted group history = %#v, want only injected context", msgs)
+	}
+	user, ok := msgs[0].(ai.UserMessage)
+	if !ok || !strings.Contains(flattenUserMessage(user), "new injected context") {
+		t.Fatalf("remaining group message = %#v, want injected context", msgs[0])
 	}
 }
 

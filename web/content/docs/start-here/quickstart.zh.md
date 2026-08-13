@@ -61,7 +61,7 @@ stellad server --port 8080
 
 - [将 Stella 部署为服务](/docs/start-here/deployment)，使其在开机时自动运行
 - 在Web UI中[配置智能体、模型和设置](/docs/start-here/configuration)
-- 连接 [Telegram](/docs/channels/telegram)、[Discord](/docs/channels/discord)、[QQ](/docs/channels/qq)、[飞书](/docs/channels/feishu) 或[微信](/docs/channels/weixin)，随时随地聊天
+- 连接 [Telegram](/docs/channels/telegram)、[Discord](/docs/channels/discord)、[QQ](/docs/channels/qq)、[飞书](/docs/channels/feishu)、[钉钉](/docs/channels/dingtalk)或[微信](/docs/channels/weixin)，随时随地聊天
 - [设置提醒和定时任务](/docs/guides/scheduling)，让 Stella 自动工作
 - [浏览并安装技能](/docs/guides/skills)，扩展 Stella 的能力
 - [查阅 API 文档](/api-references)，了解完整的 REST API 接口

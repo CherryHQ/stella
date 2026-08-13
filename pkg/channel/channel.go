@@ -1,5 +1,5 @@
 // Package channel defines the public contract for channel plugins.
-// Channel plugins are thin platform adapters (Telegram, QQ, Feishu, Weixin)
+// Channel plugins are thin platform adapters (Telegram, QQ, Feishu, DingTalk, Weixin)
 // that normalise incoming messages, delegate business logic to a MessageHandler,
 // and render streamed responses back to the platform.
 package channel
@@ -18,6 +18,7 @@ const (
 	PlatformDiscord  = "discord"
 	PlatformQQ       = "qq"
 	PlatformFeishu   = "feishu"
+	PlatformDingTalk = "dingtalk"
 	PlatformWeixin   = "weixin"
 	PlatformCLI      = "cli"
 

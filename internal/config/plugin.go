@@ -41,7 +41,7 @@ func PluginID(kind, name string) string { return kind + "/" + name }
 var BuiltinToolNames = []string{"gh", "lark-cli", "mise", "tap-web", "webfetch"}
 
 // BuiltinChannelNames lists the built-in channel plugins.
-var BuiltinChannelNames = []string{"telegram", "discord", "qq", "feishu", "weixin"}
+var BuiltinChannelNames = []string{"telegram", "discord", "qq", "feishu", "dingtalk", "weixin"}
 
 // BuiltinHookNames lists the built-in hook plugins.
 var BuiltinHookNames = []string{"rtk"}
