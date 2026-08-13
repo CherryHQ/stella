@@ -2,7 +2,6 @@ package lcm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -264,11 +263,15 @@ func advancePastOldestTurn(items []sqlc.CtxItem, splitIdx int) (int, bool) {
 func resolveOlderWithinBudget(older []sqlc.CtxItem, messages map[string]sqlc.CtxMessage, summaries map[string]sqlc.CtxSummary, children map[string][]sqlc.CtxSummary, partsByMessage map[string][]loadedMessagePart, remaining int) ([]ai.Message, error) {
 	var olderMsgs []ai.Message
 	for i := len(older) - 1; i >= 0; i-- {
-		start, end := contextItemGroupBounds(older, i, messages)
+		start, end := contextItemGroupBounds(older, i)
 		msgs, err := resolveItemsFromCaches(older[start:end], messages, summaries, children, partsByMessage)
 		if err != nil {
 			return nil, fmt.Errorf("resolve item %d: %w", older[start].Ordinal, err)
 		}
+		// Admission must cost the exact provider-visible projection. Incomplete
+		// or ambiguous persisted calls can be much larger than the completed
+		// subset that survives replay sanitization.
+		msgs = sanitizeToolPairs(msgs)
 		tokens := 0
 		for _, m := range msgs {
 			tokens += estimateMessageTokens(m)
@@ -288,98 +291,54 @@ func resolveOlderWithinBudget(older []sqlc.CtxItem, messages map[string]sqlc.Ctx
 	return olderMsgs, nil
 }
 
-// contextItemGroupBounds returns an atomic parallel tool turn containing index.
-// Ordinary assistant rows remain singletons because adjacency is not a stable
-// response boundary.
-func contextItemGroupBounds(items []sqlc.CtxItem, index int, messages map[string]sqlc.CtxMessage) (int, int) {
+// contextItemGroupBounds returns the structurally contiguous tool-call/result
+// group containing index. Only the tool-call suffix immediately before results
+// is grouped; preceding ordinary assistant rows remain independent messages.
+func contextItemGroupBounds(items []sqlc.CtxItem, index int) (int, int) {
 	if index < 0 || index >= len(items) {
 		return index, index + 1
 	}
-	assistantIndex := index
-	if items[index].ItemType == itemTypeMessage && items[index].EventType == eventTypeToolResult {
-		for assistantIndex >= 0 && items[assistantIndex].ItemType == itemTypeMessage && items[assistantIndex].EventType == eventTypeToolResult {
-			assistantIndex--
+
+	resultStart := index
+	switch {
+	case isAssistantToolCallItem(items[index]):
+		for resultStart < len(items) && isAssistantToolCallItem(items[resultStart]) {
+			resultStart++
 		}
-	}
-	start, assistantEnd, ok := assistantItemRunBounds(items, assistantIndex)
-	if !ok {
+		if resultStart >= len(items) || !isToolResultItem(items[resultStart]) {
+			return index, index + 1
+		}
+	case isToolResultItem(items[index]):
+		for resultStart > 0 && isToolResultItem(items[resultStart-1]) {
+			resultStart--
+		}
+	default:
 		return index, index + 1
 	}
-	resultEnd := assistantEnd
-	for resultEnd < len(items) && items[resultEnd].ItemType == itemTypeMessage && items[resultEnd].EventType == eventTypeToolResult {
+
+	callStart := resultStart
+	for callStart > 0 && isAssistantToolCallItem(items[callStart-1]) {
+		callStart--
+	}
+	if callStart == resultStart {
+		return index, index + 1
+	}
+	resultEnd := resultStart
+	for resultEnd < len(items) && isToolResultItem(items[resultEnd]) {
 		resultEnd++
 	}
-	if index >= start && index < resultEnd && assistantItemRunOwnsImmediateResults(items, start, assistantEnd, messages) {
-		return start, resultEnd
+	if index >= callStart && index < resultEnd {
+		return callStart, resultEnd
 	}
 	return index, index + 1
 }
 
-func isAssistantMessageItem(item sqlc.CtxItem) bool {
-	return item.ItemType == itemTypeMessage && item.Role == roleAssistant
+func isToolResultItem(item sqlc.CtxItem) bool {
+	return item.ItemType == itemTypeMessage && item.EventType == eventTypeToolResult
 }
 
 func isAssistantToolCallItem(item sqlc.CtxItem) bool {
-	return isAssistantMessageItem(item) && item.EventType == eventTypeToolCall
-}
-
-func assistantItemRunBounds(items []sqlc.CtxItem, index int) (int, int, bool) {
-	if index < 0 || index >= len(items) || !isAssistantMessageItem(items[index]) {
-		return index, index, false
-	}
-	start := index
-	for start > 0 && isAssistantMessageItem(items[start-1]) {
-		start--
-	}
-	end := index + 1
-	for end < len(items) && isAssistantMessageItem(items[end]) {
-		end++
-	}
-	return start, end, true
-}
-
-func assistantItemRunOwnsImmediateResults(items []sqlc.CtxItem, start, end int, messages map[string]sqlc.CtxMessage) bool {
-	callCounts := make(map[string]int)
-	for _, item := range items[start:end] {
-		if !isAssistantToolCallItem(item) || !item.MessageID.Valid {
-			continue
-		}
-		row, ok := messages[item.MessageID.String]
-		if !ok {
-			return false
-		}
-		call, ok := decodeToolCall(row.Content)
-		if !ok {
-			return false
-		}
-		callCounts[call.ID]++
-	}
-	if len(callCounts) == 0 {
-		return false
-	}
-
-	resultCounts := make(map[string]int)
-	for end < len(items) && items[end].ItemType == itemTypeMessage && items[end].EventType == eventTypeToolResult {
-		item := items[end]
-		if !item.MessageID.Valid {
-			return false
-		}
-		row, ok := messages[item.MessageID.String]
-		if !ok {
-			return false
-		}
-		var envelope toolResultEnvelope
-		if err := json.Unmarshal([]byte(row.Content), &envelope); err != nil {
-			return false
-		}
-		resultCounts[envelope.ID]++
-		end++
-	}
-	// A crash or cancellation may persist only a subset of parallel results.
-	// One unambiguous completed pair is enough to prove that these adjacent
-	// assistant rows belong to the result run; sanitizeToolPairs later removes
-	// incomplete and conflicting ID groups from the reconstructed turn.
-	return hasUniqueCompletedToolPair(callCounts, resultCounts)
+	return item.ItemType == itemTypeMessage && item.Role == roleAssistant && item.EventType == eventTypeToolCall
 }
 
 // stripTrailingOrphanResults removes ToolResultMessages from the end of msgs
@@ -419,6 +378,8 @@ func resolveTailFromCaches(items []sqlc.CtxItem, messages map[string]sqlc.CtxMes
 		return nil, 0, 0, err
 	}
 	msgs, compacted := compactOversizedTailResults(msgs)
+	// Tail cost and older admission use the same provider-visible projection.
+	msgs = sanitizeToolPairs(msgs)
 	tokens := 0
 	for _, msg := range msgs {
 		tokens += estimateMessageTokens(msg)
@@ -436,19 +397,19 @@ func resolveItemsFromCaches(items []sqlc.CtxItem, messages map[string]sqlc.CtxMe
 			if !item.MessageID.Valid {
 				continue
 			}
-			if start, end, ok := assistantItemRunBounds(items, i); ok && start == i && assistantItemRunOwnsImmediateResults(items, start, end, messages) {
-				// Reconstruct an assistant run only after its immediately following
-				// results prove a unique one-to-one tool turn. Adjacency alone is not
-				// a stable boundary for separately appended ordinary messages.
-				rows := make([]sqlc.CtxMessage, 0, 1)
+			if start, end := contextItemGroupBounds(items, i); start == i && end > i+1 {
+				// Reconstruct only the persisted tool-call suffix and its immediate
+				// results. Earlier assistant text/thinking may be a separate Append
+				// and cannot be joined safely without a durable response ID.
+				rows := make([]sqlc.CtxMessage, 0, end-start)
 				for ; i < end; i++ {
-					assistantItem := items[i]
-					if !assistantItem.MessageID.Valid {
+					groupItem := items[i]
+					if !groupItem.MessageID.Valid {
 						continue
 					}
-					msg, ok := messages[assistantItem.MessageID.String]
+					msg, ok := messages[groupItem.MessageID.String]
 					if !ok {
-						return nil, fmt.Errorf("get message %s: %w", assistantItem.MessageID.String, pgx.ErrNoRows)
+						return nil, fmt.Errorf("get message %s: %w", groupItem.MessageID.String, pgx.ErrNoRows)
 					}
 					rows = append(rows, msg)
 				}
@@ -575,7 +536,7 @@ func (a *assembler) loadContextWindow(ctx context.Context, convID string) ([]sql
 // than promoted to user input, and calls without an adjacent result are stripped.
 // Memory assembly always runs before the next live user message is appended.
 func sanitizeToolPairs(msgs []ai.Message) []ai.Message {
-	msgs = mergeAssistantRunsWithImmediateResults(msgs)
+	msgs = mergeToolCallRunsWithImmediateResults(msgs)
 	result := make([]ai.Message, 0, len(msgs))
 	for i := 0; i < len(msgs); i++ {
 		assistant, ok := msgs[i].(ai.AssistantMessage)
@@ -623,13 +584,13 @@ func sanitizeToolPairs(msgs []ai.Message) []ai.Message {
 	return result
 }
 
-// mergeAssistantRunsWithImmediateResults restores assistant blocks persisted as
-// separate rows when the following results prove at least one completed tool
-// pair. The sanitizer then keeps only completed, unambiguous ID groups.
-func mergeAssistantRunsWithImmediateResults(msgs []ai.Message) []ai.Message {
+// mergeToolCallRunsWithImmediateResults restores only consecutive tool-call-only
+// assistant messages immediately followed by results. Ordinary assistant content
+// before that suffix remains separate because adjacency is not a response ID.
+func mergeToolCallRunsWithImmediateResults(msgs []ai.Message) []ai.Message {
 	result := make([]ai.Message, 0, len(msgs))
 	for i := 0; i < len(msgs); {
-		first, ok := msgs[i].(ai.AssistantMessage)
+		first, ok := toolCallOnlyAssistant(msgs[i])
 		if !ok {
 			result = append(result, msgs[i])
 			i++
@@ -639,7 +600,7 @@ func mergeAssistantRunsWithImmediateResults(msgs []ai.Message) []ai.Message {
 		end := i + 1
 		combined := first
 		for end < len(msgs) {
-			next, adjacent := msgs[end].(ai.AssistantMessage)
+			next, adjacent := toolCallOnlyAssistant(msgs[end])
 			if !adjacent {
 				break
 			}
@@ -653,8 +614,7 @@ func mergeAssistantRunsWithImmediateResults(msgs []ai.Message) []ai.Message {
 			}
 			resultEnd++
 		}
-		callCounts, hasCalls := toolCallIDCounts(combined)
-		if end == i+1 || !hasCalls || !hasUniqueCompletedToolPair(callCounts, toolResultIDCounts(msgs[end:resultEnd])) {
+		if end == i+1 || resultEnd == end {
 			result = append(result, msgs[i:end]...)
 			i = end
 			continue
@@ -663,6 +623,19 @@ func mergeAssistantRunsWithImmediateResults(msgs []ai.Message) []ai.Message {
 		i = end
 	}
 	return result
+}
+
+func toolCallOnlyAssistant(message ai.Message) (ai.AssistantMessage, bool) {
+	assistant, ok := message.(ai.AssistantMessage)
+	if !ok || len(assistant.Content) == 0 {
+		return ai.AssistantMessage{}, false
+	}
+	for _, block := range assistant.Content {
+		if _, isCall := block.(ai.ToolCall); !isCall {
+			return ai.AssistantMessage{}, false
+		}
+	}
+	return assistant, true
 }
 
 func toolCallIDCounts(message ai.AssistantMessage) (map[string]int, bool) {
@@ -685,15 +658,6 @@ func toolResultIDCounts(messages []ai.Message) map[string]int {
 		}
 	}
 	return counts
-}
-
-func hasUniqueCompletedToolPair(callCounts, resultCounts map[string]int) bool {
-	for id, count := range callCounts {
-		if id != "" && count == 1 && resultCounts[id] == 1 {
-			return true
-		}
-	}
-	return false
 }
 
 func filterAssistantToolCalls(content []ai.ContentBlock, matched map[string]struct{}) []ai.ContentBlock {

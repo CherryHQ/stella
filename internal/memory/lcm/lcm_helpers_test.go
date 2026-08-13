@@ -893,20 +893,16 @@ func TestSanitizeToolPairs_NoOrphans(t *testing.T) {
 }
 
 func TestSanitizeToolPairs_MergesParallelAssistantCalls(t *testing.T) {
-	// Durable storage keeps each assistant content block in a separate row. A
-	// defensive cleanup must restore those rows to one assistant turn before
-	// validating the immediately following tool results.
+	// Durable storage keeps each tool call in a separate row. A defensive cleanup
+	// restores only that tool-call suffix; preceding ordinary assistant content
+	// cannot be joined safely without a durable response ID.
 	callA := ai.ToolCall{ID: "call-a", Name: "search"}
 	callB := ai.ToolCall{ID: "call-b", Name: "search"}
 	resultA := ai.ToolResultMessage{ToolCallID: "call-a", ToolName: "search", Content: []ai.ContentBlock{ai.TextContent{Text: "a"}}}
 	resultB := ai.ToolResultMessage{ToolCallID: "call-b", ToolName: "search", Content: []ai.ContentBlock{ai.TextContent{Text: "b"}}}
 
 	got := sanitizeToolPairs([]ai.Message{
-		ai.AssistantMessage{Content: []ai.ContentBlock{
-			ai.ThinkingContent{Thinking: "checking both sources"},
-			ai.TextContent{Text: "running searches"},
-			callA,
-		}},
+		ai.AssistantMessage{Content: []ai.ContentBlock{callA}},
 		ai.AssistantMessage{Content: []ai.ContentBlock{callB}},
 		resultA,
 		resultB,
@@ -918,13 +914,13 @@ func TestSanitizeToolPairs_MergesParallelAssistantCalls(t *testing.T) {
 	if !ok {
 		t.Fatalf("message 0 = %T, want ai.AssistantMessage", got[0])
 	}
-	if len(assistant.Content) != 4 {
-		t.Fatalf("assistant blocks = %d, want thinking, text, and 2 calls", len(assistant.Content))
+	if len(assistant.Content) != 2 {
+		t.Fatalf("assistant blocks = %d, want 2 calls", len(assistant.Content))
 	}
 	for i, wantID := range []string{"call-a", "call-b"} {
-		call, ok := assistant.Content[i+2].(ai.ToolCall)
+		call, ok := assistant.Content[i].(ai.ToolCall)
 		if !ok || call.ID != wantID {
-			t.Fatalf("tool call %d = %#v, want %s", i, assistant.Content[i+2], wantID)
+			t.Fatalf("tool call %d = %#v, want %s", i, assistant.Content[i], wantID)
 		}
 	}
 }

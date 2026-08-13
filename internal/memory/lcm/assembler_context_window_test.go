@@ -140,7 +140,7 @@ func TestAssembleContextWindowLoaderMixedLargeWindow(t *testing.T) {
 	}
 }
 
-func TestAssembleParallelToolCallsRemainOneAssistantTurn(t *testing.T) {
+func TestAssembleParallelToolCallSuffixRemainsOneAssistantTurn(t *testing.T) {
 	tests := []struct {
 		name       string
 		freshTail  int
@@ -227,26 +227,40 @@ func TestAssembleParallelToolCallsRemainOneAssistantTurn(t *testing.T) {
 			if err != nil {
 				t.Fatalf("assemble: %v", err)
 			}
-			if len(got) < 5 {
-				t.Fatalf("assembled %d messages, want at least 5", len(got))
+			if len(got) < 7 {
+				t.Fatalf("assembled %d messages, want user, thinking, text, tool turn, results, and answer", len(got))
 			}
-			assistant, ok := got[1].(ai.AssistantMessage)
+			thinking, ok := got[1].(ai.AssistantMessage)
 			if !ok {
-				t.Fatalf("parallel tool turn = %T, want ai.AssistantMessage", got[1])
+				t.Fatalf("thinking row = %T, want ai.AssistantMessage", got[1])
 			}
-			if len(assistant.Content) != 4 {
-				t.Fatalf("parallel tool blocks = %d, want thinking, text, and 2 calls: %#v", len(assistant.Content), assistant.Content)
+			if len(thinking.Content) != 1 {
+				t.Fatalf("thinking row merged into tool suffix: %#v", thinking.Content)
+			}
+			if _, ok := thinking.Content[0].(ai.ThinkingContent); !ok {
+				t.Fatalf("thinking content = %#v", thinking.Content[0])
+			}
+			text, ok := got[2].(ai.AssistantMessage)
+			if !ok || ai.FlattenText(text.Content) != "running searches" || len(text.Content) != 1 {
+				t.Fatalf("text row merged into tool suffix: %#v", got[2])
+			}
+			assistant, ok := got[3].(ai.AssistantMessage)
+			if !ok {
+				t.Fatalf("parallel tool turn = %T, want ai.AssistantMessage", got[3])
+			}
+			if len(assistant.Content) != 2 {
+				t.Fatalf("parallel tool blocks = %d, want 2 calls: %#v", len(assistant.Content), assistant.Content)
 			}
 			for i, wantID := range []string{"call-a", "call-b"} {
-				call, ok := assistant.Content[i+2].(ai.ToolCall)
+				call, ok := assistant.Content[i].(ai.ToolCall)
 				if !ok || call.ID != wantID {
-					t.Fatalf("tool call %d = %#v, want %s", i, assistant.Content[i+2], wantID)
+					t.Fatalf("tool call %d = %#v, want %s", i, assistant.Content[i], wantID)
 				}
 			}
 			for i, wantID := range []string{"call-a", "call-b"} {
-				result, ok := got[i+2].(ai.ToolResultMessage)
+				result, ok := got[i+4].(ai.ToolResultMessage)
 				if !ok || result.ToolCallID != wantID {
-					t.Fatalf("tool result %d = %#v, want %s", i, got[i+2], wantID)
+					t.Fatalf("tool result %d = %#v, want %s", i, got[i+4], wantID)
 				}
 			}
 		})
