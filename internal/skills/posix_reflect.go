@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"strings"
 
 	"github.com/google/uuid"
@@ -344,14 +343,11 @@ func (s *POSIXStore) DeleteReflectOwnedUserAgentSkill(ctx context.Context, in Re
 	if in.ExpectedUsageLastUsedAt.IsZero() {
 		return Skill{}, errors.New("skills: expected usage is required")
 	}
-	before, err := s.loadIdentity(ctx, *identity)
-	if errors.Is(err, fs.ErrNotExist) {
-		before, err = s.loadIdentityRevision(ctx, *identity, in.ExpectedDigest)
-	}
+	before, err := s.loadManagedDeleteSnapshot(ctx, *identity, in.ExpectedDigest)
 	if err != nil {
 		return Skill{}, err
 	}
-	if !IsReflectOwned(before.Skill) || before.Skill.Status != SkillStatusActive || before.Skill.ContentDigest != in.ExpectedDigest {
+	if !IsReflectOwned(before.Skill) || before.Skill.Status != SkillStatusActive {
 		return Skill{}, ErrSkillDigestConflict
 	}
 	tx, err := s.db.Begin(ctx)
@@ -368,9 +364,6 @@ func (s *POSIXStore) DeleteReflectOwnedUserAgentSkill(ctx context.Context, in Re
 	if err != nil || !hasActivity {
 		return Skill{}, errors.Join(ErrSkillUsageChanged, err)
 	}
-	if err := s.removeSelection(ctx, *identity, in.ExpectedDigest); err != nil {
-		return Skill{}, err
-	}
 	agentID, userID := viewSQLParams(ViewContext{UserID: identity.UserID, AgentID: identity.AgentID})
 	if err := q.DeleteSkill(ctx, sqlc.DeleteSkillParams{ID: identity.ID, AgentID: agentID, UserID: userID}); err != nil {
 		return Skill{}, fmt.Errorf("%w: delete Reflect identity: %w", home.ErrOutcomeUnknown, err)
@@ -381,6 +374,9 @@ func (s *POSIXStore) DeleteReflectOwnedUserAgentSkill(ctx context.Context, in Re
 		if _, readErr := s.q.GetSkillByID(checkCtx, identity.ID); !errors.Is(readErr, pgx.ErrNoRows) {
 			return before.Skill, fmt.Errorf("%w: commit Reflect delete: %w", home.ErrOutcomeUnknown, errors.Join(err, readErr))
 		}
+	}
+	if err := s.cleanupDeletedSelection(before.Skill, in.ExpectedDigest); err != nil {
+		return before.Skill, err
 	}
 	return before.Skill, nil
 }

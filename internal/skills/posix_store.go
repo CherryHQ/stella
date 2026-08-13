@@ -25,6 +25,7 @@ import (
 const (
 	skillReconcileTimeout      = 5 * time.Second
 	managedSkillCleanupTimeout = 5 * time.Second
+	managedSkillLockRetryDelay = 25 * time.Millisecond
 	managedSkillAdvisoryLock   = int64(0x5354454c4c41534b)
 )
 
@@ -69,22 +70,64 @@ func freshManagedSkillCleanupContext() (context.Context, context.CancelFunc) {
 }
 
 func (s *POSIXStore) acquireManagedSkillLockSession(ctx context.Context) (managedSkillLockSession, error) {
-	conn, err := s.db.Acquire(ctx)
-	if err != nil {
-		return managedSkillLockSession{}, err
-	}
+	var conn *pgxpool.Conn
 	return managedSkillLockSession{
 		lock: func(ctx context.Context) error {
-			_, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", managedSkillAdvisoryLock)
-			return err
+			for {
+				candidate, err := s.db.Acquire(ctx)
+				if err != nil {
+					return err
+				}
+				var locked bool
+				err = candidate.QueryRow(ctx, "SELECT pg_try_advisory_lock($1)", managedSkillAdvisoryLock).Scan(&locked)
+				if err != nil {
+					// The server may have acquired the session lock before the
+					// acknowledgement failed. Keep the connection so the caller can
+					// discard it and release every session-level lock.
+					conn = candidate
+					return fmt.Errorf("%w: try managed Skill lock: %w", home.ErrOutcomeUnknown, err)
+				}
+				if locked {
+					conn = candidate
+					return nil
+				}
+				// A waiter never occupies a pool connection. The one lock owner
+				// retains a connection while leaving the rest of the pool available
+				// to Home authorization and evidence transactions inside the body.
+				candidate.Release()
+				timer := time.NewTimer(managedSkillLockRetryDelay)
+				select {
+				case <-ctx.Done():
+					if !timer.Stop() {
+						<-timer.C
+					}
+					return ctx.Err()
+				case <-timer.C:
+				}
+			}
 		},
 		unlock: func(ctx context.Context) (bool, error) {
+			if conn == nil {
+				return false, errors.New("skills: managed Skill lock connection is unavailable")
+			}
 			var unlocked bool
 			err := conn.QueryRow(ctx, "SELECT pg_advisory_unlock($1)", managedSkillAdvisoryLock).Scan(&unlocked)
 			return unlocked, err
 		},
-		release: conn.Release,
-		discard: func(ctx context.Context) error { return conn.Hijack().Close(ctx) },
+		release: func() {
+			if conn != nil {
+				conn.Release()
+				conn = nil
+			}
+		},
+		discard: func(ctx context.Context) error {
+			if conn == nil {
+				return nil
+			}
+			owned := conn.Hijack()
+			conn = nil
+			return owned.Close(ctx)
+		},
 	}, nil
 }
 
@@ -94,6 +137,10 @@ func (s *POSIXStore) lockManagedMutations(ctx context.Context) (func() error, er
 		return nil, err
 	}
 	if err := session.lock(ctx); err != nil {
+		if !home.IsOutcomeUnknown(err) {
+			session.release()
+			return nil, err
+		}
 		closeCtx, cancel := s.cleanupContext()
 		closeErr := session.discard(closeCtx)
 		cancel()
@@ -280,6 +327,11 @@ func (s *POSIXStore) loadRows(ctx context.Context, rows []sqlc.Skill, visible fu
 	out := make([]Skill, 0, len(rows))
 	for _, row := range rows {
 		snapshot, err := s.loadIdentity(ctx, identityFromRow(row))
+		if errors.Is(err, fs.ErrNotExist) {
+			// A missing selector is fail-closed for this identity but must not
+			// make one interrupted cleanup take down the whole catalog.
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("skills: load Home identity %q: %w", row.ID, err)
 		}
@@ -794,13 +846,40 @@ func (s *POSIXStore) UpdateManagedSkill(ctx context.Context, in ManagedSkillUpda
 
 func (s *POSIXStore) deleteIdentity(ctx context.Context, identity Skill) error {
 	agentID, userID := viewSQLParams(ViewContext{UserID: identity.UserID, AgentID: identity.AgentID})
-	if err := s.q.DeleteSkill(ctx, sqlc.DeleteSkillParams{ID: identity.ID, AgentID: agentID, UserID: userID}); err != nil {
-		return err
-	}
+	deleteErr := s.q.DeleteSkill(ctx, sqlc.DeleteSkillParams{ID: identity.ID, AgentID: agentID, UserID: userID})
 	checkCtx, cancel := freshSkillContext()
 	defer cancel()
-	if _, err := s.q.GetSkillByID(checkCtx, identity.ID); !errors.Is(err, pgx.ErrNoRows) {
-		return errors.Join(home.ErrOutcomeUnknown, err)
+	_, readErr := s.q.GetSkillByID(checkCtx, identity.ID)
+	if errors.Is(readErr, pgx.ErrNoRows) {
+		return nil
+	}
+	return errors.Join(home.ErrOutcomeUnknown, deleteErr, readErr)
+}
+
+func (s *POSIXStore) loadManagedDeleteSnapshot(ctx context.Context, identity Skill, expected string) (managedSnapshot, error) {
+	if !validSkillDigest(expected) {
+		return managedSnapshot{}, ErrSkillDigestRequired
+	}
+	before, err := s.loadIdentity(ctx, identity)
+	if errors.Is(err, fs.ErrNotExist) {
+		// Reconcile an interrupted selector-first delete from an older writer.
+		// The authorized caller still has to name an exact immutable revision.
+		before, err = s.loadIdentityRevision(ctx, identity, expected)
+	}
+	if err != nil {
+		return managedSnapshot{}, err
+	}
+	if before.Skill.ContentDigest != expected {
+		return managedSnapshot{}, ErrSkillDigestConflict
+	}
+	return before, nil
+}
+
+func (s *POSIXStore) cleanupDeletedSelection(identity Skill, expected string) error {
+	cleanupCtx, cancel := freshSkillContext()
+	defer cancel()
+	if err := s.removeSelection(cleanupCtx, identity, expected); err != nil {
+		return fmt.Errorf("%w: clean deleted Skill selector: %w", home.ErrOutcomeUnknown, err)
 	}
 	return nil
 }
@@ -818,13 +897,17 @@ func (s *POSIXStore) DeleteManagedSkill(ctx context.Context, in ManagedSkillDele
 	if identity.Scope != in.Scope || identity.UserID != in.UserID || identity.AgentID != in.AgentID {
 		return ErrSkillNotMutable
 	}
-	if err := s.removeSelection(ctx, *identity, in.ExpectedDigest); err != nil {
+	before, err := s.loadManagedDeleteSnapshot(ctx, *identity, in.ExpectedDigest)
+	if err != nil {
 		return err
 	}
-	if err := s.deleteIdentity(ctx, *identity); err != nil {
+	// PostgreSQL identity is the catalog authority. Remove it before the POSIX
+	// selector so a crash can leave only unreachable cleanup, never a live row
+	// whose missing selector fails every catalog read.
+	if err := s.deleteIdentity(ctx, before.Skill); err != nil {
 		return fmt.Errorf("%w: delete Skill identity: %w", home.ErrOutcomeUnknown, err)
 	}
-	return nil
+	return s.cleanupDeletedSelection(before.Skill, in.ExpectedDigest)
 }
 
 func (s *POSIXStore) DeleteManagedSkillFile(ctx context.Context, in ManagedSkillFileDelete) (SkillSnapshot, error) {

@@ -188,6 +188,10 @@ func (s *Server) ListScopedSkills(w http.ResponseWriter, r *http.Request, params
 			return
 		}
 		view, err := s.dbSkillView(r, &rows[i])
+		if errors.Is(err, fs.ErrNotExist) {
+			s.warnMissingSkillSelector(rows[i], err)
+			continue
+		}
 		if err != nil {
 			s.writeInternalError(w, err)
 			return

@@ -25,6 +25,7 @@ import (
 	"github.com/CherryHQ/stella/internal/controlplane"
 	"github.com/CherryHQ/stella/internal/credential"
 	appdb "github.com/CherryHQ/stella/internal/db"
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/inbox"
@@ -298,5 +299,38 @@ func TestResolvedToDBSkillPreservesExactRevisionIdentity(t *testing.T) {
 	if got.ID != resolved.ID || got.Scope != resolved.Scope || got.UserID != resolved.UserID || got.AgentID != resolved.AgentID ||
 		got.Name != resolved.Name || got.ContentDigest != digest {
 		t.Fatalf("exact Home identity lost in conversion: %#v", got)
+	}
+}
+
+func TestManagedSkillAgentFileLoadPreservesExactRevisionDigest(t *testing.T) {
+	db := dbtest.New(t)
+	manager, err := home.NewWorkspaceManager(db, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+	store, err := skills.NewPOSIXStore(db, manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.CreateManagedSkill(t.Context(), skills.Skill{
+		ID: "server-exact-revision", Scope: "system", Name: "server-exact-revision",
+	}, map[string]string{
+		skills.MainFile: "# Server exact revision",
+		"reference.md":  "exact managed content",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := pluginhost.New(nil)
+	host.SetSkillStore(store)
+	srv := &Server{pluginHost: host}
+	resolved := &skills.ResolvedSkill{Skill: dbSkillToPluginSkill(snapshot.Skill)}
+	if resolved.ContentDigest != snapshot.Skill.ContentDigest {
+		t.Fatalf("converted digest = %q, want %q", resolved.ContentDigest, snapshot.Skill.ContentDigest)
+	}
+	content, err := srv.loadSkillFile(t.Context(), resolved, "reference.md")
+	if err != nil || content != "exact managed content" {
+		t.Fatalf("managed file = %q, %v", content, err)
 	}
 }

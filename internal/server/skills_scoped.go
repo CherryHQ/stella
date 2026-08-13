@@ -105,6 +105,10 @@ func (s *Server) authorizeReadableDBSkills(w http.ResponseWriter, r *http.Reques
 		case err == nil:
 			if reader, ok := s.skillStore().(skills.IdentityReader); ok {
 				revision, loadErr := reader.LoadCurrentRevision(r.Context(), sk)
+				if errors.Is(loadErr, fs.ErrNotExist) {
+					s.warnMissingSkillSelector(sk, loadErr)
+					continue
+				}
 				if loadErr != nil {
 					s.writeInternalError(w, loadErr)
 					return nil, false
@@ -121,6 +125,12 @@ func (s *Server) authorizeReadableDBSkills(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	return out, true
+}
+
+func (s *Server) warnMissingSkillSelector(identity skills.Skill, err error) {
+	if s.log != nil {
+		s.log.Warn("skip Skill with missing current selector", "skill_id", identity.ID, "scope", identity.Scope, "error", err)
+	}
 }
 
 // authorizeDBSkillRead authorizes reading one resolved DB-backed skill (Dir=="")
@@ -256,6 +266,7 @@ func dbSkillToPluginSkill(sk skills.Skill) pkgplugins.Skill {
 		Name: sk.Name, Description: sk.Description,
 		DisableModelInvocation: sk.DisableModelInvocation, Metadata: sk.Metadata,
 		CreatedAt: sk.CreatedAt, UpdatedAt: sk.UpdatedAt, Version: sk.Version,
+		ContentDigest: sk.ContentDigest,
 	}
 }
 
@@ -457,6 +468,10 @@ func (s *Server) resolveAgentSkillReference(ctx context.Context, agentID, ref, s
 				return nil, nil, "", http.StatusInternalServerError, "internal error"
 			}
 			revision, err := reader.LoadCurrentRevision(ctx, candidate)
+			if errors.Is(err, fs.ErrNotExist) {
+				s.warnMissingSkillSelector(candidate, err)
+				continue
+			}
 			if err != nil {
 				return nil, nil, "", http.StatusInternalServerError, "internal error"
 			}

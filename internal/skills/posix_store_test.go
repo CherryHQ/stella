@@ -55,7 +55,9 @@ func TestManagedSkillLockAcquireUnknownDiscardsSession(t *testing.T) {
 	var released, discarded atomic.Int32
 	f.store.acquireManagedLock = func(context.Context) (managedSkillLockSession, error) {
 		return managedSkillLockSession{
-			lock:    func(context.Context) error { return errors.New("ack lost after server lock") },
+			lock: func(context.Context) error {
+				return errors.Join(home.ErrOutcomeUnknown, errors.New("ack lost after server lock"))
+			},
 			release: func() { released.Add(1) },
 			discard: func(ctx context.Context) error {
 				if _, ok := ctx.Deadline(); !ok {
@@ -71,6 +73,51 @@ func TestManagedSkillLockAcquireUnknownDiscardsSession(t *testing.T) {
 	}
 	if released.Load() != 0 || discarded.Load() != 1 {
 		t.Fatalf("uncertain acquired session release=%d discard=%d", released.Load(), discarded.Load())
+	}
+}
+
+func TestManagedSkillLockWaitersDoNotExhaustPool(t *testing.T) {
+	f := newPOSIXStoreFixture(t)
+	release, err := f.store.lockManagedMutations(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	results := make(chan error, 3)
+	acquiresBefore := f.store.db.Stat().AcquireCount()
+	for range 3 {
+		go func() {
+			waitingRelease, err := f.store.lockManagedMutations(ctx)
+			if err == nil {
+				err = waitingRelease()
+			}
+			results <- err
+		}()
+	}
+	deadline := time.Now().Add(time.Second)
+	for f.store.db.Stat().AcquireCount() < acquiresBefore+3 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if acquired := f.store.db.Stat().AcquireCount(); acquired < acquiresBefore+3 {
+		t.Fatalf("lock waiters did not reach the pool: acquire count %d, want at least %d", acquired, acquiresBefore+3)
+	}
+	// dbtest uses a four-connection pool. The held lock plus three blocking
+	// pg_advisory_lock waiters used to occupy all four and starve this query.
+	queryCtx, queryCancel := context.WithTimeout(t.Context(), time.Second)
+	var one int
+	queryErr := f.store.db.QueryRow(queryCtx, "SELECT 1").Scan(&one)
+	queryCancel()
+	cancel()
+	if err := release(); err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		if err := <-results; !errors.Is(err, context.Canceled) {
+			t.Errorf("canceled lock waiter = %v", err)
+		}
+	}
+	if queryErr != nil || one != 1 {
+		t.Fatalf("query behind lock waiters = %d, %v", one, queryErr)
 	}
 }
 
@@ -222,6 +269,7 @@ func TestPOSIXStoreDigestCASHasOneConcurrentWinner(t *testing.T) {
 type faultRootOpener struct {
 	base              home.RootOpener
 	closeFailure      atomic.Bool
+	selectorRemoveErr atomic.Bool
 	selectorSyncError atomic.Bool
 	rootSyncAlwaysErr atomic.Bool
 	rootSyncCalls     atomic.Int32
@@ -261,6 +309,13 @@ func (r *faultSkillRoot) SyncDirectory(ctx context.Context, directory string) er
 		return errors.New("injected selector fsync failure")
 	}
 	return r.SkillRootOperations.SyncDirectory(ctx, directory)
+}
+
+func (r *faultSkillRoot) Remove(ctx context.Context, name string, options home.RemoveOptions) error {
+	if !options.Recursive && r.opener.selectorRemoveErr.CompareAndSwap(true, false) {
+		return errors.New("injected selector remove failure")
+	}
+	return r.SkillRootOperations.Remove(ctx, name, options)
 }
 
 func (r *faultSkillRoot) Close() error {
@@ -355,6 +410,154 @@ func TestPOSIXStoreExactUpdateRetryCompletesEvidenceAfterSelectorOutcomeUnknown(
 	retried, err := store.UpdateManagedSkill(t.Context(), update)
 	if err != nil || retried.Skill.ContentDigest == created.Skill.ContentDigest {
 		t.Fatalf("exact update retry = %#v, %v", retried, err)
+	}
+}
+
+func TestPOSIXStoreDeleteLeavesCatalogHealthyWhenSelectorCleanupFails(t *testing.T) {
+	f := newPOSIXStoreFixture(t)
+	deleted, err := f.store.CreateManagedSkill(t.Context(), fixtureSkill(f, "delete-cleanup-fails", "user_agent"), map[string]string{MainFile: "deleted"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	retained, err := f.store.CreateManagedSkill(t.Context(), fixtureSkill(f, "delete-retained", "user_agent"), map[string]string{MainFile: "retained"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	faults := &faultRootOpener{base: f.manager}
+	faults.selectorRemoveErr.Store(true)
+	store, err := NewPOSIXStore(f.store.db, faults)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleteErr := store.DeleteManagedSkill(t.Context(), ManagedSkillDelete{
+		ID: deleted.Skill.ID, Scope: deleted.Skill.Scope, UserID: deleted.Skill.UserID, AgentID: deleted.Skill.AgentID,
+		ExpectedDigest: deleted.Skill.ContentDigest,
+	})
+	if !home.IsOutcomeUnknown(deleteErr) {
+		t.Fatalf("selector cleanup failure = %v, want outcome unknown", deleteErr)
+	}
+	if identity, getErr := f.store.GetIdentity(t.Context(), deleted.Skill.ID); getErr != nil || identity != nil {
+		t.Fatalf("deleted identity remains after cleanup failure: %#v, %v", identity, getErr)
+	}
+	rows, listErr := f.store.List(t.Context(), ViewContext{UserID: f.userID, AgentID: f.agentID})
+	if listErr != nil || len(rows) != 1 || rows[0].ID != retained.Skill.ID {
+		t.Fatalf("catalog after interrupted cleanup = %#v, %v", rows, listErr)
+	}
+	if err := f.store.cleanupDeletedSelection(deleted.Skill, deleted.Skill.ContentDigest); err != nil {
+		t.Fatalf("retry selector cleanup: %v", err)
+	}
+	selector := filepath.Join(f.base, "users", f.userID, ".agents", "agent-skills", f.agentID, deleted.Skill.ID)
+	if _, err := os.Lstat(selector); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("selector after cleanup retry = %v", err)
+	}
+}
+
+func TestPOSIXStoreDeleteReconcilesInterruptedSelectorFirstAttempt(t *testing.T) {
+	f := newPOSIXStoreFixture(t)
+	created, err := f.store.CreateManagedSkill(t.Context(), fixtureSkill(f, "delete-retry", "user"), map[string]string{MainFile: "retry"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.removeSelection(t.Context(), created.Skill, created.Skill.ContentDigest); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.DeleteManagedSkill(t.Context(), ManagedSkillDelete{
+		ID: created.Skill.ID, Scope: created.Skill.Scope, UserID: created.Skill.UserID,
+		ExpectedDigest: created.Skill.ContentDigest,
+	}); err != nil {
+		t.Fatalf("retry interrupted delete: %v", err)
+	}
+	if identity, getErr := f.store.GetIdentity(t.Context(), created.Skill.ID); getErr != nil || identity != nil {
+		t.Fatalf("identity after reconciled delete: %#v, %v", identity, getErr)
+	}
+}
+
+func TestPOSIXStoreDeleteChecksDigestBeforeRemovingIdentity(t *testing.T) {
+	f := newPOSIXStoreFixture(t)
+	created, err := f.store.CreateManagedSkill(t.Context(), fixtureSkill(f, "delete-stale-cas", "system"), map[string]string{MainFile: "current"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = f.store.DeleteManagedSkill(t.Context(), ManagedSkillDelete{
+		ID: created.Skill.ID, Scope: created.Skill.Scope, ExpectedDigest: strings.Repeat("0", 64),
+	})
+	if !errors.Is(err, ErrSkillDigestConflict) {
+		t.Fatalf("stale delete CAS = %v", err)
+	}
+	if identity, getErr := f.store.GetIdentity(t.Context(), created.Skill.ID); getErr != nil || identity == nil {
+		t.Fatalf("identity removed before CAS check: %#v, %v", identity, getErr)
+	}
+	if revision, loadErr := f.store.LoadCurrentRevision(t.Context(), created.Skill); loadErr != nil || revision.Skill.ContentDigest != created.Skill.ContentDigest {
+		t.Fatalf("current revision after stale delete = %#v, %v", revision.Skill, loadErr)
+	}
+}
+
+func TestPOSIXStoreCatalogSkipsMissingSelectorButRejectsInvalidRevision(t *testing.T) {
+	f := newPOSIXStoreFixture(t)
+	missing, err := f.store.CreateManagedSkill(t.Context(), fixtureSkill(f, "catalog-missing", "user"), map[string]string{MainFile: "missing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	retained, err := f.store.CreateManagedSkill(t.Context(), fixtureSkill(f, "catalog-retained", "user"), map[string]string{MainFile: "retained"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.removeSelection(t.Context(), missing.Skill, missing.Skill.ContentDigest); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := f.store.List(t.Context(), ViewContext{UserID: f.userID})
+	if err != nil || len(rows) != 1 || rows[0].ID != retained.Skill.ID {
+		t.Fatalf("catalog with missing selector = %#v, %v", rows, err)
+	}
+	root := filepath.Join(f.base, "users", f.userID, ".agents", "skills")
+	selector := filepath.Join(root, retained.Skill.ID)
+	if err := os.Remove(selector); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.ToSlash(filepath.Join(managedRevisionRoot, retained.Skill.ID, "not-a-digest")), selector); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.List(t.Context(), ViewContext{UserID: f.userID}); !errors.Is(err, ErrInvalidSkillRevision) {
+		t.Fatalf("catalog with invalid selector = %v, want ErrInvalidSkillRevision", err)
+	}
+}
+
+func TestPOSIXStoreReflectDeleteLeavesCatalogHealthyWhenSelectorCleanupFails(t *testing.T) {
+	f := newPOSIXStoreFixture(t)
+	created, err := f.store.CreateReflectOwnedUserAgentSkill(t.Context(), ReflectSkillCreate{
+		UserID: f.userID, AgentID: f.agentID, Name: "reflect-delete-cleanup", MainFileContent: "# Reflect cleanup\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lastUsedAt := time.Now().UTC().Add(-30 * 24 * time.Hour).Truncate(time.Microsecond)
+	if _, err := f.store.db.Exec(t.Context(), `UPDATE skill_usage SET last_used_at=$1 WHERE skill_id=$2`, lastUsedAt, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.db.Exec(t.Context(), `
+		INSERT INTO ctx_conversation (id, session_id, channel, kind, agent_id, user_id, last_active)
+		VALUES ('00000000-0000-0000-0000-000000000124', 'posix-reflect-delete', 'test', 'chat', $1, $2, $3)
+	`, f.agentID, f.userID, lastUsedAt.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	faults := &faultRootOpener{base: f.manager}
+	faults.selectorRemoveErr.Store(true)
+	store, err := NewPOSIXStore(f.store.db, faults)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, deleteErr := store.DeleteReflectOwnedUserAgentSkill(t.Context(), ReflectSkillDelete{
+		ID: created.ID, UserID: f.userID, AgentID: f.agentID, ExpectedVersion: created.Version,
+		ExpectedDigest: created.ContentDigest, ExpectedUsageLastUsedAt: lastUsedAt,
+	})
+	if !home.IsOutcomeUnknown(deleteErr) {
+		t.Fatalf("Reflect selector cleanup failure = %v, want outcome unknown", deleteErr)
+	}
+	if identity, getErr := f.store.GetIdentity(t.Context(), created.ID); getErr != nil || identity != nil {
+		t.Fatalf("Reflect identity remains after cleanup failure: %#v, %v", identity, getErr)
+	}
+	if rows, listErr := f.store.List(t.Context(), ViewContext{UserID: f.userID, AgentID: f.agentID}); listErr != nil || len(rows) != 0 {
+		t.Fatalf("catalog after interrupted Reflect cleanup = %#v, %v", rows, listErr)
 	}
 }
 
@@ -632,5 +835,37 @@ func TestManagedLoadPinsEverySessionDigestAndExcludesDisabledOrPolicyDeniedSkill
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestManagedProjectionRejectsPoisonedExactDigestReuse(t *testing.T) {
+	digest := strings.Repeat("7", 64)
+	session := projectionSession{tempVisible: "/session/tmp", tempHost: t.TempDir()}
+	tool := NewTool(nil, "", "").WithManagedRevisions(nil, session)
+	revision := ManagedRevision{
+		Skill: projectionSkill("poisoned-id", "poisoned", digest),
+		Files: map[string][]byte{
+			MainFile:             []byte("# Exact\n"),
+			"scripts/support.sh": []byte("#!/bin/sh\nprintf exact"),
+		},
+		Modes: map[string]fs.FileMode{MainFile: 0o644, "scripts/support.sh": 0o755},
+	}
+	if _, err := tool.projectRevision(revision); err != nil {
+		t.Fatal(err)
+	}
+	host := filepath.Join(session.tempHost, "stella-skills", revision.Skill.Scope, revision.Skill.ID, digest)
+	poisoned := filepath.Join(host, "scripts", "support.sh")
+	if err := os.Chmod(poisoned, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(poisoned, []byte("poisoned"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tool.projectRevision(revision); !errors.Is(err, ErrInvalidSkillRevision) {
+		t.Fatalf("poisoned projection reuse = %v, want ErrInvalidSkillRevision", err)
+	}
+	content, err := os.ReadFile(filepath.Join(host, "scripts", "support.sh"))
+	if err != nil || string(content) != "poisoned" {
+		t.Fatalf("poisoned path was silently replaced: %q, %v", content, err)
 	}
 }

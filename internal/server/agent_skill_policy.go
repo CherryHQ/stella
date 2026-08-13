@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"strings"
 
@@ -120,6 +121,10 @@ func (s *Server) policyRefExists(ctx context.Context, agentID, ref string) (bool
 					return false, authErr
 				}
 				revision, loadErr := reader.LoadCurrentRevision(ctx, rows[i])
+				if errors.Is(loadErr, fs.ErrNotExist) {
+					s.warnMissingSkillSelector(rows[i], loadErr)
+					continue
+				}
 				if loadErr != nil {
 					return false, loadErr
 				}

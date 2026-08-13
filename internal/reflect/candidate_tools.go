@@ -266,6 +266,7 @@ func skillWriteOperationSchema() map[string]any {
 		prop("covered_candidate_refs", arraySchema(stringSchema())),
 		prop("target_skill_id", stringSchema()),
 		prop("expected_skill_version", integerSchema()),
+		prop("expected_skill_digest", stringSchema()),
 		prop("name", stringSchema()),
 		prop("description", stringSchema()),
 		prop("main_file_content", stringSchema()),
