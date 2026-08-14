@@ -159,7 +159,7 @@ The Web Workspace API addresses files with a typed scope plus canonical relative
 
 Because these XDG directories are principal-shared, an on-disk CLI login or configuration — potentially including credentials — is visible to every Agent for that same principal. For per-Agent authentication, store the credential in an Agent-specific [Vault scope](/docs/guides/secrets-and-keys) and use the CLI's environment-based authentication instead of a persistent login.
 
-Mise, Lark, and system directories are tool-managed, not generic storage locations.
+Mise, Lark, and system directories are tool-managed, not generic storage locations. Mise loads Stella's release-owned tools as its read-only system layer, then a principal-shared global config, then the current workspace config. Install a personal default with `mise use --global --pin <tool>@<version>`; this writes the shared global config without modifying Stella's system tools. Run `mise use --pin <tool>@<version>` inside a project when the version belongs to that workspace instead.
 
 ### Backend path rendering
 
@@ -173,7 +173,7 @@ The following literal paths describe a process view, not the Agent filesystem AP
 
 Every backend creates a private temporary directory for each sandbox session and removes it when the session closes. Docker stores its backing directory under `$STELLA_HOME/cache/sandbox-tmp/` and mounts it at `/tmp`, so shell commands and file tools access the same content; startup cleanup removes stale Docker directories. This is scratch space, not a durability promise.
 
-Isolating backends also render the system install tree at `/opt/stella` as read-only. Its tool-managed `bin` and `.mise-tools` trees remain available, and builtins appear at `/opt/stella/skills/builtin`; the sibling `users/` and `agents/` trees under `STELLA_HOME` are not exposed. A selected managed Skill is copied separately into a digest-pinned, session-private directory under `$TMPDIR`; its complete authority root and revision history are never mounted into the sandbox. The Docker backend bakes its mise toolchain at `/opt/stella`, and Linux `local` renders the matching system tree there, so tool resolution remains consistent across isolating backends. `MISE_DATA_DIR` and related variables stay pinned to that tool-managed tree.
+Isolating backends also render the system install tree at `/opt/stella` as read-only. Its tool-managed `bin` and `.mise-tools` trees remain available, and builtins appear at `/opt/stella/skills/builtin`; the sibling `users/` and `agents/` trees under `STELLA_HOME` are not exposed. A selected managed Skill is copied separately into a digest-pinned, session-private directory under `$TMPDIR`; its complete authority root and revision history are never mounted into the sandbox. The Docker backend bakes its mise toolchain at `/opt/stella`, and Linux `local` renders the matching system tree there, so tool resolution remains consistent across isolating backends. Mise's system config stays in that read-only tree. Principal-global configuration is writable under `XDG_CONFIG_HOME`, while its installs, cache, and state stay in a separate Stella-managed per-principal tree so relative tool links resolve identically across backends.
 
 ### Builtin Skill bundle
 

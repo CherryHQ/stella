@@ -45,35 +45,35 @@ func miseBaseEnv(stellaHome string) map[string]string {
 	return env
 }
 
-// runtimeScopeConfigPath returns the mise config the sandbox resolves against.
+// runtimeScopeConfigPath returns the system mise config the sandbox resolves
+// beneath a principal's global config and any workspace config.
 func runtimeScopeConfigPath(stellaHome string) string {
 	return ScopeConfigPath(stellaHome, builtinScope)
 }
 
-// RuntimeMiseEnv returns the mise environment for a sandbox session, layered
-// like a real machine: the shared system installs supply the builtin tools and
-// the _builtin config supplies their default versions, while the per-user
-// writable tree (userDataDir) holds anything the agent installs itself. HOME/XDG
-// are left untouched — the sandbox owns those.
+// RuntimeMiseEnv returns the mise environment for a sandbox session using
+// mise's native system < global < workspace precedence. The shared system
+// installs and _builtin config supply release-owned tools. A principal gets a
+// writable tools tree plus a global config under its shared XDG config root;
+// workspace mise.toml files remain the most specific layer. HOME and the XDG
+// roots themselves are rendered by the selected sandbox backend.
 //
-// When userDataDir is set the per-user tree is writable, so DATA/CACHE/STATE live
-// there and auto-install is enabled; a user's own tool versions win because the
-// per-user shims sort ahead on PATH. (Auto-install still only reaches the network
-// when the session's NetworkPolicy permits egress — mise doesn't widen it.)
-// workspaceDir (the host workspace root) is trusted alongside the bwrap
-// "/workspace" mount so a project's mise.toml participates in resolution regardless
-// of backend.
+// userToolsDir deliberately stays in the STELLA_HOME frame rather than under
+// /user: relative seed and shim links must resolve against the shared system tree
+// identically on local, none, and Docker backends. userConfigDir is separate and
+// lives under the principal's shared data mount, where `mise use --global` may
+// safely write without touching Stella's system config.
 //
-// When userDataDir is empty (no user/group) it falls back to the read-only system
-// tree with auto-install disabled and state redirected to a writable temp dir,
-// matching the historical behavior.
+// When userToolsDir is empty (no safe user/group principal), runtime falls back
+// to the read-only system tree with auto-install disabled and exposes no writable
+// global config.
 //
-// MISE_DATA_DIR is load-bearing beyond mise itself: the sandbox host backends
-// recover the per-user mise home from it via pkgsandbox.PerUserMiseDataDir to put
-// the per-user shims on PATH, so the FilesystemPolicy carries no mise-specific
-// field. Keep DATA_DIR pointing at userDataDir (or the system tree when empty).
-func RuntimeMiseEnv(stellaHome, userDataDir, workspaceDir string) map[string]string {
-	dataDir := userDataDir
+// MISE_DATA_DIR is load-bearing beyond mise itself: sandbox backends recover the
+// per-user mise home from it via pkgsandbox.PerUserMiseDataDir to prepend its
+// shims to PATH. Keep it pointing at userToolsDir, or at the system tree when the
+// per-user tree is unavailable.
+func RuntimeMiseEnv(stellaHome, userToolsDir, userConfigDir, workspaceDir string) map[string]string {
+	dataDir := userToolsDir
 	if dataDir == "" {
 		dataDir = miseToolsDir(stellaHome)
 	}
@@ -82,23 +82,30 @@ func RuntimeMiseEnv(stellaHome, userDataDir, workspaceDir string) map[string]str
 	env["MISE_NO_ANALYTICS"] = "1"
 	env["MISE_EXPERIMENTAL"] = "1"
 
-	configPath := runtimeScopeConfigPath(stellaHome)
-	env["MISE_GLOBAL_CONFIG_FILE"] = configPath
+	systemConfigPath := runtimeScopeConfigPath(stellaHome)
+	env["MISE_SYSTEM_CONFIG_FILE"] = systemConfigPath
 
-	// Trust a superset so the project mise.toml resolves on every backend: the
-	// literal "/workspace" is the bind-mount path (load-bearing on Linux/bwrap),
-	// the host workspaceDir is load-bearing on none/macOS where there is no remap.
-	// The entry irrelevant to a given backend is inert, so neither may be dropped.
-	trusted := []string{configPath, pkgsandbox.MountWorkspace}
+	trusted := []string{systemConfigPath}
+	if userToolsDir != "" && userConfigDir != "" {
+		env["MISE_CONFIG_DIR"] = userConfigDir
+		env["MISE_GLOBAL_CONFIG_FILE"] = filepath.Join(userConfigDir, "config.toml")
+		trusted = append(trusted, userConfigDir)
+	}
+
+	// Trust a superset so workspace mise.toml resolves on every backend: the
+	// literal /workspace is the bind-mount path on isolating backends, while the
+	// host workspaceDir is needed by none and macOS local. Irrelevant entries are
+	// inert and backend path translation deduplicates aliases.
+	trusted = append(trusted, pkgsandbox.MountWorkspace)
 	if workspaceDir != "" && workspaceDir != pkgsandbox.MountWorkspace {
 		trusted = append(trusted, workspaceDir)
 	}
 	env["MISE_TRUSTED_CONFIG_PATHS"] = strings.Join(trusted, string(filepath.ListSeparator))
 
-	if userDataDir == "" {
+	if userToolsDir == "" {
 		// No writable per-user tree: keep runtime off the network. Mutable config,
-		// cache, and state follow the backend-rendered XDG roots under Agent HOME;
-		// only the read-only system data/install tree remains pinned explicitly.
+		// cache, and state follow backend-rendered XDG roots under Agent HOME; only
+		// the read-only system data/install tree remains pinned explicitly.
 		delete(env, "MISE_CONFIG_DIR")
 		delete(env, "MISE_CACHE_DIR")
 		delete(env, "MISE_STATE_DIR")

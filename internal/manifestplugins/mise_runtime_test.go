@@ -11,41 +11,43 @@ import (
 
 func TestRuntimeMiseEnv_PerUser(t *testing.T) {
 	stellaHome := t.TempDir()
-	userDataDir := filepath.Join(stellaHome, "users", "u1", ".mise-tools")
+	userToolsDir := filepath.Join(stellaHome, "users", "u1", ".mise-tools")
+	userConfigDir := filepath.Join(stellaHome, "users", "u1", "data", ".config", "mise")
 	workspace := "/home/agent/workspace"
 
-	env := RuntimeMiseEnv(stellaHome, userDataDir, workspace)
+	env := RuntimeMiseEnv(stellaHome, userToolsDir, userConfigDir, workspace)
 
-	if got := env["MISE_DATA_DIR"]; got != userDataDir {
-		t.Fatalf("MISE_DATA_DIR = %q, want per-user dir %q", got, userDataDir)
+	if got := env["MISE_DATA_DIR"]; got != userToolsDir {
+		t.Fatalf("MISE_DATA_DIR = %q, want per-user dir %q", got, userToolsDir)
 	}
 	for key, sub := range map[string]string{
-		"MISE_CACHE_DIR":  "cache",
-		"MISE_STATE_DIR":  "state",
-		"MISE_CONFIG_DIR": "config",
+		"MISE_CACHE_DIR": "cache",
+		"MISE_STATE_DIR": "state",
 	} {
-		want := filepath.Join(userDataDir, sub)
+		want := filepath.Join(userToolsDir, sub)
 		if env[key] != want {
 			t.Fatalf("%s = %q, want %q (under per-user tree)", key, env[key], want)
 		}
 	}
+	if got := env["MISE_CONFIG_DIR"]; got != userConfigDir {
+		t.Fatalf("MISE_CONFIG_DIR = %q, want principal config dir %q", got, userConfigDir)
+	}
+	if got, want := env["MISE_GLOBAL_CONFIG_FILE"], filepath.Join(userConfigDir, "config.toml"); got != want {
+		t.Fatalf("MISE_GLOBAL_CONFIG_FILE = %q, want principal config %q", got, want)
+	}
 	if env["MISE_NOT_FOUND_AUTO_INSTALL"] != "true" {
 		t.Fatalf("auto-install should be enabled for a writable per-user tree, got %q", env["MISE_NOT_FOUND_AUTO_INSTALL"])
 	}
-	if env["MISE_STATE_DIR"] == "/tmp/mise-state" {
-		t.Fatalf("state should live in the per-user tree, not the read-only fallback, got %q", env["MISE_STATE_DIR"])
+
+	// The release-owned config is the lower-precedence system layer.
+	wantSystem := ScopeConfigPath(stellaHome, builtinScope)
+	if env["MISE_SYSTEM_CONFIG_FILE"] != wantSystem {
+		t.Fatalf("MISE_SYSTEM_CONFIG_FILE = %q, want _builtin %q", env["MISE_SYSTEM_CONFIG_FILE"], wantSystem)
 	}
 
-	// Global config stays the shared system _builtin layer.
-	wantGlobal := ScopeConfigPath(stellaHome, builtinScope)
-	if env["MISE_GLOBAL_CONFIG_FILE"] != wantGlobal {
-		t.Fatalf("MISE_GLOBAL_CONFIG_FILE = %q, want _builtin %q", env["MISE_GLOBAL_CONFIG_FILE"], wantGlobal)
-	}
-
-	// The project workspace is trusted (both the bwrap /workspace mount and the
-	// host path, so it resolves regardless of backend).
+	// System, principal-global, and project paths are trusted in precedence order.
 	trusted := strings.Split(env["MISE_TRUSTED_CONFIG_PATHS"], string(filepath.ListSeparator))
-	for _, want := range []string{wantGlobal, pkgsandbox.MountWorkspace, workspace} {
+	for _, want := range []string{wantSystem, userConfigDir, pkgsandbox.MountWorkspace, workspace} {
 		if !slices.Contains(trusted, want) {
 			t.Fatalf("trusted paths %v missing %q", trusted, want)
 		}
@@ -55,7 +57,7 @@ func TestRuntimeMiseEnv_PerUser(t *testing.T) {
 func TestRuntimeMiseEnv_FallbackWhenNoUser(t *testing.T) {
 	stellaHome := t.TempDir()
 
-	env := RuntimeMiseEnv(stellaHome, "", "")
+	env := RuntimeMiseEnv(stellaHome, "", "", "")
 
 	wantData := filepath.Join(stellaHome, ".mise-tools")
 	if env["MISE_DATA_DIR"] != wantData {
@@ -64,7 +66,10 @@ func TestRuntimeMiseEnv_FallbackWhenNoUser(t *testing.T) {
 	if env["MISE_NOT_FOUND_AUTO_INSTALL"] != "false" {
 		t.Fatalf("auto-install must stay off without a writable tree, got %q", env["MISE_NOT_FOUND_AUTO_INSTALL"])
 	}
-	for _, key := range []string{"MISE_CONFIG_DIR", "MISE_CACHE_DIR", "MISE_STATE_DIR"} {
+	if got, want := env["MISE_SYSTEM_CONFIG_FILE"], ScopeConfigPath(stellaHome, builtinScope); got != want {
+		t.Fatalf("MISE_SYSTEM_CONFIG_FILE = %q, want %q", got, want)
+	}
+	for _, key := range []string{"MISE_CONFIG_DIR", "MISE_CACHE_DIR", "MISE_STATE_DIR", "MISE_GLOBAL_CONFIG_FILE"} {
 		if value, ok := env[key]; ok {
 			t.Fatalf("%s should follow sandbox XDG roots without a writable tree, got %q", key, value)
 		}

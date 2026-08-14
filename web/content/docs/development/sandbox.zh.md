@@ -113,7 +113,7 @@ Stella 优先选择显式拒绝而非静默降级：
 
 用 `docker compose down` 停掉整套栈。
 
-sandbox 镜像通过 `stellad mise reconcile-builtins`（与宿主相同的 `resources/tools.yaml` reconcile）把 mise 工具链烤在 `/opt/stella`，因此 docker 与 Linux `local` 后端呈现完全一致的 mise 路径。
+sandbox 镜像通过 `stellad mise reconcile-builtins`（与宿主相同的 `resources/tools.yaml` reconcile）把 mise 工具链烤在 `/opt/stella`，因此 docker 与 Linux `local` 后端呈现完全一致的 mise 路径。运行时采用 mise 原生的 system < global < workspace 配置顺序：发行版自带的 `_builtin.toml` 是 system 文件，principal 全局配置位于共享 XDG config 根目录，项目 `mise.toml` 仍具有最高优先级。Per-principal installs 继续位于 `STELLA_HOME` frame，确保指向系统 installs 的相对链接在后端重映射后仍然有效。
 
 ## builtin Skill bundle 与投影
 

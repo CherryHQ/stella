@@ -477,17 +477,24 @@ func TestConfigureSessionMounts_WritableMiseTree(t *testing.T) {
 	}
 }
 
-// TestTranslateEnvPaths_Mise verifies the per-user MISE_DATA_DIR is rewritten to
-// its /opt/stella container view and the MISE_TRUSTED_CONFIG_PATHS list is split,
-// translated element-wise, and deduped (keeping the literal /workspace mise needs).
+// TestTranslateEnvPaths_Mise verifies system, principal-global, and workspace
+// mise paths are translated into their distinct container roots and trusted-path
+// aliases are deduped.
 func TestTranslateEnvPaths_Mise(t *testing.T) {
 	stellaHome := "/host/.stella"
+	userConfigDir := "/host/data/.config/mise"
 	sep := string(filepath.ListSeparator)
-	mountTable := []dockerclient.Mount{{HostPath: "/host/ws", ContainerPath: "/workspace"}}
+	mountTable := []dockerclient.Mount{
+		{HostPath: "/host/ws", ContainerPath: "/workspace"},
+		{HostPath: "/host/data", ContainerPath: "/user"},
+	}
 	envMaps := []envPathMap{{HostPrefix: stellaHome, ContainerPrefix: stellaHomeMount}}
 	env := map[string]string{
 		"MISE_DATA_DIR":             stellaHome + "/users/u1/.mise-tools",
-		"MISE_TRUSTED_CONFIG_PATHS": strings.Join([]string{stellaHome + "/.mise-tools/configs/_builtin.toml", "/workspace", "/host/ws"}, sep),
+		"MISE_CONFIG_DIR":           userConfigDir,
+		"MISE_SYSTEM_CONFIG_FILE":   stellaHome + "/.mise-tools/configs/_builtin.toml",
+		"MISE_GLOBAL_CONFIG_FILE":   userConfigDir + "/config.toml",
+		"MISE_TRUSTED_CONFIG_PATHS": strings.Join([]string{stellaHome + "/.mise-tools/configs/_builtin.toml", userConfigDir, "/workspace", "/host/ws"}, sep),
 		"PATH":                      "/host/leak",
 	}
 	out := translateEnvPaths(env, mountTable, envMaps)
@@ -495,7 +502,13 @@ func TestTranslateEnvPaths_Mise(t *testing.T) {
 	if got, want := out["MISE_DATA_DIR"], stellaHomeMount+"/users/u1/.mise-tools"; got != want {
 		t.Errorf("MISE_DATA_DIR = %q, want %q", got, want)
 	}
-	wantTrusted := strings.Join([]string{stellaHomeMount + "/.mise-tools/configs/_builtin.toml", "/workspace"}, sep)
+	if got, want := out["MISE_SYSTEM_CONFIG_FILE"], stellaHomeMount+"/.mise-tools/configs/_builtin.toml"; got != want {
+		t.Errorf("MISE_SYSTEM_CONFIG_FILE = %q, want %q", got, want)
+	}
+	if got, want := out["MISE_GLOBAL_CONFIG_FILE"], "/user/.config/mise/config.toml"; got != want {
+		t.Errorf("MISE_GLOBAL_CONFIG_FILE = %q, want %q", got, want)
+	}
+	wantTrusted := strings.Join([]string{stellaHomeMount + "/.mise-tools/configs/_builtin.toml", "/user/.config/mise", "/workspace"}, ":")
 	if got := out["MISE_TRUSTED_CONFIG_PATHS"]; got != wantTrusted {
 		t.Errorf("MISE_TRUSTED_CONFIG_PATHS = %q, want %q", got, wantTrusted)
 	}

@@ -43,7 +43,7 @@ func ExtractWithXberg(ctx context.Context, path string) (string, error) {
 	// the input file instead of leaking stellad's operator-controlled cwd.
 	cmd.Dir = filepath.Dir(path)
 	if managedShim {
-		miseEnv := manifestplugins.RuntimeMiseEnv(stellaHome, "", "")
+		miseEnv := manifestplugins.RuntimeMiseEnv(stellaHome, "", "", "")
 		// RuntimeMiseEnv uses the sandbox's /tmp by default; this command runs in
 		// the daemon process, so use the host platform's temporary directory.
 		miseEnv["MISE_STATE_DIR"] = filepath.Join(os.TempDir(), "stella-mise-state")

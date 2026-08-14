@@ -62,16 +62,16 @@ USER stella
 # runtime RuntimeMiseEnv overrides MISE_DATA_DIR to the per-user writable tree
 # (/opt/stella/users/{id}/.mise-tools) mounted from the host; the builtin tools
 # baked here under /opt/stella/.mise-tools remain the shared read-only base that
-# per-user relative symlinks resolve against. MISE_GLOBAL_CONFIG_FILE points at
-# the _builtin config the runtime also resolves against (RuntimeMiseEnv →
-# ScopeConfigPath(_builtin)). HOME stays /home/stella for the build, then flips
-# to /workspace.
+# per-user relative symlinks resolve against. MISE_SYSTEM_CONFIG_FILE points at
+# the release-owned _builtin config; runtime may add a principal-global config
+# above it without making the system file writable. HOME stays /home/stella for
+# the build, then flips to /workspace.
 ENV HOME=/home/stella
 ENV MISE_DATA_DIR=/opt/stella/.mise-tools
 ENV MISE_CONFIG_DIR=/opt/stella/.mise-tools/config
 ENV MISE_STATE_DIR=/opt/stella/.mise-tools/state
 ENV MISE_CACHE_DIR=/opt/stella/.mise-tools/cache
-ENV MISE_GLOBAL_CONFIG_FILE=/opt/stella/.mise-tools/configs/_builtin.toml
+ENV MISE_SYSTEM_CONFIG_FILE=/opt/stella/.mise-tools/configs/_builtin.toml
 ENV PATH=/opt/stella/bin:/opt/stella/.mise-tools/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Install the builtin tools through the SAME reconcile path the daemon runs, so

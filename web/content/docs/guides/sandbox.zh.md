@@ -159,7 +159,7 @@ Web Workspace API 使用类型化 scope 与规范相对路径定位文件。项�
 
 这些 XDG 目录按 principal 共享，因此落盘的 CLI 登录或配置（其中可能包含凭据）会对该 principal 的所有 Agent 可见。需要按 Agent 隔离认证时，请将凭据存入 [Agent 专属的 Vault scope](/docs/guides/secrets-and-keys)，并使用 CLI 基于环境变量的认证方式，而不是持久化登录。
 
-mise、Lark 和系统目录由其工具托管，不是通用存储位置。
+mise、Lark 和系统目录由其工具托管，不是通用存储位置。mise 会先加载 Stella 发行版提供的只读系统工具层，再加载 principal 共享的全局配置，最后加载当前 workspace 配置。使用 `mise use --global --pin <tool>@<version>` 安装个人默认工具；该命令只写共享全局配置，不会修改 Stella 的系统工具。属于特定项目的版本则应在项目内运行 `mise use --pin <tool>@<version>`。
 
 ### 后端路径渲染
 
@@ -173,7 +173,7 @@ mise、Lark 和系统目录由其工具托管，不是通用存储位置。
 
 每个后端都会为每个沙箱会话创建私有临时目录，并在会话关闭时删除。Docker 的 backing 目录位于 `$STELLA_HOME/cache/sandbox-tmp/` 下并挂载到 `/tmp`，因此 shell 命令和文件工具访问的是同一份内容；启动清理会删除遗留的 Docker 临时目录。这是临时工作区，不承诺持久性。
 
-隔离型后端还会将系统安装树以只读方式渲染到 `/opt/stella`。其中保留由工具托管的 `bin` 和 `.mise-tools` 树，builtin 位于 `/opt/stella/skills/builtin`；`STELLA_HOME` 下同级的 `users/` 和 `agents/` 树不会暴露。选中的 managed Skill 会单独复制到 `$TMPDIR` 下按 digest 固定的 Session 私有目录；其完整 authority root 与 revision history 绝不会挂载进沙箱。Docker 后端会将 mise 工具链置于 `/opt/stella`，Linux `local` 则在该路径渲染对应的系统树，因此工具解析在各隔离型后端之间保持一致。`MISE_DATA_DIR` 及相关变量固定指向这个由工具托管的目录树。
+隔离型后端还会将系统安装树以只读方式渲染到 `/opt/stella`。其中保留由工具托管的 `bin` 和 `.mise-tools` 树，builtin 位于 `/opt/stella/skills/builtin`；`STELLA_HOME` 下同级的 `users/` 和 `agents/` 树不会暴露。选中的 managed Skill 会单独复制到 `$TMPDIR` 下按 digest 固定的 Session 私有目录；其完整 authority root 与 revision history 绝不会挂载进沙箱。Docker 后端会将 mise 工具链置于 `/opt/stella`，Linux `local` 则在该路径渲染对应的系统树，因此工具解析在各隔离型后端之间保持一致。mise 的系统配置保留在这棵只读树中；principal 全局配置可写并位于 `XDG_CONFIG_HOME` 下，而 installs、cache 和 state 继续放在 Stella 单独托管的 per-principal 树中，以保证相对工具链接在不同后端下得到相同解析结果。
 
 ### builtin Skill bundle
 
