@@ -15,9 +15,9 @@ func NewTools(host pkgsandbox.Session, sessionSecretValues *SessionSecretValues)
 	projectRoot := host.WorkingDir()
 	return []pkgtools.Tool{
 		newBashTool(host, projectRoot, sessionSecretValues),
-		newReadTool(host, projectRoot),
-		newWriteTool(host, projectRoot),
-		newEditTool(host, projectRoot),
+		newReadTool(host),
+		newWriteTool(host),
+		newEditTool(host),
 	}
 }
 
@@ -33,12 +33,13 @@ func ToolDefinitions() []pkgtools.Definition {
 }
 
 // resolveToolExpression expands only the model-authored leading filesystem
-// variable before project resolution; session path resolvers stay literal.
-func resolveToolExpression(host pkgsandbox.Session, projectRoot, path string) (string, error) {
+// variable before project resolution. env and the FileAccess that consumes the
+// result must come from the same selected sandbox.FileView.
+func resolveToolExpression(env map[string]string, projectRoot, path string) (string, error) {
 	expanded := path
 	if strings.HasPrefix(path, "$") {
 		var err error
-		expanded, err = pkgsandbox.ExpandPathVariables(path, host.Policy().Env)
+		expanded, err = pkgsandbox.ExpandPathVariables(path, env)
 		if err != nil {
 			return "", err
 		}

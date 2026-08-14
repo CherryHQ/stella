@@ -19,9 +19,9 @@ type SessionCreator func(ctx context.Context) (Session, error)
 // after that. Policy and WorkingDir are cheap snapshots of the retained
 // generation and never create a container; operational methods recreate with
 // their caller context. Selection is atomic per method call, not across a
-// caller's separate metadata and Files operations. A generation-scoped
-// coordinate that becomes stale therefore fails closed; callers retry the
-// complete composed operation.
+// caller's separate metadata and Files operations. Callers that compose metadata
+// with one or more file operations use SelectFileView to bind them to one
+// generation; a backend failure then fails that view instead of switching it.
 type ResilientSession struct {
 	create     SessionCreator
 	mu         sync.Mutex
@@ -96,6 +96,18 @@ func (r *ResilientSession) WorkingDir() string {
 		return ""
 	}
 	return s.WorkingDir()
+}
+
+func (r *ResilientSession) selectFileView(ctx context.Context) (FileView, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, err := r.ensureAliveLocked(ctx)
+	if err != nil {
+		return FileView{}, err
+	}
+	view := fileView(s)
+	view.Policy.Env = mergeEnvUpdates(view.Policy.Env, r.envUpdates)
+	return view, nil
 }
 
 func (r *ResilientSession) Alive() bool {

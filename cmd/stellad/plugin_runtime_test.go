@@ -71,6 +71,7 @@ func (h *passthroughHost) Exec(_ context.Context, command string, opts sandbox.E
 	return sandbox.ExecResult{Stdout: string(out), ExitCode: exitCode}, nil
 }
 
+func (h *passthroughHost) Policy() sandbox.Policy    { return sandbox.Policy{} }
 func (h *passthroughHost) Files() sandbox.FileAccess { return passthroughFiles{} }
 func (h *passthroughHost) WorkingDir() string        { return h.workDir }
 

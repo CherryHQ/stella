@@ -49,7 +49,7 @@ func newTestReadTool(t *testing.T, projectRoot string) pkgtools.Tool {
 		t.Fatalf("create test sandbox Session: %v", err)
 	}
 	t.Cleanup(func() { _ = session.Close() })
-	return newReadTool(session, session.WorkingDir())
+	return newReadTool(session)
 }
 
 func TestReadImageVisionReturnsImageBlock(t *testing.T) {
@@ -170,7 +170,7 @@ func TestReadToolUsesSessionProcessViewBoundary(t *testing.T) {
 	}
 	defer session.Close() //nolint:errcheck
 
-	tool := newReadTool(session, session.WorkingDir())
+	tool := newReadTool(session)
 	out, err := tool.Execute(context.Background(), map[string]any{"path": "inside.txt"})
 	if err != nil {
 		t.Fatalf("read inside workspace: %v", err)

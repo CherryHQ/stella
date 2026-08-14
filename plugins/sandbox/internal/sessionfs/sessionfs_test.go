@@ -57,8 +57,57 @@ func TestAccessPinsMountSourceAcrossPathReplacement(t *testing.T) {
 	}
 }
 
+func TestResolverErrorsHidePhysicalMountPaths(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "principal", "agent")
+	_, err := NewResolver("/workspace", []Mount{{HostPath: missing, SandboxPath: "/workspace"}})
+	if err == nil {
+		t.Fatal("NewResolver accepted a missing mount source")
+	}
+	if strings.Contains(err.Error(), missing) {
+		t.Fatalf("NewResolver error leaked physical path %q: %v", missing, err)
+	}
+	if !strings.Contains(err.Error(), "/workspace") {
+		t.Fatalf("NewResolver error omitted process path: %v", err)
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("NewResolver error lost fs.ErrNotExist: %v", err)
+	}
+}
+
+func TestValidateBackingPathsErrorsHidePhysicalMountPaths(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "principal", "agent")
+	if err := os.MkdirAll(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := NewResolver("/workspace", []Mount{{HostPath: source, SandboxPath: "/workspace"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = resolver.Close() })
+	if err := os.Remove(source); err != nil {
+		t.Fatal(err)
+	}
+
+	err = resolver.ValidateBackingPaths()
+	if err == nil {
+		t.Fatal("removed mount source passed backing-path validation")
+	}
+	if strings.Contains(err.Error(), source) {
+		t.Fatalf("backing-path error leaked physical path %q: %v", source, err)
+	}
+	if !strings.Contains(err.Error(), "/workspace") {
+		t.Fatalf("backing-path error omitted process path: %v", err)
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("backing-path error lost fs.ErrNotExist: %v", err)
+	}
+}
+
 func TestResolverAcceptsOnlyExplicitSameNamespaceSymlinkAliases(t *testing.T) {
 	physical := t.TempDir()
+	if resolved, err := filepath.EvalSymlinks(physical); err == nil {
+		physical = resolved
+	}
 	if err := os.Mkdir(filepath.Join(physical, "nested"), 0o700); err != nil {
 		t.Fatal(err)
 	}

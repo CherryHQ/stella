@@ -64,6 +64,8 @@ runner 会根据插件状态解析当前活动后端，并分派到对应的后�
 - 技能和代理预设加载在代理会话内运行时使用 `ToolRuntime`
 - MCP stdio 进程派生使用 `Session.StartProcess`
 
+核心文件工具每次调用只选择一个 `FileView`。其中的策略环境、工作目录与 `FileAccess` 来自同一个 resilient generation，因此路径展开和 `edit` 等多步操作不会在中途静默切换 backing tree。跨越该边界的 provider 错误只标识逻辑进程 mount，不暴露物理 source path。
+
 managed Skill 投影会原子发布，并在每次 load 时校验，但它不是针对同一用户身份运行命令的独立隔离边界。此类命令可能与校验并发，或在校验后修改 disposable tree。只要 load 观察到不一致，就会 fail closed，而不会替换该路径。Session 关闭时会删除其临时 backing；Docker 启动清理还会移除被中断 Session 遗留的临时目录。
 
 ### stdio-MCP 优势

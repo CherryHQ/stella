@@ -64,6 +64,8 @@ All local execution paths that must obey sandbox policy are mediated through the
 - skills and agent preset loading use `ToolRuntime` when running inside an agent session
 - MCP stdio process spawning uses `Session.StartProcess`
 
+Core file tools select one `FileView` per invocation. Its policy environment, working directory, and `FileAccess` come from the same resilient generation, so path expansion and multi-step operations such as `edit` cannot silently switch backing trees midway. Provider errors that cross this boundary identify logical process mounts without exposing physical source paths.
+
 A managed Skill projection is atomically published and verified on every load, but it is not a separate isolation boundary from commands running as the same user. Such a command can race verification or modify the disposable tree afterward. A load that observes a mismatch fails closed instead of replacing the path. Session close removes its temporary backing; Docker startup cleanup also removes stale temporary directories left by interrupted sessions.
 
 ### stdio-MCP benefit

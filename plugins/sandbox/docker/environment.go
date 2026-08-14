@@ -107,16 +107,27 @@ func translateDeclaredEnvPathList(value string, mountTable []dockerclient.Mount,
 }
 
 func translateDeclaredEnvPath(value string, mountTable []dockerclient.Mount, envMaps []envPathMap) (string, bool) {
+	containerValue := cleanContainerPath(value)
+	alreadyVisible := isContainerPath(mountTable, value) || isEnvMappedContainerPath(envMaps, value)
+
+	translated, translatedFromHost := hostEnvPath(value, mountTable, envMaps)
+	if alreadyVisible {
+		// Host and process coordinate spaces may contain the same absolute spelling.
+		// If they disagree on its meaning, provenance cannot be inferred from the
+		// string; dropping the declared path is safer than silently redirecting it.
+		if translatedFromHost && translated != containerValue {
+			return "", false
+		}
+		return containerValue, true
+	}
+	return translated, translatedFromHost
+}
+
+func hostEnvPath(value string, mountTable []dockerclient.Mount, envMaps []envPathMap) (string, bool) {
 	if container, err := toContainerPath(mountTable, value); err == nil {
 		return container, true
 	}
-	if mapped, ok := applyEnvPathMaps(envMaps, value); ok {
-		return mapped, true
-	}
-	if isContainerPath(mountTable, value) || isEnvMappedContainerPath(envMaps, value) {
-		return cleanContainerPath(value), true
-	}
-	return "", false
+	return applyEnvPathMaps(envMaps, value)
 }
 
 // isContainerPath reports whether v already names a path inside the container

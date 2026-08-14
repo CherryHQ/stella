@@ -504,6 +504,24 @@ func TestTranslateEnvPaths_Mise(t *testing.T) {
 	}
 }
 
+func TestTranslateEnvPathsRejectsAmbiguousHostAndContainerCoordinate(t *testing.T) {
+	mountTable := []dockerclient.Mount{
+		{HostPath: "/workspace", ContainerPath: "/other"},
+		{HostPath: "/host/data", ContainerPath: "/workspace"},
+	}
+
+	out := translateEnvPaths(map[string]string{
+		sandboxpkg.EnvHome:          "/workspace",
+		sandboxpkg.EnvXDGConfigHome: "/host/data/.config",
+	}, mountTable, nil)
+	if _, ok := out[sandboxpkg.EnvHome]; ok {
+		t.Fatalf("ambiguous HOME was translated to %q", out[sandboxpkg.EnvHome])
+	}
+	if got, want := out[sandboxpkg.EnvXDGConfigHome], "/workspace/.config"; got != want {
+		t.Fatalf("unambiguous XDG_CONFIG_HOME = %q, want %q", got, want)
+	}
+}
+
 func TestApplyFilesystemEnvUsesMountedUserDataOrWorkspace(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

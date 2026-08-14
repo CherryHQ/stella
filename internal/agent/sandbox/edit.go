@@ -25,18 +25,17 @@ func editDefinition() pkgtools.Definition {
 	}
 }
 
-func newEditTool(host pkgsandbox.Session, projectRoot string) pkgtools.Tool {
-	return &hostEditTool{host: host, projectRoot: projectRoot}
+func newEditTool(host pkgsandbox.Session) pkgtools.Tool {
+	return &hostEditTool{host: host}
 }
 
 type hostEditTool struct {
-	host        pkgsandbox.Session
-	projectRoot string
+	host pkgsandbox.Session
 }
 
 func (t *hostEditTool) Definition() pkgtools.Definition { return editDefinition() }
 
-func (t *hostEditTool) Execute(_ context.Context, args map[string]any) (string, error) {
+func (t *hostEditTool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	path := pkgtools.StringArg(args, "path")
 	oldStr := pkgtools.StringArg(args, "old_string")
 	newStr := pkgtools.StringArg(args, "new_string")
@@ -47,12 +46,16 @@ func (t *hostEditTool) Execute(_ context.Context, args map[string]any) (string, 
 		return "", fmt.Errorf("edit: old_string is required")
 	}
 
-	resolvedPath, err := resolveToolExpression(t.host, t.projectRoot, path)
+	view, err := pkgsandbox.SelectFileView(ctx, t.host)
+	if err != nil {
+		return "", fmt.Errorf("edit %s: %w", path, err)
+	}
+	resolvedPath, err := resolveToolExpression(view.Policy.Env, view.WorkingDir, path)
 	if err != nil {
 		return "", fmt.Errorf("edit %s: %w", path, err)
 	}
 
-	raw, err := t.host.Files().ReadFile(resolvedPath)
+	raw, err := view.Files.ReadFile(resolvedPath)
 	if err != nil {
 		return "", fmt.Errorf("edit: read %s: %w", path, err)
 	}
@@ -66,7 +69,7 @@ func (t *hostEditTool) Execute(_ context.Context, args map[string]any) (string, 
 	}
 
 	updated := strings.Replace(fileContent, oldStr, newStr, 1)
-	if err := t.host.Files().WriteFile(resolvedPath, []byte(updated), 0o644); err != nil {
+	if err := view.Files.WriteFile(resolvedPath, []byte(updated), 0o644); err != nil {
 		return "", fmt.Errorf("edit %s: %w", path, err)
 	}
 	return fmt.Sprintf("Edited %s", path), nil

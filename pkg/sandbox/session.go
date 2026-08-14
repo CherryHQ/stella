@@ -28,6 +28,39 @@ type Session interface {
 	WorkingDir() string
 }
 
+// FileView binds process-visible metadata and filesystem access to one selected
+// Session generation. It does not keep that generation alive; if the backend
+// dies during an operation, callers get an error instead of silently continuing
+// the same composed operation against a replacement generation.
+type FileView struct {
+	Policy     Policy
+	WorkingDir string
+	Files      FileAccess
+}
+
+// SelectFileView chooses one operational Session generation. Resilient sessions
+// recreate a dead backend before taking the snapshot; raw sessions expose their
+// current immutable metadata and filesystem capability directly.
+func SelectFileView(ctx context.Context, session Session) (FileView, error) {
+	if session == nil {
+		return FileView{}, errors.New("sandbox: active session is required")
+	}
+	if selector, ok := session.(interface {
+		selectFileView(context.Context) (FileView, error)
+	}); ok {
+		return selector.selectFileView(ctx)
+	}
+	return fileView(session), nil
+}
+
+func fileView(session Session) FileView {
+	return FileView{
+		Policy:     session.Policy(),
+		WorkingDir: session.WorkingDir(),
+		Files:      session.Files(),
+	}
+}
+
 // EnvRefresher is implemented by sessions whose injected environment can be
 // updated after creation, so a caller can rotate a credential (e.g. an expiring
 // OAuth access token) without tearing down and recreating the session. Updates

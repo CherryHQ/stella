@@ -61,6 +61,16 @@ type Resolver struct {
 	closeErr   error
 }
 
+// hidePhysicalPath preserves the underlying errno while removing provider-only
+// host coordinates from errors that can cross the Session boundary.
+func hidePhysicalPath(err error) error {
+	var pathErr *fs.PathError
+	if !errors.As(err, &pathErr) {
+		return err
+	}
+	return hidePhysicalPath(pathErr.Err)
+}
+
 func NewResolver(workingDir string, mounts []Mount) (*Resolver, error) {
 	if workingDir == "" {
 		return nil, errors.New("sandbox: process-visible working directory is required")
@@ -87,13 +97,13 @@ func NewResolver(workingDir string, mounts []Mount) (*Resolver, error) {
 		source, err := filepath.Abs(mount.HostPath)
 		if err != nil {
 			closeNormalized()
-			return nil, fmt.Errorf("sandbox: resolve mount source: %w", err)
+			return nil, fmt.Errorf("sandbox: resolve mount source: %w", hidePhysicalPath(err))
 		}
 		mount.HostPath = filepath.Clean(source)
 		physicalPath, err := filepath.EvalSymlinks(mount.HostPath)
 		if err != nil {
 			closeNormalized()
-			return nil, fmt.Errorf("sandbox: resolve mount source for %q: %w", mount.SandboxPath, err)
+			return nil, fmt.Errorf("sandbox: resolve mount source for %q: %w", mount.SandboxPath, hidePhysicalPath(err))
 		}
 		mount.physicalPath = filepath.Clean(physicalPath)
 		mount.SandboxPath = path.Clean(mount.SandboxPath)
@@ -124,7 +134,7 @@ func NewResolver(workingDir string, mounts []Mount) (*Resolver, error) {
 		root, err := os.OpenRoot(mount.HostPath)
 		if err != nil {
 			closeNormalized()
-			return nil, fmt.Errorf("sandbox: open mount source for %q: %w", mount.SandboxPath, err)
+			return nil, fmt.Errorf("sandbox: open mount source for %q: %w", mount.SandboxPath, hidePhysicalPath(err))
 		}
 		mount.root = root
 		mountInfo, err := root.Stat(".")
@@ -137,7 +147,7 @@ func NewResolver(workingDir string, mounts []Mount) (*Resolver, error) {
 		if err != nil {
 			_ = root.Close()
 			closeNormalized()
-			return nil, fmt.Errorf("sandbox: mount source for %q changed while opening: %w", mount.SandboxPath, err)
+			return nil, fmt.Errorf("sandbox: mount source for %q changed while opening: %w", mount.SandboxPath, hidePhysicalPath(err))
 		}
 		if !physicalInfo.IsDir() || !os.SameFile(mountInfo, physicalInfo) {
 			_ = root.Close()
@@ -197,7 +207,7 @@ func (r *Resolver) ValidateBackingPaths() error {
 		}
 		current, err := os.Stat(mount.HostPath)
 		if err != nil {
-			return fmt.Errorf("sandbox: inspect mount source for %q: %w", mount.SandboxPath, err)
+			return fmt.Errorf("sandbox: inspect mount source for %q: %w", mount.SandboxPath, hidePhysicalPath(err))
 		}
 		if !current.IsDir() || !os.SameFile(pinned, current) {
 			return fmt.Errorf("sandbox: mount source for %q was replaced", mount.SandboxPath)
