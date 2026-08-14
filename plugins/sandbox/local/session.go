@@ -164,6 +164,9 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, 
 	}
 	env["PATH"] = sandboxpkg.HostEnvBuildPath(sandboxSH, userShims)
 	env["STELLA_HOME"] = sandboxSH
+	if shellEnv := env["BASH_ENV"]; shellEnv != "" {
+		env["BASH_ENV"] = remapMise(shellEnv)
+	}
 	// Rewrite MISE_* path-valued env vars to the agent's view (see remapMise): both
 	// the per-user tree and the system tree land under the sandbox STELLA_HOME, so
 	// their host-relative seed/shim symlinks resolve identically in the sandbox.

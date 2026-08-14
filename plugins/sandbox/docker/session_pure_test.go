@@ -170,10 +170,14 @@ func TestMapNetworkMode(t *testing.T) {
 
 func TestInjectToolPaths_PrependedWhenSet(t *testing.T) {
 	env := map[string]string{"PATH": "/usr/bin:/bin"}
-	got := injectToolPaths(env, []string{"/home/stella/.stella-tools/bin"})
-	want := "/home/stella/.stella-tools/bin:/usr/bin:/bin"
+	paths := []string{"/opt/stella/users/u1/.mise-tools/shims", "/home/stella/.stella-tools/bin"}
+	got := injectToolPaths(env, paths)
+	want := strings.Join(append(append([]string(nil), paths...), "/usr/bin", "/bin"), ":")
 	if got["PATH"] != want {
 		t.Errorf("PATH = %q, want %q", got["PATH"], want)
+	}
+	if got[sandboxpkg.EnvManagedPath] != strings.Join(paths, ":") {
+		t.Errorf("%s = %q, want ordered tool paths", sandboxpkg.EnvManagedPath, got[sandboxpkg.EnvManagedPath])
 	}
 }
 
@@ -191,10 +195,13 @@ func TestInjectToolPaths_UsesDefaultPathWhenPATHAbsent(t *testing.T) {
 }
 
 func TestInjectToolPaths_NoOpWhenEmpty(t *testing.T) {
-	env := map[string]string{"PATH": "/usr/bin:/bin"}
+	env := map[string]string{"PATH": "/usr/bin:/bin", sandboxpkg.EnvManagedPath: "/untrusted/bin"}
 	got := injectToolPaths(env, nil)
 	if got["PATH"] != "/usr/bin:/bin" {
 		t.Errorf("PATH changed when tool paths absent: %q", got["PATH"])
+	}
+	if got[sandboxpkg.EnvManagedPath] != "" {
+		t.Errorf("empty runner paths did not clear %s: %q", sandboxpkg.EnvManagedPath, got[sandboxpkg.EnvManagedPath])
 	}
 }
 
@@ -490,6 +497,7 @@ func TestTranslateEnvPaths_Mise(t *testing.T) {
 	}
 	envMaps := []envPathMap{{HostPrefix: stellaHome, ContainerPrefix: stellaHomeMount}}
 	env := map[string]string{
+		"BASH_ENV":                  stellaHome + "/bin/.stella-shell-env",
 		"MISE_DATA_DIR":             stellaHome + "/users/u1/.mise-tools",
 		"MISE_CONFIG_DIR":           userConfigDir,
 		"MISE_SYSTEM_CONFIG_FILE":   stellaHome + "/.mise-tools/configs/_builtin.toml",
@@ -499,6 +507,9 @@ func TestTranslateEnvPaths_Mise(t *testing.T) {
 	}
 	out := translateEnvPaths(env, mountTable, envMaps)
 
+	if got, want := out["BASH_ENV"], stellaHomeMount+"/bin/.stella-shell-env"; got != want {
+		t.Errorf("BASH_ENV = %q, want %q", got, want)
+	}
 	if got, want := out["MISE_DATA_DIR"], stellaHomeMount+"/users/u1/.mise-tools"; got != want {
 		t.Errorf("MISE_DATA_DIR = %q, want %q", got, want)
 	}

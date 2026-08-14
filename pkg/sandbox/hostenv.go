@@ -8,6 +8,11 @@ import (
 	"strings"
 )
 
+// EnvManagedPath carries an ordered, backend-rendered list of additional
+// Stella-managed executable directories that nested shells must preserve.
+// Runtime owns the value; user configuration must not supply it.
+const EnvManagedPath = "STELLA_MANAGED_PATH"
+
 // StellaHomeSandboxDirs returns the subdirectory names (relative to STELLA_HOME)
 // that sandbox backends must expose. Every backend — bwrap, Docker, none — should
 // derive its mount list from this slice so adding a new directory is a one-line
@@ -33,6 +38,13 @@ func MiseToolsDir(stellaHome string) string {
 // shims (not copied into bin), so it must be on PATH for them to resolve.
 func MiseShimsDir(stellaHome string) string {
 	return filepath.Join(MiseToolsDir(stellaHome), "shims")
+}
+
+// ShellEnvPath returns the read-only startup file that restores Stella-managed
+// mise paths after a nested login shell replaces PATH. The file is installed by
+// resources/binaries.EnsureTools alongside the embedded mise binary.
+func ShellEnvPath(stellaHome string) string {
+	return filepath.Join(stellaHome, "bin", ".stella-shell-env")
 }
 
 // miseUserKeyPattern restricts a per-user mise directory name to a single safe

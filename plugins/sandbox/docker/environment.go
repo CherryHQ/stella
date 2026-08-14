@@ -51,6 +51,7 @@ var dockerEnvKinds = map[string]dockerEnvKind{
 	sandboxpkg.EnvXDGStateHome:    dockerEnvHostPath,
 	sandboxpkg.EnvXDGCacheHome:    dockerEnvHostPath,
 	"STELLA_HOME":                 dockerEnvHostPath,
+	"BASH_ENV":                    dockerEnvHostPath,
 	"MISE_DATA_DIR":               dockerEnvHostPath,
 	"MISE_CONFIG_DIR":             dockerEnvHostPath,
 	"MISE_CACHE_DIR":              dockerEnvHostPath,
@@ -192,6 +193,10 @@ const containerDefaultPATH = "/opt/stella/bin:/opt/stella/.mise-tools/shims:/usr
 // /opt/stella mise tree); the host filesystem is never used for docker
 // executable resolution because it may contain host-platform binaries.
 func injectToolPaths(env map[string]string, toolBinPaths []string) map[string]string {
+	// Keep the exact ordered prefix available to nested login shells after their
+	// system profile replaces PATH. Set it even when empty so no ambient or
+	// per-call value can impersonate runner-owned tool directories.
+	env[sandboxpkg.EnvManagedPath] = strings.Join(toolBinPaths, ":")
 	if len(toolBinPaths) == 0 {
 		return env
 	}

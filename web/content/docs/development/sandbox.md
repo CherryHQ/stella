@@ -113,7 +113,7 @@ The in-container Go server serves its baked-in embedded SPA at `localhost:25688`
 
 Stop everything with `docker compose down`.
 
-The sandbox image bakes its mise toolchain at `/opt/stella` via `stellad mise reconcile-builtins` (the same `resources/tools.yaml` reconcile the host runs), so docker and the Linux `local` backend present identical mise paths. Runtime uses mise's native system < global < workspace configuration order: the release-owned `_builtin.toml` is the system file, principal-global configuration lives under the shared XDG config root, and project `mise.toml` remains most specific. Per-principal installs stay in the `STELLA_HOME` frame so their relative links to system installs survive backend remapping.
+The sandbox image bakes its mise toolchain at `/opt/stella` via `stellad mise reconcile-builtins` (the same `resources/tools.yaml` reconcile the host runs), so docker and the Linux `local` backend present identical mise paths. Runtime uses mise's native system < global < workspace configuration order: the release-owned `_builtin.toml` is the system file, principal-global configuration lives under the shared XDG config root, and project `mise.toml` remains most specific. Per-principal installs stay in the `STELLA_HOME` frame so their relative links to system installs survive backend remapping. A read-only shell environment beside the managed mise binary restores principal, Stella, and system shim paths through `BASH_ENV` when nested non-interactive Bash login profiles replace `PATH`; Docker also sources it from `/etc/profile.d` for POSIX login shells.
 
 ## Builtin Skill bundle and projection
 

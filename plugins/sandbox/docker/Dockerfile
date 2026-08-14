@@ -47,12 +47,15 @@ RUN apt-get update && \
         nodejs npm && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
+COPY --chmod=0644 resources/binaries/shell_env.sh /opt/stella/bin/.stella-shell-env
+
 ARG USER_UID=1000
 ARG USER_GID=1000
 
 RUN groupadd --non-unique -g ${USER_GID} stella && \
     useradd --non-unique -u ${USER_UID} -g ${USER_GID} -m -s /bin/bash stella && \
     mkdir -p /workspace /user /opt/stella/bin /opt/stella/.mise-tools/configs && \
+    ln -s /opt/stella/bin/.stella-shell-env /etc/profile.d/99-stella-mise.sh && \
     chown -R stella:stella /home/stella /workspace /user /opt/stella
 
 USER stella
@@ -67,6 +70,7 @@ USER stella
 # above it without making the system file writable. HOME stays /home/stella for
 # the build, then flips to /workspace.
 ENV HOME=/home/stella
+ENV BASH_ENV=/opt/stella/bin/.stella-shell-env
 ENV MISE_DATA_DIR=/opt/stella/.mise-tools
 ENV MISE_CONFIG_DIR=/opt/stella/.mise-tools/config
 ENV MISE_STATE_DIR=/opt/stella/.mise-tools/state

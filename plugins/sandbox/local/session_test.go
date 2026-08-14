@@ -711,6 +711,7 @@ func TestAdjustPolicy_rewritesMiseEnvPaths(t *testing.T) {
 
 	policy := sandboxpkg.Policy{
 		Env: map[string]string{
+			"BASH_ENV":                    hostSH + "/bin/.stella-shell-env",
 			"MISE_DATA_DIR":               hostSH + "/.mise-tools",
 			"MISE_CONFIG_DIR":             hostSH + "/.mise-tools/config",
 			"MISE_CACHE_DIR":              hostSH + "/.mise-tools/cache",
@@ -735,6 +736,7 @@ func TestAdjustPolicy_rewritesMiseEnvPaths(t *testing.T) {
 		key  string
 		want string
 	}{
+		{"BASH_ENV", sandboxSH + "/bin/.stella-shell-env"},
 		{"MISE_DATA_DIR", sandboxSH + "/.mise-tools"},
 		{"MISE_CONFIG_DIR", sandboxSH + "/.mise-tools/config"},
 		{"MISE_CACHE_DIR", sandboxSH + "/.mise-tools/cache"},
