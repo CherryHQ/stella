@@ -55,6 +55,7 @@ var dockerEnvKinds = map[string]dockerEnvKind{
 	"MISE_CONFIG_DIR":             dockerEnvHostPath,
 	"MISE_CACHE_DIR":              dockerEnvHostPath,
 	"MISE_STATE_DIR":              dockerEnvHostPath,
+	"MISE_SYSTEM_CONFIG_FILE":     dockerEnvHostPath,
 	"MISE_GLOBAL_CONFIG_FILE":     dockerEnvHostPath,
 	"MISE_TRUSTED_CONFIG_PATHS":   dockerEnvHostPathList,
 	// Host PATH may contain host-platform binaries and must never override the

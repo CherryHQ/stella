@@ -167,13 +167,21 @@ func buildSandboxEnv(ctx context.Context, cfg Config, paths Paths) (map[string]s
 	// Runtime files are session-scoped and must never be redirected into the
 	// persistent principal root (or accepted from a vault/session env entry).
 	delete(env, "XDG_RUNTIME_DIR")
-	// Every backend resolves tools through the same mise layout: the per-user
-	// writable tree ($STELLA_HOME/users/{id}/.mise-tools) over the shared system
-	// base, with the agent workspace trusted for a project mise.toml. The emitted
-	// values are host paths; docker rewrites them to its /opt/stella container view
-	// (translateEnvPaths), while local/none use them via the host PATH or bwrap
-	// remap — so an agent sees identical mise paths whichever backend runs it.
-	maps.Copy(env, manifestplugins.RuntimeMiseEnv(paths.StellaHome, miseUserDirHost(paths, cfg), paths.WorkspaceRoot))
+	// Every backend resolves tools through mise's native system < global <
+	// workspace layers. Installs stay in the per-user STELLA_HOME tree so their
+	// relative links to the shared system base survive backend remapping; the
+	// writable global config lives under the principal's shared XDG config root.
+	// Values are emitted as host paths, then local/docker render their process view.
+	userConfigDir := ""
+	if paths.UserDataDir != "" {
+		userConfigDir = filepath.Join(paths.UserDataDir, ".config", "mise")
+	}
+	maps.Copy(env, manifestplugins.RuntimeMiseEnv(
+		paths.StellaHome,
+		miseUserDirHost(paths, cfg),
+		userConfigDir,
+		paths.WorkspaceRoot,
+	))
 	recordSessionSecretValues(cfg.SessionSecretValues, env, vaultEnv, sessionSecretEnv)
 
 	return env, nil

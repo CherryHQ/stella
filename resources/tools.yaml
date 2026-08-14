@@ -7,7 +7,7 @@ plugins:
     enabled: true
     category: system
     essential: true
-    prompt: "Use mise to install tools and manage environment variables."
+    prompt: "Use mise to install tools and manage environment variables. Install personal defaults with `mise use --global --pin <tool>@<version>` and project requirements with `mise use --pin <tool>@<version>`; never modify Stella's system config."
 
   - id: tool/tap-web
     kind: tool

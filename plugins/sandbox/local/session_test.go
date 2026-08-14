@@ -715,7 +715,7 @@ func TestAdjustPolicy_rewritesMiseEnvPaths(t *testing.T) {
 			"MISE_CONFIG_DIR":             hostSH + "/.mise-tools/config",
 			"MISE_CACHE_DIR":              hostSH + "/.mise-tools/cache",
 			"MISE_STATE_DIR":              hostSH + "/.mise-tools/state",
-			"MISE_GLOBAL_CONFIG_FILE":     hostSH + "/.mise-tools/configs/_builtin.toml",
+			"MISE_SYSTEM_CONFIG_FILE":     hostSH + "/.mise-tools/configs/_builtin.toml",
 			"MISE_TRUSTED_CONFIG_PATHS":   hostSH + "/.mise-tools/configs/_builtin.toml",
 			"MISE_YES":                    "1",
 			"MISE_NOT_FOUND_AUTO_INSTALL": "false",
@@ -739,7 +739,7 @@ func TestAdjustPolicy_rewritesMiseEnvPaths(t *testing.T) {
 		{"MISE_CONFIG_DIR", sandboxSH + "/.mise-tools/config"},
 		{"MISE_CACHE_DIR", sandboxSH + "/.mise-tools/cache"},
 		{"MISE_STATE_DIR", sandboxSH + "/.mise-tools/state"},
-		{"MISE_GLOBAL_CONFIG_FILE", sandboxSH + "/.mise-tools/configs/_builtin.toml"},
+		{"MISE_SYSTEM_CONFIG_FILE", sandboxSH + "/.mise-tools/configs/_builtin.toml"},
 		{"MISE_TRUSTED_CONFIG_PATHS", sandboxSH + "/.mise-tools/configs/_builtin.toml"},
 		{"MISE_YES", "1"},
 		{"MISE_NOT_FOUND_AUTO_INSTALL", "false"},
@@ -799,8 +799,10 @@ func TestAdjustPolicy_perUserMiseInStellaHomeFrame(t *testing.T) {
 		Env: map[string]string{
 			"MISE_DATA_DIR":             miseHome,
 			"MISE_CACHE_DIR":            miseHome + "/cache",
-			"MISE_GLOBAL_CONFIG_FILE":   hostSH + "/.mise-tools/configs/_builtin.toml",
-			"MISE_TRUSTED_CONFIG_PATHS": hostSH + "/.mise-tools/configs/_builtin.toml:/workspace:" + agentDir,
+			"MISE_CONFIG_DIR":           userData + "/.config/mise",
+			"MISE_SYSTEM_CONFIG_FILE":   hostSH + "/.mise-tools/configs/_builtin.toml",
+			"MISE_GLOBAL_CONFIG_FILE":   userData + "/.config/mise/config.toml",
+			"MISE_TRUSTED_CONFIG_PATHS": hostSH + "/.mise-tools/configs/_builtin.toml:" + userData + "/.config/mise:/workspace:" + agentDir,
 		},
 	}
 	f := &Factory{cfg: Config{StellaHome: hostSH}}
@@ -814,8 +816,10 @@ func TestAdjustPolicy_perUserMiseInStellaHomeFrame(t *testing.T) {
 	for _, tc := range []struct{ key, want string }{
 		{"MISE_DATA_DIR", sandboxSH + "/users/u1/.mise-tools"},
 		{"MISE_CACHE_DIR", sandboxSH + "/users/u1/.mise-tools/cache"},
-		{"MISE_GLOBAL_CONFIG_FILE", sandboxSH + "/.mise-tools/configs/_builtin.toml"},
-		{"MISE_TRUSTED_CONFIG_PATHS", sandboxSH + "/.mise-tools/configs/_builtin.toml:/workspace"},
+		{"MISE_CONFIG_DIR", "/user/.config/mise"},
+		{"MISE_SYSTEM_CONFIG_FILE", sandboxSH + "/.mise-tools/configs/_builtin.toml"},
+		{"MISE_GLOBAL_CONFIG_FILE", "/user/.config/mise/config.toml"},
+		{"MISE_TRUSTED_CONFIG_PATHS", sandboxSH + "/.mise-tools/configs/_builtin.toml:/user/.config/mise:/workspace"},
 	} {
 		if got := adjusted.Env[tc.key]; got != tc.want {
 			t.Errorf("env[%s] = %q, want %q", tc.key, got, tc.want)
