@@ -29,8 +29,11 @@ type WorkspaceView struct {
 	PrincipalRoot, DataRoot, AgentRoot string
 }
 
-type WorkspaceViewer interface {
+// Workspace is the complete control-plane Home boundary: callers may resolve
+// physical roots for provider-private wiring and mint typed rooted capabilities.
+type Workspace interface {
 	WorkspaceView(context.Context, WorkspaceRequest) (WorkspaceView, error)
+	RootOpener
 }
 
 // WorkspaceManager is the sole production materializer of typed workspace roots.

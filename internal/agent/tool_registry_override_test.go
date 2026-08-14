@@ -30,8 +30,10 @@ func TestBuildToolRegistryAppliesToolOverrides(t *testing.T) {
 			AgentRoot:  filepath.Join(home, "agents", "agent-1"),
 			UserRoot:   filepath.Join(home, "users", "user-1"),
 		}},
-		BuiltinParams: RunnerParams{UserID: "user-1", AgentID: "agent-1"},
-		BuiltinTools:  []BuiltinTool{{Tool: staticTool{name: "memory"}}},
+		BuiltinParams:       RunnerParams{UserID: "user-1", AgentID: "agent-1"},
+		BuiltinTools:        []BuiltinTool{{Tool: staticTool{name: "memory"}}},
+		SkillRevisionReader: emptySkillRuntime{},
+		SkillReadAuthorizer: allowSkillReads{},
 		ToolOverrideFetcher: func(context.Context, string, string) ([]ToolOverride, error) {
 			return []ToolOverride{{ToolName: "memory", Scope: ToolOverrideScopeUserAgent, Enabled: false}}, nil
 		},
@@ -55,8 +57,10 @@ func TestBuildToolRegistryKeepsDelegateInternalOnly(t *testing.T) {
 			AgentRoot:  filepath.Join(home, "agents", "agent-1"),
 			UserRoot:   filepath.Join(home, "users", "user-1"),
 		}},
-		BuiltinParams: RunnerParams{UserID: "user-1", AgentID: "agent-1"},
-		BuiltinTools:  []BuiltinTool{{Tool: staticTool{name: "session"}}},
+		BuiltinParams:       RunnerParams{UserID: "user-1", AgentID: "agent-1"},
+		BuiltinTools:        []BuiltinTool{{Tool: staticTool{name: "session"}}},
+		SkillRevisionReader: emptySkillRuntime{},
+		SkillReadAuthorizer: allowSkillReads{},
 	}, &fakeSession{alive: true}, nil, ai.Model{}, "")
 	if err != nil {
 		t.Fatalf("buildToolRegistry: %v", err)

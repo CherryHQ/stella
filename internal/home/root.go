@@ -106,22 +106,33 @@ type RootOpener interface {
 	OpenRoot(context.Context, WorkspaceRequest, RootScope, RootAccess) (RootOperations, error)
 }
 
-// ExistingRootOpener opens an existing root without materializing a missing
-// chain. Offline migration dry-runs use it to remain free of Home writes.
-type ExistingRootOpener interface {
-	RootOpener
-	OpenExistingRoot(context.Context, WorkspaceRequest, RootScope) (RootOperations, error)
+// SkillRootOpener mints the complete immutable-publication capability for a
+// typed Skill root. Opening an existing root never materializes a missing
+// chain, so offline migration dry-runs remain free of Home writes.
+type SkillRootOpener interface {
+	OpenSkillRoot(context.Context, WorkspaceRequest, RootScope, RootAccess) (SkillRootOperations, error)
+	OpenExistingSkillRoot(context.Context, WorkspaceRequest, RootScope) (SkillRootOperations, error)
 }
 
 func (m *WorkspaceManager) OpenRoot(ctx context.Context, req WorkspaceRequest, scope RootScope, access RootAccess) (RootOperations, error) {
 	return m.openRoot(ctx, req, scope, access, true)
 }
 
-func (m *WorkspaceManager) OpenExistingRoot(ctx context.Context, req WorkspaceRequest, scope RootScope) (RootOperations, error) {
+func (m *WorkspaceManager) OpenSkillRoot(ctx context.Context, req WorkspaceRequest, scope RootScope, access RootAccess) (SkillRootOperations, error) {
+	if !isSkillRootScope(scope) {
+		return nil, errors.New("home: Skill root scope is required")
+	}
+	return m.openRoot(ctx, req, scope, access, true)
+}
+
+func (m *WorkspaceManager) OpenExistingSkillRoot(ctx context.Context, req WorkspaceRequest, scope RootScope) (SkillRootOperations, error) {
+	if !isSkillRootScope(scope) {
+		return nil, errors.New("home: Skill root scope is required")
+	}
 	return m.openRoot(ctx, req, scope, RootReadOnly, false)
 }
 
-func (m *WorkspaceManager) openRoot(ctx context.Context, req WorkspaceRequest, scope RootScope, access RootAccess, create bool) (RootOperations, error) {
+func (m *WorkspaceManager) openRoot(ctx context.Context, req WorkspaceRequest, scope RootScope, access RootAccess, create bool) (*Root, error) {
 	if err := checkContext(ctx); err != nil {
 		return nil, err
 	}

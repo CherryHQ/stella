@@ -22,29 +22,6 @@ type SkillReadDecision interface {
 	AllowRead(ctx context.Context, id, scope, ownerUserID, agentID string) (bool, error)
 }
 
-// SkillWriteAuthorizer authorizes DB-backed skill writes (create/patch/deprecate)
-// for one skills-tool invocation. Like SkillReadAuthorizer it is consumer-owned
-// (no skills→skillaccess cycle) and injected from the composition root; the
-// reflect reviewer tool uses it so its prompt-driven create/patch/deprecate operations are
-// each authorized before the store mutation. The agent-facing tool has no write
-// actions and so is never given one. When nil, DB writes fail closed.
-type SkillWriteAuthorizer interface {
-	// BeginWrite binds the runtime identity to a write decider. A missing or
-	// invalid identity fails closed.
-	BeginWrite(ctx context.Context) (SkillWriteDecision, error)
-}
-
-// SkillWriteDecision authorizes individual DB-skill writes within one invocation.
-// A denial or unexpected failure returns a non-nil error (the tool surfaces it as
-// a write failure); nil means allowed.
-type SkillWriteDecision interface {
-	// AllowCreate authorizes minting a new DB skill in scope for agentID.
-	AllowCreate(ctx context.Context, scope, agentID string) error
-	// AllowWrite authorizes patching or deprecating the existing DB skill id;
-	// the PEP loads the row and decides against its real durable facts.
-	AllowWrite(ctx context.Context, id string) error
-}
-
 // isDBScope reports whether a scope names one of the four DB-backed skill scopes
 // (as opposed to a filesystem project/built-in skill).
 func isDBScope(scope string) bool {
@@ -55,10 +32,8 @@ func isDBScope(scope string) bool {
 	return false
 }
 
-// isDBSkill reports whether a resolved skill is a DB row governed by Skill
-// domain access. Filesystem project and built-in system skills carry a Dir from
-// the merge/resolve; DB rows never do, so an empty Dir on a DB scope is the
-// unambiguous signal.
+// isDBSkill reports whether a resolved skill is a mutable store identity governed
+// by Skill domain access rather than an immutable project or builtin snapshot.
 func isDBSkill(rs ResolvedSkill) bool {
-	return rs.Dir == "" && isDBScope(rs.Scope)
+	return !rs.IsImmutable() && isDBScope(rs.Scope)
 }

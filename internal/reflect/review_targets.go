@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/agent/session"
-	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 )
 
@@ -17,33 +16,6 @@ type reviewTarget struct {
 	lastActive      time.Time // from SessionInfo — used as tiebreaker
 	lastReview      time.Time // zero if never reviewed
 	privateOneToOne bool
-}
-
-// Discovery loads every session (rotation keeps archived ones as candidates
-// until review catches up) and checks watermarks per session before truncating
-// to the target limit, so per-tick cost grows with lifetime /new count.
-// Acceptable until archived sessions per agent reach the thousands; #802
-// tracks bounding it (terminal review flag or SQL pushdown).
-func (s *Service) listUnreviewed(ctx context.Context, sm memory.SessionManager, agentID string) ([]reviewTarget, error) {
-	sessions, err := listSessionInfoForReview(ctx, sm, agentID)
-	if err != nil {
-		return nil, err
-	}
-
-	targets := make([]reviewTarget, 0, len(sessions))
-	for _, sess := range sessions {
-		target, ok := s.unreviewedTarget(ctx, sess)
-		if !ok {
-			continue
-		}
-		targets = append(targets, target)
-	}
-
-	sortReviewTargets(targets)
-	if limit := s.reviewTargetLimit(); limit > 0 && len(targets) > limit {
-		targets = targets[:limit]
-	}
-	return targets, nil
 }
 
 // listUnreviewedFromRegistry uses session.Registry.ListForReview to apply the
@@ -78,20 +50,6 @@ func (s *Service) reviewTargetLimit() int {
 	return defaultMaxReviewTargetsPerAgent
 }
 
-// listSessionInfoForReview includes archived sessions: a rotated-away session is
-// archived immediately, and its pre-rotation messages must still be distilled.
-// The watermark check in unreviewedTarget drops it once review catches up.
-func listSessionInfoForReview(ctx context.Context, sm memory.SessionManager, agentID string) ([]memory.SessionInfo, error) {
-	opts := memory.ListOptions{AgentID: agentID, IncludeArchived: true}
-	if lister, ok := sm.(interface {
-		ListInfoForReview(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error)
-	}); ok {
-		return lister.ListInfoForReview(ctx, opts)
-	}
-	ctx = authz.WithAgentID(ctx, agentID)
-	return sm.ListInfo(ctx, opts)
-}
-
 func (s *Service) unreviewedTargetFromRegistry(ctx context.Context, reg *session.Registry, info session.Info) (reviewTarget, bool) {
 	// Reflect currently mines private one-to-one history only. Exclude groups
 	// before watermark lookup and target limiting so skipped group sessions cannot
@@ -112,38 +70,6 @@ func (s *Service) unreviewedTargetFromRegistry(ctx context.Context, reg *session
 	scope, err := reg.MemoryScope(info)
 	if err != nil {
 		s.log.Warn("reflect: invalid session scope, skipping session", "session", info.ID, "error", err)
-		return reviewTarget{}, false
-	}
-	return reviewTarget{
-		session:         scope,
-		lastActive:      info.LastActive,
-		lastReview:      wm,
-		privateOneToOne: true,
-	}, true
-}
-
-func (s *Service) unreviewedTarget(ctx context.Context, sess memory.SessionInfo) (reviewTarget, bool) {
-	if sess.UserID == "" || sess.GroupID != "" || sess.GuestID != "" {
-		return reviewTarget{}, false
-	}
-
-	wm, pending, err := s.reviewProgress(ctx, sess.ID, sess.LastActive, sess.LatestSeq)
-	if err != nil {
-		s.log.Warn("reflect: watermark lookup failed, skipping session", "session", sess.ID, "error", err)
-		return reviewTarget{}, false
-	}
-	if !pending {
-		return reviewTarget{}, false
-	}
-
-	info, err := session.InfoFromRecord(sess)
-	if err != nil {
-		s.log.Warn("reflect: invalid session record, skipping session", "session", sess.ID, "error", err)
-		return reviewTarget{}, false
-	}
-	scope, err := info.MemoryScope()
-	if err != nil {
-		s.log.Warn("reflect: invalid session scope, skipping session", "session", sess.ID, "error", err)
 		return reviewTarget{}, false
 	}
 	return reviewTarget{

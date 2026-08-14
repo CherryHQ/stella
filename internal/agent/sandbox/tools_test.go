@@ -13,38 +13,116 @@ import (
 type stubHost struct {
 	pkgsandbox.Session
 	policy      pkgsandbox.Policy
+	workingDir  string
 	resolvePath func(path string) (string, error)
+	files       pkgsandbox.FileAccess
 }
 
 func (s *stubHost) Policy() pkgsandbox.Policy { return s.policy }
+func (s *stubHost) WorkingDir() string        { return s.workingDir }
 
-func (s *stubHost) ResolvePath(path string) (string, error) {
+func (s *stubHost) resolve(path string) (string, error) {
 	if s.resolvePath != nil {
 		return s.resolvePath(path)
 	}
 	return path, nil
 }
 
-func (s *stubHost) ResolveWritePath(path string) (string, error) {
-	return s.ResolvePath(path)
+func (s *stubHost) Files() pkgsandbox.FileAccess {
+	if s.files != nil {
+		return s.files
+	}
+	return stubFiles{host: s}
 }
 
-type policylessHost struct{ pkgsandbox.Session }
+type stubFiles struct{ host *stubHost }
 
-func (s *policylessHost) ResolvePath(path string) (string, error)      { return path, nil }
-func (s *policylessHost) ResolveWritePath(path string) (string, error) { return path, nil }
+func (f stubFiles) ReadFile(path string) ([]byte, error) {
+	resolved, err := f.host.resolve(path)
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(resolved)
+}
+
+func (f stubFiles) ReadDir(path string) ([]pkgsandbox.DirEntry, error) {
+	return nil, os.ErrPermission
+}
+
+func (f stubFiles) Stat(path string) (pkgsandbox.FileInfo, error) {
+	resolved, err := f.host.resolve(path)
+	if err != nil {
+		return pkgsandbox.FileInfo{}, err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return pkgsandbox.FileInfo{}, err
+	}
+	return pkgsandbox.FileInfo{IsDir: info.IsDir(), Size: info.Size()}, nil
+}
+
+func (f stubFiles) WriteFile(path string, content []byte, mode os.FileMode) error {
+	resolved, err := f.host.resolve(path)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(resolved), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(resolved, content, mode)
+}
+
+func (f stubFiles) ProjectFiles(string, []pkgsandbox.ProjectedFile) error {
+	return os.ErrPermission
+}
+
+func (f stubFiles) ProjectTempFiles(string, []pkgsandbox.ProjectedFile) (string, error) {
+	return "", os.ErrPermission
+}
+
+type toolGenerationSession struct {
+	*stubHost
+	alive bool
+}
+
+func (s *toolGenerationSession) Alive() bool { return s.alive }
+
+type readCallbackFiles struct {
+	pkgsandbox.FileAccess
+	afterRead func()
+}
+
+func (f readCallbackFiles) ReadFile(path string) ([]byte, error) {
+	content, err := f.FileAccess.ReadFile(path)
+	if err == nil && f.afterRead != nil {
+		f.afterRead()
+	}
+	return content, err
+}
+
+func tempGeneration(root, visible string) *toolGenerationSession {
+	host := &stubHost{
+		policy:     pkgsandbox.Policy{Env: map[string]string{pkgsandbox.EnvTempDir: visible}},
+		workingDir: visible,
+		resolvePath: func(name string) (string, error) {
+			relative, ok := pkgsandbox.POSIXPathRelative(visible, name)
+			if !ok {
+				return "", os.ErrPermission
+			}
+			return filepath.Join(root, filepath.FromSlash(relative)), nil
+		},
+	}
+	return &toolGenerationSession{stubHost: host, alive: true}
+}
 
 func TestLiteralToolPathsDoNotRequireSessionPolicy(t *testing.T) {
-	host := &policylessHost{}
 	for _, path := range []string{filepath.Join(t.TempDir(), "literal.txt"), "relative.txt"} {
-		for _, resolve := range []func(pkgsandbox.Host, string, string) (string, error){resolveToolPath, resolveWritableToolPath} {
-			got, err := resolve(host, "", path)
-			if err != nil {
-				t.Fatalf("resolve literal path: %v", err)
-			}
-			if got != path {
-				t.Errorf("resolved literal path = %q, want %q", got, path)
-			}
+		got, err := resolveToolExpression(nil, "", path)
+		if err != nil {
+			t.Fatalf("resolve literal path: %v", err)
+		}
+		if got != path {
+			t.Errorf("resolved literal path = %q, want %q", got, path)
 		}
 	}
 }
@@ -127,7 +205,7 @@ func TestReadTool_ReadsFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	host := &stubHost{}
-	tool := newReadTool(host, "")
+	tool := newReadTool(host)
 	out, err := tool.Execute(context.Background(), map[string]any{"path": file})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -141,7 +219,7 @@ func TestWriteTool_CreatesFile(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "out.txt")
 	host := &stubHost{}
-	tool := newWriteTool(host, "")
+	tool := newWriteTool(host)
 	_, err := tool.Execute(context.Background(), map[string]any{"path": file, "content": "data"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -153,24 +231,6 @@ func TestWriteTool_CreatesFile(t *testing.T) {
 	if string(got) != "data" {
 		t.Errorf("file content = %q, want %q", string(got), "data")
 	}
-}
-
-type resolverHost struct {
-	pkgsandbox.Session
-	policy   pkgsandbox.Policy
-	resolver *pkgsandbox.PathResolver
-}
-
-func (s *resolverHost) Policy() pkgsandbox.Policy { return s.policy }
-
-func (s *resolverHost) ResolvePath(path string) (string, error) {
-	resolved, err := s.resolver.ResolvePath(path)
-	return resolved.HostPath, err
-}
-
-func (s *resolverHost) ResolveWritePath(path string) (string, error) {
-	resolved, err := s.resolver.ResolveWritePath(path)
-	return resolved.HostPath, err
 }
 
 func TestFileToolPathDescriptionsUseSemanticRoots(t *testing.T) {
@@ -209,41 +269,118 @@ func TestToolPathsExpandSandboxViewAndRemainConfined(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmp, "edit.txt"), []byte("before"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	host := &resolverHost{
+	mounts := map[string]string{"/workspace": workspace, "/user": userData, "/tmp": tmp}
+	host := &stubHost{
 		policy: pkgsandbox.Policy{Env: map[string]string{
 			pkgsandbox.EnvHome:            "/workspace",
 			pkgsandbox.EnvStellaAssetsDir: "/user/assets",
 			pkgsandbox.EnvTempDir:         "/tmp",
 		}},
-		resolver: pkgsandbox.NewPathResolver(pkgsandbox.PathResolverConfig{
-			WorkspaceRoot: workspace,
-			WorkingDir:    workspace,
-			Mounts: []pkgsandbox.Mount{
-				{HostPath: workspace, SandboxPath: "/workspace", Access: pkgsandbox.MountReadWrite},
-				{HostPath: userData, SandboxPath: "/user", Access: pkgsandbox.MountReadWrite},
-				{HostPath: tmp, SandboxPath: "/tmp", Access: pkgsandbox.MountReadWrite},
-			},
-		}),
+		resolvePath: func(name string) (string, error) {
+			for visible, physical := range mounts {
+				rel, ok := pkgsandbox.POSIXPathRelative(visible, name)
+				if ok {
+					return filepath.Join(physical, filepath.FromSlash(rel)), nil
+				}
+			}
+			return "", os.ErrPermission
+		},
 	}
 
-	read, err := newReadTool(host, "").Execute(context.Background(), map[string]any{"path": "$STELLA_ASSETS_DIR/upload.txt"})
+	read, err := newReadTool(host).Execute(context.Background(), map[string]any{"path": "$STELLA_ASSETS_DIR/upload.txt"})
 	if err != nil || read != "uploaded" {
 		t.Fatalf("read assets = %q, %v; want uploaded", read, err)
 	}
-	if _, err := newWriteTool(host, "").Execute(context.Background(), map[string]any{"path": "$HOME/output.txt", "content": "written"}); err != nil {
+	if _, err := newWriteTool(host).Execute(context.Background(), map[string]any{"path": "$HOME/output.txt", "content": "written"}); err != nil {
 		t.Fatalf("write HOME: %v", err)
 	}
 	if got, err := os.ReadFile(filepath.Join(workspace, "output.txt")); err != nil || string(got) != "written" {
 		t.Fatalf("HOME output = %q, %v", got, err)
 	}
-	if _, err := newEditTool(host, "").Execute(context.Background(), map[string]any{"path": "$TMPDIR/edit.txt", "old_string": "before", "new_string": "after"}); err != nil {
+	if _, err := newEditTool(host).Execute(context.Background(), map[string]any{"path": "$TMPDIR/edit.txt", "old_string": "before", "new_string": "after"}); err != nil {
 		t.Fatalf("edit TMPDIR: %v", err)
 	}
 	if got, err := os.ReadFile(filepath.Join(tmp, "edit.txt")); err != nil || string(got) != "after" {
 		t.Fatalf("TMPDIR edit = %q, %v", got, err)
 	}
-	if _, err := newWriteTool(host, "").Execute(context.Background(), map[string]any{"path": "$HOME/../escape.txt", "content": "nope"}); err == nil {
+	if _, err := newWriteTool(host).Execute(context.Background(), map[string]any{"path": "$HOME/../escape.txt", "content": "nope"}); err == nil {
 		t.Fatal("write accepted traversal outside the sandbox workspace")
+	}
+}
+
+func TestFileToolsExpandPathsFromRecreatedGeneration(t *testing.T) {
+	first := tempGeneration(t.TempDir(), "/old/tmp")
+	first.alive = false
+	secondRoot := t.TempDir()
+	second := tempGeneration(secondRoot, "/new/tmp")
+	createCount := 0
+	session := pkgsandbox.NewResilientSession(first, func(context.Context) (pkgsandbox.Session, error) {
+		createCount++
+		return second, nil
+	})
+
+	if _, err := newWriteTool(session).Execute(context.Background(), map[string]any{
+		"path":    "$TMPDIR/value",
+		"content": "new generation",
+	}); err != nil {
+		t.Fatalf("write through recreated generation: %v", err)
+	}
+	if _, err := newWriteTool(session).Execute(context.Background(), map[string]any{
+		"path":    "relative",
+		"content": "current working directory",
+	}); err != nil {
+		t.Fatalf("write relative path through recreated generation: %v", err)
+	}
+	if createCount != 1 {
+		t.Fatalf("session recreated %d times, want 1", createCount)
+	}
+	content, err := os.ReadFile(filepath.Join(secondRoot, "value"))
+	if err != nil || string(content) != "new generation" {
+		t.Fatalf("new generation content = %q, %v", content, err)
+	}
+	content, err = os.ReadFile(filepath.Join(secondRoot, "relative"))
+	if err != nil || string(content) != "current working directory" {
+		t.Fatalf("relative new generation content = %q, %v", content, err)
+	}
+}
+
+func TestEditKeepsReadAndWriteOnOneGeneration(t *testing.T) {
+	firstRoot := t.TempDir()
+	first := tempGeneration(firstRoot, "/tmp")
+	if err := os.WriteFile(filepath.Join(firstRoot, "value"), []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first.files = readCallbackFiles{
+		FileAccess: stubFiles{host: first.stubHost},
+		afterRead:  func() { first.alive = false },
+	}
+
+	secondRoot := t.TempDir()
+	second := tempGeneration(secondRoot, "/tmp")
+	if err := os.WriteFile(filepath.Join(secondRoot, "value"), []byte("new-generation sentinel"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	createCount := 0
+	session := pkgsandbox.NewResilientSession(first, func(context.Context) (pkgsandbox.Session, error) {
+		createCount++
+		return second, nil
+	})
+
+	if _, err := newEditTool(session).Execute(context.Background(), map[string]any{
+		"path":       "$TMPDIR/value",
+		"old_string": "before",
+		"new_string": "after",
+	}); err != nil {
+		t.Fatalf("edit first generation: %v", err)
+	}
+	if createCount != 0 {
+		t.Fatalf("edit switched generations %d times", createCount)
+	}
+	if content, err := os.ReadFile(filepath.Join(firstRoot, "value")); err != nil || string(content) != "after" {
+		t.Fatalf("first generation content = %q, %v", content, err)
+	}
+	if content, err := os.ReadFile(filepath.Join(secondRoot, "value")); err != nil || string(content) != "new-generation sentinel" {
+		t.Fatalf("second generation content = %q, %v", content, err)
 	}
 }
 
@@ -253,8 +390,11 @@ func TestToolPathsExpandHostViewBeforeProjectResolution(t *testing.T) {
 	if err := os.MkdirAll(project, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	host := &stubHost{policy: pkgsandbox.Policy{Env: map[string]string{pkgsandbox.EnvHome: workspace}}}
-	if _, err := newWriteTool(host, project).Execute(context.Background(), map[string]any{"path": "$HOME/output.txt", "content": "written"}); err != nil {
+	host := &stubHost{
+		policy:     pkgsandbox.Policy{Env: map[string]string{pkgsandbox.EnvHome: workspace}},
+		workingDir: project,
+	}
+	if _, err := newWriteTool(host).Execute(context.Background(), map[string]any{"path": "$HOME/output.txt", "content": "written"}); err != nil {
 		t.Fatalf("write HOME: %v", err)
 	}
 	if got, err := os.ReadFile(filepath.Join(workspace, "output.txt")); err != nil || string(got) != "written" {
@@ -270,7 +410,7 @@ func TestToolPathsRejectInvalidLeadingVariablesBeforeWriting(t *testing.T) {
 	host := &stubHost{policy: pkgsandbox.Policy{Env: map[string]string{pkgsandbox.EnvHome: root}}}
 	for _, path := range []string{"$UNKNOWN/file.txt", "$STELLA_ASSETS_DIR/file.txt", "${HOME"} {
 		t.Run(path, func(t *testing.T) {
-			if _, err := newWriteTool(host, "").Execute(context.Background(), map[string]any{"path": path, "content": "nope"}); err == nil {
+			if _, err := newWriteTool(host).Execute(context.Background(), map[string]any{"path": path, "content": "nope"}); err == nil {
 				t.Fatalf("write %q succeeded", path)
 			}
 		})
@@ -291,7 +431,7 @@ func TestEditTool_EditsFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	host := &stubHost{}
-	tool := newEditTool(host, "")
+	tool := newEditTool(host)
 	_, err := tool.Execute(context.Background(), map[string]any{"path": file, "old_string": "foo", "new_string": "baz"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

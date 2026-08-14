@@ -29,19 +29,19 @@ type DBStore struct {
 	pool *pgxpool.Pool
 }
 
-// ReadAgentSkillPolicy explicitly reads and decodes the historical policy
-// column. Decode failures are surfaced to callers; treating bad bytes as an
-// empty policy would make model execution fail open.
-func (s *DBStore) ReadAgentSkillPolicy(ctx context.Context, agentID string) (agentskillpolicy.Policy, agentskillpolicy.Diagnostics, error) {
+// ReadAgentSkillPolicy explicitly reads and decodes the policy column. Decode
+// failures are surfaced to callers; treating bad bytes as an empty policy would
+// make model execution fail open.
+func (s *DBStore) ReadAgentSkillPolicy(ctx context.Context, agentID string) (agentskillpolicy.Policy, error) {
 	row, err := s.q.GetAgent(ctx, agentID)
 	if err != nil {
-		return agentskillpolicy.Policy{}, agentskillpolicy.Diagnostics{}, fmt.Errorf("read AgentSkillPolicy for %q: %w", agentID, err)
+		return agentskillpolicy.Policy{}, fmt.Errorf("read AgentSkillPolicy for %q: %w", agentID, err)
 	}
-	policy, diagnostics, err := agentskillpolicy.Decode(row.EnabledBuiltinSkills)
+	policy, err := agentskillpolicy.Decode(row.EnabledBuiltinSkills)
 	if err != nil {
-		return agentskillpolicy.Policy{}, agentskillpolicy.Diagnostics{}, fmt.Errorf("read AgentSkillPolicy for %q: %w", agentID, err)
+		return agentskillpolicy.Policy{}, fmt.Errorf("read AgentSkillPolicy for %q: %w", agentID, err)
 	}
-	return policy, diagnostics, nil
+	return policy, nil
 }
 
 // SetAgentSkillPolicy serializes a single logical-ref mutation under the Agent
@@ -61,7 +61,7 @@ func (s *DBStore) SetAgentSkillPolicy(ctx context.Context, agentID, ref string, 
 	if err != nil {
 		return agentskillpolicy.Policy{}, fmt.Errorf("lock AgentSkillPolicy for %q: %w", agentID, err)
 	}
-	policy, _, err := agentskillpolicy.Decode(raw)
+	policy, err := agentskillpolicy.Decode(raw)
 	if err != nil {
 		return agentskillpolicy.Policy{}, fmt.Errorf("decode AgentSkillPolicy for %q: %w", agentID, err)
 	}
@@ -771,7 +771,7 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: get agent %q: %w", agentID, err)
 	}
-	policy, _, err := agentskillpolicy.Decode(ag.EnabledBuiltinSkills)
+	policy, err := agentskillpolicy.Decode(ag.EnabledBuiltinSkills)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot: decode AgentSkillPolicy for %q: %w", agentID, err)
 	}

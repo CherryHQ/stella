@@ -25,36 +25,22 @@ type Policy struct {
 	Disabled []string
 }
 
-// Diagnostics describes legacy data that remains enabled by design.
-type Diagnostics struct {
-	LegacyArray bool
-}
-
-// Decode accepts every historical array as no disabled refs. Objects are a
-// strict versioned format: accepting a malformed object could silently change
-// which instructions the model receives, so callers must fail closed on error.
-func Decode(raw json.RawMessage) (Policy, Diagnostics, error) {
+// Decode reads the strict versioned storage format. The database migration
+// canonicalizes historical arrays before this code runs and a constraint keeps
+// them from returning; accepting any other shape here would fail open by
+// silently changing which instructions the model receives.
+func Decode(raw json.RawMessage) (Policy, error) {
 	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		return Policy{}, Diagnostics{}, nil
-	}
-	if trimmed[0] == '[' {
-		var legacy []json.RawMessage
-		if err := json.Unmarshal(trimmed, &legacy); err != nil {
-			return Policy{}, Diagnostics{}, fmt.Errorf("decode legacy AgentSkillPolicy: %w", err)
-		}
-		return Policy{}, Diagnostics{LegacyArray: len(legacy) > 0}, nil
-	}
-	if trimmed[0] != '{' {
-		return Policy{}, Diagnostics{}, fmt.Errorf("AgentSkillPolicy must be an object or legacy array")
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return Policy{}, fmt.Errorf("AgentSkillPolicy must be an object")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(trimmed))
 	open, err := decoder.Token()
 	if err != nil {
-		return Policy{}, Diagnostics{}, fmt.Errorf("decode AgentSkillPolicy: %w", err)
+		return Policy{}, fmt.Errorf("decode AgentSkillPolicy: %w", err)
 	}
 	if open != json.Delim('{') {
-		return Policy{}, Diagnostics{}, fmt.Errorf("AgentSkillPolicy must be an object")
+		return Policy{}, fmt.Errorf("AgentSkillPolicy must be an object")
 	}
 	var (
 		version     int
@@ -65,70 +51,70 @@ func Decode(raw json.RawMessage) (Policy, Diagnostics, error) {
 	for decoder.More() {
 		token, err := decoder.Token()
 		if err != nil {
-			return Policy{}, Diagnostics{}, fmt.Errorf("decode AgentSkillPolicy: %w", err)
+			return Policy{}, fmt.Errorf("decode AgentSkillPolicy: %w", err)
 		}
 		field, ok := token.(string)
 		if !ok {
-			return Policy{}, Diagnostics{}, fmt.Errorf("decode AgentSkillPolicy: object field name is not a string")
+			return Policy{}, fmt.Errorf("decode AgentSkillPolicy: object field name is not a string")
 		}
 		var value json.RawMessage
 		if err := decoder.Decode(&value); err != nil {
-			return Policy{}, Diagnostics{}, fmt.Errorf("decode AgentSkillPolicy: %w", err)
+			return Policy{}, fmt.Errorf("decode AgentSkillPolicy: %w", err)
 		}
 		switch field {
 		case "version":
 			if hasVersion {
-				return Policy{}, Diagnostics{}, fmt.Errorf("AgentSkillPolicy version must appear exactly once")
+				return Policy{}, fmt.Errorf("AgentSkillPolicy version must appear exactly once")
 			}
 			hasVersion = true
 			if bytes.Equal(value, []byte("null")) || json.Unmarshal(value, &version) != nil {
-				return Policy{}, Diagnostics{}, fmt.Errorf("AgentSkillPolicy version must be an integer")
+				return Policy{}, fmt.Errorf("AgentSkillPolicy version must be an integer")
 			}
 		case "disabled":
 			if hasDisabled {
-				return Policy{}, Diagnostics{}, fmt.Errorf("AgentSkillPolicy disabled must appear exactly once")
+				return Policy{}, fmt.Errorf("AgentSkillPolicy disabled must appear exactly once")
 			}
 			hasDisabled = true
 			if bytes.Equal(value, []byte("null")) || json.Unmarshal(value, &disabled) != nil {
-				return Policy{}, Diagnostics{}, fmt.Errorf("AgentSkillPolicy disabled must be a non-null array")
+				return Policy{}, fmt.Errorf("AgentSkillPolicy disabled must be a non-null array")
 			}
 		default:
-			return Policy{}, Diagnostics{}, fmt.Errorf("AgentSkillPolicy contains unknown field %q", field)
+			return Policy{}, fmt.Errorf("AgentSkillPolicy contains unknown field %q", field)
 		}
 	}
 	close, err := decoder.Token()
 	if err != nil {
-		return Policy{}, Diagnostics{}, fmt.Errorf("decode AgentSkillPolicy: %w", err)
+		return Policy{}, fmt.Errorf("decode AgentSkillPolicy: %w", err)
 	}
 	if close != json.Delim('}') {
-		return Policy{}, Diagnostics{}, fmt.Errorf("decode AgentSkillPolicy: object did not close")
+		return Policy{}, fmt.Errorf("decode AgentSkillPolicy: object did not close")
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		if err == nil {
-			return Policy{}, Diagnostics{}, fmt.Errorf("decode AgentSkillPolicy: trailing JSON value")
+			return Policy{}, fmt.Errorf("decode AgentSkillPolicy: trailing JSON value")
 		}
-		return Policy{}, Diagnostics{}, fmt.Errorf("decode AgentSkillPolicy: %w", err)
+		return Policy{}, fmt.Errorf("decode AgentSkillPolicy: %w", err)
 	}
 	if !hasVersion || !hasDisabled {
-		return Policy{}, Diagnostics{}, fmt.Errorf("AgentSkillPolicy requires exactly version and disabled")
+		return Policy{}, fmt.Errorf("AgentSkillPolicy requires exactly version and disabled")
 	}
 	if version != Version {
-		return Policy{}, Diagnostics{}, fmt.Errorf("unsupported AgentSkillPolicy version %d", version)
+		return Policy{}, fmt.Errorf("unsupported AgentSkillPolicy version %d", version)
 	}
 	canonical, err := canonicalDisabled(disabled)
 	if err != nil {
-		return Policy{}, Diagnostics{}, err
+		return Policy{}, err
 	}
 	if len(canonical) != len(disabled) {
-		return Policy{}, Diagnostics{}, fmt.Errorf("AgentSkillPolicy disabled refs must be unique canonical refs")
+		return Policy{}, fmt.Errorf("AgentSkillPolicy disabled refs must be unique canonical refs")
 	}
 	for i := range canonical {
 		if canonical[i] != disabled[i] {
-			return Policy{}, Diagnostics{}, fmt.Errorf("AgentSkillPolicy disabled refs must be sorted canonical refs")
+			return Policy{}, fmt.Errorf("AgentSkillPolicy disabled refs must be sorted canonical refs")
 		}
 	}
-	return Policy{Disabled: canonical}, Diagnostics{}, nil
+	return Policy{Disabled: canonical}, nil
 }
 
 // CanonicalJSON returns deterministic bytes for a policy mutation.

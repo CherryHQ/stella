@@ -1,12 +1,49 @@
 package delegate
 
 import (
-	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
+
+type testPresetFiles struct{}
+
+func (testPresetFiles) ReadFile(name string) ([]byte, error) { return os.ReadFile(name) }
+func (testPresetFiles) ReadDir(name string) ([]pkgsandbox.DirEntry, error) {
+	entries, err := os.ReadDir(name)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]pkgsandbox.DirEntry, 0, len(entries))
+	for _, entry := range entries {
+		item := pkgsandbox.DirEntry{Name: entry.Name(), IsDir: entry.IsDir()}
+		if info, infoErr := entry.Info(); infoErr == nil {
+			item.Size = info.Size()
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+func (testPresetFiles) Stat(name string) (pkgsandbox.FileInfo, error) {
+	info, err := os.Stat(name)
+	if err != nil {
+		return pkgsandbox.FileInfo{}, err
+	}
+	return pkgsandbox.FileInfo{IsDir: info.IsDir(), Size: info.Size()}, nil
+}
+func (testPresetFiles) WriteFile(string, []byte, fs.FileMode) error { return fs.ErrPermission }
+func (testPresetFiles) ProjectFiles(string, []pkgsandbox.ProjectedFile) error {
+	return fs.ErrPermission
+}
+
+func (testPresetFiles) ProjectTempFiles(string, []pkgsandbox.ProjectedFile) (string, error) {
+	return "", fs.ErrPermission
+}
 
 func writeTestFile(t *testing.T, path string, data []byte, perm os.FileMode) {
 	t.Helper()
@@ -136,7 +173,7 @@ func TestLoadPresetFromFile(t *testing.T) {
 		content := "---\nname: test-agent\ndescription: A test agent\nmodel: claude-haiku\ntimeout: 2m\n---\nYou are a test agent."
 		writeTestFile(t, path, []byte(content), 0o644)
 
-		p, ok := loadPresetFromFile(context.Background(), path, "project")
+		p, ok := loadPresetFromFile(testPresetFiles{}, path, "project")
 		if !ok {
 			t.Fatal("expected ok")
 		}
@@ -167,7 +204,7 @@ func TestLoadPresetFromFile(t *testing.T) {
 		content := "---\ndescription: Nameless agent\n---\nBody."
 		writeTestFile(t, path, []byte(content), 0o644)
 
-		p, ok := loadPresetFromFile(context.Background(), path, "common")
+		p, ok := loadPresetFromFile(testPresetFiles{}, path, "project")
 		if !ok {
 			t.Fatal("expected ok")
 		}
@@ -183,7 +220,7 @@ func TestLoadPresetFromFile(t *testing.T) {
 		content := "---\nname: bad\n---\nBody."
 		writeTestFile(t, path, []byte(content), 0o644)
 
-		_, ok := loadPresetFromFile(context.Background(), path, "project")
+		_, ok := loadPresetFromFile(testPresetFiles{}, path, "project")
 		if ok {
 			t.Fatal("expected rejection for missing description")
 		}
@@ -196,7 +233,7 @@ func TestLoadPresetFromFile(t *testing.T) {
 		content := "---\nname: bad\ndescription: Bad timeout\ntimeout: not-a-duration\n---\nBody."
 		writeTestFile(t, path, []byte(content), 0o644)
 
-		_, ok := loadPresetFromFile(context.Background(), path, "project")
+		_, ok := loadPresetFromFile(testPresetFiles{}, path, "project")
 		if ok {
 			t.Fatal("expected rejection for invalid timeout")
 		}
@@ -204,7 +241,7 @@ func TestLoadPresetFromFile(t *testing.T) {
 
 	t.Run("nonexistent file", func(t *testing.T) {
 		t.Parallel()
-		_, ok := loadPresetFromFile(context.Background(), "/nonexistent/path.md", "project")
+		_, ok := loadPresetFromFile(testPresetFiles{}, "/nonexistent/path.md", "project")
 		if ok {
 			t.Fatal("expected failure for nonexistent file")
 		}
@@ -229,7 +266,7 @@ func TestLoadPresetsFromDir(t *testing.T) {
 	// Create a subdirectory (should be ignored).
 	mkdirAll(t, filepath.Join(dir, "subdir"), 0o755)
 
-	presets := loadPresetsFromDir(context.Background(), dir, "test")
+	presets := loadPresetsFromDir(testPresetFiles{}, dir, "test")
 	if len(presets) != 2 {
 		t.Fatalf("expected 2 presets, got %d", len(presets))
 	}
@@ -248,7 +285,7 @@ func TestLoadPresetsFromDir(t *testing.T) {
 
 func TestLoadPresetsFromDirNonexistent(t *testing.T) {
 	t.Parallel()
-	presets := loadPresetsFromDir(context.Background(), "/nonexistent/dir", "test")
+	presets := loadPresetsFromDir(testPresetFiles{}, "/nonexistent/dir", "test")
 	if len(presets) != 0 {
 		t.Errorf("expected 0 presets for nonexistent dir, got %d", len(presets))
 	}
@@ -274,7 +311,10 @@ func TestLoadDelegatePresetsDeduplication(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir2, ".agents", "delegates", "unique.md"),
 		[]byte("---\nname: unique\ndescription: Only in workspace\n---\nUnique body."), 0o644)
 
-	presets := loadDelegatePresets(context.Background(), "", dir2, "", dir1)
+	presets := loadDelegatePresets(testPresetFiles{}, []PresetRoot{
+		{Path: dir2, Source: "agent"},
+		{Path: dir1, Source: "project"},
+	})
 	if len(presets) != 2 {
 		t.Fatalf("expected 2 presets, got %d", len(presets))
 	}
@@ -313,25 +353,20 @@ func TestPresetRegistry(t *testing.T) {
 	}
 }
 
-func TestLoadDelegatePresetsAllFourTiers(t *testing.T) {
+func TestLoadDelegatePresetsAllOverrideTiers(t *testing.T) {
 	t.Parallel()
 
 	cwd := t.TempDir()
 	agentRoot := t.TempDir()
 	userRoot := filepath.Join(t.TempDir(), "users", "7")
-	stellaHome := t.TempDir()
 
 	mkdirAll(t, filepath.Join(cwd, ".agents", "delegates"), 0o755)
 	mkdirAll(t, filepath.Join(agentRoot, ".agents", "delegates"), 0o755)
 	mkdirAll(t, filepath.Join(userRoot, ".agents", "delegates"), 0o755)
-	mkdirAll(t, filepath.Join(stellaHome, ".agents", "delegates"), 0o755)
 
 	preset := func(name, desc string) []byte {
 		return []byte("---\nname: " + name + "\ndescription: " + desc + "\n---\nBody.")
 	}
-
-	writeTestFile(t, filepath.Join(stellaHome, ".agents", "delegates", "stella-only.md"), preset("stella-only", "From stella"), 0o644)
-	writeTestFile(t, filepath.Join(stellaHome, ".agents", "delegates", "overlap.md"), preset("overlap", "Stella loses"), 0o644)
 
 	writeTestFile(t, filepath.Join(agentRoot, ".agents", "delegates", "agent-only.md"), preset("agent-only", "From agent root"), 0o644)
 	writeTestFile(t, filepath.Join(agentRoot, ".agents", "delegates", "overlap.md"), preset("overlap", "Agent loses"), 0o644)
@@ -342,17 +377,18 @@ func TestLoadDelegatePresetsAllFourTiers(t *testing.T) {
 	writeTestFile(t, filepath.Join(cwd, ".agents", "delegates", "project-only.md"), preset("project-only", "From project"), 0o644)
 	writeTestFile(t, filepath.Join(cwd, ".agents", "delegates", "overlap.md"), preset("overlap", "Project wins"), 0o644)
 
-	presets := loadDelegatePresets(context.Background(), stellaHome, agentRoot, userRoot, cwd)
-	if len(presets) != 5 {
-		t.Fatalf("expected 5 presets, got %d", len(presets))
+	presets := loadDelegatePresets(testPresetFiles{}, []PresetRoot{
+		{Path: agentRoot, Source: "agent"},
+		{Path: userRoot, Source: "user"},
+		{Path: cwd, Source: "project"},
+	})
+	if len(presets) != 4 {
+		t.Fatalf("expected 4 presets, got %d", len(presets))
 	}
 
 	byName := map[string]DelegatePreset{}
 	for _, p := range presets {
 		byName[p.Name] = p
-	}
-	if byName["stella-only"].Source != "stella" {
-		t.Errorf("stella-only Source = %q", byName["stella-only"].Source)
 	}
 	if byName["agent-only"].Source != "agent" {
 		t.Errorf("agent-only Source = %q", byName["agent-only"].Source)
@@ -379,26 +415,33 @@ func TestLoadDelegatePresets_publicWrapper(t *testing.T) {
 	writeTestFile(t, filepath.Join(delegatesDir, "helper.md"),
 		[]byte("---\nname: helper\ndescription: A helper delegate\n---\nHelp the user."), 0o644)
 
-	presets := LoadDelegatePresets(LoadDelegatePresetsConfig{StellaHome: dir})
-	if len(presets) != 1 {
-		t.Fatalf("expected 1 preset, got %d", len(presets))
+	presets := LoadDelegatePresets(testPresetFiles{}, []PresetRoot{{Path: dir, Source: "project"}})
+	if len(presets) < 2 {
+		t.Fatalf("expected builtin and custom presets, got %d", len(presets))
 	}
-	if presets[0].Name != "helper" {
-		t.Errorf("Name = %q, want helper", presets[0].Name)
+	found := false
+	for _, preset := range presets {
+		found = found || preset.Name == "helper"
+	}
+	if !found {
+		t.Error("custom helper preset was not loaded")
 	}
 }
 
 func TestLoadDelegatePresetsPathDedup(t *testing.T) {
 	t.Parallel()
 
-	// Pass the same dir as both stellaHome and agentRoot; both scan
-	// .agents/delegates/ so filepath.Abs dedup should load it once.
+	// Pass the same process-visible root twice; both scan .agents/delegates,
+	// so canonical path deduplication should load it once.
 	dir := t.TempDir()
 	mkdirAll(t, filepath.Join(dir, ".agents", "delegates"), 0o755)
 	writeTestFile(t, filepath.Join(dir, ".agents", "delegates", "test.md"),
 		[]byte("---\nname: test\ndescription: Test delegate\n---\nBody."), 0o644)
 
-	presets := loadDelegatePresets(context.Background(), dir, dir, "", "")
+	presets := loadDelegatePresets(testPresetFiles{}, []PresetRoot{
+		{Path: dir, Source: "user"},
+		{Path: dir, Source: "agent"},
+	})
 	if len(presets) != 1 {
 		t.Errorf("expected 1 preset (dedup), got %d", len(presets))
 	}

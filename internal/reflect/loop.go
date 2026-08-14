@@ -8,7 +8,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/CherryHQ/stella/internal/config"
-	"github.com/CherryHQ/stella/internal/memory"
 )
 
 // RunOnce executes the scheduler-owned review cycle across all enabled agents.
@@ -50,7 +49,7 @@ func (s *Service) runCycleWithReviewer(ctx context.Context, review reviewTargetF
 			s.recordNextReviewAgentCursor(ctx, agents, processedAgents)
 			return err
 		}
-		snap, err := s.snapshotLoader().Snapshot(ctx, agent.ID)
+		snap, err := s.snapshots.Snapshot(ctx, agent.ID)
 		if err != nil {
 			s.log.Error("reflect: snapshot", "agent", agent.ID, "error", err)
 			processedAgents = i + 1
@@ -87,22 +86,11 @@ func (s *Service) reviewAgentWithReviewer(ctx context.Context, snap *config.Snap
 	ctx, span := startAgentSpan(ctx, snap.AgentID)
 	defer span.End()
 
-	var targets []reviewTarget
-	var err error
-
-	if s.services != nil {
-		if svc := s.services.GetService(snap.AgentID); svc != nil {
-			targets, err = s.listUnreviewedFromRegistry(ctx, svc.Sessions, snap.AgentID)
-		}
+	svc := s.services.GetService(snap.AgentID)
+	if svc == nil || svc.Sessions == nil {
+		return 0, false, fmt.Errorf("agent %s has no active session registry", snap.AgentID)
 	}
-	if targets == nil && err == nil {
-		// Fallback: use direct SessionManager if services not wired.
-		sm, ok := s.memory.(memory.SessionManager)
-		if !ok {
-			return 0, false, nil
-		}
-		targets, err = s.listUnreviewed(ctx, sm, snap.AgentID)
-	}
+	targets, err := s.listUnreviewedFromRegistry(ctx, svc.Sessions, snap.AgentID)
 	if err != nil {
 		recordError(span, err)
 		return 0, false, fmt.Errorf("list unreviewed: %w", err)

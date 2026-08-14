@@ -9,10 +9,11 @@ import (
 	"testing"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/internal/sessionfs"
 )
 
-func TestFilesystemTempDirDarwinUsesRealTmpMount(t *testing.T) {
-	if got, want := filesystemTempDir([]tmpMount{{sandboxPath: "/tmp", realPath: "/private/var/folders/principal-tmp"}}), "/private/var/folders/principal-tmp"; got != want {
+func TestFilesystemTempDirDarwinUsesIdentityTmpMount(t *testing.T) {
+	if got, want := filesystemTempDir([]tmpMount{{sandboxPath: "/private/var/folders/principal-tmp", realPath: "/private/var/folders/principal-tmp", environment: true}}), "/private/var/folders/principal-tmp"; got != want {
 		t.Errorf("filesystemTempDir = %q, want %q", got, want)
 	}
 	if got, want := filesystemTempDir(nil), os.TempDir(); got != want {
@@ -20,14 +21,54 @@ func TestFilesystemTempDirDarwinUsesRealTmpMount(t *testing.T) {
 	}
 }
 
+func TestDarwinTempCoordinatesMatchFileAccess(t *testing.T) {
+	mounts, err := createSessionTmpMounts()
+	if err != nil {
+		t.Fatalf("createSessionTmpMounts: %v", err)
+	}
+	t.Cleanup(func() { cleanupOwnedTmpMounts(mounts) })
+	if len(mounts) != 2 {
+		t.Fatalf("tmp mounts = %#v, want two identity mounts", mounts)
+	}
+	for _, mount := range mounts {
+		if mount.sandboxPath != mount.realPath {
+			t.Fatalf("tmp mount = %#v, want identity process view", mount)
+		}
+	}
+
+	workspace := t.TempDir()
+	resolverMounts := []sessionfs.Mount{{HostPath: workspace, SandboxPath: workspace}}
+	for _, mount := range mounts {
+		resolverMounts = append(resolverMounts, sessionfs.Mount{HostPath: mount.realPath, SandboxPath: mount.sandboxPath})
+	}
+	resolver, err := sessionfs.NewResolver(workspace, resolverMounts)
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	t.Cleanup(func() { _ = resolver.Close() })
+
+	tmpDir := filesystemTempDir(mounts)
+	filename := filepath.Join(tmpDir, "round-trip")
+	if err := sessionfs.NewAccess(resolver).WriteFile(filename, []byte("same bytes"), 0o600); err != nil {
+		t.Fatalf("FileAccess.WriteFile(TMPDIR): %v", err)
+	}
+	content, err := os.ReadFile(filename)
+	if err != nil || string(content) != "same bytes" {
+		t.Fatalf("process-view temp content = %q, %v", content, err)
+	}
+}
+
 func makePolicy(root string, net sandboxpkg.NetworkMode) sandboxpkg.Policy {
 	return sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: root,
-			WorkingDir:    root,
+			WorkingDir: root,
 		},
 		Network: sandboxpkg.NetworkPolicy{Mode: net},
 	}
+}
+
+func darwinTestMounts(root string) []sessionfs.Mount {
+	return []sessionfs.Mount{{HostPath: root, SandboxPath: root}}
 }
 
 func TestWrapCommand_darwin_usesSeatbelt(t *testing.T) {
@@ -37,7 +78,8 @@ func TestWrapCommand_darwin_usesSeatbelt(t *testing.T) {
 	root := t.TempDir()
 	policy := makePolicy(root, sandboxpkg.NetworkDisabled)
 
-	execPath, args, err := wrapCommand(policy, root, nil, "", "sh", []string{"-c", "echo hi"})
+	session := &localSession{providerMounts: darwinTestMounts(root), realRoot: root}
+	execPath, args, err := session.wrapCommand(policy, root, "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -66,27 +108,30 @@ func TestLocalSession_darwinProductionMountUsesHostCwd(t *testing.T) {
 	if err := os.Mkdir(realCwd, 0o755); err != nil {
 		t.Fatalf("Mkdir: %v", err)
 	}
-	sandboxCwd := filepath.Join(sandboxpkg.MountWorkspace, "sub")
+	sandboxCwd := realCwd
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: root,
-			WorkingDir:    sandboxpkg.MountWorkspace,
-			Mounts: []sandboxpkg.Mount{{
-				HostPath:    root,
-				SandboxPath: sandboxpkg.MountWorkspace,
-				Access:      sandboxpkg.MountReadWrite,
-			}},
+			WorkingDir: root,
+			Mounts:     []sandboxpkg.Mount{{SandboxPath: root, Access: sandboxpkg.MountReadWrite}},
 		},
 		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 		InheritEnv: true,
 	}
 	s := &localSession{
-		id:          "test",
-		policy:      policy,
-		realRoot:    root,
-		sandboxRoot: sandboxpkg.MountWorkspace,
-		done:        make(chan struct{}),
+		id:             "test",
+		policy:         policy,
+		realRoot:       root,
+		sandboxRoot:    root,
+		providerMounts: darwinTestMounts(root),
+		done:           make(chan struct{}),
 	}
+	resolver, err := sessionfs.NewResolver(root, s.providerMounts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = resolver.Close() })
+	s.resolver = resolver
+	s.files = sessionfs.NewAccess(resolver)
 	want := realCwd + "\n"
 
 	t.Run("Exec", func(t *testing.T) {
@@ -129,7 +174,7 @@ func TestLocalSession_darwinProductionMountUsesHostCwd(t *testing.T) {
 
 func TestBuildSeatbeltProfile_structure(t *testing.T) {
 	policy := makePolicy("/tmp/ws", sandboxpkg.NetworkDisabled)
-	profile := buildSeatbeltProfile(policy, "")
+	profile := buildSeatbeltProfile(policy, darwinTestMounts("/tmp/ws"), "/tmp/ws", "")
 
 	for _, want := range []string{
 		"(allow default)",
@@ -154,7 +199,7 @@ func TestBuildSeatbeltProfile_allowsMiseRuntimeWriteDirs(t *testing.T) {
 		"MISE_CACHE_DIR": filepath.Join(stellaHome, ".mise-tools", "cache"),
 		"MISE_STATE_DIR": "/tmp/mise-state",
 	}
-	profile := buildSeatbeltProfile(policy, "")
+	profile := buildSeatbeltProfile(policy, darwinTestMounts("/tmp/ws"), "/tmp/ws", "")
 
 	for _, want := range []string{
 		`(allow file-write* (subpath "` + filepath.Join(stellaHome, ".mise-tools", "cache") + `"))`,
@@ -172,7 +217,7 @@ func TestBuildSeatbeltProfile_ignoresUnsafeMiseRuntimeWriteDirs(t *testing.T) {
 		"MISE_CACHE_DIR": "/",
 		"MISE_STATE_DIR": "relative/state",
 	}
-	profile := buildSeatbeltProfile(policy, "")
+	profile := buildSeatbeltProfile(policy, darwinTestMounts("/tmp/ws"), "/tmp/ws", "")
 
 	for _, forbidden := range []string{
 		`(allow file-write* (subpath "/"))`,
@@ -195,8 +240,8 @@ func TestBuildSeatbeltProfile_miseHolesKeyedOnPerUserTree(t *testing.T) {
 	t.Run("unrelated writable mount still emits cache holes", func(t *testing.T) {
 		policy := makePolicy("/tmp/ws", sandboxpkg.NetworkDisabled)
 		policy.Env = map[string]string{"MISE_CACHE_DIR": cacheDir}
-		policy.Filesystem.Mounts = append(policy.Filesystem.Mounts, sandboxpkg.Mount{HostPath: "/tmp/unrelated", SandboxPath: "/tmp/unrelated", Access: sandboxpkg.MountReadWrite})
-		profile := buildSeatbeltProfile(policy, stellaHome)
+		mounts := append(darwinTestMounts("/tmp/ws"), sessionfs.Mount{HostPath: "/tmp/unrelated", SandboxPath: "/tmp/unrelated"})
+		profile := buildSeatbeltProfile(policy, mounts, "/tmp/ws", stellaHome)
 
 		if !strings.Contains(profile, `(allow file-write* (subpath "`+cacheDir+`"))`) {
 			t.Errorf("an unrelated writable mount must not suppress mise cache holes:\n%s", profile)
@@ -210,8 +255,8 @@ func TestBuildSeatbeltProfile_miseHolesKeyedOnPerUserTree(t *testing.T) {
 			"MISE_DATA_DIR":  userDir,
 			"MISE_CACHE_DIR": "/tmp/mise-cache",
 		}
-		policy.Filesystem.Mounts = append(policy.Filesystem.Mounts, sandboxpkg.Mount{HostPath: userDir, SandboxPath: userDir, Access: sandboxpkg.MountReadWrite})
-		profile := buildSeatbeltProfile(policy, stellaHome)
+		mounts := append(darwinTestMounts("/tmp/ws"), sessionfs.Mount{HostPath: userDir, SandboxPath: userDir})
+		profile := buildSeatbeltProfile(policy, mounts, "/tmp/ws", stellaHome)
 
 		if strings.Contains(profile, `(allow file-write* (subpath "/tmp/mise-cache"))`) {
 			t.Errorf("a writable per-user mise tree should skip the cache fallback holes:\n%s", profile)
@@ -222,7 +267,7 @@ func TestBuildSeatbeltProfile_miseHolesKeyedOnPerUserTree(t *testing.T) {
 // TestBuildSeatbeltProfile_noSiblingRules verifies generic mount policy emits no
 // legacy per-agent deny/allow rules.
 func TestBuildSeatbeltProfile_noSiblingRules(t *testing.T) {
-	profile := buildSeatbeltProfile(makePolicy("/private/tmp/ws", sandboxpkg.NetworkDisabled), "")
+	profile := buildSeatbeltProfile(makePolicy("/private/tmp/ws", sandboxpkg.NetworkDisabled), darwinTestMounts("/private/tmp/ws"), "/private/tmp/ws", "")
 	if strings.Contains(profile, "(deny file-read* file-write*") {
 		t.Errorf("no sibling-hiding rules expected without generic mounts:\n%s", profile)
 	}
@@ -230,7 +275,7 @@ func TestBuildSeatbeltProfile_noSiblingRules(t *testing.T) {
 
 func TestBuildSeatbeltProfile_networkAllowAll(t *testing.T) {
 	policy := makePolicy("/tmp/ws", sandboxpkg.NetworkAllowAll)
-	profile := buildSeatbeltProfile(policy, "")
+	profile := buildSeatbeltProfile(policy, darwinTestMounts("/tmp/ws"), "/tmp/ws", "")
 
 	if strings.Contains(profile, "(deny network*)") {
 		t.Error("profile must not deny network when mode is allow_all")
@@ -243,11 +288,12 @@ func TestBuildSeatbeltProfile_networkDisabledVsAllowAll(t *testing.T) {
 	}
 	root := t.TempDir()
 
-	_, disabledArgs, err := wrapCommand(makePolicy(root, sandboxpkg.NetworkDisabled), root, nil, "", "sh", []string{"-c", "echo"})
+	session := &localSession{providerMounts: darwinTestMounts(root), realRoot: root}
+	_, disabledArgs, err := session.wrapCommand(makePolicy(root, sandboxpkg.NetworkDisabled), root, "sh", []string{"-c", "echo"})
 	if err != nil {
 		t.Fatalf("disabled wrapCommand error: %v", err)
 	}
-	_, allowArgs, err := wrapCommand(makePolicy(root, sandboxpkg.NetworkAllowAll), root, nil, "", "sh", []string{"-c", "echo"})
+	_, allowArgs, err := session.wrapCommand(makePolicy(root, sandboxpkg.NetworkAllowAll), root, "sh", []string{"-c", "echo"})
 	if err != nil {
 		t.Fatalf("allow_all wrapCommand error: %v", err)
 	}

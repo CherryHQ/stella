@@ -9,7 +9,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/skills"
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
 // stubSkillAuthorizer is the test double for the Skill write authorizer: it
@@ -30,7 +29,7 @@ func TestExecuteSkillReconciliationPlanWritesCreateAndPatch(t *testing.T) {
 	bundle := skillRelatedBundle{
 		Candidates: []skillCandidate{validSkillCandidate("skill-0001"), validSkillCandidate("skill-0002")},
 		RelatedRecords: []skillRelatedRecord{{
-			Skill: pkgplugins.Skill{
+			Skill: skills.Skill{
 				ID:            "old-skill",
 				Scope:         "user_agent",
 				Status:        "active",
@@ -50,13 +49,12 @@ func TestExecuteSkillReconciliationPlanWritesCreateAndPatch(t *testing.T) {
 			MainFileContent: "# New skill\n",
 		},
 		{
-			Operation:            skillOperationPatch,
-			CandidateRefs:        []CandidateRef{"skill-0002"},
-			TargetSkillID:        "old-skill",
-			ExpectedSkillVersion: 4,
-			ExpectedSkillDigest:  testSkillContentDigest,
-			Description:          "Patch a reflect-maintained skill.",
-			MainFileContent:      "# Patched skill\n",
+			Operation:           skillOperationPatch,
+			CandidateRefs:       []CandidateRef{"skill-0002"},
+			TargetSkillID:       "old-skill",
+			ExpectedSkillDigest: testSkillContentDigest,
+			Description:         "Patch a reflect-maintained skill.",
+			MainFileContent:     "# Patched skill\n",
 		},
 	}}
 
@@ -104,7 +102,7 @@ func TestExecuteSkillReconciliationPlanWritesCreateAndPatch(t *testing.T) {
 	if writer.creates[0].UserID != "user-1" || writer.creates[0].AgentID != "agent-1" {
 		t.Fatalf("wrong create owner: %#v", writer.creates[0])
 	}
-	if len(writer.patches) != 1 || writer.patches[0].ID != "old-skill" || writer.patches[0].ExpectedVersion != 4 {
+	if len(writer.patches) != 1 || writer.patches[0].ID != "old-skill" || writer.patches[0].ExpectedDigest != testSkillContentDigest {
 		t.Fatalf("unexpected patches: %#v", writer.patches)
 	}
 	if writer.patches[0].Description == nil || *writer.patches[0].Description != "Patch a reflect-maintained skill." {
@@ -130,11 +128,10 @@ func TestExecuteSkillReconciliationPlanRejectsInvalidPlanBeforeWriting(t *testin
 	writer := &fakeReflectSkillWriter{}
 	bundle := skillRelatedBundle{Candidates: []skillCandidate{validSkillCandidate("skill-0001")}}
 	plan := skillReconciliationPlan{Operations: []skillWriteOperation{{
-		Operation:            skillOperationPatch,
-		CandidateRefs:        []CandidateRef{"skill-0001"},
-		TargetSkillID:        "missing-skill",
-		ExpectedSkillVersion: 1,
-		MainFileContent:      "# Invalid\n",
+		Operation:       skillOperationPatch,
+		CandidateRefs:   []CandidateRef{"skill-0001"},
+		TargetSkillID:   "missing-skill",
+		MainFileContent: "# Invalid\n",
 	}}}
 
 	if _, err := executeSkillReconciliationPlan(
@@ -158,7 +155,7 @@ func TestExecuteSkillPlanCanRetryAfterPartialCommit(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	userID, agentID := seedUsageCuratorDB(t, ctx, db)
-	inner := skills.New(db)
+	inner := newReflectPOSIXSkillStore(t, db)
 	wantFailure := errors.New("injected second operation failure")
 	writer := &failOnceReflectSkillWriter{inner: inner, failCall: 2, err: wantFailure}
 	bundle := skillRelatedBundle{
@@ -356,5 +353,5 @@ func (w *fakeReflectSkillWriter) CreateReflectOwnedUserAgentSkill(_ context.Cont
 
 func (w *fakeReflectSkillWriter) PatchReflectOwnedUserAgentSkill(_ context.Context, in skills.ReflectSkillPatch) (skills.Skill, error) {
 	w.patches = append(w.patches, in)
-	return skills.Skill{ID: in.ID, Version: in.ExpectedVersion + 1}, nil
+	return skills.Skill{ID: in.ID, Version: 2}, nil
 }

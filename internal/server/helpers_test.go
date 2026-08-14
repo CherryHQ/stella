@@ -183,19 +183,27 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	}
 	poolMgr := agent.NewPoolManager(store, mem)
 	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
-	homeDir, _ := os.UserHomeDir()
 	agentAccess := agentaccess.NewService(store, as)
+	homeManager, err := home.NewWorkspaceManager(db, t.TempDir())
+	if err != nil {
+		t.Fatalf("home.NewWorkspaceManager: %v", err)
+	}
+	t.Cleanup(func() { _ = homeManager.Close() })
+	skillStore, err := skills.NewPOSIXStore(db, homeManager)
+	if err != nil {
+		t.Fatalf("skills.NewPOSIXStore: %v", err)
+	}
+	skillAccess := skillaccess.NewService(skillStore, agentAccess)
 	projectStore := agent.NewProjectStore(db, store, agentAccess, agent.WithProjectHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}))
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
-		StellaHome: config.StellaHome(),
-		HomeDir:    homeDir,
-		Memory:     mem,
-		Agents:     sessionaccess.ConfigPromptAgentStore{Store: store},
-		Projects:   projectStore.Resolve,
-		Workspace:  serverTestWorkspace{root: config.StellaHome()},
-		Plugins:    phost,
-		SkillStore: pluginhost.NewSkillStoreAdapter(phost.SkillStore()),
-		Skills:     skills.BuildPromptSection,
+		Memory:    mem,
+		Agents:    sessionaccess.ConfigPromptAgentStore{Store: store},
+		Projects:  projectStore.Resolve,
+		Workspace: serverTestWorkspace{root: config.StellaHome()},
+		Plugins:   phost,
+		Skills: func(ctx context.Context, build pkgplugins.SystemPromptContext, project *skills.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
+			return skills.BuildAuthorizedPromptSection(ctx, build, project, skillStore, skillAccess)
+		},
 	})
 	if err != nil {
 		t.Fatalf("sessionaccess.NewSystemPromptBuilder: %v", err)
@@ -212,12 +220,6 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 	memChangelog, _ := mem.(memory.ChangelogReader)
 	memoryManagement := memorywrite.NewManagementService(db, changelogPageReader)
 	profileSvc := memprofile.NewService(db, memProfiles, memChangelog, memoryManagement, agentAccess, prompt.DefaultAgentSoul, slog.With("component", "profile-test"))
-	skillIdentities, ok := phost.SkillStore().(skillaccess.SkillStore)
-	if !ok {
-		// A few dependency-identity tests deliberately inject a narrow Store
-		// wrapper. Keep their authorization inventory on the same database.
-		skillIdentities = skills.New(db)
-	}
 	return Deps{
 		Pinger:              db,
 		Group:               channel.NewGroupService(db, agentAccess, channel.NewRuntimeResolver(store), nil, nil),
@@ -230,7 +232,8 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		AgentSkillPolicy:    agentSkillPolicy,
 		ToolOverrides:       toolOverrides,
 		SessionAccess:       sessionSvc,
-		SkillAccess:         skillaccess.NewService(skillIdentities, agentAccess),
+		SkillAccess:         skillAccess,
+		Skills:              skillStore,
 		LinkCodes:           auth.NewLinkCodeStore(),
 		PoolManager:         poolMgr,
 		PluginHost:          phost,
@@ -291,7 +294,7 @@ func newTestServer(t *testing.T, store config.Store, as *appdb.AuthStore, mem me
 
 func TestResolvedToDBSkillPreservesExactRevisionIdentity(t *testing.T) {
 	const digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	resolved := &skills.ResolvedSkill{Skill: pkgplugins.Skill{
+	resolved := &skills.ResolvedSkill{Skill: skills.Skill{
 		ID: "skill-id", Scope: "user_agent", UserID: "user-id", AgentID: "agent-id",
 		Name: "review-notes", ContentDigest: digest,
 	}}
@@ -322,10 +325,8 @@ func TestManagedSkillAgentFileLoadPreservesExactRevisionDigest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host := pluginhost.New(nil)
-	host.SetSkillStore(store)
-	srv := &Server{pluginHost: host}
-	resolved := &skills.ResolvedSkill{Skill: dbSkillToPluginSkill(snapshot.Skill)}
+	srv := &Server{skills: store}
+	resolved := &skills.ResolvedSkill{Skill: snapshot.Skill}
 	if resolved.ContentDigest != snapshot.Skill.ContentDigest {
 		t.Fatalf("converted digest = %q, want %q", resolved.ContentDigest, snapshot.Skill.ContentDigest)
 	}

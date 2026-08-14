@@ -101,6 +101,9 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 	// of the user home (#442).
 	userAgentDir := filepath.Join(stellaHome, "users", "user-1", "agents", snap.AgentID)
 	projectRoot := filepath.Join(userAgentDir, "projects", "app")
+	if err := os.MkdirAll(filepath.Join(stellaHome, "users", "user-1", "data"), 0o700); err != nil {
+		t.Fatalf("MkdirAll user data: %v", err)
+	}
 	if err := os.MkdirAll(projectRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -113,9 +116,9 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 
 	var promptBuild plugins.SystemPromptContext
 	resolveCalls := 0
-	build := newRunnerFunc(runnerBuilderConfig{
-		Snap:            snap,
-		WorkspaceViewer: testWorkspaceViewer{root: stellaHome},
+	build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
+		Snap: snap,
+		Home: testWorkspaceViewer{root: stellaHome},
 		PromptSectionsBuilder: func(_ context.Context, build plugins.SystemPromptContext) ([]plugins.SystemPromptSection, error) {
 			promptBuild = build
 			return nil, nil
@@ -134,7 +137,7 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 			}
 			return ProjectDescriptor{ID: projectID, UserID: userID, AgentID: agentID, Path: "projects/app"}, nil
 		},
-	})
+	}))
 
 	r, err := build(context.Background(), RunnerParams{UserID: "user-1", AgentID: snap.AgentID, ProjectID: "project-1"})
 	if err != nil {
@@ -149,11 +152,8 @@ func TestNewRunnerFuncPassesProjectRootToSystemPrompt(t *testing.T) {
 	if got := r.SystemPrompt(); !strings.Contains(got, "root instructions from runner builder") || !strings.Contains(got, "project instructions from runner builder") || strings.Contains(got, stellaHome) {
 		t.Fatalf("expected logical root-to-leaf project context without host path, got:\n%s", got)
 	}
-	if got, want := promptBuild.WorkspaceRoot, userAgentDir; got != want {
-		t.Errorf("prompt WorkspaceRoot = %q, want per-agent workspace %q", got, want)
-	}
-	if got, want := promptBuild.UserRoot, filepath.Dir(filepath.Dir(userAgentDir)); got != want {
-		t.Errorf("prompt UserRoot = %q, want shared user home %q", got, want)
+	if promptBuild.UserID != "user-1" || promptBuild.AgentID != snap.AgentID {
+		t.Errorf("prompt identity = (%q, %q), want (%q, %q)", promptBuild.UserID, promptBuild.AgentID, "user-1", snap.AgentID)
 	}
 	if resolveCalls != 1 {
 		t.Fatalf("project resolved %d times, want exactly once", resolveCalls)
@@ -193,7 +193,7 @@ func TestNewRunnerFuncGuestHasMinimalPromptAndNoTools(t *testing.T) {
 	config.ResetStellaHome()
 	t.Cleanup(config.ResetStellaHome)
 	snap := &config.Snapshot{AgentID: "agent-1", Provider: "anthropic", Model: "test-model", APIKey: "test-key", SystemPrompt: "Operator base prompt", Workspace: t.TempDir()}
-	build := newRunnerFunc(runnerBuilderConfig{
+	build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
 		Snap: snap,
 		ProviderStreamBuilder: func(string, string, string) (providers.StreamFunc, error) {
 			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
@@ -203,7 +203,7 @@ func TestNewRunnerFuncGuestHasMinimalPromptAndNoTools(t *testing.T) {
 			t.Fatal("guest must not build prompt sections")
 			return nil, nil
 		},
-	})
+	}))
 	r, err := build(context.Background(), RunnerParams{UserID: "11111111-1111-4111-8111-111111111111", GuestID: "11111111-1111-4111-8111-111111111111", AgentID: "agent-1", SessionID: "guest-session"})
 	if err != nil {
 		t.Fatalf("build guest runner: %v", err)
@@ -244,15 +244,18 @@ func TestNewRunnerFuncCarriesDeclaredModelInput(t *testing.T) {
 		},
 	}
 	snap.Workspace = t.TempDir()
+	if err := os.MkdirAll(filepath.Join(stellaHome, "users", "user-1", "data"), 0o700); err != nil {
+		t.Fatalf("MkdirAll user data: %v", err)
+	}
 
-	build := newRunnerFunc(runnerBuilderConfig{
-		Snap:            snap,
-		WorkspaceViewer: testWorkspaceViewer{root: stellaHome},
+	build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
+		Snap: snap,
+		Home: testWorkspaceViewer{root: stellaHome},
 		ProviderStreamBuilder: func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
 		},
 		SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
-	})
+	}))
 
 	r, err := build(context.Background(), RunnerParams{UserID: "user-1", AgentID: snap.AgentID})
 	if err != nil {
@@ -291,12 +294,15 @@ func TestNewRunnerFuncManagedSessionsPreserveQualifiedModelRef(t *testing.T) {
 		},
 		Workspace: t.TempDir(),
 	}
+	if err := os.MkdirAll(filepath.Join(stellaHome, "users", "user-1", "data"), 0o700); err != nil {
+		t.Fatalf("MkdirAll user data: %v", err)
+	}
 
 	var adapterBuilds int
 	bridge := &rebuildingDelegateRunner{}
-	build := newRunnerFunc(runnerBuilderConfig{
-		Snap:            snap,
-		WorkspaceViewer: testWorkspaceViewer{root: stellaHome},
+	build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
+		Snap: snap,
+		Home: testWorkspaceViewer{root: stellaHome},
 		ProviderStreamBuilder: func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 			if api != providerAPI {
 				return nil, providers.ErrProviderNotFound
@@ -305,7 +311,7 @@ func TestNewRunnerFuncManagedSessionsPreserveQualifiedModelRef(t *testing.T) {
 			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
 		},
 		SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
-	})
+	}))
 	bridge.build = build
 
 	source, err := build(context.Background(), RunnerParams{
@@ -363,13 +369,13 @@ func TestNewRunnerFunc(t *testing.T) {
 	}
 	snap.Workspace = t.TempDir()
 
-	build := newRunnerFunc(runnerBuilderConfig{
-		Snap:            snap,
-		WorkspaceViewer: testWorkspaceViewer{root: stellaHome},
+	build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
+		Snap: snap,
+		Home: testWorkspaceViewer{root: stellaHome},
 		ProviderStreamBuilder: func(api, apiKey, baseURL string) (providers.StreamFunc, error) {
 			return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
 		},
-	})
+	}))
 
 	r, err := build(context.Background(), RunnerParams{UserID: "1"})
 	if err != nil {

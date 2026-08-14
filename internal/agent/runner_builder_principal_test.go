@@ -8,11 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/home"
+	skillstool "github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
@@ -22,8 +22,58 @@ type testWorkspaceViewer struct{ root string }
 
 type failingWorkspaceViewer struct{ err error }
 
+type emptySkillRuntime struct{}
+
+func (emptySkillRuntime) GetIdentity(context.Context, string) (*skillstool.Skill, error) {
+	return nil, nil
+}
+
+func (emptySkillRuntime) ListIdentityVisible(context.Context, skillstool.ViewContext) ([]skillstool.Skill, error) {
+	return nil, nil
+}
+
+func (emptySkillRuntime) ListIdentityByScope(context.Context, string, string, string) ([]skillstool.Skill, error) {
+	return nil, nil
+}
+
+func (emptySkillRuntime) ListIdentityCandidate(context.Context, string, skillstool.ViewContext) ([]skillstool.Skill, error) {
+	return nil, nil
+}
+
+func (emptySkillRuntime) LoadCurrentRevision(context.Context, skillstool.Skill) (skillstool.ManagedRevision, error) {
+	return skillstool.ManagedRevision{}, fs.ErrNotExist
+}
+
+func (emptySkillRuntime) LoadExactRevision(context.Context, skillstool.Skill, string) (skillstool.ManagedRevision, error) {
+	return skillstool.ManagedRevision{}, fs.ErrNotExist
+}
+
+func (emptySkillRuntime) TouchReflectSkillRuntimeUseDigest(context.Context, string, string, string, string) error {
+	return nil
+}
+
+type allowSkillReads struct{}
+
+func (allowSkillReads) BeginRead(context.Context) (skillstool.SkillReadDecision, error) {
+	return allowSkillReads{}, nil
+}
+
+func (allowSkillReads) AllowRead(context.Context, string, string, string, string) (bool, error) {
+	return true, nil
+}
+
+func withTestSkillDependencies(cfg runnerBuilderConfig) runnerBuilderConfig {
+	cfg.SkillRevisionReader = emptySkillRuntime{}
+	cfg.SkillReadAuthorizer = allowSkillReads{}
+	return cfg
+}
+
 func (w failingWorkspaceViewer) WorkspaceView(context.Context, home.WorkspaceRequest) (home.WorkspaceView, error) {
 	return home.WorkspaceView{}, w.err
+}
+
+func (w failingWorkspaceViewer) OpenRoot(context.Context, home.WorkspaceRequest, home.RootScope, home.RootAccess) (home.RootOperations, error) {
+	return nil, w.err
 }
 
 func (w testWorkspaceViewer) WorkspaceView(_ context.Context, req home.WorkspaceRequest) (home.WorkspaceView, error) {
@@ -51,26 +101,6 @@ func principalView(principal, agentID string) (home.WorkspaceView, error) {
 		}
 	}
 	return home.WorkspaceView{PrincipalRoot: principal, DataRoot: data, AgentRoot: agent}, nil
-}
-
-func (w testWorkspaceViewer) ResolveCoordinate(c home.Coordinate) (home.RootScope, string, error) {
-	if scope, name, err := home.ResolveLogicalCoordinate(c.Scope, c.Value, c.AllowRoot); err == nil {
-		return scope, name, nil
-	}
-	view, err := w.WorkspaceView(context.Background(), c.Request)
-	if err != nil {
-		return 0, "", err
-	}
-	for _, candidate := range []struct {
-		scope home.RootScope
-		root  string
-	}{{home.RootAgentWorkspace, view.AgentRoot}, {home.RootPrincipalData, view.DataRoot}} {
-		rel, err := filepath.Rel(candidate.root, c.Value)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return home.ResolveLogicalCoordinate(candidate.scope, filepath.ToSlash(rel), c.AllowRoot)
-		}
-	}
-	return 0, "", errors.New("test coordinate escapes workspace")
 }
 
 func (w testWorkspaceViewer) OpenRoot(ctx context.Context, req home.WorkspaceRequest, scope home.RootScope, _ home.RootAccess) (home.RootOperations, error) {
@@ -163,10 +193,15 @@ func TestNewRunnerFuncUsesPrincipalWorkspace(t *testing.T) {
 		{name: "user-less", params: RunnerParams{AgentID: "a1"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.wantRoot != "" {
+				if err := os.MkdirAll(filepath.Join(tt.wantRoot, "data"), 0o700); err != nil {
+					t.Fatalf("create principal data root: %v", err)
+				}
+			}
 			var promptBuild plugins.SystemPromptContext
-			build := newRunnerFunc(runnerBuilderConfig{
-				Snap:            snap,
-				WorkspaceViewer: testWorkspaceViewer{root: stellaHome},
+			build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
+				Snap: snap,
+				Home: testWorkspaceViewer{root: stellaHome},
 				PromptSectionsBuilder: func(_ context.Context, build plugins.SystemPromptContext) ([]plugins.SystemPromptSection, error) {
 					promptBuild = build
 					return nil, nil
@@ -175,32 +210,31 @@ func TestNewRunnerFuncUsesPrincipalWorkspace(t *testing.T) {
 					return providers.AdapterStreamFunc(fakeStreamProvider{}), nil
 				},
 				SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
-			})
+			}))
 			builtRunner, err := build(context.Background(), tt.params)
 			if err != nil {
 				t.Fatalf("build runner: %v", err)
 			}
 			t.Cleanup(func() { _ = builtRunner.Close() })
+			impl := builtRunner.(*runner)
 			if tt.name == "user-less" {
-				if promptBuild.UserRoot == "" || filepath.Dir(promptBuild.UserRoot) != filepath.Join(stellaHome, runnerScratchDir) {
-					t.Errorf("user-less root = %q, want disposable scratch", promptBuild.UserRoot)
+				scratch := impl.sandboxCfg.Paths.WorkspaceRoot
+				if scratch == "" || filepath.Dir(scratch) != filepath.Join(stellaHome, runnerScratchDir) {
+					t.Errorf("user-less root = %q, want disposable scratch", scratch)
 				}
-				for _, dir := range []string{filepath.Dir(promptBuild.UserRoot), promptBuild.UserRoot} {
+				for _, dir := range []string{filepath.Dir(scratch), scratch} {
 					info, err := os.Stat(dir)
 					if err != nil || info.Mode().Perm() != 0o700 {
 						t.Fatalf("scratch permissions for %q = %v, %v; want 0700", dir, info, err)
 					}
 				}
-				if err := os.WriteFile(filepath.Join(promptBuild.UserRoot, "owned"), []byte("ok"), 0o600); err != nil {
+				if err := os.WriteFile(filepath.Join(scratch, "owned"), []byte("ok"), 0o600); err != nil {
 					t.Fatalf("scratch is not writable: %v", err)
 				}
-				impl := builtRunner.(*runner)
-				workspaceRoot, err := filepath.EvalSymlinks(impl.session.Policy().Filesystem.WorkspaceRoot)
-				promptRoot, promptErr := filepath.EvalSymlinks(promptBuild.UserRoot)
-				if err != nil || promptErr != nil || impl.sandboxCfg.Paths.AgentRoot != snap.Workspace || workspaceRoot != promptRoot {
-					t.Fatalf("definition/scratch roots = agent %q workspace %q scratch %q", impl.sandboxCfg.Paths.AgentRoot, impl.session.Policy().Filesystem.WorkspaceRoot, promptBuild.UserRoot)
+				workspaceRoot, err := filepath.EvalSymlinks(impl.sandboxCfg.Paths.WorkspaceRoot)
+				if err != nil || impl.sandboxCfg.Paths.AgentRoot != snap.Workspace || workspaceRoot != scratch {
+					t.Fatalf("definition/scratch roots = agent %q workspace %q scratch %q", impl.sandboxCfg.Paths.AgentRoot, impl.sandboxCfg.Paths.WorkspaceRoot, scratch)
 				}
-				scratch := promptBuild.UserRoot
 				if err := builtRunner.Close(); err != nil {
 					t.Fatal(err)
 				}
@@ -208,26 +242,26 @@ func TestNewRunnerFuncUsesPrincipalWorkspace(t *testing.T) {
 					t.Fatalf("scratch remains after Close: %v", err)
 				}
 			} else {
-				if got := promptBuild.UserRoot; got != tt.wantRoot {
-					t.Errorf("prompt UserRoot = %q, want %q", got, tt.wantRoot)
+				if promptBuild.UserID != tt.params.UserID || promptBuild.AgentID != tt.params.AgentID {
+					t.Errorf("prompt identity = (%q, %q), want (%q, %q)", promptBuild.UserID, promptBuild.AgentID, tt.params.UserID, tt.params.AgentID)
 				}
-				if got := promptBuild.WorkspaceRoot; got != tt.wantWork {
-					t.Errorf("prompt WorkspaceRoot = %q, want %q", got, tt.wantWork)
-				}
-				mounts := builtRunner.(*runner).session.Policy().Filesystem.Mounts
+				mounts := impl.session.Policy().Filesystem.Mounts
 				wantMounts := map[string]string{
-					pkgsandbox.MountWorkspace: tt.wantWork,
-					pkgsandbox.MountUserData:  filepath.Join(tt.wantRoot, "data"),
+					tt.wantWork:                        impl.sandboxCfg.Paths.WorkspaceRoot,
+					filepath.Join(tt.wantRoot, "data"): impl.sandboxCfg.Paths.UserDataDir,
 				}
-				for sandboxPath, hostPath := range wantMounts {
+				for processPath, source := range wantMounts {
 					found := false
 					for _, mount := range mounts {
-						if mount.SandboxPath == sandboxPath {
-							found = mount.HostPath == hostPath && mount.Access == pkgsandbox.MountReadWrite
+						if mount.SandboxPath == processPath {
+							found = mount.Access == pkgsandbox.MountReadWrite
 						}
 					}
 					if !found {
-						t.Errorf("mount %s = %#v, want RW host %q", sandboxPath, mounts, hostPath)
+						t.Errorf("mount %s = %#v, want RW", processPath, mounts)
+					}
+					if source != processPath {
+						t.Errorf("none backend private mount source for %s = %q", processPath, source)
 					}
 				}
 			}
@@ -237,20 +271,20 @@ func TestNewRunnerFuncUsesPrincipalWorkspace(t *testing.T) {
 
 func TestNewRunnerFuncPropagatesWorkspaceError(t *testing.T) {
 	want := errors.New("Home unavailable")
-	build := newRunnerFunc(runnerBuilderConfig{
-		Snap:            &config.Snapshot{Provider: "anthropic", Model: "test"},
-		WorkspaceViewer: failingWorkspaceViewer{err: want},
-	})
+	build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
+		Snap: &config.Snapshot{Provider: "anthropic", Model: "test"},
+		Home: failingWorkspaceViewer{err: want},
+	}))
 	if _, err := build(context.Background(), RunnerParams{UserID: "u", AgentID: "a"}); !errors.Is(err, want) {
 		t.Fatalf("runner error = %v, want %v", err, want)
 	}
 }
 
 func TestNewRunnerFuncRejectsUserlessProject(t *testing.T) {
-	build := newRunnerFunc(runnerBuilderConfig{
-		Snap:            &config.Snapshot{Provider: "anthropic", Model: "test"},
-		WorkspaceViewer: testWorkspaceViewer{root: t.TempDir()},
-	})
+	build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
+		Snap: &config.Snapshot{Provider: "anthropic", Model: "test"},
+		Home: testWorkspaceViewer{root: t.TempDir()},
+	}))
 	if _, err := build(context.Background(), RunnerParams{AgentID: "a", ProjectID: "p"}); err == nil {
 		t.Fatal("user-less ProjectID was accepted")
 	}
@@ -262,27 +296,23 @@ func TestNewRunnerFuncCleansUserlessScratchOnConstructionFailure(t *testing.T) {
 	config.ResetStellaHome()
 	t.Cleanup(config.ResetStellaHome)
 
-	var scratch string
-	build := newRunnerFunc(runnerBuilderConfig{
-		Snap:            &config.Snapshot{AgentID: "a", Provider: "anthropic", Model: "test"},
-		WorkspaceViewer: testWorkspaceViewer{root: stellaHome},
-		PromptSectionsBuilder: func(_ context.Context, build plugins.SystemPromptContext) ([]plugins.SystemPromptSection, error) {
-			scratch = build.UserRoot
-			return nil, nil
-		},
+	build := newRunnerFunc(withTestSkillDependencies(runnerBuilderConfig{
+		Snap: &config.Snapshot{AgentID: "a", Provider: "anthropic", Model: "test"},
+		Home: testWorkspaceViewer{root: stellaHome},
 		ProviderStreamBuilder: func(_, _, _ string) (providers.StreamFunc, error) {
 			return nil, errors.New("provider unavailable")
 		},
 		SandboxBackendFn: func(context.Context) string { return config.SandboxBackendNone },
-	})
+	}))
 	if _, err := build(context.Background(), RunnerParams{AgentID: "a"}); err == nil {
 		t.Fatal("runner construction succeeded")
 	}
-	if scratch == "" {
-		t.Fatal("scratch was not created before construction failure")
+	entries, err := os.ReadDir(filepath.Join(stellaHome, runnerScratchDir))
+	if err != nil {
+		t.Fatalf("read scratch parent: %v", err)
 	}
-	if _, err := os.Stat(scratch); !os.IsNotExist(err) {
-		t.Fatalf("scratch remains after construction failure: %v", err)
+	if len(entries) != 0 {
+		t.Fatalf("scratch remains after construction failure: %v", entries)
 	}
 }
 

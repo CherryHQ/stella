@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/vision"
@@ -29,13 +28,12 @@ func readDefinition() pkgtools.Definition {
 	}
 }
 
-func newReadTool(host pkgsandbox.Host, projectRoot string) pkgtools.Tool {
-	return &hostReadTool{host: host, projectRoot: projectRoot}
+func newReadTool(host pkgsandbox.Session) pkgtools.Tool {
+	return &hostReadTool{host: host}
 }
 
 type hostReadTool struct {
-	host        pkgsandbox.Host
-	projectRoot string
+	host pkgsandbox.Session
 }
 
 func (t *hostReadTool) Definition() pkgtools.Definition { return readDefinition() }
@@ -57,12 +55,16 @@ func (t *hostReadTool) ExecuteContent(ctx context.Context, args map[string]any) 
 	offset := max(toolIntArg(args, "offset", 1), 1)
 	limit := toolIntArg(args, "limit", 0)
 
-	resolvedPath, err := resolveToolPath(t.host, t.projectRoot, path)
+	view, err := pkgsandbox.SelectFileView(ctx, t.host)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	resolvedPath, err := resolveToolExpression(view.Policy.Env, view.WorkingDir, path)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 
-	content, err := os.ReadFile(resolvedPath)
+	content, err := view.Files.ReadFile(resolvedPath)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}

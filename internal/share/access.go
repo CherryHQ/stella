@@ -90,13 +90,7 @@ func (a *Access) ShareArtifact(ctx context.Context, sessionID, path, scope, requ
 	if err != nil {
 		return Created{}, err
 	}
-	resolver, ok := a.svc.homes.(home.CoordinateResolver)
-	var rel string
-	if ok {
-		rootScope, rel, err = resolver.ResolveCoordinate(home.Coordinate{Request: req, Scope: rootScope, Value: path})
-	} else {
-		rootScope, rel, err = home.ResolveLogicalCoordinate(rootScope, path, false)
-	}
+	rootScope, rel, err := home.ResolveLogicalCoordinate(rootScope, path, false)
 	if err != nil {
 		if strings.HasPrefix(path, "$") {
 			return Created{}, fmt.Errorf("%w: %w", ErrInvalidArtifactPath, err)

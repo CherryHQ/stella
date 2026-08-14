@@ -7,6 +7,6 @@ import (
 	skills "github.com/CherryHQ/stella/internal/skills"
 )
 
-func setupSkillStore(db *pgxpool.Pool, roots home.RootOpener) (*skills.POSIXStore, error) {
+func setupSkillStore(db *pgxpool.Pool, roots home.SkillRootOpener) (*skills.POSIXStore, error) {
 	return skills.NewPOSIXStore(db, roots)
 }

@@ -1,197 +1,92 @@
 package skills
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
 
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/resources"
 )
 
-type countingResolveStore struct {
-	*testSkillStore
-	resolveCalls int
-}
-
-func (s *countingResolveStore) Resolve(ctx context.Context, name string, vc pkgplugins.SkillViewContext) (*pkgplugins.Skill, error) {
-	s.resolveCalls++
-	return s.testSkillStore.Resolve(ctx, name, vc)
-}
-
-func mustCreateDBSkill(t *testing.T, store *testSkillStore, sk pkgplugins.Skill) {
-	t.Helper()
-	files := map[string]string{pkgplugins.SkillMainFile: "---\nname: " + sk.Name + "\ndescription: x\n---\n"}
-	if _, err := store.Create(context.Background(), sk, files); err != nil {
-		t.Fatalf("create db skill %s/%s: %v", sk.Scope, sk.Name, err)
-	}
-}
-
-// TestResolveScopedExactScope guards CR-002: ResolveScoped must return the row
-// for the exact scope asked for, even when a higher-precedence scope holds the
-// same name and would shadow it in the effective (store.Resolve) query.
-func TestResolveScopedExactScope(t *testing.T) {
-	store, userID, agentID := newTestSkillStore(t)
-	svc := NewService(store, t.TempDir())
-	ctx := context.Background()
-	vc := pkgplugins.SkillViewContext{UserID: userID, AgentID: agentID}
-
-	mustCreateDBSkill(t, store, pkgplugins.Skill{Scope: "user", Name: "dup", UserID: userID})
-	mustCreateDBSkill(t, store, pkgplugins.Skill{Scope: "user_agent", Name: "dup", UserID: userID, AgentID: agentID})
-	mustCreateDBSkill(t, store, pkgplugins.Skill{Scope: "system_agent", Name: "dup", AgentID: agentID})
-
-	for _, scope := range []string{"user", "user_agent", "system_agent"} {
-		rs, err := svc.ResolveScoped(ctx, "dup", scope, vc, "")
-		if err != nil {
-			t.Fatalf("ResolveScoped(%s): %v", scope, err)
-		}
-		if rs == nil {
-			t.Fatalf("ResolveScoped(%s) = nil, want the %s row", scope, scope)
-		}
-		if rs.Scope != scope {
-			t.Fatalf("ResolveScoped(%s).Scope = %s, want %s", scope, rs.Scope, scope)
-		}
-	}
-}
-
-// TestResolveScopedFindsDisabledAndDBSystem guards CR-002: scoped management
-// lookup must find rows the runtime-visible List filters out — disabled
-// (knowledge) entries and DB-backed system skills.
-func TestResolveScopedFindsDisabledAndDBSystem(t *testing.T) {
-	store, userID, agentID := newTestSkillStore(t)
-	svc := NewService(store, t.TempDir())
-	ctx := context.Background()
-	vc := pkgplugins.SkillViewContext{UserID: userID, AgentID: agentID}
-
-	// A disabled (knowledge) user skill is excluded from List but must resolve.
-	mustCreateDBSkill(t, store, pkgplugins.Skill{
-		Scope: "user", Name: "kn", UserID: userID, DisableModelInvocation: true,
-	})
-	rs, err := svc.ResolveScoped(ctx, "kn", "user", vc, "")
+func TestServiceMergesExactSnapshotsByPrecedence(t *testing.T) {
+	snapshot, err := SnapshotProjectSkills(t.Context(), snapshotRoot{fstest.MapFS{
+		".agents/skills/shared/SKILL.md": {Data: []byte("---\nname: shared\ndescription: project winner\n---\n")},
+	}}, ".")
 	if err != nil {
-		t.Fatalf("ResolveScoped(kn): %v", err)
-	}
-	if rs == nil || rs.Scope != "user" {
-		t.Fatalf("ResolveScoped(kn) = %#v, want disabled user skill", rs)
+		t.Fatal(err)
 	}
 
-	// A DB-backed system skill must resolve via the DB, not only the filesystem.
-	mustCreateDBSkill(t, store, pkgplugins.Skill{Scope: "system", Name: "dbsys"})
-	rs, err = svc.ResolveScoped(ctx, "dbsys", "system", vc, "")
-	if err != nil {
-		t.Fatalf("ResolveScoped(dbsys): %v", err)
+	merged := NewService().ListMerged([]Skill{
+		{ID: "managed-shared", Scope: "user", Name: "shared", Description: "managed loser"},
+		{ID: "managed-stella", Scope: "user", Name: "stella", Description: "managed winner"},
+	}, snapshot)
+
+	byName := make(map[string]ResolvedSkill, len(merged))
+	for _, skill := range merged {
+		byName[skill.Name] = skill
 	}
-	if rs == nil || rs.Scope != "system" || rs.ID == "" {
-		t.Fatalf("ResolveScoped(dbsys) = %#v, want DB system skill", rs)
+	if got := byName["shared"]; !got.IsImmutable() || got.Scope != "project" || got.Description != "project winner" {
+		t.Fatalf("shared winner = %#v, want immutable project snapshot", got)
+	}
+	if got := byName["stella"]; got.IsImmutable() || got.ID != "managed-stella" {
+		t.Fatalf("stella winner = %#v, want managed snapshot", got)
 	}
 }
 
-// TestResolvePrecedenceDBOverFSSystem guards CR-003: a DB user/agent skill must
-// shadow a filesystem system skill of the same name during model resolution.
-func TestResolvePrecedenceDBOverBuiltinSystem(t *testing.T) {
-	store, userID, agentID := newTestSkillStore(t)
-	stellaHome := t.TempDir()
-	svc := NewService(store, stellaHome)
-	ctx := context.Background()
-	vc := pkgplugins.SkillViewContext{UserID: userID, AgentID: agentID}
-
-	// With only the release builtin, Resolve returns the Registry descriptor.
-	rs, err := svc.Resolve(ctx, "stella", vc, "")
-	if err != nil {
-		t.Fatalf("Resolve (builtin only): %v", err)
-	}
-	if rs == nil || rs.Scope != "system" {
-		t.Fatalf("Resolve (builtin only) = %#v, want system scope", rs)
-	}
-
-	// Once a DB user skill of the same name exists, it must win.
-	mustCreateDBSkill(t, store, pkgplugins.Skill{Scope: "user", Name: "stella", UserID: userID})
-	rs, err = svc.Resolve(ctx, "stella", vc, "")
-	if err != nil {
-		t.Fatalf("Resolve (db+fs): %v", err)
-	}
-	if rs == nil || rs.Scope != "user" {
-		t.Fatalf("Resolve (db+fs) = %#v, want user scope to shadow fs system", rs)
-	}
-}
-
-func TestBuiltinRegistryReadsDoNotNeedAStoreOrMirror(t *testing.T) {
+func TestBuiltinRegistryReadsDoNotCreateRuntimeMirror(t *testing.T) {
 	home := t.TempDir()
 	registry, err := resources.Default()
 	if err != nil {
 		t.Fatal(err)
 	}
 	descriptor := registry.BuiltinSkills()[0]
-	svc := NewService(nil, home, registry)
-	merged, err := svc.ListMerged(context.Background(), pkgplugins.SkillViewContext{}, "")
-	if err != nil || len(merged) == 0 {
-		t.Fatalf("ListMerged() = %d, %v", len(merged), err)
+	service := newService(registry)
+	merged := service.ListMerged(nil, nil)
+
+	var resolved *ResolvedSkill
+	for i := range merged {
+		if merged[i].Name == descriptor.Name {
+			resolved = &merged[i]
+			break
+		}
 	}
-	content, dir, resolved, err := svc.LoadFile(context.Background(), descriptor.APIID, pkgplugins.SkillMainFile, pkgplugins.SkillViewContext{}, "")
-	if err != nil || resolved == nil || content == "" {
-		t.Fatalf("LoadFile builtin = %q, %#v, %v", content, resolved, err)
+	if resolved == nil || !resolved.IsImmutable() {
+		t.Fatalf("builtin %q missing from exact merge", descriptor.Name)
 	}
-	wantDir, err := registry.BundlePath(home)
-	if err != nil || dir != filepath.Join(wantDir, filepath.FromSlash(descriptor.Root)) {
-		t.Fatalf("builtin dir = %q, want %q (%v)", dir, filepath.Join(wantDir, filepath.FromSlash(descriptor.Root)), err)
+	content, err := resolved.LoadBuiltinFile(MainFile)
+	if err != nil || content == "" {
+		t.Fatalf("LoadBuiltinFile = %q, %v", content, err)
 	}
 	if _, err := os.Stat(filepath.Join(home, "bundles")); !os.IsNotExist(err) {
 		t.Fatalf("registry read created a runtime mirror: %v", err)
 	}
 }
 
-func TestBuiltinStableIDChecksPGShadowOnce(t *testing.T) {
-	store, userID, agentID := newTestSkillStore(t)
-	counting := &countingResolveStore{testSkillStore: store}
-	mustCreateDBSkill(t, store, pkgplugins.Skill{Scope: "user", Name: "stella", UserID: userID})
+func TestBuiltinStableReferencesResolveToOneName(t *testing.T) {
 	registry, err := resources.Default()
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref := registry.BuiltinSkills()[0]
-	if ref.Name != "stella" {
-		for _, descriptor := range registry.BuiltinSkills() {
-			if descriptor.Name == "stella" {
-				ref = descriptor
-				break
-			}
+	descriptor := registry.BuiltinSkills()[0]
+	service := newService(registry)
+	for _, reference := range []string{descriptor.APIID, descriptor.Ref} {
+		if got, ok := service.builtinNameForReference(reference); !ok || got != descriptor.Name {
+			t.Fatalf("builtinNameForReference(%q) = %q, %v; want %q", reference, got, ok, descriptor.Name)
 		}
-	}
-	svc := NewService(counting, t.TempDir(), registry)
-	rs, err := svc.Resolve(context.Background(), ref.APIID, pkgplugins.SkillViewContext{UserID: userID, AgentID: agentID}, "")
-	if err != nil || rs == nil || rs.Scope != "user" {
-		t.Fatalf("Resolve(%q) = %#v, %v; want PG user shadow", ref.APIID, rs, err)
-	}
-	if counting.resolveCalls != 1 {
-		t.Fatalf("PG Resolve calls = %d, want 1", counting.resolveCalls)
 	}
 }
 
-func TestAgentSkillPolicyFiltersOnlyTheResolvedWinner(t *testing.T) {
-	store, userID, agentID := newTestSkillStore(t)
-	svc := NewService(store, t.TempDir())
-	ctx := context.Background()
-	vc := pkgplugins.SkillViewContext{UserID: userID, AgentID: agentID}
-
-	// A DB system Skill shadows the builtin. Disabling that winner must produce
-	// no lower-precedence fallback, regardless of whether it is named by API ID
-	// or ordinary name.
-	mustCreateDBSkill(t, store, pkgplugins.Skill{Scope: "system", Name: "stella"})
-	vc.DisabledSkillRefs = []string{"system:stella"}
-	for _, name := range []string{"stella", "builtin-stella", "builtin:stella"} {
-		rs, err := svc.Resolve(ctx, name, vc, "")
-		if err != nil || rs != nil {
-			t.Fatalf("Resolve(%q) = %#v, %v; disabled winner must not fall back", name, rs, err)
-		}
+func TestAgentSkillPolicyFiltersOnlyResolvedWinner(t *testing.T) {
+	merged := NewService().ListMerged([]Skill{
+		{ID: "managed-stella", Scope: "system", Name: "stella", Status: SkillStatusActive},
+	}, nil)
+	if got := filterDisabled(merged, []string{"system:stella"}); len(got) != len(merged)-1 {
+		t.Fatalf("filtered skills = %d, want %d", len(got), len(merged)-1)
 	}
-
-	// Activation is independent from disable_model_invocation: an active policy
-	// leaves a model-disabled skill to the existing invocation filter, rather
-	// than treating its content state as an activation disablement.
-	vc.DisabledSkillRefs = nil
-	rs, err := svc.Resolve(ctx, "stella", vc, "")
-	if err != nil || rs == nil || rs.Scope != "system" {
-		t.Fatalf("Resolve active policy = %#v, %v; want system winner", rs, err)
+	for _, skill := range filterDisabled(merged, []string{"system:stella"}) {
+		if skill.Name == "stella" {
+			t.Fatal("disabled managed winner fell through to builtin stella")
+		}
 	}
 }

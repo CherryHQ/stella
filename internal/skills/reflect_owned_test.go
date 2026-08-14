@@ -4,9 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-
-	"github.com/CherryHQ/stella/internal/config"
-	cfgstore "github.com/CherryHQ/stella/internal/store"
 )
 
 func TestMarkReflectOwnedMetadataPreservesExistingFields(t *testing.T) {
@@ -53,12 +50,11 @@ func TestMarkReflectOwnedMetadataAcceptsWhitespaceNull(t *testing.T) {
 }
 
 func TestListActiveReflectOwnedUserAgentSkills(t *testing.T) {
-	store, db, ctx := newTestStore(t)
-	userID, agentID := seedFixtures(t, db)
+	fixture := newPOSIXStoreFixture(t)
+	store, db, ctx := fixture.store, fixture.store.db, t.Context()
+	userID, agentID := fixture.userID, fixture.agentID
 	otherAgentID := "agent2"
-	if err := cfgstore.NewDBStore(db).CreateAgent(ctx, config.Agent{
-		ID: otherAgentID, Name: otherAgentID, Model: "p/m", Workspace: "/tmp/" + otherAgentID, Enabled: true,
-	}); err != nil {
+	if _, err := db.Exec(ctx, `INSERT INTO agent(id,name,model,workspace) VALUES($1,$1,'p/m',$2)`, otherAgentID, "/tmp/"+otherAgentID); err != nil {
 		t.Fatalf("seed other agent: %v", err)
 	}
 
@@ -69,11 +65,11 @@ func TestListActiveReflectOwnedUserAgentSkills(t *testing.T) {
 
 	create := func(t *testing.T, sk Skill) string {
 		t.Helper()
-		id, err := store.Create(ctx, sk, map[string]string{MainFile: "# " + sk.Name})
+		snapshot, err := store.CreateManagedSkill(ctx, sk, map[string]string{MainFile: "# " + sk.Name})
 		if err != nil {
 			t.Fatalf("create %s: %v", sk.Name, err)
 		}
-		return id
+		return snapshot.Skill.ID
 	}
 
 	// Reflect ownership is only established by the dedicated writer; generic
@@ -102,9 +98,12 @@ func TestListActiveReflectOwnedUserAgentSkills(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create deprecated fixture: %v", err)
 	}
-	// Deprecated is a legacy read-only state; seed it below the business API.
-	if _, err := db.Exec(ctx, `UPDATE skill SET status = 'deprecated' WHERE id = $1`, deprecated.ID); err != nil {
-		t.Fatalf("seed deprecated fixture: %v", err)
+	deprecatedStatus := SkillStatusDeprecated
+	if _, err := store.UpdateManagedSkill(ctx, ManagedSkillUpdate{
+		ID: deprecated.ID, Scope: deprecated.Scope, UserID: deprecated.UserID, AgentID: deprecated.AgentID,
+		ExpectedDigest: deprecated.ContentDigest, Patch: UpdatePatch{Status: &deprecatedStatus},
+	}); err != nil {
+		t.Fatalf("deprecate fixture: %v", err)
 	}
 	create(t, Skill{
 		Scope:       "user",

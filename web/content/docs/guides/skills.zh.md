@@ -10,7 +10,7 @@ title: 技能
 
 ## 技能作用域与优先级
 
-Stella 当前有两类 Skill 权威。随发行版提供的 builtin 只来自不可变、内容寻址的发行 bundle。Project Skill 是持久 Agent/项目工作树中的普通文件。全局、Agent 绑定、用户和用户-Agent Skill 仍存储在 PostgreSQL 中，执行镜像从它们派生。后续将权威切换到 Home 文件系统的工作尚未落地。
+每类 Skill 只有一个内容权威。随发行版提供的 builtin 来自不可变、内容寻址的发行 bundle。Project Skill 是持久 Agent/项目工作树中的普通文件。托管的全局、Agent 绑定、用户和用户-Agent Skill 在类型化 Stella Home 根中使用不可变 revision；current selector 决定 Stella 加载哪个精确 revision。
 
 存储的作用域为 `project`、`user_agent`、`user`、`system_agent` 和 `system`。`builtin` 是上下文作用域：发行版 Skill 使用不可变身份 `builtin:<name>`。管理员安装的全局 Skill 是另一个可变身份 `system:<name>`，绑定到 Agent 的管理员 Skill 则是 `system_agent:<name>`。
 
@@ -34,32 +34,29 @@ Skill 对 Agent 默认启用。管理员或该 Agent 的持久创建者可以在
 
 启用状态与编辑 Skill 内容的权限、以及 `disable_model_invocation` 相互独立。已被接纳的 turn 保留自己的 Skill 快照；下一次 turn 才会看到已提交的启用状态变更。
 
-旧版非空启用数组会显示为诊断信息，但其含义是所有 Skill 均启用。指向已不存在 Skill 的禁用引用不影响执行；请在 Web UI 中显式清除。
-
-降级 Stella 前，请重新启用每个已禁用的 Skill，并清除所有悬空的禁用引用。旧版二进制可能忽略 AgentSkillPolicy v1，并在普通 Agent 编辑时覆盖它。请勿将混合版本部署中的 Skill 启用状态视为安全保证；它是产品偏好设置，而不是文件系统访问控制。
+指向已不存在 Skill 的禁用引用不影响执行；请在 Web UI 中显式清除。Skill 启用状态是产品偏好设置，而不是文件系统访问控制。
 
 在 **个人设置 → 技能** 管理个人的 `user` 与 `user_agent` 技能。管理员在 **管理控制台 → 部署资源 → 全局技能** 管理部署所有的 `system` 与 `system_agent` 技能。两个页面不会混合不同所有权的作用域。
 
 ## 安装技能
 
-### 从对话中安装
+### 选择目标位置
 
-让 Stella 搜索并安装技能：
+每次安装和上传都必须选择目标位置。Stella 不会从对话中推断目标位置，也不会把上一次选择当成后续写入的授权。
 
-- **"搜索一个关于 git release 的技能。"**
-- **"安装 git-helper 技能。"**
-- **"找一些跟代码审查相关的技能。"**
+- 在 Agent 的 **技能** 标签页中，选择 **仅自己 · 当前 Agent**（`user_agent`）；管理员还可选择 **所有人 · 当前 Agent**（`system_agent`）。
+- 在 **个人设置 → 技能** 中，选择个人目标位置（`user` 或 `user_agent`）。
+- 在 **管理控制台 → 部署资源 → 全局技能** 中，选择部署所有的目标位置（`system` 或 `system_agent`）。
 
-Stella 会搜索各个注册中心，展示可用的结果。然后你可以选择要安装哪个。
+Web UI 会在执行写入前要求你立即确认目标位置。
 
-### 从注册中心安装
+### 选择来源
 
 Stella 可以从多个来源安装技能：
 
-- **[clawhub.ai](https://clawhub.ai)** — 主要的技能注册中心。可以直接在对话中搜索和安装。
-- **[skills.sh](https://skills.sh)** — 次要注册中心。搜索结果会与 clawhub.ai 合并。
-- **GitHub / GitLab** — 安装托管在 Git 仓库中的任何技能。
-- **本地路径** — 从文件系统中的目录安装。
+- **[clawhub.ai](https://clawhub.ai)** — 在 Web UI 中浏览或搜索市场。
+- **GitHub / GitLab** — 在安装表单中输入仓库来源。
+- **ZIP 上传** — 上传包含 `SKILL.md` 的 Skill 目录。
 
 如果你在 clawhub.ai 遇到频率限制，可以设置一个免费的 API 令牌：
 
@@ -71,9 +68,10 @@ Stella 可以从多个来源安装技能：
 
 ### 从对话中管理
 
-- **"列出我安装的技能。"**
-- **"移除 git-helper 技能。"**
-- **"加载部署技能。"** — Stella 读取该技能的指令用于当前任务。
+- **"找一个已安装的技能来部署这个服务。"** — Stella 只搜索当前 Agent 已可见的 Skill。
+- **"加载部署技能。"** — Stella 为当前任务加载选中的精确 revision。
+
+对话工具是只读的，不能安装、创建、编辑、升级、弃用或删除 Skill。
 
 ### 从 Web UI 管理
 
@@ -105,23 +103,19 @@ Always ask the user for confirmation before pushing to production.
 
 ### Frontmatter 字段
 
-| 字段          | 必填 | 描述                                    |
-| ------------- | ---- | --------------------------------------- |
-| `name`        | 是   | 小写加连字符，最长64个字符              |
-| `description` | 是   | 一行摘要，显示在搜索结果中              |
-| `status`      | 否   | `draft`、`active`（默认）、`deprecated` |
+| 字段                       | 必填 | 描述                                 |
+| -------------------------- | ---- | ------------------------------------ |
+| `name`                     | 是   | 小写加连字符，最长 64 个字符         |
+| `description`              | 是   | 一行摘要，显示在搜索结果中           |
+| `disable-model-invocation` | 否   | 禁止自动选择，但仍允许显式加载和使用 |
 
 ### 保存自定义技能
 
-你可以在对话中创建技能：
-
-- **"创建一个叫 'deploy' 的技能，描述我们的部署流程。"**
-
-Stella 通过内置的 skills 工具直接创建和管理技能，无需 CLI。
+对于托管 Skill，请在本地创建目录，将其打包为 ZIP，然后在 Web UI 中上传到明确的目标位置。对于 Project Skill，请把目录直接添加到项目仓库的 `.agents/skills/` 下。
 
 ## 小贴士
 
-- **先搜索再创建。** 在从头创建技能之前，先检查注册中心里是否已经有了。
+- **先搜索再创建。** 在从头创建技能之前，先在 Web UI 的市场中检查是否已经存在。
 - **保持技能专注。** 一个技能对应一个任务。一个"部署"技能和一个"回滚"技能比一个试图同时做两件事的技能要好。
 - **团队工作流程使用项目技能。** 把共享技能放在仓库的 `.agents/skills/` 目录中，让团队所有人受益。
 - **通过加载来测试技能。** 创建技能后，让 Stella 加载它并尝试工作流程，验证指令是否有效。

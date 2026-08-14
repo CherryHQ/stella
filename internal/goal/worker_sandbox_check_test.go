@@ -16,12 +16,11 @@ type execSession struct {
 	execs    int
 }
 
-func (s *execSession) Policy() sandbox.Policy                       { return sandbox.Policy{} }
-func (s *execSession) Alive() bool                                  { return !s.closed }
-func (s *execSession) Done() <-chan struct{}                        { return nil }
-func (s *execSession) WorkingDir() string                           { return "" }
-func (s *execSession) ResolvePath(path string) (string, error)      { return path, nil }
-func (s *execSession) ResolveWritePath(path string) (string, error) { return path, nil }
+func (s *execSession) Policy() sandbox.Policy    { return sandbox.Policy{} }
+func (s *execSession) Alive() bool               { return !s.closed }
+func (s *execSession) Done() <-chan struct{}     { return nil }
+func (s *execSession) WorkingDir() string        { return "" }
+func (s *execSession) Files() sandbox.FileAccess { return sandbox.NopSession().Files() }
 func (s *execSession) Close() error {
 	s.closed = true
 	return nil

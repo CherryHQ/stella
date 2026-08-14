@@ -34,7 +34,6 @@ const (
 	CapabilityAuth            Capability = "auth"
 	CapabilityRuntimeLookup   Capability = "runtime_lookup"
 	CapabilityChannelPlatform Capability = "channel_platform"
-	CapabilitySkillStore      Capability = "skill_store"
 )
 
 // PluginInfo is the host discovery metadata registered by a plugin.

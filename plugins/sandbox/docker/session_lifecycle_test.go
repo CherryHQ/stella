@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -62,6 +64,16 @@ func (f *startFailAPI) ContainerCreate(_ context.Context, opts mobyclient.Contai
 
 func (startFailAPI) ContainerStart(context.Context, string, mobyclient.ContainerStartOptions) (mobyclient.ContainerStartResult, error) {
 	return mobyclient.ContainerStartResult{}, errors.New("start failed")
+}
+
+type createCountingAPI struct {
+	noopAPI
+	creates atomic.Int32
+}
+
+func (f *createCountingAPI) ContainerCreate(context.Context, mobyclient.ContainerCreateOptions) (mobyclient.ContainerCreateResult, error) {
+	f.creates.Add(1)
+	return mobyclient.ContainerCreateResult{}, nil
 }
 
 type blockingStopAPI struct {
@@ -142,15 +154,31 @@ func TestCleanupStaleSessionTempDirsKeepsYoungDirectoryAndFailsClosed(t *testing
 func TestCreateSessionStoresNormalizedPolicyAndPrivateMountedTemp(t *testing.T) {
 	api := &stopCountingAPI{}
 	workspace := t.TempDir()
+	imageBinHost := t.TempDir()
+	builtinHost := t.TempDir()
+	if err := os.WriteFile(filepath.Join(imageBinHost, "host-only"), []byte("wrong process view"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(builtinHost, "SKILL.md"), []byte("verified bundle"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	factory := &dockerFactory{
-		cfg:      Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost},
+		cfg: Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost},
+		mountSources: map[string]string{
+			workspaceMount:                    workspace,
+			path.Join(stellaHomeMount, "bin"): imageBinHost,
+			sandboxpkg.MountBuiltinSkills:     builtinHost,
+		},
 		clientFn: func() (*dockerclient.Client, error) { return dockerclient.NewWithAPI(api), nil },
 	}
 	session, err := factory.CreateSession(context.Background(), sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: workspace,
-			WorkingDir:    workspace,
-			Mounts:        []sandboxpkg.Mount{{HostPath: workspace, SandboxPath: `\workspace\`, Access: sandboxpkg.MountReadWrite}},
+			WorkingDir: workspaceMount,
+			Mounts: []sandboxpkg.Mount{
+				{SandboxPath: `\workspace\`, Access: sandboxpkg.MountReadWrite},
+				{SandboxPath: path.Join(stellaHomeMount, "bin"), Access: sandboxpkg.MountReadOnly},
+				{SandboxPath: sandboxpkg.MountBuiltinSkills, Access: sandboxpkg.MountReadOnly},
+			},
 		},
 	})
 	if err != nil {
@@ -162,11 +190,105 @@ func TestCreateSessionStoresNormalizedPolicyAndPrivateMountedTemp(t *testing.T) 
 		t.Errorf("normalized SandboxPath = %q, want %q", got, workspaceMount)
 	}
 	tempDir := policy.Env[sandboxpkg.EnvTempDir]
-	if tempDir == "" {
-		t.Fatal("policy TMPDIR is empty, want a private session directory")
+	if tempDir != "/tmp" {
+		t.Fatalf("policy TMPDIR = %q, want canonical container path /tmp", tempDir)
 	}
-	if got, err := session.ResolveWritePath("/tmp/file"); err != nil || got != filepath.Join(tempDir, "file") {
-		t.Errorf("ResolveWritePath(/tmp/file) = %q, %v; want %q, nil", got, err, filepath.Join(tempDir, "file"))
+	if err := session.Files().WriteFile("/tmp/file", []byte("ok"), 0o600); err != nil {
+		t.Fatalf("Files.WriteFile(/tmp/file): %v", err)
+	}
+	physicalTemp := session.(*dockerSession).ownedTempDir
+	if got, err := os.ReadFile(filepath.Join(physicalTemp, "file")); err != nil || string(got) != "ok" {
+		t.Errorf("physical temp file = %q, %v", got, err)
+	}
+	if _, err := session.Files().ReadFile(path.Join(stellaHomeMount, "bin", "host-only")); err == nil {
+		t.Fatal("host binary tree impersonated the image-owned process view")
+	}
+	if got, err := session.Files().ReadFile(path.Join(sandboxpkg.MountBuiltinSkills, "SKILL.md")); err != nil || string(got) != "verified bundle" {
+		t.Fatalf("verified builtin projection = %q, %v", got, err)
+	}
+}
+
+func TestCreateSessionRequiresPrivateWorkspaceSource(t *testing.T) {
+	api := &stopCountingAPI{}
+	factory := &dockerFactory{
+		cfg:      Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost},
+		clientFn: func() (*dockerclient.Client, error) { return dockerclient.NewWithAPI(api), nil },
+	}
+	_, err := factory.CreateSession(context.Background(), sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkingDir: workspaceMount,
+			Mounts:     []sandboxpkg.Mount{{SandboxPath: workspaceMount, Access: sandboxpkg.MountReadWrite}},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), `provider-private source for mount "/workspace" is required`) {
+		t.Fatalf("CreateSession without private workspace source = %v", err)
+	}
+}
+
+func TestCreateSessionDoesNotTreatWorkingDirAsPrivateWorkspaceSource(t *testing.T) {
+	api := &stopCountingAPI{}
+	factory := &dockerFactory{
+		cfg:      Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost},
+		clientFn: func() (*dockerclient.Client, error) { return dockerclient.NewWithAPI(api), nil },
+	}
+	_, err := factory.CreateSession(context.Background(), sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: "/host/workspace"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "provider-private workspace source is required") {
+		t.Fatalf("CreateSession inferred private source from WorkingDir: %v", err)
+	}
+}
+
+func TestCreateSessionRequiresEveryPrivateMountSource(t *testing.T) {
+	api := &stopCountingAPI{}
+	factory := &dockerFactory{
+		cfg:          Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost},
+		mountSources: map[string]string{workspaceMount: t.TempDir()},
+		clientFn:     func() (*dockerclient.Client, error) { return dockerclient.NewWithAPI(api), nil },
+	}
+	_, err := factory.CreateSession(context.Background(), sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkingDir: workspaceMount,
+			Mounts: []sandboxpkg.Mount{
+				{SandboxPath: workspaceMount, Access: sandboxpkg.MountReadWrite},
+				{SandboxPath: userDataMount, Access: sandboxpkg.MountReadWrite},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), `provider-private source for mount "/user" is required`) {
+		t.Fatalf("CreateSession with ambient private mount source = %v", err)
+	}
+}
+
+func TestCreateSessionRejectsOverlappingPhysicalMountsBeforeContainerCreate(t *testing.T) {
+	api := &createCountingAPI{}
+	workspace := t.TempDir()
+	userData := filepath.Join(workspace, "nested-user")
+	if err := os.Mkdir(userData, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	factory := &dockerFactory{
+		cfg: Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost},
+		mountSources: map[string]string{
+			workspaceMount: workspace,
+			userDataMount:  userData,
+		},
+		clientFn: func() (*dockerclient.Client, error) { return dockerclient.NewWithAPI(api), nil },
+	}
+	_, err := factory.CreateSession(context.Background(), sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkingDir: workspaceMount,
+			Mounts: []sandboxpkg.Mount{
+				{SandboxPath: workspaceMount, Access: sandboxpkg.MountReadWrite},
+				{SandboxPath: userDataMount, Access: sandboxpkg.MountReadWrite},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "physical mount sources") {
+		t.Fatalf("CreateSession with overlapping mount sources = %v", err)
+	}
+	if got := api.creates.Load(); got != 0 {
+		t.Fatalf("container creates = %d, want 0", got)
 	}
 }
 
@@ -174,13 +296,14 @@ func TestCreateSessionStartFailureRemovesOwnedTemp(t *testing.T) {
 	api := &startFailAPI{}
 	workspace := t.TempDir()
 	factory := &dockerFactory{
-		cfg:      Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost},
-		clientFn: func() (*dockerclient.Client, error) { return dockerclient.NewWithAPI(api), nil },
+		cfg:          Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost},
+		mountSources: map[string]string{workspaceMount: workspace},
+		clientFn:     func() (*dockerclient.Client, error) { return dockerclient.NewWithAPI(api), nil },
 	}
 	_, err := factory.CreateSession(context.Background(), sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: workspace,
-			WorkingDir:    workspace,
+			WorkingDir: workspaceMount,
+			Mounts:     []sandboxpkg.Mount{{SandboxPath: workspaceMount, Access: sandboxpkg.MountReadWrite}},
 		},
 	})
 	if err == nil {

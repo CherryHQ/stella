@@ -57,7 +57,7 @@ internal/
   db/                  PostgreSQL (pgx/v5), goose migrations, sqlc queries
   home/                POSIX workspace materialization, owner validation, deletion fencing
   scheduler/           River-backed service (durable job scheduling for Web UI and native agent tools)
-  skills/              Skills tool (search/install/list/remove via skills.sh)
+  skills/              Managed Skill authority, exact revisions, search, and loading
 pkg/
   ai/                  Message/Content types, Model, Provider interface, streaming events
   tools/               Tool interface and registry
@@ -191,11 +191,11 @@ type Tool interface {
 | ---------- | ----------------------- |
 | `webfetch` | Fetch web page contents |
 
-The core local-workspace tools run through a Docker sandbox backend. The `bash` tool executes via `Session.Exec`; the `read`, `write`, and `edit` tools use `Session.ResolvePath` to obtain the host path and then call `os.*` directly. Runner startup fails closed when Docker is unavailable.
+The core local-workspace tools run through a Docker sandbox backend. The `bash` tool executes via `Session.Exec`; the `read`, `write`, and `edit` tools use the mediated `Session.Files` capability with process-visible paths. Provider backing paths never enter the tool layer. Runner startup fails closed when Docker is unavailable.
 
 ### Sandbox
 
-The sandbox system provides process, filesystem, and network isolation for agent tool execution. All core tools share the same `sandbox.Session` per runner: `bash` uses `Session.Exec`; `read`/`write`/`edit` use `Session.ResolvePath` + `os.*`. Runner startup fails closed when the sandbox backend is unavailable. See [Sandbox Backend Abstraction](/docs/development/sandbox) for the full Session interface, execution mediation, fail-closed behavior, and exception boundaries.
+The sandbox system provides process, filesystem, and network isolation for agent tool execution. All core tools share the same `sandbox.Session` per runner: `bash` uses `Session.Exec`; `read`/`write`/`edit` use `Session.Files`. Public policy contains only process-visible roots; each provider owns the physical mount mapping and rooted file capabilities. Runner startup fails closed when the sandbox backend is unavailable. See [Sandbox Backend Abstraction](/docs/development/sandbox) for the full Session interface, execution mediation, fail-closed behavior, and exception boundaries.
 
 Sandbox tools (bash, read, write, edit) live in `internal/agent/sandbox/`; other built-in tools live with the capability they project. Plugin tools (e.g. webfetch) live in `plugins/tools/` and self-register via `init()`. Adding a new plugin tool requires no changes to the wiring code beyond a blank import. See [plugin-system](/docs/development/plugin-system) for the full plugin architecture.
 
@@ -218,7 +218,7 @@ Agent sends first persist an input row, then enter a process-local per-Session F
 | ----------- | --------------------------------- | -------------------------------------------------------------------- |
 | `memory`    | Always                            | Unified search and read across conversation and durable memory       |
 | `session`   | One-to-one agent sessions         | Session listing, bounded inspection, creation, and synchronous sends |
-| `skills`    | Always                            | Skill management (search/install/list/remove from skills.sh)         |
+| `skills`    | Always                            | Search installed Skills and load one exact selected revision         |
 | `scheduler` | Always                            | Schedule tasks (add/list/remove jobs)                                |
 | `notify`    | Gateway mode + channel configured | Send notifications via dispatcher                                    |
 

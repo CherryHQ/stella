@@ -9,6 +9,7 @@ import (
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
+	"github.com/CherryHQ/stella/plugins/sandbox/internal/sessionfs"
 )
 
 func TestMergeEnv(t *testing.T) {
@@ -68,10 +69,10 @@ func TestBuildMountTable(t *testing.T) {
 	table := buildMountTable(mountTableOptions{
 		WorkspaceHost:  "/host/ws",
 		WorkspaceMount: "/container/ws",
-		Mounts: []sandboxpkg.Mount{
-			{HostPath: "/host/ws", SandboxPath: "/container/ws", Access: sandboxpkg.MountReadWrite},
-			{HostPath: "/host/data", SandboxPath: "/user", Access: sandboxpkg.MountReadWrite},
-			{HostPath: "/extra/path", SandboxPath: "/extra/path", Access: sandboxpkg.MountReadOnly},
+		Mounts: []sessionfs.Mount{
+			{HostPath: "/host/ws", SandboxPath: "/container/ws"},
+			{HostPath: "/host/data", SandboxPath: "/user"},
+			{HostPath: "/extra/path", SandboxPath: "/extra/path", ReadOnly: true},
 		},
 		TempHost: "/tmp/user-1",
 	})
@@ -97,10 +98,18 @@ func TestContainerPathNormalizationWithWindowsStylePolicyPaths(t *testing.T) {
 		t.Fatalf("cleanContainerPath = %q, want %q", got, want)
 	}
 
-	table := buildMountTable(mountTableOptions{Mounts: normalizeDockerPolicyMounts([]sandboxpkg.Mount{
-		{HostPath: `C:\stella\users\u1`, SandboxPath: `\workspace\`, Access: sandboxpkg.MountReadWrite},
-		{HostPath: `C:\stella\users\u1\.mise-tools`, SandboxPath: `\opt\stella\users\u1\.mise-tools`, Access: sandboxpkg.MountReadWrite},
-	})})
+	policyMounts := normalizeDockerPolicyMounts([]sandboxpkg.Mount{
+		{SandboxPath: `\workspace\`, Access: sandboxpkg.MountReadWrite},
+		{SandboxPath: `\opt\stella\users\u1\.mise-tools`, Access: sandboxpkg.MountReadWrite},
+	})
+	providerMounts, err := dockerProviderMounts(policyMounts, map[string]string{
+		"/workspace":                       `C:\stella\users\u1`,
+		"/opt/stella/users/u1/.mise-tools": `C:\stella\users\u1\.mise-tools`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	table := buildMountTable(mountTableOptions{Mounts: providerMounts})
 	if got, want := table[0].ContainerPath, "/workspace"; got != want {
 		t.Errorf("workspace ContainerPath = %q, want %q", got, want)
 	}
@@ -108,62 +117,38 @@ func TestContainerPathNormalizationWithWindowsStylePolicyPaths(t *testing.T) {
 		t.Errorf("mise ContainerPath = %q, want %q", got, want)
 	}
 
-	mounts := nonWorkspacePolicyMounts(normalizeDockerPolicyMounts([]sandboxpkg.Mount{
-		{HostPath: `C:\workspace`, SandboxPath: `\workspace`, Access: sandboxpkg.MountReadWrite},
-		{HostPath: `C:\stella\bin`, SandboxPath: `\opt\stella\bin`, Access: sandboxpkg.MountReadOnly},
-		{HostPath: `C:\user`, SandboxPath: `\user`, Access: sandboxpkg.MountReadWrite},
-	}))
+	policyMounts = normalizeDockerPolicyMounts([]sandboxpkg.Mount{
+		{SandboxPath: `\workspace`, Access: sandboxpkg.MountReadWrite},
+		{SandboxPath: `\opt\stella\bin`, Access: sandboxpkg.MountReadOnly},
+		{SandboxPath: `\user`, Access: sandboxpkg.MountReadWrite},
+	})
+	providerMounts, err = dockerProviderMounts(policyMounts, map[string]string{
+		"/workspace":      `C:\workspace`,
+		"/opt/stella/bin": `C:\stella\bin`,
+		"/user":           `C:\user`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mounts := nonWorkspacePolicyMounts(providerMounts)
 	if len(mounts) != 1 || mounts[0].SandboxPath != "/user" {
 		t.Fatalf("nonWorkspacePolicyMounts = %+v, want only /user", mounts)
 	}
 
-	tools := writableToolTrees(normalizeDockerPolicyMounts([]sandboxpkg.Mount{{
-		HostPath:    `C:\stella\users\u1\.mise-tools`,
+	providerMounts, err = dockerProviderMounts(normalizeDockerPolicyMounts([]sandboxpkg.Mount{{
 		SandboxPath: `\opt\stella\users\u1\.mise-tools`,
 		Access:      sandboxpkg.MountReadWrite,
-	}}))
+	}}), map[string]string{"/opt/stella/users/u1/.mise-tools": `C:\stella\users\u1\.mise-tools`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools := writableToolTrees(providerMounts)
 	if len(tools) != 1 || tools[0].Container != "/opt/stella/users/u1/.mise-tools" {
 		t.Fatalf("writableToolTrees = %+v, want normalized mise tree", tools)
 	}
 	if got, want := path.Base(tools[0].Container), ".mise-tools"; got != want {
 		t.Errorf("container base = %q, want %q", got, want)
 	}
-}
-
-func TestToHostPath(t *testing.T) {
-	mounts := []dockerclient.Mount{
-		{HostPath: "/host/ws", ContainerPath: "/workspace"},
-		{HostPath: "/tmp/user-1", ContainerPath: "/tmp"},
-	}
-	tests := []struct {
-		name          string
-		containerPath string
-		wantHost      string
-		wantOK        bool
-	}{
-		{"sub-path", "/tmp/a.txt", "/tmp/user-1/a.txt", true},
-		{"exact mount root", "/tmp", "/tmp/user-1", true},
-		{"workspace sub-path", "/workspace/foo", "/host/ws/foo", true},
-		{"no match", "/etc/passwd", "", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, ok := toHostPath(mounts, tt.containerPath)
-			if ok != tt.wantOK || got != tt.wantHost {
-				t.Fatalf("toHostPath(%q) = %q, %v; want %q, %v", tt.containerPath, got, ok, tt.wantHost, tt.wantOK)
-			}
-		})
-	}
-	t.Run("deepest mount wins", func(t *testing.T) {
-		nested := []dockerclient.Mount{
-			{HostPath: "/host/tmp", ContainerPath: "/tmp"},
-			{HostPath: "/host/tmp/sub", ContainerPath: "/tmp/sub"},
-		}
-		got, ok := toHostPath(nested, "/tmp/sub/file.txt")
-		if !ok || got != "/host/tmp/sub/file.txt" {
-			t.Fatalf("toHostPath = %q, %v; want /host/tmp/sub/file.txt, true", got, ok)
-		}
-	})
 }
 
 func TestMapNetworkMode(t *testing.T) {
@@ -210,6 +195,40 @@ func TestInjectToolPaths_NoOpWhenEmpty(t *testing.T) {
 	got := injectToolPaths(env, nil)
 	if got["PATH"] != "/usr/bin:/bin" {
 		t.Errorf("PATH changed when tool paths absent: %q", got["PATH"])
+	}
+}
+
+func TestDockerExecEnvironmentFiltersAndTranslatesPerCallOverrides(t *testing.T) {
+	mountTable := []dockerclient.Mount{
+		{HostPath: "/host/workspace", ContainerPath: "/workspace"},
+		{HostPath: "/host/tmp", ContainerPath: "/tmp"},
+	}
+	envMaps := []envPathMap{{HostPrefix: "/host/stella", ContainerPrefix: "/opt/stella"}}
+	got := dockerExecEnvironment(
+		map[string]string{"HOME": "/workspace", "STELLA_HOME": "/opt/stella", "POLICY": "kept"},
+		map[string]string{
+			"PATH":        "/host/bin:/usr/bin",
+			"TMPDIR":      "/host/tmp/nested",
+			"STELLA_HOME": "/host/stella/revision",
+			"LITERAL":     "/host/workspace/not-a-declared-path",
+		},
+		mountTable,
+		envMaps,
+		nil,
+	)
+	for key, want := range map[string]string{
+		"HOME":        "/workspace",
+		"TMPDIR":      "/tmp/nested",
+		"STELLA_HOME": "/opt/stella/revision",
+		"LITERAL":     "/host/workspace/not-a-declared-path",
+		"POLICY":      "kept",
+	} {
+		if got[key] != want {
+			t.Errorf("%s = %q, want %q", key, got[key], want)
+		}
+	}
+	if _, ok := got["PATH"]; ok {
+		t.Fatalf("host PATH reached docker exec: %q", got["PATH"])
 	}
 }
 
@@ -271,8 +290,7 @@ func TestConfigureSessionMounts_HostMode(t *testing.T) {
 	}
 	assertNoMountTo(t, opts.ExtraMounts, filepath.Join(stellaHomeMount, "bin"))
 	assertMount(t, opts.ExtraMounts, tmp, "/tmp", false, dockerclient.MountType(""), "")
-	assertMount(t, opts.ExtraMounts, extra, extra, true, dockerclient.MountType(""), "")
-	assertMount(t, opts.ExtraMounts, extra, filepath.Join(workspaceMount, "skills"), true, dockerclient.MountTypeBind, "")
+	assertMount(t, opts.ExtraMounts, extra, "/readonly/skills", true, dockerclient.MountType(""), "")
 }
 
 func TestConfigureSessionMounts_BindModeTranslatesSources(t *testing.T) {
@@ -301,8 +319,7 @@ func TestConfigureSessionMounts_BindModeTranslatesSources(t *testing.T) {
 		t.Fatalf("mounted extra = %v, want [%q]", mountedExtra, extra)
 	}
 	assertNoMountTo(t, opts.ExtraMounts, filepath.Join(stellaHomeMount, "bin"))
-	assertMount(t, opts.ExtraMounts, "/daemon/stella/users/user/skills", extra, true, dockerclient.MountType(""), "")
-	assertMount(t, opts.ExtraMounts, "/daemon/stella/users/user/skills", filepath.Join(workspaceMount, "skills"), true, dockerclient.MountTypeBind, "")
+	assertMount(t, opts.ExtraMounts, "/daemon/stella/shared/skills", "/readonly/skills", true, dockerclient.MountType(""), "")
 }
 
 func TestConfigureSessionMounts_VolumeModeUsesSubpaths(t *testing.T) {
@@ -310,10 +327,10 @@ func TestConfigureSessionMounts_VolumeModeUsesSubpaths(t *testing.T) {
 	outsideExtra := t.TempDir()
 	f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeVolume, StellaHome: stellaHome, StellaHomeVolume: "stella-data"}}
 	opts := dockerModeCreateOptions(workspace)
-	policy := dockerModePolicy(stellaHome, workspace, extra, tmp)
-	policy.Filesystem.Mounts = append(policy.Filesystem.Mounts, sandboxpkg.Mount{HostPath: outsideExtra, SandboxPath: outsideExtra, Access: sandboxpkg.MountReadOnly})
+	mounts := dockerModePolicy(stellaHome, workspace, extra, tmp)
+	mounts = append(mounts, sessionfs.Mount{HostPath: outsideExtra, SandboxPath: outsideExtra, ReadOnly: true})
 	tempDir := preparedDockerTemp(t, f)
-	mountedExtra, mountedTmp, _, err := f.configureSessionMounts(&opts, policy, workspace, "", tempDir)
+	mountedExtra, mountedTmp, _, err := f.configureSessionMounts(&opts, mounts, workspace, "", tempDir)
 	if err != nil {
 		t.Fatalf("configureSessionMounts: %v", err)
 	}
@@ -329,8 +346,7 @@ func TestConfigureSessionMounts_VolumeModeUsesSubpaths(t *testing.T) {
 	}
 	assertMount(t, opts.ExtraMounts, "stella-data", workspaceMount, false, dockerclient.MountTypeVolume, "users/user")
 	assertNoMountTo(t, opts.ExtraMounts, filepath.Join(stellaHomeMount, "bin"))
-	assertMount(t, opts.ExtraMounts, "stella-data", extra, true, dockerclient.MountTypeVolume, "users/user/skills")
-	assertMount(t, opts.ExtraMounts, "stella-data", filepath.Join(workspaceMount, "skills"), true, dockerclient.MountTypeVolume, "users/user/skills")
+	assertMount(t, opts.ExtraMounts, "stella-data", "/readonly/skills", true, dockerclient.MountTypeVolume, "shared/skills")
 }
 
 func TestConfigureSessionMounts_VolumeModeRejectsStellaHomeAsWorkspace(t *testing.T) {
@@ -352,12 +368,12 @@ func TestConfigureSessionMounts_RunnerScratchAcceptedByDockerModes(t *testing.T)
 	if err := os.MkdirAll(workspace, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: workspace}}
+	mounts := []sessionfs.Mount{{HostPath: workspace, SandboxPath: workspaceMount}}
 
 	t.Run("bind", func(t *testing.T) {
 		f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeBind, StellaHome: stellaHome, ContainerPathPrefix: stellaHome, HostPathPrefix: "/daemon/stella"}}
 		opts := dockerModeCreateOptions(workspace)
-		if _, _, _, err := f.configureSessionMounts(&opts, policy, workspace, "", ""); err != nil {
+		if _, _, _, err := f.configureSessionMounts(&opts, mounts, workspace, "", ""); err != nil {
 			t.Fatalf("runner scratch bind planning: %v", err)
 		}
 		if opts.WorkspaceHost != "/daemon/stella/runner-scratch/runner-123" {
@@ -368,7 +384,7 @@ func TestConfigureSessionMounts_RunnerScratchAcceptedByDockerModes(t *testing.T)
 	t.Run("volume", func(t *testing.T) {
 		f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeVolume, StellaHome: stellaHome, StellaHomeVolume: "stella-data"}}
 		opts := dockerModeCreateOptions(workspace)
-		if _, _, _, err := f.configureSessionMounts(&opts, policy, workspace, "", ""); err != nil {
+		if _, _, _, err := f.configureSessionMounts(&opts, mounts, workspace, "", ""); err != nil {
 			t.Fatalf("runner scratch volume planning: %v", err)
 		}
 		assertMount(t, opts.ExtraMounts, "stella-data", workspaceMount, false, dockerclient.MountTypeVolume, "runner-scratch/runner-123")
@@ -383,10 +399,9 @@ func TestConfigureSessionMounts_DoesNotMountHostBuiltinBundle(t *testing.T) {
 	}
 	f := &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeHost, StellaHome: stellaHome}}
 	opts := dockerModeCreateOptions(workspace)
-	policy := dockerModePolicy(stellaHome, workspace, extra, tmp)
-	policy.Filesystem.Mounts = append(policy.Filesystem.Mounts, sandboxpkg.Mount{HostPath: builtin, SandboxPath: sandboxpkg.MountBuiltinSkills, Access: sandboxpkg.MountReadOnly})
-	policy.Env = nil
-	_, _, _, err := f.configureSessionMounts(&opts, policy, workspace, "", tmp)
+	mounts := dockerModePolicy(stellaHome, workspace, extra, tmp)
+	mounts = append(mounts, sessionfs.Mount{HostPath: builtin, SandboxPath: sandboxpkg.MountBuiltinSkills, ReadOnly: true})
+	_, _, _, err := f.configureSessionMounts(&opts, mounts, workspace, "", tmp)
 	if err != nil {
 		t.Fatalf("configureSessionMounts: %v", err)
 	}
@@ -447,14 +462,14 @@ func TestConfigureSessionMounts_WritableMiseTree(t *testing.T) {
 		{name: "volume", factory: &dockerFactory{cfg: Config{RuntimeMode: DockerSandboxModeVolume, StellaHome: stellaHome, StellaHomeVolume: "stella-data"}}, wantSource: "stella-data", wantType: dockerclient.MountTypeVolume, wantSub: "users/user/.mise-tools"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			policy := dockerModePolicy(stellaHome, workspace, extra, tmp)
-			policy.Filesystem.Mounts = append(policy.Filesystem.Mounts, sandboxpkg.Mount{HostPath: miseDir, SandboxPath: containerPath, Access: sandboxpkg.MountReadWrite})
+			mounts := dockerModePolicy(stellaHome, workspace, extra, tmp)
+			mounts = append(mounts, sessionfs.Mount{HostPath: miseDir, SandboxPath: containerPath})
 			tempDir := tmp
 			if tc.factory.cfg.RuntimeMode == DockerSandboxModeVolume {
 				tempDir = preparedDockerTemp(t, tc.factory)
 			}
 			opts := dockerModeCreateOptions(workspace)
-			if _, _, _, err := tc.factory.configureSessionMounts(&opts, policy, workspace, "", tempDir); err != nil {
+			if _, _, _, err := tc.factory.configureSessionMounts(&opts, mounts, workspace, "", tempDir); err != nil {
 				t.Fatal(err)
 			}
 			assertMount(t, opts.ExtraMounts, tc.wantSource, containerPath, false, tc.wantType, tc.wantSub)
@@ -486,6 +501,24 @@ func TestTranslateEnvPaths_Mise(t *testing.T) {
 	}
 	if _, ok := out["PATH"]; ok {
 		t.Error("PATH must be dropped (image-baked PATH wins)")
+	}
+}
+
+func TestTranslateEnvPathsRejectsAmbiguousHostAndContainerCoordinate(t *testing.T) {
+	mountTable := []dockerclient.Mount{
+		{HostPath: "/workspace", ContainerPath: "/other"},
+		{HostPath: "/host/data", ContainerPath: "/workspace"},
+	}
+
+	out := translateEnvPaths(map[string]string{
+		sandboxpkg.EnvHome:          "/workspace",
+		sandboxpkg.EnvXDGConfigHome: "/host/data/.config",
+	}, mountTable, nil)
+	if _, ok := out[sandboxpkg.EnvHome]; ok {
+		t.Fatalf("ambiguous HOME was translated to %q", out[sandboxpkg.EnvHome])
+	}
+	if got, want := out[sandboxpkg.EnvXDGConfigHome], "/workspace/.config"; got != want {
+		t.Fatalf("unambiguous XDG_CONFIG_HOME = %q, want %q", got, want)
 	}
 }
 
@@ -534,12 +567,8 @@ func TestApplyFilesystemEnvUsesMountedUserDataOrWorkspace(t *testing.T) {
 
 func TestApplyDockerFilesystemEnvRequiresMountedTempDir(t *testing.T) {
 	env := map[string]string{sandboxpkg.EnvTempDir: "/stale/tmp"}
-	if err := applyDockerFilesystemEnv(env, "/host/workspace", "", ""); err == nil {
+	if err := applyDockerFilesystemEnv(env, false, false); err == nil {
 		t.Fatal("applyDockerFilesystemEnv accepted an unmounted TMPDIR")
-	}
-	translated := translateEnvPaths(map[string]string{sandboxpkg.EnvTempDir: "/tmp"}, nil, nil)
-	if _, ok := translated[sandboxpkg.EnvTempDir]; ok {
-		t.Fatal("unmounted container-local TMPDIR bypassed path translation")
 	}
 }
 
@@ -548,7 +577,7 @@ func TestApplyDockerFilesystemEnvWithoutUserDataUsesMountedFallbackTemp(t *testi
 		"STELLA_USER_DIR":             "/stale/user",
 		sandboxpkg.EnvStellaAssetsDir: "/stale/user/assets",
 	}
-	if err := applyDockerFilesystemEnv(env, "/host/workspace", "", "/host/tmp/session"); err != nil {
+	if err := applyDockerFilesystemEnv(env, false, true); err != nil {
 		t.Fatalf("applyDockerFilesystemEnv: %v", err)
 	}
 	for _, key := range []string{"STELLA_USER_DIR", sandboxpkg.EnvStellaAssetsDir} {
@@ -556,33 +585,27 @@ func TestApplyDockerFilesystemEnvWithoutUserDataUsesMountedFallbackTemp(t *testi
 			t.Errorf("missing user mount must clear %s", key)
 		}
 	}
-	containerEnv := translateEnvPaths(env, []dockerclient.Mount{
-		{HostPath: "/host/workspace", ContainerPath: workspaceMount},
-		{HostPath: "/host/tmp/session", ContainerPath: "/tmp"},
-	}, nil)
-	if got, want := containerEnv[sandboxpkg.EnvTempDir], "/tmp"; got != want {
+	if got, want := env[sandboxpkg.EnvHome], workspaceMount; got != want {
+		t.Errorf("HOME = %q, want %q", got, want)
+	}
+	if got, want := env[sandboxpkg.EnvTempDir], "/tmp"; got != want {
 		t.Errorf("container TMPDIR = %q, want %q", got, want)
 	}
 }
 
-func TestDockerFilesystemEnvCreateAndExecTranslationMatch(t *testing.T) {
+func TestDockerFilesystemEnvCreateAndExecCoordinatesMatch(t *testing.T) {
 	policyEnv := map[string]string{"PERSISTENT_VALUE": "policy"}
-	if err := applyDockerFilesystemEnv(policyEnv, "/host/workspace", "/host/user", "/host/tmp"); err != nil {
+	if err := applyDockerFilesystemEnv(policyEnv, true, true); err != nil {
 		t.Fatalf("applyDockerFilesystemEnv: %v", err)
-	}
-	mounts := []dockerclient.Mount{
-		{HostPath: "/host/workspace", ContainerPath: workspaceMount},
-		{HostPath: "/host/user", ContainerPath: userDataMount},
-		{HostPath: "/host/tmp", ContainerPath: "/tmp"},
 	}
 
 	// Container creation has no per-call overrides or injected tool path.
-	createEnv := translateEnvPaths(mergeEnv(policyEnv, nil), mounts, nil)
+	createEnv := mergeEnv(policyEnv, nil)
 
-	// Exec independently merges request-scoped env before translating, then adds
-	// its container-native tool path. This must not alter filesystem semantics.
+	// Exec independently merges request-scoped env, then adds its container-native
+	// tool path. This must not alter filesystem coordinates.
 	execEnv := injectToolPaths(
-		translateEnvPaths(mergeEnv(policyEnv, map[string]string{"REQUEST_VALUE": "exec"}), mounts, nil),
+		mergeEnv(policyEnv, map[string]string{"REQUEST_VALUE": "exec"}),
 		[]string{"/tools/request/bin"},
 	)
 
@@ -639,7 +662,7 @@ func dockerModeTestDirs(t *testing.T) (stellaHome, workspace, extra, tmp string)
 	t.Helper()
 	stellaHome = t.TempDir()
 	workspace = filepath.Join(stellaHome, "users", "user")
-	extra = filepath.Join(workspace, "skills")
+	extra = filepath.Join(stellaHome, "shared", "skills")
 	tmp = t.TempDir()
 	for _, dir := range []string{filepath.Join(stellaHome, "bin"), workspace, extra} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -663,15 +686,8 @@ func preparedDockerTemp(t *testing.T, factory *dockerFactory) string {
 	return tempDir
 }
 
-func dockerModePolicy(stellaHome, workspace, extra, tmp string) sandboxpkg.Policy {
-	return sandboxpkg.Policy{
-		Env: map[string]string{"STELLA_HOME": stellaHome},
-		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: workspace,
-			WorkingDir:    workspace,
-			Mounts:        []sandboxpkg.Mount{{HostPath: workspace, SandboxPath: workspaceMount, Access: sandboxpkg.MountReadWrite}, {HostPath: extra, SandboxPath: extra, Access: sandboxpkg.MountReadOnly}, {HostPath: filepath.Join(stellaHome, ".agents", "skills"), SandboxPath: filepath.Join(stellaHomeMount, ".agents", "skills"), Access: sandboxpkg.MountReadOnly}},
-		},
-	}
+func dockerModePolicy(stellaHome, workspace, extra, _ string) []sessionfs.Mount {
+	return []sessionfs.Mount{{HostPath: workspace, SandboxPath: workspaceMount}, {HostPath: extra, SandboxPath: "/readonly/skills", ReadOnly: true}, {HostPath: filepath.Join(stellaHome, ".agents", "skills"), SandboxPath: filepath.Join(stellaHomeMount, ".agents", "skills"), ReadOnly: true}}
 }
 
 func assertNoMountTo(t *testing.T, mounts []dockerclient.Mount, target string) {

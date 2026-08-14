@@ -62,7 +62,6 @@ export interface AgentsSettingsLoaderData {
   agentSkills: Skill[];
   agentSkillCanManageActivation: boolean;
   agentSkillPolicyDiagnostics: {
-    legacy_non_empty_array: boolean;
     dangling_disabled_refs: string[];
   };
   personalisation: Personalisation;
@@ -134,7 +133,6 @@ export async function loadAgentsSettingsData(agentId = ""): Promise<AgentsSettin
     agentSkills,
     agentSkillCanManageActivation: agentSkillResponse?.can_manage_activation ?? false,
     agentSkillPolicyDiagnostics: agentSkillResponse?.policy_diagnostics ?? {
-      legacy_non_empty_array: false,
       dangling_disabled_refs: [],
     },
     selectedAgent,

@@ -5,43 +5,13 @@ import (
 	"errors"
 	"io"
 	"io/fs"
-	"os"
-	"path/filepath"
 	"testing"
 	"testing/fstest"
 
 	"github.com/CherryHQ/stella/internal/home"
-	"github.com/CherryHQ/stella/pkg/plugins"
 )
 
 type snapshotRoot struct{ fsys fstest.MapFS }
-
-func projectSnapshotFromDisk(t *testing.T, root string) *ProjectSnapshot {
-	t.Helper()
-	files := fstest.MapFS{}
-	if err := filepath.WalkDir(root, func(name string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil || entry.IsDir() {
-			return walkErr
-		}
-		relative, err := filepath.Rel(root, name)
-		if err != nil {
-			return err
-		}
-		data, err := os.ReadFile(name)
-		if err != nil {
-			return err
-		}
-		files[filepath.ToSlash(relative)] = &fstest.MapFile{Data: data}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	snapshot, err := SnapshotProjectSkills(t.Context(), snapshotRoot{files}, ".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return snapshot
-}
 
 func (r snapshotRoot) Close() error { return nil }
 func (r snapshotRoot) Stat(_ context.Context, name string) (fs.FileInfo, error) {
@@ -100,13 +70,23 @@ func TestProjectSnapshotLogicalSubprojectLoadsWithoutHostPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx := WithProjectSnapshot(context.Background(), snapshot)
-	content, dir, resolved, err := NewService(nil, t.TempDir()).LoadFile(ctx, "deploy", "references/api.md", plugins.SkillViewContext{}, "")
+	var resolved *ResolvedSkill
+	for _, skill := range NewService().ListMerged(nil, snapshot) {
+		if skill.Name == "deploy" {
+			current := skill
+			resolved = &current
+			break
+		}
+	}
+	if resolved == nil {
+		t.Fatal("project Skill missing from exact snapshot merge")
+	}
+	content, err := resolved.LoadImmutableFile("references/api.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if content != "api" || resolved.Scope != "project" || dir != "/workspace/projects/app/.agents/skills/deploy" {
-		t.Fatalf("content=%q dir=%q resolved=%#v", content, dir, resolved)
+	if content != "api" || resolved.Scope != "project" {
+		t.Fatalf("content=%q resolved=%#v", content, resolved)
 	}
 }
 

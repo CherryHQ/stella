@@ -74,11 +74,10 @@ func (s *Service) runUsageCuratorOnce(ctx context.Context, pair usageCuratorPair
 	// Reflect may receive a traced memory provider in production; the write
 	// capability belongs to the wrapped provider.
 	factWriter, _ := memory.Unwrap(s.memory).(factBatchWriter)
-	skillWriter, _ := s.skillStore.(usageCuratorSkillWriter)
 	return runUsageCurator(ctx, usageCuratorRunConfig{
 		Store:           s.usageCuratorStore,
 		FactWriter:      factWriter,
-		SkillWriter:     skillWriter,
+		SkillWriter:     s.skillStore,
 		SkillAuthorizer: s.skillAuthorizer,
 		Pair:            pair,
 		Settings:        settings,

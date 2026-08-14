@@ -17,6 +17,7 @@ import (
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 	localplugin "github.com/CherryHQ/stella/plugins/sandbox/local"
+	noneplugin "github.com/CherryHQ/stella/plugins/sandbox/none"
 )
 
 func writePNG(t *testing.T, path string, w, h int) {
@@ -34,16 +35,29 @@ func writePNG(t *testing.T, path string, w, h int) {
 	}
 }
 
-func newTestReadTool(projectRoot string) *hostReadTool {
-	return &hostReadTool{host: pkgsandbox.NopSession(), projectRoot: projectRoot}
+func newTestReadTool(t *testing.T, projectRoot string) pkgtools.Tool {
+	t.Helper()
+	policy := pkgsandbox.Policy{
+		Filesystem: pkgsandbox.FilesystemPolicy{
+			WorkingDir: pkgsandbox.MountWorkspace,
+			Mounts:     []pkgsandbox.Mount{{SandboxPath: pkgsandbox.MountWorkspace, Access: pkgsandbox.MountReadWrite}},
+		},
+		Network: pkgsandbox.NetworkPolicy{Mode: pkgsandbox.NetworkAllowAll},
+	}
+	session, err := noneplugin.NewFactoryWithMountSources(map[string]string{pkgsandbox.MountWorkspace: projectRoot}, noneplugin.Config{}).CreateSession(context.Background(), policy)
+	if err != nil {
+		t.Fatalf("create test sandbox Session: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	return newReadTool(session)
 }
 
 func TestReadImageVisionReturnsImageBlock(t *testing.T) {
 	dir := t.TempDir()
 	writePNG(t, filepath.Join(dir, "pic.png"), 10, 10)
-	tool := newTestReadTool(dir)
+	tool := newTestReadTool(t, dir)
 
-	blocks, err := tool.ExecuteContent(context.Background(), map[string]any{"path": "pic.png"})
+	blocks, err := pkgtools.ExecuteToolContent(context.Background(), tool, map[string]any{"path": "pic.png"})
 	if err != nil {
 		t.Fatalf("ExecuteContent: %v", err)
 	}
@@ -67,9 +81,9 @@ func TestReadImageVisionReturnsImageBlock(t *testing.T) {
 func TestReadImageResizesLargeImage(t *testing.T) {
 	dir := t.TempDir()
 	writePNG(t, filepath.Join(dir, "big.png"), 3000, 100)
-	tool := newTestReadTool(dir)
+	tool := newTestReadTool(t, dir)
 
-	blocks, err := tool.ExecuteContent(context.Background(), map[string]any{"path": "big.png"})
+	blocks, err := pkgtools.ExecuteToolContent(context.Background(), tool, map[string]any{"path": "big.png"})
 	if err != nil {
 		t.Fatalf("ExecuteContent: %v", err)
 	}
@@ -100,7 +114,7 @@ func TestReadImageCanonicalResultKeepsOriginalForTransform(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	blocks, err := newTestReadTool(dir).ExecuteContent(pkgtools.WithImageResultMode(context.Background(), pkgtools.ImageResultCanonical), map[string]any{"path": "pic.png"})
+	blocks, err := pkgtools.ExecuteToolContent(pkgtools.WithImageResultMode(context.Background(), pkgtools.ImageResultCanonical), newTestReadTool(t, dir), map[string]any{"path": "pic.png"})
 	if err != nil || !ai.HasImage(blocks) {
 		t.Fatalf("canonical read = %#v, %v", blocks, err)
 	}
@@ -119,9 +133,9 @@ func TestReadTextFileReturnsTextBlock(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("line1\nline2\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	tool := newTestReadTool(dir)
+	tool := newTestReadTool(t, dir)
 
-	blocks, err := tool.ExecuteContent(context.Background(), map[string]any{"path": "a.txt"})
+	blocks, err := pkgtools.ExecuteToolContent(context.Background(), tool, map[string]any{"path": "a.txt"})
 	if err != nil {
 		t.Fatalf("ExecuteContent: %v", err)
 	}
@@ -133,55 +147,31 @@ func TestReadTextFileReturnsTextBlock(t *testing.T) {
 	}
 }
 
-// unshadowedTempDir returns a temporary directory outside the system temp tree.
-// A local sandbox session binds session-private directories over /tmp and
-// /var/tmp, so a host path under them is ambiguous with sandbox-space temp paths
-// and resolves into the private backing instead of the host file. Tests that
-// hand host paths to a real session must stay clear of that overlap.
-func unshadowedTempDir(t *testing.T) string {
-	t.Helper()
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("UserHomeDir: %v", err)
-	}
-	dir, err := os.MkdirTemp(home, "stella-sandbox-test-*")
-	if err != nil {
-		t.Fatalf("MkdirTemp(%q): %v", home, err)
-	}
-	t.Cleanup(func() { os.RemoveAll(dir) }) //nolint:errcheck
-	resolved, err := filepath.EvalSymlinks(dir)
-	if err != nil {
-		t.Fatalf("EvalSymlinks(%q): %v", dir, err)
-	}
-	return resolved
-}
-
-func TestReadToolProjectRootAbsolutePathUsesHostBoundary(t *testing.T) {
-	workspace := unshadowedTempDir(t)
-	inside := filepath.Join(workspace, "inside.txt")
-	if err := os.WriteFile(inside, []byte("inside workspace\n"), 0o644); err != nil {
+func TestReadToolUsesSessionProcessViewBoundary(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "inside.txt"), []byte("inside workspace\n"), 0o644); err != nil {
 		t.Fatalf("write inside: %v", err)
 	}
-	outside := filepath.Join(unshadowedTempDir(t), "secret.txt")
+	outside := filepath.Join(t.TempDir(), "secret.txt")
 	if err := os.WriteFile(outside, []byte("outside workspace\n"), 0o644); err != nil {
 		t.Fatalf("write outside: %v", err)
 	}
 
 	policy := pkgsandbox.Policy{
 		Filesystem: pkgsandbox.FilesystemPolicy{
-			WorkspaceRoot: workspace,
-			WorkingDir:    workspace,
+			WorkingDir: pkgsandbox.MountWorkspace,
+			Mounts:     []pkgsandbox.Mount{{SandboxPath: pkgsandbox.MountWorkspace, Access: pkgsandbox.MountReadWrite}},
 		},
 		Network: pkgsandbox.NetworkPolicy{Mode: pkgsandbox.NetworkAllowAll},
 	}
-	session, err := localplugin.NewFactory().CreateSession(context.Background(), policy)
+	session, err := localplugin.NewFactoryWithMountSources(map[string]string{pkgsandbox.MountWorkspace: workspace}, localplugin.Config{}).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Skipf("local sandbox unavailable: %v", err)
 	}
 	defer session.Close() //nolint:errcheck
 
-	tool := newReadTool(session, workspace)
-	out, err := tool.Execute(context.Background(), map[string]any{"path": inside})
+	tool := newReadTool(session)
+	out, err := tool.Execute(context.Background(), map[string]any{"path": "inside.txt"})
 	if err != nil {
 		t.Fatalf("read inside workspace: %v", err)
 	}

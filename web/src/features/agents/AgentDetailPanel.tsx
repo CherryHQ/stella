@@ -114,7 +114,6 @@ export function AgentDetailPanel({
         agentSkills: [],
         agentSkillCanManageActivation: false,
         agentSkillPolicyDiagnostics: {
-          legacy_non_empty_array: false,
           dangling_disabled_refs: [],
         },
       }));
@@ -130,7 +129,6 @@ export function AgentDetailPanel({
         agentSkillsLoading: false,
         agentSkillCanManageActivation: res?.can_manage_activation ?? false,
         agentSkillPolicyDiagnostics: res?.policy_diagnostics ?? {
-          legacy_non_empty_array: false,
           dangling_disabled_refs: [],
         },
       }));
@@ -142,7 +140,6 @@ export function AgentDetailPanel({
         agentSkillsLoading: false,
         agentSkillCanManageActivation: false,
         agentSkillPolicyDiagnostics: {
-          legacy_non_empty_array: false,
           dangling_disabled_refs: [],
         },
       }));

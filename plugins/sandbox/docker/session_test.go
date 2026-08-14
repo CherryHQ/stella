@@ -19,9 +19,9 @@ func pointToUnreachableDaemon(t *testing.T) {
 }
 
 func TestNewFactory_NoStellaHome_Infallible(t *testing.T) {
-	f, err := NewFactory(Config{})
+	f, err := NewFactoryWithMountSources(Config{}, nil)
 	if err != nil {
-		t.Fatalf("NewFactory(Config{}) should not fail: %v", err)
+		t.Fatalf("NewFactoryWithMountSources should not fail: %v", err)
 	}
 	if f.Name() != "docker" {
 		t.Fatalf("expected %q, got %q", "docker", f.Name())
@@ -30,7 +30,7 @@ func TestNewFactory_NoStellaHome_Infallible(t *testing.T) {
 
 func TestNewFactory_DockerModeError_Propagated(t *testing.T) {
 	withDockerModeEnv(t, "", "", "")
-	_, err := NewFactory(Config{StellaHome: "/fake/stella"})
+	_, err := NewFactoryWithMountSources(Config{StellaHome: "/fake/stella"}, nil)
 	if err == nil {
 		t.Fatal("expected error when docker sandbox mode is unset")
 	}
@@ -41,7 +41,7 @@ func TestNewFactory_DockerModeError_Propagated(t *testing.T) {
 
 func TestFactoryAvailable_DaemonUnreachable(t *testing.T) {
 	pointToUnreachableDaemon(t)
-	f, _ := NewFactory(Config{})
+	f, _ := NewFactoryWithMountSources(Config{}, nil)
 	if f.Available() {
 		t.Fatal("expected Available() == false when daemon is unreachable")
 	}
@@ -49,7 +49,7 @@ func TestFactoryAvailable_DaemonUnreachable(t *testing.T) {
 
 func TestFactorySupported_DaemonUnreachable(t *testing.T) {
 	pointToUnreachableDaemon(t)
-	f, _ := NewFactory(Config{})
+	f, _ := NewFactoryWithMountSources(Config{}, nil)
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: t.TempDir()},
 	}

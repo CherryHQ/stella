@@ -3,7 +3,6 @@ package sandbox
 import (
 	"maps"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -340,44 +339,6 @@ func TestExpandPathVariablesRejectsUnsupportedUnavailableAndMalformedExpressions
 			}
 		})
 	}
-}
-
-func TestExpandPathVariablesKeepsPathResolverConfinement(t *testing.T) {
-	workspace := t.TempDir()
-	outside := t.TempDir()
-	resolver := NewPathResolver(PathResolverConfig{
-		WorkspaceRoot: workspace,
-		WorkingDir:    workspace,
-		Mounts: []Mount{{
-			HostPath:    workspace,
-			SandboxPath: "/workspace",
-			Access:      MountReadWrite,
-		}},
-	})
-	env := map[string]string{EnvHome: "/workspace"}
-
-	t.Run("traversal", func(t *testing.T) {
-		path, err := ExpandPathVariables("$HOME/../outside/file", env)
-		if err != nil {
-			t.Fatalf("ExpandPathVariables: %v", err)
-		}
-		if _, err := resolver.ResolveWritePath(path); err == nil {
-			t.Fatal("ResolveWritePath accepted traversal outside workspace")
-		}
-	})
-
-	t.Run("symlink escape", func(t *testing.T) {
-		if err := os.Symlink(outside, filepath.Join(workspace, "escape")); err != nil {
-			t.Fatalf("create symlink: %v", err)
-		}
-		path, err := ExpandPathVariables("${HOME}/escape/file", env)
-		if err != nil {
-			t.Fatalf("ExpandPathVariables: %v", err)
-		}
-		if _, err := resolver.ResolveWritePath(path); err == nil {
-			t.Fatal("ResolveWritePath accepted a symlink escape")
-		}
-	})
 }
 
 func mapDiff(want, got map[string]string) string {

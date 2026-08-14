@@ -4,64 +4,32 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
 
-func BuildPromptSection(ctx context.Context, build pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
-	var store pkgplugins.SkillStore
-	if build.SkillStore != nil {
-		store = build.SkillStore
-	} else if build.Platform != nil {
-		store = build.Platform.SkillStore()
-	}
-	if store == nil {
-		return pkgplugins.SystemPromptSection{}, nil
-	}
-
-	svc := NewService(store, build.StellaHome)
-	vc := pkgplugins.SkillViewContext{
-		UserID:            build.UserID,
-		AgentID:           build.AgentID,
-		DisabledSkillRefs: append([]string(nil), build.DisabledSkillRefs...),
-	}
-
-	merged, err := svc.ListMerged(ctx, vc, build.ProjectRoot)
-	if err != nil {
-		return pkgplugins.SystemPromptSection{}, err
-	}
-
-	return buildPromptSection(build, merged)
-}
-
 // BuildAuthorizedPromptSection admits mutable Home metadata only after the
 // runtime actor has authorized its PostgreSQL identity. Immutable project and
 // release-builtin metadata remain filesystem/Registry reads.
-func BuildAuthorizedPromptSection(ctx context.Context, build pkgplugins.SystemPromptContext, reader IdentityReader, authorizer SkillReadAuthorizer) (pkgplugins.SystemPromptSection, error) {
-	if reader == nil {
-		return BuildPromptSection(ctx, build)
+func BuildAuthorizedPromptSection(ctx context.Context, build pkgplugins.SystemPromptContext, project *ProjectSnapshot, reader IdentityReader, authorizer SkillReadAuthorizer) (pkgplugins.SystemPromptSection, error) {
+	if reader == nil || authorizer == nil {
+		return pkgplugins.SystemPromptSection{}, fmt.Errorf("skills prompt requires identity reader and read authorizer")
 	}
 	identities, err := reader.ListIdentityVisible(ctx, ViewContext{UserID: build.UserID, AgentID: build.AgentID})
 	if err != nil {
 		return pkgplugins.SystemPromptSection{}, err
 	}
-	db := make([]pkgplugins.Skill, len(identities))
-	for i := range identities {
-		db[i] = internalSkillToPlugin(identities[i])
+	svc := NewService()
+	merged := filterDisabled(svc.ListMerged(identities, project), build.DisabledSkillRefs)
+	decision, err := authorizer.BeginRead(ctx)
+	if errors.Is(err, authz.ErrUnauthenticated) {
+		decision, err = nil, nil
 	}
-	svc := NewService(nil, build.StellaHome)
-	merged := filterDisabled(svc.ListMergedWithDBSnapshot(db, projectSnapshotFromContext(ctx)), build.DisabledSkillRefs)
-	var decision SkillReadDecision
-	if authorizer != nil {
-		decision, err = authorizer.BeginRead(ctx)
-		if errors.Is(err, authz.ErrUnauthenticated) {
-			decision, err = nil, nil
-		}
-		if err != nil {
-			return pkgplugins.SystemPromptSection{}, err
-		}
+	if err != nil {
+		return pkgplugins.SystemPromptSection{}, err
 	}
 	authorized := make([]ResolvedSkill, 0, len(merged))
 	for _, rs := range merged {
@@ -89,7 +57,7 @@ func BuildAuthorizedPromptSection(ctx context.Context, build pkgplugins.SystemPr
 		if !sameSkillIdentity(resolvedIdentity(rs), revision.Skill) || !invocationVisible(revision.Skill) {
 			continue
 		}
-		rs.Skill = internalSkillToPlugin(revision.Skill)
+		rs.Skill = revision.Skill
 		authorized = append(authorized, rs)
 	}
 	return buildPromptSection(build, authorized)
@@ -97,7 +65,7 @@ func BuildAuthorizedPromptSection(ctx context.Context, build pkgplugins.SystemPr
 
 func buildPromptSection(build pkgplugins.SystemPromptContext, merged []ResolvedSkill) (pkgplugins.SystemPromptSection, error) {
 	// Apply plugin visibility filtering.
-	all := make([]pkgplugins.Skill, 0, len(merged))
+	all := make([]Skill, 0, len(merged))
 	for _, rs := range merged {
 		all = append(all, rs.Skill)
 	}
@@ -139,8 +107,8 @@ func buildPromptSection(build pkgplugins.SystemPromptContext, merged []ResolvedS
 	}, nil
 }
 
-func promptSystemSkills(skills []pkgplugins.Skill) []pkgplugins.Skill {
-	out := make([]pkgplugins.Skill, 0, len(skills))
+func promptSystemSkills(skills []Skill) []Skill {
+	out := make([]Skill, 0, len(skills))
 	for _, skill := range skills {
 		if skill.Scope != "system" || skill.Status == SkillStatusDeprecated || skill.DisableModelInvocation {
 			continue
@@ -159,7 +127,7 @@ func escapeXML(s string) string {
 	return s
 }
 
-func filterVisibleSkills(skills []pkgplugins.Skill, build pkgplugins.SystemPromptContext) []pkgplugins.Skill {
+func filterVisibleSkills(skills []Skill, build pkgplugins.SystemPromptContext) []Skill {
 	if len(skills) == 0 {
 		return nil
 	}
@@ -172,7 +140,7 @@ func filterVisibleSkills(skills []pkgplugins.Skill, build pkgplugins.SystemPromp
 		enabled[id] = struct{}{}
 	}
 
-	out := make([]pkgplugins.Skill, 0, len(skills))
+	out := make([]Skill, 0, len(skills))
 	for _, skill := range skills {
 		if skill.Scope != "system" && skill.Scope != "builtin" {
 			out = append(out, skill)

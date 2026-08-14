@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/scheduler"
@@ -43,50 +44,27 @@ func (stubStateStore) Delete(context.Context, pkgplugins.StateScope, string) err
 
 func stubProviders(string, string, string) (providers.StreamFunc, error) { return nil, nil }
 
-type stubPluginSkillStore struct{}
-
-func (stubPluginSkillStore) List(context.Context, pkgplugins.SkillViewContext) ([]pkgplugins.Skill, error) {
-	return nil, nil
-}
-
-func (stubPluginSkillStore) Resolve(context.Context, string, pkgplugins.SkillViewContext) (*pkgplugins.Skill, error) {
-	return nil, nil
-}
-
-func (stubPluginSkillStore) ListByScope(context.Context, string, string, string) ([]pkgplugins.Skill, error) {
-	return nil, nil
-}
-
-func (stubPluginSkillStore) LoadFile(context.Context, string, string) (string, error) { return "", nil }
-
-func (stubPluginSkillStore) ListFiles(context.Context, string) ([]string, error) { return nil, nil }
-
-func (stubPluginSkillStore) Create(context.Context, pkgplugins.Skill, map[string]string) (string, error) {
-	return "", nil
-}
-
-func (stubPluginSkillStore) Update(context.Context, string, pkgplugins.SkillUpdatePatch) error {
-	return nil
-}
-
-func (stubPluginSkillStore) UpsertFile(context.Context, string, string, string) error { return nil }
-
-func (stubPluginSkillStore) DeleteFile(context.Context, string, string) error { return nil }
-
-func (stubPluginSkillStore) Delete(context.Context, string) error { return nil }
-
 type stubStructuredMemory struct {
+	stubMemory
+	memory.FactStore
+	factBatchWriter
+	memory.ReviewHistoryReader
+}
+
+type stubStructuredMemoryWithoutReview struct {
 	stubMemory
 	memory.FactStore
 	factBatchWriter
 }
 
-type stubStructuredSkillStore struct {
-	stubPluginSkillStore
+type stubStructuredSkillStore struct{}
+
+func (stubStructuredSkillStore) ListActiveReflectOwnedUserAgentSkills(context.Context, string, string) ([]skills.Skill, error) {
+	return nil, nil
 }
 
-func (stubStructuredSkillStore) ListActiveReflectOwnedUserAgentSkills(context.Context, string, string) ([]pkgplugins.Skill, error) {
-	return nil, nil
+func (stubStructuredSkillStore) LoadExactRevision(context.Context, skills.Skill, string) (skills.ManagedRevision, error) {
+	return skills.ManagedRevision{}, nil
 }
 
 func (stubStructuredSkillStore) CreateReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillCreate) (skills.Skill, error) {
@@ -97,11 +75,7 @@ func (stubStructuredSkillStore) PatchReflectOwnedUserAgentSkill(context.Context,
 	return skills.Skill{}, nil
 }
 
-type stubArmedSkillStore struct {
-	stubStructuredSkillStore
-}
-
-func (stubArmedSkillStore) DeleteReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillDelete) (skills.Skill, error) {
+func (stubStructuredSkillStore) DeleteReflectOwnedUserAgentSkill(context.Context, skills.ReflectSkillDelete) (skills.Skill, error) {
 	return skills.Skill{}, nil
 }
 
@@ -111,15 +85,22 @@ func (dispatcherSkillAuthorizer) AuthorizeWorkerWrite(context.Context, string, s
 	return nil
 }
 
+type emptyReflectServiceManager struct{}
+
+func (emptyReflectServiceManager) GetService(string) *agent.Service { return nil }
+func (emptyReflectServiceManager) Default() *agent.Service          { return nil }
+
 func validConfig(store Store) Config {
 	return Config{
 		Memory:            stubStructuredMemory{stubMemory: stubMemory{}},
 		Store:             store,
+		Snapshots:         &fakeReflectStore{},
 		StateStore:        stubStateStore{},
 		Providers:         stubProviders,
-		SkillStore:        stubArmedSkillStore{},
+		SkillStore:        stubStructuredSkillStore{},
 		SkillAuthorizer:   dispatcherSkillAuthorizer{},
 		UsageCuratorStore: fakeUsageCuratorStore{},
+		Services:          emptyReflectServiceManager{},
 	}
 }
 
@@ -153,6 +134,11 @@ func TestNewBuiltinHandlerValidatesStructuredDependencies(t *testing.T) {
 		t.Fatal("expected missing structured memory dependencies to fail")
 	}
 
+	cfg.Memory = stubStructuredMemoryWithoutReview{stubMemory: stubMemory{}}
+	if _, err := NewBuiltinHandler(cfg); err == nil {
+		t.Fatal("expected missing exact review history to fail")
+	}
+
 	cfg.Memory = stubStructuredMemory{stubMemory: stubMemory{}}
 	if _, err := NewBuiltinHandler(cfg); err != nil {
 		t.Fatalf("structured dependencies rejected: %v", err)
@@ -170,24 +156,5 @@ func TestNewBuiltinHandlerRejectsCuratorWithoutStore(t *testing.T) {
 				t.Fatalf("expected error for %s usage curator without store", mode)
 			}
 		})
-	}
-}
-
-func TestNewBuiltinHandlerAllowsShadowWithoutCuratorWriteDependencies(t *testing.T) {
-	cfg := validConfig(&fakeReflectStore{})
-	cfg.UsageCuratorSettings = UsageCuratorSettings{Mode: UsageCuratorModeShadow}
-	cfg.SkillStore = stubStructuredSkillStore{}
-
-	if _, err := NewBuiltinHandler(cfg); err != nil {
-		t.Fatalf("shadow mode rejected without curator write dependencies: %v", err)
-	}
-}
-
-func TestNewBuiltinHandlerRejectsArmedCuratorWithoutSkillWriter(t *testing.T) {
-	cfg := validConfig(&fakeReflectStore{})
-	cfg.SkillStore = stubStructuredSkillStore{}
-
-	if _, err := NewBuiltinHandler(cfg); err == nil {
-		t.Fatal("expected error for armed usage curator without skill writer")
 	}
 }

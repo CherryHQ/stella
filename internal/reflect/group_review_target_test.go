@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/internal/memory/memorytest"
 )
 
 // TestUnreviewedTarget_GroupSessionExcluded proves that a durable GroupID keeps
@@ -24,7 +26,15 @@ func TestUnreviewedTarget_GroupSessionExcluded(t *testing.T) {
 		LastActive: time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC),
 	}
 
-	if _, ok := svc.unreviewedTarget(context.Background(), rec); ok {
+	registry, err := session.NewRegistry(memorytest.New(), "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := session.InfoFromRecord(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := svc.unreviewedTargetFromRegistry(context.Background(), registry, info); ok {
 		t.Fatal("group session must be excluded before entering the private review queue")
 	}
 }
@@ -41,7 +51,15 @@ func TestUnreviewedTarget_PrivateSessionStaysPrivate(t *testing.T) {
 		Kind:       "chat",
 		LastActive: time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC),
 	}
-	target, ok := svc.unreviewedTarget(context.Background(), rec)
+	registry, err := session.NewRegistry(memorytest.New(), "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := session.InfoFromRecord(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, ok := svc.unreviewedTargetFromRegistry(context.Background(), registry, info)
 	if !ok {
 		t.Fatal("expected a review target for a fresh private session")
 	}

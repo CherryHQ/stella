@@ -31,7 +31,7 @@ func SyncSession(session pkgsandbox.Session) error {
 }
 
 func createDockerSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error) {
-	paths, policy, err := buildBasePolicy(ctx, cfg)
+	paths, policy, mountSources, err := buildBasePolicy(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -48,10 +48,10 @@ func createDockerSession(ctx context.Context, cfg Config) (pkgsandbox.Session, e
 	if err != nil {
 		return nil, fmt.Errorf("load builtin skill bundle: %w", err)
 	}
-	factory, err := dockerplugin.NewFactory(dockerplugin.Config{
+	factory, err := dockerplugin.NewFactoryWithMountSources(dockerplugin.Config{
 		Image: dockerImage(), StellaHome: paths.StellaHome,
 		ExpectedBundleRevision: registry.BundleRevision(),
-	})
+	}, mountSources)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func createDockerSession(ctx context.Context, cfg Config) (pkgsandbox.Session, e
 // createLocalSession creates a local (no container isolation) session.
 // WARNING: commands run directly on the host OS with no container isolation.
 func createLocalSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error) {
-	paths, policy, err := buildBasePolicy(ctx, cfg)
+	paths, policy, mountSources, err := buildBasePolicy(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +84,7 @@ func createLocalSession(ctx context.Context, cfg Config) (pkgsandbox.Session, er
 		"network_mode", cfg.SandboxConfig.Network.Mode,
 	)
 
-	session, err := localplugin.NewFactory(localplugin.Config{
+	session, err := localplugin.NewFactoryWithMountSources(mountSources, localplugin.Config{
 		StellaHome: paths.StellaHome,
 	}).CreateSession(ctx, policy)
 	if err != nil {
@@ -95,7 +95,7 @@ func createLocalSession(ctx context.Context, cfg Config) (pkgsandbox.Session, er
 }
 
 func createHostSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error) {
-	paths, policy, err := buildBasePolicy(ctx, cfg)
+	paths, policy, mountSources, err := buildBasePolicy(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +105,7 @@ func createHostSession(ctx context.Context, cfg Config) (pkgsandbox.Session, err
 		"work_dir", paths.WorkDir,
 	)
 
-	session, err := noneplugin.NewFactory(noneplugin.Config{
+	session, err := noneplugin.NewFactoryWithMountSources(mountSources, noneplugin.Config{
 		StellaHome: paths.StellaHome,
 	}).CreateSession(ctx, policy)
 	if err != nil {
@@ -118,17 +118,17 @@ func createHostSession(ctx context.Context, cfg Config) (pkgsandbox.Session, err
 // buildBasePolicy resolves paths and builds the backend-agnostic base policy
 // (filesystem, network, env). Backend-specific adjustments are applied by
 // each factory's CreateSession.
-func buildBasePolicy(ctx context.Context, cfg Config) (Paths, pkgsandbox.Policy, error) {
+func buildBasePolicy(ctx context.Context, cfg Config) (Paths, pkgsandbox.Policy, map[string]string, error) {
 	paths, err := ResolvePaths(cfg)
 	if err != nil {
-		return Paths{}, pkgsandbox.Policy{}, fmt.Errorf("resolve sandbox paths: %w", err)
+		return Paths{}, pkgsandbox.Policy{}, nil, fmt.Errorf("resolve sandbox paths: %w", err)
 	}
 	env, err := buildSandboxEnv(ctx, cfg, paths)
 	if err != nil {
-		return Paths{}, pkgsandbox.Policy{}, err
+		return Paths{}, pkgsandbox.Policy{}, nil, err
 	}
 
-	fs := runnerFilesystemPolicy(paths, cfg)
+	fs, mountSources := runnerFilesystemPolicy(paths, cfg)
 	// Mise tree prep, uniform across backends. EnsureMiseShims relinks the shared
 	// system-tree shims to relative targets so they resolve after STELLA_HOME is
 	// remapped (bwrap's /opt/stella) — otherwise a session started before the next
@@ -140,7 +140,7 @@ func buildBasePolicy(ctx context.Context, cfg Config) (Paths, pkgsandbox.Policy,
 	// symlinks against the image-baked linux system tree (#436).
 	miseDir := miseUserDirHost(paths, cfg)
 	if err := pkgsandbox.EnsureMiseShims(paths.StellaHome, miseDir); err != nil {
-		return Paths{}, pkgsandbox.Policy{}, fmt.Errorf("ensure mise shims: %w", err)
+		return Paths{}, pkgsandbox.Policy{}, nil, fmt.Errorf("ensure mise shims: %w", err)
 	}
 
 	policy := pkgsandbox.Policy{
@@ -150,7 +150,7 @@ func buildBasePolicy(ctx context.Context, cfg Config) (Paths, pkgsandbox.Policy,
 		},
 		Env: env,
 	}
-	return paths, policy, nil
+	return paths, policy, mountSources, nil
 }
 
 // resolveBackendName returns the active sandbox backend name from cfg,
@@ -186,8 +186,12 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 		return nil, err
 	}
 
+	// One ResilientSession has one canonical process coordinate system. Pin
+	// recreation to the backend that created the initial session; changing
+	// between an isolating /workspace view and a host-coordinate view would make
+	// paths already retained by tools ambiguous.
 	return pkgsandbox.NewResilientSession(session, func(ctx context.Context) (pkgsandbox.Session, error) {
-		return createSessionForBackend(ctx, cfg, resolveBackendName(ctx, cfg))
+		return createSessionForBackend(ctx, cfg, name)
 	}), nil
 }
 

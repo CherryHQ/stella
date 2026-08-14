@@ -74,7 +74,6 @@ export interface AgentsPageState {
   agentSkillCanManageActivation: boolean;
   agentSkillActivationPending: boolean;
   agentSkillPolicyDiagnostics: {
-    legacy_non_empty_array: boolean;
     dangling_disabled_refs: string[];
   };
   userSkills: Skill[];

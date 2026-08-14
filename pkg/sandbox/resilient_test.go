@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -14,18 +16,21 @@ type mockSession struct {
 	mu             sync.Mutex
 	alive          bool
 	closed         bool
+	policy         Policy
+	workingDir     string
 	execCount      int
 	lastExecEnv    map[string]string
 	lastProcessEnv map[string]string
 	done           chan struct{}
+	files          FileAccess
 }
 
 func newMockSession() *mockSession {
-	return &mockSession{alive: true, done: make(chan struct{})}
+	return &mockSession{alive: true, workingDir: "/workspace", done: make(chan struct{})}
 }
 
-func (m *mockSession) Policy() Policy        { return Policy{} }
-func (m *mockSession) WorkingDir() string    { return "/workspace" }
+func (m *mockSession) Policy() Policy        { return m.policy }
+func (m *mockSession) WorkingDir() string    { return m.workingDir }
 func (m *mockSession) Done() <-chan struct{} { return m.done }
 
 func (m *mockSession) Alive() bool {
@@ -57,8 +62,98 @@ func (m *mockSession) StartProcess(_ context.Context, req ProcessRequest) (Proce
 	return nil, nil
 }
 
-func (m *mockSession) ResolvePath(path string) (string, error)      { return path, nil }
-func (m *mockSession) ResolveWritePath(path string) (string, error) { return path, nil }
+func (m *mockSession) Files() FileAccess {
+	if m.files != nil {
+		return m.files
+	}
+	return directTestFileAccess{}
+}
+
+type directTestFileAccess struct{}
+
+func (directTestFileAccess) ReadFile(name string) ([]byte, error) { return os.ReadFile(name) }
+
+func (directTestFileAccess) ReadDir(name string) ([]DirEntry, error) {
+	entries, err := os.ReadDir(name)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]DirEntry, 0, len(entries))
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err == nil {
+			out = append(out, DirEntry{Name: entry.Name(), IsDir: entry.IsDir(), Size: info.Size()})
+		}
+	}
+	return out, nil
+}
+
+func (directTestFileAccess) Stat(name string) (FileInfo, error) {
+	info, err := os.Stat(name)
+	if err != nil {
+		return FileInfo{}, err
+	}
+	return FileInfo{IsDir: info.IsDir(), Size: info.Size()}, nil
+}
+
+func (directTestFileAccess) WriteFile(name string, content []byte, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(name, content, mode)
+}
+
+func (directTestFileAccess) ProjectFiles(name string, files []ProjectedFile) error {
+	for _, file := range files {
+		if err := (directTestFileAccess{}).WriteFile(filepath.Join(name, filepath.FromSlash(file.Path)), file.Content, file.Mode); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a directTestFileAccess) ProjectTempFiles(name string, files []ProjectedFile) (string, error) {
+	if err := a.ProjectFiles(name, files); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+type rootedTestAccess struct{ root string }
+
+func (a rootedTestAccess) resolve(name string) string { return filepath.Join(a.root, name) }
+func (a rootedTestAccess) ReadFile(name string) ([]byte, error) {
+	return os.ReadFile(a.resolve(name))
+}
+
+func (a rootedTestAccess) ReadDir(name string) ([]DirEntry, error) {
+	return directTestFileAccess{}.ReadDir(a.resolve(name))
+}
+
+func (a rootedTestAccess) Stat(name string) (FileInfo, error) {
+	return directTestFileAccess{}.Stat(a.resolve(name))
+}
+
+func (a rootedTestAccess) WriteFile(name string, content []byte, mode os.FileMode) error {
+	return directTestFileAccess{}.WriteFile(a.resolve(name), content, mode)
+}
+
+func (a rootedTestAccess) ProjectFiles(name string, files []ProjectedFile) error {
+	root := a.resolve(name)
+	for _, file := range files {
+		if err := (directTestFileAccess{}).WriteFile(filepath.Join(root, filepath.FromSlash(file.Path)), file.Content, file.Mode); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a rootedTestAccess) ProjectTempFiles(name string, files []ProjectedFile) (string, error) {
+	if err := a.ProjectFiles(name, files); err != nil {
+		return "", err
+	}
+	return name, nil
+}
 
 func TestResilientSession_ExecUsesExistingSession(t *testing.T) {
 	s := newMockSession()
@@ -153,6 +248,101 @@ func TestResilientSession_PermanentCloseRejectsExec(t *testing.T) {
 	_, err := rs.Exec(context.Background(), "echo hi", ExecOptions{})
 	if err == nil {
 		t.Fatal("Exec should fail after permanent Close")
+	}
+}
+
+func TestResilientSessionPermanentCloseRejectsFileAccess(t *testing.T) {
+	s := newMockSession()
+	rs := NewResilientSession(s, nil)
+	file := filepath.Join(t.TempDir(), "value")
+	if err := os.WriteFile(file, []byte("value"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := rs.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rs.Files().ReadFile(file); err == nil {
+		t.Fatal("file access succeeded after permanent Close")
+	}
+}
+
+func TestResilientSessionFileAccessRecreatesDeadInner(t *testing.T) {
+	firstRoot, secondRoot := t.TempDir(), t.TempDir()
+	first := newMockSession()
+	first.files = rootedTestAccess{root: firstRoot}
+	second := newMockSession()
+	second.files = rootedTestAccess{root: secondRoot}
+	if err := os.WriteFile(filepath.Join(firstRoot, "value"), []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(secondRoot, "value"), []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var createCount atomic.Int32
+	rs := NewResilientSession(first, func(context.Context) (Session, error) {
+		createCount.Add(1)
+		return second, nil
+	})
+	files := rs.Files()
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if content, err := files.ReadFile("value"); err != nil || string(content) != "new" {
+		t.Fatalf("recreated read = %q, %v", content, err)
+	}
+	if err := files.WriteFile("written", []byte("second"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := files.ProjectFiles("projection", []ProjectedFile{{Path: "SKILL.md", Content: []byte("second projection"), Mode: 0o444}}); err != nil {
+		t.Fatal(err)
+	}
+	if createCount.Load() != 1 {
+		t.Fatalf("create called %d times, want 1", createCount.Load())
+	}
+	for name, want := range map[string]string{
+		"written":             "second",
+		"projection/SKILL.md": "second projection",
+	} {
+		content, err := os.ReadFile(filepath.Join(secondRoot, filepath.FromSlash(name)))
+		if err != nil || string(content) != want {
+			t.Fatalf("second backing %s = %q, %v", name, content, err)
+		}
+		if _, err := os.Stat(filepath.Join(firstRoot, filepath.FromSlash(name))); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("dead backing received %s: %v", name, err)
+		}
+	}
+}
+
+func TestResilientSessionMetadataGettersNeverRecreate(t *testing.T) {
+	first := newMockSession()
+	first.policy.Env = map[string]string{EnvTempDir: "/stale/tmp"}
+	first.workingDir = "/stale/workspace"
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var createCount atomic.Int32
+	second := newMockSession()
+	second.files = rootedTestAccess{root: t.TempDir()}
+	session := NewResilientSession(first, func(context.Context) (Session, error) {
+		createCount.Add(1)
+		return second, nil
+	})
+	if got := session.Policy().Env[EnvTempDir]; got != "/stale/tmp" {
+		t.Fatalf("Policy TMPDIR = %q, want retained generation snapshot", got)
+	}
+	if got := session.WorkingDir(); got != "/stale/workspace" {
+		t.Fatalf("WorkingDir = %q, want retained generation snapshot", got)
+	}
+	if createCount.Load() != 0 {
+		t.Fatalf("metadata getter recreated %d sessions", createCount.Load())
+	}
+	if _, err := session.Files().Stat("value"); err == nil {
+		t.Fatal("operational access unexpectedly succeeded")
+	}
+	if createCount.Load() != 1 {
+		t.Fatalf("operational access recreated %d sessions, want 1", createCount.Load())
 	}
 }
 

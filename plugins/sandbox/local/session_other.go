@@ -8,21 +8,7 @@ import (
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-// resolveSandboxRoot returns the sandbox-space root and the real host root.
-// On platforms other than Linux and macOS there is no path remapping.
-func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
-	real := policy.WorkspaceRootOrDefault()
-	return real, real
-}
-
-// resolveUserDataRoot returns the shared user-data root. There is no path
-// remapping on this platform, so the sandbox-space and host paths are identical.
-func resolveUserDataRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
-	if m, ok := mountBySandboxPath(policy.Filesystem.Mounts, sandboxpkg.MountUserData); ok {
-		return m.HostPath, m.HostPath
-	}
-	return "", ""
-}
+func processVisiblePath(_ string, hostPath string) string { return hostPath }
 
 // createSessionTmpMounts returns an identity mount for a session-private host
 // directory. Non-isolating platforms do not remap paths, but the path resolver
@@ -32,14 +18,14 @@ func createSessionTmpMounts() ([]tmpMount, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []tmpMount{{sandboxPath: tmpDir, realPath: tmpDir, owned: true}}, nil
+	return []tmpMount{{sandboxPath: tmpDir, realPath: tmpDir, owned: true, environment: true}}, nil
 }
 
 // filesystemTempDir returns the real temporary directory from the identity
 // process-view mount, falling back to the host temporary directory safely.
 func filesystemTempDir(mounts []tmpMount) string {
 	for _, mount := range mounts {
-		if mount.sandboxPath == mount.realPath && mount.realPath != "" {
+		if mount.environment && mount.sandboxPath == mount.realPath && mount.realPath != "" {
 			return mount.realPath
 		}
 	}
@@ -54,6 +40,6 @@ func checkSandboxRequirements() error { return nil }
 
 // wrapCommand is a no-op on platforms other than Linux and macOS.
 // Commands run unwrapped on the host OS.
-func wrapCommand(_ sandboxpkg.Policy, _ string, _ []tmpMount, _ string, name string, args []string) (string, []string, error) {
+func (*localSession) wrapCommand(_ sandboxpkg.Policy, _, name string, args []string) (string, []string, error) {
 	return name, args, nil
 }

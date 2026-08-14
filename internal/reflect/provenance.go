@@ -114,7 +114,6 @@ type skillProvenanceReconciliation struct {
 	CandidateRefs        []CandidateRef `json:"candidate_refs,omitempty"`
 	CoveredCandidateRefs []CandidateRef `json:"covered_candidate_refs,omitempty"`
 	TargetSkillID        string         `json:"target_skill_id,omitempty"`
-	ExpectedSkillVersion int64          `json:"expected_skill_version,omitempty"`
 	ExpectedSkillDigest  string         `json:"expected_skill_digest,omitempty"`
 	Name                 string         `json:"name,omitempty"`
 	Description          string         `json:"description,omitempty"`
@@ -240,7 +239,6 @@ func buildSkillOperationProvenance(input skillProvenanceInput, bundle skillRelat
 			CandidateRefs:        append([]CandidateRef(nil), operation.CandidateRefs...),
 			CoveredCandidateRefs: append([]CandidateRef(nil), operation.CoveredCandidateRefs...),
 			TargetSkillID:        operation.TargetSkillID,
-			ExpectedSkillVersion: operation.ExpectedSkillVersion,
 			ExpectedSkillDigest:  operation.ExpectedSkillDigest,
 			Name:                 operation.Name,
 			Description:          operation.Description,

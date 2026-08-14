@@ -35,5 +35,4 @@ type Platform interface {
 	Auth() Auth
 	RuntimeLookup() RuntimeLookup
 	ChannelPlatform() ChannelPlatform
-	SkillStore() SkillStore
 }

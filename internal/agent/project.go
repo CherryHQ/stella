@@ -67,34 +67,6 @@ func SnapshotAuthorizedProject(ctx context.Context, resolve ProjectResolverFunc,
 	return AuthorizedProjectSnapshot{Descriptor: d, Context: contextSnapshot, Skills: skillSnapshot}, nil
 }
 
-// SnapshotAuthorizedProjectContext resolves the exact project authority, opens
-// a read-only Agent workspace capability, snapshots bounded root-to-leaf
-// AGENTS.md context, and closes the capability before prompt construction.
-func SnapshotAuthorizedProjectContext(ctx context.Context, resolve ProjectResolverFunc, opener home.RootOpener, projectID, userID, agentID string) (prompt.ProjectContext, ProjectDescriptor, error) {
-	if resolve == nil || opener == nil {
-		return prompt.ProjectContext{}, ProjectDescriptor{}, errors.New("project context authority is unavailable")
-	}
-	d, err := resolve(ctx, projectID, userID, agentID)
-	if err != nil {
-		return prompt.ProjectContext{}, ProjectDescriptor{}, err
-	}
-	if d.ID != projectID || d.UserID != userID || d.AgentID != agentID {
-		return prompt.ProjectContext{}, ProjectDescriptor{}, errors.New("project descriptor authority mismatch")
-	}
-	if scope, name, err := home.ResolveLogicalCoordinate(home.RootAgentWorkspace, d.Path, true); err != nil || scope != home.RootAgentWorkspace || name != d.Path {
-		return prompt.ProjectContext{}, ProjectDescriptor{}, errors.New("project descriptor path is invalid")
-	}
-	root, err := opener.OpenRoot(ctx, home.WorkspaceRequest{UserID: userID, AgentID: agentID}, home.RootAgentWorkspace, home.RootReadOnly)
-	if err != nil {
-		return prompt.ProjectContext{}, ProjectDescriptor{}, err
-	}
-	snapshot, err := prompt.SnapshotProjectContext(ctx, root, d.Path)
-	if err != nil {
-		return prompt.ProjectContext{}, ProjectDescriptor{}, err
-	}
-	return snapshot, d, nil
-}
-
 // SnapshotAuthorizedProjectSkills resolves the exact project authority, opens a
 // read-only workspace capability, snapshots Skills, and closes the capability
 // before returning it to downstream prompt/tool consumers.

@@ -168,7 +168,7 @@ Skills 仍然只表示可复用流程，不再通过 `metadata.knowledge_type` �
 
 ## Structured Reflect 与 Curator
 
-Structured Reflect 是 scheduler 唯一执行的 writer。Fact/Skill 两条线并发运行，但错误和 watermark 相互独立；一条线失败不会取消另一条，也不会推进失败线。已经废弃的 `STELLA_REFLECT_MODE` 不再选择 writer。过渡版本为了兼容部署可接受空值或 `structured`，但显式 `legacy` 或未知值会让服务启动失败。
+Structured Reflect 是 scheduler 唯一执行的 writer。Fact/Skill 两条线并发运行，但错误和 watermark 相互独立；一条线失败不会取消另一条，也不会推进失败线。
 
 切换迁移会把每个 session 的旧 `review_watermark` 复制到缺失的 `reflect_watermark:fact` 和 `reflect_watermark:skill` 状态。line 已存在时保留时间更新的一方；如果旧 global 时间更新，则清除原 line sequence，因为该 sequence 属于更早的边界。迁移可以重复执行，并把 global row 原样保留为不再参与运行的回滚数据。运行时代码只读取和推进两条 line watermark。
 

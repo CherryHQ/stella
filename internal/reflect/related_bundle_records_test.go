@@ -2,10 +2,11 @@ package reflect
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/memory"
-	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	"github.com/CherryHQ/stella/internal/skills"
 )
 
 func TestAttachKnowledgeRelatedRecordsUsesSelectedFacts(t *testing.T) {
@@ -40,9 +41,9 @@ func TestAttachKnowledgeRelatedRecordsUsesSelectedFacts(t *testing.T) {
 func TestBuildSkillRelatedBundleLoadsSelectedSkillContent(t *testing.T) {
 	store := &fakeSkillRelatedBundleStore{
 		fakeReflectSkillCatalogStore: fakeReflectSkillCatalogStore{
-			rows: []pkgplugins.Skill{
-				{ID: "skill-a", Name: "alpha", Scope: "user_agent", Status: "active", Version: 1, Metadata: []byte(`{"created_by":"reflect"}`)},
-				{ID: "skill-b", Name: "beta", Scope: "user_agent", Status: "active", Version: 2, Metadata: []byte(`{"created_by":"reflect"}`)},
+			rows: []skills.Skill{
+				{ID: "skill-a", Name: "alpha", Scope: "user_agent", Status: "active", Version: 1, ContentDigest: testSkillContentDigest, Metadata: []byte(`{"created_by":"reflect"}`)},
+				{ID: "skill-b", Name: "beta", Scope: "user_agent", Status: "active", Version: 2, ContentDigest: testSkillContentDigest, Metadata: []byte(`{"created_by":"reflect"}`)},
 			},
 		},
 		files: map[string]string{
@@ -78,7 +79,13 @@ type fakeSkillRelatedBundleStore struct {
 	loaded []string
 }
 
-func (s *fakeSkillRelatedBundleStore) LoadFile(_ context.Context, skillID string, path string) (string, error) {
-	s.loaded = append(s.loaded, skillID)
-	return s.files[skillID], nil
+func (s *fakeSkillRelatedBundleStore) LoadExactRevision(_ context.Context, identity skills.Skill, digest string) (skills.ManagedRevision, error) {
+	if digest == "" || digest != identity.ContentDigest {
+		return skills.ManagedRevision{}, fmt.Errorf("unexpected exact digest %q for %q", digest, identity.ID)
+	}
+	s.loaded = append(s.loaded, identity.ID)
+	return skills.ManagedRevision{
+		Skill: identity,
+		Files: map[string][]byte{skills.MainFile: []byte(s.files[identity.ID])},
+	}, nil
 }

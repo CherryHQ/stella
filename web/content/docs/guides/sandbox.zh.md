@@ -151,7 +151,7 @@ bubblewrap 必须实际可用，仅安装不够。在未启用 `--privileged` �
 | `$STELLA_ASSETS_DIR` | 可用时，存放同一用户或群组共享的持久上传文件和最终交付物 | 这是供 Agent 直接写入的托管共享位置。                |
 | `$TMPDIR`            | 每个会话私有的可丢弃临时工作区                           | 不要放置最终输出，也不要依赖它在会话结束后继续存在。 |
 
-Web Workspace API 使用类型化 scope 与规范相对路径定位文件。项目 `base_dir` 同样相对于 Agent workspace（`.` 表示其根）。这些 API 在授权后直接打开持久 POSIX 根，不会启动或唤醒 Session compute。已弃用的 `sandbox_root` 响应字段（如存在）仅是同一逻辑 `/workspace` 或 `/user` 根的别名，绝不包含宿主路径。活跃 Agent 工具仍通过既有 Session mount 与策略边界解析路径。
+Web Workspace API 使用类型化 scope 与规范相对路径定位文件。项目 `base_dir` 同样相对于 Agent workspace（`.` 表示其根）。这些 API 在授权后直接打开持久 POSIX 根，不会启动或唤醒 Session compute。返回的 `root` 是逻辑 `/workspace` 或 `/user` 根，绝不包含宿主路径。活跃 Agent 工具仍通过既有 Session mount 与策略边界解析路径。
 
 ### 托管用户与群组根目录
 
@@ -173,7 +173,7 @@ mise、Lark 和系统目录由其工具托管，不是通用存储位置。
 
 每个后端都会为每个沙箱会话创建私有临时目录，并在会话关闭时删除。Docker 的 backing 目录位于 `$STELLA_HOME/cache/sandbox-tmp/` 下并挂载到 `/tmp`，因此 shell 命令和文件工具访问的是同一份内容；启动清理会删除遗留的 Docker 临时目录。这是临时工作区，不承诺持久性。
 
-隔离型后端还会将系统安装树以只读方式渲染到 `/opt/stella`。其中保留由工具托管的 `bin` 和 `.mise-tools` 树，builtin 位于 `/opt/stella/skills/builtin`，选定的 PostgreSQL 派生只读镜像位于 `/opt/stella/db-skills` 和 `/opt/stella/agent-skills`；`STELLA_HOME` 下同级的 `users/` 和 `agents/` 树不会暴露。Docker 后端会将 mise 工具链置于该路径，Linux `local` 则在该路径渲染对应的系统树，因此工具解析在各隔离型后端之间保持一致。`MISE_DATA_DIR` 及相关变量固定指向这个由工具托管的目录树。
+隔离型后端还会将系统安装树以只读方式渲染到 `/opt/stella`。其中保留由工具托管的 `bin` 和 `.mise-tools` 树，builtin 位于 `/opt/stella/skills/builtin`；`STELLA_HOME` 下同级的 `users/` 和 `agents/` 树不会暴露。选中的 managed Skill 会单独复制到 `$TMPDIR` 下按 digest 固定的 Session 私有目录；其完整 authority root 与 revision history 绝不会挂载进沙箱。Docker 后端会将 mise 工具链置于 `/opt/stella`，Linux `local` 则在该路径渲染对应的系统树，因此工具解析在各隔离型后端之间保持一致。`MISE_DATA_DIR` 及相关变量固定指向这个由工具托管的目录树。
 
 ### builtin Skill bundle
 

@@ -37,16 +37,12 @@ func testSkillRoot(t *testing.T, identity Skill) home.SkillRootOperations {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := manager.OpenRoot(t.Context(), request, scope, home.RootReadWrite)
+	root, err := manager.OpenSkillRoot(t.Context(), request, scope, home.RootReadWrite)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = root.Close() })
-	skillRoot, ok := root.(home.SkillRootOperations)
-	if !ok {
-		t.Fatal("root lacks Skill publication operations")
-	}
-	return skillRoot
+	return root
 }
 
 func deterministicEntropy(fill byte) func([]byte) error {

@@ -68,9 +68,6 @@ func TestPlatformExposesOnlyDeclaredCapabilities(t *testing.T) {
 	if p.RuntimeLookup() != nil {
 		t.Fatal("undeclared RuntimeLookup capability must be nil")
 	}
-	if p.SkillStore() != nil {
-		t.Fatal("undeclared SkillStore capability must be nil")
-	}
 }
 
 // TestPlatformWithoutMetadataFailsClosed proves a plugin that never declared
@@ -84,21 +81,6 @@ func TestPlatformWithoutMetadataFailsClosed(t *testing.T) {
 	if p.Logger() != nil || p.StateStore() != nil || p.ChannelPlatform() != nil ||
 		p.RuntimeLookup() != nil || p.ConfigStore() != nil {
 		t.Fatal("plugin with no declared capabilities must reach no Platform port")
-	}
-}
-
-func TestPlatformSkillStoreFailsClosedEvenWhenDeclared(t *testing.T) {
-	host := New(&stubStore{plugins: map[string]config.Plugin{}})
-	host.RegisterPluginID("tool/skills-reader")
-	host.SetInfo(pkgplugins.PluginInfo{
-		ID:                   "tool/skills-reader",
-		Kind:                 "tool",
-		Name:                 "skills-reader",
-		DisplayName:          "Skills Reader",
-		RequiredCapabilities: []pkgplugins.Capability{pkgplugins.CapabilitySkillStore},
-	})
-	if store := host.platform("tool/skills-reader").SkillStore(); store != nil {
-		t.Fatalf("actor-unbound plugin received ambient Skill store %#v", store)
 	}
 }
 

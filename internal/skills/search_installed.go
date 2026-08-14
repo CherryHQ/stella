@@ -22,26 +22,17 @@ type installedSkillSearchResult struct {
 }
 
 func (t *Tool) searchInstalled(ctx context.Context, args map[string]any) (string, error) {
-	ctx = WithProjectSnapshot(ctx, t.projectSnapshot)
 	query, _ := args["query"].(string)
 	if strings.TrimSpace(query) == "" {
 		return "", fmt.Errorf("query is required for search_installed action")
 	}
 	limit := installedSkillSearchLimit(args)
 
-	projectRoot := projectRootFromContext(ctx, t.projectRoot)
-	merged, err := t.svc.ListMerged(ctx, t.viewContext(ctx), projectRoot)
-	if t.revisions != nil {
-		merged, err = t.identityMerged(ctx, t.viewContext(ctx))
-	}
+	merged, err := t.identityMerged(ctx, t.viewContext(ctx))
 	if err != nil {
 		return "", fmt.Errorf("search installed skills: %w", err)
 	}
-	if t.revisions != nil {
-		merged, err = t.hydrateAuthorized(ctx, merged)
-	} else {
-		merged, err = t.authorizeReadable(ctx, merged)
-	}
+	merged, err = t.hydrateAuthorized(ctx, merged)
 	if err != nil {
 		return "", fmt.Errorf("search installed skills: %w", err)
 	}
@@ -52,7 +43,7 @@ func (t *Tool) searchInstalled(ctx context.Context, args map[string]any) (string
 	}
 
 	docs := make([]searchrank.Document, 0, len(skills))
-	byName := make(map[string]pkgplugins.Skill, len(skills))
+	byName := make(map[string]Skill, len(skills))
 	for _, skill := range skills {
 		byName[skill.Name] = skill
 		docs = append(docs, searchrank.Document{
@@ -91,8 +82,8 @@ func (t *Tool) searchInstalled(ctx context.Context, args map[string]any) (string
 	return string(out), nil
 }
 
-func (t *Tool) visibleSearchableSkills(merged []ResolvedSkill) []pkgplugins.Skill {
-	all := make([]pkgplugins.Skill, 0, len(merged))
+func (t *Tool) visibleSearchableSkills(merged []ResolvedSkill) []Skill {
+	all := make([]Skill, 0, len(merged))
 	for _, rs := range merged {
 		all = append(all, rs.Skill)
 	}
@@ -101,7 +92,7 @@ func (t *Tool) visibleSearchableSkills(merged []ResolvedSkill) []pkgplugins.Skil
 		EnabledPluginIDs:    t.enabledPluginIDs,
 	})
 
-	out := make([]pkgplugins.Skill, 0, len(all))
+	out := make([]Skill, 0, len(all))
 	for _, skill := range all {
 		if skill.Status == SkillStatusDeprecated || skill.DisableModelInvocation {
 			continue

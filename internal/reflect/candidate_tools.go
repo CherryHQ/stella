@@ -265,7 +265,6 @@ func skillWriteOperationSchema() map[string]any {
 		prop("candidate_refs", arraySchema(stringSchema())),
 		prop("covered_candidate_refs", arraySchema(stringSchema())),
 		prop("target_skill_id", stringSchema()),
-		prop("expected_skill_version", integerSchema()),
 		prop("expected_skill_digest", stringSchema()),
 		prop("name", stringSchema()),
 		prop("description", stringSchema()),
@@ -307,10 +306,6 @@ func stringSchema() map[string]any {
 
 func scoreSchema() map[string]any {
 	return map[string]any{"type": "integer", "minimum": 0, "maximum": maxScoreValue}
-}
-
-func integerSchema() map[string]any {
-	return map[string]any{"type": "integer"}
 }
 
 func enumSchema(values ...string) map[string]any {

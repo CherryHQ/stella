@@ -21,6 +21,7 @@ import (
 	"sync"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/internal/sessionfs"
 )
 
 const seatbeltExecPath = "/usr/bin/sandbox-exec"
@@ -45,25 +46,11 @@ func seatbeltFunctional() bool {
 	return seatbeltAvailable
 }
 
-// resolveSandboxRoot returns the sandbox-space root and the real host root.
-// On macOS there is no path remapping; both are always identical.
-func resolveSandboxRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
-	real := policy.WorkspaceRootOrDefault()
-	return real, real
-}
+func processVisiblePath(_ string, hostPath string) string { return hostPath }
 
-// resolveUserDataRoot returns the shared user-data root. macOS does no path
-// remapping, so the sandbox-space and host paths are identical (no /user alias).
-func resolveUserDataRoot(policy sandboxpkg.Policy) (sandboxRoot, realRoot string) {
-	if m, ok := mountBySandboxPath(policy.Filesystem.Mounts, sandboxpkg.MountUserData); ok {
-		return m.HostPath, m.HostPath
-	}
-	return "", ""
-}
-
-// createSessionTmpMounts returns session-private host directories for the macOS
-// temporary roots. Seatbelt has no bind mounts, so TMPDIR names the real backing
-// directory and the profile grants access to that exact path.
+// createSessionTmpMounts returns session-private identity mounts for the macOS
+// temporary roots. Seatbelt has no bind mounts, so commands and FileAccess must
+// both address each real backing directory directly.
 func createSessionTmpMounts() ([]tmpMount, error) {
 	tmp, err := os.MkdirTemp("", "stella-session-tmp-*")
 	if err != nil {
@@ -75,17 +62,17 @@ func createSessionTmpMounts() ([]tmpMount, error) {
 		return nil, err
 	}
 	return []tmpMount{
-		{sandboxPath: "/tmp", realPath: tmp, owned: true},
-		{sandboxPath: "/var/tmp", realPath: varTmp, owned: true},
+		{sandboxPath: tmp, realPath: tmp, owned: true, environment: true},
+		{sandboxPath: varTmp, realPath: varTmp, owned: true},
 	}, nil
 }
 
 // filesystemTempDir returns the macOS process view: Seatbelt has no path
-// remapping, so TMPDIR must name the real directory backing /tmp.
+// remapping, so TMPDIR names the designated session-private identity mount.
 func filesystemTempDir(mounts []tmpMount) string {
 	for _, mount := range mounts {
-		if mount.sandboxPath == "/tmp" && mount.realPath != "" {
-			return mount.realPath
+		if mount.environment && mount.sandboxPath != "" && mount.sandboxPath == mount.realPath {
+			return mount.sandboxPath
 		}
 	}
 	return os.TempDir()
@@ -118,8 +105,7 @@ func checkSandboxRequirements() error {
 //
 // stellaHomeHost is the host STELLA_HOME, used to recognize whether the policy
 // carries a writable per-user mise tree (see the cache/state fallback below).
-func buildSeatbeltProfile(policy sandboxpkg.Policy, stellaHomeHost string) string {
-	workspace := policy.WorkspaceRootOrDefault()
+func buildSeatbeltProfile(policy sandboxpkg.Policy, mounts []sessionfs.Mount, workspace, stellaHomeHost string) string {
 	networkMode := policy.NetworkModeOrDefault()
 
 	var sb strings.Builder
@@ -143,8 +129,8 @@ func buildSeatbeltProfile(policy sandboxpkg.Policy, stellaHomeHost string) strin
 
 	// Writable mounts (e.g. the per-user mise home): carve out each subtree so the
 	// agent can write through it — for mise that's installs/cache/state.
-	for _, m := range policy.Filesystem.Mounts {
-		if m.Access == sandboxpkg.MountReadWrite {
+	for _, m := range mounts {
+		if !m.ReadOnly {
 			fmt.Fprintf(&sb, "(allow file-write* (subpath %q))\n", filepath.Clean(m.HostPath))
 		}
 	}
@@ -179,9 +165,7 @@ func appendSeatbeltWritableEnvDirs(sb *strings.Builder, env map[string]string) {
 }
 
 // wrapCommand wraps name+args with sandbox-exec for macOS Seatbelt isolation.
-// tmpMounts is accepted for signature compatibility with the Linux backend but
-// is not used here — macOS bash and file tools share the same host filesystem.
-func wrapCommand(policy sandboxpkg.Policy, _ string, _ []tmpMount, stellaHomeHost string, name string, args []string) (execPath string, execArgs []string, err error) {
+func (s *localSession) wrapCommand(policy sandboxpkg.Policy, _, name string, args []string) (execPath string, execArgs []string, err error) {
 	if !seatbeltFunctional() {
 		return "", nil, fmt.Errorf(
 			"local sandbox: sandbox-exec (macOS Seatbelt) is required but not available",
@@ -193,7 +177,7 @@ func wrapCommand(policy sandboxpkg.Policy, _ string, _ []tmpMount, stellaHomeHos
 		return "", nil, fmt.Errorf("local exec: look up %q: %w", name, lookErr)
 	}
 
-	profile := buildSeatbeltProfile(policy, stellaHomeHost)
+	profile := buildSeatbeltProfile(policy, s.providerMounts, s.realRoot, s.stellaHomeHost)
 	seatbeltArgs := []string{"-p", profile, resolved}
 	seatbeltArgs = append(seatbeltArgs, args...)
 	return seatbeltExecPath, seatbeltArgs, nil

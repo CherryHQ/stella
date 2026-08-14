@@ -58,7 +58,7 @@ func waitSyncLifecycleSignal(t *testing.T, ch <-chan struct{}, name string) {
 	}
 }
 
-func lifecycleWorkspace(t *testing.T, db *pgxpool.Pool) home.WorkspaceViewer {
+func lifecycleWorkspace(t *testing.T, db *pgxpool.Pool) home.Workspace {
 	t.Helper()
 	v, err := home.NewWorkspaceManager(db, config.StellaHome())
 	if err != nil {

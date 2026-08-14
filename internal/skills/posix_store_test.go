@@ -1,10 +1,12 @@
 package skills
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -197,8 +199,9 @@ func TestPOSIXStoreUsesTypedRootsAndLeavesPostgresByteFree(t *testing.T) {
 			if want := filepath.ToSlash(filepath.Join(managedRevisionRoot, test.id, snapshot.Skill.ContentDigest)); target != want {
 				t.Fatalf("selector = %q, want %q", target, want)
 			}
-			loaded, err := f.store.LoadFile(t.Context(), test.id, "references/data.bin")
-			if err != nil || loaded != string([]byte{0, 0xff, 'x'}) {
+			revision, err := f.store.LoadExactRevision(t.Context(), snapshot.Skill, snapshot.Skill.ContentDigest)
+			loaded := revision.Files["references/data.bin"]
+			if err != nil || !bytes.Equal(loaded, []byte{0, 0xff, 'x'}) {
 				t.Fatalf("binary load = %q, %v", loaded, err)
 			}
 		})
@@ -267,7 +270,7 @@ func TestPOSIXStoreDigestCASHasOneConcurrentWinner(t *testing.T) {
 }
 
 type faultRootOpener struct {
-	base              home.RootOpener
+	base              home.SkillRootOpener
 	closeFailure      atomic.Bool
 	selectorRemoveErr atomic.Bool
 	selectorSyncError atomic.Bool
@@ -275,24 +278,20 @@ type faultRootOpener struct {
 	rootSyncCalls     atomic.Int32
 }
 
-func (o *faultRootOpener) OpenRoot(ctx context.Context, request home.WorkspaceRequest, scope home.RootScope, access home.RootAccess) (home.RootOperations, error) {
-	root, err := o.base.OpenRoot(ctx, request, scope, access)
+func (o *faultRootOpener) OpenSkillRoot(ctx context.Context, request home.WorkspaceRequest, scope home.RootScope, access home.RootAccess) (home.SkillRootOperations, error) {
+	root, err := o.base.OpenSkillRoot(ctx, request, scope, access)
 	if err != nil {
 		return nil, err
 	}
-	return &faultSkillRoot{SkillRootOperations: root.(home.SkillRootOperations), opener: o}, nil
+	return &faultSkillRoot{SkillRootOperations: root, opener: o}, nil
 }
 
-func (o *faultRootOpener) OpenExistingRoot(ctx context.Context, request home.WorkspaceRequest, scope home.RootScope) (home.RootOperations, error) {
-	base, ok := o.base.(home.ExistingRootOpener)
-	if !ok {
-		return nil, errors.New("test root cannot open existing roots")
-	}
-	root, err := base.OpenExistingRoot(ctx, request, scope)
+func (o *faultRootOpener) OpenExistingSkillRoot(ctx context.Context, request home.WorkspaceRequest, scope home.RootScope) (home.SkillRootOperations, error) {
+	root, err := o.base.OpenExistingSkillRoot(ctx, request, scope)
 	if err != nil {
 		return nil, err
 	}
-	return &faultSkillRoot{SkillRootOperations: root.(home.SkillRootOperations), opener: o}, nil
+	return &faultSkillRoot{SkillRootOperations: root, opener: o}, nil
 }
 
 type faultSkillRoot struct {
@@ -340,7 +339,8 @@ func TestPOSIXStoreReconcilesExactDigestAfterCloseAcknowledgementFailure(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if content, err := store.LoadFileRevision(t.Context(), snapshot.Skill.ID, MainFile, snapshot.Skill.ContentDigest); err != nil || content != "committed" {
+	revision, err := store.LoadExactRevision(t.Context(), snapshot.Skill, snapshot.Skill.ContentDigest)
+	if content := revision.Files[MainFile]; err != nil || string(content) != "committed" {
 		t.Fatalf("exact reconciled revision = %q, %v", content, err)
 	}
 }
@@ -439,7 +439,7 @@ func TestPOSIXStoreDeleteLeavesCatalogHealthyWhenSelectorCleanupFails(t *testing
 	if identity, getErr := f.store.GetIdentity(t.Context(), deleted.Skill.ID); getErr != nil || identity != nil {
 		t.Fatalf("deleted identity remains after cleanup failure: %#v, %v", identity, getErr)
 	}
-	rows, listErr := f.store.List(t.Context(), ViewContext{UserID: f.userID, AgentID: f.agentID})
+	rows, listErr := f.store.ListIdentityVisible(t.Context(), ViewContext{UserID: f.userID, AgentID: f.agentID})
 	if listErr != nil || len(rows) != 1 || rows[0].ID != retained.Skill.ID {
 		t.Fatalf("catalog after interrupted cleanup = %#v, %v", rows, listErr)
 	}
@@ -452,7 +452,7 @@ func TestPOSIXStoreDeleteLeavesCatalogHealthyWhenSelectorCleanupFails(t *testing
 	}
 }
 
-func TestPOSIXStoreDeleteReconcilesInterruptedSelectorFirstAttempt(t *testing.T) {
+func TestPOSIXStoreDeleteFailsClosedWhenCurrentSelectorIsMissing(t *testing.T) {
 	f := newPOSIXStoreFixture(t)
 	created, err := f.store.CreateManagedSkill(t.Context(), fixtureSkill(f, "delete-retry", "user"), map[string]string{MainFile: "retry"})
 	if err != nil {
@@ -461,14 +461,15 @@ func TestPOSIXStoreDeleteReconcilesInterruptedSelectorFirstAttempt(t *testing.T)
 	if err := f.store.removeSelection(t.Context(), created.Skill, created.Skill.ContentDigest); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.store.DeleteManagedSkill(t.Context(), ManagedSkillDelete{
+	err = f.store.DeleteManagedSkill(t.Context(), ManagedSkillDelete{
 		ID: created.Skill.ID, Scope: created.Skill.Scope, UserID: created.Skill.UserID,
 		ExpectedDigest: created.Skill.ContentDigest,
-	}); err != nil {
-		t.Fatalf("retry interrupted delete: %v", err)
+	})
+	if !IsCurrentSelectorMissing(err) {
+		t.Fatalf("delete without current selector = %v, want selector-missing error", err)
 	}
-	if identity, getErr := f.store.GetIdentity(t.Context(), created.Skill.ID); getErr != nil || identity != nil {
-		t.Fatalf("identity after reconciled delete: %#v, %v", identity, getErr)
+	if identity, getErr := f.store.GetIdentity(t.Context(), created.Skill.ID); getErr != nil || identity == nil {
+		t.Fatalf("identity removed without current authority: %#v, %v", identity, getErr)
 	}
 }
 
@@ -527,7 +528,11 @@ func TestPOSIXStoreCatalogSkipsMissingSelectorButRejectsInvalidRevision(t *testi
 	if err := f.store.removeSelection(t.Context(), missing.Skill, missing.Skill.ContentDigest); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := f.store.List(t.Context(), ViewContext{UserID: f.userID})
+	identities, err := f.store.ListIdentityVisible(t.Context(), ViewContext{UserID: f.userID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := f.store.loadRows(t.Context(), identities, invocationVisible)
 	if err != nil || len(rows) != 1 || rows[0].ID != retained.Skill.ID {
 		t.Fatalf("catalog with missing selector = %#v, %v", rows, err)
 	}
@@ -539,7 +544,11 @@ func TestPOSIXStoreCatalogSkipsMissingSelectorButRejectsInvalidRevision(t *testi
 	if err := os.Symlink(filepath.ToSlash(filepath.Join(managedRevisionRoot, retained.Skill.ID, strings.Repeat("1", 64))), selector); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.store.List(t.Context(), ViewContext{UserID: f.userID}); err == nil || !errors.Is(err, fs.ErrNotExist) || IsCurrentSelectorMissing(err) {
+	identities, err = f.store.ListIdentityVisible(t.Context(), ViewContext{UserID: f.userID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.loadRows(t.Context(), identities, invocationVisible); err == nil || !errors.Is(err, fs.ErrNotExist) || IsCurrentSelectorMissing(err) {
 		t.Fatalf("catalog with missing selected revision = %v, want non-selector fs.ErrNotExist", err)
 	}
 }
@@ -569,7 +578,7 @@ func TestPOSIXStoreReflectDeleteLeavesCatalogHealthyWhenSelectorCleanupFails(t *
 		t.Fatal(err)
 	}
 	_, deleteErr := store.DeleteReflectOwnedUserAgentSkill(t.Context(), ReflectSkillDelete{
-		ID: created.ID, UserID: f.userID, AgentID: f.agentID, ExpectedVersion: created.Version,
+		ID: created.ID, UserID: f.userID, AgentID: f.agentID,
 		ExpectedDigest: created.ContentDigest, ExpectedUsageLastUsedAt: lastUsedAt,
 	})
 	if !home.IsOutcomeUnknown(deleteErr) {
@@ -578,7 +587,7 @@ func TestPOSIXStoreReflectDeleteLeavesCatalogHealthyWhenSelectorCleanupFails(t *
 	if identity, getErr := f.store.GetIdentity(t.Context(), created.ID); getErr != nil || identity != nil {
 		t.Fatalf("Reflect identity remains after cleanup failure: %#v, %v", identity, getErr)
 	}
-	if rows, listErr := f.store.List(t.Context(), ViewContext{UserID: f.userID, AgentID: f.agentID}); listErr != nil || len(rows) != 0 {
+	if rows, listErr := f.store.ListIdentityVisible(t.Context(), ViewContext{UserID: f.userID, AgentID: f.agentID}); listErr != nil || len(rows) != 0 {
 		t.Fatalf("catalog after interrupted Reflect cleanup = %#v, %v", rows, listErr)
 	}
 }
@@ -601,7 +610,7 @@ func TestPOSIXStoreReflectDeleteRejectsStaleRevisionBehindDanglingSelector(t *te
 		t.Fatal(err)
 	}
 	_, deleteErr := f.store.DeleteReflectOwnedUserAgentSkill(t.Context(), ReflectSkillDelete{
-		ID: created.ID, UserID: f.userID, AgentID: f.agentID, ExpectedVersion: created.Version,
+		ID: created.ID, UserID: f.userID, AgentID: f.agentID,
 		ExpectedDigest: created.ContentDigest, ExpectedUsageLastUsedAt: time.Now().UTC(),
 	})
 	if deleteErr == nil || !errors.Is(deleteErr, fs.ErrNotExist) || IsCurrentSelectorMissing(deleteErr) {
@@ -616,6 +625,10 @@ type projectionReader struct {
 	identities []Skill
 	revisions  map[string]ManagedRevision
 	loads      int
+}
+
+func (*projectionReader) TouchReflectSkillRuntimeUseDigest(context.Context, string, string, string, string) error {
+	return nil
 }
 
 func (r *projectionReader) GetIdentity(_ context.Context, id string) (*Skill, error) {
@@ -659,27 +672,111 @@ func (r *projectionReader) LoadExactRevision(_ context.Context, identity Skill, 
 type projectionSession struct {
 	tempVisible string
 	tempHost    string
-	isolated    bool
 }
 
 func (s projectionSession) Policy() pkgsandbox.Policy {
-	temp := s.tempVisible
-	if s.isolated {
-		temp = s.tempHost
-	}
-	return pkgsandbox.Policy{Env: map[string]string{pkgsandbox.EnvTempDir: temp}}
+	return pkgsandbox.Policy{Env: map[string]string{pkgsandbox.EnvTempDir: s.tempVisible}}
 }
 
-func (s projectionSession) ResolveWritePath(name string) (string, error) {
-	visible := s.tempVisible
-	if s.isolated {
-		visible = "/tmp"
-	}
-	rel, err := filepath.Rel(visible, name)
+func (s projectionSession) Files() pkgsandbox.FileAccess { return projectionAccess{session: s} }
+
+type projectionAccess struct{ session projectionSession }
+
+func (a projectionAccess) hostPath(name string) (string, error) {
+	s := a.session
+	rel, err := filepath.Rel(s.tempVisible, name)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", os.ErrPermission
 	}
 	return filepath.Join(s.tempHost, rel), nil
+}
+
+func (a projectionAccess) ReadFile(string) ([]byte, error) { return nil, os.ErrPermission }
+func (a projectionAccess) ReadDir(string) ([]pkgsandbox.DirEntry, error) {
+	return nil, os.ErrPermission
+}
+
+func (a projectionAccess) Stat(string) (pkgsandbox.FileInfo, error) {
+	return pkgsandbox.FileInfo{}, os.ErrPermission
+}
+func (a projectionAccess) WriteFile(string, []byte, fs.FileMode) error { return os.ErrPermission }
+func (a projectionAccess) ProjectFiles(name string, files []pkgsandbox.ProjectedFile) error {
+	target, err := a.hostPath(name)
+	if err != nil {
+		return err
+	}
+	if info, err := os.Lstat(target); err == nil {
+		if !info.IsDir() {
+			return pkgsandbox.ErrProjectionConflict
+		}
+		for _, file := range files {
+			content, readErr := os.ReadFile(filepath.Join(target, filepath.FromSlash(file.Path)))
+			fileInfo, statErr := os.Lstat(filepath.Join(target, filepath.FromSlash(file.Path)))
+			if readErr != nil || statErr != nil || !bytes.Equal(content, file.Content) || fileInfo.Mode().Perm() != file.Mode.Perm() {
+				return pkgsandbox.ErrProjectionConflict
+			}
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+		return err
+	}
+	stage, err := os.MkdirTemp(filepath.Dir(target), ".project-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(stage) //nolint:errcheck
+	for _, file := range files {
+		path := filepath.Join(stage, filepath.FromSlash(file.Path))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, file.Content, file.Mode); err != nil {
+			return err
+		}
+	}
+	return os.Rename(stage, target)
+}
+
+func (a projectionAccess) ProjectTempFiles(name string, files []pkgsandbox.ProjectedFile) (string, error) {
+	visible := path.Join(a.session.tempVisible, name)
+	if err := a.ProjectFiles(visible, files); err != nil {
+		return "", err
+	}
+	return visible, nil
+}
+
+type resilientProjectionSession struct {
+	projectionSession
+	alive     atomic.Bool
+	closeOnce sync.Once
+	done      chan struct{}
+}
+
+func newResilientProjectionSession(visible, host string) *resilientProjectionSession {
+	session := &resilientProjectionSession{
+		projectionSession: projectionSession{tempVisible: visible, tempHost: host},
+		done:              make(chan struct{}),
+	}
+	session.alive.Store(true)
+	return session
+}
+
+func (s *resilientProjectionSession) Alive() bool           { return s.alive.Load() }
+func (s *resilientProjectionSession) Done() <-chan struct{} { return s.done }
+func (s *resilientProjectionSession) WorkingDir() string    { return s.tempVisible }
+func (s *resilientProjectionSession) Close() error {
+	s.alive.Store(false)
+	s.closeOnce.Do(func() { close(s.done) })
+	return nil
+}
+
+func (s *resilientProjectionSession) Exec(context.Context, string, pkgsandbox.ExecOptions) (pkgsandbox.ExecResult, error) {
+	return pkgsandbox.ExecResult{}, nil
+}
+
+func (s *resilientProjectionSession) StartProcess(context.Context, pkgsandbox.ProcessRequest) (pkgsandbox.ProcessHandle, error) {
+	return nil, nil
 }
 
 type selectedSkillReads struct{ denied map[string]bool }
@@ -688,6 +785,15 @@ func (a selectedSkillReads) BeginRead(context.Context) (SkillReadDecision, error
 
 func (a selectedSkillReads) AllowRead(_ context.Context, id, _, _, _ string) (bool, error) {
 	return !a.denied[id], nil
+}
+
+func newProjectionTool(t *testing.T, reader RuntimeReader, session sandboxSession, authorizer SkillReadAuthorizer) *Tool {
+	t.Helper()
+	tool, err := NewTool(reader, session, authorizer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tool
 }
 
 func projectionSkill(id, name, digest string) Skill {
@@ -706,7 +812,7 @@ func TestManagedLoadAuthorizesIdentityBeforeHomeAndProjectsExactRevision(t *test
 		}},
 	}
 	session := projectionSession{tempVisible: "/session/tmp", tempHost: t.TempDir()}
-	denied := NewTool(nil, "", "").WithManagedRevisions(reader, session).WithReadAuthorizer(selectedSkillReads{denied: map[string]bool{identity.ID: true}})
+	denied := newProjectionTool(t, reader, session, selectedSkillReads{denied: map[string]bool{identity.ID: true}})
 	if _, err := denied.load(t.Context(), map[string]any{"name": identity.Name}); !errors.Is(err, errSkillNotFound) {
 		t.Fatalf("denied load = %v", err)
 	}
@@ -714,7 +820,7 @@ func TestManagedLoadAuthorizesIdentityBeforeHomeAndProjectsExactRevision(t *test
 		t.Fatalf("Home revision opened before authorization: loads=%d", reader.loads)
 	}
 
-	tool := NewTool(nil, "", "").WithManagedRevisions(reader, session).WithReadAuthorizer(selectedSkillReads{})
+	tool := newProjectionTool(t, reader, session, selectedSkillReads{})
 	out, err := tool.load(t.Context(), map[string]any{"name": identity.Name})
 	if err != nil {
 		t.Fatal(err)
@@ -752,11 +858,11 @@ func TestManagedLoadUsesIsolatedSessionTempView(t *testing.T) {
 		revisions: map[string]ManagedRevision{identity.ID: {
 			Skill: projectionSkill(identity.ID, identity.Name, digest),
 			Files: map[string][]byte{MainFile: []byte("isolated current"), "scripts/run.sh": []byte("#!/bin/sh\nprintf isolated")},
+			Modes: map[string]fs.FileMode{MainFile: 0o644, "scripts/run.sh": 0o755},
 		}},
 	}
-	session := projectionSession{tempVisible: "/tmp", tempHost: t.TempDir(), isolated: true}
-	tool := NewTool(nil, "", "").WithManagedRevisions(reader, session).
-		WithReadAuthorizer(selectedSkillReads{}).WithSkillDirView(SkillDirView{Isolated: true})
+	session := projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}
+	tool := newProjectionTool(t, reader, session, selectedSkillReads{})
 	out, err := tool.load(t.Context(), map[string]any{"name": identity.Name})
 	if err != nil {
 		t.Fatal(err)
@@ -771,16 +877,54 @@ func TestManagedLoadUsesIsolatedSessionTempView(t *testing.T) {
 	}
 }
 
+func TestManagedLoadRefreshesSessionTempBeforeProjection(t *testing.T) {
+	digest := strings.Repeat("8", 64)
+	identity := projectionSkill("recreated-view", "recreated-view", "")
+	reader := &projectionReader{
+		identities: []Skill{identity},
+		revisions: map[string]ManagedRevision{identity.ID: {
+			Skill: projectionSkill(identity.ID, identity.Name, digest),
+			Files: map[string][]byte{MainFile: []byte("recreated current")},
+			Modes: map[string]fs.FileMode{MainFile: 0o644},
+		}},
+	}
+	first := newResilientProjectionSession("/old/tmp", t.TempDir())
+	second := newResilientProjectionSession("/new/tmp", t.TempDir())
+	session := pkgsandbox.NewResilientSession(first, func(context.Context) (pkgsandbox.Session, error) {
+		return second, nil
+	})
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := newProjectionTool(t, reader, session, selectedSkillReads{})
+	out, err := tool.load(t.Context(), map[string]any{"name": identity.Name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantVisible := filepath.Join("/new/tmp", "stella-skills", identity.Scope, identity.ID, digest)
+	if !strings.Contains(out, "<skill_dir>"+wantVisible+"</skill_dir>") || strings.Contains(out, "/old/tmp") {
+		t.Fatalf("recreated load output = %q", out)
+	}
+	if content, err := os.ReadFile(filepath.Join(second.tempHost, "stella-skills", identity.Scope, identity.ID, digest, MainFile)); err != nil || string(content) != "recreated current" {
+		t.Fatalf("recreated projection = %q, %v", content, err)
+	}
+	if _, err := os.Stat(filepath.Join(first.tempHost, "stella-skills")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("dead Session received projection: %v", err)
+	}
+}
+
 func TestManagedProjectionConcurrentExactDigestPublishesOneCompletePath(t *testing.T) {
 	digest := strings.Repeat("f", 64)
 	session := projectionSession{tempVisible: "/session/tmp", tempHost: t.TempDir()}
-	tool := NewTool(nil, "", "").WithManagedRevisions(nil, session)
+	tool := newProjectionTool(t, &projectionReader{}, session, selectedSkillReads{})
 	revision := ManagedRevision{
 		Skill: projectionSkill("concurrent-id", "concurrent", digest),
 		Files: map[string][]byte{
 			MainFile:             []byte("# Concurrent\n"),
 			"scripts/support.sh": []byte("#!/bin/sh\nprintf complete"),
 		},
+		Modes: map[string]fs.FileMode{MainFile: 0o644, "scripts/support.sh": 0o755},
 	}
 
 	const workers = 16
@@ -791,7 +935,11 @@ func TestManagedProjectionConcurrentExactDigestPublishesOneCompletePath(t *testi
 	for range workers {
 		wg.Go(func() {
 			<-start
-			projected, err := tool.projectRevision(revision)
+			var projected string
+			projection, err := managedSkillProjection(revision)
+			if err == nil {
+				projected, err = tool.projectSkill(projection)
+			}
 			paths <- projected
 			errs <- err
 		})
@@ -834,18 +982,18 @@ func TestManagedLoadPinsEverySessionDigestAndExcludesDisabledOrPolicyDeniedSkill
 	reader := &projectionReader{
 		identities: []Skill{current, disabled, policyDenied},
 		revisions: map[string]ManagedRevision{
-			current.ID: {Skill: projectionSkill(current.ID, current.Name, oldDigest), Files: map[string][]byte{MainFile: []byte("old-current")}},
+			current.ID: {Skill: projectionSkill(current.ID, current.Name, oldDigest), Files: map[string][]byte{MainFile: []byte("old-current")}, Modes: map[string]fs.FileMode{MainFile: 0o644}},
 			disabled.ID: {Skill: func() Skill {
 				s := projectionSkill(disabled.ID, disabled.Name, strings.Repeat("d", 64))
 				s.DisableModelInvocation = true
 				return s
-			}(), Files: map[string][]byte{MainFile: []byte("must-not-project")}},
-			policyDenied.ID: {Skill: func() Skill { s := policyDenied; s.ContentDigest = strings.Repeat("e", 64); return s }(), Files: map[string][]byte{MainFile: []byte("must-not-project-policy")}},
+			}(), Files: map[string][]byte{MainFile: []byte("must-not-project")}, Modes: map[string]fs.FileMode{MainFile: 0o644}},
+			policyDenied.ID: {Skill: func() Skill { s := policyDenied; s.ContentDigest = strings.Repeat("e", 64); return s }(), Files: map[string][]byte{MainFile: []byte("must-not-project-policy")}, Modes: map[string]fs.FileMode{MainFile: 0o644}},
 		},
 	}
 	session := projectionSession{tempVisible: "/session/tmp", tempHost: t.TempDir()}
-	tool := NewTool(nil, "", "").WithManagedRevisions(reader, session).
-		WithReadAuthorizer(selectedSkillReads{}).WithAgentSkillPolicy([]string{"system_agent:policy"})
+	tool := newProjectionTool(t, reader, session, selectedSkillReads{}).
+		WithAgentSkillPolicy([]string{"system_agent:policy"})
 	if _, err := tool.load(t.Context(), map[string]any{"name": current.Name}); err != nil {
 		t.Fatal(err)
 	}
@@ -853,7 +1001,7 @@ func TestManagedLoadPinsEverySessionDigestAndExcludesDisabledOrPolicyDeniedSkill
 	if _, err := os.Stat(oldHost); err != nil {
 		t.Fatal(err)
 	}
-	reader.revisions[current.ID] = ManagedRevision{Skill: projectionSkill(current.ID, current.Name, newDigest), Files: map[string][]byte{MainFile: []byte("new-current")}}
+	reader.revisions[current.ID] = ManagedRevision{Skill: projectionSkill(current.ID, current.Name, newDigest), Files: map[string][]byte{MainFile: []byte("new-current")}, Modes: map[string]fs.FileMode{MainFile: 0o644}}
 	if _, err := tool.load(t.Context(), map[string]any{"name": current.Name}); err != nil {
 		t.Fatal(err)
 	}
@@ -892,7 +1040,7 @@ func TestManagedLoadPinsEverySessionDigestAndExcludesDisabledOrPolicyDeniedSkill
 func TestManagedProjectionRejectsPoisonedExactDigestReuse(t *testing.T) {
 	digest := strings.Repeat("7", 64)
 	session := projectionSession{tempVisible: "/session/tmp", tempHost: t.TempDir()}
-	tool := NewTool(nil, "", "").WithManagedRevisions(nil, session)
+	tool := newProjectionTool(t, &projectionReader{}, session, selectedSkillReads{})
 	revision := ManagedRevision{
 		Skill: projectionSkill("poisoned-id", "poisoned", digest),
 		Files: map[string][]byte{
@@ -901,7 +1049,11 @@ func TestManagedProjectionRejectsPoisonedExactDigestReuse(t *testing.T) {
 		},
 		Modes: map[string]fs.FileMode{MainFile: 0o644, "scripts/support.sh": 0o755},
 	}
-	if _, err := tool.projectRevision(revision); err != nil {
+	projection, err := managedSkillProjection(revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tool.projectSkill(projection); err != nil {
 		t.Fatal(err)
 	}
 	host := filepath.Join(session.tempHost, "stella-skills", revision.Skill.Scope, revision.Skill.ID, digest)
@@ -912,7 +1064,7 @@ func TestManagedProjectionRejectsPoisonedExactDigestReuse(t *testing.T) {
 	if err := os.WriteFile(poisoned, []byte("poisoned"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tool.projectRevision(revision); !errors.Is(err, ErrInvalidSkillRevision) {
+	if _, err := tool.projectSkill(projection); !errors.Is(err, ErrInvalidSkillRevision) {
 		t.Fatalf("poisoned projection reuse = %v, want ErrInvalidSkillRevision", err)
 	}
 	content, err := os.ReadFile(filepath.Join(host, "scripts", "support.sh"))

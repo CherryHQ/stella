@@ -16,8 +16,8 @@ func TestSkillsSchemaDoesNotExposeKnowledgeType(t *testing.T) {
 	}
 }
 
-func TestToolWithActionsOnlyRestrictsSchemaAndExecution(t *testing.T) {
-	tool := NewTool(nil, "", "").WithActionsOnly("search_installed", "load")
+func TestRuntimeToolExposesOnlyReadActions(t *testing.T) {
+	tool := newProjectionTool(t, &projectionReader{}, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{})
 	definition := tool.Definition()
 
 	properties, ok := definition.InputSchema["properties"].(map[string]any)
@@ -50,6 +50,23 @@ func TestToolWithActionsOnlyRestrictsSchemaAndExecution(t *testing.T) {
 	}
 
 	if _, err := tool.Execute(context.Background(), map[string]any{"action": "patch", "name": "owned"}); err == nil {
-		t.Fatal("restricted skills tool must reject hidden write actions")
+		t.Fatal("runtime skills tool must reject removed write actions")
+	}
+}
+
+func TestNewToolRequiresOneExactRuntimeContract(t *testing.T) {
+	runtime := &projectionReader{}
+	session := projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}
+	authorizer := allowAllSkillReads{}
+	for name, build := range map[string]func() (*Tool, error){
+		"runtime":    func() (*Tool, error) { return NewTool(nil, session, authorizer) },
+		"Session":    func() (*Tool, error) { return NewTool(runtime, nil, authorizer) },
+		"authorizer": func() (*Tool, error) { return NewTool(runtime, session, nil) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if tool, err := build(); err == nil || tool != nil {
+				t.Fatalf("NewTool without %s = %#v, %v", name, tool, err)
+			}
+		})
 	}
 }

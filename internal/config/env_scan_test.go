@@ -80,10 +80,9 @@ var envReadAllowlist = map[string]map[string]bool{
 	// Dynamic per-key reads over a computed key set.
 	"internal/manifestplugins/mise_installer.go": {nonLiteralRead: true},
 
-	// Host environment passthrough for the sandbox: PATH and selected host vars
-	// are forwarded into the sandbox, not stella configuration.
-	"internal/agent/sandbox/bash.go": {"PATH": true},
-	"pkg/sandbox/hostenv.go":         {"PATH": true, nonLiteralRead: true},
+	// Selected host variables are forwarded into the sandbox, not Stella
+	// configuration.
+	"pkg/sandbox/hostenv.go": {"PATH": true, nonLiteralRead: true},
 
 	// pkg/ must not import internal/config. These are per-call diagnostic/tuning
 	// reads local to reusable packages.

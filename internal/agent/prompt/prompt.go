@@ -109,22 +109,11 @@ type DBPromptParams struct {
 	AgentID        string          // agent ID for profile lookup
 	GroupID        string          // group ID for group memory lookup (D4); mutually exclusive with UserID
 	GroupMemory    string          // pre-loaded group memory content; injected when non-empty
-	StellaHome     string
-	AgentRoot      string
-	ProjectRoot    string // optional project root for local/project-attached runs
-	UserRoot       string // per-user writable root
 	Sections       []pkgplugins.SystemPromptSection
-	Host           sandbox.Host
+	Session        sandbox.Session
 	ProjectContext ProjectContext
 	// nil means current memory; non-nil values, including zero, are frozen snapshots.
 	SnapshotVersion *int64
-
-	// CurrentSpeaker is retained for compatibility with callers/tests that still
-	// populate it, but it is intentionally not rendered into the system prompt.
-	// Runtime injects speaker metadata as per-turn message context so reused group
-	// runners keep a stable system prefix for prompt caching.
-	CurrentSpeaker    memory.CurrentSpeaker
-	HasCurrentSpeaker bool
 }
 
 // BuildSystemPromptFromDB composes the full system prompt by populating a
@@ -229,10 +218,8 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	// Project context.
 	if p.ProjectContext.loaded {
 		data.ContextFiles = p.ProjectContext.files
-	} else {
-		contextHost, closeContextHost := resolvePromptContextHost(ctx, p.Host, p.ProjectRoot)
-		defer closeContextHost()
-		data.ContextFiles = loadProjectContextFiles(contextHost, p.ProjectRoot)
+	} else if p.Session != nil {
+		data.ContextFiles = loadProjectContextFiles(p.Session, p.Session.WorkingDir())
 	}
 
 	var buf bytes.Buffer
@@ -313,15 +300,7 @@ func loadRootProjectContextFiles(ctx context.Context, root ContextRoot, projectP
 	return files
 }
 
-// resolvePromptContextHost returns the host to use for reading prompt context
-// files. When a session host is already available it is used directly. When no
-// host is present (prompt rendering outside of a runner session) the function
-// returns nil and host.go falls back to plain os.* calls.
-func resolvePromptContextHost(_ context.Context, host sandbox.Host, _ string) (sandbox.Host, func()) {
-	return host, func() {}
-}
-
-func loadProjectContextFiles(host sandbox.Host, cwd string) []contextFile {
+func loadProjectContextFiles(session sandbox.Session, cwd string) []contextFile {
 	if cwd == "" {
 		return nil
 	}
@@ -335,10 +314,10 @@ func loadProjectContextFiles(host sandbox.Host, cwd string) []contextFile {
 	seen := map[string]bool{}
 
 	for {
-		if path := resolveFile(host, absDir, "AGENTS.md"); path != "" {
+		if path := resolveFile(session, absDir, "AGENTS.md"); path != "" {
 			if !seen[path] {
 				seen[path] = true
-				if content, ok := readPromptFile(host, path); ok {
+				if content, ok := readPromptFile(session, path); ok {
 					files = append(files, contextFile{Path: path, Content: content})
 				}
 			}
@@ -361,12 +340,12 @@ func loadProjectContextFiles(host sandbox.Host, cwd string) []contextFile {
 
 // resolveFile finds a file in dir with case-insensitive matching.
 // Returns the full path if found, empty string otherwise.
-func resolveFile(host sandbox.Host, dir, name string) string {
+func resolveFile(session sandbox.Session, dir, name string) string {
 	exact := filepath.Join(dir, name)
-	if path, ok := statPromptFile(host, exact); ok {
+	if path, ok := statPromptFile(session, exact); ok {
 		return path
 	}
-	entries, err := readPromptDir(host, dir)
+	entries, err := readPromptDir(session, dir)
 	if err != nil {
 		return ""
 	}

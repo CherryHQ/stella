@@ -60,27 +60,15 @@ func (s *Service) reconcileFactCandidates(ctx context.Context, target reviewTarg
 }
 
 func (s *Service) reconcileSkillCandidates(ctx context.Context, target reviewTarget, unit ReviewUnit, decisions []skillCandidateDecision, runner candidateLineReviewer) (reconciliationWriteStats, error) {
-	bundleStore, ok := s.skillStore.(skillRelatedBundleStore)
-	if !ok {
-		return reconciliationWriteStats{}, fmt.Errorf("skill reconciliation: skill store does not support related bundle reads")
-	}
-	writer, ok := s.skillStore.(reflectSkillWriter)
-	if !ok {
-		return reconciliationWriteStats{}, fmt.Errorf("skill reconciliation: skill store does not support reflect writes")
-	}
-
 	userID := target.session.UserID
 	agentID := target.session.AgentID
-	if s.skillAuthorizer == nil {
-		return reconciliationWriteStats{}, fmt.Errorf("skill reconciliation: skill authorization unavailable")
-	}
 	// Authorize the trusted review pair before the catalog opens any Home
 	// revision. The catalog is restricted to this exact user-agent scope.
 	if err := s.skillAuthorizer.AuthorizeWorkerWrite(ctx, userID, agentID, "", true); err != nil {
 		return reconciliationWriteStats{}, err
 	}
 	candidates := skillCandidatesFromDecisions(decisions)
-	catalog, err := buildSkillRelatedCatalog(ctx, bundleStore, userID, agentID)
+	catalog, err := buildSkillRelatedCatalog(ctx, s.skillStore, userID, agentID)
 	if err != nil {
 		return reconciliationWriteStats{}, err
 	}
@@ -88,7 +76,7 @@ func (s *Service) reconcileSkillCandidates(ctx context.Context, target reviewTar
 	if err != nil {
 		return reconciliationWriteStats{}, err
 	}
-	bundle, err := buildSkillRelatedBundle(ctx, bundleStore, userID, agentID, candidates, selections)
+	bundle, err := buildSkillRelatedBundle(ctx, s.skillStore, userID, agentID, candidates, selections)
 	if err != nil {
 		return reconciliationWriteStats{}, err
 	}
@@ -107,7 +95,7 @@ func (s *Service) reconcileSkillCandidates(ctx context.Context, target reviewTar
 		}
 		break
 	}
-	written, err := executeSkillReconciliationPlan(ctx, writer, s.skillAuthorizer, userID, agentID, bundle, plan, provenance)
+	written, err := executeSkillReconciliationPlan(ctx, s.skillStore, s.skillAuthorizer, userID, agentID, bundle, plan, provenance)
 	return reconciliationWriteStats{Writes: len(written), Noops: skillReconciliationNoopCount(plan)}, err
 }
 

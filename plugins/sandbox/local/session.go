@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/internal/sessionfs"
 )
 
 // sandboxEnvDenyList is the set of host environment variable names that must
@@ -35,16 +36,14 @@ type Config struct {
 
 // Factory creates local sandbox sessions that run directly on the host OS.
 type Factory struct {
-	cfg Config
+	cfg          Config
+	mountSources map[string]string
 }
 
-// NewFactory returns a Factory for the local backend.
-func NewFactory(cfg ...Config) sandboxpkg.Factory {
-	var c Config
-	if len(cfg) > 0 {
-		c = cfg[0]
-	}
-	return &Factory{cfg: c}
+// NewFactoryWithMountSources binds process-visible policy roots to
+// provider-private physical sources.
+func NewFactoryWithMountSources(mountSources map[string]string, cfg Config) sandboxpkg.Factory {
+	return &Factory{cfg: cfg, mountSources: maps.Clone(mountSources)}
 }
 
 // Name returns the backend name.
@@ -61,6 +60,7 @@ type tmpMount struct {
 	sandboxPath string // absolute path the agent sees (e.g. /tmp)
 	realPath    string // absolute host path backing it
 	owned       bool   // true when the session created this directory and should remove it on close
+	environment bool   // true for the one mount published as TMPDIR
 }
 
 // CreateSession creates a new localSession. The factory always sets HOME and
@@ -73,11 +73,13 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 	}
 
 	hostStellaHome := f.cfg.StellaHome
-	// Resolve the backend's filesystem roots first. The temporary mounts must be
-	// created before applying the filesystem environment because macOS exposes
-	// their real host path as TMPDIR.
-	sandboxRoot, realRoot := resolveSandboxRoot(policy)
-	userDataSandbox, userDataReal := resolveUserDataRoot(policy)
+	// Resolve one provider-private plan first. Policy retains only process paths;
+	// physical sources remain inside the backend.
+	providerMounts, workingDir, realRoot, sandboxRoot, userDataReal, userDataSandbox, err := providerFilesystem(policy, f.mountSources)
+	if err != nil {
+		return nil, fmt.Errorf("local: configure filesystem: %w", err)
+	}
+	policy.Filesystem.WorkingDir = workingDir
 	tmpMounts, err := createSessionTmpMounts()
 	if err != nil {
 		return nil, fmt.Errorf("local: create session tmp: %w", err)
@@ -93,17 +95,33 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 		return nil, fmt.Errorf("local: apply filesystem environment: %w", err)
 	}
 	s := &localSession{
-		id:                sessionID,
-		policy:            policy,
-		realRoot:          realRoot,
-		sandboxRoot:       sandboxRoot,
-		userDataReal:      userDataReal,
-		userDataSandbox:   userDataSandbox,
-		stellaHomeHost:    hostStellaHome,
-		stellaHomeSandbox: adjustStellaHome(hostStellaHome),
-		tmpMounts:         tmpMounts,
-		done:              make(chan struct{}),
+		id:              sessionID,
+		policy:          policy,
+		realRoot:        realRoot,
+		sandboxRoot:     sandboxRoot,
+		userDataReal:    userDataReal,
+		userDataSandbox: userDataSandbox,
+		stellaHomeHost:  hostStellaHome,
+		tmpMounts:       tmpMounts,
+		providerMounts:  providerMounts,
+		done:            make(chan struct{}),
 	}
+	allMounts := append([]sessionfs.Mount(nil), providerMounts...)
+	for _, mount := range tmpMounts {
+		allMounts = append(allMounts, sessionfs.Mount{
+			HostPath:              mount.realPath,
+			SandboxPath:           mount.sandboxPath,
+			ResolveSymlinkAliases: filepath.Clean(mount.realPath) == filepath.Clean(mount.sandboxPath),
+		})
+	}
+	resolver, err := sessionfs.NewResolver(workingDir, allMounts)
+	if err != nil {
+		return nil, fmt.Errorf("local: open filesystem plan: %w", err)
+	}
+	s.resolver = resolver
+	s.files = sessionfs.NewAccessWithTempDir(resolver, filesystemTempDir(tmpMounts))
+	policy.Filesystem.Mounts = sessionfs.PolicyMounts(allMounts)
+	s.policy = policy
 	transferredTmpOwnership = true
 	sandboxpkg.LogSessionCreated(sessionID, "local", policy)
 	return s, nil
@@ -196,8 +214,8 @@ func applyFilesystemEnv(policy *sandboxpkg.Policy, home, sharedDataDir string, t
 
 // remapToSandboxRoot rewrites a host path under realRoot to its sandbox-space
 // location under sandboxRoot, leaving paths outside realRoot (and the macOS case
-// realRoot == sandboxRoot) untouched. It mirrors localSession.toSandboxPath for
-// the workspace root, but runs at policy-build time before a session exists.
+// realRoot == sandboxRoot) untouched. It mirrors the provider resolver's mapping
+// for the workspace root, but runs at policy-build time before a session exists.
 func remapToSandboxRoot(hostPath, realRoot, sandboxRoot string) string {
 	// An empty realRoot has no host prefix to match, so nothing can be "under" it;
 	// filepath.Rel("", x) would otherwise treat any relative value as under realRoot
@@ -231,14 +249,93 @@ func remapStellaHomePath(p, hostSH, sandboxSH string) string {
 	}
 }
 
-func mountBySandboxPath(mounts []sandboxpkg.Mount, sandboxPath string) (sandboxpkg.Mount, bool) {
+func providerFilesystem(policy sandboxpkg.Policy, sources map[string]string) ([]sessionfs.Mount, string, string, string, string, string, error) {
+	if len(policy.Filesystem.Mounts) == 0 {
+		if localMountSource(sources, sandboxpkg.MountWorkspace) == "" {
+			return nil, "", "", "", "", "", errors.New("physical source for mount /workspace is required")
+		}
+		policy.Filesystem.Mounts = []sandboxpkg.Mount{{SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite}}
+		if policy.Filesystem.WorkingDir == "" {
+			policy.Filesystem.WorkingDir = sandboxpkg.MountWorkspace
+		}
+	}
+
+	canonical := make([]sessionfs.Mount, 0, len(policy.Filesystem.Mounts))
+	actual := make([]sessionfs.Mount, 0, len(policy.Filesystem.Mounts))
+	realRoot, sandboxRoot, userDataReal, userDataSandbox := "", "", "", ""
+	for _, mount := range policy.Filesystem.Mounts {
+		source := localMountSource(sources, mount.SandboxPath)
+		if source == "" {
+			return nil, "", "", "", "", "", fmt.Errorf("physical source for mount %q is required", mount.SandboxPath)
+		}
+		readOnly := mount.Access == sandboxpkg.MountReadOnly
+		if readOnly && !localDirectoryExists(source) {
+			continue
+		}
+		visible := processVisiblePath(mount.SandboxPath, source)
+		canonical = append(canonical, sessionfs.Mount{HostPath: source, SandboxPath: mount.SandboxPath, ReadOnly: readOnly})
+		actual = append(actual, sessionfs.Mount{
+			HostPath:              source,
+			SandboxPath:           visible,
+			ReadOnly:              readOnly,
+			ResolveSymlinkAliases: filepath.Clean(source) == filepath.Clean(visible),
+		})
+		switch filepath.Clean(mount.SandboxPath) {
+		case sandboxpkg.MountWorkspace:
+			realRoot, sandboxRoot = source, visible
+		case sandboxpkg.MountUserData:
+			userDataReal, userDataSandbox = source, visible
+		}
+	}
+	canonicalResolver, err := sessionfs.NewResolver(policy.Filesystem.WorkingDir, canonical)
+	if err != nil {
+		return nil, "", "", "", "", "", err
+	}
+	resolved, err := canonicalResolver.Resolve(policy.Filesystem.WorkingDir, false)
+	closeErr := canonicalResolver.Close()
+	if err != nil || closeErr != nil {
+		return nil, "", "", "", "", "", errors.Join(err, closeErr)
+	}
+	workingDir := ""
+	for index, mount := range canonical {
+		if mount.SandboxPath != resolved.Mount.SandboxPath || mount.HostPath != resolved.Mount.HostPath {
+			continue
+		}
+		workingDir = actual[index].SandboxPath
+		if resolved.Relative != "." {
+			workingDir = filepath.Join(workingDir, filepath.FromSlash(resolved.Relative))
+		}
+		break
+	}
+	if workingDir == "" || realRoot == "" || sandboxRoot == "" {
+		return nil, "", "", "", "", "", errors.New("workspace mount is required")
+	}
+	return actual, workingDir, realRoot, sandboxRoot, userDataReal, userDataSandbox, nil
+}
+
+func localMountSource(sources map[string]string, sandboxPath string) string {
+	clean := filepath.Clean(sandboxPath)
+	for target, source := range sources {
+		if filepath.Clean(target) == clean {
+			return filepath.Clean(source)
+		}
+	}
+	return ""
+}
+
+func localDirectoryExists(name string) bool {
+	info, err := os.Stat(name)
+	return err == nil && info.IsDir()
+}
+
+func mountBySandboxPath(mounts []sessionfs.Mount, sandboxPath string) (sessionfs.Mount, bool) {
 	clean := filepath.Clean(sandboxPath)
 	for _, m := range mounts {
 		if filepath.Clean(m.SandboxPath) == clean {
 			return m, true
 		}
 	}
-	return sandboxpkg.Mount{}, false
+	return sessionfs.Mount{}, false
 }
 
 // ─────────────────────────── localSession ─────────────────────────────
@@ -246,20 +343,22 @@ func mountBySandboxPath(mounts []sandboxpkg.Mount, sandboxPath string) (sandboxp
 // localSession implements sandboxpkg.Session by running commands directly on
 // the host OS with no container isolation.
 type localSession struct {
-	id                string
-	policy            sandboxpkg.Policy
-	realRoot          string     // actual host path (e.g. /home/stella/.stella-dev/...)
-	sandboxRoot       string     // path the agent sees (/workspace on Linux+bwrap, else = realRoot)
-	userDataReal      string     // host path of the shared user-data root, "" when none
-	userDataSandbox   string     // path the agent sees for it (/user on Linux+bwrap, else = userDataReal)
-	stellaHomeHost    string     // host-side STELLA_HOME for bwrap mounts
-	stellaHomeSandbox string     // agent's view of STELLA_HOME (/opt/stella on Linux+bwrap, else = host)
-	tmpMounts         []tmpMount // sandbox temp paths mapped to real host dirs (/tmp, /var/tmp)
-	done              chan struct{}
-	doneOnce          sync.Once
-	mu                sync.RWMutex
-	closed            bool
-	procs             []*localProcess
+	id              string
+	policy          sandboxpkg.Policy
+	realRoot        string     // actual host path (e.g. /home/stella/.stella-dev/...)
+	sandboxRoot     string     // path the agent sees (/workspace on Linux+bwrap, else = realRoot)
+	userDataReal    string     // host path of the shared user-data root, "" when none
+	userDataSandbox string     // path the agent sees for it (/user on Linux+bwrap, else = userDataReal)
+	stellaHomeHost  string     // host-side STELLA_HOME for bwrap mounts
+	tmpMounts       []tmpMount // sandbox temp paths mapped to real host dirs (/tmp, /var/tmp)
+	providerMounts  []sessionfs.Mount
+	resolver        *sessionfs.Resolver
+	files           sandboxpkg.FileAccess
+	done            chan struct{}
+	doneOnce        sync.Once
+	mu              sync.RWMutex
+	closed          bool
+	procs           []*localProcess
 }
 
 func (s *localSession) Policy() sandboxpkg.Policy {
@@ -268,24 +367,13 @@ func (s *localSession) Policy() sandboxpkg.Policy {
 	return s.policy
 }
 
-func (s *localSession) WorkspaceRoot() string {
-	return s.sandboxRoot
-}
+func (s *localSession) Files() sandboxpkg.FileAccess { return s.files }
 
 func (s *localSession) WorkingDir() string {
-	wd := s.policy.Filesystem.WorkingDir
-	if wd == "" {
-		return s.sandboxRoot
+	if s.policy.Filesystem.WorkingDir != "" {
+		return s.policy.Filesystem.WorkingDir
 	}
-	// Translate real-root paths into sandbox-space paths.
-	cleanReal := filepath.Clean(s.realRoot)
-	if wd == cleanReal || strings.HasPrefix(wd, cleanReal+string(filepath.Separator)) {
-		rel, err := filepath.Rel(cleanReal, wd)
-		if err == nil {
-			return filepath.Join(s.sandboxRoot, rel)
-		}
-	}
-	return wd
+	return s.sandboxRoot
 }
 
 func (s *localSession) Alive() bool {
@@ -313,10 +401,14 @@ func (s *localSession) Close() error {
 		p.Close() //nolint:errcheck
 	}
 
+	var closeErr error
+	if s.resolver != nil {
+		closeErr = s.resolver.Close()
+	}
 	cleanupOwnedTmpMounts(s.tmpMounts)
 	s.doneOnce.Do(func() { close(s.done) })
 	sandboxpkg.LogSessionClosed(s.id, "local", "explicit_close")
-	return nil
+	return closeErr
 }
 
 func cleanupOwnedTmpMounts(mounts []tmpMount) {
@@ -325,39 +417,6 @@ func cleanupOwnedTmpMounts(mounts []tmpMount) {
 			_ = os.RemoveAll(mount.realPath)
 		}
 	}
-}
-
-// ensureOwnedTmpMounts restores session-owned temporary directories removed by
-// host cleanup services while a long-lived session is still active. Borrowed
-// mounts are deliberately ignored: their lifecycle belongs to the operator,
-// and a missing source must still fail closed in the platform sandbox.
-func ensureOwnedTmpMounts(mounts []tmpMount) error {
-	for _, mount := range mounts {
-		if !mount.owned {
-			continue
-		}
-		info, err := os.Lstat(mount.realPath)
-		switch {
-		case err == nil:
-			if !info.IsDir() {
-				return fmt.Errorf("temporary mount source %q is not a directory", mount.realPath)
-			}
-		case errors.Is(err, os.ErrNotExist):
-			if err := os.Mkdir(mount.realPath, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
-				return fmt.Errorf("recreate temporary mount source %q: %w", mount.realPath, err)
-			}
-			info, err = os.Lstat(mount.realPath)
-			if err != nil {
-				return fmt.Errorf("verify temporary mount source %q: %w", mount.realPath, err)
-			}
-			if !info.IsDir() {
-				return fmt.Errorf("temporary mount source %q is not a directory", mount.realPath)
-			}
-		default:
-			return fmt.Errorf("inspect temporary mount source %q: %w", mount.realPath, err)
-		}
-	}
-	return nil
 }
 
 // deregisterProcess removes a process handle from the session's tracked list.
@@ -371,25 +430,6 @@ func (s *localSession) deregisterProcess(p *localProcess) {
 			return
 		}
 	}
-}
-
-// ResolvePath resolves an agent-space path to a real host path, rejecting
-// anything that resolves outside the workspace root.
-// The agent may pass sandbox-space paths (e.g. /workspace/foo.go); this
-// translates them to real host paths before any OS operations.
-func (s *localSession) ResolvePath(agentPath string) (string, error) {
-	resolved, _, err := s.resolvePath(agentPath)
-	return resolved, err
-}
-
-// ResolveWritePath is like ResolvePath but additionally rejects paths that fall
-// within read-only mounts.
-func (s *localSession) ResolveWritePath(agentPath string) (string, error) {
-	resolved, err := s.pathResolver().ResolveWritePath(agentPath)
-	if err != nil {
-		return "", fmt.Errorf("local: %w", err)
-	}
-	return resolved.HostPath, nil
 }
 
 // resolveCwd validates a requested working directory, then returns both its
@@ -406,76 +446,24 @@ func (s *localSession) resolveCwd(cwd string) (sandboxCwd, realCwd string, err e
 	return sandboxCwd, realCwd, nil
 }
 
-// resolvePath translates an agent-space path to a real path and a normalized
-// sandbox-space path. Existing symlink components under the workspace are
-// rejected, including symlinked parents of non-existent creation targets.
+// resolvePath translates an existing process cwd to a real path and a
+// normalized sandbox-space path. Rooted validation rejects missing paths,
+// non-directories, and traversal outside the selected mount.
 func (s *localSession) resolvePath(agentPath string) (realPath, sandboxPath string, err error) {
-	resolved, err := s.pathResolver().ResolvePath(agentPath)
+	resolved, err := s.resolver.ResolveDirectory(agentPath)
 	if err != nil {
 		return "", "", fmt.Errorf("local: %w", err)
 	}
-	return resolved.HostPath, resolved.SandboxPath, nil
+	return resolved.HostPath(), resolved.SandboxPath, nil
 }
 
-func (s *localSession) pathResolver() *sandboxpkg.PathResolver {
-	mounts := append([]sandboxpkg.Mount(nil), s.policy.Filesystem.Mounts...)
-	if len(mounts) == 0 {
-		if s.realRoot != "" && s.sandboxRoot != "" {
-			mounts = append(mounts, sandboxpkg.Mount{HostPath: s.realRoot, SandboxPath: s.sandboxRoot, Access: sandboxpkg.MountReadWrite})
-		}
-		if s.userDataReal != "" && s.userDataSandbox != "" {
-			mounts = append(mounts, sandboxpkg.Mount{HostPath: s.userDataReal, SandboxPath: s.userDataSandbox, Access: sandboxpkg.MountReadWrite})
-		}
-		for _, pair := range s.stellaHomeSubdirs() {
-			mounts = append(mounts, sandboxpkg.Mount{HostPath: pair[1], SandboxPath: pair[0], Access: sandboxpkg.MountReadOnly})
-		}
-	}
-	for _, m := range s.tmpMounts {
-		mounts = append(mounts, sandboxpkg.Mount{HostPath: m.realPath, SandboxPath: m.sandboxPath, Access: sandboxpkg.MountReadWrite})
-	}
-	return sandboxpkg.NewPathResolver(sandboxpkg.PathResolverConfig{
-		WorkspaceRoot: s.realRoot,
-		WorkingDir:    s.WorkingDir(),
-		Mounts:        mounts,
-	})
-}
-
-// stellaHomeSubdirs returns the {sandboxRoot, hostRoot} pairs for each subtree of
-// STELLA_HOME that an isolating backend RO-mounts (see StellaHomeSandboxDirs).
-// File tools mirror exactly these mounts — reads are scoped to them and nothing
-// broader, so the sibling users/ and agents/ host trees nested under STELLA_HOME
-// stay invisible. Returns nil on identity backends (sandbox == host).
-func (s *localSession) stellaHomeSubdirs() [][2]string {
-	if s.stellaHomeHost == "" || s.stellaHomeSandbox == s.stellaHomeHost {
-		return nil
-	}
-	out := make([][2]string, 0, len(sandboxpkg.StellaHomeSandboxDirs()))
-	for _, name := range sandboxpkg.StellaHomeSandboxDirs() {
-		out = append(out, [2]string{
-			filepath.Join(s.stellaHomeSandbox, name),
-			filepath.Join(s.stellaHomeHost, name),
-		})
-	}
-	return out
-}
-
-// toRealPath translates a sandbox-space absolute path to the real host path.
-// When sandboxRoot == realRoot (no remapping), it is a no-op.
-// Temp paths (/tmp, /var/tmp) are checked first against tmpMounts.
-func (s *localSession) toRealPath(sandboxPath string) string {
-	if hostPath, ok := s.pathResolver().ToHostPath(sandboxPath); ok {
-		return hostPath
-	}
-	return sandboxPath
-}
-
-// toSandboxPath translates a real host path back into sandbox space.
-// Temp mount real paths are checked first against tmpMounts.
-func (s *localSession) toSandboxPath(realPath string) string {
-	if sandboxPath, ok := s.pathResolver().ToSandboxPath(realPath); ok {
-		return sandboxPath
-	}
-	return realPath
+func (s *localSession) invalidateFilesystemPlan(err error) error {
+	// A pinned source that disappeared or was replaced cannot be rebound into
+	// this Session safely. Mark the whole generation dead so ResilientSession
+	// can recreate a fresh resolver and fresh owned temporary directories on the
+	// next operation instead of leaving an apparently-live, permanently broken
+	// session behind.
+	return errors.Join(err, s.Close())
 }
 
 // Exec runs a shell command via sh -c on the host.
@@ -489,8 +477,8 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 	if closed {
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local: session is closed")
 	}
-	if err := ensureOwnedTmpMounts(s.tmpMounts); err != nil {
-		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: prepare temporary mounts: %w", err)
+	if err := s.resolver.ValidateBackingPaths(); err != nil {
+		return sandboxpkg.ExecResult{}, s.invalidateFilesystemPlan(fmt.Errorf("local exec: validate filesystem plan: %w", err))
 	}
 
 	sandboxCwd := opts.Cwd
@@ -513,7 +501,7 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: resolve cwd: %w", err)
 	}
 
-	execPath, execArgs, err := wrapCommand(policy, sandboxCwd, s.tmpMounts, s.stellaHomeHost, "sh", []string{"-c", command})
+	execPath, execArgs, err := s.wrapCommand(policy, sandboxCwd, "sh", []string{"-c", command})
 	if err != nil {
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: wrap: %w", err)
 	}
@@ -578,8 +566,8 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 	if closed {
 		return nil, fmt.Errorf("local: session is closed")
 	}
-	if err := ensureOwnedTmpMounts(s.tmpMounts); err != nil {
-		return nil, fmt.Errorf("local start_process: prepare temporary mounts: %w", err)
+	if err := s.resolver.ValidateBackingPaths(); err != nil {
+		return nil, s.invalidateFilesystemPlan(fmt.Errorf("local start_process: validate filesystem plan: %w", err))
 	}
 
 	sandboxCwd := req.Cwd
@@ -611,7 +599,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 		return nil, fmt.Errorf("local start_process: resolve cwd: %w", err)
 	}
 
-	execPath, execArgs, err := wrapCommand(policy, sandboxCwd, s.tmpMounts, s.stellaHomeHost, req.Path, args)
+	execPath, execArgs, err := s.wrapCommand(policy, sandboxCwd, req.Path, args)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("local start_process: wrap: %w", err)

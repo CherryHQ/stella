@@ -145,7 +145,6 @@ SELECT
   s.id AS skill_id,
   s.user_id::text AS user_id,
   s.agent_id::text AS agent_id,
-  s.version,
   su.content_digest,
   su.use_count,
   su.last_used_at,

@@ -3,8 +3,6 @@ package sandbox
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
@@ -25,34 +23,33 @@ func writeDefinition() pkgtools.Definition {
 	}
 }
 
-func newWriteTool(host pkgsandbox.Host, projectRoot string) pkgtools.Tool {
-	return &hostWriteTool{host: host, projectRoot: projectRoot}
+func newWriteTool(host pkgsandbox.Session) pkgtools.Tool {
+	return &hostWriteTool{host: host}
 }
 
 type hostWriteTool struct {
-	host        pkgsandbox.Host
-	projectRoot string
+	host pkgsandbox.Session
 }
 
 func (t *hostWriteTool) Definition() pkgtools.Definition { return writeDefinition() }
 
-func (t *hostWriteTool) Execute(_ context.Context, args map[string]any) (string, error) {
+func (t *hostWriteTool) Execute(ctx context.Context, args map[string]any) (string, error) {
 	path := pkgtools.StringArg(args, "path")
 	content, _ := args["content"].(string)
 	if path == "" {
 		return "", fmt.Errorf("write: path is required")
 	}
 
-	resolvedPath, err := resolveWritableToolPath(t.host, t.projectRoot, path)
+	view, err := pkgsandbox.SelectFileView(ctx, t.host)
+	if err != nil {
+		return "", fmt.Errorf("write %s: %w", path, err)
+	}
+	resolvedPath, err := resolveToolExpression(view.Policy.Env, view.WorkingDir, path)
 	if err != nil {
 		return "", fmt.Errorf("write %s: %w", path, err)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(resolvedPath), 0o755); err != nil {
-		return "", fmt.Errorf("write: mkdir %s: %w", filepath.Dir(resolvedPath), err)
-	}
-
-	if err := os.WriteFile(resolvedPath, []byte(content), 0o644); err != nil {
+	if err := view.Files.WriteFile(resolvedPath, []byte(content), 0o644); err != nil {
 		return "", fmt.Errorf("write %s: %w", path, err)
 	}
 	return fmt.Sprintf("Wrote %s (%d bytes)", path, len(content)), nil

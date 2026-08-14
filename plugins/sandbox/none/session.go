@@ -16,6 +16,7 @@ import (
 	"sync"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/internal/sessionfs"
 )
 
 // Config configures the none factory.
@@ -27,16 +28,14 @@ type Config struct {
 
 // Factory creates sessions that execute directly on the host with no sandboxing.
 type Factory struct {
-	cfg Config
+	cfg          Config
+	mountSources map[string]string
 }
 
-// NewFactory returns a Factory for the none backend.
-func NewFactory(cfg ...Config) sandboxpkg.Factory {
-	var c Config
-	if len(cfg) > 0 {
-		c = cfg[0]
-	}
-	return &Factory{cfg: c}
+// NewFactoryWithMountSources binds process-visible policy roots to
+// provider-private physical sources.
+func NewFactoryWithMountSources(mountSources map[string]string, cfg Config) sandboxpkg.Factory {
+	return &Factory{cfg: cfg, mountSources: maps.Clone(mountSources)}
 }
 
 // Name returns the backend name.
@@ -53,6 +52,11 @@ func (f *Factory) Supported(_ sandboxpkg.Policy) error { return nil }
 // with a sandboxed PATH. Network mode is always overridden to AllowAll since
 // the none backend cannot enforce network restrictions.
 func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
+	mounts, workingDir, workspace, userData, err := noneFilesystem(policy, f.mountSources)
+	if err != nil {
+		return nil, fmt.Errorf("none: configure filesystem: %w", err)
+	}
+	policy.Filesystem.WorkingDir = workingDir
 	tmpDir, err := os.MkdirTemp("", "stella-none-session-tmp-*")
 	if err != nil {
 		return nil, fmt.Errorf("none: create session temp: %w", err)
@@ -63,7 +67,7 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 			_ = os.RemoveAll(tmpDir)
 		}
 	}()
-	policy, err = f.adjustPolicy(policy, tmpDir)
+	policy, err = f.adjustPolicy(policy, workspace, userData, tmpDir)
 	if err != nil {
 		return nil, fmt.Errorf("none: apply filesystem environment: %w", err)
 	}
@@ -74,13 +78,22 @@ func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sa
 		ownedTempDir: tmpDir,
 		done:         make(chan struct{}),
 	}
+	mounts = append(mounts, sessionfs.Mount{HostPath: tmpDir, SandboxPath: tmpDir, ResolveSymlinkAliases: true})
+	resolver, err := sessionfs.NewResolver(workingDir, mounts)
+	if err != nil {
+		return nil, fmt.Errorf("none: open filesystem plan: %w", err)
+	}
+	s.resolver = resolver
+	s.files = sessionfs.NewAccessWithTempDir(resolver, tmpDir)
+	policy.Filesystem.Mounts = sessionfs.PolicyMounts(mounts)
+	s.policy = policy
 	transferredTempOwnership = true
 	sandboxpkg.LogSessionCreated(id, "none", policy)
 	return s, nil
 }
 
 // adjustPolicy applies none-backend-specific policy adjustments.
-func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, tmpDir string) (sandboxpkg.Policy, error) {
+func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, workspace, userData, tmpDir string) (sandboxpkg.Policy, error) {
 	policy.Network.Mode = sandboxpkg.NetworkAllowAll
 	env := maps.Clone(policy.Env)
 	if env == nil {
@@ -89,8 +102,6 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, tmpDir string) (sandbox
 
 	// The none backend has no path remapping or confinement: all filesystem
 	// roots are real host paths. A user-less session falls back to its workspace.
-	workspace := policy.WorkspaceRootOrDefault()
-	userData := hostPathForSandboxMount(policy.Filesystem.Mounts, sandboxpkg.MountUserData)
 	view := sandboxpkg.FilesystemView{Home: workspace, SharedDataDir: userData, TempDir: tmpDir}
 	if err := sandboxpkg.ApplyFilesystemEnv(env, view); err != nil {
 		return sandboxpkg.Policy{}, err
@@ -109,14 +120,67 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, tmpDir string) (sandbox
 	return policy, nil
 }
 
-func hostPathForSandboxMount(mounts []sandboxpkg.Mount, sandboxPath string) string {
+func noneFilesystem(policy sandboxpkg.Policy, sources map[string]string) ([]sessionfs.Mount, string, string, string, error) {
+	if len(policy.Filesystem.Mounts) == 0 {
+		// The none backend has an identity process view, so one absolute
+		// WorkingDir is both the process coordinate and its physical backing.
+		// Remapping providers must receive a separate private mount source.
+		if policy.Filesystem.WorkingDir == "" {
+			return nil, "", "", "", errors.New("working directory is required")
+		}
+		host, err := filepath.Abs(policy.Filesystem.WorkingDir)
+		if err != nil {
+			return nil, "", "", "", err
+		}
+		mount := sessionfs.Mount{HostPath: host, SandboxPath: host, ResolveSymlinkAliases: true}
+		return []sessionfs.Mount{mount}, host, host, "", nil
+	}
+	canonical := make([]sessionfs.Mount, 0, len(policy.Filesystem.Mounts))
+	identity := make([]sessionfs.Mount, 0, len(policy.Filesystem.Mounts))
+	workspace, userData := "", ""
+	for _, mount := range policy.Filesystem.Mounts {
+		source := mountSource(sources, mount.SandboxPath)
+		if source == "" {
+			return nil, "", "", "", fmt.Errorf("physical source for mount %q is required", mount.SandboxPath)
+		}
+		readOnly := mount.Access == sandboxpkg.MountReadOnly
+		if readOnly && !directoryExists(source) {
+			continue
+		}
+		canonical = append(canonical, sessionfs.Mount{HostPath: source, SandboxPath: mount.SandboxPath, ReadOnly: readOnly})
+		identity = append(identity, sessionfs.Mount{HostPath: source, SandboxPath: source, ReadOnly: readOnly, ResolveSymlinkAliases: true})
+		switch filepath.Clean(mount.SandboxPath) {
+		case sandboxpkg.MountWorkspace:
+			workspace = source
+		case sandboxpkg.MountUserData:
+			userData = source
+		}
+	}
+	resolver, err := sessionfs.NewResolver(policy.Filesystem.WorkingDir, canonical)
+	if err != nil {
+		return nil, "", "", "", err
+	}
+	resolved, err := resolver.Resolve(policy.Filesystem.WorkingDir, false)
+	closeErr := resolver.Close()
+	if err != nil || closeErr != nil {
+		return nil, "", "", "", errors.Join(err, closeErr)
+	}
+	return identity, resolved.HostPath(), workspace, userData, nil
+}
+
+func mountSource(sources map[string]string, sandboxPath string) string {
 	clean := filepath.Clean(sandboxPath)
-	for _, m := range mounts {
-		if filepath.Clean(m.SandboxPath) == clean {
-			return m.HostPath
+	for target, source := range sources {
+		if filepath.Clean(target) == clean {
+			return filepath.Clean(source)
 		}
 	}
 	return ""
+}
+
+func directoryExists(name string) bool {
+	info, err := os.Stat(name)
+	return err == nil && info.IsDir()
 }
 
 // noneSession implements sandboxpkg.Session with zero isolation.
@@ -130,6 +194,8 @@ type noneSession struct {
 	closeErr     error
 	procs        []*noneProcess
 	ownedTempDir string
+	resolver     *sessionfs.Resolver
+	files        sandboxpkg.FileAccess
 }
 
 func (s *noneSession) Policy() sandboxpkg.Policy {
@@ -137,6 +203,8 @@ func (s *noneSession) Policy() sandboxpkg.Policy {
 	defer s.mu.RUnlock()
 	return s.policy
 }
+
+func (s *noneSession) Files() sandboxpkg.FileAccess { return s.files }
 
 func (s *noneSession) WorkingDir() string {
 	if s.policy.Filesystem.WorkingDir != "" {
@@ -166,27 +234,15 @@ func (s *noneSession) Close() error {
 	for _, p := range procs {
 		p.Close() //nolint:errcheck
 	}
+	if s.resolver != nil {
+		s.closeErr = s.resolver.Close()
+	}
 	if s.ownedTempDir != "" {
-		s.closeErr = os.RemoveAll(s.ownedTempDir)
+		s.closeErr = errors.Join(s.closeErr, os.RemoveAll(s.ownedTempDir))
 	}
 	s.doneOnce.Do(func() { close(s.done) })
 	sandboxpkg.LogSessionClosed(s.id, "none", "explicit_close")
 	return s.closeErr
-}
-
-// ResolvePath resolves a relative path against the working directory.
-// Absolute paths are returned as-is.
-func (s *noneSession) ResolvePath(path string) (string, error) {
-	if filepath.IsAbs(path) {
-		return path, nil
-	}
-	return filepath.Join(s.WorkingDir(), path), nil
-}
-
-// ResolveWritePath is the same as ResolvePath for the none backend, which has
-// no mount-level isolation.
-func (s *noneSession) ResolveWritePath(path string) (string, error) {
-	return s.ResolvePath(path)
 }
 
 func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.ExecOptions) (sandboxpkg.ExecResult, error) {
@@ -197,10 +253,17 @@ func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.
 	if closed {
 		return sandboxpkg.ExecResult{}, errors.New("none: session is closed")
 	}
+	if err := s.resolver.ValidateBackingPaths(); err != nil {
+		return sandboxpkg.ExecResult{}, fmt.Errorf("none: validate filesystem plan: %w", err)
+	}
 
 	cwd := opts.Cwd
 	if cwd == "" {
 		cwd = s.WorkingDir()
+	}
+	resolvedCwd, err := s.resolver.ResolveDirectory(cwd)
+	if err != nil {
+		return sandboxpkg.ExecResult{}, fmt.Errorf("none: resolve cwd: %w", err)
 	}
 
 	timeout := opts.Timeout
@@ -215,7 +278,7 @@ func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.
 
 	sh, shFlag := shell()
 	cmd := exec.Command(sh, shFlag, command)
-	cmd.Dir = cwd
+	cmd.Dir = resolvedCwd.HostPath()
 	cmd.Env = buildEnv(policy, opts.Env)
 
 	var stdout, stderr bytes.Buffer
@@ -260,10 +323,17 @@ func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRe
 	if closed {
 		return nil, errors.New("none: session is closed")
 	}
+	if err := s.resolver.ValidateBackingPaths(); err != nil {
+		return nil, fmt.Errorf("none: validate filesystem plan: %w", err)
+	}
 
 	cwd := req.Cwd
 	if cwd == "" {
 		cwd = s.WorkingDir()
+	}
+	resolvedCwd, err := s.resolver.ResolveDirectory(cwd)
+	if err != nil {
+		return nil, fmt.Errorf("none: resolve cwd: %w", err)
 	}
 
 	timeout := req.Timeout
@@ -280,7 +350,7 @@ func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRe
 	}
 
 	cmd := exec.Command(req.Path, req.Args...)
-	cmd.Dir = cwd
+	cmd.Dir = resolvedCwd.HostPath()
 	cmd.Env = buildEnv(policy, req.Env)
 
 	stdin, err := cmd.StdinPipe()

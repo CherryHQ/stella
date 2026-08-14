@@ -12,7 +12,7 @@ import (
 	"github.com/CherryHQ/stella/internal/home"
 )
 
-// testWorkspaceViewer preserves legacy path expectations only in old tests.
+// testWorkspaceViewer provides a rooted Home fixture for workspace tests.
 type testWorkspaceViewer struct{}
 
 func (testWorkspaceViewer) WorkspaceView(_ context.Context, req home.WorkspaceRequest) (home.WorkspaceView, error) {

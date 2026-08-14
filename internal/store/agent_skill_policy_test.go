@@ -31,20 +31,12 @@ func TestAgentSkillPolicyCreateAndSeedUseColumnDefault(t *testing.T) {
 	if err := s.CreateAgent(ctx, config.Agent{ID: "policy-default", Name: "Policy default", Enabled: true}); err != nil {
 		t.Fatalf("CreateAgent: %v", err)
 	}
-	if got := string(rawAgentPolicy(t, db, "policy-default")); got != `[]` {
-		t.Fatalf("CreateAgent policy = %s, want DB default []", got)
-	}
+	assertCanonicalEmptyPolicy(t, rawAgentPolicy(t, db, "policy-default"))
 	seedStore, seedDB := setupDBStoreWithDB(t)
 	if err := seedStore.Seed(ctx); err != nil {
 		t.Fatalf("Seed: %v", err)
 	}
-	if got := string(rawAgentPolicy(t, seedDB, "stella")); got != `[]` {
-		t.Fatalf("Seed policy = %s, want DB default []", got)
-	}
-	if _, err := s.SetAgentSkillPolicy(ctx, "policy-default", "builtin:stella", true); err != nil {
-		t.Fatalf("first explicit enable on legacy default: %v", err)
-	}
-	assertCanonicalEmptyPolicy(t, rawAgentPolicy(t, db, "policy-default"))
+	assertCanonicalEmptyPolicy(t, rawAgentPolicy(t, seedDB, "stella"))
 }
 
 func assertCanonicalEmptyPolicy(t *testing.T, raw []byte) {
@@ -117,7 +109,7 @@ func TestAgentSkillPolicyMutationsSerializeAndRollback(t *testing.T) {
 			t.Fatalf("concurrent SetAgentSkillPolicy: %v", err)
 		}
 	}
-	policy, _, err := s.ReadAgentSkillPolicy(ctx, "policy-concurrent")
+	policy, err := s.ReadAgentSkillPolicy(ctx, "policy-concurrent")
 	if err != nil {
 		t.Fatalf("ReadAgentSkillPolicy: %v", err)
 	}
@@ -155,30 +147,24 @@ func TestAgentSkillPolicyMutationsSerializeAndRollback(t *testing.T) {
 			t.Fatalf("same-ref SetAgentSkillPolicy: %v", err)
 		}
 	}
-	policy, _, err = s.ReadAgentSkillPolicy(ctx, "policy-concurrent")
+	policy, err = s.ReadAgentSkillPolicy(ctx, "policy-concurrent")
 	if err != nil || !policy.DisabledRef("builtin:alpha") {
 		t.Fatalf("same-ref last committed update = %#v, %v; want disabled", policy, err)
 	}
 
-	// A decode failure happens before the write and rolls back without changing
-	// the historical bytes.
+	// The database rejects noncanonical policy objects before application code
+	// can observe or accidentally normalize them.
 	for _, corrupt := range []string{
 		`{"version":99,"disabled":[]}`,
 		`{"version":1}`,
 		`{"version":1,"disabled":null}`,
 	} {
-		if _, err := db.Exec(ctx, `UPDATE agent SET enabled_builtin_skills = $1::jsonb WHERE id = $2`, corrupt, "policy-concurrent"); err != nil {
-			t.Fatalf("seed corrupt policy %s: %v", corrupt, err)
-		}
 		before := rawAgentPolicy(t, db, "policy-concurrent")
-		if _, err := s.Snapshot(ctx, "policy-concurrent"); err == nil {
-			t.Fatalf("Snapshot with malformed policy %s error = nil; runner construction must fail closed", corrupt)
-		}
-		if _, err := s.SetAgentSkillPolicy(ctx, "policy-concurrent", "builtin:alpha", false); err == nil {
-			t.Fatalf("SetAgentSkillPolicy corrupt policy %s error = nil", corrupt)
+		if _, err := db.Exec(ctx, `UPDATE agent SET enabled_builtin_skills = $1::jsonb WHERE id = $2`, corrupt, "policy-concurrent"); err == nil {
+			t.Fatalf("database accepted corrupt policy %s", corrupt)
 		}
 		if after := rawAgentPolicy(t, db, "policy-concurrent"); !bytes.Equal(after, before) {
-			t.Fatalf("failed mutation wrote policy: got %s, want exact %s", after, before)
+			t.Fatalf("rejected policy changed storage: got %s, want exact %s", after, before)
 		}
 	}
 }

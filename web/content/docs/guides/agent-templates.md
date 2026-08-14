@@ -50,4 +50,4 @@ Changes take effect on the next conversation. Existing chat history is preserved
 
 An agent can open a focused session when a bounded task needs fresh context. The focused session keeps its own transcript and returns its reply to the original conversation. The agent can continue it later by session ID.
 
-Session presets provide a standard role, tool set, system instruction, and timeout for this work. Stella currently includes the `coder` preset. You can override it or add presets in your project's `.agents/delegates/` directory. The directory name remains for compatibility; agents start preset runs through the Session tool.
+Session presets provide a standard role, tool set, system instruction, and timeout for this work. Stella currently includes the `coder` preset. You can override it or add presets in your project's `.agents/delegates/` directory. Agents start preset runs through the Session tool.

@@ -247,7 +247,7 @@ type setupResult struct {
 	promptSectionsBuilder    prompt.SectionsBuilder
 	sessionPluginViewBuilder agent.SessionPluginViewBuilder
 	toolLifecycle            *coreagent.ToolLifecycle
-	skillStore               pkgplugins.SkillStore
+	skillStore               *skills.POSIXStore
 	cliUserID                int64
 	oauthRegistry            *oauth.ProviderRegistry
 	backgroundTasks          *sync.WaitGroup
@@ -310,6 +310,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 			_ = homeRegistry.Close()
 		}
 	}()
+	if err := homeRegistry.EnsureProjectCoordinates(parent); err != nil {
+		return nil, fmt.Errorf("migrate project coordinates: %w", err)
+	}
 	skillMigrator, err := skills.NewSkillHomeMigrator(db, homeRegistry)
 	if err != nil {
 		return nil, fmt.Errorf("build Skill migration gate: %w", err)
@@ -342,7 +345,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	dispatcher := notify.NewDispatcher()
 	dispatcher.SetChannelStore(store)
 
-	ps, err := setupPlugins(parent, db, store, skillStore, dispatcher)
+	ps, err := setupPlugins(parent, db, store, dispatcher)
 	if err != nil {
 		return nil, err
 	}
@@ -420,7 +423,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	pluginToolsBuilder := func(ctx context.Context, build pkgplugins.ToolBuildContext) []pkgtools.Tool {
 		return phost.BuildEnabledTools(ctx, build)
 	}
-	skillStoreAdapter := pluginhost.NewSkillStoreAdapter(skillStore)
 	// Immutable library raw content may use the configured BlobStore independently
 	// of mutable Home files.
 	libraryRaw, err := library.NewRawStoreFromConfig(config.StellaHome(), cfg.Blob, library.RawStoreOptions{
@@ -464,18 +466,14 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return nil, fmt.Errorf("build session image pipeline: %w", err)
 	}
 	projectStore := agent.NewProjectStore(db, store, agentAccess, agent.WithProjectHomeWorkspace(homeRegistry))
-	homeDir, _ := os.UserHomeDir()
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
-		StellaHome: config.StellaHome(),
-		HomeDir:    homeDir,
-		Memory:     memProvider,
-		Agents:     sessionaccess.ConfigPromptAgentStore{Store: store},
-		Projects:   projectStore.Resolve,
-		Workspace:  homeRegistry,
-		Plugins:    phost,
-		SkillStore: skillStoreAdapter,
-		Skills: func(ctx context.Context, build pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error) {
-			return skills.BuildAuthorizedPromptSection(ctx, build, skillStore, skillAccess)
+		Memory:    memProvider,
+		Agents:    sessionaccess.ConfigPromptAgentStore{Store: store},
+		Projects:  projectStore.Resolve,
+		Workspace: homeRegistry,
+		Plugins:   phost,
+		Skills: func(ctx context.Context, build pkgplugins.SystemPromptContext, project *skills.ProjectSnapshot) (pkgplugins.SystemPromptSection, error) {
+			return skills.BuildAuthorizedPromptSection(ctx, build, project, skillStore, skillAccess)
 		},
 	})
 	if err != nil {
@@ -493,13 +491,13 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		Memory:            memProvider,
 		Store:             store,
 		Snapshots:         snapshotLoader,
-		SkillStore:        skillStoreAdapter,
+		SkillStore:        skillStore,
 		SkillAuthorizer:   skillAccess,
 		UsageCuratorStore: reflect.NewSQLUsageCuratorStoreForPool(db),
 		StateStore:        pluginhost.NewScopedStateStore(phost.StateStore(), "reflect"),
 		Providers:         providerStreamBuilder,
 		Services:          &lazyServiceManager{get: func() agent.ServiceManager { return poolMgr }},
-	}, cfg.Reflect.Interval, cfg.Reflect.LegacyModeGuard, cfg.Reflect.CuratorMode); err != nil {
+	}, cfg.Reflect.Interval, cfg.Reflect.CuratorMode); err != nil {
 		return nil, err
 	}
 	if err := registerChannelGuestRetentionBuiltin(schedulerSvc, channel.NewGuestRetention(db)); err != nil {
@@ -642,7 +640,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		}),
 		agent.WithToolLifecyclePM(toolLifecycle),
 		agent.WithToolOverrideFetcher(agent.NewToolOverrideStore(db).Fetch),
-		agent.WithSkillStore(skillStoreAdapter),
 		agent.WithSkillRevisionReader(skillStore),
 		agent.WithSkillReadAuthorizer(skillAccess),
 		agent.WithProjectResolver(projectStore.Resolve),
@@ -773,7 +770,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		promptSectionsBuilder:    promptSectionsBuilder,
 		sessionPluginViewBuilder: sessionPluginViewBuilder,
 		toolLifecycle:            toolLifecycle,
-		skillStore:               skillStoreAdapter,
+		skillStore:               skillStore,
 		cliUserID:                0,
 		oauthRegistry:            ps.oauthRegistry,
 		backgroundTasks:          backgroundTasks,

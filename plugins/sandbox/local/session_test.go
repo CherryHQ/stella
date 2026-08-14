@@ -2,16 +2,23 @@ package local
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/internal/sessionfs"
 )
 
+func newWorkspaceFactory(workspace string) sandboxpkg.Factory {
+	return NewFactoryWithMountSources(map[string]string{sandboxpkg.MountWorkspace: workspace}, Config{})
+}
+
 func TestFactory_basics(t *testing.T) {
-	f := NewFactory()
+	f := NewFactoryWithMountSources(nil, Config{})
 	if f.(*Factory).Name() != "local" {
 		t.Error("expected name 'local'")
 	}
@@ -20,7 +27,7 @@ func TestFactory_basics(t *testing.T) {
 	}
 	skipIfBwrapNotFunctional(t)
 	policy := sandboxpkg.Policy{
-		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: t.TempDir()},
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: sandboxpkg.MountWorkspace},
 	}
 	if err := f.(*Factory).Supported(policy); err != nil {
 		t.Errorf("Supported: unexpected error: %v", err)
@@ -32,36 +39,49 @@ func TestFactory_createSession(t *testing.T) {
 	root := t.TempDir()
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: root,
-			WorkingDir:    root,
+			WorkingDir: sandboxpkg.MountWorkspace,
+			Mounts:     []sandboxpkg.Mount{{SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite}},
 		},
 		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 		InheritEnv: true,
 	}
-	f := NewFactory()
+	f := newWorkspaceFactory(root)
 	sess, err := f.(*Factory).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
 	defer sess.(*localSession).Close() //nolint:errcheck
 
-	if sess.(*localSession).WorkspaceRoot() == "" {
-		t.Error("expected non-empty WorkspaceRoot")
+	if sess.WorkingDir() == "" {
+		t.Error("expected non-empty WorkingDir")
 	}
 	if !sess.(*localSession).Alive() {
 		t.Error("expected Alive=true before close")
+	}
+	wantMounts := map[string]bool{
+		sess.WorkingDir():                        true,
+		sess.Policy().Env[sandboxpkg.EnvTempDir]: true,
+	}
+	for _, mount := range sess.Policy().Filesystem.Mounts {
+		delete(wantMounts, mount.SandboxPath)
+	}
+	if len(wantMounts) != 0 {
+		t.Fatalf("local policy omitted active data mounts: %v", wantMounts)
 	}
 }
 
 func TestFactory_sessionsOwnDistinctTempDirs(t *testing.T) {
 	skipIfBwrapNotFunctional(t)
 	root := t.TempDir()
-	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root}}
-	firstSession, err := NewFactory().CreateSession(context.Background(), policy)
+	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{
+		WorkingDir: sandboxpkg.MountWorkspace,
+		Mounts:     []sandboxpkg.Mount{{SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite}},
+	}}
+	firstSession, err := newWorkspaceFactory(root).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Fatalf("CreateSession(first): %v", err)
 	}
-	secondSession, err := NewFactory().CreateSession(context.Background(), policy)
+	secondSession, err := newWorkspaceFactory(root).CreateSession(context.Background(), policy)
 	if err != nil {
 		firstSession.Close() //nolint:errcheck
 		t.Fatalf("CreateSession(second): %v", err)
@@ -71,22 +91,16 @@ func TestFactory_sessionsOwnDistinctTempDirs(t *testing.T) {
 	if firstTmp == "" || secondTmp == "" || firstTmp == secondTmp {
 		t.Fatalf("session temp backings = %q and %q, want distinct non-empty paths", firstTmp, secondTmp)
 	}
-	toolPath, err := firstSession.ResolveWritePath(filepath.Join(firstSession.Policy().Env[sandboxpkg.EnvTempDir], "from-tool"))
-	if err != nil {
-		t.Fatalf("ResolveWritePath(TMPDIR): %v", err)
-	}
-	if err := os.WriteFile(toolPath, []byte("tool"), 0o600); err != nil {
+	toolPath := filepath.Join(firstSession.Policy().Env[sandboxpkg.EnvTempDir], "from-tool")
+	if err := firstSession.Files().WriteFile(toolPath, []byte("tool"), 0o600); err != nil {
 		t.Fatalf("write temp through file-tool path: %v", err)
 	}
 	result, err := firstSession.Exec(context.Background(), `cat "$TMPDIR/from-tool"; printf exec > "$TMPDIR/from-exec"`, sandboxpkg.ExecOptions{})
 	if err != nil || result.ExitCode != 0 || result.Stdout != "tool" {
 		t.Fatalf("temp exec round trip = %+v, %v", result, err)
 	}
-	execPath, err := firstSession.ResolvePath(filepath.Join(firstSession.Policy().Env[sandboxpkg.EnvTempDir], "from-exec"))
-	if err != nil {
-		t.Fatalf("ResolvePath(TMPDIR): %v", err)
-	}
-	if data, err := os.ReadFile(execPath); err != nil || string(data) != "exec" {
+	execPath := filepath.Join(firstSession.Policy().Env[sandboxpkg.EnvTempDir], "from-exec")
+	if data, err := firstSession.Files().ReadFile(execPath); err != nil || string(data) != "exec" {
 		t.Fatalf("read exec temp through file-tool path = %q, %v", data, err)
 	}
 	if err := firstSession.Close(); err != nil {
@@ -118,38 +132,17 @@ func TestCleanupOwnedTmpMountsLeavesBorrowedMounts(t *testing.T) {
 	}
 }
 
-func TestEnsureOwnedTmpMountsRestoresOnlyManagedDirectories(t *testing.T) {
-	root := t.TempDir()
-	owned := filepath.Join(root, "owned")
-	borrowed := filepath.Join(root, "borrowed")
-	mounts := []tmpMount{
-		{realPath: owned, owned: true},
-		{realPath: borrowed},
-	}
-
-	if err := ensureOwnedTmpMounts(mounts); err != nil {
-		t.Fatalf("ensureOwnedTmpMounts: %v", err)
-	}
-	info, err := os.Stat(owned)
-	if err != nil {
-		t.Fatalf("stat restored owned mount: %v", err)
-	}
-	if got := info.Mode().Perm(); got != 0o700 {
-		t.Fatalf("restored owned mount mode = %o, want 700", got)
-	}
-	if _, err := os.Stat(borrowed); !os.IsNotExist(err) {
-		t.Fatalf("borrowed mount was created: %v", err)
-	}
-}
-
-func TestLocalSessionExecRestoresRemovedManagedTempDirectory(t *testing.T) {
+func TestLocalSessionExecRejectsRemovedManagedTempDirectory(t *testing.T) {
 	skipIfBwrapNotFunctional(t)
 	root := t.TempDir()
 	policy := sandboxpkg.Policy{
-		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root},
-		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkingDir: sandboxpkg.MountWorkspace,
+			Mounts:     []sandboxpkg.Mount{{SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite}},
+		},
+		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
-	session, err := NewFactory().CreateSession(context.Background(), policy)
+	session, err := newWorkspaceFactory(root).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
@@ -160,13 +153,50 @@ func TestLocalSessionExecRestoresRemovedManagedTempDirectory(t *testing.T) {
 	if err := os.RemoveAll(tmpDir); err != nil {
 		t.Fatalf("remove managed temp directory: %v", err)
 	}
-	result, err := s.Exec(context.Background(), `printf recovered > "$TMPDIR/recovered"`, sandboxpkg.ExecOptions{})
-	if err != nil || result.ExitCode != 0 {
-		t.Fatalf("Exec after temp removal = %+v, %v", result, err)
+	if _, err := s.Exec(context.Background(), `printf unsafe > "$TMPDIR/unsafe"`, sandboxpkg.ExecOptions{}); err == nil {
+		t.Fatal("Exec accepted a removed managed temp directory")
 	}
-	data, err := os.ReadFile(filepath.Join(tmpDir, "recovered"))
-	if err != nil || string(data) != "recovered" {
-		t.Fatalf("restored temp output = %q, %v", data, err)
+	if s.Alive() {
+		t.Fatal("session with an invalid backing plan remained alive")
+	}
+	select {
+	case <-s.Done():
+	default:
+		t.Fatal("invalid backing plan did not close the session generation")
+	}
+	if _, err := os.Stat(tmpDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("removed managed temp directory was rebound: %v", err)
+	}
+}
+
+func TestProviderFilesystemRejectsOverlappingPhysicalMounts(t *testing.T) {
+	workspace := t.TempDir()
+	nested := filepath.Join(workspace, "nested")
+	if err := os.Mkdir(nested, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{
+		WorkingDir: "/workspace",
+		Mounts: []sandboxpkg.Mount{
+			{SandboxPath: "/workspace", Access: sandboxpkg.MountReadWrite},
+			{SandboxPath: "/user", Access: sandboxpkg.MountReadWrite},
+		},
+	}}
+	_, _, _, _, _, _, err := providerFilesystem(policy, map[string]string{
+		"/workspace": workspace,
+		"/user":      nested,
+	})
+	if err == nil {
+		t.Fatal("provider accepted overlapping physical mount sources")
+	}
+}
+
+func TestProviderFilesystemDoesNotTreatWorkingDirAsPhysicalSource(t *testing.T) {
+	_, _, _, _, _, _, err := providerFilesystem(sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{
+		WorkingDir: "/host/workspace",
+	}}, nil)
+	if err == nil || !strings.Contains(err.Error(), "physical source for mount /workspace is required") {
+		t.Fatalf("provider inferred a physical source from WorkingDir: %v", err)
 	}
 }
 
@@ -201,8 +231,7 @@ func TestLocalSession_workspaceAndWorkingDir(t *testing.T) {
 	resolved, _ := filepath.EvalSymlinks(root)
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: resolved,
-			WorkingDir:    resolved,
+			WorkingDir: resolved,
 		},
 	}
 	s := &localSession{
@@ -212,13 +241,10 @@ func TestLocalSession_workspaceAndWorkingDir(t *testing.T) {
 		sandboxRoot: resolved,
 		done:        make(chan struct{}),
 	}
-	if s.WorkspaceRoot() != resolved {
-		t.Errorf("WorkspaceRoot = %q, want %q", s.WorkspaceRoot(), resolved)
-	}
 	if s.WorkingDir() != resolved {
 		t.Errorf("WorkingDir = %q, want %q", s.WorkingDir(), resolved)
 	}
-	if s.Policy().Filesystem.WorkspaceRoot != resolved {
+	if s.Policy().Filesystem.WorkingDir != resolved {
 		t.Error("Policy not preserved")
 	}
 }
@@ -236,8 +262,7 @@ func newTestSession(t *testing.T) (*localSession, string) {
 	}
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: root,
-			WorkingDir:    root,
+			WorkingDir: root,
 		},
 		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 		InheritEnv: true,
@@ -249,7 +274,56 @@ func newTestSession(t *testing.T) (*localSession, string) {
 		sandboxRoot: root,
 		done:        make(chan struct{}),
 	}
+	s.resolver = s.pathResolver()
+	s.files = sessionfs.NewAccess(s.resolver)
 	return s, root
+}
+
+// Test-only physical mapping helpers keep provider internals out of the public
+// Session contract while preserving direct coverage of the local mount plan.
+func (s *localSession) pathResolver() *sessionfs.Resolver {
+	if s.resolver != nil {
+		return s.resolver
+	}
+	mounts := append([]sessionfs.Mount(nil), s.providerMounts...)
+	if _, ok := mountBySandboxPath(mounts, s.sandboxRoot); !ok && s.realRoot != "" && s.sandboxRoot != "" {
+		mounts = append(mounts, sessionfs.Mount{HostPath: s.realRoot, SandboxPath: s.sandboxRoot})
+	}
+	if _, ok := mountBySandboxPath(mounts, s.userDataSandbox); !ok && s.userDataReal != "" && s.userDataSandbox != "" {
+		mounts = append(mounts, sessionfs.Mount{HostPath: s.userDataReal, SandboxPath: s.userDataSandbox})
+	}
+	for _, mount := range s.policy.Filesystem.Mounts {
+		if _, ok := mountBySandboxPath(mounts, mount.SandboxPath); !ok {
+			mounts = append(mounts, sessionfs.Mount{
+				HostPath: mount.SandboxPath, SandboxPath: mount.SandboxPath,
+				ReadOnly: mount.Access == sandboxpkg.MountReadOnly,
+			})
+		}
+	}
+	for _, mount := range s.tmpMounts {
+		mounts = append(mounts, sessionfs.Mount{HostPath: mount.realPath, SandboxPath: mount.sandboxPath})
+	}
+	resolver, err := sessionfs.NewResolver(s.WorkingDir(), mounts)
+	if err != nil {
+		panic(err)
+	}
+	s.resolver = resolver
+	return resolver
+}
+
+func (s *localSession) resolveReadPath(name string) (string, error) {
+	resolved, err := s.pathResolver().Resolve(name, false)
+	return resolved.HostPath(), err
+}
+
+func (s *localSession) resolveWritePath(name string) (string, error) {
+	resolved, err := s.pathResolver().Resolve(name, true)
+	return resolved.HostPath(), err
+}
+
+func (s *localSession) resolveTestPath(name string) (string, string, error) {
+	resolved, err := s.pathResolver().Resolve(name, false)
+	return resolved.HostPath(), resolved.SandboxPath, err
 }
 
 // newExecTestSession returns a session built by the factory, so the sandbox root
@@ -262,13 +336,13 @@ func newExecTestSession(t *testing.T) *localSession {
 	root := t.TempDir()
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: root,
-			WorkingDir:    root,
+			WorkingDir: sandboxpkg.MountWorkspace,
+			Mounts:     []sandboxpkg.Mount{{SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite}},
 		},
 		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 		InheritEnv: true,
 	}
-	sess, err := NewFactory().CreateSession(context.Background(), policy)
+	sess, err := newWorkspaceFactory(root).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
@@ -283,7 +357,7 @@ func TestResolvePath_rejectsOutsideRoot(t *testing.T) {
 
 	// A path that traverses above the root.
 	outside := filepath.Join(root, "..", "escape")
-	_, err := s.ResolvePath(outside)
+	_, err := s.resolveReadPath(outside)
 	if err == nil {
 		t.Fatalf("expected error for path outside workspace root, got nil")
 	}
@@ -300,7 +374,7 @@ func TestResolvePath_acceptsInsideRoot(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	got, err := s.ResolvePath(f)
+	got, err := s.resolveReadPath(f)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -335,56 +409,19 @@ func TestResolvePath_realRootSymlink(t *testing.T) {
 
 	s := &localSession{
 		id:          "test",
-		policy:      sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: resolvedRoot, WorkingDir: resolvedRoot}},
+		policy:      sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: "/workspace"}},
 		realRoot:    resolvedRoot,
 		sandboxRoot: "/workspace",
 		done:        make(chan struct{}),
 	}
 
-	got, err := s.ResolvePath("/workspace/main.go")
+	got, err := s.resolveReadPath("/workspace/main.go")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	want := filepath.Join(actualDir, "main.go")
 	if got != want {
 		t.Errorf("ResolvePath = %q, want %q", got, want)
-	}
-}
-
-// TestToRealPath verifies the sandbox→real path translation.
-func TestToRealPath(t *testing.T) {
-	s := &localSession{
-		sandboxRoot: "/workspace",
-		realRoot:    "/home/stella/.stella-dev/workspaces/1",
-	}
-
-	tests := []struct {
-		in   string
-		want string
-	}{
-		{"/workspace/foo.go", "/home/stella/.stella-dev/workspaces/1/foo.go"},
-		{"/workspace/sub/dir/file.go", "/home/stella/.stella-dev/workspaces/1/sub/dir/file.go"},
-		// Exact root
-		{"/workspace", "/home/stella/.stella-dev/workspaces/1"},
-		// Outside sandboxRoot — returned unchanged
-		{"/etc/passwd", "/etc/passwd"},
-	}
-	for _, tc := range tests {
-		got := s.toRealPath(tc.in)
-		if got != tc.want {
-			t.Errorf("toRealPath(%q) = %q, want %q", tc.in, got, tc.want)
-		}
-	}
-}
-
-// TestToRealPath_noRemap verifies that toRealPath is a no-op when sandboxRoot == realRoot.
-func TestToRealPath_noRemap(t *testing.T) {
-	root := "/tmp/ws"
-	s := &localSession{sandboxRoot: root, realRoot: root}
-	input := "/tmp/ws/foo.go"
-	got := s.toRealPath(input)
-	if got != input {
-		t.Errorf("toRealPath(%q) = %q, want unchanged %q", input, got, input)
 	}
 }
 
@@ -405,8 +442,7 @@ func TestResolvePath_remapped(t *testing.T) {
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: root,
-			WorkingDir:    root,
+			WorkingDir: "/workspace",
 		},
 	}
 	s := &localSession{
@@ -418,12 +454,38 @@ func TestResolvePath_remapped(t *testing.T) {
 	}
 
 	// Agent passes sandbox-space path.
-	got, err := s.ResolvePath("/workspace/main.go")
+	got, err := s.resolveReadPath("/workspace/main.go")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got != f {
 		t.Errorf("ResolvePath(/workspace/main.go) = %q, want %q", got, f)
+	}
+}
+
+func TestPromptProjectContextUsesCanonicalWorkingDir(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("canonical local instructions"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := &localSession{
+		id:          "prompt-canonical",
+		policy:      sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: "/workspace"}},
+		realRoot:    root,
+		sandboxRoot: "/workspace",
+		done:        make(chan struct{}),
+	}
+	s.files = sessionfs.NewAccess(s.pathResolver())
+
+	got := prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{
+		SystemPrompt: "You are Stella.",
+		Session:      s,
+	})
+	if !strings.Contains(got, "canonical local instructions") {
+		t.Fatalf("prompt did not discover AGENTS.md through canonical project view: %s", got)
+	}
+	if _, err := s.resolveReadPath(filepath.Join(root, "AGENTS.md")); err == nil {
+		t.Fatal("resolver accepted the physical ProjectRoot coordinate")
 	}
 }
 
@@ -442,9 +504,8 @@ func TestResolvePath_extraMountAllowed(t *testing.T) {
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: root,
-			WorkingDir:    root,
-			Mounts:        []sandboxpkg.Mount{{HostPath: mountDir, SandboxPath: mountDir, Access: sandboxpkg.MountReadOnly}},
+			WorkingDir: root,
+			Mounts:     []sandboxpkg.Mount{{SandboxPath: mountDir, Access: sandboxpkg.MountReadOnly}},
 		},
 	}
 	s := &localSession{
@@ -452,10 +513,14 @@ func TestResolvePath_extraMountAllowed(t *testing.T) {
 		policy:      policy,
 		realRoot:    root,
 		sandboxRoot: root,
-		done:        make(chan struct{}),
+		providerMounts: []sessionfs.Mount{
+			{HostPath: root, SandboxPath: root},
+			{HostPath: mountDir, SandboxPath: mountDir, ReadOnly: true},
+		},
+		done: make(chan struct{}),
 	}
 
-	got, err := s.ResolvePath(skillFile)
+	got, err := s.resolveReadPath(skillFile)
 	if err != nil {
 		t.Fatalf("unexpected error for extra mount path: %v", err)
 	}
@@ -481,9 +546,8 @@ func TestResolveWritePath_rejectsExtraMount(t *testing.T) {
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: root,
-			WorkingDir:    root,
-			Mounts:        []sandboxpkg.Mount{{HostPath: mountDir, SandboxPath: mountDir, Access: sandboxpkg.MountReadOnly}},
+			WorkingDir: root,
+			Mounts:     []sandboxpkg.Mount{{SandboxPath: mountDir, Access: sandboxpkg.MountReadOnly}},
 		},
 	}
 	s := &localSession{
@@ -491,16 +555,20 @@ func TestResolveWritePath_rejectsExtraMount(t *testing.T) {
 		policy:      policy,
 		realRoot:    root,
 		sandboxRoot: root,
-		done:        make(chan struct{}),
+		providerMounts: []sessionfs.Mount{
+			{HostPath: root, SandboxPath: root},
+			{HostPath: mountDir, SandboxPath: mountDir, ReadOnly: true},
+		},
+		done: make(chan struct{}),
 	}
 
 	// ResolvePath should accept it.
-	if _, err := s.ResolvePath(skillFile); err != nil {
+	if _, err := s.resolveReadPath(skillFile); err != nil {
 		t.Fatalf("ResolvePath unexpectedly rejected extra mount path: %v", err)
 	}
 
 	// ResolveWritePath must reject it.
-	_, err := s.ResolveWritePath(skillFile)
+	_, err := s.resolveWritePath(skillFile)
 	if err == nil {
 		t.Fatal("expected ResolveWritePath to reject read-only mount path, got nil")
 	}
@@ -524,18 +592,18 @@ func TestBuiltinBundleReadableButNotWritable(t *testing.T) {
 	}
 
 	s := &localSession{
-		id:                "test",
-		policy:            sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, Mounts: []sandboxpkg.Mount{{HostPath: root, SandboxPath: root, Access: sandboxpkg.MountReadWrite}, {HostPath: filepath.Join(hostSH, "bundles", "revision"), SandboxPath: sandboxpkg.MountBuiltinSkills, Access: sandboxpkg.MountReadOnly}}}},
-		realRoot:          root,
-		sandboxRoot:       root,
-		stellaHomeHost:    hostSH,
-		stellaHomeSandbox: "/opt/stella",
-		done:              make(chan struct{}),
+		id:             "test",
+		policy:         sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: root}},
+		realRoot:       root,
+		sandboxRoot:    root,
+		providerMounts: []sessionfs.Mount{{HostPath: root, SandboxPath: root}, {HostPath: filepath.Join(hostSH, "bundles", "revision"), SandboxPath: sandboxpkg.MountBuiltinSkills, ReadOnly: true}},
+		stellaHomeHost: hostSH,
+		done:           make(chan struct{}),
 	}
 
 	// The agent addresses the exact release bundle through its fixed sandbox view.
 	sandboxPath := sandboxpkg.MountBuiltinSkills + "/system/demo/refs.md"
-	real, _, err := s.resolvePath(sandboxPath)
+	real, _, err := s.resolveTestPath(sandboxPath)
 	if err != nil {
 		t.Fatalf("resolvePath rejected system-tree read: %v", err)
 	}
@@ -544,7 +612,7 @@ func TestBuiltinBundleReadableButNotWritable(t *testing.T) {
 	}
 
 	// Writes into the bundle must be rejected.
-	if _, err := s.ResolveWritePath(sandboxPath); err == nil {
+	if _, err := s.resolveWritePath(sandboxPath); err == nil {
 		t.Fatal("expected ResolveWritePath to reject system-tree path, got nil")
 	}
 
@@ -552,97 +620,8 @@ func TestBuiltinBundleReadableButNotWritable(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(hostSH, "users", "u1"), 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if _, _, err := s.resolvePath("/opt/stella/.agents/skills/demo/refs.md"); err == nil {
+	if _, _, err := s.resolveTestPath("/opt/stella/.agents/skills/demo/refs.md"); err == nil {
 		t.Fatal("expected resolvePath to reject the retired extracted builtin path, got nil")
-	}
-}
-
-// TestAgentSkills_readableButNotWritable verifies that the agent-bound
-// (system_agent) skills dir, mounted read-only at /opt/stella/agent-skills on an
-// isolating backend, is resolvable for reads and rejected for writes.
-func TestAgentSkills_readableButNotWritable(t *testing.T) {
-	root := t.TempDir()
-	root, _ = filepath.EvalSymlinks(root)
-	hostSH := t.TempDir()
-	hostSH, _ = filepath.EvalSymlinks(hostSH)
-
-	// AgentRoot/.agents/skills lives under STELLA_HOME (agents/<id>), distinct
-	// from the system skills dir at STELLA_HOME/.agents/skills.
-	agentSkills := filepath.Join(hostSH, "agents", "a1", ".agents", "skills")
-	if err := os.MkdirAll(filepath.Join(agentSkills, "demo"), 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(agentSkills, "demo", "SKILL.md"), []byte("# skill"), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	s := &localSession{
-		id:                "test",
-		policy:            sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, Mounts: []sandboxpkg.Mount{{HostPath: root, SandboxPath: root, Access: sandboxpkg.MountReadWrite}, {HostPath: agentSkills, SandboxPath: sandboxpkg.MountAgentSkills, Access: sandboxpkg.MountReadOnly}}}},
-		realRoot:          root,
-		sandboxRoot:       root,
-		stellaHomeHost:    hostSH,
-		stellaHomeSandbox: "/opt/stella",
-		done:              make(chan struct{}),
-	}
-
-	sandboxPath := sandboxpkg.MountAgentSkills + "/demo/SKILL.md"
-	real, _, err := s.resolvePath(sandboxPath)
-	if err != nil {
-		t.Fatalf("resolvePath rejected agent-skills read: %v", err)
-	}
-	if want := filepath.Join(agentSkills, "demo", "SKILL.md"); real != want {
-		t.Errorf("resolvePath real = %q, want %q", real, want)
-	}
-	if got := s.toSandboxPath(filepath.Join(agentSkills, "demo")); got != sandboxpkg.MountAgentSkills+"/demo" {
-		t.Errorf("toSandboxPath = %q, want %q", got, sandboxpkg.MountAgentSkills+"/demo")
-	}
-	if _, err := s.ResolveWritePath(sandboxPath); err == nil {
-		t.Fatal("expected ResolveWritePath to reject agent-skills path, got nil")
-	}
-}
-
-// TestSystemDBSkills_readableButNotWritable verifies that the DB-installed
-// system skills dir, mounted read-only at /opt/stella/db-skills on an isolating
-// backend, is resolvable for reads and rejected for writes — and stays distinct
-// from the shipped built-in system skills dir under STELLA_HOME.
-func TestSystemDBSkills_readableButNotWritable(t *testing.T) {
-	root := t.TempDir()
-	root, _ = filepath.EvalSymlinks(root)
-	hostSH := t.TempDir()
-	hostSH, _ = filepath.EvalSymlinks(hostSH)
-
-	dbSkills := filepath.Join(hostSH, ".agents", "db-skills")
-	if err := os.MkdirAll(filepath.Join(dbSkills, "demo"), 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dbSkills, "demo", "SKILL.md"), []byte("# skill"), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	s := &localSession{
-		id:                "test",
-		policy:            sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root, Mounts: []sandboxpkg.Mount{{HostPath: root, SandboxPath: root, Access: sandboxpkg.MountReadWrite}, {HostPath: dbSkills, SandboxPath: sandboxpkg.MountSystemDBSkills, Access: sandboxpkg.MountReadOnly}}}},
-		realRoot:          root,
-		sandboxRoot:       root,
-		stellaHomeHost:    hostSH,
-		stellaHomeSandbox: "/opt/stella",
-		done:              make(chan struct{}),
-	}
-
-	sandboxPath := sandboxpkg.MountSystemDBSkills + "/demo/SKILL.md"
-	real, _, err := s.resolvePath(sandboxPath)
-	if err != nil {
-		t.Fatalf("resolvePath rejected system-db-skills read: %v", err)
-	}
-	if want := filepath.Join(dbSkills, "demo", "SKILL.md"); real != want {
-		t.Errorf("resolvePath real = %q, want %q", real, want)
-	}
-	if got := s.toSandboxPath(filepath.Join(dbSkills, "demo")); got != sandboxpkg.MountSystemDBSkills+"/demo" {
-		t.Errorf("toSandboxPath = %q, want %q", got, sandboxpkg.MountSystemDBSkills+"/demo")
-	}
-	if _, err := s.ResolveWritePath(sandboxPath); err == nil {
-		t.Fatal("expected ResolveWritePath to reject system-db-skills path, got nil")
 	}
 }
 
@@ -656,7 +635,7 @@ func TestResolveWritePath_acceptsWorkspace(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	got, err := s.ResolveWritePath(f)
+	got, err := s.resolveWritePath(f)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -673,9 +652,8 @@ func TestResolvePath_rejectsAdjacentToExtraMount(t *testing.T) {
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: root,
-			WorkingDir:    root,
-			Mounts:        []sandboxpkg.Mount{{HostPath: mountDir, SandboxPath: mountDir, Access: sandboxpkg.MountReadOnly}},
+			WorkingDir: root,
+			Mounts:     []sandboxpkg.Mount{{SandboxPath: mountDir, Access: sandboxpkg.MountReadOnly}},
 		},
 	}
 	s := &localSession{
@@ -683,12 +661,16 @@ func TestResolvePath_rejectsAdjacentToExtraMount(t *testing.T) {
 		policy:      policy,
 		realRoot:    root,
 		sandboxRoot: root,
-		done:        make(chan struct{}),
+		providerMounts: []sessionfs.Mount{
+			{HostPath: root, SandboxPath: root},
+			{HostPath: mountDir, SandboxPath: mountDir, ReadOnly: true},
+		},
+		done: make(chan struct{}),
 	}
 
 	// A sibling directory of mountDir — not inside any mount.
 	adjacent := filepath.Join(filepath.Dir(mountDir), "adjacent")
-	_, err := s.ResolvePath(adjacent)
+	_, err := s.resolveReadPath(adjacent)
 	if err == nil {
 		t.Fatal("expected error for path adjacent to extra mount, got nil")
 	}
@@ -702,12 +684,8 @@ func TestResolvePath_rejectsSymlinkParentForMissingPath(t *testing.T) {
 		t.Fatalf("Symlink: %v", err)
 	}
 
-	_, err := s.ResolvePath(filepath.Join(link, "new.txt"))
-	if err == nil {
+	if _, err := s.Files().ReadFile(filepath.Join(link, "new.txt")); err == nil {
 		t.Fatal("expected symlink parent to be rejected")
-	}
-	if !strings.Contains(err.Error(), "symlink") {
-		t.Fatalf("expected symlink error, got: %v", err)
 	}
 }
 
@@ -719,7 +697,7 @@ func TestResolveCwd_rejectsOutsideRoot(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected cwd outside workspace to be rejected")
 	}
-	if !strings.Contains(err.Error(), "outside workspace root") {
+	if !strings.Contains(err.Error(), "outside process mount plan") {
 		t.Fatalf("expected outside-root error, got: %v", err)
 	}
 }
@@ -746,7 +724,7 @@ func TestAdjustPolicy_rewritesMiseEnvPaths(t *testing.T) {
 	}
 
 	f := &Factory{cfg: Config{StellaHome: hostSH}}
-	sandboxRoot, realRoot := resolveSandboxRoot(policy)
+	sandboxRoot, realRoot := processVisiblePath(sandboxpkg.MountWorkspace, sandboxpkg.MountWorkspace), sandboxpkg.MountWorkspace
 	adjusted := f.adjustPolicy(policy, sandboxRoot, realRoot, "", "")
 
 	if hostSH == sandboxSH {
@@ -793,7 +771,7 @@ func TestAdjustPolicy_perUserMiseShimsOnPath(t *testing.T) {
 		Env: map[string]string{"MISE_DATA_DIR": hostSH + "/users/u1/.mise-tools"},
 	}
 	f := &Factory{cfg: Config{StellaHome: hostSH}}
-	sandboxRoot, realRoot := resolveSandboxRoot(policy)
+	sandboxRoot, realRoot := processVisiblePath(sandboxpkg.MountWorkspace, sandboxpkg.MountWorkspace), sandboxpkg.MountWorkspace
 	adjusted := f.adjustPolicy(policy, sandboxRoot, realRoot, "", "")
 
 	wantShims := sandboxSH + "/users/u1/.mise-tools/shims"
@@ -817,7 +795,7 @@ func TestAdjustPolicy_perUserMiseInStellaHomeFrame(t *testing.T) {
 	userData := userHome + "/data"
 	miseHome := userHome + "/.mise-tools" // sibling of data, under STELLA_HOME
 	policy := sandboxpkg.Policy{
-		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: agentDir, Mounts: []sandboxpkg.Mount{{HostPath: agentDir, SandboxPath: "/workspace", Access: sandboxpkg.MountReadWrite}, {HostPath: userData, SandboxPath: "/user", Access: sandboxpkg.MountReadWrite}}},
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: "/workspace", Mounts: []sandboxpkg.Mount{{SandboxPath: "/workspace", Access: sandboxpkg.MountReadWrite}, {SandboxPath: "/user", Access: sandboxpkg.MountReadWrite}}},
 		Env: map[string]string{
 			"MISE_DATA_DIR":             miseHome,
 			"MISE_CACHE_DIR":            miseHome + "/cache",
@@ -858,14 +836,13 @@ func TestAdjustPolicy_homeAndXDG(t *testing.T) {
 	userData := filepath.Join(root, "data")
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: root,
-			WorkingDir:    filepath.Join(root, "projects", "p"),
-			Mounts:        []sandboxpkg.Mount{{HostPath: root, SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite}, {HostPath: userData, SandboxPath: sandboxpkg.MountUserData, Access: sandboxpkg.MountReadWrite}},
+			WorkingDir: filepath.Join(root, "projects", "p"),
+			Mounts:     []sandboxpkg.Mount{{SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite}, {SandboxPath: sandboxpkg.MountUserData, Access: sandboxpkg.MountReadWrite}},
 		},
 	}
 	f := &Factory{cfg: Config{StellaHome: t.TempDir()}}
-	sandboxRoot, realRoot := resolveSandboxRoot(policy)
-	userDataSandbox, userDataReal := resolveUserDataRoot(policy)
+	sandboxRoot, realRoot := processVisiblePath(sandboxpkg.MountWorkspace, root), root
+	userDataSandbox, userDataReal := processVisiblePath(sandboxpkg.MountUserData, userData), userData
 	adjusted := f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal)
 	if err := applyFilesystemEnv(&adjusted, sandboxRoot, userDataSandbox, nil); err != nil {
 		t.Fatalf("applyFilesystemEnv: %v", err)
@@ -896,11 +873,11 @@ func TestAdjustPolicy_homeAndXDG(t *testing.T) {
 func TestAdjustPolicy_noUserDataFallsBackToWorkspace(t *testing.T) {
 	root := t.TempDir()
 	policy := sandboxpkg.Policy{
-		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root},
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: root},
 	}
 	f := &Factory{cfg: Config{StellaHome: t.TempDir()}}
-	sandboxRoot, realRoot := resolveSandboxRoot(policy)
-	userDataSandbox, userDataReal := resolveUserDataRoot(policy)
+	sandboxRoot, realRoot := processVisiblePath(sandboxpkg.MountWorkspace, root), root
+	userDataSandbox, userDataReal := "", ""
 	adjusted := f.adjustPolicy(policy, sandboxRoot, realRoot, userDataSandbox, userDataReal)
 	if err := applyFilesystemEnv(&adjusted, sandboxRoot, userDataSandbox, nil); err != nil {
 		t.Fatalf("applyFilesystemEnv: %v", err)
@@ -934,12 +911,16 @@ func TestResolvePath_twoRoots(t *testing.T) {
 		sandboxRoot:     "/workspace",
 		userDataReal:    userReal,
 		userDataSandbox: "/user",
+		providerMounts: []sessionfs.Mount{
+			{HostPath: agentReal, SandboxPath: "/workspace"},
+			{HostPath: userReal, SandboxPath: "/user"},
+		},
 		policy: sandboxpkg.Policy{
 			Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: "/workspace"},
 		},
 	}
 
-	got, err := s.ResolveWritePath("/user/assets/x.txt")
+	got, err := s.resolveWritePath("/user/assets/x.txt")
 	if err != nil {
 		t.Fatalf("ResolveWritePath(/user/...): %v", err)
 	}
@@ -947,7 +928,7 @@ func TestResolvePath_twoRoots(t *testing.T) {
 		t.Errorf("/user write resolved to %q, want %q", got, want)
 	}
 
-	got, err = s.ResolveWritePath("/workspace/main.go")
+	got, err = s.resolveWritePath("/workspace/main.go")
 	if err != nil {
 		t.Fatalf("ResolveWritePath(/workspace/...): %v", err)
 	}
@@ -955,7 +936,7 @@ func TestResolvePath_twoRoots(t *testing.T) {
 		t.Errorf("/workspace write resolved to %q, want %q", got, want)
 	}
 
-	if _, err := s.ResolvePath("/workspace/../other/secret"); err == nil {
+	if _, err := s.resolveReadPath("/workspace/../other/secret"); err == nil {
 		t.Error("escape from /workspace to a sibling must be rejected")
 	}
 
@@ -963,7 +944,8 @@ func TestResolvePath_twoRoots(t *testing.T) {
 	if err := os.Symlink(userReal, filepath.Join(userReal, "loop")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ResolvePath("/user/loop/x"); err == nil {
+	s.files = sessionfs.NewAccess(s.pathResolver())
+	if _, err := s.Files().ReadFile("/user/loop/x"); err == nil {
 		t.Error("symlink component under /user must be rejected")
 	}
 }
@@ -977,8 +959,7 @@ func TestBuildEnv_denyListFiltersVaultKey(t *testing.T) {
 
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: t.TempDir(),
-			WorkingDir:    t.TempDir(),
+			WorkingDir: t.TempDir(),
 		},
 		InheritEnv: true,
 	}
@@ -1056,7 +1037,7 @@ func TestResolvePath_tmpMountAllowed(t *testing.T) {
 
 	s := &localSession{
 		id:          "test",
-		policy:      sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root}},
+		policy:      sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: "/workspace"}},
 		realRoot:    root,
 		sandboxRoot: "/workspace",
 		tmpMounts:   []tmpMount{{sandboxPath: "/tmp", realPath: realTmpDir}},
@@ -1064,7 +1045,7 @@ func TestResolvePath_tmpMountAllowed(t *testing.T) {
 	}
 
 	// Agent path in sandbox space.
-	got, err := s.ResolvePath("/tmp/work/out.json")
+	got, err := s.resolveReadPath("/tmp/work/out.json")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1088,53 +1069,19 @@ func TestResolvePath_varTmpMountAllowed(t *testing.T) {
 
 	s := &localSession{
 		id:          "test",
-		policy:      sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root}},
+		policy:      sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: "/workspace"}},
 		realRoot:    root,
 		sandboxRoot: "/workspace",
 		tmpMounts:   []tmpMount{{sandboxPath: "/var/tmp", realPath: realVarTmp}},
 		done:        make(chan struct{}),
 	}
 
-	got, err := s.ResolvePath("/var/tmp/cache.bin")
+	got, err := s.resolveReadPath("/var/tmp/cache.bin")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got != f {
 		t.Errorf("ResolvePath = %q, want %q", got, f)
-	}
-}
-
-// TestToRealPath_tmpMapping verifies that /tmp and /var/tmp sandbox paths are
-// translated to their real host paths via tmpMounts, while workspace paths
-// still go through the sandboxRoot→realRoot mapping.
-func TestToRealPath_tmpMapping(t *testing.T) {
-	realTmp := t.TempDir()
-	realVarTmp := t.TempDir()
-	root := t.TempDir()
-
-	s := &localSession{
-		realRoot:    root,
-		sandboxRoot: "/workspace",
-		tmpMounts: []tmpMount{
-			{sandboxPath: "/tmp", realPath: realTmp},
-			{sandboxPath: "/var/tmp", realPath: realVarTmp},
-		},
-	}
-
-	tests := []struct {
-		in   string
-		want string
-	}{
-		{"/tmp/foo.txt", filepath.Join(realTmp, "foo.txt")},
-		{"/tmp", realTmp},
-		{"/var/tmp/bar", filepath.Join(realVarTmp, "bar")},
-		{"/workspace/src/main.go", filepath.Join(root, "src/main.go")},
-	}
-	for _, tc := range tests {
-		got := s.toRealPath(tc.in)
-		if got != tc.want {
-			t.Errorf("toRealPath(%q) = %q, want %q", tc.in, got, tc.want)
-		}
 	}
 }
 
@@ -1153,14 +1100,14 @@ func TestResolveWritePath_allowsTmp(t *testing.T) {
 
 	s := &localSession{
 		id:          "test",
-		policy:      sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root}},
+		policy:      sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: "/workspace"}},
 		realRoot:    root,
 		sandboxRoot: "/workspace",
 		tmpMounts:   []tmpMount{{sandboxPath: "/tmp", realPath: realTmpDir}},
 		done:        make(chan struct{}),
 	}
 
-	got, err := s.ResolveWritePath("/tmp/out.txt")
+	got, err := s.resolveWritePath("/tmp/out.txt")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

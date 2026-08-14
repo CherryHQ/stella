@@ -26,7 +26,6 @@ type SystemPromptInput struct {
 // PromptAgent is the narrow agent config needed to build a system prompt.
 type PromptAgent struct {
 	SystemPrompt string
-	Workspace    string
 }
 
 type PromptAgentStore interface {
@@ -39,7 +38,7 @@ type PromptPlugins interface {
 	ManifestPluginPrompts() []pkgplugins.SystemPromptSection
 }
 
-type PromptSkillSectionBuilder func(context.Context, pkgplugins.SystemPromptContext) (pkgplugins.SystemPromptSection, error)
+type PromptSkillSectionBuilder func(context.Context, pkgplugins.SystemPromptContext, *skills.ProjectSnapshot) (pkgplugins.SystemPromptSection, error)
 
 type SystemPromptBuilder interface {
 	BuildSessionSystemPrompt(context.Context, SystemPromptBuildInput) (string, error)
@@ -50,15 +49,12 @@ type SystemPromptBuildInput struct {
 }
 
 type SystemPromptDeps struct {
-	StellaHome string
-	HomeDir    string
-	Memory     memory.Provider
-	Agents     PromptAgentStore
-	Projects   agent.ProjectResolverFunc
-	Workspace  home.WorkspaceViewer
-	Plugins    PromptPlugins
-	SkillStore pkgplugins.SkillStore
-	Skills     PromptSkillSectionBuilder
+	Memory    memory.Provider
+	Agents    PromptAgentStore
+	Projects  agent.ProjectResolverFunc
+	Workspace home.RootOpener
+	Plugins   PromptPlugins
+	Skills    PromptSkillSectionBuilder
 }
 
 type defaultSystemPromptBuilder struct {
@@ -67,9 +63,6 @@ type defaultSystemPromptBuilder struct {
 
 func NewSystemPromptBuilder(deps SystemPromptDeps) (SystemPromptBuilder, error) {
 	missing := ""
-	if deps.StellaHome == "" {
-		missing = "StellaHome"
-	}
 	if deps.Memory == nil {
 		missing = appendMissing(missing, "Memory")
 	}
@@ -84,9 +77,6 @@ func NewSystemPromptBuilder(deps SystemPromptDeps) (SystemPromptBuilder, error) 
 	}
 	if deps.Plugins == nil {
 		missing = appendMissing(missing, "Plugins")
-	}
-	if deps.SkillStore == nil {
-		missing = appendMissing(missing, "SkillStore")
 	}
 	if deps.Skills == nil {
 		missing = appendMissing(missing, "Skills")
@@ -106,32 +96,21 @@ func appendMissing(current, next string) string {
 
 func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Context, in SystemPromptBuildInput) (string, error) {
 	info := in.Info
+	ctx = authz.WithAgentID(ctx, info.AgentID)
+	if info.GroupID != "" {
+		ctx = authz.WithGroupID(ctx, info.GroupID)
+	} else if info.UserID != "" {
+		ctx = authz.WithUserID(ctx, info.UserID)
+	}
 	var agentCfg PromptAgent
 	if info.AgentID != "" {
 		agentCfg, _ = b.deps.Agents.GetPromptAgent(ctx, info.AgentID)
 	}
 
-	userRoot := ""
-	workspaceRoot := agentCfg.Workspace
-	if info.AgentID != "" {
-		view, err := b.deps.Workspace.WorkspaceView(ctx, home.WorkspaceRequest{UserID: info.UserID, GroupID: info.GroupID, AgentID: info.AgentID})
-		if err != nil {
-			return "", fmt.Errorf("%w: Home workspace: %w", ErrUnavailable, err)
-		}
-		if info.UserID != "" || info.GroupID != "" {
-			userRoot = view.PrincipalRoot
-			workspaceRoot = view.AgentRoot
-		}
-	}
-
 	var projectContext prompt.ProjectContext
 	var projectSkills *skills.ProjectSnapshot
 	if info.UserID != "" && info.ProjectID != "" {
-		opener, ok := b.deps.Workspace.(home.RootOpener)
-		if !ok {
-			return "", fmt.Errorf("%w: Home root opener is required for project context", ErrUnavailable)
-		}
-		projectSnapshot, err := agent.SnapshotAuthorizedProject(ctx, b.deps.Projects, opener, info.ProjectID, info.UserID, info.AgentID)
+		projectSnapshot, err := agent.SnapshotAuthorizedProject(ctx, b.deps.Projects, b.deps.Workspace, info.ProjectID, info.UserID, info.AgentID)
 		if err != nil {
 			return "", fmt.Errorf("%w: project context: %w", ErrUnavailable, err)
 		}
@@ -143,14 +122,8 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 		return "", fmt.Errorf("%w: session plugin view: %w", ErrUnavailable, err)
 	}
 	promptBuild := pkgplugins.SystemPromptContext{
-		StellaHome:          b.deps.StellaHome,
-		HomeDir:             b.deps.HomeDir,
-		AgentRoot:           agentCfg.Workspace,
 		UserID:              info.UserID,
 		AgentID:             info.AgentID,
-		UserRoot:            userRoot,
-		WorkspaceRoot:       workspaceRoot,
-		SkillStore:          b.deps.SkillStore,
 		RegisteredPluginIDs: pluginView.RegisteredPluginIDs,
 		EnabledPluginIDs:    pluginView.EnabledPluginIDs,
 	}
@@ -158,7 +131,7 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 	if err != nil {
 		return "", fmt.Errorf("%w: system prompt sections: %w", ErrUnavailable, err)
 	}
-	if skillsSection, err := b.deps.Skills(skills.WithProjectSnapshot(ctx, projectSkills), promptBuild); err != nil {
+	if skillsSection, err := b.deps.Skills(ctx, promptBuild, projectSkills); err != nil {
 		return "", fmt.Errorf("%w: skills prompt section: %w", ErrUnavailable, err)
 	} else if skillsSection.Title != "" && skillsSection.Content != "" {
 		promptSections = append(promptSections, skillsSection)
@@ -174,10 +147,7 @@ func (b *defaultSystemPromptBuilder) BuildSessionSystemPrompt(ctx context.Contex
 		UserID:         promptUserID,
 		AgentID:        info.AgentID,
 		GroupID:        info.GroupID,
-		StellaHome:     b.deps.StellaHome,
-		AgentRoot:      agentCfg.Workspace,
 		ProjectContext: projectContext,
-		UserRoot:       userRoot,
 		Sections:       append(promptSections, b.deps.Plugins.ManifestPluginPrompts()...),
 	})
 	return system, nil
@@ -191,5 +161,5 @@ func (s ConfigPromptAgentStore) GetPromptAgent(ctx context.Context, agentID stri
 	if err != nil {
 		return PromptAgent{}, err
 	}
-	return PromptAgent{SystemPrompt: agentCfg.SystemPrompt, Workspace: agentCfg.Workspace}, nil
+	return PromptAgent{SystemPrompt: agentCfg.SystemPrompt}, nil
 }

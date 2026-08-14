@@ -23,13 +23,11 @@ func TestCurrentSpeakerNotRenderedInGroupSystemPrompt(t *testing.T) {
 	_ = fake.SetProfile(ctx, "other", "a1", "OTHER MEMBER SECRET")
 
 	p := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
-		SystemPrompt:      "You are Stella.",
-		Memory:            fake,
-		UserID:            "",
-		AgentID:           "a1",
-		GroupID:           "grp-1",
-		CurrentSpeaker:    memory.CurrentSpeaker{Platform: "telegram", DisplayName: "Alice", UserID: "speaker1"},
-		HasCurrentSpeaker: true,
+		SystemPrompt: "You are Stella.",
+		Memory:       fake,
+		UserID:       "",
+		AgentID:      "a1",
+		GroupID:      "grp-1",
 	})
 
 	for _, want := range []string{"## Group Memory", "This group talks about Go."} {

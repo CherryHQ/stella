@@ -61,46 +61,6 @@ func TestBuildReviewUnit_ChronologicalWindow(t *testing.T) {
 	}
 }
 
-func TestBuildReviewUnitSkipsImpossibleSameTimestampBoundary(t *testing.T) {
-	fake := memorytest.New()
-	svc := &Service{memory: &nonReviewerProvider{fake}, log: testLogger()}
-
-	ctx := context.Background()
-	sess := memory.Session{ID: "s1", AgentID: "a", UserID: "1"}
-	if err := fake.Bootstrap(ctx, sess); err != nil {
-		t.Fatal(err)
-	}
-
-	sharedAt := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
-	if err := fake.Append(ctx, sess,
-		ai.UserMessage{Content: "fresh one", Timestamp: sharedAt},
-		ai.UserMessage{Content: "fresh two", Timestamp: sharedAt},
-	); err != nil {
-		t.Fatal(err)
-	}
-
-	// Either line fits alone, but the timestamp-only fallback cannot split their
-	// shared review boundary without risking duplicate or lost messages.
-	budget := memory.EstimateTokens("<fresh_conversation>\n[user] fresh one\n</fresh_conversation>\n")
-	unit, err := svc.buildReviewUnit(ctx, reviewTarget{
-		session:         sess,
-		privateOneToOne: true,
-	}, reviewWatermark{}, budget)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if unit.Text != "" || unit.FreshCount != 0 {
-		t.Fatalf("impossible same-timestamp boundary must not be partially included, got %#v", unit)
-	}
-	if !unit.LastIncludedAt.Equal(sharedAt) {
-		t.Fatalf("watermark should advance past the permanently skipped boundary, got %v", unit.LastIncludedAt)
-	}
-	if len(unit.Skipped) != 1 || unit.Skipped[0].Reason != reviewSkipOversizedBoundaryGroup {
-		t.Fatalf("expected one boundary-group skip, got %#v", unit.Skipped)
-	}
-}
-
 func TestBuildReviewUnitSkipsOversizedLineAndIncludesSameTimestampPeer(t *testing.T) {
 	fake := memorytest.New()
 	svc := &Service{memory: &nonReviewerProvider{fake}, log: testLogger()}
@@ -131,7 +91,7 @@ func TestBuildReviewUnitSkipsOversizedLineAndIncludesSameTimestampPeer(t *testin
 	if unit.Truncated || unit.FreshCount != 1 || !strings.Contains(unit.Text, "tiny") {
 		t.Fatalf("expected the safe peer to remain reviewable, got %#v", unit)
 	}
-	if !unit.LastIncludedAt.Equal(sharedAt) || unit.LastIncludedSeq != 0 {
+	if !unit.LastIncludedAt.Equal(sharedAt) || unit.LastIncludedSeq != 2 {
 		t.Fatalf("watermark must advance across the fully handled boundary, got %#v", unit)
 	}
 }
@@ -836,8 +796,8 @@ func TestBuildReviewUnit_FailsClosedForGroupSession(t *testing.T) {
 	}
 }
 
-// nonReviewerProvider wraps a Fake but hides the Reviewer interface.
-// This exercises ReviewUnit's SessionManager fallback path.
+// nonReviewerProvider hides the legacy Reviewer capability while preserving the
+// exact ReviewHistoryReader boundary required by Reflect.
 type nonReviewerProvider struct {
 	inner *memorytest.Fake
 }
@@ -860,31 +820,6 @@ func (p *nonReviewerProvider) Stats(ctx context.Context, session memory.Session)
 }
 func (p *nonReviewerProvider) Close() error { return nil }
 
-// Expose SessionManager but NOT Reviewer.
-func (p *nonReviewerProvider) SaveInfo(ctx context.Context, info memory.SessionInfo) error {
-	return p.inner.SaveInfo(ctx, info)
-}
-
-func (p *nonReviewerProvider) ArchiveInfo(ctx context.Context, info memory.SessionInfo) (bool, error) {
-	return p.inner.ArchiveInfo(ctx, info)
-}
-
-func (p *nonReviewerProvider) LoadInfo(ctx context.Context, sessionID string) (memory.SessionInfo, error) {
-	return p.inner.LoadInfo(ctx, sessionID)
-}
-
-func (p *nonReviewerProvider) ListInfo(ctx context.Context, opts memory.ListOptions) ([]memory.SessionInfo, error) {
-	return p.inner.ListInfo(ctx, opts)
-}
-
-func (p *nonReviewerProvider) RotateInfo(ctx context.Context, expectedSessionID string, successor memory.SessionInfo) error {
-	return p.inner.RotateInfo(ctx, expectedSessionID, successor)
-}
-
-func (p *nonReviewerProvider) TouchActiveInfo(ctx context.Context, info memory.SessionInfo) (bool, error) {
-	return p.inner.TouchActiveInfo(ctx, info)
-}
-
-func (p *nonReviewerProvider) LoadHistory(ctx context.Context, sessionID string) ([]ai.Message, error) {
-	return p.inner.LoadHistory(ctx, sessionID)
+func (p *nonReviewerProvider) LoadReviewHistory(ctx context.Context, sessionID string) ([]memory.ReviewMessage, error) {
+	return p.inner.LoadReviewHistory(ctx, sessionID)
 }

@@ -18,15 +18,11 @@ import (
 // AgentSkillPolicyStore is the narrow persistence port for the Agent setting;
 // it intentionally is not part of Skill content storage or authorization.
 type AgentSkillPolicyStore interface {
-	ReadAgentSkillPolicy(context.Context, string) (agentskillpolicy.Policy, agentskillpolicy.Diagnostics, error)
+	ReadAgentSkillPolicy(context.Context, string) (agentskillpolicy.Policy, error)
 	SetAgentSkillPolicy(context.Context, string, string, bool) (agentskillpolicy.Policy, error)
 }
 
 func (s *Server) UpdateAgentSkillActivation(w http.ResponseWriter, r *http.Request, id string, skillRef string) {
-	if s.agentSkillPolicy == nil {
-		writeError(w, http.StatusServiceUnavailable, "Agent Skill policy unavailable")
-		return
-	}
 	if _, code, msg := s.requireAgentManage(r.Context(), id); code != 0 {
 		writeError(w, code, msg)
 		return
@@ -42,7 +38,7 @@ func (s *Server) UpdateAgentSkillActivation(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "enabled is required")
 		return
 	}
-	policy, _, err := s.agentSkillPolicy.ReadAgentSkillPolicy(r.Context(), id)
+	policy, err := s.agentSkillPolicy.ReadAgentSkillPolicy(r.Context(), id)
 	if err != nil {
 		s.writeInternalError(w, err)
 		return
@@ -91,9 +87,6 @@ func (s *Server) policyRefExists(ctx context.Context, agentID, ref string) (bool
 		_, ok := registry.BuiltinSkill(name)
 		return ok, nil
 	case "system", "system_agent":
-		if s.skillStore() == nil {
-			return false, errors.New("skills store unavailable")
-		}
 		acc, code, msg := s.beginAgentSkillAccess(ctx, agentID)
 		if code != 0 {
 			return false, fmt.Errorf("authorize Agent Skill policy catalog: %s", msg)
@@ -102,47 +95,33 @@ func (s *Server) policyRefExists(ctx context.Context, agentID, ref string) (bool
 		if scope == "system_agent" {
 			agent = agentID
 		}
-		var rows []skills.Skill
-		var err error
-		if reader, ok := s.skillStore().(skills.IdentityReader); ok {
-			rows, err = reader.ListIdentityByScope(ctx, scope, "", agent)
-			if err != nil {
-				return false, fmt.Errorf("list %s Skill identities: %w", scope, err)
-			}
-			for i := range rows {
-				if rows[i].Name != name {
-					continue
-				}
-				if authErr := acc.AuthorizeRead(ctx, rows[i]); authErr != nil {
-					if errors.Is(authErr, skillaccess.ErrNotFound) || errors.Is(authErr, skillaccess.ErrForbidden) {
-						continue
-					}
-					return false, authErr
-				}
-				revision, loadErr := reader.LoadCurrentRevision(ctx, rows[i])
-				if skills.IsCurrentSelectorMissing(loadErr) {
-					s.warnMissingSkillSelector(rows[i], loadErr)
-					continue
-				}
-				if loadErr != nil {
-					return false, loadErr
-				}
-				if revision.Skill.Name == name && revision.Skill.Status != skills.SkillStatusDeprecated {
-					return true, nil
-				}
-			}
-			return false, nil
-		} else {
-			rows, err = s.skillStore().ListByScope(ctx, scope, "", agent)
-		}
+		rows, err := s.skills.ListIdentityByScope(ctx, scope, "", agent)
 		if err != nil {
-			return false, fmt.Errorf("list %s Skills: %w", scope, err)
+			return false, fmt.Errorf("list %s Skill identities: %w", scope, err)
 		}
-		for _, row := range rows {
-			if row.Name == name && row.Status != skills.SkillStatusDeprecated {
+		for i := range rows {
+			if rows[i].Name != name {
+				continue
+			}
+			if authErr := acc.AuthorizeRead(ctx, rows[i]); authErr != nil {
+				if errors.Is(authErr, skillaccess.ErrNotFound) || errors.Is(authErr, skillaccess.ErrForbidden) {
+					continue
+				}
+				return false, authErr
+			}
+			revision, loadErr := s.skills.LoadCurrentRevision(ctx, rows[i])
+			if skills.IsCurrentSelectorMissing(loadErr) {
+				s.warnMissingSkillSelector(rows[i], loadErr)
+				continue
+			}
+			if loadErr != nil {
+				return false, loadErr
+			}
+			if revision.Skill.Name == name && revision.Skill.Status != skills.SkillStatusDeprecated {
 				return true, nil
 			}
 		}
+		return false, nil
 	}
 	return false, nil
 }

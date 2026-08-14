@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/internal/sessionfs"
 )
 
 func TestFilesystemTempDirLinuxUsesSandboxPath(t *testing.T) {
@@ -25,13 +26,13 @@ func TestWrapCommand_linux_networkDisabled(t *testing.T) {
 	sandboxCwd := "/workspace"
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: root,
-			WorkingDir:    root,
+			WorkingDir: root,
 		},
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkDisabled},
 	}
 
-	path, args, err := wrapCommand(policy, sandboxCwd, nil, "", "sh", []string{"-c", "echo hi"})
+	session := &localSession{realRoot: root}
+	path, args, err := session.wrapCommand(policy, sandboxCwd, "sh", []string{"-c", "echo hi"})
 
 	if !bwrapFunctional() {
 		if err == nil {
@@ -63,13 +64,13 @@ func TestWrapCommand_linux_allowAllNoWrap(t *testing.T) {
 	sandboxCwd := "/workspace"
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: root,
-			WorkingDir:    root,
+			WorkingDir: root,
 		},
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
 
-	_, args, err := wrapCommand(policy, sandboxCwd, nil, "", "sh", []string{"-c", "echo hi"})
+	session := &localSession{realRoot: root}
+	_, args, err := session.wrapCommand(policy, sandboxCwd, "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error for allow_all network: %v", err)
 	}
@@ -101,7 +102,7 @@ func TestLocalExec_linux_workspaceWritableOutsideHidden(t *testing.T) {
 	s := &localSession{
 		id: "test",
 		policy: sandboxpkg.Policy{
-			Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: root, WorkingDir: root},
+			Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: "/workspace"},
 			Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkDisabled},
 			Env: map[string]string{
 				"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
@@ -112,6 +113,8 @@ func TestLocalExec_linux_workspaceWritableOutsideHidden(t *testing.T) {
 		sandboxRoot: "/workspace",
 		done:        make(chan struct{}),
 	}
+	s.resolver = s.pathResolver()
+	t.Cleanup(func() { _ = s.Close() })
 
 	cmd := "echo ok > /workspace/out.txt && test ! -e " + shellQuote(outsideFile) + " && cat /workspace/out.txt"
 	result, err := s.Exec(context.Background(), cmd, sandboxpkg.ExecOptions{})
@@ -155,13 +158,13 @@ func TestWrapCommand_linux_bwrapWorkspaceRemap(t *testing.T) {
 	sandboxCwd := "/workspace/sub"
 	policy := sandboxpkg.Policy{
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: root,
-			WorkingDir:    sandboxCwd,
+			WorkingDir: sandboxCwd,
 		},
 		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
 
-	execPath, args, err := wrapCommand(policy, sandboxCwd, nil, "", "sh", []string{"-c", "echo hi"})
+	session := &localSession{realRoot: root}
+	execPath, args, err := session.wrapCommand(policy, sandboxCwd, "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -247,15 +250,13 @@ func TestWrapCommand_linux_outOfRootWritableBind(t *testing.T) {
 	sandboxUserDir := filepath.Join(sandboxStellaHome, "users", "u1", ".mise-tools")
 
 	policy := sandboxpkg.Policy{
-		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: "/tmp/test-workspace",
-			WorkingDir:    "/workspace",
-			Mounts:        []sandboxpkg.Mount{{HostPath: "/tmp/test-workspace", SandboxPath: "/workspace", Access: sandboxpkg.MountReadWrite}, {HostPath: userDir, SandboxPath: sandboxUserDir, Access: sandboxpkg.MountReadWrite}},
-		},
-		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: "/workspace"},
+		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
+	mounts := []sessionfs.Mount{{HostPath: "/tmp/test-workspace", SandboxPath: "/workspace"}, {HostPath: userDir, SandboxPath: sandboxUserDir}}
 
-	_, args, err := wrapCommand(policy, "/workspace", nil, stellaHome, "sh", []string{"-c", "echo hi"})
+	session := &localSession{providerMounts: mounts, realRoot: "/tmp/test-workspace", stellaHomeHost: stellaHome}
+	_, args, err := session.wrapCommand(policy, "/workspace", "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -276,83 +277,6 @@ func TestWrapCommand_linux_outOfRootWritableBind(t *testing.T) {
 	}
 }
 
-// TestWrapCommand_linux_inWorkspaceWritableMountSkipped verifies a writable mount
-// inside the workspace is NOT bound again under the STELLA_HOME tree: it is already
-// writable via the realRoot -> /workspace bind, and a second bind would only
-// re-expose the host path.
-func TestWrapCommand_linux_inWorkspaceWritableMountSkipped(t *testing.T) {
-	skipIfBwrapNotFunctional(t)
-
-	stellaHome := t.TempDir()
-	userHome := filepath.Join(stellaHome, "users", "u1")
-	miseDir := filepath.Join(userHome, ".mise-tools")
-	if err := os.MkdirAll(miseDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	sandboxMiseDir := filepath.Join(sandboxStellaHome, "users", "u1", ".mise-tools")
-
-	policy := sandboxpkg.Policy{
-		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: userHome,
-			WorkingDir:    "/workspace",
-			Mounts:        []sandboxpkg.Mount{{HostPath: userHome, SandboxPath: "/workspace", Access: sandboxpkg.MountReadWrite}, {HostPath: miseDir, SandboxPath: sandboxMiseDir, Access: sandboxpkg.MountReadWrite}},
-		},
-		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
-	}
-
-	_, args, err := wrapCommand(policy, "/workspace", nil, stellaHome, "sh", []string{"-c", "echo hi"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	joined := strings.Join(args, " ")
-	if strings.Contains(joined, sandboxMiseDir) {
-		t.Errorf("in-workspace writable mount must not be re-bound under %s: %v", sandboxStellaHome, args)
-	}
-	if !strings.Contains(joined, "--bind "+userHome+" /workspace") {
-		t.Errorf("expected realRoot bind to /workspace covering the mise tree, got %v", args)
-	}
-}
-
-// TestWrapCommand_linux_inUserDataWritableMountSkipped verifies that an extra
-// writable mount that already sits under the user-data root is NOT bound again
-// under the STELLA_HOME tree: the /user bind already makes it writable, and a
-// second bind would re-expose the host path to the agent.
-func TestWrapCommand_linux_inUserDataWritableMountSkipped(t *testing.T) {
-	skipIfBwrapNotFunctional(t)
-
-	stellaHome := t.TempDir()
-	agentDir := filepath.Join(stellaHome, "users", "u1", "agents", "a1")
-	userData := filepath.Join(stellaHome, "users", "u1", "data")
-	writableDir := filepath.Join(userData, "scratch")
-	if err := os.MkdirAll(writableDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	policy := sandboxpkg.Policy{
-		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: agentDir,
-			WorkingDir:    "/workspace",
-			Mounts:        []sandboxpkg.Mount{{HostPath: agentDir, SandboxPath: "/workspace", Access: sandboxpkg.MountReadWrite}, {HostPath: userData, SandboxPath: "/user", Access: sandboxpkg.MountReadWrite}, {HostPath: writableDir, SandboxPath: filepath.Join(sandboxStellaHome, "users", "u1", "data", "scratch"), Access: sandboxpkg.MountReadWrite}},
-		},
-		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
-	}
-
-	_, args, err := wrapCommand(policy, "/workspace", nil, stellaHome, "sh", []string{"-c", "echo hi"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	joined := strings.Join(args, " ")
-	sandboxWritableDir := filepath.Join(sandboxStellaHome, "users", "u1", "data", "scratch")
-	if strings.Contains(joined, sandboxWritableDir) {
-		t.Errorf("under-/user writable mount must not be re-bound under %s: %v", sandboxStellaHome, args)
-	}
-	if !strings.Contains(joined, "--bind "+userData+" /user") {
-		t.Errorf("expected --bind %s /user covering the writable mount, got %v", userData, args)
-	}
-}
-
 // TestWrapCommand_linux_twoRoots verifies the two-root mounts: the agent's own
 // dir (WorkspaceRoot) is bound at /workspace and the shared user-data root at
 // /user, with NO sibling-hiding tmpfs — isolation is by non-mounting, since the
@@ -363,15 +287,13 @@ func TestWrapCommand_linux_twoRoots(t *testing.T) {
 	agentDir := "/tmp/test-workspace/users/u1/agents/a1"
 	userData := "/tmp/test-workspace/users/u1/data"
 	policy := sandboxpkg.Policy{
-		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: agentDir,
-			WorkingDir:    agentDir + "/projects/p",
-			Mounts:        []sandboxpkg.Mount{{HostPath: agentDir, SandboxPath: "/workspace", Access: sandboxpkg.MountReadWrite}, {HostPath: userData, SandboxPath: "/user", Access: sandboxpkg.MountReadWrite}},
-		},
-		Network: sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: "/workspace/projects/p"},
+		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 	}
+	mounts := []sessionfs.Mount{{HostPath: agentDir, SandboxPath: "/workspace"}, {HostPath: userData, SandboxPath: "/user"}}
 
-	_, args, err := wrapCommand(policy, "/workspace/projects/p", nil, "", "sh", []string{"-c", "echo hi"})
+	session := &localSession{providerMounts: mounts, realRoot: agentDir}
+	_, args, err := session.wrapCommand(policy, "/workspace/projects/p", "sh", []string{"-c", "echo hi"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

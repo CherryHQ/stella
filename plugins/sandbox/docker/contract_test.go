@@ -53,19 +53,18 @@ func TestSessionContract(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = os.RemoveAll(stellaHome) })
-		factory, err := dockerplugin.NewFactory(dockerplugin.Config{
+		cfg := dockerplugin.Config{
 			Image:       dockerContractImage,
 			StellaHome:  stellaHome,
 			RuntimeMode: dockerplugin.DockerSandboxModeHost,
-		})
-		if err != nil {
-			t.Fatalf("NewFactory: %v", err)
 		}
-		testSessionContract(t, factory)
+		testSessionContract(t, func(workspace string) (sandbox.Factory, error) {
+			return dockerplugin.NewFactoryWithMountSources(cfg, map[string]string{sandbox.MountWorkspace: workspace})
+		})
 	})
 }
 
-func testSessionContract(t *testing.T, factory sandbox.Factory) {
+func testSessionContract(t *testing.T, newFactory func(string) (sandbox.Factory, error)) {
 	ctx := context.Background()
 	workspace, err := os.MkdirTemp(".", "docker-contract-workspace-")
 	if err != nil {
@@ -76,10 +75,15 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(workspace) })
+	factory, err := newFactory(workspace)
+	if err != nil {
+		t.Fatalf("NewFactory: %v", err)
+	}
 
 	policy := sandbox.Policy{
 		Filesystem: sandbox.FilesystemPolicy{
-			WorkingDir: workspace,
+			WorkingDir: sandbox.MountWorkspace,
+			Mounts:     []sandbox.Mount{{SandboxPath: sandbox.MountWorkspace, Access: sandbox.MountReadWrite}},
 		},
 		Network: sandbox.NetworkPolicy{
 			Mode: sandbox.NetworkDisabled,
@@ -162,14 +166,10 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 			t.Errorf("WorkingDir() = %q, want %q", got, policy.Filesystem.WorkingDir)
 		}
 
-		resolved, err := session.ResolvePath("test.txt")
-		if err != nil {
-			t.Errorf("ResolvePath: %v", err)
-		}
-
-		expected := filepath.Join(policy.Filesystem.WorkingDir, "test.txt")
-		if resolved != expected {
-			t.Errorf("ResolvePath(%q) = %q, want %q", "test.txt", resolved, expected)
+		if err := session.Files().WriteFile("test.txt", []byte("ok"), 0o600); err != nil {
+			t.Errorf("Files.WriteFile: %v", err)
+		} else if content, err := session.Files().ReadFile("test.txt"); err != nil || string(content) != "ok" {
+			t.Errorf("Files.ReadFile = %q, %v", content, err)
 		}
 	})
 
@@ -180,18 +180,14 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 		}
 		defer func() { _ = session.Close() }()
 
-		fromTool, err := session.ResolveWritePath("/tmp/from-tool.txt")
-		if err != nil {
-			t.Fatalf("ResolveWritePath(tool file): %v", err)
-		}
-		if err := os.WriteFile(fromTool, []byte("from-tool"), 0o600); err != nil {
+		if err := session.Files().WriteFile("/tmp/from-tool.txt", []byte("from-tool"), 0o600); err != nil {
 			t.Fatalf("write tool file: %v", err)
 		}
 		got, err := session.Exec(ctx, `cat "$TMPDIR/from-tool.txt" && printf from-exec-overwrite > "$TMPDIR/from-tool.txt"`, sandbox.ExecOptions{})
 		if err != nil || got.ExitCode != 0 || got.Stdout != "from-tool" {
 			t.Fatalf("exec read/write tool file = %+v, %v", got, err)
 		}
-		data, err := os.ReadFile(fromTool)
+		data, err := session.Files().ReadFile("/tmp/from-tool.txt")
 		if err != nil || string(data) != "from-exec-overwrite" {
 			t.Fatalf("file tool read exec overwrite = %q, %v", data, err)
 		}
@@ -200,21 +196,14 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 		if err != nil || got.ExitCode != 0 {
 			t.Fatalf("exec write temp file = %+v, %v", got, err)
 		}
-		fromExec, err := session.ResolvePath("/tmp/from-exec.txt")
-		if err != nil {
-			t.Fatalf("ResolvePath(exec file): %v", err)
-		}
-		data, err = os.ReadFile(fromExec)
+		data, err = session.Files().ReadFile("/tmp/from-exec.txt")
 		if err != nil || string(data) != "from-exec" {
 			t.Fatalf("file tool read exec file = %q, %v", data, err)
 		}
-		if fromExec == fromTool {
-			t.Fatalf("distinct sandbox paths resolved to the same host path %q", fromExec)
-		}
-		if err := os.WriteFile(fromExec, []byte("from-tool-overwrite"), 0o600); err != nil {
+		if err := session.Files().WriteFile("/tmp/from-exec.txt", []byte("from-tool-overwrite"), 0o600); err != nil {
 			t.Fatalf("file tool overwrite exec file: %v", err)
 		}
-		data, err = os.ReadFile(fromExec)
+		data, err = session.Files().ReadFile("/tmp/from-exec.txt")
 		if err != nil || string(data) != "from-tool-overwrite" {
 			t.Fatalf("host did not observe tool overwrite = %q, %v", data, err)
 		}
@@ -246,11 +235,7 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 		if data, err := os.ReadFile(filepath.Join(workspace, "rootfs-workspace.txt")); err != nil || string(data) != "workspace" {
 			t.Fatalf("workspace write = %q, %v", data, err)
 		}
-		tempFile, err := session.ResolvePath("/tmp/rootfs-tmp.txt")
-		if err != nil {
-			t.Fatalf("ResolvePath(temp file): %v", err)
-		}
-		if data, err := os.ReadFile(tempFile); err != nil || string(data) != "tmp" {
+		if data, err := session.Files().ReadFile("/tmp/rootfs-tmp.txt"); err != nil || string(data) != "tmp" {
 			t.Fatalf("temp write = %q, %v", data, err)
 		}
 	})
@@ -258,7 +243,8 @@ func testSessionContract(t *testing.T, factory sandbox.Factory) {
 	t.Run("Exec", func(t *testing.T) {
 		session, err := factory.CreateSession(ctx, sandbox.Policy{
 			Filesystem: sandbox.FilesystemPolicy{
-				WorkingDir: workspace,
+				WorkingDir: sandbox.MountWorkspace,
+				Mounts:     []sandbox.Mount{{SandboxPath: sandbox.MountWorkspace, Access: sandbox.MountReadWrite}},
 			},
 			Network: sandbox.NetworkPolicy{
 				Mode:    sandbox.NetworkAllowAll,

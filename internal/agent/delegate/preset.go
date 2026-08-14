@@ -11,8 +11,7 @@ type DelegatePreset struct {
 	HasTools    bool          // true when tools is explicitly set (even if empty)
 	Timeout     time.Duration // wall-clock timeout override; 0 = use global default
 	Model       string        // empty = inherit parent model
-	FilePath    string        // absolute path to the source .md file
-	Source      string        // "project", "agent", "common", or "builtin"
+	Source      string        // "project", "agent", "user", or "builtin"
 }
 
 // delegateFrontmatter is the YAML frontmatter parsed from a delegate preset file.

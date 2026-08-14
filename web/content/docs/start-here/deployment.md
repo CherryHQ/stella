@@ -79,7 +79,7 @@ stellad upgrade --install-dir "$HOME/.local/bin"  # custom install path
 
 ### Structured Reflect and Curator
 
-Structured Reflect is always enabled, and the lifecycle curator defaults to `armed`. Before upgrading from a dual-mode release, remove any `STELLA_REFLECT_MODE=legacy` deployment value; the transition release fails startup when that stale value is present.
+Structured Reflect is always enabled, and the lifecycle curator defaults to `armed`.
 
 After deployment:
 

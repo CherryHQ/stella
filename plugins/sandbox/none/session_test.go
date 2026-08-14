@@ -2,16 +2,18 @@ package none
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/plugins/sandbox/internal/sessionfs"
 )
 
 func TestFactory_basics(t *testing.T) {
-	f := NewFactory()
+	f := NewFactoryWithMountSources(nil, Config{})
 	if f.Name() != "none" {
 		t.Errorf("expected name 'none', got %q", f.Name())
 	}
@@ -35,7 +37,7 @@ func TestFactory_createSession(t *testing.T) {
 		Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkAllowAll},
 		InheritEnv: true,
 	}
-	f := NewFactory()
+	f := NewFactoryWithMountSources(nil, Config{})
 	sess, err := f.CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
@@ -56,15 +58,14 @@ func TestFactoryCreateSession_setsHostXDGPaths(t *testing.T) {
 	policy := sandboxpkg.Policy{
 		Env: map[string]string{"XDG_RUNTIME_DIR": "/run/user/1000"},
 		Filesystem: sandboxpkg.FilesystemPolicy{
-			WorkspaceRoot: workspace,
-			WorkingDir:    workspace,
+			WorkingDir: sandboxpkg.MountWorkspace,
 			Mounts: []sandboxpkg.Mount{
-				{HostPath: workspace, SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite},
-				{HostPath: userData, SandboxPath: sandboxpkg.MountUserData, Access: sandboxpkg.MountReadWrite},
+				{SandboxPath: sandboxpkg.MountWorkspace, Access: sandboxpkg.MountReadWrite},
+				{SandboxPath: sandboxpkg.MountUserData, Access: sandboxpkg.MountReadWrite},
 			},
 		},
 	}
-	sess, err := NewFactory().CreateSession(context.Background(), policy)
+	sess, err := NewFactoryWithMountSources(map[string]string{sandboxpkg.MountWorkspace: workspace, sandboxpkg.MountUserData: userData}, Config{}).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
@@ -91,12 +92,28 @@ func TestFactoryCreateSession_setsHostXDGPaths(t *testing.T) {
 	} else if _, err := os.Stat(tmpDir); err != nil {
 		t.Errorf("TMPDIR %q is unavailable: %v", tmpDir, err)
 	}
+	wantMounts := map[string]sandboxpkg.MountAccess{
+		workspace:                  sandboxpkg.MountReadWrite,
+		userData:                   sandboxpkg.MountReadWrite,
+		env[sandboxpkg.EnvTempDir]: sandboxpkg.MountReadWrite,
+	}
+	for _, mount := range sess.Policy().Filesystem.Mounts {
+		if mount.SandboxPath == sandboxpkg.MountWorkspace || mount.SandboxPath == sandboxpkg.MountUserData {
+			t.Fatalf("identity backend retained virtual mount coordinate %+v", mount)
+		}
+		if access, ok := wantMounts[mount.SandboxPath]; ok && access == mount.Access {
+			delete(wantMounts, mount.SandboxPath)
+		}
+	}
+	if len(wantMounts) != 0 {
+		t.Fatalf("identity policy omitted active data mounts: %v", wantMounts)
+	}
 }
 
 func TestFactoryCreateSession_withoutUserDataFallsBackToWorkspace(t *testing.T) {
 	workspace := t.TempDir()
-	sess, err := NewFactory().CreateSession(context.Background(), sandboxpkg.Policy{
-		Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: workspace, WorkingDir: workspace},
+	sess, err := NewFactoryWithMountSources(nil, Config{}).CreateSession(context.Background(), sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: workspace},
 	})
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
@@ -129,7 +146,7 @@ func TestFactoryCreateSession_errorRemovesOwnedTempDir(t *testing.T) {
 	for _, path := range before {
 		known[path] = struct{}{}
 	}
-	if _, err := NewFactory().CreateSession(context.Background(), sandboxpkg.Policy{}); err == nil {
+	if _, err := NewFactoryWithMountSources(nil, Config{}).CreateSession(context.Background(), sandboxpkg.Policy{}); err == nil {
 		t.Fatal("CreateSession accepted policy without a workspace")
 	}
 	after, err := filepath.Glob(filepath.Join(os.TempDir(), "stella-none-session-tmp-*"))
@@ -146,12 +163,12 @@ func TestFactoryCreateSession_errorRemovesOwnedTempDir(t *testing.T) {
 
 func TestFactoryCreateSession_ownsDistinctTempDirs(t *testing.T) {
 	workspace := t.TempDir()
-	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkspaceRoot: workspace, WorkingDir: workspace}}
-	first, err := NewFactory().CreateSession(context.Background(), policy)
+	policy := sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: workspace}}
+	first, err := NewFactoryWithMountSources(nil, Config{}).CreateSession(context.Background(), policy)
 	if err != nil {
 		t.Fatalf("CreateSession(first): %v", err)
 	}
-	second, err := NewFactory().CreateSession(context.Background(), policy)
+	second, err := NewFactoryWithMountSources(nil, Config{}).CreateSession(context.Background(), policy)
 	if err != nil {
 		first.Close() //nolint:errcheck
 		t.Fatalf("CreateSession(second): %v", err)
@@ -250,43 +267,38 @@ func TestNoneSession_workingDirDefaultsToCwd(t *testing.T) {
 	}
 }
 
-func TestResolvePath(t *testing.T) {
+func TestFileAccessResolvesRelativePaths(t *testing.T) {
 	s := newTestSession(t)
-	tempDir := t.TempDir()
-	s.policy.Filesystem.WorkingDir = tempDir
-
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "absolute path unchanged",
-			input:    "/etc/passwd",
-			expected: "/etc/passwd",
-		},
-		{
-			name:     "relative path joined with working dir",
-			input:    "file.txt",
-			expected: filepath.Join(tempDir, "file.txt"),
-		},
-		{
-			name:     "relative path with subdirs",
-			input:    "subdir/nested/file.go",
-			expected: filepath.Join(tempDir, "subdir", "nested", "file.go"),
-		},
+	if err := s.Files().WriteFile("subdir/file.txt", []byte("content"), 0o600); err != nil {
+		t.Fatal(err)
 	}
+	if content, err := os.ReadFile(filepath.Join(s.WorkingDir(), "subdir", "file.txt")); err != nil || string(content) != "content" {
+		t.Fatalf("physical file = %q, %v", content, err)
+	}
+}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := s.ResolvePath(tc.input)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != tc.expected {
-				t.Errorf("ResolvePath(%q) = %q, want %q", tc.input, got, tc.expected)
-			}
-		})
+func TestFileAccessProjectionRejectsPoisonedExactPath(t *testing.T) {
+	s := newTestSession(t)
+	target := filepath.Join(s.WorkingDir(), "projection", "digest")
+	files := []sandboxpkg.ProjectedFile{
+		{Path: "SKILL.md", Content: []byte("# Exact\n"), Mode: 0o444},
+		{Path: "scripts/run.sh", Content: []byte("#!/bin/sh\nprintf exact"), Mode: 0o555},
+	}
+	if err := s.Files().ProjectFiles(target, files); err != nil {
+		t.Fatal(err)
+	}
+	poisoned := filepath.Join(target, "scripts", "run.sh")
+	if err := os.Chmod(poisoned, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(poisoned, []byte("poisoned"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Files().ProjectFiles(target, files); !errors.Is(err, sandboxpkg.ErrProjectionConflict) {
+		t.Fatalf("poisoned exact projection = %v, want ErrProjectionConflict", err)
+	}
+	if content, err := os.ReadFile(poisoned); err != nil || string(content) != "poisoned" {
+		t.Fatalf("poisoned projection was replaced: %q, %v", content, err)
 	}
 }
 
@@ -317,7 +329,10 @@ func TestExec_nonzeroExitCode(t *testing.T) {
 
 func TestExec_withCwd(t *testing.T) {
 	s := newTestSession(t)
-	rawTempDir := t.TempDir()
+	rawTempDir := filepath.Join(s.WorkingDir(), "nested")
+	if err := os.Mkdir(rawTempDir, 0o755); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
 	// Resolve symlinks for macOS /var → /private/var compatibility
 	tempDir, err := filepath.EvalSymlinks(rawTempDir)
 	if err != nil {
@@ -477,9 +492,22 @@ func TestBuildEnv_noInherit(t *testing.T) {
 // newTestSession returns a noneSession with a temporary working directory.
 func newTestSession(t *testing.T) *noneSession {
 	t.Helper()
-	return &noneSession{
+	workingDir := t.TempDir()
+	session := &noneSession{
 		id:     "test",
-		policy: sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: t.TempDir()}},
+		policy: sandboxpkg.Policy{Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: workingDir}},
 		done:   make(chan struct{}),
 	}
+	resolver, err := sessionfs.NewResolver(workingDir, []sessionfs.Mount{{
+		HostPath:              workingDir,
+		SandboxPath:           workingDir,
+		ResolveSymlinkAliases: true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = resolver.Close() })
+	session.resolver = resolver
+	session.files = sessionfs.NewAccess(resolver)
+	return session
 }
