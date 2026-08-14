@@ -102,7 +102,7 @@ func TestLocalExec_linux_workspaceWritableOutsideHidden(t *testing.T) {
 	s := &localSession{
 		id: "test",
 		policy: sandboxpkg.Policy{
-			Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: root},
+			Filesystem: sandboxpkg.FilesystemPolicy{WorkingDir: "/workspace"},
 			Network:    sandboxpkg.NetworkPolicy{Mode: sandboxpkg.NetworkDisabled},
 			Env: map[string]string{
 				"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
@@ -113,6 +113,8 @@ func TestLocalExec_linux_workspaceWritableOutsideHidden(t *testing.T) {
 		sandboxRoot: "/workspace",
 		done:        make(chan struct{}),
 	}
+	s.resolver = s.pathResolver()
+	t.Cleanup(func() { _ = s.Close() })
 
 	cmd := "echo ok > /workspace/out.txt && test ! -e " + shellQuote(outsideFile) + " && cat /workspace/out.txt"
 	result, err := s.Exec(context.Background(), cmd, sandboxpkg.ExecOptions{})
