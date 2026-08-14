@@ -79,24 +79,28 @@ func (w failingWorkspaceViewer) OpenRoot(context.Context, home.WorkspaceRequest,
 func (w testWorkspaceViewer) WorkspaceView(_ context.Context, req home.WorkspaceRequest) (home.WorkspaceView, error) {
 	shared := home.WorkspaceView{}
 	if req.GroupID != "" {
-		principal := GroupHomeDir(w.root, req.GroupID)
-		agent := AgentDirInHome(principal, req.AgentID)
-		if err := os.MkdirAll(agent, 0o755); err != nil {
-			return home.WorkspaceView{}, err
-		}
-		shared.PrincipalRoot, shared.DataRoot, shared.AgentRoot = principal, filepath.Join(principal, "data"), agent
-		return shared, nil
+		return principalView(GroupHomeDir(w.root, req.GroupID), req.AgentID)
 	}
 	if req.UserID != "" {
-		principal := UserHomeDir(w.root, req.UserID)
-		agent := AgentDirInHome(principal, req.AgentID)
-		if err := os.MkdirAll(agent, 0o755); err != nil {
-			return home.WorkspaceView{}, err
-		}
-		shared.PrincipalRoot, shared.DataRoot, shared.AgentRoot = principal, filepath.Join(principal, "data"), agent
-		return shared, nil
+		return principalView(UserHomeDir(w.root, req.UserID), req.AgentID)
 	}
 	return shared, nil
+}
+
+// principalView mirrors what the real Home viewer materializes: both the agent
+// dir and the shared data root exist before a runner is built. Creating the data
+// root is not cosmetic — ResolvePaths compares resolved paths, and an absent dir
+// cannot be resolved, so on macOS the caller's /var/... would never match the
+// authorized /private/var/... root.
+func principalView(principal, agentID string) (home.WorkspaceView, error) {
+	agent := AgentDirInHome(principal, agentID)
+	data := filepath.Join(principal, "data")
+	for _, dir := range []string{agent, data} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return home.WorkspaceView{}, err
+		}
+	}
+	return home.WorkspaceView{PrincipalRoot: principal, DataRoot: data, AgentRoot: agent}, nil
 }
 
 func (w testWorkspaceViewer) OpenRoot(ctx context.Context, req home.WorkspaceRequest, scope home.RootScope, _ home.RootAccess) (home.RootOperations, error) {
@@ -169,6 +173,9 @@ func (r runnerTestRoot) Rename(context.Context, string, string, home.RenameOptio
 
 func TestNewRunnerFuncUsesPrincipalWorkspace(t *testing.T) {
 	stellaHome := t.TempDir()
+	// Sandbox mounts carry resolved host paths, and macOS hands out temp dirs
+	// under the /var -> /private/var symlink; compare against the same form.
+	stellaHome, _ = filepath.EvalSymlinks(stellaHome)
 	t.Setenv("STELLA_HOME", stellaHome)
 	config.ResetStellaHome()
 	t.Cleanup(config.ResetStellaHome)
