@@ -16,13 +16,12 @@ WHERE type = 'discord'
   AND NOT (config::jsonb ? 'allow_all_guilds');
 
 -- +goose Down
--- Only the backfilled key is removed. The migration cannot tell a backfilled
--- value apart from one an operator set deliberately afterward, and dropping the
--- guild/channel/user/role ID lists here would be an irreversible loss of
--- operator-entered allowlist data, so those keys are left alone.
-UPDATE channel
-SET config = (config::jsonb - 'allow_all_guilds')::text,
-    updated_at = now()
-WHERE type = 'discord'
-  AND config IS JSON OBJECT
-  AND config::jsonb ? 'allow_all_guilds';
+-- No-op by design. The migration cannot tell a backfilled `allow_all_guilds`
+-- value apart from one an operator set deliberately afterward (see Up), so
+-- removing the key on rollback would be a guess, not a reversal: a config an
+-- operator explicitly confirmed as `true` after upgrading would silently lose
+-- that explicit policy and, on the next Up, get re-backfilled to the same
+-- value anyway. Leaving the explicit key in place keeps every config's
+-- guild-access policy exactly what it already evaluates to, on both old and
+-- new binaries reading it, which is safer than an ambiguous edit.
+SELECT 1;

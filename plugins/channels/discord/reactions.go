@@ -31,6 +31,10 @@ func (b *Bot) reactBestEffort(ctx context.Context, channelID, messageID, emoji s
 // finishReaction transitions a message's lifecycle reaction from 👀 to a
 // terminal ✅/❌. It removes only the bot's own 👀 (via "@me"), never a
 // remove-all, so it cannot erase a human's unrelated reactions on the message.
+// It also removes the opposite terminal emoji first: a redelivered group turn
+// can call this twice for the same message (e.g. a failed attempt followed by
+// a successful retry), and without clearing the stale terminal emoji both
+// ✅ and ❌ would end up sitting on the message together.
 func (b *Bot) finishReaction(ctx context.Context, channelID, messageID string, success bool) {
 	if b.rest == nil || channelID == "" || messageID == "" {
 		return
@@ -39,8 +43,13 @@ func (b *Bot) finishReaction(ctx context.Context, channelID, messageID string, s
 		logger().Debug("remove discord ack reaction failed", "channel_id", channelID, "message_id", messageID, "error", err)
 	}
 	emoji := reactionSuccess
+	opposite := reactionFailure
 	if !success {
 		emoji = reactionFailure
+		opposite = reactionSuccess
+	}
+	if err := b.rest.MessageReactionRemove(channelID, messageID, opposite, "@me", discordgo.WithContext(ctx)); err != nil {
+		logger().Debug("remove discord opposite terminal reaction failed", "channel_id", channelID, "message_id", messageID, "error", err)
 	}
 	b.reactBestEffort(ctx, channelID, messageID, emoji)
 }

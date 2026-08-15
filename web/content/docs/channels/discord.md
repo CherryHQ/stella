@@ -54,7 +54,7 @@ In forum posts and other threads, a later mention also includes the post starter
 
 By default, server messages that do not mention the bot are ignored as standalone turns and do not invoke an agent. Agent output cannot trigger Discord mentions such as `@everyone`.
 
-The bot supports `/start`, `/help`, `/new`, `/compact`, `/abort`, `/whoami`, and `/link` in direct messages, both as typed text commands and as native Discord slash commands. Slash command replies are only visible to you. If slash commands don't appear, wait a few minutes for Discord to propagate the registration, or fall back to the typed `/command` form, which always works.
+The bot supports `/start`, `/help`, `/new`, `/compact`, `/abort`, `/whoami`, and `/link` in direct messages, both as typed text commands and as native Discord slash commands. Native slash commands are registered for direct messages only and will not appear when typing `/` in a server channel; use the typed `/command` text form there instead (it always works, mention required per `require_mention`). Slash command replies are only visible to you. If slash commands don't appear in a DM, wait a few minutes for Discord to propagate the registration, or fall back to the typed `/command` form, which always works.
 
 Images and files up to 25 MiB are downloaded from Discord's attachment service and saved to your private assets directory when storage is available. Agent-created images and files are uploaded back to Discord.
 
@@ -88,7 +88,7 @@ For an explicit notification target, use a real Discord channel ID. Enable Disco
 
 **The bot cannot reply or upload files:** Check its channel overrides as well as its server role. It needs View Channels, Send Messages, Read Message History, Attach Files, and Add Reactions.
 
-**Slash commands don't show up in Discord:** Make sure the bot was invited with the `applications.commands` scope, not just `bot`. Re-invite it with the URL from **OAuth2 → URL Generator** if needed; typed `/command` text messages work regardless.
+**Slash commands don't show up in Discord:** Native slash commands are registered for direct messages only by design and never appear in a server channel; typed `/command` text messages work there instead. If they also don't show up in a DM, make sure the bot was invited with the `applications.commands` scope, not just `bot`. Re-invite it with the URL from **OAuth2 → URL Generator** if needed; typed `/command` text messages work regardless.
 
 **The bot ignores direct messages:** Set `allow_dm` to `true`. To accept unlinked users as restricted guests, also bind a dedicated guest-safe agent and set `allow_unlinked_dm` to `true`.
 

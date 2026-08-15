@@ -60,14 +60,26 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) (resultEr
 			return nil
 		}
 	}
-	// The message is now really accepted: best-effort mark it seen. terminal
-	// tracks whether this turn reaches a definite outcome before handleMessage
-	// returns — a group message usually does not, since its reply is async and
-	// finishReaction runs later from Publish keyed by GroupPublishRequest.ReplyTo.
-	b.reactBestEffort(deliveryCtx, m.ChannelID, m.ID, reactionReceived)
+	// The message is now really accepted: best-effort mark it seen. With
+	// require_mention off, a group message that does not actually address the
+	// bot (no mention, no reply-to-bot) is still processed for ambient
+	// participation, but it never opted into the reaction lifecycle the way a
+	// direct message or an addressed mention did — so it gets no 👀/✅/❌ at
+	// all rather than a 👀 that either never resolves or resolves on a
+	// message nobody expected feedback on. terminal tracks whether this turn
+	// reaches a definite outcome before handleMessage returns — a group
+	// message usually does not, since its reply is async and finishReaction
+	// runs later from Publish keyed by GroupPublishRequest.ReplyTo.
+	reactionEligible := m.GuildID == "" || b.addressed(m)
+	if reactionEligible {
+		b.reactBestEffort(deliveryCtx, m.ChannelID, m.ID, reactionReceived)
+	}
 	terminal := false
 	success := false
 	defer func() {
+		if !reactionEligible {
+			return
+		}
 		switch {
 		case resultErr != nil:
 			b.finishReaction(deliveryCtx, m.ChannelID, m.ID, false)

@@ -45,11 +45,18 @@ func SplitMarkdown(text string, maxRunes int) []string {
 	bRunes := 0
 	var fence fenceState
 
+	// closeOverhead is the worst-case room a flush needs to reserve for the
+	// fence close: the close line itself, plus a leading "\n" flush adds
+	// whenever the chunk being closed does not already end in one (always
+	// true for a chunk boundary that lands mid-line, e.g. an overlong single
+	// line). Reserving it unconditionally is sometimes one rune more than a
+	// line-boundary flush actually needs, but never less than any flush
+	// needs, so no chunk can ever exceed maxRunes.
 	closeOverhead := func() int {
 		if !fence.active {
 			return 0
 		}
-		return utf8.RuneCountInString(fence.closeLine())
+		return utf8.RuneCountInString(fence.closeLine()) + 1
 	}
 
 	flush := func() {

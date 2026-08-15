@@ -1,6 +1,7 @@
 package discord
 
 import (
+	"slices"
 	"sync"
 
 	"github.com/google/uuid"
@@ -56,15 +57,25 @@ func (r *cancelRegistry) register(requesterID string, abort func() bool) string 
 	return token
 }
 
-// unregister removes token, if present. Safe to call more than once and with
-// an empty token.
+// unregister removes token, if present, from both entries and order. Safe to
+// call more than once and with an empty token. Cleaning order here — not just
+// entries — matters: most tokens resolve (a turn finishes or is cancelled)
+// long before the registry ever reaches cancelRegistryLimit, so without this
+// order would grow without bound even though entries stays small, defeating
+// the point of a bounded registry.
 func (r *cancelRegistry) unregister(token string) {
 	if r == nil || token == "" {
 		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if _, ok := r.entries[token]; !ok {
+		return
+	}
 	delete(r.entries, token)
+	if idx := slices.Index(r.order, token); idx >= 0 {
+		r.order = slices.Delete(r.order, idx, idx+1)
+	}
 }
 
 // get returns the entry for token, if it is still registered.

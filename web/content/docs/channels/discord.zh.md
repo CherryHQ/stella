@@ -54,7 +54,7 @@ title: Discord 机器人
 
 默认情况下，未 @提及机器人的服务器消息不会作为独立消息轮次处理，也不会调用 agent。Agent 输出不会触发 `@everyone` 等 Discord 提及。
 
-机器人在私信中支持 `/start`、`/help`、`/new`、`/compact`、`/abort`、`/whoami` 和 `/link`，既可以作为文本命令输入，也可以作为 Discord 原生 slash command 使用。Slash command 的回复仅你自己可见。如果 slash command 没有出现，请等待几分钟让 Discord 完成命令注册的同步，或改用始终有效的 `/command` 文本形式。
+机器人在私信中支持 `/start`、`/help`、`/new`、`/compact`、`/abort`、`/whoami` 和 `/link`，既可以作为文本命令输入，也可以作为 Discord 原生 slash command 使用。原生 slash command 仅注册在私信场景，在服务器频道中输入 `/` 不会出现这些命令；在服务器频道中请改用文本形式的 `/command`（始终可用，是否需要 @ 提及取决于 `require_mention`）。Slash command 的回复仅你自己可见。如果私信里的 slash command 没有出现，请等待几分钟让 Discord 完成命令注册的同步，或改用始终有效的 `/command` 文本形式。
 
 机器人会从 Discord 附件服务下载不超过 25 MiB 的图片和文件，并在存储可用时保存到你的私有 assets 目录。Agent 生成的图片和文件也可上传回 Discord。
 
@@ -88,7 +88,7 @@ title: Discord 机器人
 
 **机器人无法回复或上传文件：** 同时检查频道权限覆盖和服务器角色。机器人需要 View Channels、Send Messages、Read Message History、Attach Files 和 Add Reactions。
 
-**Slash command 没有出现在 Discord 中：** 确认邀请机器人时勾选了 `applications.commands` scope，而不仅仅是 `bot`。如有需要，请用 **OAuth2 → URL Generator** 生成的 URL 重新邀请机器人；无论如何，输入 `/command` 文本消息始终可用。
+**Slash command 没有出现在 Discord 中：** 原生 slash command 按设计仅注册在私信场景，在服务器频道中永远不会出现，请改用文本形式的 `/command`。如果私信里也没有出现，请确认邀请机器人时勾选了 `applications.commands` scope，而不仅仅是 `bot`。如有需要，请用 **OAuth2 → URL Generator** 生成的 URL 重新邀请机器人；无论如何，输入 `/command` 文本消息始终可用。
 
 **机器人忽略私信：** 将 `allow_dm` 设为 `true`。若要接受未关联用户作为受限访客，还需绑定专用且对访客安全的 agent，并将 `allow_unlinked_dm` 设为 `true`。
 

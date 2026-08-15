@@ -1061,6 +1061,18 @@ func TestRegisterNativeCommandsIsBestEffort(t *testing.T) {
 	b.registerNativeCommands(context.Background())
 }
 
+func TestNativeCommandsAreScopedToBotDMOnly(t *testing.T) {
+	for _, cmd := range nativeCommands() {
+		if cmd.Contexts == nil {
+			t.Fatalf("command %q has no Contexts restriction, want [InteractionContextBotDM] only", cmd.Name)
+		}
+		want := []discordgo.InteractionContextType{discordgo.InteractionContextBotDM}
+		if !reflect.DeepEqual(*cmd.Contexts, want) {
+			t.Fatalf("command %q Contexts = %#v, want %#v", cmd.Name, *cmd.Contexts, want)
+		}
+	}
+}
+
 func TestCommandInteractionDefersAcksThenEditsWithParsedOption(t *testing.T) {
 	h := &interactionCaptureHandler{resp: "Account linked successfully!", handled: true}
 	b, err := New(Config{Token: "token", AllowDM: true}, h)
@@ -1101,6 +1113,46 @@ func TestCommandInteractionDefersAcksThenEditsWithParsedOption(t *testing.T) {
 	}
 	if h.msg.SenderID != "sender" || h.msg.IsGroup {
 		t.Fatalf("captured msg = %#v", h.msg)
+	}
+}
+
+func TestCommandInteractionEditTruncatesOverlongReplyRuneSafe(t *testing.T) {
+	cases := []struct {
+		name string
+		resp string
+	}{
+		{"ASCII", strings.Repeat("a", maxMessageLength+500)},
+		{"CJK", strings.Repeat("测", maxMessageLength+500)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := &interactionCaptureHandler{resp: tc.resp, handled: true}
+			b, err := New(Config{Token: "token", AllowDM: true}, h)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rest := newFakeDiscordREST()
+			b.rest = rest
+			ix := &discordgo.Interaction{
+				ID: "interaction-1", Type: discordgo.InteractionApplicationCommand,
+				User: &discordgo.User{ID: "sender"}, ChannelID: "dm",
+				Data: discordgo.ApplicationCommandInteractionData{Name: "help"},
+			}
+			b.handleCommandInteraction(context.Background(), ix)
+
+			rest.mu.Lock()
+			defer rest.mu.Unlock()
+			if len(rest.interactionEdits) != 1 || rest.interactionEdits[0].Content == nil {
+				t.Fatalf("edits = %#v", rest.interactionEdits)
+			}
+			edited := *rest.interactionEdits[0].Content
+			if n := utf8.RuneCountInString(edited); n > maxMessageLength {
+				t.Fatalf("edited content has %d runes, want <= %d (Discord rejects the edit above that, leaving \"thinking…\" stuck)", n, maxMessageLength)
+			}
+			if !strings.Contains(edited, "truncated") {
+				t.Fatalf("edited content = %q, want an explicit truncation marker", edited)
+			}
+		})
 	}
 }
 
@@ -1146,8 +1198,8 @@ func TestReactionMarksReceivedThenSuccessOnHandledCommand(t *testing.T) {
 	if !reflect.DeepEqual(rest.reactionsAdded, []string{"dm:message:👀", "dm:message:✅"}) {
 		t.Fatalf("reactions added = %#v", rest.reactionsAdded)
 	}
-	if !reflect.DeepEqual(rest.reactionsRemoved, []string{"dm:message:👀:@me"}) {
-		t.Fatalf("reactions removed = %#v, want the ack removed via @me (not remove-all)", rest.reactionsRemoved)
+	if !reflect.DeepEqual(rest.reactionsRemoved, []string{"dm:message:👀:@me", "dm:message:❌:@me"}) {
+		t.Fatalf("reactions removed = %#v, want the ack and opposite terminal reaction removed via @me (not remove-all)", rest.reactionsRemoved)
 	}
 }
 
@@ -1180,10 +1232,11 @@ func TestReactionStaysPendingForAsyncGroupMessageUntilPublish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	b.session.State.User = &discordgo.User{ID: "bot"}
 	rest := newFakeDiscordREST()
 	rest.channel = &discordgo.Channel{ID: "discord-channel", Type: discordgo.ChannelTypeGuildText}
 	b.rest = rest
-	m := &discordgo.Message{ID: "message", ChannelID: "discord-channel", GuildID: "guild", Author: &discordgo.User{ID: "sender"}, Content: "hello"}
+	m := &discordgo.Message{ID: "message", ChannelID: "discord-channel", GuildID: "guild", Author: &discordgo.User{ID: "sender"}, Content: "<@bot> hello", Mentions: []*discordgo.User{{ID: "bot"}}}
 	if err := b.handleMessage(context.Background(), m); err != nil {
 		t.Fatal(err)
 	}
@@ -1193,6 +1246,31 @@ func TestReactionStaysPendingForAsyncGroupMessageUntilPublish(t *testing.T) {
 		t.Fatalf("reactions added = %#v, removed = %#v; want only the pending ack until Publish finalizes", rest.reactionsAdded, rest.reactionsRemoved)
 	}
 	rest.mu.Unlock()
+}
+
+func TestReactionLifecycleDeniedForAmbientMessageWithRequireMentionFalse(t *testing.T) {
+	// With require_mention off, an unaddressed group message (no mention, no
+	// reply-to-bot) is still processed for ambient participation, but it
+	// never opted into the 👀/✅/❌ lifecycle: no 👀 must ever be added, so
+	// none is ever left stale.
+	h := &provisioningHandler{fakeHandler: fakeHandler{}}
+	b, err := New(Config{InstanceID: "discord-main", Token: "token", AllowGroup: true, AllowAllGuilds: true, RequireMention: false}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.session.State.User = &discordgo.User{ID: "bot"}
+	rest := newFakeDiscordREST()
+	rest.channel = &discordgo.Channel{ID: "discord-channel", Type: discordgo.ChannelTypeGuildText}
+	b.rest = rest
+	m := &discordgo.Message{ID: "message", ChannelID: "discord-channel", GuildID: "guild", Author: &discordgo.User{ID: "sender"}, Content: "hello"}
+	if err := b.handleMessage(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	rest.mu.Lock()
+	defer rest.mu.Unlock()
+	if len(rest.reactionsAdded) != 0 || len(rest.reactionsRemoved) != 0 {
+		t.Fatalf("reactions added = %#v, removed = %#v; want no reaction lifecycle for an ambient message", rest.reactionsAdded, rest.reactionsRemoved)
+	}
 }
 
 func TestPublishFinishesReactionOnTriggeringMessageAcrossReplyTo(t *testing.T) {
@@ -1218,8 +1296,34 @@ func TestPublishFinishesReactionOnTriggeringMessageAcrossReplyTo(t *testing.T) {
 	if !reflect.DeepEqual(rest.reactionsAdded, []string{"group-channel:trigger-message:✅"}) {
 		t.Fatalf("reactions added = %#v", rest.reactionsAdded)
 	}
-	if !reflect.DeepEqual(rest.reactionsRemoved, []string{"group-channel:trigger-message:👀:@me"}) {
+	if !reflect.DeepEqual(rest.reactionsRemoved, []string{"group-channel:trigger-message:👀:@me", "group-channel:trigger-message:❌:@me"}) {
 		t.Fatalf("reactions removed = %#v", rest.reactionsRemoved)
+	}
+}
+
+func TestFinishReactionRemovesOppositeTerminalOnFailThenSuccessRetransition(t *testing.T) {
+	// A redelivered group turn can call finishReaction twice for the same
+	// message: once on a failed attempt, once on a successful retry. The
+	// stale ❌ must be cleared before ✅ lands, or both would sit on the
+	// message together.
+	b, err := New(Config{Token: "token"}, fakeHandler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := newFakeDiscordREST()
+	b.rest = rest
+	b.finishReaction(context.Background(), "chan", "msg", false)
+	b.finishReaction(context.Background(), "chan", "msg", true)
+	rest.mu.Lock()
+	defer rest.mu.Unlock()
+	if !reflect.DeepEqual(rest.reactionsAdded, []string{"chan:msg:❌", "chan:msg:✅"}) {
+		t.Fatalf("reactions added = %#v", rest.reactionsAdded)
+	}
+	if !reflect.DeepEqual(rest.reactionsRemoved, []string{
+		"chan:msg:👀:@me", "chan:msg:✅:@me",
+		"chan:msg:👀:@me", "chan:msg:❌:@me",
+	}) {
+		t.Fatalf("reactions removed = %#v, want the ack and each transition's opposite terminal cleared via @me", rest.reactionsRemoved)
 	}
 }
 

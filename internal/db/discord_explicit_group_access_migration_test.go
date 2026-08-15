@@ -77,7 +77,11 @@ func TestDiscordExplicitGroupAccessBackfillsAllowAllGuilds(t *testing.T) {
 	}
 }
 
-func TestDiscordExplicitGroupAccessDownRemovesOnlyBackfilledKey(t *testing.T) {
+func TestDiscordExplicitGroupAccessDownIsNoOp(t *testing.T) {
+	// Down cannot tell a backfilled allow_all_guilds value apart from one an
+	// operator set deliberately afterward (see the migration's Up/Down
+	// comments), so rollback leaves every config's guild-access policy
+	// exactly as it already evaluates — nothing is removed or rewritten.
 	db := newTestDB(t)
 	provider, closeProvider := reflectWatermarkProvider(t, db)
 	defer closeProvider()
@@ -86,10 +90,11 @@ func TestDiscordExplicitGroupAccessDownRemovesOnlyBackfilledKey(t *testing.T) {
 	if _, err := provider.UpTo(ctx, discordExplicitGroupAccessMigration); err != nil {
 		t.Fatalf("apply migration: %v", err)
 	}
+	const seededConfig = `{"token":"t","allow_group":true,"allow_all_guilds":true,"allowed_guild_ids":["g1"]}`
 	if _, err := db.Exec(ctx, `
 		INSERT INTO channel (id, name, type, enabled, config)
 		VALUES ('rollback-target', 'rollback-target', 'discord', true, $1)
-	`, `{"token":"t","allow_group":true,"allow_all_guilds":true,"allowed_guild_ids":["g1"]}`); err != nil {
+	`, seededConfig); err != nil {
 		t.Fatalf("seed channel: %v", err)
 	}
 
@@ -97,14 +102,12 @@ func TestDiscordExplicitGroupAccessDownRemovesOnlyBackfilledKey(t *testing.T) {
 		t.Fatalf("roll back migration: %v", err)
 	}
 
-	decoded := readChannelConfig(t, ctx, db, "rollback-target")
-	if _, ok := decoded["allow_all_guilds"]; ok {
-		t.Errorf("allow_all_guilds still present after rollback: %#v", decoded)
+	var config string
+	if err := db.QueryRow(ctx, `SELECT config FROM channel WHERE id = 'rollback-target'`).Scan(&config); err != nil {
+		t.Fatalf("read channel: %v", err)
 	}
-	if guildIDs, ok := decoded["allowed_guild_ids"]; !ok {
-		t.Errorf("allowed_guild_ids dropped by rollback: %#v", decoded)
-	} else if list, ok := guildIDs.([]any); !ok || len(list) != 1 || list[0] != "g1" {
-		t.Errorf("allowed_guild_ids = %#v, want [\"g1\"]", guildIDs)
+	if config != seededConfig {
+		t.Errorf("config changed by no-op Down: got %s, want %s", config, seededConfig)
 	}
 }
 

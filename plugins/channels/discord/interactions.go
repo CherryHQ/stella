@@ -3,6 +3,7 @@ package discord
 import (
 	"context"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -10,19 +11,30 @@ import (
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
+// nativeSlashContexts restricts every native slash command to bot DMs. Guild
+// slash commands are Discord-global: they would reach every guild the bot
+// has joined regardless of this bot instance's allow_group/allowlist
+// configuration (see authorizeInteractionRoute), so a guild-context command
+// would need that gate re-applied on every invocation with no client-side
+// hint that most guild members will simply be refused. DM has no such
+// allowlist surface to bypass, so scoping registration to DM sidesteps the
+// problem entirely instead of relying on the runtime check alone. Text
+// commands (handleMessage) remain the only way to invoke these in a guild.
+var nativeSlashContexts = []discordgo.InteractionContextType{discordgo.InteractionContextBotDM}
+
 // nativeCommands lists the Discord application (slash) commands registered on
 // activation. Every one of them maps onto a text command handleMessage
 // already parses; registering them is a discoverability convenience, never a
 // second implementation of command routing (see runCommandInteraction).
 func nativeCommands() []*discordgo.ApplicationCommand {
 	return []*discordgo.ApplicationCommand{
-		{Name: "help", Description: "Show Stella's help message."},
-		{Name: "start", Description: "Show Stella's welcome message."},
-		{Name: "new", Description: "Start a new Stella session in this chat."},
-		{Name: "compact", Description: "Compact the current Stella session."},
-		{Name: "abort", Description: "Abort Stella's active response in this chat."},
-		{Name: "whoami", Description: "Show your Discord user ID."},
-		{Name: "link", Description: "Link this Discord account to a Stella user.", Options: []*discordgo.ApplicationCommandOption{
+		{Name: "help", Description: "Show Stella's help message.", Contexts: &nativeSlashContexts},
+		{Name: "start", Description: "Show Stella's welcome message.", Contexts: &nativeSlashContexts},
+		{Name: "new", Description: "Start a new Stella session in this chat.", Contexts: &nativeSlashContexts},
+		{Name: "compact", Description: "Compact the current Stella session.", Contexts: &nativeSlashContexts},
+		{Name: "abort", Description: "Abort Stella's active response in this chat.", Contexts: &nativeSlashContexts},
+		{Name: "whoami", Description: "Show your Discord user ID.", Contexts: &nativeSlashContexts},
+		{Name: "link", Description: "Link this Discord account to a Stella user.", Contexts: &nativeSlashContexts, Options: []*discordgo.ApplicationCommandOption{
 			{Type: discordgo.ApplicationCommandOptionString, Name: "code", Description: "Link code from the admin profile page.", Required: true},
 		}},
 	}
@@ -121,7 +133,12 @@ func (b *Bot) handleCommandInteraction(ctx context.Context, ix *discordgo.Intera
 		logger().Warn("ack discord command interaction failed", "error", err)
 		return
 	}
-	reply := b.runCommandInteraction(context.WithoutCancel(ctx), ix)
+	// Discord rejects an edit whose content exceeds 2000 characters outright;
+	// an unbounded command reply (e.g. a long /help or /new session summary)
+	// would then leave the deferred "thinking…" placeholder stuck forever,
+	// since nothing ever replaces it. Truncate rune-safely, with an explicit
+	// marker, before it ever reaches the API.
+	reply := truncateHead(b.runCommandInteraction(context.WithoutCancel(ctx), ix), maxMessageLength)
 	if _, err := b.rest.InteractionResponseEdit(ix, &discordgo.WebhookEdit{Content: &reply}); err != nil {
 		logger().Warn("edit discord command interaction response failed", "error", err)
 	}
@@ -184,6 +201,37 @@ func (b *Bot) runCommandInteraction(ctx context.Context, ix *discordgo.Interacti
 		}()
 	}
 	return "Received."
+}
+
+// truncateHead keeps the first maxRunes Unicode runes of text, appending a
+// trailing marker when it truncates. Rune-counted, like truncateTail, so it
+// never splits a multibyte rune and stays under Discord's 2000-character
+// limit for CJK text as well as ASCII.
+func truncateHead(text string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(text) <= maxRunes {
+		return text
+	}
+	const suffix = "…\n(truncated)"
+	suffixRunes := utf8.RuneCountInString(suffix)
+	if maxRunes <= suffixRunes {
+		return firstNRunes(text, maxRunes)
+	}
+	return firstNRunes(text, maxRunes-suffixRunes) + suffix
+}
+
+// firstNRunes returns the first n Unicode runes of s.
+func firstNRunes(s string, n int) string {
+	count := 0
+	for i := range s {
+		if count == n {
+			return s[:i]
+		}
+		count++
+	}
+	return s
 }
 
 // handleComponentInteraction handles a Cancel button click. It authorizes

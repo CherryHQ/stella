@@ -140,6 +140,34 @@ func TestSplitMarkdown_FenceNotCrossingBoundaryIsUntouched(t *testing.T) {
 	}
 }
 
+func TestSplitMarkdown_OverlongLineInFenceStaysWithinBudget(t *testing.T) {
+	cases := []struct {
+		name  string
+		open  string
+		close string
+		line  string
+	}{
+		{"backtick fence, ASCII line", "```go\n", "```\n", strings.Repeat("a", 500)},
+		{"tilde fence, ASCII line", "~~~text\n", "~~~\n", strings.Repeat("b", 500)},
+		{"backtick fence, CJK line", "```go\n", "```\n", strings.Repeat("测", 500)},
+		{"tilde fence, CJK line", "~~~text\n", "~~~\n", strings.Repeat("测", 500)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			text := tc.open + tc.line + "\n" + tc.close
+			chunks := SplitMarkdown(text, 50)
+			if len(chunks) < 2 {
+				t.Fatalf("expected the overlong line to force multiple chunks, got %d", len(chunks))
+			}
+			for i, c := range chunks {
+				if n := utf8.RuneCountInString(c); n > 50 {
+					t.Fatalf("chunk %d has %d runes, want <= 50: %q", i, n, c)
+				}
+			}
+		})
+	}
+}
+
 func TestSplitMarkdown_PlainShortTextUnaffectedByFenceLogic(t *testing.T) {
 	text := "just a normal short reply, no code fences here."
 	chunks := SplitMarkdown(text, 2000)
