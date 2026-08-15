@@ -489,7 +489,7 @@ func TestDeliverStreamCreatesProgressMessageAndEditsFinal(t *testing.T) {
 	events := make(chan channel.Event, 1)
 	events <- channel.Event{Text: "final answer"}
 	close(events)
-	if err := b.deliverStream(context.Background(), "channel", "request", &channel.ChatStream{Events: events}, nil); err != nil {
+	if err := b.deliverStream(context.Background(), "channel", "request", &channel.ChatStream{Events: events}, nil, textDelivery{}); err != nil {
 		t.Fatal(err)
 	}
 	rest.mu.Lock()
@@ -512,13 +512,13 @@ func TestDeliverStreamDistinguishesAbortFromDeliveryCancellation(t *testing.T) {
 	aborted := make(chan channel.Event, 1)
 	aborted <- channel.Event{Err: context.Canceled}
 	close(aborted)
-	if err := b.deliverStream(context.Background(), "channel", "request", &channel.ChatStream{Events: aborted}, nil); err != nil {
+	if err := b.deliverStream(context.Background(), "channel", "request", &channel.ChatStream{Events: aborted}, nil, textDelivery{}); err != nil {
 		t.Fatalf("agent abort returned %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := b.deliverStream(ctx, "channel", "request", &channel.ChatStream{Events: make(chan channel.Event)}, nil); !errors.Is(err, context.Canceled) {
+	if err := b.deliverStream(ctx, "channel", "request", &channel.ChatStream{Events: make(chan channel.Event)}, nil, textDelivery{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("delivery cancellation returned %v", err)
 	}
 }
@@ -825,6 +825,7 @@ type fakeDiscordREST struct {
 	typing           int
 	typed            chan struct{}
 	sent             []*discordgo.MessageSend
+	sendErr          func(n int, m *discordgo.MessageSend) error
 	edited           []string
 	editedRequests   []*discordgo.MessageEdit
 	deletedMessage   []string
@@ -869,8 +870,24 @@ func (f *fakeDiscordREST) ChannelTyping(string, ...discordgo.RequestOption) erro
 func (f *fakeDiscordREST) ChannelMessageSendComplex(_ string, message *discordgo.MessageSend, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.sendErr != nil {
+		if err := f.sendErr(len(f.sent)+1, message); err != nil {
+			return nil, err
+		}
+	}
 	f.sent = append(f.sent, message)
 	return &discordgo.Message{ID: "sent-message"}, nil
+}
+
+// sentContents returns the content of every message the bot sent, in order.
+func (f *fakeDiscordREST) sentContents() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]string, 0, len(f.sent))
+	for _, m := range f.sent {
+		out = append(out, m.Content)
+	}
+	return out
 }
 
 func (f *fakeDiscordREST) ChannelMessageEditComplex(message *discordgo.MessageEdit, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
@@ -1339,7 +1356,7 @@ func TestDeliverStreamFinalizeClearsCancelButtonAndUnregistersToken(t *testing.T
 	events <- channel.Event{Text: "final answer"}
 	close(events)
 	cancel := &cancelControl{requesterID: "requester", abort: func() bool { return true }}
-	if err := b.deliverStream(context.Background(), "channel", "request", &channel.ChatStream{Events: events}, cancel); err != nil {
+	if err := b.deliverStream(context.Background(), "channel", "request", &channel.ChatStream{Events: events}, cancel, textDelivery{}); err != nil {
 		t.Fatal(err)
 	}
 	rest.mu.Lock()
@@ -1350,5 +1367,189 @@ func TestDeliverStreamFinalizeClearsCancelButtonAndUnregistersToken(t *testing.T
 	final := rest.editedRequests[len(rest.editedRequests)-1]
 	if final.Components == nil || len(*final.Components) != 0 {
 		t.Fatalf("final edit components = %#v, want a cleared (non-nil, empty) slice", final.Components)
+	}
+}
+
+// threeChunkText returns text that SplitMarkdown deterministically splits into
+// three Discord-sized chunks, plus those chunks. Chunk indices are the unit the
+// durable delivery cursor counts in, so a resume test is only meaningful
+// against a text whose split is pinned.
+func threeChunkText(t *testing.T) (string, []string) {
+	t.Helper()
+	text := strings.Repeat("a", 1500) + "\n" + strings.Repeat("b", 1500) + "\n" + strings.Repeat("c", 1500)
+	chunks := channel.SplitMarkdown(text, maxMessageLength)
+	if len(chunks) != 3 {
+		t.Fatalf("fixture split into %d chunks, want 3", len(chunks))
+	}
+	return text, chunks
+}
+
+func newPublishingBot(t *testing.T) (*Bot, *fakeDiscordREST) {
+	t.Helper()
+	b, err := New(Config{Token: "token"}, fakeHandler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := newFakeDiscordREST()
+	b.rest = rest
+	return b, rest
+}
+
+// TestPublishResumesPersistedTextFromDeliveryCursor is the payoff of durable
+// delivery: a re-delivery sends only the chunks the cursor has not confirmed,
+// with no agent stream, no progress draft, and no cancel button.
+func TestPublishResumesPersistedTextFromDeliveryCursor(t *testing.T) {
+	b, rest := newPublishingBot(t)
+	text, chunks := threeChunkText(t)
+	var confirmed []int64
+	err := b.Publish(context.Background(), internalchannel.GroupPublishRequest{
+		PlatformGroupID: "group-channel",
+		ReplyTo:         "trigger-message",
+		Text:            text,
+		DeliveryCursor:  1,
+		MarkDelivered: func(_ context.Context, n int64) error {
+			confirmed = append(confirmed, n)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("re-delivery: %v", err)
+	}
+	if got := rest.sentContents(); !reflect.DeepEqual(got, chunks[1:]) {
+		t.Fatalf("re-delivery sent %d messages, want the two unconfirmed chunks", len(got))
+	}
+	if !reflect.DeepEqual(confirmed, []int64{2, 3}) {
+		t.Fatalf("confirmed cursors = %v, want [2 3]", confirmed)
+	}
+	rest.mu.Lock()
+	defer rest.mu.Unlock()
+	if len(rest.editedRequests) != 0 {
+		t.Fatalf("re-delivery edited %d messages, want no progress draft", len(rest.editedRequests))
+	}
+}
+
+// TestPublishStopsAtFailedChunkAndLeavesNoStaleDraft pins the failure half: the
+// cursor keeps the chunks that landed, delivery stops at the first failure, and
+// the scratch draft is removed rather than left showing a retry notice that the
+// retry itself would never clean up.
+func TestPublishStopsAtFailedChunkAndLeavesNoStaleDraft(t *testing.T) {
+	b, rest := newPublishingBot(t)
+	text, chunks := threeChunkText(t)
+	boom := errors.New("discord 500")
+	rest.sendErr = func(_ int, m *discordgo.MessageSend) error {
+		if m.Content == chunks[1] {
+			return boom
+		}
+		return nil
+	}
+	events := make(chan channel.Event, 1)
+	events <- channel.Event{Text: text}
+	close(events)
+	var confirmed []int64
+	err := b.Publish(context.Background(), internalchannel.GroupPublishRequest{
+		PlatformGroupID: "group-channel",
+		ReplyTo:         "trigger-message",
+		Stream:          &channel.ChatStream{Events: events},
+		MarkDelivered: func(_ context.Context, n int64) error {
+			confirmed = append(confirmed, n)
+			return nil
+		},
+	})
+	if !errors.Is(err, boom) {
+		t.Fatalf("publish error = %v, want the failed chunk send", err)
+	}
+	if !reflect.DeepEqual(confirmed, []int64{1}) {
+		t.Fatalf("confirmed cursors = %v, want [1]: only the chunk Discord accepted", confirmed)
+	}
+	if got := rest.sentContents(); !reflect.DeepEqual(got, []string{workingMessage, chunks[0]}) {
+		t.Fatalf("sent = %d messages, want the draft and the first chunk only", len(got))
+	}
+	rest.mu.Lock()
+	defer rest.mu.Unlock()
+	if !reflect.DeepEqual(rest.deletedMessage, []string{"group-channel:sent-message"}) {
+		t.Fatalf("deleted drafts = %#v, want the scratch draft removed", rest.deletedMessage)
+	}
+	for _, edit := range rest.edited {
+		if strings.Contains(edit, "⚠️") {
+			t.Fatalf("draft was edited to %q; a retry re-delivers, so no failure notice may outlive it", edit)
+		}
+	}
+}
+
+// TestDeliverStreamConfirmsShortReplyAsOneChunk covers the draft-as-final-reply
+// path: the finalized draft is chunk 0 of 1, so a retry that sees cursor 1 has
+// nothing left to send.
+func TestDeliverStreamConfirmsShortReplyAsOneChunk(t *testing.T) {
+	b, rest := newPublishingBot(t)
+	events := make(chan channel.Event, 1)
+	events <- channel.Event{Text: "short answer"}
+	close(events)
+	var confirmed []int64
+	resume := textDelivery{confirm: func(_ context.Context, n int64) error {
+		confirmed = append(confirmed, n)
+		return nil
+	}}
+	if err := b.deliverStream(context.Background(), "channel", "request", &channel.ChatStream{Events: events}, nil, resume); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(confirmed, []int64{1}) {
+		t.Fatalf("confirmed cursors = %v, want [1]", confirmed)
+	}
+	if got := rest.edited; len(got) != 1 || got[0] != "short answer" {
+		t.Fatalf("edits = %#v, want the draft finalized into the reply", got)
+	}
+}
+
+// TestDeliverStreamConfirmFailureFailsDeliveryAndDeletesDraft: losing the row
+// means another attempt owns this response. Reporting success would strand the
+// cursor behind what is on screen, so the delivery fails and takes the draft
+// with it — the retry re-delivers the text as a normal message.
+func TestDeliverStreamConfirmFailureFailsDeliveryAndDeletesDraft(t *testing.T) {
+	b, rest := newPublishingBot(t)
+	events := make(chan channel.Event, 1)
+	events <- channel.Event{Text: "short answer"}
+	close(events)
+	lost := errors.New("dispatch ownership lost")
+	resume := textDelivery{confirm: func(context.Context, int64) error { return lost }}
+	err := b.deliverStream(context.Background(), "channel", "request", &channel.ChatStream{Events: events}, nil, resume)
+	if !errors.Is(err, lost) {
+		t.Fatalf("deliverStream error = %v, want the confirmation failure", err)
+	}
+	rest.mu.Lock()
+	defer rest.mu.Unlock()
+	if !reflect.DeepEqual(rest.deletedMessage, []string{"channel:sent-message"}) {
+		t.Fatalf("deleted drafts = %#v, want the unconfirmed draft removed", rest.deletedMessage)
+	}
+}
+
+// TestDeliverStreamMediaFailureNeverFailsDelivery: attachments are not
+// persisted, so failing here would requeue a dispatch whose only recovery is
+// re-running the agent. The group is told an upload failed; the turn is done.
+func TestDeliverStreamMediaFailureNeverFailsDelivery(t *testing.T) {
+	b, rest := newPublishingBot(t)
+	rest.sendErr = func(_ int, m *discordgo.MessageSend) error {
+		if len(m.Files) > 0 {
+			return errors.New("upload rejected")
+		}
+		return nil
+	}
+	events := make(chan channel.Event, 2)
+	events <- channel.Event{Text: "answer with a chart"}
+	events <- channel.Event{Image: &channel.ImageEvent{MimeType: "image/png", Data: "aGVsbG8="}}
+	close(events)
+	var confirmed []int64
+	resume := textDelivery{confirm: func(_ context.Context, n int64) error {
+		confirmed = append(confirmed, n)
+		return nil
+	}}
+	if err := b.deliverStream(context.Background(), "channel", "request", &channel.ChatStream{Events: events}, nil, resume); err != nil {
+		t.Fatalf("media failure returned %v, want the text delivery to stand", err)
+	}
+	if !reflect.DeepEqual(confirmed, []int64{1}) {
+		t.Fatalf("confirmed cursors = %v, want the text chunk confirmed", confirmed)
+	}
+	sent := rest.sentContents()
+	if len(sent) == 0 || !strings.Contains(sent[len(sent)-1], "could not be uploaded") {
+		t.Fatalf("sent = %#v, want a user-visible attachment failure notice", sent)
 	}
 }

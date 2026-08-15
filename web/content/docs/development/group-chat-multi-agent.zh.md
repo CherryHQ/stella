@@ -190,7 +190,11 @@ CREATE TABLE ctx_group_memory (
 - Web 断连不会取消生成。服务端使用带上限的服务生命周期 context,继续 drain stream,且只写回完整成功响应。取消或错误导致的 partial stream 不会 append。
 - Dispatch 重试使用线性退避:`1s * attempts`,封顶 60s。超过重试预算后置为 `failed`;不会 fallback 到其它 channel 冒名该 agent。
 - Dispatch 按 `(group_id, agent_id)` 保持顺序:SQL 只在同 agent 没有更小 `seq` 的 pending 或未过期 running 行时 claim。过期 running 行会被回收,不会永久阻塞。
-- 回复发布是 at-least-once。正常收尾为 publish → 一个 DB 事务 append 群回复并写 `result_message_id` → mark completed。重试看到 `result_message_id` 会跳过 chat 和 publish,直接 completed。剩余重复窗口是 publish 成功但 writeback+marker 事务尚未提交。
+- 回复发布是 at-least-once。正常收尾为 publish → 一个 DB 事务 append 群回复并写 `result_message_id` → 标记投递完成 → mark completed。剩余重复窗口是 publish 成功但 writeback+marker 事务尚未提交。
+- **已生成的回复绝不重新生成。** 无论投递是否成功,回复都会先落库,所以 publish 失败也会留下 `result_message_id`。重试看到 `result_message_id` 且 `delivery_complete = false` 时,只重新投递这段已持久化的文本,永远不会再调用一次 Agent;看到 `delivery_complete` 则直接 completed。
+- 重新投递从 `delivery_cursor` 续传,该游标记录发布方已确认被平台接收的前 N 个分块。Discord 按 2000 字符分块逐块确认,因此 3 块中第 2 块失败时只补发第 2、3 块;不做分块确认的平台整段重发。若某次尝试是重新生成而非重新投递,游标会被清零——它只对某一份具体回复有意义。
+- 图片与文件不落库,也不会重新投递。上传失败只在群里提示并记 warn,不会让 publish 失败:为附件重排队会把 dispatch 推回到只能靠重跑 Agent 才能恢复的状态。
+- running 状态的 dispatch 若持有 `result_message_id` 时租约过期,直接标记 completed 而不续传,避免一次心跳抖动在不做分块确认的平台上整段重发。
 - 群上下文 injected 去重用 SQL 在整个 conversation 内做完整 content 精确查重,不依赖 token budget 窗口。
 
 ## 回复出口:只发到群(D8)

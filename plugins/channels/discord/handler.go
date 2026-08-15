@@ -164,7 +164,7 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) (resultEr
 			_, _, _, _ = b.handler.HandleIncoming(context.WithoutCancel(deliveryCtx), msg, "/abort", "")
 			return true
 		},
-	})
+	}, textDelivery{})
 	success = deliverErr == nil
 	return deliverErr
 }

@@ -130,6 +130,39 @@ WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND attempt_count = sqlc.arg(attempt_count);
 
+-- name: AdvanceGroupDispatchDelivery :execrows
+-- Monotonic: a publisher only ever confirms chunks it has just sent, so a
+-- non-advancing cursor means this attempt no longer owns the row (the
+-- attempt_count guard) or a stale confirmation arrived late. Both must read as
+-- "not delivered" rather than silently rewinding a later attempt's progress.
+UPDATE ctx_group_dispatch
+SET delivery_cursor = sqlc.arg(delivery_cursor),
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND status = 'running'
+  AND attempt_count = sqlc.arg(attempt_count)
+  AND delivery_cursor < sqlc.arg(delivery_cursor);
+
+-- name: ResetGroupDispatchDelivery :execrows
+-- The cursor indexes the chunks of one specific response. Running the agent
+-- again produces a different response, so an attempt that regenerates instead
+-- of re-delivering must start from zero or it would skip real content.
+UPDATE ctx_group_dispatch
+SET delivery_cursor = 0,
+    delivery_complete = false,
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND status = 'running'
+  AND attempt_count = sqlc.arg(attempt_count);
+
+-- name: MarkGroupDispatchDelivered :execrows
+UPDATE ctx_group_dispatch
+SET delivery_complete = true,
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND status = 'running'
+  AND attempt_count = sqlc.arg(attempt_count);
+
 -- name: MarkGroupDispatchCompleted :execrows
 UPDATE ctx_group_dispatch
 SET status = 'completed',
