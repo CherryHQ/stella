@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -236,14 +237,15 @@ func (d *GroupDispatcher) reapExpired(ctx context.Context) error {
 		return fmt.Errorf("list expired dispatch: %w", err)
 	}
 	for _, row := range dispatchRows {
-		// A response that was already generated and persisted retires here even
-		// when its delivery never finished. Requeueing it for re-delivery would
-		// resend the whole response on every platform that does not confirm
-		// chunks, turning a heartbeat hiccup into duplicate group messages;
-		// resuming after a crash is a separate, opt-in step.
-		if row.ResultMessageID != "" {
+		// Only a finished delivery retires here. A row that holds a result but
+		// never finished delivering it is the crash case the delivery cursor
+		// exists for: requeue it so the tail reaches the group. A cursor of 0
+		// requeues too — the process may have died between persisting the
+		// response and sending its first chunk, and the retry re-delivers the
+		// persisted text without ever running the agent again.
+		if row.ResultMessageID != "" && row.DeliveryComplete {
 			if _, err := d.q.MarkGroupDispatchCompleted(ctx, sqlc.MarkGroupDispatchCompletedParams{ID: row.ID, AttemptCount: row.AttemptCount}); err != nil {
-				return fmt.Errorf("complete expired dispatch with result marker: %w", err)
+				return fmt.Errorf("complete expired delivered dispatch: %w", err)
 			}
 			continue
 		}
@@ -644,13 +646,17 @@ func (d *GroupDispatcher) generateAndPublish(ctx, ownedCtx context.Context, run 
 	// session queue is the one durable handle on this turn, so a cancel click
 	// reuses its existing Abort rather than tracking the turn a second way.
 	sessionKey := agent.BuildGroupSessionKey(claimed.AgentID, claimed.GroupID)
+	result := &dispatchResult{d: d, row: claimed, sessionID: stream.SessionID}
 	req := d.publishRequest(run)
 	req.Stream = stream
+	req.RecordResult = result.record
 	req.Abort = func() bool { return d.queue.Abort(sessionKey) }
 	publishErr := run.publisher.Publish(ownedCtx, req)
 	response := d.awaitGroupResponse(ownedCtx, stream, responseC)
-	if response.complete && response.text != "" {
-		if err := d.recordDispatchResult(ctx, claimed, response); err != nil {
+	if response.complete {
+		// A no-op when the publisher already recorded this response before it
+		// started sending; the backstop for every publisher that did not.
+		if err := result.record(ctx, response.text); err != nil {
 			return d.failDispatch(ctx, claimed, err)
 		}
 	}
@@ -701,6 +707,41 @@ func (d *GroupDispatcher) publishRequest(run dispatchRun) GroupPublishRequest {
 		RequesterID:      run.message.ActorID,
 		MarkDelivered:    d.deliveryConfirmer(run.row),
 	}
+}
+
+// dispatchResult persists one claimed attempt's response at most once,
+// whoever asks first. A publisher that buffers the whole response before
+// sending it records it through the request's Record callback, closing the
+// window in which a crash between the last agent token and the first delivered
+// chunk would cost a second agent turn; generateAndPublish records whatever a
+// publisher did not, once Publish has returned.
+type dispatchResult struct {
+	d         *GroupDispatcher
+	row       sqlc.CtxGroupDispatch
+	sessionID string
+
+	mu   sync.Mutex
+	done bool
+}
+
+// record persists text as this dispatch's canonical response. Empty text
+// records nothing: an agent turn that produced no text has nothing to
+// re-deliver, and a placeholder a publisher renders for the user is that
+// publisher's own affordance, not a group message.
+func (r *dispatchResult) record(ctx context.Context, text string) error {
+	if text == "" {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.done {
+		return nil
+	}
+	if err := r.d.recordDispatchResult(ctx, r.row, groupResponse{text: text, sessionID: r.sessionID, complete: true}); err != nil {
+		return err
+	}
+	r.done = true
+	return nil
 }
 
 // deliveryConfirmer returns the durable chunk confirmation for one claimed

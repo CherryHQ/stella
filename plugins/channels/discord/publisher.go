@@ -14,7 +14,7 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 	}
 	stopTyping := b.startTypingHeartbeat(targetID)
 	defer stopTyping()
-	resume := textDelivery{cursor: req.DeliveryCursor, confirm: req.Confirm}
+	resume := textDelivery{cursor: req.DeliveryCursor, confirm: req.Confirm, persist: req.Record}
 	var err error
 	if req.Stream == nil {
 		err = b.redeliver(ctx, targetID, req, resume)

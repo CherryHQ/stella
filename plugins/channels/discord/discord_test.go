@@ -1395,6 +1395,80 @@ func newPublishingBot(t *testing.T) (*Bot, *fakeDiscordREST) {
 	return b, rest
 }
 
+// TestPublishRecordsResponseBeforeTheFirstChunkIsSent closes the crash window.
+// Discord cannot send a chunk before it has buffered the whole response, so the
+// response is persisted the moment the stream ends and before anything reaches
+// the channel: a crash in between then costs a re-delivery, not a second agent
+// turn. The recorded text is the exact string that gets split, which is what
+// makes a chunk index mean the same thing on the retry.
+func TestPublishRecordsResponseBeforeTheFirstChunkIsSent(t *testing.T) {
+	b, rest := newPublishingBot(t)
+	text, chunks := threeChunkText(t)
+	events := make(chan channel.Event, 1)
+	events <- channel.Event{Text: text}
+	close(events)
+	var recorded string
+	var sentAtRecord []string
+	editedAtRecord := -1
+	err := b.Publish(context.Background(), internalchannel.GroupPublishRequest{
+		PlatformGroupID: "group-channel",
+		ReplyTo:         "trigger-message",
+		Stream:          &channel.ChatStream{Events: events},
+		RecordResult: func(_ context.Context, response string) error {
+			recorded = response
+			sentAtRecord = rest.sentContents()
+			rest.mu.Lock()
+			editedAtRecord = len(rest.edited)
+			rest.mu.Unlock()
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+	if recorded != text {
+		t.Fatalf("recorded %d bytes, want the exact %d-byte text that gets chunked", len(recorded), len(text))
+	}
+	if !reflect.DeepEqual(sentAtRecord, []string{workingMessage}) || editedAtRecord != 0 {
+		t.Fatalf("at record time sent %#v with %d edits, want only the progress draft", sentAtRecord, editedAtRecord)
+	}
+	if got := rest.sentContents(); !reflect.DeepEqual(got, append([]string{workingMessage}, chunks...)) {
+		t.Fatalf("sent %d messages, want the draft followed by all three chunks", len(got))
+	}
+}
+
+// A response Discord could not persist must not be delivered at all: the retry
+// would find no record, run the agent again, and answer a group that had
+// already read part of the first answer.
+func TestPublishRecordFailureSendsNothing(t *testing.T) {
+	b, rest := newPublishingBot(t)
+	text, _ := threeChunkText(t)
+	events := make(chan channel.Event, 1)
+	events <- channel.Event{Text: text}
+	close(events)
+	lost := errors.New("set dispatch result message: lost dispatch ownership")
+	err := b.Publish(context.Background(), internalchannel.GroupPublishRequest{
+		PlatformGroupID: "group-channel",
+		Stream:          &channel.ChatStream{Events: events},
+		RecordResult:    func(context.Context, string) error { return lost },
+		MarkDelivered: func(context.Context, int64) error {
+			t.Error("confirmed a chunk that was never sent")
+			return nil
+		},
+	})
+	if !errors.Is(err, lost) {
+		t.Fatalf("publish error = %v, want the failed record", err)
+	}
+	if got := rest.sentContents(); !reflect.DeepEqual(got, []string{workingMessage}) {
+		t.Fatalf("sent %#v, want nothing beyond the progress draft", got)
+	}
+	rest.mu.Lock()
+	defer rest.mu.Unlock()
+	if !reflect.DeepEqual(rest.deletedMessage, []string{"group-channel:sent-message"}) {
+		t.Fatalf("deleted drafts = %#v, want the unrecorded draft removed", rest.deletedMessage)
+	}
+}
+
 // TestPublishResumesPersistedTextFromDeliveryCursor is the payoff of durable
 // delivery: a re-delivery sends only the chunks the cursor has not confirmed,
 // with no agent stream, no progress draft, and no cancel button.

@@ -26,13 +26,15 @@ func softReference(channelID, messageID string) *discordgo.MessageReference {
 	return &discordgo.MessageReference{MessageID: messageID, ChannelID: channelID, FailIfNotExists: &strict}
 }
 
-// textDelivery is the resume half of a group text send: how many leading chunks
-// a previous attempt already got onto Discord, and how to durably confirm the
-// next one. The zero value is a plain one-shot send — direct messages and
-// notifications have nothing to resume.
+// textDelivery is the resume half of a group text send: how to persist the
+// response before any of it is sent, how many leading chunks a previous attempt
+// already got onto Discord, and how to durably confirm the next one. The zero
+// value is a plain one-shot send — direct messages and notifications have
+// nothing to resume.
 type textDelivery struct {
 	cursor  int64
 	confirm func(context.Context, int64) error
+	persist func(context.Context, string) error
 }
 
 func (d textDelivery) delivered(ctx context.Context, n int) error {
@@ -40,6 +42,16 @@ func (d textDelivery) delivered(ctx context.Context, n int) error {
 		return nil
 	}
 	return d.confirm(ctx, int64(n))
+}
+
+// record durably stores the response Discord is about to send. Discord buffers
+// the whole stream before it can split it, so without this the response would
+// exist only in memory until the last chunk landed.
+func (d textDelivery) record(ctx context.Context, text string) error {
+	if d.persist == nil {
+		return nil
+	}
+	return d.persist(ctx, text)
 }
 
 func (b *Bot) sendText(ctx context.Context, channelID, text, replyTo string) error {

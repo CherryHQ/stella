@@ -111,9 +111,10 @@ func (d *discordDraft) delete(ctx context.Context) {
 	d.cancelToken = ""
 }
 
-// deliverStream renders a live agent turn into the channel. resume carries the
-// durable delivery cursor for a group dispatch (zero value for a direct
-// message, which has nothing to resume).
+// deliverStream renders a live agent turn into the channel. resume carries a
+// group dispatch's durable delivery state: how to persist the finished response
+// before any of it is sent, and how far a previous attempt got. Its zero value
+// is a direct message, which has nothing to persist and nothing to resume.
 func (b *Bot) deliverStream(ctx context.Context, channelID, replyTo string, stream *channel.ChatStream, cancel *cancelControl, resume textDelivery) error {
 	draft := b.beginDraft(ctx, channelID, replyTo, cancel)
 	text, images, files, streamErr := collectResponse(ctx, stream, func(text string, tools *channel.ToolTracker) {
@@ -139,6 +140,12 @@ func (b *Bot) deliverStream(ctx context.Context, channelID, replyTo string, stre
 			text += "\n\n"
 		}
 		text += "Stella couldn't complete this response. Please try again."
+	} else if err := resume.record(ctx, text); err != nil {
+		// The response is complete but nothing durable proves it, so send none
+		// of it: a retry would find no record, run the agent again, and answer
+		// a group that had already read half an answer.
+		draft.delete(context.WithoutCancel(ctx))
+		return err
 	}
 	if strings.TrimSpace(text) == "" && len(images) == 0 && len(files) == 0 {
 		text = "(empty response)"

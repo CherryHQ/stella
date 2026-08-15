@@ -50,6 +50,10 @@ type GroupPublishRequest struct {
 	// Call it through Confirm. Nil when the dispatcher offers no resume for this
 	// request (synchronous Web publish, tests).
 	MarkDelivered func(ctx context.Context, n int64) error
+	// RecordResult durably persists the response this publisher is about to
+	// send. Call it through Record. Nil for a re-delivery (already persisted)
+	// and when the dispatcher offers no persistence for this request.
+	RecordResult func(ctx context.Context, text string) error
 
 	// RequesterID is the platform-native user ID of the human whose message
 	// triggered this dispatch (eventlog's platform sender id, not a Stella
@@ -75,6 +79,30 @@ func (r GroupPublishRequest) Confirm(ctx context.Context, n int64) error {
 		return nil
 	}
 	return r.MarkDelivered(ctx, n)
+}
+
+// Record durably persists the response text before it is delivered, so a
+// crash mid-delivery resumes instead of re-running the agent. A publisher that
+// buffers the whole response before sending it — Discord splits into chunks, so
+// it must — should call this once the stream has finished successfully and
+// before the first message reaches the platform. Everything between "the agent
+// finished" and "something durable proves it" is a window in which a crash
+// costs a second agent turn; this call is how a publisher closes its own.
+//
+// Pass the exact text about to be sent: the persisted response is what a
+// re-delivery splits, so the chunk a cursor points at only means the same thing
+// if both attempts split the same string. Empty text records nothing.
+//
+// A publisher that returns after this call still leaves the response durable,
+// so the dispatcher re-delivers it; a publisher that never calls it is not
+// broken, only later — the dispatcher persists the response after Publish
+// returns. Treat an error here as a delivery failure and send nothing: the
+// response is unproven, and a retry would answer the group twice.
+func (r GroupPublishRequest) Record(ctx context.Context, text string) error {
+	if r.RecordResult == nil {
+		return nil
+	}
+	return r.RecordResult(ctx, text)
 }
 
 type PublisherRegistry struct {
