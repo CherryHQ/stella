@@ -43,14 +43,17 @@ func (b *Bot) sendTextOptions(ctx context.Context, channelID, text, replyTo stri
 		if i == 0 {
 			msg.Reference = softReference(channelID, replyTo)
 		}
-		if _, err := b.session.ChannelMessageSendComplex(channelID, msg); err != nil {
+		if b.rest == nil {
+			return fmt.Errorf("send discord message: REST client unavailable")
+		}
+		if _, err := b.rest.ChannelMessageSendComplex(channelID, msg, discordgo.WithContext(ctx)); err != nil {
 			return fmt.Errorf("send discord message chunk %d/%d: %w", i+1, len(chunks), err)
 		}
 	}
 	return nil
 }
 
-func (b *Bot) sendImage(channelID string, image channel.ImageEvent) error {
+func (b *Bot) sendImage(ctx context.Context, channelID string, image channel.ImageEvent) error {
 	data, err := base64.StdEncoding.DecodeString(image.Data)
 	if err != nil {
 		return fmt.Errorf("decode discord image: %w", err)
@@ -59,11 +62,14 @@ func (b *Bot) sendImage(channelID string, image channel.ImageEvent) error {
 	if exts, _ := mime.ExtensionsByType(image.MimeType); len(exts) > 0 {
 		ext = exts[0]
 	}
-	_, err = b.session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{AllowedMentions: noMentions(), Files: []*discordgo.File{{Name: "image" + ext, Reader: bytes.NewReader(data)}}})
+	if b.rest == nil {
+		return fmt.Errorf("send discord image: REST client unavailable")
+	}
+	_, err = b.rest.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{AllowedMentions: noMentions(), Files: []*discordgo.File{{Name: "image" + ext, Reader: bytes.NewReader(data)}}}, discordgo.WithContext(ctx))
 	return err
 }
 
-func (b *Bot) sendFile(channelID string, file channel.FileEvent) error {
+func (b *Bot) sendFile(ctx context.Context, channelID string, file channel.FileEvent) error {
 	f, err := os.Open(file.Path)
 	if err != nil {
 		return err
@@ -73,6 +79,9 @@ func (b *Bot) sendFile(channelID string, file channel.FileEvent) error {
 	if name == "" {
 		name = filepath.Base(file.Path)
 	}
-	_, err = b.session.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{AllowedMentions: noMentions(), Files: []*discordgo.File{{Name: name, Reader: f}}})
+	if b.rest == nil {
+		return fmt.Errorf("send discord file: REST client unavailable")
+	}
+	_, err = b.rest.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{AllowedMentions: noMentions(), Files: []*discordgo.File{{Name: name, Reader: f}}}, discordgo.WithContext(ctx))
 	return err
 }

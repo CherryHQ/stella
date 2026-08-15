@@ -47,6 +47,14 @@ func (h *fullSurfaceHandler) EnsurePlatformGroupMember(context.Context, string, 
 	return nil
 }
 
+func (h *fullSurfaceHandler) EnsurePlatformThreadGroupMember(context.Context, string, string, string, string) error {
+	return nil
+}
+
+func (h *fullSurfaceHandler) ImportGroupHistory(context.Context, []pkgchannel.IncomingMessage) error {
+	return nil
+}
+
 func (h *fullSurfaceHandler) RemovePlatformGroupMember(context.Context, string, string, string) error {
 	return nil
 }
@@ -114,6 +122,8 @@ func TestWrapOperationHandlerPreservesOptionalInterfaces(t *testing.T) {
 	}
 	if _, ok := wrapped.(interface {
 		EnsurePlatformGroupMember(context.Context, string, string, string) error
+		EnsurePlatformThreadGroupMember(context.Context, string, string, string, string) error
+		ImportGroupHistory(context.Context, []pkgchannel.IncomingMessage) error
 		RemovePlatformGroupMember(context.Context, string, string, string) error
 	}); !ok {
 		t.Error("wrapper dropped group-member provisioner")

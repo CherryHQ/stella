@@ -33,7 +33,11 @@ Guest chat traffic is limited per guest, each channel has a durable guest cap, a
 
 ## Using the bot
 
-Send the bot a direct message or mention it in a server channel. With **Allow server channels** off, every server message is ignored. By default, server messages that do not mention the bot are also ignored before they enter shared history or invoke an agent. Every member who can access a channel the bot can read may mention it, so use Discord channel and role permissions for access control, and invite the bot only to servers you trust. Agent output cannot trigger Discord mentions such as `@everyone`.
+Send the bot a direct message, mention it in a server channel, or reply to one of its server messages. Stella immediately replies with a temporary progress message, updates it with generated text and tool activity, and keeps Discord's typing indicator active until the answer is ready. Long answers and answers with attachments replace the preview with normal Discord messages when complete.
+
+In forum posts and other threads, a later mention also includes the post starter and up to 20 recent earlier messages, including messages sent before the bot was mentioned. Thread context is capped at 24 KiB; the oldest non-starter messages are omitted when needed.
+
+With **Allow server channels** off, every server message is ignored. By default, server messages that do not mention the bot are ignored as standalone turns and do not invoke an agent. Every member who can access a channel the bot can read may mention it, so use Discord channel and role permissions for access control, and invite the bot only to servers you trust. Agent output cannot trigger Discord mentions such as `@everyone`.
 
 The bot supports `/start`, `/help`, `/new`, `/compact`, `/abort`, `/whoami`, and `/link` in direct messages. Discord receives commands as normal text messages; you do not need to register Discord application commands.
 

@@ -23,6 +23,8 @@ type operationHandlerSurface interface {
 	AdmitAssetSave(ctx context.Context, msg pkgchannel.IncomingMessage) error
 	SaveAsset(ctx context.Context, msg pkgchannel.IncomingMessage, fileName string, data []byte) (string, error)
 	EnsurePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error
+	EnsurePlatformThreadGroupMember(ctx context.Context, platform, platformGroupID, platformThreadID, channelID string) error
+	ImportGroupHistory(ctx context.Context, messages []pkgchannel.IncomingMessage) error
 	RemovePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error
 }
 
@@ -96,6 +98,14 @@ func (h operationContextHandler) SaveAsset(ctx context.Context, msg pkgchannel.I
 
 func (h operationContextHandler) EnsurePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error {
 	return h.operationHandlerSurface.EnsurePlatformGroupMember(operationCallContext(h.opCtx, ctx), platform, platformGroupID, channelID)
+}
+
+func (h operationContextHandler) EnsurePlatformThreadGroupMember(ctx context.Context, platform, platformGroupID, platformThreadID, channelID string) error {
+	return h.operationHandlerSurface.EnsurePlatformThreadGroupMember(operationCallContext(h.opCtx, ctx), platform, platformGroupID, platformThreadID, channelID)
+}
+
+func (h operationContextHandler) ImportGroupHistory(ctx context.Context, messages []pkgchannel.IncomingMessage) error {
+	return h.operationHandlerSurface.ImportGroupHistory(operationCallContext(h.opCtx, ctx), messages)
 }
 
 func (h operationContextHandler) RemovePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error {

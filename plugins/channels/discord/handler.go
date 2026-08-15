@@ -30,6 +30,14 @@ type groupMemberProvisioner interface {
 	EnsurePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error
 }
 
+type threadGroupMemberProvisioner interface {
+	EnsurePlatformThreadGroupMember(ctx context.Context, platform, platformGroupID, platformThreadID, channelID string) error
+}
+
+type groupHistoryImporter interface {
+	ImportGroupHistory(ctx context.Context, messages []channel.IncomingMessage) error
+}
+
 func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
 	deliveryCtx := context.WithoutCancel(ctx)
 	if m.GuildID == "" && !b.cfg.AllowDM {
@@ -40,9 +48,17 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
 		logger().Debug("ignoring message from unconfigured guild", "guild_id", m.GuildID, "channel_id", m.ChannelID)
 		return nil
 	}
-	if m.GuildID != "" && b.cfg.RequireMention && !b.mentioned(m) {
+	if m.GuildID != "" && b.cfg.RequireMention && !b.addressed(m) {
 		logger().Debug("ignoring guild message without bot mention", "guild_id", m.GuildID, "channel_id", m.ChannelID)
 		return nil
+	}
+	// Acknowledge immediately; attachment downloads, thread-history reads, and
+	// durable group dispatch can all take longer than Discord's typing TTL.
+	stopTyping := b.startTypingHeartbeat(m.ChannelID)
+	defer stopTyping()
+	route, err := b.resolveMessageRoute(deliveryCtx, m)
+	if err != nil {
+		return err
 	}
 	text := m.Content
 	if m.GuildID != "" {
@@ -52,7 +68,7 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
 	if strings.TrimSpace(text) != "" {
 		content = append(content, ai.TextContent{Text: text})
 	}
-	probe := b.incomingMessage(m, nil)
+	probe := b.incomingMessage(m, nil, route.chatID, route.threadID)
 	var assetMsg channel.IncomingMessage
 	if len(m.Attachments) > 0 {
 		resolver, ok := b.handler.(channel.AssetSaveAdmitter)
@@ -71,17 +87,33 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
 	for _, attachment := range m.Attachments {
 		content = append(content, b.attachmentContent(deliveryCtx, assetMsg, attachment)...)
 	}
+	history, err := b.loadThreadHistory(deliveryCtx, m, route)
+	if err != nil {
+		return err
+	}
+	if len(content) == 0 && len(history) > 0 {
+		content = append(content, ai.TextContent{Text: "[Mentioned Stella without additional text.]"})
+	}
 	if len(content) == 0 {
 		return nil
 	}
-	msg := b.incomingMessage(m, content)
+	msg := b.incomingMessage(m, content, route.chatID, route.threadID)
 	if msg.IsGroup {
-		if err := b.ensureGroupMember(ctx, msg.ChatID); err != nil {
+		if err := b.ensureGroupMember(deliveryCtx, msg.ChatID, msg.ThreadID); err != nil {
 			return err
+		}
+		if len(history) > 0 {
+			importer, ok := b.handler.(groupHistoryImporter)
+			if !ok {
+				return errors.New("group history import unavailable")
+			}
+			if err := importer.ImportGroupHistory(deliveryCtx, history); err != nil {
+				return fmt.Errorf("import Discord thread history: %w", err)
+			}
 		}
 	}
 	cmd, args := channel.ParseSlashCommand(text)
-	resp, handled, stream, err := b.handler.HandleIncoming(ctx, msg, cmd, args)
+	resp, handled, stream, err := b.handler.HandleIncoming(deliveryCtx, msg, cmd, args)
 	if err != nil {
 		return err
 	}
@@ -91,80 +123,46 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
 	if stream == nil {
 		return nil
 	}
-	_ = b.session.ChannelTyping(m.ChannelID)
 	// Once accepted, consume the stream to completion. The managed runtime's
 	// wrapped handler owns the operation lifetime; the gateway poll context may
 	// be cancelled earlier during a graceful drain.
-	textOut, images, files, streamErr := collectResponse(deliveryCtx, stream)
-	if streamErr != nil {
-		if textOut != "" {
-			textOut += "\n\n"
-		}
-		textOut += "Agent error: " + streamErr.Error()
-	}
-	if strings.TrimSpace(textOut) == "" && len(images) == 0 && len(files) == 0 {
-		textOut = "(empty response)"
-	}
-	if textOut != "" {
-		if err := b.sendText(deliveryCtx, m.ChannelID, textOut, m.ID); err != nil {
-			return err
-		}
-	}
-	for _, image := range images {
-		if err := b.sendImage(m.ChannelID, image); err != nil {
-			return err
-		}
-	}
-	for _, file := range files {
-		if err := b.sendFile(m.ChannelID, file); err != nil {
-			return err
-		}
-	}
-	return nil
+	return b.deliverStream(deliveryCtx, m.ChannelID, m.ID, stream)
 }
 
-func (b *Bot) ensureGroupMember(ctx context.Context, platformGroupID string) error {
-	provisioner, ok := b.handler.(groupMemberProvisioner)
-	if !ok {
+func (b *Bot) ensureGroupMember(ctx context.Context, platformGroupID, platformThreadID string) error {
+	cacheKey := platformGroupID + "\x00" + platformThreadID
+	b.provisionMu.Lock()
+	_, provisioned := b.provisionedGroups[cacheKey]
+	b.provisionMu.Unlock()
+	if provisioned {
 		return nil
+	}
+	if platformThreadID != "" {
+		provisioner, ok := b.handler.(threadGroupMemberProvisioner)
+		if !ok {
+			return errors.New("thread group member provisioning unavailable")
+		}
+		if err := provisioner.EnsurePlatformThreadGroupMember(ctx, channel.PlatformDiscord, platformGroupID, platformThreadID, b.Name()); err != nil {
+			return fmt.Errorf("ensure discord thread group member: %w", err)
+		}
+	} else {
+		provisioner, ok := b.handler.(groupMemberProvisioner)
+		if !ok {
+			return nil
+		}
+		if err := provisioner.EnsurePlatformGroupMember(ctx, channel.PlatformDiscord, platformGroupID, b.Name()); err != nil {
+			return fmt.Errorf("ensure discord group member: %w", err)
+		}
 	}
 	b.provisionMu.Lock()
-	defer b.provisionMu.Unlock()
-	if _, ok := b.provisionedGroups[platformGroupID]; ok {
-		return nil
+	if len(b.provisionedGroups) >= provisionedGroupCacheLimit {
+		// Bounded cache only; provisioning is idempotent, so clearing trades a
+		// future DB check for bounded memory when a forum creates many threads.
+		clear(b.provisionedGroups)
 	}
-	if err := provisioner.EnsurePlatformGroupMember(ctx, channel.PlatformDiscord, platformGroupID, b.Name()); err != nil {
-		return fmt.Errorf("ensure discord group member: %w", err)
-	}
-	b.provisionedGroups[platformGroupID] = struct{}{}
+	b.provisionedGroups[cacheKey] = struct{}{}
+	b.provisionMu.Unlock()
 	return nil
-}
-
-func collectResponse(ctx context.Context, stream *channel.ChatStream) (string, []channel.ImageEvent, []channel.FileEvent, error) {
-	var text strings.Builder
-	var images []channel.ImageEvent
-	var files []channel.FileEvent
-	var streamErr error
-	for {
-		select {
-		case <-ctx.Done():
-			return text.String(), images, files, ctx.Err()
-		case evt, ok := <-stream.Events:
-			if !ok {
-				return text.String(), images, files, streamErr
-			}
-			if evt.Err != nil {
-				streamErr = evt.Err
-			}
-			text.WriteString(evt.Text)
-			if evt.Image != nil {
-				images = append(images, *evt.Image)
-			}
-			if evt.File != nil {
-				files = append(files, *evt.File)
-			}
-		}
-	}
 }
 
 func (b *Bot) attachmentContent(ctx context.Context, assetMsg channel.IncomingMessage, a *discordgo.MessageAttachment) []ai.ContentBlock {
