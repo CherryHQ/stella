@@ -44,6 +44,7 @@ func SplitMarkdown(text string, maxRunes int) []string {
 	var b strings.Builder
 	bRunes := 0
 	var fence fenceState
+	var ignoredFence fenceState // opening delimiter cannot fit with its close; split as plain text until it closes
 
 	// closeOverhead is the worst-case room a flush needs to reserve for the
 	// fence close: the close line itself, plus a leading "\n" flush adds
@@ -107,9 +108,24 @@ func SplitMarkdown(text string, maxRunes int) []string {
 		trimmed := strings.TrimRight(line, "\n")
 		marker, length, info, isFence := detectFence(trimmed)
 		willClose := fence.active && isFence && marker == fence.marker && length >= fence.length
-		willOpen := !fence.active && isFence
+		willOpen := !fence.active && !ignoredFence.active && isFence
 
 		lineRunes := utf8.RuneCountInString(line)
+		openingOverhead := 0
+		startedIgnoredFence := false
+		if willOpen {
+			opening := fenceState{active: true, marker: marker, length: length, info: info}
+			openingOverhead = utf8.RuneCountInString(opening.closeLine()) + 1
+			if lineRunes+openingOverhead > maxRunes || utf8.RuneCountInString(opening.openLine())+openingOverhead >= maxRunes {
+				// No independently valid chunk can hold both this opening line and
+				// its synthetic close. Treat the whole block as plain text rather
+				// than emit an oversized poison chunk or split a fence delimiter.
+				ignoredFence = opening
+				startedIgnoredFence = true
+				willOpen = false
+				openingOverhead = 0
+			}
+		}
 		overhead := 0
 		switch {
 		case fence.active && !willClose:
@@ -118,8 +134,7 @@ func SplitMarkdown(text string, maxRunes int) []string {
 			// The opening line makes the fence active only after appendRunes.
 			// Reserve its future close now, or a line that exactly fills this
 			// chunk can make flush append the closing fence past maxRunes.
-			opening := fenceState{active: true, marker: marker, length: length, info: info}
-			overhead = utf8.RuneCountInString(opening.closeLine()) + 1
+			overhead = openingOverhead
 		}
 		if bRunes > 0 && bRunes+lineRunes+overhead > maxRunes {
 			flush()
@@ -127,10 +142,13 @@ func SplitMarkdown(text string, maxRunes int) []string {
 
 		appendRunes(line)
 
-		if willOpen {
+		switch {
+		case willOpen:
 			fence = fenceState{active: true, marker: marker, length: length, info: info}
-		} else if willClose {
+		case willClose:
 			fence.active = false
+		case !startedIgnoredFence && ignoredFence.active && isFence && marker == ignoredFence.marker && length >= ignoredFence.length:
+			ignoredFence = fenceState{}
 		}
 	}
 

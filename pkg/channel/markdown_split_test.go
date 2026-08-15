@@ -182,6 +182,43 @@ func TestSplitMarkdown_FenceOpeningAtChunkBoundaryStaysWithinBudget(t *testing.T
 	}
 }
 
+func TestSplitMarkdown_OversizedOpeningFenceDegradesToBoundedPlainText(t *testing.T) {
+	cases := []string{
+		"```json " + strings.Repeat("x", 1990) + "\npayload\n```\n",
+		strings.Repeat("`", 1000) + " info\npayload\n" + strings.Repeat("`", 1000) + "\n",
+	}
+	for _, text := range cases {
+		chunks := SplitMarkdown(text, 2000)
+		for i, chunk := range chunks {
+			if got := utf8.RuneCountInString(chunk); got > 2000 {
+				t.Fatalf("chunk %d has %d runes, want <= 2000", i, got)
+			}
+		}
+		if got := strings.Join(chunks, ""); got != text {
+			t.Fatalf("plain-text fallback changed content: got %q", got)
+		}
+	}
+}
+
+func TestSplitMarkdown_AllChunksRespectBudgetAcrossFenceBoundaries(t *testing.T) {
+	for maxRunes := 15; maxRunes <= 64; maxRunes++ {
+		for n := 0; n <= 128; n++ {
+			texts := []string{
+				strings.Repeat("a", n) + "\n```go\n" + strings.Repeat("x", n) + "\n```\n",
+				strings.Repeat("界", n) + "\n~~~text\n" + strings.Repeat("测", n) + "\n~~~\n",
+				"```json " + strings.Repeat("x", n) + "\npayload\n```\n",
+			}
+			for _, text := range texts {
+				for i, chunk := range SplitMarkdown(text, maxRunes) {
+					if got := utf8.RuneCountInString(chunk); got > maxRunes {
+						t.Fatalf("max=%d n=%d chunk %d has %d runes: %q", maxRunes, n, i, got, chunk)
+					}
+				}
+			}
+		}
+	}
+}
+
 func TestSplitMarkdown_PlainShortTextUnaffectedByFenceLogic(t *testing.T) {
 	text := "just a normal short reply, no code fences here."
 	chunks := SplitMarkdown(text, 2000)
