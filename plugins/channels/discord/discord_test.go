@@ -99,7 +99,7 @@ func TestAttachmentURLAllowlist(t *testing.T) {
 
 func TestGuildMessageEnsuresGroupMembership(t *testing.T) {
 	h := &provisioningHandler{fakeHandler: fakeHandler{}}
-	b, err := New(Config{InstanceID: "discord-main", Token: "token", AllowGroup: true}, h)
+	b, err := New(Config{InstanceID: "discord-main", Token: "token", AllowGroup: true, AllowAllGuilds: true}, h)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,13 +140,178 @@ func TestGuildMessageRejectedWhenGuildsDisabled(t *testing.T) {
 	}
 }
 
-func TestGuildMessageRequiresMentionByDefault(t *testing.T) {
-	h := &provisioningHandler{fakeHandler: fakeHandler{}}
-	cfg, err := DecodeConfig(map[string]any{"token": "token", "allow_group": true})
+func TestConfigDecodeNormalizesAllowlists(t *testing.T) {
+	cfg, err := DecodeConfig(map[string]any{
+		"token": "secret", "allow_group": true, "allow_all_guilds": true,
+		"allowed_guild_ids":   []any{" guild-1 ", "guild-1", "", "guild-2"},
+		"allowed_channel_ids": []any{"chan-1", " ", "chan-1"},
+		"allowed_user_ids":    []any{"user-1"},
+		"allowed_role_ids":    []any{"role-1", "role-1"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := New(Config{Token: cfg.Token, AllowGroup: cfg.AllowGroup, RequireMention: cfg.RequireMention}, h)
+	if !cfg.AllowAllGuilds {
+		t.Fatal("allow_all_guilds not decoded")
+	}
+	if got := cfg.AllowedGuildIDs; !reflect.DeepEqual(got, []string{"guild-1", "guild-2"}) {
+		t.Fatalf("allowed_guild_ids = %#v, want trimmed and deduplicated", got)
+	}
+	if got := cfg.AllowedChannelIDs; !reflect.DeepEqual(got, []string{"chan-1"}) {
+		t.Fatalf("allowed_channel_ids = %#v, want blank entries dropped and deduplicated", got)
+	}
+	if got := cfg.AllowedUserIDs; !reflect.DeepEqual(got, []string{"user-1"}) {
+		t.Fatalf("allowed_user_ids = %#v", got)
+	}
+	if got := cfg.AllowedRoleIDs; !reflect.DeepEqual(got, []string{"role-1"}) {
+		t.Fatalf("allowed_role_ids = %#v, want deduplicated", got)
+	}
+}
+
+func TestGuildAccessFailsClosedByDefaultEvenWithAllowGroupOn(t *testing.T) {
+	h := &provisioningHandler{fakeHandler: fakeHandler{}}
+	b, err := New(Config{InstanceID: "discord-main", Token: "token", AllowGroup: true}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := newFakeDiscordREST()
+	b.rest = rest
+	m := &discordgo.Message{ID: "message", ChannelID: "discord-channel", GuildID: "guild", Author: &discordgo.User{ID: "sender"}, Content: "hello"}
+	if err := b.handleMessage(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	if h.calls != 0 || h.incoming.MessageID != "" {
+		t.Fatalf("allow_group on with an empty allowlist and allow_all_guilds off still served: calls=%d incoming=%#v", h.calls, h.incoming)
+	}
+	if rest.typingCount() != 0 {
+		t.Fatalf("typing indicator sent for a message denied before the fail-closed gate: %d", rest.typingCount())
+	}
+}
+
+func TestGuildAccessAllowedByGuildID(t *testing.T) {
+	h := &provisioningHandler{fakeHandler: fakeHandler{}}
+	b, err := New(Config{InstanceID: "discord-main", Token: "token", AllowGroup: true, AllowedGuildIDs: []string{"guild"}}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.rest = &fakeDiscordREST{channel: &discordgo.Channel{ID: "discord-channel", Type: discordgo.ChannelTypeGuildText}}
+	m := &discordgo.Message{ID: "message", ChannelID: "discord-channel", GuildID: "guild", Author: &discordgo.User{ID: "sender"}, Content: "hello"}
+	if err := b.handleMessage(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	if h.calls != 1 || h.groupID != "discord-channel" {
+		t.Fatalf("guild allowlist match not served: calls=%d group=%q", h.calls, h.groupID)
+	}
+}
+
+func TestGuildAccessAllowedByChannelID(t *testing.T) {
+	h := &provisioningHandler{fakeHandler: fakeHandler{}}
+	b, err := New(Config{InstanceID: "discord-main", Token: "token", AllowGroup: true, AllowedChannelIDs: []string{"discord-channel"}}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.rest = &fakeDiscordREST{channel: &discordgo.Channel{ID: "discord-channel", Type: discordgo.ChannelTypeGuildText}}
+	m := &discordgo.Message{ID: "message", ChannelID: "discord-channel", GuildID: "unlisted-guild", Author: &discordgo.User{ID: "sender"}, Content: "hello"}
+	if err := b.handleMessage(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	if h.calls != 1 || h.groupID != "discord-channel" {
+		t.Fatalf("channel allowlist match not served: calls=%d group=%q", h.calls, h.groupID)
+	}
+}
+
+func TestGuildAccessAllowedByThreadParentChannelID(t *testing.T) {
+	h := &provisioningHandler{fakeHandler: fakeHandler{}}
+	b, err := New(Config{InstanceID: "discord-main", Token: "token", AllowGroup: true, AllowedChannelIDs: []string{"forum-parent"}}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.rest = &fakeDiscordREST{channel: &discordgo.Channel{ID: "thread-channel", ParentID: "forum-parent", Type: discordgo.ChannelTypeGuildPublicThread}}
+	m := &discordgo.Message{ID: "message", ChannelID: "thread-channel", GuildID: "unlisted-guild", Author: &discordgo.User{ID: "sender"}, Content: "hello"}
+	if err := b.handleMessage(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	if h.calls != 1 || h.groupID != "forum-parent" || h.threadID != "thread-channel" {
+		t.Fatalf("parent-channel allowlist match not served: calls=%d group=%q thread=%q", h.calls, h.groupID, h.threadID)
+	}
+}
+
+func TestGuildAccessAllowedByUserID(t *testing.T) {
+	h := &provisioningHandler{fakeHandler: fakeHandler{}}
+	b, err := New(Config{InstanceID: "discord-main", Token: "token", AllowGroup: true, AllowedUserIDs: []string{"sender"}}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.rest = &fakeDiscordREST{channel: &discordgo.Channel{ID: "discord-channel", Type: discordgo.ChannelTypeGuildText}}
+	m := &discordgo.Message{ID: "message", ChannelID: "discord-channel", GuildID: "unlisted-guild", Author: &discordgo.User{ID: "sender"}, Content: "hello"}
+	if err := b.handleMessage(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	if h.calls != 1 {
+		t.Fatalf("user allowlist match not served: calls=%d", h.calls)
+	}
+}
+
+func TestGuildAccessAllowedByRoleID(t *testing.T) {
+	h := &provisioningHandler{fakeHandler: fakeHandler{}}
+	b, err := New(Config{InstanceID: "discord-main", Token: "token", AllowGroup: true, AllowedRoleIDs: []string{"role-mod"}}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.rest = &fakeDiscordREST{channel: &discordgo.Channel{ID: "discord-channel", Type: discordgo.ChannelTypeGuildText}}
+	m := &discordgo.Message{ID: "message", ChannelID: "discord-channel", GuildID: "unlisted-guild", Author: &discordgo.User{ID: "sender"}, Member: &discordgo.Member{Roles: []string{"role-member", "role-mod"}}, Content: "hello"}
+	if err := b.handleMessage(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	if h.calls != 1 {
+		t.Fatalf("role allowlist match not served: calls=%d", h.calls)
+	}
+}
+
+func TestGuildAccessDeniedWhenNoAllowlistMatches(t *testing.T) {
+	h := &provisioningHandler{fakeHandler: fakeHandler{}}
+	b, err := New(Config{InstanceID: "discord-main", Token: "token", AllowGroup: true, AllowedGuildIDs: []string{"other-guild"}, AllowedChannelIDs: []string{"other-channel"}, AllowedUserIDs: []string{"other-user"}, AllowedRoleIDs: []string{"other-role"}}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := newFakeDiscordREST()
+	rest.channel = &discordgo.Channel{ID: "thread-channel", ParentID: "other-forum-parent", Type: discordgo.ChannelTypeGuildPublicThread}
+	b.rest = rest
+	m := &discordgo.Message{ID: "message", ChannelID: "thread-channel", GuildID: "guild", Author: &discordgo.User{ID: "sender"}, Member: &discordgo.Member{Roles: []string{"role-member"}}, Content: "hello"}
+	if err := b.handleMessage(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	if h.calls != 0 || h.incoming.MessageID != "" {
+		t.Fatalf("message outside every allowlist was served: calls=%d incoming=%#v", h.calls, h.incoming)
+	}
+	if rest.typingCount() != 0 {
+		t.Fatalf("typing indicator sent for an allowlist-denied message: %d", rest.typingCount())
+	}
+}
+
+func TestGuildAccessAllowAllGuildsBypassesEmptyAllowlist(t *testing.T) {
+	h := &provisioningHandler{fakeHandler: fakeHandler{}}
+	b, err := New(Config{InstanceID: "discord-main", Token: "token", AllowGroup: true, AllowAllGuilds: true}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.rest = &fakeDiscordREST{channel: &discordgo.Channel{ID: "discord-channel", Type: discordgo.ChannelTypeGuildText}}
+	m := &discordgo.Message{ID: "message", ChannelID: "discord-channel", GuildID: "any-unlisted-guild", Author: &discordgo.User{ID: "sender"}, Content: "hello"}
+	if err := b.handleMessage(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	if h.calls != 1 {
+		t.Fatalf("allow_all_guilds did not bypass an empty allowlist: calls=%d", h.calls)
+	}
+}
+
+func TestGuildMessageRequiresMentionByDefault(t *testing.T) {
+	h := &provisioningHandler{fakeHandler: fakeHandler{}}
+	cfg, err := DecodeConfig(map[string]any{"token": "token", "allow_group": true, "allow_all_guilds": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := New(Config{Token: cfg.Token, AllowGroup: cfg.AllowGroup, AllowAllGuilds: cfg.AllowAllGuilds, RequireMention: cfg.RequireMention}, h)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +336,7 @@ func TestGuildMessageRequiresMentionByDefault(t *testing.T) {
 
 func TestGuildReplyToBotSatisfiesMentionRequirement(t *testing.T) {
 	h := &unregisteringHandler{}
-	b, err := New(Config{Token: "token", AllowGroup: true, RequireMention: true}, h)
+	b, err := New(Config{Token: "token", AllowGroup: true, AllowAllGuilds: true, RequireMention: true}, h)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +353,7 @@ func TestGuildReplyToBotSatisfiesMentionRequirement(t *testing.T) {
 
 func TestForumMentionIncludesStarterAndPriorContext(t *testing.T) {
 	h := &provisioningHandler{fakeHandler: fakeHandler{}}
-	b, err := New(Config{InstanceID: "discord-main", Token: "token", AllowGroup: true, RequireMention: true}, h)
+	b, err := New(Config{InstanceID: "discord-main", Token: "token", AllowGroup: true, AllowAllGuilds: true, RequireMention: true}, h)
 	if err != nil {
 		t.Fatal(err)
 	}

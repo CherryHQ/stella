@@ -19,7 +19,11 @@ var newRuntime = func(rc plugins.RuntimeContext) (plugins.Runtime, error) {
 		return nil, fmt.Errorf("discord: channel runtime services unavailable")
 	}
 	return NewManagedRuntime(RuntimeDeps{Parent: r.ParentContext(), Handler: r.Handler(), Notifications: r.Notifications(), Log: platform.Logger(), NewChannel: func(cfg channel.DiscordConfig, h channel.Handler) (channel.Channel, error) {
-		return New(Config{InstanceID: cfg.InstanceID, Token: cfg.Token, AllowGroup: cfg.AllowGroup, AllowDM: cfg.AllowDM, RequireMention: cfg.RequireMention}, h)
+		return New(Config{
+			InstanceID: cfg.InstanceID, Token: cfg.Token, AllowGroup: cfg.AllowGroup, AllowAllGuilds: cfg.AllowAllGuilds,
+			AllowedGuildIDs: cfg.AllowedGuildIDs, AllowedChannelIDs: cfg.AllowedChannelIDs, AllowedUserIDs: cfg.AllowedUserIDs, AllowedRoleIDs: cfg.AllowedRoleIDs,
+			AllowDM: cfg.AllowDM, RequireMention: cfg.RequireMention,
+		}, h)
 	}}), nil
 }
 
@@ -33,7 +37,8 @@ func init() {
 			},
 			DefaultConfig: func() map[string]any {
 				return map[string]any{
-					"allow_group": false, "allow_dm": true, "allow_unlinked_dm": false, "require_mention": true,
+					"allow_group": false, "allow_all_guilds": false, "allow_dm": true, "allow_unlinked_dm": false, "require_mention": true,
+					"allowed_guild_ids": []string{}, "allowed_channel_ids": []string{}, "allowed_user_ids": []string{}, "allowed_role_ids": []string{},
 					"guest_message_limit_per_minute": channel.DefaultGuestMessageLimitPerMinute,
 					"guest_max_per_channel":          channel.DefaultGuestMaxPerChannel,
 					"guest_retention_days":           channel.DefaultGuestRetentionDays,
@@ -60,6 +65,11 @@ func configSchema() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{
 		"token":                          map[string]any{"type": "string", "description": "Discord bot token."},
 		"allow_group":                    map[string]any{"type": "boolean", "description": "Accept messages from server channels in the servers this bot joined.", "default": false},
+		"allow_all_guilds":               map[string]any{"type": "boolean", "description": "Dangerous: skip the guild/channel/user/role allowlist and accept every server this bot joined. With allow_group on and this off, at least one allowlist entry is required.", "default": false},
+		"allowed_guild_ids":              map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Guild (server) IDs allowed to use this bot."},
+		"allowed_channel_ids":            map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Channel IDs allowed to use this bot. Matches a thread's own ID or its parent channel ID."},
+		"allowed_user_ids":               map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "User IDs allowed to use this bot in server channels."},
+		"allowed_role_ids":               map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Role IDs allowed to use this bot in server channels."},
 		"allow_dm":                       map[string]any{"type": "boolean", "description": "Accept direct messages for linked-user chat and account linking.", "default": true},
 		"allow_unlinked_dm":              map[string]any{"type": "boolean", "description": "Allow unlinked Discord users to use the bound agent in restricted guest sessions.", "default": false},
 		"guest_message_limit_per_minute": map[string]any{"type": "integer", "description": "Maximum accepted guest messages per minute and guest.", "minimum": 1, "maximum": channel.MaxGuestMessageLimitPerMinute, "default": channel.DefaultGuestMessageLimitPerMinute},

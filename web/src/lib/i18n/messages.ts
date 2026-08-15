@@ -2165,7 +2165,21 @@ const en = {
     "Serve every group the bot has been added to. Disable this to answer direct messages only.",
   "channels.allowGuild": "Allow server channels",
   "channels.allowGuildDesc":
-    "Serve the server channels the bot can read in the servers it joined. Disable this to answer direct messages only.",
+    "Serve the server channels the bot can read in the servers it joined. With this on, list an allowed guild, channel, user, or role below, or turn on Accept every server to skip the allowlist — leaving both off answers direct messages only.",
+  "channels.allowAllGuilds": "Accept every server",
+  "channels.allowAllGuildsDesc":
+    "Dangerous: skip the allowlist below and let this bot answer in every server it has joined.",
+  "channels.allowedGuildIds": "Allowed guild IDs",
+  "channels.allowedGuildIdsDesc": "Comma or newline separated Discord server (guild) IDs.",
+  "channels.allowedChannelIds": "Allowed channel IDs",
+  "channels.allowedChannelIdsDesc":
+    "Comma or newline separated channel IDs. Matches a thread's own ID or its parent channel ID.",
+  "channels.allowedUserIds": "Allowed user IDs",
+  "channels.allowedUserIdsDesc":
+    "Comma or newline separated Discord user IDs allowed to use this bot in server channels.",
+  "channels.allowedRoleIds": "Allowed role IDs",
+  "channels.allowedRoleIdsDesc":
+    "Comma or newline separated Discord role IDs allowed to use this bot in server channels.",
   "channels.dingtalkNotifyDesc":
     "Notifications use DingTalk's temporary session webhook and become available again after the user sends the bot a message.",
   "channels.allowUnlinkedDm": "Allow guest direct messages",
@@ -4414,7 +4428,22 @@ const zh: Record<MessageKey, string> = {
   "channels.allowGroup": "允许群聊",
   "channels.allowGroupDesc": "机器人被拉进的群聊都可以使用。关闭后只响应私信。",
   "channels.allowGuild": "允许服务器频道",
-  "channels.allowGuildDesc": "机器人已加入的服务器中，可读频道都可以使用。关闭后只响应私信。",
+  "channels.allowGuildDesc":
+    "机器人已加入的服务器中，可读频道都可以使用此开关。开启后需在下方填写允许的服务器、频道、用户或角色，或开启「接受所有服务器」以跳过白名单——两者都不设置时仅响应私信。",
+  "channels.allowAllGuilds": "接受所有服务器",
+  "channels.allowAllGuildsDesc":
+    "危险操作：跳过下方白名单，允许该机器人在其加入的所有服务器中响应消息。",
+  "channels.allowedGuildIds": "允许的服务器 ID",
+  "channels.allowedGuildIdsDesc": "以逗号或换行分隔的 Discord 服务器（Guild）ID。",
+  "channels.allowedChannelIds": "允许的频道 ID",
+  "channels.allowedChannelIdsDesc":
+    "以逗号或换行分隔的频道 ID，匹配子区（Thread）自身 ID 或其父频道 ID。",
+  "channels.allowedUserIds": "允许的用户 ID",
+  "channels.allowedUserIdsDesc":
+    "以逗号或换行分隔的 Discord 用户 ID，允许其在服务器频道中使用该机器人。",
+  "channels.allowedRoleIds": "允许的身份组 ID",
+  "channels.allowedRoleIdsDesc":
+    "以逗号或换行分隔的 Discord 身份组（Role）ID，允许其在服务器频道中使用该机器人。",
   "channels.dingtalkNotifyDesc":
     "通知使用钉钉的临时会话 Webhook；用户再次向机器人发消息后，通知能力会恢复。",
   "channels.allowUnlinkedDm": "允许访客私信",

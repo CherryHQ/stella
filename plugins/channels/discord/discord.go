@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -37,11 +38,16 @@ type discordREST interface {
 }
 
 type Config struct {
-	InstanceID     string
-	Token          string
-	AllowGroup     bool
-	AllowDM        bool
-	RequireMention bool
+	InstanceID        string
+	Token             string
+	AllowGroup        bool
+	AllowAllGuilds    bool
+	AllowedGuildIDs   []string
+	AllowedChannelIDs []string
+	AllowedUserIDs    []string
+	AllowedRoleIDs    []string
+	AllowDM           bool
+	RequireMention    bool
 }
 
 type Bot struct {
@@ -80,10 +86,65 @@ func (b *Bot) Name() string {
 }
 func (b *Bot) Platform() string { return channel.PlatformDiscord }
 
-// guildAllowed reports whether a message may be served. An empty guild ID is a
-// direct message, which `allow_dm` governs instead.
-func (b *Bot) guildAllowed(guildID string) bool {
-	return guildID == "" || b.cfg.AllowGroup
+// groupAccessAllowed reports whether a guild message may be served and
+// resolves its thread-aware route. It is fail-closed: once `allow_group` is
+// on, an operator must either flip the explicit, dangerous `allow_all_guilds`
+// switch or list at least one guild, channel, user, or role — an `allow_group`
+// with every allowlist empty and `allow_all_guilds` off denies everything
+// rather than silently reopening every joined server. Matching the parent of a
+// thread may require a read-only Channel lookup, so the resolved route is
+// always returned for the caller to reuse.
+func (b *Bot) groupAccessAllowed(ctx context.Context, m *discordgo.Message) (bool, messageRoute, error) {
+	if !b.cfg.AllowGroup {
+		return false, messageRoute{}, nil
+	}
+	if !b.cfg.AllowAllGuilds && len(b.cfg.AllowedGuildIDs) == 0 && len(b.cfg.AllowedChannelIDs) == 0 &&
+		len(b.cfg.AllowedUserIDs) == 0 && len(b.cfg.AllowedRoleIDs) == 0 {
+		return false, messageRoute{}, nil
+	}
+	if b.cfg.AllowAllGuilds ||
+		containsID(b.cfg.AllowedGuildIDs, m.GuildID) ||
+		(m.Author != nil && containsID(b.cfg.AllowedUserIDs, m.Author.ID)) ||
+		memberHasAllowedRole(m.Member, b.cfg.AllowedRoleIDs) ||
+		containsID(b.cfg.AllowedChannelIDs, m.ChannelID) {
+		route, err := b.resolveMessageRoute(ctx, m)
+		return true, route, err
+	}
+	if len(b.cfg.AllowedChannelIDs) == 0 {
+		return false, messageRoute{}, nil
+	}
+	// Only a channel-allowlist match can still admit this message, and
+	// evaluating it against a thread's parent needs a Channel lookup. Failing
+	// that lookup cannot confirm access, so it denies rather than propagating
+	// the error to a channel that was never authorized to see it.
+	route, err := b.resolveMessageRoute(ctx, m)
+	if err != nil {
+		logger().Warn("resolve discord parent channel for allowlist check failed", "channel_id", m.ChannelID, "error", err)
+		return false, messageRoute{}, nil
+	}
+	if route.chatID != "" && route.chatID != m.ChannelID && containsID(b.cfg.AllowedChannelIDs, route.chatID) {
+		return true, route, nil
+	}
+	return false, messageRoute{}, nil
+}
+
+func containsID(ids []string, target string) bool {
+	if target == "" {
+		return false
+	}
+	return slices.Contains(ids, target)
+}
+
+func memberHasAllowedRole(member *discordgo.Member, allowedRoleIDs []string) bool {
+	if member == nil {
+		return false
+	}
+	for _, roleID := range member.Roles {
+		if containsID(allowedRoleIDs, roleID) {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *Bot) mentioned(m *discordgo.Message) bool {

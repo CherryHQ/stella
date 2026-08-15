@@ -3,6 +3,7 @@ package channel
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 )
 
 const (
@@ -26,15 +27,20 @@ type GuestConfig struct {
 
 // DiscordConfig is the persisted Discord channel plugin configuration.
 type DiscordConfig struct {
-	InstanceID                 string `json:"-"`
-	Token                      string `json:"token"`
-	AllowGroup                 bool   `json:"allow_group"`
-	AllowDM                    bool   `json:"allow_dm"`
-	AllowUnlinkedDM            bool   `json:"allow_unlinked_dm"`
-	GuestMessageLimitPerMinute int    `json:"guest_message_limit_per_minute"`
-	GuestMaxPerChannel         int    `json:"guest_max_per_channel"`
-	GuestRetentionDays         int    `json:"guest_retention_days"`
-	RequireMention             bool   `json:"require_mention"`
+	InstanceID                 string   `json:"-"`
+	Token                      string   `json:"token"`
+	AllowGroup                 bool     `json:"allow_group"`
+	AllowAllGuilds             bool     `json:"allow_all_guilds"`
+	AllowedGuildIDs            []string `json:"allowed_guild_ids"`
+	AllowedChannelIDs          []string `json:"allowed_channel_ids"`
+	AllowedUserIDs             []string `json:"allowed_user_ids"`
+	AllowedRoleIDs             []string `json:"allowed_role_ids"`
+	AllowDM                    bool     `json:"allow_dm"`
+	AllowUnlinkedDM            bool     `json:"allow_unlinked_dm"`
+	GuestMessageLimitPerMinute int      `json:"guest_message_limit_per_minute"`
+	GuestMaxPerChannel         int      `json:"guest_max_per_channel"`
+	GuestRetentionDays         int      `json:"guest_retention_days"`
+	RequireMention             bool     `json:"require_mention"`
 }
 
 // DecodeDiscordConfig applies stable defaults before decoding persisted JSON.
@@ -46,7 +52,40 @@ func DecodeDiscordConfig(data []byte) (DiscordConfig, error) {
 		GuestRetentionDays:         DefaultGuestRetentionDays,
 		RequireMention:             true,
 	}
-	return cfg, json.Unmarshal(data, &cfg)
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return cfg, err
+	}
+	cfg.AllowedGuildIDs = normalizeIDList(cfg.AllowedGuildIDs)
+	cfg.AllowedChannelIDs = normalizeIDList(cfg.AllowedChannelIDs)
+	cfg.AllowedUserIDs = normalizeIDList(cfg.AllowedUserIDs)
+	cfg.AllowedRoleIDs = normalizeIDList(cfg.AllowedRoleIDs)
+	return cfg, nil
+}
+
+// normalizeIDList trims whitespace, drops empty entries, and deduplicates
+// while preserving first-seen order, so a blank string can never be used to
+// bypass an allowlist and equivalent config edits produce identical policy.
+func normalizeIDList(ids []string) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // AllowsUnlinkedGuestDM is the shared fail-closed policy for creating and

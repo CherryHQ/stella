@@ -44,22 +44,26 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
 		logger().Debug("ignoring direct message because DMs are disabled", "channel_id", m.ChannelID)
 		return nil
 	}
-	if !b.guildAllowed(m.GuildID) {
-		logger().Debug("ignoring message from unconfigured guild", "guild_id", m.GuildID, "channel_id", m.ChannelID)
-		return nil
-	}
-	if m.GuildID != "" && b.cfg.RequireMention && !b.addressed(m) {
-		logger().Debug("ignoring guild message without bot mention", "guild_id", m.GuildID, "channel_id", m.ChannelID)
-		return nil
+	route := messageRoute{chatID: m.ChannelID}
+	if m.GuildID != "" {
+		allowed, resolvedRoute, err := b.groupAccessAllowed(deliveryCtx, m)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			logger().Debug("ignoring message from unconfigured guild, channel, user, or role", "guild_id", m.GuildID, "channel_id", m.ChannelID)
+			return nil
+		}
+		route = resolvedRoute
+		if b.cfg.RequireMention && !b.addressed(m) {
+			logger().Debug("ignoring guild message without bot mention", "guild_id", m.GuildID, "channel_id", m.ChannelID)
+			return nil
+		}
 	}
 	// Acknowledge immediately; attachment downloads, thread-history reads, and
 	// durable group dispatch can all take longer than Discord's typing TTL.
 	stopTyping := b.startTypingHeartbeat(m.ChannelID)
 	defer stopTyping()
-	route, err := b.resolveMessageRoute(deliveryCtx, m)
-	if err != nil {
-		return err
-	}
 	text := m.Content
 	if m.GuildID != "" {
 		text = b.stripBotMention(text)
