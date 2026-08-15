@@ -23,8 +23,8 @@ func TestRuntimeMiseEnv_PerUser(t *testing.T) {
 	if got, want := env["BASH_ENV"], pkgsandbox.ShellEnvPath(stellaHome); got != want {
 		t.Fatalf("BASH_ENV = %q, want %q", got, want)
 	}
-	if got := env[pkgsandbox.EnvManagedPath]; got != "" {
-		t.Fatalf("%s = %q, want empty baseline", pkgsandbox.EnvManagedPath, got)
+	if got := env[pkgsandbox.EnvRunnerPath]; got != "" {
+		t.Fatalf("%s = %q, want empty baseline", pkgsandbox.EnvRunnerPath, got)
 	}
 	for key, sub := range map[string]string{
 		"MISE_CACHE_DIR": "cache",

@@ -8,10 +8,10 @@ import (
 	"strings"
 )
 
-// EnvManagedPath carries an ordered, backend-rendered list of additional
-// Stella-managed executable directories that nested shells must preserve.
-// Runtime owns the value; user configuration must not supply it.
-const EnvManagedPath = "STELLA_MANAGED_PATH"
+// EnvRunnerPath snapshots the backend-rendered PATH so login profiles cannot
+// discard or reorder the runner's executable search contract. Runtime owns the
+// value; user configuration must not supply it.
+const EnvRunnerPath = "STELLA_RUNNER_PATH"
 
 // StellaHomeSandboxDirs returns the subdirectory names (relative to STELLA_HOME)
 // that sandbox backends must expose. Every backend — bwrap, Docker, none — should

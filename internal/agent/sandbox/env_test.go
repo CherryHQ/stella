@@ -106,7 +106,7 @@ func TestBuildSandboxEnvLayersMiseSystemGlobalAndWorkspace(t *testing.T) {
 	workspace := "/stella/users/user-1/agents/agent-1/projects/project-1"
 	env, err := buildSandboxEnv(context.Background(), Config{
 		UserID:         "user-1",
-		VaultEnvLoader: staticVaultEnv{env: map[string]string{pkgsandbox.EnvManagedPath: "/untrusted/bin"}},
+		VaultEnvLoader: staticVaultEnv{env: map[string]string{pkgsandbox.EnvRunnerPath: "/untrusted/bin"}},
 	}, Paths{
 		StellaHome:    stellaHome,
 		WorkspaceRoot: workspace,
@@ -121,8 +121,8 @@ func TestBuildSandboxEnvLayersMiseSystemGlobalAndWorkspace(t *testing.T) {
 	if got, want := env["BASH_ENV"], filepath.Join(stellaHome, "bin", ".stella-shell-env"); got != want {
 		t.Fatalf("BASH_ENV = %q, want %q", got, want)
 	}
-	if got := env[pkgsandbox.EnvManagedPath]; got != "" {
-		t.Fatalf("%s = %q, want empty runner-owned baseline", pkgsandbox.EnvManagedPath, got)
+	if got := env[pkgsandbox.EnvRunnerPath]; got != "" {
+		t.Fatalf("%s = %q, want empty runner-owned baseline", pkgsandbox.EnvRunnerPath, got)
 	}
 	wantConfigDir := filepath.Join(userDataDir, ".config", "mise")
 	if got := env["MISE_CONFIG_DIR"]; got != wantConfigDir {

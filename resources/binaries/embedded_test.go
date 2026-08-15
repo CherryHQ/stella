@@ -149,13 +149,23 @@ func TestShellEnvRestoresManagedPathAfterLoginProfile(t *testing.T) {
 		}
 	}
 
+	wantPath := strings.Join([]string{
+		filepath.Join(userTools, "shims"),
+		toolCacheBin,
+		filepath.Join(stellaHome, "bin"),
+		filepath.Join(stellaHome, ".mise-tools", "shims"),
+		"/usr/bin",
+		"/bin",
+	}, string(os.PathListSeparator))
 	cmd := exec.Command(bash, "-lc", `printf '%s\n' "$PATH"; command -v mise; command -v personal-tool; command -v cached-tool; command -v rg`)
 	cmd.Env = []string{
 		"HOME=" + t.TempDir(),
-		"PATH=/usr/bin:/bin",
+		// macOS path_helper preserves inherited entries but moves them behind
+		// system paths. The runner snapshot must restore the exact order.
+		"PATH=" + wantPath,
 		"STELLA_HOME=" + stellaHome,
 		"MISE_DATA_DIR=" + userTools,
-		"STELLA_MANAGED_PATH=" + strings.Join([]string{filepath.Join(userTools, "shims"), toolCacheBin}, string(os.PathListSeparator)),
+		"STELLA_RUNNER_PATH=" + wantPath,
 		"BASH_ENV=" + filepath.Join(stellaHome, "bin", shellEnvFilename),
 	}
 	out, err := cmd.CombinedOutput()
@@ -166,14 +176,8 @@ func TestShellEnvRestoresManagedPathAfterLoginProfile(t *testing.T) {
 	if len(lines) != 5 {
 		t.Fatalf("nested login bash output = %q", out)
 	}
-	wantPrefix := strings.Join([]string{
-		filepath.Join(userTools, "shims"),
-		toolCacheBin,
-		filepath.Join(stellaHome, "bin"),
-		filepath.Join(stellaHome, ".mise-tools", "shims"),
-	}, string(os.PathListSeparator))
-	if !strings.HasPrefix(lines[0], wantPrefix+string(os.PathListSeparator)) {
-		t.Fatalf("PATH = %q, want managed prefix %q", lines[0], wantPrefix)
+	if lines[0] != wantPath {
+		t.Fatalf("PATH = %q, want runner snapshot %q", lines[0], wantPath)
 	}
 	managedDirs := []string{
 		filepath.Join(stellaHome, "bin"),
@@ -206,13 +210,30 @@ func TestShellEnvRestoresManagedPathAfterLoginProfile(t *testing.T) {
 		t.Fatalf("source managed environment with POSIX sh: %v\n%s", err, posixOut)
 	}
 	posixPath := strings.TrimSpace(string(posixOut))
-	if !strings.HasPrefix(posixPath, wantPrefix+string(os.PathListSeparator)) {
-		t.Fatalf("POSIX PATH = %q, want managed prefix %q", posixPath, wantPrefix)
+	if posixPath != wantPath {
+		t.Fatalf("POSIX PATH = %q, want runner snapshot %q", posixPath, wantPath)
 	}
 	for _, dir := range managedDirs {
 		if strings.Count(posixPath, dir) != 1 {
 			t.Fatalf("POSIX managed PATH entry %q not idempotent in %q", dir, posixPath)
 		}
+	}
+
+	customPath := filepath.Join(stellaHome, "custom", "bin") + string(os.PathListSeparator) + wantPath
+	nonLogin := exec.Command(bash, "-c", `printf '%s\n' "$PATH"`)
+	nonLogin.Env = slices.Clone(cmd.Env)
+	for i, entry := range nonLogin.Env {
+		if strings.HasPrefix(entry, "PATH=") {
+			nonLogin.Env[i] = "PATH=" + customPath
+			break
+		}
+	}
+	nonLoginOut, err := nonLogin.CombinedOutput()
+	if err != nil {
+		t.Fatalf("nested non-login bash: %v\n%s", err, nonLoginOut)
+	}
+	if got := strings.TrimSpace(string(nonLoginOut)); got != customPath {
+		t.Fatalf("non-login Bash PATH = %q, want parent override %q", got, customPath)
 	}
 }
 

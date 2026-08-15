@@ -85,10 +85,10 @@ func RuntimeMiseEnv(stellaHome, userToolsDir, userConfigDir, workspaceDir string
 	// runner-owned PATH if /etc/profile replaced it. Backends translate this
 	// system path into their process view; isolating backends expose it read-only.
 	env["BASH_ENV"] = pkgsandbox.ShellEnvPath(stellaHome)
-	// Docker fills this with its session-specific tool-cache bin after mounts are
-	// known. An explicit empty runner-owned value prevents Vault configuration
-	// from turning shell startup into an ambient PATH injection channel.
-	env[pkgsandbox.EnvManagedPath] = ""
+	// Backends replace this with their final rendered PATH. An explicit empty
+	// runner-owned value prevents Vault configuration from turning shell startup
+	// into an ambient PATH injection channel.
+	env[pkgsandbox.EnvRunnerPath] = ""
 
 	systemConfigPath := runtimeScopeConfigPath(stellaHome)
 	env["MISE_SYSTEM_CONFIG_FILE"] = systemConfigPath

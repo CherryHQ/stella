@@ -732,6 +732,9 @@ func TestAdjustPolicy_rewritesMiseEnvPaths(t *testing.T) {
 		t.Skip("no path remapping on this platform")
 	}
 
+	if got, want := adjusted.Env[sandboxpkg.EnvRunnerPath], adjusted.Env["PATH"]; got != want {
+		t.Errorf("%s = %q, want final PATH %q", sandboxpkg.EnvRunnerPath, got, want)
+	}
 	for _, tc := range []struct {
 		key  string
 		want string

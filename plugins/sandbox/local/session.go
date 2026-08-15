@@ -163,6 +163,7 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, sandboxRoot, realRoot, 
 		userShims = sandboxpkg.MiseUserShimsDir(remapMise(dir))
 	}
 	env["PATH"] = sandboxpkg.HostEnvBuildPath(sandboxSH, userShims)
+	env[sandboxpkg.EnvRunnerPath] = env["PATH"]
 	env["STELLA_HOME"] = sandboxSH
 	if shellEnv := env["BASH_ENV"]; shellEnv != "" {
 		env["BASH_ENV"] = remapMise(shellEnv)
@@ -703,6 +704,9 @@ func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
 
 	maps.Copy(merged, policy.Env)
 	maps.Copy(merged, overrides)
+	if renderedPath, ok := merged["PATH"]; ok {
+		merged[sandboxpkg.EnvRunnerPath] = renderedPath
+	}
 	delete(merged, "STELLA_USER_DIR")
 
 	env := make([]string, 0, len(merged))

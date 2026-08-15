@@ -193,13 +193,6 @@ const containerDefaultPATH = "/opt/stella/bin:/opt/stella/.mise-tools/shims:/usr
 // /opt/stella mise tree); the host filesystem is never used for docker
 // executable resolution because it may contain host-platform binaries.
 func injectToolPaths(env map[string]string, toolBinPaths []string) map[string]string {
-	// Keep the exact ordered prefix available to nested login shells after their
-	// system profile replaces PATH. Set it even when empty so no ambient or
-	// per-call value can impersonate runner-owned tool directories.
-	env[sandboxpkg.EnvManagedPath] = strings.Join(toolBinPaths, ":")
-	if len(toolBinPaths) == 0 {
-		return env
-	}
 	base := env["PATH"]
 	if base == "" {
 		base = containerDefaultPATH
@@ -207,6 +200,9 @@ func injectToolPaths(env map[string]string, toolBinPaths []string) map[string]st
 	entries := append([]string(nil), toolBinPaths...)
 	entries = append(entries, base)
 	env["PATH"] = strings.Join(entries, ":")
+	// Snapshot the final container-native PATH after per-call overrides are
+	// merged, so no ambient or per-call value can impersonate the runner copy.
+	env[sandboxpkg.EnvRunnerPath] = env["PATH"]
 	return env
 }
 
