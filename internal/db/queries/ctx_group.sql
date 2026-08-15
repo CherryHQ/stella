@@ -9,6 +9,17 @@ INSERT INTO ctx_group_state (id, platform, platform_group_id, platform_thread_id
 VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING *;
 
+-- name: AdoptGroupState :one
+-- Renames a group's physical (platform, group, thread) identity in place. Every
+-- table that references group_id keeps pointing at this row, so an in-place
+-- rename is a lossless identity migration, never a copy.
+UPDATE ctx_group_state
+SET platform_group_id = sqlc.arg(platform_group_id),
+    platform_thread_id = sqlc.arg(platform_thread_id),
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
 -- name: GetGroupStateByID :one
 SELECT * FROM ctx_group_state WHERE id = $1;
 

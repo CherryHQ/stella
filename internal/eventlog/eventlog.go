@@ -402,6 +402,10 @@ func resolveGroupID(ctx context.Context, q *sqlc.Queries, platform, platformGrou
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return "", fmt.Errorf("eventlog: get group state: %w", err)
 	}
+	return createGroupState(ctx, q, platform, platformGroupID, platformThreadID)
+}
+
+func createGroupState(ctx context.Context, q *sqlc.Queries, platform, platformGroupID, platformThreadID string) (string, error) {
 	created, err := q.CreateGroupState(ctx, sqlc.CreateGroupStateParams{
 		ID:               uuid.Must(uuid.NewV7()).String(),
 		Platform:         platform,
@@ -412,6 +416,102 @@ func resolveGroupID(ctx context.Context, q *sqlc.Queries, platform, platformGrou
 		return "", fmt.Errorf("eventlog: create group state: %w", err)
 	}
 	return created.ID, nil
+}
+
+// ResolveGroupIDWithAdoption performs the standard triple get-or-create for
+// (platform, platformGroupID, platformThreadID), plus a lossless one-time
+// identity migration: when legacyPlatformGroupID is non-empty and the new
+// triple has no group yet, it looks for a pre-existing top-level group at
+// (platform, legacyPlatformGroupID, "") — the identity a sub-thread had before
+// its parent channel became the group's coordinate — and renames that row's
+// triple in place rather than starting a new, empty history. Because every
+// dependent table (messages, members, dispatch, cursors, memory) references the
+// surrogate group_id rather than the triple, the rename carries all of them
+// along untouched.
+//
+// If the new triple already resolves to a group, the legacy row (if any) is
+// left exactly as it is: adoption never overwrites an established group, and
+// it never deletes data.
+func (s *Store) ResolveGroupIDWithAdoption(ctx context.Context, platform, platformGroupID, platformThreadID, legacyPlatformGroupID string) (string, error) {
+	if platform == "" || platformGroupID == "" {
+		return "", errors.New("eventlog: platform and platform_group_id are required")
+	}
+	if legacyPlatformGroupID == "" {
+		return s.ResolveGroupID(ctx, platform, platformGroupID, platformThreadID)
+	}
+
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("eventlog: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Lock both the new and the legacy triple, in a fixed lexical order, so a
+	// concurrent adoption or plain resolve call touching the same two keys can
+	// never deadlock against this one.
+	newKey := groupTripleKey(platform, platformGroupID, platformThreadID)
+	legacyKey := groupTripleKey(platform, legacyPlatformGroupID, "")
+	first, second := newKey, legacyKey
+	if second < first {
+		first, second = second, first
+	}
+	if err := appdb.AdvisoryXactLock(ctx, tx, first); err != nil {
+		return "", err
+	}
+	if second != first {
+		if err := appdb.AdvisoryXactLock(ctx, tx, second); err != nil {
+			return "", err
+		}
+	}
+
+	q := sqlc.New(tx)
+	if state, err := q.GetGroupStateByTriple(ctx, sqlc.GetGroupStateByTripleParams{
+		Platform:         platform,
+		PlatformGroupID:  platformGroupID,
+		PlatformThreadID: platformThreadID,
+	}); err == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return "", fmt.Errorf("eventlog: commit: %w", err)
+		}
+		return state.ID, nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("eventlog: get group state: %w", err)
+	}
+
+	id, err := adoptOrCreateGroupState(ctx, q, platform, platformGroupID, platformThreadID, legacyPlatformGroupID)
+	if err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("eventlog: commit: %w", err)
+	}
+	return id, nil
+}
+
+// adoptOrCreateGroupState runs under the caller's dual advisory lock. The new
+// triple is already known to be absent; it adopts the legacy row if one
+// exists, or creates a fresh one otherwise.
+func adoptOrCreateGroupState(ctx context.Context, q *sqlc.Queries, platform, platformGroupID, platformThreadID, legacyPlatformGroupID string) (string, error) {
+	legacy, err := q.GetGroupStateByTriple(ctx, sqlc.GetGroupStateByTripleParams{
+		Platform:         platform,
+		PlatformGroupID:  legacyPlatformGroupID,
+		PlatformThreadID: "",
+	})
+	if err == nil {
+		adopted, err := q.AdoptGroupState(ctx, sqlc.AdoptGroupStateParams{
+			ID:               legacy.ID,
+			PlatformGroupID:  platformGroupID,
+			PlatformThreadID: platformThreadID,
+		})
+		if err != nil {
+			return "", fmt.Errorf("eventlog: adopt group state: %w", err)
+		}
+		return adopted.ID, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("eventlog: get legacy group state: %w", err)
+	}
+	return createGroupState(ctx, q, platform, platformGroupID, platformThreadID)
 }
 
 // lookup performs the in-lock dedup check. Tier 1: stable platform_message_id.

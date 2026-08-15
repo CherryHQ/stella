@@ -39,8 +39,11 @@ func (b *Bot) startTypingHeartbeat(channelID string) context.CancelFunc {
 		once.Do(func() {
 			b.typingMu.Lock()
 			defer b.typingMu.Unlock()
-			state := b.typing[channelID]
-			if state == nil {
+			// Release only the *typingState captured at acquire time. If the map
+			// entry has since rolled over to a new heartbeat generation (this one
+			// already dropped to zero refs and was replaced), that generation owns
+			// its own refcount and this release is a stale no-op.
+			if b.typing[channelID] != state {
 				return
 			}
 			state.refs--

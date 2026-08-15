@@ -31,7 +31,7 @@ type groupMemberProvisioner interface {
 }
 
 type threadGroupMemberProvisioner interface {
-	EnsurePlatformThreadGroupMember(ctx context.Context, platform, platformGroupID, platformThreadID, channelID string) error
+	EnsurePlatformThreadGroupMember(ctx context.Context, platform, platformGroupID, platformThreadID, legacyPlatformGroupID, channelID string) error
 }
 
 type groupHistoryImporter interface {
@@ -142,7 +142,11 @@ func (b *Bot) ensureGroupMember(ctx context.Context, platformGroupID, platformTh
 		if !ok {
 			return errors.New("thread group member provisioning unavailable")
 		}
-		if err := provisioner.EnsurePlatformThreadGroupMember(ctx, channel.PlatformDiscord, platformGroupID, platformThreadID, b.Name()); err != nil {
+		// Before thread-scoped routing existed, Discord treated the thread
+		// channel itself as the group, with no separate thread ID. Pass that
+		// legacy identity so a pre-existing group there is adopted instead of
+		// silently starting the thread over with empty history.
+		if err := provisioner.EnsurePlatformThreadGroupMember(ctx, channel.PlatformDiscord, platformGroupID, platformThreadID, platformThreadID, b.Name()); err != nil {
 			return fmt.Errorf("ensure discord thread group member: %w", err)
 		}
 	} else {

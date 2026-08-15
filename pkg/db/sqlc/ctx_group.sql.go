@@ -13,6 +13,41 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const adoptGroupState = `-- name: AdoptGroupState :one
+UPDATE ctx_group_state
+SET platform_group_id = $1,
+    platform_thread_id = $2,
+    updated_at = now()
+WHERE id = $3
+RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id
+`
+
+type AdoptGroupStateParams struct {
+	PlatformGroupID  string `json:"platform_group_id"`
+	PlatformThreadID string `json:"platform_thread_id"`
+	ID               string `json:"id"`
+}
+
+// Renames a group's physical (platform, group, thread) identity in place. Every
+// table that references group_id keeps pointing at this row, so an in-place
+// rename is a lossless identity migration, never a copy.
+func (q *Queries) AdoptGroupState(ctx context.Context, arg AdoptGroupStateParams) (CtxGroupState, error) {
+	row := q.db.QueryRow(ctx, adoptGroupState, arg.PlatformGroupID, arg.PlatformThreadID, arg.ID)
+	var i CtxGroupState
+	err := row.Scan(
+		&i.ID,
+		&i.Platform,
+		&i.PlatformGroupID,
+		&i.PlatformThreadID,
+		&i.NextSeq,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.GroupName,
+		&i.CreatedByUserID,
+	)
+	return i, err
+}
+
 const bumpGroupSeq = `-- name: BumpGroupSeq :one
 UPDATE ctx_group_state
 SET next_seq = next_seq + 1, updated_at = now()

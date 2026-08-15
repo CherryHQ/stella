@@ -233,20 +233,24 @@ func WithDB(db *pgxpool.Pool) CoordinatorOption {
 // EnsurePlatformGroupMember resolves the internal group ID for a platform group
 // and registers the channel's agent as a member. Safe to call repeatedly.
 func (c *Coordinator) EnsurePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error {
-	return c.ensurePlatformGroupMember(ctx, platform, platformGroupID, "", channelID)
+	return c.ensurePlatformGroupMember(ctx, platform, platformGroupID, "", "", channelID)
 }
 
 // EnsurePlatformThreadGroupMember provisions the exact sub-thread group that
-// incoming messages resolve to, rather than the parent channel's group.
-func (c *Coordinator) EnsurePlatformThreadGroupMember(ctx context.Context, platform, platformGroupID, platformThreadID, channelID string) error {
-	return c.ensurePlatformGroupMember(ctx, platform, platformGroupID, platformThreadID, channelID)
+// incoming messages resolve to, rather than the parent channel's group. When
+// legacyPlatformGroupID is non-empty and the (platformGroupID, platformThreadID)
+// triple has no group yet, it is lazily adopted from a pre-existing top-level
+// group at (platform, legacyPlatformGroupID, "") instead of starting a new,
+// empty history — see eventlog.Store.ResolveGroupIDWithAdoption.
+func (c *Coordinator) EnsurePlatformThreadGroupMember(ctx context.Context, platform, platformGroupID, platformThreadID, legacyPlatformGroupID, channelID string) error {
+	return c.ensurePlatformGroupMember(ctx, platform, platformGroupID, platformThreadID, legacyPlatformGroupID, channelID)
 }
 
-func (c *Coordinator) ensurePlatformGroupMember(ctx context.Context, platform, platformGroupID, platformThreadID, channelID string) error {
+func (c *Coordinator) ensurePlatformGroupMember(ctx context.Context, platform, platformGroupID, platformThreadID, legacyPlatformGroupID, channelID string) error {
 	if c.eventLog == nil || c.db == nil {
 		return errors.New("group member provisioning not configured")
 	}
-	groupID, err := c.eventLog.ResolveGroupID(ctx, platform, platformGroupID, platformThreadID)
+	groupID, err := c.eventLog.ResolveGroupIDWithAdoption(ctx, platform, platformGroupID, platformThreadID, legacyPlatformGroupID)
 	if err != nil {
 		return fmt.Errorf("resolve group: %w", err)
 	}

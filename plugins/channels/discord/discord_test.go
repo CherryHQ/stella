@@ -209,6 +209,9 @@ func TestForumMentionIncludesStarterAndPriorContext(t *testing.T) {
 	if h.groupID != "forum" || h.threadID != "thread" || h.incoming.ChatID != "forum" || h.incoming.ThreadID != "thread" {
 		t.Fatalf("thread route = group %q thread %q incoming %#v", h.groupID, h.threadID, h.incoming)
 	}
+	if h.legacyGroupID != "thread" {
+		t.Fatalf("legacy group hint = %q, want the thread's own ID for pre-migration adoption", h.legacyGroupID)
+	}
 	if len(h.incoming.Content) != 1 || h.incoming.Content[0].(ai.TextContent).Text != "[Mentioned Stella without additional text.]" {
 		t.Fatalf("current canonical content = %#v", h.incoming.Content)
 	}
@@ -561,13 +564,14 @@ func (fakeHandler) SwitchAgent(context.Context, channel.IncomingMessage, string)
 
 type provisioningHandler struct {
 	fakeHandler
-	platform  string
-	groupID   string
-	threadID  string
-	channelID string
-	calls     int
-	incoming  channel.IncomingMessage
-	history   []channel.IncomingMessage
+	platform      string
+	groupID       string
+	threadID      string
+	legacyGroupID string
+	channelID     string
+	calls         int
+	incoming      channel.IncomingMessage
+	history       []channel.IncomingMessage
 }
 
 func (h *provisioningHandler) HandleIncoming(_ context.Context, msg channel.IncomingMessage, _, _ string) (string, bool, *channel.ChatStream, error) {
@@ -583,10 +587,11 @@ func (h *provisioningHandler) EnsurePlatformGroupMember(_ context.Context, platf
 	return nil
 }
 
-func (h *provisioningHandler) EnsurePlatformThreadGroupMember(_ context.Context, platform, groupID, threadID, channelID string) error {
+func (h *provisioningHandler) EnsurePlatformThreadGroupMember(_ context.Context, platform, groupID, threadID, legacyGroupID, channelID string) error {
 	h.platform = platform
 	h.groupID = groupID
 	h.threadID = threadID
+	h.legacyGroupID = legacyGroupID
 	h.channelID = channelID
 	h.calls++
 	return nil

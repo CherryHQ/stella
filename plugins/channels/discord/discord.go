@@ -68,7 +68,7 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create discord session: %w", err)
 	}
-	s.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentsMessageContent
+	s.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentsMessageContent
 	return &Bot{session: s, handler: handler, cfg: cfg, provisionedGroups: make(map[string]struct{}), typing: make(map[string]*typingState), rest: s}, nil
 }
 
