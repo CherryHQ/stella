@@ -31,7 +31,7 @@ func (b *Bot) sendText(ctx context.Context, channelID, text, replyTo string) err
 }
 
 func (b *Bot) sendTextOptions(ctx context.Context, channelID, text, replyTo string, silent bool) error {
-	chunks := channel.SplitMessage(text, maxMessageLength)
+	chunks := channel.SplitMarkdown(text, maxMessageLength)
 	for i, chunk := range chunks {
 		if err := ctx.Err(); err != nil {
 			return err

@@ -92,7 +92,7 @@ func (b *Bot) deliverStream(ctx context.Context, channelID, replyTo string, stre
 		text = "(empty response)"
 	}
 
-	if draft != nil && len(text) <= maxMessageLength && len(images) == 0 && len(files) == 0 {
+	if draft != nil && utf8.RuneCountInString(text) <= maxMessageLength && len(images) == 0 && len(files) == 0 {
 		if err := draft.edit(ctx, text); err == nil {
 			return nil
 		}
@@ -171,7 +171,7 @@ func buildDraftDisplay(text string, tools *channel.ToolTracker) string {
 	if toolSection != "" {
 		suffix = "\n\n" + toolSection + "\n▌"
 	}
-	available := maxMessageLength - len(suffix)
+	available := maxMessageLength - utf8.RuneCountInString(suffix)
 	if available < 0 {
 		return truncateTail(suffix, maxMessageLength)
 	}
@@ -182,24 +182,39 @@ func buildDraftDisplay(text string, tools *channel.ToolTracker) string {
 	return text + suffix
 }
 
-func truncateTail(text string, maxLen int) string {
-	if maxLen <= 0 {
+// truncateTail keeps the last maxRunes Unicode runes of text, prefixing an
+// ellipsis marker when it truncates. Rune-counted so it stays under Discord's
+// 2000-character limit for multibyte text (e.g. Chinese) and never splits a
+// rune's UTF-8 bytes.
+func truncateTail(text string, maxRunes int) string {
+	if maxRunes <= 0 {
 		return ""
 	}
-	if len(text) <= maxLen {
+	total := utf8.RuneCountInString(text)
+	if total <= maxRunes {
 		return text
 	}
-	prefix := "…\n"
-	if maxLen <= len(prefix) {
-		start := len(text) - maxLen
-		for start < len(text) && !utf8.RuneStart(text[start]) {
-			start++
+	const prefix = "…\n"
+	prefixRunes := utf8.RuneCountInString(prefix)
+	if maxRunes <= prefixRunes {
+		return lastNRunes(text, maxRunes)
+	}
+	return prefix + lastNRunes(text, maxRunes-prefixRunes)
+}
+
+// lastNRunes returns the last n Unicode runes of s.
+func lastNRunes(s string, n int) string {
+	total := utf8.RuneCountInString(s)
+	if total <= n {
+		return s
+	}
+	drop := total - n
+	count := 0
+	for i := range s {
+		if count == drop {
+			return s[i:]
 		}
-		return text[start:]
+		count++
 	}
-	start := len(text) - (maxLen - len(prefix))
-	for start < len(text) && !utf8.RuneStart(text[start]) {
-		start++
-	}
-	return prefix + text[start:]
+	return ""
 }

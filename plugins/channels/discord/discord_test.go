@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -358,8 +359,26 @@ func TestDraftDisplayIncludesToolProgressAndStaysBounded(t *testing.T) {
 	tracker := &channel.ToolTracker{}
 	tracker.Handle(&channel.ToolUseEvent{Tool: "bash", Status: "running", Input: "go test ./..."})
 	display := buildDraftDisplay(strings.Repeat("x", maxMessageLength+100), tracker)
-	if len(display) > maxMessageLength || !strings.Contains(display, "bash") || !strings.Contains(display, "go test ./...") || !strings.HasSuffix(display, "▌") {
+	if utf8.RuneCountInString(display) > maxMessageLength || !strings.Contains(display, "bash") || !strings.Contains(display, "go test ./...") || !strings.HasSuffix(display, "▌") {
 		t.Fatalf("draft display = %q", display)
+	}
+}
+
+// TestDraftDisplayCJKStaysWithinRuneBudget guards the 2000-character draft
+// limit against byte-length regressions: three-byte Chinese characters would
+// blow past 2000 bytes long before 2000 runes, so the truncation must count
+// runes, not bytes, and must never split a rune's UTF-8 encoding.
+func TestDraftDisplayCJKStaysWithinRuneBudget(t *testing.T) {
+	text := strings.Repeat("中文测试消息内容", maxMessageLength) // far more than maxMessageLength runes
+	display := buildDraftDisplay(text, &channel.ToolTracker{})
+	if n := utf8.RuneCountInString(display); n > maxMessageLength {
+		t.Fatalf("draft display has %d runes, want <= %d", n, maxMessageLength)
+	}
+	if !utf8.ValidString(display) {
+		t.Fatalf("draft display is not valid UTF-8: %q", display)
+	}
+	if !strings.HasSuffix(display, "▌") {
+		t.Fatalf("draft display = %q, want suffix ▌", display)
 	}
 }
 
@@ -434,7 +453,7 @@ func TestAttachmentAdmissionFailureStopsBeforeDownload(t *testing.T) {
 }
 
 func TestChunkingAndAllowedMentions(t *testing.T) {
-	chunks := channel.SplitMessage(strings.Repeat("a", maxMessageLength+1), maxMessageLength)
+	chunks := channel.SplitMarkdown(strings.Repeat("a", maxMessageLength+1), maxMessageLength)
 	if len(chunks) != 2 || len(chunks[0]) > maxMessageLength {
 		t.Fatalf("chunks = %v", len(chunks))
 	}
