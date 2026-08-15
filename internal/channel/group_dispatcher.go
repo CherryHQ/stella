@@ -598,6 +598,10 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		return d.failDispatch(ctx, claimed, err)
 	}
 	stream, responseC := d.wrapGroupResponseStream(ownedCtx, stream)
+	// Same key chatDispatchUnqueued enqueues under: the per-(agent,group)
+	// session queue is the one durable handle on this turn, so a cancel click
+	// reuses its existing Abort rather than tracking the turn a second way.
+	sessionKey := agent.BuildGroupSessionKey(claimed.AgentID, claimed.GroupID)
 	if err := publisher.Publish(ownedCtx, GroupPublishRequest{
 		GroupID:          claimed.GroupID,
 		AgentID:          claimed.AgentID,
@@ -608,6 +612,8 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		PlatformThreadID: state.PlatformThreadID,
 		ReplyTo:          nullStringValue(message.PlatformMessageID),
 		Stream:           stream,
+		RequesterID:      message.ActorID,
+		Abort:            func() bool { return d.queue.Abort(sessionKey) },
 	}); err != nil {
 		return d.failDispatch(ctx, claimed, fmt.Errorf("publish: %w", err))
 	}

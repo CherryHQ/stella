@@ -35,6 +35,11 @@ type discordREST interface {
 	ChannelMessageSendComplex(channelID string, data *discordgo.MessageSend, options ...discordgo.RequestOption) (*discordgo.Message, error)
 	ChannelMessageEditComplex(message *discordgo.MessageEdit, options ...discordgo.RequestOption) (*discordgo.Message, error)
 	ChannelMessageDelete(channelID, messageID string, options ...discordgo.RequestOption) error
+	MessageReactionAdd(channelID, messageID, emojiID string, options ...discordgo.RequestOption) error
+	MessageReactionRemove(channelID, messageID, emojiID, userID string, options ...discordgo.RequestOption) error
+	ApplicationCommandBulkOverwrite(appID, guildID string, commands []*discordgo.ApplicationCommand, options ...discordgo.RequestOption) ([]*discordgo.ApplicationCommand, error)
+	InteractionRespond(interaction *discordgo.Interaction, resp *discordgo.InteractionResponse, options ...discordgo.RequestOption) error
+	InteractionResponseEdit(interaction *discordgo.Interaction, newresp *discordgo.WebhookEdit, options ...discordgo.RequestOption) (*discordgo.Message, error)
 }
 
 type Config struct {
@@ -64,6 +69,7 @@ type Bot struct {
 	finalized         bool
 	botID             string
 	rest              discordREST
+	cancels           *cancelRegistry
 }
 
 func New(cfg Config, handler channel.Handler) (*Bot, error) {
@@ -75,7 +81,7 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 		return nil, fmt.Errorf("create discord session: %w", err)
 	}
 	s.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentsMessageContent
-	return &Bot{session: s, handler: handler, cfg: cfg, provisionedGroups: make(map[string]struct{}), typing: make(map[string]*typingState), rest: s}, nil
+	return &Bot{session: s, handler: handler, cfg: cfg, provisionedGroups: make(map[string]struct{}), typing: make(map[string]*typingState), rest: s, cancels: newCancelRegistry()}, nil
 }
 
 func (b *Bot) Name() string {
@@ -172,6 +178,7 @@ func (b *Bot) Start(ctx context.Context) error {
 		return err
 	}
 	b.session.AddHandler(b.onMessageCreate)
+	b.session.AddHandler(b.onInteractionCreate)
 	if err := b.session.Open(); err != nil {
 		return fmt.Errorf("open discord gateway: %w", err)
 	}
@@ -179,6 +186,10 @@ func (b *Bot) Start(ctx context.Context) error {
 		b.Stop()
 		return err
 	}
+	// Best-effort: native commands are a convenience UI on top of the text
+	// commands handleMessage already parses, so a registration failure here
+	// must never block startup or fall back to anything but those.
+	b.registerNativeCommands(ctx)
 	<-ctx.Done()
 	b.Stop()
 	return ctx.Err()

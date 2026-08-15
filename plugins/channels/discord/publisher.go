@@ -13,5 +13,13 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 	}
 	stopTyping := b.startTypingHeartbeat(targetID)
 	defer stopTyping()
-	return b.deliverStream(ctx, targetID, req.ReplyTo, req.Stream)
+	var cancel *cancelControl
+	if req.Abort != nil {
+		cancel = &cancelControl{requesterID: req.RequesterID, abort: req.Abort}
+	}
+	err := b.deliverStream(ctx, targetID, req.ReplyTo, req.Stream, cancel)
+	// The triggering message's 👀 crosses into this async dispatch by ReplyTo:
+	// handleMessage only marks a group turn pending, it never finalizes it.
+	b.finishReaction(context.WithoutCancel(ctx), targetID, req.ReplyTo, err == nil)
+	return err
 }

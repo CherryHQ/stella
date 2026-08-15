@@ -489,7 +489,7 @@ func TestDeliverStreamCreatesProgressMessageAndEditsFinal(t *testing.T) {
 	events := make(chan channel.Event, 1)
 	events <- channel.Event{Text: "final answer"}
 	close(events)
-	if err := b.deliverStream(context.Background(), "channel", "request", &channel.ChatStream{Events: events}); err != nil {
+	if err := b.deliverStream(context.Background(), "channel", "request", &channel.ChatStream{Events: events}, nil); err != nil {
 		t.Fatal(err)
 	}
 	rest.mu.Lock()
@@ -512,13 +512,13 @@ func TestDeliverStreamDistinguishesAbortFromDeliveryCancellation(t *testing.T) {
 	aborted := make(chan channel.Event, 1)
 	aborted <- channel.Event{Err: context.Canceled}
 	close(aborted)
-	if err := b.deliverStream(context.Background(), "channel", "request", &channel.ChatStream{Events: aborted}); err != nil {
+	if err := b.deliverStream(context.Background(), "channel", "request", &channel.ChatStream{Events: aborted}, nil); err != nil {
 		t.Fatalf("agent abort returned %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := b.deliverStream(ctx, "channel", "request", &channel.ChatStream{Events: make(chan channel.Event)}); !errors.Is(err, context.Canceled) {
+	if err := b.deliverStream(ctx, "channel", "request", &channel.ChatStream{Events: make(chan channel.Event)}, nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("delivery cancellation returned %v", err)
 	}
 }
@@ -817,16 +817,24 @@ func (h *unregisteringHandler) UnregisterGroupPublisher(channelID string) {
 }
 
 type fakeDiscordREST struct {
-	mu             sync.Mutex
-	channel        *discordgo.Channel
-	channelErr     error
-	starter        *discordgo.Message
-	messages       []*discordgo.Message
-	typing         int
-	typed          chan struct{}
-	sent           []*discordgo.MessageSend
-	edited         []string
-	deletedMessage []string
+	mu               sync.Mutex
+	channel          *discordgo.Channel
+	channelErr       error
+	starter          *discordgo.Message
+	messages         []*discordgo.Message
+	typing           int
+	typed            chan struct{}
+	sent             []*discordgo.MessageSend
+	edited           []string
+	editedRequests   []*discordgo.MessageEdit
+	deletedMessage   []string
+	reactionsAdded   []string
+	reactionsRemoved []string
+	reactionErr      error
+	bulkOverwriteErr error
+	bulkOverwriteIDs []string
+	interactionAcks  []*discordgo.InteractionResponse
+	interactionEdits []*discordgo.WebhookEdit
 }
 
 func newFakeDiscordREST() *fakeDiscordREST {
@@ -871,6 +879,7 @@ func (f *fakeDiscordREST) ChannelMessageEditComplex(message *discordgo.MessageEd
 	if message.Content != nil {
 		f.edited = append(f.edited, *message.Content)
 	}
+	f.editedRequests = append(f.editedRequests, message)
 	return &discordgo.Message{ID: message.ID}, nil
 }
 
@@ -879,6 +888,46 @@ func (f *fakeDiscordREST) ChannelMessageDelete(channelID, messageID string, _ ..
 	defer f.mu.Unlock()
 	f.deletedMessage = append(f.deletedMessage, channelID+":"+messageID)
 	return nil
+}
+
+func (f *fakeDiscordREST) MessageReactionAdd(channelID, messageID, emojiID string, _ ...discordgo.RequestOption) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reactionsAdded = append(f.reactionsAdded, channelID+":"+messageID+":"+emojiID)
+	return f.reactionErr
+}
+
+func (f *fakeDiscordREST) MessageReactionRemove(channelID, messageID, emojiID, userID string, _ ...discordgo.RequestOption) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reactionsRemoved = append(f.reactionsRemoved, channelID+":"+messageID+":"+emojiID+":"+userID)
+	return f.reactionErr
+}
+
+func (f *fakeDiscordREST) ApplicationCommandBulkOverwrite(_, _ string, commands []*discordgo.ApplicationCommand, _ ...discordgo.RequestOption) ([]*discordgo.ApplicationCommand, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.bulkOverwriteErr != nil {
+		return nil, f.bulkOverwriteErr
+	}
+	for _, c := range commands {
+		f.bulkOverwriteIDs = append(f.bulkOverwriteIDs, c.Name)
+	}
+	return commands, nil
+}
+
+func (f *fakeDiscordREST) InteractionRespond(_ *discordgo.Interaction, resp *discordgo.InteractionResponse, _ ...discordgo.RequestOption) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.interactionAcks = append(f.interactionAcks, resp)
+	return nil
+}
+
+func (f *fakeDiscordREST) InteractionResponseEdit(_ *discordgo.Interaction, newresp *discordgo.WebhookEdit, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.interactionEdits = append(f.interactionEdits, newresp)
+	return &discordgo.Message{ID: "interaction-message"}, nil
 }
 
 func (f *fakeDiscordREST) typingCount() int {
@@ -914,5 +963,392 @@ func wait(t *testing.T, ch <-chan struct{}) {
 	case <-ch:
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout")
+	}
+}
+
+type respondingHandler struct {
+	fakeHandler
+	resp    string
+	handled bool
+	err     error
+}
+
+func (h *respondingHandler) HandleIncoming(context.Context, channel.IncomingMessage, string, string) (string, bool, *channel.ChatStream, error) {
+	return h.resp, h.handled, nil, h.err
+}
+
+type interactionCaptureHandler struct {
+	fakeHandler
+	msg     channel.IncomingMessage
+	cmd     string
+	args    string
+	calls   int
+	resp    string
+	handled bool
+	err     error
+}
+
+func (h *interactionCaptureHandler) HandleIncoming(_ context.Context, msg channel.IncomingMessage, cmd, args string) (string, bool, *channel.ChatStream, error) {
+	h.calls++
+	h.msg = msg
+	h.cmd = cmd
+	h.args = args
+	return h.resp, h.handled, nil, h.err
+}
+
+func extractButtonCustomID(t *testing.T, rest *fakeDiscordREST) string {
+	t.Helper()
+	rest.mu.Lock()
+	defer rest.mu.Unlock()
+	if len(rest.sent) == 0 {
+		t.Fatal("no discord message was sent")
+	}
+	msg := rest.sent[len(rest.sent)-1]
+	for _, c := range msg.Components {
+		row, ok := c.(discordgo.ActionsRow)
+		if !ok {
+			continue
+		}
+		for _, inner := range row.Components {
+			if btn, ok := inner.(discordgo.Button); ok {
+				return btn.CustomID
+			}
+		}
+	}
+	t.Fatal("no cancel button found in the sent message")
+	return ""
+}
+
+func TestRegisterNativeCommandsIsBestEffort(t *testing.T) {
+	b, err := New(Config{Token: "token"}, fakeHandler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := newFakeDiscordREST()
+	b.rest = rest
+	b.botID = "bot-app-id"
+	b.registerNativeCommands(context.Background())
+	rest.mu.Lock()
+	names := append([]string(nil), rest.bulkOverwriteIDs...)
+	rest.mu.Unlock()
+	want := []string{"help", "start", "new", "compact", "abort", "whoami", "link"}
+	if !reflect.DeepEqual(names, want) {
+		t.Fatalf("registered command names = %#v, want %#v", names, want)
+	}
+
+	// A registration failure is warn-only: it must not panic, error, or
+	// otherwise disrupt startup — text commands remain available regardless.
+	failing := newFakeDiscordREST()
+	failing.bulkOverwriteErr = errors.New("rate limited")
+	b.rest = failing
+	b.registerNativeCommands(context.Background())
+}
+
+func TestCommandInteractionDefersAcksThenEditsWithParsedOption(t *testing.T) {
+	h := &interactionCaptureHandler{resp: "Account linked successfully!", handled: true}
+	b, err := New(Config{Token: "token", AllowDM: true}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := newFakeDiscordREST()
+	b.rest = rest
+	ix := &discordgo.Interaction{
+		ID: "interaction-1", Type: discordgo.InteractionApplicationCommand,
+		User: &discordgo.User{ID: "sender", Username: "carol"}, ChannelID: "dm",
+		Data: discordgo.ApplicationCommandInteractionData{
+			Name: "link",
+			Options: []*discordgo.ApplicationCommandInteractionDataOption{
+				{Name: "code", Type: discordgo.ApplicationCommandOptionString, Value: "ABCD1234"},
+			},
+		},
+	}
+	b.handleCommandInteraction(context.Background(), ix)
+
+	rest.mu.Lock()
+	defer rest.mu.Unlock()
+	if len(rest.interactionAcks) != 1 {
+		t.Fatalf("acks = %d, want 1", len(rest.interactionAcks))
+	}
+	ack := rest.interactionAcks[0]
+	if ack.Type != discordgo.InteractionResponseDeferredChannelMessageWithSource || ack.Data == nil || ack.Data.Flags&discordgo.MessageFlagsEphemeral == 0 {
+		t.Fatalf("ack = %#v, want a deferred ephemeral response", ack)
+	}
+	if len(rest.interactionEdits) != 1 || rest.interactionEdits[0].Content == nil || *rest.interactionEdits[0].Content != "Account linked successfully!" {
+		t.Fatalf("edits = %#v", rest.interactionEdits)
+	}
+	if h.cmd != "/link" || h.args != "ABCD1234" {
+		t.Fatalf("captured command = %q, args = %q", h.cmd, h.args)
+	}
+	if len(h.msg.Content) != 1 || h.msg.Content[0].(ai.TextContent).Text != "/link ABCD1234" {
+		t.Fatalf("captured content = %#v", h.msg.Content)
+	}
+	if h.msg.SenderID != "sender" || h.msg.IsGroup {
+		t.Fatalf("captured msg = %#v", h.msg)
+	}
+}
+
+func TestCommandInteractionDeniedOutsideAllowlistNeverCallsHandler(t *testing.T) {
+	h := &interactionCaptureHandler{resp: "should not be used", handled: true}
+	b, err := New(Config{Token: "token", AllowGroup: true, AllowedGuildIDs: []string{"other-guild"}}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := newFakeDiscordREST()
+	b.rest = rest
+	ix := &discordgo.Interaction{
+		ID: "interaction-1", Type: discordgo.InteractionApplicationCommand,
+		GuildID: "guild", ChannelID: "discord-channel",
+		Member: &discordgo.Member{User: &discordgo.User{ID: "sender"}},
+		Data:   discordgo.ApplicationCommandInteractionData{Name: "whoami"},
+	}
+	b.handleCommandInteraction(context.Background(), ix)
+	if h.calls != 0 {
+		t.Fatalf("handler calls = %d, want 0 for a guild outside the allowlist", h.calls)
+	}
+	rest.mu.Lock()
+	defer rest.mu.Unlock()
+	if len(rest.interactionEdits) != 1 || rest.interactionEdits[0].Content == nil || !strings.Contains(*rest.interactionEdits[0].Content, "not available") {
+		t.Fatalf("edits = %#v", rest.interactionEdits)
+	}
+}
+
+func TestReactionMarksReceivedThenSuccessOnHandledCommand(t *testing.T) {
+	h := &respondingHandler{resp: "pong", handled: true}
+	b, err := New(Config{Token: "token", AllowDM: true}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := newFakeDiscordREST()
+	b.rest = rest
+	m := &discordgo.Message{ID: "message", ChannelID: "dm", Author: &discordgo.User{ID: "sender"}, Content: "/whoami"}
+	if err := b.handleMessage(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	rest.mu.Lock()
+	defer rest.mu.Unlock()
+	if !reflect.DeepEqual(rest.reactionsAdded, []string{"dm:message:👀", "dm:message:✅"}) {
+		t.Fatalf("reactions added = %#v", rest.reactionsAdded)
+	}
+	if !reflect.DeepEqual(rest.reactionsRemoved, []string{"dm:message:👀:@me"}) {
+		t.Fatalf("reactions removed = %#v, want the ack removed via @me (not remove-all)", rest.reactionsRemoved)
+	}
+}
+
+func TestReactionFailureTransitionAndReactionRestFailureIsIgnored(t *testing.T) {
+	h := &respondingHandler{err: errors.New("boom")}
+	b, err := New(Config{Token: "token", AllowDM: true}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := newFakeDiscordREST()
+	// Even a broken reaction API must not change the outcome: no retry, no
+	// swallowed handler error.
+	rest.reactionErr = errors.New("discord reaction api down")
+	b.rest = rest
+	m := &discordgo.Message{ID: "message", ChannelID: "dm", Author: &discordgo.User{ID: "sender"}, Content: "hello"}
+	err = b.handleMessage(context.Background(), m)
+	if err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("handleMessage() error = %v, want the handler error surfaced despite reaction failures", err)
+	}
+	rest.mu.Lock()
+	defer rest.mu.Unlock()
+	if !reflect.DeepEqual(rest.reactionsAdded, []string{"dm:message:👀", "dm:message:❌"}) {
+		t.Fatalf("reactions added = %#v", rest.reactionsAdded)
+	}
+}
+
+func TestReactionStaysPendingForAsyncGroupMessageUntilPublish(t *testing.T) {
+	h := &provisioningHandler{fakeHandler: fakeHandler{}}
+	b, err := New(Config{InstanceID: "discord-main", Token: "token", AllowGroup: true, AllowAllGuilds: true}, h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := newFakeDiscordREST()
+	rest.channel = &discordgo.Channel{ID: "discord-channel", Type: discordgo.ChannelTypeGuildText}
+	b.rest = rest
+	m := &discordgo.Message{ID: "message", ChannelID: "discord-channel", GuildID: "guild", Author: &discordgo.User{ID: "sender"}, Content: "hello"}
+	if err := b.handleMessage(context.Background(), m); err != nil {
+		t.Fatal(err)
+	}
+	rest.mu.Lock()
+	if !reflect.DeepEqual(rest.reactionsAdded, []string{"discord-channel:message:👀"}) || len(rest.reactionsRemoved) != 0 {
+		rest.mu.Unlock()
+		t.Fatalf("reactions added = %#v, removed = %#v; want only the pending ack until Publish finalizes", rest.reactionsAdded, rest.reactionsRemoved)
+	}
+	rest.mu.Unlock()
+}
+
+func TestPublishFinishesReactionOnTriggeringMessageAcrossReplyTo(t *testing.T) {
+	b, err := New(Config{Token: "token"}, fakeHandler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := newFakeDiscordREST()
+	b.rest = rest
+	events := make(chan channel.Event, 1)
+	events <- channel.Event{Text: "group reply"}
+	close(events)
+	req := internalchannel.GroupPublishRequest{
+		PlatformGroupID: "group-channel",
+		ReplyTo:         "trigger-message",
+		Stream:          &channel.ChatStream{Events: events},
+	}
+	if err := b.Publish(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	rest.mu.Lock()
+	defer rest.mu.Unlock()
+	if !reflect.DeepEqual(rest.reactionsAdded, []string{"group-channel:trigger-message:✅"}) {
+		t.Fatalf("reactions added = %#v", rest.reactionsAdded)
+	}
+	if !reflect.DeepEqual(rest.reactionsRemoved, []string{"group-channel:trigger-message:👀:@me"}) {
+		t.Fatalf("reactions removed = %#v", rest.reactionsRemoved)
+	}
+}
+
+func TestCancelButtonRequesterCanAbort(t *testing.T) {
+	b, err := New(Config{Token: "token", AllowDM: true}, fakeHandler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := newFakeDiscordREST()
+	b.rest = rest
+	aborted := make(chan struct{}, 1)
+	draft := b.beginDraft(context.Background(), "dm", "reply", &cancelControl{
+		requesterID: "requester",
+		abort:       func() bool { aborted <- struct{}{}; return true },
+	})
+	if draft == nil || draft.cancelToken == "" {
+		t.Fatalf("beginDraft() = %#v, want a registered cancel token", draft)
+	}
+	customID := extractButtonCustomID(t, rest)
+
+	ix := &discordgo.Interaction{
+		Type: discordgo.InteractionMessageComponent,
+		User: &discordgo.User{ID: "requester"},
+		Data: discordgo.MessageComponentInteractionData{CustomID: customID, ComponentType: discordgo.ButtonComponent},
+	}
+	b.handleComponentInteraction(context.Background(), ix)
+
+	wait(t, aborted)
+	rest.mu.Lock()
+	ack := rest.interactionAcks[0]
+	rest.mu.Unlock()
+	if ack.Type != discordgo.InteractionResponseUpdateMessage || ack.Data.Content != "Stopping…" || len(ack.Data.Components) != 0 {
+		t.Fatalf("ack = %#v, want an update clearing components", ack)
+	}
+	if _, ok := b.cancels.get(strings.TrimPrefix(customID, cancelCustomIDPrefix)); ok {
+		t.Fatal("cancel token still registered after use")
+	}
+}
+
+func TestCancelButtonRejectsNonRequester(t *testing.T) {
+	b, err := New(Config{Token: "token", AllowDM: true}, fakeHandler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := newFakeDiscordREST()
+	b.rest = rest
+	aborted := false
+	b.beginDraft(context.Background(), "dm", "reply", &cancelControl{
+		requesterID: "requester",
+		abort:       func() bool { aborted = true; return true },
+	})
+	customID := extractButtonCustomID(t, rest)
+
+	ix := &discordgo.Interaction{
+		Type: discordgo.InteractionMessageComponent,
+		User: &discordgo.User{ID: "someone-else"},
+		Data: discordgo.MessageComponentInteractionData{CustomID: customID, ComponentType: discordgo.ButtonComponent},
+	}
+	b.handleComponentInteraction(context.Background(), ix)
+
+	if aborted {
+		t.Fatal("abort invoked for a non-requester click")
+	}
+	rest.mu.Lock()
+	ack := rest.interactionAcks[0]
+	rest.mu.Unlock()
+	if ack.Type != discordgo.InteractionResponseChannelMessageWithSource || ack.Data.Flags&discordgo.MessageFlagsEphemeral == 0 || !strings.Contains(ack.Data.Content, "Only the requester") {
+		t.Fatalf("ack = %#v", ack)
+	}
+	if _, ok := b.cancels.get(strings.TrimPrefix(customID, cancelCustomIDPrefix)); !ok {
+		t.Fatal("cancel token should remain registered after a rejected click")
+	}
+}
+
+func TestCancelButtonUnknownTokenRespondsEnded(t *testing.T) {
+	b, err := New(Config{Token: "token", AllowDM: true}, fakeHandler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := newFakeDiscordREST()
+	b.rest = rest
+	ix := &discordgo.Interaction{
+		Type: discordgo.InteractionMessageComponent,
+		User: &discordgo.User{ID: "someone"},
+		Data: discordgo.MessageComponentInteractionData{CustomID: cancelCustomIDPrefix + "does-not-exist", ComponentType: discordgo.ButtonComponent},
+	}
+	b.handleComponentInteraction(context.Background(), ix)
+	rest.mu.Lock()
+	ack := rest.interactionAcks[0]
+	rest.mu.Unlock()
+	if !strings.Contains(ack.Data.Content, "already ended") {
+		t.Fatalf("ack = %#v, want an already-ended response for an unknown (e.g. post-restart orphan) token", ack)
+	}
+}
+
+func TestCancelButtonDeniedOutsideAllowlistBeforeRequesterCheck(t *testing.T) {
+	b, err := New(Config{Token: "token", AllowGroup: true, AllowedGuildIDs: []string{"other-guild"}}, fakeHandler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := newFakeDiscordREST()
+	b.rest = rest
+	aborted := false
+	b.beginDraft(context.Background(), "discord-channel", "reply", &cancelControl{
+		requesterID: "requester",
+		abort:       func() bool { aborted = true; return true },
+	})
+	customID := extractButtonCustomID(t, rest)
+	ix := &discordgo.Interaction{
+		Type: discordgo.InteractionMessageComponent, GuildID: "guild", ChannelID: "discord-channel",
+		Member: &discordgo.Member{User: &discordgo.User{ID: "requester"}},
+		Data:   discordgo.MessageComponentInteractionData{CustomID: customID, ComponentType: discordgo.ButtonComponent},
+	}
+	b.handleComponentInteraction(context.Background(), ix)
+	if aborted {
+		t.Fatal("abort invoked from a guild outside the allowlist, even though the clicking user was the requester")
+	}
+	rest.mu.Lock()
+	ack := rest.interactionAcks[0]
+	rest.mu.Unlock()
+	if !strings.Contains(ack.Data.Content, "not available") {
+		t.Fatalf("ack = %#v", ack)
+	}
+}
+
+func TestDeliverStreamFinalizeClearsCancelButtonAndUnregistersToken(t *testing.T) {
+	b, err := New(Config{Token: "token"}, fakeHandler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := newFakeDiscordREST()
+	b.rest = rest
+	events := make(chan channel.Event, 1)
+	events <- channel.Event{Text: "final answer"}
+	close(events)
+	cancel := &cancelControl{requesterID: "requester", abort: func() bool { return true }}
+	if err := b.deliverStream(context.Background(), "channel", "request", &channel.ChatStream{Events: events}, cancel); err != nil {
+		t.Fatal(err)
+	}
+	rest.mu.Lock()
+	defer rest.mu.Unlock()
+	if len(rest.editedRequests) == 0 {
+		t.Fatal("no edit recorded")
+	}
+	final := rest.editedRequests[len(rest.editedRequests)-1]
+	if final.Components == nil || len(*final.Components) != 0 {
+		t.Fatalf("final edit components = %#v, want a cleared (non-nil, empty) slice", final.Components)
 	}
 }

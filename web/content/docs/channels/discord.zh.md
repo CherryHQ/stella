@@ -15,7 +15,7 @@ title: Discord 机器人
 1. 打开 [Discord Developer Portal](https://discord.com/developers/applications) 并创建应用。
 2. 打开 **Bot**，按需创建机器人，然后复制 token。请将 token 作为 secret 保管。
 3. 在 **Privileged Gateway Intents** 下启用 **Message Content Intent**。如果只有你的组织可以安装此机器人，请关闭 **Public Bot**。
-4. 在 **OAuth2 → URL Generator** 中选择 `bot` scope，授予 **View Channels**、**Send Messages**、**Read Message History** 和 **Attach Files**，然后用生成的 URL 邀请机器人。
+4. 在 **OAuth2 → URL Generator** 中选择 `bot` 和 `applications.commands` scope，授予 **View Channels**、**Send Messages**、**Read Message History**、**Attach Files** 和 **Add Reactions**，然后用生成的 URL 邀请机器人。
 5. 在 Stella Web UI 中打开 **Channels**，创建 Discord 渠道，粘贴 bot token；如果希望机器人服务它已加入的服务器，打开**允许服务器频道**，按下文说明配置服务器访问控制，然后启用。
 6. 如果渠道未自动启动，请重启 `stellad server`。
 
@@ -48,13 +48,13 @@ title: Discord 机器人
 
 ## 使用机器人
 
-向机器人发送私信、在服务器频道中 @提及它，或回复它发出的服务器消息。Stella 会立即发送一条临时进度消息，在其中更新已生成的文本和工具活动，并持续显示 Discord 的“正在输入”状态。长回复或带附件的回复完成后，会用普通 Discord 消息替换这条预览。
+向机器人发送私信、在服务器频道中 @提及它，或回复它发出的服务器消息。Stella 会先用 👀 表情回应以确认收到消息，然后发送一条临时进度消息，在其中更新已生成的文本和工具活动，并持续显示 Discord 的“正在输入”状态。进度消息上带有一个**取消（Cancel）**按钮，只有你本人可以点击它来提前终止这轮回复。回复结束后，Stella 会把 👀 替换为 ✅（成功）或 ❌（失败），并移除取消按钮。长回复或带附件的回复完成后，会用普通 Discord 消息替换这条预览。
 
 在论坛帖子和其他 thread 中，稍后 @机器人时，Stella 还会读取帖子首条消息和最近最多 20 条历史消息，包括 @机器人之前发送的内容。Thread 上下文最多占 24 KiB；超出时会优先省略较早的非首条消息。
 
 默认情况下，未 @提及机器人的服务器消息不会作为独立消息轮次处理，也不会调用 agent。Agent 输出不会触发 `@everyone` 等 Discord 提及。
 
-机器人在私信中支持 `/start`、`/help`、`/new`、`/compact`、`/abort`、`/whoami` 和 `/link`。Discord 将命令作为普通文本消息接收，无需注册 Discord application commands。
+机器人在私信中支持 `/start`、`/help`、`/new`、`/compact`、`/abort`、`/whoami` 和 `/link`，既可以作为文本命令输入，也可以作为 Discord 原生 slash command 使用。Slash command 的回复仅你自己可见。如果 slash command 没有出现，请等待几分钟让 Discord 完成命令注册的同步，或改用始终有效的 `/command` 文本形式。
 
 机器人会从 Discord 附件服务下载不超过 25 MiB 的图片和文件，并在存储可用时保存到你的私有 assets 目录。Agent 生成的图片和文件也可上传回 Discord。
 
@@ -86,7 +86,9 @@ title: Discord 机器人
 
 **机器人已连接但无法读取消息：** 在 Developer Portal 中启用 **Message Content Intent**，然后重启 Stella。
 
-**机器人无法回复或上传文件：** 同时检查频道权限覆盖和服务器角色。机器人需要 View Channels、Send Messages、Read Message History 和 Attach Files。
+**机器人无法回复或上传文件：** 同时检查频道权限覆盖和服务器角色。机器人需要 View Channels、Send Messages、Read Message History、Attach Files 和 Add Reactions。
+
+**Slash command 没有出现在 Discord 中：** 确认邀请机器人时勾选了 `applications.commands` scope，而不仅仅是 `bot`。如有需要，请用 **OAuth2 → URL Generator** 生成的 URL 重新邀请机器人；无论如何，输入 `/command` 文本消息始终可用。
 
 **机器人忽略私信：** 将 `allow_dm` 设为 `true`。若要接受未关联用户作为受限访客，还需绑定专用且对访客安全的 agent，并将 `allow_unlinked_dm` 设为 `true`。
 

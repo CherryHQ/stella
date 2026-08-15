@@ -27,6 +27,17 @@ type GroupPublishRequest struct {
 	PlatformThreadID string
 	ReplyTo          string
 	Stream           *pkgchannel.ChatStream
+
+	// RequesterID is the platform-native user ID of the human whose message
+	// triggered this dispatch (eventlog's platform sender id, not a Stella
+	// user ID). Publishers that offer a cancel affordance use it to reject a
+	// click from anyone else. Empty when the trigger had no human actor.
+	RequesterID string
+	// Abort cancels the in-flight turn this dispatch is running, if any.
+	// It is safe to call multiple times and from any goroutine; a publisher
+	// invokes it at most once per accepted cancel click. Nil when the
+	// dispatcher offers no cancellation for this request.
+	Abort func() bool
 }
 
 type PublisherRegistry struct {

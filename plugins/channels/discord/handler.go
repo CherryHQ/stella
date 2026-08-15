@@ -38,7 +38,7 @@ type groupHistoryImporter interface {
 	ImportGroupHistory(ctx context.Context, messages []channel.IncomingMessage) error
 }
 
-func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
+func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) (resultErr error) {
 	deliveryCtx := context.WithoutCancel(ctx)
 	if m.GuildID == "" && !b.cfg.AllowDM {
 		logger().Debug("ignoring direct message because DMs are disabled", "channel_id", m.ChannelID)
@@ -60,6 +60,21 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
 			return nil
 		}
 	}
+	// The message is now really accepted: best-effort mark it seen. terminal
+	// tracks whether this turn reaches a definite outcome before handleMessage
+	// returns — a group message usually does not, since its reply is async and
+	// finishReaction runs later from Publish keyed by GroupPublishRequest.ReplyTo.
+	b.reactBestEffort(deliveryCtx, m.ChannelID, m.ID, reactionReceived)
+	terminal := false
+	success := false
+	defer func() {
+		switch {
+		case resultErr != nil:
+			b.finishReaction(deliveryCtx, m.ChannelID, m.ID, false)
+		case terminal:
+			b.finishReaction(deliveryCtx, m.ChannelID, m.ID, success)
+		}
+	}()
 	// Acknowledge immediately; attachment downloads, thread-history reads, and
 	// durable group dispatch can all take longer than Discord's typing TTL.
 	stopTyping := b.startTypingHeartbeat(m.ChannelID)
@@ -122,15 +137,36 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
 		return err
 	}
 	if handled {
-		return b.sendText(deliveryCtx, m.ChannelID, resp, m.ID)
+		terminal = true
+		sendErr := b.sendText(deliveryCtx, m.ChannelID, resp, m.ID)
+		success = sendErr == nil
+		return sendErr
 	}
 	if stream == nil {
+		// Group turns reply asynchronously through the durable dispatcher;
+		// Publish finishes the 👀 reaction later, keyed by ReplyTo. A message
+		// that produced neither a command reply nor a stream (no real content)
+		// stays 👀 forever, which is fine: nothing happened worth a verdict.
 		return nil
 	}
+	terminal = true
 	// Once accepted, consume the stream to completion. The managed runtime's
 	// wrapped handler owns the operation lifetime; the gateway poll context may
 	// be cancelled earlier during a graceful drain.
-	return b.deliverStream(deliveryCtx, m.ChannelID, m.ID, stream)
+	deliverErr := b.deliverStream(deliveryCtx, m.ChannelID, m.ID, stream, &cancelControl{
+		requesterID: m.Author.ID,
+		// /abort re-resolves the same session through the coordinator's own
+		// command handling (HandleIncoming), so cancellation shares exactly the
+		// business logic a typed /abort uses instead of duplicating it. It is
+		// naturally idempotent: a session with no active turn just reports
+		// nothing to abort.
+		abort: func() bool {
+			_, _, _, _ = b.handler.HandleIncoming(context.WithoutCancel(deliveryCtx), msg, "/abort", "")
+			return true
+		},
+	})
+	success = deliverErr == nil
+	return deliverErr
 }
 
 func (b *Bot) ensureGroupMember(ctx context.Context, platformGroupID, platformThreadID string) error {

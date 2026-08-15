@@ -20,26 +20,34 @@ type messageRoute struct {
 }
 
 func (b *Bot) resolveMessageRoute(ctx context.Context, m *discordgo.Message) (messageRoute, error) {
-	route := messageRoute{chatID: m.ChannelID}
-	if m.GuildID == "" {
+	return b.resolveChannelRoute(ctx, m.ChannelID, m.GuildID)
+}
+
+// resolveChannelRoute is resolveMessageRoute without requiring a full
+// *discordgo.Message, so interaction handlers (which carry a channel/guild ID
+// but no Message) can share the same thread-aware routing instead of
+// re-deriving it.
+func (b *Bot) resolveChannelRoute(ctx context.Context, channelID, guildID string) (messageRoute, error) {
+	route := messageRoute{chatID: channelID}
+	if guildID == "" {
 		return route, nil
 	}
 	var ch *discordgo.Channel
 	if b.session.State != nil {
-		ch, _ = b.session.State.Channel(m.ChannelID)
+		ch, _ = b.session.State.Channel(channelID)
 	}
 	if ch == nil && b.rest != nil {
 		var err error
-		ch, err = b.rest.Channel(m.ChannelID, discordgo.WithContext(ctx))
+		ch, err = b.rest.Channel(channelID, discordgo.WithContext(ctx))
 		if err != nil {
-			return messageRoute{}, fmt.Errorf("resolve Discord channel %q: %w", m.ChannelID, err)
+			return messageRoute{}, fmt.Errorf("resolve Discord channel %q: %w", channelID, err)
 		}
 	}
 	if ch == nil {
-		return messageRoute{}, fmt.Errorf("resolve Discord channel %q: empty response", m.ChannelID)
+		return messageRoute{}, fmt.Errorf("resolve Discord channel %q: empty response", channelID)
 	}
 	if ch.IsThread() && ch.ParentID == "" {
-		return messageRoute{}, fmt.Errorf("resolve Discord thread %q: missing parent channel", m.ChannelID)
+		return messageRoute{}, fmt.Errorf("resolve Discord thread %q: missing parent channel", channelID)
 	}
 	if ch.IsThread() {
 		route.chatID = ch.ParentID

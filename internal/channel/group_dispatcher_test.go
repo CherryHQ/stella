@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -63,6 +64,7 @@ type dispatcherFixture struct {
 	d       *GroupDispatcher
 	outbox  sqlc.CtxGroupOutbox
 	message sqlc.CtxGroupMessage
+	groupID string
 }
 
 func newDispatcherFixture(t *testing.T, platform, envelope string) dispatcherFixture {
@@ -133,7 +135,7 @@ func newDispatcherFixture(t *testing.T, platform, envelope string) dispatcherFix
 	d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
 		return textStream("ok"), nil
 	}
-	return dispatcherFixture{db: db, q: q, d: d, outbox: outbox, message: message}
+	return dispatcherFixture{db: db, q: q, d: d, outbox: outbox, message: message, groupID: state.ID}
 }
 
 func textStream(text string) *pkgchannel.ChatStream {
@@ -1081,6 +1083,66 @@ func setGroupNextSeq(t *testing.T, db *pgxpool.Pool, groupID string, seq int64) 
 	t.Helper()
 	if _, err := db.Exec(context.Background(), `UPDATE ctx_group_state SET next_seq = $1 WHERE id = $2`, seq, groupID); err != nil {
 		t.Fatalf("set group next seq: %v", err)
+	}
+}
+
+type capturingGroupPublisher struct {
+	req GroupPublishRequest
+}
+
+func (p *capturingGroupPublisher) Publish(_ context.Context, req GroupPublishRequest) error {
+	p.req = req
+	if req.Stream != nil {
+		for range req.Stream.Events {
+		}
+	}
+	return nil
+}
+
+// TestExecuteDispatchAbortClosureUsesSessionQueueGroupKey verifies the
+// GroupPublishRequest.Abort closure ExecuteDispatch builds targets the exact
+// same per-(agent,group) session queue slot chatDispatchUnqueued enqueues
+// under. A wrong key would make a Discord Cancel click silently no-op
+// instead of stopping the running turn.
+func TestExecuteDispatchAbortClosureUsesSessionQueueGroupKey(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	publisher := &capturingGroupPublisher{}
+	fx.d.publishers.Register("ch-1", publisher)
+
+	sessionKey := agent.BuildGroupSessionKey("agent-1", fx.groupID)
+	wrongKey := agent.BuildGroupSessionKey("agent-2", fx.groupID)
+	correctCalled := false
+	wrongCalled := false
+
+	slot := fx.d.queue.getOrCreate(sessionKey)
+	slot.mu.Lock()
+	slot.activeCancel = func() { correctCalled = true }
+	slot.mu.Unlock()
+	defer fx.d.queue.release(slot)
+
+	wrongSlot := fx.d.queue.getOrCreate(wrongKey)
+	wrongSlot.mu.Lock()
+	wrongSlot.activeCancel = func() { wrongCalled = true }
+	wrongSlot.mu.Unlock()
+	defer fx.d.queue.release(wrongSlot)
+
+	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
+		t.Fatalf("process outbox: %v", err)
+	}
+	if publisher.req.RequesterID != "user-1" {
+		t.Fatalf("RequesterID = %q, want the triggering message's actor id", publisher.req.RequesterID)
+	}
+	if publisher.req.Abort == nil {
+		t.Fatal("Abort is nil, want a closure targeting the dispatch's session queue slot")
+	}
+	if !publisher.req.Abort() {
+		t.Fatal("Abort() = false, want true: it should cancel the active slot keyed by agent.BuildGroupSessionKey(agent-1, group)")
+	}
+	if !correctCalled {
+		t.Fatal("Abort() did not cancel the slot keyed by agent.BuildGroupSessionKey(agent-1, group)")
+	}
+	if wrongCalled {
+		t.Fatal("Abort() cancelled the wrong agent's session slot")
 	}
 }
 
