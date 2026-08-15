@@ -10,7 +10,6 @@ import (
 	_ "github.com/CherryHQ/stella/plugins/channels/qq"
 	_ "github.com/CherryHQ/stella/plugins/channels/telegram"
 	_ "github.com/CherryHQ/stella/plugins/channels/weixin"
-	_ "github.com/CherryHQ/stella/plugins/hooks/rtk"
 	_ "github.com/CherryHQ/stella/plugins/providers/anthropic"
 	_ "github.com/CherryHQ/stella/plugins/providers/openai"
 	_ "github.com/CherryHQ/stella/plugins/providers/openai-response"

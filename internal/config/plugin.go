@@ -43,9 +43,6 @@ var BuiltinToolNames = []string{"gh", "lark-cli", "mise", "tap-web", "webfetch"}
 // BuiltinChannelNames lists the built-in channel plugins.
 var BuiltinChannelNames = []string{"telegram", "discord", "qq", "feishu", "dingtalk", "weixin"}
 
-// BuiltinHookNames lists the built-in hook plugins.
-var BuiltinHookNames = []string{"rtk"}
-
 // BuiltinPlugin describes a code-defined plugin with its default enabled state.
 type BuiltinPlugin struct {
 	ID             string
@@ -65,9 +62,6 @@ func BuiltinPlugins() []BuiltinPlugin {
 	}
 	for _, n := range BuiltinChannelNames {
 		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindChannel, n), Kind: PluginKindChannel, Name: n, DefaultEnabled: false})
-	}
-	for _, n := range BuiltinHookNames {
-		out = append(out, BuiltinPlugin{ID: PluginID(PluginKindHook, n), Kind: PluginKindHook, Name: n, DefaultEnabled: true})
 	}
 	return out
 }

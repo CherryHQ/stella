@@ -7,7 +7,7 @@ description: Declarative CLI tool integrations, shipped with the server and cust
 
 Manifest tool plugins are a lightweight alternative to full Go-compiled plugins for simple CLI tool integrations. Instead of writing a Go package, the tool is declared as data, and Stella reconciles the binary download automatically.
 
-Stella ships with a built-in manifest that declares the default manifest-managed CLI integrations (`tap-web`, `gh`, `lark-cli`, `rtk`). They appear in their semantic tabs, such as **Tools** or **Hooks**, with a `manifest` badge. You override or extend them from the Plugins admin UI; your changes are stored in the database, and the manifest compiled into the server is never modified.
+Stella ships with a built-in manifest that declares the default manifest-managed CLI integrations (`tap-web`, `gh`, `lark-cli`). They appear in their semantic tabs, such as **Tools** or **Hooks**, with a `manifest` badge. You override or extend them from the Plugins admin UI; your changes are stored in the database, and the manifest compiled into the server is never modified.
 
 ## How It Works
 
@@ -192,7 +192,6 @@ Stella tracks installed binary versions in `$STELLA_HOME/plugin-manifest-state.j
 Manifest-backed plugins are shown once, in the tab that matches their kind:
 
 - `tool/gh`, `tool/lark-cli`, and `tool/tap-web` appear in **Tools**.
-- `hook/rtk` appears in **Hooks**.
 
 Rows with manifest backing show a `manifest` badge and an **Edit definition** action for the plugin definition. Binaries and session environment variables are edited as form rows. If the same plugin also exposes runtime config, the row also shows **Configure**. The enable switch is stored separately from the definition, so disabling a built-in does not count as customizing it, and pinning a binary to a specific version is an ordinary definition edit.
 

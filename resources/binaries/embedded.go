@@ -203,7 +203,7 @@ func platformEntries() ([]fs.DirEntry, error) {
 // infraTools lists standalone gzip binaries extracted to $STELLA_HOME/bin.
 // Only mise belongs here: it bootstraps the install/shim machinery before any
 // shim exists. Xberg is handled separately as a versioned runtime bundle;
-// ordinary tools (gh, fd, rg, tap, lark-cli, rtk, ...) stay behind mise shims.
+// ordinary tools (gh, fd, rg, tap, lark-cli, ...) stay behind mise shims.
 var infraTools = map[string]bool{"mise": true}
 
 func xbergArchiveName() string { return "xberg-v" + xbergVersion + ".tar.gz" }

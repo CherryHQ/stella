@@ -30,8 +30,9 @@ const (
 	// session activity, per-message actor provenance and summary authority,
 	// the durable Session inbox, and restrictive Library ownership are the
 	// post-anchor migrations exercised below. Library chunk locator integrity and
-	// the dedicated Skill Home cutover evidence schema are checked explicitly.
-	currentMigrationVersion = sequentialAnchor + 16
+	// the dedicated Skill Home cutover evidence schema and retired RTK plugin
+	// cleanup are checked explicitly.
+	currentMigrationVersion = sequentialAnchor + 17
 
 	previousGAUserID           = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID          = "00000000-0000-0000-0000-000000000002"
@@ -167,13 +168,15 @@ func seedPreviousGAData(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
 		($1, 'Previous GA Agent', '/tmp', '["historical-allowlist-entry"]'::jsonb, $3, $3),
 		($2, 'Previous GA Cascade Agent', '/tmp', 'null'::jsonb, $3, $3)`, previousGAAgentID, previousGACascadeAgentID, previousGATime)
 	exec("canonical provider", `INSERT INTO provider (id, type, name, created_at, updated_at) VALUES ($1, 'anthropic', 'Previous GA Provider', $2, $2)`, previousGAProviderID, previousGATime)
-	exec("sandbox plugin rows", `INSERT INTO plugin (id, kind, name, created_at, updated_at) VALUES
+	exec("legacy plugin rows", `INSERT INTO plugin (id, kind, name, created_at, updated_at) VALUES
 		('sandbox/local', 'sandbox', 'Local sandbox', $1, $1),
 		('sandbox', 'sandbox', 'Sandbox near miss', $1, $1),
+		('hook/rtk', 'hook', 'RTK', $1, $1),
 		('tool/unrelated', 'tool', 'Unrelated tool', $1, $1)`, previousGATime)
-	exec("sandbox plugin state rows", `INSERT INTO plugin_state (plugin_id, scope_kind, state_key, value, created_at, updated_at) VALUES
+	exec("legacy plugin state rows", `INSERT INTO plugin_state (plugin_id, scope_kind, state_key, value, created_at, updated_at) VALUES
 		('sandbox/local', 'system', 'sandbox-state', '{"keep":"no"}', $1, $1),
 		('sandbox', 'system', 'near-miss-state', '{"keep":"yes"}', $1, $1),
+		('hook/rtk', 'system', 'rtk-state', '{"keep":"no"}', $1, $1),
 		('tool/unrelated', 'system', 'unrelated-state', '{"keep":"yes"}', $1, $1)`, previousGATime)
 	exec("legacy mutable Skill", `
 		INSERT INTO skill (id, scope, user_id, agent_id, name, description, status, disable_model_invocation, metadata, created_at, updated_at)
@@ -235,9 +238,10 @@ func seedPreviousGAData(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
 		INSERT INTO plugin_override (plugin_id, enabled, session_env_vault_key, config, created_at, updated_at)
 		VALUES ('tool/lark-cli', true, 'custom-vault-key',
 			'{"prompt":"custom prompt", "oauth_provider":"feishu", "session_env":{"TOKEN":"secret"}, "binary":"lark-cli", "custom":"keep"}', $1, $1)`, previousGATime)
-	exec("unrelated override", `
-		INSERT INTO plugin_override (plugin_id, enabled, config, created_at, updated_at)
-		VALUES ('tool/custom', false, '{"custom":"untouched"}', $1, $1)`, previousGATime)
+	exec("unrelated and retired overrides", `
+		INSERT INTO plugin_override (plugin_id, enabled, config, created_at, updated_at) VALUES
+			('tool/custom', false, '{"custom":"untouched"}', $1, $1),
+			('hook/rtk', true, '{"name":"rtk"}', $1, $1)`, previousGATime)
 }
 
 func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
@@ -381,6 +385,12 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 	if got := count("deleted sandbox plugin state", `SELECT count(*) FROM plugin_state WHERE plugin_id LIKE 'sandbox/%'`); got != 0 {
 		t.Fatalf("sandbox plugin state rows = %d, want 0", got)
+	}
+	if got := count("retired RTK rows", `
+		SELECT (SELECT count(*) FROM plugin WHERE id = 'hook/rtk') +
+		       (SELECT count(*) FROM plugin_state WHERE plugin_id = 'hook/rtk') +
+		       (SELECT count(*) FROM plugin_override WHERE plugin_id = 'hook/rtk')`); got != 0 {
+		t.Fatalf("retired RTK rows = %d, want 0", got)
 	}
 	if got := count("sandbox plugin near miss", `SELECT count(*) FROM plugin WHERE id = 'sandbox'`); got != 1 {
 		t.Fatalf("sandbox plugin near-miss rows = %d, want 1", got)
