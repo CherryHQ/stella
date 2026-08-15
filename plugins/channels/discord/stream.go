@@ -3,7 +3,6 @@ package discord
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -111,11 +110,7 @@ func (d *discordDraft) delete(ctx context.Context) {
 	d.cancelToken = ""
 }
 
-// deliverStream renders a live agent turn into the channel. resume carries a
-// group dispatch's durable delivery state: how to persist the finished response
-// before any of it is sent, and how far a previous attempt got. Its zero value
-// is a direct message, which has nothing to persist and nothing to resume.
-func (b *Bot) deliverStream(ctx context.Context, channelID, replyTo string, stream *channel.ChatStream, cancel *cancelControl, resume textDelivery) error {
+func (b *Bot) deliverStream(ctx context.Context, channelID, replyTo string, stream *channel.ChatStream, cancel *cancelControl) error {
 	draft := b.beginDraft(ctx, channelID, replyTo, cancel)
 	text, images, files, streamErr := collectResponse(ctx, stream, func(text string, tools *channel.ToolTracker) {
 		if draft == nil {
@@ -140,68 +135,36 @@ func (b *Bot) deliverStream(ctx context.Context, channelID, replyTo string, stre
 			text += "\n\n"
 		}
 		text += "Stella couldn't complete this response. Please try again."
-	} else if err := resume.record(ctx, text); err != nil {
-		// The response is complete but nothing durable proves it, so send none
-		// of it: a retry would find no record, run the agent again, and answer
-		// a group that had already read half an answer.
-		draft.delete(context.WithoutCancel(ctx))
-		return err
 	}
 	if strings.TrimSpace(text) == "" && len(images) == 0 && len(files) == 0 {
 		text = "(empty response)"
 	}
 
-	// The draft is scratch state, never a delivered chunk: it either becomes the
-	// whole short reply — chunk 0 of 1 — or it is deleted. A retry re-delivers
-	// from the durable cursor, so a "will retry" draft left on screen would
-	// outlive the attempt that fixed it and read as a permanent failure.
 	if draft != nil && utf8.RuneCountInString(text) <= maxMessageLength && len(images) == 0 && len(files) == 0 {
 		if err := draft.finalize(ctx, text); err == nil {
-			if err := resume.delivered(ctx, 1); err != nil {
-				draft.delete(context.WithoutCancel(ctx))
-				return err
-			}
 			return nil
 		}
 	}
 	if text != "" {
-		if err := b.sendTextChunks(ctx, channelID, text, replyTo, false, resume); err != nil {
-			draft.delete(context.WithoutCancel(ctx))
+		if err := b.sendText(ctx, channelID, text, replyTo); err != nil {
+			_ = draft.finalize(ctx, "⚠️ Discord delivery failed; Stella will retry.")
 			return err
 		}
 	}
-	b.sendMedia(ctx, channelID, images, files)
-	draft.delete(ctx)
-	return nil
-}
-
-// sendMedia uploads the turn's attachments after its text is delivered. A
-// failed upload is reported, never returned: images and files are not
-// persisted, so failing the publish here would requeue a dispatch whose only
-// remaining recovery is re-running the agent — the one thing durable delivery
-// exists to prevent. Ceiling: a failed attachment is lost. Persist attachments
-// as durable media artifacts if that ever costs more than a re-run.
-func (b *Bot) sendMedia(ctx context.Context, channelID string, images []channel.ImageEvent, files []channel.FileEvent) {
-	failed := 0
 	for _, image := range images {
 		if err := b.sendImage(ctx, channelID, image); err != nil {
-			logger().Warn("Discord image upload failed after the response text was delivered", "channel_id", channelID, "error", err)
-			failed++
+			_ = draft.finalize(ctx, "⚠️ Discord delivery failed; Stella will retry.")
+			return err
 		}
 	}
 	for _, file := range files {
 		if err := b.sendFile(ctx, channelID, file); err != nil {
-			logger().Warn("Discord file upload failed after the response text was delivered", "channel_id", channelID, "file", file.Name, "error", err)
-			failed++
+			_ = draft.finalize(ctx, "⚠️ Discord delivery failed; Stella will retry.")
+			return err
 		}
 	}
-	if failed == 0 {
-		return
-	}
-	notice := fmt.Sprintf("⚠️ %d attachment(s) could not be uploaded to Discord.", failed)
-	if err := b.sendText(context.WithoutCancel(ctx), channelID, notice, ""); err != nil {
-		logger().Warn("Discord attachment failure notice could not be sent", "channel_id", channelID, "error", err)
-	}
+	draft.delete(ctx)
+	return nil
 }
 
 func collectResponse(ctx context.Context, stream *channel.ChatStream, onProgress func(string, *channel.ToolTracker)) (string, []channel.ImageEvent, []channel.FileEvent, error) {

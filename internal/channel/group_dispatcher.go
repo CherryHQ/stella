@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -237,15 +236,9 @@ func (d *GroupDispatcher) reapExpired(ctx context.Context) error {
 		return fmt.Errorf("list expired dispatch: %w", err)
 	}
 	for _, row := range dispatchRows {
-		// Only a finished delivery retires here. A row that holds a result but
-		// never finished delivering it is the crash case the delivery cursor
-		// exists for: requeue it so the tail reaches the group. A cursor of 0
-		// requeues too — the process may have died between persisting the
-		// response and sending its first chunk, and the retry re-delivers the
-		// persisted text without ever running the agent again.
-		if row.ResultMessageID != "" && row.DeliveryComplete {
+		if row.ResultMessageID != "" {
 			if _, err := d.q.MarkGroupDispatchCompleted(ctx, sqlc.MarkGroupDispatchCompletedParams{ID: row.ID, AttemptCount: row.AttemptCount}); err != nil {
-				return fmt.Errorf("complete expired delivered dispatch: %w", err)
+				return fmt.Errorf("complete expired dispatch with result marker: %w", err)
 			}
 			continue
 		}
@@ -560,19 +553,6 @@ func (d *GroupDispatcher) executeDispatchesByMessage(ctx context.Context, groupM
 	}
 }
 
-// dispatchRun is one claimed attempt at one dispatch row, with the routing
-// facts both the live and the re-delivery path need. The row's own fields say
-// which path applies: a result_message_id means the agent already ran, and its
-// response must be re-delivered rather than regenerated.
-type dispatchRun struct {
-	row               sqlc.CtxGroupDispatch
-	message           sqlc.CtxGroupMessage
-	state             sqlc.CtxGroupState
-	publisher         GroupPublisher
-	agentName         string
-	lifecycleFeedback bool
-}
-
 func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroupDispatch, publisherOverride GroupPublisher) error {
 	claimed, ok, err := d.claimDispatch(ctx, row)
 	if err != nil {
@@ -581,7 +561,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	if !ok {
 		return nil
 	}
-	if claimed.ResultMessageID != "" && claimed.DeliveryComplete {
+	if claimed.ResultMessageID != "" {
 		return d.completeDispatch(ctx, claimed)
 	}
 	ownedCtx, cancelOwned := context.WithCancel(ctx)
@@ -598,10 +578,6 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	if err != nil {
 		return d.failDispatch(ctx, claimed, err)
 	}
-	publisher, err := d.publisherFor(state, claimed, publisherOverride)
-	if err != nil {
-		return d.failDispatch(ctx, claimed, err)
-	}
 	outbox, err := d.q.GetGroupOutboxByMessage(ownedCtx, claimed.GroupMessageID)
 	if err != nil {
 		return d.failDispatch(ctx, claimed, fmt.Errorf("get group outbox metadata: %w", err))
@@ -613,36 +589,15 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		d.log.Debug("ignoring invalid group outbox publish metadata", "dispatch_id", claimed.ID, "error", err)
 		envelope = GroupOutboxEnvelope{}
 	}
+	publisher, err := d.publisherFor(state, claimed, publisherOverride)
+	if err != nil {
+		return d.failDispatch(ctx, claimed, err)
+	}
 	agentName := claimed.AgentID
 	if a, err := d.q.GetAgent(ownedCtx, claimed.AgentID); err == nil && a.Name != "" {
 		agentName = a.Name
 	}
-	run := dispatchRun{row: claimed, message: message, state: state, publisher: publisher, agentName: agentName, lifecycleFeedback: envelope.LifecycleFeedback}
-	if claimed.ResultMessageID != "" {
-		return d.redeliverDispatch(ctx, ownedCtx, run)
-	}
-	return d.generateAndPublish(ctx, ownedCtx, run)
-}
-
-// generateAndPublish runs the agent once and delivers its response. It records
-// the response whether or not delivery succeeded: the recorded message is what
-// a retry re-delivers, and a retry that cannot find one has no choice but to
-// run the agent a second time.
-func (d *GroupDispatcher) generateAndPublish(ctx, ownedCtx context.Context, run dispatchRun) error {
-	claimed := run.row
-	// A previous attempt that died mid-delivery left a cursor into a response
-	// this run is about to replace. Regenerating voids it: keeping it would make
-	// the publisher skip leading chunks of text nobody has seen.
-	if claimed.DeliveryCursor > 0 {
-		if _, err := d.q.ResetGroupDispatchDelivery(ownedCtx, sqlc.ResetGroupDispatchDeliveryParams{
-			ID:           claimed.ID,
-			AttemptCount: claimed.AttemptCount,
-		}); err != nil {
-			return d.failDispatch(ctx, claimed, fmt.Errorf("reset delivery cursor: %w", err))
-		}
-		claimed.DeliveryCursor = 0
-	}
-	stream, err := d.chat(ownedCtx, claimed, run.message, run.state)
+	stream, err := d.chat(ownedCtx, claimed, message, state)
 	if errors.Is(err, errGroupTurnSuperseded) {
 		// The trigger was consumed by a session boundary while this row waited
 		// (restart after `/new`, or a redundant re-execution). Running it now
@@ -658,164 +613,29 @@ func (d *GroupDispatcher) generateAndPublish(ctx, ownedCtx context.Context, run 
 	// session queue is the one durable handle on this turn, so a cancel click
 	// reuses its existing Abort rather than tracking the turn a second way.
 	sessionKey := agent.BuildGroupSessionKey(claimed.AgentID, claimed.GroupID)
-	result := &dispatchResult{d: d, row: claimed, sessionID: stream.SessionID}
-	req := d.publishRequest(run)
-	req.Stream = stream
-	req.RecordResult = result.record
-	req.Abort = func() bool { return d.queue.Abort(sessionKey) }
-	publishErr := run.publisher.Publish(ownedCtx, req)
-	response := d.awaitGroupResponse(ownedCtx, stream, responseC)
-	if response.complete {
-		// A no-op when the publisher already recorded this response before it
-		// started sending; the backstop for every publisher that did not.
-		if err := result.record(ctx, response.text); err != nil {
+	if err := publisher.Publish(ownedCtx, GroupPublishRequest{
+		GroupID:           claimed.GroupID,
+		AgentID:           claimed.AgentID,
+		AgentName:         agentName,
+		ReplyChannelID:    claimed.ReplyChannelID,
+		Platform:          state.Platform,
+		PlatformGroupID:   state.PlatformGroupID,
+		PlatformThreadID:  state.PlatformThreadID,
+		ReplyTo:           nullStringValue(message.PlatformMessageID),
+		Stream:            stream,
+		RequesterID:       message.ActorID,
+		LifecycleFeedback: envelope.LifecycleFeedback,
+		Abort:             func() bool { return d.queue.Abort(sessionKey) },
+	}); err != nil {
+		return d.failDispatch(ctx, claimed, fmt.Errorf("publish: %w", err))
+	}
+	response := <-responseC
+	if response.complete && response.text != "" {
+		if err := d.recordDispatchResult(ctx, claimed, response); err != nil {
 			return d.failDispatch(ctx, claimed, err)
 		}
 	}
-	if publishErr != nil {
-		return d.failDispatch(ctx, claimed, fmt.Errorf("publish: %w", publishErr))
-	}
-	d.markDelivered(ctx, claimed)
 	return d.completeDispatch(ctx, claimed)
-}
-
-// redeliverDispatch finishes a delivery an earlier attempt left incomplete. The
-// agent already ran and must not run again, so the only inputs are the
-// persisted response and the cursor of chunks already confirmed.
-func (d *GroupDispatcher) redeliverDispatch(ctx, ownedCtx context.Context, run dispatchRun) error {
-	claimed := run.row
-	result, err := d.q.GetGroupMessage(ownedCtx, claimed.ResultMessageID)
-	if err != nil {
-		// The response is durable but unreadable (a hand-written or orphaned
-		// marker). Retire the row: re-running the agent would answer a message
-		// the group has already been answered, which is worse than losing the
-		// tail of one delivery.
-		d.log.Warn("group dispatch cannot read its persisted response for re-delivery; retiring the row",
-			"dispatch_id", claimed.ID, "result_message_id", claimed.ResultMessageID, "error", err)
-		return d.completeDispatch(ctx, claimed)
-	}
-	req := d.publishRequest(run)
-	req.Text = result.Content
-	req.DeliveryCursor = claimed.DeliveryCursor
-	if err := run.publisher.Publish(ownedCtx, req); err != nil {
-		return d.failDispatch(ctx, claimed, fmt.Errorf("re-deliver: %w", err))
-	}
-	d.markDelivered(ctx, claimed)
-	return d.completeDispatch(ctx, claimed)
-}
-
-// publishRequest builds the platform-independent half of a publish request.
-// The caller adds exactly one of Stream (live) or Text (re-delivery).
-func (d *GroupDispatcher) publishRequest(run dispatchRun) GroupPublishRequest {
-	return GroupPublishRequest{
-		GroupID:           run.row.GroupID,
-		AgentID:           run.row.AgentID,
-		AgentName:         run.agentName,
-		ReplyChannelID:    run.row.ReplyChannelID,
-		Platform:          run.state.Platform,
-		PlatformGroupID:   run.state.PlatformGroupID,
-		PlatformThreadID:  run.state.PlatformThreadID,
-		ReplyTo:           nullStringValue(run.message.PlatformMessageID),
-		RequesterID:       run.message.ActorID,
-		LifecycleFeedback: run.lifecycleFeedback,
-		MarkDelivered:     d.deliveryConfirmer(run.row),
-	}
-}
-
-// dispatchResult persists one claimed attempt's response at most once,
-// whoever asks first. A publisher that buffers the whole response before
-// sending it records it through the request's Record callback, closing the
-// window in which a crash between the last agent token and the first delivered
-// chunk would cost a second agent turn; generateAndPublish records whatever a
-// publisher did not, once Publish has returned.
-type dispatchResult struct {
-	d         *GroupDispatcher
-	row       sqlc.CtxGroupDispatch
-	sessionID string
-
-	mu   sync.Mutex
-	done bool
-}
-
-// record persists text as this dispatch's canonical response. Empty text
-// records nothing: an agent turn that produced no text has nothing to
-// re-deliver, and a placeholder a publisher renders for the user is that
-// publisher's own affordance, not a group message.
-func (r *dispatchResult) record(ctx context.Context, text string) error {
-	if text == "" {
-		return nil
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.done {
-		return nil
-	}
-	if err := r.d.recordDispatchResult(ctx, r.row, groupResponse{text: text, sessionID: r.sessionID, complete: true}); err != nil {
-		return err
-	}
-	r.done = true
-	return nil
-}
-
-// deliveryConfirmer returns the durable chunk confirmation for one claimed
-// attempt. It fails when the advance does not land, which means this attempt
-// lost the row to another owner — exactly when the publisher must stop sending.
-func (d *GroupDispatcher) deliveryConfirmer(row sqlc.CtxGroupDispatch) func(context.Context, int64) error {
-	return func(ctx context.Context, n int64) error {
-		rows, err := d.q.AdvanceGroupDispatchDelivery(ctx, sqlc.AdvanceGroupDispatchDeliveryParams{
-			ID:             row.ID,
-			AttemptCount:   row.AttemptCount,
-			DeliveryCursor: n,
-		})
-		if err != nil {
-			return fmt.Errorf("advance group dispatch delivery cursor: %w", err)
-		}
-		if rows == 0 {
-			return fmt.Errorf("advance group dispatch delivery cursor to %d: dispatch ownership lost", n)
-		}
-		return nil
-	}
-}
-
-// markDelivered records that the whole response reached the platform. A failure
-// is logged, not returned: the delivery already happened, and requeueing over a
-// bookkeeping error would risk publishing the response twice. The row still
-// retires through its result marker.
-func (d *GroupDispatcher) markDelivered(ctx context.Context, row sqlc.CtxGroupDispatch) {
-	if _, err := d.q.MarkGroupDispatchDelivered(ctx, sqlc.MarkGroupDispatchDeliveredParams{
-		ID:           row.ID,
-		AttemptCount: row.AttemptCount,
-	}); err != nil {
-		d.log.Warn("mark group dispatch delivered failed", "dispatch_id", row.ID, "error", err)
-	}
-}
-
-// awaitGroupResponse collects the buffered response after Publish returns. A
-// publisher that fails mid-delivery returns without draining the stream, so the
-// drain here is what keeps the wrapper goroutine from blocking forever on a
-// full forward buffer — and what lets a failed publish still record its
-// response for re-delivery.
-func (d *GroupDispatcher) awaitGroupResponse(ctx context.Context, stream *pkgchannel.ChatStream, responseC <-chan groupResponse) groupResponse {
-	for {
-		select {
-		case response := <-responseC:
-			return response
-		case _, ok := <-stream.Events:
-			if ok {
-				continue
-			}
-			// The wrapper closes the forwarding channel only after it has sent
-			// its response, so this read cannot block for long.
-			select {
-			case response := <-responseC:
-				return response
-			case <-ctx.Done():
-				return groupResponse{}
-			}
-		case <-ctx.Done():
-			return groupResponse{}
-		}
-	}
 }
 
 func (d *GroupDispatcher) claimDispatch(ctx context.Context, row sqlc.CtxGroupDispatch) (sqlc.CtxGroupDispatch, bool, error) {

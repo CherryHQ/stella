@@ -26,52 +26,13 @@ func softReference(channelID, messageID string) *discordgo.MessageReference {
 	return &discordgo.MessageReference{MessageID: messageID, ChannelID: channelID, FailIfNotExists: &strict}
 }
 
-// textDelivery is the resume half of a group text send: how to persist the
-// response before any of it is sent, how many leading chunks a previous attempt
-// already got onto Discord, and how to durably confirm the next one. The zero
-// value is a plain one-shot send — direct messages and notifications have
-// nothing to resume.
-type textDelivery struct {
-	cursor  int64
-	confirm func(context.Context, int64) error
-	persist func(context.Context, string) error
-}
-
-func (d textDelivery) delivered(ctx context.Context, n int) error {
-	if d.confirm == nil {
-		return nil
-	}
-	return d.confirm(ctx, int64(n))
-}
-
-// record durably stores the response Discord is about to send. Discord buffers
-// the whole stream before it can split it, so without this the response would
-// exist only in memory until the last chunk landed.
-func (d textDelivery) record(ctx context.Context, text string) error {
-	if d.persist == nil {
-		return nil
-	}
-	return d.persist(ctx, text)
-}
-
 func (b *Bot) sendText(ctx context.Context, channelID, text, replyTo string) error {
 	return b.sendTextOptions(ctx, channelID, text, replyTo, false)
 }
 
 func (b *Bot) sendTextOptions(ctx context.Context, channelID, text, replyTo string, silent bool) error {
-	return b.sendTextChunks(ctx, channelID, text, replyTo, silent, textDelivery{})
-}
-
-// sendTextChunks sends text as Discord-sized chunks, skipping the ones a
-// previous attempt already delivered and confirming each one it lands. The
-// split is deterministic for a given text, so a chunk index means the same
-// thing across attempts — that is what makes the cursor safe to resume from.
-func (b *Bot) sendTextChunks(ctx context.Context, channelID, text, replyTo string, silent bool, resume textDelivery) error {
 	chunks := channel.SplitMarkdown(text, maxMessageLength)
 	for i, chunk := range chunks {
-		if int64(i) < resume.cursor {
-			continue
-		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -87,11 +48,6 @@ func (b *Bot) sendTextChunks(ctx context.Context, channelID, text, replyTo strin
 		}
 		if _, err := b.rest.ChannelMessageSendComplex(channelID, msg, discordgo.WithContext(ctx)); err != nil {
 			return fmt.Errorf("send discord message chunk %d/%d: %w", i+1, len(chunks), err)
-		}
-		// Confirm before the next send: a failure here means the dispatch is no
-		// longer ours, and continuing would race another owner's delivery.
-		if err := resume.delivered(ctx, i+1); err != nil {
-			return fmt.Errorf("confirm discord message chunk %d/%d: %w", i+1, len(chunks), err)
 		}
 	}
 	return nil

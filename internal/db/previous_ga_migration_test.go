@@ -28,12 +28,12 @@ const (
 	previousGAVersion = int64(20260725161331)
 	// Library V1, channel guest sessions/indexes, channel allowlist backfill,
 	// session activity, per-message actor provenance and summary authority,
-	// the durable Session inbox, restrictive Library ownership, the Discord
-	// explicit guild-access backfill, and group dispatch delivery resume are the
-	// post-anchor migrations exercised below. Library chunk locator integrity
-	// and the dedicated Skill Home cutover evidence schema and retired RTK
-	// plugin cleanup are checked explicitly.
-	currentMigrationVersion = sequentialAnchor + 19
+	// the durable Session inbox, restrictive Library ownership, and the Discord
+	// explicit guild-access backfill are the post-anchor migrations exercised
+	// below. Library chunk locator integrity and the dedicated Skill Home
+	// cutover evidence schema and retired RTK plugin cleanup are checked
+	// explicitly.
+	currentMigrationVersion = sequentialAnchor + 18
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
@@ -56,8 +56,6 @@ const (
 	previousGAChunk                      = "00000000-0000-0000-0000-000000000043"
 	previousGAGuestID                    = "00000000-0000-0000-0000-000000000044"
 	previousGAGuestChatID                = "00000000-0000-0000-0000-000000000045"
-	previousGAGroupMessageID             = "00000000-0000-0000-0000-000000000057"
-	previousGAGroupDispatchID            = "00000000-0000-0000-0000-000000000058"
 	previousGAAllowGroupDiscordChannelID = "previous-ga-discord-allow-group"
 	previousGAAgentID                    = "previous-ga-agent"
 	previousGACascadeAgentID             = "previous-ga-cascade-agent"
@@ -250,17 +248,6 @@ func seedPreviousGAData(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
 		INSERT INTO channel (id, name, type, enabled, config, created_at, updated_at)
 		VALUES ($1, 'Previous GA Discord Allow Group', 'discord', true, '{"allow_group": true, "token": "legacy-token"}', $2, $2)`,
 		previousGAAllowGroupDiscordChannelID, previousGATime)
-	exec("legacy group message", `
-		INSERT INTO ctx_group_message (id, group_id, seq, actor_type, actor_id, content, created_at)
-		VALUES ($1, $2, 1, 'human', 'previous-ga-speaker', 'legacy group trigger', $3)`,
-		previousGAGroupMessageID, previousGAGroupID, previousGATime)
-	exec("legacy group dispatch", `
-		INSERT INTO ctx_group_dispatch (
-			id, group_message_id, group_id, agent_id, reply_channel_id,
-			status, attempt_count, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, 'pending', 0, $6, $6)`,
-		previousGAGroupDispatchID, previousGAGroupMessageID, previousGAGroupID,
-		previousGAAgentID, previousGAAllowGroupDiscordChannelID, previousGATime)
 }
 
 func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
@@ -341,20 +328,6 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	if hasAllowedGuildIDsKey {
 		t.Fatalf("Discord allow_group backfill unexpectedly added an allowed_guild_ids key; it must only set allow_all_guilds")
 	}
-	// A group dispatch that predates durable delivery upgrades as "nothing
-	// delivered yet": cursor 0 and not complete, so the first attempt after the
-	// upgrade delivers the whole response exactly as it did before.
-	var deliveryCursor int64
-	var deliveryComplete bool
-	if err := db.QueryRow(ctx, `SELECT delivery_cursor, delivery_complete FROM ctx_group_dispatch WHERE id = $1`, previousGAGroupDispatchID).Scan(&deliveryCursor, &deliveryComplete); err != nil {
-		t.Fatalf("read migrated group dispatch delivery state: %v", err)
-	}
-	if deliveryCursor != 0 || deliveryComplete {
-		t.Fatalf("migrated group dispatch delivery = cursor %d complete %v, want 0/false", deliveryCursor, deliveryComplete)
-	}
-	_, err := db.Exec(ctx, `UPDATE ctx_group_dispatch SET delivery_cursor = -1 WHERE id = $1`, previousGAGroupDispatchID)
-	assertConstraintViolation(t, err, "ctx_group_dispatch_delivery_cursor_check")
-
 	var legacyActorType string
 	if err := db.QueryRow(ctx, `SELECT actor_type FROM ctx_message WHERE id = $1`, previousGAMessageID).Scan(&legacyActorType); err != nil {
 		t.Fatalf("read defaulted legacy message actor: %v", err)
@@ -464,7 +437,7 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	if !olderArchived || !oldArchived || newArchived {
 		t.Fatalf("duplicate archival = older %v, tie loser %v, winner %v; want true, true, false (last_active DESC then session_id DESC)", olderArchived, oldArchived, newArchived)
 	}
-	_, err = db.Exec(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind, agent_id, user_id, group_id, last_active, created_at, updated_at) VALUES ('00000000-0000-0000-0000-000000000099', 'previous-ga-agent:group:duplicate', 'web', 'chat', $1, $2::text, $2::uuid, $3, $3, $3)`, previousGAAgentID, previousGAGroupID, previousGATime)
+	_, err := db.Exec(ctx, `INSERT INTO ctx_conversation (id, session_id, channel, kind, agent_id, user_id, group_id, last_active, created_at, updated_at) VALUES ('00000000-0000-0000-0000-000000000099', 'previous-ga-agent:group:duplicate', 'web', 'chat', $1, $2::text, $2::uuid, $3, $3, $3)`, previousGAAgentID, previousGAGroupID, previousGATime)
 	assertConstraintViolation(t, err, "idx_one_agent_group_chat")
 	if _, err := db.Exec(ctx, `INSERT INTO channel_chat_command_receipt (id, channel_id, chat_key, message_id, command, binding, created_at, updated_at) VALUES ('00000000-0000-0000-0000-000000000030', 'test-channel', 'test-chat', 'platform-message-1', '/new', $1, $2, $2)`, previousGAGroupID, previousGATime); err != nil {
 		t.Fatalf("insert valid chat command receipt: %v", err)

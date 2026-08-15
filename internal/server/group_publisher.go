@@ -44,10 +44,6 @@ func (p *webGroupPublisher) writeSSE(v any) {
 	p.flusher.Flush()
 }
 
-// Publish streams a live group turn to the caller's SSE socket. It never sees
-// a re-delivery: this publisher exists only for the duration of one HTTP
-// request, and the dispatcher retries in the background against the Noop
-// publisher, where the event log — not the socket — is the delivery channel.
 func (p *webGroupPublisher) Publish(ctx context.Context, req channel.GroupPublishRequest) error {
 	if req.Stream == nil {
 		return nil

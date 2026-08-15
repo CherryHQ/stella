@@ -12,20 +12,11 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	chatID := strings.TrimPrefix(req.PlatformGroupID, "feishu:")
-	rootID := req.PlatformThreadID
-	// A re-delivery carries the already-persisted response instead of a live
-	// stream: no streaming card to update, no elapsed timer, and no attachments
-	// (they are not persisted). Feishu does not confirm chunks, so it resends
-	// the whole response rather than resuming mid-message — at-least-once
-	// delivery, but still without ever re-running the agent.
 	if req.Stream == nil {
-		if strings.TrimSpace(req.Text) == "" {
-			return nil
-		}
-		b.sendFinalResponseInThread(chatID, req.ReplyTo, rootID, "", req.Text, nil, true)
 		return nil
 	}
+	chatID := strings.TrimPrefix(req.PlatformGroupID, "feishu:")
+	rootID := req.PlatformThreadID
 	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThread(req.Stream.Events, chatID, req.ReplyTo, rootID)
 	if streamErr != nil {
 		if response == "" {

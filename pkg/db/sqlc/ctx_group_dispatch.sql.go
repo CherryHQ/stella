@@ -11,34 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const advanceGroupDispatchDelivery = `-- name: AdvanceGroupDispatchDelivery :execrows
-UPDATE ctx_group_dispatch
-SET delivery_cursor = $1,
-    updated_at = now()
-WHERE id = $2
-  AND status = 'running'
-  AND attempt_count = $3
-  AND delivery_cursor < $1
-`
-
-type AdvanceGroupDispatchDeliveryParams struct {
-	DeliveryCursor int64  `json:"delivery_cursor"`
-	ID             string `json:"id"`
-	AttemptCount   int64  `json:"attempt_count"`
-}
-
-// Monotonic: a publisher only ever confirms chunks it has just sent, so a
-// non-advancing cursor means this attempt no longer owns the row (the
-// attempt_count guard) or a stale confirmation arrived late. Both must read as
-// "not delivered" rather than silently rewinding a later attempt's progress.
-func (q *Queries) AdvanceGroupDispatchDelivery(ctx context.Context, arg AdvanceGroupDispatchDeliveryParams) (int64, error) {
-	result, err := q.db.Exec(ctx, advanceGroupDispatchDelivery, arg.DeliveryCursor, arg.ID, arg.AttemptCount)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const claimExpiredGroupDispatch = `-- name: ClaimExpiredGroupDispatch :one
 UPDATE ctx_group_dispatch
 SET status = 'running',
@@ -51,7 +23,7 @@ WHERE id = $2
   AND status = 'running'
   AND lease_until IS NOT NULL
   AND lease_until <= $3
-RETURNING id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, delivery_cursor, delivery_complete
+RETURNING id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at
 `
 
 type ClaimExpiredGroupDispatchParams struct {
@@ -77,8 +49,6 @@ func (q *Queries) ClaimExpiredGroupDispatch(ctx context.Context, arg ClaimExpire
 		&i.ResultMessageID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.DeliveryCursor,
-		&i.DeliveryComplete,
 	)
 	return i, err
 }
@@ -94,7 +64,7 @@ SET status = 'running',
 WHERE id = $2
   AND status = 'pending'
   AND (next_attempt_at IS NULL OR next_attempt_at <= $3)
-RETURNING id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, delivery_cursor, delivery_complete
+RETURNING id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at
 `
 
 type ClaimPendingGroupDispatchParams struct {
@@ -120,8 +90,6 @@ func (q *Queries) ClaimPendingGroupDispatch(ctx context.Context, arg ClaimPendin
 		&i.ResultMessageID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.DeliveryCursor,
-		&i.DeliveryComplete,
 	)
 	return i, err
 }
@@ -211,7 +179,7 @@ func (q *Queries) ExtendRunningGroupDispatchLease(ctx context.Context, arg Exten
 }
 
 const getGroupDispatch = `-- name: GetGroupDispatch :one
-SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, delivery_cursor, delivery_complete FROM ctx_group_dispatch WHERE id = $1
+SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at FROM ctx_group_dispatch WHERE id = $1
 `
 
 func (q *Queries) GetGroupDispatch(ctx context.Context, id string) (CtxGroupDispatch, error) {
@@ -231,14 +199,12 @@ func (q *Queries) GetGroupDispatch(ctx context.Context, id string) (CtxGroupDisp
 		&i.ResultMessageID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.DeliveryCursor,
-		&i.DeliveryComplete,
 	)
 	return i, err
 }
 
 const listExpiredRunningGroupDispatch = `-- name: ListExpiredRunningGroupDispatch :many
-SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, delivery_cursor, delivery_complete FROM ctx_group_dispatch
+SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at FROM ctx_group_dispatch
 WHERE status = 'running'
   AND lease_until IS NOT NULL
   AND lease_until <= $1
@@ -274,8 +240,6 @@ func (q *Queries) ListExpiredRunningGroupDispatch(ctx context.Context, arg ListE
 			&i.ResultMessageID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.DeliveryCursor,
-			&i.DeliveryComplete,
 		); err != nil {
 			return nil, err
 		}
@@ -288,7 +252,7 @@ func (q *Queries) ListExpiredRunningGroupDispatch(ctx context.Context, arg ListE
 }
 
 const listPendingGroupDispatch = `-- name: ListPendingGroupDispatch :many
-SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, delivery_cursor, delivery_complete FROM ctx_group_dispatch gd
+SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at FROM ctx_group_dispatch gd
 WHERE gd.status = 'pending'
   AND (gd.next_attempt_at IS NULL OR gd.next_attempt_at <= $1)
   AND NOT EXISTS (
@@ -348,8 +312,6 @@ func (q *Queries) ListPendingGroupDispatch(ctx context.Context, arg ListPendingG
 			&i.ResultMessageID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.DeliveryCursor,
-			&i.DeliveryComplete,
 		); err != nil {
 			return nil, err
 		}
@@ -362,7 +324,7 @@ func (q *Queries) ListPendingGroupDispatch(ctx context.Context, arg ListPendingG
 }
 
 const listPendingGroupDispatchByMessage = `-- name: ListPendingGroupDispatchByMessage :many
-SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, delivery_cursor, delivery_complete FROM ctx_group_dispatch gd
+SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at FROM ctx_group_dispatch gd
 WHERE gd.group_message_id = $1
   AND gd.status = 'pending'
   AND (gd.next_attempt_at IS NULL OR gd.next_attempt_at <= $2)
@@ -422,8 +384,6 @@ func (q *Queries) ListPendingGroupDispatchByMessage(ctx context.Context, arg Lis
 			&i.ResultMessageID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.DeliveryCursor,
-			&i.DeliveryComplete,
 		); err != nil {
 			return nil, err
 		}
@@ -453,28 +413,6 @@ type MarkGroupDispatchCompletedParams struct {
 
 func (q *Queries) MarkGroupDispatchCompleted(ctx context.Context, arg MarkGroupDispatchCompletedParams) (int64, error) {
 	result, err := q.db.Exec(ctx, markGroupDispatchCompleted, arg.ID, arg.AttemptCount)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const markGroupDispatchDelivered = `-- name: MarkGroupDispatchDelivered :execrows
-UPDATE ctx_group_dispatch
-SET delivery_complete = true,
-    updated_at = now()
-WHERE id = $1
-  AND status = 'running'
-  AND attempt_count = $2
-`
-
-type MarkGroupDispatchDeliveredParams struct {
-	ID           string `json:"id"`
-	AttemptCount int64  `json:"attempt_count"`
-}
-
-func (q *Queries) MarkGroupDispatchDelivered(ctx context.Context, arg MarkGroupDispatchDeliveredParams) (int64, error) {
-	result, err := q.db.Exec(ctx, markGroupDispatchDelivered, arg.ID, arg.AttemptCount)
 	if err != nil {
 		return 0, err
 	}
@@ -533,32 +471,6 @@ func (q *Queries) RequeueGroupDispatch(ctx context.Context, arg RequeueGroupDisp
 		arg.ID,
 		arg.AttemptCount,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
-const resetGroupDispatchDelivery = `-- name: ResetGroupDispatchDelivery :execrows
-UPDATE ctx_group_dispatch
-SET delivery_cursor = 0,
-    delivery_complete = false,
-    updated_at = now()
-WHERE id = $1
-  AND status = 'running'
-  AND attempt_count = $2
-`
-
-type ResetGroupDispatchDeliveryParams struct {
-	ID           string `json:"id"`
-	AttemptCount int64  `json:"attempt_count"`
-}
-
-// The cursor indexes the chunks of one specific response. Running the agent
-// again produces a different response, so an attempt that regenerates instead
-// of re-delivering must start from zero or it would skip real content.
-func (q *Queries) ResetGroupDispatchDelivery(ctx context.Context, arg ResetGroupDispatchDeliveryParams) (int64, error) {
-	result, err := q.db.Exec(ctx, resetGroupDispatchDelivery, arg.ID, arg.AttemptCount)
 	if err != nil {
 		return 0, err
 	}

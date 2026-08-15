@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -309,71 +308,35 @@ func containsString(xs []string, want string) bool {
 	return slices.Contains(xs, want)
 }
 
-// createExpiredRunningDispatch seeds a dispatch that a crashed worker left
-// behind: still running, lease long gone.
-func createExpiredRunningDispatch(t *testing.T, fx dispatcherFixture, attempts int64) string {
-	t.Helper()
-	const id = "d15a0000-0000-0000-0000-0000000000ff"
+func TestGroupDispatcherReapExpiredCompletesDispatchWithResultMarker(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	past := time.Now().UTC().Add(-time.Minute)
 	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
-		ID:             id,
+		ID:             "d15a0000-0000-0000-0000-0000000000ff",
 		GroupMessageID: fx.message.ID,
 		GroupID:        fx.message.GroupID,
 		AgentID:        "agent-1",
 		ReplyChannelID: "ch-1",
 		Status:         "running",
-		AttemptCount:   attempts,
-		LeaseUntil:     nullTime(time.Now().UTC().Add(-time.Minute)),
+		AttemptCount:   fx.d.maxAttempts,
+		LeaseUntil:     nullTime(past),
 		LastError:      "",
 	}); err != nil {
 		t.Fatalf("create dispatch: %v", err)
 	}
-	return id
-}
-
-// A delivered response is finished work: only its bookkeeping outlived the
-// lease, so the reaper retires the row.
-func TestGroupDispatcherReapExpiredRetiresDeliveredResult(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	id := createExpiredRunningDispatch(t, fx, fx.d.maxAttempts)
-	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET result_message_id = 'result-1', delivery_complete = true WHERE id = $1`, id); err != nil {
-		t.Fatalf("set delivered marker: %v", err)
+	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET result_message_id = 'result-1' WHERE id = 'd15a0000-0000-0000-0000-0000000000ff'`); err != nil {
+		t.Fatalf("set marker: %v", err)
 	}
 
 	if err := fx.d.reapExpired(context.Background()); err != nil {
 		t.Fatalf("reap expired: %v", err)
 	}
-	dispatch, err := fx.q.GetGroupDispatch(context.Background(), id)
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-0000000000ff")
 	if err != nil {
 		t.Fatalf("get dispatch: %v", err)
 	}
 	if dispatch.Status != "completed" {
 		t.Fatalf("dispatch status = %q, want completed", dispatch.Status)
-	}
-}
-
-// A response that was persisted but never delivered is the crash case: the
-// reaper must requeue it so the retry re-delivers it. Cursor 0 requeues too —
-// the crash may have landed between persisting the response and sending its
-// first chunk, and retiring the row there would silence the agent completely.
-func TestGroupDispatcherReapExpiredRequeuesUndeliveredResult(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	id := createExpiredRunningDispatch(t, fx, 1)
-	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET result_message_id = 'result-1' WHERE id = $1`, id); err != nil {
-		t.Fatalf("set undelivered marker: %v", err)
-	}
-
-	if err := fx.d.reapExpired(context.Background()); err != nil {
-		t.Fatalf("reap expired: %v", err)
-	}
-	dispatch, err := fx.q.GetGroupDispatch(context.Background(), id)
-	if err != nil {
-		t.Fatalf("get dispatch: %v", err)
-	}
-	if dispatch.Status != "pending" {
-		t.Fatalf("dispatch status = %q, want pending: an undelivered response must be re-delivered", dispatch.Status)
-	}
-	if dispatch.ResultMessageID != "result-1" || dispatch.DeliveryCursor != 0 || dispatch.DeliveryComplete {
-		t.Fatalf("dispatch result/cursor/complete = %q/%d/%v, want the recorded response preserved for the retry", dispatch.ResultMessageID, dispatch.DeliveryCursor, dispatch.DeliveryComplete)
 	}
 }
 
@@ -542,19 +505,11 @@ func TestGroupDispatcherExistingDispatchSkipsEnvelopeDecode(t *testing.T) {
 	}
 }
 
-// A publish failure must not throw away a response the agent already produced:
-// the response is recorded first, so the retry re-delivers it instead of
-// paying for a second agent turn that would answer with different text.
-func TestGroupDispatcherPublishFailureRecordsResultAndRedelivers(t *testing.T) {
+func TestGroupDispatcherPublishFailureLeavesResultEmptyAndRequeues(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	boom := errors.New("boom")
 	publisher := &recordingGroupPublisher{err: boom}
 	fx.d.publishers.Register("ch-1", publisher)
-	chatCalls := 0
-	fx.d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
-		chatCalls++
-		return textStream("ok"), nil
-	}
 	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
 		ID:             "d15a0000-0000-0000-0000-000000000001",
 		GroupMessageID: fx.message.ID,
@@ -577,11 +532,11 @@ func TestGroupDispatcherPublishFailureRecordsResultAndRedelivers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get dispatch after failure: %v", err)
 	}
-	if dispatch.Status != "pending" || dispatch.ResultMessageID == "" || dispatch.DeliveryComplete {
-		t.Fatalf("dispatch status/result/delivered = %q/%q/%v, want pending with a recorded undelivered result", dispatch.Status, dispatch.ResultMessageID, dispatch.DeliveryComplete)
+	if dispatch.Status != "pending" || dispatch.ResultMessageID != "" {
+		t.Fatalf("dispatch status/result = %q/%q, want pending empty result", dispatch.Status, dispatch.ResultMessageID)
 	}
-	if got := countAgentGroupMessages(t, fx.db); got != 1 {
-		t.Fatalf("agent messages = %d, want the response persisted once", got)
+	if got := countAgentGroupMessages(t, fx.db); got != 0 {
+		t.Fatalf("agent messages = %d, want 0", got)
 	}
 
 	publisher.err = nil
@@ -597,12 +552,6 @@ func TestGroupDispatcherPublishFailureRecordsResultAndRedelivers(t *testing.T) {
 	}
 	if publisher.calls != 2 {
 		t.Fatalf("publisher calls = %d, want retry to republish", publisher.calls)
-	}
-	if chatCalls != 1 {
-		t.Fatalf("chat calls = %d, want the agent to run exactly once", chatCalls)
-	}
-	if got := countAgentGroupMessages(t, fx.db); got != 1 {
-		t.Fatalf("agent messages = %d, want no second response", got)
 	}
 }
 
@@ -711,7 +660,7 @@ func TestGroupDispatcherSupersededTriggerCompletesWithoutChat(t *testing.T) {
 	}
 }
 
-func TestGroupDispatcherDeliveredResultSkipsChatPublishAndAppend(t *testing.T) {
+func TestGroupDispatcherResultMessageSkipsChatPublishAndAppend(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	publisher := &recordingGroupPublisher{}
 	fx.d.publishers.Register("ch-1", publisher)
@@ -732,8 +681,8 @@ func TestGroupDispatcherDeliveredResultSkipsChatPublishAndAppend(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create dispatch: %v", err)
 	}
-	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET result_message_id = 'result-1', delivery_complete = true WHERE id = 'd15a0000-0000-0000-0000-000000000001'`); err != nil {
-		t.Fatalf("set delivered result marker: %v", err)
+	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET result_message_id = 'result-1' WHERE id = 'd15a0000-0000-0000-0000-000000000001'`); err != nil {
+		t.Fatalf("set result marker: %v", err)
 	}
 	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
@@ -815,14 +764,6 @@ func TestGroupDispatcherPublisherFailureMarksFailedAtMaxAttempts(t *testing.T) {
 	}
 	if dispatch.Status != "failed" {
 		t.Fatalf("dispatch status = %q, want failed", dispatch.Status)
-	}
-}
-
-func TestGroupDispatcherPublishRequestCarriesLifecycleFeedback(t *testing.T) {
-	d := &GroupDispatcher{}
-	req := d.publishRequest(dispatchRun{lifecycleFeedback: true})
-	if !req.LifecycleFeedback {
-		t.Fatal("publish request dropped lifecycle feedback flag")
 	}
 }
 
@@ -1164,7 +1105,7 @@ func (p *capturingGroupPublisher) Publish(_ context.Context, req GroupPublishReq
 // under. A wrong key would make a Discord Cancel click silently no-op
 // instead of stopping the running turn.
 func TestExecuteDispatchAbortClosureUsesSessionQueueGroupKey(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
+	fx := newDispatcherFixture(t, "web", `{"lifecycle_feedback":true}`)
 	publisher := &capturingGroupPublisher{}
 	fx.d.publishers.Register("ch-1", publisher)
 
@@ -1191,6 +1132,9 @@ func TestExecuteDispatchAbortClosureUsesSessionQueueGroupKey(t *testing.T) {
 	if publisher.req.RequesterID != "user-1" {
 		t.Fatalf("RequesterID = %q, want the triggering message's actor id", publisher.req.RequesterID)
 	}
+	if !publisher.req.LifecycleFeedback {
+		t.Fatal("LifecycleFeedback = false, want durable outbox metadata propagated to publisher")
+	}
 	if publisher.req.Abort == nil {
 		t.Fatal("Abort is nil, want a closure targeting the dispatch's session queue slot")
 	}
@@ -1213,426 +1157,5 @@ func assertNoAgentGroupMessages(t *testing.T, db *pgxpool.Pool) {
 	}
 	if count != 0 {
 		t.Fatalf("agent group messages = %d, want 0", count)
-	}
-}
-
-// chunkingGroupPublisher stands in for a platform publisher that buffers the
-// whole response, records it, and only then delivers it as separately
-// confirmable chunks: it skips what the cursor already covers, confirms every
-// chunk the "platform" accepts, and stops at failAt (1-based) to model a
-// partial delivery. interruptAfterRecord models the crash window instead: the
-// response is persisted and then nothing is sent at all.
-type chunkingGroupPublisher struct {
-	failAt               int
-	confirmErr           func() error
-	interruptAfterRecord bool
-	calls                int
-	streams              int
-	sent                 []string
-	sentAtRecord         int
-	last                 GroupPublishRequest
-}
-
-func (p *chunkingGroupPublisher) Publish(ctx context.Context, req GroupPublishRequest) error {
-	p.calls++
-	p.last = req
-	text := req.Text
-	if req.Stream != nil {
-		p.streams++
-		var sb strings.Builder
-		for evt := range req.Stream.Events {
-			sb.WriteString(evt.Text)
-		}
-		text = sb.String()
-		p.sentAtRecord = len(p.sent)
-		if err := req.Record(ctx, text); err != nil {
-			return err
-		}
-		if p.interruptAfterRecord {
-			return errors.New("interrupted before the first chunk reached the platform")
-		}
-	}
-	if text == "" {
-		return nil
-	}
-	for i, chunk := range strings.Split(text, "\n") {
-		if int64(i) < req.DeliveryCursor {
-			continue
-		}
-		if p.failAt == i+1 {
-			return fmt.Errorf("chunk %d rejected by the platform", i+1)
-		}
-		p.sent = append(p.sent, chunk)
-		if p.confirmErr != nil {
-			if err := p.confirmErr(); err != nil {
-				return err
-			}
-		}
-		if err := req.Confirm(ctx, int64(i+1)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func newResumeDispatch(t *testing.T, fx dispatcherFixture) sqlc.CtxGroupDispatch {
-	t.Helper()
-	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
-		ID:             "d15a0000-0000-0000-0000-000000000001",
-		GroupMessageID: fx.message.ID,
-		GroupID:        fx.groupID,
-		AgentID:        "agent-1",
-		ReplyChannelID: "ch-1",
-		Status:         "pending",
-		LastError:      "",
-	}); err != nil {
-		t.Fatalf("create dispatch: %v", err)
-	}
-	row, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
-	if err != nil {
-		t.Fatalf("get dispatch: %v", err)
-	}
-	return row
-}
-
-func makeDispatchDue(t *testing.T, fx dispatcherFixture) sqlc.CtxGroupDispatch {
-	t.Helper()
-	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET next_attempt_at = NULL WHERE id = 'd15a0000-0000-0000-0000-000000000001'`); err != nil {
-		t.Fatalf("make dispatch due: %v", err)
-	}
-	row, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
-	if err != nil {
-		t.Fatalf("get dispatch before retry: %v", err)
-	}
-	return row
-}
-
-// TestGroupDispatcherResumesPartialDeliveryFromCursor is the whole feature in
-// one journey: three chunks, the second one fails, and the retry re-delivers
-// only chunks two and three from the persisted response — without running the
-// agent again.
-func TestGroupDispatcherResumesPartialDeliveryFromCursor(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	chatCalls := 0
-	fx.d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
-		chatCalls++
-		return textStream("one\ntwo\nthree"), nil
-	}
-	publisher := &chunkingGroupPublisher{failAt: 2}
-	fx.d.publishers.Register("ch-1", publisher)
-	dispatch := newResumeDispatch(t, fx)
-
-	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err == nil {
-		t.Fatal("expected the failed chunk to fail the dispatch")
-	}
-	dispatch, err := fx.q.GetGroupDispatch(context.Background(), dispatch.ID)
-	if err != nil {
-		t.Fatalf("get dispatch after partial delivery: %v", err)
-	}
-	if dispatch.Status != "pending" || dispatch.ResultMessageID == "" {
-		t.Fatalf("dispatch status/result = %q/%q, want a requeued row with a recorded response", dispatch.Status, dispatch.ResultMessageID)
-	}
-	if dispatch.DeliveryCursor != 1 || dispatch.DeliveryComplete {
-		t.Fatalf("delivery cursor/complete = %d/%v, want 1/false", dispatch.DeliveryCursor, dispatch.DeliveryComplete)
-	}
-	if !slices.Equal(publisher.sent, []string{"one"}) {
-		t.Fatalf("sent chunks = %v, want only the first", publisher.sent)
-	}
-
-	publisher.failAt = 0
-	if err := fx.d.ExecuteDispatch(context.Background(), makeDispatchDue(t, fx), nil); err != nil {
-		t.Fatalf("resume dispatch: %v", err)
-	}
-	if publisher.last.Stream != nil || publisher.last.Text != "one\ntwo\nthree" || publisher.last.DeliveryCursor != 1 {
-		t.Fatalf("resume request = stream %v text %q cursor %d, want the persisted text from cursor 1", publisher.last.Stream != nil, publisher.last.Text, publisher.last.DeliveryCursor)
-	}
-	if !slices.Equal(publisher.sent, []string{"one", "two", "three"}) {
-		t.Fatalf("sent chunks = %v, want the tail delivered exactly once", publisher.sent)
-	}
-	if chatCalls != 1 || publisher.streams != 1 {
-		t.Fatalf("chat calls / live streams = %d/%d, want the agent to run exactly once", chatCalls, publisher.streams)
-	}
-	if got := countAgentGroupMessages(t, fx.db); got != 1 {
-		t.Fatalf("agent messages = %d, want one persisted response", got)
-	}
-	dispatch, err = fx.q.GetGroupDispatch(context.Background(), dispatch.ID)
-	if err != nil {
-		t.Fatalf("get dispatch after resume: %v", err)
-	}
-	if dispatch.Status != "completed" || !dispatch.DeliveryComplete || dispatch.DeliveryCursor != 3 {
-		t.Fatalf("dispatch = %q cursor %d delivered %v, want completed/3/true", dispatch.Status, dispatch.DeliveryCursor, dispatch.DeliveryComplete)
-	}
-}
-
-// A confirmation that does not land means another attempt owns the row. The
-// publisher reports it as a delivery failure and the dispatcher requeues —
-// still without re-running the agent, because the response is already recorded.
-func TestGroupDispatcherConfirmFailureRequeuesWithoutRerunningAgent(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	chatCalls := 0
-	fx.d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
-		chatCalls++
-		return textStream("one\ntwo"), nil
-	}
-	publisher := &chunkingGroupPublisher{}
-	// Steal the row mid-delivery: the next confirmation cannot match this
-	// attempt's attempt_count, which is exactly what a lost lease looks like.
-	publisher.confirmErr = func() error {
-		_, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET attempt_count = attempt_count + 1 WHERE id = 'd15a0000-0000-0000-0000-000000000001'`)
-		publisher.confirmErr = nil
-		return err
-	}
-	fx.d.publishers.Register("ch-1", publisher)
-	dispatch := newResumeDispatch(t, fx)
-
-	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err == nil {
-		t.Fatal("expected the lost confirmation to fail the dispatch")
-	}
-	if chatCalls != 1 {
-		t.Fatalf("chat calls = %d, want exactly one agent turn", chatCalls)
-	}
-	dispatch, err := fx.q.GetGroupDispatch(context.Background(), dispatch.ID)
-	if err != nil {
-		t.Fatalf("get dispatch after lost confirmation: %v", err)
-	}
-	if dispatch.DeliveryComplete {
-		t.Fatal("delivery marked complete after a confirmation that never landed")
-	}
-	if dispatch.DeliveryCursor != 0 {
-		t.Fatalf("delivery cursor = %d, want 0: the stolen row must not record this attempt's progress", dispatch.DeliveryCursor)
-	}
-}
-
-// A cursor only indexes the response it was recorded against. An attempt that
-// regenerates instead of re-delivering must clear it, or the publisher would
-// skip leading chunks of text nobody has seen.
-func TestGroupDispatcherResetsDeliveryCursorWhenRegenerating(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	fx.d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
-		return textStream("one\ntwo"), nil
-	}
-	publisher := &chunkingGroupPublisher{}
-	fx.d.publishers.Register("ch-1", publisher)
-	dispatch := newResumeDispatch(t, fx)
-	// A previous attempt died mid-delivery before its response was recorded.
-	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET delivery_cursor = 5 WHERE id = $1`, dispatch.ID); err != nil {
-		t.Fatalf("seed stale cursor: %v", err)
-	}
-	dispatch, err := fx.q.GetGroupDispatch(context.Background(), dispatch.ID)
-	if err != nil {
-		t.Fatalf("get dispatch: %v", err)
-	}
-
-	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err != nil {
-		t.Fatalf("execute dispatch: %v", err)
-	}
-	if publisher.last.DeliveryCursor != 0 {
-		t.Fatalf("live publish cursor = %d, want 0 for a regenerated response", publisher.last.DeliveryCursor)
-	}
-	if !slices.Equal(publisher.sent, []string{"one", "two"}) {
-		t.Fatalf("sent chunks = %v, want the whole regenerated response", publisher.sent)
-	}
-	dispatch, err = fx.q.GetGroupDispatch(context.Background(), dispatch.ID)
-	if err != nil {
-		t.Fatalf("get dispatch after execute: %v", err)
-	}
-	if dispatch.DeliveryCursor != 2 || !dispatch.DeliveryComplete {
-		t.Fatalf("delivery cursor/complete = %d/%v, want 2/true", dispatch.DeliveryCursor, dispatch.DeliveryComplete)
-	}
-}
-
-// A result marker that cannot be read back retires the row. Re-running the
-// agent would answer a message the group was already answered, which is worse
-// than losing the tail of one delivery.
-func TestGroupDispatcherUnreadableResultRetiresWithoutRerunningAgent(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	chatCalls := 0
-	fx.d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
-		chatCalls++
-		return textStream("ok"), nil
-	}
-	publisher := &chunkingGroupPublisher{}
-	fx.d.publishers.Register("ch-1", publisher)
-	dispatch := newResumeDispatch(t, fx)
-	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET result_message_id = 'a1a1a1a1-0000-0000-0000-0000000000ff' WHERE id = $1`, dispatch.ID); err != nil {
-		t.Fatalf("set orphaned result marker: %v", err)
-	}
-	dispatch, err := fx.q.GetGroupDispatch(context.Background(), dispatch.ID)
-	if err != nil {
-		t.Fatalf("get dispatch: %v", err)
-	}
-
-	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err != nil {
-		t.Fatalf("execute dispatch: %v", err)
-	}
-	if chatCalls != 0 || publisher.calls != 0 {
-		t.Fatalf("chat/publish calls = %d/%d, want an already-answered turn to run neither", chatCalls, publisher.calls)
-	}
-	dispatch, err = fx.q.GetGroupDispatch(context.Background(), dispatch.ID)
-	if err != nil {
-		t.Fatalf("get dispatch after execute: %v", err)
-	}
-	if dispatch.Status != "completed" {
-		t.Fatalf("dispatch status = %q, want completed", dispatch.Status)
-	}
-}
-
-// The cursor is a high-water mark: a late or duplicate confirmation must never
-// rewind it, and one from a stale attempt must not land at all.
-func TestAdvanceGroupDispatchDeliveryIsMonotonicAndOwnershipScoped(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	ctx := context.Background()
-	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000001", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
-	row, err := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000001")
-	if err != nil {
-		t.Fatalf("get dispatch: %v", err)
-	}
-	advance := func(cursor, attempt int64) int64 {
-		t.Helper()
-		rows, err := fx.q.AdvanceGroupDispatchDelivery(ctx, sqlc.AdvanceGroupDispatchDeliveryParams{ID: row.ID, AttemptCount: attempt, DeliveryCursor: cursor})
-		if err != nil {
-			t.Fatalf("advance delivery cursor: %v", err)
-		}
-		return rows
-	}
-	cursor := func() int64 {
-		t.Helper()
-		current, err := fx.q.GetGroupDispatch(ctx, row.ID)
-		if err != nil {
-			t.Fatalf("get dispatch: %v", err)
-		}
-		return current.DeliveryCursor
-	}
-	if advance(2, row.AttemptCount) != 1 || cursor() != 2 {
-		t.Fatalf("cursor = %d after advancing to 2", cursor())
-	}
-	if advance(1, row.AttemptCount) != 0 || cursor() != 2 {
-		t.Fatalf("cursor = %d after a rewinding confirmation, want it pinned at 2", cursor())
-	}
-	if advance(3, row.AttemptCount+1) != 0 || cursor() != 2 {
-		t.Fatalf("cursor = %d after a stale attempt's confirmation, want it pinned at 2", cursor())
-	}
-}
-
-// abandoningGroupPublisher fails the way a platform publisher fails on its
-// first API call: it returns without reading a single event.
-type abandoningGroupPublisher struct{}
-
-func (abandoningGroupPublisher) Publish(context.Context, GroupPublishRequest) error {
-	return errors.New("platform unreachable")
-}
-
-// A publisher that fails without draining the stream must not strand the
-// dispatcher: the response is drained and recorded anyway, which is both what
-// keeps the wrapper goroutine from blocking on a full forward buffer and what
-// makes the failed attempt re-deliverable. The event count deliberately exceeds
-// the wrapper's buffer so an undrained stream would deadlock instead of pass.
-func TestGroupDispatcherRecordsResultAfterPublisherAbandonsStream(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	const events = 150
-	fx.d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
-		ch := make(chan pkgchannel.Event, events)
-		for range events {
-			ch <- pkgchannel.Event{Text: "x"}
-		}
-		close(ch)
-		return &pkgchannel.ChatStream{Events: ch, SessionID: "session-1"}, nil
-	}
-	fx.d.publishers.Register("ch-1", abandoningGroupPublisher{})
-	dispatch := newResumeDispatch(t, fx)
-
-	done := make(chan error, 1)
-	go func() { done <- fx.d.ExecuteDispatch(context.Background(), dispatch, nil) }()
-	select {
-	case err := <-done:
-		if err == nil {
-			t.Fatal("expected the publisher error")
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("ExecuteDispatch blocked on a stream the publisher never drained")
-	}
-	var content string
-	if err := fx.db.QueryRow(context.Background(), `SELECT content FROM ctx_group_message WHERE actor_type = 'agent'`).Scan(&content); err != nil {
-		t.Fatalf("read recorded response: %v", err)
-	}
-	if content != strings.Repeat("x", events) {
-		t.Fatalf("recorded response has %d runes, want the whole drained stream", len(content))
-	}
-}
-
-// TestGroupDispatcherResumesResultRecordedBeforeDelivery closes the crash
-// window. A publisher that buffers the response before sending it records the
-// response first, so a process that dies before the first chunk still leaves a
-// row the reaper can requeue — and the retry re-delivers that persisted text
-// instead of running the agent a second time.
-func TestGroupDispatcherResumesResultRecordedBeforeDelivery(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	chatCalls := 0
-	fx.d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
-		chatCalls++
-		return textStream("one\ntwo\nthree"), nil
-	}
-	publisher := &chunkingGroupPublisher{interruptAfterRecord: true}
-	fx.d.publishers.Register("ch-1", publisher)
-	dispatch := newResumeDispatch(t, fx)
-
-	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err == nil {
-		t.Fatal("expected the interrupted delivery to fail the dispatch")
-	}
-	if len(publisher.sent) != 0 || publisher.sentAtRecord != 0 {
-		t.Fatalf("sent %v chunks, %d of them before the response was recorded; want the response recorded first and nothing sent", publisher.sent, publisher.sentAtRecord)
-	}
-	dispatch, err := fx.q.GetGroupDispatch(context.Background(), dispatch.ID)
-	if err != nil {
-		t.Fatalf("get dispatch after the interruption: %v", err)
-	}
-	if dispatch.ResultMessageID == "" || dispatch.DeliveryCursor != 0 || dispatch.DeliveryComplete {
-		t.Fatalf("dispatch result/cursor/complete = %q/%d/%v, want the response recorded with nothing delivered", dispatch.ResultMessageID, dispatch.DeliveryCursor, dispatch.DeliveryComplete)
-	}
-	// The dispatcher's own post-publish write must see the publisher's record
-	// and stand down; two writes would put the same reply in the group twice.
-	if got := countAgentGroupMessages(t, fx.db); got != 1 {
-		t.Fatalf("agent messages = %d after one response, want the record to happen exactly once", got)
-	}
-
-	// The worker died instead of requeueing: the row is still running, and its
-	// lease is the only thing that will ever release it.
-	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET status = 'running', next_attempt_at = NULL, lease_until = now() - interval '1 minute' WHERE id = $1`, dispatch.ID); err != nil {
-		t.Fatalf("simulate the crashed worker: %v", err)
-	}
-	if err := fx.d.reapExpired(context.Background()); err != nil {
-		t.Fatalf("reap expired: %v", err)
-	}
-	if dispatch, err = fx.q.GetGroupDispatch(context.Background(), dispatch.ID); err != nil {
-		t.Fatalf("get dispatch after reaping: %v", err)
-	}
-	if dispatch.Status != "pending" {
-		t.Fatalf("dispatch status = %q after reaping, want pending", dispatch.Status)
-	}
-
-	fx.d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
-		t.Error("the agent ran again for a response that was already recorded")
-		return textStream("regenerated"), nil
-	}
-	if err := fx.d.ExecuteDispatch(context.Background(), makeDispatchDue(t, fx), nil); err != nil {
-		t.Fatalf("resume after the crash: %v", err)
-	}
-	if publisher.last.Stream != nil || publisher.last.Text != "one\ntwo\nthree" {
-		t.Fatalf("resume request = stream %v text %q, want the persisted response", publisher.last.Stream != nil, publisher.last.Text)
-	}
-	if !slices.Equal(publisher.sent, []string{"one", "two", "three"}) {
-		t.Fatalf("sent chunks = %v, want the whole response delivered exactly once", publisher.sent)
-	}
-	if chatCalls != 1 {
-		t.Fatalf("chat calls = %d, want exactly one agent turn", chatCalls)
-	}
-	if got := countAgentGroupMessages(t, fx.db); got != 1 {
-		t.Fatalf("agent messages = %d, want one persisted response", got)
-	}
-	if dispatch, err = fx.q.GetGroupDispatch(context.Background(), dispatch.ID); err != nil {
-		t.Fatalf("get dispatch after the resume: %v", err)
-	}
-	if dispatch.Status != "completed" || !dispatch.DeliveryComplete || dispatch.DeliveryCursor != 3 {
-		t.Fatalf("dispatch = %q cursor %d delivered %v, want completed/3/true", dispatch.Status, dispatch.DeliveryCursor, dispatch.DeliveryComplete)
 	}
 }

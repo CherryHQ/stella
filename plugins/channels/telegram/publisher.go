@@ -34,26 +34,15 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 		opts.ReplyParams = &tele.ReplyParams{MessageID: replyID, ChatID: chatID, AllowWithoutReply: true}
 	}
 
-	// A re-delivery carries the already-persisted response instead of a live
-	// stream. Telegram does not confirm chunks, so it resends the whole response
-	// from the start rather than resuming mid-message — at-least-once delivery,
-	// but still without ever re-running the agent.
-	response, images := req.Text, []channel.ImageEvent(nil)
-	if req.Stream != nil {
-		var streamErr error
-		response, images, streamErr = collectTelegramResponse(ctx, req.Stream)
-		if streamErr != nil {
-			if response == "" {
-				response = fmt.Sprintf("Agent error: %v", streamErr)
-			} else {
-				response += fmt.Sprintf("\n\n[Agent error: %v]", streamErr)
-			}
+	response, images, err := collectTelegramResponse(ctx, req.Stream)
+	if err != nil {
+		if response == "" {
+			response = fmt.Sprintf("Agent error: %v", err)
+		} else {
+			response += fmt.Sprintf("\n\n[Agent error: %v]", err)
 		}
 	}
 	if strings.TrimSpace(response) == "" {
-		if req.Stream == nil {
-			return nil
-		}
 		response = "(empty response)"
 	}
 	if err := b.sendChunkedMarkdown(chat, response, false, opts); err != nil {

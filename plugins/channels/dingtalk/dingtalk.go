@@ -321,25 +321,17 @@ func (b *Bot) ensureGroupMember(ctx context.Context, groupID string) error {
 }
 
 func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishRequest) error {
-	// A re-delivery carries the already-persisted response instead of a live
-	// stream. DingTalk does not confirm chunks, so it resends the whole response
-	// rather than resuming mid-message — at-least-once delivery, but still
-	// without ever re-running the agent.
-	response := req.Text
-	if req.Stream != nil {
-		var streamErr error
-		response, streamErr = collectStream(ctx, req.Stream)
-		if streamErr != nil {
-			if response != "" {
-				response += "\n\n"
-			}
-			response += "Agent error: " + streamErr.Error()
+	if req.Stream == nil {
+		return nil
+	}
+	response, streamErr := collectStream(ctx, req.Stream)
+	if streamErr != nil {
+		if response != "" {
+			response += "\n\n"
 		}
+		response += "Agent error: " + streamErr.Error()
 	}
 	if strings.TrimSpace(response) == "" {
-		if req.Stream == nil {
-			return nil
-		}
 		response = "(empty response)"
 	}
 	session, ok := b.groupSessionFor(req.PlatformGroupID)
