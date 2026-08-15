@@ -20,6 +20,12 @@ func TestRuntimeMiseEnv_PerUser(t *testing.T) {
 	if got := env["MISE_DATA_DIR"]; got != userToolsDir {
 		t.Fatalf("MISE_DATA_DIR = %q, want per-user dir %q", got, userToolsDir)
 	}
+	if got, want := env["BASH_ENV"], pkgsandbox.ShellEnvPath(stellaHome); got != want {
+		t.Fatalf("BASH_ENV = %q, want %q", got, want)
+	}
+	if got := env[pkgsandbox.EnvRunnerPath]; got != "" {
+		t.Fatalf("%s = %q, want empty baseline", pkgsandbox.EnvRunnerPath, got)
+	}
 	for key, sub := range map[string]string{
 		"MISE_CACHE_DIR": "cache",
 		"MISE_STATE_DIR": "state",
@@ -62,6 +68,9 @@ func TestRuntimeMiseEnv_FallbackWhenNoUser(t *testing.T) {
 	wantData := filepath.Join(stellaHome, ".mise-tools")
 	if env["MISE_DATA_DIR"] != wantData {
 		t.Fatalf("MISE_DATA_DIR = %q, want system tree %q", env["MISE_DATA_DIR"], wantData)
+	}
+	if got, want := env["BASH_ENV"], pkgsandbox.ShellEnvPath(stellaHome); got != want {
+		t.Fatalf("BASH_ENV = %q, want %q", got, want)
 	}
 	if env["MISE_NOT_FOUND_AUTO_INSTALL"] != "false" {
 		t.Fatalf("auto-install must stay off without a writable tree, got %q", env["MISE_NOT_FOUND_AUTO_INSTALL"])

@@ -60,7 +60,6 @@ Examples:
 - `tool/notify`
 - `tool/webfetch`
 - `channel/telegram`
-- `hook/rtk`
 - `provider/openai`
 
 Capabilities are registered under that plugin ID, but each capability may also have its own capability-local name.

@@ -159,7 +159,7 @@ The Web Workspace API addresses files with a typed scope plus canonical relative
 
 Because these XDG directories are principal-shared, an on-disk CLI login or configuration — potentially including credentials — is visible to every Agent for that same principal. For per-Agent authentication, store the credential in an Agent-specific [Vault scope](/docs/guides/secrets-and-keys) and use the CLI's environment-based authentication instead of a persistent login.
 
-Mise, Lark, and system directories are tool-managed, not generic storage locations. Mise loads Stella's release-owned tools as its read-only system layer, then a principal-shared global config, then the current workspace config. Install a personal default with `mise use --global --pin <tool>@<version>`; this writes the shared global config without modifying Stella's system tools. Run `mise use --pin <tool>@<version>` inside a project when the version belongs to that workspace instead.
+Mise, Lark, and system directories are tool-managed, not generic storage locations. Mise loads Stella's release-owned tools as its read-only system layer, then a principal-shared global config, then the current workspace config. Install a personal default with `mise use --global --pin <tool>@<version>`; this writes the shared global config without modifying Stella's system tools. Run `mise use --pin <tool>@<version>` inside a project when the version belongs to that workspace instead. Stella also restores these managed tool paths after a nested login shell resets `PATH`, so commands launched through `bash -lc` continue to resolve the same principal and system tools.
 
 ### Backend path rendering
 

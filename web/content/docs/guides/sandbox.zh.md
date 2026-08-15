@@ -159,7 +159,7 @@ Web Workspace API 使用类型化 scope 与规范相对路径定位文件。项�
 
 这些 XDG 目录按 principal 共享，因此落盘的 CLI 登录或配置（其中可能包含凭据）会对该 principal 的所有 Agent 可见。需要按 Agent 隔离认证时，请将凭据存入 [Agent 专属的 Vault scope](/docs/guides/secrets-and-keys)，并使用 CLI 基于环境变量的认证方式，而不是持久化登录。
 
-mise、Lark 和系统目录由其工具托管，不是通用存储位置。mise 会先加载 Stella 发行版提供的只读系统工具层，再加载 principal 共享的全局配置，最后加载当前 workspace 配置。使用 `mise use --global --pin <tool>@<version>` 安装个人默认工具；该命令只写共享全局配置，不会修改 Stella 的系统工具。属于特定项目的版本则应在项目内运行 `mise use --pin <tool>@<version>`。
+mise、Lark 和系统目录由其工具托管，不是通用存储位置。mise 会先加载 Stella 发行版提供的只读系统工具层，再加载 principal 共享的全局配置，最后加载当前 workspace 配置。使用 `mise use --global --pin <tool>@<version>` 安装个人默认工具；该命令只写共享全局配置，不会修改 Stella 的系统工具。属于特定项目的版本则应在项目内运行 `mise use --pin <tool>@<version>`。嵌套 login shell 重置 `PATH` 后，Stella 也会恢复这些托管工具路径，因此通过 `bash -lc` 启动的命令仍能解析同一组 principal 和系统工具。
 
 ### 后端路径渲染
 

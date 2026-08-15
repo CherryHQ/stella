@@ -98,7 +98,7 @@ func (hs *HookSet) RunPostAgentCall(ctx context.Context, hctx *PostAgentCallCont
 // Rewritten Arguments are passed to subsequent hooks.
 //
 // Error policy: a failing hook is logged and skipped so that non-critical
-// hooks (e.g. RTK rewriting) never block tool execution. Security-critical
+// hooks never block tool execution. Security-critical
 // checks must live in the core engine, not in disableable hook plugins.
 func (hs *HookSet) RunPreToolCall(ctx context.Context, hctx *PreToolCallContext) (PreToolCallResult, error) {
 	if hs == nil {

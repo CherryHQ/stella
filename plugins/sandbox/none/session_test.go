@@ -110,6 +110,23 @@ func TestFactoryCreateSession_setsHostXDGPaths(t *testing.T) {
 	}
 }
 
+func TestAdjustPolicySnapshotsRunnerPath(t *testing.T) {
+	stellaHome := t.TempDir()
+	workspace := t.TempDir()
+	adjusted, err := (&Factory{cfg: Config{StellaHome: stellaHome}}).adjustPolicy(
+		sandboxpkg.Policy{}, workspace, "", t.TempDir(),
+	)
+	if err != nil {
+		t.Fatalf("adjustPolicy: %v", err)
+	}
+	if got, want := adjusted.Env["PATH"], sandboxpkg.HostEnvBuildPath(stellaHome, ""); got != want {
+		t.Fatalf("PATH = %q, want %q", got, want)
+	}
+	if got, want := adjusted.Env[sandboxpkg.EnvRunnerPath], adjusted.Env["PATH"]; got != want {
+		t.Fatalf("%s = %q, want final PATH %q", sandboxpkg.EnvRunnerPath, got, want)
+	}
+}
+
 func TestFactoryCreateSession_withoutUserDataFallsBackToWorkspace(t *testing.T) {
 	workspace := t.TempDir()
 	sess, err := NewFactoryWithMountSources(nil, Config{}).CreateSession(context.Background(), sandboxpkg.Policy{

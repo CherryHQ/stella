@@ -10,6 +10,7 @@ import (
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 type staticVaultEnv struct {
@@ -103,7 +104,10 @@ func TestBuildSandboxEnvLayersMiseSystemGlobalAndWorkspace(t *testing.T) {
 	stellaHome := "/stella"
 	userDataDir := "/stella/users/user-1/data"
 	workspace := "/stella/users/user-1/agents/agent-1/projects/project-1"
-	env, err := buildSandboxEnv(context.Background(), Config{UserID: "user-1"}, Paths{
+	env, err := buildSandboxEnv(context.Background(), Config{
+		UserID:         "user-1",
+		VaultEnvLoader: staticVaultEnv{env: map[string]string{pkgsandbox.EnvRunnerPath: "/untrusted/bin"}},
+	}, Paths{
 		StellaHome:    stellaHome,
 		WorkspaceRoot: workspace,
 		UserDataDir:   userDataDir,
@@ -113,6 +117,12 @@ func TestBuildSandboxEnvLayersMiseSystemGlobalAndWorkspace(t *testing.T) {
 	}
 	if got, want := env["MISE_SYSTEM_CONFIG_FILE"], filepath.Join(stellaHome, ".mise-tools", "configs", "_builtin.toml"); got != want {
 		t.Fatalf("MISE_SYSTEM_CONFIG_FILE = %q, want %q", got, want)
+	}
+	if got, want := env["BASH_ENV"], filepath.Join(stellaHome, "bin", ".stella-shell-env"); got != want {
+		t.Fatalf("BASH_ENV = %q, want %q", got, want)
+	}
+	if got := env[pkgsandbox.EnvRunnerPath]; got != "" {
+		t.Fatalf("%s = %q, want empty runner-owned baseline", pkgsandbox.EnvRunnerPath, got)
 	}
 	wantConfigDir := filepath.Join(userDataDir, ".config", "mise")
 	if got := env["MISE_CONFIG_DIR"]; got != wantConfigDir {

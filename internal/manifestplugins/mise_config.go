@@ -81,6 +81,14 @@ func RuntimeMiseEnv(stellaHome, userToolsDir, userConfigDir, workspaceDir string
 	env["MISE_YES"] = "1"
 	env["MISE_NO_ANALYTICS"] = "1"
 	env["MISE_EXPERIMENTAL"] = "1"
+	// Non-interactive Bash reads BASH_ENV after login profiles, restoring the
+	// runner-owned PATH if /etc/profile replaced it. Backends translate this
+	// system path into their process view; isolating backends expose it read-only.
+	env["BASH_ENV"] = pkgsandbox.ShellEnvPath(stellaHome)
+	// Backends replace this with their final rendered PATH. An explicit empty
+	// runner-owned value prevents Vault configuration from turning shell startup
+	// into an ambient PATH injection channel.
+	env[pkgsandbox.EnvRunnerPath] = ""
 
 	systemConfigPath := runtimeScopeConfigPath(stellaHome)
 	env["MISE_SYSTEM_CONFIG_FILE"] = systemConfigPath

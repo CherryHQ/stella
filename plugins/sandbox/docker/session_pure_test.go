@@ -170,10 +170,14 @@ func TestMapNetworkMode(t *testing.T) {
 
 func TestInjectToolPaths_PrependedWhenSet(t *testing.T) {
 	env := map[string]string{"PATH": "/usr/bin:/bin"}
-	got := injectToolPaths(env, []string{"/home/stella/.stella-tools/bin"})
-	want := "/home/stella/.stella-tools/bin:/usr/bin:/bin"
+	paths := []string{"/opt/stella/users/u1/.mise-tools/shims", "/home/stella/.stella-tools/bin"}
+	got := injectToolPaths(env, paths)
+	want := strings.Join(append(append([]string(nil), paths...), "/usr/bin", "/bin"), ":")
 	if got["PATH"] != want {
 		t.Errorf("PATH = %q, want %q", got["PATH"], want)
+	}
+	if got[sandboxpkg.EnvRunnerPath] != want {
+		t.Errorf("%s = %q, want final PATH %q", sandboxpkg.EnvRunnerPath, got[sandboxpkg.EnvRunnerPath], want)
 	}
 }
 
@@ -190,11 +194,14 @@ func TestInjectToolPaths_UsesDefaultPathWhenPATHAbsent(t *testing.T) {
 	}
 }
 
-func TestInjectToolPaths_NoOpWhenEmpty(t *testing.T) {
-	env := map[string]string{"PATH": "/usr/bin:/bin"}
+func TestInjectToolPaths_SnapshotsPathWhenToolPathsEmpty(t *testing.T) {
+	env := map[string]string{"PATH": "/usr/bin:/bin", sandboxpkg.EnvRunnerPath: "/untrusted/bin"}
 	got := injectToolPaths(env, nil)
 	if got["PATH"] != "/usr/bin:/bin" {
 		t.Errorf("PATH changed when tool paths absent: %q", got["PATH"])
+	}
+	if got[sandboxpkg.EnvRunnerPath] != got["PATH"] {
+		t.Errorf("%s = %q, want final PATH %q", sandboxpkg.EnvRunnerPath, got[sandboxpkg.EnvRunnerPath], got["PATH"])
 	}
 }
 
@@ -227,8 +234,11 @@ func TestDockerExecEnvironmentFiltersAndTranslatesPerCallOverrides(t *testing.T)
 			t.Errorf("%s = %q, want %q", key, got[key], want)
 		}
 	}
-	if _, ok := got["PATH"]; ok {
-		t.Fatalf("host PATH reached docker exec: %q", got["PATH"])
+	if got["PATH"] != containerDefaultPATH {
+		t.Fatalf("PATH = %q, want container default %q", got["PATH"], containerDefaultPATH)
+	}
+	if got[sandboxpkg.EnvRunnerPath] != got["PATH"] {
+		t.Fatalf("%s = %q, want final PATH %q", sandboxpkg.EnvRunnerPath, got[sandboxpkg.EnvRunnerPath], got["PATH"])
 	}
 }
 
@@ -490,6 +500,7 @@ func TestTranslateEnvPaths_Mise(t *testing.T) {
 	}
 	envMaps := []envPathMap{{HostPrefix: stellaHome, ContainerPrefix: stellaHomeMount}}
 	env := map[string]string{
+		"BASH_ENV":                  stellaHome + "/bin/.stella-shell-env",
 		"MISE_DATA_DIR":             stellaHome + "/users/u1/.mise-tools",
 		"MISE_CONFIG_DIR":           userConfigDir,
 		"MISE_SYSTEM_CONFIG_FILE":   stellaHome + "/.mise-tools/configs/_builtin.toml",
@@ -499,6 +510,9 @@ func TestTranslateEnvPaths_Mise(t *testing.T) {
 	}
 	out := translateEnvPaths(env, mountTable, envMaps)
 
+	if got, want := out["BASH_ENV"], stellaHomeMount+"/bin/.stella-shell-env"; got != want {
+		t.Errorf("BASH_ENV = %q, want %q", got, want)
+	}
 	if got, want := out["MISE_DATA_DIR"], stellaHomeMount+"/users/u1/.mise-tools"; got != want {
 		t.Errorf("MISE_DATA_DIR = %q, want %q", got, want)
 	}

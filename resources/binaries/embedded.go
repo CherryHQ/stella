@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	_ "embed"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,11 @@ import (
 
 // Keep synchronized with xbergVersion in gen.go.
 const xbergVersion = "1.0.14"
+
+const shellEnvFilename = ".stella-shell-env"
+
+//go:embed shell_env.sh
+var shellEnv []byte
 
 type ensureState struct {
 	once sync.Once
@@ -119,6 +125,16 @@ func extractTools(destDir string) error {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return fmt.Errorf("create bin dir: %w", err)
 	}
+	// This file is not part of the platform archive fingerprint. Always refresh
+	// it so an upgrade that changes only shell startup behavior cannot be skipped
+	// by an already-current embedded tool installation.
+	shellEnvPath := filepath.Join(destDir, shellEnvFilename)
+	if err := os.WriteFile(shellEnvPath, shellEnv, 0o644); err != nil {
+		return fmt.Errorf("write managed shell environment: %w", err)
+	}
+	if err := os.Chmod(shellEnvPath, 0o644); err != nil {
+		return fmt.Errorf("set managed shell environment mode: %w", err)
+	}
 
 	entries, err := platformEntries()
 	if err != nil {
@@ -187,7 +203,7 @@ func platformEntries() ([]fs.DirEntry, error) {
 // infraTools lists standalone gzip binaries extracted to $STELLA_HOME/bin.
 // Only mise belongs here: it bootstraps the install/shim machinery before any
 // shim exists. Xberg is handled separately as a versioned runtime bundle;
-// ordinary tools (gh, fd, rg, tap, lark-cli, rtk, ...) stay behind mise shims.
+// ordinary tools (gh, fd, rg, tap, lark-cli, ...) stay behind mise shims.
 var infraTools = map[string]bool{"mise": true}
 
 func xbergArchiveName() string { return "xberg-v" + xbergVersion + ".tar.gz" }

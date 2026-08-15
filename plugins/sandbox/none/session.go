@@ -115,6 +115,7 @@ func (f *Factory) adjustPolicy(policy sandboxpkg.Policy, workspace, userData, tm
 			userShims = sandboxpkg.MiseUserShimsDir(dir)
 		}
 		env["PATH"] = sandboxpkg.HostEnvBuildPath(f.cfg.StellaHome, userShims)
+		env[sandboxpkg.EnvRunnerPath] = env["PATH"]
 	}
 	policy.Env = env
 	return policy, nil
@@ -435,6 +436,9 @@ func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
 	}
 	maps.Copy(merged, policy.Env)
 	maps.Copy(merged, overrides)
+	if renderedPath, ok := merged["PATH"]; ok {
+		merged[sandboxpkg.EnvRunnerPath] = renderedPath
+	}
 	delete(merged, "STELLA_USER_DIR")
 	env := make([]string, 0, len(merged))
 	for k, v := range merged {

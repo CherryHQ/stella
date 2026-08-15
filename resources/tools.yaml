@@ -93,16 +93,6 @@ plugins:
       - name: rg
         tool: github:BurntSushi/ripgrep
 
-  - id: hook/rtk
-    kind: hook
-    name: rtk
-    display_name: RTK
-    description: "Rewrite bash commands through the rtk binary."
-    enabled: true
-    binaries:
-      - name: rtk
-        tool: github:rtk-ai/rtk
-
   - id: tool/uv
     kind: tool
     name: uv
