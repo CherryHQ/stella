@@ -81,7 +81,7 @@ func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.Inc
 			groupMembers[i] = GroupMember{AgentID: m.AgentID, ReplyChannelID: m.ReplyChannelID}
 		}
 		c.resolveMentionAgentsWithMembers(ctx, result.GroupID, msg.Platform, msg.Mentions, groupMembers)
-		envelope, err := EncodeGroupOutboxEnvelope(msg.Mentions)
+		envelope, err := EncodeGroupOutboxEnvelopeWithFeedback(msg.Mentions, msg.LifecycleFeedback)
 		if err != nil {
 			return fmt.Errorf("encode outbox envelope: %w", err)
 		}

@@ -1284,9 +1284,10 @@ func TestPublishFinishesReactionOnTriggeringMessageAcrossReplyTo(t *testing.T) {
 	events <- channel.Event{Text: "group reply"}
 	close(events)
 	req := internalchannel.GroupPublishRequest{
-		PlatformGroupID: "group-channel",
-		ReplyTo:         "trigger-message",
-		Stream:          &channel.ChatStream{Events: events},
+		PlatformGroupID:   "group-channel",
+		ReplyTo:           "trigger-message",
+		LifecycleFeedback: true,
+		Stream:            &channel.ChatStream{Events: events},
 	}
 	if err := b.Publish(context.Background(), req); err != nil {
 		t.Fatal(err)
@@ -1298,6 +1299,30 @@ func TestPublishFinishesReactionOnTriggeringMessageAcrossReplyTo(t *testing.T) {
 	}
 	if !reflect.DeepEqual(rest.reactionsRemoved, []string{"group-channel:trigger-message:👀:@me", "group-channel:trigger-message:❌:@me"}) {
 		t.Fatalf("reactions removed = %#v", rest.reactionsRemoved)
+	}
+}
+
+func TestPublishDoesNotReactToAmbientTrigger(t *testing.T) {
+	b, err := New(Config{Token: "token"}, fakeHandler{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rest := newFakeDiscordREST()
+	b.rest = rest
+	events := make(chan channel.Event, 1)
+	events <- channel.Event{Text: "ambient reply"}
+	close(events)
+	if err := b.Publish(context.Background(), internalchannel.GroupPublishRequest{
+		PlatformGroupID: "group-channel",
+		ReplyTo:         "ambient-message",
+		Stream:          &channel.ChatStream{Events: events},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rest.mu.Lock()
+	defer rest.mu.Unlock()
+	if len(rest.reactionsAdded) != 0 || len(rest.reactionsRemoved) != 0 {
+		t.Fatalf("ambient publish reactions added=%#v removed=%#v", rest.reactionsAdded, rest.reactionsRemoved)
 	}
 }
 

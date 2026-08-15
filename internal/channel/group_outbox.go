@@ -10,11 +10,20 @@ import (
 // time, while the group_id and membership view are available in the append
 // transaction.
 type GroupOutboxEnvelope struct {
-	Mentions []pkgchannel.Mention `json:"mentions,omitempty"`
+	Mentions          []pkgchannel.Mention `json:"mentions,omitempty"`
+	LifecycleFeedback bool                 `json:"lifecycle_feedback,omitempty"`
 }
 
 func EncodeGroupOutboxEnvelope(mentions []pkgchannel.Mention) (string, error) {
-	data, err := json.Marshal(GroupOutboxEnvelope{Mentions: mentions})
+	return encodeGroupOutboxEnvelope(GroupOutboxEnvelope{Mentions: mentions})
+}
+
+func EncodeGroupOutboxEnvelopeWithFeedback(mentions []pkgchannel.Mention, lifecycleFeedback bool) (string, error) {
+	return encodeGroupOutboxEnvelope(GroupOutboxEnvelope{Mentions: mentions, LifecycleFeedback: lifecycleFeedback})
+}
+
+func encodeGroupOutboxEnvelope(envelope GroupOutboxEnvelope) (string, error) {
+	data, err := json.Marshal(envelope)
 	if err != nil {
 		return "", err
 	}

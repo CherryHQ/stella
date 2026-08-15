@@ -565,11 +565,12 @@ func (d *GroupDispatcher) executeDispatchesByMessage(ctx context.Context, groupM
 // which path applies: a result_message_id means the agent already ran, and its
 // response must be re-delivered rather than regenerated.
 type dispatchRun struct {
-	row       sqlc.CtxGroupDispatch
-	message   sqlc.CtxGroupMessage
-	state     sqlc.CtxGroupState
-	publisher GroupPublisher
-	agentName string
+	row               sqlc.CtxGroupDispatch
+	message           sqlc.CtxGroupMessage
+	state             sqlc.CtxGroupState
+	publisher         GroupPublisher
+	agentName         string
+	lifecycleFeedback bool
 }
 
 func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroupDispatch, publisherOverride GroupPublisher) error {
@@ -601,11 +602,22 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	if err != nil {
 		return d.failDispatch(ctx, claimed, err)
 	}
+	outbox, err := d.q.GetGroupOutboxByMessage(ownedCtx, claimed.GroupMessageID)
+	if err != nil {
+		return d.failDispatch(ctx, claimed, fmt.Errorf("get group outbox metadata: %w", err))
+	}
+	envelope, err := DecodeGroupOutboxEnvelope(outbox.Envelope)
+	if err != nil {
+		// Dispatch rows were already materialized from this envelope. Optional
+		// publish metadata must not make an otherwise executable legacy row fail.
+		d.log.Debug("ignoring invalid group outbox publish metadata", "dispatch_id", claimed.ID, "error", err)
+		envelope = GroupOutboxEnvelope{}
+	}
 	agentName := claimed.AgentID
 	if a, err := d.q.GetAgent(ownedCtx, claimed.AgentID); err == nil && a.Name != "" {
 		agentName = a.Name
 	}
-	run := dispatchRun{row: claimed, message: message, state: state, publisher: publisher, agentName: agentName}
+	run := dispatchRun{row: claimed, message: message, state: state, publisher: publisher, agentName: agentName, lifecycleFeedback: envelope.LifecycleFeedback}
 	if claimed.ResultMessageID != "" {
 		return d.redeliverDispatch(ctx, ownedCtx, run)
 	}
@@ -696,16 +708,17 @@ func (d *GroupDispatcher) redeliverDispatch(ctx, ownedCtx context.Context, run d
 // The caller adds exactly one of Stream (live) or Text (re-delivery).
 func (d *GroupDispatcher) publishRequest(run dispatchRun) GroupPublishRequest {
 	return GroupPublishRequest{
-		GroupID:          run.row.GroupID,
-		AgentID:          run.row.AgentID,
-		AgentName:        run.agentName,
-		ReplyChannelID:   run.row.ReplyChannelID,
-		Platform:         run.state.Platform,
-		PlatformGroupID:  run.state.PlatformGroupID,
-		PlatformThreadID: run.state.PlatformThreadID,
-		ReplyTo:          nullStringValue(run.message.PlatformMessageID),
-		RequesterID:      run.message.ActorID,
-		MarkDelivered:    d.deliveryConfirmer(run.row),
+		GroupID:           run.row.GroupID,
+		AgentID:           run.row.AgentID,
+		AgentName:         run.agentName,
+		ReplyChannelID:    run.row.ReplyChannelID,
+		Platform:          run.state.Platform,
+		PlatformGroupID:   run.state.PlatformGroupID,
+		PlatformThreadID:  run.state.PlatformThreadID,
+		ReplyTo:           nullStringValue(run.message.PlatformMessageID),
+		RequesterID:       run.message.ActorID,
+		LifecycleFeedback: run.lifecycleFeedback,
+		MarkDelivered:     d.deliveryConfirmer(run.row),
 	}
 }
 

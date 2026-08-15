@@ -309,7 +309,7 @@ func (b *Bot) incomingMessage(m *discordgo.Message, content []channelContentBloc
 	if chatID == "" {
 		chatID = m.ChannelID
 	}
-	im := channel.IncomingMessage{Platform: channel.PlatformDiscord, ChannelID: b.Name(), SenderID: m.Author.ID, SenderName: name, ChatID: chatID, IsGroup: m.GuildID != "", ThreadID: threadID, MessageID: m.ID, Timestamp: m.Timestamp.UTC(), Content: blocks}
+	im := channel.IncomingMessage{Platform: channel.PlatformDiscord, ChannelID: b.Name(), SenderID: m.Author.ID, SenderName: name, ChatID: chatID, IsGroup: m.GuildID != "", ThreadID: threadID, MessageID: m.ID, Timestamp: m.Timestamp.UTC(), Content: blocks, LifecycleFeedback: m.GuildID == "" || b.addressed(m)}
 	if m.MessageReference != nil {
 		im.ReplyTo = m.MessageReference.MessageID
 	}

@@ -818,6 +818,14 @@ func TestGroupDispatcherPublisherFailureMarksFailedAtMaxAttempts(t *testing.T) {
 	}
 }
 
+func TestGroupDispatcherPublishRequestCarriesLifecycleFeedback(t *testing.T) {
+	d := &GroupDispatcher{}
+	req := d.publishRequest(dispatchRun{lifecycleFeedback: true})
+	if !req.LifecycleFeedback {
+		t.Fatal("publish request dropped lifecycle feedback flag")
+	}
+}
+
 func TestGroupDispatcherDispatchSyncUsesPublisherOverride(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	publisher := &recordingGroupPublisher{}

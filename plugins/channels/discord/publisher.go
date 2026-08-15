@@ -25,9 +25,12 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 		}
 		err = b.deliverStream(ctx, targetID, req.ReplyTo, req.Stream, cancel, resume)
 	}
-	// The triggering message's 👀 crosses into this async dispatch by ReplyTo:
-	// handleMessage only marks a group turn pending, it never finalizes it.
-	b.finishReaction(context.WithoutCancel(ctx), targetID, req.ReplyTo, err == nil)
+	// Only explicitly addressed turns opt into reaction lifecycle feedback.
+	// Ambient semantic-routing messages must not receive an unsolicited naked
+	// terminal reaction when no 👀 acknowledgement was started.
+	if req.LifecycleFeedback {
+		b.finishReaction(context.WithoutCancel(ctx), targetID, req.ReplyTo, err == nil)
+	}
 	return err
 }
 
