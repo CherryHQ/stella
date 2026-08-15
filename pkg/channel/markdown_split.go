@@ -111,8 +111,15 @@ func SplitMarkdown(text string, maxRunes int) []string {
 
 		lineRunes := utf8.RuneCountInString(line)
 		overhead := 0
-		if fence.active && !willClose {
+		switch {
+		case fence.active && !willClose:
 			overhead = closeOverhead()
+		case willOpen:
+			// The opening line makes the fence active only after appendRunes.
+			// Reserve its future close now, or a line that exactly fills this
+			// chunk can make flush append the closing fence past maxRunes.
+			opening := fenceState{active: true, marker: marker, length: length, info: info}
+			overhead = utf8.RuneCountInString(opening.closeLine()) + 1
 		}
 		if bRunes > 0 && bRunes+lineRunes+overhead > maxRunes {
 			flush()

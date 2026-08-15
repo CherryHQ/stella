@@ -168,6 +168,20 @@ func TestSplitMarkdown_OverlongLineInFenceStaysWithinBudget(t *testing.T) {
 	}
 }
 
+func TestSplitMarkdown_FenceOpeningAtChunkBoundaryStaysWithinBudget(t *testing.T) {
+	cases := []string{
+		strings.Repeat("a", 1993) + "\n```go\nx\n```\n",
+		strings.Repeat("界", 1991) + "\n~~~json\nx\n~~~\n",
+	}
+	for _, text := range cases {
+		for i, chunk := range SplitMarkdown(text, 2000) {
+			if got := utf8.RuneCountInString(chunk); got > 2000 {
+				t.Fatalf("chunk %d has %d runes, want <= 2000: %q", i, got, chunk[len(chunk)-min(len(chunk), 32):])
+			}
+		}
+	}
+}
+
 func TestSplitMarkdown_PlainShortTextUnaffectedByFenceLogic(t *testing.T) {
 	text := "just a normal short reply, no code fences here."
 	chunks := SplitMarkdown(text, 2000)
