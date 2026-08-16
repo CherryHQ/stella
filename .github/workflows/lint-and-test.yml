@@ -38,6 +38,27 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
+      # mise-action caches the tools it installs, not Go's own caches, so
+      # without this every run recompiles the whole module from cold.
+      - name: Resolve Go cache paths
+        id: go-cache-paths
+        run: |
+          echo "build=$(mise exec -- go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          echo "mod=$(mise exec -- go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+
+      # Keyed per job because race-instrumented objects are a separate build
+      # graph: sharing one key would make the two jobs evict each other.
+      - name: Cache Go build and module cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.go-cache-paths.outputs.build }}
+            ${{ steps.go-cache-paths.outputs.mod }}
+          key: go-format-${{ runner.os }}-${{ hashFiles('mise.toml') }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-format-${{ runner.os }}-${{ hashFiles('mise.toml') }}-
+            go-format-${{ runner.os }}-
+
       - name: Generate code and check drift
         run: mise run generate:check
 
@@ -61,6 +82,31 @@ jobs:
           install: true
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve Go cache paths
+        id: go-cache-paths
+        run: |
+          echo "build=$(mise exec -- go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          echo "mod=$(mise exec -- go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Go build and module cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.go-cache-paths.outputs.build }}
+            ${{ steps.go-cache-paths.outputs.mod }}
+          key: go-race-${{ runner.os }}-${{ hashFiles('mise.toml') }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-race-${{ runner.os }}-${{ hashFiles('mise.toml') }}-
+            go-race-${{ runner.os }}-
+
+      # The runtime tarball is immutable per RuntimeVersion, so the version
+      # constant is the whole cache key. A miss just re-downloads it.
+      - name: Cache embedded PostgreSQL runtime
+        uses: actions/cache@v4
+        with:
+          path: ~/.stella/pg-runtime
+          key: pg-runtime-${{ runner.os }}-${{ hashFiles('internal/pgruntime/runtime.go') }}
 
       - name: Install bubblewrap
         run: |
@@ -152,6 +198,24 @@ jobs:
           install_args: go
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve Go cache paths
+        id: go-cache-paths
+        shell: bash
+        run: |
+          echo "build=$(mise exec -- go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          echo "mod=$(mise exec -- go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Go build and module cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.go-cache-paths.outputs.build }}
+            ${{ steps.go-cache-paths.outputs.mod }}
+          key: go-windows-${{ runner.os }}-${{ hashFiles('mise.toml') }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-windows-${{ runner.os }}-${{ hashFiles('mise.toml') }}-
+            go-windows-${{ runner.os }}-
 
       - name: Test Windows resource bundle portability
         run: mise exec -- go test ./resources -run '^TestBuiltinBundleWindowsFilesystemModes$' -count=1
