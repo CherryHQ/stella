@@ -215,7 +215,9 @@ gh issue edit <number> --repo CherryHQ/stella --milestone v0.61.0
 
 社区报告使用 Issue 表单。维护者创建的实现 Issue 使用 **What**、**Why**、**How** 和 **Refs**。计划变化时及时更新 Issue，不要把 Issue 评论复制到飞书。
 
-每个 PR 都必须关联 GitHub Issue。PR 完成整个 Issue 时使用 `Closes #123`；只完成一部分时使用 `Refs #123`。完整填写 PR 模板中的 What、Why、How、Test 和 Refs。
+多数 PR 会关联 GitHub Issue。PR 完成整个 Issue 时使用 `Closes #123`；只完成一部分时使用 `Refs #123`。完整填写 PR 模板中的 What、Why、How、Test 和 Refs。
+
+小修不需要 Issue。改动足够自洽、Reviewer 看 diff 就能判断时直接开 PR：错别字、一行 bug 修复、文档订正、测试修复。此时在 Refs 写 `No issue: <原因>` 代替 Issue 号。需要讨论、改变对外行为、或者跨多个模块的改动仍然先建 Issue——凡是 Reviewer 会想了解背景的都算。
 
 ## 代用户创建 Issue
 

@@ -261,9 +261,16 @@ Use an issue form for community reports. Maintainer-created implementation
 issues use **What**, **Why**, **How**, and **Refs**. Keep issue descriptions
 current and do not copy issue comments into Feishu.
 
-Every PR must link a GitHub issue. Use `Closes #123` when the PR completes it,
-or `Refs #123` for partial work. Complete the PR template's What, Why, How,
-Test, and Refs sections.
+Most PRs link a GitHub issue. Use `Closes #123` when the PR completes it, or
+`Refs #123` for partial work. Complete the PR template's What, Why, How, Test,
+and Refs sections.
+
+A small fix does not need an issue. Open the PR directly when the change is
+self-contained enough that a reviewer can judge it from the diff: a typo, a
+one-line bug fix, a doc correction, a test fix. Write `No issue: <reason>` in
+Refs instead of a number. File an issue when the change needs discussion,
+alters external behavior, or spans several areas — anything a reviewer would
+want the background for.
 
 ## Creating issues for a user
 

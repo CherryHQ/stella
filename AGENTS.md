@@ -76,7 +76,7 @@ When behavior, APIs, config, commands, or architecture change:
 
 ## Issue & PR tracking
 
-- **Every PR must link to a GitHub issue.** If a PR is being created without an associated issue, stop and ask the user to create one first (or create it on their behalf). No PR should be opened without a traceable issue.
+- **Most PRs link a GitHub issue.** A small self-contained fix (typo, one-line bug, doc correction) can go straight to a PR with `No issue: <reason>` in Refs. For anything that needs discussion, changes external behavior, or spans several areas, make sure an issue exists first (create it on the user's behalf if needed).
 - When starting a new feature or task, ensure a tracked GitHub issue exists. A Feishu Task is not a prerequisite: committed Feishu Tasks create their own issue, and issues without a task are reconciled by the Tuesday delivery review. **Read `web/content/docs/development/rules/project-tracker.md`** for the full workflow.
 
 ## Commit style
