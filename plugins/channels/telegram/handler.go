@@ -307,6 +307,12 @@ func (b *Bot) handleStream(c tele.Context, stream *channel.ChatStream) error {
 	chatID := c.Chat().ID
 	logger().Debug("message received", "chat_id", chatID)
 
+	// Acknowledge the turn here rather than on inbound: reaching this point is
+	// what guarantees a terminal reaction follows. Group turns are served by
+	// Publish instead and carry their own lifecycle.
+	reactChat, reactMsg := reactionTarget(c)
+	b.react(reactChat, reactMsg, reactionReceived)
+
 	typingCtx, stopTyping := context.WithCancel(b.ctx)
 	go keepTyping(typingCtx, c)
 
@@ -332,6 +338,7 @@ func (b *Bot) handleStream(c tele.Context, stream *channel.ChatStream) error {
 	}
 
 	b.sendFinalResponse(c, response, images)
+	b.finishReaction(reactChat, reactMsg, streamErr == nil)
 	logger().Debug("response sent", "chat_id", chatID, "response_len", len(response))
 	return nil
 }

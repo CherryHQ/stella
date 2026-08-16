@@ -46,6 +46,12 @@ Uses `sendMessageDraft` for smooth animated streaming without rate-limiting issu
 
 In groups, supergroups, and forum topics, Stella sends one progress message and edits it about once per second as text or tool status changes. The same message becomes the final response; long responses continue in additional messages. Stella also keeps Telegram's typing indicator active while it works. If a response stream fails, the progress message shows a safe failure notice instead of silently disappearing.
 
+### Reaction Lifecycle
+
+Stella reacts with 👀 on your message once it starts working on it, then replaces that with 👍 on success or 👎 on failure. This works in private chats, groups, and forum topics.
+
+Telegram only allows reactions from a fixed emoji list, which is why Stella uses 👍/👎 here rather than the ✅/❌ the Discord channel uses. Reactions are cosmetic: if the bot lacks permission to react, the reply itself is unaffected.
+
 ### Tool Indicators
 
 While the assistant runs tools, you will see status indicators in the stream:
