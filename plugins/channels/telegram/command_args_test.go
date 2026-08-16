@@ -99,9 +99,9 @@ func TestSharedCommandForwardsPayload(t *testing.T) {
 		text string
 		want string
 	}{
-		{name: "with argument", text: "/new extra", want: "extra"},
-		{name: "padded", text: "/new    extra   ", want: "extra"},
-		{name: "bare", text: "/new", want: ""},
+		{name: "with argument", text: "/new@stella_bot extra", want: "extra"},
+		{name: "padded", text: "/new@stella_bot    extra   ", want: "extra"},
+		{name: "bare", text: "/new@stella_bot", want: ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			bot, err := tele.NewBot(tele.Settings{Offline: true, Synchronous: true})
@@ -109,6 +109,7 @@ func TestSharedCommandForwardsPayload(t *testing.T) {
 				t.Fatalf("offline bot: %v", err)
 			}
 			handler := &capturingHandler{}
+			bot.Me = &tele.User{ID: 1, Username: "stella_bot"}
 			b := &Bot{bot: bot, handler: handler, ctx: context.Background(), cfg: Config{AllowGroup: true, RequireMention: true}}
 			b.registerHandlers()
 
@@ -161,12 +162,21 @@ func TestTelegramIngressAdmission(t *testing.T) {
 			},
 		},
 		{
-			name: "unknown slash command still requires mention",
+			name: "bare group command requires mention",
 			cfg:  Config{AllowGroup: true, RequireMention: true},
 			message: tele.Message{
-				Text: "/anything", Sender: &tele.User{ID: 7},
+				Text: "/new", Sender: &tele.User{ID: 7},
 				Chat: &tele.Chat{ID: -100, Type: tele.ChatSuperGroup},
 			},
+		},
+		{
+			name: "targeted group command is addressed",
+			cfg:  Config{AllowGroup: true, RequireMention: true},
+			message: tele.Message{
+				Text: "/new@stella_bot", Sender: &tele.User{ID: 7},
+				Chat: &tele.Chat{ID: -100, Type: tele.ChatSuperGroup},
+			},
+			want: true,
 		},
 		{
 			name: "allowed mentioned group",

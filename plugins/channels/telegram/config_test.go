@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"slices"
 	"testing"
 
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -33,7 +34,7 @@ func TestDecodeConfig(t *testing.T) {
 
 func TestTelegramConfigSchemaGuestBounds(t *testing.T) {
 	properties := configSchema()["properties"].(map[string]any)
-	for _, key := range []string{"allow_group", "allow_dm", "allow_unlinked_dm", "guest_message_limit_per_minute", "guest_max_per_channel", "guest_retention_days", "require_mention"} {
+	for _, key := range []string{"allow_group", "allowed_chat_ids", "allowed_topic_ids", "allow_dm", "allow_unlinked_dm", "guest_message_limit_per_minute", "guest_max_per_channel", "guest_retention_days", "require_mention"} {
 		if properties[key] == nil {
 			t.Fatalf("schema missing %s", key)
 		}
@@ -43,6 +44,32 @@ func TestTelegramConfigSchemaGuestBounds(t *testing.T) {
 	}
 	if cfg, err := DecodeConfig(map[string]any{}); err != nil || validateConfigValues(cfg) != "" {
 		t.Fatalf("empty disabled-channel config should pass persistence validation: cfg=%#v err=%v validation=%q", cfg, err, validateConfigValues(cfg))
+	}
+}
+
+func TestDecodeConfigNormalizesGroupAllowlists(t *testing.T) {
+	cfg, err := DecodeConfig(map[string]any{
+		"token":             "tg-token",
+		"allowed_chat_ids":  []any{" -100 ", "-100", "-200"},
+		"allowed_topic_ids": []any{"-100:42", " -100:42 ", "-200:7"},
+	})
+	if err != nil {
+		t.Fatalf("DecodeConfig: %v", err)
+	}
+	if got, want := cfg.AllowedChatIDs, []string{"-100", "-200"}; !slices.Equal(got, want) {
+		t.Fatalf("AllowedChatIDs = %#v, want %#v", got, want)
+	}
+	if got, want := cfg.AllowedTopicIDs, []string{"-100:42", "-200:7"}; !slices.Equal(got, want) {
+		t.Fatalf("AllowedTopicIDs = %#v, want %#v", got, want)
+	}
+}
+
+func TestDecodeConfigRejectsBlankAllowlistEntry(t *testing.T) {
+	if _, err := DecodeConfig(map[string]any{"token": "tg-token", "allowed_chat_ids": []any{" "}}); err == nil {
+		t.Fatal("blank chat allowlist entry accepted")
+	}
+	if _, err := DecodeConfig(map[string]any{"token": "tg-token", "allowed_topic_ids": []any{""}}); err == nil {
+		t.Fatal("blank topic allowlist entry accepted")
 	}
 }
 

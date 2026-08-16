@@ -31,7 +31,16 @@ var newRuntime = func(rc pkgplugins.RuntimeContext) (pkgplugins.Runtime, error) 
 		Handler:       handler,
 		Notifications: channelRuntime.Notifications(),
 		NewChannel: func(cfg pkgchannel.TelegramConfig, handler pkgchannel.Handler) (pkgchannel.Channel, error) {
-			return New(Config{InstanceID: cfg.InstanceID, Token: cfg.Token, ChannelID: cfg.ChannelID, AllowGroup: cfg.AllowGroup, AllowDM: cfg.AllowDM, RequireMention: cfg.RequireMention}, handler)
+			return New(Config{
+				InstanceID:      cfg.InstanceID,
+				Token:           cfg.Token,
+				ChannelID:       cfg.ChannelID,
+				AllowGroup:      cfg.AllowGroup,
+				AllowedChatIDs:  cfg.AllowedChatIDs,
+				AllowedTopicIDs: cfg.AllowedTopicIDs,
+				AllowDM:         cfg.AllowDM,
+				RequireMention:  cfg.RequireMention,
+			}, handler)
 		},
 	}), nil
 }
@@ -100,6 +109,8 @@ func configSchema() map[string]any {
 				"description": "Optional default channel or chat ID.",
 			},
 			"allow_group":                    map[string]any{"type": "boolean", "description": "Accept messages from Telegram groups and supergroups the bot is a member of.", "default": false},
+			"allowed_chat_ids":               map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional Telegram group or supergroup IDs allowed to use this bot. An empty list permits every group when allow_group is enabled."},
+			"allowed_topic_ids":              map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional topic IDs as chat_id:thread_id. An empty list permits every topic in allowed chats."},
 			"allow_dm":                       map[string]any{"type": "boolean", "default": true},
 			"allow_unlinked_dm":              map[string]any{"type": "boolean", "default": false},
 			"guest_message_limit_per_minute": map[string]any{"type": "integer", "minimum": 1, "maximum": pkgchannel.MaxGuestMessageLimitPerMinute, "default": pkgchannel.DefaultGuestMessageLimitPerMinute},

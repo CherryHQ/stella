@@ -42,9 +42,9 @@ The bot streams LLM responses in real time using two strategies:
 
 Uses `sendMessageDraft` for smooth animated streaming without rate-limiting issues. If the API is not available, the bot automatically falls back to edit mode.
 
-### Group Chats: Edit-in-Place
+### Group Chats and Topics: Edit-in-Place
 
-Sends an initial message and edits it periodically (every ~1 second) as tokens arrive. The streaming message is deleted once complete, then the final response is sent.
+In groups, supergroups, and forum topics, Stella sends one progress message and edits it about once per second as text or tool status changes. The same message becomes the final response; long responses continue in additional messages. Stella also keeps Telegram's typing indicator active while it works. If a response stream fails, the progress message shows a safe failure notice instead of silently disappearing.
 
 ### Tool Indicators
 
@@ -87,9 +87,11 @@ For non-image files, the agent can then use the `xberg extract` command to parse
 
 ## Group Support
 
-Group chats are off until you turn on **Allow group chats** in the Web UI. Once on, every group and supergroup the bot has been added to can use it; while off, every group message is rejected.
+Group chats are off until you turn on **Allow group chats** in the Web UI. While off, every group message is rejected. Forum topics keep separate group context and history from other topics in the same supergroup.
 
-Group messages must @mention the bot by default. You can turn off **Require a mention** to enable Stella's semantic group routing; also disable privacy mode for the bot in BotFather so it can read ordinary messages. Every member of a group the bot joined can address the bound agent, so control access through who can add the bot to a group.
+Optionally set **Allowed chat IDs** to limit the bot to specific groups, and **Allowed topic IDs** to limit it further to specific forum topics. Topic entries use `chat_id:thread_id` (for example, `-1001234567890:42`). Empty lists preserve the broad behavior: every group the bot has joined is eligible when group chats are enabled. Once either list is configured, a non-matching group or topic is rejected before it reaches the agent.
+
+Group messages must @mention the bot by default. Commands follow the same rule: use `/help@your_bot` (or reply to a bot message) in a group when mentions are required. You can turn off **Require a mention** to enable Stella's semantic group routing; also disable privacy mode for the bot in BotFather so it can read ordinary messages.
 
 ## Access Control
 
@@ -129,6 +131,8 @@ All settings below are managed through the Web UI.
 | `token`                          | Bot API token                                                 | (required) |
 | `channel_id`                     | Default proactive notification target (@name or numeric ID)   |            |
 | `allow_group`                    | Accept messages from groups the bot was added to              | `false`    |
+| `allowed_chat_ids`               | Optional group or supergroup IDs allowed to use the bot       | empty      |
+| `allowed_topic_ids`              | Optional `chat_id:thread_id` forum topics allowed to use it   | empty      |
 | `allow_dm`                       | Accept private messages and account linking                   | `true`     |
 | `allow_unlinked_dm`              | Allow restricted guest sessions for unlinked private senders  | `false`    |
 | `guest_message_limit_per_minute` | Per-guest message and command limit                           | `10`       |
@@ -136,7 +140,7 @@ All settings below are managed through the Web UI.
 | `guest_retention_days`           | Delete inactive guest identities and sessions after this time | `30`       |
 | `require_mention`                | Require an @mention in group chats                            | `true`     |
 
-`allow_group` replaces the former `allowed_chat_ids` allowlist. When upgrading, a channel that listed at least one chat ID keeps serving groups (`allow_group` becomes `true`); an empty or absent list stays closed. Note the widened reach: the switch cannot express "these chats only", so after the upgrade every group the bot belongs to can reach the agent, not just the ones you had listed. Review the bot's group memberships after upgrading, and turn the switch off if you were relying on the allowlist to exclude a group.
+When both allowlists are empty, `allow_group` keeps its backward-compatible behavior: every group the bot belongs to can reach the bound agent. Configure an allowlist when the bot is present in groups that should not have access. If both lists are set, a message must match both; a topic list never grants access to the same thread number in another chat.
 
 ## Troubleshooting
 

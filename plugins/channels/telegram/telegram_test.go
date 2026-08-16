@@ -10,16 +10,33 @@ import (
 	"github.com/CherryHQ/stella/pkg/channel"
 
 	tgmd "github.com/Mad-Pixels/goldmark-tgmd"
+	tele "gopkg.in/telebot.v4"
 )
 
 type telegramProvisioningHandler struct {
 	fakeChannelHandler
-	calls int
-	err   error
+	calls       int
+	threadCalls int
+	platform    string
+	groupID     string
+	threadID    string
+	legacyID    string
+	channelID   string
+	err         error
 }
 
-func (h *telegramProvisioningHandler) EnsurePlatformGroupMember(ctx context.Context, _, _, _ string) error {
+func (h *telegramProvisioningHandler) EnsurePlatformGroupMember(ctx context.Context, platform, groupID, channelID string) error {
 	h.calls++
+	h.platform, h.groupID, h.channelID = platform, groupID, channelID
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return h.err
+}
+
+func (h *telegramProvisioningHandler) EnsurePlatformThreadGroupMember(ctx context.Context, platform, groupID, threadID, legacyID, channelID string) error {
+	h.threadCalls++
+	h.platform, h.groupID, h.threadID, h.legacyID, h.channelID = platform, groupID, threadID, legacyID, channelID
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -28,15 +45,15 @@ func (h *telegramProvisioningHandler) EnsurePlatformGroupMember(ctx context.Cont
 
 func TestEnsureGroupMemberFailsClosedAndCachesOnlySuccess(t *testing.T) {
 	lifecycle, cancel := context.WithCancel(context.Background())
-	if (&Bot{handler: fakeChannelHandler{}, ctx: lifecycle}).ensureGroupMember("-100") {
+	if (&Bot{handler: fakeChannelHandler{}, ctx: lifecycle}).ensureGroupMember("-100", "") {
 		t.Fatal("admitted without capability")
 	}
 	h := &telegramProvisioningHandler{err: errors.New("unavailable")}
 	b := &Bot{handler: h, ctx: lifecycle}
-	if b.ensureGroupMember("-100") {
+	if b.ensureGroupMember("-100", "") {
 		t.Fatal("admitted after failure")
 	}
-	if b.ensureGroupMember("-100") {
+	if b.ensureGroupMember("-100", "") {
 		t.Fatal("admitted cached failure")
 	}
 	if h.calls != 1 {
@@ -44,12 +61,12 @@ func TestEnsureGroupMemberFailsClosedAndCachesOnlySuccess(t *testing.T) {
 	}
 	h.err = nil
 	b.provisionMu.Lock()
-	b.provisionFailures["-100"] = time.Now().Add(-time.Second)
+	b.provisionFailures["-100\x00"] = time.Now().Add(-time.Second)
 	b.provisionMu.Unlock()
-	if !b.ensureGroupMember("-100") {
+	if !b.ensureGroupMember("-100", "") {
 		t.Fatal("rejected success")
 	}
-	if !b.ensureGroupMember("-100") {
+	if !b.ensureGroupMember("-100", "") {
 		t.Fatal("rejected cached success")
 	}
 	if h.calls != 2 {
@@ -57,8 +74,63 @@ func TestEnsureGroupMemberFailsClosedAndCachesOnlySuccess(t *testing.T) {
 	}
 	cancel()
 	other := &telegramProvisioningHandler{}
-	if (&Bot{handler: other, ctx: lifecycle}).ensureGroupMember("-200") {
+	if (&Bot{handler: other, ctx: lifecycle}).ensureGroupMember("-200", "") {
 		t.Fatal("admitted after lifecycle cancellation")
+	}
+}
+
+func TestEnsureTopicGroupMemberUsesThreadIdentity(t *testing.T) {
+	h := &telegramProvisioningHandler{}
+	b := &Bot{handler: h, ctx: context.Background()}
+	if !b.ensureGroupMember("-100", "42") {
+		t.Fatal("topic rejected")
+	}
+	if h.threadCalls != 1 || h.calls != 0 {
+		t.Fatalf("calls = parent:%d topic:%d, want parent:0 topic:1", h.calls, h.threadCalls)
+	}
+	if h.platform != channel.PlatformTelegram || h.groupID != "-100" || h.threadID != "42" || h.legacyID != "" || h.channelID != channel.PlatformTelegram {
+		t.Fatalf("thread provisioning arguments = %#v", h)
+	}
+	if !b.ensureGroupMember("-100", "43") {
+		t.Fatal("second topic rejected")
+	}
+	if h.threadCalls != 2 {
+		t.Fatalf("topic calls = %d, want 2 for distinct topics", h.threadCalls)
+	}
+}
+
+func TestGroupAllowed(t *testing.T) {
+	b := &Bot{cfg: Config{AllowedChatIDs: []string{"-100"}, AllowedTopicIDs: []string{"-100:42"}}}
+	for _, tc := range []struct {
+		name          string
+		chatID, topic string
+		want          bool
+	}{
+		{name: "matching chat and topic", chatID: "-100", topic: "42", want: true},
+		{name: "wrong chat", chatID: "-200", topic: "42"},
+		{name: "wrong topic", chatID: "-100", topic: "7"},
+		{name: "no topic", chatID: "-100"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := b.groupAllowed(tc.chatID, tc.topic); got != tc.want {
+				t.Fatalf("groupAllowed(%q, %q) = %v, want %v", tc.chatID, tc.topic, got, tc.want)
+			}
+		})
+	}
+	if !(&Bot{}).groupAllowed("-200", "") {
+		t.Fatal("empty allowlists must preserve existing allow_group behavior")
+	}
+	if !(&Bot{cfg: Config{AllowedChatIDs: []string{"-100"}}}).groupAllowed("-100", "") {
+		t.Fatal("chat-only allowlist rejected matching chat")
+	}
+}
+
+func TestTelegramTopicIDRejectsOrdinaryReplies(t *testing.T) {
+	if got := telegramTopicID(&tele.Message{ThreadID: 42}); got != "" {
+		t.Fatalf("ordinary reply thread ID = %q, want empty", got)
+	}
+	if got := telegramTopicID(&tele.Message{TopicMessage: true, ThreadID: 42}); got != "42" {
+		t.Fatalf("forum topic ID = %q, want 42", got)
 	}
 }
 
@@ -173,11 +245,11 @@ func TestRenderMarkdownEmpty(t *testing.T) {
 
 func TestBotCommands(t *testing.T) {
 	commands := botCommands()
-	if len(commands) != 5 {
-		t.Fatalf("len(commands) = %d, want 5", len(commands))
+	if len(commands) != 6 {
+		t.Fatalf("len(commands) = %d, want 6", len(commands))
 	}
 
-	want := []string{"start", "new", "compact", "abort", "whoami"}
+	want := []string{"start", "help", "new", "compact", "abort", "whoami"}
 	for i, cmd := range commands {
 		if cmd.Text != want[i] {
 			t.Errorf("commands[%d].Text = %q, want %q", i, cmd.Text, want[i])
