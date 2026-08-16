@@ -93,7 +93,7 @@ func feishuFileType(name string) string {
 }
 
 // sendFile uploads a local file to Feishu and sends it as a file message reply.
-func (b *Bot) sendFile(chatID, replyMsgID string, file channel.FileEvent) {
+func (b *Bot) sendFile(chatID, replyMsgID string, file channel.FileEvent, replyInThread bool) {
 	f, err := os.Open(file.Path)
 	if err != nil {
 		logger().Error("open file failed", "path", file.Path, "error", err)
@@ -139,10 +139,7 @@ func (b *Bot) sendFile(chatID, replyMsgID string, file channel.FileEvent) {
 	resp, err := b.client.Im.Message.Reply(replyCtx,
 		larkim.NewReplyMessageReqBuilder().
 			MessageId(replyMsgID).
-			Body(larkim.NewReplyMessageReqBodyBuilder().
-				MsgType(larkim.MsgTypeFile).
-				Content(string(content)).
-				Build()).
+			Body(replyMessageBody(larkim.MsgTypeFile, string(content), replyInThread)).
 			Build())
 	if err != nil {
 		logger().Error("send file failed", "error", err)
@@ -155,7 +152,7 @@ func (b *Bot) sendFile(chatID, replyMsgID string, file channel.FileEvent) {
 
 // sendImage decodes a base64 image, uploads it to Feishu to obtain an image_key,
 // then sends it as an image message in the chat.
-func (b *Bot) sendImage(chatID, replyMsgID string, img channel.ImageEvent) {
+func (b *Bot) sendImage(chatID, replyMsgID string, img channel.ImageEvent, replyInThread bool) {
 	data, err := base64.StdEncoding.DecodeString(img.Data)
 	if err != nil {
 		logger().Error("decode image failed", "error", err)
@@ -196,10 +193,7 @@ func (b *Bot) sendImage(chatID, replyMsgID string, img channel.ImageEvent) {
 	resp, err := b.client.Im.Message.Reply(replyCtx,
 		larkim.NewReplyMessageReqBuilder().
 			MessageId(replyMsgID).
-			Body(larkim.NewReplyMessageReqBodyBuilder().
-				MsgType(larkim.MsgTypeImage).
-				Content(string(content)).
-				Build()).
+			Body(replyMessageBody(larkim.MsgTypeImage, string(content), replyInThread)).
 			Build())
 	if err != nil {
 		logger().Error("send image failed", "error", err)

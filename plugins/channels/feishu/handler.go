@@ -450,7 +450,7 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 	logger().Debug("message received", "sender_id", senderID, "session", stream.SessionID, "root_id", rootID)
 
 	cancelControl := b.newDirectCancelControl(ctx, msg, senderID)
-	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThread(stream.Events, chatID, messageID, rootID, cancelControl)
+	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThread(ctx, stream.Events, chatID, messageID, rootID, cancelControl)
 
 	b.removeReaction(messageID, ackReactionID)
 
@@ -475,7 +475,7 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 	// Append elapsed time footer to the final response.
 	finalResponse := response + elapsedFooter(elapsed)
 
-	if err := b.sendFinalResponseInThread(chatID, messageID, rootID, sentMsgID, finalResponse, refs, msg.IsGroup); err != nil {
+	if err := b.sendFinalResponseInThread(ctx, chatID, messageID, rootID, sentMsgID, finalResponse, refs, msg.IsGroup, true); err != nil {
 		logger().Error("Feishu response delivery failed", "chat_id", chatID, "root_id", rootID, "message_id", messageID, "error", err)
 		return
 	}
@@ -496,7 +496,7 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 // actually builds. If the card build fails it degrades to genuine plain text
 // (directives stripped) rather than sending an interactive type with text-shaped
 // content, which Feishu rejects.
-func (b *Bot) replyText(ctx context.Context, messageID, text string) error {
+func (b *Bot) replyText(ctx context.Context, messageID, text string, replyInThread bool) error {
 	msgType := larkim.MsgTypeText
 	content := textContent(text)
 	if cardButtonDirective.MatchString(text) {
@@ -516,10 +516,7 @@ func (b *Bot) replyText(ctx context.Context, messageID, text string) error {
 		resp, err := b.client.Im.Message.Reply(ctx,
 			larkim.NewReplyMessageReqBuilder().
 				MessageId(messageID).
-				Body(larkim.NewReplyMessageReqBodyBuilder().
-					MsgType(msgType).
-					Content(content).
-					Build()).
+				Body(replyMessageBody(msgType, content, replyInThread)).
 				Build())
 		if err != nil {
 			return err

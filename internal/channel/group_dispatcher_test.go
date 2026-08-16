@@ -1138,6 +1138,9 @@ func TestExecuteDispatchAbortClosureUsesSessionQueueGroupKey(t *testing.T) {
 	if publisher.req.Abort == nil {
 		t.Fatal("Abort is nil, want a closure targeting the dispatch's session queue slot")
 	}
+	if publisher.req.FinalAttempt {
+		t.Fatal("FinalAttempt = true on the first dispatch attempt")
+	}
 	if !publisher.req.Abort() {
 		t.Fatal("Abort() = false, want true: it should cancel the active slot keyed by agent.BuildGroupSessionKey(agent-1, group)")
 	}
@@ -1146,6 +1149,20 @@ func TestExecuteDispatchAbortClosureUsesSessionQueueGroupKey(t *testing.T) {
 	}
 	if wrongCalled {
 		t.Fatal("Abort() cancelled the wrong agent's session slot")
+	}
+}
+
+func TestExecuteDispatchMarksFinalPublishAttempt(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	fx.d.maxAttempts = 1
+	publisher := &capturingGroupPublisher{}
+	fx.d.publishers.Register("ch-1", publisher)
+
+	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
+		t.Fatalf("process outbox: %v", err)
+	}
+	if !publisher.req.FinalAttempt {
+		t.Fatal("FinalAttempt = false, want true when the current attempt exhausts the dispatcher budget")
 	}
 }
 

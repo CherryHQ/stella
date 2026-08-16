@@ -125,7 +125,7 @@ Tool activity from the assistant is summarized inline during streaming.
 
 An in-progress response includes a native **Cancel** card button. Only the person who started that response can cancel it; after cancellation, the card ends with a clear cancelled state. You can still use `/abort` when typing a command is more convenient.
 
-Stella retries transient card reply and update failures up to three times. If all attempts fail, it makes a best effort to replace the progress card with a delivery-failure notice so you know to retry. Group delivery is at-least-once, not exactly-once: a retry after an uncertain Feishu API result can produce a duplicate response.
+Stella retries transient card reply and update failures up to three times. In a private chat, exhausted retries make a best effort to replace the progress card with a delivery-failure notice. In a group, Stella keeps retrying through its existing delivery queue and shows that terminal notice only after the final queue attempt fails. Group delivery is at-least-once, not exactly-once: a retry after an uncertain Feishu API result can produce a duplicate response.
 
 ## Rich Card Rendering
 

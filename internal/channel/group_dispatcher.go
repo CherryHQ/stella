@@ -626,6 +626,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		RequesterID:       message.ActorID,
 		LifecycleFeedback: envelope.LifecycleFeedback,
 		Abort:             func() bool { return d.queue.Abort(sessionKey) },
+		FinalAttempt:      claimed.AttemptCount >= d.maxAttempts,
 	}); err != nil {
 		return d.failDispatch(ctx, claimed, fmt.Errorf("publish: %w", err))
 	}
