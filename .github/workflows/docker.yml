@@ -79,7 +79,7 @@ jobs:
           # missed every time too. The GitHub Actions cache needs no registry
           # push, which is what makes it usable on a pull_request run.
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: type=gha,mode=min
           build-args: |
             VERSION=${{ github.sha }}
           secrets: |

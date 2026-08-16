@@ -38,13 +38,10 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      # This job runs golangci-lint over the whole module via the prek hook, so
-      # it wants the lint cache the other jobs have no use for.
       - name: Restore toolchain caches
         uses: ./.github/actions/toolchain-caches
         with:
           scope: format
-          lint: "true"
 
       - name: Generate code and check drift
         run: mise run generate:check
@@ -71,19 +68,12 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       # Scoped "race": these objects are built with -race and must not share a
-      # key with the Format job's plain ones.
+      # build cache key with the Format job's plain ones.
       - name: Restore toolchain caches
         uses: ./.github/actions/toolchain-caches
         with:
           scope: race
-
-      # The runtime tarball is immutable per RuntimeVersion, so the version
-      # constant is the whole cache key. A miss just re-downloads it.
-      - name: Cache embedded PostgreSQL runtime
-        uses: actions/cache@v4
-        with:
-          path: ~/.stella/pg-runtime
-          key: pg-runtime-${{ runner.os }}-${{ hashFiles('internal/pgruntime/runtime.go') }}
+          pg: "true"
 
       - name: Install bubblewrap
         run: |
