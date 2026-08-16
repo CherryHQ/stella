@@ -2,6 +2,7 @@ package feishu
 
 import (
 	"context"
+	"fmt"
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
@@ -21,6 +22,46 @@ func (b *Bot) groupSystemPrompt(chatID string) string {
 type groupMemberProvisioner interface {
 	EnsurePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error
 	RemovePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error
+}
+
+type threadGroupMemberProvisioner interface {
+	EnsurePlatformThreadGroupMember(ctx context.Context, platform, platformGroupID, platformThreadID, legacyPlatformGroupID, channelID string) error
+}
+
+const threadProvisionCacheLimit = 512
+
+// ensureThreadGroupMember creates the thread-specific group row before its
+// first message reaches the dispatcher. Feishu has always used (chat_id,
+// root_id), so there is deliberately no legacy parent-group adoption.
+func (b *Bot) ensureThreadGroupMember(ctx context.Context, chatID, rootID string) error {
+	if chatID == "" || rootID == "" {
+		return nil
+	}
+	provisioner, ok := b.handler.(threadGroupMemberProvisioner)
+	if !ok {
+		return nil
+	}
+	cacheKey := chatID + "\x00" + rootID
+	b.threadProvisionMu.Lock()
+	_, provisioned := b.threadProvisioned[cacheKey]
+	b.threadProvisionMu.Unlock()
+	if provisioned {
+		return nil
+	}
+	if err := provisioner.EnsurePlatformThreadGroupMember(ctx, channel.PlatformFeishu, chatID, rootID, "", b.Name()); err != nil {
+		return fmt.Errorf("ensure Feishu thread group member: %w", err)
+	}
+	b.threadProvisionMu.Lock()
+	if b.threadProvisioned == nil {
+		b.threadProvisioned = make(map[string]struct{})
+	}
+	if len(b.threadProvisioned) >= threadProvisionCacheLimit {
+		// Bounded cache; repeated coordinator provisioning is idempotent.
+		clear(b.threadProvisioned)
+	}
+	b.threadProvisioned[cacheKey] = struct{}{}
+	b.threadProvisionMu.Unlock()
+	return nil
 }
 
 func (b *Bot) onBotAdded(_ context.Context, event *larkim.P2ChatMemberBotAddedV1) error {

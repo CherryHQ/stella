@@ -218,6 +218,16 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	incoming.Timestamp = feishuEventTime(derefStr(msg.CreateTime))
 	incoming.Mentions = feishuMentions(mentions)
 
+	if incoming.IsGroup && rootID != "" {
+		provisionCtx, provisionCancel := b.apiContext()
+		err := b.ensureThreadGroupMember(provisionCtx, chatID, rootID)
+		provisionCancel()
+		if err != nil {
+			b.forgetSeen(messageID)
+			return err
+		}
+	}
+
 	// Handle the plugin-local OAuth shortcut first.
 	if text != "" {
 		cmd, args := channel.ParseSlashCommand(text)
@@ -439,11 +449,16 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 
 	logger().Debug("message received", "sender_id", senderID, "session", stream.SessionID, "root_id", rootID)
 
-	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThread(stream.Events, chatID, messageID, rootID)
+	cancelControl := b.newDirectCancelControl(ctx, msg, senderID)
+	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThread(ctx, stream.Events, chatID, messageID, rootID, cancelControl)
 
 	b.removeReaction(messageID, ackReactionID)
 
-	if streamErr != nil {
+	if cancelControl.wasCancelled() {
+		response = "⏹️ Cancelled."
+		images = nil
+		files = nil
+	} else if streamErr != nil {
 		logger().Error("agent stream error", "session_id", stream.SessionID, "error", streamErr)
 		b.reactToMessage(messageID, reactionError)
 		if response == "" {
@@ -460,7 +475,10 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 	// Append elapsed time footer to the final response.
 	finalResponse := response + elapsedFooter(elapsed)
 
-	b.sendFinalResponseInThread(chatID, messageID, rootID, sentMsgID, finalResponse, refs, msg.IsGroup)
+	if err := b.sendFinalResponseInThread(ctx, chatID, messageID, rootID, sentMsgID, finalResponse, refs, msg.IsGroup, true); err != nil {
+		logger().Error("Feishu response delivery failed", "chat_id", chatID, "root_id", rootID, "message_id", messageID, "error", err)
+		return
+	}
 
 	for _, img := range images {
 		b.sendImageInThread(chatID, messageID, rootID, img)
@@ -478,10 +496,7 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 // actually builds. If the card build fails it degrades to genuine plain text
 // (directives stripped) rather than sending an interactive type with text-shaped
 // content, which Feishu rejects.
-func (b *Bot) replyText(ctx context.Context, messageID, text string) {
-	if b.client == nil {
-		return
-	}
+func (b *Bot) replyText(ctx context.Context, messageID, text string, replyInThread bool) error {
 	msgType := larkim.MsgTypeText
 	content := textContent(text)
 	if cardButtonDirective.MatchString(text) {
@@ -492,22 +507,29 @@ func (b *Bot) replyText(ctx context.Context, messageID, text string) {
 			content = textContent(stripCardDirectives(text))
 		}
 	}
-
-	resp, err := b.client.Im.Message.Reply(ctx,
-		larkim.NewReplyMessageReqBuilder().
-			MessageId(messageID).
-			Body(larkim.NewReplyMessageReqBodyBuilder().
-				MsgType(msgType).
-				Content(content).
-				Build()).
-			Build())
+	if b.client == nil {
+		err := errors.New("feishu client is not initialized")
+		logger().Error("reply failed", "message_id", messageID, "error", err)
+		return err
+	}
+	err := b.retryFeishuSend(ctx, "reply text", func(ctx context.Context) error {
+		resp, err := b.client.Im.Message.Reply(ctx,
+			larkim.NewReplyMessageReqBuilder().
+				MessageId(messageID).
+				Body(replyMessageBody(msgType, content, replyInThread)).
+				Build())
+		if err != nil {
+			return err
+		}
+		if !resp.Success() {
+			return &feishuAPIError{code: resp.Code, msg: resp.Msg}
+		}
+		return nil
+	})
 	if err != nil {
 		logger().Error("reply failed", "message_id", messageID, "error", err)
-		return
 	}
-	if !resp.Success() {
-		logger().Error("reply failed", "message_id", messageID, "code", resp.Code, "msg", resp.Msg)
-	}
+	return err
 }
 
 func (b *Bot) admitIngress(chatID, chatType string, directed, mentioned bool) bool {

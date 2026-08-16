@@ -121,6 +121,12 @@ The bot streams responses by editing messages in place:
 
 Tool activity from the assistant is summarized inline during streaming.
 
+### Cancellation and delivery
+
+An in-progress response includes a native **Cancel** card button. Only the person who started that response can cancel it; after cancellation, the card ends with a clear cancelled state. You can still use `/abort` when typing a command is more convenient.
+
+Stella retries transient card reply and update failures up to three times. In a private chat, exhausted retries make a best effort to replace the progress card with a delivery-failure notice. In a group, Stella keeps retrying through its existing delivery queue and shows that terminal notice only after the final queue attempt fails. Group delivery is at-least-once, not exactly-once: a retry after an uncertain Feishu API result can produce a duplicate response.
+
 ## Rich Card Rendering
 
 Responses from the AI are rendered as [Feishu Card JSON 2.0](https://open.feishu.cn/document/uAjLw4CM/ukzMukzMukzM/feishu-cards/feishu-cards-v2/introduction-to-feishu-card-json-structure) messages, not plain text. This gives you native formatting inside Feishu.
@@ -187,7 +193,7 @@ Consecutive buttons are grouped horizontally. A single button takes a full row.
 
 ## Native Threading
 
-When you message inside a Feishu thread, Stella keeps the response in that thread and scopes the session to the thread root. Replies outside threads stay in the parent chat session.
+When you message inside a Feishu thread, Stella keeps the response in that thread and scopes the group conversation to the thread root. Replies outside threads stay in the parent chat session. Each thread is initialized independently when its first message arrives, so it does not silently fall back to its parent chat's context.
 
 ## Group Behavior
 

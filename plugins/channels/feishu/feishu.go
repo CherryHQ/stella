@@ -77,6 +77,9 @@ type Bot struct {
 	listChats               listChatsFunc
 	fetchTenantProfileFn    tenantProfileFetcher   // test seam; production uses Contact API
 	resolveMessageContextFn messageContextResolver // test seam; production uses Message and Chat APIs
+	replyCardFn             func(context.Context, string, string) (string, error)
+	patchCardFn             func(context.Context, string, string) error
+	retryPauseFn            func(context.Context, time.Duration) error
 	handler                 channel.Handler
 
 	botOpenID atomic.Value // bot's own open_id (string), fetched on startup
@@ -95,6 +98,10 @@ type Bot struct {
 	chatTypes sync.Map // chatID -> "p2p" | "group", cached from Get Chat API
 	unionIDs  sync.Map // openID -> unionID, populated by onMessage for card action lookups
 
+	threadProvisionMu sync.Mutex
+	threadProvisioned map[string]struct{} // chat_id + NUL + root_id; bounded cache
+	cancels           *cancelRegistry
+
 	cfg    Config
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -111,10 +118,12 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	}
 
 	b := &Bot{
-		handler:     handler,
-		seenMsgs:    make(map[string]time.Time),
-		provisioned: make(map[string]time.Time),
-		cfg:         cfg,
+		handler:           handler,
+		seenMsgs:          make(map[string]time.Time),
+		provisioned:       make(map[string]time.Time),
+		threadProvisioned: make(map[string]struct{}),
+		cancels:           newCancelRegistry(),
+		cfg:               cfg,
 	}
 	if registrar, ok := handler.(interface {
 		RegisterGroupPublisher(string, internalchannel.GroupPublisher)
@@ -385,6 +394,17 @@ func (b *Bot) markSeen(messageID string) bool {
 	}
 	b.seenMsgs[messageID] = now
 	return false
+}
+
+// forgetSeen allows an event rejected by a transient pre-dispatch dependency
+// to be redelivered. It is never used after the coordinator accepts a turn.
+func (b *Bot) forgetSeen(messageID string) {
+	if messageID == "" {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.seenMsgs, messageID)
 }
 
 // stripMentions removes @mention placeholders from message text.
