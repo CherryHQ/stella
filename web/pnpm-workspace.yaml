@@ -16,6 +16,12 @@ overrides:
   postcss: ">=8.5.10"
   dompurify: ">=3.4.9"
   js-yaml: ">=4.2.0"
+  # Transitive through postcss, whose range is ^3.3.12. Dependabot cannot fix a
+  # pnpm dependency that nothing depends on directly — it reports
+  # security_update_not_possible — so the override is the only lever. The <4
+  # bound is load-bearing: an open-ended override resolves to nanoid 6, which is
+  # ESM-only and breaks postcss's require().
+  nanoid: ">=3.3.18 <4"
 peerDependencyRules:
   allowAny:
     - vite
