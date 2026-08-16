@@ -38,6 +38,11 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Restore toolchain caches
+        uses: ./.github/actions/toolchain-caches
+        with:
+          scope: format
+
       - name: Generate code and check drift
         run: mise run generate:check
 
@@ -61,6 +66,14 @@ jobs:
           install: true
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Scoped "race": these objects are built with -race and must not share a
+      # build cache key with the Format job's plain ones.
+      - name: Restore toolchain caches
+        uses: ./.github/actions/toolchain-caches
+        with:
+          scope: race
+          pg: "true"
 
       - name: Install bubblewrap
         run: |
@@ -152,6 +165,13 @@ jobs:
           install_args: go
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      # No Node or lint work here: this job only compiles Go.
+      - name: Restore toolchain caches
+        uses: ./.github/actions/toolchain-caches
+        with:
+          scope: windows
+          node: "false"
 
       - name: Test Windows resource bundle portability
         run: mise exec -- go test ./resources -run '^TestBuiltinBundleWindowsFilesystemModes$' -count=1

@@ -65,15 +65,10 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Cache Go build
-        uses: actions/cache@v4
+      - name: Restore toolchain caches
+        uses: ./.github/actions/toolchain-caches
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
+          scope: release-verify
 
       - name: Generate code and check drift
         run: mise run generate:check
@@ -110,17 +105,11 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Cache Go build and PostgreSQL runtime
-        uses: actions/cache@v4
+      - name: Restore toolchain caches
+        uses: ./.github/actions/toolchain-caches
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-            ~/.stella/pg-runtime
-          key: ${{ runner.os }}-tests-${{ hashFiles('**/go.sum', 'internal/pgruntime/**') }}
-          restore-keys: |
-            ${{ runner.os }}-tests-
-            ${{ runner.os }}-go-
+          scope: release-tests
+          pg: "true"
 
       - name: Install bubblewrap
         run: |
@@ -163,17 +152,11 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Cache Go build and PostgreSQL runtime
-        uses: actions/cache@v4
+      - name: Restore toolchain caches
+        uses: ./.github/actions/toolchain-caches
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-            ~/.stella/pg-runtime
-          key: ${{ runner.os }}-system-${{ hashFiles('**/go.sum', 'internal/pgruntime/**') }}
-          restore-keys: |
-            ${{ runner.os }}-system-
-            ${{ runner.os }}-go-
+          scope: release-system
+          pg: "true"
 
       - name: Install bubblewrap
         run: |
@@ -215,16 +198,10 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Cache Go build
-        uses: actions/cache@v4
+      - name: Restore toolchain caches
+        uses: ./.github/actions/toolchain-caches
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-snapshot-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-snapshot-
-            ${{ runner.os }}-go-
+          scope: release-snapshot
 
       - name: Check GoReleaser configuration
         run: mise run release:check
@@ -255,15 +232,10 @@ jobs:
 
       # No setup-vp or setup-node action: mise owns global Vite+ and Node for
       # every build. Vite+ resolves pnpm from web/package.json.
-      - name: Cache Go build
-        uses: actions/cache@v4
+      - name: Restore toolchain caches
+        uses: ./.github/actions/toolchain-caches
         with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
+          scope: release-goreleaser
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6

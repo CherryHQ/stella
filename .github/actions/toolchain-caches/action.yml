@@ -1,0 +1,94 @@
+name: Toolchain caches
+description: >-
+  Restore the caches every Stella job otherwise rebuilds from cold. mise-action's
+  own `cache: true` covers only the tools mise installs, so without this a job
+  recompiles the whole Go module, re-downloads 576 npm packages, re-fetches
+  dprint's WASM plugins, and re-downloads the PostgreSQL runtime.
+
+  Only the Go *build* cache is scoped per job. Everything else is byte-identical
+  across jobs, and the repository shares a 10 GB cache budget that these entries
+  can exhaust on their own — a duplicate copy is not free, it evicts something
+  another job needed.
+
+inputs:
+  scope:
+    description: >-
+      Namespace for the Go build cache only. Jobs whose compiled objects differ
+      need different scopes: race-instrumented objects are a separate build
+      graph, so sharing a key would make those jobs evict each other every run.
+    required: true
+  go:
+    description: Cache GOCACHE and GOMODCACHE.
+    required: false
+    default: "true"
+  node:
+    description: Cache the pnpm store and dprint's plugin cache.
+    required: false
+    default: "true"
+  pg:
+    description: Cache the embedded PostgreSQL runtime.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    # Resolved rather than hardcoded: mise owns the toolchain, and Windows puts
+    # both caches somewhere else entirely.
+    - name: Resolve Go cache paths
+      if: inputs.go == 'true'
+      id: go-paths
+      shell: bash
+      run: |
+        echo "build=$(mise exec -- go env GOCACHE)" >> "$GITHUB_OUTPUT"
+        echo "mod=$(mise exec -- go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+
+    # Downloaded module source, identical for every job on a given go.sum.
+    # Unscoped on purpose: this is the larger half of a Go cache, and scoping it
+    # stored the same ~500 MB once per job.
+    - name: Cache Go module cache
+      if: inputs.go == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.go-paths.outputs.mod }}
+        key: gomod-${{ runner.os }}-${{ hashFiles('go.sum') }}
+        restore-keys: |
+          gomod-${{ runner.os }}-
+
+    # Compiled objects, which genuinely differ per job. restore-keys fall back
+    # progressively because this cache is content-addressed: a partial hit after
+    # a go.sum change still carries most of the saving.
+    - name: Cache Go build cache
+      if: inputs.go == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.go-paths.outputs.build }}
+        key: gobuild-${{ inputs.scope }}-${{ runner.os }}-${{ hashFiles('mise.toml') }}-${{ hashFiles('go.sum') }}
+        restore-keys: |
+          gobuild-${{ inputs.scope }}-${{ runner.os }}-${{ hashFiles('mise.toml') }}-
+          gobuild-${{ inputs.scope }}-${{ runner.os }}-
+
+    # Both pnpm store locations are listed because the path depends on the pnpm
+    # version vp delegates to. A path that does not exist is skipped, so a wrong
+    # guess degrades to today's behaviour rather than failing.
+    - name: Cache pnpm store and dprint plugins
+      if: inputs.node == 'true'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.local/share/pnpm/store
+          ~/.cache/pnpm
+          ~/.cache/dprint
+        key: node-${{ runner.os }}-${{ hashFiles('web/pnpm-lock.yaml', 'web/pnpm-workspace.yaml', 'dprint.json') }}
+        restore-keys: |
+          node-${{ runner.os }}-
+
+    # The runtime tarball is immutable per pgruntime.RuntimeVersion, so hashing
+    # that file is the whole key. Over-invalidating on an unrelated edit to it
+    # costs exactly one re-download.
+    - name: Cache embedded PostgreSQL runtime
+      if: inputs.pg == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ~/.stella/pg-runtime
+        key: pg-runtime-${{ runner.os }}-${{ hashFiles('internal/pgruntime/runtime.go') }}
