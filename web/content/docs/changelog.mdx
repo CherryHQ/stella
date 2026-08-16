@@ -11,9 +11,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.64.0] - 2026-08-16
+
+### ⚠️ Breaking Changes
+
+- Group access on Telegram, Feishu, DingTalk, and Discord is now a single `allow_group` boolean, defaulting to `false`, replacing the per-platform group ID allowlists (`allowed_chat_ids`, `allowed_conversation_ids`, `allowed_guild_ids`). Those IDs were not obtainable from any platform client — the documented way to find one was to let a group message be rejected and then dig the ID out of server logs — while member provisioning, `require_mention` (on by default), and guest quotas already stand between an unknown group and an Agent. Deployments using an allowlist must set `allow_group` explicitly. ([#1009](https://github.com/CherryHQ/stella/pull/1009), [#1008](https://github.com/CherryHQ/stella/issues/1008))
+
+### ✨ Features
+
+- DingTalk joins Telegram, Discord, QQ, Feishu, and WeChat as a first-class channel, using the official Stream SDK so direct messages and trusted groups reach Stella without exposing a public callback URL. Includes Web UI configuration, account linking, notifications, and bilingual documentation. ([#1000](https://github.com/CherryHQ/stella/pull/1000), [#999](https://github.com/CherryHQ/stella/issues/999))
+- Discord replies are now interactive and thread-aware: continuous typing with an editable progress message during long runs, native DM slash commands, lifecycle reactions, requester-bound cancellation, forum and thread history, and long-message splitting that respects Unicode and code fences. Previously a long run gave no feedback at all until it finished. ([#1019](https://github.com/CherryHQ/stella/pull/1019), [#1005](https://github.com/CherryHQ/stella/issues/1005), [#1006](https://github.com/CherryHQ/stella/issues/1006))
+- Telegram forum topics are now distinct group identities with their own bindings, and group turns stream through one topic-aware editable message with typing, coalesced tool and text updates, safe failure handling, and bounded flood-control retries. Group commands follow normal addressing rules, and `/help` is registered. ([#1023](https://github.com/CherryHQ/stella/pull/1023), [#1022](https://github.com/CherryHQ/stella/issues/1022))
+- Telegram messages now carry a reaction lifecycle: 🤔 marks a turn as picked up and is cleared when the answer lands, with 👎 left behind only on failure. Success adds no emoji, since the reply itself is the signal and every reaction plays an animation. ([#1029](https://github.com/CherryHQ/stella/pull/1029), [#1028](https://github.com/CherryHQ/stella/issues/1028))
+- Feishu thread delivery now provisions thread groups lazily before dispatch, offers a requester-bound native Cancel card for direct and group streams, replies explicitly in-thread, and retries transient card failures instead of reporting a delivery error that was never terminal. ([#1021](https://github.com/CherryHQ/stella/pull/1021), [#1020](https://github.com/CherryHQ/stella/issues/1020))
+- The Stella Library gains a scoped management API and two Web UI pages covering list, get, multipart upload, filename search, keyset pagination, quota display, status refresh, and deletion across `user`, `user_agent`, `system`, and `system_agent` scopes. Administrator-only scopes stay server-enforced, and a rejected upload no longer consumes an untrusted large request body first. ([#872](https://github.com/CherryHQ/stella/pull/872), [#842](https://github.com/CherryHQ/stella/issues/842))
+- Knowledge files now accept PDF and DOCX alongside Markdown and plain text. Text formats use the built-in parser; document formats route through a bounded, optional Xberg CLI adapter, with parser profiles made media-type-specific so another parser can replace Xberg without touching the Library lifecycle. OCR is not yet supported. ([#988](https://github.com/CherryHQ/stella/pull/988))
+- Personal Settings under `/settings/*` are now separate from deployment administration under `/admin/*`, with resource ownership rather than the viewer's role deciding the surface. Admins keep their own personal Skills, MCP servers, connections, vault entries, and Library while separately managing deployment-wide resources. ([#976](https://github.com/CherryHQ/stella/pull/976), [#975](https://github.com/CherryHQ/stella/issues/975))
+- Editing one field of a builtin plugin now stores only the fields that differ from what the server ships, instead of freezing the whole plugin at the version it had when someone first touched it. Every later release's improvements to untouched fields now arrive as intended. ([#964](https://github.com/CherryHQ/stella/pull/964), [#963](https://github.com/CherryHQ/stella/issues/963))
+- Sandbox mise configuration is now layered across mise's native system, principal-global, and workspace scopes, so `mise use --global` writes personal defaults to a writable shared config instead of failing against Stella's read-only builtin config. ([#1015](https://github.com/CherryHQ/stella/pull/1015), [#1014](https://github.com/CherryHQ/stella/issues/1014))
+- Builtin Skills now ship as one immutable, release-owned bundle rather than being rewritten under `$STELLA_HOME` and scanned back in, which also stops executable modes from being lost. ([#831](https://github.com/CherryHQ/stella/pull/831))
+- Mutable System, System-Agent, User, and User-Agent Skill bytes now live on authorized typed Home POSIX roots with exact content-digest concurrency control. PostgreSQL remains the identity, policy, usage, and provenance control plane. ([#1001](https://github.com/CherryHQ/stella/pull/1001))
+
 ### 🐛 Bug Fixes
 
+- Agent owners regain the actions that were wrongly restricted to administrators, and plugins can be removed again. ([#956](https://github.com/CherryHQ/stella/pull/956), [#955](https://github.com/CherryHQ/stella/issues/955), [#957](https://github.com/CherryHQ/stella/issues/957))
+- Feishu no longer panics on autolink rendering, `<details>` blocks now render, and Telegram stops silently dropping message content. ([#1027](https://github.com/CherryHQ/stella/pull/1027), [#1024](https://github.com/CherryHQ/stella/issues/1024))
+- Sandbox shell execution paths are stable again across backends. ([#1017](https://github.com/CherryHQ/stella/pull/1017), [#1016](https://github.com/CherryHQ/stella/issues/1016), [#1018](https://github.com/CherryHQ/stella/issues/1018))
+- Archived conversations no longer surface in memory recall. ([#996](https://github.com/CherryHQ/stella/pull/996), [#994](https://github.com/CherryHQ/stella/issues/994))
+- Turns containing parallel tool calls are preserved in memory instead of being dropped. ([#997](https://github.com/CherryHQ/stella/pull/997), [#995](https://github.com/CherryHQ/stella/issues/995))
+- Library retrieval uses a tool name every provider accepts. ([#993](https://github.com/CherryHQ/stella/pull/993), [#991](https://github.com/CherryHQ/stella/issues/991))
+- The Xberg runtime is bundled with the release, so document parsing works without a separate install. ([#989](https://github.com/CherryHQ/stella/pull/989))
+- Authenticated logins land on the agents page instead of an intermediate route. ([#966](https://github.com/CherryHQ/stella/pull/966), [#965](https://github.com/CherryHQ/stella/issues/965))
 - Upgraded deployments now restore Stella-managed Lark/Feishu credentials to new `lark-cli` sessions instead of letting a legacy plugin override hide the token, App ID, and brand environment variables. Stella also stops forcing the retired user-managed CLI config and data directories. ([#987](https://github.com/CherryHQ/stella/pull/987), [#986](https://github.com/CherryHQ/stella/issues/986))
+
+### 🔐 Security
+
+- `nanoid` is pinned to a non-vulnerable 3.x release. It reaches the tree only through `postcss`, which Dependabot's updater cannot fix on its own. ([#1038](https://github.com/CherryHQ/stella/pull/1038))
+
+### ♻️ Refactoring
+
+- Sandbox and storage now share one deterministic POSIX namespace: upper layers use canonical process-visible paths, while physical host paths and mount-source resolution stay provider-private. Workspace API operations act on that namespace directly after authorization, without starting or waking Session compute. ([#886](https://github.com/CherryHQ/stella/pull/886), [#888](https://github.com/CherryHQ/stella/pull/888), [#1007](https://github.com/CherryHQ/stella/pull/1007))
+- The manifest plugin definition type is split for clarity. ([#968](https://github.com/CherryHQ/stella/pull/968), [#967](https://github.com/CherryHQ/stella/issues/967))
+
+### 🔧 CI
+
+- CI now caches the Go build cache, module cache, node toolchain, and embedded PostgreSQL runtime through one shared composite action, cutting the Test job from about 11 minutes to under 6. ([#1032](https://github.com/CherryHQ/stella/pull/1032), [#1031](https://github.com/CherryHQ/stella/issues/1031))
+- The bundled toolchain is upgraded, and the sandbox image pins a published mise image tag. ([#1037](https://github.com/CherryHQ/stella/pull/1037))
+
+**Full Changelog**: [v0.63.3...v0.64.0](https://github.com/CherryHQ/stella/compare/v0.63.3...v0.64.0)
 
 ## [0.63.3] - 2026-08-11
 
