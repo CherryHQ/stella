@@ -3,6 +3,7 @@ package feishu
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/renderrefs"
@@ -21,13 +22,13 @@ func threadReplyTarget(messageID, rootID string) string {
 // replyInThread sends a text reply. When rootID is non-empty, the reply
 // targets the root message so it appears in the thread.
 func (b *Bot) replyInThread(ctx context.Context, messageID, rootID, text string) {
-	b.replyText(ctx, threadReplyTarget(messageID, rootID), text)
+	if err := b.replyText(ctx, threadReplyTarget(messageID, rootID), text); err != nil {
+		logger().Error("reply in thread failed", "message_id", messageID, "root_id", rootID, "error", err)
+	}
 }
 
-func (b *Bot) sendPlainTextReply(messageID, text string) {
-	apiCtx, cancel := b.apiContext()
-	defer cancel()
-	b.replyText(apiCtx, messageID, text)
+func (b *Bot) sendPlainTextReply(messageID, text string) error {
+	return b.replyText(context.Background(), messageID, text)
 }
 
 // sendCardReplyInThread sends a card reply in the correct thread context.
@@ -37,50 +38,72 @@ func (b *Bot) sendCardReplyInThread(rootID, replyMsgID, text string) (string, er
 }
 
 // sendFinalResponseInThread delivers the completed response with thread awareness.
-func (b *Bot) sendFinalResponseInThread(chatID, replyMsgID, rootID, sentMsgID, response string, refs []renderrefs.Reference, isGroup bool) {
+// It returns an egress error to the group dispatcher so its existing outbox
+// retry path preserves at-least-once delivery.
+func (b *Bot) sendFinalResponseInThread(chatID, replyMsgID, rootID, sentMsgID, response string, refs []renderrefs.Reference, isGroup bool) error {
 	replyTo := threadReplyTarget(replyMsgID, rootID)
 	response = appendReferenceSection(response, refs, isGroup)
 
 	if _, err := buildCardContent(response); err != nil {
-		logger().Error("final card build failed", "error", err, "chat_id", chatID)
-		b.sendPlainTextReply(replyTo, response)
-		return
+		logger().Error("final card build failed; falling back to plain text", "error", err, "chat_id", chatID, "root_id", rootID)
+		return b.sendPlainTextReply(replyTo, response)
 	}
 
 	if sentMsgID != "" {
 		chunks := channel.SplitMessage(response, feishuMaxMessageLen)
 		if err := b.patchMessage(sentMsgID, chunks[0]); err != nil {
 			if errors.Is(err, errCardContentBuild) {
-				logger().Error("final card build failed", "error", err, "chat_id", chatID)
-				b.sendPlainTextReply(replyTo, response)
-				return
+				logger().Error("final card build failed; falling back to plain text", "error", err, "chat_id", chatID, "root_id", rootID)
+				return b.sendPlainTextReply(replyTo, response)
 			}
-			logger().Error("final update failed", "error", err, "chat_id", chatID)
+			b.reportDeliveryFailure(chatID, rootID, replyTo, sentMsgID, err)
+			return fmt.Errorf("patch final response: %w", err)
 		}
 		for _, chunk := range chunks[1:] {
 			if _, err := b.sendCardReply(replyTo, chunk); err != nil {
 				if errors.Is(err, errCardContentBuild) {
-					logger().Error("overflow card build failed", "error", err, "chat_id", chatID)
-					b.sendPlainTextReply(replyTo, chunk)
+					logger().Error("overflow card build failed; falling back to plain text", "error", err, "chat_id", chatID, "root_id", rootID)
+					if fallbackErr := b.sendPlainTextReply(replyTo, chunk); fallbackErr != nil {
+						return fmt.Errorf("send overflow plain-text fallback: %w", fallbackErr)
+					}
 					continue
 				}
-				logger().Error("send overflow chunk failed", "error", err, "chat_id", chatID)
+				b.reportDeliveryFailure(chatID, rootID, replyTo, sentMsgID, err)
+				return fmt.Errorf("send overflow response: %w", err)
 			}
 		}
-		return
+		return nil
 	}
 
 	chunks := channel.SplitMessage(response, feishuMaxMessageLen)
 	for _, chunk := range chunks {
 		if _, err := b.sendCardReply(replyTo, chunk); err != nil {
 			if errors.Is(err, errCardContentBuild) {
-				logger().Error("final card build failed", "error", err, "chat_id", chatID)
-				b.sendPlainTextReply(replyTo, chunk)
+				logger().Error("final card build failed; falling back to plain text", "error", err, "chat_id", chatID, "root_id", rootID)
+				if fallbackErr := b.sendPlainTextReply(replyTo, chunk); fallbackErr != nil {
+					return fmt.Errorf("send final plain-text fallback: %w", fallbackErr)
+				}
 				continue
 			}
-			logger().Error("send final response failed", "error", err, "chat_id", chatID)
+			b.reportDeliveryFailure(chatID, rootID, replyTo, "", err)
+			return fmt.Errorf("send final response: %w", err)
 		}
 	}
+	return nil
+}
+
+func (b *Bot) reportDeliveryFailure(chatID, rootID, replyTo, sentMsgID string, deliveryErr error) {
+	const terminalFailure = "⚠️ Response delivery failed. Please try again."
+	var err error
+	if sentMsgID != "" {
+		err = b.patchMessage(sentMsgID, terminalFailure)
+	} else {
+		_, err = b.sendCardReply(replyTo, terminalFailure)
+	}
+	if err != nil {
+		logger().Error("Feishu terminal delivery-failure notice also failed", "chat_id", chatID, "root_id", rootID, "reply_to", replyTo, "error", err)
+	}
+	logger().Error("Feishu response delivery failed", "chat_id", chatID, "root_id", rootID, "reply_to", replyTo, "error", deliveryErr)
 }
 
 // sendImageInThread sends an image in the correct thread context.

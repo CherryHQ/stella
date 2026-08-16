@@ -1,6 +1,7 @@
 package feishu
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -46,8 +47,17 @@ var nowFunc = time.Now
 //  1. Thinking: sends initial card with "Thinking..." immediately
 //  2. Generating: updates card with streaming content + cursor
 //  3. Complete: final content with elapsed time footer
-func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyMsgID, rootID string) (string, string, []channel.ImageEvent, []channel.FileEvent, []renderrefs.Reference, time.Duration, error) {
+func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyMsgID, rootID string, cancelControl *cancelControl) (string, string, []channel.ImageEvent, []channel.FileEvent, []renderrefs.Reference, time.Duration, error) {
 	startTime := nowFunc()
+	cancelToken := ""
+	if b.cancels != nil {
+		requesterID := ""
+		if cancelControl != nil {
+			requesterID = cancelControl.requesterID
+		}
+		cancelToken = b.cancels.register(requesterID, chatID, rootID, cancelControl)
+		defer b.cancels.unregister(cancelToken)
+	}
 
 	var sb strings.Builder
 	var streamErr error
@@ -60,10 +70,16 @@ func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyM
 	lastSend := time.Time{}
 
 	// Phase 1: Send "Thinking..." card immediately.
-	msgID, err := b.sendCardReplyInThread(rootID, replyMsgID, thinkingContent())
-	if err != nil {
-		logger().Warn("thinking card failed", "error", err)
-	} else {
+	msgID, err := b.sendCardReplyInThread(rootID, replyMsgID, cancelCardText(thinkingContent(), cancelToken))
+	switch {
+	case err != nil:
+		logger().Warn("thinking card failed", "chat_id", chatID, "root_id", rootID, "error", err)
+		b.unregisterCancel(cancelToken)
+		cancelToken = ""
+	case msgID == "":
+		b.unregisterCancel(cancelToken)
+		cancelToken = ""
+	default:
 		sentMsgID = msgID
 	}
 
@@ -115,7 +131,7 @@ func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyM
 		}
 
 		// Phase 2: Generating -- content with cursor.
-		display := buildStreamDisplay(current, currentTool)
+		display := cancelCardText(buildStreamDisplay(current, currentTool), cancelToken)
 
 		if sentMsgID == "" {
 			// Fallback: if thinking card failed, send now.
@@ -143,14 +159,27 @@ func (b *Bot) streamResponseInThread(events <-chan channel.Event, chatID, replyM
 // sendCardReply sends an interactive card reply and returns the new message ID.
 // Cards support the Patch API for in-place streaming edits.
 func (b *Bot) sendCardReply(replyMsgID, text string) (string, error) {
-	apiCtx, cancel := b.apiContext()
-	defer cancel()
-
 	content, err := buildCardContent(text)
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", errCardContentBuild, err)
 	}
-	resp, err := b.client.Im.Message.Reply(apiCtx,
+	var messageID string
+	err = b.retryFeishuSend(context.Background(), "reply card", func(ctx context.Context) error {
+		var sendErr error
+		messageID, sendErr = b.replyCard(ctx, replyMsgID, content)
+		return sendErr
+	})
+	return messageID, err
+}
+
+func (b *Bot) replyCard(ctx context.Context, replyMsgID, content string) (string, error) {
+	if b.replyCardFn != nil {
+		return b.replyCardFn(ctx, replyMsgID, content)
+	}
+	if b.client == nil {
+		return "", fmt.Errorf("feishu client is not initialized")
+	}
+	resp, err := b.client.Im.Message.Reply(ctx,
 		larkim.NewReplyMessageReqBuilder().
 			MessageId(replyMsgID).
 			Body(larkim.NewReplyMessageReqBodyBuilder().
@@ -162,7 +191,7 @@ func (b *Bot) sendCardReply(replyMsgID, text string) (string, error) {
 		return "", err
 	}
 	if !resp.Success() {
-		return "", fmt.Errorf("code=%d msg=%s", resp.Code, resp.Msg)
+		return "", &feishuAPIError{code: resp.Code, msg: resp.Msg}
 	}
 	if resp.Data != nil && resp.Data.MessageId != nil {
 		return *resp.Data.MessageId, nil
@@ -172,14 +201,23 @@ func (b *Bot) sendCardReply(replyMsgID, text string) (string, error) {
 
 // patchMessage edits an existing card message in place using the Patch API.
 func (b *Bot) patchMessage(messageID, text string) error {
-	apiCtx, cancel := b.apiContext()
-	defer cancel()
-
 	content, err := buildCardContent(text)
 	if err != nil {
 		return fmt.Errorf("%w: %w", errCardContentBuild, err)
 	}
-	resp, err := b.client.Im.Message.Patch(apiCtx,
+	return b.retryFeishuSend(context.Background(), "patch card", func(ctx context.Context) error {
+		return b.patchCard(ctx, messageID, content)
+	})
+}
+
+func (b *Bot) patchCard(ctx context.Context, messageID, content string) error {
+	if b.patchCardFn != nil {
+		return b.patchCardFn(ctx, messageID, content)
+	}
+	if b.client == nil {
+		return fmt.Errorf("feishu client is not initialized")
+	}
+	resp, err := b.client.Im.Message.Patch(ctx,
 		larkim.NewPatchMessageReqBuilder().
 			MessageId(messageID).
 			Body(larkim.NewPatchMessageReqBodyBuilder().
@@ -190,7 +228,7 @@ func (b *Bot) patchMessage(messageID, text string) error {
 		return err
 	}
 	if !resp.Success() {
-		return fmt.Errorf("code=%d msg=%s", resp.Code, resp.Msg)
+		return &feishuAPIError{code: resp.Code, msg: resp.Msg}
 	}
 	return nil
 }

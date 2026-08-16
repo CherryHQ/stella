@@ -1040,10 +1040,11 @@ func testStringPtr(v string) *string { return &v }
 func testBoolPtr(v bool) *bool { return &v }
 
 type mockHandler struct {
-	handleIncomingFn  func(context.Context, channel.IncomingMessage, string, string) (string, bool, *channel.ChatStream, error)
-	resolveUserRootFn func(context.Context, channel.IncomingMessage) (string, error)
-	models            []channel.ModelOption
-	switchErr         error
+	handleIncomingFn          func(context.Context, channel.IncomingMessage, string, string) (string, bool, *channel.ChatStream, error)
+	resolveUserRootFn         func(context.Context, channel.IncomingMessage) (string, error)
+	ensureThreadGroupMemberFn func(context.Context, string, string, string, string, string) error
+	models                    []channel.ModelOption
+	switchErr                 error
 }
 
 func (m *mockHandler) HandleIncoming(ctx context.Context, msg channel.IncomingMessage, cmd, args string) (string, bool, *channel.ChatStream, error) {
@@ -1058,6 +1059,13 @@ func (m *mockHandler) ListAgents(_ context.Context, _ channel.IncomingMessage) (
 }
 
 func (m *mockHandler) SwitchAgent(_ context.Context, _ channel.IncomingMessage, _ string) error {
+	return nil
+}
+
+func (m *mockHandler) EnsurePlatformThreadGroupMember(ctx context.Context, platform, groupID, threadID, legacyGroupID, channelID string) error {
+	if m.ensureThreadGroupMemberFn != nil {
+		return m.ensureThreadGroupMemberFn(ctx, platform, groupID, threadID, legacyGroupID, channelID)
+	}
 	return nil
 }
 
