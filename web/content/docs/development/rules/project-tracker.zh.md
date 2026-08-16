@@ -8,7 +8,9 @@ Stella 使用两个职责分离的跟踪系统：
 - **飞书多维表格**负责内部计划：Roadmap、产品里程碑、候选与已承诺任务、优先级、目标日期和交付负责人。
 - **GitHub** 负责公开与研发记录：社区需求入口、Issue 详情、技术讨论、Assignee、PR 和发布范围。
 
-不要创建 GitHub Project，也不要让同一个可编辑字段同时存在于两套系统。GitHub Issue 没有飞书任务，只表示团队尚未承诺交付，不表示 Issue 无效。
+不要创建 GitHub Project，也不要让同一个可编辑字段同时存在于两套系统。
+
+计划只朝一个方向流动：飞书 Task 被承诺时创建或关联 GitHub Issue，因此已承诺的 Task 一定有 Issue。反向不做要求——只有 Issue 没有飞书 Task 是正常且合法的，无论它来自社区还是维护者先写了代码。周二的交付复盘会把这些 Issue 统一回填成 Task。不要为了"先建 Task"而卡住工作。
 
 计划表为 [Stella Roadmap](https://mcnnox2fhjfq.feishu.cn/base/BEEbbI9jtad6PmsYSXpcmBy2nUd?table=tbl4pUhlngTJdg2Z&view=vewBhCvlG1)。
 
@@ -133,7 +135,7 @@ lark-cli base +record-upsert --base-token $BASE --table-id $TASKS --as user \
 
 ### 生命周期规则
 
-`待评估` Task 是内部候选，不要求 GitHub Issue。进入 `就绪` 或后续状态的 Task 必须填写完整 GitHub Issue URL，不要只存 Issue number。评估阶段在飞书起草验收标准；晋级到 `就绪` 时，把完整需求和验收条件写入 GitHub，此后 Issue 是研发执行事实源。
+`待评估` Task 是内部候选，不要求 GitHub Issue。进入 `就绪` 或后续状态的 Task 必须填写完整 GitHub Issue URL，不要只存 Issue number。这条约束只作用于 Task → Issue 方向；只有 Issue 没有 Task 不是需要当场补上的缺口。评估阶段在飞书起草验收标准；晋级到 `就绪` 时，把完整需求和验收条件写入 GitHub，此后 Issue 是研发执行事实源。
 
 ## 社区 Issue 分流
 
@@ -143,7 +145,7 @@ Issue 表单会为新的社区报告添加 `status:needs-triage`。
 新 GitHub Issue
   ├── 无效 / 重复 / 问题咨询 → 解释后关闭或转到正确入口
   ├── 有效但未排期           → status:accepted；只留在 GitHub
-  └── 已承诺                 → 飞书 Task 就绪 + status:ready
+  └── 已承诺                 → status:ready；Task 可选，周二回填
 ```
 
 分流步骤：
@@ -152,7 +154,7 @@ Issue 表单会为新的社区报告添加 `status:needs-triage`。
 2. 添加合适的类型标签：`bug`、`enhancement`、`documentation` 或 `design`。
 3. 移除 `status:needs-triage`。
 4. 有效但未排期时添加 `status:accepted`，不要创建飞书 Task。
-5. 确认承诺后，先在飞书和 GitHub 搜索重复项，再创建或关联飞书 Task，填入 GitHub Issue URL，将其改为 `就绪`，移除 `status:accepted`，添加 `status:ready`。
+5. 确认承诺后，移除 `status:accepted`，添加 `status:ready`。只有当下就要在飞书排期时才创建 Task，否则交给周二复盘回填。确实要建时，先在飞书和 GitHub 搜索重复项，填入 Issue URL，并改为 `就绪`。
 6. 只有明确目标发布版本后才添加版本 Milestone。
 
 ## 执行生命周期
@@ -166,6 +168,8 @@ Issue 表单会为新的社区报告添加 `status:needs-triage`。
 | 实现关闭       | 验收前不变 | 通过 PR 关闭                                 |
 | 验收通过       | `已完成`   | Closed                                       |
 | 取消           | `已取消`   | 说明原因后关闭                               |
+
+飞书那一列只在 Task 存在时适用。只在 GitHub 上跟踪的工作本身就是完整合法的，Task 由周二复盘补建。
 
 以"PR 已开"作为 `进行中` 的标志，因为它是唯一带客观时间戳的转换点。状态要如实
 反映进度：建 Issue 时代码已经写完的工作直接进 `进行中`，不经过 `status:ready`。
@@ -181,6 +185,8 @@ Issue 表单会为新的社区报告添加 `status:needs-triage`。
 3. 在飞书 Task 填入完整 Issue URL 和最终验收标准，再改为与实际进度一致的状态——
    `就绪`，或 PR 已开时直接进 `进行中`。
 4. 为 Issue 添加对应的状态 label；目标版本明确时再添加版本 Milestone。
+
+从 GitHub 起步的工作走短路径：建 Issue、打标签、开做，周二复盘再把它变成 Task。
 
 外部贡献者不需要访问飞书。接受社区工作时，由维护者完成飞书侧的晋级操作。
 
@@ -217,16 +223,15 @@ gh issue edit <number> --repo CherryHQ/stella --milestone v0.61.0
 
 1. 起草并确认标题和正文。
 2. 选择类型标签。
-3. 确认工作只是已接受，还是已经承诺交付。
-4. 仅接受时添加 `status:accepted`，然后结束。
-5. 已承诺时确认飞书 Task 将关联新 Issue，并询问是否已有目标版本；`none` 是合法答案。
+3. 选择状态标签：已接受但未排期用 `status:accepted`，已承诺但未动工用 `status:ready`，PR 已开则不加。
 
-随后创建 Issue。已承诺的工作还要用返回的 URL 创建或更新飞书 Task，将其改为与实际进度一致的状态（`就绪`；PR 已开则是 `进行中` 且不加 `status:ready`），并添加对应的状态 label；最后返回 Issue URL。未经确认不要批量创建；优先关闭而不是删除。
+随后创建 Issue 并返回 URL。不要追问飞书 Task，周二复盘会处理。只有目标版本已经明确时才添加版本 Milestone。未经确认不要批量创建；优先关闭而不是删除。
 
 ## 每周交付复盘
 
 每周二复盘刚结束的一周：收集已合并 PR，创建或刷新对应任务，汇报交付了什么。
-交付周从周二算到下周二。
+交付周从周二算到下周二。没有飞书 Task 就交付了的 Issue 正是在这一步补上 Task，
+所以前面的任何环节都不需要等 Task 建好。
 
 流程固化在 `.agents/skills/weekly-delivery/` 的 `weekly-delivery` skill 里。
 脚本负责机械部分——周窗口计算、PR 收集、区分 issue 号与 PR 号、与任务表比对

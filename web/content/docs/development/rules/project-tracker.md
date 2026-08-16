@@ -12,8 +12,14 @@ Stella uses two trackers with separate ownership:
   details, technical discussion, assignees, pull requests, and release scope.
 
 Do not create a GitHub Project or duplicate the same editable field in both
-systems. A missing Feishu task means that a GitHub issue is not committed to a
-delivery plan; it does not mean that the issue is invalid.
+systems.
+
+Planning flows one way. A Feishu task creates or links a GitHub issue when the
+team commits to it, so a committed task always has an issue. The reverse is not
+required: an issue with no Feishu task is normal and valid, whether it came from
+the community or from a maintainer who started coding first. The Tuesday
+delivery review reconciles those issues back into tasks. Never block work on
+creating a task first.
 
 The planning Base is
 [Stella Roadmap](https://mcnnox2fhjfq.feishu.cn/base/BEEbbI9jtad6PmsYSXpcmBy2nUd?table=tbl4pUhlngTJdg2Z&view=vewBhCvlG1).
@@ -149,7 +155,8 @@ record back (`+record-search`) rather than trusting the exit status.
 
 `待评估` tasks are internal candidates and do not need a GitHub issue. Every
 task at `就绪` or later must contain a full GitHub Issue URL. Store the URL,
-not only the issue number. Draft acceptance in Feishu while evaluating a task.
+not only the issue number. This requirement runs task to issue only; an issue
+without a task is not a gap to fix on the spot. Draft acceptance in Feishu while evaluating a task.
 When promoting it to `就绪`, copy the complete requirement and acceptance
 criteria to GitHub; the issue becomes the execution source of truth.
 
@@ -161,7 +168,7 @@ Issue forms add `status:needs-triage` to new community reports.
 New GitHub issue
   ├── invalid / duplicate / question → explain and close or redirect
   ├── valid, not scheduled           → status:accepted; GitHub only
-  └── committed                      → Feishu Task at 就绪 + status:ready
+  └── committed                      → status:ready; task optional, backfilled Tuesday
 ```
 
 During triage:
@@ -171,9 +178,11 @@ During triage:
    `design`).
 3. Remove `status:needs-triage`.
 4. If valid but unscheduled, add `status:accepted`. Do not create a Feishu task.
-5. If committed, search Feishu and GitHub for duplicates, create or link the
-   Feishu task, add its GitHub Issue URL, move it to `就绪`, remove
-   `status:accepted`, and add `status:ready`.
+5. If committed, remove `status:accepted` and add `status:ready`. Create a
+   Feishu task now only if you are planning the work there; otherwise leave it
+   and let the Tuesday review backfill the task. When you do create one, search
+   both systems for duplicates first, store the Issue URL, and move it to
+   `就绪`.
 6. Add a version milestone only when the target release is known.
 
 ## Execution lifecycle
@@ -187,6 +196,10 @@ During triage:
 | Implementation closes  | unchanged until acceptance | Close through the PR                         |
 | Acceptance passes      | `已完成`                   | Closed                                       |
 | Cancelled              | `已取消`                   | Close with the reason                        |
+
+The Feishu column applies once a task exists. Work tracked only on GitHub is
+legitimate and complete on its own; the Tuesday review creates the task
+afterwards.
 
 An open PR is the marker for `进行中` because it is the one transition with an
 objective timestamp. Set the state that matches reality: work already
@@ -209,6 +222,9 @@ commits a task:
    is already open.
 4. Add the matching status label and, when known, a version milestone to the
    issue.
+
+Work that starts on GitHub takes the short path: file the issue, label it, and
+build. The Tuesday review turns it into a task.
 
 Contributors do not need Feishu access. Maintainers own the Feishu promotion
 step when accepting community work.
@@ -255,22 +271,22 @@ Before creating an issue on a user's behalf:
 
 1. Draft and confirm its title and body.
 2. Choose the type label.
-3. Ask whether the work is merely accepted or already committed.
-4. For accepted-only work, add `status:accepted` and stop.
-5. For committed work, confirm that a Feishu task will link the new issue, and
-   ask whether a version milestone is known. `none` is valid.
+3. Choose the status label: `status:accepted` when the work is accepted but
+   unscheduled, `status:ready` when it is committed and not started, and none
+   when a PR is already open.
 
-Then create the issue. For committed work, create or update the Feishu task with
-the returned URL, set the state matching real progress (`就绪`, or `进行中` with
-no `status:ready` when a PR is already open), add the matching status label, and
-return the Issue URL. Do not bulk-create issues without confirmation, and prefer
-closing over deleting.
+Then create the issue and return its URL. Do not ask about a Feishu task; the
+Tuesday review reconciles it. Add a version milestone only when the target
+release is already known. Do not bulk-create issues without confirmation, and
+prefer closing over deleting.
 
 ## Weekly delivery review
 
 Every Tuesday, reconcile the week that just closed against the Base: collect the
 merged PRs, create or refresh the matching tasks, and report what shipped. The
-delivery week runs Tuesday to Tuesday.
+delivery week runs Tuesday to Tuesday. This is where issues that were delivered
+without a Feishu task get one, which is why nothing upstream has to wait on task
+creation.
 
 The `weekly-delivery` skill in `.agents/skills/weekly-delivery/` carries the
 procedure. Its scripts own the mechanical half — window arithmetic, PR
