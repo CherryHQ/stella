@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -19,6 +22,12 @@ func newStore(t *testing.T) *eventlog.Store {
 	t.Helper()
 	db := dbtest.New(t)
 	return eventlog.NewStore(db)
+}
+
+func newStoreAndDB(t *testing.T) (*eventlog.Store, *pgxpool.Pool) {
+	t.Helper()
+	db := dbtest.New(t)
+	return eventlog.NewStore(db), db
 }
 
 func humanMsg() eventlog.Message {
@@ -352,6 +361,125 @@ func TestResolveGroupIDConsistentWithAppend(t *testing.T) {
 	}
 	if res.GroupID != resolvedID {
 		t.Fatalf("append returned group_id %q, resolve returned %q", res.GroupID, resolvedID)
+	}
+}
+
+// TestResolveGroupIDWithAdoptionMigratesLegacyThreadIdentity covers the
+// pre-thread-routing Discord identity: a thread's own channel ID used to be
+// its platform_group_id with no separate thread ID. Adoption must rename that
+// row onto the new (parent, thread) triple in place, so the surrogate group_id
+// — and every row that references it, like messages and members — survives
+// unchanged, and the legacy triple stops resolving.
+func TestResolveGroupIDWithAdoptionMigratesLegacyThreadIdentity(t *testing.T) {
+	s, db := newStoreAndDB(t)
+	ctx := context.Background()
+
+	legacyID, err := s.ResolveGroupID(ctx, "discord", "thread-1", "")
+	if err != nil {
+		t.Fatalf("seed legacy group: %v", err)
+	}
+	msg := eventlog.Message{
+		Platform:          "discord",
+		PlatformGroupID:   "thread-1",
+		ActorType:         eventlog.ActorHuman,
+		ActorID:           "u1",
+		PlatformMessageID: "legacy-m1",
+		Content:           `[{"text":"hi"}]`,
+	}
+	if _, err := s.AppendGroupMessage(ctx, msg); err != nil {
+		t.Fatalf("seed legacy message: %v", err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO agent (id, name, workspace) VALUES ('agent-1', 'Agent', '/tmp')`); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO channel (id, type) VALUES ('discord-main', 'discord')`); err != nil {
+		t.Fatalf("seed channel: %v", err)
+	}
+	q := sqlc.New(db)
+	if _, err := q.AddGroupMember(ctx, sqlc.AddGroupMemberParams{GroupID: legacyID, AgentID: "agent-1", ReplyChannelID: "discord-main"}); err != nil {
+		t.Fatalf("seed legacy member: %v", err)
+	}
+
+	adoptedID, err := s.ResolveGroupIDWithAdoption(ctx, "discord", "parent-1", "thread-1", "thread-1")
+	if err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+	if adoptedID != legacyID {
+		t.Fatalf("adopted id = %q, want the legacy group id %q preserved", adoptedID, legacyID)
+	}
+
+	// The new triple now resolves to the same, adopted group without creating
+	// a second row.
+	sameID, err := s.ResolveGroupID(ctx, "discord", "parent-1", "thread-1")
+	if err != nil {
+		t.Fatalf("resolve new triple: %v", err)
+	}
+	if sameID != legacyID {
+		t.Fatalf("new triple resolved to %q, want the adopted group %q", sameID, legacyID)
+	}
+
+	// The old triple no longer resolves to anything: the row moved, it was not copied.
+	if _, err := q.GetGroupStateByTriple(ctx, sqlc.GetGroupStateByTripleParams{
+		Platform: "discord", PlatformGroupID: "thread-1", PlatformThreadID: "",
+	}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("legacy triple lookup error = %v, want pgx.ErrNoRows", err)
+	}
+
+	messages, err := q.ListRecentGroupMessages(ctx, sqlc.ListRecentGroupMessagesParams{GroupID: legacyID, MaxCount: 10})
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if len(messages) != 1 || messages[0].PlatformMessageID.String != "legacy-m1" {
+		t.Fatalf("messages after adoption = %#v, want the legacy message preserved", messages)
+	}
+
+	members, err := q.ListGroupMembers(ctx, legacyID)
+	if err != nil {
+		t.Fatalf("list members: %v", err)
+	}
+	if len(members) != 1 || members[0].AgentID != "agent-1" {
+		t.Fatalf("members after adoption = %#v, want the legacy member preserved", members)
+	}
+}
+
+// TestResolveGroupIDWithAdoptionDoesNotOverwriteExistingGroup covers the case
+// where a bot restart or a duplicate first message already created the new
+// (parent, thread) group before adoption got a chance to run: adoption must
+// return the already-established group untouched, and must not touch the
+// legacy row either.
+func TestResolveGroupIDWithAdoptionDoesNotOverwriteExistingGroup(t *testing.T) {
+	s, db := newStoreAndDB(t)
+	ctx := context.Background()
+
+	legacyID, err := s.ResolveGroupID(ctx, "discord", "thread-2", "")
+	if err != nil {
+		t.Fatalf("seed legacy group: %v", err)
+	}
+	establishedID, err := s.ResolveGroupID(ctx, "discord", "parent-2", "thread-2")
+	if err != nil {
+		t.Fatalf("seed established group: %v", err)
+	}
+	if establishedID == legacyID {
+		t.Fatal("test setup: legacy and established groups must be distinct rows")
+	}
+
+	gotID, err := s.ResolveGroupIDWithAdoption(ctx, "discord", "parent-2", "thread-2", "thread-2")
+	if err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+	if gotID != establishedID {
+		t.Fatalf("adoption id = %q, want the already-established group %q left in place", gotID, establishedID)
+	}
+
+	q := sqlc.New(db)
+	legacyState, err := q.GetGroupStateByTriple(ctx, sqlc.GetGroupStateByTripleParams{
+		Platform: "discord", PlatformGroupID: "thread-2", PlatformThreadID: "",
+	})
+	if err != nil {
+		t.Fatalf("legacy triple should still resolve untouched: %v", err)
+	}
+	if legacyState.ID != legacyID {
+		t.Fatalf("legacy group id = %q, want unchanged %q", legacyState.ID, legacyID)
 	}
 }
 

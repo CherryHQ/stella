@@ -70,7 +70,12 @@ Channel access is enforced by Stella's trusted Authority-based domain services; 
 **Discord config fields:**
 
 - `token` -- Bot token
-- `allow_group` -- Accept messages from server channels the bot can read; defaults to `false`, which disables all guild messages but not direct messages
+- `allow_group` -- Master switch for server channels; defaults to `false`, which disables all guild messages but not direct messages
+- `allow_all_guilds` -- Dangerous: skip the allowlist below and accept every server this bot joined; defaults to `false`. With `allow_group` on, `allow_all_guilds` off, and every allowlist empty, no guild message is served (fail closed)
+- `allowed_guild_ids` -- Guild (server) IDs allowed to use the bot; defaults to empty
+- `allowed_channel_ids` -- Channel IDs allowed to use the bot, matched against a thread's own ID or its parent channel ID; defaults to empty
+- `allowed_user_ids` -- Discord user IDs allowed to use the bot in server channels; defaults to empty
+- `allowed_role_ids` -- Discord role IDs allowed to use the bot in server channels, matched against the message author's guild roles; defaults to empty
 - `allow_dm` -- Accept account linking and linked-user direct messages; defaults to `true`
 - `allow_unlinked_dm` -- Allow persistent restricted guest direct messages on the channel-bound agent; defaults to `false` and requires `allow_dm`
 - `guest_message_limit_per_minute` -- Per-guest message and command limit; defaults to `10`

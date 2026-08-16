@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -14,14 +16,43 @@ import (
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
-const maxMessageLength = 2000
+const (
+	maxMessageLength           = 2000
+	typingInterval             = 8 * time.Second
+	streamEditInterval         = 1500 * time.Millisecond
+	threadContextMaxLen        = 24 << 10
+	provisionedGroupCacheLimit = 1024
+	// Bound lazy history to the starter plus the latest 20 messages; raise this
+	// only when thread-context truncation is observed in real deployments.
+	threadHistoryLimit = 20
+)
+
+type discordREST interface {
+	Channel(channelID string, options ...discordgo.RequestOption) (*discordgo.Channel, error)
+	ChannelMessage(channelID, messageID string, options ...discordgo.RequestOption) (*discordgo.Message, error)
+	ChannelMessages(channelID string, limit int, beforeID, afterID, aroundID string, options ...discordgo.RequestOption) ([]*discordgo.Message, error)
+	ChannelTyping(channelID string, options ...discordgo.RequestOption) error
+	ChannelMessageSendComplex(channelID string, data *discordgo.MessageSend, options ...discordgo.RequestOption) (*discordgo.Message, error)
+	ChannelMessageEditComplex(message *discordgo.MessageEdit, options ...discordgo.RequestOption) (*discordgo.Message, error)
+	ChannelMessageDelete(channelID, messageID string, options ...discordgo.RequestOption) error
+	MessageReactionAdd(channelID, messageID, emojiID string, options ...discordgo.RequestOption) error
+	MessageReactionRemove(channelID, messageID, emojiID, userID string, options ...discordgo.RequestOption) error
+	ApplicationCommandBulkOverwrite(appID, guildID string, commands []*discordgo.ApplicationCommand, options ...discordgo.RequestOption) ([]*discordgo.ApplicationCommand, error)
+	InteractionRespond(interaction *discordgo.Interaction, resp *discordgo.InteractionResponse, options ...discordgo.RequestOption) error
+	InteractionResponseEdit(interaction *discordgo.Interaction, newresp *discordgo.WebhookEdit, options ...discordgo.RequestOption) (*discordgo.Message, error)
+}
 
 type Config struct {
-	InstanceID     string
-	Token          string
-	AllowGroup     bool
-	AllowDM        bool
-	RequireMention bool
+	InstanceID        string
+	Token             string
+	AllowGroup        bool
+	AllowAllGuilds    bool
+	AllowedGuildIDs   []string
+	AllowedChannelIDs []string
+	AllowedUserIDs    []string
+	AllowedRoleIDs    []string
+	AllowDM           bool
+	RequireMention    bool
 }
 
 type Bot struct {
@@ -32,9 +63,13 @@ type Bot struct {
 	mu                sync.RWMutex
 	provisionMu       sync.Mutex
 	provisionedGroups map[string]struct{}
+	typingMu          sync.Mutex
+	typing            map[string]*typingState
 	closeOnce         sync.Once
 	finalized         bool
 	botID             string
+	rest              discordREST
+	cancels           *cancelRegistry
 }
 
 func New(cfg Config, handler channel.Handler) (*Bot, error) {
@@ -45,8 +80,8 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create discord session: %w", err)
 	}
-	s.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentsMessageContent
-	return &Bot{session: s, handler: handler, cfg: cfg, provisionedGroups: make(map[string]struct{})}, nil
+	s.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentsMessageContent
+	return &Bot{session: s, handler: handler, cfg: cfg, provisionedGroups: make(map[string]struct{}), typing: make(map[string]*typingState), rest: s, cancels: newCancelRegistry()}, nil
 }
 
 func (b *Bot) Name() string {
@@ -57,10 +92,65 @@ func (b *Bot) Name() string {
 }
 func (b *Bot) Platform() string { return channel.PlatformDiscord }
 
-// guildAllowed reports whether a message may be served. An empty guild ID is a
-// direct message, which `allow_dm` governs instead.
-func (b *Bot) guildAllowed(guildID string) bool {
-	return guildID == "" || b.cfg.AllowGroup
+// groupAccessAllowed reports whether a guild message may be served and
+// resolves its thread-aware route. It is fail-closed: once `allow_group` is
+// on, an operator must either flip the explicit, dangerous `allow_all_guilds`
+// switch or list at least one guild, channel, user, or role — an `allow_group`
+// with every allowlist empty and `allow_all_guilds` off denies everything
+// rather than silently reopening every joined server. Matching the parent of a
+// thread may require a read-only Channel lookup, so the resolved route is
+// always returned for the caller to reuse.
+func (b *Bot) groupAccessAllowed(ctx context.Context, m *discordgo.Message) (bool, messageRoute, error) {
+	if !b.cfg.AllowGroup {
+		return false, messageRoute{}, nil
+	}
+	if !b.cfg.AllowAllGuilds && len(b.cfg.AllowedGuildIDs) == 0 && len(b.cfg.AllowedChannelIDs) == 0 &&
+		len(b.cfg.AllowedUserIDs) == 0 && len(b.cfg.AllowedRoleIDs) == 0 {
+		return false, messageRoute{}, nil
+	}
+	if b.cfg.AllowAllGuilds ||
+		containsID(b.cfg.AllowedGuildIDs, m.GuildID) ||
+		(m.Author != nil && containsID(b.cfg.AllowedUserIDs, m.Author.ID)) ||
+		memberHasAllowedRole(m.Member, b.cfg.AllowedRoleIDs) ||
+		containsID(b.cfg.AllowedChannelIDs, m.ChannelID) {
+		route, err := b.resolveMessageRoute(ctx, m)
+		return true, route, err
+	}
+	if len(b.cfg.AllowedChannelIDs) == 0 {
+		return false, messageRoute{}, nil
+	}
+	// Only a channel-allowlist match can still admit this message, and
+	// evaluating it against a thread's parent needs a Channel lookup. Failing
+	// that lookup cannot confirm access, so it denies rather than propagating
+	// the error to a channel that was never authorized to see it.
+	route, err := b.resolveMessageRoute(ctx, m)
+	if err != nil {
+		logger().Warn("resolve discord parent channel for allowlist check failed", "channel_id", m.ChannelID, "error", err)
+		return false, messageRoute{}, nil
+	}
+	if route.chatID != "" && route.chatID != m.ChannelID && containsID(b.cfg.AllowedChannelIDs, route.chatID) {
+		return true, route, nil
+	}
+	return false, messageRoute{}, nil
+}
+
+func containsID(ids []string, target string) bool {
+	if target == "" {
+		return false
+	}
+	return slices.Contains(ids, target)
+}
+
+func memberHasAllowedRole(member *discordgo.Member, allowedRoleIDs []string) bool {
+	if member == nil {
+		return false
+	}
+	for _, roleID := range member.Roles {
+		if containsID(allowedRoleIDs, roleID) {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *Bot) mentioned(m *discordgo.Message) bool {
@@ -76,11 +166,19 @@ func (b *Bot) mentioned(m *discordgo.Message) bool {
 	return false
 }
 
+func (b *Bot) addressed(m *discordgo.Message) bool {
+	if b.mentioned(m) {
+		return true
+	}
+	return b.session.State != nil && b.session.State.User != nil && m.ReferencedMessage != nil && m.ReferencedMessage.Author != nil && m.ReferencedMessage.Author.ID == b.session.State.User.ID
+}
+
 func (b *Bot) Start(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	b.session.AddHandler(b.onMessageCreate)
+	b.session.AddHandler(b.onInteractionCreate)
 	if err := b.session.Open(); err != nil {
 		return fmt.Errorf("open discord gateway: %w", err)
 	}
@@ -88,6 +186,10 @@ func (b *Bot) Start(ctx context.Context) error {
 		b.Stop()
 		return err
 	}
+	// Best-effort: native commands are a convenience UI on top of the text
+	// commands handleMessage already parses, so a registration failure here
+	// must never block startup or fall back to anything but those.
+	b.registerNativeCommands(ctx)
 	<-ctx.Done()
 	b.Stop()
 	return ctx.Err()
@@ -131,6 +233,7 @@ func (b *Bot) Finalize() {
 	}
 	b.finalized = true
 	b.ctx = nil
+	b.stopTypingHeartbeats()
 	if b.botID != "" {
 		if r, ok := b.handler.(interface {
 			UnregisterBotIdentity(string, string, string)
@@ -144,6 +247,7 @@ func (b *Bot) Finalize() {
 }
 
 func (b *Bot) Stop() {
+	b.stopTypingHeartbeats()
 	b.closeOnce.Do(func() {
 		if err := b.session.Close(); err != nil {
 			slog.Default().Warn("close discord session failed", "error", err)
@@ -196,13 +300,16 @@ func userFacingError(message *discordgo.Message, err error) string {
 	return "Error: " + err.Error()
 }
 
-func (b *Bot) incomingMessage(m *discordgo.Message, content []channelContentBlock) channel.IncomingMessage {
+func (b *Bot) incomingMessage(m *discordgo.Message, content []channelContentBlock, chatID, threadID string) channel.IncomingMessage {
 	blocks := unwrapContent(content)
 	name := m.Author.GlobalName
 	if name == "" {
 		name = m.Author.Username
 	}
-	im := channel.IncomingMessage{Platform: channel.PlatformDiscord, ChannelID: b.Name(), SenderID: m.Author.ID, SenderName: name, ChatID: m.ChannelID, IsGroup: m.GuildID != "", MessageID: m.ID, Timestamp: m.Timestamp.UTC(), Content: blocks}
+	if chatID == "" {
+		chatID = m.ChannelID
+	}
+	im := channel.IncomingMessage{Platform: channel.PlatformDiscord, ChannelID: b.Name(), SenderID: m.Author.ID, SenderName: name, ChatID: chatID, IsGroup: m.GuildID != "", ThreadID: threadID, MessageID: m.ID, Timestamp: m.Timestamp.UTC(), Content: blocks, LifecycleFeedback: m.GuildID == "" || b.addressed(m)}
 	if m.MessageReference != nil {
 		im.ReplyTo = m.MessageReference.MessageID
 	}

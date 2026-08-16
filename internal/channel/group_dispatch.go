@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -66,27 +67,11 @@ func (c *Coordinator) handleGroupIncoming(ctx context.Context, msg pkgchannel.In
 
 // appendGroupMessage writes the incoming message to the event log.
 func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.IncomingMessage) (eventlog.AppendResult, error) {
-	channelID := msg.ChannelID
-	if channelID == "" {
-		channelID = msg.Platform
+	event, err := c.groupEventMessage(ctx, msg)
+	if err != nil {
+		return eventlog.AppendResult{}, err
 	}
-	if _, err := validatePlatformChannel(ctx, c.store, msg.Platform, channelID); err != nil {
-		return eventlog.AppendResult{}, fmt.Errorf("validate source channel: %w", err)
-	}
-	content := legacyGroupContent(msg.Content)
-	return c.eventLog.AppendGroupMessage(ctx, eventlog.Message{
-		Platform:          msg.Platform,
-		PlatformGroupID:   msg.ChatID,
-		PlatformThreadID:  msg.ThreadID,
-		SourceChannelID:   channelID,
-		ActorType:         eventlog.ActorHuman,
-		ActorID:           msg.SenderID,
-		PlatformMessageID: msg.MessageID,
-		PlatformTimestamp: msg.Timestamp,
-		ReplyTo:           msg.ReplyTo,
-		Content:           contentBlocksToText(content),
-		ContentBlocks:     marshalGroupContentBlocks(content),
-	}, eventlog.WithOnInserted(func(ctx context.Context, q *sqlc.Queries, result eventlog.AppendResult) error {
+	return c.eventLog.AppendGroupMessage(ctx, event, eventlog.WithOnInserted(func(ctx context.Context, q *sqlc.Queries, result eventlog.AppendResult) error {
 		members, err := q.ListGroupMembers(ctx, result.GroupID)
 		if err != nil {
 			return fmt.Errorf("list group members: %w", err)
@@ -96,7 +81,7 @@ func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.Inc
 			groupMembers[i] = GroupMember{AgentID: m.AgentID, ReplyChannelID: m.ReplyChannelID}
 		}
 		c.resolveMentionAgentsWithMembers(ctx, result.GroupID, msg.Platform, msg.Mentions, groupMembers)
-		envelope, err := EncodeGroupOutboxEnvelope(msg.Mentions)
+		envelope, err := EncodeGroupOutboxEnvelopeWithFeedback(msg.Mentions, msg.LifecycleFeedback)
 		if err != nil {
 			return fmt.Errorf("encode outbox envelope: %w", err)
 		}
@@ -116,6 +101,51 @@ func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.Inc
 		}
 		return nil
 	}))
+}
+
+// ImportGroupHistory appends platform history as canonical context without
+// creating outbox work. Platform message IDs make repeated lazy imports safe.
+func (c *Coordinator) ImportGroupHistory(ctx context.Context, messages []pkgchannel.IncomingMessage) error {
+	if c.eventLog == nil {
+		return errors.New("group event log is not configured")
+	}
+	for _, msg := range messages {
+		if !msg.IsGroup || msg.MessageID == "" {
+			return errors.New("group history message is missing group identity")
+		}
+		event, err := c.groupEventMessage(ctx, msg)
+		if err != nil {
+			return err
+		}
+		if _, err := c.eventLog.AppendGroupMessage(ctx, event); err != nil {
+			return fmt.Errorf("append imported group history: %w", err)
+		}
+	}
+	return nil
+}
+
+func (c *Coordinator) groupEventMessage(ctx context.Context, msg pkgchannel.IncomingMessage) (eventlog.Message, error) {
+	channelID := msg.ChannelID
+	if channelID == "" {
+		channelID = msg.Platform
+	}
+	if _, err := validatePlatformChannel(ctx, c.store, msg.Platform, channelID); err != nil {
+		return eventlog.Message{}, fmt.Errorf("validate source channel: %w", err)
+	}
+	content := legacyGroupContent(msg.Content)
+	return eventlog.Message{
+		Platform:          msg.Platform,
+		PlatformGroupID:   msg.ChatID,
+		PlatformThreadID:  msg.ThreadID,
+		SourceChannelID:   channelID,
+		ActorType:         eventlog.ActorHuman,
+		ActorID:           msg.SenderID,
+		PlatformMessageID: msg.MessageID,
+		PlatformTimestamp: msg.Timestamp,
+		ReplyTo:           msg.ReplyTo,
+		Content:           contentBlocksToText(content),
+		ContentBlocks:     marshalGroupContentBlocks(content),
+	}, nil
 }
 
 // resolveMentionAgentsWithMembers fills Mention.AgentID for mentions whose

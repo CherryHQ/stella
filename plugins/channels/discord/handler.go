@@ -30,20 +30,67 @@ type groupMemberProvisioner interface {
 	EnsurePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error
 }
 
-func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
+type threadGroupMemberProvisioner interface {
+	EnsurePlatformThreadGroupMember(ctx context.Context, platform, platformGroupID, platformThreadID, legacyPlatformGroupID, channelID string) error
+}
+
+type groupHistoryImporter interface {
+	ImportGroupHistory(ctx context.Context, messages []channel.IncomingMessage) error
+}
+
+func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) (resultErr error) {
 	deliveryCtx := context.WithoutCancel(ctx)
 	if m.GuildID == "" && !b.cfg.AllowDM {
 		logger().Debug("ignoring direct message because DMs are disabled", "channel_id", m.ChannelID)
 		return nil
 	}
-	if !b.guildAllowed(m.GuildID) {
-		logger().Debug("ignoring message from unconfigured guild", "guild_id", m.GuildID, "channel_id", m.ChannelID)
-		return nil
+	route := messageRoute{chatID: m.ChannelID}
+	if m.GuildID != "" {
+		allowed, resolvedRoute, err := b.groupAccessAllowed(deliveryCtx, m)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			logger().Debug("ignoring message from unconfigured guild, channel, user, or role", "guild_id", m.GuildID, "channel_id", m.ChannelID)
+			return nil
+		}
+		route = resolvedRoute
+		if b.cfg.RequireMention && !b.addressed(m) {
+			logger().Debug("ignoring guild message without bot mention", "guild_id", m.GuildID, "channel_id", m.ChannelID)
+			return nil
+		}
 	}
-	if m.GuildID != "" && b.cfg.RequireMention && !b.mentioned(m) {
-		logger().Debug("ignoring guild message without bot mention", "guild_id", m.GuildID, "channel_id", m.ChannelID)
-		return nil
+	// The message is now really accepted: best-effort mark it seen. With
+	// require_mention off, a group message that does not actually address the
+	// bot (no mention, no reply-to-bot) is still processed for ambient
+	// participation, but it never opted into the reaction lifecycle the way a
+	// direct message or an addressed mention did — so it gets no 👀/✅/❌ at
+	// all rather than a 👀 that either never resolves or resolves on a
+	// message nobody expected feedback on. terminal tracks whether this turn
+	// reaches a definite outcome before handleMessage returns — a group
+	// message usually does not, since its reply is async and finishReaction
+	// runs later from Publish keyed by GroupPublishRequest.ReplyTo.
+	reactionEligible := m.GuildID == "" || b.addressed(m)
+	if reactionEligible {
+		b.reactBestEffort(deliveryCtx, m.ChannelID, m.ID, reactionReceived)
 	}
+	terminal := false
+	success := false
+	defer func() {
+		if !reactionEligible {
+			return
+		}
+		switch {
+		case resultErr != nil:
+			b.finishReaction(deliveryCtx, m.ChannelID, m.ID, false)
+		case terminal:
+			b.finishReaction(deliveryCtx, m.ChannelID, m.ID, success)
+		}
+	}()
+	// Acknowledge immediately; attachment downloads, thread-history reads, and
+	// durable group dispatch can all take longer than Discord's typing TTL.
+	stopTyping := b.startTypingHeartbeat(m.ChannelID)
+	defer stopTyping()
 	text := m.Content
 	if m.GuildID != "" {
 		text = b.stripBotMention(text)
@@ -52,7 +99,7 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
 	if strings.TrimSpace(text) != "" {
 		content = append(content, ai.TextContent{Text: text})
 	}
-	probe := b.incomingMessage(m, nil)
+	probe := b.incomingMessage(m, nil, route.chatID, route.threadID)
 	var assetMsg channel.IncomingMessage
 	if len(m.Attachments) > 0 {
 		resolver, ok := b.handler.(channel.AssetSaveAdmitter)
@@ -71,100 +118,107 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) error {
 	for _, attachment := range m.Attachments {
 		content = append(content, b.attachmentContent(deliveryCtx, assetMsg, attachment)...)
 	}
+	history, err := b.loadThreadHistory(deliveryCtx, m, route)
+	if err != nil {
+		return err
+	}
+	if len(content) == 0 && len(history) > 0 {
+		content = append(content, ai.TextContent{Text: "[Mentioned Stella without additional text.]"})
+	}
 	if len(content) == 0 {
 		return nil
 	}
-	msg := b.incomingMessage(m, content)
+	msg := b.incomingMessage(m, content, route.chatID, route.threadID)
 	if msg.IsGroup {
-		if err := b.ensureGroupMember(ctx, msg.ChatID); err != nil {
+		if err := b.ensureGroupMember(deliveryCtx, msg.ChatID, msg.ThreadID); err != nil {
 			return err
+		}
+		if len(history) > 0 {
+			importer, ok := b.handler.(groupHistoryImporter)
+			if !ok {
+				return errors.New("group history import unavailable")
+			}
+			if err := importer.ImportGroupHistory(deliveryCtx, history); err != nil {
+				return fmt.Errorf("import Discord thread history: %w", err)
+			}
 		}
 	}
 	cmd, args := channel.ParseSlashCommand(text)
-	resp, handled, stream, err := b.handler.HandleIncoming(ctx, msg, cmd, args)
+	resp, handled, stream, err := b.handler.HandleIncoming(deliveryCtx, msg, cmd, args)
 	if err != nil {
 		return err
 	}
 	if handled {
-		return b.sendText(deliveryCtx, m.ChannelID, resp, m.ID)
+		terminal = true
+		sendErr := b.sendText(deliveryCtx, m.ChannelID, resp, m.ID)
+		success = sendErr == nil
+		return sendErr
 	}
 	if stream == nil {
+		// Group turns reply asynchronously through the durable dispatcher;
+		// Publish finishes the 👀 reaction later, keyed by ReplyTo. A message
+		// that produced neither a command reply nor a stream (no real content)
+		// stays 👀 forever, which is fine: nothing happened worth a verdict.
 		return nil
 	}
-	_ = b.session.ChannelTyping(m.ChannelID)
+	terminal = true
 	// Once accepted, consume the stream to completion. The managed runtime's
 	// wrapped handler owns the operation lifetime; the gateway poll context may
 	// be cancelled earlier during a graceful drain.
-	textOut, images, files, streamErr := collectResponse(deliveryCtx, stream)
-	if streamErr != nil {
-		if textOut != "" {
-			textOut += "\n\n"
-		}
-		textOut += "Agent error: " + streamErr.Error()
-	}
-	if strings.TrimSpace(textOut) == "" && len(images) == 0 && len(files) == 0 {
-		textOut = "(empty response)"
-	}
-	if textOut != "" {
-		if err := b.sendText(deliveryCtx, m.ChannelID, textOut, m.ID); err != nil {
-			return err
-		}
-	}
-	for _, image := range images {
-		if err := b.sendImage(m.ChannelID, image); err != nil {
-			return err
-		}
-	}
-	for _, file := range files {
-		if err := b.sendFile(m.ChannelID, file); err != nil {
-			return err
-		}
-	}
-	return nil
+	deliverErr := b.deliverStream(deliveryCtx, m.ChannelID, m.ID, stream, &cancelControl{
+		requesterID: m.Author.ID,
+		// /abort re-resolves the same session through the coordinator's own
+		// command handling (HandleIncoming), so cancellation shares exactly the
+		// business logic a typed /abort uses instead of duplicating it. It is
+		// naturally idempotent: a session with no active turn just reports
+		// nothing to abort.
+		abort: func() bool {
+			_, _, _, _ = b.handler.HandleIncoming(context.WithoutCancel(deliveryCtx), msg, "/abort", "")
+			return true
+		},
+	})
+	success = deliverErr == nil
+	return deliverErr
 }
 
-func (b *Bot) ensureGroupMember(ctx context.Context, platformGroupID string) error {
-	provisioner, ok := b.handler.(groupMemberProvisioner)
-	if !ok {
+func (b *Bot) ensureGroupMember(ctx context.Context, platformGroupID, platformThreadID string) error {
+	cacheKey := platformGroupID + "\x00" + platformThreadID
+	b.provisionMu.Lock()
+	_, provisioned := b.provisionedGroups[cacheKey]
+	b.provisionMu.Unlock()
+	if provisioned {
 		return nil
+	}
+	if platformThreadID != "" {
+		provisioner, ok := b.handler.(threadGroupMemberProvisioner)
+		if !ok {
+			return errors.New("thread group member provisioning unavailable")
+		}
+		// Before thread-scoped routing existed, Discord treated the thread
+		// channel itself as the group, with no separate thread ID. Pass that
+		// legacy identity so a pre-existing group there is adopted instead of
+		// silently starting the thread over with empty history.
+		if err := provisioner.EnsurePlatformThreadGroupMember(ctx, channel.PlatformDiscord, platformGroupID, platformThreadID, platformThreadID, b.Name()); err != nil {
+			return fmt.Errorf("ensure discord thread group member: %w", err)
+		}
+	} else {
+		provisioner, ok := b.handler.(groupMemberProvisioner)
+		if !ok {
+			return nil
+		}
+		if err := provisioner.EnsurePlatformGroupMember(ctx, channel.PlatformDiscord, platformGroupID, b.Name()); err != nil {
+			return fmt.Errorf("ensure discord group member: %w", err)
+		}
 	}
 	b.provisionMu.Lock()
-	defer b.provisionMu.Unlock()
-	if _, ok := b.provisionedGroups[platformGroupID]; ok {
-		return nil
+	if len(b.provisionedGroups) >= provisionedGroupCacheLimit {
+		// Bounded cache only; provisioning is idempotent, so clearing trades a
+		// future DB check for bounded memory when a forum creates many threads.
+		clear(b.provisionedGroups)
 	}
-	if err := provisioner.EnsurePlatformGroupMember(ctx, channel.PlatformDiscord, platformGroupID, b.Name()); err != nil {
-		return fmt.Errorf("ensure discord group member: %w", err)
-	}
-	b.provisionedGroups[platformGroupID] = struct{}{}
+	b.provisionedGroups[cacheKey] = struct{}{}
+	b.provisionMu.Unlock()
 	return nil
-}
-
-func collectResponse(ctx context.Context, stream *channel.ChatStream) (string, []channel.ImageEvent, []channel.FileEvent, error) {
-	var text strings.Builder
-	var images []channel.ImageEvent
-	var files []channel.FileEvent
-	var streamErr error
-	for {
-		select {
-		case <-ctx.Done():
-			return text.String(), images, files, ctx.Err()
-		case evt, ok := <-stream.Events:
-			if !ok {
-				return text.String(), images, files, streamErr
-			}
-			if evt.Err != nil {
-				streamErr = evt.Err
-			}
-			text.WriteString(evt.Text)
-			if evt.Image != nil {
-				images = append(images, *evt.Image)
-			}
-			if evt.File != nil {
-				files = append(files, *evt.File)
-			}
-		}
-	}
 }
 
 func (b *Bot) attachmentContent(ctx context.Context, assetMsg channel.IncomingMessage, a *discordgo.MessageAttachment) []ai.ContentBlock {

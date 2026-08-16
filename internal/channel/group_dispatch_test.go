@@ -253,6 +253,36 @@ func TestGroupMessageAppendDedup(t *testing.T) {
 	}
 }
 
+func TestImportGroupHistoryPersistsCanonicalRowsWithoutOutbox(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+	agentID := ts.stellaAgentID(t)
+	if _, err := ts.db.Exec(ctx, `INSERT INTO channel (id, name, type, agent_id, enabled) VALUES ('discord-history', 'Discord history', 'discord', $1, true)`, agentID); err != nil {
+		t.Fatal(err)
+	}
+	coord := &Coordinator{eventLog: eventlog.NewStore(ts.db), store: ts.store}
+	history := []pkgchannel.IncomingMessage{
+		{Platform: "discord", ChannelID: "discord-history", ChatID: "forum", ThreadID: "thread", IsGroup: true, SenderID: "alice", MessageID: "starter", Content: pkgchannel.TextContent("question")},
+		{Platform: "discord", ChannelID: "discord-history", ChatID: "forum", ThreadID: "thread", IsGroup: true, SenderID: "bob", MessageID: "reply", Content: pkgchannel.TextContent("detail")},
+	}
+	if err := coord.ImportGroupHistory(ctx, history); err != nil {
+		t.Fatal(err)
+	}
+	if err := coord.ImportGroupHistory(ctx, history); err != nil {
+		t.Fatal(err)
+	}
+	var messages, outbox int
+	if err := ts.db.QueryRow(ctx, `SELECT count(*) FROM ctx_group_message`).Scan(&messages); err != nil {
+		t.Fatal(err)
+	}
+	if err := ts.db.QueryRow(ctx, `SELECT count(*) FROM ctx_group_outbox`).Scan(&outbox); err != nil {
+		t.Fatal(err)
+	}
+	if messages != 2 || outbox != 0 {
+		t.Fatalf("imported messages=%d outbox=%d, want 2 and 0", messages, outbox)
+	}
+}
+
 func TestResolveMentionAgents(t *testing.T) {
 	ts := setupStores(t)
 	ctx := context.Background()

@@ -72,8 +72,8 @@ Set `enable_notify: true` for proactive messages (scheduler results, notify tool
 
 1. Create an application and bot in the [Discord Developer Portal](https://discord.com/developers/applications)
 2. Enable the **Message Content Intent** on the bot page; turn off **Public Bot** for private deployments
-3. Invite the bot with permission to view channels, send messages, read message history, and attach files
-4. Open the Web UI, add a Discord channel, paste the bot token, and turn on **Allow server channels** if the bot should serve the servers it joined
+3. Invite the bot with the `bot` and `applications.commands` OAuth scopes, and permission to view channels, send messages, read message history, attach files, and add reactions
+4. Open the Web UI, add a Discord channel, paste the bot token, turn on **Allow server channels** if the bot should serve the servers it joined, and configure guild access as described below
 
 Discord channel config (JSON):
 
@@ -81,6 +81,11 @@ Discord channel config (JSON):
 {
   "token": "BOT_TOKEN",
   "allow_group": false,
+  "allow_all_guilds": false,
+  "allowed_guild_ids": [],
+  "allowed_channel_ids": [],
+  "allowed_user_ids": [],
+  "allowed_role_ids": [],
   "allow_dm": true,
   "allow_unlinked_dm": false,
   "guest_message_limit_per_minute": 10,
@@ -90,7 +95,7 @@ Discord channel config (JSON):
 }
 ```
 
-The bot connects through Discord Gateway, so Stella does not need a public webhook URL. It supports direct messages, guild channels, attachments, replies, and shared channel commands. `allow_group` is one fail-closed switch for server channels: while it is `false` all guild messages are disabled and direct messages continue to work. `allow_dm` defaults to `true`; disable it for a guild-only bot. `require_mention` defaults to `true`, so unmentioned guild messages are ignored before reaching shared history or an agent. Every member who can access a channel the bot can read may mention it, so use Discord channel and role permissions for access control and invite the bot only to trusted servers. Bind the channel instance to an agent before using it in guild channels. Use a Discord channel ID as an explicit notification target; do not invent one.
+The bot connects through Discord Gateway, so Stella does not need a public webhook URL. It supports direct messages, guild channels, forum and text threads, attachments, replies, and shared channel commands, both as typed `/command` text and as native Discord slash commands. Long-running replies react 👀 on receipt, then show a typing indicator plus an editable progress message with generated text, tool activity, and a Cancel button only the requester can use; on completion the reaction becomes ✅ or ❌ and the Cancel button is removed. A reply to the bot also satisfies the default mention requirement. When first mentioned later in a thread, Stella imports the starter and bounded recent human history before answering. `allow_group` is the master switch for server channels: while it is `false` all guild messages are disabled and direct messages continue to work. Turning `allow_group` on does not by itself reopen every joined server: the channel also needs either the dangerous `allow_all_guilds: true` or at least one entry in `allowed_guild_ids`, `allowed_channel_ids` (matches a thread's own ID or its parent channel ID), `allowed_user_ids`, or `allowed_role_ids` (matched against the message author's guild roles). With `allow_group` on, `allow_all_guilds` off, and every allowlist empty, no guild message is served — this is a deliberate fail-closed default, not a bug. Upgrading a channel that already had `allow_group` on backfills `allow_all_guilds: true` once, to preserve its prior reach; a newly created channel starts closed. `allow_dm` defaults to `true`; disable it for a guild-only bot. `require_mention` defaults to `true`, so unmentioned guild messages are ignored before reaching shared history or an agent. Bind the channel instance to an agent before using it in guild channels. Use a Discord channel ID as an explicit notification target; do not invent one.
 
 Unlinked direct messages are off by default. Setting `allow_unlinked_dm: true` requires `allow_dm: true`, an enabled Discord channel, and a channel-bound agent; guests can use only that agent. Guest conversation history persists and compacts, but profile, reflection, tools, skills, files, workspace, plugins, and delegation are unavailable. Only `/link`, `/help`, `/new`, `/compact`, and `/abort` are allowed, and linking does not merge old guest history. Per-guest rate, per-channel count, and inactivity-retention limits are configurable. It still exposes model use publicly, so warn operators about cost and security and recommend a dedicated guest-safe agent whose base prompt contains no secrets.
 

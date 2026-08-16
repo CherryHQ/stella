@@ -72,10 +72,11 @@ type IncomingMessage struct {
 	Content    []ai.ContentBlock
 
 	// Group-chat metadata (D3). Adapters fill what they can; empty/zero is allowed.
-	MessageID string    // platform-native message ID (stable delivery/update id), empty if unavailable
-	Timestamp time.Time // platform-reported send time, zero if unavailable
-	ReplyTo   string    // platform message ID this message replies to, empty if none
-	Mentions  []Mention // @-mentions, normalized; AgentID is resolved later by the dispatcher
+	MessageID         string    // platform-native message ID (stable delivery/update id), empty if unavailable
+	Timestamp         time.Time // platform-reported send time, zero if unavailable
+	ReplyTo           string    // platform message ID this message replies to, empty if none
+	Mentions          []Mention // @-mentions, normalized; AgentID is resolved later by the dispatcher
+	LifecycleFeedback bool      // platform adapter should show addressed-turn completion feedback
 }
 
 // Mention is a normalized @-mention. Adapters fill Raw and PlatformID; the

@@ -578,6 +578,17 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	if err != nil {
 		return d.failDispatch(ctx, claimed, err)
 	}
+	outbox, err := d.q.GetGroupOutboxByMessage(ownedCtx, claimed.GroupMessageID)
+	if err != nil {
+		return d.failDispatch(ctx, claimed, fmt.Errorf("get group outbox metadata: %w", err))
+	}
+	envelope, err := DecodeGroupOutboxEnvelope(outbox.Envelope)
+	if err != nil {
+		// Dispatch rows were already materialized from this envelope. Optional
+		// publish metadata must not make an otherwise executable legacy row fail.
+		d.log.Debug("ignoring invalid group outbox publish metadata", "dispatch_id", claimed.ID, "error", err)
+		envelope = GroupOutboxEnvelope{}
+	}
 	publisher, err := d.publisherFor(state, claimed, publisherOverride)
 	if err != nil {
 		return d.failDispatch(ctx, claimed, err)
@@ -598,16 +609,23 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		return d.failDispatch(ctx, claimed, err)
 	}
 	stream, responseC := d.wrapGroupResponseStream(ownedCtx, stream)
+	// Same key chatDispatchUnqueued enqueues under: the per-(agent,group)
+	// session queue is the one durable handle on this turn, so a cancel click
+	// reuses its existing Abort rather than tracking the turn a second way.
+	sessionKey := agent.BuildGroupSessionKey(claimed.AgentID, claimed.GroupID)
 	if err := publisher.Publish(ownedCtx, GroupPublishRequest{
-		GroupID:          claimed.GroupID,
-		AgentID:          claimed.AgentID,
-		AgentName:        agentName,
-		ReplyChannelID:   claimed.ReplyChannelID,
-		Platform:         state.Platform,
-		PlatformGroupID:  state.PlatformGroupID,
-		PlatformThreadID: state.PlatformThreadID,
-		ReplyTo:          nullStringValue(message.PlatformMessageID),
-		Stream:           stream,
+		GroupID:           claimed.GroupID,
+		AgentID:           claimed.AgentID,
+		AgentName:         agentName,
+		ReplyChannelID:    claimed.ReplyChannelID,
+		Platform:          state.Platform,
+		PlatformGroupID:   state.PlatformGroupID,
+		PlatformThreadID:  state.PlatformThreadID,
+		ReplyTo:           nullStringValue(message.PlatformMessageID),
+		Stream:            stream,
+		RequesterID:       message.ActorID,
+		LifecycleFeedback: envelope.LifecycleFeedback,
+		Abort:             func() bool { return d.queue.Abort(sessionKey) },
 	}); err != nil {
 		return d.failDispatch(ctx, claimed, fmt.Errorf("publish: %w", err))
 	}

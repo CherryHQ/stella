@@ -7,7 +7,7 @@ import { useI18n } from "@/lib/i18n";
 
 // ─── platform metadata ────────────────────────────────────────────────────────
 
-export type PlatformDefaults = Record<string, string | boolean | number>;
+export type PlatformDefaults = Record<string, string | boolean | number | string[]>;
 
 /**
  * The credential fields each platform stores on a channel row. This map is the
@@ -30,6 +30,11 @@ export const platformDefaults: Record<string, PlatformDefaults> = {
   discord: {
     token: "",
     allow_group: false,
+    allow_all_guilds: false,
+    allowed_guild_ids: [],
+    allowed_channel_ids: [],
+    allowed_user_ids: [],
+    allowed_role_ids: [],
     allow_dm: true,
     allow_unlinked_dm: false,
     guest_message_limit_per_minute: 10,
@@ -86,16 +91,31 @@ export function platformConfigDefaults(type: string): PlatformDefaults {
   return { ...platformDefaults[type] };
 }
 
+/** Splits comma- or newline-separated IDs, trimming blanks and duplicates. */
+function splitIDList(value: unknown): string[] {
+  const raw = Array.isArray(value) ? value.join(",") : typeof value === "string" ? value : "";
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of raw.split(/[,\n]/)) {
+    const id = part.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
 function normalizeConfigValue(
-  defaultValue: string | boolean | number,
+  defaultValue: string | boolean | number | string[],
   value: unknown,
-): string | boolean | number {
+): string | boolean | number | string[] {
   if (typeof defaultValue === "boolean") return Boolean(value);
   if (typeof defaultValue === "number") {
     if (typeof value === "string" && value.trim() === "") return defaultValue;
     const number = Number(value);
     return Number.isFinite(number) ? Math.trunc(number) : defaultValue;
   }
+  if (Array.isArray(defaultValue)) return splitIDList(value);
   return (value as string) || "";
 }
 
@@ -204,6 +224,26 @@ export function ChannelConfigFields({
     </Field>
   );
 
+  /** A comma/newline editable text input that persists as a string array. */
+  const arrayField = (key: string, label: string, description: string) => {
+    const value = channel[key];
+    const display = Array.isArray(value) ? value.join(", ") : (value as string) || "";
+    return (
+      <Field key={key} className="w-full">
+        <FieldLabel className="font-mono">{label}</FieldLabel>
+        <Input
+          nativeInput
+          type="text"
+          value={display}
+          onChange={(e) => onChange(key, e.target.value)}
+          placeholder="id-1, id-2"
+          className="w-full font-mono"
+        />
+        <FieldDescription>{description}</FieldDescription>
+      </Field>
+    );
+  };
+
   const numberField = (
     key: string,
     label: string,
@@ -307,6 +347,35 @@ export function ChannelConfigFields({
         <>
           {field("token", "Bot Token", "password", "Discord Developer Portal")}
           {accessFields(t("channels.allowGuild"), t("channels.allowGuildDesc"))}
+          <Field>
+            <FieldLabel>{t("channels.allowAllGuilds")}</FieldLabel>
+            <Switch
+              checked={Boolean(channel.allow_all_guilds)}
+              aria-label={t("channels.allowAllGuilds")}
+              onCheckedChange={(checked) => onChange("allow_all_guilds", checked)}
+            />
+            <FieldDescription>{t("channels.allowAllGuildsDesc")}</FieldDescription>
+          </Field>
+          {arrayField(
+            "allowed_guild_ids",
+            t("channels.allowedGuildIds"),
+            t("channels.allowedGuildIdsDesc"),
+          )}
+          {arrayField(
+            "allowed_channel_ids",
+            t("channels.allowedChannelIds"),
+            t("channels.allowedChannelIdsDesc"),
+          )}
+          {arrayField(
+            "allowed_user_ids",
+            t("channels.allowedUserIds"),
+            t("channels.allowedUserIdsDesc"),
+          )}
+          {arrayField(
+            "allowed_role_ids",
+            t("channels.allowedRoleIds"),
+            t("channels.allowedRoleIdsDesc"),
+          )}
         </>
       )}
 

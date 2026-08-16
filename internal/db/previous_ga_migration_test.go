@@ -28,41 +28,43 @@ const (
 	previousGAVersion = int64(20260725161331)
 	// Library V1, channel guest sessions/indexes, channel allowlist backfill,
 	// session activity, per-message actor provenance and summary authority,
-	// the durable Session inbox, and restrictive Library ownership are the
-	// post-anchor migrations exercised below. Library chunk locator integrity and
-	// the dedicated Skill Home cutover evidence schema and retired RTK plugin
-	// cleanup are checked explicitly.
-	currentMigrationVersion = sequentialAnchor + 17
+	// the durable Session inbox, restrictive Library ownership, and the Discord
+	// explicit guild-access backfill are the post-anchor migrations exercised
+	// below. Library chunk locator integrity and the dedicated Skill Home
+	// cutover evidence schema and retired RTK plugin cleanup are checked
+	// explicitly.
+	currentMigrationVersion = sequentialAnchor + 18
 
-	previousGAUserID           = "00000000-0000-0000-0000-000000000001"
-	previousGAGroupID          = "00000000-0000-0000-0000-000000000002"
-	previousGAOlderChatID      = "00000000-0000-0000-0000-000000000009"
-	previousGAOldChatID        = "00000000-0000-0000-0000-000000000003"
-	previousGANewChatID        = "00000000-0000-0000-0000-000000000004"
-	previousGAMessageID        = "00000000-0000-0000-0000-000000000005"
-	previousGAPartID           = "00000000-0000-0000-0000-000000000006"
-	previousGAMediaID          = "00000000-0000-0000-0000-000000000007"
-	previousGAWebhookID        = "00000000-0000-0000-0000-000000000008"
-	previousGADelegateChatID   = "00000000-0000-0000-0000-000000000051"
-	previousGASchedulerChatID  = "00000000-0000-0000-0000-000000000052"
-	previousGATaskChatID       = "00000000-0000-0000-0000-000000000053"
-	previousGADelegateMsgID    = "00000000-0000-0000-0000-000000000054"
-	previousGASchedulerMsgID   = "00000000-0000-0000-0000-000000000055"
-	previousGATaskMsgID        = "00000000-0000-0000-0000-000000000056"
-	previousGALibraryFile      = "00000000-0000-0000-0000-000000000041"
-	previousGAAgentLibraryFile = "00000000-0000-0000-0000-000000000047"
-	previousGAChunkSet         = "00000000-0000-0000-0000-000000000042"
-	previousGAChunk            = "00000000-0000-0000-0000-000000000043"
-	previousGAGuestID          = "00000000-0000-0000-0000-000000000044"
-	previousGAGuestChatID      = "00000000-0000-0000-0000-000000000045"
-	previousGAAgentID          = "previous-ga-agent"
-	previousGACascadeAgentID   = "previous-ga-cascade-agent"
-	previousGALibraryAgentID   = "previous-ga-library-agent"
-	previousGAProviderID       = "previous-ga-provider"
-	previousGASkillID          = "previous-ga-skill"
-	previousGAOlderSession     = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:zz"
-	previousGAOldSession       = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:a"
-	previousGANewSession       = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:z"
+	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
+	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
+	previousGAOlderChatID                = "00000000-0000-0000-0000-000000000009"
+	previousGAOldChatID                  = "00000000-0000-0000-0000-000000000003"
+	previousGANewChatID                  = "00000000-0000-0000-0000-000000000004"
+	previousGAMessageID                  = "00000000-0000-0000-0000-000000000005"
+	previousGAPartID                     = "00000000-0000-0000-0000-000000000006"
+	previousGAMediaID                    = "00000000-0000-0000-0000-000000000007"
+	previousGAWebhookID                  = "00000000-0000-0000-0000-000000000008"
+	previousGADelegateChatID             = "00000000-0000-0000-0000-000000000051"
+	previousGASchedulerChatID            = "00000000-0000-0000-0000-000000000052"
+	previousGATaskChatID                 = "00000000-0000-0000-0000-000000000053"
+	previousGADelegateMsgID              = "00000000-0000-0000-0000-000000000054"
+	previousGASchedulerMsgID             = "00000000-0000-0000-0000-000000000055"
+	previousGATaskMsgID                  = "00000000-0000-0000-0000-000000000056"
+	previousGALibraryFile                = "00000000-0000-0000-0000-000000000041"
+	previousGAAgentLibraryFile           = "00000000-0000-0000-0000-000000000047"
+	previousGAChunkSet                   = "00000000-0000-0000-0000-000000000042"
+	previousGAChunk                      = "00000000-0000-0000-0000-000000000043"
+	previousGAGuestID                    = "00000000-0000-0000-0000-000000000044"
+	previousGAGuestChatID                = "00000000-0000-0000-0000-000000000045"
+	previousGAAllowGroupDiscordChannelID = "previous-ga-discord-allow-group"
+	previousGAAgentID                    = "previous-ga-agent"
+	previousGACascadeAgentID             = "previous-ga-cascade-agent"
+	previousGALibraryAgentID             = "previous-ga-library-agent"
+	previousGAProviderID                 = "previous-ga-provider"
+	previousGASkillID                    = "previous-ga-skill"
+	previousGAOlderSession               = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:zz"
+	previousGAOldSession                 = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:a"
+	previousGANewSession                 = "previous-ga-agent:group:00000000-0000-0000-0000-000000000002:z"
 )
 
 var previousGATime = time.Date(2026, time.July, 25, 12, 0, 0, 0, time.UTC)
@@ -242,6 +244,10 @@ func seedPreviousGAData(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
 		INSERT INTO plugin_override (plugin_id, enabled, config, created_at, updated_at) VALUES
 			('tool/custom', false, '{"custom":"untouched"}', $1, $1),
 			('hook/rtk', true, '{"name":"rtk"}', $1, $1)`, previousGATime)
+	exec("legacy Discord channel relying on allow_group alone", `
+		INSERT INTO channel (id, name, type, enabled, config, created_at, updated_at)
+		VALUES ($1, 'Previous GA Discord Allow Group', 'discord', true, '{"allow_group": true, "token": "legacy-token"}', $2, $2)`,
+		previousGAAllowGroupDiscordChannelID, previousGATime)
 }
 
 func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool) {
@@ -308,6 +314,19 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 	if got := count("uninitialized Skill Home migration evidence", `SELECT count(*) FROM skill_home_migration`); got != 0 {
 		t.Fatalf("ordinary schema migration wrote %d Skill cutover markers, want 0", got)
+	}
+	var allowAllGuilds bool
+	var hasAllowedGuildIDsKey bool
+	if err := db.QueryRow(ctx, `
+		SELECT (config::jsonb ->> 'allow_all_guilds')::boolean, config::jsonb ? 'allowed_guild_ids'
+		FROM channel WHERE id = $1`, previousGAAllowGroupDiscordChannelID).Scan(&allowAllGuilds, &hasAllowedGuildIDsKey); err != nil {
+		t.Fatalf("read migrated Discord allow_group channel config: %v", err)
+	}
+	if !allowAllGuilds {
+		t.Fatalf("legacy Discord channel that relied on allow_group alone did not backfill allow_all_guilds=true")
+	}
+	if hasAllowedGuildIDsKey {
+		t.Fatalf("Discord allow_group backfill unexpectedly added an allowed_guild_ids key; it must only set allow_all_guilds")
 	}
 	var legacyActorType string
 	if err := db.QueryRow(ctx, `SELECT actor_type FROM ctx_message WHERE id = $1`, previousGAMessageID).Scan(&legacyActorType); err != nil {
