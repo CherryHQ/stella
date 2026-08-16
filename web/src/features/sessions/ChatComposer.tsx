@@ -1,6 +1,6 @@
 import type { ReactNode, RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Paperclip, X } from "lucide-react";
+import { ArrowUp, Paperclip, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
@@ -84,6 +84,17 @@ export function ChatComposer({
     }
   }, [storageKey, valueProp]);
   const value = valueProp ?? draft;
+  const resizeTextarea = useCallback(() => {
+    const textarea = taRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+  }, [taRef]);
+
+  useEffect(() => {
+    resizeTextarea();
+  }, [value, resizeTextarea]);
+
   const setValue = useCallback(
     (v: string) => {
       if (valueProp === undefined) {
@@ -249,7 +260,7 @@ export function ChatComposer({
       )}
       <div
         className={cn(
-          "relative mx-auto flex w-full min-w-0 max-w-[var(--chat-column)] flex-col rounded-lg border bg-card p-1",
+          "relative mx-auto flex w-full min-w-0 max-w-[var(--chat-column)] flex-col rounded-xl border bg-card p-2",
           isStreaming
             ? "border-primary focus-within:ring-2 focus-within:ring-primary/20"
             : "border-border focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20",
@@ -283,53 +294,6 @@ export function ChatComposer({
         }}
       >
         {slashOverlay}
-        {hasChips && (
-          <div className="flex flex-wrap gap-1.5 px-4 pt-2 pb-1">
-            {selectedSkills.map((s) => (
-              <span
-                key={s.name}
-                className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2.5 py-1 font-mono text-xs font-semibold text-foreground"
-              >
-                /{s.name}
-                <button
-                  type="button"
-                  onClick={() => removeSkill(s.name)}
-                  className="ml-0.5 shrink-0 cursor-pointer text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  <X className="size-3" />
-                </button>
-              </span>
-            ))}
-            {hasAttachments &&
-              attachments.map((a, i) => (
-                <span
-                  key={i}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 text-xs font-mono rounded-md px-2.5 py-1 max-w-48 border",
-                    a.uploading
-                      ? "bg-muted/50 text-muted-foreground border-border"
-                      : "bg-muted text-muted-foreground border-border",
-                  )}
-                >
-                  {a.uploading ? (
-                    <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin shrink-0" />
-                  ) : (
-                    <Paperclip className="w-3 h-3 shrink-0 text-muted-foreground" />
-                  )}
-                  <span className="truncate">{a.name}</span>
-                  {!a.uploading && onRemoveAttachment && (
-                    <button
-                      type="button"
-                      onClick={() => onRemoveAttachment(i)}
-                      className="ml-0.5 shrink-0 cursor-pointer text-muted-foreground transition-colors hover:text-foreground"
-                    >
-                      <X className="size-3" />
-                    </button>
-                  )}
-                </span>
-              ))}
-          </div>
-        )}
         <div className="relative min-w-0">
           <textarea
             ref={taRef}
@@ -374,11 +338,6 @@ export function ChatComposer({
                 handleSend();
               }
             }}
-            onInput={(e) => {
-              const el = e.currentTarget;
-              el.style.height = "auto";
-              el.style.height = Math.min(el.scrollHeight, 160) + "px";
-            }}
             onPaste={(e) => {
               if (!onFileSelect || isStreaming) return;
               const files = e.clipboardData.files;
@@ -388,12 +347,82 @@ export function ChatComposer({
               }
             }}
             placeholder={placeholder}
-            className="w-full min-w-0 resize-none overflow-y-auto border-0 bg-transparent px-4 pt-3 pb-1.5 pr-12 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
-            style={{ minHeight: 40, maxHeight: 160 }}
+            className="max-h-40 min-h-10 w-full min-w-0 resize-none overflow-y-auto border-0 bg-transparent px-4 py-2.5 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
             rows={1}
             disabled={disabled ?? isStreaming}
           />
-          <div className="absolute bottom-1.5 right-2">
+        </div>
+        {hasChips && (
+          <div className="flex flex-wrap gap-1.5 px-3 pb-2">
+            {selectedSkills.map((s) => (
+              <span
+                key={s.name}
+                className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2.5 py-1 font-mono text-xs font-semibold text-foreground"
+              >
+                /{s.name}
+                <button
+                  type="button"
+                  onClick={() => removeSkill(s.name)}
+                  className="ml-0.5 shrink-0 cursor-pointer text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            ))}
+            {hasAttachments &&
+              attachments.map((a, i) => (
+                <span
+                  key={i}
+                  className={cn(
+                    "inline-flex max-w-48 items-center gap-1.5 rounded-md border px-2.5 py-1 font-mono text-xs",
+                    a.uploading
+                      ? "border-border bg-muted/50 text-muted-foreground"
+                      : "border-border bg-muted text-muted-foreground",
+                  )}
+                >
+                  {a.uploading ? (
+                    <div className="size-3 shrink-0 animate-spin rounded-full border border-muted-foreground/30 border-t-muted-foreground" />
+                  ) : (
+                    <Paperclip className="size-3 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="truncate">{a.name}</span>
+                  {!a.uploading && onRemoveAttachment && (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveAttachment(i)}
+                      className="ml-0.5 shrink-0 cursor-pointer text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  )}
+                </span>
+              ))}
+          </div>
+        )}
+        <div className="flex min-w-0 items-center gap-1.5 px-2 pb-0.5">
+          {!isStreaming && onFileSelect && (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => fileInputRef.current?.click()}
+              title={t("sessions.composer.attachFiles")}
+            >
+              <Plus className="size-4" />
+            </Button>
+          )}
+          {!isStreaming && (
+            <span className="min-w-0 truncate font-mono text-xs text-muted-foreground select-none">
+              {skills && skills.length > 0
+                ? t("sessions.transcript.sendHintSkills")
+                : t("sessions.transcript.sendHint")}
+            </span>
+          )}
+          {isStreaming && (
+            <span className="text-xs font-mono text-info select-none animate-pulse">
+              {t("sessions.transcript.generating")}
+            </span>
+          )}
+          <div className="ml-auto shrink-0">
             {isStreaming && onStop ? (
               <Button variant="destructive-outline" size="sm" onClick={onStop}>
                 <div className="w-2 h-2 bg-destructive rounded-xs" />
@@ -411,30 +440,6 @@ export function ChatComposer({
               </Button>
             )}
           </div>
-        </div>
-        <div className="flex min-w-0 items-center gap-1.5 px-2 pb-0.5">
-          {!isStreaming && onFileSelect && (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={() => fileInputRef.current?.click()}
-              title={t("sessions.composer.attachFiles")}
-            >
-              <Paperclip className="size-3.5" />
-            </Button>
-          )}
-          {!isStreaming && (
-            <span className="min-w-0 truncate font-mono text-xs text-muted-foreground select-none">
-              {skills && skills.length > 0
-                ? t("sessions.transcript.sendHintSkills")
-                : t("sessions.transcript.sendHint")}
-            </span>
-          )}
-          {isStreaming && (
-            <span className="text-xs font-mono text-info select-none animate-pulse">
-              {t("sessions.transcript.generating")}
-            </span>
-          )}
         </div>
       </div>
     </div>
