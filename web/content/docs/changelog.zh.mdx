@@ -11,9 +11,54 @@ icon: History
 
 ## [Unreleased]
 
+## [0.64.0] - 2026-08-16
+
+### ⚠️ 重大变更
+
+- Telegram、飞书、钉钉、Discord 四个渠道的群聊访问控制统一为一个布尔开关 `allow_group`，默认 `false`，取代原先各平台的群 ID allowlist（`allowed_chat_ids`、`allowed_conversation_ids`、`allowed_guild_ids`）。那些 ID 在任何平台客户端里都拿不到，文档教的办法是先让群消息被拒绝、再去服务端日志里捞 ID；而成员 provisioning、默认开启的 `require_mention` 和访客限额已经挡在未知群和 Agent 之间。原先使用 allowlist 的部署需要显式设置 `allow_group`。([#1009](https://github.com/CherryHQ/stella/pull/1009), [#1008](https://github.com/CherryHQ/stella/issues/1008))
+
+### ✨ 功能
+
+- 钉钉成为与 Telegram、Discord、QQ、飞书、微信并列的一等渠道，基于官方 Stream SDK，私聊和受信群无需暴露公网回调地址即可接入 Stella。包含 Web UI 配置、账号关联、通知与中英文文档。([#1000](https://github.com/CherryHQ/stella/pull/1000), [#999](https://github.com/CherryHQ/stella/issues/999))
+- Discord 回复变为可交互、线程感知：长任务期间持续显示正在输入并实时更新进度消息，支持私聊原生斜杠命令、生命周期表情反馈、发起人绑定的取消操作、论坛与线程历史，以及尊重 Unicode 与代码块边界的长消息切分。此前长任务在结束前不给任何反馈。([#1019](https://github.com/CherryHQ/stella/pull/1019), [#1005](https://github.com/CherryHQ/stella/issues/1005), [#1006](https://github.com/CherryHQ/stella/issues/1006))
+- Telegram 论坛话题现在是各自独立的群身份、可单独绑定；群聊回合通过一条话题感知的可编辑消息流式输出，带正在输入状态、合并的工具与文本更新、安全的失败处理和有界的限流重试。群聊命令遵循常规寻址规则，并注册了 `/help`。([#1023](https://github.com/CherryHQ/stella/pull/1023), [#1022](https://github.com/CherryHQ/stella/issues/1022))
+- Telegram 消息带上了表情反馈生命周期：🤔 表示已接收，答复送达后自动清除，只有失败才留下 👎。成功不加表情，因为回复本身就是信号，而每次设置表情都会播放一次动画。([#1029](https://github.com/CherryHQ/stella/pull/1029), [#1028](https://github.com/CherryHQ/stella/issues/1028))
+- 飞书线程投递现在会在分发前惰性创建线程群、为私聊和群聊流提供发起人绑定的原生取消卡片、明确以 in-thread 方式回复，并对瞬时卡片失败重试，而不是把非终态的失败当作投递错误上报。([#1021](https://github.com/CherryHQ/stella/pull/1021), [#1020](https://github.com/CherryHQ/stella/issues/1020))
+- Stella Library 新增按 scope 划分的管理 API 和两个 Web UI 页面，覆盖 `user`、`user_agent`、`system`、`system_agent` 四个 scope 下的列表、详情、分片上传、文件名搜索、keyset 分页、配额展示、状态刷新与删除。管理员专属 scope 仍由服务端强制校验，被拒绝的上传也不会先消耗掉不受信的大请求体。([#872](https://github.com/CherryHQ/stella/pull/872), [#842](https://github.com/CherryHQ/stella/issues/842))
+- Knowledge 文件在 Markdown 和纯文本之外新增支持 PDF 与 DOCX。文本格式走内置解析器，文档格式经由有界的可选 Xberg CLI 适配器处理；解析器 profile 按媒体类型区分，因此更换解析器无需改动 Library 生命周期。暂不支持 OCR。([#988](https://github.com/CherryHQ/stella/pull/988))
+- `/settings/*` 下的个人设置与 `/admin/*` 下的部署管理彻底分离，由资源归属而非查看者角色决定界面。管理员保留自己的个人 Skills、MCP server、连接、保险库和 Library，同时独立管理部署级资源。([#976](https://github.com/CherryHQ/stella/pull/976), [#975](https://github.com/CherryHQ/stella/issues/975))
+- 编辑内置插件的某个字段时，现在只保存与服务端出厂定义有差异的字段，不再把整个插件冻结在第一次被编辑时的版本。未被编辑的字段在后续版本中的改进现在能正常生效。([#964](https://github.com/CherryHQ/stella/pull/964), [#963](https://github.com/CherryHQ/stella/issues/963))
+- 沙箱的 mise 配置按 mise 原生的 system、principal-global、workspace 三层分离，`mise use --global` 现在写入可写的共享配置，而不是对着 Stella 只读的内置配置失败。([#1015](https://github.com/CherryHQ/stella/pull/1015), [#1014](https://github.com/CherryHQ/stella/issues/1014))
+- 内置 Skills 改为随发布分发的不可变 bundle，不再被重写到 `$STELLA_HOME` 再扫描回来，同时解决了可执行权限位丢失的问题。([#831](https://github.com/CherryHQ/stella/pull/831))
+- System、System-Agent、User、User-Agent 四类可变 Skill 的内容字节迁移到经授权的 typed Home POSIX 根目录，并以精确的内容摘要做并发控制。PostgreSQL 继续作为身份、策略、用量和来源的控制平面。([#1001](https://github.com/CherryHQ/stella/pull/1001))
+
 ### 🐛 修复
 
+- Agent 拥有者拿回了被错误限制为管理员专属的操作，插件也重新可以删除。([#956](https://github.com/CherryHQ/stella/pull/956), [#955](https://github.com/CherryHQ/stella/issues/955), [#957](https://github.com/CherryHQ/stella/issues/957))
+- 修复飞书 autolink 渲染 panic，`<details>` 块现在能正常渲染，Telegram 不再静默丢弃消息内容。([#1027](https://github.com/CherryHQ/stella/pull/1027), [#1024](https://github.com/CherryHQ/stella/issues/1024))
+- 各后端下沙箱 shell 的执行路径重新稳定。([#1017](https://github.com/CherryHQ/stella/pull/1017), [#1016](https://github.com/CherryHQ/stella/issues/1016), [#1018](https://github.com/CherryHQ/stella/issues/1018))
+- 已归档的会话不再出现在记忆召回结果中。([#996](https://github.com/CherryHQ/stella/pull/996), [#994](https://github.com/CherryHQ/stella/issues/994))
+- 包含并行工具调用的对话轮次不再在记忆中丢失。([#997](https://github.com/CherryHQ/stella/pull/997), [#995](https://github.com/CherryHQ/stella/issues/995))
+- Library 检索改用所有 provider 都接受的工具名。([#993](https://github.com/CherryHQ/stella/pull/993), [#991](https://github.com/CherryHQ/stella/issues/991))
+- Xberg 运行时随发布一起打包，文档解析无需额外安装。([#989](https://github.com/CherryHQ/stella/pull/989))
+- 已登录用户会直接跳转到 agents 页面，不再经过中间路由。([#966](https://github.com/CherryHQ/stella/pull/966), [#965](https://github.com/CherryHQ/stella/issues/965))
 - 升级后的部署现在会向新的 `lark-cli` session 恢复 Stella 托管的 Lark/飞书凭据，不再因旧插件 override 而隐藏 token、App ID 和品牌环境变量；Stella 也不再强制设置已退役的用户自管理 CLI 配置和数据目录。([#987](https://github.com/CherryHQ/stella/pull/987), [#986](https://github.com/CherryHQ/stella/issues/986))
+
+### 🔐 安全
+
+- `nanoid` 锁定到不受漏洞影响的 3.x 版本。它只经由 `postcss` 间接引入，Dependabot 的 updater 无法自行修复这类依赖。([#1038](https://github.com/CherryHQ/stella/pull/1038))
+
+### ♻️ 重构
+
+- 沙箱与存储统一到一个确定性的 POSIX 命名空间：上层只使用进程可见的规范路径，物理主机路径和挂载源解析对 provider 私有。Workspace API 在授权后直接操作该命名空间，无需启动或唤醒 Session 计算资源。([#886](https://github.com/CherryHQ/stella/pull/886), [#888](https://github.com/CherryHQ/stella/pull/888), [#1007](https://github.com/CherryHQ/stella/pull/1007))
+- 拆分 manifest plugin 的定义类型。([#968](https://github.com/CherryHQ/stella/pull/968), [#967](https://github.com/CherryHQ/stella/issues/967))
+
+### 🔧 CI
+
+- CI 通过一个共享的复合 action 缓存 Go 构建缓存、模块缓存、node 工具链和内嵌 PostgreSQL 运行时，Test job 从约 11 分钟降到 6 分钟以内。([#1032](https://github.com/CherryHQ/stella/pull/1032), [#1031](https://github.com/CherryHQ/stella/issues/1031))
+- 升级随发布打包的工具链，沙箱镜像改为引用已发布的 mise 镜像 tag。([#1037](https://github.com/CherryHQ/stella/pull/1037))
+
+**Full Changelog**: [v0.63.3...v0.64.0](https://github.com/CherryHQ/stella/compare/v0.63.3...v0.64.0)
 
 ## [0.63.3] - 2026-08-11
 
