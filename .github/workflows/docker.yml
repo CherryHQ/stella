@@ -35,6 +35,11 @@ jobs:
           cache: true
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Restore toolchain caches
+        uses: ./.github/actions/toolchain-caches
+        with:
+          scope: docker
+
       - name: Generate code
         run: mise run generate
 
@@ -67,8 +72,14 @@ jobs:
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
-          cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref={0}/{1}:buildcache,mode=max', env.REGISTRY, env.IMAGE_NAME) || '' }}
+          # This workflow only triggers on pull_request, so the old
+          # `event_name != 'pull_request'` guard on cache-to meant the layer
+          # cache was never written — and the registry tag it read from is not
+          # the one release.yml writes (`buildcache-<suffix>`), so cache-from
+          # missed every time too. The GitHub Actions cache needs no registry
+          # push, which is what makes it usable on a pull_request run.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           build-args: |
             VERSION=${{ github.sha }}
           secrets: |

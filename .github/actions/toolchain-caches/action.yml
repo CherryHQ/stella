@@ -1,0 +1,82 @@
+name: Toolchain caches
+description: >-
+  Restore the caches every Stella job rebuilds from cold. mise-action's own
+  `cache: true` covers only the tools mise installs, so without this a job
+  recompiles the whole Go module, re-downloads 576 npm packages, re-fetches
+  dprint's WASM plugins, and re-analyses every package with golangci-lint.
+
+inputs:
+  scope:
+    description: >-
+      Cache namespace. Jobs that produce different build artifacts from the same
+      sources must use different scopes — race-instrumented Go objects are a
+      separate build graph from plain ones, and sharing a key would make the
+      jobs evict each other on every run.
+    required: true
+  go:
+    description: Cache GOCACHE and GOMODCACHE.
+    required: false
+    default: "true"
+  node:
+    description: Cache the pnpm store and dprint's plugin cache.
+    required: false
+    default: "true"
+  lint:
+    description: Cache golangci-lint's analysis cache.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    # Resolved rather than hardcoded: mise owns the toolchain, and Windows puts
+    # both caches somewhere else entirely.
+    - name: Resolve Go cache paths
+      if: inputs.go == 'true'
+      id: go-paths
+      shell: bash
+      run: |
+        echo "build=$(mise exec -- go env GOCACHE)" >> "$GITHUB_OUTPUT"
+        echo "mod=$(mise exec -- go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+
+    # restore-keys fall back progressively: the Go build cache is
+    # content-addressed, so a partial hit after a go.sum change still carries
+    # most of the saving.
+    - name: Cache Go build and module cache
+      if: inputs.go == 'true'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ steps.go-paths.outputs.build }}
+          ${{ steps.go-paths.outputs.mod }}
+        key: go-${{ inputs.scope }}-${{ runner.os }}-${{ hashFiles('mise.toml') }}-${{ hashFiles('go.sum') }}
+        restore-keys: |
+          go-${{ inputs.scope }}-${{ runner.os }}-${{ hashFiles('mise.toml') }}-
+          go-${{ inputs.scope }}-${{ runner.os }}-
+
+    # Both default locations are listed because the store path depends on the
+    # pnpm version vp delegates to. A path that does not exist is skipped, so
+    # listing both costs nothing and a wrong guess degrades to today's behaviour.
+    - name: Cache pnpm store and dprint plugins
+      if: inputs.node == 'true'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.local/share/pnpm/store
+          ~/.cache/pnpm
+          ~/.cache/dprint
+        key: node-${{ inputs.scope }}-${{ runner.os }}-${{ hashFiles('web/pnpm-lock.yaml', 'web/pnpm-workspace.yaml', 'dprint.json') }}
+        restore-keys: |
+          node-${{ inputs.scope }}-${{ runner.os }}-
+
+    # golangci-lint keeps its own analysis cache separate from GOCACHE, and
+    # `mise run format` runs it over the whole module through the prek hook.
+    - name: Cache golangci-lint analysis
+      if: inputs.lint == 'true'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/golangci-lint
+        key: golangci-${{ inputs.scope }}-${{ runner.os }}-${{ hashFiles('mise.toml') }}-${{ hashFiles('go.sum') }}
+        restore-keys: |
+          golangci-${{ inputs.scope }}-${{ runner.os }}-
