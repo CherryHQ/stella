@@ -1,6 +1,7 @@
 package recally
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -265,6 +266,33 @@ func TestServiceBackfillMissingContent(t *testing.T) {
 	}
 	if _, ok, err := store.GetArticleContent(t.Context(), gone.ID); err != nil || ok {
 		t.Fatalf("gone content ok=%v err=%v, want no row", ok, err)
+	}
+}
+
+type closedHomeAdmission struct{ err error }
+
+func (a closedHomeAdmission) Check(context.Context) error { return a.err }
+
+func TestServiceBackfillMissingContentRequiresHomeAdmission(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	home := t.TempDir()
+	store := NewStore(db)
+	article, _, err := store.SaveArticle(t.Context(), testUserID, SaveRequest{URL: "https://example.com/gated-legacy", Title: "Legacy", Content: "ignored"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	relative, _ := writeLegacyMirror(t, home, article.ID, "must not import")
+	if err := store.UpdateArticleFilePath(t.Context(), testUserID, article.ID, relative); err != nil {
+		t.Fatal(err)
+	}
+	gateErr := errors.New("storage closed")
+	svc := NewService(store, home, WithStorageAdmission(closedHomeAdmission{err: gateErr}))
+	if _, _, _, err := svc.BackfillMissingContent(t.Context()); !errors.Is(err, gateErr) {
+		t.Fatalf("BackfillMissingContent error = %v", err)
+	}
+	if _, ok, err := store.GetArticleContent(t.Context(), article.ID); err != nil || ok {
+		t.Fatalf("closed backfill wrote PostgreSQL content: ok=%v err=%v", ok, err)
 	}
 }
 

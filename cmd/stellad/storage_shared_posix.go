@@ -75,9 +75,9 @@ func runStorageInstallQualification(c *ucli.Context) error {
 	if err != nil {
 		return fmt.Errorf("storage install-qualification: read record: %w", err)
 	}
-	var record storagequal.Record
-	if err := json.Unmarshal(data, &record); err != nil || record.NamespaceIdentity == "" || !record.QualifiedShared || !record.OverallPass {
-		return errors.New("storage install-qualification: record is invalid or did not pass shared qualification")
+	record, err := storagequal.ParseAndValidateRecord(data)
+	if err != nil {
+		return fmt.Errorf("storage install-qualification: record is not authoritative: %w", err)
 	}
 	root, err := filepath.Abs(c.Path("root"))
 	if err != nil {

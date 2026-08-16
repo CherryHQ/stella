@@ -16,7 +16,9 @@
 package controlplane
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/CherryHQ/stella/internal/agent"
@@ -34,16 +36,37 @@ type Service struct {
 	pools   *agent.PoolManager
 	conns   *connections.Service
 	log     *slog.Logger
+	storage interface{ Check(context.Context) error }
+}
+
+type ServiceOption func(*Service)
+
+func WithStorageAdmission(admission interface{ Check(context.Context) error }) ServiceOption {
+	return func(service *Service) { service.storage = admission }
 }
 
 // NewService builds the control-plane service from its fully-wired dependencies.
 // The composition root constructs it once and shares the same instance behind the
 // HTTP endpoints. log defaults to slog.Default() when nil.
-func NewService(store config.Store, plugins *pluginhost.Host, pools *agent.PoolManager, conns *connections.Service, log *slog.Logger) *Service {
+func NewService(store config.Store, plugins *pluginhost.Host, pools *agent.PoolManager, conns *connections.Service, log *slog.Logger, options ...ServiceOption) *Service {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Service{store: store, plugins: plugins, pools: pools, conns: conns, log: log}
+	service := &Service{store: store, plugins: plugins, pools: pools, conns: conns, log: log}
+	for _, option := range options {
+		option(service)
+	}
+	return service
+}
+
+func (s *Service) admitHome(ctx context.Context) error {
+	if s.storage == nil {
+		return nil
+	}
+	if err := s.storage.Check(ctx); err != nil {
+		return fmt.Errorf("controlplane: Home storage admission closed: %w", err)
+	}
+	return nil
 }
 
 // ---- typed errors ---------------------------------------------------------

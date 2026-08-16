@@ -128,7 +128,7 @@ func buildOAuthRegistry(merged *manifestplugins.Manifest) *oauth.ProviderRegistr
 	return registry
 }
 
-func reconcileManifestPluginsInBackground(ctx context.Context, wg *sync.WaitGroup, m *manifestplugins.Manifest, stellaHome string) {
+func reconcileManifestPluginsInBackground(ctx context.Context, wg *sync.WaitGroup, m *manifestplugins.Manifest, stellaHome string, admission interface{ Check(context.Context) error }) {
 	wg.Go(func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -136,6 +136,12 @@ func reconcileManifestPluginsInBackground(ctx context.Context, wg *sync.WaitGrou
 			}
 		}()
 		slog.Info("manifest plugin reconcile queued in background")
+		if admission != nil {
+			if err := admission.Check(ctx); err != nil {
+				slog.Warn("manifest plugin reconcile skipped: Home storage admission closed", "error", err)
+				return
+			}
+		}
 		manifestplugins.Reconcile(ctx, m, stellaHome)
 	})
 }

@@ -110,3 +110,41 @@ func TestNewStoreRequiresHome(t *testing.T) {
 		t.Fatal("expected empty home error")
 	}
 }
+
+type testAdmission struct{ err error }
+
+func (a testAdmission) Check(context.Context) error { return a.err }
+
+func TestSessionMediaStorageAdmissionGatesOnlyLocalHome(t *testing.T) {
+	gateErr := errors.New("storage closed")
+	home := t.TempDir()
+	store, err := NewStore(home, nil, nil, WithStorageAdmission(testAdmission{err: gateErr}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	media := store.SessionMedia()
+	userID := uuid.New()
+	data := []byte("pixels")
+	digest := sha256.Sum256(data)
+	if err := media.PutSessionMedia(t.Context(), userID, digest, data); !errors.Is(err, gateErr) {
+		t.Fatalf("local Put error = %v", err)
+	}
+	if entries, err := os.ReadDir(home); err != nil || len(entries) != 0 {
+		t.Fatalf("closed local Put mutated Home: entries=%v err=%v", entries, err)
+	}
+	if _, err := media.OpenSessionMedia(t.Context(), userID, digest, int64(len(data))); !errors.Is(err, gateErr) {
+		t.Fatalf("local Open error = %v", err)
+	}
+
+	blobs := newMemBlobStore()
+	remote, err := NewStore(home, blobs, nil, WithStorageAdmission(testAdmission{err: gateErr}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.SessionMedia().PutSessionMedia(t.Context(), userID, digest, data); err != nil {
+		t.Fatalf("independent BlobStore was gated: %v", err)
+	}
+	if _, err := remote.SessionMedia().OpenSessionMedia(t.Context(), userID, digest, int64(len(data))); err != nil {
+		t.Fatalf("independent BlobStore Open was gated: %v", err)
+	}
+}

@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/CherryHQ/stella/internal/storagequal"
 )
 
 const stateDir = ".stella-shared-posix"
@@ -47,6 +49,11 @@ type witnessFile struct {
 	Sequence uint64 `json:"sequence"`
 }
 
+type validationResult struct {
+	sequence uint64
+	err      error
+}
+
 // Admission is one process's fail-closed view of the shared mount contract.
 // Check is cheap and is called by readiness and every Home capability admission;
 // a background monitor performs the filesystem operations.
@@ -62,9 +69,16 @@ type Admission struct {
 	recoveryBaseline bool
 
 	rootInfo os.FileInfo
+	validate func() (uint64, error)
+	requests chan struct{}
+	results  chan validationResult
 }
 
 func New(ctx context.Context, cfg Config) (*Admission, error) {
+	return newWithValidator(ctx, cfg, nil)
+}
+
+func newWithValidator(ctx context.Context, cfg Config, validator func() (uint64, error)) (*Admission, error) {
 	if cfg.Root == "" || cfg.NamespaceIdentity == "" || cfg.WitnessID == "" {
 		return nil, errors.New("shared storage requires namespace identity, qualification digest, witness ID, and STELLA_HOME")
 	}
@@ -75,38 +89,52 @@ func New(ctx context.Context, cfg Config) (*Admission, error) {
 	if cfg.CheckInterval <= 0 || cfg.FreshnessTimeout <= cfg.CheckInterval || cfg.StartupTimeout <= cfg.CheckInterval {
 		return nil, errors.New("shared storage intervals must be positive and freshness/startup timeouts must exceed the check interval")
 	}
-	info, err := os.Lstat(cfg.Root)
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return nil, ErrMissing
+	a := &Admission{cfg: cfg, err: ErrStale, requests: make(chan struct{}), results: make(chan validationResult)}
+	if validator == nil {
+		a.validate = a.validateFilesystem
+	} else {
+		a.validate = validator
 	}
-	a := &Admission{cfg: cfg, rootInfo: info, err: ErrStale}
-	deadline := time.Now().Add(cfg.StartupTimeout)
+	workerCtx, cancelWorker := context.WithCancel(ctx)
+	go a.validationWorker(workerCtx)
+	ticker := time.NewTicker(cfg.CheckInterval)
+	defer ticker.Stop()
+	timeout := time.NewTimer(cfg.StartupTimeout)
+	defer timeout.Stop()
+	a.requestValidation(workerCtx)
+	inFlight := true
 	var initial uint64
 	for {
-		seq, checkErr := a.validateFilesystem()
-		if checkErr != nil && !errors.Is(checkErr, ErrStale) {
-			return nil, checkErr
-		}
-		if checkErr == nil && initial == 0 {
-			initial = seq
-		} else if checkErr == nil && seq > initial {
-			now := time.Now()
-			a.mu.Lock()
-			a.sequence, a.lastAdvance, a.lastChecked, a.err = seq, now, now, nil
-			a.mu.Unlock()
-			break
-		}
-		if time.Now().Add(cfg.CheckInterval).After(deadline) {
-			return nil, ErrStale
-		}
 		select {
 		case <-ctx.Done():
+			cancelWorker()
 			return nil, ctx.Err()
-		case <-time.After(cfg.CheckInterval):
+		case <-timeout.C:
+			cancelWorker()
+			return nil, ErrStale
+		case result := <-a.results:
+			inFlight = false
+			if result.err != nil && !errors.Is(result.err, ErrStale) {
+				cancelWorker()
+				return nil, result.err
+			}
+			if result.err == nil && initial == 0 {
+				initial = result.sequence
+			} else if result.err == nil && result.sequence > initial {
+				now := time.Now()
+				a.mu.Lock()
+				a.sequence, a.lastAdvance, a.lastChecked, a.err = result.sequence, now, now, nil
+				a.mu.Unlock()
+				go a.monitor(workerCtx, cancelWorker)
+				return a, nil
+			}
+		case <-ticker.C:
+			if !inFlight {
+				a.requestValidation(workerCtx)
+				inFlight = true
+			}
 		}
 	}
-	go a.monitor(ctx)
-	return a, nil
 }
 
 // Check reports only actionable, path-free contract errors. It never performs
@@ -123,24 +151,60 @@ func (a *Admission) Check(context.Context) error {
 	return nil
 }
 
-func (a *Admission) monitor(ctx context.Context) {
-	ticker := time.NewTicker(a.cfg.CheckInterval)
-	defer ticker.Stop()
+func (a *Admission) validationWorker(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-a.requests:
+			sequence, err := a.validate()
+			select {
+			case <-ctx.Done():
+				return
+			case a.results <- validationResult{sequence: sequence, err: err}:
+			}
+		}
+	}
+}
+
+func (a *Admission) requestValidation(ctx context.Context) {
+	select {
+	case <-ctx.Done():
+	case a.requests <- struct{}{}:
+	}
+}
+
+func (a *Admission) monitor(ctx context.Context, cancel context.CancelFunc) {
+	defer cancel()
+	ticker := time.NewTicker(a.cfg.CheckInterval)
+	defer ticker.Stop()
+	inFlight := false
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case result := <-a.results:
+			inFlight = false
+			a.applyValidation(result.sequence, result.err)
 		case <-ticker.C:
-			a.refresh()
+			if !inFlight {
+				a.requestValidation(ctx)
+				inFlight = true
+			}
 		}
 	}
 }
 
 func (a *Admission) refresh() {
-	seq, err := a.validateFilesystem()
+	seq, err := a.validate()
+	a.applyValidation(seq, err)
+}
+
+func (a *Admission) applyValidation(seq uint64, err error) {
 	now := time.Now()
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	wasStale := !a.lastChecked.IsZero() && (now.Sub(a.lastChecked) > a.cfg.FreshnessTimeout || now.Sub(a.lastAdvance) > a.cfg.FreshnessTimeout)
 	a.lastChecked = now
 	if err != nil {
 		a.err = err
@@ -148,10 +212,15 @@ func (a *Admission) refresh() {
 		a.recoveryBaseline = true
 		return
 	}
+	if wasStale {
+		a.requireAdvance = true
+		a.recoveryBaseline = true
+	}
 	if a.recoveryBaseline {
 		if seq > a.sequence {
 			a.sequence = seq
 		}
+		a.lastAdvance = now
 		a.recoveryBaseline = false
 		a.err = ErrStale
 		return
@@ -174,7 +243,12 @@ func (a *Admission) refresh() {
 
 func (a *Admission) validateFilesystem() (uint64, error) {
 	current, err := os.Lstat(a.cfg.Root)
-	if err != nil || !current.IsDir() || current.Mode()&os.ModeSymlink != 0 || !os.SameFile(a.rootInfo, current) {
+	if err != nil || !current.IsDir() || current.Mode()&os.ModeSymlink != 0 {
+		return 0, ErrMissing
+	}
+	if a.rootInfo == nil {
+		a.rootInfo = current
+	} else if !os.SameFile(a.rootInfo, current) {
 		return 0, ErrMissing
 	}
 	state, err := os.Lstat(filepath.Join(a.cfg.Root, stateDir))
@@ -197,12 +271,8 @@ func (a *Admission) validateFilesystem() (uint64, error) {
 	if !strings.EqualFold(hex.EncodeToString(sum[:]), a.cfg.QualificationSHA256) {
 		return 0, ErrQualification
 	}
-	var qualification struct {
-		NamespaceIdentity string `json:"namespace_identity"`
-		QualifiedShared   bool   `json:"qualified_shared"`
-		OverallPass       bool   `json:"overall_pass"`
-	}
-	if json.Unmarshal(record, &qualification) != nil || qualification.NamespaceIdentity != a.cfg.NamespaceIdentity || !qualification.QualifiedShared || !qualification.OverallPass {
+	qualification, err := storagequal.ParseAndValidateRecord(record)
+	if err != nil || qualification.NamespaceIdentity != a.cfg.NamespaceIdentity {
 		return 0, ErrQualification
 	}
 	witness, err := readBounded(filepath.Join(a.cfg.Root, stateDir, "witness.json"), 4<<10)

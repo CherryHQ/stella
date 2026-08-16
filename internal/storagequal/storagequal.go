@@ -159,7 +159,7 @@ func Run(ctx context.Context, cfg Config) (Record, error) {
 	} else {
 		r.FailureInjection = *cfg.FailureInjection
 	}
-	faultPass := r.FailureInjection.Injected && r.FailureInjection.DisconnectObserved && r.FailureInjection.OutcomeUnknown && r.FailureInjection.ErrorClass != "" && r.FailureInjection.Remounted && r.FailureInjection.Revalidated
+	faultPass := r.FailureInjection.Injected && r.FailureInjection.DisconnectObserved && r.FailureInjection.OutcomeUnknown && r.FailureInjection.ErrorClass == "outcome_unknown" && r.FailureInjection.Remounted && r.FailureInjection.Revalidated && r.FailureInjection.Detail != ""
 	r.Readiness = append(r.Readiness, Transition{"not_ready", "fault_injected"})
 	r.Recovery = Result{Name: "full_revalidation_after_remount", Detail: r.FailureInjection.Detail, Passed: faultPass}
 	all := faultPass && cfg.Metadata.IndependentMounts && distinctPaths
@@ -181,7 +181,7 @@ func Run(ctx context.Context, cfg Config) (Record, error) {
 }
 
 func validate(c Config) error {
-	if c.ClientA == "" || c.ClientB == "" || c.Metadata.Backend == "" || c.Metadata.Version == "" || c.Metadata.Topology == "" || c.Metadata.NamespaceIdentity == "" || c.Metadata.IdentityMechanism == "" || c.Metadata.ReferenceHardware == "" || c.Metadata.Clients < 2 || c.Metadata.Nodes < 1 {
+	if c.ClientA == "" || c.ClientB == "" || c.Metadata.Backend == "" || c.Metadata.Version == "" || c.Metadata.Topology == "" || len(c.Metadata.MountOptions) == 0 || c.Metadata.NamespaceIdentity == "" || c.Metadata.IdentityMechanism == "" || c.Metadata.ReferenceHardware == "" || c.Metadata.Clients < 2 || c.Metadata.Nodes < 1 {
 		return errors.New("storagequal: incomplete roots or operator metadata")
 	}
 	l := c.Limits
@@ -368,12 +368,12 @@ func tornTest(ctx context.Context, a, b string) error {
 }
 
 func runBenchmarks(ctx context.Context, a, b string, l Limits) []Benchmark {
-	lat := func(name string, limit float64, fn func() error) Benchmark {
+	lat := func(name string, limit float64, fn func(int) error) Benchmark {
 		samples := make([]float64, 20)
 		ok := true
 		for i := range samples {
 			start := time.Now()
-			if ctx.Err() != nil || fn() != nil {
+			if ctx.Err() != nil || fn(i) != nil {
 				ok = false
 			}
 			samples[i] = float64(time.Since(start).Microseconds()) / 1000
@@ -382,56 +382,77 @@ func runBenchmarks(ctx context.Context, a, b string, l Limits) []Benchmark {
 		v := samples[18]
 		return Benchmark{name, "ms_p95", v, limit, "less_or_equal", ok && v <= limit}
 	}
-	meta := lat("typed_root_metadata_traversal", l.MetadataP95MS, func() error {
-		p := filepath.Join(a, "typed", "agents", "one")
+	meta := lat("typed_root_metadata_traversal", l.MetadataP95MS, func(sample int) error {
+		rel := filepath.Join("typed", fmt.Sprintf("sample-%02d", sample), "users", "principal", "agents", "one", "workspace")
+		p := filepath.Join(a, rel)
 		if err := os.MkdirAll(p, 0o700); err != nil {
 			return err
 		}
-		_, e := os.Stat(filepath.Join(b, "typed", "agents", "one"))
-		return e
-	})
-	small := lat("small_file_project_skill_publication", l.SmallFilesP95MS, func() error {
-		d := filepath.Join(a, "skills")
-		if err := os.MkdirAll(d, 0o700); err != nil {
-			return err
-		}
-		for i := range 16 {
-			if err := os.WriteFile(filepath.Join(d, fmt.Sprintf("%02d", i)), []byte("skill"), 0o600); err != nil {
+		for current, stop := p, filepath.Join(a, "typed"); ; current = filepath.Dir(current) {
+			if err := syncDirectory(current); err != nil {
 				return err
 			}
+			if current == stop {
+				break
+			}
 		}
-		_, e := os.ReadDir(filepath.Join(b, "skills"))
-		return e
+		_, err := os.Stat(filepath.Join(b, rel))
+		return err
+	})
+	small := lat("small_file_project_skill_publication", l.SmallFilesP95MS, func(sample int) error {
+		name := fmt.Sprintf("revision-%02d", sample)
+		if err := durableDirectoryPublication(filepath.Join(a, "skills"), name, 16); err != nil {
+			return err
+		}
+		entries, err := os.ReadDir(filepath.Join(b, "skills", name))
+		if err != nil || len(entries) != 16 {
+			return errors.New("published Skill revision is incomplete on peer")
+		}
+		for _, entry := range entries {
+			value, readErr := os.ReadFile(filepath.Join(b, "skills", name, entry.Name()))
+			if readErr != nil || string(value) != "skill" {
+				return errors.New("published Skill file is incomplete on peer")
+			}
+		}
+		return nil
 	})
 	buf := make([]byte, 4<<20)
 	start := time.Now()
-	err := os.WriteFile(filepath.Join(a, "upload"), buf, 0o600)
+	err := durableFilePublication(a, "upload", buf)
 	if err == nil {
 		f, e := os.Open(filepath.Join(b, "upload"))
 		if e == nil {
-			_, err = io.Copy(io.Discard, f)
-			_ = f.Close()
+			var copied int64
+			copied, err = io.Copy(io.Discard, f)
+			if closeErr := f.Close(); err == nil {
+				err = closeErr
+			}
+			if err == nil && copied != int64(len(buf)) {
+				err = errors.New("peer stream length mismatch")
+			}
 		} else {
 			err = e
 		}
 	}
 	rate := 8 / time.Since(start).Seconds()
 	stream := Benchmark{"large_upload_share_streaming", "MiB_per_second", rate, l.StreamMiBPerSecond, "greater_or_equal", err == nil && rate >= l.StreamMiBPerSecond}
-	con := lat("concurrent_api_sandbox_access", l.ConcurrentP95MS, func() error {
+	con := lat("concurrent_api_sandbox_access", l.ConcurrentP95MS, func(sample int) error {
 		var wg sync.WaitGroup
 		errs := make(chan error, 8)
 		for i := range 8 {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				p := filepath.Join(a, fmt.Sprintf("con-%d", i))
-				if e := os.WriteFile(p, []byte("api"), 0o600); e != nil {
+				name := fmt.Sprintf("con-%02d-%d", sample, i)
+				if e := durableFilePublication(a, name, []byte("api")); e != nil {
 					errs <- e
 					return
 				}
-				_, e := os.ReadFile(filepath.Join(b, fmt.Sprintf("con-%d", i)))
+				value, e := os.ReadFile(filepath.Join(b, name))
 				if e != nil {
 					errs <- e
+				} else if string(value) != "api" {
+					errs <- errors.New("concurrent peer read mismatch")
 				}
 			}(i)
 		}
@@ -445,4 +466,64 @@ func runBenchmarks(ctx context.Context, a, b string, l Limits) []Benchmark {
 	var st os.FileInfo
 	_ = st // capacity is recorded as a criterion via platform helper
 	return []Benchmark{meta, small, stream, con, capacityBenchmark(a, l.MinimumFreeBytes)}
+}
+
+func durableFilePublication(dir, name string, data []byte) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	temp, err := os.CreateTemp(dir, ".publish-")
+	if err != nil {
+		return err
+	}
+	tempName := temp.Name()
+	defer func() { _ = os.Remove(tempName) }()
+	if err = temp.Chmod(0o600); err == nil {
+		_, err = temp.Write(data)
+	}
+	if err == nil {
+		err = temp.Sync()
+	}
+	if closeErr := temp.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(tempName, filepath.Join(dir, name)); err != nil {
+		return err
+	}
+	return syncDirectory(dir)
+}
+
+func durableDirectoryPublication(parent, name string, files int) error {
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		return err
+	}
+	temp, err := os.MkdirTemp(parent, ".revision-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(temp) }()
+	for i := range files {
+		if err := durableFilePublication(temp, fmt.Sprintf("%02d", i), []byte("skill")); err != nil {
+			return err
+		}
+	}
+	if err := syncDirectory(temp); err != nil {
+		return err
+	}
+	if err := os.Rename(temp, filepath.Join(parent, name)); err != nil {
+		return err
+	}
+	return syncDirectory(parent)
+}
+
+func syncDirectory(path string) error {
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	err = dir.Sync()
+	return errors.Join(err, dir.Close())
 }

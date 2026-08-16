@@ -159,6 +159,26 @@ type setupResult struct {
 // with it directly, so no service is built with a localhost placeholder and
 // mutated later.
 func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*setupResult, error) {
+	var storageAdmission home.Admission
+	if cfg.Storage.Mode == "shared-posix" {
+		admission, err := sharedposix.New(parent, sharedposix.Config{
+			Root:                config.StellaHome(),
+			NamespaceIdentity:   cfg.Storage.NamespaceIdentity,
+			QualificationSHA256: cfg.Storage.QualificationSHA256,
+			WitnessID:           cfg.Storage.WitnessID,
+			CheckInterval:       cfg.Storage.CheckInterval,
+			FreshnessTimeout:    cfg.Storage.FreshnessTimeout,
+			StartupTimeout:      cfg.Storage.StartupTimeout,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("validate shared POSIX storage: %w", err)
+		}
+		storageAdmission = admission
+	}
+	var storageCheck func(context.Context) error
+	if storageAdmission != nil {
+		storageCheck = storageAdmission.Check
+	}
 	dsn := cfg.Database.URL
 	var embedded *appdb.Embedded
 	if dsn == "" {
@@ -226,7 +246,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, err
 	}
-	assetStore, err := asset.NewStore(config.StellaHome(), blobStore, slog.Default())
+	assetStore, err := asset.NewStore(config.StellaHome(), blobStore, slog.Default(), asset.WithStorageAdmission(storageAdmission))
 	if err != nil {
 		return nil, err
 	}
@@ -321,6 +341,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	libraryRaw, err := library.NewRawStoreFromConfig(config.StellaHome(), cfg.Blob, library.RawStoreOptions{
 		TempDir:        os.TempDir(),
 		FSMinFreeBytes: library.DefaultFSMinFreeBytes,
+		FSAdmission:    storageCheck,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build library RawStore: %w", err)
@@ -483,7 +504,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		}
 	}
 	recallyStore := recally.NewStore(db)
-	recallySvc := recally.NewService(recallyStore, config.StellaHome())
+	recallySvc := recally.NewService(recallyStore, config.StellaHome(), recally.WithStorageAdmission(storageAdmission))
 	shareSvc := sharepkg.NewServiceForPool(db, memProvider, recallyStore, config.StellaHome(), baseURL, sharepkg.WithHomeWorkspace(homeRegistry), sharepkg.WithAgentAccess(agentAccess))
 
 	// MCP registration service: one instance shared by the HTTP API and the agent
@@ -592,7 +613,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// (providers/settings/plugins/channels). Authorization is the admin gate in
 	// Begin, so the HTTP transport keeps only decode/shape. Built here, after the
 	// pool and shared connections service are fully wired.
-	controlPlaneSvc := controlplane.NewService(store, phost, poolMgr, credSvc, slog.With("component", "controlplane"))
+	controlPlaneSvc := controlplane.NewService(store, phost, poolMgr, credSvc, slog.With("component", "controlplane"), controlplane.WithStorageAdmission(storageAdmission))
 
 	// Composition root for River: both the scheduler and goal subsystems are now
 	// built, so assemble the single shared working client from their queues and
@@ -617,7 +638,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 
 	backgroundTasks := &sync.WaitGroup{}
 	if ps.manifestToReconcile != nil {
-		reconcileManifestPluginsInBackground(parent, backgroundTasks, ps.manifestToReconcile, config.StellaHome())
+		reconcileManifestPluginsInBackground(parent, backgroundTasks, ps.manifestToReconcile, config.StellaHome(), storageAdmission)
 	}
 	reconcileProjectCoordinatesInBackground(parent, backgroundTasks, homeRegistry)
 	// Close runtime entry points before setup returns and traffic can beat the

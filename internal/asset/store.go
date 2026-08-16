@@ -38,17 +38,30 @@ type SessionMediaStore interface {
 type Store struct {
 	home      string
 	blobStore blob.Store
+	admission interface{ Check(context.Context) error }
 	mu        sync.Mutex
+}
+
+type Option func(*Store)
+
+// WithStorageAdmission gates only the local Home backend. An independently
+// configured BlobStore remains available when shared Home is unavailable.
+func WithStorageAdmission(admission interface{ Check(context.Context) error }) Option {
+	return func(store *Store) { store.admission = admission }
 }
 
 // NewStore builds the immutable session media store. home is required. The
 // BlobStore remains optional: configured deployments store media there, while
 // deployments without one store media beneath home.
-func NewStore(home string, blobStore blob.Store, _ *slog.Logger) (*Store, error) {
+func NewStore(home string, blobStore blob.Store, _ *slog.Logger, options ...Option) (*Store, error) {
 	if home == "" {
 		return nil, fmt.Errorf("asset store: home directory is required")
 	}
-	return &Store{home: home, blobStore: blobStore}, nil
+	store := &Store{home: home, blobStore: blobStore}
+	for _, option := range options {
+		option(store)
+	}
+	return store, nil
 }
 
 // SessionMedia returns the narrow, write-once media facet. It is intentionally
@@ -66,6 +79,11 @@ func (m sessionMediaStore) OpenSessionMedia(ctx context.Context, userID uuid.UUI
 }
 
 func (s *Store) putSessionMedia(ctx context.Context, userID uuid.UUID, digest [sha256.Size]byte, data []byte) error {
+	if s.blobStore == nil && s.admission != nil {
+		if err := s.admission.Check(ctx); err != nil {
+			return fmt.Errorf("asset store: local storage admission closed: %w", err)
+		}
+	}
 	if err := verifySessionMedia(data, digest, int64(len(data))); err != nil {
 		return err
 	}
@@ -94,6 +112,11 @@ func (s *Store) putSessionMedia(ctx context.Context, userID uuid.UUID, digest [s
 }
 
 func (s *Store) openSessionMedia(ctx context.Context, userID uuid.UUID, digest [sha256.Size]byte, sizeBytes int64) ([]byte, error) {
+	if s.blobStore == nil && s.admission != nil {
+		if err := s.admission.Check(ctx); err != nil {
+			return nil, fmt.Errorf("asset store: local storage admission closed: %w", err)
+		}
+	}
 	if sizeBytes <= 0 {
 		return nil, fmt.Errorf("%w: invalid size %d", ErrSessionMediaIntegrity, sizeBytes)
 	}

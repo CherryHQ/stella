@@ -357,6 +357,9 @@ func (a *Access) ResetManifestPlugin(ctx context.Context, id, field string) (*ma
 // SyncManifestPlugins reconciles the merged manifest against the filesystem
 // (installs binaries/skills) and returns the reconcile result.
 func (a *Access) SyncManifestPlugins(ctx context.Context) (manifestplugins.ReconcileResult, error) {
+	if err := a.svc.admitHome(ctx); err != nil {
+		return manifestplugins.ReconcileResult{}, err
+	}
 	merged, err := a.svc.resolveManifestPlugins(ctx)
 	if err != nil {
 		return manifestplugins.ReconcileResult{}, err

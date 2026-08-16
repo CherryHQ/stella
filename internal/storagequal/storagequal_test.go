@@ -14,9 +14,9 @@ import (
 func testConfig(a, b string) Config {
 	return Config{
 		ClientA: a, ClientB: b,
-		Metadata:         Metadata{Backend: "local-posix-control", Version: "1", Topology: "single-host-alias", Clients: 2, Nodes: 1, NamespaceIdentity: "test", IdentityMechanism: "cross-client inode probe", ReferenceHardware: "orb local filesystem", IndependentMounts: true},
+		Metadata:         Metadata{Backend: "local-posix-control", Version: "1", Topology: "single-host-alias", Clients: 2, Nodes: 1, MountOptions: []string{"rw"}, NamespaceIdentity: "test", IdentityMechanism: "cross-client inode probe", ReferenceHardware: "orb local filesystem", IndependentMounts: true},
 		Limits:           Limits{MetadataP95MS: 10_000, SmallFilesP95MS: 10_000, ConcurrentP95MS: 10_000, StreamMiBPerSecond: .001, MinimumFreeBytes: 1},
-		FailureInjection: &FailureInjection{Injected: true, DisconnectObserved: true, Remounted: true, Revalidated: true, ErrorClass: "outcome_unknown", OutcomeUnknown: true},
+		FailureInjection: &FailureInjection{Injected: true, DisconnectObserved: true, Remounted: true, Revalidated: true, ErrorClass: "outcome_unknown", OutcomeUnknown: true, Detail: "test fault injection"},
 	}
 }
 
@@ -86,5 +86,31 @@ func TestCriteriaAndFailureEvidenceRequired(t *testing.T) {
 	cfg.FailureInjection = nil
 	if _, err := Run(context.Background(), cfg); err == nil {
 		t.Fatal("missing failure injection accepted")
+	}
+}
+
+func TestDurableBenchmarkPublicationShape(t *testing.T) {
+	root := t.TempDir()
+	if err := durableFilePublication(root, "stream", []byte("payload")); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, "stream")); err != nil || string(got) != "payload" {
+		t.Fatalf("durable file = %q, %v", got, err)
+	}
+	if err := durableDirectoryPublication(root, "revision", 16); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "revision"))
+	if err != nil || len(entries) != 16 {
+		t.Fatalf("durable revision entries = %d, %v", len(entries), err)
+	}
+	rootEntries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range rootEntries {
+		if entry.Name() != "stream" && entry.Name() != "revision" {
+			t.Fatalf("temporary publication artifact remained: %q", entry.Name())
+		}
 	}
 }

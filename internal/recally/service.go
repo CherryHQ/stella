@@ -23,6 +23,13 @@ type Service struct {
 	files      *FileManager
 	feeds      *gofeed.Parser
 	stellaHome string
+	admission  interface{ Check(context.Context) error }
+}
+
+type ServiceOption func(*Service)
+
+func WithStorageAdmission(admission interface{ Check(context.Context) error }) ServiceOption {
+	return func(service *Service) { service.admission = admission }
 }
 
 type SaveResult struct {
@@ -30,13 +37,17 @@ type SaveResult struct {
 	Created bool
 }
 
-func NewService(store *Store, stellaHome string) *Service {
+func NewService(store *Store, stellaHome string, options ...ServiceOption) *Service {
 	p := gofeed.NewParser()
 	p.Client = &http.Client{Timeout: 30 * time.Second}
 	p.RSSTranslator = &gofeed.DefaultRSSTranslator{}
 	p.AtomTranslator = &gofeed.DefaultAtomTranslator{}
 	p.JSONTranslator = &gofeed.DefaultJSONTranslator{}
-	return &Service{store: store, files: newFileManager(stellaHome), feeds: p, stellaHome: stellaHome}
+	service := &Service{store: store, files: newFileManager(stellaHome), feeds: p, stellaHome: stellaHome}
+	for _, option := range options {
+		option(service)
+	}
+	return service
 }
 
 func (s *Service) Store() *Store { return s.store }
@@ -124,6 +135,9 @@ func (s *Service) ReadArticleBody(ctx context.Context, article *Article) (string
 // still read. A missing or unreadable file is skipped (it may belong to another
 // pod's disk), never fatal. Returns scanned/backfilled/missing counts.
 func (s *Service) BackfillMissingContent(ctx context.Context) (scanned, backfilled, missing int, err error) {
+	if err := s.admitLegacyFiles(ctx); err != nil {
+		return 0, 0, 0, err
+	}
 	rows, err := s.store.ListArticlesMissingContent(ctx)
 	if err != nil {
 		return 0, 0, 0, err
@@ -136,6 +150,9 @@ func (s *Service) BackfillMissingContent(ctx context.Context) (scanned, backfill
 		if row.FilePath == "" {
 			missing++
 			continue
+		}
+		if err := s.admitLegacyFiles(ctx); err != nil {
+			return scanned, backfilled, missing, err
 		}
 		path := row.FilePath
 		if !filepath.IsAbs(path) {
@@ -153,6 +170,16 @@ func (s *Service) BackfillMissingContent(ctx context.Context) (scanned, backfill
 		backfilled++
 	}
 	return scanned, backfilled, missing, nil
+}
+
+func (s *Service) admitLegacyFiles(ctx context.Context) error {
+	if s.admission == nil {
+		return nil
+	}
+	if err := s.admission.Check(ctx); err != nil {
+		return fmt.Errorf("recally legacy file admission closed: %w", err)
+	}
+	return nil
 }
 
 // pollFeed fetches one RSS feed and records any new entries. It is unauthenticated:

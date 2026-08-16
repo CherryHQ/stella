@@ -62,6 +62,7 @@ type RawStore interface {
 type RawStoreOptions struct {
 	TempDir        string
 	FSMinFreeBytes int64
+	FSAdmission    func(context.Context) error
 	S3Admission    func(context.Context) error
 }
 
@@ -79,7 +80,7 @@ func NewRawStoreFromConfig(
 	if s3Config != nil {
 		return NewS3RawStore(*s3Config, options.TempDir, options.S3Admission)
 	}
-	return NewFSRawStore(root, options.FSMinFreeBytes)
+	return newFSRawStore(root, options.FSMinFreeBytes, options.FSAdmission)
 }
 
 // RawKey derives the only canonical object key for a LibraryFile.

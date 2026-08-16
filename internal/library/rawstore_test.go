@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/blob"
+	"github.com/CherryHQ/stella/internal/config"
 )
 
 func TestFSRawStoreContract(t *testing.T) {
@@ -54,6 +55,52 @@ func TestS3RawStoreContract(t *testing.T) {
 	runRawStoreContract(t, store)
 	if err := server.putContractError(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestFSRawStoreAdmissionBlocksEveryEntryPointBeforeIO(t *testing.T) {
+	gateErr := errors.New("storage closed")
+	root := t.TempDir()
+	store, err := newFSRawStore(root, 0, func(context.Context) error { return gateErr })
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := mustRawKey(t)
+	if err := store.Create(t.Context(), key, bytes.NewReader([]byte("document"))); !errors.Is(err, gateErr) {
+		t.Fatalf("Create error = %v", err)
+	}
+	if entries, err := os.ReadDir(root); err != nil || len(entries) != 0 {
+		t.Fatalf("closed Create mutated root: entries=%v err=%v", entries, err)
+	}
+	if _, err := store.Open(t.Context(), key); !errors.Is(err, gateErr) {
+		t.Fatalf("Open error = %v", err)
+	}
+	if err := store.Delete(t.Context(), key); !errors.Is(err, gateErr) {
+		t.Fatalf("Delete error = %v", err)
+	}
+	if _, err := store.ListPage(t.Context(), RawPrefix, "", 1); !errors.Is(err, gateErr) {
+		t.Fatalf("ListPage error = %v", err)
+	}
+}
+
+func TestRawStoreFSAdmissionDoesNotGateS3(t *testing.T) {
+	server := newRawS3Server()
+	httpServer := httptest.NewServer(server)
+	t.Cleanup(httpServer.Close)
+	store, err := NewRawStoreFromConfig(t.TempDir(), config.BlobS3Config{
+		Endpoint: strings.TrimPrefix(httpServer.URL, "http://"), Bucket: "library-test", AccessKey: "test", SecretKey: "test", UseSSL: "false",
+	}, RawStoreOptions{
+		TempDir: t.TempDir(),
+		FSAdmission: func(context.Context) error {
+			return errors.New("Home storage closed")
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := mustRawKey(t)
+	if err := store.Create(t.Context(), key, bytes.NewReader([]byte("remote"))); err != nil {
+		t.Fatalf("independent S3 Create was gated: %v", err)
 	}
 }
 

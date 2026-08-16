@@ -22,6 +22,7 @@ type FSRawStore struct {
 	root           string
 	minFreeBytes   int64
 	availableBytes func(string) (int64, error)
+	admission      func(context.Context) error
 }
 
 // SupportsOrphanCollection reports that the local Library root belongs to this
@@ -29,6 +30,10 @@ type FSRawStore struct {
 func (*FSRawStore) SupportsOrphanCollection() bool { return true }
 
 func NewFSRawStore(root string, minFreeBytes int64) (*FSRawStore, error) {
+	return newFSRawStore(root, minFreeBytes, nil)
+}
+
+func newFSRawStore(root string, minFreeBytes int64, admission func(context.Context) error) (*FSRawStore, error) {
 	if root == "" {
 		return nil, fmt.Errorf("library raw FS root is required")
 	}
@@ -42,10 +47,13 @@ func NewFSRawStore(root string, minFreeBytes int64) (*FSRawStore, error) {
 	if err := os.MkdirAll(abs, 0o700); err != nil {
 		return nil, err
 	}
-	return &FSRawStore{root: abs, minFreeBytes: minFreeBytes, availableBytes: availableDiskBytes}, nil
+	return &FSRawStore{root: abs, minFreeBytes: minFreeBytes, availableBytes: availableDiskBytes, admission: admission}, nil
 }
 
 func (s *FSRawStore) Create(ctx context.Context, key string, reader io.Reader) error {
+	if err := s.admit(ctx); err != nil {
+		return err
+	}
 	if reader == nil {
 		return fmt.Errorf("library raw reader is required")
 	}
@@ -123,6 +131,9 @@ func (s *FSRawStore) Create(ctx context.Context, key string, reader io.Reader) e
 }
 
 func (s *FSRawStore) Open(ctx context.Context, key string) (io.ReadCloser, error) {
+	if err := s.admit(ctx); err != nil {
+		return nil, err
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -134,6 +145,9 @@ func (s *FSRawStore) Open(ctx context.Context, key string) (io.ReadCloser, error
 }
 
 func (s *FSRawStore) Delete(ctx context.Context, key string) error {
+	if err := s.admit(ctx); err != nil {
+		return err
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -152,6 +166,9 @@ func (s *FSRawStore) ListPage(
 	prefix, cursor string,
 	limit int,
 ) (RawPage, error) {
+	if err := s.admit(ctx); err != nil {
+		return RawPage{}, err
+	}
 	cleanPrefix, err := validateRawListRequest(prefix, cursor, limit)
 	if err != nil {
 		return RawPage{}, err
@@ -210,6 +227,16 @@ func (s *FSRawStore) ListPage(
 		Objects:    objects[:limit],
 		NextCursor: objects[limit-1].Key,
 	}, nil
+}
+
+func (s *FSRawStore) admit(ctx context.Context) error {
+	if s.admission == nil {
+		return nil
+	}
+	if err := s.admission(ctx); err != nil {
+		return fmt.Errorf("library raw FS storage admission closed: %w", err)
+	}
+	return nil
 }
 
 func (s *FSRawStore) path(key string) (string, error) {

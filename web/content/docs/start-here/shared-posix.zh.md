@@ -53,7 +53,7 @@ JuiceFS Community Edition 是推荐参考实现，不是应用依赖。EFS、NFS
 }
 ```
 
-必须在执行前按 Stella 生产延迟/容量预算确定限制，不能看完结果再放宽。固定 workload 包括 typed-root metadata traversal、16 文件 Project/Skill publication、4 MiB upload 加 peer stream，以及八组并发 API writer/sandbox reader。记录包含 p95 latency、stream throughput 与 free-capacity verdict。
+必须在执行前按 Stella 生产延迟/容量预算确定限制，不能看完结果再放宽。每个 latency sample 都使用不同的新 tree，而不是复用 warm path。固定 workload 包括持久化 typed-root materialization；通过同步临时文件、原子 revision rename 与父目录 sync 发布 16 文件 Project/Skill；已同步 4 MiB upload 加经过验证的 peer stream；以及八组并发持久化 API writer/sandbox reader。记录包含 p95 latency、stream throughput 与 free-capacity verdict。
 
 failure evidence 是运维 attestation，因为断连/remount 方法取决于拓扑。必须真实执行：在写入期间中断一个客户端，确认错误分类为 outcome-unknown，确认 readiness/admission 关闭，remount 后确认完整 identity、qualification、read/write 与跨客户端 freshness validation 全部完成才恢复。伪造 attestation 会使记录无效。
 
@@ -73,6 +73,8 @@ sha256sum /mnt/client-a/stella/.stella-shared-posix/qualification.json
 ```
 
 命令写入固定 namespace identity 与准确记录。把显示的 SHA-256 用作 `STELLA_SHARED_POSIX_QUALIFICATION_SHA256`。后端版本、拓扑、mount options、identity、客户端或限制任一变化，都必须生成新记录与 digest。
+
+安装与 runtime 使用同一套严格记录契约。即使文件 digest 与配置相符，不支持的 schema、未知字段，以及缺失、重复、失败或相互矛盾的 identity/conformance/benchmark/failure/recovery/readiness evidence 仍会被拒绝。digest 只负责 pin 已审查字节，不能替代语义验证。
 
 ## 3. 运行独立 freshness witness
 
@@ -99,6 +101,8 @@ STELLA_STORAGE_STARTUP_TIMEOUT=20s
 ```
 
 只有 root object、identity、准确 qualification digest、可写/fsync probe 与两次递增 witness observation 全部通过，启动才继续。之后 monitor 重复完整检查。存储缺失、被替换、断连、只读、stale 或不匹配时，`/readyz` 返回可操作且不带路径的 `503`，并关闭唯一 Home admission gate。新的 Workspace/API filesystem capability 与 Session compute setup 都会失败；Stella 绝不会创建或使用本地 fallback。liveness 仍只检查进程。
+
+`STELLA_STORAGE_STARTUP_TIMEOUT` 是包含 mount probe 阻塞时间在内的整体启动 deadline。POSIX mount syscall 无法通用取消，因此 Stella 最多只允许一个 probe worker。若 syscall 一直卡住，启动会在 deadline 到达时失败（进程退出时释放它）；runtime 中最后一次成功检查过期后 readiness/admission 会关闭，且不会启动重叠 probe worker。迟到的返回不能自行重新开放 admission——仍必须完成完整 validation，并再观察到一次新 witness advance。
 
 瞬时故障后只有完整 revalidation 成功且观察到新 witness advance，readiness 才恢复。mount 被替换或明确 unmount/remount 后必须重启 `stellad`，让 `WorkspaceManager` pin 新验证的 root object；旧进程会一直 fail closed。现有操作不会被静默 replay。请另行监控 free bytes 与 inode；认证中的 capacity check 是一次性 gate，不是容量监控。
 

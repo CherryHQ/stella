@@ -79,11 +79,17 @@ func (a *Access) SetVisionSettings(ctx context.Context, s config.VisionSettings)
 // SearchCliToolRegistry searches the mise tool registry so the UI can add a CLI
 // tool by name instead of a hand-written backend key.
 func (a *Access) SearchCliToolRegistry(ctx context.Context, query string, limit int) ([]manifestplugins.RegistryTool, error) {
+	if err := a.svc.admitHome(ctx); err != nil {
+		return nil, err
+	}
 	return manifestplugins.SearchRegistry(ctx, config.StellaHome(), query, limit)
 }
 
 // CliToolLatest resolves the latest installable version for a mise tool key.
 func (a *Access) CliToolLatest(ctx context.Context, tool string) (string, error) {
+	if err := a.svc.admitHome(ctx); err != nil {
+		return "", err
+	}
 	return manifestplugins.LatestVersion(ctx, config.StellaHome(), tool)
 }
 

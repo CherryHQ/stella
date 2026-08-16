@@ -53,7 +53,7 @@ Mount the same candidate namespace independently at two real, non-symlink client
 }
 ```
 
-Choose limits from Stella's production latency/capacity budget before execution; do not loosen them after seeing results. The fixed workloads cover typed-root metadata traversal, 16-file project/Skill publication, a 4 MiB upload plus peer stream, and eight concurrent API-writer/sandbox-reader pairs. The record includes measured p95 latency, streaming throughput, and free-capacity verdicts.
+Choose limits from Stella's production latency/capacity budget before execution; do not loosen them after seeing results. Every latency sample uses a distinct tree rather than a warmed path. The fixed workloads cover durable typed-root materialization; 16-file project/Skill publication using synced temporary files, atomic revision rename, and parent-directory sync; a synced 4 MiB upload plus verified peer stream; and eight concurrent durable API-writer/sandbox-reader pairs. The record includes measured p95 latency, streaming throughput, and free-capacity verdicts.
 
 The failure evidence is an operator attestation because disconnect/remount is topology-specific. Perform it for real: interrupt one client during a write, verify the error is classified outcome-unknown, verify readiness/admission closes, remount, and verify full identity, qualification, read/write, and cross-client freshness validation precedes recovery. A fabricated attestation invalidates the record.
 
@@ -73,6 +73,8 @@ sha256sum /mnt/client-a/stella/.stella-shared-posix/qualification.json
 ```
 
 The command writes the fixed namespace identity and exact record. Use the displayed SHA-256 as `STELLA_SHARED_POSIX_QUALIFICATION_SHA256`. Changing the backend version, topology, mount options, identity, clients, or limits requires a new record and digest.
+
+Installation and runtime parse the same strict record contract. Unsupported schemas, unknown fields, missing, duplicated, failed, or inconsistent identity/conformance/benchmark/failure/recovery/readiness evidence are rejected even when the file's configured digest matches. The digest pins reviewed bytes; it does not replace semantic validation.
 
 ## 3. Run the independent freshness witness
 
@@ -99,6 +101,8 @@ STELLA_STORAGE_STARTUP_TIMEOUT=20s
 ```
 
 Startup occurs only after the root object, identity, exact qualification digest, writable/fsync probe, and two advancing witness observations pass. Thereafter the monitor repeats full checks. Missing, replaced, disconnected, read-only, stale, or mismatched storage makes `/readyz` return an actionable path-free `503` and closes the one Home admission gate. New Workspace/API filesystem capabilities and Session compute setup fail; Stella never creates or uses local fallback storage. Liveness remains process-only.
+
+`STELLA_STORAGE_STARTUP_TIMEOUT` is an overall startup deadline, including a blocked mount probe. POSIX mount syscalls are not generically cancellable: Stella therefore permits at most one probe worker. If that syscall remains stuck, startup fails at the deadline (and process exit releases it); at runtime the last successful check expires, readiness/admission closes, and no overlapping probe workers are launched. A later return cannot reopen admission by itself—full validation and a subsequent fresh witness advance are still required.
 
 After a transient failure, readiness returns only after a complete successful revalidation and a fresh witness advance. A mount replacement or explicit unmount/remount requires restarting `stellad` so `WorkspaceManager` can pin the newly validated root object; the old process remains fail-closed. Existing operations are not silently replayed. Monitor free bytes and inodes separately; qualification's capacity check is a point-in-time gate, not capacity monitoring.
 
