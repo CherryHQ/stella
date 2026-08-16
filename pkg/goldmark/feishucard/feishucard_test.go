@@ -62,6 +62,99 @@ func TestLink(t *testing.T) {
 	}
 }
 
+func TestAutoLink(t *testing.T) {
+	got := convert(t, "see <https://google.com> now\n")
+	want := "see [https://google.com](https://google.com) now\n"
+	if got != want {
+		t.Errorf("autolink:\ngot:  %q\nwant: %q", got, want)
+	}
+}
+
+func TestRenderAutoLink(t *testing.T) {
+	elements := feishucard.Render("visit <https://example.com> and <mail@example.com>\n")
+	if len(elements) != 1 {
+		t.Fatalf("elements: got %d, want 1", len(elements))
+	}
+	content, _ := elements[0]["content"].(string)
+	if !strings.Contains(content, "(https://example.com)") {
+		t.Errorf("autolink url missing: %q", content)
+	}
+	if !strings.Contains(content, "[mail@example.com](") {
+		t.Errorf("email autolink missing: %q", content)
+	}
+}
+
+func TestRenderDetailsBecomesPanel(t *testing.T) {
+	input := "before\n\n<details>\n<summary>点击展开</summary>\n\n内容一\n\n```go\nx := 1\n```\n\n</details>\n\nafter\n"
+	elements := feishucard.Render(input)
+	if len(elements) != 3 {
+		t.Fatalf("elements: got %d, want 3 (%v)", len(elements), elements)
+	}
+	if elements[0]["content"] != "before" || elements[2]["content"] != "after" {
+		t.Errorf("surrounding markdown: got %v / %v", elements[0], elements[2])
+	}
+
+	panel := elements[1]
+	if panel["tag"] != "collapsible_panel" {
+		t.Fatalf("tag: got %v, want collapsible_panel", panel["tag"])
+	}
+	if panel["expanded"] != false {
+		t.Errorf("expanded: got %v, want false", panel["expanded"])
+	}
+	header, _ := panel["header"].(map[string]any)
+	title, _ := header["title"].(map[string]any)
+	if title["content"] != "点击展开" {
+		t.Errorf("header title: got %v, want 点击展开", title["content"])
+	}
+	inner, _ := panel["elements"].([]map[string]any)
+	if len(inner) != 1 {
+		t.Fatalf("panel elements: got %d, want 1 (%v)", len(inner), inner)
+	}
+	content, _ := inner[0]["content"].(string)
+	if !strings.Contains(content, "内容一") || !strings.Contains(content, "```go") {
+		t.Errorf("panel content: got %q", content)
+	}
+	if strings.Contains(content, "<details") || strings.Contains(content, "<summary") {
+		t.Errorf("html tags leaked into panel content: %q", content)
+	}
+}
+
+func TestRenderDetailsOpenAndNoSummary(t *testing.T) {
+	elements := feishucard.Render("<details open>\njust text\n</details>\n")
+	if len(elements) != 1 {
+		t.Fatalf("elements: got %d, want 1", len(elements))
+	}
+	panel := elements[0]
+	if panel["expanded"] != true {
+		t.Errorf("expanded: got %v, want true", panel["expanded"])
+	}
+	header, _ := panel["header"].(map[string]any)
+	title, _ := header["title"].(map[string]any)
+	if title["content"] != "详情" {
+		t.Errorf("default title: got %v", title["content"])
+	}
+}
+
+func TestRenderDetailsWithTableInside(t *testing.T) {
+	input := "<details>\n<summary>t</summary>\n\n| A | B |\n| - | - |\n| 1 | 2 |\n\n</details>\n"
+	elements := feishucard.Render(input)
+	inner, _ := elements[0]["elements"].([]map[string]any)
+	if len(inner) != 1 || inner[0]["tag"] != "table" {
+		t.Fatalf("panel elements: got %v, want one native table", inner)
+	}
+}
+
+func TestRenderDetailsInCodeFenceStaysMarkdown(t *testing.T) {
+	input := "```html\n<details>\n<summary>x</summary>\n</details>\n```\n"
+	elements := feishucard.Render(input)
+	if len(elements) != 1 || elements[0]["tag"] != "markdown" {
+		t.Fatalf("elements: got %v, want single markdown", elements)
+	}
+	if !strings.Contains(elements[0]["content"].(string), "<details>") {
+		t.Errorf("code fence content lost: %v", elements[0]["content"])
+	}
+}
+
 func TestImage(t *testing.T) {
 	got := convert(t, "![alt](img_key)\n")
 	want := "![alt](img_key)\n"

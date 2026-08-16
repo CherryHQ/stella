@@ -19,15 +19,41 @@ var md = New()
 //
 // GFM tables (up to 5 per card) become native table components with full
 // pagination support. Remaining tables fall back to code-block rendering.
-// All other content becomes markdown elements.
+// <details> sections become native collapsible panels. All other content
+// becomes markdown elements.
 func Render(source string) []map[string]any {
+	st := &renderState{}
+	elements := st.render(source)
+	if len(elements) == 0 {
+		elements = append(elements, map[string]any{
+			"tag":     "markdown",
+			"content": source,
+		})
+	}
+	return elements
+}
+
+// renderState carries limits that apply per card, not per nested section.
+type renderState struct {
+	tableCount int
+}
+
+// render converts one markdown fragment, splitting out <details> sections
+// before falling back to block rendering.
+func (st *renderState) render(source string) []map[string]any {
+	if elements, ok := st.renderDetails(source); ok {
+		return elements
+	}
+	return st.renderBlocks(source)
+}
+
+func (st *renderState) renderBlocks(source string) []map[string]any {
 	src := []byte(source)
 	doc := md.Parser().Parse(text.NewReader(src))
 	r := md.Renderer()
 
 	var elements []map[string]any
 	var mdBuf bytes.Buffer
-	tableCount := 0
 
 	flush := func() {
 		content := strings.TrimRight(mdBuf.String(), "\n")
@@ -48,8 +74,8 @@ func Render(source string) []map[string]any {
 
 	for child := doc.FirstChild(); child != nil; child = child.NextSibling() {
 		table, isTable := child.(*east.Table)
-		if isTable && tableCount < maxNativeTables {
-			tableCount++
+		if isTable && st.tableCount < maxNativeTables {
+			st.tableCount++
 			flush()
 			elements = append(elements, buildTableElement(src, table))
 		} else {
@@ -59,12 +85,6 @@ func Render(source string) []map[string]any {
 	}
 	flush()
 
-	if len(elements) == 0 {
-		elements = append(elements, map[string]any{
-			"tag":     "markdown",
-			"content": source,
-		})
-	}
 	return elements
 }
 

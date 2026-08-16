@@ -154,6 +154,19 @@ Most standard markdown passes through to the card natively:
 
 GFM tables are rendered as native Feishu table components with full pagination — no row limit. Column alignment (`:--`, `:-:`, `--:`) is preserved. Up to 5 tables per card use native components; any additional tables fall back to code-block formatting.
 
+### Collapsible sections
+
+An HTML `<details>` block becomes a native Feishu collapsible panel. `<summary>` supplies the header (default: 详情), and the `open` attribute starts the panel expanded. The body is rendered as markdown, so tables, code blocks, and lists work inside it.
+
+```text
+<details open>
+<summary>Show the details</summary>
+
+Any markdown works here.
+
+</details>
+```
+
 ### Interactive buttons
 
 Agents can include clickable buttons in their responses using a double-curly-brace syntax. The format is:

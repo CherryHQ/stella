@@ -27,7 +27,7 @@ func extractButtons(content string) []map[string]any {
 	converted := false
 
 	for _, loc := range matches {
-		if buttonInCode(content, loc[0]) {
+		if inCode(content, loc[0]) {
 			continue
 		}
 
@@ -68,7 +68,8 @@ func extractButtons(content string) []map[string]any {
 	return groupButtons(elements)
 }
 
-func buttonInCode(content string, pos int) bool {
+// inCode reports whether pos falls inside a fenced code block or code span.
+func inCode(content string, pos int) bool {
 	inFence := false
 	lineStart := 0
 	for lineStart < len(content) {
