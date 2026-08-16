@@ -3,7 +3,6 @@ package telegram
 import (
 	"context"
 	"math/rand/v2"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -61,8 +60,8 @@ func (b *Bot) streamDraft(c tele.Context, events <-chan channel.Event) (text str
 	tt := newToolTracker()
 	var imgs []channel.ImageEvent
 	lastSend := time.Time{}
-	draftID := rand.Int64N(1<<53) + 1
-	chatID := c.Chat().ID
+	// Kept inside int32 range so the identifier is valid on 32-bit builds too.
+	draftID := rand.IntN(1<<31-1) + 1
 	firstDraft := true
 
 	for evt := range events {
@@ -95,7 +94,7 @@ func (b *Bot) streamDraft(c tele.Context, events <-chan channel.Event) (text str
 
 		display := buildStreamDisplay(current, tt.Render(), tt.IsDisplaying())
 
-		if err := b.sendDraftRaw(chatID, draftID, display); err != nil {
+		if err := b.bot.SendDraft(c.Chat(), draftID, display); err != nil {
 			if firstDraft {
 				return sb.String(), &tt, imgs, true, nil
 			}
@@ -203,19 +202,6 @@ func buildStreamDisplay(text, toolSection string, hasTools bool) string {
 	}
 
 	return display + suffix
-}
-
-// sendDraftRaw calls the Telegram sendMessageDraft API (Bot API 9.3+).
-// This provides smooth animated streaming in private chats without
-// the rate-limiting issues of repeated editMessageText calls.
-func (b *Bot) sendDraftRaw(chatID, draftID int64, text string) error {
-	params := map[string]string{
-		"chat_id":  strconv.FormatInt(chatID, 10),
-		"draft_id": strconv.FormatInt(draftID, 10),
-		"text":     text,
-	}
-	_, err := b.bot.Raw("sendMessageDraft", params)
-	return err
 }
 
 // keepTyping sends the typing indicator repeatedly until ctx is cancelled.

@@ -25,7 +25,7 @@ const (
 // Publish renders the dispatcher-owned ChatStream as one Telegram message.
 // It deliberately has no session or agent logic: a failed platform request is
 // returned so the existing at-least-once group dispatcher owns the retry.
-func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishRequest) error {
+func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishRequest) (err error) {
 	chatID, err := strconv.ParseInt(req.PlatformGroupID, 10, 64)
 	if err != nil {
 		return fmt.Errorf("telegram: invalid group id %q: %w", req.PlatformGroupID, err)
@@ -45,6 +45,13 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 		return fmt.Errorf("telegram: send progress: %w", err)
 	}
 
+	// Acknowledge only once the group turn is actually being served, and settle
+	// the verdict on every exit below. A dispatcher retry re-runs this and
+	// overwrites the emoji, which is exactly the behaviour we want.
+	streamOK := false
+	b.react(req.PlatformGroupID, req.ReplyTo, reactionReceived)
+	defer func() { b.finishReaction(req.PlatformGroupID, req.ReplyTo, err == nil && streamOK) }()
+
 	response, images, streamErr, err := b.renderGroupProgress(ctx, progress, opts, req.Stream)
 	if err != nil {
 		return err
@@ -53,6 +60,7 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 		logger().Error("agent group stream error", "error", streamErr)
 		response = appendGroupStreamFailure(response)
 	}
+	streamOK = streamErr == nil
 	if strings.TrimSpace(response) == "" {
 		response = "(empty response)"
 	}
