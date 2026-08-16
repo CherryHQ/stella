@@ -666,6 +666,7 @@ export function SessionDetail({
         onStop={stopActiveTurn}
         isStreaming={isStreaming}
         placeholder={t("sessions.composer.placeholder")}
+        draftKey={sessionId}
         attachments={attachments}
         onFileSelect={(files) => void selectFiles(files)}
         onRemoveAttachment={removeAttachment}

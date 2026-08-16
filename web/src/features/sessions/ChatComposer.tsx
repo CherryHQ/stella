@@ -42,6 +42,13 @@ interface Props {
   overlay?: ReactNode;
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
   skills?: ComposerSkill[];
+  /**
+   * Storage key for persisting the uncontrolled draft across reloads. When
+   * set, the draft lives in sessionStorage under `stella-draft:<draftKey>`
+   * and is restored on mount; cleared on send. Controlled mode (value +
+   * onChange) ignores this — the parent owns the state.
+   */
+  draftKey?: string;
 }
 
 export function ChatComposer({
@@ -58,6 +65,7 @@ export function ChatComposer({
   overlay,
   textareaRef,
   skills,
+  draftKey,
 }: Props) {
   const { t } = useI18n();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -66,14 +74,28 @@ export function ChatComposer({
 
   const [selectedSkills, setSelectedSkills] = useState<ComposerSkill[]>([]);
 
-  const [draft, setDraft] = useState("");
+  const storageKey = draftKey ? `stella-draft:${draftKey}` : null;
+  const [draft, setDraft] = useState(() =>
+    storageKey ? (sessionStorage.getItem(storageKey) ?? "") : "",
+  );
+  useEffect(() => {
+    if (valueProp === undefined) {
+      setDraft(storageKey ? (sessionStorage.getItem(storageKey) ?? "") : "");
+    }
+  }, [storageKey, valueProp]);
   const value = valueProp ?? draft;
   const setValue = useCallback(
     (v: string) => {
-      if (valueProp === undefined) setDraft(v);
+      if (valueProp === undefined) {
+        setDraft(v);
+        if (storageKey) {
+          if (v) sessionStorage.setItem(storageKey, v);
+          else sessionStorage.removeItem(storageKey);
+        }
+      }
       onChange?.(v);
     },
-    [valueProp, onChange],
+    [valueProp, onChange, storageKey],
   );
 
   const hasAttachments = attachments && attachments.length > 0;
@@ -92,12 +114,15 @@ export function ChatComposer({
       setSelectedSkills([]);
     }
     setValue("");
+    if (storageKey) sessionStorage.removeItem(storageKey);
     onSend(full);
-  }, [isStreaming, disabled, canSend, selectedSkills, value, setValue, onSend]);
+  }, [isStreaming, disabled, canSend, selectedSkills, value, setValue, onSend, storageKey]);
 
   const [slashQuery, setSlashQuery] = useState<string | null>(null);
   const [slashIndex, setSlashIndex] = useState(0);
   const slashListRef = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const dragDepthRef = useRef(0);
 
   const detectSlash = useCallback(
     (val: string) => {
@@ -150,11 +175,18 @@ export function ChatComposer({
       const slashIdx = before.lastIndexOf("/");
       if (slashIdx < 0) return;
 
-      const newVal = (before.slice(0, slashIdx) + after).trim();
+      // Replace the "/query" fragment but keep the rest of the text as-is so
+      // the caret lands where the user was typing, not at the end of a
+      // re-trimmed value.
+      const newVal = before.slice(0, slashIdx) + after;
+      const newPos = slashIdx;
       setValue(newVal);
       setSelectedSkills((prev) => [...prev, skill]);
       setSlashQuery(null);
       textarea.focus();
+      requestAnimationFrame(() => {
+        textarea.setSelectionRange(newPos, newPos);
+      });
     },
     [value, setValue, taRef],
   );
@@ -217,26 +249,42 @@ export function ChatComposer({
       )}
       <div
         className={cn(
-          "relative mx-auto flex w-full min-w-0 max-w-[var(--chat-column)] flex-col rounded-lg border bg-card p-1.5",
+          "relative mx-auto flex w-full min-w-0 max-w-[var(--chat-column)] flex-col rounded-lg border bg-card p-1",
           isStreaming
             ? "border-primary focus-within:ring-2 focus-within:ring-primary/20"
             : "border-border focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20",
+          dragging && onFileSelect ? "border-primary ring-2 ring-primary/20" : "",
         )}
-        onDragOver={(e) => {
-          if (!onFileSelect) return;
-          e.preventDefault();
-          e.stopPropagation();
-        }}
-        onDrop={(e) => {
+        onDragEnter={(e) => {
           if (!onFileSelect || isStreaming) return;
           e.preventDefault();
           e.stopPropagation();
+          dragDepthRef.current += 1;
+          setDragging(true);
+        }}
+        onDragOver={(e) => {
+          if (!onFileSelect || isStreaming) return;
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onDragLeave={() => {
+          if (!onFileSelect) return;
+          dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+          if (dragDepthRef.current === 0) setDragging(false);
+        }}
+        onDrop={(e) => {
+          if (!onFileSelect) return;
+          e.preventDefault();
+          e.stopPropagation();
+          dragDepthRef.current = 0;
+          setDragging(false);
+          if (isStreaming) return;
           onFileSelect(e.dataTransfer.files);
         }}
       >
         {slashOverlay}
         {hasChips && (
-          <div className="flex flex-wrap gap-1.5 px-4 pt-3 pb-1">
+          <div className="flex flex-wrap gap-1.5 px-4 pt-2 pb-1">
             {selectedSkills.map((s) => (
               <span
                 key={s.name}
@@ -257,7 +305,7 @@ export function ChatComposer({
                 <span
                   key={i}
                   className={cn(
-                    "inline-flex items-center gap-1.5 text-xs font-mono rounded-md px-3 py-1 max-w-48 border",
+                    "inline-flex items-center gap-1.5 text-xs font-mono rounded-md px-2.5 py-1 max-w-48 border",
                     a.uploading
                       ? "bg-muted/50 text-muted-foreground border-border"
                       : "bg-muted text-muted-foreground border-border",
@@ -271,10 +319,11 @@ export function ChatComposer({
                   <span className="truncate">{a.name}</span>
                   {!a.uploading && onRemoveAttachment && (
                     <button
+                      type="button"
                       onClick={() => onRemoveAttachment(i)}
-                      className="text-muted-foreground hover:text-foreground cursor-pointer shrink-0 font-semibold ml-0.5"
+                      className="ml-0.5 shrink-0 cursor-pointer text-muted-foreground transition-colors hover:text-foreground"
                     >
-                      ×
+                      <X className="size-3" />
                     </button>
                   )}
                 </span>
@@ -353,6 +402,7 @@ export function ChatComposer({
             ) : (
               <Button
                 size="icon-sm"
+                variant={canSend ? "default" : "ghost"}
                 disabled={!canSend}
                 onClick={handleSend}
                 title={t("sessions.composer.sendMessage")}

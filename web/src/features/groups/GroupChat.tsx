@@ -25,12 +25,26 @@ export function GroupChat({ groupId }: Props) {
   const { data: members = [] } = useQuery(groupMembersQueryOptions(groupId));
 
   const [historicalMessages, setHistoricalMessages] = useState<GroupMessage[]>([]);
-  const [userInput, setUserInput] = useState("");
+  const draftStorageKey = `stella-draft:group:${groupId}`;
+  const [userInput, setUserInput] = useState(() => sessionStorage.getItem(draftStorageKey) ?? "");
   const [loading, setLoading] = useState(true);
   const transcriptRef = useRef<HTMLDivElement>(null);
 
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    setUserInput(sessionStorage.getItem(draftStorageKey) ?? "");
+  }, [draftStorageKey]);
+
+  const setGroupDraft = useCallback(
+    (value: string) => {
+      setUserInput(value);
+      if (value) sessionStorage.setItem(draftStorageKey, value);
+      else sessionStorage.removeItem(draftStorageKey);
+    },
+    [draftStorageKey],
+  );
 
   const firstAgentId = members[0]?.agent_id ?? "";
   const { data: skills = [] } = useQuery(agentSkillsOptions(firstAgentId));
@@ -173,7 +187,7 @@ export function GroupChat({ groupId }: Props) {
       if (attachments.some((a) => a.uploading)) return;
 
       const content = buildMessageText(input);
-      setUserInput("");
+      setGroupDraft("");
       setMentionQuery(null);
       clearAttachments();
       scrollToBottom();
@@ -188,6 +202,7 @@ export function GroupChat({ groupId }: Props) {
       clearAttachments,
       scrollToBottom,
       chatSendMessage,
+      setGroupDraft,
     ],
   );
 
@@ -208,14 +223,17 @@ export function GroupChat({ groupId }: Props) {
     return collectActiveAgentIds(chatMessages.filter((m) => !m.id.startsWith("grp-")));
   }, [isStreaming, chatMessages]);
 
-  const handleInputChange = useCallback((val: string) => {
-    setUserInput(val);
-    const textarea = inputRef.current;
-    const pos = textarea?.selectionStart ?? val.length;
-    const before = val.slice(0, pos);
-    const atMatch = before.match(/@(\S*)$/);
-    setMentionQuery(atMatch ? atMatch[1] : null);
-  }, []);
+  const handleInputChange = useCallback(
+    (val: string) => {
+      setGroupDraft(val);
+      const textarea = inputRef.current;
+      const pos = textarea?.selectionStart ?? val.length;
+      const before = val.slice(0, pos);
+      const atMatch = before.match(/@(\S*)$/);
+      setMentionQuery(atMatch ? atMatch[1] : null);
+    },
+    [setGroupDraft],
+  );
 
   const insertMention = useCallback(
     (agentId: string) => {
@@ -229,11 +247,11 @@ export function GroupChat({ groupId }: Props) {
       if (atIdx < 0) return;
 
       const newVal = before.slice(0, atIdx) + `@${agentId} ` + after;
-      setUserInput(newVal);
+      setGroupDraft(newVal);
       setMentionQuery(null);
       textarea.focus();
     },
-    [userInput],
+    [userInput, setGroupDraft],
   );
 
   const mentionOverlay =
