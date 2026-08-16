@@ -225,6 +225,37 @@ func TestRenderMarkdown(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdownKeepsAutoLinks(t *testing.T) {
+	md := tgmd.TGMD()
+	result := renderMarkdown(md, "see <https://example.com> now")
+	if !strings.Contains(result, "https://example.com") {
+		t.Errorf("autolink dropped: %q", result)
+	}
+}
+
+func TestRenderMarkdownFlattensDetails(t *testing.T) {
+	md := tgmd.TGMD()
+	result := renderMarkdown(md, "<details>\n<summary>点击展开</summary>\n\nbody text\n\n</details>")
+	if !strings.Contains(result, "点击展开") {
+		t.Errorf("summary dropped: %q", result)
+	}
+	if !strings.Contains(result, "body text") {
+		t.Errorf("details body dropped: %q", result)
+	}
+	if strings.Contains(result, "<details") || strings.Contains(result, "<summary") {
+		t.Errorf("html tags leaked: %q", result)
+	}
+}
+
+func TestRenderMarkdownLeavesCodeFenceAlone(t *testing.T) {
+	md := tgmd.TGMD()
+	input := "```html\n<details>\n<summary>x</summary>\n</details>\n```"
+	result := renderMarkdown(md, input)
+	if !strings.Contains(result, "<details>") || !strings.Contains(result, "<summary>x</summary>") {
+		t.Errorf("code fence content rewritten: %q", result)
+	}
+}
+
 func TestRenderMarkdownFallback(t *testing.T) {
 	md := tgmd.TGMD()
 	// Plain text should still return something non-empty.
