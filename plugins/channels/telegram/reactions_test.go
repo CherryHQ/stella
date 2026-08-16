@@ -27,14 +27,15 @@ var telegramAllowedReactions = []string{
 }
 
 func TestReactionEmojiAreOnTelegramAllowlist(t *testing.T) {
-	for _, emoji := range []string{reactionReceived, reactionSuccess, reactionFailure} {
+	for _, emoji := range []string{reactionReceived, reactionFailure} {
 		if !slices.Contains(telegramAllowedReactions, emoji) {
 			t.Errorf("reaction %q is not on Telegram's allowlist; setMessageReaction would reject it", emoji)
 		}
 	}
 }
 
-// reactionEmoji extracts the emoji from a recorded setMessageReaction call.
+// reactionEmoji extracts the emoji from a recorded setMessageReaction call, or
+// "" when the call clears the reaction.
 func reactionEmoji(t *testing.T, call telegramAPICall) string {
 	t.Helper()
 	raw, ok := call.params["reaction"].(string)
@@ -45,8 +46,11 @@ func reactionEmoji(t *testing.T, call telegramAPICall) string {
 	if err := json.Unmarshal([]byte(raw), &reactions); err != nil {
 		t.Fatalf("decode reaction payload %q: %v", raw, err)
 	}
+	if len(reactions) == 0 {
+		return ""
+	}
 	if len(reactions) != 1 {
-		t.Fatalf("reaction payload = %#v, want exactly one emoji", reactions)
+		t.Fatalf("reaction payload = %#v, want at most one emoji", reactions)
 	}
 	if reactions[0].Type != tele.ReactionTypeEmoji {
 		t.Fatalf("reaction type = %q, want %q", reactions[0].Type, tele.ReactionTypeEmoji)
@@ -54,7 +58,7 @@ func reactionEmoji(t *testing.T, call telegramAPICall) string {
 	return reactions[0].Emoji
 }
 
-func TestPublishAcknowledgesThenConfirmsGroupTurn(t *testing.T) {
+func TestPublishAcknowledgesThenClearsGroupTurn(t *testing.T) {
 	fake := &telegramAPIFake{}
 	b := newPublisherTestBot(t, fake)
 	events := make(chan channel.Event, 1)
@@ -77,8 +81,10 @@ func TestPublishAcknowledgesThenConfirmsGroupTurn(t *testing.T) {
 	if got := reactionEmoji(t, calls[0]); got != reactionReceived {
 		t.Errorf("first reaction = %q, want %q", got, reactionReceived)
 	}
-	if got := reactionEmoji(t, calls[1]); got != reactionSuccess {
-		t.Errorf("terminal reaction = %q, want %q", got, reactionSuccess)
+	// Success clears the mark rather than adding a second one: the reply is the
+	// signal, and every extra reaction costs another animation.
+	if got := reactionEmoji(t, calls[1]); got != "" {
+		t.Errorf("terminal reaction = %q, want the acknowledgement cleared", got)
 	}
 	if got := calls[0].params["chat_id"]; got != "-100" {
 		t.Errorf("reaction chat_id = %#v, want the group", got)

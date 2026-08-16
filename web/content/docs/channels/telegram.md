@@ -48,9 +48,9 @@ In groups, supergroups, and forum topics, Stella sends one progress message and 
 
 ### Reaction Lifecycle
 
-Stella reacts with 👀 on your message once it starts working on it, then replaces that with 👍 on success or 👎 on failure. This works in private chats, groups, and forum topics.
+Stella reacts with 🤔 on your message once it starts working on it, and clears that reaction when the answer arrives. Only a failed turn leaves a mark, 👎. This works in private chats, groups, and forum topics.
 
-Telegram only allows reactions from a fixed emoji list, which is why Stella uses 👍/👎 here rather than the ✅/❌ the Discord channel uses. Reactions are cosmetic: if the bot lacks permission to react, the reply itself is unaffected.
+Success deliberately adds no reaction: the reply is the signal, and every Telegram reaction plays an animation on a message you are already watching. Telegram also only allows reactions from a fixed emoji list, which is why failure is 👎 rather than the ❌ the Discord channel uses. Reactions are cosmetic: if the bot lacks permission to react, the reply itself is unaffected.
 
 ### Tool Indicators
 
