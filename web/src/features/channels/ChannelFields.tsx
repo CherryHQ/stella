@@ -20,6 +20,8 @@ export const platformDefaults: Record<string, PlatformDefaults> = {
     token: "",
     channel_id: "",
     allow_group: false,
+    allowed_chat_ids: [],
+    allowed_topic_ids: [],
     allow_dm: true,
     allow_unlinked_dm: false,
     guest_message_limit_per_minute: 10,
@@ -340,6 +342,16 @@ export function ChannelConfigFields({
           {field("token", "Bot Token", "password", "From @BotFather")}
           {field("channel_id", "Channel ID", "text", "Default channel")}
           {accessFields(t("channels.allowGroup"), t("channels.allowGroupDesc"))}
+          {arrayField(
+            "allowed_chat_ids",
+            t("channels.allowedTelegramChatIds"),
+            t("channels.allowedTelegramChatIdsDesc"),
+          )}
+          {arrayField(
+            "allowed_topic_ids",
+            t("channels.allowedTelegramTopicIds"),
+            t("channels.allowedTelegramTopicIdsDesc"),
+          )}
         </>
       )}
 

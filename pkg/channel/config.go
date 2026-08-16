@@ -3,6 +3,7 @@ package channel
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -144,17 +145,19 @@ func DecodeGuestConfig(channelType, rawConfig string) (GuestConfig, error) {
 
 // TelegramConfig is the persisted Telegram channel plugin configuration.
 type TelegramConfig struct {
-	InstanceID                 string `json:"-"`
-	Token                      string `json:"token"`
-	ChannelID                  string `json:"channel_id"`
-	AllowGroup                 bool   `json:"allow_group"`
-	AllowDM                    bool   `json:"allow_dm"`
-	AllowUnlinkedDM            bool   `json:"allow_unlinked_dm"`
-	GuestMessageLimitPerMinute int    `json:"guest_message_limit_per_minute"`
-	GuestMaxPerChannel         int    `json:"guest_max_per_channel"`
-	GuestRetentionDays         int    `json:"guest_retention_days"`
-	RequireMention             bool   `json:"require_mention"`
-	EnableNotify               bool   `json:"enable_notify"`
+	InstanceID                 string   `json:"-"`
+	Token                      string   `json:"token"`
+	ChannelID                  string   `json:"channel_id"`
+	AllowGroup                 bool     `json:"allow_group"`
+	AllowedChatIDs             []string `json:"allowed_chat_ids"`
+	AllowedTopicIDs            []string `json:"allowed_topic_ids"`
+	AllowDM                    bool     `json:"allow_dm"`
+	AllowUnlinkedDM            bool     `json:"allow_unlinked_dm"`
+	GuestMessageLimitPerMinute int      `json:"guest_message_limit_per_minute"`
+	GuestMaxPerChannel         int      `json:"guest_max_per_channel"`
+	GuestRetentionDays         int      `json:"guest_retention_days"`
+	RequireMention             bool     `json:"require_mention"`
+	EnableNotify               bool     `json:"enable_notify"`
 }
 
 // DecodeTelegramConfig applies stable admission defaults before decoding JSON.
@@ -166,7 +169,33 @@ func DecodeTelegramConfig(data []byte) (TelegramConfig, error) {
 		GuestRetentionDays:         DefaultGuestRetentionDays,
 		RequireMention:             true,
 	}
-	return cfg, json.Unmarshal(data, &cfg)
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return cfg, err
+	}
+	var err error
+	if cfg.AllowedChatIDs, err = normalizeTelegramAllowlist("allowed_chat_ids", cfg.AllowedChatIDs); err != nil {
+		return cfg, err
+	}
+	if cfg.AllowedTopicIDs, err = normalizeTelegramAllowlist("allowed_topic_ids", cfg.AllowedTopicIDs); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
+}
+
+// normalizeTelegramAllowlist keeps an intentionally empty list compatible with
+// existing allow-all group behavior, but rejects blank entries. Silently
+// turning a configured blank list into an empty allow-all list would widen a
+// channel's access boundary.
+func normalizeTelegramAllowlist(name string, ids []string) ([]string, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	for _, id := range ids {
+		if strings.TrimSpace(id) == "" {
+			return nil, fmt.Errorf("%s cannot contain blank entries", name)
+		}
+	}
+	return normalizeIDList(ids), nil
 }
 
 // QQConfig is the persisted QQ channel plugin configuration.

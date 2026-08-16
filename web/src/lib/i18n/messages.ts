@@ -2163,6 +2163,12 @@ const en = {
   "channels.allowGroup": "Allow group chats",
   "channels.allowGroupDesc":
     "Serve every group the bot has been added to. Disable this to answer direct messages only.",
+  "channels.allowedTelegramChatIds": "Allowed chat IDs",
+  "channels.allowedTelegramChatIdsDesc":
+    "Optional comma- or newline-separated Telegram group and supergroup IDs. Leave empty to allow every group.",
+  "channels.allowedTelegramTopicIds": "Allowed topic IDs",
+  "channels.allowedTelegramTopicIdsDesc":
+    "Optional comma- or newline-separated forum topics as chat_id:thread_id. Leave empty to allow every topic.",
   "channels.allowGuild": "Allow server channels",
   "channels.allowGuildDesc":
     "Serve the server channels the bot can read in the servers it joined. With this on, list an allowed guild, channel, user, or role below, or turn on Accept every server to skip the allowlist — leaving both off answers direct messages only.",
@@ -4427,6 +4433,12 @@ const zh: Record<MessageKey, string> = {
   "channels.allowDmDesc": "接受账号关联和私信聊天。关闭后拒绝所有私信。",
   "channels.allowGroup": "允许群聊",
   "channels.allowGroupDesc": "机器人被拉进的群聊都可以使用。关闭后只响应私信。",
+  "channels.allowedTelegramChatIds": "允许的聊天 ID",
+  "channels.allowedTelegramChatIdsDesc":
+    "可选，以逗号或换行分隔的 Telegram 群组和超级群组 ID。留空则允许所有群组。",
+  "channels.allowedTelegramTopicIds": "允许的话题 ID",
+  "channels.allowedTelegramTopicIdsDesc":
+    "可选，以逗号或换行分隔的论坛话题，格式为 chat_id:thread_id。留空则允许所有话题。",
   "channels.allowGuild": "允许服务器频道",
   "channels.allowGuildDesc":
     "机器人已加入的服务器中，可读频道都可以使用此开关。开启后需在下方填写允许的服务器、频道、用户或角色，或开启「接受所有服务器」以跳过白名单——两者都不设置时仅响应私信。",

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,6 +32,10 @@ type groupMemberProvisioner interface {
 	EnsurePlatformGroupMember(ctx context.Context, platform, platformGroupID, channelID string) error
 }
 
+type threadGroupMemberProvisioner interface {
+	EnsurePlatformThreadGroupMember(ctx context.Context, platform, platformGroupID, platformThreadID, legacyPlatformGroupID, channelID string) error
+}
+
 // logger returns the package logger, always using the current default handler.
 // This must be a function (not a package-level var) because the default handler
 // is set in main() after package init.
@@ -38,12 +43,14 @@ func logger() *slog.Logger { return slog.With("component", "telegram") }
 
 // Config holds Telegram bot settings.
 type Config struct {
-	InstanceID     string
-	Token          string
-	ChannelID      string
-	AllowGroup     bool
-	AllowDM        bool
-	RequireMention bool
+	InstanceID      string
+	Token           string
+	ChannelID       string
+	AllowGroup      bool
+	AllowedChatIDs  []string
+	AllowedTopicIDs []string
+	AllowDM         bool
+	RequireMention  bool
 }
 
 // Bot wraps a Telegram bot with agent pool integration.
@@ -209,42 +216,79 @@ func (b *Bot) admit(c tele.Context, directed bool) bool {
 		b.warnGroupRejectionOnce(chatID, "groups_disabled", nil)
 		return false
 	}
-	if b.cfg.RequireMention && !directed && !b.botMentioned(c.Message()) && !b.replyToBot(c.Message()) {
+	topicID := telegramTopicID(c.Message())
+	if !b.groupAllowed(chatID, topicID) {
+		b.warnGroupRejectionOnce(chatID, "not_allowlisted", nil)
 		return false
 	}
-	return b.ensureGroupMember(chatID)
+	if b.cfg.RequireMention && !directed && !b.botMentioned(c.Message()) && !b.replyToBot(c.Message()) && !b.commandAddressesBot(c.Message()) {
+		return false
+	}
+	return b.ensureGroupMember(chatID, topicID)
 }
 
-func (b *Bot) ensureGroupMember(chatID string) bool {
-	provisioner, ok := b.handler.(groupMemberProvisioner)
-	if !ok {
-		b.warnGroupRejectionOnce(chatID, "provisioner_unavailable", nil)
+// groupAllowed is fail-closed when either optional list is configured. Topic
+// entries bind a topic to its chat because Telegram thread IDs are not global.
+func (b *Bot) groupAllowed(chatID, topicID string) bool {
+	if len(b.cfg.AllowedChatIDs) > 0 && !containsID(b.cfg.AllowedChatIDs, chatID) {
 		return false
 	}
+	if len(b.cfg.AllowedTopicIDs) == 0 {
+		return true
+	}
+	return topicID != "" && containsID(b.cfg.AllowedTopicIDs, chatID+":"+topicID)
+}
+
+func containsID(ids []string, want string) bool {
+	return slices.Contains(ids, want)
+}
+
+func (b *Bot) ensureGroupMember(chatID, topicID string) bool {
+	cacheKey := chatID + "\x00" + topicID
 	if b.ctx == nil {
-		b.warnGroupRejectionOnce(chatID, "bot_lifecycle_unavailable", nil)
+		b.warnGroupRejectionOnce(cacheKey, "bot_lifecycle_unavailable", nil)
 		return false
 	}
-	if admitted, retry := b.groupProvisionState(chatID, time.Now()); admitted || !retry {
+	if admitted, retry := b.groupProvisionState(cacheKey, time.Now()); admitted || !retry {
 		return admitted
 	}
-	result, _, _ := b.provisionGroup.Do(chatID, func() (any, error) {
-		if admitted, retry := b.groupProvisionState(chatID, time.Now()); admitted || !retry {
+	result, _, _ := b.provisionGroup.Do(cacheKey, func() (any, error) {
+		if admitted, retry := b.groupProvisionState(cacheKey, time.Now()); admitted || !retry {
 			return admitted, nil
 		}
 		ctx, cancel := context.WithTimeout(b.ctx, groupProvisionTimeout)
 		defer cancel()
-		if err := provisioner.EnsurePlatformGroupMember(ctx, channel.PlatformTelegram, chatID, b.Name()); err != nil {
-			b.recordGroupProvisionFailure(chatID, time.Now().Add(groupProvisionFailureTTL))
-			b.warnGroupRejectionOnce(chatID, "provision_failed", err)
+		var err error
+		if topicID != "" {
+			provisioner, ok := b.handler.(threadGroupMemberProvisioner)
+			if !ok {
+				b.warnGroupRejectionOnce(cacheKey, "thread_provisioner_unavailable", nil)
+				return false, nil
+			}
+			// Telegram topics were always children of this chat; unlike Discord
+			// threads, there is no historical topic-as-parent identity to adopt.
+			// Passing chatID here would rename the parent group's state into the
+			// first topic that receives a message.
+			err = provisioner.EnsurePlatformThreadGroupMember(ctx, channel.PlatformTelegram, chatID, topicID, "", b.Name())
+		} else {
+			provisioner, ok := b.handler.(groupMemberProvisioner)
+			if !ok {
+				b.warnGroupRejectionOnce(cacheKey, "provisioner_unavailable", nil)
+				return false, nil
+			}
+			err = provisioner.EnsurePlatformGroupMember(ctx, channel.PlatformTelegram, chatID, b.Name())
+		}
+		if err != nil {
+			b.recordGroupProvisionFailure(cacheKey, time.Now().Add(groupProvisionFailureTTL))
+			b.warnGroupRejectionOnce(cacheKey, "provision_failed", err)
 			return false, nil
 		}
 		b.provisionMu.Lock()
 		if b.provisionedGroups == nil {
 			b.provisionedGroups = make(map[string]struct{})
 		}
-		b.provisionedGroups[chatID] = struct{}{}
-		delete(b.provisionFailures, chatID)
+		b.provisionedGroups[cacheKey] = struct{}{}
+		delete(b.provisionFailures, cacheKey)
 		b.provisionMu.Unlock()
 		return true, nil
 	})
@@ -318,6 +362,30 @@ func (b *Bot) replyToBot(m *tele.Message) bool {
 	return m != nil && m.ReplyTo != nil && m.ReplyTo.Sender != nil && b.bot.Me != nil && m.ReplyTo.Sender.ID == b.bot.Me.ID
 }
 
+// commandAddressesBot recognizes Telegram's native /command@botname form.
+// Bare commands do not bypass group mention policy.
+func (b *Bot) commandAddressesBot(m *tele.Message) bool {
+	if m == nil || b.bot.Me == nil || b.bot.Me.Username == "" {
+		return false
+	}
+	command := strings.Fields(m.Text)
+	if len(command) == 0 || !strings.HasPrefix(command[0], "/") {
+		return false
+	}
+	_, target, found := strings.Cut(command[0], "@")
+	return found && strings.EqualFold(target, b.bot.Me.Username)
+}
+
+// telegramTopicID only treats forum-topic identity as a group sub-thread. A
+// normal reply has ReplyTo but no TopicMessage and must remain in the parent
+// group session.
+func telegramTopicID(m *tele.Message) string {
+	if m == nil || !m.TopicMessage || m.ThreadID == 0 {
+		return ""
+	}
+	return strconv.Itoa(m.ThreadID)
+}
+
 // isGroup returns true if the message is from a group or supergroup.
 func isGroup(c tele.Context) bool {
 	t := c.Chat().Type
@@ -356,9 +424,7 @@ func (b *Bot) incomingMsg(c tele.Context, content []ai.ContentBlock) channel.Inc
 	if m := c.Message(); m != nil {
 		im.MessageID = fmt.Sprintf("%d", m.ID)
 		im.Timestamp = m.Time()
-		if m.ThreadID != 0 {
-			im.ThreadID = strconv.Itoa(m.ThreadID)
-		}
+		im.ThreadID = telegramTopicID(m)
 		if m.ReplyTo != nil {
 			im.ReplyTo = fmt.Sprintf("%d", m.ReplyTo.ID)
 		}

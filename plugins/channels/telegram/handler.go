@@ -19,6 +19,7 @@ import (
 func botCommands() []tele.Command {
 	return []tele.Command{
 		{Text: "start", Description: "Welcome & help"},
+		{Text: "help", Description: "Show available commands"},
 		{Text: "new", Description: "Start a fresh session"},
 		{Text: "compact", Description: "Compress the current session in place"},
 		{Text: "abort", Description: "Cancel the in-progress response"},
@@ -34,13 +35,13 @@ func (b *Bot) registerHandlers() {
 	// Register shared slash commands explicitly so Telegram's command list and
 	// handler table stay aligned. /whoami keeps a Telegram-specific override.
 	for _, cmd := range []string{"/start", "/help", "/new", "/compact", "/abort"} {
-		b.bot.Handle(cmd, b.guard(true, func(c tele.Context) error {
+		b.bot.Handle(cmd, b.guard(false, func(c tele.Context) error {
 			return b.handleSharedCommand(c, cmd)
 		}))
 	}
 
 	// Telegram-specific /whoami override (includes chat ID in markdown).
-	b.bot.Handle("/whoami", b.guard(true, func(c tele.Context) error {
+	b.bot.Handle("/whoami", b.guard(false, func(c tele.Context) error {
 		if c.Sender() == nil {
 			return c.Send("Cannot determine user ID (no sender info).")
 		}
