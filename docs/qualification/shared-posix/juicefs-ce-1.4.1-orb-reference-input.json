@@ -1,0 +1,39 @@
+{
+  "client_a": "/tmp/stella-jfs/mount-a",
+  "client_b": "/tmp/stella-jfs/mount-b",
+  "metadata": {
+    "backend": "juicefs-ce",
+    "version": "1.4.1+2026-07-30.0b90c7d",
+    "topology": "one Linux node, two independent JuiceFS FUSE clients, shared SQLite metadata and file object store; reference-only multi-client control, not a production topology",
+    "clients": 2,
+    "nodes": 1,
+    "mount_options": [
+      "attr-cache=0",
+      "dir-entry-cache=0",
+      "entry-cache=0",
+      "open-cache=0",
+      "default_permissions",
+      "rw"
+    ],
+    "namespace_identity": "stella-1034-juicefs-reference-0ffef418-6146-489e-a596-b9bdee19a323",
+    "identity_mechanism": "JuiceFS volume UUID plus cross-client inode and visibility probes",
+    "reference_hardware": "Amp E2B orb; Linux 6.1.158 x86_64; local SQLite metadata and local file object store; exact CPU/memory are variable shared sandbox resources",
+    "independent_mounts": true
+  },
+  "limits": {
+    "metadata_p95_ms": 100,
+    "small_files_p95_ms": 1000,
+    "concurrent_p95_ms": 1000,
+    "stream_mib_per_second": 5,
+    "minimum_free_bytes": 1073741824
+  },
+  "failure_injection": {
+    "injected": true,
+    "disconnect_observed": true,
+    "remounted": true,
+    "revalidated": true,
+    "error_class": "outcome_unknown",
+    "outcome_unknown": true,
+    "detail": "With the recorded zero-metadata-cache mount options, killed client B during repeated 4 MiB write+fsync. The writer returned ENOTCONN after 3246391296 bytes were visible from client A, so the operation was classified outcome unknown and was not replayed. Remounted client B with the same options and revalidated cross-client visibility before rerunning the full suite."
+  }
+}

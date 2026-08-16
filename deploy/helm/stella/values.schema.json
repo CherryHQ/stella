@@ -90,10 +90,23 @@
         "size": { "type": "string" },
         "accessMode": {
           "type": "string",
-          "enum": ["ReadWriteOnce", "ReadWriteOncePod"]
+          "enum": ["ReadWriteOnce", "ReadWriteOncePod", "ReadWriteMany"]
         },
         "storageClass": { "type": "string" },
-        "existingClaim": { "type": "string" }
+        "existingClaim": { "type": "string" },
+        "sharedPOSIX": {
+          "type": "object",
+          "required": ["enabled"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "namespaceIdentity": { "type": "string" },
+            "qualificationSHA256": { "type": "string" },
+            "witnessID": { "type": "string" },
+            "checkInterval": { "type": "string" },
+            "freshnessTimeout": { "type": "string" },
+            "startupTimeout": { "type": "string" }
+          }
+        }
       }
     },
     "service": {

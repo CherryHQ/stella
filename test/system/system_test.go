@@ -99,3 +99,35 @@ func TestHarnessEarlyExit(t *testing.T) {
 		t.Errorf("error must state the server exited early, got: %v", err)
 	}
 }
+
+// TestSharedPOSIXStartupFailsBeforeDatabase proves shared mode never mutates or
+// falls back through the ordinary setup path when mount evidence is absent.
+func TestSharedPOSIXStartupFailsBeforeDatabase(t *testing.T) {
+	skipUnsupportedHost(t)
+
+	runID := newRunID(t)
+	port := freePort(t)
+	env := append(baseSubprocessEnv(),
+		"STELLA_HOME="+t.TempDir(),
+		"STELLA_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:1/stella?sslmode=disable",
+		"STELLA_VAULT_KEY=present-but-storage-must-fail-first",
+		"STELLA_STORAGE_MODE=shared-posix",
+		"STELLA_SHARED_POSIX_IDENTITY=missing-reference",
+		"STELLA_SHARED_POSIX_QUALIFICATION_SHA256="+strings.Repeat("a", 64),
+		"STELLA_SHARED_POSIX_WITNESS_ID=missing-witness",
+		"HOST=127.0.0.1",
+		fmt.Sprintf("PORT=%d", port),
+	)
+	proc := startServerProcess(t, t, "shared-posix-early-exit-"+runID, env)
+	err := proc.waitReady(fmt.Sprintf("http://127.0.0.1:%d", port), readyTimeout)
+	if err == nil {
+		t.Fatal("waitReady succeeded without shared storage evidence")
+	}
+	log := proc.logTail(80)
+	if !strings.Contains(log, "validate shared POSIX storage: shared storage unavailable") {
+		t.Fatalf("startup did not fail at shared storage gate:\n%s", log)
+	}
+	if strings.Contains(log, "connect: connection refused") {
+		t.Fatalf("startup reached database before storage admission:\n%s", log)
+	}
+}

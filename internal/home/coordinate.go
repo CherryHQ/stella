@@ -93,6 +93,9 @@ func ResolveLogicalCoordinate(scope RootScope, value string, allowRoot bool) (Ro
 // only after the final historical row has been reconciled.
 func (m *WorkspaceManager) ReconcileProjectCoordinates(ctx context.Context) (ProjectCoordinateReconcileResult, error) {
 	var result ProjectCoordinateReconcileResult
+	if err := m.admit(ctx); err != nil {
+		return result, err
+	}
 	if err := m.verifyPinnedRoot(); err != nil {
 		return result, err
 	}

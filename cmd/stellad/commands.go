@@ -84,7 +84,17 @@ the server, or use "stellad service" to manage it as a background service.`,
 			miseCommand(),
 			systemBundleCommand(),
 			serviceCommand(),
+			storageCommand(),
 		},
+	}
+}
+
+func storageCommand() *ucli.Command {
+	return &ucli.Command{
+		Name:        "storage",
+		Usage:       "Qualify and monitor shared storage",
+		Category:    "Admin",
+		Subcommands: []*ucli.Command{storageQualifyCommand(), storageInstallQualificationCommand(), storageWitnessCommand()},
 	}
 }
 

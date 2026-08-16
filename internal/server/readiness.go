@@ -34,6 +34,7 @@ type readiness struct {
 	started  atomic.Bool
 	draining atomic.Bool
 	ping     DBPinger
+	storage  interface{ Check(context.Context) error }
 
 	drainCtx    context.Context
 	drainCancel context.CancelFunc
@@ -43,12 +44,12 @@ type readiness struct {
 // newReadiness builds readiness state whose drain signal is a child of parent
 // (the server runtime context), so a hard process stop also releases streaming
 // handlers even if graceful drain never ran.
-func newReadiness(parent context.Context, ping DBPinger) *readiness {
+func newReadiness(parent context.Context, ping DBPinger, storage interface{ Check(context.Context) error }) *readiness {
 	if parent == nil {
 		parent = context.Background()
 	}
 	ctx, cancel := context.WithCancel(parent)
-	return &readiness{ping: ping, drainCtx: ctx, drainCancel: cancel}
+	return &readiness{ping: ping, storage: storage, drainCtx: ctx, drainCancel: cancel}
 }
 
 // markStartupComplete flips /readyz eligibility on once every subsystem has
@@ -108,6 +109,12 @@ func (r *readiness) readyz(w http.ResponseWriter, req *http.Request) {
 	if err := r.ping.Ping(ctx); err != nil {
 		http.Error(w, "database unreachable", http.StatusServiceUnavailable)
 		return
+	}
+	if r.storage != nil {
+		if err := r.storage.Check(ctx); err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
 	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok\n"))

@@ -226,3 +226,33 @@ func TestWorkspaceManagerMissingDurableOwnerLeavesNoFilesystemMutation(t *testin
 		t.Fatalf("durable-owner failure mutated filesystem: %v", entries)
 	}
 }
+
+type closedStorageAdmission struct{ err error }
+
+func (a closedStorageAdmission) Check(context.Context) error { return a.err }
+
+func TestWorkspaceManagerBlocksAllNewAdmissionWhenStorageCloses(t *testing.T) {
+	base := t.TempDir()
+	gateErr := errors.New("storage stale")
+	m, err := NewWorkspaceManagerWithAdmission(dbtest.New(t), base, closedStorageAdmission{err: gateErr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m.Close() })
+	if _, err := m.WorkspaceView(t.Context(), WorkspaceRequest{AgentID: "a"}); !errors.Is(err, gateErr) {
+		t.Fatalf("WorkspaceView error = %v", err)
+	}
+	if _, err := m.OpenRoot(t.Context(), WorkspaceRequest{AgentID: "a"}, RootAgentWorkspace, RootReadOnly); !errors.Is(err, gateErr) {
+		t.Fatalf("OpenRoot error = %v", err)
+	}
+	if occupied, err := m.AgentIDOccupied(t.Context(), "a"); !occupied || !errors.Is(err, gateErr) {
+		t.Fatalf("AgentIDOccupied = %v, %v", occupied, err)
+	}
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("closed storage admission mutated filesystem: %v", entries)
+	}
+}

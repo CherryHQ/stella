@@ -1,0 +1,156 @@
+{
+  "schema_version": 1,
+  "started_utc": "2026-08-16T06:05:38.879865488Z",
+  "ended_utc": "2026-08-16T06:05:43.941132488Z",
+  "backend": "juicefs-ce",
+  "backend_version": "1.4.1+2026-07-30.0b90c7d",
+  "topology": "one Linux node, two independent JuiceFS FUSE clients, shared SQLite metadata and file object store; reference-only multi-client control, not a production topology",
+  "clients": 2,
+  "nodes": 1,
+  "mount_options": [
+    "attr-cache=0",
+    "default_permissions",
+    "dir-entry-cache=0",
+    "entry-cache=0",
+    "open-cache=0",
+    "rw"
+  ],
+  "namespace_identity": "stella-1034-juicefs-reference-0ffef418-6146-489e-a596-b9bdee19a323",
+  "identity_mechanism": "JuiceFS volume UUID plus cross-client inode and visibility probes",
+  "reference_hardware": "Amp E2B orb; Linux 6.1.158 x86_64; local SQLite metadata and local file object store; exact CPU/memory are variable shared sandbox resources",
+  "independent_mounts": true,
+  "identity_evidence": [
+    {
+      "name": "same_namespace_inode",
+      "detail": "cross-client probe resolves to the same filesystem object",
+      "passed": true
+    },
+    {
+      "name": "distinct_client_root_objects",
+      "detail": "aliasing one local root is not evidence of independent clients",
+      "passed": true
+    },
+    {
+      "name": "declared_independent_mounts",
+      "detail": "operator topology assertion; identity tests alone do not prove a shared backend",
+      "passed": true
+    }
+  ],
+  "conformance": [
+    {
+      "name": "atomic_same_directory_rename",
+      "passed": true
+    },
+    {
+      "name": "symlink_and_containment",
+      "passed": true
+    },
+    {
+      "name": "modes_and_ownership",
+      "passed": true
+    },
+    {
+      "name": "advisory_lock_across_clients",
+      "passed": true
+    },
+    {
+      "name": "atomic_append",
+      "passed": true
+    },
+    {
+      "name": "concurrent_read_write_no_torn_records",
+      "passed": true
+    },
+    {
+      "name": "close_to_open_a_to_b",
+      "passed": true
+    },
+    {
+      "name": "close_to_open_b_to_a",
+      "passed": true
+    },
+    {
+      "name": "fsync_file_and_directory",
+      "passed": true
+    }
+  ],
+  "benchmarks": [
+    {
+      "name": "typed_root_metadata_traversal",
+      "unit": "ms_p95",
+      "value": 3.522,
+      "criterion": 100,
+      "comparison": "less_or_equal",
+      "passed": true
+    },
+    {
+      "name": "small_file_project_skill_publication",
+      "unit": "ms_p95",
+      "value": 61.859,
+      "criterion": 1000,
+      "comparison": "less_or_equal",
+      "passed": true
+    },
+    {
+      "name": "large_upload_share_streaming",
+      "unit": "MiB_per_second",
+      "value": 42.43885084122131,
+      "criterion": 5,
+      "comparison": "greater_or_equal",
+      "passed": true
+    },
+    {
+      "name": "concurrent_api_sandbox_access",
+      "unit": "ms_p95",
+      "value": 106.171,
+      "criterion": 1000,
+      "comparison": "less_or_equal",
+      "passed": true
+    },
+    {
+      "name": "free_capacity",
+      "unit": "bytes",
+      "value": 1125888450560000,
+      "criterion": 1073741824,
+      "comparison": "greater_or_equal",
+      "passed": true
+    }
+  ],
+  "limits": {
+    "metadata_p95_ms": 100,
+    "small_files_p95_ms": 1000,
+    "concurrent_p95_ms": 1000,
+    "stream_mib_per_second": 5,
+    "minimum_free_bytes": 1073741824
+  },
+  "failure_injection": {
+    "injected": true,
+    "disconnect_observed": true,
+    "remounted": true,
+    "revalidated": true,
+    "error_class": "outcome_unknown",
+    "outcome_unknown": true,
+    "detail": "With the recorded zero-metadata-cache mount options, killed client B during repeated 4 MiB write+fsync. The writer returned ENOTCONN after 3246391296 bytes were visible from client A, so the operation was classified outcome unknown and was not replayed. Remounted client B with the same options and revalidated cross-client visibility before rerunning the full suite."
+  },
+  "readiness": [
+    {
+      "state": "not_ready",
+      "reason": "qualification_started"
+    },
+    {
+      "state": "not_ready",
+      "reason": "fault_injected"
+    },
+    {
+      "state": "ready",
+      "reason": "full_contract_validated"
+    }
+  ],
+  "recovery": {
+    "name": "full_revalidation_after_remount",
+    "detail": "With the recorded zero-metadata-cache mount options, killed client B during repeated 4 MiB write+fsync. The writer returned ENOTCONN after 3246391296 bytes were visible from client A, so the operation was classified outcome unknown and was not replayed. Remounted client B with the same options and revalidated cross-client visibility before rerunning the full suite.",
+    "passed": true
+  },
+  "qualified_shared": true,
+  "overall_pass": true
+}

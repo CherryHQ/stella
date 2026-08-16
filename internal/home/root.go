@@ -136,6 +136,9 @@ func (m *WorkspaceManager) openRoot(ctx context.Context, req WorkspaceRequest, s
 	if err := checkContext(ctx); err != nil {
 		return nil, err
 	}
+	if err := m.admit(ctx); err != nil {
+		return nil, err
+	}
 	if access != RootReadOnly && access != RootReadWrite {
 		return nil, errors.New("home: invalid root access")
 	}

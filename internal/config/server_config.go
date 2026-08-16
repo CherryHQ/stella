@@ -17,6 +17,13 @@ const (
 	requireExternalDBEnv    = "STELLA_REQUIRE_EXTERNAL_DB"
 	httpShutdownTimeoutEnv  = "STELLA_HTTP_SHUTDOWN_TIMEOUT"
 	riverSoftStopTimeoutEnv = "STELLA_RIVER_SOFT_STOP_TIMEOUT"
+	storageModeEnv          = "STELLA_STORAGE_MODE"
+	sharedPOSIXIdentityEnv  = "STELLA_SHARED_POSIX_IDENTITY"
+	sharedPOSIXDigestEnv    = "STELLA_SHARED_POSIX_QUALIFICATION_SHA256"
+	sharedPOSIXWitnessEnv   = "STELLA_SHARED_POSIX_WITNESS_ID"
+	storageCheckIntervalEnv = "STELLA_STORAGE_CHECK_INTERVAL"
+	storageFreshnessEnv     = "STELLA_STORAGE_FRESHNESS_TIMEOUT"
+	storageStartupEnv       = "STELLA_STORAGE_STARTUP_TIMEOUT"
 
 	// Raw passthrough vars: read with os.Getenv semantics (value or "" for
 	// unset/empty; no trim, no default). Their group-level validation stays with
@@ -103,6 +110,19 @@ type ServerConfig struct {
 	// Observability holds tracing/telemetry toggles owned by this server (the
 	// standard OTEL SDK variables stay with the SDK and are not mirrored here).
 	Observability ObservabilityConfig
+	// Storage selects the default single-replica local Home contract or the
+	// qualified shared-POSIX runtime gate.
+	Storage StorageConfig
+}
+
+type StorageConfig struct {
+	Mode                string
+	NamespaceIdentity   string
+	QualificationSHA256 string
+	WitnessID           string
+	CheckInterval       time.Duration
+	FreshnessTimeout    time.Duration
+	StartupTimeout      time.Duration
 }
 
 // VaultConfig carries the vault master key (STELLA_VAULT_KEY). The key is a
@@ -198,6 +218,10 @@ type rawServerConfig struct {
 	RequireExternalDB    string `env:"STELLA_REQUIRE_EXTERNAL_DB"`
 	HTTPShutdownTimeout  string `env:"STELLA_HTTP_SHUTDOWN_TIMEOUT"`
 	RiverSoftStopTimeout string `env:"STELLA_RIVER_SOFT_STOP_TIMEOUT"`
+	StorageMode          string `env:"STELLA_STORAGE_MODE"`
+	StorageCheckInterval string `env:"STELLA_STORAGE_CHECK_INTERVAL"`
+	StorageFreshness     string `env:"STELLA_STORAGE_FRESHNESS_TIMEOUT"`
+	StorageStartup       string `env:"STELLA_STORAGE_STARTUP_TIMEOUT"`
 }
 
 // serverConfigKeys is the closed set of normalized (trimmed, empty=default)
@@ -208,6 +232,10 @@ var serverConfigKeys = []string{
 	requireExternalDBEnv,
 	httpShutdownTimeoutEnv,
 	riverSoftStopTimeoutEnv,
+	storageModeEnv,
+	storageCheckIntervalEnv,
+	storageFreshnessEnv,
+	storageStartupEnv,
 }
 
 // LoadServerConfig parses the server's boot-time environment. lookup resolves a
@@ -280,6 +308,12 @@ func LoadServerConfig(lookup func(string) (string, bool)) (ServerConfig, error) 
 	cfg.Diagnostics.PprofAddr = get(pprofAddrEnv)
 	cfg.Observability.RecordToolIO = get(recordToolIOEnv) == "true"
 	cfg.Observability.RiverLogLevel = get(riverLogLevelEnv)
+	cfg.Storage.NamespaceIdentity = get(sharedPOSIXIdentityEnv)
+	cfg.Storage.QualificationSHA256 = get(sharedPOSIXDigestEnv)
+	cfg.Storage.WitnessID = get(sharedPOSIXWitnessEnv)
+	if cfg.Storage.Mode == "shared-posix" && (cfg.Storage.NamespaceIdentity == "" || cfg.Storage.QualificationSHA256 == "" || cfg.Storage.WitnessID == "") {
+		return ServerConfig{}, fmt.Errorf("%s=shared-posix requires %s, %s, and %s", storageModeEnv, sharedPOSIXIdentityEnv, sharedPOSIXDigestEnv, sharedPOSIXWitnessEnv)
+	}
 	return cfg, nil
 }
 
@@ -300,6 +334,31 @@ func (raw rawServerConfig) convert() (ServerConfig, error) {
 	if err != nil {
 		errs = append(errs, err)
 	}
+	storageMode := raw.StorageMode
+	if storageMode == "" {
+		storageMode = "local"
+	}
+	if storageMode != "local" && storageMode != "shared-posix" {
+		errs = append(errs, fmt.Errorf("%s=%q is invalid: use local or shared-posix", storageModeEnv, storageMode))
+	}
+	checkInterval, err := parseServerDuration(storageCheckIntervalEnv, raw.StorageCheckInterval, 2*time.Second)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	freshnessTimeout, err := parseServerDuration(storageFreshnessEnv, raw.StorageFreshness, 15*time.Second)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	startupTimeout, err := parseServerDuration(storageStartupEnv, raw.StorageStartup, 20*time.Second)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	if checkInterval > 0 && freshnessTimeout > 0 && freshnessTimeout <= checkInterval {
+		errs = append(errs, fmt.Errorf("%s must exceed %s", storageFreshnessEnv, storageCheckIntervalEnv))
+	}
+	if checkInterval > 0 && startupTimeout > 0 && startupTimeout <= checkInterval {
+		errs = append(errs, fmt.Errorf("%s must exceed %s", storageStartupEnv, storageCheckIntervalEnv))
+	}
 
 	if len(errs) > 0 {
 		return ServerConfig{}, env.AggregateError{Errors: errs}
@@ -311,6 +370,12 @@ func (raw rawServerConfig) convert() (ServerConfig, error) {
 		Lifecycle: Lifecycle{
 			HTTPShutdownTimeout:  httpTimeout,
 			RiverSoftStopTimeout: riverTimeout,
+		},
+		Storage: StorageConfig{
+			Mode:             storageMode,
+			CheckInterval:    checkInterval,
+			FreshnessTimeout: freshnessTimeout,
+			StartupTimeout:   startupTimeout,
 		},
 	}, nil
 }

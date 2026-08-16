@@ -36,12 +36,19 @@ type Workspace interface {
 	RootOpener
 }
 
+// Admission is the process-wide durable-storage gate. Shared storage supplies
+// a fail-closed implementation; local single-replica storage leaves it nil.
+type Admission interface {
+	Check(context.Context) error
+}
+
 // WorkspaceManager is the sole production materializer of typed workspace roots.
 // PostgreSQL remains owner authority; the filesystem is layout and data authority.
 type WorkspaceManager struct {
 	db         *pgxpool.Pool
 	base       string
 	rootFD     int
+	admission  Admission
 	ownerLocks [257]chan struct{}
 }
 
@@ -50,6 +57,10 @@ type WorkspaceManager struct {
 func (m *WorkspaceManager) Close() error { return closeWorkspaceRoot(m.rootFD) }
 
 func NewWorkspaceManager(db *pgxpool.Pool, base string) (*WorkspaceManager, error) {
+	return NewWorkspaceManagerWithAdmission(db, base, nil)
+}
+
+func NewWorkspaceManagerWithAdmission(db *pgxpool.Pool, base string, admission Admission) (*WorkspaceManager, error) {
 	if db == nil || base == "" {
 		return nil, errors.New("home: database and STELLA_HOME are required")
 	}
@@ -68,12 +79,22 @@ func NewWorkspaceManager(db *pgxpool.Pool, base string) (*WorkspaceManager, erro
 	if err != nil {
 		return nil, err
 	}
-	m := &WorkspaceManager{db: db, base: abs, rootFD: rootFD}
+	m := &WorkspaceManager{db: db, base: abs, rootFD: rootFD, admission: admission}
 	for i := range m.ownerLocks {
 		m.ownerLocks[i] = make(chan struct{}, 1)
 		m.ownerLocks[i] <- struct{}{}
 	}
 	return m, nil
+}
+
+func (m *WorkspaceManager) admit(ctx context.Context) error {
+	if m.admission == nil {
+		return nil
+	}
+	if err := m.admission.Check(ctx); err != nil {
+		return fmt.Errorf("home: storage admission closed: %w", err)
+	}
+	return nil
 }
 
 func validID(id string) error {
@@ -121,6 +142,9 @@ func (m *WorkspaceManager) agentExists(ctx context.Context, id string) error {
 }
 
 func (m *WorkspaceManager) WorkspaceView(ctx context.Context, req WorkspaceRequest) (WorkspaceView, error) {
+	if err := m.admit(ctx); err != nil {
+		return WorkspaceView{}, err
+	}
 	if err := validID(req.AgentID); err != nil {
 		return WorkspaceView{}, err
 	}
@@ -212,7 +236,10 @@ func (m *WorkspaceManager) lock(ctx context.Context, keys []string) (func(), err
 
 // AgentIDOccupied reserves deterministic global Agent roots. Any entry type is
 // occupied and inspection errors fail closed.
-func (m *WorkspaceManager) AgentIDOccupied(_ context.Context, id string) (bool, error) {
+func (m *WorkspaceManager) AgentIDOccupied(ctx context.Context, id string) (bool, error) {
+	if err := m.admit(ctx); err != nil {
+		return true, err
+	}
 	if err := validID(id); err != nil {
 		return true, err
 	}
@@ -220,5 +247,8 @@ func (m *WorkspaceManager) AgentIDOccupied(_ context.Context, id string) (bool, 
 }
 
 func (m *WorkspaceManager) ownerGate(ctx context.Context, kind OwnerKind, id string) (func(), error) {
+	if err := m.admit(ctx); err != nil {
+		return nil, err
+	}
 	return m.lock(ctx, []string{string(kind) + ":" + id})
 }

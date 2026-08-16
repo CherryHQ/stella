@@ -139,8 +139,23 @@ actionable message. Kept in one place so every template shares the same checks.
 {{- fail "stella: persistence.enabled=false stores STELLA_HOME (user workspaces, attachments, article files) in an emptyDir that is lost on every pod restart. Set persistence.allowEphemeralDataLoss=true to acknowledge this, or keep persistence enabled." -}}
 {{- end -}}
 
+{{- if $v.persistence.sharedPOSIX.enabled -}}
+{{- if not $v.persistence.enabled -}}
+{{- fail "stella: persistence.sharedPOSIX.enabled=true requires persistence.enabled=true; shared mode never falls back to emptyDir or replica-local storage." -}}
+{{- end -}}
+{{- if ne $v.persistence.accessMode "ReadWriteMany" -}}
+{{- fail "stella: persistence.sharedPOSIX.enabled=true requires persistence.accessMode=ReadWriteMany." -}}
+{{- end -}}
+{{- if or (not (trim $v.persistence.sharedPOSIX.namespaceIdentity)) (not (trim $v.persistence.sharedPOSIX.qualificationSHA256)) (not (trim $v.persistence.sharedPOSIX.witnessID)) -}}
+{{- fail "stella: shared POSIX mode requires persistence.sharedPOSIX.namespaceIdentity, qualificationSHA256, and witnessID from reviewed qualification evidence." -}}
+{{- end -}}
+{{- if not (regexMatch "^[0-9a-fA-F]{64}$" $v.persistence.sharedPOSIX.qualificationSHA256) -}}
+{{- fail "stella: persistence.sharedPOSIX.qualificationSHA256 must be a 64-character SHA-256 hex digest." -}}
+{{- end -}}
+{{- end -}}
+
 {{- range $v.extraEnv -}}
-{{- if has .name (list "STELLA_BASE_URL" "STELLA_SANDBOX_BACKEND" "STELLA_HTTP_SHUTDOWN_TIMEOUT" "STELLA_RIVER_SOFT_STOP_TIMEOUT" "STELLA_VAULT_KEY" "STELLA_DATABASE_URL" "HOST" "PORT" "STELLA_REQUIRE_EXTERNAL_DB") -}}
+{{- if has .name (list "STELLA_BASE_URL" "STELLA_SANDBOX_BACKEND" "STELLA_STORAGE_MODE" "STELLA_SHARED_POSIX_IDENTITY" "STELLA_SHARED_POSIX_QUALIFICATION_SHA256" "STELLA_SHARED_POSIX_WITNESS_ID" "STELLA_STORAGE_CHECK_INTERVAL" "STELLA_STORAGE_FRESHNESS_TIMEOUT" "STELLA_STORAGE_STARTUP_TIMEOUT" "STELLA_HTTP_SHUTDOWN_TIMEOUT" "STELLA_RIVER_SOFT_STOP_TIMEOUT" "STELLA_VAULT_KEY" "STELLA_DATABASE_URL" "HOST" "PORT" "STELLA_REQUIRE_EXTERNAL_DB") -}}
 {{- fail (printf "stella: extraEnv must not set %s — it is managed by the chart's typed values (baseURL, secrets.*, sandbox.*, shutdown.*), which enforce this chart's safety contract. Setting it twice would make the effective value ambiguous." .name) -}}
 {{- end -}}
 {{- end -}}

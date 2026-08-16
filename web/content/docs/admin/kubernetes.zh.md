@@ -193,6 +193,11 @@ chart 不提供 HPA（对有状态单副本自动扩缩不安全），也不提�
 手改裸 manifest 可以。不要那样做；上面“为什么只能单副本”的三条是正确性约束，不是
 可调参数。
 
+现在可以独立认证共享存储前置条件，流程见[认证共享 POSIX 存储](/docs/start-here/shared-posix)。
+设置 `persistence.sharedPOSIX.enabled=true` 会为当前单副本启用 mount identity、
+qualification、read/write 与独立 freshness readiness/admission 检查。它并未解决分布式
+Run/session/channel lifecycle fencing，因此 chart 会刻意保留副本 guard。
+
 ## 优雅停机 {#graceful-shutdown}
 
 收到 `SIGTERM` 后 Stella 走两阶段摘流：`/readyz` 翻成 `503`，在

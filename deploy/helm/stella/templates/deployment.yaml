@@ -76,6 +76,22 @@ spec:
               value: {{ .Values.baseURL | quote }}
             - name: STELLA_SANDBOX_BACKEND
               value: {{ .Values.sandbox.backend | quote }}
+            {{- if .Values.persistence.sharedPOSIX.enabled }}
+            - name: STELLA_STORAGE_MODE
+              value: "shared-posix"
+            - name: STELLA_SHARED_POSIX_IDENTITY
+              value: {{ .Values.persistence.sharedPOSIX.namespaceIdentity | quote }}
+            - name: STELLA_SHARED_POSIX_QUALIFICATION_SHA256
+              value: {{ .Values.persistence.sharedPOSIX.qualificationSHA256 | quote }}
+            - name: STELLA_SHARED_POSIX_WITNESS_ID
+              value: {{ .Values.persistence.sharedPOSIX.witnessID | quote }}
+            - name: STELLA_STORAGE_CHECK_INTERVAL
+              value: {{ .Values.persistence.sharedPOSIX.checkInterval | quote }}
+            - name: STELLA_STORAGE_FRESHNESS_TIMEOUT
+              value: {{ .Values.persistence.sharedPOSIX.freshnessTimeout | quote }}
+            - name: STELLA_STORAGE_STARTUP_TIMEOUT
+              value: {{ .Values.persistence.sharedPOSIX.startupTimeout | quote }}
+            {{- end }}
             - name: STELLA_HTTP_SHUTDOWN_TIMEOUT
               value: {{ printf "%ds" (int .Values.shutdown.httpSeconds) | quote }}
             - name: STELLA_RIVER_SOFT_STOP_TIMEOUT

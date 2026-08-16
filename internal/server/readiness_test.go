@@ -12,6 +12,10 @@ type fakePinger struct{ err error }
 
 func (f fakePinger) Ping(context.Context) error { return f.err }
 
+type fakeStorageAdmission struct{ err error }
+
+func (f fakeStorageAdmission) Check(context.Context) error { return f.err }
+
 func TestReadyz(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -27,7 +31,7 @@ func TestReadyz(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			r := newReadiness(context.Background(), fakePinger{err: tc.pingErr})
+			r := newReadiness(context.Background(), fakePinger{err: tc.pingErr}, nil)
 			if tc.started {
 				r.markStartupComplete()
 			}
@@ -45,7 +49,7 @@ func TestReadyz(t *testing.T) {
 
 func TestHealthzAlwaysOK(t *testing.T) {
 	// Healthz must not depend on startup, drain, or the database.
-	r := newReadiness(context.Background(), fakePinger{err: errors.New("db down")})
+	r := newReadiness(context.Background(), fakePinger{err: errors.New("db down")}, nil)
 	r.beginDrain()
 	rec := httptest.NewRecorder()
 	r.healthz(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
@@ -54,8 +58,18 @@ func TestHealthzAlwaysOK(t *testing.T) {
 	}
 }
 
+func TestReadyzFailsClosedOnStorageAdmission(t *testing.T) {
+	r := newReadiness(context.Background(), fakePinger{}, fakeStorageAdmission{err: errors.New("shared storage freshness is stale")})
+	r.markStartupComplete()
+	rec := httptest.NewRecorder()
+	r.readyz(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if rec.Code != http.StatusServiceUnavailable || rec.Body.String() != "shared storage freshness is stale\n" {
+		t.Fatalf("readyz = %d %q", rec.Code, rec.Body.String())
+	}
+}
+
 func TestBeginDrainReleasesStreamContext(t *testing.T) {
-	r := newReadiness(context.Background(), fakePinger{})
+	r := newReadiness(context.Background(), fakePinger{}, nil)
 	sctx, cancel := r.streamContext(context.Background())
 	defer cancel()
 
@@ -75,7 +89,7 @@ func TestBeginDrainReleasesStreamContext(t *testing.T) {
 }
 
 func TestBeginDrainIdempotent(t *testing.T) {
-	r := newReadiness(context.Background(), fakePinger{})
+	r := newReadiness(context.Background(), fakePinger{}, nil)
 	r.beginDrain()
 	r.beginDrain() // second call must not panic on a re-cancel/re-close
 	if !r.isDraining() {

@@ -25,6 +25,7 @@ import (
 	"github.com/CherryHQ/stella/internal/credential"
 	"github.com/CherryHQ/stella/internal/email"
 	"github.com/CherryHQ/stella/internal/goal"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/inbox"
 	"github.com/CherryHQ/stella/internal/library"
 	"github.com/CherryHQ/stella/internal/mcp"
@@ -205,6 +206,9 @@ type Deps struct {
 	// Assets provides immutable content-addressed session media. Mutable Workspace
 	// and user-data handlers use Home rooted POSIX capabilities instead.
 	Assets *asset.Store
+	// StorageAdmission closes readiness when a qualified shared namespace loses
+	// identity, write capability, qualification evidence, or freshness.
+	StorageAdmission home.Admission
 
 	// Optional capabilities. A nil field is a supported configuration: the
 	// matching endpoints report 503 through the centralized unavailable mapping
@@ -350,7 +354,7 @@ func New(ctx context.Context, deps Deps) (*Server, error) {
 	s.webhookRun = poolWebhookRunPort{pool: deps.PoolManager}
 	// Drain signal is a child of runtimeCtx so a hard process stop also releases
 	// streaming handlers. The narrow DBPinger answers the /readyz liveness ping.
-	s.readiness = newReadiness(ctx, s.pinger)
+	s.readiness = newReadiness(ctx, s.pinger, deps.StorageAdmission)
 
 	s.registerRoutes()
 

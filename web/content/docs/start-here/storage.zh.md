@@ -6,6 +6,8 @@ Stella 写入磁盘的所有内容都位于 `$STELLA_HOME` 下（默认为 `~/.s
 
 本页对每个目录进行分类，并说明各自所需的卷与备份处理方式。下文引用的环境变量（`STELLA_DATABASE_URL`、`STELLA_BLOB_S3_*`）参见[部署页面的环境变量表](/docs/start-here/deployment#环境变量)。
 
+如需评估共享后端、生成认证证据并启用 fail-closed runtime gate，请按[认证共享 POSIX 存储](/docs/start-here/shared-posix)操作。通过共享存储认证并不会开放多副本。
+
 ## 分类速览
 
 | `$STELLA_HOME` 下的路径                                                               | 存放内容                                     | 分类     | Kubernetes / 临时磁盘处理方式                               |

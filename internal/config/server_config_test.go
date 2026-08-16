@@ -69,6 +69,24 @@ func TestLoadServerConfigHappy(t *testing.T) {
 	}
 }
 
+func TestLoadServerConfigSharedPOSIXRequiresCompleteEvidence(t *testing.T) {
+	if _, err := LoadServerConfig(lookupFrom(map[string]string{storageModeEnv: "shared-posix"})); err == nil {
+		t.Fatal("incomplete shared POSIX configuration accepted")
+	}
+	cfg, err := LoadServerConfig(lookupFrom(map[string]string{
+		storageModeEnv:         "shared-posix",
+		sharedPOSIXIdentityEnv: "namespace-a",
+		sharedPOSIXDigestEnv:   strings.Repeat("a", 64),
+		sharedPOSIXWitnessEnv:  "witness-a",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Storage.Mode != "shared-posix" || cfg.Storage.NamespaceIdentity != "namespace-a" || cfg.Storage.WitnessID != "witness-a" {
+		t.Fatalf("Storage = %+v", cfg.Storage)
+	}
+}
+
 // TestLoadServerConfigDurationQuadrants exercises the four unset/empty/
 // whitespace/malformed states plus the >0 bound for a duration field.
 func TestLoadServerConfigDurationQuadrants(t *testing.T) {

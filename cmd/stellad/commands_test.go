@@ -286,6 +286,18 @@ func TestRunHelpShort(t *testing.T) {
 	}
 }
 
+func TestStorageCommandContainsSharedPOSIXQualificationCommands(t *testing.T) {
+	command := storageCommand()
+	if command.Name != "storage" || len(command.Subcommands) != 3 {
+		t.Fatalf("unexpected command shape: %#v", command)
+	}
+	for index, want := range []string{"qualify", "install-qualification", "witness"} {
+		if got := command.Subcommands[index].Name; got != want {
+			t.Errorf("subcommand %d = %q, want %q", index, got, want)
+		}
+	}
+}
+
 type blockingProjectReconciler struct{ started, release chan struct{} }
 
 func (r blockingProjectReconciler) ReconcileProjectCoordinates(context.Context) (home.ProjectCoordinateReconcileResult, error) {

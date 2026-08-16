@@ -6,6 +6,8 @@ Everything Stella writes to disk lives under `$STELLA_HOME` (default `~/.stella`
 
 This page classifies every directory and tells you the volume and backup treatment each one needs. For the environment variables referenced below (`STELLA_DATABASE_URL`, `STELLA_BLOB_S3_*`), see the [environment-variable table on the Deployment page](/docs/start-here/deployment#environment-variables).
 
+To evaluate a shared backend, produce qualification evidence, and enable the fail-closed runtime gate, follow [Qualify Shared POSIX Storage](/docs/start-here/shared-posix). Shared qualification does not enable multiple replicas.
+
 ## Classification at a glance
 
 | Path under `$STELLA_HOME`                                                             | Holds                                                 | Classification | Kubernetes / ephemeral-disk treatment                                                  |

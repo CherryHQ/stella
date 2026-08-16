@@ -114,6 +114,16 @@ expect_ok "storageClass '-' disables provisioning" "${BASE[@]}" \
   --set sandbox.backend=local --set 'persistence.storageClass=-'
 assert_contains "empty storageClassName"     'storageClassName: ""'
 
+expect_ok "qualified shared POSIX gate" "${BASE[@]}" --set sandbox.backend=local \
+  --set persistence.accessMode=ReadWriteMany \
+  --set persistence.sharedPOSIX.enabled=true \
+  --set persistence.sharedPOSIX.namespaceIdentity=production-home-v1 \
+  --set persistence.sharedPOSIX.qualificationSHA256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+  --set persistence.sharedPOSIX.witnessID=witness-a
+assert_contains "shared POSIX mode"          "STELLA_STORAGE_MODE"
+assert_contains "shared qualification digest" "STELLA_SHARED_POSIX_QUALIFICATION_SHA256"
+assert_contains "single replica preserved"  "replicas: 1"
+
 expect_ok "seccomp Unconfined override for local" "${BASE[@]}" \
   --set sandbox.backend=local --set sandbox.seccompProfile=Unconfined
 assert_contains "seccomp unconfined rendered"  "type: Unconfined"
@@ -149,6 +159,18 @@ expect_fail "grace period too small" "terminationGracePeriodSeconds" \
   --set shutdown.terminationGracePeriodSeconds=50
 expect_fail "persistence off without confirmation" "allowEphemeralDataLoss" \
   "${BASE[@]}" --set sandbox.backend=local --set persistence.enabled=false
+expect_fail "shared POSIX requires RWX" "ReadWriteMany" \
+  "${BASE[@]}" --set sandbox.backend=local \
+  --set persistence.sharedPOSIX.enabled=true
+expect_fail "shared POSIX requires evidence" "qualificationSHA256" \
+  "${BASE[@]}" --set sandbox.backend=local --set persistence.accessMode=ReadWriteMany \
+  --set persistence.sharedPOSIX.enabled=true
+expect_fail "shared POSIX rejects malformed digest" "64-character" \
+  "${BASE[@]}" --set sandbox.backend=local --set persistence.accessMode=ReadWriteMany \
+  --set persistence.sharedPOSIX.enabled=true \
+  --set persistence.sharedPOSIX.namespaceIdentity=production-home-v1 \
+  --set persistence.sharedPOSIX.qualificationSHA256=not-a-digest \
+  --set persistence.sharedPOSIX.witnessID=witness-a
 expect_fail "extraEnv overrides sandbox" "extraEnv must not set STELLA_SANDBOX_BACKEND" \
   "${BASE[@]}" --set sandbox.backend=local \
   --set 'extraEnv[0].name=STELLA_SANDBOX_BACKEND' --set 'extraEnv[0].value=none'

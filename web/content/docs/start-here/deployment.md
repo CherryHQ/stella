@@ -364,24 +364,31 @@ For a full breakdown of which directories are durable data, derived cache, or sc
 
 Configuration is managed through the Web UI (default `http://localhost:25678`; use `--port` to change). `HOST` and `PORT` are supported for binding the server, and only a small set of other environment variables is supported:
 
-| Variable                         | Required                  | Description                                                                                                                                                                   |
-| -------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `STELLA_HOME`                    | No                        | Stella home directory (default `~/.stella`)                                                                                                                                   |
-| `STELLA_DATABASE_URL`            | Docker: yes; otherwise no | External PostgreSQL connection URL; unset uses the embedded cluster under `STELLA_HOME` outside Docker                                                                        |
-| `STELLA_BASE_URL`                | No¶                       | Public canonical URL for OAuth callbacks and channel deep links; unset derives from the bind host (loopback)                                                                  |
-| `STELLA_REQUIRE_EXTERNAL_DB`     | No                        | Fail startup when `STELLA_DATABASE_URL` is unset instead of starting embedded PostgreSQL; the Docker image sets `1`, override with `0` for embedded PG on a persistent volume |
-| `STELLA_HTTP_SHUTDOWN_TIMEOUT`   | No                        | Graceful-shutdown drain budget for in-flight HTTP requests (Go duration, default `60s`, `> 0`)                                                                                |
-| `STELLA_RIVER_SOFT_STOP_TIMEOUT` | No                        | Graceful-shutdown drain budget for in-flight background jobs (Go duration, default `120s`, `> 0`)                                                                             |
-| `STELLA_BLOB_S3_ENDPOINT`        | No§                       | S3-compatible endpoint for immutable BlobStore data                                                                                                                           |
-| `STELLA_BLOB_S3_BUCKET`          | No§                       | Bucket for immutable BlobStore data                                                                                                                                           |
-| `STELLA_BLOB_S3_ACCESS_KEY`      | No§                       | Access key for immutable BlobStore data                                                                                                                                       |
-| `STELLA_BLOB_S3_SECRET_KEY`      | No§                       | Secret key for immutable BlobStore data                                                                                                                                       |
-| `STELLA_BLOB_S3_REGION`          | No                        | Optional S3 region                                                                                                                                                            |
-| `STELLA_BLOB_S3_USE_SSL`         | No                        | Use HTTPS for S3-compatible storage; defaults to `true`                                                                                                                       |
-| `STELLA_VAULT_KEY`               | Yes†                      | age secret key for the vault — required for secrets, OAuth, and bearer tokens                                                                                                 |
-| `STELLA_DOCKER_SANDBOX_MODE`     | No‡                       | Required only for the `docker` sandbox backend: `host`, `bind`, or `volume`                                                                                                   |
-| `STELLA_HOME_HOST`               | No‡                       | Host-side path backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=bind`                                                                                   |
-| `STELLA_HOME_VOLUME`             | No‡                       | Docker named volume backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=volume`                                                                            |
+| Variable                                   | Required                  | Description                                                                                                                                                                   |
+| ------------------------------------------ | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `STELLA_HOME`                              | No                        | Stella home directory (default `~/.stella`)                                                                                                                                   |
+| `STELLA_DATABASE_URL`                      | Docker: yes; otherwise no | External PostgreSQL connection URL; unset uses the embedded cluster under `STELLA_HOME` outside Docker                                                                        |
+| `STELLA_BASE_URL`                          | No¶                       | Public canonical URL for OAuth callbacks and channel deep links; unset derives from the bind host (loopback)                                                                  |
+| `STELLA_REQUIRE_EXTERNAL_DB`               | No                        | Fail startup when `STELLA_DATABASE_URL` is unset instead of starting embedded PostgreSQL; the Docker image sets `1`, override with `0` for embedded PG on a persistent volume |
+| `STELLA_STORAGE_MODE`                      | No                        | `local` (default) or `shared-posix`; shared mode requires reviewed qualification and an independent freshness witness                                                         |
+| `STELLA_SHARED_POSIX_IDENTITY`             | Shared POSIX only         | Expected non-secret namespace identity from the qualification record                                                                                                          |
+| `STELLA_SHARED_POSIX_QUALIFICATION_SHA256` | Shared POSIX only         | SHA-256 of the exact installed passing qualification record                                                                                                                   |
+| `STELLA_SHARED_POSIX_WITNESS_ID`           | Shared POSIX only         | Expected identity of the independently hosted freshness witness                                                                                                               |
+| `STELLA_STORAGE_CHECK_INTERVAL`            | No                        | Shared mount validation interval (Go duration, default `2s`)                                                                                                                  |
+| `STELLA_STORAGE_FRESHNESS_TIMEOUT`         | No                        | Maximum time without a successful check and witness advance (Go duration, default `15s`)                                                                                      |
+| `STELLA_STORAGE_STARTUP_TIMEOUT`           | No                        | Startup budget for observing cross-client witness advancement (Go duration, default `20s`)                                                                                    |
+| `STELLA_HTTP_SHUTDOWN_TIMEOUT`             | No                        | Graceful-shutdown drain budget for in-flight HTTP requests (Go duration, default `60s`, `> 0`)                                                                                |
+| `STELLA_RIVER_SOFT_STOP_TIMEOUT`           | No                        | Graceful-shutdown drain budget for in-flight background jobs (Go duration, default `120s`, `> 0`)                                                                             |
+| `STELLA_BLOB_S3_ENDPOINT`                  | No§                       | S3-compatible endpoint for immutable BlobStore data                                                                                                                           |
+| `STELLA_BLOB_S3_BUCKET`                    | No§                       | Bucket for immutable BlobStore data                                                                                                                                           |
+| `STELLA_BLOB_S3_ACCESS_KEY`                | No§                       | Access key for immutable BlobStore data                                                                                                                                       |
+| `STELLA_BLOB_S3_SECRET_KEY`                | No§                       | Secret key for immutable BlobStore data                                                                                                                                       |
+| `STELLA_BLOB_S3_REGION`                    | No                        | Optional S3 region                                                                                                                                                            |
+| `STELLA_BLOB_S3_USE_SSL`                   | No                        | Use HTTPS for S3-compatible storage; defaults to `true`                                                                                                                       |
+| `STELLA_VAULT_KEY`                         | Yes†                      | age secret key for the vault — required for secrets, OAuth, and bearer tokens                                                                                                 |
+| `STELLA_DOCKER_SANDBOX_MODE`               | No‡                       | Required only for the `docker` sandbox backend: `host`, `bind`, or `volume`                                                                                                   |
+| `STELLA_HOME_HOST`                         | No‡                       | Host-side path backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=bind`                                                                                   |
+| `STELLA_HOME_VOLUME`                       | No‡                       | Docker named volume backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=volume`                                                                            |
 
 † Without `STELLA_VAULT_KEY`, vault endpoints return `503`, OAuth tokens cannot be issued, and plugin secrets are not injected. Generate a key with `age-keygen`.
 
@@ -390,6 +397,8 @@ Configuration is managed through the Web UI (default `http://localhost:25678`; u
 § Set all four required S3 variables together, or leave all unset. Partial blob-store configuration fails startup. Mutable assets never require these variables.
 
 ¶ Required for managed deployments, and whenever OAuth login or channel deep links are used. See [Managed Deployment](#managed-deployment).
+
+Shared POSIX variables and the complete qualification procedure are documented in [Qualify Shared POSIX Storage](/docs/start-here/shared-posix). They do not enable multiple replicas.
 
 ## Health Check
 

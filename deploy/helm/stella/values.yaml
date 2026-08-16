@@ -89,6 +89,17 @@ persistence:
   storageClass: ""
   # Reuse a PVC you manage yourself instead of one created by the chart.
   existingClaim: ""
+  # Optional runtime gate for a previously qualified shared POSIX backend. This
+  # does not enable multiple replicas; replicaCount must remain 1. Run the
+  # independent witness outside this Deployment.
+  sharedPOSIX:
+    enabled: false
+    namespaceIdentity: ""
+    qualificationSHA256: ""
+    witnessID: ""
+    checkInterval: 2s
+    freshnessTimeout: 15s
+    startupTimeout: 20s
 
 service:
   type: ClusterIP
@@ -121,8 +132,8 @@ resources:
 # optional integrations (immutable blob storage STELLA_BLOB_S3_*, OIDC_*, provider API
 # keys). Keep secret values in the Secret referenced above, not here.
 # Variables the chart manages through typed values (STELLA_BASE_URL,
-# STELLA_SANDBOX_BACKEND, the shutdown timeouts, the two secret refs, HOST,
-# PORT, STELLA_REQUIRE_EXTERNAL_DB) are rejected here — overriding them would
+# STELLA_SANDBOX_BACKEND, storage gate variables, the shutdown timeouts, the two
+# secret refs, HOST, PORT, STELLA_REQUIRE_EXTERNAL_DB) are rejected here — overriding them would
 # bypass the chart's validation contract.
 extraEnv: []
 # - name: STELLA_BLOB_S3_ENDPOINT

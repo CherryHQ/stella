@@ -218,6 +218,13 @@ Because the Deployment strategy is `Recreate`, an HPA or a second replica can ne
 be reached through values — but a raw manifest edit could. Do not add either; the
 "Why only one replica?" reasons above are correctness constraints, not tuning.
 
+The shared-storage prerequisite can now be qualified independently: see [Qualify
+Shared POSIX Storage](/docs/start-here/shared-posix). Setting
+`persistence.sharedPOSIX.enabled=true` activates mount identity, qualification,
+read/write, and independent freshness readiness/admission checks for the current
+single replica. It does not solve distributed Run/session/channel lifecycle
+fencing, so the chart deliberately keeps the replica guard.
+
 ## Graceful shutdown
 
 On `SIGTERM` Stella runs a two-phase drain: `/readyz` flips to `503`, in-flight HTTP
