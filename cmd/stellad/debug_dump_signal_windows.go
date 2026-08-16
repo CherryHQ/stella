@@ -4,4 +4,4 @@ package main
 
 import "context"
 
-func installGoroutineDumpHandler(ctx context.Context) {}
+func installGoroutineDumpHandler(context.Context, func(context.Context) error) {}

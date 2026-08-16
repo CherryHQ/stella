@@ -27,12 +27,18 @@ import (
 //     when the address is set.
 //
 // Both stop when ctx is cancelled.
-func startDiagnostics(ctx context.Context, pprofAddr string) {
-	installGoroutineDumpHandler(ctx)
+func startDiagnostics(ctx context.Context, pprofAddr string, admission func(context.Context) error) {
+	installGoroutineDumpHandler(ctx, admission)
 	startPprofServer(ctx, pprofAddr)
 }
 
-func dumpGoroutines() {
+func dumpGoroutines(ctx context.Context, admission func(context.Context) error) {
+	if admission != nil {
+		if err := admission(ctx); err != nil {
+			slog.Error("goroutine dump: Home storage admission closed", "error", err)
+			return
+		}
+	}
 	dir := filepath.Join(config.StellaHome(), "dumps")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		slog.Error("goroutine dump: create dir", "error", err)

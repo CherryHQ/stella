@@ -351,7 +351,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		library.MediaTypeText: textParser, library.MediaTypeMarkdown: textParser,
 	}
 	if xbergBinary := binaries.ToolPath(config.StellaHome(), "xberg"); xbergBinary != "" {
-		xbergParser, probeErr := library.NewXbergCLIParser(parent, xbergBinary)
+		xbergParser, probeErr := library.NewXbergCLIParser(parent, xbergBinary, storageCheck)
 		if probeErr != nil {
 			return nil, fmt.Errorf("start embedded Xberg parser: %w", probeErr)
 		}
@@ -375,7 +375,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build library service: %w", err)
 	}
-	sessionImages, err := sessionmedia.NewPipeline(assetStore.SessionMedia(), db, snapshotLoader, vision.StreamBuilder(providerStreamBuilder), sessionmedia.PipelineOptions{})
+	sessionImages, err := sessionmedia.NewPipeline(assetStore.SessionMedia(), db, snapshotLoader, vision.StreamBuilder(providerStreamBuilder), sessionmedia.PipelineOptions{StorageAdmission: storageCheck})
 	if err != nil {
 		return nil, fmt.Errorf("build session image pipeline: %w", err)
 	}

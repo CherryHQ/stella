@@ -47,9 +47,10 @@ type xbergCommandRunner func(context.Context, string, []string) ([]byte, []byte,
 type XbergCLIParser struct {
 	binary, version, profile string
 	run                      xbergCommandRunner
+	admission                func(context.Context) error
 }
 
-func NewXbergCLIParser(ctx context.Context, binary string) (*XbergCLIParser, error) {
+func NewXbergCLIParser(ctx context.Context, binary string, admission ...func(context.Context) error) (*XbergCLIParser, error) {
 	resolved, err := exec.LookPath(binary)
 	if err != nil {
 		return nil, fmt.Errorf("resolve Xberg CLI %q: %w", binary, err)
@@ -58,7 +59,11 @@ func NewXbergCLIParser(ctx context.Context, binary string) (*XbergCLIParser, err
 	if err != nil {
 		return nil, fmt.Errorf("resolve absolute Xberg CLI path: %w", err)
 	}
-	return newXbergCLIParser(ctx, resolved, runBoundedXbergCommand)
+	parser, err := newXbergCLIParser(ctx, resolved, runBoundedXbergCommand)
+	if err == nil && len(admission) > 0 {
+		parser.admission = admission[0]
+	}
+	return parser, err
 }
 
 func newXbergCLIParser(ctx context.Context, binary string, run xbergCommandRunner) (*XbergCLIParser, error) {
@@ -97,6 +102,11 @@ func (p *XbergCLIParser) Profile(mediaType string) (string, error) {
 }
 
 func (p *XbergCLIParser) Parse(ctx context.Context, path, mediaType string) ([]ParsedChunk, error) {
+	if p.admission != nil {
+		if err := p.admission(ctx); err != nil {
+			return nil, fmt.Errorf("library: Home storage admission closed: %w", err)
+		}
+	}
 	if _, err := p.Profile(mediaType); err != nil {
 		return nil, err
 	}

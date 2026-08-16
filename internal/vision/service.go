@@ -43,23 +43,25 @@ type StreamBuilder func(api, apiKey, baseURL string) (providers.StreamFunc, erro
 
 // Options configures a Service.
 type Options struct {
-	Model  ai.Model
-	APIKey string
-	Build  StreamBuilder
+	Model            ai.Model
+	APIKey           string
+	Build            StreamBuilder
+	StorageAdmission func(context.Context) error
 }
 
 // Service owns one resolved baseline provider. Canonical enrichment resolves a
 // fresh Service for each image-bearing message so deployment settings are not
 // runner-snapshot state.
 type Service struct {
-	model  ai.Model
-	stream providers.StreamFunc
+	model     ai.Model
+	stream    providers.StreamFunc
+	admission func(context.Context) error
 }
 
 // New creates a service. A missing or invalid model is intentionally an
 // Xberg-only service rather than a construction error.
 func New(opts Options) *Service {
-	s := &Service{model: opts.Model}
+	s := &Service{model: opts.Model, admission: opts.StorageAdmission}
 	if opts.Model.ID == "" || opts.APIKey == "" || opts.Build == nil {
 		return s
 	}
@@ -71,16 +73,20 @@ func New(opts Options) *Service {
 }
 
 // NewFromSnapshot builds a service from one current application snapshot.
-func NewFromSnapshot(snap *config.Snapshot, build StreamBuilder) *Service {
+func NewFromSnapshot(snap *config.Snapshot, build StreamBuilder, admission ...func(context.Context) error) *Service {
+	var admit func(context.Context) error
+	if len(admission) > 0 {
+		admit = admission[0]
+	}
 	if snap == nil {
-		return New(Options{})
+		return New(Options{StorageAdmission: admit})
 	}
 	model, ok := snap.ResolveVisionModel()
 	if !ok {
-		return New(Options{})
+		return New(Options{StorageAdmission: admit})
 	}
 	creds := snap.ResolveProviderCreds(model.Provider)
-	return New(Options{Model: model, APIKey: creds.APIKey, Build: build})
+	return New(Options{Model: model, APIKey: creds.APIKey, Build: build, StorageAdmission: admit})
 }
 
 func (s *Service) ModelConfigured() bool { return s != nil && s.stream != nil }
@@ -110,6 +116,11 @@ func (s *Service) Baseline(ctx context.Context, req Request) (ai.ImageBaseline, 
 		}
 	}
 
+	if s != nil && s.admission != nil {
+		if err := s.admission(ctx); err != nil {
+			return ai.ImageBaseline{}, fmt.Errorf("vision baseline: Home storage admission closed: %w", err)
+		}
+	}
 	text, err := extractText(ctx, req)
 	if err != nil {
 		return ai.ImageBaseline{}, fmt.Errorf("vision baseline unavailable: %w", err)

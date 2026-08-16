@@ -100,7 +100,7 @@ STELLA_STORAGE_FRESHNESS_TIMEOUT=15s
 STELLA_STORAGE_STARTUP_TIMEOUT=20s
 ```
 
-只有 root object、identity、准确 qualification digest、可写/fsync probe 与两次递增 witness observation 全部通过，启动才继续。之后 monitor 重复完整检查。存储缺失、被替换、断连、只读、stale 或不匹配时，`/readyz` 返回可操作且不带路径的 `503`，并关闭唯一 Home admission gate。新的 Workspace/API filesystem capability 与 Session compute setup 都会失败；Stella 绝不会创建或使用本地 fallback。liveness 仍只检查进程。
+只有 root object、identity、准确 qualification digest、可写/fsync probe 与两次递增 witness observation 全部通过，启动才继续。之后 monitor 重复完整检查。存储缺失、被替换、断连、只读、stale 或不匹配时，`/readyz` 返回可操作且不带路径的 `503`，并关闭唯一 Home admission gate。新的 Workspace/API filesystem capability、Session compute setup、托管 Home 工具执行与 Home-backed diagnostics 都会失败；Stella 绝不会创建或使用本地 fallback。独立配置的 PostgreSQL、对象存储及纯 provider 处理仍保持可用。liveness 仍只检查进程。
 
 `STELLA_STORAGE_STARTUP_TIMEOUT` 是包含 mount probe 阻塞时间在内的整体启动 deadline。POSIX mount syscall 无法通用取消，因此 Stella 最多只允许一个 probe worker。若 syscall 一直卡住，启动会在 deadline 到达时失败（进程退出时释放它）；runtime 中最后一次成功检查过期后 readiness/admission 会关闭，且不会启动重叠 probe worker。迟到的返回不能自行重新开放 admission——仍必须完成完整 validation，并再观察到一次新 witness advance。
 

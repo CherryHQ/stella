@@ -187,13 +187,16 @@ func serverAction(c *ucli.Context) error {
 		cancel()
 	})
 
-	startDiagnostics(ctx, cfg.Diagnostics.PprofAddr)
-
 	s, err := setup(ctx, cfg, baseURL)
 	if err != nil {
 		cancel()
 		return err
 	}
+	var storageCheck func(context.Context) error
+	if s.storageAdmission != nil {
+		storageCheck = s.storageAdmission.Check
+	}
+	startDiagnostics(ctx, cfg.Diagnostics.PprofAddr, storageCheck)
 
 	// Both cleanup defers are registered before observability.Init so a failed
 	// Init still drains setup's resources (pools, background tasks). obs is a

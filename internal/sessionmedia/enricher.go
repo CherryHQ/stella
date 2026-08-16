@@ -37,8 +37,9 @@ func (f visionFactoryFunc) ForMessage(ctx context.Context, agentID string) visio
 // PipelineOptions makes deadlines and concurrency deterministic in tests.
 // Production uses zero-value defaults.
 type PipelineOptions struct {
-	MessageTimeout time.Duration
-	MaxConcurrent  int
+	MessageTimeout   time.Duration
+	MaxConcurrent    int
+	StorageAdmission func(context.Context) error
 }
 
 // enricher changes ephemeral provider/tool images into canonical references.

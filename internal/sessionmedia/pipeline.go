@@ -25,7 +25,7 @@ func NewPipeline(media asset.SessionMediaStore, db *pgxpool.Pool, snapshots Snap
 	if err != nil {
 		return nil, err
 	}
-	factory, err := newSnapshotVisionFactory(snapshots, build)
+	factory, err := newSnapshotVisionFactory(snapshots, build, opts.StorageAdmission)
 	if err != nil {
 		return nil, err
 	}

@@ -112,6 +112,22 @@ func TestXbergCLIParserPreservesCancellationAndOperationalErrors(t *testing.T) {
 	}
 }
 
+func TestXbergCLIParserRequiresHomeStorageAdmissionBeforeExecution(t *testing.T) {
+	gateErr := errors.New("storage closed")
+	parser, err := newXbergCLIParser(t.Context(), "/test/xberg", xbergFixtureRunner(`{"version":"1"}`, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parser.admission = func(context.Context) error { return gateErr }
+	parser.run = func(context.Context, string, []string) ([]byte, []byte, error) {
+		t.Fatal("Xberg executed while Home storage admission was closed")
+		return nil, nil, nil
+	}
+	if _, err := parser.Parse(t.Context(), "source.pdf", MediaTypePDF); !errors.Is(err, gateErr) {
+		t.Fatalf("closed admission error = %v", err)
+	}
+}
+
 func TestCappedBufferBoundsCommandOutput(t *testing.T) {
 	t.Parallel()
 	buffer := &cappedBuffer{max: 4}

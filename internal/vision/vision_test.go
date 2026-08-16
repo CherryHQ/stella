@@ -111,7 +111,9 @@ func TestNewFromSnapshotWithoutVisionTier(t *testing.T) {
 
 func TestBaselineUsesValidatedModelContract(t *testing.T) {
 	build, _, _ := textStream("## Text\nhello\n\n## Scene\nA tiny screenshot with one word.")
-	result, err := New(testOptions(build)).Baseline(context.Background(), Request{Data: pngBytes(t, 8, 8), MimeType: "image/png"})
+	options := testOptions(build)
+	options.StorageAdmission = func(context.Context) error { return errors.New("storage closed") }
+	result, err := New(options).Baseline(context.Background(), Request{Data: pngBytes(t, 8, 8), MimeType: "image/png"})
 	if err != nil {
 		t.Fatalf("Baseline: %v", err)
 	}
@@ -196,6 +198,15 @@ func TestBaselineWithoutModelUsesXberg(t *testing.T) {
 	}
 	if !strings.Contains(result.Text, want) {
 		t.Errorf("baseline = %+v", result)
+	}
+}
+
+func TestBaselineRequiresHomeStorageAdmissionBeforeXbergFallback(t *testing.T) {
+	gateErr := errors.New("storage closed")
+	service := New(Options{StorageAdmission: func(context.Context) error { return gateErr }})
+	_, err := service.Baseline(t.Context(), Request{Data: pngBytes(t, 1, 1), MimeType: "image/png"})
+	if !errors.Is(err, gateErr) {
+		t.Fatalf("closed admission error = %v", err)
 	}
 }
 

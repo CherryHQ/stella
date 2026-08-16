@@ -9,7 +9,7 @@ import (
 	"syscall"
 )
 
-func installGoroutineDumpHandler(ctx context.Context) {
+func installGoroutineDumpHandler(ctx context.Context, admission func(context.Context) error) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGUSR1)
 	go func() {
@@ -19,7 +19,7 @@ func installGoroutineDumpHandler(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ch:
-				dumpGoroutines()
+				dumpGoroutines(ctx, admission)
 			}
 		}
 	}()
