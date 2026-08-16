@@ -287,6 +287,9 @@ export function ChatComposer({
             value={value}
             onChange={(e) => handleChange(e.target.value)}
             onKeyDown={(e) => {
+              // IME (e.g. pinyin) Enter confirms composition; React's synthetic
+              // event hides isComposing, so check the native event first.
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
               if (slashOpen) {
                 if (e.key === "ArrowDown") {
                   e.preventDefault();
