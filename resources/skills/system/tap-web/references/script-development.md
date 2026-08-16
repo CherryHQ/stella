@@ -1,79 +1,61 @@
-# Script Development Guide
+# Site Script Development
 
-Write and contribute site scripts that extract structured data from websites.
+Site scripts live at `{site}/{action}.js`; the relative path is their name.
 
-## Development workflow
+## Workflow
 
-1. Reverse the site's API with `tap browser network`
-2. Test the request in `tap browser evaluate`
-3. Write the script
-4. Save it under `~/.config/tap/sites/{site}/{script}.js`
-5. Test with `tap site ...`
-
-## Reverse the API
-
-Open the target site in the default browser context, then capture its API calls.
+1. Use `tap browser` to inspect the site or its network API.
+2. Test the request with `tap browser eval --stdin`.
+3. Write the script under `~/.config/tap/sites/{site}/{action}.js`.
+4. Run `tap --local-only site {site}/{action} key=value`.
 
 ```bash
-tap browser open https://www.example.com --show
+tap browser open https://example.com
+tap browser network requests --filter api
 
-# Trigger the page action you want to inspect, then:
-tap browser network log --resource-type XHR,Fetch --timeout 15s
-
-# Or wait for one specific request and capture its body
-tap browser network wait --url-pattern "*/api/*" --body --timeout 30s
+cat <<'JS' | tap browser eval --stdin
+fetch('/api/items?q=test', {credentials: 'include'}).then(r => r.json())
+JS
 ```
 
-Focus on:
+## Metadata
 
-- request URL and params
-- auth mechanism (cookies / CSRF / bearer token)
-- response shape
+```javascript
+/* @meta
+{
+  "description": "Search example.com",
+  "domain": "example.com",
+  "args": {
+    "query": {"required": true, "description": "Search query"}
+  },
+  "headers": {
+    "Authorization": "Bearer ${EXAMPLE_TOKEN}"
+  },
+  "readOnly": true
+}
+*/
 
-## Test the request
-
-```bash
-tap browser evaluate "fetch('/api/items?q=test',{credentials:'include'}).then(r=>r.json()).then(d=>JSON.stringify(d))"
+async function(args) {
+  const response = await fetch(`/api/search?q=${encodeURIComponent(args.query)}`);
+  if (!response.ok) return {error: `HTTP ${response.status}`};
+  return response.json();
+}
 ```
 
-## Browser-auth hints
+`name`, `runtime`, and `env` are not metadata fields. Environment variables are
+inferred from `${VAR}` references in headers. Unresolved headers are omitted.
 
-Do **not** tell users to run `tap login`.
+Metadata headers are merged only into `fetch()` calls targeting the declared
+domain. Cross-origin requests are not blocked by Tap, but they never receive
+Tap-configured headers and remain subject to browser CORS/CSP.
 
-If a site needs auth, use a visible browser flow instead:
+## Errors
 
-```bash
-tap attach chrome
-tap browser open https://github.com/login --show
-```
-
-Then run browser-backed scripts with `tap site -b ...`.
-
-## Error handling guidance
-
-Return plain objects with `error` and optional `hint`:
+Return a plain object with `error` and an optional `hint`:
 
 ```javascript
 return {error: 'Missing argument: query'};
-return {error: 'HTTP 401', hint: 'Open a visible browser and log in first'};
-return {error: 'Needs DOM', hint: 'Retrying with browser engine'};
+return {error: 'HTTP 401', hint: 'Authenticate in the current Tap browser session'};
 ```
-
-For WAF / login walls, prefer hints like:
-
-```javascript
-return {error: 'WAF challenge or login required', hint: 'Use tap attach chrome && tap browser open https://example.com/login --show'};
-```
-
-## Local testing
-
-```bash
-tap site <site/action>
-tap site -b <site/action>
-tap site info <site/action>
-tap --local-only site <site/action>
-```
-
-## Contribution note
 
 Scripts are contributed upstream to [bb-sites](https://github.com/epiral/bb-sites).

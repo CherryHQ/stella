@@ -30,8 +30,8 @@ func TestLoadBuiltinLarkCLIUsesManagedFeishuOAuth(t *testing.T) {
 		if len(p.SessionEnvs) != 3 {
 			t.Fatalf("SessionEnvs = %#v, want token, app ID, and brand injection", p.SessionEnvs)
 		}
-		if len(p.Binaries) != 1 || p.Binaries[0].Version != "1.0.80" {
-			t.Fatalf("Binaries = %#v, want pinned lark-cli 1.0.80", p.Binaries)
+		if len(p.Binaries) != 1 || p.Binaries[0].Version != "1.0.87" {
+			t.Fatalf("Binaries = %#v, want pinned lark-cli 1.0.87", p.Binaries)
 		}
 		return
 	}

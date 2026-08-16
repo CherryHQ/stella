@@ -38,7 +38,7 @@ LABEL org.cherryhq.stella.builtin-bundle-revision=${BUILTIN_BUNDLE_REVISION}
 # reconcile-builtins` below installs them from resources/tools.yaml, exposing
 # them via mise shims exactly as the host does. Only non-mise base runtime deps
 # are installed via apt.
-COPY --from=jdxcode/mise:2026.7.18 /usr/local/bin/mise /opt/stella/bin/mise
+COPY --from=jdxcode/mise:2026.8.6 /usr/local/bin/mise /opt/stella/bin/mise
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \

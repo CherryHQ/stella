@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	miseVersion  = "2026.7.18"
+	miseVersion  = "2026.8.6"
 	// Keep synchronized with xbergVersion in embedded.go; the generated archive
 	// filename is the contract between this build helper and runtime extraction.
 	xbergVersion = "1.0.14"
