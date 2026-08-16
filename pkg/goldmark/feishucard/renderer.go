@@ -134,15 +134,16 @@ func (r *Renderer) renderCodeSpan(w util.BufWriter, _ []byte, _ ast.Node, _ bool
 	return ast.WalkContinue, nil
 }
 
-func (r *Renderer) renderAutoLink(w util.BufWriter, _ []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+func (r *Renderer) renderAutoLink(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if !entering {
 		return ast.WalkContinue, nil
 	}
 	n := node.(*ast.AutoLink)
+	// Label/URL slice into source; passing nil panics on any autolink.
 	_, _ = w.WriteString("[")
-	_, _ = w.Write(n.Label(nil))
+	_, _ = w.Write(n.Label(source))
 	_, _ = w.WriteString("](")
-	_, _ = w.Write(n.URL(nil))
+	_, _ = w.Write(n.URL(source))
 	_ = w.WriteByte(')')
 	return ast.WalkSkipChildren, nil
 }

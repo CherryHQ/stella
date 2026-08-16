@@ -5,11 +5,13 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/yuin/goldmark/parser"
 	tele "gopkg.in/telebot.v4"
 
 	"github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/goldmark/mdutil"
 )
 
 // goldmarkMD is the interface satisfied by the goldmark Markdown converter.
@@ -69,6 +71,7 @@ func (b *Bot) sendChunkedMarkdown(chat tele.Recipient, text string, silent bool,
 
 // renderMarkdown converts standard markdown to Telegram MarkdownV2 format.
 func renderMarkdown(md goldmarkMD, text string) string {
+	text = normalizeForTelegram(text)
 	var buf bytes.Buffer
 	if err := md.Convert([]byte(text), &buf); err != nil {
 		return text
@@ -78,4 +81,36 @@ func renderMarkdown(md goldmarkMD, text string) string {
 		return text
 	}
 	return result
+}
+
+// normalizeForTelegram rewrites the markdown that the MarkdownV2 converter
+// drops on the floor: it renders neither autolink nor HTML nodes, so
+// <https://…> links and <details> sections would reach the user with their
+// content silently missing.
+func normalizeForTelegram(text string) string {
+	return mdutil.ExpandAutoLinks(flattenDetails(text))
+}
+
+// flattenDetails unwraps <details> sections into a bold summary line followed
+// by the body. Telegram's expandable blockquote would be the closer match, but
+// the MarkdownV2 converter mangles multi-line quotes and cannot nest code
+// blocks in them; revisit if that converter gains real blockquote support.
+func flattenDetails(text string) string {
+	sections := mdutil.FindDetails(text)
+	if len(sections) == 0 {
+		return text
+	}
+
+	var b strings.Builder
+	prev := 0
+	for _, d := range sections {
+		b.WriteString(text[prev:d.Start])
+		if d.Summary != "" {
+			b.WriteString("**" + d.Summary + "**\n\n")
+		}
+		b.WriteString(d.Body)
+		prev = d.End
+	}
+	b.WriteString(text[prev:])
+	return b.String()
 }

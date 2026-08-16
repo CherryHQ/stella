@@ -58,6 +58,12 @@ Stella 内置了一个通过长轮询连接的 Telegram 机器人 —— 无需 
 | `edit`   | 扳手   |
 | `search` | 放大镜 |
 
+## Markdown 渲染
+
+回复会转换为 Telegram MarkdownV2。若某条消息以 markdown 发送失败，Stella 会以纯文本重发，不会丢内容。
+
+Telegram 没有折叠容器，因此 `<details>` 会被展开：`<summary>` 变成加粗标题，正文按普通 markdown 输出。`<https://example.com>` 形式的自动链接会被改写为行内链接，否则会被 MarkdownV2 转换器丢弃。
+
 ## 图片支持
 
 你可以在私聊中向机器人发送照片。当你发送图片时：

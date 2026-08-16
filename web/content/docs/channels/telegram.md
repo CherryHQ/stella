@@ -58,6 +58,12 @@ While the assistant runs tools, you will see status indicators in the stream:
 | `edit`   | wrench           |
 | `search` | magnifying glass |
 
+## Markdown Rendering
+
+Responses are converted to Telegram MarkdownV2. If a message fails to send as markdown, Stella retries it as plain text so nothing is lost.
+
+Telegram has no collapsible container, so a `<details>` section is flattened: the `<summary>` becomes a bold heading and the body follows as normal markdown. `<https://example.com>` style autolinks are rewritten as inline links; without that they would be dropped by the MarkdownV2 converter.
+
 ## Image Support
 
 You can send photos to the bot in private chats. When you send an image:

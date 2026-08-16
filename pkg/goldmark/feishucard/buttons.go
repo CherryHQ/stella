@@ -3,6 +3,8 @@ package feishucard
 import (
 	"regexp"
 	"strings"
+
+	"github.com/CherryHQ/stella/pkg/goldmark/mdutil"
 )
 
 // buttonRegex matches {{button key="value" ...}} patterns.
@@ -27,7 +29,7 @@ func extractButtons(content string) []map[string]any {
 	converted := false
 
 	for _, loc := range matches {
-		if buttonInCode(content, loc[0]) {
+		if mdutil.InCode(content, loc[0]) {
 			continue
 		}
 
@@ -66,33 +68,6 @@ func extractButtons(content string) []map[string]any {
 	}
 
 	return groupButtons(elements)
-}
-
-func buttonInCode(content string, pos int) bool {
-	inFence := false
-	lineStart := 0
-	for lineStart < len(content) {
-		lineEnd := strings.IndexByte(content[lineStart:], '\n')
-		if lineEnd == -1 {
-			lineEnd = len(content)
-		} else {
-			lineEnd += lineStart
-		}
-
-		line := content[lineStart:lineEnd]
-		trimmed := strings.TrimLeft(line, " \t")
-		if strings.HasPrefix(trimmed, "```") {
-			if pos >= lineStart && pos < lineEnd {
-				return true
-			}
-			inFence = !inFence
-		} else if pos >= lineStart && pos < lineEnd {
-			return inFence || strings.Count(content[lineStart:pos], "`")%2 == 1
-		}
-
-		lineStart = lineEnd + 1
-	}
-	return false
 }
 
 // parseButton extracts attributes from a {{button ...}} match and builds
