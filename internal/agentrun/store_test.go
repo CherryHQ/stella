@@ -685,6 +685,55 @@ func TestSandboxCrashRecoveryReconstructsCleanupBeforeReplacement(t *testing.T) 
 	}
 }
 
+func TestSandboxCrashRecoveryLoadsOnlyDurableProcessIdentities(t *testing.T) {
+	db := dbtest.New(t)
+	q := sqlc.New(db)
+	createSession(t, q, "session-sandbox-process")
+	oldBootID := NewBootID()
+	if _, err := q.CreateExecutorBoot(t.Context(), sqlc.CreateExecutorBootParams{ID: oldBootID}); err != nil {
+		t.Fatal(err)
+	}
+	oldStore := NewStore(db, oldBootID)
+	runCtx, cancelRun := context.WithCancel(t.Context())
+	oldRun, err := oldStore.Acquire(runCtx, "session-sandbox-process", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := ReserveSandbox(oldRun.Context(), "session-sandbox-process", "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lease.Activate(oldRun.Context(), pkgsandbox.NopSession()); err != nil {
+		t.Fatal(err)
+	}
+	want := pkgsandbox.ProcessIdentity{PID: 1234, StartTime: 5678}
+	if err := lease.RegisterProcess(oldRun.Context(), want); err != nil {
+		t.Fatal(err)
+	}
+
+	cancelRun()
+	if _, err := db.Exec(t.Context(), `UPDATE agent_run SET lease_expires_at = now() - interval '1 second' WHERE id = $1`, oldRun.Guard.RunID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(t.Context(), `UPDATE runtime_executor_boot SET heartbeat_at = now() - interval '1 minute' WHERE id = $1`, oldBootID); err != nil {
+		t.Fatal(err)
+	}
+	var got []pkgsandbox.ProcessIdentity
+	newStore := newTestStore(t, db, func(ctx context.Context, backend, _ string) error {
+		if backend != "local" {
+			t.Fatalf("cleanup backend = %q, want local", backend)
+		}
+		got = append(got, pkgsandbox.ProcessIdentities(ctx)...)
+		return nil
+	})
+	if err := newStore.Reap(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("reconstructed process identities = %#v, want %#v", got, []pkgsandbox.ProcessIdentity{want})
+	}
+}
+
 func TestSandboxCreateUncertaintyRequiresReconstructedCleanup(t *testing.T) {
 	db := dbtest.New(t)
 	q := sqlc.New(db)

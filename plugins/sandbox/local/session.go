@@ -96,6 +96,7 @@ func (f *Factory) CreateSession(ctx context.Context, policy sandboxpkg.Policy) (
 	}
 	s := &localSession{
 		id:              sessionID,
+		registrar:       sandboxpkg.ProcessRegistrarFromContext(ctx),
 		policy:          policy,
 		realRoot:        realRoot,
 		sandboxRoot:     sandboxRoot,
@@ -348,6 +349,7 @@ func mountBySandboxPath(mounts []sessionfs.Mount, sandboxPath string) (sessionfs
 // the host OS with no container isolation.
 type localSession struct {
 	id              string
+	registrar       sandboxpkg.ProcessRegistrar
 	policy          sandboxpkg.Policy
 	realRoot        string     // actual host path (e.g. /home/stella/.stella-dev/...)
 	sandboxRoot     string     // path the agent sees (/workspace on Linux+bwrap, else = realRoot)
@@ -531,7 +533,7 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
-	if startErr := cmd.Start(); startErr != nil {
+	if startErr := sandboxpkg.StartProcessRegistered(ctx, cmd, s.registrar); startErr != nil {
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: start: %w", startErr)
 	}
 
@@ -653,7 +655,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 		return nil, fmt.Errorf("local start_process: stderr pipe: %w", err)
 	}
 
-	if err := cmd.Start(); err != nil {
+	if err := sandboxpkg.StartProcessRegistered(ctx, cmd, s.registrar); err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
 		_ = stderr.Close()

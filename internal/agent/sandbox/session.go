@@ -213,6 +213,7 @@ func createFencedSession(ctx context.Context, cfg Config, name string) (pkgsandb
 	}
 	if lease != nil {
 		ctx = pkgsandbox.WithSessionID(ctx, lease.ResourceID())
+		ctx = pkgsandbox.WithProcessRegistrar(ctx, lease.RegisterProcess)
 	}
 	if err := agentrun.Check(ctx); err != nil {
 		if lease != nil {

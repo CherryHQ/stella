@@ -74,6 +74,7 @@ func (f *Factory) CreateSession(ctx context.Context, policy sandboxpkg.Policy) (
 	id := sandboxpkg.SessionID(ctx)
 	s := &noneSession{
 		id:           id,
+		registrar:    sandboxpkg.ProcessRegistrarFromContext(ctx),
 		policy:       policy,
 		ownedTempDir: tmpDir,
 		done:         make(chan struct{}),
@@ -187,6 +188,7 @@ func directoryExists(name string) bool {
 // noneSession implements sandboxpkg.Session with zero isolation.
 type noneSession struct {
 	id           string
+	registrar    sandboxpkg.ProcessRegistrar
 	policy       sandboxpkg.Policy
 	done         chan struct{}
 	doneOnce     sync.Once
@@ -296,7 +298,7 @@ func (s *noneSession) Exec(ctx context.Context, command string, opts sandboxpkg.
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Start(); err != nil {
+	if err := sandboxpkg.StartProcessRegistered(ctx, cmd, s.registrar); err != nil {
 		return sandboxpkg.ExecResult{}, err
 	}
 
@@ -391,7 +393,7 @@ func (s *noneSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessRe
 		return nil, err
 	}
 
-	if err := cmd.Start(); err != nil {
+	if err := sandboxpkg.StartProcessRegistered(ctx, cmd, s.registrar); err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
 		_ = stderr.Close()

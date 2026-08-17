@@ -93,6 +93,44 @@ func (q *Queries) CreateSessionSandboxGeneration(ctx context.Context, arg Create
 	return i, err
 }
 
+const createSessionSandboxProcess = `-- name: CreateSessionSandboxProcess :execrows
+INSERT INTO agent_session_sandbox_process (session_id, generation, pid, start_time)
+SELECT $1, $2, $3, $4
+WHERE EXISTS (
+    SELECT 1 FROM agent_session_sandbox
+    WHERE session_id = $1
+      AND generation = $2
+      AND executor_boot_id = $5
+      AND run_id = $6
+      AND state = 'active'
+)
+ON CONFLICT DO NOTHING
+`
+
+type CreateSessionSandboxProcessParams struct {
+	SessionID      string      `json:"session_id"`
+	Generation     int64       `json:"generation"`
+	Pid            int64       `json:"pid"`
+	StartTime      int64       `json:"start_time"`
+	ExecutorBootID pgtype.Text `json:"executor_boot_id"`
+	RunID          pgtype.Text `json:"run_id"`
+}
+
+func (q *Queries) CreateSessionSandboxProcess(ctx context.Context, arg CreateSessionSandboxProcessParams) (int64, error) {
+	result, err := q.db.Exec(ctx, createSessionSandboxProcess,
+		arg.SessionID,
+		arg.Generation,
+		arg.Pid,
+		arg.StartTime,
+		arg.ExecutorBootID,
+		arg.RunID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const destroySessionSandboxGeneration = `-- name: DestroySessionSandboxGeneration :execrows
 UPDATE agent_session_sandbox
 SET state = 'destroyed', destroyed_at = now(), updated_at = now()
@@ -227,6 +265,45 @@ func (q *Queries) ListRecoverableFencedSessionSandbox(ctx context.Context, stale
 			&i.ResourceID,
 			&i.FencedAt,
 			&i.DestroyedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSessionSandboxProcess = `-- name: ListSessionSandboxProcess :many
+SELECT process.session_id, process.generation, process.pid, process.start_time, process.created_at, process.updated_at FROM agent_session_sandbox_process AS process
+WHERE process.session_id = $1
+  AND process.generation = $2
+ORDER BY process.created_at, process.pid
+`
+
+type ListSessionSandboxProcessParams struct {
+	SessionID  string `json:"session_id"`
+	Generation int64  `json:"generation"`
+}
+
+func (q *Queries) ListSessionSandboxProcess(ctx context.Context, arg ListSessionSandboxProcessParams) ([]AgentSessionSandboxProcess, error) {
+	rows, err := q.db.Query(ctx, listSessionSandboxProcess, arg.SessionID, arg.Generation)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentSessionSandboxProcess{}
+	for rows.Next() {
+		var i AgentSessionSandboxProcess
+		if err := rows.Scan(
+			&i.SessionID,
+			&i.Generation,
+			&i.Pid,
+			&i.StartTime,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {

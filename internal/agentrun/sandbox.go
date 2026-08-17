@@ -66,6 +66,26 @@ func (l *SandboxLease) ResourceID() string {
 	return l.resourceID
 }
 
+// RegisterProcess durably binds a gated host target to this exact generation.
+func (l *SandboxLease) RegisterProcess(ctx context.Context, identity pkgsandbox.ProcessIdentity) error {
+	guardedCtx := withLeaseGuard(ctx, l.guard, l.store)
+	rows, err := WriteTxValue(guardedCtx, l.store.db, func(q *sqlc.Queries) (int64, error) {
+		return q.CreateSessionSandboxProcess(guardedCtx, sqlc.CreateSessionSandboxProcessParams{
+			SessionID: l.guard.SessionID, Generation: l.generation,
+			Pid: int64(identity.PID), StartTime: int64(identity.StartTime),
+			ExecutorBootID: pgtype.Text{String: l.guard.ExecutorBootID, Valid: true},
+			RunID:          pgtype.Text{String: l.guard.RunID, Valid: true},
+		})
+	})
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return ErrLeaseLost
+	}
+	return nil
+}
+
 func (l *SandboxLease) Activate(ctx context.Context, inner pkgsandbox.Session) (pkgsandbox.Session, error) {
 	if l == nil {
 		return inner, nil
@@ -205,6 +225,10 @@ func (l *SandboxLease) CleanupCreationFailure(ctx context.Context) error {
 	}
 	if l.store.sandboxCleaner == nil {
 		return errors.New("SessionSandbox cleanup is not configured")
+	}
+	ctx, err = l.store.withSandboxProcessIdentities(ctx, l.guard.SessionID, l.generation)
+	if err != nil {
+		return err
 	}
 	if err := l.store.sandboxCleaner(ctx, l.resourceBackend, l.resourceID); err != nil {
 		return err

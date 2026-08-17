@@ -7,11 +7,40 @@ import (
 	"log/slog"
 )
 
-type sessionIDKey struct{}
+type (
+	sessionIDKey        struct{}
+	processRegistrarKey struct{}
+	processIdentityKey  struct{}
+)
 
-// EnvResourceID identifies host processes belonging to one durably registered
-// SessionSandbox resource. Host backends force this value after caller env
-// overrides so crash recovery can find and terminate orphaned process trees.
+type ProcessIdentity struct {
+	PID       int
+	StartTime uint64
+}
+
+type ProcessRegistrar func(context.Context, ProcessIdentity) error
+
+func WithProcessRegistrar(ctx context.Context, registrar ProcessRegistrar) context.Context {
+	return context.WithValue(ctx, processRegistrarKey{}, registrar)
+}
+
+func ProcessRegistrarFromContext(ctx context.Context) ProcessRegistrar {
+	registrar, _ := ctx.Value(processRegistrarKey{}).(ProcessRegistrar)
+	return registrar
+}
+
+func WithProcessIdentities(ctx context.Context, identities []ProcessIdentity) context.Context {
+	return context.WithValue(ctx, processIdentityKey{}, identities)
+}
+
+func ProcessIdentities(ctx context.Context) []ProcessIdentity {
+	identities, _ := ctx.Value(processIdentityKey{}).([]ProcessIdentity)
+	return identities
+}
+
+// EnvResourceID labels host processes for diagnostics. Cleanup authority is the
+// gated PID/start-time identity persisted before target execution, never an
+// environment scan that unrelated protected processes could make ambiguous.
 const EnvResourceID = "STELLA_SANDBOX_RESOURCE_ID"
 
 // NewSessionID returns a cryptographically random session identifier.

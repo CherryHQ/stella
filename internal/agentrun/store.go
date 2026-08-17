@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
 var (
@@ -376,6 +377,12 @@ func (s *Store) reapSandboxes(ctx context.Context) error {
 			continue
 		}
 		cleanupCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		cleanupCtx, err = s.withSandboxProcessIdentities(cleanupCtx, row.SessionID, row.Generation)
+		if err != nil {
+			cancel()
+			cleanupErr = errors.Join(cleanupErr, err)
+			continue
+		}
 		err := s.sandboxCleaner(cleanupCtx, row.ResourceBackend, row.ResourceID)
 		cancel()
 		if err != nil {
@@ -399,6 +406,20 @@ func (s *Store) reapSandboxes(ctx context.Context) error {
 		}
 	}
 	return cleanupErr
+}
+
+func (s *Store) withSandboxProcessIdentities(ctx context.Context, sessionID string, generation int64) (context.Context, error) {
+	rows, err := s.q.ListSessionSandboxProcess(ctx, sqlc.ListSessionSandboxProcessParams{
+		SessionID: sessionID, Generation: generation,
+	})
+	if err != nil {
+		return ctx, err
+	}
+	identities := make([]pkgsandbox.ProcessIdentity, 0, len(rows))
+	for _, row := range rows {
+		identities = append(identities, pkgsandbox.ProcessIdentity{PID: int(row.Pid), StartTime: uint64(row.StartTime)})
+	}
+	return pkgsandbox.WithProcessIdentities(ctx, identities), nil
 }
 
 func (s *Store) RunReaper(ctx context.Context) {

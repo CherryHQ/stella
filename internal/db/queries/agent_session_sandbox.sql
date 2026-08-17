@@ -82,3 +82,22 @@ WHERE sandbox.state = 'fenced'
         AND boot.heartbeat_at > now() - make_interval(secs => sqlc.arg(stale_seconds)::integer)
   )
 ORDER BY sandbox.updated_at, sandbox.session_id;
+
+-- name: CreateSessionSandboxProcess :execrows
+INSERT INTO agent_session_sandbox_process (session_id, generation, pid, start_time)
+SELECT sqlc.arg(session_id), sqlc.arg(generation), sqlc.arg(pid), sqlc.arg(start_time)
+WHERE EXISTS (
+    SELECT 1 FROM agent_session_sandbox
+    WHERE session_id = sqlc.arg(session_id)
+      AND generation = sqlc.arg(generation)
+      AND executor_boot_id = sqlc.arg(executor_boot_id)
+      AND run_id = sqlc.arg(run_id)
+      AND state = 'active'
+)
+ON CONFLICT DO NOTHING;
+
+-- name: ListSessionSandboxProcess :many
+SELECT process.* FROM agent_session_sandbox_process AS process
+WHERE process.session_id = sqlc.arg(session_id)
+  AND process.generation = sqlc.arg(generation)
+ORDER BY process.created_at, process.pid;

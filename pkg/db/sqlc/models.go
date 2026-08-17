@@ -182,6 +182,15 @@ type AgentSessionSandbox struct {
 	UpdatedAt       time.Time          `json:"updated_at"`
 }
 
+type AgentSessionSandboxProcess struct {
+	SessionID  string    `json:"session_id"`
+	Generation int64     `json:"generation"`
+	Pid        int64     `json:"pid"`
+	StartTime  int64     `json:"start_time"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 type AgentWorkflow struct {
 	ID                 string          `json:"id"`
 	OwnerKind          string          `json:"owner_kind"`

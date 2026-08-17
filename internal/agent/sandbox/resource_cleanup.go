@@ -9,8 +9,8 @@ import (
 )
 
 // CleanupDurableResource reconstructs provider cleanup from the identity
-// persisted before sandbox creation. Host processes carry that identity in a
-// forced environment marker; Docker uses it in the deterministic container
+// persisted before sandbox creation. Host targets are launch-gated until their
+// PID/start-time identity is durable; Docker uses the deterministic resource
 // name. Both cleanup paths treat verified absence as success.
 func CleanupDurableResource(ctx context.Context, backend, resourceID string) error {
 	if resourceID == "" {

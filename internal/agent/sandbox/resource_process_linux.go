@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -18,169 +17,185 @@ import (
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
 
-// cleanupHostProcessResource finds every process carrying the unforgeable-for-
-// callers backend marker and kills its whole process group. Re-scanning proves
-// absence and covers descendants that race with the first scan.
-func cleanupHostProcessResource(ctx context.Context, resourceID string) error {
-	marker := []byte(pkgsandbox.EnvResourceID + "=" + resourceID)
-	processGroups := make(map[int]struct{})
+// cleanupHostProcessResource only follows durably registered kernel process
+// identities. Environment markers are deliberately not used for discovery.
+func cleanupHostProcessResource(ctx context.Context, _ string) error {
+	for _, identity := range pkgsandbox.ProcessIdentities(ctx) {
+		if err := killRegisteredTree(ctx, identity); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func killRegisteredTree(ctx context.Context, identity pkgsandbox.ProcessIdentity) error {
+	current, err := pkgsandbox.LinuxProcessIdentity(identity.PID)
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, unix.ESRCH) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect registered sandbox process %d: %w", identity.PID, err)
+	}
+	if current.StartTime != identity.StartTime {
+		// The registered process is already absent; this PID belongs to somebody
+		// else and must never be signalled.
+		return nil
+	}
+	// Stop the registered root before taking the final descendant snapshot.
+	// Descendants are followed by PPID, not process group, so a target cannot
+	// evade recovery with setsid(2). Repeating after each stop closes the fork
+	// race: once every discovered process is stopped, the tree cannot grow.
+	identities := map[int]pkgsandbox.ProcessIdentity{identity.PID: identity}
+	pidfds := make(map[int]int)
+	defer func() {
+		for _, pidfd := range pidfds {
+			_ = unix.Close(pidfd)
+		}
+	}()
 	for {
-		marked, err := markedProcessIDs(marker)
+		tree, err := descendantProcessIdentities(identity.PID)
 		if err != nil {
 			return err
 		}
-		for _, pid := range marked {
-			if group, groupErr := processGroupID(pid); groupErr == nil && group > 0 {
-				processGroups[group] = struct{}{}
+		added := false
+		for pid, candidate := range tree {
+			if _, exists := identities[pid]; exists {
+				continue
+			}
+			identities[pid] = candidate
+			added = true
+		}
+		openedAny := false
+		for pid, candidate := range identities {
+			if _, opened := pidfds[pid]; opened {
+				continue
+			}
+			pidfd, err := openExactProcess(candidate)
+			if errors.Is(err, os.ErrNotExist) || errors.Is(err, unix.ESRCH) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			pidfds[pid] = pidfd
+			openedAny = true
+			if err := unix.PidfdSendSignal(pidfd, unix.SIGSTOP, nil, 0); err != nil && !errors.Is(err, unix.ESRCH) {
+				return fmt.Errorf("stop registered sandbox process %d: %w", pid, err)
 			}
 		}
-		pids, err := processIDsInGroups(processGroups)
-		if err != nil {
-			return err
+		if !added && !openedAny {
+			break
 		}
-		if len(marked) == 0 && len(pids) == 0 {
+	}
+	for pid, pidfd := range pidfds {
+		if err := unix.PidfdSendSignal(pidfd, unix.SIGKILL, nil, 0); err != nil && !errors.Is(err, unix.ESRCH) {
+			return fmt.Errorf("kill registered sandbox process %d: %w", pid, err)
+		}
+	}
+	for {
+		alive := 0
+		for _, pidfd := range pidfds {
+			poll := []unix.PollFd{{Fd: int32(pidfd), Events: unix.POLLIN}}
+			if n, pollErr := unix.Poll(poll, 0); pollErr != nil {
+				return fmt.Errorf("poll registered sandbox process: %w", pollErr)
+			} else if n > 0 {
+				continue
+			}
+			alive++
+		}
+		if alive == 0 {
 			return nil
 		}
-		for _, pid := range pids {
-			// A pidfd binds cleanup to this exact process identity, so PID or
-			// process-group reuse cannot redirect SIGKILL to an unrelated process.
-			pidfd, err := unix.PidfdOpen(pid, 0)
-			if err != nil {
-				if errors.Is(err, unix.ESRCH) {
-					continue
-				}
-				return fmt.Errorf("open sandbox process identity for pid %d: %w", pid, err)
-			}
-			err = unix.PidfdSendSignal(pidfd, unix.SIGKILL, nil, 0)
-			_ = unix.Close(pidfd)
-			if err != nil && !errors.Is(err, unix.ESRCH) {
-				return fmt.Errorf("kill sandbox process %d: %w", pid, err)
-			}
-		}
-		timer := time.NewTimer(20 * time.Millisecond)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
-			return fmt.Errorf("prove sandbox process resource %q absent: %w", resourceID, ctx.Err())
-		case <-timer.C:
+			return fmt.Errorf("prove registered sandbox process absent: %w", ctx.Err())
+		case <-time.After(20 * time.Millisecond):
 		}
 	}
 }
 
-func processIDsInGroups(groups map[int]struct{}) ([]int, error) {
-	if len(groups) == 0 {
-		return nil, nil
+func openExactProcess(identity pkgsandbox.ProcessIdentity) (int, error) {
+	pidfd, err := unix.PidfdOpen(identity.PID, 0)
+	if err != nil {
+		return -1, err
 	}
+	current, err := pkgsandbox.LinuxProcessIdentity(identity.PID)
+	if err != nil || current.StartTime != identity.StartTime {
+		_ = unix.Close(pidfd)
+		if err != nil {
+			return -1, err
+		}
+		return -1, os.ErrNotExist
+	}
+	return pidfd, nil
+}
+
+func descendantProcessIdentities(root int) (map[int]pkgsandbox.ProcessIdentity, error) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return nil, err
 	}
-	var pids []int
+	type process struct {
+		identity pkgsandbox.ProcessIdentity
+		parent   int
+		state    byte
+	}
+	processes := make(map[int]process)
 	for _, entry := range entries {
 		pid, err := strconv.Atoi(entry.Name())
 		if err != nil {
 			continue
 		}
-		group, err := processGroupID(pid)
+		identity, parent, state, err := processIdentityAndParent(pid)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
 		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
 			return nil, err
 		}
-		if _, ok := groups[group]; ok {
-			if state, stateErr := processState(pid); stateErr == nil && state == 'Z' {
-				continue
-			}
-			pids = append(pids, pid)
+		if state != 'Z' {
+			processes[pid] = process{identity: identity, parent: parent, state: state}
 		}
 	}
-	return pids, nil
+	result := make(map[int]pkgsandbox.ProcessIdentity)
+	result[root] = processes[root].identity
+	changed := true
+	for changed {
+		changed = false
+		for pid, process := range processes {
+			if _, known := result[pid]; known {
+				continue
+			}
+			if _, parentKnown := result[process.parent]; parentKnown {
+				result[pid] = process.identity
+				changed = true
+			}
+		}
+	}
+	delete(result, root)
+	return result, nil
 }
 
-func processGroupID(pid int) (int, error) {
+func processIdentityAndParent(pid int) (pkgsandbox.ProcessIdentity, int, byte, error) {
 	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
 	if err != nil {
-		return 0, err
+		return pkgsandbox.ProcessIdentity{}, 0, 0, err
 	}
 	end := bytes.LastIndexByte(data, ')')
 	if end < 0 {
-		return 0, fmt.Errorf("invalid /proc/%d/stat", pid)
+		return pkgsandbox.ProcessIdentity{}, 0, 0, fmt.Errorf("invalid /proc/%d/stat", pid)
 	}
 	fields := bytes.Fields(data[end+1:])
-	if len(fields) < 3 {
-		return 0, fmt.Errorf("invalid /proc/%d/stat fields", pid)
+	if len(fields) < 20 || len(fields[0]) != 1 {
+		return pkgsandbox.ProcessIdentity{}, 0, 0, fmt.Errorf("invalid /proc/%d/stat fields", pid)
 	}
-	group, err := strconv.Atoi(string(fields[2]))
+	parent, err := strconv.Atoi(string(fields[1]))
 	if err != nil {
-		return 0, fmt.Errorf("parse /proc/%d process group: %w", pid, err)
+		return pkgsandbox.ProcessIdentity{}, 0, 0, err
 	}
-	return group, nil
-}
-
-func markedProcessIDs(marker []byte) ([]int, error) {
-	entries, err := os.ReadDir("/proc")
+	start, err := strconv.ParseUint(string(fields[19]), 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("scan sandbox processes: %w", err)
+		return pkgsandbox.ProcessIdentity{}, 0, 0, err
 	}
-	var pids []int
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		pid, err := strconv.Atoi(entry.Name())
-		if err != nil {
-			continue
-		}
-		environ, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "environ"))
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
-			if state, stateErr := processState(pid); stateErr == nil && state == 'Z' {
-				// A zombie cannot execute or retain descendants. Its owner will reap
-				// the bookkeeping entry; it is not a live sandbox resource.
-				continue
-			}
-			if errors.Is(err, os.ErrPermission) {
-				// Processes owned by another OS user cannot carry a marker inherited
-				// from this executor. A same-UID process can; inability to inspect it
-				// therefore makes absence unprovable and must fail closed.
-				info, infoErr := entry.Info()
-				if infoErr != nil {
-					if errors.Is(infoErr, os.ErrNotExist) {
-						continue
-					}
-					return nil, fmt.Errorf("inspect sandbox process %d owner: %w", pid, infoErr)
-				}
-				stat, ok := info.Sys().(*syscall.Stat_t)
-				if !ok || stat.Uid == uint32(os.Geteuid()) {
-					return nil, fmt.Errorf("cannot prove sandbox process %d marker absence: %w", pid, err)
-				}
-				continue
-			}
-			return nil, fmt.Errorf("read sandbox process %d environment: %w", pid, err)
-		}
-		for value := range bytes.SplitSeq(environ, []byte{0}) {
-			if bytes.Equal(value, marker) {
-				pids = append(pids, pid)
-				break
-			}
-		}
-	}
-	return pids, nil
-}
-
-func processState(pid int) (byte, error) {
-	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
-	if err != nil {
-		return 0, err
-	}
-	// comm is parenthesized and may contain spaces or ')', so locate its final
-	// delimiter. The state byte follows it as " ) X ".
-	end := bytes.LastIndexByte(data, ')')
-	if end < 0 || end+2 >= len(data) {
-		return 0, fmt.Errorf("invalid /proc/%d/stat", pid)
-	}
-	return data[end+2], nil
+	return pkgsandbox.ProcessIdentity{PID: pid, StartTime: start}, parent, fields[0][0], nil
 }
