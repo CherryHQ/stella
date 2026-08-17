@@ -51,7 +51,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/menu";
 import { FileViewer } from "./FileViewer";
-import { isNonTextFile, fetchBlobUrl, mimeTypeForPath } from "./fileUtils";
+import { isNonTextFile, fetchBlobUrl, mimeTypeForPath } from "@/lib/file-kind";
 import { useI18n } from "@/lib/i18n";
 
 function buildTheme(): TreeThemeInput {

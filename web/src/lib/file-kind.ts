@@ -26,6 +26,14 @@ const BINARY_EXTS = new Set([
   "dat",
   "db",
   "sqlite",
+  // Office containers are zip archives. Without them here a .docx would be
+  // fetched as text and rendered as mojibake.
+  "doc",
+  "docx",
+  "xls",
+  "xlsx",
+  "ppt",
+  "pptx",
 ]);
 
 export function extOf(path: string): string {
