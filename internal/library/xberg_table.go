@@ -99,22 +99,18 @@ func findRenderedTable(content string, searchFrom, expectedRows int) (int, int, 
 		if strings.HasPrefix(text, "|") && strings.HasSuffix(text, "|") {
 			groupStart := offset
 			groupEnd := lineEnd
-			lines := make([]tableLine, 0, expectedRows+1)
-			rows := 0
+			lines := make([]tableLine, 0, expectedRows+2)
 			for {
 				lineText := strings.TrimSpace(content[offset:lineEnd])
 				if !strings.HasPrefix(lineText, "|") || !strings.HasSuffix(lineText, "|") {
 					break
 				}
-				separator := isMarkdownTableSeparator(lineText)
-				if !separator {
-					rows++
-				}
 				lines = append(lines, tableLine{
-					text: lineText, byteStart: offset - groupStart, byteEnd: lineEnd - groupStart, separator: separator,
+					text: lineText, byteStart: offset - groupStart, byteEnd: lineEnd - groupStart,
 				})
 				groupEnd = lineEnd
 				if lineEnd == len(content) {
+					offset = len(content)
 					break
 				}
 				offset = lineEnd + 1
@@ -125,8 +121,8 @@ func findRenderedTable(content string, searchFrom, expectedRows int) (int, int, 
 					lineEnd += offset
 				}
 			}
-			if rows == expectedRows {
-				return groupStart, groupEnd, lines, true
+			if normalized, ok := normalizeRenderedTableLines(lines, expectedRows); ok {
+				return groupStart, groupEnd, normalized, true
 			}
 			continue
 		}
@@ -136,6 +132,39 @@ func findRenderedTable(content string, searchFrom, expectedRows int) (int, int, 
 		offset = lineEnd + 1
 	}
 	return 0, 0, nil, false
+}
+
+// normalizeRenderedTableLines identifies the Markdown separator by its fixed
+// structural position, never by scanning arbitrary row contents. Xberg 1.0.14
+// renders either one separator after the first structured row, or an extra
+// empty synthetic header plus separator when it cannot infer a header. The
+// latter two lines are not present in table.cells and must not count as data.
+func normalizeRenderedTableLines(lines []tableLine, expectedRows int) ([]tableLine, bool) {
+	if len(lines) < 2 || !isMarkdownTableSeparator(lines[1].text) {
+		return nil, false
+	}
+	lines[1].separator = true
+	switch {
+	case len(lines) == expectedRows+1:
+		return lines, true
+	case len(lines) == expectedRows+2 && isEmptyMarkdownTableRow(lines[0].text):
+		return lines[1:], true
+	default:
+		return nil, false
+	}
+}
+
+func isEmptyMarkdownTableRow(line string) bool {
+	cells := strings.Split(strings.Trim(line, "|"), "|")
+	if len(cells) == 0 {
+		return false
+	}
+	for _, cell := range cells {
+		if strings.TrimSpace(cell) != "" {
+			return false
+		}
+	}
+	return true
 }
 
 func isMarkdownTableSeparator(line string) bool {

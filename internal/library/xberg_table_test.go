@@ -67,6 +67,52 @@ func TestStructuredTableChunksUseSheetPathWithoutInventingHeader(t *testing.T) {
 	}
 }
 
+func TestStructuredTableChunksDropSyntheticEmptyHeader(t *testing.T) {
+	t.Parallel()
+	markdown := "|  |  |\n| --- | --- |\n| a | b |\n"
+	result := xbergResult{
+		Content: markdown,
+		Tables: []xbergTable{{
+			Cells: [][]string{{"a", "b"}}, Markdown: markdown, PageNumber: 1,
+		}},
+	}
+	chunks, err := structuredTableChunks(result, MediaTypeCSV)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 1 || chunks[0].Content != "| a | b |" {
+		t.Fatalf("chunks = %+v", chunks)
+	}
+	if chunks[0].Locator.RowStart == nil || chunks[0].Locator.RowEnd == nil ||
+		*chunks[0].Locator.RowStart != 1 || *chunks[0].Locator.RowEnd != 1 {
+		t.Fatalf("locator = %+v", chunks[0].Locator)
+	}
+}
+
+func TestStructuredTableChunksKeepDashOnlyDataRow(t *testing.T) {
+	t.Parallel()
+	markdown := "| a | b |\n| --- | --- |\n| --- | --- |\n| x | y |\n"
+	result := xbergResult{
+		Content: markdown,
+		Tables: []xbergTable{{
+			Cells:   [][]string{{"a", "b"}, {"---", "---"}, {"x", "y"}},
+			Columns: []string{"a", "b"}, Markdown: markdown, PageNumber: 1,
+		}},
+	}
+	chunks, err := structuredTableChunks(result, MediaTypeCSV)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 1 || strings.Count(chunks[0].Content, "| --- | --- |") != 2 ||
+		!strings.Contains(chunks[0].Content, "| x | y |") {
+		t.Fatalf("chunks = %+v", chunks)
+	}
+	if chunks[0].Locator.RowStart == nil || chunks[0].Locator.RowEnd == nil ||
+		*chunks[0].Locator.RowStart != 1 || *chunks[0].Locator.RowEnd != 3 {
+		t.Fatalf("locator = %+v", chunks[0].Locator)
+	}
+}
+
 func TestStructuredTableChunksLocateNormalizedLegacyXLSMarkdown(t *testing.T) {
 	t.Parallel()
 	content := "## Sheet\n\n| Name | Amount |\n| --- | --- |\n| Alpha | 1 |\n"

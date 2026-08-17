@@ -18,7 +18,7 @@ func TestXbergCLIParserProfilesAndMapsChunkMetadata(t *testing.T) {
 			return []byte(`{"name":"xberg-cli","version":"1.1.0"}`), nil, nil
 		}
 		if slices.Equal(args, []string{"formats", "--format", "json"}) {
-			return xbergFormatsFixture(t), nil, nil
+			return xbergFormatsFixture(), nil, nil
 		}
 		return []byte(`{"result":{"chunks":[{"content":"Policy text","metadata":{"byte_start":4,"byte_end":15,"first_page":2,"last_page":3,"heading_context":{"headings":[{"level":1,"text":"Policy"},{"level":2,"text":"Approval"}]}}}]}}`), nil, nil
 	}
@@ -250,30 +250,25 @@ func xbergFixtureRunner(output string, extractErr error) xbergCommandRunner {
 			return []byte(`{"version":"1.1.0"}`), nil, nil
 		}
 		if slices.Equal(args, []string{"formats", "--format", "json"}) {
-			return xbergFormatsFixture(nil), nil, nil
+			return xbergFormatsFixture(), nil, nil
 		}
 		return []byte(output), nil, extractErr
 	}
 }
 
-func xbergFormatsFixture(t *testing.T) []byte {
-	formats := make([]map[string]string, 0, len(XbergMediaTypes()))
-	for _, mediaType := range XbergMediaTypes() {
-		extension, err := canonicalExtension(mediaType)
-		if err != nil {
-			if t != nil {
-				t.Fatal(err)
-			}
-			panic(err)
-		}
-		formats = append(formats, map[string]string{"extension": strings.TrimPrefix(extension, ".")})
-	}
-	data, err := json.Marshal(formats)
-	if err != nil {
-		if t != nil {
-			t.Fatal(err)
-		}
-		panic(err)
-	}
-	return data
+func xbergFormatsFixture() []byte {
+	// Keep the unit runner independent from Stella's registry. The packaged
+	// contract test separately probes the real 1.0.14 binary, while this frozen
+	// subset makes registry additions fail until their runtime admission is
+	// deliberately represented here as well.
+	return []byte(`[
+		{"extension":"pdf"},{"extension":"doc"},{"extension":"docx"},
+		{"extension":"odt"},{"extension":"rtf"},{"extension":"xls"},
+		{"extension":"xlsx"},{"extension":"ods"},{"extension":"csv"},
+		{"extension":"tsv"},{"extension":"ppt"},{"extension":"pptx"},
+		{"extension":"odp"},{"extension":"html","mime_type":"text/html"},
+		{"extension":"epub"},{"extension":"fb2"},{"extension":"mdx"},
+		{"extension":"rst"},{"extension":"org"},{"extension":"json"},
+		{"extension":"yaml"},{"extension":"toml"},{"extension":"xml"}
+	]`)
 }
