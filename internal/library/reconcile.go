@@ -42,7 +42,7 @@ func (s *Service) reconcileStaleDerivations(ctx context.Context) error {
 	availableMediaTypes := make([]string, 0, len(mediaTypes))
 	profiles := make(map[string]string, len(mediaTypes))
 	for _, mediaType := range mediaTypes {
-		processorKey, err := s.parser.Profile(mediaType)
+		processorKey, err := s.parser.Profile(ctx, mediaType)
 		if errors.Is(err, ErrServiceUnavailable) || errors.Is(err, ErrUnsupportedFileType) {
 			continue
 		}
@@ -69,13 +69,14 @@ func (s *Service) reconcileStaleDerivations(ctx context.Context) error {
 	type staleFile struct {
 		needsCurrentWork bool
 		desiredStatus    ChunkSetStatus
+		buildingSetIDs   map[string]struct{}
 	}
 	files := make(map[string]*staleFile, len(rows))
 	order := make([]string, 0, len(rows))
 	for _, row := range rows {
 		state, ok := files[row.ID]
 		if !ok {
-			state = &staleFile{}
+			state = &staleFile{buildingSetIDs: make(map[string]struct{})}
 			files[row.ID] = state
 			order = append(order, row.ID)
 		}
@@ -91,6 +92,7 @@ func (s *Service) reconcileStaleDerivations(ctx context.Context) error {
 				row.ChunkSetProcessorKey.String == processorKey
 			if currentSet {
 				state.needsCurrentWork = true
+				state.buildingSetIDs[row.ChunkSetID.String] = struct{}{}
 			} else {
 				if err := s.retireSupersededBuildingSet(ctx, row.ID, row.ChunkSetID.String); err != nil {
 					return fmt.Errorf("retire superseded library generation %s: %w", row.ChunkSetID.String, err)
@@ -103,7 +105,12 @@ func (s *Service) reconcileStaleDerivations(ctx context.Context) error {
 			row.DesiredChunkSetDerivationKey.String == currentKey &&
 			row.DesiredChunkSetProcessorKey.String == processorKey
 		if desiredCurrent {
-			state.desiredStatus = ChunkSetStatus(row.DesiredChunkSetStatus.String)
+			candidateStatus := ChunkSetStatus(row.DesiredChunkSetStatus.String)
+			// Multiple failed attempts may share one derivation. A ready winner always
+			// dominates them when deciding whether current work is already complete.
+			if state.desiredStatus != ChunkSetStatusReady || candidateStatus == ChunkSetStatusReady {
+				state.desiredStatus = candidateStatus
+			}
 		}
 		if FileStatus(row.Status) == FileStatusProcessing {
 			state.needsCurrentWork = true
@@ -118,7 +125,7 @@ func (s *Service) reconcileStaleDerivations(ctx context.Context) error {
 	}
 	for _, fileID := range order {
 		state := files[fileID]
-		if !state.needsCurrentWork || state.desiredStatus == ChunkSetStatusFailed {
+		if !state.needsCurrentWork {
 			continue
 		}
 		job, found, err := latestLibraryJob(ctx, client, chunkArgs{}.Kind(), fileID)
@@ -146,7 +153,21 @@ func (s *Service) reconcileStaleDerivations(ctx context.Context) error {
 			// The stale row no longer occupies River uniqueness, so the idempotent
 			// replacement below can take over without changing the global rescuer.
 		}
-		if found && job.State == rivertype.JobStateDiscarded && state.desiredStatus == ChunkSetStatusBuilding {
+		if len(state.buildingSetIDs) > 0 && (state.desiredStatus == ChunkSetStatusReady || state.desiredStatus == ChunkSetStatusFailed) {
+			for chunkSetID := range state.buildingSetIDs {
+				if err := s.retireAbandonedBuildingSet(ctx, fileID, chunkSetID); err != nil {
+					return fmt.Errorf("retire abandoned LibraryChunkSet %s: %w", chunkSetID, err)
+				}
+			}
+			continue
+		}
+		if state.desiredStatus == ChunkSetStatusFailed {
+			continue
+		}
+		if found && job.State == rivertype.JobStateDiscarded && len(state.buildingSetIDs) > 0 {
+			// A discarded River job is terminal only for an attempt that was
+			// durably created. If parsing never produced an attempt, or if the
+			// discarded job belongs to an older profile, enqueue current work.
 			if err := s.failStaleGeneration(ctx, fileID); err != nil {
 				return err
 			}
@@ -164,6 +185,45 @@ func (s *Service) reconcileStaleDerivations(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (s *Service) retireAbandonedBuildingSet(ctx context.Context, fileID, chunkSetID string) error {
+	tx, queries, err := s.beginBoundedTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin abandoned LibraryChunkSet retirement: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	file, err := queries.LockLibraryFileLifecycle(ctx, fileID)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && file.DeletedAt.Valid {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("lock library file for abandoned attempt: %w", err)
+	}
+	set, err := queries.LockLibraryChunkSetLifecycle(ctx, chunkSetID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("lock abandoned LibraryChunkSet: %w", err)
+	}
+	if set.FileID != file.ID {
+		return fmt.Errorf("abandoned LibraryChunkSet %s belongs to another file", set.ID)
+	}
+	if ChunkSetStatus(set.Status) != ChunkSetStatusBuilding {
+		return nil
+	}
+	if _, err := queries.DeleteBuildingLibraryChunks(ctx, set.ID); err != nil {
+		return fmt.Errorf("delete abandoned library chunks: %w", err)
+	}
+	if affected, err := queries.MarkLibraryChunkSetFailed(ctx, sqlc.MarkLibraryChunkSetFailedParams{
+		ErrorMessage: nullableText("Superseded by a terminal equivalent attempt."), ID: set.ID,
+	}); err != nil {
+		return fmt.Errorf("mark abandoned LibraryChunkSet failed: %w", err)
+	} else if affected != 1 {
+		return ErrGenerationChanged
+	}
+	return commitLibraryTransaction(ctx, tx)
 }
 
 func (s *Service) retireSupersededBuildingSet(ctx context.Context, fileID, chunkSetID string) error {
@@ -189,7 +249,7 @@ func (s *Service) retireSupersededBuildingSet(ctx context.Context, fileID, chunk
 	if set.FileID != file.ID {
 		return fmt.Errorf("superseded LibraryChunkSet %s belongs to another file", set.ID)
 	}
-	processorKey, err := s.parser.Profile(file.MediaType)
+	processorKey, err := s.parser.Profile(ctx, file.MediaType)
 	if err != nil {
 		return fmt.Errorf("profile current library parser: %w", err)
 	}
@@ -231,7 +291,7 @@ func (s *Service) failStaleGeneration(ctx context.Context, fileID string) error 
 	if err != nil {
 		return fmt.Errorf("lock stale library file: %w", err)
 	}
-	processorKey, err := s.parser.Profile(file.MediaType)
+	processorKey, err := s.parser.Profile(ctx, file.MediaType)
 	if err != nil {
 		return fmt.Errorf("profile current library parser: %w", err)
 	}
@@ -239,10 +299,13 @@ func (s *Service) failStaleGeneration(ctx context.Context, fileID string) error 
 	if err != nil {
 		return err
 	}
-	set, err := queries.GetLibraryChunkSetByDerivation(ctx, sqlc.GetLibraryChunkSetByDerivationParams{
+	sets, err := queries.ListBuildingLibraryChunkSetsByDerivation(ctx, sqlc.ListBuildingLibraryChunkSetsByDerivationParams{
 		FileID: file.ID, DerivationKey: derivationKey,
 	})
-	if err == nil {
+	if err != nil {
+		return fmt.Errorf("load stale LibraryChunkSet attempts: %w", err)
+	}
+	for _, set := range sets {
 		locked, lockErr := queries.LockLibraryChunkSetLifecycle(ctx, set.ID)
 		if lockErr != nil {
 			return fmt.Errorf("lock stale LibraryChunkSet: %w", lockErr)
@@ -255,8 +318,6 @@ func (s *Service) failStaleGeneration(ctx context.Context, fileID string) error 
 				return fmt.Errorf("mark stale LibraryChunkSet failed: %w", err)
 			}
 		}
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("load stale LibraryChunkSet: %w", err)
 	}
 	if _, err := queries.MarkLibraryFileFailedWithoutActiveSet(ctx, sqlc.MarkLibraryFileFailedWithoutActiveSetParams{
 		ErrorMessage: nullableText("Document parsing failed after multiple attempts."),

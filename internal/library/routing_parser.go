@@ -36,18 +36,18 @@ func (p *RoutingParser) parser(mediaType string) (Parser, error) {
 	return parser, nil
 }
 
-func (p *RoutingParser) Profile(mediaType string) (string, error) {
+func (p *RoutingParser) Profile(ctx context.Context, mediaType string) (string, error) {
 	parser, err := p.parser(mediaType)
 	if err != nil {
 		return "", err
 	}
-	return parser.Profile(mediaType)
+	return parser.Profile(ctx, mediaType)
 }
 
-func (p *RoutingParser) Parse(ctx context.Context, path, mediaType string) ([]ParsedChunk, error) {
+func (p *RoutingParser) Parse(ctx context.Context, path, mediaType, expectedProfile string) ([]ParsedChunk, error) {
 	parser, err := p.parser(mediaType)
 	if err != nil {
 		return nil, err
 	}
-	return parser.Parse(ctx, path, mediaType)
+	return parser.Parse(ctx, path, mediaType, expectedProfile)
 }

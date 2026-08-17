@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
@@ -57,9 +58,9 @@ func TestChunkWorkerStagesAndAtomicallyPublishesGeneration(t *testing.T) {
 		return current.Status == FileStatusReady && current.ActiveChunkSetID != ""
 	})
 
-	set, err := sqlc.New(database).GetLibraryChunkSetByDerivation(
+	set, err := sqlc.New(database).GetReadyLibraryChunkSetByDerivation(
 		t.Context(),
-		sqlc.GetLibraryChunkSetByDerivationParams{
+		sqlc.GetReadyLibraryChunkSetByDerivationParams{
 			FileID:        file.ID,
 			DerivationKey: mustLibraryDerivationKey(t, file.RawSHA256, file.MediaType),
 		},
@@ -188,7 +189,7 @@ func TestTransientPublicationIntegrityMismatchRetriesFromCleanGeneration(t *test
 	}
 }
 
-func TestChunkRetryDiscardsUnpublishedRowsBeforeRebuild(t *testing.T) {
+func TestChunkRetryUsesAnIndependentAttemptSet(t *testing.T) {
 	database := dbtest.New(t)
 	store, service := newLibraryService(t, database)
 	file, err := service.CreateManagedUpload(
@@ -208,6 +209,10 @@ func TestChunkRetryDiscardsUnpublishedRowsBeforeRebuild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	target, action, err = service.createChunkAttempt(t.Context(), target)
+	if err != nil || action != generationBuild {
+		t.Fatalf("create first attempt = action %d, error %v", action, err)
+	}
 	if err := service.stageChunkBatch(t.Context(), target, chunks[:1]); err != nil {
 		t.Fatal(err)
 	}
@@ -219,17 +224,21 @@ func TestChunkRetryDiscardsUnpublishedRowsBeforeRebuild(t *testing.T) {
 	if err != nil || restartedAction != generationBuild {
 		t.Fatalf("restart prepare = target %+v action %d error %v", restartedTarget, restartedAction, err)
 	}
-	if restartedTarget.ChunkSetID != target.ChunkSetID || restartedTarget.DerivationKey != target.DerivationKey {
-		t.Fatalf("restart changed deterministic generation: before=%+v after=%+v", target, restartedTarget)
+	restartedTarget, restartedAction, err = restarted.createChunkAttempt(t.Context(), restartedTarget)
+	if err != nil || restartedAction != generationBuild {
+		t.Fatalf("create restarted attempt = action %d, error %v", restartedAction, err)
 	}
-	var resetCount int
+	if restartedTarget.ChunkSetID == target.ChunkSetID || restartedTarget.DerivationKey != target.DerivationKey {
+		t.Fatalf("retry did not isolate the attempt: before=%+v after=%+v", target, restartedTarget)
+	}
+	var originalCount int
 	if err := database.QueryRow(
 		t.Context(), `SELECT count(*) FROM library_chunk WHERE chunk_set_id = $1`, target.ChunkSetID,
-	).Scan(&resetCount); err != nil {
+	).Scan(&originalCount); err != nil {
 		t.Fatal(err)
 	}
-	if resetCount != 0 {
-		t.Fatalf("restart retained %d unpublished chunks, want 0", resetCount)
+	if originalCount != 1 {
+		t.Fatalf("retry modified the first attempt; chunks = %d", originalCount)
 	}
 	if err := restarted.stageChunkBatch(t.Context(), restartedTarget, chunks); err != nil {
 		t.Fatalf("clean rebuild failed: %v", err)
@@ -242,7 +251,7 @@ func TestChunkRetryDiscardsUnpublishedRowsBeforeRebuild(t *testing.T) {
 			active_chunk_set_id
 		FROM library_file
 		WHERE id = $2
-	`, target.ChunkSetID, file.ID).Scan(&count, &activeSetID); err != nil {
+	`, restartedTarget.ChunkSetID, file.ID).Scan(&count, &activeSetID); err != nil {
 		t.Fatal(err)
 	}
 	if count != len(chunks) || activeSetID != nil {
@@ -251,6 +260,92 @@ func TestChunkRetryDiscardsUnpublishedRowsBeforeRebuild(t *testing.T) {
 
 	// Both insert-only River clients are deliberately not started. No background
 	// worker can race this test's direct staging assertions.
+}
+
+func TestReconciliationRetiresAbandonedEquivalentAttempt(t *testing.T) {
+	database := dbtest.New(t)
+	_, service := newLibraryService(t, database)
+	file, err := service.CreateManagedUpload(
+		t.Context(), testAuthority(t, testUserA, true), ScopeSystem, "", "attempts.txt", stringsReader("source"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, action, err := service.prepareChunkGeneration(t.Context(), file.ID)
+	if err != nil || action != generationBuild {
+		t.Fatalf("prepare generation = action %d error %v", action, err)
+	}
+	parsed, digest, err := normalizeParsedChunks([]ParsedChunk{{Content: "published content"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, action, err := service.createChunkAttempt(t.Context(), target)
+	if err != nil || action != generationBuild {
+		t.Fatalf("create abandoned attempt = action %d error %v", action, err)
+	}
+	if err := service.stageChunkBatch(t.Context(), first, parsed); err != nil {
+		t.Fatal(err)
+	}
+	second, action, err := service.createChunkAttempt(t.Context(), target)
+	if err != nil || action != generationBuild {
+		t.Fatalf("create winning attempt = action %d error %v", action, err)
+	}
+	if err := service.stageChunkBatch(t.Context(), second, parsed); err != nil {
+		t.Fatal(err)
+	}
+	queries := sqlc.New(database)
+	if affected, err := queries.MarkLibraryChunkSetReady(t.Context(), sqlc.MarkLibraryChunkSetReadyParams{
+		ChunkCount:    pgtype.Int8{Int64: int64(len(parsed)), Valid: true},
+		ContentDigest: digest,
+		ID:            second.ChunkSetID,
+	}); err != nil || affected != 1 {
+		t.Fatalf("mark winning attempt ready = affected %d error %v", affected, err)
+	}
+	if affected, err := queries.PublishLibraryFileChunkSet(t.Context(), sqlc.PublishLibraryFileChunkSetParams{
+		ChunkSetID: pgtype.Text{String: second.ChunkSetID, Valid: true}, ID: file.ID,
+	}); err != nil || affected != 1 {
+		t.Fatalf("publish winning attempt = affected %d error %v", affected, err)
+	}
+	client := service.riverClient()
+	job, found, err := latestLibraryJob(t.Context(), client, chunkArgs{}.Kind(), file.ID)
+	if err != nil || !found {
+		t.Fatalf("load queued derivation job = found %t error %v", found, err)
+	}
+	if _, err := database.Exec(t.Context(), `
+		UPDATE river_job SET state = 'completed', finalized_at = now() WHERE id = $1
+	`, job.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(t.Context(), `
+		UPDATE library_file SET updated_at = now() - interval '1 hour' WHERE id = $1
+	`, file.ID); err != nil {
+		t.Fatal(err)
+	}
+	service.staleDerivationAfter = time.Minute
+	if err := service.reconcileStaleDerivations(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var abandonedStatus, winnerStatus, activeSetID string
+	var abandonedChunks int
+	if err := database.QueryRow(t.Context(), `
+		SELECT
+			(SELECT status FROM library_chunk_set WHERE id = $1),
+			(SELECT count(*) FROM library_chunk WHERE chunk_set_id = $1),
+			(SELECT status FROM library_chunk_set WHERE id = $2),
+			active_chunk_set_id
+		FROM library_file WHERE id = $3
+	`, first.ChunkSetID, second.ChunkSetID, file.ID).Scan(
+		&abandonedStatus, &abandonedChunks, &winnerStatus, &activeSetID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if abandonedStatus != string(ChunkSetStatusFailed) || abandonedChunks != 0 ||
+		winnerStatus != string(ChunkSetStatusReady) || activeSetID != second.ChunkSetID {
+		t.Fatalf(
+			"reconciled attempts: abandoned=%q chunks=%d winner=%q active=%q",
+			abandonedStatus, abandonedChunks, winnerStatus, activeSetID,
+		)
+	}
 }
 
 func TestDeterministicParseFailurePublishesNothing(t *testing.T) {
@@ -278,33 +373,18 @@ func TestDeterministicParseFailurePublishesNothing(t *testing.T) {
 	if failed.ActiveChunkSetID != "" || failed.ErrorMessage == "" {
 		t.Fatalf("failed file exposed a generation: %+v", failed)
 	}
-	set, err := sqlc.New(database).GetLibraryChunkSetByDerivation(
-		t.Context(),
-		sqlc.GetLibraryChunkSetByDerivationParams{
-			FileID: file.ID, DerivationKey: mustLibraryDerivationKey(t, file.RawSHA256, file.MediaType),
-		},
-	)
-	if err != nil {
+	var sets, chunks int
+	var status string
+	if err := database.QueryRow(t.Context(), `
+		SELECT
+			(SELECT count(*) FROM library_chunk_set WHERE file_id = $1),
+			(SELECT count(*) FROM library_chunk AS chunk JOIN library_chunk_set AS chunk_set ON chunk_set.id = chunk.chunk_set_id WHERE chunk_set.file_id = $1),
+			(SELECT status FROM library_chunk_set WHERE file_id = $1 LIMIT 1)
+	`, file.ID).Scan(&sets, &chunks, &status); err != nil {
 		t.Fatal(err)
 	}
-	if ChunkSetStatus(set.Status) != ChunkSetStatusFailed {
-		t.Fatalf("failed parser left ChunkSet status %q", set.Status)
-	}
-	if !set.UpdatedAt.After(set.CreatedAt) {
-		t.Fatalf(
-			"failed ChunkSet updated_at = %s, want after created_at %s",
-			set.UpdatedAt,
-			set.CreatedAt,
-		)
-	}
-	var chunks int
-	if err := database.QueryRow(
-		t.Context(), `SELECT count(*) FROM library_chunk WHERE chunk_set_id = $1`, set.ID,
-	).Scan(&chunks); err != nil {
-		t.Fatal(err)
-	}
-	if chunks != 0 {
-		t.Fatalf("failed generation retained %d published candidates", chunks)
+	if sets != 1 || chunks != 0 || status != string(ChunkSetStatusFailed) {
+		t.Fatalf("failed parse attempts=%d chunks=%d status=%q", sets, chunks, status)
 	}
 	assertLatestLibraryJobState(t, client, chunkArgs{}.Kind(), file.ID, rivertype.JobStateCompleted)
 }
@@ -444,9 +524,9 @@ func TestInactiveReadyChunkSetDoesNotChangePublishedGeneration(t *testing.T) {
 
 type parserFunc func(context.Context, string, string) ([]ParsedChunk, error)
 
-func (parserFunc) Profile(string) (string, error) { return testParserProfile, nil }
+func (parserFunc) Profile(context.Context, string) (string, error) { return testParserProfile, nil }
 
-func (f parserFunc) Parse(ctx context.Context, path, mediaType string) ([]ParsedChunk, error) {
+func (f parserFunc) Parse(ctx context.Context, path, mediaType, _ string) ([]ParsedChunk, error) {
 	return f(ctx, path, mediaType)
 }
 

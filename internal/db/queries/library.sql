@@ -117,10 +117,9 @@ INSERT INTO library_chunk_set (
     sqlc.arg('derivation_key'),
     sqlc.arg('processor_key'),
     sqlc.arg('raw_sha256')
-)
-ON CONFLICT (file_id, derivation_key) DO NOTHING;
+);
 
--- name: GetLibraryChunkSetByDerivation :one
+-- name: GetReadyLibraryChunkSetByDerivation :one
 SELECT
     id,
     file_id,
@@ -136,7 +135,30 @@ SELECT
     completed_at
 FROM library_chunk_set
 WHERE file_id = sqlc.arg('file_id')
-  AND derivation_key = sqlc.arg('derivation_key');
+  AND derivation_key = sqlc.arg('derivation_key')
+  AND status = 'ready'
+ORDER BY completed_at DESC, id DESC
+LIMIT 1;
+
+-- name: ListBuildingLibraryChunkSetsByDerivation :many
+SELECT
+    id,
+    file_id,
+    derivation_key,
+    processor_key,
+    raw_sha256,
+    status,
+    chunk_count,
+    content_digest,
+    error_message,
+    created_at,
+    updated_at,
+    completed_at
+FROM library_chunk_set
+WHERE file_id = sqlc.arg('file_id')
+  AND derivation_key = sqlc.arg('derivation_key')
+  AND status = 'building'
+ORDER BY created_at ASC, id ASC;
 
 -- name: LockLibraryChunkSetLifecycle :one
 SELECT
@@ -291,6 +313,7 @@ LEFT JOIN library_chunk_set AS active_set
 LEFT JOIN library_chunk_set AS desired_set
   ON desired_set.file_id = f.id
  AND desired_set.processor_key = desired.processor_key
+ AND desired_set.status IN ('ready', 'failed')
 WHERE f.deleted_at IS NULL
   AND f.updated_at < sqlc.arg('stale_before')
   AND (

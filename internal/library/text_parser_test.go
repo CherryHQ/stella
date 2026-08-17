@@ -14,7 +14,7 @@ func TestTextParserChunksUnicodeRunesWithStableByteLocators(t *testing.T) {
 	content := strings.Repeat("a", 999) + "你" + "好"
 	path := writeTextParserFixture(t, content)
 
-	chunks, err := NewTextParser().Parse(t.Context(), path, MediaTypeText)
+	chunks, err := NewTextParser().Parse(t.Context(), path, MediaTypeText, TextParserProfile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestTextParserRetainsSymbolOnlyWindowsInsideSearchableDocument(t *testing.T
 	content := strings.Repeat("a", 900) + strings.Repeat("★", 2_000) + strings.Repeat("b", 900)
 	path := writeTextParserFixture(t, content)
 
-	chunks, err := NewTextParser().Parse(t.Context(), path, MediaTypeText)
+	chunks, err := NewTextParser().Parse(t.Context(), path, MediaTypeText, TextParserProfile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,14 +68,14 @@ func TestTextParserRetainsSymbolOnlyWindowsInsideSearchableDocument(t *testing.T
 func TestTextParserTreatsMarkdownAsPlainText(t *testing.T) {
 	t.Parallel()
 	path := writeTextParserFixture(t, "# Travel\n\nApproval is required.")
-	chunks, err := NewTextParser().Parse(t.Context(), path, MediaTypeMarkdown)
+	chunks, err := NewTextParser().Parse(t.Context(), path, MediaTypeMarkdown, TextParserProfile)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(chunks) != 1 || chunks[0].Content != "# Travel\n\nApproval is required." {
 		t.Fatalf("Markdown chunks = %+v", chunks)
 	}
-	if _, err := NewTextParser().Parse(t.Context(), path, "application/pdf"); !errors.Is(err, ErrUnsupportedFileType) {
+	if _, err := NewTextParser().Parse(t.Context(), path, "application/pdf", TextParserProfile); !errors.Is(err, ErrUnsupportedFileType) {
 		t.Fatalf("unsupported media error = %v, want ErrUnsupportedFileType", err)
 	}
 }
@@ -83,15 +83,15 @@ func TestTextParserTreatsMarkdownAsPlainText(t *testing.T) {
 func TestTextParserRejectsInvalidOrIneffectiveText(t *testing.T) {
 	t.Parallel()
 	invalidPath := writeTextParserBytes(t, []byte{0xff})
-	if _, err := NewTextParser().Parse(t.Context(), invalidPath, MediaTypeText); !errors.Is(err, ErrInvalidFile) {
+	if _, err := NewTextParser().Parse(t.Context(), invalidPath, MediaTypeText, TextParserProfile); !errors.Is(err, ErrInvalidFile) {
 		t.Fatalf("invalid UTF-8 error = %v, want ErrInvalidFile", err)
 	}
 	punctuationPath := writeTextParserFixture(t, " --- \n")
-	if _, err := NewTextParser().Parse(t.Context(), punctuationPath, MediaTypeText); !errors.Is(err, ErrNoExtractedText) {
+	if _, err := NewTextParser().Parse(t.Context(), punctuationPath, MediaTypeText, TextParserProfile); !errors.Is(err, ErrNoExtractedText) {
 		t.Fatalf("ineffective text error = %v, want ErrNoExtractedText", err)
 	}
 	symbolPath := writeTextParserFixture(t, strings.Repeat("★", TextChunkRunes))
-	if _, err := NewTextParser().Parse(t.Context(), symbolPath, MediaTypeText); !errors.Is(err, ErrNoExtractedText) {
+	if _, err := NewTextParser().Parse(t.Context(), symbolPath, MediaTypeText, TextParserProfile); !errors.Is(err, ErrNoExtractedText) {
 		t.Fatalf("symbol-only document error = %v, want ErrNoExtractedText", err)
 	}
 }
@@ -100,7 +100,7 @@ func TestTextParserOmitsWhitespaceOnlyTail(t *testing.T) {
 	t.Parallel()
 	path := writeTextParserFixture(t, strings.Repeat("a", TextChunkRunes)+"\n\n\n")
 
-	chunks, err := NewTextParser().Parse(t.Context(), path, MediaTypeText)
+	chunks, err := NewTextParser().Parse(t.Context(), path, MediaTypeText, TextParserProfile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestTextParserSkipsWhitespaceOnlyWindowsBetweenText(t *testing.T) {
 	t.Parallel()
 	path := writeTextParserFixture(t, "hello world."+strings.Repeat("\n", 1_800)+"goodbye world.")
 
-	chunks, err := NewTextParser().Parse(t.Context(), path, MediaTypeText)
+	chunks, err := NewTextParser().Parse(t.Context(), path, MediaTypeText, TextParserProfile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestTextParserHonorsCancellationAndPinnedLimits(t *testing.T) {
 	path := writeTextParserFixture(t, "content")
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := NewTextParser().Parse(ctx, path, MediaTypeText); !errors.Is(err, context.Canceled) {
+	if _, err := NewTextParser().Parse(ctx, path, MediaTypeText, TextParserProfile); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled parse error = %v, want context cancellation", err)
 	}
 	if MaxFileBytes != 25<<20 || TextChunkRunes != 1_000 || TextChunkOverlapRunes != 200 ||
@@ -164,7 +164,7 @@ func TestTextParserAcceptsMaximumSizeASCIIInput(t *testing.T) {
 		)
 	}
 	path := writeTextParserFixture(t, strings.Repeat("a", MaxFileBytes))
-	chunks, err := NewTextParser().Parse(t.Context(), path, MediaTypeText)
+	chunks, err := NewTextParser().Parse(t.Context(), path, MediaTypeText, TextParserProfile)
 	if err != nil {
 		t.Fatalf("parse maximum-size ASCII input: %v", err)
 	}

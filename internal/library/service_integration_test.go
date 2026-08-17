@@ -639,11 +639,13 @@ func newSnapshotServiceWithConfig(
 
 type staticLibraryParser struct{}
 
-func (staticLibraryParser) Parse(context.Context, string, string) ([]ParsedChunk, error) {
+func (staticLibraryParser) Parse(context.Context, string, string, string) ([]ParsedChunk, error) {
 	return []ParsedChunk{{Content: "test library"}}, nil
 }
 
-func (staticLibraryParser) Profile(string) (string, error) { return testParserProfile, nil }
+func (staticLibraryParser) Profile(context.Context, string) (string, error) {
+	return testParserProfile, nil
+}
 
 func testAuthority(t *testing.T, userID string, admin bool) authz.Authority {
 	t.Helper()

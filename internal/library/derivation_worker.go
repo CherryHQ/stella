@@ -63,6 +63,16 @@ func (s *Service) processChunkJob(ctx context.Context, job *river.Job[chunkArgs]
 	if err != nil {
 		return s.failChunkJob(ctx, job, target, publicParseError(err))
 	}
+	target, action, err = s.createChunkAttempt(ctx, target)
+	if err != nil {
+		return err
+	}
+	switch action {
+	case generationComplete:
+		return s.completeChunkJob(ctx, job)
+	case generationPublishExisting:
+		return s.publishExistingChunkSet(ctx, job, target)
+	}
 	for _, batch := range chunkBatches(chunks) {
 		if err := s.stageChunkBatch(ctx, target, batch); err != nil {
 			switch {
@@ -104,6 +114,20 @@ func (s *Service) prepareChunkGeneration(
 	ctx context.Context,
 	fileID string,
 ) (generationTarget, generationAction, error) {
+	snapshot, err := s.q.GetLibraryFileLifecycle(ctx, fileID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return generationTarget{}, generationComplete, nil
+	}
+	if err != nil {
+		return generationTarget{}, generationComplete, fmt.Errorf("load library file for generation: %w", err)
+	}
+	if snapshot.DeletedAt.Valid || FileStatus(snapshot.Status) == FileStatusFailed {
+		return generationTarget{}, generationComplete, nil
+	}
+	processorKey, err := s.parser.Profile(ctx, snapshot.MediaType)
+	if err != nil {
+		return generationTarget{}, generationComplete, fmt.Errorf("profile library parser: %w", err)
+	}
 	tx, queries, err := s.beginBoundedTx(ctx)
 	if err != nil {
 		return generationTarget{}, generationComplete, fmt.Errorf("begin library generation: %w", err)
@@ -123,9 +147,8 @@ func (s *Service) prepareChunkGeneration(
 	if FileStatus(file.Status) != FileStatusProcessing && FileStatus(file.Status) != FileStatusReady {
 		return generationTarget{}, generationComplete, fmt.Errorf("%w: unsupported file status %q", ErrGenerationChanged, file.Status)
 	}
-	processorKey, err := s.parser.Profile(file.MediaType)
-	if err != nil {
-		return generationTarget{}, generationComplete, fmt.Errorf("profile library parser: %w", err)
+	if file.MediaType != snapshot.MediaType || subtle.ConstantTimeCompare(file.RawSha256, snapshot.RawSha256) != 1 {
+		return generationTarget{}, generationComplete, ErrGenerationChanged
 	}
 	derivationKey, err := libraryDerivationKey(file.RawSha256, file.MediaType, processorKey)
 	if err != nil {
@@ -140,60 +163,94 @@ func (s *Service) prepareChunkGeneration(
 		ProcessorKey:  processorKey,
 	}
 
-	setID, err := uuid.NewV7()
-	if err != nil {
-		return generationTarget{}, generationComplete, fmt.Errorf("generate library ChunkSet ID: %w", err)
-	}
-	if _, err := queries.CreateLibraryChunkSet(ctx, sqlc.CreateLibraryChunkSetParams{
-		ID:            setID.String(),
-		FileID:        file.ID,
-		DerivationKey: derivationKey,
-		ProcessorKey:  target.ProcessorKey,
-		RawSha256:     append([]byte(nil), file.RawSha256...),
-	}); err != nil {
-		return generationTarget{}, generationComplete, fmt.Errorf("create library ChunkSet: %w", err)
-	}
-	set, err := queries.GetLibraryChunkSetByDerivation(ctx, sqlc.GetLibraryChunkSetByDerivationParams{
+	set, err := queries.GetReadyLibraryChunkSetByDerivation(ctx, sqlc.GetReadyLibraryChunkSetByDerivationParams{
 		FileID: file.ID, DerivationKey: derivationKey,
 	})
-	if err != nil {
-		return generationTarget{}, generationComplete, fmt.Errorf("load library ChunkSet: %w", err)
-	}
-	if err := validateGenerationIdentity(set, target); err != nil {
-		return generationTarget{}, generationComplete, err
-	}
-	target.ChunkSetID = set.ID
-	if ChunkSetStatus(set.Status) == ChunkSetStatusBuilding {
-		// A retry always rebuilds unpublished data from a clean generation. The
-		// final digest remains the publication guard if an older deterministic
-		// worker reaches staging after this reset.
-		set, err = queries.LockLibraryChunkSetLifecycle(ctx, set.ID)
-		if err != nil {
-			return generationTarget{}, generationComplete, fmt.Errorf("lock building LibraryChunkSet: %w", err)
-		}
+	if err == nil {
 		if err := validateGenerationIdentity(set, target); err != nil {
 			return generationTarget{}, generationComplete, err
 		}
-		if ChunkSetStatus(set.Status) == ChunkSetStatusBuilding {
-			if _, err := queries.DeleteBuildingLibraryChunks(ctx, set.ID); err != nil {
-				return generationTarget{}, generationComplete, fmt.Errorf("reset building LibraryChunkSet: %w", err)
-			}
-		}
+		target.ChunkSetID = set.ID
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return generationTarget{}, generationComplete, fmt.Errorf("load ready library ChunkSet: %w", err)
 	}
 	if err := commitLibraryTransaction(ctx, tx); err != nil {
 		return generationTarget{}, generationComplete, err
 	}
 
-	switch ChunkSetStatus(set.Status) {
-	case ChunkSetStatusBuilding:
-		return target, generationBuild, nil
-	case ChunkSetStatusReady:
+	if target.ChunkSetID != "" {
 		return target, generationPublishExisting, nil
-	case ChunkSetStatusFailed:
-		return target, generationComplete, nil
-	default:
-		return generationTarget{}, generationComplete, fmt.Errorf("%w: unsupported ChunkSet status %q", ErrGenerationChanged, set.Status)
 	}
+	return target, generationBuild, nil
+}
+
+func (s *Service) createChunkAttempt(
+	ctx context.Context,
+	target generationTarget,
+) (generationTarget, generationAction, error) {
+	currentProfile, err := s.parser.Profile(ctx, target.MediaType)
+	if err != nil {
+		return generationTarget{}, generationComplete, fmt.Errorf("re-profile library parser before staging: %w", err)
+	}
+	if currentProfile != target.ProcessorKey {
+		return generationTarget{}, generationComplete, ErrGenerationChanged
+	}
+	tx, queries, err := s.beginBoundedTx(ctx)
+	if err != nil {
+		return generationTarget{}, generationComplete, fmt.Errorf("begin library attempt creation: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	file, err := queries.LockLibraryFileLifecycle(ctx, target.FileID)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && file.DeletedAt.Valid {
+		return generationTarget{}, generationComplete, nil
+	}
+	if err != nil {
+		return generationTarget{}, generationComplete, fmt.Errorf("lock library file for attempt creation: %w", err)
+	}
+	if err := validateGenerationFile(file, target); err != nil {
+		return generationTarget{}, generationComplete, err
+	}
+	ready, err := queries.GetReadyLibraryChunkSetByDerivation(ctx, sqlc.GetReadyLibraryChunkSetByDerivationParams{
+		FileID: target.FileID, DerivationKey: target.DerivationKey,
+	})
+	if err == nil {
+		if err := validateGenerationIdentity(ready, target); err != nil {
+			return generationTarget{}, generationComplete, err
+		}
+		target.ChunkSetID = ready.ID
+		if err := commitLibraryTransaction(ctx, tx); err != nil {
+			return generationTarget{}, generationComplete, err
+		}
+		return target, generationPublishExisting, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return generationTarget{}, generationComplete, fmt.Errorf("load ready library attempt: %w", err)
+	}
+	setID, err := uuid.NewV7()
+	if err != nil {
+		return generationTarget{}, generationComplete, fmt.Errorf("generate LibraryChunkSet attempt ID: %w", err)
+	}
+	target.ChunkSetID = setID.String()
+	if _, err := queries.CreateLibraryChunkSet(ctx, sqlc.CreateLibraryChunkSetParams{
+		ID: target.ChunkSetID, FileID: target.FileID, DerivationKey: target.DerivationKey,
+		ProcessorKey: target.ProcessorKey, RawSha256: append([]byte(nil), target.RawSHA256...),
+	}); err != nil {
+		return generationTarget{}, generationComplete, fmt.Errorf("create LibraryChunkSet attempt: %w", err)
+	}
+	if err := commitLibraryTransaction(ctx, tx); err != nil {
+		return generationTarget{}, generationComplete, err
+	}
+	return target, generationBuild, nil
+}
+
+func validateGenerationFile(file sqlc.LockLibraryFileLifecycleRow, target generationTarget) error {
+	if file.MediaType != target.MediaType || file.SizeBytes != target.SizeBytes || subtle.ConstantTimeCompare(file.RawSha256, target.RawSHA256) != 1 {
+		return ErrGenerationChanged
+	}
+	if FileStatus(file.Status) != FileStatusProcessing && FileStatus(file.Status) != FileStatusReady {
+		return ErrGenerationChanged
+	}
+	return nil
 }
 
 func validateGenerationIdentity(set sqlc.LibraryChunkSet, target generationTarget) error {
@@ -253,7 +310,7 @@ func (s *Service) parseRawSnapshot(ctx context.Context, target generationTarget)
 	if err := s.ensureGenerationLive(ctx, target); err != nil {
 		return nil, err
 	}
-	return s.parser.Parse(ctx, path, target.MediaType)
+	return s.parser.Parse(ctx, path, target.MediaType, target.ProcessorKey)
 }
 
 func (s *Service) ensureGenerationLive(ctx context.Context, target generationTarget) error {
@@ -267,19 +324,14 @@ func (s *Service) ensureGenerationLive(ctx context.Context, target generationTar
 	if subtle.ConstantTimeCompare(file.RawSha256, target.RawSHA256) != 1 {
 		return ErrGenerationChanged
 	}
-	set, err := s.q.GetLibraryChunkSetByDerivation(ctx, sqlc.GetLibraryChunkSetByDerivationParams{
-		FileID: target.FileID, DerivationKey: target.DerivationKey,
-	})
-	if errors.Is(err, pgx.ErrNoRows) {
+	if file.MediaType != target.MediaType {
 		return ErrGenerationChanged
 	}
+	profile, err := s.parser.Profile(ctx, target.MediaType)
 	if err != nil {
-		return fmt.Errorf("reload library ChunkSet: %w", err)
+		return fmt.Errorf("reload library parser profile: %w", err)
 	}
-	if err := validateGenerationIdentity(set, target); err != nil {
-		return err
-	}
-	if ChunkSetStatus(set.Status) != ChunkSetStatusBuilding {
+	if profile != target.ProcessorKey {
 		return ErrGenerationChanged
 	}
 	return nil
@@ -301,6 +353,9 @@ func (s *Service) stageChunkBatch(
 	}
 	if err != nil {
 		return fmt.Errorf("lock library file for staging: %w", err)
+	}
+	if err := validateGenerationFile(file, target); err != nil {
+		return err
 	}
 	set, err := queries.LockLibraryChunkSetLifecycle(ctx, target.ChunkSetID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -353,6 +408,13 @@ func (s *Service) publishChunkSet(
 	chunkCount int64,
 	expectedDigest []byte,
 ) error {
+	currentProfile, err := s.parser.Profile(ctx, target.MediaType)
+	if err != nil {
+		return fmt.Errorf("re-profile library parser before publication: %w", err)
+	}
+	if currentProfile != target.ProcessorKey {
+		return ErrGenerationChanged
+	}
 	tx, queries, err := s.beginBoundedTx(ctx)
 	if err != nil {
 		return fmt.Errorf("begin library ChunkSet publication: %w", err)
@@ -368,6 +430,9 @@ func (s *Service) publishChunkSet(
 	if err != nil {
 		return fmt.Errorf("lock library file for publication: %w", err)
 	}
+	if err := validateGenerationFile(file, target); err != nil {
+		return err
+	}
 	set, err := queries.LockLibraryChunkSetLifecycle(ctx, target.ChunkSetID)
 	if err != nil {
 		return fmt.Errorf("lock LibraryChunkSet for publication: %w", err)
@@ -380,6 +445,32 @@ func (s *Service) publishChunkSet(
 	}
 	if ChunkSetStatus(set.Status) != ChunkSetStatusBuilding {
 		return ErrGenerationChanged
+	}
+	// The file lock serializes equivalent attempts. Once another attempt has
+	// published this derivation, this set is a loser and must never replace it.
+	winner, winnerErr := queries.GetReadyLibraryChunkSetByDerivation(ctx, sqlc.GetReadyLibraryChunkSetByDerivationParams{
+		FileID: target.FileID, DerivationKey: target.DerivationKey,
+	})
+	if winnerErr == nil && winner.ID != set.ID {
+		if _, err := queries.DeleteBuildingLibraryChunks(ctx, set.ID); err != nil {
+			return fmt.Errorf("delete losing LibraryChunkSet chunks: %w", err)
+		}
+		if _, err := queries.MarkLibraryChunkSetFailed(ctx, sqlc.MarkLibraryChunkSetFailedParams{
+			ErrorMessage: nullableText("Superseded by an equivalent published attempt."), ID: set.ID,
+		}); err != nil {
+			return fmt.Errorf("retire losing LibraryChunkSet: %w", err)
+		}
+		lockedWinner, err := queries.LockLibraryChunkSetLifecycle(ctx, winner.ID)
+		if err != nil {
+			return fmt.Errorf("lock winning LibraryChunkSet: %w", err)
+		}
+		if err := validateGenerationIdentity(lockedWinner, target); err != nil {
+			return err
+		}
+		return s.publishLockedReadySet(ctx, tx, queries, job, file, lockedWinner)
+	}
+	if winnerErr != nil && !errors.Is(winnerErr, pgx.ErrNoRows) {
+		return fmt.Errorf("load winning LibraryChunkSet: %w", winnerErr)
 	}
 	integrity, err := queries.GetLibraryChunkSetIntegrity(ctx, target.ChunkSetID)
 	if err != nil {
@@ -406,6 +497,13 @@ func (s *Service) publishExistingChunkSet(
 	job *river.Job[chunkArgs],
 	target generationTarget,
 ) error {
+	currentProfile, err := s.parser.Profile(ctx, target.MediaType)
+	if err != nil {
+		return fmt.Errorf("re-profile existing library generation: %w", err)
+	}
+	if currentProfile != target.ProcessorKey {
+		return ErrGenerationChanged
+	}
 	tx, queries, err := s.beginBoundedTx(ctx)
 	if err != nil {
 		return fmt.Errorf("begin existing ChunkSet publication: %w", err)
@@ -420,6 +518,9 @@ func (s *Service) publishExistingChunkSet(
 	}
 	if err != nil {
 		return fmt.Errorf("lock library file for existing publication: %w", err)
+	}
+	if err := validateGenerationFile(file, target); err != nil {
+		return err
 	}
 	set, err := queries.LockLibraryChunkSetLifecycle(ctx, target.ChunkSetID)
 	if err != nil {
@@ -463,7 +564,7 @@ func (s *Service) finishChangedGeneration(
 	job *river.Job[chunkArgs],
 	target generationTarget,
 ) error {
-	set, err := s.q.GetLibraryChunkSetByDerivation(ctx, sqlc.GetLibraryChunkSetByDerivationParams{
+	set, err := s.q.GetReadyLibraryChunkSetByDerivation(ctx, sqlc.GetReadyLibraryChunkSetByDerivationParams{
 		FileID: target.FileID, DerivationKey: target.DerivationKey,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -472,13 +573,8 @@ func (s *Service) finishChangedGeneration(
 	if err != nil {
 		return err
 	}
-	if ChunkSetStatus(set.Status) == ChunkSetStatusReady {
-		return s.publishExistingChunkSet(ctx, job, target)
-	}
-	if ChunkSetStatus(set.Status) == ChunkSetStatusFailed {
-		return s.completeChunkJob(ctx, job)
-	}
-	return ErrGenerationChanged
+	target.ChunkSetID = set.ID
+	return s.publishExistingChunkSet(ctx, job, target)
 }
 
 func (s *Service) failChunkJob(
@@ -502,15 +598,33 @@ func (s *Service) failChunkJob(
 	if err != nil {
 		return fmt.Errorf("lock failed library file: %w", err)
 	}
-	set, err := queries.LockLibraryChunkSetLifecycle(ctx, target.ChunkSetID)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("lock failed LibraryChunkSet: %w", err)
+	if target.ChunkSetID == "" {
+		// A terminal parser result is recorded only after parsing has finished. A
+		// crash during parsing leaves no set, while this failed attempt prevents
+		// reconciliation from retrying unchanged input forever.
+		setID, idErr := uuid.NewV7()
+		if idErr != nil {
+			return fmt.Errorf("generate failed LibraryChunkSet attempt ID: %w", idErr)
+		}
+		target.ChunkSetID = setID.String()
+		if _, createErr := queries.CreateLibraryChunkSet(ctx, sqlc.CreateLibraryChunkSetParams{
+			ID: target.ChunkSetID, FileID: target.FileID, DerivationKey: target.DerivationKey,
+			ProcessorKey: target.ProcessorKey, RawSha256: append([]byte(nil), target.RawSHA256...),
+		}); createErr != nil {
+			return fmt.Errorf("create failed LibraryChunkSet attempt: %w", createErr)
+		}
 	}
-	if err == nil && ChunkSetStatus(set.Status) == ChunkSetStatusBuilding {
-		if _, err := queries.MarkLibraryChunkSetFailed(ctx, sqlc.MarkLibraryChunkSetFailedParams{
-			ErrorMessage: nullableText(cleanErrorMessage(message)), ID: set.ID,
-		}); err != nil {
-			return fmt.Errorf("mark LibraryChunkSet failed: %w", err)
+	if target.ChunkSetID != "" {
+		set, err := queries.LockLibraryChunkSetLifecycle(ctx, target.ChunkSetID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("lock failed LibraryChunkSet: %w", err)
+		}
+		if err == nil && ChunkSetStatus(set.Status) == ChunkSetStatusBuilding {
+			if _, err := queries.MarkLibraryChunkSetFailed(ctx, sqlc.MarkLibraryChunkSetFailedParams{
+				ErrorMessage: nullableText(cleanErrorMessage(message)), ID: set.ID,
+			}); err != nil {
+				return fmt.Errorf("mark LibraryChunkSet failed: %w", err)
+			}
 		}
 	}
 	if _, err := queries.MarkLibraryFileFailedWithoutActiveSet(ctx, sqlc.MarkLibraryFileFailedWithoutActiveSetParams{
@@ -550,7 +664,11 @@ func isDeterministicParseError(err error) bool {
 		errors.Is(err, ErrInvalidFile) ||
 		errors.Is(err, ErrUnsupportedFileType) ||
 		errors.Is(err, ErrRawIntegrity) ||
-		errors.Is(err, ErrGenerationConflict)
+		errors.Is(err, ErrGenerationConflict) ||
+		errors.Is(err, ErrOCRPageLimit) ||
+		errors.Is(err, ErrOCRConfiguration) ||
+		errors.Is(err, ErrOCRProtocol) ||
+		errors.Is(err, ErrOCRService)
 }
 
 func publicParseError(err error) string {
@@ -565,6 +683,8 @@ func publicParseError(err error) string {
 		return "The stored document failed integrity validation."
 	case errors.Is(err, ErrGenerationConflict):
 		return "The parsed document produced inconsistent chunks."
+	case errors.Is(err, ErrOCRPageLimit), errors.Is(err, ErrOCRConfiguration), errors.Is(err, ErrOCRProtocol), errors.Is(err, ErrOCRService):
+		return cleanErrorMessage(err.Error())
 	default:
 		return "Document parsing failed after multiple attempts."
 	}

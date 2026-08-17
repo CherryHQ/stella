@@ -54,9 +54,11 @@ type libraryFileAPIList struct {
 
 type serverLibraryParser struct{}
 
-func (serverLibraryParser) Profile(string) (string, error) { return library.TextParserProfile, nil }
+func (serverLibraryParser) Profile(context.Context, string) (string, error) {
+	return library.TextParserProfile, nil
+}
 
-func (serverLibraryParser) Parse(context.Context, string, string) ([]library.ParsedChunk, error) {
+func (serverLibraryParser) Parse(context.Context, string, string, string) ([]library.ParsedChunk, error) {
 	return []library.ParsedChunk{{Content: "server test library"}}, nil
 }
 

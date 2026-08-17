@@ -437,7 +437,33 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		library.MediaTypeText: textParser, library.MediaTypeMarkdown: textParser,
 	}
 	if xbergBinary := binaries.ToolPath(config.StellaHome(), "xberg"); xbergBinary != "" {
-		xbergParser, probeErr := library.NewXbergCLIParser(parent, xbergBinary)
+		resolveVisionOCR := func(ctx context.Context) (library.VisionOCRConfig, error) {
+			settings, loadErr := config.LoadVisionSettings(ctx, store)
+			if loadErr != nil {
+				return library.VisionOCRConfig{}, loadErr
+			}
+			providerID, modelID := config.ParseModelRef(settings.Model)
+			resolved := library.VisionOCRConfig{ProviderID: providerID, Model: modelID}
+			if providerID == "" || modelID == "" {
+				return resolved, nil
+			}
+			provider, providerErr := store.GetProvider(ctx, providerID)
+			if errors.Is(providerErr, pgx.ErrNoRows) {
+				// Keep the unresolved identity in the profile. Native PDFs continue to
+				// work; a scanned PDF receives the actionable configuration error.
+				return resolved, nil
+			}
+			if providerErr != nil {
+				return library.VisionOCRConfig{}, providerErr
+			}
+			resolved.ProviderID = provider.ID
+			resolved.ProviderType = provider.Type
+			resolved.Enabled = provider.Enabled
+			resolved.BaseURL = provider.BaseURL
+			resolved.APIKey = provider.APIKey
+			return resolved, nil
+		}
+		xbergParser, probeErr := library.NewXbergCLIParser(parent, xbergBinary, resolveVisionOCR)
 		if probeErr != nil {
 			return nil, fmt.Errorf("start embedded Xberg parser: %w", probeErr)
 		}

@@ -39,10 +39,14 @@ const (
 
 // Parser is the bounded document parser used by the asynchronous chunk worker.
 type Parser interface {
-	// Profile must be a pure, stable lookup: lifecycle code calls it while
-	// holding database locks and uses the value as durable generation identity.
-	Profile(mediaType string) (string, error)
-	Parse(ctx context.Context, path, mediaType string) ([]ParsedChunk, error)
+	// Profile returns the durable identity of every output-affecting parser
+	// input. Implementations may resolve deployment configuration, so callers
+	// must pass the bounded operation context and must not hold lifecycle locks.
+	Profile(ctx context.Context, mediaType string) (string, error)
+	// Parse must reject expectedProfile when the configuration it resolves for
+	// this attempt no longer matches. This binds parsing to the profile that was
+	// used to derive the generation key without persisting provider credentials.
+	Parse(ctx context.Context, path, mediaType, expectedProfile string) ([]ParsedChunk, error)
 }
 
 // ServiceConfig contains the internal Library ingestion and lifecycle
@@ -242,7 +246,7 @@ func (s *Service) createSnapshot(
 	if err != nil {
 		return LibraryFile{}, err
 	}
-	if _, err := s.parser.Profile(mediaType); err != nil {
+	if _, err := s.parser.Profile(ctx, mediaType); err != nil {
 		return LibraryFile{}, fmt.Errorf("profile library upload parser: %w", err)
 	}
 	prepared, err := prepareUpload(ctx, s.tempDir, s.spool, fileName, source)

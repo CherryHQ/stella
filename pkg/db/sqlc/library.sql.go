@@ -27,7 +27,6 @@ INSERT INTO library_chunk_set (
     $4,
     $5
 )
-ON CONFLICT (file_id, derivation_key) DO NOTHING
 `
 
 type CreateLibraryChunkSetParams struct {
@@ -134,50 +133,6 @@ func (q *Queries) DeleteBuildingLibraryChunks(ctx context.Context, chunkSetID st
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const getLibraryChunkSetByDerivation = `-- name: GetLibraryChunkSetByDerivation :one
-SELECT
-    id,
-    file_id,
-    derivation_key,
-    processor_key,
-    raw_sha256,
-    status,
-    chunk_count,
-    content_digest,
-    error_message,
-    created_at,
-    updated_at,
-    completed_at
-FROM library_chunk_set
-WHERE file_id = $1
-  AND derivation_key = $2
-`
-
-type GetLibraryChunkSetByDerivationParams struct {
-	FileID        string `json:"file_id"`
-	DerivationKey string `json:"derivation_key"`
-}
-
-func (q *Queries) GetLibraryChunkSetByDerivation(ctx context.Context, arg GetLibraryChunkSetByDerivationParams) (LibraryChunkSet, error) {
-	row := q.db.QueryRow(ctx, getLibraryChunkSetByDerivation, arg.FileID, arg.DerivationKey)
-	var i LibraryChunkSet
-	err := row.Scan(
-		&i.ID,
-		&i.FileID,
-		&i.DerivationKey,
-		&i.ProcessorKey,
-		&i.RawSha256,
-		&i.Status,
-		&i.ChunkCount,
-		&i.ContentDigest,
-		&i.ErrorMessage,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.CompletedAt,
-	)
-	return i, err
 }
 
 const getLibraryChunkSetIntegrity = `-- name: GetLibraryChunkSetIntegrity :one
@@ -352,6 +307,53 @@ func (q *Queries) GetPersonalLibraryQuotaUsage(ctx context.Context, userID pgtyp
 	return i, err
 }
 
+const getReadyLibraryChunkSetByDerivation = `-- name: GetReadyLibraryChunkSetByDerivation :one
+SELECT
+    id,
+    file_id,
+    derivation_key,
+    processor_key,
+    raw_sha256,
+    status,
+    chunk_count,
+    content_digest,
+    error_message,
+    created_at,
+    updated_at,
+    completed_at
+FROM library_chunk_set
+WHERE file_id = $1
+  AND derivation_key = $2
+  AND status = 'ready'
+ORDER BY completed_at DESC, id DESC
+LIMIT 1
+`
+
+type GetReadyLibraryChunkSetByDerivationParams struct {
+	FileID        string `json:"file_id"`
+	DerivationKey string `json:"derivation_key"`
+}
+
+func (q *Queries) GetReadyLibraryChunkSetByDerivation(ctx context.Context, arg GetReadyLibraryChunkSetByDerivationParams) (LibraryChunkSet, error) {
+	row := q.db.QueryRow(ctx, getReadyLibraryChunkSetByDerivation, arg.FileID, arg.DerivationKey)
+	var i LibraryChunkSet
+	err := row.Scan(
+		&i.ID,
+		&i.FileID,
+		&i.DerivationKey,
+		&i.ProcessorKey,
+		&i.RawSha256,
+		&i.Status,
+		&i.ChunkCount,
+		&i.ContentDigest,
+		&i.ErrorMessage,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
 const getSystemAgentLibraryQuotaUsage = `-- name: GetSystemAgentLibraryQuotaUsage :one
 SELECT
     count(*)::bigint AS used_files,
@@ -462,6 +464,65 @@ func (q *Queries) InsertLibraryChunkBatch(ctx context.Context, arg InsertLibrary
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const listBuildingLibraryChunkSetsByDerivation = `-- name: ListBuildingLibraryChunkSetsByDerivation :many
+SELECT
+    id,
+    file_id,
+    derivation_key,
+    processor_key,
+    raw_sha256,
+    status,
+    chunk_count,
+    content_digest,
+    error_message,
+    created_at,
+    updated_at,
+    completed_at
+FROM library_chunk_set
+WHERE file_id = $1
+  AND derivation_key = $2
+  AND status = 'building'
+ORDER BY created_at ASC, id ASC
+`
+
+type ListBuildingLibraryChunkSetsByDerivationParams struct {
+	FileID        string `json:"file_id"`
+	DerivationKey string `json:"derivation_key"`
+}
+
+func (q *Queries) ListBuildingLibraryChunkSetsByDerivation(ctx context.Context, arg ListBuildingLibraryChunkSetsByDerivationParams) ([]LibraryChunkSet, error) {
+	rows, err := q.db.Query(ctx, listBuildingLibraryChunkSetsByDerivation, arg.FileID, arg.DerivationKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LibraryChunkSet{}
+	for rows.Next() {
+		var i LibraryChunkSet
+		if err := rows.Scan(
+			&i.ID,
+			&i.FileID,
+			&i.DerivationKey,
+			&i.ProcessorKey,
+			&i.RawSha256,
+			&i.Status,
+			&i.ChunkCount,
+			&i.ContentDigest,
+			&i.ErrorMessage,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CompletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listLibraryTombstone = `-- name: ListLibraryTombstone :many
@@ -615,6 +676,7 @@ LEFT JOIN library_chunk_set AS active_set
 LEFT JOIN library_chunk_set AS desired_set
   ON desired_set.file_id = f.id
  AND desired_set.processor_key = desired.processor_key
+ AND desired_set.status IN ('ready', 'failed')
 WHERE f.deleted_at IS NULL
   AND f.updated_at < $3
   AND (

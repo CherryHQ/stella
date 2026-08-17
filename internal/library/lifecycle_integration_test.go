@@ -1030,15 +1030,15 @@ type switchingProfileParser struct {
 	fail    atomic.Bool
 }
 
-func (p *switchingProfileParser) Profile(string) (string, error) {
+func (p *switchingProfileParser) Profile(context.Context, string) (string, error) {
 	return p.profile.Load().(string), nil
 }
 
-func (p *switchingProfileParser) Parse(ctx context.Context, path, mediaType string) ([]ParsedChunk, error) {
+func (p *switchingProfileParser) Parse(ctx context.Context, path, mediaType, expectedProfile string) ([]ParsedChunk, error) {
 	if p.fail.Load() {
 		return nil, ErrNoExtractedText
 	}
-	return staticLibraryParser{}.Parse(ctx, path, mediaType)
+	return staticLibraryParser{}.Parse(ctx, path, mediaType, expectedProfile)
 }
 
 func TestChunkStagingRowLockWaitIsBounded(t *testing.T) {
@@ -1070,6 +1070,10 @@ func TestChunkStagingRowLockWaitIsBounded(t *testing.T) {
 	chunks, _, err := normalizeParsedChunks([]ParsedChunk{{Content: "bounded row lock"}})
 	if err != nil {
 		t.Fatal(err)
+	}
+	target, action, err = service.createChunkAttempt(t.Context(), target)
+	if err != nil || action != generationBuild {
+		t.Fatalf("create generation attempt = action %d error %v", action, err)
 	}
 	lockTx, err := database.Begin(t.Context())
 	if err != nil {

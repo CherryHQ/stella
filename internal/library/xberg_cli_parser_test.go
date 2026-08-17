@@ -2,113 +2,270 @@ package library
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
 	"testing"
 )
 
-func TestXbergCLIParserProfilesAndMapsChunkMetadata(t *testing.T) {
+func TestXbergCLIParserNativePDFUsesOnePass(t *testing.T) {
 	t.Parallel()
-	var calls [][]string
-	run := func(_ context.Context, _ string, args []string) ([]byte, []byte, error) {
-		calls = append(calls, append([]string(nil), args...))
-		if slices.Equal(args, []string{"version", "--format", "json"}) {
-			return []byte(`{"name":"xberg-cli","version":"1.1.0"}`), nil, nil
+	var calls []xbergCommand
+	run := func(_ context.Context, _ string, command xbergCommand) ([]byte, []byte, error) {
+		calls = append(calls, command)
+		if slices.Equal(command.Args, []string{"version", "--format", "json"}) {
+			return []byte(`{"version":"1.0.14"}`), nil, nil
 		}
-		return []byte(`{"result":{"chunks":[{"content":"Policy text","metadata":{"byte_start":4,"byte_end":15,"first_page":2,"last_page":3,"heading_path":["Policy","Approval"]}}]}}`), nil, nil
+		return []byte(nativeXbergFixture), nil, nil
 	}
-	parser, err := newXbergCLIParser(t.Context(), "/test/xberg", run)
+	parser, err := newXbergCLIParser(t.Context(), "/test/xberg", nil, run)
 	if err != nil {
 		t.Fatal(err)
 	}
-	profile, err := parser.Profile(MediaTypePDF)
+	profile, err := parser.Profile(t.Context(), MediaTypePDF)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(profile, "xberg-cli-adapter:v2") || !strings.Contains(profile, "cli=1.1.0") || !strings.Contains(profile, "args_sha256=") {
+	if !strings.Contains(profile, "xberg-cli-adapter:v3") || !strings.Contains(profile, "cli=1.0.14") {
 		t.Fatalf("profile = %q", profile)
 	}
-	if _, err := parser.Profile(MediaTypeText); !errors.Is(err, ErrUnsupportedFileType) {
-		t.Fatalf("text profile error = %v, want ErrUnsupportedFileType", err)
-	}
-
-	chunks, err := parser.Parse(t.Context(), "source.pdf", MediaTypePDF)
+	chunks, err := parser.Parse(t.Context(), "source.pdf", MediaTypePDF, profile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(chunks) != 1 || chunks[0].Content != "Policy text" {
+	if len(chunks) != 1 || chunks[0].Content != "Policy text" || chunks[0].Locator.FirstPage == nil || *chunks[0].Locator.FirstPage != 1 {
 		t.Fatalf("chunks = %+v", chunks)
 	}
-	locator := chunks[0].Locator
-	if locator.ByteStart != 4 || locator.ByteEnd != 15 || locator.FirstPage == nil || *locator.FirstPage != 2 ||
-		locator.LastPage == nil || *locator.LastPage != 3 || !slices.Equal(locator.HeadingPath, []string{"Policy", "Approval"}) {
-		t.Fatalf("locator = %+v", locator)
-	}
 	if len(calls) != 2 {
-		t.Fatalf("Xberg calls = %v", calls)
+		t.Fatalf("Xberg calls = %d, want version plus one extraction", len(calls))
 	}
-	wantArgs := append([]string{"extract", calls[1][1]}, xbergCanonicalArgs()...)
-	if !slices.Equal(calls[1], wantArgs) {
-		t.Fatalf("extract arguments = %v", calls[1])
-	}
-}
-
-func TestXbergCanonicalArgsPinDeterministicExtraction(t *testing.T) {
-	t.Parallel()
-	want := []string{
-		"--no-config-discovery", "--disable-ocr", "true", "--quality", "false", "--force-ocr", "false",
-		"--include-structure", "true", "--content-format", "markdown", "--extract-pages", "true",
-		"--page-markers", "false", "--no-cache", "true", "--chunk", "true", "--chunk-size", "1000",
-		"--chunk-overlap", "200", "--format", "json",
-	}
-	if got := xbergCanonicalArgs(); !slices.Equal(got, want) {
-		t.Fatalf("Xberg canonical args = %v", got)
+	if !slices.Contains(calls[1].Args, "true") || slices.ContainsFunc(calls[1].Env, func(value string) bool {
+		return strings.HasPrefix(value, "XBERG_LLM_API_KEY=")
+	}) {
+		t.Fatalf("native command = %+v", calls[1])
 	}
 }
 
-func TestXbergCLIParserRejectsEmptyAndInvalidResults(t *testing.T) {
+func TestXbergCLIParserOCRsOnlyCandidatePages(t *testing.T) {
 	t.Parallel()
-	for name, output := range map[string]string{
-		"empty":     `{"result":{"chunks":[]}}`,
-		"malformed": `{"result":`,
-		"trailing":  `{"result":{"chunks":[]}} {}`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			run := xbergFixtureRunner(output, nil)
-			parser, err := newXbergCLIParser(t.Context(), "/test/xberg", run)
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = parser.Parse(t.Context(), "source.docx", MediaTypeDOCX)
-			if name == "empty" && !errors.Is(err, ErrNoExtractedText) {
-				t.Fatalf("error = %v, want ErrNoExtractedText", err)
-			}
-			if name != "empty" && !errors.Is(err, ErrInvalidParserData) {
-				t.Fatalf("error = %v, want ErrInvalidParserData", err)
-			}
-		})
+	config := VisionOCRConfig{
+		ProviderID: "vision", ProviderType: "openai", Enabled: true,
+		Model: "vision-model", BaseURL: "https://vision.example/v1", APIKey: "real-secret",
 	}
-}
-
-func TestXbergCLIParserPreservesCancellationAndOperationalErrors(t *testing.T) {
-	t.Parallel()
-	operational := errors.New("xberg exited")
-	parser, err := newXbergCLIParser(t.Context(), "/test/xberg", xbergFixtureRunner("", operational))
+	var calls []xbergCommand
+	run := func(_ context.Context, _ string, command xbergCommand) ([]byte, []byte, error) {
+		calls = append(calls, command)
+		switch len(calls) {
+		case 1:
+			return []byte(`{"version":"1.0.14"}`), nil, nil
+		case 2:
+			return []byte(scannedXbergFixture), nil, nil
+		default:
+			return []byte(ocrXbergFixture), nil, nil
+		}
+	}
+	parser, err := newXbergCLIParser(t.Context(), "/test/xberg", func(context.Context) (VisionOCRConfig, error) {
+		return config, nil
+	}, run)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := parser.Parse(t.Context(), "source.pdf", MediaTypePDF); !errors.Is(err, operational) {
-		t.Fatalf("operational error = %v", err)
+	profile, err := parser.Profile(t.Context(), MediaTypePDF)
+	if err != nil {
+		t.Fatal(err)
 	}
+	chunks, err := parser.Parse(t.Context(), "source.pdf", MediaTypePDF, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 1 || chunks[0].Content != "OCR policy" {
+		t.Fatalf("chunks = %+v", chunks)
+	}
+	if len(calls) != 3 {
+		t.Fatalf("Xberg calls = %d, want two extraction passes", len(calls))
+	}
+	override := flagValue(t, calls[2].Args, "--config-json-base64")
+	decoded, err := base64.StdEncoding.DecodeString(override)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var settings struct {
+		ForceOCRPages []uint32 `json:"force_ocr_pages"`
+		Concurrency   struct {
+			MaxThreads int `json:"max_threads"`
+		} `json:"concurrency"`
+	}
+	if err := json.Unmarshal(decoded, &settings); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(settings.ForceOCRPages, []uint32{2, 3}) || settings.Concurrency.MaxThreads != ocrMaxThreads {
+		t.Fatalf("OCR override = %+v", settings)
+	}
+	environment := strings.Join(calls[2].Env, "\n")
+	if strings.Contains(environment, config.APIKey) || !strings.Contains(environment, "XBERG_LLM_API_KEY=") {
+		t.Fatalf("second-pass environment leaked or omitted credentials: %q", environment)
+	}
+}
 
-	cancelled, cancel := context.WithCancel(t.Context())
-	cancel()
-	parser.run = func(ctx context.Context, _ string, _ []string) ([]byte, []byte, error) {
-		return nil, nil, ctx.Err()
+func TestXbergCLIParserRejectsCandidateBudgetBeforeVisionUse(t *testing.T) {
+	t.Parallel()
+	pages := make([]uint32, maxOCRCandidatePages+1)
+	for i := range pages {
+		pages[i] = uint32(i + 1)
 	}
-	if _, err := parser.Parse(cancelled, "source.pdf", MediaTypePDF); !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancelled error = %v", err)
+	fixture, err := json.Marshal(map[string]any{"result": map[string]any{
+		"metadata": map[string]any{"format": map[string]any{"scanned_pages": pages}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	visionCalls := 0
+	parser, err := newXbergCLIParser(t.Context(), "/test/xberg", func(context.Context) (VisionOCRConfig, error) {
+		visionCalls++
+		return VisionOCRConfig{}, nil
+	}, xbergFixtureRunner(string(fixture), nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := parser.Profile(t.Context(), MediaTypePDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = parser.Parse(t.Context(), "source.pdf", MediaTypePDF, profile)
+	if !errors.Is(err, ErrOCRPageLimit) {
+		t.Fatalf("error = %v, want ErrOCRPageLimit", err)
+	}
+	// Profile resolution occurs once outside Parse and once to bind Parse. The
+	// budget failure must happen before a third resolution can expose credentials.
+	if visionCalls != 2 {
+		t.Fatalf("Vision resolver calls = %d, want 2", visionCalls)
+	}
+}
+
+func TestXbergCLIParserRequiresVisionOnlyForScannedPDF(t *testing.T) {
+	t.Parallel()
+	parser, err := newXbergCLIParser(t.Context(), "/test/xberg", nil, xbergFixtureRunner(scannedXbergFixture, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := parser.Profile(t.Context(), MediaTypePDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parser.Parse(t.Context(), "source.pdf", MediaTypePDF, profile); !errors.Is(err, ErrOCRConfiguration) {
+		t.Fatalf("error = %v, want ErrOCRConfiguration", err)
+	}
+}
+
+func TestXbergCLIParserRejectsChangedProfile(t *testing.T) {
+	t.Parallel()
+	config := VisionOCRConfig{ProviderID: "vision", ProviderType: "openai", Enabled: true, Model: "a", APIKey: "key"}
+	parser, err := newXbergCLIParser(t.Context(), "/test/xberg", func(context.Context) (VisionOCRConfig, error) {
+		return config, nil
+	}, xbergFixtureRunner(nativeXbergFixture, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parser.Parse(t.Context(), "source.pdf", MediaTypePDF, "old-profile"); !errors.Is(err, ErrGenerationChanged) {
+		t.Fatalf("error = %v, want ErrGenerationChanged", err)
+	}
+	if _, err := parser.Profile(t.Context(), MediaTypeText); !errors.Is(err, ErrUnsupportedFileType) {
+		t.Fatalf("text profile error = %v", err)
+	}
+}
+
+func TestXbergCLIParserProfileExcludesAPIKeyButBindsOCRIdentity(t *testing.T) {
+	t.Parallel()
+	config := VisionOCRConfig{
+		ProviderID: "vision", ProviderType: "openai", Enabled: true,
+		Model: "model-a", BaseURL: "https://vision.example/v1", APIKey: "first-secret",
+	}
+	parser, err := newXbergCLIParser(t.Context(), "/test/xberg", func(context.Context) (VisionOCRConfig, error) {
+		return config, nil
+	}, xbergFixtureRunner(nativeXbergFixture, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := parser.Profile(t.Context(), MediaTypePDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.APIKey = "rotated-secret"
+	rotated, err := parser.Profile(t.Context(), MediaTypePDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rotated != first || strings.Contains(first, "secret") {
+		t.Fatalf("API-key rotation changed or leaked profile: before=%q after=%q", first, rotated)
+	}
+	config.Model = "model-b"
+	changed, err := parser.Profile(t.Context(), MediaTypePDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed == first {
+		t.Fatal("OCR model identity did not change the parser profile")
+	}
+}
+
+func TestXbergCLIParserRejectsOCRIdentityChangeBeforeExternalCall(t *testing.T) {
+	t.Parallel()
+	config := VisionOCRConfig{
+		ProviderID: "vision", ProviderType: "openai", Enabled: true,
+		Model: "model-a", BaseURL: "https://vision.example/v1", APIKey: "secret",
+	}
+	var extractionCalls int
+	run := func(_ context.Context, _ string, command xbergCommand) ([]byte, []byte, error) {
+		if slices.Equal(command.Args, []string{"version", "--format", "json"}) {
+			return []byte(`{"version":"1.0.14"}`), nil, nil
+		}
+		extractionCalls++
+		return []byte(scannedXbergFixture), nil, nil
+	}
+	parser, err := newXbergCLIParser(t.Context(), "/test/xberg", func(context.Context) (VisionOCRConfig, error) {
+		return config, nil
+	}, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := parser.Profile(t.Context(), MediaTypePDF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profileCalls := 0
+	parser.resolveVision = func(context.Context) (VisionOCRConfig, error) {
+		profileCalls++
+		if profileCalls == 1 {
+			return config, nil
+		}
+		changed := config
+		changed.Model = "model-b"
+		return changed, nil
+	}
+	_, err = parser.Parse(t.Context(), "source.pdf", MediaTypePDF, profile)
+	if !errors.Is(err, ErrGenerationChanged) {
+		t.Fatalf("error = %v, want ErrGenerationChanged", err)
+	}
+	if extractionCalls != 1 {
+		t.Fatalf("extraction calls = %d, want only the OCR-disabled pass", extractionCalls)
+	}
+}
+
+func TestXbergCLIParserPreservesOperationalErrors(t *testing.T) {
+	t.Parallel()
+	operational := errors.New("xberg exited")
+	parser, err := newXbergCLIParser(t.Context(), "/test/xberg", nil, xbergFixtureRunner("", operational))
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := parser.Profile(t.Context(), MediaTypeDOCX)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parser.Parse(t.Context(), "source.docx", MediaTypeDOCX, profile); !errors.Is(err, operational) {
+		t.Fatalf("operational error = %v", err)
 	}
 }
 
@@ -124,10 +281,27 @@ func TestCappedBufferBoundsCommandOutput(t *testing.T) {
 }
 
 func xbergFixtureRunner(output string, extractErr error) xbergCommandRunner {
-	return func(_ context.Context, _ string, args []string) ([]byte, []byte, error) {
-		if slices.Equal(args, []string{"version", "--format", "json"}) {
-			return []byte(`{"version":"1.1.0"}`), nil, nil
+	return func(_ context.Context, _ string, command xbergCommand) ([]byte, []byte, error) {
+		if slices.Equal(command.Args, []string{"version", "--format", "json"}) {
+			return []byte(`{"version":"1.0.14"}`), nil, nil
 		}
 		return []byte(output), nil, extractErr
 	}
 }
+
+func flagValue(t *testing.T, args []string, flag string) string {
+	t.Helper()
+	for index := 0; index+1 < len(args); index++ {
+		if args[index] == flag {
+			return args[index+1]
+		}
+	}
+	t.Fatalf("flag %s is missing from %v", flag, args)
+	return ""
+}
+
+const (
+	nativeXbergFixture  = `{"result":{"metadata":{"format":{"scanned_pages":[]}},"pages":[{"page_number":1,"is_blank":false}],"chunks":[{"content":"Policy text","metadata":{"byte_start":0,"byte_end":11,"first_page":1,"last_page":1}}]}}`
+	scannedXbergFixture = `{"result":{"metadata":{"format":{"scanned_pages":[3,2]}},"pages":[{"page_number":2,"is_blank":true}],"chunks":[]}}`
+	ocrXbergFixture     = `{"result":{"metadata":{"format":{"scanned_pages":[2,3]}},"pages":[{"page_number":2,"is_blank":false}],"chunks":[{"content":"OCR policy","metadata":{"byte_start":0,"byte_end":10,"first_page":2,"last_page":3}}]}}`
+)

@@ -31,9 +31,9 @@ const (
 	// the durable Session inbox, restrictive Library ownership, and the Discord
 	// explicit guild-access backfill are the post-anchor migrations exercised
 	// below. Library chunk locator integrity and the dedicated Skill Home
-	// cutover evidence schema and retired RTK plugin cleanup are checked
-	// explicitly.
-	currentMigrationVersion = sequentialAnchor + 18
+	// cutover evidence schema, retired RTK plugin cleanup, and attempt-scoped
+	// Library ChunkSets are checked explicitly.
+	currentMigrationVersion = sequentialAnchor + 19
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
@@ -53,6 +53,7 @@ const (
 	previousGALibraryFile                = "00000000-0000-0000-0000-000000000041"
 	previousGAAgentLibraryFile           = "00000000-0000-0000-0000-000000000047"
 	previousGAChunkSet                   = "00000000-0000-0000-0000-000000000042"
+	previousGASecondChunkSet             = "00000000-0000-0000-0000-000000000048"
 	previousGAChunk                      = "00000000-0000-0000-0000-000000000043"
 	previousGAGuestID                    = "00000000-0000-0000-0000-000000000044"
 	previousGAGuestChatID                = "00000000-0000-0000-0000-000000000045"
@@ -674,6 +675,23 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 		WHERE file.id = $1
 	`, previousGALibraryFile); got != 1 {
 		t.Fatalf("published Library chunks = %d, want 1", got)
+	}
+	// One derivation can have multiple isolated build attempts after the OCR
+	// cutover. The active ready set remains the publication winner.
+	if _, err := db.Exec(ctx, `
+		INSERT INTO library_chunk_set (
+			id, file_id, derivation_key, processor_key, raw_sha256,
+			status, error_message, completed_at
+		) VALUES ($1, $2, 'previous-ga-derivation', 'previous-ga-processor', $3,
+			'failed', 'superseded attempt', now())
+	`, previousGASecondChunkSet, previousGALibraryFile, hash); err != nil {
+		t.Fatalf("insert second Library attempt for one derivation: %v", err)
+	}
+	if got := count("isolated Library attempts", `
+		SELECT count(*) FROM library_chunk_set
+		WHERE file_id = $1 AND derivation_key = 'previous-ga-derivation'
+	`, previousGALibraryFile); got != 2 {
+		t.Fatalf("Library attempts for one derivation = %d, want 2", got)
 	}
 
 	var lastTurnStartedAt, lastTurnCompletedAt, lastViewedAt pgtype.Timestamptz
