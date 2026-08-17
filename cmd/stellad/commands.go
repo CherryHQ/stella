@@ -50,6 +50,7 @@ import (
 	"github.com/CherryHQ/stella/internal/scheduler"
 	"github.com/CherryHQ/stella/internal/sessionmedia"
 	sharepkg "github.com/CherryHQ/stella/internal/share"
+	"github.com/CherryHQ/stella/internal/sharedposix"
 	"github.com/CherryHQ/stella/internal/skillaccess"
 	"github.com/CherryHQ/stella/internal/skills"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
@@ -137,6 +138,7 @@ type setupResult struct {
 	recallySvc               *recally.Service
 	assetStore               *asset.Store
 	workspaceManager         *home.WorkspaceManager
+	storageAdmission         home.Admission
 	homeDeletion             *home.OwnerDeletion
 	workflowSvc              *workflowpkg.Service
 	embeddingSvc             *embedding.Service
@@ -221,7 +223,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	agentAccess := agentaccess.NewService(store, authStore)
 
 	// One process-wide manager is the sole materializer beneath STELLA_HOME.
-	homeRegistry, err := home.NewWorkspaceManager(db, config.StellaHome())
+	homeRegistry, err := home.NewWorkspaceManagerWithAdmission(db, config.StellaHome(), storageAdmission)
 	if err != nil {
 		return nil, fmt.Errorf("build workspace manager: %w", err)
 	}
@@ -677,6 +679,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		recallySvc:               recallySvc,
 		assetStore:               assetStore,
 		workspaceManager:         homeRegistry,
+		storageAdmission:         storageAdmission,
 		homeDeletion:             homeDeletion,
 		workflowSvc:              workflowSvc,
 		embeddingSvc:             embeddingSvc,

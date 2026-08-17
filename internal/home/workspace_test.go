@@ -248,6 +248,9 @@ func TestWorkspaceManagerBlocksAllNewAdmissionWhenStorageCloses(t *testing.T) {
 	if occupied, err := m.AgentIDOccupied(t.Context(), "a"); !occupied || !errors.Is(err, gateErr) {
 		t.Fatalf("AgentIDOccupied = %v, %v", occupied, err)
 	}
+	if _, err := m.ReconcileProjectCoordinates(t.Context()); !errors.Is(err, gateErr) {
+		t.Fatalf("ReconcileProjectCoordinates error = %v", err)
+	}
 	entries, err := os.ReadDir(base)
 	if err != nil {
 		t.Fatal(err)
