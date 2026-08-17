@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { attachmentDisplayName, userMessageRenderInput } from "./utils";
+import { attachmentDisplayName, userMessageRenderInput, workspaceFileURL } from "./utils";
 import { UserMessage } from "./UserMessage";
 
 vi.hoisted(() => {
@@ -70,5 +70,18 @@ describe("attachmentDisplayName", () => {
     expect(attachmentDisplayName("20260817-not-a-uuid-report.pdf")).toBe(
       "20260817-not-a-uuid-report.pdf",
     );
+  });
+});
+
+describe("workspaceFileURL", () => {
+  it("leaves scope to the server for a self-describing logical path", () => {
+    for (const path of ["$STELLA_ASSETS_DIR/202608/a.md", "/user/assets/a.md"]) {
+      expect(workspaceFileURL("stella", "s1", path)).not.toContain("scope=");
+    }
+  });
+
+  it("names the user scope for a relative upload path the server would miss", () => {
+    // Without it the server resolves against the agent workspace and 404s.
+    expect(workspaceFileURL("stella", "s1", "assets/202608/a.md")).toContain("&scope=user");
   });
 });

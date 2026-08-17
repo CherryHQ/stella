@@ -51,16 +51,28 @@ export function attachmentDisplayName(path: string): string {
   return basename(path).replace(UPLOAD_PREFIX, "");
 }
 
+// workspaceScopeFor names the workspace root for a message-embedded file path,
+// or undefined to let the server resolve it.
+//
+// A logical path ($STELLA_ASSETS_DIR/..., /user/..., /workspace/...) is
+// self-describing, and the server maps it to its typed root; the client cannot
+// disambiguate mount views from host paths, so it must not guess for those. A
+// bare relative path is a different case: the server defaults it to the agent
+// workspace and 404s. Message attachments only ever come from the upload
+// endpoint, which always writes the user scope, so say so.
+export function workspaceScopeFor(path: string): "user" | undefined {
+  return path.startsWith("/") || path.startsWith("$") ? undefined : "user";
+}
+
 // workspaceFileURL builds a raw file-content read URL for a message-embedded
-// file path. The path is passed verbatim: an absolute sandbox-view (/user/...,
-// /workspace/...) or host path is self-describing, and the server resolves which
-// authorized workspace root contains it (host containment first, then sandbox
-// mount mapping). The client cannot disambiguate mount views from real host
-// paths, so it must not guess a scope — that decision belongs to the server.
+// file path.
 export function workspaceFileURL(agentId: string, sessionId: string, path: string): string {
+  const scope = workspaceScopeFor(path);
   return `/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(
     sessionId,
-  )}/workspace/file-content?path=${encodeURIComponent(path)}&raw=true`;
+  )}/workspace/file-content?path=${encodeURIComponent(path)}&raw=true${
+    scope ? `&scope=${scope}` : ""
+  }`;
 }
 
 // parseFileRefs splits a user message into the `[file: path]` attachments the

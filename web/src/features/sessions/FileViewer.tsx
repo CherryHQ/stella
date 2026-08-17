@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
-import type { Highlighter } from "shiki";
 import {
   ArrowLeft,
   Pencil,
@@ -24,44 +23,10 @@ import {
   fetchBlobUrl,
   mimeTypeForPath,
 } from "@/lib/file-kind";
+import { highlightToHtml } from "@/lib/highlight";
 
 function isMarkdown(lang: string): boolean {
   return lang === "markdown" || lang === "md";
-}
-
-let highlighterPromise: Promise<Highlighter> | null = null;
-
-function getHighlighter(): Promise<Highlighter> {
-  if (!highlighterPromise) {
-    // Dynamic import keeps shiki (and its grammars) out of the main chunk;
-    // it only loads once someone actually opens a file.
-    highlighterPromise = import("shiki").then(({ createHighlighter }) =>
-      createHighlighter({
-        themes: ["github-light", "github-dark"],
-        langs: [],
-      }),
-    );
-  }
-  return highlighterPromise;
-}
-
-function shikiLang(language: string): string {
-  const map: Record<string, string> = {
-    js: "javascript",
-    ts: "typescript",
-    jsx: "jsx",
-    tsx: "tsx",
-    py: "python",
-    rb: "ruby",
-    rs: "rust",
-    yml: "yaml",
-    md: "markdown",
-    sh: "bash",
-    zsh: "bash",
-    dockerfile: "dockerfile",
-    makefile: "makefile",
-  };
-  return map[language.toLowerCase()] ?? language.toLowerCase();
 }
 
 interface Props {
@@ -141,39 +106,11 @@ export function FileViewer({
     }
 
     let cancelled = false;
-    const lang = shikiLang(language || ext);
-    if (!lang) {
-      setHighlightReady(true);
-      return;
-    }
-
     void (async () => {
-      try {
-        const hl = await getHighlighter();
-        const loadedLangs = hl.getLoadedLanguages();
-        if (!loadedLangs.includes(lang as never)) {
-          try {
-            await hl.loadLanguage(lang as never);
-          } catch {
-            if (!cancelled) {
-              setHighlightReady(true);
-            }
-            return;
-          }
-        }
-        if (cancelled) return;
-        const isDark = document.documentElement.classList.contains("dark");
-        const html = hl.codeToHtml(content, {
-          lang,
-          theme: isDark ? "github-dark" : "github-light",
-        });
-        if (!cancelled) {
-          setHighlighted(html);
-          setHighlightReady(true);
-        }
-      } catch {
-        if (!cancelled) setHighlightReady(true);
-      }
+      const html = await highlightToHtml(content, language || ext);
+      if (cancelled) return;
+      if (html) setHighlighted(html);
+      setHighlightReady(true);
     })();
 
     return () => {
