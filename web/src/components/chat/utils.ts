@@ -42,6 +42,15 @@ export function basename(path: string): string {
   return path.split("/").pop() || path;
 }
 
+// Uploads are stored as "<YYYYMMDD>-<uuid>-<original name>" so they cannot
+// collide. That prefix is 45 characters of noise in a chat bubble, and it
+// pushes the real name past the truncation point, so strip it for display.
+const UPLOAD_PREFIX = /^\d{8}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-(?=.)/i;
+
+export function attachmentDisplayName(path: string): string {
+  return basename(path).replace(UPLOAD_PREFIX, "");
+}
+
 // workspaceFileURL builds a raw file-content read URL for a message-embedded
 // file path. The path is passed verbatim: an absolute sandbox-view (/user/...,
 // /workspace/...) or host path is self-describing, and the server resolves which

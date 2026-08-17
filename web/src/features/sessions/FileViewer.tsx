@@ -23,7 +23,7 @@ import {
   isHtml,
   fetchBlobUrl,
   mimeTypeForPath,
-} from "./fileUtils";
+} from "@/lib/file-kind";
 
 function isMarkdown(lang: string): boolean {
   return lang === "markdown" || lang === "md";

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { userMessageRenderInput } from "./utils";
+import { attachmentDisplayName, userMessageRenderInput } from "./utils";
 import { UserMessage } from "./UserMessage";
 
 vi.hoisted(() => {
@@ -53,5 +53,22 @@ describe("UserMessage provenance", () => {
 
     expect(html).toContain("chat.fromSession");
     expect(html).toContain('title="source-session"');
+  });
+});
+
+describe("attachmentDisplayName", () => {
+  it("strips the upload date+uuid prefix so the original name is readable", () => {
+    expect(
+      attachmentDisplayName(
+        "/user/assets/202608/20260817-01a00ddf-cdb1-7923-9c4e-2b1f8a0d5e77-quarterly report.pdf",
+      ),
+    ).toBe("quarterly report.pdf");
+  });
+
+  it("leaves names that do not carry the prefix alone", () => {
+    expect(attachmentDisplayName("/user/assets/notes.md")).toBe("notes.md");
+    expect(attachmentDisplayName("20260817-not-a-uuid-report.pdf")).toBe(
+      "20260817-not-a-uuid-report.pdf",
+    );
   });
 });
