@@ -15,6 +15,7 @@ import {
   type TriggerFragment,
 } from "./composer-triggers";
 import { loadDraft, patchDraft, type ComposerDraft } from "./draft-store";
+import { pastedFileName, shouldPasteAsFile } from "./composer-paste";
 
 export interface Attachment {
   name: string;
@@ -428,7 +429,14 @@ export function ChatComposer({
               if (files.length > 0) {
                 e.preventDefault();
                 onFileSelect(files);
+                return;
               }
+              const text = e.clipboardData.getData("text/plain");
+              if (!shouldPasteAsFile(text)) return;
+              e.preventDefault();
+              const transfer = new DataTransfer();
+              transfer.items.add(new File([text], pastedFileName(), { type: "text/plain" }));
+              onFileSelect(transfer.files);
             }}
             placeholder={placeholder}
             aria-label={placeholder}
