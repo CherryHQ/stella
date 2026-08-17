@@ -3,6 +3,7 @@ import { ArrowUp, Paperclip, Plus, TriangleAlert, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatBytes } from "@/lib/format-bytes";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { useI18n } from "@/lib/i18n";
 import {
   applyTriggerSelection,
@@ -27,6 +28,9 @@ export interface Attachment {
   /** Set when the upload failed. The chip stays so the user can drop it explicitly. */
   error?: string;
 }
+
+const MENU_ID = "composer-trigger-menu";
+const optionId = (index: number) => `${MENU_ID}-option-${index}`;
 
 export const BUILTIN_COMMANDS: ComposerSkill[] = [
   { name: "compact", description: "Compact session memory" },
@@ -64,6 +68,9 @@ export function ChatComposer({
   draftKey,
 }: Props) {
   const { t } = useI18n();
+  // On a touch keyboard Enter is the only way to get a new line, so it must not
+  // send; the button is the send affordance there.
+  const isTouch = useMediaQuery({ pointer: "coarse" });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   // Caret position to restore after code rewrites the draft. React commits the
@@ -93,7 +100,9 @@ export function ChatComposer({
     const textarea = taRef.current;
     if (!textarea) return;
     textarea.style.height = "auto";
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+    // Read the cap from CSS so the responsive max-height stays single-sourced.
+    const max = Number.parseFloat(getComputedStyle(textarea).maxHeight);
+    textarea.style.height = `${Math.min(textarea.scrollHeight, Number.isFinite(max) ? max : 160)}px`;
   }, []);
 
   useEffect(() => {
@@ -275,6 +284,9 @@ export function ChatComposer({
   const menuOverlay = menuOpen ? (
     <div
       ref={menuListRef}
+      id={MENU_ID}
+      role="listbox"
+      aria-label={t("sessions.composer.suggestions")}
       className="absolute bottom-full left-0 right-0 z-10 mb-1 max-h-48 overflow-y-auto rounded-lg border border-border bg-popover"
     >
       <div className="p-1.5">
@@ -282,6 +294,9 @@ export function ChatComposer({
           <button
             key={item.key}
             type="button"
+            role="option"
+            id={optionId(i)}
+            aria-selected={i === menuIndex}
             data-index={i}
             onClick={() => selectItem(item)}
             onMouseEnter={() => setMenuIndex(i)}
@@ -315,7 +330,10 @@ export function ChatComposer({
   return (
     <div className="relative min-w-0 flex-shrink-0 px-4 pt-2 pb-3 sm:px-8">
       {dragging && (
-        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-xs">
+        <div
+          aria-hidden
+          className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-xs"
+        >
           <div className="flex items-center gap-2 rounded-xl border-2 border-dashed border-primary bg-card px-6 py-4 text-sm text-foreground">
             <Paperclip className="size-4 text-muted-foreground" />
             {t("sessions.composer.dropHint")}
@@ -389,7 +407,7 @@ export function ChatComposer({
                 onStop();
                 return;
               }
-              if (e.key === "Enter" && !e.shiftKey) {
+              if (e.key === "Enter" && !e.shiftKey && !isTouch) {
                 // Typing during a turn is allowed; sending is not, so swallow
                 // Enter instead of losing the draft to a no-op.
                 e.preventDefault();
@@ -406,7 +424,13 @@ export function ChatComposer({
               }
             }}
             placeholder={placeholder}
-            className="max-h-40 min-h-10 w-full min-w-0 resize-none overflow-y-auto border-0 bg-transparent px-4 py-2.5 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
+            aria-label={placeholder}
+            role="combobox"
+            aria-expanded={menuOpen}
+            aria-controls={menuOpen ? MENU_ID : undefined}
+            aria-activedescendant={menuOpen ? optionId(menuIndex) : undefined}
+            aria-autocomplete="list"
+            className="max-h-[40vh] min-h-10 w-full sm:max-h-40 min-w-0 resize-none overflow-y-auto border-0 bg-transparent px-4 py-2.5 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
             rows={1}
             disabled={disabled}
           />
@@ -422,6 +446,7 @@ export function ChatComposer({
                 <button
                   type="button"
                   onClick={() => removeChip(c.key)}
+                  aria-label={t("sessions.composer.removeItem", { item: c.label })}
                   className="ml-0.5 shrink-0 cursor-pointer text-muted-foreground transition-colors hover:text-foreground"
                 >
                   <X className="size-3" />
@@ -464,6 +489,7 @@ export function ChatComposer({
                     <button
                       type="button"
                       onClick={() => onRemoveAttachment(i)}
+                      aria-label={t("sessions.composer.removeItem", { item: a.name })}
                       className="ml-0.5 shrink-0 cursor-pointer text-muted-foreground transition-colors hover:text-foreground"
                     >
                       <X className="size-3" />
@@ -480,11 +506,12 @@ export function ChatComposer({
               size="icon-xs"
               onClick={() => fileInputRef.current?.click()}
               title={t("sessions.composer.attachFiles")}
+              aria-label={t("sessions.composer.attachFiles")}
             >
               <Plus className="size-4" />
             </Button>
           )}
-          {!isStreaming && (
+          {!isStreaming && !isTouch && (
             <span className="min-w-0 truncate font-mono text-xs text-muted-foreground select-none">
               {hasSkillTrigger
                 ? t("sessions.transcript.sendHintSkills")
@@ -493,7 +520,7 @@ export function ChatComposer({
           )}
           {isStreaming && (
             <>
-              <span className="text-xs font-mono text-info select-none animate-pulse">
+              <span role="status" className="text-xs font-mono text-info select-none animate-pulse">
                 {t("sessions.transcript.generating")}
               </span>
               {onStop && (
@@ -516,6 +543,7 @@ export function ChatComposer({
                 disabled={!canSend}
                 onClick={handleSend}
                 title={t("sessions.composer.sendMessage")}
+                aria-label={t("sessions.composer.sendMessage")}
               >
                 <ArrowUp className="size-4 stroke-[2.5]" />
               </Button>
