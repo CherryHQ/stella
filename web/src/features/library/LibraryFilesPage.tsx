@@ -176,7 +176,7 @@ function LibraryFilesView({
         className="hidden"
         type="file"
         multiple
-        accept=".pdf,.doc,.docx,.odt,.rtf,.xls,.xlsx,.ods,.csv,.tsv,.pptx,.html,.htm,.xhtml,.epub,.fb2,.txt,.md,.markdown,.mdx,.rst,.org,.json,.yaml,.yml,.toml,.xml"
+        accept=".pdf,.doc,.docx,.odt,.rtf,.xls,.xlsx,.ods,.csv,.tsv,.ppt,.pptx,.odp,.html,.htm,.xhtml,.epub,.fb2,.txt,.md,.markdown,.mdx,.rst,.org,.json,.yaml,.yml,.toml,.xml"
         aria-label={t("library.upload.action")}
         onChange={(event) => {
           const selected = Array.from(event.currentTarget.files ?? []);

@@ -36,7 +36,7 @@ func TestXbergCLIParserProfilesAndMapsChunkMetadata(t *testing.T) {
 			t.Fatalf("Profile(%q) = %q, %v", mediaType, got, err)
 		}
 	}
-	if !strings.Contains(profile, "xberg-cli-adapter:v3") || !strings.Contains(profile, "cli=1.1.0") || !strings.Contains(profile, "args_sha256=") {
+	if !strings.Contains(profile, "xberg-cli-adapter:v4") || !strings.Contains(profile, "cli=1.1.0") || !strings.Contains(profile, "args_sha256=") {
 		t.Fatalf("profile = %q", profile)
 	}
 	if _, err := parser.Profile(MediaTypeText); !errors.Is(err, ErrUnsupportedFileType) {
@@ -79,6 +79,12 @@ func TestXbergCanonicalArgsPinDeterministicExtraction(t *testing.T) {
 	if !slices.Contains(presentation, xbergPresentationConfigJSON) {
 		t.Fatalf("presentation args = %v", presentation)
 	}
+	for _, mediaType := range []string{MediaTypePPT, MediaTypeODP} {
+		degraded := xbergCanonicalArgs(mediaType)
+		if slices.Contains(degraded, xbergPresentationConfigJSON) || !slices.Contains(degraded, xbergChunkingConfigJSON) {
+			t.Fatalf("degraded presentation args for %s = %v", mediaType, degraded)
+		}
+	}
 }
 
 func TestXbergCLIParserSuppressesUnpromisedPageCoordinates(t *testing.T) {
@@ -97,6 +103,43 @@ func TestXbergCLIParserSuppressesUnpromisedPageCoordinates(t *testing.T) {
 	if len(chunks) != 1 || chunks[0].Locator.FirstPage != nil || chunks[0].Locator.LastPage != nil ||
 		!slices.Equal(chunks[0].Locator.HeadingPath, []string{"Chapter"}) {
 		t.Fatalf("DOCX locator = %+v", chunks[0].Locator)
+	}
+}
+
+func TestXbergCLIParserDegradesUnavailablePresentationCoordinates(t *testing.T) {
+	t.Parallel()
+	parser, err := newXbergCLIParser(t.Context(), "/test/xberg", xbergFixtureRunner(
+		`{"result":{"chunks":[{"content":"# Section A\n\nAlpha","metadata":{"byte_start":0,"byte_end":18,"first_page":1,"last_page":2,"heading_context":{"headings":[{"text":"Section A"}]}}}]}}`,
+		nil,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunks, err := parser.Parse(t.Context(), "source.ppt", MediaTypePPT)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 1 || chunks[0].Locator.FirstPage != nil || chunks[0].Locator.LastPage != nil ||
+		len(chunks[0].Locator.HeadingPath) != 0 {
+		t.Fatalf("degraded locator = %+v", chunks[0].Locator)
+	}
+}
+
+func TestXbergCLIParserSuppressesAmbiguousMultiHeadingContext(t *testing.T) {
+	t.Parallel()
+	parser, err := newXbergCLIParser(t.Context(), "/test/xberg", xbergFixtureRunner(
+		`{"result":{"chunks":[{"content":"# Section A\n\nAlpha\n\n# Section B\n\nBeta","metadata":{"byte_start":0,"byte_end":39,"heading_context":{"headings":[{"text":"Section A"}]}}}]}}`,
+		nil,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunks, err := parser.Parse(t.Context(), "source.html", MediaTypeHTML)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 1 || len(chunks[0].Locator.HeadingPath) != 0 {
+		t.Fatalf("ambiguous heading locator = %+v", chunks[0].Locator)
 	}
 }
 

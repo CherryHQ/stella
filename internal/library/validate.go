@@ -87,6 +87,10 @@ func validateXLSFile(filePath string) error {
 	return validateCFBFile(filePath, "XLS", "Workbook", "Book")
 }
 
+func validatePPTFile(filePath string) error {
+	return validateCFBFile(filePath, "PPT", "PowerPoint Document")
+}
+
 func validateCFBFile(filePath, format string, requiredStreams ...string) error {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -147,6 +151,13 @@ func validateXLSXFile(filePath string) error {
 func validatePPTXFile(filePath string) error {
 	return validateZIPPackage(filePath, zipPackageRules{
 		format: "PPTX", requiredEntries: []string{"[Content_Types].xml", "ppt/presentation.xml"},
+	})
+}
+
+func validateODPFile(filePath string) error {
+	return validateZIPPackage(filePath, zipPackageRules{
+		format: "ODP", requiredEntries: []string{"content.xml"},
+		mimetype: "application/vnd.oasis.opendocument.presentation",
 	})
 }
 

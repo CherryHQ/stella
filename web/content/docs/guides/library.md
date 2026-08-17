@@ -16,13 +16,13 @@ Supported uploads include:
 | -------------- | --------------------------------------------------------------------------------------------- |
 | Documents      | `.pdf`, `.doc`, `.docx`, `.odt`, `.rtf`                                                       |
 | Spreadsheets   | `.xls`, `.xlsx`, `.ods`, `.csv`, `.tsv`                                                       |
-| Presentations  | `.pptx`                                                                                       |
+| Presentations  | `.ppt`, `.pptx`, `.odp`                                                                       |
 | Web and ebooks | `.html`, `.htm`, `.xhtml`, `.epub`, `.fb2`                                                    |
 | Text and data  | `.txt`, `.md`, `.markdown`, `.mdx`, `.rst`, `.org`, `.json`, `.yaml`, `.yml`, `.toml`, `.xml` |
 
-Stella checks both the extension and the file structure. Renaming an unsupported or damaged file to a supported extension does not make it uploadable. Scanned pages are not read yet; optical character recognition is a separate capability.
+Stella checks the extension and performs bounded signature, syntax, or container validation before accepting an upload. Obvious format mismatches are rejected; deeper damage may be discovered later by the asynchronous parser and leave the file in a failed state. Scanned pages are not read yet; optical character recognition is a separate capability.
 
-Legacy `.ppt` and `.odp` remain disabled because Xberg 1.0.14 does not expose the per-slide ranges required for reliable slide citations.
+Parsing fidelity follows the bundled Xberg version. Missing fine-grained structure does not block useful text extraction: PPT and ODP currently use filename-only citations, and XLS, XLSX, and ODS use filename plus worksheet when available because Xberg 1.0.14 does not expose reliable source slide or worksheet-row coordinates. CSV and TSV retain logical record ranges. Heading paths are shown only when a chunk has an unambiguous heading context.
 
 ## Where files apply
 
@@ -55,7 +55,7 @@ You can ask a natural question; you do not need to choose a file or write a sear
 
 Each search covers exactly the four ranges available to the current user and agent. Stella filters permissions, publication state, and deletion state in the same database query that ranks matches. It returns complete matching passages rather than the original file.
 
-When an answer uses a Library passage, check its file-name citation and the available page, slide, sheet row range, or structural heading. Source documents are treated as reference material, not as instructions that can override the conversation or Stella's safety rules.
+When an answer uses a Library passage, check its file-name citation and any reliable page, slide, worksheet, logical record range, or structural heading that is available. Source documents are treated as reference material, not as instructions that can override the conversation or Stella's safety rules.
 
 Library search is not enabled in group conversations. Signed-in one-to-one agent runs can use the Library from the Web UI, supported private channels, webhooks, scheduled work, tasks, workflows, and delegated work when the run retains a trusted user and agent identity.
 

@@ -18,7 +18,8 @@ func TestFormatRegistryMapsEverySupportedExtension(t *testing.T) {
 		"a.pdf": MediaTypePDF, "a.doc": MediaTypeDOC, "a.docx": MediaTypeDOCX,
 		"a.odt": MediaTypeODT, "a.rtf": MediaTypeRTF, "a.xls": MediaTypeXLS,
 		"a.xlsx": MediaTypeXLSX, "a.ods": MediaTypeODS, "a.csv": MediaTypeCSV,
-		"a.tsv": MediaTypeTSV, "a.pptx": MediaTypePPTX, "a.html": MediaTypeHTML, "a.htm": MediaTypeHTML,
+		"a.tsv": MediaTypeTSV, "a.ppt": MediaTypePPT, "a.pptx": MediaTypePPTX, "a.odp": MediaTypeODP,
+		"a.html": MediaTypeHTML, "a.htm": MediaTypeHTML,
 		"a.xhtml": MediaTypeXHTML, "a.epub": MediaTypeEPUB, "a.fb2": MediaTypeFB2,
 		"a.mdx": MediaTypeMDX, "a.rst": MediaTypeRST, "a.org": MediaTypeORG,
 		"a.json": MediaTypeJSON, "a.yaml": MediaTypeYAML, "a.yml": MediaTypeYAML,
@@ -89,6 +90,7 @@ func TestValidateOfficeZIPPackagesAndRejectsTraversal(t *testing.T) {
 		{"pptx", MediaTypePPTX, map[string]string{"[Content_Types].xml": "<Types/>", "ppt/presentation.xml": "<presentation/>"}},
 		{"odt", MediaTypeODT, map[string]string{"mimetype": "application/vnd.oasis.opendocument.text", "content.xml": "<document/>"}},
 		{"ods", MediaTypeODS, map[string]string{"mimetype": "application/vnd.oasis.opendocument.spreadsheet", "content.xml": "<document/>"}},
+		{"odp", MediaTypeODP, map[string]string{"mimetype": "application/vnd.oasis.opendocument.presentation", "content.xml": "<document/>"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -138,6 +140,7 @@ func TestValidateLegacyOfficeRequiresFormatSpecificStream(t *testing.T) {
 	}{
 		{MediaTypeDOC, "WordDocument"},
 		{MediaTypeXLS, "Workbook"},
+		{MediaTypePPT, "PowerPoint Document"},
 	} {
 		valid := writeCFBFixture(t, test.stream)
 		if err := validateUploadFile(valid, test.mediaType); err != nil {

@@ -19,7 +19,9 @@ const (
 	MediaTypeODS      = "application/vnd.oasis.opendocument.spreadsheet"
 	MediaTypeCSV      = "text/csv"
 	MediaTypeTSV      = "text/tab-separated-values"
+	MediaTypePPT      = "application/vnd.ms-powerpoint"
 	MediaTypePPTX     = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+	MediaTypeODP      = "application/vnd.oasis.opendocument.presentation"
 	MediaTypeHTML     = "text/html"
 	MediaTypeXHTML    = "application/xhtml+xml"
 	MediaTypeEPUB     = "application/epub+zip"
@@ -64,7 +66,9 @@ var formatSpecs = []formatSpec{
 	{[]string{".ods"}, MediaTypeODS, ".ods", parserKindXberg, validateODSFile},
 	{[]string{".csv"}, MediaTypeCSV, ".csv", parserKindXberg, validateCSVFile},
 	{[]string{".tsv"}, MediaTypeTSV, ".tsv", parserKindXberg, validateTSVFile},
+	{[]string{".ppt"}, MediaTypePPT, ".ppt", parserKindXberg, validatePPTFile},
 	{[]string{".pptx"}, MediaTypePPTX, ".pptx", parserKindXberg, validatePPTXFile},
+	{[]string{".odp"}, MediaTypeODP, ".odp", parserKindXberg, validateODPFile},
 	{[]string{".html", ".htm"}, MediaTypeHTML, ".html", parserKindXberg, validateHTMLFile},
 	{[]string{".xhtml"}, MediaTypeXHTML, ".xhtml", parserKindXberg, validateXHTMLFile},
 	{[]string{".epub"}, MediaTypeEPUB, ".epub", parserKindXberg, validateEPUBFile},
@@ -138,7 +142,11 @@ func isSpreadsheetMediaType(mediaType string) bool {
 	}
 }
 
-func isPresentationMediaType(mediaType string) bool {
+// hasReliableSlideRanges is intentionally narrower than the presentation
+// family. Xberg 1.0.14 extracts PPT and ODP text but only exposes the stable
+// page ranges needed for public slide citations on PPTX. The other formats
+// remain searchable and degrade to filename-only citations.
+func hasReliableSlideRanges(mediaType string) bool {
 	return mediaType == MediaTypePPTX
 }
 

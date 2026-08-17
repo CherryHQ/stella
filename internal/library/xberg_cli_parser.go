@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	xbergAdapterContractVersion = "v3"
+	xbergAdapterContractVersion = "v4"
 	xbergTimeout                = 60 * time.Second
 	xbergStdoutLimit            = 48 << 20
 	xbergStderrLimit            = 64 << 10
@@ -30,7 +30,7 @@ func xbergCanonicalArgs(mediaType string) []string {
 	// context that Library needs for structured citations.
 	configJSON := xbergChunkingConfigJSON
 	pageMarkers := "false"
-	if isPresentationMediaType(mediaType) {
+	if hasReliableSlideRanges(mediaType) {
 		// Xberg's source page offsets predate its final Markdown rendering. A
 		// private marker gives the adapter a stable slide boundary to remove.
 		configJSON = xbergPresentationConfigJSON
@@ -196,7 +196,7 @@ func (p *XbergCLIParser) Parse(ctx context.Context, path, mediaType string) ([]P
 		return nil, fmt.Errorf("%w: %w", ErrInvalidParserData, err)
 	}
 	if isSpreadsheetMediaType(mediaType) {
-		chunks, err := structuredTableChunks(envelope.Result)
+		chunks, err := structuredTableChunks(envelope.Result, mediaType)
 		if err != nil {
 			return nil, err
 		}
@@ -222,11 +222,18 @@ func (p *XbergCLIParser) Parse(ctx context.Context, path, mediaType string) ([]P
 		}
 		// DOC headings are heuristic, while YAML and TOML do not yet expose a
 		// stable structural path. Keep their public citations filename-only.
-		if mediaType == MediaTypeDOC || mediaType == MediaTypeYAML || mediaType == MediaTypeTOML {
+		if mediaType == MediaTypeDOC || mediaType == MediaTypePPT || mediaType == MediaTypeODP ||
+			mediaType == MediaTypeYAML || mediaType == MediaTypeTOML {
+			headingPath = nil
+		}
+		// Xberg 1.0.14 can place multiple Markdown headings in one chunk while
+		// reporting only the first heading as its context. Keep the text
+		// searchable, but do not expose a heading citation that may be false.
+		if containsMultipleMarkdownHeadings(chunk.Content) {
 			headingPath = nil
 		}
 		firstPage, lastPage := chunk.Metadata.FirstPage, chunk.Metadata.LastPage
-		if mediaType != MediaTypePDF && !isPresentationMediaType(mediaType) {
+		if mediaType != MediaTypePDF && !hasReliableSlideRanges(mediaType) {
 			// Xberg may assign internal page-like coordinates to narrative and
 			// ebook formats. They are not stable rendered page numbers, so only
 			// PDF and presentation routes expose them as public citations.
@@ -238,10 +245,32 @@ func (p *XbergCLIParser) Parse(ctx context.Context, path, mediaType string) ([]P
 			HeadingPath: headingPath,
 		}}
 	}
-	if isPresentationMediaType(mediaType) {
+	if hasReliableSlideRanges(mediaType) {
 		return enforcePresentationPageBoundaries(chunks)
 	}
 	return chunks, nil
+}
+
+func containsMultipleMarkdownHeadings(content string) bool {
+	headings := 0
+	for line := range strings.SplitSeq(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if len(trimmed) < 3 || trimmed[0] != '#' {
+			continue
+		}
+		markerEnd := 0
+		for markerEnd < len(trimmed) && trimmed[markerEnd] == '#' {
+			markerEnd++
+		}
+		if markerEnd > 6 || markerEnd == len(trimmed) || trimmed[markerEnd] != ' ' {
+			continue
+		}
+		headings++
+		if headings > 1 {
+			return true
+		}
+	}
+	return false
 }
 
 type cappedBuffer struct {

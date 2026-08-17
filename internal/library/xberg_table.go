@@ -20,9 +20,10 @@ type tableLine struct {
 }
 
 // structuredTableChunks uses Xberg's cell matrix and rendered table instead
-// of re-parsing the original office format. This keeps rows indivisible and
-// gives row locators a source that can be checked against Xberg's own output.
-func structuredTableChunks(result xbergResult) ([]ParsedChunk, error) {
+// of re-parsing the original format. This keeps rows indivisible. It exposes
+// logical record ranges only for CSV/TSV because Xberg 1.0.14 does not retain
+// original worksheet row coordinates for office spreadsheets.
+func structuredTableChunks(result xbergResult, mediaType string) ([]ParsedChunk, error) {
 	tables := make([]locatedTable, 0, len(result.Tables))
 	for _, page := range result.Pages {
 		for _, table := range page.Tables {
@@ -70,7 +71,12 @@ func structuredTableChunks(result xbergResult) ([]ParsedChunk, error) {
 			)
 		}
 		reliableHeader := len(located.table.Columns) > 0 && equalTableRow(located.table.Columns, located.table.Cells[0]) && separator != nil
-		tableChunks := batchTableRows(rows, separator, reliableHeader, located.sheetName, tableStart)
+		// Xberg 1.0.14 does not expose original worksheet row indices and omits
+		// leading empty rows. CSV/TSV positions are logical record ranges, but
+		// office spreadsheets must not turn rendered row order into a false source
+		// citation.
+		exposeRowRange := mediaType == MediaTypeCSV || mediaType == MediaTypeTSV
+		tableChunks := batchTableRows(rows, separator, reliableHeader, located.sheetName, tableStart, exposeRowRange)
 		chunks = append(chunks, tableChunks...)
 	}
 	return chunks, nil
@@ -165,6 +171,7 @@ func batchTableRows(
 	reliableHeader bool,
 	sheetName string,
 	tableStart int,
+	exposeRowRange bool,
 ) []ParsedChunk {
 	if len(rows) == 0 {
 		return nil
@@ -180,11 +187,15 @@ func batchTableRows(
 		dataStart = 1
 	}
 	if dataStart == len(rows) {
-		rowStart, rowEnd := uint32(1), uint32(1)
+		var rowStart, rowEnd *uint32
+		if exposeRowRange {
+			start, end := uint32(1), uint32(1)
+			rowStart, rowEnd = &start, &end
+		}
 		return []ParsedChunk{{
 			Content: headerPrefix,
 			Locator: ChunkLocator{
-				RowStart: &rowStart, RowEnd: &rowEnd,
+				RowStart: rowStart, RowEnd: rowEnd,
 				HeadingPath: headingPath,
 				ByteStart:   tableStart + rows[0].byteStart,
 				ByteEnd:     tableStart + rows[0].byteEnd,
@@ -216,10 +227,14 @@ func batchTableRows(
 			rowStart = 1
 			byteStart = tableStart + rows[0].byteStart
 		}
+		var publicRowStart, publicRowEnd *uint32
+		if exposeRowRange {
+			publicRowStart, publicRowEnd = &rowStart, &rowEnd
+		}
 		chunks = append(chunks, ParsedChunk{
 			Content: strings.Join(parts, "\n"),
 			Locator: ChunkLocator{
-				RowStart: &rowStart, RowEnd: &rowEnd,
+				RowStart: publicRowStart, RowEnd: publicRowEnd,
 				HeadingPath: append([]string(nil), headingPath...),
 				ByteStart:   byteStart,
 				ByteEnd:     tableStart + current[len(current)-1].byteEnd,

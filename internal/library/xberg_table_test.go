@@ -20,7 +20,7 @@ func TestStructuredTableChunksKeepRowsAndRepeatReliableHeader(t *testing.T) {
 		Content: markdown,
 		Tables:  []xbergTable{{Cells: cells, Columns: header, Markdown: markdown, PageNumber: 1}},
 	}
-	chunks, err := structuredTableChunks(result)
+	chunks, err := structuredTableChunks(result, MediaTypeCSV)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,15 +55,15 @@ func TestStructuredTableChunksUseSheetPathWithoutInventingHeader(t *testing.T) {
 			}},
 		}},
 	}
-	chunks, err := structuredTableChunks(result)
+	chunks, err := structuredTableChunks(result, MediaTypeXLSX)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(chunks) != 1 || strings.Contains(chunks[0].Content, "---") || strings.Join(chunks[0].Locator.HeadingPath, "/") != "Sales" {
 		t.Fatalf("chunks = %+v", chunks)
 	}
-	if *chunks[0].Locator.RowStart != 1 || *chunks[0].Locator.RowEnd != 2 {
-		t.Fatalf("locator = %+v", chunks[0].Locator)
+	if chunks[0].Locator.RowStart != nil || chunks[0].Locator.RowEnd != nil {
+		t.Fatalf("office spreadsheet invented source rows: %+v", chunks[0].Locator)
 	}
 }
 
@@ -82,14 +82,14 @@ func TestStructuredTableChunksLocateNormalizedLegacyXLSMarkdown(t *testing.T) {
 			}},
 		}},
 	}
-	chunks, err := structuredTableChunks(result)
+	chunks, err := structuredTableChunks(result, MediaTypeXLS)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(chunks) != 1 || chunks[0].Content != "| Name | Amount |\n| Alpha | 1 |" {
 		t.Fatalf("chunks = %+v", chunks)
 	}
-	if *chunks[0].Locator.RowStart != 1 || *chunks[0].Locator.RowEnd != 2 {
-		t.Fatalf("locator = %+v", chunks[0].Locator)
+	if chunks[0].Locator.RowStart != nil || chunks[0].Locator.RowEnd != nil {
+		t.Fatalf("legacy spreadsheet invented source rows: %+v", chunks[0].Locator)
 	}
 }
