@@ -2,6 +2,7 @@ package library
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -16,7 +17,10 @@ func TestXbergCLIParserProfilesAndMapsChunkMetadata(t *testing.T) {
 		if slices.Equal(args, []string{"version", "--format", "json"}) {
 			return []byte(`{"name":"xberg-cli","version":"1.1.0"}`), nil, nil
 		}
-		return []byte(`{"result":{"chunks":[{"content":"Policy text","metadata":{"byte_start":4,"byte_end":15,"first_page":2,"last_page":3,"heading_path":["Policy","Approval"]}}]}}`), nil, nil
+		if slices.Equal(args, []string{"formats", "--format", "json"}) {
+			return xbergFormatsFixture(t), nil, nil
+		}
+		return []byte(`{"result":{"chunks":[{"content":"Policy text","metadata":{"byte_start":4,"byte_end":15,"first_page":2,"last_page":3,"heading_context":{"headings":[{"level":1,"text":"Policy"},{"level":2,"text":"Approval"}]}}}]}}`), nil, nil
 	}
 	parser, err := newXbergCLIParser(t.Context(), "/test/xberg", run)
 	if err != nil {
@@ -26,7 +30,13 @@ func TestXbergCLIParserProfilesAndMapsChunkMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(profile, "xberg-cli-adapter:v2") || !strings.Contains(profile, "cli=1.1.0") || !strings.Contains(profile, "args_sha256=") {
+	for _, mediaType := range XbergMediaTypes() {
+		got, err := parser.Profile(mediaType)
+		if err != nil || got == "" {
+			t.Fatalf("Profile(%q) = %q, %v", mediaType, got, err)
+		}
+	}
+	if !strings.Contains(profile, "xberg-cli-adapter:v3") || !strings.Contains(profile, "cli=1.1.0") || !strings.Contains(profile, "args_sha256=") {
 		t.Fatalf("profile = %q", profile)
 	}
 	if _, err := parser.Profile(MediaTypeText); !errors.Is(err, ErrUnsupportedFileType) {
@@ -45,12 +55,12 @@ func TestXbergCLIParserProfilesAndMapsChunkMetadata(t *testing.T) {
 		locator.LastPage == nil || *locator.LastPage != 3 || !slices.Equal(locator.HeadingPath, []string{"Policy", "Approval"}) {
 		t.Fatalf("locator = %+v", locator)
 	}
-	if len(calls) != 2 {
+	if len(calls) != 3 {
 		t.Fatalf("Xberg calls = %v", calls)
 	}
-	wantArgs := append([]string{"extract", calls[1][1]}, xbergCanonicalArgs()...)
-	if !slices.Equal(calls[1], wantArgs) {
-		t.Fatalf("extract arguments = %v", calls[1])
+	wantArgs := append([]string{"extract", calls[2][1]}, xbergCanonicalArgs(MediaTypePDF)...)
+	if !slices.Equal(calls[2], wantArgs) {
+		t.Fatalf("extract arguments = %v", calls[2])
 	}
 }
 
@@ -59,11 +69,79 @@ func TestXbergCanonicalArgsPinDeterministicExtraction(t *testing.T) {
 	want := []string{
 		"--no-config-discovery", "--disable-ocr", "true", "--quality", "false", "--force-ocr", "false",
 		"--include-structure", "true", "--content-format", "markdown", "--extract-pages", "true",
-		"--page-markers", "false", "--no-cache", "true", "--chunk", "true", "--chunk-size", "1000",
-		"--chunk-overlap", "200", "--format", "json",
+		"--page-markers", "false", "--no-cache", "true", "--config-json", xbergChunkingConfigJSON,
+		"--format", "json",
 	}
-	if got := xbergCanonicalArgs(); !slices.Equal(got, want) {
+	if got := xbergCanonicalArgs(MediaTypePDF); !slices.Equal(got, want) {
 		t.Fatalf("Xberg canonical args = %v", got)
+	}
+	presentation := xbergCanonicalArgs(MediaTypePPTX)
+	if !slices.Contains(presentation, xbergPresentationConfigJSON) {
+		t.Fatalf("presentation args = %v", presentation)
+	}
+}
+
+func TestXbergCLIParserSuppressesUnpromisedPageCoordinates(t *testing.T) {
+	t.Parallel()
+	parser, err := newXbergCLIParser(t.Context(), "/test/xberg", xbergFixtureRunner(
+		`{"result":{"chunks":[{"content":"Chapter text","metadata":{"byte_start":0,"byte_end":12,"first_page":4,"last_page":5,"heading_path":["Chapter"]}}]}}`,
+		nil,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunks, err := parser.Parse(t.Context(), "source.docx", MediaTypeDOCX)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 1 || chunks[0].Locator.FirstPage != nil || chunks[0].Locator.LastPage != nil ||
+		!slices.Equal(chunks[0].Locator.HeadingPath, []string{"Chapter"}) {
+		t.Fatalf("DOCX locator = %+v", chunks[0].Locator)
+	}
+}
+
+func TestXbergCLIParserRejectsRuntimeWithoutRequiredFormats(t *testing.T) {
+	t.Parallel()
+	run := func(_ context.Context, _ string, args []string) ([]byte, []byte, error) {
+		if slices.Equal(args, []string{"version", "--format", "json"}) {
+			return []byte(`{"version":"1.0.14"}`), nil, nil
+		}
+		return []byte(`[{"extension":"pdf"},{"extension":"docx"}]`), nil, nil
+	}
+	if _, err := newXbergCLIParser(t.Context(), "/test/xberg", run); err == nil || !strings.Contains(err.Error(), "required extension") {
+		t.Fatalf("error = %v, want missing required extension", err)
+	}
+}
+
+func TestXbergCLIParserAcceptsXHTMLThroughHTMLAlias(t *testing.T) {
+	t.Parallel()
+	run := func(_ context.Context, _ string, args []string) ([]byte, []byte, error) {
+		if slices.Equal(args, []string{"version", "--format", "json"}) {
+			return []byte(`{"version":"1.0.14"}`), nil, nil
+		}
+		formats := make([]map[string]string, 0, len(XbergMediaTypes()))
+		for _, mediaType := range XbergMediaTypes() {
+			if mediaType == MediaTypeXHTML {
+				continue
+			}
+			extension, err := canonicalExtension(mediaType)
+			if err != nil {
+				t.Fatal(err)
+			}
+			format := map[string]string{"extension": strings.TrimPrefix(extension, ".")}
+			if mediaType == MediaTypeHTML {
+				format["mime_type"] = MediaTypeHTML
+			}
+			formats = append(formats, format)
+		}
+		data, err := json.Marshal(formats)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data, nil, nil
+	}
+	if _, err := newXbergCLIParser(t.Context(), "/test/xberg", run); err != nil {
+		t.Fatalf("XHTML alias probe error = %v", err)
 	}
 }
 
@@ -128,6 +206,31 @@ func xbergFixtureRunner(output string, extractErr error) xbergCommandRunner {
 		if slices.Equal(args, []string{"version", "--format", "json"}) {
 			return []byte(`{"version":"1.1.0"}`), nil, nil
 		}
+		if slices.Equal(args, []string{"formats", "--format", "json"}) {
+			return xbergFormatsFixture(nil), nil, nil
+		}
 		return []byte(output), nil, extractErr
 	}
+}
+
+func xbergFormatsFixture(t *testing.T) []byte {
+	formats := make([]map[string]string, 0, len(XbergMediaTypes()))
+	for _, mediaType := range XbergMediaTypes() {
+		extension, err := canonicalExtension(mediaType)
+		if err != nil {
+			if t != nil {
+				t.Fatal(err)
+			}
+			panic(err)
+		}
+		formats = append(formats, map[string]string{"extension": strings.TrimPrefix(extension, ".")})
+	}
+	data, err := json.Marshal(formats)
+	if err != nil {
+		if t != nil {
+			t.Fatal(err)
+		}
+		panic(err)
+	}
+	return data
 }

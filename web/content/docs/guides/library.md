@@ -8,7 +8,21 @@ The Library gives agents durable reference material for answers that depend on c
 
 Library files are different from chat attachments. Attaching a file to one conversation does not add it to the Library. A file becomes searchable only when someone explicitly uploads it from a Library page.
 
-The first version accepts UTF-8 plain text and Markdown files up to 25 MiB each. Files from cloud drives and other connected sources are not yet synchronized.
+Each file can be up to 25 MiB. Files from cloud drives and other connected sources are not yet synchronized.
+
+Supported uploads include:
+
+| Family         | Extensions                                                                                    |
+| -------------- | --------------------------------------------------------------------------------------------- |
+| Documents      | `.pdf`, `.doc`, `.docx`, `.odt`, `.rtf`                                                       |
+| Spreadsheets   | `.xls`, `.xlsx`, `.ods`, `.csv`, `.tsv`                                                       |
+| Presentations  | `.pptx`                                                                                       |
+| Web and ebooks | `.html`, `.htm`, `.xhtml`, `.epub`, `.fb2`                                                    |
+| Text and data  | `.txt`, `.md`, `.markdown`, `.mdx`, `.rst`, `.org`, `.json`, `.yaml`, `.yml`, `.toml`, `.xml` |
+
+Stella checks both the extension and the file structure. Renaming an unsupported or damaged file to a supported extension does not make it uploadable. Scanned pages are not read yet; optical character recognition is a separate capability.
+
+Legacy `.ppt` and `.odp` remain disabled because Xberg 1.0.14 does not expose the per-slide ranges required for reliable slide citations.
 
 ## Where files apply
 
@@ -41,7 +55,7 @@ You can ask a natural question; you do not need to choose a file or write a sear
 
 Each search covers exactly the four ranges available to the current user and agent. Stella filters permissions, publication state, and deletion state in the same database query that ranks matches. It returns complete matching passages rather than the original file.
 
-When an answer uses a Library passage, check its file-name citation and page or heading when available. Source documents are treated as reference material, not as instructions that can override the conversation or Stella's safety rules.
+When an answer uses a Library passage, check its file-name citation and the available page, slide, sheet row range, or structural heading. Source documents are treated as reference material, not as instructions that can override the conversation or Stella's safety rules.
 
 Library search is not enabled in group conversations. Signed-in one-to-one agent runs can use the Library from the Web UI, supported private channels, webhooks, scheduled work, tasks, workflows, and delegated work when the run retains a trusted user and agent identity.
 

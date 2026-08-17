@@ -229,7 +229,11 @@ func (s *Service) parseRawSnapshot(ctx context.Context, target generationTarget)
 			s.logger.Warn("remove library parse directory", "file_id", target.FileID, "error", removeErr)
 		}
 	}()
-	path := filepath.Join(directory, "source"+extensionForMediaType(target.MediaType))
+	extension, err := canonicalExtension(target.MediaType)
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(directory, "source"+extension)
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("create library parse input: %w", err)
@@ -576,17 +580,4 @@ func cleanErrorMessage(message string) string {
 		return "Document parsing failed."
 	}
 	return message
-}
-
-func extensionForMediaType(mediaType string) string {
-	switch mediaType {
-	case MediaTypeMarkdown:
-		return ".md"
-	case MediaTypePDF:
-		return ".pdf"
-	case MediaTypeDOCX:
-		return ".docx"
-	default:
-		return ".txt"
-	}
 }

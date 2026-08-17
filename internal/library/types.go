@@ -124,11 +124,13 @@ type SearchHit struct {
 	Content  string         `json:"content"`
 }
 
-// SearchLocator is the safe, human-readable part of a parser locator. Page
-// ranges and heading paths may be absent for plain text files.
+// SearchLocator is the safe, human-readable part of a parser locator. Page,
+// row, and structural paths may be absent when a source has no such coordinate.
 type SearchLocator struct {
 	FirstPage   *uint32  `json:"first_page,omitempty"`
 	LastPage    *uint32  `json:"last_page,omitempty"`
+	RowStart    *uint32  `json:"row_start,omitempty"`
+	RowEnd      *uint32  `json:"row_end,omitempty"`
 	HeadingPath []string `json:"heading_path,omitempty"`
 }
 
