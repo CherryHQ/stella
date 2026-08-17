@@ -12,6 +12,7 @@ import {
   type ComposerTriggerItem,
   type TriggerFragment,
 } from "./composer-triggers";
+import { loadDraft, saveDraft, type ComposerDraft } from "./draft-store";
 
 export interface Attachment {
   name: string;
@@ -37,9 +38,9 @@ interface Props {
   /** Autocomplete menus keyed by their trigger char; first match near the caret wins. */
   triggers?: ComposerTrigger[];
   /**
-   * Storage key for persisting the draft across reloads. When set, the draft
-   * lives in sessionStorage under `stella-draft:<draftKey>` and is restored on
-   * mount; cleared on send.
+   * Identifies this conversation's draft. When set, the text, its pinned chips
+   * and the last sent message survive reloads and thread switches (see
+   * draft-store). Without it the composer starts empty every mount.
    */
   draftKey?: string;
 }
@@ -59,17 +60,28 @@ export function ChatComposer({
   const { t } = useI18n();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
+  // Caret position to restore after code rewrites the draft. React commits the
+  // new value first, so the move must happen in a layout effect.
+  const pendingCaretRef = useRef<number | null>(null);
 
-  const [chips, setChips] = useState<ComposerTriggerItem[]>([]);
+  const draftRef = useRef<ComposerDraft>(loadDraft(draftKey ?? null));
+  const [chips, setChips] = useState<ComposerTriggerItem[]>(draftRef.current.chips);
+  const [value, setValueState] = useState(draftRef.current.text);
 
-  const storageKey = draftKey ? `stella-draft:${draftKey}` : null;
-  const [value, setValueState] = useState(() =>
-    storageKey ? (sessionStorage.getItem(storageKey) ?? "") : "",
-  );
   useEffect(() => {
-    setValueState(storageKey ? (sessionStorage.getItem(storageKey) ?? "") : "");
-    setChips([]);
-  }, [storageKey]);
+    const restored = loadDraft(draftKey ?? null);
+    draftRef.current = restored;
+    setValueState(restored.text);
+    setChips(restored.chips);
+  }, [draftKey]);
+
+  const persist = useCallback(
+    (patch: Partial<ComposerDraft>) => {
+      draftRef.current = { ...draftRef.current, ...patch };
+      saveDraft(draftKey ?? null, draftRef.current);
+    },
+    [draftKey],
+  );
 
   const resizeTextarea = useCallback(() => {
     const textarea = taRef.current;
@@ -85,12 +97,19 @@ export function ChatComposer({
   const setValue = useCallback(
     (v: string) => {
       setValueState(v);
-      if (storageKey) {
-        if (v) sessionStorage.setItem(storageKey, v);
-        else sessionStorage.removeItem(storageKey);
-      }
+      persist({ text: v });
     },
-    [storageKey],
+    [persist],
+  );
+
+  // Not an updater form on purpose: persisting inside a state updater would
+  // write twice under StrictMode's double invocation.
+  const setChipsPersisted = useCallback(
+    (next: ComposerTriggerItem[]) => {
+      setChips(next);
+      persist({ chips: next });
+    },
+    [persist],
   );
 
   const hasAttachments = attachments && attachments.length > 0;
@@ -108,11 +127,22 @@ export function ChatComposer({
     if (chips.length > 0) {
       const prefix = chips.map((c) => c.label).join(" ");
       full = value.trim() ? `${prefix} ${value}` : prefix;
-      setChips([]);
     }
-    setValue("");
+    setChips([]);
+    setValueState("");
+    // Keep the sent text so an empty composer can recall it with ArrowUp.
+    persist({ text: "", chips: [], lastSent: full });
     onSend(full);
-  }, [canSend, chips, value, setValue, onSend]);
+  }, [canSend, chips, value, persist, onSend]);
+
+  /** Recall the last sent message when ArrowUp is pressed in an empty composer. */
+  const recallLastSent = useCallback(() => {
+    const last = draftRef.current.lastSent;
+    if (!last) return false;
+    setValue(last);
+    pendingCaretRef.current = last.length;
+    return true;
+  }, [setValue]);
 
   const [menu, setMenu] = useState<TriggerFragment | null>(null);
   const [menuIndex, setMenuIndex] = useState(0);
@@ -151,9 +181,6 @@ export function ChatComposer({
 
   const menuOpen = menu !== null && candidates.length > 0;
 
-  // Caret position to restore after a menu selection rewrites the draft. React
-  // commits the new value first, so the move must happen in a layout effect.
-  const pendingCaretRef = useRef<number | null>(null);
   useLayoutEffect(() => {
     const caret = pendingCaretRef.current;
     if (caret === null) return;
@@ -174,16 +201,19 @@ export function ChatComposer({
       );
       setValue(next.value);
       pendingCaretRef.current = next.caret;
-      if (activeTrigger.chip) setChips((prev) => [...prev, item]);
+      if (activeTrigger.chip) setChipsPersisted([...chips, item]);
       setMenu(null);
       textarea.focus();
     },
-    [value, setValue, activeTrigger, menu],
+    [value, setValue, activeTrigger, menu, chips, setChipsPersisted],
   );
 
-  const removeChip = useCallback((key: string) => {
-    setChips((prev) => prev.filter((c) => c.key !== key));
-  }, []);
+  const removeChip = useCallback(
+    (key: string) => {
+      setChipsPersisted(chips.filter((c) => c.key !== key));
+    },
+    [chips, setChipsPersisted],
+  );
 
   const moveMenu = useCallback(
     (delta: number) => {
@@ -316,6 +346,13 @@ export function ChatComposer({
                   setMenu(null);
                   return;
                 }
+              }
+              // An empty composer treats ArrowUp as "bring back what I just
+              // sent", the shell habit; with text in it, ArrowUp still moves
+              // the caret.
+              if (e.key === "ArrowUp" && !value && recallLastSent()) {
+                e.preventDefault();
+                return;
               }
               // Escape stops the turn so the keyboard alone can interrupt a
               // long answer without reaching for the stop button.
