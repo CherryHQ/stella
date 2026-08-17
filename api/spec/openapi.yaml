@@ -304,6 +304,8 @@ paths:
     $ref: "./domain/provisioning/paths.yaml#/paths/~1api~1provisioned-users~1{id}~1rotate-token"
   /api/provisioned-users/{id}/deactivate:
     $ref: "./domain/provisioning/paths.yaml#/paths/~1api~1provisioned-users~1{id}~1deactivate"
+  /api/provisioned-users/{id}/channel-identities:
+    $ref: "./domain/provisioning/paths.yaml#/paths/~1api~1provisioned-users~1{id}~1channel-identities"
 
   # ── OAuth2 clients & authorized apps ─────────────────────────────────────────
   /api/users/me/oauth-clients:

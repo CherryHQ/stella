@@ -357,7 +357,7 @@ func setupAdmin(t *testing.T) *testEnv {
 	credSvc := connections.NewService(nil, sqlc.New(db), oauth.NewFlowStore(), baseURL)
 	agentAccess := agentaccess.NewService(store, as)
 	skillAccess := skillaccess.NewService(skillStore, agentAccess)
-	projectStore := agent.NewProjectStore(db, store, agentAccess, agent.WithProjectHomeWorkspace(externalServerTestWorkspace{root: config.StellaHome()}))
+	projectStore := agent.NewProjectStore(db, agentAccess, agent.WithProjectHomeWorkspace(externalServerTestWorkspace{root: config.StellaHome()}))
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		Memory:    mem,
 		Agents:    sessionaccess.ConfigPromptAgentStore{Store: store},

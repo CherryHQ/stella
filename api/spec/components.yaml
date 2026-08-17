@@ -3252,6 +3252,7 @@ components:
         name,
         base_dir,
         archived,
+        is_unavailable,
         created_at,
         updated_at,
       ]
@@ -3271,6 +3272,10 @@ components:
           type: string
         archived:
           type: boolean
+        is_unavailable:
+          type: boolean
+          readOnly: true
+          description: True when the persisted workspace coordinate requires repair; base_dir is empty until repaired.
         created_at:
           type: string
           format: date-time
@@ -3597,6 +3602,18 @@ components:
         token:
           type: string
           description: Plaintext replacement bearer token returned exactly once.
+    CreateProvisionedUserChannelIdentityRequest:
+      type: object
+      required: [platform, external_id]
+      properties:
+        platform:
+          type: string
+          minLength: 1
+        external_id:
+          type: string
+          minLength: 1
+        name:
+          type: string
     # ── Recally ────────────────────────────────────────────────────────────────
     ArticleStatus:
       type: string

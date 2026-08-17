@@ -194,7 +194,7 @@ func testServerDeps(t *testing.T, store config.Store, as *appdb.AuthStore, mem m
 		t.Fatalf("skills.NewPOSIXStore: %v", err)
 	}
 	skillAccess := skillaccess.NewService(skillStore, agentAccess)
-	projectStore := agent.NewProjectStore(db, store, agentAccess, agent.WithProjectHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}))
+	projectStore := agent.NewProjectStore(db, agentAccess, agent.WithProjectHomeWorkspace(serverTestWorkspace{root: config.StellaHome()}))
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		Memory:    mem,
 		Agents:    sessionaccess.ConfigPromptAgentStore{Store: store},

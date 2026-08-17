@@ -22,8 +22,6 @@ func projectError(err error) (int, string) {
 		return http.StatusNotFound, "project not found"
 	case errors.Is(err, agent.ErrInvalidBaseDir):
 		return http.StatusBadRequest, "invalid base_dir"
-	case errors.Is(err, agent.ErrWorkspaceSetup):
-		return http.StatusInternalServerError, "failed to resolve workspace"
 	case errors.Is(err, agentaccess.ErrNotFound), errors.Is(err, agentaccess.ErrForbidden):
 		return agentAccessError(err)
 	default:
@@ -31,14 +29,11 @@ func projectError(err error) (int, string) {
 	}
 }
 
-// writeProjectError writes the mapped project error. The workspace-setup failure
-// keeps its specific 500 body; any other 500 is logged through writeInternalError.
+// writeProjectError writes the mapped project error and logs unrecognized 500s.
 func (s *Server) writeProjectError(w http.ResponseWriter, err error) {
 	code, msg := projectError(err)
-	switch {
-	case errors.Is(err, agent.ErrWorkspaceSetup):
-		writeError(w, code, msg)
-	case code == http.StatusInternalServerError:
+	switch code {
+	case http.StatusInternalServerError:
 		s.writeInternalError(w, err)
 	default:
 		writeError(w, code, msg)
@@ -153,27 +148,29 @@ func (s *Server) projectAuthority(w http.ResponseWriter, r *http.Request) (authz
 }
 
 type projectResponse struct {
-	ID          string    `json:"id"`
-	AgentID     string    `json:"agent_id"`
-	UserID      string    `json:"user_id"`
-	Name        string    `json:"name"`
-	BaseDir     string    `json:"base_dir"`
-	Description string    `json:"description,omitempty"`
-	Archived    bool      `json:"archived"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID            string    `json:"id"`
+	AgentID       string    `json:"agent_id"`
+	UserID        string    `json:"user_id"`
+	Name          string    `json:"name"`
+	BaseDir       string    `json:"base_dir"`
+	Description   string    `json:"description,omitempty"`
+	Archived      bool      `json:"archived"`
+	IsUnavailable bool      `json:"is_unavailable"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 func toProjectResponse(p agent.Project) projectResponse {
 	return projectResponse{
-		ID:          p.ID,
-		AgentID:     p.AgentID,
-		UserID:      p.UserID,
-		Name:        p.Name,
-		BaseDir:     p.BaseDir,
-		Description: p.Description,
-		Archived:    p.Archived,
-		CreatedAt:   p.CreatedAt,
-		UpdatedAt:   p.UpdatedAt,
+		ID:            p.ID,
+		AgentID:       p.AgentID,
+		UserID:        p.UserID,
+		Name:          p.Name,
+		BaseDir:       p.BaseDir,
+		Description:   p.Description,
+		Archived:      p.Archived,
+		IsUnavailable: p.IsUnavailable,
+		CreatedAt:     p.CreatedAt,
+		UpdatedAt:     p.UpdatedAt,
 	}
 }
