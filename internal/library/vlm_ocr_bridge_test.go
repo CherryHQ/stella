@@ -97,7 +97,7 @@ func TestVLMOCRBridgeRecordsProtocolFailureWithoutRetry(t *testing.T) {
 	var calls atomic.Int32
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
-		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"ignore the contract"}}]}`)
+		_, _ = io.WriteString(w, `{"choices":[{"finish_reason":"stop","message":{"content":"ignore the contract"}}]}`)
 	}))
 	defer provider.Close()
 	bridge, err := startVLMOCRBridge(VisionOCRConfig{Model: "vision", BaseURL: provider.URL, APIKey: "key"})
@@ -109,6 +109,40 @@ func TestVLMOCRBridgeRecordsProtocolFailureWithoutRetry(t *testing.T) {
 	_ = response.Body.Close()
 	if response.StatusCode != http.StatusUnprocessableEntity || calls.Load() != 1 || !errors.Is(bridge.TerminalError(), ErrOCRProtocol) {
 		t.Fatalf("status=%d calls=%d terminal=%v", response.StatusCode, calls.Load(), bridge.TerminalError())
+	}
+}
+
+func TestSanitizeOCRResponseRejectsIncompleteFinishReasons(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		finishJSON string
+		message    string
+	}{
+		{name: "length", finishJSON: `"length"`, message: "exceeded the Vision model limit"},
+		{name: "content filter", finishJSON: `"content_filter"`},
+		{name: "tool calls", finishJSON: `"tool_calls"`},
+		{name: "empty", finishJSON: `""`},
+		{name: "null", finishJSON: `null`},
+		{name: "missing"},
+		{name: "unknown", finishJSON: `"provider_specific"`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			finish := ""
+			if test.name != "missing" {
+				finish = `"finish_reason":` + test.finishJSON + `,`
+			}
+			response := `{"choices":[{` + finish + `"message":{"content":"STELLA_OCR_V1:TEXT\npartial text"}}]}`
+			_, err := sanitizeOCRResponse([]byte(response))
+			if !errors.Is(err, ErrOCRProtocol) {
+				t.Fatalf("error = %v, want ErrOCRProtocol", err)
+			}
+			if test.message != "" && !strings.Contains(err.Error(), test.message) {
+				t.Fatalf("error = %q, want message containing %q", err, test.message)
+			}
+		})
 	}
 }
 

@@ -49,6 +49,22 @@ type Parser interface {
 	Parse(ctx context.Context, path, mediaType, expectedProfile string) ([]ParsedChunk, error)
 }
 
+// parserFailureFencer is implemented by parsers whose operational
+// configuration can change without changing successful output. The value is
+// attempt-local and must never be persisted or exposed because it may bind
+// credentials by digest.
+type parserFailureFencer interface {
+	FailureFence(ctx context.Context, mediaType string) (string, error)
+}
+
+func parserFailureFence(ctx context.Context, parser Parser, mediaType string) (string, error) {
+	fencer, ok := parser.(parserFailureFencer)
+	if !ok {
+		return "", nil
+	}
+	return fencer.FailureFence(ctx, mediaType)
+}
+
 // ServiceConfig contains the internal Library ingestion and lifecycle
 // dependencies. Public management and retrieval surfaces are composed later.
 type ServiceConfig struct {

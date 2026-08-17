@@ -44,6 +44,14 @@ func (p *RoutingParser) Profile(ctx context.Context, mediaType string) (string, 
 	return parser.Profile(ctx, mediaType)
 }
 
+func (p *RoutingParser) FailureFence(ctx context.Context, mediaType string) (string, error) {
+	parser, err := p.parser(mediaType)
+	if err != nil {
+		return "", err
+	}
+	return parserFailureFence(ctx, parser, mediaType)
+}
+
 func (p *RoutingParser) Parse(ctx context.Context, path, mediaType, expectedProfile string) ([]ParsedChunk, error) {
 	parser, err := p.parser(mediaType)
 	if err != nil {

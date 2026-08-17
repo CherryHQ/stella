@@ -125,6 +125,27 @@ func (p *XbergCLIParser) Profile(ctx context.Context, mediaType string) (string,
 	return p.pdfProfile(config), nil
 }
 
+// FailureFence binds a terminal OCR failure to the exact operational Vision
+// configuration used by the attempt. Unlike Profile it includes the API-key
+// digest, so credential rotation can supersede an in-flight authentication
+// failure without rebuilding already successful output.
+func (p *XbergCLIParser) FailureFence(ctx context.Context, mediaType string) (string, error) {
+	if mediaType != MediaTypePDF {
+		return "", nil
+	}
+	config, err := p.visionConfig(ctx)
+	if err != nil {
+		return "", err
+	}
+	identity := strings.Join([]string{
+		strings.TrimSpace(config.ProviderID), strings.TrimSpace(config.ProviderType),
+		fmt.Sprintf("enabled=%t", config.Enabled), strings.TrimSpace(config.Model),
+		normalizedEndpointIdentity(config.BaseURL), config.APIKey,
+	}, "\x00")
+	digest := sha256.Sum256([]byte(identity))
+	return "vision-attempt:" + hex.EncodeToString(digest[:]), nil
+}
+
 func (p *XbergCLIParser) pdfProfile(config VisionOCRConfig) string {
 	identity := strings.Join([]string{
 		strings.TrimSpace(config.ProviderID), strings.TrimSpace(config.ProviderType),

@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/riverqueue/river"
 
+	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -35,6 +36,7 @@ type generationTarget struct {
 	ChunkSetID    string
 	DerivationKey string
 	ProcessorKey  string
+	FailureFence  string
 }
 
 func (s *Service) processChunkJob(ctx context.Context, job *river.Job[chunkArgs]) error {
@@ -128,6 +130,10 @@ func (s *Service) prepareChunkGeneration(
 	if err != nil {
 		return generationTarget{}, generationComplete, fmt.Errorf("profile library parser: %w", err)
 	}
+	failureFence, err := parserFailureFence(ctx, s.parser, snapshot.MediaType)
+	if err != nil {
+		return generationTarget{}, generationComplete, fmt.Errorf("fence library parser failure: %w", err)
+	}
 	tx, queries, err := s.beginBoundedTx(ctx)
 	if err != nil {
 		return generationTarget{}, generationComplete, fmt.Errorf("begin library generation: %w", err)
@@ -161,6 +167,7 @@ func (s *Service) prepareChunkGeneration(
 		RawSHA256:     append([]byte(nil), file.RawSha256...),
 		DerivationKey: derivationKey,
 		ProcessorKey:  processorKey,
+		FailureFence:  failureFence,
 	}
 
 	set, err := queries.GetReadyLibraryChunkSetByDerivation(ctx, sqlc.GetReadyLibraryChunkSetByDerivationParams{
@@ -408,14 +415,7 @@ func (s *Service) publishChunkSet(
 	chunkCount int64,
 	expectedDigest []byte,
 ) error {
-	currentProfile, err := s.parser.Profile(ctx, target.MediaType)
-	if err != nil {
-		return fmt.Errorf("re-profile library parser before publication: %w", err)
-	}
-	if currentProfile != target.ProcessorKey {
-		return ErrGenerationChanged
-	}
-	tx, queries, err := s.beginBoundedTx(ctx)
+	tx, queries, err := s.beginTerminalGenerationTx(ctx, target, false)
 	if err != nil {
 		return fmt.Errorf("begin library ChunkSet publication: %w", err)
 	}
@@ -497,14 +497,7 @@ func (s *Service) publishExistingChunkSet(
 	job *river.Job[chunkArgs],
 	target generationTarget,
 ) error {
-	currentProfile, err := s.parser.Profile(ctx, target.MediaType)
-	if err != nil {
-		return fmt.Errorf("re-profile existing library generation: %w", err)
-	}
-	if currentProfile != target.ProcessorKey {
-		return ErrGenerationChanged
-	}
-	tx, queries, err := s.beginBoundedTx(ctx)
+	tx, queries, err := s.beginTerminalGenerationTx(ctx, target, false)
 	if err != nil {
 		return fmt.Errorf("begin existing ChunkSet publication: %w", err)
 	}
@@ -583,7 +576,7 @@ func (s *Service) failChunkJob(
 	target generationTarget,
 	message string,
 ) error {
-	tx, queries, err := s.beginBoundedTx(ctx)
+	tx, queries, err := s.beginTerminalGenerationTx(ctx, target, true)
 	if err != nil {
 		return fmt.Errorf("begin library generation failure: %w", err)
 	}
@@ -636,6 +629,48 @@ func (s *Service) failChunkJob(
 		return err
 	}
 	return commitLibraryTransaction(ctx, tx)
+}
+
+func (s *Service) beginTerminalGenerationTx(
+	ctx context.Context,
+	target generationTarget,
+	validateFailureFence bool,
+) (pgx.Tx, *sqlc.Queries, error) {
+	tx, queries, err := s.beginBoundedTx(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	rollback := func() { _ = tx.Rollback(context.Background()) }
+	// OCR Provider and Vision-setting writers take this same transaction-level
+	// advisory lock. Re-profile while holding it, then retain it through the
+	// LibraryFile state transition so configuration cannot change in between.
+	if target.FailureFence != "" {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, config.VisionConfigAdvisoryLockKey); err != nil {
+			rollback()
+			return nil, nil, fmt.Errorf("lock Vision configuration fence: %w", err)
+		}
+	}
+	currentProfile, err := s.parser.Profile(ctx, target.MediaType)
+	if err != nil {
+		rollback()
+		return nil, nil, fmt.Errorf("re-profile library parser before terminal transition: %w", err)
+	}
+	if currentProfile != target.ProcessorKey {
+		rollback()
+		return nil, nil, ErrGenerationChanged
+	}
+	if validateFailureFence {
+		currentFence, err := parserFailureFence(ctx, s.parser, target.MediaType)
+		if err != nil {
+			rollback()
+			return nil, nil, fmt.Errorf("re-fence library parser failure: %w", err)
+		}
+		if currentFence != target.FailureFence {
+			rollback()
+			return nil, nil, ErrGenerationChanged
+		}
+	}
+	return tx, queries, nil
 }
 
 func (s *Service) completeChunkJob(ctx context.Context, job *river.Job[chunkArgs]) error {

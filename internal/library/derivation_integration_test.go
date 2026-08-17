@@ -468,6 +468,51 @@ func TestCancelledChunkWorkerCannotCommitTerminalFailure(t *testing.T) {
 	assertLatestLibraryJobState(t, client, chunkArgs{}.Kind(), file.ID, rivertype.JobStateCompleted)
 }
 
+func TestChangedFailureFenceSupersedesTerminalParseError(t *testing.T) {
+	database := dbtest.New(t)
+	store, err := NewFSRawStore(t.TempDir(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parser := &changingFailureFenceParser{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	parser.fence.Store("vision-secret:v1")
+	service, client := newWorkingLibraryServiceWithWorkers(t, database, store, parser, 1)
+	file, err := service.CreateManagedUpload(
+		t.Context(), testAuthority(t, testUserA, true), ScopeSystem, "", "fenced.txt", stringsReader("source"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-parser.started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("first parser attempt did not start")
+	}
+	// Credential rotation does not change successful output identity, but it must
+	// supersede a terminal error produced by the old credential snapshot.
+	parser.fence.Store("vision-secret:v2")
+	close(parser.release)
+	ready := waitForLibraryFile(t, service, file.ID, func(current LibraryFile) bool {
+		return current.Status == FileStatusReady && current.ActiveChunkSetID != ""
+	})
+	if ready.ErrorMessage != "" || parser.calls.Load() < 2 {
+		t.Fatalf("replacement did not supersede stale failure: file=%+v parser_calls=%d", ready, parser.calls.Load())
+	}
+	var failedSets int
+	if err := database.QueryRow(t.Context(), `
+		SELECT count(*) FROM library_chunk_set WHERE file_id = $1 AND status = 'failed'
+	`, file.ID).Scan(&failedSets); err != nil {
+		t.Fatal(err)
+	}
+	if failedSets != 0 {
+		t.Fatalf("stale terminal result created %d failed ChunkSets", failedSets)
+	}
+	assertLatestLibraryJobState(t, client, chunkArgs{}.Kind(), file.ID, rivertype.JobStateCompleted)
+}
+
 func TestInactiveReadyChunkSetDoesNotChangePublishedGeneration(t *testing.T) {
 	database := dbtest.New(t)
 	store, err := NewFSRawStore(t.TempDir(), 0)
@@ -528,6 +573,30 @@ func (parserFunc) Profile(context.Context, string) (string, error) { return test
 
 func (f parserFunc) Parse(ctx context.Context, path, mediaType, _ string) ([]ParsedChunk, error) {
 	return f(ctx, path, mediaType)
+}
+
+type changingFailureFenceParser struct {
+	fence   atomic.Value
+	calls   atomic.Int32
+	started chan struct{}
+	release chan struct{}
+}
+
+func (*changingFailureFenceParser) Profile(context.Context, string) (string, error) {
+	return testParserProfile, nil
+}
+
+func (p *changingFailureFenceParser) FailureFence(context.Context, string) (string, error) {
+	return p.fence.Load().(string), nil
+}
+
+func (p *changingFailureFenceParser) Parse(context.Context, string, string, string) ([]ParsedChunk, error) {
+	if p.calls.Add(1) == 1 {
+		close(p.started)
+		<-p.release
+		return nil, ErrInvalidParserData
+	}
+	return []ParsedChunk{{Content: "replacement generation"}}, nil
 }
 
 func newWorkingLibraryService(

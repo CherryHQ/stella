@@ -134,16 +134,18 @@ func (s *DBStore) CreateProvider(ctx context.Context, p config.Provider) error {
 	if err != nil {
 		return fmt.Errorf("create provider %q: marshal config: %w", p.ID, err)
 	}
-	if _, err := s.q.CreateProvider(ctx, sqlc.CreateProviderParams{
-		ID:      p.ID,
-		Type:    providerType(p),
-		Name:    providerName(p),
-		Enabled: p.Enabled,
-		Config:  configJSON,
-	}); err != nil {
-		return fmt.Errorf("create provider %q: %w", p.ID, err)
-	}
-	return nil
+	return s.withVisionConfigWriteFence(ctx, func(queries *sqlc.Queries) error {
+		if _, err := queries.CreateProvider(ctx, sqlc.CreateProviderParams{
+			ID:      p.ID,
+			Type:    providerType(p),
+			Name:    providerName(p),
+			Enabled: p.Enabled,
+			Config:  configJSON,
+		}); err != nil {
+			return fmt.Errorf("create provider %q: %w", p.ID, err)
+		}
+		return nil
+	})
 }
 
 func (s *DBStore) UpdateProvider(ctx context.Context, p config.Provider) error {
@@ -151,20 +153,46 @@ func (s *DBStore) UpdateProvider(ctx context.Context, p config.Provider) error {
 	if err != nil {
 		return fmt.Errorf("update provider %q: marshal config: %w", p.ID, err)
 	}
-	if err := s.q.UpdateProvider(ctx, sqlc.UpdateProviderParams{
-		Type:    providerType(p),
-		Name:    providerName(p),
-		Enabled: p.Enabled,
-		Config:  configJSON,
-		ID:      p.ID,
-	}); err != nil {
-		return fmt.Errorf("update provider %q: %w", p.ID, err)
-	}
-	return nil
+	return s.withVisionConfigWriteFence(ctx, func(queries *sqlc.Queries) error {
+		if err := queries.UpdateProvider(ctx, sqlc.UpdateProviderParams{
+			Type:    providerType(p),
+			Name:    providerName(p),
+			Enabled: p.Enabled,
+			Config:  configJSON,
+			ID:      p.ID,
+		}); err != nil {
+			return fmt.Errorf("update provider %q: %w", p.ID, err)
+		}
+		return nil
+	})
 }
 
 func (s *DBStore) DeleteProvider(ctx context.Context, id string) error {
-	return s.q.DeleteProvider(ctx, id)
+	return s.withVisionConfigWriteFence(ctx, func(queries *sqlc.Queries) error {
+		return queries.DeleteProvider(ctx, id)
+	})
+}
+
+// withVisionConfigWriteFence makes every Provider mutation participate in the
+// same transaction-level fence as Library OCR publication. Any Provider can be
+// selected as the deployment Vision Provider, so filtering by the current
+// setting before locking would introduce another check-then-write race.
+func (s *DBStore) withVisionConfigWriteFence(ctx context.Context, mutate func(*sqlc.Queries) error) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin Vision configuration write: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, config.VisionConfigAdvisoryLockKey); err != nil {
+		return fmt.Errorf("lock Vision configuration write: %w", err)
+	}
+	if err := mutate(s.q.WithTx(tx)); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit Vision configuration write: %w", err)
+	}
+	return nil
 }
 
 // --- Fetched-model cache (backed by provider_models_cache) ---
@@ -758,10 +786,16 @@ func (s *DBStore) GetSetting(ctx context.Context, key string) (string, error) {
 }
 
 func (s *DBStore) SetSetting(ctx context.Context, key, value string) error {
-	return s.q.UpsertSetting(ctx, sqlc.UpsertSettingParams{
-		Key:   key,
-		Value: value,
-	})
+	write := func(queries *sqlc.Queries) error {
+		return queries.UpsertSetting(ctx, sqlc.UpsertSettingParams{
+			Key:   key,
+			Value: value,
+		})
+	}
+	if key == config.VisionSettingKey {
+		return s.withVisionConfigWriteFence(ctx, write)
+	}
+	return write(s.q)
 }
 
 // --- Snapshot ---

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -40,6 +41,50 @@ func TestNewDBStorePreservesDBPoolPolicy(t *testing.T) {
 
 	if got := db.Stat().MaxConns(); got < 4 {
 		t.Fatalf("MaxConns = %d, want >= 4", got)
+	}
+}
+
+func TestVisionConfigurationWritesRespectPublicationFence(t *testing.T) {
+	s, database := setupDBStoreWithDB(t)
+	ctx := t.Context()
+	if err := s.CreateProvider(ctx, config.Provider{
+		ID: "vision-fence", Type: "openai", Name: "Vision fence", Enabled: true,
+		APIKey: "before", BaseURL: "https://vision.example/v1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := database.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, config.VisionConfigAdvisoryLockKey); err != nil {
+		t.Fatal(err)
+	}
+
+	assertBlocked := func(name string, write func(context.Context) error) {
+		t.Helper()
+		writeCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		defer cancel()
+		if err := write(writeCtx); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("%s while fence held = %v, want context deadline", name, err)
+		}
+	}
+	assertBlocked("Vision setting write", func(writeCtx context.Context) error {
+		return s.SetSetting(writeCtx, config.VisionSettingKey, `{"model":"vision-fence/model"}`)
+	})
+	assertBlocked("Provider write", func(writeCtx context.Context) error {
+		return s.UpdateProvider(writeCtx, config.Provider{
+			ID: "vision-fence", Type: "openai", Name: "Vision fence", Enabled: true,
+			APIKey: "after", BaseURL: "https://vision.example/v1",
+		})
+	})
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSetting(ctx, config.VisionSettingKey, `{"model":"vision-fence/model"}`); err != nil {
+		t.Fatalf("Vision setting write after release: %v", err)
 	}
 }
 

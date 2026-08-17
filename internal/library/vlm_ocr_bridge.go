@@ -266,6 +266,19 @@ func sanitizeOCRResponse(data []byte) ([]byte, error) {
 	if !ok {
 		return nil, &ocrTerminalError{kind: ErrOCRProtocol, message: "OCR provider response has an invalid choice."}
 	}
+	finishReason, ok := choice["finish_reason"].(string)
+	if !ok || strings.TrimSpace(finishReason) == "" {
+		return nil, &ocrTerminalError{kind: ErrOCRProtocol, message: "OCR provider response has no completion reason."}
+	}
+	if finishReason == "length" {
+		return nil, &ocrTerminalError{
+			kind:    ErrOCRProtocol,
+			message: "OCR output exceeded the Vision model limit. Configure a Vision model with a larger output limit.",
+		}
+	}
+	if finishReason != "stop" {
+		return nil, &ocrTerminalError{kind: ErrOCRProtocol, message: "OCR provider did not complete the transcription normally."}
+	}
 	message, ok := choice["message"].(map[string]any)
 	if !ok {
 		return nil, &ocrTerminalError{kind: ErrOCRProtocol, message: "OCR provider response has no message."}

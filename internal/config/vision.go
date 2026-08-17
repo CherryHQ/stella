@@ -12,6 +12,11 @@ import (
 // runner, compaction and scheduler settings).
 const VisionSettingKey = "vision"
 
+// VisionConfigAdvisoryLockKey serializes output-affecting Vision configuration
+// writes with Library OCR publication. It is transaction-scoped in PostgreSQL,
+// so process crashes cannot leave the fence locked.
+const VisionConfigAdvisoryLockKey int64 = 0x5354454c4c415649
+
 // VisionSettings is the deployment-wide image-understanding configuration.
 //
 // The vision model is infrastructure, not personality: it transcribes and
