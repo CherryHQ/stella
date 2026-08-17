@@ -2,13 +2,11 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -82,119 +80,12 @@ the server, or use "stellad service" to manage it as a background service.`,
 			versionCommand(),
 			upgradeCommand(),
 			postgresCommand(),
-			storageCommand(),
 			vaultCommand(),
 			miseCommand(),
 			systemBundleCommand(),
 			serviceCommand(),
 		},
 	}
-}
-
-func storageCommand() *ucli.Command {
-	return &ucli.Command{
-		Name: "storage", Usage: "Run offline storage maintenance", Category: "Admin",
-		Subcommands: []*ucli.Command{{
-			Name: "migrate-skills", Usage: "Migrate PostgreSQL Skills into typed Stella Home POSIX roots",
-			Description: "Dry-runs by default. A dry-run does not publish Skill Home revisions or selectors, write migration completion evidence, or scrub PostgreSQL Skill bytes. It is not process-wide or database-wide read-only: configuration loading may bootstrap and write the embedded PostgreSQL runtime, and opening the database may apply ordinary schema migrations. Stop every Skill writer and verify a restorable backup before using --apply.",
-			Flags: []ucli.Flag{
-				&ucli.BoolFlag{Name: "apply", Usage: "publish, verify, and scrub the legacy PostgreSQL copy"},
-				&ucli.BoolFlag{Name: "confirm-writers-stopped", Usage: "confirm every process that can write Skills is stopped"},
-				&ucli.BoolFlag{Name: "confirm-backup-verified", Usage: "confirm a restorable PostgreSQL backup was verified"},
-				&ucli.BoolFlag{Name: "json", Usage: "emit JSON output"},
-				// Keep the operator command independent of the full server config:
-				// only its database coordinates are parsed before setup.
-				&ucli.StringFlag{Name: "database-url", EnvVars: []string{"STELLA_DATABASE_URL"}, Hidden: true},
-				&ucli.BoolFlag{Name: "require-external-db", EnvVars: []string{"STELLA_REQUIRE_EXTERNAL_DB"}, Hidden: true},
-			},
-			Action: runMigrateSkills,
-		}},
-	}
-}
-
-func runMigrateSkills(c *ucli.Context) error {
-	return runMigrateSkillsWithSetup(c, runMigrateSkillsSetup)
-}
-
-func runMigrateSkillsWithSetup(c *ucli.Context, setup func(*ucli.Context) error) error {
-	if err := validateMigrateSkillsCommand(c); err != nil {
-		return err
-	}
-	return setup(c)
-}
-
-func validateMigrateSkillsCommand(c *ucli.Context) error {
-	if err := checkMigrateSkillsPlatform(); err != nil {
-		return err
-	}
-	if c.Bool("apply") && (!c.Bool("confirm-writers-stopped") || !c.Bool("confirm-backup-verified")) {
-		return errors.New("storage migrate-skills: --confirm-writers-stopped and --confirm-backup-verified are required with --apply")
-	}
-	return nil
-}
-
-var migrateSkillsGOOS = runtime.GOOS
-
-func checkMigrateSkillsPlatform() error {
-	if err := checkNativeServerPlatform(migrateSkillsGOOS); err != nil {
-		return fmt.Errorf("storage migrate-skills: %w", err)
-	}
-	return nil
-}
-
-// runMigrateSkillsSetup starts configuration and database work only after the
-// side-effect-free platform and apply-attestation boundary has passed.
-func runMigrateSkillsSetup(c *ucli.Context) (resultErr error) {
-	dsn := c.String("database-url")
-	var embedded *appdb.Embedded
-	if dsn == "" {
-		if c.Bool("require-external-db") {
-			return errors.New("storage migrate-skills: STELLA_REQUIRE_EXTERNAL_DB=1 but STELLA_DATABASE_URL is not set")
-		}
-		var err error
-		embedded, err = appdb.StartEmbedded(filepath.Join(config.StellaHome(), "postgres"), 0)
-		if err != nil {
-			return fmt.Errorf("storage migrate-skills: start embedded PostgreSQL (the server must be stopped): %w", err)
-		}
-		dsn = embedded.DSN()
-	}
-	db, err := appdb.OpenDB(dsn)
-	if err != nil {
-		if embedded != nil {
-			_ = embedded.Stop()
-		}
-		return fmt.Errorf("storage migrate-skills: open database: %w", err)
-	}
-	defer func() {
-		db.Close()
-		if embedded != nil {
-			resultErr = errors.Join(resultErr, embedded.Stop())
-		}
-	}()
-	manager, err := home.NewWorkspaceManager(db, config.StellaHome())
-	if err != nil {
-		return fmt.Errorf("storage migrate-skills: open Stella Home: %w", err)
-	}
-	defer func() { resultErr = errors.Join(resultErr, manager.Close()) }()
-	migrator, err := skills.NewSkillHomeMigrator(db, manager)
-	if err != nil {
-		return err
-	}
-	result, err := migrator.Migrate(c.Context, skills.SkillHomeMigrationOptions{
-		Apply: c.Bool("apply"), ConfirmWritersStopped: c.Bool("confirm-writers-stopped"), ConfirmBackupVerified: c.Bool("confirm-backup-verified"),
-	})
-	if err != nil {
-		return fmt.Errorf("storage migrate-skills: %w", err)
-	}
-	if c.Bool("json") {
-		return json.NewEncoder(c.App.Writer).Encode(result)
-	}
-	mode := "dry-run"
-	if !result.DryRun {
-		mode = "applied"
-	}
-	_, err = fmt.Fprintf(c.App.Writer, "%s: %s; skills=%d files=%d bytes=%d inventory=%s\n", mode, result.State, result.SkillCount, result.FileCount, result.ContentBytes, result.InventoryDigest)
-	return err
 }
 
 type setupResult struct {
@@ -310,18 +201,14 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 			_ = homeRegistry.Close()
 		}
 	}()
-	if err := homeRegistry.EnsureProjectCoordinates(parent); err != nil {
-		return nil, fmt.Errorf("migrate project coordinates: %w", err)
-	}
-	skillMigrator, err := skills.NewSkillHomeMigrator(db, homeRegistry)
+	skillStore, err := setupSkillStore(db, homeRegistry)
 	if err != nil {
-		return nil, fmt.Errorf("build Skill migration gate: %w", err)
+		return nil, fmt.Errorf("build Skill store: %w", err)
 	}
-	if err := skillMigrator.EnsureReady(parent); err != nil {
-		return nil, err
+	skillMigrator, err := skills.NewSkillHomeMigratorFromStore(db, skillStore)
+	if err != nil {
+		return nil, fmt.Errorf("build Skill migration reconciler: %w", err)
 	}
-	// Install immutable release assets only after mutable Skill authority is
-	// known complete. This gate never reconstructs Home from scrubbed PostgreSQL.
 	if err := ensureEmbeddedAssets(); err != nil {
 		return nil, err
 	}
@@ -334,10 +221,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		return nil, err
 	}
 
-	skillStore, err := setupSkillStore(db, homeRegistry)
-	if err != nil {
-		return nil, fmt.Errorf("build Skill store: %w", err)
-	}
 	// The Skill domain shares the Agent read gate with the other execution
 	// domains and reads the same authoritative PostgreSQL rows as the transports.
 	skillAccess := skillaccess.NewService(skillStore, agentAccess)
@@ -465,7 +348,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build session image pipeline: %w", err)
 	}
-	projectStore := agent.NewProjectStore(db, store, agentAccess, agent.WithProjectHomeWorkspace(homeRegistry))
+	projectStore := agent.NewProjectStore(db, agentAccess, agent.WithProjectHomeWorkspace(homeRegistry))
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		Memory:    memProvider,
 		Agents:    sessionaccess.ConfigPromptAgentStore{Store: store},
@@ -643,7 +526,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		agent.WithSkillRevisionReader(skillStore),
 		agent.WithSkillReadAuthorizer(skillAccess),
 		agent.WithProjectResolver(projectStore.Resolve),
-		agent.WithProjectEnsurerPM(projectStore.Ensure),
 		agent.WithHomeWorkspace(homeRegistry),
 	)
 
@@ -727,6 +609,11 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if ps.manifestToReconcile != nil {
 		reconcileManifestPluginsInBackground(parent, backgroundTasks, ps.manifestToReconcile, config.StellaHome())
 	}
+	reconcileProjectCoordinatesInBackground(parent, backgroundTasks, homeRegistry)
+	// Close runtime entry points before setup returns and traffic can beat the
+	// background reconciler to the legacy inventory.
+	skillStore.BeginStartupReconciliation()
+	reconcileSkillHomeInBackground(parent, backgroundTasks, skillMigrator)
 	backfillRecallyContentInBackground(parent, backgroundTasks, recallySvc)
 
 	result := &setupResult{
@@ -1001,6 +888,78 @@ func wireSchedulerCallbacks(svc *scheduler.Service, poolMgr *agent.PoolManager, 
 		}
 		scheduler.RunOutputSinkFromContext(ctx).Set(strings.TrimSpace(output.String()))
 		return runErr
+	})
+}
+
+type projectCoordinateReconciler interface {
+	ReconcileProjectCoordinates(context.Context) (home.ProjectCoordinateReconcileResult, error)
+}
+
+type skillHomeReconciler interface {
+	ReconcileStartup(context.Context) (skills.SkillStartupReconcileResult, error)
+}
+
+func reconcileProjectCoordinatesInBackground(ctx context.Context, wg *sync.WaitGroup, manager projectCoordinateReconciler) {
+	wg.Go(func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("project coordinate reconciliation panic", "panic", r)
+			}
+		}()
+		result, err := manager.ReconcileProjectCoordinates(ctx)
+		if err != nil {
+			slog.Error("project coordinate reconciliation failed", "error", err)
+			return
+		}
+		if len(result.UnresolvedIDs) != 0 {
+			slog.Warn("legacy projects remain unavailable after background reconciliation",
+				"updated", result.Updated,
+				"unresolved_count", len(result.UnresolvedIDs),
+				"project_ids", result.UnresolvedIDs,
+			)
+			return
+		}
+		if result.Updated != 0 {
+			slog.Info("project coordinate reconciliation complete", "updated", result.Updated)
+		}
+	})
+}
+
+func reconcileSkillHomeInBackground(ctx context.Context, wg *sync.WaitGroup, migrator skillHomeReconciler) {
+	wg.Go(func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("Skill storage reconciliation panic",
+					"managed_skills_available", false,
+					"recovery", "inspect the panic, repair the reported storage problem, then restart stellad",
+					"panic", r,
+				)
+			}
+		}()
+		result, err := migrator.ReconcileStartup(ctx)
+		if err != nil {
+			slog.Error("Skill storage reconciliation failed",
+				"managed_skills_available", false,
+				"recovery", "fix the reported Home or database error, then restart stellad",
+				"error", err,
+			)
+			return
+		}
+		if result.Degraded != nil {
+			slog.Error("managed Skills unavailable after background reconciliation",
+				"managed_skills_available", false,
+				"recovery", "fix the reported legacy Skill data, then restart stellad",
+				"error", result.Degraded,
+			)
+			return
+		}
+		if result.Migration.SkillCount != 0 {
+			slog.Info("Skill storage reconciliation complete",
+				"skills", result.Migration.SkillCount,
+				"files", result.Migration.FileCount,
+				"bytes", result.Migration.ContentBytes,
+			)
+		}
 	})
 }
 

@@ -116,6 +116,8 @@ export function SidebarItem({
   className,
   to,
   params,
+  disabled,
+  title,
 }: {
   active?: boolean;
   /**
@@ -133,6 +135,8 @@ export function SidebarItem({
   className?: string;
   to?: string;
   params?: Record<string, string>;
+  disabled?: boolean;
+  title?: string;
 }) {
   const itemClassName = cn(
     "flex min-h-[34px] w-full min-w-0 cursor-pointer items-center gap-2.5 overflow-hidden rounded-lg px-2.5 py-1 text-left text-[13px] tracking-[-0.01em] transition-all duration-150 border",
@@ -142,6 +146,7 @@ export function SidebarItem({
         ? "font-semibold text-foreground hover:bg-muted/40 border-transparent"
         : "text-muted-foreground hover:bg-muted/40 hover:text-foreground border-transparent",
     className,
+    disabled && "cursor-not-allowed opacity-60 hover:bg-transparent hover:text-muted-foreground",
   );
   const content = (
     <>
@@ -153,16 +158,36 @@ export function SidebarItem({
     </>
   );
 
+  if (to && disabled) {
+    return (
+      <div title={title} className={itemClassName}>
+        {content}
+      </div>
+    );
+  }
+
   if (to) {
     return (
-      <Link to={to} params={params as never} onClick={onClick} className={itemClassName}>
+      <Link
+        to={to}
+        params={params as never}
+        onClick={onClick}
+        title={title}
+        className={itemClassName}
+      >
         {content}
       </Link>
     );
   }
 
   return (
-    <button type="button" onClick={onClick} className={itemClassName}>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={itemClassName}
+    >
       {content}
     </button>
   );

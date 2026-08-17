@@ -875,17 +875,30 @@ function AgentBranch({ agentId, onNavigate }: { agentId: string; onNavigate: () 
             <SidebarItem
               active={activeProjectId === project.id}
               className="group/project"
-              icon={<Folder className="size-4" />}
+              icon={
+                project.is_unavailable ? (
+                  <CircleAlert className="size-4" />
+                ) : (
+                  <Folder className="size-4" />
+                )
+              }
               label={project.name}
+              meta={project.is_unavailable ? t("sessions.sidebar.projectUnavailable") : undefined}
+              disabled={project.is_unavailable}
+              title={
+                project.is_unavailable ? t("sessions.sidebar.projectUnavailableHint") : undefined
+              }
               trailing={
                 <span className="flex shrink-0 items-center gap-0.5">
-                  <RowAction
-                    label={t("sessions.sidebar.newProjectThread")}
-                    group="group-hover/project:opacity-70"
-                    onSelect={() => void createProjectChat(project.id)}
-                  >
-                    <Plus className="size-4" />
-                  </RowAction>
+                  {!project.is_unavailable && (
+                    <RowAction
+                      label={t("sessions.sidebar.newProjectThread")}
+                      group="group-hover/project:opacity-70"
+                      onSelect={() => void createProjectChat(project.id)}
+                    >
+                      <Plus className="size-4" />
+                    </RowAction>
+                  )}
                   <RowAction
                     label={t("sessions.sidebar.deleteProject")}
                     group="group-hover/project:opacity-70"

@@ -18,7 +18,7 @@ func BuildAuthorizedPromptSection(ctx context.Context, build pkgplugins.SystemPr
 	if reader == nil || authorizer == nil {
 		return pkgplugins.SystemPromptSection{}, fmt.Errorf("skills prompt requires identity reader and read authorizer")
 	}
-	identities, err := reader.ListIdentityVisible(ctx, ViewContext{UserID: build.UserID, AgentID: build.AgentID})
+	identities, err := listManagedIdentitiesWhenAvailable(ctx, reader, ViewContext{UserID: build.UserID, AgentID: build.AgentID})
 	if err != nil {
 		return pkgplugins.SystemPromptSection{}, err
 	}

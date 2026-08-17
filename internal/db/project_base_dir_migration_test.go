@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -75,10 +76,10 @@ func TestProjectBaseDirMigrationCanonicalizesPhysicalOwnerPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = manager.Close() })
-	if err := manager.EnsureProjectCoordinates(ctx); err != nil {
+	if err := reconcileProjectCoordinatesStrict(ctx, manager); err != nil {
 		t.Fatalf("finish filesystem-aware project coordinate migration: %v", err)
 	}
-	if err := manager.EnsureProjectCoordinates(ctx); err != nil {
+	if err := reconcileProjectCoordinatesStrict(ctx, manager); err != nil {
 		t.Fatalf("repeat completed project coordinate migration: %v", err)
 	}
 	assertProjectCoordinateConstraintValidated(t, ctx, db, true)
@@ -100,6 +101,80 @@ func TestProjectBaseDirMigrationCanonicalizesPhysicalOwnerPaths(t *testing.T) {
 			t.Errorf("canonical constraint accepted %q", invalid)
 		}
 	}
+}
+
+func TestProjectBaseDirStartupReconcileUpdatesSafeRowsAndIsolatesAmbiguousRows(t *testing.T) {
+	db := newTestDB(t)
+	provider, closeProvider := projectBaseDirProvider(t, db)
+	defer closeProvider()
+	ctx := context.Background()
+	if _, err := provider.DownTo(ctx, projectBaseDirMigration-1); err != nil {
+		t.Fatal(err)
+	}
+
+	userID := uuid.NewString()
+	agentID := "startup-project-coordinate-agent"
+	seedProjectBaseDirOwners(t, ctx, db, userID, agentID)
+	homeDir := t.TempDir()
+	ownerRoot := filepath.Join(homeDir, "users", userID, "agents", agentID)
+	target := filepath.Join(ownerRoot, "repos", "stella")
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	safeID, copiedID, copiedRootID, ambiguousID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
+	legacy := filepath.Join(homeDir, "workspaces", agentID, "users", userID, "repos", "stella")
+	legacyRoot := filepath.Join(homeDir, "workspaces", agentID, "users", userID)
+	copiedLegacy := filepath.Join(homeDir, "workspaces", agentID, "users", userID, "repos", "copied")
+	if err := os.MkdirAll(copiedLegacy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(ownerRoot, "repos", "copied"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `
+		INSERT INTO project (id, agent_id, user_id, name, base_dir) VALUES
+		($1, $5, $6, 'safe legacy', $7),
+		($2, $5, $6, 'distinct copied trees', $8),
+		($3, $5, $6, 'distinct copied roots', $9),
+		($4, $5, $6, 'ambiguous legacy', '/srv/outside/project')
+	`, safeID, copiedID, copiedRootID, ambiguousID, agentID, userID, legacy, copiedLegacy, legacyRoot); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.UpTo(ctx, projectBaseDirMigration); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := home.NewWorkspaceManager(db, homeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+
+	result, err := manager.ReconcileProjectCoordinates(ctx)
+	if err != nil {
+		t.Fatalf("startup reconciliation: %v", err)
+	}
+	wantUnresolved := []string{copiedID, copiedRootID, ambiguousID}
+	slices.Sort(wantUnresolved)
+	if result.Updated != 1 || !slices.Equal(result.UnresolvedIDs, wantUnresolved) {
+		t.Fatalf("startup reconciliation result = %#v", result)
+	}
+	var safe, copied, copiedRoot, ambiguous string
+	if err := db.QueryRow(ctx, "SELECT base_dir FROM project WHERE id=$1", safeID).Scan(&safe); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, "SELECT base_dir FROM project WHERE id=$1", ambiguousID).Scan(&ambiguous); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, "SELECT base_dir FROM project WHERE id=$1", copiedID).Scan(&copied); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, "SELECT base_dir FROM project WHERE id=$1", copiedRootID).Scan(&copiedRoot); err != nil {
+		t.Fatal(err)
+	}
+	if safe != "repos/stella" || copied != copiedLegacy || copiedRoot != legacyRoot || ambiguous != "/srv/outside/project" {
+		t.Fatalf("reconciled coordinates safe=%q copied=%q copiedRoot=%q ambiguous=%q", safe, copied, copiedRoot, ambiguous)
+	}
+	assertProjectCoordinateConstraintValidated(t, ctx, db, false)
 }
 
 func TestProjectBaseDirMigrationToleratesConcurrentCanonicalizationAndDeletion(t *testing.T) {
@@ -174,7 +249,7 @@ func TestProjectBaseDirMigrationToleratesConcurrentCanonicalizationAndDeletion(t
 			}
 			t.Cleanup(func() { _ = manager.Close() })
 			done := make(chan error, 1)
-			go func() { done <- manager.EnsureProjectCoordinates(ctx) }()
+			go func() { done <- reconcileProjectCoordinatesStrict(ctx, manager) }()
 			select {
 			case err := <-done:
 				t.Fatalf("project coordinate migration completed before locked row changed: %v", err)
@@ -233,7 +308,7 @@ func TestProjectBaseDirMigrationLeavesUnresolvablePhysicalPathFailClosed(t *test
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = manager.Close() })
-	if err := manager.EnsureProjectCoordinates(ctx); err == nil {
+	if err := reconcileProjectCoordinatesStrict(ctx, manager); err == nil {
 		t.Fatal("filesystem-aware finalizer accepted a path outside its durable owner root")
 	}
 	assertProjectCoordinateConstraintValidated(t, ctx, db, false)
@@ -248,7 +323,7 @@ func TestProjectBaseDirMigrationLeavesUnresolvablePhysicalPathFailClosed(t *test
 	if _, err := db.Exec(ctx, `UPDATE project SET base_dir = '.' WHERE id = $1`, id); err != nil {
 		t.Fatalf("repair project path: %v", err)
 	}
-	if err := manager.EnsureProjectCoordinates(ctx); err != nil {
+	if err := reconcileProjectCoordinatesStrict(ctx, manager); err != nil {
 		t.Fatalf("retry finalizer after repair: %v", err)
 	}
 	assertProjectCoordinateConstraintValidated(t, ctx, db, true)
@@ -299,7 +374,7 @@ func TestProjectBaseDirMigrationRejectsSpoofedOwnerPathOutsideConfiguredHome(t *
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = manager.Close() })
-			if err := manager.EnsureProjectCoordinates(ctx); err == nil {
+			if err := reconcileProjectCoordinatesStrict(ctx, manager); err == nil {
 				t.Fatal("filesystem-aware finalizer accepted a spoofed owner path outside configured Home")
 			}
 			assertProjectCoordinateConstraintValidated(t, ctx, db, false)
@@ -315,6 +390,17 @@ func seedProjectBaseDirOwners(t *testing.T, ctx context.Context, db *pgxpool.Poo
 	if _, err := db.Exec(ctx, `INSERT INTO agent (id, name, workspace) VALUES ($1, $2, '')`, agentID, agentID); err != nil {
 		t.Fatalf("seed project Agent: %v", err)
 	}
+}
+
+func reconcileProjectCoordinatesStrict(ctx context.Context, manager *home.WorkspaceManager) error {
+	result, err := manager.ReconcileProjectCoordinates(ctx)
+	if err != nil {
+		return err
+	}
+	if len(result.UnresolvedIDs) != 0 {
+		return fmt.Errorf("%d project coordinates remain unresolved", len(result.UnresolvedIDs))
+	}
+	return nil
 }
 
 func projectBaseDirProvider(t *testing.T, pool *pgxpool.Pool) (*goose.Provider, func()) {
