@@ -162,6 +162,7 @@ export function ChatComposer({
   const menuListRef = useRef<HTMLDivElement>(null);
   // Dragging is tracked on the document so a file dropped anywhere in the app
   // attaches, instead of bouncing off the page and opening in a new tab.
+  const [focused, setFocused] = useState(false);
   const [dragging, setDragging] = useState(false);
   const dragDepthRef = useRef(0);
   const canAttach = !!onFileSelect && !isStreaming;
@@ -415,6 +416,8 @@ export function ChatComposer({
               }
             }}
             onClick={() => detectTrigger(value, taRef.current?.selectionStart ?? value.length)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
             onPaste={(e) => {
               if (!onFileSelect || isStreaming) return;
               const files = e.clipboardData.files;
@@ -511,7 +514,7 @@ export function ChatComposer({
               <Plus className="size-4" />
             </Button>
           )}
-          {!isStreaming && !isTouch && (
+          {!isStreaming && !isTouch && focused && !value && (
             <span className="min-w-0 truncate font-mono text-xs text-muted-foreground select-none">
               {hasSkillTrigger
                 ? t("sessions.transcript.sendHintSkills")
@@ -519,20 +522,18 @@ export function ChatComposer({
             </span>
           )}
           {isStreaming && (
-            <>
-              <span role="status" className="text-xs font-mono text-info select-none animate-pulse">
-                {t("sessions.transcript.generating")}
-              </span>
-              {onStop && (
-                <span className="min-w-0 truncate font-mono text-xs text-muted-foreground select-none">
-                  {t("sessions.transcript.streamingHint")}
-                </span>
-              )}
-            </>
+            <span role="status" className="text-xs font-mono text-info select-none animate-pulse">
+              {t("sessions.transcript.generating")}
+            </span>
           )}
           <div className="ml-auto shrink-0">
             {isStreaming && onStop ? (
-              <Button variant="destructive-outline" size="sm" onClick={onStop}>
+              <Button
+                variant="destructive-outline"
+                size="sm"
+                onClick={onStop}
+                title={t("sessions.composer.stopHint")}
+              >
                 <div className="w-2 h-2 bg-destructive rounded-xs" />
                 <span>{t("sessions.composer.stop")}</span>
               </Button>
@@ -542,7 +543,7 @@ export function ChatComposer({
                 variant={canSend ? "default" : "ghost"}
                 disabled={!canSend}
                 onClick={handleSend}
-                title={t("sessions.composer.sendMessage")}
+                title={t("sessions.composer.sendHint")}
                 aria-label={t("sessions.composer.sendMessage")}
               >
                 <ArrowUp className="size-4 stroke-[2.5]" />
