@@ -49,7 +49,7 @@ cd stella && go build -o dist/bin/stellad ./cmd/stellad/
 
 ## Run
 
-Native Stella servers are supported on Linux and macOS. Durable Home and mutable Skill authority require POSIX `openat`, atomic no-replace publication, and filesystem durability semantics; releases therefore do not publish Windows server binaries. A source-built Windows binary rejects `server`, `upgrade`, and `storage migrate-skills` before configuration, database startup, or storage mutation. Move an existing Windows deployment's database and complete `STELLA_HOME` to durable POSIX storage on Linux or macOS before upgrading. Running Stella inside a Linux VM or container on a Windows machine is supported only when `STELLA_HOME` is backed by storage with those POSIX semantics, not a Windows filesystem bind mount.
+Native Stella servers are supported on Linux and macOS. Durable Home and mutable Skill authority require POSIX `openat`, atomic no-replace publication, and filesystem durability semantics; releases therefore do not publish Windows server binaries. A source-built Windows binary rejects `server` and `upgrade` before configuration, database startup, or storage mutation. Move an existing Windows deployment's database and complete `STELLA_HOME` to durable POSIX storage on Linux or macOS before upgrading. Running Stella inside a Linux VM or container on a Windows machine is supported only when `STELLA_HOME` is backed by storage with those POSIX semantics, not a Windows filesystem bind mount.
 
 Stella bundles the Xberg document runtime on Linux and macOS, so PDF and DOCX Knowledge uploads need no separate system package or startup download.
 

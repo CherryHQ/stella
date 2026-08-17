@@ -79,9 +79,7 @@ The model does not receive these authority roots. After the current actor and Ag
 
 ### PostgreSQL-to-Home Skill migration
 
-An upgrade with existing PostgreSQL Skill files stops at startup rather than rebuilding or discarding them. Stop every process that can write Skills, verify a restorable PostgreSQL backup and a backup of `$STELLA_HOME`, then consult `stellad storage migrate-skills --help`. The dedicated migration is one-way and Linux/macOS only. It inventories the legacy rows twice, publishes and verifies exact Home revisions, then scrubs the legacy file bytes and records completion in one database transaction.
-
-The command is a dry-run unless you pass `--apply` with both required attestations. A dry-run does not publish Home revisions or selectors, write Skill migration evidence or completion, or scrub legacy Skill bytes. It is **not** process-wide or database-wide read-only: loading configuration can bootstrap the embedded PostgreSQL runtime, and opening the database can apply ordinary schema migrations.
+When an upgrade finds PostgreSQL Skill files, Stella queues their migration in the background and starts serving immediately. Managed Skill writes serialize behind the migration; reads may be temporarily unavailable until it finishes. Stella inventories the legacy rows twice, quarantines conflicting flat filesystem mirrors, publishes and verifies exact Home revisions, then scrubs the legacy PostgreSQL bytes and records completion in one database transaction. A malformed legacy source disables managed Skills and is reported without preventing unrelated server capabilities from starting.
 
 ### Retained revision capacity
 

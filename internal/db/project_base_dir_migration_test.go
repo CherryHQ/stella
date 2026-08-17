@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -100,6 +101,62 @@ func TestProjectBaseDirMigrationCanonicalizesPhysicalOwnerPaths(t *testing.T) {
 			t.Errorf("canonical constraint accepted %q", invalid)
 		}
 	}
+}
+
+func TestProjectBaseDirStartupReconcileUpdatesSafeRowsAndIsolatesAmbiguousRows(t *testing.T) {
+	db := newTestDB(t)
+	provider, closeProvider := projectBaseDirProvider(t, db)
+	defer closeProvider()
+	ctx := context.Background()
+	if _, err := provider.DownTo(ctx, projectBaseDirMigration-1); err != nil {
+		t.Fatal(err)
+	}
+
+	userID := uuid.NewString()
+	agentID := "startup-project-coordinate-agent"
+	seedProjectBaseDirOwners(t, ctx, db, userID, agentID)
+	homeDir := t.TempDir()
+	ownerRoot := filepath.Join(homeDir, "users", userID, "agents", agentID)
+	target := filepath.Join(ownerRoot, "repos", "stella")
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	safeID, ambiguousID := uuid.NewString(), uuid.NewString()
+	legacy := filepath.Join(homeDir, "workspaces", agentID, "users", userID, "repos", "stella")
+	if _, err := db.Exec(ctx, `
+		INSERT INTO project (id, agent_id, user_id, name, base_dir) VALUES
+		($1, $3, $4, 'safe legacy', $5),
+		($2, $3, $4, 'ambiguous legacy', '/srv/outside/project')
+	`, safeID, ambiguousID, agentID, userID, legacy); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.UpTo(ctx, projectBaseDirMigration); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := home.NewWorkspaceManager(db, homeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+
+	result, err := manager.ReconcileProjectCoordinates(ctx)
+	if err != nil {
+		t.Fatalf("startup reconciliation: %v", err)
+	}
+	if result.Updated != 1 || !slices.Equal(result.UnresolvedIDs, []string{ambiguousID}) {
+		t.Fatalf("startup reconciliation result = %#v", result)
+	}
+	var safe, ambiguous string
+	if err := db.QueryRow(ctx, "SELECT base_dir FROM project WHERE id=$1", safeID).Scan(&safe); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(ctx, "SELECT base_dir FROM project WHERE id=$1", ambiguousID).Scan(&ambiguous); err != nil {
+		t.Fatal(err)
+	}
+	if safe != "repos/stella" || ambiguous != "/srv/outside/project" {
+		t.Fatalf("reconciled coordinates safe=%q ambiguous=%q", safe, ambiguous)
+	}
+	assertProjectCoordinateConstraintValidated(t, ctx, db, false)
 }
 
 func TestProjectBaseDirMigrationToleratesConcurrentCanonicalizationAndDeletion(t *testing.T) {

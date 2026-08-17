@@ -79,9 +79,7 @@ Project Skill 仍是持久 Agent/项目工作树中的普通文件。可变 `sys
 
 ### PostgreSQL 到 Home 的 Skill 迁移
 
-如果升级时存在 PostgreSQL Skill 文件，启动会停止，而不是重建或丢弃它们。停止所有可能写 Skill 的进程，验证一份可恢复的 PostgreSQL 备份和 `$STELLA_HOME` 备份，然后查看 `stellad storage migrate-skills --help`。该专用迁移是单向的，并且只支持 Linux/macOS。它会对旧数据做两次 inventory，发布并验证精确 Home revision，然后在同一个数据库事务中 scrub 旧文件字节并记录完成状态。
-
-除非同时传入 `--apply` 和两个必要 attestation，否则命令只执行 dry-run。dry-run 不发布 Home revision 或 selector，不写 Skill 迁移证据或完成状态，也不 scrub 旧 Skill 字节。但它**不是**进程级或数据库级只读：加载配置可能 bootstrap 内嵌 PostgreSQL runtime，打开数据库也可能执行普通 schema migration。
+升级发现 PostgreSQL Skill 文件时，Stella 会把迁移加入后台队列并立即开始提供服务。迁移期间 managed Skill 写入会串行等待，读取可能暂时不可用。Stella 会对旧数据做两次 inventory，隔离冲突的旧版平铺文件系统镜像，发布并验证精确 Home revision，然后在同一个数据库事务中 scrub PostgreSQL 旧文件字节并记录完成状态。格式错误的旧数据会禁用 managed Skill 并报告，但不再阻止其他服务器能力启动。
 
 ### 保留 revision 的容量
 

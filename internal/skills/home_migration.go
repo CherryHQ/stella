@@ -32,6 +32,7 @@ const (
 var (
 	ErrSkillHomeMigrationRequired = errors.New("Skill PostgreSQL-to-Home migration is required")
 	ErrMarkerOutcomeUnknown       = errors.New("Skill migration marker outcome is unknown")
+	ErrSkillMigrationData         = errors.New("Skill migration source data is invalid")
 )
 
 var emptySkillInventoryDigest = func() string {
@@ -41,9 +42,7 @@ var emptySkillInventoryDigest = func() string {
 }()
 
 type SkillHomeMigrationOptions struct {
-	Apply                 bool
-	ConfirmWritersStopped bool
-	ConfirmBackupVerified bool
+	Apply bool
 }
 
 type SkillHomeMigrationResult struct {
@@ -53,6 +52,11 @@ type SkillHomeMigrationResult struct {
 	FileCount       int64  `json:"file_count"`
 	ContentBytes    int64  `json:"content_bytes"`
 	InventoryDigest string `json:"inventory_digest"`
+}
+
+type SkillStartupReconcileResult struct {
+	Migration SkillHomeMigrationResult
+	Degraded  error
 }
 
 type skillMigrationSource struct {
@@ -86,6 +90,16 @@ func NewSkillHomeMigrator(db *pgxpool.Pool, roots home.SkillRootOpener) (*SkillH
 	store, err := NewPOSIXStore(db, roots)
 	if err != nil {
 		return nil, err
+	}
+	return NewSkillHomeMigratorFromStore(db, store)
+}
+
+// NewSkillHomeMigratorFromStore shares the runtime store so a failed automatic
+// cutover can disable managed-Skill entry points before releasing its mutation
+// lock.
+func NewSkillHomeMigratorFromStore(db *pgxpool.Pool, store *POSIXStore) (*SkillHomeMigrator, error) {
+	if db == nil || store == nil {
+		return nil, errors.New("skills: database and POSIX store are required")
 	}
 	return &SkillHomeMigrator{
 		db: db, q: sqlc.New(db), store: store,
@@ -143,14 +157,14 @@ func readSkillMigrationInventory(ctx context.Context, q *sqlc.Queries) ([]skillM
 		}
 		manifest, err := canonicalManifest(desired)
 		if err != nil {
-			return nil, result, fmt.Errorf("Skill %s manifest: %w", row.ID, err)
+			return nil, result, fmt.Errorf("%w: Skill %s manifest: %w", ErrSkillMigrationData, row.ID, err)
 		}
 		stats, err := q.GetSkillHomeMigrationSourceFileStats(ctx, row.ID)
 		if err != nil {
 			return nil, result, err
 		}
 		if stats.FileCount <= 0 || stats.FileCount > MaxManagedSkillFiles || stats.ContentBytes > MaxManagedSkillAggregateBytes || stats.MaxContentBytes > MaxManagedSkillFileBytes || stats.MaxPathBytes > MaxManagedSkillPathBytes {
-			return nil, result, fmt.Errorf("Skill %s files: %w", row.ID, ErrSkillLimit)
+			return nil, result, fmt.Errorf("%w: Skill %s files: %w", ErrSkillMigrationData, row.ID, ErrSkillLimit)
 		}
 		fileRows, err := q.ListSkillHomeMigrationSourceFile(ctx, row.ID)
 		if err != nil {
@@ -169,7 +183,7 @@ func readSkillMigrationInventory(ctx context.Context, q *sqlc.Queries) ([]skillM
 		}
 		files, err = validateRevisionFiles(files)
 		if err != nil || int64(len(files)) != stats.FileCount || contentBytes != stats.ContentBytes {
-			return nil, result, fmt.Errorf("Skill %s bounded files: %w", row.ID, errors.Join(err, ErrSkillLimit))
+			return nil, result, fmt.Errorf("%w: Skill %s bounded files: %w", ErrSkillMigrationData, row.ID, errors.Join(err, ErrSkillLimit))
 		}
 		contentDigest, err := digestRevision(manifest, files)
 		if err != nil {
@@ -219,6 +233,45 @@ func (m *SkillHomeMigrator) preflight(ctx context.Context, sources []skillMigrat
 		closeErr := root.Close()
 		if err != nil || closeErr != nil {
 			return fmt.Errorf("preflight Skill %s: %w", source.identity.ID, errors.Join(err, closeErr))
+		}
+	}
+	return nil
+}
+
+func (m *SkillHomeMigrator) quarantineLegacyMirrors(ctx context.Context, sources []skillMigrationSource) error {
+	const quarantineRoot = ".stella-legacy"
+	for _, source := range sources {
+		root, err := m.store.openSkillRoot(ctx, source.identity, home.RootReadWrite)
+		if err != nil {
+			return err
+		}
+		info, inspectErr := root.Lstat(ctx, source.identity.ID)
+		if errors.Is(inspectErr, fs.ErrNotExist) || inspectErr == nil && info.Mode()&fs.ModeSymlink != 0 {
+			if closeErr := root.Close(); closeErr != nil {
+				return closeErr
+			}
+			continue
+		}
+		if inspectErr != nil {
+			_ = root.Close()
+			return inspectErr
+		}
+		if err := root.Mkdir(ctx, quarantineRoot, 0o700, home.MkdirOptions{Parents: true}); err != nil {
+			_ = root.Close()
+			return err
+		}
+		target := path.Join(quarantineRoot, source.identity.ID)
+		if _, err := root.Lstat(ctx, target); err == nil {
+			_ = root.Close()
+			return fmt.Errorf("%w: Skill %s legacy quarantine target already exists", ErrSkillMigrationData, source.identity.ID)
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			_ = root.Close()
+			return err
+		}
+		renameErr := root.Rename(ctx, source.identity.ID, target, home.RenameOptions{NoReplace: true, SyncParent: true})
+		closeErr := root.Close()
+		if renameErr != nil || closeErr != nil {
+			return errors.Join(renameErr, closeErr)
 		}
 	}
 	return nil
@@ -298,15 +351,23 @@ func (m *SkillHomeMigrator) verifyPublished(ctx context.Context, sources []skill
 }
 
 func (m *SkillHomeMigrator) Migrate(ctx context.Context, opts SkillHomeMigrationOptions) (result SkillHomeMigrationResult, resultErr error) {
-	if opts.Apply && (!opts.ConfirmWritersStopped || !opts.ConfirmBackupVerified) {
-		return result, errors.New("migrate-skills: --confirm-writers-stopped and --confirm-backup-verified are required")
-	}
+	return m.migrate(ctx, opts, false)
+}
+
+func (m *SkillHomeMigrator) migrate(ctx context.Context, opts SkillHomeMigrationOptions, quarantineLegacy bool) (result SkillHomeMigrationResult, resultErr error) {
 	if opts.Apply {
 		release, err := m.store.lockManagedMutations(ctx)
 		if err != nil {
 			return result, err
 		}
 		defer finishManagedMutation(release, &resultErr)
+		if quarantineLegacy {
+			defer func() {
+				if resultErr != nil {
+					m.store.SetUnavailable(resultErr)
+				}
+			}()
+		}
 		if completed, done, err := m.completedResult(ctx, opts); err != nil || done {
 			return completed, err
 		}
@@ -324,6 +385,11 @@ func (m *SkillHomeMigrator) Migrate(ctx context.Context, opts SkillHomeMigration
 	}
 	result = second
 	result.State, result.DryRun = "planned", !opts.Apply
+	if quarantineLegacy {
+		if err := m.quarantineLegacyMirrors(ctx, secondSources); err != nil {
+			return result, err
+		}
+	}
 	if err := m.preflight(ctx, secondSources); err != nil {
 		return result, err
 	}
@@ -343,6 +409,32 @@ func (m *SkillHomeMigrator) Migrate(ctx context.Context, opts SkillHomeMigration
 	}
 	result.State, result.DryRun = "completed", false
 	return result, nil
+}
+
+// ReconcileStartup performs the one-way cutover from a startup background task.
+// The global mutation lock serializes managed-Skill writers until exact immutable
+// Home revisions are published and verified; conflicting pre-revision mirrors
+// are quarantined, never replaced.
+func (m *SkillHomeMigrator) ReconcileStartup(ctx context.Context) (SkillStartupReconcileResult, error) {
+	result, err := m.migrate(ctx, SkillHomeMigrationOptions{
+		Apply: true,
+	}, true)
+	startup := SkillStartupReconcileResult{Migration: result}
+	if err == nil {
+		return startup, nil
+	}
+	if isSkillMigrationDataError(err) {
+		startup.Degraded = err
+		return startup, nil
+	}
+	return startup, err
+}
+
+func isSkillMigrationDataError(err error) bool {
+	return errors.Is(err, ErrSkillMigrationData) ||
+		errors.Is(err, ErrSkillDigestConflict) ||
+		errors.Is(err, ErrInvalidSkillRevision) ||
+		errors.Is(err, ErrSkillLimit)
 }
 
 func (m *SkillHomeMigrator) completedResult(ctx context.Context, opts SkillHomeMigrationOptions) (SkillHomeMigrationResult, bool, error) {
@@ -385,6 +477,9 @@ func (m *SkillHomeMigrator) finalize(ctx context.Context, sources []skillMigrati
 	if err != nil {
 		return err
 	}
+	// The historical attestation columns now record facts established by this
+	// automatic path: the global mutation lock is held, and verifyPublished has
+	// read back the exact immutable Home copy before this scrub transaction.
 	now := m.now().UTC()
 	completed, err := qtx.CompleteSkillHomeMigration(ctx, sqlc.CompleteSkillHomeMigrationParams{
 		ID: skillHomeMigrationID, SourceSkillCount: expected.SkillCount, SourceFileCount: expected.FileCount,
@@ -580,7 +675,7 @@ func (m *SkillHomeMigrator) EnsureReady(ctx context.Context) error {
 		return err
 	}
 	if len(sources) != 0 || empty.SkillCount != 0 || empty.FileCount != 0 || empty.ContentBytes != 0 || empty.InventoryDigest != emptySkillInventoryDigest {
-		return errors.New("Skill storage migration is incomplete; stop Skill writers, verify a backup, then run `stellad storage migrate-skills --apply --confirm-writers-stopped --confirm-backup-verified`")
+		return errors.New("automatic Skill storage migration is incomplete")
 	}
 	now := m.now().UTC()
 	completed, err := qtx.CompleteSkillHomeMigration(ctx, sqlc.CompleteSkillHomeMigrationParams{

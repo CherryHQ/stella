@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"path"
 	"sort"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,6 +29,10 @@ const (
 	managedSkillAdvisoryLock   = int64(0x5354454c4c41534b)
 )
 
+var ErrManagedSkillsUnavailable = errors.New("managed Skills are unavailable")
+
+type managedSkillAvailability struct{ cause error }
+
 type managedSkillLockSession struct {
 	lock    func(context.Context) error
 	unlock  func(context.Context) (bool, error)
@@ -45,6 +50,7 @@ type POSIXStore struct {
 	random             func([]byte) error
 	acquireManagedLock func(context.Context) (managedSkillLockSession, error)
 	cleanupContext     func() (context.Context, context.CancelFunc)
+	unavailable        atomic.Pointer[managedSkillAvailability]
 }
 
 func NewPOSIXStore(db *pgxpool.Pool, roots home.SkillRootOpener) (*POSIXStore, error) {
@@ -62,6 +68,22 @@ func NewPOSIXStore(db *pgxpool.Pool, roots home.SkillRootOpener) (*POSIXStore, e
 	}
 	store.acquireManagedLock = store.acquireManagedSkillLockSession
 	return store, nil
+}
+
+// SetUnavailable fails every managed-Skill entry point after startup
+// reconciliation proves that the authority cannot be used safely.
+func (s *POSIXStore) SetUnavailable(cause error) {
+	if cause == nil {
+		cause = ErrSkillHomeMigrationRequired
+	}
+	s.unavailable.Store(&managedSkillAvailability{cause: cause})
+}
+
+func (s *POSIXStore) checkAvailable() error {
+	if unavailable := s.unavailable.Load(); unavailable != nil {
+		return errors.Join(ErrManagedSkillsUnavailable, unavailable.cause)
+	}
+	return nil
 }
 
 func freshManagedSkillCleanupContext() (context.Context, context.CancelFunc) {
@@ -131,6 +153,9 @@ func (s *POSIXStore) acquireManagedSkillLockSession(ctx context.Context) (manage
 }
 
 func (s *POSIXStore) lockManagedMutations(ctx context.Context) (func() error, error) {
+	if err := s.checkAvailable(); err != nil {
+		return nil, err
+	}
 	session, err := s.acquireManagedLock(ctx)
 	if err != nil {
 		return nil, err
@@ -191,6 +216,9 @@ func freshSkillContext() (context.Context, context.CancelFunc) {
 }
 
 func (s *POSIXStore) loadIdentity(ctx context.Context, identity Skill) (snapshot managedSnapshot, err error) {
+	if err := s.checkAvailable(); err != nil {
+		return managedSnapshot{}, err
+	}
 	root, err := s.openExistingSkillRoot(ctx, identity)
 	if err != nil {
 		return managedSnapshot{}, err
@@ -200,6 +228,9 @@ func (s *POSIXStore) loadIdentity(ctx context.Context, identity Skill) (snapshot
 }
 
 func (s *POSIXStore) loadIdentityRevision(ctx context.Context, identity Skill, digest string) (snapshot managedSnapshot, err error) {
+	if err := s.checkAvailable(); err != nil {
+		return managedSnapshot{}, err
+	}
 	root, err := s.openExistingSkillRoot(ctx, identity)
 	if err != nil {
 		return managedSnapshot{}, err
@@ -232,6 +263,9 @@ func (s *POSIXStore) LoadExactRevision(ctx context.Context, identity Skill, dige
 }
 
 func (s *POSIXStore) GetIdentity(ctx context.Context, id string) (*Skill, error) {
+	if err := s.checkAvailable(); err != nil {
+		return nil, err
+	}
 	row, err := s.q.GetSkillByID(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -255,6 +289,9 @@ func identitiesFromRows(rows []sqlc.Skill) ([]Skill, error) {
 }
 
 func (s *POSIXStore) ListIdentityVisible(ctx context.Context, vc ViewContext) ([]Skill, error) {
+	if err := s.checkAvailable(); err != nil {
+		return nil, err
+	}
 	rows, err := s.q.ListSkillIdentityVisible(ctx, sqlc.ListSkillIdentityVisibleParams{
 		AgentID: pgtype.Text{String: vc.AgentID, Valid: vc.AgentID != ""},
 		UserID:  pgtype.Text{String: vc.UserID, Valid: vc.UserID != ""},
@@ -283,6 +320,9 @@ func (s *POSIXStore) ListIdentityCandidate(ctx context.Context, name string, vc 
 }
 
 func (s *POSIXStore) ListIdentityByScope(ctx context.Context, scope, userID, agentID string) ([]Skill, error) {
+	if err := s.checkAvailable(); err != nil {
+		return nil, err
+	}
 	rows, err := s.q.ListSkillsByScope(ctx, sqlc.ListSkillsByScopeParams{
 		Scope: scope, UserID: pgtype.Text{String: userID, Valid: userID != ""}, AgentID: pgtype.Text{String: agentID, Valid: agentID != ""},
 	})
@@ -766,6 +806,9 @@ func (s *POSIXStore) DeleteManagedSkillFile(ctx context.Context, in ManagedSkill
 }
 
 func (s *POSIXStore) ListSkillChangelogBySkill(ctx context.Context, skillID string, limit int) ([]SkillChangelog, error) {
+	if err := s.checkAvailable(); err != nil {
+		return nil, err
+	}
 	if limit <= 0 {
 		limit = 20
 	}
