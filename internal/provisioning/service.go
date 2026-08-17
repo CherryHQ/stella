@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/auth/account"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/credential"
@@ -31,6 +32,7 @@ var (
 	ErrForbidden     = errors.New("provisioned user lifecycle forbidden")
 	ErrExternalIDDup = errors.New("provisioned user external_id already exists")
 	ErrEmailDup      = errors.New("provisioned user email already exists")
+	ErrIdentityDup   = errors.New("channel identity already exists")
 )
 
 // ExternalIDConflict carries only the already-managed resource's safe metadata;
@@ -103,6 +105,22 @@ type User struct {
 type CreateResult struct {
 	User  User
 	Token string // plaintext: caller must return it once and never persist it.
+}
+
+type ChannelIdentityInput struct {
+	Platform   string
+	ExternalID string
+	Name       string
+}
+
+type ChannelIdentity struct {
+	ID         string
+	UserID     string
+	Platform   string
+	ExternalID string
+	Name       string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 func (s *Service) Create(ctx context.Context, issuer Issuer, in CreateInput) (CreateResult, error) {
@@ -251,6 +269,58 @@ func (s *Service) Rotate(ctx context.Context, issuer Issuer, id, tokenName strin
 	return result, nil
 }
 
+// CreateChannelIdentity attaches a messaging identity without granting an
+// interactive login. Ownership follows the administrator that created the
+// provisioned user, so that administrator may rotate provisioning tokens
+// without orphaning its users.
+func (s *Service) CreateChannelIdentity(ctx context.Context, issuer Issuer, id string, in ChannelIdentityInput) (ChannelIdentity, error) {
+	if issuer.UserID == "" || issuer.TokenID == "" {
+		return ChannelIdentity{}, fmt.Errorf("%w: missing provisioning issuer", ErrForbidden)
+	}
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return ChannelIdentity{}, fmt.Errorf("begin channel identity create: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	q := sqlc.New(s.db).WithTx(tx)
+	locked, err := q.GetOwnedProvisionedUserForUpdate(ctx, sqlc.GetOwnedProvisionedUserForUpdateParams{
+		ID:              id,
+		CreatedByUserID: pgtype.Text{String: issuer.UserID, Valid: true},
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ChannelIdentity{}, ErrNotFound
+	}
+	if err != nil {
+		return ChannelIdentity{}, fmt.Errorf("lock owned provisioned user: %w", err)
+	}
+	if locked.Role != auth.RoleUser || !locked.IsActive {
+		return ChannelIdentity{}, ErrForbidden
+	}
+
+	row, err := q.CreateProvisionedUserChannelIdentity(ctx, sqlc.CreateProvisionedUserChannelIdentityParams{
+		ID:         uuid.Must(uuid.NewV7()).String(),
+		UserID:     locked.UserID,
+		Platform:   in.Platform,
+		ExternalID: in.ExternalID,
+		Name:       in.Name,
+	})
+	if err != nil {
+		return ChannelIdentity{}, classifyChannelIdentityError(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ChannelIdentity{}, fmt.Errorf("commit channel identity create: %w", err)
+	}
+	identity := ChannelIdentity{
+		ID: row.ID, UserID: row.UserID, Platform: row.Platform, ExternalID: row.ExternalID,
+		Name: row.Name, CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC(),
+	}
+	s.log.InfoContext(ctx, "provisioned user channel identity created",
+		"provisioned_user_id", id, "user_id", identity.UserID,
+		"platform", identity.Platform, "issuer_user_id", issuer.UserID, "issuer_token_id", issuer.TokenID)
+	return identity, nil
+}
+
 func (s *Service) Deactivate(ctx context.Context, issuer Issuer, authority authz.Authority, id string) (User, error) {
 	if issuer.UserID == "" || issuer.TokenID == "" {
 		return User{}, fmt.Errorf("%w: missing provisioning issuer", ErrForbidden)
@@ -337,4 +407,12 @@ func classifyCreateError(err error) error {
 		return ErrEmailDup
 	}
 	return fmt.Errorf("create provisioned user: %w", err)
+}
+
+func classifyChannelIdentityError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "channel_identity_platform_external_id_key" {
+		return ErrIdentityDup
+	}
+	return fmt.Errorf("create provisioned user channel identity: %w", err)
 }

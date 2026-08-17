@@ -165,7 +165,7 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
 
-  /api/provisioned-users/{id}/identities/login:
+  /api/provisioned-users/{id}/channel-identities:
     parameters:
       - {
           name: id,
@@ -175,27 +175,26 @@ paths:
         }
     post:
       tags: [provisioning]
-      summary: Link a login identity to a provisioned user
+      summary: Create a channel identity for a provisioned user
       description: >-
-        Lets the provisioning credential attach an external login identity
-        (e.g. a Feishu union_id) to a user it provisioned, so inbound channel
-        messages resolve to that user. Scoped to provisioned users: the target
-        must have been created through this same provisioning surface.
-      operationId: linkProvisionedUserLoginIdentity
+        Lets a provisioning credential attach a messaging-platform identity,
+        such as a Feishu union_id, to an active ordinary user created by the
+        same administrator. This does not grant an interactive login identity.
+      operationId: createProvisionedUserChannelIdentity
       requestBody:
         required: true
         content:
           application/json:
             schema: {
-              $ref: "../../components.yaml#/components/schemas/LinkLoginIdentityRequest",
+              $ref: "../../components.yaml#/components/schemas/CreateProvisionedUserChannelIdentityRequest",
             }
       responses:
-        "200":
-          description: linked
+        "201":
+          description: created
           content:
             application/json:
               schema: {
-                $ref: "../../components.yaml#/components/schemas/LoginIdentity",
+                $ref: "../../components.yaml#/components/schemas/ChannelIdentity",
               }
         "400": {
           $ref: "../../components.yaml#/components/responses/BadRequest",

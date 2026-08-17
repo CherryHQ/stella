@@ -15,8 +15,6 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
-	"github.com/CherryHQ/stella/internal/auth"
-	"github.com/CherryHQ/stella/internal/auth/account"
 	"github.com/CherryHQ/stella/internal/provisioning"
 )
 
@@ -156,66 +154,33 @@ func (s *Server) DeactivateProvisionedUser(w http.ResponseWriter, r *http.Reques
 	writeData(w, http.StatusOK, provisionedUserToAPI(user))
 }
 
-// LinkProvisionedUserLoginIdentity handles POST /api/provisioned-users/{id}/identities/login.
-//
-// The external directory that provisioned a user is the only party that knows
-// which IM account belongs to it, so it must be able to record that mapping;
-// otherwise inbound channel messages can never resolve to the provisioned user.
-// The blast radius stays inside the provisioning surface: the target is resolved
-// through the provisioning service first, so a provisioning credential can never
-// reach a human account's identities. PATs remain barred from every identity
-// route by the credential gate.
-func (s *Server) LinkProvisionedUserLoginIdentity(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+// CreateProvisionedUserChannelIdentity handles
+// POST /api/provisioned-users/{id}/channel-identities.
+func (s *Server) CreateProvisionedUserChannelIdentity(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
 	info := requireProvisioningBearer(w, r)
 	if info == nil {
 		return
 	}
-	if s.provisioningSvc == nil || s.account == nil {
+	if s.provisioningSvc == nil {
 		writeError(w, http.StatusServiceUnavailable, "provisioning is unavailable")
 		return
 	}
-	// The path carries the provisioned-user record id; identities hang off the
-	// auth user it wraps. Resolving here also proves this surface owns the target.
-	provisioned, err := s.provisioningSvc.Get(r.Context(), id.String())
+	var body apitypes.CreateProvisionedUserChannelIdentityRequest
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	in, err := provisionedChannelIdentityInput(body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	identity, err := s.provisioningSvc.CreateChannelIdentity(r.Context(), provisioningIssuer(info), id.String(), in)
 	if err != nil {
 		s.writeProvisioningError(w, err)
 		return
 	}
-
-	var body struct {
-		Provider        string `json:"provider"`
-		ProviderSubject string `json:"provider_subject"`
-		Email           string `json:"email"`
-		Name            string `json:"name"`
-	}
-	if err := decodeJSON(r, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
-		return
-	}
-	if body.Provider == "" || body.ProviderSubject == "" || body.Email == "" {
-		writeError(w, http.StatusBadRequest, "provider, provider_subject, and email are required")
-		return
-	}
-
-	// Ownership is already narrowed above, so reuse the account layer with an
-	// admin authority to inherit its conflict handling (identity owned by
-	// another user -> 409).
-	authority, err := (auth.Subject{UserID: info.UserID, Roles: []string{auth.RoleAdmin}}).Authority()
-	if err != nil {
-		writeError(w, http.StatusForbidden, "forbidden")
-		return
-	}
-	linked, err := s.account.LinkLoginIdentity(r.Context(), authority, provisioned.UserID, account.LinkLoginInput{
-		Provider:        body.Provider,
-		ProviderSubject: body.ProviderSubject,
-		Email:           body.Email,
-		Name:            body.Name,
-	})
-	if err != nil {
-		s.writeAccountError(w, err)
-		return
-	}
-	writeData(w, http.StatusOK, linked)
+	writeData(w, http.StatusCreated, provisionedChannelIdentityToAPI(identity))
 }
 
 const provisionedUserPageTokenKind = "provisioned_user"
@@ -286,6 +251,19 @@ func provisionedCreateInput(body apitypes.CreateProvisionedUserRequest, now time
 	return provisioning.CreateInput{ExternalID: externalID, Email: email, Name: name, TokenName: tokenName, ExpiresAt: *expiresAt}, nil
 }
 
+func provisionedChannelIdentityInput(body apitypes.CreateProvisionedUserChannelIdentityRequest) (provisioning.ChannelIdentityInput, error) {
+	platform := strings.TrimSpace(body.Platform)
+	externalID := strings.TrimSpace(body.ExternalId)
+	if platform == "" || externalID == "" {
+		return provisioning.ChannelIdentityInput{}, errors.New("platform and external_id are required")
+	}
+	name := ""
+	if body.Name != nil {
+		name = strings.TrimSpace(*body.Name)
+	}
+	return provisioning.ChannelIdentityInput{Platform: platform, ExternalID: externalID, Name: name}, nil
+}
+
 func provisionedTokenInput(tokenName *string, requestedExpiry *time.Time, now time.Time) (string, *time.Time, error) {
 	name := provisioning.DefaultTokenName
 	if tokenName != nil {
@@ -314,6 +292,14 @@ func provisionedUserToAPI(user provisioning.User) apitypes.ProvisionedUser {
 	return out
 }
 
+func provisionedChannelIdentityToAPI(identity provisioning.ChannelIdentity) apitypes.ChannelIdentity {
+	return apitypes.ChannelIdentity{
+		Id: identity.ID, UserId: identity.UserID, Platform: identity.Platform,
+		ExternalId: identity.ExternalID, Name: identity.Name,
+		CreatedAt: identity.CreatedAt.UTC(), UpdatedAt: identity.UpdatedAt.UTC(),
+	}
+}
+
 func (s *Server) writeProvisioningError(w http.ResponseWriter, err error) {
 	var external *provisioning.ExternalIDConflict
 	switch {
@@ -323,6 +309,8 @@ func (s *Server) writeProvisioningError(w http.ResponseWriter, err error) {
 		// Do not reveal whether this belongs to a self-registered, OIDC, or
 		// otherwise unmanaged account.
 		writeError(w, http.StatusConflict, "email is already in use")
+	case errors.Is(err, provisioning.ErrIdentityDup):
+		writeError(w, http.StatusConflict, "channel identity is already linked")
 	case errors.Is(err, provisioning.ErrNotFound):
 		writeError(w, http.StatusNotFound, "provisioned user not found")
 	case errors.Is(err, provisioning.ErrForbidden):

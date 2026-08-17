@@ -37,6 +37,19 @@ Use `GET /api/provisioned-users` and `GET /api/provisioned-users/{id}` for safe 
 
 All user tokens expire by default after 90 days; `expires_at` may shorten or extend that interval up to 365 days. There is no never-expiring option.
 
+## Link a messaging identity
+
+To route channel messages from an existing directory account to the provisioned user, create a channel identity with the platform's stable user identifier:
+
+```sh
+curl -X POST https://stella.example/api/provisioned-users/PROVISIONED_USER_ID/channel-identities \
+  -H 'Authorization: Bearer stella_prv_…' \
+  -H 'Content-Type: application/json' \
+  -d '{"platform":"feishu","external_id":"on_union_1","name":"Ada"}'
+```
+
+This creates only a messaging identity; it does not let that account sign in to the Web UI. A replacement provisioning token owned by the same administrator can manage users created by the prior token. Tokens owned by another administrator receive `404`, and promoted or inactive users receive `403`.
+
 ## Recover and respond to incidents
 
 If `external_id` already belongs to a managed user, creation returns `409` with safe existing user and token metadata, never the old token. Treat this as a retry/reconciliation result: fetch that resource and rotate its token if the earlier response was lost. An email collision with an unmanaged account also returns `409`, but deliberately reveals nothing about that account.

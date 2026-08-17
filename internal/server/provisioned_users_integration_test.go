@@ -229,20 +229,20 @@ func TestProvisionedUsersHTTPIntegration(t *testing.T) {
 	}
 }
 
-// TestProvisionedUserLoginIdentityHTTP covers the identity route added for
-// external directories: the provisioning credential may attach a login identity
-// to a user it provisioned, other credentials may not reach the route at all,
-// and a human account stays out of reach.
-func TestProvisionedUserLoginIdentityHTTP(t *testing.T) {
+// TestProvisionedUserChannelIdentityHTTP covers the narrow identity capability:
+// a directory may create a messaging identity for its own active ordinary user,
+// but cannot grant interactive login or cross an issuer/role boundary.
+func TestProvisionedUserChannelIdentityHTTP(t *testing.T) {
 	ctx := context.Background()
 	env := setupAdmin(t)
 	issuer := createProvisioningToken(t, env.bearerToken, env, "directory", nil)
+	sameOwner := createProvisioningToken(t, env.bearerToken, env, "directory-rotated", nil)
 	created := createProvisionedUserHTTP(t, env, issuer.Token, map[string]any{
 		"external_id": "directory-link", "email": "link@example.test", "name": "Link",
 	})
-	path := "/api/provisioned-users/" + created.ProvisionedUser.ID + "/identities/login"
+	path := "/api/provisioned-users/" + created.ProvisionedUser.ID + "/channel-identities"
 	body := map[string]any{
-		"provider": "feishu", "provider_subject": "on_union_1", "email": "link@example.test", "name": "Link",
+		"platform": "feishu", "external_id": "on_union_1", "name": "Link",
 	}
 
 	// Session and PAT bearers are barred from the provisioning family.
@@ -253,30 +253,85 @@ func TestProvisionedUserLoginIdentityHTTP(t *testing.T) {
 		}
 	}
 
-	if rr := doBearerRequest(t, env.srv, issuer.Token, http.MethodPost, path, body); rr.Code != http.StatusOK {
-		t.Fatalf("link identity: status=%d body=%s", rr.Code, rr.Body.String())
-	}
-	// Re-linking the same identity to the same user is idempotent.
-	if rr := doBearerRequest(t, env.srv, issuer.Token, http.MethodPost, path, body); rr.Code != http.StatusOK {
-		t.Fatalf("relink identity: status=%d body=%s", rr.Code, rr.Body.String())
+	for _, invalid := range []map[string]any{
+		{"platform": " ", "external_id": "on_union_1"},
+		{"platform": "feishu", "external_id": " "},
+	} {
+		if rr := doBearerRequest(t, env.srv, issuer.Token, http.MethodPost, path, invalid); rr.Code != http.StatusBadRequest {
+			t.Fatalf("invalid identity: want 400 got %d (%s)", rr.Code, rr.Body.String())
+		}
 	}
 
-	var userID string
-	if err := env.db.QueryRow(ctx, `SELECT user_id FROM auth_provisioned_user WHERE id=$1`, created.ProvisionedUser.ID).Scan(&userID); err != nil {
+	// Ownership follows the issuing administrator, not one token, so planned
+	// provisioning-token rotation does not orphan previously created users.
+	rr := doBearerRequest(t, env.srv, sameOwner.Token, http.MethodPost, path, body)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create channel identity: status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var identity auth.ChannelIdentity
+	if err := json.Unmarshal(rr.Body.Bytes(), &identity); err != nil {
+		t.Fatalf("decode channel identity: %v", err)
+	}
+	if identity.UserID == "" || identity.Platform != "feishu" || identity.ExternalID != "on_union_1" {
+		t.Fatalf("channel identity response = %#v", identity)
+	}
+
+	if err := env.db.QueryRow(ctx, `SELECT user_id FROM auth_provisioned_user WHERE id=$1`, created.ProvisionedUser.ID).Scan(&created.ProvisionedUser.UserID); err != nil {
 		t.Fatalf("load provisioned user mapping: %v", err)
 	}
-	var linked int
+	var channelLinked, loginLinked int
 	if err := env.db.QueryRow(ctx,
-		`SELECT count(*) FROM auth_identity WHERE user_id=$1 AND provider='feishu' AND provider_subject='on_union_1'`,
-		userID).Scan(&linked); err != nil {
+		`SELECT count(*) FROM channel_identity WHERE user_id=$1 AND platform='feishu' AND external_id='on_union_1'`,
+		created.ProvisionedUser.UserID).Scan(&channelLinked); err != nil {
+		t.Fatalf("count channel identities: %v", err)
+	}
+	if err := env.db.QueryRow(ctx, `SELECT count(*) FROM auth_identity WHERE user_id=$1`, created.ProvisionedUser.UserID).Scan(&loginLinked); err != nil {
 		t.Fatalf("count login identities: %v", err)
 	}
-	if linked != 1 {
-		t.Fatalf("login identities linked = %d, want 1", linked)
+	if channelLinked != 1 || loginLinked != 0 {
+		t.Fatalf("identity state channel=%d login=%d, want channel=1 login=0", channelLinked, loginLinked)
+	}
+	if rr := doBearerRequest(t, env.srv, issuer.Token, http.MethodPost, path, body); rr.Code != http.StatusConflict {
+		t.Fatalf("duplicate channel identity: want 409 got %d (%s)", rr.Code, rr.Body.String())
+	}
+
+	// A provisioning token owned by another administrator cannot mutate this
+	// owner's users. Return 404 so the ownership boundary reveals nothing.
+	_, otherOwnerSession := createTestUserWithToken(t, env.authStore, env.oidcStore, "other-provision-owner", auth.RoleAdmin)
+	otherIssuer := createProvisioningToken(t, otherOwnerSession, env, "other-directory", nil)
+	foreignBody := map[string]any{"platform": "feishu", "external_id": "on_foreign", "name": "Foreign"}
+	if rr := doBearerRequest(t, env.srv, otherIssuer.Token, http.MethodPost, path, foreignBody); rr.Code != http.StatusNotFound {
+		t.Fatalf("cross-owner identity: want 404 got %d (%s)", rr.Code, rr.Body.String())
+	}
+
+	for _, target := range []struct {
+		name   string
+		mutate string
+	}{
+		{name: "promoted", mutate: `UPDATE auth_user SET role='admin' WHERE id=$1`},
+		{name: "inactive", mutate: `UPDATE auth_user SET is_active=false WHERE id=$1`},
+	} {
+		managed := createProvisionedUserHTTP(t, env, issuer.Token, map[string]any{
+			"external_id": "directory-" + target.name,
+			"email":       target.name + "@example.test",
+			"name":        target.name,
+		})
+		if err := env.db.QueryRow(ctx, `SELECT user_id FROM auth_provisioned_user WHERE id=$1`, managed.ProvisionedUser.ID).Scan(&managed.ProvisionedUser.UserID); err != nil {
+			t.Fatalf("load %s user mapping: %v", target.name, err)
+		}
+		if _, err := env.db.Exec(ctx, target.mutate, managed.ProvisionedUser.UserID); err != nil {
+			t.Fatalf("mutate %s user: %v", target.name, err)
+		}
+		targetPath := "/api/provisioned-users/" + managed.ProvisionedUser.ID + "/channel-identities"
+		if rr := doBearerRequest(t, env.srv, issuer.Token, http.MethodPost, targetPath, map[string]any{
+			"platform": "feishu", "external_id": "on_" + target.name,
+		}); rr.Code != http.StatusForbidden {
+			t.Fatalf("%s target: want 403 got %d (%s)", target.name, rr.Code, rr.Body.String())
+		}
 	}
 
 	// A user that this surface did not provision (the admin) is not reachable.
-	adminPath := "/api/provisioned-users/" + env.adminUser.ID + "/identities/login"
+	adminPath := "/api/provisioned-users/" + env.adminUser.ID + "/channel-identities"
 	if rr := doBearerRequest(t, env.srv, issuer.Token, http.MethodPost, adminPath, body); rr.Code != http.StatusNotFound {
 		t.Fatalf("foreign user: want 404 got %d (%s)", rr.Code, rr.Body.String())
 	}

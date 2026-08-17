@@ -150,6 +150,77 @@ func (q *Queries) CreateProvisionedUser(ctx context.Context, arg CreateProvision
 	return i, err
 }
 
+const createProvisionedUserChannelIdentity = `-- name: CreateProvisionedUserChannelIdentity :one
+INSERT INTO channel_identity (id, user_id, platform, external_id, name)
+VALUES (
+    $1, $2, $3,
+    $4, $5
+)
+RETURNING id, user_id, platform, external_id, name, created_at, updated_at
+`
+
+type CreateProvisionedUserChannelIdentityParams struct {
+	ID         string `json:"id"`
+	UserID     string `json:"user_id"`
+	Platform   string `json:"platform"`
+	ExternalID string `json:"external_id"`
+	Name       string `json:"name"`
+}
+
+func (q *Queries) CreateProvisionedUserChannelIdentity(ctx context.Context, arg CreateProvisionedUserChannelIdentityParams) (ChannelIdentity, error) {
+	row := q.db.QueryRow(ctx, createProvisionedUserChannelIdentity,
+		arg.ID,
+		arg.UserID,
+		arg.Platform,
+		arg.ExternalID,
+		arg.Name,
+	)
+	var i ChannelIdentity
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Platform,
+		&i.ExternalID,
+		&i.Name,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getOwnedProvisionedUserForUpdate = `-- name: GetOwnedProvisionedUserForUpdate :one
+SELECT pu.id, pu.user_id, u.role, u.is_active
+FROM auth_provisioned_user pu
+JOIN auth_user u ON u.id = pu.user_id
+WHERE pu.id = $1
+  AND pu.created_by_user_id = $2
+FOR UPDATE OF pu, u
+`
+
+type GetOwnedProvisionedUserForUpdateParams struct {
+	ID              string      `json:"id"`
+	CreatedByUserID pgtype.Text `json:"created_by_user_id"`
+}
+
+type GetOwnedProvisionedUserForUpdateRow struct {
+	ID       string `json:"id"`
+	UserID   string `json:"user_id"`
+	Role     string `json:"role"`
+	IsActive bool   `json:"is_active"`
+}
+
+func (q *Queries) GetOwnedProvisionedUserForUpdate(ctx context.Context, arg GetOwnedProvisionedUserForUpdateParams) (GetOwnedProvisionedUserForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, getOwnedProvisionedUserForUpdate, arg.ID, arg.CreatedByUserID)
+	var i GetOwnedProvisionedUserForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Role,
+		&i.IsActive,
+	)
+	return i, err
+}
+
 const getProvisionedUser = `-- name: GetProvisionedUser :one
 SELECT
     pu.id, pu.external_id, pu.user_id, pu.created_by_user_id,
