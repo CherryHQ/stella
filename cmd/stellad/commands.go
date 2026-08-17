@@ -348,7 +348,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build session image pipeline: %w", err)
 	}
-	projectStore := agent.NewProjectStore(db, store, agentAccess, agent.WithProjectHomeWorkspace(homeRegistry))
+	projectStore := agent.NewProjectStore(db, agentAccess, agent.WithProjectHomeWorkspace(homeRegistry))
 	systemPromptBuilder, err := sessionaccess.NewSystemPromptBuilder(sessionaccess.SystemPromptDeps{
 		Memory:    memProvider,
 		Agents:    sessionaccess.ConfigPromptAgentStore{Store: store},
@@ -526,7 +526,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		agent.WithSkillRevisionReader(skillStore),
 		agent.WithSkillReadAuthorizer(skillAccess),
 		agent.WithProjectResolver(projectStore.Resolve),
-		agent.WithProjectEnsurerPM(projectStore.Ensure),
 		agent.WithHomeWorkspace(homeRegistry),
 	)
 
@@ -611,7 +610,10 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		reconcileManifestPluginsInBackground(parent, backgroundTasks, ps.manifestToReconcile, config.StellaHome())
 	}
 	reconcileProjectCoordinatesInBackground(parent, backgroundTasks, homeRegistry)
-	reconcileSkillHomeInBackground(parent, backgroundTasks, skillMigrator, skillStore)
+	// Close runtime entry points before setup returns and traffic can beat the
+	// background reconciler to the legacy inventory.
+	skillStore.BeginStartupReconciliation()
+	reconcileSkillHomeInBackground(parent, backgroundTasks, skillMigrator)
 	backfillRecallyContentInBackground(parent, backgroundTasks, recallySvc)
 
 	result := &setupResult{
@@ -897,10 +899,6 @@ type skillHomeReconciler interface {
 	ReconcileStartup(context.Context) (skills.SkillStartupReconcileResult, error)
 }
 
-type skillAvailabilityController interface {
-	SetUnavailable(error)
-}
-
 func reconcileProjectCoordinatesInBackground(ctx context.Context, wg *sync.WaitGroup, manager projectCoordinateReconciler) {
 	wg.Go(func() {
 		defer func() {
@@ -927,22 +925,32 @@ func reconcileProjectCoordinatesInBackground(ctx context.Context, wg *sync.WaitG
 	})
 }
 
-func reconcileSkillHomeInBackground(ctx context.Context, wg *sync.WaitGroup, migrator skillHomeReconciler, availability skillAvailabilityController) {
+func reconcileSkillHomeInBackground(ctx context.Context, wg *sync.WaitGroup, migrator skillHomeReconciler) {
 	wg.Go(func() {
 		defer func() {
 			if r := recover(); r != nil {
-				slog.Error("Skill storage reconciliation panic", "panic", r)
+				slog.Error("Skill storage reconciliation panic",
+					"managed_skills_available", false,
+					"recovery", "inspect the panic, repair the reported storage problem, then restart stellad",
+					"panic", r,
+				)
 			}
 		}()
 		result, err := migrator.ReconcileStartup(ctx)
 		if err != nil {
-			availability.SetUnavailable(err)
-			slog.Error("Skill storage reconciliation failed", "error", err)
+			slog.Error("Skill storage reconciliation failed",
+				"managed_skills_available", false,
+				"recovery", "fix the reported Home or database error, then restart stellad",
+				"error", err,
+			)
 			return
 		}
 		if result.Degraded != nil {
-			availability.SetUnavailable(result.Degraded)
-			slog.Error("managed Skills unavailable after background reconciliation", "error", result.Degraded)
+			slog.Error("managed Skills unavailable after background reconciliation",
+				"managed_skills_available", false,
+				"recovery", "fix the reported legacy Skill data, then restart stellad",
+				"error", result.Degraded,
+			)
 			return
 		}
 		if result.Migration.SkillCount != 0 {

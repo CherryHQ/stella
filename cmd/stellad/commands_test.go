@@ -302,17 +302,13 @@ func (r blockingSkillReconciler) ReconcileStartup(context.Context) (skills.Skill
 	return skills.SkillStartupReconcileResult{}, nil
 }
 
-type recordingSkillAvailability struct{ causes chan error }
-
-func (a recordingSkillAvailability) SetUnavailable(err error) { a.causes <- err }
-
 func TestLegacyStorageReconciliationNeverBlocksSetup(t *testing.T) {
 	projectStarted, skillStarted, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	var wg sync.WaitGroup
 	scheduled := make(chan struct{})
 	go func() {
 		reconcileProjectCoordinatesInBackground(t.Context(), &wg, blockingProjectReconciler{started: projectStarted, release: release})
-		reconcileSkillHomeInBackground(t.Context(), &wg, blockingSkillReconciler{started: skillStarted, release: release}, recordingSkillAvailability{causes: make(chan error, 1)})
+		reconcileSkillHomeInBackground(t.Context(), &wg, blockingSkillReconciler{started: skillStarted, release: release})
 		close(scheduled)
 	}()
 	select {

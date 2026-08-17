@@ -29,7 +29,10 @@ const (
 	managedSkillAdvisoryLock   = int64(0x5354454c4c41534b)
 )
 
-var ErrManagedSkillsUnavailable = errors.New("managed Skills are unavailable")
+var (
+	ErrManagedSkillsUnavailable = errors.New("managed Skills are unavailable")
+	ErrManagedSkillsPending     = errors.New("managed Skills are waiting for startup reconciliation")
+)
 
 type managedSkillAvailability struct{ cause error }
 
@@ -77,6 +80,16 @@ func (s *POSIXStore) SetUnavailable(cause error) {
 		cause = ErrSkillHomeMigrationRequired
 	}
 	s.unavailable.Store(&managedSkillAvailability{cause: cause})
+}
+
+// BeginStartupReconciliation closes managed-Skill entry points before runtime
+// services can race the background cutover.
+func (s *POSIXStore) BeginStartupReconciliation() {
+	s.SetUnavailable(ErrManagedSkillsPending)
+}
+
+func (s *POSIXStore) setAvailable() {
+	s.unavailable.Store(nil)
 }
 
 func (s *POSIXStore) checkAvailable() error {
@@ -156,6 +169,12 @@ func (s *POSIXStore) lockManagedMutations(ctx context.Context) (func() error, er
 	if err := s.checkAvailable(); err != nil {
 		return nil, err
 	}
+	return s.lockManagedMutationsForMigration(ctx)
+}
+
+// lockManagedMutationsForMigration bypasses the runtime availability gate. The
+// startup reconciler is the operation that establishes that availability.
+func (s *POSIXStore) lockManagedMutationsForMigration(ctx context.Context) (func() error, error) {
 	session, err := s.acquireManagedLock(ctx)
 	if err != nil {
 		return nil, err
@@ -219,6 +238,10 @@ func (s *POSIXStore) loadIdentity(ctx context.Context, identity Skill) (snapshot
 	if err := s.checkAvailable(); err != nil {
 		return managedSnapshot{}, err
 	}
+	return s.loadIdentityForMigration(ctx, identity)
+}
+
+func (s *POSIXStore) loadIdentityForMigration(ctx context.Context, identity Skill) (snapshot managedSnapshot, err error) {
 	root, err := s.openExistingSkillRoot(ctx, identity)
 	if err != nil {
 		return managedSnapshot{}, err
@@ -231,6 +254,10 @@ func (s *POSIXStore) loadIdentityRevision(ctx context.Context, identity Skill, d
 	if err := s.checkAvailable(); err != nil {
 		return managedSnapshot{}, err
 	}
+	return s.loadIdentityRevisionForMigration(ctx, identity, digest)
+}
+
+func (s *POSIXStore) loadIdentityRevisionForMigration(ctx context.Context, identity Skill, digest string) (snapshot managedSnapshot, err error) {
 	root, err := s.openExistingSkillRoot(ctx, identity)
 	if err != nil {
 		return managedSnapshot{}, err
@@ -266,6 +293,10 @@ func (s *POSIXStore) GetIdentity(ctx context.Context, id string) (*Skill, error)
 	if err := s.checkAvailable(); err != nil {
 		return nil, err
 	}
+	return s.getIdentityForMigration(ctx, id)
+}
+
+func (s *POSIXStore) getIdentityForMigration(ctx context.Context, id string) (*Skill, error) {
 	row, err := s.q.GetSkillByID(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil

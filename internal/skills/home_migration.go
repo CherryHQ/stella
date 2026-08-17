@@ -41,13 +41,8 @@ var emptySkillInventoryDigest = func() string {
 	return hex.EncodeToString(h.Sum(nil))
 }()
 
-type SkillHomeMigrationOptions struct {
-	Apply bool
-}
-
 type SkillHomeMigrationResult struct {
 	State           string `json:"state"`
-	DryRun          bool   `json:"dry_run"`
 	SkillCount      int64  `json:"skill_count"`
 	FileCount       int64  `json:"file_count"`
 	ContentBytes    int64  `json:"content_bytes"`
@@ -338,11 +333,11 @@ func (m *SkillHomeMigrator) publishSource(ctx context.Context, source skillMigra
 
 func (m *SkillHomeMigrator) verifyPublished(ctx context.Context, sources []skillMigrationSource) error {
 	for _, source := range sources {
-		snapshot, err := m.store.loadIdentityRevision(ctx, source.identity, source.contentDigest)
+		snapshot, err := m.store.loadIdentityRevisionForMigration(ctx, source.identity, source.contentDigest)
 		if err != nil || snapshot.Skill.ContentDigest != source.contentDigest {
 			return fmt.Errorf("verify published Skill %s: %w", source.identity.ID, errors.Join(err, ErrSkillDigestConflict))
 		}
-		current, err := m.store.loadIdentity(ctx, source.identity)
+		current, err := m.store.loadIdentityForMigration(ctx, source.identity)
 		if err != nil || current.Skill.ContentDigest != source.contentDigest {
 			return fmt.Errorf("verify current Skill %s: %w", source.identity.ID, errors.Join(err, ErrSkillDigestConflict))
 		}
@@ -350,28 +345,18 @@ func (m *SkillHomeMigrator) verifyPublished(ctx context.Context, sources []skill
 	return nil
 }
 
-func (m *SkillHomeMigrator) Migrate(ctx context.Context, opts SkillHomeMigrationOptions) (result SkillHomeMigrationResult, resultErr error) {
-	return m.migrate(ctx, opts, false)
-}
-
-func (m *SkillHomeMigrator) migrate(ctx context.Context, opts SkillHomeMigrationOptions, quarantineLegacy bool) (result SkillHomeMigrationResult, resultErr error) {
-	if opts.Apply {
-		release, err := m.store.lockManagedMutations(ctx)
-		if err != nil {
-			return result, err
+func (m *SkillHomeMigrator) reconcile(ctx context.Context) (result SkillHomeMigrationResult, resultErr error) {
+	release, err := m.store.lockManagedMutationsForMigration(ctx)
+	if err != nil {
+		return result, err
+	}
+	defer finishManagedMutation(release, &resultErr)
+	defer func() {
+		if resultErr != nil {
+			m.store.SetUnavailable(resultErr)
 		}
-		defer finishManagedMutation(release, &resultErr)
-		if quarantineLegacy {
-			defer func() {
-				if resultErr != nil {
-					m.store.SetUnavailable(resultErr)
-				}
-			}()
-		}
-		if completed, done, err := m.completedResult(ctx, opts); err != nil || done {
-			return completed, err
-		}
-	} else if completed, done, err := m.completedResult(ctx, opts); err != nil || done {
+	}()
+	if completed, done, err := m.completedResult(ctx); err != nil || done {
 		return completed, err
 	}
 
@@ -384,17 +369,12 @@ func (m *SkillHomeMigrator) migrate(ctx context.Context, opts SkillHomeMigration
 		return second, errors.Join(err, errors.New("migrate-skills: PostgreSQL source changed between stable inventory reads"))
 	}
 	result = second
-	result.State, result.DryRun = "planned", !opts.Apply
-	if quarantineLegacy {
-		if err := m.quarantineLegacyMirrors(ctx, secondSources); err != nil {
-			return result, err
-		}
+	result.State = "planned"
+	if err := m.quarantineLegacyMirrors(ctx, secondSources); err != nil {
+		return result, err
 	}
 	if err := m.preflight(ctx, secondSources); err != nil {
 		return result, err
-	}
-	if !opts.Apply {
-		return result, nil
 	}
 	for _, source := range secondSources {
 		if err := m.publishSource(ctx, source); err != nil {
@@ -407,7 +387,7 @@ func (m *SkillHomeMigrator) migrate(ctx context.Context, opts SkillHomeMigration
 	if err := m.finalize(ctx, secondSources, result); err != nil {
 		return result, err
 	}
-	result.State, result.DryRun = "completed", false
+	result.State = "completed"
 	return result, nil
 }
 
@@ -416,13 +396,14 @@ func (m *SkillHomeMigrator) migrate(ctx context.Context, opts SkillHomeMigration
 // Home revisions are published and verified; conflicting pre-revision mirrors
 // are quarantined, never replaced.
 func (m *SkillHomeMigrator) ReconcileStartup(ctx context.Context) (SkillStartupReconcileResult, error) {
-	result, err := m.migrate(ctx, SkillHomeMigrationOptions{
-		Apply: true,
-	}, true)
+	m.store.BeginStartupReconciliation()
+	result, err := m.reconcile(ctx)
 	startup := SkillStartupReconcileResult{Migration: result}
 	if err == nil {
+		m.store.setAvailable()
 		return startup, nil
 	}
+	m.store.SetUnavailable(err)
 	if isSkillMigrationDataError(err) {
 		startup.Degraded = err
 		return startup, nil
@@ -437,7 +418,7 @@ func isSkillMigrationDataError(err error) bool {
 		errors.Is(err, ErrSkillLimit)
 }
 
-func (m *SkillHomeMigrator) completedResult(ctx context.Context, opts SkillHomeMigrationOptions) (SkillHomeMigrationResult, bool, error) {
+func (m *SkillHomeMigrator) completedResult(ctx context.Context) (SkillHomeMigrationResult, bool, error) {
 	record, err := m.q.GetSkillHomeMigration(ctx, skillHomeMigrationID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return SkillHomeMigrationResult{}, false, nil
@@ -448,12 +429,12 @@ func (m *SkillHomeMigrator) completedResult(ctx context.Context, opts SkillHomeM
 	if err := m.verifyCompletedAuthority(ctx, record); err != nil {
 		return SkillHomeMigrationResult{}, true, err
 	}
-	return resultFromSkillMigration(record, !opts.Apply), true, nil
+	return resultFromSkillMigration(record), true, nil
 }
 
-func resultFromSkillMigration(record sqlc.SkillHomeMigration, dryRun bool) SkillHomeMigrationResult {
+func resultFromSkillMigration(record sqlc.SkillHomeMigration) SkillHomeMigrationResult {
 	return SkillHomeMigrationResult{
-		State: record.State, DryRun: dryRun, SkillCount: record.SourceSkillCount,
+		State: record.State, SkillCount: record.SourceSkillCount,
 		FileCount: record.SourceFileCount, ContentBytes: record.SourceContentBytes,
 		InventoryDigest: record.SourceInventoryDigest,
 	}
@@ -599,11 +580,11 @@ func (m *SkillHomeMigrator) verifyCompletedAuthority(ctx context.Context, record
 			continue
 		}
 		identity := Skill{ID: item.SkillID, Scope: item.Scope, UserID: item.UserID, AgentID: item.AgentID, Name: item.Name}
-		snapshot, err := m.store.loadIdentityRevision(ctx, identity, item.ContentDigest)
+		snapshot, err := m.store.loadIdentityRevisionForMigration(ctx, identity, item.ContentDigest)
 		if err != nil || snapshot.Skill.ContentDigest != item.ContentDigest {
 			return fmt.Errorf("verify migrated Skill %s: %w", item.SkillID, errors.Join(err, ErrSkillDigestConflict))
 		}
-		currentIdentity, err := m.store.GetIdentity(ctx, item.SkillID)
+		currentIdentity, err := m.store.getIdentityForMigration(ctx, item.SkillID)
 		if err != nil {
 			return err
 		}
@@ -611,7 +592,7 @@ func (m *SkillHomeMigrator) verifyCompletedAuthority(ctx context.Context, record
 			if !sameSkillIdentity(*currentIdentity, identity) {
 				return fmt.Errorf("verify current Skill %s: %w", item.SkillID, ErrInvalidSkillRevision)
 			}
-			if _, err := m.store.loadIdentity(ctx, *currentIdentity); err != nil {
+			if _, err := m.store.loadIdentityForMigration(ctx, *currentIdentity); err != nil {
 				return fmt.Errorf("verify current Skill %s: %w", item.SkillID, err)
 			}
 		}
@@ -642,57 +623,4 @@ func (m *SkillHomeMigrator) verifyExpectedCompleted(ctx context.Context, expecte
 		return errors.New("migrate-skills: completed marker differs from attempted inventory")
 	}
 	return m.verifyCompletedAuthority(ctx, record)
-}
-
-// EnsureSkillHomeMigrationReady gates runtime startup on the one-way cutover.
-// A genuinely empty fresh database receives an empty completion marker; any GA
-// Skill rows require the explicit offline operator command.
-func (m *SkillHomeMigrator) EnsureReady(ctx context.Context) error {
-	if err := m.verifyCompleted(ctx); err == nil {
-		return nil
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("%w: %w", ErrSkillHomeMigrationRequired, err)
-	}
-	tx, err := m.db.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, "LOCK TABLE skill, skill_file, skill_usage, skill_home_migration IN SHARE ROW EXCLUSIVE MODE"); err != nil {
-		return err
-	}
-	qtx := m.q.WithTx(tx)
-	if record, err := qtx.GetSkillHomeMigration(ctx, skillHomeMigrationID); err == nil {
-		if err := tx.Commit(ctx); err != nil {
-			return err
-		}
-		return m.verifyCompletedAuthority(ctx, record)
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return err
-	}
-	sources, empty, err := readSkillMigrationInventory(ctx, qtx)
-	if err != nil {
-		return err
-	}
-	if len(sources) != 0 || empty.SkillCount != 0 || empty.FileCount != 0 || empty.ContentBytes != 0 || empty.InventoryDigest != emptySkillInventoryDigest {
-		return errors.New("automatic Skill storage migration is incomplete")
-	}
-	now := m.now().UTC()
-	completed, err := qtx.CompleteSkillHomeMigration(ctx, sqlc.CompleteSkillHomeMigrationParams{
-		ID: skillHomeMigrationID, SourceInventoryDigest: emptySkillInventoryDigest,
-		Inventory: json.RawMessage(`[]`), AttestedAt: now, CompletedAt: now,
-	})
-	if err != nil || completed.RemovedFileCount != 0 || completed.RemovedContentBytes != 0 || completed.NormalizedSkillCount != 0 || completed.UpdatedUsageCount != 0 || completed.ExpectedUsageCount != 0 {
-		return errors.Join(err, errors.New("initialize empty Skill migration evidence: unexpected source rows"))
-	}
-	if err := m.commit(ctx, tx); err != nil {
-		reconcileCtx, cancel := freshSkillHomeMigrationReconcileContext()
-		reconcileErr := m.verifyExpectedCompleted(reconcileCtx, empty, []skillMigrationEvidenceItem{})
-		cancel()
-		if reconcileErr == nil {
-			return nil
-		}
-		return fmt.Errorf("%w: %w", ErrMarkerOutcomeUnknown, errors.Join(err, reconcileErr))
-	}
-	return nil
 }

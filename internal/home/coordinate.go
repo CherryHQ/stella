@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -182,19 +183,6 @@ func (m *WorkspaceManager) ReconcileProjectCoordinates(ctx context.Context) (Pro
 	return result, nil
 }
 
-// EnsureProjectCoordinates retains the strict maintenance contract for callers
-// that require a fully validated cutover.
-func (m *WorkspaceManager) EnsureProjectCoordinates(ctx context.Context) error {
-	result, err := m.ReconcileProjectCoordinates(ctx)
-	if err != nil {
-		return err
-	}
-	if len(result.UnresolvedIDs) != 0 {
-		return fmt.Errorf("home: %d project coordinates remain unresolved", len(result.UnresolvedIDs))
-	}
-	return nil
-}
-
 type projectCoordinateConstraintReader interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }
@@ -246,6 +234,14 @@ func (m *WorkspaceManager) knownLegacyProjectCoordinate(project persistedProject
 	name, ok := containedProjectMigrationCoordinate(legacyRoot, project.value)
 	if !ok || name != "." && !strings.HasPrefix(name, "repos/") {
 		return "", errors.New("physical coordinate is outside its durable owner root")
+	}
+	// Two distinct existing trees provide no cheap, reliable evidence that a
+	// potentially huge Project was copied completely. Keep the row isolated
+	// until the historical source has been moved away.
+	if _, err := os.Stat(project.value); err == nil {
+		return "", errors.New("legacy project source still exists")
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", errors.New("legacy project source cannot be inspected safely")
 	}
 	target := ownerRoot
 	if name != "." {

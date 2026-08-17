@@ -116,6 +116,17 @@ type IdentityReader interface {
 	LoadExactRevision(context.Context, Skill, string) (ManagedRevision, error)
 }
 
+// listManagedIdentitiesWhenAvailable removes only the unavailable managed
+// authority from a merged Skill view. Project and release-builtin Skills remain
+// usable while startup reconciliation is pending or degraded.
+func listManagedIdentitiesWhenAvailable(ctx context.Context, reader IdentityReader, view ViewContext) ([]Skill, error) {
+	identities, err := reader.ListIdentityVisible(ctx, view)
+	if errors.Is(err, ErrManagedSkillsUnavailable) {
+		return nil, nil
+	}
+	return identities, err
+}
+
 // RuntimeReader is the complete managed-Skill read boundary used by an Agent
 // turn. Runtime usage is pinned to the exact verified revision that was loaded;
 // an identity-only or digest-free implementation cannot serve executable Skill

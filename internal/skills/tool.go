@@ -218,7 +218,7 @@ func resolvedIdentity(rs ResolvedSkill) Skill {
 }
 
 func (t *Tool) identityMerged(ctx context.Context, vc ViewContext) ([]ResolvedSkill, error) {
-	rows, err := t.runtime.ListIdentityVisible(ctx, ViewContext{UserID: vc.UserID, AgentID: vc.AgentID})
+	rows, err := listManagedIdentitiesWhenAvailable(ctx, t.runtime, ViewContext{UserID: vc.UserID, AgentID: vc.AgentID})
 	if err != nil {
 		return nil, err
 	}

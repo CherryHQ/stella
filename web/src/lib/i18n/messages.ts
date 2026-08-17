@@ -1846,6 +1846,9 @@ const en = {
   "sessions.sidebar.newProject": "New Project",
   "sessions.sidebar.projectName": "Project name",
   "sessions.sidebar.projectNameDesc": "Name it — a working folder is created for it automatically.",
+  "sessions.sidebar.projectUnavailable": "Needs repair",
+  "sessions.sidebar.projectUnavailableHint":
+    "Move the project files into this agent’s workspace, then update base_dir or delete this project.",
   "sessions.sidebar.workspaceRoot": "Workspace",
   "sessions.sidebar.changeLocation": "Change location",
   "sessions.sidebar.useDefaultFolder": "Use default folder",
@@ -4126,6 +4129,9 @@ const zh: Record<MessageKey, string> = {
   "sessions.sidebar.newProject": "新建项目",
   "sessions.sidebar.projectName": "项目名称",
   "sessions.sidebar.projectNameDesc": "起个名字，会自动为它创建一个工作目录。",
+  "sessions.sidebar.projectUnavailable": "需要修复",
+  "sessions.sidebar.projectUnavailableHint":
+    "将项目文件移入此智能体的工作区，然后更新 base_dir；若不再需要，也可以删除该项目。",
   "sessions.sidebar.workspaceRoot": "工作区",
   "sessions.sidebar.changeLocation": "更改位置",
   "sessions.sidebar.useDefaultFolder": "使用默认目录",

@@ -77,9 +77,13 @@ Project Skill 仍是持久 Agent/项目工作树中的普通文件。可变 `sys
 
 模型不会获得这些权威根目录。当前 actor 与 Agent 策略授权一次加载后，Stella 只会把该 Skill 的一个精确当前 revision 复制到 active sandbox Session 的临时目录。这个可丢弃执行投影只包含选中的 revision，并随 Session 临时数据清理；它不是备份或第二权威。
 
+### 旧版 Project 坐标
+
+Stella 会在后台 reconcile 历史 Project 路径，不延迟服务器启动。只有旧 source 已不存在且精确的 user-first target 已存在时，Stella 才转换已知旧路径；如果两棵目录树同时存在，Stella 不会猜测哪份副本完整。受影响的 Project 仍会显示，但 `is_unavailable: true` 且 `base_dir` 为空，其他 Project 可继续使用。把文件放入持久 Agent Home 后，将 `base_dir` 更新为 canonical path 即可修复；若旧记录已无需要，也可以删除。
+
 ### PostgreSQL 到 Home 的 Skill 迁移
 
-升级发现 PostgreSQL Skill 文件时，Stella 会把迁移加入后台队列并立即开始提供服务。迁移期间 managed Skill 写入会串行等待，读取可能暂时不可用。Stella 会对旧数据做两次 inventory，隔离冲突的旧版平铺文件系统镜像，发布并验证精确 Home revision，然后在同一个数据库事务中 scrub PostgreSQL 旧文件字节并记录完成状态。格式错误的旧数据会禁用 managed Skill 并报告，但不再阻止其他服务器能力启动。
+升级发现 PostgreSQL Skill 文件时，Stella 会把迁移加入后台队列，并立即开始提供无关能力。切换成功前，managed Skill 读写保持不可用，避免运行时流量抢在旧数据 inventory 之前写入；Agent turn 仍可使用发行版 builtin 与 Project Skill。Stella 会对旧数据做两次 inventory，隔离冲突的旧版平铺文件系统镜像，发布并验证精确 Home revision，然后在同一个数据库事务中 scrub PostgreSQL 旧文件字节并记录完成状态。格式错误的旧数据会让 managed Skill 保持禁用，并在日志中报告受影响的 Skill 与恢复动作，但不阻止其他服务器能力启动；修复报告的数据并重启 Stella 即可重试。
 
 ### 保留 revision 的容量
 

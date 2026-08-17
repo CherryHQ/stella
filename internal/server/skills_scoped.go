@@ -466,7 +466,7 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 	}
 	policy, err := s.agentSkillPolicy.ReadAgentSkillPolicy(r.Context(), agentID)
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeManagedSkillError(w, err)
 		return
 	}
 	if params.Scope != nil && params.ScopeGroup != nil {
@@ -506,12 +506,12 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 	}
 	projectSnapshot, err := s.projectSkillSnapshotForSession(r.Context(), agentID, params.SessionId)
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeManagedSkillError(w, err)
 		return
 	}
 	dbSkills, err := s.skills.ListIdentityVisible(r.Context(), skills.ViewContext{UserID: info.UserID, AgentID: agentID})
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeManagedSkillError(w, err)
 		return
 	}
 	// Every DB row is authorized under the same evaluation before it is merged with
@@ -576,7 +576,7 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 	}
 	policyRefs, err := policyAddressableSkillRefs(dbSkills)
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeManagedSkillError(w, err)
 		return
 	}
 	dangling := make([]string, 0, len(policy.Disabled))
@@ -594,7 +594,7 @@ func (s *Server) ListAgentSkills(w http.ResponseWriter, r *http.Request, id stri
 		last := selected[len(selected)-1]
 		token, err := encodeSkillPageToken(skills.ManagedSkillCursor{Timestamp: last.UpdatedAt, ID: last.ID}, pageQuery)
 		if err != nil {
-			s.writeInternalError(w, err)
+			s.writeManagedSkillError(w, err)
 			return
 		}
 		response["next_page_token"] = token
@@ -737,7 +737,7 @@ func (s *Server) CreateAgentSkill(w http.ResponseWriter, r *http.Request, id str
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		s.writeInternalError(w, err)
+		s.writeManagedSkillError(w, err)
 		return
 	}
 	writeData(w, http.StatusCreated, committedSkillView(snapshot))
@@ -759,7 +759,7 @@ func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string
 	}
 	policy, err := s.agentSkillPolicy.ReadAgentSkillPolicy(r.Context(), id)
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeManagedSkillError(w, err)
 		return
 	}
 	view := s.contextualSkillView(*rs, policy)
@@ -767,7 +767,7 @@ func (s *Server) GetAgentSkill(w http.ResponseWriter, r *http.Request, id string
 		sk := resolvedToDBSkill(rs)
 		managedView, err := s.dbSkillView(r, &sk)
 		if err != nil {
-			s.writeInternalError(w, err)
+			s.writeManagedSkillError(w, err)
 			return
 		}
 		view = managedView
@@ -978,7 +978,7 @@ func (s *Server) InstallAgentSkill(w http.ResponseWriter, r *http.Request, id st
 			writeError(w, http.StatusConflict, "a skill with this name is already installed in this scope")
 			return
 		}
-		s.writeInternalError(w, err)
+		s.writeManagedSkillError(w, err)
 		return
 	}
 	writeData(w, http.StatusCreated, committedSkillView(snapshot))
