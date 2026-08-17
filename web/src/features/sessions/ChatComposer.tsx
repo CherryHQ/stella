@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Paperclip, Plus, X } from "lucide-react";
+import { ArrowUp, Paperclip, Plus, TriangleAlert, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { formatBytes } from "@/lib/format-bytes";
 import { useI18n } from "@/lib/i18n";
 import {
   applyTriggerSelection,
@@ -20,6 +21,11 @@ export interface Attachment {
   uploading: boolean;
   /** Browser-reported MIME type. Advisory: the server re-detects from bytes. */
   mediaType?: string;
+  size?: number;
+  /** Object URL for a local image preview; revoked when the chip goes away. */
+  previewUrl?: string;
+  /** Set when the upload failed. The chip stays so the user can drop it explicitly. */
+  error?: string;
 }
 
 export const BUILTIN_COMMANDS: ComposerSkill[] = [
@@ -116,9 +122,7 @@ export function ChatComposer({
   const canSend =
     !isStreaming &&
     !disabled &&
-    (value.trim() ||
-      chips.length > 0 ||
-      (hasAttachments && attachments.some((a) => !a.uploading))) &&
+    (value.trim() || chips.length > 0 || (hasAttachments && attachments.some((a) => a.path))) &&
     !attachments?.some((a) => a.uploading);
 
   const handleSend = useCallback(() => {
@@ -147,8 +151,50 @@ export function ChatComposer({
   const [menu, setMenu] = useState<TriggerFragment | null>(null);
   const [menuIndex, setMenuIndex] = useState(0);
   const menuListRef = useRef<HTMLDivElement>(null);
+  // Dragging is tracked on the document so a file dropped anywhere in the app
+  // attaches, instead of bouncing off the page and opening in a new tab.
   const [dragging, setDragging] = useState(false);
   const dragDepthRef = useRef(0);
+  const canAttach = !!onFileSelect && !isStreaming;
+
+  useEffect(() => {
+    if (!canAttach) {
+      setDragging(false);
+      dragDepthRef.current = 0;
+      return;
+    }
+    const carriesFiles = (e: DragEvent) => e.dataTransfer?.types.includes("Files") ?? false;
+    const onEnter = (e: DragEvent) => {
+      if (!carriesFiles(e)) return;
+      e.preventDefault();
+      dragDepthRef.current += 1;
+      setDragging(true);
+    };
+    const onOver = (e: DragEvent) => {
+      if (carriesFiles(e)) e.preventDefault();
+    };
+    const onLeave = () => {
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+      if (dragDepthRef.current === 0) setDragging(false);
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!carriesFiles(e)) return;
+      e.preventDefault();
+      dragDepthRef.current = 0;
+      setDragging(false);
+      if (e.dataTransfer?.files.length) onFileSelect?.(e.dataTransfer.files);
+    };
+    document.addEventListener("dragenter", onEnter);
+    document.addEventListener("dragover", onOver);
+    document.addEventListener("dragleave", onLeave);
+    document.addEventListener("drop", onDrop);
+    return () => {
+      document.removeEventListener("dragenter", onEnter);
+      document.removeEventListener("dragover", onOver);
+      document.removeEventListener("dragleave", onLeave);
+      document.removeEventListener("drop", onDrop);
+    };
+  }, [canAttach, onFileSelect]);
 
   const detectTrigger = useCallback(
     (val: string, caret: number) => {
@@ -268,6 +314,14 @@ export function ChatComposer({
 
   return (
     <div className="relative min-w-0 flex-shrink-0 px-4 pt-2 pb-3 sm:px-8">
+      {dragging && (
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-xs">
+          <div className="flex items-center gap-2 rounded-xl border-2 border-dashed border-primary bg-card px-6 py-4 text-sm text-foreground">
+            <Paperclip className="size-4 text-muted-foreground" />
+            {t("sessions.composer.dropHint")}
+          </div>
+        </div>
+      )}
       {onFileSelect && (
         <input
           ref={fileInputRef}
@@ -286,34 +340,8 @@ export function ChatComposer({
           isStreaming
             ? "border-primary focus-within:ring-2 focus-within:ring-primary/20"
             : "border-border focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20",
-          dragging && onFileSelect ? "border-primary ring-2 ring-primary/20" : "",
+          dragging ? "border-primary ring-2 ring-primary/20" : "",
         )}
-        onDragEnter={(e) => {
-          if (!onFileSelect || isStreaming) return;
-          e.preventDefault();
-          e.stopPropagation();
-          dragDepthRef.current += 1;
-          setDragging(true);
-        }}
-        onDragOver={(e) => {
-          if (!onFileSelect || isStreaming) return;
-          e.preventDefault();
-          e.stopPropagation();
-        }}
-        onDragLeave={() => {
-          if (!onFileSelect) return;
-          dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
-          if (dragDepthRef.current === 0) setDragging(false);
-        }}
-        onDrop={(e) => {
-          if (!onFileSelect) return;
-          e.preventDefault();
-          e.stopPropagation();
-          dragDepthRef.current = 0;
-          setDragging(false);
-          if (isStreaming) return;
-          onFileSelect(e.dataTransfer.files);
-        }}
       >
         {menuOverlay}
         <div className="relative min-w-0">
@@ -404,15 +432,30 @@ export function ChatComposer({
               attachments.map((a, i) => (
                 <span
                   key={i}
+                  title={a.error ?? (a.size ? `${a.name} · ${formatBytes(a.size)}` : a.name)}
                   className={cn(
-                    "inline-flex max-w-48 items-center gap-1.5 rounded-md border px-2.5 py-1 font-mono text-xs",
-                    a.uploading
-                      ? "border-border bg-muted/50 text-muted-foreground"
-                      : "border-border bg-muted text-muted-foreground",
+                    "inline-flex max-w-48 items-center gap-1.5 rounded-md border py-1 pr-2.5 font-mono text-xs",
+                    a.previewUrl ? "pl-1" : "pl-2.5",
+                    a.error
+                      ? "border-destructive/40 bg-destructive/10 text-destructive-foreground"
+                      : a.uploading
+                        ? "border-border bg-muted/50 text-muted-foreground"
+                        : "border-border bg-muted text-muted-foreground",
                   )}
                 >
-                  {a.uploading ? (
+                  {a.previewUrl ? (
+                    <img
+                      src={a.previewUrl}
+                      alt=""
+                      className={cn(
+                        "size-6 shrink-0 rounded object-cover",
+                        a.uploading ? "opacity-50" : "",
+                      )}
+                    />
+                  ) : a.uploading ? (
                     <div className="size-3 shrink-0 animate-spin rounded-full border border-muted-foreground/30 border-t-muted-foreground" />
+                  ) : a.error ? (
+                    <TriangleAlert className="size-3 shrink-0" />
                   ) : (
                     <Paperclip className="size-3 shrink-0 text-muted-foreground" />
                   )}

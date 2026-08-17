@@ -7,12 +7,16 @@ export function useFileAttachments(uploadFn: (file: File) => Promise<string>) {
 
   const selectFiles = useCallback(
     async (files: FileList) => {
+      // Serial on purpose: the group uploader lazily creates the upload
+      // session, and parallel uploads would each create their own.
       for (const file of Array.from(files)) {
         const placeholder: Attachment = {
           name: file.name,
           path: "",
           uploading: true,
           mediaType: file.type || "application/octet-stream",
+          size: file.size,
+          previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined,
         };
         setAttachments((prev) => [...prev, placeholder]);
         try {
@@ -22,7 +26,15 @@ export function useFileAttachments(uploadFn: (file: File) => Promise<string>) {
           );
         } catch (e) {
           console.error("upload failed:", e);
-          setAttachments((prev) => prev.filter((a) => a !== placeholder));
+          // Keep the failed file visible: silently dropping it looks like the
+          // attachment succeeded and then vanished at send time.
+          setAttachments((prev) =>
+            prev.map((a) =>
+              a === placeholder
+                ? { ...a, uploading: false, error: e instanceof Error ? e.message : String(e) }
+                : a,
+            ),
+          );
         }
       }
     },
@@ -30,10 +42,19 @@ export function useFileAttachments(uploadFn: (file: File) => Promise<string>) {
   );
 
   const removeAttachment = useCallback((idx: number) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== idx));
+    setAttachments((prev) => {
+      const preview = prev[idx]?.previewUrl;
+      if (preview) URL.revokeObjectURL(preview);
+      return prev.filter((_, i) => i !== idx);
+    });
   }, []);
 
-  const clearAttachments = useCallback(() => setAttachments([]), []);
+  const clearAttachments = useCallback(() => {
+    setAttachments((prev) => {
+      for (const a of prev) if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
+      return [];
+    });
+  }, []);
 
   // Attachments travel as file parts rather than as "[file: path]" prose, so the
   // server can attach the image itself instead of hoping the model opens the

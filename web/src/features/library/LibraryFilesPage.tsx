@@ -5,6 +5,7 @@ import { FileText, Library, Search, Upload } from "lucide-react";
 import { createLibraryFile, deleteLibraryFile } from "@/lib/api-client/sdk.gen";
 import type { LibraryFile, LibraryFileScope, LibraryFileStatus } from "@/lib/api-client/types.gen";
 import { apiErrorMessage } from "@/lib/api-error";
+import { formatBytes } from "@/lib/format-bytes";
 import { useI18n } from "@/lib/i18n";
 import { agentsQueryOptions, allAgentsAdminQueryOptions } from "@/lib/queries/agents";
 import {
@@ -72,19 +73,6 @@ const statusVariant: Record<LibraryFileStatus, "warning" | "success" | "error"> 
   ready: "success",
   failed: "error",
 };
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KiB", "MiB", "GiB"];
-  let value = bytes / 1024;
-  let unit = units[0];
-  for (let index = 1; index < units.length && value >= 1024; index += 1) {
-    value /= 1024;
-    unit = units[index];
-  }
-  const precision = Number.isInteger(value) || value >= 10 ? 0 : 1;
-  return `${value.toFixed(precision)} ${unit}`;
-}
 
 function LibraryFilesView({
   scope,
