@@ -82,8 +82,15 @@ export function GroupChat({ groupId }: Props) {
     [members, uploadContext, groupId],
   );
 
-  const { attachments, selectFiles, removeAttachment, clearAttachments, buildMessageText } =
-    useFileAttachments(uploadFn);
+  const draftKey = `group:${groupId}`;
+  const {
+    attachments,
+    selectFiles,
+    retryAttachment,
+    removeAttachment,
+    clearAttachments,
+    buildMessageText,
+  } = useFileAttachments(uploadFn, draftKey);
 
   const agentNameMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -217,10 +224,11 @@ export function GroupChat({ groupId }: Props) {
             onStop={chatStop}
             isStreaming={isStreaming}
             placeholder={t("groups.messagePlaceholder")}
-            draftKey={`group:${groupId}`}
+            draftKey={draftKey}
             attachments={attachments}
             onFileSelect={(files) => void selectFiles(files)}
             onRemoveAttachment={removeAttachment}
+            onRetryAttachment={retryAttachment}
             triggers={composerTriggers}
           />
         }

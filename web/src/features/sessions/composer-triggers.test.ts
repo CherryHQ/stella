@@ -53,6 +53,19 @@ describe("findTriggerFragment", () => {
 });
 
 describe("filterTriggerItems", () => {
+  it("ranks name prefixes above name substrings above description-only matches", () => {
+    const ranked = skillTrigger([
+      { name: "email", description: "compose a message" },
+      { name: "recompact", description: "unrelated" },
+      { name: "compact", description: "Compact session memory" },
+    ]);
+    expect(filterTriggerItems(ranked, "comp", new Set()).map((i) => i.key)).toEqual([
+      "compact",
+      "recompact",
+      "email",
+    ]);
+  });
+
   it("matches label or description, case-insensitively", () => {
     expect(filterTriggerItems(skills, "MEMORY", new Set()).map((i) => i.key)).toEqual(["compact"]);
     expect(filterTriggerItems(skills, "", new Set()).map((i) => i.key)).toEqual([

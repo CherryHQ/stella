@@ -110,8 +110,14 @@ export function SessionDetail({
     },
     [agentId, sessionId],
   );
-  const { attachments, selectFiles, removeAttachment, clearAttachments, buildMessageParts } =
-    useFileAttachments(uploadFn);
+  const {
+    attachments,
+    selectFiles,
+    retryAttachment,
+    removeAttachment,
+    clearAttachments,
+    buildMessageParts,
+  } = useFileAttachments(uploadFn, sessionId);
 
   const { data: skills = [] } = useQuery(agentSkillsOptions(agentId));
   const { data: inbox } = useQuery(inboxQueryOptions(agentId, 5));
@@ -673,6 +679,7 @@ export function SessionDetail({
         attachments={attachments}
         onFileSelect={(files) => void selectFiles(files)}
         onRemoveAttachment={removeAttachment}
+        onRetryAttachment={retryAttachment}
         triggers={composerTriggers}
       />
     ) : null;

@@ -12,10 +12,19 @@ const PREFIX = "stella-draft:";
 /** Drafts are cheap but unbounded otherwise: deleted threads never clean up. */
 const MAX_DRAFTS = 20;
 
+/** An attachment that finished uploading, so it can be restored by path. */
+export interface DraftAttachment {
+  name: string;
+  path: string;
+  mediaType?: string;
+}
+
 export interface ComposerDraft {
   text: string;
   /** Pinned trigger selections, e.g. "/compact", restored alongside the text. */
   chips: ComposerTriggerItem[];
+  /** Uploaded attachments; in-flight and failed ones are deliberately not kept. */
+  attachments: DraftAttachment[];
   /** Last message sent from this composer, for recall on ArrowUp. */
   lastSent?: string;
 }
@@ -24,7 +33,7 @@ interface StoredDraft extends ComposerDraft {
   updatedAt: number;
 }
 
-const EMPTY: ComposerDraft = { text: "", chips: [] };
+const EMPTY: ComposerDraft = { text: "", chips: [], attachments: [] };
 
 function storage(): Storage | null {
   try {
@@ -45,19 +54,35 @@ export function loadDraft(key: string | null): ComposerDraft {
     return {
       text: parsed.text,
       chips: Array.isArray(parsed.chips) ? parsed.chips : [],
+      attachments: Array.isArray(parsed.attachments) ? parsed.attachments : [],
       lastSent: typeof parsed.lastSent === "string" ? parsed.lastSent : undefined,
     };
   } catch {
     // Drafts written before this format were bare strings.
-    return { text: raw, chips: [] };
+    return { ...EMPTY, text: raw };
   }
 }
 
-export function saveDraft(key: string | null, draft: ComposerDraft): void {
+/**
+ * Merge a partial draft into what is stored. The composer owns the text and
+ * chips while the attachment hook owns the files, so neither may write the
+ * whole record: a blind overwrite would drop the other one's fields.
+ */
+export function patchDraft(key: string | null, patch: Partial<ComposerDraft>): void {
+  if (!key) return;
+  saveDraft(key, { ...loadDraft(key), ...patch });
+}
+
+function saveDraft(key: string | null, draft: ComposerDraft): void {
   const store = key && storage();
   if (!store || !key) return;
   const storageKey = PREFIX + key;
-  if (!draft.text && draft.chips.length === 0 && !draft.lastSent) {
+  if (
+    !draft.text &&
+    draft.chips.length === 0 &&
+    draft.attachments.length === 0 &&
+    !draft.lastSent
+  ) {
     store.removeItem(storageKey);
     return;
   }

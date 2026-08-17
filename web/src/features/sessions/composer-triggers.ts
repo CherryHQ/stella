@@ -71,19 +71,35 @@ export function findTriggerFragment(
   return best;
 }
 
-/** Items matching the fragment query, minus the ones already pinned as chips. */
+/**
+ * Items matching the fragment query, minus the ones already pinned as chips,
+ * best match first. Descriptions are searched too, but they rank last: typing
+ * "/comp" must not bury /compact under every skill whose prose says "compose".
+ */
 export function filterTriggerItems(
   trigger: ComposerTrigger,
   query: string,
   pinnedKeys: ReadonlySet<string>,
 ): ComposerTriggerItem[] {
   const q = query.toLowerCase();
-  return trigger.items.filter(
-    (item) =>
-      !(trigger.chip && pinnedKeys.has(item.key)) &&
-      (item.label.toLowerCase().includes(q) ||
-        (item.description?.toLowerCase().includes(q) ?? false)),
-  );
+  return trigger.items
+    .filter((item) => !(trigger.chip && pinnedKeys.has(item.key)))
+    .map((item, index) => ({ item, index, rank: matchRank(trigger, item, q) }))
+    .filter((entry) => entry.rank < RANK_NONE)
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((entry) => entry.item);
+}
+
+const RANK_NONE = 3;
+
+function matchRank(trigger: ComposerTrigger, item: ComposerTriggerItem, query: string): number {
+  const name = (
+    item.label.startsWith(trigger.char) ? item.label.slice(trigger.char.length) : item.label
+  ).toLowerCase();
+  if (name.startsWith(query)) return 0;
+  if (name.includes(query)) return 1;
+  if (item.description?.toLowerCase().includes(query)) return 2;
+  return RANK_NONE;
 }
 
 /**

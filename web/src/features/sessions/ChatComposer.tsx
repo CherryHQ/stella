@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Paperclip, Plus, TriangleAlert, X } from "lucide-react";
+import { ArrowUp, Paperclip, Plus, RotateCw, TriangleAlert, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatBytes } from "@/lib/format-bytes";
@@ -14,7 +14,7 @@ import {
   type ComposerTriggerItem,
   type TriggerFragment,
 } from "./composer-triggers";
-import { loadDraft, saveDraft, type ComposerDraft } from "./draft-store";
+import { loadDraft, patchDraft, type ComposerDraft } from "./draft-store";
 
 export interface Attachment {
   name: string;
@@ -25,8 +25,10 @@ export interface Attachment {
   size?: number;
   /** Object URL for a local image preview; revoked when the chip goes away. */
   previewUrl?: string;
-  /** Set when the upload failed. The chip stays so the user can drop it explicitly. */
+  /** Set when the upload failed. The chip stays so the user can retry or drop it. */
   error?: string;
+  /** Kept in memory only, so a failed upload can be retried without re-picking. */
+  file?: File;
 }
 
 const MENU_ID = "composer-trigger-menu";
@@ -45,6 +47,7 @@ interface Props {
   attachments?: Attachment[];
   onFileSelect?: (files: FileList) => void;
   onRemoveAttachment?: (idx: number) => void;
+  onRetryAttachment?: (idx: number) => void;
   /** Autocomplete menus keyed by their trigger char; first match near the caret wins. */
   triggers?: ComposerTrigger[];
   /**
@@ -64,6 +67,7 @@ export function ChatComposer({
   attachments,
   onFileSelect,
   onRemoveAttachment,
+  onRetryAttachment,
   triggers,
   draftKey,
 }: Props) {
@@ -91,7 +95,7 @@ export function ChatComposer({
   const persist = useCallback(
     (patch: Partial<ComposerDraft>) => {
       draftRef.current = { ...draftRef.current, ...patch };
-      saveDraft(draftKey ?? null, draftRef.current);
+      patchDraft(draftKey ?? null, patch);
     },
     [draftKey],
   );
@@ -488,6 +492,17 @@ export function ChatComposer({
                     <Paperclip className="size-3 shrink-0 text-muted-foreground" />
                   )}
                   <span className="truncate">{a.name}</span>
+                  {a.error && a.file && onRetryAttachment && (
+                    <button
+                      type="button"
+                      onClick={() => onRetryAttachment(i)}
+                      aria-label={t("sessions.composer.retryUpload", { item: a.name })}
+                      title={t("sessions.composer.retryUpload", { item: a.name })}
+                      className="ml-0.5 shrink-0 cursor-pointer text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      <RotateCw className="size-3" />
+                    </button>
+                  )}
                   {!a.uploading && onRemoveAttachment && (
                     <button
                       type="button"
