@@ -1,9 +1,17 @@
-import type { ReactNode, RefObject } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Paperclip, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
+import {
+  applyTriggerSelection,
+  filterTriggerItems,
+  findTriggerFragment,
+  type ComposerSkill,
+  type ComposerTrigger,
+  type ComposerTriggerItem,
+  type TriggerFragment,
+} from "./composer-triggers";
 
 export interface Attachment {
   name: string;
@@ -13,24 +21,11 @@ export interface Attachment {
   mediaType?: string;
 }
 
-export interface ComposerSkill {
-  name: string;
-  description: string;
-}
-
 export const BUILTIN_COMMANDS: ComposerSkill[] = [
   { name: "compact", description: "Compact session memory" },
 ];
 
 interface Props {
-  /**
-   * Controlled mode: pass value + onChange when the parent must observe or
-   * rewrite the draft (e.g. GroupChat's @-mention insertion). Omit both for
-   * uncontrolled mode, where the draft lives here — keystrokes then re-render
-   * only the composer, not the parent page and its transcript.
-   */
-  value?: string;
-  onChange?: (value: string) => void;
   onSend: (text: string) => void;
   onStop?: () => void;
   isStreaming: boolean;
@@ -39,21 +34,17 @@ interface Props {
   attachments?: Attachment[];
   onFileSelect?: (files: FileList) => void;
   onRemoveAttachment?: (idx: number) => void;
-  overlay?: ReactNode;
-  textareaRef?: RefObject<HTMLTextAreaElement | null>;
-  skills?: ComposerSkill[];
+  /** Autocomplete menus keyed by their trigger char; first match near the caret wins. */
+  triggers?: ComposerTrigger[];
   /**
-   * Storage key for persisting the uncontrolled draft across reloads. When
-   * set, the draft lives in sessionStorage under `stella-draft:<draftKey>`
-   * and is restored on mount; cleared on send. Controlled mode (value +
-   * onChange) ignores this — the parent owns the state.
+   * Storage key for persisting the draft across reloads. When set, the draft
+   * lives in sessionStorage under `stella-draft:<draftKey>` and is restored on
+   * mount; cleared on send.
    */
   draftKey?: string;
 }
 
 export function ChatComposer({
-  value: valueProp,
-  onChange,
   onSend,
   onStop,
   isStreaming,
@@ -62,34 +53,30 @@ export function ChatComposer({
   attachments,
   onFileSelect,
   onRemoveAttachment,
-  overlay,
-  textareaRef,
-  skills,
+  triggers,
   draftKey,
 }: Props) {
   const { t } = useI18n();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const internalTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const taRef = textareaRef ?? internalTextareaRef;
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const [selectedSkills, setSelectedSkills] = useState<ComposerSkill[]>([]);
+  const [chips, setChips] = useState<ComposerTriggerItem[]>([]);
 
   const storageKey = draftKey ? `stella-draft:${draftKey}` : null;
-  const [draft, setDraft] = useState(() =>
+  const [value, setValueState] = useState(() =>
     storageKey ? (sessionStorage.getItem(storageKey) ?? "") : "",
   );
   useEffect(() => {
-    if (valueProp === undefined) {
-      setDraft(storageKey ? (sessionStorage.getItem(storageKey) ?? "") : "");
-    }
-  }, [storageKey, valueProp]);
-  const value = valueProp ?? draft;
+    setValueState(storageKey ? (sessionStorage.getItem(storageKey) ?? "") : "");
+    setChips([]);
+  }, [storageKey]);
+
   const resizeTextarea = useCallback(() => {
     const textarea = taRef.current;
     if (!textarea) return;
     textarea.style.height = "auto";
     textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
-  }, [taRef]);
+  }, []);
 
   useEffect(() => {
     resizeTextarea();
@@ -97,155 +84,160 @@ export function ChatComposer({
 
   const setValue = useCallback(
     (v: string) => {
-      if (valueProp === undefined) {
-        setDraft(v);
-        if (storageKey) {
-          if (v) sessionStorage.setItem(storageKey, v);
-          else sessionStorage.removeItem(storageKey);
-        }
+      setValueState(v);
+      if (storageKey) {
+        if (v) sessionStorage.setItem(storageKey, v);
+        else sessionStorage.removeItem(storageKey);
       }
-      onChange?.(v);
     },
-    [valueProp, onChange, storageKey],
+    [storageKey],
   );
 
   const hasAttachments = attachments && attachments.length > 0;
   const canSend =
+    !isStreaming &&
+    !disabled &&
     (value.trim() ||
-      selectedSkills.length > 0 ||
+      chips.length > 0 ||
       (hasAttachments && attachments.some((a) => !a.uploading))) &&
     !attachments?.some((a) => a.uploading);
 
   const handleSend = useCallback(() => {
-    if (isStreaming || disabled || !canSend) return;
+    if (!canSend) return;
     let full = value;
-    if (selectedSkills.length > 0) {
-      const prefix = selectedSkills.map((s) => `/${s.name}`).join(" ");
+    if (chips.length > 0) {
+      const prefix = chips.map((c) => c.label).join(" ");
       full = value.trim() ? `${prefix} ${value}` : prefix;
-      setSelectedSkills([]);
+      setChips([]);
     }
     setValue("");
-    if (storageKey) sessionStorage.removeItem(storageKey);
     onSend(full);
-  }, [isStreaming, disabled, canSend, selectedSkills, value, setValue, onSend, storageKey]);
+  }, [canSend, chips, value, setValue, onSend]);
 
-  const [slashQuery, setSlashQuery] = useState<string | null>(null);
-  const [slashIndex, setSlashIndex] = useState(0);
-  const slashListRef = useRef<HTMLDivElement>(null);
+  const [menu, setMenu] = useState<TriggerFragment | null>(null);
+  const [menuIndex, setMenuIndex] = useState(0);
+  const menuListRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
   const dragDepthRef = useRef(0);
 
-  const detectSlash = useCallback(
-    (val: string) => {
-      if (!skills || skills.length === 0) {
-        setSlashQuery(null);
-        return;
-      }
-      const textarea = taRef.current;
-      const pos = textarea?.selectionStart ?? val.length;
-      const before = val.slice(0, pos);
-      const match = before.match(/(?:^|\s)\/(\S*)$/);
-      setSlashQuery(match ? match[1] : null);
+  const detectTrigger = useCallback(
+    (val: string, caret: number) => {
+      setMenu(triggers?.length ? findTriggerFragment(val, caret, triggers) : null);
     },
-    [skills, taRef],
+    [triggers],
   );
 
   const handleChange = useCallback(
     (val: string) => {
       setValue(val);
-      detectSlash(val);
+      detectTrigger(val, taRef.current?.selectionStart ?? val.length);
     },
-    [setValue, detectSlash],
+    [setValue, detectTrigger],
   );
 
-  const slashCandidates = useMemo(() => {
-    if (slashQuery === null || !skills) return [];
-    const q = slashQuery.toLowerCase();
-    const alreadySelected = new Set(selectedSkills.map((s) => s.name));
-    return skills.filter(
-      (s) =>
-        !alreadySelected.has(s.name) &&
-        (s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)),
-    );
-  }, [slashQuery, skills, selectedSkills]);
+  const activeTrigger = useMemo(
+    () => (menu ? triggers?.find((tr) => tr.char === menu.char) : undefined),
+    [menu, triggers],
+  );
+
+  const candidates = useMemo(() => {
+    if (!menu || !activeTrigger) return [];
+    return filterTriggerItems(activeTrigger, menu.query, new Set(chips.map((c) => c.key)));
+  }, [menu, activeTrigger, chips]);
 
   useEffect(() => {
-    setSlashIndex(0);
-  }, [slashCandidates.length]);
+    setMenuIndex(0);
+  }, [candidates.length]);
 
-  const slashOpen = slashQuery !== null && slashCandidates.length > 0;
+  const menuOpen = menu !== null && candidates.length > 0;
 
-  const insertSkill = useCallback(
-    (skill: ComposerSkill) => {
+  // Caret position to restore after a menu selection rewrites the draft. React
+  // commits the new value first, so the move must happen in a layout effect.
+  const pendingCaretRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const caret = pendingCaretRef.current;
+    if (caret === null) return;
+    pendingCaretRef.current = null;
+    taRef.current?.setSelectionRange(caret, caret);
+  }, [value]);
+
+  const selectItem = useCallback(
+    (item: ComposerTriggerItem) => {
       const textarea = taRef.current;
-      if (!textarea) return;
+      if (!textarea || !activeTrigger || !menu) return;
 
-      const pos = textarea.selectionStart ?? value.length;
-      const before = value.slice(0, pos);
-      const after = value.slice(pos);
-      const slashIdx = before.lastIndexOf("/");
-      if (slashIdx < 0) return;
-
-      // Replace the "/query" fragment but keep the rest of the text as-is so
-      // the caret lands where the user was typing, not at the end of a
-      // re-trimmed value.
-      const newVal = before.slice(0, slashIdx) + after;
-      const newPos = slashIdx;
-      setValue(newVal);
-      setSelectedSkills((prev) => [...prev, skill]);
-      setSlashQuery(null);
+      const next = applyTriggerSelection(
+        value,
+        textarea.selectionStart ?? value.length,
+        menu,
+        activeTrigger.replace(item),
+      );
+      setValue(next.value);
+      pendingCaretRef.current = next.caret;
+      if (activeTrigger.chip) setChips((prev) => [...prev, item]);
+      setMenu(null);
       textarea.focus();
-      requestAnimationFrame(() => {
-        textarea.setSelectionRange(newPos, newPos);
-      });
     },
-    [value, setValue, taRef],
+    [value, setValue, activeTrigger, menu],
   );
 
-  const removeSkill = useCallback((name: string) => {
-    setSelectedSkills((prev) => prev.filter((s) => s.name !== name));
+  const removeChip = useCallback((key: string) => {
+    setChips((prev) => prev.filter((c) => c.key !== key));
   }, []);
 
-  const slashOverlay = slashOpen ? (
+  const moveMenu = useCallback(
+    (delta: number) => {
+      const next = (menuIndex + delta + candidates.length) % candidates.length;
+      setMenuIndex(next);
+      menuListRef.current
+        ?.querySelector(`[data-index="${next}"]`)
+        ?.scrollIntoView({ block: "nearest" });
+    },
+    [menuIndex, candidates.length],
+  );
+
+  const menuOverlay = menuOpen ? (
     <div
-      ref={slashListRef}
+      ref={menuListRef}
       className="absolute bottom-full left-0 right-0 z-10 mb-1 max-h-48 overflow-y-auto rounded-lg border border-border bg-popover"
     >
       <div className="p-1.5">
-        {slashCandidates.map((s, i) => (
+        {candidates.map((item, i) => (
           <button
-            key={s.name}
+            key={item.key}
             type="button"
             data-index={i}
-            onClick={() => insertSkill(s)}
-            onMouseEnter={() => setSlashIndex(i)}
+            onClick={() => selectItem(item)}
+            onMouseEnter={() => setMenuIndex(i)}
             className={cn(
               "group flex w-full items-baseline gap-3 rounded-md px-2.5 py-2 text-left transition-colors",
-              i === slashIndex ? "bg-muted/50" : "",
+              i === menuIndex ? "bg-muted/50" : "",
             )}
           >
             <code
               className={cn(
                 "shrink-0 rounded px-1.5 py-0.5 font-mono text-xs font-semibold",
-                i === slashIndex ? "bg-muted text-foreground" : "bg-muted text-muted-foreground",
+                i === menuIndex ? "bg-muted text-foreground" : "bg-muted text-muted-foreground",
               )}
             >
-              /{s.name}
+              {item.label}
             </code>
-            <span className="truncate text-xs leading-tight text-muted-foreground">
-              {s.description}
-            </span>
+            {item.description && (
+              <span className="truncate text-xs leading-tight text-muted-foreground">
+                {item.description}
+              </span>
+            )}
           </button>
         ))}
       </div>
     </div>
   ) : null;
 
-  const hasChips = (hasAttachments && attachments.length > 0) || selectedSkills.length > 0;
+  const hasChips = hasAttachments || chips.length > 0;
+  const hasSkillTrigger = triggers?.some((tr) => tr.char === "/") ?? false;
 
   return (
     <div className="relative min-w-0 flex-shrink-0 px-4 pt-2 pb-3 sm:px-8">
-      {overlay}
       {onFileSelect && (
         <input
           ref={fileInputRef}
@@ -293,7 +285,7 @@ export function ChatComposer({
           onFileSelect(e.dataTransfer.files);
         }}
       >
-        {slashOverlay}
+        {menuOverlay}
         <div className="relative min-w-0">
           <textarea
             ref={taRef}
@@ -303,41 +295,43 @@ export function ChatComposer({
               // IME (e.g. pinyin) Enter confirms composition; React's synthetic
               // event hides isComposing, so check the native event first.
               if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-              if (slashOpen) {
+              if (menuOpen) {
                 if (e.key === "ArrowDown") {
                   e.preventDefault();
-                  const next = (slashIndex + 1) % slashCandidates.length;
-                  setSlashIndex(next);
-                  slashListRef.current
-                    ?.querySelector(`[data-index="${next}"]`)
-                    ?.scrollIntoView({ block: "nearest" });
+                  moveMenu(1);
                   return;
                 }
                 if (e.key === "ArrowUp") {
                   e.preventDefault();
-                  const next = (slashIndex - 1 + slashCandidates.length) % slashCandidates.length;
-                  setSlashIndex(next);
-                  slashListRef.current
-                    ?.querySelector(`[data-index="${next}"]`)
-                    ?.scrollIntoView({ block: "nearest" });
+                  moveMenu(-1);
                   return;
                 }
                 if (e.key === "Enter" || e.key === "Tab") {
                   e.preventDefault();
-                  insertSkill(slashCandidates[slashIndex]);
+                  selectItem(candidates[menuIndex]);
                   return;
                 }
                 if (e.key === "Escape") {
                   e.preventDefault();
-                  setSlashQuery(null);
+                  setMenu(null);
                   return;
                 }
               }
+              // Escape stops the turn so the keyboard alone can interrupt a
+              // long answer without reaching for the stop button.
+              if (e.key === "Escape" && isStreaming && onStop) {
+                e.preventDefault();
+                onStop();
+                return;
+              }
               if (e.key === "Enter" && !e.shiftKey) {
+                // Typing during a turn is allowed; sending is not, so swallow
+                // Enter instead of losing the draft to a no-op.
                 e.preventDefault();
                 handleSend();
               }
             }}
+            onClick={() => detectTrigger(value, taRef.current?.selectionStart ?? value.length)}
             onPaste={(e) => {
               if (!onFileSelect || isStreaming) return;
               const files = e.clipboardData.files;
@@ -349,20 +343,20 @@ export function ChatComposer({
             placeholder={placeholder}
             className="max-h-40 min-h-10 w-full min-w-0 resize-none overflow-y-auto border-0 bg-transparent px-4 py-2.5 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
             rows={1}
-            disabled={disabled ?? isStreaming}
+            disabled={disabled}
           />
         </div>
         {hasChips && (
           <div className="flex flex-wrap gap-1.5 px-3 pb-2">
-            {selectedSkills.map((s) => (
+            {chips.map((c) => (
               <span
-                key={s.name}
+                key={c.key}
                 className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2.5 py-1 font-mono text-xs font-semibold text-foreground"
               >
-                /{s.name}
+                {c.label}
                 <button
                   type="button"
-                  onClick={() => removeSkill(s.name)}
+                  onClick={() => removeChip(c.key)}
                   className="ml-0.5 shrink-0 cursor-pointer text-muted-foreground transition-colors hover:text-foreground"
                 >
                   <X className="size-3" />
@@ -412,15 +406,22 @@ export function ChatComposer({
           )}
           {!isStreaming && (
             <span className="min-w-0 truncate font-mono text-xs text-muted-foreground select-none">
-              {skills && skills.length > 0
+              {hasSkillTrigger
                 ? t("sessions.transcript.sendHintSkills")
                 : t("sessions.transcript.sendHint")}
             </span>
           )}
           {isStreaming && (
-            <span className="text-xs font-mono text-info select-none animate-pulse">
-              {t("sessions.transcript.generating")}
-            </span>
+            <>
+              <span className="text-xs font-mono text-info select-none animate-pulse">
+                {t("sessions.transcript.generating")}
+              </span>
+              {onStop && (
+                <span className="min-w-0 truncate font-mono text-xs text-muted-foreground select-none">
+                  {t("sessions.transcript.streamingHint")}
+                </span>
+              )}
+            </>
           )}
           <div className="ml-auto shrink-0">
             {isStreaming && onStop ? (

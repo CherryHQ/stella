@@ -11,6 +11,7 @@ import { createGroupTransport, groupMessagesToUIMessages } from "@/lib/chat-tran
 import { ChatPane } from "@/components/chat/ChatPane";
 import { ChatErrorNotice } from "@/components/chat/ChatErrorNotice";
 import { BUILTIN_COMMANDS, ChatComposer } from "@/features/sessions/ChatComposer";
+import { skillTrigger, type ComposerTrigger } from "@/features/sessions/composer-triggers";
 import { useFileAttachments } from "@/features/sessions/useFileAttachments";
 import { GroupInspector } from "./GroupInspector";
 import { GroupTranscript } from "./GroupTranscript";
@@ -25,35 +26,30 @@ export function GroupChat({ groupId }: Props) {
   const { data: members = [] } = useQuery(groupMembersQueryOptions(groupId));
 
   const [historicalMessages, setHistoricalMessages] = useState<GroupMessage[]>([]);
-  const draftStorageKey = `stella-draft:group:${groupId}`;
-  const [userInput, setUserInput] = useState(() => sessionStorage.getItem(draftStorageKey) ?? "");
   const [loading, setLoading] = useState(true);
   const transcriptRef = useRef<HTMLDivElement>(null);
 
-  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    setUserInput(sessionStorage.getItem(draftStorageKey) ?? "");
-  }, [draftStorageKey]);
-
-  const setGroupDraft = useCallback(
-    (value: string) => {
-      setUserInput(value);
-      if (value) sessionStorage.setItem(draftStorageKey, value);
-      else sessionStorage.removeItem(draftStorageKey);
-    },
-    [draftStorageKey],
-  );
-
   const firstAgentId = members[0]?.agent_id ?? "";
   const { data: skills = [] } = useQuery(agentSkillsOptions(firstAgentId));
-  const composerSkills = useMemo(
+  // "/" skills and "@" mentions are the same composer mechanism; the group
+  // only supplies the member list as a second trigger.
+  const composerTriggers = useMemo<ComposerTrigger[]>(
     () => [
-      ...BUILTIN_COMMANDS,
-      ...skills.map((s) => ({ name: s.name, description: s.description })),
+      skillTrigger([
+        ...BUILTIN_COMMANDS,
+        ...skills.map((s) => ({ name: s.name, description: s.description })),
+      ]),
+      {
+        char: "@",
+        items: members.map((m) => ({
+          key: m.agent_id,
+          label: `@${m.agent_id}`,
+          description: m.agent_name || undefined,
+        })),
+        replace: (item) => `${item.label} `,
+      },
     ],
-    [skills],
+    [skills, members],
   );
 
   const [uploadContext, setUploadContext] = useState<{ agentId: string; sessionId: string } | null>(
@@ -180,41 +176,19 @@ export function GroupChat({ groupId }: Props) {
   }, [chatMessages, isStreaming, scrollToBottom]);
 
   const handleSend = useCallback(
-    (overrideText?: string) => {
-      const input = overrideText ?? userInput;
+    (input: string) => {
       const hasContent = input.trim() || attachments.length > 0;
       if (!hasContent || isStreaming) return;
       if (attachments.some((a) => a.uploading)) return;
 
       const content = buildMessageText(input);
-      setGroupDraft("");
-      setMentionQuery(null);
       clearAttachments();
       scrollToBottom();
 
       void chatSendMessage({ text: content });
     },
-    [
-      userInput,
-      attachments,
-      isStreaming,
-      buildMessageText,
-      clearAttachments,
-      scrollToBottom,
-      chatSendMessage,
-      setGroupDraft,
-    ],
+    [attachments, isStreaming, buildMessageText, clearAttachments, scrollToBottom, chatSendMessage],
   );
-
-  const mentionCandidates = useMemo(() => {
-    if (mentionQuery === null) return [];
-    const q = mentionQuery.toLowerCase();
-    return members.filter(
-      (m) =>
-        m.agent_id.toLowerCase().startsWith(q) ||
-        (m.agent_name && m.agent_name.toLowerCase().startsWith(q)),
-    );
-  }, [mentionQuery, members]);
 
   // "Active" means responding right now: only agent-info parts from live
   // streaming messages count, never the merged history (grp-* ids).
@@ -222,56 +196,6 @@ export function GroupChat({ groupId }: Props) {
     if (!isStreaming) return new Set<string>();
     return collectActiveAgentIds(chatMessages.filter((m) => !m.id.startsWith("grp-")));
   }, [isStreaming, chatMessages]);
-
-  const handleInputChange = useCallback(
-    (val: string) => {
-      setGroupDraft(val);
-      const textarea = inputRef.current;
-      const pos = textarea?.selectionStart ?? val.length;
-      const before = val.slice(0, pos);
-      const atMatch = before.match(/@(\S*)$/);
-      setMentionQuery(atMatch ? atMatch[1] : null);
-    },
-    [setGroupDraft],
-  );
-
-  const insertMention = useCallback(
-    (agentId: string) => {
-      const textarea = inputRef.current;
-      if (!textarea) return;
-
-      const pos = textarea.selectionStart ?? userInput.length;
-      const before = userInput.slice(0, pos);
-      const after = userInput.slice(pos);
-      const atIdx = before.lastIndexOf("@");
-      if (atIdx < 0) return;
-
-      const newVal = before.slice(0, atIdx) + `@${agentId} ` + after;
-      setGroupDraft(newVal);
-      setMentionQuery(null);
-      textarea.focus();
-    },
-    [userInput, setGroupDraft],
-  );
-
-  const mentionOverlay =
-    mentionQuery !== null && mentionCandidates.length > 0 ? (
-      <div className="absolute bottom-full left-4 right-4 mb-1 max-h-40 overflow-y-auto rounded-lg border border-border bg-popover p-1 shadow-lg sm:left-8 sm:right-8">
-        <div className="mx-auto max-w-[var(--chat-column)]">
-          {mentionCandidates.map((m) => (
-            <button
-              key={m.agent_id}
-              type="button"
-              onClick={() => insertMention(m.agent_id)}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-muted"
-            >
-              <span className="font-medium">{m.agent_name || m.agent_id}</span>
-              <span className="text-xs text-muted-foreground">@{m.agent_id}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-    ) : null;
 
   return (
     <div className="relative flex min-h-0 flex-1 overflow-hidden">
@@ -289,18 +213,15 @@ export function GroupChat({ groupId }: Props) {
         notice={<ChatErrorNotice error={chatError} />}
         composer={
           <ChatComposer
-            value={userInput}
-            onChange={handleInputChange}
-            onSend={(text) => handleSend(text)}
+            onSend={handleSend}
             onStop={chatStop}
             isStreaming={isStreaming}
             placeholder={t("groups.messagePlaceholder")}
-            overlay={mentionOverlay}
-            textareaRef={inputRef}
+            draftKey={`group:${groupId}`}
             attachments={attachments}
             onFileSelect={(files) => void selectFiles(files)}
             onRemoveAttachment={removeAttachment}
-            skills={composerSkills}
+            triggers={composerTriggers}
           />
         }
       />

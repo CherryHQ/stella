@@ -44,6 +44,7 @@ import {
 } from "@/lib/chat-transport";
 import { useAppShell } from "@/layouts/AppShell";
 import { BUILTIN_COMMANDS, ChatComposer } from "./ChatComposer";
+import { skillTrigger } from "./composer-triggers";
 import { takePendingMessage } from "./pendingMessage";
 import { ChatWidthToggle } from "@/components/chat/ChatWidthToggle";
 import { SessionInfoPopover } from "./SessionInfoPopover";
@@ -118,10 +119,12 @@ export function SessionDetail({
   const hasContextSummaries =
     contextItemsQuery.data?.items.some((item) => item.type === "summary") ?? false;
   const attentionItems = inbox?.items ?? [];
-  const composerSkills = useMemo(
+  const composerTriggers = useMemo(
     () => [
-      ...BUILTIN_COMMANDS,
-      ...skills.map((s) => ({ name: s.name, description: s.description })),
+      skillTrigger([
+        ...BUILTIN_COMMANDS,
+        ...skills.map((s) => ({ name: s.name, description: s.description })),
+      ]),
     ],
     [skills],
   );
@@ -670,7 +673,7 @@ export function SessionDetail({
         attachments={attachments}
         onFileSelect={(files) => void selectFiles(files)}
         onRemoveAttachment={removeAttachment}
-        skills={composerSkills}
+        triggers={composerTriggers}
       />
     ) : null;
 
