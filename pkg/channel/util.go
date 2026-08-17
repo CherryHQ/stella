@@ -1,8 +1,12 @@
 package channel
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
+	"net/http"
+	"path"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -144,23 +148,24 @@ func TextContent(text string) []ai.ContentBlock {
 	return []ai.ContentBlock{ai.TextContent{Text: text}}
 }
 
-// AttachmentReceivedContent returns the content blocks for an inbound
-// attachment that has been saved to disk. Images are presented as a saved-path
-// note plus the inline image so the model sees the pixels immediately and can
-// still reach the file later; everything else gets the Xberg extraction hint
-// via FileReceivedContent. data is the raw file content used for image
-// detection and inlining.
+// AttachmentReceivedContent returns ephemeral blocks for an inbound attachment
+// that has already been saved under the supplied immutable assets path. Small
+// images remain provider-ready until admission canonicalizes them; files and
+// oversized images retain their bytes only until admission persists immutable
+// media and replaces the block with FileRefContent.
 func AttachmentReceivedContent(fileName, savedPath string, data []byte) []ai.ContentBlock {
 	mime := tools.DetectImageMime(data)
 	if mime == "" {
-		return FileReceivedContent(fileName, savedPath)
+		return []ai.ContentBlock{ai.FileContent{
+			Data: append([]byte(nil), data...), MimeType: http.DetectContentType(data),
+			Name: fileName, Path: savedPath,
+		}}
 	}
 	displayPath := savedPath
 	if len(data) > ai.MaxImageInputBytes {
-		return TextContent(fmt.Sprintf(
-			"[Image: %s — saved to %s]\n The image is too large to attach inline; use the `read` tool on that path to view it.",
-			fileName, displayPath,
-		))
+		return []ai.ContentBlock{ai.FileContent{
+			Data: append([]byte(nil), data...), MimeType: mime, Name: fileName, Path: displayPath,
+		}}
 	}
 	return []ai.ContentBlock{
 		ai.TextContent{Text: fmt.Sprintf("[Image: %s — saved to %s]", fileName, displayPath)},
@@ -168,54 +173,53 @@ func AttachmentReceivedContent(fileName, savedPath string, data []byte) []ai.Con
 	}
 }
 
-// InlineImageFallback returns the content blocks for an inbound image that could
-// not be persisted to the user's assets, so the turn still reaches the agent
-// without a saved path. It honors the same inline ceiling as
-// AttachmentReceivedContent: images within the shared ingestion ceiling are
-// attached for downstream canonical or group handling; larger images degrade
-// to an explicit text note naming the file and its size. Callers pass
-// the mime they already detected; an empty mime is treated as non-inlineable.
+// InlineImageFallback returns ephemeral content for an inbound image that could
+// not be persisted to the user's assets. Small images can still be converted to
+// immutable session media by durable admission. Larger or unrecognized payloads
+// retain their bytes in an unadmittable FileContent: they must be rejected rather
+// than acknowledged as a text-only turn that silently lost its attachment.
 func InlineImageFallback(fileName, mime string, data []byte) []ai.ContentBlock {
 	if mime != "" && len(data) <= ai.MaxImageInputBytes {
 		return []ai.ContentBlock{
 			ai.ImageContent{Data: base64.StdEncoding.EncodeToString(data), MimeType: mime},
 		}
 	}
-	return TextContent(fmt.Sprintf(
-		"[Image: %s — received but could not be stored or attached inline (%s).]",
-		fileName, humanReadableSize(len(data)),
-	))
+	return []ai.ContentBlock{ai.FileContent{
+		Data: append([]byte(nil), data...), MimeType: mime, Name: fileName,
+	}}
 }
 
-// AttachmentSaveFailureContent returns the blocks to route to the agent when an
-// inbound attachment downloaded successfully but could not be persisted. It
-// keeps the four channel plugins symmetric on the save-failure path: image
-// bytes degrade via InlineImageFallback (attached within the ingestion ceiling,
-// else a text note) and any other file gets an explicit placeholder so the turn is never
-// silently dropped. data is the raw downloaded bytes used for image detection.
+// AttachmentUnavailableContent marks an adapter attachment whose bytes could
+// not be obtained. Its empty Path and Data intentionally fail durable admission,
+// preventing a caption or placeholder from being accepted without the attachment.
+func AttachmentUnavailableContent(fileName string) []ai.ContentBlock {
+	return []ai.ContentBlock{ai.FileContent{Name: fileName}}
+}
+
+// ImmutableAssetPath returns the only logical path an accepted file attachment
+// may advertise. The digest binds the path to its immutable bytes; sanitizing the
+// basename keeps adapter-provided names within the assets root.
+func ImmutableAssetPath(fileName string, data []byte) string {
+	name := path.Base(strings.ReplaceAll(fileName, "\\", "/"))
+	if name == "." || name == "" {
+		name = "attachment"
+	}
+	digest := sha256.Sum256(data)
+	return "$STELLA_ASSETS_DIR/" + hex.EncodeToString(digest[:]) + "-" + name
+}
+
+// AttachmentSaveFailureContent returns ephemeral blocks for an attachment whose
+// adapter-side assets write failed. Small images can still be canonicalized as
+// session media. Files retain an empty Path so durable admission rejects them:
+// an adapter must not acknowledge a file that Xberg could not later open from
+// the advertised assets path.
 func AttachmentSaveFailureContent(fileName string, data []byte) []ai.ContentBlock {
 	if mime := tools.DetectImageMime(data); mime != "" {
 		return InlineImageFallback(fileName, mime, data)
 	}
-	return TextContent(fmt.Sprintf(
-		"[File: %s — received but could not be stored (%s).]",
-		fileName, humanReadableSize(len(data)),
-	))
-}
-
-// humanReadableSize renders a byte count using binary units (B, KiB, MiB, …)
-// for the attachment fallback notes.
-func humanReadableSize(n int) string {
-	const unit = 1024
-	if n < unit {
-		return fmt.Sprintf("%d B", n)
-	}
-	div, exp := int64(unit), 0
-	for size := int64(n) / unit; size >= unit; size /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+	return []ai.ContentBlock{ai.FileContent{
+		Data: append([]byte(nil), data...), MimeType: http.DetectContentType(data), Name: fileName,
+	}}
 }
 
 // FileReceivedContent returns the standard content block telling the agent

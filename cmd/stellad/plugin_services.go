@@ -47,7 +47,7 @@ func (a schedulerServiceAdapter) ReconcilePluginJobs(ctx context.Context, plugin
 	for key, current := range existingByKey {
 		spec, ok := desired[key]
 		if !ok || !spec.Enabled {
-			if err := a.service.RemoveJob(current.ID); err != nil {
+			if err := a.service.RemoveJobContext(ctx, current.ID); err != nil {
 				return err
 			}
 			continue
@@ -55,7 +55,7 @@ func (a schedulerServiceAdapter) ReconcilePluginJobs(ctx context.Context, plugin
 		if schedulerJobsEqual(current, spec) {
 			continue
 		}
-		if err := a.service.RemoveJob(current.ID); err != nil {
+		if err := a.service.RemoveJobContext(ctx, current.ID); err != nil {
 			return err
 		}
 		if _, err := a.createPluginJob(ctx, pluginID, spec); err != nil {
@@ -84,7 +84,7 @@ func (a schedulerServiceAdapter) DeletePluginJobs(ctx context.Context, pluginID 
 		return err
 	}
 	for _, job := range jobs {
-		if err := a.service.RemoveJob(job.ID); err != nil {
+		if err := a.service.RemoveJobContext(ctx, job.ID); err != nil {
 			return err
 		}
 	}
@@ -98,7 +98,7 @@ func (a schedulerServiceAdapter) DeletePluginJob(ctx context.Context, pluginID s
 	}
 	for _, job := range jobs {
 		if job.Key == key {
-			return a.service.RemoveJob(job.ID)
+			return a.service.RemoveJobContext(ctx, job.ID)
 		}
 	}
 	return nil

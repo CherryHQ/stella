@@ -4,10 +4,24 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+func configureNewCommandChannel(t *testing.T, c *Coordinator, rc *ResolvedChat, channelID string) {
+	t.Helper()
+	if _, err := sqlc.New(c.db).CreateChannel(t.Context(), sqlc.CreateChannelParams{
+		ID: channelID, Name: channelID, Type: pkgchannel.PlatformTelegram,
+		AgentID: pgtype.Text{}, Enabled: true, Config: `{}`,
+	}); err != nil {
+		t.Fatalf("create command channel: %v", err)
+	}
+	rc.ChatCtx.ChannelID = channelID
+}
 
 // TestDMNewRedeliveryRotatesOnce is the DM counterpart of
 // TestGroupNewRedeliveryRotatesOnce. DMs have no group event log, so the
@@ -18,6 +32,7 @@ func TestDMNewRedeliveryRotatesOnce(t *testing.T) {
 	db := dbtest.New(t)
 	c := &Coordinator{db: db, queue: newSessionQueue(), agentAccess: newRotationAgentAccess(true)}
 	rc := newRotateTestChat(t, auth.User{ID: "user-1", Role: auth.RoleUser})
+	configureNewCommandChannel(t, c, rc, "tg-bot-a")
 	msg := pkgchannel.IncomingMessage{Platform: "telegram", ChannelID: "tg-bot-a", SenderID: "tg-acct-1", MessageID: "dm-msg-7"}
 
 	if reply := c.handleNewSessionCommand(ctx, rc, msg); reply != pkgchannel.NewSessionStartedMessage {
@@ -49,6 +64,7 @@ func TestDMNewRedeliveryRotatesOnce(t *testing.T) {
 
 	// The same message id on a different channel instance is a different
 	// message: platform message ids are only unique within one instance.
+	configureNewCommandChannel(t, c, rc, "tg-bot-b")
 	otherBot := pkgchannel.IncomingMessage{Platform: "telegram", ChannelID: "tg-bot-b", SenderID: "tg-acct-1", MessageID: "dm-msg-7"}
 	if reply := c.handleNewSessionCommand(ctx, rc, otherBot); reply != pkgchannel.NewSessionStartedMessage {
 		t.Fatalf("other-instance reply = %q, want a fresh rotation", reply)
@@ -67,6 +83,7 @@ func TestDMNewReceiptSurvivesAgentSwitch(t *testing.T) {
 	msg := pkgchannel.IncomingMessage{Platform: "telegram", ChannelID: "tg-bot-a", SenderID: "tg-acct-1", MessageID: "dm-msg-7"}
 
 	rcA := newRotateTestChat(t, auth.User{ID: "user-1", Role: auth.RoleUser})
+	configureNewCommandChannel(t, c, rcA, "tg-bot-a")
 	if reply := c.handleNewSessionCommand(ctx, rcA, msg); reply != pkgchannel.NewSessionStartedMessage {
 		t.Fatalf("first /new reply = %q, want %q", reply, pkgchannel.NewSessionStartedMessage)
 	}
@@ -76,6 +93,7 @@ func TestDMNewReceiptSurvivesAgentSwitch(t *testing.T) {
 	rcB.AgentID = "cmd-agent-b"
 	rcB.SessionKey = "cmd-agent-b:user:user-1:private"
 	rcB.Channel = "cmd-agent-b:user:user-1:private"
+	rcB.ChatCtx.ChannelID = "tg-bot-a"
 	if rcB.queueKey() == rcA.queueKey() {
 		t.Fatal("test needs the routing to differ between deliveries")
 	}
@@ -104,6 +122,7 @@ func TestDMNewDistinctAccountsAreDistinctMessages(t *testing.T) {
 	db := dbtest.New(t)
 	c := &Coordinator{db: db, queue: newSessionQueue(), agentAccess: newRotationAgentAccess(true)}
 	rc := newRotateTestChat(t, auth.User{ID: "user-1", Role: auth.RoleUser})
+	configureNewCommandChannel(t, c, rc, "tg-bot-a")
 
 	first := pkgchannel.IncomingMessage{Platform: "telegram", ChannelID: "tg-bot-a", SenderID: "tg-acct-1", MessageID: "dm-msg-7"}
 	if reply := c.handleNewSessionCommand(ctx, rc, first); reply != pkgchannel.NewSessionStartedMessage {
@@ -114,11 +133,11 @@ func TestDMNewDistinctAccountsAreDistinctMessages(t *testing.T) {
 		t.Fatalf("account 2 reply = %q, want a fresh rotation (message ids are per-chat)", reply)
 	}
 	var count int
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM channel_chat_command_receipt`).Scan(&count); err != nil {
-		t.Fatalf("count receipts: %v", err)
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM channel_binding_fifo WHERE kind = 'new'`).Scan(&count); err != nil {
+		t.Fatalf("count FIFO receipts: %v", err)
 	}
 	if count != 2 {
-		t.Fatalf("receipts = %d, want 2 distinct claims", count)
+		t.Fatalf("FIFO receipts = %d, want 2 distinct claims", count)
 	}
 }
 

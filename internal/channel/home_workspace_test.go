@@ -11,6 +11,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -133,5 +134,16 @@ func TestCoordinatorSaveAssetPublishesEmptyFile(t *testing.T) {
 	}
 	if len(data) != 0 {
 		t.Fatalf("published attachment size = %d, want 0", len(data))
+	}
+}
+
+func TestImmutableChannelFileRejectsPathNotBoundToBytes(t *testing.T) {
+	data := []byte("immutable bytes")
+	coord := &Coordinator{}
+	_, _, _, err := coord.immutableChannelContentWithQueries(t.Context(), nil, "user", "agent", []ai.ContentBlock{
+		ai.FileContent{Name: "report.pdf", Path: pkgchannel.ImmutableAssetPath("report.pdf", []byte("different bytes")), Data: data},
+	})
+	if err == nil || !strings.Contains(err.Error(), "content-addressed path") {
+		t.Fatalf("mismatched file path error = %v", err)
 	}
 }

@@ -214,6 +214,9 @@ func serverAction(c *ucli.Context) error {
 		cancel()
 		s.waitBackgroundTasks()
 		_ = s.poolManager.Close()
+		controlCtx, controlCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = s.controlSession.Close(controlCtx)
+		controlCancel()
 		_ = s.workspaceManager.Close()
 		// Stop the managed PostgreSQL last, once every DB user is done: close the
 		// pool first so the server shuts down without active connections. Only set
@@ -328,6 +331,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	var vaultRecipient *age.X25519Recipient
 	coordOpts = append(coordOpts, channel.WithCoordinatorAuth(as, agentAccess, linkCodes))
 	coordOpts = append(coordOpts, channel.WithRootOpener(s.workspaceManager))
+	coordOpts = append(coordOpts, channel.WithSessionImagePipeline(s.sessionImages))
 	if s.vaultSvc != nil {
 		vaultRecipient = s.vaultSvc.MasterRecipient()
 		coordOpts = append(coordOpts, channel.WithVaultRecipient(vaultRecipient))
@@ -365,6 +369,8 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	coordOpts = append(coordOpts, channel.WithEventLog(elStore))
 	coordOpts = append(coordOpts, channel.WithBotRegistry(botRegistry))
 	coordOpts = append(coordOpts, channel.WithPublisherRegistry(publisherRegistry))
+	capabilities := channel.NewDurableReplyCapabilityResolver(s.db, s.vaultSvc)
+	coordOpts = append(coordOpts, channel.WithDurablePublisherReconstructor(newDurablePublisherReconstructor(capabilities)))
 	coordOpts = append(coordOpts, channel.WithArbiter(channel.NewArbiter(channel.ArbiterConfig{
 		MaxRepliesPerTrigger: 1,
 	})))
@@ -643,10 +649,22 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 
 	// Group-dispatch acceptance loop.
 	g.Go(func() error { return normalizeRunErr(groupDispatcher.Run(ingressCtx)) })
-	// Helm enforces one replica with a Recreate rollout, so managed channel
-	// pollers start unconditionally after their dependencies are wired. Drain-time
-	// Quiesce stops new polling; the final Stop remains after River drains.
-	applyManagedChannelPlugins(ingressCtx, s.pluginHost)
+	// Pull/WebSocket runtimes are process-local implementations, but their right
+	// to consume ingress is held by the pool-external PostgreSQL control session.
+	// Followers keep serving stateless HTTP/Webhook ingress and take over only
+	// after PostgreSQL releases the prior backend's lock.
+	g.Go(func() error {
+		return normalizeRunErr(s.controlSession.RunLeader(ingressCtx, "managed-channel-ingress", func(leaderCtx context.Context) {
+			applyManagedChannelPlugins(leaderCtx, s.pluginHost)
+			<-leaderCtx.Done()
+			// Runtime Apply detaches accepted operations from its caller. Explicitly
+			// quiesce the poll/WebSocket side before graceful unlock; on control
+			// connection loss this is also the immediate local listener fence.
+			quiesceCtx, quiesceCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			s.pluginHost.Quiesce(quiesceCtx)
+			quiesceCancel()
+		}))
+	})
 	// HTTP serve — the final ingress source to come up.
 	g.Go(func() error { return normalizeServeErr(httpSrv.Serve(ln)) })
 

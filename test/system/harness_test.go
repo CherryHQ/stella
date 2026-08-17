@@ -29,6 +29,7 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/pgruntime"
 	"github.com/CherryHQ/stella/internal/vault"
+	"github.com/CherryHQ/stella/resources/binaries"
 )
 
 const (
@@ -95,6 +96,21 @@ func newHarness(t *testing.T) *harness {
 		t.Fatalf("system: generate vault key: %v", err)
 	}
 	home := t.TempDir()
+	if loader := os.Getenv("STELLA_SYSTEM_TEST_XBERG_LOADER"); loader != "" {
+		if err := binaries.EnsureTools(home); err != nil {
+			t.Fatalf("system: preinstall embedded tools: %v", err)
+		}
+		libDir := os.Getenv("STELLA_SYSTEM_TEST_XBERG_LIBRARY_PATH")
+		xbergDir := filepath.Join(home, "bin", "xberg-v1.0.14")
+		launcher := filepath.Join(home, "bin", "xberg")
+		if err := os.Remove(launcher); err != nil {
+			t.Fatalf("system: replace Xberg launcher: %v", err)
+		}
+		script := fmt.Sprintf("#!/bin/sh\nexec %q --library-path %q %q \"$@\"\n", loader, libDir+":"+xbergDir, filepath.Join(xbergDir, "xberg"))
+		if err := os.WriteFile(launcher, []byte(script), 0o755); err != nil {
+			t.Fatalf("system: write Xberg compatibility launcher: %v", err)
+		}
+	}
 
 	proc, baseURL := startServer(t, t, runID, 1, home, embedded.DSN(), vaultKey)
 

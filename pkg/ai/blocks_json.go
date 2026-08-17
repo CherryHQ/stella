@@ -15,10 +15,14 @@ var (
 // ContentBlockJSON is the compatibility serialization for deferred group
 // history. Canonical ordinary-session references live only in message parts.
 type ContentBlockJSON struct {
-	Kind     string `json:"kind"`
-	Text     string `json:"text,omitempty"`
-	Data     string `json:"data,omitempty"`
-	MimeType string `json:"mime_type,omitempty"`
+	Kind     string         `json:"kind"`
+	Text     string         `json:"text,omitempty"`
+	Data     string         `json:"data,omitempty"`
+	MimeType string         `json:"mime_type,omitempty"`
+	MediaID  string         `json:"media_id,omitempty"`
+	Baseline *ImageBaseline `json:"baseline,omitempty"`
+	Name     string         `json:"name,omitempty"`
+	Path     string         `json:"path,omitempty"`
 }
 
 // MarshalContentBlocks serializes text and legacy inline image blocks. It
@@ -32,6 +36,17 @@ func MarshalContentBlocks(blocks []ContentBlock) ([]byte, error) {
 			out = append(out, ContentBlockJSON{Kind: "text", Text: b.Text})
 		case ImageContent:
 			out = append(out, ContentBlockJSON{Kind: "image", Data: b.Data, MimeType: b.MimeType})
+		case ImageRefContent:
+			if err := b.Validate(); err != nil {
+				return nil, fmt.Errorf("marshal content blocks: %w", err)
+			}
+			baseline := b.Baseline
+			out = append(out, ContentBlockJSON{Kind: "image_ref", MediaID: b.MediaID, Baseline: &baseline})
+		case FileRefContent:
+			if err := b.Validate(); err != nil {
+				return nil, fmt.Errorf("marshal content blocks: %w", err)
+			}
+			out = append(out, ContentBlockJSON{Kind: "file_ref", MediaID: b.MediaID, Name: b.Name, Path: b.Path})
 		}
 	}
 	data, err := json.Marshal(out)
@@ -52,6 +67,12 @@ func ValidateCanonicalContentBlocks(blocks []ContentBlock) error {
 				return err
 			}
 		case ImageContent:
+			return ErrRawImageContent
+		case FileRefContent:
+			if err := block.Validate(); err != nil {
+				return err
+			}
+		case FileContent:
 			return ErrRawImageContent
 		default:
 			return fmt.Errorf("%w: %T", ErrUnsupportedCanonicalBlock, block)
@@ -81,6 +102,21 @@ func UnmarshalContentBlocks(data []byte) ([]ContentBlock, error) {
 			blocks = append(blocks, TextContent{Text: b.Text})
 		case "image":
 			blocks = append(blocks, ImageContent{Data: b.Data, MimeType: b.MimeType})
+		case "image_ref":
+			ref := ImageRefContent{MediaID: b.MediaID}
+			if b.Baseline != nil {
+				ref.Baseline = *b.Baseline
+			}
+			if err := ref.Validate(); err != nil {
+				return nil, fmt.Errorf("unmarshal content blocks: %w", err)
+			}
+			blocks = append(blocks, ref)
+		case "file_ref":
+			ref := FileRefContent{MediaID: b.MediaID, Name: b.Name, Path: b.Path}
+			if err := ref.Validate(); err != nil {
+				return nil, fmt.Errorf("unmarshal content blocks: %w", err)
+			}
+			blocks = append(blocks, ref)
 		}
 	}
 	if len(blocks) == 0 {
@@ -98,6 +134,9 @@ func CloneContentBlocks(blocks []ContentBlock) []ContentBlock {
 		switch b := block.(type) {
 		case ToolCall:
 			b.Arguments = cloneArguments(b.Arguments)
+			out[i] = b
+		case FileContent:
+			b.Data = append([]byte(nil), b.Data...)
 			out[i] = b
 		default:
 			out[i] = b

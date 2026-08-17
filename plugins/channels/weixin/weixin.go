@@ -28,7 +28,6 @@ type Bot struct {
 	guard   SessionGuard
 
 	contextTokens sync.Map // key: userID string, value: contextToken string
-	typingTickets sync.Map // key: userID string, value: typingTicket string
 
 	// cursor holds the getupdates cursor in memory. It is lost on restart
 	// but repopulated immediately on the first getupdates response.
@@ -138,22 +137,35 @@ func (b *Bot) Start(ctx context.Context) error {
 			}
 		}
 
-		// Success — reset failure counter.
-		consecutiveFailures = 0
-
-		// Update cursor.
-		if resp.GetUpdatesBuf != "" {
-			b.cursor = resp.GetUpdatesBuf
-		}
-
 		// Use adaptive timeout from response.
 		if resp.LongPollingTimeoutMS > 0 {
 			timeout = time.Duration(resp.LongPollingTimeoutMS) * time.Millisecond
 		}
 
-		// Dispatch messages.
+		// Dispatch before advancing the pull cursor. A download, immutable-media,
+		// or quota failure leaves this batch unacknowledged so the platform can
+		// redeliver the same stable message ID; the durable channel FIFO dedups any
+		// messages from the batch that already crossed acceptance.
 		if len(resp.Msgs) > 0 {
-			b.handleUpdates(resp.Msgs)
+			if err := b.handleUpdates(resp.Msgs); err != nil {
+				consecutiveFailures++
+				wait := 2 * time.Second
+				if consecutiveFailures >= 3 {
+					wait = 30 * time.Second
+				}
+				logger().Warn("getupdates batch was not durably accepted; retaining cursor",
+					"error", err, "failures", consecutiveFailures, "wait", wait)
+				select {
+				case <-b.ctx.Done():
+					return b.ctx.Err()
+				case <-time.After(wait):
+					continue
+				}
+			}
+		}
+		consecutiveFailures = 0
+		if resp.GetUpdatesBuf != "" {
+			b.cursor = resp.GetUpdatesBuf
 		}
 	}
 }

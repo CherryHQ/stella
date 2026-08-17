@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -54,12 +55,24 @@ type dumpedBlock struct {
 	Redacted  bool           `json:"redacted,omitempty"`
 }
 
-func dumpLLMContextIfEnabled(cfg loopConfig, messages []ai.Message) {
+func dumpLLMContextIfEnabled(ctx context.Context, cfg loopConfig, messages []ai.Message) error {
 	dir, ok := llmDumpDir()
 	if !ok {
-		return
+		return nil
 	}
-	_ = os.MkdirAll(dir, 0o700)
+	if cfg.OperationCheck != nil {
+		if err := cfg.OperationCheck(ctx); err != nil {
+			return err
+		}
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create LLM dump directory: %w", err)
+	}
+	if cfg.OperationCheck != nil {
+		if err := cfg.OperationCheck(ctx); err != nil {
+			return err
+		}
+	}
 
 	now := time.Now().UTC()
 	req := dumpedLLMRequest{
@@ -81,10 +94,23 @@ func dumpLLMContextIfEnabled(cfg loopConfig, messages []ai.Message) {
 
 	data, err := json.MarshalIndent(req, "", "  ")
 	if err != nil {
-		return
+		return fmt.Errorf("encode LLM context dump: %w", err)
 	}
 	name := fmt.Sprintf("%s-%s.json", now.Format("20060102T150405.000000000Z"), safeName(cfg.HookMeta.SessionID))
-	_ = os.WriteFile(filepath.Join(dir, name), data, 0o600)
+	if cfg.OperationCheck != nil {
+		if err := cfg.OperationCheck(ctx); err != nil {
+			return err
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+		return fmt.Errorf("write LLM context dump: %w", err)
+	}
+	if cfg.OperationCheck != nil {
+		if err := cfg.OperationCheck(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func llmDumpDir() (string, bool) {

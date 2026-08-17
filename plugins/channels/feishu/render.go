@@ -2,8 +2,10 @@ package feishu
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -93,11 +95,13 @@ func feishuFileType(name string) string {
 }
 
 // sendFile uploads a local file to Feishu and sends it as a file message reply.
-func (b *Bot) sendFile(chatID, replyMsgID string, file channel.FileEvent, replyInThread bool) {
+func (b *Bot) sendFile(ctx context.Context, chatID, replyMsgID string, file channel.FileEvent, replyInThread bool, stream *channel.ChatStream) error {
+	if err := stream.CheckOperation(ctx); err != nil {
+		return err
+	}
 	f, err := os.Open(file.Path)
 	if err != nil {
-		logger().Error("open file failed", "path", file.Path, "error", err)
-		return
+		return fmt.Errorf("open file %q: %w", file.Path, err)
 	}
 	defer func() { _ = f.Close() }()
 
@@ -109,6 +113,9 @@ func (b *Bot) sendFile(chatID, replyMsgID string, file channel.FileEvent, replyI
 	uploadCtx, cancelUpload := b.apiContext()
 	defer cancelUpload()
 
+	if err := stream.CheckOperation(ctx); err != nil {
+		return err
+	}
 	uploadResp, err := b.client.Im.File.Create(uploadCtx,
 		larkim.NewCreateFileReqBuilder().
 			Body(larkim.NewCreateFileReqBodyBuilder().
@@ -118,16 +125,13 @@ func (b *Bot) sendFile(chatID, replyMsgID string, file channel.FileEvent, replyI
 				Build()).
 			Build())
 	if err != nil {
-		logger().Error("upload file failed", "name", name, "error", err)
-		return
+		return fmt.Errorf("upload file %q outcome unknown: %w", name, err)
 	}
 	if !uploadResp.Success() {
-		logger().Error("upload file api error", "code", uploadResp.Code, "msg", uploadResp.Msg)
-		return
+		return fmt.Errorf("upload file api error: code=%d msg=%s", uploadResp.Code, uploadResp.Msg)
 	}
 	if uploadResp.Data == nil || uploadResp.Data.FileKey == nil {
-		logger().Error("upload file: no file_key returned")
-		return
+		return fmt.Errorf("upload file: no file_key returned")
 	}
 
 	fileKey := *uploadResp.Data.FileKey
@@ -136,33 +140,38 @@ func (b *Bot) sendFile(chatID, replyMsgID string, file channel.FileEvent, replyI
 	defer cancelReply()
 
 	content, _ := json.Marshal(map[string]string{"file_key": fileKey})
+	if err := stream.CheckOperation(ctx); err != nil {
+		return err
+	}
 	resp, err := b.client.Im.Message.Reply(replyCtx,
 		larkim.NewReplyMessageReqBuilder().
 			MessageId(replyMsgID).
 			Body(replyMessageBody(larkim.MsgTypeFile, string(content), replyInThread)).
 			Build())
 	if err != nil {
-		logger().Error("send file failed", "error", err)
-		return
+		return fmt.Errorf("send file outcome unknown: %w", err)
 	}
 	if !resp.Success() {
-		logger().Error("send file api error", "code", resp.Code, "msg", resp.Msg)
+		return fmt.Errorf("send file api error: code=%d msg=%s", resp.Code, resp.Msg)
 	}
+	return nil
 }
 
 // sendImage decodes a base64 image, uploads it to Feishu to obtain an image_key,
 // then sends it as an image message in the chat.
-func (b *Bot) sendImage(chatID, replyMsgID string, img channel.ImageEvent, replyInThread bool) {
+func (b *Bot) sendImage(ctx context.Context, chatID, replyMsgID string, img channel.ImageEvent, replyInThread bool, stream *channel.ChatStream) error {
 	data, err := base64.StdEncoding.DecodeString(img.Data)
 	if err != nil {
-		logger().Error("decode image failed", "error", err)
-		return
+		return fmt.Errorf("decode image: %w", err)
 	}
 
 	uploadCtx, cancelUpload := b.apiContext()
 	defer cancelUpload()
 
 	// Upload image to get image_key.
+	if err := stream.CheckOperation(ctx); err != nil {
+		return err
+	}
 	uploadResp, err := b.client.Im.Image.Create(uploadCtx,
 		larkim.NewCreateImageReqBuilder().
 			Body(larkim.NewCreateImageReqBodyBuilder().
@@ -171,16 +180,13 @@ func (b *Bot) sendImage(chatID, replyMsgID string, img channel.ImageEvent, reply
 				Build()).
 			Build())
 	if err != nil {
-		logger().Error("upload image failed", "error", err)
-		return
+		return fmt.Errorf("upload image outcome unknown: %w", err)
 	}
 	if !uploadResp.Success() {
-		logger().Error("upload image api error", "code", uploadResp.Code, "msg", uploadResp.Msg)
-		return
+		return fmt.Errorf("upload image api error: code=%d msg=%s", uploadResp.Code, uploadResp.Msg)
 	}
 	if uploadResp.Data == nil || uploadResp.Data.ImageKey == nil {
-		logger().Error("upload image: no image_key returned")
-		return
+		return fmt.Errorf("upload image: no image_key returned")
 	}
 
 	imageKey := *uploadResp.Data.ImageKey
@@ -190,16 +196,19 @@ func (b *Bot) sendImage(chatID, replyMsgID string, img channel.ImageEvent, reply
 	defer cancelReply()
 
 	content, _ := json.Marshal(map[string]string{"image_key": imageKey})
+	if err := stream.CheckOperation(ctx); err != nil {
+		return err
+	}
 	resp, err := b.client.Im.Message.Reply(replyCtx,
 		larkim.NewReplyMessageReqBuilder().
 			MessageId(replyMsgID).
 			Body(replyMessageBody(larkim.MsgTypeImage, string(content), replyInThread)).
 			Build())
 	if err != nil {
-		logger().Error("send image failed", "error", err)
-		return
+		return fmt.Errorf("send image outcome unknown: %w", err)
 	}
 	if !resp.Success() {
-		logger().Error("send image api error", "code", resp.Code, "msg", resp.Msg)
+		return fmt.Errorf("send image api error: code=%d msg=%s", resp.Code, resp.Msg)
 	}
+	return nil
 }

@@ -938,7 +938,7 @@ func TestManagedProjectionConcurrentExactDigestPublishesOneCompletePath(t *testi
 			var projected string
 			projection, err := managedSkillProjection(revision)
 			if err == nil {
-				projected, err = tool.projectSkill(projection)
+				projected, err = tool.projectSkill(t.Context(), projection)
 			}
 			paths <- projected
 			errs <- err
@@ -1053,7 +1053,7 @@ func TestManagedProjectionRejectsPoisonedExactDigestReuse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tool.projectSkill(projection); err != nil {
+	if _, err := tool.projectSkill(t.Context(), projection); err != nil {
 		t.Fatal(err)
 	}
 	host := filepath.Join(session.tempHost, "stella-skills", revision.Skill.Scope, revision.Skill.ID, digest)
@@ -1064,7 +1064,7 @@ func TestManagedProjectionRejectsPoisonedExactDigestReuse(t *testing.T) {
 	if err := os.WriteFile(poisoned, []byte("poisoned"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tool.projectSkill(projection); !errors.Is(err, ErrInvalidSkillRevision) {
+	if _, err := tool.projectSkill(t.Context(), projection); !errors.Is(err, ErrInvalidSkillRevision) {
 		t.Fatalf("poisoned projection reuse = %v, want ErrInvalidSkillRevision", err)
 	}
 	content, err := os.ReadFile(filepath.Join(host, "scripts", "support.sh"))

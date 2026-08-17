@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -13,6 +14,13 @@ func TestNewSessionID(t *testing.T) {
 	}
 	if a == b {
 		t.Fatal("successive IDs should be unique")
+	}
+}
+
+func TestSessionIDUsesDurableContextIdentity(t *testing.T) {
+	const id = "sandbox-durable-generation"
+	if got := SessionID(WithSessionID(context.Background(), id)); got != id {
+		t.Fatalf("SessionID = %q, want %q", got, id)
 	}
 }
 

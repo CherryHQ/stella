@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -85,16 +86,18 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.S
 	}
 
 	now := time.Now().UTC()
-	conv, err = p.q.CreateConversation(ctx, sqlc.CreateConversationParams{
-		ID:         uuid.Must(uuid.NewV7()).String(),
-		SessionID:  session.ID,
-		Channel:    session.Channel,
-		Kind:       "chat",
-		AgentID:    pgnull.Text(session.AgentID),
-		UserID:     pgtype.Text{String: session.UserID, Valid: true},
-		GroupID:    pgnull.Text(session.GroupID),
-		GuestID:    pgnull.Text(session.GuestID),
-		LastActive: now,
+	conv, err = agentrun.WriteTxValue(ctx, p.db, func(q *sqlc.Queries) (sqlc.CtxConversation, error) {
+		return q.CreateConversation(ctx, sqlc.CreateConversationParams{
+			ID:         uuid.Must(uuid.NewV7()).String(),
+			SessionID:  session.ID,
+			Channel:    session.Channel,
+			Kind:       "chat",
+			AgentID:    pgnull.Text(session.AgentID),
+			UserID:     pgtype.Text{String: session.UserID, Valid: true},
+			GroupID:    pgnull.Text(session.GroupID),
+			GuestID:    pgnull.Text(session.GuestID),
+			LastActive: now,
+		})
 	})
 	if err == nil {
 		return conv.ID, nil

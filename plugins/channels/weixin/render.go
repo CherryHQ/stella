@@ -1,70 +1,42 @@
 package weixin
 
 import (
+	"context"
 	"crypto/md5" //nolint:gosec // MD5 is required by the WeChat CDN upload protocol
 	"encoding/base64"
 	"encoding/hex"
-	"strconv"
 
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
 // sendFinalResponse delivers response text (via streaming when possible, otherwise
 // chunked sendmessage), then sends any collected images.
-func (b *Bot) sendFinalResponse(msg WeixinMessage, response string, images []channel.ImageEvent) {
+func (b *Bot) sendFinalResponse(ctx context.Context, stream *channel.ChatStream, msg WeixinMessage, response string, images []channel.ImageEvent) error {
 	if err := b.guard.AssertActive(); err != nil {
-		logger().Warn("sendFinalResponse skipped: session paused", "user_id", msg.FromUserID, "error", err)
-		return
+		return err
 	}
 
-	if !b.sendViaStream(msg, response) {
-		b.sendViaMessages(msg, response)
+	if err := b.sendViaStream(ctx, stream, msg, response); err != nil {
+		return err
 	}
 
 	for _, img := range images {
-		b.sendImage(msg, img)
-	}
-}
-
-// sendViaMessages splits text into 2000-char chunks and sends each via sendmessage.
-func (b *Bot) sendViaMessages(msg WeixinMessage, response string) {
-	chunks := channel.SplitMessage(response, weixinMaxMessageLen)
-
-	contextToken := ""
-	if v, ok := b.contextTokens.Load(msg.FromUserID); ok {
-		contextToken, _ = v.(string)
-	}
-
-	for _, chunk := range chunks {
-		reply := WeixinMessage{
-			ToUserID:     msg.FromUserID,
-			ClientID:     RandomClientID("resp"),
-			MessageType:  MessageTypeBot,
-			MessageState: MessageStateFinish,
-			ContextToken: contextToken,
-			ItemList: []MessageItem{
-				{
-					Type:     ItemTypeText,
-					TextItem: &TextItem{Text: chunk},
-				},
-			},
-		}
-		if err := b.client.SendMessage(reply); err != nil {
-			logger().Error("send response chunk failed", "user_id", msg.FromUserID, "error", err)
+		if err := b.sendImage(ctx, stream, msg, img); err != nil {
+			return err
 		}
 	}
+	return nil
 }
 
 // sendImage encrypts and uploads an image to CDN, then sends it as a message.
-func (b *Bot) sendImage(msg WeixinMessage, img channel.ImageEvent) {
+func (b *Bot) sendImage(ctx context.Context, stream *channel.ChatStream, msg WeixinMessage, img channel.ImageEvent) error {
 	if err := b.guard.AssertActive(); err != nil {
-		logger().Warn("sendImage skipped: session paused", "user_id", msg.FromUserID, "error", err)
-		return
+		return err
 	}
 	data, err := decodeBase64(img.Data)
 	if err != nil {
 		logger().Error("decode image failed", "error", err)
-		return
+		return err
 	}
 
 	// Generate random AES key (16 bytes).
@@ -72,7 +44,7 @@ func (b *Bot) sendImage(msg WeixinMessage, img channel.ImageEvent) {
 	keyBytes, err := hex.DecodeString(key)
 	if err != nil {
 		logger().Error("decode file key failed", "error", err)
-		return
+		return err
 	}
 	keyHex = key // 32-char hex string for the aeskey field
 
@@ -80,7 +52,7 @@ func (b *Bot) sendImage(msg WeixinMessage, img channel.ImageEvent) {
 	encrypted, err := EncryptAESECB(data, keyBytes)
 	if err != nil {
 		logger().Error("encrypt image failed", "error", err)
-		return
+		return err
 	}
 
 	// Calculate MD5 of raw data.
@@ -88,6 +60,9 @@ func (b *Bot) sendImage(msg WeixinMessage, img channel.ImageEvent) {
 	fileKey := RandomFileKey()
 
 	// Get upload URL.
+	if err := stream.CheckOperation(ctx); err != nil {
+		return err
+	}
 	uploadResp, err := b.client.GetUploadURL(UploadParams{
 		FileKey:     fileKey,
 		MediaType:   MediaTypeImage,
@@ -100,14 +75,17 @@ func (b *Bot) sendImage(msg WeixinMessage, img channel.ImageEvent) {
 	})
 	if err != nil {
 		logger().Error("getuploadurl for image failed", "error", err)
-		return
+		return err
 	}
 
 	// Upload to CDN.
+	if err := stream.CheckOperation(ctx); err != nil {
+		return err
+	}
 	encryptedParam, err := UploadToCDN("", uploadResp.UploadFullURL, uploadResp.UploadParam, fileKey, encrypted)
 	if err != nil {
 		logger().Error("cdn upload image failed", "error", err)
-		return
+		return err
 	}
 
 	// Send image message.
@@ -137,162 +115,10 @@ func (b *Bot) sendImage(msg WeixinMessage, img channel.ImageEvent) {
 			},
 		},
 	}
-	if err := b.client.SendMessage(reply); err != nil {
-		logger().Error("send image message failed", "user_id", msg.FromUserID, "error", err)
+	if err := stream.CheckOperation(ctx); err != nil {
+		return err
 	}
-}
-
-// sendFile encrypts and uploads a file to CDN, then sends it as a message.
-//
-//nolint:unused // kept for future agent media sending
-func (b *Bot) sendFile(msg WeixinMessage, fileName string, data []byte) {
-	if err := b.guard.AssertActive(); err != nil {
-		logger().Warn("sendFile skipped: session paused", "user_id", msg.FromUserID, "error", err)
-		return
-	}
-	key, keyHex := RandomFileKey(), ""
-	keyBytes, err := hex.DecodeString(key)
-	if err != nil {
-		logger().Error("decode file key failed", "error", err)
-		return
-	}
-	keyHex = key
-
-	encrypted, err := EncryptAESECB(data, keyBytes)
-	if err != nil {
-		logger().Error("encrypt file failed", "error", err)
-		return
-	}
-
-	rawMD5 := md5Sum(data)
-	fileKey := RandomFileKey()
-
-	uploadResp, err := b.client.GetUploadURL(UploadParams{
-		FileKey:     fileKey,
-		MediaType:   MediaTypeFile,
-		ToUserID:    msg.FromUserID,
-		RawSize:     len(data),
-		RawFileMD5:  rawMD5,
-		FileSize:    len(encrypted),
-		NoNeedThumb: true,
-		AESKey:      keyHex,
-	})
-	if err != nil {
-		logger().Error("getuploadurl for file failed", "error", err)
-		return
-	}
-
-	encryptedParam, err := UploadToCDN("", uploadResp.UploadFullURL, uploadResp.UploadParam, fileKey, encrypted)
-	if err != nil {
-		logger().Error("cdn upload file failed", "error", err)
-		return
-	}
-
-	contextToken := ""
-	if v, ok := b.contextTokens.Load(msg.FromUserID); ok {
-		contextToken, _ = v.(string)
-	}
-
-	reply := WeixinMessage{
-		ToUserID:     msg.FromUserID,
-		ClientID:     RandomClientID("file"),
-		MessageType:  MessageTypeBot,
-		MessageState: MessageStateFinish,
-		ContextToken: contextToken,
-		ItemList: []MessageItem{
-			{
-				Type: ItemTypeFile,
-				FileItem: &FileItem{
-					Media: &CDNMedia{
-						EncryptQueryParam: encryptedParam,
-						AESKey:            base64.StdEncoding.EncodeToString([]byte(keyHex)),
-						EncryptType:       1,
-					},
-					FileName: fileName,
-					Len:      strconv.Itoa(len(data)),
-				},
-			},
-		},
-	}
-	if err := b.client.SendMessage(reply); err != nil {
-		logger().Error("send file message failed", "user_id", msg.FromUserID, "error", err)
-	}
-}
-
-// sendVideo encrypts and uploads a video to CDN, then sends it as a message.
-//
-//nolint:unused // kept for future agent media sending
-func (b *Bot) sendVideo(msg WeixinMessage, data []byte) {
-	if err := b.guard.AssertActive(); err != nil {
-		logger().Warn("sendVideo skipped: session paused", "user_id", msg.FromUserID, "error", err)
-		return
-	}
-	key, keyHex := RandomFileKey(), ""
-	keyBytes, err := hex.DecodeString(key)
-	if err != nil {
-		logger().Error("decode file key failed", "error", err)
-		return
-	}
-	keyHex = key
-
-	encrypted, err := EncryptAESECB(data, keyBytes)
-	if err != nil {
-		logger().Error("encrypt video failed", "error", err)
-		return
-	}
-
-	rawMD5 := md5Sum(data)
-	fileKey := RandomFileKey()
-
-	uploadResp, err := b.client.GetUploadURL(UploadParams{
-		FileKey:     fileKey,
-		MediaType:   MediaTypeVideo,
-		ToUserID:    msg.FromUserID,
-		RawSize:     len(data),
-		RawFileMD5:  rawMD5,
-		FileSize:    len(encrypted),
-		NoNeedThumb: true,
-		AESKey:      keyHex,
-	})
-	if err != nil {
-		logger().Error("getuploadurl for video failed", "error", err)
-		return
-	}
-
-	encryptedParam, err := UploadToCDN("", uploadResp.UploadFullURL, uploadResp.UploadParam, fileKey, encrypted)
-	if err != nil {
-		logger().Error("cdn upload video failed", "error", err)
-		return
-	}
-
-	contextToken := ""
-	if v, ok := b.contextTokens.Load(msg.FromUserID); ok {
-		contextToken, _ = v.(string)
-	}
-
-	reply := WeixinMessage{
-		ToUserID:     msg.FromUserID,
-		ClientID:     RandomClientID("video"),
-		MessageType:  MessageTypeBot,
-		MessageState: MessageStateFinish,
-		ContextToken: contextToken,
-		ItemList: []MessageItem{
-			{
-				Type: ItemTypeVideo,
-				VideoItem: &VideoItem{
-					Media: &CDNMedia{
-						EncryptQueryParam: encryptedParam,
-						AESKey:            base64.StdEncoding.EncodeToString([]byte(keyHex)),
-						EncryptType:       1,
-					},
-					VideoSize: int64(len(encrypted)),
-				},
-			},
-		},
-	}
-	if err := b.client.SendMessage(reply); err != nil {
-		logger().Error("send video message failed", "user_id", msg.FromUserID, "error", err)
-	}
+	return b.client.SendMessage(reply)
 }
 
 // --- helpers ---

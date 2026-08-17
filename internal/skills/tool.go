@@ -320,7 +320,7 @@ func (t *Tool) loadManagedOrImmutable(ctx context.Context, name, filename string
 		}
 		data = string(dataBytes)
 	}
-	skillDir, err := t.projectSkill(projection)
+	skillDir, err := t.projectSkill(ctx, projection)
 	if err != nil {
 		return "", fmt.Errorf("project skill %q: %w", name, err)
 	}
@@ -366,7 +366,7 @@ func managedSkillProjection(revision ManagedRevision) (immutableSkillProjection,
 	}, nil
 }
 
-func (t *Tool) projectSkill(projection immutableSkillProjection) (string, error) {
+func (t *Tool) projectSkill(ctx context.Context, projection immutableSkillProjection) (string, error) {
 	// One Tool belongs to one active Session. Serialize publication so concurrent
 	// loads cannot replace a digest path while another publication is deciding
 	// its exact Session view.
@@ -384,11 +384,19 @@ func (t *Tool) projectSkill(projection immutableSkillProjection) (string, error)
 	for _, file := range projection.files {
 		projected = append(projected, pkgsandbox.ProjectedFile{Path: file.path, Content: file.content, Mode: file.mode})
 	}
+	files := t.session.Files()
+	if selector, ok := t.session.(pkgsandbox.FileViewSelector); ok {
+		view, err := selector.SelectFileView(ctx)
+		if err != nil {
+			return "", err
+		}
+		files = view.Files
+	}
 	// This Session-private convenience copy is atomically published and verified
 	// on every load, but it is not an isolation boundary from same-UID commands.
 	// A concurrent command can race that verification or modify the copy later;
 	// any mismatch the next load observes fails closed instead of replacing it.
-	visible, err := t.session.Files().ProjectTempFiles(relative, projected)
+	visible, err := files.ProjectTempFiles(relative, projected)
 	if err != nil {
 		if errors.Is(err, pkgsandbox.ErrProjectionConflict) {
 			return "", errors.Join(ErrInvalidSkillRevision, err)

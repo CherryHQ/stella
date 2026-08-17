@@ -138,6 +138,31 @@ func TestDuplicateMessageIsIgnored(t *testing.T) {
 	}
 }
 
+func TestUnsupportedAttachmentCallbackIsRejectedWithoutAcknowledgement(t *testing.T) {
+	handler := &capturingHandler{messages: make(chan handledMessage, 1)}
+	bot, err := New(Config{ClientID: "client", ClientSecret: "secret", AllowDM: true}, handler)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	_, err = bot.onMessage(context.Background(), &chatbot.BotCallbackDataModel{
+		ConversationType: "1",
+		MsgId:            "attachment-1",
+		Msgtype:          "picture",
+		Content:          map[string]any{"downloadCode": "expiring-code"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "unsupported inbound message type") {
+		t.Fatalf("onMessage error = %v, want explicit attachment rejection", err)
+	}
+	if bot.wasSeen("attachment-1") {
+		t.Fatal("rejected attachment was marked seen")
+	}
+	select {
+	case <-handler.messages:
+		t.Fatal("rejected attachment reached coordinator")
+	default:
+	}
+}
+
 func TestStreamClientCloseDisablesSDKReconnect(t *testing.T) {
 	client := streamclient.NewStreamClient()
 	if !client.AutoReconnect {

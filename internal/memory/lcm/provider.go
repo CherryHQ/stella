@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -277,13 +278,18 @@ func (p *Provider) appendRows(ctx context.Context, session memory.Session, rows 
 		if err = qtx.LockConversationForWrite(ctx, convID); err != nil {
 			return fmt.Errorf("lock conversation: %w", err)
 		}
+		if err = agentrun.ValidateTx(ctx, tx); err != nil {
+			return err
+		}
 		if claim != nil {
+			guard, _ := agentrun.GuardFromContext(ctx)
 			_, err = qtx.ClaimSessionInboxDelivery(ctx, sqlc.ClaimSessionInboxDeliveryParams{
 				ID:              claim.id,
 				SourceSessionID: claim.sourceSessionID,
 				TargetSessionID: claim.targetSessionID,
 				ActorID:         claim.actorID,
 				Content:         claim.content,
+				RunID:           pgtype.Text{String: guard.RunID, Valid: true},
 			})
 			if errors.Is(err, pgx.ErrNoRows) {
 				return memory.ErrInboxNotPending

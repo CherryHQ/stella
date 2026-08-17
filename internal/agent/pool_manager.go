@@ -16,6 +16,7 @@ import (
 	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/agentskillpolicy"
 	"github.com/CherryHQ/stella/internal/config"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -154,6 +155,10 @@ func WithSessionInboxPM(inbox SessionInbox) PoolManagerOption {
 	return func(pm *PoolManager) { pm.sessionInbox = inbox }
 }
 
+func WithAgentRuns(store *agentrun.Store) PoolManagerOption {
+	return func(pm *PoolManager) { pm.agentRuns = store }
+}
+
 // PoolManager manages one Service per enabled agent. It reads enabled agents
 // from the config Store and creates a Service (session.Registry + runtime.Runtime)
 // per agent.
@@ -202,6 +207,7 @@ type PoolManager struct {
 	sessionImages            SessionImagePipeline
 	sessionAccess            SessionAccessService
 	sessionInbox             SessionInbox
+	agentRuns                *agentrun.Store
 	homeWorkspace            home.Workspace
 	log                      *slog.Logger
 }
@@ -456,6 +462,7 @@ func (pm *PoolManager) buildService(ctx context.Context, agentID string, factory
 		BeforeRun:       pm.runtimeBeforeRunFunc(snap),
 		SnapshotPrompt:  pm.buildSnapshotPromptFunc(snap),
 		SessionImages:   pm.sessionImages,
+		AgentRuns:       pm.agentRuns,
 		Compaction: agentruntime.CompactionConfig{
 			MaxTokens: pm.compaction.WithDefaults().MaxTokens,
 			KeepTail:  pm.compaction.WithDefaults().KeepTail,

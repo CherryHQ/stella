@@ -1,6 +1,11 @@
 package runtime
 
 import (
+	"context"
+	"fmt"
+	"sync"
+
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -18,6 +23,111 @@ type chatOptions struct {
 	hasSpeaker     bool
 	inputActor     eventlog.MessageActor
 	inboxID        string
+	channelFIFOID  string
+	fifoClaimToken string
+	completion     *CompletionBarrier
+}
+
+// CompletionBarrier keeps the AgentRun running after the event stream closes
+// while an entry adapter commits its source-domain result. Source writers use
+// Context so every mutation validates the same owner in its transaction, then
+// Release lets the runtime commit session activity and the terminal Run state.
+type CompletionBarrier struct {
+	ready       chan struct{}
+	release     chan struct{}
+	mu          sync.Mutex
+	readyOnce   sync.Once
+	releaseOnce sync.Once
+	guard       agentrun.Guard
+	guardCtx    context.Context
+	err         error
+}
+
+func NewCompletionBarrier() *CompletionBarrier {
+	return &CompletionBarrier{ready: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (b *CompletionBarrier) bind(guardCtx context.Context, guard agentrun.Guard) {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	b.guard = guard
+	b.guardCtx = guardCtx
+	b.mu.Unlock()
+	b.readyOnce.Do(func() { close(b.ready) })
+}
+
+// Fail unblocks an entry adapter when admission failed before an AgentRun
+// could bind a durable ownership guard.
+func (b *CompletionBarrier) Fail(err error) {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	b.err = err
+	b.mu.Unlock()
+	b.readyOnce.Do(func() { close(b.ready) })
+}
+
+func (b *CompletionBarrier) Context(ctx context.Context) (context.Context, error) {
+	if b == nil {
+		return nil, fmt.Errorf("agent run completion barrier is nil")
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-b.ready:
+	}
+	b.mu.Lock()
+	guard, guardCtx, err := b.guard, b.guardCtx, b.err
+	b.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	if guard.RunID == "" {
+		return nil, fmt.Errorf("agent run completion barrier has no guard")
+	}
+	if guarded, ok := agentrun.InheritGuard(ctx, guardCtx); ok {
+		return guarded, nil
+	}
+	return nil, fmt.Errorf("agent run completion barrier lost its live ownership checker")
+}
+
+func (b *CompletionBarrier) Release() {
+	if b == nil {
+		return
+	}
+	b.releaseOnce.Do(func() { close(b.release) })
+}
+
+// Bound reports whether admission has resolved the barrier, either with an
+// AgentRun guard or an admission error.
+func (b *CompletionBarrier) Bound() bool {
+	if b == nil {
+		return false
+	}
+	select {
+	case <-b.ready:
+		return true
+	default:
+		return false
+	}
+}
+
+// WithCompletionBarrier delays only terminalization; model/tool operations and
+// transcript writes have already ended when the caller observes stream EOF.
+func WithCompletionBarrier(barrier *CompletionBarrier) Option {
+	return func(o *chatOptions) { o.completion = barrier }
+}
+
+// WithChannelFIFOClaim binds a claimed durable channel input to the Run in the
+// same admission transaction.
+func WithChannelFIFOClaim(id, claimToken string) Option {
+	return func(o *chatOptions) {
+		o.channelFIFOID = id
+		o.fifoClaimToken = claimToken
+	}
 }
 
 // WithInputActor attaches runtime-derived provenance to the input message.

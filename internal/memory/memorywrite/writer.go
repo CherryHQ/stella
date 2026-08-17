@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -25,6 +26,9 @@ import (
 // this was implicit (single writer); under PostgreSQL it needs an explicit
 // transaction-scoped advisory lock, released automatically on commit/rollback.
 func lockMemory(ctx context.Context, tx pgx.Tx, userID, agentID string) error {
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return err
+	}
 	return appdb.AdvisoryXactLock(ctx, tx, "mem:"+userID+":"+agentID)
 }
 

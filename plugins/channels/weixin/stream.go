@@ -10,10 +10,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
-const (
-	streamChunkSize  = 500
-	streamMaxRetries = 3
-)
+const streamChunkSize = 500
 
 // streamPieceContent is the JSON payload encoded inside SyncStreamPiece.PieceData.
 type streamPieceContent struct {
@@ -92,12 +89,12 @@ func (s *WeixinStreamSender) sendPieces(newPieces []SyncStreamPiece, isEnd bool)
 	return nil
 }
 
-// sendViaStream delivers response text using the iLink streaming API.
-// Returns true on success; returns false (caller should fall back to sendmessage) if
-// InitStream fails or all SyncStream retries are exhausted.
-func (b *Bot) sendViaStream(msg WeixinMessage, text string) bool {
+// sendViaStream delivers response text using one-attempt iLink stream mutations.
+// Any failure has an unknown outcome and is returned without retry or fallback.
+func (b *Bot) sendViaStream(ctx context.Context, stream *channel.ChatStream, msg WeixinMessage, text string) error {
+	defer stream.Discard()
 	if b.guard.IsPaused() {
-		return false
+		return b.guard.AssertActive()
 	}
 
 	deviceID := b.cfg.BotID
@@ -106,11 +103,12 @@ func (b *Bot) sendViaStream(msg WeixinMessage, text string) bool {
 	}
 	clientStreamID := RandomClientID("stream")
 
+	if err := stream.CheckOperation(ctx); err != nil {
+		return err
+	}
 	initResp, err := b.client.InitStream(deviceID, clientStreamID)
 	if err != nil {
-		logger().Debug("init_stream failed, falling back to sendmessage",
-			"user_id", msg.FromUserID, "error", err)
-		return false
+		return err
 	}
 
 	sender := newWeixinStreamSender(b, deviceID, clientStreamID, initResp.StreamTicket)
@@ -121,27 +119,15 @@ func (b *Bot) sendViaStream(msg WeixinMessage, text string) bool {
 		pieces = append(pieces, sender.makePiece(chunk))
 	}
 
-	var lastErr error
-	for range streamMaxRetries {
-		lastErr = sender.sendPieces(pieces, true)
-		if lastErr == nil {
-			return true
-		}
-		pieces = nil // pending pieces are already saved; drain on next iteration
+	if err := stream.CheckOperation(ctx); err != nil {
+		return err
 	}
-
-	logger().Warn("sync_stream failed after retries, falling back to sendmessage",
-		"user_id", msg.FromUserID, "retries", streamMaxRetries, "error", lastErr)
-	return false
+	return sender.sendPieces(pieces, true)
 }
 
 const (
 	// weixinMaxMessageLen is the maximum text message length for WeChat iLink.
 	weixinMaxMessageLen = 2000
-
-	// typingInterval is how often we re-send the typing indicator.
-	// WeChat typing status expires after a few seconds.
-	typingInterval = 5 * time.Second
 )
 
 const minToolDisplayDuration = 2 * time.Second
@@ -178,67 +164,4 @@ func (b *Bot) streamEvents(msg WeixinMessage, events <-chan channel.Event) (stri
 	}
 
 	return sb.String(), &tt, images, streamErr
-}
-
-// keepTyping sends typing indicators every 5 seconds until the context is cancelled.
-// On cancel, it sends a stop-typing signal (status=2).
-func (b *Bot) keepTyping(ctx context.Context, msg WeixinMessage) {
-	if b.guard.IsPaused() {
-		return
-	}
-	ticket := b.getTypingTicket(msg.FromUserID)
-	if ticket == "" {
-		return
-	}
-
-	// Send initial typing indicator.
-	if err := b.client.SendTyping(msg.FromUserID, ticket, 1); err != nil {
-		logger().Debug("typing start failed", "user_id", msg.FromUserID, "error", err)
-	}
-
-	ticker := time.NewTicker(typingInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			// Send stop-typing.
-			if err := b.client.SendTyping(msg.FromUserID, ticket, 2); err != nil {
-				logger().Debug("typing stop failed", "user_id", msg.FromUserID, "error", err)
-			}
-			return
-		case <-ticker.C:
-			if err := b.client.SendTyping(msg.FromUserID, ticket, 1); err != nil {
-				logger().Debug("typing refresh failed", "user_id", msg.FromUserID, "error", err)
-			}
-		}
-	}
-}
-
-// getTypingTicket retrieves or fetches the typing_ticket for a user.
-func (b *Bot) getTypingTicket(userID string) string {
-	// Check cache first.
-	if v, ok := b.typingTickets.Load(userID); ok {
-		if ticket, ok := v.(string); ok && ticket != "" {
-			return ticket
-		}
-	}
-
-	// Fetch from API.
-	contextToken := ""
-	if v, ok := b.contextTokens.Load(userID); ok {
-		contextToken, _ = v.(string)
-	}
-
-	resp, err := b.client.GetConfig(userID, contextToken)
-	if err != nil {
-		logger().Debug("getconfig for typing_ticket failed", "user_id", userID, "error", err)
-		return ""
-	}
-
-	if resp.TypingTicket != "" {
-		b.typingTickets.Store(userID, resp.TypingTicket)
-	}
-
-	return resp.TypingTicket
 }

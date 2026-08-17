@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 )
@@ -49,6 +50,9 @@ func oauthMinValidity(cfg Config) time.Duration {
 // actually expires — rather than clearing it.
 func RefreshSessionEnv(ctx context.Context, session pkgsandbox.Session, cfg Config) {
 	if session == nil || cfg.GroupID != "" || cfg.TokenManager == nil {
+		return
+	}
+	if err := agentrun.Check(ctx); err != nil {
 		return
 	}
 	refresher, ok := session.(pkgsandbox.EnvRefresher)
@@ -108,6 +112,9 @@ func RefreshSessionEnv(ctx context.Context, session pkgsandbox.Session, cfg Conf
 		}
 	}
 	if len(updates) > 0 {
+		if err := agentrun.Check(ctx); err != nil {
+			return
+		}
 		// Register rotated values before making them executable so an overlapping
 		// turn cannot observe a live token before output redaction knows it.
 		cfg.SessionSecretValues.Add(rotatedSecrets...)

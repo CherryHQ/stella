@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/ai"
@@ -114,10 +115,12 @@ func (p *Provider) CommitGroupCursor(ctx context.Context, session memory.Session
 	if triggerSeq <= watermark {
 		return nil
 	}
-	if err := p.q.UpsertIngestCursor(ctx, sqlc.UpsertIngestCursorParams{
-		GroupID:  groupID,
-		Pipeline: pipeline,
-		LastSeq:  triggerSeq,
+	if err := agentrun.WriteTx(ctx, p.db, func(q *sqlc.Queries) error {
+		return q.UpsertIngestCursor(ctx, sqlc.UpsertIngestCursorParams{
+			GroupID:  groupID,
+			Pipeline: pipeline,
+			LastSeq:  triggerSeq,
+		})
 	}); err != nil {
 		return fmt.Errorf("update group cursor: %w", err)
 	}

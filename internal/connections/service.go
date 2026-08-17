@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
 	"github.com/CherryHQ/stella/internal/vault"
 	pkgdb "github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -633,6 +634,9 @@ func (s *Service) StartFlow(ctx context.Context, userID string, provider string,
 	if err != nil {
 		return FlowStatus{}, err
 	}
+	if err := agentrun.Check(ctx); err != nil {
+		return FlowStatus{}, err
+	}
 	status, err := broker.StartFlow(ctx, oauth.Provider(provider), userID, desired)
 	if err != nil {
 		return FlowStatus{}, fmt.Errorf("start %s %s flow: %w", provider, flowType, err)
@@ -655,6 +659,9 @@ func (s *Service) StartFlowWithOrigin(ctx context.Context, userID string, provid
 	}
 	broker, err := s.getBrokerWithOrigin(ctx, provider, flowType, origin, desired)
 	if err != nil {
+		return FlowStatus{}, err
+	}
+	if err := agentrun.Check(ctx); err != nil {
 		return FlowStatus{}, err
 	}
 	status, err := broker.StartFlow(ctx, oauth.Provider(provider), userID, desired)
@@ -689,6 +696,9 @@ func (s *Service) PollFlow(ctx context.Context, userID string, provider, flowID 
 		return FlowStatus{}, false, err
 	}
 
+	if err := agentrun.Check(ctx); err != nil {
+		return FlowStatus{}, false, err
+	}
 	status, err := broker.Poll(ctx, flowID)
 	if err != nil {
 		return FlowStatus{}, false, err
@@ -708,12 +718,15 @@ func (s *Service) PollFlow(ctx context.Context, userID string, provider, flowID 
 // persistDeviceToken saves a device-code token to the vault and refreshes live
 // runners. It runs from the broker's background goroutine the moment the user
 // authorizes, so the connection is finalized without the client polling.
-func (s *Service) persistDeviceToken(flowID string, tok *oauth2.Token) error {
+func (s *Service) persistDeviceToken(ctx context.Context, flowID string, tok *oauth2.Token) error {
 	flow, ok := s.flowStore.Get(flowID)
 	if !ok {
 		return fmt.Errorf("unknown or expired flow")
 	}
-	if err := s.saveToken(context.Background(), string(flow.Provider), flow.UserID, tok, flow.DesiredScopes); err != nil {
+	if err := agentrun.Check(ctx); err != nil {
+		return err
+	}
+	if err := s.saveToken(ctx, string(flow.Provider), flow.UserID, tok, flow.DesiredScopes); err != nil {
 		return fmt.Errorf("save %s token: %w", flow.Provider, err)
 	}
 	_ = s.InvalidateUser(flow.UserID)
@@ -745,6 +758,9 @@ func (s *Service) CompleteAuthCodeFlowWithOrigin(ctx context.Context, provider, 
 		return fmt.Errorf("provider %s does not support authorization_code flow", provider)
 	}
 
+	if err := agentrun.Check(ctx); err != nil {
+		return err
+	}
 	tok, err := ac.Complete(ctx, flowID, code)
 	if err != nil {
 		return fmt.Errorf("complete %s flow: %w", provider, err)

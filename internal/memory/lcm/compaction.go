@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -404,6 +405,9 @@ func (c *compactionEngine) writeMessageRunSummary(ctx context.Context, convID st
 	if err = qtx.LockConversationForWrite(ctx, convID); err != nil {
 		return fmt.Errorf("lock conversation: %w", err)
 	}
+	if err = agentrun.ValidateTx(ctx, tx); err != nil {
+		return err
+	}
 
 	// Create summary record.
 	sumID := generateSummaryID()
@@ -695,6 +699,9 @@ func (c *compactionEngine) writeCondensedRunSummary(ctx context.Context, convID 
 	// never held across the model call. Released with the tx.
 	if err = qtx.LockConversationForWrite(ctx, convID); err != nil {
 		return fmt.Errorf("lock conversation: %w", err)
+	}
+	if err = agentrun.ValidateTx(ctx, tx); err != nil {
+		return err
 	}
 
 	// Create condensed summary.

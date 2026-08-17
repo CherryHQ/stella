@@ -25,6 +25,7 @@ type Runner struct {
 	hookMeta        hooks.HookMeta
 	toolLifecycle   *ToolLifecycle
 	canonicalImages *CanonicalImageConfig
+	operationCheck  func(context.Context) error
 	turnNotify      func(turn int, elapsed time.Duration) *string
 }
 
@@ -74,6 +75,12 @@ func WithToolLifecycle(tl *ToolLifecycle) Option {
 // cannot be configured independently.
 func WithCanonicalImages(cfg CanonicalImageConfig) Option {
 	return func(r *Runner) { r.canonicalImages = &cfg }
+}
+
+// WithOperationCheck installs a fail-closed fence immediately before every
+// model and tool operation.
+func WithOperationCheck(check func(context.Context) error) Option {
+	return func(r *Runner) { r.operationCheck = check }
 }
 
 // WithTurnNotify sets a callback invoked at the start of each turn.
@@ -152,10 +159,11 @@ func (r *Runner) loopConfig() loopConfig {
 		ToolDefinitions: r.toolDefs,
 		System:          r.system,
 		Interrupt:       r.interrupt,
-		Hooks:           r.hooks,
+		Hooks:           r.hooks.WithOperationCheck(r.operationCheck),
 		HookMeta:        r.hookMeta,
 		ToolLifecycle:   r.toolLifecycle,
 		CanonicalImages: r.canonicalImages,
+		OperationCheck:  r.operationCheck,
 		TurnNotify:      r.turnNotify,
 	}
 }

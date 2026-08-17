@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
 
@@ -26,8 +27,16 @@ type toolProxy struct {
 func (t *toolProxy) Definition() pkgtools.Definition { return t.def }
 
 func (t *toolProxy) Execute(ctx context.Context, args map[string]any) (string, error) {
+	if err := agentrun.Check(ctx); err != nil {
+		return "", err
+	}
 	client, err := t.ensureClient(ctx)
 	if err != nil {
+		return "", err
+	}
+	// Lazy connection can perform network I/O. Revalidate after it and directly
+	// before the remote tool effect; never retry an outcome-unknown call.
+	if err := agentrun.Check(ctx); err != nil {
 		return "", err
 	}
 	return client.CallTool(ctx, t.remoteName, args)

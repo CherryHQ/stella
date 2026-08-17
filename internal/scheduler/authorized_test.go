@@ -4,16 +4,20 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	storepkg "github.com/CherryHQ/stella/internal/store"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 func TestSchedulerIdempotencyConflictMatchesOnlyItsIndex(t *testing.T) {
@@ -101,6 +105,94 @@ func TestSchedulerBeginRejectsInvalidAuthority(t *testing.T) {
 	e := newPEPEnv(t)
 	if _, err := e.svc.Begin(context.Background(), authz.Authority{}); !errors.Is(err, authz.ErrForbidden) {
 		t.Fatalf("Begin(zero) err=%v, want forbidden", err)
+	}
+}
+
+func TestStaleAgentRunCannotCreateUpdateEnableDisableOrDeleteJob(t *testing.T) {
+	e := newPEPEnv(t)
+	ctx := context.Background()
+	bootID := agentrun.NewBootID()
+	if _, err := sqlc.New(e.svc.db).CreateExecutorBoot(ctx, sqlc.CreateExecutorBootParams{ID: bootID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.svc.q.CreateConversation(ctx, sqlc.CreateConversationParams{
+		ID: uuid.NewString(), SessionID: "scheduler-fence-session", Channel: "test", Kind: "agent",
+		LastActive: time.Now().UTC(), AgentID: pgtype.Text{String: "agent-a", Valid: true},
+		UserID: pgtype.Text{String: e.ownerA, Valid: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runs := agentrun.NewStore(e.svc.db, bootID)
+	lease, err := runs.Acquire(ctx, "scheduler-fence-session", "scheduler-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.Finish(ctx, agentrun.StatusCompleted, "done"); err != nil {
+		t.Fatal(err)
+	}
+	stale := agentrun.WithGuard(ctx, lease.Guard)
+	acc := e.begin(t, userAuthority(t, e.ownerA))
+
+	refsBefore := len(e.svc.refs)
+	if _, err := acc.CreateJob(stale, "stale-create", "message", Schedule{Every: "1h"}, SessionReuse, "agent-a", ""); !errors.Is(err, agentrun.ErrLeaseLost) {
+		t.Fatalf("stale CreateJob error = %v, want ErrLeaseLost", err)
+	}
+	if len(e.svc.refs) != refsBefore {
+		t.Fatalf("stale CreateJob changed River refs: before=%d after=%d", refsBefore, len(e.svc.refs))
+	}
+	if jobs, err := e.svc.q.ListSchedulerJobByOwner(ctx, sqlc.ListSchedulerJobByOwnerParams{
+		AgentID: pgtype.Text{String: "agent-a", Valid: true}, UserID: pgtype.Text{String: e.ownerA, Valid: true},
+	}); err != nil || len(jobs) != 0 {
+		t.Fatalf("stale CreateJob durable rows = %d err=%v, want none", len(jobs), err)
+	}
+
+	job, err := acc.CreateJob(ctx, "kept", "message", Schedule{Every: "1h"}, SessionReuse, "agent-a", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := e.svc.refs[job.ID]
+	changedName := "stale-update"
+	if _, err := acc.UpdateJob(stale, "agent-a", job.ID, JobUpdate{Name: &changedName}); !errors.Is(err, agentrun.ErrLeaseLost) {
+		t.Fatalf("stale UpdateJob error = %v, want ErrLeaseLost", err)
+	}
+	if got, ok := e.svc.refs[job.ID]; !ok || got != ref || e.svc.jobs[job.ID].Name != "kept" {
+		t.Fatal("stale UpdateJob changed the live job or River registration")
+	}
+	if row, err := e.svc.q.GetSchedulerJob(ctx, job.ID); err != nil || row.Name != "kept" || !row.Enabled {
+		t.Fatalf("stale UpdateJob changed source row: name=%q enabled=%t err=%v", row.Name, row.Enabled, err)
+	}
+	if _, err := acc.SetJobEnabled(stale, "agent-a", job.ID, false); !errors.Is(err, agentrun.ErrLeaseLost) {
+		t.Fatalf("stale DisableJob error = %v, want ErrLeaseLost", err)
+	}
+	if got, ok := e.svc.refs[job.ID]; !ok || got != ref || !e.svc.jobs[job.ID].Enabled {
+		t.Fatal("stale DisableJob changed the live job or River registration")
+	}
+
+	disabled, err := acc.CreateJobWithEnabled(ctx, "disabled", "message", Schedule{Every: "1h"}, SessionReuse, "agent-a", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := e.svc.refs[disabled.ID]; exists {
+		t.Fatal("disabled fixture unexpectedly has a River registration")
+	}
+	if _, err := acc.SetJobEnabled(stale, "agent-a", disabled.ID, true); !errors.Is(err, agentrun.ErrLeaseLost) {
+		t.Fatalf("stale EnableJob error = %v, want ErrLeaseLost", err)
+	}
+	if _, exists := e.svc.refs[disabled.ID]; exists || e.svc.jobs[disabled.ID].Enabled {
+		t.Fatal("stale EnableJob armed River or changed the live job")
+	}
+	if row, err := e.svc.q.GetSchedulerJob(ctx, disabled.ID); err != nil || row.Enabled {
+		t.Fatalf("stale EnableJob changed source row: enabled=%t err=%v", row.Enabled, err)
+	}
+
+	if err := acc.DeleteJob(stale, "agent-a", job.ID); !errors.Is(err, agentrun.ErrLeaseLost) {
+		t.Fatalf("stale RemoveJob error = %v, want ErrLeaseLost", err)
+	}
+	if got, ok := e.svc.refs[job.ID]; !ok || got != ref {
+		t.Fatal("stale RemoveJob changed the live River registration")
+	}
+	if _, err := e.svc.q.GetSchedulerJob(ctx, job.ID); err != nil {
+		t.Fatalf("stale RemoveJob changed durable source row: %v", err)
 	}
 }
 

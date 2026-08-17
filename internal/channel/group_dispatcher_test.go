@@ -6,17 +6,24 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
+	"github.com/CherryHQ/stella/internal/auth"
+	"github.com/CherryHQ/stella/internal/config"
+	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
+	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -25,6 +32,20 @@ type recordingGroupPublisher struct {
 	err   error
 	calls int
 	texts []string
+}
+
+type recordingPublisherReconstructor struct {
+	publisher GroupPublisher
+	channel   config.Channel
+	envelope  GroupOutboxEnvelope
+	calls     int
+}
+
+func (r *recordingPublisherReconstructor) ReconstructGroupPublisher(_ context.Context, configured config.Channel, envelope GroupOutboxEnvelope) (GroupPublisher, error) {
+	r.calls++
+	r.channel = configured
+	r.envelope = envelope
+	return r.publisher, nil
 }
 
 type blockingGroupPublisher struct {
@@ -65,6 +86,160 @@ type dispatcherFixture struct {
 	outbox  sqlc.CtxGroupOutbox
 	message sqlc.CtxGroupMessage
 	groupID string
+}
+
+type groupAttachmentAdmissionFixture struct {
+	db      *pgxpool.Pool
+	q       *sqlc.Queries
+	coord   *Coordinator
+	message pkgchannel.IncomingMessage
+	groupID string
+	agentID string
+	channel string
+}
+
+func newGroupAttachmentAdmissionFixture(t *testing.T) groupAttachmentAdmissionFixture {
+	t.Helper()
+	ts := setupStores(t)
+	ctx := t.Context()
+	q := sqlc.New(ts.db)
+	user := createTestUser(t, ts.oidcStore, "group-attachment@example.test")
+	createTestIdentity(t, ts.oidcStore, user.ID, "web", "attachment-sender", "Attachment Sender")
+	agentID := "attachment-agent"
+	channelID := "attachment-channel"
+	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
+		ID: agentID, Name: "Attachment Agent", Workspace: t.TempDir(),
+		Sandbox: json.RawMessage(`{}`), Scope: "system", Enabled: true,
+	}); err != nil {
+		t.Fatalf("create attachment agent: %v", err)
+	}
+	if err := q.CreateWebChannelIfNotExists(ctx, sqlc.CreateWebChannelIfNotExistsParams{
+		ID: channelID, AgentID: pgtype.Text{String: agentID, Valid: true},
+	}); err != nil {
+		t.Fatalf("create attachment channel: %v", err)
+	}
+	state, err := q.CreateGroupState(ctx, sqlc.CreateGroupStateParams{
+		ID: uuid.NewString(), Platform: "web", PlatformGroupID: "attachment-group",
+		CreatedByUserID: pgtype.Text{String: user.ID, Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("create attachment group: %v", err)
+	}
+	if _, err := q.AddGroupMember(ctx, sqlc.AddGroupMemberParams{
+		GroupID: state.ID, AgentID: agentID, ReplyChannelID: channelID,
+	}); err != nil {
+		t.Fatalf("add attachment group member: %v", err)
+	}
+	media, err := q.CreateMediaIfAbsent(ctx, sqlc.CreateMediaIfAbsentParams{
+		UserID: user.ID, Sha256: make([]byte, 32), MimeType: "image/png", SizeBytes: 321,
+	})
+	if err != nil {
+		t.Fatalf("create attachment media: %v", err)
+	}
+	coord := &Coordinator{
+		store: ts.store, auth: ts.oidcStore, db: ts.db,
+		eventLog: eventlog.NewStore(ts.db),
+		arbiter:  NewArbiter(ArbiterConfig{MaxRepliesPerTrigger: 3}),
+	}
+	dispatcher := NewGroupDispatcher(ts.db, coord, NewPublisherRegistry())
+	coord.SetGroupDispatcher(dispatcher)
+	return groupAttachmentAdmissionFixture{
+		db: ts.db, q: q, coord: coord, groupID: state.ID, agentID: agentID, channel: channelID,
+		message: pkgchannel.IncomingMessage{
+			Platform: "web", ChannelID: channelID, SenderID: "attachment-sender",
+			ChatID: "attachment-group", MessageID: "attachment-delivery-1", IsGroup: true,
+			Content: []ai.ContentBlock{ai.ImageRefContent{MediaID: media.ID}},
+		},
+	}
+}
+
+func TestGroupAttachmentAdmissionAtomicallyMaterializesEventRouteAndFIFO(t *testing.T) {
+	fx := newGroupAttachmentAdmissionFixture(t)
+	if err := fx.coord.AdmitAttachments(t.Context(), fx.message); err != nil {
+		t.Fatalf("AdmitAttachments: %v", err)
+	}
+	var messages, outboxes, dispatches, fifos int
+	var routeStatus, dispatchStatus string
+	if err := fx.db.QueryRow(t.Context(), `
+		SELECT
+		  (SELECT count(*) FROM ctx_group_message WHERE group_id = $1::uuid),
+		  (SELECT count(*) FROM ctx_group_outbox WHERE group_id = $1::uuid),
+		  (SELECT count(*) FROM ctx_group_dispatch WHERE group_id = $1::uuid),
+		  (SELECT count(*) FROM channel_binding_fifo WHERE principal_id = $1::text),
+		  (SELECT status FROM channel_group_route WHERE group_id = $1::uuid),
+		  (SELECT status FROM ctx_group_dispatch WHERE group_id = $1::uuid)
+	`, fx.groupID).Scan(&messages, &outboxes, &dispatches, &fifos, &routeStatus, &dispatchStatus); err != nil {
+		t.Fatalf("read atomic group admission: %v", err)
+	}
+	if messages != 1 || outboxes != 1 || dispatches != 1 || fifos != 1 || routeStatus != "completed" || dispatchStatus != "pending" {
+		t.Fatalf("atomic group admission = messages:%d outboxes:%d dispatches:%d fifos:%d route:%s dispatch:%s", messages, outboxes, dispatches, fifos, routeStatus, dispatchStatus)
+	}
+	// The ordinary asynchronous outbox pass sees the completed route and must
+	// not rematerialize its dispatch/FIFO. Keep execution out of scope by making
+	// the already-admitted dispatch not yet due.
+	if _, err := fx.db.Exec(t.Context(), `UPDATE ctx_group_dispatch SET next_attempt_at = now() + interval '1 hour' WHERE group_id = $1`, fx.groupID); err != nil {
+		t.Fatalf("defer group execution: %v", err)
+	}
+	var messageID string
+	if err := fx.db.QueryRow(t.Context(), `SELECT id FROM ctx_group_message WHERE group_id = $1`, fx.groupID).Scan(&messageID); err != nil {
+		t.Fatalf("read group message ID: %v", err)
+	}
+	outbox, err := fx.q.GetGroupOutboxByMessage(t.Context(), messageID)
+	if err != nil {
+		t.Fatalf("read admitted outbox: %v", err)
+	}
+	if err := fx.coord.groupDispatcher.ProcessOutbox(t.Context(), outbox); err != nil {
+		t.Fatalf("process already-materialized outbox: %v", err)
+	}
+	if err := fx.db.QueryRow(t.Context(), `
+		SELECT count(*), (SELECT status FROM ctx_group_outbox WHERE id = $2)
+		FROM channel_binding_fifo WHERE principal_id = $1
+	`, fx.groupID, outbox.ID).Scan(&fifos, &dispatchStatus); err != nil || fifos != 1 || dispatchStatus != "completed" {
+		t.Fatalf("async pass = FIFO rows:%d outbox:%s err=%v, want 1/completed", fifos, dispatchStatus, err)
+	}
+	// Stable redelivery observes the event receipt and creates no second FIFO.
+	if err := fx.coord.AdmitAttachments(t.Context(), fx.message); err != nil {
+		t.Fatalf("redeliver attachment: %v", err)
+	}
+	if err := fx.db.QueryRow(t.Context(), `SELECT count(*) FROM channel_binding_fifo WHERE principal_id = $1::text`, fx.groupID).Scan(&fifos); err != nil || fifos != 1 {
+		t.Fatalf("redelivery FIFO rows = %d err=%v, want 1", fifos, err)
+	}
+}
+
+func TestGroupAttachmentAdmissionRollsBackEveryArtifactOnQuotaRejection(t *testing.T) {
+	fx := newGroupAttachmentAdmissionFixture(t)
+	if _, err := fx.db.Exec(t.Context(), `
+		INSERT INTO channel_binding_fifo (
+			id, channel_id, binding_key, principal_id, source_key, kind,
+			payload, immutable_media, payload_bytes, attachment_bytes, binding_revision
+		)
+		SELECT gen_random_uuid(), $1, $2, $3, 'quota-seed-' || n::text,
+		       'message', '[]'::jsonb, '[]'::jsonb,
+		       pg_column_size('[]'::jsonb::text), 0, n
+		FROM generate_series(1, 128) AS n
+	`, fx.channel, agent.BuildGroupSessionKey(fx.agentID, fx.groupID), fx.groupID); err != nil {
+		t.Fatalf("seed binding row quota: %v", err)
+	}
+	if err := fx.coord.AdmitAttachments(t.Context(), fx.message); err == nil || !strings.Contains(err.Error(), "quota exceeded") {
+		t.Fatalf("AdmitAttachments error = %v, want quota rejection", err)
+	}
+	var artifacts, fifoRows int
+	if err := fx.db.QueryRow(t.Context(), `
+		SELECT
+		  (SELECT count(*) FROM ctx_group_message WHERE group_id = $1::uuid) +
+		  (SELECT count(*) FROM ctx_group_outbox WHERE group_id = $1::uuid) +
+		  (SELECT count(*) FROM channel_group_route WHERE group_id = $1::uuid) +
+		  (SELECT count(*) FROM ctx_group_dispatch WHERE group_id = $1::uuid),
+		  (SELECT count(*) FROM channel_binding_fifo WHERE principal_id = $1::text)
+	`, fx.groupID).Scan(&artifacts, &fifoRows); err != nil {
+		t.Fatal(err)
+	}
+	if artifacts != 0 {
+		t.Fatalf("failed attachment admission left %d durable artifacts, want zero", artifacts)
+	}
+	if fifoRows != 128 {
+		t.Fatalf("failed attachment admission changed FIFO rows to %d, want 128 seeds", fifoRows)
+	}
 }
 
 func newDispatcherFixture(t *testing.T, platform, envelope string) dispatcherFixture {
@@ -143,6 +318,194 @@ func textStream(text string) *pkgchannel.ChatStream {
 	ch <- pkgchannel.Event{Text: text}
 	close(ch)
 	return &pkgchannel.ChatStream{Events: ch, SessionID: "session-1"}
+}
+
+func TestGroupRouteStaleClaimCannotMaterializeResponders(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	ctx := t.Context()
+	route, err := fx.q.CreateChannelGroupRoute(ctx, sqlc.CreateChannelGroupRouteParams{
+		ID: "c0c0c0c0-0000-0000-0000-000000000001", GroupMessageID: fx.message.ID,
+		GroupID: fx.groupID, GroupSeq: fx.message.Seq,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := fx.q.ClaimChannelGroupRoute(ctx, sqlc.ClaimChannelGroupRouteParams{
+		ClaimToken: pgtype.Text{String: "d0d0d0d0-0000-0000-0000-000000000001", Valid: true}, LeaseSeconds: 1, ID: route.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.db.Exec(ctx, `UPDATE channel_group_route SET claim_expires_at = now() - interval '1 second' WHERE id = $1`, route.ID); err != nil {
+		t.Fatal(err)
+	}
+	second, err := fx.q.ClaimChannelGroupRoute(ctx, sqlc.ClaimChannelGroupRouteParams{
+		ClaimToken: pgtype.Text{String: "d0d0d0d0-0000-0000-0000-000000000002", Valid: true}, LeaseSeconds: 30, ID: route.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := fx.db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qtx := fx.q.WithTx(tx)
+	if err := qtx.CreateGroupDispatch(ctx, sqlc.CreateGroupDispatchParams{
+		ID: "e0e0e0e0-0000-0000-0000-000000000001", GroupMessageID: fx.message.ID,
+		GroupID: fx.groupID, AgentID: "agent-1", ReplyChannelID: "ch-1", Status: "pending", LastError: "",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := qtx.CompleteChannelGroupRoute(ctx, sqlc.CompleteChannelGroupRouteParams{
+		Decisions: json.RawMessage(`["agent-1"]`), ID: route.ID, ClaimToken: first.ClaimToken,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows != 0 {
+		t.Fatalf("stale claimant completed %d GroupRoutes", rows)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if count, err := fx.q.CountGroupDispatchByMessage(ctx, fx.message.ID); err != nil || count != 0 {
+		t.Fatalf("stale responder materialization count=%d err=%v", count, err)
+	}
+	if second.ClaimToken.String == first.ClaimToken.String {
+		t.Fatal("replacement claim did not receive a new token")
+	}
+}
+
+func TestGroupRouteTerminalClassificationFailureIsAuditedAndReleasesOrdering(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	ctx := t.Context()
+	route, err := fx.q.CreateChannelGroupRoute(ctx, sqlc.CreateChannelGroupRouteParams{
+		ID: "c1c1c1c1-0000-0000-0000-000000000001", GroupMessageID: fx.message.ID,
+		GroupID: fx.groupID, GroupSeq: fx.message.Seq,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.q.ClaimChannelGroupRoute(ctx, sqlc.ClaimChannelGroupRouteParams{
+		ClaimToken: pgtype.Text{String: "d1d1d1d1-0000-0000-0000-000000000001", Valid: true}, LeaseSeconds: 30, ID: route.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := fx.q.ClaimPendingGroupOutbox(ctx, sqlc.ClaimPendingGroupOutboxParams{
+		ID: fx.outbox.ID, Now: pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true},
+		LeaseUntil: pgtype.Timestamptz{Time: time.Now().UTC().Add(time.Minute), Valid: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.d.failOutboxTerminal(ctx, claimed, "classification_invalid"); err != nil {
+		t.Fatal(err)
+	}
+	failed, err := fx.q.GetGroupOutbox(ctx, fx.outbox.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed, err := fx.q.GetChannelGroupRouteByMessage(ctx, fx.message.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.Status != "failed" || failed.LastError != "classification_invalid" {
+		t.Fatalf("terminal outbox = status %q reason %q", failed.Status, failed.LastError)
+	}
+	if completed.Status != "completed" || string(completed.Decisions) != "[]" || !completed.CompletedAt.Valid {
+		t.Fatalf("terminal GroupRoute = status %q decisions %s completed=%v", completed.Status, completed.Decisions, completed.CompletedAt.Valid)
+	}
+
+	nextMessage := createGroupMessageWithSeq(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-000000000002", fx.message.Seq+1)
+	nextRoute, err := fx.q.CreateChannelGroupRoute(ctx, sqlc.CreateChannelGroupRouteParams{
+		ID: "c1c1c1c1-0000-0000-0000-000000000002", GroupMessageID: nextMessage.ID,
+		GroupID: fx.groupID, GroupSeq: nextMessage.Seq,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.q.ClaimChannelGroupRoute(ctx, sqlc.ClaimChannelGroupRouteParams{
+		ClaimToken: pgtype.Text{String: "d1d1d1d1-0000-0000-0000-000000000002", Valid: true}, LeaseSeconds: 30, ID: nextRoute.ID,
+	}); err != nil {
+		t.Fatalf("successor GroupRoute remained blocked after audited rejection: %v", err)
+	}
+}
+
+func TestChannelBindingFIFODedupPoisonHeadAndAuditedRejection(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	ctx := t.Context()
+	create := func(id, source string) sqlc.ChannelBindingFifo {
+		row, err := fx.q.CreateChannelBindingFIFO(ctx, sqlc.CreateChannelBindingFIFOParams{
+			ID: id, ChannelID: "ch-1", BindingKey: "binding-1", SourceKey: source,
+			Kind: "message", Payload: json.RawMessage(`[{"kind":"text","text":"hello"}]`), ImmutableMedia: json.RawMessage(`[]`),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return row
+	}
+	first := create("f0f0f0f0-0000-0000-0000-000000000001", "source-1")
+	if duplicate := create("f0f0f0f0-0000-0000-0000-000000000099", "source-1"); duplicate.ID != first.ID {
+		t.Fatalf("stable source created duplicate FIFO row %s", duplicate.ID)
+	}
+	second := create("f0f0f0f0-0000-0000-0000-000000000002", "source-2")
+	if second.BindingRevision != first.BindingRevision+1 {
+		t.Fatalf("binding revisions = %d, %d; want contiguous order", first.BindingRevision, second.BindingRevision)
+	}
+	if _, err := fx.q.CreateChannelBindingFIFO(ctx, sqlc.CreateChannelBindingFIFOParams{
+		ID: "f0f0f0f0-0000-0000-0000-000000000098", ChannelID: "ch-1", BindingKey: "binding-1",
+		SourceKey: "source-1", Kind: "message", Payload: json.RawMessage(`[{"kind":"text","text":"changed"}]`),
+		ImmutableMedia: json.RawMessage(`[]`),
+	}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("source identity accepted changed immutable input: %v", err)
+	}
+	if _, err := fx.q.ClaimChannelBindingFIFOHead(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.db.Exec(ctx, `UPDATE channel_binding_fifo SET claim_expires_at = now() - interval '1 second' WHERE id = $1`, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	reclaimed, err := fx.q.ClaimChannelBindingFIFOHead(ctx, first.ID)
+	if err != nil || reclaimed.AttemptCount != 2 {
+		t.Fatalf("expired unlinked claim was not recoverable: attempts=%d err=%v", reclaimed.AttemptCount, err)
+	}
+	if _, err := fx.q.ClaimChannelBindingFIFOHead(ctx, second.ID); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("successor overtook running head: %v", err)
+	}
+	if _, err := fx.q.BlockChannelBindingFIFO(ctx, sqlc.BlockChannelBindingFIFOParams{
+		Reason: "poison", BackoffSeconds: 60, ID: first.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.q.ClaimChannelBindingFIFOHead(ctx, second.ID); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("successor overtook blocked poison head: %v", err)
+	}
+	// Exhaust the bounded automatic retry budget. The head must remain blocked
+	// and observable instead of being silently skipped or retried forever.
+	if _, err := fx.db.Exec(ctx, `UPDATE channel_binding_fifo SET attempt_count = 5, next_attempt_at = now() - interval '1 second' WHERE id = $1`, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if rows, err := fx.q.RetryBlockedChannelBindingFIFO(ctx, first.ID); err != nil || rows != 0 {
+		t.Fatalf("exhausted poison head automatic retry rows=%d err=%v", rows, err)
+	}
+	blocked, err := fx.q.GetChannelBindingFIFO(ctx, first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blocked.Status != "blocked" || blocked.BlockedReason != "poison" {
+		t.Fatalf("exhausted poison head = status %q reason %q", blocked.Status, blocked.BlockedReason)
+	}
+	if _, err := fx.q.ClaimChannelBindingFIFOHead(ctx, second.ID); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("successor overtook exhausted poison head: %v", err)
+	}
+	if rows, err := fx.q.RejectChannelBindingFIFO(ctx, sqlc.RejectChannelBindingFIFOParams{
+		Reason: "operator_rejected", RejectedBy: "admin-1", ID: first.ID,
+	}); err != nil || rows != 1 {
+		t.Fatalf("audited rejection rows=%d err=%v", rows, err)
+	}
+	if _, err := fx.q.ClaimChannelBindingFIFOHead(ctx, second.ID); err != nil {
+		t.Fatalf("successor did not proceed after explicit rejection: %v", err)
+	}
 }
 
 func createDispatchForGroupMessage(t *testing.T, q *sqlc.Queries, msg sqlc.CtxGroupMessage, id, agentID, groupID string, status string, leaseUntil pgtype.Timestamptz) {
@@ -477,6 +840,141 @@ func TestGroupDispatcherDispatchesAllMentionedMembers(t *testing.T) {
 	}
 }
 
+func TestGroupRoutePartialBusyFanOutRecordsRejectedAndAcceptedResponders(t *testing.T) {
+	envelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{AgentID: "agent-1"}, {AgentID: "agent-2"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fx := newDispatcherFixture(t, "telegram", envelope)
+	addSecondMember(t, fx)
+	payload := json.RawMessage(`[{"kind":"text","text":"already queued"}]`)
+	for i := range 128 {
+		_, err := fx.q.CreateChannelBindingFIFO(t.Context(), sqlc.CreateChannelBindingFIFOParams{
+			ID: uuid.Must(uuid.NewV7()).String(), ChannelID: "ch-1",
+			BindingKey:  agent.BuildGroupSessionKey("agent-1", fx.groupID),
+			PrincipalID: fx.groupID, SourceKey: fmt.Sprintf("busy-%d", i),
+			Kind: "message", Payload: payload, ImmutableMedia: json.RawMessage(`[]`),
+		})
+		if err != nil {
+			t.Fatalf("seed busy responder %d: %v", i, err)
+		}
+	}
+	fx.d.publishers.Register("ch-2", &recordingGroupPublisher{})
+	if err := fx.d.ProcessOutbox(t.Context(), fx.outbox); err != nil {
+		t.Fatalf("process partial-busy outbox: %v", err)
+	}
+
+	rows, err := fx.db.Query(t.Context(), `
+		SELECT agent_id, status, last_error
+		FROM ctx_group_dispatch
+		WHERE group_message_id = $1
+	`, fx.message.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	type dispatchStatus struct{ status, lastError string }
+	statuses := make(map[string]dispatchStatus, 2)
+	for rows.Next() {
+		var agentID string
+		var row dispatchStatus
+		if err := rows.Scan(&agentID, &row.status, &row.lastError); err != nil {
+			t.Fatal(err)
+		}
+		statuses[agentID] = row
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if row := statuses["agent-1"]; row.status != "failed" || !strings.Contains(row.lastError, "admission_rejected") {
+		t.Fatalf("busy responder dispatch = status %q error %q, want explicit admission rejection", row.status, row.lastError)
+	}
+	if row := statuses["agent-2"]; row.status != "completed" {
+		t.Fatalf("accepted responder dispatch status = %q, want completed", row.status)
+	}
+	var acceptedFIFO, rejectedFIFO int
+	if err := fx.db.QueryRow(t.Context(), `
+		SELECT count(*) FILTER (WHERE source_responder_agent_id = 'agent-2'),
+		       count(*) FILTER (WHERE source_responder_agent_id = 'agent-1')
+		FROM channel_binding_fifo
+		WHERE source_dispatch_id IS NOT NULL
+	`).Scan(&acceptedFIFO, &rejectedFIFO); err != nil {
+		t.Fatal(err)
+	}
+	if acceptedFIFO != 1 || rejectedFIFO != 0 {
+		t.Fatalf("materialized responder FIFO rows = accepted %d rejected %d, want 1/0", acceptedFIFO, rejectedFIFO)
+	}
+	route, err := fx.q.GetChannelGroupRouteByMessage(t.Context(), fx.message.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route.Status != "completed" || !equalFIFOJSON(route.Decisions, json.RawMessage(`["agent-1","agent-2"]`)) {
+		t.Fatalf("GroupRoute = status %q decisions %s, want completed with both classified responders", route.Status, route.Decisions)
+	}
+}
+
+func TestGroupDispatchMaterializationPreservesImmutableImageRefs(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	ctx := t.Context()
+	userID := uuid.NewString()
+	if _, err := appdb.NewOIDCStore(fx.db).CreateUser(ctx, auth.User{
+		ID: userID, Email: userID + "@example.test", Name: "Media Owner",
+	}); err != nil {
+		t.Fatalf("create media owner: %v", err)
+	}
+	digest := make([]byte, 32)
+	for i := range digest {
+		digest[i] = byte(i + 1)
+	}
+	media, err := fx.q.CreateMediaIfAbsent(ctx, sqlc.CreateMediaIfAbsentParams{
+		UserID: userID, Sha256: digest, MimeType: "image/png", SizeBytes: 321,
+	})
+	if err != nil {
+		t.Fatalf("create immutable media: %v", err)
+	}
+	payload, err := ai.MarshalContentBlocks([]ai.ContentBlock{
+		ai.TextContent{Text: "inspect"},
+		ai.ImageRefContent{MediaID: media.ID, Baseline: ai.ImageBaseline{Text: "## Text\nlabel\n\n## Scene\na chart"}},
+	})
+	if err != nil {
+		t.Fatalf("marshal canonical group input: %v", err)
+	}
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_message SET content_blocks = $1::jsonb WHERE id = $2`, payload, fx.message.ID); err != nil {
+		t.Fatalf("store canonical group input: %v", err)
+	}
+	if err := fx.d.createDispatchRows(ctx, fx.q, fx.outbox, []string{"agent-1"}, false); err != nil {
+		t.Fatalf("materialize group dispatch: %v", err)
+	}
+
+	var storedPayload, storedMedia json.RawMessage
+	var storedBytes int64
+	if err := fx.db.QueryRow(ctx, `
+		SELECT payload, immutable_media, attachment_bytes
+		FROM channel_binding_fifo
+		WHERE source_responder_agent_id = 'agent-1'
+	`).Scan(&storedPayload, &storedMedia, &storedBytes); err != nil {
+		t.Fatalf("load group FIFO envelope: %v", err)
+	}
+	blocks, err := ai.UnmarshalContentBlocks(storedPayload)
+	if err != nil {
+		t.Fatalf("decode group FIFO payload: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("group FIFO blocks = %#v", blocks)
+	}
+	ref, ok := blocks[1].(ai.ImageRefContent)
+	if !ok || ref.MediaID != media.ID || ref.Baseline.Text != "## Text\nlabel\n\n## Scene\na chart" {
+		t.Fatalf("group FIFO image ref = %#v", blocks[1])
+	}
+	wantMedia := json.RawMessage(fmt.Sprintf(`[{"media_id":%q,"size_bytes":321}]`, media.ID))
+	if !equalFIFOJSON(storedMedia, wantMedia) || storedBytes != 321 {
+		t.Fatalf("group FIFO media = %s bytes=%d", storedMedia, storedBytes)
+	}
+	if durable := string(storedPayload) + string(storedMedia); strings.Contains(durable, "data:") || strings.Contains(durable, "https://") || strings.Contains(durable, "aGVsbG8=") {
+		t.Fatalf("group FIFO retained expiring/provider-ready attachment data: %s", durable)
+	}
+}
+
 func TestGroupDispatcherExistingDispatchSkipsEnvelopeDecode(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{not-json`)
 	publisher := &recordingGroupPublisher{}
@@ -505,7 +1003,7 @@ func TestGroupDispatcherExistingDispatchSkipsEnvelopeDecode(t *testing.T) {
 	}
 }
 
-func TestGroupDispatcherPublishFailureLeavesResultEmptyAndRequeues(t *testing.T) {
+func TestGroupDispatcherPublishFailureIsTerminalAndNotRetried(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	boom := errors.New("boom")
 	publisher := &recordingGroupPublisher{err: boom}
@@ -532,30 +1030,95 @@ func TestGroupDispatcherPublishFailureLeavesResultEmptyAndRequeues(t *testing.T)
 	if err != nil {
 		t.Fatalf("get dispatch after failure: %v", err)
 	}
-	if dispatch.Status != "pending" || dispatch.ResultMessageID != "" {
-		t.Fatalf("dispatch status/result = %q/%q, want pending empty result", dispatch.Status, dispatch.ResultMessageID)
+	if dispatch.Status != "failed" || dispatch.ResultMessageID != "" {
+		t.Fatalf("dispatch status/result = %q/%q, want failed empty result", dispatch.Status, dispatch.ResultMessageID)
 	}
 	if got := countAgentGroupMessages(t, fx.db); got != 0 {
 		t.Fatalf("agent messages = %d, want 0", got)
 	}
 
-	publisher.err = nil
-	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET next_attempt_at = NULL WHERE id = 'd15a0000-0000-0000-0000-000000000001'`); err != nil {
-		t.Fatalf("make dispatch due: %v", err)
-	}
-	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
-	if err != nil {
-		t.Fatalf("get dispatch before retry: %v", err)
-	}
-	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err != nil {
-		t.Fatalf("retry dispatch: %v", err)
-	}
-	if publisher.calls != 2 {
-		t.Fatalf("publisher calls = %d, want retry to republish", publisher.calls)
+	if publisher.calls != 1 {
+		t.Fatalf("publisher calls = %d, want exactly one ambiguous publish attempt", publisher.calls)
 	}
 }
 
-func TestGroupDispatcherWritebackFailureLeavesResultEmptyAndRequeues(t *testing.T) {
+func TestGroupDispatcherChatFailureIsTerminalAndNotRetried(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	fx.d.publishers.Register("ch-1", &recordingGroupPublisher{})
+	chatCalls := 0
+	fx.d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+		chatCalls++
+		return nil, errors.New("stream setup failed after AgentRun admission")
+	}
+	const dispatchID = "d15a0000-0000-0000-0000-000000000091"
+	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
+		ID:             dispatchID,
+		GroupMessageID: fx.message.ID,
+		GroupID:        fx.groupID,
+		AgentID:        "agent-1",
+		ReplyChannelID: "ch-1",
+		Status:         "pending",
+		LastError:      "",
+	}); err != nil {
+		t.Fatalf("create dispatch: %v", err)
+	}
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), dispatchID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err == nil {
+		t.Fatal("expected chat-boundary error")
+	}
+	dispatch, err = fx.q.GetGroupDispatch(context.Background(), dispatchID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dispatch.Status != "failed" || !strings.Contains(dispatch.LastError, "outcome unknown") {
+		t.Fatalf("dispatch = status %q error %q, want terminal outcome-unknown failure", dispatch.Status, dispatch.LastError)
+	}
+	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err != nil {
+		t.Fatalf("terminal redispatch: %v", err)
+	}
+	if chatCalls != 1 {
+		t.Fatalf("chat calls = %d, want exactly one outcome-unknown attempt", chatCalls)
+	}
+}
+
+func TestGroupDispatcherReconstructsPublisherWithoutLocalRegistration(t *testing.T) {
+	fx := newDispatcherFixture(t, "telegram", `{"lifecycle_feedback":true}`)
+	publisher := &recordingGroupPublisher{}
+	reconstructor := &recordingPublisherReconstructor{publisher: publisher}
+	fx.d.reconstructor = reconstructor
+	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
+		ID:             "d15a0000-0000-0000-0000-000000000001",
+		GroupMessageID: fx.message.ID,
+		GroupID:        fx.groupID,
+		AgentID:        "agent-1",
+		ReplyChannelID: "ch-1",
+		Status:         "pending",
+		LastError:      "",
+	}); err != nil {
+		t.Fatalf("create dispatch: %v", err)
+	}
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
+	if err != nil {
+		t.Fatalf("get dispatch: %v", err)
+	}
+	if _, registered := fx.d.publishers.Get("ch-1"); registered {
+		t.Fatal("test requires no process-local publisher registration")
+	}
+	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err != nil {
+		t.Fatalf("execute reconstructed dispatch: %v", err)
+	}
+	if reconstructor.calls != 1 || reconstructor.channel.ID != "ch-1" || !reconstructor.envelope.LifecycleFeedback {
+		t.Fatalf("reconstruction calls/channel/envelope = %d/%q/%v", reconstructor.calls, reconstructor.channel.ID, reconstructor.envelope.LifecycleFeedback)
+	}
+	if publisher.calls != 1 || len(publisher.texts) != 1 || publisher.texts[0] != "ok" {
+		t.Fatalf("publish calls/texts = %d/%v, want 1/[ok]", publisher.calls, publisher.texts)
+	}
+}
+
+func TestGroupDispatcherWritebackFailureAfterPublishIsTerminal(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	publisher := &recordingGroupPublisher{}
 	fx.d.publishers.Register("ch-1", publisher)
@@ -592,30 +1155,17 @@ func TestGroupDispatcherWritebackFailureLeavesResultEmptyAndRequeues(t *testing.
 	if err != nil {
 		t.Fatalf("get dispatch after failure: %v", err)
 	}
-	if dispatch.Status != "pending" || dispatch.ResultMessageID != "" {
-		t.Fatalf("dispatch status/result = %q/%q, want pending empty result", dispatch.Status, dispatch.ResultMessageID)
+	if dispatch.Status != "failed" || dispatch.ResultMessageID != "" {
+		t.Fatalf("dispatch status/result = %q/%q, want failed empty result", dispatch.Status, dispatch.ResultMessageID)
 	}
 	if got := countAgentGroupMessages(t, fx.db); got != 0 {
 		t.Fatalf("agent messages = %d, want failed transaction to append none", got)
 	}
-	if _, err := fx.db.Exec(context.Background(), `DROP TRIGGER fail_agent_writeback ON ctx_group_message`); err != nil {
-		t.Fatalf("drop trigger: %v", err)
-	}
-	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET next_attempt_at = NULL WHERE id = 'd15a0000-0000-0000-0000-000000000001'`); err != nil {
-		t.Fatalf("make dispatch due: %v", err)
-	}
-	dispatch, err = fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
-	if err != nil {
-		t.Fatalf("get dispatch before retry: %v", err)
-	}
 	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err != nil {
-		t.Fatalf("retry dispatch: %v", err)
+		t.Fatalf("terminal redispatch: %v", err)
 	}
-	if chatCalls != 2 {
-		t.Fatalf("chat calls = %d, want retry to rerun chat", chatCalls)
-	}
-	if got := countAgentGroupMessages(t, fx.db); got != 1 {
-		t.Fatalf("agent messages = %d, want one successful retry append", got)
+	if chatCalls != 1 || publisher.calls != 1 {
+		t.Fatalf("chat/publish calls = %d/%d, want exactly one outcome-unknown attempt", chatCalls, publisher.calls)
 	}
 }
 

@@ -3,6 +3,7 @@ package email_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -87,6 +88,46 @@ func TestServiceSendSuppressesDuplicate(t *testing.T) {
 	}
 	if sends != 1 || first.Duplicate || !second.Duplicate {
 		t.Fatalf("sends=%d first=%+v second=%+v, want one send and duplicate second", sends, first, second)
+	}
+}
+
+func TestServiceSendSuppressesRetryAfterUnknownOutcome(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	userID := seedEmailUser(t, db, "send-unknown")
+	vaultSvc := newEmailVaultService(t, db, userID)
+	cfg := email.Config{Default: "work", Accounts: map[string]email.EmailAccount{"work": {
+		IMAPHost: "8.8.8.8", SMTPHost: "1.1.1.1", Username: "user@example.com", Password: "secret", From: "user@example.com",
+	}}}
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := vaultSvc.SetScoped(ctx, vault.ScopeUser, userID, "", "EMAIL_CONFIG", string(b)); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := email.NewService(vaultSvc, sqlc.New(db))
+	sends := 0
+	unknown := errors.New("SMTP timeout after DATA")
+	svc.SetSendFunc(func(email.EmailAccount, email.SendOptions) error {
+		sends++
+		return unknown
+	})
+	access, err := svc.Access(userAuthority(t, userID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := email.SendOptions{To: []string{"to@example.com"}, Subject: "hello", Body: "world"}
+	if _, err := access.Send(ctx, "", opts, "unknown-k1"); !errors.Is(err, unknown) {
+		t.Fatalf("first Send error = %v, want unknown outcome", err)
+	}
+	second, err := access.Send(ctx, "", opts, "unknown-k1")
+	if err != nil {
+		t.Fatalf("second Send: %v", err)
+	}
+	if sends != 1 || !second.Duplicate {
+		t.Fatalf("sends=%d second=%+v, want one attempt and duplicate suppression", sends, second)
 	}
 }
 

@@ -8,8 +8,9 @@ import (
 
 // ToolLifecycle carries optional tool-call lifecycle hooks for the agent loop.
 type ToolLifecycle struct {
-	BeforeCall func(ctx context.Context, call ToolCallContext) (ToolCallMutation, error)
-	AfterCall  func(ctx context.Context, result ToolResultContext) (ToolResultMutation, error)
+	OperationCheck func(context.Context) error
+	BeforeCall     func(ctx context.Context, call ToolCallContext) (ToolCallMutation, error)
+	AfterCall      func(ctx context.Context, result ToolResultContext) (ToolResultMutation, error)
 }
 
 // ToolCallContext describes one tool call before execution.

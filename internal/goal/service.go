@@ -14,6 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/sandbox"
@@ -71,6 +73,7 @@ type ExecutorResult struct {
 	FailReason    string
 	FailureClass  string
 	BlockedBy     string
+	completion    *agentruntime.CompletionBarrier
 }
 
 // CapabilityProbe reports deployment capabilities that affect contract
@@ -286,6 +289,9 @@ func (s *GoalService) withTxRaw(ctx context.Context, fn func(*sqlc.Queries, pgx.
 			_ = tx.Rollback(ctx)
 		}
 	}()
+	if err = agentrun.ValidateTx(ctx, tx); err != nil {
+		return err
+	}
 	if err = fn(s.q.WithTx(tx), tx); err != nil {
 		return err
 	}

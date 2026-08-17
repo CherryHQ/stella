@@ -34,8 +34,8 @@ type contextInjectingHook struct {
 
 func (h contextInjectingHook) Name() string  { return "inject" }
 func (h contextInjectingHook) Priority() int { return 0 }
-func (h contextInjectingHook) OnPreMemoryCall(ctx context.Context, _ *hooks.PreMemoryCallContext) (hooks.PreMemoryCallResult, error) {
-	return hooks.PreMemoryCallResult{Context: context.WithValue(ctx, h.key, "memory-span")}, nil
+func (h contextInjectingHook) OnPreMemoryCall(_ context.Context, _ *hooks.PreMemoryCallContext) (hooks.PreMemoryCallResult, error) {
+	return hooks.PreMemoryCallResult{Context: context.WithValue(context.Background(), h.key, "memory-span")}, nil
 }
 func (h contextInjectingHook) OnPostMemoryCall(context.Context, *hooks.PostMemoryCallContext) {}
 
@@ -48,8 +48,9 @@ func newTracedWithCollector(inner memory.Provider) (memory.Provider, *collecting
 
 type contextCheckingProvider struct {
 	memory.Provider
-	key memoryContextKey
-	t   *testing.T
+	key         memoryContextKey
+	fallbackKey memoryContextKey
+	t           *testing.T
 }
 
 type reviewHistoryProvider struct {
@@ -75,6 +76,9 @@ func (p *contextCheckingProvider) Append(ctx context.Context, session memory.Ses
 	p.t.Helper()
 	if got := ctx.Value(p.key); got != "memory-span" {
 		p.t.Fatalf("inner provider saw context value %#v, want memory-span", got)
+	}
+	if got := ctx.Value(p.fallbackKey); got != "runtime-fence" {
+		p.t.Fatalf("inner provider saw fallback value %#v, want runtime-fence", got)
 	}
 	return p.Provider.Append(ctx, session, msgs...)
 }
@@ -171,12 +175,14 @@ func TestTracedProviderGuestBypassesHooksButRetainsHistory(t *testing.T) {
 
 func TestTracedProvider_PreMemoryContextReachesInnerProvider(t *testing.T) {
 	key := memoryContextKey("trace")
-	inner := &contextCheckingProvider{Provider: memorytest.New(), key: key, t: t}
+	fallbackKey := memoryContextKey("runtime")
+	inner := &contextCheckingProvider{Provider: memorytest.New(), key: key, fallbackKey: fallbackKey, t: t}
 	traced := memory.WithTracing(inner, func() *hooks.HookSet {
 		return hooks.NewHookSet([]hooks.HookPlugin{contextInjectingHook{key: key}})
 	})
 
-	if err := traced.Append(context.Background(), testSession, ai.UserMessage{Content: "hi"}); err != nil {
+	ctx := context.WithValue(context.Background(), fallbackKey, "runtime-fence")
+	if err := traced.Append(ctx, testSession, ai.UserMessage{Content: "hi"}); err != nil {
 		t.Fatal(err)
 	}
 }

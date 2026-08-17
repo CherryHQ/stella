@@ -15,6 +15,7 @@ import (
 	defuddle "github.com/vaayne/go-defuddle"
 	"golang.org/x/net/html"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/pkg/httpclient"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -149,6 +150,12 @@ func acceptHeader(format string) string {
 }
 
 func (t *WebFetchTool) fetch(ctx context.Context, rawURL string, parsed *url.URL, format string) (fetchResult, error) {
+	// URL parsing and tool hooks can outlive the ownership check at dispatch.
+	// Revalidate at the actual network boundary so a stale executor cannot start
+	// a new request. A transport error remains outcome-unknown and is not retried.
+	if err := agentrun.Check(ctx); err != nil {
+		return fetchResult{}, err
+	}
 	resp, err := t.client.R().
 		SetContext(ctx).
 		SetHeader("User-Agent", "Mozilla/5.0 (compatible; Stella/1.0)").

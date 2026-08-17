@@ -3,12 +3,14 @@
 package local
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -35,8 +37,28 @@ func setSysProcAttr(cmd *exec.Cmd) {
 // A negative PID targets the entire process group.
 // No-ops when the process has already been reaped (ProcessState != nil).
 func killProcessGroup(cmd *exec.Cmd) {
-	if cmd.Process != nil && cmd.ProcessState == nil {
+	if cmd.Process != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+}
+
+func waitProcessGroupAbsent(pgid int) error {
+	if pgid <= 0 {
+		return fmt.Errorf("local: invalid process group")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		err := syscall.Kill(-pgid, 0)
+		if errors.Is(err, syscall.ESRCH) {
+			return nil
+		}
+		if err != nil && !errors.Is(err, syscall.EPERM) {
+			return fmt.Errorf("local: prove process group %d absent: %w", pgid, err)
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("local: process group %d still exists", pgid)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

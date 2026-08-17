@@ -20,13 +20,20 @@ import (
 	"github.com/emersion/go-imap/v2/imapclient"
 	"github.com/emersion/go-message/charset"
 	gomail "github.com/emersion/go-message/mail"
+
+	"github.com/CherryHQ/stella/internal/agentrun"
 )
 
 const maxAttachmentSize = 50 * 1024 * 1024 // 50 MB
 
 // dialIMAP connects to the IMAP server described by acct and logs in.
-func dialIMAP(acct EmailAccount) (*imapclient.Client, error) {
-	conn, err := DialPublicTCP(context.Background(), "imap", acct.IMAPHost, acct.IMAPPort)
+func dialIMAP(ctx context.Context, acct EmailAccount) (*imapclient.Client, error) {
+	// Account lookup and argument validation happen before this point. Fence the
+	// actual outbound operation, and preserve cancellation through DNS and dial.
+	if err := agentrun.Check(ctx); err != nil {
+		return nil, err
+	}
+	conn, err := DialPublicTCP(ctx, "imap", acct.IMAPHost, acct.IMAPPort)
 	if err != nil {
 		return nil, err
 	}
@@ -38,6 +45,10 @@ func dialIMAP(acct EmailAccount) (*imapclient.Client, error) {
 	}
 
 	var c *imapclient.Client
+	if err := agentrun.Check(ctx); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
 	switch acct.IMAPTLS {
 	case "starttls":
 		c, err = imapclient.NewStartTLS(conn, opts)
@@ -55,6 +66,10 @@ func dialIMAP(acct EmailAccount) (*imapclient.Client, error) {
 		return nil, fmt.Errorf("dial imap %s:%d: %w", acct.IMAPHost, acct.IMAPPort, err)
 	}
 
+	if err := agentrun.Check(ctx); err != nil {
+		_ = c.Close()
+		return nil, err
+	}
 	if err := c.Login(acct.Username, acct.Password).Wait(); err != nil {
 		_ = c.Close()
 		return nil, fmt.Errorf("imap login: %w", err)
@@ -63,13 +78,16 @@ func dialIMAP(acct EmailAccount) (*imapclient.Client, error) {
 }
 
 // Folders returns a sorted list of mailbox names available on the server.
-func Folders(acct EmailAccount) ([]string, error) {
-	c, err := dialIMAP(acct)
+func Folders(ctx context.Context, acct EmailAccount) ([]string, error) {
+	c, err := dialIMAP(ctx, acct)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = c.Logout().Wait(); _ = c.Close() }()
 
+	if err := agentrun.Check(ctx); err != nil {
+		return nil, err
+	}
 	listData, err := c.List("", "*", nil).Collect()
 	if err != nil {
 		return nil, fmt.Errorf("list mailboxes: %w", err)
@@ -84,14 +102,17 @@ func Folders(acct EmailAccount) ([]string, error) {
 }
 
 // List returns envelope metadata for messages in the given folder, filtered by opts.
-func List(acct EmailAccount, opts ListOptions) ([]Envelope, error) {
-	c, err := dialIMAP(acct)
+func List(ctx context.Context, acct EmailAccount, opts ListOptions) ([]Envelope, error) {
+	c, err := dialIMAP(ctx, acct)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = c.Logout().Wait(); _ = c.Close() }()
 
 	folder := cmp.Or(opts.Folder, "INBOX")
+	if err := agentrun.Check(ctx); err != nil {
+		return nil, err
+	}
 	if _, err := c.Select(folder, nil).Wait(); err != nil {
 		return nil, fmt.Errorf("select %q: %w", folder, err)
 	}
@@ -120,6 +141,9 @@ func List(acct EmailAccount, opts ListOptions) ([]Envelope, error) {
 		})
 	}
 
+	if err := agentrun.Check(ctx); err != nil {
+		return nil, err
+	}
 	searchData, err := c.UIDSearch(criteria, nil).Wait()
 	if err != nil {
 		return nil, fmt.Errorf("search: %w", err)
@@ -144,6 +168,9 @@ func List(acct EmailAccount, opts ListOptions) ([]Envelope, error) {
 		UID:           true,
 		BodyStructure: &imap.FetchItemBodyStructure{Extended: true},
 	}
+	if err := agentrun.Check(ctx); err != nil {
+		return nil, err
+	}
 	msgs, err := c.Fetch(imap.UIDSetNum(uids...), fetchOpts).Collect()
 	if err != nil {
 		return nil, fmt.Errorf("fetch envelopes: %w", err)
@@ -163,14 +190,17 @@ func List(acct EmailAccount, opts ListOptions) ([]Envelope, error) {
 }
 
 // Read fetches and parses a single message by UID.
-func Read(acct EmailAccount, folder string, uid uint32) (*Message, error) {
-	c, err := dialIMAP(acct)
+func Read(ctx context.Context, acct EmailAccount, folder string, uid uint32) (*Message, error) {
+	c, err := dialIMAP(ctx, acct)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = c.Logout().Wait(); _ = c.Close() }()
 
 	folder = cmp.Or(folder, "INBOX")
+	if err := agentrun.Check(ctx); err != nil {
+		return nil, err
+	}
 	if _, err := c.Select(folder, nil).Wait(); err != nil {
 		return nil, fmt.Errorf("select %q: %w", folder, err)
 	}
@@ -184,6 +214,9 @@ func Read(acct EmailAccount, folder string, uid uint32) (*Message, error) {
 		BodySection: []*imap.FetchItemBodySection{
 			{Peek: true}, // full body, peek to avoid marking as \Seen
 		},
+	}
+	if err := agentrun.Check(ctx); err != nil {
+		return nil, err
 	}
 	msgs, err := c.Fetch(imap.UIDSetNum(imap.UID(uid)), fetchOpts).Collect()
 	if err != nil {
@@ -259,14 +292,17 @@ func Read(acct EmailAccount, folder string, uid uint32) (*Message, error) {
 
 // SaveAttachments downloads and saves all attachments of a message to dir.
 // It returns the list of file paths written.
-func SaveAttachments(acct EmailAccount, folder string, uid uint32, dir string) ([]string, error) {
-	c, err := dialIMAP(acct)
+func SaveAttachments(ctx context.Context, acct EmailAccount, folder string, uid uint32, dir string) ([]string, error) {
+	c, err := dialIMAP(ctx, acct)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = c.Logout().Wait(); _ = c.Close() }()
 
 	folder = cmp.Or(folder, "INBOX")
+	if err := agentrun.Check(ctx); err != nil {
+		return nil, err
+	}
 	if _, err := c.Select(folder, nil).Wait(); err != nil {
 		return nil, fmt.Errorf("select %q: %w", folder, err)
 	}
@@ -275,6 +311,9 @@ func SaveAttachments(acct EmailAccount, folder string, uid uint32, dir string) (
 		BodySection: []*imap.FetchItemBodySection{
 			{Peek: true},
 		},
+	}
+	if err := agentrun.Check(ctx); err != nil {
+		return nil, err
 	}
 	msgs, err := c.Fetch(imap.UIDSetNum(imap.UID(uid)), fetchOpts).Collect()
 	if err != nil {
@@ -341,6 +380,9 @@ func SaveAttachments(acct EmailAccount, folder string, uid uint32, dir string) (
 			return saved, fmt.Errorf("resolve attachment path %q: %w", filename, err)
 		}
 
+		if err := agentrun.Check(ctx); err != nil {
+			return saved, err
+		}
 		if err := os.WriteFile(dest, data, 0o644); err != nil {
 			return saved, fmt.Errorf("write attachment %q: %w", dest, err)
 		}
@@ -381,18 +423,21 @@ func safeDestPath(absDir, filename string) (string, error) {
 
 // MarkSeen adds or removes the \Seen flag on a message identified by UID.
 // seen=true marks the message as read; seen=false marks it as unread.
-func MarkSeen(acct EmailAccount, folder string, uid uint32, seen bool) error {
-	c, err := dialIMAP(acct)
+func MarkSeen(ctx context.Context, acct EmailAccount, folder string, uid uint32, seen bool) error {
+	c, err := dialIMAP(ctx, acct)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = c.Logout().Wait(); _ = c.Close() }()
 
 	folder = cmp.Or(folder, "INBOX")
+	if err := agentrun.Check(ctx); err != nil {
+		return err
+	}
 	if _, err := c.Select(folder, nil).Wait(); err != nil {
 		return fmt.Errorf("select %q: %w", folder, err)
 	}
-	if err := ensureMessageExists(c, uid); err != nil {
+	if err := ensureMessageExists(ctx, c, uid); err != nil {
 		return err
 	}
 
@@ -405,14 +450,20 @@ func MarkSeen(acct EmailAccount, folder string, uid uint32, seen bool) error {
 		Silent: true,
 		Flags:  []imap.Flag{imap.FlagSeen},
 	}
+	if err := agentrun.Check(ctx); err != nil {
+		return err
+	}
 	if _, err := c.Store(imap.UIDSetNum(imap.UID(uid)), storeFlags, nil).Collect(); err != nil {
 		return fmt.Errorf("store flags uid=%d: %w", uid, err)
 	}
 	return nil
 }
 
-func ensureMessageExists(c *imapclient.Client, uid uint32) error {
+func ensureMessageExists(ctx context.Context, c *imapclient.Client, uid uint32) error {
 	fetchOpts := &imap.FetchOptions{UID: true}
+	if err := agentrun.Check(ctx); err != nil {
+		return err
+	}
 	msgs, err := c.Fetch(imap.UIDSetNum(imap.UID(uid)), fetchOpts).Collect()
 	if err != nil {
 		return fmt.Errorf("fetch message uid=%d: %w", uid, err)

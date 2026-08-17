@@ -3,6 +3,8 @@ package channel
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,16 +14,22 @@ import (
 
 	"filippo.io/age"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/google/uuid"
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/home"
+	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
@@ -53,32 +61,42 @@ type userInvalidator interface {
 	InvalidateUser(userID string) error
 }
 
+type sessionImageEnricher interface {
+	Enrich(ctx context.Context, userID, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error)
+}
+
+type transactionalSessionImageEnricher interface {
+	EnrichWithQueries(ctx context.Context, q *sqlc.Queries, userID, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, error)
+}
+
 type Coordinator struct {
-	serviceManager       agent.ServiceManager
-	invalidator          userInvalidator
-	store                config.Store
-	auth                 channelAuthStore
-	feishuEnroller       feishuEnroller
-	agentAccess          *agentaccess.Service
-	linkCodes            *auth.LinkCodeStore
-	vaultRecipient       *age.X25519Recipient
-	vaultSvc             *vault.Service
-	listFn               func() []pkgchannel.ModelOption
-	switchFn             func(provider, model string) error
-	queue                *sessionQueue
-	intentClassifier     IntentClassifier
-	groupResolver        GroupResolver
-	eventLog             *eventlog.Store
-	memberLister         GroupMemberLister
-	botRegistry          *BotIdentityRegistry
-	arbiter              *Arbiter
-	semanticGroupArbiter SemanticGroupArbiter
-	publisherRegistry    *PublisherRegistry
-	groupDispatcher      *GroupDispatcher
-	db                   *pgxpool.Pool
-	rootOpener           home.RootOpener
-	guests               GuestStore
-	guestLimiter         *guestRateLimiter
+	serviceManager         agent.ServiceManager
+	invalidator            userInvalidator
+	store                  config.Store
+	auth                   channelAuthStore
+	feishuEnroller         feishuEnroller
+	agentAccess            *agentaccess.Service
+	linkCodes              *auth.LinkCodeStore
+	vaultRecipient         *age.X25519Recipient
+	vaultSvc               *vault.Service
+	listFn                 func() []pkgchannel.ModelOption
+	switchFn               func(provider, model string) error
+	queue                  *sessionQueue
+	intentClassifier       IntentClassifier
+	groupResolver          GroupResolver
+	eventLog               *eventlog.Store
+	memberLister           GroupMemberLister
+	botRegistry            *BotIdentityRegistry
+	arbiter                *Arbiter
+	semanticGroupArbiter   SemanticGroupArbiter
+	publisherRegistry      *PublisherRegistry
+	publisherReconstructor DurablePublisherReconstructor
+	groupDispatcher        *GroupDispatcher
+	db                     *pgxpool.Pool
+	rootOpener             home.RootOpener
+	guests                 GuestStore
+	guestLimiter           *guestRateLimiter
+	sessionImages          sessionImageEnricher
 }
 
 // WithGuestStore enables durable unlinked channel principals.
@@ -91,6 +109,12 @@ type CoordinatorOption func(*Coordinator)
 
 func WithRootOpener(opener home.RootOpener) CoordinatorOption {
 	return func(c *Coordinator) { c.rootOpener = opener }
+}
+
+// WithSessionImagePipeline makes raw, expiring channel images durable before
+// the FIFO admission is acknowledged.
+func WithSessionImagePipeline(images sessionImageEnricher) CoordinatorOption {
+	return func(c *Coordinator) { c.sessionImages = images }
 }
 
 // WithCoordinatorAuth configures the coordinator with auth support.
@@ -210,6 +234,12 @@ func WithPublisherRegistry(reg *PublisherRegistry) CoordinatorOption {
 	return func(c *Coordinator) {
 		c.publisherRegistry = reg
 	}
+}
+
+// WithDurablePublisherReconstructor configures on-demand channel egress
+// reconstruction for durable/non-leader dispatch execution.
+func WithDurablePublisherReconstructor(reconstructor DurablePublisherReconstructor) CoordinatorOption {
+	return func(c *Coordinator) { c.publisherReconstructor = reconstructor }
 }
 
 // WithGroupDispatcher configures the durable group dispatcher wake path.
@@ -408,6 +438,35 @@ func (c *Coordinator) HandleIncoming(ctx context.Context, msg pkgchannel.Incomin
 	return c.handleResolvedIncoming(ctx, rc, msg, command, args)
 }
 
+// AdmitAttachments synchronously crosses the durable acceptance boundary for
+// an attachment-bearing platform delivery. Adapters call it after downloading
+// expiring URLs and before publishing any visible acknowledgement. The normal
+// HandleIncoming call later observes the same stable receipt and executes it.
+func (c *Coordinator) AdmitAttachments(ctx context.Context, msg pkgchannel.IncomingMessage) error {
+	if !ai.HasAttachment(msg.Content) || c.db == nil {
+		return nil
+	}
+	if msg.IsGroup && c.eventLog != nil {
+		result, err := c.appendGroupMessage(ctx, msg)
+		if err != nil {
+			return fmt.Errorf("group attachment admission: %w", err)
+		}
+		if result.Inserted && c.groupDispatcher != nil {
+			c.groupDispatcher.Wake()
+		}
+		return nil
+	}
+	rc, err := c.resolve(ctx, msg)
+	if err != nil {
+		return err
+	}
+	if rc.GuestID != "" {
+		return errors.New("guest chat currently supports text messages only")
+	}
+	_, _, err = c.admitDurableQueuedChat(ctx, rc, msg)
+	return err
+}
+
 func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
 	if rc.GuestID != "" {
 		if !textOnly(msg.Content) {
@@ -469,11 +528,359 @@ func (c *Coordinator) handleResolvedIncoming(ctx context.Context, rc *ResolvedCh
 	}
 
 	// Not a command or recognized intent — enqueue a chat response for this session.
-	stream, err := c.queuedChat(ctx, rc, msg.Content)
+	stream, duplicate, err := c.durableQueuedChat(ctx, rc, msg)
 	if err != nil {
 		return "", false, nil, err
 	}
+	if duplicate {
+		return "Message already accepted.", true, nil, nil
+	}
 	return "", false, stream, nil
+}
+
+// durableQueuedChat makes PostgreSQL's per-ChatBinding sequence the admission
+// authority whenever a platform provides a stable delivery ID. The local queue
+// remains a fairness optimization for the winning replica only.
+func (c *Coordinator) durableQueuedChat(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage) (*pkgchannel.ChatStream, bool, error) {
+	if c.db == nil {
+		stream, err := c.queuedChat(ctx, rc, msg.Content)
+		return stream, false, err
+	}
+	row, duplicate, err := c.admitDurableQueuedChat(ctx, rc, msg)
+	if err != nil || duplicate {
+		return nil, duplicate, err
+	}
+	q := sqlc.New(c.db)
+	for {
+		switch row.Status {
+		case "completed", "rejected":
+			return nil, true, nil
+		case "blocked":
+			if _, err := q.RetryBlockedChannelBindingFIFO(ctx, row.ID); err != nil {
+				return nil, false, err
+			}
+		case "pending":
+			claimed, err := q.ClaimChannelBindingFIFOHead(ctx, row.ID)
+			if err == nil {
+				row = claimed
+				goto admitted
+			}
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return nil, false, fmt.Errorf("claim channel FIFO input: %w", err)
+			}
+		case "running":
+			if row.RunID.Valid {
+				run, runErr := q.GetAgentRun(ctx, row.RunID.String)
+				if runErr == nil && run.Status != "running" {
+					_, _ = q.CompleteChannelBindingFIFO(ctx, sqlc.CompleteChannelBindingFIFOParams{RunID: row.RunID, ID: row.ID})
+					return nil, true, nil
+				}
+			}
+		}
+		timer := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, false, ctx.Err()
+		case <-timer.C:
+		}
+		row, err = q.GetChannelBindingFIFO(ctx, row.ID)
+		if err != nil {
+			return nil, false, err
+		}
+	}
+
+admitted:
+	content, err := ai.UnmarshalContentBlocks(row.Payload)
+	if err != nil {
+		_, _ = q.BlockChannelBindingFIFO(context.WithoutCancel(ctx), sqlc.BlockChannelBindingFIFOParams{
+			Reason: "invalid_durable_payload", BackoffSeconds: 300, ID: row.ID,
+		})
+		return nil, false, fmt.Errorf("decode channel FIFO input: %w", err)
+	}
+	content = ai.ProjectFileRefs(content)
+	completion := agentruntime.NewCompletionBarrier()
+	stream, err := c.queuedChatWithOptions(ctx, rc, content,
+		agentruntime.WithChannelFIFOClaim(row.ID, row.ClaimToken.String),
+		agentruntime.WithCompletionBarrier(completion))
+	if err != nil {
+		completion.Fail(err)
+		completion.Release()
+		_, _ = q.BlockChannelBindingFIFO(context.WithoutCancel(ctx), sqlc.BlockChannelBindingFIFOParams{
+			Reason: "admission_failed", BackoffSeconds: 1, ID: row.ID,
+		})
+		return nil, false, err
+	}
+	row, err = q.GetChannelBindingFIFO(ctx, row.ID)
+	if err != nil {
+		completion.Release()
+		_, _ = q.BlockChannelBindingFIFO(context.WithoutCancel(ctx), sqlc.BlockChannelBindingFIFOParams{
+			Reason: "run_link_unknown", BackoffSeconds: 1, ID: row.ID,
+		})
+		return nil, false, fmt.Errorf("link channel FIFO to AgentRun: %w", err)
+	}
+	if !row.RunID.Valid {
+		completion.Release()
+		return nil, false, errors.New("link channel FIFO to AgentRun: admission committed without run link")
+	}
+	operationCtx, err := completion.Context(context.WithoutCancel(ctx))
+	if err != nil {
+		completion.Release()
+		return nil, false, fmt.Errorf("bind channel publish operation fence: %w", err)
+	}
+	runID := row.RunID
+	out := make(chan pkgchannel.Event, 100)
+	go func() {
+		defer close(out)
+		defer completion.Release()
+		for event := range stream.Events {
+			select {
+			case out <- event:
+			case <-ctx.Done():
+			}
+		}
+		finishCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		finishCtx, err := completion.Context(finishCtx)
+		if err != nil {
+			slog.Error("bind durable channel FIFO completion fence", "fifo_id", row.ID, "error", err)
+			return
+		}
+		tx, err := c.db.Begin(finishCtx)
+		if err == nil {
+			defer func() { _ = tx.Rollback(finishCtx) }()
+			err = agentrun.ValidateTx(finishCtx, tx)
+		}
+		if err == nil {
+			var rows int64
+			rows, err = sqlc.New(tx).CompleteChannelBindingFIFO(finishCtx, sqlc.CompleteChannelBindingFIFOParams{RunID: runID, ID: row.ID})
+			if err == nil && rows != 1 {
+				err = agentrun.ErrLeaseLost
+			}
+		}
+		if err == nil {
+			err = tx.Commit(finishCtx)
+		}
+		if err != nil {
+			slog.Error("complete durable channel FIFO input", "fifo_id", row.ID, "error", err)
+		}
+	}()
+	return &pkgchannel.ChatStream{
+		Events: out, SessionID: stream.SessionID,
+		OperationCheck: channelOperationCheck(operationCtx),
+	}, false, nil
+}
+
+func (c *Coordinator) admitDurableQueuedChat(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage) (sqlc.ChannelBindingFifo, bool, error) {
+	q := sqlc.New(c.db)
+	_, physicalChat := messageDeliveryCoordinates(msg)
+	deliveryID, ok := stableChannelDeliveryID(msg)
+	if !ok {
+		return sqlc.ChannelBindingFifo{}, false, errors.New("channel message has no stable platform delivery identity")
+	}
+	sourceKey := msg.Platform + ":" + physicalChat + ":" + deliveryID
+	row, err := q.GetChannelBindingFIFOBySource(ctx, sqlc.GetChannelBindingFIFOBySourceParams{
+		ChannelID: rc.ChatCtx.ChannelID,
+		SourceKey: sourceKey,
+	})
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return sqlc.ChannelBindingFifo{}, false, fmt.Errorf("read channel FIFO receipt: %w", err)
+	}
+	if err == nil && (row.Status == "completed" || row.Status == "rejected") {
+		return row, true, nil
+	}
+	if err == nil && (row.BindingKey != rc.queueKey() || row.PrincipalID != rc.sessionUserID()) {
+		// Stable source identity belongs to the binding/principal accepted with the
+		// original delivery. A later account link or channel rebind must not replay
+		// that durable input through the newly resolved authority.
+		return sqlc.ChannelBindingFifo{}, false, errors.New("channel FIFO receipt belongs to a different accepted binding")
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Re-authorize before immutable-media persistence: rejected principals
+		// must not create blobs or metadata even though no FIFO ack would follow.
+		if err := rc.AuthorizeUse(ctx, c.agentAccess); err != nil {
+			return sqlc.ChannelBindingFifo{}, false, fmt.Errorf("authorize durable channel input: %w", err)
+		}
+		tx, err := c.db.Begin(ctx)
+		if err != nil {
+			return sqlc.ChannelBindingFifo{}, false, fmt.Errorf("begin durable channel input: %w", err)
+		}
+		defer func() { _ = tx.Rollback(ctx) }()
+		qtx := sqlc.New(tx)
+		canonical, immutableMedia, attachmentBytes, err := c.immutableChannelContentWithQueries(ctx, qtx, rc.User.ID, rc.AgentID, msg.Content)
+		if err != nil {
+			return sqlc.ChannelBindingFifo{}, false, err
+		}
+		// Admission happens before the durable acceptance point. In particular,
+		// never acknowledge bytes that cannot be replayed without relying on an
+		// adapter's temporary buffer or whose principal is no longer authorized.
+		if err := ai.ValidateCanonicalContentBlocks(canonical); err != nil {
+			return sqlc.ChannelBindingFifo{}, false, fmt.Errorf("validate durable channel input: %w", err)
+		}
+		payload, err := ai.MarshalContentBlocks(canonical)
+		if err != nil {
+			return sqlc.ChannelBindingFifo{}, false, fmt.Errorf("encode durable channel input: %w", err)
+		}
+		row, err = createChannelBindingFIFOWithQueries(ctx, qtx, sqlc.CreateChannelBindingFIFOParams{
+			ID: uuid.Must(uuid.NewV7()).String(), ChannelID: rc.ChatCtx.ChannelID,
+			BindingKey: rc.queueKey(), PrincipalID: rc.sessionUserID(), SourceKey: sourceKey,
+			Kind: "message", Payload: payload, ImmutableMedia: immutableMedia,
+			AttachmentBytes: attachmentBytes,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			// A matching receipt wins over quota rejection: stable redelivery is
+			// idempotent and must never consume admission budget twice.
+			row, err = qtx.GetChannelBindingFIFOBySource(ctx, sqlc.GetChannelBindingFIFOBySourceParams{
+				ChannelID: rc.ChatCtx.ChannelID,
+				SourceKey: sourceKey,
+			})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return sqlc.ChannelBindingFifo{}, false, errors.New("channel FIFO quota exceeded")
+			}
+		}
+		if err != nil {
+			return sqlc.ChannelBindingFifo{}, false, fmt.Errorf("persist channel FIFO input: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return sqlc.ChannelBindingFifo{}, false, fmt.Errorf("commit durable channel input: %w", err)
+		}
+	}
+	return row, false, nil
+}
+
+func channelOperationCheck(guardCtx context.Context) func(context.Context) error {
+	return func(ctx context.Context) error {
+		guarded, ok := agentrun.InheritGuard(ctx, guardCtx)
+		if !ok {
+			return agentrun.ErrLeaseLost
+		}
+		return agentrun.Check(guarded)
+	}
+}
+
+type immutableChannelMedia struct {
+	MediaID  string `json:"media_id"`
+	SizeByte int64  `json:"size_bytes"`
+}
+
+func (c *Coordinator) immutableChannelContentWithQueries(ctx context.Context, q *sqlc.Queries, userID, agentID string, blocks []ai.ContentBlock) ([]ai.ContentBlock, json.RawMessage, int64, error) {
+	hasRawAttachment := false
+	for _, block := range blocks {
+		switch value := block.(type) {
+		case ai.ImageContent:
+			hasRawAttachment = true
+			if _, err := base64.StdEncoding.DecodeString(value.Data); err != nil {
+				return nil, nil, 0, fmt.Errorf("decode channel attachment: %w", err)
+			}
+		case ai.FileContent:
+			hasRawAttachment = true
+			if value.Path != pkgchannel.ImmutableAssetPath(value.Name, value.Data) {
+				return nil, nil, 0, errors.New("channel file attachment is not stored at its immutable content-addressed path")
+			}
+		}
+	}
+	canonical := ai.CloneContentBlocks(blocks)
+	if hasRawAttachment {
+		if c.sessionImages == nil {
+			return nil, nil, 0, errors.New("immutable channel attachment storage is unavailable")
+		}
+		var err error
+		if q == nil {
+			canonical, err = c.sessionImages.Enrich(ctx, userID, agentID, canonical)
+		} else if transactional, ok := c.sessionImages.(transactionalSessionImageEnricher); ok {
+			canonical, err = transactional.EnrichWithQueries(ctx, q, userID, agentID, canonical)
+		} else {
+			return nil, nil, 0, errors.New("transactional immutable attachment storage is unavailable")
+		}
+		if err != nil {
+			return nil, nil, 0, fmt.Errorf("publish immutable channel attachments: %w", err)
+		}
+	}
+	if q == nil {
+		q = sqlc.New(c.db)
+	}
+	immutableMedia, attachmentBytes, err := immutableMediaMetadataForUser(ctx, q, userID, canonical)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	return canonical, immutableMedia, attachmentBytes, nil
+}
+
+type immutableMediaQueries interface {
+	ListMediaByIDs(context.Context, []string) ([]sqlc.CtxMedium, error)
+	ListMediaByIDsForUser(context.Context, sqlc.ListMediaByIDsForUserParams) ([]sqlc.CtxMedium, error)
+}
+
+func immutableMediaMetadata(ctx context.Context, q immutableMediaQueries, blocks []ai.ContentBlock) (json.RawMessage, int64, error) {
+	return immutableMediaMetadataForUser(ctx, q, "", blocks)
+}
+
+func immutableMediaMetadataForUser(ctx context.Context, q immutableMediaQueries, userID string, blocks []ai.ContentBlock) (json.RawMessage, int64, error) {
+	ids := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, block := range blocks {
+		var id string
+		switch ref := block.(type) {
+		case ai.ImageRefContent:
+			id = ref.MediaID
+		case ai.FileRefContent:
+			id = ref.MediaID
+		}
+		if id != "" {
+			if _, exists := seen[id]; !exists {
+				seen[id] = struct{}{}
+				ids = append(ids, id)
+			}
+		}
+	}
+	if len(ids) == 0 {
+		return json.RawMessage(`[]`), 0, nil
+	}
+	var rows []sqlc.CtxMedium
+	var err error
+	if userID == "" {
+		// Group event-log payloads were authorized when appended and are
+		// reconstructed by globally unique immutable ID.
+		rows, err = q.ListMediaByIDs(ctx, ids)
+	} else {
+		// Direct channel input may contain a caller-supplied ImageRefContent.
+		// Do not let it bind another principal's immutable media into this FIFO.
+		rows, err = q.ListMediaByIDsForUser(ctx, sqlc.ListMediaByIDsForUserParams{UserID: userID, MediaIds: ids})
+	}
+	if err != nil {
+		return nil, 0, fmt.Errorf("load immutable channel media metadata: %w", err)
+	}
+	if len(rows) != len(ids) {
+		return nil, 0, errors.New("immutable channel media reference is missing")
+	}
+	mediaByID := make(map[string]int64, len(rows))
+	for _, row := range rows {
+		mediaByID[row.ID] = row.SizeBytes
+	}
+	media := make([]immutableChannelMedia, 0, len(ids))
+	var attachmentBytes int64
+	for _, id := range ids {
+		size := mediaByID[id]
+		if size <= 0 {
+			return nil, 0, errors.New("immutable channel media has invalid size")
+		}
+		attachmentBytes += size
+		media = append(media, immutableChannelMedia{MediaID: id, SizeByte: size})
+	}
+	encoded, err := json.Marshal(media)
+	if err != nil {
+		return nil, 0, fmt.Errorf("encode immutable channel media: %w", err)
+	}
+	return encoded, attachmentBytes, nil
+}
+
+func stableChannelDeliveryID(msg pkgchannel.IncomingMessage) (string, bool) {
+	// A timestamp/content hash is not a delivery identity: providers can
+	// normalize timestamps differently on redelivery, while two legitimate
+	// same-content messages can share one timestamp. Asynchronous durable input
+	// therefore fails closed unless the adapter supplies its immutable platform
+	// message ID.
+	return msg.MessageID, msg.MessageID != ""
 }
 
 func textOnly(content []ai.ContentBlock) bool {
@@ -519,10 +926,124 @@ func (c *Coordinator) handleConfigCommand(ctx context.Context, rc *ResolvedChat,
 // running work on a reset request would be surprising, and rotating underneath it
 // would land its reply in a session the user already left.
 func (c *Coordinator) handleNewSessionCommand(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage) string {
+	if c.db != nil {
+		return c.handleDurableNewSessionCommand(ctx, rc, msg)
+	}
 	receipt := chatReceiptForMessage(c.receiptQueries(), rc, msg, newSessionCommand)
 	return rotateChatSession(ctx, rc, receipt, c.queue, func(authCtx context.Context) error {
 		return rc.AuthorizeUse(authCtx, c.agentAccess)
 	})
+}
+
+// handleDurableNewSessionCommand places /new in the same PostgreSQL FIFO as
+// messages. expected_session_id is frozen at acceptance; after a crash or
+// historical redelivery, a stale comparison retires the barrier without ever
+// rotating its successor.
+func (c *Coordinator) handleDurableNewSessionCommand(ctx context.Context, rc *ResolvedChat, msg pkgchannel.IncomingMessage) string {
+	deliveryID, ok := stableChannelDeliveryID(msg)
+	if !ok {
+		return pkgchannel.NewSessionUnverifiableMessage
+	}
+	if err := rc.AuthorizeUse(ctx, c.agentAccess); err != nil {
+		return fmt.Sprintf("Starting a new session failed: %v", err)
+	}
+	q := sqlc.New(c.db)
+	_, physicalChat := messageDeliveryCoordinates(msg)
+	sourceKey := "command:" + physicalChat + ":" + deliveryID
+	row, err := q.GetChannelBindingFIFOBySource(ctx, sqlc.GetChannelBindingFIFOBySourceParams{
+		ChannelID: rc.ChatCtx.ChannelID,
+		SourceKey: sourceKey,
+	})
+	if err == nil && (row.Status == "completed" || row.Status == "rejected") {
+		return pkgchannel.SessionAlreadyResetMessage
+	}
+	if err == nil && (row.BindingKey != rc.queueKey() || row.PrincipalID != rc.sessionUserID()) {
+		return "Starting a new session failed: command receipt belongs to a different accepted binding"
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		current, currentErr := rc.CurrentSessionForRotation(ctx)
+		if currentErr != nil {
+			return fmt.Sprintf("Starting a new session failed: %v", currentErr)
+		}
+		row, err = createChannelBindingFIFO(ctx, c.db, sqlc.CreateChannelBindingFIFOParams{
+			ID: uuid.Must(uuid.NewV7()).String(), ChannelID: rc.ChatCtx.ChannelID,
+			BindingKey: rc.queueKey(), PrincipalID: rc.sessionUserID(), SourceKey: sourceKey,
+			Kind: "new", Payload: json.RawMessage(`[]`), ImmutableMedia: json.RawMessage(`[]`),
+			ExpectedSessionID: pgtype.Text{String: current.ID, Valid: true},
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			row, err = q.GetChannelBindingFIFOBySource(ctx, sqlc.GetChannelBindingFIFOBySourceParams{
+				ChannelID: rc.ChatCtx.ChannelID,
+				SourceKey: sourceKey,
+			})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return "Starting a new session failed: channel FIFO quota exceeded"
+			}
+		}
+	}
+	if err != nil {
+		return fmt.Sprintf("Starting a new session failed: %v", err)
+	}
+	for {
+		switch row.Status {
+		case "completed", "rejected":
+			return pkgchannel.SessionAlreadyResetMessage
+		case "blocked":
+			_, _ = q.RetryBlockedChannelBindingFIFO(ctx, row.ID)
+		case "pending":
+			claimed, claimErr := q.ClaimChannelBindingFIFOHead(ctx, row.ID)
+			if claimErr == nil {
+				row = claimed
+				goto rotate
+			}
+			if !errors.Is(claimErr, pgx.ErrNoRows) {
+				return fmt.Sprintf("Starting a new session failed: %v", claimErr)
+			}
+		}
+		timer := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Sprintf("Starting a new session failed: %v", ctx.Err())
+		case <-timer.C:
+		}
+		row, err = q.GetChannelBindingFIFO(ctx, row.ID)
+		if err != nil {
+			return fmt.Sprintf("Starting a new session failed: %v", err)
+		}
+	}
+
+rotate:
+	reply := pkgchannel.NewSessionStartedMessage
+	rotationCtx := memory.WithRotationFence(ctx, memory.RotationFence{
+		FIFOID:            row.ID,
+		ChannelID:         row.ChannelID,
+		BindingKey:        row.BindingKey,
+		BindingRevision:   row.BindingRevision,
+		ExpectedSessionID: row.ExpectedSessionID.String,
+		ClaimToken:        row.ClaimToken.String,
+	})
+	_, err = rc.RotateSession(rotationCtx, row.ExpectedSessionID.String)
+	if errors.Is(err, session.ErrStaleRotation) {
+		reply = pkgchannel.SessionAlreadyResetMessage
+		err = nil
+	}
+	if err != nil {
+		_, _ = q.BlockChannelBindingFIFO(context.WithoutCancel(ctx), sqlc.BlockChannelBindingFIFOParams{
+			Reason: "new_session_rotation_failed", BackoffSeconds: 5, ID: row.ID,
+		})
+		return fmt.Sprintf("Starting a new session failed: %v", err)
+	}
+	completed, err := q.CompleteChannelBindingFIFOControl(ctx, sqlc.CompleteChannelBindingFIFOControlParams{
+		ID: row.ID, ClaimToken: row.ClaimToken,
+	})
+	if err != nil || completed == 0 {
+		// Rotation may have committed. expected_session_id makes retry safe; do
+		// not release or issue a second reset when completion acknowledgement is
+		// ambiguous.
+		return pkgchannel.NewSessionOutcomeUnknownMessage
+	}
+	return reply
 }
 
 // receiptQueries returns the store backing command receipts, or nil when the
@@ -548,8 +1069,12 @@ func (c *Coordinator) handleAbort(rc *ResolvedChat) string {
 // fully drain (or abandon) Events before the queue will dispatch the next
 // request for the same session.
 func (c *Coordinator) queuedChat(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock) (*pkgchannel.ChatStream, error) {
+	return c.queuedChatWithOptions(ctx, rc, content)
+}
+
+func (c *Coordinator) queuedChatWithOptions(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock, opts ...agentruntime.Option) (*pkgchannel.ChatStream, error) {
 	stream, doneC, err := c.queue.Enqueue(ctx, rc.queueKey(), func(qctx context.Context) (*pkgchannel.ChatStream, error) {
-		return c.chatWithRC(qctx, rc, content)
+		return c.chatWithRCOptions(qctx, rc, content, opts...)
 	})
 	if err != nil {
 		return nil, err
@@ -571,19 +1096,19 @@ func (c *Coordinator) queuedChat(ctx context.Context, rc *ResolvedChat, content 
 	}()
 
 	return &pkgchannel.ChatStream{
-		Events:    out,
-		SessionID: stream.SessionID,
+		Events:         out,
+		SessionID:      stream.SessionID,
+		OperationCheck: stream.OperationCheck,
 	}, nil
 }
 
-// chatWithRC streams a chat response using a pre-resolved chat.
-func (c *Coordinator) chatWithRC(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock) (*pkgchannel.ChatStream, error) {
+func (c *Coordinator) chatWithRCOptions(ctx context.Context, rc *ResolvedChat, content []ai.ContentBlock, opts ...agentruntime.Option) (*pkgchannel.ChatStream, error) {
 	// This closure runs only when the per-session queue dispatches. Re-authorize
 	// immediately before Chat so a policy change after Resolve cannot run a turn.
 	if err := rc.AuthorizeUse(ctx, c.agentAccess); err != nil {
 		return nil, fmt.Errorf("agent execution denied: %w", err)
 	}
-	events, sessionID, err := rc.Chat(ctx, content)
+	events, sessionID, err := rc.ChatWithRuntimeOptions(ctx, content, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -717,22 +1242,18 @@ func (c *Coordinator) SaveAsset(ctx context.Context, msg pkgchannel.IncomingMess
 			resultErr = errors.Join(resultErr, closeErr)
 		}
 	}()
-	name := path.Base(strings.ReplaceAll(fileName, "\\", "/"))
-	if name == "." || name == "" {
-		name = "attachment"
-	}
-	id, err := uuid.NewV7()
-	if err != nil {
-		return "", fmt.Errorf("generate attachment id: %w", err)
-	}
-	assetName := fmt.Sprintf("%d_%s-%s", time.Now().UnixNano(), id.String(), name)
+	// The logical assets path is content-addressed. Redelivery writes identical
+	// bytes to the same name; different bytes can never mutate an accepted
+	// attachment path after its platform URL expires.
+	logicalPath := pkgchannel.ImmutableAssetPath(fileName, data)
+	assetName := strings.TrimPrefix(logicalPath, "$STELLA_ASSETS_DIR/")
 	if err := root.Mkdir(ctx, "assets", 0o700, home.MkdirOptions{Parents: true}); err != nil {
 		return "", err
 	}
 	if err := root.Upload(ctx, path.Join("assets", assetName), bytes.NewReader(data), home.WriteOptions{Mode: 0o600, MaxBytes: pkgchannel.MaxInboundAttachmentBytes, Sync: true}); err != nil {
 		return "", err
 	}
-	return "$STELLA_ASSETS_DIR/" + assetName, nil
+	return logicalPath, nil
 }
 
 // compile-time checks.

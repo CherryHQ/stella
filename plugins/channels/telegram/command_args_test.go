@@ -54,9 +54,26 @@ func (r *telegramRequestCounter) RoundTrip(req *http.Request) (*http.Response, e
 }
 
 func TestAttachmentResolutionErrorsDoNotFetchTelegramBytes(t *testing.T) {
-	for _, attachment := range []string{"photo", "document"} {
+	attachments := []struct {
+		name string
+		set  func(*tele.Message)
+	}{
+		{name: "photo", set: func(m *tele.Message) { m.Photo = &tele.Photo{File: tele.File{FileID: "photo-id"}} }},
+		{name: "document", set: func(m *tele.Message) {
+			m.Document = &tele.Document{File: tele.File{FileID: "document-id"}, FileName: "test.txt"}
+		}},
+		{name: "audio", set: func(m *tele.Message) { m.Audio = &tele.Audio{File: tele.File{FileID: "audio-id"}} }},
+		{name: "video", set: func(m *tele.Message) { m.Video = &tele.Video{File: tele.File{FileID: "video-id"}} }},
+		{name: "voice", set: func(m *tele.Message) { m.Voice = &tele.Voice{File: tele.File{FileID: "voice-id"}} }},
+		{name: "video-note", set: func(m *tele.Message) {
+			m.VideoNote = &tele.VideoNote{File: tele.File{FileID: "video-note-id"}}
+		}},
+		{name: "animation", set: func(m *tele.Message) { m.Animation = &tele.Animation{File: tele.File{FileID: "animation-id"}} }},
+		{name: "sticker", set: func(m *tele.Message) { m.Sticker = &tele.Sticker{File: tele.File{FileID: "sticker-id"}} }},
+	}
+	for _, attachment := range attachments {
 		for _, resolveErr := range []error{internalchannel.ErrAgentAccessDenied, errors.New("resolver unavailable")} {
-			t.Run(attachment+"/"+resolveErr.Error(), func(t *testing.T) {
+			t.Run(attachment.name+"/"+resolveErr.Error(), func(t *testing.T) {
 				requests := &telegramRequestCounter{}
 				bot, err := tele.NewBot(tele.Settings{
 					Offline: true, Synchronous: true, Token: "test",
@@ -68,11 +85,7 @@ func TestAttachmentResolutionErrorsDoNotFetchTelegramBytes(t *testing.T) {
 				b := &Bot{bot: bot, handler: attachmentResolverHandler{err: resolveErr}, ctx: context.Background(), cfg: Config{AllowDM: true}}
 				b.registerHandlers()
 				message := &tele.Message{ID: 42, Sender: &tele.User{ID: 7}, Chat: &tele.Chat{ID: 7, Type: tele.ChatPrivate}}
-				if attachment == "photo" {
-					message.Photo = &tele.Photo{File: tele.File{FileID: "photo-id"}}
-				} else {
-					message.Document = &tele.Document{File: tele.File{FileID: "document-id"}, FileName: "test.txt"}
-				}
+				attachment.set(message)
 
 				bot.ProcessUpdate(tele.Update{Message: message})
 				if requests.getFileCalls != 0 {

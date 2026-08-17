@@ -7,6 +7,8 @@ package sqlc
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const claimSessionInboxDelivery = `-- name: ClaimSessionInboxDelivery :one
@@ -17,17 +19,19 @@ WHERE id = $1
   AND target_session_id = $3
   AND actor_id = $4
   AND content = $5
+  AND COALESCE(run_id::text, '') = $6
   AND delivered_at IS NULL
   AND failed_at IS NULL
-RETURNING id, enqueue_seq, source_session_id, target_session_id, actor_id, content, delivered_at, failed_at, error_code, created_at, updated_at
+RETURNING id, enqueue_seq, source_session_id, target_session_id, actor_id, content, delivered_at, failed_at, error_code, created_at, updated_at, run_id
 `
 
 type ClaimSessionInboxDeliveryParams struct {
-	ID              string `json:"id"`
-	SourceSessionID string `json:"source_session_id"`
-	TargetSessionID string `json:"target_session_id"`
-	ActorID         string `json:"actor_id"`
-	Content         string `json:"content"`
+	ID              string      `json:"id"`
+	SourceSessionID string      `json:"source_session_id"`
+	TargetSessionID string      `json:"target_session_id"`
+	ActorID         string      `json:"actor_id"`
+	Content         string      `json:"content"`
+	RunID           pgtype.Text `json:"run_id"`
 }
 
 // Claim and validate the immutable delivery facts in one CAS. The enclosing LCM
@@ -39,6 +43,7 @@ func (q *Queries) ClaimSessionInboxDelivery(ctx context.Context, arg ClaimSessio
 		arg.TargetSessionID,
 		arg.ActorID,
 		arg.Content,
+		arg.RunID,
 	)
 	var i CtxSessionInbox
 	err := row.Scan(
@@ -53,6 +58,7 @@ func (q *Queries) ClaimSessionInboxDelivery(ctx context.Context, arg ClaimSessio
 		&i.ErrorCode,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RunID,
 	)
 	return i, err
 }
@@ -62,7 +68,7 @@ INSERT INTO ctx_session_inbox (
     id, source_session_id, target_session_id, actor_id, content
 )
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, enqueue_seq, source_session_id, target_session_id, actor_id, content, delivered_at, failed_at, error_code, created_at, updated_at
+RETURNING id, enqueue_seq, source_session_id, target_session_id, actor_id, content, delivered_at, failed_at, error_code, created_at, updated_at, run_id
 `
 
 type EnqueueSessionInboxParams struct {
@@ -94,6 +100,7 @@ func (q *Queries) EnqueueSessionInbox(ctx context.Context, arg EnqueueSessionInb
 		&i.ErrorCode,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RunID,
 	)
 	return i, err
 }
@@ -120,7 +127,7 @@ func (q *Queries) FailPendingSessionInbox(ctx context.Context, arg FailPendingSe
 }
 
 const getSessionInbox = `-- name: GetSessionInbox :one
-SELECT id, enqueue_seq, source_session_id, target_session_id, actor_id, content, delivered_at, failed_at, error_code, created_at, updated_at FROM ctx_session_inbox WHERE id = $1
+SELECT id, enqueue_seq, source_session_id, target_session_id, actor_id, content, delivered_at, failed_at, error_code, created_at, updated_at, run_id FROM ctx_session_inbox WHERE id = $1
 `
 
 func (q *Queries) GetSessionInbox(ctx context.Context, id string) (CtxSessionInbox, error) {
@@ -138,15 +145,41 @@ func (q *Queries) GetSessionInbox(ctx context.Context, id string) (CtxSessionInb
 		&i.ErrorCode,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.RunID,
 	)
 	return i, err
 }
 
+const linkSessionInboxRun = `-- name: LinkSessionInboxRun :execrows
+UPDATE ctx_session_inbox
+SET run_id = $1, updated_at = now()
+WHERE id = $2
+  AND target_session_id = $3
+  AND run_id IS NULL
+  AND delivered_at IS NULL
+  AND failed_at IS NULL
+`
+
+type LinkSessionInboxRunParams struct {
+	RunID           pgtype.Text `json:"run_id"`
+	ID              string      `json:"id"`
+	TargetSessionID string      `json:"target_session_id"`
+}
+
+func (q *Queries) LinkSessionInboxRun(ctx context.Context, arg LinkSessionInboxRunParams) (int64, error) {
+	result, err := q.db.Exec(ctx, linkSessionInboxRun, arg.RunID, arg.ID, arg.TargetSessionID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const listPendingSessionInbox = `-- name: ListPendingSessionInbox :many
-SELECT id, enqueue_seq, source_session_id, target_session_id, actor_id, content, delivered_at, failed_at, error_code, created_at, updated_at
+SELECT id, enqueue_seq, source_session_id, target_session_id, actor_id, content, delivered_at, failed_at, error_code, created_at, updated_at, run_id
 FROM ctx_session_inbox
 WHERE delivered_at IS NULL
   AND failed_at IS NULL
+  AND run_id IS NULL
   AND enqueue_seq > $1::bigint
 ORDER BY enqueue_seq
 LIMIT $2::integer
@@ -178,6 +211,7 @@ func (q *Queries) ListPendingSessionInbox(ctx context.Context, arg ListPendingSe
 			&i.ErrorCode,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.RunID,
 		); err != nil {
 			return nil, err
 		}
@@ -187,4 +221,22 @@ func (q *Queries) ListPendingSessionInbox(ctx context.Context, arg ListPendingSe
 		return nil, err
 	}
 	return items, nil
+}
+
+const terminalizeLinkedSessionInbox = `-- name: TerminalizeLinkedSessionInbox :execrows
+UPDATE ctx_session_inbox inbox
+SET failed_at = now(), error_code = 'run_interrupted', updated_at = now()
+FROM agent_run run
+WHERE inbox.run_id = run.id
+  AND inbox.delivered_at IS NULL
+  AND inbox.failed_at IS NULL
+  AND run.status <> 'running'
+`
+
+func (q *Queries) TerminalizeLinkedSessionInbox(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, terminalizeLinkedSessionInbox)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

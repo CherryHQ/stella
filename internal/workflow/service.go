@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/pkg/db/pgnull"
@@ -172,21 +173,23 @@ func (s *Service) saveGoalAsWorkflow(ctx context.Context, in SaveInput) (sqlc.Ag
 		if err != nil {
 			return sqlc.AgentWorkflow{}, fmt.Errorf("latest workflow version: %w", err)
 		}
-		wf, err := s.q.CreateWorkflow(ctx, sqlc.CreateWorkflowParams{
-			ID:                 uuid.NewString(),
-			OwnerKind:          ownerKind,
-			UserID:             ownerUser,
-			AgentID:            ownerAgent,
-			Name:               in.Name,
-			Version:            latest + 1,
-			Intent:             root.Intent,
-			AcceptanceContract: root.AcceptanceContract,
-			ConvergencePolicy:  root.ConvergencePolicy,
-			Inputs:             inputsJSON,
-			PayloadFormat:      PayloadFormatFrozenV0,
-			Payload:            payload,
-			FullyFrozen:        plan.FullyFrozen(),
-			SourceGoalID:       pgnull.Text(root.ID),
+		wf, err := agentrun.WriteTxValue(ctx, s.db, func(q *sqlc.Queries) (sqlc.AgentWorkflow, error) {
+			return q.CreateWorkflow(ctx, sqlc.CreateWorkflowParams{
+				ID:                 uuid.NewString(),
+				OwnerKind:          ownerKind,
+				UserID:             ownerUser,
+				AgentID:            ownerAgent,
+				Name:               in.Name,
+				Version:            latest + 1,
+				Intent:             root.Intent,
+				AcceptanceContract: root.AcceptanceContract,
+				ConvergencePolicy:  root.ConvergencePolicy,
+				Inputs:             inputsJSON,
+				PayloadFormat:      PayloadFormatFrozenV0,
+				Payload:            payload,
+				FullyFrozen:        plan.FullyFrozen(),
+				SourceGoalID:       pgnull.Text(root.ID),
+			})
 		})
 		if err == nil {
 			return wf, nil
@@ -261,7 +264,9 @@ func (s *Service) instantiate(ctx context.Context, in InstantiateInput) (sqlc.Ag
 	if err != nil {
 		return sqlc.AgentWorkflowRun{}, false, err
 	}
-	claimed, err := s.q.ClaimWorkflowRun(ctx, sqlc.ClaimWorkflowRunParams{ID: uuid.NewString(), WorkflowID: wf.ID, WorkflowVersion: wf.Version, IdempotencyKey: in.IdempotencyKey, Status: RunClaimed, Inputs: resolvedJSON, PlanHash: hash})
+	claimed, err := agentrun.WriteTxValue(ctx, s.db, func(q *sqlc.Queries) (sqlc.ClaimWorkflowRunRow, error) {
+		return q.ClaimWorkflowRun(ctx, sqlc.ClaimWorkflowRunParams{ID: uuid.NewString(), WorkflowID: wf.ID, WorkflowVersion: wf.Version, IdempotencyKey: in.IdempotencyKey, Status: RunClaimed, Inputs: resolvedJSON, PlanHash: hash})
+	})
 	if err != nil {
 		return sqlc.AgentWorkflowRun{}, false, fmt.Errorf("claim workflow run: %w", err)
 	}
@@ -313,7 +318,9 @@ func (s *Service) deleteLoaded(ctx context.Context, id string) error {
 	if jobCount > 0 {
 		return ErrWorkflowHasSchedulerJob
 	}
-	return s.q.DeleteWorkflow(ctx, id)
+	return agentrun.WriteTx(ctx, s.db, func(q *sqlc.Queries) error {
+		return q.DeleteWorkflow(ctx, id)
+	})
 }
 
 // snapshot relies on materialized child position matching the frozen plan child
@@ -361,7 +368,9 @@ func (s *Service) materializeRun(ctx context.Context, wf sqlc.AgentWorkflow, run
 		if err != nil {
 			return sqlc.AgentWorkflowRun{}, err
 		}
-		rows, err := s.q.SetWorkflowRunRoot(ctx, sqlc.SetWorkflowRunRootParams{ID: run.ID, RootGoalID: pgnull.Text(root.ID), PlanHash: hash})
+		rows, err := agentrun.WriteTxValue(ctx, s.db, func(q *sqlc.Queries) (int64, error) {
+			return q.SetWorkflowRunRoot(ctx, sqlc.SetWorkflowRunRootParams{ID: run.ID, RootGoalID: pgnull.Text(root.ID), PlanHash: hash})
+		})
 		if err != nil {
 			return sqlc.AgentWorkflowRun{}, fmt.Errorf("set workflow run root: %w", err)
 		}
@@ -376,10 +385,14 @@ func (s *Service) materializeRun(ctx context.Context, wf sqlc.AgentWorkflow, run
 		}
 	}
 	if err := s.walk(ctx, wf, run.RootGoalID.String, plan); err != nil {
-		_ = s.q.SetWorkflowRunStatus(ctx, sqlc.SetWorkflowRunStatusParams{ID: run.ID, Status: RunFailed})
+		_ = agentrun.WriteTx(ctx, s.db, func(q *sqlc.Queries) error {
+			return q.SetWorkflowRunStatus(ctx, sqlc.SetWorkflowRunStatusParams{ID: run.ID, Status: RunFailed})
+		})
 		return sqlc.AgentWorkflowRun{}, err
 	}
-	if err := s.q.SetWorkflowRunStatus(ctx, sqlc.SetWorkflowRunStatusParams{ID: run.ID, Status: RunDone}); err != nil {
+	if err := agentrun.WriteTx(ctx, s.db, func(q *sqlc.Queries) error {
+		return q.SetWorkflowRunStatus(ctx, sqlc.SetWorkflowRunStatusParams{ID: run.ID, Status: RunDone})
+	}); err != nil {
 		return sqlc.AgentWorkflowRun{}, fmt.Errorf("finish workflow run: %w", err)
 	}
 	return s.q.GetWorkflowRunByKey(ctx, sqlc.GetWorkflowRunByKeyParams{WorkflowID: wf.ID, IdempotencyKey: run.IdempotencyKey})

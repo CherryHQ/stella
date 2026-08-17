@@ -1,7 +1,6 @@
 package telegram
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,8 +9,6 @@ import (
 
 	tele "gopkg.in/telebot.v4"
 
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
-	internalchannel "github.com/CherryHQ/stella/internal/channel"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
@@ -60,6 +57,43 @@ func (b *Bot) registerHandlers() {
 
 	b.bot.Handle(tele.OnDocument, b.guard(false, func(c tele.Context) error {
 		return b.handleDocument(c)
+	}))
+
+	b.bot.Handle(tele.OnAudio, b.guard(false, func(c tele.Context) error {
+		if c.Message().Audio == nil {
+			return errors.New("telegram: audio metadata is missing")
+		}
+		return b.handleMediaAttachment(c, &c.Message().Audio.File, c.Message().Audio.FileName, "audio")
+	}))
+	b.bot.Handle(tele.OnVideo, b.guard(false, func(c tele.Context) error {
+		if c.Message().Video == nil {
+			return errors.New("telegram: video metadata is missing")
+		}
+		return b.handleMediaAttachment(c, &c.Message().Video.File, c.Message().Video.FileName, "video")
+	}))
+	b.bot.Handle(tele.OnVoice, b.guard(false, func(c tele.Context) error {
+		if c.Message().Voice == nil {
+			return errors.New("telegram: voice metadata is missing")
+		}
+		return b.handleMediaAttachment(c, &c.Message().Voice.File, "", "voice")
+	}))
+	b.bot.Handle(tele.OnVideoNote, b.guard(false, func(c tele.Context) error {
+		if c.Message().VideoNote == nil {
+			return errors.New("telegram: video note metadata is missing")
+		}
+		return b.handleMediaAttachment(c, &c.Message().VideoNote.File, "", "video-note")
+	}))
+	b.bot.Handle(tele.OnAnimation, b.guard(false, func(c tele.Context) error {
+		if c.Message().Animation == nil {
+			return errors.New("telegram: animation metadata is missing")
+		}
+		return b.handleMediaAttachment(c, &c.Message().Animation.File, c.Message().Animation.FileName, "animation")
+	}))
+	b.bot.Handle(tele.OnSticker, b.guard(false, func(c tele.Context) error {
+		if c.Message().Sticker == nil {
+			return errors.New("telegram: sticker metadata is missing")
+		}
+		return b.handleMediaAttachment(c, &c.Message().Sticker.File, "", "sticker")
 	}))
 
 	b.bot.Handle(tele.OnCallback, b.guard(true, func(c tele.Context) error {
@@ -121,62 +155,15 @@ func (b *Bot) handleText(c tele.Context) error {
 func (b *Bot) handlePhoto(c tele.Context) error {
 	photo := c.Message().Photo
 	if photo == nil {
-		return c.Send("No photo found in message.")
+		return errors.New("telegram: photo metadata is missing")
 	}
-	assetMsg, admitErr := b.admitAttachmentSave(c)
-	if admitErr != nil {
-		return b.rejectAttachment(c, admitErr)
-	}
-
-	file, err := b.bot.File(&photo.File)
-	if err != nil {
-		logger().Error("download photo failed", "error", err)
-		return c.Send(fmt.Sprintf("Failed to download photo: %v", err))
-	}
-	defer func() { _ = file.Close() }()
-
-	const maxPhotoSize = 20 << 20 // 20MB
-	data, err := io.ReadAll(io.LimitReader(file, maxPhotoSize+1))
-	if err != nil {
-		logger().Error("read photo failed", "error", err)
-		return c.Send(fmt.Sprintf("Failed to read photo: %v", err))
-	}
-	if len(data) > maxPhotoSize {
-		return c.Send("Photo too large (max 20 MB).")
-	}
-
-	mimeType := http.DetectContentType(data)
-
-	var content []ai.ContentBlock
-	if caption := c.Message().Caption; caption != "" {
-		if isGroup(c) {
-			caption = b.stripBotMention(caption)
-		}
-		content = append(content, ai.TextContent{Text: caption})
-	}
-	content = append(content, b.imageContent(assetMsg, photo.UniqueID, mimeType, data)...)
-
-	logger().Debug("photo received", "chat_id", c.Chat().ID, "size", len(data), "mime", mimeType)
-
-	msg := b.incomingMsg(c, content)
-
-	// Photos are never commands — pass empty command to HandleIncoming.
-	_, _, stream, err := b.handler.HandleIncoming(b.ctx, msg, "", "")
-	if err != nil {
-		logger().Error("chat failed", "chat_id", c.Chat().ID, "error", err)
-		return c.Send(fmt.Sprintf("Session error: %v", err))
-	}
-	if stream == nil {
-		return nil
-	}
-	return b.handleStream(c, stream)
+	return b.handleMediaAttachment(c, &photo.File, "", "photo")
 }
 
 func (b *Bot) rejectAttachment(c tele.Context, err error) error {
-	if errors.Is(err, internalchannel.ErrAgentAccessDenied) || errors.Is(err, agentaccess.ErrForbidden) {
-		return c.Send("Attachments are not supported in guest chat.")
-	}
-	return c.Send("Unable to process this attachment.")
+	// Returning an error rejects the update without exposing a visible Telegram
+	// reply or reaction before immutable storage and FIFO/quota admission.
+	return fmt.Errorf("telegram: reject attachment from chat %d: %w", c.Chat().ID, err)
 }
 
 // admitAttachmentSave authorizes rooted attachment publication before the
@@ -195,58 +182,70 @@ func (b *Bot) admitAttachmentSave(c tele.Context) (channel.IncomingMessage, erro
 	return probeMsg, nil
 }
 
-// imageContent persists an inbound image message to the user's assets and
-// returns the unified attachment blocks. When persistence is unavailable the
-// image degrades via the shared inline fallback (inline within the ceiling, else
-// a text note) so the message still reaches the agent.
-func (b *Bot) imageContent(assetMsg channel.IncomingMessage, uniqueID, mimeType string, data []byte) []ai.ContentBlock {
-	fileName := channel.ImageFileName(uniqueID, mimeType)
-	if assetMsg.Platform != "" {
-		savedPath, err := b.saveAsset(b.ctx, assetMsg, fileName, data)
-		if err == nil {
-			return channel.AttachmentReceivedContent(fileName, savedPath, data)
-		}
-		logger().Warn("save inbound image failed", "error", err)
-	}
-	return channel.InlineImageFallback(fileName, mimeType, data)
-}
-
-// handleDocument processes incoming document (file) messages. It downloads the
-// file, persists it to the user's assets, and passes an Xberg extraction hint to
-// the agent. A persistence failure never drops the turn: image documents degrade
-// via the shared inline fallback and other files get an explicit placeholder.
+// handleDocument processes incoming document (file) messages.
 func (b *Bot) handleDocument(c tele.Context) error {
 	doc := c.Message().Document
 	if doc == nil {
-		return c.Send("No document found in message.")
+		return errors.New("telegram: document metadata is missing")
 	}
+	return b.handleMediaAttachment(c, &doc.File, doc.FileName, "document")
+}
 
-	fileName := doc.FileName
+// handleMediaAttachment is the common fail-closed acceptance path for every
+// Telegram media event. No typing indicator, reaction, or reply is emitted until
+// the bytes are durably stored and attachment/FIFO quota admission succeeds.
+func (b *Bot) handleMediaAttachment(c tele.Context, media *tele.File, fileName, kind string) error {
+	// Authorize attachment publication before downloading untrusted bytes.
+	assetMsg, admitErr := b.admitAttachmentSave(c)
+	if admitErr != nil {
+		return b.rejectAttachment(c, admitErr)
+	}
+	file, err := b.bot.File(media)
+	if err != nil {
+		return fmt.Errorf("telegram: download %s: %w", kind, err)
+	}
+	defer func() { _ = file.Close() }()
+	data, err := io.ReadAll(io.LimitReader(file, channel.MaxInboundAttachmentBytes+1))
+	if err != nil {
+		return fmt.Errorf("telegram: read %s: %w", kind, err)
+	}
+	if len(data) > channel.MaxInboundAttachmentBytes {
+		return fmt.Errorf("telegram: %s exceeds %d bytes", kind, channel.MaxInboundAttachmentBytes)
+	}
 	if fileName == "" {
-		fileName = doc.FileID
+		fileName = media.UniqueID
+		if fileName == "" {
+			fileName = media.FileID
+		}
+		if fileName == "" {
+			fileName = kind
+		}
+		if strings.HasPrefix(http.DetectContentType(data), "image/") {
+			fileName = channel.ImageFileName(fileName, http.DetectContentType(data))
+		}
 	}
-
-	attachment, ok := b.documentAttachment(c, doc, fileName)
-	if !ok {
-		// Download failed and there is nothing to give the agent; the error was
-		// already replied to the chat.
-		return nil
+	savedPath, err := b.saveAsset(b.ctx, assetMsg, fileName, data)
+	if err != nil {
+		return fmt.Errorf("telegram: persist %s before admission: %w", kind, err)
 	}
-
-	var content []ai.ContentBlock
+	content := channel.AttachmentReceivedContent(fileName, savedPath, data)
 	if caption := c.Message().Caption; caption != "" {
 		if isGroup(c) {
 			caption = b.stripBotMention(caption)
 		}
-		content = append(content, ai.TextContent{Text: caption})
+		content = append([]ai.ContentBlock{ai.TextContent{Text: caption}}, content...)
 	}
-	content = append(content, attachment...)
-
 	msg := b.incomingMsg(c, content)
+	admitter, ok := b.handler.(channel.AttachmentAdmitter)
+	if !ok {
+		return errors.New("telegram: durable attachment admission unavailable")
+	}
+	if err := admitter.AdmitAttachments(b.ctx, msg); err != nil {
+		return fmt.Errorf("telegram: durably admit %s: %w", kind, err)
+	}
 	_, _, stream, err := b.handler.HandleIncoming(b.ctx, msg, "", "")
 	if err != nil {
-		logger().Error("chat failed", "chat_id", c.Chat().ID, "error", err)
-		return c.Send(fmt.Sprintf("Session error: %v", err))
+		return fmt.Errorf("telegram: handle admitted %s: %w", kind, err)
 	}
 	if stream == nil {
 		return nil
@@ -254,56 +253,9 @@ func (b *Bot) handleDocument(c tele.Context) error {
 	return b.handleStream(c, stream)
 }
 
-// documentAttachment downloads a Telegram document and returns the content
-// blocks to route to the agent. It persists the file to the user's assets when a
-// rooted publication is authorized; on save failure the turn is never dropped
-// (image bytes degrade via the shared inline fallback, other files get a
-// placeholder). The bool is false only when the download itself failed and the
-// error was already replied to the chat, so nothing can be given to the agent.
-func (b *Bot) documentAttachment(c tele.Context, doc *tele.Document, fileName string) ([]ai.ContentBlock, bool) {
-	// Authorize attachment publication before downloading untrusted bytes.
-	assetMsg, admitErr := b.admitAttachmentSave(c)
-	if admitErr != nil {
-		_ = b.rejectAttachment(c, admitErr)
-		return nil, false
-	}
-
-	// Download the file from Telegram.
-	_ = c.Notify(tele.UploadingDocument)
-	file, err := b.bot.File(&doc.File)
-	if err != nil {
-		logger().Error("download document failed", "error", err)
-		_ = c.Send(fmt.Sprintf("Failed to download file: %v", err))
-		return nil, false
-	}
-	defer func() { _ = file.Close() }()
-
-	data, err := io.ReadAll(io.LimitReader(file, channel.MaxInboundAttachmentBytes+1))
-	if err != nil {
-		logger().Error("read document failed", "error", err)
-		_ = c.Send(fmt.Sprintf("Failed to read file: %v", err))
-		return nil, false
-	}
-	if len(data) > channel.MaxInboundAttachmentBytes {
-		_ = c.Send("File too large (max 32 MiB).")
-		return nil, false
-	}
-
-	if assetMsg.Platform == "" {
-		return channel.AttachmentSaveFailureContent(fileName, data), true
-	}
-	savedPath, err := b.saveAsset(b.ctx, assetMsg, fileName, data)
-	if err != nil {
-		logger().Warn("save document failed", "error", err)
-		return channel.AttachmentSaveFailureContent(fileName, data), true
-	}
-
-	logger().Debug("document received", "file_name", fileName, "size", len(data), "path", savedPath)
-	return channel.AttachmentReceivedContent(fileName, savedPath, data), true
-}
-
 // handleStream renders a ChatStream to the Telegram chat.
 func (b *Bot) handleStream(c tele.Context, stream *channel.ChatStream) error {
+	defer stream.Discard()
 	chatID := c.Chat().ID
 	logger().Debug("message received", "chat_id", chatID)
 
@@ -311,14 +263,20 @@ func (b *Bot) handleStream(c tele.Context, stream *channel.ChatStream) error {
 	// what guarantees a terminal reaction follows. Group turns are served by
 	// Publish instead and carry their own lifecycle.
 	reactChat, reactMsg := reactionTarget(c)
-	b.react(reactChat, reactMsg, reactionReceived)
+	if err := stream.CheckOperation(b.ctx); err != nil {
+		return err
+	}
+	if err := b.react(reactChat, reactMsg, reactionReceived); err != nil {
+		return err
+	}
+	if err := stream.CheckOperation(b.ctx); err != nil {
+		return err
+	}
+	if err := c.Notify(tele.Typing); err != nil {
+		return err
+	}
 
-	typingCtx, stopTyping := context.WithCancel(b.ctx)
-	go keepTyping(typingCtx, c)
-
-	response, tracker, images, streamErr := b.streamEvents(c, stream.Events)
-
-	stopTyping()
+	response, tracker, images, streamErr := b.streamEvents(c, stream)
 
 	if streamErr != nil {
 		logger().Error("agent stream error", "session_id", stream.SessionID, "error", streamErr)
@@ -337,8 +295,18 @@ func (b *Bot) handleStream(c tele.Context, stream *channel.ChatStream) error {
 		response += tracker.RenderFinal()
 	}
 
-	b.sendFinalResponse(c, response, images)
-	b.finishReaction(reactChat, reactMsg, streamErr == nil)
+	if streamErr != nil {
+		return streamErr
+	}
+	if err := b.sendFinalResponse(b.ctx, stream, c, response, images); err != nil {
+		return err
+	}
+	if err := stream.CheckOperation(b.ctx); err != nil {
+		return err
+	}
+	if err := b.finishReaction(reactChat, reactMsg, true); err != nil {
+		return err
+	}
 	logger().Debug("response sent", "chat_id", chatID, "response_len", len(response))
 	return nil
 }

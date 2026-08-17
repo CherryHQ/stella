@@ -267,7 +267,14 @@ type AttachResult struct {
 	Events               <-chan agent.Event
 	Cancel               func()
 	Live                 bool
+	RunID                string
+	Remote               bool
 	BeforeProtectedEvent func(context.Context) error
+}
+
+type durableRunRuntime interface {
+	RunningRun(context.Context, string) (runID, executorBootID string, running bool, err error)
+	ExecutorBootID() string
 }
 
 // Attach authorizes read access and subscribes to an existing live turn. It
@@ -288,10 +295,27 @@ func (s *Service) Attach(ctx context.Context, in AttachInput) (AttachResult, err
 		return AttachResult{}, err
 	}
 	ch, cancel := runtime.SubscribeSession(in.SessionID)
+	live := runtime.SessionLive(in.SessionID)
+	var runID string
+	remote := false
+	if durable, ok := runtime.(durableRunRuntime); ok {
+		ownerBootID := ""
+		var running bool
+		runID, ownerBootID, running, err = durable.RunningRun(ctx, in.SessionID)
+		if err != nil {
+			cancel()
+			return AttachResult{}, fmt.Errorf("lookup active AgentRun: %w", err)
+		}
+		if running && (!live || ownerBootID != durable.ExecutorBootID()) {
+			remote = true
+		}
+	}
 	return AttachResult{
 		Events: ch,
 		Cancel: cancel,
-		Live:   runtime.SessionLive(in.SessionID),
+		Live:   live,
+		RunID:  runID,
+		Remote: remote,
 		BeforeProtectedEvent: func(eventCtx context.Context) error {
 			fresh, err := s.Begin(eventCtx, in.Authority)
 			if err != nil {

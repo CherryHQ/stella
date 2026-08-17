@@ -66,8 +66,8 @@ type tmpMount struct {
 // CreateSession creates a new localSession. The factory always sets HOME and
 // XDG roots for the local filesystem view; when Config provides StellaHome, it
 // also builds a sandboxed PATH and copies the host-variable allowlist.
-func (f *Factory) CreateSession(_ context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
-	sessionID := sandboxpkg.NewSessionID()
+func (f *Factory) CreateSession(ctx context.Context, policy sandboxpkg.Policy) (sandboxpkg.Session, error) {
+	sessionID := sandboxpkg.SessionID(ctx)
 	if err := checkSandboxRequirements(); err != nil {
 		return nil, err
 	}
@@ -362,6 +362,7 @@ type localSession struct {
 	doneOnce        sync.Once
 	mu              sync.RWMutex
 	closed          bool
+	closeErr        error
 	procs           []*localProcess
 }
 
@@ -390,26 +391,34 @@ func (s *localSession) Done() <-chan struct{} { return s.done }
 
 func (s *localSession) Close() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if s.closed {
-		return nil
+		s.mu.Unlock()
+		<-s.done
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		return s.closeErr
 	}
 	s.closed = true
 
-	// Snapshot and clear the process list, then close each.
-	// localProcess.Close() is idempotent so double-close from natural exit is safe.
 	procs := s.procs
 	s.procs = nil
-	for _, p := range procs {
-		p.Close() //nolint:errcheck
-	}
+	s.mu.Unlock()
 
+	// Never hold the session lock while waiting for process reaping: the process
+	// waiter deregisters itself under that same lock. Close returns only after
+	// every process group is proven absent, which is the provider-level proof the
+	// durable SessionSandbox lifecycle relies on before admitting a replacement.
 	var closeErr error
+	for _, p := range procs {
+		closeErr = errors.Join(closeErr, p.Close())
+	}
 	if s.resolver != nil {
-		closeErr = s.resolver.Close()
+		closeErr = errors.Join(closeErr, s.resolver.Close())
 	}
 	cleanupOwnedTmpMounts(s.tmpMounts)
+	s.mu.Lock()
+	s.closeErr = closeErr
+	s.mu.Unlock()
 	s.doneOnce.Do(func() { close(s.done) })
 	sandboxpkg.LogSessionClosed(s.id, "local", "explicit_close")
 	return closeErr
@@ -514,7 +523,7 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 	// leaving process-group children alive. We manage cancellation manually.
 	cmd := exec.Command(execPath, execArgs...)
 	cmd.Dir = realCwd
-	cmd.Env = buildEnv(policy, opts.Env)
+	cmd.Env = buildEnv(policy, opts.Env, s.id)
 	setSysProcAttr(cmd)
 
 	stdout := sandboxpkg.NewExecOutputBuffer()
@@ -533,29 +542,38 @@ func (s *localSession) Exec(ctx context.Context, command string, opts sandboxpkg
 		return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: rlimits: %w", rlErr)
 	}
 
-	// Finding 2: watch ctx cancellation manually so the whole process group dies.
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	// Register synchronous Exec processes too. Session Close must be able to
+	// cancel and prove absence of every process group, not only StartProcess
+	// handles, before its durable generation can be marked destroyed.
+	execCtx, cancelExec := context.WithCancel(ctx)
+	defer cancelExec()
+	proc := &localProcess{session: s, cmd: cmd, cancel: cancelExec, waitDone: make(chan struct{})}
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		killProcessGroup(cmd)
+		_ = cmd.Wait()
+		return sandboxpkg.ExecResult{}, fmt.Errorf("local: session is closed")
+	}
+	s.procs = append(s.procs, proc)
+	s.mu.Unlock()
+	proc.startWait()
 
 	select {
-	case <-ctx.Done():
-		killProcessGroup(cmd)
-		<-done // reap
-		return sandboxpkg.ExecResult{}, ctx.Err()
-	case waitErr := <-done:
-		exitCode := 0
-		if waitErr != nil {
-			exitErr := &exec.ExitError{}
-			if errors.As(waitErr, &exitErr) {
-				exitCode = exitErr.ExitCode()
-			} else {
-				return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: %w", waitErr)
-			}
+	case <-execCtx.Done():
+		_ = proc.Close()
+		return sandboxpkg.ExecResult{}, execCtx.Err()
+	case <-proc.waitDone:
+		if err := execCtx.Err(); err != nil {
+			return sandboxpkg.ExecResult{}, err
+		}
+		if proc.waitErr != nil {
+			return sandboxpkg.ExecResult{}, fmt.Errorf("local exec: %w", proc.waitErr)
 		}
 		return sandboxpkg.ExecResult{
 			Stdout:   stdout.String(),
 			Stderr:   stderr.String(),
-			ExitCode: exitCode,
+			ExitCode: proc.waitCode,
 		}, nil
 	}
 }
@@ -612,7 +630,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 	// Finding 2: do NOT use exec.CommandContext — kill the process group instead.
 	cmd := exec.Command(execPath, execArgs...)
 	cmd.Dir = realCwd
-	cmd.Env = buildEnv(policy, req.Env)
+	cmd.Env = buildEnv(policy, req.Env, s.id)
 	setSysProcAttr(cmd)
 
 	// Finding 7: close previously opened pipes on error.
@@ -661,20 +679,20 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 		return nil, fmt.Errorf("local: session is closed")
 	}
 	proc := &localProcess{
-		session: s,
-		cmd:     cmd,
-		cancel:  cancel,
-		stdin:   stdin,
-		stdout:  stdout,
-		stderr:  stderr,
-		exitCh:  make(chan struct{}),
+		session:  s,
+		cmd:      cmd,
+		cancel:   cancel,
+		stdin:    stdin,
+		stdout:   stdout,
+		stderr:   stderr,
+		waitDone: make(chan struct{}),
 	}
 	// Watch context cancellation so the process group is killed on timeout/cancel.
 	go func() {
 		select {
 		case <-execCtx.Done():
 			proc.Close() //nolint:errcheck
-		case <-proc.exitCh:
+		case <-proc.waitDone:
 		}
 	}()
 	s.procs = append(s.procs, proc)
@@ -688,7 +706,7 @@ func (s *localSession) StartProcess(ctx context.Context, req sandboxpkg.ProcessR
 // buildEnv constructs the environment slice for a subprocess.
 // If policy.InheritEnv is true, the host environment is included as a base.
 // Policy env vars are applied on top, then per-call overrides.
-func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
+func buildEnv(policy sandboxpkg.Policy, overrides map[string]string, resourceID string) []string {
 	merged := make(map[string]string)
 
 	if policy.InheritEnv {
@@ -704,6 +722,9 @@ func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
 
 	maps.Copy(merged, policy.Env)
 	maps.Copy(merged, overrides)
+	if resourceID != "" {
+		merged[sandboxpkg.EnvResourceID] = resourceID
+	}
 	if renderedPath, ok := merged["PATH"]; ok {
 		merged[sandboxpkg.EnvRunnerPath] = renderedPath
 	}
@@ -720,15 +741,18 @@ func buildEnv(policy sandboxpkg.Policy, overrides map[string]string) []string {
 
 // localProcess implements sandboxpkg.ProcessHandle for a host os/exec process.
 type localProcess struct {
-	session *localSession
-	cmd     *exec.Cmd
-	cancel  context.CancelFunc
-	stdin   io.WriteCloser
-	stdout  io.ReadCloser
-	stderr  io.ReadCloser
-	mu      sync.Mutex
-	closed  bool
-	exitCh  chan struct{} // closed when the process exits naturally
+	session  *localSession
+	cmd      *exec.Cmd
+	cancel   context.CancelFunc
+	stdin    io.WriteCloser
+	stdout   io.ReadCloser
+	stderr   io.ReadCloser
+	mu       sync.Mutex
+	closed   bool
+	waitOnce sync.Once
+	waitDone chan struct{}
+	waitCode int
+	waitErr  error
 }
 
 func (p *localProcess) PID() int {
@@ -742,60 +766,61 @@ func (p *localProcess) Stdin() io.WriteCloser { return p.stdin }
 func (p *localProcess) Stdout() io.ReadCloser { return p.stdout }
 func (p *localProcess) Stderr() io.ReadCloser { return p.stderr }
 
-func (p *localProcess) Wait(ctx context.Context) (sandboxpkg.ExecResult, error) {
-	done := make(chan struct {
-		code int
-		err  error
-	}, 1)
-	go func() {
-		err := p.cmd.Wait()
-		code := 0
-		if err != nil {
-			exitErr := &exec.ExitError{}
-			if errors.As(err, &exitErr) {
-				code = exitErr.ExitCode()
-				err = nil
+func (p *localProcess) startWait() {
+	p.waitOnce.Do(func() {
+		go func() {
+			err := p.cmd.Wait()
+			code := 0
+			if err != nil {
+				exitErr := &exec.ExitError{}
+				if errors.As(err, &exitErr) {
+					code = exitErr.ExitCode()
+					err = nil
+				}
 			}
-		}
-		// Finding 1: deregister on natural exit so Close() doesn't kill a stale PID.
-		p.mu.Lock()
-		if !p.closed {
+			absenceErr := waitProcessGroupAbsent(p.PID())
+			err = errors.Join(err, absenceErr)
+			p.mu.Lock()
 			p.closed = true
-			if p.exitCh != nil {
-				close(p.exitCh)
+			p.waitCode = code
+			p.waitErr = err
+			p.mu.Unlock()
+			// A naturally exited leader may leave descendants in its process
+			// group. Retain that handle so Session.Close can still SIGKILL and
+			// prove the complete resource absent.
+			if absenceErr == nil && p.session != nil {
+				p.session.deregisterProcess(p)
 			}
-		}
-		p.mu.Unlock()
-		if p.session != nil {
-			p.session.deregisterProcess(p)
-		}
-		done <- struct {
-			code int
-			err  error
-		}{code, err}
-	}()
+			close(p.waitDone)
+		}()
+	})
+}
 
+func (p *localProcess) Wait(ctx context.Context) (sandboxpkg.ExecResult, error) {
+	p.startWait()
 	select {
 	case <-ctx.Done():
 		_ = p.Close()
 		return sandboxpkg.ExecResult{}, ctx.Err()
-	case r := <-done:
-		return sandboxpkg.ExecResult{ExitCode: r.code}, r.err
+	case <-p.waitDone:
+		return sandboxpkg.ExecResult{ExitCode: p.waitCode}, p.waitErr
 	}
 }
 
 func (p *localProcess) Close() error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	if !p.closed {
+		p.closed = true
+		p.cancel()
+	}
+	pid := p.PID()
+	p.mu.Unlock()
 
-	if p.closed {
-		return nil
-	}
-	p.closed = true
-	if p.exitCh != nil {
-		close(p.exitCh)
-	}
-	p.cancel()
+	// Kill even when the leader exited naturally: descendants can remain in the
+	// original group. A single cmd.Wait owner reaps the leader, after which the
+	// platform check proves the whole group disappeared.
 	killProcessGroup(p.cmd)
-	return nil
+	p.startWait()
+	<-p.waitDone
+	return waitProcessGroupAbsent(pid)
 }

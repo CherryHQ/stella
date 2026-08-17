@@ -5,6 +5,15 @@ INSERT INTO ctx_session_inbox (
 VALUES ($1, $2, $3, $4, $5)
 RETURNING *;
 
+-- name: LinkSessionInboxRun :execrows
+UPDATE ctx_session_inbox
+SET run_id = sqlc.arg(run_id), updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND target_session_id = sqlc.arg(target_session_id)
+  AND run_id IS NULL
+  AND delivered_at IS NULL
+  AND failed_at IS NULL;
+
 -- name: ClaimSessionInboxDelivery :one
 -- Claim and validate the immutable delivery facts in one CAS. The enclosing LCM
 -- transaction rolls this UPDATE back if any transcript write fails afterwards.
@@ -15,6 +24,7 @@ WHERE id = sqlc.arg('id')
   AND target_session_id = sqlc.arg('target_session_id')
   AND actor_id = sqlc.arg('actor_id')
   AND content = sqlc.arg('content')
+  AND COALESCE(run_id::text, '') = sqlc.arg('run_id')
   AND delivered_at IS NULL
   AND failed_at IS NULL
 RETURNING *;
@@ -31,9 +41,19 @@ SELECT *
 FROM ctx_session_inbox
 WHERE delivered_at IS NULL
   AND failed_at IS NULL
+  AND run_id IS NULL
   AND enqueue_seq > sqlc.arg('after_enqueue_seq')::bigint
 ORDER BY enqueue_seq
 LIMIT sqlc.arg('page_size')::integer;
+
+-- name: TerminalizeLinkedSessionInbox :execrows
+UPDATE ctx_session_inbox inbox
+SET failed_at = now(), error_code = 'run_interrupted', updated_at = now()
+FROM agent_run run
+WHERE inbox.run_id = run.id
+  AND inbox.delivered_at IS NULL
+  AND inbox.failed_at IS NULL
+  AND run.status <> 'running';
 
 -- name: GetSessionInbox :one
 SELECT * FROM ctx_session_inbox WHERE id = $1;

@@ -30,9 +30,9 @@ const (
 //
 // Reactions are UI polish, not delivery: failures are logged and swallowed so
 // they can never fail the turn that triggered them.
-func (b *Bot) react(chatID, messageID, emoji string) {
+func (b *Bot) react(chatID, messageID, emoji string) error {
 	if b.bot == nil || chatID == "" || messageID == "" {
-		return
+		return nil
 	}
 	var reactions []tele.Reaction
 	if emoji != "" {
@@ -41,20 +41,18 @@ func (b *Bot) react(chatID, messageID, emoji string) {
 	err := b.bot.React(chatRef(chatID), tele.StoredMessage{MessageID: messageID}, tele.Reactions{
 		Reactions: reactions,
 	})
-	if err != nil {
-		logger().Debug("set telegram reaction failed", "chat_id", chatID, "message_id", messageID, "emoji", emoji, "error", err)
-	}
+	return err
 }
 
 // finishReaction clears the acknowledgement on success, or replaces it with a
 // failure mark so a turn that produced nothing useful is still distinguishable
 // from one that is still running.
-func (b *Bot) finishReaction(chatID, messageID string, success bool) {
+func (b *Bot) finishReaction(chatID, messageID string, success bool) error {
 	emoji := ""
 	if !success {
 		emoji = reactionFailure
 	}
-	b.react(chatID, messageID, emoji)
+	return b.react(chatID, messageID, emoji)
 }
 
 // reactionTarget extracts the chat and message identifiers to react on, or

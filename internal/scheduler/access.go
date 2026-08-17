@@ -127,7 +127,7 @@ func (a *Access) createJob(ctx context.Context, name, message string, sched Sche
 	if err := a.authorizeCreate(ctx, agentID); err != nil {
 		return Job{}, err
 	}
-	created, err := a.svc.addJobInternal(addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: a.userID, OwnerKind: JobOwnerUser, ExecScope: ExecScopeUser, DispatchKind: DispatchKindChat, IdempotencyKey: idempotencyKey, Enabled: enabled})
+	created, err := a.svc.addJobInternal(ctx, addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: a.userID, OwnerKind: JobOwnerUser, ExecScope: ExecScopeUser, DispatchKind: DispatchKindChat, IdempotencyKey: idempotencyKey, Enabled: enabled})
 	if err == nil || idempotencyKey == "" || !isSchedulerIdempotencyConflict(err) {
 		return created, err
 	}
@@ -212,7 +212,7 @@ func (a *Access) DeleteJob(ctx context.Context, agentID, jobID string) error {
 	if _, err := a.loadAndAuthorize(ctx, agentID, jobID, authz.ActionDelete); err != nil {
 		return err
 	}
-	return a.svc.RemoveJob(jobID)
+	return a.svc.RemoveJobContext(ctx, jobID)
 }
 
 // SetJobEnabled toggles a user-owned job after a write decision.

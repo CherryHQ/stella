@@ -15,6 +15,8 @@ import (
 	"github.com/riverqueue/river"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -432,7 +434,7 @@ func (s *Service) AddJobForContext(ctx context.Context, name, message string, sc
 	if userID != "" {
 		execScope = ExecScopeUser
 	}
-	return s.addJobInternal(addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: userID, OwnerKind: JobOwnerUser, ExecScope: execScope, DispatchKind: DispatchKindChat, Enabled: true})
+	return s.addJobInternal(ctx, addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: userID, OwnerKind: JobOwnerUser, ExecScope: execScope, DispatchKind: DispatchKindChat, Enabled: true})
 }
 
 // AddJobWithOwner creates a user-owned job with explicit owner parameters.
@@ -441,7 +443,7 @@ func (s *Service) AddJobWithOwner(name, message string, sched Schedule, sessionM
 	if userID != "" {
 		execScope = ExecScopeUser
 	}
-	return s.addJobInternal(addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: userID, OwnerKind: JobOwnerUser, ExecScope: execScope, DispatchKind: DispatchKindChat, Enabled: true})
+	return s.addJobInternal(s.ctx, addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: userID, OwnerKind: JobOwnerUser, ExecScope: execScope, DispatchKind: DispatchKindChat, Enabled: true})
 }
 
 func (s *Service) AddJobWithOwnerIdempotency(name, message string, sched Schedule, sessionMode, agentID string, userID string, idempotencyKey string) (Job, error) {
@@ -449,7 +451,7 @@ func (s *Service) AddJobWithOwnerIdempotency(name, message string, sched Schedul
 	if userID != "" {
 		execScope = ExecScopeUser
 	}
-	return s.addJobInternal(addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: userID, OwnerKind: JobOwnerUser, ExecScope: execScope, DispatchKind: DispatchKindChat, IdempotencyKey: idempotencyKey, Enabled: true})
+	return s.addJobInternal(s.ctx, addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: userID, OwnerKind: JobOwnerUser, ExecScope: execScope, DispatchKind: DispatchKindChat, IdempotencyKey: idempotencyKey, Enabled: true})
 }
 
 func (s *Service) AddWorkflowJobWithOwner(ctx context.Context, name string, sched Schedule, sessionMode, agentID string, userID string, workflowID string, inputs map[string]string, allowReplan bool) (Job, error) {
@@ -461,10 +463,10 @@ func (s *Service) AddWorkflowJobWithOwner(ctx context.Context, name string, sche
 	if allowReplan {
 		payload["allow_replan"] = true
 	}
-	return s.addJobInternal(addJobSpec{Name: name, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: userID, OwnerKind: JobOwnerUser, ExecScope: execScope, DispatchKind: DispatchKindWorkflow, Payload: payload, Enabled: true})
+	return s.addJobInternal(ctx, addJobSpec{Name: name, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, UserID: userID, OwnerKind: JobOwnerUser, ExecScope: execScope, DispatchKind: DispatchKindWorkflow, Payload: payload, Enabled: true})
 }
 
-func (s *Service) addJobInternal(spec addJobSpec) (Job, error) {
+func (s *Service) addJobInternal(ctx context.Context, spec addJobSpec) (Job, error) {
 	if spec.Name == "" {
 		return Job{}, fmt.Errorf("name is required")
 	}
@@ -472,7 +474,7 @@ func (s *Service) addJobInternal(spec addJobSpec) (Job, error) {
 		spec.DispatchKind = DispatchKindChat
 	}
 	payload := clonePayload(spec.Payload)
-	if err := s.validateDispatch(s.ctx, spec.DispatchKind, spec.Message, spec.OwnerKind, spec.UserID, spec.AgentID, payload); err != nil {
+	if err := s.validateDispatch(ctx, spec.DispatchKind, spec.Message, spec.OwnerKind, spec.UserID, spec.AgentID, payload); err != nil {
 		return Job{}, err
 	}
 	if err := validateSchedule(spec.Schedule); err != nil {
@@ -514,7 +516,7 @@ func (s *Service) addJobInternal(spec addJobSpec) (Job, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.addJobLocked(job); err != nil {
+	if err := s.addJobLocked(ctx, job); err != nil {
 		return Job{}, err
 	}
 
@@ -561,12 +563,15 @@ func (s *Service) AddPluginJob(ctx context.Context, pluginID, key, runtimeName, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.scheduleJob(job); err != nil {
-		return Job{}, fmt.Errorf("schedule job: %w", err)
-	}
-	if err := s.insertJob(s.ctx, job); err != nil {
-		s.unscheduleJob(job.ID)
+	if err := s.insertJob(ctx, job); err != nil {
 		return Job{}, fmt.Errorf("persist job: %w", err)
+	}
+	if err := agentrun.Check(ctx); err != nil {
+		return Job{}, err
+	}
+	if err := s.scheduleJob(job); err != nil {
+		_ = s.deleteJob(ctx, job.ID)
+		return Job{}, fmt.Errorf("schedule job: %w", err)
 	}
 	s.jobs[job.ID] = job
 	return job, nil
@@ -651,6 +656,12 @@ func validateSchedule(sched Schedule) error {
 
 // RemoveJob unschedules and removes a job.
 func (s *Service) RemoveJob(id string) error {
+	return s.RemoveJobContext(s.ctx, id)
+}
+
+// RemoveJobContext preserves an owning AgentRun fence across the live
+// registration change and the transaction that deletes its source row.
+func (s *Service) RemoveJobContext(ctx context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -658,13 +669,17 @@ func (s *Service) RemoveJob(id string) error {
 		return fmt.Errorf("job %q not found", id)
 	}
 
-	// Tear down the live River registration first.
-	s.unscheduleJob(id)
-
-	if err := s.deleteJob(s.ctx, id); err != nil {
+	// Delete the source row under the AgentRun lock before changing River. A
+	// stale executor cannot create a transient unscheduled window, while a crash
+	// after commit is safe because startup no longer reconstructs this job.
+	if err := s.deleteJob(ctx, id); err != nil {
 		return fmt.Errorf("persist after remove: %w", err)
 	}
+	if err := agentrun.Check(ctx); err != nil {
+		return err
+	}
 
+	s.unscheduleJob(id)
 	delete(s.jobs, id)
 
 	s.log.Info("job removed", "id", id)
@@ -714,7 +729,7 @@ func (s *Service) EnsureJob(name, message string, sched Schedule, sessionMode, a
 		return j, nil
 	}
 	s.mu.Unlock()
-	return s.addJobInternal(addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, OwnerKind: JobOwnerSystem, ExecScope: execScope, DispatchKind: DispatchKindChat, Enabled: true})
+	return s.addJobInternal(s.ctx, addJobSpec{Name: name, Message: message, Schedule: sched, SessionMode: sessionMode, AgentID: agentID, OwnerKind: JobOwnerSystem, ExecScope: execScope, DispatchKind: DispatchKindChat, Enabled: true})
 }
 
 // ListJobs returns all jobs.
@@ -754,7 +769,9 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	}
 
 	outputSink := &RunOutputSink{}
-	runCtx := withRunOutputSink(WithRunID(WithRunSessionID(ctx, sessionID), runID), outputSink)
+	completion := agentruntime.NewCompletionBarrier()
+	defer completion.Release()
+	runCtx := withAgentCompletion(withRunOutputSink(WithRunID(WithRunSessionID(ctx, sessionID), runID), outputSink), completion)
 
 	// Inject user into job copy so the callback can read job.UserID correctly.
 	jobRun := job
@@ -774,6 +791,14 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	// graceful shutdown cancels ctx mid-dispatch, the run row must still move out
 	// of "running" so it neither stays stuck nor blocks the next fire.
 	bookkeepingCtx := context.WithoutCancel(ctx)
+	if completion.Bound() {
+		guardedCtx, err := completion.Context(bookkeepingCtx)
+		if err != nil {
+			s.log.Warn("scheduler AgentRun completion fence unavailable", "run_id", runID, "error", err)
+			return
+		}
+		bookkeepingCtx = guardedCtx
+	}
 	if err := s.finishJobRun(bookkeepingCtx, runID, job.ID, status, finishedAt, errStr, outputSink.get()); err != nil {
 		s.log.Warn("failed to finish job run record", "run_id", runID, "error", err)
 	}
@@ -796,7 +821,7 @@ func (s *Service) executeSingleRun(ctx context.Context, job Job, userID string, 
 	}
 
 	if isOneTime {
-		go s.retireOneTimeJob(job.ID)
+		s.retireOneTimeJob(bookkeepingCtx, job.ID)
 	}
 }
 
@@ -845,7 +870,9 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 
 	go func() {
 		outputSink := &RunOutputSink{}
-		runCtx := withRunOutputSink(WithRunID(WithRunSessionID(svcCtx, sessionID), runID), outputSink)
+		completion := agentruntime.NewCompletionBarrier()
+		defer completion.Release()
+		runCtx := withAgentCompletion(withRunOutputSink(WithRunID(WithRunSessionID(svcCtx, sessionID), runID), outputSink), completion)
 		runErr := s.dispatchJob(runCtx, job)
 
 		finishedAt := time.Now().UTC()
@@ -856,10 +883,19 @@ func (s *Service) RunJobNow(ctx context.Context, jobID string) (string, error) {
 			errStr = runErr.Error()
 		}
 
-		if err := s.finishJobRun(svcCtx, runID, jobID, status, finishedAt, errStr, outputSink.get()); err != nil {
+		bookkeepingCtx := context.WithoutCancel(svcCtx)
+		if completion.Bound() {
+			guardedCtx, err := completion.Context(bookkeepingCtx)
+			if err != nil {
+				s.log.Warn("scheduler AgentRun completion fence unavailable", "run_id", runID, "error", err)
+				return
+			}
+			bookkeepingCtx = guardedCtx
+		}
+		if err := s.finishJobRun(bookkeepingCtx, runID, jobID, status, finishedAt, errStr, outputSink.get()); err != nil {
 			s.log.Warn("failed to finish job run record", "run_id", runID, "error", err)
 		}
-		if err := s.recordJobRun(svcCtx, jobID, finishedAt, runErr); err != nil {
+		if err := s.recordJobRun(bookkeepingCtx, jobID, finishedAt, runErr); err != nil {
 			s.log.Warn("failed to record scheduler job run", "id", jobID, "error", err)
 		}
 
@@ -914,7 +950,7 @@ func (s *Service) ListJobRuns(ctx context.Context, jobID string, limit int) ([]J
 // working. A disabled past-timestamp job can never fire again — startup only
 // arms enabled jobs, the River worker skips disabled ones, and re-enabling via
 // update is rejected while the timestamp is in the past.
-func (s *Service) retireOneTimeJob(id string) {
+func (s *Service) retireOneTimeJob(ctx context.Context, id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -926,7 +962,7 @@ func (s *Service) retireOneTimeJob(id string) {
 	job.Enabled = false
 	job.UpdatedAt = time.Now().UTC()
 	s.jobs[id] = job
-	if err := s.updateJob(s.ctx, job); err != nil {
+	if err := s.updateJob(ctx, job); err != nil {
 		s.log.Warn("failed to disable one-time job after execution", "id", id, "error", err)
 	} else {
 		s.log.Info("one-time job disabled after execution", "id", id)
@@ -1057,7 +1093,9 @@ func (s *Service) dispatchWorkflowJob(ctx context.Context, job Job, runner Workf
 		return err
 	}
 	if result.RootGoalID != "" {
-		if err := s.q.SetSchedJobRunRootGoal(ctx, sqlc.SetSchedJobRunRootGoalParams{RootGoalID: pgtype.Text{String: result.RootGoalID, Valid: true}, ID: runID, JobID: job.ID}); err != nil {
+		if err := s.guardedMutation(ctx, func(q *sqlc.Queries) error {
+			return q.SetSchedJobRunRootGoal(ctx, sqlc.SetSchedJobRunRootGoalParams{RootGoalID: pgtype.Text{String: result.RootGoalID, Valid: true}, ID: runID, JobID: job.ID})
+		}); err != nil {
 			return fmt.Errorf("set scheduler run root goal: %w", err)
 		}
 	}

@@ -178,6 +178,40 @@ func (q *Queries) ExtendRunningGroupDispatchLease(ctx context.Context, arg Exten
 	return result.RowsAffected(), nil
 }
 
+const findGroupDispatchByFIFO = `-- name: FindGroupDispatchByFIFO :one
+SELECT d.id, d.group_message_id, d.group_id, d.agent_id, d.reply_channel_id, d.status, d.attempt_count, d.lease_until, d.next_attempt_at, d.last_error, d.result_message_id, d.created_at, d.updated_at
+FROM channel_binding_fifo f
+JOIN ctx_group_dispatch d ON d.id = f.source_dispatch_id
+WHERE f.id = $1
+  AND f.source_responder_agent_id = $2
+`
+
+type FindGroupDispatchByFIFOParams struct {
+	FifoID           string      `json:"fifo_id"`
+	ResponderAgentID pgtype.Text `json:"responder_agent_id"`
+}
+
+func (q *Queries) FindGroupDispatchByFIFO(ctx context.Context, arg FindGroupDispatchByFIFOParams) (CtxGroupDispatch, error) {
+	row := q.db.QueryRow(ctx, findGroupDispatchByFIFO, arg.FifoID, arg.ResponderAgentID)
+	var i CtxGroupDispatch
+	err := row.Scan(
+		&i.ID,
+		&i.GroupMessageID,
+		&i.GroupID,
+		&i.AgentID,
+		&i.ReplyChannelID,
+		&i.Status,
+		&i.AttemptCount,
+		&i.LeaseUntil,
+		&i.NextAttemptAt,
+		&i.LastError,
+		&i.ResultMessageID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getGroupDispatch = `-- name: GetGroupDispatch :one
 SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at FROM ctx_group_dispatch WHERE id = $1
 `
@@ -439,6 +473,30 @@ type MarkGroupDispatchFailedParams struct {
 
 func (q *Queries) MarkGroupDispatchFailed(ctx context.Context, arg MarkGroupDispatchFailedParams) (int64, error) {
 	result, err := q.db.Exec(ctx, markGroupDispatchFailed, arg.LastError, arg.ID, arg.AttemptCount)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const rejectPendingGroupDispatch = `-- name: RejectPendingGroupDispatch :execrows
+UPDATE ctx_group_dispatch
+SET status = 'failed',
+    lease_until = NULL,
+    next_attempt_at = NULL,
+    last_error = $1,
+    updated_at = now()
+WHERE id = $2
+  AND status = 'pending'
+`
+
+type RejectPendingGroupDispatchParams struct {
+	LastError string `json:"last_error"`
+	ID        string `json:"id"`
+}
+
+func (q *Queries) RejectPendingGroupDispatch(ctx context.Context, arg RejectPendingGroupDispatchParams) (int64, error) {
+	result, err := q.db.Exec(ctx, rejectPendingGroupDispatch, arg.LastError, arg.ID)
 	if err != nil {
 		return 0, err
 	}

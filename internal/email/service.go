@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/vault"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -21,7 +22,6 @@ type Queries interface {
 	DeleteExpiredEmailSendDedup(context.Context) error
 	CreateEmailSendDedup(context.Context, sqlc.CreateEmailSendDedupParams) (sqlc.EmailSendDedup, error)
 	GetEmailSendDedup(context.Context, sqlc.GetEmailSendDedupParams) (sqlc.EmailSendDedup, error)
-	DeleteEmailSendDedup(context.Context, sqlc.DeleteEmailSendDedupParams) error
 }
 
 type SendResult struct {
@@ -37,6 +37,7 @@ type AccountList struct {
 type Service struct {
 	vaultSvc *vault.Service
 	q        Queries
+	db       *pgxpool.Pool
 	sendFunc func(EmailAccount, SendOptions) error
 }
 
@@ -47,7 +48,9 @@ func NewService(vaultSvc *vault.Service, q Queries) *Service {
 // NewServiceForPool creates an email service that owns the sqlc query set for
 // the email tables, so callers pass only the pgx pool.
 func NewServiceForPool(vaultSvc *vault.Service, pool *pgxpool.Pool) *Service {
-	return NewService(vaultSvc, sqlc.New(pool))
+	service := NewService(vaultSvc, sqlc.New(pool))
+	service.db = pool
+	return service
 }
 
 func (s *Service) SetSendFunc(fn func(EmailAccount, SendOptions) error) {
@@ -71,17 +74,35 @@ func (s *Service) send(ctx context.Context, userID, account string, opts SendOpt
 	if s.q == nil {
 		return SendResult{}, fmt.Errorf("email idempotency store is unavailable — try again later")
 	}
-	_ = s.q.DeleteExpiredEmailSendDedup(ctx)
-	_, err = s.q.CreateEmailSendDedup(ctx, sqlc.CreateEmailSendDedupParams{UserID: userID, IdempotencyKey: idempotencyKey})
+	createDedup := func(q Queries) error {
+		_ = q.DeleteExpiredEmailSendDedup(ctx)
+		_, createErr := q.CreateEmailSendDedup(ctx, sqlc.CreateEmailSendDedupParams{UserID: userID, IdempotencyKey: idempotencyKey})
+		return createErr
+	}
+	if _, guarded := agentrun.GuardFromContext(ctx); guarded {
+		if s.db == nil {
+			return SendResult{}, fmt.Errorf("email AgentRun fencing is unavailable — try again later")
+		}
+		err = agentrun.WriteTx(ctx, s.db, func(q *sqlc.Queries) error { return createDedup(q) })
+	} else {
+		err = createDedup(s.q)
+	}
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return SendResult{Status: "already sent (duplicate suppressed)", Duplicate: true}, nil
 		}
 		return SendResult{}, err
 	}
-	if err := s.sendFunc(acct, opts); err != nil {
-		_ = s.q.DeleteEmailSendDedup(ctx, sqlc.DeleteEmailSendDedupParams{UserID: userID, IdempotencyKey: idempotencyKey})
+	// The durable dedupe row makes this one-attempt on an ambiguous outcome;
+	// validate ownership immediately before crossing the SMTP boundary.
+	if err := agentrun.Check(ctx); err != nil {
 		return SendResult{}, err
+	}
+	if err := s.sendFunc(acct, opts); err != nil {
+		// SMTP errors after Send starts are outcome-unknown: the remote server
+		// may already have accepted the message. Keep the durable dedupe row so
+		// this logical send is never made transparently retryable.
+		return SendResult{}, fmt.Errorf("email delivery outcome is unknown; duplicate retry suppressed: %w", err)
 	}
 	return SendResult{Status: "sent"}, nil
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/bwmarrin/discordgo"
+
+	"github.com/CherryHQ/stella/pkg/channel"
 )
 
 // Reaction lifecycle emoji. 👀 marks a message as received; it is replaced by
@@ -26,6 +28,36 @@ func (b *Bot) reactBestEffort(ctx context.Context, channelID, messageID, emoji s
 	if err := b.rest.MessageReactionAdd(channelID, messageID, emoji, discordgo.WithContext(ctx)); err != nil {
 		logger().Debug("add discord reaction failed", "channel_id", channelID, "message_id", messageID, "emoji", emoji, "error", err)
 	}
+}
+
+func (b *Bot) finishReactionChecked(ctx context.Context, stream *channel.ChatStream, channelID, messageID string, success bool) error {
+	if b.rest == nil || channelID == "" || messageID == "" {
+		return nil
+	}
+	emoji, opposite := reactionSuccess, reactionFailure
+	if !success {
+		emoji, opposite = reactionFailure, reactionSuccess
+	}
+	mutations := []func() error{
+		func() error {
+			return b.rest.MessageReactionRemove(channelID, messageID, reactionReceived, "@me", discordgo.WithContext(ctx))
+		},
+		func() error {
+			return b.rest.MessageReactionRemove(channelID, messageID, opposite, "@me", discordgo.WithContext(ctx))
+		},
+		func() error {
+			return b.rest.MessageReactionAdd(channelID, messageID, emoji, discordgo.WithContext(ctx))
+		},
+	}
+	for _, mutate := range mutations {
+		if err := stream.CheckOperation(ctx); err != nil {
+			return err
+		}
+		if err := mutate(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // finishReaction transitions a message's lifecycle reaction from 👀 to a

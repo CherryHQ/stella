@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -82,6 +83,9 @@ func (s *POSIXStore) verifyReflectEvidence(ctx context.Context, after Skill, act
 }
 
 func (s *POSIXStore) ensureReflectEvidence(ctx context.Context, before *Skill, after Skill, action string, metadata json.RawMessage) error {
+	if err := agentrun.Check(ctx); err != nil {
+		return err
+	}
 	if err := s.verifyReflectEvidence(ctx, after, action); err == nil {
 		return nil
 	}
@@ -94,6 +98,9 @@ func (s *POSIXStore) ensureReflectEvidence(ctx context.Context, before *Skill, a
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return err
+	}
 	q := s.q.WithTx(tx)
 	usage := sqlc.RefreshSkillUsageOnReflectPatchParams{SkillID: after.ID, UserID: after.UserID, AgentID: after.AgentID, ContentDigest: digestText(after.ContentDigest)}
 	if action == "create" {
@@ -115,6 +122,9 @@ func (s *POSIXStore) ensureReflectEvidence(ctx context.Context, before *Skill, a
 }
 
 func (s *POSIXStore) CreateReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillCreate) (skill Skill, resultErr error) {
+	if err := agentrun.Check(ctx); err != nil {
+		return Skill{}, err
+	}
 	release, err := s.lockManagedMutations(ctx)
 	if err != nil {
 		return Skill{}, err
@@ -154,6 +164,11 @@ func (s *POSIXStore) CreateReflectOwnedUserAgentSkill(ctx context.Context, in Re
 	if err != nil {
 		return Skill{}, err
 	}
+	if err := agentrun.Check(ctx); err != nil {
+		checkCtx, cancel := freshSkillContext()
+		defer cancel()
+		return Skill{}, errors.Join(err, s.removeSelection(checkCtx, desired, published.Skill.ContentDigest))
+	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		checkCtx, cancel := freshSkillContext()
@@ -162,7 +177,10 @@ func (s *POSIXStore) CreateReflectOwnedUserAgentSkill(ctx context.Context, in Re
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := s.q.WithTx(tx)
-	_, err = q.CreateSkill(ctx, createIdentityParams(desired))
+	err = agentrun.ValidateTx(ctx, tx)
+	if err == nil {
+		_, err = q.CreateSkill(ctx, createIdentityParams(desired))
+	}
 	if err == nil {
 		err = insertReflectEvidence(ctx, q, nil, published.Skill, "create", changelog)
 	}
@@ -239,6 +257,9 @@ func bytesEqual(left, right []byte) bool {
 }
 
 func (s *POSIXStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillPatch) (skill Skill, resultErr error) {
+	if err := agentrun.Check(ctx); err != nil {
+		return Skill{}, err
+	}
 	release, err := s.lockManagedMutations(ctx)
 	if err != nil {
 		return Skill{}, err
@@ -306,11 +327,17 @@ func (s *POSIXStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in Ref
 	if err != nil {
 		return Skill{}, err
 	}
+	if err := agentrun.Check(ctx); err != nil {
+		return published.Skill, fmt.Errorf("%w: Reflect patch ownership changed after publication: %w", home.ErrOutcomeUnknown, err)
+	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return published.Skill, fmt.Errorf("%w: begin Reflect evidence: %w", home.ErrOutcomeUnknown, err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return published.Skill, fmt.Errorf("%w: fence Reflect patch evidence: %w", home.ErrOutcomeUnknown, err)
+	}
 	if err := insertReflectEvidence(ctx, s.q.WithTx(tx), &before.Skill, published.Skill, "patch", changelog); err != nil {
 		return published.Skill, fmt.Errorf("%w: record Reflect evidence: %w", home.ErrOutcomeUnknown, err)
 	}
@@ -325,6 +352,9 @@ func (s *POSIXStore) PatchReflectOwnedUserAgentSkill(ctx context.Context, in Ref
 }
 
 func (s *POSIXStore) DeleteReflectOwnedUserAgentSkill(ctx context.Context, in ReflectSkillDelete) (skill Skill, resultErr error) {
+	if err := agentrun.Check(ctx); err != nil {
+		return Skill{}, err
+	}
 	release, err := s.lockManagedMutations(ctx)
 	if err != nil {
 		return Skill{}, err
@@ -355,6 +385,9 @@ func (s *POSIXStore) DeleteReflectOwnedUserAgentSkill(ctx context.Context, in Re
 		return Skill{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return Skill{}, err
+	}
 	q := s.q.WithTx(tx)
 	usage, err := q.GetSkillUsageForUpdate(ctx, sqlc.GetSkillUsageForUpdateParams{SkillID: in.ID, UserID: in.UserID, AgentID: in.AgentID})
 	if err != nil || !usage.LastUsedAt.Equal(in.ExpectedUsageLastUsedAt) || usage.ContentDigest.String != in.ExpectedDigest {
@@ -375,8 +408,14 @@ func (s *POSIXStore) DeleteReflectOwnedUserAgentSkill(ctx context.Context, in Re
 			return before.Skill, fmt.Errorf("%w: commit Reflect delete: %w", home.ErrOutcomeUnknown, errors.Join(err, readErr))
 		}
 	}
+	if err := agentrun.Check(ctx); err != nil {
+		return before.Skill, fmt.Errorf("%w: Reflect delete ownership changed before cleanup: %w", home.ErrOutcomeUnknown, err)
+	}
 	if err := s.cleanupDeletedSelection(before.Skill, in.ExpectedDigest); err != nil {
 		return before.Skill, err
+	}
+	if err := agentrun.Check(ctx); err != nil {
+		return before.Skill, fmt.Errorf("%w: Reflect delete ownership changed during cleanup: %w", home.ErrOutcomeUnknown, err)
 	}
 	return before.Skill, nil
 }
@@ -396,8 +435,10 @@ func (s *POSIXStore) TouchReflectSkillRuntimeUseDigest(ctx context.Context, id, 
 	if snapshot.Skill.ContentDigest != digest || snapshot.Skill.Status != SkillStatusActive || snapshot.Skill.DisableModelInvocation || !IsReflectOwned(snapshot.Skill) {
 		return ErrSkillUsageChanged
 	}
-	rows, err := s.q.TouchReflectSkillRuntimeUse(ctx, sqlc.TouchReflectSkillRuntimeUseParams{
-		SkillID: id, UserID: userID, AgentID: agentID, ContentDigest: digestText(digest),
+	rows, err := agentrun.WriteTxValue(ctx, s.db, func(q *sqlc.Queries) (int64, error) {
+		return q.TouchReflectSkillRuntimeUse(ctx, sqlc.TouchReflectSkillRuntimeUseParams{
+			SkillID: id, UserID: userID, AgentID: agentID, ContentDigest: digestText(digest),
+		})
 	})
 	if err != nil {
 		return err

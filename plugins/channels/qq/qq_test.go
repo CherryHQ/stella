@@ -282,6 +282,31 @@ func TestExtractImageAttachmentsFiltersImages(t *testing.T) {
 	}
 }
 
+func TestExtractFileAttachmentsIncludesGenericVideoAndVoice(t *testing.T) {
+	attachments := []*dto.MessageAttachment{
+		{URL: "https://example.com/file", ContentType: "application/pdf"},
+		{URL: "https://example.com/video", ContentType: "video/mp4"},
+		{URL: "https://example.com/voice", ContentType: "voice"},
+		{URL: "https://example.com/image", ContentType: "image/png"},
+	}
+	got := extractFileAttachments(&dto.Message{Attachments: attachments})
+	if len(got) != 3 || got[0] != attachments[0] || got[1] != attachments[1] || got[2] != attachments[2] {
+		t.Fatalf("extractFileAttachments() = %#v, want generic file, video, and voice", got)
+	}
+}
+
+func TestBuildMessageContentRejectsAdvertisedAttachmentWithoutURL(t *testing.T) {
+	bot := &Bot{ctx: context.Background()}
+	for _, contentType := range []string{"image/png", "application/pdf", "video/mp4", "voice"} {
+		t.Run(contentType, func(t *testing.T) {
+			msg := &dto.Message{Content: "caption", Attachments: []*dto.MessageAttachment{{ContentType: contentType}}}
+			if got := bot.buildMessageContent(msg, channel.IncomingMessage{Platform: "qq"}); got != nil {
+				t.Fatalf("buildMessageContent() = %#v, want whole-delivery rejection", got)
+			}
+		})
+	}
+}
+
 // --- downloadImage ---
 
 func TestDownloadImageSuccess(t *testing.T) {

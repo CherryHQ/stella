@@ -84,6 +84,11 @@ func New(cfg Config, handler channel.Handler) (*Bot, error) {
 	return &Bot{session: s, handler: handler, cfg: cfg, provisionedGroups: make(map[string]struct{}), typing: make(map[string]*typingState), rest: s, cancels: newCancelRegistry()}, nil
 }
 
+// NewDurableGroupPublisher builds REST egress without opening the Gateway.
+func NewDurableGroupPublisher(cfg Config) (internalchannel.GroupPublisher, error) {
+	return New(cfg, nil)
+}
+
 func (b *Bot) Name() string {
 	if b.cfg.InstanceID != "" {
 		return b.cfg.InstanceID

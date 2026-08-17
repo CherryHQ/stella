@@ -9,6 +9,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/diagnostic"
 	pkgtools "github.com/CherryHQ/stella/pkg/tools"
 )
@@ -174,14 +175,28 @@ func (p *ToolProvider) toolsForServer(ctx context.Context, reg Registration) []p
 	connCtx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
+	if err := agentrun.Check(connCtx); err != nil {
+		p.log.Warn("mcp discovery owner unavailable; skipping server", "server", reg.Name, "error", err)
+		return nil
+	}
 	client, err := p.connect(connCtx, reg, bearer)
 	if err != nil {
 		p.log.Warn("mcp connect failed; skipping server", "server", reg.Name, "url", diagnostic.Endpoint(reg.URL), "error", err)
 		return nil
 	}
+	if err := agentrun.Check(connCtx); err != nil {
+		p.log.Warn("mcp discovery owner lost after connect; skipping server", "server", reg.Name, "error", err)
+		_ = client.Close()
+		return nil
+	}
 	remoteTools, err := client.ListTools(connCtx)
 	if err != nil {
 		p.log.Warn("mcp list tools failed; skipping server", "server", reg.Name, "error", err)
+		_ = client.Close()
+		return nil
+	}
+	if err := agentrun.Check(connCtx); err != nil {
+		p.log.Warn("mcp discovery owner lost after listing tools; skipping server", "server", reg.Name, "error", err)
 		_ = client.Close()
 		return nil
 	}

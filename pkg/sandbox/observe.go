@@ -1,10 +1,18 @@
 package sandbox
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"log/slog"
 )
+
+type sessionIDKey struct{}
+
+// EnvResourceID identifies host processes belonging to one durably registered
+// SessionSandbox resource. Host backends force this value after caller env
+// overrides so crash recovery can find and terminate orphaned process trees.
+const EnvResourceID = "STELLA_SANDBOX_RESOURCE_ID"
 
 // NewSessionID returns a cryptographically random session identifier.
 // Using random IDs avoids Docker container name collisions across test runs.
@@ -14,6 +22,26 @@ func NewSessionID() string {
 		panic("sandbox: NewSessionID: " + err.Error())
 	}
 	return "sandbox-" + hex.EncodeToString(b[:])
+}
+
+// WithSessionID pins a pre-registered durable compute identity into backend
+// creation. Providers use the same value for reconstructable resources (for
+// example a Docker container name), closing the crash window between an
+// external create and publishing that identity to PostgreSQL.
+func WithSessionID(ctx context.Context, id string) context.Context {
+	if id == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, sessionIDKey{}, id)
+}
+
+// SessionID returns the pre-registered identity when one is present and mints
+// a process-local identity otherwise.
+func SessionID(ctx context.Context) string {
+	if id, _ := ctx.Value(sessionIDKey{}).(string); id != "" {
+		return id
+	}
+	return NewSessionID()
 }
 
 func LogSessionCreated(sessionID, backend string, policy Policy) {

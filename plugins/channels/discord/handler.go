@@ -60,7 +60,12 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) (resultEr
 			return nil
 		}
 	}
-	// The message is now really accepted: best-effort mark it seen. With
+	// terminal tracks whether this turn reaches a definite outcome before
+	// handleMessage returns — a group message usually does not, since its reply
+	// is async and finishReaction runs later from Publish.
+	terminal := false
+	success := false
+	// With
 	// require_mention off, a group message that does not actually address the
 	// bot (no mention, no reply-to-bot) is still processed for ambient
 	// participation, but it never opted into the reaction lifecycle the way a
@@ -71,26 +76,6 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) (resultEr
 	// message usually does not, since its reply is async and finishReaction
 	// runs later from Publish keyed by GroupPublishRequest.ReplyTo.
 	reactionEligible := m.GuildID == "" || b.addressed(m)
-	if reactionEligible {
-		b.reactBestEffort(deliveryCtx, m.ChannelID, m.ID, reactionReceived)
-	}
-	terminal := false
-	success := false
-	defer func() {
-		if !reactionEligible {
-			return
-		}
-		switch {
-		case resultErr != nil:
-			b.finishReaction(deliveryCtx, m.ChannelID, m.ID, false)
-		case terminal:
-			b.finishReaction(deliveryCtx, m.ChannelID, m.ID, success)
-		}
-	}()
-	// Acknowledge immediately; attachment downloads, thread-history reads, and
-	// durable group dispatch can all take longer than Discord's typing TTL.
-	stopTyping := b.startTypingHeartbeat(m.ChannelID)
-	defer stopTyping()
 	text := m.Content
 	if m.GuildID != "" {
 		text = b.stripBotMention(text)
@@ -116,7 +101,11 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) (resultEr
 		assetMsg = probe
 	}
 	for _, attachment := range m.Attachments {
-		content = append(content, b.attachmentContent(deliveryCtx, assetMsg, attachment)...)
+		blocks, err := b.attachmentContent(deliveryCtx, assetMsg, attachment)
+		if err != nil {
+			return fmt.Errorf("materialize immutable Discord attachment: %w", err)
+		}
+		content = append(content, blocks...)
 	}
 	history, err := b.loadThreadHistory(deliveryCtx, m, route)
 	if err != nil {
@@ -143,6 +132,33 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) (resultEr
 			}
 		}
 	}
+	if ai.HasAttachment(msg.Content) {
+		admitter, ok := b.handler.(channel.AttachmentAdmitter)
+		if !ok {
+			return errors.New("attachment durable admission unavailable")
+		}
+		if err := admitter.AdmitAttachments(deliveryCtx, msg); err != nil {
+			return fmt.Errorf("admit immutable attachments: %w", err)
+		}
+	}
+	// The visible acknowledgement comes after attachment conversion and quota
+	// reservation; a rejected delivery is never shown as accepted.
+	if reactionEligible {
+		b.reactBestEffort(deliveryCtx, m.ChannelID, m.ID, reactionReceived)
+	}
+	defer func() {
+		if !reactionEligible {
+			return
+		}
+		switch {
+		case resultErr != nil:
+			b.finishReaction(deliveryCtx, m.ChannelID, m.ID, false)
+		case terminal:
+			b.finishReaction(deliveryCtx, m.ChannelID, m.ID, success)
+		}
+	}()
+	stopTyping := b.startTypingHeartbeat(m.ChannelID)
+	defer stopTyping()
 	cmd, args := channel.ParseSlashCommand(text)
 	resp, handled, stream, err := b.handler.HandleIncoming(deliveryCtx, msg, cmd, args)
 	if err != nil {
@@ -177,6 +193,12 @@ func (b *Bot) handleMessage(ctx context.Context, m *discordgo.Message) (resultEr
 			return true
 		},
 	})
+	// Stream egress owns its fenced terminal reaction. Suppress the generic
+	// deferred lifecycle mutation, which cannot safely run after unknown egress.
+	reactionEligible = false
+	if deliverErr == nil {
+		deliverErr = b.finishReactionChecked(deliveryCtx, stream, m.ChannelID, m.ID, true)
+	}
 	success = deliverErr == nil
 	return deliverErr
 }
@@ -221,9 +243,9 @@ func (b *Bot) ensureGroupMember(ctx context.Context, platformGroupID, platformTh
 	return nil
 }
 
-func (b *Bot) attachmentContent(ctx context.Context, assetMsg channel.IncomingMessage, a *discordgo.MessageAttachment) []ai.ContentBlock {
+func (b *Bot) attachmentContent(ctx context.Context, assetMsg channel.IncomingMessage, a *discordgo.MessageAttachment) ([]ai.ContentBlock, error) {
 	if a == nil {
-		return nil
+		return nil, errors.New("attachment metadata is missing")
 	}
 	name := filepath.Base(a.Filename)
 	if name == "." || name == "" {
@@ -232,7 +254,7 @@ func (b *Bot) attachmentContent(ctx context.Context, assetMsg channel.IncomingMe
 	data, err := downloadAttachment(ctx, a.URL)
 	if err != nil {
 		logger().Warn("download attachment failed", "attachment_id", a.ID, "file_name", name, "error", err)
-		return channel.TextContent(fmt.Sprintf("[Attachment: %s — download failed.]", name))
+		return nil, fmt.Errorf("download %q: %w", name, err)
 	}
 	mime := http.DetectContentType(data)
 	saver, ok := b.handler.(channel.AssetSaver)
@@ -241,13 +263,13 @@ func (b *Bot) attachmentContent(ctx context.Context, assetMsg channel.IncomingMe
 		if err != nil {
 			logger().Warn("save attachment failed", "attachment_id", a.ID, "file_name", name, "error", err)
 		} else {
-			return channel.AttachmentReceivedContent(name, path, data)
+			return channel.AttachmentReceivedContent(name, path, data), nil
 		}
 	}
 	if strings.HasPrefix(mime, "image/") {
-		return channel.InlineImageFallback(name, mime, data)
+		return channel.InlineImageFallback(name, mime, data), nil
 	}
-	return channel.AttachmentSaveFailureContent(name, data)
+	return channel.AttachmentSaveFailureContent(name, data), nil
 }
 
 func allowedAttachmentURL(raw string) bool {

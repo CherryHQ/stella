@@ -56,6 +56,26 @@ func TestCanonicalContentBlocksRejectRawImageAndAcceptRef(t *testing.T) {
 	}
 }
 
+func TestFileContentCanonicalizesOnlyAsImmutableReference(t *testing.T) {
+	raw := FileContent{Data: []byte("report"), MimeType: "text/plain", Name: "report.txt", Path: "$STELLA_ASSETS_DIR/hash-report.txt"}
+	if err := ValidateCanonicalContentBlocks([]ContentBlock{raw}); err == nil {
+		t.Fatal("raw file bytes were accepted as canonical content")
+	}
+	ref := FileRefContent{MediaID: "61000000-0000-0000-0000-000000000001", Name: raw.Name, Path: raw.Path}
+	data, err := MarshalContentBlocks([]ContentBlock{ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocks, err := UnmarshalContentBlocks(data)
+	if err != nil || len(blocks) != 1 || blocks[0] != ref {
+		t.Fatalf("file ref round trip = %#v, %v", blocks, err)
+	}
+	projected := ProjectFileRefs(blocks)
+	if _, ok := projected[0].(TextContent); !ok {
+		t.Fatalf("file execution projection = %T, want TextContent", projected[0])
+	}
+}
+
 func TestImageRefRejectsInvalidBaseline(t *testing.T) {
 	for _, text := range []string{
 		"not a baseline",
@@ -101,7 +121,7 @@ func TestFlattenCanonicalTextUsesStableUnavailableProjection(t *testing.T) {
 	}
 }
 
-func TestMarshalContentBlocksSkipsInternalKinds(t *testing.T) {
+func TestMarshalContentBlocksSkipsUnsupportedInternalKinds(t *testing.T) {
 	data, err := MarshalContentBlocks([]ContentBlock{
 		ThinkingContent{Thinking: "secret"},
 		ImageRefContent{MediaID: "internal"},
@@ -114,7 +134,13 @@ func TestMarshalContentBlocksSkipsInternalKinds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if len(blocks) != 1 {
-		t.Fatalf("blocks = %#v, want only the text block", blocks)
+	if len(blocks) != 2 {
+		t.Fatalf("blocks = %#v, want canonical image ref and text", blocks)
+	}
+	if ref, ok := blocks[0].(ImageRefContent); !ok || ref.MediaID != "internal" {
+		t.Fatalf("canonical image ref = %#v", blocks[0])
+	}
+	if text, ok := blocks[1].(TextContent); !ok || text.Text != "visible" {
+		t.Fatalf("text block = %#v", blocks[1])
 	}
 }

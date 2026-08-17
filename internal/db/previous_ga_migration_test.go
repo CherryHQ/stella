@@ -33,7 +33,7 @@ const (
 	// below. Library chunk locator integrity and the dedicated Skill Home
 	// cutover evidence schema and retired RTK plugin cleanup are checked
 	// explicitly.
-	currentMigrationVersion = sequentialAnchor + 18
+	currentMigrationVersion = sequentialAnchor + 19
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
@@ -337,6 +337,14 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 	if got := count("session inbox table", `SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ctx_session_inbox'`); got != 1 {
 		t.Fatalf("session inbox tables = %d, want 1", got)
+	}
+	for _, table := range []string{"runtime_executor_boot", "agent_run", "agent_session_sandbox", "channel_binding_fifo", "channel_group_route"} {
+		if got := count(table+" table", `SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1`, table); got != 1 {
+			t.Fatalf("%s tables = %d, want 1", table, got)
+		}
+	}
+	if got := count("session inbox run fence", `SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'ctx_session_inbox' AND column_name = 'run_id'`); got != 1 {
+		t.Fatalf("session inbox run_id columns = %d, want 1", got)
 	}
 	if got := count("message inbox column", `SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'ctx_message' AND column_name = 'inbox_id'`); got != 1 {
 		t.Fatalf("message inbox columns = %d, want 1", got)

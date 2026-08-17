@@ -1,7 +1,6 @@
 package weixin
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -13,7 +12,7 @@ import (
 )
 
 // handleUpdates dispatches incoming messages from the getupdates response.
-func (b *Bot) handleUpdates(msgs []WeixinMessage) {
+func (b *Bot) handleUpdates(msgs []WeixinMessage) error {
 	for i := range msgs {
 		msg := msgs[i]
 
@@ -36,8 +35,11 @@ func (b *Bot) handleUpdates(msgs []WeixinMessage) {
 			continue
 		}
 
-		b.dispatchMessage(msg)
+		if err := b.dispatchMessage(msg); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // dispatchMessage processes all items in a message's item_list.
@@ -45,46 +47,35 @@ func (b *Bot) handleUpdates(msgs []WeixinMessage) {
 // Text-only messages are handled as commands or chat. Messages with
 // images (possibly with text captions) become multimodal content.
 // File-only messages are downloaded and forwarded to the agent.
-func (b *Bot) dispatchMessage(msg WeixinMessage) {
+func (b *Bot) dispatchMessage(msg WeixinMessage) error {
 	texts, images := extractMessageContent(msg.ItemList)
 	combinedText := strings.Join(texts, "\n")
 	hasUnsupported := false
+	hasAttachments := len(images) > 0
 	for _, item := range msg.ItemList {
 		switch item.Type {
 		case ItemTypeText, ItemTypeImage, ItemTypeVoice, ItemTypeFile, ItemTypeVideo, ItemTypeUnsupported:
+			if item.Type == ItemTypeFile || item.Type == ItemTypeVideo || (item.Type == ItemTypeVoice && item.VoiceItem != nil && item.VoiceItem.Media != nil) {
+				hasAttachments = true
+			}
 		default:
 			hasUnsupported = true
 		}
 	}
-
-	// Media-only message (file or voice with CDN, no images, no text) — download and forward.
-	if len(images) == 0 && combinedText == "" {
-		for _, item := range msg.ItemList {
-			if item.Type == ItemTypeFile && item.FileItem != nil {
-				b.handleFile(msg, item.FileItem)
-				return
-			}
-			if item.Type == ItemTypeVoice && item.VoiceItem != nil && item.VoiceItem.Media != nil {
-				b.handleVoice(msg, item.VoiceItem)
-				return
-			}
-		}
-	}
-
-	// Pure text message — handle as commands or chat.
-	if len(images) == 0 {
+	if !hasAttachments {
 		if combinedText != "" {
-			b.handleText(msg, combinedText)
-			return
+			return b.handleText(msg, combinedText)
 		}
 		if hasUnsupported {
 			logger().Debug("unsupported message items only", "user_id", msg.FromUserID)
 		}
-		return
+		return nil
 	}
-
-	// Message has images — build multimodal content.
-	b.handleImages(msg, images, combinedText)
+	content, err := b.buildAttachmentContent(msg, combinedText)
+	if err != nil {
+		return err
+	}
+	return b.handleIncoming(msg, b.incomingMsg(msg, content), "", "")
 }
 
 // incomingMsg builds a channel.IncomingMessage from a weixin message context.
@@ -108,21 +99,23 @@ func (b *Bot) incomingMsg(msg WeixinMessage, content []ai.ContentBlock) channel.
 }
 
 // handleText processes incoming text messages.
-func (b *Bot) handleText(msg WeixinMessage, text string) {
+func (b *Bot) handleText(msg WeixinMessage, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return
+		return nil
 	}
 
 	incoming := b.incomingMsg(msg, channel.TextContent(text))
 
 	cmd, args := channel.ParseSlashCommand(text)
 	// Delegate to coordinator (shared commands + chat streaming).
-	b.handleIncoming(msg, incoming, cmd, args)
+	return b.handleIncoming(msg, incoming, cmd, args)
 }
 
-// extractMessageContent walks all items and returns text fragments and image items.
-// Voice transcriptions, file names, video placeholders, and quoted messages are included as text.
+// extractMessageContent walks all items and returns genuine text fragments and
+// image items. File/video attachment placeholders are deliberately excluded:
+// accepting one as text would acknowledge a delivery whose expiring bytes were
+// never made immutable.
 func extractMessageContent(items []MessageItem) (texts []string, images []*ImageItem) {
 	for _, item := range items {
 		// Quoted/referenced message — prepend as context before the item's own content.
@@ -151,16 +144,8 @@ func extractMessageContent(items []MessageItem) (texts []string, images []*Image
 			if item.VoiceItem != nil && item.VoiceItem.Text != "" {
 				texts = append(texts, item.VoiceItem.Text)
 			}
-		case ItemTypeFile:
-			if item.FileItem != nil {
-				name := item.FileItem.FileName
-				if name == "" {
-					name = "file"
-				}
-				texts = append(texts, fmt.Sprintf("[file: %s]", name))
-			}
-		case ItemTypeVideo:
-			texts = append(texts, "[video]")
+		case ItemTypeFile, ItemTypeVideo:
+			// Bytes are materialized by buildAttachmentContent.
 		case ItemTypeUnsupported:
 			// type=0 is a protocol placeholder; nothing to extract.
 		}
@@ -168,50 +153,94 @@ func extractMessageContent(items []MessageItem) (texts []string, images []*Image
 	return
 }
 
-// handleImages processes one or more images with optional caption text.
-func (b *Bot) handleImages(msg WeixinMessage, images []*ImageItem, caption string) {
+func (b *Bot) buildAttachmentContent(msg WeixinMessage, caption string) ([]ai.ContentBlock, error) {
 	var content []ai.ContentBlock
-
 	if caption != "" {
 		content = append(content, ai.TextContent{Text: caption})
 	}
-
 	assetMsg := b.resolveAssetsDir(msg)
 	if assetMsg.Platform == "" {
-		content = append(content, ai.TextContent{Text: "[Image attachment] (storage unavailable)"})
-		b.handleIncoming(msg, b.incomingMsg(msg, content), "", "")
-		return
+		return nil, fmt.Errorf("immutable attachment storage admission unavailable")
 	}
-	for _, imageItem := range images {
-		data, err := b.downloadImage(msg.FromUserID, imageItem)
-		if err != nil {
-			logger().Error("image processing failed", "user_id", msg.FromUserID, "error", err)
-			continue
-		}
-		mimeType := http.DetectContentType(data)
-		logger().Debug("image received", "user_id", msg.FromUserID, "size", len(data), "mime", mimeType)
-		fileName := channel.ImageFileName("image", mimeType)
-		if assetMsg.Platform != "" {
-			savedPath, saveErr := b.saveAsset(b.ctx, assetMsg, fileName, data)
-			if saveErr == nil {
-				content = append(content, channel.AttachmentReceivedContent(fileName, savedPath, data)...)
+	attachments := 0
+	for _, item := range msg.ItemList {
+		var fileName string
+		var data []byte
+		var err error
+		switch item.Type {
+		case ItemTypeImage:
+			if item.ImageItem == nil {
+				return nil, fmt.Errorf("image attachment metadata is missing")
+			}
+			data, err = b.downloadImage(msg.FromUserID, item.ImageItem)
+			if err == nil {
+				fileName = channel.ImageFileName("image", http.DetectContentType(data))
+			}
+		case ItemTypeFile:
+			if item.FileItem == nil {
+				return nil, fmt.Errorf("file attachment metadata is missing")
+			}
+			fileName = item.FileItem.FileName
+			if fileName == "" {
+				fileName = "file"
+			}
+			data, err = downloadWeixinMedia(item.FileItem.Media)
+		case ItemTypeVoice:
+			if item.VoiceItem == nil || item.VoiceItem.Media == nil {
 				continue
 			}
-			logger().Warn("save inbound image failed", "user_id", msg.FromUserID, "error", saveErr)
+			fileName = "voice.silk"
+			data, err = downloadWeixinMedia(item.VoiceItem.Media)
+			if err == nil {
+				if wav := silkToWav(data); wav != nil {
+					fileName, data = "voice.wav", wav
+				}
+			}
+		case ItemTypeVideo:
+			if item.VideoItem == nil {
+				return nil, fmt.Errorf("video attachment metadata is missing")
+			}
+			fileName = "video.mp4"
+			data, err = downloadWeixinMedia(item.VideoItem.Media)
+		default:
+			continue
 		}
-		// Persistence unavailable — degrade to inline within the ceiling; images
-		// past the inline limit become an explicit text note instead.
-		content = append(content, channel.InlineImageFallback(fileName, mimeType, data)...)
+		if err != nil {
+			return nil, fmt.Errorf("download %s: %w", fileName, err)
+		}
+		savedPath, err := b.saveAsset(b.ctx, assetMsg, fileName, data)
+		if err != nil {
+			return nil, fmt.Errorf("persist %s before admission: %w", fileName, err)
+		}
+		content = append(content, channel.AttachmentReceivedContent(fileName, savedPath, data)...)
+		attachments++
 	}
-
-	// Nothing decoded successfully.
-	if len(content) == 0 || (len(content) == 1 && caption != "") {
-		b.sendReply(msg, "Failed to process image(s).")
-		return
+	if attachments == 0 {
+		return nil, fmt.Errorf("attachment delivery contains no downloadable media")
 	}
+	return content, nil
+}
 
-	incoming := b.incomingMsg(msg, content)
-	b.handleIncoming(msg, incoming, "", "")
+func downloadWeixinMedia(media *CDNMedia) ([]byte, error) {
+	if media == nil || media.EncryptQueryParam == "" {
+		return nil, fmt.Errorf("missing CDN media reference")
+	}
+	data, err := DownloadFromCDN("", media.FullURL, media.EncryptQueryParam)
+	if err != nil {
+		return nil, err
+	}
+	if media.AESKey == "" {
+		return data, nil
+	}
+	key, err := DecodeAESKey(media.AESKey)
+	if err != nil {
+		return nil, fmt.Errorf("decode AES key: %w", err)
+	}
+	data, err = DecryptAESECB(data, key)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt media: %w", err)
+	}
+	return data, nil
 }
 
 // resolveAssetsDir returns the user assets directory for msg, or "" if unavailable.
@@ -225,125 +254,6 @@ func (b *Bot) resolveAssetsDir(msg WeixinMessage) channel.IncomingMessage {
 		}
 	}
 	return channel.IncomingMessage{}
-}
-
-// handleVoice handles a voice message item.
-// Preference order:
-//  1. Transcription text present: route as text message.
-//  2. CDN media present: download, transcode (SILK→WAV stub), save to assets, route as file.
-//  3. Neither: silently skip.
-func (b *Bot) handleVoice(msg WeixinMessage, voiceItem *VoiceItem) {
-	if voiceItem.Text != "" {
-		b.handleText(msg, voiceItem.Text)
-		return
-	}
-
-	if voiceItem.Media == nil || voiceItem.Media.EncryptQueryParam == "" {
-		logger().Debug("voice item has no transcription and no CDN reference", "user_id", msg.FromUserID)
-		return
-	}
-
-	assetMsg := b.resolveAssetsDir(msg)
-	if assetMsg.Platform == "" {
-		b.sendReply(msg, "[Voice message] (storage unavailable)")
-		return
-	}
-
-	encrypted, err := DownloadFromCDN("", voiceItem.Media.FullURL, voiceItem.Media.EncryptQueryParam)
-	if err != nil {
-		logger().Error("voice cdn download failed", "user_id", msg.FromUserID, "error", err)
-		b.sendReply(msg, "[Voice message] (download failed)")
-		return
-	}
-
-	data := encrypted
-	if voiceItem.Media.AESKey != "" {
-		if key, keyErr := DecodeAESKey(voiceItem.Media.AESKey); keyErr == nil {
-			if dec, decErr := DecryptAESECB(encrypted, key); decErr == nil {
-				data = dec
-			} else {
-				logger().Warn("voice aes decrypt failed, using raw bytes", "user_id", msg.FromUserID, "error", decErr)
-			}
-		} else {
-			logger().Warn("voice aes key decode failed", "user_id", msg.FromUserID, "error", keyErr)
-		}
-	}
-
-	fileName := "voice.silk"
-	fileData := data
-	if wav := silkToWav(data); wav != nil {
-		fileName = "voice.wav"
-		fileData = wav
-	}
-
-	savedPath, err := b.saveAsset(b.ctx, assetMsg, fileName, fileData)
-	if err != nil {
-		logger().Error("save voice asset failed", "user_id", msg.FromUserID, "error", err)
-		b.sendReply(msg, "[Voice message] (save failed)")
-		return
-	}
-
-	logger().Debug("voice file received", "user_id", msg.FromUserID, "file_name", fileName, "size", len(fileData))
-	incoming := b.incomingMsg(msg, channel.FileReceivedContent(fileName, savedPath))
-	b.handleIncoming(msg, incoming, "", "")
-}
-
-// handleFile downloads a file from CDN, saves it to the user's assets directory,
-// and forwards an Xberg extraction hint to the agent.
-func (b *Bot) handleFile(msg WeixinMessage, fileItem *FileItem) {
-	fileName := fileItem.FileName
-	if fileName == "" {
-		fileName = "file"
-	}
-
-	assetMsg := b.resolveAssetsDir(msg)
-	if assetMsg.Platform == "" {
-		b.sendReply(msg, fmt.Sprintf("[File: %s] (storage unavailable)", fileName))
-		return
-	}
-
-	// Download from CDN.
-	if fileItem.Media == nil || fileItem.Media.EncryptQueryParam == "" {
-		b.sendReply(msg, fmt.Sprintf("[File: %s] (no CDN reference)", fileName))
-		return
-	}
-	encrypted, err := DownloadFromCDN("", fileItem.Media.FullURL, fileItem.Media.EncryptQueryParam)
-	if err != nil {
-		logger().Error("cdn download failed for file", "user_id", msg.FromUserID, "error", err)
-		b.sendReply(msg, fmt.Sprintf("[File: %s] (download failed)", fileName))
-		return
-	}
-
-	// Decrypt if a key is present.
-	data := encrypted
-	if fileItem.Media.AESKey != "" {
-		key, err := DecodeAESKey(fileItem.Media.AESKey)
-		if err != nil {
-			logger().Warn("aes key decode failed for file, using plaintext", "error", err)
-		} else {
-			if decrypted, err := DecryptAESECB(encrypted, key); err != nil {
-				logger().Warn("aes decrypt failed for file, using raw bytes", "error", err)
-			} else {
-				data = decrypted
-			}
-		}
-	}
-
-	savedPath, err := b.saveAsset(b.ctx, assetMsg, fileName, data)
-	if err != nil {
-		// Persistence failed after a successful download — route a fallback to the
-		// agent (image bytes inline within the ceiling, other files as a
-		// placeholder) rather than dropping the turn.
-		logger().Warn("save file asset failed", "user_id", msg.FromUserID, "error", err)
-		incoming := b.incomingMsg(msg, channel.AttachmentSaveFailureContent(fileName, data))
-		b.handleIncoming(msg, incoming, "", "")
-		return
-	}
-
-	logger().Debug("file received", "user_id", msg.FromUserID, "file_name", fileName, "size", len(data))
-
-	incoming := b.incomingMsg(msg, channel.AttachmentReceivedContent(fileName, savedPath, data))
-	b.handleIncoming(msg, incoming, "", "")
 }
 
 // downloadImage fetches and decrypts a single image from CDN.
@@ -371,27 +281,34 @@ func (b *Bot) downloadImage(userID string, imageItem *ImageItem) ([]byte, error)
 }
 
 // handleIncoming delegates to the coordinator via HandleIncoming.
-func (b *Bot) handleIncoming(msg WeixinMessage, incoming channel.IncomingMessage, cmd, args string) {
+func (b *Bot) handleIncoming(msg WeixinMessage, incoming channel.IncomingMessage, cmd, args string) error {
+	if ai.HasAttachment(incoming.Content) {
+		admitter, ok := b.handler.(channel.AttachmentAdmitter)
+		if !ok {
+			return fmt.Errorf("durable attachment admission unavailable")
+		}
+		if err := admitter.AdmitAttachments(b.ctx, incoming); err != nil {
+			logger().Warn("durable attachment admission failed", "user_id", msg.FromUserID, "error", err)
+			return fmt.Errorf("durably admit attachment: %w", err)
+		}
+	}
 	resp, handled, stream, err := b.handler.HandleIncoming(b.ctx, incoming, cmd, args)
 	if err != nil {
 		logger().Error("chat failed", "user_id", msg.FromUserID, "error", err)
 		b.sendReply(msg, fmt.Sprintf("Session error: %v", err))
-		return
+		return nil
 	}
 	if handled {
 		b.sendReply(msg, resp)
-		return
+		return nil
+	}
+	if stream == nil {
+		return nil
 	}
 
 	logger().Debug("message received", "user_id", msg.FromUserID, "session", stream.SessionID)
 
-	// Start typing indicator.
-	typingCtx, stopTyping := context.WithCancel(b.ctx)
-	go b.keepTyping(typingCtx, msg)
-
 	response, tracker, images, streamErr := b.streamEvents(msg, stream.Events)
-
-	stopTyping()
 
 	if streamErr != nil {
 		logger().Error("agent stream error", "session_id", stream.SessionID, "error", streamErr)
@@ -410,8 +327,12 @@ func (b *Bot) handleIncoming(msg WeixinMessage, incoming channel.IncomingMessage
 		response += tracker.RenderFinal()
 	}
 
-	b.sendFinalResponse(msg, response, images)
+	if err := b.sendFinalResponse(b.ctx, stream, msg, response, images); err != nil {
+		logger().Error("send final response failed", "user_id", msg.FromUserID, "error", err)
+		return nil
+	}
 	logger().Debug("response sent", "user_id", msg.FromUserID, "response_len", len(response))
+	return nil
 }
 
 // sendReply sends a text reply to the message sender using the cached context_token.

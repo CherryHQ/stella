@@ -286,6 +286,8 @@ paths:
             text/event-stream:
               schema: { type: string }
         "204": { description: No turn currently in flight on this session }
+        "503":
+          $ref: "../../components.yaml#/components/responses/ServiceUnavailable"
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }

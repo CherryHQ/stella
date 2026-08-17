@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -260,6 +261,110 @@ func (h modelOverrideHook) Name() string { return "model-override" }
 func (modelOverrideHook) Priority() int  { return 0 }
 func (h modelOverrideHook) OnPreLLMCall(context.Context, *hooks.PreLLMCallContext) (hooks.PreLLMCallResult, error) {
 	return hooks.PreLLMCallResult{Model: &h.model}, nil
+}
+
+type contextOverrideHook struct{ ctx context.Context }
+
+func (contextOverrideHook) Name() string  { return "context-override" }
+func (contextOverrideHook) Priority() int { return 0 }
+func (h contextOverrideHook) OnPreLLMCall(context.Context, *hooks.PreLLMCallContext) (hooks.PreLLMCallResult, error) {
+	return hooks.PreLLMCallResult{Context: h.ctx}, nil
+}
+
+type recordingPostLLMHook struct{ called bool }
+
+func (*recordingPostLLMHook) Name() string  { return "recording-post-llm" }
+func (*recordingPostLLMHook) Priority() int { return 0 }
+func (h *recordingPostLLMHook) OnPostLLMCall(context.Context, *hooks.PostLLMCallContext) {
+	h.called = true
+}
+
+func TestRunStopsProviderDeltasAndHooksAfterOwnershipLoss(t *testing.T) {
+	errOwnershipLost := errors.New("ownership lost")
+	var fenced atomic.Bool
+	release := make(chan struct{})
+	stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		out := providers.NewChannelEventStream(4)
+		go func() {
+			out.Emit(ai.EventTextDelta{Text: "first"})
+			<-release
+			out.Emit(ai.EventTextDelta{Text: " stale"})
+			out.Emit(ai.EventStop{Reason: ai.StopReasonStop})
+			out.Finish(nil)
+		}()
+		return out, nil
+	}
+	postHook := &recordingPostLLMHook{}
+	runner := newTestRunner(stream,
+		WithHooks(hooks.NewHookSet([]hooks.HookPlugin{postHook}), hooks.HookMeta{}),
+		WithOperationCheck(func(context.Context) error {
+			if fenced.Load() {
+				return errOwnershipLost
+			}
+			return nil
+		}),
+	)
+	var deltas []string
+	_, err := runner.RunWithActiveStart(context.Background(), []ai.Message{ai.UserMessage{Content: "go"}}, 0, func(event LoopEvent) {
+		delta, ok := event.(AssistantDelta)
+		if !ok {
+			return
+		}
+		text, ok := delta.Event.(ai.EventTextDelta)
+		if !ok {
+			return
+		}
+		deltas = append(deltas, text.Text)
+		if text.Text == "first" {
+			fenced.Store(true)
+			close(release)
+		}
+	})
+	if !errors.Is(err, errOwnershipLost) {
+		t.Fatalf("RunWithActiveStart error = %v, want ownership lost", err)
+	}
+	if !slices.Equal(deltas, []string{"first"}) {
+		t.Fatalf("emitted text deltas = %v, want only pre-fence delta", deltas)
+	}
+	if postHook.called {
+		t.Fatal("post-LLM hook ran after ownership loss")
+	}
+}
+
+func TestPreLLMHookContextCannotDropRuntimeFenceValues(t *testing.T) {
+	type contextKey string
+	const (
+		runtimeKey contextKey = "runtime"
+		hookKey    contextKey = "hook"
+	)
+	checkRuntime := func(ctx context.Context) error {
+		if ctx.Value(runtimeKey) != "fence" {
+			return fmt.Errorf("runtime=%v", ctx.Value(runtimeKey))
+		}
+		return nil
+	}
+	checkValues := func(ctx context.Context) error {
+		if err := checkRuntime(ctx); err != nil || ctx.Value(hookKey) != "trace" {
+			return fmt.Errorf("runtime=%v hook=%v", ctx.Value(runtimeKey), ctx.Value(hookKey))
+		}
+		return nil
+	}
+	stream := func(ctx context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		if err := checkValues(ctx); err != nil {
+			return nil, err
+		}
+		return defaultFakeStream()(ctx, ai.Model{}, ai.Context{}, ai.StreamOptions{})
+	}
+	runner := newTestRunner(stream,
+		WithHooks(hooks.NewHookSet([]hooks.HookPlugin{contextOverrideHook{
+			ctx: context.WithValue(context.Background(), hookKey, "trace"),
+		}}), hooks.HookMeta{}),
+		WithOperationCheck(checkRuntime),
+	)
+	ctx := context.WithValue(context.Background(), runtimeKey, "fence")
+	if _, err := runner.RunWithActiveStart(ctx, []ai.Message{ai.UserMessage{Content: "go"}}, 0, nil); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestPreLLMModelOverrideFailsClosedForImageCapability(t *testing.T) {

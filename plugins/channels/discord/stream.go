@@ -20,6 +20,7 @@ type discordDraft struct {
 	messageID   string
 	last        string
 	cancelToken string
+	stream      *channel.ChatStream
 }
 
 // cancelButtonComponents attaches a single Danger "Cancel" button, or nil if
@@ -38,11 +39,15 @@ func (b *Bot) cancelButtonComponents(cancel *cancelControl) (string, []discordgo
 	}
 }
 
-func (b *Bot) beginDraft(ctx context.Context, channelID, replyTo string, cancel *cancelControl) *discordDraft {
+func (b *Bot) beginDraft(ctx context.Context, channelID, replyTo string, cancel *cancelControl, stream *channel.ChatStream) (*discordDraft, error) {
 	if b.rest == nil {
-		return nil
+		return nil, nil
 	}
 	token, components := b.cancelButtonComponents(cancel)
+	if err := stream.CheckOperation(ctx); err != nil {
+		b.unregisterCancel(token)
+		return nil, err
+	}
 	message, err := b.rest.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
 		Content:         workingMessage,
 		AllowedMentions: noMentions(),
@@ -50,15 +55,14 @@ func (b *Bot) beginDraft(ctx context.Context, channelID, replyTo string, cancel 
 		Components:      components,
 	}, discordgo.WithContext(ctx))
 	if err != nil {
-		logger().Debug("create Discord progress message failed", "channel_id", channelID, "error", err)
 		b.unregisterCancel(token)
-		return nil
+		return nil, err
 	}
 	if message == nil || message.ID == "" {
 		b.unregisterCancel(token)
-		return nil
+		return nil, nil
 	}
-	return &discordDraft{bot: b, channelID: channelID, messageID: message.ID, last: workingMessage, cancelToken: token}
+	return &discordDraft{bot: b, channelID: channelID, messageID: message.ID, last: workingMessage, cancelToken: token, stream: stream}, nil
 }
 
 // edit updates the draft's visible progress text. It never touches
@@ -71,6 +75,9 @@ func (d *discordDraft) edit(ctx context.Context, content string) error {
 	}
 	edit := discordgo.NewMessageEdit(d.channelID, d.messageID).SetContent(content)
 	edit.AllowedMentions = noMentions()
+	if err := d.stream.CheckOperation(ctx); err != nil {
+		return err
+	}
 	if _, err := d.bot.rest.ChannelMessageEditComplex(edit, discordgo.WithContext(ctx)); err != nil {
 		return err
 	}
@@ -90,6 +97,9 @@ func (d *discordDraft) finalize(ctx context.Context, content string) error {
 	edit := discordgo.NewMessageEdit(d.channelID, d.messageID).SetContent(content)
 	edit.AllowedMentions = noMentions()
 	edit.Components = &empty
+	if err := d.stream.CheckOperation(ctx); err != nil {
+		return err
+	}
 	_, err := d.bot.rest.ChannelMessageEditComplex(edit, discordgo.WithContext(ctx))
 	d.bot.unregisterCancel(d.cancelToken)
 	d.cancelToken = ""
@@ -99,29 +109,43 @@ func (d *discordDraft) finalize(ctx context.Context, content string) error {
 	return err
 }
 
-func (d *discordDraft) delete(ctx context.Context) {
+func (d *discordDraft) delete(ctx context.Context) error {
 	if d == nil {
-		return
+		return nil
+	}
+	if err := d.stream.CheckOperation(ctx); err != nil {
+		return err
 	}
 	if err := d.bot.rest.ChannelMessageDelete(d.channelID, d.messageID, discordgo.WithContext(ctx)); err != nil {
-		logger().Debug("delete Discord progress message failed", "channel_id", d.channelID, "message_id", d.messageID, "error", err)
+		return err
 	}
 	d.bot.unregisterCancel(d.cancelToken)
 	d.cancelToken = ""
+	return nil
 }
 
 func (b *Bot) deliverStream(ctx context.Context, channelID, replyTo string, stream *channel.ChatStream, cancel *cancelControl) error {
-	draft := b.beginDraft(ctx, channelID, replyTo, cancel)
+	defer stream.Discard()
+	draft, err := b.beginDraft(ctx, channelID, replyTo, cancel, stream)
+	if err != nil {
+		return err
+	}
+	var progressErr error
 	text, images, files, streamErr := collectResponse(ctx, stream, func(text string, tools *channel.ToolTracker) {
-		if draft == nil {
+		if draft == nil || progressErr != nil {
 			return
 		}
 		if err := draft.edit(ctx, buildDraftDisplay(text, tools)); err != nil {
-			logger().Debug("edit Discord progress message failed", "channel_id", channelID, "message_id", draft.messageID, "error", err)
+			progressErr = err
 		}
 	})
+	if progressErr != nil {
+		return progressErr
+	}
 	if errors.Is(streamErr, context.Canceled) {
-		draft.delete(context.WithoutCancel(ctx))
+		if err := draft.delete(context.WithoutCancel(ctx)); err != nil {
+			return err
+		}
 		if err := ctx.Err(); err != nil {
 			// Publisher lease loss and shutdown must remain retryable. A DM /abort
 			// reports cancellation only on the stream while deliveryCtx stays live.
@@ -141,30 +165,24 @@ func (b *Bot) deliverStream(ctx context.Context, channelID, replyTo string, stre
 	}
 
 	if draft != nil && utf8.RuneCountInString(text) <= maxMessageLength && len(images) == 0 && len(files) == 0 {
-		if err := draft.finalize(ctx, text); err == nil {
-			return nil
-		}
+		return draft.finalize(ctx, text)
 	}
 	if text != "" {
-		if err := b.sendText(ctx, channelID, text, replyTo); err != nil {
-			_ = draft.finalize(ctx, "⚠️ Discord delivery failed; Stella will retry.")
+		if err := b.sendTextChecked(ctx, stream, channelID, text, replyTo); err != nil {
 			return err
 		}
 	}
 	for _, image := range images {
-		if err := b.sendImage(ctx, channelID, image); err != nil {
-			_ = draft.finalize(ctx, "⚠️ Discord delivery failed; Stella will retry.")
+		if err := b.sendImageChecked(ctx, stream, channelID, image); err != nil {
 			return err
 		}
 	}
 	for _, file := range files {
-		if err := b.sendFile(ctx, channelID, file); err != nil {
-			_ = draft.finalize(ctx, "⚠️ Discord delivery failed; Stella will retry.")
+		if err := b.sendFileChecked(ctx, stream, channelID, file); err != nil {
 			return err
 		}
 	}
-	draft.delete(ctx)
-	return nil
+	return draft.delete(ctx)
 }
 
 func collectResponse(ctx context.Context, stream *channel.ChatStream, onProgress func(string, *channel.ToolTracker)) (string, []channel.ImageEvent, []channel.FileEvent, error) {

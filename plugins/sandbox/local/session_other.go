@@ -3,6 +3,7 @@
 package local
 
 import (
+	"fmt"
 	"os"
 
 	sandboxpkg "github.com/CherryHQ/stella/pkg/sandbox"
@@ -35,8 +36,12 @@ func filesystemTempDir(mounts []tmpMount) string {
 // adjustStellaHome returns the sandbox-view STELLA_HOME. No remapping on this platform.
 func adjustStellaHome(stellaHome string) string { return stellaHome }
 
-// checkSandboxRequirements is a no-op on platforms other than Linux.
-func checkSandboxRequirements() error { return nil }
+func checkSandboxRequirements() error {
+	if !processTreeSupported() {
+		return fmt.Errorf("local sandbox cannot prove process-tree destruction on this platform")
+	}
+	return nil
+}
 
 // wrapCommand is a no-op on platforms other than Linux and macOS.
 // Commands run unwrapped on the host OS.

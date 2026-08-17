@@ -18,6 +18,14 @@ WHERE user_id = sqlc.arg('user_id')
   AND id = ANY(sqlc.arg('media_ids')::uuid[])
 ORDER BY id ASC;
 
+-- name: ListMediaByIDs :many
+-- Internal durable-queue reconstruction starts from already-authorized media
+-- references stored in the event log. IDs are globally unique, so no mutable
+-- owner/session lookup is needed to recover immutable size metadata.
+SELECT * FROM ctx_media
+WHERE id = ANY(sqlc.arg('media_ids')::uuid[])
+ORDER BY id ASC;
+
 -- name: GetMediaForSession :one
 -- Authorize immutable media through an ordinary session message part. The
 -- conversation's legacy text owner is intentionally compared to the UUID media

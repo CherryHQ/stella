@@ -96,18 +96,12 @@ func TestExecutorWaitsForOneShotSessionClose(t *testing.T) {
 	}
 }
 
-func TestExecutorRunsSandboxCallbackOnlyForTerminalSubmitTurn(t *testing.T) {
+func TestExecutorDoesNotRetryTextOnlyTurnWithUnknownEffects(t *testing.T) {
 	turns := 0
 	chat := func(_ context.Context, p TaskChatParams) <-chan agent.Event {
 		turns++
 		ch := make(chan agent.Event, 1)
-		if turns == 1 {
-			ch <- agent.Event{Text: "I did work but forgot the tool"}
-		} else {
-			if _, err := p.ExtraTools[0].Execute(context.Background(), map[string]any{"action": "submit", "summary": "done"}); err != nil {
-				ch <- agent.Event{Err: err}
-			}
-		}
+		ch <- agent.Event{Text: "I did work but forgot the tool"}
 		if p.OnSandboxSession != nil {
 			if err := p.OnSandboxSession(sandbox.NopSession()); err != nil {
 				ch <- agent.Event{Err: err}
@@ -134,8 +128,8 @@ func TestExecutorRunsSandboxCallbackOnlyForTerminalSubmitTurn(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if turns != 2 || callbacks != 1 {
-		t.Fatalf("turns=%d callbacks=%d, want two turns and callback only on terminal submit", turns, callbacks)
+	if turns != 1 || callbacks != 0 {
+		t.Fatalf("turns=%d callbacks=%d, want one non-retried turn and no submit callback", turns, callbacks)
 	}
 }
 

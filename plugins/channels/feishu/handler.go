@@ -169,10 +169,11 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	// persistent workspace rather than a throwaway temp directory.
 	var assetMsg channel.IncomingMessage
 	switch derefStr(msg.MessageType) {
-	case "file", "image", "post":
+	case "file", "image", "post", "audio", "video", "media":
 		resolver, ok := b.handler.(channel.AssetSaveAdmitter)
 		if !ok {
 			logger().Warn("rejecting attachment: user root resolver unavailable")
+			b.forgetSeen(messageID)
 			return nil
 		}
 		{
@@ -183,6 +184,7 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 			resolveCancel()
 			if err != nil {
 				logger().Warn("rejecting attachment: resolve user root failed", "error", err)
+				b.forgetSeen(messageID)
 				replyCtx, cancel := b.apiContext()
 				defer cancel()
 				text := attachmentRejectionText(err)
@@ -195,6 +197,9 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 
 	content := b.buildMessageContent(msg, assetMsg)
 	if content == nil {
+		if isFeishuAttachmentType(derefStr(msg.MessageType)) {
+			b.forgetSeen(messageID)
+		}
 		return nil
 	}
 
@@ -252,6 +257,15 @@ func (b *Bot) onMessage(ctx context.Context, event *larkim.P2MessageReceiveV1) e
 	cmd, args := channel.ParseSlashCommand(text)
 	go b.handleIncoming(incoming, cmd, args, incoming.SenderID, chatID, messageID, rootID, replyFn)
 	return nil
+}
+
+func isFeishuAttachmentType(messageType string) bool {
+	switch messageType {
+	case "file", "image", "post", "audio", "video", "media":
+		return true
+	default:
+		return false
+	}
 }
 
 func attachmentRejectionText(err error) string {
@@ -338,8 +352,7 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetMsg channel.Inc
 		for _, imgKey := range imageKeys {
 			imgBlocks, ok := b.imageContentBlocks(messageID, imgKey, assetMsg)
 			if !ok {
-				blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[Failed to download image: %s]", imgKey)})
-				continue
+				return nil
 			}
 			blocks = append(blocks, imgBlocks...)
 		}
@@ -356,15 +369,31 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetMsg channel.Inc
 		}
 		blocks, ok := b.imageContentBlocks(messageID, imageKey, assetMsg)
 		if !ok {
-			return channel.TextContent("[Failed to download image]")
+			return nil
 		}
 		return blocks
 
-	case "audio":
-		return channel.TextContent(parseAudioContent(rawContent))
-
-	case "video", "media":
-		return channel.TextContent(parseVideoContent(rawContent))
+	case "audio", "video", "media":
+		fileKey := extractJSONField(rawContent, "file_key")
+		if fileKey == "" || assetMsg.Platform == "" {
+			logger().Warn("attachment message missing file resource", "type", msgType)
+			return nil
+		}
+		fileName := extractJSONField(rawContent, "file_name")
+		if fileName == "" {
+			fileName = fmt.Sprintf("%s-%s", msgType, fileKey)
+		}
+		data, err := b.downloadFile(messageID, fileKey)
+		if err != nil {
+			logger().Error("download media failed", "type", msgType, "file_key", fileKey, "error", err)
+			return nil
+		}
+		savedPath, err := b.saveAsset(b.ctx, assetMsg, fileName, data)
+		if err != nil {
+			logger().Warn("save inbound media failed", "type", msgType, "error", err)
+			return channel.AttachmentSaveFailureContent(fileName, data)
+		}
+		return channel.AttachmentReceivedContent(fileName, savedPath, data)
 
 	case "file":
 		fileKey := extractJSONField(rawContent, "file_key")
@@ -376,7 +405,7 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetMsg channel.Inc
 			data, err := b.downloadFile(messageID, fileKey)
 			if err != nil {
 				logger().Error("download file failed", "file_key", fileKey, "error", err)
-				return channel.TextContent(parseFileContent(rawContent))
+				return nil
 			}
 			savedPath, saveErr := b.saveAsset(b.ctx, assetMsg, fileName, data)
 			if saveErr != nil {
@@ -387,7 +416,7 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetMsg channel.Inc
 			}
 			return channel.AttachmentReceivedContent(fileName, savedPath, data)
 		}
-		return channel.TextContent(parseFileContent(rawContent))
+		return nil
 
 	case "sticker":
 		return channel.TextContent(parseStickerContent(rawContent))
@@ -414,14 +443,30 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetMsg channel.Inc
 // Shared commands are handled by the coordinator (including /abort);
 // otherwise a chat stream is returned.
 func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, chatID, messageID, rootID string, replyFn func(string)) {
-	// Ack immediately: user sees 🤔 while the bot processes.
-	ackReactionID := b.reactToMessage(messageID, reactionAck)
-
 	// Use an operation-scoped context so in-flight work survives bot restarts
 	// with bounded execution time. Keep it alive for the full streamed turn;
 	// cancelling immediately after HandleIncoming returns would abort the agent
 	// stream and release the per-session queue too early.
 	ctx, cancel := b.operationContext()
+	if ai.HasAttachment(msg.Content) {
+		admitter, ok := b.handler.(channel.AttachmentAdmitter)
+		if !ok {
+			b.forgetSeen(messageID)
+			cancel()
+			logger().Error("attachment admission unavailable", "sender_id", senderID)
+			return
+		}
+		if err := admitter.AdmitAttachments(ctx, msg); err != nil {
+			b.forgetSeen(messageID)
+			cancel()
+			b.reactToMessage(messageID, reactionError)
+			logger().Error("attachment admission failed", "sender_id", senderID, "error", err)
+			return
+		}
+	}
+	// The acknowledgement is visible only after expiring attachment bytes and
+	// all FIFO quotas have crossed the durable acceptance boundary.
+	ackReactionID := b.reactToMessage(messageID, reactionAck)
 
 	resp, handled, stream, err := b.handler.HandleIncoming(ctx, msg, cmd, args)
 	if err != nil {
@@ -450,8 +495,15 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 	logger().Debug("message received", "sender_id", senderID, "session", stream.SessionID, "root_id", rootID)
 
 	cancelControl := b.newDirectCancelControl(ctx, msg, senderID)
-	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThread(ctx, stream.Events, chatID, messageID, rootID, cancelControl)
+	sentMsgID, response, images, files, refs, elapsed, streamErr := b.streamResponseInThread(ctx, stream, chatID, messageID, rootID, cancelControl)
+	var egressErr streamEgressError
+	if errors.As(streamErr, &egressErr) {
+		return
+	}
 
+	if err := stream.CheckOperation(ctx); err != nil {
+		return
+	}
 	b.removeReaction(messageID, ackReactionID)
 
 	if cancelControl.wasCancelled() {
@@ -460,6 +512,9 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 		files = nil
 	} else if streamErr != nil {
 		logger().Error("agent stream error", "session_id", stream.SessionID, "error", streamErr)
+		if err := stream.CheckOperation(ctx); err != nil {
+			return
+		}
 		b.reactToMessage(messageID, reactionError)
 		if response == "" {
 			response = fmt.Sprintf("Agent error: %v", streamErr)
@@ -475,17 +530,23 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 	// Append elapsed time footer to the final response.
 	finalResponse := response + elapsedFooter(elapsed)
 
-	if err := b.sendFinalResponseInThread(ctx, chatID, messageID, rootID, sentMsgID, finalResponse, refs, msg.IsGroup, true); err != nil {
+	if err := b.sendFinalResponseInThread(ctx, chatID, messageID, rootID, sentMsgID, finalResponse, refs, msg.IsGroup, true, stream); err != nil {
 		logger().Error("Feishu response delivery failed", "chat_id", chatID, "root_id", rootID, "message_id", messageID, "error", err)
 		return
 	}
 
 	for _, img := range images {
-		b.sendImageInThread(chatID, messageID, rootID, img)
+		if err := b.sendImageInThread(ctx, chatID, messageID, rootID, img, stream); err != nil {
+			logger().Error("send image failed", "message_id", messageID, "error", err)
+			return
+		}
 	}
 
 	for _, file := range files {
-		b.sendFileInThread(chatID, messageID, rootID, file)
+		if err := b.sendFileInThread(ctx, chatID, messageID, rootID, file, stream); err != nil {
+			logger().Error("send file failed", "message_id", messageID, "error", err)
+			return
+		}
 	}
 
 	logger().Debug("response sent", "sender_id", senderID, "response_len", len(response), "images", len(images))

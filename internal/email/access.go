@@ -49,7 +49,7 @@ func (a *Access) Folders(ctx context.Context, account string) ([]string, error) 
 	if err != nil {
 		return nil, err
 	}
-	return Folders(acct)
+	return Folders(ctx, acct)
 }
 
 func (a *Access) List(ctx context.Context, account string, opts ListOptions) ([]Envelope, error) {
@@ -57,7 +57,7 @@ func (a *Access) List(ctx context.Context, account string, opts ListOptions) ([]
 	if err != nil {
 		return nil, err
 	}
-	return List(acct, opts)
+	return List(ctx, acct, opts)
 }
 
 func (a *Access) Read(ctx context.Context, account, folder string, uid uint32) (*Message, error) {
@@ -65,7 +65,7 @@ func (a *Access) Read(ctx context.Context, account, folder string, uid uint32) (
 	if err != nil {
 		return nil, err
 	}
-	return Read(acct, folder, uid)
+	return Read(ctx, acct, folder, uid)
 }
 
 func (a *Access) MarkSeen(ctx context.Context, account, folder string, uid uint32, seen bool) error {
@@ -73,7 +73,7 @@ func (a *Access) MarkSeen(ctx context.Context, account, folder string, uid uint3
 	if err != nil {
 		return err
 	}
-	return MarkSeen(acct, folder, uid, seen)
+	return MarkSeen(ctx, acct, folder, uid, seen)
 }
 
 func (a *Access) Send(ctx context.Context, account string, opts SendOptions, idempotencyKey string) (SendResult, error) {

@@ -5,10 +5,14 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/tencent-connect/botgo/dto"
+
 	internalchannel "github.com/CherryHQ/stella/internal/channel"
+	"github.com/CherryHQ/stella/pkg/channel"
 )
 
 func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishRequest) error {
+	defer req.Stream.Discard()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -19,20 +23,36 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 	if req.Stream == nil {
 		return nil
 	}
-	response, images, streamErr := b.streamResponse(req.Stream.Events, "", groupID, req.ReplyTo, scopeGroup)
+	var response strings.Builder
+	var streamErr error
+	for event := range req.Stream.Events {
+		if event.Err != nil {
+			streamErr = event.Err
+			break
+		}
+		response.WriteString(event.Text)
+	}
+	text := response.String()
 	if streamErr != nil {
-		if response == "" {
-			response = fmt.Sprintf("Agent error: %v", streamErr)
+		if text == "" {
+			text = fmt.Sprintf("Agent error: %v", streamErr)
 		} else {
-			response += fmt.Sprintf("\n\n[Agent error: %v]", streamErr)
+			text += fmt.Sprintf("\n\n[Agent error: %v]", streamErr)
 		}
 	}
-	if strings.TrimSpace(response) == "" {
-		response = "(empty response)"
+	if strings.TrimSpace(text) == "" {
+		text = "(empty response)"
 	}
-	b.sendFinalResponse(groupID, req.ReplyTo, response, scopeGroup)
-	for _, img := range images {
-		b.sendImage(groupID, req.ReplyTo, img, scopeGroup)
+	for i, chunk := range channel.SplitMessage(text, qqMaxMessageLen) {
+		if err := req.Stream.CheckOperation(ctx); err != nil {
+			return err
+		}
+		_, err := b.api.PostGroupMessage(ctx, groupID, dto.MessageToCreate{
+			Content: chunk, MsgType: dto.TextMsg, MsgID: req.ReplyTo, MsgSeq: uint32(100 + i),
+		})
+		if err != nil {
+			return fmt.Errorf("qq: publish response chunk %d: %w", i+1, err)
+		}
 	}
 	return nil
 }

@@ -13,6 +13,7 @@ import (
 	delegatetool "github.com/CherryHQ/stella/internal/agent/delegate"
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/agent/sandbox"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/memory"
 	skillstool "github.com/CherryHQ/stella/internal/skills"
@@ -166,11 +167,19 @@ func newAgentRunner(stream providers.StreamFunc, toolReg *tools.Registry, model 
 }
 
 func newAgentRunnerWithTools(stream providers.StreamFunc, model ai.Model, streamOptions ai.StreamOptions, system string, hookSet *hooks.HookSet, toolLifecycle *coreagent.ToolLifecycle, canonicalImages *coreagent.CanonicalImageConfig, toolSet coreagent.ToolSet, toolDefs []tools.Definition) (*coreagent.Runner, error) {
+	if toolLifecycle == nil {
+		toolLifecycle = &coreagent.ToolLifecycle{}
+	} else {
+		copy := *toolLifecycle
+		toolLifecycle = &copy
+	}
+	toolLifecycle.OperationCheck = agentrun.Check
 	opts := []coreagent.Option{
 		coreagent.WithStreamOptions(streamOptions),
 		coreagent.WithSystem(system),
 		coreagent.WithHooks(hookSet, hooks.HookMeta{}),
 		coreagent.WithToolLifecycle(toolLifecycle),
+		coreagent.WithOperationCheck(agentrun.Check),
 	}
 	if canonicalImages != nil {
 		opts = append(opts, coreagent.WithCanonicalImages(*canonicalImages))
@@ -492,7 +501,7 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 		}
 
 		if r.session != nil {
-			if err := sandbox.SyncSession(r.session); err != nil {
+			if err := sandbox.SyncSession(ctx, r.session); err != nil {
 				slog.Warn("runner: sync session after chat", "error", err)
 			}
 		}

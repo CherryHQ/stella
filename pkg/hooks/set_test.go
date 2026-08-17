@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -138,6 +139,28 @@ func TestHookSet_Empty(t *testing.T) {
 	})
 	if nonEmpty.Empty() {
 		t.Error("HookSet with plugins should not be empty")
+	}
+}
+
+func TestHookSetOperationCheckStopsBeforeNextCallback(t *testing.T) {
+	errOwnershipLost := errors.New("ownership lost")
+	first := &preToolCallPlugin{mockPlugin: mockPlugin{name: "first", priority: 1}}
+	second := &preToolCallPlugin{mockPlugin: mockPlugin{name: "second", priority: 2}}
+	checks := 0
+	hs := NewHookSet([]HookPlugin{first, second}).WithOperationCheck(func(context.Context) error {
+		checks++
+		if checks > 1 {
+			return errOwnershipLost
+		}
+		return nil
+	})
+
+	_, err := hs.RunPreToolCall(context.Background(), &PreToolCallContext{})
+	if !errors.Is(err, errOwnershipLost) {
+		t.Fatalf("RunPreToolCall error = %v, want ownership lost", err)
+	}
+	if !first.called || second.called {
+		t.Fatalf("hook calls first/second = %t/%t, want true/false", first.called, second.called)
 	}
 }
 

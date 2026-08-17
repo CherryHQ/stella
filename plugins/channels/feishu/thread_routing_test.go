@@ -11,6 +11,7 @@ import (
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	internalchannel "github.com/CherryHQ/stella/internal/channel"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -363,7 +364,7 @@ func TestOnMessageAuthPreservesThreadID(t *testing.T) {
 	}
 }
 
-func TestOnMessageFileResolveUserRootPreservesThreadID(t *testing.T) {
+func TestOnMessageFileDownloadFailurePreservesProbeThreadAndAllowsRedelivery(t *testing.T) {
 	b, h, captured := newThreadRoutingBotWithHandler(t)
 	probeCh := make(chan channel.IncomingMessage, 1)
 	h.resolveUserRootFn = func(_ context.Context, msg channel.IncomingMessage) (string, error) {
@@ -387,9 +388,26 @@ func TestOnMessageFileResolveUserRootPreservesThreadID(t *testing.T) {
 		t.Errorf("probe ThreadID = %q, want %q", probe.ThreadID, "om_root")
 	}
 
-	msg := waitMessage(t, captured)
-	if msg.ThreadID != "om_root" {
-		t.Errorf("ThreadID = %q, want %q", msg.ThreadID, "om_root")
+	assertNoMessage(t, captured)
+	b.mu.RLock()
+	_, stillSeen := b.seenMsgs["om_file"]
+	b.mu.RUnlock()
+	if stillSeen {
+		t.Fatal("failed attachment build retained adapter dedup marker")
+	}
+}
+
+func TestBuildMessageContentRejectsMediaWithoutDownloadKey(t *testing.T) {
+	for _, messageType := range []string{"audio", "video", "media", "file"} {
+		t.Run(messageType, func(t *testing.T) {
+			messageID, content := "om_media", `{"file_name":"clip.bin"}`
+			msg := &larkim.EventMessage{MessageType: &messageType, MessageId: &messageID, Content: &content}
+			bot := &Bot{ctx: context.Background()}
+			assetMsg := channel.IncomingMessage{Platform: "feishu"}
+			if got := bot.buildMessageContent(msg, assetMsg); got != nil {
+				t.Fatalf("buildMessageContent() = %#v, want whole-delivery rejection", got)
+			}
+		})
 	}
 }
 
@@ -438,5 +456,35 @@ func TestAttachmentRejectionText(t *testing.T) {
 	}
 	if got := attachmentRejectionText(errors.New("resolver unavailable")); got != "Unable to process this attachment right now." {
 		t.Fatalf("generic attachment rejection = %q", got)
+	}
+}
+
+func TestAttachmentAdmissionRejectionIsRetryableAndNeverForwarded(t *testing.T) {
+	b, h, captured := newThreadRoutingBotWithHandler(t)
+	attempts := 0
+	h.admitAttachmentsFn = func(context.Context, channel.IncomingMessage) error {
+		attempts++
+		if attempts == 1 {
+			return errors.New("quota exceeded")
+		}
+		return nil
+	}
+	msg := channel.IncomingMessage{Content: []ai.ContentBlock{ai.ImageContent{Data: "aW1hZ2U=", MimeType: "image/png"}}}
+	const messageID = "om_attachment_retry"
+	if b.markSeen(messageID) {
+		t.Fatal("fresh message unexpectedly marked duplicate")
+	}
+	b.handleIncoming(msg, "", "", "sender", "chat", messageID, "", func(string) {})
+	assertNoMessage(t, captured)
+	b.mu.RLock()
+	_, stillSeen := b.seenMsgs[messageID]
+	b.mu.RUnlock()
+	if stillSeen {
+		t.Fatal("admission rejection retained the adapter dedup marker")
+	}
+	b.handleIncoming(msg, "", "", "sender", "chat", messageID, "", func(string) {})
+	_ = waitMessage(t, captured)
+	if attempts != 2 {
+		t.Fatalf("admission attempts = %d, want rejection plus redelivery", attempts)
 	}
 }

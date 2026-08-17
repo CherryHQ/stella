@@ -17,6 +17,7 @@ type HookSet struct {
 	postLLMCall    []PostLLMCallHook
 	preMemoryCall  []PreMemoryCallHook
 	postMemoryCall []PostMemoryCallHook
+	operationCheck func(context.Context) error
 }
 
 // NewHookSet builds a HookSet from a slice of HookPlugins.
@@ -62,6 +63,25 @@ func NewHookSet(plugins []HookPlugin) *HookSet {
 	return hs
 }
 
+// WithOperationCheck returns an immutable copy that revalidates ownership
+// immediately before each plugin callback. The original HookSet remains safe
+// for callers outside a durably owned operation.
+func (hs *HookSet) WithOperationCheck(check func(context.Context) error) *HookSet {
+	if hs == nil || check == nil {
+		return hs
+	}
+	checked := *hs
+	checked.operationCheck = check
+	return &checked
+}
+
+func (hs *HookSet) checkOperation(ctx context.Context) error {
+	if hs == nil || hs.operationCheck == nil {
+		return nil
+	}
+	return hs.operationCheck(ctx)
+}
+
 // Empty reports whether the HookSet has no hooks at any point.
 func (hs *HookSet) Empty() bool {
 	return hs == nil ||
@@ -78,6 +98,9 @@ func (hs *HookSet) RunPreAgentCall(ctx context.Context, hctx *PreAgentCallContex
 		return
 	}
 	for _, h := range hs.preAgentCall {
+		if hs.checkOperation(ctx) != nil {
+			return
+		}
 		h.OnPreAgentCall(ctx, hctx)
 	}
 }
@@ -89,6 +112,9 @@ func (hs *HookSet) RunPostAgentCall(ctx context.Context, hctx *PostAgentCallCont
 		return
 	}
 	for _, h := range hs.postAgentCall {
+		if hs.checkOperation(ctx) != nil {
+			return
+		}
 		h.OnPostAgentCall(ctx, hctx)
 	}
 }
@@ -104,8 +130,12 @@ func (hs *HookSet) RunPreToolCall(ctx context.Context, hctx *PreToolCallContext)
 	if hs == nil {
 		return PreToolCallResult{}, nil
 	}
+	operationCtx := ctx
 	var final PreToolCallResult
 	for _, h := range hs.preToolCall {
+		if err := hs.checkOperation(operationCtx); err != nil {
+			return final, err
+		}
 		result, err := h.OnPreToolCall(ctx, hctx)
 		if err != nil {
 			slog.Warn("pre_tool_call hook error", "hook", h.Name(), "error", err)
@@ -135,6 +165,9 @@ func (hs *HookSet) RunPostToolCall(ctx context.Context, hctx *PostToolCallContex
 		return
 	}
 	for _, h := range hs.postToolCall {
+		if hs.checkOperation(ctx) != nil {
+			return
+		}
 		h.OnPostToolCall(ctx, hctx)
 	}
 }
@@ -147,8 +180,12 @@ func (hs *HookSet) RunPreLLMCall(ctx context.Context, hctx *PreLLMCallContext) (
 	if hs == nil {
 		return PreLLMCallResult{}, nil
 	}
+	operationCtx := ctx
 	var final PreLLMCallResult
 	for _, h := range hs.preLLMCall {
+		if err := hs.checkOperation(operationCtx); err != nil {
+			return final, err
+		}
 		result, err := h.OnPreLLMCall(ctx, hctx)
 		if err != nil {
 			slog.Warn("pre_llm_call hook error", "hook", h.Name(), "error", err)
@@ -181,6 +218,9 @@ func (hs *HookSet) RunPostLLMCall(ctx context.Context, hctx *PostLLMCallContext)
 		return
 	}
 	for _, h := range hs.postLLMCall {
+		if hs.checkOperation(ctx) != nil {
+			return
+		}
 		h.OnPostLLMCall(ctx, hctx)
 	}
 }
@@ -193,8 +233,12 @@ func (hs *HookSet) RunPreMemoryCall(ctx context.Context, hctx *PreMemoryCallCont
 	if hs == nil {
 		return PreMemoryCallResult{}, nil
 	}
+	operationCtx := ctx
 	var final PreMemoryCallResult
 	for _, h := range hs.preMemoryCall {
+		if err := hs.checkOperation(operationCtx); err != nil {
+			return final, err
+		}
 		result, err := h.OnPreMemoryCall(ctx, hctx)
 		if err != nil {
 			slog.Warn("pre_memory_call hook error", "hook", h.Name(), "error", err)
@@ -215,6 +259,9 @@ func (hs *HookSet) RunPostMemoryCall(ctx context.Context, hctx *PostMemoryCallCo
 		return
 	}
 	for _, h := range hs.postMemoryCall {
+		if hs.checkOperation(ctx) != nil {
+			return
+		}
 		h.OnPostMemoryCall(ctx, hctx)
 	}
 }

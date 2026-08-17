@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 
+	"github.com/containerd/errdefs"
 	mobyclient "github.com/moby/moby/client"
 )
 
@@ -41,7 +42,7 @@ func (noopAPI) ContainerRemove(context.Context, string, mobyclient.ContainerRemo
 }
 
 func (noopAPI) ContainerInspect(context.Context, string, mobyclient.ContainerInspectOptions) (mobyclient.ContainerInspectResult, error) {
-	return mobyclient.ContainerInspectResult{}, nil
+	return mobyclient.ContainerInspectResult{}, errdefs.ErrNotFound
 }
 
 func (noopAPI) ContainerList(context.Context, mobyclient.ContainerListOptions) (mobyclient.ContainerListResult, error) {

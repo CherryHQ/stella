@@ -16,10 +16,12 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	agentsession "github.com/CherryHQ/stella/internal/agent/session"
 	sessioninbox "github.com/CherryHQ/stella/internal/agent/session/inbox"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/asset"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
@@ -42,6 +44,7 @@ type Service struct {
 	memory   memory.SessionManager
 	searcher memory.Searcher
 	q        *sqlc.Queries
+	db       *pgxpool.Pool
 	store    config.Store
 	agents   *agentaccess.Service
 	assets   *asset.Store
@@ -84,6 +87,9 @@ func NewService(mem memory.Provider, db sqlc.DBTX, store config.Store, assets *a
 		searcher, _ = mem.(memory.Searcher)
 	}
 	svc := &Service{registry: registry, memory: sm, searcher: searcher, q: sqlc.New(db), store: store, agents: agents, assets: assets}
+	if pool, ok := db.(*pgxpool.Pool); ok {
+		svc.db = pool
+	}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(svc)
@@ -511,10 +517,22 @@ func (a *Access) UpdateTitle(ctx context.Context, info agentsession.Info, title 
 	if err := agentsession.ValidateTitle(title); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
-	if err := a.svc.q.UpdateConversationTitleBySessionID(ctx, sqlc.UpdateConversationTitleBySessionIDParams{
+	params := sqlc.UpdateConversationTitleBySessionIDParams{
 		Title: pgtype.Text{String: title, Valid: true}, SessionID: info.ID,
 		UserID: pgtype.Text{String: info.UserID, Valid: true}, AgentID: pgtype.Text{String: info.AgentID, Valid: true},
-	}); err != nil {
+	}
+	var err error
+	if _, guarded := agentrun.GuardFromContext(ctx); guarded {
+		if a.svc.db == nil {
+			return fmt.Errorf("%w: session AgentRun fencing is unavailable", ErrUnavailable)
+		}
+		err = agentrun.WriteTx(ctx, a.svc.db, func(q *sqlc.Queries) error {
+			return q.UpdateConversationTitleBySessionID(ctx, params)
+		})
+	} else {
+		err = a.svc.q.UpdateConversationTitleBySessionID(ctx, params)
+	}
+	if err != nil {
 		return fmt.Errorf("%w: update session title: %w", ErrUnavailable, err)
 	}
 	return nil

@@ -32,6 +32,12 @@ func (s *Store) Recover(ctx context.Context, resolver RecoveryResolver, appender
 	if s == nil || s.q == nil || resolver == nil || appender == nil {
 		return errors.New("session inbox recovery is not configured")
 	}
+	// Associated work belongs to its AgentRun and is never replayed. Only rows
+	// whose terminal Run can no longer deliver are converged here; linked running
+	// rows remain observable for the Run reaper.
+	if _, err := s.q.TerminalizeLinkedSessionInbox(ctx); err != nil {
+		return fmt.Errorf("terminalize linked session inbox: %w", err)
+	}
 	var cursor int64
 	for {
 		rows, err := s.q.ListPendingSessionInbox(ctx, sqlc.ListPendingSessionInboxParams{

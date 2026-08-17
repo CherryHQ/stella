@@ -38,6 +38,12 @@ type FileView struct {
 	Files      FileAccess
 }
 
+// FileViewSelector is the context-aware filesystem capability exposed by a
+// Session wrapper that may need to recreate its current generation.
+type FileViewSelector interface {
+	SelectFileView(context.Context) (FileView, error)
+}
+
 // SelectFileView chooses one operational Session generation. Resilient sessions
 // recreate a dead backend before taking the snapshot; raw sessions expose their
 // current immutable metadata and filesystem capability directly.
@@ -45,10 +51,8 @@ func SelectFileView(ctx context.Context, session Session) (FileView, error) {
 	if session == nil {
 		return FileView{}, errors.New("sandbox: active session is required")
 	}
-	if selector, ok := session.(interface {
-		selectFileView(context.Context) (FileView, error)
-	}); ok {
-		return selector.selectFileView(ctx)
+	if selector, ok := session.(FileViewSelector); ok {
+		return selector.SelectFileView(ctx)
 	}
 	return fileView(session), nil
 }

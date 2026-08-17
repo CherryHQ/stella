@@ -16,11 +16,13 @@ import (
 
 type lifecycleAPI struct {
 	API
-	inspectFn func(context.Context, string) (mobyclient.ImageInspectResult, error)
-	pullFn    func(context.Context, string) (mobyclient.ImagePullResponse, error)
-	createFn  func(context.Context, mobyclient.ContainerCreateOptions) (mobyclient.ContainerCreateResult, error)
-	startFn   func(context.Context, string) (mobyclient.ContainerStartResult, error)
-	removeFn  func(context.Context, string, mobyclient.ContainerRemoveOptions) (mobyclient.ContainerRemoveResult, error)
+	inspectFn          func(context.Context, string) (mobyclient.ImageInspectResult, error)
+	pullFn             func(context.Context, string) (mobyclient.ImagePullResponse, error)
+	createFn           func(context.Context, mobyclient.ContainerCreateOptions) (mobyclient.ContainerCreateResult, error)
+	startFn            func(context.Context, string) (mobyclient.ContainerStartResult, error)
+	stopFn             func(context.Context, string) (mobyclient.ContainerStopResult, error)
+	removeFn           func(context.Context, string, mobyclient.ContainerRemoveOptions) (mobyclient.ContainerRemoveResult, error)
+	containerInspectFn func(context.Context, string) (mobyclient.ContainerInspectResult, error)
 }
 
 func (f *lifecycleAPI) ImageInspect(ctx context.Context, image string, _ ...mobyclient.ImageInspectOption) (mobyclient.ImageInspectResult, error) {
@@ -58,6 +60,20 @@ func (f *lifecycleAPI) ContainerRemove(ctx context.Context, id string, opts moby
 	return mobyclient.ContainerRemoveResult{}, nil
 }
 
+func (f *lifecycleAPI) ContainerStop(ctx context.Context, id string, _ mobyclient.ContainerStopOptions) (mobyclient.ContainerStopResult, error) {
+	if f.stopFn != nil {
+		return f.stopFn(ctx, id)
+	}
+	return mobyclient.ContainerStopResult{}, nil
+}
+
+func (f *lifecycleAPI) ContainerInspect(ctx context.Context, id string, _ mobyclient.ContainerInspectOptions) (mobyclient.ContainerInspectResult, error) {
+	if f.containerInspectFn != nil {
+		return f.containerInspectFn(ctx, id)
+	}
+	return mobyclient.ContainerInspectResult{}, errdefs.ErrNotFound
+}
+
 type lifecyclePullResponse struct{}
 
 func (lifecyclePullResponse) Read([]byte) (int, error) { return 0, io.EOF }
@@ -77,6 +93,9 @@ func TestCreateAndStartRemovesContainerWhenStartFails(t *testing.T) {
 	api := &lifecycleAPI{
 		startFn: func(context.Context, string) (mobyclient.ContainerStartResult, error) {
 			return mobyclient.ContainerStartResult{}, startErr
+		},
+		stopFn: func(context.Context, string) (mobyclient.ContainerStopResult, error) {
+			return mobyclient.ContainerStopResult{}, errors.New("start outcome unknown")
 		},
 		removeFn: func(_ context.Context, id string, opts mobyclient.ContainerRemoveOptions) (mobyclient.ContainerRemoveResult, error) {
 			removedID = id
@@ -108,6 +127,9 @@ func TestCreateAndStartRemovesContainerWithFreshContextWhenStartCancelsCaller(t 
 			cancel()
 			return mobyclient.ContainerStartResult{}, context.Canceled
 		},
+		stopFn: func(context.Context, string) (mobyclient.ContainerStopResult, error) {
+			return mobyclient.ContainerStopResult{}, context.Canceled
+		},
 		removeFn: func(ctx context.Context, id string, opts mobyclient.ContainerRemoveOptions) (mobyclient.ContainerRemoveResult, error) {
 			cleanupCalled = true
 			cleanupErr = ctx.Err()
@@ -134,6 +156,82 @@ func TestCreateAndStartRemovesContainerWithFreshContextWhenStartCancelsCaller(t 
 	}
 	if cleanupErr != nil {
 		t.Fatalf("cleanup context err = %v, want nil", cleanupErr)
+	}
+}
+
+func TestCreateOutcomeUnknownCleansDeterministicName(t *testing.T) {
+	var removed string
+	api := &lifecycleAPI{
+		createFn: func(context.Context, mobyclient.ContainerCreateOptions) (mobyclient.ContainerCreateResult, error) {
+			return mobyclient.ContainerCreateResult{}, errors.New("create response lost")
+		},
+		stopFn: func(context.Context, string) (mobyclient.ContainerStopResult, error) {
+			return mobyclient.ContainerStopResult{}, errors.New("container may exist")
+		},
+		removeFn: func(_ context.Context, id string, opts mobyclient.ContainerRemoveOptions) (mobyclient.ContainerRemoveResult, error) {
+			removed = id
+			if !opts.Force {
+				t.Fatal("ambiguous create cleanup was not forced")
+			}
+			return mobyclient.ContainerRemoveResult{}, nil
+		},
+	}
+	if id, err := NewWithAPI(api).CreateAndStart(t.Context(), CreateOptions{Image: "ready", Name: "stella-sandbox-known"}); err == nil || id != "" {
+		t.Fatalf("CreateAndStart = %q/%v, want original failure", id, err)
+	}
+	if removed != "stella-sandbox-known" {
+		t.Fatalf("cleaned container = %q, want deterministic name", removed)
+	}
+}
+
+func TestStopForceRemovesAndProvesAbsenceAfterStopFailure(t *testing.T) {
+	stopErr := errors.New("stop outcome unknown")
+	var forced bool
+	api := &lifecycleAPI{
+		stopFn: func(context.Context, string) (mobyclient.ContainerStopResult, error) {
+			return mobyclient.ContainerStopResult{}, stopErr
+		},
+		removeFn: func(ctx context.Context, id string, opts mobyclient.ContainerRemoveOptions) (mobyclient.ContainerRemoveResult, error) {
+			forced = opts.Force
+			if ctx.Err() != nil || id != "sandbox" {
+				t.Fatalf("force removal context/id = %v/%q", ctx.Err(), id)
+			}
+			return mobyclient.ContainerRemoveResult{}, nil
+		},
+	}
+	if err := NewWithAPI(api).Stop(t.Context(), "sandbox"); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if !forced {
+		t.Fatal("Stop did not force removal after an ambiguous stop")
+	}
+}
+
+func TestStopFailsClosedWhenContainerRemains(t *testing.T) {
+	api := &lifecycleAPI{
+		stopFn: func(context.Context, string) (mobyclient.ContainerStopResult, error) {
+			return mobyclient.ContainerStopResult{}, errors.New("stop failed")
+		},
+		removeFn: func(context.Context, string, mobyclient.ContainerRemoveOptions) (mobyclient.ContainerRemoveResult, error) {
+			return mobyclient.ContainerRemoveResult{}, errors.New("remove failed")
+		},
+		containerInspectFn: func(context.Context, string) (mobyclient.ContainerInspectResult, error) {
+			return mobyclient.ContainerInspectResult{}, nil
+		},
+	}
+	if err := NewWithAPI(api).Stop(t.Context(), "sandbox"); err == nil {
+		t.Fatal("Stop proved absence while the container still exists")
+	}
+}
+
+func TestStopAcceptsInspectNotFoundAfterAmbiguousRemove(t *testing.T) {
+	api := &lifecycleAPI{
+		removeFn: func(context.Context, string, mobyclient.ContainerRemoveOptions) (mobyclient.ContainerRemoveResult, error) {
+			return mobyclient.ContainerRemoveResult{}, errors.New("remove response lost")
+		},
+	}
+	if err := NewWithAPI(api).Stop(t.Context(), "sandbox"); err != nil {
+		t.Fatalf("Stop after authoritative not-found: %v", err)
 	}
 }
 

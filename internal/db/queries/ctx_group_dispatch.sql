@@ -7,6 +7,13 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT DO NOTHING;
 -- name: GetGroupDispatch :one
 SELECT * FROM ctx_group_dispatch WHERE id = $1;
 
+-- name: FindGroupDispatchByFIFO :one
+SELECT d.*
+FROM channel_binding_fifo f
+JOIN ctx_group_dispatch d ON d.id = f.source_dispatch_id
+WHERE f.id = sqlc.arg(fifo_id)
+  AND f.source_responder_agent_id = sqlc.arg(responder_agent_id);
+
 -- name: CountGroupDispatchByMessage :one
 SELECT CAST(COUNT(*) AS BIGINT) FROM ctx_group_dispatch
 WHERE group_message_id = $1;
@@ -150,6 +157,16 @@ SET status = 'failed',
 WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND attempt_count = sqlc.arg(attempt_count);
+
+-- name: RejectPendingGroupDispatch :execrows
+UPDATE ctx_group_dispatch
+SET status = 'failed',
+    lease_until = NULL,
+    next_attempt_at = NULL,
+    last_error = sqlc.arg(last_error),
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND status = 'pending';
 
 -- name: RequeueGroupDispatch :execrows
 UPDATE ctx_group_dispatch

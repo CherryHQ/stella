@@ -14,6 +14,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/sandbox"
@@ -189,11 +190,13 @@ func (s *Service) StopDispatchTick(handle rivertype.PeriodicJobHandle) {
 // the goal's session. executor.go consumes this type; it is declared here
 // because BootConfig.Chat is its only producer.
 type TaskChatParams struct {
-	AgentID   string
-	UserID    string
-	SessionID string
-	ProjectID string
-	Prompt    string
+	AgentID           string
+	UserID            string
+	SessionID         string
+	ProjectID         string
+	Prompt            string
+	RuntimeOpts       []agentruntime.Option
+	CompletionBarrier *agentruntime.CompletionBarrier
 	// Decompose routes the turn to the decomposition planning session
 	// (KindDelegate) instead of the worker session (KindTask). Set for
 	// purpose=decomposition attempts; the two session kinds resolve differently.

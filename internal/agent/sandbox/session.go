@@ -2,12 +2,15 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/config"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
 	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
@@ -19,13 +22,21 @@ import (
 // SyncSession copies changed files from the session overlay back to the source
 // workspace without closing the session. No-op for sessions that don't
 // support mid-session sync.
-func SyncSession(session pkgsandbox.Session) error {
+func SyncSession(ctx context.Context, session pkgsandbox.Session) error {
 	if session == nil {
 		return nil
 	}
 	type syncer interface{ Sync() error }
 	if s, ok := session.(syncer); ok {
-		return s.Sync()
+		if err := agentrun.Check(ctx); err != nil {
+			return err
+		}
+		if err := s.Sync(); err != nil {
+			return err
+		}
+		// Sync may have copied source files after a remote owner replacement.
+		// Report that outcome as unknown and never retry it from this Run.
+		return agentrun.Check(ctx)
 	}
 	return nil
 }
@@ -180,7 +191,7 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 	)
 	defer span.End()
 
-	session, err := createSessionForBackend(ctx, cfg, name)
+	session, err := createFencedSession(ctx, cfg, name)
 	if err != nil {
 		recordSandboxError(span, err)
 		return nil, err
@@ -191,8 +202,39 @@ func ResolveSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error)
 	// between an isolating /workspace view and a host-coordinate view would make
 	// paths already retained by tools ambiguous.
 	return pkgsandbox.NewResilientSession(session, func(ctx context.Context) (pkgsandbox.Session, error) {
-		return createSessionForBackend(ctx, cfg, name)
+		return createFencedSession(ctx, cfg, name)
 	}), nil
+}
+
+func createFencedSession(ctx context.Context, cfg Config, name string) (pkgsandbox.Session, error) {
+	lease, err := agentrun.ReserveSandbox(ctx, cfg.SessionID, name)
+	if err != nil {
+		return nil, err
+	}
+	if lease != nil {
+		ctx = pkgsandbox.WithSessionID(ctx, lease.ResourceID())
+	}
+	if err := agentrun.Check(ctx); err != nil {
+		if lease != nil {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			err = errors.Join(err, lease.Abandon(cleanupCtx))
+		}
+		return nil, err
+	}
+	session, err := createSessionForBackend(ctx, cfg, name)
+	if err != nil {
+		if lease != nil {
+			// Provider create may have succeeded even when its response was lost.
+			// Reconstruct cleanup from the identity persisted before create and leave
+			// the generation fenced if absence cannot be proven.
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			err = errors.Join(err, lease.CleanupCreationFailure(cleanupCtx))
+		}
+		return nil, err
+	}
+	return lease.Activate(ctx, session)
 }
 
 // createSessionForBackend creates a raw sandbox session for the given backend name.

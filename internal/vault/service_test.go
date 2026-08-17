@@ -9,9 +9,11 @@ import (
 
 	"filippo.io/age"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
 	oauth "github.com/CherryHQ/stella/internal/connections/oauth"
@@ -107,6 +109,21 @@ func testServiceWithQueries(t *testing.T) (*vault.Service, *appdb.OIDCStore, str
 	}
 
 	return svc, oidc, user.ID, q
+}
+
+func TestVaultRawServiceFailsClosedForAgentRunGuardedWrite(t *testing.T) {
+	svc, _, _, q := testServiceWithQueries(t)
+	ctx := agentrun.WithGuard(t.Context(), agentrun.Guard{
+		RunID: "run-1", SessionID: "session-1", ExecutorBootID: "boot-1",
+	})
+	if err := svc.SetSystemScoped(ctx, vault.ScopeSystem, "", "GUARDED_SECRET", "value"); err == nil || !strings.Contains(err.Error(), "guarded write database is not configured") {
+		t.Fatalf("guarded write error = %v, want fail-closed database error", err)
+	}
+	if _, err := q.GetVaultEntryByScope(t.Context(), sqlc.GetVaultEntryByScopeParams{
+		Scope: vault.ScopeSystem, Name: "GUARDED_SECRET",
+	}); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("guarded write persisted without a transaction fence: %v", err)
+	}
 }
 
 func agentAuthority(t *testing.T, userID, agentID string) authz.Authority {

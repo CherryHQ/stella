@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,7 +16,9 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/eventlog"
@@ -31,16 +34,19 @@ const (
 	defaultGroupDispatchMaxAttempts = int64(3)
 )
 
+type groupCompletionKey struct{}
+
 type dispatchChatFunc func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error)
 
 // GroupDispatcher materializes durable group response decisions and executes
 // one selected-agent dispatch at a time. Ingest owns facts; this owns work.
 type GroupDispatcher struct {
-	db         *pgxpool.Pool
-	q          *sqlc.Queries
-	coord      *Coordinator
-	publishers *PublisherRegistry
-	log        *slog.Logger
+	db            *pgxpool.Pool
+	q             *sqlc.Queries
+	coord         *Coordinator
+	publishers    *PublisherRegistry
+	reconstructor DurablePublisherReconstructor
+	log           *slog.Logger
 
 	leaseDuration time.Duration
 	pollInterval  time.Duration
@@ -98,6 +104,9 @@ func NewGroupDispatcher(db *pgxpool.Pool, coord *Coordinator, publishers *Publis
 		maxAttempts:   defaultGroupDispatchMaxAttempts,
 		wakeC:         make(chan struct{}, 1),
 		queue:         newSessionQueue(),
+	}
+	if coord != nil {
+		d.reconstructor = coord.publisherReconstructor
 	}
 	d.chat = d.chatDispatch
 	return d
@@ -219,7 +228,7 @@ func (d *GroupDispatcher) reapExpired(ctx context.Context) error {
 	}
 	for _, row := range outboxRows {
 		if row.AttemptCount >= d.maxAttempts {
-			if _, err := d.q.MarkGroupOutboxFailed(ctx, sqlc.MarkGroupOutboxFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: "lease expired"}); err != nil {
+			if err := d.failOutboxTerminal(ctx, row, "lease expired"); err != nil {
 				return fmt.Errorf("fail expired outbox: %w", err)
 			}
 			continue
@@ -242,15 +251,12 @@ func (d *GroupDispatcher) reapExpired(ctx context.Context) error {
 			}
 			continue
 		}
-		if row.AttemptCount >= d.maxAttempts {
-			if _, err := d.q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: "lease expired"}); err != nil {
-				return fmt.Errorf("fail expired dispatch: %w", err)
-			}
-			continue
+		// Once execution started, model/tool/publish outcome is unknowable after
+		// owner loss. Never replay it merely because the dispatch lease expired.
+		if _, err := d.q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: "execution lease expired; outcome unknown"}); err != nil {
+			return fmt.Errorf("fail expired dispatch: %w", err)
 		}
-		if _, err := d.q.RequeueGroupDispatch(ctx, sqlc.RequeueGroupDispatchParams{ID: row.ID, AttemptCount: row.AttemptCount, NextAttemptAt: nullTime(now), LastError: "lease expired"}); err != nil {
-			return fmt.Errorf("requeue expired dispatch: %w", err)
-		}
+		_ = d.rejectGroupFIFO(ctx, row.ID, "execution lease expired; outcome unknown")
 	}
 	return nil
 }
@@ -273,12 +279,43 @@ func (d *GroupDispatcher) processOutbox(ctx context.Context, outbox sqlc.CtxGrou
 		})
 	}, cancelOwned)
 	defer stopHeartbeat()
+	route, err := d.q.GetChannelGroupRouteByMessage(ownedCtx, claimed.GroupMessageID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		message, messageErr := d.q.GetGroupMessage(ownedCtx, claimed.GroupMessageID)
+		if messageErr != nil {
+			return d.failOutbox(ctx, claimed, fmt.Errorf("get legacy GroupRoute message: %w", messageErr))
+		}
+		route, err = d.q.CreateChannelGroupRoute(ownedCtx, sqlc.CreateChannelGroupRouteParams{
+			ID: uuid.Must(uuid.NewV7()).String(), GroupMessageID: claimed.GroupMessageID,
+			GroupID: claimed.GroupID, GroupSeq: message.Seq,
+		})
+	}
+	if err != nil {
+		return d.failOutbox(ctx, claimed, fmt.Errorf("get GroupRoute: %w", err))
+	}
+	claimToken := uuid.Must(uuid.NewV7()).String()
+	if route.Status != "completed" {
+		leaseSeconds := int32(d.leaseDuration / time.Second)
+		if leaseSeconds <= 0 {
+			leaseSeconds = int32(defaultGroupDispatchLease / time.Second)
+		}
+		route, err = d.q.ClaimChannelGroupRoute(ownedCtx, sqlc.ClaimChannelGroupRouteParams{
+			ClaimToken:   pgtype.Text{String: claimToken, Valid: true},
+			LeaseSeconds: leaseSeconds, ID: route.ID,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return d.failOutbox(ctx, claimed, fmt.Errorf("claim GroupRoute: %w", err))
+		}
+	}
 	count, err := d.q.CountGroupDispatchByMessage(ownedCtx, claimed.GroupMessageID)
 	if err != nil {
 		return d.failOutbox(ctx, claimed, fmt.Errorf("count dispatch rows: %w", err))
 	}
-	if count == 0 {
-		if err := d.materializeDispatchRowsTx(ownedCtx, claimed); err != nil {
+	if count == 0 && route.Status != "completed" {
+		if err := d.materializeDispatchRowsTx(ownedCtx, claimed, route); err != nil {
 			return d.failOutbox(ctx, claimed, err)
 		}
 	}
@@ -315,13 +352,13 @@ func (d *GroupDispatcher) claimOutbox(ctx context.Context, row sqlc.CtxGroupOutb
 	}
 }
 
-func (d *GroupDispatcher) materializeDispatchRowsTx(ctx context.Context, outbox sqlc.CtxGroupOutbox) error {
+func (d *GroupDispatcher) materializeDispatchRowsTx(ctx context.Context, outbox sqlc.CtxGroupOutbox, route sqlc.ChannelGroupRoute) error {
 	responding, err := d.prepareDispatchResponders(ctx, d.q, outbox)
 	if err != nil {
 		return err
 	}
 	if d.db == nil {
-		return d.createDispatchRows(ctx, d.q, outbox, responding)
+		return d.createDispatchRows(ctx, d.q, outbox, responding, false)
 	}
 	tx, err := d.db.Begin(ctx)
 	if err != nil {
@@ -333,13 +370,69 @@ func (d *GroupDispatcher) materializeDispatchRowsTx(ctx context.Context, outbox 
 			_ = tx.Rollback(ctx)
 		}
 	}()
-	if err := d.createDispatchRows(ctx, d.q.WithTx(tx), outbox, responding); err != nil {
+	if err := d.createDispatchRows(ctx, d.q.WithTx(tx), outbox, responding, false); err != nil {
 		return err
+	}
+	decisions, err := json.Marshal(responding)
+	if err != nil {
+		return fmt.Errorf("encode GroupRoute decisions: %w", err)
+	}
+	rows, err := d.q.WithTx(tx).CompleteChannelGroupRoute(ctx, sqlc.CompleteChannelGroupRouteParams{
+		Decisions: decisions, ID: route.ID, ClaimToken: route.ClaimToken,
+	})
+	if err != nil {
+		return fmt.Errorf("complete GroupRoute: %w", err)
+	}
+	if rows != 1 {
+		return errors.New("GroupRoute ownership lost before responder materialization")
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit materialize dispatch rows: %w", err)
 	}
 	committed = true
+	return nil
+}
+
+// materializeAttachmentRouteWithQueries crosses the group attachment acceptance
+// boundary inside the event-log transaction. Immutable media metadata, the
+// group event, outbox, GroupRoute decision, responder rows, and every responder
+// FIFO/quota outcome therefore commit or roll back together before the adapter
+// can acknowledge expiring provider bytes.
+func (d *GroupDispatcher) materializeAttachmentRouteWithQueries(ctx context.Context, q *sqlc.Queries, outbox sqlc.CtxGroupOutbox, route sqlc.ChannelGroupRoute) error {
+	leaseSeconds := int32(d.leaseDuration / time.Second)
+	if leaseSeconds <= 0 {
+		leaseSeconds = int32(defaultGroupDispatchLease / time.Second)
+	}
+	claimed, err := q.ClaimChannelGroupRoute(ctx, sqlc.ClaimChannelGroupRouteParams{
+		ID: route.ID, LeaseSeconds: leaseSeconds,
+		ClaimToken: pgtype.Text{String: uuid.Must(uuid.NewV7()).String(), Valid: true},
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errors.New("attachment GroupRoute is blocked by an earlier sequence")
+	}
+	if err != nil {
+		return fmt.Errorf("claim attachment GroupRoute: %w", err)
+	}
+	responding, err := d.prepareDispatchResponders(ctx, q, outbox)
+	if err != nil {
+		return err
+	}
+	if err := d.createDispatchRows(ctx, q, outbox, responding, true); err != nil {
+		return err
+	}
+	decisions, err := json.Marshal(responding)
+	if err != nil {
+		return fmt.Errorf("encode attachment GroupRoute decisions: %w", err)
+	}
+	rows, err := q.CompleteChannelGroupRoute(ctx, sqlc.CompleteChannelGroupRouteParams{
+		ID: claimed.ID, ClaimToken: claimed.ClaimToken, Decisions: decisions,
+	})
+	if err != nil {
+		return fmt.Errorf("complete attachment GroupRoute: %w", err)
+	}
+	if rows != 1 {
+		return errors.New("attachment GroupRoute ownership lost before FIFO admission")
+	}
 	return nil
 }
 
@@ -366,7 +459,7 @@ func (d *GroupDispatcher) prepareDispatchResponders(ctx context.Context, q *sqlc
 	return d.decideResponders(ctx, q, outbox, message, state, envelope, groupMembers), nil
 }
 
-func (d *GroupDispatcher) createDispatchRows(ctx context.Context, q *sqlc.Queries, outbox sqlc.CtxGroupOutbox, responding []string) error {
+func (d *GroupDispatcher) createDispatchRows(ctx context.Context, q *sqlc.Queries, outbox sqlc.CtxGroupOutbox, responding []string, rollbackOnQuota bool) error {
 	members, err := q.ListGroupMembers(ctx, outbox.GroupID)
 	if err != nil {
 		return fmt.Errorf("list group members: %w", err)
@@ -375,14 +468,37 @@ func (d *GroupDispatcher) createDispatchRows(ctx context.Context, q *sqlc.Querie
 	for i, m := range members {
 		groupMembers[i] = GroupMember{AgentID: m.AgentID, ReplyChannelID: m.ReplyChannelID}
 	}
+	message, err := q.GetGroupMessage(ctx, outbox.GroupMessageID)
+	if err != nil {
+		return fmt.Errorf("get group message for FIFO materialization: %w", err)
+	}
+	payload := message.ContentBlocks
+	if len(payload) == 0 {
+		payload, err = ai.MarshalContentBlocks([]ai.ContentBlock{ai.TextContent{Text: message.Content}})
+		if err != nil {
+			return fmt.Errorf("encode group FIFO payload: %w", err)
+		}
+	}
+	blocks, err := ai.UnmarshalContentBlocks(payload)
+	if err != nil {
+		return fmt.Errorf("decode group FIFO payload: %w", err)
+	}
+	if err := ai.ValidateCanonicalContentBlocks(blocks); err != nil {
+		return fmt.Errorf("validate group FIFO payload: %w", err)
+	}
+	immutableMedia, attachmentBytes, err := immutableMediaMetadata(ctx, q, blocks)
+	if err != nil {
+		return err
+	}
 	for _, agentID := range responding {
 		replyChannelID := findMemberReplyChannel(groupMembers, agentID)
 		if replyChannelID == "" {
 			d.log.Warn("selected group agent has no reply channel", "group_id", outbox.GroupID, "agent_id", agentID)
 			continue
 		}
+		dispatchID := uuid.Must(uuid.NewV7()).String()
 		if err := q.CreateGroupDispatch(ctx, sqlc.CreateGroupDispatchParams{
-			ID:             uuid.Must(uuid.NewV7()).String(),
+			ID:             dispatchID,
 			GroupMessageID: outbox.GroupMessageID,
 			GroupID:        outbox.GroupID,
 			AgentID:        agentID,
@@ -394,6 +510,29 @@ func (d *GroupDispatcher) createDispatchRows(ctx context.Context, q *sqlc.Querie
 			LastError:      "",
 		}); err != nil {
 			return fmt.Errorf("create dispatch row: %w", err)
+		}
+		_, err := createChannelBindingFIFOWithQueries(ctx, q, sqlc.CreateChannelBindingFIFOParams{
+			ID: uuid.Must(uuid.NewV7()).String(), ChannelID: replyChannelID,
+			BindingKey:  agent.BuildGroupSessionKey(agentID, outbox.GroupID),
+			PrincipalID: outbox.GroupID,
+			SourceKey:   "group:" + outbox.GroupMessageID + ":" + agentID,
+			Kind:        "group_message", Payload: payload, ImmutableMedia: immutableMedia,
+			AttachmentBytes:  attachmentBytes,
+			SourceDispatchID: dispatchID, SourceResponderAgentID: agentID,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			if rollbackOnQuota {
+				return fmt.Errorf("group attachment FIFO quota exceeded: %w", err)
+			}
+			if _, rejectErr := q.RejectPendingGroupDispatch(ctx, sqlc.RejectPendingGroupDispatchParams{
+				ID: dispatchID, LastError: "admission_rejected: channel FIFO quota exceeded",
+			}); rejectErr != nil {
+				return fmt.Errorf("record group FIFO admission rejection: %w", rejectErr)
+			}
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("materialize group FIFO row: %w", err)
 		}
 	}
 	return nil
@@ -554,7 +693,10 @@ func (d *GroupDispatcher) executeDispatchesByMessage(ctx context.Context, groupM
 }
 
 func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroupDispatch, publisherOverride GroupPublisher) error {
-	claimed, ok, err := d.claimDispatch(ctx, row)
+	if row.Status == "running" && row.ResultMessageID != "" {
+		return d.completeDispatch(ctx, row)
+	}
+	claimed, ok, err := d.claimDispatchAndFIFO(ctx, row)
 	if err != nil {
 		return err
 	}
@@ -589,7 +731,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		d.log.Debug("ignoring invalid group outbox publish metadata", "dispatch_id", claimed.ID, "error", err)
 		envelope = GroupOutboxEnvelope{}
 	}
-	publisher, err := d.publisherFor(state, claimed, publisherOverride)
+	publisher, err := d.publisherFor(ownedCtx, state, claimed, envelope, publisherOverride)
 	if err != nil {
 		return d.failDispatch(ctx, claimed, err)
 	}
@@ -597,6 +739,9 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	if a, err := d.q.GetAgent(ownedCtx, claimed.AgentID); err == nil && a.Name != "" {
 		agentName = a.Name
 	}
+	completion := agentruntime.NewCompletionBarrier()
+	defer completion.Release()
+	ownedCtx = context.WithValue(ownedCtx, groupCompletionKey{}, completion)
 	stream, err := d.chat(ownedCtx, claimed, message, state)
 	if errors.Is(err, errGroupTurnSuperseded) {
 		// The trigger was consumed by a session boundary while this row waited
@@ -606,13 +751,28 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		return d.completeDispatch(ctx, claimed)
 	}
 	if err != nil {
-		return d.failDispatch(ctx, claimed, err)
+		// d.chat is the AgentRun admission boundary. Once it has been called, an
+		// error cannot prove that the model, a tool, or a sandbox operation did not
+		// start before the error became observable. Requeueing this row would replay
+		// those outcome-unknown effects, so only failures before d.chat are
+		// retryable; every chat-boundary failure requires explicit reconciliation.
+		return d.failDispatchTerminal(ctx, claimed, fmt.Errorf("group AgentRun outcome unknown: %w", err))
+	}
+	if completion.Bound() {
+		ownedCtx, err = completion.Context(ownedCtx)
+		if err != nil {
+			return fmt.Errorf("bind group dispatch AgentRun fence: %w", err)
+		}
+		stream.OperationCheck = channelOperationCheck(ownedCtx)
 	}
 	stream, responseC := d.wrapGroupResponseStream(ownedCtx, stream)
 	// Same key chatDispatchUnqueued enqueues under: the per-(agent,group)
 	// session queue is the one durable handle on this turn, so a cancel click
 	// reuses its existing Abort rather than tracking the turn a second way.
 	sessionKey := agent.BuildGroupSessionKey(claimed.AgentID, claimed.GroupID)
+	if err := agentrun.Check(ownedCtx); err != nil {
+		return err
+	}
 	if err := publisher.Publish(ownedCtx, GroupPublishRequest{
 		GroupID:           claimed.GroupID,
 		AgentID:           claimed.AgentID,
@@ -628,48 +788,132 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		Abort:             func() bool { return d.queue.Abort(sessionKey) },
 		FinalAttempt:      claimed.AttemptCount >= d.maxAttempts,
 	}); err != nil {
-		return d.failDispatch(ctx, claimed, fmt.Errorf("publish: %w", err))
+		// The platform may have accepted bytes before returning an error. Retrying
+		// would duplicate an outcome-unknown outbound effect, so publish failure
+		// is terminal and requires explicit reconciliation.
+		return d.failDispatchTerminal(ownedCtx, claimed, fmt.Errorf("publish outcome unknown: %w", err))
 	}
 	response := <-responseC
 	if response.complete && response.text != "" {
-		if err := d.recordDispatchResult(ctx, claimed, response); err != nil {
-			return d.failDispatch(ctx, claimed, err)
+		if err := d.recordDispatchResult(ownedCtx, claimed, response); err != nil {
+			// Delivery already succeeded. Re-running the model or publisher after a
+			// writeback failure would duplicate outcome-unknown external effects.
+			return d.failDispatchTerminal(ownedCtx, claimed, fmt.Errorf("post-publish writeback failed: %w", err))
 		}
 	}
-	return d.completeDispatch(ctx, claimed)
+	return d.completeDispatch(ownedCtx, claimed)
 }
 
-func (d *GroupDispatcher) claimDispatch(ctx context.Context, row sqlc.CtxGroupDispatch) (sqlc.CtxGroupDispatch, bool, error) {
-	switch row.Status {
-	case "running":
-		return row, true, nil
-	case "pending":
-		claimed, err := d.q.ClaimPendingGroupDispatch(ctx, sqlc.ClaimPendingGroupDispatchParams{
-			ID:         row.ID,
-			Now:        nullTime(time.Now().UTC()),
-			LeaseUntil: nullTime(time.Now().UTC().Add(d.leaseDuration)),
-		})
-		if errors.Is(err, pgx.ErrNoRows) {
-			return sqlc.CtxGroupDispatch{}, false, nil
-		}
-		if err != nil {
-			return sqlc.CtxGroupDispatch{}, false, fmt.Errorf("claim dispatch: %w", err)
-		}
-		return claimed, true, nil
-	default:
+func (d *GroupDispatcher) claimDispatchAndFIFO(ctx context.Context, row sqlc.CtxGroupDispatch) (sqlc.CtxGroupDispatch, bool, error) {
+	if row.Status != "pending" {
 		return sqlc.CtxGroupDispatch{}, false, nil
 	}
+	tx, err := d.db.Begin(ctx)
+	if err != nil {
+		return sqlc.CtxGroupDispatch{}, false, fmt.Errorf("begin group dispatch claim: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := d.q.WithTx(tx)
+	fifo, err := qtx.GetChannelBindingFIFOByDispatch(ctx, pgtype.Text{String: row.ID, Valid: true})
+	if err == nil {
+		if fifo.Status != "pending" && (fifo.Status != "running" || fifo.RunID.Valid || !fifo.ClaimExpiresAt.Valid || fifo.ClaimExpiresAt.Time.After(time.Now().UTC())) {
+			return sqlc.CtxGroupDispatch{}, false, nil
+		}
+		if _, err = qtx.ClaimChannelBindingFIFOHead(ctx, fifo.ID); errors.Is(err, pgx.ErrNoRows) {
+			return sqlc.CtxGroupDispatch{}, false, nil
+		} else if err != nil {
+			return sqlc.CtxGroupDispatch{}, false, fmt.Errorf("claim group FIFO row: %w", err)
+		}
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return sqlc.CtxGroupDispatch{}, false, fmt.Errorf("get group FIFO row: %w", err)
+	}
+	claimed, err := qtx.ClaimPendingGroupDispatch(ctx, sqlc.ClaimPendingGroupDispatchParams{
+		ID: row.ID, Now: nullTime(time.Now().UTC()), LeaseUntil: nullTime(time.Now().UTC().Add(d.leaseDuration)),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return sqlc.CtxGroupDispatch{}, false, nil
+	}
+	if err != nil {
+		return sqlc.CtxGroupDispatch{}, false, fmt.Errorf("claim dispatch: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return sqlc.CtxGroupDispatch{}, false, fmt.Errorf("commit group dispatch claim: %w", err)
+	}
+	return claimed, true, nil
 }
 
 func (d *GroupDispatcher) completeDispatch(ctx context.Context, row sqlc.CtxGroupDispatch) error {
-	rows, err := d.q.MarkGroupDispatchCompleted(ctx, sqlc.MarkGroupDispatchCompletedParams{ID: row.ID, AttemptCount: row.AttemptCount})
+	return d.withRunTx(ctx, func(q *sqlc.Queries) error {
+		rows, err := q.MarkGroupDispatchCompleted(ctx, sqlc.MarkGroupDispatchCompletedParams{ID: row.ID, AttemptCount: row.AttemptCount})
+		if err != nil {
+			return fmt.Errorf("mark dispatch completed: %w", err)
+		}
+		if rows == 0 {
+			return agentrun.ErrLeaseLost
+		}
+		return d.completeGroupFIFOWithQueries(ctx, q, row.ID)
+	})
+}
+
+func (d *GroupDispatcher) withRunTx(ctx context.Context, fn func(*sqlc.Queries) error) error {
+	tx, err := d.db.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("mark dispatch completed: %w", err)
+		return err
 	}
-	if rows == 0 {
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return err
+	}
+	if err := fn(d.q.WithTx(tx)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (d *GroupDispatcher) completeGroupFIFOWithQueries(ctx context.Context, q *sqlc.Queries, dispatchID string) error {
+	row, err := q.GetChannelBindingFIFOByDispatch(ctx, pgtype.Text{String: dispatchID, Valid: true})
+	if errors.Is(err, pgx.ErrNoRows) || row.Status == "completed" || row.Status == "rejected" {
 		return nil
 	}
+	if err != nil {
+		return fmt.Errorf("get group FIFO completion row: %w", err)
+	}
+	if row.RunID.Valid {
+		updated, err := q.CompleteChannelBindingFIFO(ctx, sqlc.CompleteChannelBindingFIFOParams{ID: row.ID, RunID: row.RunID})
+		if err != nil {
+			return fmt.Errorf("complete group FIFO row: %w", err)
+		}
+		if updated == 0 {
+			return errors.New("complete group FIFO row: lost ownership")
+		}
+		return nil
+	}
+	updated, err := q.CompleteChannelBindingFIFOControl(ctx, sqlc.CompleteChannelBindingFIFOControlParams{ID: row.ID, ClaimToken: row.ClaimToken})
+	if err != nil {
+		return fmt.Errorf("complete group FIFO control row: %w", err)
+	}
+	if updated == 0 {
+		return errors.New("complete group FIFO control row: lost ownership")
+	}
 	return nil
+}
+
+func (d *GroupDispatcher) rejectGroupFIFO(ctx context.Context, dispatchID, reason string) error {
+	return d.rejectGroupFIFOWithQueries(ctx, d.q, dispatchID, reason)
+}
+
+func (d *GroupDispatcher) rejectGroupFIFOWithQueries(ctx context.Context, q *sqlc.Queries, dispatchID, reason string) error {
+	row, err := q.GetChannelBindingFIFOByDispatch(ctx, pgtype.Text{String: dispatchID, Valid: true})
+	if errors.Is(err, pgx.ErrNoRows) || row.Status == "completed" || row.Status == "rejected" {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, err = q.RejectChannelBindingFIFO(ctx, sqlc.RejectChannelBindingFIFOParams{
+		ID: row.ID, Reason: reason, RejectedBy: "group_dispatcher",
+	})
+	return err
 }
 
 func (d *GroupDispatcher) recordDispatchResult(ctx context.Context, row sqlc.CtxGroupDispatch, response groupResponse) error {
@@ -681,6 +925,9 @@ func (d *GroupDispatcher) recordDispatchResult(ctx context.Context, row sqlc.Ctx
 		return fmt.Errorf("record dispatch result: begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return err
+	}
 	if err := appdb.AdvisoryXactLock(ctx, tx, "gid:"+row.GroupID); err != nil {
 		return err
 	}
@@ -711,9 +958,23 @@ func (d *GroupDispatcher) recordDispatchResult(ctx context.Context, row sqlc.Ctx
 	return nil
 }
 
-func (d *GroupDispatcher) publisherFor(state sqlc.CtxGroupState, row sqlc.CtxGroupDispatch, override GroupPublisher) (GroupPublisher, error) {
+func (d *GroupDispatcher) publisherFor(ctx context.Context, state sqlc.CtxGroupState, row sqlc.CtxGroupDispatch, envelope GroupOutboxEnvelope, override GroupPublisher) (GroupPublisher, error) {
 	if override != nil {
 		return override, nil
+	}
+	if d.reconstructor != nil {
+		configured, err := d.coord.store.GetChannel(ctx, row.ReplyChannelID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve durable publisher config %q: %w", row.ReplyChannelID, err)
+		}
+		publisher, err := d.reconstructor.ReconstructGroupPublisher(ctx, configured, envelope)
+		if err != nil {
+			return nil, fmt.Errorf("reconstruct durable publisher %q: %w", row.ReplyChannelID, err)
+		}
+		if publisher == nil {
+			return nil, fmt.Errorf("reconstruct durable publisher %q: nil publisher", row.ReplyChannelID)
+		}
+		return publisher, nil
 	}
 	if publisher, ok := d.publishers.Get(row.ReplyChannelID); ok {
 		return publisher, nil
@@ -726,7 +987,7 @@ func (d *GroupDispatcher) publisherFor(state sqlc.CtxGroupState, row sqlc.CtxGro
 
 func (d *GroupDispatcher) failOutbox(ctx context.Context, row sqlc.CtxGroupOutbox, cause error) error {
 	if row.AttemptCount >= d.maxAttempts {
-		if _, err := d.q.MarkGroupOutboxFailed(ctx, sqlc.MarkGroupOutboxFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: cause.Error()}); err != nil {
+		if err := d.failOutboxTerminal(ctx, row, cause.Error()); err != nil {
 			return fmt.Errorf("mark outbox failed: %w", err)
 		}
 		return cause
@@ -742,20 +1003,78 @@ func (d *GroupDispatcher) failOutbox(ctx context.Context, row sqlc.CtxGroupOutbo
 	return cause
 }
 
+func (d *GroupDispatcher) failOutboxTerminal(ctx context.Context, row sqlc.CtxGroupOutbox, reason string) error {
+	if d.db == nil {
+		updated, err := d.q.MarkGroupOutboxFailed(ctx, sqlc.MarkGroupOutboxFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: reason})
+		if err != nil || updated == 0 {
+			return err
+		}
+		_, err = d.q.CompleteFailedChannelGroupRoute(ctx, row.ID)
+		return err
+	}
+	tx, err := d.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := d.q.WithTx(tx)
+	updated, err := q.MarkGroupOutboxFailed(ctx, sqlc.MarkGroupOutboxFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: reason})
+	if err != nil {
+		return err
+	}
+	if updated == 0 {
+		return nil
+	}
+	if _, err := q.CompleteFailedChannelGroupRoute(ctx, row.ID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func (d *GroupDispatcher) failDispatch(ctx context.Context, row sqlc.CtxGroupDispatch, cause error) error {
 	if row.AttemptCount >= d.maxAttempts {
-		if _, err := d.q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: cause.Error()}); err != nil {
-			return fmt.Errorf("mark dispatch failed: %w", err)
+		if err := d.withRunTx(ctx, func(q *sqlc.Queries) error {
+			if _, err := q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: cause.Error()}); err != nil {
+				return fmt.Errorf("mark dispatch failed: %w", err)
+			}
+			return d.rejectGroupFIFOWithQueries(ctx, q, row.ID, cause.Error())
+		}); err != nil {
+			return err
 		}
 		return cause
 	}
-	if _, err := d.q.RequeueGroupDispatch(ctx, sqlc.RequeueGroupDispatchParams{
-		ID:            row.ID,
-		AttemptCount:  row.AttemptCount,
-		NextAttemptAt: nullTime(time.Now().UTC().Add(backoff(row.AttemptCount))),
-		LastError:     cause.Error(),
+	if err := d.withRunTx(ctx, func(q *sqlc.Queries) error {
+		if _, err := q.RequeueGroupDispatch(ctx, sqlc.RequeueGroupDispatchParams{
+			ID:            row.ID,
+			AttemptCount:  row.AttemptCount,
+			NextAttemptAt: nullTime(time.Now().UTC().Add(backoff(row.AttemptCount))),
+			LastError:     cause.Error(),
+		}); err != nil {
+			return fmt.Errorf("requeue dispatch: %w", err)
+		}
+		if fifo, err := q.GetChannelBindingFIFOByDispatch(ctx, pgtype.Text{String: row.ID, Valid: true}); err == nil {
+			_, err = q.BlockChannelBindingFIFO(ctx, sqlc.BlockChannelBindingFIFOParams{
+				ID: fifo.ID, Reason: cause.Error(), BackoffSeconds: int32(backoff(row.AttemptCount) / time.Second),
+			})
+			return err
+		}
+		return nil
 	}); err != nil {
-		return fmt.Errorf("requeue dispatch: %w", err)
+		return err
+	}
+	return cause
+}
+
+func (d *GroupDispatcher) failDispatchTerminal(ctx context.Context, row sqlc.CtxGroupDispatch, cause error) error {
+	if err := d.withRunTx(ctx, func(q *sqlc.Queries) error {
+		if _, err := q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{
+			ID: row.ID, AttemptCount: row.AttemptCount, LastError: cause.Error(),
+		}); err != nil {
+			return fmt.Errorf("mark ambiguous publish failed: %w", err)
+		}
+		return d.rejectGroupFIFOWithQueries(ctx, q, row.ID, cause.Error())
+	}); err != nil {
+		return err
 	}
 	return cause
 }
@@ -799,7 +1118,9 @@ func (d *GroupDispatcher) chatDispatch(ctx context.Context, row sqlc.CtxGroupDis
 			}
 		}
 	}()
-	return &pkgchannel.ChatStream{Events: out, SessionID: stream.SessionID}, nil
+	return &pkgchannel.ChatStream{
+		Events: out, SessionID: stream.SessionID, OperationCheck: stream.OperationCheck,
+	}, nil
 }
 
 // errGroupTurnSuperseded reports that a dispatch row's trigger message sits at
@@ -839,9 +1160,13 @@ func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.Ctx
 	}
 	ctx = memory.WithGroupSeq(ctx, message.Seq)
 	content := groupMessageContentBlocks(message)
+	runtimeOpts, err := d.groupRuntimeOptions(ctx, row.ID)
+	if err != nil {
+		return nil, err
+	}
 	var stream *pkgchannel.ChatStream
 	if state.Platform == "web" {
-		stream, err = d.chatWeb(ctx, row, message)
+		stream, err = d.chatWeb(ctx, row, message, runtimeOpts)
 	} else {
 		var rc *ResolvedChat
 		rc, err = d.coord.resolveGroupChat(ctx, pkgchannel.IncomingMessage{
@@ -856,7 +1181,7 @@ func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.Ctx
 			ReplyTo:   nullStringValue(message.ReplyTo),
 		}, row.GroupID, row.AgentID, row.ReplyChannelID)
 		if err == nil {
-			stream, err = d.coord.chatWithRC(ctx, rc, content)
+			stream, err = d.coord.chatWithRCOptions(ctx, rc, content, runtimeOpts...)
 		}
 	}
 	if err != nil {
@@ -865,12 +1190,30 @@ func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.Ctx
 	return stream, nil
 }
 
+func (d *GroupDispatcher) groupRuntimeOptions(ctx context.Context, dispatchID string) ([]agentruntime.Option, error) {
+	fifo, err := d.q.GetChannelBindingFIFOByDispatch(ctx, pgtype.Text{String: dispatchID, Valid: true})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get claimed group FIFO: %w", err)
+	}
+	if fifo.Status != "running" || !fifo.ClaimToken.Valid {
+		return nil, errors.New("group FIFO is not owned at AgentRun admission")
+	}
+	opts := []agentruntime.Option{agentruntime.WithChannelFIFOClaim(fifo.ID, fifo.ClaimToken.String)}
+	if completion, _ := ctx.Value(groupCompletionKey{}).(*agentruntime.CompletionBarrier); completion != nil {
+		opts = append(opts, agentruntime.WithCompletionBarrier(completion))
+	}
+	return opts, nil
+}
+
 // groupMessageContentBlocks rebuilds the structured blocks persisted for a
 // group message (images survive the event log via content_blocks), falling
 // back to the plain-text projection for text-only or legacy rows.
 func groupMessageContentBlocks(message sqlc.CtxGroupMessage) []ai.ContentBlock {
 	if blocks, err := ai.UnmarshalContentBlocks(message.ContentBlocks); err == nil && blocks != nil {
-		return blocks
+		return ai.ProjectFileRefs(blocks)
 	}
 	return []ai.ContentBlock{ai.TextContent{Text: message.Content}}
 }
@@ -879,7 +1222,7 @@ func groupMessageContentBlocks(message sqlc.CtxGroupMessage) []ai.ContentBlock {
 // which keeps plain strings for text-only messages.
 func groupMessageChatContent(message sqlc.CtxGroupMessage) agent.MessageContent {
 	if blocks, err := ai.UnmarshalContentBlocks(message.ContentBlocks); err == nil && blocks != nil {
-		return blocks
+		return ai.ProjectFileRefs(blocks)
 	}
 	return message.Content
 }
@@ -913,7 +1256,7 @@ func (d *GroupDispatcher) resolveWebGroupChat(ctx context.Context, groupID, agen
 	}, nil
 }
 
-func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage) (*pkgchannel.ChatStream, error) {
+func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, runtimeOpts []agentruntime.Option) (*pkgchannel.ChatStream, error) {
 	speaker := webGroupSpeaker(message)
 	// A persisted group membership is not an execute grant forever. The human
 	// speaker is audit/personalization only; never borrow their private user
@@ -946,6 +1289,7 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 		Channel:        rc.Channel,
 		Message:        groupMessageChatContent(message),
 		CurrentSpeaker: speaker,
+		RuntimeOpts:    runtimeOpts,
 		Authority:      rc.Authority,
 	})
 	out := make(chan pkgchannel.Event, 100)
@@ -1015,7 +1359,9 @@ func (d *GroupDispatcher) wrapGroupResponseStream(ctx context.Context, stream *p
 		responseC <- groupResponse{text: textBuf.String(), sessionID: stream.SessionID, complete: !sawErr}
 		close(responseC)
 	}()
-	return &pkgchannel.ChatStream{Events: out, SessionID: stream.SessionID}, responseC
+	return &pkgchannel.ChatStream{
+		Events: out, SessionID: stream.SessionID, OperationCheck: stream.OperationCheck,
+	}, responseC
 }
 
 // fallbackGroupDecision resolves responders when no arbiter is wired: only

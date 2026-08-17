@@ -9,6 +9,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/agentctx"
+	agentruntime "github.com/CherryHQ/stella/internal/agent/runtime"
 	"github.com/CherryHQ/stella/internal/agent/session"
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
@@ -171,6 +172,10 @@ func (rc *ResolvedChat) AuthorizeUse(ctx context.Context, access *agentaccess.Se
 }
 
 func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) (<-chan agent.Event, string, error) {
+	return rc.ChatWithRuntimeOptions(ctx, message)
+}
+
+func (rc *ResolvedChat) ChatWithRuntimeOptions(ctx context.Context, message agent.MessageContent, opts ...agentruntime.Option) (<-chan agent.Event, string, error) {
 	if rc.User.ID == "" && rc.GroupID == "" && rc.GuestID == "" {
 		return nil, "", fmt.Errorf("missing user context")
 	}
@@ -181,7 +186,7 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) 
 	if err != nil {
 		return nil, "", fmt.Errorf("resolve session: %w", err)
 	}
-	stream := rc.Service.Chat(rc.withChatBinding(ctx), agent.ChatRequest{
+	stream, err := rc.Service.ChatAdmitted(rc.withChatBinding(ctx), agent.ChatRequest{
 		SessionID:      info.ID,
 		UserID:         rc.sessionUserID(),
 		AgentID:        rc.AgentID,
@@ -192,7 +197,11 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) 
 		Message:        message,
 		CurrentSpeaker: rc.CurrentSpeaker,
 		Authority:      rc.Authority,
+		RuntimeOpts:    opts,
 	})
+	if err != nil {
+		return nil, "", err
+	}
 	return stream, info.ID, nil
 }
 

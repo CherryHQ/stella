@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/oklog/ulid/v2"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -61,19 +62,21 @@ func (s *Store) saveArticle(ctx context.Context, userID string, req SaveRequest,
 	existing, err := s.q.GetArticleByCanonicalURL(ctx, sqlc.GetArticleByCanonicalURLParams{UserID: userID, CanonicalUrl: canonicalURL})
 	switch {
 	case err == nil:
-		updated, err := s.q.UpdateArticle(ctx, sqlc.UpdateArticleParams{
-			ID:          existing.ID,
-			UserID:      userID,
-			Title:       req.Title,
-			Author:      req.Author,
-			Summary:     req.Summary,
-			Tags:        encodeTags(req.Tags),
-			Status:      existing.Status,
-			Starred:     existing.Starred,
-			FilePath:    existing.FilePath,
-			Metadata:    encodeMetadata(req.Metadata),
-			PublishedAt: toNullTime(req.PublishedAt),
-			ReadAt:      existing.ReadAt,
+		updated, err := agentrun.WriteTxValue(ctx, s.db, func(q *sqlc.Queries) (sqlc.RecallyArticle, error) {
+			return q.UpdateArticle(ctx, sqlc.UpdateArticleParams{
+				ID:          existing.ID,
+				UserID:      userID,
+				Title:       req.Title,
+				Author:      req.Author,
+				Summary:     req.Summary,
+				Tags:        encodeTags(req.Tags),
+				Status:      existing.Status,
+				Starred:     existing.Starred,
+				FilePath:    existing.FilePath,
+				Metadata:    encodeMetadata(req.Metadata),
+				PublishedAt: toNullTime(req.PublishedAt),
+				ReadAt:      existing.ReadAt,
+			})
 		})
 		if err != nil {
 			return nil, false, fmt.Errorf("update article: %w", err)
@@ -114,6 +117,9 @@ func (s *Store) saveArticle(ctx context.Context, userID string, req SaveRequest,
 		}
 		defer func() { _ = tx.Rollback(ctx) }()
 
+		if err := agentrun.ValidateTx(ctx, tx); err != nil {
+			return nil, false, err
+		}
 		qtx := s.q.WithTx(tx)
 		created, err = qtx.CreateArticle(ctx, params)
 		if err != nil {
@@ -126,7 +132,9 @@ func (s *Store) saveArticle(ctx context.Context, userID string, req SaveRequest,
 			return nil, false, fmt.Errorf("commit article transaction: %w", err)
 		}
 	} else {
-		created, err = s.q.CreateArticle(ctx, params)
+		created, err = agentrun.WriteTxValue(ctx, s.db, func(q *sqlc.Queries) (sqlc.RecallyArticle, error) {
+			return q.CreateArticle(ctx, params)
+		})
 		if err != nil {
 			return nil, false, fmt.Errorf("create article: %w", err)
 		}
@@ -221,19 +229,21 @@ func (s *Store) UpdateArticle(ctx context.Context, userID string, articleID stri
 		publishedAt = toNullTime(v)
 	}
 
-	updated, err := s.q.UpdateArticle(ctx, sqlc.UpdateArticleParams{
-		ID:          articleID,
-		UserID:      userID,
-		Title:       title,
-		Author:      author,
-		Summary:     summary,
-		Tags:        tags,
-		Status:      status,
-		Starred:     starred,
-		FilePath:    filePath,
-		Metadata:    metadata,
-		PublishedAt: publishedAt,
-		ReadAt:      readAt,
+	updated, err := agentrun.WriteTxValue(ctx, s.db, func(q *sqlc.Queries) (sqlc.RecallyArticle, error) {
+		return q.UpdateArticle(ctx, sqlc.UpdateArticleParams{
+			ID:          articleID,
+			UserID:      userID,
+			Title:       title,
+			Author:      author,
+			Summary:     summary,
+			Tags:        tags,
+			Status:      status,
+			Starred:     starred,
+			FilePath:    filePath,
+			Metadata:    metadata,
+			PublishedAt: publishedAt,
+			ReadAt:      readAt,
+		})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("update article: %w", err)
@@ -246,7 +256,9 @@ func (s *Store) UpdateArticle(ctx context.Context, userID string, articleID stri
 
 // DeleteArticle removes an article from the database.
 func (s *Store) DeleteArticle(ctx context.Context, userID string, articleID string) error {
-	if err := s.q.DeleteArticle(ctx, sqlc.DeleteArticleParams{ID: articleID, UserID: userID}); err != nil {
+	if err := agentrun.WriteTx(ctx, s.db, func(q *sqlc.Queries) error {
+		return q.DeleteArticle(ctx, sqlc.DeleteArticleParams{ID: articleID, UserID: userID})
+	}); err != nil {
 		return fmt.Errorf("delete article: %w", err)
 	}
 	return nil
@@ -343,20 +355,22 @@ func (s *Store) CreateFeed(ctx context.Context, userID string, feedURL string, k
 	if kind == "" {
 		kind = FeedKindRSS
 	}
-	row, err := s.q.CreateFeed(ctx, sqlc.CreateFeedParams{
-		ID:            generateID(),
-		UserID:        userID,
-		AgentID:       toNullString(agentID),
-		Url:           feedURL,
-		Kind:          string(kind),
-		Metadata:      encodeMetadata(metadata),
-		Title:         title,
-		Description:   description,
-		CheckInterval: "1h",
-		LastCheckedAt: pgtype.Timestamptz{},
-		LastEtag:      "",
-		LastModified:  "",
-		Enabled:       true,
+	row, err := agentrun.WriteTxValue(ctx, s.db, func(q *sqlc.Queries) (sqlc.RecallyFeed, error) {
+		return q.CreateFeed(ctx, sqlc.CreateFeedParams{
+			ID:            generateID(),
+			UserID:        userID,
+			AgentID:       toNullString(agentID),
+			Url:           feedURL,
+			Kind:          string(kind),
+			Metadata:      encodeMetadata(metadata),
+			Title:         title,
+			Description:   description,
+			CheckInterval: "1h",
+			LastCheckedAt: pgtype.Timestamptz{},
+			LastEtag:      "",
+			LastModified:  "",
+			Enabled:       true,
+		})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create feed: %w", err)
@@ -460,17 +474,19 @@ func (s *Store) UpdateFeed(ctx context.Context, userID string, feedID string, up
 		enabled = v
 	}
 
-	updated, err := s.q.UpdateFeed(ctx, sqlc.UpdateFeedParams{
-		ID:            feedID,
-		UserID:        userID,
-		Title:         title,
-		Description:   description,
-		Metadata:      metadata,
-		CheckInterval: checkInterval,
-		LastCheckedAt: lastCheckedAt,
-		LastEtag:      lastETag,
-		LastModified:  lastModified,
-		Enabled:       enabled,
+	updated, err := agentrun.WriteTxValue(ctx, s.db, func(q *sqlc.Queries) (sqlc.RecallyFeed, error) {
+		return q.UpdateFeed(ctx, sqlc.UpdateFeedParams{
+			ID:            feedID,
+			UserID:        userID,
+			Title:         title,
+			Description:   description,
+			Metadata:      metadata,
+			CheckInterval: checkInterval,
+			LastCheckedAt: lastCheckedAt,
+			LastEtag:      lastETag,
+			LastModified:  lastModified,
+			Enabled:       enabled,
+		})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("update feed: %w", err)
@@ -483,7 +499,9 @@ func (s *Store) UpdateFeed(ctx context.Context, userID string, feedID string, up
 
 // DeleteFeed removes a feed and all its entries.
 func (s *Store) DeleteFeed(ctx context.Context, userID string, feedID string) error {
-	if err := s.q.DeleteFeed(ctx, sqlc.DeleteFeedParams{ID: feedID, UserID: userID}); err != nil {
+	if err := agentrun.WriteTx(ctx, s.db, func(q *sqlc.Queries) error {
+		return q.DeleteFeed(ctx, sqlc.DeleteFeedParams{ID: feedID, UserID: userID})
+	}); err != nil {
 		return fmt.Errorf("delete feed: %w", err)
 	}
 	return nil
@@ -492,18 +510,20 @@ func (s *Store) DeleteFeed(ctx context.Context, userID string, feedID string) er
 // CreateFeedEntry creates a new feed entry. Returns nil, nil when the entry
 // already exists (ON CONFLICT DO NOTHING).
 func (s *Store) CreateFeedEntry(ctx context.Context, feedID, guid, entryURL, title string) (*FeedEntry, error) {
-	row, err := s.q.CreateFeedEntry(ctx, sqlc.CreateFeedEntryParams{
-		ID:           generateID(),
-		FeedID:       feedID,
-		Guid:         guid,
-		Url:          entryURL,
-		Title:        title,
-		Status:       string(EntryStatusPending),
-		ArticleID:    pgtype.Text{},
-		Attempts:     0,
-		ErrorMsg:     "",
-		DiscoveredAt: time.Now().UTC(),
-		ProcessedAt:  pgtype.Timestamptz{},
+	row, err := agentrun.WriteTxValue(ctx, s.db, func(q *sqlc.Queries) (sqlc.RecallyFeedEntry, error) {
+		return q.CreateFeedEntry(ctx, sqlc.CreateFeedEntryParams{
+			ID:           generateID(),
+			FeedID:       feedID,
+			Guid:         guid,
+			Url:          entryURL,
+			Title:        title,
+			Status:       string(EntryStatusPending),
+			ArticleID:    pgtype.Text{},
+			Attempts:     0,
+			ErrorMsg:     "",
+			DiscoveredAt: time.Now().UTC(),
+			ProcessedAt:  pgtype.Timestamptz{},
+		})
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -550,12 +570,14 @@ func (s *Store) GetFeedEntry(ctx context.Context, feedID string, entryID string)
 
 // MarkFeedEntry updates the status of a feed entry after processing.
 func (s *Store) MarkFeedEntry(ctx context.Context, feedID string, entryID string, status RSSEntryStatus, articleID *string, errorMsg string) (*FeedEntry, error) {
-	updated, err := s.q.UpdateFeedEntry(ctx, sqlc.UpdateFeedEntryParams{
-		ID:        entryID,
-		FeedID:    feedID,
-		Status:    string(status),
-		ArticleID: toNullString(articleID),
-		ErrorMsg:  errorMsg,
+	updated, err := agentrun.WriteTxValue(ctx, s.db, func(q *sqlc.Queries) (sqlc.RecallyFeedEntry, error) {
+		return q.UpdateFeedEntry(ctx, sqlc.UpdateFeedEntryParams{
+			ID:        entryID,
+			FeedID:    feedID,
+			Status:    string(status),
+			ArticleID: toNullString(articleID),
+			ErrorMsg:  errorMsg,
+		})
 	})
 	if err != nil {
 		return nil, fmt.Errorf("update feed entry: %w", err)
@@ -575,14 +597,18 @@ func (s *Store) UpdateArticleFilePath(ctx context.Context, userID, articleID, fi
 }
 
 func (s *Store) UpsertArticleContent(ctx context.Context, articleID, content string) error {
-	if err := s.q.UpsertArticleContent(ctx, sqlc.UpsertArticleContentParams{ArticleID: articleID, Content: content}); err != nil {
+	if err := agentrun.WriteTx(ctx, s.db, func(q *sqlc.Queries) error {
+		return q.UpsertArticleContent(ctx, sqlc.UpsertArticleContentParams{ArticleID: articleID, Content: content})
+	}); err != nil {
 		return fmt.Errorf("upsert article content: %w", err)
 	}
 	return nil
 }
 
 func (s *Store) InsertArticleContentIfAbsent(ctx context.Context, articleID, content string) error {
-	if err := s.q.InsertArticleContentIfAbsent(ctx, sqlc.InsertArticleContentIfAbsentParams{ArticleID: articleID, Content: content}); err != nil {
+	if err := agentrun.WriteTx(ctx, s.db, func(q *sqlc.Queries) error {
+		return q.InsertArticleContentIfAbsent(ctx, sqlc.InsertArticleContentIfAbsentParams{ArticleID: articleID, Content: content})
+	}); err != nil {
 		return fmt.Errorf("insert article content if absent: %w", err)
 	}
 	return nil
@@ -747,6 +773,9 @@ func (s *Store) SaveDigest(ctx context.Context, userID string, narrative, date s
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	if err := agentrun.ValidateTx(ctx, tx); err != nil {
+		return nil, err
+	}
 	qtx := s.q.WithTx(tx)
 	row, err := qtx.UpsertDigest(ctx, sqlc.UpsertDigestParams{
 		ID:                   generateID(),

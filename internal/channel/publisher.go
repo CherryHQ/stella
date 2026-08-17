@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/CherryHQ/stella/internal/config"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
 
@@ -15,6 +16,15 @@ import (
 // fail; the event log is the durable delivery channel).
 type GroupPublisher interface {
 	Publish(ctx context.Context, req GroupPublishRequest) error
+}
+
+// DurablePublisherReconstructor is the channel-runtime boundary used by a Run
+// executor to build an egress client on demand. The channel row supplies the
+// durable (and, where applicable, encrypted) credentials; the outbox envelope
+// supplies immutable reply/capability metadata captured at ingress. Implementations
+// must not rely on a managed listener or a process-local PublisherRegistry.
+type DurablePublisherReconstructor interface {
+	ReconstructGroupPublisher(context.Context, config.Channel, GroupOutboxEnvelope) (GroupPublisher, error)
 }
 
 type GroupPublishRequest struct {

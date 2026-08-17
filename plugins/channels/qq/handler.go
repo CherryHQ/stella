@@ -84,6 +84,12 @@ const (
 // Returns nil if the message has no usable content.
 func (b *Bot) buildMessageContent(msg *dto.Message, assetMsg channel.IncomingMessage) []ai.ContentBlock {
 	text := strings.TrimSpace(msg.Content)
+	for _, attachment := range msg.Attachments {
+		if attachment == nil || strings.TrimSpace(attachment.URL) == "" {
+			logger().Warn("rejecting attachment without download URL")
+			return nil
+		}
+	}
 	images := extractImageAttachments(msg)
 	files := extractFileAttachments(msg)
 
@@ -95,28 +101,14 @@ func (b *Bot) buildMessageContent(msg *dto.Message, assetMsg channel.IncomingMes
 	if text != "" {
 		blocks = append(blocks, ai.TextContent{Text: text})
 	}
-	if assetMsg.Platform == "" {
-		for _, img := range images {
-			name := img.FileName
-			if name == "" {
-				name = "image"
-			}
-			blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[Image: %s] (storage unavailable)", name)})
-		}
-		for _, file := range files {
-			name := file.FileName
-			if name == "" {
-				name = "file"
-			}
-			blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[File: %s] (storage unavailable)", name)})
-		}
-		return blocks
+	if assetMsg.Platform == "" && len(msg.Attachments) != 0 {
+		return nil
 	}
 	for _, img := range images {
 		data, mime, err := downloadImage(b.ctx, img.URL)
 		if err != nil {
 			logger().Warn("download image failed", "url", img.URL, "error", err)
-			continue
+			return nil
 		}
 		logger().Debug("image received", "size", len(data), "mime", mime)
 		fileName := img.FileName
@@ -135,17 +127,16 @@ func (b *Bot) buildMessageContent(msg *dto.Message, assetMsg channel.IncomingMes
 		// past the inline limit become an explicit text note instead.
 		blocks = append(blocks, channel.InlineImageFallback(fileName, mime, data)...)
 	}
-	for _, f := range files {
+	for i, f := range files {
 		fileName := f.FileName
 		if fileName == "" {
-			fileName = "file"
+			fileName = fmt.Sprintf("attachment-%d", i+1)
 		}
 		if assetMsg.Platform != "" {
 			data, _, err := downloadImage(b.ctx, f.URL) // reuse HTTP downloader
 			if err != nil {
 				logger().Warn("download file attachment failed", "url", f.URL, "error", err)
-				blocks = append(blocks, ai.TextContent{Text: fmt.Sprintf("[File: %s] (download failed)", fileName)})
-				continue
+				return nil
 			}
 			savedPath, err := b.saveAsset(b.ctx, assetMsg, fileName, data)
 			if err != nil {
@@ -177,15 +168,13 @@ func extractImageAttachments(msg *dto.Message) []*dto.MessageAttachment {
 	return images
 }
 
-// extractFileAttachments returns non-image, non-video, non-voice attachments.
+// extractFileAttachments returns every non-image attachment. QQ's generic file,
+// video, and voice payloads are all represented as FileContent to the host.
 func extractFileAttachments(msg *dto.Message) []*dto.MessageAttachment {
 	var files []*dto.MessageAttachment
 	for _, a := range msg.Attachments {
-		if a.URL == "" {
-			continue
-		}
 		ct := a.ContentType
-		if strings.HasPrefix(ct, "image/") || strings.HasPrefix(ct, "video/") || strings.HasPrefix(ct, "voice") {
+		if strings.HasPrefix(ct, "image/") {
 			continue
 		}
 		files = append(files, a)
@@ -197,7 +186,7 @@ func extractFileAttachments(msg *dto.Message) []*dto.MessageAttachment {
 // UserRootResolver and the message contains image or file attachments to persist.
 // Returns "" otherwise.
 func (b *Bot) resolveAssetsDir(probeMsg channel.IncomingMessage, msg *dto.Message) channel.IncomingMessage {
-	if len(extractImageAttachments(msg)) == 0 && len(extractFileAttachments(msg)) == 0 {
+	if len(msg.Attachments) == 0 {
 		return channel.IncomingMessage{}
 	}
 	resolver, ok := b.handler.(channel.AssetSaveAdmitter)
@@ -258,6 +247,18 @@ func (b *Bot) handleIncoming(authorID, groupID, msgID string, incoming channel.I
 	if groupID != "" {
 		replyTarget = groupID
 	}
+	if ai.HasAttachment(incoming.Content) {
+		admitter, ok := b.handler.(channel.AttachmentAdmitter)
+		if !ok {
+			b.sendReply(replyTarget, msgID, "Unable to durably accept this attachment.", scope)
+			return
+		}
+		if err := admitter.AdmitAttachments(b.ctx, incoming); err != nil {
+			logger().Warn("durable attachment admission failed", "author", authorID, "error", err)
+			b.sendReply(replyTarget, msgID, "Unable to durably accept this attachment.", scope)
+			return
+		}
+	}
 
 	resp, handled, stream, err := b.handler.HandleIncoming(b.ctx, incoming, cmd, args)
 	if err != nil {
@@ -275,7 +276,7 @@ func (b *Bot) handleIncoming(authorID, groupID, msgID string, incoming channel.I
 
 	logger().Debug("message received", "author", authorID, "session", stream.SessionID)
 
-	response, images, streamErr := b.streamResponse(stream.Events, authorID, groupID, msgID, scope)
+	response, images, streamErr := b.streamResponse(b.ctx, stream, authorID, groupID, msgID, scope)
 
 	if streamErr != nil {
 		logger().Error("agent stream error", "session_id", stream.SessionID, "error", streamErr)
@@ -290,7 +291,13 @@ func (b *Bot) handleIncoming(authorID, groupID, msgID string, incoming channel.I
 		response = "(empty response)"
 	}
 
-	b.sendFinalResponse(replyTarget, msgID, response, scope)
+	if streamErr != nil {
+		return
+	}
+	if err := b.sendFinalResponse(b.ctx, stream, replyTarget, msgID, response, scope); err != nil {
+		logger().Error("send final response failed", "error", err)
+		return
+	}
 
 	for _, img := range images {
 		b.sendImage(replyTarget, msgID, img, scope)

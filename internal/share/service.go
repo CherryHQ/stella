@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agentrun"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/home"
@@ -40,6 +41,7 @@ var (
 
 type Service struct {
 	q          *sqlc.Queries
+	db         *pgxpool.Pool
 	mem        memory.Provider
 	store      *recally.Store
 	recallySvc *recally.Service
@@ -130,7 +132,9 @@ func NewService(q *sqlc.Queries, mem memory.Provider, store *recally.Store, stel
 // NewServiceForPool creates a share service that owns the sqlc query set for the
 // share tables, so callers pass only the pgx pool.
 func NewServiceForPool(pool *pgxpool.Pool, mem memory.Provider, store *recally.Store, stellaHome, baseURL string, opts ...Option) *Service {
-	return NewService(sqlc.New(pool), mem, store, stellaHome, baseURL, opts...)
+	service := NewService(sqlc.New(pool), mem, store, stellaHome, baseURL, opts...)
+	service.db = pool
+	return service
 }
 
 func (s *Service) PublicURL(token string) string {
@@ -149,7 +153,17 @@ func (s *Service) create(ctx context.Context, userID, title, mediaType string, c
 	if err != nil {
 		return Created{}, err
 	}
-	row, err := s.q.CreateShare(ctx, sqlc.CreateShareParams{ID: uuid.Must(uuid.NewV7()).String(), TokenHash: tokenHash, UserID: userID, Title: title, MediaType: mediaType, Content: content, ExpiresAt: expiresAt})
+	if _, guarded := agentrun.GuardFromContext(ctx); guarded && s.db == nil {
+		return Created{}, fmt.Errorf("share AgentRun fencing is unavailable")
+	}
+	var row sqlc.Share
+	if s.db != nil {
+		row, err = agentrun.WriteTxValue(ctx, s.db, func(q *sqlc.Queries) (sqlc.Share, error) {
+			return q.CreateShare(ctx, sqlc.CreateShareParams{ID: uuid.Must(uuid.NewV7()).String(), TokenHash: tokenHash, UserID: userID, Title: title, MediaType: mediaType, Content: content, ExpiresAt: expiresAt})
+		})
+	} else {
+		row, err = s.q.CreateShare(ctx, sqlc.CreateShareParams{ID: uuid.Must(uuid.NewV7()).String(), TokenHash: tokenHash, UserID: userID, Title: title, MediaType: mediaType, Content: content, ExpiresAt: expiresAt})
+	}
 	if err != nil {
 		return Created{}, err
 	}

@@ -97,7 +97,7 @@ func TestDeviceCodeBroker_PersistFailureSetsError(t *testing.T) {
 
 	store := NewFlowStore()
 	persistErr := errors.New("vault write boom")
-	broker := NewDeviceCodeBroker(deviceBrokerConfig(srv), store, func(string, *oauth2.Token) error {
+	broker := NewDeviceCodeBroker(deviceBrokerConfig(srv), store, func(context.Context, string, *oauth2.Token) error {
 		return persistErr
 	})
 
@@ -127,7 +127,7 @@ func TestDeviceCodeBrokerSupersededFlowDoesNotPersistToken(t *testing.T) {
 
 	store := NewFlowStore()
 	persisted := make(chan struct{}, 1)
-	broker := NewDeviceCodeBroker(deviceBrokerConfig(srv), store, func(string, *oauth2.Token) error {
+	broker := NewDeviceCodeBroker(deviceBrokerConfig(srv), store, func(context.Context, string, *oauth2.Token) error {
 		persisted <- struct{}{}
 		return nil
 	})

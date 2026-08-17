@@ -61,6 +61,8 @@ func New(cfg Config) *Provider {
 	opts := []option.RequestOption{
 		option.WithHTTPClient(httpclient.StdHTTPClient()),
 		option.WithMiddleware(stripLeadingNewlines),
+		// Preserve the AgentRun one-attempt model-operation boundary.
+		option.WithMaxRetries(0),
 	}
 	if cfg.APIKey != "" {
 		opts = append(opts, option.WithAPIKey(cfg.APIKey))
