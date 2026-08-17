@@ -32,6 +32,9 @@ export interface Attachment {
   file?: File;
 }
 
+/** Batching window for draft writes; short enough that a fast Cmd-W still saves. */
+const DRAFT_SAVE_DELAY_MS = 200;
+
 const MENU_ID = "composer-trigger-menu";
 const optionId = (index: number) => `${MENU_ID}-option-${index}`;
 
@@ -93,13 +96,43 @@ export function ChatComposer({
     setChips(restored.chips);
   }, [draftKey]);
 
-  const persist = useCallback(
-    (patch: Partial<ComposerDraft>) => {
-      draftRef.current = { ...draftRef.current, ...patch };
-      patchDraft(draftKey ?? null, patch);
-    },
-    [draftKey],
+  // Writing to sessionStorage on every keystroke means a JSON round-trip per
+  // character. Batch them, but remember which key a pending write belongs to:
+  // switching threads must not flush the old draft into the new one.
+  const pendingWriteRef = useRef<{ key: string | null; patch: Partial<ComposerDraft> } | null>(
+    null,
   );
+  const writeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushDraft = useCallback(() => {
+    if (writeTimerRef.current) {
+      clearTimeout(writeTimerRef.current);
+      writeTimerRef.current = null;
+    }
+    const pending = pendingWriteRef.current;
+    pendingWriteRef.current = null;
+    if (pending) patchDraft(pending.key, pending.patch);
+  }, []);
+
+  const persist = useCallback(
+    (patch: Partial<ComposerDraft>, immediate = false) => {
+      draftRef.current = { ...draftRef.current, ...patch };
+      const key = draftKey ?? null;
+      // A queued write for another thread has to land before this one queues.
+      if (pendingWriteRef.current && pendingWriteRef.current.key !== key) flushDraft();
+      pendingWriteRef.current = { key, patch: { ...pendingWriteRef.current?.patch, ...patch } };
+      if (immediate) {
+        flushDraft();
+        return;
+      }
+      if (writeTimerRef.current) clearTimeout(writeTimerRef.current);
+      writeTimerRef.current = setTimeout(flushDraft, DRAFT_SAVE_DELAY_MS);
+    },
+    [draftKey, flushDraft],
+  );
+
+  // Navigating away is exactly when an unsaved draft matters most.
+  useEffect(() => flushDraft, [flushDraft]);
 
   const resizeTextarea = useCallback(() => {
     const textarea = taRef.current;
@@ -149,7 +182,7 @@ export function ChatComposer({
     setChips([]);
     setValueState("");
     // Keep the sent text so an empty composer can recall it with ArrowUp.
-    persist({ text: "", chips: [], lastSent: full });
+    persist({ text: "", chips: [], lastSent: full }, true);
     onSend(full);
   }, [canSend, chips, value, persist, onSend]);
 
@@ -553,12 +586,12 @@ export function ChatComposer({
             {isStreaming && onStop ? (
               <Button
                 variant="destructive-outline"
-                size="sm"
+                size="icon-sm"
                 onClick={onStop}
                 title={t("sessions.composer.stopHint")}
+                aria-label={t("sessions.composer.stop")}
               >
-                <div className="w-2 h-2 bg-destructive rounded-xs" />
-                <span>{t("sessions.composer.stop")}</span>
+                <div className="size-2 rounded-xs bg-destructive" />
               </Button>
             ) : (
               <Button

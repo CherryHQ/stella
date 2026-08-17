@@ -150,6 +150,7 @@ export function HomePage() {
             isStreaming={false}
             disabled={starting || !selectedAgent}
             placeholder={t("sessions.composer.placeholder")}
+            draftKey="home"
           />
         </div>
 
