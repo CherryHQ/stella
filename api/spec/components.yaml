@@ -3602,6 +3602,18 @@ components:
         token:
           type: string
           description: Plaintext replacement bearer token returned exactly once.
+    CreateProvisionedUserChannelIdentityRequest:
+      type: object
+      required: [platform, external_id]
+      properties:
+        platform:
+          type: string
+          minLength: 1
+        external_id:
+          type: string
+          minLength: 1
+        name:
+          type: string
     # ── Recally ────────────────────────────────────────────────────────────────
     ArticleStatus:
       type: string

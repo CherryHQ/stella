@@ -154,6 +154,35 @@ func (s *Server) DeactivateProvisionedUser(w http.ResponseWriter, r *http.Reques
 	writeData(w, http.StatusOK, provisionedUserToAPI(user))
 }
 
+// CreateProvisionedUserChannelIdentity handles
+// POST /api/provisioned-users/{id}/channel-identities.
+func (s *Server) CreateProvisionedUserChannelIdentity(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	info := requireProvisioningBearer(w, r)
+	if info == nil {
+		return
+	}
+	if s.provisioningSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "provisioning is unavailable")
+		return
+	}
+	var body apitypes.CreateProvisionedUserChannelIdentityRequest
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	in, err := provisionedChannelIdentityInput(body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	identity, err := s.provisioningSvc.CreateChannelIdentity(r.Context(), provisioningIssuer(info), id.String(), in)
+	if err != nil {
+		s.writeProvisioningError(w, err)
+		return
+	}
+	writeData(w, http.StatusCreated, provisionedChannelIdentityToAPI(identity))
+}
+
 const provisionedUserPageTokenKind = "provisioned_user"
 
 type provisionedUserPageToken struct {
@@ -222,6 +251,19 @@ func provisionedCreateInput(body apitypes.CreateProvisionedUserRequest, now time
 	return provisioning.CreateInput{ExternalID: externalID, Email: email, Name: name, TokenName: tokenName, ExpiresAt: *expiresAt}, nil
 }
 
+func provisionedChannelIdentityInput(body apitypes.CreateProvisionedUserChannelIdentityRequest) (provisioning.ChannelIdentityInput, error) {
+	platform := strings.TrimSpace(body.Platform)
+	externalID := strings.TrimSpace(body.ExternalId)
+	if platform == "" || externalID == "" {
+		return provisioning.ChannelIdentityInput{}, errors.New("platform and external_id are required")
+	}
+	name := ""
+	if body.Name != nil {
+		name = strings.TrimSpace(*body.Name)
+	}
+	return provisioning.ChannelIdentityInput{Platform: platform, ExternalID: externalID, Name: name}, nil
+}
+
 func provisionedTokenInput(tokenName *string, requestedExpiry *time.Time, now time.Time) (string, *time.Time, error) {
 	name := provisioning.DefaultTokenName
 	if tokenName != nil {
@@ -250,6 +292,14 @@ func provisionedUserToAPI(user provisioning.User) apitypes.ProvisionedUser {
 	return out
 }
 
+func provisionedChannelIdentityToAPI(identity provisioning.ChannelIdentity) apitypes.ChannelIdentity {
+	return apitypes.ChannelIdentity{
+		Id: identity.ID, UserId: identity.UserID, Platform: identity.Platform,
+		ExternalId: identity.ExternalID, Name: identity.Name,
+		CreatedAt: identity.CreatedAt.UTC(), UpdatedAt: identity.UpdatedAt.UTC(),
+	}
+}
+
 func (s *Server) writeProvisioningError(w http.ResponseWriter, err error) {
 	var external *provisioning.ExternalIDConflict
 	switch {
@@ -259,6 +309,8 @@ func (s *Server) writeProvisioningError(w http.ResponseWriter, err error) {
 		// Do not reveal whether this belongs to a self-registered, OIDC, or
 		// otherwise unmanaged account.
 		writeError(w, http.StatusConflict, "email is already in use")
+	case errors.Is(err, provisioning.ErrIdentityDup):
+		writeError(w, http.StatusConflict, "channel identity is already linked")
 	case errors.Is(err, provisioning.ErrNotFound):
 		writeError(w, http.StatusNotFound, "provisioned user not found")
 	case errors.Is(err, provisioning.ErrForbidden):

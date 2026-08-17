@@ -37,6 +37,19 @@ curl -X POST https://stella.example/api/provisioned-users \
 
 所有用户令牌默认 90 天过期；`expires_at` 可以缩短或延长，但最长 365 天。没有永不过期选项。
 
+## 关联消息平台身份
+
+要把目录中已有账户的频道消息路由到受管用户，请使用平台的稳定用户标识创建频道身份：
+
+```sh
+curl -X POST https://stella.example/api/provisioned-users/PROVISIONED_USER_ID/channel-identities \
+  -H 'Authorization: Bearer stella_prv_…' \
+  -H 'Content-Type: application/json' \
+  -d '{"platform":"feishu","external_id":"on_union_1","name":"Ada"}'
+```
+
+该操作只创建消息平台身份，不会允许此账户登录 Web UI。同一管理员持有的替换开通令牌可以继续管理旧令牌创建的用户；其他管理员的令牌会收到 `404`，已提升或已停用的用户会收到 `403`。
+
 ## 恢复与事件响应
 
 若 `external_id` 已存在于受管用户，创建会返回 `409`，其中只有安全的既有用户和令牌元数据，绝不包含旧令牌。将其视为重试/对账结果：读取资源，若之前响应丢失则轮换令牌。若邮箱与未受管账户冲突，也会返回 `409`，但不会透露该账户的任何信息。

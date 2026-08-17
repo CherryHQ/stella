@@ -112,6 +112,22 @@ JOIN auth_user u ON u.id = pu.user_id
 WHERE pu.id = sqlc.arg(id)
 FOR UPDATE OF pu, u;
 
+-- name: GetOwnedProvisionedUserForUpdate :one
+SELECT pu.id, pu.user_id, u.role, u.is_active
+FROM auth_provisioned_user pu
+JOIN auth_user u ON u.id = pu.user_id
+WHERE pu.id = sqlc.arg(id)
+  AND pu.created_by_user_id = sqlc.arg(created_by_user_id)
+FOR UPDATE OF pu, u;
+
+-- name: CreateProvisionedUserChannelIdentity :one
+INSERT INTO channel_identity (id, user_id, platform, external_id, name)
+VALUES (
+    sqlc.arg(id), sqlc.arg(user_id), sqlc.arg(platform),
+    sqlc.arg(external_id), sqlc.arg(name)
+)
+RETURNING *;
+
 -- name: RevokeProvisionedPersonalAccessTokenByUser :execrows
 UPDATE personal_access_token
 SET revoked_at = now(), updated_at = now()
