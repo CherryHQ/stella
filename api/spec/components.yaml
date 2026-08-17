@@ -5176,7 +5176,7 @@ components:
     VisionSettings:
       type: object
       description: >
-        Deployment-wide image-understanding configuration. model is a "provider/model" reference resolved against the configured providers; an empty string means no vision model is set and image understanding falls back to local text extraction.
+        Deployment-wide image-understanding configuration for chat images and scanned Library PDF OCR. model is a "provider/model" reference resolved against the configured providers. Configuring it authorizes Stella to send those pixels to that provider, which may be third-party and may charge per request. An empty string disables provider-backed image understanding; Library then keeps parsing local and scanned pages without native text cannot be transcribed.
 
       required: [model]
       properties:

@@ -17,7 +17,8 @@ const VisionSettingKey = "vision"
 // so process crashes cannot leave the fence locked.
 const VisionConfigAdvisoryLockKey int64 = 0x5354454c4c415649
 
-// VisionSettings is the deployment-wide image-understanding configuration.
+// VisionSettings is the deployment-wide image-understanding configuration for
+// chat images and scanned Library PDF OCR.
 //
 // The vision model is infrastructure, not personality: it transcribes and
 // describes an image so a model that cannot see it still receives its content.

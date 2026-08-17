@@ -43,9 +43,10 @@ type Parser interface {
 	// input. Implementations may resolve deployment configuration, so callers
 	// must pass the bounded operation context and must not hold lifecycle locks.
 	Profile(ctx context.Context, mediaType string) (string, error)
-	// Parse must reject expectedProfile when the configuration it resolves for
-	// this attempt no longer matches. This binds parsing to the profile that was
-	// used to derive the generation key without persisting provider credentials.
+	// Parse binds its work to expectedProfile and rejects a conflicting parser
+	// configuration. Parsers with mutable operational configuration should also
+	// implement parserAttemptPreparer so one immutable snapshot supplies both
+	// the profile and the parse invocation.
 	Parse(ctx context.Context, path, mediaType, expectedProfile string) ([]ParsedChunk, error)
 }
 
@@ -63,6 +64,47 @@ func parserFailureFence(ctx context.Context, parser Parser, mediaType string) (s
 		return "", nil
 	}
 	return fencer.FailureFence(ctx, mediaType)
+}
+
+// preparedParserAttempt binds every parser input used by one invocation to a
+// single immutable snapshot. The closure is process-local and is never stored
+// in the database, so it may safely retain operational credentials.
+type preparedParserAttempt struct {
+	ProcessorKey string
+	FailureFence string
+	parse        func(context.Context, string) ([]ParsedChunk, error)
+}
+
+func (a preparedParserAttempt) Parse(ctx context.Context, path string) ([]ParsedChunk, error) {
+	if a.parse == nil {
+		return nil, fmt.Errorf("library parser attempt is not prepared")
+	}
+	return a.parse(ctx, path)
+}
+
+type parserAttemptPreparer interface {
+	PrepareAttempt(ctx context.Context, mediaType string) (preparedParserAttempt, error)
+}
+
+func prepareParserAttempt(ctx context.Context, parser Parser, mediaType string) (preparedParserAttempt, error) {
+	if preparer, ok := parser.(parserAttemptPreparer); ok {
+		return preparer.PrepareAttempt(ctx, mediaType)
+	}
+	processorKey, err := parser.Profile(ctx, mediaType)
+	if err != nil {
+		return preparedParserAttempt{}, err
+	}
+	failureFence, err := parserFailureFence(ctx, parser, mediaType)
+	if err != nil {
+		return preparedParserAttempt{}, err
+	}
+	return preparedParserAttempt{
+		ProcessorKey: processorKey,
+		FailureFence: failureFence,
+		parse: func(parseCtx context.Context, path string) ([]ParsedChunk, error) {
+			return parser.Parse(parseCtx, path, mediaType, processorKey)
+		},
+	}, nil
 }
 
 // ServiceConfig contains the internal Library ingestion and lifecycle

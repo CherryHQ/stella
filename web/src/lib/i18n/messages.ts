@@ -389,10 +389,10 @@ const en = {
   "settings.nav.vision": "Vision",
   "vision.title": "Vision",
   "vision.description":
-    "The model that reads images for agents whose own model cannot see them. One setting for the whole deployment.",
+    "The deployment-wide model for chat images and scanned Library PDFs. Configuring it authorizes Stella to send those pixels to the selected provider.",
   "vision.modelTitle": "Vision model",
   "vision.modelHint":
-    "Transcribes the text in an image and describes what it shows, then hands that text to the answering model. Leave it unset to fall back to local Xberg text extraction, which reads text but cannot describe a photo, chart, or layout.",
+    "Transcribes chat images and OCR candidate pages from scanned Library PDFs. The selected provider may be third-party and may charge per request. Leave it unset to keep Library parsing local; scanned pages without native text will then fail.",
   "vision.model": "Model",
   "vision.modelUnset": "None — use local text extraction",
   "vision.save": "Save",
@@ -2710,10 +2710,11 @@ const zh: Record<MessageKey, string> = {
 
   "settings.nav.vision": "视觉",
   "vision.title": "视觉",
-  "vision.description": "替看不了图的模型读取图片的模型。整个部署共用一份设置。",
+  "vision.description":
+    "聊天图片和知识库扫描 PDF 共用的部署级模型。完成配置即授权 Stella 将这些像素发送给所选提供商。",
   "vision.modelTitle": "视觉模型",
   "vision.modelHint":
-    "转写图中的文字并描述画面内容，再把这段文字交给回答问题的模型。留空则回退到本地 Xberg 文本提取，它能读出文字，但无法描述照片、图表或版面。",
+    "用于转写聊天图片及知识库扫描 PDF 的 OCR 候选页。所选提供商可能是第三方并按请求计费。留空时知识库只做本地解析；没有原生文字的扫描页会处理失败。",
   "vision.model": "模型",
   "vision.modelUnset": "无 — 使用本地文本提取",
   "vision.save": "保存",

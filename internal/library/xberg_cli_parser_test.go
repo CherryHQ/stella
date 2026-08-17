@@ -210,7 +210,7 @@ func TestXbergCLIParserProfileExcludesAPIKeyButBindsOCRIdentity(t *testing.T) {
 	}
 }
 
-func TestXbergCLIParserRejectsOCRIdentityChangeBeforeExternalCall(t *testing.T) {
+func TestXbergCLIParserPreparedAttemptUsesOneVisionSnapshot(t *testing.T) {
 	t.Parallel()
 	config := VisionOCRConfig{
 		ProviderID: "vision", ProviderType: "openai", Enabled: true,
@@ -222,7 +222,10 @@ func TestXbergCLIParserRejectsOCRIdentityChangeBeforeExternalCall(t *testing.T) 
 			return []byte(`{"version":"1.0.14"}`), nil, nil
 		}
 		extractionCalls++
-		return []byte(scannedXbergFixture), nil, nil
+		if extractionCalls == 1 {
+			return []byte(scannedXbergFixture), nil, nil
+		}
+		return []byte(ocrXbergFixture), nil, nil
 	}
 	parser, err := newXbergCLIParser(t.Context(), "/test/xberg", func(context.Context) (VisionOCRConfig, error) {
 		return config, nil
@@ -230,26 +233,23 @@ func TestXbergCLIParserRejectsOCRIdentityChangeBeforeExternalCall(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	profile, err := parser.Profile(t.Context(), MediaTypePDF)
+	resolveCalls := 0
+	parser.resolveVision = func(context.Context) (VisionOCRConfig, error) {
+		resolveCalls++
+		return config, nil
+	}
+	attempt, err := parser.PrepareAttempt(t.Context(), MediaTypePDF)
 	if err != nil {
 		t.Fatal(err)
 	}
-	profileCalls := 0
 	parser.resolveVision = func(context.Context) (VisionOCRConfig, error) {
-		profileCalls++
-		if profileCalls == 1 {
-			return config, nil
-		}
-		changed := config
-		changed.Model = "model-b"
-		return changed, nil
+		return VisionOCRConfig{}, errors.New("prepared attempt reloaded Vision configuration")
 	}
-	_, err = parser.Parse(t.Context(), "source.pdf", MediaTypePDF, profile)
-	if !errors.Is(err, ErrGenerationChanged) {
-		t.Fatalf("error = %v, want ErrGenerationChanged", err)
+	if _, err := attempt.Parse(t.Context(), "source.pdf"); err != nil {
+		t.Fatalf("prepared parse: %v", err)
 	}
-	if extractionCalls != 1 {
-		t.Fatalf("extraction calls = %d, want only the OCR-disabled pass", extractionCalls)
+	if resolveCalls != 1 || extractionCalls != 2 {
+		t.Fatalf("Vision resolutions=%d extraction calls=%d, want 1/2", resolveCalls, extractionCalls)
 	}
 }
 

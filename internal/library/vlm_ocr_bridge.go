@@ -12,9 +12,11 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -191,7 +193,7 @@ func (b *vlmOCRBridge) handle(w http.ResponseWriter, request *http.Request) {
 		b.fail(w, &ocrTerminalError{kind: kind, message: message}, http.StatusBadGateway)
 		return
 	}
-	sanitized, err := sanitizeOCRResponse(responseBody)
+	sanitized, err := sanitizeOCRResponse(responseBody, b.config.Model)
 	if err != nil {
 		b.fail(w, err, http.StatusUnprocessableEntity)
 		return
@@ -214,8 +216,18 @@ func (b *vlmOCRBridge) forwardWithRetry(ctx context.Context, body []byte) (*http
 		}
 		request.Header.Set("Authorization", "Bearer "+b.config.APIKey)
 		request.Header.Set("Content-Type", "application/json")
+		var wroteRequest atomic.Bool
+		request = request.WithContext(httptrace.WithClientTrace(request.Context(), &httptrace.ClientTrace{
+			WroteRequest: func(httptrace.WroteRequestInfo) {
+				// Once the transport has attempted to write the request, the
+				// provider outcome is unknown even if Do returns an error. Retrying
+				// could repeat a completed and billed inference.
+				wroteRequest.Store(true)
+			},
+		}))
 		response, requestErr := b.client.Do(request)
-		transient := requestErr != nil || response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= http.StatusInternalServerError
+		transient := requestErr != nil && !wroteRequest.Load() ||
+			requestErr == nil && (response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= http.StatusInternalServerError)
 		if !transient || attempt == 1 {
 			if requestErr != nil {
 				if errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -245,6 +257,9 @@ func rewriteOCRRequest(data []byte, model string) ([]byte, error) {
 	if err := decodeSingleJSON(data, &request); err != nil {
 		return nil, err
 	}
+	if request == nil {
+		return nil, fmt.Errorf("request must be a JSON object")
+	}
 	if strings.TrimSpace(model) == "" {
 		return nil, fmt.Errorf("model is empty")
 	}
@@ -253,14 +268,14 @@ func rewriteOCRRequest(data []byte, model string) ([]byte, error) {
 	return json.Marshal(request)
 }
 
-func sanitizeOCRResponse(data []byte) ([]byte, error) {
+func sanitizeOCRResponse(data []byte, model string) ([]byte, error) {
 	var response map[string]any
 	if err := decodeSingleJSON(data, &response); err != nil {
 		return nil, &ocrTerminalError{kind: ErrOCRProtocol, message: "OCR provider returned invalid JSON."}
 	}
 	choices, ok := response["choices"].([]any)
-	if !ok || len(choices) == 0 {
-		return nil, &ocrTerminalError{kind: ErrOCRProtocol, message: "OCR provider response has no choice."}
+	if !ok || len(choices) != 1 {
+		return nil, &ocrTerminalError{kind: ErrOCRProtocol, message: "OCR provider response must contain exactly one choice."}
 	}
 	choice, ok := choices[0].(map[string]any)
 	if !ok {
@@ -287,20 +302,53 @@ func sanitizeOCRResponse(data []byte) ([]byte, error) {
 	if !ok {
 		return nil, &ocrTerminalError{kind: ErrOCRProtocol, message: "OCR provider response content must be text."}
 	}
-	content = strings.TrimSpace(content)
+	for _, field := range []string{"tool_calls", "function_call", "refusal"} {
+		if value, exists := message[field]; exists && !emptyJSONValue(value) {
+			return nil, &ocrTerminalError{kind: ErrOCRProtocol, message: "OCR provider response contains a conflicting assistant field."}
+		}
+	}
+	var text string
 	switch {
 	case content == ocrProtocolNoText:
-		message["content"] = ""
+		text = ""
 	case strings.HasPrefix(content, ocrProtocolText):
-		text := strings.TrimSpace(strings.TrimPrefix(content, ocrProtocolText))
+		text = strings.TrimPrefix(content, ocrProtocolText)
 		if !hasEffectiveText(text) {
 			return nil, &ocrTerminalError{kind: ErrOCRProtocol, message: "OCR TEXT response contains no searchable text."}
 		}
-		message["content"] = text
 	default:
 		return nil, &ocrTerminalError{kind: ErrOCRProtocol, message: "OCR provider response did not follow STELLA_OCR_V1."}
 	}
-	return json.Marshal(response)
+	// Return a minimal canonical Chat Completions envelope. Provider-controlled
+	// fields that were not explicitly validated never cross into Xberg.
+	return json.Marshal(map[string]any{
+		"id":      "stella-library-ocr",
+		"object":  "chat.completion",
+		"created": 0,
+		"model":   model,
+		"choices": []any{map[string]any{
+			"index":         0,
+			"finish_reason": "stop",
+			"message": map[string]any{
+				"role": "assistant", "content": text,
+			},
+		}},
+	})
+}
+
+func emptyJSONValue(value any) bool {
+	switch value := value.(type) {
+	case nil:
+		return true
+	case string:
+		return value == ""
+	case []any:
+		return len(value) == 0
+	case map[string]any:
+		return len(value) == 0
+	default:
+		return false
+	}
 }
 
 func openAIChatCompletionsURL(baseURL string) (string, error) {

@@ -31,9 +31,9 @@ const (
 	// the durable Session inbox, restrictive Library ownership, and the Discord
 	// explicit guild-access backfill are the post-anchor migrations exercised
 	// below. Library chunk locator integrity and the dedicated Skill Home
-	// cutover evidence schema, retired RTK plugin cleanup, and attempt-scoped
-	// Library ChunkSets are checked explicitly.
-	currentMigrationVersion = sequentialAnchor + 19
+	// cutover evidence schema, retired RTK plugin cleanup, and the final
+	// attempt-scoped Library schema are checked explicitly.
+	currentMigrationVersion = sequentialAnchor + 18
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"

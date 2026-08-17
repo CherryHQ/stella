@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -135,7 +136,7 @@ func TestSanitizeOCRResponseRejectsIncompleteFinishReasons(t *testing.T) {
 				finish = `"finish_reason":` + test.finishJSON + `,`
 			}
 			response := `{"choices":[{` + finish + `"message":{"content":"STELLA_OCR_V1:TEXT\npartial text"}}]}`
-			_, err := sanitizeOCRResponse([]byte(response))
+			_, err := sanitizeOCRResponse([]byte(response), "vision")
 			if !errors.Is(err, ErrOCRProtocol) {
 				t.Fatalf("error = %v, want ErrOCRProtocol", err)
 			}
@@ -143,6 +144,97 @@ func TestSanitizeOCRResponseRejectsIncompleteFinishReasons(t *testing.T) {
 				t.Fatalf("error = %q, want message containing %q", err, test.message)
 			}
 		})
+	}
+}
+
+func TestSanitizeOCRResponseRejectsAmbiguousEnvelopes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		response string
+	}{
+		{
+			name: "multiple choices",
+			response: `{"choices":[{"finish_reason":"stop","message":{"content":"STELLA_OCR_V1:NO_TEXT"}},` +
+				`{"finish_reason":"stop","message":{"content":"STELLA_OCR_V1:NO_TEXT"}}]}`,
+		},
+		{name: "tool calls", response: `{"choices":[{"finish_reason":"stop","message":{"content":"STELLA_OCR_V1:NO_TEXT","tool_calls":[{"id":"call"}]}}]}`},
+		{name: "function call", response: `{"choices":[{"finish_reason":"stop","message":{"content":"STELLA_OCR_V1:NO_TEXT","function_call":{"name":"run"}}}]}`},
+		{name: "refusal", response: `{"choices":[{"finish_reason":"stop","message":{"content":"STELLA_OCR_V1:NO_TEXT","refusal":"denied"}}]}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := sanitizeOCRResponse([]byte(test.response), "vision"); !errors.Is(err, ErrOCRProtocol) {
+				t.Fatalf("error = %v, want ErrOCRProtocol", err)
+			}
+		})
+	}
+}
+
+func TestSanitizeOCRResponsePreservesVerbatimTextAndCanonicalizesEnvelope(t *testing.T) {
+	t.Parallel()
+	const text = "  indented\nMarkdown line with spaces  \n"
+	response := `{"provider_extension":"discard","choices":[{"index":7,"finish_reason":"stop","message":{"role":"assistant","content":` +
+		strconv.Quote(ocrProtocolText+text) + `,"tool_calls":[]}}]}`
+	data, err := sanitizeOCRResponse([]byte(response), "vision-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var canonical struct {
+		ID      string `json:"id"`
+		Object  string `json:"object"`
+		Created int64  `json:"created"`
+		Model   string `json:"model"`
+		Choices []struct {
+			Index        int    `json:"index"`
+			FinishReason string `json:"finish_reason"`
+			Message      struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(data, &canonical); err != nil {
+		t.Fatal(err)
+	}
+	if canonical.ID != "stella-library-ocr" || canonical.Object != "chat.completion" || canonical.Model != "vision-model" ||
+		len(canonical.Choices) != 1 || canonical.Choices[0].Index != 0 || canonical.Choices[0].FinishReason != "stop" ||
+		canonical.Choices[0].Message.Role != "assistant" || canonical.Choices[0].Message.Content != text {
+		t.Fatalf("canonical response = %s", data)
+	}
+}
+
+func TestRewriteOCRRequestRejectsNull(t *testing.T) {
+	t.Parallel()
+	if _, err := rewriteOCRRequest([]byte("null"), "vision"); err == nil {
+		t.Fatal("null OCR request was accepted")
+	}
+}
+
+func TestVLMOCRBridgeDoesNotRetryOutcomeUnknownConnectionLoss(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		_, _ = io.Copy(io.Discard, request.Body)
+		connection, _, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Errorf("hijack provider connection: %v", err)
+			return
+		}
+		_ = connection.Close()
+	}))
+	defer provider.Close()
+	bridge, err := startVLMOCRBridge(VisionOCRConfig{Model: "vision", BaseURL: provider.URL, APIKey: "key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = bridge.Close(context.Background()) }()
+	response := callOCRBridge(t, bridge, `{"model":"bridge","messages":[]}`)
+	_ = response.Body.Close()
+	if calls.Load() != 1 || !errors.Is(bridge.TerminalError(), ErrOCRService) {
+		t.Fatalf("calls=%d terminal=%v", calls.Load(), bridge.TerminalError())
 	}
 }
 

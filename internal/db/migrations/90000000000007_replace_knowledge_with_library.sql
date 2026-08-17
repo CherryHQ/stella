@@ -70,9 +70,17 @@ CREATE TABLE "library_chunk_set" (
   "completed_at" timestamptz NULL,
   PRIMARY KEY ("id"),
   CONSTRAINT "library_chunk_set_file_id_fkey" FOREIGN KEY ("file_id") REFERENCES "library_file" ("id") ON DELETE CASCADE,
-  CONSTRAINT "library_chunk_set_file_derivation_key" UNIQUE ("file_id", "derivation_key"),
   CONSTRAINT "library_chunk_set_file_id_id_key" UNIQUE ("file_id", "id")
 );
+
+-- One derivation may have multiple immutable build attempts. These indexes
+-- support winner lookup and bounded recovery without treating the recipe as
+-- the identity of one concrete ChunkSet.
+CREATE INDEX "idx_library_chunk_set_file_derivation_status"
+  ON "library_chunk_set" ("file_id", "derivation_key", "status", "completed_at" DESC, "id" DESC);
+CREATE INDEX "idx_library_chunk_set_building_updated"
+  ON "library_chunk_set" ("updated_at", "file_id", "id")
+  WHERE "status" = 'building';
 
 ALTER TABLE "library_file"
   ADD CONSTRAINT "library_file_active_chunk_set_fkey"

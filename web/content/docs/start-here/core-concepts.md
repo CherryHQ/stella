@@ -34,7 +34,7 @@ Stella can also use shared user memory when you want multiple agents to remember
 
 The Library is the agent's professional reference material: policies, process documents, examples, playbooks, or team-specific context that a user or administrator intentionally uploads.
 
-You can upload PDF, DOCX, Markdown, and plain-text files up to 25 MiB. PDF extraction currently supports documents that already contain selectable text; scanned documents require optical character recognition before upload.
+You can upload PDF, DOCX, Markdown, and plain-text files up to 25 MiB. PDFs with selectable text are parsed locally. When an administrator configures **Settings -> Vision**, Stella may send only the pages of a scanned PDF that require OCR to that provider; the provider may be third-party and may charge per request.
 
 The Library should answer "what does this agent need to know to do this job well?" It is searched when a conversation needs evidence; ordinary chat attachments do not enter it automatically.
 

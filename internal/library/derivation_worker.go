@@ -37,6 +37,7 @@ type generationTarget struct {
 	DerivationKey string
 	ProcessorKey  string
 	FailureFence  string
+	ParserAttempt preparedParserAttempt
 }
 
 func (s *Service) processChunkJob(ctx context.Context, job *river.Job[chunkArgs]) error {
@@ -126,14 +127,11 @@ func (s *Service) prepareChunkGeneration(
 	if snapshot.DeletedAt.Valid || FileStatus(snapshot.Status) == FileStatusFailed {
 		return generationTarget{}, generationComplete, nil
 	}
-	processorKey, err := s.parser.Profile(ctx, snapshot.MediaType)
+	parserAttempt, err := prepareParserAttempt(ctx, s.parser, snapshot.MediaType)
 	if err != nil {
-		return generationTarget{}, generationComplete, fmt.Errorf("profile library parser: %w", err)
+		return generationTarget{}, generationComplete, fmt.Errorf("prepare library parser attempt: %w", err)
 	}
-	failureFence, err := parserFailureFence(ctx, s.parser, snapshot.MediaType)
-	if err != nil {
-		return generationTarget{}, generationComplete, fmt.Errorf("fence library parser failure: %w", err)
-	}
+	processorKey := parserAttempt.ProcessorKey
 	tx, queries, err := s.beginBoundedTx(ctx)
 	if err != nil {
 		return generationTarget{}, generationComplete, fmt.Errorf("begin library generation: %w", err)
@@ -167,7 +165,8 @@ func (s *Service) prepareChunkGeneration(
 		RawSHA256:     append([]byte(nil), file.RawSha256...),
 		DerivationKey: derivationKey,
 		ProcessorKey:  processorKey,
-		FailureFence:  failureFence,
+		FailureFence:  parserAttempt.FailureFence,
+		ParserAttempt: parserAttempt,
 	}
 
 	set, err := queries.GetReadyLibraryChunkSetByDerivation(ctx, sqlc.GetReadyLibraryChunkSetByDerivationParams{
@@ -317,7 +316,7 @@ func (s *Service) parseRawSnapshot(ctx context.Context, target generationTarget)
 	if err := s.ensureGenerationLive(ctx, target); err != nil {
 		return nil, err
 	}
-	return s.parser.Parse(ctx, path, target.MediaType, target.ProcessorKey)
+	return target.ParserAttempt.Parse(ctx, path)
 }
 
 func (s *Service) ensureGenerationLive(ctx context.Context, target generationTarget) error {

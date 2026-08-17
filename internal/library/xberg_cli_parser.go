@@ -137,13 +137,17 @@ func (p *XbergCLIParser) FailureFence(ctx context.Context, mediaType string) (st
 	if err != nil {
 		return "", err
 	}
+	return visionOCRFailureFence(config), nil
+}
+
+func visionOCRFailureFence(config VisionOCRConfig) string {
 	identity := strings.Join([]string{
 		strings.TrimSpace(config.ProviderID), strings.TrimSpace(config.ProviderType),
 		fmt.Sprintf("enabled=%t", config.Enabled), strings.TrimSpace(config.Model),
 		normalizedEndpointIdentity(config.BaseURL), config.APIKey,
 	}, "\x00")
 	digest := sha256.Sum256([]byte(identity))
-	return "vision-attempt:" + hex.EncodeToString(digest[:]), nil
+	return "vision-attempt:" + hex.EncodeToString(digest[:])
 }
 
 func (p *XbergCLIParser) pdfProfile(config VisionOCRConfig) string {
@@ -159,13 +163,42 @@ func (p *XbergCLIParser) pdfProfile(config VisionOCRConfig) string {
 }
 
 func (p *XbergCLIParser) Parse(ctx context.Context, path, mediaType, expectedProfile string) ([]ParsedChunk, error) {
-	profile, err := p.Profile(ctx, mediaType)
+	attempt, err := p.PrepareAttempt(ctx, mediaType)
 	if err != nil {
 		return nil, err
 	}
-	if expectedProfile != profile {
+	if expectedProfile != attempt.ProcessorKey {
 		return nil, ErrGenerationChanged
 	}
+	return attempt.Parse(ctx, path)
+}
+
+func (p *XbergCLIParser) PrepareAttempt(ctx context.Context, mediaType string) (preparedParserAttempt, error) {
+	if mediaType != MediaTypePDF && mediaType != MediaTypeDOCX {
+		return preparedParserAttempt{}, fmt.Errorf("%w: media type %q", ErrUnsupportedFileType, mediaType)
+	}
+	config := VisionOCRConfig{}
+	processorKey := p.baseProfile
+	failureFence := ""
+	if mediaType == MediaTypePDF {
+		var err error
+		config, err = p.visionConfig(ctx)
+		if err != nil {
+			return preparedParserAttempt{}, err
+		}
+		processorKey = p.pdfProfile(config)
+		failureFence = visionOCRFailureFence(config)
+	}
+	return preparedParserAttempt{
+		ProcessorKey: processorKey,
+		FailureFence: failureFence,
+		parse: func(parseCtx context.Context, path string) ([]ParsedChunk, error) {
+			return p.parsePrepared(parseCtx, path, mediaType, config)
+		},
+	}, nil
+}
+
+func (p *XbergCLIParser) parsePrepared(ctx context.Context, path, mediaType string, config VisionOCRConfig) ([]ParsedChunk, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("resolve Xberg input path: %w", err)
@@ -191,16 +224,6 @@ func (p *XbergCLIParser) Parse(ctx context.Context, path, mediaType, expectedPro
 		return nil, &ocrTerminalError{kind: ErrOCRPageLimit, message: fmt.Sprintf(
 			"PDF has %d OCR candidate pages; maximum is %d. Split the PDF and try again.", len(candidates), maxOCRCandidatePages,
 		)}
-	}
-	config, err := p.visionConfig(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if p.pdfProfile(config) != expectedProfile {
-		// Bind the actual OCR request to the same non-secret provider snapshot
-		// used to derive the attempt. API-key rotation remains safe because the
-		// secret is deliberately excluded from the profile.
-		return nil, ErrGenerationChanged
 	}
 	if err := validateVisionOCRConfig(config); err != nil {
 		return nil, err
