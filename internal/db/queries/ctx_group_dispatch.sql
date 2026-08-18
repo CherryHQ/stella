@@ -70,7 +70,10 @@ WITH newest AS (
           COALESCE((
             SELECT MAX(own.seq)
             FROM ctx_group_dispatch accepted
-            JOIN ctx_group_message own ON own.id = accepted.result_message_id::uuid
+            -- Legacy/non-published rows carry the empty-string sentinel. Cast
+            -- only a real accepted message id, otherwise this gate poisons all
+            -- wake claims with invalid UUID syntax.
+            JOIN ctx_group_message own ON own.id = NULLIF(accepted.result_message_id, '')::uuid
             WHERE accepted.group_id = candidate.group_id
               AND accepted.agent_id = candidate.agent_id
               AND accepted.result_message_id IS NOT NULL

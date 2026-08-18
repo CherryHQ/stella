@@ -17,6 +17,7 @@ import (
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/session"
+	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -896,6 +897,9 @@ func (d *GroupDispatcher) resolveWebGroupChat(ctx context.Context, groupID, agen
 }
 
 func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage) (*pkgchannel.ChatStream, error) {
+	// Pool workers begin with a process context, unlike the historical HTTP
+	// request path. Carry the confined group actor before any prompt/skill work.
+	ctx = authz.WithAgentID(authz.WithGroupID(ctx, row.GroupID), row.AgentID)
 	speaker := webGroupSpeaker(message)
 	// A persisted group membership is not an execute grant forever. The human
 	// speaker is audit/personalization only; never borrow their private user

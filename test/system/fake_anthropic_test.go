@@ -193,6 +193,14 @@ func (f *fakeAnthropic) enqueueTextForModel(model, text string) {
 	f.modelScripts[model] = append(f.modelScripts[model], fakeResponse{text: text})
 }
 
+// discardModelScripts closes the mutually-exclusive branch of a concurrent
+// journey after its observable outcome has selected the winning agent.
+func (f *fakeAnthropic) discardModelScripts() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.modelScripts = nil
+}
+
 func TestFakeAnthropicModelScriptsDoNotConsumeFIFO(t *testing.T) {
 	f := newFakeAnthropic(t)
 	f.enqueueText("fifo")

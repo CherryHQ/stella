@@ -86,3 +86,42 @@ func (h *harness) testGroupIngest(t *testing.T) {
 	}
 	t.Fatal("group event stream ended before canonical message")
 }
+
+func (h *harness) testGroupConcurrentCounting(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	fake := newFakeAnthropic(t)
+	providerID := h.createFakeProviderNamed(t, ctx, fake.baseURL(), "group-count-"+h.runID)
+	const modelA, modelB = "count-a", "count-b"
+	// Each model receives its own deterministic classifier/turn lane. The first
+	// accepted post is 1; the held peer's successor is scripted to post 2.
+	for _, model := range []string{modelA, modelB} {
+		fake.enqueueTextForModel(model, `{"act":true,"reason":"count"}`)
+		fake.enqueueTextForModel(model, "1")
+		fake.enqueueTextForModel(model, `{"act":true,"reason":"continue"}`)
+		fake.enqueueTextForModel(model, "2")
+	}
+	a := h.createAgentNamedWithFast(t, ctx, providerID+"/"+modelA, providerID+"/"+modelA, "count-a-"+h.runID)
+	b := h.createAgentNamedWithFast(t, ctx, providerID+"/"+modelB, providerID+"/"+modelB, "count-b-"+h.runID)
+	groupID := h.createWebGroup(t, ctx, "count-"+h.runID, a, b)
+	h.sendGroupMessage(t, ctx, groupID, "count from 1")
+	deadline := time.NewTicker(100 * time.Millisecond)
+	defer deadline.Stop()
+	for {
+		var ones, twos int
+		var oneAuthor, twoAuthor string
+		err := h.db.QueryRow(ctx, `SELECT count(*) FILTER (WHERE content='1'), count(*) FILTER (WHERE content='2'), COALESCE(max(actor_id) FILTER (WHERE content='1'), ''), COALESCE(max(actor_id) FILTER (WHERE content='2'), '') FROM ctx_group_message WHERE group_id=$1 AND actor_type='agent'`, groupID).Scan(&ones, &twos, &oneAuthor, &twoAuthor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ones == 1 && twos == 1 && oneAuthor != twoAuthor {
+			fake.discardModelScripts()
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("counting posts 1/2=%d/%d: %v\n%s", ones, twos, ctx.Err(), h.proc.logTail(60))
+		case <-deadline.C:
+		}
+	}
+}
