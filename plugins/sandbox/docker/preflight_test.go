@@ -207,7 +207,6 @@ func TestPreflightResourceLimits(t *testing.T) {
 			infoFn: func() (mobyclient.SystemInfoResult, error) {
 				info := supportedSystemInfo()
 				info.Info.SecurityOptions = []string{"name=rootless,param=value"}
-				info.Info.CgroupDriver = "systemd"
 				return info, nil
 			},
 			inspectFn: func(string) (mobyclient.ImageInspectResult, error) {
@@ -225,7 +224,6 @@ func TestPreflightResourceLimits(t *testing.T) {
 			infoFn: func() (mobyclient.SystemInfoResult, error) {
 				return mobyclient.SystemInfoResult{Info: system.Info{
 					SecurityOptions: []string{"name=rootless"},
-					CgroupDriver:    "none",
 					MemoryLimit:     true,
 				}}, nil
 			},

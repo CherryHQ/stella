@@ -68,7 +68,6 @@ type VersionInfo struct {
 type DaemonSecurity struct {
 	Rootless      bool
 	UserNamespace bool
-	CgroupDriver  string
 	MemoryLimit   bool
 	SwapLimit     bool
 	CPUCfsPeriod  bool
@@ -163,7 +162,6 @@ func (c *Client) Security(ctx context.Context) (DaemonSecurity, error) {
 		return DaemonSecurity{}, fmt.Errorf("dockerclient: system info: %w", err)
 	}
 	security := DaemonSecurity{
-		CgroupDriver: res.Info.CgroupDriver,
 		MemoryLimit:  res.Info.MemoryLimit,
 		SwapLimit:    res.Info.SwapLimit,
 		CPUCfsPeriod: res.Info.CPUCfsPeriod,

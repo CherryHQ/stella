@@ -99,11 +99,12 @@ var envReadAllowlist = map[string]map[string]bool{
 	// docker-sandbox host wiring stay local to their plugin.
 	"plugins/channels/feishu/references.go": {"STELLA_BASE_URL": true},
 	"plugins/sandbox/docker/dood.go": {
-		"STELLA_HOME_HOST":          true,
-		"STELLA_HOME_VOLUME":        true,
-		"STELLA_SANDBOX_NETWORK":    true,
-		"STELLA_SANDBOX_SERVER_URL": true,
-		nonLiteralRead:              true,
+		"STELLA_DOCKER_RUNTIME":      true,
+		"STELLA_DOCKER_SANDBOX_MODE": true,
+		"STELLA_HOME_HOST":           true,
+		"STELLA_HOME_VOLUME":         true,
+		"STELLA_SANDBOX_NETWORK":     true,
+		"STELLA_SANDBOX_SERVER_URL":  true,
 	},
 }
 

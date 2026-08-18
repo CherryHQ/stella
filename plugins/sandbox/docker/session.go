@@ -79,7 +79,7 @@ func (f *dockerFactory) client() (*dockerclient.Client, error) {
 func NewFactoryWithMountSources(cfg Config, mountSources map[string]string) (sandboxpkg.Factory, error) {
 	if cfg.StellaHome != "" {
 		var err error
-		cfg, err = applyDockerMode(cfg, cfg.StellaHome)
+		cfg, err = resolveDockerConfig(cfg, cfg.StellaHome)
 		if err != nil {
 			return nil, err
 		}

@@ -7,27 +7,17 @@ import (
 
 func withDockerModeEnv(t *testing.T, mode, stellaHomeHost, stellaHomeVolume string) {
 	t.Helper()
-	prevMode := lookupDockerSandboxMode
-	prevRuntime := lookupDockerRuntime
-	prevHost := lookupStellaHomeHost
-	prevVolume := lookupStellaHomeVolume
-	lookupDockerSandboxMode = func() string { return mode }
-	lookupDockerRuntime = func() string { return "" }
-	lookupStellaHomeHost = func() string { return stellaHomeHost }
-	lookupStellaHomeVolume = func() string { return stellaHomeVolume }
-	t.Cleanup(func() {
-		lookupDockerSandboxMode = prevMode
-		lookupDockerRuntime = prevRuntime
-		lookupStellaHomeHost = prevHost
-		lookupStellaHomeVolume = prevVolume
-	})
+	t.Setenv(dockerSandboxModeEnv, mode)
+	t.Setenv("STELLA_DOCKER_RUNTIME", "")
+	t.Setenv("STELLA_HOME_HOST", stellaHomeHost)
+	t.Setenv("STELLA_HOME_VOLUME", stellaHomeVolume)
 }
 
-func TestApplyDockerMode_Runtime(t *testing.T) {
+func TestResolveDockerConfig_Runtime(t *testing.T) {
 	withDockerModeEnv(t, "host", "", "")
-	lookupDockerRuntime = func() string { return "runsc" }
+	t.Setenv("STELLA_DOCKER_RUNTIME", "runsc")
 
-	out, err := applyDockerMode(Config{}, "/Users/v/.stella")
+	out, err := resolveDockerConfig(Config{}, "/Users/v/.stella")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -35,7 +25,7 @@ func TestApplyDockerMode_Runtime(t *testing.T) {
 		t.Fatalf("Runtime = %q, want runsc", out.Runtime)
 	}
 
-	out, err = applyDockerMode(Config{Runtime: "kata"}, "/Users/v/.stella")
+	out, err = resolveDockerConfig(Config{Runtime: "kata"}, "/Users/v/.stella")
 	if err != nil {
 		t.Fatalf("unexpected explicit runtime error: %v", err)
 	}
@@ -44,9 +34,9 @@ func TestApplyDockerMode_Runtime(t *testing.T) {
 	}
 }
 
-func TestApplyDockerMode_Host(t *testing.T) {
+func TestResolveDockerConfig_Host(t *testing.T) {
 	withDockerModeEnv(t, "host", "", "")
-	out, err := applyDockerMode(Config{}, "/Users/v/.stella")
+	out, err := resolveDockerConfig(Config{}, "/Users/v/.stella")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -58,9 +48,9 @@ func TestApplyDockerMode_Host(t *testing.T) {
 	}
 }
 
-func TestApplyDockerMode_HostRejectsModeSpecificEnv(t *testing.T) {
+func TestResolveDockerConfig_HostRejectsModeSpecificEnv(t *testing.T) {
 	withDockerModeEnv(t, "host", "/host/stella", "")
-	_, err := applyDockerMode(Config{}, "/home/nonroot/.stella")
+	_, err := resolveDockerConfig(Config{}, "/home/nonroot/.stella")
 	if err == nil {
 		t.Fatal("expected error when host mode sets STELLA_HOME_HOST")
 	}
@@ -69,9 +59,9 @@ func TestApplyDockerMode_HostRejectsModeSpecificEnv(t *testing.T) {
 	}
 }
 
-func TestApplyDockerMode_ExplicitModeWins(t *testing.T) {
+func TestResolveDockerConfig_ExplicitModeWins(t *testing.T) {
 	withDockerModeEnv(t, "volume", "", "")
-	out, err := applyDockerMode(Config{RuntimeMode: DockerSandboxModeHost}, "/Users/v/.stella")
+	out, err := resolveDockerConfig(Config{RuntimeMode: DockerSandboxModeHost}, "/Users/v/.stella")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -80,9 +70,9 @@ func TestApplyDockerMode_ExplicitModeWins(t *testing.T) {
 	}
 }
 
-func TestApplyDockerMode_BindUsesStellaHomeHost(t *testing.T) {
+func TestResolveDockerConfig_BindUsesStellaHomeHost(t *testing.T) {
 	withDockerModeEnv(t, "bind", "/Users/v/.stella-dev", "")
-	out, err := applyDockerMode(Config{}, "/home/nonroot/.stella")
+	out, err := resolveDockerConfig(Config{}, "/home/nonroot/.stella")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -97,13 +87,13 @@ func TestApplyDockerMode_BindUsesStellaHomeHost(t *testing.T) {
 	}
 }
 
-func TestApplyDockerMode_BindPreservesExplicitPrefixes(t *testing.T) {
+func TestResolveDockerConfig_BindPreservesExplicitPrefixes(t *testing.T) {
 	withDockerModeEnv(t, "bind", "/env/host", "")
 	in := Config{
 		ContainerPathPrefix: "/explicit/container",
 		HostPathPrefix:      "/explicit/host",
 	}
-	out, err := applyDockerMode(in, "/home/nonroot/.stella")
+	out, err := resolveDockerConfig(in, "/home/nonroot/.stella")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -112,9 +102,9 @@ func TestApplyDockerMode_BindPreservesExplicitPrefixes(t *testing.T) {
 	}
 }
 
-func TestApplyDockerMode_BindRequiresHostPath(t *testing.T) {
+func TestResolveDockerConfig_BindRequiresHostPath(t *testing.T) {
 	withDockerModeEnv(t, "bind", "", "")
-	_, err := applyDockerMode(Config{}, "/home/nonroot/.stella")
+	_, err := resolveDockerConfig(Config{}, "/home/nonroot/.stella")
 	if err == nil {
 		t.Fatal("expected error when bind mode has no STELLA_HOME_HOST")
 	}
@@ -123,9 +113,9 @@ func TestApplyDockerMode_BindRequiresHostPath(t *testing.T) {
 	}
 }
 
-func TestApplyDockerMode_BindRejectsVolume(t *testing.T) {
+func TestResolveDockerConfig_BindRejectsVolume(t *testing.T) {
 	withDockerModeEnv(t, "bind", "/host/stella", "stella-data")
-	_, err := applyDockerMode(Config{}, "/home/nonroot/.stella")
+	_, err := resolveDockerConfig(Config{}, "/home/nonroot/.stella")
 	if err == nil {
 		t.Fatal("expected error when bind mode also sets STELLA_HOME_VOLUME")
 	}
@@ -134,9 +124,9 @@ func TestApplyDockerMode_BindRejectsVolume(t *testing.T) {
 	}
 }
 
-func TestApplyDockerMode_VolumeUsesStellaHomeVolume(t *testing.T) {
+func TestResolveDockerConfig_VolumeUsesStellaHomeVolume(t *testing.T) {
 	withDockerModeEnv(t, "volume", "", "stella-data")
-	out, err := applyDockerMode(Config{}, "/home/nonroot/.stella")
+	out, err := resolveDockerConfig(Config{}, "/home/nonroot/.stella")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -148,9 +138,9 @@ func TestApplyDockerMode_VolumeUsesStellaHomeVolume(t *testing.T) {
 	}
 }
 
-func TestApplyDockerMode_VolumePreservesExplicitVolume(t *testing.T) {
+func TestResolveDockerConfig_VolumePreservesExplicitVolume(t *testing.T) {
 	withDockerModeEnv(t, "volume", "", "env-volume")
-	out, err := applyDockerMode(Config{StellaHomeVolume: "explicit-volume"}, "/home/nonroot/.stella")
+	out, err := resolveDockerConfig(Config{StellaHomeVolume: "explicit-volume"}, "/home/nonroot/.stella")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -159,9 +149,9 @@ func TestApplyDockerMode_VolumePreservesExplicitVolume(t *testing.T) {
 	}
 }
 
-func TestApplyDockerMode_VolumeRequiresVolume(t *testing.T) {
+func TestResolveDockerConfig_VolumeRequiresVolume(t *testing.T) {
 	withDockerModeEnv(t, "volume", "", "")
-	_, err := applyDockerMode(Config{}, "/home/nonroot/.stella")
+	_, err := resolveDockerConfig(Config{}, "/home/nonroot/.stella")
 	if err == nil {
 		t.Fatal("expected error when volume mode has no STELLA_HOME_VOLUME")
 	}
@@ -170,9 +160,9 @@ func TestApplyDockerMode_VolumeRequiresVolume(t *testing.T) {
 	}
 }
 
-func TestApplyDockerMode_VolumeRejectsHostPath(t *testing.T) {
+func TestResolveDockerConfig_VolumeRejectsHostPath(t *testing.T) {
 	withDockerModeEnv(t, "volume", "/host/stella", "stella-data")
-	_, err := applyDockerMode(Config{}, "/home/nonroot/.stella")
+	_, err := resolveDockerConfig(Config{}, "/home/nonroot/.stella")
 	if err == nil {
 		t.Fatal("expected error when volume mode also sets STELLA_HOME_HOST")
 	}
@@ -181,9 +171,9 @@ func TestApplyDockerMode_VolumeRejectsHostPath(t *testing.T) {
 	}
 }
 
-func TestApplyDockerMode_MissingModeErrors(t *testing.T) {
+func TestResolveDockerConfig_MissingModeErrors(t *testing.T) {
 	withDockerModeEnv(t, "", "", "")
-	_, err := applyDockerMode(Config{}, "/home/nonroot/.stella")
+	_, err := resolveDockerConfig(Config{}, "/home/nonroot/.stella")
 	if err == nil {
 		t.Fatal("expected error when STELLA_DOCKER_SANDBOX_MODE is unset")
 	}
@@ -192,9 +182,9 @@ func TestApplyDockerMode_MissingModeErrors(t *testing.T) {
 	}
 }
 
-func TestApplyDockerMode_InvalidModeErrors(t *testing.T) {
+func TestResolveDockerConfig_InvalidModeErrors(t *testing.T) {
 	withDockerModeEnv(t, "container", "", "")
-	_, err := applyDockerMode(Config{}, "/home/nonroot/.stella")
+	_, err := resolveDockerConfig(Config{}, "/home/nonroot/.stella")
 	if err == nil {
 		t.Fatal("expected error for invalid mode")
 	}

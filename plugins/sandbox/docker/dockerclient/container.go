@@ -94,27 +94,27 @@ func (c *Client) CreateAndStart(ctx context.Context, opts CreateOptions) (string
 		for _, warning := range created.Warnings {
 			slog.Warn("dockerclient: refusing sandbox container created with daemon warning", "container_id", created.ID, "container_name", opts.Name, "warning", warning)
 		}
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if _, removeErr := c.api.ContainerRemove(cleanupCtx, created.ID, mobyclient.ContainerRemoveOptions{Force: true}); removeErr != nil && !errdefs.IsNotFound(removeErr) {
-			slog.Warn("dockerclient: cleanup failed after container create warning", "container_id", created.ID, "container_name", opts.Name, "error", removeErr)
-		}
+		c.cleanupCreatedContainer(created.ID, opts.Name)
 		return "", fmt.Errorf("dockerclient: container create returned warnings: %s", strings.Join(created.Warnings, "; "))
 	}
 
 	slog.Info("dockerclient: starting sandbox container", "container_id", created.ID, "container_name", opts.Name)
 	if _, err := c.api.ContainerStart(ctx, created.ID, mobyclient.ContainerStartOptions{}); err != nil {
 		slog.Warn("dockerclient: container start failed", "container_id", created.ID, "container_name", opts.Name, "error", err)
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if _, removeErr := c.api.ContainerRemove(cleanupCtx, created.ID, mobyclient.ContainerRemoveOptions{Force: true}); removeErr != nil && !errdefs.IsNotFound(removeErr) {
-			slog.Warn("dockerclient: cleanup failed after container start failure", "container_id", created.ID, "container_name", opts.Name, "error", removeErr)
-		}
+		c.cleanupCreatedContainer(created.ID, opts.Name)
 		return "", fmt.Errorf("dockerclient: container start %s: %w", created.ID, err)
 	}
 
 	slog.Info("dockerclient: sandbox container started", "container_id", created.ID, "container_name", opts.Name)
 	return created.ID, nil
+}
+
+func (c *Client) cleanupCreatedContainer(containerID, containerName string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := c.api.ContainerRemove(ctx, containerID, mobyclient.ContainerRemoveOptions{Force: true}); err != nil && !errdefs.IsNotFound(err) {
+		slog.Warn("dockerclient: cleanup failed after container setup", "container_id", containerID, "container_name", containerName, "error", err)
+	}
 }
 
 // Stop sends SIGTERM with a 2-second grace period, then removes the container.

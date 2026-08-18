@@ -58,7 +58,6 @@ func TestSecurity(t *testing.T) {
 	client := NewWithAPI(runtimeAPI{result: mobyclient.SystemInfoResult{
 		Info: system.Info{
 			SecurityOptions: []string{"name=seccomp,profile=builtin", "name=rootless,param=value"},
-			CgroupDriver:    "systemd",
 			MemoryLimit:     true,
 			SwapLimit:       true,
 			CPUCfsPeriod:    true,
@@ -71,21 +70,21 @@ func TestSecurity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.Rootless || got.CgroupDriver != "systemd" || !got.MemoryLimit || !got.SwapLimit || !got.CPUCfsPeriod || !got.CPUCfsQuota || !got.PidsLimit {
-		t.Fatalf("Security = %+v, want rootless systemd", got)
+	if !got.Rootless || !got.MemoryLimit || !got.SwapLimit || !got.CPUCfsPeriod || !got.CPUCfsQuota || !got.PidsLimit {
+		t.Fatalf("Security = %+v, want rootless with resource limits", got)
 	}
 }
 
 func TestSecurityRootful(t *testing.T) {
 	client := NewWithAPI(runtimeAPI{result: mobyclient.SystemInfoResult{
-		Info: system.Info{SecurityOptions: []string{"name=seccomp,profile=builtin", "name=userns,mode=remap"}, CgroupDriver: "cgroupfs"},
+		Info: system.Info{SecurityOptions: []string{"name=seccomp,profile=builtin", "name=userns,mode=remap"}},
 	}})
 
 	got, err := client.Security(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Rootless || !got.UserNamespace || got.CgroupDriver != "cgroupfs" {
-		t.Fatalf("Security = %+v, want rootful userns-remap cgroupfs", got)
+	if got.Rootless || !got.UserNamespace {
+		t.Fatalf("Security = %+v, want rootful userns-remap", got)
 	}
 }
