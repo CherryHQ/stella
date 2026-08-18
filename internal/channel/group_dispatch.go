@@ -170,8 +170,8 @@ func (c *Coordinator) resolveMentionAgentsWithMembers(ctx context.Context, _ str
 		if !ok {
 			// Registry miss: the mentioned platform id is not a Stella bot, or the
 			// owning channel never registered its identity (e.g. the bot open_id
-			// fetch failed at startup). Left unresolved; decideResponders will fall
-			// back to semantic routing instead of suppressing the turn (#619).
+			// fetch failed at startup). Left unresolved so triage still sees the
+			// wake instead of suppressing the turn on a bad mention (#619).
 			log.Debug("mention platform id not in bot registry",
 				"mention_raw", mentions[i].Raw, "platform_id", mentions[i].PlatformID)
 			continue
