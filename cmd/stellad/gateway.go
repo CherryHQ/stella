@@ -378,6 +378,15 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	coordination := channel.NewCoordination(s.db, s.poolManager, s.store, listFn, switchFn, coordOpts...)
 	coordinator := coordination.Coordinator
 	groupDispatcher := coordination.GroupDispatcher
+	groupTurnCommitter, ok := s.mem.(memory.TxGroupCommitter)
+	if !ok {
+		return errors.New("group dispatch requires memory.TxGroupCommitter")
+	}
+	groupDispatcher.SetGroupTurnCommitter(groupTurnCommitter)
+	groupDispatcher.SetGroupEventHub(groupEvents)
+	if err := groupDispatcher.ValidateStartup(); err != nil {
+		return fmt.Errorf("configure group dispatcher: %w", err)
+	}
 	changelogPageReader, ok := s.mem.(memory.ChangelogPageReader)
 	if !ok {
 		return fmt.Errorf("build memory management service: changelog page reader unavailable")

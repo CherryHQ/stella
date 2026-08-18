@@ -68,17 +68,41 @@ func (q *Queries) BumpGroupSeq(ctx context.Context, id string) (int64, error) {
 	return next_seq, err
 }
 
+const countPeerMessagesAfterSeq = `-- name: CountPeerMessagesAfterSeq :one
+SELECT COUNT(*)::bigint
+FROM ctx_group_message
+WHERE group_id = $1
+  AND seq > $2
+  AND NOT (actor_type = 'agent' AND actor_id = $3)
+  AND delivery_state != 'failed'
+`
+
+type CountPeerMessagesAfterSeqParams struct {
+	GroupID  string `json:"group_id"`
+	AfterSeq int64  `json:"after_seq"`
+	AgentID  string `json:"agent_id"`
+}
+
+// Failed platform deliveries are canonical audit rows, but not peer activity:
+// nobody could have seen them, so later freshness gates must ignore them.
+func (q *Queries) CountPeerMessagesAfterSeq(ctx context.Context, arg CountPeerMessagesAfterSeqParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countPeerMessagesAfterSeq, arg.GroupID, arg.AfterSeq, arg.AgentID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createGroupMessage = `-- name: CreateGroupMessage :one
 INSERT INTO ctx_group_message (
   id, group_id, seq, source_channel_id, actor_type, actor_id,
-  platform_message_id, reply_to, platform_timestamp, idempotency_key, content, content_blocks, reasoning, agent_session_id
+  platform_message_id, reply_to, platform_timestamp, idempotency_key, content, content_blocks, reasoning, agent_session_id, delivery_state
 )
 VALUES (
   $1, $2, $3, $4,
   $5, $6, $7,
   $8, $9, $10,
   $11, COALESCE($12::jsonb, '[]'::jsonb),
-  $13, $14
+  $13, $14, $15
 )
 RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state
 `
@@ -98,6 +122,7 @@ type CreateGroupMessageParams struct {
 	ContentBlocks     json.RawMessage    `json:"content_blocks"`
 	Reasoning         string             `json:"reasoning"`
 	AgentSessionID    string             `json:"agent_session_id"`
+	DeliveryState     string             `json:"delivery_state"`
 }
 
 func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessageParams) (CtxGroupMessage, error) {
@@ -116,6 +141,7 @@ func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessage
 		arg.ContentBlocks,
 		arg.Reasoning,
 		arg.AgentSessionID,
+		arg.DeliveryState,
 	)
 	var i CtxGroupMessage
 	err := row.Scan(
@@ -393,7 +419,7 @@ func (q *Queries) GetGroupStateByTriple(ctx context.Context, arg GetGroupStateBy
 const listGroupMessagesPaginated = `-- name: ListGroupMessagesPaginated :many
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
        platform_message_id, reply_to, platform_timestamp, idempotency_key,
-       content, reasoning, agent_session_id, created_at
+       content, reasoning, agent_session_id, created_at, delivery_state
 FROM ctx_group_message
 WHERE group_id = $1
 ORDER BY seq DESC
@@ -421,6 +447,7 @@ type ListGroupMessagesPaginatedRow struct {
 	Reasoning         string             `json:"reasoning"`
 	AgentSessionID    string             `json:"agent_session_id"`
 	CreatedAt         time.Time          `json:"created_at"`
+	DeliveryState     string             `json:"delivery_state"`
 }
 
 func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupMessagesPaginatedParams) ([]ListGroupMessagesPaginatedRow, error) {
@@ -447,6 +474,7 @@ func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupM
 			&i.Reasoning,
 			&i.AgentSessionID,
 			&i.CreatedAt,
+			&i.DeliveryState,
 		); err != nil {
 			return nil, err
 		}
@@ -597,7 +625,7 @@ func (q *Queries) ListRecentGroupMessages(ctx context.Context, arg ListRecentGro
 const listRecentGroupMessagesBeforeSeq = `-- name: ListRecentGroupMessagesBeforeSeq :many
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
        platform_message_id, reply_to, platform_timestamp, idempotency_key,
-       content, reasoning, agent_session_id, created_at
+       content, reasoning, agent_session_id, created_at, delivery_state
 FROM ctx_group_message
 WHERE group_id = $1
   AND seq < $2
@@ -626,6 +654,7 @@ type ListRecentGroupMessagesBeforeSeqRow struct {
 	Reasoning         string             `json:"reasoning"`
 	AgentSessionID    string             `json:"agent_session_id"`
 	CreatedAt         time.Time          `json:"created_at"`
+	DeliveryState     string             `json:"delivery_state"`
 }
 
 func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg ListRecentGroupMessagesBeforeSeqParams) ([]ListRecentGroupMessagesBeforeSeqRow, error) {
@@ -652,6 +681,7 @@ func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg List
 			&i.Reasoning,
 			&i.AgentSessionID,
 			&i.CreatedAt,
+			&i.DeliveryState,
 		); err != nil {
 			return nil, err
 		}
@@ -707,6 +737,42 @@ func (q *Queries) SetGroupDispatchCaps(ctx context.Context, arg SetGroupDispatch
 		&i.HoldLimit,
 		&i.NudgeAt,
 		&i.NudgeFallbackCount,
+	)
+	return i, err
+}
+
+const setGroupMessageDeliveryState = `-- name: SetGroupMessageDeliveryState :one
+UPDATE ctx_group_message
+SET delivery_state = $1
+WHERE id = $2
+RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state
+`
+
+type SetGroupMessageDeliveryStateParams struct {
+	DeliveryState string `json:"delivery_state"`
+	ID            string `json:"id"`
+}
+
+func (q *Queries) SetGroupMessageDeliveryState(ctx context.Context, arg SetGroupMessageDeliveryStateParams) (CtxGroupMessage, error) {
+	row := q.db.QueryRow(ctx, setGroupMessageDeliveryState, arg.DeliveryState, arg.ID)
+	var i CtxGroupMessage
+	err := row.Scan(
+		&i.ID,
+		&i.GroupID,
+		&i.Seq,
+		&i.SourceChannelID,
+		&i.ActorType,
+		&i.ActorID,
+		&i.PlatformMessageID,
+		&i.ReplyTo,
+		&i.PlatformTimestamp,
+		&i.IdempotencyKey,
+		&i.Content,
+		&i.Reasoning,
+		&i.AgentSessionID,
+		&i.CreatedAt,
+		&i.ContentBlocks,
+		&i.DeliveryState,
 	)
 	return i, err
 }

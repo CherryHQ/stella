@@ -26,6 +26,16 @@ SELECT * FROM ctx_group_state WHERE id = $1;
 -- name: GetGroupStateByIDForUpdate :one
 SELECT * FROM ctx_group_state WHERE id = $1 FOR UPDATE;
 
+-- name: CountPeerMessagesAfterSeq :one
+-- Failed platform deliveries are canonical audit rows, but not peer activity:
+-- nobody could have seen them, so later freshness gates must ignore them.
+SELECT COUNT(*)::bigint
+FROM ctx_group_message
+WHERE group_id = sqlc.arg(group_id)
+  AND seq > sqlc.arg(after_seq)
+  AND NOT (actor_type = 'agent' AND actor_id = sqlc.arg(agent_id))
+  AND delivery_state != 'failed';
+
 -- name: GetGroupLastActive :one
 SELECT COALESCE(MAX(gm.created_at), gs.updated_at) AS last_active
 FROM ctx_group_state gs
@@ -103,7 +113,7 @@ LIMIT sqlc.arg(max_count);
 -- name: ListRecentGroupMessagesBeforeSeq :many
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
        platform_message_id, reply_to, platform_timestamp, idempotency_key,
-       content, reasoning, agent_session_id, created_at
+       content, reasoning, agent_session_id, created_at, delivery_state
 FROM ctx_group_message
 WHERE group_id = sqlc.arg(group_id)
   AND seq < sqlc.arg(before_seq)
@@ -113,7 +123,7 @@ LIMIT sqlc.arg(max_count);
 -- name: ListGroupMessagesPaginated :many
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
        platform_message_id, reply_to, platform_timestamp, idempotency_key,
-       content, reasoning, agent_session_id, created_at
+       content, reasoning, agent_session_id, created_at, delivery_state
 FROM ctx_group_message
 WHERE group_id = sqlc.arg(group_id)
 ORDER BY seq DESC
@@ -122,13 +132,19 @@ LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 -- name: CreateGroupMessage :one
 INSERT INTO ctx_group_message (
   id, group_id, seq, source_channel_id, actor_type, actor_id,
-  platform_message_id, reply_to, platform_timestamp, idempotency_key, content, content_blocks, reasoning, agent_session_id
+  platform_message_id, reply_to, platform_timestamp, idempotency_key, content, content_blocks, reasoning, agent_session_id, delivery_state
 )
 VALUES (
   sqlc.arg(id), sqlc.arg(group_id), sqlc.arg(seq), sqlc.arg(source_channel_id),
   sqlc.arg(actor_type), sqlc.arg(actor_id), sqlc.arg(platform_message_id),
   sqlc.arg(reply_to), sqlc.arg(platform_timestamp), sqlc.arg(idempotency_key),
   sqlc.arg(content), COALESCE(sqlc.arg(content_blocks)::jsonb, '[]'::jsonb),
-  sqlc.arg(reasoning), sqlc.arg(agent_session_id)
+  sqlc.arg(reasoning), sqlc.arg(agent_session_id), sqlc.arg(delivery_state)
 )
+RETURNING *;
+
+-- name: SetGroupMessageDeliveryState :one
+UPDATE ctx_group_message
+SET delivery_state = sqlc.arg(delivery_state)
+WHERE id = sqlc.arg(id)
 RETURNING *;

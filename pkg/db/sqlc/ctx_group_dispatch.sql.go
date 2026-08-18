@@ -102,6 +102,65 @@ func (q *Queries) ClaimPendingGroupDispatch(ctx context.Context, arg ClaimPendin
 	return i, err
 }
 
+const claimPendingGroupDispatchesByMessage = `-- name: ClaimPendingGroupDispatchesByMessage :many
+UPDATE ctx_group_dispatch
+SET status = 'running',
+    attempt_count = attempt_count + 1,
+    lease_until = $1,
+    next_attempt_at = NULL,
+    last_error = '',
+    updated_at = now()
+WHERE group_message_id = $2
+  AND status = 'pending'
+  AND kind = 'reply'
+RETURNING id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, published_at
+`
+
+type ClaimPendingGroupDispatchesByMessageParams struct {
+	LeaseUntil     pgtype.Timestamptz `json:"lease_until"`
+	GroupMessageID string             `json:"group_message_id"`
+}
+
+// DispatchSync reserves its just-materialized rows before releasing the outbox
+// completion transaction. This keeps the web request as the publisher owner.
+func (q *Queries) ClaimPendingGroupDispatchesByMessage(ctx context.Context, arg ClaimPendingGroupDispatchesByMessageParams) ([]CtxGroupDispatch, error) {
+	rows, err := q.db.Query(ctx, claimPendingGroupDispatchesByMessage, arg.LeaseUntil, arg.GroupMessageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxGroupDispatch{}
+	for rows.Next() {
+		var i CtxGroupDispatch
+		if err := rows.Scan(
+			&i.ID,
+			&i.GroupMessageID,
+			&i.GroupID,
+			&i.AgentID,
+			&i.ReplyChannelID,
+			&i.Status,
+			&i.AttemptCount,
+			&i.LeaseUntil,
+			&i.NextAttemptAt,
+			&i.LastError,
+			&i.ResultMessageID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Kind,
+			&i.TriggerSeq,
+			&i.HeldUpToSeq,
+			&i.PublishedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const countGroupDispatchByMessage = `-- name: CountGroupDispatchByMessage :one
 SELECT CAST(COUNT(*) AS BIGINT) FROM ctx_group_dispatch
 WHERE group_message_id = $1
@@ -466,6 +525,31 @@ type MarkGroupDispatchFailedParams struct {
 
 func (q *Queries) MarkGroupDispatchFailed(ctx context.Context, arg MarkGroupDispatchFailedParams) (int64, error) {
 	result, err := q.db.Exec(ctx, markGroupDispatchFailed, arg.LastError, arg.ID, arg.AttemptCount)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const markGroupDispatchPublished = `-- name: MarkGroupDispatchPublished :execrows
+UPDATE ctx_group_dispatch
+SET published_at = now(),
+    updated_at = now()
+WHERE id = $1
+  AND status = 'running'
+  AND attempt_count = $2
+  AND result_message_id = $3
+  AND published_at IS NULL
+`
+
+type MarkGroupDispatchPublishedParams struct {
+	ID              string `json:"id"`
+	AttemptCount    int64  `json:"attempt_count"`
+	ResultMessageID string `json:"result_message_id"`
+}
+
+func (q *Queries) MarkGroupDispatchPublished(ctx context.Context, arg MarkGroupDispatchPublishedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markGroupDispatchPublished, arg.ID, arg.AttemptCount, arg.ResultMessageID)
 	if err != nil {
 		return 0, err
 	}

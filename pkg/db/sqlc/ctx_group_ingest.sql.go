@@ -81,7 +81,7 @@ const listGroupMessagesAfterSeq = `-- name: ListGroupMessagesAfterSeq :many
 
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
        platform_message_id, reply_to, platform_timestamp, idempotency_key,
-       content, reasoning, agent_session_id, created_at
+       content, reasoning, agent_session_id, created_at, delivery_state
 FROM ctx_group_message
 WHERE group_id = $1 AND seq > $2
 ORDER BY seq ASC
@@ -109,6 +109,7 @@ type ListGroupMessagesAfterSeqRow struct {
 	Reasoning         string             `json:"reasoning"`
 	AgentSessionID    string             `json:"agent_session_id"`
 	CreatedAt         time.Time          `json:"created_at"`
+	DeliveryState     string             `json:"delivery_state"`
 }
 
 // Both ingest list queries feed text-only consumers (group-memory extraction and
@@ -140,6 +141,7 @@ func (q *Queries) ListGroupMessagesAfterSeq(ctx context.Context, arg ListGroupMe
 			&i.Reasoning,
 			&i.AgentSessionID,
 			&i.CreatedAt,
+			&i.DeliveryState,
 		); err != nil {
 			return nil, err
 		}

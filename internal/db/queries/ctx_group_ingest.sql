@@ -27,7 +27,7 @@ WHERE group_id = sqlc.arg(group_id) AND pipeline = sqlc.arg(pipeline) AND seq = 
 -- name: ListGroupMessagesAfterSeq :many
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
        platform_message_id, reply_to, platform_timestamp, idempotency_key,
-       content, reasoning, agent_session_id, created_at
+       content, reasoning, agent_session_id, created_at, delivery_state
 FROM ctx_group_message
 WHERE group_id = sqlc.arg(group_id) AND seq > sqlc.arg(min_seq)
 ORDER BY seq ASC

@@ -103,6 +103,21 @@ WHERE id = sqlc.arg(id)
   AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg('now'))
 RETURNING *;
 
+-- name: ClaimPendingGroupDispatchesByMessage :many
+-- DispatchSync reserves its just-materialized rows before releasing the outbox
+-- completion transaction. This keeps the web request as the publisher owner.
+UPDATE ctx_group_dispatch
+SET status = 'running',
+    attempt_count = attempt_count + 1,
+    lease_until = sqlc.arg(lease_until),
+    next_attempt_at = NULL,
+    last_error = '',
+    updated_at = now()
+WHERE group_message_id = sqlc.arg(group_message_id)
+  AND status = 'pending'
+  AND kind = 'reply'
+RETURNING *;
+
 -- name: ClaimExpiredGroupDispatch :one
 UPDATE ctx_group_dispatch
 SET status = 'running',
@@ -132,6 +147,16 @@ SET result_message_id = sqlc.arg(result_message_id),
 WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND attempt_count = sqlc.arg(attempt_count);
+
+-- name: MarkGroupDispatchPublished :execrows
+UPDATE ctx_group_dispatch
+SET published_at = now(),
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND status = 'running'
+  AND attempt_count = sqlc.arg(attempt_count)
+  AND result_message_id = sqlc.arg(result_message_id)
+  AND published_at IS NULL;
 
 -- name: MarkGroupDispatchCompleted :execrows
 UPDATE ctx_group_dispatch

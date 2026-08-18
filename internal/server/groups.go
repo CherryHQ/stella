@@ -158,17 +158,17 @@ func (s *Server) StreamGroupEvents(w http.ResponseWriter, r *http.Request, group
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
-	write := func(value any) bool {
+	write := func(name string, value any) bool {
 		data, err := json.Marshal(value)
 		if err != nil {
 			return false
 		}
-		_, err = fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
+		_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, data)
 		flusher.Flush()
 		return err == nil
 	}
 	for _, row := range rows {
-		if !write(groupMessageToAPI(row)) {
+		if !write("message", groupMessageToAPI(row)) {
 			return
 		}
 	}
@@ -182,7 +182,13 @@ func (s *Server) StreamGroupEvents(w http.ResponseWriter, r *http.Request, group
 			if !alive {
 				return
 			}
-			if !write(groupMessageToAPI(channel.GroupMessageItem{ID: event.Message.ID, GroupID: event.GroupID, Seq: int(event.Seq), ActorType: event.Message.ActorType, ActorID: event.Message.ActorID, Content: event.Message.Content, DeliveryState: event.Message.DeliveryState, CreatedAt: event.Message.CreatedAt.UTC()})) {
+			if event.Turn != nil {
+				if !write("turn", event.Turn) {
+					return
+				}
+				continue
+			}
+			if !write("message", groupMessageToAPI(channel.GroupMessageItem{ID: event.Message.ID, GroupID: event.GroupID, Seq: int(event.Seq), ActorType: event.Message.ActorType, ActorID: event.Message.ActorID, Content: event.Message.Content, DeliveryState: event.Message.DeliveryState, CreatedAt: event.Message.CreatedAt.UTC()})) {
 				return
 			}
 		case <-heartbeat.C:

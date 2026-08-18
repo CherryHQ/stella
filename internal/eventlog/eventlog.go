@@ -231,6 +231,7 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...App
 		IdempotencyKey:    idemKey,
 		Content:           msg.Content,
 		ContentBlocks:     contentBlocksOrEmpty(msg.ContentBlocks),
+		DeliveryState:     "delivered",
 	})
 	if err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: create message: %w", err)
@@ -315,6 +316,7 @@ func AppendToGroupWithQueries(ctx context.Context, q *sqlc.Queries, groupID stri
 		ContentBlocks:  contentBlocksOrEmpty(nil),
 		Reasoning:      msg.Reasoning,
 		AgentSessionID: msg.AgentSessionID,
+		DeliveryState:  deliveryStateOrDelivered(msg.DeliveryState),
 	})
 	if err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: create message: %w", err)
@@ -338,6 +340,9 @@ func validateGroupAppend(groupID string, msg GroupMessage) error {
 	if msg.ActorType != ActorHuman && msg.ActorType != ActorAgent {
 		return fmt.Errorf("eventlog: invalid actor_type %q", msg.ActorType)
 	}
+	if state := deliveryStateOrDelivered(msg.DeliveryState); state != "pending" && state != "delivered" && state != "failed" {
+		return fmt.Errorf("eventlog: invalid delivery_state %q", msg.DeliveryState)
+	}
 	if msg.ActorID == "" {
 		return errors.New("eventlog: actor_id is required")
 	}
@@ -351,6 +356,16 @@ type GroupMessage struct {
 	Content        string
 	Reasoning      string
 	AgentSessionID string
+	// DeliveryState is pending only for an accepted platform reply awaiting
+	// egress. All ingress and Web messages are immediately delivered.
+	DeliveryState string
+}
+
+func deliveryStateOrDelivered(state string) string {
+	if state == "" {
+		return "delivered"
+	}
+	return state
 }
 
 func validate(msg Message) error {

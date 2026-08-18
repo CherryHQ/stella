@@ -178,7 +178,7 @@ type GroupMessageItem struct {
 
 // SubscribeEvents authorizes the durable replay and then attaches to the
 // best-effort live hub. Callers must replay first, before subscribing.
-func (a *GroupAccess) SubscribeEvents(ctx context.Context, groupID string) (<-chan eventlog.AppendResult, func(), error) {
+func (a *GroupAccess) SubscribeEvents(ctx context.Context, groupID string) (<-chan GroupEvent, func(), error) {
 	if _, err := a.requireOwner(ctx, groupID); err != nil {
 		return nil, nil, err
 	}
@@ -203,7 +203,7 @@ func (a *GroupAccess) MessagesAfterSeq(ctx context.Context, groupID string, sinc
 	}
 	out := make([]GroupMessageItem, len(rows))
 	for i, m := range rows {
-		out[i] = GroupMessageItem{ID: m.ID, GroupID: m.GroupID, Seq: int(m.Seq), ActorType: m.ActorType, ActorID: m.ActorID, Content: m.Content, Reasoning: strPtr(m.Reasoning), AgentSessionID: strPtr(m.AgentSessionID), DeliveryState: "delivered", CreatedAt: m.CreatedAt.UTC()}
+		out[i] = GroupMessageItem{ID: m.ID, GroupID: m.GroupID, Seq: int(m.Seq), ActorType: m.ActorType, ActorID: m.ActorID, Content: m.Content, Reasoning: strPtr(m.Reasoning), AgentSessionID: strPtr(m.AgentSessionID), DeliveryState: m.DeliveryState, CreatedAt: m.CreatedAt.UTC()}
 	}
 	return out, nil
 }
@@ -466,7 +466,7 @@ func (a *GroupAccess) Messages(ctx context.Context, groupID string, offset, limi
 	}
 	out := make([]GroupMessageItem, len(rows))
 	for i, m := range rows {
-		out[i] = GroupMessageItem{ID: m.ID, GroupID: m.GroupID, Seq: int(m.Seq), ActorType: m.ActorType, ActorID: m.ActorID, Content: m.Content, Reasoning: strPtr(m.Reasoning), AgentSessionID: strPtr(m.AgentSessionID), DeliveryState: "delivered", CreatedAt: m.CreatedAt.UTC()}
+		out[i] = GroupMessageItem{ID: m.ID, GroupID: m.GroupID, Seq: int(m.Seq), ActorType: m.ActorType, ActorID: m.ActorID, Content: m.Content, Reasoning: strPtr(m.Reasoning), AgentSessionID: strPtr(m.AgentSessionID), DeliveryState: m.DeliveryState, CreatedAt: m.CreatedAt.UTC()}
 	}
 	return out, nil
 }

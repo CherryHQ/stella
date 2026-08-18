@@ -27,6 +27,12 @@ type recordingGroupPublisher struct {
 	texts []string
 }
 
+type groupTurnCommitterFunc func(context.Context, *sqlc.Queries, memory.DeferredGroupTurn) error
+
+func (f groupTurnCommitterFunc) CommitGroupTurn(ctx context.Context, q *sqlc.Queries, turn memory.DeferredGroupTurn) error {
+	return f(ctx, q, turn)
+}
+
 type blockingGroupPublisher struct {
 	started chan struct{}
 	release chan struct{}
@@ -132,7 +138,11 @@ func newDispatcherFixture(t *testing.T, platform, envelope string) dispatcherFix
 	coord := &Coordinator{store: cfgstore.NewDBStore(db), arbiter: NewArbiter(ArbiterConfig{MaxRepliesPerTrigger: 3})}
 	d := NewGroupDispatcher(db, coord, NewPublisherRegistry())
 	d.leaseDuration = 0
-	d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+	d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(context.Context, *sqlc.Queries, memory.DeferredGroupTurn) error { return nil }))
+	d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+		if sink, ok := memory.GroupTurnSinkFrom(ctx); ok {
+			sink.Deliver(memory.DeferredGroupTurn{Complete: true})
+		}
 		return textStream("ok"), nil
 	}
 	return dispatcherFixture{db: db, q: q, d: d, outbox: outbox, message: message, groupID: state.ID}
@@ -588,11 +598,11 @@ func TestGroupDispatcherPublishFailureLeavesResultEmptyAndRequeues(t *testing.T)
 	if err != nil {
 		t.Fatalf("get dispatch after failure: %v", err)
 	}
-	if dispatch.Status != "pending" || dispatch.ResultMessageID != "" {
-		t.Fatalf("dispatch status/result = %q/%q, want pending empty result", dispatch.Status, dispatch.ResultMessageID)
+	if dispatch.Status != "pending" || dispatch.ResultMessageID == "" || dispatch.PublishedAt.Valid {
+		t.Fatalf("dispatch status/result/published = %q/%q/%v, want pending accepted-unpublished result", dispatch.Status, dispatch.ResultMessageID, dispatch.PublishedAt.Valid)
 	}
-	if got := countAgentGroupMessages(t, fx.db); got != 0 {
-		t.Fatalf("agent messages = %d, want 0", got)
+	if got := countAgentGroupMessages(t, fx.db); got != 1 {
+		t.Fatalf("agent messages = %d, want accepted result", got)
 	}
 
 	publisher.err = nil
@@ -616,8 +626,11 @@ func TestGroupDispatcherWritebackFailureLeavesResultEmptyAndRequeues(t *testing.
 	publisher := &recordingGroupPublisher{}
 	fx.d.publishers.Register("ch-1", publisher)
 	chatCalls := 0
-	fx.d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+	fx.d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
 		chatCalls++
+		if sink, ok := memory.GroupTurnSinkFrom(ctx); ok {
+			sink.Deliver(memory.DeferredGroupTurn{Complete: true})
+		}
 		return textStream("ok"), nil
 	}
 	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
@@ -716,13 +729,16 @@ func TestGroupDispatcherSupersededTriggerCompletesWithoutChat(t *testing.T) {
 	}
 }
 
-func TestGroupDispatcherResultMessageSkipsChatPublishAndAppend(t *testing.T) {
+func TestGroupDispatcherAcceptedResultSkipsChatAndReplaysPublish(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	publisher := &recordingGroupPublisher{}
 	fx.d.publishers.Register("ch-1", publisher)
 	chatCalls := 0
-	fx.d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+	fx.d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
 		chatCalls++
+		if sink, ok := memory.GroupTurnSinkFrom(ctx); ok {
+			sink.Deliver(memory.DeferredGroupTurn{Complete: true})
+		}
 		return textStream("ok"), nil
 	}
 	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
@@ -737,7 +753,11 @@ func TestGroupDispatcherResultMessageSkipsChatPublishAndAppend(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create dispatch: %v", err)
 	}
-	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET result_message_id = 'result-1' WHERE id = 'd15a0000-0000-0000-0000-000000000001'`); err != nil {
+	result, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: "agent-1", Content: "accepted"})
+	if err != nil {
+		t.Fatalf("append accepted result: %v", err)
+	}
+	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET result_message_id = $1 WHERE id = 'd15a0000-0000-0000-0000-000000000001'`, result.Message.ID); err != nil {
 		t.Fatalf("set result marker: %v", err)
 	}
 	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
@@ -751,11 +771,11 @@ func TestGroupDispatcherResultMessageSkipsChatPublishAndAppend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get dispatch after execute: %v", err)
 	}
-	if dispatch.Status != "completed" || chatCalls != 0 || publisher.calls != 0 {
-		t.Fatalf("status/chat/publish = %q/%d/%d, want completed/0/0", dispatch.Status, chatCalls, publisher.calls)
+	if dispatch.Status != "completed" || chatCalls != 0 || publisher.calls != 1 {
+		t.Fatalf("status/chat/publish = %q/%d/%d, want completed/0/1", dispatch.Status, chatCalls, publisher.calls)
 	}
-	if got := countAgentGroupMessages(t, fx.db); got != 0 {
-		t.Fatalf("agent messages = %d, want 0", got)
+	if got := countAgentGroupMessages(t, fx.db); got != 1 {
+		t.Fatalf("agent messages = %d, want accepted result only", got)
 	}
 }
 
@@ -820,6 +840,67 @@ func TestGroupDispatcherPublisherFailureMarksFailedAtMaxAttempts(t *testing.T) {
 	}
 	if dispatch.Status != "failed" {
 		t.Fatalf("dispatch status = %q, want failed", dispatch.Status)
+	}
+	if dispatch.ResultMessageID == "" {
+		t.Fatal("final publish failure must retain the accepted result")
+	}
+	result, err := fx.q.GetGroupMessage(context.Background(), dispatch.ResultMessageID)
+	if err != nil {
+		t.Fatalf("get failed result: %v", err)
+	}
+	if result.DeliveryState != "failed" {
+		t.Fatalf("delivery state = %q, want failed", result.DeliveryState)
+	}
+}
+
+func TestIncompleteStreamDiscardsDeferredTurnAndPersistsNothing(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	publisher := &recordingGroupPublisher{}
+	fx.d.publishers.Register("ch-1", publisher)
+	fx.d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+		if sink, ok := memory.GroupTurnSinkFrom(ctx); ok {
+			sink.Deliver(memory.DeferredGroupTurn{Complete: false})
+		}
+		return textStream("partial"), nil
+	}
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000001", "agent-1", fx.groupID, "pending", pgtype.Timestamptz{})
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
+	if err != nil {
+		t.Fatalf("get dispatch: %v", err)
+	}
+	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err == nil {
+		t.Fatal("incomplete stream must fail the dispatch")
+	}
+	if publisher.calls != 0 || countAgentGroupMessages(t, fx.db) != 0 {
+		t.Fatalf("publisher/messages = %d/%d, want 0/0", publisher.calls, countAgentGroupMessages(t, fx.db))
+	}
+}
+
+func TestAcceptTxRollbackAnnouncesNothing(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	hub := NewGroupEventHub()
+	fx.d.SetGroupEventHub(hub)
+	fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(context.Context, *sqlc.Queries, memory.DeferredGroupTurn) error {
+		return errors.New("injected memory failure")
+	}))
+	follow, cancel := hub.Subscribe(fx.groupID)
+	defer cancel()
+	fx.d.publishers.Register("ch-1", &recordingGroupPublisher{})
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000001", "agent-1", fx.groupID, "pending", pgtype.Timestamptz{})
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
+	if err != nil {
+		t.Fatalf("get dispatch: %v", err)
+	}
+	if err := fx.d.ExecuteDispatch(context.Background(), dispatch, nil); err == nil {
+		t.Fatal("expected injected commit failure")
+	}
+	if countAgentGroupMessages(t, fx.db) != 0 {
+		t.Fatal("rollback left a group post")
+	}
+	select {
+	case event := <-follow:
+		t.Fatalf("rollback announced %+v", event)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 
@@ -1083,52 +1164,44 @@ func countAgentGroupMessages(t *testing.T, db *pgxpool.Pool) int {
 	return count
 }
 
-func TestWrapGroupResponseStreamSkipsWritebackOnErrEvent(t *testing.T) {
+func TestBufferGroupResponseSkipsWritebackOnErrEvent(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	stream := make(chan pkgchannel.Event, 2)
 	stream <- pkgchannel.Event{Text: "partial"}
 	stream <- pkgchannel.Event{Err: errors.New("boom")}
 	close(stream)
 
-	wrapped, responseC := fx.d.wrapGroupResponseStream(context.Background(), &pkgchannel.ChatStream{Events: stream, SessionID: "session-1"})
-	for range wrapped.Events {
-	}
-	response := <-responseC
+	response := fx.d.bufferGroupResponse(context.Background(), &pkgchannel.ChatStream{Events: stream, SessionID: "session-1"})
 	if response.complete {
 		t.Fatalf("response.complete = true, want false")
 	}
 	assertNoAgentGroupMessages(t, fx.db)
 }
 
-func TestWrapGroupResponseStreamSkipsWritebackAfterCancel(t *testing.T) {
+func TestBufferGroupResponseSkipsWritebackAfterCancel(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	ctx, cancel := context.WithCancel(context.Background())
 	stream := make(chan pkgchannel.Event)
-	wrapped, responseC := fx.d.wrapGroupResponseStream(ctx, &pkgchannel.ChatStream{Events: stream, SessionID: "session-1"})
-
-	stream <- pkgchannel.Event{Text: "partial"}
-	cancel()
-	stream <- pkgchannel.Event{Text: " ignored"}
-	close(stream)
-	for range wrapped.Events {
-	}
-	response := <-responseC
+	go func() {
+		stream <- pkgchannel.Event{Text: "partial"}
+		cancel()
+		stream <- pkgchannel.Event{Text: " ignored"}
+		close(stream)
+	}()
+	response := fx.d.bufferGroupResponse(ctx, &pkgchannel.ChatStream{Events: stream, SessionID: "session-1"})
 	if response.complete {
 		t.Fatalf("response.complete = true, want false")
 	}
 	assertNoAgentGroupMessages(t, fx.db)
 }
 
-func TestWrapGroupResponseStreamBuffersCompleteStream(t *testing.T) {
+func TestBufferGroupResponseBuffersCompleteStream(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	stream := make(chan pkgchannel.Event, 2)
 	stream <- pkgchannel.Event{Text: "complete"}
 	close(stream)
 
-	wrapped, responseC := fx.d.wrapGroupResponseStream(context.Background(), &pkgchannel.ChatStream{Events: stream, SessionID: "session-1"})
-	for range wrapped.Events {
-	}
-	response := <-responseC
+	response := fx.d.bufferGroupResponse(context.Background(), &pkgchannel.ChatStream{Events: stream, SessionID: "session-1"})
 	if !response.complete || response.text != "complete" || response.sessionID != "session-1" {
 		t.Fatalf("response = %+v, want complete buffered response", response)
 	}
