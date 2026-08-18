@@ -51,11 +51,14 @@ type memoryRefPayload struct {
 }
 
 type unifiedSearchResult struct {
-	Ref        string                   `json:"ref"`
-	Snippet    string                   `json:"snippet"`
-	Score      float64                  `json:"score"`
-	OccurredAt string                   `json:"occurred_at,omitempty"`
-	Provenance *unifiedRecallProvenance `json:"provenance,omitempty"`
+	Ref              string                   `json:"ref"`
+	Snippet          string                   `json:"snippet"`
+	Score            float64                  `json:"score"`
+	OccurredAt       string                   `json:"occurred_at,omitempty"`
+	ActorType        string                   `json:"actor_type,omitempty"`
+	ActorDisplayName string                   `json:"actor_display_name,omitempty"`
+	Authority        string                   `json:"authority,omitempty"`
+	Provenance       *unifiedRecallProvenance `json:"provenance,omitempty"`
 }
 
 type unifiedRecallProvenance struct {
@@ -96,6 +99,17 @@ type unifiedReadResponse struct {
 	Constraints []ConstraintEntry        `json:"constraints,omitempty"`
 	Versions    []unifiedVersion         `json:"versions,omitempty"`
 	Summary     *unifiedSummaryRead      `json:"summary,omitempty"`
+	Messages    []unifiedRecallMessage   `json:"messages,omitempty"`
+}
+
+type unifiedRecallMessage struct {
+	Content          string `json:"content"`
+	ActorType        string `json:"actor_type"`
+	ActorDisplayName string `json:"actor_display_name,omitempty"`
+	Authority        string `json:"authority"`
+	OccurredAt       string `json:"occurred_at,omitempty"`
+	Anchor           bool   `json:"anchor,omitempty"`
+	Truncated        bool   `json:"truncated,omitempty"`
 }
 
 type unifiedVersion struct {
@@ -136,21 +150,22 @@ func (t *memoryTool) execUnifiedSearch(ctx context.Context, args map[string]any)
 	if query == "" {
 		return "", fmt.Errorf("memory search: query is required")
 	}
-	ident, err := authz.ToolIdentity(ctx, "memory")
+	authority, err := authz.ToolAuthority(ctx, "memory")
 	if err != nil {
 		return "", err
 	}
-	authority, err := ident.ToAuthority()
-	if err != nil {
-		return "", authz.MapError("memory", err)
-	}
+	agentID := string(authority.AgentID())
 	limit := intArg(args, "limit", defaultUnifiedSearchLimit)
 	if limit <= 0 {
 		limit = defaultUnifiedSearchLimit
 	}
 	limit = min(limit, maxUnifiedSearchLimit)
 
-	recallHits, err := t.cfg.recallSource.SearchRecall(ctx, authority, ident.AgentID, query, maxUnifiedSearchWindow)
+	recallLimit := maxUnifiedSearchWindow
+	if authority.Kind() == authz.ActorGroupAgent {
+		recallLimit = limit
+	}
+	recallHits, err := t.cfg.recallSource.SearchRecall(ctx, authority, agentID, query, recallLimit)
 	if err != nil {
 		return "", fmt.Errorf("memory search: conversation recall: %w", err)
 	}
@@ -165,16 +180,27 @@ func (t *memoryTool) execUnifiedSearch(ctx context.Context, args map[string]any)
 		snippet := strings.ReplaceAll(strings.ReplaceAll(hit.Content, "<b>", ""), "</b>", "")
 		snippet, _ = tools.TruncateText(snippet, maxUnifiedSearchSnippet)
 		result := unifiedSearchResult{
-			Ref: ref, Snippet: snippet,
-			Provenance: &unifiedRecallProvenance{SessionID: hit.SessionID, Title: truncateUnifiedText(hit.ConversationTitle, maxUnifiedProvenanceTitle)},
+			Ref: ref, Snippet: snippet, Score: hit.Score, ActorType: hit.ActorType,
+			ActorDisplayName: truncateUnifiedText(hit.ActorDisplayName, 256), Authority: hit.Authority,
+		}
+		if hit.SessionID != "" {
+			result.Provenance = &unifiedRecallProvenance{SessionID: hit.SessionID, Title: truncateUnifiedText(hit.ConversationTitle, maxUnifiedProvenanceTitle)}
 		}
 		if !hit.OccurredAt.IsZero() {
 			result.OccurredAt = hit.OccurredAt.UTC().Format(time.RFC3339)
 		}
 		recallLane = append(recallLane, unifiedCandidate{result: result})
 	}
+	if authority.Kind() == authz.ActorGroupAgent {
+		results := make([]unifiedSearchResult, len(recallLane))
+		for i, candidate := range recallLane {
+			results[i] = candidate.result
+		}
+		return marshalUnifiedJSON(map[string]any{"results": results})
+	}
 
-	state, err := t.loadUnifiedDurableState(ctx, ident.UserID, ident.AgentID)
+	userID := string(authority.UserID())
+	state, err := t.loadUnifiedDurableState(ctx, userID, agentID)
 	if err != nil {
 		return "", err
 	}
@@ -194,7 +220,7 @@ func (t *memoryTool) execUnifiedSearch(ctx context.Context, args map[string]any)
 			returnedFacts = append(returnedFacts, knowledgeSearchResult{FactID: candidate.factID, Source: candidate.factSource})
 		}
 	}
-	t.touchReturnedKnowledgeUsage(ctx, ident.UserID, ident.AgentID, returnedFacts)
+	t.touchReturnedKnowledgeUsage(ctx, userID, agentID, returnedFacts)
 	return marshalUnifiedJSON(map[string]any{"results": results})
 }
 
@@ -275,6 +301,17 @@ func (t *memoryTool) execUnifiedRead(ctx context.Context, args map[string]any) (
 		tokenCap = defaultUnifiedReadTokenCap
 	}
 	tokenCap = min(tokenCap, maxUnifiedReadTokenCap)
+	authority, err := authz.ToolAuthority(ctx, "memory")
+	if err != nil {
+		return "", err
+	}
+	if authority.Kind() == authz.ActorGroupAgent {
+		payload, err := decodeMemoryRef(ref)
+		if err != nil || payload.Kind != "group_message" {
+			return "", fmt.Errorf("memory read: ref not found")
+		}
+		return t.readUnifiedRecall(ctx, ref, payload, tokenCap, authority)
+	}
 
 	switch ref {
 	case wellKnownProfile:
@@ -297,31 +334,25 @@ func (t *memoryTool) execUnifiedRead(ctx context.Context, args map[string]any) (
 	case "fact":
 		return t.readUnifiedFact(ctx, ref, payload.ID)
 	case "message", "summary":
-		return t.readUnifiedRecall(ctx, ref, payload, tokenCap)
+		return t.readUnifiedRecall(ctx, ref, payload, tokenCap, authority)
 	default:
 		return "", fmt.Errorf("memory read: invalid ref")
 	}
 }
 
-func (t *memoryTool) readUnifiedRecall(ctx context.Context, encoded string, payload memoryRefPayload, tokenCap int) (string, error) {
-	ident, err := authz.ToolIdentity(ctx, "memory")
-	if err != nil {
-		return "", err
-	}
-	authority, err := ident.ToAuthority()
-	if err != nil {
-		return "", authz.MapError("memory", err)
-	}
-	doc, err := t.cfg.recallSource.ReadRecall(ctx, authority, ident.AgentID, RecallReference{
+func (t *memoryTool) readUnifiedRecall(ctx context.Context, encoded string, payload memoryRefPayload, tokenCap int, authority authz.Authority) (string, error) {
+	doc, err := t.cfg.recallSource.ReadRecall(ctx, authority, string(authority.AgentID()), RecallReference{
 		Kind: payload.Kind, ID: payload.ID, SessionID: payload.SessionID,
 	}, tokenCap)
 	if err != nil {
 		return "", fmt.Errorf("memory read: %w", err)
 	}
-	content, truncated := tools.TruncateText(doc.Content, maxUnifiedReadTextBytes)
+	content, contentTruncated := tools.TruncateText(doc.Content, maxUnifiedReadTextBytes)
 	response := unifiedReadResponse{
-		Ref: encoded, Content: content, Truncated: truncated, Role: doc.Role, Authority: doc.Authority,
-		Provenance: &unifiedRecallProvenance{SessionID: doc.SessionID, Title: truncateUnifiedText(doc.ConversationTitle, maxUnifiedProvenanceTitle)},
+		Ref: encoded, Content: content, Truncated: doc.Truncated || contentTruncated, Role: doc.Role, Authority: doc.Authority,
+	}
+	if doc.SessionID != "" {
+		response.Provenance = &unifiedRecallProvenance{SessionID: doc.SessionID, Title: truncateUnifiedText(doc.ConversationTitle, maxUnifiedProvenanceTitle)}
 	}
 	if !doc.OccurredAt.IsZero() {
 		response.OccurredAt = doc.OccurredAt.UTC().Format(time.RFC3339)
@@ -332,6 +363,21 @@ func (t *memoryTool) readUnifiedRecall(ctx context.Context, encoded string, payl
 			return "", fmt.Errorf("memory read: encode summary refs: %w", err)
 		}
 		response.Summary = summary
+	}
+	if len(doc.Messages) > 0 {
+		response.Content = ""
+		response.Messages = make([]unifiedRecallMessage, 0, len(doc.Messages))
+		for _, message := range doc.Messages {
+			item := unifiedRecallMessage{
+				Content: message.Content, ActorType: message.ActorType,
+				ActorDisplayName: truncateUnifiedText(message.ActorDisplayName, 256), Authority: message.Authority,
+				Anchor: message.Anchor, Truncated: message.Truncated,
+			}
+			if !message.OccurredAt.IsZero() {
+				item.OccurredAt = message.OccurredAt.UTC().Format(time.RFC3339)
+			}
+			response.Messages = append(response.Messages, item)
+		}
 	}
 	return marshalUnifiedJSON(response)
 }
@@ -405,13 +451,7 @@ func unifiedSummaryFrom(detail *RecallSummaryDetail) (*unifiedSummaryRead, error
 }
 
 func (t *memoryTool) readUnifiedProfile(ctx context.Context, ref string, soul bool) (string, error) {
-	var userID, agentID string
-	var err error
-	if soul {
-		userID, agentID, err = t.requireProfileCtx(ctx, actionRead)
-	} else {
-		userID, agentID, err = t.resolveProfileTarget(ctx, actionRead)
-	}
+	userID, agentID, err := t.requireProfileCtx(ctx, actionRead)
 	if err != nil {
 		return "", err
 	}
@@ -621,6 +661,10 @@ func encodeMemoryRef(payload memoryRefPayload) (string, error) {
 	case "fact":
 		if payload.SessionID != "" {
 			return "", fmt.Errorf("invalid durable memory ref")
+		}
+	case "group_message":
+		if payload.SessionID != "" {
+			return "", fmt.Errorf("invalid group message recall ref")
 		}
 	default:
 		return "", fmt.Errorf("invalid memory ref kind")

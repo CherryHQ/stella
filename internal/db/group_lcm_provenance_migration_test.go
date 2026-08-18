@@ -95,7 +95,7 @@ func TestGroupLCMProvenanceMigrationEnforcesOriginIdentity(t *testing.T) {
 		t.Fatalf("read origin foreign-key validation state: %v", err)
 	}
 	if !originFKValidated {
-		t.Fatal("origin foreign key remains NOT VALID after all group memory migrations")
+		t.Fatal("origin foreign key remains NOT VALID after all Group LCM migrations")
 	}
 
 	groupID := uuid.NewString()

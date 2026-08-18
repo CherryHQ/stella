@@ -203,8 +203,8 @@ func (t *memoryTool) buildActions() []actionMeta {
 		actions = append(actions, actionMeta{name: name, desc: desc})
 	}
 	if t.cfg.recallSource != nil {
-		add(actionSearch, "Recall relevant content across session messages, LCM summaries, durable facts, profile, soul, and constraints. The storage scope is selected automatically.")
-		add(actionRead, "Read an opaque ref returned by search, or a well-known ref: profile, soul, constraints, profile_versions, or soul_versions. Summary refs include metadata, lineage, and one bounded expansion level.")
+		add(actionSearch, "Recall relevant content for this conversation. In a DM this federates private transcript and durable memory; in a group it searches only older public messages from the current group. Recent context may already be sufficient, so search only when an older detail is needed.")
+		add(actionRead, "Read an opaque ref returned by search. In a group, read a selected result before relying on an ambiguous snippet; the response contains the public anchor and a bounded chronological neighborhood. If recall fails, do not guess.")
 		return actions
 	}
 
@@ -265,7 +265,7 @@ func (t *memoryTool) Definition() tools.Definition {
 func (t *memoryTool) buildDescription() string {
 	var b strings.Builder
 	if t.cfg.recallSource != nil {
-		b.WriteString("Recall anything remembered for the current user and agent. Search chooses storage automatically and returns opaque refs; read follows those refs or well-known memory refs.\n\nActions:\n")
+		b.WriteString("Recall relevant conversation history through opaque refs. Direct messages use private transcript and durable memory; group sessions can search only older public messages in the current group. Recent context may already contain the answer, so call search only when an older detail is missing; read a selected hit when its snippet is ambiguous, and do not guess if recall fails.\n\nActions:\n")
 	} else {
 		b.WriteString("Read durable knowledge, identity, profile, and constraints. Session transcripts are available through the session tool.\n\nActions:\n")
 	}
@@ -317,7 +317,7 @@ func (t *memoryTool) buildInputSchema() map[string]any {
 			"type":        "integer",
 			"minimum":     1,
 			"maximum":     maxUnifiedReadTokenCap,
-			"description": "Maximum expansion tokens for a summary ref (default 4000)",
+			"description": "Maximum expansion tokens for a summary or group-message neighborhood (default 4000)",
 		}
 	}
 
@@ -716,10 +716,9 @@ func (t *memoryTool) execGetMessage(ctx context.Context, args map[string]any) (s
 	return marshalJSON(result)
 }
 
-// requireProfileCtx validates that ProfileStore and user/agent context are available.
-// It resolves strictly against the session user, so group turns (which have no
-// session user, D9) fail closed. This backs soul, profile_history, and
-// profile_rollback, which must never operate on a group member via fallback.
+// requireProfileCtx validates that ProfileStore and user/agent context are
+// available. It resolves strictly against the session user, so group turns
+// cannot read or write any participant's private one-to-one memory.
 func (t *memoryTool) requireProfileCtx(ctx context.Context, action string) (string, string, error) {
 	if t.profileStore == nil {
 		return "", "", fmt.Errorf("memory %s: not supported by provider", action)
@@ -733,29 +732,6 @@ func (t *memoryTool) requireProfileCtx(ctx context.Context, action string) (stri
 		return "", "", fmt.Errorf("memory %s: no agent context", action)
 	}
 	return userID, agentID, nil
-}
-
-// resolveProfileTarget resolves the (userID, agentID) a profile action should
-// target. Normal sessions use the session user. Group turns have no session user
-// (runtime identity is the group, D9), so profile_get / profile_update fall back
-// to the current speaker's linked auth user. Only those two actions use this
-// resolver; soul, constraints, and history/rollback stay on requireProfileCtx
-// and therefore reject the speaker fallback by construction.
-func (t *memoryTool) resolveProfileTarget(ctx context.Context, action string) (string, string, error) {
-	if t.profileStore == nil {
-		return "", "", fmt.Errorf("memory %s: not supported by provider", action)
-	}
-	agentID := authz.AgentIDFromContext(ctx)
-	if agentID == "" {
-		return "", "", fmt.Errorf("memory %s: no agent context", action)
-	}
-	if userID := authz.UserIDFromContext(ctx); userID != "" {
-		return userID, agentID, nil
-	}
-	if speaker, ok := CurrentSpeakerFromContext(ctx); ok && speaker.UserID != "" {
-		return speaker.UserID, agentID, nil
-	}
-	return "", "", fmt.Errorf("memory %s: no linked current speaker", action)
 }
 
 // ctxTargetResolver resolves the (userID, agentID) a store action targets.
@@ -782,9 +758,8 @@ func (t *memoryTool) execStoreGet(
 	return content, nil
 }
 
-// execStoreUpdate runs a profile/soul write and returns the resolved target
-// userID so the caller can advance the right snapshot row (the session user for
-// DM/soul writes, the current speaker for group profile writes).
+// execStoreUpdate runs a profile/soul write and returns the resolved session
+// user so the caller can advance the matching snapshot row.
 func (t *memoryTool) execStoreUpdate(
 	ctx context.Context,
 	args map[string]any,
@@ -807,14 +782,8 @@ func (t *memoryTool) execStoreUpdate(
 	return successMsg, userID, nil
 }
 
-// profile_get / profile_update use resolveProfileTarget — the ONLY two actions
-// allowed to fall back to the group current speaker. soul_* / constraint_* /
-// profile_history / profile_rollback deliberately stay on requireProfileCtx so
-// they fail closed in group turns (D9): a public room must not read or rewrite a
-// member's soul, constraints, or history through the shared agent. Do not switch
-// a soul/constraint/history action to resolveProfileTarget.
 func (t *memoryTool) execProfileGet(ctx context.Context) (string, error) {
-	return t.execStoreGet(ctx, actionProfileGet, t.resolveProfileTarget, t.profileStore.GetProfile, "No profile notes found.")
+	return t.execStoreGet(ctx, actionProfileGet, t.requireProfileCtx, t.profileStore.GetProfile, "No profile notes found.")
 }
 
 func (t *memoryTool) execSoulGet(ctx context.Context) (string, error) {
@@ -822,8 +791,7 @@ func (t *memoryTool) execSoulGet(ctx context.Context) (string, error) {
 }
 
 func (t *memoryTool) execProfileUpdate(ctx context.Context, args map[string]any) (string, error) {
-	// Speaker fallback intentional here (see execProfileGet); forbidden for soul.
-	result, userID, err := t.execStoreUpdate(ctx, args, actionProfileUpdate, t.resolveProfileTarget, t.profileStore.SetProfile,
+	result, userID, err := t.execStoreUpdate(ctx, args, actionProfileUpdate, t.requireProfileCtx, t.profileStore.SetProfile,
 		"Profile updated. Changes will appear in the system prompt at the next session start.")
 	if err == nil {
 		t.advanceSnapshot(ctx, userID)
@@ -982,11 +950,9 @@ func (t *memoryTool) execConstraintRemove(ctx context.Context, args map[string]a
 	return marshalJSON(entries)
 }
 
-// advanceSnapshot advances the session snapshot for the given profile subject
-// after a front-end write. userID is the resolved write target — the session
-// user for DM/soul/constraint writes, or the current speaker for group profile
-// writes — so the speaker snapshot row is advanced, never the group_id row.
-// Reflect writes don't carry session_id so they naturally skip this.
+// advanceSnapshot advances the session snapshot for the session user after a
+// front-end write. Reflect writes don't carry session_id so they naturally skip
+// this path.
 func (t *memoryTool) advanceSnapshot(ctx context.Context, userID string) {
 	if t.snapshotStore == nil {
 		return

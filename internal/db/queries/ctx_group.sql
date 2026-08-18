@@ -145,6 +145,90 @@ WHERE group_id = sqlc.arg(group_id)
 ORDER BY seq DESC
 LIMIT sqlc.arg(limit_count) OFFSET sqlc.arg(offset_count);
 
+-- name: SearchGroupMessagesBeforeSeq :many
+-- Search only canonical public text before the current trigger. Content is the
+-- primary signal; the event-time display name is a lower-weight auxiliary
+-- signal that lets callers find messages by the speaker name they saw then.
+SELECT
+  gm.id,
+  gm.content,
+  gm.actor_type,
+  gm.actor_display_name,
+  COALESCE(gm.platform_timestamp, gm.created_at) AS occurred_at,
+  COALESCE(NULLIF(paradedb.snippet(gm.content)::text, ''), gm.content) AS snippet,
+  paradedb.score(gm.id)::double precision AS score
+FROM ctx_group_message gm
+WHERE (
+    gm.id @@@ paradedb.boost(2.0, paradedb.match('content', sqlc.arg('match')::text))
+    OR gm.id @@@ paradedb.match('actor_display_name', sqlc.arg('match')::text)
+  )
+  AND gm.group_id = sqlc.arg(group_id)
+  AND gm.seq < sqlc.arg(before_seq)
+  AND gm.content <> ''
+  AND gm.actor_type IN ('human', 'agent')
+ORDER BY score DESC,
+         gm.platform_timestamp DESC NULLS LAST,
+         gm.created_at DESC,
+         gm.seq DESC,
+         gm.id DESC
+LIMIT sqlc.arg(max_count);
+
+-- name: GetGroupMessageForRecall :one
+SELECT
+  gm.id,
+  gm.seq,
+  gm.content,
+  gm.actor_type,
+  gm.actor_display_name,
+  COALESCE(gm.platform_timestamp, gm.created_at) AS occurred_at
+FROM ctx_group_message gm
+WHERE gm.id = sqlc.arg(message_id)
+  AND gm.group_id = sqlc.arg(group_id)
+  AND gm.seq < sqlc.arg(before_seq)
+  AND gm.content <> ''
+  AND gm.actor_type IN ('human', 'agent');
+
+-- name: ListGroupMessageNeighborsForRecall :many
+-- Each side uses the existing (group_id, seq) range index and stops before the
+-- Host performs token packing. Returning both sides in one row shape keeps the
+-- policy layer independent of generated database model types.
+WITH preceding AS (
+  SELECT
+    gm.id,
+    gm.seq,
+    gm.content,
+    gm.actor_type,
+    gm.actor_display_name,
+    COALESCE(gm.platform_timestamp, gm.created_at) AS occurred_at
+  FROM ctx_group_message gm
+  WHERE gm.group_id = sqlc.arg(group_id)
+    AND gm.seq < sqlc.arg(anchor_seq)
+    AND gm.content <> ''
+    AND gm.actor_type IN ('human', 'agent')
+  ORDER BY gm.seq DESC
+  LIMIT sqlc.arg(max_per_side)
+), following AS (
+  SELECT
+    gm.id,
+    gm.seq,
+    gm.content,
+    gm.actor_type,
+    gm.actor_display_name,
+    COALESCE(gm.platform_timestamp, gm.created_at) AS occurred_at
+  FROM ctx_group_message gm
+  WHERE gm.group_id = sqlc.arg(group_id)
+    AND gm.seq > sqlc.arg(anchor_seq)
+    AND gm.seq < sqlc.arg(before_seq)
+    AND gm.content <> ''
+    AND gm.actor_type IN ('human', 'agent')
+  ORDER BY gm.seq ASC
+  LIMIT sqlc.arg(max_per_side)
+)
+SELECT * FROM preceding
+UNION ALL
+SELECT * FROM following
+ORDER BY seq ASC;
+
 -- name: CreateGroupMessage :one
 INSERT INTO ctx_group_message (
   id, group_id, seq, source_channel_id, actor_type, actor_id,

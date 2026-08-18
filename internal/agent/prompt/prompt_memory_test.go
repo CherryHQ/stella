@@ -162,11 +162,10 @@ func TestOldProfileWithoutEntriesStillRenders(t *testing.T) {
 	}
 }
 
-func TestGroupMemoryInjectedInsteadOfProfile(t *testing.T) {
+func TestGroupSessionUsesPublicRecallGuidanceInsteadOfPrivateProfile(t *testing.T) {
 	fake := memorytest.New()
 	ctx := context.Background()
 
-	fake.SetGroupMemory("grp-123", "This group discusses Go programming.")
 	_ = fake.SetProfile(ctx, "u1", "a1", "Should not appear in group sessions")
 
 	p := prompt.BuildSystemPromptFromDB(ctx, prompt.DBPromptParams{
@@ -177,11 +176,8 @@ func TestGroupMemoryInjectedInsteadOfProfile(t *testing.T) {
 		GroupID:      "grp-123",
 	})
 
-	if !strings.Contains(p, "Group Memory") {
-		t.Error("expected Group Memory section for group session")
-	}
-	if !strings.Contains(p, "This group discusses Go programming.") {
-		t.Error("expected group memory content in prompt")
+	if !strings.Contains(p, "Group Conversation Recall") || !strings.Contains(p, "memory.search") {
+		t.Error("expected public-history recall guidance for group session")
 	}
 	if strings.Contains(p, "User Profile") {
 		t.Error("group session should not have User Profile section")
@@ -191,7 +187,7 @@ func TestGroupMemoryInjectedInsteadOfProfile(t *testing.T) {
 	}
 }
 
-func TestGroupSessionWithEmptyGroupMemory(t *testing.T) {
+func TestGroupSessionNeverFallsBackToUserProfile(t *testing.T) {
 	fake := memorytest.New()
 	ctx := context.Background()
 
@@ -203,18 +199,16 @@ func TestGroupSessionWithEmptyGroupMemory(t *testing.T) {
 		GroupID:      "grp-empty",
 	})
 
-	// Group mode is keyed on GroupID, not on group memory being non-empty: a group
-	// turn renders Group Memory (empty) and never falls back to the per-user
-	// User Profile section (D9 — issue #308).
-	if !strings.Contains(p, "Group Memory") {
-		t.Error("group session should render Group Memory even when empty")
+	// Group mode is keyed on GroupID and never falls back to the per-user profile.
+	if !strings.Contains(p, "Group Conversation Recall") {
+		t.Error("group session should render public-history recall guidance")
 	}
 	if strings.Contains(p, "User Profile") {
-		t.Error("group session must never render User Profile, even with empty group memory")
+		t.Error("group session must never render User Profile")
 	}
 }
 
-func TestDMSessionDoesNotShowGroupMemory(t *testing.T) {
+func TestDMSessionDoesNotShowGroupRecallGuidance(t *testing.T) {
 	fake := memorytest.New()
 	ctx := context.Background()
 
@@ -227,8 +221,8 @@ func TestDMSessionDoesNotShowGroupMemory(t *testing.T) {
 		AgentID:      "a1",
 	})
 
-	if strings.Contains(p, "Group Memory") {
-		t.Error("DM session should not show Group Memory")
+	if strings.Contains(p, "Group Conversation Recall") {
+		t.Error("DM session should not show group recall guidance")
 	}
 	if !strings.Contains(p, "User Profile") {
 		t.Error("DM session should show User Profile")

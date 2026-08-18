@@ -299,9 +299,8 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			}
 		}
 
-		// Build the full system prompt per-session with profile from memory provider.
-		// Group sessions skip private profile injection (D9 isolation); group memory
-		// is Phase 3 concern.
+		// Build the full system prompt per session. Group sessions skip every
+		// private profile surface and rely on confined public-history recall.
 		promptUserID := params.UserID
 		if params.GroupID != "" {
 			promptUserID = ""

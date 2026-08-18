@@ -203,7 +203,7 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	if err != nil {
 		rt.log.Warn("memory assemble failed", "session_id", info.ID, "error", err)
 		if memSess.GroupID != "" {
-			out <- Event{Err: fmt.Errorf("assemble group memory: %w", err)}
+			out <- Event{Err: fmt.Errorf("assemble group context: %w", err)}
 			close(out)
 			return
 		}

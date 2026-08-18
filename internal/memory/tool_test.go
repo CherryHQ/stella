@@ -351,20 +351,96 @@ type fakeRecallSource struct {
 	docs               map[string]memory.RecallDocument
 	requestedSearchCap int
 	requestedReadCap   int
+	searchAuthority    authz.Authority
+	readAuthority      authz.Authority
 }
 
-func (f *fakeRecallSource) SearchRecall(_ context.Context, _ authz.Authority, _, _ string, limit int) ([]memory.RecallSearchResult, error) {
+func (f *fakeRecallSource) SearchRecall(_ context.Context, authority authz.Authority, _, _ string, limit int) ([]memory.RecallSearchResult, error) {
 	f.requestedSearchCap = limit
+	f.searchAuthority = authority
 	return f.hits, nil
 }
 
-func (f *fakeRecallSource) ReadRecall(_ context.Context, _ authz.Authority, _ string, ref memory.RecallReference, tokenCap int) (memory.RecallDocument, error) {
+func (f *fakeRecallSource) ReadRecall(_ context.Context, authority authz.Authority, _ string, ref memory.RecallReference, tokenCap int) (memory.RecallDocument, error) {
 	f.requestedReadCap = tokenCap
+	f.readAuthority = authority
 	doc, ok := f.docs[ref.Kind+":"+ref.ID+":"+ref.SessionID]
 	if !ok {
 		return memory.RecallDocument{}, fmt.Errorf("not found")
 	}
 	return doc, nil
+}
+
+func TestUnifiedMemoryGroupRecallUsesOnlyPublicLane(t *testing.T) {
+	now := time.Now().UTC()
+	ref := memory.RecallReference{Kind: "group_message", ID: "public-message-1"}
+	source := &fakeRecallSource{
+		hits: []memory.RecallSearchResult{{
+			Reference: ref, Content: "<b>older</b> public decision", Score: 3.5, OccurredAt: now,
+			ActorType: "human", ActorDisplayName: "Alice", Authority: "information_only",
+		}},
+		docs: map[string]memory.RecallDocument{
+			"group_message:public-message-1:": {
+				Reference: ref, Truncated: true,
+				Messages: []memory.RecallFragment{
+					{Content: "context before", ActorType: "agent", ActorDisplayName: "Helper", Authority: "information_only", OccurredAt: now.Add(-time.Minute)},
+					{Content: "older public decision", ActorType: "human", ActorDisplayName: "Alice", Authority: "information_only", OccurredAt: now, Anchor: true},
+				},
+			},
+		},
+	}
+	tool := memory.BuildTool(memorytest.New(), memory.WithRecallSource(source))
+	ctx := authz.WithGroupID(context.Background(), "group-1")
+	ctx = authz.WithAgentID(ctx, "agent-1")
+	ctx = memory.WithGroupSeq(ctx, 10)
+
+	searchJSON, err := tool.Execute(ctx, map[string]any{"action": "search", "query": "older", "limit": 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var search struct {
+		Results []struct {
+			Ref              string  `json:"ref"`
+			Snippet          string  `json:"snippet"`
+			Score            float64 `json:"score"`
+			ActorType        string  `json:"actor_type"`
+			ActorDisplayName string  `json:"actor_display_name"`
+			Authority        string  `json:"authority"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(searchJSON), &search); err != nil {
+		t.Fatal(err)
+	}
+	if len(search.Results) != 1 || search.Results[0].Score != 3.5 || search.Results[0].Snippet != "older public decision" || search.Results[0].ActorDisplayName != "Alice" || search.Results[0].Authority != "information_only" {
+		t.Fatalf("group search = %s", searchJSON)
+	}
+	if source.requestedSearchCap != 20 || source.searchAuthority.Kind() != authz.ActorGroupAgent || strings.Contains(searchJSON, "group-1") || strings.Contains(searchJSON, "public-message-1") {
+		t.Fatalf("group search boundary/cap/output = %s authority=%v cap=%d", searchJSON, source.searchAuthority.Kind(), source.requestedSearchCap)
+	}
+
+	readJSON, err := tool.Execute(ctx, map[string]any{"action": "read", "ref": search.Results[0].Ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var read struct {
+		Truncated bool `json:"truncated"`
+		Messages  []struct {
+			Content   string `json:"content"`
+			Authority string `json:"authority"`
+			Anchor    bool   `json:"anchor"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(readJSON), &read); err != nil {
+		t.Fatal(err)
+	}
+	if !read.Truncated || len(read.Messages) != 2 || !read.Messages[1].Anchor || read.Messages[0].Authority != "information_only" || source.readAuthority.Kind() != authz.ActorGroupAgent {
+		t.Fatalf("group read = %s", readJSON)
+	}
+	for _, privateRef := range []string{"profile", "soul", "constraints"} {
+		if _, err := tool.Execute(ctx, map[string]any{"action": "read", "ref": privateRef}); err == nil {
+			t.Fatalf("group read accepted private ref %q", privateRef)
+		}
+	}
 }
 
 func TestBuildTool_WithRecallSourceExposesOnlyUnifiedActions(t *testing.T) {

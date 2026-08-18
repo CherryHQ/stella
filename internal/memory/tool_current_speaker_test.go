@@ -2,6 +2,7 @@ package memory_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/authz"
@@ -9,26 +10,16 @@ import (
 	"github.com/CherryHQ/stella/internal/memory/memorytest"
 )
 
-// snapshotSpy records every AdvanceSessionSnapshot call so tests can assert which
-// (sessionID, userID, agentID) row the memory tool advances.
-type snapshotSpy struct {
-	*memorytest.Fake
-	advanced [][3]string
-}
-
-func (s *snapshotSpy) AdvanceSessionSnapshot(ctx context.Context, sessionID, userID, agentID string) error {
-	s.advanced = append(s.advanced, [3]string{sessionID, userID, agentID})
-	return s.Fake.AdvanceSessionSnapshot(ctx, sessionID, userID, agentID)
-}
-
-// groupSpeakerCtx builds a group-turn context: no session user (D9), agent set,
-// and a linked current speaker.
+// groupSpeakerCtx builds a group-turn context with no session user. Current
+// speaker metadata must never become authority for private memory actions.
 func groupSpeakerCtx(agentID string, speaker memory.CurrentSpeaker) context.Context {
 	ctx := authz.WithAgentID(context.Background(), agentID)
+	ctx = authz.WithGroupID(ctx, "group-1")
+	ctx = memory.WithGroupSeq(ctx, 10)
 	return memory.WithCurrentSpeaker(ctx, speaker)
 }
 
-func TestMemoryToolCurrentSpeaker_LinkedProfileGetUpdate(t *testing.T) {
+func TestMemoryToolCurrentSpeaker_ProfileActionsFailClosed(t *testing.T) {
 	fake := memorytest.New()
 	tool := memory.BuildTool(fake)
 
@@ -39,30 +30,16 @@ func TestMemoryToolCurrentSpeaker_LinkedProfileGetUpdate(t *testing.T) {
 		UserID:         "speaker1",
 	})
 
-	result, err := tool.Execute(ctx, map[string]any{"action": "profile_get"})
-	if err != nil {
-		t.Fatalf("profile_get: %v", err)
+	for _, args := range []map[string]any{
+		{"action": "profile_get"},
+		{"action": "profile_update", "content": "must not be written"},
+	} {
+		if _, err := tool.Execute(ctx, args); err == nil || !containsString(err.Error(), "no user context") {
+			t.Fatalf("group profile action %#v error=%v", args, err)
+		}
 	}
-	if result != "No profile notes found." {
-		t.Errorf("expected empty profile message, got %q", result)
-	}
-
-	if _, err := tool.Execute(ctx, map[string]any{"action": "profile_update", "content": "Likes Go and tea"}); err != nil {
-		t.Fatalf("profile_update: %v", err)
-	}
-
-	result, err = tool.Execute(ctx, map[string]any{"action": "profile_get"})
-	if err != nil {
-		t.Fatalf("profile_get after update: %v", err)
-	}
-	if result != "Likes Go and tea" {
-		t.Errorf("expected speaker profile, got %q", result)
-	}
-
-	// The write must target the speaker's auth user, not the (empty) session user.
-	stored, _ := fake.GetProfile(ctx, "speaker1", "agent1")
-	if stored != "Likes Go and tea" {
-		t.Errorf("expected profile stored under speaker1, got %q", stored)
+	if stored, _ := fake.GetProfile(ctx, "speaker1", "agent1"); stored != "" {
+		t.Errorf("group action wrote speaker profile %q", stored)
 	}
 }
 
@@ -86,8 +63,8 @@ func TestMemoryToolCurrentSpeaker_UnlinkedFailsClosed(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s: expected fail-closed error for unlinked speaker", action)
 		}
-		if !containsString(err.Error(), "no linked current speaker") {
-			t.Errorf("%s: expected 'no linked current speaker', got %q", action, err.Error())
+		if !containsString(err.Error(), "no user context") {
+			t.Errorf("%s: expected 'no user context', got %q", action, err.Error())
 		}
 	}
 }
@@ -115,7 +92,7 @@ func TestMemoryToolCurrentSpeaker_DMUnchanged(t *testing.T) {
 	}
 }
 
-func TestUnifiedMemoryReadPreservesOnlyProfileSpeakerFallback(t *testing.T) {
+func TestUnifiedMemoryGroupRecallDoesNotUseSpeakerPrivateMemory(t *testing.T) {
 	fake := memorytest.New()
 	ctx := groupSpeakerCtx("agent1", memory.CurrentSpeaker{UserID: "speaker1"})
 	if err := fake.SetProfile(ctx, "speaker1", "agent1", "Speaker likes tea"); err != nil {
@@ -123,18 +100,24 @@ func TestUnifiedMemoryReadPreservesOnlyProfileSpeakerFallback(t *testing.T) {
 	}
 	tool := memory.BuildTool(fake, memory.WithRecallSource(&fakeRecallSource{}))
 
-	result, err := tool.Execute(ctx, map[string]any{"action": "read", "ref": "profile"})
-	if err != nil || !containsString(result, "Speaker likes tea") {
-		t.Fatalf("read profile fallback: result=%q err=%v", result, err)
-	}
 	for _, args := range []map[string]any{
+		{"action": "read", "ref": "profile"},
 		{"action": "read", "ref": "soul"},
 		{"action": "read", "ref": "constraints"},
-		{"action": "search", "query": "tea"},
 	} {
 		if _, err := tool.Execute(ctx, args); err == nil {
 			t.Fatalf("group unified action unexpectedly widened access: %#v", args)
 		}
+	}
+	result, err := tool.Execute(ctx, map[string]any{"action": "search", "query": "tea"})
+	if err != nil {
+		t.Fatalf("group public-history search: %v", err)
+	}
+	var search struct {
+		Results []json.RawMessage `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(result), &search); err != nil || len(search.Results) != 0 {
+		t.Fatalf("group public-history search result=%q parse_err=%v", result, err)
 	}
 }
 
@@ -155,43 +138,15 @@ func TestMemoryToolCurrentSpeaker_ForbiddenActionsFailClosed(t *testing.T) {
 	for _, args := range cases {
 		action := args["action"].(string)
 		if _, err := tool.Execute(ctx, args); err == nil {
-			t.Errorf("%s: expected fail-closed error under current-speaker fallback", action)
+			t.Errorf("%s: expected fail-closed error in group context", action)
 		}
 	}
 
-	// No speaker soul or constraints should have been written.
+	// No participant-private state should have been written.
 	if soul, _ := fake.GetAgentSoul(ctx, "speaker1", "agent1"); soul != "" {
-		t.Errorf("speaker soul must not be writable via fallback, got %q", soul)
+		t.Errorf("speaker soul must not be writable from a group, got %q", soul)
 	}
 	if cs, _ := fake.GetConstraints(ctx, "speaker1", "agent1"); len(cs) != 0 {
-		t.Errorf("speaker constraints must not be writable via fallback, got %v", cs)
-	}
-}
-
-func TestMemoryToolCurrentSpeaker_SnapshotAdvancesSpeakerRow(t *testing.T) {
-	spy := &snapshotSpy{Fake: memorytest.New()}
-	tool := memory.BuildTool(spy)
-
-	const sessionID = "group-sess-1"
-	bg := context.Background()
-	// Seed the speaker snapshot row so an advance has a row to move.
-	if _, err := spy.GetOrCreateSessionSnapshot(bg, sessionID, "speaker1", "agent1"); err != nil {
-		t.Fatalf("seed snapshot: %v", err)
-	}
-
-	ctx := memory.WithSessionID(bg, sessionID)
-	ctx = authz.WithAgentID(ctx, "agent1")
-	ctx = memory.WithCurrentSpeaker(ctx, memory.CurrentSpeaker{UserID: "speaker1"})
-
-	if _, err := tool.Execute(ctx, map[string]any{"action": "profile_update", "content": "x"}); err != nil {
-		t.Fatalf("profile_update: %v", err)
-	}
-
-	if len(spy.advanced) != 1 {
-		t.Fatalf("expected exactly one snapshot advance, got %d: %v", len(spy.advanced), spy.advanced)
-	}
-	got := spy.advanced[0]
-	if got != [3]string{sessionID, "speaker1", "agent1"} {
-		t.Errorf("advance must target the speaker row, got %v", got)
+		t.Errorf("speaker constraints must not be writable from a group, got %v", cs)
 	}
 }

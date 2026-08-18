@@ -88,15 +88,13 @@ type promptData struct {
 	AgentSoul      string // per-user agent soul from ProfileStore
 	UserProfile    string // per-user profile from ProfileStore
 	ProfileEntries []memory.ProfileEntry
-	GroupMemory    string // group-scoped shared memory (non-empty only for group sessions)
 	Constraints    []memory.ConstraintEntry
 	PluginPrompts  []pkgplugins.SystemPromptSection
 	PromptSections []pkgplugins.SystemPromptSection
 	ContextFiles   []contextFile // AGENTS.md files (root → leaf)
 
 	// Group session rendering. IsGroup switches the template from the per-user
-	// "## User Profile" section to "## Group Memory" (+ optional current speaker),
-	// driven by session kind, not by whether group memory text is non-empty.
+	// "## User Profile" section to group public-history recall guidance.
 	IsGroup bool
 }
 
@@ -107,8 +105,7 @@ type DBPromptParams struct {
 	Memory         memory.Provider // active provider for profile loading (may be nil)
 	UserID         string          // auth user ID for profile lookup
 	AgentID        string          // agent ID for profile lookup
-	GroupID        string          // group ID for group memory lookup (D4); mutually exclusive with UserID
-	GroupMemory    string          // pre-loaded group memory content; injected when non-empty
+	GroupID        string          // group identity; mutually exclusive with UserID
 	Sections       []pkgplugins.SystemPromptSection
 	Session        sandbox.Session
 	ProjectContext ProjectContext
@@ -188,17 +185,9 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 		}
 	}
 
-	// Group memory: inject shared group knowledge for group sessions (D4).
-	// Group mode is keyed on GroupID, not on group memory being non-empty, so a
-	// group turn never falls through to the per-user "## User Profile" section.
+	// Group mode never falls through to the per-user profile. Older public
+	// details remain available through explicit, group-confined memory recall.
 	data.IsGroup = p.GroupID != ""
-	if p.GroupID != "" && p.Memory != nil {
-		if gms, ok := p.Memory.(memory.GroupMemoryStore); ok {
-			if content, err := gms.GetGroupMemory(ctx, p.GroupID); err == nil && content != "" {
-				data.GroupMemory = strings.TrimRight(content, "\n")
-			}
-		}
-	}
 
 	// Current speaker (D9): intentionally not rendered into the system prompt.
 	// Runtime injects it as per-turn message context instead, preserving the group

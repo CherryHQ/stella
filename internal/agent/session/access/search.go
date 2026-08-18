@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 const (
@@ -24,10 +26,17 @@ const (
 	maxRecallSearchResults = 100
 	defaultRecallTokenCap  = 4_000
 	maxRecallTokenCap      = 8_000
+	maxGroupRecallResults  = 50
+	maxGroupRecallMessages = 200
 )
 
 // SearchRecall implements memory.RecallSource through the Session PEP.
-func (s *Service) SearchRecall(ctx context.Context, authority authz.Authority, agentID, query string, limit int) ([]memory.RecallSearchResult, error) {
+func (s *Service) SearchRecall(ctx context.Context, authority authz.Authority, agentID, query string, limit int) (results []memory.RecallSearchResult, err error) {
+	if authority.Kind() == authz.ActorGroupAgent {
+		var finish func(int, bool, error)
+		ctx, finish = startGroupRecallSpan(ctx, "search", limit)
+		defer func() { finish(len(results), false, err) }()
+	}
 	access, err := s.Begin(ctx, authority)
 	if err != nil {
 		return nil, err
@@ -36,7 +45,12 @@ func (s *Service) SearchRecall(ctx context.Context, authority authz.Authority, a
 }
 
 // ReadRecall implements memory.RecallSource through the Session PEP.
-func (s *Service) ReadRecall(ctx context.Context, authority authz.Authority, agentID string, ref memory.RecallReference, tokenCap int) (memory.RecallDocument, error) {
+func (s *Service) ReadRecall(ctx context.Context, authority authz.Authority, agentID string, ref memory.RecallReference, tokenCap int) (document memory.RecallDocument, err error) {
+	if authority.Kind() == authz.ActorGroupAgent {
+		var finish func(int, bool, error)
+		ctx, finish = startGroupRecallSpan(ctx, "read", tokenCap)
+		defer func() { finish(len(document.Messages), document.Truncated, err) }()
+	}
 	access, err := s.Begin(ctx, authority)
 	if err != nil {
 		return memory.RecallDocument{}, err
@@ -45,6 +59,9 @@ func (s *Service) ReadRecall(ctx context.Context, authority authz.Authority, age
 }
 
 func (a *Access) searchRecall(ctx context.Context, agentID, query string, limit int) ([]memory.RecallSearchResult, error) {
+	if a.authority.Kind() == authz.ActorGroupAgent {
+		return a.searchGroupRecall(ctx, agentID, query, limit)
+	}
 	if !a.allowSessionList() {
 		return nil, ErrNotFound
 	}
@@ -211,6 +228,9 @@ func recallResourceKey(kind, conversationID, id string) string {
 }
 
 func (a *Access) readRecall(ctx context.Context, agentID string, ref memory.RecallReference, tokenCap int) (memory.RecallDocument, error) {
+	if a.authority.Kind() == authz.ActorGroupAgent {
+		return a.readGroupRecall(ctx, agentID, ref, tokenCap)
+	}
 	if ref.ID == "" || ref.SessionID == "" {
 		return memory.RecallDocument{}, ErrNotFound
 	}
@@ -244,6 +264,223 @@ func (a *Access) readRecall(ctx context.Context, agentID string, ref memory.Reca
 	default:
 		return memory.RecallDocument{}, ErrNotFound
 	}
+}
+
+type groupRecallMessage struct {
+	id               string
+	seq              int64
+	content          string
+	actorType        string
+	actorDisplayName string
+	occurredAt       time.Time
+}
+
+func (a *Access) groupRecallScope(ctx context.Context, agentID string) (string, int64, error) {
+	if a.authority.Kind() != authz.ActorGroupAgent || string(a.authority.AgentID()) != agentID {
+		return "", 0, ErrNotFound
+	}
+	groupID := string(a.authority.GroupID())
+	beforeSeq := memory.GroupSeqFromContext(ctx)
+	if groupID == "" || beforeSeq <= 0 {
+		return "", 0, ErrNotFound
+	}
+	if err := a.authorizeAgent(ctx, agentID, authz.ActionRead); err != nil {
+		return "", 0, err
+	}
+	return groupID, beforeSeq, nil
+}
+
+func (a *Access) searchGroupRecall(ctx context.Context, agentID, query string, limit int) ([]memory.RecallSearchResult, error) {
+	groupID, beforeSeq, err := a.groupRecallScope(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+	query = strings.TrimSpace(query)
+	if !hasRecallSearchTerm(query) || limit <= 0 {
+		return []memory.RecallSearchResult{}, nil
+	}
+	limit = min(limit, maxGroupRecallResults)
+	rows, err := a.svc.q.SearchGroupMessagesBeforeSeq(ctx, sqlc.SearchGroupMessagesBeforeSeqParams{
+		Match: query, GroupID: groupID, BeforeSeq: beforeSeq, MaxCount: int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: search group public history: %w", ErrUnavailable, err)
+	}
+	out := make([]memory.RecallSearchResult, 0, len(rows))
+	for _, row := range rows {
+		displayName := ""
+		if row.ActorDisplayName.Valid {
+			displayName = row.ActorDisplayName.String
+		}
+		out = append(out, memory.RecallSearchResult{
+			Reference: memory.RecallReference{Kind: "group_message", ID: row.ID},
+			Content:   row.Snippet, Score: row.Score, OccurredAt: row.OccurredAt.UTC(),
+			ActorType: row.ActorType, ActorDisplayName: displayName, Authority: "information_only",
+		})
+	}
+	return out, nil
+}
+
+func hasRecallSearchTerm(query string) bool {
+	for _, r := range query {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *Access) readGroupRecall(ctx context.Context, agentID string, ref memory.RecallReference, tokenCap int) (memory.RecallDocument, error) {
+	if ref.Kind != "group_message" || ref.ID == "" || ref.SessionID != "" {
+		return memory.RecallDocument{}, ErrNotFound
+	}
+	groupID, beforeSeq, err := a.groupRecallScope(ctx, agentID)
+	if err != nil {
+		return memory.RecallDocument{}, err
+	}
+	anchorRow, err := a.svc.q.GetGroupMessageForRecall(ctx, sqlc.GetGroupMessageForRecallParams{
+		MessageID: ref.ID, GroupID: groupID, BeforeSeq: beforeSeq,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return memory.RecallDocument{}, ErrNotFound
+	}
+	if err != nil {
+		return memory.RecallDocument{}, fmt.Errorf("%w: read group public history anchor: %w", ErrUnavailable, err)
+	}
+	anchor := groupRecallMessage{
+		id: anchorRow.ID, seq: anchorRow.Seq, content: anchorRow.Content, actorType: anchorRow.ActorType,
+		actorDisplayName: nullableText(anchorRow.ActorDisplayName.Valid, anchorRow.ActorDisplayName.String), occurredAt: anchorRow.OccurredAt.UTC(),
+	}
+	rows, err := a.svc.q.ListGroupMessageNeighborsForRecall(ctx, sqlc.ListGroupMessageNeighborsForRecallParams{
+		GroupID: groupID, AnchorSeq: anchor.seq, BeforeSeq: beforeSeq, MaxPerSide: maxGroupRecallMessages,
+	})
+	if err != nil {
+		return memory.RecallDocument{}, fmt.Errorf("%w: read group public history neighbors: %w", ErrUnavailable, err)
+	}
+	neighbors := make([]groupRecallMessage, 0, len(rows))
+	for _, row := range rows {
+		neighbors = append(neighbors, groupRecallMessage{
+			id: row.ID, seq: row.Seq, content: row.Content, actorType: row.ActorType,
+			actorDisplayName: nullableText(row.ActorDisplayName.Valid, row.ActorDisplayName.String), occurredAt: row.OccurredAt.UTC(),
+		})
+	}
+	if tokenCap <= 0 {
+		tokenCap = defaultRecallTokenCap
+	}
+	tokenCap = min(tokenCap, maxRecallTokenCap)
+	messages, truncated := packGroupRecallMessages(anchor, neighbors, tokenCap, maxGroupRecallMessages)
+	return memory.RecallDocument{Reference: ref, Messages: messages, Truncated: truncated}, nil
+}
+
+func nullableText(valid bool, value string) string {
+	if !valid {
+		return ""
+	}
+	return value
+}
+
+func packGroupRecallMessages(anchor groupRecallMessage, neighbors []groupRecallMessage, tokenCap, messageCap int) ([]memory.RecallFragment, bool) {
+	if tokenCap <= 0 || messageCap <= 0 {
+		return nil, true
+	}
+	anchorTokens := memory.EstimateTokens(anchor.content)
+	if anchorTokens > tokenCap {
+		anchor.content = truncateGroupRecallContent(anchor.content, tokenCap)
+		return []memory.RecallFragment{groupRecallFragment(anchor, true, true)}, true
+	}
+
+	preceding := make([]groupRecallMessage, 0, len(neighbors))
+	following := make([]groupRecallMessage, 0, len(neighbors))
+	for _, neighbor := range neighbors {
+		if neighbor.seq < anchor.seq {
+			preceding = append(preceding, neighbor)
+		} else if neighbor.seq > anchor.seq {
+			following = append(following, neighbor)
+		}
+	}
+	// SQL returns chronological rows. Reverse the preceding side so both slices
+	// expand from the anchor toward older/newer history.
+	slices.Reverse(preceding)
+
+	remainingTokens := tokenCap - anchorTokens
+	remainingSlots := messageCap - 1
+	beforeTokenBudget := remainingTokens / 2
+	afterTokenBudget := remainingTokens - beforeTokenBudget
+	beforeSlotBudget := remainingSlots / 2
+	afterSlotBudget := remainingSlots - beforeSlotBudget
+
+	selectedBefore, beforeIndex, beforeUsed := takeGroupRecallSide(preceding, 0, beforeTokenBudget, beforeSlotBudget)
+	selectedAfter, afterIndex, afterUsed := takeGroupRecallSide(following, 0, afterTokenBudget, afterSlotBudget)
+	remainingTokens -= beforeUsed + afterUsed
+	remainingSlots -= len(selectedBefore) + len(selectedAfter)
+
+	// Transfer unused budget one whole nearest message at a time. A side never
+	// skips an oversized near neighbor to expose a farther, disconnected row.
+	for remainingTokens > 0 && remainingSlots > 0 {
+		beforeFits := beforeIndex < len(preceding) && memory.EstimateTokens(preceding[beforeIndex].content) <= remainingTokens
+		afterFits := afterIndex < len(following) && memory.EstimateTokens(following[afterIndex].content) <= remainingTokens
+		if !beforeFits && !afterFits {
+			break
+		}
+		chooseBefore := beforeFits && (!afterFits || anchor.seq-preceding[beforeIndex].seq <= following[afterIndex].seq-anchor.seq)
+		if chooseBefore {
+			item := preceding[beforeIndex]
+			selectedBefore = append(selectedBefore, item)
+			beforeIndex++
+			remainingTokens -= memory.EstimateTokens(item.content)
+		} else {
+			item := following[afterIndex]
+			selectedAfter = append(selectedAfter, item)
+			afterIndex++
+			remainingTokens -= memory.EstimateTokens(item.content)
+		}
+		remainingSlots--
+	}
+
+	out := make([]memory.RecallFragment, 0, len(selectedBefore)+1+len(selectedAfter))
+	for i := len(selectedBefore) - 1; i >= 0; i-- {
+		out = append(out, groupRecallFragment(selectedBefore[i], false, false))
+	}
+	out = append(out, groupRecallFragment(anchor, true, false))
+	for _, item := range selectedAfter {
+		out = append(out, groupRecallFragment(item, false, false))
+	}
+	truncated := beforeIndex < len(preceding) || afterIndex < len(following) || len(preceding) == maxGroupRecallMessages || len(following) == maxGroupRecallMessages
+	return out, truncated
+}
+
+func takeGroupRecallSide(messages []groupRecallMessage, start, tokenBudget, slotBudget int) ([]groupRecallMessage, int, int) {
+	selected := make([]groupRecallMessage, 0, min(slotBudget, len(messages)-start))
+	used := 0
+	index := start
+	for index < len(messages) && len(selected) < slotBudget {
+		cost := memory.EstimateTokens(messages[index].content)
+		if used+cost > tokenBudget {
+			break
+		}
+		selected = append(selected, messages[index])
+		used += cost
+		index++
+	}
+	return selected, index, used
+}
+
+func groupRecallFragment(message groupRecallMessage, anchor, truncated bool) memory.RecallFragment {
+	return memory.RecallFragment{
+		Reference: memory.RecallReference{Kind: "group_message", ID: message.id},
+		Content:   message.content, OccurredAt: message.occurredAt, ActorType: message.actorType,
+		ActorDisplayName: message.actorDisplayName, Authority: "information_only", Anchor: anchor, Truncated: truncated,
+	}
+}
+
+func truncateGroupRecallContent(content string, tokenCap int) string {
+	if tokenCap <= 0 {
+		return ""
+	}
+	// EstimateTokens is byte based, so this bound is exact for the shared
+	// estimator while TruncateText preserves valid UTF-8 at the byte boundary.
+	content, _ = tools.TruncateText(content, tokenCap*4)
+	return content
 }
 
 func (a *Access) authorizedRecallConversation(ctx context.Context, agentID, sessionID string) (info agentsession.Info, conv sqlc.CtxConversation, ok bool, err error) {

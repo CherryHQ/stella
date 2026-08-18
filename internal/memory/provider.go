@@ -195,17 +195,25 @@ type RecallSearchResult struct {
 	OccurredAt        time.Time
 	SessionID         string
 	ConversationTitle string
+	ActorType         string
+	ActorDisplayName  string
+	Authority         string
 }
 
-// RecallFragment is one authorized, one-level expansion item for a summary.
+// RecallFragment is one authorized item in a summary expansion or public group
+// message neighborhood.
 type RecallFragment struct {
-	Reference  RecallReference
-	Role       string
-	Authority  string
-	Kind       string
-	Depth      *int
-	Content    string
-	OccurredAt time.Time
+	Reference        RecallReference
+	Role             string
+	Authority        string
+	Kind             string
+	Depth            *int
+	Content          string
+	OccurredAt       time.Time
+	ActorType        string
+	ActorDisplayName string
+	Anchor           bool
+	Truncated        bool
 }
 
 // RecallSummaryDetail preserves LCM's describe and bounded one-level expand
@@ -231,6 +239,8 @@ type RecallDocument struct {
 	SessionID         string
 	ConversationTitle string
 	Summary           *RecallSummaryDetail
+	Messages          []RecallFragment
+	Truncated         bool
 }
 
 // RecallSource is the authorized Session facade used by the model-facing
@@ -370,16 +380,6 @@ type ProfileEntry struct {
 // entries (D5). Auto-generated entries live alongside the manual profile blob.
 type ProfileEntryStore interface {
 	GetProfileEntries(ctx context.Context, userID string, agentID string) ([]ProfileEntry, error)
-}
-
-// ---------------------------------------------------------------------------
-// Capability: GroupMemoryStore
-// ---------------------------------------------------------------------------
-
-// GroupMemoryStore provides read access to group-scoped shared memory.
-// Write access is through the memorywrite package (type-level isolation).
-type GroupMemoryStore interface {
-	GetGroupMemory(ctx context.Context, groupID string) (string, error)
 }
 
 // ---------------------------------------------------------------------------

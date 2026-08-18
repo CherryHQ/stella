@@ -432,14 +432,6 @@ type CtxGroupIngestError struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-type CtxGroupMemory struct {
-	GroupID   string    `json:"group_id"`
-	Content   string    `json:"content"`
-	Version   int64     `json:"version"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
 type CtxGroupMessage struct {
 	ID                string             `json:"id"`
 	GroupID           string             `json:"group_id"`
