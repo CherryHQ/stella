@@ -85,15 +85,11 @@ Reflect, manual management, and lower-level internal callers keep the provider-o
 
 The tool's JSON schema, description, and dispatch all adapt dynamically. A provider with fewer capabilities produces a tool with fewer internal actions. Ordinary chat sessions cannot call durable write actions such as `profile_update`, `soul_update`, `profile_rollback`, `constraint_add`, or `constraint_remove`.
 
-### Group turns: current-speaker fallback
+### Group turns: public-history recall
 
-In a group session the runtime identity is the group, so there is no session user (D9). To still let an agent read facts about the person speaking, `memory.read` with the well-known `profile` ref falls back to the current speaker when no session user is present. The lower-level resolver also supports `profile_update` for explicitly write-enabled tools, but ordinary chat runners do not expose that action:
+In a group session the runtime identity is the group, so there is no session user (D9). Ordinary group-chat runners expose only `memory.search` and `memory.read` over older public messages from the current group. The trusted runtime context fixes both the group and the current trigger boundary; the model cannot select another group or read messages at or after the trigger.
 
-1. Session user (`UserIDFromContext`) — normal DM behavior.
-2. Otherwise the linked current speaker (`CurrentSpeaker.UserID`) — group personalization.
-3. Otherwise fail closed with `no linked current speaker` (unlinked sender).
-
-The fallback is deliberately narrow. **Only an explicit `memory.read("profile")` gets it in ordinary chat.** Unified search and reads of `soul`, `constraints`, version history, or dynamic transcript refs stay on the strict session-user resolver, so in a group turn they fail closed — a public room is not a place to search or read one member's private memory through a shared agent. If an explicitly write-enabled internal tool calls `profile_update` through the fallback, it advances the speaker's own snapshot row `(session, speaker.UserID, agent)`, never the group's.
+Group turns do not fall back to the current speaker's private profile. Profile, soul, constraints, durable facts, another agent's private LCM, reasoning, tool results, and media all remain unavailable. Search returns opaque group-message references, and read reauthorizes a reference before returning a bounded chronological neighborhood around the matching public message.
 
 See [Group chat: current speaker (D10)](/docs/development/group-chat-multi-agent#current-speaker-per-turn-personalization-d10).
 
@@ -105,13 +101,13 @@ Each turn can rebuild the system prompt from the current or frozen memory versio
 2. **Tools and plugin prompt inventory** — available tools, plugin capabilities, skills.
 3. **Constraints** — user-approved hard rules from `ConstraintStore`; injected before soul/profile and not touched by Reflect.
 4. **Agent soul** — agent identity/personality text.
-5. **User profile** — durable user notes. **Group turns replace this with `## Group Memory` (the shared group drawer) plus an optional `## Current Speaker` section** that contains only speaker name and linked status; the per-user profile is never rendered in a group turn. Group mode is keyed on the session having a `group_id`, not on group memory being non-empty.
+5. **User profile** — durable user notes. **Group turns omit it and render public-history recall guidance plus an optional `## Current Speaker` section** that contains only speaker name and linked status. Group mode is keyed on the session having a `group_id`.
 6. **Knowledge** — active `subject=world` facts from the facts table.
 7. **Project context** — `AGENTS.md` and related project instructions.
 
 Conversation history is assembled separately by the memory provider. Constraints, identity, and knowledge live in the system prompt, so conversation compaction does not remove them.
 
-For group turns the PoolManager before-run path re-renders the full prompt with the current speaker metadata; the cached group runner never holds speaker data, so one speaker's turn context cannot leak into another speaker's turn. The speaker's profile blob and dated entries are intentionally not auto-injected into public group prompts; profile access remains behind an explicit read-only `memory.read("profile")` call.
+For group turns the PoolManager before-run path re-renders the full prompt with the current speaker metadata; the cached group runner never holds speaker data, so one speaker's turn context cannot leak into another speaker's turn. The speaker's profile blob and dated entries are neither injected nor readable through the group memory tool.
 
 ## Changelog and Rollback
 

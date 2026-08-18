@@ -292,6 +292,51 @@ func (q *Queries) GetGroupMessageByPlatformID(ctx context.Context, arg GetGroupM
 	return i, err
 }
 
+const getGroupMessageForRecall = `-- name: GetGroupMessageForRecall :one
+SELECT
+  gm.id,
+  gm.seq,
+  gm.content,
+  gm.actor_type,
+  gm.actor_display_name,
+  COALESCE(gm.platform_timestamp, gm.created_at) AS occurred_at
+FROM ctx_group_message gm
+WHERE gm.id = $1
+  AND gm.group_id = $2
+  AND gm.seq < $3
+  AND gm.content <> ''
+  AND gm.actor_type IN ('human', 'agent')
+`
+
+type GetGroupMessageForRecallParams struct {
+	MessageID string `json:"message_id"`
+	GroupID   string `json:"group_id"`
+	BeforeSeq int64  `json:"before_seq"`
+}
+
+type GetGroupMessageForRecallRow struct {
+	ID               string      `json:"id"`
+	Seq              int64       `json:"seq"`
+	Content          string      `json:"content"`
+	ActorType        string      `json:"actor_type"`
+	ActorDisplayName pgtype.Text `json:"actor_display_name"`
+	OccurredAt       time.Time   `json:"occurred_at"`
+}
+
+func (q *Queries) GetGroupMessageForRecall(ctx context.Context, arg GetGroupMessageForRecallParams) (GetGroupMessageForRecallRow, error) {
+	row := q.db.QueryRow(ctx, getGroupMessageForRecall, arg.MessageID, arg.GroupID, arg.BeforeSeq)
+	var i GetGroupMessageForRecallRow
+	err := row.Scan(
+		&i.ID,
+		&i.Seq,
+		&i.Content,
+		&i.ActorType,
+		&i.ActorDisplayName,
+		&i.OccurredAt,
+	)
+	return i, err
+}
+
 const getGroupStateByID = `-- name: GetGroupStateByID :one
 SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id FROM ctx_group_state WHERE id = $1
 `
@@ -362,6 +407,96 @@ func (q *Queries) GetGroupStateByTriple(ctx context.Context, arg GetGroupStateBy
 		&i.CreatedByUserID,
 	)
 	return i, err
+}
+
+const listGroupMessageNeighborsForRecall = `-- name: ListGroupMessageNeighborsForRecall :many
+WITH preceding AS (
+  SELECT
+    gm.id,
+    gm.seq,
+    gm.content,
+    gm.actor_type,
+    gm.actor_display_name,
+    COALESCE(gm.platform_timestamp, gm.created_at) AS occurred_at
+  FROM ctx_group_message gm
+  WHERE gm.group_id = $1
+    AND gm.seq < $2
+    AND gm.content <> ''
+    AND gm.actor_type IN ('human', 'agent')
+  ORDER BY gm.seq DESC
+  LIMIT $3
+), following AS (
+  SELECT
+    gm.id,
+    gm.seq,
+    gm.content,
+    gm.actor_type,
+    gm.actor_display_name,
+    COALESCE(gm.platform_timestamp, gm.created_at) AS occurred_at
+  FROM ctx_group_message gm
+  WHERE gm.group_id = $1
+    AND gm.seq > $2
+    AND gm.seq < $4
+    AND gm.content <> ''
+    AND gm.actor_type IN ('human', 'agent')
+  ORDER BY gm.seq ASC
+  LIMIT $3
+)
+SELECT id, seq, content, actor_type, actor_display_name, occurred_at FROM preceding
+UNION ALL
+SELECT id, seq, content, actor_type, actor_display_name, occurred_at FROM following
+ORDER BY seq ASC
+`
+
+type ListGroupMessageNeighborsForRecallParams struct {
+	GroupID    string `json:"group_id"`
+	AnchorSeq  int64  `json:"anchor_seq"`
+	MaxPerSide int32  `json:"max_per_side"`
+	BeforeSeq  int64  `json:"before_seq"`
+}
+
+type ListGroupMessageNeighborsForRecallRow struct {
+	ID               string      `json:"id"`
+	Seq              int64       `json:"seq"`
+	Content          string      `json:"content"`
+	ActorType        string      `json:"actor_type"`
+	ActorDisplayName pgtype.Text `json:"actor_display_name"`
+	OccurredAt       time.Time   `json:"occurred_at"`
+}
+
+// Each side uses the existing (group_id, seq) range index and stops before the
+// Host performs token packing. Returning both sides in one row shape keeps the
+// policy layer independent of generated database model types.
+func (q *Queries) ListGroupMessageNeighborsForRecall(ctx context.Context, arg ListGroupMessageNeighborsForRecallParams) ([]ListGroupMessageNeighborsForRecallRow, error) {
+	rows, err := q.db.Query(ctx, listGroupMessageNeighborsForRecall,
+		arg.GroupID,
+		arg.AnchorSeq,
+		arg.MaxPerSide,
+		arg.BeforeSeq,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListGroupMessageNeighborsForRecallRow{}
+	for rows.Next() {
+		var i ListGroupMessageNeighborsForRecallRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Seq,
+			&i.Content,
+			&i.ActorType,
+			&i.ActorDisplayName,
+			&i.OccurredAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listGroupMessagesForLCM = `-- name: ListGroupMessagesForLCM :many
@@ -723,6 +858,85 @@ func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg List
 			&i.Reasoning,
 			&i.AgentSessionID,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const searchGroupMessagesBeforeSeq = `-- name: SearchGroupMessagesBeforeSeq :many
+SELECT
+  gm.id,
+  gm.content,
+  gm.actor_type,
+  gm.actor_display_name,
+  COALESCE(gm.platform_timestamp, gm.created_at) AS occurred_at,
+  COALESCE(NULLIF(paradedb.snippet(gm.content)::text, ''), gm.content) AS snippet,
+  paradedb.score(gm.id)::double precision AS score
+FROM ctx_group_message gm
+WHERE (
+    gm.id @@@ paradedb.boost(2.0, paradedb.match('content', $1::text))
+    OR gm.id @@@ paradedb.match('actor_display_name', $1::text)
+  )
+  AND gm.group_id = $2
+  AND gm.seq < $3
+  AND gm.content <> ''
+  AND gm.actor_type IN ('human', 'agent')
+ORDER BY score DESC,
+         gm.platform_timestamp DESC NULLS LAST,
+         gm.created_at DESC,
+         gm.seq DESC,
+         gm.id DESC
+LIMIT $4
+`
+
+type SearchGroupMessagesBeforeSeqParams struct {
+	Match     string `json:"match"`
+	GroupID   string `json:"group_id"`
+	BeforeSeq int64  `json:"before_seq"`
+	MaxCount  int32  `json:"max_count"`
+}
+
+type SearchGroupMessagesBeforeSeqRow struct {
+	ID               string      `json:"id"`
+	Content          string      `json:"content"`
+	ActorType        string      `json:"actor_type"`
+	ActorDisplayName pgtype.Text `json:"actor_display_name"`
+	OccurredAt       time.Time   `json:"occurred_at"`
+	Snippet          string      `json:"snippet"`
+	Score            float64     `json:"score"`
+}
+
+// Search only canonical public text before the current trigger. Content is the
+// primary signal; the event-time display name is a lower-weight auxiliary
+// signal that lets callers find messages by the speaker name they saw then.
+func (q *Queries) SearchGroupMessagesBeforeSeq(ctx context.Context, arg SearchGroupMessagesBeforeSeqParams) ([]SearchGroupMessagesBeforeSeqRow, error) {
+	rows, err := q.db.Query(ctx, searchGroupMessagesBeforeSeq,
+		arg.Match,
+		arg.GroupID,
+		arg.BeforeSeq,
+		arg.MaxCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchGroupMessagesBeforeSeqRow{}
+	for rows.Next() {
+		var i SearchGroupMessagesBeforeSeqRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Content,
+			&i.ActorType,
+			&i.ActorDisplayName,
+			&i.OccurredAt,
+			&i.Snippet,
+			&i.Score,
 		); err != nil {
 			return nil, err
 		}

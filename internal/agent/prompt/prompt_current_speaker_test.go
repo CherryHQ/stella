@@ -14,7 +14,6 @@ func TestCurrentSpeakerNotRenderedInGroupSystemPrompt(t *testing.T) {
 	fake := memorytest.New()
 	ctx := context.Background()
 
-	fake.SetGroupMemory("grp-1", "This group talks about Go.")
 	_ = fake.SetProfile(ctx, "speaker1", "a1", "Alice likes tea")
 	fake.AddProfileEntry("speaker1", "a1", memory.ProfileEntry{
 		ID: "e1", Text: "Based in Berlin", CreatedAt: "2026-06-01T00:00:00Z",
@@ -30,7 +29,7 @@ func TestCurrentSpeakerNotRenderedInGroupSystemPrompt(t *testing.T) {
 		GroupID:      "grp-1",
 	})
 
-	for _, want := range []string{"## Group Memory", "This group talks about Go."} {
+	for _, want := range []string{"## Group Conversation Recall", "memory.search"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("expected prompt to contain %q\n---\n%s", want, p)
 		}

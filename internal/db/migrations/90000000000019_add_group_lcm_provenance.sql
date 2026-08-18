@@ -42,11 +42,41 @@ WHERE "origin_group_message_id" IS NOT NULL;
 ALTER TABLE "ctx_message"
   VALIDATE CONSTRAINT "ctx_message_origin_group_message_id_fkey";
 
+-- Keep group and sequence fields in the BM25 index so pg_search can push the
+-- trusted group/trigger filters into the same bounded search plan.
+DROP INDEX CONCURRENTLY IF EXISTS "idx_ctx_group_message_bm25";
+CREATE INDEX CONCURRENTLY "idx_ctx_group_message_bm25"
+ON "ctx_group_message" USING bm25 (
+  "id", "group_id", "seq", "platform_timestamp", "created_at", "content", "actor_display_name"
+)
+WITH (
+  key_field = 'id',
+  text_fields = '{"content":{"tokenizer":{"type":"jieba","stopwords":[" ","\t","\n","\r"]}},"actor_display_name":{"tokenizer":{"type":"jieba","stopwords":[" ","\t","\n","\r"]}}}'
+);
+
+-- The canonical public event log plus model-initiated recall replaces this
+-- unstructured derived drawer. Its data is intentionally not migrated.
+DROP TABLE IF EXISTS "ctx_group_memory";
+
 RESET statement_timeout;
 RESET lock_timeout;
 
 -- +goose Down
 SET lock_timeout = '5s';
+
+CREATE TABLE IF NOT EXISTS "ctx_group_memory" (
+  "group_id" uuid NOT NULL,
+  "content" text NOT NULL DEFAULT '',
+  "version" bigint NOT NULL DEFAULT 0,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY ("group_id"),
+  CONSTRAINT "ctx_group_memory_group_id_fkey"
+    FOREIGN KEY ("group_id") REFERENCES "ctx_group_state" ("id")
+    ON UPDATE NO ACTION ON DELETE CASCADE
+);
+
+DROP INDEX CONCURRENTLY IF EXISTS "idx_ctx_group_message_bm25";
 
 ALTER TABLE "ctx_message"
   DROP CONSTRAINT IF EXISTS "ctx_message_origin_group_message_id_fkey";

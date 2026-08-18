@@ -29,8 +29,9 @@ const (
 	// Library V1, channel guest sessions/indexes, channel allowlist backfill,
 	// session activity, per-message actor provenance and summary authority,
 	// the durable Session inbox, restrictive Library ownership, and the Discord
-	// explicit guild-access backfill and Group LCM provenance are the post-anchor
-	// migrations exercised below. Library chunk locator integrity and the
+	// explicit guild-access backfill, Group LCM provenance, public-history BM25
+	// recall, and legacy Group Blob removal are the post-anchor migrations
+	// exercised below. Library chunk locator integrity and the
 	// dedicated Skill Home cutover evidence schema and retired RTK plugin cleanup
 	// are checked explicitly.
 	currentMigrationVersion = sequentialAnchor + 19
@@ -343,6 +344,19 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 	if got := count("message inbox unique index", `SELECT count(*) FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'ctx_message' AND indexname = 'idx_ctx_message_inbox_id'`); got != 1 {
 		t.Fatalf("message inbox indexes = %d, want 1", got)
+	}
+	if got := count("legacy group memory table", `SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ctx_group_memory'`); got != 0 {
+		t.Fatalf("legacy group memory tables = %d, want 0", got)
+	}
+	if got := count("valid group message BM25 index", `
+		SELECT count(*)
+		FROM pg_index i
+		JOIN pg_class idx ON idx.oid = i.indexrelid
+		JOIN pg_am am ON am.oid = idx.relam
+		WHERE idx.relname = 'idx_ctx_group_message_bm25'
+		  AND i.indisvalid AND i.indisready AND am.amname = 'bm25'
+	`); got != 1 {
+		t.Fatalf("valid group message BM25 indexes = %d, want 1", got)
 	}
 	for _, tc := range []struct {
 		name, messageID string

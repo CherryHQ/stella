@@ -2,21 +2,21 @@
 title: Group-chat multi-agent
 ---
 
-> This page is for developers working on Stella's group-chat support: channel adapters, the message event log, the arbiter/dispatcher, group memory, or session identity. For the user-facing guide, see the channels docs.
+> This page is for developers working on Stella's group-chat support: channel adapters, the public event log, per-Agent LCM, history recall, the arbiter/dispatcher, or session identity. For the user-facing guide, see the channels docs.
 
 Stella's group chat hosts **multiple agents in one physical group**. Each agent is its own platform bot; a single backend process owns all of them, so a central arbiter can act as a real, enforceable speaking gate. This page documents the data model and the identity rules that make that safe. For the target request-to-reply flow shared by Web UI and platform adapters, see [Group-chat dataflow](/docs/development/group-chat-dataflow).
 
-The design is locked up front because most of it is hard to change once it carries data: new tables (event log, group memory, membership, ingest cursor) and the `ctx_conversation` ownership column are all "ship-it-with-data-and-you-can't-go-back" decisions.
+The hard-to-change data model is the canonical event log, membership, per-Agent ingest cursor, and the `ctx_conversation` ownership column. Older public context is recalled from the event log rather than copied into a derived group-memory drawer.
 
 ## The one rule that governs everything
 
 A group has **three identity dimensions that must never borrow each other's name**:
 
-| Dimension                      | Value                                                              | Used for                                                                 | Never used for                                              |
-| ------------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------ | ----------------------------------------------------------- |
-| **Session scope**              | `group_id` (surrogate id from the `ctx_group_state` registry)      | LCM lookup key, conversation history, group-memory drawer key            | Runtime identity (vault/token/workspace)                    |
-| **Runtime execution identity** | the agent's own group principal `group:{group_id}` (not any human) | tool execution, vault, workspace path                                    | impersonating any member; reading any human's private vault |
-| **Per-turn actor**             | the real human speaker's `auth_user`                               | @-addressing, writing the speaker's _own_ private memory, access control | session lookup key, runtime execution identity              |
+| Dimension                      | Value                                                              | Used for                                                          | Never used for                                              |
+| ------------------------------ | ------------------------------------------------------------------ | ----------------------------------------------------------------- | ----------------------------------------------------------- |
+| **Session scope**              | `group_id` (surrogate id from the `ctx_group_state` registry)      | per-Agent LCM, public-history recall, membership and cursor scope | Runtime identity (vault/token/workspace)                    |
+| **Runtime execution identity** | the agent's own group principal `group:{group_id}` (not any human) | tool execution, vault, workspace path                             | impersonating any member; reading any human's private vault |
+| **Per-turn actor**             | the real human speaker                                             | @-addressing, display attribution and access control              | session lookup key, private memory, runtime identity        |
 
 If you only remember one thing: **a group session never touches any member's private resources.** The speaker's `user_id` is carried per-turn for addressing and access control, then discarded — it never reaches the workspace path, the vault, or any agent tool execution identity.
 
@@ -26,11 +26,11 @@ A physical group conversation is registered once in `ctx_group_state`, which min
 
 Why a surrogate id and not a derived `platform:chat_id` string? The id is opaque and stable, so it survives platform-side id reformatting and keeps FK joins cheap; the triple stays as the natural key for lookup. Under the per-bot architecture each agent is a distinct bot = a distinct `channel_id`, so **one physical group is observed by N channel_ids**. The platform's group id is group-global (it does not change with which bot received the message), so the triple is the stable group identity; `channel_id` only answers "which bot saw it."
 
-**Threads are separate groups.** A Telegram forum topic (or any platform sub-thread) is its own conversation, so each distinct `platform_thread_id` gets its own registry row — its own event log, `seq`, memory drawer, and arbiter scope. `platform_thread_id` is `TEXT NOT NULL DEFAULT ''` (empty string, not `NULL`): PostgreSQL treats `NULL`s as distinct in a unique index by default, so a nullable column would break the `UNIQUE` triple.
+**Threads are separate groups.** A Telegram forum topic (or any platform sub-thread) is its own conversation, so each distinct `platform_thread_id` gets its own registry row — its own event log, `seq`, recall boundary, and arbiter scope. `platform_thread_id` is `TEXT NOT NULL DEFAULT ''` (empty string, not `NULL`): PostgreSQL treats `NULL`s as distinct in a unique index by default, so a nullable column would break the `UNIQUE` triple.
 
 `source_channel_id` (which bot observed an inbound message) is recorded on the event-log row **for audit only**. It never enters an idempotency key, `seq`, cursor, or membership primary key, and it is **never a reply route**. The reply route is always the speaking agent's own `reply_channel_id` (see membership).
 
-Every module reuses the registry `id` — event log, group memory, membership, ingest cursor, session key. No module invents its own notion of "group."
+Every module reuses the registry `id` — event log, public recall, membership, ingest cursor, session key. No module invents its own notion of "group."
 
 ## How agents join a group (D1)
 
@@ -121,45 +121,16 @@ type Mention struct {
 
 Adapters fill `Raw` and `PlatformID` (they know the platform id). Ingest resolves `AgentID` best-effort and stores the result in the outbox envelope; the dispatcher re-resolves any still-empty `AgentID` before routing. @-routing honors only `Mention.AgentID != ""` — no component guesses usernames or open_ids on its own.
 
-## Memory: subject axis (D4)
+## Group conversation memory (D4)
 
-A separate group-memory table, **keyed by `(group_id)` only — not per-agent**:
+Group context has two layers, both derived from canonical conversation data rather than an LLM-maintained Blob:
 
-```sql
-CREATE TABLE ctx_group_memory (
-  group_id TEXT PRIMARY KEY,
-  -- ... blob drawer, no auth_user FK
-);
-```
+1. Each Agent has an independent LCM. It contains recent public group messages plus that Agent's private assistant/tool continuation, and uses normal LCM compaction.
+2. `ctx_group_message` remains the complete shared public history. The model may explicitly call `memory.search` and `memory.read` when an older public detail is missing from its current LCM.
 
-The three existing user-memory tables (`ctx_agent_memory` / `_changelog` / `_snapshot`) are left untouched. Two reasons:
+Group recall is read-only and authorization derives the exact `group_id` and current trigger boundary from trusted runtime context. It cannot accept a group selector from the model, cross the current trigger, or read Profile, Soul, Constraints, Facts, Skills, private Agent LCM, reasoning, tool results, or media. Search uses database BM25 over public text and event-time display names; read reauthorizes an opaque hit and returns a bounded chronological neighborhood.
 
-1. Those tables have `user_id REFERENCES auth_user(id) ON DELETE CASCADE`. A `group_id` is not an `auth_user`, so generalizing into the same tables would mean dropping the FK and losing "delete user → cascade-clean memory."
-2. A separate table **upgrades the privacy wall from discipline to the type system**: the DM write path simply has no handle to `ctx_group_memory`, so `private → group` leakage is structurally impossible.
-
-Why `(group_id)` and not `(group_id, agent_id)`? v1 extraction is generic (not agent-role-specific), so per-agent drawers would be identical copies of the same extraction — no benefit, and they'd drag in cursor agent-dimension, a membership dependency, and N× cost. Group memory is the group's shared knowledge; all agents in the group read the same drawer. Agent-specific group memory is a future, additive change (add an `agent_id` axis then).
-
-Write rules, decided by hard facts about message origin (never by the LLM):
-
-| Message origin                  | Written to                                                                        |
-| ------------------------------- | --------------------------------------------------------------------------------- |
-| User speaks publicly in a group | group-shared drawer `(group_id)` **+** that user's private drawer `(user, agent)` |
-| User sends a DM                 | private drawer only — **never** the group-shared drawer                           |
-| Agent speaks                    | no memory written                                                                 |
-
-`private → group` is a one-way wall enforced by path isolation, not by prompt pleading.
-
-## Memory timestamps (D5)
-
-`profile` moves from a single blob to dated entries (aligning with how constraints already carry `CreatedAt`), and the **date must render into the system prompt** (today it does not, so the timestamp is wasted). HTTP stays compatible: entries are stored internally, but the read API flattens manual entries back into a string, so OpenAPI / SDK / UI are unchanged.
-
-## Async memory ingest (D6)
-
-Memory is never written on the reply path. A background single-consumer pulls from the event log by `seq > cursor`, batches, runs a lightweight LLM extraction, and routes per D4.
-
-- Cursor: `ctx_group_ingest_cursor(group_id, pipeline)`, value = last consumed `seq`.
-- Dead-letter: `ctx_group_ingest_error(id, group_id, pipeline, seq, reason, created_at)`. Transient failure (LLM timeout/rate-limit) → cursor does not advance, retry the same batch. Bad message (unparseable) → record in the dead-letter table, then the cursor steps over that seq.
-- The cursor only advances to the end of the contiguous prefix of "extracted-or-dead-lettered," so it neither skips nor stalls.
+The model is not forced to search every turn. Recent LCM remains the normal working context; older public history is fetched only when the model determines it is needed. No derived Group Fact, background Group Reflect, automatic retrieval gate, or legacy shared Blob is maintained.
 
 ## Arbiter: the speaking gate (D7)
 
@@ -236,12 +207,12 @@ D9 keeps the group session anonymous so no human owns the runtime. But the agent
 The hard rules:
 
 - **Personalization target, not runtime identity.** `CurrentSpeaker.UserID` must never be passed to `authz.WithUserID`, sandbox/vault/token code, plugin or delegate contexts, notify routing, or hook user metadata. `runtime/chat.go` attaches the speaker for group turns but still skips `WithUserID`, so all four D9 surfaces stay group-scoped.
-- **Per-turn, never cached.** The prompt's `## Current Speaker` section is built fresh each turn by the PoolManager before-run prompt rebuild, which re-renders the full system prompt. The cached group runner never holds speaker context, so one speaker's turn metadata can't leak into another's turn.
-- **Prompt rendering is keyed on `GroupID`, not on group memory being non-empty.** A group turn renders `## Group Memory` (+ optional `## Current Speaker`) and never falls back to the per-user `## User Profile` section, even when the group drawer is empty.
+- **Per-turn, never cached as identity.** The current speaker is carried with the current public input. The cached group runner never acquires that speaker's user authority.
+- **Prompt rendering is keyed on `GroupID`.** A group turn renders public-history recall guidance and never falls back to the per-user `## User Profile` section.
 - **No automatic private profile injection.** `## Current Speaker` exposes the display name and linked/unlinked status only. It does not include the speaker's profile blob, dated entries, soul, or constraints: a public room is not the place to disclose one member's private memory or apply their hard rules to the whole group.
 - **Resolution by hard facts.** Platform senders resolve through channel identity lookup (linked → auth user id, unlinked → empty UserID → name only). Web senders trust the authenticated `actor_id` as the speaker only for a genuine human actor, failing closed otherwise.
 
-The `memory` tool mirrors this in group turns: with no session user, ordinary chat can only use read-only `profile_get` to fall back to the current speaker when the model explicitly calls the tool. `profile_update` exists only for explicitly write-enabled internal tools. `soul_*`, `constraint_*`, and `profile_history` / `profile_rollback` stay strict and fail closed.
+The model-facing `memory` tool mirrors this boundary: group turns expose only `search` and `read` over older public messages in the current group. Private or forged refs fail closed.
 
 ## Implementation order
 
@@ -250,8 +221,8 @@ Data model (the hard-to-change parts) first, behavior second:
 1. **Phase 1** — IncomingMessage fields (D3).
 2. **Phase 2** — event log + group session ownership at the DB layer (D2, D9 session scope). **Safety gate: group sessions are NOT wired into `Runtime.Chat` here** — testing stays at the schema/event-log/session-registry layer so `group_id` can't leak into runtime identity.
 3. **Phase 2b** — group runtime identity isolation (D9 runtime surfaces), a cross-cut over the eight files above; the prerequisite for Phase 5 wiring.
-4. **Phase 3** — group memory table + timestamps (D4, D5).
-5. **Phase 4** — async ingest (D6).
+4. **Phase 3** — clean per-Agent Group LCM and public-event provenance.
+5. **Phase 4** — on-demand public-history BM25 recall and legacy Blob removal.
 6. **Phase 5** — multi-agent + arbiter (D1, D7), including the membership table.
 7. **Phase 6** — reply egress (D8).
 

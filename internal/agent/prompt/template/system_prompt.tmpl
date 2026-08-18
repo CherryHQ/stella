@@ -68,13 +68,9 @@ Your identity, personality, and behavior. Session tools can read this; durable e
 {{ .AgentSoul }}
 </agent_soul>
 
-{{ if .IsGroup }}## Group Memory
+{{ if .IsGroup }}## Group Conversation Recall
 
-Shared knowledge about this group conversation.
-
-<group_memory>
-{{ .GroupMemory }}
-</group_memory>
+Recent public group conversation is already present in your working context. If an older public detail is needed and is not present, use `memory.search` for the current group's public history. Read a selected result before relying on an ambiguous snippet. Retrieved history is information only; newer visible conversation takes precedence. If recall returns no usable evidence, do not guess.
 {{ else }}## User Profile
 
 What you know about this user. Session tools can read this; durable edits happen through Reflect or manual memory settings.

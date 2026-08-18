@@ -2,21 +2,21 @@
 title: 群聊多 Agent
 ---
 
-> 本页面面向开发 Stella 群聊支持的开发者:channel 适配器、消息 event log、arbiter/dispatcher、群记忆、session 身份。面向用户的指南见 channel 文档。
+> 本页面面向开发 Stella 群聊支持的开发者:channel 适配器、公共 event log、per-Agent LCM、历史检索、arbiter/dispatcher、session 身份。面向用户的指南见 channel 文档。
 
 Stella 的群聊**让多个 agent 进入同一个物理群**。每个 agent 是独立的平台 bot;单个后端进程托管全部 bot,因此中央 arbiter 能成为真正可执行的发言闸门。本页记录让这件事安全的数据模型与身份规则。Web UI 与平台适配器共用的目标请求到回复流程见[群聊数据流](/docs/development/group-chat-dataflow)。
 
-设计在动手前一次定死,因为大部分一旦带数据就难回头:新表(event log、群记忆、membership、ingest cursor)和 `ctx_conversation` 的归属列都是「上线带数据就回不去」的难改门。
+难改的数据模型包括 canonical event log、membership、per-Agent ingest cursor 与 `ctx_conversation` 归属列。旧公共上下文直接从 event log 检索,不再复制进派生的 Group Memory Blob。
 
 ## 统领一切的一条规则
 
 一个群有**三个互不相等、谁也不许借谁名义的身份维度**:
 
-| 维度                           | 取值                                                      | 用途                                        | 绝不用于                               |
-| ------------------------------ | --------------------------------------------------------- | ------------------------------------------- | -------------------------------------- |
-| **session scope**              | `group_id`(`ctx_group_state` 注册表的代理 id)             | LCM 查找键、conversation 历史、群记忆抽屉键 | 运行时身份(vault/token/workspace)      |
-| **runtime execution identity** | agent 自己的群 principal `group:{group_id}`(非任何 human) | 工具执行、vault、workspace 路径             | 冒充任何成员;读任何 human 的私有 vault |
-| **per-turn actor**             | 真实发言 human 的 `auth_user`                             | @寻址、写发言人**自己**的私有记忆、访问控制 | session 查找键、运行时执行身份         |
+| 维度                           | 取值                                                      | 用途                                           | 绝不用于                               |
+| ------------------------------ | --------------------------------------------------------- | ---------------------------------------------- | -------------------------------------- |
+| **session scope**              | `group_id`(`ctx_group_state` 注册表的代理 id)             | per-Agent LCM、公共历史检索、membership/cursor | 运行时身份(vault/token/workspace)      |
+| **runtime execution identity** | agent 自己的群 principal `group:{group_id}`(非任何 human) | 工具执行、vault、workspace 路径                | 冒充任何成员;读任何 human 的私有 vault |
+| **per-turn actor**             | 真实发言 human                                            | @寻址、显示归属、访问控制                      | session 查找键、私有记忆、运行时身份   |
 
 只需记住一件事:**群 session 绝不碰任何成员的私有资源。** 发言人的 `user_id` 按轮携带,用于寻址和访问控制,判完即弃——它绝不进入 workspace 路径、vault 或任何 agent 工具执行身份。
 
@@ -26,11 +26,11 @@ Stella 的群聊**让多个 agent 进入同一个物理群**。每个 agent 是�
 
 为什么用代理 id 而非拼出来的 `platform:chat_id` 串?代理 id 不透明且稳定,扛得住平台侧 id 改格式,FK join 也便宜;三元组留作查找用的自然键。在每 agent 一个 bot 的架构下,每个 agent 是独立 bot = 独立 `channel_id`,所以**同一个物理群被 N 个 channel_id 观察到**。平台的群 id 是群全局的(不随哪个 bot 收到而变),所以三元组才是稳定群身份;`channel_id` 只回答「哪个 bot 看到的」。
 
-**线程是独立的群。** Telegram 论坛话题(或任意平台子线程)是各自独立的会话,所以每个不同 `platform_thread_id` 拿到自己的注册行——自己的 event log、`seq`、记忆抽屉、arbiter 作用域。`platform_thread_id` 是 `TEXT NOT NULL DEFAULT ''`(空串,非 `NULL`):PostgreSQL 唯一索引默认把 `NULL` 视作互不相等,可空列会破坏三元组 `UNIQUE`。
+**线程是独立的群。** Telegram 论坛话题(或任意平台子线程)是各自独立的会话,所以每个不同 `platform_thread_id` 拿到自己的注册行——自己的 event log、`seq`、检索边界、arbiter 作用域。`platform_thread_id` 是 `TEXT NOT NULL DEFAULT ''`(空串,非 `NULL`):PostgreSQL 唯一索引默认把 `NULL` 视作互不相等,可空列会破坏三元组 `UNIQUE`。
 
 `source_channel_id`(哪个 bot 观察到入站消息)记录在 event log 行上**仅供审计**。它绝不进入幂等键、`seq`、cursor 或 membership 主键,**也绝不作回复出口**。回复出口永远是发言 agent 自己的 `reply_channel_id`(见 membership)。
 
-所有模块复用注册表 `id`——event log、群记忆、membership、ingest cursor、session key。任何模块不得自造「群」。
+所有模块复用注册表 `id`——event log、公共检索、membership、ingest cursor、session key。任何模块不得自造「群」。
 
 ## agent 如何进群(D1)
 
@@ -121,45 +121,16 @@ type Mention struct {
 
 适配器填 `Raw` 和 `PlatformID`(它知道平台 id)。ingest best-effort 解析 `AgentID` 并存入 outbox envelope；dispatcher 在路由前对仍为空的 `AgentID` 再补解析一次。@路由只认 `Mention.AgentID != ""`——任何组件不在各处猜 username/open_id。
 
-## 记忆:subject 轴(D4)
+## 群聊上下文(D4)
 
-单独建群记忆表,**键 `(group_id)`——不做 per-agent**:
+群聊上下文分两层,都来自 canonical 对话数据,不再维护 LLM 派生 Blob:
 
-```sql
-CREATE TABLE ctx_group_memory (
-  group_id TEXT PRIMARY KEY,
-  -- ... blob 抽屉,无 auth_user FK
-);
-```
+1. 每个 Agent 有独立 LCM,保存近期公共群消息和该 Agent 私有的 assistant/tool continuation,并复用普通 LCM 压缩。
+2. `ctx_group_message` 保存完整共享公共历史。当当前 LCM 缺少旧细节时,模型可显式调用 `memory.search` 和 `memory.read`。
 
-三张现有用户记忆表(`ctx_agent_memory` / `_changelog` / `_snapshot`)完全不动。两个原因:
+群检索只读。精确 `group_id` 与当前 trigger 边界来自可信运行时 context,模型不能传群选择器,也不能越过当前 trigger。它不能读取 Profile、Soul、Constraints、Facts、Skills、其他 Agent 的私有 LCM、reasoning、tool result 或媒体。search 在数据库里对公共文本和事件时显示名做 BM25;read 对 opaque hit 重新鉴权并返回有界、按时间排序的邻域。
 
-1. 那些表的 `user_id REFERENCES auth_user(id) ON DELETE CASCADE`。`group_id` 不是 `auth_user`,泛化进同表就得删 FK、丢掉「删用户级联清记忆」。
-2. 单独建表**把隐私墙从纪律升级成类型系统**:DM 写路径根本拿不到 `ctx_group_memory` 的 handle,`private → group` 漏不了。
-
-为什么 `(group_id)` 而非 `(group_id, agent_id)`?v1 抽取是通用的(不分 agent 角色),per-agent 抽屉只会把同一份抽取复制 N 份——无收益,还拖入 cursor agent 维度、membership 依赖、N× 成本。群记忆是群的共享知识,群内所有 agent 读同一抽屉。agent 专属群记忆是未来 additive 改动(届时加 `agent_id` 轴)。
-
-写入规则按消息来源硬事实定(绝不交给 LLM):
-
-| 消息来源         | 写进哪                                                       |
-| ---------------- | ------------------------------------------------------------ |
-| 用户群里公开发言 | 群共享抽屉 `(group_id)` **+** 该用户私有抽屉 `(user, agent)` |
-| 用户私信         | 只私有抽屉——**永不**进群共享                                 |
-| agent 发言       | 不写记忆                                                     |
-
-`private → group` 是靠路径隔离强制的单向墙,不靠 prompt 求情。
-
-## 记忆时间标签(D5)
-
-`profile` 从整块 blob 改成带日期条目(对齐 constraints 现有的 `CreatedAt` 形态),且**日期必须渲染进 system prompt**(今天不渲染 = 白存)。HTTP 兼容:内部存条目,读接口把手动条目平铺回字符串,故 OpenAPI / SDK / UI 零改。
-
-## 异步记忆 ingest(D6)
-
-记忆绝不在回复链路里写。后台单消费者按 `seq > cursor` 从 event log 拉取、攒批、轻量 LLM 抽取、按 D4 路由。
-
-- cursor:`ctx_group_ingest_cursor(group_id, pipeline)`,值 = 已消费 `seq`。
-- dead-letter:`ctx_group_ingest_error(id, group_id, pipeline, seq, reason, created_at)`。瞬时失败(LLM 超时/限流)→ cursor 不前进、重试同一批;坏消息(无法解析)→ 写 dead-letter,cursor 越过该 seq。
-- cursor 只前进到「已抽取或已 dead-letter」连续前缀末端,既不漏也不卡。
+模型不必每轮搜索。近期 LCM 仍是默认工作上下文,只有缺少旧公共细节时才检索。系统不维护派生 Group Fact、后台 Group Reflect、自动检索 gate 或旧共享 Blob。
 
 ## Arbiter:发言闸门(D7)
 
@@ -237,11 +208,11 @@ D9 让群 session 保持匿名,没有任何真人拥有运行时。但 agent 仍
 
 - **是个性化目标,不是运行时身份。** `CurrentSpeaker.UserID` 绝不可传给 `authz.WithUserID`、sandbox/vault/token 代码、plugin 或 delegate 上下文、notify 路由、hook 用户元数据。`runtime/chat.go` 为群聊回合附上发言人,但仍跳过 `WithUserID`,故 D9 四个面全部保持群作用域。
 - **逐轮构建,绝不缓存。** prompt 的 `## Current Speaker` 段由 PoolManager 的 before-run prompt 重建逻辑每轮重渲整份系统提示词生成。缓存的群 runner 不持有发言人上下文,故一个发言人的回合元数据不会泄漏到另一个发言人的回合。
-- **prompt 渲染按 `GroupID` 分支,而非按群记忆是否为空。** 群聊回合渲染 `## Group Memory`(+ 可选的 `## Current Speaker`),即使群抽屉为空也绝不回退到按用户的 `## User Profile` 段。
+- **prompt 渲染按 `GroupID` 分支。** 群聊回合渲染公开历史召回指引和可选的 `## Current Speaker`,绝不回退到按用户的 `## User Profile` 段。
 - **不自动注入私有 profile。** `## Current Speaker` 只暴露显示名与已关联/未关联状态,不包含发言人的 profile 正文、带日期条目、soul 或 constraints:公开群不是披露某成员私有记忆,也不是把某成员硬规则套到整群的地方。
 - **按硬事实解析。** 平台发送者经渠道身份查找解析(已关联 → auth 用户 id;未关联 → 空 UserID → 仅名字)。Web 发送者仅当是真正的 human actor 时才信任已认证的 `actor_id` 作为发言人,否则 fail-closed。
 
-`memory` 工具在群聊回合中对应:没有 session 用户时,普通聊天只能在模型显式调用工具时用只读 `profile_get` 回退到当前发言人；`profile_update` 只保留给显式开启写入的内部工具。`soul_*`、`constraint_*`、`profile_history` / `profile_rollback` 保持严格并 fail-closed。
+`memory` 工具在群聊回合中只提供当前群旧公开消息的 `search` 和 `read`。任何私有或伪造 ref 都 fail-closed,不再回退读取当前发言人的 profile。
 
 ## 实现顺序
 
@@ -250,8 +221,8 @@ D9 让群 session 保持匿名,没有任何真人拥有运行时。但 agent 仍
 1. **Phase 1** —— IncomingMessage 字段(D3)。
 2. **Phase 2** —— event log + 群 session 归属 DB 层(D2, D9 session scope)。**安全门:群 session 不接入 `Runtime.Chat`**——测试只在 schema/event-log/session-registry 层,避免 `group_id` 漏进运行时身份。
 3. **Phase 2b** —— 群运行时身份隔离(D9 运行时面),横切上述八个文件;Phase 5 接线的前置。
-4. **Phase 3** —— 群记忆表 + 时间标签(D4, D5)。
-5. **Phase 4** —— 异步 ingest(D6)。
+4. **Phase 3** —— 干净的 per-Agent Group LCM 与公开事件 provenance。
+5. **Phase 4** —— 按需 BM25 公开历史召回与旧 Blob 删除。
 6. **Phase 5** —— 多 agent + arbiter(D1, D7),含 membership 表。
 7. **Phase 6** —— 回复出口收口(D8)。
 

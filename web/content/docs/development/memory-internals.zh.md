@@ -85,15 +85,11 @@ Reflect、manual 管理路径与底层内部调用方继续保留各自负责的
 
 工具的 JSON schema、描述和调度都会动态适配。能力较少的 provider 会生成较少的内部 action。普通聊天会话不能调用 `profile_update`、`soul_update`、`profile_rollback`、`constraint_add` 或 `constraint_remove` 等持久写入 action。
 
-### 群聊回合:当前发言人回退
+### 群聊回合:公开历史召回
 
-群 session 的运行时身份是群,因此没有 session 用户(D9)。为了仍能让 agent 读取正在说话的人的事实,当不存在 session 用户时，well-known ref `profile` 的 `memory.read` 会回退到当前发言人。底层 resolver 也支持显式开启写入的工具使用 `profile_update`，但普通聊天 runner 不暴露该动作:
+群 session 的运行时身份是群,因此没有 session 用户(D9)。普通群聊 runner 只暴露针对当前群旧公开消息的 `memory.search` 和 `memory.read`。可信运行时 context 固定群和当前 trigger 边界;模型不能选择其他群,也不能读取 trigger 当下或之后的消息。
 
-1. session 用户(`UserIDFromContext`)—— 正常 DM 行为。
-2. 否则已关联的当前发言人(`CurrentSpeaker.UserID`)—— 群个性化。
-3. 否则 fail-closed,报 `no linked current speaker`(未关联发送者)。
-
-回退刻意收窄。**普通聊天中只有显式 `memory.read("profile")` 能获得它。**统一搜索以及 `soul`、`constraints`、版本历史或 dynamic transcript ref 的读取仍走严格的 session-用户解析器，因此群聊回合中会 fail-closed——公开群不是通过共享 agent 搜索或读取某成员私有记忆的地方。如果显式开启写入的内部工具经回退调用 `profile_update`，它只推进发言人自己的快照行 `(session, speaker.UserID, agent)`,绝不推进群的。
+群聊不会回退读取当前发言人的私有 profile。Profile、soul、constraints、持久 facts、其他 Agent 的私有 LCM、reasoning、tool result 和媒体都不可用。search 返回 opaque 的群消息 ref,read 重新鉴权后返回围绕命中公开消息的有界时间顺序邻域。
 
 参见[群聊:当前发言人(D10)](/docs/development/group-chat-multi-agent#current-speaker-per-turn-personalization-d10)。
 
@@ -105,13 +101,13 @@ Reflect、manual 管理路径与底层内部调用方继续保留各自负责的
 2. **工具和插件提示清单** —— 可用工具、插件能力、技能。
 3. **约束** —— 来自 `ConstraintStore` 的用户确认硬规则；位于 soul/profile 之前，Reflect 不会修改。
 4. **Agent soul** —— agent 身份、人格和语气文本。
-5. **用户画像** —— 持久用户笔记。**群聊回合用 `## Group Memory`(共享群抽屉)加可选的 `## Current Speaker` 段替换它**,该段只包含发言人姓名和关联状态;群聊回合绝不渲染按用户的画像。群模式按 session 是否有 `group_id` 分支,而非按群记忆是否为空。
+5. **用户画像** —— 持久用户笔记。**群聊回合不渲染用户画像,改为渲染公开历史召回指引和可选的 `## Current Speaker` 段**,后者只包含发言人姓名和关联状态。群模式按 session 是否有 `group_id` 分支。
 6. **知识** —— facts 表里的 active `subject=world` 事实。
 7. **项目上下文** —— `AGENTS.md` 等项目指令。
 
 对话历史由记忆 provider 单独组装。约束、身份和知识位于系统提示中，因此对话压缩不会删除它们。
 
-群聊回合由 PoolManager 的 before-run 路径带当前发言人元数据重渲整份提示词;缓存的群 runner 不持有发言人数据,故一个发言人的回合上下文不会泄漏到另一个发言人的回合。发言人的 profile 正文和带日期条目不会自动注入公开群 prompt;profile 访问仍必须通过显式的只读 `memory.read("profile")` 调用。
+群聊回合由 PoolManager 的 before-run 路径带当前发言人元数据重渲整份提示词;缓存的群 runner 不持有发言人数据,故一个发言人的回合上下文不会泄漏到另一个发言人的回合。发言人的 profile 正文和带日期条目既不注入公开群 prompt,也不能通过群聊 memory tool 读取。
 
 ## Changelog 与回滚
 

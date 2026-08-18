@@ -7,7 +7,7 @@ import (
 	"github.com/CherryHQ/stella/pkg/ai"
 )
 
-const currentSpeakerInstruction = "The human speaking in this group turn. Use this only for addressing and tone. Private profile facts are not injected into public group prompts. Do not call `memory.read` with ref `profile` or disclose profile details in a group unless this speaker explicitly asks you to read or use their profile in this conversation."
+const currentSpeakerInstruction = "The human speaking in this group turn. Use this only for addressing and tone. Private profile facts are neither injected nor available through memory tools in group turns."
 
 func withCurrentSpeakerContext(msg MessageContent, speaker memory.CurrentSpeaker) MessageContent {
 	if speaker == (memory.CurrentSpeaker{}) {
@@ -35,7 +35,7 @@ func currentSpeakerContextText(speaker memory.CurrentSpeaker) string {
 	}
 	linked := "no"
 	if speaker.UserID != "" {
-		linked = "yes (profile available only by explicit request)"
+		linked = "yes"
 	}
 	return fmt.Sprintf("<current_speaker>\n%s\n\nName: %s\nLinked Stella user: %s\n</current_speaker>", currentSpeakerInstruction, name, linked)
 }
