@@ -116,6 +116,7 @@ func installUserToolCache(ctx context.Context, client *dockerclient.Client, cfg 
 
 	containerID, err := client.CreateAndStart(ctx, dockerclient.CreateOptions{
 		Image:       cfg.Image,
+		Runtime:     cfg.Runtime,
 		NetworkMode: dockerclient.NetworkAllowAll,
 		User:        "root",
 		Env: map[string]string{
@@ -233,6 +234,7 @@ func resetToolCacheMemoForTest() {
 func verifyUserToolCache(ctx context.Context, client *dockerclient.Client, cfg Config, hash string, cache *userToolCache) error {
 	containerID, err := client.CreateAndStart(ctx, dockerclient.CreateOptions{
 		Image:       cfg.Image,
+		Runtime:     cfg.Runtime,
 		NetworkMode: dockerclient.NetworkDisabled,
 		User:        "root",
 		ExtraMounts: []dockerclient.Mount{

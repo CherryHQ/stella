@@ -56,7 +56,10 @@ func TestMapNetworkMode(t *testing.T) {
 }
 
 func TestBuildHostConfigHardening(t *testing.T) {
-	hc := buildHostConfig(CreateOptions{NetworkMode: NetworkDisabled})
+	hc := buildHostConfig(CreateOptions{Runtime: "runsc", NetworkMode: NetworkDisabled})
+	if hc.Runtime != "runsc" {
+		t.Fatalf("Runtime = %q, want runsc", hc.Runtime)
+	}
 	if hc.NetworkMode != container.NetworkMode("none") {
 		t.Fatalf("NetworkMode = %q, want none", hc.NetworkMode)
 	}

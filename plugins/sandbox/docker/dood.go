@@ -10,7 +10,10 @@ import (
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 )
 
-const dockerSandboxModeEnv = "STELLA_DOCKER_SANDBOX_MODE"
+const (
+	dockerSandboxModeEnv = "STELLA_DOCKER_SANDBOX_MODE"
+	dockerRuntimeEnv     = "STELLA_DOCKER_RUNTIME"
+)
 
 // defaultSandboxServerPort is stellad's default admin/API port (see cmd/stellad
 // gateway). Auto-detected sandbox URLs target it; override the whole URL with
@@ -24,6 +27,11 @@ var lookupHostname = os.Hostname
 // lookupDockerSandboxMode reads STELLA_DOCKER_SANDBOX_MODE. Overridden in tests.
 var lookupDockerSandboxMode = func() string {
 	return strings.TrimSpace(os.Getenv(dockerSandboxModeEnv))
+}
+
+// lookupDockerRuntime reads STELLA_DOCKER_RUNTIME. Overridden in tests.
+var lookupDockerRuntime = func() string {
+	return strings.TrimSpace(os.Getenv(dockerRuntimeEnv))
 }
 
 // lookupStellaHomeHost reads the STELLA_HOME_HOST env. Overridden in tests.
@@ -164,6 +172,9 @@ func findNetwork(nets []dockerclient.SelfNetwork, name string) *dockerclient.Sel
 // The caller describes the deployment; the backend validates that the mode has
 // exactly the env needed for that mode and no conflicting mode env.
 func applyDockerMode(cfg Config, stellaHome string) (Config, error) {
+	if cfg.Runtime == "" {
+		cfg.Runtime = lookupDockerRuntime()
+	}
 	if cfg.RuntimeMode == "" {
 		cfg.RuntimeMode = DockerSandboxMode(lookupDockerSandboxMode())
 	}

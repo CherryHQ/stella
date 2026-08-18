@@ -74,6 +74,8 @@ services:
       - STELLA_SANDBOX_BACKEND=docker
       # Explicit Docker sandbox mode: host | bind | volume
       - STELLA_DOCKER_SANDBOX_MODE=volume
+      # Optional registered OCI runtime for sandbox containers (for example, runsc for gVisor)
+      - STELLA_DOCKER_RUNTIME=${STELLA_DOCKER_RUNTIME:-}
       # Tell volume mode which named volume backs STELLA_HOME
       - STELLA_HOME_VOLUME=stella-data
       # OTEL

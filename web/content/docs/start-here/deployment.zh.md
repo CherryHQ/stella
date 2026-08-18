@@ -369,6 +369,7 @@ terminationGracePeriodSeconds: 200
 | `STELLA_BLOB_S3_USE_SSL`         | 否                        | S3 兼容存储是否使用 HTTPS；默认 `true`                                                                                 |
 | `STELLA_VAULT_KEY`               | 是†                       | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                                                        |
 | `STELLA_DOCKER_SANDBOX_MODE`     | 否‡                       | 仅 `docker` 沙箱后端需要：`host`、`bind` 或 `volume`                                                                   |
+| `STELLA_DOCKER_RUNTIME`          | 否‡                       | Docker 沙箱和工具缓存容器使用的已注册 OCI runtime；未设置时使用 daemon 默认值，配置值不可用时预检失败                  |
 | `STELLA_HOME_HOST`               | 否‡                       | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                                              |
 | `STELLA_HOME_VOLUME`             | 否‡                       | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要                               |
 

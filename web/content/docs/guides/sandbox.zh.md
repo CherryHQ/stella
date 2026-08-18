@@ -53,6 +53,18 @@ Docker 提供完整的容器级进程、文件系统和网络隔离。在受支�
 
 Volume 模式需要 Docker Engine 25+ 以支持 volume subpath 挂载。
 
+### OCI Runtime
+
+默认情况下，沙箱容器使用 Docker daemon 的默认开放容器倡议（OCI）runtime，通常是 `runc`。将 `STELLA_DOCKER_RUNTIME` 设为该 daemon 已注册的 runtime，可以选择更强或专用的执行边界：
+
+```bash
+STELLA_DOCKER_RUNTIME=runsc
+```
+
+`runsc` 是 gVisor runtime。启用前先安装并注册到 Docker，再确认它出现在 `docker info` 中。Stella 预检会拒绝不可用的已配置 runtime，不会回退到 daemon 默认值。所选 runtime 同时用于 agent 会话和 Docker 工具缓存辅助容器。
+
+替代 OCI runtime 可以减少宿主内核暴露面，但不会限制网络出口，也不会保护可写挂载。沙箱网络策略和挂载权限仍需独立收紧。
+
 ### Docker Compose 示例
 
 **容器内使用 `local` 或 `none` 沙箱** — 最简单的部署：
@@ -82,6 +94,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - STELLA_DOCKER_SANDBOX_MODE=bind
+      - STELLA_DOCKER_RUNTIME=runsc # 可选；必须已注册到 Docker
       - STELLA_HOME_HOST=${PWD}/stella-data
 ```
 
@@ -97,6 +110,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - STELLA_DOCKER_SANDBOX_MODE=volume
+      - STELLA_DOCKER_RUNTIME=runsc # 可选；必须已注册到 Docker
       - STELLA_HOME_VOLUME=stella-data
 
 volumes:
@@ -109,6 +123,7 @@ volumes:
 | ---------------------------- | ------------------------------------------------------------------- |
 | `STELLA_SANDBOX_BACKEND`     | 部署使用的沙箱后端：`docker`、`local`（默认）或 `none`              |
 | `STELLA_DOCKER_SANDBOX_MODE` | `docker` 沙箱后端必须设置：`host`、`bind` 或 `volume`               |
+| `STELLA_DOCKER_RUNTIME`      | Docker 沙箱容器使用的可选已注册 OCI runtime，例如 `runsc`           |
 | `STELLA_HOME_HOST`           | `STELLA_HOME` 的宿主机侧路径；仅 `bind` 模式需要                    |
 | `STELLA_HOME_VOLUME`         | `STELLA_HOME` 对应的 Docker named volume 名称；仅 `volume` 模式需要 |
 

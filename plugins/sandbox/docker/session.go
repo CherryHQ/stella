@@ -248,6 +248,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	cleanupScope := f.cfg.cleanupScope(f.cfg.StellaHome)
 	opts := dockerclient.CreateOptions{
 		Image:          f.cfg.Image,
+		Runtime:        f.cfg.Runtime,
 		User:           dockerProcessUser(),
 		WorkspaceHost:  workspaceHost,
 		WorkspaceMount: workspaceMount,
@@ -370,6 +371,7 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		"session_id", sessionID,
 		"image", opts.Image,
 		"container_name", opts.Name,
+		"runtime", opts.Runtime,
 		"workspace", workspaceHost,
 		"network_mode", opts.NetworkMode,
 		"extra_mounts", len(opts.ExtraMounts),

@@ -8,16 +8,40 @@ import (
 func withDockerModeEnv(t *testing.T, mode, stellaHomeHost, stellaHomeVolume string) {
 	t.Helper()
 	prevMode := lookupDockerSandboxMode
+	prevRuntime := lookupDockerRuntime
 	prevHost := lookupStellaHomeHost
 	prevVolume := lookupStellaHomeVolume
 	lookupDockerSandboxMode = func() string { return mode }
+	lookupDockerRuntime = func() string { return "" }
 	lookupStellaHomeHost = func() string { return stellaHomeHost }
 	lookupStellaHomeVolume = func() string { return stellaHomeVolume }
 	t.Cleanup(func() {
 		lookupDockerSandboxMode = prevMode
+		lookupDockerRuntime = prevRuntime
 		lookupStellaHomeHost = prevHost
 		lookupStellaHomeVolume = prevVolume
 	})
+}
+
+func TestApplyDockerMode_Runtime(t *testing.T) {
+	withDockerModeEnv(t, "host", "", "")
+	lookupDockerRuntime = func() string { return "runsc" }
+
+	out, err := applyDockerMode(Config{}, "/Users/v/.stella")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.Runtime != "runsc" {
+		t.Fatalf("Runtime = %q, want runsc", out.Runtime)
+	}
+
+	out, err = applyDockerMode(Config{Runtime: "kata"}, "/Users/v/.stella")
+	if err != nil {
+		t.Fatalf("unexpected explicit runtime error: %v", err)
+	}
+	if out.Runtime != "kata" {
+		t.Fatalf("explicit Runtime = %q, want kata", out.Runtime)
+	}
 }
 
 func TestApplyDockerMode_Host(t *testing.T) {

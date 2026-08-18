@@ -55,6 +55,7 @@ type Mount struct {
 // CreateOptions configures a new sandbox container.
 type CreateOptions struct {
 	Image          string
+	Runtime        string      // optional registered OCI runtime; empty uses the daemon default
 	WorkspaceHost  string      // absolute host path (daemon-side)
 	WorkspaceMount string      // absolute in-container path (e.g. "/workspace")
 	ExtraMounts    []Mount     // additional host -> container mounts; ReadOnly is honored per mount
@@ -76,7 +77,7 @@ func (c *Client) CreateAndStart(ctx context.Context, opts CreateOptions) (string
 
 	createOpts := buildContainerCreateOptions(opts)
 
-	slog.Info("dockerclient: creating sandbox container", "image", opts.Image, "container_name", opts.Name, "network_mode", opts.NetworkMode, "mounts", len(createOpts.HostConfig.Mounts))
+	slog.Info("dockerclient: creating sandbox container", "image", opts.Image, "container_name", opts.Name, "runtime", opts.Runtime, "network_mode", opts.NetworkMode, "mounts", len(createOpts.HostConfig.Mounts))
 	created, err := c.api.ContainerCreate(ctx, createOpts)
 	if err != nil && errdefs.IsNotFound(err) {
 		c.invalidateImageReady(opts.Image)
@@ -246,6 +247,7 @@ func buildContainerConfig(opts CreateOptions) *container.Config {
 func buildHostConfig(opts CreateOptions) *container.HostConfig {
 	pidsLimit := sandboxPidsLimit
 	hc := &container.HostConfig{
+		Runtime:     opts.Runtime,
 		NetworkMode: mapNetworkMode(opts),
 		Resources: container.Resources{
 			Memory:    sandboxMemoryLimitBytes,

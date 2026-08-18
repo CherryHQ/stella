@@ -57,6 +57,15 @@ func preflightWithClient(ctx context.Context, cfg PreflightConfig, client *docke
 	if _, err := client.Version(ctx); err != nil {
 		return fmt.Errorf("docker preflight: daemon not reachable: %w", err)
 	}
+	if runtime := cfg.Docker.Runtime; runtime != "" {
+		available, err := client.RuntimeAvailable(ctx, runtime)
+		if err != nil {
+			return fmt.Errorf("docker preflight: inspect runtime %q: %w", runtime, err)
+		}
+		if !available {
+			return fmt.Errorf("docker preflight: runtime %q from %s is not registered with the Docker daemon", runtime, dockerRuntimeEnv)
+		}
+	}
 
 	if err := client.EnsureImageReady(ctx, cfg.Docker.Image, "preflight"); err != nil {
 		return fmt.Errorf("docker preflight: %w", err)

@@ -296,7 +296,7 @@ func TestCreateSessionStartFailureRemovesOwnedTemp(t *testing.T) {
 	api := &startFailAPI{}
 	workspace := t.TempDir()
 	factory := &dockerFactory{
-		cfg:          Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost},
+		cfg:          Config{Image: "test:latest", Runtime: "runsc", RuntimeMode: DockerSandboxModeHost},
 		mountSources: map[string]string{workspaceMount: workspace},
 		clientFn:     func() (*dockerclient.Client, error) { return dockerclient.NewWithAPI(api), nil },
 	}
@@ -321,6 +321,9 @@ func TestCreateSessionStartFailureRemovesOwnedTemp(t *testing.T) {
 	}
 	if got, want := api.createOpts.Config.User, dockerProcessUser(); got != want {
 		t.Errorf("container user = %q, want stellad process user %q", got, want)
+	}
+	if got := api.createOpts.HostConfig.Runtime; got != "runsc" {
+		t.Errorf("container runtime = %q, want runsc", got)
 	}
 	if _, err := os.Stat(tempSource); !os.IsNotExist(err) {
 		t.Fatalf("owned fallback temp survives start failure: %v", err)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/containerd/errdefs"
 	jsonstream "github.com/moby/moby/api/types/jsonstream"
+	"github.com/moby/moby/api/types/system"
 	mobyclient "github.com/moby/moby/client"
 
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
@@ -22,8 +23,16 @@ type fakePreflightAPI struct {
 	noopAPI
 
 	versionFn func() (mobyclient.ServerVersionResult, error)
+	infoFn    func() (mobyclient.SystemInfoResult, error)
 	inspectFn func(image string) (mobyclient.ImageInspectResult, error)
 	pullFn    func(image string) (mobyclient.ImagePullResponse, error)
+}
+
+func (f *fakePreflightAPI) Info(context.Context, mobyclient.InfoOptions) (mobyclient.SystemInfoResult, error) {
+	if f.infoFn == nil {
+		return mobyclient.SystemInfoResult{}, nil
+	}
+	return f.infoFn()
 }
 
 func (f *fakePreflightAPI) ServerVersion(context.Context, mobyclient.ServerVersionOptions) (mobyclient.ServerVersionResult, error) {
@@ -119,6 +128,34 @@ func TestPreflightDaemonUnreachable(t *testing.T) {
 	if !strings.Contains(err.Error(), "daemon not reachable") {
 		t.Errorf("expected 'daemon not reachable' in error, got: %v", err)
 	}
+}
+
+func TestPreflightRuntime(t *testing.T) {
+	t.Run("registered", func(t *testing.T) {
+		api := &fakePreflightAPI{
+			infoFn: func() (mobyclient.SystemInfoResult, error) {
+				return mobyclient.SystemInfoResult{Info: system.Info{Runtimes: map[string]system.RuntimeWithStatus{"runsc": {}}}}, nil
+			},
+			inspectFn: func(string) (mobyclient.ImageInspectResult, error) {
+				return mobyclient.ImageInspectResult{}, nil
+			},
+		}
+		client := dockerclient.NewWithAPI(api)
+		cfg := PreflightConfig{Docker: Config{Image: "sandbox:test", Runtime: "runsc"}}
+		if err := preflightWithClient(context.Background(), cfg, client); err != nil {
+			t.Fatalf("registered runtime rejected: %v", err)
+		}
+	})
+
+	t.Run("missing fails closed", func(t *testing.T) {
+		api := &fakePreflightAPI{}
+		client := dockerclient.NewWithAPI(api)
+		cfg := PreflightConfig{Docker: Config{Image: "sandbox:test", Runtime: "runsc"}}
+		err := preflightWithClient(context.Background(), cfg, client)
+		if err == nil || !strings.Contains(err.Error(), `runtime "runsc"`) || !strings.Contains(err.Error(), dockerRuntimeEnv) {
+			t.Fatalf("missing runtime error = %v", err)
+		}
+	})
 }
 
 func TestPreflightRejectsBuiltinBundleRevisionMismatch(t *testing.T) {

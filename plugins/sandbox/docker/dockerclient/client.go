@@ -18,6 +18,7 @@ import (
 // surface.
 type API interface {
 	ServerVersion(ctx context.Context, opts mobyclient.ServerVersionOptions) (mobyclient.ServerVersionResult, error)
+	Info(ctx context.Context, opts mobyclient.InfoOptions) (mobyclient.SystemInfoResult, error)
 	ImageInspect(ctx context.Context, image string, opts ...mobyclient.ImageInspectOption) (mobyclient.ImageInspectResult, error)
 	ImagePull(ctx context.Context, ref string, opts mobyclient.ImagePullOptions) (mobyclient.ImagePullResponse, error)
 
@@ -105,6 +106,20 @@ func (c *Client) Version(ctx context.Context) (*VersionInfo, error) {
 	info.Server.APIVersion = res.APIVersion
 	info.Client.Version = mobyclient.MaxAPIVersion
 	return info, nil
+}
+
+// RuntimeAvailable reports whether the daemon has registered the named OCI
+// runtime. An empty name means the daemon default and needs no lookup.
+func (c *Client) RuntimeAvailable(ctx context.Context, name string) (bool, error) {
+	if name == "" {
+		return true, nil
+	}
+	res, err := c.api.Info(ctx, mobyclient.InfoOptions{})
+	if err != nil {
+		return false, fmt.Errorf("dockerclient: system info: %w", err)
+	}
+	_, ok := res.Info.Runtimes[name]
+	return ok, nil
 }
 
 // ImageExists reports whether the image exists locally.

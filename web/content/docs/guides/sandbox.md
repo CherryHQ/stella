@@ -53,6 +53,18 @@ Each mode rejects env vars that belong to other modes. For example, `bind` mode 
 
 Volume mode requires Docker Engine 25+ for volume subpath mounts.
 
+### OCI Runtime
+
+By default, sandbox containers use the Docker daemon's default Open Container Initiative (OCI) runtime, normally `runc`. Set `STELLA_DOCKER_RUNTIME` to a runtime registered with that daemon to select a stronger or specialized execution boundary:
+
+```bash
+STELLA_DOCKER_RUNTIME=runsc
+```
+
+`runsc` is the gVisor runtime. Install and register it with Docker before enabling this setting, then confirm it appears in `docker info`. Stella preflight rejects an unavailable configured runtime and does not fall back to the daemon default. The selected runtime applies to agent sessions and Docker tool-cache helper containers.
+
+An alternative OCI runtime reduces host-kernel exposure, but it does not restrict network egress or protect writable mounts. Keep the sandbox network policy and mount permissions independently constrained.
+
 ### Docker Compose Examples
 
 **Container with `local` or `none` sandbox** — the simplest deployment:
@@ -82,6 +94,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - STELLA_DOCKER_SANDBOX_MODE=bind
+      - STELLA_DOCKER_RUNTIME=runsc # optional; must be registered with Docker
       - STELLA_HOME_HOST=${PWD}/stella-data
 ```
 
@@ -97,6 +110,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - STELLA_DOCKER_SANDBOX_MODE=volume
+      - STELLA_DOCKER_RUNTIME=runsc # optional; must be registered with Docker
       - STELLA_HOME_VOLUME=stella-data
 
 volumes:
@@ -105,12 +119,13 @@ volumes:
 
 ### Environment Variables
 
-| Variable                     | Description                                                                |
-| ---------------------------- | -------------------------------------------------------------------------- |
-| `STELLA_SANDBOX_BACKEND`     | Sandbox backend for the deployment: `docker`, `local` (default), or `none` |
-| `STELLA_DOCKER_SANDBOX_MODE` | Required for the `docker` sandbox backend: `host`, `bind`, or `volume`     |
-| `STELLA_HOME_HOST`           | Host-side path backing `STELLA_HOME`; required only in `bind` mode         |
-| `STELLA_HOME_VOLUME`         | Docker named volume backing `STELLA_HOME`; required only in `volume` mode  |
+| Variable                     | Description                                                                    |
+| ---------------------------- | ------------------------------------------------------------------------------ |
+| `STELLA_SANDBOX_BACKEND`     | Sandbox backend for the deployment: `docker`, `local` (default), or `none`     |
+| `STELLA_DOCKER_SANDBOX_MODE` | Required for the `docker` sandbox backend: `host`, `bind`, or `volume`         |
+| `STELLA_DOCKER_RUNTIME`      | Optional registered OCI runtime for Docker sandbox containers, such as `runsc` |
+| `STELLA_HOME_HOST`           | Host-side path backing `STELLA_HOME`; required only in `bind` mode             |
+| `STELLA_HOME_VOLUME`         | Docker named volume backing `STELLA_HOME`; required only in `volume` mode      |
 
 If agents use `local` or `none`, none of these variables are needed.
 
