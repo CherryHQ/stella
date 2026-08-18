@@ -115,18 +115,15 @@ func TestGroupPublisherStreamsOneTopicProgressMessage(t *testing.T) {
 		t.Fatalf("progress reply anchor = %#v, want 7 (params %#v)", got, sends[0].params)
 	}
 	edits := fake.callsFor("editMessageText")
-	if len(edits) != 2 {
-		t.Fatalf("editMessageText calls = %d, want coalesced progress plus final", len(edits))
+	if len(edits) != 1 {
+		t.Fatalf("editMessageText calls = %d, want one final edit for the validated replay", len(edits))
 	}
 	if got := edits[len(edits)-1].params["text"]; got == nil || !strings.Contains(got.(string), "first second") {
 		t.Fatalf("final edit text = %#v, want complete response", got)
 	}
-	if typing := fake.callsFor("sendChatAction"); len(typing) == 0 {
-		t.Fatal("group publisher did not send typing")
-	}
 }
 
-func TestGroupPublisherMakesStreamFailureVisibleWithoutLeakingError(t *testing.T) {
+func TestGroupPublisherRejectsStreamFailureWithoutPlatformSideEffect(t *testing.T) {
 	fake := &telegramAPIFake{}
 	b := newPublisherTestBot(t, fake)
 	events := make(chan channel.Event, 1)
@@ -137,16 +134,11 @@ func TestGroupPublisherMakesStreamFailureVisibleWithoutLeakingError(t *testing.T
 		PlatformGroupID: "-100",
 		Stream:          &channel.ChatStream{Events: events},
 	})
-	if err != nil {
-		t.Fatalf("Publish: %v", err)
+	if err == nil {
+		t.Fatal("Publish unexpectedly accepted a failed replay")
 	}
-	edits := fake.callsFor("editMessageText")
-	if len(edits) != 1 {
-		t.Fatalf("editMessageText calls = %d, want final failure edit", len(edits))
-	}
-	text, _ := edits[0].params["text"].(string)
-	if !strings.Contains(text, "could not be completed") || strings.Contains(text, "secret upstream detail") {
-		t.Fatalf("failure text = %q", text)
+	if calls := fake.callsFor("sendMessage"); len(calls) != 0 {
+		t.Fatalf("sendMessage calls = %d, want no platform failure message", len(calls))
 	}
 }
 

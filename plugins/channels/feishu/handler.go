@@ -481,11 +481,15 @@ func (b *Bot) handleIncoming(msg channel.IncomingMessage, cmd, args, senderID, c
 	}
 
 	for _, img := range images {
-		b.sendImageInThread(chatID, messageID, rootID, img)
+		if err := b.sendImageInThread(chatID, messageID, rootID, img); err != nil {
+			logger().Error("send response image failed", "message_id", messageID, "error", err)
+		}
 	}
 
 	for _, file := range files {
-		b.sendFileInThread(chatID, messageID, rootID, file)
+		if err := b.sendFileInThread(chatID, messageID, rootID, file); err != nil {
+			logger().Error("send response file failed", "message_id", messageID, "error", err)
+		}
 	}
 
 	logger().Debug("response sent", "sender_id", senderID, "response_len", len(response), "images", len(images))

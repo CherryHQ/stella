@@ -706,6 +706,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		if err != nil {
 			return d.failDispatch(ctx, claimed, fmt.Errorf("get accepted group result: %w", err))
 		}
+		d.log.Warn("replaying accepted group reply from canonical text after buffer loss", "dispatch_id", claimed.ID, "result_message_id", accepted.ID, "upgrade_trigger", "cross-process rich replay requires BlobStore event spooling")
 		return d.publishAccepted(ownedCtx, claimed, message, state, publisher, groupResponseFromMessage(accepted))
 	}
 	agentName := claimed.AgentID
@@ -1164,6 +1165,9 @@ func (d *GroupDispatcher) bufferGroupResponse(ctx context.Context, stream *pkgch
 }
 
 func groupResponseFromMessage(message sqlc.CtxGroupMessage) groupResponse {
+	// Ceiling: event envelopes live only in this process. After a restart, an
+	// accepted unpublished reply replays canonical text/reasoning only. Spool the
+	// buffered event sequence to BlobStore when cross-process rich replay matters.
 	events := make([]pkgchannel.Event, 0, 2)
 	if message.Reasoning != "" {
 		events = append(events, pkgchannel.Event{Reasoning: message.Reasoning})

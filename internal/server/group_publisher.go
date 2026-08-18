@@ -45,7 +45,11 @@ func (p *webGroupPublisher) writeSSE(v any) {
 }
 
 func (p *webGroupPublisher) Publish(ctx context.Context, req channel.GroupPublishRequest) error {
-	if req.Stream == nil {
+	stream, err := channel.ValidateGroupReplay(ctx, req.Stream)
+	if err != nil {
+		return err
+	}
+	if stream == nil {
 		return nil
 	}
 	p.writeSSE(map[string]string{"type": "start-step"})
@@ -80,21 +84,16 @@ func (p *webGroupPublisher) Publish(ctx context.Context, req channel.GroupPublis
 		closeReasoning()
 	}
 
-	var streamErr error
 	for {
 		select {
-		case evt, ok := <-req.Stream.Events:
+		case evt, ok := <-stream.Events:
 			if !ok {
 				closeOpenParts()
-				return streamErr
+				return nil
 			}
 			if evt.Err != nil {
-				if streamErr == nil {
-					streamErr = evt.Err
-				}
 				closeOpenParts()
-				p.writeSSE(map[string]string{"type": "error", "errorText": evt.Err.Error()})
-				continue
+				return evt.Err
 			}
 			if evt.Reasoning != "" {
 				closeText()

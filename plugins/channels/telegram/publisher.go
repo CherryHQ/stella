@@ -26,6 +26,11 @@ const (
 // It deliberately has no session or agent logic: a failed platform request is
 // returned so the existing at-least-once group dispatcher owns the retry.
 func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishRequest) (err error) {
+	stream, err := internalchannel.ValidateGroupReplay(ctx, req.Stream)
+	if err != nil {
+		return err
+	}
+	req.Stream = stream
 	chatID, err := strconv.ParseInt(req.PlatformGroupID, 10, 64)
 	if err != nil {
 		return fmt.Errorf("telegram: invalid group id %q: %w", req.PlatformGroupID, err)
@@ -45,22 +50,18 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 		return fmt.Errorf("telegram: send progress: %w", err)
 	}
 
-	// Acknowledge only once the group turn is actually being served, and settle
-	// the verdict on every exit below. A dispatcher retry re-runs this and
-	// overwrites the emoji, which is exactly the behaviour we want.
-	streamOK := false
+	// A rejected replay never reaches this point. Egress failure clears the
+	// acknowledgement; the dispatcher owns retries and terminal delivery state.
 	b.react(req.PlatformGroupID, req.ReplyTo, reactionReceived)
-	defer func() { b.finishReaction(req.PlatformGroupID, req.ReplyTo, err == nil && streamOK) }()
+	defer func() { b.finishReaction(req.PlatformGroupID, req.ReplyTo, err == nil) }()
 
-	response, images, streamErr, err := b.renderGroupProgress(ctx, progress, opts, req.Stream)
+	response, images, files, streamErr, err := b.renderGroupProgress(ctx, progress, opts, req.Stream)
 	if err != nil {
 		return err
 	}
 	if streamErr != nil {
-		logger().Error("agent group stream error", "error", streamErr)
-		response = appendGroupStreamFailure(response)
+		return fmt.Errorf("telegram: render group replay: %w", streamErr)
 	}
-	streamOK = streamErr == nil
 	if strings.TrimSpace(response) == "" {
 		response = "(empty response)"
 	}
@@ -77,6 +78,11 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 	for _, img := range images {
 		if err := b.sendGroupImage(ctx, chat, img, opts); err != nil {
 			return fmt.Errorf("telegram: send response image: %w", err)
+		}
+	}
+	for _, file := range files {
+		if err := b.sendGroupFile(ctx, chat, file, opts); err != nil {
+			return fmt.Errorf("telegram: send response file: %w", err)
 		}
 	}
 	return nil
@@ -110,13 +116,14 @@ func telegramGroupSendOptions(req internalchannel.GroupPublishRequest, chatID in
 // renderGroupProgress coalesces text and tool updates into roughly one edit per
 // second. It never sends a duplicate display, and the final edit is performed
 // by Publish after the complete tool summary is available.
-func (b *Bot) renderGroupProgress(ctx context.Context, progress *tele.Message, opts *tele.SendOptions, stream *channel.ChatStream) (string, []channel.ImageEvent, error, error) {
+func (b *Bot) renderGroupProgress(ctx context.Context, progress *tele.Message, opts *tele.SendOptions, stream *channel.ChatStream) (string, []channel.ImageEvent, []channel.FileEvent, error, error) {
 	if stream == nil {
-		return "", nil, nil, nil
+		return "", nil, nil, nil, nil
 	}
 	var text strings.Builder
 	tracker := newToolTracker()
 	var images []channel.ImageEvent
+	var files []channel.FileEvent
 	lastDisplay := groupProgressPlaceholder
 	dirty := false
 	ticker := time.NewTicker(streamEditInterval)
@@ -142,10 +149,10 @@ func (b *Bot) renderGroupProgress(ctx context.Context, progress *tele.Message, o
 	for {
 		select {
 		case <-ctx.Done():
-			return text.String(), images, ctx.Err(), ctx.Err()
+			return text.String(), images, files, ctx.Err(), ctx.Err()
 		case <-ticker.C:
 			if err := flush(); err != nil {
-				return text.String(), images, nil, err
+				return text.String(), images, files, nil, err
 			}
 		case event, ok := <-stream.Events:
 			if !ok {
@@ -153,17 +160,21 @@ func (b *Bot) renderGroupProgress(ctx context.Context, progress *tele.Message, o
 				if tracker.HasHistory() {
 					response += tracker.RenderFinal()
 				}
-				return response, images, nil, nil
+				return response, images, files, nil, nil
 			}
 			if event.Err != nil {
 				response := text.String()
 				if tracker.HasHistory() {
 					response += tracker.RenderFinal()
 				}
-				return response, images, event.Err, nil
+				return response, images, files, event.Err, nil
 			}
 			if event.Image != nil {
 				images = append(images, *event.Image)
+				continue
+			}
+			if event.File != nil {
+				files = append(files, *event.File)
 				continue
 			}
 			if event.ToolUse != nil {
@@ -191,12 +202,15 @@ func (b *Bot) sendGroupImage(ctx context.Context, chat tele.Recipient, img chann
 	})
 }
 
-func appendGroupStreamFailure(response string) string {
-	const failure = "The response could not be completed. Please try again."
-	if strings.TrimSpace(response) == "" {
-		return failure
+func (b *Bot) sendGroupFile(ctx context.Context, chat tele.Recipient, file channel.FileEvent, opts *tele.SendOptions) error {
+	name := file.Name
+	if name == "" {
+		name = "file"
 	}
-	return response + "\n\n" + failure
+	return retryTelegram(ctx, func() error {
+		_, err := b.bot.Send(chat, &tele.Document{File: tele.FromDisk(file.Path), FileName: name}, opts)
+		return err
+	})
 }
 
 func keepGroupTyping(ctx context.Context, bot *tele.Bot, chat tele.Recipient, threadID int) {

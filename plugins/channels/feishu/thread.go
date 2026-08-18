@@ -117,11 +117,11 @@ func (b *Bot) reportDeliveryFailure(ctx context.Context, chatID, rootID, replyTo
 }
 
 // sendImageInThread sends an image in the correct thread context.
-func (b *Bot) sendImageInThread(chatID, replyMsgID, rootID string, img channel.ImageEvent) {
-	b.sendImage(chatID, threadReplyTarget(replyMsgID, rootID), img, rootID != "")
+func (b *Bot) sendImageInThread(chatID, replyMsgID, rootID string, img channel.ImageEvent) error {
+	return b.sendImage(chatID, threadReplyTarget(replyMsgID, rootID), img, rootID != "")
 }
 
 // sendFileInThread sends a file in the correct thread context.
-func (b *Bot) sendFileInThread(chatID, replyMsgID, rootID string, file channel.FileEvent) {
-	b.sendFile(chatID, threadReplyTarget(replyMsgID, rootID), file, rootID != "")
+func (b *Bot) sendFileInThread(chatID, replyMsgID, rootID string, file channel.FileEvent) error {
+	return b.sendFile(chatID, threadReplyTarget(replyMsgID, rootID), file, rootID != "")
 }

@@ -58,3 +58,20 @@ func TestWebGroupPublisherWriteFailureDrainsStream(t *testing.T) {
 		t.Fatalf("writes = %d, want exactly first failed write", w.writes)
 	}
 }
+
+func TestWebGroupPublisherRejectsStreamFailureWithoutSSE(t *testing.T) {
+	events := make(chan pkgchannel.Event, 1)
+	events <- pkgchannel.Event{Err: errors.New("upstream failed")}
+	close(events)
+	w := &failingStreamWriter{}
+	publisher := &webGroupPublisher{w: w, flusher: w}
+	err := publisher.Publish(context.Background(), channel.GroupPublishRequest{
+		Stream: &pkgchannel.ChatStream{Events: events},
+	})
+	if err == nil {
+		t.Fatal("Publish unexpectedly accepted a failed replay")
+	}
+	if w.writes != 0 {
+		t.Fatalf("writes = %d, want no SSE failure frame", w.writes)
+	}
+}

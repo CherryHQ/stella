@@ -62,6 +62,7 @@ func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.
 	var sb strings.Builder
 	var streamErr error
 	var currentTool string
+	tools := &channel.ToolTracker{}
 	var sentMsgID string
 	var images []channel.ImageEvent
 	var files []channel.FileEvent
@@ -104,6 +105,7 @@ func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.
 		}
 
 		if evt.ToolUse != nil {
+			tools.Handle(evt.ToolUse)
 			line := channel.ToolLine(evt.ToolUse)
 			if line != "" {
 				currentTool = line
@@ -153,7 +155,11 @@ func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.
 	// via sendFinalResponseInThread with elapsed time appended).
 	elapsed := nowFunc().Sub(startTime)
 
-	return sentMsgID, sb.String(), images, files, dedupeReferences(refs), elapsed, streamErr
+	response := sb.String()
+	if tools.HasHistory() {
+		response += tools.RenderFinal()
+	}
+	return sentMsgID, response, images, files, dedupeReferences(refs), elapsed, streamErr
 }
 
 // sendCardReply sends an interactive card reply and returns the new message ID.

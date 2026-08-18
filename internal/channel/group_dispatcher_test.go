@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"testing"
 	"time"
@@ -25,6 +26,42 @@ type recordingGroupPublisher struct {
 	err   error
 	calls int
 	texts []string
+}
+
+type eventRecordingGroupPublisher struct {
+	calls  int
+	events []pkgchannel.Event
+}
+
+func (p *eventRecordingGroupPublisher) Publish(_ context.Context, req GroupPublishRequest) error {
+	p.calls++
+	if req.Stream == nil {
+		return nil
+	}
+	for event := range req.Stream.Events {
+		p.events = append(p.events, event)
+	}
+	return nil
+}
+
+type acceptedReplayPublisher struct {
+	db                 *pgxpool.Pool
+	groupID            string
+	calledBeforeAccept bool
+	events             []pkgchannel.Event
+}
+
+func (p *acceptedReplayPublisher) Publish(ctx context.Context, req GroupPublishRequest) error {
+	var accepted int
+	if err := p.db.QueryRow(ctx, `SELECT count(*) FROM ctx_group_message WHERE group_id = $1 AND actor_type = 'agent'`, p.groupID).Scan(&accepted); err != nil || accepted == 0 {
+		p.calledBeforeAccept = true
+	}
+	if req.Stream != nil {
+		for event := range req.Stream.Events {
+			p.events = append(p.events, event)
+		}
+	}
+	return nil
 }
 
 type groupTurnCommitterFunc func(context.Context, *sqlc.Queries, memory.DeferredGroupTurn) error
@@ -371,6 +408,57 @@ func TestGroupDispatcherProcessOutboxHappyPath(t *testing.T) {
 	status := dispatchStatusByMessage(t, fx.db, fx.message.ID)
 	if status != "completed" {
 		t.Fatalf("dispatch status = %q, want completed", status)
+	}
+}
+
+func TestPublisherConformanceNoPreAcceptSideEffectOneLogicalDelivery(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	file := t.TempDir() + "/report.txt"
+	if err := os.WriteFile(file, []byte("report"), 0o600); err != nil {
+		t.Fatalf("write replay file: %v", err)
+	}
+	publisher := &acceptedReplayPublisher{db: fx.db, groupID: fx.groupID}
+	fx.d.publishers.Register("ch-1", publisher)
+	fx.d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+		if sink, ok := memory.GroupTurnSinkFrom(ctx); ok {
+			sink.Deliver(memory.DeferredGroupTurn{Complete: true})
+		}
+		events := make(chan pkgchannel.Event, 5)
+		events <- pkgchannel.Event{Reasoning: "because"}
+		events <- pkgchannel.Event{Text: "answer"}
+		events <- pkgchannel.Event{Image: &pkgchannel.ImageEvent{Data: "aW1hZ2U=", MimeType: "image/png"}}
+		events <- pkgchannel.Event{File: &pkgchannel.FileEvent{Path: file, Name: "report.txt"}}
+		events <- pkgchannel.Event{ToolUse: &pkgchannel.ToolUseEvent{Tool: "read", Status: "done", Detail: "ok"}}
+		close(events)
+		return &pkgchannel.ChatStream{Events: events, SessionID: "session-1"}, nil
+	}
+	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
+		t.Fatalf("process accepted replay: %v", err)
+	}
+	if publisher.calledBeforeAccept {
+		t.Fatal("publisher produced a side effect before the accept transaction committed")
+	}
+	if len(publisher.events) != 5 || publisher.events[2].Image == nil || publisher.events[3].File == nil || publisher.events[4].ToolUse == nil {
+		t.Fatalf("replayed events = %#v, want one complete logical delivery with image, file, and tool", publisher.events)
+	}
+
+	failure := newDispatcherFixture(t, "web", `{}`)
+	failingPublisher := &recordingGroupPublisher{}
+	failure.d.publishers.Register("ch-1", failingPublisher)
+	failure.d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+		if sink, ok := memory.GroupTurnSinkFrom(ctx); ok {
+			sink.Deliver(memory.DeferredGroupTurn{Complete: true})
+		}
+		events := make(chan pkgchannel.Event, 1)
+		events <- pkgchannel.Event{Err: errors.New("render source failed")}
+		close(events)
+		return &pkgchannel.ChatStream{Events: events}, nil
+	}
+	if err := failure.d.ProcessOutbox(context.Background(), failure.outbox); err == nil {
+		t.Fatal("failed replay did not surface through the dispatcher")
+	}
+	if failingPublisher.calls != 0 {
+		t.Fatalf("publisher calls = %d, want no platform failure message", failingPublisher.calls)
 	}
 }
 
@@ -776,6 +864,63 @@ func TestGroupDispatcherAcceptedResultSkipsChatAndReplaysPublish(t *testing.T) {
 	}
 	if got := countAgentGroupMessages(t, fx.db); got != 1 {
 		t.Fatalf("agent messages = %d, want accepted result only", got)
+	}
+}
+
+func TestRepublishAfterRestartUsesCanonicalTextOnly(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	publisher := &eventRecordingGroupPublisher{}
+	// A fresh dispatcher has no retained event envelope. It must re-publish the
+	// committed canonical row without starting another model turn.
+	restarted := NewGroupDispatcher(fx.db, fx.d.coord, NewPublisherRegistry())
+	restarted.SetGroupTurnCommitter(groupTurnCommitterFunc(func(context.Context, *sqlc.Queries, memory.DeferredGroupTurn) error {
+		t.Fatal("restart replay must not commit another group turn")
+		return nil
+	}))
+	restarted.publishers.Register("ch-1", publisher)
+	restarted.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+		t.Fatal("restart replay must not run chat")
+		return nil, nil
+	}
+	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
+		ID:             "d15a0000-0000-0000-0000-000000000001",
+		GroupMessageID: fx.message.ID,
+		GroupID:        fx.groupID,
+		AgentID:        "agent-1",
+		ReplyChannelID: "ch-1",
+		Status:         "running",
+		AttemptCount:   1,
+		LastError:      "",
+	}); err != nil {
+		t.Fatalf("create dispatch: %v", err)
+	}
+	accepted, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{
+		ActorType: eventlog.ActorAgent,
+		ActorID:   "agent-1",
+		Content:   "canonical text",
+		Reasoning: "canonical reasoning",
+	})
+	if err != nil {
+		t.Fatalf("append accepted result: %v", err)
+	}
+	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET result_message_id = $1 WHERE id = $2`, accepted.Message.ID, "d15a0000-0000-0000-0000-000000000001"); err != nil {
+		t.Fatalf("set result marker: %v", err)
+	}
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
+	if err != nil {
+		t.Fatalf("get dispatch: %v", err)
+	}
+	if err := restarted.ExecuteDispatch(context.Background(), dispatch, nil); err != nil {
+		t.Fatalf("replay after restart: %v", err)
+	}
+	if publisher.calls != 1 || len(publisher.events) != 2 {
+		t.Fatalf("publisher calls/events = %d/%d, want 1/2 canonical events", publisher.calls, len(publisher.events))
+	}
+	if got := publisher.events[0].Reasoning; got != "canonical reasoning" {
+		t.Fatalf("first replay event reasoning = %q", got)
+	}
+	if got := publisher.events[1].Text; got != "canonical text" {
+		t.Fatalf("second replay event text = %q", got)
 	}
 }
 
