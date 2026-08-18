@@ -425,7 +425,7 @@ func TestLibraryFileUploadValidationAndUnavailableCapability(t *testing.T) {
 	}
 
 	for name, wantStatus := range map[string]int{
-		"unsupported.csv": http.StatusBadRequest,
+		"unsupported.exe": http.StatusBadRequest,
 		"empty.txt":       http.StatusBadRequest,
 	} {
 		content := "value"

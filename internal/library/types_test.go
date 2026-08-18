@@ -103,7 +103,7 @@ func TestPrepareUploadRejectsInvalidAndOversizedContent(t *testing.T) {
 		content  []byte
 		wantErr  error
 	}{
-		{"unsupported", "policy.csv", []byte("a,b"), ErrUnsupportedFileType},
+		{"unsupported", "policy.exe", []byte("not a document"), ErrUnsupportedFileType},
 		{"empty", "policy.txt", nil, ErrInvalidFile},
 		{"invalid UTF-8", "policy.txt", []byte{0xff}, ErrInvalidFile},
 		{"invalid PDF", "policy.pdf", []byte("not a PDF"), ErrInvalidFile},
