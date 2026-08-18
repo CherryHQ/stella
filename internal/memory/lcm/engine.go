@@ -71,12 +71,16 @@ func sessionLockStripe(sessionID string) uint32 {
 
 // getOrCreateConversation retrieves or creates a scoped conversation for the session.
 func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.Session) (string, error) {
+	return p.getOrCreateConversationWithQueries(ctx, p.q, session)
+}
+
+func (p *Provider) getOrCreateConversationWithQueries(ctx context.Context, q *sqlc.Queries, session memory.Session) (string, error) {
 	session, err := requireMemorySessionScope(ctx, session)
 	if err != nil {
 		return "", err
 	}
 
-	conv, err := p.q.GetConversationBySessionID(ctx, conversationScopeParams(session))
+	conv, err := q.GetConversationBySessionID(ctx, conversationScopeParams(session))
 	if err == nil {
 		return conv.ID, nil
 	}
@@ -85,7 +89,7 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.S
 	}
 
 	now := time.Now().UTC()
-	conv, err = p.q.CreateConversation(ctx, sqlc.CreateConversationParams{
+	conv, err = q.CreateConversation(ctx, sqlc.CreateConversationParams{
 		ID:         uuid.Must(uuid.NewV7()).String(),
 		SessionID:  session.ID,
 		Channel:    session.Channel,
@@ -111,7 +115,7 @@ func (p *Provider) getOrCreateConversation(ctx context.Context, session memory.S
 	// Treating it as a lost race would hide it behind a "no rows" error.
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "ctx_conversation_session_id_key" {
-		conv, err = p.q.GetConversationBySessionID(ctx, conversationScopeParams(session))
+		conv, err = q.GetConversationBySessionID(ctx, conversationScopeParams(session))
 		if err != nil {
 			return "", fmt.Errorf("get conversation after create race: %w", err)
 		}

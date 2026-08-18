@@ -3,11 +3,117 @@ package memory
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+type groupTurnSinkKey struct{}
+
+// DeferredGroupTurn is the uncommitted group-turn state handed to the
+// dispatcher. It is intentionally separate from ChatStream: stream rebuilding
+// must never lose the transaction payload.
+type DeferredGroupTurn struct {
+	Session          Session
+	InjectedPeerRows []ai.Message
+	OwnRows          []ai.Message
+	TriggerSeq       int64
+	Complete         bool
+}
+
+// GroupTurnSink is a one-shot, non-blocking turn finalization channel.
+type GroupTurnSink struct {
+	results   chan DeferredGroupTurn
+	done      chan struct{}
+	once      sync.Once
+	mu        sync.RWMutex
+	injected  []ai.Message
+	result    DeferredGroupTurn
+	delivered bool
+}
+
+func NewGroupTurnSink() *GroupTurnSink {
+	return &GroupTurnSink{
+		results: make(chan DeferredGroupTurn, 1),
+		done:    make(chan struct{}),
+	}
+}
+
+func (s *GroupTurnSink) SetInjected(rows []ai.Message) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.injected = append([]ai.Message(nil), rows...)
+	s.mu.Unlock()
+}
+
+func (s *GroupTurnSink) Injected() []ai.Message {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]ai.Message(nil), s.injected...)
+}
+
+// Deliver records the first terminal result without blocking the producer.
+// Result assignment happens before done is closed, so Wait and Result observe a
+// complete value after the producer closes its output channel.
+func (s *GroupTurnSink) Deliver(turn DeferredGroupTurn) {
+	if s == nil {
+		return
+	}
+	s.once.Do(func() {
+		s.mu.Lock()
+		s.result = turn
+		s.delivered = true
+		s.mu.Unlock()
+		s.results <- turn
+		close(s.done)
+	})
+}
+
+// Wait blocks until the producer delivers its one terminal result or ctx ends.
+func (s *GroupTurnSink) Wait(ctx context.Context) (DeferredGroupTurn, error) {
+	if s == nil {
+		return DeferredGroupTurn{}, fmt.Errorf("wait for nil group turn sink")
+	}
+	select {
+	case <-s.done:
+		turn, _ := s.Result()
+		return turn, nil
+	case <-ctx.Done():
+		return DeferredGroupTurn{}, ctx.Err()
+	}
+}
+
+// Result returns the delivered result without consuming the buffered channel.
+func (s *GroupTurnSink) Result() (DeferredGroupTurn, bool) {
+	if s == nil {
+		return DeferredGroupTurn{}, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.result, s.delivered
+}
+
+func WithGroupTurnSink(ctx context.Context, sink *GroupTurnSink) context.Context {
+	return context.WithValue(ctx, groupTurnSinkKey{}, sink)
+}
+
+func GroupTurnSinkFrom(ctx context.Context) (*GroupTurnSink, bool) {
+	sink, ok := ctx.Value(groupTurnSinkKey{}).(*GroupTurnSink)
+	return sink, ok && sink != nil
+}
+
+// TxGroupCommitter commits a deferred turn into the dispatcher's outer tx.
+type TxGroupCommitter interface {
+	CommitGroupTurn(context.Context, *sqlc.Queries, DeferredGroupTurn) error
+}
 
 // ScopeUserIDFromContext returns the user_id this turn's conversation rows are
 // keyed by. A group turn carries no user identity — runtime identity stays the

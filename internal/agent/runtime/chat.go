@@ -90,6 +90,20 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 		close(out)
 		return
 	}
+	groupSink, deferredGroupTurn := memory.GroupTurnSinkFrom(ctx)
+	deferred := memory.DeferredGroupTurn{
+		Session:    memSess,
+		TriggerSeq: memory.GroupSeqFromContext(ctx),
+	}
+	// This is the only owner of out for a valid turn. Deliver before close gives
+	// the dispatcher a happens-before edge after it finishes draining the stream.
+	defer func() {
+		if deferredGroupTurn && memSess.GroupID != "" {
+			deferred.InjectedPeerRows = groupSink.Injected()
+			groupSink.Deliver(deferred)
+		}
+		close(out)
+	}()
 
 	msgText := MessageText(msg)
 	rt.log.Debug("chat started", "session_id", info.ID, "message_len", len(msgText))
@@ -175,7 +189,6 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 		rt.log.Warn("memory assemble failed", "session_id", info.ID, "error", err)
 		if memSess.GroupID != "" {
 			out <- Event{Err: fmt.Errorf("assemble group memory: %w", err)}
-			close(out)
 			return
 		}
 	} else {
@@ -203,7 +216,6 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 					rt.log.Warn("snapshot lookup failed, using base system", "session_id", info.ID, "error", err)
 				} else if rebuilt, err := selection.snapshotPrompt(ctx, info, snap); err != nil {
 					out <- Event{Err: fmt.Errorf("snapshot prompt: %w", err)}
-					close(out)
 					return
 				} else {
 					baseSystem = rebuilt
@@ -215,7 +227,6 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 		systemOut, err := selection.beforeRun(ctx, info, selection.model, msgText, baseSystem, history)
 		if err != nil {
 			out <- Event{Err: fmt.Errorf("before run: %w", err)}
-			close(out)
 			return
 		}
 		if systemOut != "" {
@@ -262,13 +273,11 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 			if ai.HasImage(blocks) {
 				if rt.sessionImages == nil {
 					out <- Event{Err: errors.New("session image enrichment is not configured")}
-					close(out)
 					return
 				}
 				enriched, err := rt.sessionImages.Enrich(ctx, info.UserID, info.AgentID, blocks)
 				if err != nil {
 					out <- Event{Err: fmt.Errorf("enrich user images: %w", err)}
-					close(out)
 					return
 				}
 				blocks = enriched
@@ -282,18 +291,15 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 			appender, ok := rt.mem.(memory.InboxAppender)
 			if !ok {
 				out <- Event{Err: errors.New("memory provider does not support durable Session inbox")}
-				close(out)
 				return
 			}
 			if err := appender.AppendInboxInput(ctx, memSess, co.inboxID, userMsg); err != nil {
 				out <- Event{Err: fmt.Errorf("persist Session inbox input: %w", err)}
-				close(out)
 				return
 			}
 		} else if err := rt.mem.Append(ctx, memSess, userMsg); err != nil {
 			if hasCanonicalImage {
 				out <- Event{Err: fmt.Errorf("persist canonical user message: %w", err)}
-				close(out)
 				return
 			}
 			rt.log.Warn("memory append user message failed", "session_id", info.ID, "error", err)
@@ -301,7 +307,12 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	}
 
 	stream := selection.runner.Chat(ctx, history, modelMsg)
-	chatErr := rt.streamEvents(ctx, info.ID, memSess, stream, out, hs, hookMeta, chatStart, storePrefix...)
+	ownRows, chatErr := rt.streamEventsWithRows(ctx, info.ID, memSess, stream, out, hs, hookMeta, chatStart, storePrefix...)
+	if deferredGroupTurn && memSess.GroupID != "" {
+		deferred.OwnRows = ownRows
+		deferred.Complete = chatErr == nil && assembledOK && ctx.Err() == nil
+		return
+	}
 	if chatErr == nil && assembledOK && ctx.Err() == nil && memSess.GroupID != "" {
 		if committer, ok := rt.mem.(memory.GroupCursorCommitter); ok {
 			commitCtx := context.WithoutCancel(ctx)
@@ -417,7 +428,7 @@ func sendEvent(ctx context.Context, out chan<- Event, evt Event) bool {
 	}
 }
 
-// streamEvents reads runner events, persists messages, and forwards to the caller.
+// streamEvents keeps the direct test helper's close-on-return behavior.
 func (rt *Runtime) streamEvents(
 	ctx context.Context,
 	sessionID string,
@@ -429,6 +440,24 @@ func (rt *Runtime) streamEvents(
 	chatStart time.Time,
 	storePrefix ...ai.Message,
 ) error {
+	defer close(out)
+	_, err := rt.streamEventsWithRows(ctx, sessionID, memSess, stream, out, hs, hookMeta, chatStart, storePrefix...)
+	return err
+}
+
+// streamEventsWithRows reads runner events and returns group rows for a
+// deferred transaction. Its caller owns output closure.
+func (rt *Runtime) streamEventsWithRows(
+	ctx context.Context,
+	sessionID string,
+	memSess memory.Session,
+	stream <-chan Event,
+	out chan<- Event,
+	hs *hooks.HookSet,
+	hookMeta hooks.HookMeta,
+	chatStart time.Time,
+	storePrefix ...ai.Message,
+) ([]ai.Message, error) {
 	persistCtx := context.WithoutCancel(ctx)
 	isGroup := memSess.GroupID != ""
 	var chatErr error
@@ -468,7 +497,6 @@ func (rt *Runtime) streamEvents(
 			Duration: time.Since(chatStart),
 			Error:    chatErr,
 		})
-		close(out)
 	}()
 
 	for evt := range stream {
@@ -478,7 +506,7 @@ func (rt *Runtime) streamEvents(
 			// Explicit stop and lifecycle shutdown are normal cancellation paths,
 			// not failed turns to surface as an in-band chat error.
 			if ctx.Err() != nil && errors.Is(evt.Err, context.Canceled) {
-				return ctx.Err()
+				return nil, ctx.Err()
 			}
 			if errors.Is(evt.Err, ErrChatTimeout) {
 				notice := "I've been working on this for a while and have reached the time limit. Here's where things stand — feel free to send a message to continue or change direction."
@@ -489,10 +517,10 @@ func (rt *Runtime) streamEvents(
 					}
 				}
 				sendEvent(ctx, out, Event{Text: notice})
-				return chatErr
+				return nil, chatErr
 			}
 			sendEvent(ctx, out, evt)
-			return chatErr
+			return nil, chatErr
 		}
 
 		if evt.Store != nil {
@@ -503,14 +531,14 @@ func (rt *Runtime) streamEvents(
 				flush := bufferedAssistantMessage(textBuf.String(), reasoningBuf.String())
 				if err := storeCurrent(flush); err != nil {
 					rt.log.Warn("memory append text-flush failed", "session_id", sessionID, "error", err)
-					return fmt.Errorf("memory append text-flush: %w", err)
+					return nil, fmt.Errorf("memory append text-flush: %w", err)
 				}
 				textBuf.Reset()
 				reasoningBuf.Reset()
 			}
 			if err := storeCurrent(evt.Store); err != nil {
 				rt.log.Warn("memory append store message failed", "session_id", sessionID, "error", err)
-				return fmt.Errorf("memory append store message: %w", err)
+				return nil, fmt.Errorf("memory append store message: %w", err)
 			}
 		}
 
@@ -518,7 +546,7 @@ func (rt *Runtime) streamEvents(
 			if !sendEvent(ctx, out, evt) {
 				chatErr = ctx.Err()
 				flushInterruptedAssistant()
-				return chatErr
+				return nil, chatErr
 			}
 			continue
 		}
@@ -532,33 +560,39 @@ func (rt *Runtime) streamEvents(
 		if !sendEvent(ctx, out, evt) {
 			chatErr = ctx.Err()
 			flushInterruptedAssistant()
-			return chatErr
+			return nil, chatErr
 		}
 	}
 
 	if ctx.Err() != nil {
 		flushInterruptedAssistant()
-		return ctx.Err()
+		return nil, ctx.Err()
 	}
 	if textBuf.Len() > 0 || reasoningBuf.Len() > 0 {
 		pendingStores = append(pendingStores, bufferedAssistantMessage(textBuf.String(), reasoningBuf.String()))
 	}
 	if isGroup {
+		if _, deferred := memory.GroupTurnSinkFrom(ctx); deferred {
+			ownRows := make([]ai.Message, 0, len(storePrefix)+len(pendingStores))
+			ownRows = append(ownRows, storePrefix...)
+			ownRows = append(ownRows, pendingStores...)
+			return ownRows, nil
+		}
 		if len(storePrefix) > 0 || len(pendingStores) > 0 {
 			if err := appendWithPrefix(pendingStores...); err != nil {
 				rt.log.Warn("memory append final message failed", "session_id", sessionID, "error", err)
-				return fmt.Errorf("memory append final message: %w", err)
+				return nil, fmt.Errorf("memory append final message: %w", err)
 			}
 		}
-		return nil
+		return nil, nil
 	}
 	if len(pendingStores) > 0 {
 		if err := appendWithPrefix(pendingStores...); err != nil {
 			rt.log.Warn("memory append final message failed", "session_id", sessionID, "error", err)
-			return fmt.Errorf("memory append final message: %w", err)
+			return nil, fmt.Errorf("memory append final message: %w", err)
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 func bufferedAssistantMessage(text, reasoning string) ai.AssistantMessage {

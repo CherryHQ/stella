@@ -62,18 +62,26 @@ func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, bu
 		injected = groupRowsToMessages(rows, agentID)
 	}
 
-	// 3.5. Persist injected messages before the live user turn so future
-	// assemblies preserve event-log chronology. Cursor movement is intentionally
-	// deferred to CommitGroupCursor after the chat succeeds.
-	injected, err = p.filterAlreadyPersistedInjected(ctx, convID, injected)
-	if err != nil {
-		return nil, fmt.Errorf("filter persisted injected messages: %w", err)
-	}
-	if len(injected) > 0 {
-		if err := p.Append(ctx, session, injected...); err != nil {
-			return nil, fmt.Errorf("persist between-turn messages: %w", err)
-		}
+	// A deferred group turn commits peer rows in the dispatcher's accept tx. The
+	// sink receives the full set before trim because rows outside this prompt
+	// window still have to be committed before its cursor can advance.
+	if sink, ok := memory.GroupTurnSinkFrom(ctx); ok {
+		sink.SetInjected(injected)
 		agentHistory = append(agentHistory, injected...)
+	} else {
+		// Legacy callers retain the original inline append path exactly. In
+		// particular, this defensive content dedup only belongs here: deferred
+		// turns must preserve legitimately repeated peer messages.
+		injected, err = p.filterAlreadyPersistedInjected(ctx, convID, injected)
+		if err != nil {
+			return nil, fmt.Errorf("filter persisted injected messages: %w", err)
+		}
+		if len(injected) > 0 {
+			if err := p.Append(ctx, session, injected...); err != nil {
+				return nil, fmt.Errorf("persist between-turn messages: %w", err)
+			}
+			agentHistory = append(agentHistory, injected...)
+		}
 	}
 
 	// 4. Apply the post-injection budget by whole user turns. The ordinary
@@ -105,16 +113,20 @@ func trimOldestCompleteTurns(messages []ai.Message, budget int) []ai.Message {
 }
 
 func (p *Provider) CommitGroupCursor(ctx context.Context, session memory.Session, triggerSeq int64) error {
+	return p.commitGroupCursorWithQueries(ctx, p.q, session, triggerSeq)
+}
+
+func (p *Provider) commitGroupCursorWithQueries(ctx context.Context, q *sqlc.Queries, session memory.Session, triggerSeq int64) error {
 	if session.GroupID == "" || session.AgentID == "" || triggerSeq <= 0 {
 		return nil
 	}
 	groupID := session.GroupID
 	pipeline := groupCursorPipeline(session.AgentID)
-	watermark := p.getGroupCursor(ctx, groupID, pipeline)
+	watermark := p.getGroupCursorWithQueries(ctx, q, groupID, pipeline)
 	if triggerSeq <= watermark {
 		return nil
 	}
-	if err := p.q.UpsertIngestCursor(ctx, sqlc.UpsertIngestCursorParams{
+	if err := q.UpsertIngestCursor(ctx, sqlc.UpsertIngestCursorParams{
 		GroupID:  groupID,
 		Pipeline: pipeline,
 		LastSeq:  triggerSeq,
@@ -181,7 +193,11 @@ func flattenUserContent(msg ai.UserMessage) string {
 
 // getGroupCursor returns the last-seen event log seq for this agent, or 0.
 func (p *Provider) getGroupCursor(ctx context.Context, groupID, pipeline string) int64 {
-	cursor, err := p.q.GetIngestCursor(ctx, sqlc.GetIngestCursorParams{
+	return p.getGroupCursorWithQueries(ctx, p.q, groupID, pipeline)
+}
+
+func (p *Provider) getGroupCursorWithQueries(ctx context.Context, q *sqlc.Queries, groupID, pipeline string) int64 {
+	cursor, err := q.GetIngestCursor(ctx, sqlc.GetIngestCursorParams{
 		GroupID:  groupID,
 		Pipeline: pipeline,
 	})
