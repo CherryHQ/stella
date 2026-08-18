@@ -201,6 +201,12 @@ func (f *fakeAnthropic) discardModelScripts() {
 	f.modelScripts = nil
 }
 
+func (f *fakeAnthropic) requestCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.reqs)
+}
+
 func TestFakeAnthropicModelScriptsDoNotConsumeFIFO(t *testing.T) {
 	f := newFakeAnthropic(t)
 	f.enqueueText("fifo")

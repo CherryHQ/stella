@@ -125,3 +125,79 @@ func (h *harness) testGroupConcurrentCounting(t *testing.T) {
 		}
 	}
 }
+
+func (h *harness) testGroupPingPongHardCap(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	fake := newFakeAnthropic(t)
+	providerID := h.createFakeProviderNamed(t, ctx, fake.baseURL(), "group-ping-"+h.runID)
+	const modelA, modelB = "count-a", "count-b"
+	for _, model := range []string{modelA, modelB} {
+		for i := range 8 {
+			fake.enqueueTextForModel(model, `{"act":true,"reason":"reply"}`)
+			fake.enqueueTextForModel(model, fmt.Sprintf("%s-%d", model, i))
+		}
+	}
+	a := h.createAgentNamedWithFast(t, ctx, providerID+"/"+modelA, providerID+"/"+modelA, "ping-a-"+h.runID)
+	b := h.createAgentNamedWithFast(t, ctx, providerID+"/"+modelB, providerID+"/"+modelB, "ping-b-"+h.runID)
+	groupID := h.createWebGroup(t, ctx, "ping-"+h.runID, a, b)
+	// Set the cap below the two-agent lapping floor. The lapping guard naturally
+	// stops an unclaimed pair after its first lap, so it cannot prove D7's hard
+	// cap by itself.
+	// Keep the cap low enough that the journey remains bounded while exercising
+	// the production persisted-cap API rather than a test-only dispatcher knob.
+	payload, _ := json.Marshal(map[string]any{"agent_chain_hard_limit": 1})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, h.baseURL+fmt.Sprintf("/api/groups/%s", groupID), strings.NewReader(string(payload)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := h.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PATCH group caps = %d", resp.StatusCode)
+	}
+	h.sendGroupMessage(t, ctx, groupID, "start ping pong")
+	waitAgentPosts := func(want int) {
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			var got int
+			if err := h.db.QueryRow(ctx, `SELECT count(*) FROM ctx_group_message WHERE group_id=$1 AND actor_type='agent'`, groupID).Scan(&got); err != nil {
+				t.Fatal(err)
+			}
+			if got >= want {
+				return
+			}
+			select {
+			case <-ctx.Done():
+				var states string
+				_ = h.db.QueryRow(context.Background(), `SELECT COALESCE(string_agg(status || ':' || kind || ':' || COALESCE(last_error, ''), ',' ORDER BY created_at), '') FROM ctx_group_dispatch WHERE group_id=$1`, groupID).Scan(&states)
+				t.Fatalf("agent posts=%d, want %d: %v dispatches=%s\n%s", got, want, ctx.Err(), states, h.proc.logTail(60))
+			case <-ticker.C:
+			}
+		}
+	}
+	waitAgentPosts(1)
+	// Let pending wakes traverse triage; the cap must prevent a fourth post.
+	time.Sleep(1500 * time.Millisecond)
+	var capped int
+	if err := h.db.QueryRow(ctx, `SELECT count(*) FROM ctx_group_message WHERE group_id=$1 AND actor_type='agent'`, groupID).Scan(&capped); err != nil {
+		t.Fatal(err)
+	}
+	if capped != 1 {
+		t.Fatalf("hard cap allowed %d agent posts, want 1", capped)
+	}
+	beforeCalls := fake.requestCount()
+	h.sendGroupMessage(t, ctx, groupID, "human reset")
+	waitAgentPosts(2)
+	if calls := fake.requestCount() - beforeCalls; calls > 4 {
+		t.Fatalf("post-reset triage/model calls=%d, want <=4", calls)
+	}
+	fake.discardModelScripts()
+}
