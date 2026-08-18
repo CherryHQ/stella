@@ -36,6 +36,14 @@ WHERE group_id = sqlc.arg(group_id)
   AND NOT (actor_type = 'agent' AND actor_id = sqlc.arg(agent_id))
   AND delivery_state != 'failed';
 
+-- name: MaxPeerMessageSeqAfterSeq :one
+SELECT COALESCE(MAX(seq), 0)::bigint
+FROM ctx_group_message
+WHERE group_id = sqlc.arg(group_id)
+  AND seq > sqlc.arg(after_seq)
+  AND NOT (actor_type = 'agent' AND actor_id = sqlc.arg(agent_id))
+  AND delivery_state != 'failed';
+
 -- name: GetLatestPeerGroupMessageWithContent :one
 SELECT *
 FROM ctx_group_message

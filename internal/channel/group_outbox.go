@@ -10,6 +10,8 @@ import (
 // time, while the group_id and membership view are available in the append
 // transaction.
 type GroupOutboxEnvelope struct {
+	ActorType         string               `json:"actor_type,omitempty"`
+	NudgeTarget       string               `json:"nudge_target,omitempty"`
 	Mentions          []pkgchannel.Mention `json:"mentions,omitempty"`
 	LifecycleFeedback bool                 `json:"lifecycle_feedback,omitempty"`
 }

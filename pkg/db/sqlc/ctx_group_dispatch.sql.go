@@ -90,7 +90,7 @@ WITH newest AS (
           COALESCE((
             SELECT MAX(own.seq)
             FROM ctx_group_dispatch accepted
-            JOIN ctx_group_message own ON own.id = accepted.result_message_id
+            JOIN ctx_group_message own ON own.id = accepted.result_message_id::uuid
             WHERE accepted.group_id = candidate.group_id
               AND accepted.agent_id = candidate.agent_id
               AND accepted.result_message_id IS NOT NULL
@@ -290,7 +290,7 @@ FROM ctx_group_dispatch held
 WHERE held.group_id = $1
   AND held.agent_id = $2
   AND held.status = 'held'
-  AND held.trigger_seq > GREATEST($3, $4)
+  AND held.trigger_seq > GREATEST($3::bigint, $4::bigint)
 `
 
 type CountHeldGroupDispatchesInChainParams struct {
@@ -358,6 +358,33 @@ func (q *Queries) CreateGroupDispatch(ctx context.Context, arg CreateGroupDispat
 		arg.LeaseUntil,
 		arg.NextAttemptAt,
 		arg.LastError,
+	)
+	return err
+}
+
+const createGroupWake = `-- name: CreateGroupWake :exec
+INSERT INTO ctx_group_dispatch (
+  id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, trigger_seq, kind
+)
+VALUES ($1, $2, $3, $4, $5, 'pending', 0, NULL, NULL, '',
+  (SELECT seq FROM ctx_group_message WHERE id = $2), 'wake') ON CONFLICT DO NOTHING
+`
+
+type CreateGroupWakeParams struct {
+	ID             string `json:"id"`
+	GroupMessageID string `json:"group_message_id"`
+	GroupID        string `json:"group_id"`
+	AgentID        string `json:"agent_id"`
+	ReplyChannelID string `json:"reply_channel_id"`
+}
+
+func (q *Queries) CreateGroupWake(ctx context.Context, arg CreateGroupWakeParams) error {
+	_, err := q.db.Exec(ctx, createGroupWake,
+		arg.ID,
+		arg.GroupMessageID,
+		arg.GroupID,
+		arg.AgentID,
+		arg.ReplyChannelID,
 	)
 	return err
 }
@@ -770,6 +797,32 @@ type MarkGroupDispatchPublishedParams struct {
 
 func (q *Queries) MarkGroupDispatchPublished(ctx context.Context, arg MarkGroupDispatchPublishedParams) (int64, error) {
 	result, err := q.db.Exec(ctx, markGroupDispatchPublished, arg.ID, arg.AttemptCount, arg.ResultMessageID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const markGroupDispatchSilent = `-- name: MarkGroupDispatchSilent :execrows
+UPDATE ctx_group_dispatch
+SET status = 'silent',
+    lease_until = NULL,
+    next_attempt_at = NULL,
+    last_error = $1,
+    updated_at = now()
+WHERE id = $2
+  AND status = 'running'
+  AND attempt_count = $3
+`
+
+type MarkGroupDispatchSilentParams struct {
+	Reason       string `json:"reason"`
+	ID           string `json:"id"`
+	AttemptCount int64  `json:"attempt_count"`
+}
+
+func (q *Queries) MarkGroupDispatchSilent(ctx context.Context, arg MarkGroupDispatchSilentParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markGroupDispatchSilent, arg.Reason, arg.ID, arg.AttemptCount)
 	if err != nil {
 		return 0, err
 	}

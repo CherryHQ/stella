@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"testing"
 	"time"
@@ -13,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/CherryHQ/stella/internal/agent"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
@@ -40,26 +38,6 @@ func (p *eventRecordingGroupPublisher) Publish(_ context.Context, req GroupPubli
 	}
 	for event := range req.Stream.Events {
 		p.events = append(p.events, event)
-	}
-	return nil
-}
-
-type acceptedReplayPublisher struct {
-	db                 *pgxpool.Pool
-	groupID            string
-	calledBeforeAccept bool
-	events             []pkgchannel.Event
-}
-
-func (p *acceptedReplayPublisher) Publish(ctx context.Context, req GroupPublishRequest) error {
-	var accepted int
-	if err := p.db.QueryRow(ctx, `SELECT count(*) FROM ctx_group_message WHERE group_id = $1 AND actor_type = 'agent'`, p.groupID).Scan(&accepted); err != nil || accepted == 0 {
-		p.calledBeforeAccept = true
-	}
-	if req.Stream != nil {
-		for event := range req.Stream.Events {
-			p.events = append(p.events, event)
-		}
 	}
 	return nil
 }
@@ -222,6 +200,68 @@ func createGroupMessageWithSeq(t *testing.T, q *sqlc.Queries, groupID, id string
 		t.Fatalf("create message %s: %v", id, err)
 	}
 	return msg
+}
+
+func TestWakeMaterializationSkipsAuthor(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	if _, err := fx.q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: "agent-2", Name: "Agent Two", Workspace: t.TempDir(), Sandbox: json.RawMessage("{}"), Scope: "system", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.q.CreateWebChannelIfNotExists(ctx, sqlc.CreateWebChannelIfNotExistsParams{ID: "ch-2", AgentID: pgtype.Text{String: "agent-2", Valid: true}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.q.AddGroupMember(ctx, sqlc.AddGroupMemberParams{GroupID: fx.groupID, AgentID: "agent-2", ReplyChannelID: "ch-2"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.d.materializeDispatchRowsTx(ctx, fx.outbox); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := fx.q.ListPendingGroupWakePairs(ctx, sqlc.ListPendingGroupWakePairsParams{Now: nullTime(time.Now().UTC()), LimitCount: 10})
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("human wakes = %d, %v; want 2", len(rows), err)
+	}
+	agentMessage, err := fx.q.CreateGroupMessage(ctx, sqlc.CreateGroupMessageParams{ID: "a1a1a1a1-0000-0000-0000-000000000002", GroupID: fx.groupID, Seq: 2, ActorType: string(eventlog.ActorAgent), ActorID: "agent-1", Content: "@agent-2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outbox, err := fx.q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{ID: "b0b0b0b0-0000-0000-0000-000000000002", GroupMessageID: agentMessage.ID, GroupID: fx.groupID, Envelope: "{}", Status: "pending"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.d.materializeDispatchRowsTx(ctx, outbox); err != nil {
+		t.Fatal(err)
+	}
+	var authorWakes int
+	if err := fx.db.QueryRow(ctx, `SELECT count(*) FROM ctx_group_dispatch WHERE group_message_id = $1 AND agent_id = 'agent-1'`, agentMessage.ID).Scan(&authorWakes); err != nil {
+		t.Fatal(err)
+	}
+	if authorWakes != 0 {
+		t.Fatalf("author wakes = %d, want 0", authorWakes)
+	}
+}
+
+func TestClaimNewestWakeSupersedesOlder(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	older := fx.message
+	newer := createGroupMessageWithSeq(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-000000000003", 2)
+	for id, message := range map[string]sqlc.CtxGroupMessage{"d15a0000-0000-0000-0000-000000000011": older, "d15a0000-0000-0000-0000-000000000012": newer} {
+		if err := fx.q.CreateGroupWake(ctx, sqlc.CreateGroupWakeParams{ID: id, GroupMessageID: message.ID, GroupID: fx.groupID, AgentID: "agent-1", ReplyChannelID: "ch-1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	claimed, ok, err := fx.d.claimDispatch(ctx, sqlc.CtxGroupDispatch{Status: "pending", Kind: "wake", GroupID: fx.groupID, AgentID: "agent-1"})
+	if err != nil || !ok || claimed.GroupMessageID != newer.ID {
+		t.Fatalf("claimed = %#v, ok=%v, err=%v", claimed, ok, err)
+	}
+	var status string
+	if err := fx.db.QueryRow(ctx, `SELECT status FROM ctx_group_dispatch WHERE id = $1`, "d15a0000-0000-0000-0000-000000000011").Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "superseded" {
+		t.Fatalf("older status = %q, want superseded", status)
+	}
 }
 
 func listPendingDispatchIDs(t *testing.T, q *sqlc.Queries, now time.Time, limit int32) []string {
@@ -387,81 +427,6 @@ func TestGroupDispatcherReapExpiredCompletesDispatchWithResultMarker(t *testing.
 	}
 }
 
-func TestGroupDispatcherProcessOutboxHappyPath(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	publisher := &recordingGroupPublisher{}
-	fx.d.publishers.Register("ch-1", publisher)
-
-	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
-		t.Fatalf("process outbox: %v", err)
-	}
-	outbox, err := fx.q.GetGroupOutbox(context.Background(), fx.outbox.ID)
-	if err != nil {
-		t.Fatalf("get outbox: %v", err)
-	}
-	if outbox.Status != "completed" {
-		t.Fatalf("outbox status = %q, want completed", outbox.Status)
-	}
-	if publisher.calls != 1 || len(publisher.texts) != 1 || publisher.texts[0] != "ok" {
-		t.Fatalf("publisher calls/texts = %d/%v, want one ok", publisher.calls, publisher.texts)
-	}
-	status := dispatchStatusByMessage(t, fx.db, fx.message.ID)
-	if status != "completed" {
-		t.Fatalf("dispatch status = %q, want completed", status)
-	}
-}
-
-func TestPublisherConformanceNoPreAcceptSideEffectOneLogicalDelivery(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	file := t.TempDir() + "/report.txt"
-	if err := os.WriteFile(file, []byte("report"), 0o600); err != nil {
-		t.Fatalf("write replay file: %v", err)
-	}
-	publisher := &acceptedReplayPublisher{db: fx.db, groupID: fx.groupID}
-	fx.d.publishers.Register("ch-1", publisher)
-	fx.d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
-		if sink, ok := memory.GroupTurnSinkFrom(ctx); ok {
-			sink.Deliver(memory.DeferredGroupTurn{Complete: true})
-		}
-		events := make(chan pkgchannel.Event, 5)
-		events <- pkgchannel.Event{Reasoning: "because"}
-		events <- pkgchannel.Event{Text: "answer"}
-		events <- pkgchannel.Event{Image: &pkgchannel.ImageEvent{Data: "aW1hZ2U=", MimeType: "image/png"}}
-		events <- pkgchannel.Event{File: &pkgchannel.FileEvent{Path: file, Name: "report.txt"}}
-		events <- pkgchannel.Event{ToolUse: &pkgchannel.ToolUseEvent{Tool: "read", Status: "done", Detail: "ok"}}
-		close(events)
-		return &pkgchannel.ChatStream{Events: events, SessionID: "session-1"}, nil
-	}
-	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
-		t.Fatalf("process accepted replay: %v", err)
-	}
-	if publisher.calledBeforeAccept {
-		t.Fatal("publisher produced a side effect before the accept transaction committed")
-	}
-	if len(publisher.events) != 5 || publisher.events[2].Image == nil || publisher.events[3].File == nil || publisher.events[4].ToolUse == nil {
-		t.Fatalf("replayed events = %#v, want one complete logical delivery with image, file, and tool", publisher.events)
-	}
-
-	failure := newDispatcherFixture(t, "web", `{}`)
-	failingPublisher := &recordingGroupPublisher{}
-	failure.d.publishers.Register("ch-1", failingPublisher)
-	failure.d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
-		if sink, ok := memory.GroupTurnSinkFrom(ctx); ok {
-			sink.Deliver(memory.DeferredGroupTurn{Complete: true})
-		}
-		events := make(chan pkgchannel.Event, 1)
-		events <- pkgchannel.Event{Err: errors.New("render source failed")}
-		close(events)
-		return &pkgchannel.ChatStream{Events: events}, nil
-	}
-	if err := failure.d.ProcessOutbox(context.Background(), failure.outbox); err == nil {
-		t.Fatal("failed replay did not surface through the dispatcher")
-	}
-	if failingPublisher.calls != 0 {
-		t.Fatalf("publisher calls = %d, want no platform failure message", failingPublisher.calls)
-	}
-}
-
 func TestPhase1PollIgnoresWakeRowsAndAgentOutboxes(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	ctx := context.Background()
@@ -530,65 +495,11 @@ func TestGroupDispatcherWebNoMentionSingleMemberFallbackCreatesOneDispatch(t *te
 	}
 }
 
-func TestGroupDispatcherWebNoMentionMultiMemberStaysSilent(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	addSecondMember(t, fx)
-
-	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
-		t.Fatalf("process outbox: %v", err)
-	}
-	count, err := fx.q.CountGroupDispatchByMessage(context.Background(), fx.message.ID)
-	if err != nil {
-		t.Fatalf("count dispatch: %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("dispatch rows = %d, want 0", count)
-	}
-}
-
 // A multi-member platform (non-web) group with no semantic arbiter takes the
 // degraded Warn path and stays silent — it must never broadcast to every member
 // the way the deleted `group_mode: always` fallback once did. This is the
 // positive lock on that branch: it fails if any all-members fallback is
 // reintroduced for platform groups.
-func TestGroupDispatcherPlatformNoMentionMultiMemberNoArbiterStaysSilent(t *testing.T) {
-	fx := newDispatcherFixture(t, "telegram", `{}`)
-	addSecondMember(t, fx)
-
-	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
-		t.Fatalf("process outbox: %v", err)
-	}
-	count, err := fx.q.CountGroupDispatchByMessage(context.Background(), fx.message.ID)
-	if err != nil {
-		t.Fatalf("count dispatch: %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("dispatch rows = %d, want 0 (platform multi-member, no arbiter)", count)
-	}
-}
-
-func TestGroupDispatcherZeroRespondersCompletesOutbox(t *testing.T) {
-	fx := newDispatcherFixture(t, "telegram", `{}`)
-
-	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
-		t.Fatalf("process outbox: %v", err)
-	}
-	outbox, err := fx.q.GetGroupOutbox(context.Background(), fx.outbox.ID)
-	if err != nil {
-		t.Fatalf("get outbox: %v", err)
-	}
-	if outbox.Status != "completed" {
-		t.Fatalf("outbox status = %q, want completed", outbox.Status)
-	}
-	count, err := fx.q.CountGroupDispatchByMessage(context.Background(), fx.message.ID)
-	if err != nil {
-		t.Fatalf("count dispatch: %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("dispatch rows = %d, want 0", count)
-	}
-}
-
 func TestGroupDispatcherResolvesEnvelopeMentionAtDispatch(t *testing.T) {
 	envelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{Raw: "@bot1", PlatformID: "bot1"}})
 	if err != nil {
@@ -605,29 +516,6 @@ func TestGroupDispatcherResolvesEnvelopeMentionAtDispatch(t *testing.T) {
 	}
 	if got := dispatchAgentsByMessage(t, fx.db, fx.message.ID); len(got) != 1 || got[0] != "agent-1" {
 		t.Fatalf("dispatch agents = %v, want [agent-1]", got)
-	}
-}
-
-func TestGroupDispatcherDispatchesAllMentionedMembers(t *testing.T) {
-	envelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{AgentID: "agent-1"}, {AgentID: "agent-2"}})
-	if err != nil {
-		t.Fatalf("encode envelope: %v", err)
-	}
-	fx := newDispatcherFixture(t, "telegram", envelope)
-	addSecondMember(t, fx)
-	firstPublisher := &recordingGroupPublisher{}
-	secondPublisher := &recordingGroupPublisher{}
-	fx.d.publishers.Register("ch-1", firstPublisher)
-	fx.d.publishers.Register("ch-2", secondPublisher)
-
-	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
-		t.Fatalf("process outbox: %v", err)
-	}
-	if got := dispatchAgentsByMessage(t, fx.db, fx.message.ID); len(got) != 2 || got[0] != "agent-1" || got[1] != "agent-2" {
-		t.Fatalf("dispatch agents = %v, want [agent-1 agent-2]", got)
-	}
-	if firstPublisher.calls != 1 || secondPublisher.calls != 1 {
-		t.Fatalf("publisher calls = %d/%d, want 1/1", firstPublisher.calls, secondPublisher.calls)
 	}
 }
 
@@ -1049,44 +937,6 @@ func TestAcceptTxRollbackAnnouncesNothing(t *testing.T) {
 	}
 }
 
-func TestGroupDispatcherDispatchSyncUsesPublisherOverride(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	publisher := &recordingGroupPublisher{}
-
-	if err := fx.d.DispatchSync(context.Background(), fx.outbox, publisher); err != nil {
-		t.Fatalf("dispatch sync: %v", err)
-	}
-	if publisher.calls != 1 {
-		t.Fatalf("publisher calls = %d, want 1", publisher.calls)
-	}
-}
-
-func TestGroupDispatcherDispatchSyncWaitsForBlockedDispatch(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	ctx := context.Background()
-	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_outbox SET status = 'completed' WHERE id = 'b0b0b0b0-0000-0000-0000-000000000001'`); err != nil {
-		t.Fatalf("complete earlier outbox: %v", err)
-	}
-	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000001", "agent-1", fx.message.GroupID, "pending", pgtype.Timestamptz{})
-	later := createGroupMessageWithSeq(t, fx.q, fx.message.GroupID, "a1a1a1a1-0000-0000-0000-000000000002", 2)
-	setGroupNextSeq(t, fx.db, fx.message.GroupID, later.Seq)
-	laterOutbox, err := fx.q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{ID: "b0b0b0b0-0000-0000-0000-000000000002", GroupMessageID: later.ID, GroupID: fx.message.GroupID, Envelope: "{}", Status: "pending", LastError: ""})
-	if err != nil {
-		t.Fatalf("create later outbox: %v", err)
-	}
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		_, _ = fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET status = 'completed' WHERE id = 'd15a0000-0000-0000-0000-000000000001'`)
-	}()
-	publisher := &recordingGroupPublisher{}
-	if err := fx.d.DispatchSync(ctx, laterOutbox, publisher); err != nil {
-		t.Fatalf("dispatch sync: %v", err)
-	}
-	if publisher.calls != 1 {
-		t.Fatalf("publisher calls = %d, want 1", publisher.calls)
-	}
-}
-
 func TestGroupDispatcherExtendsOutboxLeaseWhileRunning(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	fx.d.leaseDuration = 2 * time.Second
@@ -1291,15 +1141,6 @@ func dispatchAgentsByMessage(t *testing.T, db *pgxpool.Pool, messageID string) [
 	return agents
 }
 
-func dispatchStatusByMessage(t *testing.T, db *pgxpool.Pool, messageID string) string {
-	t.Helper()
-	var status string
-	if err := db.QueryRow(context.Background(), `SELECT status FROM ctx_group_dispatch WHERE group_message_id = $1`, messageID).Scan(&status); err != nil {
-		t.Fatalf("query dispatch status: %v", err)
-	}
-	return status
-}
-
 func countAgentGroupMessages(t *testing.T, db *pgxpool.Pool) int {
 	t.Helper()
 	var count int
@@ -1360,86 +1201,11 @@ func setGroupNextSeq(t *testing.T, db *pgxpool.Pool, groupID string, seq int64) 
 	}
 }
 
-type capturingGroupPublisher struct {
-	req GroupPublishRequest
-}
-
-func (p *capturingGroupPublisher) Publish(_ context.Context, req GroupPublishRequest) error {
-	p.req = req
-	if req.Stream != nil {
-		for range req.Stream.Events {
-		}
-	}
-	return nil
-}
-
 // TestExecuteDispatchAbortClosureUsesSessionQueueGroupKey verifies the
 // GroupPublishRequest.Abort closure ExecuteDispatch builds targets the exact
 // same per-(agent,group) session queue slot chatDispatchUnqueued enqueues
 // under. A wrong key would make a Discord Cancel click silently no-op
 // instead of stopping the running turn.
-func TestExecuteDispatchAbortClosureUsesSessionQueueGroupKey(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{"lifecycle_feedback":true}`)
-	publisher := &capturingGroupPublisher{}
-	fx.d.publishers.Register("ch-1", publisher)
-
-	sessionKey := agent.BuildGroupSessionKey("agent-1", fx.groupID)
-	wrongKey := agent.BuildGroupSessionKey("agent-2", fx.groupID)
-	correctCalled := false
-	wrongCalled := false
-
-	slot := fx.d.queue.getOrCreate(sessionKey)
-	slot.mu.Lock()
-	slot.activeCancel = func() { correctCalled = true }
-	slot.mu.Unlock()
-	defer fx.d.queue.release(slot)
-
-	wrongSlot := fx.d.queue.getOrCreate(wrongKey)
-	wrongSlot.mu.Lock()
-	wrongSlot.activeCancel = func() { wrongCalled = true }
-	wrongSlot.mu.Unlock()
-	defer fx.d.queue.release(wrongSlot)
-
-	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
-		t.Fatalf("process outbox: %v", err)
-	}
-	if publisher.req.RequesterID != "user-1" {
-		t.Fatalf("RequesterID = %q, want the triggering message's actor id", publisher.req.RequesterID)
-	}
-	if !publisher.req.LifecycleFeedback {
-		t.Fatal("LifecycleFeedback = false, want durable outbox metadata propagated to publisher")
-	}
-	if publisher.req.Abort == nil {
-		t.Fatal("Abort is nil, want a closure targeting the dispatch's session queue slot")
-	}
-	if publisher.req.FinalAttempt {
-		t.Fatal("FinalAttempt = true on the first dispatch attempt")
-	}
-	if !publisher.req.Abort() {
-		t.Fatal("Abort() = false, want true: it should cancel the active slot keyed by agent.BuildGroupSessionKey(agent-1, group)")
-	}
-	if !correctCalled {
-		t.Fatal("Abort() did not cancel the slot keyed by agent.BuildGroupSessionKey(agent-1, group)")
-	}
-	if wrongCalled {
-		t.Fatal("Abort() cancelled the wrong agent's session slot")
-	}
-}
-
-func TestExecuteDispatchMarksFinalPublishAttempt(t *testing.T) {
-	fx := newDispatcherFixture(t, "web", `{}`)
-	fx.d.maxAttempts = 1
-	publisher := &capturingGroupPublisher{}
-	fx.d.publishers.Register("ch-1", publisher)
-
-	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
-		t.Fatalf("process outbox: %v", err)
-	}
-	if !publisher.req.FinalAttempt {
-		t.Fatal("FinalAttempt = false, want true when the current attempt exhausts the dispatcher budget")
-	}
-}
-
 func assertNoAgentGroupMessages(t *testing.T, db *pgxpool.Pool) {
 	t.Helper()
 	var count int

@@ -797,6 +797,28 @@ func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg List
 	return items, nil
 }
 
+const maxPeerMessageSeqAfterSeq = `-- name: MaxPeerMessageSeqAfterSeq :one
+SELECT COALESCE(MAX(seq), 0)::bigint
+FROM ctx_group_message
+WHERE group_id = $1
+  AND seq > $2
+  AND NOT (actor_type = 'agent' AND actor_id = $3)
+  AND delivery_state != 'failed'
+`
+
+type MaxPeerMessageSeqAfterSeqParams struct {
+	GroupID  string `json:"group_id"`
+	AfterSeq int64  `json:"after_seq"`
+	AgentID  string `json:"agent_id"`
+}
+
+func (q *Queries) MaxPeerMessageSeqAfterSeq(ctx context.Context, arg MaxPeerMessageSeqAfterSeqParams) (int64, error) {
+	row := q.db.QueryRow(ctx, maxPeerMessageSeqAfterSeq, arg.GroupID, arg.AfterSeq, arg.AgentID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const setGroupDispatchCaps = `-- name: SetGroupDispatchCaps :one
 UPDATE ctx_group_state
 SET agent_chain_hard_limit = $1,

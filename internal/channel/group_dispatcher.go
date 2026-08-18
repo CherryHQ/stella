@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -256,12 +257,12 @@ func (d *GroupDispatcher) poll(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 	}
-	dueDispatch, err := d.q.ListPendingGroupDispatch(ctx, sqlc.ListPendingGroupDispatchParams{
+	dueDispatch, err := d.q.ListPendingGroupWakePairs(ctx, sqlc.ListPendingGroupWakePairsParams{
 		Now:        nullTime(time.Now().UTC()),
 		LimitCount: 25,
 	})
 	if err != nil {
-		return fmt.Errorf("list pending dispatch: %w", err)
+		return fmt.Errorf("list pending wake pairs: %w", err)
 	}
 	for _, row := range dueDispatch {
 		select {
@@ -338,17 +339,9 @@ func (d *GroupDispatcher) processOutbox(ctx context.Context, outbox sqlc.CtxGrou
 		})
 	}, cancelOwned)
 	defer stopHeartbeat()
-	message, err := d.q.GetGroupMessage(ownedCtx, claimed.GroupMessageID)
+	_, err = d.q.GetGroupMessage(ownedCtx, claimed.GroupMessageID)
 	if err != nil {
 		return d.failOutbox(ctx, claimed, fmt.Errorf("get outbox message: %w", err))
-	}
-	// Phase-1 rollback fence: agent-authored outboxes may be left by a newer
-	// release, but this binary must never route them through the arbiter.
-	if message.ActorType == string(eventlog.ActorAgent) {
-		if _, err := d.q.MarkGroupOutboxCompleted(ctx, sqlc.MarkGroupOutboxCompletedParams{ID: claimed.ID, AttemptCount: claimed.AttemptCount}); err != nil {
-			return fmt.Errorf("complete fenced agent outbox: %w", err)
-		}
-		return nil
 	}
 	count, err := d.q.CountGroupDispatchByMessage(ownedCtx, claimed.GroupMessageID)
 	if err != nil {
@@ -360,19 +353,6 @@ func (d *GroupDispatcher) processOutbox(ctx context.Context, outbox sqlc.CtxGrou
 		}
 	}
 	stopHeartbeat()
-	if publisherOverride != nil {
-		rows, err := d.completeOutboxAndClaimDispatches(ctx, claimed)
-		if err != nil {
-			return err
-		}
-		var errs []error
-		for _, row := range rows {
-			if err := d.ExecuteDispatch(ctx, row, publisherOverride); err != nil {
-				errs = append(errs, err)
-			}
-		}
-		return errors.Join(errs...)
-	}
 	rows, err := d.q.MarkGroupOutboxCompleted(ctx, sqlc.MarkGroupOutboxCompletedParams{ID: claimed.ID, AttemptCount: claimed.AttemptCount})
 	if err != nil {
 		return fmt.Errorf("mark outbox completed: %w", err)
@@ -380,34 +360,8 @@ func (d *GroupDispatcher) processOutbox(ctx context.Context, outbox sqlc.CtxGrou
 	if rows == 0 {
 		return nil
 	}
-	return d.executeDispatchesByMessage(ctx, claimed.GroupMessageID, publisherOverride)
-}
-
-func (d *GroupDispatcher) completeOutboxAndClaimDispatches(ctx context.Context, outbox sqlc.CtxGroupOutbox) ([]sqlc.CtxGroupDispatch, error) {
-	tx, err := d.db.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("complete sync outbox: begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := d.q.WithTx(tx)
-	updated, err := q.MarkGroupOutboxCompleted(ctx, sqlc.MarkGroupOutboxCompletedParams{ID: outbox.ID, AttemptCount: outbox.AttemptCount})
-	if err != nil {
-		return nil, fmt.Errorf("complete sync outbox: %w", err)
-	}
-	if updated == 0 {
-		return nil, nil
-	}
-	rows, err := q.ClaimPendingGroupDispatchesByMessage(ctx, sqlc.ClaimPendingGroupDispatchesByMessageParams{
-		GroupMessageID: outbox.GroupMessageID,
-		LeaseUntil:     nullTime(time.Now().UTC().Add(d.leaseDuration)),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("claim sync dispatches: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("complete sync outbox: commit: %w", err)
-	}
-	return rows, nil
+	d.Wake()
+	return nil
 }
 
 func (d *GroupDispatcher) claimOutbox(ctx context.Context, row sqlc.CtxGroupOutbox) (sqlc.CtxGroupOutbox, bool, error) {
@@ -433,12 +387,12 @@ func (d *GroupDispatcher) claimOutbox(ctx context.Context, row sqlc.CtxGroupOutb
 }
 
 func (d *GroupDispatcher) materializeDispatchRowsTx(ctx context.Context, outbox sqlc.CtxGroupOutbox) error {
-	responding, err := d.prepareDispatchResponders(ctx, d.q, outbox)
+	message, err := d.q.GetGroupMessage(ctx, outbox.GroupMessageID)
 	if err != nil {
 		return err
 	}
 	if d.db == nil {
-		return d.createDispatchRows(ctx, d.q, outbox, responding)
+		return d.materializeWakeRows(ctx, d.q, outbox, message)
 	}
 	tx, err := d.db.Begin(ctx)
 	if err != nil {
@@ -450,7 +404,7 @@ func (d *GroupDispatcher) materializeDispatchRowsTx(ctx context.Context, outbox 
 			_ = tx.Rollback(ctx)
 		}
 	}()
-	if err := d.createDispatchRows(ctx, d.q.WithTx(tx), outbox, responding); err != nil {
+	if err := d.materializeWakeRows(ctx, d.q.WithTx(tx), outbox, message); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -460,216 +414,25 @@ func (d *GroupDispatcher) materializeDispatchRowsTx(ctx context.Context, outbox 
 	return nil
 }
 
-func (d *GroupDispatcher) prepareDispatchResponders(ctx context.Context, q *sqlc.Queries, outbox sqlc.CtxGroupOutbox) ([]string, error) {
-	message, state, err := d.messageAndStateWithQueries(ctx, q, outbox.GroupMessageID)
-	if err != nil {
-		return nil, err
-	}
-	envelope, err := DecodeGroupOutboxEnvelope(outbox.Envelope)
-	if err != nil {
-		return nil, fmt.Errorf("decode outbox envelope: %w", err)
-	}
-	members, err := q.ListGroupMembers(ctx, outbox.GroupID)
-	if err != nil {
-		return nil, fmt.Errorf("list group members: %w", err)
-	}
-	groupMembers := make([]GroupMember, len(members))
-	for i, m := range members {
-		groupMembers[i] = GroupMember{AgentID: m.AgentID, ReplyChannelID: m.ReplyChannelID}
-	}
-	if d.coord != nil {
-		d.coord.resolveMentionAgentsWithMembers(ctx, outbox.GroupID, state.Platform, envelope.Mentions, groupMembers)
-	}
-	return d.decideResponders(ctx, q, outbox, message, state, envelope, groupMembers), nil
-}
-
-func (d *GroupDispatcher) createDispatchRows(ctx context.Context, q *sqlc.Queries, outbox sqlc.CtxGroupOutbox, responding []string) error {
+// materializeWakeRows creates a durable per-member triage opportunity for
+// every canonical message. The author has already acted, so never wake it.
+func (d *GroupDispatcher) materializeWakeRows(ctx context.Context, q *sqlc.Queries, outbox sqlc.CtxGroupOutbox, message sqlc.CtxGroupMessage) error {
 	members, err := q.ListGroupMembers(ctx, outbox.GroupID)
 	if err != nil {
 		return fmt.Errorf("list group members: %w", err)
 	}
-	groupMembers := make([]GroupMember, len(members))
-	for i, m := range members {
-		groupMembers[i] = GroupMember{AgentID: m.AgentID, ReplyChannelID: m.ReplyChannelID}
-	}
-	for _, agentID := range responding {
-		replyChannelID := findMemberReplyChannel(groupMembers, agentID)
-		if replyChannelID == "" {
-			d.log.Warn("selected group agent has no reply channel", "group_id", outbox.GroupID, "agent_id", agentID)
+	for _, member := range members {
+		if message.ActorType == string(eventlog.ActorAgent) && member.AgentID == message.ActorID {
 			continue
 		}
-		if err := q.CreateGroupDispatch(ctx, sqlc.CreateGroupDispatchParams{
-			ID:             uuid.Must(uuid.NewV7()).String(),
-			GroupMessageID: outbox.GroupMessageID,
-			GroupID:        outbox.GroupID,
-			AgentID:        agentID,
-			ReplyChannelID: replyChannelID,
-			Status:         "pending",
-			AttemptCount:   0,
-			LeaseUntil:     pgtype.Timestamptz{},
-			NextAttemptAt:  pgtype.Timestamptz{},
-			LastError:      "",
+		if err := q.CreateGroupWake(ctx, sqlc.CreateGroupWakeParams{
+			ID: uuid.Must(uuid.NewV7()).String(), GroupMessageID: outbox.GroupMessageID,
+			GroupID: outbox.GroupID, AgentID: member.AgentID, ReplyChannelID: member.ReplyChannelID,
 		}); err != nil {
-			return fmt.Errorf("create dispatch row: %w", err)
+			return fmt.Errorf("create wake row: %w", err)
 		}
 	}
 	return nil
-}
-
-// decideResponders selects which agents respond. Explicit mentions that resolve
-// to a group member take the deterministic rule path. A mention that resolves to
-// no member, and a no-mention message, both fall through to the semantic arbiter
-// when one is configured; otherwise the only auto-reply is a single-member web
-// group, and every other group stays silent until a semantic arbiter is wired.
-func (d *GroupDispatcher) decideResponders(ctx context.Context, q *sqlc.Queries, outbox sqlc.CtxGroupOutbox, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState, envelope GroupOutboxEnvelope, groupMembers []GroupMember) []string {
-	if len(envelope.Mentions) > 0 {
-		var responding []string
-		if d.coord != nil && d.coord.arbiter != nil {
-			responding = d.coord.arbiter.Decide(ctx, outbox.GroupID, envelope.Mentions, groupMembers, "", DecideOptions{
-				AllMembersFallback:   false,
-				DisableDebounce:      true,
-				MaxRepliesPerTrigger: int(state.MaxRepliesPerHumanTrigger),
-			}).RespondingAgents
-		} else {
-			responding = fallbackGroupDecision(envelope.Mentions, groupMembers).RespondingAgents
-		}
-		if len(responding) > 0 {
-			return responding
-		}
-		// Mentions were present but none resolved to a member agent. Silently
-		// dropping the turn here (the old behavior) made explicit mentions
-		// strictly less reliable than no-mention routing: a bot-identity/registry
-		// miss, a human-only @mention, or a mention of a non-member bot all looked
-		// accepted (the platform acked) yet produced no reply (#619). Fall through
-		// to the same no-mention path so semantic routing still gets a chance.
-		// Debug, not Warn: @-mentioning a human or a non-member bot is ordinary
-		// group traffic. The genuinely anomalous case — a mention that hit the bot
-		// registry yet still failed to resolve — is logged per-mention in
-		// resolveMentionAgentsWithMembers, so a Warn here would only bury it.
-		d.log.Debug("group mention resolved to no member agent; falling back to no-mention routing",
-			"group_id", outbox.GroupID,
-			"platform", state.Platform,
-			"mention_count", len(envelope.Mentions),
-			"member_count", len(groupMembers),
-		)
-		// Fall through to the shared no-mention path below; it routes purely off
-		// groupMembers and never re-reads envelope.Mentions.
-	}
-	if d.coord != nil && d.coord.semanticGroupArbiter != nil {
-		return d.semanticResponders(ctx, q, outbox.GroupID, message, state, groupMembers)
-	}
-	// No semantic arbiter (degraded/legacy setup with no routing model). A resolved
-	// @mention already returned above; the only remaining auto-reply is a
-	// single-member web group. Every other group stays silent until a semantic
-	// arbiter is wired — there is no all-members broadcast mode anymore.
-	if state.Platform == "web" && len(groupMembers) == 1 {
-		return []string{groupMembers[0].AgentID}
-	}
-	if len(groupMembers) > 1 {
-		d.log.Warn("group has multiple members and no semantic arbiter; configure a routing model for group auto-reply", "group_id", outbox.GroupID, "platform", state.Platform, "member_count", len(groupMembers))
-	}
-	return nil
-}
-
-// semanticResponders builds the semantic request from current DB facts and asks
-// the arbiter. Returns nil (no rows) on any silence/failure — the arbiter itself
-// already collapses failures to silence.
-func (d *GroupDispatcher) semanticResponders(ctx context.Context, q *sqlc.Queries, groupID string, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState, groupMembers []GroupMember) []string {
-	smembers := make([]SemanticGroupMember, 0, len(groupMembers))
-	for _, m := range groupMembers {
-		a, err := q.GetAgent(ctx, m.AgentID)
-		if err != nil {
-			d.log.Warn("semantic routing: get agent failed", "group_id", groupID, "agent_id", m.AgentID, "error", err)
-			continue
-		}
-		summary := a.SystemPrompt
-		smembers = append(smembers, SemanticGroupMember{
-			AgentID:        m.AgentID,
-			Name:           a.Name,
-			Scope:          a.Scope,
-			CreatorID:      a.CreatorID,
-			Summary:        summary,
-			ReplyChannelID: m.ReplyChannelID,
-		})
-	}
-	if len(smembers) == 0 {
-		return nil
-	}
-	ownerUserID := ""
-	if state.Platform == "web" {
-		ownerUserID = nullStringValue(state.CreatedByUserID)
-	}
-	decision := d.coord.semanticGroupArbiter.Decide(ctx, SemanticGroupRequest{
-		Message:       message.Content,
-		RecentContext: d.recentGroupContext(ctx, q, groupID, message.Seq),
-		Members:       smembers,
-		OwnerUserID:   ownerUserID,
-		MaxResponders: int(state.MaxRepliesPerHumanTrigger),
-	})
-	if !decision.ShouldReply {
-		return nil
-	}
-	return decision.RespondingAgents
-}
-
-// recentGroupContext returns prior group messages oldest→newest. It caps by
-// seq so delayed outbox retries never route using future messages.
-func (d *GroupDispatcher) recentGroupContext(ctx context.Context, q *sqlc.Queries, groupID string, currentSeq int64) []SemanticGroupContextMessage {
-	rows, err := q.ListRecentGroupMessagesBeforeSeq(ctx, sqlc.ListRecentGroupMessagesBeforeSeqParams{
-		GroupID:   groupID,
-		BeforeSeq: currentSeq,
-		MaxCount:  int32(semanticMaxContextMessages),
-	})
-	if err != nil {
-		d.log.Warn("semantic routing: list recent messages failed", "group_id", groupID, "error", err)
-		return nil
-	}
-	out := make([]SemanticGroupContextMessage, 0, len(rows))
-	for i := len(rows) - 1; i >= 0; i-- {
-		r := rows[i]
-		out = append(out, SemanticGroupContextMessage{
-			ActorType: r.ActorType,
-			ActorID:   r.ActorID,
-			Content:   r.Content,
-		})
-	}
-	return out
-}
-
-func (d *GroupDispatcher) executeDispatchesByMessage(ctx context.Context, groupMessageID string, publisherOverride GroupPublisher) error {
-	for {
-		rows, err := d.q.ListPendingGroupDispatchByMessage(ctx, sqlc.ListPendingGroupDispatchByMessageParams{
-			GroupMessageID: groupMessageID,
-			Now:            nullTime(time.Now().UTC()),
-		})
-		if err != nil {
-			return fmt.Errorf("list dispatch rows: %w", err)
-		}
-		var errs []error
-		for _, row := range rows {
-			if err := d.ExecuteDispatch(ctx, row, publisherOverride); err != nil {
-				errs = append(errs, err)
-			}
-		}
-		if err := errors.Join(errs...); err != nil {
-			return err
-		}
-		if publisherOverride == nil {
-			return nil
-		}
-		remaining, err := d.q.CountNonTerminalGroupDispatchByMessage(ctx, groupMessageID)
-		if err != nil {
-			return fmt.Errorf("count remaining dispatch rows: %w", err)
-		}
-		if remaining == 0 {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-time.After(250 * time.Millisecond):
-		}
-	}
 }
 
 func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroupDispatch, publisherOverride GroupPublisher) error {
@@ -704,6 +467,19 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		// publish metadata must not make an otherwise executable legacy row fail.
 		d.log.Debug("ignoring invalid group outbox publish metadata", "dispatch_id", claimed.ID, "error", err)
 		envelope = GroupOutboxEnvelope{}
+	}
+	if claimed.Kind == "wake" {
+		act, reason, degraded := d.triageWake(ownedCtx, claimed, message, state, envelope)
+		if !act {
+			if d.events != nil {
+				d.events.AnnounceTurn(claimed.GroupID, claimed.AgentID, "silent", reason)
+			}
+			if degraded && claimed.AttemptCount < d.maxAttempts {
+				return d.failDispatch(ctx, claimed, fmt.Errorf("degraded_triage: %s", reason))
+			}
+			_, err := d.q.MarkGroupDispatchSilent(ctx, sqlc.MarkGroupDispatchSilentParams{ID: claimed.ID, AttemptCount: claimed.AttemptCount, Reason: reason})
+			return err
+		}
 	}
 	publisher, err := d.publisherFor(state, claimed, publisherOverride)
 	if err != nil {
@@ -752,6 +528,12 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		return d.failDispatch(ctx, claimed, cause)
 	}
 	accepted, err := d.acceptGroupResponse(ownedCtx, claimed, state, response, turn)
+	if errors.Is(err, errGroupTurnHeld) {
+		if d.events != nil {
+			d.events.AnnounceTurn(claimed.GroupID, claimed.AgentID, "held", "freshness")
+		}
+		return nil
+	}
 	if err != nil {
 		return d.failDispatch(ctx, claimed, err)
 	}
@@ -766,6 +548,19 @@ func (d *GroupDispatcher) claimDispatch(ctx context.Context, row sqlc.CtxGroupDi
 	case "running":
 		return row, true, nil
 	case "pending":
+		if row.Kind == "wake" {
+			claimed, err := d.q.ClaimNewestGroupWake(ctx, sqlc.ClaimNewestGroupWakeParams{
+				GroupID: row.GroupID, AgentID: row.AgentID, Now: nullTime(time.Now().UTC()),
+				LeaseUntil: nullTime(time.Now().UTC().Add(d.leaseDuration)),
+			})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return sqlc.CtxGroupDispatch{}, false, nil
+			}
+			if err != nil {
+				return sqlc.CtxGroupDispatch{}, false, fmt.Errorf("claim newest wake: %w", err)
+			}
+			return claimed, true, nil
+		}
 		claimed, err := d.q.ClaimPendingGroupDispatch(ctx, sqlc.ClaimPendingGroupDispatchParams{
 			ID:         row.ID,
 			Now:        nullTime(time.Now().UTC()),
@@ -807,8 +602,58 @@ func (d *GroupDispatcher) acceptGroupResponse(ctx context.Context, row sqlc.CtxG
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := d.q.WithTx(tx)
-	if _, err := q.GetGroupStateByIDForUpdate(ctx, row.GroupID); err != nil {
+	locked, err := q.GetGroupStateByIDForUpdate(ctx, row.GroupID)
+	if err != nil {
 		return eventlog.AppendResult{}, fmt.Errorf("lock group state for accept: %w", err)
+	}
+	lastHuman, err := q.LastHumanSeqAtOrBefore(ctx, sqlc.LastHumanSeqAtOrBeforeParams{GroupID: row.GroupID, TriggerSeq: row.TriggerSeq})
+	if err != nil {
+		return eventlog.AppendResult{}, fmt.Errorf("last human seq: %w", err)
+	}
+	held, err := q.CountHeldGroupDispatchesInChain(ctx, sqlc.CountHeldGroupDispatchesInChainParams{GroupID: row.GroupID, AgentID: row.AgentID, AfterOwnPostSeq: 0, AfterHumanSeq: lastHuman})
+	if err != nil {
+		return eventlog.AppendResult{}, fmt.Errorf("count held dispatches: %w", err)
+	}
+	if held < int64(locked.HoldLimit) {
+		peers, err := q.CountPeerMessagesAfterSeq(ctx, sqlc.CountPeerMessagesAfterSeqParams{GroupID: row.GroupID, AfterSeq: row.TriggerSeq, AgentID: row.AgentID})
+		if err != nil {
+			return eventlog.AppendResult{}, fmt.Errorf("count peer messages after snapshot: %w", err)
+		}
+		if peers > 0 {
+			upTo, err := q.MaxPeerMessageSeqAfterSeq(ctx, sqlc.MaxPeerMessageSeqAfterSeqParams{GroupID: row.GroupID, AfterSeq: row.TriggerSeq, AgentID: row.AgentID})
+			if err != nil {
+				return eventlog.AppendResult{}, fmt.Errorf("max peer message seq: %w", err)
+			}
+			if _, err := q.MarkGroupDispatchHeld(ctx, sqlc.MarkGroupDispatchHeldParams{ID: row.ID, AttemptCount: row.AttemptCount, HeldUpToSeq: pgtype.Int8{Int64: upTo, Valid: true}}); err != nil {
+				return eventlog.AppendResult{}, fmt.Errorf("mark held: %w", err)
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return eventlog.AppendResult{}, fmt.Errorf("commit held dispatch: %w", err)
+			}
+			return eventlog.AppendResult{}, errGroupTurnHeld
+		}
+	}
+	if _, err := q.GetLatestPeerGroupMessageWithContent(ctx, sqlc.GetLatestPeerGroupMessageWithContentParams{GroupID: row.GroupID, AgentID: row.AgentID, Content: response.text}); err == nil {
+		if _, err := q.MarkGroupDispatchHeld(ctx, sqlc.MarkGroupDispatchHeldParams{ID: row.ID, AttemptCount: row.AttemptCount}); err != nil {
+			return eventlog.AppendResult{}, fmt.Errorf("mark duplicate held: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return eventlog.AppendResult{}, fmt.Errorf("commit duplicate held: %w", err)
+		}
+		return eventlog.AppendResult{}, errGroupTurnHeld
+	}
+	posts, err := q.CountAgentPostsSinceSeq(ctx, sqlc.CountAgentPostsSinceSeqParams{GroupID: row.GroupID, AfterSeq: lastHuman})
+	if err != nil {
+		return eventlog.AppendResult{}, fmt.Errorf("count agent posts: %w", err)
+	}
+	if posts >= int64(locked.MaxRepliesPerHumanTrigger) {
+		if _, err := q.MarkGroupDispatchSilent(ctx, sqlc.MarkGroupDispatchSilentParams{ID: row.ID, AttemptCount: row.AttemptCount, Reason: "hard_cap"}); err != nil {
+			return eventlog.AppendResult{}, fmt.Errorf("mark cap silent: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return eventlog.AppendResult{}, fmt.Errorf("commit cap silent: %w", err)
+		}
+		return eventlog.AppendResult{}, errGroupTurnHeld
 	}
 	deliveryState := "pending"
 	if state.Platform == "web" {
@@ -942,7 +787,10 @@ func (d *GroupDispatcher) chatDispatch(ctx context.Context, row sqlc.CtxGroupDis
 // errGroupTurnSuperseded reports that a dispatch row's trigger message sits at
 // or below the agent's ingest cursor: a session rotation (or a completed later
 // turn) already consumed it. The row is finished work, not a failure.
-var errGroupTurnSuperseded = errors.New("group turn superseded by the agent's ingest cursor")
+var (
+	errGroupTurnSuperseded = errors.New("group turn superseded by the agent's ingest cursor")
+	errGroupTurnHeld       = errors.New("group turn held for a newer peer message")
+)
 
 func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
 	if d.coord == nil {
@@ -1262,7 +1110,14 @@ func (d *GroupDispatcher) markAcceptedPublished(ctx context.Context, row sqlc.Ct
 		return errors.New("mark dispatch published: lost dispatch ownership")
 	}
 	if platform == "web" {
-		return tx.Commit(ctx)
+		if err := d.createAgentReplyOutbox(ctx, q, row); err != nil {
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("mark accepted publish: commit: %w", err)
+		}
+		d.Wake()
+		return nil
 	}
 	message, err := q.SetGroupMessageDeliveryState(ctx, sqlc.SetGroupMessageDeliveryStateParams{ID: row.ResultMessageID, DeliveryState: "delivered"})
 	if err != nil {
@@ -1271,10 +1126,65 @@ func (d *GroupDispatcher) markAcceptedPublished(ctx context.Context, row sqlc.Ct
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("mark accepted publish: commit: %w", err)
 	}
+	d.Wake()
 	if d.events != nil {
 		d.events.Announce(eventlog.AppendResult{GroupID: row.GroupID, Seq: message.Seq, Message: message})
 	}
 	return nil
+}
+
+func (d *GroupDispatcher) createAgentReplyOutbox(ctx context.Context, q *sqlc.Queries, row sqlc.CtxGroupDispatch) error {
+	message, err := q.GetGroupMessage(ctx, row.ResultMessageID)
+	if err != nil {
+		return fmt.Errorf("get accepted agent reply: %w", err)
+	}
+	members, err := q.ListGroupMembers(ctx, row.GroupID)
+	if err != nil {
+		return fmt.Errorf("list group members: %w", err)
+	}
+	mentions := parseGroupMentions(ctx, q, message.Content, members)
+	envelope, err := encodeGroupOutboxEnvelope(GroupOutboxEnvelope{ActorType: string(eventlog.ActorAgent), Mentions: mentions})
+	if err != nil {
+		return fmt.Errorf("encode agent reply outbox: %w", err)
+	}
+	_, err = q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{
+		ID: uuid.Must(uuid.NewV7()).String(), GroupMessageID: row.ResultMessageID, GroupID: row.GroupID,
+		Envelope: envelope, Status: "pending", LastError: "",
+	})
+	if err != nil {
+		return fmt.Errorf("create agent reply outbox: %w", err)
+	}
+	return nil
+}
+
+// parseGroupMentions keeps agent-authored outboxes self-contained. Web ingress
+// already has member IDs; agent text may use either an ID or a display name.
+func parseGroupMentions(ctx context.Context, q *sqlc.Queries, content string, members []sqlc.ChannelGroupMember) []pkgchannel.Mention {
+	byToken := make(map[string]string, len(members)*2)
+	for _, member := range members {
+		byToken[member.AgentID] = member.AgentID
+		if a, err := q.GetAgent(ctx, member.AgentID); err == nil && a.Name != "" {
+			byToken[a.Name] = member.AgentID
+		}
+	}
+	seen := make(map[string]struct{}, len(members))
+	mentions := make([]pkgchannel.Mention, 0)
+	for word := range strings.FieldsSeq(content) {
+		token, ok := strings.CutPrefix(strings.Trim(word, "()[]{}:;,.!?"), "@")
+		if !ok {
+			continue
+		}
+		agentID, ok := byToken[token]
+		if !ok {
+			continue
+		}
+		if _, duplicate := seen[agentID]; duplicate {
+			continue
+		}
+		seen[agentID] = struct{}{}
+		mentions = append(mentions, pkgchannel.Mention{Raw: "@" + token, AgentID: agentID})
+	}
+	return mentions
 }
 
 func (d *GroupDispatcher) failAcceptedPublish(ctx context.Context, row sqlc.CtxGroupDispatch, cause error) error {
@@ -1308,24 +1218,6 @@ func (d *GroupDispatcher) failAcceptedPublish(ctx context.Context, row sqlc.CtxG
 
 // fallbackGroupDecision resolves responders when no arbiter is wired: only
 // mentions that name a current member reply; anything else stays silent.
-func fallbackGroupDecision(mentions []pkgchannel.Mention, members []GroupMember) ArbiterDecision {
-	mentioned := mentionedAgentIDs(mentions)
-	if len(mentioned) == 0 {
-		return ArbiterDecision{}
-	}
-	memberSet := make(map[string]struct{}, len(members))
-	for _, m := range members {
-		memberSet[m.AgentID] = struct{}{}
-	}
-	var responding []string
-	for _, id := range mentioned {
-		if _, ok := memberSet[id]; ok {
-			responding = append(responding, id)
-		}
-	}
-	return ArbiterDecision{RespondingAgents: responding}
-}
-
 func backoff(attempts int64) time.Duration {
 	if attempts < 1 {
 		attempts = 1

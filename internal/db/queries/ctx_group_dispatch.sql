@@ -5,6 +5,13 @@ INSERT INTO ctx_group_dispatch (
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
   (SELECT seq FROM ctx_group_message WHERE id = $2), 'reply') ON CONFLICT DO NOTHING;
 
+-- name: CreateGroupWake :exec
+INSERT INTO ctx_group_dispatch (
+  id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, trigger_seq, kind
+)
+VALUES ($1, $2, $3, $4, $5, 'pending', 0, NULL, NULL, '',
+  (SELECT seq FROM ctx_group_message WHERE id = $2), 'wake') ON CONFLICT DO NOTHING;
+
 -- name: GetGroupDispatch :one
 SELECT * FROM ctx_group_dispatch WHERE id = $1;
 
@@ -129,7 +136,7 @@ WITH newest AS (
           COALESCE((
             SELECT MAX(own.seq)
             FROM ctx_group_dispatch accepted
-            JOIN ctx_group_message own ON own.id = accepted.result_message_id
+            JOIN ctx_group_message own ON own.id = accepted.result_message_id::uuid
             WHERE accepted.group_id = candidate.group_id
               AND accepted.agent_id = candidate.agent_id
               AND accepted.result_message_id IS NOT NULL
@@ -178,13 +185,24 @@ WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND attempt_count = sqlc.arg(attempt_count);
 
+-- name: MarkGroupDispatchSilent :execrows
+UPDATE ctx_group_dispatch
+SET status = 'silent',
+    lease_until = NULL,
+    next_attempt_at = NULL,
+    last_error = sqlc.arg(reason),
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND status = 'running'
+  AND attempt_count = sqlc.arg(attempt_count);
+
 -- name: CountHeldGroupDispatchesInChain :one
 SELECT COUNT(*)::bigint
 FROM ctx_group_dispatch held
 WHERE held.group_id = sqlc.arg(group_id)
   AND held.agent_id = sqlc.arg(agent_id)
   AND held.status = 'held'
-  AND held.trigger_seq > GREATEST(sqlc.arg(after_own_post_seq), sqlc.arg(after_human_seq));
+  AND held.trigger_seq > GREATEST(sqlc.arg(after_own_post_seq)::bigint, sqlc.arg(after_human_seq)::bigint);
 -- name: ListExpiredRunningGroupDispatch :many
 SELECT * FROM ctx_group_dispatch
 WHERE status = 'running'
