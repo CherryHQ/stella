@@ -363,11 +363,63 @@ func TestHardCapsPrecedeMention(t *testing.T) {
 	}
 }
 
-// A multi-member platform (non-web) group with no group triage takes the
-// degraded Warn path and stays silent — it must never broadcast to every member
-// the way the deleted `group_mode: always` fallback once did. This is the
-// positive lock on that branch: it fails if any all-members fallback is
-// reintroduced for platform groups.
+func TestTriageClassifierFailureRequeuesThenSilent(t *testing.T) {
+	fx := newDispatcherFixture(t, "telegram", "{}")
+	fx.d.SetGroupTriage(groupTriageFunc(func(context.Context, GroupTriageRequest) (bool, string, error) {
+		return false, "provider", errors.New("down")
+	}))
+	fx.d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+		t.Fatal("failed triage must not chat")
+		return nil, nil
+	}
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000091", "agent-1", fx.groupID, "pending", pgtype.Timestamptz{})
+	row, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000091")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.d.ExecuteDispatch(context.Background(), row); err == nil {
+		t.Fatal("triage failure must requeue")
+	}
+	row, _ = fx.q.GetGroupDispatch(context.Background(), row.ID)
+	if row.Status != "pending" {
+		t.Fatalf("status=%q, want pending", row.Status)
+	}
+}
+
+func TestPlatformRulesOnlyTriageMatrix(t *testing.T) {
+	fx := newDispatcherFixture(t, "telegram", "{}")
+	row := sqlc.CtxGroupDispatch{GroupID: fx.groupID, AgentID: "agent-1", TriggerSeq: fx.message.Seq, Kind: "wake"}
+	state, _ := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
+	act, reason, _ := fx.d.triageWake(context.Background(), row, fx.message, state, GroupOutboxEnvelope{})
+	if act || reason != "rules_only" {
+		t.Fatalf("act=%v reason=%q", act, reason)
+	}
+}
+
+func TestUnclaimedAgentRunStopsAfterOneLap(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	if _, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: "agent-1", Content: "first"}); err != nil {
+		t.Fatal(err)
+	}
+	if !fx.d.agentRunLapped(context.Background(), fx.groupID, fx.message.Seq+2, "agent-1") {
+		t.Fatal("agent repeat must lap")
+	}
+}
+
+func TestFreshnessGateHoldsWhenPeerPostedAfterSnapshot(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000092", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
+	row, _ := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000092")
+	if _, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorHuman, ActorID: "user-2", Content: "new"}); err != nil {
+		t.Fatal(err)
+	}
+	state, _ := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
+	_, err := fx.d.acceptGroupResponse(context.Background(), row, state, groupResponse{text: "reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	if !errors.Is(err, errGroupTurnHeld) {
+		t.Fatalf("err=%v, want held", err)
+	}
+}
+
 func TestGroupDispatcherResolvesEnvelopeMentionAtDispatch(t *testing.T) {
 	envelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{Raw: "@bot1", PlatformID: "bot1"}})
 	if err != nil {
