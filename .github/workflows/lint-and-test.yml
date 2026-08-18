@@ -104,6 +104,9 @@ jobs:
         run: mise run test:coverage:race
         env:
           STELLA_TEST_REQUIRE_BWRAP: "1"
+          # Keep the public Library allowlist tied to the exact Xberg bundle
+          # generated above instead of allowing real extraction tests to skip.
+          STELLA_TEST_REQUIRE_PACKAGED_XBERG: "1"
           STELLA_TEST_REQUIRE_SPA: "1"
 
       - name: Prepare coverage report data

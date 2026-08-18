@@ -308,7 +308,7 @@ const en = {
   "library.status.failed": "Failed",
   "library.empty.title": "No Library files yet",
   "library.empty.description":
-    "Upload a PDF, Word, Markdown, or plain-text file to begin processing it.",
+    "Upload a supported office, spreadsheet, presentation, web, ebook, or text file to begin processing it.",
   "library.empty.search": "No matching files",
   "library.empty.searchDesc": "Try another file name.",
   "library.load.failed": "Could not load the Library",
@@ -316,7 +316,7 @@ const en = {
   "library.upload.action": "Upload files",
   "library.upload.title": "Upload results",
   "library.upload.description":
-    "PDF, DOCX, Markdown, and plain-text files are supported. Each file is processed in the background after upload.",
+    "Supports PDF, office documents, spreadsheets, presentations, web pages, ebooks, and common text or data files up to 25 MiB.",
   "library.upload.failed": "Upload failed",
   "library.upload.summary": "{{success}} of {{total}} files uploaded",
   "library.upload.state.queued": "Queued",
@@ -2640,14 +2640,16 @@ const zh: Record<MessageKey, string> = {
   "library.status.ready": "可用",
   "library.status.failed": "失败",
   "library.empty.title": "还没有知识文件",
-  "library.empty.description": "上传 PDF、Word、Markdown 或纯文本文件即可开始处理。",
+  "library.empty.description":
+    "上传支持的办公文档、表格、演示文稿、网页、电子书或文本文件即可开始处理。",
   "library.empty.search": "没有匹配的文件",
   "library.empty.searchDesc": "请尝试其他文件名。",
   "library.load.failed": "无法加载知识库",
   "library.load.failedDesc": "请检查连接后重试。",
   "library.upload.action": "上传文件",
   "library.upload.title": "上传结果",
-  "library.upload.description": "支持 PDF、DOCX、Markdown 和纯文本文件；上传后将在后台处理。",
+  "library.upload.description":
+    "支持 PDF、办公文档、表格、演示文稿、网页、电子书及常见文本或数据文件，单个文件最大 25 MiB。",
   "library.upload.failed": "上传失败",
   "library.upload.summary": "已上传 {{success}} / {{total}} 个文件",
   "library.upload.state.queued": "等待中",

@@ -37,7 +37,7 @@ func (s *Service) reconcileStaleDerivations(ctx context.Context) error {
 	if client == nil {
 		return ErrServiceUnavailable
 	}
-	mediaTypes := []string{MediaTypeText, MediaTypeMarkdown, MediaTypePDF, MediaTypeDOCX}
+	mediaTypes := SupportedMediaTypes()
 	processorKeys := make([]string, 0, len(mediaTypes))
 	availableMediaTypes := make([]string, 0, len(mediaTypes))
 	profiles := make(map[string]string, len(mediaTypes))

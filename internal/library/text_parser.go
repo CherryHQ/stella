@@ -56,8 +56,8 @@ type TextParser struct{}
 func NewTextParser() *TextParser { return &TextParser{} }
 
 func (*TextParser) Profile(_ context.Context, mediaType string) (string, error) {
-	if mediaType != MediaTypeText && mediaType != MediaTypeMarkdown {
-		return "", fmt.Errorf("%w: media type %q", ErrUnsupportedFileType, mediaType)
+	if _, err := formatForParser(mediaType, parserKindText); err != nil {
+		return "", err
 	}
 	return TextParserProfile, nil
 }
@@ -66,8 +66,8 @@ func (p *TextParser) Parse(ctx context.Context, filePath, mediaType, expectedPro
 	if strings.TrimSpace(filePath) == "" {
 		return nil, fmt.Errorf("document path is required")
 	}
-	if mediaType != MediaTypeText && mediaType != MediaTypeMarkdown {
-		return nil, fmt.Errorf("%w: media type %q", ErrUnsupportedFileType, mediaType)
+	if _, err := formatForParser(mediaType, parserKindText); err != nil {
+		return nil, err
 	}
 	profile, err := p.Profile(ctx, mediaType)
 	if err != nil {

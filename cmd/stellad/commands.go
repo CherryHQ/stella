@@ -350,8 +350,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		if probeErr != nil {
 			return nil, fmt.Errorf("start embedded Xberg parser: %w", probeErr)
 		}
-		parserRoutes[library.MediaTypePDF] = xbergParser
-		parserRoutes[library.MediaTypeDOCX] = xbergParser
+		for _, mediaType := range library.XbergMediaTypes() {
+			parserRoutes[mediaType] = xbergParser
+		}
 	}
 	libraryParser, err := library.NewRoutingParser(parserRoutes)
 	if err != nil {

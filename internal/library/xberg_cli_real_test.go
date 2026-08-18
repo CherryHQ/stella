@@ -30,7 +30,12 @@ func TestRealXbergScannedPDFUsesBridge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	native, err := parser.extract(t.Context(), absolute, xbergCanonicalArgs(true), xbergChildEnvironment(""))
+	native, err := parser.extract(
+		t.Context(),
+		absolute,
+		xbergCanonicalArgs(mustFormatSpec(t, MediaTypePDF), true),
+		xbergChildEnvironment(""),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
