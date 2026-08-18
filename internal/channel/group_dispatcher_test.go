@@ -420,6 +420,55 @@ func TestFreshnessGateHoldsWhenPeerPostedAfterSnapshot(t *testing.T) {
 	}
 }
 
+func TestVerbatimDuplicateHeld(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000093", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
+	row, _ := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000093")
+	if _, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: "agent-2", Content: "same"}); err != nil {
+		t.Fatal(err)
+	}
+	state, _ := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
+	_, err := fx.d.acceptGroupResponse(context.Background(), row, state, groupResponse{text: "same", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	if !errors.Is(err, errGroupTurnHeld) {
+		t.Fatalf("err=%v, want held", err)
+	}
+}
+
+func TestHoldLimitPostsThrough(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_state SET hold_limit = 0 WHERE id = $1`, fx.groupID); err != nil {
+		t.Fatal(err)
+	}
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000094", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
+	row, _ := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000094")
+	if _, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorHuman, ActorID: "user-2", Content: "new"}); err != nil {
+		t.Fatal(err)
+	}
+	state, _ := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
+	if _, err := fx.d.acceptGroupResponse(context.Background(), row, state, groupResponse{text: "reply", complete: true}, memory.DeferredGroupTurn{Complete: true}); err != nil {
+		t.Fatalf("hold limit must post through: %v", err)
+	}
+}
+
+func TestAgentReplyCreatesOutboxAfterPublish(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000095", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
+	row, _ := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000095")
+	state, _ := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
+	result, err := fx.d.acceptGroupResponse(context.Background(), row, state, groupResponse{text: "peer reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row.ResultMessageID = result.Message.ID
+	if err := fx.d.createAgentReplyOutbox(context.Background(), fx.q, row); err != nil {
+		t.Fatal(err)
+	}
+	outbox, err := fx.q.GetGroupOutboxByMessage(context.Background(), result.Message.ID)
+	if err != nil || outbox.Status != "pending" {
+		t.Fatalf("agent outbox=%+v err=%v", outbox, err)
+	}
+}
+
 func TestGroupDispatcherResolvesEnvelopeMentionAtDispatch(t *testing.T) {
 	envelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{Raw: "@bot1", PlatformID: "bot1"}})
 	if err != nil {

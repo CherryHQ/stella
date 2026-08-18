@@ -1144,7 +1144,7 @@ func (d *GroupDispatcher) createAgentReplyOutbox(ctx context.Context, q *sqlc.Qu
 	if err != nil {
 		return fmt.Errorf("encode agent reply outbox: %w", err)
 	}
-	_, err = q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{
+	err = q.CreateGroupOutboxIfAbsent(ctx, sqlc.CreateGroupOutboxIfAbsentParams{
 		ID: uuid.Must(uuid.NewV7()).String(), GroupMessageID: row.ResultMessageID, GroupID: row.GroupID,
 		Envelope: envelope, Status: "pending", LastError: "",
 	})

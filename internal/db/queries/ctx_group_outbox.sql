@@ -5,6 +5,13 @@ INSERT INTO ctx_group_outbox (
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 RETURNING *;
 
+-- name: CreateGroupOutboxIfAbsent :exec
+INSERT INTO ctx_group_outbox (
+  id, group_message_id, group_id, envelope, status, attempt_count, lease_until, next_attempt_at, last_error
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+ON CONFLICT (group_message_id) DO NOTHING;
+
 -- name: GetGroupOutbox :one
 SELECT * FROM ctx_group_outbox WHERE id = $1;
 

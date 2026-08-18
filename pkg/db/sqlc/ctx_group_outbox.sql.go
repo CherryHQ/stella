@@ -139,6 +139,41 @@ func (q *Queries) CreateGroupOutbox(ctx context.Context, arg CreateGroupOutboxPa
 	return i, err
 }
 
+const createGroupOutboxIfAbsent = `-- name: CreateGroupOutboxIfAbsent :exec
+INSERT INTO ctx_group_outbox (
+  id, group_message_id, group_id, envelope, status, attempt_count, lease_until, next_attempt_at, last_error
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+ON CONFLICT (group_message_id) DO NOTHING
+`
+
+type CreateGroupOutboxIfAbsentParams struct {
+	ID             string             `json:"id"`
+	GroupMessageID string             `json:"group_message_id"`
+	GroupID        string             `json:"group_id"`
+	Envelope       string             `json:"envelope"`
+	Status         string             `json:"status"`
+	AttemptCount   int64              `json:"attempt_count"`
+	LeaseUntil     pgtype.Timestamptz `json:"lease_until"`
+	NextAttemptAt  pgtype.Timestamptz `json:"next_attempt_at"`
+	LastError      string             `json:"last_error"`
+}
+
+func (q *Queries) CreateGroupOutboxIfAbsent(ctx context.Context, arg CreateGroupOutboxIfAbsentParams) error {
+	_, err := q.db.Exec(ctx, createGroupOutboxIfAbsent,
+		arg.ID,
+		arg.GroupMessageID,
+		arg.GroupID,
+		arg.Envelope,
+		arg.Status,
+		arg.AttemptCount,
+		arg.LeaseUntil,
+		arg.NextAttemptAt,
+		arg.LastError,
+	)
+	return err
+}
+
 const extendRunningGroupOutboxLease = `-- name: ExtendRunningGroupOutboxLease :execrows
 UPDATE ctx_group_outbox
 SET lease_until = $1,
