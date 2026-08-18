@@ -154,6 +154,57 @@ func (h *harness) testGroupConcurrentCounting(t *testing.T) {
 	}
 }
 
+func (h *harness) testGroupWorkClaim(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	fake := newFakeAnthropic(t)
+	providerID := h.createFakeProviderNamed(t, ctx, fake.baseURL(), "group-claim-"+h.runID)
+	const modelA, modelB = "claim-a", "claim-b"
+	a := h.createAgentNamedWithFast(t, ctx, providerID+"/"+modelA, providerID+"/"+modelA, "claim-a-"+h.runID)
+	b := h.createAgentNamedWithFast(t, ctx, providerID+"/"+modelB, providerID+"/"+modelB, "claim-b-"+h.runID)
+	// A is directly assigned. Its accepted post names B, so B's attempted claim
+	// runs after A's durable lease rather than racing the assignment itself.
+	fake.enqueueToolForModel(modelA, "toolu_claim_a", "group_claim", `{"key":"report","note":"write the report"}`)
+	fake.enqueueTextForModel(modelA, "I will write the report. @"+b)
+	// B's acknowledgement wakes A once. It is deliberately a clean triage skip,
+	// not another report turn.
+	fake.enqueueTextForModel(modelA, `{"act":false,"reason":"peer moved on"}`)
+	fake.enqueueToolForModel(modelB, "toolu_claim_b", "group_claim", `{"key":"report","note":"write the report"}`)
+	fake.enqueueTextForModel(modelB, "A owns the report, so I moved on.")
+	groupID := h.createWebGroup(t, ctx, "claim-"+h.runID, a, b)
+	h.sendGroupMessage(t, ctx, groupID, "@"+a+" write the report")
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var claims, authored, moved int
+		err := h.db.QueryRow(ctx, `
+			SELECT
+			  (SELECT count(*) FROM ctx_group_claim WHERE group_id=$1),
+			  (SELECT count(*) FROM ctx_group_message WHERE group_id=$1 AND actor_type='agent' AND content LIKE 'I will write the report%'),
+			  (SELECT count(*) FROM ctx_group_message WHERE group_id=$1 AND actor_type='agent' AND content LIKE 'A owns the report%')
+		`, groupID).Scan(&claims, &authored, &moved)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if claims == 1 && authored == 1 && moved == 1 {
+			var owner, key string
+			if err := h.db.QueryRow(ctx, `SELECT owner_agent_id, key FROM ctx_group_claim WHERE group_id=$1`, groupID).Scan(&owner, &key); err != nil {
+				t.Fatal(err)
+			}
+			if owner != a || key != "report" {
+				t.Fatalf("claim owner/key=%s/%s, want %s/report", owner, key, a)
+			}
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("claim journey claims/authored/moved=%d/%d/%d: %v\n%s", claims, authored, moved, ctx.Err(), h.proc.logTail(60))
+		case <-ticker.C:
+		}
+	}
+}
+
 func (h *harness) testGroupPingPongHardCap(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

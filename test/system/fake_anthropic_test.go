@@ -193,6 +193,15 @@ func (f *fakeAnthropic) enqueueTextForModel(model, text string) {
 	f.modelScripts[model] = append(f.modelScripts[model], fakeResponse{text: text})
 }
 
+func (f *fakeAnthropic) enqueueToolForModel(model, id, name, args string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.modelScripts == nil {
+		f.modelScripts = make(map[string][]fakeResponse)
+	}
+	f.modelScripts[model] = append(f.modelScripts[model], fakeResponse{toolID: id, toolName: name, toolArgs: args})
+}
+
 // discardModelScripts closes the mutually-exclusive branch of a concurrent
 // journey after its observable outcome has selected the winning agent.
 func (f *fakeAnthropic) discardModelScripts() {
