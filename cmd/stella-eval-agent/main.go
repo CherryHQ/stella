@@ -1,0 +1,400 @@
+// stella-eval-agent drives one Harbor evaluation trial through Stella's public
+// HTTP API. It intentionally has no direct database or in-process server access:
+// a passing benchmark must exercise the shipped service boundary.
+package main
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+)
+
+const (
+	exitAdapter   = 10
+	exitProduct   = 11
+	exitTimeout   = 12
+	cleanupMargin = 2 * time.Minute
+)
+
+type binding struct {
+	Socket  string `json:"socket"`
+	Nonce   string `json:"nonce"`
+	Workdir string `json:"workdir"`
+	Home    string `json:"home,omitempty"`
+	TempDir string `json:"temp_dir,omitempty"`
+	Path    string `json:"path,omitempty"`
+}
+
+type result struct {
+	SessionID               string         `json:"session_id,omitempty"`
+	AgentID                 string         `json:"agent_id,omitempty"`
+	UserID                  string         `json:"user_id,omitempty"`
+	TurnTerminalState       string         `json:"turn_terminal_state,omitempty"`
+	ToolCalls               map[string]int `json:"tool_calls"`
+	StellaToolCalls         []toolCall     `json:"stella_tool_calls"`
+	TokenCount              int64          `json:"token_count"`
+	ElapsedSec              float64        `json:"elapsed_sec"`
+	BridgeNonce             string         `json:"bridge_nonce"`
+	DisabledToolsCount      int            `json:"disabled_tools_count"`
+	CapabilityProfileDigest string         `json:"capability_profile_digest"`
+	TimedOut                bool           `json:"timed_out"`
+	FailureClass            string         `json:"failure_class,omitempty"`
+	Errors                  []string       `json:"errors,omitempty"`
+}
+
+type toolCall struct {
+	Name      string         `json:"name"`
+	Arguments map[string]any `json:"arguments"`
+}
+
+type apiClient struct {
+	baseURL, token string
+	http           *http.Client
+}
+type apiError struct {
+	Status int
+	Body   string
+}
+
+func (e *apiError) Error() string { return fmt.Sprintf("HTTP %d: %s", e.Status, e.Body) }
+
+func (c apiClient) call(ctx context.Context, method, path string, in, out any) error {
+	var body io.Reader
+	if in != nil {
+		b, err := json.Marshal(in)
+		if err != nil {
+			return err
+		}
+		body = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(c.baseURL, "/")+path, body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	if in != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return &apiError{resp.StatusCode, strings.TrimSpace(string(b))}
+	}
+	if out != nil && len(b) != 0 {
+		return json.Unmarshal(b, out)
+	}
+	return nil
+}
+
+func writeBinding(dir, userID string, b binding) (string, error) {
+	if dir == "" || userID == "" || b.Socket == "" || b.Nonce == "" || !strings.HasPrefix(b.Workdir, "/") {
+		return "", errors.New("invalid bridge binding")
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	target := filepath.Join(dir, userID+".json")
+	data, err := json.Marshal(b)
+	if err != nil {
+		return "", err
+	}
+	tmp, err := os.CreateTemp(dir, ".binding-*")
+	if err != nil {
+		return "", err
+	}
+	name := tmp.Name()
+	defer func() { _ = os.Remove(name) }()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return "", err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return "", err
+	}
+	err = tmp.Close()
+	if err != nil {
+		return "", err
+	}
+	if err := os.Rename(name, target); err != nil {
+		return "", err
+	}
+	return target, nil
+}
+
+func digestProfile(disabled []string, bundleDigest string) string {
+	copy := append([]string(nil), disabled...)
+	sortStrings(copy)
+	b, _ := json.Marshal(struct {
+		Disabled []string `json:"disabled_tools"`
+		Bundle   string   `json:"bundle_digest"`
+	}{copy, bundleDigest})
+	s := sha256.Sum256(b)
+	return hex.EncodeToString(s[:])
+}
+
+func sortStrings(v []string) {
+	for i := range v {
+		for j := i + 1; j < len(v); j++ {
+			if v[j] < v[i] {
+				v[i], v[j] = v[j], v[i]
+			}
+		}
+	}
+}
+
+func waitForTerminal(ctx context.Context, c apiClient, agentID, sessionID string) (string, error) {
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var detail struct {
+			ActivityStatus string `json:"activity_status"`
+		}
+		if err := c.call(ctx, http.MethodGet, "/api/agents/"+agentID+"/sessions/"+sessionID, nil, &detail); err != nil {
+			return "", err
+		}
+		if detail.ActivityStatus != "working" {
+			if detail.ActivityStatus == "error" {
+				return "errored", nil
+			}
+			return "completed", nil
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+// stopAndConfirm is deliberately separate from SSE handling: closing a stream
+// only detaches its observer, while this endpoint cancels the admitted turn.
+func stopAndConfirm(ctx context.Context, c apiClient, agentID, sessionID string) error {
+	if err := c.call(ctx, http.MethodPost, "/api/agents/"+agentID+"/sessions/"+sessionID+"/stop", nil, nil); err != nil {
+		return err
+	}
+	_, err := waitForTerminal(ctx, c, agentID, sessionID)
+	return err
+}
+
+func collectEvidence(ctx context.Context, c apiClient, agentID, sessionID string, out *result) error {
+	var messages struct {
+		Messages []struct {
+			TokenCount int64 `json:"token_count"`
+			Blocks     []struct {
+				Type      string         `json:"type"`
+				Name      string         `json:"name"`
+				Arguments map[string]any `json:"arguments"`
+			} `json:"blocks"`
+		} `json:"messages"`
+	}
+	if err := c.call(ctx, http.MethodGet, "/api/agents/"+agentID+"/sessions/"+sessionID+"/messages?limit=500", nil, &messages); err != nil {
+		return err
+	}
+	for _, m := range messages.Messages {
+		out.TokenCount += m.TokenCount
+		for _, b := range m.Blocks {
+			if b.Type == "tool_call" && b.Name != "" {
+				out.ToolCalls[b.Name]++
+				out.StellaToolCalls = append(out.StellaToolCalls, toolCall{Name: b.Name, Arguments: b.Arguments})
+			}
+		}
+	}
+	return nil
+}
+
+func run() int {
+	var baseURL, instructionFile, bindingFile, bindingDir, model, output, externalID, bundleDigest string
+	var deadlineSec int
+	flag.StringVar(&baseURL, "stella-url", "", "Stella base URL")
+	flag.StringVar(&instructionFile, "instruction-file", "", "task instruction file")
+	flag.StringVar(&bindingFile, "binding-template", "", "Bridge binding template JSON")
+	flag.StringVar(&bindingDir, "binding-dir", "", "directory read by stellad")
+	flag.StringVar(&model, "model", "", "Stella provider/model")
+	flag.StringVar(&output, "output", "", "result JSON path, stdout when empty")
+	flag.StringVar(&externalID, "user-id", "", "unique Harbor trial identifier")
+	flag.StringVar(&bundleDigest, "bundle-digest", "", "helper bundle SHA-256")
+	flag.IntVar(&deadlineSec, "deadline-seconds", 0, "trial deadline in seconds")
+	flag.Parse()
+	r := result{ToolCalls: map[string]int{}}
+	start := time.Now()
+	defer func() {
+		r.ElapsedSec = time.Since(start).Seconds()
+		data, _ := json.MarshalIndent(r, "", "  ")
+		if output == "" {
+			fmt.Println(string(data))
+		} else if err := os.WriteFile(output, append(data, '\n'), 0o600); err != nil {
+			fmt.Fprintln(os.Stderr, "write result:", err)
+		}
+	}()
+	if baseURL == "" || instructionFile == "" || bindingFile == "" || bindingDir == "" || model == "" || externalID == "" || deadlineSec <= 0 {
+		r.Errors = append(r.Errors, "required flags missing")
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	adminToken := os.Getenv("STELLA_EVAL_ADMIN_TOKEN")
+	if adminToken == "" {
+		r.Errors = append(r.Errors, "admin token environment variable is empty")
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	instruction, err := os.ReadFile(instructionFile)
+	if err != nil {
+		r.Errors = append(r.Errors, err.Error())
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	var b binding
+	raw, err := os.ReadFile(bindingFile)
+	if err != nil || json.Unmarshal(raw, &b) != nil {
+		r.Errors = append(r.Errors, "read binding template")
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	r.BridgeNonce = b.Nonce
+	deadline := time.Now().UTC().Add(time.Duration(deadlineSec) * time.Second)
+	admin := apiClient{baseURL, adminToken, &http.Client{Timeout: 30 * time.Second}}
+	ctx := context.Background()
+	var provision struct {
+		ProvisionedUser struct {
+			ID string `json:"id"`
+		} `json:"provisioned_user"`
+		Token string `json:"token"`
+	}
+	err = admin.call(ctx, http.MethodPost, "/api/provisioned-users", map[string]any{"external_id": externalID, "email": externalID + "@eval.invalid", "name": "Harbor evaluation", "token_name": "harbor-eval", "expires_at": deadline.Add(cleanupMargin).Format(time.RFC3339)}, &provision)
+	if err != nil {
+		r.Errors = append(r.Errors, "provision user: "+err.Error())
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	r.UserID = provision.ProvisionedUser.ID
+	bindingPath, err := writeBinding(bindingDir, r.UserID, b)
+	if err != nil {
+		r.Errors = append(r.Errors, "write binding: "+err.Error())
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	defer func() { _ = os.Remove(bindingPath) }()
+	defer func() {
+		if r.AgentID != "" {
+			_ = apiClient{baseURL, provision.Token, &http.Client{Timeout: 15 * time.Second}}.call(context.Background(), http.MethodDelete, "/api/agents/"+r.AgentID, nil, nil)
+		}
+		_ = admin.call(context.Background(), http.MethodPost, "/api/provisioned-users/"+r.UserID+"/deactivate", nil, nil)
+	}()
+	user := apiClient{baseURL, provision.Token, &http.Client{Timeout: 45 * time.Second}}
+	streamUser := apiClient{baseURL, provision.Token, &http.Client{}}
+	var agent struct {
+		ID string `json:"id"`
+	}
+	err = user.call(ctx, http.MethodPost, "/api/agents", map[string]any{"name": "harbor-eval-" + externalID, "model": model, "scope": "restricted", "enabled": true}, &agent)
+	if err != nil {
+		r.Errors = append(r.Errors, "create agent: "+err.Error())
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	r.AgentID = agent.ID
+	var tools struct {
+		Tools []struct {
+			Name    string `json:"name"`
+			Enabled bool   `json:"enabled"`
+			Source  string `json:"source"`
+		} `json:"tools"`
+	}
+	if err = user.call(ctx, http.MethodGet, "/api/agents/"+r.AgentID+"/tools", nil, &tools); err != nil {
+		r.Errors = append(r.Errors, "list tools: "+err.Error())
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	disabled := []string{}
+	for _, tool := range tools.Tools {
+		if tool.Source != "core" && tool.Enabled {
+			if err = user.call(ctx, http.MethodPatch, "/api/agents/"+r.AgentID+"/tools/"+tool.Name, map[string]any{"enabled": false, "scope": "user_agent"}, nil); err != nil {
+				r.Errors = append(r.Errors, "disable tool "+tool.Name+": "+err.Error())
+				r.FailureClass = "adapter"
+				return exitAdapter
+			}
+			disabled = append(disabled, tool.Name)
+		}
+	}
+	r.DisabledToolsCount = len(disabled)
+	r.CapabilityProfileDigest = digestProfile(disabled, bundleDigest)
+	var session struct {
+		ID string `json:"id"`
+	}
+	if err = user.call(ctx, http.MethodPost, "/api/agents/"+r.AgentID+"/sessions", map[string]any{"kind": "chat"}, &session); err != nil {
+		r.Errors = append(r.Errors, "create session: "+err.Error())
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	r.SessionID = session.ID
+	turnCtx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	err = streamUser.call(turnCtx, http.MethodPost, "/api/agents/"+r.AgentID+"/sessions/"+r.SessionID+"/messages", map[string]any{"parts": []map[string]string{{"type": "text", "text": string(instruction)}}}, nil)
+	if errors.Is(err, context.DeadlineExceeded) {
+		r.TimedOut = true
+		terminalCtx, terminalCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		waitErr := stopAndConfirm(terminalCtx, user, r.AgentID, r.SessionID)
+		terminalCancel()
+		if waitErr != nil {
+			r.Errors = append(r.Errors, "confirm terminal after timeout: "+waitErr.Error())
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
+		r.TurnTerminalState = "stopped"
+		_ = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, &r)
+		return exitTimeout
+	}
+	if err != nil {
+		r.Errors = append(r.Errors, "send instruction: "+err.Error())
+		r.FailureClass = "product"
+		_ = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, &r)
+		return exitProduct
+	}
+	state, err := waitForTerminal(turnCtx, user, r.AgentID, r.SessionID)
+	if errors.Is(err, context.DeadlineExceeded) {
+		r.TimedOut = true
+		terminalCtx, terminalCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		waitErr := stopAndConfirm(terminalCtx, user, r.AgentID, r.SessionID)
+		terminalCancel()
+		if waitErr != nil {
+			r.Errors = append(r.Errors, "confirm terminal after timeout: "+waitErr.Error())
+			r.FailureClass = "adapter"
+			return exitAdapter
+		}
+		r.TurnTerminalState = "stopped"
+		_ = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, &r)
+		return exitTimeout
+	}
+	if err != nil {
+		r.Errors = append(r.Errors, "wait terminal: "+err.Error())
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	r.TurnTerminalState = state
+	if err := collectEvidence(context.Background(), user, r.AgentID, r.SessionID, &r); err != nil {
+		r.Errors = append(r.Errors, "collect evidence: "+err.Error())
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	return 0
+}
+
+func main() { os.Exit(run()) }

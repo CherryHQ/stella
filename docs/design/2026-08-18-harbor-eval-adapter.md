@@ -306,3 +306,13 @@ review 指出 v1 的五类既不互斥也不可判定(非零 bash 是模型可�
 3. `StartProcess` 的实际需求量未知;需在跑通若干 task 后统计有多少 task 因缺它落入 `task_mismatch`。
 4. §7.3 的上下文单向同步是否足够,取决于自带 `AGENTS.md` / `.agents/skills` 的 task 比例。
 5. `BaseAgent` vs `BaseInstalledAgent`:若 WorkBuddy 接受前者,D5 可简化。
+
+## Deviations
+
+`Binding` 的发布责任由 adapter 改为 `stella-eval-agent`。原因是 binding
+文件名必须是 provisioned user 的 UUID,而该 UUID 只能在 driver 调用
+`/api/provisioned-users` 后获得。adapter 仍创建 socket 和随机 nonce,并把
+`{socket, nonce, workdir, home, temp_dir, path}` 模板传给 driver;driver 在
+provision 成功、创建 agent/session 前以临时文件加 rename 原子发布
+`<binding-dir>/<user-id>.json`,并在 finally 清理。wire protocol、HTTP API 和
+nonce 的 fail-closed 交叉核对均未改变。
