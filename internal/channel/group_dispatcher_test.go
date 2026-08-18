@@ -395,6 +395,43 @@ func TestTriageActiveClaimKeepsAgentChainAlive(t *testing.T) {
 	}
 }
 
+func TestClaimedRunUsesHardCapNotLapping(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	addFixtureAgent(t, fx, "agent-2", "ch-2")
+	store := eventlog.NewStore(fx.db)
+	var latest eventlog.AppendResult
+	for _, agentID := range []string{"agent-2", "agent-1"} {
+		result, err := store.AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: agentID, Content: "working"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		latest = result
+	}
+	claim := NewGroupClaimTools(fx.db).Tools()[0]
+	if _, err := claim.Execute(claimContext(fx.groupID, "agent-1"), map[string]any{"key": "report"}); err != nil {
+		t.Fatal(err)
+	}
+	fx.d.SetGroupTriage(groupTriageFunc(func(context.Context, GroupTriageRequest) (bool, string, error) { return true, "continue", nil }))
+	state, err := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := sqlc.CtxGroupDispatch{GroupID: fx.groupID, AgentID: "agent-2", TriggerSeq: latest.Seq, Kind: "wake"}
+	if act, reason, _ := fx.d.triageWake(context.Background(), row, latest.Message, state, GroupOutboxEnvelope{}); !act || reason != "classifier:continue" {
+		t.Fatalf("claimed run lapped: act=%v reason=%q", act, reason)
+	}
+	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_state SET agent_chain_hard_limit=1 WHERE id=$1`, fx.groupID); err != nil {
+		t.Fatal(err)
+	}
+	state, err = fx.q.GetGroupStateByID(context.Background(), fx.groupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if act, reason, _ := fx.d.triageWake(context.Background(), row, latest.Message, state, GroupOutboxEnvelope{}); act || reason != "hard_cap" {
+		t.Fatalf("claimed run bypassed hard cap: act=%v reason=%q", act, reason)
+	}
+}
+
 func TestHardCapsPrecedeMention(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_state SET max_agent_posts_per_minute = 1 WHERE id = $1`, fx.groupID); err != nil {
