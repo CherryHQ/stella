@@ -115,6 +115,34 @@ func (h *harness) testGroupConcurrentCounting(t *testing.T) {
 			t.Fatal(err)
 		}
 		if ones == 1 && twos == 1 && oneAuthor != twoAuthor {
+			// Triage is the only no-tools model request in this fixture; full group
+			// turns carry the agent tool schema. The durable wake rows give the
+			// denominator: every human can classify every member, while an agent
+			// message can classify only non-author members that reached step 5.
+			requests := fake.requests()
+			triageCalls := 0
+			for _, request := range requests {
+				if len(request.ToolNames) == 0 {
+					triageCalls++
+				}
+			}
+			var humanMessages, agentWakeCandidates int
+			if err := h.db.QueryRow(ctx, `SELECT count(*) FROM ctx_group_message WHERE group_id=$1 AND actor_type='human'`, groupID).Scan(&humanMessages); err != nil {
+				t.Fatal(err)
+			}
+			if err := h.db.QueryRow(ctx, `
+				SELECT count(*)
+				FROM ctx_group_dispatch dispatch
+				JOIN ctx_group_message message ON message.id = dispatch.group_message_id
+				WHERE dispatch.group_id=$1 AND dispatch.kind='wake' AND message.actor_type='agent'
+			`, groupID).Scan(&agentWakeCandidates); err != nil {
+				t.Fatal(err)
+			}
+			bound := humanMessages*2 + agentWakeCandidates
+			if triageCalls > bound {
+				t.Fatalf("triage calls=%d exceed bound=%d (human=%d members=2 agent wake candidates=%d)", triageCalls, bound, humanMessages, agentWakeCandidates)
+			}
+			t.Logf("group triage calls=%d, bound=%d (human=%d, agent wake candidates=%d)", triageCalls, bound, humanMessages, agentWakeCandidates)
 			fake.discardModelScripts()
 			return
 		}
