@@ -60,6 +60,7 @@ func TestSecurity(t *testing.T) {
 			SecurityOptions: []string{"name=seccomp,profile=builtin", "name=rootless,param=value"},
 			CgroupDriver:    "systemd",
 			MemoryLimit:     true,
+			SwapLimit:       true,
 			CPUCfsPeriod:    true,
 			CPUCfsQuota:     true,
 			PidsLimit:       true,
@@ -70,7 +71,7 @@ func TestSecurity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.Rootless || got.CgroupDriver != "systemd" || !got.MemoryLimit || !got.CPUCfsPeriod || !got.CPUCfsQuota || !got.PidsLimit {
+	if !got.Rootless || got.CgroupDriver != "systemd" || !got.MemoryLimit || !got.SwapLimit || !got.CPUCfsPeriod || !got.CPUCfsQuota || !got.PidsLimit {
 		t.Fatalf("Security = %+v, want rootless systemd", got)
 	}
 }

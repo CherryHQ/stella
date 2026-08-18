@@ -70,6 +70,7 @@ type DaemonSecurity struct {
 	UserNamespace bool
 	CgroupDriver  string
 	MemoryLimit   bool
+	SwapLimit     bool
 	CPUCfsPeriod  bool
 	CPUCfsQuota   bool
 	PidsLimit     bool
@@ -164,6 +165,7 @@ func (c *Client) Security(ctx context.Context) (DaemonSecurity, error) {
 	security := DaemonSecurity{
 		CgroupDriver: res.Info.CgroupDriver,
 		MemoryLimit:  res.Info.MemoryLimit,
+		SwapLimit:    res.Info.SwapLimit,
 		CPUCfsPeriod: res.Info.CPUCfsPeriod,
 		CPUCfsQuota:  res.Info.CPUCfsQuota,
 		PidsLimit:    res.Info.PidsLimit,

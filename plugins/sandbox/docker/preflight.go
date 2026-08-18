@@ -109,6 +109,9 @@ func unsupportedResourceLimits(security dockerclient.DaemonSecurity) []string {
 	if !security.MemoryLimit {
 		unsupported = append(unsupported, "memory")
 	}
+	if !security.SwapLimit {
+		unsupported = append(unsupported, "swap")
+	}
 	if !security.CPUCfsPeriod || !security.CPUCfsQuota {
 		unsupported = append(unsupported, "CPU quota")
 	}
@@ -121,10 +124,14 @@ func unsupportedResourceLimits(security dockerclient.DaemonSecurity) []string {
 func unsafeRuntimeResourceArg(args []string) (string, bool) {
 	for _, arg := range args {
 		trimmed := strings.TrimSpace(arg)
-		if trimmed == "--ignore-cgroups" {
+		if !strings.HasPrefix(trimmed, "-") {
+			continue
+		}
+		flag := strings.TrimLeft(trimmed, "-")
+		if flag == "ignore-cgroups" {
 			return arg, true
 		}
-		value, found := strings.CutPrefix(trimmed, "--ignore-cgroups=")
+		value, found := strings.CutPrefix(flag, "ignore-cgroups=")
 		if !found {
 			continue
 		}

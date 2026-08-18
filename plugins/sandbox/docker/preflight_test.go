@@ -38,6 +38,7 @@ func (f *fakePreflightAPI) Info(context.Context, mobyclient.InfoOptions) (mobycl
 func supportedSystemInfo() mobyclient.SystemInfoResult {
 	return mobyclient.SystemInfoResult{Info: system.Info{
 		MemoryLimit:    true,
+		SwapLimit:      true,
 		CPUCfsPeriod:   true,
 		CPUCfsQuota:    true,
 		PidsLimit:      true,
@@ -231,7 +232,7 @@ func TestPreflightResourceLimits(t *testing.T) {
 		}
 		client := dockerclient.NewWithAPI(api)
 		err := preflightWithClient(context.Background(), PreflightConfig{Docker: Config{Image: "sandbox:test"}}, client)
-		if err == nil || !strings.Contains(err.Error(), "CPU quota, PID") {
+		if err == nil || !strings.Contains(err.Error(), "swap, CPU quota, PID") {
 			t.Fatalf("rootless daemon without cgroups error = %v", err)
 		}
 	})
@@ -259,8 +260,11 @@ func TestUnsafeRuntimeResourceArg(t *testing.T) {
 		{args: []string{"--ignore-cgroups=TRUE"}, unsafe: true},
 		{args: []string{"--ignore-cgroups=1"}, unsafe: true},
 		{args: []string{"--ignore-cgroups=t"}, unsafe: true},
+		{args: []string{"-ignore-cgroups"}, unsafe: true},
+		{args: []string{"-ignore-cgroups=true"}, unsafe: true},
 		{args: []string{"--ignore-cgroups=maybe"}, unsafe: true},
 		{args: []string{"--ignore-cgroups=false"}, unsafe: false},
+		{args: []string{"-ignore-cgroups=0"}, unsafe: false},
 		{args: []string{"--platform=systrap"}, unsafe: false},
 	} {
 		_, got := unsafeRuntimeResourceArg(tc.args)

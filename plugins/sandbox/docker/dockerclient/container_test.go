@@ -66,6 +66,9 @@ func TestBuildHostConfigHardening(t *testing.T) {
 	if hc.Memory != sandboxMemoryLimitBytes {
 		t.Fatalf("Memory = %d, want %d", hc.Memory, sandboxMemoryLimitBytes)
 	}
+	if hc.MemorySwap != sandboxMemoryLimitBytes {
+		t.Fatalf("MemorySwap = %d, want %d", hc.MemorySwap, sandboxMemoryLimitBytes)
+	}
 	if hc.NanoCPUs != sandboxNanoCPUs {
 		t.Fatalf("NanoCPUs = %d, want %d", hc.NanoCPUs, sandboxNanoCPUs)
 	}

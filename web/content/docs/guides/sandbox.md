@@ -65,7 +65,7 @@ STELLA_DOCKER_RUNTIME=runsc
 
 An alternative OCI runtime reduces host-kernel exposure, but it does not restrict network egress or protect writable mounts. Keep the sandbox network policy and mount permissions independently constrained.
 
-Stella also detects whether the Docker daemon is rootless. A rootful daemon runs sandbox processes with the `stellad` UID and GID. A rootless daemon runs them as container UID/GID `0:0`, which maps to the unprivileged daemon user on the host and keeps that user's bind mounts writable. Capabilities remain dropped and `no-new-privileges` remains enabled in both modes. Preflight requires the daemon to report support for memory, CPU quota, and PID limits, and rejects a selected runtime configured with `--ignore-cgroups`. Docker `userns-remap` is not supported because its bind-mount ownership model differs from both rootful and rootless Docker.
+Stella also detects whether the Docker daemon is rootless. A rootful daemon runs sandbox processes with the `stellad` UID and GID. A rootless daemon runs them as container UID/GID `0:0`, which maps to the unprivileged daemon user on the host and keeps that user's bind mounts writable. Capabilities remain dropped and `no-new-privileges` remains enabled in both modes. Preflight requires the daemon to report support for memory, swap, CPU quota, and PID limits; memory plus swap is capped at the same 2 GiB ceiling. Stella also rejects a selected runtime configured with `--ignore-cgroups`. Docker `userns-remap` is not supported because its bind-mount ownership model differs from both rootful and rootless Docker.
 
 ### Docker Compose Examples
 

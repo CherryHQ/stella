@@ -65,7 +65,7 @@ STELLA_DOCKER_RUNTIME=runsc
 
 替代 OCI runtime 可以减少宿主内核暴露面，但不会限制网络出口，也不会保护可写挂载。沙箱网络策略和挂载权限仍需独立收紧。
 
-Stella 还会检测 Docker daemon 是否为 rootless。rootful daemon 使用 `stellad` 的 UID/GID 运行沙箱进程；rootless daemon 使用容器 UID/GID `0:0`，它在宿主机上映射为非特权 daemon 用户，并保持该用户的 bind mount 可写。两种模式都会继续丢弃 capabilities 并启用 `no-new-privileges`。预检要求 daemon 明确报告支持内存、CPU quota 和 PID 限制，并拒绝使用 `--ignore-cgroups` 配置的 runtime。Docker `userns-remap` 不受支持，因为它的 bind mount 所有权模型与 rootful、rootless Docker 都不同。
+Stella 还会检测 Docker daemon 是否为 rootless。rootful daemon 使用 `stellad` 的 UID/GID 运行沙箱进程；rootless daemon 使用容器 UID/GID `0:0`，它在宿主机上映射为非特权 daemon 用户，并保持该用户的 bind mount 可写。两种模式都会继续丢弃 capabilities 并启用 `no-new-privileges`。预检要求 daemon 明确报告支持内存、swap、CPU quota 和 PID 限制；内存加 swap 的总上限与内存上限相同，均为 2 GiB。Stella 还会拒绝使用 `--ignore-cgroups` 配置的 runtime。Docker `userns-remap` 不受支持，因为它的 bind mount 所有权模型与 rootful、rootless Docker 都不同。
 
 ### Docker Compose 示例
 

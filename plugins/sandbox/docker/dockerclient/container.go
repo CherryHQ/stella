@@ -261,9 +261,10 @@ func buildHostConfig(opts CreateOptions) *container.HostConfig {
 		Runtime:     opts.Runtime,
 		NetworkMode: mapNetworkMode(opts),
 		Resources: container.Resources{
-			Memory:    sandboxMemoryLimitBytes,
-			NanoCPUs:  sandboxNanoCPUs,
-			PidsLimit: &pidsLimit,
+			Memory:     sandboxMemoryLimitBytes,
+			MemorySwap: sandboxMemoryLimitBytes,
+			NanoCPUs:   sandboxNanoCPUs,
+			PidsLimit:  &pidsLimit,
 		},
 		// Drop all capabilities by default; relax narrowly if a toolchain genuinely needs one.
 		CapDrop:        []string{"ALL"},
