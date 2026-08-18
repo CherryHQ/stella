@@ -1,8 +1,9 @@
 -- name: CreateGroupDispatch :exec
 INSERT INTO ctx_group_dispatch (
-  id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error
+  id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, trigger_seq
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT DO NOTHING;
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+  (SELECT seq FROM ctx_group_message WHERE id = $2)) ON CONFLICT DO NOTHING;
 
 -- name: GetGroupDispatch :one
 SELECT * FROM ctx_group_dispatch WHERE id = $1;
@@ -20,6 +21,7 @@ WHERE group_message_id = $1
 SELECT * FROM ctx_group_dispatch gd
 WHERE gd.group_message_id = sqlc.arg(group_message_id)
   AND gd.status = 'pending'
+  AND gd.kind = 'reply'
   AND (gd.next_attempt_at IS NULL OR gd.next_attempt_at <= sqlc.arg('now'))
   AND NOT EXISTS (
     SELECT 1
@@ -51,6 +53,7 @@ ORDER BY gd.created_at ASC;
 -- name: ListPendingGroupDispatch :many
 SELECT * FROM ctx_group_dispatch gd
 WHERE gd.status = 'pending'
+  AND gd.kind = 'reply'
   AND (gd.next_attempt_at IS NULL OR gd.next_attempt_at <= sqlc.arg('now'))
   AND NOT EXISTS (
     SELECT 1

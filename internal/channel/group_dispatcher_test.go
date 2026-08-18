@@ -364,6 +364,62 @@ func TestGroupDispatcherProcessOutboxHappyPath(t *testing.T) {
 	}
 }
 
+func TestPhase1PollIgnoresWakeRowsAndAgentOutboxes(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+
+	// A later optimistic release can leave a wake row behind. Phase 1's poll
+	// must fence it rather than sending it through the arbiter on rollback.
+	if _, err := fx.db.Exec(ctx, "UPDATE ctx_group_dispatch SET kind = 'wake' WHERE group_message_id = $1", fx.message.ID); err != nil {
+		t.Fatalf("mark wake: %v", err)
+	}
+	if err := fx.d.poll(ctx); err != nil {
+		t.Fatalf("poll: %v", err)
+	}
+	if got := listPendingDispatchIDs(t, fx.q, time.Now().UTC(), 10); len(got) != 0 {
+		t.Fatalf("wake must remain outside phase-1 feed, got %v", got)
+	}
+
+	// Agent-authored outboxes are also Phase-2 work. They are terminalized, not
+	// materialized into a second arbiter response.
+	agentMsg, err := eventlog.NewStore(fx.db).AppendToGroup(ctx, fx.groupID, eventlog.GroupMessage{
+		ActorType: eventlog.ActorAgent,
+		ActorID:   "agent-1",
+		Content:   "later-release reply",
+	})
+	if err != nil {
+		t.Fatalf("append agent message: %v", err)
+	}
+	outbox, err := fx.q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{
+		ID:             "b0b0b0b0-0000-0000-0000-000000000099",
+		GroupMessageID: agentMsg.Message.ID,
+		GroupID:        fx.groupID,
+		Envelope:       "{}",
+		Status:         "pending",
+		LastError:      "",
+	})
+	if err != nil {
+		t.Fatalf("create agent outbox: %v", err)
+	}
+	if err := fx.d.ProcessOutbox(ctx, outbox); err != nil {
+		t.Fatalf("process agent outbox: %v", err)
+	}
+	stored, err := fx.q.GetGroupOutbox(ctx, outbox.ID)
+	if err != nil {
+		t.Fatalf("get agent outbox: %v", err)
+	}
+	if stored.Status != "completed" {
+		t.Fatalf("agent outbox status = %q, want completed", stored.Status)
+	}
+	count, err := fx.q.CountGroupDispatchByMessage(ctx, agentMsg.Message.ID)
+	if err != nil {
+		t.Fatalf("count agent dispatches: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("agent outbox materialized %d dispatches", count)
+	}
+}
+
 func TestGroupDispatcherWebNoMentionSingleMemberFallbackCreatesOneDispatch(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	fx.d.publishers.Register("ch-1", &recordingGroupPublisher{})

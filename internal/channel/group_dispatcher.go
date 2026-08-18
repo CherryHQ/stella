@@ -29,6 +29,9 @@ const (
 	defaultGroupDispatchLease       = 5 * time.Minute
 	defaultGroupDispatchPoll        = 2 * time.Second
 	defaultGroupDispatchMaxAttempts = int64(3)
+	// global pool; per-(group, agent) serialization remains enforced by the
+	// durable claim and session queue. Raise only after measured saturation.
+	defaultGroupDispatchWorkers = 8
 )
 
 type dispatchChatFunc func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error)
@@ -46,6 +49,8 @@ type GroupDispatcher struct {
 	pollInterval  time.Duration
 	maxAttempts   int64
 	wakeC         chan struct{}
+	dispatchC     chan sqlc.CtxGroupDispatch
+	workerCount   int
 	queue         *sessionQueue
 	chat          dispatchChatFunc
 }
@@ -97,6 +102,8 @@ func NewGroupDispatcher(db *pgxpool.Pool, coord *Coordinator, publishers *Publis
 		pollInterval:  defaultGroupDispatchPoll,
 		maxAttempts:   defaultGroupDispatchMaxAttempts,
 		wakeC:         make(chan struct{}, 1),
+		dispatchC:     make(chan sqlc.CtxGroupDispatch, 25),
+		workerCount:   defaultGroupDispatchWorkers,
 		queue:         newSessionQueue(),
 	}
 	d.chat = d.chatDispatch
@@ -153,6 +160,10 @@ func (d *GroupDispatcher) Run(ctx context.Context) error {
 	if d == nil || d.q == nil {
 		return errors.New("group dispatcher not configured")
 	}
+	workers := max(d.workerCount, 1)
+	for range workers {
+		go d.runWorker(ctx)
+	}
 	ticker := time.NewTicker(d.pollInterval)
 	defer ticker.Stop()
 	for {
@@ -164,6 +175,19 @@ func (d *GroupDispatcher) Run(ctx context.Context) error {
 			return ctx.Err()
 		case <-d.wakeC:
 		case <-ticker.C:
+		}
+	}
+}
+
+func (d *GroupDispatcher) runWorker(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case row := <-d.dispatchC:
+			if err := d.ExecuteDispatch(ctx, row, nil); err != nil {
+				d.log.Warn("group dispatch worker failed", "dispatch_id", row.ID, "error", err)
+			}
 		}
 	}
 }
@@ -201,8 +225,10 @@ func (d *GroupDispatcher) poll(ctx context.Context) error {
 		return fmt.Errorf("list pending dispatch: %w", err)
 	}
 	for _, row := range dueDispatch {
-		if err := d.ExecuteDispatch(ctx, row, nil); err != nil {
-			errs = append(errs, err)
+		select {
+		case d.dispatchC <- row:
+		case <-ctx.Done():
+			return errors.Join(append(errs, ctx.Err())...)
 		}
 	}
 	return errors.Join(errs...)
@@ -273,6 +299,18 @@ func (d *GroupDispatcher) processOutbox(ctx context.Context, outbox sqlc.CtxGrou
 		})
 	}, cancelOwned)
 	defer stopHeartbeat()
+	message, err := d.q.GetGroupMessage(ownedCtx, claimed.GroupMessageID)
+	if err != nil {
+		return d.failOutbox(ctx, claimed, fmt.Errorf("get outbox message: %w", err))
+	}
+	// Phase-1 rollback fence: agent-authored outboxes may be left by a newer
+	// release, but this binary must never route them through the arbiter.
+	if message.ActorType == string(eventlog.ActorAgent) {
+		if _, err := d.q.MarkGroupOutboxCompleted(ctx, sqlc.MarkGroupOutboxCompletedParams{ID: claimed.ID, AttemptCount: claimed.AttemptCount}); err != nil {
+			return fmt.Errorf("complete fenced agent outbox: %w", err)
+		}
+		return nil
+	}
 	count, err := d.q.CountGroupDispatchByMessage(ownedCtx, claimed.GroupMessageID)
 	if err != nil {
 		return d.failOutbox(ctx, claimed, fmt.Errorf("count dispatch rows: %w", err))

@@ -19,7 +19,7 @@ SET platform_group_id = $1,
     platform_thread_id = $2,
     updated_at = now()
 WHERE id = $3
-RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id
+RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_fallback_count
 `
 
 type AdoptGroupStateParams struct {
@@ -44,6 +44,12 @@ func (q *Queries) AdoptGroupState(ctx context.Context, arg AdoptGroupStateParams
 		&i.UpdatedAt,
 		&i.GroupName,
 		&i.CreatedByUserID,
+		&i.AgentChainHardLimit,
+		&i.MaxAgentPostsPerMinute,
+		&i.MaxRepliesPerHumanTrigger,
+		&i.HoldLimit,
+		&i.NudgeAt,
+		&i.NudgeFallbackCount,
 	)
 	return i, err
 }
@@ -74,7 +80,7 @@ VALUES (
   $11, COALESCE($12::jsonb, '[]'::jsonb),
   $13, $14
 )
-RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks
+RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state
 `
 
 type CreateGroupMessageParams struct {
@@ -128,6 +134,7 @@ func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessage
 		&i.AgentSessionID,
 		&i.CreatedAt,
 		&i.ContentBlocks,
+		&i.DeliveryState,
 	)
 	return i, err
 }
@@ -135,7 +142,7 @@ func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessage
 const createGroupState = `-- name: CreateGroupState :one
 INSERT INTO ctx_group_state (id, platform, platform_group_id, platform_thread_id, group_name, created_by_user_id)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id
+RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_fallback_count
 `
 
 type CreateGroupStateParams struct {
@@ -167,6 +174,12 @@ func (q *Queries) CreateGroupState(ctx context.Context, arg CreateGroupStatePara
 		&i.UpdatedAt,
 		&i.GroupName,
 		&i.CreatedByUserID,
+		&i.AgentChainHardLimit,
+		&i.MaxAgentPostsPerMinute,
+		&i.MaxRepliesPerHumanTrigger,
+		&i.HoldLimit,
+		&i.NudgeAt,
+		&i.NudgeFallbackCount,
 	)
 	return i, err
 }
@@ -196,7 +209,7 @@ func (q *Queries) GetGroupLastActive(ctx context.Context, id string) (time.Time,
 }
 
 const getGroupMessage = `-- name: GetGroupMessage :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks FROM ctx_group_message WHERE id = $1
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state FROM ctx_group_message WHERE id = $1
 `
 
 func (q *Queries) GetGroupMessage(ctx context.Context, id string) (CtxGroupMessage, error) {
@@ -218,12 +231,13 @@ func (q *Queries) GetGroupMessage(ctx context.Context, id string) (CtxGroupMessa
 		&i.AgentSessionID,
 		&i.CreatedAt,
 		&i.ContentBlocks,
+		&i.DeliveryState,
 	)
 	return i, err
 }
 
 const getGroupMessageByIdempotencyKey = `-- name: GetGroupMessageByIdempotencyKey :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state FROM ctx_group_message
 WHERE idempotency_key = $1
 `
 
@@ -246,12 +260,13 @@ func (q *Queries) GetGroupMessageByIdempotencyKey(ctx context.Context, idempoten
 		&i.AgentSessionID,
 		&i.CreatedAt,
 		&i.ContentBlocks,
+		&i.DeliveryState,
 	)
 	return i, err
 }
 
 const getGroupMessageByPlatformID = `-- name: GetGroupMessageByPlatformID :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state FROM ctx_group_message
 WHERE group_id = $1
   AND platform_message_id = $2
 `
@@ -280,12 +295,13 @@ func (q *Queries) GetGroupMessageByPlatformID(ctx context.Context, arg GetGroupM
 		&i.AgentSessionID,
 		&i.CreatedAt,
 		&i.ContentBlocks,
+		&i.DeliveryState,
 	)
 	return i, err
 }
 
 const getGroupStateByID = `-- name: GetGroupStateByID :one
-SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id FROM ctx_group_state WHERE id = $1
+SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_fallback_count FROM ctx_group_state WHERE id = $1
 `
 
 func (q *Queries) GetGroupStateByID(ctx context.Context, id string) (CtxGroupState, error) {
@@ -301,12 +317,18 @@ func (q *Queries) GetGroupStateByID(ctx context.Context, id string) (CtxGroupSta
 		&i.UpdatedAt,
 		&i.GroupName,
 		&i.CreatedByUserID,
+		&i.AgentChainHardLimit,
+		&i.MaxAgentPostsPerMinute,
+		&i.MaxRepliesPerHumanTrigger,
+		&i.HoldLimit,
+		&i.NudgeAt,
+		&i.NudgeFallbackCount,
 	)
 	return i, err
 }
 
 const getGroupStateByIDForUpdate = `-- name: GetGroupStateByIDForUpdate :one
-SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id FROM ctx_group_state WHERE id = $1 FOR UPDATE
+SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_fallback_count FROM ctx_group_state WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) GetGroupStateByIDForUpdate(ctx context.Context, id string) (CtxGroupState, error) {
@@ -322,12 +344,18 @@ func (q *Queries) GetGroupStateByIDForUpdate(ctx context.Context, id string) (Ct
 		&i.UpdatedAt,
 		&i.GroupName,
 		&i.CreatedByUserID,
+		&i.AgentChainHardLimit,
+		&i.MaxAgentPostsPerMinute,
+		&i.MaxRepliesPerHumanTrigger,
+		&i.HoldLimit,
+		&i.NudgeAt,
+		&i.NudgeFallbackCount,
 	)
 	return i, err
 }
 
 const getGroupStateByTriple = `-- name: GetGroupStateByTriple :one
-SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id FROM ctx_group_state
+SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_fallback_count FROM ctx_group_state
 WHERE platform = $1
   AND platform_group_id = $2
   AND platform_thread_id = $3
@@ -352,6 +380,12 @@ func (q *Queries) GetGroupStateByTriple(ctx context.Context, arg GetGroupStateBy
 		&i.UpdatedAt,
 		&i.GroupName,
 		&i.CreatedByUserID,
+		&i.AgentChainHardLimit,
+		&i.MaxAgentPostsPerMinute,
+		&i.MaxRepliesPerHumanTrigger,
+		&i.HoldLimit,
+		&i.NudgeAt,
+		&i.NudgeFallbackCount,
 	)
 	return i, err
 }
@@ -426,7 +460,7 @@ func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupM
 
 const listGroupsByUser = `-- name: ListGroupsByUser :many
 SELECT
-  gs.id, gs.platform, gs.platform_group_id, gs.platform_thread_id, gs.next_seq, gs.created_at, gs.updated_at, gs.group_name, gs.created_by_user_id,
+  gs.id, gs.platform, gs.platform_group_id, gs.platform_thread_id, gs.next_seq, gs.created_at, gs.updated_at, gs.group_name, gs.created_by_user_id, gs.agent_chain_hard_limit, gs.max_agent_posts_per_minute, gs.max_replies_per_human_trigger, gs.hold_limit, gs.nudge_at, gs.nudge_fallback_count,
   COALESCE(MAX(gm.created_at), gs.updated_at) AS last_active
 FROM ctx_group_state gs
 LEFT JOIN ctx_group_message gm ON gm.group_id = gs.id
@@ -444,16 +478,22 @@ type ListGroupsByUserParams struct {
 }
 
 type ListGroupsByUserRow struct {
-	ID               string      `json:"id"`
-	Platform         string      `json:"platform"`
-	PlatformGroupID  string      `json:"platform_group_id"`
-	PlatformThreadID string      `json:"platform_thread_id"`
-	NextSeq          int64       `json:"next_seq"`
-	CreatedAt        time.Time   `json:"created_at"`
-	UpdatedAt        time.Time   `json:"updated_at"`
-	GroupName        string      `json:"group_name"`
-	CreatedByUserID  pgtype.Text `json:"created_by_user_id"`
-	LastActive       time.Time   `json:"last_active"`
+	ID                        string             `json:"id"`
+	Platform                  string             `json:"platform"`
+	PlatformGroupID           string             `json:"platform_group_id"`
+	PlatformThreadID          string             `json:"platform_thread_id"`
+	NextSeq                   int64              `json:"next_seq"`
+	CreatedAt                 time.Time          `json:"created_at"`
+	UpdatedAt                 time.Time          `json:"updated_at"`
+	GroupName                 string             `json:"group_name"`
+	CreatedByUserID           pgtype.Text        `json:"created_by_user_id"`
+	AgentChainHardLimit       int32              `json:"agent_chain_hard_limit"`
+	MaxAgentPostsPerMinute    int32              `json:"max_agent_posts_per_minute"`
+	MaxRepliesPerHumanTrigger int32              `json:"max_replies_per_human_trigger"`
+	HoldLimit                 int32              `json:"hold_limit"`
+	NudgeAt                   pgtype.Timestamptz `json:"nudge_at"`
+	NudgeFallbackCount        int32              `json:"nudge_fallback_count"`
+	LastActive                time.Time          `json:"last_active"`
 }
 
 func (q *Queries) ListGroupsByUser(ctx context.Context, arg ListGroupsByUserParams) ([]ListGroupsByUserRow, error) {
@@ -475,6 +515,12 @@ func (q *Queries) ListGroupsByUser(ctx context.Context, arg ListGroupsByUserPara
 			&i.UpdatedAt,
 			&i.GroupName,
 			&i.CreatedByUserID,
+			&i.AgentChainHardLimit,
+			&i.MaxAgentPostsPerMinute,
+			&i.MaxRepliesPerHumanTrigger,
+			&i.HoldLimit,
+			&i.NudgeAt,
+			&i.NudgeFallbackCount,
 			&i.LastActive,
 		); err != nil {
 			return nil, err
@@ -489,7 +535,7 @@ func (q *Queries) ListGroupsByUser(ctx context.Context, arg ListGroupsByUserPara
 
 const listRecentGroupMessages = `-- name: ListRecentGroupMessages :many
 
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state FROM ctx_group_message
 WHERE group_id = $1
 ORDER BY seq DESC
 LIMIT $2
@@ -536,6 +582,7 @@ func (q *Queries) ListRecentGroupMessages(ctx context.Context, arg ListRecentGro
 			&i.AgentSessionID,
 			&i.CreatedAt,
 			&i.ContentBlocks,
+			&i.DeliveryState,
 		); err != nil {
 			return nil, err
 		}
@@ -620,7 +667,7 @@ const updateGroupName = `-- name: UpdateGroupName :one
 UPDATE ctx_group_state
 SET group_name = $1, updated_at = now()
 WHERE id = $2
-RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id
+RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_fallback_count
 `
 
 type UpdateGroupNameParams struct {
@@ -641,6 +688,12 @@ func (q *Queries) UpdateGroupName(ctx context.Context, arg UpdateGroupNameParams
 		&i.UpdatedAt,
 		&i.GroupName,
 		&i.CreatedByUserID,
+		&i.AgentChainHardLimit,
+		&i.MaxAgentPostsPerMinute,
+		&i.MaxRepliesPerHumanTrigger,
+		&i.HoldLimit,
+		&i.NudgeAt,
+		&i.NudgeFallbackCount,
 	)
 	return i, err
 }
