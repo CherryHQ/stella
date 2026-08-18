@@ -1,7 +1,6 @@
 -- +goose Up
--- These columns are deliberately additive.  Phase 1 continues to execute only
--- reply rows, so an older binary fails closed if a later release leaves wake
--- work behind during a rollback.
+-- Optimistic group collaboration: caps and freshness bookkeeping on the group,
+-- delivery state on the message, and wake bookkeeping on the dispatch row.
 ALTER TABLE ctx_group_state
     ADD COLUMN agent_chain_hard_limit INT NOT NULL DEFAULT 8,
     ADD COLUMN max_agent_posts_per_minute INT NOT NULL DEFAULT 10,
@@ -13,8 +12,10 @@ ALTER TABLE ctx_group_state
 ALTER TABLE ctx_group_message
     ADD COLUMN delivery_state TEXT NOT NULL DEFAULT 'delivered';
 
+-- Existing rows adopt the wake default: routing decided before this migration
+-- is re-decided by per-agent triage, and live leases keep running.
 ALTER TABLE ctx_group_dispatch
-    ADD COLUMN kind TEXT NOT NULL DEFAULT 'reply',
+    ADD COLUMN kind TEXT NOT NULL DEFAULT 'wake',
     ADD COLUMN trigger_seq BIGINT,
     ADD COLUMN held_up_to_seq BIGINT,
     ADD COLUMN published_at TIMESTAMPTZ;
@@ -33,7 +34,25 @@ CREATE INDEX idx_ctx_group_dispatch_wake_newest
     ON ctx_group_dispatch (group_id, agent_id, trigger_seq DESC)
     WHERE kind = 'wake' AND status = 'pending';
 
+-- Durable work claims: one live owner per (group, key); leases expire so a
+-- crashed owner cannot strand the work.
+CREATE TABLE ctx_group_claim (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    group_id UUID NOT NULL REFERENCES ctx_group_state(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    owner_agent_id TEXT NOT NULL REFERENCES agent(id) ON DELETE CASCADE,
+    note TEXT NOT NULL DEFAULT '',
+    lease_until TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (group_id, key)
+);
+
+CREATE INDEX idx_ctx_group_claim_group_lease_until
+    ON ctx_group_claim (group_id, lease_until);
+
 -- +goose Down
+DROP TABLE ctx_group_claim;
 DROP INDEX idx_ctx_group_dispatch_wake_newest;
 ALTER TABLE ctx_group_dispatch
     DROP COLUMN published_at,

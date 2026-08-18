@@ -34,7 +34,7 @@ const (
 	// below. Library chunk locator integrity and the dedicated Skill Home
 	// cutover evidence schema and retired RTK plugin cleanup are checked
 	// explicitly.
-	currentMigrationVersion = sequentialAnchor + 21
+	currentMigrationVersion = sequentialAnchor + 19
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
