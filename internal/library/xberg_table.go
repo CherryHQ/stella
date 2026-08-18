@@ -21,9 +21,8 @@ type tableLine struct {
 
 // structuredTableChunks uses Xberg's cell matrix and rendered table instead
 // of re-parsing the original format. This keeps rows indivisible. It exposes
-// logical record ranges only for CSV/TSV because Xberg 1.0.14 does not retain
-// original worksheet row coordinates for office spreadsheets.
-func structuredTableChunks(result xbergResult, mediaType string) ([]ParsedChunk, error) {
+// only source coordinates admitted by the validated format's citation policy.
+func structuredTableChunks(result xbergResult, citations citationPolicy) ([]ParsedChunk, error) {
 	tables := make([]locatedTable, 0, len(result.Tables))
 	for _, page := range result.Pages {
 		for _, table := range page.Tables {
@@ -71,12 +70,11 @@ func structuredTableChunks(result xbergResult, mediaType string) ([]ParsedChunk,
 			)
 		}
 		reliableHeader := len(located.table.Columns) > 0 && equalTableRow(located.table.Columns, located.table.Cells[0]) && separator != nil
-		// Xberg 1.0.14 does not expose original worksheet row indices and omits
-		// leading empty rows. CSV/TSV positions are logical record ranges, but
-		// office spreadsheets must not turn rendered row order into a false source
-		// citation.
-		exposeRowRange := mediaType == MediaTypeCSV || mediaType == MediaTypeTSV
-		tableChunks := batchTableRows(rows, separator, reliableHeader, located.sheetName, tableStart, exposeRowRange)
+		sheetName := ""
+		if citations.headingPath {
+			sheetName = located.sheetName
+		}
+		tableChunks := batchTableRows(rows, separator, reliableHeader, sheetName, tableStart, citations.sourceRowRange)
 		chunks = append(chunks, tableChunks...)
 	}
 	return chunks, nil

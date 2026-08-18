@@ -20,7 +20,7 @@ func TestStructuredTableChunksKeepRowsAndRepeatReliableHeader(t *testing.T) {
 		Content: markdown,
 		Tables:  []xbergTable{{Cells: cells, Columns: header, Markdown: markdown, PageNumber: 1}},
 	}
-	chunks, err := structuredTableChunks(result, MediaTypeCSV)
+	chunks, err := structuredTableChunks(result, mustFormatSpec(t, MediaTypeCSV).citations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestStructuredTableChunksUseSheetPathWithoutInventingHeader(t *testing.T) {
 			}},
 		}},
 	}
-	chunks, err := structuredTableChunks(result, MediaTypeXLSX)
+	chunks, err := structuredTableChunks(result, mustFormatSpec(t, MediaTypeXLSX).citations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestStructuredTableChunksDropSyntheticEmptyHeader(t *testing.T) {
 			Cells: [][]string{{"a", "b"}}, Markdown: markdown, PageNumber: 1,
 		}},
 	}
-	chunks, err := structuredTableChunks(result, MediaTypeCSV)
+	chunks, err := structuredTableChunks(result, mustFormatSpec(t, MediaTypeCSV).citations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestStructuredTableChunksKeepDashOnlyDataRow(t *testing.T) {
 			Columns: []string{"a", "b"}, Markdown: markdown, PageNumber: 1,
 		}},
 	}
-	chunks, err := structuredTableChunks(result, MediaTypeCSV)
+	chunks, err := structuredTableChunks(result, mustFormatSpec(t, MediaTypeCSV).citations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestStructuredTableChunksLocateNormalizedLegacyXLSMarkdown(t *testing.T) {
 			}},
 		}},
 	}
-	chunks, err := structuredTableChunks(result, MediaTypeXLS)
+	chunks, err := structuredTableChunks(result, mustFormatSpec(t, MediaTypeXLS).citations)
 	if err != nil {
 		t.Fatal(err)
 	}

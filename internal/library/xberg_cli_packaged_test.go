@@ -1,6 +1,7 @@
 package library
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,20 +12,7 @@ import (
 )
 
 func TestPackagedXbergTableAdmission(t *testing.T) {
-	if !slices.Contains(binaries.ToolNames(), "xberg") {
-		if os.Getenv("STELLA_TEST_REQUIRE_PACKAGED_XBERG") == "1" {
-			t.Fatal("packaged Xberg is required but was not generated for this test binary")
-		}
-		t.Skip("packaged Xberg is unavailable; run mise run generate first")
-	}
-	stellaHome := t.TempDir()
-	if err := binaries.EnsureTools(stellaHome); err != nil {
-		t.Fatal(err)
-	}
-	parser, err := NewXbergCLIParser(t.Context(), binaries.ToolPath(stellaHome, "xberg"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	parser := packagedXbergParser(t)
 
 	tests := []struct {
 		name          string
@@ -102,4 +90,38 @@ func TestPackagedXbergTableAdmission(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPackagedXbergDeepCorruptionIsDeterministic(t *testing.T) {
+	parser := packagedXbergParser(t)
+	path := writeZIPFixture(t, map[string]string{
+		"[Content_Types].xml": "not XML",
+		"xl/workbook.xml":     "not XML",
+	})
+	if err := validateUploadFile(path, MediaTypeXLSX); err != nil {
+		t.Fatalf("bounded container validation should admit the deep-corruption fixture: %v", err)
+	}
+	_, err := parser.Parse(t.Context(), path, MediaTypeXLSX)
+	if !errors.Is(err, ErrInvalidParserData) || !strings.Contains(err.Error(), "exited with status") {
+		t.Fatalf("deep-corruption error = %v, want deterministic Xberg process exit", err)
+	}
+}
+
+func packagedXbergParser(t *testing.T) *XbergCLIParser {
+	t.Helper()
+	if !slices.Contains(binaries.ToolNames(), "xberg") {
+		if os.Getenv("STELLA_TEST_REQUIRE_PACKAGED_XBERG") == "1" {
+			t.Fatal("packaged Xberg is required but was not generated for this test binary")
+		}
+		t.Skip("packaged Xberg is unavailable; run mise run generate first")
+	}
+	stellaHome := t.TempDir()
+	if err := binaries.EnsureTools(stellaHome); err != nil {
+		t.Fatal(err)
+	}
+	parser, err := NewXbergCLIParser(t.Context(), binaries.ToolPath(stellaHome, "xberg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parser
 }

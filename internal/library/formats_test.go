@@ -39,6 +39,56 @@ func TestFormatRegistryMapsEverySupportedExtension(t *testing.T) {
 	}
 }
 
+func TestFormatRegistryOwnsExtractionAndCitationBehavior(t *testing.T) {
+	t.Parallel()
+	type behavior struct {
+		parser    parserKind
+		mode      extractionMode
+		citations citationPolicy
+	}
+	expected := map[string]behavior{
+		MediaTypeText:     {parser: parserKindText, mode: extractionModeNarrative},
+		MediaTypeMarkdown: {parser: parserKindText, mode: extractionModeNarrative},
+		MediaTypePDF:      {parser: parserKindXberg, mode: extractionModePaged, citations: citationPolicy{headingPath: true, pageRange: true}},
+		MediaTypeDOC:      {parser: parserKindXberg, mode: extractionModeNarrative},
+		MediaTypeDOCX:     {parser: parserKindXberg, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}},
+		MediaTypeODT:      {parser: parserKindXberg, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}},
+		MediaTypeRTF:      {parser: parserKindXberg, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}},
+		MediaTypeXLS:      {parser: parserKindXberg, mode: extractionModeTable, citations: citationPolicy{headingPath: true}},
+		MediaTypeXLSX:     {parser: parserKindXberg, mode: extractionModeTable, citations: citationPolicy{headingPath: true}},
+		MediaTypeODS:      {parser: parserKindXberg, mode: extractionModeTable, citations: citationPolicy{headingPath: true}},
+		MediaTypeCSV:      {parser: parserKindXberg, mode: extractionModeTable, citations: citationPolicy{headingPath: true, sourceRowRange: true}},
+		MediaTypeTSV:      {parser: parserKindXberg, mode: extractionModeTable, citations: citationPolicy{headingPath: true, sourceRowRange: true}},
+		MediaTypePPT:      {parser: parserKindXberg, mode: extractionModePaged},
+		MediaTypePPTX:     {parser: parserKindXberg, mode: extractionModePaged, citations: citationPolicy{headingPath: true, pageRange: true, enforcePageBoundary: true}},
+		MediaTypeODP:      {parser: parserKindXberg, mode: extractionModePaged},
+		MediaTypeHTML:     {parser: parserKindXberg, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}},
+		MediaTypeXHTML:    {parser: parserKindXberg, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}},
+		MediaTypeEPUB:     {parser: parserKindXberg, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}},
+		MediaTypeFB2:      {parser: parserKindXberg, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}},
+		MediaTypeMDX:      {parser: parserKindXberg, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}},
+		MediaTypeRST:      {parser: parserKindXberg, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}},
+		MediaTypeORG:      {parser: parserKindXberg, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}},
+		MediaTypeJSON:     {parser: parserKindXberg, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}},
+		MediaTypeYAML:     {parser: parserKindXberg, mode: extractionModeNarrative},
+		MediaTypeTOML:     {parser: parserKindXberg, mode: extractionModeNarrative},
+		MediaTypeXML:      {parser: parserKindXberg, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}},
+	}
+	if len(expected) != len(formatSpecs) {
+		t.Fatalf("expected formats = %d, registry formats = %d", len(expected), len(formatSpecs))
+	}
+	for _, spec := range formatSpecs {
+		want, ok := expected[spec.mediaType]
+		if !ok {
+			t.Errorf("unexpected format %q", spec.mediaType)
+			continue
+		}
+		if spec.validate == nil || spec.parser != want.parser || spec.mode != want.mode || spec.citations != want.citations {
+			t.Errorf("format %q behavior = parser %d mode %d citations %+v", spec.mediaType, spec.parser, spec.mode, spec.citations)
+		}
+	}
+}
+
 func TestValidateStructuredTextFormats(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -235,4 +285,13 @@ func writeCFBDirectoryEntry(entry []byte, name string, objectType byte, childID,
 	binary.LittleEndian.PutUint32(entry[76:80], childID)
 	binary.LittleEndian.PutUint32(entry[116:120], startingSector)
 	binary.LittleEndian.PutUint64(entry[120:128], size)
+}
+
+func mustFormatSpec(t *testing.T, mediaType string) formatSpec {
+	t.Helper()
+	spec, ok := formatByMediaType(mediaType)
+	if !ok {
+		t.Fatalf("format %q is not registered", mediaType)
+	}
+	return spec
 }

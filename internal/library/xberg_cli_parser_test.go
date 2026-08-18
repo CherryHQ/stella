@@ -36,11 +36,22 @@ func TestXbergCLIParserProfilesAndMapsChunkMetadata(t *testing.T) {
 			t.Fatalf("Profile(%q) = %q, %v", mediaType, got, err)
 		}
 	}
-	if !strings.Contains(profile, "xberg-cli-adapter:v4") || !strings.Contains(profile, "cli=1.1.0") || !strings.Contains(profile, "args_sha256=") {
+	if !strings.Contains(profile, "xberg-cli-adapter:v4") || !strings.Contains(profile, "cli=1.1.0") || !strings.Contains(profile, "recipe_sha256=") {
 		t.Fatalf("profile = %q", profile)
 	}
 	if _, err := parser.Profile(MediaTypeText); !errors.Is(err, ErrUnsupportedFileType) {
 		t.Fatalf("text profile error = %v, want ErrUnsupportedFileType", err)
+	}
+	csvProfile, err := parser.Profile(MediaTypeCSV)
+	if err != nil {
+		t.Fatal(err)
+	}
+	xlsxProfile, err := parser.Profile(MediaTypeXLSX)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if csvProfile == xlsxProfile {
+		t.Fatal("format-specific citation policy is missing from the parser profile")
 	}
 
 	chunks, err := parser.Parse(t.Context(), "source.pdf", MediaTypePDF)
@@ -58,7 +69,7 @@ func TestXbergCLIParserProfilesAndMapsChunkMetadata(t *testing.T) {
 	if len(calls) != 3 {
 		t.Fatalf("Xberg calls = %v", calls)
 	}
-	wantArgs := append([]string{"extract", calls[2][1]}, xbergCanonicalArgs(MediaTypePDF)...)
+	wantArgs := append([]string{"extract", calls[2][1]}, xbergCanonicalArgs(mustFormatSpec(t, MediaTypePDF))...)
 	if !slices.Equal(calls[2], wantArgs) {
 		t.Fatalf("extract arguments = %v", calls[2])
 	}
@@ -72,15 +83,15 @@ func TestXbergCanonicalArgsPinDeterministicExtraction(t *testing.T) {
 		"--page-markers", "false", "--no-cache", "true", "--config-json", xbergChunkingConfigJSON,
 		"--format", "json",
 	}
-	if got := xbergCanonicalArgs(MediaTypePDF); !slices.Equal(got, want) {
+	if got := xbergCanonicalArgs(mustFormatSpec(t, MediaTypePDF)); !slices.Equal(got, want) {
 		t.Fatalf("Xberg canonical args = %v", got)
 	}
-	presentation := xbergCanonicalArgs(MediaTypePPTX)
+	presentation := xbergCanonicalArgs(mustFormatSpec(t, MediaTypePPTX))
 	if !slices.Contains(presentation, xbergPresentationConfigJSON) {
 		t.Fatalf("presentation args = %v", presentation)
 	}
 	for _, mediaType := range []string{MediaTypePPT, MediaTypeODP} {
-		degraded := xbergCanonicalArgs(mediaType)
+		degraded := xbergCanonicalArgs(mustFormatSpec(t, mediaType))
 		if slices.Contains(degraded, xbergPresentationConfigJSON) || !slices.Contains(degraded, xbergChunkingConfigJSON) {
 			t.Fatalf("degraded presentation args for %s = %v", mediaType, degraded)
 		}
@@ -226,10 +237,35 @@ func TestXbergCLIParserPreservesCancellationAndOperationalErrors(t *testing.T) {
 	cancelled, cancel := context.WithCancel(t.Context())
 	cancel()
 	parser.run = func(ctx context.Context, _ string, _ []string) ([]byte, []byte, error) {
-		return nil, nil, ctx.Err()
+		return nil, nil, exitCodeFixture(23)
 	}
 	if _, err := parser.Parse(cancelled, "source.pdf", MediaTypePDF); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled error = %v", err)
+	}
+}
+
+func TestXbergCLIParserTreatsNormalProcessExitAsDeterministic(t *testing.T) {
+	t.Parallel()
+	parser, err := newXbergCLIParser(t.Context(), "/test/xberg", xbergFixtureRunner("", exitCodeFixture(23)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parser.Parse(t.Context(), "source.pdf", MediaTypePDF); !errors.Is(err, ErrInvalidParserData) {
+		t.Fatalf("process exit error = %v, want ErrInvalidParserData", err)
+	}
+}
+
+func TestXbergCommandReceivesOnlyRuntimeEnvironment(t *testing.T) {
+	t.Setenv("STELLA_TEST_PROVIDER_KEY", "must-not-leak")
+	t.Setenv("PATH", "/xberg-test-path")
+	cmd := newXbergCommand(t.Context(), "/test/xberg", nil)
+	if !slices.Contains(cmd.Env, "PATH=/xberg-test-path") {
+		t.Fatalf("Xberg environment does not preserve PATH: %v", cmd.Env)
+	}
+	for _, entry := range cmd.Env {
+		if strings.HasPrefix(entry, "STELLA_TEST_PROVIDER_KEY=") {
+			t.Fatalf("Xberg environment leaked provider key: %v", cmd.Env)
+		}
 	}
 }
 
@@ -272,3 +308,9 @@ func xbergFormatsFixture() []byte {
 		{"extension":"yaml"},{"extension":"toml"},{"extension":"xml"}
 	]`)
 }
+
+type exitCodeFixture int
+
+func (e exitCodeFixture) Error() string { return "Xberg exited" }
+
+func (e exitCodeFixture) ExitCode() int { return int(e) }

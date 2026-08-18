@@ -9,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -24,13 +26,13 @@ const (
 	xbergPresentationConfigJSON = `{"pages":{"extract_pages":true,"insert_page_markers":true,"marker_format":"\n\n<!-- STELLA_LIBRARY_SLIDE {page_num} -->\n\n"},"chunking":{"max_chars":1000,"max_overlap":200,"trim":true,"chunker_type":"markdown","table_chunking":"repeat_header"}}`
 )
 
-func xbergCanonicalArgs(mediaType string) []string {
+func xbergCanonicalArgs(spec formatSpec) []string {
 	// The embedded runtime pins Xberg. Config JSON is necessary because the
 	// --chunk convenience flags force the plain-text chunker and discard heading
 	// context that Library needs for structured citations.
 	configJSON := xbergChunkingConfigJSON
 	pageMarkers := "false"
-	if hasReliableSlideRanges(mediaType) {
+	if spec.citations.enforcePageBoundary {
 		// Xberg's source page offsets predate its final Markdown rendering. A
 		// private marker gives the adapter a stable slide boundary to remove.
 		configJSON = xbergPresentationConfigJSON
@@ -148,16 +150,18 @@ func newXbergCLIParser(ctx context.Context, binary string, run xbergCommandRunne
 		availableMediaTypes[strings.TrimSpace(format.MediaType)] = struct{}{}
 	}
 	for _, mediaType := range XbergMediaTypes() {
-		extension, err := canonicalExtension(mediaType)
+		spec, err := formatForParser(mediaType, parserKindXberg)
 		if err != nil {
 			return nil, err
 		}
+		extension := spec.suffix
 		_, extensionAvailable := available[extension]
 		_, mediaTypeAvailable := availableMediaTypes[mediaType]
-		// Xberg detects XHTML as an alias of its HTML extractor even though the
-		// formats command lists only .html/.htm as the canonical extensions.
-		if mediaType == MediaTypeXHTML {
-			_, mediaTypeAvailable = availableMediaTypes[MediaTypeHTML]
+		for _, alias := range spec.xbergMediaTypeAliases {
+			if _, ok := availableMediaTypes[alias]; ok {
+				mediaTypeAvailable = true
+				break
+			}
 		}
 		if !extensionAvailable && !mediaTypeAvailable {
 			return nil, fmt.Errorf("probe Xberg CLI formats: required extension %s is unavailable", extension)
@@ -167,15 +171,25 @@ func newXbergCLIParser(ctx context.Context, binary string, run xbergCommandRunne
 }
 
 func (p *XbergCLIParser) Profile(mediaType string) (string, error) {
-	if !isXbergMediaType(mediaType) {
-		return "", fmt.Errorf("%w: media type %q", ErrUnsupportedFileType, mediaType)
+	spec, err := formatForParser(mediaType, parserKindXberg)
+	if err != nil {
+		return "", err
 	}
-	argsHash := sha256.Sum256([]byte(strings.Join(xbergCanonicalArgs(mediaType), "\x00")))
-	return "xberg-cli-adapter:" + xbergAdapterContractVersion + ";cli=" + p.version + ";args_sha256=" + hex.EncodeToString(argsHash[:]), nil
+	recipe := append(xbergCanonicalArgs(spec), fmt.Sprintf(
+		"mode=%d;heading_path=%t;page_range=%t;source_row_range=%t;page_boundary=%t",
+		spec.mode,
+		spec.citations.headingPath,
+		spec.citations.pageRange,
+		spec.citations.sourceRowRange,
+		spec.citations.enforcePageBoundary,
+	))
+	recipeHash := sha256.Sum256([]byte(strings.Join(recipe, "\x00")))
+	return "xberg-cli-adapter:" + xbergAdapterContractVersion + ";cli=" + p.version + ";recipe_sha256=" + hex.EncodeToString(recipeHash[:]), nil
 }
 
 func (p *XbergCLIParser) Parse(ctx context.Context, path, mediaType string) ([]ParsedChunk, error) {
-	if _, err := p.Profile(mediaType); err != nil {
+	spec, err := formatForParser(mediaType, parserKindXberg)
+	if err != nil {
 		return nil, err
 	}
 	absolute, err := filepath.Abs(path)
@@ -184,9 +198,18 @@ func (p *XbergCLIParser) Parse(ctx context.Context, path, mediaType string) ([]P
 	}
 	ctx, cancel := context.WithTimeout(ctx, xbergTimeout)
 	defer cancel()
-	args := append([]string{"extract", absolute}, xbergCanonicalArgs(mediaType)...)
+	args := append([]string{"extract", absolute}, xbergCanonicalArgs(spec)...)
 	stdout, _, runErr := p.run(ctx, p.binary, args)
 	if runErr != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, fmt.Errorf("run Xberg extraction: %w", ctxErr)
+		}
+		if code, deterministic := deterministicXbergExitCode(runErr); deterministic {
+			// The raw snapshot and parser recipe are immutable. A normal child
+			// process exit will therefore repeat; only launch, cancellation,
+			// signal, and other operational failures remain retryable.
+			return nil, fmt.Errorf("%w: Xberg extraction exited with status %d", ErrInvalidParserData, code)
+		}
 		return nil, fmt.Errorf("run Xberg extraction: %w", runErr)
 	}
 	var envelope struct {
@@ -195,14 +218,20 @@ func (p *XbergCLIParser) Parse(ctx context.Context, path, mediaType string) ([]P
 	if err := decodeSingleJSON(stdout, &envelope); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrInvalidParserData, err)
 	}
-	if isSpreadsheetMediaType(mediaType) {
-		chunks, err := structuredTableChunks(envelope.Result, mediaType)
+	switch spec.mode {
+	case extractionModeTable:
+		chunks, err := structuredTableChunks(envelope.Result, spec.citations)
 		if err != nil {
 			return nil, err
 		}
 		if len(chunks) > 0 {
 			return chunks, nil
 		}
+	case extractionModeNarrative, extractionModePaged:
+		// These modes share Xberg's canonical chunk payload and differ only in
+		// the citation coordinates admitted below.
+	default:
+		return nil, fmt.Errorf("%w: unsupported extraction mode %d", ErrInvalidParserData, spec.mode)
 	}
 	if len(envelope.Result.Chunks) == 0 {
 		return nil, ErrNoExtractedText
@@ -220,10 +249,7 @@ func (p *XbergCLIParser) Parse(ctx context.Context, path, mediaType string) ([]P
 				}
 			}
 		}
-		// DOC headings are heuristic, while YAML and TOML do not yet expose a
-		// stable structural path. Keep their public citations filename-only.
-		if mediaType == MediaTypeDOC || mediaType == MediaTypePPT || mediaType == MediaTypeODP ||
-			mediaType == MediaTypeYAML || mediaType == MediaTypeTOML {
+		if !spec.citations.headingPath {
 			headingPath = nil
 		}
 		// Xberg 1.0.14 can place multiple Markdown headings in one chunk while
@@ -233,7 +259,7 @@ func (p *XbergCLIParser) Parse(ctx context.Context, path, mediaType string) ([]P
 			headingPath = nil
 		}
 		firstPage, lastPage := chunk.Metadata.FirstPage, chunk.Metadata.LastPage
-		if mediaType != MediaTypePDF && !hasReliableSlideRanges(mediaType) {
+		if !spec.citations.pageRange {
 			// Xberg may assign internal page-like coordinates to narrative and
 			// ebook formats. They are not stable rendered page numbers, so only
 			// PDF and presentation routes expose them as public citations.
@@ -245,10 +271,26 @@ func (p *XbergCLIParser) Parse(ctx context.Context, path, mediaType string) ([]P
 			HeadingPath: headingPath,
 		}}
 	}
-	if hasReliableSlideRanges(mediaType) {
+	if spec.citations.enforcePageBoundary {
 		return enforcePresentationPageBoundaries(chunks)
 	}
 	return chunks, nil
+}
+
+type exitCodeError interface {
+	error
+	ExitCode() int
+}
+
+var _ exitCodeError = (*exec.ExitError)(nil)
+
+func deterministicXbergExitCode(err error) (int, bool) {
+	var exitErr exitCodeError
+	if !errors.As(err, &exitErr) {
+		return 0, false
+	}
+	code := exitErr.ExitCode()
+	return code, code >= 0
 }
 
 func containsMultipleMarkdownHeadings(content string) bool {
@@ -294,10 +336,7 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 func runBoundedXbergCommand(ctx context.Context, binary string, args []string) ([]byte, []byte, error) {
 	stdout := &cappedBuffer{max: xbergStdoutLimit}
 	stderr := &cappedBuffer{max: xbergStderrLimit}
-	cmd := exec.CommandContext(ctx, binary, args...)
-	// Xberg inputs are absolute and config discovery is disabled. Its official
-	// Linux and macOS bundles resolve adjacent dynamic libraries from this dir.
-	cmd.Dir = filepath.Dir(binary)
+	cmd := newXbergCommand(ctx, binary, args)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	err := cmd.Run()
@@ -311,6 +350,38 @@ func runBoundedXbergCommand(ctx context.Context, binary string, args []string) (
 		return nil, stderr.Bytes(), err
 	}
 	return stdout.Bytes(), stderr.Bytes(), nil
+}
+
+func newXbergCommand(ctx context.Context, binary string, args []string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, binary, args...)
+	// Xberg inputs are absolute and config discovery is disabled. Its official
+	// Linux and macOS bundles resolve adjacent dynamic libraries from this dir.
+	cmd.Dir = filepath.Dir(binary)
+	cmd.Env = xbergChildEnvironment()
+	return cmd
+}
+
+func xbergChildEnvironment() []string {
+	// Xberg parses untrusted documents, so it receives only runtime essentials.
+	// Provider credentials and unrelated stellad configuration must not cross
+	// the process boundary.
+	allowed := map[string]struct{}{
+		"PATH": {}, "LD_LIBRARY_PATH": {}, "DYLD_LIBRARY_PATH": {},
+		"TMPDIR": {}, "TMP": {}, "TEMP": {}, "LANG": {}, "LC_ALL": {},
+	}
+	environment := make([]string, 0, len(allowed)+2)
+	for _, entry := range os.Environ() {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok {
+			continue
+		}
+		if _, keep := allowed[key]; keep {
+			environment = append(environment, entry)
+		}
+	}
+	environment = append(environment, "NO_PROXY=127.0.0.1,localhost", "no_proxy=127.0.0.1,localhost")
+	sort.Strings(environment)
+	return environment
 }
 
 func decodeSingleJSON(data []byte, target any) error {
