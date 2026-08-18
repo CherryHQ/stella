@@ -68,6 +68,50 @@ func (q *Queries) BumpGroupSeq(ctx context.Context, id string) (int64, error) {
 	return next_seq, err
 }
 
+const countAgentPostsInWindow = `-- name: CountAgentPostsInWindow :one
+SELECT COUNT(*)::bigint
+FROM ctx_group_message
+WHERE group_id = $1
+  AND actor_type = 'agent'
+  AND actor_id = $2
+  AND created_at >= $3
+  AND delivery_state != 'failed'
+`
+
+type CountAgentPostsInWindowParams struct {
+	GroupID string    `json:"group_id"`
+	AgentID string    `json:"agent_id"`
+	Since   time.Time `json:"since"`
+}
+
+func (q *Queries) CountAgentPostsInWindow(ctx context.Context, arg CountAgentPostsInWindowParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAgentPostsInWindow, arg.GroupID, arg.AgentID, arg.Since)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countAgentPostsSinceSeq = `-- name: CountAgentPostsSinceSeq :one
+SELECT COUNT(*)::bigint
+FROM ctx_group_message
+WHERE group_id = $1
+  AND actor_type = 'agent'
+  AND seq > $2
+  AND delivery_state != 'failed'
+`
+
+type CountAgentPostsSinceSeqParams struct {
+	GroupID  string `json:"group_id"`
+	AfterSeq int64  `json:"after_seq"`
+}
+
+func (q *Queries) CountAgentPostsSinceSeq(ctx context.Context, arg CountAgentPostsSinceSeqParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAgentPostsSinceSeq, arg.GroupID, arg.AfterSeq)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countPeerMessagesAfterSeq = `-- name: CountPeerMessagesAfterSeq :one
 SELECT COUNT(*)::bigint
 FROM ctx_group_message
@@ -414,6 +458,66 @@ func (q *Queries) GetGroupStateByTriple(ctx context.Context, arg GetGroupStateBy
 		&i.NudgeFallbackCount,
 	)
 	return i, err
+}
+
+const getLatestPeerGroupMessageWithContent = `-- name: GetLatestPeerGroupMessageWithContent :one
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state
+FROM ctx_group_message
+WHERE group_id = $1
+  AND NOT (actor_type = 'agent' AND actor_id = $2)
+  AND btrim(content) = btrim($3)
+ORDER BY seq DESC
+LIMIT 1
+`
+
+type GetLatestPeerGroupMessageWithContentParams struct {
+	GroupID string `json:"group_id"`
+	AgentID string `json:"agent_id"`
+	Content string `json:"content"`
+}
+
+func (q *Queries) GetLatestPeerGroupMessageWithContent(ctx context.Context, arg GetLatestPeerGroupMessageWithContentParams) (CtxGroupMessage, error) {
+	row := q.db.QueryRow(ctx, getLatestPeerGroupMessageWithContent, arg.GroupID, arg.AgentID, arg.Content)
+	var i CtxGroupMessage
+	err := row.Scan(
+		&i.ID,
+		&i.GroupID,
+		&i.Seq,
+		&i.SourceChannelID,
+		&i.ActorType,
+		&i.ActorID,
+		&i.PlatformMessageID,
+		&i.ReplyTo,
+		&i.PlatformTimestamp,
+		&i.IdempotencyKey,
+		&i.Content,
+		&i.Reasoning,
+		&i.AgentSessionID,
+		&i.CreatedAt,
+		&i.ContentBlocks,
+		&i.DeliveryState,
+	)
+	return i, err
+}
+
+const lastHumanSeqAtOrBefore = `-- name: LastHumanSeqAtOrBefore :one
+SELECT COALESCE(MAX(seq), 0)::bigint
+FROM ctx_group_message
+WHERE group_id = $1
+  AND actor_type = 'human'
+  AND seq <= $2
+`
+
+type LastHumanSeqAtOrBeforeParams struct {
+	GroupID    string `json:"group_id"`
+	TriggerSeq int64  `json:"trigger_seq"`
+}
+
+func (q *Queries) LastHumanSeqAtOrBefore(ctx context.Context, arg LastHumanSeqAtOrBeforeParams) (int64, error) {
+	row := q.db.QueryRow(ctx, lastHumanSeqAtOrBefore, arg.GroupID, arg.TriggerSeq)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const listGroupMessagesPaginated = `-- name: ListGroupMessagesPaginated :many

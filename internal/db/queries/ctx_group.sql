@@ -36,6 +36,39 @@ WHERE group_id = sqlc.arg(group_id)
   AND NOT (actor_type = 'agent' AND actor_id = sqlc.arg(agent_id))
   AND delivery_state != 'failed';
 
+-- name: GetLatestPeerGroupMessageWithContent :one
+SELECT *
+FROM ctx_group_message
+WHERE group_id = sqlc.arg(group_id)
+  AND NOT (actor_type = 'agent' AND actor_id = sqlc.arg(agent_id))
+  AND btrim(content) = btrim(sqlc.arg(content))
+ORDER BY seq DESC
+LIMIT 1;
+
+-- name: LastHumanSeqAtOrBefore :one
+SELECT COALESCE(MAX(seq), 0)::bigint
+FROM ctx_group_message
+WHERE group_id = sqlc.arg(group_id)
+  AND actor_type = 'human'
+  AND seq <= sqlc.arg(trigger_seq);
+
+-- name: CountAgentPostsSinceSeq :one
+SELECT COUNT(*)::bigint
+FROM ctx_group_message
+WHERE group_id = sqlc.arg(group_id)
+  AND actor_type = 'agent'
+  AND seq > sqlc.arg(after_seq)
+  AND delivery_state != 'failed';
+
+-- name: CountAgentPostsInWindow :one
+SELECT COUNT(*)::bigint
+FROM ctx_group_message
+WHERE group_id = sqlc.arg(group_id)
+  AND actor_type = 'agent'
+  AND actor_id = sqlc.arg(agent_id)
+  AND created_at >= sqlc.arg(since)
+  AND delivery_state != 'failed';
+
 -- name: GetGroupLastActive :one
 SELECT COALESCE(MAX(gm.created_at), gs.updated_at) AS last_active
 FROM ctx_group_state gs

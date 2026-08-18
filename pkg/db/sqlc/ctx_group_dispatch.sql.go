@@ -57,6 +57,117 @@ func (q *Queries) ClaimExpiredGroupDispatch(ctx context.Context, arg ClaimExpire
 	return i, err
 }
 
+const claimNewestGroupWake = `-- name: ClaimNewestGroupWake :one
+WITH newest AS (
+  SELECT id
+  FROM ctx_group_dispatch candidate
+  WHERE candidate.group_id = $2
+    AND candidate.agent_id = $3
+    AND candidate.kind = 'wake'
+    AND candidate.status = 'pending'
+    AND (candidate.next_attempt_at IS NULL OR candidate.next_attempt_at <= $4)
+    AND NOT EXISTS (
+      SELECT 1
+      FROM ctx_group_dispatch running
+      WHERE running.group_id = candidate.group_id
+        AND running.agent_id = candidate.agent_id
+        AND running.kind = 'wake'
+        AND running.status = 'running'
+        AND running.lease_until IS NOT NULL
+        AND running.lease_until > $4
+    )
+    -- A HOLD is only safe to retry once the wake snapshot covers the peer
+    -- activity that caused it. Scope the gate to the current causal chain:
+    -- a later human message or this agent's accepted post starts a new chain.
+    AND candidate.trigger_seq >= COALESCE((
+      SELECT MAX(held.held_up_to_seq)
+      FROM ctx_group_dispatch held
+      WHERE held.group_id = candidate.group_id
+        AND held.agent_id = candidate.agent_id
+        AND held.kind = 'wake'
+        AND held.status = 'held'
+        AND held.trigger_seq > GREATEST(
+          COALESCE((
+            SELECT MAX(own.seq)
+            FROM ctx_group_dispatch accepted
+            JOIN ctx_group_message own ON own.id = accepted.result_message_id
+            WHERE accepted.group_id = candidate.group_id
+              AND accepted.agent_id = candidate.agent_id
+              AND accepted.result_message_id IS NOT NULL
+          ), 0),
+          COALESCE((
+            SELECT MAX(human.seq)
+            FROM ctx_group_message human
+            WHERE human.group_id = candidate.group_id
+              AND human.actor_type = 'human'
+              AND human.seq <= candidate.trigger_seq
+          ), 0)
+        )
+    ), 0)
+  ORDER BY candidate.trigger_seq DESC
+  LIMIT 1
+), supersede AS (
+  UPDATE ctx_group_dispatch older
+  SET status = 'superseded',
+      lease_until = NULL,
+      next_attempt_at = NULL,
+      updated_at = now()
+  WHERE older.group_id = $2
+    AND older.agent_id = $3
+    AND older.kind = 'wake'
+    AND older.status = 'pending'
+    AND older.trigger_seq < (SELECT trigger_seq FROM ctx_group_dispatch WHERE id = (SELECT id FROM newest))
+)
+UPDATE ctx_group_dispatch dispatch
+SET status = 'running',
+    attempt_count = attempt_count + 1,
+    lease_until = $1,
+    next_attempt_at = NULL,
+    last_error = '',
+    updated_at = now()
+WHERE dispatch.id = (SELECT id FROM newest)
+RETURNING dispatch.id, dispatch.group_message_id, dispatch.group_id, dispatch.agent_id, dispatch.reply_channel_id, dispatch.status, dispatch.attempt_count, dispatch.lease_until, dispatch.next_attempt_at, dispatch.last_error, dispatch.result_message_id, dispatch.created_at, dispatch.updated_at, dispatch.kind, dispatch.trigger_seq, dispatch.held_up_to_seq, dispatch.published_at
+`
+
+type ClaimNewestGroupWakeParams struct {
+	LeaseUntil pgtype.Timestamptz `json:"lease_until"`
+	GroupID    string             `json:"group_id"`
+	AgentID    string             `json:"agent_id"`
+	Now        pgtype.Timestamptz `json:"now"`
+}
+
+// Claim the current high-water wake and retire older pending snapshots in the
+// same transaction. A live sibling owns the agent's group session already.
+func (q *Queries) ClaimNewestGroupWake(ctx context.Context, arg ClaimNewestGroupWakeParams) (CtxGroupDispatch, error) {
+	row := q.db.QueryRow(ctx, claimNewestGroupWake,
+		arg.LeaseUntil,
+		arg.GroupID,
+		arg.AgentID,
+		arg.Now,
+	)
+	var i CtxGroupDispatch
+	err := row.Scan(
+		&i.ID,
+		&i.GroupMessageID,
+		&i.GroupID,
+		&i.AgentID,
+		&i.ReplyChannelID,
+		&i.Status,
+		&i.AttemptCount,
+		&i.LeaseUntil,
+		&i.NextAttemptAt,
+		&i.LastError,
+		&i.ResultMessageID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Kind,
+		&i.TriggerSeq,
+		&i.HeldUpToSeq,
+		&i.PublishedAt,
+	)
+	return i, err
+}
+
 const claimPendingGroupDispatch = `-- name: ClaimPendingGroupDispatch :one
 UPDATE ctx_group_dispatch
 SET status = 'running',
@@ -173,6 +284,34 @@ func (q *Queries) CountGroupDispatchByMessage(ctx context.Context, groupMessageI
 	return column_1, err
 }
 
+const countHeldGroupDispatchesInChain = `-- name: CountHeldGroupDispatchesInChain :one
+SELECT COUNT(*)::bigint
+FROM ctx_group_dispatch held
+WHERE held.group_id = $1
+  AND held.agent_id = $2
+  AND held.status = 'held'
+  AND held.trigger_seq > GREATEST($3, $4)
+`
+
+type CountHeldGroupDispatchesInChainParams struct {
+	GroupID         string `json:"group_id"`
+	AgentID         string `json:"agent_id"`
+	AfterOwnPostSeq int64  `json:"after_own_post_seq"`
+	AfterHumanSeq   int64  `json:"after_human_seq"`
+}
+
+func (q *Queries) CountHeldGroupDispatchesInChain(ctx context.Context, arg CountHeldGroupDispatchesInChainParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countHeldGroupDispatchesInChain,
+		arg.GroupID,
+		arg.AgentID,
+		arg.AfterOwnPostSeq,
+		arg.AfterHumanSeq,
+	)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countNonTerminalGroupDispatchByMessage = `-- name: CountNonTerminalGroupDispatchByMessage :one
 SELECT CAST(COUNT(*) AS BIGINT) FROM ctx_group_dispatch
 WHERE group_message_id = $1
@@ -188,10 +327,10 @@ func (q *Queries) CountNonTerminalGroupDispatchByMessage(ctx context.Context, gr
 
 const createGroupDispatch = `-- name: CreateGroupDispatch :exec
 INSERT INTO ctx_group_dispatch (
-  id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, trigger_seq
+  id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, trigger_seq, kind
 )
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-  (SELECT seq FROM ctx_group_message WHERE id = $2)) ON CONFLICT DO NOTHING
+  (SELECT seq FROM ctx_group_message WHERE id = $2), 'reply') ON CONFLICT DO NOTHING
 `
 
 type CreateGroupDispatchParams struct {
@@ -481,6 +620,61 @@ func (q *Queries) ListPendingGroupDispatchByMessage(ctx context.Context, arg Lis
 	return items, nil
 }
 
+const listPendingGroupWakePairs = `-- name: ListPendingGroupWakePairs :many
+SELECT DISTINCT ON (group_id, agent_id) id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, published_at
+FROM ctx_group_dispatch
+WHERE kind = 'wake'
+  AND status = 'pending'
+  AND (next_attempt_at IS NULL OR next_attempt_at <= $1)
+ORDER BY group_id, agent_id, trigger_seq DESC
+LIMIT $2
+`
+
+type ListPendingGroupWakePairsParams struct {
+	Now        pgtype.Timestamptz `json:"now"`
+	LimitCount int32              `json:"limit_count"`
+}
+
+// One representative per (group, agent) wakes the bounded pool. Claiming
+// chooses newest again transactionally, so this advisory feed may be stale.
+func (q *Queries) ListPendingGroupWakePairs(ctx context.Context, arg ListPendingGroupWakePairsParams) ([]CtxGroupDispatch, error) {
+	rows, err := q.db.Query(ctx, listPendingGroupWakePairs, arg.Now, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxGroupDispatch{}
+	for rows.Next() {
+		var i CtxGroupDispatch
+		if err := rows.Scan(
+			&i.ID,
+			&i.GroupMessageID,
+			&i.GroupID,
+			&i.AgentID,
+			&i.ReplyChannelID,
+			&i.Status,
+			&i.AttemptCount,
+			&i.LeaseUntil,
+			&i.NextAttemptAt,
+			&i.LastError,
+			&i.ResultMessageID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Kind,
+			&i.TriggerSeq,
+			&i.HeldUpToSeq,
+			&i.PublishedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markGroupDispatchCompleted = `-- name: MarkGroupDispatchCompleted :execrows
 UPDATE ctx_group_dispatch
 SET status = 'completed',
@@ -525,6 +719,32 @@ type MarkGroupDispatchFailedParams struct {
 
 func (q *Queries) MarkGroupDispatchFailed(ctx context.Context, arg MarkGroupDispatchFailedParams) (int64, error) {
 	result, err := q.db.Exec(ctx, markGroupDispatchFailed, arg.LastError, arg.ID, arg.AttemptCount)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const markGroupDispatchHeld = `-- name: MarkGroupDispatchHeld :execrows
+UPDATE ctx_group_dispatch
+SET status = 'held',
+    lease_until = NULL,
+    next_attempt_at = NULL,
+    held_up_to_seq = $1,
+    updated_at = now()
+WHERE id = $2
+  AND status = 'running'
+  AND attempt_count = $3
+`
+
+type MarkGroupDispatchHeldParams struct {
+	HeldUpToSeq  pgtype.Int8 `json:"held_up_to_seq"`
+	ID           string      `json:"id"`
+	AttemptCount int64       `json:"attempt_count"`
+}
+
+func (q *Queries) MarkGroupDispatchHeld(ctx context.Context, arg MarkGroupDispatchHeldParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markGroupDispatchHeld, arg.HeldUpToSeq, arg.ID, arg.AttemptCount)
 	if err != nil {
 		return 0, err
 	}

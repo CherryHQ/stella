@@ -29,12 +29,12 @@ const (
 	// Library V1, channel guest sessions/indexes, channel allowlist backfill,
 	// session activity, per-message actor provenance and summary authority,
 	// the durable Session inbox, restrictive Library ownership, and the Discord
-	// explicit guild-access backfill and the optimistic group-dispatch plumbing
-	// are the post-anchor migrations exercised
+	// explicit guild-access backfill, optimistic group-dispatch plumbing, and
+	// the reply-to-wake optimistic cutover are the post-anchor migrations exercised
 	// below. Library chunk locator integrity and the dedicated Skill Home
 	// cutover evidence schema and retired RTK plugin cleanup are checked
 	// explicitly.
-	currentMigrationVersion = sequentialAnchor + 19
+	currentMigrationVersion = sequentialAnchor + 20
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
