@@ -487,6 +487,15 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	mcpSvc := mcp.NewServiceForPool(db, mcpVault)
 
 	serviceTools := []agent.BuiltinTool{
+		{Tool: channel.NewGroupClaimTools(db).Tools()[0], Available: func(_ context.Context, params agent.RunnerParams) bool {
+			return params.GroupID != "" && params.AgentID != ""
+		}},
+		{Tool: channel.NewGroupClaimTools(db).Tools()[1], Available: func(_ context.Context, params agent.RunnerParams) bool {
+			return params.GroupID != "" && params.AgentID != ""
+		}},
+		{Tool: channel.NewGroupClaimTools(db).Tools()[2], Available: func(_ context.Context, params agent.RunnerParams) bool {
+			return params.GroupID != "" && params.AgentID != ""
+		}},
 		{Tool: goal.NewTool(goalSvc), Available: agent.BuiltinToolAvailable},
 		{Tool: sessionaccess.NewTool(sessionAccess), Available: func(ctx context.Context, params agent.RunnerParams) bool {
 			return params.GroupID == "" && agent.BuiltinToolAvailable(ctx, params)

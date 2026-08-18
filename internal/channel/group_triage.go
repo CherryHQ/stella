@@ -27,6 +27,7 @@ type GroupTriageRequest struct {
 	ModelAgentID                                   string
 	AuthorType                                     string
 	Context                                        []string
+	Claims                                         []string
 }
 
 type GroupTriage interface {
@@ -70,7 +71,7 @@ func (t *LLMGroupTriage) Decide(ctx context.Context, req GroupTriageRequest) (bo
 	if err != nil || stream == nil {
 		return false, "stream", fmt.Errorf("build stream: %w", err)
 	}
-	payload := fmt.Sprintf("Agent: %s (%s)\nAuthor type: %s\nRecent context:\n%s\nLatest message:\n%s", req.AgentID, req.AgentName, req.AuthorType, strings.Join(req.Context, "\n"), req.Message)
+	payload := fmt.Sprintf("Agent: %s (%s)\nAuthor type: %s\nActive claims:\n%s\nRecent context:\n%s\nLatest message:\n%s", req.AgentID, req.AgentName, req.AuthorType, strings.Join(req.Claims, "\n"), strings.Join(req.Context, "\n"), req.Message)
 	cctx, cancel := context.WithTimeout(ctx, groupTriageTimeout)
 	defer cancel()
 	msg, err := t.complete(cctx, model, ai.Context{System: groupTriagePrompt, Messages: []ai.Message{ai.UserMessage{Content: payload}}}, ai.CompleteOptions{StreamOptions: ai.StreamOptions{Timeout: groupTriageTimeout}}, stream)
@@ -158,7 +159,7 @@ func (d *GroupDispatcher) triageWake(ctx context.Context, row sqlc.CtxGroupDispa
 			return false, "rules_only", false
 		}
 	}
-	act, why, err := d.triage.Decide(ctx, GroupTriageRequest{AgentID: row.AgentID, ModelAgentID: modelAgentID, AgentName: a.Name, GroupID: row.GroupID, Platform: state.Platform, AuthorType: message.ActorType, Message: message.Content, Context: d.triageContext(ctx, row.GroupID, message.Seq, row.AgentID)})
+	act, why, err := d.triage.Decide(ctx, GroupTriageRequest{AgentID: row.AgentID, ModelAgentID: modelAgentID, AgentName: a.Name, GroupID: row.GroupID, Platform: state.Platform, AuthorType: message.ActorType, Message: message.Content, Context: d.triageContext(ctx, row.GroupID, message.Seq, row.AgentID), Claims: d.triageClaims(ctx, row.GroupID, row.AgentID)})
 	if err != nil {
 		return false, "degraded_triage:" + why, true
 	}
@@ -166,6 +167,21 @@ func (d *GroupDispatcher) triageWake(ctx context.Context, row sqlc.CtxGroupDispa
 		return true, "classifier:" + why, false
 	}
 	return false, "classifier_silent:" + why, false
+}
+
+func (d *GroupDispatcher) triageClaims(ctx context.Context, groupID, agentID string) []string {
+	rows, err := d.q.ListLiveGroupClaims(ctx, groupID)
+	if err != nil {
+		return nil
+	}
+	claims := make([]string, 0, len(rows))
+	for _, claim := range rows {
+		if claim.OwnerAgentID == agentID {
+			continue
+		}
+		claims = append(claims, fmt.Sprintf("%s owns %q: %s", claim.OwnerAgentID, claim.Key, claim.Note))
+	}
+	return claims
 }
 
 func mentioned(agentID string, mentions []pkgchannel.Mention) bool {

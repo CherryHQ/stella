@@ -93,6 +93,14 @@ Available in CLI, Telegram, Discord, QQ, Feishu, DingTalk, and WeChat:
 member, so a group `/new` is refused and resets nothing; `/compact` does not
 apply in groups either. Neither command enters the group's shared history.
 
+### Group collaboration
+
+In a group turn, `group_claim` reserves a concrete shared deliverable for 1
+minute to 24 hours (10 minutes by default). Claim only work a peer could
+duplicate, never an ordinary chat reply; release it when done. `group_claims`
+lists live claims and `group_release` releases only your own claim. If another
+agent owns a claim, move on rather than competing for it.
+
 ## Stella tools
 
 Agents use native tools for Stella capabilities; do not shell out to the `stella` CLI from an agent session.
