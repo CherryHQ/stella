@@ -611,7 +611,11 @@ func (d *GroupDispatcher) acceptGroupResponse(ctx context.Context, row sqlc.CtxG
 	if err != nil {
 		return eventlog.AppendResult{}, fmt.Errorf("last human seq: %w", err)
 	}
-	held, err := q.CountHeldGroupDispatchesInChain(ctx, sqlc.CountHeldGroupDispatchesInChainParams{GroupID: row.GroupID, AgentID: row.AgentID, AfterOwnPostSeq: 0, AfterHumanSeq: lastHuman})
+	lastOwnPost, err := q.LastAcceptedGroupPostSeq(ctx, sqlc.LastAcceptedGroupPostSeqParams{GroupID: row.GroupID, AgentID: row.AgentID})
+	if err != nil {
+		return eventlog.AppendResult{}, fmt.Errorf("last accepted group post seq: %w", err)
+	}
+	held, err := q.CountHeldGroupDispatchesInChain(ctx, sqlc.CountHeldGroupDispatchesInChainParams{GroupID: row.GroupID, AgentID: row.AgentID, AfterOwnPostSeq: lastOwnPost, AfterHumanSeq: lastHuman})
 	if err != nil {
 		return eventlog.AppendResult{}, fmt.Errorf("count held dispatches: %w", err)
 	}
@@ -1198,6 +1202,11 @@ func (d *GroupDispatcher) failAcceptedPublish(ctx context.Context, row sqlc.CtxG
 	message, err := q.SetGroupMessageDeliveryState(ctx, sqlc.SetGroupMessageDeliveryStateParams{ID: row.ResultMessageID, DeliveryState: "failed"})
 	if err != nil {
 		return fmt.Errorf("mark group message failed: %w", err)
+	}
+	if _, err := q.RequeueHeldGroupDispatchesAfterAcceptedPost(ctx, sqlc.RequeueHeldGroupDispatchesAfterAcceptedPostParams{
+		GroupID: row.GroupID, AcceptedAt: message.CreatedAt,
+	}); err != nil {
+		return fmt.Errorf("requeue held peers after failed delivery: %w", err)
 	}
 	updated, err := q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: cause.Error()})
 	if err != nil {

@@ -192,18 +192,37 @@ func createDispatchForGroupMessage(t *testing.T, q *sqlc.Queries, msg sqlc.CtxGr
 
 func createGroupMessageWithSeq(t *testing.T, q *sqlc.Queries, groupID, id string, seq int64) sqlc.CtxGroupMessage {
 	t.Helper()
+	return createGroupMessage(t, q, groupID, id, seq, eventlog.ActorHuman, "user-1", "hello")
+}
+
+func createGroupMessage(t *testing.T, q *sqlc.Queries, groupID, id string, seq int64, actorType eventlog.ActorType, actorID, content string) sqlc.CtxGroupMessage {
+	t.Helper()
 	msg, err := q.CreateGroupMessage(context.Background(), sqlc.CreateGroupMessageParams{
 		ID:        id,
 		GroupID:   groupID,
 		Seq:       seq,
-		ActorType: string(eventlog.ActorHuman),
-		ActorID:   "user-1",
-		Content:   "hello",
+		ActorType: string(actorType),
+		ActorID:   actorID,
+		Content:   content,
 	})
 	if err != nil {
 		t.Fatalf("create message %s: %v", id, err)
 	}
 	return msg
+}
+
+func addFixtureAgent(t *testing.T, fx dispatcherFixture, agentID, channelID string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := fx.q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: agentID, Name: agentID, Workspace: t.TempDir(), Sandbox: json.RawMessage("{}"), Scope: "system", Enabled: true}); err != nil {
+		t.Fatalf("create %s: %v", agentID, err)
+	}
+	if err := fx.q.CreateWebChannelIfNotExists(ctx, sqlc.CreateWebChannelIfNotExistsParams{ID: channelID, AgentID: pgtype.Text{String: agentID, Valid: true}}); err != nil {
+		t.Fatalf("create %s channel: %v", agentID, err)
+	}
+	if _, err := fx.q.AddGroupMember(ctx, sqlc.AddGroupMemberParams{GroupID: fx.groupID, AgentID: agentID, ReplyChannelID: channelID}); err != nil {
+		t.Fatalf("add %s to group: %v", agentID, err)
+	}
 }
 
 func TestWakeMaterializationSkipsAuthor(t *testing.T) {
@@ -420,6 +439,51 @@ func TestFreshnessGateHoldsWhenPeerPostedAfterSnapshot(t *testing.T) {
 	}
 }
 
+func TestFreshnessGateSerializesWithHumanIngest(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000096", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
+	row, err := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000096")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Human ingress and acceptance share ctx_group_state's row lock. Hold it as
+	// the ingress path does, start acceptance, then commit the human row first.
+	// The acceptance must observe that commit and HOLD rather than post stale text.
+	tx, err := fx.db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qtx := fx.q.WithTx(tx)
+	if _, err := qtx.GetGroupStateByIDForUpdate(ctx, fx.groupID); err != nil {
+		t.Fatal(err)
+	}
+	acceptC := make(chan error, 1)
+	state, err := fx.q.GetGroupStateByID(ctx, fx.groupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		_, acceptErr := fx.d.acceptGroupResponse(ctx, row, state, groupResponse{text: "stale", complete: true}, memory.DeferredGroupTurn{Complete: true})
+		acceptC <- acceptErr
+	}()
+	time.Sleep(25 * time.Millisecond) // acceptance is blocked behind ingress
+	seq, err := qtx.BumpGroupSeq(ctx, fx.groupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := qtx.CreateGroupMessage(ctx, sqlc.CreateGroupMessageParams{ID: "a1a1a1a1-0000-0000-0000-000000000096", GroupID: fx.groupID, Seq: seq, ActorType: string(eventlog.ActorHuman), ActorID: "user-2", Content: "arrived before accept"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-acceptC; !errors.Is(err, errGroupTurnHeld) {
+		t.Fatalf("accept err=%v, want HOLD", err)
+	}
+}
+
 func TestVerbatimDuplicateHeld(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000093", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
@@ -447,6 +511,174 @@ func TestHoldLimitPostsThrough(t *testing.T) {
 	state, _ := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
 	if _, err := fx.d.acceptGroupResponse(context.Background(), row, state, groupResponse{text: "reply", complete: true}, memory.DeferredGroupTurn{Complete: true}); err != nil {
 		t.Fatalf("hold limit must post through: %v", err)
+	}
+}
+
+func TestHoldChainResetsAtNewHumanTrigger(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_state SET hold_limit = 1 WHERE id = $1`, fx.groupID); err != nil {
+		t.Fatal(err)
+	}
+	// This HOLD belongs to the first human chain and must not consume the next
+	// human trigger's one permitted freshness check.
+	if err := fx.q.CreateGroupWake(ctx, sqlc.CreateGroupWakeParams{ID: "d15a0000-0000-0000-0000-000000000097", GroupMessageID: fx.message.ID, GroupID: fx.groupID, AgentID: "agent-1", ReplyChannelID: "ch-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET status='held', held_up_to_seq=1 WHERE id=$1`, "d15a0000-0000-0000-0000-000000000097"); err != nil {
+		t.Fatal(err)
+	}
+	newHuman, err := eventlog.NewStore(fx.db).AppendToGroup(ctx, fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorHuman, ActorID: "user-2", Content: "new question"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	createDispatchForGroupMessage(t, fx.q, newHuman.Message, "d15a0000-0000-0000-0000-000000000098", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
+	if _, err := eventlog.NewStore(fx.db).AppendToGroup(ctx, fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorHuman, ActorID: "user-3", Content: "newer peer"}); err != nil {
+		t.Fatal(err)
+	}
+	row, err := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000098")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, _ := fx.q.GetGroupStateByID(ctx, fx.groupID)
+	if _, err := fx.d.acceptGroupResponse(ctx, row, state, groupResponse{text: "reply", complete: true}, memory.DeferredGroupTurn{Complete: true}); !errors.Is(err, errGroupTurnHeld) {
+		t.Fatalf("new human chain err=%v, want HOLD", err)
+	}
+}
+
+func TestHoldSuccessorSnapshotCoversHoldSeq(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	if err := fx.q.CreateGroupWake(ctx, sqlc.CreateGroupWakeParams{ID: "d15a0000-0000-0000-0000-000000000099", GroupMessageID: fx.message.ID, GroupID: fx.groupID, AgentID: "agent-1", ReplyChannelID: "ch-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET status='held', held_up_to_seq=3 WHERE id=$1`, "d15a0000-0000-0000-0000-000000000099"); err != nil {
+		t.Fatal(err)
+	}
+	second := createGroupMessage(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-000000000097", 2, eventlog.ActorAgent, "agent-2", "peer one")
+	setGroupNextSeq(t, fx.db, fx.groupID, second.Seq)
+	if err := fx.q.CreateGroupWake(ctx, sqlc.CreateGroupWakeParams{ID: "d15a0000-0000-0000-0000-000000000100", GroupMessageID: second.ID, GroupID: fx.groupID, AgentID: "agent-1", ReplyChannelID: "ch-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := fx.d.claimDispatch(ctx, sqlc.CtxGroupDispatch{Status: "pending", Kind: "wake", GroupID: fx.groupID, AgentID: "agent-1"}); err != nil || ok {
+		t.Fatalf("uncovered successor claimed=%v err=%v", ok, err)
+	}
+	third := createGroupMessage(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-000000000098", 3, eventlog.ActorAgent, "agent-2", "peer two")
+	setGroupNextSeq(t, fx.db, fx.groupID, third.Seq)
+	if err := fx.q.CreateGroupWake(ctx, sqlc.CreateGroupWakeParams{ID: "d15a0000-0000-0000-0000-000000000101", GroupMessageID: third.ID, GroupID: fx.groupID, AgentID: "agent-1", ReplyChannelID: "ch-1"}); err != nil {
+		t.Fatal(err)
+	}
+	claimed, ok, err := fx.d.claimDispatch(ctx, sqlc.CtxGroupDispatch{Status: "pending", Kind: "wake", GroupID: fx.groupID, AgentID: "agent-1"})
+	if err != nil || !ok || claimed.TriggerSeq < 3 {
+		t.Fatalf("covered successor=%+v ok=%v err=%v", claimed, ok, err)
+	}
+}
+
+func TestHoldNeverRepeatsOnSameSnapshot(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000102", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
+	first, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000102")
+	peer, err := eventlog.NewStore(fx.db).AppendToGroup(ctx, fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorHuman, ActorID: "user-2", Content: "newer"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, _ := fx.q.GetGroupStateByID(ctx, fx.groupID)
+	if _, err := fx.d.acceptGroupResponse(ctx, first, state, groupResponse{text: "first", complete: true}, memory.DeferredGroupTurn{Complete: true}); !errors.Is(err, errGroupTurnHeld) {
+		t.Fatalf("first err=%v, want HOLD", err)
+	}
+	held, _ := fx.q.GetGroupDispatch(ctx, first.ID)
+	if !held.HeldUpToSeq.Valid || held.HeldUpToSeq.Int64 != peer.Seq {
+		t.Fatalf("held_up_to_seq=%+v, want %d", held.HeldUpToSeq, peer.Seq)
+	}
+	if err := fx.q.CreateGroupWake(ctx, sqlc.CreateGroupWakeParams{ID: "d15a0000-0000-0000-0000-000000000103", GroupMessageID: peer.Message.ID, GroupID: fx.groupID, AgentID: "agent-1", ReplyChannelID: "ch-1"}); err != nil {
+		t.Fatal(err)
+	}
+	successor, ok, err := fx.d.claimDispatch(ctx, sqlc.CtxGroupDispatch{Status: "pending", Kind: "wake", GroupID: fx.groupID, AgentID: "agent-1"})
+	if err != nil || !ok || successor.TriggerSeq != held.HeldUpToSeq.Int64 {
+		t.Fatalf("successor=%+v ok=%v err=%v", successor, ok, err)
+	}
+	if _, err := fx.d.acceptGroupResponse(ctx, successor, state, groupResponse{text: "second", complete: true}, memory.DeferredGroupTurn{Complete: true}); err != nil {
+		t.Fatalf("same covered snapshot held again: %v", err)
+	}
+}
+
+func TestHoldDiscardsDeferredTurn(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(context.Context, *sqlc.Queries, memory.DeferredGroupTurn) error {
+		t.Fatal("a held turn must not commit deferred memory")
+		return nil
+	}))
+	fx.d.publishers.Register("ch-1", &recordingGroupPublisher{})
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000104", "agent-1", fx.groupID, "pending", pgtype.Timestamptz{})
+	if _, err := eventlog.NewStore(fx.db).AppendToGroup(ctx, fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorHuman, ActorID: "user-2", Content: "newer"}); err != nil {
+		t.Fatal(err)
+	}
+	row, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000104")
+	if err := fx.d.ExecuteDispatch(ctx, row); err != nil {
+		t.Fatalf("HOLD is terminal for this turn, got %v", err)
+	}
+	row, _ = fx.q.GetGroupDispatch(ctx, row.ID)
+	if row.Status != "held" {
+		t.Fatalf("dispatch status=%q, want held", row.Status)
+	}
+}
+
+func TestPendingPostFinalFailureRequeuesHeldPeers(t *testing.T) {
+	fx := newDispatcherFixture(t, "telegram", "{}")
+	ctx := context.Background()
+	addFixtureAgent(t, fx, "agent-2", "ch-2")
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000105", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
+	post, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000105")
+	state, _ := fx.q.GetGroupStateByID(ctx, fx.groupID)
+	accepted, err := fx.d.acceptGroupResponse(ctx, post, state, groupResponse{text: "pending delivery", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	post.ResultMessageID = accepted.Message.ID
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000106", "agent-2", fx.groupID, "running", pgtype.Timestamptz{})
+	peer, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000106")
+	if _, err := fx.d.acceptGroupResponse(ctx, peer, state, groupResponse{text: "peer reply", complete: true}, memory.DeferredGroupTurn{Complete: true}); !errors.Is(err, errGroupTurnHeld) {
+		t.Fatalf("peer err=%v, want HOLD", err)
+	}
+	if err := fx.d.failAcceptedPublish(ctx, post, errors.New("platform down")); err == nil {
+		t.Fatal("final publish failure must be reported")
+	}
+	peer, _ = fx.q.GetGroupDispatch(ctx, peer.ID)
+	if peer.Status != "pending" || peer.HeldUpToSeq.Valid {
+		t.Fatalf("held peer=%+v, want requeued with cleared gate", peer)
+	}
+}
+
+func TestSilentTriageSupersedesOlderWakes(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	addFixtureAgent(t, fx, "agent-2", "ch-2")
+	newer := createGroupMessage(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-000000000099", 2, eventlog.ActorHuman, "user-2", "newer")
+	setGroupNextSeq(t, fx.db, fx.groupID, newer.Seq)
+	if _, err := fx.q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{ID: "b0b0b0b0-0000-0000-0000-000000000099", GroupMessageID: newer.ID, GroupID: fx.groupID, Envelope: "{}", Status: "completed", LastError: ""}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.q.CreateGroupWake(ctx, sqlc.CreateGroupWakeParams{ID: "d15a0000-0000-0000-0000-000000000107", GroupMessageID: fx.message.ID, GroupID: fx.groupID, AgentID: "agent-1", ReplyChannelID: "ch-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.q.CreateGroupWake(ctx, sqlc.CreateGroupWakeParams{ID: "d15a0000-0000-0000-0000-000000000108", GroupMessageID: newer.ID, GroupID: fx.groupID, AgentID: "agent-1", ReplyChannelID: "ch-1"}); err != nil {
+		t.Fatal(err)
+	}
+	fx.d.SetGroupTriage(groupTriageFunc(func(context.Context, GroupTriageRequest) (bool, string, error) { return false, "not_needed", nil }))
+	if err := fx.d.ExecuteDispatch(ctx, sqlc.CtxGroupDispatch{Status: "pending", Kind: "wake", GroupID: fx.groupID, AgentID: "agent-1"}); err != nil {
+		t.Fatal(err)
+	}
+	var older, latest string
+	if err := fx.db.QueryRow(ctx, `SELECT status FROM ctx_group_dispatch WHERE id=$1`, "d15a0000-0000-0000-0000-000000000107").Scan(&older); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.db.QueryRow(ctx, `SELECT status FROM ctx_group_dispatch WHERE id=$1`, "d15a0000-0000-0000-0000-000000000108").Scan(&latest); err != nil {
+		t.Fatal(err)
+	}
+	if older != "superseded" || latest != "silent" {
+		t.Fatalf("statuses older/latest=%q/%q, want superseded/silent", older, latest)
 	}
 }
 

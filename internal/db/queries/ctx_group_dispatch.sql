@@ -66,7 +66,7 @@ WITH newest AS (
         AND held.agent_id = candidate.agent_id
         AND held.kind = 'wake'
         AND held.status = 'held'
-        AND held.trigger_seq > GREATEST(
+        AND held.trigger_seq >= GREATEST(
           COALESCE((
             SELECT MAX(own.seq)
             FROM ctx_group_dispatch accepted
@@ -139,7 +139,31 @@ FROM ctx_group_dispatch held
 WHERE held.group_id = sqlc.arg(group_id)
   AND held.agent_id = sqlc.arg(agent_id)
   AND held.status = 'held'
-  AND held.trigger_seq > GREATEST(sqlc.arg(after_own_post_seq)::bigint, sqlc.arg(after_human_seq)::bigint);
+  -- The root human wake belongs to its own causal chain. A strict comparison
+  -- would forget a HOLD on that first wake and let the same chain livelock.
+  AND held.trigger_seq >= GREATEST(sqlc.arg(after_own_post_seq)::bigint, sqlc.arg(after_human_seq)::bigint);
+
+-- name: LastAcceptedGroupPostSeq :one
+SELECT COALESCE(MAX(message.seq), 0)::bigint
+FROM ctx_group_dispatch dispatch
+JOIN ctx_group_message message
+  ON message.id = NULLIF(dispatch.result_message_id, '')::uuid
+WHERE dispatch.group_id = sqlc.arg(group_id)
+  AND dispatch.agent_id = sqlc.arg(agent_id);
+
+-- name: RequeueHeldGroupDispatchesAfterAcceptedPost :execrows
+-- A peer may have yielded while this accepted post was pending platform egress.
+-- If final delivery fails, that peer needs a fresh chance to answer instead of
+-- leaving the human with neither reply.
+UPDATE ctx_group_dispatch
+SET status = 'pending',
+    lease_until = NULL,
+    next_attempt_at = NULL,
+    held_up_to_seq = NULL,
+    updated_at = now()
+WHERE group_id = sqlc.arg(group_id)
+  AND status = 'held'
+  AND updated_at >= sqlc.arg(accepted_at);
 -- name: ListExpiredRunningGroupDispatch :many
 SELECT * FROM ctx_group_dispatch
 WHERE status = 'running'

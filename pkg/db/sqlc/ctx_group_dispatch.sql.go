@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -86,7 +87,7 @@ WITH newest AS (
         AND held.agent_id = candidate.agent_id
         AND held.kind = 'wake'
         AND held.status = 'held'
-        AND held.trigger_seq > GREATEST(
+        AND held.trigger_seq >= GREATEST(
           COALESCE((
             SELECT MAX(own.seq)
             FROM ctx_group_dispatch accepted
@@ -234,7 +235,9 @@ FROM ctx_group_dispatch held
 WHERE held.group_id = $1
   AND held.agent_id = $2
   AND held.status = 'held'
-  AND held.trigger_seq > GREATEST($3::bigint, $4::bigint)
+  -- The root human wake belongs to its own causal chain. A strict comparison
+  -- would forget a HOLD on that first wake and let the same chain livelock.
+  AND held.trigger_seq >= GREATEST($3::bigint, $4::bigint)
 `
 
 type CountHeldGroupDispatchesInChainParams struct {
@@ -383,6 +386,27 @@ func (q *Queries) GetGroupDispatch(ctx context.Context, id string) (CtxGroupDisp
 		&i.PublishedAt,
 	)
 	return i, err
+}
+
+const lastAcceptedGroupPostSeq = `-- name: LastAcceptedGroupPostSeq :one
+SELECT COALESCE(MAX(message.seq), 0)::bigint
+FROM ctx_group_dispatch dispatch
+JOIN ctx_group_message message
+  ON message.id = NULLIF(dispatch.result_message_id, '')::uuid
+WHERE dispatch.group_id = $1
+  AND dispatch.agent_id = $2
+`
+
+type LastAcceptedGroupPostSeqParams struct {
+	GroupID string `json:"group_id"`
+	AgentID string `json:"agent_id"`
+}
+
+func (q *Queries) LastAcceptedGroupPostSeq(ctx context.Context, arg LastAcceptedGroupPostSeqParams) (int64, error) {
+	row := q.db.QueryRow(ctx, lastAcceptedGroupPostSeq, arg.GroupID, arg.AgentID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const listExpiredRunningGroupDispatch = `-- name: ListExpiredRunningGroupDispatch :many
@@ -645,6 +669,34 @@ func (q *Queries) RequeueGroupDispatch(ctx context.Context, arg RequeueGroupDisp
 		arg.ID,
 		arg.AttemptCount,
 	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const requeueHeldGroupDispatchesAfterAcceptedPost = `-- name: RequeueHeldGroupDispatchesAfterAcceptedPost :execrows
+UPDATE ctx_group_dispatch
+SET status = 'pending',
+    lease_until = NULL,
+    next_attempt_at = NULL,
+    held_up_to_seq = NULL,
+    updated_at = now()
+WHERE group_id = $1
+  AND status = 'held'
+  AND updated_at >= $2
+`
+
+type RequeueHeldGroupDispatchesAfterAcceptedPostParams struct {
+	GroupID    string    `json:"group_id"`
+	AcceptedAt time.Time `json:"accepted_at"`
+}
+
+// A peer may have yielded while this accepted post was pending platform egress.
+// If final delivery fails, that peer needs a fresh chance to answer instead of
+// leaving the human with neither reply.
+func (q *Queries) RequeueHeldGroupDispatchesAfterAcceptedPost(ctx context.Context, arg RequeueHeldGroupDispatchesAfterAcceptedPostParams) (int64, error) {
+	result, err := q.db.Exec(ctx, requeueHeldGroupDispatchesAfterAcceptedPost, arg.GroupID, arg.AcceptedAt)
 	if err != nil {
 		return 0, err
 	}
