@@ -62,3 +62,19 @@ func TestCurrentSpeakerAbsentInDM(t *testing.T) {
 		t.Error("DM turn should render User Profile")
 	}
 }
+
+func TestGroupPromptRendersPeerClaimsOnly(t *testing.T) {
+	p := prompt.BuildSystemPromptFromDB(context.Background(), prompt.DBPromptParams{
+		SystemPrompt: "You are Stella.",
+		AgentID:      "agent-a",
+		GroupID:      "group-1",
+		GroupClaims: []prompt.GroupClaim{{
+			Agent: "Agent B", Subject: "the report", Age: "3m",
+		}},
+	})
+	for _, want := range []string{"### Active peer work", "Agent B owns the report", "claimed 3m ago"} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, p)
+		}
+	}
+}

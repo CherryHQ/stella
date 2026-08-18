@@ -75,6 +75,12 @@ Shared knowledge about this group conversation.
 <group_memory>
 {{ .GroupMemory }}
 </group_memory>
+{{ if .GroupClaims }}
+
+### Active peer work
+
+{{ range .GroupClaims }}- {{ .Agent }} owns {{ .Subject }} (claimed {{ .Age }} ago)
+{{ end }}{{ end }}
 {{ else }}## User Profile
 
 What you know about this user. Session tools can read this; durable edits happen through Reflect or manual memory settings.

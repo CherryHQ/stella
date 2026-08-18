@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
@@ -35,6 +36,33 @@ func NewGroupClaimTools(db *pgxpool.Pool) *GroupClaimTools {
 		return nil
 	}
 	return &GroupClaimTools{q: sqlc.New(db)}
+}
+
+// NewGroupClaimPromptLoader returns the read-only prompt projection for live
+// peer claims. It lives with the claim store so the composition root does not
+// reach through to SQLC.
+func NewGroupClaimPromptLoader(db *pgxpool.Pool) func(context.Context, string, string) []prompt.GroupClaim {
+	q := sqlc.New(db)
+	return func(ctx context.Context, groupID, agentID string) []prompt.GroupClaim {
+		rows, err := q.ListLiveGroupClaims(ctx, groupID)
+		if err != nil {
+			return nil
+		}
+		now := time.Now().UTC()
+		claims := make([]prompt.GroupClaim, 0, len(rows))
+		for _, claim := range rows {
+			if claim.OwnerAgentID == agentID {
+				continue
+			}
+			name := claim.OwnerAgentID
+			if owner, getErr := q.GetAgent(ctx, claim.OwnerAgentID); getErr == nil && owner.Name != "" {
+				name = owner.Name
+			}
+			age := max(now.Sub(claim.CreatedAt.UTC()).Round(time.Minute), 0)
+			claims = append(claims, prompt.GroupClaim{Agent: name, Subject: claim.Note, Age: age.String()})
+		}
+		return claims
+	}
 }
 
 func (t *GroupClaimTools) Tools() []tools.Tool {

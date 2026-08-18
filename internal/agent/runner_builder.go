@@ -131,6 +131,7 @@ type runnerBuilderConfig struct {
 	TokenManager             *oauth.TokenManager
 	ProjectResolver          ProjectResolverFunc
 	SessionImages            SessionImagePipeline
+	GroupClaimsLoader        func(context.Context, string, string) []prompt.GroupClaim
 	Home                     home.Workspace
 }
 
@@ -299,6 +300,11 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			}
 		}
 
+		var groupClaims []prompt.GroupClaim
+		if params.GroupID != "" && cfg.GroupClaimsLoader != nil {
+			groupClaims = cfg.GroupClaimsLoader(ctx, params.GroupID, params.AgentID)
+		}
+
 		// Build the full system prompt per-session with profile from memory provider.
 		// Group sessions skip private profile injection (D9 isolation); group memory
 		// is Phase 3 concern.
@@ -313,6 +319,7 @@ func newRunnerFunc(cfg runnerBuilderConfig) NewRunnerFunc {
 			UserID:         promptUserID,
 			AgentID:        params.AgentID,
 			GroupID:        params.GroupID,
+			GroupClaims:    groupClaims,
 			ProjectContext: projectContext,
 			Sections:       sections,
 		})

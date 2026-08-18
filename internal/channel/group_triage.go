@@ -135,7 +135,7 @@ func (d *GroupDispatcher) triageWake(ctx context.Context, row sqlc.CtxGroupDispa
 	if state.Platform == "web" && message.ActorType == string(eventlog.ActorHuman) && len(members) == 1 {
 		return true, "sole_web_agent", false
 	}
-	if message.ActorType == string(eventlog.ActorAgent) && d.agentRunLapped(ctx, row.GroupID, message.Seq, row.AgentID) {
+	if message.ActorType == string(eventlog.ActorAgent) && !d.hasLiveGroupClaims(ctx, row.GroupID) && d.agentRunLapped(ctx, row.GroupID, message.Seq, row.AgentID) {
 		return false, "agent_lap", false
 	}
 	if d.triage == nil {
@@ -167,6 +167,11 @@ func (d *GroupDispatcher) triageWake(ctx context.Context, row sqlc.CtxGroupDispa
 		return true, "classifier:" + why, false
 	}
 	return false, "classifier_silent:" + why, false
+}
+
+func (d *GroupDispatcher) hasLiveGroupClaims(ctx context.Context, groupID string) bool {
+	claims, err := d.q.ListLiveGroupClaims(ctx, groupID)
+	return err == nil && len(claims) > 0
 }
 
 func (d *GroupDispatcher) triageClaims(ctx context.Context, groupID, agentID string) []string {

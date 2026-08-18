@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -52,7 +53,7 @@ func TestGroupClaimAtomicSingleWinner(t *testing.T) {
 	}
 }
 
-func TestGroupClaimTTLClampedAndOwnerRefreshesLease(t *testing.T) {
+func TestGroupClaimTTLClamped(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	claim := NewGroupClaimTools(fx.db).Tools()[0]
 	ctx := claimContext(fx.groupID, "agent-1")
@@ -65,6 +66,29 @@ func TestGroupClaimTTLClampedAndOwnerRefreshesLease(t *testing.T) {
 	}
 	if first.LeaseUntil.Sub(time.Now().UTC()) < minimumGroupClaimTTL-time.Second {
 		t.Fatalf("ttl was not clamped: %s", first.LeaseUntil)
+	}
+	if _, err := claim.Execute(ctx, map[string]any{"key": "long-report", "ttl_seconds": float64((48 * time.Hour).Seconds())}); err != nil {
+		t.Fatal(err)
+	}
+	second, err := fx.q.GetLiveGroupClaim(context.Background(), sqlc.GetLiveGroupClaimParams{GroupID: fx.groupID, Key: "long-report"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.LeaseUntil.Sub(time.Now().UTC()) > maximumGroupClaimTTL+time.Second {
+		t.Fatalf("maximum ttl was not clamped: %s", second.LeaseUntil)
+	}
+}
+
+func TestOwnerReclaimRefreshesLease(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	claim := NewGroupClaimTools(fx.db).Tools()[0]
+	ctx := claimContext(fx.groupID, "agent-1")
+	if _, err := claim.Execute(ctx, map[string]any{"key": "report", "ttl_seconds": 60.0}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := fx.q.GetLiveGroupClaim(context.Background(), sqlc.GetLiveGroupClaimParams{GroupID: fx.groupID, Key: "report"})
+	if err != nil {
+		t.Fatal(err)
 	}
 	if _, err := claim.Execute(ctx, map[string]any{"key": "report", "ttl_seconds": float64((2 * time.Hour).Seconds())}); err != nil {
 		t.Fatal(err)
@@ -135,5 +159,31 @@ func TestGroupClaimSimultaneousExpiryTakeoverSingleWinner(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("takeover winners=%d", count)
+	}
+}
+
+func TestPromptForbidsChatTurnClaims(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	claim := NewGroupClaimTools(fx.db).Tools()[0]
+	_, err := claim.Execute(claimContext(fx.groupID, "agent-1"), map[string]any{"key": "reply"})
+	if err == nil || !strings.Contains(err.Error(), "never an ordinary chat reply") {
+		t.Fatalf("chat-turn claim error=%v", err)
+	}
+}
+
+func TestExpiredClaimHiddenFromTriageAndPrompt(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	claim := NewGroupClaimTools(fx.db).Tools()[0]
+	if _, err := claim.Execute(claimContext(fx.groupID, "agent-1"), map[string]any{"key": "report", "note": "write it"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.db.QueryRow(context.Background(), `UPDATE ctx_group_claim SET lease_until=now()-interval '1 second' WHERE group_id=$1 RETURNING id`, fx.groupID).Scan(new(string)); err != nil {
+		t.Fatal(err)
+	}
+	if got := fx.d.triageClaims(context.Background(), fx.groupID, "agent-2"); len(got) != 0 {
+		t.Fatalf("expired triage claims=%v", got)
+	}
+	if got := NewGroupClaimPromptLoader(fx.db)(context.Background(), fx.groupID, "agent-2"); len(got) != 0 {
+		t.Fatalf("expired prompt claims=%v", got)
 	}
 }

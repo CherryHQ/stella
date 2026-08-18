@@ -363,6 +363,38 @@ func TestUnmentionedPeerSilentWhenOthersMentioned(t *testing.T) {
 	}
 }
 
+func TestTriageActiveClaimKeepsAgentChainAlive(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	addFixtureAgent(t, fx, "agent-2", "ch-2")
+	store := eventlog.NewStore(fx.db)
+	var latest eventlog.AppendResult
+	for _, agentID := range []string{"agent-2", "agent-1"} {
+		result, err := store.AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: agentID, Content: "still working"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		latest = result
+	}
+	claim := NewGroupClaimTools(fx.db).Tools()[0]
+	if _, err := claim.Execute(claimContext(fx.groupID, "agent-1"), map[string]any{"key": "report"}); err != nil {
+		t.Fatal(err)
+	}
+	fx.d.SetGroupTriage(groupTriageFunc(func(_ context.Context, req GroupTriageRequest) (bool, string, error) {
+		if len(req.Claims) != 1 {
+			t.Fatalf("claims=%v", req.Claims)
+		}
+		return true, "claimed_followup", nil
+	}))
+	state, err := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	act, reason, degraded := fx.d.triageWake(context.Background(), sqlc.CtxGroupDispatch{GroupID: fx.groupID, AgentID: "agent-2", TriggerSeq: latest.Seq, Kind: "wake"}, latest.Message, state, GroupOutboxEnvelope{})
+	if !act || degraded || reason != "classifier:claimed_followup" {
+		t.Fatalf("act=%v reason=%s degraded=%v", act, reason, degraded)
+	}
+}
+
 func TestHardCapsPrecedeMention(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_state SET max_agent_posts_per_minute = 1 WHERE id = $1`, fx.groupID); err != nil {

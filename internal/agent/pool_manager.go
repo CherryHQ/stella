@@ -154,6 +154,11 @@ func WithSessionInboxPM(inbox SessionInbox) PoolManagerOption {
 	return func(pm *PoolManager) { pm.sessionInbox = inbox }
 }
 
+// WithGroupClaimsLoader projects live peer leases into a group runner prompt.
+func WithGroupClaimsLoader(loader func(context.Context, string, string) []prompt.GroupClaim) PoolManagerOption {
+	return func(pm *PoolManager) { pm.groupClaimsLoader = loader }
+}
+
 // PoolManager manages one Service per enabled agent. It reads enabled agents
 // from the config Store and creates a Service (session.Registry + runtime.Runtime)
 // per agent.
@@ -202,6 +207,7 @@ type PoolManager struct {
 	sessionImages            SessionImagePipeline
 	sessionAccess            SessionAccessService
 	sessionInbox             SessionInbox
+	groupClaimsLoader        func(context.Context, string, string) []prompt.GroupClaim
 	homeWorkspace            home.Workspace
 	log                      *slog.Logger
 }
@@ -854,6 +860,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		TokenManager:             pm.tokenManager,
 		ProjectResolver:          pm.projectResolver,
 		SessionImages:            pm.sessionImages,
+		GroupClaimsLoader:        pm.groupClaimsLoader,
 		Home:                     pm.homeWorkspace,
 	})
 }

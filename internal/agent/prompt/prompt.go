@@ -89,6 +89,7 @@ type promptData struct {
 	UserProfile    string // per-user profile from ProfileStore
 	ProfileEntries []memory.ProfileEntry
 	GroupMemory    string // group-scoped shared memory (non-empty only for group sessions)
+	GroupClaims    []GroupClaim
 	Constraints    []memory.ConstraintEntry
 	PluginPrompts  []pkgplugins.SystemPromptSection
 	PromptSections []pkgplugins.SystemPromptSection
@@ -109,11 +110,19 @@ type DBPromptParams struct {
 	AgentID        string          // agent ID for profile lookup
 	GroupID        string          // group ID for group memory lookup (D4); mutually exclusive with UserID
 	GroupMemory    string          // pre-loaded group memory content; injected when non-empty
+	GroupClaims    []GroupClaim    // live peer work claims, excluding this agent's own
 	Sections       []pkgplugins.SystemPromptSection
 	Session        sandbox.Session
 	ProjectContext ProjectContext
 	// nil means current memory; non-nil values, including zero, are frozen snapshots.
 	SnapshotVersion *int64
+}
+
+// GroupClaim is the prompt-safe projection of one peer's live work lease.
+type GroupClaim struct {
+	Agent   string
+	Subject string
+	Age     string
 }
 
 // BuildSystemPromptFromDB composes the full system prompt by populating a
@@ -198,6 +207,9 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 				data.GroupMemory = strings.TrimRight(content, "\n")
 			}
 		}
+	}
+	if p.GroupID != "" {
+		data.GroupClaims = append([]GroupClaim(nil), p.GroupClaims...)
 	}
 
 	// Current speaker (D9): intentionally not rendered into the system prompt.
