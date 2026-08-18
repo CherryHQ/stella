@@ -32,7 +32,9 @@ const (
 )
 
 const (
-	containerUserToolsRoot        = "/home/stella/.stella-tools"
+	// /opt/stella is world-traversable. /home/stella is 0700, so rootless
+	// container UID 0 with all capabilities dropped cannot reach mounts there.
+	containerUserToolsRoot        = "/opt/stella/user-tools"
 	containerUserToolsBin         = containerUserToolsRoot + "/bin"
 	containerUserToolsReadyMarker = containerUserToolsRoot + "/.stella-tools-ready"
 )

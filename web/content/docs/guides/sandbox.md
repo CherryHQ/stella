@@ -61,11 +61,11 @@ By default, sandbox containers use the Docker daemon's default Open Container In
 STELLA_DOCKER_RUNTIME=runsc
 ```
 
-`runsc` is the gVisor runtime. Install and register it with Docker before enabling this setting, then confirm it appears in `docker info`. Stella preflight rejects an unavailable configured runtime and does not fall back to the daemon default. The selected runtime applies to agent sessions and Docker tool-cache helper containers.
+`runsc` is the gVisor runtime. Install and register it with Docker before enabling this setting, then confirm it appears in `docker info`. Stella preflight rejects an unregistered configured runtime and does not fall back to the daemon default. Registration is an operator trust decision; Stella cannot prove that an arbitrary runtime implementation honors the OCI resource contract. The selected runtime applies to agent sessions and Docker tool-cache helper containers.
 
 An alternative OCI runtime reduces host-kernel exposure, but it does not restrict network egress or protect writable mounts. Keep the sandbox network policy and mount permissions independently constrained.
 
-Stella also detects whether the Docker daemon is rootless. A rootful daemon runs sandbox processes with the `stellad` UID and GID. A rootless daemon runs them as container UID/GID `0:0`, which maps to the unprivileged daemon user on the host and keeps that user's bind mounts writable. Capabilities remain dropped and `no-new-privileges` remains enabled in both modes. Rootless preflight fails when the daemon has no cgroup driver because Stella could not enforce its CPU, memory, and PID limits; do not configure gVisor with `--ignore-cgroups` in production.
+Stella also detects whether the Docker daemon is rootless. A rootful daemon runs sandbox processes with the `stellad` UID and GID. A rootless daemon runs them as container UID/GID `0:0`, which maps to the unprivileged daemon user on the host and keeps that user's bind mounts writable. Capabilities remain dropped and `no-new-privileges` remains enabled in both modes. Preflight requires the daemon to report support for memory, CPU quota, and PID limits, and rejects a selected runtime configured with `--ignore-cgroups`. Docker `userns-remap` is not supported because its bind-mount ownership model differs from both rootful and rootless Docker.
 
 ### Docker Compose Examples
 

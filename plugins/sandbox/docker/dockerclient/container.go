@@ -72,7 +72,7 @@ type CreateOptions struct {
 // If the image is not present locally it is pulled automatically.
 func (c *Client) CreateAndStart(ctx context.Context, opts CreateOptions) (string, error) {
 	if err := c.EnsureImageReady(ctx, opts.Image, opts.Name); err != nil {
-		return "", err
+		return "", &ImageUnavailableError{Err: err}
 	}
 
 	createOpts := buildContainerCreateOptions(opts)
@@ -82,13 +82,24 @@ func (c *Client) CreateAndStart(ctx context.Context, opts CreateOptions) (string
 	if err != nil && errdefs.IsNotFound(err) {
 		c.invalidateImageReady(opts.Image)
 		if readyErr := c.EnsureImageReady(ctx, opts.Image, opts.Name); readyErr != nil {
-			return "", readyErr
+			return "", &ImageUnavailableError{Err: readyErr}
 		}
 		created, err = c.api.ContainerCreate(ctx, createOpts)
 	}
 	if err != nil {
 		slog.Warn("dockerclient: container create failed", "image", opts.Image, "container_name", opts.Name, "error", err)
 		return "", fmt.Errorf("dockerclient: container create: %w", err)
+	}
+	if len(created.Warnings) > 0 {
+		for _, warning := range created.Warnings {
+			slog.Warn("dockerclient: refusing sandbox container created with daemon warning", "container_id", created.ID, "container_name", opts.Name, "warning", warning)
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if _, removeErr := c.api.ContainerRemove(cleanupCtx, created.ID, mobyclient.ContainerRemoveOptions{Force: true}); removeErr != nil && !errdefs.IsNotFound(removeErr) {
+			slog.Warn("dockerclient: cleanup failed after container create warning", "container_id", created.ID, "container_name", opts.Name, "error", removeErr)
+		}
+		return "", fmt.Errorf("dockerclient: container create returned warnings: %s", strings.Join(created.Warnings, "; "))
 	}
 
 	slog.Info("dockerclient: starting sandbox container", "container_id", created.ID, "container_name", opts.Name)

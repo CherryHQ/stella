@@ -433,16 +433,6 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	return session, nil
 }
 
-// dockerProcessUser renders the ownership model exposed by the daemon. UID 0
-// on a rootless daemon is the unprivileged daemon user on the host, not host
-// root, and is the owner rootless bind mounts expose inside the container.
-func dockerProcessUser(rootless bool) string {
-	if rootless {
-		return "0:0"
-	}
-	return rootfulDockerProcessUser()
-}
-
 // mapNetworkMode translates sandbox policy network mode to the dockerclient type.
 func mapNetworkMode(policy sandboxpkg.Policy) dockerclient.NetworkMode {
 	switch policy.NetworkModeOrDefault() {

@@ -170,7 +170,7 @@ func TestMapNetworkMode(t *testing.T) {
 
 func TestInjectToolPaths_PrependedWhenSet(t *testing.T) {
 	env := map[string]string{"PATH": "/usr/bin:/bin"}
-	paths := []string{"/opt/stella/users/u1/.mise-tools/shims", "/home/stella/.stella-tools/bin"}
+	paths := []string{"/opt/stella/users/u1/.mise-tools/shims", "/opt/stella/user-tools/bin"}
 	got := injectToolPaths(env, paths)
 	want := strings.Join(append(append([]string(nil), paths...), "/usr/bin", "/bin"), ":")
 	if got["PATH"] != want {
@@ -182,14 +182,14 @@ func TestInjectToolPaths_PrependedWhenSet(t *testing.T) {
 }
 
 func TestInjectToolPaths_UsesDefaultPathWhenPATHAbsent(t *testing.T) {
-	got := injectToolPaths(map[string]string{}, []string{"/home/stella/.stella-tools/bin"})
+	got := injectToolPaths(map[string]string{}, []string{"/opt/stella/user-tools/bin"})
 	if got["PATH"] == "" {
 		t.Fatal("PATH should not be empty when tool paths are set")
 	}
-	if got["PATH"][:len("/home/stella/.stella-tools/bin:")] != "/home/stella/.stella-tools/bin:" {
+	if got["PATH"][:len("/opt/stella/user-tools/bin:")] != "/opt/stella/user-tools/bin:" {
 		t.Errorf("PATH does not start with user tool bin: %q", got["PATH"])
 	}
-	if len(got["PATH"]) <= len("/home/stella/.stella-tools/bin:") {
+	if len(got["PATH"]) <= len("/opt/stella/user-tools/bin:") {
 		t.Error("PATH should include containerDefaultPATH after user tool bin")
 	}
 }

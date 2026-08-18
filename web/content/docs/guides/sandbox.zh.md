@@ -61,11 +61,11 @@ Volume 模式需要 Docker Engine 25+ 以支持 volume subpath 挂载。
 STELLA_DOCKER_RUNTIME=runsc
 ```
 
-`runsc` 是 gVisor runtime。启用前先安装并注册到 Docker，再确认它出现在 `docker info` 中。Stella 预检会拒绝不可用的已配置 runtime，不会回退到 daemon 默认值。所选 runtime 同时用于 agent 会话和 Docker 工具缓存辅助容器。
+`runsc` 是 gVisor runtime。启用前先安装并注册到 Docker，再确认它出现在 `docker info` 中。Stella 预检会拒绝未注册的已配置 runtime，不会回退到 daemon 默认值。注册 runtime 属于运维信任决策；Stella 无法证明任意 runtime 实现都会遵守 OCI 资源限制约定。所选 runtime 同时用于 agent 会话和 Docker 工具缓存辅助容器。
 
 替代 OCI runtime 可以减少宿主内核暴露面，但不会限制网络出口，也不会保护可写挂载。沙箱网络策略和挂载权限仍需独立收紧。
 
-Stella 还会检测 Docker daemon 是否为 rootless。rootful daemon 使用 `stellad` 的 UID/GID 运行沙箱进程；rootless daemon 使用容器 UID/GID `0:0`，它在宿主机上映射为非特权 daemon 用户，并保持该用户的 bind mount 可写。两种模式都会继续丢弃 capabilities 并启用 `no-new-privileges`。如果 rootless daemon 没有 cgroup driver，Stella 会在预检时拒绝启动，因为此时无法执行 CPU、内存和 PID 限制；生产环境不要为 gVisor 配置 `--ignore-cgroups`。
+Stella 还会检测 Docker daemon 是否为 rootless。rootful daemon 使用 `stellad` 的 UID/GID 运行沙箱进程；rootless daemon 使用容器 UID/GID `0:0`，它在宿主机上映射为非特权 daemon 用户，并保持该用户的 bind mount 可写。两种模式都会继续丢弃 capabilities 并启用 `no-new-privileges`。预检要求 daemon 明确报告支持内存、CPU quota 和 PID 限制，并拒绝使用 `--ignore-cgroups` 配置的 runtime。Docker `userns-remap` 不受支持，因为它的 bind mount 所有权模型与 rootful、rootless Docker 都不同。
 
 ### Docker Compose 示例
 

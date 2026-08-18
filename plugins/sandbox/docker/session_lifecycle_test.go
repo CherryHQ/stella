@@ -57,9 +57,13 @@ type startFailAPI struct {
 	noopAPI
 	createOpts mobyclient.ContainerCreateOptions
 	rootless   bool
+	infoErr    error
 }
 
 func (f *startFailAPI) Info(context.Context, mobyclient.InfoOptions) (mobyclient.SystemInfoResult, error) {
+	if f.infoErr != nil {
+		return mobyclient.SystemInfoResult{}, f.infoErr
+	}
 	info := system.Info{CgroupDriver: "systemd"}
 	if f.rootless {
 		info.SecurityOptions = []string{"name=rootless"}
@@ -337,6 +341,40 @@ func TestCreateSessionStartFailureRemovesOwnedTemp(t *testing.T) {
 	}
 	if _, err := os.Stat(tempSource); !os.IsNotExist(err) {
 		t.Fatalf("owned fallback temp survives start failure: %v", err)
+	}
+}
+
+func TestCreateSessionUsesRootfulProcessIdentity(t *testing.T) {
+	api := &startFailAPI{}
+	factory := &dockerFactory{
+		cfg:          Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost},
+		mountSources: map[string]string{workspaceMount: t.TempDir()},
+		clientFn:     func() (*dockerclient.Client, error) { return dockerclient.NewWithAPI(api), nil },
+	}
+	_, err := factory.CreateSession(context.Background(), sandboxpkg.Policy{
+		Filesystem: sandboxpkg.FilesystemPolicy{
+			WorkingDir: workspaceMount,
+			Mounts:     []sandboxpkg.Mount{{SandboxPath: workspaceMount, Access: sandboxpkg.MountReadWrite}},
+		},
+	})
+	if err == nil {
+		t.Fatal("CreateSession succeeded despite container start failure")
+	}
+	if got, want := api.createOpts.Config.User, dockerProcessUser(false); got != want {
+		t.Errorf("rootful container user = %q, want %q", got, want)
+	}
+}
+
+func TestCreateSessionFailsWhenDaemonSecurityCannotBeInspected(t *testing.T) {
+	api := &startFailAPI{infoErr: errors.New("info unavailable")}
+	factory := &dockerFactory{
+		cfg:          Config{Image: "test:latest", RuntimeMode: DockerSandboxModeHost},
+		mountSources: map[string]string{workspaceMount: t.TempDir()},
+		clientFn:     func() (*dockerclient.Client, error) { return dockerclient.NewWithAPI(api), nil },
+	}
+	_, err := factory.CreateSession(context.Background(), sandboxpkg.Policy{})
+	if err == nil || !strings.Contains(err.Error(), "inspect daemon security") {
+		t.Fatalf("daemon security error = %v", err)
 	}
 }
 

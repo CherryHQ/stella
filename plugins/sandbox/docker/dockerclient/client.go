@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/containerd/errdefs"
@@ -65,9 +66,29 @@ type VersionInfo struct {
 // DaemonSecurity describes daemon properties that change how sandbox identity
 // and resource enforcement must be rendered.
 type DaemonSecurity struct {
-	Rootless     bool
-	CgroupDriver string
+	Rootless      bool
+	UserNamespace bool
+	CgroupDriver  string
+	MemoryLimit   bool
+	CPUCfsPeriod  bool
+	CPUCfsQuota   bool
+	PidsLimit     bool
 }
+
+// RuntimeInfo contains the registered runtime settings that affect Stella's
+// sandbox guarantees.
+type RuntimeInfo struct {
+	Name string
+	Args []string
+}
+
+// ImageUnavailableError identifies failures while preparing a container image.
+type ImageUnavailableError struct {
+	Err error
+}
+
+func (e *ImageUnavailableError) Error() string { return e.Err.Error() }
+func (e *ImageUnavailableError) Unwrap() error { return e.Err }
 
 // New returns a Client configured from the process environment. API-version
 // negotiation is enabled by default in the moby SDK.
@@ -115,18 +136,22 @@ func (c *Client) Version(ctx context.Context) (*VersionInfo, error) {
 	return info, nil
 }
 
-// RuntimeAvailable reports whether the daemon has registered the named OCI
-// runtime. An empty name means the daemon default and needs no lookup.
-func (c *Client) RuntimeAvailable(ctx context.Context, name string) (bool, error) {
-	if name == "" {
-		return true, nil
-	}
+// Runtime reports the daemon configuration for one registered OCI runtime.
+// An empty name resolves to the daemon default so its safety settings are not
+// exempt from preflight.
+func (c *Client) Runtime(ctx context.Context, name string) (RuntimeInfo, bool, error) {
 	res, err := c.api.Info(ctx, mobyclient.InfoOptions{})
 	if err != nil {
-		return false, fmt.Errorf("dockerclient: system info: %w", err)
+		return RuntimeInfo{}, false, fmt.Errorf("dockerclient: system info: %w", err)
 	}
-	_, ok := res.Info.Runtimes[name]
-	return ok, nil
+	if name == "" {
+		name = res.Info.DefaultRuntime
+	}
+	if name == "" {
+		return RuntimeInfo{}, false, nil
+	}
+	runtime, ok := res.Info.Runtimes[name]
+	return RuntimeInfo{Name: name, Args: append([]string(nil), runtime.Args...)}, ok, nil
 }
 
 // Security reports whether Docker itself is rootless and which cgroup driver
@@ -136,14 +161,26 @@ func (c *Client) Security(ctx context.Context) (DaemonSecurity, error) {
 	if err != nil {
 		return DaemonSecurity{}, fmt.Errorf("dockerclient: system info: %w", err)
 	}
-	security := DaemonSecurity{CgroupDriver: res.Info.CgroupDriver}
+	security := DaemonSecurity{
+		CgroupDriver: res.Info.CgroupDriver,
+		MemoryLimit:  res.Info.MemoryLimit,
+		CPUCfsPeriod: res.Info.CPUCfsPeriod,
+		CPUCfsQuota:  res.Info.CPUCfsQuota,
+		PidsLimit:    res.Info.PidsLimit,
+	}
 	for _, option := range res.Info.SecurityOptions {
-		if option == "rootless" || option == "name=rootless" {
+		if securityOptionEnabled(option, "rootless") {
 			security.Rootless = true
-			break
+		}
+		if securityOptionEnabled(option, "userns") {
+			security.UserNamespace = true
 		}
 	}
 	return security, nil
+}
+
+func securityOptionEnabled(option, name string) bool {
+	return option == name || option == "name="+name || strings.HasPrefix(option, "name="+name+",")
 }
 
 // ImageExists reports whether the image exists locally.

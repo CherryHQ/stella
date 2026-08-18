@@ -76,6 +76,8 @@ only add noise here. Dependabot PRs carry no issue and drop out on their own.
 
 Present a compact table: issue, proposed 任务, 状态, 产品线, 里程碑, release
 version, PR count.
+List `stats.skipped_release_issues` separately so the release-only
+classification is visible during approval.
 Call out anything you were unsure about. Do not write before V answers.
 
 ### 4. Write

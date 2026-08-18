@@ -30,9 +30,20 @@ type fakePreflightAPI struct {
 
 func (f *fakePreflightAPI) Info(context.Context, mobyclient.InfoOptions) (mobyclient.SystemInfoResult, error) {
 	if f.infoFn == nil {
-		return mobyclient.SystemInfoResult{}, nil
+		return supportedSystemInfo(), nil
 	}
 	return f.infoFn()
+}
+
+func supportedSystemInfo() mobyclient.SystemInfoResult {
+	return mobyclient.SystemInfoResult{Info: system.Info{
+		MemoryLimit:    true,
+		CPUCfsPeriod:   true,
+		CPUCfsQuota:    true,
+		PidsLimit:      true,
+		DefaultRuntime: "runc",
+		Runtimes:       map[string]system.RuntimeWithStatus{"runc": {}},
+	}}
 }
 
 func (f *fakePreflightAPI) ServerVersion(context.Context, mobyclient.ServerVersionOptions) (mobyclient.ServerVersionResult, error) {
@@ -134,7 +145,9 @@ func TestPreflightRuntime(t *testing.T) {
 	t.Run("registered", func(t *testing.T) {
 		api := &fakePreflightAPI{
 			infoFn: func() (mobyclient.SystemInfoResult, error) {
-				return mobyclient.SystemInfoResult{Info: system.Info{Runtimes: map[string]system.RuntimeWithStatus{"runsc": {}}}}, nil
+				info := supportedSystemInfo()
+				info.Info.Runtimes = map[string]system.RuntimeWithStatus{"runsc": {}}
+				return info, nil
 			},
 			inspectFn: func(string) (mobyclient.ImageInspectResult, error) {
 				return mobyclient.ImageInspectResult{}, nil
@@ -152,25 +165,108 @@ func TestPreflightRuntime(t *testing.T) {
 		client := dockerclient.NewWithAPI(api)
 		cfg := PreflightConfig{Docker: Config{Image: "sandbox:test", Runtime: "runsc"}}
 		err := preflightWithClient(context.Background(), cfg, client)
-		if err == nil || !strings.Contains(err.Error(), `runtime "runsc"`) || !strings.Contains(err.Error(), dockerRuntimeEnv) {
+		if err == nil || !strings.Contains(err.Error(), `runtime "runsc"`) {
 			t.Fatalf("missing runtime error = %v", err)
+		}
+	})
+
+	t.Run("runtime disabling cgroups fails closed", func(t *testing.T) {
+		api := &fakePreflightAPI{infoFn: func() (mobyclient.SystemInfoResult, error) {
+			info := supportedSystemInfo()
+			info.Info.Runtimes = map[string]system.RuntimeWithStatus{
+				"runsc": {Runtime: system.Runtime{Args: []string{"--ignore-cgroups"}}},
+			}
+			return info, nil
+		}}
+		client := dockerclient.NewWithAPI(api)
+		err := preflightWithClient(context.Background(), PreflightConfig{Docker: Config{Image: "sandbox:test", Runtime: "runsc"}}, client)
+		if err == nil || !strings.Contains(err.Error(), "disables Stella sandbox resource limits") {
+			t.Fatalf("unsafe runtime error = %v", err)
+		}
+	})
+
+	t.Run("default runtime disabling cgroups fails closed", func(t *testing.T) {
+		api := &fakePreflightAPI{infoFn: func() (mobyclient.SystemInfoResult, error) {
+			info := supportedSystemInfo()
+			info.Info.DefaultRuntime = "runsc"
+			info.Info.Runtimes["runsc"] = system.RuntimeWithStatus{Runtime: system.Runtime{Args: []string{"--ignore-cgroups=1"}}}
+			return info, nil
+		}}
+		client := dockerclient.NewWithAPI(api)
+		err := preflightWithClient(context.Background(), PreflightConfig{Docker: Config{Image: "sandbox:test"}}, client)
+		if err == nil || !strings.Contains(err.Error(), `runtime "runsc"`) || !strings.Contains(err.Error(), "disables Stella sandbox resource limits") {
+			t.Fatalf("unsafe default runtime error = %v", err)
 		}
 	})
 }
 
-func TestPreflightRejectsRootlessDaemonWithoutCgroups(t *testing.T) {
-	api := &fakePreflightAPI{
-		infoFn: func() (mobyclient.SystemInfoResult, error) {
-			return mobyclient.SystemInfoResult{Info: system.Info{
-				SecurityOptions: []string{"name=rootless"},
-				CgroupDriver:    "none",
-			}}, nil
-		},
-	}
-	client := dockerclient.NewWithAPI(api)
-	err := preflightWithClient(context.Background(), PreflightConfig{Docker: Config{Image: "sandbox:test"}}, client)
-	if err == nil || !strings.Contains(err.Error(), "cannot enforce sandbox CPU, memory, or PID limits") {
-		t.Fatalf("rootless daemon without cgroups error = %v", err)
+func TestPreflightResourceLimits(t *testing.T) {
+	t.Run("rootless with all limits passes", func(t *testing.T) {
+		api := &fakePreflightAPI{
+			infoFn: func() (mobyclient.SystemInfoResult, error) {
+				info := supportedSystemInfo()
+				info.Info.SecurityOptions = []string{"name=rootless,param=value"}
+				info.Info.CgroupDriver = "systemd"
+				return info, nil
+			},
+			inspectFn: func(string) (mobyclient.ImageInspectResult, error) {
+				return mobyclient.ImageInspectResult{}, nil
+			},
+		}
+		client := dockerclient.NewWithAPI(api)
+		if err := preflightWithClient(context.Background(), PreflightConfig{Docker: Config{Image: "sandbox:test"}}, client); err != nil {
+			t.Fatalf("supported rootless daemon rejected: %v", err)
+		}
+	})
+
+	t.Run("missing limits fail closed", func(t *testing.T) {
+		api := &fakePreflightAPI{
+			infoFn: func() (mobyclient.SystemInfoResult, error) {
+				return mobyclient.SystemInfoResult{Info: system.Info{
+					SecurityOptions: []string{"name=rootless"},
+					CgroupDriver:    "none",
+					MemoryLimit:     true,
+				}}, nil
+			},
+		}
+		client := dockerclient.NewWithAPI(api)
+		err := preflightWithClient(context.Background(), PreflightConfig{Docker: Config{Image: "sandbox:test"}}, client)
+		if err == nil || !strings.Contains(err.Error(), "CPU quota, PID") {
+			t.Fatalf("rootless daemon without cgroups error = %v", err)
+		}
+	})
+
+	t.Run("userns remap fails closed", func(t *testing.T) {
+		api := &fakePreflightAPI{infoFn: func() (mobyclient.SystemInfoResult, error) {
+			info := supportedSystemInfo()
+			info.Info.SecurityOptions = []string{"name=userns"}
+			return info, nil
+		}}
+		client := dockerclient.NewWithAPI(api)
+		err := preflightWithClient(context.Background(), PreflightConfig{Docker: Config{Image: "sandbox:test"}}, client)
+		if err == nil || !strings.Contains(err.Error(), "userns-remap is unsupported") {
+			t.Fatalf("userns-remap error = %v", err)
+		}
+	})
+}
+
+func TestUnsafeRuntimeResourceArg(t *testing.T) {
+	for _, tc := range []struct {
+		args   []string
+		unsafe bool
+	}{
+		{args: []string{"--ignore-cgroups"}, unsafe: true},
+		{args: []string{"--ignore-cgroups=TRUE"}, unsafe: true},
+		{args: []string{"--ignore-cgroups=1"}, unsafe: true},
+		{args: []string{"--ignore-cgroups=t"}, unsafe: true},
+		{args: []string{"--ignore-cgroups=maybe"}, unsafe: true},
+		{args: []string{"--ignore-cgroups=false"}, unsafe: false},
+		{args: []string{"--platform=systrap"}, unsafe: false},
+	} {
+		_, got := unsafeRuntimeResourceArg(tc.args)
+		if got != tc.unsafe {
+			t.Errorf("unsafeRuntimeResourceArg(%v) = %v, want %v", tc.args, got, tc.unsafe)
+		}
 	}
 }
 
