@@ -139,7 +139,7 @@ stellad service restart
 stellad service uninstall
 ```
 
-Logs are written to `~/Library/Logs/stella/stella.log`. The agent starts automatically on login and restarts on crash. The generated LaunchAgent pins Docker sandbox mode to `host`; if you enable the Docker backend, you only choose the optional OCI runtime.
+Logs are written to `~/Library/Logs/stella/stella.log`. The agent starts automatically on login and restarts on crash.
 
 ### Linux — systemd user mode (no root required)
 
@@ -168,7 +168,7 @@ stellad service logs --follow
 sudo stellad service uninstall --system
 ```
 
-The unit file is installed to `/etc/systemd/system/stella.service`. The generated service pins Docker sandbox mode to `host`.
+The unit file is installed to `/etc/systemd/system/stella.service`.
 
 ## Docker
 
@@ -229,7 +229,7 @@ services:
       - STELLA_DATABASE_URL=postgres://user:pass@postgres.example.com:5432/stella?sslmode=require
 ```
 
-The `seccomp=unconfined` flag is needed for the `local` sandbox backend (bubblewrap). The official Compose file already configures the Docker socket and volume mode for the `docker` sandbox backend; see the [Sandbox guide](/docs/guides/sandbox#docker-compose-examples) for custom Compose deployments.
+The `seccomp=unconfined` flag is needed for the `local` sandbox backend (bubblewrap). The official Compose file already configures the Docker socket for the `docker` sandbox backend; see the [Sandbox guide](/docs/guides/sandbox#custom-docker-compose) for custom Compose deployments.
 
 ```bash
 docker compose up -d
@@ -341,7 +341,7 @@ terminationGracePeriodSeconds: 200
 
 ## Sandbox Backends
 
-Running Stella inside a Docker container (described above) is separate from using Docker as a sandbox backend for agent tool execution. Stella supports three sandbox backends: `docker`, `local`, and `none`. Standard service and Compose deployments already select the correct Docker home mode. See the [Sandbox guide](/docs/guides/sandbox) to choose a backend, select an optional OCI runtime, or configure a direct/custom deployment.
+Running Stella inside a Docker container (described above) is separate from using Docker as a sandbox backend for agent tool execution. Stella supports three sandbox backends: `docker`, `local`, and `none`. See the [Sandbox guide](/docs/guides/sandbox) to choose a backend and optional OCI runtime.
 
 ## Volumes & Data
 
@@ -379,14 +379,12 @@ Configuration is managed through the Web UI (default `http://localhost:25678`; u
 | `STELLA_BLOB_S3_REGION`          | No                        | Optional S3 region                                                                                                                                                            |
 | `STELLA_BLOB_S3_USE_SSL`         | No                        | Use HTTPS for S3-compatible storage; defaults to `true`                                                                                                                       |
 | `STELLA_VAULT_KEY`               | Yes†                      | age secret key for the vault — required for secrets, OAuth, and bearer tokens                                                                                                 |
-| `STELLA_DOCKER_SANDBOX_MODE`     | No‡                       | Deployment-owned Docker home mode; service install and official Compose set it, direct/custom deployments must set it                                                         |
+| `STELLA_SANDBOX_BACKEND`         | No                        | Sandbox backend: `docker`, `local` (default), or `none`                                                                                                                       |
 | `STELLA_DOCKER_RUNTIME`          | No‡                       | Registered OCI runtime for Docker sandbox and tool-cache containers; unset uses the daemon default, unavailable configured values fail preflight                              |
-| `STELLA_HOME_HOST`               | No‡                       | Host-side path backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=bind`                                                                                   |
-| `STELLA_HOME_VOLUME`             | No‡                       | Docker named volume backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=volume`                                                                            |
 
 † Without `STELLA_VAULT_KEY`, vault endpoints return `503`, OAuth tokens cannot be issued, and plugin secrets are not injected. Generate a key with `age-keygen`.
 
-‡ Relevant only when agents use the `docker` sandbox backend. Standard service and Compose deployments set the mode. For direct/custom deployments, use `host` when stellad runs on the host, `bind` for a containerized host bind mount, and `volume` for a Docker named volume.
+‡ Relevant only when agents use the `docker` sandbox backend.
 
 § Set all four required S3 variables together, or leave all unset. Partial blob-store configuration fails startup. Mutable assets never require these variables.
 

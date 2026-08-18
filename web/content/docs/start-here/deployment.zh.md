@@ -128,7 +128,7 @@ stellad service restart
 stellad service uninstall
 ```
 
-日志写入 `~/Library/Logs/stella/stella.log`。agent 在登录时自动启动，崩溃后自动重启。生成的 LaunchAgent 会将 Docker 沙箱模式固定为 `host`；启用 Docker 后端时，你只需选择可选的 OCI runtime。
+日志写入 `~/Library/Logs/stella/stella.log`。agent 在登录时自动启动，崩溃后自动重启。
 
 ### Linux — systemd 用户模式（无需 root）
 
@@ -157,7 +157,7 @@ stellad service logs --follow
 sudo stellad service uninstall --system
 ```
 
-Unit 文件安装至 `/etc/systemd/system/stella.service`。生成的 service 会将 Docker 沙箱模式固定为 `host`。
+Unit 文件安装至 `/etc/systemd/system/stella.service`。
 
 ## Docker
 
@@ -218,7 +218,7 @@ services:
       - STELLA_DATABASE_URL=postgres://user:pass@postgres.example.com:5432/stella?sslmode=require
 ```
 
-`seccomp=unconfined` 标志是 `local` 沙箱后端（bubblewrap）所必需的。官方 Compose 已为 `docker` 沙箱后端配置 Docker socket 和 volume 模式；自定义 Compose 请参阅[沙箱指南](/docs/guides/sandbox#docker-compose-示例)。
+`seccomp=unconfined` 标志是 `local` 沙箱后端（bubblewrap）所必需的。官方 Compose 已为 `docker` 沙箱后端配置 Docker socket；自定义 Compose 请参阅[沙箱指南](/docs/guides/sandbox#自定义-docker-compose)。
 
 ```bash
 docker compose up -d
@@ -330,7 +330,7 @@ terminationGracePeriodSeconds: 200
 
 ## 沙箱后端
 
-将 Stella 运行在 Docker 容器中（见上文）与使用 Docker 作为 agent 工具执行的沙箱后端是两件独立的事。Stella 支持三种沙箱后端：`docker`、`local` 和 `none`。标准 service 和 Compose 部署已选择正确的 Docker home 模式。请参阅[沙箱指南](/docs/guides/sandbox)选择后端和可选 OCI runtime，或配置直接、自定义部署。
+将 Stella 运行在 Docker 容器中（见上文）与使用 Docker 作为 agent 工具执行的沙箱后端是两件独立的事。Stella 支持三种沙箱后端：`docker`、`local` 和 `none`。请参阅[沙箱指南](/docs/guides/sandbox)选择后端和可选 OCI runtime。
 
 ## 卷和数据
 
@@ -368,14 +368,12 @@ terminationGracePeriodSeconds: 200
 | `STELLA_BLOB_S3_REGION`          | 否                        | 可选 S3 region                                                                                                         |
 | `STELLA_BLOB_S3_USE_SSL`         | 否                        | S3 兼容存储是否使用 HTTPS；默认 `true`                                                                                 |
 | `STELLA_VAULT_KEY`               | 是†                       | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                                                        |
-| `STELLA_DOCKER_SANDBOX_MODE`     | 否‡                       | 部署入口负责的 Docker home 模式；service install 和官方 Compose 会设置，直接或自定义部署必须自行设置                   |
+| `STELLA_SANDBOX_BACKEND`         | 否                        | 沙箱后端：`docker`、`local`（默认）或 `none`                                                                           |
 | `STELLA_DOCKER_RUNTIME`          | 否‡                       | Docker 沙箱和工具缓存容器使用的已注册 OCI runtime；未设置时使用 daemon 默认值，配置值不可用时预检失败                  |
-| `STELLA_HOME_HOST`               | 否‡                       | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                                              |
-| `STELLA_HOME_VOLUME`             | 否‡                       | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要                               |
 
 † 未设置 `STELLA_VAULT_KEY` 时，密钥库接口返回 `503`，无法签发 OAuth Token，插件密钥也不会被注入。使用 `age-keygen` 生成密钥。
 
-‡ 仅当 agent 使用 `docker` 沙箱后端时相关。标准 service 和 Compose 部署会设置模式。直接或自定义部署中，stellad 在宿主机上运行用 `host`；容器化 host bind mount 用 `bind`；Docker named volume 用 `volume`。
+‡ 仅当 agent 使用 `docker` 沙箱后端时相关。
 
 § 四个必需的 S3 变量必须同时设置，或全部不设置。部分设置会导致启动失败；可变资产不需要这些变量。
 

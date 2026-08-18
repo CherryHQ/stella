@@ -106,25 +106,23 @@ All data lives under `~/.stella` (configurable via `STELLA_HOME`):
 
 Only a small set of environment variables is recognized:
 
-| Variable                      | Description                                                                                                           |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `STELLA_HOME`                 | Override the home directory (default `~/.stella`)                                                                     |
-| `STELLA_DATABASE_URL`         | Use an external PostgreSQL database instead of the embedded cluster                                                   |
-| `STELLA_BLOB_S3_ENDPOINT`     | Optional S3-compatible endpoint for immutable BlobStore data                                                          |
-| `STELLA_BLOB_S3_BUCKET`       | Bucket for immutable BlobStore data; set with endpoint/access/secret or leave all unset                               |
-| `STELLA_BLOB_S3_ACCESS_KEY`   | Access key for immutable BlobStore data                                                                               |
-| `STELLA_BLOB_S3_SECRET_KEY`   | Secret key for immutable BlobStore data                                                                               |
-| `STELLA_BLOB_S3_REGION`       | Optional S3 region                                                                                                    |
-| `STELLA_BLOB_S3_USE_SSL`      | Use HTTPS for S3-compatible storage; defaults to `true`                                                               |
-| `STELLA_VAULT_KEY`            | Master key for the [secret vault](/docs/guides/secrets-and-keys) — required for secrets, OAuth, and bearer tokens     |
-| `STELLA_DOCKER_SANDBOX_MODE`  | Deployment-owned Docker home mode; service install and official Compose set it, direct/custom deployments must set it |
-| `STELLA_DOCKER_RUNTIME`       | Optional registered OCI runtime for Docker sandboxes, such as gVisor's `runsc`; unavailable values fail preflight     |
-| `STELLA_HOME_HOST`            | Host-side path for `STELLA_HOME`; required only when `STELLA_DOCKER_SANDBOX_MODE=bind`                                |
-| `STELLA_HOME_VOLUME`          | Docker named volume for `STELLA_HOME`; required only when `STELLA_DOCKER_SANDBOX_MODE=volume`                         |
-| `STELLA_REFLECT_CURATOR_MODE` | Lifecycle curator: `armed` (default) or non-mutating emergency-stop mode `shadow`                                     |
+| Variable                      | Description                                                                                                       |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `STELLA_HOME`                 | Override the home directory (default `~/.stella`)                                                                 |
+| `STELLA_DATABASE_URL`         | Use an external PostgreSQL database instead of the embedded cluster                                               |
+| `STELLA_BLOB_S3_ENDPOINT`     | Optional S3-compatible endpoint for immutable BlobStore data                                                      |
+| `STELLA_BLOB_S3_BUCKET`       | Bucket for immutable BlobStore data; set with endpoint/access/secret or leave all unset                           |
+| `STELLA_BLOB_S3_ACCESS_KEY`   | Access key for immutable BlobStore data                                                                           |
+| `STELLA_BLOB_S3_SECRET_KEY`   | Secret key for immutable BlobStore data                                                                           |
+| `STELLA_BLOB_S3_REGION`       | Optional S3 region                                                                                                |
+| `STELLA_BLOB_S3_USE_SSL`      | Use HTTPS for S3-compatible storage; defaults to `true`                                                           |
+| `STELLA_VAULT_KEY`            | Master key for the [secret vault](/docs/guides/secrets-and-keys) — required for secrets, OAuth, and bearer tokens |
+| `STELLA_SANDBOX_BACKEND`      | Sandbox backend: `docker`, `local` (default), or `none`                                                           |
+| `STELLA_DOCKER_RUNTIME`       | Optional registered OCI runtime for Docker sandboxes, such as gVisor's `runsc`; unavailable values fail preflight |
+| `STELLA_REFLECT_CURATOR_MODE` | Lifecycle curator: `armed` (default) or non-mutating emergency-stop mode `shadow`                                 |
 
 Structured Reflect is the only writer. Curator mode is read at server startup, so restart Stella after changing it. Invalid curator modes stop startup. See [Deployment](/docs/start-here/deployment#structured-reflect-and-curator) for operational checks and [Memory internals](/docs/development/memory-internals#structured-reflect-and-curator) for the detailed mechanism.
 
-See the [Sandbox guide](/docs/guides/sandbox) to choose a sandbox backend. Standard service and Compose deployments already own their Docker home mode; the guide documents manual and custom deployments separately.
+See the [Sandbox guide](/docs/guides/sandbox) to choose a backend and optional OCI runtime. Custom deployment details are documented separately in that guide.
 
 All other configuration is managed through the Web UI.
