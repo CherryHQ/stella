@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -49,6 +50,8 @@ type result struct {
 	DisabledToolsCount      int            `json:"disabled_tools_count"`
 	CapabilityProfileDigest string         `json:"capability_profile_digest"`
 	TimedOut                bool           `json:"timed_out"`
+	StreamErrors            []string       `json:"stream_errors,omitempty"`
+	StreamEvents            int            `json:"stream_events"`
 	FailureClass            string         `json:"failure_class,omitempty"`
 	Errors                  []string       `json:"errors,omitempty"`
 }
@@ -102,6 +105,56 @@ func (c apiClient) call(ctx context.Context, method, path string, in, out any) e
 		return json.Unmarshal(b, out)
 	}
 	return nil
+}
+
+// streamTurn posts the instruction and consumes the SSE turn stream until the
+// server closes it. It returns the error events the turn emitted; the caller
+// decides whether those are product failures. Any transport error is returned.
+func (c apiClient) streamTurn(ctx context.Context, agentID, sessionID, instruction string) (events int, streamErrors []string, err error) {
+	body, err := json.Marshal(map[string]any{"parts": []map[string]string{{"type": "text", "text": instruction}}})
+	if err != nil {
+		return 0, nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(c.baseURL, "/")+"/api/agents/"+agentID+"/sessions/"+sessionID+"/messages", bytes.NewReader(body))
+	if err != nil {
+		return 0, nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		return 0, nil, &apiError{resp.StatusCode, strings.TrimSpace(string(b))}
+	}
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64<<10), 8<<20)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		payload := strings.TrimPrefix(line, "data: ")
+		if payload == "[DONE]" {
+			break
+		}
+		events++
+		var evt struct {
+			Type      string `json:"type"`
+			ErrorText string `json:"errorText"`
+		}
+		if json.Unmarshal([]byte(payload), &evt) == nil && evt.Type == "error" {
+			streamErrors = append(streamErrors, evt.ErrorText)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return events, streamErrors, err
+	}
+	return events, streamErrors, nil
 }
 
 func writeBinding(dir, userID string, b binding) (string, error) {
@@ -285,7 +338,19 @@ func run() int {
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}
-	r.UserID = provision.ProvisionedUser.ID
+	// ProvisionedUser.id is the provisioning record, not the account. The
+	// bridge backend keys bindings by the account id that sessions carry, so
+	// resolve it through the token itself.
+	var identity struct {
+		ID string `json:"id"`
+	}
+	if err = (apiClient{baseURL, provision.Token, &http.Client{Timeout: 15 * time.Second}}).call(ctx, http.MethodGet, "/api/auth/me", nil, &identity); err != nil || identity.ID == "" {
+		r.Errors = append(r.Errors, "resolve provisioned account: "+fmt.Sprint(err))
+		r.FailureClass = "adapter"
+		_ = admin.call(context.Background(), http.MethodPost, "/api/provisioned-users/"+provision.ProvisionedUser.ID+"/deactivate", nil, nil)
+		return exitAdapter
+	}
+	r.UserID = identity.ID
 	bindingPath, err := writeBinding(bindingDir, r.UserID, b)
 	if err != nil {
 		r.Errors = append(r.Errors, "write binding: "+err.Error())
@@ -297,7 +362,7 @@ func run() int {
 		if r.AgentID != "" {
 			_ = apiClient{baseURL, provision.Token, &http.Client{Timeout: 15 * time.Second}}.call(context.Background(), http.MethodDelete, "/api/agents/"+r.AgentID, nil, nil)
 		}
-		_ = admin.call(context.Background(), http.MethodPost, "/api/provisioned-users/"+r.UserID+"/deactivate", nil, nil)
+		_ = admin.call(context.Background(), http.MethodPost, "/api/provisioned-users/"+provision.ProvisionedUser.ID+"/deactivate", nil, nil)
 	}()
 	user := apiClient{baseURL, provision.Token, &http.Client{Timeout: 45 * time.Second}}
 	streamUser := apiClient{baseURL, provision.Token, &http.Client{}}
@@ -347,7 +412,7 @@ func run() int {
 	r.SessionID = session.ID
 	turnCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
-	err = streamUser.call(turnCtx, http.MethodPost, "/api/agents/"+r.AgentID+"/sessions/"+r.SessionID+"/messages", map[string]any{"parts": []map[string]string{{"type": "text", "text": string(instruction)}}}, nil)
+	r.StreamEvents, r.StreamErrors, err = streamUser.streamTurn(turnCtx, r.AgentID, r.SessionID, string(instruction))
 	if errors.Is(err, context.DeadlineExceeded) {
 		r.TimedOut = true
 		terminalCtx, terminalCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -393,6 +458,18 @@ func run() int {
 		r.Errors = append(r.Errors, "collect evidence: "+err.Error())
 		r.FailureClass = "adapter"
 		return exitAdapter
+	}
+	if len(r.StreamErrors) > 0 {
+		r.Errors = append(r.Errors, "turn emitted error events")
+		r.FailureClass = "product"
+		return exitProduct
+	}
+	if r.TokenCount == 0 && len(r.StellaToolCalls) == 0 {
+		// A turn that produced neither tokens nor tool calls did no work; do
+		// not let it masquerade as a completed attempt.
+		r.Errors = append(r.Errors, "turn completed without model activity")
+		r.FailureClass = "product"
+		return exitProduct
 	}
 	return 0
 }

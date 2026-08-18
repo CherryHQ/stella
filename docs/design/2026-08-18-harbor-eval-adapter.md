@@ -292,10 +292,13 @@ review 指出 v1 的五类既不互斥也不可判定(非零 bash 是模型可�
 
 ## 16. 验证计划
 
-**状态(2026-08-18)**:第 1 项已在 P0/P1 以 `evalbridge` contract test 落地;第
-3、4 项有 driver/Python 单元测试覆盖 stop-before-terminal、nonce 与 ledger 的
-fail-closed 谓词。第 2 项仍待拥有 provider key 的本机 testbed 运行;第 5、6 项
-在 #1055 范围内。
+**状态(2026-08-18)**:第 1 项已在 P0/P1 以 `evalbridge` contract test 落地。
+第 2 项已在本机 testbed(macOS + Docker,`openai-response` provider)跑通:
+`regex-log` reward 1.0、`valid: true`、1 次 `write` 与 bridge ledger 对得上、
+409 token、19.8s。第 3 项同样实跑:`HARBOR_AGENT_TIMEOUT_SEC=20`(有效 deadline
+5s)下 driver 调 `/stop`、终态 `stopped`、verifier 仍运行并给出 reward 0、
+binding 被清理。第 4 项有 driver/Python 单元测试覆盖 nonce、ledger、空 turn 的
+fail-closed 谓词;第 5、6 项在 #1055 范围内。**这些是适配器验证,不是成绩。**
 
 1. `bridge` 后端契约测试:对一个手工起的容器(经一个最小 `BaseEnvironment` 实现)验证 `Exec` 与六个 `FileAccess` 方法,含中文路径、大文件、二进制、**外跳 symlink 必须被拒绝**。
 2. 单个 Terminal-Bench task 端到端跑通:install / run / trace 导出 / 清理闭环。**这是适配器验证,不是成绩。**
@@ -321,3 +324,10 @@ fail-closed 谓词。第 2 项仍待拥有 provider key 的本机 testbed 运行
 provision 成功、创建 agent/session 前以临时文件加 rename 原子发布
 `<binding-dir>/<user-id>.json`,并在 finally 清理。wire protocol、HTTP API 和
 nonce 的 fail-closed 交叉核对均未改变。
+
+`ProvisionedUser.id` 是 provisioning 记录的 id,不是账号 id;bridge 后端按
+session 携带的账号 id 查 binding。driver 因此在 provision 后用新 token 调
+`GET /api/auth/me` 取账号 id 再写 binding。首次实跑正是因为用错 id 才出现"turn
+0.1s 内 completed、零 token、零工具调用却 `valid: true`"的假通过;为此谓词新增
+"无模型活动"(零 token 且零工具调用且未超时)与"ledger 有工具操作但 Stella 无
+核心工具调用"两条,driver 也把 SSE 里的 `error` 事件与空 turn 归为 product 失败。

@@ -49,6 +49,15 @@ def verify_evidence(result: dict[str, Any], ledger: list[dict[str, Any]], nonce:
     if result.get("disabled_tools_count", 0) < 1:
         failures.append("no non-core tools were disabled")
     calls = result.get("stella_tool_calls") or []
+    if not calls and not result.get("token_count") and not result.get("timed_out"):
+        # A turn with no tokens and no tool calls did nothing; it is a run to
+        # investigate, never an attempt the verifier may score as a Stella result.
+        failures.append("turn shows no model activity")
+    tool_ops = {"exec", "read_file", "read_dir", "write_file"}
+    if not calls and any(entry.get("op") in tool_ops for entry in ledger):
+        # ping, stat and project are session setup traffic; only real tool
+        # operations count as unexplained container access.
+        failures.append("bridge ledger has tool operations but Stella reported no core tool calls")
     index = 0
     expected = {"bash": ("exec",), "read": ("read_file", "read_dir"), "write": ("write_file",), "edit": ("write_file",)}
     for call in calls:

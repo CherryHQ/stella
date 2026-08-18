@@ -27,8 +27,19 @@ its contents. Stop it with the paired command when finished.
 export STELLA_SANDBOX_BACKEND=bridge
 export STELLA_EVAL_BRIDGE_DIR="$(mktemp -d)"
 mise run testbed:start
-# Configure STELLA_URL and STELLA_EVAL_ADMIN_TOKEN from the private credentials path.
 ```
+
+The testbed forwards only these two `STELLA_*` variables to `stellad`. Then,
+using the credentials file:
+
+- Create a provider with the admin PAT (`POST /api/providers`, for example
+  type `openai-response`) and enable one model; the model reference is
+  `<provider-id>/<model-id>`.
+- Create a provisioning token with an interactive admin session (log in with
+  the admin email and password through `POST /api/auth/local/login` and reuse
+  the cookie; a PAT gets 403). Export it as `STELLA_EVAL_ADMIN_TOKEN`.
+- Export `STELLA_URL`, `STELLA_EVAL_MODEL`, and `STELLA_EVAL_AGENT_BIN`. Keep
+  the driver binary outside `dist/bin`; `mise run build` clears that directory.
 
 Run the single Terminal-Bench smoke trial:
 
@@ -40,7 +51,11 @@ uv run --project test/evals/harbor harbor run \
   -o dist/evals/jobs/regex-log-stella
 ```
 
-Inspect the job's `result.json` and `logs/agent/stella/result.json`. A valid
+Set `HARBOR_AGENT_TIMEOUT_SEC` to a small value (for example 20) to exercise the
+deadline path: the driver must call stop, the turn must end `stopped`, and Harbor
+must still run the verifier.
+
+Inspect the job's `result.json` and `<trial>/agent/stella/result.json`. A valid
 trial has a Harbor verifier result, an adapter result, `valid: true`, a matching
 bridge nonce, terminal turn state, and no predicate violations. `valid: false`
 is never a pass, even if the verifier reward is one.
