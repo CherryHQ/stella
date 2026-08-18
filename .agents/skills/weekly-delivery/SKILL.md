@@ -16,12 +16,12 @@ The delivery week runs **Tuesday 00:00 to the next Tuesday 00:00**, matching the
 Scripts do the mechanical work; you make the judgement calls; V approves before
 anything is written.
 
-| Step                                                         | Owner        | Why                                                |
-| ------------------------------------------------------------ | ------------ | -------------------------------------------------- |
-| Window, PR collection, issue extraction, diff against Feishu | `collect.py` | Deterministic, easy to get subtly wrong by hand    |
-| Task title, 状态, 优先级, 产品线, 里程碑, 验收标准           | you          | Requires reading the issue and knowing the roadmap |
-| Approving the draft                                          | V            | Feishu writes are not reversible in bulk           |
-| Batch write and read-back verification                       | `write.py`   | Deterministic                                      |
+| Step                                                                  | Owner        | Why                                                             |
+| --------------------------------------------------------------------- | ------------ | --------------------------------------------------------------- |
+| Window, PR collection, issue extraction, diff against Feishu          | `collect.py` | Deterministic, easy to get subtly wrong by hand                 |
+| Task title, 状态, 优先级, 产品线, 里程碑, 验收标准, release milestone | you          | Requires reading the issue, release scope, and roadmap          |
+| Approving the draft                                                   | V            | Feishu and GitHub metadata writes need an explicit confirmation |
+| Batch write and read-back verification                                | `write.py`   | Deterministic                                                   |
 
 ## Procedure
 
@@ -74,7 +74,8 @@ only add noise here. Dependabot PRs carry no issue and drop out on their own.
 
 ### 3. Show V the draft and wait
 
-Present a compact table: issue, proposed 任务, 状态, 产品线, 里程碑, PR count.
+Present a compact table: issue, proposed 任务, 状态, 产品线, 里程碑, release
+version, PR count.
 Call out anything you were unsure about. Do not write before V answers.
 
 ### 4. Write
@@ -87,7 +88,24 @@ python3 .agents/skills/weekly-delivery/scripts/write.py
 It batch-creates, batch-updates, then reads the table back and fails loudly if
 any touched row lacks its PR links.
 
-### 5. Report
+### 5. Link delivery PRs and release milestones
+
+After the Feishu write succeeds, generate a share link for every touched task
+and append a `## Feishu Task` section to every delivery PR that references it.
+A PR that delivers two issues carries two task links. Do not manufacture a task
+for a small `No issue:` PR or a release-bookkeeping PR.
+
+Set the linked GitHub Issue's **GitHub release milestone** only when its complete
+work shipped in that release. The release tag and release PR are the evidence,
+not merge time alone: release branches can cherry-pick a PR, and an open Issue
+with partial PRs must remain unmilestoned. A closed release milestone can be
+assigned through the GitHub Issues API even though `gh issue edit` only lists
+open milestones.
+
+This is a GitHub-side delivery record, not a synchronization of the Feishu
+product milestone. Never copy names or links between those two milestone types.
+
+### 6. Report
 
 Pull the numbers from the Base rather than recomputing them locally:
 
