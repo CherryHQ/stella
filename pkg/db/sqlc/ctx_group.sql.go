@@ -682,7 +682,7 @@ type ListRecentGroupMessagesParams struct {
 // by the channel inline ceiling (telegram/qq inline up to 20MB today; 5MB once
 // #786 lands). Only the dispatch reads above (GetGroupMessage / the dedup
 // :one lookups) rehydrate images, so they keep SELECT *. The text-only list
-// consumers below — semantic-arbiter recent context, LCM cross-agent assembly,
+// consumers below — group-triage recent context, LCM cross-agent assembly,
 // and web pagination — read only the projected text columns, so they select an
 // explicit column list that EXCLUDES content_blocks and never drag image blobs
 // across a history window.

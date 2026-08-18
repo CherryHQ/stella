@@ -54,31 +54,29 @@ type userInvalidator interface {
 }
 
 type Coordinator struct {
-	serviceManager       agent.ServiceManager
-	invalidator          userInvalidator
-	store                config.Store
-	auth                 channelAuthStore
-	feishuEnroller       feishuEnroller
-	agentAccess          *agentaccess.Service
-	linkCodes            *auth.LinkCodeStore
-	vaultRecipient       *age.X25519Recipient
-	vaultSvc             *vault.Service
-	listFn               func() []pkgchannel.ModelOption
-	switchFn             func(provider, model string) error
-	queue                *sessionQueue
-	intentClassifier     IntentClassifier
-	groupResolver        GroupResolver
-	eventLog             *eventlog.Store
-	memberLister         GroupMemberLister
-	botRegistry          *BotIdentityRegistry
-	arbiter              *Arbiter
-	semanticGroupArbiter SemanticGroupArbiter
-	publisherRegistry    *PublisherRegistry
-	groupDispatcher      *GroupDispatcher
-	db                   *pgxpool.Pool
-	rootOpener           home.RootOpener
-	guests               GuestStore
-	guestLimiter         *guestRateLimiter
+	serviceManager    agent.ServiceManager
+	invalidator       userInvalidator
+	store             config.Store
+	auth              channelAuthStore
+	feishuEnroller    feishuEnroller
+	agentAccess       *agentaccess.Service
+	linkCodes         *auth.LinkCodeStore
+	vaultRecipient    *age.X25519Recipient
+	vaultSvc          *vault.Service
+	listFn            func() []pkgchannel.ModelOption
+	switchFn          func(provider, model string) error
+	queue             *sessionQueue
+	intentClassifier  IntentClassifier
+	groupResolver     GroupResolver
+	eventLog          *eventlog.Store
+	memberLister      GroupMemberLister
+	botRegistry       *BotIdentityRegistry
+	publisherRegistry *PublisherRegistry
+	groupDispatcher   *GroupDispatcher
+	db                *pgxpool.Pool
+	rootOpener        home.RootOpener
+	guests            GuestStore
+	guestLimiter      *guestRateLimiter
 }
 
 // WithGuestStore enables durable unlinked channel principals.
@@ -186,22 +184,6 @@ func WithGroupMemberLister(lister GroupMemberLister) CoordinatorOption {
 func WithBotRegistry(reg *BotIdentityRegistry) CoordinatorOption {
 	return func(c *Coordinator) {
 		c.botRegistry = reg
-	}
-}
-
-// WithArbiter configures the group arbiter for deciding which agents respond.
-func WithArbiter(a *Arbiter) CoordinatorOption {
-	return func(c *Coordinator) {
-		c.arbiter = a
-	}
-}
-
-// WithSemanticGroupArbiter configures semantic routing for no-mention group
-// messages. When set, no-mention messages are classified instead of using the
-// all-members fallback; when unset, no-mention behavior is unchanged.
-func WithSemanticGroupArbiter(a SemanticGroupArbiter) CoordinatorOption {
-	return func(c *Coordinator) {
-		c.semanticGroupArbiter = a
 	}
 }
 

@@ -27,7 +27,7 @@ import (
 )
 
 // ActorType records who spoke. It is a hard schema fact, never guessed from
-// content: downstream (arbiter, memory ingest) acts on human rows only.
+// content: downstream memory ingest acts on human rows only.
 type ActorType string
 
 const (

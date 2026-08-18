@@ -353,10 +353,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	intentClassifier := newIntentClassifier(s.snapshotLoader, s.pluginHost)
 	coordOpts = append(coordOpts, channel.WithIntentClassifier(intentClassifier))
 
-	if semanticArbiter := newSemanticGroupArbiter(s.snapshotLoader, s.pluginHost); semanticArbiter != nil {
-		coordOpts = append(coordOpts, channel.WithSemanticGroupArbiter(semanticArbiter))
-	}
-
 	elStore := eventlog.NewStore(s.db)
 	groupEvents := channel.NewGroupEventHub()
 	elStore.OnCommitted(groupEvents.Announce)
@@ -367,9 +363,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	coordOpts = append(coordOpts, channel.WithEventLog(elStore))
 	coordOpts = append(coordOpts, channel.WithBotRegistry(botRegistry))
 	coordOpts = append(coordOpts, channel.WithPublisherRegistry(publisherRegistry))
-	coordOpts = append(coordOpts, channel.WithArbiter(channel.NewArbiter(channel.ArbiterConfig{
-		MaxRepliesPerTrigger: 1,
-	})))
 	coordOpts = append(coordOpts, channel.WithGroupMemberLister(channel.NewDBGroupMemberLister(s.db)))
 
 	// The channel domain builds the coordinator and its durable group dispatcher
@@ -973,16 +966,4 @@ func intentClassifierStreamFuncBuilder(ph *pluginhost.Host) channel.StreamFuncBu
 			"base_url": creds.BaseURL,
 		})
 	}
-}
-
-func newSemanticGroupArbiter(snapshots config.SnapshotLoader, ph *pluginhost.Host) *channel.LLMSemanticGroupArbiter {
-	if snapshots == nil || ph == nil {
-		return nil
-	}
-	return channel.NewLLMSemanticGroupArbiter(
-		func(ctx context.Context, agentID string) (*config.Snapshot, error) {
-			return snapshots.Snapshot(ctx, agentID)
-		},
-		intentClassifierStreamFuncBuilder(ph),
-	)
 }

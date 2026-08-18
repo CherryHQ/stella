@@ -68,7 +68,7 @@ type Coordination struct {
 	// Coordinator is the channel MessageHandler for all channels.
 	Coordinator *Coordinator
 	// GroupDispatcher is the durable group-dispatch runner. The HTTP layer needs
-	// only this narrow port (Run + DispatchSync), not the whole coordinator.
+	// only this narrow port, not the whole coordinator.
 	GroupDispatcher *GroupDispatcher
 }
 
@@ -216,7 +216,7 @@ func (d *GroupDispatcher) runWorker(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case row := <-d.dispatchC:
-			if err := d.ExecuteDispatch(ctx, row, nil); err != nil {
+			if err := d.ExecuteDispatch(ctx, row); err != nil {
 				d.log.Warn("group dispatch worker failed", "dispatch_id", row.ID, "error", err)
 			}
 		}
@@ -224,11 +224,7 @@ func (d *GroupDispatcher) runWorker(ctx context.Context) {
 }
 
 func (d *GroupDispatcher) ProcessOutbox(ctx context.Context, outbox sqlc.CtxGroupOutbox) error {
-	return d.processOutbox(ctx, outbox, nil)
-}
-
-func (d *GroupDispatcher) DispatchSync(ctx context.Context, outbox sqlc.CtxGroupOutbox, publisherOverride GroupPublisher) error {
-	return d.processOutbox(ctx, outbox, publisherOverride)
+	return d.processOutbox(ctx, outbox)
 }
 
 // AbortGroupTurn stops the active turn for one group member. It is intentionally
@@ -321,7 +317,7 @@ func (d *GroupDispatcher) reapExpired(ctx context.Context) error {
 	return nil
 }
 
-func (d *GroupDispatcher) processOutbox(ctx context.Context, outbox sqlc.CtxGroupOutbox, publisherOverride GroupPublisher) error {
+func (d *GroupDispatcher) processOutbox(ctx context.Context, outbox sqlc.CtxGroupOutbox) error {
 	claimed, ok, err := d.claimOutbox(ctx, outbox)
 	if err != nil {
 		return err
@@ -435,7 +431,7 @@ func (d *GroupDispatcher) materializeWakeRows(ctx context.Context, q *sqlc.Queri
 	return nil
 }
 
-func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroupDispatch, publisherOverride GroupPublisher) error {
+func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroupDispatch) error {
 	claimed, ok, err := d.claimDispatch(ctx, row)
 	if err != nil {
 		return err
@@ -481,7 +477,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 			return err
 		}
 	}
-	publisher, err := d.publisherFor(state, claimed, publisherOverride)
+	publisher, err := d.publisherFor(state, claimed)
 	if err != nil {
 		return d.failDispatch(ctx, claimed, err)
 	}
@@ -693,10 +689,7 @@ func (d *GroupDispatcher) acceptGroupResponse(ctx context.Context, row sqlc.CtxG
 	return result, nil
 }
 
-func (d *GroupDispatcher) publisherFor(state sqlc.CtxGroupState, row sqlc.CtxGroupDispatch, override GroupPublisher) (GroupPublisher, error) {
-	if override != nil {
-		return override, nil
-	}
+func (d *GroupDispatcher) publisherFor(state sqlc.CtxGroupState, row sqlc.CtxGroupDispatch) (GroupPublisher, error) {
 	if publisher, ok := d.publishers.Get(row.ReplyChannelID); ok {
 		return publisher, nil
 	}
@@ -1216,8 +1209,6 @@ func (d *GroupDispatcher) failAcceptedPublish(ctx context.Context, row sqlc.CtxG
 	return cause
 }
 
-// fallbackGroupDecision resolves responders when no arbiter is wired: only
-// mentions that name a current member reply; anything else stays silent.
 func backoff(attempts int64) time.Duration {
 	if attempts < 1 {
 		attempts = 1

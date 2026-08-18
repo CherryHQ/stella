@@ -58,7 +58,7 @@ Or set `STELLA_TELEGRAM_TOKEN` env var for the token only.
 
 ### Group support
 
-`allow_group` is one fail-closed switch for every group the bot was added to; it defaults to `false`. Group messages require a bot mention by default. Disable `require_mention` only when semantic routing is intended and BotFather privacy mode is disabled. Every member of a group the bot joined can address the bound agent, so control who can add the bot to a group.
+`allow_group` is one fail-closed switch for every group the bot was added to; it defaults to `false`. Group messages require a bot mention by default. Disable `require_mention` only when group collaboration is intended and BotFather privacy mode is disabled. Every member of a group the bot joined can address the bound agent, so control who can add the bot to a group.
 
 ### Access control
 

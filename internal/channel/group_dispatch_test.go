@@ -62,7 +62,7 @@ func TestContentBlocksToText(t *testing.T) {
 			ai.TextContent{Text: "world"},
 		}, "hello\nworld"},
 		// Image-only messages must project to a non-empty placeholder so the
-		// semantic arbiter does not treat them as "nothing to route" (Major 1).
+		// group triage does not treat them as "nothing to route" (Major 1).
 		{"image only", []ai.ContentBlock{
 			ai.ImageContent{Data: "aGk=", MimeType: "image/png"},
 		}, imageContentPlaceholder},
@@ -161,18 +161,18 @@ func TestGroupMessageContentRehydration(t *testing.T) {
 
 // TestImageOnlyMessageProjectionAndRehydration pins the Major 1 contract: an
 // image-only group message stores a non-empty "[image]" text projection (so the
-// semantic arbiter routes it instead of dropping it), yet dispatch rehydrates
+// group triage routes it instead of dropping it), yet dispatch rehydrates
 // the real image blocks — the placeholder must never leak into them.
 func TestImageOnlyMessageProjectionAndRehydration(t *testing.T) {
 	blocks := []ai.ContentBlock{ai.ImageContent{Data: "aGk=", MimeType: "image/png"}}
 
-	// Ingest-side projection: what the arbiter and history assembly see.
+	// Ingest-side projection: what the group triage and history assembly see.
 	content := contentBlocksToText(blocks)
 	if content != imageContentPlaceholder {
 		t.Fatalf("image-only projection = %q, want %q", content, imageContentPlaceholder)
 	}
 	if content == "" {
-		t.Fatal("arbiter-visible projection must be non-empty for image-only messages")
+		t.Fatal("triage-visible projection must be non-empty for image-only messages")
 	}
 
 	// Persisted row: placeholder in content, real blocks in content_blocks.

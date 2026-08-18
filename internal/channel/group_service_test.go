@@ -33,12 +33,9 @@ type noAssignStore struct{}
 
 func (noAssignStore) ListUserAgentIDs(context.Context, string) ([]string, error) { return nil, nil }
 
-// fakeDispatchRunner records the outbox handed to DispatchSync so a test can
-// prove the send boundary claims the right row without running a real agent turn.
+// fakeDispatchRunner records wake signals without running a real agent turn.
 type fakeDispatchRunner struct {
-	called   bool
-	outboxID string
-	err      error
+	called bool
 }
 
 type fakeGroupOwnerDeletion struct{ db *pgxpool.Pool }
@@ -47,10 +44,8 @@ func (f fakeGroupOwnerDeletion) DeleteGroup(ctx context.Context, id, _ string) e
 	return sqlc.New(f.db).DeleteGroupState(ctx, id)
 }
 
-func (f *fakeDispatchRunner) DispatchSync(_ context.Context, outbox sqlc.CtxGroupOutbox, _ GroupPublisher) error {
+func (f *fakeDispatchRunner) Wake() {
 	f.called = true
-	f.outboxID = outbox.ID
-	return f.err
 }
 
 func (f *fakeDispatchRunner) AbortGroupTurn(_, _ string) bool { return false }
@@ -332,9 +327,7 @@ func TestGroupPrepareSendNewIsRefused(t *testing.T) {
 	}
 }
 
-// TestGroupDispatchHandsClaimedOutbox proves Dispatch runs the freshly claimed
-// outbox through the dispatch runner (the DispatchSync handoff).
-func TestGroupDispatchHandsClaimedOutbox(t *testing.T) {
+func TestGroupSendWakesDispatcher(t *testing.T) {
 	fx := setupGroupFixture(t)
 	ctx := fx.ts.ctx()
 	user := createTestUser(t, fx.ts.oidcStore, "user@example.com")
@@ -344,26 +337,13 @@ func TestGroupDispatchHandsClaimedOutbox(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	prep, err := acc.PrepareSend(ctx, g.ID, "hi", "")
+	_, err = acc.PrepareSend(ctx, g.ID, "hi", "")
 	if err != nil {
 		t.Fatalf("PrepareSend: %v", err)
 	}
-	if err := acc.Dispatch(ctx, prep, noopGroupPublisher{}); err != nil {
-		t.Fatalf("Dispatch: %v", err)
-	}
+	acc.Wake()
 	if !fx.runner.called {
 		t.Fatal("dispatch runner was not invoked")
-	}
-	msgs, err := acc.Messages(ctx, g.ID, 0, 50)
-	if err != nil {
-		t.Fatalf("Messages: %v", err)
-	}
-	outbox, err := sqlc.New(fx.ts.db).GetGroupOutboxByMessage(ctx, msgs[0].ID)
-	if err != nil {
-		t.Fatalf("GetGroupOutboxByMessage: %v", err)
-	}
-	if fx.runner.outboxID != outbox.ID {
-		t.Fatalf("dispatched outbox = %q, want claimed %q", fx.runner.outboxID, outbox.ID)
 	}
 }
 

@@ -3,7 +3,7 @@ INSERT INTO ctx_group_dispatch (
   id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, trigger_seq, kind
 )
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-  (SELECT seq FROM ctx_group_message WHERE id = $2), 'reply') ON CONFLICT DO NOTHING;
+  (SELECT seq FROM ctx_group_message WHERE id = $2), 'wake') ON CONFLICT DO NOTHING;
 
 -- name: CreateGroupWake :exec
 INSERT INTO ctx_group_dispatch (
@@ -23,72 +23,6 @@ WHERE group_message_id = $1;
 SELECT CAST(COUNT(*) AS BIGINT) FROM ctx_group_dispatch
 WHERE group_message_id = $1
   AND status IN ('pending', 'running');
-
--- name: ListPendingGroupDispatchByMessage :many
-SELECT * FROM ctx_group_dispatch gd
-WHERE gd.group_message_id = sqlc.arg(group_message_id)
-  AND gd.status = 'pending'
-  AND gd.kind = 'reply'
-  AND (gd.next_attempt_at IS NULL OR gd.next_attempt_at <= sqlc.arg('now'))
-  AND NOT EXISTS (
-    SELECT 1
-    FROM ctx_group_dispatch earlier
-    JOIN ctx_group_message earlier_msg ON earlier_msg.id = earlier.group_message_id
-    JOIN ctx_group_message current_msg ON current_msg.id = gd.group_message_id
-    WHERE earlier.group_id = gd.group_id
-      AND earlier.agent_id = gd.agent_id
-      AND earlier_msg.seq < current_msg.seq
-      AND (
-        earlier.status = 'pending'
-        OR (earlier.status = 'running' AND earlier.lease_until IS NOT NULL AND earlier.lease_until >= sqlc.arg('now'))
-      )
-  )
-  AND NOT EXISTS (
-    SELECT 1
-    FROM ctx_group_outbox earlier_outbox
-    JOIN ctx_group_message earlier_msg ON earlier_msg.id = earlier_outbox.group_message_id
-    JOIN ctx_group_message current_msg ON current_msg.id = gd.group_message_id
-    WHERE earlier_outbox.group_id = gd.group_id
-      AND earlier_msg.seq < current_msg.seq
-      AND (
-        earlier_outbox.status = 'pending'
-        OR (earlier_outbox.status = 'running' AND earlier_outbox.lease_until IS NOT NULL AND earlier_outbox.lease_until >= sqlc.arg('now'))
-      )
-  )
-ORDER BY gd.created_at ASC;
-
--- name: ListPendingGroupDispatch :many
-SELECT * FROM ctx_group_dispatch gd
-WHERE gd.status = 'pending'
-  AND gd.kind = 'reply'
-  AND (gd.next_attempt_at IS NULL OR gd.next_attempt_at <= sqlc.arg('now'))
-  AND NOT EXISTS (
-    SELECT 1
-    FROM ctx_group_dispatch earlier
-    JOIN ctx_group_message earlier_msg ON earlier_msg.id = earlier.group_message_id
-    JOIN ctx_group_message current_msg ON current_msg.id = gd.group_message_id
-    WHERE earlier.group_id = gd.group_id
-      AND earlier.agent_id = gd.agent_id
-      AND earlier_msg.seq < current_msg.seq
-      AND (
-        earlier.status = 'pending'
-        OR (earlier.status = 'running' AND earlier.lease_until IS NOT NULL AND earlier.lease_until >= sqlc.arg('now'))
-      )
-  )
-  AND NOT EXISTS (
-    SELECT 1
-    FROM ctx_group_outbox earlier_outbox
-    JOIN ctx_group_message earlier_msg ON earlier_msg.id = earlier_outbox.group_message_id
-    JOIN ctx_group_message current_msg ON current_msg.id = gd.group_message_id
-    WHERE earlier_outbox.group_id = gd.group_id
-      AND earlier_msg.seq < current_msg.seq
-      AND (
-        earlier_outbox.status = 'pending'
-        OR (earlier_outbox.status = 'running' AND earlier_outbox.lease_until IS NOT NULL AND earlier_outbox.lease_until >= sqlc.arg('now'))
-      )
-  )
-ORDER BY gd.created_at ASC
-LIMIT sqlc.arg(limit_count);
 
 -- name: ListPendingGroupWakePairs :many
 -- One representative per (group, agent) wakes the bounded pool. Claiming
@@ -222,21 +156,6 @@ SET status = 'running',
 WHERE id = sqlc.arg(id)
   AND status = 'pending'
   AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg('now'))
-RETURNING *;
-
--- name: ClaimPendingGroupDispatchesByMessage :many
--- DispatchSync reserves its just-materialized rows before releasing the outbox
--- completion transaction. This keeps the web request as the publisher owner.
-UPDATE ctx_group_dispatch
-SET status = 'running',
-    attempt_count = attempt_count + 1,
-    lease_until = sqlc.arg(lease_until),
-    next_attempt_at = NULL,
-    last_error = '',
-    updated_at = now()
-WHERE group_message_id = sqlc.arg(group_message_id)
-  AND status = 'pending'
-  AND kind = 'reply'
 RETURNING *;
 
 -- name: ClaimExpiredGroupDispatch :one

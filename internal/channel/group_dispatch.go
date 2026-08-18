@@ -308,16 +308,16 @@ func legacyGroupContent(blocks []ai.ContentBlock) []ai.ContentBlock {
 const imageContentPlaceholder = "[image]"
 
 // contentBlocksToText projects content blocks onto the plain-text `content`
-// column that the semantic arbiter and history assembly read (rehydration for
+// column that the group triage and history assembly read (rehydration for
 // dispatch goes through content_blocks instead).
 //
 // An image-only message has no text blocks, so a naive projection stores "".
-// But LLMSemanticGroupArbiter.Decide treats an empty message as "nothing to
+// But group triage treats an empty message as "nothing to
 // route" and returns silence, so without an explicit @mention a pure-image
 // group message would never dispatch — and the content_blocks rehydration path
-// would never run. To honor that arbiter/history contract, project an
+// would never run. To honor that triage/history contract, project an
 // image-only message to a fixed "[image]" placeholder (one per message,
-// regardless of image count) so the arbiter sees a non-empty message and
+// regardless of image count) so triage sees a non-empty message and
 // history assembly gets a meaningful line. The placeholder lives only in this
 // text projection; groupMessageContentBlocks prefers content_blocks, so it
 // never leaks into the rehydrated image blocks the agent actually sees.

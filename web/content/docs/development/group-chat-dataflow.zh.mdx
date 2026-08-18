@@ -1,14 +1,12 @@
 ---
 title: 群聊数据流
-description: Web UI 与平台适配器共用的目标群聊管线。
+description: 统一的乐观群聊协作流水线。
 ---
 
-下面这张可视化流程是目标模型的 source of truth：Web UI 和平台适配器共享同一条核心管线，只在入口适配和出口发布层不同。
+Web 和平台消息使用同一条流水线：ingest 写入 canonical event、创建 outbox，并唤醒除作者外的每位成员。每个 worker 领取最新 wake，执行本地 triage 和 Server cap，然后缓冲 turn。接受事务锁定 group state，原子提交新鲜回复或将过期结果标为 held。已接受回复会创建自己的 outbox；canonical 消息与 turn 状态通过 group event stream 广播。
 
 <iframe
-  title="群聊统一数据流"
+  title="群聊乐观协作数据流"
   src="/docs/group-chat-dataflow.html"
   className="my-6 h-[calc(100vh-12rem)] min-h-[760px] w-full rounded-xl border border-border bg-background"
 />
-
-[全屏打开流程图](/docs/group-chat-dataflow.html)

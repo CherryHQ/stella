@@ -49,28 +49,7 @@ func (d *GroupDispatcher) triageWake(ctx context.Context, row sqlc.CtxGroupDispa
 	if message.ActorType == string(eventlog.ActorAgent) && d.agentRunLapped(ctx, row.GroupID, message.Seq, row.AgentID) {
 		return false, "agent_lap", false
 	}
-	if d.coord == nil || d.coord.semanticGroupArbiter == nil {
-		if state.Platform != "web" {
-			d.log.Warn("degraded_triage: platform group has no system routing model", "group_id", row.GroupID)
-		}
-		return false, "no_classifier", false
-	}
-	// The legacy model adapter is constrained to this agent alone. It gives the
-	// final routing classifier a per-agent act/silent question until the old
-	// multi-select implementation is removed in the cutover cleanup.
-	a, err := d.q.GetAgent(ctx, row.AgentID)
-	if err != nil {
-		return false, "triage_agent_missing", true
-	}
-	decision := d.coord.semanticGroupArbiter.Decide(ctx, SemanticGroupRequest{
-		Message: message.Content, OwnerUserID: nullStringValue(state.CreatedByUserID),
-		Members:       []SemanticGroupMember{{AgentID: row.AgentID, Name: a.Name, Scope: a.Scope, CreatorID: a.CreatorID, Summary: a.SystemPrompt}},
-		RecentContext: d.recentGroupContext(ctx, d.q, row.GroupID, message.Seq),
-	})
-	if decision.ShouldReply && len(decision.RespondingAgents) == 1 && decision.RespondingAgents[0] == row.AgentID {
-		return true, "classifier", false
-	}
-	return false, "classifier_silent", false
+	return false, "triage_silent", false
 }
 
 func mentioned(agentID string, mentions []pkgchannel.Mention) bool {
@@ -123,16 +102,4 @@ func (d *GroupDispatcher) consecutiveAgentMessages(ctx context.Context, groupID 
 		count++
 	}
 	return count
-}
-
-func (d *GroupDispatcher) recentGroupContext(ctx context.Context, q *sqlc.Queries, groupID string, currentSeq int64) []SemanticGroupContextMessage {
-	rows, err := q.ListRecentGroupMessagesBeforeSeq(ctx, sqlc.ListRecentGroupMessagesBeforeSeqParams{GroupID: groupID, BeforeSeq: currentSeq, MaxCount: semanticMaxContextMessages})
-	if err != nil {
-		return nil
-	}
-	context := make([]SemanticGroupContextMessage, 0, len(rows))
-	for i := len(rows) - 1; i >= 0; i-- {
-		context = append(context, SemanticGroupContextMessage{ActorType: rows[i].ActorType, ActorID: rows[i].ActorID, Content: rows[i].Content})
-	}
-	return context
 }

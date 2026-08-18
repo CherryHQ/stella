@@ -57,12 +57,9 @@ func WithGroupEventHub(h *GroupEventHub) GroupServiceOption {
 	return func(s *GroupService) { s.events = h }
 }
 
-// GroupDispatchRunner runs one prepared group turn synchronously, streaming the
-// agent response to a publisher. *GroupDispatcher is the production
-// implementation; the narrow port keeps the send boundary testable and hides the
-// whole coordinator from the group service.
+// GroupDispatchRunner wakes durable group work after an accepted ingest.
 type GroupDispatchRunner interface {
-	DispatchSync(ctx context.Context, outbox sqlc.CtxGroupOutbox, publisher GroupPublisher) error
+	Wake()
 	AbortGroupTurn(groupID, agentID string) bool
 }
 
@@ -489,6 +486,7 @@ type PreparedSend struct {
 	Command      bool
 	Reply        string
 	Deduplicated bool
+	MessageSeq   int
 	outbox       sqlc.CtxGroupOutbox
 }
 
@@ -536,9 +534,9 @@ func (a *GroupAccess) PrepareSend(ctx context.Context, groupID, content, clientM
 			GroupMessageID: result.Message.ID,
 			GroupID:        result.GroupID,
 			Envelope:       envelope,
-			Status:         "running",
+			Status:         "pending",
 			AttemptCount:   0,
-			LeaseUntil:     pgtype.Timestamptz{Time: time.Now().UTC().Add(a.svc.leaseDur), Valid: true},
+			LeaseUntil:     pgtype.Timestamptz{},
 			NextAttemptAt:  pgtype.Timestamptz{},
 			LastError:      "",
 		}); err != nil {
@@ -557,19 +555,14 @@ func (a *GroupAccess) PrepareSend(ctx context.Context, groupID, content, clientM
 	if err != nil {
 		return PreparedSend{}, fmt.Errorf("get group outbox: %w", err)
 	}
-	return PreparedSend{outbox: outbox}, nil
+	return PreparedSend{outbox: outbox, MessageSeq: int(appendResult.Message.Seq)}, nil
 }
 
-// Dispatch runs the synchronous group turn for a freshly prepared send, streaming
-// to the caller's publisher. parent MUST be the runtime context (not the request
-// or drain context): DispatchSync runs the group turn itself, so a drain-start
-// cancellation would kill in-flight work the graceful HTTP shutdown budget exists
-// to finish. Dispatch bounds the turn by the outbox lease so it cannot outlive the
-// window a competing poller would reclaim.
-func (a *GroupAccess) Dispatch(parent context.Context, prep PreparedSend, publisher GroupPublisher) error {
-	ctx, cancel := context.WithTimeout(parent, a.svc.leaseDur)
-	defer cancel()
-	return a.svc.dispatcher.DispatchSync(ctx, prep.outbox, publisher)
+// Wake makes a newly persisted outbox immediately visible to the worker pool.
+func (a *GroupAccess) Wake() {
+	if a.svc.dispatcher != nil {
+		a.svc.dispatcher.Wake()
+	}
 }
 
 // AbortGroupTurn authorizes cancellation against the group before addressing

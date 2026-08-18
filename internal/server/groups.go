@@ -24,6 +24,20 @@ const (
 	maxGroupMessagePageSize = 200
 )
 
+func streamEmptyGroupReply(w http.ResponseWriter, flusher http.Flusher) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.Header().Set("X-Vercel-AI-UI-Message-Stream", "v1")
+	w.WriteHeader(http.StatusOK)
+	for _, event := range []map[string]string{{"type": "start", "messageId": uuid.Must(uuid.NewV7()).String()}, {"type": "finish"}} {
+		data, _ := json.Marshal(event)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+	}
+	_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+	flusher.Flush()
+}
+
 // resolveGroupPageSize applies the documented default/ceiling to a page_size
 // parameter. A nil or non-positive value uses def; a value above max is invalid
 // input (ok=false) that the caller maps to 400.
@@ -518,25 +532,11 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	publisher := &webGroupPublisher{w: w, flusher: flusher}
-	publisher.writeSSE(map[string]string{"type": "start", "messageId": uuid.Must(uuid.NewV7()).String()})
-	// s.runtimeCtx (not the request/drain context) parents the dispatch: the group
-	// turn runs here, so a drain-start cancellation would kill in-flight work the
-	// graceful HTTP shutdown budget exists to finish. The boundary bounds the turn
-	// by the outbox lease.
-	if err := acc.Dispatch(s.runtimeCtx, prep, publisher); err != nil {
-		publisher.writeSSE(map[string]string{"type": "error", "errorText": err.Error()})
-	}
-	finish := map[string]any{"type": "finish"}
-	if publisher.acceptedMessageID != "" {
-		// Transitional Phase-1 metadata lets the seq-keyed client replace this
-		// request-local streamed turn with its canonical SSE projection.
-		finish["data-group-message"] = map[string]any{
-			"id":  publisher.acceptedMessageID,
-			"seq": publisher.acceptedMessageSeq,
-		}
-	}
-	publisher.writeSSE(finish)
+	writeSSE := func(v any) { raw, _ := json.Marshal(v); _, _ = fmt.Fprintf(w, "data: %s\n\n", raw); flusher.Flush() }
+	writeSSE(map[string]string{"type": "start", "messageId": uuid.Must(uuid.NewV7()).String()})
+	acc.Wake()
+	writeSSE(map[string]any{"type": "data-group-ingest", "seq": prep.MessageSeq})
+	writeSSE(map[string]string{"type": "finish"})
 	_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
 }

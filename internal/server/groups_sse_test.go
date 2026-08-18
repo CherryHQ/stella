@@ -24,20 +24,17 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
-	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// fakeGroupRunner counts synchronous dispatches so the SSE tests can prove the
-// handler routes only the fresh-message outcome into the dispatch turn.
+// fakeGroupRunner counts wake signals from fresh ingests.
 type fakeGroupRunner struct {
 	calls        int
 	abortGroupID string
 	abortAgentID string
 }
 
-func (f *fakeGroupRunner) DispatchSync(_ context.Context, _ sqlc.CtxGroupOutbox, _ channel.GroupPublisher) error {
+func (f *fakeGroupRunner) Wake() {
 	f.calls++
-	return nil
 }
 
 func (f *fakeGroupRunner) AbortGroupTurn(groupID, agentID string) bool {
@@ -133,9 +130,7 @@ func TestSendGroupMessageCommandStreamsPlainReply(t *testing.T) {
 	}
 }
 
-// TestSendGroupMessageFreshDispatchStreamsTurn proves a fresh message frames the
-// dispatch turn with start/finish/[DONE] and runs the synchronous dispatch once.
-func TestSendGroupMessageFreshDispatchStreamsTurn(t *testing.T) {
+func TestSendGroupMessageFreshIngestWakesWorker(t *testing.T) {
 	s, runner, userID, groupID := setupGroupSSE(t)
 	rr := sendGroupSSE(t, s, userID, groupID, "hello team", "")
 
@@ -149,7 +144,7 @@ func TestSendGroupMessageFreshDispatchStreamsTurn(t *testing.T) {
 		}
 	}
 	if runner.calls != 1 {
-		t.Fatalf("dispatch runner called %d times, want 1", runner.calls)
+		t.Fatalf("dispatcher woke %d times, want 1", runner.calls)
 	}
 }
 
