@@ -228,7 +228,7 @@ func (s *Server) writeLibraryFileError(w http.ResponseWriter, err error) {
 	case errors.Is(err, library.ErrInvalidOwner):
 		writeError(w, http.StatusBadRequest, "invalid scope or agent_id")
 	case errors.Is(err, library.ErrUnsupportedFileType):
-		writeError(w, http.StatusBadRequest, "supported file types are PDF, DOCX, Markdown, and plain text")
+		writeError(w, http.StatusBadRequest, "supported file extensions are "+strings.Join(library.SupportedExtensions(), ", "))
 	case errors.Is(err, library.ErrInvalidFile):
 		writeError(w, http.StatusBadRequest, "invalid library file")
 	case errors.Is(err, library.ErrFileTooLarge):

@@ -69,7 +69,7 @@ paths:
                 file:
                   type: string
                   format: binary
-                  description: PDF, DOCX, Markdown, or plain-text file (maximum 25 MiB)
+                  description: Supported Library document (maximum 25 MiB); the server validates the extension and file structure
       responses:
         "201":
           description: accepted for asynchronous processing

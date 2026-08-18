@@ -74,8 +74,7 @@ func TestPublicSearchLocatorDropsInternalByteOffsets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if locator == nil || locator.FirstPage == nil || *locator.FirstPage != 2 ||
-		strings.Join(locator.HeadingPath, "/") != "Policy" {
+	if locator == nil || locator.FirstPage == nil || *locator.FirstPage != 2 || strings.Join(locator.HeadingPath, "/") != "Policy" {
 		t.Fatalf("locator = %+v", locator)
 	}
 }
