@@ -302,7 +302,15 @@ func AppendToGroupWithQueries(ctx context.Context, q *sqlc.Queries, groupID stri
 	if err := validateGroupAppend(groupID, msg); err != nil {
 		return AppendResult{}, err
 	}
-	seq, err := q.BumpGroupSeq(ctx, groupID)
+	var seq int64
+	var err error
+	if msg.ActorType == ActorSystem && msg.ActorID == "nudge" {
+		// A fallback nudge must preserve its own anti-loop counter. Any later
+		// human or agent append takes the normal path and resets it.
+		seq, err = q.BumpGroupSeqWithoutNudgeFallbackReset(ctx, groupID)
+	} else {
+		seq, err = q.BumpGroupSeq(ctx, groupID)
+	}
 	if err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: bump seq: %w", err)
 	}

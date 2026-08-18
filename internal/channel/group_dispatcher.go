@@ -859,6 +859,7 @@ func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.Ctx
 			ReplyTo:   nullStringValue(message.ReplyTo),
 		}, row.GroupID, row.AgentID, row.ReplyChannelID)
 		if err == nil {
+			rc.CurrentSpeaker, rc.InputActor = groupMessageProvenance(message, rc.CurrentSpeaker)
 			stream, err = d.coord.chatWithRC(ctx, rc, content)
 		}
 	}
@@ -921,6 +922,7 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 	// request path. Carry the confined group actor before any prompt/skill work.
 	ctx = authz.WithAgentID(authz.WithGroupID(ctx, row.GroupID), row.AgentID)
 	speaker := webGroupSpeaker(message)
+	speaker, inputActor := groupMessageProvenance(message, speaker)
 	// A persisted group membership is not an execute grant forever. The human
 	// speaker is audit/personalization only; never borrow their private user
 	// authority to execute a group turn. resolveWebGroupChat mints and re-checks
@@ -952,6 +954,7 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 		Channel:        rc.Channel,
 		Message:        groupMessageChatContent(message),
 		CurrentSpeaker: speaker,
+		InputActor:     inputActor,
 		Authority:      rc.Authority,
 	})
 	out := make(chan pkgchannel.Event, 100)
@@ -985,6 +988,16 @@ func webGroupSpeaker(message sqlc.CtxGroupMessage) memory.CurrentSpeaker {
 		PlatformUserID: message.ActorID,
 		UserID:         message.ActorID,
 	}
+}
+
+// groupMessageProvenance makes coordination rows speakerless system input. The
+// group-agent authority still controls which member can execute the resulting
+// turn; this only prevents a system nudge from impersonating a human speaker.
+func groupMessageProvenance(message sqlc.CtxGroupMessage, speaker memory.CurrentSpeaker) (memory.CurrentSpeaker, eventlog.MessageActor) {
+	if message.ActorType == string(eventlog.ActorSystem) {
+		return memory.CurrentSpeaker{}, eventlog.MessageActor{Type: eventlog.ActorSystem, ID: message.ActorID}
+	}
+	return speaker, eventlog.MessageActor{}
 }
 
 type groupResponse struct {

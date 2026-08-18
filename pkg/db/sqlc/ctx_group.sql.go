@@ -70,6 +70,24 @@ func (q *Queries) BumpGroupSeq(ctx context.Context, id string) (int64, error) {
 	return next_seq, err
 }
 
+const bumpGroupSeqWithoutNudgeFallbackReset = `-- name: BumpGroupSeqWithoutNudgeFallbackReset :one
+UPDATE ctx_group_state
+SET next_seq = next_seq + 1,
+    updated_at = now()
+WHERE id = $1
+RETURNING next_seq
+`
+
+// A fallback nudge is itself a canonical system message. It must not erase the
+// cap that bounds consecutive outage nudges; human and agent appends use the
+// regular bump above and reset the counter.
+func (q *Queries) BumpGroupSeqWithoutNudgeFallbackReset(ctx context.Context, id string) (int64, error) {
+	row := q.db.QueryRow(ctx, bumpGroupSeqWithoutNudgeFallbackReset, id)
+	var next_seq int64
+	err := row.Scan(&next_seq)
+	return next_seq, err
+}
+
 const claimGroupNudge = `-- name: ClaimGroupNudge :one
 UPDATE ctx_group_state
 SET nudge_at = $1, updated_at = now()

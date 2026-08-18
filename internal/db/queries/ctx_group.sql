@@ -123,6 +123,16 @@ SET next_seq = next_seq + 1,
 WHERE id = sqlc.arg(id)
 RETURNING next_seq;
 
+-- name: BumpGroupSeqWithoutNudgeFallbackReset :one
+-- A fallback nudge is itself a canonical system message. It must not erase the
+-- cap that bounds consecutive outage nudges; human and agent appends use the
+-- regular bump above and reset the counter.
+UPDATE ctx_group_state
+SET next_seq = next_seq + 1,
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+RETURNING next_seq;
+
 -- name: ListGroupNudgeCandidate :many
 SELECT gs.*, 
        (SELECT gm.id FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) AS last_message_id,

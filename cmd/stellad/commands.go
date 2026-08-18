@@ -131,6 +131,7 @@ type setupResult struct {
 	workflowSvc              *workflowpkg.Service
 	embeddingSvc             *embedding.Service
 	librarySvc               *library.Service
+	groupNudgeWorker         *channel.GroupNudgeWorker
 	riverClient              *river.Client[pgx.Tx]
 	builtinTools             []agent.BuiltinTool
 	notifier                 *notify.Dispatcher
@@ -602,7 +603,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build Home deletion lifecycle: %w", err)
 	}
-	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, librarySvc, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
+	groupNudgeWorker := channel.NewGroupNudgeWorker()
+	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, librarySvc, groupNudgeWorker, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
 	if err != nil {
 		return nil, err
 	}
@@ -661,6 +663,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		workflowSvc:              workflowSvc,
 		embeddingSvc:             embeddingSvc,
 		librarySvc:               librarySvc,
+		groupNudgeWorker:         groupNudgeWorker,
 		riverClient:              riverClient,
 		builtinTools:             builtinTools,
 		notifier:                 dispatcher,
@@ -736,10 +739,14 @@ func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host, agentAccess *agent
 // electable River client per database (see db.NewWorkingRiverClient); this is
 // where that invariant is enforced. The caller owns the returned client's
 // Start/Stop lifecycle (runServer); the subsystems only use it.
-func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service, librarySvc *library.Service, softStopTimeout time.Duration, riverLogLevel string) (*river.Client[pgx.Tx], error) {
+func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service, librarySvc *library.Service, groupNudgeWorker *channel.GroupNudgeWorker, softStopTimeout time.Duration, riverLogLevel string) (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	scheduler.RegisterRiverWorker(workers, schedulerSvc)
 	goalSvc.RegisterRiverWorker(workers)
+	if groupNudgeWorker == nil {
+		return nil, errors.New("build shared river client: group nudge worker is required")
+	}
+	channel.RegisterGroupNudgeWorker(workers, groupNudgeWorker)
 
 	queues := map[string]river.QueueConfig{}
 	sn, sc := scheduler.SchedulerQueueConfig()
@@ -748,6 +755,8 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 	queues[gn] = gc
 	gtn, gtc := goalSvc.GoalTickQueueConfig()
 	queues[gtn] = gtc
+	nn, nc := channel.GroupNudgeQueueConfig()
+	queues[nn] = nc
 
 	// The embedding lane is opt-in: only contribute its backfill worker + queue
 	// when an embedding provider is configured.

@@ -73,3 +73,13 @@ func TestWebGroupSpeaker_NonHumanFailsClosed(t *testing.T) {
 		}
 	}
 }
+
+func TestSystemInputHasEmptySpeaker(t *testing.T) {
+	speaker, actor := groupMessageProvenance(sqlc.CtxGroupMessage{ActorType: string(eventlog.ActorSystem), ActorID: "nudge"}, memory.CurrentSpeaker{UserID: "alice", PlatformUserID: "tg-alice"})
+	if speaker != (memory.CurrentSpeaker{}) {
+		t.Fatalf("system speaker = %+v, want empty", speaker)
+	}
+	if actor != (eventlog.MessageActor{Type: eventlog.ActorSystem, ID: "nudge"}) {
+		t.Fatalf("system input actor = %+v", actor)
+	}
+}

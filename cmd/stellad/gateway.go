@@ -382,6 +382,23 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		},
 		intentClassifierStreamFuncBuilder(s.pluginHost),
 	))
+	if s.groupNudgeWorker == nil {
+		return errors.New("group nudge worker is unavailable")
+	}
+	nudger := channel.NewGroupNudger(s.db, groupDispatcher)
+	nudger.SetClassifier(channel.NewLLMGroupNudgeClassifier(s.db,
+		func(ctx context.Context, agentID string) (*config.Snapshot, error) {
+			return s.snapshotLoader.Snapshot(ctx, agentID)
+		},
+		intentClassifierStreamFuncBuilder(s.pluginHost),
+	))
+	nudger.SetGroupEventHub(groupEvents)
+	// River may immediately run persisted periodic work on Start. Bind only after
+	// the channel coordination exists, then fail closed rather than let a nudge
+	// worker observe a half-built dispatcher.
+	if err := s.groupNudgeWorker.Bind(nudger); err != nil {
+		return fmt.Errorf("bind group nudger: %w", err)
+	}
 	groupDispatcher.SetGroupEventHub(groupEvents)
 	if err := groupDispatcher.ValidateStartup(); err != nil {
 		return fmt.Errorf("configure group dispatcher: %w", err)
@@ -536,8 +553,19 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	defer func() { _ = s.pluginHost.Stop(context.Background()) }()
 
 	// Start the single shared River client (composition root: buildSharedRiverClient
-	// assembled it from the scheduler and goal queues).
+	// assembled it from scheduler, goal, and group-nudge workers).
 	if s.riverClient != nil {
+		if s.groupNudgeWorker == nil {
+			return errors.New("start river client: group nudge worker is unavailable")
+		}
+		if err := s.groupNudgeWorker.ValidateStartup(); err != nil {
+			return fmt.Errorf("start river client: %w", err)
+		}
+		nudgePeriodic, err := s.groupNudgeWorker.StartPeriodic(s.riverClient)
+		if err != nil {
+			return fmt.Errorf("start group nudge periodic: %w", err)
+		}
+		defer s.groupNudgeWorker.StopPeriodic(s.riverClient, nudgePeriodic)
 		// Decouple River from workCtx: graceful drain cancels workCtx/gctx, but
 		// in-flight goal/scheduler agent runs must keep executing until Stop drains
 		// them within the soft-stop budget. WithoutCancel preserves values (tracing)
