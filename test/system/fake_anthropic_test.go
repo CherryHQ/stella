@@ -41,9 +41,10 @@ type fakeAnthropic struct {
 	t      *testing.T
 	server *httptest.Server
 
-	mu      sync.Mutex
-	scripts []fakeResponse // Phase 1 FIFO queue of not-yet-served responses
-	reqs    []fakeRequest  // every request received, in arrival order
+	mu           sync.Mutex
+	scripts      []fakeResponse            // Phase 1 FIFO queue of not-yet-served responses
+	modelScripts map[string][]fakeResponse // stable model-id lanes for concurrent journeys
+	reqs         []fakeRequest             // every request received, in arrival order
 	// controls holds Phase 2 responses keyed by goal_control action variant
 	// ("decompose"/"submit"). Each is served once (the stage's terminal tool_use);
 	// a later same-variant request is the racy trailing turn and gets a benign
@@ -155,6 +156,11 @@ func newFakeAnthropic(t *testing.T) *fakeAnthropic {
 		if len(f.scripts) != 0 {
 			t.Errorf("fake anthropic: %d scripted response(s) never consumed; the system made fewer model calls than expected", len(f.scripts))
 		}
+		for model, scripts := range f.modelScripts {
+			if len(scripts) != 0 {
+				t.Errorf("fake anthropic: %d scripted response(s) for model %q never consumed", len(scripts), model)
+			}
+		}
 		for action, cs := range f.controls {
 			if !cs.served {
 				t.Errorf("fake anthropic: goal_control %q stage never requested; the Goal run did not reach it", action)
@@ -176,6 +182,28 @@ func (f *fakeAnthropic) enqueueText(text string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.scripts = append(f.scripts, fakeResponse{text: text})
+}
+
+func (f *fakeAnthropic) enqueueTextForModel(model, text string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.modelScripts == nil {
+		f.modelScripts = make(map[string][]fakeResponse)
+	}
+	f.modelScripts[model] = append(f.modelScripts[model], fakeResponse{text: text})
+}
+
+func TestFakeAnthropicModelScriptsDoNotConsumeFIFO(t *testing.T) {
+	f := newFakeAnthropic(t)
+	f.enqueueText("fifo")
+	f.enqueueTextForModel("agent-a", "a")
+	f.mu.Lock()
+	a, okA := f.selectResponse("agent-a", "")
+	b, okB := f.selectResponse("agent-b", "")
+	f.mu.Unlock()
+	if !okA || !okB || a.text != "a" || b.text != "fifo" {
+		t.Fatalf("model/FIFO responses = %q/%q", a.text, b.text)
+	}
 }
 
 func (f *fakeAnthropic) enqueueTool(id, name, args string) {
@@ -366,6 +394,11 @@ func (f *fakeAnthropic) selectResponse(model, control string) (fakeResponse, boo
 		}
 	}
 
+	if scripts := f.modelScripts[model]; len(scripts) > 0 {
+		resp := scripts[0]
+		f.modelScripts[model] = scripts[1:]
+		return resp, true
+	}
 	if len(f.scripts) == 0 {
 		f.t.Errorf("fake anthropic: unscripted request (model=%q); no response was enqueued", model)
 		return fakeResponse{}, false
