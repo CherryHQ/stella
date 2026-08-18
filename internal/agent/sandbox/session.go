@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -58,15 +59,18 @@ func createDockerSession(ctx context.Context, cfg Config) (pkgsandbox.Session, e
 
 	session, err := factory.CreateSession(ctx, policy)
 	if err != nil {
-		if dockerImageIsDev() {
-			err = fmt.Errorf("%w (run `mise run sandbox:docker:build` to build the local %q image)", err, dockerImage())
-		} else {
-			err = fmt.Errorf("docker not available; install and start Docker Desktop or the docker daemon: %w", err)
-		}
-		return nil, err
+		return nil, dockerSessionError(err)
 	}
 
 	return session, nil
+}
+
+func dockerSessionError(err error) error {
+	var imageErr *dockerplugin.ImageUnavailableError
+	if dockerImageIsDev() && errors.As(err, &imageErr) {
+		return fmt.Errorf("%w (run `mise run sandbox:docker:build` to build the local %q image)", err, dockerImage())
+	}
+	return fmt.Errorf("create docker session: %w", err)
 }
 
 // createLocalSession creates a local (no container isolation) session.

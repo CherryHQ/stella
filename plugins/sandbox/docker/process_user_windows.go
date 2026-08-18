@@ -1,4 +1,4 @@
 package docker
 
 // Docker Desktop mediates Windows filesystem ownership; keep the image user.
-func dockerProcessUser() string { return "" }
+func dockerProcessUser(bool) string { return "" }

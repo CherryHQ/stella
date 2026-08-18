@@ -58,7 +58,7 @@ ARG USER_GID=1000
 
 RUN groupadd --non-unique -g ${USER_GID} stella && \
     useradd --non-unique -u ${USER_UID} -g ${USER_GID} -m -s /bin/bash stella && \
-    mkdir -p /workspace /user /opt/stella/bin /opt/stella/.mise-tools/configs && \
+    mkdir -p /workspace /user /opt/stella/bin /opt/stella/.mise-tools/configs /opt/stella/user-tools && \
     ln -s /opt/stella/bin/.stella-shell-env /etc/profile.d/99-stella-mise.sh && \
     chown -R stella:stella /home/stella /workspace /user /opt/stella
 

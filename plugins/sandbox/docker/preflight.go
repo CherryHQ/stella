@@ -3,12 +3,18 @@ package docker
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/CherryHQ/stella/plugins/sandbox/docker/dockerclient"
 )
 
 const builtinBundleRevisionLabel = "org.cherryhq.stella.builtin-bundle-revision"
+
+// ImageUnavailableError is exposed at the plugin boundary so callers do not
+// need to depend on the Docker client implementation package.
+type ImageUnavailableError = dockerclient.ImageUnavailableError
 
 // PreflightConfig configures a Preflight check.
 type PreflightConfig struct {
@@ -57,9 +63,33 @@ func preflightWithClient(ctx context.Context, cfg PreflightConfig, client *docke
 	if _, err := client.Version(ctx); err != nil {
 		return fmt.Errorf("docker preflight: daemon not reachable: %w", err)
 	}
+	security, err := client.Security(ctx)
+	if err != nil {
+		return fmt.Errorf("docker preflight: inspect daemon security: %w", err)
+	}
+	if security.UserNamespace {
+		return fmt.Errorf("docker preflight: Docker userns-remap is unsupported because Stella cannot map writable sandbox mounts safely")
+	}
+	unsupported := unsupportedResourceLimits(security)
+	if len(unsupported) > 0 {
+		return fmt.Errorf("docker preflight: Docker daemon cannot enforce required sandbox resource limits: %s", strings.Join(unsupported, ", "))
+	}
+	runtimeInfo, available, err := client.Runtime(ctx, cfg.Docker.Runtime)
+	if err != nil {
+		return fmt.Errorf("docker preflight: inspect runtime %q: %w", cfg.Docker.Runtime, err)
+	}
+	if !available {
+		if runtime := cfg.Docker.Runtime; runtime != "" {
+			return fmt.Errorf("docker preflight: runtime %q is not registered with the Docker daemon", runtime)
+		}
+		return fmt.Errorf("docker preflight: Docker daemon did not report its default OCI runtime")
+	}
+	if arg, unsafe := unsafeRuntimeResourceArg(runtimeInfo.Args); unsafe {
+		return fmt.Errorf("docker preflight: runtime %q uses %q, which disables Stella sandbox resource limits", runtimeInfo.Name, arg)
+	}
 
 	if err := client.EnsureImageReady(ctx, cfg.Docker.Image, "preflight"); err != nil {
-		return fmt.Errorf("docker preflight: %w", err)
+		return fmt.Errorf("docker preflight: %w", &ImageUnavailableError{Err: err})
 	}
 	if expected := cfg.Docker.ExpectedBundleRevision; expected != "" {
 		actual, err := client.ImageLabel(ctx, cfg.Docker.Image, builtinBundleRevisionLabel)
@@ -72,4 +102,43 @@ func preflightWithClient(ctx context.Context, cfg PreflightConfig, client *docke
 	}
 
 	return nil
+}
+
+func unsupportedResourceLimits(security dockerclient.DaemonSecurity) []string {
+	var unsupported []string
+	if !security.MemoryLimit {
+		unsupported = append(unsupported, "memory")
+	}
+	if !security.SwapLimit {
+		unsupported = append(unsupported, "swap")
+	}
+	if !security.CPUCfsPeriod || !security.CPUCfsQuota {
+		unsupported = append(unsupported, "CPU quota")
+	}
+	if !security.PidsLimit {
+		unsupported = append(unsupported, "PID")
+	}
+	return unsupported
+}
+
+func unsafeRuntimeResourceArg(args []string) (string, bool) {
+	for _, arg := range args {
+		trimmed := strings.TrimSpace(arg)
+		if !strings.HasPrefix(trimmed, "-") {
+			continue
+		}
+		flag := strings.TrimLeft(trimmed, "-")
+		if flag == "ignore-cgroups" {
+			return arg, true
+		}
+		value, found := strings.CutPrefix(flag, "ignore-cgroups=")
+		if !found {
+			continue
+		}
+		enabled, err := strconv.ParseBool(value)
+		if err != nil || enabled {
+			return arg, true
+		}
+	}
+	return "", false
 }

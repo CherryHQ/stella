@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/containerd/errdefs"
@@ -18,6 +19,7 @@ import (
 // surface.
 type API interface {
 	ServerVersion(ctx context.Context, opts mobyclient.ServerVersionOptions) (mobyclient.ServerVersionResult, error)
+	Info(ctx context.Context, opts mobyclient.InfoOptions) (mobyclient.SystemInfoResult, error)
 	ImageInspect(ctx context.Context, image string, opts ...mobyclient.ImageInspectOption) (mobyclient.ImageInspectResult, error)
 	ImagePull(ctx context.Context, ref string, opts mobyclient.ImagePullOptions) (mobyclient.ImagePullResponse, error)
 
@@ -60,6 +62,33 @@ type VersionInfo struct {
 		Version string
 	}
 }
+
+// DaemonSecurity describes daemon properties that change how sandbox identity
+// and resource enforcement must be rendered.
+type DaemonSecurity struct {
+	Rootless      bool
+	UserNamespace bool
+	MemoryLimit   bool
+	SwapLimit     bool
+	CPUCfsPeriod  bool
+	CPUCfsQuota   bool
+	PidsLimit     bool
+}
+
+// RuntimeInfo contains the registered runtime settings that affect Stella's
+// sandbox guarantees.
+type RuntimeInfo struct {
+	Name string
+	Args []string
+}
+
+// ImageUnavailableError identifies failures while preparing a container image.
+type ImageUnavailableError struct {
+	Err error
+}
+
+func (e *ImageUnavailableError) Error() string { return e.Err.Error() }
+func (e *ImageUnavailableError) Unwrap() error { return e.Err }
 
 // New returns a Client configured from the process environment. API-version
 // negotiation is enabled by default in the moby SDK.
@@ -105,6 +134,53 @@ func (c *Client) Version(ctx context.Context) (*VersionInfo, error) {
 	info.Server.APIVersion = res.APIVersion
 	info.Client.Version = mobyclient.MaxAPIVersion
 	return info, nil
+}
+
+// Runtime reports the daemon configuration for one registered OCI runtime.
+// An empty name resolves to the daemon default so its safety settings are not
+// exempt from preflight.
+func (c *Client) Runtime(ctx context.Context, name string) (RuntimeInfo, bool, error) {
+	res, err := c.api.Info(ctx, mobyclient.InfoOptions{})
+	if err != nil {
+		return RuntimeInfo{}, false, fmt.Errorf("dockerclient: system info: %w", err)
+	}
+	if name == "" {
+		name = res.Info.DefaultRuntime
+	}
+	if name == "" {
+		return RuntimeInfo{}, false, nil
+	}
+	runtime, ok := res.Info.Runtimes[name]
+	return RuntimeInfo{Name: name, Args: append([]string(nil), runtime.Args...)}, ok, nil
+}
+
+// Security reports whether Docker itself is rootless and which cgroup driver
+// backs container resource limits.
+func (c *Client) Security(ctx context.Context) (DaemonSecurity, error) {
+	res, err := c.api.Info(ctx, mobyclient.InfoOptions{})
+	if err != nil {
+		return DaemonSecurity{}, fmt.Errorf("dockerclient: system info: %w", err)
+	}
+	security := DaemonSecurity{
+		MemoryLimit:  res.Info.MemoryLimit,
+		SwapLimit:    res.Info.SwapLimit,
+		CPUCfsPeriod: res.Info.CPUCfsPeriod,
+		CPUCfsQuota:  res.Info.CPUCfsQuota,
+		PidsLimit:    res.Info.PidsLimit,
+	}
+	for _, option := range res.Info.SecurityOptions {
+		if securityOptionEnabled(option, "rootless") {
+			security.Rootless = true
+		}
+		if securityOptionEnabled(option, "userns") {
+			security.UserNamespace = true
+		}
+	}
+	return security, nil
+}
+
+func securityOptionEnabled(option, name string) bool {
+	return option == name || option == "name="+name || strings.HasPrefix(option, "name="+name+",")
 }
 
 // ImageExists reports whether the image exists locally.

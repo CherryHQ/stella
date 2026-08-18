@@ -32,7 +32,9 @@ const (
 )
 
 const (
-	containerUserToolsRoot        = "/home/stella/.stella-tools"
+	// /opt/stella is world-traversable. /home/stella is 0700, so rootless
+	// container UID 0 with all capabilities dropped cannot reach mounts there.
+	containerUserToolsRoot        = "/opt/stella/user-tools"
 	containerUserToolsBin         = containerUserToolsRoot + "/bin"
 	containerUserToolsReadyMarker = containerUserToolsRoot + "/.stella-tools-ready"
 )
@@ -116,6 +118,7 @@ func installUserToolCache(ctx context.Context, client *dockerclient.Client, cfg 
 
 	containerID, err := client.CreateAndStart(ctx, dockerclient.CreateOptions{
 		Image:       cfg.Image,
+		Runtime:     cfg.Runtime,
 		NetworkMode: dockerclient.NetworkAllowAll,
 		User:        "root",
 		Env: map[string]string{
@@ -233,6 +236,7 @@ func resetToolCacheMemoForTest() {
 func verifyUserToolCache(ctx context.Context, client *dockerclient.Client, cfg Config, hash string, cache *userToolCache) error {
 	containerID, err := client.CreateAndStart(ctx, dockerclient.CreateOptions{
 		Image:       cfg.Image,
+		Runtime:     cfg.Runtime,
 		NetworkMode: dockerclient.NetworkDisabled,
 		User:        "root",
 		ExtraMounts: []dockerclient.Mount{

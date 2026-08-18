@@ -218,7 +218,7 @@ services:
       - STELLA_DATABASE_URL=postgres://user:pass@postgres.example.com:5432/stella?sslmode=require
 ```
 
-`seccomp=unconfined` 标志是 `local` 沙箱后端（bubblewrap）所必需的。如果 agent 使用 `docker` 沙箱后端，需要额外挂载 Docker socket 和设置模式相关的环境变量——请参阅[沙箱指南](/docs/guides/sandbox#docker-compose-示例)了解所有 compose 变体。
+`seccomp=unconfined` 标志是 `local` 沙箱后端（bubblewrap）所必需的。官方 Compose 已为 `docker` 沙箱后端配置 Docker socket；自定义 Compose 请参阅[沙箱指南](/docs/guides/sandbox#自定义-docker-compose)。
 
 ```bash
 docker compose up -d
@@ -330,7 +330,7 @@ terminationGracePeriodSeconds: 200
 
 ## 沙箱后端
 
-将 Stella 运行在 Docker 容器中（见上文）与使用 Docker 作为 agent 工具执行的沙箱后端是两件独立的事。Stella 支持三种沙箱后端：`docker`、`local` 和 `none`。请参阅[沙箱指南](/docs/guides/sandbox)了解如何选择后端、配置 Docker 沙箱模式和排查常见问题。
+将 Stella 运行在 Docker 容器中（见上文）与使用 Docker 作为 agent 工具执行的沙箱后端是两件独立的事。Stella 支持三种沙箱后端：`docker`、`local` 和 `none`。请参阅[沙箱指南](/docs/guides/sandbox)选择后端和可选 OCI runtime。
 
 ## 卷和数据
 
@@ -368,13 +368,12 @@ terminationGracePeriodSeconds: 200
 | `STELLA_BLOB_S3_REGION`          | 否                        | 可选 S3 region                                                                                                         |
 | `STELLA_BLOB_S3_USE_SSL`         | 否                        | S3 兼容存储是否使用 HTTPS；默认 `true`                                                                                 |
 | `STELLA_VAULT_KEY`               | 是†                       | 密钥库使用的 age 私钥 —— 密钥管理、OAuth 和 Bearer Token 所必需                                                        |
-| `STELLA_DOCKER_SANDBOX_MODE`     | 否‡                       | 仅 `docker` 沙箱后端需要：`host`、`bind` 或 `volume`                                                                   |
-| `STELLA_HOME_HOST`               | 否‡                       | `STELLA_HOME` 的宿主机侧路径；仅 `STELLA_DOCKER_SANDBOX_MODE=bind` 时需要                                              |
-| `STELLA_HOME_VOLUME`             | 否‡                       | `STELLA_HOME` 的 Docker named volume 名称；仅 `STELLA_DOCKER_SANDBOX_MODE=volume` 时需要                               |
+| `STELLA_SANDBOX_BACKEND`         | 否                        | 沙箱后端：`docker`、`local`（默认）或 `none`                                                                           |
+| `STELLA_DOCKER_RUNTIME`          | 否‡                       | Docker 沙箱和工具缓存容器使用的已注册 OCI runtime；未设置时使用 daemon 默认值，配置值不可用时预检失败                  |
 
 † 未设置 `STELLA_VAULT_KEY` 时，密钥库接口返回 `503`，无法签发 OAuth Token，插件密钥也不会被注入。使用 `age-keygen` 生成密钥。
 
-‡ 仅当 agent 使用 `docker` 沙箱后端时需要。stellad 在宿主机上运行用 `host`；stellad 在 Docker 内且使用 host bind mount 用 `bind`；stellad 在 Docker 内且使用 named volume 用 `volume`。
+‡ 仅当 agent 使用 `docker` 沙箱后端时相关。
 
 § 四个必需的 S3 变量必须同时设置，或全部不设置。部分设置会导致启动失败；可变资产不需要这些变量。
 

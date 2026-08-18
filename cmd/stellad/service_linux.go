@@ -23,6 +23,7 @@ User=stella
 Group=stella
 WorkingDirectory=/var/lib/stella
 Environment=STELLA_HOME=/var/lib/stella
+Environment=STELLA_DOCKER_SANDBOX_MODE=host
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 ExecStart=STELLAD_EXEC

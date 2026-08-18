@@ -21,31 +21,6 @@ const defaultSandboxServerPort = 25678
 // short container ID. Overridden in tests.
 var lookupHostname = os.Hostname
 
-// lookupDockerSandboxMode reads STELLA_DOCKER_SANDBOX_MODE. Overridden in tests.
-var lookupDockerSandboxMode = func() string {
-	return strings.TrimSpace(os.Getenv(dockerSandboxModeEnv))
-}
-
-// lookupStellaHomeHost reads the STELLA_HOME_HOST env. Overridden in tests.
-var lookupStellaHomeHost = func() string {
-	return strings.TrimSpace(os.Getenv("STELLA_HOME_HOST"))
-}
-
-// lookupStellaHomeVolume reads the STELLA_HOME_VOLUME env. Overridden in tests.
-var lookupStellaHomeVolume = func() string {
-	return strings.TrimSpace(os.Getenv("STELLA_HOME_VOLUME"))
-}
-
-// lookupSandboxNetwork reads the STELLA_SANDBOX_NETWORK env. Overridden in tests.
-var lookupSandboxNetwork = func() string {
-	return strings.TrimSpace(os.Getenv("STELLA_SANDBOX_NETWORK"))
-}
-
-// lookupSandboxServerURL reads the STELLA_SANDBOX_SERVER_URL env. Overridden in tests.
-var lookupSandboxServerURL = func() string {
-	return strings.TrimSpace(os.Getenv("STELLA_SANDBOX_SERVER_URL"))
-}
-
 // autodetectServerReachability fills SandboxNetwork/ServerURL by inspecting the
 // container stellad runs in, so DooD sandboxes reach stellad with zero extra
 // configuration: they join the same Docker network and target stellad's address
@@ -153,7 +128,8 @@ func findNetwork(nets []dockerclient.SelfNetwork, name string) *dockerclient.Sel
 	return nil
 }
 
-// applyDockerMode fills and validates the explicit docker sandbox runtime mode.
+// resolveDockerConfig fills deployment-owned settings from the environment and
+// validates the Docker home topology.
 //
 // STELLA_DOCKER_SANDBOX_MODE is required when NewFactory receives StellaHome:
 //   - host: stellad runs on the host; stella-process paths are daemon-visible.
@@ -163,21 +139,24 @@ func findNetwork(nets []dockerclient.SelfNetwork, name string) *dockerclient.Sel
 // This intentionally does not inspect /.dockerenv or other runtime markers.
 // The caller describes the deployment; the backend validates that the mode has
 // exactly the env needed for that mode and no conflicting mode env.
-func applyDockerMode(cfg Config, stellaHome string) (Config, error) {
+func resolveDockerConfig(cfg Config, stellaHome string) (Config, error) {
+	if cfg.Runtime == "" {
+		cfg.Runtime = strings.TrimSpace(os.Getenv("STELLA_DOCKER_RUNTIME"))
+	}
 	if cfg.RuntimeMode == "" {
-		cfg.RuntimeMode = DockerSandboxMode(lookupDockerSandboxMode())
+		cfg.RuntimeMode = DockerSandboxMode(strings.TrimSpace(os.Getenv("STELLA_DOCKER_SANDBOX_MODE")))
 	}
 	if cfg.StellaHomeVolume == "" {
-		cfg.StellaHomeVolume = lookupStellaHomeVolume()
+		cfg.StellaHomeVolume = strings.TrimSpace(os.Getenv("STELLA_HOME_VOLUME"))
 	}
 	if cfg.SandboxNetwork == "" {
-		cfg.SandboxNetwork = lookupSandboxNetwork()
+		cfg.SandboxNetwork = strings.TrimSpace(os.Getenv("STELLA_SANDBOX_NETWORK"))
 	}
 	if cfg.ServerURL == "" {
-		cfg.ServerURL = lookupSandboxServerURL()
+		cfg.ServerURL = strings.TrimSpace(os.Getenv("STELLA_SANDBOX_SERVER_URL"))
 	}
 	if cfg.ContainerPathPrefix == "" && cfg.HostPathPrefix == "" {
-		if hostPath := lookupStellaHomeHost(); hostPath != "" {
+		if hostPath := strings.TrimSpace(os.Getenv("STELLA_HOME_HOST")); hostPath != "" {
 			cfg.ContainerPathPrefix = stellaHome
 			cfg.HostPathPrefix = hostPath
 		}

@@ -16,6 +16,10 @@ func (noopAPI) ServerVersion(context.Context, mobyclient.ServerVersionOptions) (
 	return mobyclient.ServerVersionResult{}, nil
 }
 
+func (noopAPI) Info(context.Context, mobyclient.InfoOptions) (mobyclient.SystemInfoResult, error) {
+	return mobyclient.SystemInfoResult{}, nil
+}
+
 func (noopAPI) ImageInspect(context.Context, string, ...mobyclient.ImageInspectOption) (mobyclient.ImageInspectResult, error) {
 	return mobyclient.ImageInspectResult{}, nil
 }
