@@ -62,6 +62,13 @@ type VersionInfo struct {
 	}
 }
 
+// DaemonSecurity describes daemon properties that change how sandbox identity
+// and resource enforcement must be rendered.
+type DaemonSecurity struct {
+	Rootless     bool
+	CgroupDriver string
+}
+
 // New returns a Client configured from the process environment. API-version
 // negotiation is enabled by default in the moby SDK.
 func New() (*Client, error) {
@@ -120,6 +127,23 @@ func (c *Client) RuntimeAvailable(ctx context.Context, name string) (bool, error
 	}
 	_, ok := res.Info.Runtimes[name]
 	return ok, nil
+}
+
+// Security reports whether Docker itself is rootless and which cgroup driver
+// backs container resource limits.
+func (c *Client) Security(ctx context.Context) (DaemonSecurity, error) {
+	res, err := c.api.Info(ctx, mobyclient.InfoOptions{})
+	if err != nil {
+		return DaemonSecurity{}, fmt.Errorf("dockerclient: system info: %w", err)
+	}
+	security := DaemonSecurity{CgroupDriver: res.Info.CgroupDriver}
+	for _, option := range res.Info.SecurityOptions {
+		if option == "rootless" || option == "name=rootless" {
+			security.Rootless = true
+			break
+		}
+	}
+	return security, nil
 }
 
 // ImageExists reports whether the image exists locally.

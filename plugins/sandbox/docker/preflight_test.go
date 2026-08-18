@@ -158,6 +158,22 @@ func TestPreflightRuntime(t *testing.T) {
 	})
 }
 
+func TestPreflightRejectsRootlessDaemonWithoutCgroups(t *testing.T) {
+	api := &fakePreflightAPI{
+		infoFn: func() (mobyclient.SystemInfoResult, error) {
+			return mobyclient.SystemInfoResult{Info: system.Info{
+				SecurityOptions: []string{"name=rootless"},
+				CgroupDriver:    "none",
+			}}, nil
+		},
+	}
+	client := dockerclient.NewWithAPI(api)
+	err := preflightWithClient(context.Background(), PreflightConfig{Docker: Config{Image: "sandbox:test"}}, client)
+	if err == nil || !strings.Contains(err.Error(), "cannot enforce sandbox CPU, memory, or PID limits") {
+		t.Fatalf("rootless daemon without cgroups error = %v", err)
+	}
+}
+
 func TestPreflightRejectsBuiltinBundleRevisionMismatch(t *testing.T) {
 	api := &fakePreflightAPI{inspectFn: func(string) (mobyclient.ImageInspectResult, error) { return mobyclient.ImageInspectResult{}, nil }}
 	client := dockerclient.NewWithAPI(api)

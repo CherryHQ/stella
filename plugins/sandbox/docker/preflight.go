@@ -10,6 +10,15 @@ import (
 
 const builtinBundleRevisionLabel = "org.cherryhq.stella.builtin-bundle-revision"
 
+// ImageUnavailableError identifies image preparation failures so callers can
+// attach image-specific recovery without mislabeling runtime or daemon errors.
+type ImageUnavailableError struct {
+	Err error
+}
+
+func (e *ImageUnavailableError) Error() string { return e.Err.Error() }
+func (e *ImageUnavailableError) Unwrap() error { return e.Err }
+
 // PreflightConfig configures a Preflight check.
 type PreflightConfig struct {
 	StellaHome string
@@ -57,6 +66,13 @@ func preflightWithClient(ctx context.Context, cfg PreflightConfig, client *docke
 	if _, err := client.Version(ctx); err != nil {
 		return fmt.Errorf("docker preflight: daemon not reachable: %w", err)
 	}
+	security, err := client.Security(ctx)
+	if err != nil {
+		return fmt.Errorf("docker preflight: inspect daemon security: %w", err)
+	}
+	if security.Rootless && security.CgroupDriver == "none" {
+		return fmt.Errorf("docker preflight: rootless daemon has no cgroup driver; Stella cannot enforce sandbox CPU, memory, or PID limits")
+	}
 	if runtime := cfg.Docker.Runtime; runtime != "" {
 		available, err := client.RuntimeAvailable(ctx, runtime)
 		if err != nil {
@@ -68,7 +84,7 @@ func preflightWithClient(ctx context.Context, cfg PreflightConfig, client *docke
 	}
 
 	if err := client.EnsureImageReady(ctx, cfg.Docker.Image, "preflight"); err != nil {
-		return fmt.Errorf("docker preflight: %w", err)
+		return fmt.Errorf("docker preflight: %w", &ImageUnavailableError{Err: err})
 	}
 	if expected := cfg.Docker.ExpectedBundleRevision; expected != "" {
 		actual, err := client.ImageLabel(ctx, cfg.Docker.Image, builtinBundleRevisionLabel)

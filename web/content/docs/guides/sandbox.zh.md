@@ -65,6 +65,8 @@ STELLA_DOCKER_RUNTIME=runsc
 
 替代 OCI runtime 可以减少宿主内核暴露面，但不会限制网络出口，也不会保护可写挂载。沙箱网络策略和挂载权限仍需独立收紧。
 
+Stella 还会检测 Docker daemon 是否为 rootless。rootful daemon 使用 `stellad` 的 UID/GID 运行沙箱进程；rootless daemon 使用容器 UID/GID `0:0`，它在宿主机上映射为非特权 daemon 用户，并保持该用户的 bind mount 可写。两种模式都会继续丢弃 capabilities 并启用 `no-new-privileges`。如果 rootless daemon 没有 cgroup driver，Stella 会在预检时拒绝启动，因为此时无法执行 CPU、内存和 PID 限制；生产环境不要为 gVisor 配置 `--ignore-cgroups`。
+
 ### Docker Compose 示例
 
 **容器内使用 `local` 或 `none` 沙箱** — 最简单的部署：

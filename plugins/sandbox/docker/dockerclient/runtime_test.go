@@ -44,3 +44,34 @@ func TestRuntimeAvailableInfoError(t *testing.T) {
 		t.Fatal("RuntimeAvailable succeeded despite daemon info error")
 	}
 }
+
+func TestSecurity(t *testing.T) {
+	client := NewWithAPI(runtimeAPI{result: mobyclient.SystemInfoResult{
+		Info: system.Info{
+			SecurityOptions: []string{"name=seccomp,profile=builtin", "name=rootless"},
+			CgroupDriver:    "systemd",
+		},
+	}})
+
+	got, err := client.Security(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Rootless || got.CgroupDriver != "systemd" {
+		t.Fatalf("Security = %+v, want rootless systemd", got)
+	}
+}
+
+func TestSecurityRootful(t *testing.T) {
+	client := NewWithAPI(runtimeAPI{result: mobyclient.SystemInfoResult{
+		Info: system.Info{SecurityOptions: []string{"name=seccomp,profile=builtin"}, CgroupDriver: "cgroupfs"},
+	}})
+
+	got, err := client.Security(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Rootless || got.CgroupDriver != "cgroupfs" {
+		t.Fatalf("Security = %+v, want rootful cgroupfs", got)
+	}
+}

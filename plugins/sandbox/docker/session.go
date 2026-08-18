@@ -244,12 +244,18 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 		span.End()
 		return nil, fmt.Errorf("docker session: client: %w", err)
 	}
+	security, err := client.Security(ctx)
+	if err != nil {
+		recordError(span, err)
+		span.End()
+		return nil, fmt.Errorf("docker session: inspect daemon security: %w", err)
+	}
 
 	cleanupScope := f.cfg.cleanupScope(f.cfg.StellaHome)
 	opts := dockerclient.CreateOptions{
 		Image:          f.cfg.Image,
 		Runtime:        f.cfg.Runtime,
-		User:           dockerProcessUser(),
+		User:           dockerProcessUser(security.Rootless),
 		WorkspaceHost:  workspaceHost,
 		WorkspaceMount: workspaceMount,
 		NetworkMode:    networkMode,
@@ -425,6 +431,16 @@ func (f *dockerFactory) CreateSession(ctx context.Context, policy sandboxpkg.Pol
 	go session.watchContainer()
 
 	return session, nil
+}
+
+// dockerProcessUser renders the ownership model exposed by the daemon. UID 0
+// on a rootless daemon is the unprivileged daemon user on the host, not host
+// root, and is the owner rootless bind mounts expose inside the container.
+func dockerProcessUser(rootless bool) string {
+	if rootless {
+		return "0:0"
+	}
+	return rootfulDockerProcessUser()
 }
 
 // mapNetworkMode translates sandbox policy network mode to the dockerclient type.
