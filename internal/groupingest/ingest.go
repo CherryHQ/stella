@@ -196,7 +196,7 @@ func (ing *Ingester) processGroup(ctx context.Context, groupID string, _ int64) 
 			maxSeq = m.Seq
 		}
 
-		if m.ActorType == "agent" {
+		if m.ActorType == "agent" || m.ActorType == "system" {
 			continue
 		}
 

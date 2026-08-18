@@ -337,7 +337,7 @@ func validateGroupAppend(groupID string, msg GroupMessage) error {
 	if groupID == "" {
 		return errors.New("eventlog: group_id is required")
 	}
-	if msg.ActorType != ActorHuman && msg.ActorType != ActorAgent {
+	if msg.ActorType != ActorHuman && msg.ActorType != ActorAgent && msg.ActorType != ActorSystem {
 		return fmt.Errorf("eventlog: invalid actor_type %q", msg.ActorType)
 	}
 	if state := deliveryStateOrDelivered(msg.DeliveryState); state != "pending" && state != "delivered" && state != "failed" {
@@ -372,7 +372,7 @@ func validate(msg Message) error {
 	if msg.Platform == "" || msg.PlatformGroupID == "" {
 		return errors.New("eventlog: platform and platform_group_id are required")
 	}
-	if msg.ActorType != ActorHuman && msg.ActorType != ActorAgent {
+	if msg.ActorType != ActorHuman && msg.ActorType != ActorAgent && msg.ActorType != ActorSystem {
 		return fmt.Errorf("eventlog: invalid actor_type %q", msg.ActorType)
 	}
 	if msg.ActorID == "" {
