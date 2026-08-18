@@ -128,13 +128,28 @@ func validatePage(offset, limit int) error {
 // Group is a Web group's durable state plus its message-derived last-active
 // time (nil when the group has no messages yet).
 type Group struct {
-	ID              string
-	GroupName       string
-	Platform        string
-	CreatedByUserID *string
-	LastActive      *time.Time
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID                        string
+	GroupName                 string
+	Platform                  string
+	CreatedByUserID           *string
+	LastActive                *time.Time
+	CreatedAt                 time.Time
+	UpdatedAt                 time.Time
+	AgentChainHardLimit       int
+	MaxAgentPostsPerMinute    int
+	MaxRepliesPerHumanTrigger int
+	HoldLimit                 int
+}
+
+type GroupDispatchCaps struct {
+	AgentChainHardLimit       int
+	MaxAgentPostsPerMinute    int
+	MaxRepliesPerHumanTrigger int
+	HoldLimit                 int
+}
+
+func (c GroupDispatchCaps) valid() bool {
+	return c.AgentChainHardLimit >= 1 && c.AgentChainHardLimit <= 100 && c.MaxAgentPostsPerMinute >= 1 && c.MaxAgentPostsPerMinute <= 1000 && c.MaxRepliesPerHumanTrigger >= 1 && c.MaxRepliesPerHumanTrigger <= 100 && c.HoldLimit >= 0 && c.HoldLimit <= 20
 }
 
 // GroupMemberDetail is one agent member of a group with its display name
@@ -328,6 +343,20 @@ func (a *GroupAccess) UpdateName(ctx context.Context, groupID, name string) (Gro
 	g, err := a.q().UpdateGroupName(ctx, sqlc.UpdateGroupNameParams{GroupName: name, ID: groupID})
 	if err != nil {
 		return Group{}, fmt.Errorf("update group name: %w", err)
+	}
+	return a.groupValue(ctx, g)
+}
+
+func (a *GroupAccess) UpdateCaps(ctx context.Context, groupID string, caps GroupDispatchCaps) (Group, error) {
+	if !caps.valid() {
+		return Group{}, ErrInvalidPage
+	}
+	if _, err := a.requireOwner(ctx, groupID); err != nil {
+		return Group{}, err
+	}
+	g, err := a.q().SetGroupDispatchCaps(ctx, sqlc.SetGroupDispatchCapsParams{ID: groupID, AgentChainHardLimit: int32(caps.AgentChainHardLimit), MaxAgentPostsPerMinute: int32(caps.MaxAgentPostsPerMinute), MaxRepliesPerHumanTrigger: int32(caps.MaxRepliesPerHumanTrigger), HoldLimit: int32(caps.HoldLimit)})
+	if err != nil {
+		return Group{}, fmt.Errorf("update group caps: %w", err)
 	}
 	return a.groupValue(ctx, g)
 }
@@ -562,12 +591,16 @@ func (a *GroupAccess) addMemberRow(ctx context.Context, q *sqlc.Queries, groupID
 // last-active time so single-resource responses match the list endpoint.
 func (a *GroupAccess) groupValue(ctx context.Context, g sqlc.CtxGroupState) (Group, error) {
 	out := Group{
-		ID:              g.ID,
-		GroupName:       g.GroupName,
-		Platform:        g.Platform,
-		CreatedByUserID: textPtr(g.CreatedByUserID),
-		CreatedAt:       g.CreatedAt.UTC(),
-		UpdatedAt:       g.UpdatedAt.UTC(),
+		ID:                        g.ID,
+		GroupName:                 g.GroupName,
+		Platform:                  g.Platform,
+		CreatedByUserID:           textPtr(g.CreatedByUserID),
+		CreatedAt:                 g.CreatedAt.UTC(),
+		UpdatedAt:                 g.UpdatedAt.UTC(),
+		AgentChainHardLimit:       int(g.AgentChainHardLimit),
+		MaxAgentPostsPerMinute:    int(g.MaxAgentPostsPerMinute),
+		MaxRepliesPerHumanTrigger: int(g.MaxRepliesPerHumanTrigger),
+		HoldLimit:                 int(g.HoldLimit),
 	}
 	// Absent messages default last-active to the update time, matching the prior
 	// single-resource semantics before the message-derived override.

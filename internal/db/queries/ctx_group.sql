@@ -51,6 +51,16 @@ SET group_name = sqlc.arg(group_name), updated_at = now()
 WHERE id = sqlc.arg(id)
 RETURNING *;
 
+-- name: SetGroupDispatchCaps :one
+UPDATE ctx_group_state
+SET agent_chain_hard_limit = sqlc.arg(agent_chain_hard_limit),
+    max_agent_posts_per_minute = sqlc.arg(max_agent_posts_per_minute),
+    max_replies_per_human_trigger = sqlc.arg(max_replies_per_human_trigger),
+    hold_limit = sqlc.arg(hold_limit),
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+RETURNING *;
+
 -- name: DeleteGroupState :exec
 DELETE FROM ctx_group_state WHERE id = $1;
 

@@ -16,6 +16,10 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         last_active: { type: string, format: date-time, nullable: true }
+        agent_chain_hard_limit: { type: integer }
+        max_agent_posts_per_minute: { type: integer }
+        max_replies_per_human_trigger: { type: integer }
+        hold_limit: { type: integer }
 
     GroupList:
       type: object
@@ -81,9 +85,16 @@ components:
 
     UpdateGroupRequest:
       type: object
-      required: [group_name]
       properties:
         group_name: { type: string }
+        agent_chain_hard_limit: { type: integer, minimum: 1, maximum: 100 }
+        max_agent_posts_per_minute: { type: integer, minimum: 1, maximum: 1000 }
+        max_replies_per_human_trigger: {
+          type: integer,
+          minimum: 1,
+          maximum: 100,
+        }
+        hold_limit: { type: integer, minimum: 0, maximum: 20 }
 
     AddGroupMemberRequest:
       type: object

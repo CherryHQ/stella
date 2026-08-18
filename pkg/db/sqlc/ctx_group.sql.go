@@ -663,6 +663,54 @@ func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg List
 	return items, nil
 }
 
+const setGroupDispatchCaps = `-- name: SetGroupDispatchCaps :one
+UPDATE ctx_group_state
+SET agent_chain_hard_limit = $1,
+    max_agent_posts_per_minute = $2,
+    max_replies_per_human_trigger = $3,
+    hold_limit = $4,
+    updated_at = now()
+WHERE id = $5
+RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_fallback_count
+`
+
+type SetGroupDispatchCapsParams struct {
+	AgentChainHardLimit       int32  `json:"agent_chain_hard_limit"`
+	MaxAgentPostsPerMinute    int32  `json:"max_agent_posts_per_minute"`
+	MaxRepliesPerHumanTrigger int32  `json:"max_replies_per_human_trigger"`
+	HoldLimit                 int32  `json:"hold_limit"`
+	ID                        string `json:"id"`
+}
+
+func (q *Queries) SetGroupDispatchCaps(ctx context.Context, arg SetGroupDispatchCapsParams) (CtxGroupState, error) {
+	row := q.db.QueryRow(ctx, setGroupDispatchCaps,
+		arg.AgentChainHardLimit,
+		arg.MaxAgentPostsPerMinute,
+		arg.MaxRepliesPerHumanTrigger,
+		arg.HoldLimit,
+		arg.ID,
+	)
+	var i CtxGroupState
+	err := row.Scan(
+		&i.ID,
+		&i.Platform,
+		&i.PlatformGroupID,
+		&i.PlatformThreadID,
+		&i.NextSeq,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.GroupName,
+		&i.CreatedByUserID,
+		&i.AgentChainHardLimit,
+		&i.MaxAgentPostsPerMinute,
+		&i.MaxRepliesPerHumanTrigger,
+		&i.HoldLimit,
+		&i.NudgeAt,
+		&i.NudgeFallbackCount,
+	)
+	return i, err
+}
+
 const updateGroupName = `-- name: UpdateGroupName :one
 UPDATE ctx_group_state
 SET group_name = $1, updated_at = now()

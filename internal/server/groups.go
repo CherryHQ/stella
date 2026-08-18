@@ -80,13 +80,17 @@ func (s *Server) groupError(w http.ResponseWriter, err error) {
 
 func groupToAPI(g channel.Group) apitypes.Group {
 	return apitypes.Group{
-		Id:              g.ID,
-		GroupName:       g.GroupName,
-		Platform:        g.Platform,
-		CreatedByUserId: g.CreatedByUserID,
-		LastActive:      g.LastActive,
-		CreatedAt:       g.CreatedAt,
-		UpdatedAt:       g.UpdatedAt,
+		Id:                        g.ID,
+		GroupName:                 g.GroupName,
+		Platform:                  g.Platform,
+		CreatedByUserId:           g.CreatedByUserID,
+		LastActive:                g.LastActive,
+		CreatedAt:                 g.CreatedAt,
+		UpdatedAt:                 g.UpdatedAt,
+		AgentChainHardLimit:       &g.AgentChainHardLimit,
+		MaxAgentPostsPerMinute:    &g.MaxAgentPostsPerMinute,
+		MaxRepliesPerHumanTrigger: &g.MaxRepliesPerHumanTrigger,
+		HoldLimit:                 &g.HoldLimit,
 	}
 }
 
@@ -290,11 +294,36 @@ func (s *Server) UpdateGroup(w http.ResponseWriter, r *http.Request, groupId str
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.GroupName == "" {
-		writeError(w, http.StatusBadRequest, "group_name is required")
+	var g channel.Group
+	var err error
+	hasCaps := req.AgentChainHardLimit != nil || req.MaxAgentPostsPerMinute != nil || req.MaxRepliesPerHumanTrigger != nil || req.HoldLimit != nil
+	switch {
+	case hasCaps:
+		current, getErr := acc.Get(r.Context(), groupId)
+		if getErr != nil {
+			s.groupError(w, getErr)
+			return
+		}
+		caps := channel.GroupDispatchCaps{AgentChainHardLimit: current.AgentChainHardLimit, MaxAgentPostsPerMinute: current.MaxAgentPostsPerMinute, MaxRepliesPerHumanTrigger: current.MaxRepliesPerHumanTrigger, HoldLimit: current.HoldLimit}
+		if req.AgentChainHardLimit != nil {
+			caps.AgentChainHardLimit = *req.AgentChainHardLimit
+		}
+		if req.MaxAgentPostsPerMinute != nil {
+			caps.MaxAgentPostsPerMinute = *req.MaxAgentPostsPerMinute
+		}
+		if req.MaxRepliesPerHumanTrigger != nil {
+			caps.MaxRepliesPerHumanTrigger = *req.MaxRepliesPerHumanTrigger
+		}
+		if req.HoldLimit != nil {
+			caps.HoldLimit = *req.HoldLimit
+		}
+		g, err = acc.UpdateCaps(r.Context(), groupId, caps)
+	case req.GroupName != nil && *req.GroupName != "":
+		g, err = acc.UpdateName(r.Context(), groupId, *req.GroupName)
+	default:
+		writeError(w, http.StatusBadRequest, "at least one field is required")
 		return
 	}
-	g, err := acc.UpdateName(r.Context(), groupId, req.GroupName)
 	if err != nil {
 		s.groupError(w, err)
 		return
