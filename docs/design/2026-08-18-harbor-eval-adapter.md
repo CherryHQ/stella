@@ -292,6 +292,11 @@ review 指出 v1 的五类既不互斥也不可判定(非零 bash 是模型可�
 
 ## 16. 验证计划
 
+**状态(2026-08-18)**:第 1 项已在 P0/P1 以 `evalbridge` contract test 落地;第
+3、4 项有 driver/Python 单元测试覆盖 stop-before-terminal、nonce 与 ledger 的
+fail-closed 谓词。第 2 项仍待拥有 provider key 的本机 testbed 运行;第 5、6 项
+在 #1055 范围内。
+
 1. `bridge` 后端契约测试:对一个手工起的容器(经一个最小 `BaseEnvironment` 实现)验证 `Exec` 与六个 `FileAccess` 方法,含中文路径、大文件、二进制、**外跳 symlink 必须被拒绝**。
 2. 单个 Terminal-Bench task 端到端跑通:install / run / trace 导出 / 清理闭环。**这是适配器验证,不是成绩。**
 3. **超时路径**:人为把 deadline 设短,验证 stop 被调用、终态被确认、verifier 开始时容器内无 Stella 写入。
