@@ -39,9 +39,9 @@ Docker provides full container-level process, filesystem, and network isolation.
 - **Bind-mount performance**: On Docker Desktop for macOS, bind-mount filesystem operations are 5–20× slower than native disk. Avoid it for heavy read/write workflows.
 - **No copy-on-write isolation**: Unlike the local backend (which uses overlayfs on Linux), the Docker backend does not provide overlay-based COW. A runaway script can modify or damage the mounted workspace.
 
-### Runtime Modes
+### Advanced: Custom Deployment Mode
 
-When stellad itself runs inside a Docker container and agents use the `docker` sandbox backend, you must tell Stella how the Docker daemon can see `STELLA_HOME`. Set `STELLA_DOCKER_SANDBOX_MODE` to one of:
+The deployment entry point normally owns how Docker sees `STELLA_HOME`; this is not a routine sandbox choice. `stellad service install` injects `host`, and the official Docker Compose file injects `volume` with the `stella-data` volume. You only set `STELLA_DOCKER_SANDBOX_MODE` yourself when starting `stellad server` directly or building a custom container deployment.
 
 | Mode     | When to use                                             | Required env                                        |
 | -------- | ------------------------------------------------------- | --------------------------------------------------- |
@@ -49,7 +49,7 @@ When stellad itself runs inside a Docker container and agents use the `docker` s
 | `bind`   | stellad runs in Docker; `STELLA_HOME` is a bind mount   | `STELLA_HOME_HOST` = the host-side path             |
 | `volume` | stellad runs in Docker; `STELLA_HOME` is a named volume | `STELLA_HOME_VOLUME` = the volume name              |
 
-Each mode rejects env vars that belong to other modes. For example, `bind` mode with `STELLA_HOME_VOLUME` set is an error.
+Each mode rejects env vars that belong to other modes. For example, `bind` mode with `STELLA_HOME_VOLUME` set is an error. A custom container deployment must choose `bind` or `volume` explicitly; Stella does not guess whether container paths are visible to the host daemon.
 
 Volume mode requires Docker Engine 25+ for volume subpath mounts.
 
@@ -121,13 +121,13 @@ volumes:
 
 ### Environment Variables
 
-| Variable                     | Description                                                                    |
-| ---------------------------- | ------------------------------------------------------------------------------ |
-| `STELLA_SANDBOX_BACKEND`     | Sandbox backend for the deployment: `docker`, `local` (default), or `none`     |
-| `STELLA_DOCKER_SANDBOX_MODE` | Required for the `docker` sandbox backend: `host`, `bind`, or `volume`         |
-| `STELLA_DOCKER_RUNTIME`      | Optional registered OCI runtime for Docker sandbox containers, such as `runsc` |
-| `STELLA_HOME_HOST`           | Host-side path backing `STELLA_HOME`; required only in `bind` mode             |
-| `STELLA_HOME_VOLUME`         | Docker named volume backing `STELLA_HOME`; required only in `volume` mode      |
+| Variable                     | Description                                                                                         |
+| ---------------------------- | --------------------------------------------------------------------------------------------------- |
+| `STELLA_SANDBOX_BACKEND`     | Sandbox backend for the deployment: `docker`, `local` (default), or `none`                          |
+| `STELLA_DOCKER_SANDBOX_MODE` | Deployment-owned mode: `host`, `bind`, or `volume`; set manually only for direct/custom deployments |
+| `STELLA_DOCKER_RUNTIME`      | Optional registered OCI runtime for Docker sandbox containers, such as `runsc`                      |
+| `STELLA_HOME_HOST`           | Host-side path backing `STELLA_HOME`; required only in `bind` mode                                  |
+| `STELLA_HOME_VOLUME`         | Docker named volume backing `STELLA_HOME`; required only in `volume` mode                           |
 
 If agents use `local` or `none`, none of these variables are needed.
 

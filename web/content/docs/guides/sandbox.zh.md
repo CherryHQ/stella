@@ -39,9 +39,9 @@ Docker 提供完整的容器级进程、文件系统和网络隔离。在受支�
 - **绑定挂载性能**：在 macOS 的 Docker Desktop 上，绑定挂载文件系统操作比原生磁盘慢 5–20 倍。大量读写操作的工作流应避免使用。
 - **无写时复制隔离**：与本地后端（在 Linux 上使用 overlayfs）不同，Docker 后端不提供基于 overlay 的 COW。失控脚本可能修改或损坏已挂载的工作区。
 
-### 运行模式
+### 高级：自定义部署模式
 
-当 stellad 本身运行在 Docker 容器内且 agent 使用 `docker` 沙箱后端时，你需要告诉 Stella Docker daemon 如何访问 `STELLA_HOME`。将 `STELLA_DOCKER_SANDBOX_MODE` 设置为以下之一：
+Docker 如何看到 `STELLA_HOME` 通常由部署入口负责，不是日常需要选择的沙箱选项。`stellad service install` 会注入 `host`，官方 Docker Compose 文件会注入 `volume` 并使用 `stella-data` volume。只有直接启动 `stellad server` 或构建自定义容器部署时，才需要自行设置 `STELLA_DOCKER_SANDBOX_MODE`。
 
 | 模式     | 何时使用                                                | 需要的环境变量                                    |
 | -------- | ------------------------------------------------------- | ------------------------------------------------- |
@@ -49,7 +49,7 @@ Docker 提供完整的容器级进程、文件系统和网络隔离。在受支�
 | `bind`   | stellad 运行在 Docker 内；`STELLA_HOME` 是 bind mount   | `STELLA_HOME_HOST` = 宿主机侧路径                 |
 | `volume` | stellad 运行在 Docker 内；`STELLA_HOME` 是 named volume | `STELLA_HOME_VOLUME` = volume 名称                |
 
-每种模式都会拒绝属于其他模式的环境变量。例如，`bind` 模式下设置 `STELLA_HOME_VOLUME` 会报错。
+每种模式都会拒绝属于其他模式的环境变量。例如，`bind` 模式下设置 `STELLA_HOME_VOLUME` 会报错。自定义容器部署必须明确选择 `bind` 或 `volume`；Stella 不会猜测容器路径是否对宿主 Docker daemon 可见。
 
 Volume 模式需要 Docker Engine 25+ 以支持 volume subpath 挂载。
 
@@ -121,13 +121,13 @@ volumes:
 
 ### 环境变量
 
-| 变量                         | 描述                                                                |
-| ---------------------------- | ------------------------------------------------------------------- |
-| `STELLA_SANDBOX_BACKEND`     | 部署使用的沙箱后端：`docker`、`local`（默认）或 `none`              |
-| `STELLA_DOCKER_SANDBOX_MODE` | `docker` 沙箱后端必须设置：`host`、`bind` 或 `volume`               |
-| `STELLA_DOCKER_RUNTIME`      | Docker 沙箱容器使用的可选已注册 OCI runtime，例如 `runsc`           |
-| `STELLA_HOME_HOST`           | `STELLA_HOME` 的宿主机侧路径；仅 `bind` 模式需要                    |
-| `STELLA_HOME_VOLUME`         | `STELLA_HOME` 对应的 Docker named volume 名称；仅 `volume` 模式需要 |
+| 变量                         | 描述                                                                         |
+| ---------------------------- | ---------------------------------------------------------------------------- |
+| `STELLA_SANDBOX_BACKEND`     | 部署使用的沙箱后端：`docker`、`local`（默认）或 `none`                       |
+| `STELLA_DOCKER_SANDBOX_MODE` | 部署入口负责的模式：`host`、`bind` 或 `volume`；仅直接或自定义部署需手动设置 |
+| `STELLA_DOCKER_RUNTIME`      | Docker 沙箱容器使用的可选已注册 OCI runtime，例如 `runsc`                    |
+| `STELLA_HOME_HOST`           | `STELLA_HOME` 的宿主机侧路径；仅 `bind` 模式需要                             |
+| `STELLA_HOME_VOLUME`         | `STELLA_HOME` 对应的 Docker named volume 名称；仅 `volume` 模式需要          |
 
 agent 使用 `local` 或 `none` 时，这些变量都不需要。
 
