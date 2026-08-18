@@ -59,6 +59,20 @@ func (m *groupActorMemory) Append(ctx context.Context, sess memory.Session, msgs
 	return m.Fake.Append(ctx, sess, msgs...)
 }
 
+func (m *groupActorMemory) AppendGroupTurn(
+	ctx context.Context,
+	sess memory.Session,
+	groupMessageID string,
+	trigger ai.Message,
+	continuation ...ai.Message,
+) error {
+	actor, _ := eventlog.MessageActorFromContext(ctx)
+	m.mu.Lock()
+	m.actors = append(m.actors, actor)
+	m.mu.Unlock()
+	return m.Fake.AppendGroupTurn(ctx, sess, groupMessageID, trigger, continuation...)
+}
+
 type inputRecordingRunner struct {
 	fakeRunnerSvc
 	mu    sync.Mutex

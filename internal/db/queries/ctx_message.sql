@@ -6,6 +6,32 @@ INSERT INTO ctx_message (
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, sqlc.narg('inbox_id'))
 RETURNING *;
 
+-- name: CreateMessageWithGroupOrigin :one
+INSERT INTO ctx_message (
+  id,
+  conversation_id,
+  seq,
+  role,
+  event_type,
+  content,
+  token_count,
+  actor_type,
+  actor_id,
+  source_session_id,
+  origin_group_message_id
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+ON CONFLICT (conversation_id, origin_group_message_id)
+  WHERE origin_group_message_id IS NOT NULL
+DO NOTHING
+RETURNING *;
+
+-- name: GetMessageByGroupOrigin :one
+SELECT *
+FROM ctx_message
+WHERE conversation_id = sqlc.arg(conversation_id)
+  AND origin_group_message_id = sqlc.arg(origin_group_message_id);
+
 -- name: GetMessage :one
 SELECT * FROM ctx_message WHERE id = $1 AND conversation_id = $2;
 
@@ -73,7 +99,7 @@ WITH ordered AS (
     LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset')
 )
 SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at,
-       actor_type, actor_id, source_session_id, inbox_id
+       actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id
 FROM grouped
 WHERE logical_idx IN (SELECT logical_idx FROM selected_groups)
 ORDER BY seq ASC;
@@ -119,7 +145,7 @@ WITH ordered AS (
     LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset')
 )
 SELECT id, conversation_id, seq, role, event_type, content, token_count, created_at,
-       actor_type, actor_id, source_session_id, inbox_id
+       actor_type, actor_id, source_session_id, inbox_id, origin_group_message_id
 FROM grouped
 WHERE turn_idx IN (SELECT turn_idx FROM selected_turns)
 ORDER BY seq ASC;

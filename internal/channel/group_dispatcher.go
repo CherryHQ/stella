@@ -632,7 +632,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	}
 	response := <-responseC
 	if response.complete && response.text != "" {
-		if err := d.recordDispatchResult(ctx, claimed, response); err != nil {
+		if err := d.recordDispatchResult(ctx, claimed, response, agentName); err != nil {
 			return d.failDispatch(ctx, claimed, err)
 		}
 	}
@@ -672,7 +672,7 @@ func (d *GroupDispatcher) completeDispatch(ctx context.Context, row sqlc.CtxGrou
 	return nil
 }
 
-func (d *GroupDispatcher) recordDispatchResult(ctx context.Context, row sqlc.CtxGroupDispatch, response groupResponse) error {
+func (d *GroupDispatcher) recordDispatchResult(ctx context.Context, row sqlc.CtxGroupDispatch, response groupResponse, agentName string) error {
 	if d.db == nil {
 		return errors.New("dispatcher db not configured")
 	}
@@ -686,10 +686,11 @@ func (d *GroupDispatcher) recordDispatchResult(ctx context.Context, row sqlc.Ctx
 	}
 	q := sqlc.New(tx)
 	result, err := eventlog.AppendToGroupWithQueries(ctx, q, row.GroupID, eventlog.GroupMessage{
-		ActorType:      eventlog.ActorAgent,
-		ActorID:        row.AgentID,
-		Content:        response.text,
-		AgentSessionID: response.sessionID,
+		ActorType:        eventlog.ActorAgent,
+		ActorID:          row.AgentID,
+		ActorDisplayName: agentName,
+		Content:          response.text,
+		AgentSessionID:   response.sessionID,
 	})
 	if err != nil {
 		return err
@@ -838,6 +839,7 @@ func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.Ctx
 		return nil, errGroupTurnSuperseded
 	}
 	ctx = memory.WithGroupSeq(ctx, message.Seq)
+	ctx = memory.WithGroupMessageID(ctx, message.ID)
 	content := groupMessageContentBlocks(message)
 	var stream *pkgchannel.ChatStream
 	if state.Platform == "web" {
@@ -845,15 +847,16 @@ func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.Ctx
 	} else {
 		var rc *ResolvedChat
 		rc, err = d.coord.resolveGroupChat(ctx, pkgchannel.IncomingMessage{
-			Platform:  state.Platform,
-			ChannelID: row.ReplyChannelID,
-			SenderID:  message.ActorID,
-			ChatID:    state.PlatformGroupID,
-			IsGroup:   true,
-			ThreadID:  state.PlatformThreadID,
-			Content:   content,
-			MessageID: nullStringValue(message.PlatformMessageID),
-			ReplyTo:   nullStringValue(message.ReplyTo),
+			Platform:   state.Platform,
+			ChannelID:  row.ReplyChannelID,
+			SenderID:   message.ActorID,
+			SenderName: nullStringValue(message.ActorDisplayName),
+			ChatID:     state.PlatformGroupID,
+			IsGroup:    true,
+			ThreadID:   state.PlatformThreadID,
+			Content:    content,
+			MessageID:  nullStringValue(message.PlatformMessageID),
+			ReplyTo:    nullStringValue(message.ReplyTo),
 		}, row.GroupID, row.AgentID, row.ReplyChannelID)
 		if err == nil {
 			stream, err = d.coord.chatWithRC(ctx, rc, content)
@@ -927,8 +930,8 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 	if err != nil {
 		return nil, fmt.Errorf("resolve session: %w", err)
 	}
-	// CtxGroupMessage carries no display name; fill it best-effort from the auth
-	// user so the prompt shows a real name instead of "Unknown". Fail-soft.
+	// Older rows may not carry an event-time display name. Fill those
+	// best-effort from the auth user so the prompt avoids "Unknown".
 	if speaker.UserID != "" && speaker.DisplayName == "" && d.coord.auth != nil {
 		if u, err := d.coord.auth.GetUser(ctx, speaker.UserID); err == nil && u.Name != "" {
 			speaker.DisplayName = u.Name
@@ -967,9 +970,8 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 
 // webGroupSpeaker derives the per-turn speaker for a Web group dispatch. Web
 // senders authenticate and SendGroupMessage persists the auth user id as
-// actor_id, so it is a safe profile target — but only for a genuine human actor.
-// Any other actor type or an empty id fails closed (zero speaker) so a malformed
-// row never injects an arbitrary user's private profile.
+// actor_id. The event-time display name is presentation metadata only; a
+// non-human or empty actor still fails closed as a current speaker.
 func webGroupSpeaker(message sqlc.CtxGroupMessage) memory.CurrentSpeaker {
 	if message.ActorType != string(eventlog.ActorHuman) || message.ActorID == "" {
 		return memory.CurrentSpeaker{}
@@ -977,6 +979,7 @@ func webGroupSpeaker(message sqlc.CtxGroupMessage) memory.CurrentSpeaker {
 	return memory.CurrentSpeaker{
 		Platform:       "web",
 		PlatformUserID: message.ActorID,
+		DisplayName:    nullStringValue(message.ActorDisplayName),
 		UserID:         message.ActorID,
 	}
 }

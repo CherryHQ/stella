@@ -43,7 +43,7 @@ func newCompactionEngine(db *pgxpool.Pool, q *sqlc.Queries, summarizer memory.Su
 }
 
 // compact runs compaction on a conversation based on the given mode.
-func (c *compactionEngine) compact(ctx context.Context, convID string, mode memory.CompactionMode) (*memory.CompactionResult, error) {
+func (c *compactionEngine) compact(ctx context.Context, convID string, mode memory.CompactionMode, isGroup bool) (*memory.CompactionResult, error) {
 	start := time.Now()
 	result := &memory.CompactionResult{}
 
@@ -55,7 +55,7 @@ func (c *compactionEngine) compact(ctx context.Context, convID string, mode memo
 
 	switch mode {
 	case memory.CompactionIncremental:
-		if err := c.runPasses(ctx, convID, result); err != nil {
+		if err := c.runPasses(ctx, convID, result, isGroup); err != nil {
 			return nil, err
 		}
 
@@ -64,7 +64,7 @@ func (c *compactionEngine) compact(ctx context.Context, convID string, mode memo
 		for i := range 10 { // safety limit
 			leafBefore := result.LeafSummariesCreated
 			condensedBefore := result.CondensedSummariesCreated
-			if err := c.runPasses(ctx, convID, result); err != nil {
+			if err := c.runPasses(ctx, convID, result, isGroup); err != nil {
 				return nil, fmt.Errorf("pass %d: %w", i, err)
 			}
 			if result.LeafSummariesCreated == leafBefore && result.CondensedSummariesCreated == condensedBefore {
@@ -84,12 +84,12 @@ func (c *compactionEngine) compact(ctx context.Context, convID string, mode memo
 }
 
 // runPasses fetches context items once and runs both leaf and condensed passes.
-func (c *compactionEngine) runPasses(ctx context.Context, convID string, result *memory.CompactionResult) error {
+func (c *compactionEngine) runPasses(ctx context.Context, convID string, result *memory.CompactionResult, isGroup bool) error {
 	items, err := c.q.GetContextItems(ctx, convID)
 	if err != nil {
 		return fmt.Errorf("get context items: %w", err)
 	}
-	if err := c.leafPass(ctx, convID, items, result); err != nil {
+	if err := c.leafPass(ctx, convID, items, result, isGroup); err != nil {
 		return fmt.Errorf("leaf pass: %w", err)
 	}
 	// Re-fetch after leaf pass may have mutated context items.
@@ -104,8 +104,11 @@ func (c *compactionEngine) runPasses(ctx context.Context, convID string, result 
 }
 
 // leafPass finds eligible message chunks outside the fresh tail and creates leaf summaries.
-func (c *compactionEngine) leafPass(ctx context.Context, convID string, items []sqlc.CtxItem, result *memory.CompactionResult) error {
-	_, older := splitFreshTail(items, c.freshTail)
+func (c *compactionEngine) leafPass(ctx context.Context, convID string, items []sqlc.CtxItem, result *memory.CompactionResult, isGroup bool) error {
+	_, older, err := splitCompactionTail(ctx, c.q, convID, items, isGroup, c.freshTail)
+	if err != nil {
+		return fmt.Errorf("split compaction tail: %w", err)
+	}
 
 	runs := findMessageRuns(older, defaultLeafChunkSize)
 	if len(runs) == 0 {

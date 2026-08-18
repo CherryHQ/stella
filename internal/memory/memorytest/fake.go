@@ -106,6 +106,8 @@ var (
 	_ memory.ProfileEntryStore        = (*Fake)(nil)
 	_ memory.ChangelogPageReader      = (*Fake)(nil)
 	_ memory.GroupMemoryStore         = (*Fake)(nil)
+	_ memory.GroupEventIngestor       = (*Fake)(nil)
+	_ memory.GroupCursorCommitter     = (*Fake)(nil)
 	_ memory.FactStore                = (*Fake)(nil)
 	_ memory.VersionedFactStore       = (*Fake)(nil)
 	_ memory.ReviewHistoryReader      = (*Fake)(nil)
@@ -136,6 +138,35 @@ func (f *Fake) Append(_ context.Context, session memory.Session, msgs ...ai.Mess
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.sessions[session.ID] = append(f.sessions[session.ID], msgs...)
+	return nil
+}
+
+// SyncGroupEventsBefore implements GroupEventIngestor. The in-memory fake has no
+// public event log, so tests provide any prior group context directly.
+func (f *Fake) SyncGroupEventsBefore(context.Context, memory.Session, int64) error {
+	return nil
+}
+
+// AppendGroupTurn implements GroupEventIngestor by persisting the supplied
+// trigger and continuation in the same order as a real per-Agent group LCM.
+func (f *Fake) AppendGroupTurn(
+	ctx context.Context,
+	session memory.Session,
+	_ string,
+	trigger ai.Message,
+	continuation ...ai.Message,
+) error {
+	messages := make([]ai.Message, 0, len(continuation)+1)
+	if trigger != nil {
+		messages = append(messages, trigger)
+	}
+	messages = append(messages, continuation...)
+	return f.Append(ctx, session, messages...)
+}
+
+// CommitGroupCursor implements GroupCursorCommitter. The fake has no event log
+// cursor, so committing a successful group turn is intentionally a no-op.
+func (f *Fake) CommitGroupCursor(context.Context, memory.Session, int64) error {
 	return nil
 }
 

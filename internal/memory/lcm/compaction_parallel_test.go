@@ -67,7 +67,7 @@ func TestLeafPassSummarizesRunsConcurrently(t *testing.T) {
 	summarizer := &trackingSummarizer{delay: 25 * time.Millisecond}
 	engine := newCompactionEngine(db, q, summarizer, 0)
 	result := &memory.CompactionResult{}
-	if err := engine.leafPass(ctx, convID, items, result); err != nil {
+	if err := engine.leafPass(ctx, convID, items, result, false); err != nil {
 		t.Fatalf("leafPass: %v", err)
 	}
 	if maxSeen := summarizer.maxSeen.Load(); maxSeen <= 1 || maxSeen > summarizeConcurrency {
@@ -101,7 +101,7 @@ func TestLeafPassSummarizeFailureWritesNothing(t *testing.T) {
 	summarizer := &trackingSummarizer{delay: 10 * time.Millisecond, failAt: 2}
 	engine := newCompactionEngine(db, q, summarizer, 0)
 	result := &memory.CompactionResult{}
-	if err := engine.leafPass(ctx, convID, items, result); err == nil {
+	if err := engine.leafPass(ctx, convID, items, result, false); err == nil {
 		t.Fatal("leafPass succeeded, want summarize error")
 	}
 	if result.LeafSummariesCreated != 0 || result.MessagesCompacted != 0 {
@@ -121,7 +121,7 @@ func TestLeafPassWritesSummariesInRunOrder(t *testing.T) {
 
 	summarizer := &trackingSummarizer{delay: 5 * time.Millisecond}
 	engine := newCompactionEngine(db, q, summarizer, 0)
-	if err := engine.leafPass(ctx, convID, items, &memory.CompactionResult{}); err != nil {
+	if err := engine.leafPass(ctx, convID, items, &memory.CompactionResult{}, false); err != nil {
 		t.Fatalf("leafPass: %v", err)
 	}
 

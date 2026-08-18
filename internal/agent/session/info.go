@@ -161,9 +161,9 @@ func (i Info) Validate() error {
 // compaction all derive their scope here and land on the same partition. A group
 // session shares one durable canonical scope for read and write (partition keyed
 // on session/user/agent, with GroupID selecting the group assembly/isolation
-// path); group compaction is a separate matter and is unsupported (rejected by
-// agent.Service.CompactSession), because group history is assembled from the
-// group event log rather than the LCM conversation.
+// path). The runtime uses this same per-Agent scope for automatic group LCM
+// compaction; the separate user-triggered CompactSession service remains
+// unavailable for group sessions.
 func (i Info) MemoryScope() (memory.Session, error) {
 	if err := i.Validate(); err != nil {
 		return memory.Session{}, err

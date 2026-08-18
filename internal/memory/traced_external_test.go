@@ -57,6 +57,34 @@ type reviewHistoryProvider struct {
 	messages []memory.ReviewMessage
 }
 
+type groupCapabilityProvider struct {
+	memory.Provider
+	syncedBefore int64
+	appendedID   string
+	committed    int64
+}
+
+func (p *groupCapabilityProvider) SyncGroupEventsBefore(_ context.Context, _ memory.Session, triggerSeq int64) error {
+	p.syncedBefore = triggerSeq
+	return nil
+}
+
+func (p *groupCapabilityProvider) AppendGroupTurn(
+	_ context.Context,
+	_ memory.Session,
+	groupMessageID string,
+	_ ai.Message,
+	_ ...ai.Message,
+) error {
+	p.appendedID = groupMessageID
+	return nil
+}
+
+func (p *groupCapabilityProvider) CommitGroupCursor(_ context.Context, _ memory.Session, triggerSeq int64) error {
+	p.committed = triggerSeq
+	return nil
+}
+
 type inboxAppendProvider struct {
 	memory.Provider
 	calls int
@@ -95,6 +123,32 @@ func TestTracedProvider_Unwrap(t *testing.T) {
 	inner := memory.Unwrap(traced)
 	if inner != fake {
 		t.Error("Unwrap should return inner provider")
+	}
+}
+
+func TestTracedProviderForwardsGroupLCMCapabilities(t *testing.T) {
+	inner := &groupCapabilityProvider{Provider: memorytest.New()}
+	traced := memory.WithTracing(inner, nil)
+	ingestor, ok := traced.(memory.GroupEventIngestor)
+	if !ok {
+		t.Fatal("traced provider does not expose GroupEventIngestor")
+	}
+	committer, ok := traced.(memory.GroupCursorCommitter)
+	if !ok {
+		t.Fatal("traced provider does not expose GroupCursorCommitter")
+	}
+
+	if err := ingestor.SyncGroupEventsBefore(context.Background(), testSession, 40); err != nil {
+		t.Fatalf("sync group events: %v", err)
+	}
+	if err := ingestor.AppendGroupTurn(context.Background(), testSession, "group-message-1", ai.UserMessage{Content: "hello"}); err != nil {
+		t.Fatalf("append group turn: %v", err)
+	}
+	if err := committer.CommitGroupCursor(context.Background(), testSession, 42); err != nil {
+		t.Fatalf("commit group cursor: %v", err)
+	}
+	if inner.syncedBefore != 40 || inner.appendedID != "group-message-1" || inner.committed != 42 {
+		t.Fatalf("forwarded values = sync:%d append:%q commit:%d", inner.syncedBefore, inner.appendedID, inner.committed)
 	}
 }
 
@@ -605,15 +659,27 @@ func TestTracedProvider_CommitGroupCursor(t *testing.T) {
 		t.Fatalf("inner committed seq = %d, want 7", inner.committed)
 	}
 
-	// A provider without the capability has no cursor to move: the call must be a
-	// harmless no-op, not an error the runtime would log on every group turn.
-	plain, _ := newTracedWithCollector(memorytest.New())
+	// The tracing wrapper has a stable method set, so a wrapped provider that
+	// lacks the durable capability must fail closed instead of silently losing a
+	// group cursor update.
+	plain, _ := newTracedWithCollector(&reviewHistoryProvider{Provider: memorytest.New()})
 	plainCommitter, ok := plain.(memory.GroupCursorCommitter)
 	if !ok {
 		t.Fatal("traced provider does not expose GroupCursorCommitter for a plain inner provider")
 	}
-	if err := plainCommitter.CommitGroupCursor(context.Background(), memory.Session{ID: "sess-1"}, 7); err != nil {
-		t.Fatalf("CommitGroupCursor on a provider without the capability = %v, want nil", err)
+	if err := plainCommitter.CommitGroupCursor(context.Background(), memory.Session{ID: "sess-1"}, 7); err == nil || !strings.Contains(err.Error(), "GroupCursorCommitter") {
+		t.Fatalf("CommitGroupCursor on a provider without the capability = %v, want capability error", err)
+	}
+}
+
+func TestTracedProvider_GroupEventIngestorFailsClosedWhenUnsupported(t *testing.T) {
+	plain, _ := newTracedWithCollector(&reviewHistoryProvider{Provider: memorytest.New()})
+	ingestor, ok := plain.(memory.GroupEventIngestor)
+	if !ok {
+		t.Fatal("traced provider does not expose GroupEventIngestor")
+	}
+	if err := ingestor.SyncGroupEventsBefore(context.Background(), testSession, 7); err == nil || !strings.Contains(err.Error(), "GroupEventIngestor") {
+		t.Fatalf("SyncGroupEventsBefore on an unsupported provider = %v, want capability error", err)
 	}
 }
 

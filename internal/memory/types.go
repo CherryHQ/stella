@@ -34,6 +34,7 @@ const (
 	sessionIDKey      contextKey = "memory_session_id"
 	projectIDKey      contextKey = "memory_project_id"
 	groupSeqKey       contextKey = "memory_group_seq"
+	groupMessageIDKey contextKey = "memory_group_message_id"
 	currentSpeakerKey contextKey = "memory_current_speaker"
 )
 
@@ -98,6 +99,17 @@ func GroupSeqFromContext(ctx context.Context) int64 {
 	return s
 }
 
+// WithGroupMessageID attaches the triggering public event-log message ID.
+func WithGroupMessageID(ctx context.Context, messageID string) context.Context {
+	return context.WithValue(ctx, groupMessageIDKey, messageID)
+}
+
+// GroupMessageIDFromContext extracts the triggering public event-log message ID.
+func GroupMessageIDFromContext(ctx context.Context) string {
+	s, _ := ctx.Value(groupMessageIDKey).(string)
+	return s
+}
+
 // Session identifies the context of a single conversation.
 // It is created by the runtime and passed to all Provider methods.
 type Session struct {
@@ -121,6 +133,15 @@ func GroupIngestPipeline(agentID string) string { return "lcm:" + agentID }
 // owns durable cursor movement.
 type GroupCursorCommitter interface {
 	CommitGroupCursor(ctx context.Context, session Session, triggerSeq int64) error
+}
+
+// GroupEventIngestor keeps a per-agent group LCM synchronized with the public
+// event log. SyncGroupEventsBefore persists prior public events before
+// compaction; AppendGroupTurn atomically persists the current public trigger and
+// the private assistant/tool continuation after a successful turn.
+type GroupEventIngestor interface {
+	SyncGroupEventsBefore(ctx context.Context, session Session, triggerSeq int64) error
+	AppendGroupTurn(ctx context.Context, session Session, groupMessageID string, trigger ai.Message, continuation ...ai.Message) error
 }
 
 type SessionTurnResult string
