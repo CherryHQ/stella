@@ -152,11 +152,24 @@ func WithOnInserted(callback func(context.Context, *sqlc.Queries, AppendResult) 
 
 // Store appends to the group event log.
 type Store struct {
-	db *pgxpool.Pool
+	db          *pgxpool.Pool
+	onCommitted func(AppendResult)
 }
 
 // NewStore returns a Store backed by the given database handle.
 func NewStore(db *pgxpool.Pool) *Store { return &Store{db: db} }
+
+// OnCommitted registers the post-commit observer for newly inserted rows.
+// It deliberately runs outside the transaction, so observers can never expose
+// a row that later rolls back. It is intended for best-effort live projection;
+// callers still replay the durable event log on reconnect.
+func (s *Store) OnCommitted(fn func(AppendResult)) { s.onCommitted = fn }
+
+func (s *Store) committed(result AppendResult) {
+	if result.Inserted && s.onCommitted != nil {
+		s.onCommitted(result)
+	}
+}
 
 // AppendGroupMessage is the single sanctioned append primitive. It runs the
 // closed, idempotent algorithm under a per-group advisory lock (which
@@ -233,6 +246,7 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...App
 	if err := tx.Commit(ctx); err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: commit: %w", err)
 	}
+	s.committed(result)
 	return result, nil
 }
 
@@ -272,6 +286,7 @@ func (s *Store) AppendToGroup(ctx context.Context, groupID string, msg GroupMess
 	if err := tx.Commit(ctx); err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: commit: %w", err)
 	}
+	s.committed(result)
 	return result, nil
 }
 

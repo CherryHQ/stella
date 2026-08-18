@@ -57,6 +57,7 @@ components:
         content: { type: string }
         reasoning: { type: string }
         agent_session_id: { type: string }
+        delivery_state: { type: string, readOnly: true }
         created_at: { type: string, format: date-time }
 
     GroupMessageList:

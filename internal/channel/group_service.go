@@ -34,6 +34,7 @@ type GroupService struct {
 	resolver   *RuntimeResolver
 	eventLog   *eventlog.Store
 	dispatcher GroupDispatchRunner
+	events     *GroupEventHub
 	leaseDur   time.Duration
 	deletion   OwnerDeletion
 }
@@ -49,6 +50,11 @@ type GroupServiceOption func(*GroupService)
 // WithOwnerDeletion supplies the destructive Home lifecycle for group deletion.
 func WithOwnerDeletion(d OwnerDeletion) GroupServiceOption {
 	return func(s *GroupService) { s.deletion = d }
+}
+
+// WithGroupEventHub attaches the channel-owned live projection hub.
+func WithGroupEventHub(h *GroupEventHub) GroupServiceOption {
+	return func(s *GroupService) { s.events = h }
 }
 
 // GroupDispatchRunner runs one prepared group turn synchronously, streaming the
@@ -151,7 +157,40 @@ type GroupMessageItem struct {
 	Content        string
 	Reasoning      *string
 	AgentSessionID *string
+	DeliveryState  string
 	CreatedAt      time.Time
+}
+
+// SubscribeEvents authorizes the durable replay and then attaches to the
+// best-effort live hub. Callers must replay first, before subscribing.
+func (a *GroupAccess) SubscribeEvents(ctx context.Context, groupID string) (<-chan eventlog.AppendResult, func(), error) {
+	if _, err := a.requireOwner(ctx, groupID); err != nil {
+		return nil, nil, err
+	}
+	if a.svc.events == nil {
+		return nil, nil, ErrGroupUnavailable
+	}
+	ch, cancel := a.svc.events.Subscribe(groupID)
+	return ch, cancel, nil
+}
+
+// MessagesAfterSeq replays canonical rows in ascending sequence order.
+func (a *GroupAccess) MessagesAfterSeq(ctx context.Context, groupID string, sinceSeq int64) ([]GroupMessageItem, error) {
+	if sinceSeq < 0 {
+		return nil, ErrInvalidPage
+	}
+	if _, err := a.requireOwner(ctx, groupID); err != nil {
+		return nil, err
+	}
+	rows, err := a.q().ListGroupMessagesAfterSeq(ctx, sqlc.ListGroupMessagesAfterSeqParams{GroupID: groupID, MinSeq: sinceSeq, BatchLimit: 500})
+	if err != nil {
+		return nil, fmt.Errorf("replay group messages: %w", err)
+	}
+	out := make([]GroupMessageItem, len(rows))
+	for i, m := range rows {
+		out[i] = GroupMessageItem{ID: m.ID, GroupID: m.GroupID, Seq: int(m.Seq), ActorType: m.ActorType, ActorID: m.ActorID, Content: m.Content, Reasoning: strPtr(m.Reasoning), AgentSessionID: strPtr(m.AgentSessionID), DeliveryState: "delivered", CreatedAt: m.CreatedAt.UTC()}
+	}
+	return out, nil
 }
 
 // GroupAccess is one authorized group session: every method decides against the
@@ -398,17 +437,7 @@ func (a *GroupAccess) Messages(ctx context.Context, groupID string, offset, limi
 	}
 	out := make([]GroupMessageItem, len(rows))
 	for i, m := range rows {
-		out[i] = GroupMessageItem{
-			ID:             m.ID,
-			GroupID:        m.GroupID,
-			Seq:            int(m.Seq),
-			ActorType:      m.ActorType,
-			ActorID:        m.ActorID,
-			Content:        m.Content,
-			Reasoning:      strPtr(m.Reasoning),
-			AgentSessionID: strPtr(m.AgentSessionID),
-			CreatedAt:      m.CreatedAt.UTC(),
-		}
+		out[i] = GroupMessageItem{ID: m.ID, GroupID: m.GroupID, Seq: int(m.Seq), ActorType: m.ActorType, ActorID: m.ActorID, Content: m.Content, Reasoning: strPtr(m.Reasoning), AgentSessionID: strPtr(m.AgentSessionID), DeliveryState: "delivered", CreatedAt: m.CreatedAt.UTC()}
 	}
 	return out, nil
 }

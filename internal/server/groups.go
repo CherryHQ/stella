@@ -1,10 +1,12 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -108,7 +110,81 @@ func groupMessageToAPI(m channel.GroupMessageItem) apitypes.GroupMessage {
 		Content:        m.Content,
 		Reasoning:      m.Reasoning,
 		AgentSessionId: m.AgentSessionID,
+		DeliveryState:  &m.DeliveryState,
 		CreatedAt:      m.CreatedAt,
+	}
+}
+
+// StreamGroupEvents replays canonical messages by sequence, then holds a
+// best-effort subscription open. Reconnect is the correctness path: the hub
+// intentionally drops slow consumers rather than blocking group dispatch.
+func (s *Server) StreamGroupEvents(w http.ResponseWriter, r *http.Request, groupId string, params apiserver.StreamGroupEventsParams) {
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
+	acc, ok := s.groupAccess(w, r, info)
+	if !ok {
+		return
+	}
+	since := 0
+	if params.SinceSeq != nil {
+		if *params.SinceSeq < 0 {
+			writeError(w, http.StatusBadRequest, "since_seq must not be negative")
+			return
+		}
+		since = *params.SinceSeq
+	}
+	rows, err := acc.MessagesAfterSeq(r.Context(), groupId, int64(since))
+	if err != nil {
+		s.groupError(w, err)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+	events, cancel, err := acc.SubscribeEvents(r.Context(), groupId)
+	if err != nil {
+		s.groupError(w, err)
+		return
+	}
+	defer cancel()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	write := func(value any) bool {
+		data, err := json.Marshal(value)
+		if err != nil {
+			return false
+		}
+		_, err = fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
+		flusher.Flush()
+		return err == nil
+	}
+	for _, row := range rows {
+		if !write(groupMessageToAPI(row)) {
+			return
+		}
+	}
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case event, alive := <-events:
+			if !alive {
+				return
+			}
+			if !write(groupMessageToAPI(channel.GroupMessageItem{ID: event.Message.ID, GroupID: event.GroupID, Seq: int(event.Seq), ActorType: event.Message.ActorType, ActorID: event.Message.ActorID, Content: event.Message.Content, DeliveryState: event.Message.DeliveryState, CreatedAt: event.Message.CreatedAt.UTC()})) {
+				return
+			}
+		case <-heartbeat.C:
+			_, _ = fmt.Fprint(w, "event: heartbeat\ndata: {}\n\n")
+			flusher.Flush()
+		}
 	}
 }
 

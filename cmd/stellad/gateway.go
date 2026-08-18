@@ -358,6 +358,8 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	}
 
 	elStore := eventlog.NewStore(s.db)
+	groupEvents := channel.NewGroupEventHub()
+	elStore.OnCommitted(groupEvents.Announce)
 	botRegistry := channel.NewBotIdentityRegistry()
 	publisherRegistry := channel.NewPublisherRegistry()
 	coordOpts = append(coordOpts, channel.WithDB(s.db))
@@ -441,7 +443,7 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	// per-agent use authorization, the runtime resolver for agent-name projection,
 	// and the event log + group dispatcher for the send path (nil-tolerant: the
 	// send path degrades to 503 while CRUD stays available).
-	groupSvc := channel.NewGroupService(s.db, agentAccess, channel.NewRuntimeResolver(s.store), elStore, groupDispatcher, channel.WithOwnerDeletion(s.homeDeletion))
+	groupSvc := channel.NewGroupService(s.db, agentAccess, channel.NewRuntimeResolver(s.store), elStore, groupDispatcher, channel.WithOwnerDeletion(s.homeDeletion), channel.WithGroupEventHub(groupEvents))
 
 	// Accepted Web turns outlive their initiating HTTP connections and must also
 	// survive the errgroup cancellation caused by HTTP Shutdown. workCtx is

@@ -453,6 +453,8 @@ paths:
     $ref: "./domain/groups/paths.yaml#/paths/~1api~1groups~1{groupId}~1members~1{agentId}"
   /api/groups/{groupId}/messages:
     $ref: "./domain/groups/paths.yaml#/paths/~1api~1groups~1{groupId}~1messages"
+  /api/groups/{groupId}/events:
+    $ref: "./domain/groups/paths.yaml#/paths/~1api~1groups~1{groupId}~1events"
   # ── Plugins ────────────────────────────────────────────────────────────────
   /api/plugins:
     $ref: "./domain/plugins/paths.yaml#/paths/~1api~1plugins"
