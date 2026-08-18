@@ -117,9 +117,50 @@ DELETE FROM ctx_group_state WHERE id = $1;
 
 -- name: BumpGroupSeq :one
 UPDATE ctx_group_state
-SET next_seq = next_seq + 1, updated_at = now()
+SET next_seq = next_seq + 1,
+    nudge_fallback_count = 0,
+    updated_at = now()
 WHERE id = sqlc.arg(id)
 RETURNING next_seq;
+
+-- name: ListGroupNudgeCandidate :many
+SELECT gs.*, 
+       (SELECT gm.id FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) AS last_message_id,
+       (SELECT gm.actor_type FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) AS last_actor_type,
+       (SELECT gm.actor_id FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) AS last_actor_id,
+       (SELECT gm.content FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) AS last_content,
+       (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) AS last_message_at
+FROM ctx_group_state gs
+WHERE (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) <= sqlc.arg(latest_before)
+  AND (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) >= sqlc.arg(earliest_after)
+  AND (
+    EXISTS (SELECT 1 FROM ctx_group_claim claim WHERE claim.group_id = gs.id AND claim.lease_until > sqlc.arg(now))
+    OR (EXISTS (
+      SELECT 1 FROM ctx_group_message human
+      WHERE human.group_id = gs.id AND human.actor_type = 'human'
+        AND human.seq = (SELECT MAX(gm.seq) FROM ctx_group_message gm WHERE gm.group_id = gs.id)
+    ) AND NOT EXISTS (
+      SELECT 1 FROM ctx_group_message reply
+      WHERE reply.group_id = gs.id AND reply.actor_type = 'agent'
+        AND reply.seq > (SELECT MAX(gm.seq) FROM ctx_group_message gm WHERE gm.group_id = gs.id)
+        AND reply.delivery_state != 'failed'
+    ))
+  )
+ORDER BY (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) ASC;
+
+-- name: ClaimGroupNudge :one
+UPDATE ctx_group_state
+SET nudge_at = sqlc.arg(now), updated_at = now()
+WHERE id = sqlc.arg(group_id)
+  AND (nudge_at IS NULL OR nudge_at < sqlc.arg(cooldown_before))
+RETURNING *;
+
+-- name: IncrementGroupNudgeFallback :one
+UPDATE ctx_group_state
+SET nudge_fallback_count = nudge_fallback_count + 1, updated_at = now()
+WHERE id = sqlc.arg(group_id)
+  AND nudge_fallback_count < sqlc.arg(limit_count)
+RETURNING *;
 
 -- name: GetGroupMessageByPlatformID :one
 SELECT * FROM ctx_group_message

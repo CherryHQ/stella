@@ -56,7 +56,9 @@ func (q *Queries) AdoptGroupState(ctx context.Context, arg AdoptGroupStateParams
 
 const bumpGroupSeq = `-- name: BumpGroupSeq :one
 UPDATE ctx_group_state
-SET next_seq = next_seq + 1, updated_at = now()
+SET next_seq = next_seq + 1,
+    nudge_fallback_count = 0,
+    updated_at = now()
 WHERE id = $1
 RETURNING next_seq
 `
@@ -66,6 +68,43 @@ func (q *Queries) BumpGroupSeq(ctx context.Context, id string) (int64, error) {
 	var next_seq int64
 	err := row.Scan(&next_seq)
 	return next_seq, err
+}
+
+const claimGroupNudge = `-- name: ClaimGroupNudge :one
+UPDATE ctx_group_state
+SET nudge_at = $1, updated_at = now()
+WHERE id = $2
+  AND (nudge_at IS NULL OR nudge_at < $3)
+RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_fallback_count
+`
+
+type ClaimGroupNudgeParams struct {
+	Now            pgtype.Timestamptz `json:"now"`
+	GroupID        string             `json:"group_id"`
+	CooldownBefore pgtype.Timestamptz `json:"cooldown_before"`
+}
+
+func (q *Queries) ClaimGroupNudge(ctx context.Context, arg ClaimGroupNudgeParams) (CtxGroupState, error) {
+	row := q.db.QueryRow(ctx, claimGroupNudge, arg.Now, arg.GroupID, arg.CooldownBefore)
+	var i CtxGroupState
+	err := row.Scan(
+		&i.ID,
+		&i.Platform,
+		&i.PlatformGroupID,
+		&i.PlatformThreadID,
+		&i.NextSeq,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.GroupName,
+		&i.CreatedByUserID,
+		&i.AgentChainHardLimit,
+		&i.MaxAgentPostsPerMinute,
+		&i.MaxRepliesPerHumanTrigger,
+		&i.HoldLimit,
+		&i.NudgeAt,
+		&i.NudgeFallbackCount,
+	)
+	return i, err
 }
 
 const countAgentPostsInWindow = `-- name: CountAgentPostsInWindow :one
@@ -500,6 +539,42 @@ func (q *Queries) GetLatestPeerGroupMessageWithContent(ctx context.Context, arg 
 	return i, err
 }
 
+const incrementGroupNudgeFallback = `-- name: IncrementGroupNudgeFallback :one
+UPDATE ctx_group_state
+SET nudge_fallback_count = nudge_fallback_count + 1, updated_at = now()
+WHERE id = $1
+  AND nudge_fallback_count < $2
+RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_fallback_count
+`
+
+type IncrementGroupNudgeFallbackParams struct {
+	GroupID    string `json:"group_id"`
+	LimitCount int32  `json:"limit_count"`
+}
+
+func (q *Queries) IncrementGroupNudgeFallback(ctx context.Context, arg IncrementGroupNudgeFallbackParams) (CtxGroupState, error) {
+	row := q.db.QueryRow(ctx, incrementGroupNudgeFallback, arg.GroupID, arg.LimitCount)
+	var i CtxGroupState
+	err := row.Scan(
+		&i.ID,
+		&i.Platform,
+		&i.PlatformGroupID,
+		&i.PlatformThreadID,
+		&i.NextSeq,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.GroupName,
+		&i.CreatedByUserID,
+		&i.AgentChainHardLimit,
+		&i.MaxAgentPostsPerMinute,
+		&i.MaxRepliesPerHumanTrigger,
+		&i.HoldLimit,
+		&i.NudgeAt,
+		&i.NudgeFallbackCount,
+	)
+	return i, err
+}
+
 const lastHumanSeqAtOrBefore = `-- name: LastHumanSeqAtOrBefore :one
 SELECT COALESCE(MAX(seq), 0)::bigint
 FROM ctx_group_message
@@ -579,6 +654,102 @@ func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupM
 			&i.AgentSessionID,
 			&i.CreatedAt,
 			&i.DeliveryState,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGroupNudgeCandidate = `-- name: ListGroupNudgeCandidate :many
+SELECT gs.id, gs.platform, gs.platform_group_id, gs.platform_thread_id, gs.next_seq, gs.created_at, gs.updated_at, gs.group_name, gs.created_by_user_id, gs.agent_chain_hard_limit, gs.max_agent_posts_per_minute, gs.max_replies_per_human_trigger, gs.hold_limit, gs.nudge_at, gs.nudge_fallback_count, 
+       (SELECT gm.id FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) AS last_message_id,
+       (SELECT gm.actor_type FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) AS last_actor_type,
+       (SELECT gm.actor_id FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) AS last_actor_id,
+       (SELECT gm.content FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) AS last_content,
+       (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) AS last_message_at
+FROM ctx_group_state gs
+WHERE (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) <= $1
+  AND (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) >= $2
+  AND (
+    EXISTS (SELECT 1 FROM ctx_group_claim claim WHERE claim.group_id = gs.id AND claim.lease_until > $3)
+    OR (EXISTS (
+      SELECT 1 FROM ctx_group_message human
+      WHERE human.group_id = gs.id AND human.actor_type = 'human'
+        AND human.seq = (SELECT MAX(gm.seq) FROM ctx_group_message gm WHERE gm.group_id = gs.id)
+    ) AND NOT EXISTS (
+      SELECT 1 FROM ctx_group_message reply
+      WHERE reply.group_id = gs.id AND reply.actor_type = 'agent'
+        AND reply.seq > (SELECT MAX(gm.seq) FROM ctx_group_message gm WHERE gm.group_id = gs.id)
+        AND reply.delivery_state != 'failed'
+    ))
+  )
+ORDER BY (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) ASC
+`
+
+type ListGroupNudgeCandidateParams struct {
+	LatestBefore  time.Time `json:"latest_before"`
+	EarliestAfter time.Time `json:"earliest_after"`
+	Now           time.Time `json:"now"`
+}
+
+type ListGroupNudgeCandidateRow struct {
+	ID                        string             `json:"id"`
+	Platform                  string             `json:"platform"`
+	PlatformGroupID           string             `json:"platform_group_id"`
+	PlatformThreadID          string             `json:"platform_thread_id"`
+	NextSeq                   int64              `json:"next_seq"`
+	CreatedAt                 time.Time          `json:"created_at"`
+	UpdatedAt                 time.Time          `json:"updated_at"`
+	GroupName                 string             `json:"group_name"`
+	CreatedByUserID           pgtype.Text        `json:"created_by_user_id"`
+	AgentChainHardLimit       int32              `json:"agent_chain_hard_limit"`
+	MaxAgentPostsPerMinute    int32              `json:"max_agent_posts_per_minute"`
+	MaxRepliesPerHumanTrigger int32              `json:"max_replies_per_human_trigger"`
+	HoldLimit                 int32              `json:"hold_limit"`
+	NudgeAt                   pgtype.Timestamptz `json:"nudge_at"`
+	NudgeFallbackCount        int32              `json:"nudge_fallback_count"`
+	LastMessageID             string             `json:"last_message_id"`
+	LastActorType             string             `json:"last_actor_type"`
+	LastActorID               string             `json:"last_actor_id"`
+	LastContent               string             `json:"last_content"`
+	LastMessageAt             time.Time          `json:"last_message_at"`
+}
+
+func (q *Queries) ListGroupNudgeCandidate(ctx context.Context, arg ListGroupNudgeCandidateParams) ([]ListGroupNudgeCandidateRow, error) {
+	rows, err := q.db.Query(ctx, listGroupNudgeCandidate, arg.LatestBefore, arg.EarliestAfter, arg.Now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListGroupNudgeCandidateRow{}
+	for rows.Next() {
+		var i ListGroupNudgeCandidateRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Platform,
+			&i.PlatformGroupID,
+			&i.PlatformThreadID,
+			&i.NextSeq,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.GroupName,
+			&i.CreatedByUserID,
+			&i.AgentChainHardLimit,
+			&i.MaxAgentPostsPerMinute,
+			&i.MaxRepliesPerHumanTrigger,
+			&i.HoldLimit,
+			&i.NudgeAt,
+			&i.NudgeFallbackCount,
+			&i.LastMessageID,
+			&i.LastActorType,
+			&i.LastActorID,
+			&i.LastContent,
+			&i.LastMessageAt,
 		); err != nil {
 			return nil, err
 		}
