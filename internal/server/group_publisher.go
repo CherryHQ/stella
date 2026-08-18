@@ -14,9 +14,11 @@ import (
 )
 
 type webGroupPublisher struct {
-	w          http.ResponseWriter
-	flusher    http.Flusher
-	clientGone bool
+	w                  http.ResponseWriter
+	flusher            http.Flusher
+	clientGone         bool
+	acceptedMessageID  string
+	acceptedMessageSeq int64
 }
 
 func streamEmptyGroupReply(w http.ResponseWriter, flusher http.Flusher) {
@@ -51,6 +53,10 @@ func (p *webGroupPublisher) Publish(ctx context.Context, req channel.GroupPublis
 	}
 	if stream == nil {
 		return nil
+	}
+	if req.AcceptedMessageID != "" {
+		p.acceptedMessageID = req.AcceptedMessageID
+		p.acceptedMessageSeq = req.AcceptedMessageSeq
 	}
 	p.writeSSE(map[string]string{"type": "start-step"})
 	defer p.writeSSE(map[string]string{"type": "finish-step"})

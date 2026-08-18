@@ -451,6 +451,22 @@ func (s *Server) ListGroupMessages(w http.ResponseWriter, r *http.Request, group
 	writeData(w, http.StatusOK, out)
 }
 
+func (s *Server) AbortGroupTurn(w http.ResponseWriter, r *http.Request, groupId string, agentId string) {
+	info := requireAuth(w, r)
+	if info == nil {
+		return
+	}
+	acc, ok := s.groupAccess(w, r, info)
+	if !ok {
+		return
+	}
+	if err := acc.AbortGroupTurn(r.Context(), groupId, agentId); err != nil {
+		s.groupError(w, err)
+		return
+	}
+	writeNoContent(w)
+}
+
 func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupId string) {
 	info := requireAuth(w, r)
 	if info == nil {
@@ -511,7 +527,16 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 	if err := acc.Dispatch(s.runtimeCtx, prep, publisher); err != nil {
 		publisher.writeSSE(map[string]string{"type": "error", "errorText": err.Error()})
 	}
-	publisher.writeSSE(map[string]string{"type": "finish"})
+	finish := map[string]any{"type": "finish"}
+	if publisher.acceptedMessageID != "" {
+		// Transitional Phase-1 metadata lets the seq-keyed client replace this
+		// request-local streamed turn with its canonical SSE projection.
+		finish["data-group-message"] = map[string]any{
+			"id":  publisher.acceptedMessageID,
+			"seq": publisher.acceptedMessageSeq,
+		}
+	}
+	publisher.writeSSE(finish)
 	_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
 }

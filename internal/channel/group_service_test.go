@@ -53,6 +53,8 @@ func (f *fakeDispatchRunner) DispatchSync(_ context.Context, outbox sqlc.CtxGrou
 	return f.err
 }
 
+func (f *fakeDispatchRunner) AbortGroupTurn(_, _ string) bool { return false }
+
 type groupFixture struct {
 	svc    *GroupService
 	ts     testStores

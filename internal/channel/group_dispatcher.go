@@ -230,6 +230,15 @@ func (d *GroupDispatcher) DispatchSync(ctx context.Context, outbox sqlc.CtxGroup
 	return d.processOutbox(ctx, outbox, publisherOverride)
 }
 
+// AbortGroupTurn stops the active turn for one group member. It is intentionally
+// idempotent: a completed or unknown turn has nothing left to cancel.
+func (d *GroupDispatcher) AbortGroupTurn(groupID, agentID string) bool {
+	if d == nil || groupID == "" || agentID == "" {
+		return false
+	}
+	return d.queue.Abort(agent.BuildGroupSessionKey(agentID, groupID))
+}
+
 func (d *GroupDispatcher) poll(ctx context.Context) error {
 	if err := d.reapExpired(ctx); err != nil {
 		return err
@@ -517,8 +526,9 @@ func (d *GroupDispatcher) decideResponders(ctx context.Context, q *sqlc.Queries,
 		var responding []string
 		if d.coord != nil && d.coord.arbiter != nil {
 			responding = d.coord.arbiter.Decide(ctx, outbox.GroupID, envelope.Mentions, groupMembers, "", DecideOptions{
-				AllMembersFallback: false,
-				DisableDebounce:    true,
+				AllMembersFallback:   false,
+				DisableDebounce:      true,
+				MaxRepliesPerTrigger: int(state.MaxRepliesPerHumanTrigger),
 			}).RespondingAgents
 		} else {
 			responding = fallbackGroupDecision(envelope.Mentions, groupMembers).RespondingAgents
@@ -594,6 +604,7 @@ func (d *GroupDispatcher) semanticResponders(ctx context.Context, q *sqlc.Querie
 		RecentContext: d.recentGroupContext(ctx, q, groupID, message.Seq),
 		Members:       smembers,
 		OwnerUserID:   ownerUserID,
+		MaxResponders: int(state.MaxRepliesPerHumanTrigger),
 	})
 	if !decision.ShouldReply {
 		return nil
@@ -1198,6 +1209,13 @@ func (d *GroupDispatcher) publishAcceptedWithEnvelope(ctx context.Context, row s
 	if row.ResultMessageID == "" && accepted.Message.ID != "" {
 		row.ResultMessageID = accepted.Message.ID
 	}
+	if accepted.Message.ID == "" && row.ResultMessageID != "" {
+		canonical, err := d.q.GetGroupMessage(ctx, row.ResultMessageID)
+		if err != nil {
+			return d.failDispatch(ctx, row, fmt.Errorf("get canonical group result: %w", err))
+		}
+		accepted = eventlog.AppendResult{GroupID: row.GroupID, Seq: canonical.Seq, Message: canonical}
+	}
 	agentName := response.agentName
 	if agentName == "" {
 		agentName = row.AgentID
@@ -1212,8 +1230,10 @@ func (d *GroupDispatcher) publishAcceptedWithEnvelope(ctx context.Context, row s
 		PlatformGroupID: state.PlatformGroupID, PlatformThreadID: state.PlatformThreadID,
 		ReplyTo: nullStringValue(trigger.PlatformMessageID), Stream: replayGroupResponse(response),
 		RequesterID: trigger.ActorID, LifecycleFeedback: envelope.LifecycleFeedback,
-		Abort:        func() bool { return d.queue.Abort(sessionKey) },
-		FinalAttempt: row.AttemptCount >= d.maxAttempts,
+		Abort:              func() bool { return d.queue.Abort(sessionKey) },
+		FinalAttempt:       row.AttemptCount >= d.maxAttempts,
+		AcceptedMessageID:  accepted.Message.ID,
+		AcceptedMessageSeq: accepted.Seq,
 	})
 	if err != nil {
 		if row.AttemptCount >= d.maxAttempts && row.ResultMessageID != "" {

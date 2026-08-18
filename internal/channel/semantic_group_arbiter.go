@@ -59,6 +59,9 @@ type SemanticGroupRequest struct {
 	RecentContext []SemanticGroupContextMessage
 	Members       []SemanticGroupMember
 	OwnerUserID   string // ctx_group_state.created_by_user_id; "" for platform groups
+	// MaxResponders is the durable per-group cap. Zero keeps the transitional
+	// default for callers that do not have a group state row.
+	MaxResponders int
 }
 
 // SemanticGroupDecision is the strict outcome. RespondingAgents is always a
@@ -171,7 +174,11 @@ func (a *LLMSemanticGroupArbiter) Decide(ctx context.Context, req SemanticGroupR
 		a.warn("semantic response parse failed; staying silent", "error", err, "model", model.ID)
 		return SemanticGroupDecision{}
 	}
-	final := sanitizeSemanticDecision(decision, req, a.maxResponders)
+	maxResponders := a.maxResponders
+	if req.MaxResponders > 0 {
+		maxResponders = req.MaxResponders
+	}
+	final := sanitizeSemanticDecision(decision, req, maxResponders)
 	a.debug("semantic routing decision",
 		"model", model.ID,
 		"should_reply", final.ShouldReply,

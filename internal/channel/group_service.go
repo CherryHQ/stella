@@ -63,6 +63,7 @@ func WithGroupEventHub(h *GroupEventHub) GroupServiceOption {
 // whole coordinator from the group service.
 type GroupDispatchRunner interface {
 	DispatchSync(ctx context.Context, outbox sqlc.CtxGroupOutbox, publisher GroupPublisher) error
+	AbortGroupTurn(groupID, agentID string) bool
 }
 
 // webGroupPlatform is the platform value the Web group surface writes: it names
@@ -272,13 +273,17 @@ func (a *GroupAccess) List(ctx context.Context, offset, limit int) ([]Group, err
 	out := make([]Group, len(rows))
 	for i, r := range rows {
 		out[i] = Group{
-			ID:              r.ID,
-			GroupName:       r.GroupName,
-			Platform:        r.Platform,
-			CreatedByUserID: textPtr(r.CreatedByUserID),
-			LastActive:      timePtr(r.LastActive),
-			CreatedAt:       r.CreatedAt.UTC(),
-			UpdatedAt:       r.UpdatedAt.UTC(),
+			ID:                        r.ID,
+			GroupName:                 r.GroupName,
+			Platform:                  r.Platform,
+			CreatedByUserID:           textPtr(r.CreatedByUserID),
+			LastActive:                timePtr(r.LastActive),
+			CreatedAt:                 r.CreatedAt.UTC(),
+			UpdatedAt:                 r.UpdatedAt.UTC(),
+			AgentChainHardLimit:       int(r.AgentChainHardLimit),
+			MaxAgentPostsPerMinute:    int(r.MaxAgentPostsPerMinute),
+			MaxRepliesPerHumanTrigger: int(r.MaxRepliesPerHumanTrigger),
+			HoldLimit:                 int(r.HoldLimit),
 		}
 	}
 	return out, nil
@@ -565,6 +570,20 @@ func (a *GroupAccess) Dispatch(parent context.Context, prep PreparedSend, publis
 	ctx, cancel := context.WithTimeout(parent, a.svc.leaseDur)
 	defer cancel()
 	return a.svc.dispatcher.DispatchSync(ctx, prep.outbox, publisher)
+}
+
+// AbortGroupTurn authorizes cancellation against the group before addressing
+// the dispatcher's per-agent session slot. A missing active turn is a
+// successful, idempotent abort.
+func (a *GroupAccess) AbortGroupTurn(ctx context.Context, groupID, agentID string) error {
+	if _, err := a.requireOwner(ctx, groupID); err != nil {
+		return err
+	}
+	if a.svc.dispatcher == nil {
+		return ErrGroupUnavailable
+	}
+	a.svc.dispatcher.AbortGroupTurn(groupID, agentID)
+	return nil
 }
 
 // addMemberRow creates the agent's web reply channel (idempotent) and its group

@@ -30,12 +30,20 @@ import (
 // fakeGroupRunner counts synchronous dispatches so the SSE tests can prove the
 // handler routes only the fresh-message outcome into the dispatch turn.
 type fakeGroupRunner struct {
-	calls int
+	calls        int
+	abortGroupID string
+	abortAgentID string
 }
 
 func (f *fakeGroupRunner) DispatchSync(_ context.Context, _ sqlc.CtxGroupOutbox, _ channel.GroupPublisher) error {
 	f.calls++
 	return nil
+}
+
+func (f *fakeGroupRunner) AbortGroupTurn(groupID, agentID string) bool {
+	f.abortGroupID = groupID
+	f.abortAgentID = agentID
+	return true
 }
 
 // setupGroupSSE builds a minimal Server whose group boundary has a real event log
@@ -180,6 +188,21 @@ func TestSendGroupMessageForeignGroupNotFound(t *testing.T) {
 	}
 	if runner.calls != 0 {
 		t.Fatalf("foreign send dispatched %d times, want 0", runner.calls)
+	}
+}
+
+func TestAbortGroupTurnUsesAuthorizedGroupSession(t *testing.T) {
+	s, runner, userID, groupID := setupGroupSSE(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/groups/"+groupID+"/turns/stella/abort", nil)
+	req = req.WithContext(withAuthInfo(req.Context(), &AuthInfo{UserID: userID, Role: auth.RoleUser}))
+	rr := httptest.NewRecorder()
+	s.AbortGroupTurn(rr, req, groupID, "stella")
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204: %s", rr.Code, rr.Body.String())
+	}
+	if runner.abortGroupID != groupID || runner.abortAgentID != "stella" {
+		t.Fatalf("abort = (%q, %q), want (%q, %q)", runner.abortGroupID, runner.abortAgentID, groupID, "stella")
 	}
 }
 

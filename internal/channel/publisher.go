@@ -84,6 +84,10 @@ type GroupPublishRequest struct {
 	// publish error. Publishers may use it for terminal platform feedback;
 	// earlier attempts should return errors without claiming delivery ended.
 	FinalAttempt bool
+	// AcceptedMessage identifies the canonical event-log row that the replay is
+	// rendering. It is set only after the acceptance transaction commits.
+	AcceptedMessageID  string
+	AcceptedMessageSeq int64
 }
 
 type PublisherRegistry struct {

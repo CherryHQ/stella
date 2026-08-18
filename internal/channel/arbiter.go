@@ -58,6 +58,9 @@ type DecideOptions struct {
 	// DisableDebounce skips the in-memory fallback debounce for durable dispatch
 	// replays. Mention routing already bypasses debounce.
 	DisableDebounce bool
+	// MaxRepliesPerTrigger is the durable per-group cap. A positive value
+	// overrides the process default for this decision.
+	MaxRepliesPerTrigger int
 }
 
 // Decide determines which agents should respond to a human message in a group.
@@ -119,7 +122,11 @@ func (a *Arbiter) Decide(_ context.Context, groupID string, mentions []pkgchanne
 	}
 
 	if !mentionResponding {
-		responding = capResponders(responding, a.cfg.MaxRepliesPerTrigger)
+		maxReplies := a.cfg.MaxRepliesPerTrigger
+		if opt.MaxRepliesPerTrigger > 0 {
+			maxReplies = opt.MaxRepliesPerTrigger
+		}
+		responding = capResponders(responding, maxReplies)
 	}
 
 	// Evict expired debounce entries on all paths (not just fallback).

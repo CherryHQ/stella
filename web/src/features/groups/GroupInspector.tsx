@@ -7,15 +7,17 @@ import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetDescription, SheetPopup, SheetTitle } from "@/components/ui/sheet";
+import type { GroupTurnEvent } from "./use-group-events";
 
 interface Props {
   members: GroupMember[];
   messages: GroupMessage[];
   activeAgentIds: Set<string>;
+  turns: Map<string, GroupTurnEvent>;
   uploadContext?: { agentId: string; sessionId: string } | null;
 }
 
-export function GroupInspector({ members, messages, activeAgentIds, uploadContext }: Props) {
+export function GroupInspector({ members, messages, activeAgentIds, turns, uploadContext }: Props) {
   const { t } = useI18n();
   const [mobileOpen, setMobileOpen] = useState(false);
   const messageCounts = countMessagesByActor(messages);
@@ -59,7 +61,8 @@ export function GroupInspector({ members, messages, activeAgentIds, uploadContex
                       active ? "bg-info/10 text-info-foreground" : "bg-muted text-muted-foreground",
                     )}
                   >
-                    {active ? t("groups.inspector.active") : t("groups.inspector.idle")}
+                    {turns.get(member.agent_id)?.state ??
+                      (active ? t("groups.inspector.active") : t("groups.inspector.idle"))}
                   </span>
                 </div>
               );

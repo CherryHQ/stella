@@ -39,6 +39,19 @@ func TestArbiterNoMentionFallback(t *testing.T) {
 	}
 }
 
+func TestArbiterUsesDurablePerGroupCap(t *testing.T) {
+	a := NewArbiter(ArbiterConfig{MaxRepliesPerTrigger: 1})
+	members := []GroupMember{{AgentID: "a"}, {AgentID: "b"}, {AgentID: "c"}}
+
+	got := a.Decide(context.Background(), "group", nil, members, "", DecideOptions{
+		AllMembersFallback:   true,
+		MaxRepliesPerTrigger: 2,
+	})
+	if len(got.RespondingAgents) != 2 || got.RespondingAgents[0] != "a" || got.RespondingAgents[1] != "b" {
+		t.Fatalf("responders = %v, want [a b]", got.RespondingAgents)
+	}
+}
+
 func TestArbiterMentionedAgentsBypassMaxReplies(t *testing.T) {
 	a := NewArbiter(ArbiterConfig{MaxRepliesPerTrigger: 1})
 	ctx := context.Background()

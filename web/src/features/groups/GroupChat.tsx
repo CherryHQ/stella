@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useChat } from "@ai-sdk/react";
 import type { UIMessage } from "ai";
-import { listGroupMessages, createSession, uploadWorkspaceFile } from "@/lib/api-client/sdk.gen";
+import {
+  abortGroupTurn,
+  listGroupMessages,
+  createSession,
+  uploadWorkspaceFile,
+} from "@/lib/api-client/sdk.gen";
 import { useI18n } from "@/lib/i18n";
 import type { GroupMessage } from "@/lib/api-client/types.gen";
 import { groupMembersQueryOptions } from "@/lib/queries/groups";
@@ -15,6 +20,7 @@ import { skillTrigger, type ComposerTrigger } from "@/features/sessions/composer
 import { useFileAttachments } from "@/features/sessions/useFileAttachments";
 import { GroupInspector } from "./GroupInspector";
 import { GroupTranscript } from "./GroupTranscript";
+import { useGroupEvents, type GroupTurnEvent } from "./use-group-events";
 
 interface Props {
   groupId: string;
@@ -25,7 +31,8 @@ export function GroupChat({ groupId }: Props) {
   const queryClient = useQueryClient();
   const { data: members = [] } = useQuery(groupMembersQueryOptions(groupId));
 
-  const [historicalMessages, setHistoricalMessages] = useState<GroupMessage[]>([]);
+  const [canonicalBySeq, setCanonicalBySeq] = useState<Map<number, GroupMessage>>(new Map());
+  const [turns, setTurns] = useState<Map<string, GroupTurnEvent>>(new Map());
   const [loading, setLoading] = useState(true);
   const transcriptRef = useRef<HTMLDivElement>(null);
 
@@ -115,7 +122,9 @@ export function GroupChat({ groupId }: Props) {
     // Batch SSE deltas: without this every token re-renders the transcript.
     experimental_throttle: 50,
     onFinish: () => {
-      void loadMessages();
+      // The event stream has the accepted canonical row. Drop the request-local
+      // frame so it cannot survive alongside that row in a second tab.
+      setChatMessages([]);
       void queryClient.invalidateQueries({ queryKey: ["groups"] });
     },
     onError: (err) => console.error("[group chat]", err),
@@ -131,7 +140,17 @@ export function GroupChat({ groupId }: Props) {
         query: { page_size: 50 },
         throwOnError: true,
       });
-      setHistoricalMessages((data?.messages as GroupMessage[]) ?? []);
+      const rows = (data?.messages as GroupMessage[]) ?? [];
+      setCanonicalBySeq((current) => {
+        const next = new Map(current);
+        for (const message of rows) {
+          // The EventSource may have already delivered a newer projection for
+          // this seq, such as pending → delivered. Never overwrite it with the
+          // list's older snapshot.
+          if (!next.has(message.seq)) next.set(message.seq, message);
+        }
+        return next;
+      });
     } finally {
       setLoading(false);
     }
@@ -159,16 +178,35 @@ export function GroupChat({ groupId }: Props) {
     setUploadContext(null);
   }, [groupId, loadMessages, members]);
 
-  useEffect(() => {
-    if (historicalMessages.length === 0) return;
-    const chrono = [...historicalMessages].reverse();
-    const uiMessages = groupMessagesToUIMessages(chrono, agentNameMap);
-    const newIDs = new Set(uiMessages.map((m) => m.id));
-    setChatMessages((prev) => {
-      const liveSlice = prev.filter((m) => !newIDs.has(m.id));
-      return [...uiMessages, ...liveSlice];
+  const canonicalMessages = useMemo(
+    () => [...canonicalBySeq.values()].sort((a, b) => a.seq - b.seq),
+    [canonicalBySeq],
+  );
+  const highestSeq = canonicalMessages.at(-1)?.seq ?? 0;
+  const onCanonicalMessage = useCallback((message: GroupMessage) => {
+    setCanonicalBySeq((current) => {
+      const next = new Map(current);
+      next.set(message.seq, message);
+      return next;
     });
-  }, [historicalMessages, agentNameMap, setChatMessages]);
+  }, []);
+  const onTurn = useCallback((turn: GroupTurnEvent) => {
+    setTurns((current) => {
+      const next = new Map(current);
+      if (["done", "silent", "held", "failed"].includes(turn.state)) {
+        next.delete(turn.agent_id);
+      } else {
+        next.set(turn.agent_id, turn);
+      }
+      return next;
+    });
+  }, []);
+  useGroupEvents(groupId, { sinceSeq: highestSeq, onMessage: onCanonicalMessage, onTurn });
+
+  const canonicalUIMessages = useMemo(
+    () => groupMessagesToUIMessages(canonicalMessages, agentNameMap),
+    [canonicalMessages, agentNameMap],
+  );
 
   const scrollToBottom = useCallback(() => {
     setTimeout(() => {
@@ -200,9 +238,28 @@ export function GroupChat({ groupId }: Props) {
   // "Active" means responding right now: only agent-info parts from live
   // streaming messages count, never the merged history (grp-* ids).
   const activeAgentIds = useMemo(() => {
-    if (!isStreaming) return new Set<string>();
-    return collectActiveAgentIds(chatMessages.filter((m) => !m.id.startsWith("grp-")));
-  }, [isStreaming, chatMessages]);
+    const ids = new Set(turns.keys());
+    if (isStreaming) {
+      for (const id of collectActiveAgentIds(chatMessages)) ids.add(id);
+    }
+    return ids;
+  }, [turns, isStreaming, chatMessages]);
+  const displayMessages = useMemo(
+    () => [
+      ...canonicalUIMessages,
+      ...(isStreaming ? chatMessages.filter((message) => message.role === "assistant") : []),
+    ],
+    [canonicalUIMessages, chatMessages, isStreaming],
+  );
+  const handleStop = useCallback(() => {
+    void chatStop();
+    // Group replies are buffered before the publisher names the responding
+    // agent, so the stop affordance cannot wait for a presence frame. Aborting
+    // every member is safe and idempotent; only the active session slot cancels.
+    for (const { agent_id: agentId } of members) {
+      void abortGroupTurn({ path: { groupId, agentId }, throwOnError: true });
+    }
+  }, [members, chatStop, groupId]);
 
   return (
     <div className="relative flex min-h-0 flex-1 overflow-hidden">
@@ -210,7 +267,7 @@ export function GroupChat({ groupId }: Props) {
         transcript={
           <GroupTranscript
             ref={transcriptRef}
-            messages={chatMessages}
+            messages={displayMessages}
             loading={loading}
             agentNames={agentNameMap}
             uploadAgentId={uploadContext?.agentId}
@@ -221,7 +278,7 @@ export function GroupChat({ groupId }: Props) {
         composer={
           <ChatComposer
             onSend={handleSend}
-            onStop={chatStop}
+            onStop={handleStop}
             isStreaming={isStreaming}
             placeholder={t("groups.messagePlaceholder")}
             draftKey={draftKey}
@@ -235,8 +292,9 @@ export function GroupChat({ groupId }: Props) {
       />
       <GroupInspector
         members={members}
-        messages={historicalMessages}
+        messages={canonicalMessages}
         activeAgentIds={activeAgentIds}
+        turns={turns}
         uploadContext={uploadContext}
       />
     </div>

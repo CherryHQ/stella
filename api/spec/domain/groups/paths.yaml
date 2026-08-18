@@ -245,3 +245,19 @@ paths:
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }
         "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
+  /api/groups/{groupId}/turns/{agentId}/abort:
+    parameters:
+      - { name: groupId, in: path, required: true, schema: { type: string } }
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [groups]
+      summary: Stop an active group member turn
+      operationId: abortGroupTurn
+      responses:
+        "204":
+          description: turn stopped or already finished
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
