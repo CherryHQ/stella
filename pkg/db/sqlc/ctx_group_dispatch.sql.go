@@ -309,6 +309,33 @@ func (q *Queries) CreateGroupDispatch(ctx context.Context, arg CreateGroupDispat
 	return err
 }
 
+const createGroupNudge = `-- name: CreateGroupNudge :exec
+INSERT INTO ctx_group_dispatch (
+  id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, trigger_seq, kind
+)
+VALUES ($1, $2, $3, $4, $5, 'pending', 0, NULL, NULL, '',
+  (SELECT seq FROM ctx_group_message WHERE id = $2), 'nudge') ON CONFLICT DO NOTHING
+`
+
+type CreateGroupNudgeParams struct {
+	ID             string `json:"id"`
+	GroupMessageID string `json:"group_message_id"`
+	GroupID        string `json:"group_id"`
+	AgentID        string `json:"agent_id"`
+	ReplyChannelID string `json:"reply_channel_id"`
+}
+
+func (q *Queries) CreateGroupNudge(ctx context.Context, arg CreateGroupNudgeParams) error {
+	_, err := q.db.Exec(ctx, createGroupNudge,
+		arg.ID,
+		arg.GroupMessageID,
+		arg.GroupID,
+		arg.AgentID,
+		arg.ReplyChannelID,
+	)
+	return err
+}
+
 const createGroupWake = `-- name: CreateGroupWake :exec
 INSERT INTO ctx_group_dispatch (
   id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, trigger_seq, kind

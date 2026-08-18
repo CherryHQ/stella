@@ -418,12 +418,28 @@ func (d *GroupDispatcher) materializeDispatchRowsTx(ctx context.Context, outbox 
 // materializeWakeRows creates a durable per-member triage opportunity for
 // every canonical message. The author has already acted, so never wake it.
 func (d *GroupDispatcher) materializeWakeRows(ctx context.Context, q *sqlc.Queries, outbox sqlc.CtxGroupOutbox, message sqlc.CtxGroupMessage) error {
+	envelope, err := DecodeGroupOutboxEnvelope(outbox.Envelope)
+	if err != nil {
+		return fmt.Errorf("decode group outbox envelope: %w", err)
+	}
 	members, err := q.ListGroupMembers(ctx, outbox.GroupID)
 	if err != nil {
 		return fmt.Errorf("list group members: %w", err)
 	}
 	for _, member := range members {
+		if envelope.NudgeTarget != "" && member.AgentID != envelope.NudgeTarget {
+			continue
+		}
 		if message.ActorType == string(eventlog.ActorAgent) && member.AgentID == message.ActorID {
+			continue
+		}
+		if envelope.NudgeTarget != "" {
+			if err := q.CreateGroupNudge(ctx, sqlc.CreateGroupNudgeParams{
+				ID: uuid.Must(uuid.NewV7()).String(), GroupMessageID: outbox.GroupMessageID,
+				GroupID: outbox.GroupID, AgentID: member.AgentID, ReplyChannelID: member.ReplyChannelID,
+			}); err != nil {
+				return fmt.Errorf("create nudge row: %w", err)
+			}
 			continue
 		}
 		if err := q.CreateGroupWake(ctx, sqlc.CreateGroupWakeParams{

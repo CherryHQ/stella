@@ -12,6 +12,13 @@ INSERT INTO ctx_group_dispatch (
 VALUES ($1, $2, $3, $4, $5, 'pending', 0, NULL, NULL, '',
   (SELECT seq FROM ctx_group_message WHERE id = $2), 'wake') ON CONFLICT DO NOTHING;
 
+-- name: CreateGroupNudge :exec
+INSERT INTO ctx_group_dispatch (
+  id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, trigger_seq, kind
+)
+VALUES ($1, $2, $3, $4, $5, 'pending', 0, NULL, NULL, '',
+  (SELECT seq FROM ctx_group_message WHERE id = $2), 'nudge') ON CONFLICT DO NOTHING;
+
 -- name: GetGroupDispatch :one
 SELECT * FROM ctx_group_dispatch WHERE id = $1;
 
