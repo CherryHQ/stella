@@ -42,18 +42,6 @@ func TestXbergCLIParserProfilesAndMapsChunkMetadata(t *testing.T) {
 	if _, err := parser.Profile(MediaTypeText); !errors.Is(err, ErrUnsupportedFileType) {
 		t.Fatalf("text profile error = %v, want ErrUnsupportedFileType", err)
 	}
-	csvProfile, err := parser.Profile(MediaTypeCSV)
-	if err != nil {
-		t.Fatal(err)
-	}
-	xlsxProfile, err := parser.Profile(MediaTypeXLSX)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if csvProfile == xlsxProfile {
-		t.Fatal("format-specific citation policy is missing from the parser profile")
-	}
-
 	chunks, err := parser.Parse(t.Context(), "source.pdf", MediaTypePDF)
 	if err != nil {
 		t.Fatal(err)
@@ -244,14 +232,16 @@ func TestXbergCLIParserPreservesCancellationAndOperationalErrors(t *testing.T) {
 	}
 }
 
-func TestXbergCLIParserTreatsNormalProcessExitAsDeterministic(t *testing.T) {
+func TestXbergCLIParserKeepsUnknownProcessExitsRetryable(t *testing.T) {
 	t.Parallel()
-	parser, err := newXbergCLIParser(t.Context(), "/test/xberg", xbergFixtureRunner("", exitCodeFixture(23)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := parser.Parse(t.Context(), "source.pdf", MediaTypePDF); !errors.Is(err, ErrInvalidParserData) {
-		t.Fatalf("process exit error = %v, want ErrInvalidParserData", err)
+	for _, code := range []exitCodeFixture{23, 101} {
+		parser, err := newXbergCLIParser(t.Context(), "/test/xberg", xbergFixtureRunner("", code))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := parser.Parse(t.Context(), "source.pdf", MediaTypePDF); !errors.Is(err, code) {
+			t.Fatalf("process exit %d error = %v, want retryable wrapped error", code, err)
+		}
 	}
 }
 

@@ -17,28 +17,32 @@ func TestPackagedXbergTableAdmission(t *testing.T) {
 	tests := []struct {
 		name          string
 		file          string
+		content       string
 		mediaType     string
 		wantContent   []string
 		rejectContent []string
 		wantDashRows  int
-		wantRowStart  uint32
-		wantRowEnd    uint32
 		wantSheet     string
 	}{
 		{
 			name: "single record CSV", file: "single_record.csv", mediaType: MediaTypeCSV,
 			wantContent: []string{"| a | b |"}, rejectContent: []string{"|  |  |"},
-			wantRowStart: 1, wantRowEnd: 1,
 		},
 		{
 			name: "empty header CSV", file: "empty_header.csv", mediaType: MediaTypeCSV,
 			wantContent: []string{"| 1 | 2 |"}, rejectContent: []string{"|  |  |"},
-			wantRowStart: 1, wantRowEnd: 1,
+		},
+		{
+			name: "empty record CSV", file: "empty_record.csv", mediaType: MediaTypeCSV,
+			wantContent: []string{"| a | b |", "| x | y |"}, rejectContent: []string{"|  |  |"},
+		},
+		{
+			name: "empty record TSV", file: "empty_record.tsv", content: "a\tb\n\t\nx\ty\n", mediaType: MediaTypeTSV,
+			wantContent: []string{"| a | b |", "| x | y |"}, rejectContent: []string{"|  |  |"},
 		},
 		{
 			name: "dash data CSV", file: "dash_data.csv", mediaType: MediaTypeCSV,
 			wantContent: []string{"| a | b |", "| x | y |"}, wantDashRows: 2,
-			wantRowStart: 1, wantRowEnd: 3,
 		},
 		{
 			name: "dash data XLSX", file: "dash_data.xlsx", mediaType: MediaTypeXLSX,
@@ -52,6 +56,12 @@ func TestPackagedXbergTableAdmission(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			path := filepath.Join("testdata", "xberg_tables", test.file)
+			if test.content != "" {
+				path = filepath.Join(t.TempDir(), test.file)
+				if err := os.WriteFile(path, []byte(test.content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if err := validateUploadFile(path, test.mediaType); err != nil {
 				t.Fatalf("validate fixture: %v", err)
 			}
@@ -77,14 +87,7 @@ func TestPackagedXbergTableAdmission(t *testing.T) {
 			if test.wantDashRows > 0 && strings.Count(content, "| --- | --- |") != test.wantDashRows {
 				t.Fatalf("content %q has %d dash rows, want %d", content, strings.Count(content, "| --- | --- |"), test.wantDashRows)
 			}
-			first, last := chunks[0].Locator, chunks[len(chunks)-1].Locator
-			if test.wantRowStart > 0 {
-				if first.RowStart == nil || last.RowEnd == nil || *first.RowStart != test.wantRowStart || *last.RowEnd != test.wantRowEnd {
-					t.Fatalf("row range = %v..%v, want %d..%d", first.RowStart, last.RowEnd, test.wantRowStart, test.wantRowEnd)
-				}
-			} else if first.RowStart != nil || last.RowEnd != nil {
-				t.Fatalf("office spreadsheet exposed source row range: %+v .. %+v", first, last)
-			}
+			first := chunks[0].Locator
 			if test.wantSheet != "" && !slices.Contains(first.HeadingPath, test.wantSheet) {
 				t.Fatalf("heading path = %v, want sheet %q", first.HeadingPath, test.wantSheet)
 			}
@@ -92,7 +95,7 @@ func TestPackagedXbergTableAdmission(t *testing.T) {
 	}
 }
 
-func TestPackagedXbergDeepCorruptionIsDeterministic(t *testing.T) {
+func TestPackagedXbergDeepCorruptionRemainsRetryable(t *testing.T) {
 	parser := packagedXbergParser(t)
 	path := writeZIPFixture(t, map[string]string{
 		"[Content_Types].xml": "not XML",
@@ -102,8 +105,51 @@ func TestPackagedXbergDeepCorruptionIsDeterministic(t *testing.T) {
 		t.Fatalf("bounded container validation should admit the deep-corruption fixture: %v", err)
 	}
 	_, err := parser.Parse(t.Context(), path, MediaTypeXLSX)
-	if !errors.Is(err, ErrInvalidParserData) || !strings.Contains(err.Error(), "exited with status") {
-		t.Fatalf("deep-corruption error = %v, want deterministic Xberg process exit", err)
+	if err == nil || errors.Is(err, ErrInvalidParserData) {
+		t.Fatalf("deep-corruption error = %v, want retryable Xberg process error", err)
+	}
+}
+
+func TestPackagedXbergLegacyOfficeCanonicalAndCrossFamilySuffixes(t *testing.T) {
+	parser := packagedXbergParser(t)
+	formats := []struct {
+		file      string
+		mediaType string
+	}{
+		{file: "test.doc", mediaType: MediaTypeDOC},
+		{file: "test.xls", mediaType: MediaTypeXLS},
+		{file: "test.ppt", mediaType: MediaTypePPT},
+	}
+	for _, source := range formats {
+		t.Run(source.file, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join("testdata", "xberg_legacy", source.file))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, target := range formats {
+				if err := validateUploadFile(filepath.Join("testdata", "xberg_legacy", source.file), target.mediaType); err != nil {
+					t.Fatalf("shared CFB admission as %s: %v", target.mediaType, err)
+				}
+				suffix, err := canonicalExtension(target.mediaType)
+				if err != nil {
+					t.Fatal(err)
+				}
+				staged := filepath.Join(t.TempDir(), "source"+suffix)
+				if err := os.WriteFile(staged, raw, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				chunks, parseErr := parser.Parse(t.Context(), staged, target.mediaType)
+				if target.mediaType == source.mediaType {
+					if parseErr != nil || len(chunks) == 0 {
+						t.Fatalf("canonical %s parse = %d chunks, %v", target.mediaType, len(chunks), parseErr)
+					}
+					continue
+				}
+				if parseErr == nil {
+					t.Fatalf("%s bytes parsed under cross-family suffix %s", source.mediaType, suffix)
+				}
+			}
+		})
 	}
 }
 

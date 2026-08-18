@@ -34,12 +34,6 @@ func TestStructuredTableChunksKeepRowsAndRepeatReliableHeader(t *testing.T) {
 		if utf8.RuneCountInString(chunk.Content) > TextChunkRunes {
 			t.Fatalf("chunk %d has %d runes", index, utf8.RuneCountInString(chunk.Content))
 		}
-		if chunk.Locator.RowStart == nil || chunk.Locator.RowEnd == nil || *chunk.Locator.RowEnd < *chunk.Locator.RowStart {
-			t.Fatalf("chunk %d locator = %+v", index, chunk.Locator)
-		}
-	}
-	if *chunks[0].Locator.RowStart != 1 || *chunks[len(chunks)-1].Locator.RowEnd != 81 {
-		t.Fatalf("row coverage = %d..%d", *chunks[0].Locator.RowStart, *chunks[len(chunks)-1].Locator.RowEnd)
 	}
 }
 
@@ -62,9 +56,6 @@ func TestStructuredTableChunksUseSheetPathWithoutInventingHeader(t *testing.T) {
 	if len(chunks) != 1 || strings.Contains(chunks[0].Content, "---") || strings.Join(chunks[0].Locator.HeadingPath, "/") != "Sales" {
 		t.Fatalf("chunks = %+v", chunks)
 	}
-	if chunks[0].Locator.RowStart != nil || chunks[0].Locator.RowEnd != nil {
-		t.Fatalf("office spreadsheet invented source rows: %+v", chunks[0].Locator)
-	}
 }
 
 func TestStructuredTableChunksDropSyntheticEmptyHeader(t *testing.T) {
@@ -82,10 +73,6 @@ func TestStructuredTableChunksDropSyntheticEmptyHeader(t *testing.T) {
 	}
 	if len(chunks) != 1 || chunks[0].Content != "| a | b |" {
 		t.Fatalf("chunks = %+v", chunks)
-	}
-	if chunks[0].Locator.RowStart == nil || chunks[0].Locator.RowEnd == nil ||
-		*chunks[0].Locator.RowStart != 1 || *chunks[0].Locator.RowEnd != 1 {
-		t.Fatalf("locator = %+v", chunks[0].Locator)
 	}
 }
 
@@ -106,10 +93,6 @@ func TestStructuredTableChunksKeepDashOnlyDataRow(t *testing.T) {
 	if len(chunks) != 1 || strings.Count(chunks[0].Content, "| --- | --- |") != 2 ||
 		!strings.Contains(chunks[0].Content, "| x | y |") {
 		t.Fatalf("chunks = %+v", chunks)
-	}
-	if chunks[0].Locator.RowStart == nil || chunks[0].Locator.RowEnd == nil ||
-		*chunks[0].Locator.RowStart != 1 || *chunks[0].Locator.RowEnd != 3 {
-		t.Fatalf("locator = %+v", chunks[0].Locator)
 	}
 }
 
@@ -135,7 +118,24 @@ func TestStructuredTableChunksLocateNormalizedLegacyXLSMarkdown(t *testing.T) {
 	if len(chunks) != 1 || chunks[0].Content != "| Name | Amount |\n| Alpha | 1 |" {
 		t.Fatalf("chunks = %+v", chunks)
 	}
-	if chunks[0].Locator.RowStart != nil || chunks[0].Locator.RowEnd != nil {
-		t.Fatalf("legacy spreadsheet invented source rows: %+v", chunks[0].Locator)
+}
+
+func TestStructuredTableChunksDropEmptyRecordsWithoutInventingRowRanges(t *testing.T) {
+	t.Parallel()
+	markdown := "| a | b |\n| --- | --- |\n| x | y |\n"
+	result := xbergResult{
+		Content: markdown,
+		Tables: []xbergTable{{
+			// Xberg omits an empty source record from both cells and rendered
+			// Markdown. Stella keeps the useful rows without claiming source rows.
+			Cells: [][]string{{"a", "b"}, {"x", "y"}}, Columns: []string{"a", "b"}, Markdown: markdown,
+		}},
+	}
+	chunks, err := structuredTableChunks(result, mustFormatSpec(t, MediaTypeCSV).citations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 1 || strings.Contains(chunks[0].Content, "|  |  |") {
+		t.Fatalf("chunks = %+v", chunks)
 	}
 }

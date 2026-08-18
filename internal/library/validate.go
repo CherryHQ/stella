@@ -16,7 +16,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/pelletier/go-toml/v2"
-	"github.com/richardlehane/mscfb"
 	"golang.org/x/net/html"
 	"gopkg.in/yaml.v3"
 )
@@ -80,60 +79,31 @@ func validatePDFFile(filePath string) error {
 }
 
 func validateDOCFile(filePath string) error {
-	return validateCFBFile(filePath, "DOC", "WordDocument")
+	return validateCFBSignature(filePath, "DOC")
 }
 
 func validateXLSFile(filePath string) error {
-	return validateCFBFile(filePath, "XLS", "Workbook", "Book")
+	return validateCFBSignature(filePath, "XLS")
 }
 
 func validatePPTFile(filePath string) error {
-	return validateCFBFile(filePath, "PPT", "PowerPoint Document")
+	return validateCFBSignature(filePath, "PPT")
 }
 
-func validateCFBFile(filePath, format string, requiredStreams ...string) error {
+func validateCFBSignature(filePath, format string) error {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("open %s upload spool: %w", format, err)
 	}
 	defer func() { _ = file.Close() }()
-	reader, err := mscfb.New(file)
-	if err != nil {
-		return fmt.Errorf("%w: %s compound document is invalid", ErrInvalidFile, format)
-	}
-	if len(reader.File) > maxContainerEntries {
-		return fmt.Errorf("%w: %s has too many compound entries", ErrInvalidFile, format)
-	}
-	found := false
-	var total int64
-	for _, entry := range reader.File {
-		if entry == nil || entry.FileInfo().IsDir() {
-			continue
-		}
-		if entry.Size < 0 || entry.Size > maxContainerEntryUncompressedBytes {
-			return fmt.Errorf("%w: %s compound stream is too large", ErrInvalidFile, format)
-		}
-		total += entry.Size
-		if total > maxContainerTotalUncompressedBytes {
-			return fmt.Errorf("%w: %s compound content is too large", ErrInvalidFile, format)
-		}
-		if slicesContainFold(requiredStreams, entry.Name) {
-			found = true
-		}
-	}
-	if !found {
-		return fmt.Errorf("%w: %s compound document is missing its required stream", ErrInvalidFile, format)
+	// DOC, XLS, and PPT share this container signature. Their semantic
+	// distinction belongs to the isolated Xberg process, not stellad.
+	want := []byte{0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1}
+	header := make([]byte, len(want))
+	if _, err := io.ReadFull(file, header); err != nil || !bytes.Equal(header, want) {
+		return fmt.Errorf("%w: %s compound document signature is invalid", ErrInvalidFile, format)
 	}
 	return nil
-}
-
-func slicesContainFold(values []string, value string) bool {
-	for _, candidate := range values {
-		if strings.EqualFold(candidate, value) {
-			return true
-		}
-	}
-	return false
 }
 
 func validateDOCXFile(filePath string) error {

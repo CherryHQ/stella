@@ -15,7 +15,6 @@ type tableLine struct {
 	text      string
 	byteStart int
 	byteEnd   int
-	rowNumber uint32
 	separator bool
 }
 
@@ -57,7 +56,6 @@ func structuredTableChunks(result xbergResult, citations citationPolicy) ([]Pars
 				}
 				continue
 			}
-			line.rowNumber = uint32(len(rows) + 1)
 			rows = append(rows, line)
 		}
 		if len(rows) != len(located.table.Cells) {
@@ -74,7 +72,7 @@ func structuredTableChunks(result xbergResult, citations citationPolicy) ([]Pars
 		if citations.headingPath {
 			sheetName = located.sheetName
 		}
-		tableChunks := batchTableRows(rows, separator, reliableHeader, sheetName, tableStart, citations.sourceRowRange)
+		tableChunks := batchTableRows(rows, separator, reliableHeader, sheetName, tableStart)
 		chunks = append(chunks, tableChunks...)
 	}
 	return chunks, nil
@@ -198,7 +196,6 @@ func batchTableRows(
 	reliableHeader bool,
 	sheetName string,
 	tableStart int,
-	exposeRowRange bool,
 ) []ParsedChunk {
 	if len(rows) == 0 {
 		return nil
@@ -214,15 +211,9 @@ func batchTableRows(
 		dataStart = 1
 	}
 	if dataStart == len(rows) {
-		var rowStart, rowEnd *uint32
-		if exposeRowRange {
-			start, end := uint32(1), uint32(1)
-			rowStart, rowEnd = &start, &end
-		}
 		return []ParsedChunk{{
 			Content: headerPrefix,
 			Locator: ChunkLocator{
-				RowStart: rowStart, RowEnd: rowEnd,
 				HeadingPath: headingPath,
 				ByteStart:   tableStart + rows[0].byteStart,
 				ByteEnd:     tableStart + rows[0].byteEnd,
@@ -247,21 +238,13 @@ func batchTableRows(
 		for _, row := range current {
 			parts = append(parts, row.text)
 		}
-		rowStart := current[0].rowNumber
-		rowEnd := current[len(current)-1].rowNumber
 		byteStart := tableStart + current[0].byteStart
 		if reliableHeader && len(chunks) == 0 {
-			rowStart = 1
 			byteStart = tableStart + rows[0].byteStart
-		}
-		var publicRowStart, publicRowEnd *uint32
-		if exposeRowRange {
-			publicRowStart, publicRowEnd = &rowStart, &rowEnd
 		}
 		chunks = append(chunks, ParsedChunk{
 			Content: strings.Join(parts, "\n"),
 			Locator: ChunkLocator{
-				RowStart: publicRowStart, RowEnd: publicRowEnd,
 				HeadingPath: append([]string(nil), headingPath...),
 				ByteStart:   byteStart,
 				ByteEnd:     tableStart + current[len(current)-1].byteEnd,

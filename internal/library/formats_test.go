@@ -2,7 +2,6 @@ package library
 
 import (
 	"archive/zip"
-	"encoding/binary"
 	"errors"
 	"os"
 	"path/filepath"
@@ -49,7 +48,7 @@ func TestFormatRegistryOwnsExtractionAndCitationBehavior(t *testing.T) {
 	expected := map[string]behavior{
 		MediaTypeText:     {parser: parserKindText, mode: extractionModeNarrative},
 		MediaTypeMarkdown: {parser: parserKindText, mode: extractionModeNarrative},
-		MediaTypePDF:      {parser: parserKindXberg, mode: extractionModePaged, citations: citationPolicy{headingPath: true, pageRange: true}},
+		MediaTypePDF:      {parser: parserKindXberg, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true, pageRange: true}},
 		MediaTypeDOC:      {parser: parserKindXberg, mode: extractionModeNarrative},
 		MediaTypeDOCX:     {parser: parserKindXberg, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}},
 		MediaTypeODT:      {parser: parserKindXberg, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}},
@@ -57,11 +56,11 @@ func TestFormatRegistryOwnsExtractionAndCitationBehavior(t *testing.T) {
 		MediaTypeXLS:      {parser: parserKindXberg, mode: extractionModeTable, citations: citationPolicy{headingPath: true}},
 		MediaTypeXLSX:     {parser: parserKindXberg, mode: extractionModeTable, citations: citationPolicy{headingPath: true}},
 		MediaTypeODS:      {parser: parserKindXberg, mode: extractionModeTable, citations: citationPolicy{headingPath: true}},
-		MediaTypeCSV:      {parser: parserKindXberg, mode: extractionModeTable, citations: citationPolicy{headingPath: true, sourceRowRange: true}},
-		MediaTypeTSV:      {parser: parserKindXberg, mode: extractionModeTable, citations: citationPolicy{headingPath: true, sourceRowRange: true}},
-		MediaTypePPT:      {parser: parserKindXberg, mode: extractionModePaged},
-		MediaTypePPTX:     {parser: parserKindXberg, mode: extractionModePaged, citations: citationPolicy{headingPath: true, pageRange: true, enforcePageBoundary: true}},
-		MediaTypeODP:      {parser: parserKindXberg, mode: extractionModePaged},
+		MediaTypeCSV:      {parser: parserKindXberg, mode: extractionModeTable, citations: citationPolicy{headingPath: true}},
+		MediaTypeTSV:      {parser: parserKindXberg, mode: extractionModeTable, citations: citationPolicy{headingPath: true}},
+		MediaTypePPT:      {parser: parserKindXberg, mode: extractionModeNarrative},
+		MediaTypePPTX:     {parser: parserKindXberg, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true, pageRange: true, enforcePageBoundary: true}},
+		MediaTypeODP:      {parser: parserKindXberg, mode: extractionModeNarrative},
 		MediaTypeHTML:     {parser: parserKindXberg, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}},
 		MediaTypeXHTML:    {parser: parserKindXberg, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}},
 		MediaTypeEPUB:     {parser: parserKindXberg, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}},
@@ -182,23 +181,23 @@ func TestValidateEPUBRequiresDeclaredRootfile(t *testing.T) {
 	}
 }
 
-func TestValidateLegacyOfficeRequiresFormatSpecificStream(t *testing.T) {
+func TestValidateLegacyOfficeRequiresOnlySharedCFBSignature(t *testing.T) {
 	t.Parallel()
-	for _, test := range []struct {
-		mediaType string
-		stream    string
-	}{
-		{MediaTypeDOC, "WordDocument"},
-		{MediaTypeXLS, "Workbook"},
-		{MediaTypePPT, "PowerPoint Document"},
-	} {
-		valid := writeCFBFixture(t, test.stream)
-		if err := validateUploadFile(valid, test.mediaType); err != nil {
-			t.Fatalf("%s valid fixture: %v", test.mediaType, err)
+	valid := writeBytesFixture(t, []byte{0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1})
+	for _, mediaType := range []string{MediaTypeDOC, MediaTypeXLS, MediaTypePPT} {
+		if err := validateUploadFile(valid, mediaType); err != nil {
+			t.Fatalf("%s valid CFB signature: %v", mediaType, err)
 		}
-		wrong := writeCFBFixture(t, "UnrelatedStream")
-		if err := validateUploadFile(wrong, test.mediaType); !errors.Is(err, ErrInvalidFile) {
-			t.Fatalf("%s wrong stream error = %v, want ErrInvalidFile", test.mediaType, err)
+		for name, content := range map[string][]byte{
+			"empty": nil,
+			"ZIP":   []byte("PK\x03\x04not CFB"),
+			"PDF":   []byte("%PDF-not CFB"),
+			"wrong": []byte("not CFB!"),
+		} {
+			path := writeBytesFixture(t, content)
+			if err := validateUploadFile(path, mediaType); !errors.Is(err, ErrInvalidFile) {
+				t.Fatalf("%s %s error = %v, want ErrInvalidFile", mediaType, name, err)
+			}
 		}
 	}
 }
@@ -229,62 +228,13 @@ func writeZIPFixture(t *testing.T, entries map[string]string) string {
 	return name
 }
 
-// writeCFBFixture emits the smallest sector-backed CFB accepted by the reader:
-// one FAT sector, one directory sector, and an eight-sector 4096-byte stream.
-func writeCFBFixture(t *testing.T, streamName string) string {
+func writeBytesFixture(t *testing.T, content []byte) string {
 	t.Helper()
-	const sectorSize = 512
-	data := make([]byte, sectorSize*11)
-	copy(data[:8], []byte{0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1})
-	binary.LittleEndian.PutUint16(data[24:26], 0x003e)
-	binary.LittleEndian.PutUint16(data[26:28], 3)
-	binary.LittleEndian.PutUint16(data[28:30], 0xfffe)
-	binary.LittleEndian.PutUint16(data[30:32], 9)
-	binary.LittleEndian.PutUint16(data[32:34], 6)
-	binary.LittleEndian.PutUint32(data[44:48], 1)
-	binary.LittleEndian.PutUint32(data[48:52], 1)
-	binary.LittleEndian.PutUint32(data[56:60], 4096)
-	binary.LittleEndian.PutUint32(data[60:64], 0xfffffffe)
-	binary.LittleEndian.PutUint32(data[68:72], 0xfffffffe)
-	for offset := 76; offset < sectorSize; offset += 4 {
-		binary.LittleEndian.PutUint32(data[offset:offset+4], 0xffffffff)
-	}
-	binary.LittleEndian.PutUint32(data[76:80], 0)
-
-	fat := data[sectorSize : sectorSize*2]
-	for offset := 0; offset < len(fat); offset += 4 {
-		binary.LittleEndian.PutUint32(fat[offset:offset+4], 0xffffffff)
-	}
-	binary.LittleEndian.PutUint32(fat[0:4], 0xfffffffd)
-	binary.LittleEndian.PutUint32(fat[4:8], 0xfffffffe)
-	for sector := uint32(2); sector < 9; sector++ {
-		binary.LittleEndian.PutUint32(fat[sector*4:sector*4+4], sector+1)
-	}
-	binary.LittleEndian.PutUint32(fat[9*4:9*4+4], 0xfffffffe)
-
-	directory := data[sectorSize*2 : sectorSize*3]
-	writeCFBDirectoryEntry(directory[0:128], "Root Entry", 5, 1, 0xfffffffe, 0)
-	writeCFBDirectoryEntry(directory[128:256], streamName, 2, 0xffffffff, 2, 4096)
-	name := filepath.Join(t.TempDir(), "fixture.cfb")
-	if err := os.WriteFile(name, data, 0o600); err != nil {
+	name := filepath.Join(t.TempDir(), "fixture")
+	if err := os.WriteFile(name, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return name
-}
-
-func writeCFBDirectoryEntry(entry []byte, name string, objectType byte, childID, startingSector uint32, size uint64) {
-	runes := []rune(name + "\x00")
-	for index, value := range runes {
-		binary.LittleEndian.PutUint16(entry[index*2:index*2+2], uint16(value))
-	}
-	binary.LittleEndian.PutUint16(entry[64:66], uint16(len(runes)*2))
-	entry[66] = objectType
-	entry[67] = 1
-	binary.LittleEndian.PutUint32(entry[68:72], 0xffffffff)
-	binary.LittleEndian.PutUint32(entry[72:76], 0xffffffff)
-	binary.LittleEndian.PutUint32(entry[76:80], childID)
-	binary.LittleEndian.PutUint32(entry[116:120], startingSector)
-	binary.LittleEndian.PutUint64(entry[120:128], size)
 }
 
 func mustFormatSpec(t *testing.T, mediaType string) formatSpec {

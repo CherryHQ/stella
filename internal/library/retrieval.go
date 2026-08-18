@@ -86,23 +86,15 @@ func publicSearchLocator(raw json.RawMessage) (*SearchLocator, error) {
 	if err := json.Unmarshal(raw, &stored); err != nil {
 		return nil, err
 	}
-	if stored.FirstPage == nil && stored.LastPage == nil && stored.RowStart == nil && stored.RowEnd == nil && len(stored.HeadingPath) == 0 {
+	if stored.FirstPage == nil && stored.LastPage == nil && len(stored.HeadingPath) == 0 {
 		return nil, nil
 	}
 	if stored.FirstPage != nil && stored.LastPage != nil && *stored.LastPage < *stored.FirstPage {
 		return nil, fmt.Errorf("last page precedes first page")
 	}
-	if stored.RowStart != nil != (stored.RowEnd != nil) {
-		return nil, fmt.Errorf("row range must include both endpoints")
-	}
-	if stored.RowStart != nil && (*stored.RowStart == 0 || *stored.RowEnd < *stored.RowStart) {
-		return nil, fmt.Errorf("row range is invalid")
-	}
 	return &SearchLocator{
 		FirstPage:   stored.FirstPage,
 		LastPage:    stored.LastPage,
-		RowStart:    stored.RowStart,
-		RowEnd:      stored.RowEnd,
 		HeadingPath: append([]string(nil), stored.HeadingPath...),
 	}, nil
 }

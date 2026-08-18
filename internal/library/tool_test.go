@@ -67,8 +67,6 @@ func TestPublicSearchLocatorDropsInternalByteOffsets(t *testing.T) {
 	locator, err := publicSearchLocator([]byte(`{
 		"first_page":2,
 		"last_page":3,
-		"row_start":4,
-		"row_end":8,
 		"heading_path":["Policy"],
 		"byte_start":100,
 		"byte_end":200
@@ -76,26 +74,8 @@ func TestPublicSearchLocatorDropsInternalByteOffsets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if locator == nil || locator.FirstPage == nil || *locator.FirstPage != 2 ||
-		locator.RowStart == nil || *locator.RowStart != 4 || locator.RowEnd == nil || *locator.RowEnd != 8 ||
-		strings.Join(locator.HeadingPath, "/") != "Policy" {
+	if locator == nil || locator.FirstPage == nil || *locator.FirstPage != 2 || strings.Join(locator.HeadingPath, "/") != "Policy" {
 		t.Fatalf("locator = %+v", locator)
-	}
-}
-
-func TestPublicSearchLocatorRejectsInvalidRowRanges(t *testing.T) {
-	t.Parallel()
-	for name, raw := range map[string]string{
-		"missing end": `{"row_start":1,"byte_start":0,"byte_end":1}`,
-		"zero start":  `{"row_start":0,"row_end":1,"byte_start":0,"byte_end":1}`,
-		"reversed":    `{"row_start":4,"row_end":3,"byte_start":0,"byte_end":1}`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			if _, err := publicSearchLocator([]byte(raw)); err == nil {
-				t.Fatal("invalid row range was accepted")
-			}
-		})
 	}
 }
 

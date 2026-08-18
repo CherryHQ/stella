@@ -51,7 +51,6 @@ type extractionMode uint8
 const (
 	extractionModeNarrative extractionMode = iota
 	extractionModeTable
-	extractionModePaged
 )
 
 // citationPolicy records which source coordinates are reliable enough to
@@ -60,7 +59,6 @@ const (
 type citationPolicy struct {
 	headingPath         bool
 	pageRange           bool
-	sourceRowRange      bool
 	enforcePageBoundary bool
 }
 
@@ -82,7 +80,7 @@ type formatSpec struct {
 var formatSpecs = []formatSpec{
 	{extensions: []string{".txt"}, mediaType: MediaTypeText, suffix: ".txt", parser: parserKindText, validate: validateUTF8File, mode: extractionModeNarrative},
 	{extensions: []string{".md", ".markdown"}, mediaType: MediaTypeMarkdown, suffix: ".md", parser: parserKindText, validate: validateUTF8File, mode: extractionModeNarrative},
-	{extensions: []string{".pdf"}, mediaType: MediaTypePDF, suffix: ".pdf", parser: parserKindXberg, validate: validatePDFFile, mode: extractionModePaged, citations: citationPolicy{headingPath: true, pageRange: true}},
+	{extensions: []string{".pdf"}, mediaType: MediaTypePDF, suffix: ".pdf", parser: parserKindXberg, validate: validatePDFFile, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true, pageRange: true}},
 	{extensions: []string{".doc"}, mediaType: MediaTypeDOC, suffix: ".doc", parser: parserKindXberg, validate: validateDOCFile, mode: extractionModeNarrative},
 	{extensions: []string{".docx"}, mediaType: MediaTypeDOCX, suffix: ".docx", parser: parserKindXberg, validate: validateDOCXFile, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}},
 	{extensions: []string{".odt"}, mediaType: MediaTypeODT, suffix: ".odt", parser: parserKindXberg, validate: validateODTFile, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}},
@@ -90,11 +88,11 @@ var formatSpecs = []formatSpec{
 	{extensions: []string{".xls"}, mediaType: MediaTypeXLS, suffix: ".xls", parser: parserKindXberg, validate: validateXLSFile, mode: extractionModeTable, citations: citationPolicy{headingPath: true}},
 	{extensions: []string{".xlsx"}, mediaType: MediaTypeXLSX, suffix: ".xlsx", parser: parserKindXberg, validate: validateXLSXFile, mode: extractionModeTable, citations: citationPolicy{headingPath: true}},
 	{extensions: []string{".ods"}, mediaType: MediaTypeODS, suffix: ".ods", parser: parserKindXberg, validate: validateODSFile, mode: extractionModeTable, citations: citationPolicy{headingPath: true}},
-	{extensions: []string{".csv"}, mediaType: MediaTypeCSV, suffix: ".csv", parser: parserKindXberg, validate: validateCSVFile, mode: extractionModeTable, citations: citationPolicy{headingPath: true, sourceRowRange: true}},
-	{extensions: []string{".tsv"}, mediaType: MediaTypeTSV, suffix: ".tsv", parser: parserKindXberg, validate: validateTSVFile, mode: extractionModeTable, citations: citationPolicy{headingPath: true, sourceRowRange: true}},
-	{extensions: []string{".ppt"}, mediaType: MediaTypePPT, suffix: ".ppt", parser: parserKindXberg, validate: validatePPTFile, mode: extractionModePaged},
-	{extensions: []string{".pptx"}, mediaType: MediaTypePPTX, suffix: ".pptx", parser: parserKindXberg, validate: validatePPTXFile, mode: extractionModePaged, citations: citationPolicy{headingPath: true, pageRange: true, enforcePageBoundary: true}},
-	{extensions: []string{".odp"}, mediaType: MediaTypeODP, suffix: ".odp", parser: parserKindXberg, validate: validateODPFile, mode: extractionModePaged},
+	{extensions: []string{".csv"}, mediaType: MediaTypeCSV, suffix: ".csv", parser: parserKindXberg, validate: validateCSVFile, mode: extractionModeTable, citations: citationPolicy{headingPath: true}},
+	{extensions: []string{".tsv"}, mediaType: MediaTypeTSV, suffix: ".tsv", parser: parserKindXberg, validate: validateTSVFile, mode: extractionModeTable, citations: citationPolicy{headingPath: true}},
+	{extensions: []string{".ppt"}, mediaType: MediaTypePPT, suffix: ".ppt", parser: parserKindXberg, validate: validatePPTFile, mode: extractionModeNarrative},
+	{extensions: []string{".pptx"}, mediaType: MediaTypePPTX, suffix: ".pptx", parser: parserKindXberg, validate: validatePPTXFile, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true, pageRange: true, enforcePageBoundary: true}},
+	{extensions: []string{".odp"}, mediaType: MediaTypeODP, suffix: ".odp", parser: parserKindXberg, validate: validateODPFile, mode: extractionModeNarrative},
 	{extensions: []string{".html", ".htm"}, mediaType: MediaTypeHTML, suffix: ".html", parser: parserKindXberg, validate: validateHTMLFile, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}},
 	{extensions: []string{".xhtml"}, mediaType: MediaTypeXHTML, suffix: ".xhtml", parser: parserKindXberg, validate: validateXHTMLFile, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}, xbergMediaTypeAliases: []string{MediaTypeHTML}},
 	{extensions: []string{".epub"}, mediaType: MediaTypeEPUB, suffix: ".epub", parser: parserKindXberg, validate: validateEPUBFile, mode: extractionModeNarrative, citations: citationPolicy{headingPath: true}},

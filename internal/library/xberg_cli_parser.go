@@ -176,11 +176,10 @@ func (p *XbergCLIParser) Profile(mediaType string) (string, error) {
 		return "", err
 	}
 	recipe := append(xbergCanonicalArgs(spec), fmt.Sprintf(
-		"mode=%d;heading_path=%t;page_range=%t;source_row_range=%t;page_boundary=%t",
+		"mode=%d;heading_path=%t;page_range=%t;page_boundary=%t",
 		spec.mode,
 		spec.citations.headingPath,
 		spec.citations.pageRange,
-		spec.citations.sourceRowRange,
 		spec.citations.enforcePageBoundary,
 	))
 	recipeHash := sha256.Sum256([]byte(strings.Join(recipe, "\x00")))
@@ -204,12 +203,9 @@ func (p *XbergCLIParser) Parse(ctx context.Context, path, mediaType string) ([]P
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("run Xberg extraction: %w", ctxErr)
 		}
-		if code, deterministic := deterministicXbergExitCode(runErr); deterministic {
-			// The raw snapshot and parser recipe are immutable. A normal child
-			// process exit will therefore repeat; only launch, cancellation,
-			// signal, and other operational failures remain retryable.
-			return nil, fmt.Errorf("%w: Xberg extraction exited with status %d", ErrInvalidParserData, code)
-		}
+		// Xberg does not expose a stable document-vs-runtime exit contract.
+		// Unknown process failures therefore remain retryable under the existing
+		// bounded derivation-attempt policy.
 		return nil, fmt.Errorf("run Xberg extraction: %w", runErr)
 	}
 	var envelope struct {
@@ -227,9 +223,9 @@ func (p *XbergCLIParser) Parse(ctx context.Context, path, mediaType string) ([]P
 		if len(chunks) > 0 {
 			return chunks, nil
 		}
-	case extractionModeNarrative, extractionModePaged:
-		// These modes share Xberg's canonical chunk payload and differ only in
-		// the citation coordinates admitted below.
+	case extractionModeNarrative:
+		// Narrative formats share Xberg's canonical chunk payload; citation
+		// policy determines which coordinates may be exposed below.
 	default:
 		return nil, fmt.Errorf("%w: unsupported extraction mode %d", ErrInvalidParserData, spec.mode)
 	}
@@ -275,22 +271,6 @@ func (p *XbergCLIParser) Parse(ctx context.Context, path, mediaType string) ([]P
 		return enforcePresentationPageBoundaries(chunks)
 	}
 	return chunks, nil
-}
-
-type exitCodeError interface {
-	error
-	ExitCode() int
-}
-
-var _ exitCodeError = (*exec.ExitError)(nil)
-
-func deterministicXbergExitCode(err error) (int, bool) {
-	var exitErr exitCodeError
-	if !errors.As(err, &exitErr) {
-		return 0, false
-	}
-	code := exitErr.ExitCode()
-	return code, code >= 0
 }
 
 func containsMultipleMarkdownHeadings(content string) bool {

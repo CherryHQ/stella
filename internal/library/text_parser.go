@@ -43,8 +43,6 @@ type ParsedChunk struct {
 type ChunkLocator struct {
 	FirstPage   *uint32  `json:"first_page,omitempty"`
 	LastPage    *uint32  `json:"last_page,omitempty"`
-	RowStart    *uint32  `json:"row_start,omitempty"`
-	RowEnd      *uint32  `json:"row_end,omitempty"`
 	HeadingPath []string `json:"heading_path,omitempty"`
 	ByteStart   int      `json:"byte_start"`
 	ByteEnd     int      `json:"byte_end"`
