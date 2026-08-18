@@ -376,6 +376,12 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		return errors.New("group dispatch requires memory.TxGroupCommitter")
 	}
 	groupDispatcher.SetGroupTurnCommitter(groupTurnCommitter)
+	groupDispatcher.SetGroupTriage(channel.NewLLMGroupTriage(
+		func(ctx context.Context, agentID string) (*config.Snapshot, error) {
+			return s.snapshotLoader.Snapshot(ctx, agentID)
+		},
+		intentClassifierStreamFuncBuilder(s.pluginHost),
+	))
 	groupDispatcher.SetGroupEventHub(groupEvents)
 	if err := groupDispatcher.ValidateStartup(); err != nil {
 		return fmt.Errorf("configure group dispatcher: %w", err)

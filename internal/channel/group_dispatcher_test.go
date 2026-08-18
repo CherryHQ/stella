@@ -24,6 +24,12 @@ type recordingGroupPublisher struct {
 	texts []string
 }
 
+type groupTriageFunc func(context.Context, GroupTriageRequest) (bool, string, error)
+
+func (f groupTriageFunc) Decide(ctx context.Context, req GroupTriageRequest) (bool, string, error) {
+	return f(ctx, req)
+}
+
 type eventRecordingGroupPublisher struct {
 	calls  int
 	events []pkgchannel.Event
@@ -303,6 +309,57 @@ func TestGroupDispatcherWebNoMentionSingleMemberFallbackCreatesOneDispatch(t *te
 	}
 	if got := dispatchAgentsByMessage(t, fx.db, fx.message.ID); len(got) != 1 || got[0] != "agent-1" {
 		t.Fatalf("dispatch agents = %v, want [agent-1]", got)
+	}
+}
+
+func TestTriageClassifierActsOnRelevantMessage(t *testing.T) {
+	fx := newDispatcherFixture(t, "telegram", "{}")
+	fx.d.SetGroupTriage(groupTriageFunc(func(_ context.Context, req GroupTriageRequest) (bool, string, error) {
+		if req.AgentID != "agent-1" || req.Message != fx.message.Content {
+			t.Fatalf("unexpected triage request: %+v", req)
+		}
+		return true, "relevant", nil
+	}))
+	row := sqlc.CtxGroupDispatch{GroupID: fx.groupID, AgentID: "agent-1", TriggerSeq: fx.message.Seq, Kind: "wake"}
+	state, err := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	act, reason, degraded := fx.d.triageWake(context.Background(), row, fx.message, state, GroupOutboxEnvelope{})
+	if !act || degraded || reason != "classifier:relevant" {
+		t.Fatalf("act=%v reason=%q degraded=%v", act, reason, degraded)
+	}
+}
+
+func TestUnmentionedPeerSilentWhenOthersMentioned(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	row := sqlc.CtxGroupDispatch{GroupID: fx.groupID, AgentID: "agent-1", TriggerSeq: fx.message.Seq, Kind: "wake"}
+	state, err := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	act, reason, degraded := fx.d.triageWake(context.Background(), row, fx.message, state, GroupOutboxEnvelope{Mentions: []pkgchannel.Mention{{AgentID: "other"}}})
+	if act || degraded || reason != "mentioned_peer" {
+		t.Fatalf("act=%v reason=%q degraded=%v", act, reason, degraded)
+	}
+}
+
+func TestHardCapsPrecedeMention(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_state SET max_agent_posts_per_minute = 1 WHERE id = $1`, fx.groupID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: "agent-1", Content: "already posted"}); err != nil {
+		t.Fatal(err)
+	}
+	row := sqlc.CtxGroupDispatch{GroupID: fx.groupID, AgentID: "agent-1", TriggerSeq: fx.message.Seq, Kind: "wake"}
+	state, err := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	act, reason, _ := fx.d.triageWake(context.Background(), row, fx.message, state, GroupOutboxEnvelope{Mentions: []pkgchannel.Mention{{AgentID: "agent-1"}}})
+	if act || reason != "hard_cap" {
+		t.Fatalf("act=%v reason=%q", act, reason)
 	}
 }
 

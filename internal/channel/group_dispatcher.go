@@ -58,8 +58,12 @@ type GroupDispatcher struct {
 	chat             dispatchChatFunc
 	committer        memory.TxGroupCommitter
 	events           *GroupEventHub
+	triage           GroupTriage
 	replyBufferBytes int
 }
+
+// SetGroupTriage installs the per-agent fast-model decision boundary.
+func (d *GroupDispatcher) SetGroupTriage(triage GroupTriage) { d.triage = triage }
 
 // Coordination bundles the coordinator and its durable group dispatcher. The
 // channel domain builds them together and closes the coordinator<->dispatcher
