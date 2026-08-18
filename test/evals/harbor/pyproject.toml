@@ -11,3 +11,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["stella_harbor"]
+
+[dependency-groups]
+dev = [
+  "pytest>=9.1.1",
+]
