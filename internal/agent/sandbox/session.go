@@ -11,6 +11,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/config"
 	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
+	bridgeplugin "github.com/CherryHQ/stella/plugins/sandbox/bridge"
 	dockerplugin "github.com/CherryHQ/stella/plugins/sandbox/docker"
 	localplugin "github.com/CherryHQ/stella/plugins/sandbox/local"
 	noneplugin "github.com/CherryHQ/stella/plugins/sandbox/none"
@@ -119,6 +120,31 @@ func createHostSession(ctx context.Context, cfg Config) (pkgsandbox.Session, err
 	return session, nil
 }
 
+// createBridgeSession creates an evaluation session whose execution is
+// forwarded through a harness bridge into a benchmark task container. It
+// still builds the base policy so vault/OAuth env and mise prep behave as on
+// every other backend; the bridge factory then rewrites filesystem coordinates
+// to the container's. No binding or unreachable bridge is a hard error.
+func createBridgeSession(ctx context.Context, cfg Config) (pkgsandbox.Session, error) {
+	_, policy, _, err := buildBasePolicy(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	slog.Info("creating bridge session",
+		"component", "runner_sandbox",
+		"user_id", cfg.UserID,
+	)
+	session, err := bridgeplugin.NewFactory(bridgeplugin.Config{
+		BindingDir: config.EvalBridgeBindingDir(),
+		UserID:     cfg.UserID,
+		GroupID:    cfg.GroupID,
+	}).CreateSession(ctx, policy)
+	if err != nil {
+		return nil, fmt.Errorf("create bridge session: %w", err)
+	}
+	return session, nil
+}
+
 // buildBasePolicy resolves paths and builds the backend-agnostic base policy
 // (filesystem, network, env). Backend-specific adjustments are applied by
 // each factory's CreateSession.
@@ -208,6 +234,8 @@ func createSessionForBackend(ctx context.Context, cfg Config, name string) (pkgs
 		return createLocalSession(ctx, cfg)
 	case config.SandboxBackendNone:
 		return createHostSession(ctx, cfg)
+	case config.SandboxBackendBridge:
+		return createBridgeSession(ctx, cfg)
 	default:
 		return nil, fmt.Errorf("unknown sandbox backend: %q", name)
 	}

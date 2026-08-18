@@ -8,6 +8,9 @@ const (
 	SandboxBackendDocker = "docker"
 	SandboxBackendLocal  = "local"
 	SandboxBackendNone   = "none"
+	// SandboxBackendBridge is evaluation-only: commands and files go through a
+	// harness-owned bridge into a benchmark task container. See plugins/sandbox/bridge.
+	SandboxBackendBridge = "bridge"
 
 	SandboxNetworkDisabled = "disabled"
 	SandboxNetworkAllowAll = "allow_all"
