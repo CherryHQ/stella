@@ -934,6 +934,62 @@ func TestGroupDispatcherPublishFailureLeavesResultEmptyAndRequeues(t *testing.T)
 	}
 }
 
+// Retrying an accepted-but-unpublished row is egress compensation, not a new
+// speaking decision. Triage would count the agent's own committed post and go
+// silent, leaving a reply that peers can read and humans never receive.
+func TestGroupDispatcherRepublishesAcceptedResultDespiteHardCap(t *testing.T) {
+	ctx := context.Background()
+	fx := newDispatcherFixture(t, "web", `{}`)
+	boom := errors.New("boom")
+	publisher := &recordingGroupPublisher{err: boom}
+	fx.d.publishers.Register("ch-1", publisher)
+	if err := fx.q.CreateGroupDispatch(ctx, sqlc.CreateGroupDispatchParams{
+		ID:             "d15a0000-0000-0000-0000-000000000031",
+		GroupMessageID: fx.message.ID,
+		GroupID:        fx.groupID,
+		AgentID:        "agent-1",
+		ReplyChannelID: "ch-1",
+		Status:         "pending",
+		LastError:      "",
+	}); err != nil {
+		t.Fatalf("create dispatch: %v", err)
+	}
+	dispatch, err := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000031")
+	if err != nil {
+		t.Fatalf("get dispatch: %v", err)
+	}
+	if err := fx.d.ExecuteDispatch(ctx, dispatch); err == nil {
+		t.Fatal("expected publisher error")
+	}
+
+	publisher.err = nil
+	// Any triage branch would refuse now; the accepted post itself is what the
+	// cap counts.
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_state SET max_replies_per_human_trigger = 0 WHERE id = $1`, fx.groupID); err != nil {
+		t.Fatalf("tighten cap: %v", err)
+	}
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET next_attempt_at = NULL WHERE id = 'd15a0000-0000-0000-0000-000000000031'`); err != nil {
+		t.Fatalf("make dispatch due: %v", err)
+	}
+	dispatch, err = fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000031")
+	if err != nil {
+		t.Fatalf("get dispatch before retry: %v", err)
+	}
+	if err := fx.d.ExecuteDispatch(ctx, dispatch); err != nil {
+		t.Fatalf("retry dispatch: %v", err)
+	}
+	if publisher.calls != 2 {
+		t.Fatalf("publisher calls = %d, want the accepted reply republished", publisher.calls)
+	}
+	dispatch, err = fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000031")
+	if err != nil {
+		t.Fatalf("get dispatch after retry: %v", err)
+	}
+	if !dispatch.PublishedAt.Valid {
+		t.Fatalf("dispatch status = %q, published = %v, want published", dispatch.Status, dispatch.PublishedAt.Valid)
+	}
+}
+
 func TestGroupDispatcherWritebackFailureLeavesResultEmptyAndRequeues(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	publisher := &recordingGroupPublisher{}

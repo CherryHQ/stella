@@ -502,6 +502,25 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		d.log.Debug("ignoring invalid group outbox publish metadata", "dispatch_id", claimed.ID, "error", err)
 		envelope = GroupOutboxEnvelope{}
 	}
+	publisher, err := d.publisherFor(state, claimed)
+	if err != nil {
+		return d.failDispatch(ctx, claimed, err)
+	}
+	// Egress compensation runs before triage on purpose. The reply is already
+	// committed and visible to peers; re-triaging it would count that very post
+	// (hard_cap, agent_lap) and go silent, leaving the message readable by
+	// agents and never delivered to the humans.
+	if claimed.ResultMessageID != "" {
+		if claimed.PublishedAt.Valid {
+			return d.completeDispatch(ctx, claimed)
+		}
+		accepted, err := d.q.GetGroupMessage(ownedCtx, claimed.ResultMessageID)
+		if err != nil {
+			return d.failDispatch(ctx, claimed, fmt.Errorf("get accepted group result: %w", err))
+		}
+		d.log.Warn("replaying accepted group reply from canonical text after buffer loss", "dispatch_id", claimed.ID, "result_message_id", accepted.ID, "upgrade_trigger", "cross-process rich replay requires BlobStore event spooling")
+		return d.publishAccepted(ownedCtx, claimed, message, state, publisher, groupResponseFromMessage(accepted))
+	}
 	// Nudges triage too: recovery may hand an agent the floor, but it must not
 	// bypass the hard caps that keep a stalled group from turning into a flood.
 	if claimed.Kind == "wake" || claimed.Kind == "nudge" {
@@ -516,21 +535,6 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 			_, err := d.q.MarkGroupDispatchSilent(ctx, sqlc.MarkGroupDispatchSilentParams{ID: claimed.ID, AttemptCount: claimed.AttemptCount, Reason: reason})
 			return err
 		}
-	}
-	publisher, err := d.publisherFor(state, claimed)
-	if err != nil {
-		return d.failDispatch(ctx, claimed, err)
-	}
-	if claimed.ResultMessageID != "" {
-		if claimed.PublishedAt.Valid {
-			return d.completeDispatch(ctx, claimed)
-		}
-		accepted, err := d.q.GetGroupMessage(ownedCtx, claimed.ResultMessageID)
-		if err != nil {
-			return d.failDispatch(ctx, claimed, fmt.Errorf("get accepted group result: %w", err))
-		}
-		d.log.Warn("replaying accepted group reply from canonical text after buffer loss", "dispatch_id", claimed.ID, "result_message_id", accepted.ID, "upgrade_trigger", "cross-process rich replay requires BlobStore event spooling")
-		return d.publishAccepted(ownedCtx, claimed, message, state, publisher, groupResponseFromMessage(accepted))
 	}
 	agentName := claimed.AgentID
 	if a, err := d.q.GetAgent(ownedCtx, claimed.AgentID); err == nil && a.Name != "" {
