@@ -17,6 +17,8 @@ type operationHandlerSurface interface {
 	pkgchannel.Handler
 	RegisterBotIdentity(platform, platformBotID, channelID string)
 	UnregisterBotIdentity(platform, platformBotID, channelID string)
+	RegisterBotName(platform, displayName, channelID string)
+	UnregisterBotName(platform, displayName, channelID string)
 	RegisterGroupPublisher(channelID string, publisher GroupPublisher)
 	UnregisterGroupPublisher(channelID string)
 	ProvisionUser(ctx context.Context, req pkgchannel.ProvisionRequest) error

@@ -179,6 +179,14 @@ type BotRegistrar interface {
 	RegisterBotIdentity(platform, platformBotID, channelID string)
 }
 
+// BotNameRegistrar is an optional capability that a Handler may implement.
+// It exists for platforms whose bot ids are scoped to the receiving app
+// (Feishu open_id), where no id lets one app recognise another app's bot and
+// the display name is the only shared identity.
+type BotNameRegistrar interface {
+	RegisterBotName(platform, displayName, channelID string)
+}
+
 // AssetSaver is an optional capability that a Handler may implement. Channel
 // plugins assert for it to persist inbound bytes. Identity and workspace
 // selection remain entirely host-owned.

@@ -1264,3 +1264,25 @@ func TestValidCardAction(t *testing.T) {
 		}
 	}
 }
+
+// A multi-bot group carries "who was addressed" only inside the mention, so the
+// text an agent reads must keep the name. Stripping it made every member read
+// "我在问 ，你别说话" as addressed to itself.
+func TestRenderMentionsKeepsNames(t *testing.T) {
+	key1, name1 := "@_user_1", "Coder"
+	key2, name2 := "@_user_2", "StellaDev"
+	mentions := []*larkim.MentionEvent{{Key: &key1, Name: &name1}, {Key: &key2, Name: &name2}}
+	got := renderMentions("@_user_1 我在问 @_user_2，你别说话", mentions)
+	if want := "@Coder 我在问 @StellaDev，你别说话"; got != want {
+		t.Errorf("renderMentions = %q, want %q", got, want)
+	}
+}
+
+// A placeholder with no name carries nothing worth showing; it still falls away.
+func TestRenderMentionsDropsUnnamedPlaceholder(t *testing.T) {
+	key := "@_user_1"
+	got := renderMentions("hello @_user_1 world", []*larkim.MentionEvent{{Key: &key}})
+	if want := "hello  world"; got != want {
+		t.Errorf("renderMentions = %q, want %q", got, want)
+	}
+}

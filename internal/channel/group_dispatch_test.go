@@ -43,6 +43,37 @@ func TestBotIdentityRegistry(t *testing.T) {
 	}
 }
 
+// A Feishu open_id is scoped to the receiving app, so a peer bot's id never
+// matches what that peer registered for itself. The display name is the only
+// identity shared across apps -- and an ambiguous one is worse than none.
+func TestBotIdentityRegistryNameFallback(t *testing.T) {
+	reg := NewBotIdentityRegistry()
+	reg.RegisterName("feishu", "StellaDev", "ch-dev")
+
+	if id, ok := reg.ChannelIDForBotName("feishu", "stelladev"); !ok || id != "ch-dev" {
+		t.Fatalf("case-insensitive lookup = %q (ok=%v), want ch-dev", id, ok)
+	}
+	if _, ok := reg.ChannelIDForBotName("telegram", "StellaDev"); ok {
+		t.Fatal("name lookup crossed platforms")
+	}
+
+	reg.RegisterName("feishu", "StellaDev", "ch-other")
+	if _, ok := reg.ChannelIDForBotName("feishu", "StellaDev"); ok {
+		t.Fatal("an ambiguous name must not resolve")
+	}
+
+	reg.UnregisterName("feishu", "Coder", "ch-coder")
+	reg.RegisterName("feishu", "Coder", "ch-coder")
+	reg.UnregisterName("feishu", "Coder", "someone-else")
+	if _, ok := reg.ChannelIDForBotName("feishu", "Coder"); !ok {
+		t.Fatal("mismatched unregister removed the name")
+	}
+	reg.UnregisterName("feishu", "Coder", "ch-coder")
+	if _, ok := reg.ChannelIDForBotName("feishu", "Coder"); ok {
+		t.Fatal("expected the name to be removed")
+	}
+}
+
 func TestContentBlocksToText(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -335,11 +366,20 @@ func TestResolveMentionAgents(t *testing.T) {
 		botRegistry: reg,
 	}
 
+	// Resolution and the membership filter are separate steps now (resolution
+	// runs before the group is known so the stored text can name agents), but
+	// together they must still answer exactly what the group sees.
+	resolve := func(t *testing.T, mentions []pkgchannel.Mention) {
+		t.Helper()
+		coord.resolveMentionAgents(ctx, "telegram", mentions)
+		coord.clearNonMemberMentions("telegram", mentions, fetchMembers(t, groupID))
+	}
+
 	t.Run("known bot resolves to agent", func(t *testing.T) {
 		mentions := []pkgchannel.Mention{
 			{Raw: "@bot1_username", PlatformID: "bot1_username"},
 		}
-		coord.resolveMentionAgentsWithMembers(ctx, groupID, "telegram", mentions, fetchMembers(t, groupID))
+		resolve(t, mentions)
 		if mentions[0].AgentID != agentID {
 			t.Errorf("expected AgentID=%q, got %q", agentID, mentions[0].AgentID)
 		}
@@ -349,7 +389,7 @@ func TestResolveMentionAgents(t *testing.T) {
 		mentions := []pkgchannel.Mention{
 			{Raw: "@unknown_bot", PlatformID: "unknown_bot"},
 		}
-		coord.resolveMentionAgentsWithMembers(ctx, groupID, "telegram", mentions, fetchMembers(t, groupID))
+		resolve(t, mentions)
 		if mentions[0].AgentID != "" {
 			t.Errorf("expected empty AgentID for unknown bot, got %q", mentions[0].AgentID)
 		}
@@ -369,9 +409,37 @@ func TestResolveMentionAgents(t *testing.T) {
 		mentions := []pkgchannel.Mention{
 			{Raw: "@bot2_username", PlatformID: "bot2_username"},
 		}
-		coord.resolveMentionAgentsWithMembers(ctx, groupID, "telegram", mentions, fetchMembers(t, groupID))
+		resolve(t, mentions)
 		if mentions[0].AgentID != "" {
 			t.Errorf("expected empty AgentID for non-member bot, got %q", mentions[0].AgentID)
+		}
+	})
+
+	// An agent knows its peers by their Stella names, which is what the group
+	// prompt lists. A platform display name is a different namespace, so an
+	// addressed agent cannot tell it was the one addressed.
+	t.Run("resolved mention is rewritten to the Stella agent name", func(t *testing.T) {
+		mentions := []pkgchannel.Mention{
+			{Raw: "bot1_username", PlatformID: "bot1_username"},
+		}
+		resolve(t, mentions)
+		got := coord.rewriteMentionsToAgentNames(ctx, mentions, []ai.ContentBlock{
+			ai.TextContent{Text: "@bot1_username 你来"},
+		})
+		text := contentBlocksToText(got)
+		if want := "@Stella 你来"; text != want {
+			t.Errorf("rewritten text = %q, want %q", text, want)
+		}
+	})
+
+	t.Run("unresolved mention keeps the platform name", func(t *testing.T) {
+		mentions := []pkgchannel.Mention{{Raw: "stranger", PlatformID: "stranger"}}
+		resolve(t, mentions)
+		got := coord.rewriteMentionsToAgentNames(ctx, mentions, []ai.ContentBlock{
+			ai.TextContent{Text: "@stranger 你来"},
+		})
+		if text := contentBlocksToText(got); text != "@stranger 你来" {
+			t.Errorf("rewritten text = %q, want it unchanged", text)
 		}
 	})
 
@@ -379,7 +447,7 @@ func TestResolveMentionAgents(t *testing.T) {
 		mentions := []pkgchannel.Mention{
 			{Raw: "@bot1_username", PlatformID: "bot1_username", AgentID: "pre-set"},
 		}
-		coord.resolveMentionAgentsWithMembers(ctx, groupID, "telegram", mentions, fetchMembers(t, groupID))
+		coord.resolveMentionAgents(ctx, "telegram", mentions)
 		if mentions[0].AgentID != "pre-set" {
 			t.Errorf("expected pre-set AgentID to be preserved, got %q", mentions[0].AgentID)
 		}

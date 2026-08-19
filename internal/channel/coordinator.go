@@ -336,6 +336,22 @@ func (c *Coordinator) UnregisterBotIdentity(platform, platformBotID, channelID s
 	c.botRegistry.Unregister(platform, platformBotID, channelID)
 }
 
+// RegisterBotName records a bot's platform display name as the cross-app
+// fallback identity. Implements pkgchannel.BotNameRegistrar.
+func (c *Coordinator) RegisterBotName(platform, displayName, channelID string) {
+	if c.botRegistry == nil {
+		return
+	}
+	c.botRegistry.RegisterName(platform, displayName, channelID)
+}
+
+func (c *Coordinator) UnregisterBotName(platform, displayName, channelID string) {
+	if c.botRegistry == nil {
+		return
+	}
+	c.botRegistry.UnregisterName(platform, displayName, channelID)
+}
+
 func (c *Coordinator) RegisterGroupPublisher(channelID string, publisher GroupPublisher) {
 	if c.publisherRegistry == nil {
 		return

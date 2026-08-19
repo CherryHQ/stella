@@ -311,7 +311,7 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetMsg channel.Inc
 	switch msgType {
 	case "text":
 		text := parseTextContent(rawContent)
-		text = stripMentions(text, msg.Mentions)
+		text = renderMentions(text, msg.Mentions)
 		if strings.TrimSpace(text) == "" {
 			return nil
 		}
@@ -322,7 +322,7 @@ func (b *Bot) buildMessageContent(msg *larkim.EventMessage, assetMsg channel.Inc
 			return nil
 		}
 		text, imageKeys := parsePostBlocks(rawContent)
-		text = stripMentions(text, msg.Mentions)
+		text = renderMentions(text, msg.Mentions)
 		if len(imageKeys) == 0 {
 			if strings.TrimSpace(text) == "" {
 				logger().Warn("post message produced no usable content", "message_id", messageID)
