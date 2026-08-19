@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.64.1] - 2026-08-19
+
+### ✨ Features
+
+- The web chat composer stays usable while the model answers: typing is no longer blocked, `Escape` stops the turn, drafts keep their `/skill` chips and attachments, `ArrowUp` recalls the last sent message, and `/` skills and `@` mentions now share one autocomplete mechanism. Failed uploads stay visible with a retry instead of silently vanishing, a file dropped anywhere in the app attaches, and a paste over 4000 characters becomes an attachment. Sent attachments show their real filename and open in a read-only preview (text, markdown, highlighted source, native PDF viewer) instead of dumping raw bytes in a new tab. ([#1047](https://github.com/CherryHQ/stella/pull/1047))
+- The Library accepts structured document formats through one Stella-owned format registry: uploaded bytes are validated against the declared extension before publication, the persisted media type becomes the trusted format identity, and citations expose only coordinates the parser proves, degrading to worksheet, page/slide, heading, or filename-only rather than fabricating positions. Markdown stays on the built-in text parser; OCR and embeddings are still out of scope. ([#1050](https://github.com/CherryHQ/stella/pull/1050), [#998](https://github.com/CherryHQ/stella/issues/998))
+- Docker sandboxes can run on a registered OCI runtime such as gVisor's `runsc` through `STELLA_DOCKER_RUNTIME`, without changing Docker's global default. Runtime selection never silently falls back, rootful and rootless daemons each get the correct container identity so bind mounts stay writable, and sandbox creation fails closed when the daemon cannot enforce Stella's memory, swap, CPU, and PID ceilings. ([#1063](https://github.com/CherryHQ/stella/pull/1063))
+
+### 🐛 Bug Fixes
+
+- Legacy Project coordinates and PostgreSQL-backed Skills are now reconciled in the background after `stellad server` starts listening, instead of failing startup. The v0.64 storage cutover turned recoverable historical data into fatal startup errors, where one misplaced Project or one stale Skill mirror could put a deployment into a restart loop. Unresolved Projects are marked unavailable and repairable; everything else keeps running. Removes the obsolete `stellad storage migrate-skills` command. ([#1049](https://github.com/CherryHQ/stella/pull/1049))
+- Anonymous `HEAD` requests to public artifact shares no longer return 401. The auth exemption for `/api/shares/public/{token}` covered only `GET`, which broke metadata and probing clients. ([#1044](https://github.com/CherryHQ/stella/pull/1044))
+- Pressing Enter to confirm an IME candidate (pinyin and similar) no longer sends the chat message. ([#1045](https://github.com/CherryHQ/stella/pull/1045))
+
+### 🔧 CI
+
+- GitHub Actions moved onto the Node 24 runtime: eleven actions whose pinned major predated their Node 24 release are bumped, and the `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` escape hatch is removed from all four workflows. ([#1043](https://github.com/CherryHQ/stella/pull/1043))
+
+**Full Changelog**: [v0.64.0...v0.64.1](https://github.com/CherryHQ/stella/compare/v0.64.0...v0.64.1)
+
 ## [0.64.0] - 2026-08-16
 
 ### ⚠️ Breaking Changes

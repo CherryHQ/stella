@@ -11,6 +11,26 @@ icon: History
 
 ## [Unreleased]
 
+## [0.64.1] - 2026-08-19
+
+### ✨ 功能
+
+- Web 聊天输入框在模型回答期间保持可用：不再锁定输入，`Escape` 可中断本轮，草稿会连同 `/skill` chip 和附件一起保留，`ArrowUp` 可召回上一条已发送消息，`/` 技能与 `@` 提及统一到同一套自动补全机制。上传失败的文件会带重试按钮留在原地而不是无声消失，拖到应用任意位置的文件都会被附加，超过 4000 字符的粘贴会转成附件。已发送的附件显示真实文件名，并在只读预览中打开（文本、Markdown、语法高亮源码、浏览器原生 PDF 阅读器），不再直接在新标签页里甩出原始字节。([#1047](https://github.com/CherryHQ/stella/pull/1047))
+- 知识库支持结构化文档格式，由一份 Stella 自有的格式登记表统一管理：上传字节在发布前先与声明的扩展名校验，落库的 media type 成为后续唯一可信的格式身份，引用只暴露解析器能证明的坐标，必要时降级为工作表、页/幻灯片、标题或仅文件名，而不是编造位置。Markdown 仍走内置文本解析器；OCR 与向量化仍不在范围内。([#1050](https://github.com/CherryHQ/stella/pull/1050), [#998](https://github.com/CherryHQ/stella/issues/998))
+- Docker 沙箱可通过 `STELLA_DOCKER_RUNTIME` 使用已注册的 OCI 运行时（如 gVisor 的 `runsc`），无需改动 Docker 全局默认值。运行时选择绝不静默回退；rootful 与 rootless 守护进程各自采用正确的容器身份，使绑定挂载保持可写；当守护进程无法强制执行 Stella 的内存、swap、CPU 与 PID 上限时，沙箱创建直接失败而非静默放行。([#1063](https://github.com/CherryHQ/stella/pull/1063))
+
+### 🐛 修复
+
+- 遗留的 Project 坐标与 PostgreSQL 中的 Skill 现在改为在 `stellad server` 开始监听之后后台协调，不再阻塞启动。v0.64 的存储切换把本可恢复的历史数据当成致命启动错误，一个位置不对的 Project 或一份陈旧的 Skill 镜像就可能让整个部署陷入重启循环。无法解析的 Project 会被标记为不可用并可修复，其余部分照常运行。同时移除已废弃的 `stellad storage migrate-skills` 命令。([#1049](https://github.com/CherryHQ/stella/pull/1049))
+- 对公开分享的匿名 `HEAD` 请求不再返回 401。`/api/shares/public/{token}` 的鉴权豁免此前只覆盖 `GET`，导致元数据探测类客户端失效。([#1044](https://github.com/CherryHQ/stella/pull/1044))
+- 用回车确认拼音等输入法候选词时不再误发聊天消息。([#1045](https://github.com/CherryHQ/stella/pull/1045))
+
+### 🔧 CI
+
+- GitHub Actions 迁移到 Node 24 运行时：升级十一个主版本早于其 Node 24 发布的 action，并从四个 workflow 中移除 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` 兜底开关。([#1043](https://github.com/CherryHQ/stella/pull/1043))
+
+**Full Changelog**: [v0.64.0...v0.64.1](https://github.com/CherryHQ/stella/compare/v0.64.0...v0.64.1)
+
 ## [0.64.0] - 2026-08-16
 
 ### ⚠️ 重大变更
