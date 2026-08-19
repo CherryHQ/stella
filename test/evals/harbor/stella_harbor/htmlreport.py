@@ -13,10 +13,39 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .report import RESOLVED, _int, _usd, reliability
+from .taxonomy import breakdown
 
 # Phase colours for the timing bar. model/tool are the two that matter; the
 # harness phases share one colour because their job is to stay invisible.
 PHASE_COLORS = {"model": "#4c8bf5", "tool": "#e8873a", "other": "#8a8f98"}
+
+# Every column a reader has to interpret carries its explanation, because a
+# report nobody can read is a report nobody checks.
+HEADER_HELP = {
+    "task": "the benchmark task; one row per attempt, so a task repeats",
+    "reward": "the task's own grader. 1.00 is fully solved; anything less is not",
+    "valid": "did we prove the agent worked inside the trial container. NO means the "
+             "attempt is excluded from the score entirely, as neither pass nor fail",
+    "state": "how the turn ended",
+    "wall": "total time for the attempt",
+    "model": "time the model spent thinking between messages",
+    "tool": "time tool calls took, measured from the message timeline, so it includes "
+            "Stella's own dispatch overhead",
+    "bridge": "time actually spent executing inside the container. wall minus this is "
+              "overhead outside the task",
+    "turns": "how many times the model replied",
+    "calls": "how many tool calls it made",
+    "errs": "how many of those tool calls failed",
+    "in.tok": "prompt tokens, as reported by the provider",
+    "out.tok": "completion tokens, as reported by the provider",
+    "cost": "USD, priced at the model's configured rate. A dash means the provider "
+            "reported no usage or the model has no price; it never means free",
+    "trials": "attempts at this task",
+    "scoreable": "attempts that produced usable evidence",
+    "resolved": "attempts that earned full reward",
+    "pass^k": "did every scoreable attempt resolve. One lucky pass out of five is not "
+              "a task the agent can do",
+}
 
 
 def _esc(value: Any) -> str:
@@ -33,7 +62,9 @@ def _secs(ms: Any) -> str:
 def _table(headers: list[str], rows: list[list[str]], cls: str = "") -> str:
     if not rows:
         return ""
-    head = "".join(f"<th>{_esc(h)}</th>" for h in headers)
+    head = "".join(
+        f'<th title="{_esc(HEADER_HELP[h])}"><abbr>{_esc(h)}</abbr></th>' if h in HEADER_HELP
+        else f"<th>{_esc(h)}</th>" for h in headers)
     body = "".join("<tr>" + "".join(f"<td>{c}</td>" for c in r) + "</tr>" for r in rows)
     return f'<table class="{cls}"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>'
 
@@ -160,6 +191,11 @@ def render_html(rows: list[dict[str, Any]], job_dir: str = "") -> str:
                        f'<p>The harness broke, not the task. A capable agent routes around a broken '
                        f'tool and still scores, so reward hides these.</p><ul>{items}</ul></section>')
 
+    failures = [b for b in breakdown(rows) if b["label"] not in {"resolved", "invalid"}]
+    failure_rows = [[_esc(b["label"]), str(b["count"]), _esc(b["description"]),
+                     f'<span class="dim">{_esc(b["example_task"])}: {_esc(b["example_reason"])}</span>']
+                    for b in failures]
+
     trial_rows = [[
         _esc(r["task"]),
         "-" if r["reward"] is None else format(r["reward"], ".2f"),
@@ -191,6 +227,12 @@ def render_html(rows: list[dict[str, Any]], job_dir: str = "") -> str:
                   f'<span class="{"bad-text" if s["errors"] else ""}">{s["errors"]}</span>',
                   _secs(s["total_ms"]), _secs(s["max_ms"])]
                  for n, s in sorted(tools.items(), key=lambda kv: -kv[1]["total_ms"])]
+
+    failure_block = ""
+    if failure_rows:
+        failure_block = ('<h2>Why trials failed <span class="dim">'
+                         "a pass rate says how often, this says why</span></h2>"
+                         + _table(["failure", "count", "meaning", "example"], failure_rows))
 
     details = "".join(_trial_detail(r) for r in rows)
 
@@ -224,6 +266,9 @@ td:not(:first-child), th:not(:first-child) {{ text-align: right; }}
 .legend {{ font-size: .78rem; color: #8a8f98; }}
 .key {{ margin-right: 1rem; }} .key i {{ display: inline-block; width: .6rem; height: .6rem;
   border-radius: 2px; margin-right: .3rem; }}
+.howto {{ background: rgba(128,128,128,.07); }}
+.howto p {{ margin: .5rem 0; }}
+abbr {{ text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; }}
 details {{ border: 1px solid rgba(128,128,128,.25); border-radius: 8px; padding: .6rem .9rem; margin: .5rem 0; }}
 summary {{ cursor: pointer; }} .detail {{ padding-top: .5rem; }}
 ul {{ margin: .3rem 0; padding-left: 1.1rem; }}
@@ -234,6 +279,19 @@ footer {{ margin-top: 3rem; color: #8a8f98; font-size: .8rem; }}
 <section>{headline}</section>
 <ul class="dim">{"".join(f"<li>{_esc(n)}</li>" for n in notes)}</ul>
 {fault_block}
+<details class="howto"><summary>How to read this</summary>
+<p>One row per attempt, so the same task appears once per repeat. Two columns
+decide the outcome: <b>reward</b> is the task's own grader, and <b>valid</b> is
+our own evidence check that the agent really worked inside the trial container.
+A <b>NO</b> row counts as neither a pass nor a failure; it produced no evidence,
+so it leaves the score entirely and is listed separately.</p>
+<p>The resolution rate is a percentage with a confidence interval, and the
+interval is the part that matters: five attempts cannot tell you much, however
+they land. <b>pass^k</b> asks the stricter question of whether every attempt at
+a task succeeded, which is what separates a capability from a lucky run.</p>
+<p>Hover any column heading for what it measures.</p></details>
+
+{failure_block}
 <h2>Trials</h2>
 {_table(["task", "reward", "valid", "state", "wall", "model", "tool", "bridge", "turns", "calls", "errs", "est.tok"], trial_rows)}
 <h2>Per task</h2>

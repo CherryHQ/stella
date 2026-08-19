@@ -152,3 +152,50 @@ def test_a_trial_without_reported_usage_shows_no_cost_rather_than_zero(tmp_path)
 
     assert "$0.00" not in out
     assert "1 trial(s) have no cost" in out
+
+
+def test_taxonomy_separates_the_three_failure_modes():
+    from stella_harbor.taxonomy import classify
+
+    finished_wrong = {"valid": True, "reward": 0.0, "state": "completed", "calls": 6, "tool_errors": 0}
+    assert classify(finished_wrong)[0] == "verification"
+
+    gave_up = {"valid": True, "reward": 0.0, "state": "completed", "calls": 0, "tool_errors": 0}
+    assert classify(gave_up)[0] == "coherence"
+
+    broke = {"valid": True, "reward": 0.0, "state": "errored", "calls": 3, "tool_errors": 1}
+    assert classify(broke)[0] == "execution"
+
+    ran_out = {"valid": True, "reward": 0.0, "state": "stopped", "calls": 4, "timed_out": True}
+    assert classify(ran_out)[0] == "timeout"
+
+
+def test_taxonomy_refuses_to_guess():
+    # An unexplained failure has to stay visible. Folding it into whichever
+    # bucket looks plausible is how a failure breakdown stops being evidence.
+    from stella_harbor.taxonomy import classify
+
+    label, why = classify({"valid": True, "reward": None, "state": "stopped", "calls": 2})
+    assert label == "unclassified" and "no reward" in why
+
+
+def test_a_resolved_trial_is_not_a_failure():
+    from stella_harbor.taxonomy import breakdown
+
+    rows = [{"valid": True, "reward": 1.0, "state": "completed", "calls": 2, "task": "t"}]
+    assert [b["label"] for b in breakdown(rows)] == ["resolved"]
+
+
+def test_html_report_explains_why_trials_failed():
+    from stella_harbor.htmlreport import render_html
+
+    row = {"task": "t", "reward": 0.0, "valid": True, "state": "completed", "wall_ms": 1000,
+           "model_ms": 600, "tool_ms": 300, "bridge_ms": 280, "turns": 2, "calls": 6,
+           "tool_errors": 0, "est_tokens": 10, "timed_out": False, "tools": {},
+           "violations": [], "adapter_faults": [], "metrics": {}, "ledger": [], "usage": {}}
+
+    out = render_html([row], "jobs/demo")
+
+    assert "Why trials failed" in out
+    assert "verification" in out
+    assert "How to read this" in out

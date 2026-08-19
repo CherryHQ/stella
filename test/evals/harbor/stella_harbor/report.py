@@ -18,6 +18,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from .taxonomy import breakdown
+
 TRIAL_COLUMNS = [
     ("task", 24), ("reward", 6), ("valid", 5), ("state", 9), ("wall", 7),
     ("model", 7), ("tool", 7), ("bridge", 7), ("turns", 5), ("calls", 5),
@@ -89,6 +91,7 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
             "est_tokens": (metrics.get("tokens_estimated") or {}).get("total"),
             "usage": metrics.get("usage") or {},
             "timed_out": adapter.get("timed_out"),
+            "stream_errors": adapter.get("stream_errors") or [],
             "tools": metrics.get("tools") or {},
             "violations": adapter.get("predicate_violations") or [],
             # Kept whole for the HTML report, which shows per-trial detail the
@@ -217,6 +220,14 @@ def render(rows: list[dict[str, Any]]) -> str:
             lines.append(
                 f"{name[:20]:20} {stat['calls']:5}  {stat['errors']:4}  "
                 f"{_seconds(stat['total_ms']):7}  {_seconds(stat['max_ms'])}")
+
+    failures = [b for b in breakdown(rows) if b["label"] not in {"resolved", "invalid"}]
+    if failures:
+        lines.append("")
+        lines.append("failure                 count  why")
+        for b in failures:
+            lines.append(f"{b['label'][:22]:22}  {b['count']:5}  {b['description']}")
+            lines.append(f"{'':22}         e.g. {b['example_task']}: {b['example_reason']}")
 
     priced = [r for r in rows if (r.get("usage") or {}).get("cost_usd") is not None]
     lines.append("")
