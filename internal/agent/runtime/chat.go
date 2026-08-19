@@ -368,7 +368,11 @@ func withSessionIdentity(ctx context.Context, info session.Info) context.Context
 		// mint a Stella user identity for the guest's UUID-shaped owner key.
 		return authz.WithGuestID(ctx, info.GuestID)
 	case info.GroupID != "":
-		return authz.WithGroupID(ctx, info.GroupID)
+		// A confined GroupAgentActor needs both ids, and the runner (with its
+		// skills prompt) is built at admission, before chatWithRunner attaches
+		// the agent id. Carrying it here is what keeps a platform-group turn from
+		// failing its skill authorization with authz: invalid actor.
+		return authz.WithAgentID(authz.WithGroupID(ctx, info.GroupID), info.AgentID)
 	default:
 		return authz.WithUserID(ctx, info.UserID)
 	}
