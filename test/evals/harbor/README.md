@@ -120,6 +120,37 @@ failure taxonomy and a public run log are built from, so it is stored verbatim
 rather than reshaped into the driver's own structs. A history that fills one
 page is recorded as `trajectory_truncated`.
 
+## Comparing against a baseline agent
+
+A Stella score means little on its own. `stella_harbor.pi_gateway` runs upstream
+pi inside the same task containers on the same model, which is the closest thing
+to a controlled baseline:
+
+```bash
+set -a; . ./.env; set +a   # OPENAI_BASE_URL and OPENAI_API_KEY
+uv run --project test/evals/harbor harbor run -d terminal-bench@2.0 \
+  -a stella_harbor.pi_gateway:PiGateway -m gateway/gpt-5.6-terra \
+  -i regex-log -k 2 -n 4 -o dist/evals/jobs/pi-sample -q
+```
+
+The `gateway` provider exists because pi resolves the base URL of its built-in
+`openai` provider from its own model registry and ignores `OPENAI_BASE_URL`, so
+a key for an OpenAI-compatible gateway is sent to api.openai.com and 401s. The
+adapter writes a `~/.pi/agent/models.json` naming the gateway instead, priced to
+match Stella's eval provider so the two cost columns mean the same thing.
+
+Then put the two jobs side by side:
+
+```bash
+uv run --project test/evals/harbor python -m stella_harbor.compare \
+  dist/evals/jobs/sample dist/evals/jobs/pi-sample --names stella pi
+```
+
+The comparison reads only what every Harbor agent writes (reward and the
+agent's own reported usage), so it works against a downloaded community job too.
+A missing Stella adapter result is reported as "no evidence contract", never as
+a failed one.
+
 ## Publishing a run
 
 `harbor upload <job>/<timestamp>` sends the whole trial directory to the Harbor
