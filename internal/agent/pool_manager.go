@@ -137,10 +137,6 @@ func WithProjectResolver(r ProjectResolverFunc) PoolManagerOption {
 	return func(pm *PoolManager) { pm.projectResolver = r }
 }
 
-func WithProjectEnsurerPM(fn ProjectEnsurerFunc) PoolManagerOption {
-	return func(pm *PoolManager) { pm.projectEnsurer = fn }
-}
-
 // WithHomeWorkspace supplies the sole persistent Home resolver for runners.
 func WithHomeWorkspace(v home.Workspace) PoolManagerOption {
 	return func(pm *PoolManager) { pm.homeWorkspace = v }
@@ -201,7 +197,6 @@ type PoolManager struct {
 	toolOverrideFetcher      ToolOverrideFetcher
 	vaultEnvLoader           sandbox.VaultEnvLoader
 	projectResolver          ProjectResolverFunc
-	projectEnsurer           ProjectEnsurerFunc
 	tokenManager             *oauth.TokenManager
 	oauthRegistry            *oauth.ProviderRegistry
 	sessionImages            SessionImagePipeline

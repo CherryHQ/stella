@@ -22,6 +22,11 @@ type Config struct {
 	// Image is the container image to use. Required.
 	Image string
 
+	// Runtime selects the Docker daemon's registered OCI runtime for every
+	// sandbox and tool-cache helper container. Empty uses the daemon default.
+	// Normally auto-derived from STELLA_DOCKER_RUNTIME by NewFactory.
+	Runtime string
+
 	// ExpectedBundleRevision is the revision embedded by the running stellad.
 	// Docker readiness rejects an image that labels a different revision.
 	ExpectedBundleRevision string

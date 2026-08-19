@@ -19,16 +19,13 @@ permissions:
   issues: write
   pull-requests: write
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   format:
     name: Format
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Setup mise
         uses: jdx/mise-action@v4
@@ -57,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Setup mise
         uses: jdx/mise-action@v4
@@ -107,6 +104,9 @@ jobs:
         run: mise run test:coverage:race
         env:
           STELLA_TEST_REQUIRE_BWRAP: "1"
+          # Keep the public Library allowlist tied to the exact Xberg bundle
+          # generated above instead of allowing real extraction tests to skip.
+          STELLA_TEST_REQUIRE_PACKAGED_XBERG: "1"
           STELLA_TEST_REQUIRE_SPA: "1"
 
       - name: Prepare coverage report data
@@ -137,13 +137,13 @@ jobs:
 
       - name: Post coverage comment on PR
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: marocchino/sticky-pull-request-comment@v2
+        uses: marocchino/sticky-pull-request-comment@v3
         with:
           header: coverage-report
           path: coverage-report.md
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: coverage-report
@@ -155,7 +155,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Setup mise
         uses: jdx/mise-action@v4

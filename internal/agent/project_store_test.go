@@ -16,7 +16,6 @@ import (
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/home"
-	"github.com/CherryHQ/stella/internal/store"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -40,16 +39,11 @@ func (v *projectWorkspaceViewer) OpenRoot(context.Context, home.WorkspaceRequest
 
 type projectContextKey struct{}
 
-func TestProjectStoreResolveAndEnsure(t *testing.T) {
+func TestProjectStoreResolve(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	q := sqlc.New(db)
 	oidc := appdb.NewOIDCStore(db)
-
-	// Isolate the on-disk workspace this test creates under Ensure.
-	t.Setenv("STELLA_HOME", t.TempDir())
-	config.ResetStellaHome()
-	t.Cleanup(config.ResetStellaHome)
 
 	user, err := oidc.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "projects@test.local", Name: "Projects"})
 	if err != nil {
@@ -64,7 +58,7 @@ func TestProjectStoreResolveAndEnsure(t *testing.T) {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 
-	ps := NewProjectStore(db, store.NewDBStore(db), nil, WithProjectHomeWorkspace(testWorkspaceViewer{root: config.StellaHome()}))
+	ps := NewProjectStore(db, nil)
 
 	// Resolve converts a logical persisted path only at the trusted runtime boundary.
 	var resolve ProjectResolverFunc = ps.Resolve
@@ -82,83 +76,54 @@ func TestProjectStoreResolveAndEnsure(t *testing.T) {
 	if descriptor.Path != "base" {
 		t.Fatalf("Resolve path = %q, want base", descriptor.Path)
 	}
-	// Ensure returns an existing project for the pair rather than creating a new one.
-	var ensure ProjectEnsurerFunc = ps.Ensure
-	got, err := ensure(ctx, agentID, user.ID)
-	if err != nil {
-		t.Fatalf("Ensure (existing): %v", err)
-	}
-	if got != created.ID {
-		t.Fatalf("Ensure returned %q, want existing project %q", got, created.ID)
-	}
-
-	// Ensure creates a default project when the pair has none.
-	freshAgent := "project-store-agent-2"
-	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
-		ID: freshAgent, Name: "Fresh Agent", Workspace: "/tmp/fresh-agent",
-		Sandbox: json.RawMessage(`{}`),
-		Scope:   "system", Enabled: true,
-	}); err != nil {
-		t.Fatalf("CreateAgent fresh: %v", err)
-	}
-	newID, err := ensure(ctx, freshAgent, user.ID)
-	if err != nil {
-		t.Fatalf("Ensure (create): %v", err)
-	}
-	if newID == "" {
-		t.Fatalf("Ensure (create) returned empty project ID")
-	}
-	// A second call is idempotent: same project comes back.
-	again, err := ensure(ctx, freshAgent, user.ID)
-	if err != nil {
-		t.Fatalf("Ensure (idempotent): %v", err)
-	}
-	if again != newID {
-		t.Fatalf("Ensure not idempotent: %q != %q", again, newID)
-	}
-	// The created project's base_dir resolves to the agent's private area.
-	gotBase, err := resolve(ctx, newID, user.ID, freshAgent)
-	if err != nil {
-		t.Fatalf("Resolve (created): %v", err)
-	}
-	if gotBase.Path != "." {
-		t.Fatalf("created project path = %q, want logical root", gotBase.Path)
-	}
 }
 
-func TestProjectStoreEnsurePersistsLogicalRoot(t *testing.T) {
+func TestProjectStoreIsolatesUnresolvedCoordinates(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.New(t)
 	q := sqlc.New(db)
 	oidc := appdb.NewOIDCStore(db)
-	user, err := oidc.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "ensure-root@example.com"})
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-	const agentID = "ensure-root-agent"
-	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: agentID, Name: "Ensure Root", Workspace: "/tmp/ignored", Sandbox: json.RawMessage(`{}`), Scope: "system", Enabled: true}); err != nil {
-		t.Fatalf("CreateAgent: %v", err)
-	}
-	wantRoot := filepath.Join(t.TempDir(), "exact", "agent-root")
-	ps := NewProjectStore(db, store.NewDBStore(db), nil, WithProjectHomeWorkspace(&projectWorkspaceViewer{view: home.WorkspaceView{AgentRoot: wantRoot}}))
-
-	projectID, err := ps.Ensure(ctx, agentID, user.ID)
-	if err != nil {
-		t.Fatalf("Ensure: %v", err)
-	}
-	got, err := ps.Resolve(ctx, projectID, user.ID, agentID)
-	if err != nil {
-		t.Fatalf("Resolve: %v", err)
-	}
-	if got.Path != "." {
-		t.Fatalf("persisted project path = %q, want logical root", got.Path)
-	}
-	row, err := q.GetProject(ctx, sqlc.GetProjectParams{ID: projectID, UserID: user.ID})
+	user, err := oidc.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "isolated-projects@test.local"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if row.BaseDir != "." {
-		t.Fatalf("stored base_dir = %q, want logical root", row.BaseDir)
+	for _, agentID := range []string{"mixed-projects", "unresolved-only"} {
+		if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: agentID, Name: agentID, Workspace: "", Sandbox: json.RawMessage(`{}`), Scope: "system", Enabled: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Reproduce a database waiting for background coordinate reconciliation.
+	if _, err := db.Exec(ctx, "ALTER TABLE project DROP CONSTRAINT project_base_dir_canonical_check"); err != nil {
+		t.Fatal(err)
+	}
+	badID, goodID, onlyBadID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	if _, err := db.Exec(ctx, `
+INSERT INTO project(id,agent_id,user_id,name,base_dir) VALUES
+($1,'mixed-projects',$4,'legacy','/legacy/outside'),
+($2,'mixed-projects',$4,'usable','repos/usable'),
+($3,'unresolved-only',$4,'legacy-only','/legacy/only')`, badID, goodID, onlyBadID, user.ID); err != nil {
+		t.Fatal(err)
+	}
+	ps := NewProjectStore(db, &fakeProjectAuth{}, WithProjectHomeWorkspace(&projectWorkspaceViewer{}))
+	authority := projectUserAuthority(t, user.ID)
+
+	projects, err := ps.List(ctx, authority, "mixed-projects", false)
+	if err != nil || len(projects) != 2 {
+		t.Fatalf("List with unresolved row = %#v, %v", projects, err)
+	}
+	byID := map[string]Project{projects[0].ID: projects[0], projects[1].ID: projects[1]}
+	if !byID[badID].IsUnavailable || byID[badID].BaseDir != "" || byID[goodID].IsUnavailable {
+		t.Fatalf("List availability = %#v", byID)
+	}
+	if project, err := ps.Get(ctx, authority, "mixed-projects", badID); err != nil || !project.IsUnavailable || project.BaseDir != "" {
+		t.Fatalf("Get unresolved row = %#v, %v", project, err)
+	}
+	repairedBase := "repos/repaired"
+	if repaired, err := ps.Update(ctx, authority, "mixed-projects", badID, ProjectUpdate{BaseDir: &repairedBase}); err != nil || repaired.IsUnavailable || repaired.BaseDir != repairedBase {
+		t.Fatalf("repair unresolved row = %#v, %v", repaired, err)
+	}
+	if err := ps.Delete(ctx, authority, "unresolved-only", onlyBadID); err != nil {
+		t.Fatalf("delete unresolved row: %v", err)
 	}
 }
 
@@ -176,7 +141,7 @@ func TestProjectStoreCreateAndUpdateLogicalPathsNeedNoFilesystem(t *testing.T) {
 		t.Fatalf("CreateAgent: %v", err)
 	}
 	viewer := &projectWorkspaceViewer{expectedCtx: ctx, err: errors.New("home unavailable")}
-	ps := NewProjectStore(db, store.NewDBStore(db), &fakeProjectAuth{}, WithProjectHomeWorkspace(viewer))
+	ps := NewProjectStore(db, &fakeProjectAuth{}, WithProjectHomeWorkspace(viewer))
 	authority := projectUserAuthority(t, user.ID)
 
 	createdProject, err := ps.Create(ctx, authority, agentID, "new", "anywhere", nil)
@@ -210,7 +175,7 @@ func TestProjectStoreCanonicalizesLogicalCoordinates(t *testing.T) {
 	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{ID: agentID, Name: "Coordinates", Workspace: "", Sandbox: json.RawMessage(`{}`), Scope: "system", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	ps := NewProjectStore(db, store.NewDBStore(db), &fakeProjectAuth{}, WithProjectHomeWorkspace(&projectWorkspaceViewer{}))
+	ps := NewProjectStore(db, &fakeProjectAuth{}, WithProjectHomeWorkspace(&projectWorkspaceViewer{}))
 	authority := projectUserAuthority(t, user.ID)
 	var updateProjectID string
 	for i, tc := range []struct {
@@ -305,7 +270,7 @@ func TestProjectStoreGateFailsClosed(t *testing.T) {
 	ctx := context.Background()
 	denied := errors.New("denied")
 	fa := &fakeProjectAuth{err: denied}
-	ps := NewProjectStore(nil, nil, fa, WithProjectHomeWorkspace(testWorkspaceViewer{root: t.TempDir()})) // nil db: any query before the gate panics
+	ps := NewProjectStore(nil, fa, WithProjectHomeWorkspace(testWorkspaceViewer{root: t.TempDir()})) // nil db: any query before the gate panics
 	auth := projectUserAuthority(t, "u1")
 
 	if _, err := ps.List(ctx, auth, "a", false); !errors.Is(err, denied) {
@@ -363,7 +328,7 @@ func TestProjectStoreCRUDOwnershipAndTraversal(t *testing.T) {
 	mkAgent(agentID)
 	mkAgent(otherAgentID)
 
-	ps := NewProjectStore(db, store.NewDBStore(db), &fakeProjectAuth{}, WithProjectHomeWorkspace(testWorkspaceViewer{root: config.StellaHome()}))
+	ps := NewProjectStore(db, &fakeProjectAuth{}, WithProjectHomeWorkspace(testWorkspaceViewer{root: config.StellaHome()}))
 	auth := projectUserAuthority(t, user.ID)
 
 	// Traversal: a base_dir outside the agent workspace is rejected.

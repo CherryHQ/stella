@@ -53,6 +53,23 @@ def milestone_cell(name):
     return [{"id": MILESTONES[name]}]
 
 
+def all_rows():
+    rows, offset = {}, 0
+    while True:
+        argv = ["lark-cli", "base", "+record-list", "--base-token", BASE, "--table-id", TASKS,
+                "--as", "user", "--limit", "200", "--offset", str(offset), "--json"]
+        table = json.loads(subprocess.run(argv, capture_output=True, text=True).stdout)["data"]
+        rows.update(
+            (rid, dict(zip(table["fields"], row)))
+            for rid, row in zip(table["record_id_list"], table["data"])
+        )
+        if not table.get("has_more"):
+            return rows
+        if not table["record_id_list"]:
+            sys.exit("record-list returned has_more with an empty page")
+        offset += len(table["record_id_list"])
+
+
 def common(entry):
     """Fields every touched task carries, whether new or refreshed."""
     fields = {
@@ -105,6 +122,11 @@ def main():
     updates = {}
     for e in draft["update"]:
         row = dict(common(e))
+        # Updates normally refresh only delivery references. These explicit
+        # fields let the reviewed draft repair a task whose lifecycle drifted.
+        for field in ("状态", "完成日期"):
+            if field in e:
+                row[field] = e[field]
         ms = milestone_cell(e.get("里程碑"))
         if ms:
             row["里程碑"] = ms
@@ -122,11 +144,7 @@ def main():
         lark("+record-batch-update", {"update_records": updates})
 
     # The write APIs do not echo stored rows, so confirm against the table.
-    argv = ["lark-cli", "base", "+record-list", "--base-token", BASE, "--table-id", TASKS,
-            "--as", "user", "--limit", "200", "--json"]
-    table = json.loads(subprocess.run(argv, capture_output=True, text=True).stdout)["data"]
-    rows = {rid: dict(zip(table["fields"], row))
-            for rid, row in zip(table["record_id_list"], table["data"])}
+    rows = all_rows()
     touched = set(created) | set(updates)
     missing_pr = [rid for rid in touched if not rows.get(rid, {}).get("PR")]
     print(f"verified {len(touched - set(missing_pr))}/{len(touched)} rows carry PR links")

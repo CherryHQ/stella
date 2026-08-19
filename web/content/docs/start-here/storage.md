@@ -77,11 +77,13 @@ Each logical Skill has an atomic current selector. PostgreSQL retains identity, 
 
 The model does not receive these authority roots. After the current actor and Agent policy authorize a load, Stella copies that one exact current revision into the active sandbox Session's temporary directory. That disposable execution projection contains only the selected revision and is removed with Session temporary data; it is not a backup or second authority.
 
+### Legacy Project coordinates
+
+Stella reconciles historical Project paths in the background without delaying server startup. It converts a known legacy path only after the old source is absent and the exact user-first target exists; if both trees still exist, Stella does not guess which copy is complete. That Project remains visible with `is_unavailable: true` and an empty `base_dir`, while other Projects continue to work. Repair it by updating `base_dir` to a canonical path after placing the files under the durable Agent Home, or delete it if the legacy row is no longer needed.
+
 ### PostgreSQL-to-Home Skill migration
 
-An upgrade with existing PostgreSQL Skill files stops at startup rather than rebuilding or discarding them. Stop every process that can write Skills, verify a restorable PostgreSQL backup and a backup of `$STELLA_HOME`, then consult `stellad storage migrate-skills --help`. The dedicated migration is one-way and Linux/macOS only. It inventories the legacy rows twice, publishes and verifies exact Home revisions, then scrubs the legacy file bytes and records completion in one database transaction.
-
-The command is a dry-run unless you pass `--apply` with both required attestations. A dry-run does not publish Home revisions or selectors, write Skill migration evidence or completion, or scrub legacy Skill bytes. It is **not** process-wide or database-wide read-only: loading configuration can bootstrap the embedded PostgreSQL runtime, and opening the database can apply ordinary schema migrations.
+When an upgrade finds PostgreSQL Skill files, Stella queues their migration in the background and starts serving unrelated capabilities immediately. Managed Skill reads and writes remain unavailable until the cutover succeeds, which prevents runtime traffic from racing the legacy inventory; Agent turns continue with release-builtin and Project Skills only. Stella inventories the legacy rows twice, quarantines conflicting flat filesystem mirrors, publishes and verifies exact Home revisions, then scrubs the legacy PostgreSQL bytes and records completion in one database transaction. A malformed legacy source keeps managed Skills disabled and logs the affected Skill and recovery action without preventing unrelated server capabilities from starting; repair the reported data and restart Stella to retry.
 
 ### Retained revision capacity
 

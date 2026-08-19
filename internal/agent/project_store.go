@@ -12,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/skills"
 	sqlc "github.com/CherryHQ/stella/pkg/db/sqlc"
@@ -27,13 +26,12 @@ type ProjectAgentAuthorizer interface {
 
 // ProjectStore owns the project application use cases (Authority-bound
 // list/create/get/update/delete) plus the runtime workspace resolution the pool
-// manager binds: Resolve satisfies ProjectResolverFunc and Ensure satisfies
-// ProjectEnsurerFunc. A project is owned by (user, agent); the CRUD use cases
+// manager binds: Resolve satisfies ProjectResolverFunc. A project is owned by
+// (user, agent); the CRUD use cases
 // enforce that ownership, the route-agent binding, and the workspace-containment
 // invariant, and return the transport-neutral Project value.
 type ProjectStore struct {
 	q      *sqlc.Queries
-	store  config.Store
 	agents ProjectAgentAuthorizer
 	homes  home.Workspace
 }
@@ -52,8 +50,8 @@ func WithProjectHomeWorkspace(viewer home.Workspace) ProjectStoreOption {
 	return func(s *ProjectStore) { s.homes = viewer }
 }
 
-func NewProjectStore(db *pgxpool.Pool, store config.Store, agents ProjectAgentAuthorizer, opts ...ProjectStoreOption) *ProjectStore {
-	s := &ProjectStore{q: sqlc.New(db), store: store, agents: agents}
+func NewProjectStore(db *pgxpool.Pool, agents ProjectAgentAuthorizer, opts ...ProjectStoreOption) *ProjectStore {
+	s := &ProjectStore{q: sqlc.New(db), agents: agents}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -63,15 +61,16 @@ func NewProjectStore(db *pgxpool.Pool, store config.Store, agents ProjectAgentAu
 // Project is the transport-neutral view of a project row. Description is a plain
 // string ("" when unset) and timestamps are UTC.
 type Project struct {
-	ID          string
-	AgentID     string
-	UserID      string
-	Name        string
-	BaseDir     string
-	Description string
-	Archived    bool
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID            string
+	AgentID       string
+	UserID        string
+	Name          string
+	BaseDir       string
+	Description   string
+	Archived      bool
+	IsUnavailable bool
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // Project use-case errors. Agent-gate denials propagate the agentaccess
@@ -83,8 +82,6 @@ var (
 	ErrProjectNotFound = errors.New("project not found")
 	// ErrInvalidBaseDir reports a base_dir that escapes the agent workspace (400).
 	ErrInvalidBaseDir = errors.New("invalid base_dir")
-	// ErrWorkspaceSetup reports a failure to resolve/create the agent workspace (500).
-	ErrWorkspaceSetup = errors.New("failed to resolve workspace")
 )
 
 // ProjectUpdate carries the optional fields of an update; a nil field leaves the
@@ -101,7 +98,8 @@ func (s *ProjectStore) gate(ctx context.Context, authority authz.Authority, agen
 }
 
 // List returns the agent's projects owned by the caller, optionally including
-// archived ones. Gated on agent read access.
+// archived ones. Rows waiting for coordinate repair remain visible but cannot
+// expose their historical host path. Gated on agent read access.
 func (s *ProjectStore) List(ctx context.Context, authority authz.Authority, agentID string, includeArchived bool) ([]Project, error) {
 	if err := s.gate(ctx, authority, agentID); err != nil {
 		return nil, err
@@ -120,6 +118,10 @@ func (s *ProjectStore) List(ctx context.Context, authority authz.Authority, agen
 	out := make([]Project, 0, len(rows))
 	for _, p := range rows {
 		project, err := s.projectFromRow(ctx, p)
+		if errors.Is(err, ErrInvalidBaseDir) {
+			out = append(out, unavailableProjectFromRow(p))
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -153,8 +155,9 @@ func (s *ProjectStore) Create(ctx context.Context, authority authz.Authority, ag
 	return s.projectFromRow(ctx, p)
 }
 
-// Get returns one owned project bound to the route agent. A missing project, a
-// foreign owner, or a route-agent mismatch all return ErrProjectNotFound.
+// Get returns one owned project bound to the route agent. A row waiting for
+// coordinate repair is returned unavailable so callers can repair or delete it.
+// A missing project, foreign owner, or route-agent mismatch returns not found.
 func (s *ProjectStore) Get(ctx context.Context, authority authz.Authority, agentID, projectID string) (Project, error) {
 	if err := s.gate(ctx, authority, agentID); err != nil {
 		return Project{}, err
@@ -163,7 +166,11 @@ func (s *ProjectStore) Get(ctx context.Context, authority authz.Authority, agent
 	if err != nil {
 		return Project{}, err
 	}
-	return s.projectFromRow(ctx, p)
+	project, err := s.projectFromRow(ctx, p)
+	if errors.Is(err, ErrInvalidBaseDir) {
+		return unavailableProjectFromRow(p), nil
+	}
+	return project, err
 }
 
 // Update merges the provided fields into an owned project bound to the route
@@ -259,6 +266,18 @@ func (s *ProjectStore) projectFromRow(ctx context.Context, p sqlc.Project) (Proj
 	}, nil
 }
 
+func unavailableProjectFromRow(p sqlc.Project) Project {
+	description := ""
+	if p.Description.Valid {
+		description = p.Description.String
+	}
+	return Project{
+		ID: p.ID, AgentID: p.AgentID, UserID: p.UserID, Name: p.Name,
+		Description: description, Archived: p.Archived, IsUnavailable: true,
+		CreatedAt: p.CreatedAt.UTC(), UpdatedAt: p.UpdatedAt.UTC(),
+	}
+}
+
 func projectCoordinate(value string) (string, error) {
 	if value == "" {
 		value = "."
@@ -298,44 +317,4 @@ func (s *ProjectStore) Resolve(ctx context.Context, projectID, userID, agentID s
 		return ProjectDescriptor{}, err
 	}
 	return ProjectDescriptor{ID: p.ID, UserID: p.UserID, AgentID: p.AgentID, Path: relative}, nil
-}
-
-// Ensure returns the default project ID for the agent+user pair, creating the
-// project (and its workspace) when none exists yet.
-func (s *ProjectStore) Ensure(ctx context.Context, agentID, userID string) (string, error) {
-	projects, err := s.q.ListProjects(ctx, sqlc.ListProjectsParams{AgentID: agentID, UserID: userID})
-	if err != nil {
-		return "", err
-	}
-	if len(projects) > 0 {
-		return projects[0].ID, nil
-	}
-	agentName := agentID
-	if ag, err := s.store.GetAgent(ctx, agentID); err == nil && ag.Name != "" {
-		agentName = ag.Name
-	}
-	// Resolve the process-global home once so workspace setup and the project path
-	// cannot observe different generations of the mutable test seam.
-	if s.homes == nil {
-		return "", ErrWorkspaceSetup
-	}
-	_, err = s.homes.WorkspaceView(ctx, home.WorkspaceRequest{UserID: userID, AgentID: agentID})
-	if err != nil {
-		return "", err
-	}
-	// PostgreSQL stores only the logical project root, never the provider path.
-	p, err := s.q.CreateProject(ctx, sqlc.CreateProjectParams{
-		ID:      uuid.Must(uuid.NewV7()).String(),
-		AgentID: agentID,
-		UserID:  userID,
-		Name:    agentName,
-		BaseDir: ".",
-	})
-	if err != nil {
-		if existing, err2 := s.q.ListProjects(ctx, sqlc.ListProjectsParams{AgentID: agentID, UserID: userID}); err2 == nil && len(existing) > 0 {
-			return existing[0].ID, nil
-		}
-		return "", err
-	}
-	return p.ID, nil
 }

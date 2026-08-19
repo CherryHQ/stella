@@ -48,7 +48,7 @@ runs:
     # stored the same ~500 MB once per job.
     - name: Cache Go module cache
       if: inputs.go == 'true'
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ${{ steps.go-paths.outputs.mod }}
         key: gomod-${{ runner.os }}-${{ hashFiles('go.sum') }}
@@ -60,7 +60,7 @@ runs:
     # a go.sum change still carries most of the saving.
     - name: Cache Go build cache
       if: inputs.go == 'true'
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ${{ steps.go-paths.outputs.build }}
         key: gobuild-${{ inputs.scope }}-${{ runner.os }}-${{ hashFiles('mise.toml') }}-${{ hashFiles('go.sum') }}
@@ -73,7 +73,7 @@ runs:
     # guess degrades to today's behaviour rather than failing.
     - name: Cache pnpm store and dprint plugins
       if: inputs.node == 'true'
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: |
           ~/.local/share/pnpm/store
@@ -88,7 +88,7 @@ runs:
     # costs exactly one re-download.
     - name: Cache embedded PostgreSQL runtime
       if: inputs.pg == 'true'
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ~/.stella/pg-runtime
         key: pg-runtime-${{ runner.os }}-${{ hashFiles('internal/pgruntime/runtime.go') }}
