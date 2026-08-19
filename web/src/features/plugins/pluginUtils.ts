@@ -291,6 +291,12 @@ export function pluginIsEssential(plugin: PluginWithMeta): boolean {
   return !!plugin._manifestPlugin?.essential;
 }
 
+// pluginIsReleaseManaged identifies a tool whose definition and availability
+// are part of the server release, rather than tenant configuration.
+export function pluginIsReleaseManaged(plugin: PluginWithMeta): boolean {
+  return !!plugin._manifestPlugin?.release_managed;
+}
+
 // pluginIsRemovable reports whether a plugin can be deleted: only one an admin
 // added, whose whole definition is the override row. A builtin ships with the
 // server — the next resolve would bring it back, so disabling is its off switch.

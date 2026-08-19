@@ -121,6 +121,10 @@ components:
         essential:
           type: boolean
           description: Server policy indicating that the plugin cannot be disabled.
+        release_managed:
+          type: boolean
+          readOnly: true
+          description: Whether Stella owns the plugin's definition and enablement for the release.
         prompt: { type: string }
         binaries:
           type: array

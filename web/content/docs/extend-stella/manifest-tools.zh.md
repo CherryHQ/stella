@@ -7,7 +7,7 @@ description: 随服务端一同发布、并可在管理界面中自定义的声�
 
 清单工具插件是一种轻量替代方案：无需编写 Go 包，只要把工具声明为数据，Stella 就会自动协调二进制文件的下载。
 
-Stella 内置了一个默认清单，声明了默认由清单管理的 CLI 集成（`tap-web`、`gh`、`lark-cli`）。它们会显示在对应语义标签页中，例如 **Tools** 或 **Hooks**，并带有 `manifest` 标记。你在 Plugins 管理界面中覆盖或扩展这些配置，改动存入数据库，编译进服务端的清单本身不会被修改。
+Stella 内置清单声明 CLI 集成。release 管理的系统工具（`mise`、`uv`、`bun`、`xberg`、`fd`、`rg`、`tap-web`、`gh`、`lark-cli`）随 release 预制，不能修改或禁用。你可以扩展清单加入自己的工具，也可以在 Plugins 管理界面自定义其他内置项；这些改动存入数据库，编译进服务端的清单本身不会被修改。
 
 ## 工作原理
 
@@ -27,7 +27,7 @@ Stella 内置了一个默认清单，声明了默认由清单管理的 CLI 集�
 对于 Docker：
 
 - 必须开箱即用的内置 CLI 插件会预装到带版本的沙箱镜像中。沙箱镜像标签与 Stella release 绑定，因此一个 release 镜像可以包含该 Stella 版本对应的内置工具集合。镜像构建时运行 `stellad mise reconcile-builtins`（与守护进程相同的 reconcile 流程），按 `resources/tools.yaml` 声明的标识符与版本安装，无需再单独维护一份 Docker 工具列表。
-- 解析后的清单（内置定义加上已存储的自定义）仍然是插件元数据、启用状态、会话环境变量、OAuth 注入以及本地沙箱二进制安装的来源。
+- 解析后的清单仍然是插件元数据、启用状态、会话环境变量、OAuth 注入以及本地沙箱二进制安装的来源。release 管理项始终使用随服务端发布的定义；历史存储的 override 会被忽略。
 - 用户配置的 CLI 二进制需要一条容器原生的加载路径。它们应在 Docker 环境内按 Linux 目标安装，而不是从宿主机 `$STELLA_HOME/bin` 复制。
 
 一种用于用户配置 CLI 的安全 Docker 加载设计是：
@@ -65,17 +65,18 @@ plugins:
 
 ## 插件字段
 
-| 字段             | 必填 | 描述                                                                  |
-| ---------------- | ---- | --------------------------------------------------------------------- |
-| `id`             | 是   | 唯一插件 ID，格式为 `kind/name`，例如 `tool/my-cli`                   |
-| `kind`           | 是   | 插件类型，通常为 `tool`                                               |
-| `name`           | 是   | 简短的机器可读名称                                                    |
-| `display_name`   | 否   | 在管理界面显示的人类可读标签                                          |
-| `description`    | 否   | 在管理界面显示的简短描述                                              |
-| `enabled`        | 否   | 插件是否激活，默认为 false。内置插件默认为 true。                     |
-| `binaries`       | 否   | 需要下载并放置到 `$STELLA_HOME/bin` 的 CLI 二进制文件                 |
-| `session_env`    | 否   | 要注入沙箱会话的环境变量                                              |
-| `oauth_provider` | 否   | `oauth.*` 会话环境变量来源使用的静态 OAuth provider ID，例如 `github` |
+| 字段              | 必填 | 描述                                                                  |
+| ----------------- | ---- | --------------------------------------------------------------------- |
+| `id`              | 是   | 唯一插件 ID，格式为 `kind/name`，例如 `tool/my-cli`                   |
+| `kind`            | 是   | 插件类型，通常为 `tool`                                               |
+| `name`            | 是   | 简短的机器可读名称                                                    |
+| `display_name`    | 否   | 在管理界面显示的人类可读标签                                          |
+| `description`     | 否   | 在管理界面显示的简短描述                                              |
+| `enabled`         | 否   | 插件是否激活，默认为 false。内置插件默认为 true。                     |
+| `release_managed` | 否   | 服务端拥有的不可变 release 工具标记，只能在 Stella 自带清单中使用。   |
+| `binaries`        | 否   | 需要下载并放置到 `$STELLA_HOME/bin` 的 CLI 二进制文件                 |
+| `session_env`     | 否   | 要注入沙箱会话的环境变量                                              |
+| `oauth_provider`  | 否   | `oauth.*` 会话环境变量来源使用的静态 OAuth provider ID，例如 `github` |
 
 ## 二进制字段
 
@@ -193,7 +194,7 @@ Stella 在 `$STELLA_HOME/plugin-manifest-state.json` 中跟踪已安装的二进
 
 - `tool/gh`、`tool/lark-cli` 和 `tool/tap-web` 显示在 **Tools**。
 
-由清单管理的行会显示 `manifest` 标记，并提供 **Edit definition** 操作用于编辑插件定义。二进制文件和会话环境变量会以表单行编辑。如果同一个插件还提供运行时配置，该行也会显示 **Configure**。启用开关与定义分开存储，因此禁用内置插件不算自定义；而把某个二进制固定到指定版本，则是一次普通的定义编辑。
+由清单管理的行会显示 `manifest` 标记，并提供 **Edit definition** 操作用于编辑插件定义。二进制文件和会话环境变量会以表单行编辑。如果同一个插件还提供运行时配置，该行也会显示 **Configure**。release 管理工具为只读，不能操作启用开关或定义编辑器。其他内置插件的启用开关与定义分开存储，因此禁用它不算自定义；而把某个二进制固定到指定版本，则是一次普通的定义编辑。
 
 **Tools** 标签页提供 **Add Tool**，可以从 GitHub release 二进制创建新的清单 CLI 工具。保存后会注册插件并自动同步二进制文件，无需重启。内嵌的内置清单不会被修改。
 

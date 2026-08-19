@@ -39,6 +39,12 @@ func Resolve(builtin *Manifest, overrides []StoredOverride, onCorrupt func(plugi
 		id := builtin.Plugins[i].ID
 		seen[id] = true
 		builtin.Plugins[i].Builtin = true
+		// Release-managed tools are part of the sandbox image/runtime contract.
+		// Historical override rows stay harmless after an upgrade instead of
+		// hiding a tool that sessions need across every backend.
+		if builtin.Plugins[i].ReleaseManaged {
+			continue
+		}
 		ov, ok := byID[id]
 		if !ok {
 			continue

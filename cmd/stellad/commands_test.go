@@ -164,8 +164,7 @@ func TestStartupResolvesDefinitionOverridesAndAddedPlugins(t *testing.T) {
 	ctx := context.Background()
 	disabled := false
 	store := overrideStore{rows: []config.ManifestPluginOverride{
-		{PluginID: "tool/tap-web", Config: `{"$sparse":true,"display_name":"Tap (ours)"}`},
-		{PluginID: "tool/gh", Enabled: &disabled},
+		{PluginID: "tool/x", Enabled: &disabled, Config: `{"$sparse":true,"display_name":"X (ours)"}`},
 		{
 			PluginID: "tool/my-cli",
 			Enabled:  &[]bool{true}[0],
@@ -182,13 +181,13 @@ func TestStartupResolvesDefinitionOverridesAndAddedPlugins(t *testing.T) {
 		byID[p.ID] = p
 	}
 
-	if got := byID["tool/tap-web"]; got.DisplayName != "Tap (ours)" || !slices.Equal(got.OverriddenFields, []string{"display_name"}) {
+	if got := byID["tool/x"]; got.DisplayName != "X (ours)" || !slices.Equal(got.OverriddenFields, []string{"display_name"}) {
 		t.Errorf("customized builtin = %q (overridden=%v), want the stored edit", got.DisplayName, got.OverriddenFields)
 	}
 	if got, ok := byID["tool/my-cli"]; !ok || got.DisplayName != "My CLI" {
 		t.Errorf("admin-added plugin missing from the startup manifest: %#v", got)
 	}
-	if got := byID["tool/gh"]; got.Enabled {
+	if got := byID["tool/x"]; got.Enabled {
 		t.Error("the enable override stopped being applied")
 	}
 }

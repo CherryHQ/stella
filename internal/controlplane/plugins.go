@@ -148,6 +148,9 @@ func (a *Access) SetManifestPluginEnabled(ctx context.Context, id string, enable
 	if !isBuiltin && !found {
 		return nil, notFound(fmt.Sprintf("plugin %q not found", id))
 	}
+	if isBuiltin && def.ReleaseManaged {
+		return nil, invalid(fmt.Sprintf("plugin %q is release-managed and cannot be modified", id))
+	}
 	// Essential builtin plugins back core tools (rg/fd -> Grep/Glob); refuse to
 	// disable them so an admin can't silently break the harness.
 	if isBuiltin && def.Essential && !enabled {
@@ -191,9 +194,12 @@ func (a *Access) SaveManifestPluginDefinition(ctx context.Context, plugin manife
 		return nil, invalid(fmt.Sprintf("invalid plugin %q: %v", plugin.ID, err))
 	}
 
-	_, isBuiltin, err := a.builtinDefinition(plugin.ID)
+	definition, isBuiltin, err := a.builtinDefinition(plugin.ID)
 	if err != nil {
 		return nil, err
+	}
+	if isBuiltin && definition.ReleaseManaged {
+		return nil, invalid(fmt.Sprintf("plugin %q is release-managed and cannot be modified", plugin.ID))
 	}
 	existing, _, err := a.svc.store.GetManifestPluginOverride(ctx, plugin.ID)
 	if err != nil {
@@ -276,6 +282,9 @@ func (a *Access) DeleteManifestPlugin(ctx context.Context, id string) error {
 	}
 	for _, p := range builtin.Plugins {
 		if p.ID == id {
+			if p.ReleaseManaged {
+				return invalid(fmt.Sprintf("plugin %q is release-managed and cannot be modified", id))
+			}
 			return invalid(fmt.Sprintf("plugin %q ships with the server and cannot be removed; disable it instead", id))
 		}
 	}
@@ -320,12 +329,15 @@ func (a *Access) DeleteManifestPlugin(ctx context.Context, id string) error {
 // An admin-added plugin has no definition to fall back to, so resetting one is
 // refused — deleting it is the operation that means anything there.
 func (a *Access) ResetManifestPlugin(ctx context.Context, id, field string) (*manifestplugins.Manifest, error) {
-	_, isBuiltin, err := a.builtinDefinition(id)
+	definition, isBuiltin, err := a.builtinDefinition(id)
 	if err != nil {
 		return nil, err
 	}
 	if !isBuiltin {
 		return nil, invalid(fmt.Sprintf("plugin %q has no builtin definition to reset to; remove it instead", id))
+	}
+	if definition.ReleaseManaged {
+		return nil, invalid(fmt.Sprintf("plugin %q is release-managed and cannot be modified", id))
 	}
 	if field != "" && !manifestplugins.IsOwnableField(field) {
 		return nil, invalid(fmt.Sprintf("%q is not a definition field", field))

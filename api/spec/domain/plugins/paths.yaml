@@ -164,8 +164,9 @@ paths:
         names the definition fields this request takes ownership of: those keys
         are stored at the submitted values, every other field of the plugin keeps
         whatever ownership it already had, and unowned fields keep following the
-        definition the server ships. `kind` and `essential` belong to the server
-        and cannot be owned. `enabled` is ignored for a builtin — the enable
+        definition the server ships. `kind`, `essential`, and `release_managed`
+        belong to the server and cannot be owned. Release-managed plugins reject
+        all definition changes. `enabled` is ignored for a builtin — the enable
         switch has its own operation. A plugin an admin added has no shipped
         definition underneath it, so the body is the whole plugin, `fields` does
         not apply, `enabled` travels with it, and empty values explicitly clear
@@ -225,6 +226,7 @@ paths:
       description: >
         Turns the addressed plugin on or off without touching its definition.
         Essential builtin plugins back core tools and cannot be disabled.
+        Release-managed plugins cannot be changed at all.
       operationId: setManifestPluginEnabled
       requestBody:
         required: true
@@ -267,7 +269,8 @@ paths:
       description: >
         Hands a builtin's definition back to the running server: one field when
         `field` names one, the whole definition otherwise. The enable switch is a
-        separate decision and is left alone. A plugin an admin added has no
+        separate decision and is left alone. Release-managed plugins cannot be
+        reset because their stored overrides are ignored. A plugin an admin added has no
         shipped definition to return to and is refused — delete it instead.
       operationId: resetManifestPlugin
       requestBody:

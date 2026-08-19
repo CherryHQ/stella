@@ -34,6 +34,7 @@ import {
   pluginFieldIsOverridden,
   pluginIsCustomized,
   pluginIsEssential,
+  pluginIsReleaseManaged,
   pluginIsRemovable,
   pluginLabel,
   semanticPlugins,
@@ -311,7 +312,12 @@ export function AdminPluginsPage() {
     fields: ManifestPluginDefinitionField[],
     successMsg: string,
   ) {
-    const { builtin, overridden_fields: _overriddenFields, ...plugin } = next;
+    const {
+      builtin,
+      overridden_fields: _overriddenFields,
+      release_managed: _releaseManaged,
+      ...plugin
+    } = next;
     const replacement = {
       ...plugin,
       category: plugin.category ?? "",
@@ -424,6 +430,7 @@ export function AdminPluginsPage() {
     const p = selectedPlugin;
     const hasConfig = hasGenericConfigEditor(p, schemas);
     const essential = pluginIsEssential(p);
+    const releaseManaged = pluginIsReleaseManaged(p);
     const oauthProvider = p._manifestPlugin?.oauth_provider;
     const customized = pluginIsCustomized(p);
     const additionalOverriddenFields = (p._manifestPlugin?.overridden_fields ?? []).filter(
@@ -462,7 +469,7 @@ export function AdminPluginsPage() {
           </span>
           <Switch
             checked={p.enabled}
-            disabled={essential}
+            disabled={essential || releaseManaged}
             onCheckedChange={(checked) => void toggleSemanticPlugin(p, checked)}
           />
         </div>
@@ -492,6 +499,7 @@ export function AdminPluginsPage() {
         )}
 
         {p._manifest &&
+          !releaseManaged &&
           (pluginHasBinaries(p) ||
             (["binaries", "session_env", "oauth_provider"] as const).some((field) =>
               pluginFieldIsOverridden(p, field),
@@ -512,7 +520,7 @@ export function AdminPluginsPage() {
             </div>
           )}
 
-        {additionalOverriddenFields.length > 0 && (
+        {!releaseManaged && additionalOverriddenFields.length > 0 && (
           <div className="border-t border-border pt-4 space-y-2">
             <p className="text-xs font-semibold text-muted-foreground">
               {t("plugins.otherOverriddenFields")}
@@ -542,7 +550,7 @@ export function AdminPluginsPage() {
         {/* An edited builtin stops following the server for the fields that were
             edited. This is the way back: drop the customization, keep the
             enable switch. */}
-        {customized && (
+        {!releaseManaged && customized && (
           <div className="border-t border-border pt-4 flex items-center justify-between gap-3">
             <span className="text-xs text-muted-foreground">{t("plugins.resetDesc")}</span>
             <Button

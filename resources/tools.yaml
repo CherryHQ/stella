@@ -7,6 +7,7 @@ plugins:
     enabled: true
     category: system
     essential: true
+    release_managed: true
     prompt: "Use mise to install tools and manage environment variables. Install personal defaults with `mise use --global --pin <tool>@<version>` and project requirements with `mise use --pin <tool>@<version>`; never modify Stella's system config."
 
   - id: tool/tap-web
@@ -15,6 +16,7 @@ plugins:
     display_name: Tap Web
     description: "Web browsing skill powered by Tap and agent-browser — fetch pages, run browser automation, and capture network traffic."
     enabled: true
+    release_managed: true
     prompt: "Always use tap for web access. Run `tap --help` to learn the common scenarios, and prefer `tap site` scripts (`tap site list`) over raw fetching: `exa/search` for web search, `twitter/fxembed-*` for Twitter/X, plus dedicated scripts for Reddit, YouTube, GitHub, Zhihu, Weibo, etc. Fall back to `tap fetch <url>` for clean readable content, and use `tap browser` (Lightpanda first) only when JS rendering or auth is required. Never invoke agent-browser directly. Read the `tap-web` skill for details."
     binaries:
       - name: tap
@@ -45,6 +47,7 @@ plugins:
     display_name: GitHub CLI
     description: "GitHub CLI integration with OAuth-backed session auth."
     enabled: true
+    release_managed: true
     binaries:
       - name: gh
         tool: github:cli/cli
@@ -59,6 +62,7 @@ plugins:
     display_name: Lark CLI
     description: "Lark CLI with managed OAuth and bundled workspace automation skills."
     enabled: true
+    release_managed: true
     prompt: "Always use lark-cli for Feishu/Lark operations. If an API error reports missing user scopes, call oauth list and select the provider whose required_by includes Lark CLI, then call oauth connect for that provider with only the missing scopes; send the returned authorization link to the user, then retry after authorization. If the error says the application lacks a scope, surface its console_url to the administrator instead. Never run lark-cli config init or auth login inside Stella."
     binaries:
       - name: lark-cli
@@ -81,6 +85,7 @@ plugins:
     enabled: true
     category: system
     essential: true
+    release_managed: true
     binaries:
       - name: fd
         tool: github:sharkdp/fd
@@ -93,6 +98,7 @@ plugins:
     enabled: true
     category: system
     essential: true
+    release_managed: true
     binaries:
       - name: rg
         tool: github:BurntSushi/ripgrep
@@ -104,6 +110,7 @@ plugins:
     description: "An extremely fast Python package manager and resolver written in Rust."
     enabled: true
     category: system
+    release_managed: true
     binaries:
       - name: uv
         tool: uv
@@ -115,6 +122,19 @@ plugins:
     description: "An incredibly fast JavaScript runtime, bundler, test runner, and package manager."
     enabled: true
     category: system
+    release_managed: true
     binaries:
       - name: bun
         tool: bun
+
+  # Xberg is embedded alongside stellad rather than installed through mise.
+  # Declaring its reserved identity here keeps it under the same release-owned
+  # policy as the manifest-installed system tools.
+  - id: tool/xberg
+    kind: tool
+    name: xberg
+    display_name: Xberg
+    description: "Bundled document extraction CLI for PDF, Office, images, and other formats."
+    enabled: true
+    category: system
+    release_managed: true
