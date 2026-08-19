@@ -156,14 +156,15 @@ func (n *GroupNudger) classify(ctx context.Context, candidate sqlc.ListGroupNudg
 	if err != nil {
 		return GroupNudgeDecision{}, false
 	}
+	namer := eventlog.NewParticipantNamer(n.q)
 	recent, claimText := make([]string, 0, len(rows)), make([]string, 0, len(claims))
-	for _, row := range rows {
-		recent = append(recent, row.Content)
+	for i := len(rows) - 1; i >= 0; i-- {
+		recent = append(recent, namer.Line(ctx, candidate.ID, rows[i].Seq, rows[i].ActorType, rows[i].ActorID, rows[i].Content))
 	}
 	for _, claim := range claims {
-		claimText = append(claimText, claim.OwnerAgentID+": "+claim.Note)
+		claimText = append(claimText, namer.Handle(ctx, candidate.ID, string(eventlog.ActorAgent), claim.OwnerAgentID)+": "+claim.Note)
 	}
-	decision, err := n.classifier.DecideNudge(ctx, GroupNudgeRequest{GroupID: candidate.ID, LastAuthor: candidate.LastActorID, LastAuthorType: candidate.LastActorType, Silence: now.Sub(candidate.LastMessageAt), Recent: recent, Claims: claimText})
+	decision, err := n.classifier.DecideNudge(ctx, GroupNudgeRequest{GroupID: candidate.ID, LastAuthor: namer.Handle(ctx, candidate.ID, candidate.LastActorType, candidate.LastActorID), LastAuthorType: candidate.LastActorType, Silence: now.Sub(candidate.LastMessageAt), Recent: recent, Claims: claimText})
 	if err != nil {
 		return GroupNudgeDecision{}, false
 	}
@@ -205,7 +206,10 @@ func (n *GroupNudger) append(ctx context.Context, groupID, target, note string, 
 	if err := appdb.AdvisoryXactLock(ctx, tx, "gid:"+groupID); err != nil {
 		return fmt.Errorf("lock group nudge append: %w", err)
 	}
-	result, err := eventlog.AppendToGroupWithQueries(ctx, q, groupID, eventlog.GroupMessage{ActorType: eventlog.ActorSystem, ActorID: "nudge", Content: fmt.Sprintf("%s, please continue %s.", target, note)})
+	// The nudge is read by the whole group, so it names the target the way the
+	// group addresses them; the id it dispatches on rides in the envelope.
+	targetName := eventlog.NewParticipantNamer(q).Handle(ctx, groupID, string(eventlog.ActorAgent), target)
+	result, err := eventlog.AppendToGroupWithQueries(ctx, q, groupID, eventlog.GroupMessage{ActorType: eventlog.ActorSystem, ActorID: "nudge", Content: fmt.Sprintf("%s, please continue %s.", targetName, note)})
 	if err != nil {
 		return fmt.Errorf("append nudge message: %w", err)
 	}
@@ -261,11 +265,14 @@ func (c *LLMGroupNudgeClassifier) DecideNudge(ctx context.Context, req GroupNudg
 	if modelAgentID == "" {
 		return GroupNudgeDecision{}, errors.New("group nudge classifier has no system-scope member")
 	}
+	// The classifier answers with an id (the key the worker acts on) but reads
+	// names everywhere else, so it needs the join spelled out once.
+	namer := eventlog.NewParticipantNamer(c.q)
 	memberIDs := make([]string, 0, len(members))
 	for _, member := range members {
-		memberIDs = append(memberIDs, member.AgentID)
+		memberIDs = append(memberIDs, fmt.Sprintf("%s = %s", namer.Handle(ctx, req.GroupID, string(eventlog.ActorAgent), member.AgentID), member.AgentID))
 	}
-	payload := fmt.Sprintf("Last author: %s\nLast author is human: %t\nSilence: %s\nMember agent IDs: %s\nLive claims:\n%s\nRecent messages:\n%s", req.LastAuthor, req.LastAuthorType == string(eventlog.ActorHuman), req.Silence.Round(time.Second), strings.Join(memberIDs, ", "), strings.Join(req.Claims, "\n"), strings.Join(req.Recent, "\n"))
+	payload := fmt.Sprintf("Last author: %s\nLast author is human: %t\nSilence: %s\nMembers (name = agent ID): %s\nLive claims:\n%s\nRecent messages:\n%s", req.LastAuthor, req.LastAuthorType == string(eventlog.ActorHuman), req.Silence.Round(time.Second), strings.Join(memberIDs, ", "), strings.Join(req.Claims, "\n"), strings.Join(req.Recent, "\n"))
 	caller := fastModelCaller{load: c.load, build: c.build, complete: c.complete}
 	raw, stage, err := caller.Complete(ctx, modelAgentID, groupNudgePrompt, payload, groupNudgeTimeout)
 	if err != nil {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -85,12 +86,11 @@ func NewGroupRosterPromptLoader(db *pgxpool.Pool) func(context.Context, string, 
 }
 
 // groupClaimOwnerName resolves a claim owner's display name, falling back to
-// the agent id. Peers coordinate by name; ids mean nothing to a model.
+// the agent id. Peers coordinate by name; ids mean nothing to a model. It goes
+// through the participant namer so a claim, a roster entry and a transcript
+// line spell the same agent the same way.
 func groupClaimOwnerName(ctx context.Context, q *sqlc.Queries, agentID string) string {
-	if owner, err := q.GetAgent(ctx, agentID); err == nil && owner.Name != "" {
-		return owner.Name
-	}
-	return agentID
+	return eventlog.NewParticipantNamer(q).Name(ctx, "", string(eventlog.ActorAgent), agentID)
 }
 
 // groupClaimAge rounds to the minute: a claim's exact second never changes a

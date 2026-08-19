@@ -142,7 +142,8 @@ func (d *GroupDispatcher) triageWake(ctx context.Context, row sqlc.CtxGroupDispa
 			return false, "rules_only", false
 		}
 	}
-	act, why, err := d.triage.Decide(ctx, GroupTriageRequest{AgentID: row.AgentID, ModelAgentID: modelAgentID, AgentName: a.Name, GroupID: row.GroupID, Platform: state.Platform, AuthorType: message.ActorType, Message: message.Content, Context: d.triageContext(ctx, row.GroupID, message.Seq, row.AgentID), Claims: d.triageClaims(ctx, row.GroupID, row.AgentID)})
+	namer := eventlog.NewParticipantNamer(d.q)
+	act, why, err := d.triage.Decide(ctx, GroupTriageRequest{AgentID: row.AgentID, ModelAgentID: modelAgentID, AgentName: a.Name, GroupID: row.GroupID, Platform: state.Platform, AuthorType: message.ActorType, Message: namer.Line(ctx, row.GroupID, message.Seq, message.ActorType, message.ActorID, message.Content), Context: d.triageContext(ctx, namer, row.GroupID, message.Seq, row.AgentID), Claims: d.triageClaims(ctx, namer, row.GroupID, row.AgentID)})
 	if err != nil {
 		return false, "degraded_triage:" + why, true
 	}
@@ -157,7 +158,7 @@ func (d *GroupDispatcher) hasLiveGroupClaims(ctx context.Context, groupID string
 	return err == nil && len(claims) > 0
 }
 
-func (d *GroupDispatcher) triageClaims(ctx context.Context, groupID, agentID string) []string {
+func (d *GroupDispatcher) triageClaims(ctx context.Context, namer *eventlog.ParticipantNamer, groupID, agentID string) []string {
 	rows, err := d.q.ListLiveGroupClaims(ctx, groupID)
 	if err != nil {
 		return nil
@@ -167,7 +168,7 @@ func (d *GroupDispatcher) triageClaims(ctx context.Context, groupID, agentID str
 		if claim.OwnerAgentID == agentID {
 			continue
 		}
-		claims = append(claims, fmt.Sprintf("%s owns %q: %s", claim.OwnerAgentID, claim.Key, claim.Note))
+		claims = append(claims, fmt.Sprintf("%s owns %q: %s", namer.Handle(ctx, groupID, string(eventlog.ActorAgent), claim.OwnerAgentID), claim.Key, claim.Note))
 	}
 	return claims
 }
@@ -224,7 +225,10 @@ func (d *GroupDispatcher) consecutiveAgentMessages(ctx context.Context, groupID 
 	return count
 }
 
-func (d *GroupDispatcher) triageContext(ctx context.Context, groupID string, beforeSeq int64, agentID string) []string {
+// triageContext renders the recent tail the classifier reasons over. It is the
+// same participant naming the agent itself will see, so "▸YOU" and the names in
+// the transcript cannot disagree about who is who.
+func (d *GroupDispatcher) triageContext(ctx context.Context, namer *eventlog.ParticipantNamer, groupID string, beforeSeq int64, agentID string) []string {
 	rows, err := d.q.ListRecentGroupMessagesBeforeSeq(ctx, sqlc.ListRecentGroupMessagesBeforeSeqParams{GroupID: groupID, BeforeSeq: beforeSeq + 1, MaxCount: 6})
 	if err != nil {
 		return nil
@@ -235,7 +239,7 @@ func (d *GroupDispatcher) triageContext(ctx context.Context, groupID string, bef
 		if rows[i].ActorID == agentID {
 			marker = "▸YOU"
 		}
-		out = append(out, fmt.Sprintf("%s %s: %s", marker, rows[i].ActorType, rows[i].Content))
+		out = append(out, marker+" "+namer.Line(ctx, groupID, rows[i].Seq, rows[i].ActorType, rows[i].ActorID, rows[i].Content))
 	}
 	return out
 }

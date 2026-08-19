@@ -83,3 +83,30 @@ func TestSystemInputHasEmptySpeaker(t *testing.T) {
 		t.Fatalf("system input actor = %+v", actor)
 	}
 }
+
+func TestPeerPostTriggerHasNoCurrentSpeaker(t *testing.T) {
+	// A peer's post woke this turn. <current_speaker> describes a human with a
+	// linked profile; attributing it to an agent both misnames the speaker and
+	// risks injecting the last human's profile into somebody else's turn.
+	speaker, actor := groupMessageProvenance(
+		sqlc.CtxGroupMessage{ActorType: string(eventlog.ActorAgent), ActorID: "agent-anna"},
+		memory.CurrentSpeaker{UserID: "alice", PlatformUserID: "tg-alice", DisplayName: "Alice"},
+	)
+	if speaker != (memory.CurrentSpeaker{}) {
+		t.Fatalf("agent-trigger speaker = %+v, want empty", speaker)
+	}
+	if actor != (eventlog.MessageActor{}) {
+		t.Fatalf("agent-trigger input actor = %+v, want empty", actor)
+	}
+}
+
+func TestHumanTriggerKeepsCurrentSpeaker(t *testing.T) {
+	want := memory.CurrentSpeaker{UserID: "alice", PlatformUserID: "tg-alice", DisplayName: "Alice"}
+	speaker, actor := groupMessageProvenance(sqlc.CtxGroupMessage{ActorType: string(eventlog.ActorHuman), ActorID: "tg-alice"}, want)
+	if speaker != want {
+		t.Fatalf("human speaker = %+v, want %+v", speaker, want)
+	}
+	if actor != (eventlog.MessageActor{}) {
+		t.Fatalf("human input actor = %+v, want empty", actor)
+	}
+}

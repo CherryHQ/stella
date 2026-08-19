@@ -164,9 +164,6 @@ func TestGroupMessageContentRehydration(t *testing.T) {
 	if tc, ok := blocks[0].(ai.TextContent); !ok || tc.Text != "just text" {
 		t.Fatalf("legacy block = %#v, want text projection", blocks[0])
 	}
-	if got, ok := groupMessageChatContent(legacy).(string); !ok || got != "just text" {
-		t.Fatalf("legacy chat content = %#v, want plain string", groupMessageChatContent(legacy))
-	}
 
 	// Image-bearing row: structured blocks win over the text projection.
 	withImage := sqlc.CtxGroupMessage{
@@ -176,10 +173,6 @@ func TestGroupMessageContentRehydration(t *testing.T) {
 	blocks = groupMessageContentBlocks(withImage)
 	if len(blocks) != 2 || !ai.HasImage(blocks) {
 		t.Fatalf("rehydrated blocks = %#v, want text+image", blocks)
-	}
-	chat, ok := groupMessageChatContent(withImage).([]ai.ContentBlock)
-	if !ok || !ai.HasImage(chat) {
-		t.Fatalf("chat content = %#v, want blocks with image", chat)
 	}
 
 	// Corrupt blocks degrade to the text projection instead of dropping the message.

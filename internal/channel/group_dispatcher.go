@@ -757,7 +757,7 @@ func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.Ctx
 		return nil, errGroupTurnSuperseded
 	}
 	ctx = memory.WithGroupSeq(ctx, message.Seq)
-	content := groupMessageContentBlocks(message)
+	content := d.triggerContent(ctx, row.GroupID, message)
 	var stream *pkgchannel.ChatStream
 	if state.Platform == "web" {
 		stream, err = d.chatWeb(ctx, row, message)
@@ -795,13 +795,28 @@ func groupMessageContentBlocks(message sqlc.CtxGroupMessage) []ai.ContentBlock {
 	return []ai.ContentBlock{ai.TextContent{Text: message.Content}}
 }
 
-// groupMessageChatContent is groupMessageContentBlocks for agent.ChatRequest,
-// which keeps plain strings for text-only messages.
-func groupMessageChatContent(message sqlc.CtxGroupMessage) agent.MessageContent {
-	if blocks, err := ai.UnmarshalContentBlocks(message.ContentBlocks); err == nil && blocks != nil {
+// triggerContent renders the message that woke this turn the same way the
+// injected transcript renders every other message: a seq and a participant
+// name. A human question, a peer's post and a nudge all reach the model as one
+// more labelled line, so "who is talking to me" never depends on which of the
+// three woke the turn -- the case that had agents answering in each other's
+// name. Attribution rides in the text because it must survive the prompt
+// window; the structured actor envelope does not reach the model here.
+func (d *GroupDispatcher) triggerContent(ctx context.Context, groupID string, message sqlc.CtxGroupMessage) []ai.ContentBlock {
+	blocks := groupMessageContentBlocks(message)
+	namer := eventlog.NewParticipantNamer(d.q)
+	label := fmt.Sprintf("[seq:%d %s]:", message.Seq, namer.Handle(ctx, groupID, message.ActorType, message.ActorID))
+	for i, block := range blocks {
+		text, ok := block.(ai.TextContent)
+		if !ok {
+			continue
+		}
+		text.Text = label + " " + text.Text
+		blocks[i] = text
 		return blocks
 	}
-	return message.Content
+	// Image-only message: the label still has to arrive, as its own block.
+	return append([]ai.ContentBlock{ai.TextContent{Text: label}}, blocks...)
 }
 
 // resolveWebGroupChat builds the group chat binding for an agent in a Web group.
@@ -868,7 +883,7 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 		Kind:           session.KindChat,
 		GroupID:        row.GroupID,
 		Channel:        rc.Channel,
-		Message:        groupMessageChatContent(message),
+		Message:        agent.MessageContent(d.triggerContent(ctx, row.GroupID, message)),
 		CurrentSpeaker: speaker,
 		InputActor:     inputActor,
 		Authority:      rc.Authority,
@@ -910,10 +925,17 @@ func webGroupSpeaker(message sqlc.CtxGroupMessage) memory.CurrentSpeaker {
 // group-agent authority still controls which member can execute the resulting
 // turn; this only prevents a system nudge from impersonating a human speaker.
 func groupMessageProvenance(message sqlc.CtxGroupMessage, speaker memory.CurrentSpeaker) (memory.CurrentSpeaker, eventlog.MessageActor) {
-	if message.ActorType == string(eventlog.ActorSystem) {
+	switch message.ActorType {
+	case string(eventlog.ActorSystem):
 		return memory.CurrentSpeaker{}, eventlog.MessageActor{Type: eventlog.ActorSystem, ID: message.ActorID}
+	case string(eventlog.ActorHuman):
+		return speaker, eventlog.MessageActor{}
+	default:
+		// A peer's post is not a speaker: <current_speaker> carries a human's
+		// linked identity and profile target, and an agent has neither. The
+		// trigger label is the whole provenance of an agent-authored wake.
+		return memory.CurrentSpeaker{}, eventlog.MessageActor{}
 	}
-	return speaker, eventlog.MessageActor{}
 }
 
 type groupResponse struct {

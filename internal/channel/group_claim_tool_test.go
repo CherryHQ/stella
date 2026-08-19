@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/authz"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -194,7 +195,7 @@ func TestExpiredClaimHiddenFromTriageAndPrompt(t *testing.T) {
 	if err := fx.db.QueryRow(context.Background(), `UPDATE ctx_group_claim SET lease_until=now()-interval '1 second' WHERE group_id=$1 RETURNING id`, fx.groupID).Scan(new(string)); err != nil {
 		t.Fatal(err)
 	}
-	if got := fx.d.triageClaims(context.Background(), fx.groupID, "agent-2"); len(got) != 0 {
+	if got := fx.d.triageClaims(context.Background(), eventlog.NewParticipantNamer(sqlc.New(fx.db)), fx.groupID, "agent-2"); len(got) != 0 {
 		t.Fatalf("expired triage claims=%v", got)
 	}
 	if got := NewGroupClaimPromptLoader(fx.db)(context.Background(), fx.groupID, "agent-2"); len(got) != 0 {

@@ -15,6 +15,7 @@ import (
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
+	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -432,7 +433,8 @@ func TestGroupDispatcherWebNoMentionSingleMemberFallbackCreatesOneDispatch(t *te
 func TestTriageClassifierActsOnRelevantMessage(t *testing.T) {
 	fx := newDispatcherFixture(t, "telegram", "{}")
 	fx.d.SetGroupTriage(groupTriageFunc(func(_ context.Context, req GroupTriageRequest) (bool, string, error) {
-		if req.AgentID != "agent-1" || req.Message != fx.message.Content {
+		// The classifier reads the trigger the way the agent will: labelled.
+		if req.AgentID != "agent-1" || req.Message != "[seq:1 user-1]: "+fx.message.Content {
 			t.Fatalf("unexpected triage request: %+v", req)
 		}
 		return true, "relevant", nil
@@ -1851,5 +1853,50 @@ func wantGroupTurnStopped(t *testing.T, outcome groupAcceptOutcome, err error, s
 	}
 	if outcome.Status != status || outcome.Reason != reason {
 		t.Fatalf("outcome=%s/%s, want %s/%s", outcome.Status, outcome.Reason, status, reason)
+	}
+}
+
+func TestTriggerRenderedAsTranscriptLine(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+
+	human := fx.message // seq 1, human "user-1"
+	blocks := fx.d.triggerContent(ctx, fx.groupID, human)
+	text, ok := blocks[0].(ai.TextContent)
+	if !ok || text.Text != "[seq:1 user-1]: hello" {
+		t.Fatalf("human trigger = %#v, want a labelled transcript line", blocks[0])
+	}
+
+	peer := createGroupMessage(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-0000000000f1", 2, eventlog.ActorAgent, "agent-1", "on it")
+	blocks = fx.d.triggerContent(ctx, fx.groupID, peer)
+	text, ok = blocks[0].(ai.TextContent)
+	if !ok || text.Text != "[seq:2 @Agent One]: on it" {
+		t.Fatalf("peer trigger = %#v, want [seq:2 @Agent One]: on it", blocks[0])
+	}
+
+	nudge := createGroupMessage(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-0000000000f2", 3, eventlog.ActorSystem, "nudge", "@Agent One, please continue.")
+	blocks = fx.d.triggerContent(ctx, fx.groupID, nudge)
+	text, ok = blocks[0].(ai.TextContent)
+	if !ok || text.Text != "[seq:3 system]: @Agent One, please continue." {
+		t.Fatalf("nudge trigger = %#v, want a system-labelled line", blocks[0])
+	}
+}
+
+func TestTriggerLabelSurvivesImageOnlyMessage(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	msg := sqlc.CtxGroupMessage{
+		Seq: 9, ActorType: string(eventlog.ActorAgent), ActorID: "agent-1",
+		ContentBlocks: []byte(`[{"kind":"image","data":"aGk=","mime_type":"image/png"}]`),
+	}
+	blocks := fx.d.triggerContent(context.Background(), fx.groupID, msg)
+	if len(blocks) != 2 {
+		t.Fatalf("blocks = %#v, want label + image", blocks)
+	}
+	text, ok := blocks[0].(ai.TextContent)
+	if !ok || text.Text != "[seq:9 @Agent One]:" {
+		t.Fatalf("label block = %#v", blocks[0])
+	}
+	if !ai.HasImage(blocks) {
+		t.Fatal("image block dropped")
 	}
 }

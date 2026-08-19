@@ -59,7 +59,7 @@ func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, bu
 		if err != nil {
 			return nil, fmt.Errorf("list between-turn messages: %w", err)
 		}
-		injected = groupRowsToMessages(rows, agentID)
+		injected = groupRowsToMessages(ctx, eventlog.NewParticipantNamer(p.q), groupID, rows, agentID)
 	}
 
 	// A deferred group turn commits peer rows in the dispatcher's accept tx. The
@@ -214,7 +214,11 @@ func (p *Provider) getGroupCursorWithQueries(ctx context.Context, q *sqlc.Querie
 // groupRowsToMessages converts event log rows to ai.Messages.
 // The current agent's own messages are skipped (they're already in ctx_message).
 // All other messages become UserMessages with actor attribution.
-func groupRowsToMessages(rows []sqlc.ListGroupMessagesBetweenSeqsRow, selfAgentID string) []ai.Message {
+//
+// Attribution is a name, never an id: the model has to recognise the same
+// participant here, in its roster, and in the trigger of its own turn, and it
+// has to be able to address them back. The namer is the one place that decides.
+func groupRowsToMessages(ctx context.Context, namer *eventlog.ParticipantNamer, groupID string, rows []sqlc.ListGroupMessagesBetweenSeqsRow, selfAgentID string) []ai.Message {
 	msgs := make([]ai.Message, 0, len(rows))
 	for _, row := range rows {
 		if row.Content == "" {
@@ -223,11 +227,7 @@ func groupRowsToMessages(rows []sqlc.ListGroupMessagesBetweenSeqsRow, selfAgentI
 		if row.ActorType == string(eventlog.ActorAgent) && row.ActorID == selfAgentID {
 			continue
 		}
-		label := row.ActorID
-		if row.ActorType == string(eventlog.ActorAgent) {
-			label = "agent:" + row.ActorID
-		}
-		msgs = append(msgs, ai.UserMessage{Content: fmt.Sprintf("[seq:%d %s]: %s", row.Seq, label, row.Content)})
+		msgs = append(msgs, ai.UserMessage{Content: namer.Line(ctx, groupID, row.Seq, row.ActorType, row.ActorID, row.Content)})
 	}
 	return msgs
 }

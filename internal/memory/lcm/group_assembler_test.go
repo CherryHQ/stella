@@ -224,7 +224,7 @@ func TestGroupAssemble_OtherAgentInjected(t *testing.T) {
 	assertRole(t, msgs2[2], "user")      // injected: agent-b
 
 	text := flattenUserMessage(msgs2[2].(ai.UserMessage))
-	if text != "[seq:3 agent:agent-b]: I'm agent B" {
+	if text != "[seq:3 @agent-b]: I'm agent B" {
 		t.Fatalf("injected text = %q", text)
 	}
 }
