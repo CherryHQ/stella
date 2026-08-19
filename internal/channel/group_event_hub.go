@@ -59,8 +59,11 @@ func (h *GroupEventHub) broadcast(groupID string, event GroupEvent) {
 		select {
 		case ch <- event:
 		default:
+			// Turn events carry no AppendResult, so the group id must come from
+			// the parameter: deleting by event.GroupID leaves the closed channel
+			// registered and the next broadcast sends on it.
 			close(ch)
-			delete(h.subs[event.GroupID], id)
+			delete(h.subs[groupID], id)
 		}
 	}
 }
