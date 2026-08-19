@@ -49,9 +49,9 @@ cd stella && go build -o dist/bin/stellad ./cmd/stellad/
 
 ## Run
 
-Native Stella servers are supported on Linux and macOS. Durable Home and mutable Skill authority require POSIX `openat`, atomic no-replace publication, and filesystem durability semantics; releases therefore do not publish Windows server binaries. A source-built Windows binary rejects `server`, `upgrade`, and `storage migrate-skills` before configuration, database startup, or storage mutation. Move an existing Windows deployment's database and complete `STELLA_HOME` to durable POSIX storage on Linux or macOS before upgrading. Running Stella inside a Linux VM or container on a Windows machine is supported only when `STELLA_HOME` is backed by storage with those POSIX semantics, not a Windows filesystem bind mount.
+Native Stella servers are supported on Linux and macOS. Durable Home and mutable Skill authority require POSIX `openat`, atomic no-replace publication, and filesystem durability semantics; releases therefore do not publish Windows server binaries. A source-built Windows binary rejects `server` and `upgrade` before configuration, database startup, or storage mutation. Move an existing Windows deployment's database and complete `STELLA_HOME` to durable POSIX storage on Linux or macOS before upgrading. Running Stella inside a Linux VM or container on a Windows machine is supported only when `STELLA_HOME` is backed by storage with those POSIX semantics, not a Windows filesystem bind mount.
 
-Stella bundles the Xberg document runtime on Linux and macOS, so PDF and DOCX Knowledge uploads need no separate system package or startup download.
+Stella bundles the Xberg document runtime on Linux and macOS, so supported Library document uploads need no separate system package or startup download.
 
 Start the server — the Web UI is available at `http://localhost:25678`:
 
@@ -229,7 +229,7 @@ services:
       - STELLA_DATABASE_URL=postgres://user:pass@postgres.example.com:5432/stella?sslmode=require
 ```
 
-The `seccomp=unconfined` flag is needed for the `local` sandbox backend (bubblewrap). If agents use the `docker` sandbox backend, you need additional Docker socket mounts and mode-specific environment variables — see the [Sandbox guide](/docs/guides/sandbox#docker-compose-examples) for all compose variants.
+The `seccomp=unconfined` flag is needed for the `local` sandbox backend (bubblewrap). The official Compose file already configures the Docker socket for the `docker` sandbox backend; see the [Sandbox guide](/docs/guides/sandbox#custom-docker-compose) for custom Compose deployments.
 
 ```bash
 docker compose up -d
@@ -341,7 +341,7 @@ terminationGracePeriodSeconds: 200
 
 ## Sandbox Backends
 
-Running Stella inside a Docker container (described above) is separate from using Docker as a sandbox backend for agent tool execution. Stella supports three sandbox backends: `docker`, `local`, and `none`. See the [Sandbox guide](/docs/guides/sandbox) for how to choose a backend, configure Docker sandbox modes, and troubleshoot common issues.
+Running Stella inside a Docker container (described above) is separate from using Docker as a sandbox backend for agent tool execution. Stella supports three sandbox backends: `docker`, `local`, and `none`. See the [Sandbox guide](/docs/guides/sandbox) to choose a backend and optional OCI runtime.
 
 ## Volumes & Data
 
@@ -379,13 +379,12 @@ Configuration is managed through the Web UI (default `http://localhost:25678`; u
 | `STELLA_BLOB_S3_REGION`          | No                        | Optional S3 region                                                                                                                                                            |
 | `STELLA_BLOB_S3_USE_SSL`         | No                        | Use HTTPS for S3-compatible storage; defaults to `true`                                                                                                                       |
 | `STELLA_VAULT_KEY`               | Yes†                      | age secret key for the vault — required for secrets, OAuth, and bearer tokens                                                                                                 |
-| `STELLA_DOCKER_SANDBOX_MODE`     | No‡                       | Required only for the `docker` sandbox backend: `host`, `bind`, or `volume`                                                                                                   |
-| `STELLA_HOME_HOST`               | No‡                       | Host-side path backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=bind`                                                                                   |
-| `STELLA_HOME_VOLUME`             | No‡                       | Docker named volume backing `STELLA_HOME` — required only when `STELLA_DOCKER_SANDBOX_MODE=volume`                                                                            |
+| `STELLA_SANDBOX_BACKEND`         | No                        | Sandbox backend: `docker`, `local` (default), or `none`                                                                                                                       |
+| `STELLA_DOCKER_RUNTIME`          | No‡                       | Registered OCI runtime for Docker sandbox and tool-cache containers; unset uses the daemon default, unavailable configured values fail preflight                              |
 
 † Without `STELLA_VAULT_KEY`, vault endpoints return `503`, OAuth tokens cannot be issued, and plugin secrets are not injected. Generate a key with `age-keygen`.
 
-‡ Required only when agents use the `docker` sandbox backend. Use `host` when stellad runs on the host, `bind` when stellad runs in Docker with a host bind mount, and `volume` when stellad runs in Docker with a named volume.
+‡ Relevant only when agents use the `docker` sandbox backend.
 
 § Set all four required S3 variables together, or leave all unset. Partial blob-store configuration fails startup. Mutable assets never require these variables.
 

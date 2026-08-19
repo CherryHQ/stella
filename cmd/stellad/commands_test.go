@@ -8,14 +8,18 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	ucli "github.com/urfave/cli/v2"
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/db/dbtest"
+	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/manifestplugins"
 	"github.com/CherryHQ/stella/internal/pluginhost"
+	"github.com/CherryHQ/stella/internal/skills"
 	"github.com/CherryHQ/stella/pkg/ai"
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -282,74 +286,45 @@ func TestRunHelpShort(t *testing.T) {
 	}
 }
 
-func TestStorageMigrateSkillsCommandDocumentsDryRunBoundary(t *testing.T) {
-	command := storageCommand()
-	if command.Name != "storage" || len(command.Subcommands) != 1 || command.Subcommands[0].Name != "migrate-skills" {
-		t.Fatalf("unexpected command shape: %#v", command)
-	}
-	flags := map[string]bool{}
-	for _, commandFlag := range command.Subcommands[0].Flags {
-		for _, name := range commandFlag.Names() {
-			flags[name] = true
-		}
-	}
-	for _, name := range []string{"apply", "confirm-writers-stopped", "confirm-backup-verified", "json"} {
-		if !flags[name] {
-			t.Errorf("missing --%s", name)
-		}
-	}
-	description := command.Subcommands[0].Description
-	for _, boundary := range []string{"does not publish Skill Home revisions or selectors", "write migration completion evidence", "scrub PostgreSQL Skill bytes", "not process-wide or database-wide read-only", "embedded PostgreSQL runtime", "apply ordinary schema migrations"} {
-		if !strings.Contains(description, boundary) {
-			t.Errorf("migrate-skills help omits boundary %q: %q", boundary, description)
-		}
-	}
+type blockingProjectReconciler struct{ started, release chan struct{} }
+
+func (r blockingProjectReconciler) ReconcileProjectCoordinates(context.Context) (home.ProjectCoordinateReconcileResult, error) {
+	close(r.started)
+	<-r.release
+	return home.ProjectCoordinateReconcileResult{}, nil
 }
 
-func TestMigrateSkillsApplyAttestationsFailBeforeSetup(t *testing.T) {
-	for _, present := range []string{"", "confirm-writers-stopped", "confirm-backup-verified"} {
-		t.Run(present, func(t *testing.T) {
-			set := flag.NewFlagSet("migrate-skills", flag.ContinueOnError)
-			set.Bool("apply", true, "")
-			set.Bool("confirm-writers-stopped", false, "")
-			set.Bool("confirm-backup-verified", false, "")
-			if present != "" {
-				if err := set.Set(present, "true"); err != nil {
-					t.Fatal(err)
-				}
-			}
-			ctx := ucli.NewContext(ucli.NewApp(), set, nil)
-			setupCalled := false
-			err := runMigrateSkillsWithSetup(ctx, func(*ucli.Context) error {
-				setupCalled = true
-				return nil
-			})
-			if err == nil || !strings.Contains(err.Error(), "are required with --apply") {
-				t.Fatalf("apply boundary = %v", err)
-			}
-			if setupCalled {
-				t.Fatal("configuration/database setup ran before apply attestations")
-			}
-		})
-	}
+type blockingSkillReconciler struct{ started, release chan struct{} }
+
+func (r blockingSkillReconciler) ReconcileStartup(context.Context) (skills.SkillStartupReconcileResult, error) {
+	close(r.started)
+	<-r.release
+	return skills.SkillStartupReconcileResult{}, nil
 }
 
-func TestMigrateSkillsUnsupportedPlatformFailsBeforeSetup(t *testing.T) {
-	original := migrateSkillsGOOS
-	migrateSkillsGOOS = "freebsd"
-	t.Cleanup(func() { migrateSkillsGOOS = original })
-	c := ucli.NewContext(ucli.NewApp(), flag.NewFlagSet("migrate-skills", flag.ContinueOnError), nil)
-	setupCalled := false
-	err := runMigrateSkillsWithSetup(c, func(*ucli.Context) error {
-		setupCalled = true
-		return nil
-	})
-	if err == nil || !strings.Contains(err.Error(), "supported only on Linux and macOS") {
-		t.Fatalf("unsupported migrate-skills error = %v", err)
+func TestLegacyStorageReconciliationNeverBlocksSetup(t *testing.T) {
+	projectStarted, skillStarted, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var wg sync.WaitGroup
+	scheduled := make(chan struct{})
+	go func() {
+		reconcileProjectCoordinatesInBackground(t.Context(), &wg, blockingProjectReconciler{started: projectStarted, release: release})
+		reconcileSkillHomeInBackground(t.Context(), &wg, blockingSkillReconciler{started: skillStarted, release: release})
+		close(scheduled)
+	}()
+	select {
+	case <-scheduled:
+	case <-time.After(time.Second):
+		t.Fatal("background reconciliation blocked setup")
 	}
-	if setupCalled {
-		t.Fatal("configuration/database setup ran on unsupported platform")
+	for name, started := range map[string]<-chan struct{}{"project": projectStarted, "Skill": skillStarted} {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatalf("%s reconciliation did not start", name)
+		}
 	}
+	close(release)
+	wg.Wait()
 }
 
 func TestNativeServerUnsupportedPlatformFailsBeforeConfiguration(t *testing.T) {

@@ -88,6 +88,21 @@ func TestLoadProjectsImmutableProjectSnapshotThroughSessionFiles(t *testing.T) {
 	}
 }
 
+func TestLoadProjectSkillWhileManagedSkillsUnavailable(t *testing.T) {
+	snapshot, err := SnapshotProjectSkills(t.Context(), snapshotRoot{fsys: fstest.MapFS{
+		".agents/skills/local/SKILL.md": {Data: []byte("---\nname: local\ndescription: local project skill\n---\n# Local")},
+	}}, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := unavailableManagedReader{projectionReader: &projectionReader{}}
+	tool := newProjectionTool(t, reader, projectionSession{tempVisible: "/tmp", tempHost: t.TempDir()}, allowAllSkillReads{}).WithProjectSnapshot(snapshot)
+	out, err := tool.Execute(t.Context(), map[string]any{"action": "load", "name": "local"})
+	if err != nil || !strings.Contains(out, "# Local") {
+		t.Fatalf("project Skill with managed authority unavailable = %q, %v", out, err)
+	}
+}
+
 type failingRuntimeTouchReader struct {
 	*projectionReader
 	err error

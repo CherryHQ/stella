@@ -306,6 +306,12 @@ delivered them. `截止日期` stays a deadline. The `交付周` and `周次` fo
 derive from `完成日期`, so the `上周交付` view and the `交付总览` dashboard roll
 over on their own.
 
+After a reviewed delivery write, link each delivery PR back to its Feishu Task.
+Set the linked Issue's GitHub release milestone only when the complete issue
+shipped in that release. Release tags and release-branch cherry-picks establish
+that fact; merge time alone does not. This remains GitHub release metadata, not
+a copy of the Feishu product milestone.
+
 ## Automation boundary
 
 The workflow is manual until repeated evidence justifies automation. The only

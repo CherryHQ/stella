@@ -76,17 +76,31 @@ def issue_meta(number):
     return json.loads(raw)
 
 
+def is_release_action(meta):
+    """Release bookkeeping belongs to the GitHub release milestone, not Feishu tasks."""
+    return meta["title"].lower().startswith("release:")
+
+
 def feishu_tasks():
-    raw = sh([
-        "lark-cli", "base", "+record-list", "--base-token", BASE,
-        "--table-id", TASKS, "--as", "user", "--limit", "200", "--json",
-    ])
-    data = json.loads(raw)["data"]
-    fields = data["fields"]
-    return [
-        dict(zip(fields, row), _id=rid)
-        for rid, row in zip(data["record_id_list"], data["data"])
-    ]
+    tasks, offset = [], 0
+    while True:
+        raw = sh([
+            "lark-cli", "base", "+record-list", "--base-token", BASE,
+            "--table-id", TASKS, "--as", "user", "--limit", "200",
+            "--offset", str(offset), "--json",
+        ])
+        data = json.loads(raw)["data"]
+        fields = data["fields"]
+        batch = [
+            dict(zip(fields, row), _id=rid)
+            for rid, row in zip(data["record_id_list"], data["data"])
+        ]
+        tasks.extend(batch)
+        if not data.get("has_more"):
+            return tasks
+        if not batch:
+            sys.exit("record-list returned has_more with an empty page")
+        offset += len(batch)
 
 
 def main():
@@ -112,7 +126,7 @@ def main():
         if m:
             by_issue[m.group(1)] = t
 
-    new, update = [], []
+    new, update, skipped_release = [], [], []
     for n, plist in sorted(issues.items(), key=lambda kv: int(kv[0])):
         plist = sorted(plist, key=lambda p: p["createdAt"])
         meta = issue_meta(n)
@@ -130,6 +144,14 @@ def main():
             "last_merged": plist[-1]["mergedAt"][:10],
         }
         task = by_issue.get(n)
+        if is_release_action(meta):
+            skipped_release.append({
+                "issue": n,
+                "issue_title": meta["title"],
+                "issue_url": entry["issue_url"],
+                "prs": entry["prs"],
+            })
+            continue
         if task is None:
             # Judgement fields the agent must fill before write.py will accept it.
             entry.update({"任务": None, "状态": None, "优先级": None,
@@ -151,6 +173,7 @@ def main():
             "real_issues": len(issues),
             "pr_numbers_mistaken_for_issues": sorted(set(refs) - set(issues), key=int),
             "unlinked_prs": unlinked,
+            "skipped_release_issues": skipped_release,
         },
         "new": new,
         "update": update,
@@ -163,6 +186,8 @@ def main():
     print(f"issues   {len(issues)} real ({len(refs) - len(issues)} refs were PR numbers)")
     print(f"new      {len(new)} tasks to create")
     print(f"update   {len(update)} existing tasks to refresh")
+    if skipped_release:
+        print(f"release  {[item['issue'] for item in skipped_release]}  <- skipped release bookkeeping")
     if unlinked:
         print(f"unlinked {unlinked}  <- PRs with no issue reference")
     print(f"draft    {args.out}")

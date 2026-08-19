@@ -39,9 +39,25 @@ Docker provides full container-level process, filesystem, and network isolation.
 - **Bind-mount performance**: On Docker Desktop for macOS, bind-mount filesystem operations are 5–20× slower than native disk. Avoid it for heavy read/write workflows.
 - **No copy-on-write isolation**: Unlike the local backend (which uses overlayfs on Linux), the Docker backend does not provide overlay-based COW. A runaway script can modify or damage the mounted workspace.
 
-### Runtime Modes
+### OCI Runtime
 
-When stellad itself runs inside a Docker container and agents use the `docker` sandbox backend, you must tell Stella how the Docker daemon can see `STELLA_HOME`. Set `STELLA_DOCKER_SANDBOX_MODE` to one of:
+By default, sandbox containers use the Docker daemon's default Open Container Initiative (OCI) runtime, normally `runc`. Set `STELLA_DOCKER_RUNTIME` to a runtime registered with that daemon to select a stronger or specialized execution boundary:
+
+```bash
+STELLA_DOCKER_RUNTIME=runsc
+```
+
+`runsc` is the gVisor runtime. Install and register it with Docker before enabling this setting, then confirm it appears in `docker info`. Stella preflight rejects an unregistered configured runtime and does not fall back to the daemon default. Registration is an operator trust decision; Stella cannot prove that an arbitrary runtime implementation honors the OCI resource contract. The selected runtime applies to agent sessions and Docker tool-cache helper containers.
+
+An alternative OCI runtime reduces host-kernel exposure, but it does not restrict network egress or protect writable mounts. Keep the sandbox network policy and mount permissions independently constrained.
+
+Stella also detects whether the Docker daemon is rootless. A rootful daemon runs sandbox processes with the `stellad` UID and GID. A rootless daemon runs them as container UID/GID `0:0`, which maps to the unprivileged daemon user on the host and keeps that user's bind mounts writable. Capabilities remain dropped and `no-new-privileges` remains enabled in both modes. Preflight requires the daemon to report support for memory, swap, CPU quota, and PID limits; memory plus swap is capped at the same 2 GiB ceiling. Stella also rejects a selected runtime configured with `--ignore-cgroups`. Docker `userns-remap` is not supported because its bind-mount ownership model differs from both rootful and rootless Docker.
+
+### Custom Deployments
+
+Standard service and Compose deployments require only the backend and optional runtime settings above. Continue here only when starting `stellad server` directly or building your own container deployment.
+
+Custom deployments must tell Stella how the Docker daemon sees `STELLA_HOME`:
 
 | Mode     | When to use                                             | Required env                                        |
 | -------- | ------------------------------------------------------- | --------------------------------------------------- |
@@ -49,11 +65,9 @@ When stellad itself runs inside a Docker container and agents use the `docker` s
 | `bind`   | stellad runs in Docker; `STELLA_HOME` is a bind mount   | `STELLA_HOME_HOST` = the host-side path             |
 | `volume` | stellad runs in Docker; `STELLA_HOME` is a named volume | `STELLA_HOME_VOLUME` = the volume name              |
 
-Each mode rejects env vars that belong to other modes. For example, `bind` mode with `STELLA_HOME_VOLUME` set is an error.
+Set `STELLA_DOCKER_SANDBOX_MODE` to the matching mode. Each mode rejects variables that belong to another mode. A custom container deployment must choose `bind` or `volume` explicitly; Stella does not guess whether container paths are visible to the host daemon. Volume mode requires Docker Engine 25+ for volume subpath mounts.
 
-Volume mode requires Docker Engine 25+ for volume subpath mounts.
-
-### Docker Compose Examples
+### Custom Docker Compose
 
 **Container with `local` or `none` sandbox** — the simplest deployment:
 
@@ -81,7 +95,9 @@ services:
       - ./stella-data:/home/stella/.stella
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
+      - STELLA_SANDBOX_BACKEND=docker
       - STELLA_DOCKER_SANDBOX_MODE=bind
+      - STELLA_DOCKER_RUNTIME=runsc # optional; must be registered with Docker
       - STELLA_HOME_HOST=${PWD}/stella-data
 ```
 
@@ -96,23 +112,14 @@ services:
       - stella-data:/home/stella/.stella
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
+      - STELLA_SANDBOX_BACKEND=docker
       - STELLA_DOCKER_SANDBOX_MODE=volume
+      - STELLA_DOCKER_RUNTIME=runsc # optional; must be registered with Docker
       - STELLA_HOME_VOLUME=stella-data
 
 volumes:
   stella-data:
 ```
-
-### Environment Variables
-
-| Variable                     | Description                                                                |
-| ---------------------------- | -------------------------------------------------------------------------- |
-| `STELLA_SANDBOX_BACKEND`     | Sandbox backend for the deployment: `docker`, `local` (default), or `none` |
-| `STELLA_DOCKER_SANDBOX_MODE` | Required for the `docker` sandbox backend: `host`, `bind`, or `volume`     |
-| `STELLA_HOME_HOST`           | Host-side path backing `STELLA_HOME`; required only in `bind` mode         |
-| `STELLA_HOME_VOLUME`         | Docker named volume backing `STELLA_HOME`; required only in `volume` mode  |
-
-If agents use `local` or `none`, none of these variables are needed.
 
 ## Local Backend
 

@@ -217,6 +217,7 @@ export function SessionConversation({
           value={userInput}
           onChange={(e) => setUserInput(e.target.value)}
           onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               sendMessage();

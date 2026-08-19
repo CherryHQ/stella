@@ -72,8 +72,10 @@ services:
       - STELLA_DATABASE_URL=postgres://postgres:postgres@postgres:5432/stella?sslmode=disable
       # Lock sandbox backend via env (docker | local | none); UI becomes read-only
       - STELLA_SANDBOX_BACKEND=docker
-      # Explicit Docker sandbox mode: host | bind | volume
+      # Deployment-owned mode: this Compose topology always uses the named volume below
       - STELLA_DOCKER_SANDBOX_MODE=volume
+      # Optional registered OCI runtime for sandbox containers (for example, runsc for gVisor)
+      - STELLA_DOCKER_RUNTIME=${STELLA_DOCKER_RUNTIME:-}
       # Tell volume mode which named volume backs STELLA_HOME
       - STELLA_HOME_VOLUME=stella-data
       # OTEL

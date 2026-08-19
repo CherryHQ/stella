@@ -243,6 +243,11 @@ gh issue edit <number> --repo CherryHQ/stella --milestone v0.61.0
 仍然是 deadline。`交付周` 与 `周次` 是基于 `完成日期` 的公式，因此 `上周交付`
 视图和 `交付总览` 仪表盘会自动滚动。
 
+交付写入经复核后，需要从每个交付 PR 回链对应的飞书 Task。只有完整 Issue 已随该
+版本发布时，才设置其 GitHub 发布 Milestone。发布 tag 与 release 分支的 cherry-pick
+才是依据，不能只按合入时间判断。这仍是 GitHub 的发布元数据，不是复制飞书产品
+里程碑。
+
 ## 自动化边界
 
 在反复出现明确痛点之前保持手工流程。初期仅考虑两项自动化：

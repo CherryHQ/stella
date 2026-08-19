@@ -279,3 +279,64 @@ func TestDeactivateSerializesAfterPromotion(t *testing.T) {
 		t.Fatalf("promotion/deactivation race left role=%q active=%v, want admin/true", role, active)
 	}
 }
+
+// TestCreateChannelIdentitySerializesAfterPromotion proves the role check and
+// identity insert share one target-row lock. A promotion that wins the lock
+// must make the provisioning mutation fail without leaving an identity behind.
+func TestCreateChannelIdentitySerializesAfterPromotion(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.New(t)
+	store := appdb.NewOIDCStore(db)
+	issuer, err := store.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "identity-issuer@example.test", Name: "Issuer", Role: auth.RoleAdmin, IsActive: true})
+	if err != nil {
+		t.Fatalf("create issuer: %v", err)
+	}
+	q := sqlc.New(db)
+	issuerToken, err := q.CreatePersonalAccessToken(ctx, sqlc.CreatePersonalAccessTokenParams{
+		PublicID: "identity-race-issuer", UserID: issuer.ID, Name: "issuer", TokenHash: "identity-race-hash", Last4: "hash", Scopes: []string{}, TokenUse: "provisioning",
+	})
+	if err != nil {
+		t.Fatalf("create issuer token: %v", err)
+	}
+	svc := New(db, accountLifecycleStub{}, nil, nil)
+	created, err := svc.Create(ctx, Issuer{UserID: issuer.ID, TokenID: issuerToken.ID}, CreateInput{
+		ExternalID: "identity-race-target", Email: "identity-race-target@example.test", Name: "Target", TokenName: "token", ExpiresAt: time.Now().UTC().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin promotion: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `UPDATE auth_user SET role='admin', updated_at=now() WHERE id=$1`, created.User.UserID); err != nil {
+		t.Fatalf("stage promotion: %v", err)
+	}
+	result := make(chan error, 1)
+	var started sync.WaitGroup
+	started.Add(1)
+	go func() {
+		started.Done()
+		_, err := svc.CreateChannelIdentity(ctx, Issuer{UserID: issuer.ID, TokenID: issuerToken.ID}, created.User.ID, ChannelIdentityInput{
+			Platform: "feishu", ExternalID: "on_race", Name: "Target",
+		})
+		result <- err
+	}()
+	started.Wait()
+	time.Sleep(20 * time.Millisecond)
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit promotion: %v", err)
+	}
+	if err := <-result; !errors.Is(err, ErrForbidden) {
+		t.Fatalf("identity create after committed promotion = %v, want ErrForbidden", err)
+	}
+	var identities int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM channel_identity WHERE user_id=$1`, created.User.UserID).Scan(&identities); err != nil {
+		t.Fatalf("count channel identities: %v", err)
+	}
+	if identities != 0 {
+		t.Fatalf("channel identities after promotion race = %d, want 0", identities)
+	}
+}

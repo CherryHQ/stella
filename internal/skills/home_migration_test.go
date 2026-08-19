@@ -77,45 +77,18 @@ VALUES($1,$2,$3,$4,$1,'legacy description','active',true,'{"created_by":"reflect
 
 func applySkillMigration(t *testing.T, f skillMigrationFixture) SkillHomeMigrationResult {
 	t.Helper()
-	result, err := f.migrator.Migrate(t.Context(), SkillHomeMigrationOptions{Apply: true, ConfirmWritersStopped: true, ConfirmBackupVerified: true})
-	if err != nil {
-		t.Fatal(err)
+	startup, err := f.migrator.ReconcileStartup(t.Context())
+	if err != nil || startup.Degraded != nil {
+		t.Fatal(errors.Join(err, startup.Degraded))
 	}
-	return result
-}
-
-func TestSkillHomeMigrationDryRunMakesNoAuthorityOrMarkerWrites(t *testing.T) {
-	f := newSkillMigrationFixture(t)
-	f.insertLegacySkill(t, "dry-run-skill", "user_agent", false)
-
-	first, err := f.migrator.Migrate(t.Context(), SkillHomeMigrationOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := f.migrator.Migrate(t.Context(), SkillHomeMigrationOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !first.DryRun || first.State != "planned" || !sameSkillMigrationInventory(first, second) || first.SkillCount != 1 || first.FileCount != 2 {
-		t.Fatalf("dry-run results = %#v, %#v", first, second)
-	}
-	if _, err := f.migrator.q.GetSkillHomeMigration(t.Context(), skillHomeMigrationID); !errors.Is(err, pgx.ErrNoRows) {
-		t.Fatalf("dry-run marker = %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(f.base, "users", f.userID, ".agents", "agent-skills", f.agentID)); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("dry-run materialized Home authority: %v", err)
-	}
-	var files int
-	if err := f.migrator.db.QueryRow(t.Context(), "SELECT count(*) FROM skill_file").Scan(&files); err != nil || files != 2 {
-		t.Fatalf("legacy files after dry-run = %d, %v", files, err)
-	}
+	return startup.Migration
 }
 
 func TestSkillHomeMigrationPublishesScrubsNormalizesAndCompletes(t *testing.T) {
 	f := newSkillMigrationFixture(t)
 	f.insertLegacySkill(t, "migrated-skill", "user_agent", true)
 	result := applySkillMigration(t, f)
-	if result.State != "completed" || result.DryRun || result.SkillCount != 1 || result.FileCount != 2 || !validSkillDigest(result.InventoryDigest) {
+	if result.State != "completed" || result.SkillCount != 1 || result.FileCount != 2 || !validSkillDigest(result.InventoryDigest) {
 		t.Fatalf("apply result = %#v", result)
 	}
 	identity, err := f.migrator.store.GetIdentity(t.Context(), "migrated-skill")
@@ -141,8 +114,126 @@ FROM skill WHERE id='migrated-skill'`).Scan(&fileCount, &description, &status, &
 	if rerun := applySkillMigration(t, f); !sameSkillMigrationInventory(result, rerun) || rerun.State != "completed" {
 		t.Fatalf("completed rerun = %#v", rerun)
 	}
-	if err := f.migrator.EnsureReady(t.Context()); err != nil {
-		t.Fatalf("startup verification: %v", err)
+	if err := f.migrator.verifyCompleted(t.Context()); err != nil {
+		t.Fatalf("completion verification: %v", err)
+	}
+}
+
+func TestSkillStartupReconcileQuarantinesFlatMirrorAndCompletes(t *testing.T) {
+	f := newSkillMigrationFixture(t)
+	f.insertLegacySkill(t, "legacy-flat", "system_agent", false)
+	root := filepath.Join(f.base, "agents", f.agentID, ".agents", "skills")
+	legacy := filepath.Join(root, "legacy-flat")
+	if err := os.MkdirAll(legacy, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, MainFile), []byte("# stale mirror\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := f.migrator.ReconcileStartup(t.Context())
+	if err != nil || result.Degraded != nil || result.Migration.State != "completed" {
+		t.Fatalf("startup reconciliation = %#v, %v", result, err)
+	}
+	if info, err := os.Lstat(legacy); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("current selector = %v, %v", info, err)
+	}
+	quarantined := filepath.Join(root, ".stella-legacy", "legacy-flat", MainFile)
+	if content, err := os.ReadFile(quarantined); err != nil || string(content) != "# stale mirror\n" {
+		t.Fatalf("quarantined mirror = %q, %v", content, err)
+	}
+	var files int
+	if err := f.migrator.db.QueryRow(t.Context(), "SELECT count(*) FROM skill_file").Scan(&files); err != nil || files != 0 {
+		t.Fatalf("legacy PostgreSQL files = %d, %v", files, err)
+	}
+}
+
+func TestSkillStartupReconcileDegradesOnlyDataConflict(t *testing.T) {
+	f := newSkillMigrationFixture(t)
+	f.insertLegacySkill(t, "legacy-conflict", "system_agent", false)
+	root := filepath.Join(f.base, "agents", f.agentID, ".agents", "skills")
+	for _, directory := range []string{
+		filepath.Join(root, "legacy-conflict"),
+		filepath.Join(root, ".stella-legacy", "legacy-conflict"),
+	} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := f.migrator.ReconcileStartup(t.Context())
+	if err != nil || !errors.Is(result.Degraded, ErrSkillMigrationData) {
+		t.Fatalf("data conflict reconciliation = %#v, %v", result, err)
+	}
+	var files int
+	if err := f.migrator.db.QueryRow(t.Context(), "SELECT count(*) FROM skill_file").Scan(&files); err != nil || files != 2 {
+		t.Fatalf("degraded reconciliation changed PostgreSQL files = %d, %v", files, err)
+	}
+	if _, err := f.migrator.store.CreateManagedSkill(t.Context(), Skill{Name: "must-stay-disabled", Scope: "system"}, map[string]string{MainFile: "# blocked"}); !errors.Is(err, ErrManagedSkillsUnavailable) {
+		t.Fatalf("degraded reconciliation left writes enabled: %v", err)
+	}
+}
+
+func TestSkillStartupReconcileRejectsZeroFileLegacyIdentity(t *testing.T) {
+	f := newSkillMigrationFixture(t)
+	if _, err := f.migrator.db.Exec(t.Context(), `
+INSERT INTO skill(id,scope,name,description,status,disable_model_invocation,metadata,version)
+VALUES('zero-file','system','zero-file','','active',false,'{}',1)`); err != nil {
+		t.Fatal(err)
+	}
+	result, err := f.migrator.ReconcileStartup(t.Context())
+	if err != nil || !errors.Is(result.Degraded, ErrSkillMigrationData) {
+		t.Fatalf("zero-file reconciliation = %#v, %v", result, err)
+	}
+	if _, err := f.migrator.store.GetIdentity(t.Context(), "zero-file"); !errors.Is(err, ErrManagedSkillsUnavailable) {
+		t.Fatalf("zero-file source left runtime open: %v", err)
+	}
+	if _, err := f.migrator.q.GetSkillHomeMigration(t.Context(), skillHomeMigrationID); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("zero-file source wrote completion marker: %v", err)
+	}
+}
+
+func TestSkillStartupReconcileKeepsHomeInfrastructureFailureFatal(t *testing.T) {
+	f := newSkillMigrationFixture(t)
+	f.insertLegacySkill(t, "infrastructure-failure", "system", false)
+	if err := f.manager.Close(); err != nil {
+		t.Fatal(err)
+	}
+	result, err := f.migrator.ReconcileStartup(t.Context())
+	if err == nil || result.Degraded != nil {
+		t.Fatalf("closed Home reconciliation = %#v, %v", result, err)
+	}
+}
+
+func TestManagedSkillStoreFailsClosedAfterReconciliationDegrades(t *testing.T) {
+	f := newSkillMigrationFixture(t)
+	cause := errors.New("invalid legacy source")
+	f.migrator.store.SetUnavailable(cause)
+	if _, err := f.migrator.store.GetIdentity(t.Context(), "any"); !errors.Is(err, ErrManagedSkillsUnavailable) || !errors.Is(err, cause) {
+		t.Fatalf("identity availability error = %v", err)
+	}
+	if _, err := f.migrator.store.CreateManagedSkill(t.Context(), Skill{Name: "blocked", Scope: "system"}, map[string]string{MainFile: "# blocked"}); !errors.Is(err, ErrManagedSkillsUnavailable) {
+		t.Fatalf("write availability error = %v", err)
+	}
+}
+
+func TestManagedSkillStoreUnavailableUntilStartupReconciliationCompletes(t *testing.T) {
+	f := newSkillMigrationFixture(t)
+	f.insertLegacySkill(t, "startup-gated", "system", false)
+	f.migrator.store.BeginStartupReconciliation()
+	if _, err := f.migrator.store.CreateManagedSkill(t.Context(), Skill{Name: "too-early", Scope: "system"}, map[string]string{MainFile: "# blocked"}); !errors.Is(err, ErrManagedSkillsUnavailable) || !errors.Is(err, ErrManagedSkillsPending) {
+		t.Fatalf("runtime write before reconciliation = %v", err)
+	}
+	var identities int
+	if err := f.migrator.db.QueryRow(t.Context(), "SELECT count(*) FROM skill WHERE id='too-early'").Scan(&identities); err != nil || identities != 0 {
+		t.Fatalf("runtime write raced inventory: count=%d err=%v", identities, err)
+	}
+	result, err := f.migrator.ReconcileStartup(t.Context())
+	if err != nil || result.Degraded != nil {
+		t.Fatalf("startup reconciliation = %#v, %v", result, err)
+	}
+	if _, err := f.migrator.store.CreateManagedSkill(t.Context(), Skill{Name: "after-cutover", Scope: "system"}, map[string]string{MainFile: "# available"}); err != nil {
+		t.Fatalf("runtime write after reconciliation: %v", err)
 	}
 }
 
@@ -163,8 +254,8 @@ func TestSkillHomeMigrationResumesPublishedRevisionAndSerializesCompletedRerun(t
 	for range 2 {
 		wg.Go(func() {
 			<-start
-			_, err := f.migrator.Migrate(context.Background(), SkillHomeMigrationOptions{Apply: true, ConfirmWritersStopped: true, ConfirmBackupVerified: true})
-			errs <- err
+			result, err := f.migrator.ReconcileStartup(context.Background())
+			errs <- errors.Join(err, result.Degraded)
 		})
 	}
 	close(start)
@@ -189,11 +280,14 @@ func TestSkillHomeMigrationReconcilesUnknownMarkerAcknowledgement(t *testing.T) 
 				f.insertLegacySkill(t, "unknown-marker", "system_agent", false)
 			},
 			run: func(t *testing.T, f skillMigrationFixture) error {
-				_, err := f.migrator.Migrate(t.Context(), SkillHomeMigrationOptions{Apply: true, ConfirmWritersStopped: true, ConfirmBackupVerified: true})
-				return err
+				result, err := f.migrator.ReconcileStartup(t.Context())
+				return errors.Join(err, result.Degraded)
 			},
 		},
-		{name: "empty startup marker", populate: func(*testing.T, skillMigrationFixture) {}, run: func(t *testing.T, f skillMigrationFixture) error { return f.migrator.EnsureReady(t.Context()) }},
+		{name: "empty startup marker", populate: func(*testing.T, skillMigrationFixture) {}, run: func(t *testing.T, f skillMigrationFixture) error {
+			result, err := f.migrator.ReconcileStartup(t.Context())
+			return errors.Join(err, result.Degraded)
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			f := newSkillMigrationFixture(t)
@@ -227,7 +321,8 @@ SET source_skill_count=0, source_file_count=0, source_content_bytes=0,
     source_inventory_digest=$1, inventory='[]'::jsonb`, emptySkillInventoryDigest)
 		return errors.Join(errors.New("injected acknowledgement loss"), err)
 	}
-	_, err := f.migrator.Migrate(t.Context(), SkillHomeMigrationOptions{Apply: true, ConfirmWritersStopped: true, ConfirmBackupVerified: true})
+	result, err := f.migrator.ReconcileStartup(t.Context())
+	err = errors.Join(err, result.Degraded)
 	if !errors.Is(err, ErrMarkerOutcomeUnknown) || !strings.Contains(err.Error(), "differs from attempted inventory") {
 		t.Fatalf("different completion marker = %v", err)
 	}
@@ -243,7 +338,7 @@ func TestSkillHomeMigrationPreservesLegacyNameOutsidePathGrammar(t *testing.T) {
 	if result.SkillCount != 1 {
 		t.Fatalf("migration result = %#v", result)
 	}
-	if err := f.migrator.EnsureReady(t.Context()); err != nil {
+	if err := f.migrator.verifyCompleted(t.Context()); err != nil {
 		t.Fatalf("completed legacy-name verification: %v", err)
 	}
 	identity, err := f.migrator.store.GetIdentity(t.Context(), "legacy-name")
@@ -269,7 +364,7 @@ func TestSkillHomeMigrationCompletedVerificationHonorsCurrentAuthorityAndOwnerDe
 					t.Fatal(err)
 				}
 			}
-			if err := f.migrator.EnsureReady(t.Context()); err != nil {
+			if err := f.migrator.verifyCompleted(t.Context()); err != nil {
 				t.Fatalf("completed rerun after owner deletion: %v", err)
 			}
 		})
@@ -282,7 +377,7 @@ func TestSkillHomeMigrationCompletedVerificationHonorsCurrentAuthorityAndOwnerDe
 	if err := os.Remove(selector); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.migrator.EnsureReady(t.Context()); err == nil || !strings.Contains(err.Error(), "verify current Skill") {
+	if err := f.migrator.verifyCompleted(t.Context()); err == nil || !strings.Contains(err.Error(), "verify current Skill") {
 		t.Fatalf("missing live current authority = %v", err)
 	}
 }
@@ -311,18 +406,7 @@ func TestSkillHomeMigrationCompletedVerificationAllowsManagedUpdate(t *testing.T
 	if err != nil || updated.Skill.ContentDigest == before.Skill.ContentDigest {
 		t.Fatalf("managed update = %q, %v", updated.Skill.ContentDigest, err)
 	}
-	if err := f.migrator.EnsureReady(t.Context()); err != nil {
+	if err := f.migrator.verifyCompleted(t.Context()); err != nil {
 		t.Fatalf("completed verification after managed update: %v", err)
-	}
-}
-
-func TestSkillHomeMigrationRequiresApplyAttestationsAndBlocksNonemptyStartup(t *testing.T) {
-	f := newSkillMigrationFixture(t)
-	f.insertLegacySkill(t, "blocked-skill", "system", false)
-	if _, err := f.migrator.Migrate(t.Context(), SkillHomeMigrationOptions{Apply: true}); err == nil || !strings.Contains(err.Error(), "are required") {
-		t.Fatalf("missing attestations = %v", err)
-	}
-	if err := f.migrator.EnsureReady(t.Context()); err == nil || !strings.Contains(err.Error(), "storage migrate-skills") {
-		t.Fatalf("nonempty startup gate = %v", err)
 	}
 }

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { FileText } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { useI18n } from "@/lib/i18n";
@@ -6,7 +7,14 @@ import { cn } from "@/lib/utils";
 import type { ContentBlock } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { CopyButton, REVEAL_ON_HOVER } from "./CopyButton";
-import { basename, replaceUUIDMentions, userMessageRenderInput, workspaceFileURL } from "./utils";
+import {
+  attachmentDisplayName,
+  basename,
+  replaceUUIDMentions,
+  userMessageRenderInput,
+  workspaceFileURL,
+} from "./utils";
+import { AttachmentPreview } from "./AttachmentPreview";
 
 export interface UserMessageProps {
   msg: {
@@ -37,6 +45,7 @@ export function UserMessage({
   sourceSessionId,
 }: UserMessageProps) {
   const { t } = useI18n();
+  const [previewPath, setPreviewPath] = useState<string | null>(null);
   const { canonicalBlocks, hasCanonicalImage, text, images, otherFiles } = userMessageRenderInput(
     msg,
     agentNames,
@@ -123,7 +132,7 @@ export function UserMessage({
                 >
                   <img
                     src={url}
-                    alt={basename(path)}
+                    alt={attachmentDisplayName(path)}
                     className="max-h-56 max-w-full object-cover"
                     loading="lazy"
                   />
@@ -136,18 +145,26 @@ export function UserMessage({
         {agentId && sessionId && otherFiles.length > 0 && (
           <div className="flex flex-wrap gap-2 pt-1">
             {otherFiles.map((path, i) => (
-              <a
+              <button
                 key={i}
-                href={workspaceFileURL(agentId, sessionId, path)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-md border border-border bg-card hover:bg-muted transition-colors px-3 py-1.5 text-xs text-secondary-foreground"
+                type="button"
+                onClick={() => setPreviewPath(path)}
+                title={basename(path)}
+                className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-xs text-secondary-foreground transition-colors hover:bg-muted"
               >
-                <FileText className="size-3.5 text-muted-foreground shrink-0" />
-                <span className="truncate max-w-48 font-medium">{basename(path)}</span>
-              </a>
+                <FileText className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="max-w-48 truncate font-medium">{attachmentDisplayName(path)}</span>
+              </button>
             ))}
           </div>
+        )}
+        {agentId && sessionId && (
+          <AttachmentPreview
+            agentId={agentId}
+            sessionId={sessionId}
+            path={previewPath}
+            onClose={() => setPreviewPath(null)}
+          />
         )}
         {(hasCanonicalImage || text || (showTimestamp && msg.timestamp)) && (
           <div

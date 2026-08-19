@@ -39,6 +39,19 @@ func (s *Server) writeConflictOrInternal(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "a skill with this name already exists in this scope")
 		return
 	}
+	s.writeManagedSkillError(w, err)
+}
+
+func (s *Server) writeManagedSkillError(w http.ResponseWriter, err error) {
+	if errors.Is(err, skills.ErrManagedSkillsPending) {
+		w.Header().Set("Retry-After", "5")
+		writeError(w, http.StatusServiceUnavailable, "managed Skills are initializing; retry shortly")
+		return
+	}
+	if errors.Is(err, skills.ErrManagedSkillsUnavailable) {
+		writeError(w, http.StatusServiceUnavailable, "managed Skills are unavailable; check the server log, repair the reported storage problem, and restart Stella")
+		return
+	}
 	s.writeInternalError(w, err)
 }
 
@@ -162,7 +175,7 @@ func (s *Server) ListScopedSkills(w http.ResponseWriter, r *http.Request, params
 	}
 	rows, err := s.skills.ListIdentityByScope(r.Context(), scope, userID, agentID)
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeManagedSkillError(w, err)
 		return
 	}
 	out := make([]skillView, 0, len(rows))
@@ -171,7 +184,7 @@ func (s *Server) ListScopedSkills(w http.ResponseWriter, r *http.Request, params
 			if errors.Is(err, skillaccess.ErrNotFound) || errors.Is(err, skillaccess.ErrForbidden) {
 				continue
 			}
-			s.writeInternalError(w, err)
+			s.writeManagedSkillError(w, err)
 			return
 		}
 		view, err := s.dbSkillView(r, &rows[i])
@@ -180,7 +193,7 @@ func (s *Server) ListScopedSkills(w http.ResponseWriter, r *http.Request, params
 			continue
 		}
 		if err != nil {
-			s.writeInternalError(w, err)
+			s.writeManagedSkillError(w, err)
 			return
 		}
 		out = append(out, view)
@@ -327,7 +340,7 @@ func (s *Server) GetScopedSkill(w http.ResponseWriter, r *http.Request, id strin
 	}
 	view, err := s.dbSkillView(r, sk)
 	if err != nil {
-		s.writeInternalError(w, err)
+		s.writeManagedSkillError(w, err)
 		return
 	}
 	writeData(w, http.StatusOK, view)

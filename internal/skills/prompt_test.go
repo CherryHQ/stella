@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	pkgplugins "github.com/CherryHQ/stella/pkg/plugins"
 )
@@ -75,6 +76,26 @@ func TestBuildAuthorizedPromptSectionPropagatesManagedCorruption(t *testing.T) {
 	reader := &projectionReader{identities: []Skill{identity}}
 	if _, err := BuildAuthorizedPromptSection(context.Background(), pkgplugins.SystemPromptContext{}, nil, reader, allowAllSkillReads{}); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("prompt corruption error = %v, want fs.ErrNotExist", err)
+	}
+}
+
+type unavailableManagedReader struct{ *projectionReader }
+
+func (unavailableManagedReader) ListIdentityVisible(context.Context, ViewContext) ([]Skill, error) {
+	return nil, errors.Join(ErrManagedSkillsUnavailable, ErrManagedSkillsPending)
+}
+
+func TestBuildAuthorizedPromptSectionKeepsProjectSkillsWhenManagedUnavailable(t *testing.T) {
+	snapshot, err := SnapshotProjectSkills(t.Context(), snapshotRoot{fsys: fstest.MapFS{
+		".agents/skills/deploy/SKILL.md": {Data: []byte("---\nname: deploy\ndescription: deploy app\n---\n")},
+	}}, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := unavailableManagedReader{projectionReader: &projectionReader{}}
+	section, err := BuildAuthorizedPromptSection(t.Context(), pkgplugins.SystemPromptContext{}, snapshot, reader, allowAllSkillReads{})
+	if err != nil || section.Title != "Skills" {
+		t.Fatalf("prompt with managed Skills unavailable = %#v, %v", section, err)
 	}
 }
 
