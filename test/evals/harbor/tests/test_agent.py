@@ -1,4 +1,4 @@
-from stella_harbor.agent import verify_evidence
+from stella_harbor.agent import split_trial_budget, verify_evidence
 
 
 def result(**changes):
@@ -93,3 +93,22 @@ def test_a_failed_tool_call_needs_no_ledger_entry():
     ledger = [{"op": "write_file", "path": "/app/y", "ok": True}]
 
     assert verify_evidence(_result(calls), ledger, "n") == []
+
+
+def test_trial_budget_holds_the_stop_confirmation_inside_harbor_s_limit():
+    # The regression: 885s of work plus a 3 minute confirmation against a 900s
+    # limit killed 35 of 445 trials at ~1005s, each one unscoreable.
+    limit, margin = 900, 15
+    deadline, confirm = split_trial_budget(limit, margin, 60)
+
+    assert deadline + confirm <= limit - margin
+    assert confirm == 60
+    assert deadline == 825
+
+
+def test_trial_budget_shrinks_the_confirmation_rather_than_the_work():
+    deadline, confirm = split_trial_budget(60, 15, 600)
+
+    assert deadline + confirm <= 45
+    assert deadline > confirm
+    assert confirm >= 1

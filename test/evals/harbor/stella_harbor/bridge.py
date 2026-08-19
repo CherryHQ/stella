@@ -78,15 +78,22 @@ class BridgeServer:
     nonce: str = field(default_factory=lambda: secrets.token_hex(16))
     tool_path_prepend: str = ""
     user: str | int | None = None
+    # Wall clock the whole trial has to live inside. No command the agent runs
+    # can usefully outlive it, so it doubles as the ceiling for an exec that
+    # arrives with no timeout of its own.
+    budget_sec: int = 0
     _server: asyncio.AbstractServer | None = None
     _ledger: Any = None
     _calls: int = 0
     _bind_path: Path | None = None
     _bind_dir: Path | None = None
+    _deadline: float = 0.0
+    _has_timeout_bin: bool = False
 
     # ---- lifecycle -------------------------------------------------------
 
     async def start(self) -> Binding:
+        self._deadline = time.monotonic() + self.budget_sec if self.budget_sec > 0 else 0.0
         self._bind_path = self._short_socket_path()
         if self._bind_path.exists():
             self._bind_path.unlink()
@@ -141,7 +148,7 @@ class BridgeServer:
     async def _discover(self) -> tuple[str, str, str]:
         temp_dir = f"/tmp/stella-eval-{self.nonce[:8]}"
         r = await self._exec(
-            f'mkdir -p {shlex.quote(temp_dir)} && printf "%s\\n%s\\n" "$HOME" "$PATH"',
+            f'mkdir -p {shlex.quote(temp_dir)} && printf "%s\\n%s\\n%s\\n" "$HOME" "$PATH" "$(command -v timeout || true)"',
             timeout_sec=30,
         )
         if r.return_code != 0:
@@ -149,6 +156,11 @@ class BridgeServer:
         lines = (r.stdout or "").splitlines()
         home = lines[0] if lines else ""
         path = lines[1] if len(lines) > 1 else ""
+        # coreutils `timeout` is what actually kills a runaway: the transport
+        # only ever kills its own client, and the process inside the container
+        # survives that. An image without it keeps the old, weaker behaviour
+        # rather than failing the trial.
+        self._has_timeout_bin = bool(len(lines) > 2 and lines[2].strip())
         if self.tool_path_prepend:
             path = f"{self.tool_path_prepend}:{path}" if path else self.tool_path_prepend
         return home, path, temp_dir
@@ -243,10 +255,38 @@ class BridgeServer:
     async def _op_ping(self, req: dict[str, Any]) -> dict[str, Any]:
         return {"ok": True}
 
+    def _remaining_sec(self) -> int | None:
+        """Seconds left in the trial, or None when no budget was configured."""
+        if self._deadline <= 0:
+            return None
+        return max(1, int(self._deadline - time.monotonic()))
+
+    def _bounded(self, command: str, timeout: int | None) -> tuple[str, int | None, int | None]:
+        """Clamp an exec to the trial and enforce that inside the container.
+
+        Two independent holes closed here. A command that arrives without a
+        timeout used to run unbounded, and a command that had one was only
+        bounded on the client: killing the host-side transport leaves the
+        process in the container spinning. One runaway then holds a Harbor
+        concurrency slot open forever and the whole job never finalizes.
+
+        Returns the command to run, the timeout the agent is promised, and the
+        client-side deadline, which is deliberately looser so the container's
+        own kill lands first and keeps the exit code readable.
+        """
+        remaining = self._remaining_sec()
+        if remaining is not None:
+            timeout = remaining if timeout is None else min(timeout, remaining)
+        if timeout is None or not self._has_timeout_bin:
+            return command, timeout, timeout
+        # -k: SIGKILL follows if the command ignores SIGTERM.
+        return f"timeout -k 5s {timeout}s bash -c {shlex.quote(command)}", timeout, timeout + 10
+
     async def _op_exec(self, req: dict[str, Any]) -> dict[str, Any]:
-        timeout = req.get("timeout_sec") or None
+        command, timeout, client_timeout = self._bounded(req["command"], req.get("timeout_sec") or None)
+        timed_out = {"ok": True, "stdout": "", "stderr": f"command timed out after {timeout} seconds", "return_code": -1}
         try:
-            r = await self._exec(req["command"], cwd=req.get("cwd") or self.workdir, env=req.get("env") or None, timeout_sec=timeout)
+            r = await self._exec(command, cwd=req.get("cwd") or self.workdir, env=req.get("env") or None, timeout_sec=client_timeout)
         except Exception as e:  # noqa: BLE001 - re-raised unless it is the timeout
             # Harbor kills the process and raises a bare RuntimeError when
             # timeout_sec expires. A command that ran out of time is a normal
@@ -255,14 +295,13 @@ class BridgeServer:
             # "command timed out after N seconds"). Reporting it as an error
             # instead teaches the agent nothing and, because the ledger counts
             # adapter faults, voided whole trials.
-            if timeout is None or not _is_timeout(e, timeout):
+            if client_timeout is None or not _is_timeout(e, client_timeout):
                 raise
-            return {
-                "ok": True,
-                "stdout": "",
-                "stderr": f"command timed out after {timeout} seconds",
-                "return_code": -1,
-            }
+            return timed_out
+        if timeout is not None and self._has_timeout_bin and r.return_code in (124, 137):
+            # `timeout` killed it inside the container. Same answer the client
+            # path gives, so the agent cannot tell which layer stopped it.
+            return dict(timed_out, stdout=r.stdout or "")
         return {"ok": True, "stdout": r.stdout or "", "stderr": r.stderr or "", "return_code": r.return_code}
 
     async def _op_stat(self, req: dict[str, Any]) -> dict[str, Any]:

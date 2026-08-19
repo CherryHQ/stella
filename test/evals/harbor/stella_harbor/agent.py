@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import subprocess
@@ -139,6 +140,20 @@ def verify_evidence(result: dict[str, Any], ledger: list[dict[str, Any]], nonce:
     return failures
 
 
+def split_trial_budget(limit: int, margin: int, confirm: int) -> tuple[int, int]:
+    """Divide Harbor's trial limit into working time and stop confirmation.
+
+    Harbor kills the trial at `limit`, so working time, the confirmation that
+    follows it, and the evidence export all have to fit inside that one number.
+    The margin covers process spawn and exit. A limit too small to hold the
+    requested confirmation shrinks it rather than starving the work: a quarter
+    of the wall is the floor either side can rely on.
+    """
+    wall = max(1, limit - margin)
+    confirm = max(1, min(confirm, wall // 4))
+    return max(1, wall - confirm), confirm
+
+
 class StellaAgent(BaseInstalledAgent):
     """Run Stella on the host while its core tools execute in Harbor's container."""
 
@@ -151,9 +166,19 @@ class StellaAgent(BaseInstalledAgent):
         self.admin_token_env = admin_token_env
         self.stella_model = model or self.model_name or os.environ.get("STELLA_EVAL_MODEL", "")
         self.deadline_margin_sec = deadline_margin_sec
+        self.stop_confirm_sec = self.STOP_CONFIRM_SEC
         self.eval_agent_bin = eval_agent_bin or os.environ.get("STELLA_EVAL_AGENT_BIN", "stella-eval-agent")
         self.binding_dir = binding_dir or os.environ.get("STELLA_EVAL_BRIDGE_DIR", "")
         self.bundle_digest = ""
+
+    # Cancellation budgets. Both are deliberately small: they run after the
+    # trial is already over, and Harbor is waiting on them.
+    CHILD_REAP_SEC = 10
+    CLOSE_BUDGET_SEC = 20
+    # Time reserved after the working deadline for the session to confirm it
+    # stopped. Commands are clamped to the working deadline, so this only has to
+    # cover the kill and the turn teardown, not the longest tool call.
+    STOP_CONFIRM_SEC = 60
 
     @staticmethod
     def name() -> str:
@@ -179,13 +204,16 @@ class StellaAgent(BaseInstalledAgent):
         if workdir_result.return_code != 0:
             raise RuntimeError(f"discover task workdir: {workdir_result.stderr}")
         workdir = (workdir_result.stdout or "").strip() or "/"
-        # One wall clock, owned here: Harbor kills the trial at
-        # HARBOR_AGENT_TIMEOUT_SEC, so everything the agent does -- working,
-        # stopping, exporting evidence -- has to finish inside it. The margin
-        # covers only process spawn and exit; the agent subdivides the rest and
-        # keeps its own stop confirmation inside this number, never after it.
-        deadline = max(1, int(os.environ.get("HARBOR_AGENT_TIMEOUT_SEC", "900")) - self.deadline_margin_sec)
-        server = BridgeServer(environment, workdir, trial_dir / "bridge.sock", trial_dir / "bridge-ledger.jsonl", tool_path_prepend="/installed-agent/stella/bin")
+        # One wall clock, and the arithmetic that divides it lives here. Harbor
+        # kills the trial at HARBOR_AGENT_TIMEOUT_SEC, so working time, the stop
+        # confirmation that follows it, and the evidence export all have to fit
+        # inside that number. The margin covers process spawn and exit only.
+        # Every command the agent runs is clamped to `deadline` too, so nothing
+        # is still executing when the confirmation starts.
+        deadline, confirm = split_trial_budget(
+            int(os.environ.get("HARBOR_AGENT_TIMEOUT_SEC", "900")), self.deadline_margin_sec, self.stop_confirm_sec
+        )
+        server = BridgeServer(environment, workdir, trial_dir / "bridge.sock", trial_dir / "bridge-ledger.jsonl", tool_path_prepend="/installed-agent/stella/bin", budget_sec=deadline)
         binding = await server.start()
         result_path = trial_dir / "result.json"
         template_path = trial_dir / "binding-template.json"
@@ -196,18 +224,33 @@ class StellaAgent(BaseInstalledAgent):
         bundle_digest.write_text("")
         command = [self.eval_agent_bin, "--stella-url", self.stella_url, "--instruction-file", str(instruction_path), "--binding-template", str(template_path),
                    "--binding-dir", self.binding_dir, "--model", self.stella_model, "--user-id", trial,
-                   "--deadline-seconds", str(deadline), "--bundle-digest", self.bundle_digest, "--output", str(result_path),
+                   "--deadline-seconds", str(deadline), "--stop-confirm-seconds", str(confirm), "--bundle-digest", self.bundle_digest, "--output", str(result_path),
                    "--trajectory", str(trial_dir / "trajectory.json")]
         child_env = os.environ.copy()
         if token := os.environ.get(self.admin_token_env):
             # The Go process has one fixed secret name, so its env-read surface
             # remains auditable while Harbor callers can choose their injection key.
             child_env["STELLA_EVAL_ADMIN_TOKEN"] = token
+        proc = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=child_env)
         try:
-            proc = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=child_env)
             stdout, stderr = await proc.communicate()
+        except asyncio.CancelledError:
+            # Harbor's trial deadline cancels this coroutine. Nothing else stops
+            # the child, and while it lives it keeps issuing bridge calls into a
+            # container Harbor is trying to tear down. Reap it here, bounded, so
+            # a cancelled trial ends when it is cancelled.
+            proc.kill()
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(proc.wait(), self.CHILD_REAP_SEC)
+            raise
         finally:
-            await server.close()
+            # An exec may still be in flight against a container that is gone or
+            # wedged; waiting on it here is how one runaway command used to stall
+            # the entire job. Give the close a budget and abandon what is left.
+            closing = asyncio.ensure_future(server.close())
+            await asyncio.wait([closing], timeout=self.CLOSE_BUDGET_SEC)
+            if not closing.done():
+                closing.cancel()
         if not result_path.exists():
             raise RuntimeError(f"stella-eval-agent did not write result (stderr: {stderr.decode(errors='replace')[-1000:]})")
         result = json.loads(result_path.read_text())

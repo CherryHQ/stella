@@ -170,3 +170,66 @@ def test_exec_still_fails_loudly_when_the_environment_breaks(tmp_path):
         assert "not running" in str(e)
     else:
         raise AssertionError("a broken environment must not look like a timeout")
+
+
+def test_exec_without_a_timeout_is_bounded_by_the_trial(tmp_path):
+    # The wedge: a command the model sent without a timeout ran unbounded, spun
+    # a core for 3.5 hours, and held the whole Harbor job open.
+    env = _FakeEnv()
+    seen: list[tuple[str, int | None]] = []
+
+    async def record(command: str, **kwargs) -> _Result:
+        seen.append((command, kwargs.get("timeout_sec")))
+        return _Result()
+
+    env.exec = record  # type: ignore[method-assign]
+    server = BridgeServer(env, "/app", tmp_path / "s.sock", tmp_path / "l.jsonl", budget_sec=600)
+    server._deadline = __import__("time").monotonic() + 600
+    server._has_timeout_bin = True
+
+    asyncio.run(server._op_exec({"command": "python3 -c 'while True: pass'"}))
+
+    command, client_timeout = seen[0]
+    assert command.startswith("timeout -k 5s "), command
+    assert "while True" in command
+    # The container kills first; the client's deadline is deliberately looser so
+    # the exit code survives to be read.
+    assert client_timeout is not None and client_timeout > 600
+
+
+def test_exec_reports_a_container_side_kill_as_a_timeout(tmp_path):
+    # `timeout` exits 124 (or 137 after SIGKILL). The agent must see the same
+    # answer it gets when the client-side deadline fires, or it learns that a
+    # timeout is an unexplained failure.
+    env = _FakeEnv()
+
+    async def killed(command: str, **kwargs) -> _Result:
+        return _Result(stdout="partial", return_code=124)
+
+    env.exec = killed  # type: ignore[method-assign]
+    server = BridgeServer(env, "/app", tmp_path / "s.sock", tmp_path / "l.jsonl")
+    server._has_timeout_bin = True
+
+    out = asyncio.run(server._op_exec({"command": "sleep 999", "timeout_sec": 30}))
+
+    assert out["return_code"] == -1
+    assert "timed out after 30 seconds" in out["stderr"]
+    assert out["stdout"] == "partial"
+
+
+def test_exec_keeps_the_old_behaviour_without_the_timeout_binary(tmp_path):
+    # A minimal image without coreutils must still run commands, unwrapped.
+    env = _FakeEnv()
+    seen: list[str] = []
+
+    async def record(command: str, **kwargs) -> _Result:
+        seen.append(command)
+        return _Result()
+
+    env.exec = record  # type: ignore[method-assign]
+    server = BridgeServer(env, "/app", tmp_path / "s.sock", tmp_path / "l.jsonl")
+    server._has_timeout_bin = False
+
+    asyncio.run(server._op_exec({"command": "ls", "timeout_sec": 30}))
+
+    assert seen[0] == "ls"
