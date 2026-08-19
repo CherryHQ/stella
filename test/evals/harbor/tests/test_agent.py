@@ -54,3 +54,30 @@ def test_bridge_stats_separates_harness_faults_from_agent_mistakes():
     assert stats["operations"]["read_file"]["failures"] == 2
     assert [f["seq"] for f in stats["adapter_faults"]] == [2]
     assert stats["adapter_faults"][0]["code"] == "internal"
+
+
+def _result(calls):
+    return {"bridge_nonce": "n", "turn_terminal_state": "completed", "disabled_tools_count": 3,
+            "token_count": 100, "stella_tool_calls": calls}
+
+
+def test_expanded_paths_still_match_their_ledger_entry():
+    # Stella expands $TMPDIR and resolves relative paths before the call reaches
+    # the bridge, so the transcript and the ledger legitimately disagree.
+    from stella_harbor.agent import verify_evidence
+
+    calls = [{"name": "write", "arguments": {"path": "$TMPDIR/nginx.conf"}}]
+    ledger = [{"op": "write_file", "path": "/tmp/stella-eval-5d37/nginx.conf", "ok": True}]
+
+    assert verify_evidence(_result(calls), ledger, "n") == []
+
+
+def test_one_unmatched_call_does_not_consume_the_ledger_for_the_rest():
+    from stella_harbor.agent import verify_evidence
+
+    calls = [{"name": "write", "arguments": {"path": "/never/written"}},
+             {"name": "write", "arguments": {"path": "/app/real.txt"}}]
+    ledger = [{"op": "write_file", "path": "/app/real.txt", "ok": True}]
+
+    assert verify_evidence(_result(calls), ledger, "n") == [
+        "write tool call has no matching bridge ledger entry"]

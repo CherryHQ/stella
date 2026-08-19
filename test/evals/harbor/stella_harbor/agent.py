@@ -66,6 +66,24 @@ def _path(arguments: dict[str, Any]) -> str | None:
     return None
 
 
+def _same_file(ledger_path: Any, call_path: str) -> bool:
+    """Whether a ledger entry refers to the file a tool call named.
+
+    The two spellings legitimately differ: Stella expands `$TMPDIR` and resolves
+    relative paths before the call reaches the bridge, so the transcript can say
+    `$TMPDIR/nginx.conf` where the ledger says `/tmp/stella-eval-5d37/nginx.conf`.
+    Requiring string equality turned that into a false evidence failure. The file
+    name still has to match, which is what the predicate is actually asserting:
+    that this work happened inside the container.
+    """
+    if not isinstance(ledger_path, str):
+        return False
+    if ledger_path == call_path:
+        return True
+    name = call_path.rsplit("/", 1)[-1]
+    return bool(name) and ledger_path.rsplit("/", 1)[-1] == name
+
+
 def verify_evidence(result: dict[str, Any], ledger: list[dict[str, Any]], nonce: str) -> list[str]:
     """Return fail-closed predicate violations from ADR §9.
 
@@ -99,15 +117,19 @@ def verify_evidence(result: dict[str, Any], ledger: list[dict[str, Any]], nonce:
         wanted = expected[name]
         path = _path(call.get("arguments") or {})
         found = False
+        # A failed scan must not consume the ledger: otherwise one unmatched
+        # call cascades and every later call reports missing too.
+        resume = index
         while index < len(ledger):
             entry = ledger[index]
             index += 1
             if entry.get("op") not in wanted:
                 continue
-            if name == "bash" or path is None or entry.get("path") == path:
+            if name == "bash" or path is None or _same_file(entry.get("path"), path):
                 found = True
                 break
         if not found:
+            index = resume
             failures.append(f"{name} tool call has no matching bridge ledger entry")
     return failures
 
