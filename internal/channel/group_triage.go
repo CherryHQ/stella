@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/CherryHQ/stella/internal/eventlog"
+	"github.com/CherryHQ/stella/internal/memory"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -33,7 +34,12 @@ func (d *GroupDispatcher) triageWake(ctx context.Context, row sqlc.CtxGroupDispa
 		return false, "hard_cap", false
 	}
 
-	if mentioned(row.AgentID, envelope.Mentions) {
+	// Read mentions since this agent's ingest watermark, not just from the
+	// trigger envelope. Coalescing and HOLD can move a wake past the message
+	// that addressed this agent. The cursor is the consumption boundary: a
+	// PASS/accepted turn has seen the mention, while a superseded or held turn
+	// has not.
+	if d.mentionedSinceCursor(ctx, row) || mentionsAgent(envelope.Mentions, row.AgentID) {
 		return true, "mentioned", false
 	}
 	if row.Kind == "nudge" && envelope.NudgeTarget == row.AgentID {
@@ -53,18 +59,31 @@ func (d *GroupDispatcher) triageWake(ctx context.Context, row sqlc.CtxGroupDispa
 	return true, "open_floor", false
 }
 
-func (d *GroupDispatcher) hasLiveGroupClaims(ctx context.Context, groupID string) bool {
-	claims, err := d.q.ListLiveGroupClaims(ctx, groupID)
-	return err == nil && len(claims) > 0
+// mentionedSinceCursor answers whether an unconsumed message addressed this
+// agent. A read failure means "no": the wake still runs on the open floor, so
+// a transient error costs the mention its rule, never the agent its turn.
+func (d *GroupDispatcher) mentionedSinceCursor(ctx context.Context, row sqlc.CtxGroupDispatch) bool {
+	found, err := d.q.AgentMentionedSinceCursor(ctx, sqlc.AgentMentionedSinceCursorParams{
+		GroupID:    row.GroupID,
+		AgentID:    row.AgentID,
+		Pipeline:   memory.GroupIngestPipeline(row.AgentID),
+		TriggerSeq: row.TriggerSeq,
+	})
+	return err == nil && found
 }
 
-func mentioned(agentID string, mentions []pkgchannel.Mention) bool {
+func mentionsAgent(mentions []pkgchannel.Mention, agentID string) bool {
 	for _, mention := range mentions {
 		if mention.AgentID == agentID {
 			return true
 		}
 	}
 	return false
+}
+
+func (d *GroupDispatcher) hasLiveGroupClaims(ctx context.Context, groupID string) bool {
+	claims, err := d.q.ListLiveGroupClaims(ctx, groupID)
+	return err == nil && len(claims) > 0
 }
 
 func resolvedMentions(mentions []pkgchannel.Mention) []pkgchannel.Mention {

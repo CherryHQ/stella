@@ -285,3 +285,25 @@ SET status = 'pending',
 WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND attempt_count = sqlc.arg(attempt_count);
+
+-- name: AgentMentionedSinceCursor :one
+-- Was this agent addressed in any message it has not consumed yet?
+-- Coalescing is what makes this necessary: the newest wake can supersede the
+-- row created for the message that addressed the agent, and a HOLD can move a
+-- successor wake forward too. The LCM cursor is the right boundary: a PASS or
+-- accepted turn has seen the mention, while a superseded or held turn has not.
+SELECT EXISTS (
+  SELECT 1
+  FROM ctx_group_outbox outbox
+  JOIN ctx_group_message message ON message.id = outbox.group_message_id
+  LEFT JOIN ctx_group_ingest_cursor cursor
+    ON cursor.group_id = message.group_id
+   AND cursor.pipeline = sqlc.arg(pipeline)
+  WHERE message.group_id = sqlc.arg(group_id)
+    AND message.actor_id <> sqlc.arg(agent_id)
+    AND message.seq > COALESCE(cursor.last_seq, 0)
+    AND message.seq <= sqlc.arg(trigger_seq)
+    -- Mention.AgentID carries no json tag, so the encoded key is the Go field
+    -- name. Containment matches an element with that id whatever else it holds.
+    AND (outbox.envelope::jsonb -> 'mentions') @> jsonb_build_array(jsonb_build_object('AgentID', sqlc.arg(agent_id)::text))
+)::boolean;

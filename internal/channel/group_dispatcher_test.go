@@ -440,6 +440,68 @@ func TestUnclassifiedWakeRunsTheTurn(t *testing.T) {
 	}
 }
 
+func TestMentionSurvivesCoalescedAndHeldWake(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	mentionEnvelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{AgentID: "agent-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_outbox SET envelope = $1 WHERE group_message_id = $2`, mentionEnvelope, fx.message.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// The newer wake is the one that survives coalescing. It has no mention of
+	// agent-1, and the current envelope points at a peer, but the older human
+	// mention is still unread because the superseded turn never committed its
+	// cursor. This is also the HOLD successor shape: the trigger moved forward,
+	// while the agent's read boundary did not.
+	followUp := createGroupMessage(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-000000000002", 2, eventlog.ActorHuman, "user-1", "why no answer?")
+	setGroupNextSeq(t, fx.db, fx.groupID, followUp.Seq)
+	state, err := fx.q.GetGroupStateByID(ctx, fx.groupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := sqlc.CtxGroupDispatch{GroupID: fx.groupID, AgentID: "agent-1", TriggerSeq: followUp.Seq, Kind: "wake"}
+	act, reason, degraded := fx.d.triageWake(ctx, row, followUp, state, GroupOutboxEnvelope{
+		Mentions: []pkgchannel.Mention{{AgentID: "agent-2"}},
+	})
+	if !act || degraded || reason != "mentioned" {
+		t.Fatalf("act=%v reason=%q degraded=%v, want mentioned wake to act", act, reason, degraded)
+	}
+}
+
+func TestConsumedMentionDoesNotCarryIntoLaterWake(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	mentionEnvelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{AgentID: "agent-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_outbox SET envelope = $1 WHERE group_message_id = $2`, mentionEnvelope, fx.message.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.q.UpsertIngestCursor(ctx, sqlc.UpsertIngestCursorParams{
+		GroupID:  fx.groupID,
+		Pipeline: memory.GroupIngestPipeline("agent-1"),
+		LastSeq:  fx.message.Seq,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	followUp := createGroupMessage(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-000000000003", 2, eventlog.ActorHuman, "user-1", "another question")
+	setGroupNextSeq(t, fx.db, fx.groupID, followUp.Seq)
+	state, err := fx.q.GetGroupStateByID(ctx, fx.groupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := sqlc.CtxGroupDispatch{GroupID: fx.groupID, AgentID: "agent-1", TriggerSeq: followUp.Seq, Kind: "wake"}
+	act, reason, degraded := fx.d.triageWake(ctx, row, followUp, state, GroupOutboxEnvelope{})
+	if !act || degraded || reason != "open_floor" {
+		t.Fatalf("act=%v reason=%q degraded=%v, want consumed mention to be ignored", act, reason, degraded)
+	}
+}
+
 func TestUnmentionedPeerSilentWhenOthersMentioned(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	row := sqlc.CtxGroupDispatch{GroupID: fx.groupID, AgentID: "agent-1", TriggerSeq: fx.message.Seq, Kind: "wake"}

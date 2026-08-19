@@ -12,6 +12,48 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const agentMentionedSinceCursor = `-- name: AgentMentionedSinceCursor :one
+SELECT EXISTS (
+  SELECT 1
+  FROM ctx_group_outbox outbox
+  JOIN ctx_group_message message ON message.id = outbox.group_message_id
+  LEFT JOIN ctx_group_ingest_cursor cursor
+    ON cursor.group_id = message.group_id
+   AND cursor.pipeline = $1
+  WHERE message.group_id = $2
+    AND message.actor_id <> $3
+    AND message.seq > COALESCE(cursor.last_seq, 0)
+    AND message.seq <= $4
+    -- Mention.AgentID carries no json tag, so the encoded key is the Go field
+    -- name. Containment matches an element with that id whatever else it holds.
+    AND (outbox.envelope::jsonb -> 'mentions') @> jsonb_build_array(jsonb_build_object('AgentID', $3::text))
+)::boolean
+`
+
+type AgentMentionedSinceCursorParams struct {
+	Pipeline   string `json:"pipeline"`
+	GroupID    string `json:"group_id"`
+	AgentID    string `json:"agent_id"`
+	TriggerSeq int64  `json:"trigger_seq"`
+}
+
+// Was this agent addressed in any message it has not consumed yet?
+// Coalescing is what makes this necessary: the newest wake can supersede the
+// row created for the message that addressed the agent, and a HOLD can move a
+// successor wake forward too. The LCM cursor is the right boundary: a PASS or
+// accepted turn has seen the mention, while a superseded or held turn has not.
+func (q *Queries) AgentMentionedSinceCursor(ctx context.Context, arg AgentMentionedSinceCursorParams) (bool, error) {
+	row := q.db.QueryRow(ctx, agentMentionedSinceCursor,
+		arg.Pipeline,
+		arg.GroupID,
+		arg.AgentID,
+		arg.TriggerSeq,
+	)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const claimExpiredGroupDispatch = `-- name: ClaimExpiredGroupDispatch :one
 UPDATE ctx_group_dispatch
 SET status = 'running',
