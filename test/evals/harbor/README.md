@@ -64,6 +64,10 @@ is never a pass, even if the verifier reward is one.
 mise run testbed:stop
 ```
 
+The evaluation instance must have no MCP servers configured. MCP tools are
+reported as always enabled and cannot be turned off, so the driver refuses to
+start a turn when it finds one and names it in the result.
+
 ## Capability profile
 
 `build_tool_bundle.sh` downloads pinned, checksum-verified static `rg` and

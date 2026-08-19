@@ -48,6 +48,7 @@ type result struct {
 	ElapsedSec              float64        `json:"elapsed_sec"`
 	BridgeNonce             string         `json:"bridge_nonce"`
 	DisabledToolsCount      int            `json:"disabled_tools_count"`
+	MCPTools                []string       `json:"mcp_tools,omitempty"`
 	CapabilityProfileDigest string         `json:"capability_profile_digest"`
 	TimedOut                bool           `json:"timed_out"`
 	StreamErrors            []string       `json:"stream_errors,omitempty"`
@@ -385,6 +386,20 @@ func run() int {
 	}
 	if err = user.call(ctx, http.MethodGet, "/api/agents/"+r.AgentID+"/tools", nil, &tools); err != nil {
 		r.Errors = append(r.Errors, "list tools: "+err.Error())
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	// MCP tools bypass the sandbox Session and cannot be turned off: the tool
+	// list reports them as always enabled with no override. An evaluation
+	// instance must therefore have no MCP servers configured, and a run that
+	// finds one is void rather than a score with an unknown capability set.
+	for _, tool := range tools.Tools {
+		if tool.Source == "mcp" {
+			r.MCPTools = append(r.MCPTools, tool.Name)
+		}
+	}
+	if len(r.MCPTools) > 0 {
+		r.Errors = append(r.Errors, "evaluation instance exposes MCP tools that cannot be disabled: "+strings.Join(r.MCPTools, ", "))
 		r.FailureClass = "adapter"
 		return exitAdapter
 	}

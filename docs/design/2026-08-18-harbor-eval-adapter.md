@@ -159,6 +159,12 @@ post-trial 合并步骤: 读 Harbor result.json,把 verifier 输出与 exception
 
 `bridge` 后端本身对未绑定 bridge 的 session 拒绝创建(不是回退到别的后端)。
 
+**实测修正(2026-08-18)**:MCP 工具不在覆盖范围内。`GET /api/agents/{id}/tools` 把
+MCP 注册项固定标为 `enabled: true` 且 `origin: default`(`internal/server/agent_tools.go:157-167`),
+`PATCH /tools/{toolName}` 对它无效。因此评测实例**必须没有配置任何 MCP server**;
+driver 在建 session 前检查工具列表,发现 `source: mcp` 即以 adapter 失败退出并在
+结果里列出这些工具名。补一个最小的 MCP 覆盖能力属于 #1055,不在本版范围。
+
 ### 7.3 上下文 split-brain
 
 runner 通过**宿主** Home snapshot 读取 project 的 `AGENTS.md` 与 project skills(`internal/agent/runner_builder.go:187-318`, `internal/agent/project.go:37-67`),而 `bridge` Session 要到 `runner_impl.go:107-118` 才创建;system prompt 已非空,Session 文件系统 fallback 不会执行(`runner_impl.go:120-122`)。结果是模型看到宿主上的项目上下文,却在容器里执行工具。
