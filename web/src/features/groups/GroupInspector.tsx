@@ -60,6 +60,9 @@ export function GroupInspector({ members, messages, activeAgentIds, turns, uploa
                       "rounded-md px-1.5 py-0.5 font-mono text-xs",
                       active ? "bg-info/10 text-info-foreground" : "bg-muted text-muted-foreground",
                     )}
+                    // The reason is why an agent stayed quiet ("freshness",
+                    // "hard_cap"); too long for the badge, too useful to drop.
+                    title={turns.get(member.agent_id)?.reason}
                   >
                     {turns.get(member.agent_id)?.state ??
                       (active ? t("groups.inspector.active") : t("groups.inspector.idle"))}

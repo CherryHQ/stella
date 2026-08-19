@@ -18,6 +18,13 @@ import { ChatErrorNotice } from "@/components/chat/ChatErrorNotice";
 import { BUILTIN_COMMANDS, ChatComposer } from "@/features/sessions/ChatComposer";
 import { skillTrigger, type ComposerTrigger } from "@/features/sessions/composer-triggers";
 import { useFileAttachments } from "@/features/sessions/useFileAttachments";
+import {
+  GROUP_TURN_LINGER_MS,
+  activeTurnAgentIds,
+  applyTurn,
+  expireTurn,
+  isTerminalTurn,
+} from "./group-turns";
 import { GroupInspector } from "./GroupInspector";
 import { GroupTranscript } from "./GroupTranscript";
 import { useGroupEvents, type GroupTurnEvent } from "./use-group-events";
@@ -33,6 +40,8 @@ export function GroupChat({ groupId }: Props) {
 
   const [canonicalBySeq, setCanonicalBySeq] = useState<Map<number, GroupMessage>>(new Map());
   const [turns, setTurns] = useState<Map<string, GroupTurnEvent>>(new Map());
+  // Timers that retire a lingering terminal turn; cleared on unmount.
+  const linger = useRef(new Set<ReturnType<typeof setTimeout>>());
   const [loading, setLoading] = useState(true);
   const transcriptRef = useRef<HTMLDivElement>(null);
 
@@ -191,15 +200,20 @@ export function GroupChat({ groupId }: Props) {
     });
   }, []);
   const onTurn = useCallback((turn: GroupTurnEvent) => {
-    setTurns((current) => {
-      const next = new Map(current);
-      if (["done", "silent", "held", "failed"].includes(turn.state)) {
-        next.delete(turn.agent_id);
-      } else {
-        next.set(turn.agent_id, turn);
-      }
-      return next;
-    });
+    setTurns((current) => applyTurn(current, turn));
+    if (!isTerminalTurn(turn.state)) return;
+    const timer = setTimeout(() => {
+      linger.current.delete(timer);
+      setTurns((current) => expireTurn(current, turn));
+    }, GROUP_TURN_LINGER_MS);
+    linger.current.add(timer);
+  }, []);
+  useEffect(() => {
+    const timers = linger.current;
+    return () => {
+      for (const timer of timers) clearTimeout(timer);
+      timers.clear();
+    };
   }, []);
   useGroupEvents(groupId, { sinceSeq: highestSeq, onMessage: onCanonicalMessage, onTurn });
 
@@ -238,7 +252,7 @@ export function GroupChat({ groupId }: Props) {
   // "Active" means responding right now: only agent-info parts from live
   // streaming messages count, never the merged history (grp-* ids).
   const activeAgentIds = useMemo(() => {
-    const ids = new Set(turns.keys());
+    const ids = new Set(activeTurnAgentIds(turns));
     if (isStreaming) {
       for (const id of collectActiveAgentIds(chatMessages)) ids.add(id);
     }
