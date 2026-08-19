@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -569,10 +570,8 @@ func TestFreshnessGateHoldsWhenPeerPostedAfterSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	state, _ := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
-	_, err := fx.d.acceptGroupResponse(context.Background(), row, state, groupResponse{text: "reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
-	if !errors.Is(err, errGroupTurnHeld) {
-		t.Fatalf("err=%v, want held", err)
-	}
+	outcome, err := fx.d.acceptGroupResponse(context.Background(), row, state, groupResponse{text: "reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	wantGroupTurnStopped(t, outcome, err, groupTurnHeld, "freshness")
 }
 
 func TestFreshnessGateSerializesWithHumanIngest(t *testing.T) {
@@ -601,7 +600,10 @@ func TestFreshnessGateSerializesWithHumanIngest(t *testing.T) {
 		t.Fatal(err)
 	}
 	go func() {
-		_, acceptErr := fx.d.acceptGroupResponse(ctx, row, state, groupResponse{text: "stale", complete: true}, memory.DeferredGroupTurn{Complete: true})
+		outcome, acceptErr := fx.d.acceptGroupResponse(ctx, row, state, groupResponse{text: "stale", complete: true}, memory.DeferredGroupTurn{Complete: true})
+		if acceptErr == nil && outcome.Status != groupTurnHeld {
+			acceptErr = fmt.Errorf("outcome=%s/%s, want held", outcome.Status, outcome.Reason)
+		}
 		acceptC <- acceptErr
 	}()
 	time.Sleep(25 * time.Millisecond) // acceptance is blocked behind ingress
@@ -615,22 +617,45 @@ func TestFreshnessGateSerializesWithHumanIngest(t *testing.T) {
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := <-acceptC; !errors.Is(err, errGroupTurnHeld) {
+	if err := <-acceptC; err != nil {
 		t.Fatalf("accept err=%v, want HOLD", err)
 	}
 }
 
 func TestVerbatimDuplicateHeld(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
+	// The dedup gate only sits downstream of an exhausted hold budget: while an
+	// agent can still be held, a peer posting after the snapshot trips
+	// freshness first. Spend the budget so this pins dedup and not its
+	// neighbour.
+	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_state SET hold_limit = 0 WHERE id = $1`, fx.groupID); err != nil {
+		t.Fatal(err)
+	}
 	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000093", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
 	row, _ := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000093")
 	if _, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: "agent-2", Content: "same"}); err != nil {
 		t.Fatal(err)
 	}
 	state, _ := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
-	_, err := fx.d.acceptGroupResponse(context.Background(), row, state, groupResponse{text: "same", complete: true}, memory.DeferredGroupTurn{Complete: true})
-	if !errors.Is(err, errGroupTurnHeld) {
-		t.Fatalf("err=%v, want held", err)
+	outcome, err := fx.d.acceptGroupResponse(context.Background(), row, state, groupResponse{text: "same", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	wantGroupTurnStopped(t, outcome, err, groupTurnHeld, "duplicate")
+}
+
+func TestHardCapSilencesAcceptedTurn(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_state SET max_replies_per_human_trigger = 0 WHERE id = $1`, fx.groupID); err != nil {
+		t.Fatal(err)
+	}
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000107", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
+	row, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000107")
+	state, _ := fx.q.GetGroupStateByID(ctx, fx.groupID)
+	outcome, err := fx.d.acceptGroupResponse(ctx, row, state, groupResponse{text: "reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	wantGroupTurnStopped(t, outcome, err, groupTurnSilent, "hard_cap")
+	// silent, not held: the cap is terminal, so this row must not come back.
+	stopped, _ := fx.q.GetGroupDispatch(ctx, row.ID)
+	if stopped.Status != "silent" || stopped.LastError != "hard_cap" {
+		t.Fatalf("dispatch=%s/%s, want silent/hard_cap", stopped.Status, stopped.LastError)
 	}
 }
 
@@ -677,9 +702,8 @@ func TestHoldChainResetsAtNewHumanTrigger(t *testing.T) {
 		t.Fatal(err)
 	}
 	state, _ := fx.q.GetGroupStateByID(ctx, fx.groupID)
-	if _, err := fx.d.acceptGroupResponse(ctx, row, state, groupResponse{text: "reply", complete: true}, memory.DeferredGroupTurn{Complete: true}); !errors.Is(err, errGroupTurnHeld) {
-		t.Fatalf("new human chain err=%v, want HOLD", err)
-	}
+	outcome, err := fx.d.acceptGroupResponse(ctx, row, state, groupResponse{text: "reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	wantGroupTurnStopped(t, outcome, err, groupTurnHeld, "freshness")
 }
 
 func TestHoldSuccessorSnapshotCoversHoldSeq(t *testing.T) {
@@ -720,9 +744,8 @@ func TestHoldNeverRepeatsOnSameSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	state, _ := fx.q.GetGroupStateByID(ctx, fx.groupID)
-	if _, err := fx.d.acceptGroupResponse(ctx, first, state, groupResponse{text: "first", complete: true}, memory.DeferredGroupTurn{Complete: true}); !errors.Is(err, errGroupTurnHeld) {
-		t.Fatalf("first err=%v, want HOLD", err)
-	}
+	firstOutcome, err := fx.d.acceptGroupResponse(ctx, first, state, groupResponse{text: "first", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	wantGroupTurnStopped(t, firstOutcome, err, groupTurnHeld, "freshness")
 	held, _ := fx.q.GetGroupDispatch(ctx, first.ID)
 	if !held.HeldUpToSeq.Valid || held.HeldUpToSeq.Int64 != peer.Seq {
 		t.Fatalf("held_up_to_seq=%+v, want %d", held.HeldUpToSeq, peer.Seq)
@@ -734,8 +757,9 @@ func TestHoldNeverRepeatsOnSameSnapshot(t *testing.T) {
 	if err != nil || !ok || successor.TriggerSeq != held.HeldUpToSeq.Int64 {
 		t.Fatalf("successor=%+v ok=%v err=%v", successor, ok, err)
 	}
-	if _, err := fx.d.acceptGroupResponse(ctx, successor, state, groupResponse{text: "second", complete: true}, memory.DeferredGroupTurn{Complete: true}); err != nil {
-		t.Fatalf("same covered snapshot held again: %v", err)
+	secondOutcome, err := fx.d.acceptGroupResponse(ctx, successor, state, groupResponse{text: "second", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	if err != nil || secondOutcome.Status != groupTurnAccepted {
+		t.Fatalf("same covered snapshot held again: outcome=%s/%s err=%v", secondOutcome.Status, secondOutcome.Reason, err)
 	}
 }
 
@@ -772,12 +796,11 @@ func TestPendingPostFinalFailureRequeuesHeldPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	post.ResultMessageID = accepted.Message.ID
+	post.ResultMessageID = accepted.Accepted.Message.ID
 	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000106", "agent-2", fx.groupID, "running", pgtype.Timestamptz{})
 	peer, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000106")
-	if _, err := fx.d.acceptGroupResponse(ctx, peer, state, groupResponse{text: "peer reply", complete: true}, memory.DeferredGroupTurn{Complete: true}); !errors.Is(err, errGroupTurnHeld) {
-		t.Fatalf("peer err=%v, want HOLD", err)
-	}
+	peerOutcome, err := fx.d.acceptGroupResponse(ctx, peer, state, groupResponse{text: "peer reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	wantGroupTurnStopped(t, peerOutcome, err, groupTurnHeld, "freshness")
 	if err := fx.d.failAcceptedPublish(ctx, post, errors.New("platform down")); err == nil {
 		t.Fatal("final publish failure must be reported")
 	}
@@ -827,11 +850,11 @@ func TestAgentReplyCreatesOutboxAfterPublish(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	row.ResultMessageID = result.Message.ID
+	row.ResultMessageID = result.Accepted.Message.ID
 	if err := fx.d.createAgentReplyOutbox(context.Background(), fx.q, row); err != nil {
 		t.Fatal(err)
 	}
-	outbox, err := fx.q.GetGroupOutboxByMessage(context.Background(), result.Message.ID)
+	outbox, err := fx.q.GetGroupOutboxByMessage(context.Background(), result.Accepted.Message.ID)
 	if err != nil || outbox.Status != "pending" {
 		t.Fatalf("agent outbox=%+v err=%v", outbox, err)
 	}
@@ -1607,5 +1630,18 @@ func assertNoAgentGroupMessages(t *testing.T, db *pgxpool.Pool) {
 	}
 	if count != 0 {
 		t.Fatalf("agent group messages = %d, want 0", count)
+	}
+}
+
+// wantGroupTurnStopped asserts which backstop stopped the turn. The reason is
+// what the UI shows, so pinning only "not accepted" would let one gate answer
+// for another.
+func wantGroupTurnStopped(t *testing.T, outcome groupAcceptOutcome, err error, status groupAcceptStatus, reason string) {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	if outcome.Status != status || outcome.Reason != reason {
+		t.Fatalf("outcome=%s/%s, want %s/%s", outcome.Status, outcome.Reason, status, reason)
 	}
 }

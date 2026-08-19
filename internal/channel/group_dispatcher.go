@@ -567,20 +567,20 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		}
 		return d.failDispatch(ctx, claimed, cause)
 	}
-	accepted, err := d.acceptGroupResponse(ownedCtx, claimed, state, response, turn)
-	if errors.Is(err, errGroupTurnHeld) {
-		if d.events != nil {
-			d.events.AnnounceTurn(claimed.GroupID, claimed.AgentID, "held", "freshness")
-		}
-		return nil
-	}
+	outcome, err := d.acceptGroupResponse(ownedCtx, claimed, state, response, turn)
 	if err != nil {
 		return d.failDispatch(ctx, claimed, err)
+	}
+	if outcome.Status != groupTurnAccepted {
+		if d.events != nil {
+			d.events.AnnounceTurn(claimed.GroupID, claimed.AgentID, string(outcome.Status), outcome.Reason)
+		}
+		return nil
 	}
 	// Keep the display name on the replayed event stream's request. The accepted
 	// row is authoritative for retry; the first delivery preserves all events.
 	response.agentName = agentName
-	return d.publishAcceptedWithEnvelope(ownedCtx, claimed, message, state, publisher, response, envelope, accepted)
+	return d.publishAcceptedWithEnvelope(ownedCtx, claimed, message, state, publisher, response, envelope, outcome.Accepted)
 }
 
 func (d *GroupDispatcher) claimDispatch(ctx context.Context, row sqlc.CtxGroupDispatch) (sqlc.CtxGroupDispatch, bool, error) {
@@ -625,110 +625,6 @@ func (d *GroupDispatcher) completeDispatch(ctx context.Context, row sqlc.CtxGrou
 		return fmt.Errorf("mark dispatch completed: %w", err)
 	}
 	return nil
-}
-
-func (d *GroupDispatcher) acceptGroupResponse(ctx context.Context, row sqlc.CtxGroupDispatch, state sqlc.CtxGroupState, response groupResponse, turn memory.DeferredGroupTurn) (eventlog.AppendResult, error) {
-	if d.db == nil {
-		return eventlog.AppendResult{}, errors.New("dispatcher db not configured")
-	}
-	if d.committer == nil {
-		return eventlog.AppendResult{}, errors.New("group dispatcher requires memory.TxGroupCommitter")
-	}
-	tx, err := d.db.Begin(ctx)
-	if err != nil {
-		return eventlog.AppendResult{}, fmt.Errorf("accept group response: begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := d.q.WithTx(tx)
-	locked, err := q.GetGroupStateByIDForUpdate(ctx, row.GroupID)
-	if err != nil {
-		return eventlog.AppendResult{}, fmt.Errorf("lock group state for accept: %w", err)
-	}
-	lastHuman, err := q.LastHumanSeqAtOrBefore(ctx, sqlc.LastHumanSeqAtOrBeforeParams{GroupID: row.GroupID, TriggerSeq: row.TriggerSeq})
-	if err != nil {
-		return eventlog.AppendResult{}, fmt.Errorf("last human seq: %w", err)
-	}
-	held, err := q.CountHeldGroupDispatchesInChain(ctx, sqlc.CountHeldGroupDispatchesInChainParams{GroupID: row.GroupID, AgentID: row.AgentID, TriggerSeq: row.TriggerSeq})
-	if err != nil {
-		return eventlog.AppendResult{}, fmt.Errorf("count held dispatches: %w", err)
-	}
-	if held < int64(locked.HoldLimit) {
-		peers, err := q.CountPeerMessagesAfterSeq(ctx, sqlc.CountPeerMessagesAfterSeqParams{GroupID: row.GroupID, AfterSeq: row.TriggerSeq, AgentID: row.AgentID})
-		if err != nil {
-			return eventlog.AppendResult{}, fmt.Errorf("count peer messages after snapshot: %w", err)
-		}
-		if peers > 0 {
-			upTo, err := q.MaxPeerMessageSeqAfterSeq(ctx, sqlc.MaxPeerMessageSeqAfterSeqParams{GroupID: row.GroupID, AfterSeq: row.TriggerSeq, AgentID: row.AgentID})
-			if err != nil {
-				return eventlog.AppendResult{}, fmt.Errorf("max peer message seq: %w", err)
-			}
-			if _, err := q.MarkGroupDispatchHeld(ctx, sqlc.MarkGroupDispatchHeldParams{ID: row.ID, AttemptCount: row.AttemptCount, HeldUpToSeq: pgtype.Int8{Int64: upTo, Valid: true}}); err != nil {
-				return eventlog.AppendResult{}, fmt.Errorf("mark held: %w", err)
-			}
-			if err := tx.Commit(ctx); err != nil {
-				return eventlog.AppendResult{}, fmt.Errorf("commit held dispatch: %w", err)
-			}
-			return eventlog.AppendResult{}, errGroupTurnHeld
-		}
-	}
-	if _, err := q.GetLatestPeerGroupMessageWithContent(ctx, sqlc.GetLatestPeerGroupMessageWithContentParams{GroupID: row.GroupID, AgentID: row.AgentID, Content: response.text}); err == nil {
-		if _, err := q.MarkGroupDispatchHeld(ctx, sqlc.MarkGroupDispatchHeldParams{ID: row.ID, AttemptCount: row.AttemptCount}); err != nil {
-			return eventlog.AppendResult{}, fmt.Errorf("mark duplicate held: %w", err)
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return eventlog.AppendResult{}, fmt.Errorf("commit duplicate held: %w", err)
-		}
-		return eventlog.AppendResult{}, errGroupTurnHeld
-	}
-	posts, err := q.CountAgentPostsSinceSeq(ctx, sqlc.CountAgentPostsSinceSeqParams{GroupID: row.GroupID, AfterSeq: lastHuman})
-	if err != nil {
-		return eventlog.AppendResult{}, fmt.Errorf("count agent posts: %w", err)
-	}
-	if posts >= int64(locked.MaxRepliesPerHumanTrigger) {
-		if _, err := q.MarkGroupDispatchSilent(ctx, sqlc.MarkGroupDispatchSilentParams{ID: row.ID, AttemptCount: row.AttemptCount, Reason: "hard_cap"}); err != nil {
-			return eventlog.AppendResult{}, fmt.Errorf("mark cap silent: %w", err)
-		}
-		if err := tx.Commit(ctx); err != nil {
-			return eventlog.AppendResult{}, fmt.Errorf("commit cap silent: %w", err)
-		}
-		return eventlog.AppendResult{}, errGroupTurnHeld
-	}
-	deliveryState := "pending"
-	if state.Platform == "web" {
-		deliveryState = "delivered"
-	}
-	result, err := eventlog.AppendToGroupWithQueries(ctx, q, row.GroupID, eventlog.GroupMessage{
-		ActorType:      eventlog.ActorAgent,
-		ActorID:        row.AgentID,
-		Content:        response.text,
-		Reasoning:      response.reasoning,
-		AgentSessionID: response.sessionID,
-		DeliveryState:  deliveryState,
-	})
-	if err != nil {
-		return eventlog.AppendResult{}, err
-	}
-	updated, err := q.SetGroupDispatchResultMessage(ctx, sqlc.SetGroupDispatchResultMessageParams{
-		ID:              row.ID,
-		AttemptCount:    row.AttemptCount,
-		ResultMessageID: result.Message.ID,
-	})
-	if err != nil {
-		return eventlog.AppendResult{}, fmt.Errorf("set dispatch result message: %w", err)
-	}
-	if updated == 0 {
-		return eventlog.AppendResult{}, errors.New("set dispatch result message: lost dispatch ownership")
-	}
-	if err := d.committer.CommitGroupTurn(ctx, q, turn); err != nil {
-		return eventlog.AppendResult{}, fmt.Errorf("commit deferred group turn: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return eventlog.AppendResult{}, fmt.Errorf("accept group response: commit: %w", err)
-	}
-	if d.events != nil {
-		d.events.Announce(result)
-	}
-	return result, nil
 }
 
 func (d *GroupDispatcher) publisherFor(state sqlc.CtxGroupState, row sqlc.CtxGroupDispatch) (GroupPublisher, error) {
@@ -822,10 +718,7 @@ func (d *GroupDispatcher) chatDispatch(ctx context.Context, row sqlc.CtxGroupDis
 // errGroupTurnSuperseded reports that a dispatch row's trigger message sits at
 // or below the agent's ingest cursor: a session rotation (or a completed later
 // turn) already consumed it. The row is finished work, not a failure.
-var (
-	errGroupTurnSuperseded = errors.New("group turn superseded by the agent's ingest cursor")
-	errGroupTurnHeld       = errors.New("group turn held for a newer peer message")
-)
+var errGroupTurnSuperseded = errors.New("group turn superseded by the agent's ingest cursor")
 
 func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
 	if d.coord == nil {
