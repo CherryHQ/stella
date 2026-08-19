@@ -376,12 +376,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 		return errors.New("group dispatch requires memory.TxGroupCommitter")
 	}
 	groupDispatcher.SetGroupTurnCommitter(groupTurnCommitter)
-	groupDispatcher.SetGroupTriage(channel.NewLLMGroupTriage(
-		func(ctx context.Context, agentID string) (*config.Snapshot, error) {
-			return s.snapshotLoader.Snapshot(ctx, agentID)
-		},
-		intentClassifierStreamFuncBuilder(s.pluginHost),
-	))
 	if s.groupNudgeWorker == nil {
 		return errors.New("group nudge worker is unavailable")
 	}

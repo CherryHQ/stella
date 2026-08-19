@@ -93,10 +93,9 @@ func (h *harness) testGroupConcurrentCounting(t *testing.T) {
 	fake := newFakeAnthropic(t)
 	providerID := h.createFakeProviderNamed(t, ctx, fake.baseURL(), "group-count-"+h.runID)
 	const modelA, modelB = "count-a", "count-b"
-	// Each model receives its own deterministic classifier/turn lane. The first
-	// accepted post is 1; the held peer's successor is scripted to post 2.
+	// Each model receives its own deterministic turn lane. The first accepted
+	// post is 1; the held peer's successor is scripted to post 2.
 	for _, model := range []string{modelA, modelB} {
-		fake.setTriageForModel(model, true, "count")
 		fake.enqueueTextForModel(model, "1")
 		fake.enqueueTextForModel(model, "2")
 		fake.setTrailingTextForModel(model, "done counting")
@@ -115,34 +114,14 @@ func (h *harness) testGroupConcurrentCounting(t *testing.T) {
 			t.Fatal(err)
 		}
 		if ones == 1 && twos == 1 && oneAuthor != twoAuthor {
-			// Triage is the only no-tools model request in this fixture; full group
-			// turns carry the agent tool schema. The durable wake rows give the
-			// denominator: every human can classify every member, while an agent
-			// message can classify only non-author members that reached step 5.
-			requests := fake.requests()
-			triageCalls := 0
-			for _, request := range requests {
+			// Nothing may ask a model whether an agent should speak: the gate in
+			// front of a turn is deterministic, and the only model call a group
+			// makes is the turn itself, which carries the agent tool schema.
+			for _, request := range fake.requests() {
 				if len(request.ToolNames) == 0 {
-					triageCalls++
+					t.Fatalf("no-tools model request in a group journey: %+v", request)
 				}
 			}
-			var humanMessages, agentWakeCandidates int
-			if err := h.db.QueryRow(ctx, `SELECT count(*) FROM ctx_group_message WHERE group_id=$1 AND actor_type='human'`, groupID).Scan(&humanMessages); err != nil {
-				t.Fatal(err)
-			}
-			if err := h.db.QueryRow(ctx, `
-				SELECT count(*)
-				FROM ctx_group_dispatch dispatch
-				JOIN ctx_group_message message ON message.id = dispatch.group_message_id
-				WHERE dispatch.group_id=$1 AND dispatch.kind='wake' AND message.actor_type='agent'
-			`, groupID).Scan(&agentWakeCandidates); err != nil {
-				t.Fatal(err)
-			}
-			bound := humanMessages*2 + agentWakeCandidates
-			if triageCalls > bound {
-				t.Fatalf("triage calls=%d exceed bound=%d (human=%d members=2 agent wake candidates=%d)", triageCalls, bound, humanMessages, agentWakeCandidates)
-			}
-			t.Logf("group triage calls=%d, bound=%d (human=%d, agent wake candidates=%d)", triageCalls, bound, humanMessages, agentWakeCandidates)
 			fake.discardModelScripts()
 			return
 		}
@@ -169,14 +148,12 @@ func (h *harness) testGroupWorkClaim(t *testing.T) {
 	// runs after A's durable lease rather than racing the assignment itself.
 	fake.enqueueToolForModel(modelA, "toolu_claim_a", "group_claim", `{"key":"report","note":"write the report"}`)
 	fake.setContinuationTextForModel(modelA, "I will write the report. @"+b)
-	// Both agents are driven by mentions here, so triage only decides the
-	// trailing wakes: neither may open a second report turn.
-	fake.setTriageForModel(modelA, false, "peer moved on")
-	fake.setTriageForModel(modelB, false, "peer moved on")
 	fake.enqueueToolForModel(modelB, "toolu_claim_b", "group_claim", `{"key":"report","note":"write the report"}`)
 	fake.setContinuationTextForModel(modelB, "A owns the report, so I moved on.")
-	fake.setTrailingTextForModel(modelA, "nothing further")
-	fake.setTrailingTextForModel(modelB, "nothing further")
+	// Trailing wakes now run a real turn, so the way an agent declines a second
+	// report turn is the same way it would in production: it passes.
+	fake.setTrailingTextForModel(modelA, "PASS")
+	fake.setTrailingTextForModel(modelB, "PASS")
 	groupID := h.createWebGroup(t, ctx, "claim-"+h.runID, a, b)
 	h.sendGroupMessage(t, ctx, groupID, "@"+a+" write the report")
 
@@ -218,7 +195,6 @@ func (h *harness) testGroupPingPongHardCap(t *testing.T) {
 	providerID := h.createFakeProviderNamed(t, ctx, fake.baseURL(), "group-ping-"+h.runID)
 	const modelA, modelB = "count-a", "count-b"
 	for _, model := range []string{modelA, modelB} {
-		fake.setTriageForModel(model, true, "reply")
 		for i := range 8 {
 			fake.enqueueTextForModel(model, fmt.Sprintf("%s-%d", model, i))
 		}
@@ -269,7 +245,7 @@ func (h *harness) testGroupPingPongHardCap(t *testing.T) {
 		}
 	}
 	waitAgentPosts(1)
-	// Let pending wakes traverse triage; the cap must prevent a fourth post.
+	// Let pending wakes traverse the gate; the cap must prevent a fourth post.
 	time.Sleep(1500 * time.Millisecond)
 	var capped int
 	if err := h.db.QueryRow(ctx, `SELECT count(*) FROM ctx_group_message WHERE group_id=$1 AND actor_type='agent'`, groupID).Scan(&capped); err != nil {
@@ -281,11 +257,11 @@ func (h *harness) testGroupPingPongHardCap(t *testing.T) {
 	beforeCalls := fake.requestCount()
 	h.sendGroupMessage(t, ctx, groupID, "human reset")
 	waitAgentPosts(2)
-	// Both members classify the reset, both may still be under the cap when they
-	// do, and each accepted post wakes the peer once more: two triage calls, two
-	// turns, two triage calls. Anything above that is an unbounded chain.
+	// Both members may run a turn on the reset while still under the cap, and an
+	// accepted post wakes the peer once more. Anything past a handful of turns is
+	// an unbounded chain, whatever the models chose to say.
 	if calls := fake.requestCount() - beforeCalls; calls > 6 {
-		t.Fatalf("post-reset triage/model calls=%d, want <=6", calls)
+		t.Fatalf("post-reset model calls=%d, want <=6", calls)
 	}
 	fake.discardModelScripts()
 }
@@ -299,10 +275,8 @@ func (h *harness) testGroupModelPass(t *testing.T) {
 	fake := newFakeAnthropic(t)
 	providerID := h.createFakeProviderNamed(t, ctx, fake.baseURL(), "group-pass-"+h.runID)
 	const modelA, modelB = "pass-a", "pass-b"
-	// B is woken and its classifier says act: only the model itself can decide
-	// that the answer belongs to A. That is the whole point of the pass.
-	fake.setTriageForModel(modelA, true, "asked")
-	fake.setTriageForModel(modelB, true, "worth a look")
+	// B is woken by A's post with no rule to stop it: only the model itself can
+	// decide that the answer belongs to A. That is the whole point of the pass.
 	fake.enqueueTextForModel(modelA, "the deploy finished at 14:02")
 	fake.enqueueTextForModel(modelB, "PASS")
 	fake.setTrailingTextForModel(modelA, "PASS")

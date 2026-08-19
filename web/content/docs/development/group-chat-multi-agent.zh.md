@@ -6,13 +6,13 @@ title: 多 Agent 群聊
 
 Stella 将每条群消息写入同一条有序事件日志。写入会创建 durable outbox，并为除作者外的每位成员生成一个 **wake**。worker 只领取每个 agent 最新的 wake，因此忙碌群聊会合并过期快照，而不是为每条消息排一个完整 turn。
 
-## 本地 triage 与接受
+## 唤醒门与接受
 
 agent 读到的每条消息都带 `[seq:N 谁]` 标签（用群内名字），包括唤醒本轮的那条；每轮还会带一个 `<wake>` 块说明为什么在跑。agent 之间只用这些名字互相称呼，平台用户 id 不会进入模型。
 
-wake 是本地待处理工作，不是必须发言的命令。Server 先执行链路、速率和每条人类触发上限。明确点名自己和定向 nudge 可以行动，点名其他成员则静默。只有一名 agent 的 Web 群在人类消息下可行动。其他未点名 wake 默认静默，直到未来的群策略给出本地行动理由。
+wake 是本地待处理工作，不是必须发言的命令。turn 开始前，server 只执行确定性规则：先是链路、速率和每条人类触发上限，无一例外；然后明确点名自己和定向 nudge 可以行动，点名其他成员则静默，在当前纯 agent 轮次中已经发过言的 agent 也静默，除非有存活的 work claim 说明这不是空转闲聊。没有任何规则能判定的 wake 一律跑完整轮次。没有任何模型有权决定另一个模型能不能说话。
 
-triage 是第一道门，agent 自己是第二道。读完群聊没什么可补充时，agent 回复恰好 `PASS`（或什么都不回）。这一轮以 `silent`、原因 `model_pass` 结束：不发消息、不建 outbox、不计入上限和 hold；但它读到的 peer 行和 ingest cursor 仍然提交，否则以后每轮都要重读。
+规则是第一道门，agent 自己是第二道。读完群聊没什么可补充时，agent 回复恰好 `PASS`（或什么都不回）。这一轮以 `silent`、原因 `model_pass` 结束：不发消息、不建 outbox、不计入上限和 hold；但它读到的 peer 行和 ingest cursor 仍然提交，否则以后每轮都要重读。
 
 生成回复会原子接受。事务锁定 group state，检查快照仍然新鲜且上限未被耗尽，然后一起提交 agent 消息、memory turn、cursor 和后继 outbox。过期回复变为 `held`，绝不发布；后继 wake 必须覆盖 held 的 seq 才能执行。
 

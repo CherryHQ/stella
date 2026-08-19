@@ -26,12 +26,6 @@ type recordingGroupPublisher struct {
 	texts []string
 }
 
-type groupTriageFunc func(context.Context, GroupTriageRequest) (bool, string, error)
-
-func (f groupTriageFunc) Decide(ctx context.Context, req GroupTriageRequest) (bool, string, error) {
-	return f(ctx, req)
-}
-
 type eventRecordingGroupPublisher struct {
 	calls  int
 	events []pkgchannel.Event
@@ -430,22 +424,18 @@ func TestGroupDispatcherWebNoMentionSingleMemberFallbackCreatesOneDispatch(t *te
 	}
 }
 
-func TestTriageClassifierActsOnRelevantMessage(t *testing.T) {
+// No deterministic rule addresses this wake, on a platform group with no fast
+// model in sight. The floor is open: the turn runs and the model itself decides
+// whether to speak or PASS.
+func TestUnclassifiedWakeRunsTheTurn(t *testing.T) {
 	fx := newDispatcherFixture(t, "telegram", "{}")
-	fx.d.SetGroupTriage(groupTriageFunc(func(_ context.Context, req GroupTriageRequest) (bool, string, error) {
-		// The classifier reads the trigger the way the agent will: labelled.
-		if req.AgentID != "agent-1" || req.Message != "[seq:1 user-1]: "+fx.message.Content {
-			t.Fatalf("unexpected triage request: %+v", req)
-		}
-		return true, "relevant", nil
-	}))
 	row := sqlc.CtxGroupDispatch{GroupID: fx.groupID, AgentID: "agent-1", TriggerSeq: fx.message.Seq, Kind: "wake"}
 	state, err := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	act, reason, degraded := fx.d.triageWake(context.Background(), row, fx.message, state, GroupOutboxEnvelope{})
-	if !act || degraded || reason != "classifier:relevant" {
+	if !act || degraded || reason != "open_floor" {
 		t.Fatalf("act=%v reason=%q degraded=%v", act, reason, degraded)
 	}
 }
@@ -479,18 +469,12 @@ func TestTriageActiveClaimKeepsAgentChainAlive(t *testing.T) {
 	if _, err := claim.Execute(claimContext(fx.groupID, "agent-1"), map[string]any{"key": "report"}); err != nil {
 		t.Fatal(err)
 	}
-	fx.d.SetGroupTriage(groupTriageFunc(func(_ context.Context, req GroupTriageRequest) (bool, string, error) {
-		if len(req.Claims) != 1 {
-			t.Fatalf("claims=%v", req.Claims)
-		}
-		return true, "claimed_followup", nil
-	}))
 	state, err := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	act, reason, degraded := fx.d.triageWake(context.Background(), sqlc.CtxGroupDispatch{GroupID: fx.groupID, AgentID: "agent-2", TriggerSeq: latest.Seq, Kind: "wake"}, latest.Message, state, GroupOutboxEnvelope{})
-	if !act || degraded || reason != "classifier:claimed_followup" {
+	if !act || degraded || reason != "open_floor" {
 		t.Fatalf("act=%v reason=%s degraded=%v", act, reason, degraded)
 	}
 }
@@ -511,13 +495,12 @@ func TestClaimedRunUsesHardCapNotLapping(t *testing.T) {
 	if _, err := claim.Execute(claimContext(fx.groupID, "agent-1"), map[string]any{"key": "report"}); err != nil {
 		t.Fatal(err)
 	}
-	fx.d.SetGroupTriage(groupTriageFunc(func(context.Context, GroupTriageRequest) (bool, string, error) { return true, "continue", nil }))
 	state, err := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	row := sqlc.CtxGroupDispatch{GroupID: fx.groupID, AgentID: "agent-2", TriggerSeq: latest.Seq, Kind: "wake"}
-	if act, reason, _ := fx.d.triageWake(context.Background(), row, latest.Message, state, GroupOutboxEnvelope{}); !act || reason != "classifier:continue" {
+	if act, reason, _ := fx.d.triageWake(context.Background(), row, latest.Message, state, GroupOutboxEnvelope{}); !act || reason != "open_floor" {
 		t.Fatalf("claimed run lapped: act=%v reason=%q", act, reason)
 	}
 	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_state SET agent_chain_hard_limit=1 WHERE id=$1`, fx.groupID); err != nil {
@@ -547,39 +530,6 @@ func TestHardCapsPrecedeMention(t *testing.T) {
 	}
 	act, reason, _ := fx.d.triageWake(context.Background(), row, fx.message, state, GroupOutboxEnvelope{Mentions: []pkgchannel.Mention{{AgentID: "agent-1"}}})
 	if act || reason != "hard_cap" {
-		t.Fatalf("act=%v reason=%q", act, reason)
-	}
-}
-
-func TestTriageClassifierFailureRequeuesThenSilent(t *testing.T) {
-	fx := newDispatcherFixture(t, "telegram", "{}")
-	fx.d.SetGroupTriage(groupTriageFunc(func(context.Context, GroupTriageRequest) (bool, string, error) {
-		return false, "provider", errors.New("down")
-	}))
-	fx.d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
-		t.Fatal("failed triage must not chat")
-		return nil, nil
-	}
-	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000091", "agent-1", fx.groupID, "pending", pgtype.Timestamptz{})
-	row, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000091")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := fx.d.ExecuteDispatch(context.Background(), row); err == nil {
-		t.Fatal("triage failure must requeue")
-	}
-	row, _ = fx.q.GetGroupDispatch(context.Background(), row.ID)
-	if row.Status != "pending" {
-		t.Fatalf("status=%q, want pending", row.Status)
-	}
-}
-
-func TestPlatformRulesOnlyTriageMatrix(t *testing.T) {
-	fx := newDispatcherFixture(t, "telegram", "{}")
-	row := sqlc.CtxGroupDispatch{GroupID: fx.groupID, AgentID: "agent-1", TriggerSeq: fx.message.Seq, Kind: "wake"}
-	state, _ := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
-	act, reason, _ := fx.d.triageWake(context.Background(), row, fx.message, state, GroupOutboxEnvelope{})
-	if act || reason != "rules_only" {
 		t.Fatalf("act=%v reason=%q", act, reason)
 	}
 }
@@ -933,7 +883,7 @@ func TestPendingPostFinalFailureRequeuesHeldPeers(t *testing.T) {
 	}
 }
 
-func TestSilentTriageSupersedesOlderWakes(t *testing.T) {
+func TestSilentWakeSupersedesOlderWakes(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	ctx := context.Background()
 	addFixtureAgent(t, fx, "agent-2", "ch-2")
@@ -948,7 +898,9 @@ func TestSilentTriageSupersedesOlderWakes(t *testing.T) {
 	if err := fx.q.CreateGroupWake(ctx, sqlc.CreateGroupWakeParams{ID: "d15a0000-0000-0000-0000-000000000108", GroupMessageID: newer.ID, GroupID: fx.groupID, AgentID: "agent-1", ReplyChannelID: "ch-1"}); err != nil {
 		t.Fatal(err)
 	}
-	fx.d.SetGroupTriage(groupTriageFunc(func(context.Context, GroupTriageRequest) (bool, string, error) { return false, "not_needed", nil }))
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_state SET max_replies_per_human_trigger = 0 WHERE id = $1`, fx.groupID); err != nil {
+		t.Fatal(err)
+	}
 	if err := fx.d.ExecuteDispatch(ctx, sqlc.CtxGroupDispatch{Status: "pending", Kind: "wake", GroupID: fx.groupID, AgentID: "agent-1"}); err != nil {
 		t.Fatal(err)
 	}

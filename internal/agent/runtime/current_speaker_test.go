@@ -116,7 +116,7 @@ func TestWakeBlockRendersReasonAndHeldUpTo(t *testing.T) {
 		t.Fatalf("wake prefix dropped the trigger: %q", got)
 	}
 
-	held, _ := withGroupWakeContext("[seq:9 Alice]: and now?", memory.GroupWake{Reason: "classifier:relevant", HeldUpToSeq: 7}).(string)
+	held, _ := withGroupWakeContext("[seq:9 Alice]: and now?", memory.GroupWake{Reason: "open_floor", HeldUpToSeq: 7}).(string)
 	if !strings.Contains(held, "seq 7") {
 		t.Fatalf("held wake = %q, want the seq peers reached", held)
 	}

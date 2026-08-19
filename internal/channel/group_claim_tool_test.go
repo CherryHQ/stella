@@ -11,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/authz"
-	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/tools"
 )
@@ -186,7 +185,7 @@ func TestPromptForbidsChatTurnClaims(t *testing.T) {
 	}
 }
 
-func TestExpiredClaimHiddenFromTriageAndPrompt(t *testing.T) {
+func TestExpiredClaimHiddenFromFloorAndPrompt(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	claim := groupTool(t, fx.db, groupClaimToolName)
 	if _, err := claim.Execute(claimContext(fx.groupID, "agent-1"), map[string]any{"key": "report", "note": "write it"}); err != nil {
@@ -195,8 +194,8 @@ func TestExpiredClaimHiddenFromTriageAndPrompt(t *testing.T) {
 	if err := fx.db.QueryRow(context.Background(), `UPDATE ctx_group_claim SET lease_until=now()-interval '1 second' WHERE group_id=$1 RETURNING id`, fx.groupID).Scan(new(string)); err != nil {
 		t.Fatal(err)
 	}
-	if got := fx.d.triageClaims(context.Background(), eventlog.NewParticipantNamer(sqlc.New(fx.db)), fx.groupID, "agent-2"); len(got) != 0 {
-		t.Fatalf("expired triage claims=%v", got)
+	if fx.d.hasLiveGroupClaims(context.Background(), fx.groupID) {
+		t.Fatal("expired claim must not keep the agent-only floor open")
 	}
 	if got := NewGroupClaimPromptLoader(fx.db)(context.Background(), fx.groupID, "agent-2"); len(got) != 0 {
 		t.Fatalf("expired prompt claims=%v", got)

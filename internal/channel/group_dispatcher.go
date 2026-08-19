@@ -59,12 +59,8 @@ type GroupDispatcher struct {
 	chat             dispatchChatFunc
 	committer        memory.TxGroupCommitter
 	events           *GroupEventHub
-	triage           GroupTriage
 	replyBufferBytes int
 }
-
-// SetGroupTriage installs the per-agent fast-model decision boundary.
-func (d *GroupDispatcher) SetGroupTriage(triage GroupTriage) { d.triage = triage }
 
 // Coordination bundles the coordinator and its durable group dispatcher. The
 // channel domain builds them together and closes the coordinator<->dispatcher
@@ -527,8 +523,8 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		d.log.Warn("replaying accepted group reply from canonical text after buffer loss", "dispatch_id", claimed.ID, "result_message_id", accepted.ID, "upgrade_trigger", "cross-process rich replay requires BlobStore event spooling")
 		return d.publishAccepted(ownedCtx, claimed, message, state, publisher, groupResponseFromMessage(accepted))
 	}
-	// Nudges triage too: recovery may hand an agent the floor, but it must not
-	// bypass the hard caps that keep a stalled group from turning into a flood.
+	// Nudges pass the gate too: recovery may hand an agent the floor, but it
+	// must not bypass the hard caps that keep a stalled group from flooding.
 	if claimed.Kind == "wake" || claimed.Kind == "nudge" {
 		act, reason, degraded := d.triageWake(ownedCtx, claimed, message, state, envelope)
 		if act {
@@ -539,7 +535,9 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 				d.events.AnnounceTurn(claimed.GroupID, claimed.AgentID, "silent", reason)
 			}
 			if degraded && claimed.AttemptCount < d.maxAttempts {
-				return d.failDispatch(ctx, claimed, fmt.Errorf("degraded_triage: %s", reason))
+				// Only a DB read failure lands here. Silence is not a verdict we
+				// can trust from a failed read, so requeue instead.
+				return d.failDispatch(ctx, claimed, fmt.Errorf("triage unavailable: %s", reason))
 			}
 			_, err := d.q.MarkGroupDispatchSilent(ctx, sqlc.MarkGroupDispatchSilentParams{ID: claimed.ID, AttemptCount: claimed.AttemptCount, Reason: reason})
 			return err

@@ -45,11 +45,6 @@ type fakeAnthropic struct {
 	mu           sync.Mutex
 	scripts      []fakeResponse            // Phase 1 FIFO queue of not-yet-served responses
 	modelScripts map[string][]fakeResponse // stable model-id lanes for concurrent journeys
-	// modelTriage answers a model's group-triage classifications. Triage is the
-	// only no-tools request a group journey makes, and fan-out makes the number
-	// of those calls nondeterministic, so the answer is sticky rather than a
-	// queue entry: an extra wake must not shift the turn lane underneath it.
-	modelTriage map[string]fakeResponse
 	// modelTrailing answers a model once its scripted turns are spent. Fan-out
 	// makes the number of turns nondeterministic, so a journey that asserts what
 	// was said must not also assert that nothing further was ever asked.
@@ -207,18 +202,6 @@ func (f *fakeAnthropic) enqueueTextForModel(model, text string) {
 	f.modelScripts[model] = append(f.modelScripts[model], fakeResponse{text: text})
 }
 
-// setTriageForModel fixes how a model answers every group-triage request. Turn
-// content stays in the FIFO lane, so a journey asserts what an agent says
-// without also asserting how many times it was asked whether to speak.
-func (f *fakeAnthropic) setTriageForModel(model string, act bool, reason string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.modelTriage == nil {
-		f.modelTriage = make(map[string]fakeResponse)
-	}
-	f.modelTriage[model] = fakeResponse{text: fmt.Sprintf(`{"act":%t,"reason":%q}`, act, reason)}
-}
-
 // setTrailingTextForModel makes a model's spent lane answer benign text rather
 // than an unscripted-request failure. Only journeys whose turn count is
 // genuinely nondeterministic may use it; a fixed-sequence journey keeps the
@@ -258,10 +241,8 @@ func (f *fakeAnthropic) discardModelScripts() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.modelScripts = nil
-	// Wakes still in flight must not start a turn that no longer has a script.
-	for model := range f.modelTriage {
-		f.modelTriage[model] = fakeResponse{text: `{"act":false,"reason":"journey complete"}`}
-	}
+	// Wakes still in flight always run a turn now, so the caller must have set a
+	// trailing reply; without one they would hit the unscripted-request guard.
 }
 
 func (f *fakeAnthropic) requestCount() int {
@@ -275,8 +256,8 @@ func TestFakeAnthropicModelScriptsDoNotConsumeFIFO(t *testing.T) {
 	f.enqueueText("fifo")
 	f.enqueueTextForModel("agent-a", "a")
 	f.mu.Lock()
-	a, okA := f.selectResponse("agent-a", "", false, false)
-	b, okB := f.selectResponse("agent-b", "", false, false)
+	a, okA := f.selectResponse("agent-a", "", false)
+	b, okB := f.selectResponse("agent-b", "", false)
 	f.mu.Unlock()
 	if !okA || !okB || a.text != "a" || b.text != "fifo" {
 		t.Fatalf("model/FIFO responses = %q/%q", a.text, b.text)
@@ -384,7 +365,7 @@ func (f *fakeAnthropic) handle(w http.ResponseWriter, r *http.Request) {
 		Model: model, Messages: messages, Images: images, ToolNames: toolNames,
 		APIKey: r.Header.Get("x-api-key"), GoalControl: control,
 	})
-	resp, ok := f.selectResponse(model, control, len(toolNames) == 0, continuation)
+	resp, ok := f.selectResponse(model, control, continuation)
 	f.mu.Unlock()
 	if !ok {
 		http.Error(w, "no scripted response", http.StatusInternalServerError)
@@ -447,7 +428,7 @@ func (f *fakeAnthropic) writeFrames(w http.ResponseWriter, flusher http.Flusher,
 // enqueued goal_control stage) matches on the request's goal_control action;
 // otherwise the Phase 1 FIFO applies. It records a test failure and returns
 // ok=false for any request it cannot answer.
-func (f *fakeAnthropic) selectResponse(model, control string, triage, continuation bool) (fakeResponse, bool) {
+func (f *fakeAnthropic) selectResponse(model, control string, continuation bool) (fakeResponse, bool) {
 	// A sticky provider error answers every request (including SDK retries) so a
 	// journey testing the failure path never trips the unscripted-request guard.
 	if f.errScript != nil {
@@ -471,11 +452,6 @@ func (f *fakeAnthropic) selectResponse(model, control string, triage, continuati
 		}
 	}
 
-	if triage {
-		if resp, ok := f.modelTriage[model]; ok {
-			return resp, true
-		}
-	}
 	if continuation {
 		if resp, ok := f.modelContinuation[model]; ok {
 			return resp, true
@@ -634,7 +610,12 @@ func parseMessagesRequest(t *testing.T, r *http.Request) (model string, messages
 		t.Errorf("fake anthropic: request body is not valid Messages JSON: %v", err)
 		return "", nil, nil, nil, "", false
 	}
-	continuation = bytes.Contains(body, []byte(`"tool_result"`))
+	// Only the request that *answers* a tool call is a continuation. A session's
+	// later turns still carry that tool result in their history, so matching the
+	// whole body would pin every following turn to the continuation lane.
+	if len(parsed.Messages) > 0 {
+		continuation = bytes.Contains(parsed.Messages[len(parsed.Messages)-1].Content, []byte(`"tool_result"`))
+	}
 	messages = make([]string, 0, len(parsed.Messages))
 	for _, message := range parsed.Messages {
 		text, messageImages, ok := messagePayload(message.Content)

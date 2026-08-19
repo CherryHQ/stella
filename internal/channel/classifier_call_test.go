@@ -2,26 +2,29 @@ package channel
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
 
-// An unconfigured fast model is a static fact, not a flaky call: triage must
-// fall back to rules silently instead of failing the dispatch three times.
-func TestGroupTriageWithoutFastModelUsesRulesWithoutRetrying(t *testing.T) {
-	triage := NewLLMGroupTriage(
-		func(context.Context, string) (*config.Snapshot, error) {
+// An unconfigured fast model is a static fact, not a flaky call: every
+// classifier sharing this caller must learn that before a provider is built, so
+// the caller can fall back deterministically instead of retrying a dead path.
+func TestFastModelCallerReportsMissingModelBeforeBuildingProvider(t *testing.T) {
+	caller := fastModelCaller{
+		load: func(context.Context, string) (*config.Snapshot, error) {
 			return &config.Snapshot{Provider: "demo"}, nil
 		},
-		func(context.Context, string, config.ProviderCreds) (providers.StreamFunc, error) {
+		build: func(context.Context, string, config.ProviderCreds) (providers.StreamFunc, error) {
 			t.Fatal("no fast model must not reach the provider")
 			return nil, nil
 		},
-	)
-	act, reason, err := triage.Decide(context.Background(), GroupTriageRequest{AgentID: "agent-1", GroupID: "group-1"})
-	if act || reason != "rules_only" || err != nil {
-		t.Fatalf("act=%v reason=%q err=%v, want false/rules_only/nil", act, reason, err)
+	}
+	_, stage, err := caller.Complete(context.Background(), "agent-1", "system", "payload", time.Second)
+	if !errors.Is(err, errNoFastModel) || stage != fastModelStageSnapshot {
+		t.Fatalf("stage=%q err=%v, want %q/errNoFastModel", stage, err, fastModelStageSnapshot)
 	}
 }
