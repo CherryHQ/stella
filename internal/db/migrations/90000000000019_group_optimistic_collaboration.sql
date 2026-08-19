@@ -7,6 +7,11 @@ ALTER TABLE ctx_group_state
     ADD COLUMN max_replies_per_human_trigger INT NOT NULL DEFAULT 5,
     ADD COLUMN hold_limit INT NOT NULL DEFAULT 3,
     ADD COLUMN nudge_at TIMESTAMPTZ,
+    -- nudge_at records when a nudge was sent; nudge_checked_at records when the
+    -- classifier last looked. Without the second one an idle group is re-asked
+    -- every tick for as long as it stays idle, and the answer cannot change
+    -- until somebody speaks.
+    ADD COLUMN nudge_checked_at TIMESTAMPTZ,
     ADD COLUMN nudge_fallback_count INT NOT NULL DEFAULT 0;
 
 ALTER TABLE ctx_group_message
@@ -100,6 +105,7 @@ ALTER TABLE ctx_group_dispatch
 ALTER TABLE ctx_group_message DROP COLUMN delivery_state;
 ALTER TABLE ctx_group_state
     DROP COLUMN nudge_fallback_count,
+    DROP COLUMN nudge_checked_at,
     DROP COLUMN nudge_at,
     DROP COLUMN hold_limit,
     DROP COLUMN max_replies_per_human_trigger,

@@ -29,19 +29,26 @@ SELECT * FROM ctx_group_state WHERE id = $1 FOR UPDATE;
 -- name: CountPeerMessagesAfterSeq :one
 -- Failed platform deliveries are canonical audit rows, but not peer activity:
 -- nobody could have seen them, so later freshness gates must ignore them.
+-- System rows are excluded for the same reason in reverse: the stalled-work
+-- nudge writes one, and counting it would let recovery invalidate the very turn
+-- it is waiting for.
 SELECT COUNT(*)::bigint
 FROM ctx_group_message
 WHERE group_id = sqlc.arg(group_id)
   AND seq > sqlc.arg(after_seq)
   AND NOT (actor_type = 'agent' AND actor_id = sqlc.arg(agent_id))
+  AND actor_type != 'system'
   AND delivery_state != 'failed';
 
 -- name: MaxPeerMessageSeqAfterSeq :one
+-- Same exclusions as CountPeerMessagesAfterSeq: the two must agree, or a turn is
+-- held against a seq the count never saw.
 SELECT COALESCE(MAX(seq), 0)::bigint
 FROM ctx_group_message
 WHERE group_id = sqlc.arg(group_id)
   AND seq > sqlc.arg(after_seq)
   AND NOT (actor_type = 'agent' AND actor_id = sqlc.arg(agent_id))
+  AND actor_type != 'system'
   AND delivery_state != 'failed';
 
 -- name: GetLatestPeerGroupMessageWithContent :one
@@ -156,7 +163,21 @@ WHERE (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id 
         AND reply.delivery_state != 'failed'
     ))
   )
-ORDER BY (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) ASC;
+  -- Re-ask only when the answer could have changed: new activity since the last
+  -- look, or a long backoff for the things that move on their own (claim leases,
+  -- fallback budget). Classification costs a model call per candidate per tick.
+  AND (
+    gs.nudge_checked_at IS NULL
+    OR gs.nudge_checked_at < (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1)
+    OR gs.nudge_checked_at < sqlc.arg(recheck_before)
+  )
+ORDER BY (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) ASC
+LIMIT sqlc.arg(limit_count);
+
+-- name: MarkGroupNudgeChecked :exec
+UPDATE ctx_group_state
+SET nudge_checked_at = sqlc.arg(now), updated_at = now()
+WHERE id = sqlc.arg(group_id);
 
 -- name: ClaimGroupNudge :one
 UPDATE ctx_group_state

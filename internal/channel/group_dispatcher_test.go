@@ -288,6 +288,36 @@ func TestClaimNewestWakeSupersedesOlder(t *testing.T) {
 	}
 }
 
+// poll runs on the goroutine that also reaps expired leases and drains the
+// outbox. A full worker queue must cost latency, not those two.
+func TestPollDoesNotBlockOnFullDispatchQueue(t *testing.T) {
+	ctx := context.Background()
+	fx := newDispatcherFixture(t, "web", `{}`)
+	fx.d.dispatchC = make(chan sqlc.CtxGroupDispatch)
+	if err := fx.q.CreateGroupWake(ctx, sqlc.CreateGroupWakeParams{ID: "d15a0000-0000-0000-0000-000000000061", GroupMessageID: fx.message.ID, GroupID: fx.groupID, AgentID: "agent-1", ReplyChannelID: "ch-1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- fx.d.poll(ctx) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("poll: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("poll blocked on a full dispatch queue")
+	}
+
+	row, err := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000061")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Status != "pending" {
+		t.Fatalf("deferred wake status = %q, want pending for the next poll", row.Status)
+	}
+}
+
 func TestGroupDispatcherReapExpiredCompletesPublishedDispatch(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	past := time.Now().UTC().Add(-time.Minute)
@@ -732,6 +762,33 @@ func TestHeldNudgeGatesWakeClaim(t *testing.T) {
 	}
 	if _, ok, err := fx.d.claimDispatch(ctx, sqlc.CtxGroupDispatch{Status: "pending", Kind: "wake", GroupID: fx.groupID, AgentID: "agent-1"}); err != nil || !ok {
 		t.Fatalf("covered successor refused: ok=%v err=%v", ok, err)
+	}
+}
+
+// The stalled-work nudge writes a system row. Counting it as peer activity lets
+// recovery invalidate the very turn it is waiting for: the agent finishes, is
+// held against the nudge, and its work is discarded.
+func TestSystemMessageDoesNotTripFreshnessHold(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000051", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
+	row, err := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000051")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nudge := createGroupMessage(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-000000000051", 2, eventlog.ActorSystem, "nudge", "agent-1, please continue.")
+	setGroupNextSeq(t, fx.db, fx.groupID, nudge.Seq)
+	state, err := fx.q.GetGroupStateByID(ctx, fx.groupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	outcome, err := fx.d.acceptGroupResponse(ctx, row, state, groupResponse{text: "the report is done", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	if err != nil {
+		t.Fatalf("accept after nudge: %v", err)
+	}
+	if outcome.Status != groupTurnAccepted {
+		t.Fatalf("outcome = %+v, want accepted despite the system row", outcome)
 	}
 }
 

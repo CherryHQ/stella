@@ -277,6 +277,12 @@ func (d *GroupDispatcher) poll(ctx context.Context) error {
 		case d.dispatchC <- row:
 		case <-ctx.Done():
 			return errors.Join(append(errs, ctx.Err())...)
+		default:
+			// Never block the Run goroutine: it also owns lease reaping and outbox
+			// processing, and every worker can sit in a multi-minute model turn.
+			// The rows stay pending and the next poll re-lists them.
+			d.log.Debug("group dispatch queue full; deferring rows to the next poll", "dispatch_id", row.ID)
+			return errors.Join(errs...)
 		}
 	}
 	return errors.Join(errs...)

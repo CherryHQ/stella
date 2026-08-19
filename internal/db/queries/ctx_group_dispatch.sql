@@ -114,7 +114,11 @@ SET status = 'running',
     next_attempt_at = NULL,
     last_error = '',
     updated_at = now()
+-- The status guard is what makes the claim exclusive: a second claimer blocked
+-- on the row lock re-checks only this qual, and `id = <constant>` still holds
+-- against the tuple the winner just updated.
 WHERE dispatch.id = (SELECT id FROM newest)
+  AND dispatch.status = 'pending'
 RETURNING dispatch.*;
 
 -- name: MarkGroupDispatchHeld :execrows

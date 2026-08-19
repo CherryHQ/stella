@@ -504,6 +504,7 @@ type CtxGroupState struct {
 	MaxRepliesPerHumanTrigger int32              `json:"max_replies_per_human_trigger"`
 	HoldLimit                 int32              `json:"hold_limit"`
 	NudgeAt                   pgtype.Timestamptz `json:"nudge_at"`
+	NudgeCheckedAt            pgtype.Timestamptz `json:"nudge_checked_at"`
 	NudgeFallbackCount        int32              `json:"nudge_fallback_count"`
 }
 

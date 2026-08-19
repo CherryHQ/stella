@@ -27,10 +27,17 @@ const (
 	groupNudgeIdleMax       = 6 * time.Hour
 	groupNudgeCooldown      = 45 * time.Minute
 	groupNudgeFallbackDelay = 5 * time.Minute
-	groupNudgeFallbackMax   = 3
-	groupNudgeQueue         = "stella_group_nudge"
-	groupNudgeInterval      = time.Minute
-	groupNudgeTimeout       = 5 * time.Second
+	// A quiet group's answer only changes when somebody speaks, so re-asking the
+	// classifier is bounded by this backoff. It exists for the things that move
+	// without a message: claim leases expiring, fallback budget.
+	groupNudgeRecheck = 30 * time.Minute
+	// Bounded per tick so one large deployment cannot turn a single tick into
+	// hundreds of serialized model calls.
+	groupNudgeBatch       = int32(50)
+	groupNudgeFallbackMax = 3
+	groupNudgeQueue       = "stella_group_nudge"
+	groupNudgeInterval    = time.Minute
+	groupNudgeTimeout     = 5 * time.Second
 )
 
 const groupNudgePrompt = `You detect genuinely stalled work in a group chat. Return JSON only: {"stalled":bool,"target":"member agent ID","reason":"short"}.
@@ -88,6 +95,7 @@ func (n *GroupNudger) RunOnce(ctx context.Context) error {
 	now := n.now().UTC()
 	candidates, err := n.q.ListGroupNudgeCandidate(ctx, sqlc.ListGroupNudgeCandidateParams{
 		LatestBefore: now.Add(-groupNudgeIdleMin), EarliestAfter: now.Add(-groupNudgeIdleMax), Now: now,
+		RecheckBefore: nullTime(now.Add(-groupNudgeRecheck)), LimitCount: groupNudgeBatch,
 	})
 	if err != nil {
 		return fmt.Errorf("list nudge candidates: %w", err)
@@ -99,6 +107,11 @@ func (n *GroupNudger) RunOnce(ctx context.Context) error {
 			if !available {
 				fallback = true
 				continue
+			}
+			// Record the look, not just the nudge: an unstalled group must not be
+			// re-classified on every tick until somebody finally speaks.
+			if err := n.q.MarkGroupNudgeChecked(ctx, sqlc.MarkGroupNudgeCheckedParams{GroupID: candidate.ID, Now: nullTime(now)}); err != nil {
+				return fmt.Errorf("mark nudge checked: %w", err)
 			}
 			if !decision.Stalled {
 				continue

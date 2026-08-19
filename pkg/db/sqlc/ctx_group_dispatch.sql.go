@@ -119,6 +119,7 @@ SET status = 'running',
     last_error = '',
     updated_at = now()
 WHERE dispatch.id = (SELECT id FROM newest)
+  AND dispatch.status = 'pending'
 RETURNING dispatch.id, dispatch.group_message_id, dispatch.group_id, dispatch.agent_id, dispatch.reply_channel_id, dispatch.status, dispatch.attempt_count, dispatch.lease_until, dispatch.next_attempt_at, dispatch.last_error, dispatch.result_message_id, dispatch.created_at, dispatch.updated_at, dispatch.kind, dispatch.trigger_seq, dispatch.held_up_to_seq, dispatch.publish_started_at, dispatch.published_at
 `
 
@@ -131,6 +132,9 @@ type ClaimNewestGroupWakeParams struct {
 
 // Claim the current high-water wake and retire older pending snapshots in the
 // same transaction. A live sibling owns the agent's group session already.
+// The status guard is what makes the claim exclusive: a second claimer blocked
+// on the row lock re-checks only this qual, and `id = <constant>` still holds
+// against the tuple the winner just updated.
 func (q *Queries) ClaimNewestGroupWake(ctx context.Context, arg ClaimNewestGroupWakeParams) (CtxGroupDispatch, error) {
 	row := q.db.QueryRow(ctx, claimNewestGroupWake,
 		arg.LeaseUntil,
