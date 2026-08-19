@@ -118,15 +118,3 @@ plugins:
     binaries:
       - name: bun
         tool: bun
-
-  # Xberg is embedded alongside stellad rather than installed through mise.
-  # Declaring its reserved identity here keeps it under the same release-owned
-  # policy as the manifest-installed system tools.
-  - id: tool/xberg
-    kind: tool
-    name: xberg
-    display_name: Xberg
-    description: "Bundled document extraction CLI for PDF, Office, images, and other formats."
-    enabled: true
-    category: system
-    prompt: "Use the bundled xberg CLI for document extraction. Read the xberg skill for supported formats and commands."

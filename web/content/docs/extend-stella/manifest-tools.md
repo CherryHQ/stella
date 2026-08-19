@@ -7,7 +7,7 @@ description: Declarative CLI tool integrations, shipped with the server and cust
 
 Manifest tool plugins are a lightweight alternative to full Go-compiled plugins for simple CLI tool integrations. Instead of writing a Go package, the tool is declared as data, and Stella reconciles the binary download automatically.
 
-Stella ships with a built-in manifest that declares CLI integrations. Release-managed system tools (`mise`, `uv`, `bun`, `xberg`, `fd`, `rg`, `tap-web`, `gh`, and `lark-cli`) are baked into the release and cannot be changed or disabled. You can extend the manifest with your own tools, and can customize other built-ins from the Plugins admin UI; those changes are stored in the database while the manifest compiled into the server remains unchanged.
+Stella ships with a built-in manifest that declares the default manifest-managed CLI integrations (`tap-web`, `gh`, `lark-cli`). They appear in their semantic tabs, such as **Tools** or **Hooks**, with a `manifest` badge. You override or extend them from the Plugins admin UI; your changes are stored in the database, and the manifest compiled into the server is never modified.
 
 ## How It Works
 
@@ -27,7 +27,7 @@ Do not treat host `$STELLA_HOME/bin` as the source of Docker sandbox executables
 For Docker:
 
 - Built-in CLI plugins that must work out of the box are pre-installed in the versioned sandbox image. The sandbox image tag is tied to the Stella release, so one release image can contain the built-in tool set for that Stella version. The image build runs `stellad mise reconcile-builtins` — the same reconcile path the daemon uses — so it installs the exact identifiers and versions declared in `resources/tools.yaml`. There is no separate Docker tool list to keep in sync.
-- The resolved manifest remains the source of plugin metadata, enablement, session environment, OAuth injection, and local-sandbox binary installation. Release-managed entries always use their shipped definition; stored legacy overrides for them are ignored.
+- The resolved manifest — built-in definitions plus your stored customizations — remains the source of plugin metadata, enablement, session environment, OAuth injection, and local-sandbox binary installation.
 - User-configured CLI binaries need a container-native provisioning path. They should be installed for Linux inside the Docker environment, not copied from the host's `$STELLA_HOME/bin`.
 
 A safe Docker loading design for user-configured CLIs is:
@@ -76,8 +76,6 @@ plugins:
 | `binaries`       | No       | CLI binaries to download and place in `$STELLA_HOME/bin`                           |
 | `session_env`    | No       | Environment variables to inject into sandbox sessions                              |
 | `oauth_provider` | No       | Static OAuth provider ID used by `oauth.*` session env sources, such as `github`   |
-
-Built-in manifest plugins ship as part of Stella's release and are read-only. Add a separate plugin when you need tenant-specific configuration.
 
 ## Binary fields
 
@@ -195,7 +193,7 @@ Manifest-backed plugins are shown once, in the tab that matches their kind:
 
 - `tool/gh`, `tool/lark-cli`, and `tool/tap-web` appear in **Tools**.
 
-Rows with manifest backing show a `manifest` badge and an **Edit definition** action for the plugin definition. Binaries and session environment variables are edited as form rows. If the same plugin also exposes runtime config, the row also shows **Configure**. Release-managed tools are read-only: their enable switch and definition editor are unavailable. The enable switch for other built-ins is stored separately from the definition, so disabling one does not count as customizing it, and pinning a binary to a specific version is an ordinary definition edit.
+Rows with manifest backing show a `manifest` badge and an **Edit definition** action for the plugin definition. Binaries and session environment variables are edited as form rows. If the same plugin also exposes runtime config, the row also shows **Configure**. The enable switch is stored separately from the definition, so disabling a built-in does not count as customizing it, and pinning a binary to a specific version is an ordinary definition edit.
 
 The **Tools** tab includes **Add Tool** for creating a new manifest-backed CLI from a GitHub release binary. Saving registers the plugin and syncs binaries automatically without a restart. The embedded built-in manifest is never modified.
 

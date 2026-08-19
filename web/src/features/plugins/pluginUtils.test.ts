@@ -4,7 +4,6 @@ import {
   changedManifestPluginFields,
   pluginFieldIsOverridden,
   pluginIsCustomized,
-  pluginIsReleaseManaged,
   pluginIsRemovable,
 } from "./pluginUtils";
 
@@ -59,17 +58,6 @@ describe("pluginIsCustomized", () => {
       false,
     );
     expect(pluginIsCustomized(plugin(null))).toBe(false);
-  });
-});
-
-describe("pluginIsReleaseManaged", () => {
-  it("identifies shipped manifest tools", () => {
-    expect(pluginIsReleaseManaged(plugin({ builtin: true }))).toBe(true);
-  });
-
-  it("does not infer release ownership for admin-added plugins", () => {
-    expect(pluginIsReleaseManaged(plugin({ builtin: false }))).toBe(false);
-    expect(pluginIsReleaseManaged(plugin(null))).toBe(false);
   });
 });
 

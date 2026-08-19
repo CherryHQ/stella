@@ -3,13 +3,7 @@ import { siGithub, siX } from "simple-icons";
 import { Blocks, Cpu, Plug, Terminal, Webhook } from "lucide-react";
 import type { PluginWithMeta } from "@/lib/types";
 import type { PluginBucket } from "./pluginUtils";
-import {
-  pluginBucket,
-  pluginHasOAuth,
-  pluginIsEssential,
-  pluginIsReleaseManaged,
-  pluginLabel,
-} from "./pluginUtils";
+import { pluginBucket, pluginHasOAuth, pluginIsEssential, pluginLabel } from "./pluginUtils";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { SettingsCard, SettingsCardSection } from "@/features/settings/SettingsCardGrid";
@@ -47,7 +41,6 @@ interface PluginCardProps {
 
 export function PluginCard({ plugin, active, detailRoute, onToggle }: PluginCardProps) {
   const essential = pluginIsEssential(plugin);
-  const releaseManaged = pluginIsReleaseManaged(plugin);
   const oauthProvider = plugin._manifestPlugin?.oauth_provider;
 
   return (
@@ -65,7 +58,7 @@ export function PluginCard({ plugin, active, detailRoute, onToggle }: PluginCard
       action={
         <Switch
           checked={plugin.enabled}
-          disabled={essential || releaseManaged}
+          disabled={essential}
           onCheckedChange={(checked) => onToggle(checked)}
         />
       }
