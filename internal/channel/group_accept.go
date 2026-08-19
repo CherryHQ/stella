@@ -147,8 +147,13 @@ func (d *GroupDispatcher) groupBackstopVerdict(ctx context.Context, q *sqlc.Quer
 	}
 	// Verbatim echo. Two agents reaching the same sentence is the visible face
 	// of optimistic collaboration; the second one adds nothing.
-	if _, err := q.GetLatestPeerGroupMessageWithContent(ctx, sqlc.GetLatestPeerGroupMessageWithContentParams{GroupID: row.GroupID, AgentID: row.AgentID, Content: response.text}); err == nil {
+	switch _, err := q.GetLatestPeerGroupMessageWithContent(ctx, sqlc.GetLatestPeerGroupMessageWithContentParams{GroupID: row.GroupID, AgentID: row.AgentID, Content: response.text}); {
+	case err == nil:
 		return groupBackstop{status: groupTurnHeld, reason: "duplicate"}, nil
+	case !errors.Is(err, pgx.ErrNoRows):
+		// A failed lookup is not evidence of no duplicate. Failing the accept
+		// retries the turn; treating it as "unique" posts the echo for good.
+		return groupBackstop{}, fmt.Errorf("check verbatim duplicate: %w", err)
 	}
 	// Hard cap. The number of agent replies one human message may provoke; the
 	// last defence against a group talking to itself.

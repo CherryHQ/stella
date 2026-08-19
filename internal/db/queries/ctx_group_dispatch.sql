@@ -82,7 +82,10 @@ WITH newest AS (
       FROM ctx_group_dispatch held
       WHERE held.group_id = candidate.group_id
         AND held.agent_id = candidate.agent_id
-        AND held.kind = 'wake'
+        -- Kind-agnostic on purpose: a held nudge is a yield like any other, and
+        -- CountHeldGroupDispatchesInChain already spends budget for it. Counting
+        -- it here too keeps one wake from re-running on a snapshot the agent has
+        -- already been shown.
         AND held.status = 'held'
         AND held.trigger_seq >= ctx_group_chain_root(candidate.group_id, candidate.agent_id, candidate.trigger_seq)
     ), 0)

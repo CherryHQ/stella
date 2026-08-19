@@ -706,6 +706,35 @@ func TestHoldChainResetsAtNewHumanTrigger(t *testing.T) {
 	wantGroupTurnStopped(t, outcome, err, groupTurnHeld, "freshness")
 }
 
+// A held nudge already spends hold budget, so the claim gate must see it too.
+// Ignoring it would let a wake re-run against a snapshot the agent was shown.
+func TestHeldNudgeGatesWakeClaim(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	if err := fx.q.CreateGroupNudge(ctx, sqlc.CreateGroupNudgeParams{ID: "d15a0000-0000-0000-0000-000000000102", GroupMessageID: fx.message.ID, GroupID: fx.groupID, AgentID: "agent-1", ReplyChannelID: "ch-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET status='held', held_up_to_seq=3 WHERE id=$1`, "d15a0000-0000-0000-0000-000000000102"); err != nil {
+		t.Fatal(err)
+	}
+	second := createGroupMessage(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-000000000102", 2, eventlog.ActorAgent, "agent-2", "peer one")
+	setGroupNextSeq(t, fx.db, fx.groupID, second.Seq)
+	if err := fx.q.CreateGroupWake(ctx, sqlc.CreateGroupWakeParams{ID: "d15a0000-0000-0000-0000-000000000103", GroupMessageID: second.ID, GroupID: fx.groupID, AgentID: "agent-1", ReplyChannelID: "ch-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := fx.d.claimDispatch(ctx, sqlc.CtxGroupDispatch{Status: "pending", Kind: "wake", GroupID: fx.groupID, AgentID: "agent-1"}); err != nil || ok {
+		t.Fatalf("wake claimed past a held nudge: ok=%v err=%v", ok, err)
+	}
+	third := createGroupMessage(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-000000000103", 3, eventlog.ActorAgent, "agent-2", "peer two")
+	setGroupNextSeq(t, fx.db, fx.groupID, third.Seq)
+	if err := fx.q.CreateGroupWake(ctx, sqlc.CreateGroupWakeParams{ID: "d15a0000-0000-0000-0000-000000000104", GroupMessageID: third.ID, GroupID: fx.groupID, AgentID: "agent-1", ReplyChannelID: "ch-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := fx.d.claimDispatch(ctx, sqlc.CtxGroupDispatch{Status: "pending", Kind: "wake", GroupID: fx.groupID, AgentID: "agent-1"}); err != nil || !ok {
+		t.Fatalf("covered successor refused: ok=%v err=%v", ok, err)
+	}
+}
+
 func TestHoldSuccessorSnapshotCoversHoldSeq(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	ctx := context.Background()
