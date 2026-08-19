@@ -10,6 +10,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
 
@@ -149,6 +150,56 @@ func TestNudgeCreatesOneTargetedWake(t *testing.T) {
 	}
 	if agentID != "agent-1" || kind != "nudge" {
 		t.Fatalf("targeted dispatch = %s/%s, want agent-1/nudge", agentID, kind)
+	}
+}
+
+// A nudge row is worthless unless the pool actually feeds on it: the wake feed
+// filters kind='wake', so the nudge needs its own listing and must still pass
+// triage, where the hard caps live.
+func TestNudgeRowReachesThePoolAndTriages(t *testing.T) {
+	fx, nudger, _ := staleNudgeFixture(t)
+	ctx := context.Background()
+	createLiveNudgeClaim(t, fx)
+	nudger.SetClassifier(nudgeClassifierFunc(func(context.Context, GroupNudgeRequest) (GroupNudgeDecision, error) {
+		return GroupNudgeDecision{Stalled: true, Target: "agent-1", Reason: "finish the report"}, nil
+	}))
+	if err := nudger.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var messageID string
+	if err := fx.db.QueryRow(ctx, `SELECT id FROM ctx_group_message WHERE group_id = $1 AND actor_type = 'system'`, fx.groupID).Scan(&messageID); err != nil {
+		t.Fatal(err)
+	}
+	outbox, err := fx.q.GetGroupOutboxByMessage(ctx, messageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.d.ProcessOutbox(ctx, outbox); err != nil {
+		t.Fatal(err)
+	}
+
+	pending, err := fx.q.ListPendingGroupNudges(ctx, sqlc.ListPendingGroupNudgesParams{Now: nullTime(time.Now().UTC()), LimitCount: 10})
+	if err != nil {
+		t.Fatalf("list pending nudges: %v", err)
+	}
+	if len(pending) != 1 || pending[0].AgentID != "agent-1" {
+		t.Fatalf("pending nudges = %#v, want one for agent-1", pending)
+	}
+	claimed, ok, err := fx.d.claimDispatch(ctx, pending[0])
+	if err != nil || !ok {
+		t.Fatalf("claim nudge: ok=%v, err=%v", ok, err)
+	}
+	message, state, err := fx.d.messageAndState(ctx, claimed.GroupMessageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := DecodeGroupOutboxEnvelope(outbox.Envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	act, reason, degraded := fx.d.triageWake(ctx, claimed, message, state, envelope)
+	if !act || reason != "nudge" || degraded {
+		t.Fatalf("triage = act:%v reason:%q degraded:%v, want act/nudge", act, reason, degraded)
 	}
 }
 

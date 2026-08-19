@@ -42,6 +42,17 @@ WHERE kind = 'wake'
 ORDER BY group_id, agent_id, trigger_seq DESC
 LIMIT sqlc.arg(limit_count);
 
+-- name: ListPendingGroupNudges :many
+-- Nudge rows are targeted at one agent and never superseded, so they feed the
+-- pool by id rather than through the (group, agent) high-water wake feed.
+SELECT *
+FROM ctx_group_dispatch
+WHERE kind = 'nudge'
+  AND status = 'pending'
+  AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg('now'))
+ORDER BY trigger_seq
+LIMIT sqlc.arg(limit_count);
+
 -- name: ClaimNewestGroupWake :one
 -- Claim the current high-water wake and retire older pending snapshots in the
 -- same transaction. A live sibling owns the agent's group session already.
@@ -106,6 +117,10 @@ WITH newest AS (
     AND older.agent_id = sqlc.arg(agent_id)
     AND older.kind = 'wake'
     AND older.status = 'pending'
+    -- A row carrying an accepted result still owes egress: requeue preserves
+    -- result_message_id, and nothing ever reads a superseded row, so retiring
+    -- one here would strand a committed reply.
+    AND (older.result_message_id IS NULL OR older.result_message_id = '')
     AND older.trigger_seq < (SELECT trigger_seq FROM ctx_group_dispatch WHERE id = (SELECT id FROM newest))
 )
 UPDATE ctx_group_dispatch dispatch

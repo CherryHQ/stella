@@ -265,7 +265,14 @@ func (d *GroupDispatcher) poll(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list pending wake pairs: %w", err)
 	}
-	for _, row := range dueDispatch {
+	dueNudges, err := d.q.ListPendingGroupNudges(ctx, sqlc.ListPendingGroupNudgesParams{
+		Now:        nullTime(time.Now().UTC()),
+		LimitCount: 25,
+	})
+	if err != nil {
+		return fmt.Errorf("list pending nudges: %w", err)
+	}
+	for _, row := range append(dueDispatch, dueNudges...) {
 		select {
 		case d.dispatchC <- row:
 		case <-ctx.Done():
@@ -304,8 +311,18 @@ func (d *GroupDispatcher) reapExpired(ctx context.Context) error {
 	}
 	for _, row := range dispatchRows {
 		if row.ResultMessageID != "" {
-			if _, err := d.q.MarkGroupDispatchCompleted(ctx, sqlc.MarkGroupDispatchCompletedParams{ID: row.ID, AttemptCount: row.AttemptCount}); err != nil {
-				return fmt.Errorf("complete expired dispatch with result marker: %w", err)
+			if row.PublishedAt.Valid {
+				if _, err := d.q.MarkGroupDispatchCompleted(ctx, sqlc.MarkGroupDispatchCompletedParams{ID: row.ID, AttemptCount: row.AttemptCount}); err != nil {
+					return fmt.Errorf("complete expired dispatch with result marker: %w", err)
+				}
+				continue
+			}
+			// Accepted but never published: the canonical message is committed
+			// and egress is still owed, so retiring it here would strand the
+			// reply forever. Requeued past maxAttempts on purpose; a publisher
+			// that fails permanently needs a dead-letter, not a dropped reply.
+			if _, err := d.q.RequeueGroupDispatch(ctx, sqlc.RequeueGroupDispatchParams{ID: row.ID, AttemptCount: row.AttemptCount, NextAttemptAt: nullTime(now), LastError: "lease expired before publish"}); err != nil {
+				return fmt.Errorf("requeue expired accepted dispatch: %w", err)
 			}
 			continue
 		}
@@ -485,7 +502,9 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		d.log.Debug("ignoring invalid group outbox publish metadata", "dispatch_id", claimed.ID, "error", err)
 		envelope = GroupOutboxEnvelope{}
 	}
-	if claimed.Kind == "wake" {
+	// Nudges triage too: recovery may hand an agent the floor, but it must not
+	// bypass the hard caps that keep a stalled group from turning into a flood.
+	if claimed.Kind == "wake" || claimed.Kind == "nudge" {
 		act, reason, degraded := d.triageWake(ownedCtx, claimed, message, state, envelope)
 		if !act {
 			if d.events != nil {

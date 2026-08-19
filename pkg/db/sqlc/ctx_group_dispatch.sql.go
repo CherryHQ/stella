@@ -120,6 +120,10 @@ WITH newest AS (
     AND older.agent_id = $3
     AND older.kind = 'wake'
     AND older.status = 'pending'
+    -- A row carrying an accepted result still owes egress: requeue preserves
+    -- result_message_id, and nothing ever reads a superseded row, so retiring
+    -- one here would strand a committed reply.
+    AND (older.result_message_id IS NULL OR older.result_message_id = '')
     AND older.trigger_seq < (SELECT trigger_seq FROM ctx_group_dispatch WHERE id = (SELECT id FROM newest))
 )
 UPDATE ctx_group_dispatch dispatch
@@ -452,6 +456,61 @@ type ListExpiredRunningGroupDispatchParams struct {
 
 func (q *Queries) ListExpiredRunningGroupDispatch(ctx context.Context, arg ListExpiredRunningGroupDispatchParams) ([]CtxGroupDispatch, error) {
 	rows, err := q.db.Query(ctx, listExpiredRunningGroupDispatch, arg.Now, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CtxGroupDispatch{}
+	for rows.Next() {
+		var i CtxGroupDispatch
+		if err := rows.Scan(
+			&i.ID,
+			&i.GroupMessageID,
+			&i.GroupID,
+			&i.AgentID,
+			&i.ReplyChannelID,
+			&i.Status,
+			&i.AttemptCount,
+			&i.LeaseUntil,
+			&i.NextAttemptAt,
+			&i.LastError,
+			&i.ResultMessageID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Kind,
+			&i.TriggerSeq,
+			&i.HeldUpToSeq,
+			&i.PublishedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPendingGroupNudges = `-- name: ListPendingGroupNudges :many
+SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, published_at
+FROM ctx_group_dispatch
+WHERE kind = 'nudge'
+  AND status = 'pending'
+  AND (next_attempt_at IS NULL OR next_attempt_at <= $1)
+ORDER BY trigger_seq
+LIMIT $2
+`
+
+type ListPendingGroupNudgesParams struct {
+	Now        pgtype.Timestamptz `json:"now"`
+	LimitCount int32              `json:"limit_count"`
+}
+
+// Nudge rows are targeted at one agent and never superseded, so they feed the
+// pool by id rather than through the (group, agent) high-water wake feed.
+func (q *Queries) ListPendingGroupNudges(ctx context.Context, arg ListPendingGroupNudgesParams) ([]CtxGroupDispatch, error) {
+	rows, err := q.db.Query(ctx, listPendingGroupNudges, arg.Now, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}

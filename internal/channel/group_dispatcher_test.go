@@ -287,7 +287,7 @@ func TestClaimNewestWakeSupersedesOlder(t *testing.T) {
 	}
 }
 
-func TestGroupDispatcherReapExpiredCompletesDispatchWithResultMarker(t *testing.T) {
+func TestGroupDispatcherReapExpiredCompletesPublishedDispatch(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	past := time.Now().UTC().Add(-time.Minute)
 	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
@@ -303,7 +303,7 @@ func TestGroupDispatcherReapExpiredCompletesDispatchWithResultMarker(t *testing.
 	}); err != nil {
 		t.Fatalf("create dispatch: %v", err)
 	}
-	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET result_message_id = 'result-1' WHERE id = 'd15a0000-0000-0000-0000-0000000000ff'`); err != nil {
+	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET result_message_id = 'result-1', published_at = now() WHERE id = 'd15a0000-0000-0000-0000-0000000000ff'`); err != nil {
 		t.Fatalf("set marker: %v", err)
 	}
 
@@ -316,6 +316,73 @@ func TestGroupDispatcherReapExpiredCompletesDispatchWithResultMarker(t *testing.
 	}
 	if dispatch.Status != "completed" {
 		t.Fatalf("dispatch status = %q, want completed", dispatch.Status)
+	}
+}
+
+// An accepted reply whose publish never happened still owes egress. Retiring it
+// on lease expiry (the crash path) would strand the committed message forever,
+// so the reaper must requeue it back onto the canonical-replay path instead.
+func TestGroupDispatcherReapExpiredRequeuesAcceptedUnpublishedDispatch(t *testing.T) {
+	fx := newDispatcherFixture(t, "telegram", `{}`)
+	past := time.Now().UTC().Add(-time.Minute)
+	if err := fx.q.CreateGroupDispatch(context.Background(), sqlc.CreateGroupDispatchParams{
+		ID:             "d15a0000-0000-0000-0000-0000000000fe",
+		GroupMessageID: fx.message.ID,
+		GroupID:        fx.message.GroupID,
+		AgentID:        "agent-1",
+		ReplyChannelID: "ch-1",
+		Status:         "running",
+		AttemptCount:   fx.d.maxAttempts,
+		LeaseUntil:     nullTime(past),
+		LastError:      "",
+	}); err != nil {
+		t.Fatalf("create dispatch: %v", err)
+	}
+	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET result_message_id = 'result-1' WHERE id = 'd15a0000-0000-0000-0000-0000000000fe'`); err != nil {
+		t.Fatalf("set marker: %v", err)
+	}
+
+	if err := fx.d.reapExpired(context.Background()); err != nil {
+		t.Fatalf("reap expired: %v", err)
+	}
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-0000000000fe")
+	if err != nil {
+		t.Fatalf("get dispatch: %v", err)
+	}
+	if dispatch.Status != "pending" {
+		t.Fatalf("dispatch status = %q, want pending", dispatch.Status)
+	}
+	if dispatch.ResultMessageID != "result-1" {
+		t.Fatalf("result marker = %q, want preserved", dispatch.ResultMessageID)
+	}
+}
+
+// Supersede retires stale snapshots, but a pending row carrying an accepted
+// result is not stale: nothing reads a superseded row, so retiring it here is
+// how a committed reply silently stops being delivered.
+func TestClaimNewestWakeKeepsAcceptedUnpublishedOlder(t *testing.T) {
+	fx := newDispatcherFixture(t, "telegram", "{}")
+	ctx := context.Background()
+	older := fx.message
+	newer := createGroupMessageWithSeq(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-000000000004", 2)
+	for id, message := range map[string]sqlc.CtxGroupMessage{"d15a0000-0000-0000-0000-000000000021": older, "d15a0000-0000-0000-0000-000000000022": newer} {
+		if err := fx.q.CreateGroupWake(ctx, sqlc.CreateGroupWakeParams{ID: id, GroupMessageID: message.ID, GroupID: fx.groupID, AgentID: "agent-1", ReplyChannelID: "ch-1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET result_message_id = 'result-1' WHERE id = 'd15a0000-0000-0000-0000-000000000021'`); err != nil {
+		t.Fatalf("set marker: %v", err)
+	}
+
+	if _, ok, err := fx.d.claimDispatch(ctx, sqlc.CtxGroupDispatch{Status: "pending", Kind: "wake", GroupID: fx.groupID, AgentID: "agent-1"}); err != nil || !ok {
+		t.Fatalf("claim newest: ok=%v, err=%v", ok, err)
+	}
+	var status string
+	if err := fx.db.QueryRow(ctx, `SELECT status FROM ctx_group_dispatch WHERE id = $1`, "d15a0000-0000-0000-0000-000000000021").Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "pending" {
+		t.Fatalf("accepted-unpublished older status = %q, want pending", status)
 	}
 }
 
