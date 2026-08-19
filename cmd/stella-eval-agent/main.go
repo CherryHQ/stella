@@ -251,6 +251,15 @@ func waitForTerminal(ctx context.Context, c apiClient, agentID, sessionID string
 
 // stopAndConfirm is deliberately separate from SSE handling: closing a stream
 // only detaches its observer, while this endpoint cancels the admitted turn.
+// stopConfirmBudget bounds how long a trial that hit its deadline waits for the
+// session to actually stop. Stop cannot land while a tool call is in flight, so
+// a budget shorter than the longest tool timeout voids the trial instead of
+// scoring it: the driver never confirms a terminal state, and confirming one
+// before the verifier runs is what keeps the agent from contaminating
+// verification. Deliberate ceiling; raise it if tasks start using tool timeouts
+// longer than this.
+const stopConfirmBudget = 3 * time.Minute
+
 func stopAndConfirm(ctx context.Context, c apiClient, agentID, sessionID string) error {
 	if err := c.call(ctx, http.MethodPost, "/api/agents/"+agentID+"/sessions/"+sessionID+"/stop", nil, nil); err != nil {
 		return err
@@ -496,7 +505,7 @@ func run() int {
 	phase(&r.Metrics.Timing.TurnMs)
 	if errors.Is(err, context.DeadlineExceeded) {
 		r.TimedOut = true
-		terminalCtx, terminalCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		terminalCtx, terminalCancel := context.WithTimeout(context.Background(), stopConfirmBudget)
 		waitErr := stopAndConfirm(terminalCtx, user, r.AgentID, r.SessionID)
 		terminalCancel()
 		phase(&r.Metrics.Timing.StopMs)
@@ -521,7 +530,7 @@ func run() int {
 	phase(&r.Metrics.Timing.TurnMs)
 	if errors.Is(err, context.DeadlineExceeded) {
 		r.TimedOut = true
-		terminalCtx, terminalCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		terminalCtx, terminalCancel := context.WithTimeout(context.Background(), stopConfirmBudget)
 		waitErr := stopAndConfirm(terminalCtx, user, r.AgentID, r.SessionID)
 		terminalCancel()
 		phase(&r.Metrics.Timing.StopMs)

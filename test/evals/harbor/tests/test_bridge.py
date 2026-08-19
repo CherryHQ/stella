@@ -133,3 +133,40 @@ def test_an_oversized_request_is_refused_rather_than_buffered(tmp_path):
         assert e.code == "too_large"
     else:
         raise AssertionError("oversized request was accepted")
+
+
+def test_exec_reports_a_timeout_as_exit_code_minus_one(tmp_path):
+    # Harbor raises a bare RuntimeError when the command outlives timeout_sec.
+    # Passing that through as an adapter fault is wrong twice: the agent gets an
+    # opaque "internal" error instead of the bash tool's timeout message, and
+    # the ledger counts a fault that voids the whole trial.
+    env = _FakeEnv()
+
+    async def exec_that_times_out(command: str, **kwargs) -> _Result:
+        raise RuntimeError("Command timed out after 120 seconds")
+
+    env.exec = exec_that_times_out  # type: ignore[method-assign]
+    server = BridgeServer(env, "/app", tmp_path / "s.sock", tmp_path / "l.jsonl")
+
+    out = asyncio.run(server._op_exec({"command": "sleep 999", "timeout_sec": 120}))
+
+    assert out["ok"] is True
+    assert out["return_code"] == -1
+    assert "timed out after 120 seconds" in out["stderr"]
+
+
+def test_exec_still_fails_loudly_when_the_environment_breaks(tmp_path):
+    env = _FakeEnv()
+
+    async def exec_that_breaks(command: str, **kwargs) -> _Result:
+        raise RuntimeError("container is not running")
+
+    env.exec = exec_that_breaks  # type: ignore[method-assign]
+    server = BridgeServer(env, "/app", tmp_path / "s.sock", tmp_path / "l.jsonl")
+
+    try:
+        asyncio.run(server._op_exec({"command": "ls", "timeout_sec": 120}))
+    except RuntimeError as e:
+        assert "not running" in str(e)
+    else:
+        raise AssertionError("a broken environment must not look like a timeout")

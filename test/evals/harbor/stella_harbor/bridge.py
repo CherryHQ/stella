@@ -37,6 +37,19 @@ class BridgeError(Exception):
         self.code = code
 
 
+def _is_timeout(exc: BaseException, timeout_sec: int) -> bool:
+    """Whether exc is the environment reporting that our timeout expired.
+
+    Harbor's docker environment raises a bare RuntimeError("Command timed out
+    after N seconds"), so there is no type to match on. Matching the message
+    including our own N keeps an unrelated failure that happens to mention a
+    timeout from being scored as one.
+    """
+    if isinstance(exc, asyncio.TimeoutError | TimeoutError):
+        return True
+    return f"timed out after {timeout_sec} second" in str(exc).lower()
+
+
 @dataclass
 class Binding:
     socket: str
@@ -232,7 +245,24 @@ class BridgeServer:
 
     async def _op_exec(self, req: dict[str, Any]) -> dict[str, Any]:
         timeout = req.get("timeout_sec") or None
-        r = await self._exec(req["command"], cwd=req.get("cwd") or self.workdir, env=req.get("env") or None, timeout_sec=timeout)
+        try:
+            r = await self._exec(req["command"], cwd=req.get("cwd") or self.workdir, env=req.get("env") or None, timeout_sec=timeout)
+        except Exception as e:  # noqa: BLE001 - re-raised unless it is the timeout
+            # Harbor kills the process and raises a bare RuntimeError when
+            # timeout_sec expires. A command that ran out of time is a normal
+            # result the agent can act on, not an adapter fault: answer in the
+            # contract the bash tool already implements (return_code -1 ->
+            # "command timed out after N seconds"). Reporting it as an error
+            # instead teaches the agent nothing and, because the ledger counts
+            # adapter faults, voided whole trials.
+            if timeout is None or not _is_timeout(e, timeout):
+                raise
+            return {
+                "ok": True,
+                "stdout": "",
+                "stderr": f"command timed out after {timeout} seconds",
+                "return_code": -1,
+            }
         return {"ok": True, "stdout": r.stdout or "", "stderr": r.stderr or "", "return_code": r.return_code}
 
     async def _op_stat(self, req: dict[str, Any]) -> dict[str, Any]:
