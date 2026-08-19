@@ -19,6 +19,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/CherryHQ/stella/internal/config"
 )
 
 const (
@@ -50,6 +52,7 @@ type result struct {
 	DisabledToolsCount      int            `json:"disabled_tools_count"`
 	MCPTools                []string       `json:"mcp_tools,omitempty"`
 	CapabilityProfileDigest string         `json:"capability_profile_digest"`
+	SandboxBackend          string         `json:"sandbox_backend,omitempty"`
 	TimedOut                bool           `json:"timed_out"`
 	StreamErrors            []string       `json:"stream_errors,omitempty"`
 	StreamEvents            int            `json:"stream_events"`
@@ -365,6 +368,24 @@ func run() int {
 	deadline := time.Now().UTC().Add(time.Duration(deadlineSec) * time.Second)
 	admin := apiClient{baseURL, adminToken, &http.Client{Timeout: 30 * time.Second}}
 	ctx := context.Background()
+	// Refuse before provisioning anything. On any other backend the agent's
+	// commands run somewhere that is not the trial container, and the bridge
+	// ledger can only prove that after they have already run. An older server
+	// that does not report the field is refused too: unknown is not bridge.
+	var status struct {
+		SandboxBackend string `json:"sandbox_backend"`
+	}
+	if err := admin.call(ctx, http.MethodGet, "/api/status", nil, &status); err != nil {
+		r.Errors = append(r.Errors, "read server status: "+err.Error())
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	r.SandboxBackend = status.SandboxBackend
+	if status.SandboxBackend != config.SandboxBackendBridge {
+		r.Errors = append(r.Errors, fmt.Sprintf("sandbox backend is %q, want %q: tools would not run in the trial container", status.SandboxBackend, config.SandboxBackendBridge))
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
 	var provision struct {
 		ProvisionedUser struct {
 			ID string `json:"id"`

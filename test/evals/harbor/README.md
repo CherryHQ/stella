@@ -34,10 +34,11 @@ must be exported **before** `testbed:start`: exporting them afterwards has no
 effect on the already-running server.
 
 > Get `STELLA_SANDBOX_BACKEND` wrong and the backend falls back to `local`,
-> which runs the agent's `bash` **on the host machine** instead of in the trial
-> container. The evidence predicate catches it (zero bridge ledger entries makes
-> the trial `valid: false`), but only after the commands have already run. Check
-> the first trial's ledger before starting a long job.
+> which runs the agent's `bash` on the host machine (under that backend's own
+> confinement) instead of in the trial container. The driver refuses to start
+> when `/api/status` does not report `sandbox_backend: bridge`, before it
+> provisions a user or spends a token, so this now fails fast rather than
+> producing a trial that ran in the wrong place.
 
 Then, using the credentials file:
 

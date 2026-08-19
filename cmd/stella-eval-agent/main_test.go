@@ -49,6 +49,8 @@ func TestRunRefusesAnInstanceThatExposesMCPTools(t *testing.T) {
 	patched := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.URL.Path == "/api/status":
+			_, _ = w.Write([]byte(`{"sandbox_backend":"bridge"}`))
 		case r.Method == http.MethodPost && r.URL.Path == "/api/provisioned-users":
 			w.WriteHeader(http.StatusCreated)
 			_, _ = w.Write([]byte(`{"provisioned_user":{"id":"rec"},"token":"tok"}`))
@@ -158,5 +160,91 @@ func TestCollectEvidenceMarksATruncatedTrajectory(t *testing.T) {
 
 	if !out.TrajectoryTruncated {
 		t.Error("a full page of history was not reported as truncated")
+	}
+}
+
+// A deployment on any other backend runs the agent's commands outside the trial
+// container. The bridge ledger proves that only afterwards, so the driver has
+// to refuse before it provisions a user or starts a turn.
+func TestRunRefusesAServerThatIsNotOnTheBridgeBackend(t *testing.T) {
+	provisioned := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/status":
+			_, _ = w.Write([]byte(`{"sandbox_backend":"local"}`))
+		case "/api/provisioned-users":
+			provisioned = true
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"provisioned_user":{"id":"rec"},"token":"tok"}`))
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	template := filepath.Join(dir, "binding.json")
+	if err := os.WriteFile(template, []byte(`{"socket":"/tmp/b.sock","nonce":"n","workdir":"/app"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	instruction := filepath.Join(dir, "instruction.txt")
+	if err := os.WriteFile(instruction, []byte("do the task"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(dir, "result.json")
+	t.Setenv("STELLA_EVAL_ADMIN_TOKEN", "admin")
+	os.Args = []string{
+		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
+		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
+		"--user-id", "trial", "--deadline-seconds", "30", "--output", output,
+	}
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+
+	if code := run(); code != exitAdapter {
+		t.Fatalf("run exit code = %d, want %d", code, exitAdapter)
+	}
+	if provisioned {
+		t.Fatal("driver provisioned a user before checking where tools would run")
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got result
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.SandboxBackend != "local" || len(got.Errors) == 0 {
+		t.Fatalf("result must name the backend it refused: %+v", got)
+	}
+}
+
+// An older server that does not report the field is refused too: unknown is not
+// bridge, and guessing here means guessing about where code executes.
+func TestRunRefusesAServerThatDoesNotReportItsBackend(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	template := filepath.Join(dir, "binding.json")
+	if err := os.WriteFile(template, []byte(`{"socket":"/tmp/b.sock","nonce":"n","workdir":"/app"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	instruction := filepath.Join(dir, "instruction.txt")
+	if err := os.WriteFile(instruction, []byte("do the task"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("STELLA_EVAL_ADMIN_TOKEN", "admin")
+	os.Args = []string{
+		"stella-eval-agent", "--stella-url", server.URL, "--instruction-file", instruction,
+		"--binding-template", template, "--binding-dir", filepath.Join(dir, "bindings"), "--model", "p/m",
+		"--user-id", "trial", "--deadline-seconds", "30", "--output", filepath.Join(dir, "result.json"),
+	}
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+
+	if code := run(); code != exitAdapter {
+		t.Fatalf("run exit code = %d, want %d", code, exitAdapter)
 	}
 }
