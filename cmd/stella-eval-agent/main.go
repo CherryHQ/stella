@@ -54,6 +54,8 @@ type result struct {
 	StreamErrors            []string       `json:"stream_errors,omitempty"`
 	StreamEvents            int            `json:"stream_events"`
 	Metrics                 metrics        `json:"metrics"`
+	TrajectoryPath          string         `json:"trajectory_path,omitempty"`
+	TrajectoryTruncated     bool           `json:"trajectory_truncated,omitempty"`
 	FailureClass            string         `json:"failure_class,omitempty"`
 	Errors                  []string       `json:"errors,omitempty"`
 }
@@ -250,14 +252,40 @@ func stopAndConfirm(ctx context.Context, c apiClient, agentID, sessionID string)
 	return err
 }
 
-func collectEvidence(ctx context.Context, c apiClient, agentID, sessionID string, out *result) error {
+// messageLimit caps one page of history. A trajectory that hits it is recorded
+// as truncated rather than quietly shortened, because a partial trajectory that
+// looks whole would mislabel a failure downstream.
+const messageLimit = 500
+
+func collectEvidence(ctx context.Context, c apiClient, agentID, sessionID, trajectoryPath string, out *result) error {
+	// Captured verbatim: the trajectory is the artifact a failure taxonomy and a
+	// public log are built from, so re-marshalling our own structs would silently
+	// drop every field this driver does not happen to model.
+	var raw json.RawMessage
+	if err := c.call(ctx, http.MethodGet, fmt.Sprintf("/api/agents/%s/sessions/%s/messages?limit=%d", agentID, sessionID, messageLimit), nil, &raw); err != nil {
+		return err
+	}
 	var messages struct {
 		Messages []sessionMessage `json:"messages"`
 	}
-	if err := c.call(ctx, http.MethodGet, "/api/agents/"+agentID+"/sessions/"+sessionID+"/messages?limit=500", nil, &messages); err != nil {
+	if err := json.Unmarshal(raw, &messages); err != nil {
 		return err
 	}
+	if trajectoryPath != "" && len(raw) != 0 {
+		if err := os.WriteFile(trajectoryPath, raw, 0o600); err != nil {
+			return err
+		}
+		out.TrajectoryPath = trajectoryPath
+		out.TrajectoryTruncated = len(messages.Messages) >= messageLimit
+	}
 	m, calls := deriveMetrics(messages.Messages)
+	// Best effort: a deployment that predates the usage API still produces a
+	// valid trial, it just cannot report cost. Failing the trial over a missing
+	// optional metric would be worse than reporting it as absent.
+	var u usage
+	if err := c.call(ctx, http.MethodGet, "/api/agents/"+agentID+"/sessions/"+sessionID+"/usage", nil, &u); err == nil {
+		m.Usage = &u
+	}
 	// Preserve the timing the driver measured itself; deriveMetrics only knows
 	// what the message timeline shows.
 	m.Timing.TotalMs, m.Timing.ProvisionMs = out.Metrics.Timing.TotalMs, out.Metrics.Timing.ProvisionMs
@@ -273,7 +301,7 @@ func collectEvidence(ctx context.Context, c apiClient, agentID, sessionID string
 }
 
 func run() int {
-	var baseURL, instructionFile, bindingFile, bindingDir, model, output, externalID, bundleDigest string
+	var baseURL, instructionFile, bindingFile, bindingDir, model, output, externalID, bundleDigest, trajectory string
 	var deadlineSec int
 	flag.StringVar(&baseURL, "stella-url", "", "Stella base URL")
 	flag.StringVar(&instructionFile, "instruction-file", "", "task instruction file")
@@ -283,6 +311,7 @@ func run() int {
 	flag.StringVar(&output, "output", "", "result JSON path, stdout when empty")
 	flag.StringVar(&externalID, "user-id", "", "unique Harbor trial identifier")
 	flag.StringVar(&bundleDigest, "bundle-digest", "", "helper bundle SHA-256")
+	flag.StringVar(&trajectory, "trajectory", "", "write the verbatim message history here")
 	flag.IntVar(&deadlineSec, "deadline-seconds", 0, "trial deadline in seconds")
 	flag.Parse()
 	r := result{ToolCalls: map[string]int{}}
@@ -452,14 +481,14 @@ func run() int {
 			return exitAdapter
 		}
 		r.TurnTerminalState = "stopped"
-		_ = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, &r)
+		_ = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, trajectory, &r)
 		phase(&r.Metrics.Timing.ExportMs)
 		return exitTimeout
 	}
 	if err != nil {
 		r.Errors = append(r.Errors, "send instruction: "+err.Error())
 		r.FailureClass = "product"
-		_ = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, &r)
+		_ = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, trajectory, &r)
 		phase(&r.Metrics.Timing.ExportMs)
 		return exitProduct
 	}
@@ -477,7 +506,7 @@ func run() int {
 			return exitAdapter
 		}
 		r.TurnTerminalState = "stopped"
-		_ = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, &r)
+		_ = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, trajectory, &r)
 		phase(&r.Metrics.Timing.ExportMs)
 		return exitTimeout
 	}
@@ -487,7 +516,7 @@ func run() int {
 		return exitAdapter
 	}
 	r.TurnTerminalState = state
-	err = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, &r)
+	err = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, trajectory, &r)
 	phase(&r.Metrics.Timing.ExportMs)
 	if err != nil {
 		r.Errors = append(r.Errors, "collect evidence: "+err.Error())

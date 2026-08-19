@@ -9,6 +9,21 @@ import (
 // worked, how many turns and tool calls it took, where the time went, and how
 // many tokens it burned. They are derived from the session's own message
 // timeline, so they describe the product's behaviour rather than the harness's.
+// usage is what the provider actually reported, fetched from Stella's session
+// usage API. Every total is a pointer: null means "not reported" or "not
+// priced", which is a different fact from zero and must not be flattened into
+// one. A leaderboard reads these as ground truth.
+type usage struct {
+	CallCount         int64    `json:"call_count"`
+	ReportedCallCount int64    `json:"reported_call_count"`
+	PricedCallCount   int64    `json:"priced_call_count"`
+	InputTokens       *int64   `json:"input_tokens"`
+	OutputTokens      *int64   `json:"output_tokens"`
+	CacheReadTokens   *int64   `json:"cache_read_tokens"`
+	CacheWriteTokens  *int64   `json:"cache_write_tokens"`
+	CostUSD           *float64 `json:"cost_usd"`
+}
+
 type metrics struct {
 	Turns           int                 `json:"turns"`
 	ToolCallTotal   int                 `json:"tool_call_total"`
@@ -16,6 +31,7 @@ type metrics struct {
 	Tools           map[string]toolStat `json:"tools"`
 	SlowestToolCall *toolCallTiming     `json:"slowest_tool_call,omitempty"`
 	Tokens          tokenBreakdown      `json:"tokens_estimated"`
+	Usage           *usage              `json:"usage,omitempty"`
 	Timing          timing              `json:"timing_ms"`
 }
 

@@ -15,6 +15,10 @@ def passing(**changes):
     adapter = {"valid": True, "turn_terminal_state": "completed", "predicate_violations": [],
                "metrics": {"turns": 3, "tool_call_total": 2, "tool_error_total": 0,
                            "tokens_estimated": {"total": 450},
+                           "usage": {"call_count": 3, "reported_call_count": 3, "priced_call_count": 3,
+                                     "input_tokens": 1200, "output_tokens": 340,
+                                     "cache_read_tokens": 900, "cache_write_tokens": 0,
+                                     "cost_usd": 0.0123},
                            "tools": {"bash": {"calls": 2, "errors": 0, "total_ms": 3000, "max_ms": 2000}},
                            "timing_ms": {"total": 20000, "model": 12000, "tool": 5000},
                            "bridge": {"total_ms": 400}}}
@@ -31,7 +35,8 @@ def test_report_reads_metrics_and_flags_invalid_trials(tmp_path):
 
     out = render(collect(tmp_path))
 
-    assert "regex-log" in out and "20.0s" in out and "450" in out
+    assert "regex-log" in out and "20.0s" in out
+    assert "1200" in out and "340" in out and "$0.0123" in out
     assert "1/1 trials" in out  # the invalid trial leaves the denominator
     assert "1 trial(s) excluded as invalid" in out
     assert "bridge nonce does not match" in out
@@ -126,10 +131,24 @@ def test_html_report_survives_a_trial_with_no_adapter_result(tmp_path):
     rows = [{
         "task": "boom", "reward": None, "valid": None, "state": "exception", "wall_ms": None,
         "model_ms": None, "tool_ms": None, "bridge_ms": None, "turns": None, "calls": None,
-        "tool_errors": None, "est_tokens": None, "timed_out": None, "tools": {},
+        "tool_errors": None, "est_tokens": None, "timed_out": None, "tools": {}, "usage": {},
         "violations": [], "adapter_faults": [], "metrics": {}, "ledger": [],
     }]
 
     out = render_html(rows, "jobs/demo")
 
     assert "no scoreable trials" in out
+
+
+def test_a_trial_without_reported_usage_shows_no_cost_rather_than_zero(tmp_path):
+    # A provider that reported nothing, or a model with no configured price, is
+    # not free. Printing $0.00 there would understate a run's cost silently.
+    adapter = passing()
+    adapter["metrics"]["usage"] = {"call_count": 2, "reported_call_count": 0, "priced_call_count": 0,
+                                   "input_tokens": None, "output_tokens": None, "cost_usd": None}
+    write_trial(tmp_path, "unpriced", {"verifier_result": {"rewards": {"reward": 1.0}}}, adapter)
+
+    out = render(collect(tmp_path))
+
+    assert "$0.00" not in out
+    assert "1 trial(s) have no cost" in out

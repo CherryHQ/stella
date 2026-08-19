@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -100,5 +101,62 @@ func TestRunRefusesAnInstanceThatExposesMCPTools(t *testing.T) {
 	}
 	if len(got.MCPTools) != 1 || got.MCPTools[0] != "remote_search" || got.SessionID != "" {
 		t.Fatalf("result must name the MCP tool and start no session: %+v", got)
+	}
+}
+
+// The trajectory is what a failure taxonomy and a public run log are built
+// from, so it must survive verbatim: fields this driver does not model are
+// exactly the ones a later analysis will want.
+func TestCollectEvidenceWritesTheTrajectoryVerbatim(t *testing.T) {
+	body := `{"messages":[{"role":"user","token_count":4,"timestamp":"2026-08-19T10:00:00Z","reasoning":"kept"},` +
+		`{"role":"assistant","token_count":9,"timestamp":"2026-08-19T10:00:01Z","provider_metadata":{"finish":"stop"}}]}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+	path := filepath.Join(t.TempDir(), "trajectory.json")
+	out := result{ToolCalls: map[string]int{}}
+
+	client := apiClient{baseURL: server.URL, token: "t", http: server.Client()}
+	if err := collectEvidence(context.Background(), client, "a", "s", path, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	written, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(written) != body {
+		t.Errorf("trajectory was rewritten:\n got %s\nwant %s", written, body)
+	}
+	if out.TrajectoryPath != path || out.TrajectoryTruncated {
+		t.Errorf("trajectory not recorded: %+v", out)
+	}
+	if out.Metrics.Turns != 1 {
+		t.Errorf("metrics still derived from the same payload: %+v", out.Metrics)
+	}
+}
+
+// A trajectory cut off at the page limit must say so; one that looks whole
+// would mislabel a failure downstream.
+func TestCollectEvidenceMarksATruncatedTrajectory(t *testing.T) {
+	messages := make([]string, messageLimit)
+	for i := range messages {
+		messages[i] = `{"role":"assistant","timestamp":"2026-08-19T10:00:00Z"}`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"messages":[` + strings.Join(messages, ",") + `]}`))
+	}))
+	defer server.Close()
+	path := filepath.Join(t.TempDir(), "trajectory.json")
+	out := result{ToolCalls: map[string]int{}}
+
+	client := apiClient{baseURL: server.URL, token: "t", http: server.Client()}
+	if err := collectEvidence(context.Background(), client, "a", "s", path, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	if !out.TrajectoryTruncated {
+		t.Error("a full page of history was not reported as truncated")
 	}
 }

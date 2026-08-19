@@ -12,7 +12,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from .report import RESOLVED, reliability
+from .report import RESOLVED, _int, _usd, reliability
 
 # Phase colours for the timing bar. model/tool are the two that matter; the
 # harness phases share one colour because their job is to stay invisible.
@@ -93,8 +93,19 @@ def _trial_detail(row: dict[str, Any]) -> str:
                  f'{_secs(bridge.get("total_ms"))} total</span></h4>'
                  + _table(["op", "calls", "failures", "total", "slowest"], ops))
 
+    u = metrics.get("usage") or {}
+    if u:
+        parts.append("<h4>provider-reported usage</h4>" + _table(
+            ["metric", "value"],
+            [["input", _int(u.get("input_tokens"))], ["output", _int(u.get("output_tokens"))],
+             ["cache read", _int(u.get("cache_read_tokens"))],
+             ["cache write", _int(u.get("cache_write_tokens"))],
+             ["cost", _usd(u.get("cost_usd"))],
+             ["calls (reported / priced)",
+              f'{u.get("call_count", 0)} ({_int(u.get("reported_call_count"))} / '
+              f'{_int(u.get("priced_call_count"))})']]))
     if tokens:
-        parts.append("<h4>estimated tokens</h4>" + _table(
+        parts.append('<h4>estimated tokens <span class="dim">len/4, not usage</span></h4>' + _table(
             ["scope", "est.tok"], [[k, str(v)] for k, v in tokens.items()]))
 
     ledger = row.get("ledger") or []
@@ -160,7 +171,9 @@ def render_html(rows: list[dict[str, Any]], job_dir: str = "") -> str:
         _secs(r["bridge_ms"]), str(r["turns"] if r["turns"] is not None else "-"),
         str(r["calls"] if r["calls"] is not None else "-"),
         f'<span class="{"bad-text" if r["tool_errors"] else ""}">{r["tool_errors"] if r["tool_errors"] is not None else "-"}</span>',
-        str(r["est_tokens"] if r["est_tokens"] is not None else "-"),
+        _int((r.get("usage") or {}).get("input_tokens")),
+        _int((r.get("usage") or {}).get("output_tokens")),
+        _usd((r.get("usage") or {}).get("cost_usd")),
     ] for r in rows]
 
     task_rows = [[_esc(t["task"]), str(t["trials"]), str(t["scoreable"]), str(t["resolved"]),
@@ -233,8 +246,9 @@ footer {{ margin-top: 3rem; color: #8a8f98; font-size: .8rem; }}
 <b>wall</b> is the driver's total, <b>model</b> is time the model held between messages,
 <b>tool</b> is measured from the message timeline and includes Stella's dispatch overhead,
 <b>bridge</b> is time actually spent inside the trial container.<br>
-<b>est.tok</b> is <code>len(text)/4</code>, Stella's own estimate, not provider usage:
-no cost can be derived from it, and Harbor's token and cost fields are left unset rather
-than filled with a guess.
+<b>in.tok</b>, <b>out.tok</b> and <b>cost</b> are provider-reported. A <code>-</code> means
+the provider reported no usage or the model has no configured price; it never means zero.
+<b>est.tok</b> is <code>len(text)/4</code>, Stella's own estimate, kept only for comparing
+trials against each other.
 </footer>
 """

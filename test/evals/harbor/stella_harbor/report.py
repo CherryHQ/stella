@@ -21,7 +21,7 @@ from typing import Any
 TRIAL_COLUMNS = [
     ("task", 24), ("reward", 6), ("valid", 5), ("state", 9), ("wall", 7),
     ("model", 7), ("tool", 7), ("bridge", 7), ("turns", 5), ("calls", 5),
-    ("errs", 4), ("est.tok", 8),
+    ("errs", 4), ("in.tok", 8), ("out.tok", 8), ("cost", 8),
 ]
 
 # Terminal-Bench scores a trial as resolved only on a full reward.
@@ -33,6 +33,17 @@ def _seconds(ms: Any) -> str:
         return f"{int(ms) / 1000:.1f}s"
     except (TypeError, ValueError):
         return "-"
+
+
+def _int(value: Any) -> str:
+    return "-" if value is None else str(value)
+
+
+def _usd(value: Any) -> str:
+    # "-" means the provider reported no usage or the model has no configured
+    # price. It is never 0.00: a free-looking number is the one mistake a cost
+    # column cannot afford.
+    return "-" if value is None else f"${value:.4f}"
 
 
 def wilson_interval(successes: int, trials: int, z: float = 1.96) -> tuple[float, float]:
@@ -76,6 +87,7 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
             "calls": metrics.get("tool_call_total"),
             "tool_errors": metrics.get("tool_error_total"),
             "est_tokens": (metrics.get("tokens_estimated") or {}).get("total"),
+            "usage": metrics.get("usage") or {},
             "timed_out": adapter.get("timed_out"),
             "tools": metrics.get("tools") or {},
             "violations": adapter.get("predicate_violations") or [],
@@ -145,7 +157,9 @@ def render(rows: list[dict[str, Any]]) -> str:
             _seconds(row["bridge_ms"]), str(row["turns"] if row["turns"] is not None else "-"),
             str(row["calls"] if row["calls"] is not None else "-"),
             str(row["tool_errors"] if row["tool_errors"] is not None else "-"),
-            str(row["est_tokens"] if row["est_tokens"] is not None else "-"),
+            _int((row.get("usage") or {}).get("input_tokens")),
+            _int((row.get("usage") or {}).get("output_tokens")),
+            _usd((row.get("usage") or {}).get("cost_usd")),
         ]
         lines.append("  ".join(cell.ljust(width) for cell, (_, width) in zip(cells, TRIAL_COLUMNS)))
 
@@ -204,8 +218,17 @@ def render(rows: list[dict[str, Any]]) -> str:
                 f"{name[:20]:20} {stat['calls']:5}  {stat['errors']:4}  "
                 f"{_seconds(stat['total_ms']):7}  {_seconds(stat['max_ms'])}")
 
+    priced = [r for r in rows if (r.get("usage") or {}).get("cost_usd") is not None]
     lines.append("")
-    lines.append("est.tok is a character-length estimate, not provider usage: no cost can be derived from it.")
+    if priced:
+        total = sum(r["usage"]["cost_usd"] for r in priced)
+        lines.append(f"cost ${total:.4f} across {len(priced)} of {len(rows)} trials, "
+                     f"${total / len(priced):.4f} per priced trial")
+    if len(rows) - len(priced):
+        lines.append(f"{len(rows) - len(priced)} trial(s) have no cost: the provider reported no "
+                     f"usage, or the model has no configured price. That is not $0.")
+    lines.append("in.tok/out.tok/cost are provider-reported. The per-message estimate (len/4) stays "
+                 "in the trial JSON and is never used here.")
     return "\n".join(lines)
 
 

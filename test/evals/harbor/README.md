@@ -100,9 +100,16 @@ plausible score:
 
 - Invalid trials leave the denominator instead of counting as failures. They
   produced no evidence, so they are reported separately.
-- `est.tok` is `len(text)/4`, Stella's own estimate, not provider usage. No
-  cost is derived from it, and the adapter leaves Harbor's `n_input_tokens`,
-  `n_output_tokens`, and `cost_usd` unset rather than publishing a guess.
+- Token and cost columns carry only provider-reported usage, read from Stella's
+  session usage API. A `-` means the provider reported nothing or the model has
+  no configured price, never `$0.00`. The per-message `len/4` estimate stays in
+  the trial JSON and never reaches a cost column or Harbor's token fields.
+
+Each trial also writes `<trial>/agent/stella/trajectory.json`: the session's
+message history exactly as the API returned it, unmodified. It is the artifact a
+failure taxonomy and a public run log are built from, so it is stored verbatim
+rather than reshaped into the driver's own structs. A history that fills one
+page is recorded as `trajectory_truncated`.
 
 Inspect the job's `result.json` and `<trial>/agent/stella/result.json`. A valid
 trial has a Harbor verifier result, an adapter result, `valid: true`, a matching

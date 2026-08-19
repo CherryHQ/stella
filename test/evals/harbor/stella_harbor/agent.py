@@ -186,7 +186,8 @@ class StellaAgent(BaseInstalledAgent):
         bundle_digest.write_text("")
         command = [self.eval_agent_bin, "--stella-url", self.stella_url, "--instruction-file", str(instruction_path), "--binding-template", str(template_path),
                    "--binding-dir", self.binding_dir, "--model", self.stella_model, "--user-id", trial,
-                   "--deadline-seconds", str(deadline), "--bundle-digest", self.bundle_digest, "--output", str(result_path)]
+                   "--deadline-seconds", str(deadline), "--bundle-digest", self.bundle_digest, "--output", str(result_path),
+                   "--trajectory", str(trial_dir / "trajectory.json")]
         child_env = os.environ.copy()
         if token := os.environ.get(self.admin_token_env):
             # The Go process has one fixed secret name, so its env-read surface
@@ -207,11 +208,15 @@ class StellaAgent(BaseInstalledAgent):
         result["valid"] = not violations
         result["predicate_violations"] = violations
         result_path.write_text(json.dumps(result, indent=2) + "\n")
-        # Harbor's n_input_tokens/n_output_tokens/cost_usd are left unset on
-        # purpose. Stella's per-message token_count is a character estimate
-        # (len/4), not provider usage, so filling those fields would publish a
-        # made-up number in the field a leaderboard reads as ground truth. They
-        # stay None until Stella exposes real per-call usage.
+        # Only provider-reported usage reaches Harbor's token and cost fields. A
+        # leaderboard reads them as ground truth, and Stella's per-message
+        # token_count is a character estimate (len/4), so it is never a fallback:
+        # absent is the honest value when the provider reported nothing.
+        usage = (result.get("metrics") or {}).get("usage") or {}
+        context.n_input_tokens = usage.get("input_tokens")
+        context.n_output_tokens = usage.get("output_tokens")
+        context.n_cache_tokens = usage.get("cache_read_tokens")
+        context.cost_usd = usage.get("cost_usd")
         context.metadata = {"stella_result": result, "stella_exit_code": proc.returncode, "stella_stdout": stdout.decode(errors="replace")[-1000:]}
         if proc.returncode == EXIT_ADAPTER or violations:
             raise RuntimeError("Stella adapter evidence failure: " + "; ".join(violations or result.get("errors", [])))
