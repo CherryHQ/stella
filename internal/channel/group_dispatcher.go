@@ -595,13 +595,11 @@ func (d *GroupDispatcher) claimDispatch(ctx context.Context, row sqlc.CtxGroupDi
 	}
 }
 
+// completeDispatch retires the row. Losing the CAS (0 rows) means another
+// worker already retired it, which is the same terminal state.
 func (d *GroupDispatcher) completeDispatch(ctx context.Context, row sqlc.CtxGroupDispatch) error {
-	rows, err := d.q.MarkGroupDispatchCompleted(ctx, sqlc.MarkGroupDispatchCompletedParams{ID: row.ID, AttemptCount: row.AttemptCount})
-	if err != nil {
+	if _, err := d.q.MarkGroupDispatchCompleted(ctx, sqlc.MarkGroupDispatchCompletedParams{ID: row.ID, AttemptCount: row.AttemptCount}); err != nil {
 		return fmt.Errorf("mark dispatch completed: %w", err)
-	}
-	if rows == 0 {
-		return nil
 	}
 	return nil
 }

@@ -269,7 +269,6 @@ func platformGroupSpeaker(msg pkgchannel.IncomingMessage, userID, userName strin
 	}
 }
 
-// findMemberReplyChannel returns the ReplyChannelID for the given agent, or "".
 // firstMentionedAgent returns the AgentID of the first resolved @mention,
 // or "" if none is resolved.
 func firstMentionedAgent(mentions []pkgchannel.Mention) string {

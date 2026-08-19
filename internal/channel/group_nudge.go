@@ -12,7 +12,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
@@ -98,15 +97,15 @@ func (n *GroupNudger) RunOnce(ctx context.Context) error {
 	if n.classifier != nil {
 		fallback := false
 		for _, candidate := range candidates {
-			target, reason, stalled, unavailable := n.classify(ctx, candidate, now)
-			if unavailable {
+			decision, available := n.classify(ctx, candidate, now)
+			if !available {
 				fallback = true
 				continue
 			}
-			if !stalled {
+			if !decision.Stalled {
 				continue
 			}
-			if err := n.append(ctx, candidate.ID, target, reason, now, groupNudgeCooldown, false); err != nil {
+			if err := n.append(ctx, candidate.ID, decision.Target, decision.Reason, now, groupNudgeCooldown, false); err != nil {
 				return err
 			}
 		}
@@ -134,14 +133,17 @@ func (n *GroupNudger) RunOnce(ctx context.Context) error {
 	return n.append(ctx, candidate.ID, target, claims[0].Note, now, groupNudgeFallbackDelay, true)
 }
 
-func (n *GroupNudger) classify(ctx context.Context, candidate sqlc.ListGroupNudgeCandidateRow, now time.Time) (target, reason string, stalled, unavailable bool) {
+// classify asks the model whether one quiet group is stalled. The second return
+// reports whether the classifier could answer at all: false routes the caller to
+// the deterministic fallback, while a healthy "not stalled" is (decision, true).
+func (n *GroupNudger) classify(ctx context.Context, candidate sqlc.ListGroupNudgeCandidateRow, now time.Time) (GroupNudgeDecision, bool) {
 	claims, err := n.q.ListLiveGroupClaims(ctx, candidate.ID)
 	if err != nil {
-		return "", "", false, true
+		return GroupNudgeDecision{}, false
 	}
 	rows, err := n.q.ListRecentGroupMessagesBeforeSeq(ctx, sqlc.ListRecentGroupMessagesBeforeSeqParams{GroupID: candidate.ID, BeforeSeq: candidate.NextSeq + 1, MaxCount: 6})
 	if err != nil {
-		return "", "", false, true
+		return GroupNudgeDecision{}, false
 	}
 	recent, claimText := make([]string, 0, len(rows)), make([]string, 0, len(claims))
 	for _, row := range rows {
@@ -152,25 +154,25 @@ func (n *GroupNudger) classify(ctx context.Context, candidate sqlc.ListGroupNudg
 	}
 	decision, err := n.classifier.DecideNudge(ctx, GroupNudgeRequest{GroupID: candidate.ID, LastAuthor: candidate.LastActorID, LastAuthorType: candidate.LastActorType, Silence: now.Sub(candidate.LastMessageAt), Recent: recent, Claims: claimText})
 	if err != nil {
-		return "", "", false, true
+		return GroupNudgeDecision{}, false
 	}
 	if !decision.Stalled {
-		return "", "", false, false
+		return GroupNudgeDecision{}, true
 	}
-	target, reason = strings.TrimSpace(decision.Target), strings.TrimSpace(decision.Reason)
-	if target == "" || reason == "" {
-		return "", "", false, true
+	decision.Target, decision.Reason = strings.TrimSpace(decision.Target), strings.TrimSpace(decision.Reason)
+	if decision.Target == "" || decision.Reason == "" {
+		return GroupNudgeDecision{}, false
 	}
 	members, err := n.q.ListGroupMembers(ctx, candidate.ID)
 	if err != nil {
-		return "", "", false, true
+		return GroupNudgeDecision{}, false
 	}
 	for _, member := range members {
-		if member.AgentID == target {
-			return target, reason, true, false
+		if member.AgentID == decision.Target {
+			return decision, true
 		}
 	}
-	return "", "", false, true
+	return GroupNudgeDecision{}, false
 }
 
 // append atomically wins the cooldown, persists the canonical system message,
@@ -183,7 +185,7 @@ func (n *GroupNudger) append(ctx context.Context, groupID, target, note string, 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := sqlc.New(tx)
-	if _, err := q.ClaimGroupNudge(ctx, sqlc.ClaimGroupNudgeParams{Now: nullNudgeTime(now), GroupID: groupID, CooldownBefore: nullNudgeTime(now.Add(-cooldown))}); err != nil {
+	if _, err := q.ClaimGroupNudge(ctx, sqlc.ClaimGroupNudgeParams{Now: nullTime(now), GroupID: groupID, CooldownBefore: nullTime(now.Add(-cooldown))}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
@@ -222,8 +224,6 @@ func (n *GroupNudger) append(ctx context.Context, groupID, target, note string, 
 	}
 	return nil
 }
-
-func nullNudgeTime(t time.Time) pgtype.Timestamptz { return pgtype.Timestamptz{Time: t, Valid: true} }
 
 // LLMGroupNudgeClassifier resolves only a system-scope member, so platform
 // participants cannot spend a private member's provider credentials on nudges.
@@ -299,7 +299,6 @@ type GroupNudgeWorker struct {
 	river.WorkerDefaults[groupNudgeArgs]
 	mu      sync.Mutex
 	nudger  *GroupNudger
-	bound   bool
 	started bool
 	log     *slog.Logger
 }
@@ -338,18 +337,17 @@ func (w *GroupNudgeWorker) Bind(nudger *GroupNudger) error {
 	if w.started {
 		return errors.New("group nudge worker bind after periodic start")
 	}
-	if w.bound {
+	if w.nudger != nil {
 		return errors.New("group nudge worker already bound")
 	}
 	w.nudger = nudger
-	w.bound = true
 	return nil
 }
 
 func (w *GroupNudgeWorker) ValidateStartup() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if !w.bound || w.nudger == nil {
+	if w.nudger == nil {
 		return errors.New("group nudge worker requires a bound nudger before River start")
 	}
 	return nil
@@ -360,7 +358,7 @@ func (w *GroupNudgeWorker) StartPeriodic(client *river.Client[pgx.Tx]) (rivertyp
 		return 0, errors.New("group nudge worker requires a River client")
 	}
 	w.mu.Lock()
-	if !w.bound || w.nudger == nil {
+	if w.nudger == nil {
 		w.mu.Unlock()
 		return 0, errors.New("group nudge worker requires a bound nudger before River start")
 	}

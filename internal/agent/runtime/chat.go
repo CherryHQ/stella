@@ -90,7 +90,10 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 		close(out)
 		return
 	}
-	groupSink, deferredGroupTurn := memory.GroupTurnSinkFrom(ctx)
+	groupSink, hasGroupSink := memory.GroupTurnSinkFrom(ctx)
+	// A sink only owns this turn when the turn really is a group turn; a stray
+	// sink on a direct session must not swallow the ordinary persist path.
+	deferredGroupTurn := hasGroupSink && memSess.GroupID != ""
 	deferred := memory.DeferredGroupTurn{
 		Session:    memSess,
 		TriggerSeq: memory.GroupSeqFromContext(ctx),
@@ -98,7 +101,7 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	// This is the only owner of out for a valid turn. Deliver before close gives
 	// the dispatcher a happens-before edge after it finishes draining the stream.
 	defer func() {
-		if deferredGroupTurn && memSess.GroupID != "" {
+		if deferredGroupTurn {
 			deferred.InjectedPeerRows = groupSink.Injected()
 			groupSink.Deliver(deferred)
 		}
@@ -307,8 +310,8 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	}
 
 	stream := selection.runner.Chat(ctx, history, modelMsg)
-	ownRows, chatErr := rt.streamEventsWithRows(ctx, info.ID, memSess, stream, out, hs, hookMeta, chatStart, storePrefix...)
-	if deferredGroupTurn && memSess.GroupID != "" {
+	ownRows, chatErr := rt.streamEvents(ctx, info.ID, memSess, stream, out, hs, hookMeta, chatStart, storePrefix...)
+	if deferredGroupTurn {
 		deferred.OwnRows = ownRows
 		deferred.Complete = chatErr == nil && assembledOK && ctx.Err() == nil
 		return
@@ -428,26 +431,10 @@ func sendEvent(ctx context.Context, out chan<- Event, evt Event) bool {
 	}
 }
 
-// streamEvents keeps the direct test helper's close-on-return behavior.
+// streamEvents reads runner events, persists messages, and forwards them to the
+// caller. A deferred group turn gets its own rows back instead of having them
+// persisted here. The caller owns closing out.
 func (rt *Runtime) streamEvents(
-	ctx context.Context,
-	sessionID string,
-	memSess memory.Session,
-	stream <-chan Event,
-	out chan<- Event,
-	hs *hooks.HookSet,
-	hookMeta hooks.HookMeta,
-	chatStart time.Time,
-	storePrefix ...ai.Message,
-) error {
-	defer close(out)
-	_, err := rt.streamEventsWithRows(ctx, sessionID, memSess, stream, out, hs, hookMeta, chatStart, storePrefix...)
-	return err
-}
-
-// streamEventsWithRows reads runner events and returns group rows for a
-// deferred transaction. Its caller owns output closure.
-func (rt *Runtime) streamEventsWithRows(
 	ctx context.Context,
 	sessionID string,
 	memSess memory.Session,

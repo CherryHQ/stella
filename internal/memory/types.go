@@ -26,7 +26,6 @@ type DeferredGroupTurn struct {
 
 // GroupTurnSink is a one-shot, non-blocking turn finalization channel.
 type GroupTurnSink struct {
-	results   chan DeferredGroupTurn
 	done      chan struct{}
 	once      sync.Once
 	mu        sync.RWMutex
@@ -36,10 +35,7 @@ type GroupTurnSink struct {
 }
 
 func NewGroupTurnSink() *GroupTurnSink {
-	return &GroupTurnSink{
-		results: make(chan DeferredGroupTurn, 1),
-		done:    make(chan struct{}),
-	}
+	return &GroupTurnSink{done: make(chan struct{})}
 }
 
 func (s *GroupTurnSink) SetInjected(rows []ai.Message) {
@@ -72,7 +68,6 @@ func (s *GroupTurnSink) Deliver(turn DeferredGroupTurn) {
 		s.result = turn
 		s.delivered = true
 		s.mu.Unlock()
-		s.results <- turn
 		close(s.done)
 	})
 }
@@ -91,7 +86,7 @@ func (s *GroupTurnSink) Wait(ctx context.Context) (DeferredGroupTurn, error) {
 	}
 }
 
-// Result returns the delivered result without consuming the buffered channel.
+// Result returns the delivered result, and whether the producer delivered one.
 func (s *GroupTurnSink) Result() (DeferredGroupTurn, bool) {
 	if s == nil {
 		return DeferredGroupTurn{}, false

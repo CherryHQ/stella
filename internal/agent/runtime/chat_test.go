@@ -814,7 +814,7 @@ func TestStreamEventsDoesNotDuplicateBufferedAssistantStore(t *testing.T) {
 	}}}
 	close(stream)
 
-	if err := rt.streamEvents(context.Background(), "session-1", memory.Session{ID: "session-1"}, stream, out, hooks.NewHookSet(nil), hooks.HookMeta{}, time.Now()); err != nil {
+	if err := rt.streamEventsClosing(context.Background(), "session-1", memory.Session{ID: "session-1"}, stream, out, hooks.NewHookSet(nil), hooks.HookMeta{}, time.Now()); err != nil {
 		t.Fatalf("stream events: %v", err)
 	}
 	for range out {
@@ -848,7 +848,7 @@ func TestStreamEvents_TimeoutDoesNotForwardError(t *testing.T) {
 	stream <- Event{Err: ErrChatTimeout}
 	close(stream)
 
-	if err := rt.streamEvents(context.Background(), "sess-1", memory.Session{ID: "sess-1"}, stream, out, hooks.NewHookSet(nil), hooks.HookMeta{}, time.Now()); !errors.Is(err, ErrChatTimeout) {
+	if err := rt.streamEventsClosing(context.Background(), "sess-1", memory.Session{ID: "sess-1"}, stream, out, hooks.NewHookSet(nil), hooks.HookMeta{}, time.Now()); !errors.Is(err, ErrChatTimeout) {
 		t.Fatalf("stream events error = %v, want timeout", err)
 	}
 
@@ -879,7 +879,7 @@ func TestStreamEvents_NonTimeoutErrorForwarded(t *testing.T) {
 	stream <- Event{Err: realErr}
 	close(stream)
 
-	if err := rt.streamEvents(context.Background(), "sess-1", memory.Session{ID: "sess-1"}, stream, out, hooks.NewHookSet(nil), hooks.HookMeta{}, time.Now()); !errors.Is(err, realErr) {
+	if err := rt.streamEventsClosing(context.Background(), "sess-1", memory.Session{ID: "sess-1"}, stream, out, hooks.NewHookSet(nil), hooks.HookMeta{}, time.Now()); !errors.Is(err, realErr) {
 		t.Fatalf("stream events error = %v, want provider error", err)
 	}
 
@@ -892,4 +892,22 @@ func TestStreamEvents_NonTimeoutErrorForwarded(t *testing.T) {
 	if !gotErr {
 		t.Fatal("non-timeout errors should be forwarded to caller")
 	}
+}
+
+// streamEventsClosing exercises streamEvents the way chatWithRunner does: the
+// caller owns out and closes it when the stream is finished.
+func (rt *Runtime) streamEventsClosing(
+	ctx context.Context,
+	sessionID string,
+	memSess memory.Session,
+	stream <-chan Event,
+	out chan<- Event,
+	hs *hooks.HookSet,
+	hookMeta hooks.HookMeta,
+	chatStart time.Time,
+	storePrefix ...ai.Message,
+) error {
+	defer close(out)
+	_, err := rt.streamEvents(ctx, sessionID, memSess, stream, out, hs, hookMeta, chatStart, storePrefix...)
+	return err
 }

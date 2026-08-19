@@ -35,7 +35,6 @@ type GroupService struct {
 	eventLog   *eventlog.Store
 	dispatcher GroupDispatchRunner
 	events     *GroupEventHub
-	leaseDur   time.Duration
 	deletion   OwnerDeletion
 }
 
@@ -68,11 +67,6 @@ type GroupDispatchRunner interface {
 // mistaken for a platform message id in the same group.
 const webGroupPlatform = "web"
 
-// groupOutboxLeaseDuration bounds both the outbox lease written at ingest and
-// the synchronous dispatch turn, so a single Web send cannot hold the outbox
-// past the window a competing poller would reclaim it.
-const groupOutboxLeaseDuration = 5 * time.Minute
-
 // NewGroupService builds the group boundary over the pool, the Agent PEP (agent
 // use authorization), and the runtime resolver (agent-name projection). eventLog
 // and dispatcher may be nil, degrading only the send path to 503.
@@ -83,7 +77,6 @@ func NewGroupService(db *pgxpool.Pool, agents *agentaccess.Service, resolver *Ru
 		resolver:   resolver,
 		eventLog:   eventLog,
 		dispatcher: dispatcher,
-		leaseDur:   groupOutboxLeaseDuration,
 	}
 	for _, opt := range opts {
 		opt(s)
