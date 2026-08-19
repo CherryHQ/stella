@@ -1,8 +1,8 @@
 """Turn a Harbor job directory into a reviewable metrics table.
 
-A reward tells you whether the trial passed. This tells you what it cost and
-where the time went, which is what a reviewer needs in order to decide whether
-a run is worth trusting or worth optimizing.
+A reward tells you whether one trial passed. This tells you what it cost, where
+the time went, and how reliably the result repeats, which is what a reviewer
+needs in order to decide whether a run is worth trusting.
 
     python -m stella_harbor.report dist/evals/jobs/<job>
 """
@@ -10,15 +10,20 @@ a run is worth trusting or worth optimizing.
 from __future__ import annotations
 
 import json
+import math
 import sys
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-COLUMNS = [
+TRIAL_COLUMNS = [
     ("task", 24), ("reward", 6), ("valid", 5), ("state", 9), ("wall", 7),
     ("model", 7), ("tool", 7), ("bridge", 7), ("turns", 5), ("calls", 5),
-    ("errs", 4), ("tokens", 7),
+    ("errs", 4), ("est.tok", 8),
 ]
+
+# Terminal-Bench scores a trial as resolved only on a full reward.
+RESOLVED = 1.0
 
 
 def _seconds(ms: Any) -> str:
@@ -28,8 +33,24 @@ def _seconds(ms: Any) -> str:
         return "-"
 
 
+def wilson_interval(successes: int, trials: int, z: float = 1.96) -> tuple[float, float]:
+    """95% Wilson score interval.
+
+    Wilson rather than the normal approximation because agent evals routinely
+    land at 0/5 or 5/5, where the normal interval collapses to zero width and
+    claims a certainty the sample cannot support.
+    """
+    if trials == 0:
+        return (0.0, 0.0)
+    p = successes / trials
+    denom = 1 + z * z / trials
+    center = (p + z * z / (2 * trials)) / denom
+    margin = z * math.sqrt(p * (1 - p) / trials + z * z / (4 * trials * trials)) / denom
+    return (max(0.0, center - margin), min(1.0, center + margin))
+
+
 def collect(job_dir: Path) -> list[dict[str, Any]]:
-    """Read one row per trial, newest job run first."""
+    """Read one row per trial."""
     rows: list[dict[str, Any]] = []
     for trial in sorted(job_dir.glob("*/*/result.json")):
         adapter_path = trial.parent / "agent" / "stella" / "result.json"
@@ -51,19 +72,63 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
             "turns": metrics.get("turns"),
             "calls": metrics.get("tool_call_total"),
             "tool_errors": metrics.get("tool_error_total"),
-            "tokens": (metrics.get("tokens") or {}).get("total"),
+            "est_tokens": (metrics.get("tokens_estimated") or {}).get("total"),
+            "timed_out": adapter.get("timed_out"),
             "tools": metrics.get("tools") or {},
-            "slowest": metrics.get("slowest_tool_call"),
             "violations": adapter.get("predicate_violations") or [],
         })
     return rows
 
 
+def reliability(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate trials into the numbers a leaderboard entry has to state.
+
+    Only valid trials count. An invalid trial is not a failure either: it is a
+    trial that produced no evidence, so it is excluded from the denominator and
+    reported separately. Hiding it inside a pass rate would let a broken harness
+    read as a weak model.
+    """
+    by_task: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        by_task[row["task"]].append(row)
+
+    tasks: list[dict[str, Any]] = []
+    for task, trials in sorted(by_task.items()):
+        scoreable = [t for t in trials if t["valid"] and t["reward"] is not None]
+        resolved = [t for t in scoreable if t["reward"] >= RESOLVED]
+        tasks.append({
+            "task": task,
+            "trials": len(trials),
+            "scoreable": len(scoreable),
+            "invalid": len(trials) - len(scoreable),
+            "resolved": len(resolved),
+            # pass^k demands every scoreable trial resolve; one trial is a
+            # pass^1 and must not be presented as reliability evidence.
+            "pass_hat_k": bool(scoreable) and len(resolved) == len(scoreable),
+            "timeouts": sum(1 for t in trials if t["timed_out"]),
+        })
+
+    scoreable = sum(t["scoreable"] for t in tasks)
+    resolved = sum(t["resolved"] for t in tasks)
+    k = min((t["scoreable"] for t in tasks), default=0)
+    return {
+        "tasks": tasks,
+        "trials": sum(t["trials"] for t in tasks),
+        "scoreable": scoreable,
+        "invalid": sum(t["invalid"] for t in tasks),
+        "resolved": resolved,
+        "resolution_rate": resolved / scoreable if scoreable else None,
+        "ci95": wilson_interval(resolved, scoreable),
+        "k": k,
+        "pass_hat_k": sum(1 for t in tasks if t["pass_hat_k"]) / len(tasks) if tasks else None,
+        "timeouts": sum(t["timeouts"] for t in tasks),
+    }
+
+
 def render(rows: list[dict[str, Any]]) -> str:
-    """Render the table plus the per-tool and failure detail worth reading."""
     if not rows:
         return "no trials found"
-    header = "  ".join(name.ljust(width) for name, width in COLUMNS)
+    header = "  ".join(name.ljust(width) for name, width in TRIAL_COLUMNS)
     lines = [header, "-" * len(header)]
     for row in rows:
         cells = [
@@ -73,14 +138,36 @@ def render(rows: list[dict[str, Any]]) -> str:
             _seconds(row["bridge_ms"]), str(row["turns"] if row["turns"] is not None else "-"),
             str(row["calls"] if row["calls"] is not None else "-"),
             str(row["tool_errors"] if row["tool_errors"] is not None else "-"),
-            str(row["tokens"] if row["tokens"] is not None else "-"),
+            str(row["est_tokens"] if row["est_tokens"] is not None else "-"),
         ]
-        lines.append("  ".join(cell.ljust(width) for cell, (_, width) in zip(cells, COLUMNS)))
+        lines.append("  ".join(cell.ljust(width) for cell, (_, width) in zip(cells, TRIAL_COLUMNS)))
 
-    scored = [r for r in rows if r["valid"] and r["reward"] is not None]
+    stats = reliability(rows)
     lines.append("")
-    lines.append(f"{len(scored)}/{len(rows)} trials scoreable" + (
-        f", mean reward {sum(r['reward'] for r in scored) / len(scored):.3f}" if scored else ""))
+    if stats["resolution_rate"] is None:
+        lines.append(f"no scoreable trials ({stats['invalid']} invalid of {stats['trials']})")
+    else:
+        low, high = stats["ci95"]
+        margin = (high - low) / 2 * 100
+        lines.append(
+            f"resolution rate {stats['resolution_rate'] * 100:.1f}% ±{margin:.1f}% "
+            f"(95% CI {low * 100:.1f}–{high * 100:.1f}, {stats['resolved']}/{stats['scoreable']} trials)")
+        if stats["k"] >= 2:
+            lines.append(f"pass^{stats['k']} {stats['pass_hat_k'] * 100:.1f}% of {len(stats['tasks'])} tasks")
+        else:
+            lines.append("pass^k unavailable: at least one task has fewer than 2 scoreable trials "
+                         "(run harbor with -k 5 for a reportable number)")
+    if stats["invalid"]:
+        lines.append(f"{stats['invalid']} trial(s) excluded as invalid; they are not failures, they are missing evidence")
+    if stats["timeouts"]:
+        lines.append(f"{stats['timeouts']} trial(s) hit the deadline")
+
+    if any(t["trials"] > 1 for t in stats["tasks"]):
+        lines.append("")
+        lines.append("task                      trials  valid  resolved  pass^k")
+        for t in stats["tasks"]:
+            lines.append(f"{t['task'][:24]:24}  {t['trials']:6}  {t['scoreable']:5}  "
+                         f"{t['resolved']:8}  {'yes' if t['pass_hat_k'] else 'no'}")
 
     for row in rows:
         if row["violations"]:
@@ -102,6 +189,9 @@ def render(rows: list[dict[str, Any]]) -> str:
             lines.append(
                 f"{name[:20]:20} {stat['calls']:5}  {stat['errors']:4}  "
                 f"{_seconds(stat['total_ms']):7}  {_seconds(stat['max_ms'])}")
+
+    lines.append("")
+    lines.append("est.tok is a character-length estimate, not provider usage: no cost can be derived from it.")
     return "\n".join(lines)
 
 

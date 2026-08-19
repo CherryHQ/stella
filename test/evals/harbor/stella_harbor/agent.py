@@ -175,7 +175,11 @@ class StellaAgent(BaseInstalledAgent):
         result["valid"] = not violations
         result["predicate_violations"] = violations
         result_path.write_text(json.dumps(result, indent=2) + "\n")
-        context.n_input_tokens = result.get("token_count")
+        # Harbor's n_input_tokens/n_output_tokens/cost_usd are left unset on
+        # purpose. Stella's per-message token_count is a character estimate
+        # (len/4), not provider usage, so filling those fields would publish a
+        # made-up number in the field a leaderboard reads as ground truth. They
+        # stay None until Stella exposes real per-call usage.
         context.metadata = {"stella_result": result, "stella_exit_code": proc.returncode, "stella_stdout": stdout.decode(errors="replace")[-1000:]}
         if proc.returncode == EXIT_ADAPTER or violations:
             raise RuntimeError("Stella adapter evidence failure: " + "; ".join(violations or result.get("errors", [])))

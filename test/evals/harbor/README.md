@@ -41,7 +41,8 @@ using the credentials file:
 - Export `STELLA_URL`, `STELLA_EVAL_MODEL`, and `STELLA_EVAL_AGENT_BIN`. Keep
   the driver binary outside `dist/bin`; `mise run build` clears that directory.
 
-Run the single Terminal-Bench smoke trial:
+Run the single Terminal-Bench smoke trial (add `-k 5` for a reportable
+reliability number; a single trial cannot produce one):
 
 ```bash
 uv run --project test/evals/harbor harbor run \
@@ -62,12 +63,23 @@ uv run --project test/evals/harbor python -m stella_harbor.report dist/evals/job
 ```
 
 It prints one row per trial (reward, validity, terminal state, wall/model/tool/
-bridge time, turns, tool calls, tool errors, tokens), the scoreable count and
-mean reward, every predicate violation, and a per-tool cost table. `model` is
-the time the model held between messages, `tool` is measured from the message
-timeline and so includes Stella's dispatch overhead, and `bridge` is the time
-actually spent inside the trial container. Token counts are what the sessions
-API exposes: one number per message, with no provider input/output split.
+bridge time, turns, tool calls, tool errors, estimated tokens), then the
+reliability summary: resolution rate with a 95% Wilson confidence interval,
+pass^k across tasks, timeouts, every predicate violation, and a per-tool cost
+table.
+
+`model` is the time the model held between messages, `tool` is measured from
+the message timeline and so includes Stella's dispatch overhead, and `bridge`
+is the time actually spent inside the trial container.
+
+Two deliberate refusals, because both would otherwise turn a broken run into a
+plausible score:
+
+- Invalid trials leave the denominator instead of counting as failures. They
+  produced no evidence, so they are reported separately.
+- `est.tok` is `len(text)/4`, Stella's own estimate, not provider usage. No
+  cost is derived from it, and the adapter leaves Harbor's `n_input_tokens`,
+  `n_output_tokens`, and `cost_usd` unset rather than publishing a guess.
 
 Inspect the job's `result.json` and `<trial>/agent/stella/result.json`. A valid
 trial has a Harbor verifier result, an adapter result, `valid: true`, a matching

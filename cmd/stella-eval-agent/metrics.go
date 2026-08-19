@@ -15,7 +15,7 @@ type metrics struct {
 	ToolErrorTotal  int                 `json:"tool_error_total"`
 	Tools           map[string]toolStat `json:"tools"`
 	SlowestToolCall *toolCallTiming     `json:"slowest_tool_call,omitempty"`
-	Tokens          tokenBreakdown      `json:"tokens"`
+	Tokens          tokenBreakdown      `json:"tokens_estimated"`
 	Timing          timing              `json:"timing_ms"`
 }
 
@@ -31,9 +31,11 @@ type toolCallTiming struct {
 	Ms   int64  `json:"ms"`
 }
 
-// tokenBreakdown reports what the sessions API exposes: one count per message.
-// Stella does not surface the provider's input/output/cache split, so a
-// prompt/completion breakdown would have to be invented and is left out.
+// tokenBreakdown reports what the sessions API exposes: one count per message,
+// and that count is an estimate (memory.EstimateTokens, len/4), not provider
+// usage. It is useful for comparing trials against each other and useless for
+// cost. Real prompt/output/cache accounting needs Stella to expose per-call
+// usage; nothing here is a substitute for it.
 type tokenBreakdown struct {
 	Total     int64 `json:"total"`
 	User      int64 `json:"user"`
