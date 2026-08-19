@@ -83,6 +83,8 @@ func (s *Server) groupError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusServiceUnavailable, "group chat not available")
 	case errors.Is(err, channel.ErrInvalidPage):
 		writeError(w, http.StatusBadRequest, "invalid pagination")
+	case errors.Is(err, channel.ErrInvalidCaps):
+		writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, agentaccess.ErrNotFound):
 		writeError(w, http.StatusNotFound, "agent not found")
 	case errors.Is(err, agentaccess.ErrForbidden):
@@ -314,11 +316,23 @@ func (s *Server) UpdateGroup(w http.ResponseWriter, r *http.Request, groupId str
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	hasCaps := req.AgentChainHardLimit != nil || req.MaxAgentPostsPerMinute != nil || req.MaxRepliesPerHumanTrigger != nil || req.HoldLimit != nil
+	hasName := req.GroupName != nil && *req.GroupName != ""
+	if !hasCaps && !hasName {
+		writeError(w, http.StatusBadRequest, "at least one field is required")
+		return
+	}
+	// PATCH is a set of independent field updates: handling name and caps in
+	// sequence is what keeps a request carrying both from silently losing one.
 	var g channel.Group
 	var err error
-	hasCaps := req.AgentChainHardLimit != nil || req.MaxAgentPostsPerMinute != nil || req.MaxRepliesPerHumanTrigger != nil || req.HoldLimit != nil
-	switch {
-	case hasCaps:
+	if hasName {
+		if g, err = acc.UpdateName(r.Context(), groupId, *req.GroupName); err != nil {
+			s.groupError(w, err)
+			return
+		}
+	}
+	if hasCaps {
 		current, getErr := acc.Get(r.Context(), groupId)
 		if getErr != nil {
 			s.groupError(w, getErr)
@@ -337,16 +351,10 @@ func (s *Server) UpdateGroup(w http.ResponseWriter, r *http.Request, groupId str
 		if req.HoldLimit != nil {
 			caps.HoldLimit = *req.HoldLimit
 		}
-		g, err = acc.UpdateCaps(r.Context(), groupId, caps)
-	case req.GroupName != nil && *req.GroupName != "":
-		g, err = acc.UpdateName(r.Context(), groupId, *req.GroupName)
-	default:
-		writeError(w, http.StatusBadRequest, "at least one field is required")
-		return
-	}
-	if err != nil {
-		s.groupError(w, err)
-		return
+		if g, err = acc.UpdateCaps(r.Context(), groupId, caps); err != nil {
+			s.groupError(w, err)
+			return
+		}
 	}
 	writeData(w, http.StatusOK, groupToAPI(g))
 }

@@ -101,6 +101,8 @@ var (
 	// (negative/oversized offset or non-positive/oversized limit) before they are
 	// narrowed to the query layer's int32 columns.
 	ErrInvalidPage = errors.New("invalid pagination")
+	// ErrInvalidCaps reports a dispatch cap outside its permitted range.
+	ErrInvalidCaps = errors.New("invalid dispatch cap")
 )
 
 // validatePage rejects paging arguments that would overflow or invert once
@@ -139,8 +141,21 @@ type GroupDispatchCaps struct {
 	HoldLimit                 int
 }
 
-func (c GroupDispatchCaps) valid() bool {
-	return c.AgentChainHardLimit >= 1 && c.AgentChainHardLimit <= 100 && c.MaxAgentPostsPerMinute >= 1 && c.MaxAgentPostsPerMinute <= 1000 && c.MaxRepliesPerHumanTrigger >= 1 && c.MaxRepliesPerHumanTrigger <= 100 && c.HoldLimit >= 0 && c.HoldLimit <= 20
+// validate names the offending cap. A caller that sent four of them cannot
+// otherwise tell which one the server refused, and the spec's minimum/maximum
+// are documentation only: nothing validates requests against it.
+func (c GroupDispatchCaps) validate() error {
+	switch {
+	case c.AgentChainHardLimit < 1 || c.AgentChainHardLimit > 100:
+		return fmt.Errorf("%w: agent_chain_hard_limit must be between 1 and 100", ErrInvalidCaps)
+	case c.MaxAgentPostsPerMinute < 1 || c.MaxAgentPostsPerMinute > 1000:
+		return fmt.Errorf("%w: max_agent_posts_per_minute must be between 1 and 1000", ErrInvalidCaps)
+	case c.MaxRepliesPerHumanTrigger < 1 || c.MaxRepliesPerHumanTrigger > 100:
+		return fmt.Errorf("%w: max_replies_per_human_trigger must be between 1 and 100", ErrInvalidCaps)
+	case c.HoldLimit < 0 || c.HoldLimit > 20:
+		return fmt.Errorf("%w: hold_limit must be between 0 and 20", ErrInvalidCaps)
+	}
+	return nil
 }
 
 // GroupMemberDetail is one agent member of a group with its display name
@@ -343,8 +358,8 @@ func (a *GroupAccess) UpdateName(ctx context.Context, groupID, name string) (Gro
 }
 
 func (a *GroupAccess) UpdateCaps(ctx context.Context, groupID string, caps GroupDispatchCaps) (Group, error) {
-	if !caps.valid() {
-		return Group{}, ErrInvalidPage
+	if err := caps.validate(); err != nil {
+		return Group{}, err
 	}
 	if _, err := a.requireOwner(ctx, groupID); err != nil {
 		return Group{}, err
