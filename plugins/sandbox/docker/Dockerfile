@@ -82,17 +82,16 @@ ENV MISE_CACHE_DIR=/opt/stella/.mise-tools/cache
 ENV MISE_SYSTEM_CONFIG_FILE=/opt/stella/.mise-tools/configs/_builtin.toml
 ENV PATH=/opt/stella/bin:/opt/stella/.mise-tools/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# Install the builtin tools through the SAME reconcile path the daemon runs, so
-# the image's tool identifiers and versions are byte-for-byte what the host
-# produces from resources/tools.yaml (single source of truth, no drift). The
-# stellad is bind-mounted only for this build step; it is not shipped in the
-# runtime image. This writes /opt/stella/.mise-tools/configs/_builtin.toml,
-# installs every enabled plugin binary, relinks shims to relative targets, and
-# extracts Stella's embedded Xberg runtime with its adjacent native libraries.
+# Install embedded runtimes before the reconciler invokes mise. The bootstrap
+# mise image deliberately trails the embedded version, and replacing its binary
+# after it ran can fail with ETXTBSY on overlay filesystems. The stellad is
+# bind-mounted only for this build step; it is not shipped in the runtime image.
+# Reconcile then writes /opt/stella/.mise-tools/configs/_builtin.toml, installs
+# every enabled plugin binary, and relinks shims to relative targets.
 RUN --mount=type=bind,from=stella-builder,source=/out/stellad,target=/usr/local/bin/stellad \
     --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
-    STELLA_HOME=/opt/stella stellad mise reconcile-builtins && \
 	STELLA_HOME=/opt/stella stellad system-bundle install && \
+	STELLA_HOME=/opt/stella stellad mise reconcile-builtins && \
 	REVISION="$(STELLA_HOME=/opt/stella stellad system-bundle revision)" && \
 	test "$REVISION" = "$BUILTIN_BUNDLE_REVISION" && \
 	mkdir -p /opt/stella/skills && ln -s "../bundles/$REVISION" /opt/stella/skills/builtin && \
