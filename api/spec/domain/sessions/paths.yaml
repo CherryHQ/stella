@@ -200,6 +200,32 @@ paths:
         "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
         "409": { $ref: "../../components.yaml#/components/responses/Conflict" }
 
+  /api/agents/{agentId}/sessions/{sessionId}/usage:
+    parameters:
+      - { name: agentId, in: path, required: true, schema: { type: string } }
+      - { name: sessionId, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [sessions]
+      summary: Get provider-reported LLM usage for a session
+      description: >-
+        Returns exact provider usage, never message-length estimates. Token and
+        cost totals are null unless every request reported usage and, for cost,
+        every reported request had configured pricing.
+      operationId: getSessionUsage
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {
+                $ref: "../../components.yaml#/components/schemas/SessionUsage",
+              }
+        "401": {
+          $ref: "../../components.yaml#/components/responses/Unauthorized",
+        }
+        "403": { $ref: "../../components.yaml#/components/responses/Forbidden" }
+        "404": { $ref: "../../components.yaml#/components/responses/NotFound" }
+
   /api/agents/{agentId}/sessions/{sessionId}/media/{mediaId}:
     parameters:
       - { name: agentId, in: path, required: true, schema: { type: string } }

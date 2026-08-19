@@ -21,6 +21,15 @@ Stella 在沙箱内运行 agent 代码。沙箱后端由运维在部署时统一
 STELLA_SANDBOX_BACKEND=docker   # docker | local | none
 ```
 
+在发送任何 Agent 工作前验证当前选择。`GET /api/status` 即使未认证也会返回 `sandbox_backend`，自动化程序可在创建资源或执行任何操作前失败退出：
+
+```bash
+curl -fsS http://localhost:25678/api/status
+# {"status":"ok","version":"…","sandbox_backend":"docker"}
+```
+
+这里报告的是部署选择，不表示沙箱会话已经成功创建。后端无法启动时，Runner 创建仍会 fail-closed。
+
 默认值是 `local`。未设置或取值无法识别时同样回落到 `local`，因此拼错变量不会让 agent 失去隔离。没有 Web UI 开关，也没有 per-agent 覆盖——沙箱边界是运维决策，不是运行时决策。
 
 ## Docker 后端

@@ -162,6 +162,12 @@ If your provider gives you an OTLP/HTTP endpoint such as `https://collector.exam
 
 ## What Gets Traced
 
+## Session usage API
+
+`GET /api/agents/{agentId}/sessions/{sessionId}/usage` returns provider-reported input, output, cache-read, and cache-write tokens plus USD cost, grouped by provider and model. It does not use message-length token estimates.
+
+The response includes all call counts. Token totals are `null` if any call did not report usage; cost is `null` if any call was unreported or had no configured model rate. This prevents an unavailable provider report from looking free. Usage writes run off the chat path in a bounded in-memory queue: a clean shutdown drains it, while process loss can lose at most 1,024 accepted observations; sustained database overload drops new observations rather than slowing a user turn.
+
 ### LLM Calls
 
 Every call to an LLM provider is captured as a `gen_ai.chat` span:

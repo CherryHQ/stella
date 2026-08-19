@@ -9,7 +9,9 @@ const (
 	SandboxBackendLocal  = "local"
 	SandboxBackendNone   = "none"
 	// SandboxBackendBridge is evaluation-only: commands and files go through a
-	// harness-owned bridge into a benchmark task container. See plugins/sandbox/bridge.
+	// harness-owned bridge into a benchmark task container, supplied by the
+	// Harbor eval sandbox adapter (see plugins/sandbox/bridge). The core runtime
+	// deliberately has no host fallback when it is unavailable.
 	SandboxBackendBridge = "bridge"
 
 	SandboxNetworkDisabled = "disabled"

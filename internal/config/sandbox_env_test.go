@@ -15,6 +15,7 @@ func TestActiveSandboxBackend(t *testing.T) {
 		{name: "unset defaults to local", unset: true, want: SandboxBackendLocal},
 		{name: "empty defaults to local", env: "", want: SandboxBackendLocal},
 		{name: "docker", env: "docker", want: SandboxBackendDocker},
+		{name: "bridge", env: "bridge", want: SandboxBackendBridge},
 		{name: "none", env: "none", want: SandboxBackendNone},
 		{name: "padded value is trimmed", env: "  docker  ", want: SandboxBackendDocker},
 		{name: "unknown value falls back to local", env: "podman", want: SandboxBackendLocal},

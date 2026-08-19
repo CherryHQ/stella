@@ -28,12 +28,12 @@ const (
 	previousGAVersion = int64(20260725161331)
 	// Library V1, channel guest sessions/indexes, channel allowlist backfill,
 	// session activity, per-message actor provenance and summary authority,
-	// the durable Session inbox, restrictive Library ownership, and the Discord
-	// explicit guild-access backfill are the post-anchor migrations exercised
-	// below. Library chunk locator integrity and the dedicated Skill Home
-	// cutover evidence schema and retired RTK plugin cleanup are checked
-	// explicitly.
-	currentMigrationVersion = sequentialAnchor + 18
+	// the durable Session inbox, restrictive Library ownership, the Discord
+	// explicit guild-access backfill, and per-call LLM usage accounting are the
+	// post-anchor migrations exercised below. Library chunk locator integrity,
+	// the dedicated Skill Home cutover evidence schema, and retired RTK plugin
+	// cleanup are checked explicitly.
+	currentMigrationVersion = sequentialAnchor + 19
 
 	previousGAUserID                     = "00000000-0000-0000-0000-000000000001"
 	previousGAGroupID                    = "00000000-0000-0000-0000-000000000002"
@@ -712,6 +712,24 @@ func assertPreviousGAUpgrade(t *testing.T, ctx context.Context, db *pgxpool.Pool
 	}
 	if deleted != 1 || count("retained expired guest conversations", `SELECT count(*) FROM ctx_conversation WHERE guest_id = $1`, previousGAGuestID) != 0 {
 		t.Fatalf("guest retention purge deleted %d guests without cascading conversations, want 1 guest and 0 conversations", deleted)
+	}
+
+	if _, err := db.Exec(ctx, `
+		INSERT INTO agent_llm_call (
+			session_id, agent_id, provider, model, usage_reported,
+			input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+			cost_usd, duration_ms, occurred_at
+		) VALUES ($1, $2, 'previous-ga-provider', 'previous-ga-model', true, 10, 5, 3, 2, 0.0125, 100, $3)
+	`, previousGANewSession, previousGAAgentID, previousGATime); err != nil {
+		t.Fatalf("write migrated LLM usage row: %v", err)
+	}
+	var usageInput int64
+	var usageCost pgtype.Numeric
+	if err := db.QueryRow(ctx, `SELECT input_tokens, cost_usd FROM agent_llm_call WHERE session_id = $1`, previousGANewSession).Scan(&usageInput, &usageCost); err != nil {
+		t.Fatalf("read migrated LLM usage row: %v", err)
+	}
+	if usageInput != 10 || !usageCost.Valid {
+		t.Fatalf("migrated LLM usage row = input %d / cost %+v, want 10 / priced", usageInput, usageCost)
 	}
 
 	var latest int64

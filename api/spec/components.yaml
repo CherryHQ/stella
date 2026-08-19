@@ -4543,6 +4543,91 @@ components:
         next_page_token:
           type: string
           nullable: true
+    SessionModelUsage:
+      type: object
+      required: [
+        provider,
+        model,
+        call_count,
+        reported_call_count,
+        priced_call_count,
+      ]
+      properties:
+        provider:
+          type: string
+        model:
+          type: string
+        call_count:
+          type: integer
+          format: int64
+          description: Number of LLM requests, including requests whose provider did not report usage.
+        reported_call_count:
+          type: integer
+          format: int64
+          description: Number of requests with provider-reported token usage.
+        priced_call_count:
+          type: integer
+          format: int64
+          description: Number of requests with both provider-reported usage and configured pricing.
+        input_tokens:
+          type: integer
+          format: int64
+          nullable: true
+        output_tokens:
+          type: integer
+          format: int64
+          nullable: true
+        cache_read_tokens:
+          type: integer
+          format: int64
+          nullable: true
+        cache_write_tokens:
+          type: integer
+          format: int64
+          nullable: true
+        cost_usd:
+          type: number
+          format: double
+          nullable: true
+          description: USD total, null when any request in this model bucket is unreported or unpriced.
+    SessionUsage:
+      type: object
+      required: [call_count, reported_call_count, priced_call_count, models]
+      properties:
+        call_count:
+          type: integer
+          format: int64
+        reported_call_count:
+          type: integer
+          format: int64
+        priced_call_count:
+          type: integer
+          format: int64
+        input_tokens:
+          type: integer
+          format: int64
+          nullable: true
+        output_tokens:
+          type: integer
+          format: int64
+          nullable: true
+        cache_read_tokens:
+          type: integer
+          format: int64
+          nullable: true
+        cache_write_tokens:
+          type: integer
+          format: int64
+          nullable: true
+        cost_usd:
+          type: number
+          format: double
+          nullable: true
+          description: USD total, null when any request is unreported or unpriced.
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionModelUsage"
     SessionMessageBlock:
       type: object
       required: [type]
@@ -4935,7 +5020,7 @@ components:
           type: integer
     StatusResponse:
       type: object
-      required: [status, version]
+      required: [status, version, sandbox_backend]
       properties:
         status:
           type: string
@@ -4943,6 +5028,10 @@ components:
         version:
           type: string
           example: 0.1.0
+        sandbox_backend:
+          type: string
+          readOnly: true
+          description: Active deploy-time sandbox backend. local, docker, and none are built in; bridge is reserved for the eval sandbox adapter.
         commit:
           type: string
           example: abc1234
