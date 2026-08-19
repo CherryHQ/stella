@@ -41,8 +41,21 @@ var systemTemplate string
 //go:embed template/system.md
 var defaultSystemPrompt string
 
-// DefaultSystemPrompt returns the default system prompt text.
-func DefaultSystemPrompt() string { return strings.TrimSpace(defaultSystemPrompt) }
+// DefaultSystemPrompt returns the default system prompt text for an unnamed
+// agent. Prefer DefaultSystemPromptFor: an agent that does not know its own
+// name cannot tell, in a group, which messages are addressed to it.
+func DefaultSystemPrompt() string { return DefaultSystemPromptFor("") }
+
+// DefaultSystemPromptFor is the default persona, named after the agent it is
+// for. Every agent used to be seeded as "You are Stella", so two of them in one
+// group answered to the same name and to each other's messages.
+func DefaultSystemPromptFor(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "Stella"
+	}
+	return strings.TrimSpace(strings.ReplaceAll(defaultSystemPrompt, "{{ .AgentName }}", name))
+}
 
 const guestLimitations = `You are serving an unauthenticated guest. You may converse using only the visible conversation history. You have no tools, files, workspace, skills, plugins, memories, profile, reflection, delegation, secrets, OAuth connections, or other Stella capabilities. Do not claim to access or retain anything beyond this conversation.`
 
@@ -150,7 +163,9 @@ type GroupRoster struct {
 func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	sysPrompt := strings.TrimSpace(p.SystemPrompt)
 	if sysPrompt == "" {
-		sysPrompt = strings.TrimSpace(defaultSystemPrompt)
+		// In a group the roster knows this agent's name; a nameless fallback
+		// would reintroduce the collision the roster line exists to fix.
+		sysPrompt = DefaultSystemPromptFor(p.GroupRoster.SelfName)
 	}
 
 	// Soul priority: per-user override > agent default > global builtin default.
