@@ -179,6 +179,11 @@ class StellaAgent(BaseInstalledAgent):
         if workdir_result.return_code != 0:
             raise RuntimeError(f"discover task workdir: {workdir_result.stderr}")
         workdir = (workdir_result.stdout or "").strip() or "/"
+        # One wall clock, owned here: Harbor kills the trial at
+        # HARBOR_AGENT_TIMEOUT_SEC, so everything the agent does -- working,
+        # stopping, exporting evidence -- has to finish inside it. The margin
+        # covers only process spawn and exit; the agent subdivides the rest and
+        # keeps its own stop confirmation inside this number, never after it.
         deadline = max(1, int(os.environ.get("HARBOR_AGENT_TIMEOUT_SEC", "900")) - self.deadline_margin_sec)
         server = BridgeServer(environment, workdir, trial_dir / "bridge.sock", trial_dir / "bridge-ledger.jsonl", tool_path_prepend="/installed-agent/stella/bin")
         binding = await server.start()

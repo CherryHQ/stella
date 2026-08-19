@@ -248,3 +248,58 @@ func TestRunRefusesAServerThatDoesNotReportItsBackend(t *testing.T) {
 		t.Fatalf("run exit code = %d, want %d", code, exitAdapter)
 	}
 }
+
+func TestTurnDeadlineLeavesRoomForTheStopConfirmation(t *testing.T) {
+	now := time.Now().UTC()
+	// The regression: 885s of work plus a 3 minute confirmation overran a 900s
+	// wall by ~105s, and Harbor killed the trial before it could be scored.
+	wall := 885 * time.Second
+	got := turnDeadline(now, wall).Sub(now)
+	if got+stopConfirmBudget > wall {
+		t.Fatalf("turn deadline %s plus confirm budget %s exceeds the wall %s", got, stopConfirmBudget, wall)
+	}
+	if got != wall-stopConfirmBudget {
+		t.Fatalf("turn deadline = %s, want %s", got, wall-stopConfirmBudget)
+	}
+}
+
+func TestTurnDeadlineDegradesWhenTheWallCannotHoldTheBudget(t *testing.T) {
+	now := time.Now().UTC()
+	wall := 60 * time.Second
+	got := turnDeadline(now, wall).Sub(now)
+	if got <= 0 {
+		t.Fatalf("turn deadline %s is not in the future", got)
+	}
+	if got != wall/2 {
+		t.Fatalf("turn deadline = %s, want %s", got, wall/2)
+	}
+}
+
+func TestFinishTimedOutExportsEvidenceEvenWhenStopIsNotConfirmed(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/stop"):
+			w.WriteHeader(http.StatusInternalServerError)
+		case strings.HasSuffix(r.URL.Path, "/messages"):
+			_, _ = w.Write([]byte(`{"messages":[{"role":"user","content":"hi"}]}`))
+		default:
+			_, _ = w.Write([]byte(`{"activity_status":"running"}`))
+		}
+	}))
+	defer server.Close()
+	trajectory := filepath.Join(t.TempDir(), "trajectory.json")
+	r := result{ToolCalls: map[string]int{}, AgentID: "a", SessionID: "s"}
+	code := finishTimedOut(apiClient{baseURL: server.URL, http: server.Client()}, &r, trajectory, func(*int64) {})
+	if code != exitAdapter {
+		t.Fatalf("exit code = %d, want %d: an unconfirmed stop stays fail-closed", code, exitAdapter)
+	}
+	if !r.TimedOut {
+		t.Fatal("the trial was not marked as timed out")
+	}
+	if r.TurnTerminalState != "" {
+		t.Fatalf("terminal state = %q, want empty: stop was never confirmed", r.TurnTerminalState)
+	}
+	if _, err := os.Stat(trajectory); err != nil {
+		t.Fatalf("trajectory was not exported: %v", err)
+	}
+}

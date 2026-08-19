@@ -258,7 +258,47 @@ func waitForTerminal(ctx context.Context, c apiClient, agentID, sessionID string
 // before the verifier runs is what keeps the agent from contaminating
 // verification. Deliberate ceiling; raise it if tasks start using tool timeouts
 // longer than this.
+//
+// The budget is spent inside --deadline-seconds, never on top of it. The caller
+// owns one wall clock and kills the process at it; a confirmation that ran past
+// that wall used to cost the whole trial, evidence included.
 const stopConfirmBudget = 3 * time.Minute
+
+// turnDeadline splits the caller's wall clock into working time and the stop
+// confirmation that follows it. A wall too short to hold both gives the turn
+// half, so a small budget degrades instead of going negative.
+func turnDeadline(now time.Time, wall time.Duration) time.Time {
+	working := wall - stopConfirmBudget
+	if working <= 0 {
+		working = wall / 2
+	}
+	return now.Add(working)
+}
+
+// finishTimedOut ends a trial that ran out of working time. Stop is confirmed
+// before any evidence is read, because a turn still running while the verifier
+// works would score the wrong environment. An unconfirmed stop stays fail-closed
+// as an adapter fault, but the evidence is exported either way: a voided trial
+// with no trajectory is unreadable, and the export is read-only, so it cannot
+// make an already bad state worse.
+func finishTimedOut(user apiClient, r *result, trajectory string, phase func(*int64)) int {
+	r.TimedOut = true
+	terminalCtx, terminalCancel := context.WithTimeout(context.Background(), stopConfirmBudget)
+	waitErr := stopAndConfirm(terminalCtx, user, r.AgentID, r.SessionID)
+	terminalCancel()
+	phase(&r.Metrics.Timing.StopMs)
+	if waitErr == nil {
+		r.TurnTerminalState = "stopped"
+	}
+	_ = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, trajectory, r)
+	phase(&r.Metrics.Timing.ExportMs)
+	if waitErr != nil {
+		r.Errors = append(r.Errors, "confirm terminal after timeout: "+waitErr.Error())
+		r.FailureClass = "adapter"
+		return exitAdapter
+	}
+	return exitTimeout
+}
 
 func stopAndConfirm(ctx context.Context, c apiClient, agentID, sessionID string) error {
 	if err := c.call(ctx, http.MethodPost, "/api/agents/"+agentID+"/sessions/"+sessionID+"/stop", nil, nil); err != nil {
@@ -328,7 +368,7 @@ func run() int {
 	flag.StringVar(&externalID, "user-id", "", "unique Harbor trial identifier")
 	flag.StringVar(&bundleDigest, "bundle-digest", "", "helper bundle SHA-256")
 	flag.StringVar(&trajectory, "trajectory", "", "write the verbatim message history here")
-	flag.IntVar(&deadlineSec, "deadline-seconds", 0, "trial deadline in seconds")
+	flag.IntVar(&deadlineSec, "deadline-seconds", 0, "wall clock for the whole trial in seconds, including the stop confirmation")
 	flag.Parse()
 	r := result{ToolCalls: map[string]int{}}
 	start := time.Now()
@@ -378,7 +418,7 @@ func run() int {
 		return exitAdapter
 	}
 	r.BridgeNonce = b.Nonce
-	deadline := time.Now().UTC().Add(time.Duration(deadlineSec) * time.Second)
+	deadline := turnDeadline(time.Now().UTC(), time.Duration(deadlineSec)*time.Second)
 	admin := apiClient{baseURL, adminToken, &http.Client{Timeout: 30 * time.Second}}
 	ctx := context.Background()
 	// Refuse before provisioning anything. On any other backend the agent's
@@ -504,20 +544,7 @@ func run() int {
 	r.StreamEvents, r.StreamErrors, err = streamUser.streamTurn(turnCtx, r.AgentID, r.SessionID, string(instruction))
 	phase(&r.Metrics.Timing.TurnMs)
 	if errors.Is(err, context.DeadlineExceeded) {
-		r.TimedOut = true
-		terminalCtx, terminalCancel := context.WithTimeout(context.Background(), stopConfirmBudget)
-		waitErr := stopAndConfirm(terminalCtx, user, r.AgentID, r.SessionID)
-		terminalCancel()
-		phase(&r.Metrics.Timing.StopMs)
-		if waitErr != nil {
-			r.Errors = append(r.Errors, "confirm terminal after timeout: "+waitErr.Error())
-			r.FailureClass = "adapter"
-			return exitAdapter
-		}
-		r.TurnTerminalState = "stopped"
-		_ = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, trajectory, &r)
-		phase(&r.Metrics.Timing.ExportMs)
-		return exitTimeout
+		return finishTimedOut(user, &r, trajectory, phase)
 	}
 	if err != nil {
 		r.Errors = append(r.Errors, "send instruction: "+err.Error())
@@ -529,20 +556,7 @@ func run() int {
 	state, err := waitForTerminal(turnCtx, user, r.AgentID, r.SessionID)
 	phase(&r.Metrics.Timing.TurnMs)
 	if errors.Is(err, context.DeadlineExceeded) {
-		r.TimedOut = true
-		terminalCtx, terminalCancel := context.WithTimeout(context.Background(), stopConfirmBudget)
-		waitErr := stopAndConfirm(terminalCtx, user, r.AgentID, r.SessionID)
-		terminalCancel()
-		phase(&r.Metrics.Timing.StopMs)
-		if waitErr != nil {
-			r.Errors = append(r.Errors, "confirm terminal after timeout: "+waitErr.Error())
-			r.FailureClass = "adapter"
-			return exitAdapter
-		}
-		r.TurnTerminalState = "stopped"
-		_ = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, trajectory, &r)
-		phase(&r.Metrics.Timing.ExportMs)
-		return exitTimeout
+		return finishTimedOut(user, &r, trajectory, phase)
 	}
 	if err != nil {
 		r.Errors = append(r.Errors, "wait terminal: "+err.Error())
