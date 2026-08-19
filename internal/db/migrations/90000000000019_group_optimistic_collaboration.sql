@@ -34,6 +34,38 @@ CREATE INDEX idx_ctx_group_dispatch_wake_newest
     ON ctx_group_dispatch (group_id, agent_id, trigger_seq DESC)
     WHERE kind = 'wake' AND status = 'pending';
 
+-- +goose StatementBegin
+-- ctx_group_chain_root is the single definition of where one agent's current
+-- causal chain starts: a later human message, or this agent's own accepted
+-- post, opens a new chain. Two places read it -- the wake claim gate and the
+-- HOLD count -- and they stand on opposite failure modes: relaxing only the
+-- gate lets a held row re-run and post twice, tightening only the count makes
+-- a HOLD never expire. Keeping one definition is what stops that pair drifting.
+CREATE FUNCTION ctx_group_chain_root(p_group_id UUID, p_agent_id TEXT, p_trigger_seq BIGINT)
+RETURNS BIGINT
+LANGUAGE sql STABLE PARALLEL SAFE AS $$
+    SELECT GREATEST(
+        COALESCE((
+            SELECT MAX(own.seq)
+            FROM ctx_group_dispatch accepted
+            -- Legacy/non-published rows carry the empty-string sentinel. Cast
+            -- only a real accepted message id, otherwise this gate poisons all
+            -- wake claims with invalid UUID syntax.
+            JOIN ctx_group_message own ON own.id = NULLIF(accepted.result_message_id, '')::uuid
+            WHERE accepted.group_id = p_group_id
+              AND accepted.agent_id = p_agent_id
+        ), 0),
+        COALESCE((
+            SELECT MAX(human.seq)
+            FROM ctx_group_message human
+            WHERE human.group_id = p_group_id
+              AND human.actor_type = 'human'
+              AND human.seq <= p_trigger_seq
+        ), 0)
+    );
+$$;
+-- +goose StatementEnd
+
 -- Durable work claims: one live owner per (group, key); leases expire so a
 -- crashed owner cannot strand the work.
 CREATE TABLE ctx_group_claim (
@@ -53,6 +85,7 @@ CREATE INDEX idx_ctx_group_claim_group_lease_until
 
 -- +goose Down
 DROP TABLE ctx_group_claim;
+DROP FUNCTION ctx_group_chain_root(UUID, TEXT, BIGINT);
 DROP INDEX idx_ctx_group_dispatch_wake_newest;
 ALTER TABLE ctx_group_dispatch
     DROP COLUMN published_at,

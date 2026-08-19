@@ -78,8 +78,8 @@ WITH newest AS (
         AND running.lease_until > $4
     )
     -- A HOLD is only safe to retry once the wake snapshot covers the peer
-    -- activity that caused it. Scope the gate to the current causal chain:
-    -- a later human message or this agent's accepted post starts a new chain.
+    -- activity that caused it. ctx_group_chain_root scopes the gate to the
+    -- current causal chain and is shared with CountHeldGroupDispatchesInChain.
     AND candidate.trigger_seq >= COALESCE((
       SELECT MAX(held.held_up_to_seq)
       FROM ctx_group_dispatch held
@@ -87,26 +87,7 @@ WITH newest AS (
         AND held.agent_id = candidate.agent_id
         AND held.kind = 'wake'
         AND held.status = 'held'
-        AND held.trigger_seq >= GREATEST(
-          COALESCE((
-            SELECT MAX(own.seq)
-            FROM ctx_group_dispatch accepted
-            -- Legacy/non-published rows carry the empty-string sentinel. Cast
-            -- only a real accepted message id, otherwise this gate poisons all
-            -- wake claims with invalid UUID syntax.
-            JOIN ctx_group_message own ON own.id = NULLIF(accepted.result_message_id, '')::uuid
-            WHERE accepted.group_id = candidate.group_id
-              AND accepted.agent_id = candidate.agent_id
-              AND accepted.result_message_id IS NOT NULL
-          ), 0),
-          COALESCE((
-            SELECT MAX(human.seq)
-            FROM ctx_group_message human
-            WHERE human.group_id = candidate.group_id
-              AND human.actor_type = 'human'
-              AND human.seq <= candidate.trigger_seq
-          ), 0)
-        )
+        AND held.trigger_seq >= ctx_group_chain_root(candidate.group_id, candidate.agent_id, candidate.trigger_seq)
     ), 0)
   ORDER BY candidate.trigger_seq DESC
   LIMIT 1
@@ -241,23 +222,17 @@ WHERE held.group_id = $1
   AND held.status = 'held'
   -- The root human wake belongs to its own causal chain. A strict comparison
   -- would forget a HOLD on that first wake and let the same chain livelock.
-  AND held.trigger_seq >= GREATEST($3::bigint, $4::bigint)
+  AND held.trigger_seq >= ctx_group_chain_root($1, $2, $3)
 `
 
 type CountHeldGroupDispatchesInChainParams struct {
-	GroupID         string `json:"group_id"`
-	AgentID         string `json:"agent_id"`
-	AfterOwnPostSeq int64  `json:"after_own_post_seq"`
-	AfterHumanSeq   int64  `json:"after_human_seq"`
+	GroupID    string `json:"group_id"`
+	AgentID    string `json:"agent_id"`
+	TriggerSeq int64  `json:"trigger_seq"`
 }
 
 func (q *Queries) CountHeldGroupDispatchesInChain(ctx context.Context, arg CountHeldGroupDispatchesInChainParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countHeldGroupDispatchesInChain,
-		arg.GroupID,
-		arg.AgentID,
-		arg.AfterOwnPostSeq,
-		arg.AfterHumanSeq,
-	)
+	row := q.db.QueryRow(ctx, countHeldGroupDispatchesInChain, arg.GroupID, arg.AgentID, arg.TriggerSeq)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -417,27 +392,6 @@ func (q *Queries) GetGroupDispatch(ctx context.Context, id string) (CtxGroupDisp
 		&i.PublishedAt,
 	)
 	return i, err
-}
-
-const lastAcceptedGroupPostSeq = `-- name: LastAcceptedGroupPostSeq :one
-SELECT COALESCE(MAX(message.seq), 0)::bigint
-FROM ctx_group_dispatch dispatch
-JOIN ctx_group_message message
-  ON message.id = NULLIF(dispatch.result_message_id, '')::uuid
-WHERE dispatch.group_id = $1
-  AND dispatch.agent_id = $2
-`
-
-type LastAcceptedGroupPostSeqParams struct {
-	GroupID string `json:"group_id"`
-	AgentID string `json:"agent_id"`
-}
-
-func (q *Queries) LastAcceptedGroupPostSeq(ctx context.Context, arg LastAcceptedGroupPostSeqParams) (int64, error) {
-	row := q.db.QueryRow(ctx, lastAcceptedGroupPostSeq, arg.GroupID, arg.AgentID)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
 }
 
 const listExpiredRunningGroupDispatch = `-- name: ListExpiredRunningGroupDispatch :many

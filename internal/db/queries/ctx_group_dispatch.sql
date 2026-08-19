@@ -75,8 +75,8 @@ WITH newest AS (
         AND running.lease_until > sqlc.arg('now')
     )
     -- A HOLD is only safe to retry once the wake snapshot covers the peer
-    -- activity that caused it. Scope the gate to the current causal chain:
-    -- a later human message or this agent's accepted post starts a new chain.
+    -- activity that caused it. ctx_group_chain_root scopes the gate to the
+    -- current causal chain and is shared with CountHeldGroupDispatchesInChain.
     AND candidate.trigger_seq >= COALESCE((
       SELECT MAX(held.held_up_to_seq)
       FROM ctx_group_dispatch held
@@ -84,26 +84,7 @@ WITH newest AS (
         AND held.agent_id = candidate.agent_id
         AND held.kind = 'wake'
         AND held.status = 'held'
-        AND held.trigger_seq >= GREATEST(
-          COALESCE((
-            SELECT MAX(own.seq)
-            FROM ctx_group_dispatch accepted
-            -- Legacy/non-published rows carry the empty-string sentinel. Cast
-            -- only a real accepted message id, otherwise this gate poisons all
-            -- wake claims with invalid UUID syntax.
-            JOIN ctx_group_message own ON own.id = NULLIF(accepted.result_message_id, '')::uuid
-            WHERE accepted.group_id = candidate.group_id
-              AND accepted.agent_id = candidate.agent_id
-              AND accepted.result_message_id IS NOT NULL
-          ), 0),
-          COALESCE((
-            SELECT MAX(human.seq)
-            FROM ctx_group_message human
-            WHERE human.group_id = candidate.group_id
-              AND human.actor_type = 'human'
-              AND human.seq <= candidate.trigger_seq
-          ), 0)
-        )
+        AND held.trigger_seq >= ctx_group_chain_root(candidate.group_id, candidate.agent_id, candidate.trigger_seq)
     ), 0)
   ORDER BY candidate.trigger_seq DESC
   LIMIT 1
@@ -163,15 +144,7 @@ WHERE held.group_id = sqlc.arg(group_id)
   AND held.status = 'held'
   -- The root human wake belongs to its own causal chain. A strict comparison
   -- would forget a HOLD on that first wake and let the same chain livelock.
-  AND held.trigger_seq >= GREATEST(sqlc.arg(after_own_post_seq)::bigint, sqlc.arg(after_human_seq)::bigint);
-
--- name: LastAcceptedGroupPostSeq :one
-SELECT COALESCE(MAX(message.seq), 0)::bigint
-FROM ctx_group_dispatch dispatch
-JOIN ctx_group_message message
-  ON message.id = NULLIF(dispatch.result_message_id, '')::uuid
-WHERE dispatch.group_id = sqlc.arg(group_id)
-  AND dispatch.agent_id = sqlc.arg(agent_id);
+  AND held.trigger_seq >= ctx_group_chain_root(sqlc.arg(group_id), sqlc.arg(agent_id), sqlc.arg(trigger_seq));
 
 -- name: RequeueHeldGroupDispatchesAfterAcceptedPost :execrows
 -- A peer may have yielded while this accepted post was pending platform egress.

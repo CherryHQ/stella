@@ -648,11 +648,7 @@ func (d *GroupDispatcher) acceptGroupResponse(ctx context.Context, row sqlc.CtxG
 	if err != nil {
 		return eventlog.AppendResult{}, fmt.Errorf("last human seq: %w", err)
 	}
-	lastOwnPost, err := q.LastAcceptedGroupPostSeq(ctx, sqlc.LastAcceptedGroupPostSeqParams{GroupID: row.GroupID, AgentID: row.AgentID})
-	if err != nil {
-		return eventlog.AppendResult{}, fmt.Errorf("last accepted group post seq: %w", err)
-	}
-	held, err := q.CountHeldGroupDispatchesInChain(ctx, sqlc.CountHeldGroupDispatchesInChainParams{GroupID: row.GroupID, AgentID: row.AgentID, AfterOwnPostSeq: lastOwnPost, AfterHumanSeq: lastHuman})
+	held, err := q.CountHeldGroupDispatchesInChain(ctx, sqlc.CountHeldGroupDispatchesInChainParams{GroupID: row.GroupID, AgentID: row.AgentID, TriggerSeq: row.TriggerSeq})
 	if err != nil {
 		return eventlog.AppendResult{}, fmt.Errorf("count held dispatches: %w", err)
 	}
