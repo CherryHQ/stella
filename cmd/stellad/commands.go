@@ -39,6 +39,7 @@ import (
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/library"
+	"github.com/CherryHQ/stella/internal/llmusage"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
@@ -401,7 +402,9 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// its idle-session reaper here, bound to the daemon lifecycle context.
 	traceHook := tracehook.New(observability.LoadConfig().Enabled, cfg.Observability.RecordToolIO)
 	traceHook.Start(parent)
-	coreHooks := []hooks.HookPlugin{traceHook}
+	usageHook := llmusage.New(db)
+	usageHook.Start()
+	coreHooks := []hooks.HookPlugin{traceHook, usageHook}
 
 	toolLifecycle := buildToolLifecycle(phost)
 	promptSectionsBuilder := func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {

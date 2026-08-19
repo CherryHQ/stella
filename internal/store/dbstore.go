@@ -16,6 +16,7 @@ import (
 
 	"github.com/CherryHQ/stella/internal/agentskillpolicy"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -789,7 +790,7 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 		return nil, fmt.Errorf("snapshot: load vision settings: %w", err)
 	}
 
-	providers, modelInputs, defaultCreds, err := s.resolveProviders(ctx, ag.Model, ag.ModelStrong, ag.ModelFast, visionCfg.Model)
+	providers, modelInputs, modelCosts, defaultCreds, err := s.resolveProviders(ctx, ag.Model, ag.ModelStrong, ag.ModelFast, visionCfg.Model)
 	if err != nil {
 		return nil, err
 	}
@@ -819,6 +820,7 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 		Soul:                ag.Soul,
 		Providers:           providers,
 		ModelInputs:         modelInputs,
+		ModelCosts:          modelCosts,
 		DisabledSkillRefs:   append([]string(nil), policy.Disabled...),
 		Plugins:             plugins,
 	}
@@ -842,11 +844,11 @@ func (s *DBStore) Snapshot(ctx context.Context, agentID string) (*config.Snapsho
 // resolveProviders returns the credentials for every provider referenced by the
 // given model refs, the declared input modalities of those providers' models,
 // and the credentials of the first ref's provider.
-func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[string]config.ProviderCreds, map[config.ModelKey][]string, config.ProviderCreds, error) {
+func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[string]config.ProviderCreds, map[config.ModelKey][]string, map[config.ModelKey]ai.ModelCost, config.ProviderCreds, error) {
 	provIDs := collectProviderIDs(models...)
 	rows, err := s.q.ListProviders(ctx)
 	if err != nil {
-		return nil, nil, config.ProviderCreds{}, fmt.Errorf("snapshot: list providers: %w", err)
+		return nil, nil, nil, config.ProviderCreds{}, fmt.Errorf("snapshot: list providers: %w", err)
 	}
 
 	byID := make(map[string]config.Provider, len(rows))
@@ -869,6 +871,7 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 
 	creds := make(map[string]config.ProviderCreds, len(provIDs))
 	modelInputs := make(map[config.ModelKey][]string)
+	modelCosts := make(map[config.ModelKey]ai.ModelCost)
 	for _, pid := range provIDs {
 		p, ok := byID[pid]
 		if !ok {
@@ -884,6 +887,11 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 			if len(m.Input) > 0 {
 				modelInputs[config.ModelKey{Provider: pid, Model: modelID}] = m.Input
 			}
+			if m.Cost.Input != 0 || m.Cost.Output != 0 || m.Cost.CacheRead != 0 || m.Cost.CacheWrite != 0 {
+				modelCosts[config.ModelKey{Provider: pid, Model: modelID}] = ai.ModelCost{
+					Input: m.Cost.Input, Output: m.Cost.Output, CacheRead: m.Cost.CacheRead, CacheWrite: m.Cost.CacheWrite,
+				}
+			}
 		}
 	}
 
@@ -894,7 +902,7 @@ func (s *DBStore) resolveProviders(ctx context.Context, models ...string) (map[s
 	defaultProvID, _ := config.ParseModelRef(defaultModel)
 	defaultCreds := creds[defaultProvID]
 
-	return creds, modelInputs, defaultCreds, nil
+	return creds, modelInputs, modelCosts, defaultCreds, nil
 }
 
 // --- Bootstrap ---

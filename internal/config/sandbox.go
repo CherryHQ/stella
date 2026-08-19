@@ -6,6 +6,9 @@ import (
 
 const (
 	SandboxBackendDocker = "docker"
+	// SandboxBackendBridge is supplied by the Harbor eval sandbox adapter. The
+	// core runtime deliberately has no host fallback when it is unavailable.
+	SandboxBackendBridge = "bridge"
 	SandboxBackendLocal  = "local"
 	SandboxBackendNone   = "none"
 

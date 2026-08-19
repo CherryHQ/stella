@@ -144,6 +144,27 @@ type AgentGoalEvent struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
+type AgentLlmCall struct {
+	ID                 string         `json:"id"`
+	SessionID          string         `json:"session_id"`
+	AgentID            string         `json:"agent_id"`
+	Provider           string         `json:"provider"`
+	Model              string         `json:"model"`
+	UsageReported      bool           `json:"usage_reported"`
+	InputTokens        pgtype.Int8    `json:"input_tokens"`
+	OutputTokens       pgtype.Int8    `json:"output_tokens"`
+	CacheReadTokens    pgtype.Int8    `json:"cache_read_tokens"`
+	CacheWriteTokens   pgtype.Int8    `json:"cache_write_tokens"`
+	CostUsd            pgtype.Numeric `json:"cost_usd"`
+	DurationMs         int64          `json:"duration_ms"`
+	TimeToFirstTokenMs pgtype.Int8    `json:"time_to_first_token_ms"`
+	StopReason         string         `json:"stop_reason"`
+	Error              string         `json:"error"`
+	OccurredAt         time.Time      `json:"occurred_at"`
+	CreatedAt          time.Time      `json:"created_at"`
+	UpdatedAt          time.Time      `json:"updated_at"`
+}
+
 type AgentProviderCredential struct {
 	AgentID    string    `json:"agent_id"`
 	ProviderID string    `json:"provider_id"`

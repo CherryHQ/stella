@@ -21,6 +21,15 @@ Set the backend with the `STELLA_SANDBOX_BACKEND` environment variable when you 
 STELLA_SANDBOX_BACKEND=docker   # docker | local | none
 ```
 
+Verify the active selection before sending an agent work. `GET /api/status` returns `sandbox_backend` even without authentication, so an automation can fail before it provisions or executes anything:
+
+```bash
+curl -fsS http://localhost:25678/api/status
+# {"status":"ok","version":"…","sandbox_backend":"docker"}
+```
+
+This reports the deployment selection, not a successful sandbox-session creation. A backend that cannot start still fails closed when the runner is created.
+
 The default is `local`. An unset or unrecognized value also resolves to `local`, so a typo never leaves agents unisolated. There is no Web UI or per-agent override — the sandbox boundary is an operator decision, not a runtime one.
 
 ## Docker Backend

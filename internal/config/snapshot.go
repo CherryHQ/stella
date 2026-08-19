@@ -81,6 +81,10 @@ type Snapshot struct {
 	// deployment never declared modalities, not that there are none.
 	ModelInputs map[ModelKey][]string
 
+	// ModelCosts carries configured per-million-token rates. Missing entries mean
+	// the model has no declared price, not a zero-dollar price.
+	ModelCosts map[ModelKey]ai.ModelCost
+
 	// DisabledSkillRefs is the immutable Agent Skill policy snapshot. A runner
 	// captures it once; an explicit activation commit invalidates future runners.
 	DisabledSkillRefs []string
@@ -112,6 +116,16 @@ func (s *Snapshot) ModelInput(providerID, modelID string) []string {
 		lookupID = id
 	}
 	return s.ModelInputs[ModelKey{Provider: lookupID, Model: modelID}]
+}
+
+// ModelCost returns configured pricing for one model. The zero value means no
+// rate is configured; callers must not present it as a free model.
+func (s *Snapshot) ModelCost(providerID, modelID string) ai.ModelCost {
+	lookupID := providerID
+	if id, _, ok := s.lookupProvider(providerID); ok {
+		lookupID = id
+	}
+	return s.ModelCosts[ModelKey{Provider: lookupID, Model: modelID}]
 }
 
 // ParseModelRef splits a "provider/model" string into its parts.
@@ -194,6 +208,7 @@ func (s *Snapshot) ResolveModelTier(tier string) ai.Model {
 		Provider: provID,
 		BaseURL:  baseURL,
 		Input:    s.ModelInput(provID, modelID),
+		Cost:     s.ModelCost(provID, modelID),
 	}
 }
 

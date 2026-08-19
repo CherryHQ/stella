@@ -843,6 +843,38 @@ func (s *Server) GetSessionMessages(w http.ResponseWriter, r *http.Request, agen
 	writeData(w, http.StatusOK, apitypes.SessionMessageList{Messages: serializeDBMessages(agentID, sessionID, messages)})
 }
 
+func (s *Server) GetSessionUsage(w http.ResponseWriter, r *http.Request, agentID string, sessionID string) {
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "missing session ID")
+		return
+	}
+	access, ok := s.beginSessionAccess(w, r)
+	if !ok {
+		return
+	}
+	usage, err := access.Usage(r.Context(), agentID, sessionID)
+	if err != nil {
+		s.writeSessionAccessError(w, err)
+		return
+	}
+	models := make([]apitypes.SessionModelUsage, len(usage.Models))
+	for i, item := range usage.Models {
+		models[i] = apitypes.SessionModelUsage{
+			Provider: item.Provider, Model: item.Model, CallCount: item.CallCount,
+			ReportedCallCount: item.ReportedCallCount, PricedCallCount: item.PricedCallCount,
+			InputTokens: item.InputTokens, OutputTokens: item.OutputTokens,
+			CacheReadTokens: item.CacheReadTokens, CacheWriteTokens: item.CacheWriteTokens,
+			CostUsd: item.CostUSD,
+		}
+	}
+	writeData(w, http.StatusOK, apitypes.SessionUsage{
+		CallCount: usage.CallCount, ReportedCallCount: usage.ReportedCallCount, PricedCallCount: usage.PricedCallCount,
+		InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens,
+		CacheReadTokens: usage.CacheReadTokens, CacheWriteTokens: usage.CacheWriteTokens,
+		CostUsd: usage.CostUSD, Models: models,
+	})
+}
+
 // GetSessionMedia returns immutable bytes only after the Session PEP proves the
 // routed session can read a part that references them.
 func (s *Server) GetSessionMedia(w http.ResponseWriter, r *http.Request, agentID string, sessionID string, mediaID string) {

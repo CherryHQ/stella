@@ -18,7 +18,7 @@ const sandboxBackendEnv = "STELLA_SANDBOX_BACKEND"
 // ServerConfig; see the allowlist entry in env_scan_test.go.
 func ActiveSandboxBackend() string {
 	switch v := strings.TrimSpace(os.Getenv(sandboxBackendEnv)); v {
-	case SandboxBackendDocker, SandboxBackendLocal, SandboxBackendNone:
+	case SandboxBackendDocker, SandboxBackendBridge, SandboxBackendLocal, SandboxBackendNone:
 		return v
 	default:
 		return SandboxBackendLocal

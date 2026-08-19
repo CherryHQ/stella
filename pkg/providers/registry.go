@@ -41,6 +41,7 @@ func Complete(goCtx context.Context, model ai.Model, ctx ai.Context, opts ai.Com
 			}
 			toolCalls[e.ID] = call
 		case ai.EventUsage:
+			e.Usage.Reported = true
 			msg.Usage = e.Usage
 		case ai.EventStop:
 			msg.StopReason = e.Reason
