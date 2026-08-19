@@ -78,6 +78,7 @@ type Bot struct {
 	fetchTenantProfileFn    tenantProfileFetcher   // test seam; production uses Contact API
 	resolveMessageContextFn messageContextResolver // test seam; production uses Message and Chat APIs
 	replyCardFn             func(context.Context, string, string) (string, error)
+	createMessageFn         func(ctx context.Context, chatID, msgType, content string) (string, error)
 	patchCardFn             func(context.Context, string, string) error
 	retryPauseFn            func(context.Context, time.Duration) error
 	handler                 channel.Handler

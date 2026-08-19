@@ -61,6 +61,29 @@ func NewGroupClaimPromptLoader(db *pgxpool.Pool) func(context.Context, string, s
 	}
 }
 
+// NewGroupRosterPromptLoader returns the read-only prompt projection of a
+// group's membership. It lives beside the claim loader for the same reason:
+// the composition root does not reach through to SQLC.
+func NewGroupRosterPromptLoader(db *pgxpool.Pool) func(context.Context, string, string) prompt.GroupRoster {
+	q := sqlc.New(db)
+	return func(ctx context.Context, groupID, agentID string) prompt.GroupRoster {
+		members, err := q.ListGroupMembers(ctx, groupID)
+		if err != nil {
+			return prompt.GroupRoster{}
+		}
+		roster := prompt.GroupRoster{}
+		for _, member := range members {
+			name := groupClaimOwnerName(ctx, q, member.AgentID)
+			if member.AgentID == agentID {
+				roster.SelfName = name
+				continue
+			}
+			roster.PeerNames = append(roster.PeerNames, name)
+		}
+		return roster
+	}
+}
+
 // groupClaimOwnerName resolves a claim owner's display name, falling back to
 // the agent id. Peers coordinate by name; ids mean nothing to a model.
 func groupClaimOwnerName(ctx context.Context, q *sqlc.Queries, agentID string) string {

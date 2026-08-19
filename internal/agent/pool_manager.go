@@ -154,6 +154,12 @@ func WithSessionInboxPM(inbox SessionInbox) PoolManagerOption {
 	return func(pm *PoolManager) { pm.sessionInbox = inbox }
 }
 
+// WithGroupRosterLoader projects group membership into a group runner prompt so
+// an agent knows which name in the transcript is its own.
+func WithGroupRosterLoader(loader func(context.Context, string, string) prompt.GroupRoster) PoolManagerOption {
+	return func(pm *PoolManager) { pm.groupRosterLoader = loader }
+}
+
 // WithGroupClaimsLoader projects live peer leases into a group runner prompt.
 func WithGroupClaimsLoader(loader func(context.Context, string, string) []prompt.GroupClaim) PoolManagerOption {
 	return func(pm *PoolManager) { pm.groupClaimsLoader = loader }
@@ -208,6 +214,7 @@ type PoolManager struct {
 	sessionAccess            SessionAccessService
 	sessionInbox             SessionInbox
 	groupClaimsLoader        func(context.Context, string, string) []prompt.GroupClaim
+	groupRosterLoader        func(context.Context, string, string) prompt.GroupRoster
 	homeWorkspace            home.Workspace
 	log                      *slog.Logger
 }
@@ -861,6 +868,7 @@ func (pm *PoolManager) buildRunnerFunc(_ context.Context, snap *config.Snapshot)
 		ProjectResolver:          pm.projectResolver,
 		SessionImages:            pm.sessionImages,
 		GroupClaimsLoader:        pm.groupClaimsLoader,
+		GroupRosterLoader:        pm.groupRosterLoader,
 		Home:                     pm.homeWorkspace,
 	})
 }

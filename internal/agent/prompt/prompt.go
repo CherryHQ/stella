@@ -90,6 +90,8 @@ type promptData struct {
 	ProfileEntries []memory.ProfileEntry
 	GroupMemory    string // group-scoped shared memory (non-empty only for group sessions)
 	GroupClaims    []GroupClaim
+	GroupSelfName  string   // this agent's name in the group
+	GroupPeerNames []string // the other members' names
 	Constraints    []memory.ConstraintEntry
 	PluginPrompts  []pkgplugins.SystemPromptSection
 	PromptSections []pkgplugins.SystemPromptSection
@@ -111,6 +113,7 @@ type DBPromptParams struct {
 	GroupID        string          // group ID for group memory lookup (D4); mutually exclusive with UserID
 	GroupMemory    string          // pre-loaded group memory content; injected when non-empty
 	GroupClaims    []GroupClaim    // live peer work claims, excluding this agent's own
+	GroupRoster    GroupRoster     // who this agent is in the group, and who else is in it
 	Sections       []pkgplugins.SystemPromptSection
 	Session        sandbox.Session
 	ProjectContext ProjectContext
@@ -123,6 +126,15 @@ type GroupClaim struct {
 	Agent   string
 	Subject string
 	Age     string
+}
+
+// GroupRoster is who the agent is in this group and who else is in it. An
+// agent's own persona prompt names it (often the product default), so without
+// this a group turn cannot tell whether "@Anna" addresses it, and every member
+// answers to every name.
+type GroupRoster struct {
+	SelfName  string
+	PeerNames []string
 }
 
 // BuildSystemPromptFromDB composes the full system prompt by populating a
@@ -210,6 +222,8 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	}
 	if p.GroupID != "" {
 		data.GroupClaims = append([]GroupClaim(nil), p.GroupClaims...)
+		data.GroupSelfName = p.GroupRoster.SelfName
+		data.GroupPeerNames = append([]string(nil), p.GroupRoster.PeerNames...)
 	}
 
 	// Current speaker (D9): intentionally not rendered into the system prompt.
