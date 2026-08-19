@@ -65,18 +65,18 @@ plugins:
 
 ## Plugin fields
 
-| Field             | Required | Description                                                                                       |
-| ----------------- | -------- | ------------------------------------------------------------------------------------------------- |
-| `id`              | Yes      | Unique plugin ID in `kind/name` form, e.g. `tool/my-cli`                                          |
-| `kind`            | Yes      | Plugin kind, typically `tool`                                                                     |
-| `name`            | Yes      | Short machine-readable name                                                                       |
-| `display_name`    | No       | Human-readable label shown in the admin UI                                                        |
-| `description`     | No       | Short description shown in the admin UI                                                           |
-| `enabled`         | No       | Whether the plugin is active. Defaults to false. Built-in plugins default to true.                |
-| `release_managed` | No       | Server-owned marker for an immutable release tool. It is valid only in Stella's shipped manifest. |
-| `binaries`        | No       | CLI binaries to download and place in `$STELLA_HOME/bin`                                          |
-| `session_env`     | No       | Environment variables to inject into sandbox sessions                                             |
-| `oauth_provider`  | No       | Static OAuth provider ID used by `oauth.*` session env sources, such as `github`                  |
+| Field            | Required | Description                                                                                                                       |
+| ---------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `id`             | Yes      | Unique plugin ID in `kind/name` form, e.g. `tool/my-cli`                                                                          |
+| `kind`           | Yes      | Plugin kind, typically `tool`                                                                                                     |
+| `name`           | Yes      | Short machine-readable name                                                                                                       |
+| `display_name`   | No       | Human-readable label shown in the admin UI                                                                                        |
+| `description`    | No       | Short description shown in the admin UI                                                                                           |
+| `enabled`        | No       | Whether the plugin is active. Defaults to false. Built-in plugins default to true.                                                |
+| `tenant_managed` | No       | Opts a shipped builtin into tenant control. Builtins are release-managed by default; admin-added tools are always tenant-managed. |
+| `binaries`       | No       | CLI binaries to download and place in `$STELLA_HOME/bin`                                                                          |
+| `session_env`    | No       | Environment variables to inject into sandbox sessions                                                                             |
+| `oauth_provider` | No       | Static OAuth provider ID used by `oauth.*` session env sources, such as `github`                                                  |
 
 ## Binary fields
 

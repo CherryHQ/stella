@@ -2677,10 +2677,10 @@ components:
         essential:
           type: boolean
           description: Server policy indicating that the plugin cannot be disabled.
-        release_managed:
+        tenant_managed:
           type: boolean
           readOnly: true
-          description: Whether Stella owns the plugin's definition and enablement for the release.
+          description: Whether a shipped plugin opts into tenant control. Shipped plugins are release-managed by default.
         prompt:
           type: string
         binaries:

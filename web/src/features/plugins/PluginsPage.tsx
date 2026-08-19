@@ -315,7 +315,7 @@ export function AdminPluginsPage() {
     const {
       builtin,
       overridden_fields: _overriddenFields,
-      release_managed: _releaseManaged,
+      tenant_managed: _tenantManaged,
       ...plugin
     } = next;
     const replacement = {

@@ -291,10 +291,12 @@ export function pluginIsEssential(plugin: PluginWithMeta): boolean {
   return !!plugin._manifestPlugin?.essential;
 }
 
-// pluginIsReleaseManaged identifies a tool whose definition and availability
-// are part of the server release, rather than tenant configuration.
+// pluginIsReleaseManaged identifies a shipped plugin that did not opt into
+// tenant control. Admin-added plugins have no shipped definition and are
+// tenant-managed by construction.
 export function pluginIsReleaseManaged(plugin: PluginWithMeta): boolean {
-  return !!plugin._manifestPlugin?.release_managed;
+  const manifest = plugin._manifestPlugin;
+  return !!manifest?.builtin && !manifest.tenant_managed;
 }
 
 // pluginIsRemovable reports whether a plugin can be deleted: only one an admin

@@ -23,10 +23,10 @@ type ManifestPlugin struct {
 	// Grep/Glob tools). It is shipped server policy, not editable definition.
 	Essential bool `json:"essential,omitempty" yaml:"essential,omitempty"`
 
-	// ReleaseManaged marks a tool that ships with Stella. Its definition and
-	// enablement are release-owned, so database overrides cannot desynchronize
-	// sandbox runtimes.
-	ReleaseManaged bool `json:"release_managed,omitempty" yaml:"release_managed,omitempty"`
+	// TenantManaged opts a shipped plugin into tenant control. Builtin manifest
+	// plugins are release-managed by default so a newly shipped system tool
+	// cannot accidentally become mutable; admin-added plugins are always tenant-managed.
+	TenantManaged bool `json:"tenant_managed,omitempty" yaml:"tenant_managed,omitempty"`
 
 	ManifestPluginDefinition `yaml:",inline"`
 
@@ -100,7 +100,7 @@ type rawManifestPlugin struct {
 	Kind                     string `yaml:"kind"`
 	Enabled                  *bool  `yaml:"enabled"`
 	Essential                bool   `yaml:"essential,omitempty"`
-	ReleaseManaged           bool   `yaml:"release_managed,omitempty"`
+	TenantManaged            bool   `yaml:"tenant_managed,omitempty"`
 	ManifestPluginDefinition `yaml:",inline"`
 }
 

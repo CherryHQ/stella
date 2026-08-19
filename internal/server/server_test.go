@@ -1794,8 +1794,8 @@ func TestReleaseManagedManifestPluginsRejectOverrides(t *testing.T) {
 	} {
 		t.Run(pluginID, func(t *testing.T) {
 			plugin := manifestPluginByID(t, env, pluginID)
-			if managed, _ := plugin["release_managed"].(bool); !managed {
-				t.Fatalf("release_managed = %v, want true", plugin["release_managed"])
+			if managed, _ := plugin["tenant_managed"].(bool); managed {
+				t.Fatalf("tenant_managed = %v, want false for a release-owned plugin", plugin["tenant_managed"])
 			}
 
 			plugin["description"] = "attempted override"

@@ -164,9 +164,10 @@ paths:
         names the definition fields this request takes ownership of: those keys
         are stored at the submitted values, every other field of the plugin keeps
         whatever ownership it already had, and unowned fields keep following the
-        definition the server ships. `kind`, `essential`, and `release_managed`
-        belong to the server and cannot be owned. Release-managed plugins reject
-        all definition changes. `enabled` is ignored for a builtin — the enable
+        definition the server ships. `kind`, `essential`, and `tenant_managed`
+        belong to the server and cannot be owned. Shipped plugins are release-managed
+        unless they opt into tenant control, and release-managed plugins reject all
+        definition changes. `enabled` is ignored for a builtin — the enable
         switch has its own operation. A plugin an admin added has no shipped
         definition underneath it, so the body is the whole plugin, `fields` does
         not apply, `enabled` travels with it, and empty values explicitly clear
