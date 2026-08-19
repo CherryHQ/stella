@@ -36,3 +36,21 @@ def test_evidence_ignores_setup_ledger_traffic_but_not_tool_operations():
     assert verify_evidence(result(stella_tool_calls=[], token_count=5, timed_out=True), setup, "nonce") == []
     failures = verify_evidence(result(stella_tool_calls=[], token_count=5), setup + [{"op": "exec", "command": "ls"}], "nonce")
     assert any("tool operations" in failure for failure in failures)
+
+
+def test_bridge_stats_separates_harness_faults_from_agent_mistakes():
+    # A missing file is the agent's problem; an "internal" is ours. Reward can
+    # hide ours entirely, because a capable agent just routes around a broken
+    # tool, so it has to be counted on its own.
+    from stella_harbor.agent import bridge_stats
+
+    stats = bridge_stats([
+        {"seq": 1, "op": "read_file", "path": "/nope", "ok": False, "code": "not_found", "elapsed_ms": 5},
+        {"seq": 2, "op": "read_file", "path": "/etc/nginx/sites-enabled/default", "ok": False,
+         "code": "internal", "elapsed_ms": 169},
+        {"seq": 3, "op": "exec", "ok": True, "elapsed_ms": 10},
+    ])
+
+    assert stats["operations"]["read_file"]["failures"] == 2
+    assert [f["seq"] for f in stats["adapter_faults"]] == [2]
+    assert stats["adapter_faults"][0]["code"] == "internal"

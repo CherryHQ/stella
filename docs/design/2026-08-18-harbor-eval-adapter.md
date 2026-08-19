@@ -337,3 +337,11 @@ session 携带的账号 id 查 binding。driver 因此在 provision 后用新 to
 0.1s 内 completed、零 token、零工具调用却 `valid: true`"的假通过;为此谓词新增
 "无模型活动"(零 token 且零工具调用且未超时)与"ledger 有工具操作但 Stella 无
 核心工具调用"两条,driver 也把 SSE 里的 `error` 事件与空 turn 归为 product 失败。
+
+`read_file` 先在容器内解析符号链接再下载。`docker cp` 会把符号链接本身复制出来,
+宿主机上的副本因此指向不存在的目标,`read_bytes()` 抛异常并被通用 handler 归为
+`internal`。Linux 任务镜像里符号链接配置很常见(`/etc/nginx/sites-enabled/*`、
+`/etc/alternatives/*`),而 agent 会绕开坏掉的工具照样拿满分,所以 reward 完全
+掩盖了它。修复之外,ledger 里 `internal`/`bad_nonce` 类失败被单独汇总为
+`metrics.bridge.adapter_faults` 并在 report 里单列一行:它们是 harness bug,不是
+任务难度。

@@ -5,10 +5,12 @@ the time went, and how reliably the result repeats, which is what a reviewer
 needs in order to decide whether a run is worth trusting.
 
     python -m stella_harbor.report dist/evals/jobs/<job>
+    python -m stella_harbor.report dist/evals/jobs/<job> --html report.html
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import sys
@@ -69,6 +71,7 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
             "model_ms": timing.get("model"),
             "tool_ms": timing.get("tool"),
             "bridge_ms": (metrics.get("bridge") or {}).get("total_ms"),
+            "adapter_faults": (metrics.get("bridge") or {}).get("adapter_faults") or [],
             "turns": metrics.get("turns"),
             "calls": metrics.get("tool_call_total"),
             "tool_errors": metrics.get("tool_error_total"),
@@ -76,6 +79,10 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
             "timed_out": adapter.get("timed_out"),
             "tools": metrics.get("tools") or {},
             "violations": adapter.get("predicate_violations") or [],
+            # Kept whole for the HTML report, which shows per-trial detail the
+            # terminal table has no room for.
+            "metrics": metrics,
+            "ledger": adapter.get("bridge_ledger") or [],
         })
     return rows
 
@@ -169,6 +176,13 @@ def render(rows: list[dict[str, Any]]) -> str:
             lines.append(f"{t['task'][:24]:24}  {t['trials']:6}  {t['scoreable']:5}  "
                          f"{t['resolved']:8}  {'yes' if t['pass_hat_k'] else 'no'}")
 
+    faulted = [(row, fault) for row in rows for fault in row["adapter_faults"]]
+    if faulted:
+        lines.append("")
+        lines.append(f"{len(faulted)} bridge adapter fault(s) — harness bugs, not task difficulty:")
+        for row, fault in faulted[:10]:
+            lines.append(f"  {row['task']}: {fault.get('op')} {fault.get('path') or ''} -> {fault.get('code')}")
+
     for row in rows:
         if row["violations"]:
             lines.append(f"  {row['task']}: invalid — {'; '.join(row['violations'])}")
@@ -196,10 +210,20 @@ def render(rows: list[dict[str, Any]]) -> str:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 1:
-        print(__doc__, file=sys.stderr)
-        return 2
-    print(render(collect(Path(argv[0]))))
+    parser = argparse.ArgumentParser(prog="stella_harbor.report", description=__doc__)
+    parser.add_argument("job_dir", type=Path)
+    parser.add_argument("--html", type=Path, metavar="FILE",
+                        help="also write a self-contained HTML report to FILE")
+    args = parser.parse_args(argv)
+
+    rows = collect(args.job_dir)
+    print(render(rows))
+    if args.html:
+        from .htmlreport import render_html
+
+        args.html.parent.mkdir(parents=True, exist_ok=True)
+        args.html.write_text(render_html(rows, str(args.job_dir)))
+        print(f"\nwrote {args.html}")
     return 0
 
 

@@ -19,6 +19,9 @@ EXIT_ADAPTER = 10
 EXIT_PRODUCT = 11
 EXIT_TIMEOUT = 12
 
+# Bridge error codes that mean the harness broke, not the agent misbehaved.
+ADAPTER_FAULT_CODES = {"internal", "bad_nonce"}
+
 
 def _ledger(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
@@ -35,6 +38,7 @@ def bridge_stats(ledger: list[dict[str, Any]]) -> dict[str, Any]:
     """
     ops: dict[str, dict[str, Any]] = {}
     total = 0
+    faults: list[dict[str, Any]] = []
     for entry in ledger:
         op = entry.get("op") or "unknown"
         elapsed = int(entry.get("elapsed_ms") or 0)
@@ -44,8 +48,14 @@ def bridge_stats(ledger: list[dict[str, Any]]) -> dict[str, Any]:
         stat["max_ms"] = max(stat["max_ms"], elapsed)
         if not entry.get("ok"):
             stat["failures"] += 1
+            if entry.get("code") in ADAPTER_FAULT_CODES:
+                # not_found and is_dir are the agent asking for the wrong thing.
+                # internal and bad_nonce are the bridge itself breaking, which an
+                # agent can work around, so reward hides it. Name it separately.
+                faults.append({"seq": entry.get("seq"), "op": op, "code": entry.get("code"),
+                               "path": entry.get("path")})
         total += elapsed
-    return {"total_ms": total, "operations": ops}
+    return {"total_ms": total, "operations": ops, "adapter_faults": faults}
 
 
 def _path(arguments: dict[str, Any]) -> str | None:

@@ -94,3 +94,42 @@ def test_bridge_stats_group_operations_and_count_failures():
     ])
     assert stats["total_ms"] == 450
     assert stats["operations"]["exec"] == {"calls": 2, "total_ms": 400, "max_ms": 300, "failures": 1}
+
+
+def test_html_report_is_self_contained_and_escapes_task_names(tmp_path):
+    from stella_harbor.htmlreport import render_html
+
+    rows = [{
+        "task": "<script>x</script>", "reward": 1.0, "valid": True, "state": "completed",
+        "wall_ms": 1000, "model_ms": 600, "tool_ms": 300, "bridge_ms": 280, "turns": 2,
+        "calls": 1, "tool_errors": 0, "est_tokens": 10, "timed_out": False,
+        "tools": {"bash": {"calls": 1, "errors": 0, "total_ms": 300, "max_ms": 300}},
+        "violations": [], "adapter_faults": [{"seq": 7, "op": "read_file", "path": "/etc/x", "code": "internal"}],
+        "metrics": {"timing_ms": {"total": 1000, "model": 600, "tool": 300, "setup": 5},
+                    "tools": {"bash": {"calls": 1, "errors": 0, "total_ms": 300, "max_ms": 300}},
+                    "bridge": {"total_ms": 280, "operations": {"exec": {"calls": 1, "failures": 0, "total_ms": 280, "max_ms": 280}}}},
+        "ledger": [{"seq": 1, "op": "exec", "command": "ls", "ok": True, "elapsed_ms": 280}],
+    }]
+
+    out = render_html(rows, "jobs/demo")
+
+    assert "<script>x</script>" not in out  # escaped, not injected
+    assert "&lt;script&gt;" in out
+    assert "http://" not in out and "https://" not in out  # nothing fetched at open time
+    assert "bridge adapter fault" in out
+    assert "100.0%" in out
+
+
+def test_html_report_survives_a_trial_with_no_adapter_result(tmp_path):
+    from stella_harbor.htmlreport import render_html
+
+    rows = [{
+        "task": "boom", "reward": None, "valid": None, "state": "exception", "wall_ms": None,
+        "model_ms": None, "tool_ms": None, "bridge_ms": None, "turns": None, "calls": None,
+        "tool_errors": None, "est_tokens": None, "timed_out": None, "tools": {},
+        "violations": [], "adapter_faults": [], "metrics": {}, "ledger": [],
+    }]
+
+    out = render_html(rows, "jobs/demo")
+
+    assert "no scoreable trials" in out

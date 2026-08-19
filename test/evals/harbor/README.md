@@ -60,13 +60,27 @@ Read the job as a table:
 
 ```bash
 uv run --project test/evals/harbor python -m stella_harbor.report dist/evals/jobs/regex-log-stella
+# add --html to also write a readable report
+uv run --project test/evals/harbor python -m stella_harbor.report \
+  dist/evals/jobs/regex-log-stella --html dist/evals/report.html
 ```
+
+Pass the job root, not the timestamp directory inside it. `--html` writes one
+self-contained file (no CSS or JS fetched at open time) with the same summary
+plus per-trial detail the terminal has no room for: the timing bar, phase
+breakdown, bridge operations, and the full bridge ledger.
 
 It prints one row per trial (reward, validity, terminal state, wall/model/tool/
 bridge time, turns, tool calls, tool errors, estimated tokens), then the
 reliability summary: resolution rate with a 95% Wilson confidence interval,
-pass^k across tasks, timeouts, every predicate violation, and a per-tool cost
-table.
+pass^k across tasks, timeouts, every predicate violation, bridge adapter faults,
+and a per-tool cost table.
+
+Adapter faults are bridge failures whose code is `internal` or `bad_nonce`: the
+harness broke, not the task. They get their own line because a capable agent
+routes around a broken tool and still scores 1.0, so the reward hides them.
+A `not_found` is the agent asking for the wrong path and stays an ordinary
+failure.
 
 `model` is the time the model held between messages, `tool` is measured from
 the message timeline and so includes Stella's dispatch overhead, and `bridge`

@@ -233,11 +233,30 @@ class BridgeServer:
             raise BridgeError("is_dir", f"{req['path']}: is a directory")
         if st["size"] > MAX_PAYLOAD:
             raise BridgeError("too_large", f"{req['path']}: {st['size']} bytes exceeds cap {MAX_PAYLOAD}")
+        source = await self._resolve_symlink(req["path"])
         with tempfile.TemporaryDirectory(prefix="stella-bridge-") as td:
             local = Path(td) / "f"
-            await self.env.download_file(req["path"], local)
+            await self.env.download_file(source, local)
             data = local.read_bytes()
         return {"ok": True, "data": base64.b64encode(data).decode()}
+
+    async def _resolve_symlink(self, path: str) -> str:
+        """Return the real path a file lives at.
+
+        `docker cp` copies a symlink as a symlink, so the copy dangles on the
+        host and reading it fails. Linux task images are full of symlinked
+        config (/etc/nginx/sites-enabled, /etc/alternatives), and the failure is
+        silent: the agent just sees a broken read tool and works around it.
+        Resolving first keeps read consistent with what bash sees.
+        """
+        p = shlex.quote(path)
+        r = await self._exec(
+            f'if command -v readlink >/dev/null 2>&1; then readlink -f -- {p} 2>/dev/null '
+            f'|| printf "%s" {p}; else printf "%s" {p}; fi',
+            timeout_sec=30,
+        )
+        resolved = (r.stdout or "").strip()
+        return resolved if r.return_code == 0 and resolved.startswith("/") else path
 
     async def _op_write_file(self, req: dict[str, Any]) -> dict[str, Any]:
         path = req["path"]
