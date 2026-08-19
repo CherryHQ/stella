@@ -96,10 +96,10 @@ func (h *harness) testGroupConcurrentCounting(t *testing.T) {
 	// Each model receives its own deterministic classifier/turn lane. The first
 	// accepted post is 1; the held peer's successor is scripted to post 2.
 	for _, model := range []string{modelA, modelB} {
-		fake.enqueueTextForModel(model, `{"act":true,"reason":"count"}`)
+		fake.setTriageForModel(model, true, "count")
 		fake.enqueueTextForModel(model, "1")
-		fake.enqueueTextForModel(model, `{"act":true,"reason":"continue"}`)
 		fake.enqueueTextForModel(model, "2")
+		fake.setTrailingTextForModel(model, "done counting")
 	}
 	a := h.createAgentNamedWithFast(t, ctx, providerID+"/"+modelA, providerID+"/"+modelA, "count-a-"+h.runID)
 	b := h.createAgentNamedWithFast(t, ctx, providerID+"/"+modelB, providerID+"/"+modelB, "count-b-"+h.runID)
@@ -148,7 +148,10 @@ func (h *harness) testGroupConcurrentCounting(t *testing.T) {
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatalf("counting posts 1/2=%d/%d: %v\n%s", ones, twos, ctx.Err(), h.proc.logTail(60))
+			var dispatches, posts string
+			_ = h.db.QueryRow(context.Background(), `SELECT COALESCE(string_agg(agent_id || '/' || status || '/trig' || trigger_seq || '/held' || COALESCE(held_up_to_seq, -1) || '/att' || attempt_count, ' | ' ORDER BY created_at), '') FROM ctx_group_dispatch WHERE group_id=$1`, groupID).Scan(&dispatches)
+			_ = h.db.QueryRow(context.Background(), `SELECT COALESCE(string_agg(seq || ':' || actor_type || ':' || actor_id || ':' || content, ' | ' ORDER BY seq), '') FROM ctx_group_message WHERE group_id=$1`, groupID).Scan(&posts)
+			t.Fatalf("counting posts 1/2=%d/%d: %v\nmessages=%s\ndispatches=%s\n%s", ones, twos, ctx.Err(), posts, dispatches, h.proc.logTail(60))
 		case <-deadline.C:
 		}
 	}
@@ -165,12 +168,15 @@ func (h *harness) testGroupWorkClaim(t *testing.T) {
 	// A is directly assigned. Its accepted post names B, so B's attempted claim
 	// runs after A's durable lease rather than racing the assignment itself.
 	fake.enqueueToolForModel(modelA, "toolu_claim_a", "group_claim", `{"key":"report","note":"write the report"}`)
-	fake.enqueueTextForModel(modelA, "I will write the report. @"+b)
-	// B's acknowledgement wakes A once. It is deliberately a clean triage skip,
-	// not another report turn.
-	fake.enqueueTextForModel(modelA, `{"act":false,"reason":"peer moved on"}`)
+	fake.setContinuationTextForModel(modelA, "I will write the report. @"+b)
+	// Both agents are driven by mentions here, so triage only decides the
+	// trailing wakes: neither may open a second report turn.
+	fake.setTriageForModel(modelA, false, "peer moved on")
+	fake.setTriageForModel(modelB, false, "peer moved on")
 	fake.enqueueToolForModel(modelB, "toolu_claim_b", "group_claim", `{"key":"report","note":"write the report"}`)
-	fake.enqueueTextForModel(modelB, "A owns the report, so I moved on.")
+	fake.setContinuationTextForModel(modelB, "A owns the report, so I moved on.")
+	fake.setTrailingTextForModel(modelA, "nothing further")
+	fake.setTrailingTextForModel(modelB, "nothing further")
 	groupID := h.createWebGroup(t, ctx, "claim-"+h.runID, a, b)
 	h.sendGroupMessage(t, ctx, groupID, "@"+a+" write the report")
 
@@ -212,8 +218,8 @@ func (h *harness) testGroupPingPongHardCap(t *testing.T) {
 	providerID := h.createFakeProviderNamed(t, ctx, fake.baseURL(), "group-ping-"+h.runID)
 	const modelA, modelB = "count-a", "count-b"
 	for _, model := range []string{modelA, modelB} {
+		fake.setTriageForModel(model, true, "reply")
 		for i := range 8 {
-			fake.enqueueTextForModel(model, `{"act":true,"reason":"reply"}`)
 			fake.enqueueTextForModel(model, fmt.Sprintf("%s-%d", model, i))
 		}
 	}
@@ -275,8 +281,11 @@ func (h *harness) testGroupPingPongHardCap(t *testing.T) {
 	beforeCalls := fake.requestCount()
 	h.sendGroupMessage(t, ctx, groupID, "human reset")
 	waitAgentPosts(2)
-	if calls := fake.requestCount() - beforeCalls; calls > 4 {
-		t.Fatalf("post-reset triage/model calls=%d, want <=4", calls)
+	// Both members classify the reset, both may still be under the cap when they
+	// do, and each accepted post wakes the peer once more: two triage calls, two
+	// turns, two triage calls. Anything above that is an unbounded chain.
+	if calls := fake.requestCount() - beforeCalls; calls > 6 {
+		t.Fatalf("post-reset triage/model calls=%d, want <=6", calls)
 	}
 	fake.discardModelScripts()
 }
