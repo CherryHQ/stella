@@ -213,6 +213,23 @@ WHERE id = sqlc.arg(id)
   AND status = 'running'
   AND attempt_count = sqlc.arg(attempt_count);
 
+-- name: MarkGroupDispatchPublishStarted :execrows
+-- Committed before the side effect so a crash is distinguishable from a publish
+-- that never began. Cleared again when the publisher returns a real error.
+UPDATE ctx_group_dispatch
+SET publish_started_at = now(),
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND status = 'running'
+  AND attempt_count = sqlc.arg(attempt_count);
+
+-- name: ClearGroupDispatchPublishStarted :execrows
+UPDATE ctx_group_dispatch
+SET publish_started_at = NULL,
+    updated_at = now()
+WHERE id = sqlc.arg(id)
+  AND attempt_count = sqlc.arg(attempt_count);
+
 -- name: MarkGroupDispatchPublished :execrows
 UPDATE ctx_group_dispatch
 SET published_at = now(),

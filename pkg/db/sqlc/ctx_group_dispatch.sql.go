@@ -24,7 +24,7 @@ WHERE id = $2
   AND status = 'running'
   AND lease_until IS NOT NULL
   AND lease_until <= $3
-RETURNING id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, published_at
+RETURNING id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, publish_started_at, published_at
 `
 
 type ClaimExpiredGroupDispatchParams struct {
@@ -53,6 +53,7 @@ func (q *Queries) ClaimExpiredGroupDispatch(ctx context.Context, arg ClaimExpire
 		&i.Kind,
 		&i.TriggerSeq,
 		&i.HeldUpToSeq,
+		&i.PublishStartedAt,
 		&i.PublishedAt,
 	)
 	return i, err
@@ -118,7 +119,7 @@ SET status = 'running',
     last_error = '',
     updated_at = now()
 WHERE dispatch.id = (SELECT id FROM newest)
-RETURNING dispatch.id, dispatch.group_message_id, dispatch.group_id, dispatch.agent_id, dispatch.reply_channel_id, dispatch.status, dispatch.attempt_count, dispatch.lease_until, dispatch.next_attempt_at, dispatch.last_error, dispatch.result_message_id, dispatch.created_at, dispatch.updated_at, dispatch.kind, dispatch.trigger_seq, dispatch.held_up_to_seq, dispatch.published_at
+RETURNING dispatch.id, dispatch.group_message_id, dispatch.group_id, dispatch.agent_id, dispatch.reply_channel_id, dispatch.status, dispatch.attempt_count, dispatch.lease_until, dispatch.next_attempt_at, dispatch.last_error, dispatch.result_message_id, dispatch.created_at, dispatch.updated_at, dispatch.kind, dispatch.trigger_seq, dispatch.held_up_to_seq, dispatch.publish_started_at, dispatch.published_at
 `
 
 type ClaimNewestGroupWakeParams struct {
@@ -155,6 +156,7 @@ func (q *Queries) ClaimNewestGroupWake(ctx context.Context, arg ClaimNewestGroup
 		&i.Kind,
 		&i.TriggerSeq,
 		&i.HeldUpToSeq,
+		&i.PublishStartedAt,
 		&i.PublishedAt,
 	)
 	return i, err
@@ -171,7 +173,7 @@ SET status = 'running',
 WHERE id = $2
   AND status = 'pending'
   AND (next_attempt_at IS NULL OR next_attempt_at <= $3)
-RETURNING id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, published_at
+RETURNING id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, publish_started_at, published_at
 `
 
 type ClaimPendingGroupDispatchParams struct {
@@ -200,9 +202,31 @@ func (q *Queries) ClaimPendingGroupDispatch(ctx context.Context, arg ClaimPendin
 		&i.Kind,
 		&i.TriggerSeq,
 		&i.HeldUpToSeq,
+		&i.PublishStartedAt,
 		&i.PublishedAt,
 	)
 	return i, err
+}
+
+const clearGroupDispatchPublishStarted = `-- name: ClearGroupDispatchPublishStarted :execrows
+UPDATE ctx_group_dispatch
+SET publish_started_at = NULL,
+    updated_at = now()
+WHERE id = $1
+  AND attempt_count = $2
+`
+
+type ClearGroupDispatchPublishStartedParams struct {
+	ID           string `json:"id"`
+	AttemptCount int64  `json:"attempt_count"`
+}
+
+func (q *Queries) ClearGroupDispatchPublishStarted(ctx context.Context, arg ClearGroupDispatchPublishStartedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, clearGroupDispatchPublishStarted, arg.ID, arg.AttemptCount)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const countGroupDispatchByMessage = `-- name: CountGroupDispatchByMessage :one
@@ -369,7 +393,7 @@ func (q *Queries) ExtendRunningGroupDispatchLease(ctx context.Context, arg Exten
 }
 
 const getGroupDispatch = `-- name: GetGroupDispatch :one
-SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, published_at FROM ctx_group_dispatch WHERE id = $1
+SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, publish_started_at, published_at FROM ctx_group_dispatch WHERE id = $1
 `
 
 func (q *Queries) GetGroupDispatch(ctx context.Context, id string) (CtxGroupDispatch, error) {
@@ -392,13 +416,14 @@ func (q *Queries) GetGroupDispatch(ctx context.Context, id string) (CtxGroupDisp
 		&i.Kind,
 		&i.TriggerSeq,
 		&i.HeldUpToSeq,
+		&i.PublishStartedAt,
 		&i.PublishedAt,
 	)
 	return i, err
 }
 
 const listExpiredRunningGroupDispatch = `-- name: ListExpiredRunningGroupDispatch :many
-SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, published_at FROM ctx_group_dispatch
+SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, publish_started_at, published_at FROM ctx_group_dispatch
 WHERE status = 'running'
   AND lease_until IS NOT NULL
   AND lease_until <= $1
@@ -437,6 +462,7 @@ func (q *Queries) ListExpiredRunningGroupDispatch(ctx context.Context, arg ListE
 			&i.Kind,
 			&i.TriggerSeq,
 			&i.HeldUpToSeq,
+			&i.PublishStartedAt,
 			&i.PublishedAt,
 		); err != nil {
 			return nil, err
@@ -450,7 +476,7 @@ func (q *Queries) ListExpiredRunningGroupDispatch(ctx context.Context, arg ListE
 }
 
 const listPendingGroupNudges = `-- name: ListPendingGroupNudges :many
-SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, published_at
+SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, publish_started_at, published_at
 FROM ctx_group_dispatch
 WHERE kind = 'nudge'
   AND status = 'pending'
@@ -492,6 +518,7 @@ func (q *Queries) ListPendingGroupNudges(ctx context.Context, arg ListPendingGro
 			&i.Kind,
 			&i.TriggerSeq,
 			&i.HeldUpToSeq,
+			&i.PublishStartedAt,
 			&i.PublishedAt,
 		); err != nil {
 			return nil, err
@@ -505,7 +532,7 @@ func (q *Queries) ListPendingGroupNudges(ctx context.Context, arg ListPendingGro
 }
 
 const listPendingGroupWakePairs = `-- name: ListPendingGroupWakePairs :many
-SELECT DISTINCT ON (group_id, agent_id) id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, published_at
+SELECT DISTINCT ON (group_id, agent_id) id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, publish_started_at, published_at
 FROM ctx_group_dispatch
 WHERE kind = 'wake'
   AND status = 'pending'
@@ -547,6 +574,7 @@ func (q *Queries) ListPendingGroupWakePairs(ctx context.Context, arg ListPending
 			&i.Kind,
 			&i.TriggerSeq,
 			&i.HeldUpToSeq,
+			&i.PublishStartedAt,
 			&i.PublishedAt,
 		); err != nil {
 			return nil, err
@@ -629,6 +657,30 @@ type MarkGroupDispatchHeldParams struct {
 
 func (q *Queries) MarkGroupDispatchHeld(ctx context.Context, arg MarkGroupDispatchHeldParams) (int64, error) {
 	result, err := q.db.Exec(ctx, markGroupDispatchHeld, arg.HeldUpToSeq, arg.ID, arg.AttemptCount)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const markGroupDispatchPublishStarted = `-- name: MarkGroupDispatchPublishStarted :execrows
+UPDATE ctx_group_dispatch
+SET publish_started_at = now(),
+    updated_at = now()
+WHERE id = $1
+  AND status = 'running'
+  AND attempt_count = $2
+`
+
+type MarkGroupDispatchPublishStartedParams struct {
+	ID           string `json:"id"`
+	AttemptCount int64  `json:"attempt_count"`
+}
+
+// Committed before the side effect so a crash is distinguishable from a publish
+// that never began. Cleared again when the publisher returns a real error.
+func (q *Queries) MarkGroupDispatchPublishStarted(ctx context.Context, arg MarkGroupDispatchPublishStartedParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markGroupDispatchPublishStarted, arg.ID, arg.AttemptCount)
 	if err != nil {
 		return 0, err
 	}

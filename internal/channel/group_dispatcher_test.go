@@ -1042,6 +1042,60 @@ func TestGroupDispatcherRepublishesAcceptedResultDespiteHardCap(t *testing.T) {
 	}
 }
 
+// A publisher that returns an error told us the outcome; a crash does not. The
+// start marker is what separates the two on recovery, so it must be cleared on
+// the first and survive the second.
+func TestPublishStartMarkerClearedOnReturnedError(t *testing.T) {
+	ctx := context.Background()
+	fx := newDispatcherFixture(t, "web", `{}`)
+	publisher := &recordingGroupPublisher{err: errors.New("boom")}
+	fx.d.publishers.Register("ch-1", publisher)
+	if err := fx.q.CreateGroupDispatch(ctx, sqlc.CreateGroupDispatchParams{
+		ID:             "d15a0000-0000-0000-0000-000000000041",
+		GroupMessageID: fx.message.ID,
+		GroupID:        fx.groupID,
+		AgentID:        "agent-1",
+		ReplyChannelID: "ch-1",
+		Status:         "pending",
+		LastError:      "",
+	}); err != nil {
+		t.Fatalf("create dispatch: %v", err)
+	}
+	dispatch, err := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000041")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.d.ExecuteDispatch(ctx, dispatch); err == nil {
+		t.Fatal("expected publisher error")
+	}
+	dispatch, err = fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000041")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dispatch.PublishStartedAt.Valid {
+		t.Fatalf("publish_started_at = %v, want cleared after a returned error", dispatch.PublishStartedAt)
+	}
+
+	publisher.err = nil
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET next_attempt_at = NULL WHERE id = $1`, dispatch.ID); err != nil {
+		t.Fatal(err)
+	}
+	dispatch, err = fx.q.GetGroupDispatch(ctx, dispatch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.d.ExecuteDispatch(ctx, dispatch); err != nil {
+		t.Fatalf("retry dispatch: %v", err)
+	}
+	dispatch, err = fx.q.GetGroupDispatch(ctx, dispatch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dispatch.PublishStartedAt.Valid || !dispatch.PublishedAt.Valid {
+		t.Fatalf("started=%v published=%v, want both recorded after delivery", dispatch.PublishStartedAt.Valid, dispatch.PublishedAt.Valid)
+	}
+}
+
 func TestGroupDispatcherWritebackFailureLeavesResultEmptyAndRequeues(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	publisher := &recordingGroupPublisher{}

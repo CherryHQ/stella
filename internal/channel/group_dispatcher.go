@@ -1016,6 +1016,18 @@ func (d *GroupDispatcher) publishAcceptedWithEnvelope(ctx context.Context, row s
 		}
 	}
 	sessionKey := agent.BuildGroupSessionKey(row.AgentID, row.GroupID)
+	if row.ResultMessageID != "" {
+		if row.PublishStartedAt.Valid {
+			// The previous attempt reached the platform and never reported back,
+			// so this reply may already be visible. Chosen deliberately: a group
+			// assistant that repeats itself is recoverable, one that silently
+			// drops an answer is not. Platform-side dedup needs an idempotency
+			// key the channel APIs do not offer today.
+			d.log.Warn("republishing an accepted group reply whose delivery outcome is unknown", "dispatch_id", row.ID, "result_message_id", row.ResultMessageID, "upgrade_trigger", "per-platform idempotency keys would remove the duplicate")
+		} else if _, err := d.q.MarkGroupDispatchPublishStarted(ctx, sqlc.MarkGroupDispatchPublishStartedParams{ID: row.ID, AttemptCount: row.AttemptCount}); err != nil {
+			return d.failDispatch(ctx, row, fmt.Errorf("mark publish started: %w", err))
+		}
+	}
 	err := publisher.Publish(ctx, GroupPublishRequest{
 		GroupID: row.GroupID, AgentID: row.AgentID, AgentName: agentName,
 		ReplyChannelID: row.ReplyChannelID, Platform: state.Platform,
@@ -1028,6 +1040,11 @@ func (d *GroupDispatcher) publishAcceptedWithEnvelope(ctx context.Context, row s
 		AcceptedMessageSeq: accepted.Seq,
 	})
 	if err != nil {
+		// A returned error is an outcome: the next attempt is an ordinary retry,
+		// not a recovery from an unknown state.
+		if _, clearErr := d.q.ClearGroupDispatchPublishStarted(ctx, sqlc.ClearGroupDispatchPublishStartedParams{ID: row.ID, AttemptCount: row.AttemptCount}); clearErr != nil {
+			d.log.Warn("clear publish start marker failed", "dispatch_id", row.ID, "error", clearErr)
+		}
 		if row.AttemptCount >= d.maxAttempts && row.ResultMessageID != "" {
 			return d.failAcceptedPublish(ctx, row, fmt.Errorf("publish: %w", err))
 		}

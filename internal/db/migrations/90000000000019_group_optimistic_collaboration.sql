@@ -14,10 +14,14 @@ ALTER TABLE ctx_group_message
 
 -- Existing rows adopt the wake default: routing decided before this migration
 -- is re-decided by per-agent triage, and live leases keep running.
+-- publish_started_at separates "publish never ran" from "publish ran and we
+-- never saw its outcome". Only the second is ambiguous after a crash, and the
+-- recovery path chooses a possible duplicate over a lost reply there.
 ALTER TABLE ctx_group_dispatch
     ADD COLUMN kind TEXT NOT NULL DEFAULT 'wake',
     ADD COLUMN trigger_seq BIGINT,
     ADD COLUMN held_up_to_seq BIGINT,
+    ADD COLUMN publish_started_at TIMESTAMPTZ,
     ADD COLUMN published_at TIMESTAMPTZ;
 
 UPDATE ctx_group_dispatch AS dispatch
@@ -89,6 +93,7 @@ DROP FUNCTION ctx_group_chain_root(UUID, TEXT, BIGINT);
 DROP INDEX idx_ctx_group_dispatch_wake_newest;
 ALTER TABLE ctx_group_dispatch
     DROP COLUMN published_at,
+    DROP COLUMN publish_started_at,
     DROP COLUMN held_up_to_seq,
     DROP COLUMN trigger_seq,
     DROP COLUMN kind;

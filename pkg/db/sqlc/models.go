@@ -412,23 +412,24 @@ type CtxGroupClaim struct {
 }
 
 type CtxGroupDispatch struct {
-	ID              string             `json:"id"`
-	GroupMessageID  string             `json:"group_message_id"`
-	GroupID         string             `json:"group_id"`
-	AgentID         string             `json:"agent_id"`
-	ReplyChannelID  string             `json:"reply_channel_id"`
-	Status          string             `json:"status"`
-	AttemptCount    int64              `json:"attempt_count"`
-	LeaseUntil      pgtype.Timestamptz `json:"lease_until"`
-	NextAttemptAt   pgtype.Timestamptz `json:"next_attempt_at"`
-	LastError       string             `json:"last_error"`
-	ResultMessageID string             `json:"result_message_id"`
-	CreatedAt       time.Time          `json:"created_at"`
-	UpdatedAt       time.Time          `json:"updated_at"`
-	Kind            string             `json:"kind"`
-	TriggerSeq      int64              `json:"trigger_seq"`
-	HeldUpToSeq     pgtype.Int8        `json:"held_up_to_seq"`
-	PublishedAt     pgtype.Timestamptz `json:"published_at"`
+	ID               string             `json:"id"`
+	GroupMessageID   string             `json:"group_message_id"`
+	GroupID          string             `json:"group_id"`
+	AgentID          string             `json:"agent_id"`
+	ReplyChannelID   string             `json:"reply_channel_id"`
+	Status           string             `json:"status"`
+	AttemptCount     int64              `json:"attempt_count"`
+	LeaseUntil       pgtype.Timestamptz `json:"lease_until"`
+	NextAttemptAt    pgtype.Timestamptz `json:"next_attempt_at"`
+	LastError        string             `json:"last_error"`
+	ResultMessageID  string             `json:"result_message_id"`
+	CreatedAt        time.Time          `json:"created_at"`
+	UpdatedAt        time.Time          `json:"updated_at"`
+	Kind             string             `json:"kind"`
+	TriggerSeq       int64              `json:"trigger_seq"`
+	HeldUpToSeq      pgtype.Int8        `json:"held_up_to_seq"`
+	PublishStartedAt pgtype.Timestamptz `json:"publish_started_at"`
+	PublishedAt      pgtype.Timestamptz `json:"published_at"`
 }
 
 type CtxGroupIngestCursor struct {
