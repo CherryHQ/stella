@@ -53,6 +53,7 @@ type result struct {
 	TimedOut                bool           `json:"timed_out"`
 	StreamErrors            []string       `json:"stream_errors,omitempty"`
 	StreamEvents            int            `json:"stream_events"`
+	Metrics                 metrics        `json:"metrics"`
 	FailureClass            string         `json:"failure_class,omitempty"`
 	Errors                  []string       `json:"errors,omitempty"`
 }
@@ -251,26 +252,22 @@ func stopAndConfirm(ctx context.Context, c apiClient, agentID, sessionID string)
 
 func collectEvidence(ctx context.Context, c apiClient, agentID, sessionID string, out *result) error {
 	var messages struct {
-		Messages []struct {
-			TokenCount int64 `json:"token_count"`
-			Blocks     []struct {
-				Type      string         `json:"type"`
-				Name      string         `json:"name"`
-				Arguments map[string]any `json:"arguments"`
-			} `json:"blocks"`
-		} `json:"messages"`
+		Messages []sessionMessage `json:"messages"`
 	}
 	if err := c.call(ctx, http.MethodGet, "/api/agents/"+agentID+"/sessions/"+sessionID+"/messages?limit=500", nil, &messages); err != nil {
 		return err
 	}
-	for _, m := range messages.Messages {
-		out.TokenCount += m.TokenCount
-		for _, b := range m.Blocks {
-			if b.Type == "tool_call" && b.Name != "" {
-				out.ToolCalls[b.Name]++
-				out.StellaToolCalls = append(out.StellaToolCalls, toolCall{Name: b.Name, Arguments: b.Arguments})
-			}
-		}
+	m, calls := deriveMetrics(messages.Messages)
+	// Preserve the timing the driver measured itself; deriveMetrics only knows
+	// what the message timeline shows.
+	m.Timing.TotalMs, m.Timing.ProvisionMs = out.Metrics.Timing.TotalMs, out.Metrics.Timing.ProvisionMs
+	m.Timing.SetupMs, m.Timing.TurnMs = out.Metrics.Timing.SetupMs, out.Metrics.Timing.TurnMs
+	m.Timing.StopMs, m.Timing.ExportMs = out.Metrics.Timing.StopMs, out.Metrics.Timing.ExportMs
+	out.Metrics = m
+	out.StellaToolCalls = calls
+	out.TokenCount = m.Tokens.Total
+	for _, name := range toolNames(m.Tools) {
+		out.ToolCalls[name] = m.Tools[name].Calls
 	}
 	return nil
 }
@@ -290,8 +287,20 @@ func run() int {
 	flag.Parse()
 	r := result{ToolCalls: map[string]int{}}
 	start := time.Now()
+	// Phase boundaries are measured here rather than inferred from the message
+	// timeline: a reviewer needs to see whether a slow trial was the model, a
+	// tool, or Stella's own setup.
+	mark := start
+	// Accumulates, so a phase entered twice (the turn stream, then the terminal
+	// wait) reports its total instead of only the last leg.
+	phase := func(into *int64) {
+		now := time.Now()
+		*into += now.Sub(mark).Milliseconds()
+		mark = now
+	}
 	defer func() {
 		r.ElapsedSec = time.Since(start).Seconds()
+		r.Metrics.Timing.TotalMs = time.Since(start).Milliseconds()
 		data, _ := json.MarshalIndent(r, "", "  ")
 		if output == "" {
 			fmt.Println(string(data))
@@ -352,6 +361,7 @@ func run() int {
 		return exitAdapter
 	}
 	r.UserID = identity.ID
+	phase(&r.Metrics.Timing.ProvisionMs)
 	bindingPath, err := writeBinding(bindingDir, r.UserID, b)
 	if err != nil {
 		r.Errors = append(r.Errors, "write binding: "+err.Error())
@@ -425,14 +435,17 @@ func run() int {
 		return exitAdapter
 	}
 	r.SessionID = session.ID
+	phase(&r.Metrics.Timing.SetupMs)
 	turnCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 	r.StreamEvents, r.StreamErrors, err = streamUser.streamTurn(turnCtx, r.AgentID, r.SessionID, string(instruction))
+	phase(&r.Metrics.Timing.TurnMs)
 	if errors.Is(err, context.DeadlineExceeded) {
 		r.TimedOut = true
 		terminalCtx, terminalCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		waitErr := stopAndConfirm(terminalCtx, user, r.AgentID, r.SessionID)
 		terminalCancel()
+		phase(&r.Metrics.Timing.StopMs)
 		if waitErr != nil {
 			r.Errors = append(r.Errors, "confirm terminal after timeout: "+waitErr.Error())
 			r.FailureClass = "adapter"
@@ -440,20 +453,24 @@ func run() int {
 		}
 		r.TurnTerminalState = "stopped"
 		_ = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, &r)
+		phase(&r.Metrics.Timing.ExportMs)
 		return exitTimeout
 	}
 	if err != nil {
 		r.Errors = append(r.Errors, "send instruction: "+err.Error())
 		r.FailureClass = "product"
 		_ = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, &r)
+		phase(&r.Metrics.Timing.ExportMs)
 		return exitProduct
 	}
 	state, err := waitForTerminal(turnCtx, user, r.AgentID, r.SessionID)
+	phase(&r.Metrics.Timing.TurnMs)
 	if errors.Is(err, context.DeadlineExceeded) {
 		r.TimedOut = true
 		terminalCtx, terminalCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		waitErr := stopAndConfirm(terminalCtx, user, r.AgentID, r.SessionID)
 		terminalCancel()
+		phase(&r.Metrics.Timing.StopMs)
 		if waitErr != nil {
 			r.Errors = append(r.Errors, "confirm terminal after timeout: "+waitErr.Error())
 			r.FailureClass = "adapter"
@@ -461,6 +478,7 @@ func run() int {
 		}
 		r.TurnTerminalState = "stopped"
 		_ = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, &r)
+		phase(&r.Metrics.Timing.ExportMs)
 		return exitTimeout
 	}
 	if err != nil {
@@ -469,7 +487,9 @@ func run() int {
 		return exitAdapter
 	}
 	r.TurnTerminalState = state
-	if err := collectEvidence(context.Background(), user, r.AgentID, r.SessionID, &r); err != nil {
+	err = collectEvidence(context.Background(), user, r.AgentID, r.SessionID, &r)
+	phase(&r.Metrics.Timing.ExportMs)
+	if err != nil {
 		r.Errors = append(r.Errors, "collect evidence: "+err.Error())
 		r.FailureClass = "adapter"
 		return exitAdapter

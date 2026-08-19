@@ -55,6 +55,20 @@ Set `HARBOR_AGENT_TIMEOUT_SEC` to a small value (for example 20) to exercise the
 deadline path: the driver must call stop, the turn must end `stopped`, and Harbor
 must still run the verifier.
 
+Read the job as a table:
+
+```bash
+uv run --project test/evals/harbor python -m stella_harbor.report dist/evals/jobs/regex-log-stella
+```
+
+It prints one row per trial (reward, validity, terminal state, wall/model/tool/
+bridge time, turns, tool calls, tool errors, tokens), the scoreable count and
+mean reward, every predicate violation, and a per-tool cost table. `model` is
+the time the model held between messages, `tool` is measured from the message
+timeline and so includes Stella's dispatch overhead, and `bridge` is the time
+actually spent inside the trial container. Token counts are what the sessions
+API exposes: one number per message, with no provider input/output split.
+
 Inspect the job's `result.json` and `<trial>/agent/stella/result.json`. A valid
 trial has a Harbor verifier result, an adapter result, `valid: true`, a matching
 bridge nonce, terminal turn state, and no predicate violations. `valid: false`

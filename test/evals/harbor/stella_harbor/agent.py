@@ -26,6 +26,28 @@ def _ledger(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
+def bridge_stats(ledger: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize time actually spent inside the trial container.
+
+    This is the authoritative in-container cost. The driver's tool timing is
+    measured from message timestamps and therefore also carries Stella's own
+    dispatch overhead; the difference between the two is that overhead.
+    """
+    ops: dict[str, dict[str, Any]] = {}
+    total = 0
+    for entry in ledger:
+        op = entry.get("op") or "unknown"
+        elapsed = int(entry.get("elapsed_ms") or 0)
+        stat = ops.setdefault(op, {"calls": 0, "total_ms": 0, "max_ms": 0, "failures": 0})
+        stat["calls"] += 1
+        stat["total_ms"] += elapsed
+        stat["max_ms"] = max(stat["max_ms"], elapsed)
+        if not entry.get("ok"):
+            stat["failures"] += 1
+        total += elapsed
+    return {"total_ms": total, "operations": ops}
+
+
 def _path(arguments: dict[str, Any]) -> str | None:
     for name in ("path", "file_path", "filePath"):
         value = arguments.get(name)
@@ -148,6 +170,7 @@ class StellaAgent(BaseInstalledAgent):
         result = json.loads(result_path.read_text())
         ledger = _ledger(trial_dir / "bridge-ledger.jsonl")
         violations = verify_evidence(result, ledger, binding.nonce)
+        result.setdefault("metrics", {})["bridge"] = bridge_stats(ledger)
         result["bridge_ledger"] = ledger
         result["valid"] = not violations
         result["predicate_violations"] = violations
