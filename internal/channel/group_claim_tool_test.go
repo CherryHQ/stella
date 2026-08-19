@@ -8,19 +8,34 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
+	"github.com/CherryHQ/stella/pkg/tools"
 )
 
 func claimContext(groupID, agentID string) context.Context {
 	return authz.WithAgentID(authz.WithGroupID(context.Background(), groupID), agentID)
 }
 
+// groupTool looks a claim tool up by the name the model uses, so a change in
+// registration order cannot silently point a test at the wrong tool.
+func groupTool(t *testing.T, db *pgxpool.Pool, name string) tools.Tool {
+	t.Helper()
+	for _, tool := range NewGroupClaimTools(db).Tools() {
+		if tool.Definition().Name == name {
+			return tool
+		}
+	}
+	t.Fatalf("group claim tool %q not registered", name)
+	return nil
+}
+
 func TestGroupClaimAtomicSingleWinner(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	addFixtureAgent(t, fx, "agent-2", "ch-2")
-	tools := NewGroupClaimTools(fx.db).Tools()
-	claim := tools[0]
+	claim := groupTool(t, fx.db, groupClaimToolName)
 	var wg sync.WaitGroup
 	results := make(chan bool, 2)
 	for _, agentID := range []string{"agent-1", "agent-2"} {
@@ -55,7 +70,7 @@ func TestGroupClaimAtomicSingleWinner(t *testing.T) {
 
 func TestGroupClaimTTLClamped(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
-	claim := NewGroupClaimTools(fx.db).Tools()[0]
+	claim := groupTool(t, fx.db, groupClaimToolName)
 	ctx := claimContext(fx.groupID, "agent-1")
 	if _, err := claim.Execute(ctx, map[string]any{"key": "report", "ttl_seconds": 1}); err != nil {
 		t.Fatal(err)
@@ -81,7 +96,7 @@ func TestGroupClaimTTLClamped(t *testing.T) {
 
 func TestOwnerReclaimRefreshesLease(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
-	claim := NewGroupClaimTools(fx.db).Tools()[0]
+	claim := groupTool(t, fx.db, groupClaimToolName)
 	ctx := claimContext(fx.groupID, "agent-1")
 	if _, err := claim.Execute(ctx, map[string]any{"key": "report", "ttl_seconds": 60.0}); err != nil {
 		t.Fatal(err)
@@ -105,11 +120,10 @@ func TestOwnerReclaimRefreshesLease(t *testing.T) {
 func TestGroupClaimNonOwnerReleaseRejected(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	addFixtureAgent(t, fx, "agent-2", "ch-2")
-	tools := NewGroupClaimTools(fx.db).Tools()
-	if _, err := tools[0].Execute(claimContext(fx.groupID, "agent-1"), map[string]any{"key": "report"}); err != nil {
+	if _, err := groupTool(t, fx.db, groupClaimToolName).Execute(claimContext(fx.groupID, "agent-1"), map[string]any{"key": "report"}); err != nil {
 		t.Fatal(err)
 	}
-	out, err := tools[1].Execute(claimContext(fx.groupID, "agent-2"), map[string]any{"key": "report"})
+	out, err := groupTool(t, fx.db, groupReleaseToolName).Execute(claimContext(fx.groupID, "agent-2"), map[string]any{"key": "report"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +138,7 @@ func TestGroupClaimNonOwnerReleaseRejected(t *testing.T) {
 func TestGroupClaimSimultaneousExpiryTakeoverSingleWinner(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	addFixtureAgent(t, fx, "agent-2", "ch-2")
-	claim := NewGroupClaimTools(fx.db).Tools()[0]
+	claim := groupTool(t, fx.db, groupClaimToolName)
 	if _, err := claim.Execute(claimContext(fx.groupID, "agent-1"), map[string]any{"key": "report"}); err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +178,7 @@ func TestGroupClaimSimultaneousExpiryTakeoverSingleWinner(t *testing.T) {
 
 func TestPromptForbidsChatTurnClaims(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
-	claim := NewGroupClaimTools(fx.db).Tools()[0]
+	claim := groupTool(t, fx.db, groupClaimToolName)
 	_, err := claim.Execute(claimContext(fx.groupID, "agent-1"), map[string]any{"key": "reply"})
 	if err == nil || !strings.Contains(err.Error(), "never an ordinary chat reply") {
 		t.Fatalf("chat-turn claim error=%v", err)
@@ -173,7 +187,7 @@ func TestPromptForbidsChatTurnClaims(t *testing.T) {
 
 func TestExpiredClaimHiddenFromTriageAndPrompt(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
-	claim := NewGroupClaimTools(fx.db).Tools()[0]
+	claim := groupTool(t, fx.db, groupClaimToolName)
 	if _, err := claim.Execute(claimContext(fx.groupID, "agent-1"), map[string]any{"key": "report", "note": "write it"}); err != nil {
 		t.Fatal(err)
 	}
@@ -185,5 +199,53 @@ func TestExpiredClaimHiddenFromTriageAndPrompt(t *testing.T) {
 	}
 	if got := NewGroupClaimPromptLoader(fx.db)(context.Background(), fx.groupID, "agent-2"); len(got) != 0 {
 		t.Fatalf("expired prompt claims=%v", got)
+	}
+}
+
+// The model sees a projection, not the row: uuids and lease plumbing cost
+// tokens and mean nothing to it, while the key must survive because that is
+// what group_release takes.
+func TestGroupClaimsToolProjectsRows(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	addFixtureAgent(t, fx, "agent-2", "ch-2")
+	claim := groupTool(t, fx.db, groupClaimToolName)
+	list := groupTool(t, fx.db, groupClaimsToolName)
+	if _, err := claim.Execute(claimContext(fx.groupID, "agent-2"), map[string]any{"key": "report", "note": "drafting the report"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := claim.Execute(claimContext(fx.groupID, "agent-1"), map[string]any{"key": "schema", "note": "schema work"}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := list.Execute(claimContext(fx.groupID, "agent-1"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Claims []struct {
+			Key     string `json:"key"`
+			Agent   string `json:"agent"`
+			Subject string `json:"subject"`
+			Age     string `json:"age"`
+			Mine    bool   `json:"mine"`
+		} `json:"claims"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("decode: %v (%s)", err, out)
+	}
+	if len(payload.Claims) != 2 {
+		t.Fatalf("claims=%d, want 2 (%s)", len(payload.Claims), out)
+	}
+	byKey := map[string]bool{}
+	for _, c := range payload.Claims {
+		byKey[c.Key] = c.Mine
+		if c.Agent == "" || c.Age == "" {
+			t.Fatalf("claim %+v missing projected owner or age", c)
+		}
+	}
+	if byKey["report"] || !byKey["schema"] {
+		t.Fatalf("mine flags = %+v, want only the caller's own schema claim marked", byKey)
+	}
+	if strings.Contains(out, "group_id") || strings.Contains(out, "lease_until") {
+		t.Fatalf("raw row plumbing leaked to the model: %s", out)
 	}
 }

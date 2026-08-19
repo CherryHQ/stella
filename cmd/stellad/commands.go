@@ -487,16 +487,17 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	mcpSvc := mcp.NewServiceForPool(db, mcpVault)
 
-	serviceTools := []agent.BuiltinTool{
-		{Tool: channel.NewGroupClaimTools(db).Tools()[0], Available: func(_ context.Context, params agent.RunnerParams) bool {
-			return params.GroupID != "" && params.AgentID != ""
-		}},
-		{Tool: channel.NewGroupClaimTools(db).Tools()[1], Available: func(_ context.Context, params agent.RunnerParams) bool {
-			return params.GroupID != "" && params.AgentID != ""
-		}},
-		{Tool: channel.NewGroupClaimTools(db).Tools()[2], Available: func(_ context.Context, params agent.RunnerParams) bool {
-			return params.GroupID != "" && params.AgentID != ""
-		}},
+	// The group claim tools share one availability rule and are registered as a
+	// set. Naming them by index meant three copies of that rule, three stores,
+	// and a silent mismatch the day the slice gained a fourth entry.
+	inGroupTurn := func(_ context.Context, params agent.RunnerParams) bool {
+		return params.GroupID != "" && params.AgentID != ""
+	}
+	var serviceTools []agent.BuiltinTool
+	for _, tool := range channel.NewGroupClaimTools(db).Tools() {
+		serviceTools = append(serviceTools, agent.BuiltinTool{Tool: tool, Available: inGroupTurn})
+	}
+	serviceTools = append(serviceTools, []agent.BuiltinTool{
 		{Tool: goal.NewTool(goalSvc), Available: agent.BuiltinToolAvailable},
 		{Tool: sessionaccess.NewTool(sessionAccess), Available: func(ctx context.Context, params agent.RunnerParams) bool {
 			return params.GroupID == "" && agent.BuiltinToolAvailable(ctx, params)
@@ -511,7 +512,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		{Tool: email.NewTool(emailSvc), Available: emailToolAvailable(vaultSvc)},
 		{Tool: sharepkg.NewTool(shareSvc), Available: agent.BuiltinToolAvailable},
 		{Tool: recally.NewTool(recallySvc), Available: agent.BuiltinToolAvailable},
-	}
+	}...)
 	if vaultSvc != nil {
 		serviceTools = append(serviceTools, agent.BuiltinTool{Tool: vault.NewTool(vaultSvc, credSvc), Available: agent.BuiltinToolAvailable})
 	}
