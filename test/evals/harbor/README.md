@@ -120,6 +120,22 @@ failure taxonomy and a public run log are built from, so it is stored verbatim
 rather than reshaped into the driver's own structs. A history that fills one
 page is recorded as `trajectory_truncated`.
 
+## Publishing a run
+
+`harbor upload <job>/<timestamp>` sends the whole trial directory to the Harbor
+platform. Uploads are private by default and become public only with
+`--public`; a public run is what a leaderboard comparison needs.
+
+What each trial publishes: `instruction.txt`, `result.json` (metrics, evidence
+verdict and the full bridge ledger), `bridge-ledger.jsonl`, `bundle.sha256`,
+`binding-template.json` and `trajectory.json`. A scan of a real trial finds no
+provisioning token and no provider API key; the only credential-shaped value is
+the per-trial bridge nonce, which authenticates to a Unix socket that is deleted
+when the trial ends and is therefore dead by upload time.
+
+The trajectory is the agent's full message history, so it contains whatever the
+task put in front of the agent. Read it before making a run public.
+
 Inspect the job's `result.json` and `<trial>/agent/stella/result.json`. A valid
 trial has a Harbor verifier result, an adapter result, `valid: true`, a matching
 bridge nonce, terminal turn state, and no predicate violations. `valid: false`
