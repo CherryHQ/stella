@@ -70,7 +70,6 @@ func resolvePlugin(rp rawManifestPlugin) ManifestPlugin {
 		Kind:                     rp.Kind,
 		Enabled:                  enabled,
 		Essential:                rp.Essential,
-		TenantManaged:            rp.TenantManaged,
 		ManifestPluginDefinition: rp.ManifestPluginDefinition,
 	}
 }

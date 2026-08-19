@@ -164,9 +164,7 @@ paths:
         names the definition fields this request takes ownership of: those keys
         are stored at the submitted values, every other field of the plugin keeps
         whatever ownership it already had, and unowned fields keep following the
-        definition the server ships. `kind`, `essential`, and `tenant_managed`
-        belong to the server and cannot be owned. Shipped plugins are release-managed
-        unless they opt into tenant control, and release-managed plugins reject all
+        definition the server ships. Builtin plugins are release-managed and reject
         definition changes. `enabled` is ignored for a builtin — the enable
         switch has its own operation. A plugin an admin added has no shipped
         definition underneath it, so the body is the whole plugin, `fields` does
@@ -226,8 +224,7 @@ paths:
       summary: Enable or disable one manifest plugin (admin only)
       description: >
         Turns the addressed plugin on or off without touching its definition.
-        Essential builtin plugins back core tools and cannot be disabled.
-        Release-managed plugins cannot be changed at all.
+        Builtin plugins are release-managed and cannot be changed.
       operationId: setManifestPluginEnabled
       requestBody:
         required: true
@@ -266,13 +263,12 @@ paths:
         schema: { type: string }
     post:
       tags: [plugins]
-      summary: Reset a builtin plugin to its shipped definition (admin only)
+      summary: Reset a manifest plugin definition (deprecated)
+      deprecated: true
       description: >
-        Hands a builtin's definition back to the running server: one field when
-        `field` names one, the whole definition otherwise. The enable switch is a
-        separate decision and is left alone. Release-managed plugins cannot be
-        reset because their stored overrides are ignored. A plugin an admin added has no
-        shipped definition to return to and is refused — delete it instead.
+        Deprecated compatibility endpoint. Builtin plugins are release-managed
+        and cannot be reset; an admin-added plugin has no shipped definition to
+        return to and must be removed instead.
       operationId: resetManifestPlugin
       requestBody:
         required: false

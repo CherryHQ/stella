@@ -6,7 +6,6 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -157,10 +156,9 @@ func (s overrideStore) ListManifestPluginOverrides(context.Context) ([]config.Ma
 }
 
 // Startup is what hands the plugin host its manifest and what the binary
-// reconcile installs from. Applying only the enable flag here — which is what it
-// used to do — made every definition customization and every admin-added plugin
-// evaporate on restart, while the settings page kept showing the merged view.
-func TestStartupResolvesDefinitionOverridesAndAddedPlugins(t *testing.T) {
+// reconcile installs from. A stored row may define an admin-added plugin, but
+// it must not replace or hide a shipped tool after an upgrade.
+func TestStartupIgnoresBuiltinOverridesAndLoadsAddedPlugins(t *testing.T) {
 	ctx := context.Background()
 	disabled := false
 	store := overrideStore{rows: []config.ManifestPluginOverride{
@@ -181,14 +179,14 @@ func TestStartupResolvesDefinitionOverridesAndAddedPlugins(t *testing.T) {
 		byID[p.ID] = p
 	}
 
-	if got := byID["tool/x"]; got.DisplayName != "X (ours)" || !slices.Equal(got.OverriddenFields, []string{"display_name"}) {
-		t.Errorf("customized builtin = %q (overridden=%v), want the stored edit", got.DisplayName, got.OverriddenFields)
+	if got := byID["tool/x"]; got.DisplayName != "X (Twitter)" || len(got.OverriddenFields) != 0 {
+		t.Errorf("builtin = %q (overridden=%v), want the shipped definition", got.DisplayName, got.OverriddenFields)
 	}
 	if got, ok := byID["tool/my-cli"]; !ok || got.DisplayName != "My CLI" {
 		t.Errorf("admin-added plugin missing from the startup manifest: %#v", got)
 	}
-	if got := byID["tool/x"]; got.Enabled {
-		t.Error("the enable override stopped being applied")
+	if got := byID["tool/x"]; !got.Enabled {
+		t.Error("the builtin enable override must be ignored")
 	}
 }
 

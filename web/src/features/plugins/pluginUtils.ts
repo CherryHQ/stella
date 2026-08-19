@@ -291,12 +291,10 @@ export function pluginIsEssential(plugin: PluginWithMeta): boolean {
   return !!plugin._manifestPlugin?.essential;
 }
 
-// pluginIsReleaseManaged identifies a shipped plugin that did not opt into
-// tenant control. Admin-added plugins have no shipped definition and are
-// tenant-managed by construction.
+// pluginIsReleaseManaged identifies a plugin Stella shipped as part of its
+// release contract. Admin-added plugins have no shipped definition.
 export function pluginIsReleaseManaged(plugin: PluginWithMeta): boolean {
-  const manifest = plugin._manifestPlugin;
-  return !!manifest?.builtin && !manifest.tenant_managed;
+  return !!plugin._manifestPlugin?.builtin;
 }
 
 // pluginIsRemovable reports whether a plugin can be deleted: only one an admin

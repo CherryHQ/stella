@@ -23,11 +23,6 @@ type ManifestPlugin struct {
 	// Grep/Glob tools). It is shipped server policy, not editable definition.
 	Essential bool `json:"essential,omitempty" yaml:"essential,omitempty"`
 
-	// TenantManaged opts a shipped plugin into tenant control. Builtin manifest
-	// plugins are release-managed by default so a newly shipped system tool
-	// cannot accidentally become mutable; admin-added plugins are always tenant-managed.
-	TenantManaged bool `json:"tenant_managed,omitempty" yaml:"tenant_managed,omitempty"`
-
 	ManifestPluginDefinition `yaml:",inline"`
 
 	// Builtin marks a plugin that ships with the server. It is computed when the
@@ -100,7 +95,6 @@ type rawManifestPlugin struct {
 	Kind                     string `yaml:"kind"`
 	Enabled                  *bool  `yaml:"enabled"`
 	Essential                bool   `yaml:"essential,omitempty"`
-	TenantManaged            bool   `yaml:"tenant_managed,omitempty"`
 	ManifestPluginDefinition `yaml:",inline"`
 }
 

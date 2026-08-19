@@ -39,30 +39,8 @@ func Resolve(builtin *Manifest, overrides []StoredOverride, onCorrupt func(plugi
 		id := builtin.Plugins[i].ID
 		seen[id] = true
 		builtin.Plugins[i].Builtin = true
-		// Builtins are release-managed unless their shipped definition opts into
-		// tenant control. Historical override rows stay harmless after an upgrade
-		// instead of hiding a tool that sessions need across every backend.
-		if !builtin.Plugins[i].TenantManaged {
-			continue
-		}
-		ov, ok := byID[id]
-		if !ok {
-			continue
-		}
-		if ov.Config != "" {
-			merged, err := ApplyOverride(builtin.Plugins[i], ov.Config)
-			if err != nil {
-				onCorrupt(id, err)
-			} else if owned, err := OwnedFields(ov.Config); err != nil {
-				onCorrupt(id, err)
-			} else {
-				merged.OverriddenFields = owned
-				builtin.Plugins[i] = merged
-			}
-		}
-		if ov.Enabled != nil {
-			builtin.Plugins[i].Enabled = *ov.Enabled
-		}
+		// A builtin is part of Stella's release contract. Ignore historical
+		// override rows so they cannot hide a tool or desynchronize its runtime.
 	}
 
 	// A row with no builtin behind it is a plugin an admin added; its definition

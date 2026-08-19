@@ -63,12 +63,11 @@ describe("pluginIsCustomized", () => {
 });
 
 describe("pluginIsReleaseManaged", () => {
-  it("defaults shipped manifest tools to release ownership", () => {
+  it("identifies shipped manifest tools", () => {
     expect(pluginIsReleaseManaged(plugin({ builtin: true }))).toBe(true);
   });
 
-  it("recognizes tenant-managed and admin-added plugins", () => {
-    expect(pluginIsReleaseManaged(plugin({ builtin: true, tenant_managed: true }))).toBe(false);
+  it("does not infer release ownership for admin-added plugins", () => {
     expect(pluginIsReleaseManaged(plugin({ builtin: false }))).toBe(false);
     expect(pluginIsReleaseManaged(plugin(null))).toBe(false);
   });

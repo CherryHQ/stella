@@ -121,10 +121,6 @@ components:
         essential:
           type: boolean
           description: Server policy indicating that the plugin cannot be disabled.
-        tenant_managed:
-          type: boolean
-          readOnly: true
-          description: Whether a shipped plugin opts into tenant control. Shipped plugins are release-managed by default.
         prompt: { type: string }
         binaries:
           type: array

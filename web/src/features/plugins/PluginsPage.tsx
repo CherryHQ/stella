@@ -312,12 +312,7 @@ export function AdminPluginsPage() {
     fields: ManifestPluginDefinitionField[],
     successMsg: string,
   ) {
-    const {
-      builtin,
-      overridden_fields: _overriddenFields,
-      tenant_managed: _tenantManaged,
-      ...plugin
-    } = next;
+    const { builtin, overridden_fields: _overriddenFields, ...plugin } = next;
     const replacement = {
       ...plugin,
       category: plugin.category ?? "",

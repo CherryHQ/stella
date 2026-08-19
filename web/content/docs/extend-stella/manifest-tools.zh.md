@@ -65,18 +65,19 @@ plugins:
 
 ## 插件字段
 
-| 字段             | 必填 | 描述                                                                                          |
-| ---------------- | ---- | --------------------------------------------------------------------------------------------- |
-| `id`             | 是   | 唯一插件 ID，格式为 `kind/name`，例如 `tool/my-cli`                                           |
-| `kind`           | 是   | 插件类型，通常为 `tool`                                                                       |
-| `name`           | 是   | 简短的机器可读名称                                                                            |
-| `display_name`   | 否   | 在管理界面显示的人类可读标签                                                                  |
-| `description`    | 否   | 在管理界面显示的简短描述                                                                      |
-| `enabled`        | 否   | 插件是否激活，默认为 false。内置插件默认为 true。                                             |
-| `tenant_managed` | 否   | 让随服务端发布的内置项交给租户管理。内置项默认由 release 管理，管理员新增工具始终由租户管理。 |
-| `binaries`       | 否   | 需要下载并放置到 `$STELLA_HOME/bin` 的 CLI 二进制文件                                         |
-| `session_env`    | 否   | 要注入沙箱会话的环境变量                                                                      |
-| `oauth_provider` | 否   | `oauth.*` 会话环境变量来源使用的静态 OAuth provider ID，例如 `github`                         |
+| 字段             | 必填 | 描述                                                                  |
+| ---------------- | ---- | --------------------------------------------------------------------- |
+| `id`             | 是   | 唯一插件 ID，格式为 `kind/name`，例如 `tool/my-cli`                   |
+| `kind`           | 是   | 插件类型，通常为 `tool`                                               |
+| `name`           | 是   | 简短的机器可读名称                                                    |
+| `display_name`   | 否   | 在管理界面显示的人类可读标签                                          |
+| `description`    | 否   | 在管理界面显示的简短描述                                              |
+| `enabled`        | 否   | 插件是否激活，默认为 false。内置插件默认为 true。                     |
+| `binaries`       | 否   | 需要下载并放置到 `$STELLA_HOME/bin` 的 CLI 二进制文件                 |
+| `session_env`    | 否   | 要注入沙箱会话的环境变量                                              |
+| `oauth_provider` | 否   | `oauth.*` 会话环境变量来源使用的静态 OAuth provider ID，例如 `github` |
+
+内置 manifest 插件随 Stella release 一起发布，只读不可修改。需要租户专属配置时，应新建独立插件。
 
 ## 二进制字段
 
