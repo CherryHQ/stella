@@ -1070,10 +1070,15 @@ func (d *GroupDispatcher) markAcceptedPublished(ctx context.Context, row sqlc.Ct
 	if updated == 0 {
 		return errors.New("mark dispatch published: lost dispatch ownership")
 	}
+	// Every platform gets the successor outbox: it is what wakes the peers, and
+	// without it agent-to-agent collaboration silently exists on web only. No
+	// platform echoes a bot's own message back through ingest, so this is the
+	// only path that carries an agent post to its peers. Chain length stays
+	// bounded by triage (agent_lap, agent_chain_hard_limit) and the accept caps.
+	if err := d.createAgentReplyOutbox(ctx, q, row); err != nil {
+		return err
+	}
 	if platform == "web" {
-		if err := d.createAgentReplyOutbox(ctx, q, row); err != nil {
-			return err
-		}
 		if err := tx.Commit(ctx); err != nil {
 			return fmt.Errorf("mark accepted publish: commit: %w", err)
 		}

@@ -889,6 +889,39 @@ func TestAgentReplyCreatesOutboxAfterPublish(t *testing.T) {
 	}
 }
 
+// Agent-to-agent collaboration must not be a web-only capability: no platform
+// echoes a bot's own message back through ingest, so the successor outbox is
+// the only thing that carries an agent post to its peers.
+func TestAgentReplyCreatesOutboxOnPlatformGroup(t *testing.T) {
+	ctx := context.Background()
+	fx := newDispatcherFixture(t, "telegram", "{}")
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-000000000096", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
+	row, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000096")
+	state, _ := fx.q.GetGroupStateByID(ctx, fx.groupID)
+	result, err := fx.d.acceptGroupResponse(ctx, row, state, groupResponse{text: "peer reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err = fx.q.GetGroupDispatch(ctx, row.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.d.markAcceptedPublished(ctx, row, state.Platform); err != nil {
+		t.Fatalf("mark accepted published: %v", err)
+	}
+	outbox, err := fx.q.GetGroupOutboxByMessage(ctx, result.Accepted.Message.ID)
+	if err != nil || outbox.Status != "pending" {
+		t.Fatalf("platform agent outbox=%+v err=%v", outbox, err)
+	}
+	message, err := fx.q.GetGroupMessage(ctx, result.Accepted.Message.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message.DeliveryState != "delivered" {
+		t.Fatalf("delivery_state = %q, want delivered", message.DeliveryState)
+	}
+}
+
 func TestGroupDispatcherResolvesEnvelopeMentionAtDispatch(t *testing.T) {
 	envelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{Raw: "@bot1", PlatformID: "bot1"}})
 	if err != nil {
