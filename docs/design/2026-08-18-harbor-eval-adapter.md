@@ -189,7 +189,7 @@ runner 通过**宿主** Home snapshot 读取 project 的 `AGENTS.md` 与 project
 第一版需要的内部参数,不进 `api/spec`:
 
 1. session 创建时携带 **bridge 绑定**:`{socket_path, nonce}`。缺一不可,`bridge` 后端对没有绑定的 session 拒绝创建。
-2. **usage 导出**。公开 session API 只有消息级 `token_count`(`api/spec/domain/sessions/schemas.yaml:298`),而且**它是 `memory.EstimateTokens` 的字符估算(`len/4`,`internal/memory/types.go:182`),不是 provider 的真实用量**,分不出 prompt/output/cache,也算不出成本。真实用量每次调用都在 `PostLLMCallContext`(`pkg/hooks/hook.go:112`)里,但只有 trace hook 消费后丢弃(`internal/observability/tracehook/llm.go:96`)。第一版因此不填 Harbor 的 `n_input_tokens` / `n_output_tokens` / `cost_usd`,报表只报标注为估算的 token,绝不由它推导成本。这是**已证明的 API 缺口**,已开 issue #1068 追踪;上排行榜(TB2 要求成本与 input/output 拆分,Harbor Hub 还要 cached,参考提交里 cached 占 85%)必须先解决它。
+2. **usage 导出**(已解决,#1068 / #1069)。公开 session API 原先只有消息级 `token_count`,而它是 `memory.EstimateTokens` 的字符估算(`len/4`,`internal/memory/types.go:182`),不是 provider 真实用量,分不出 prompt/output/cache,也算不出成本。现已新增 `agent_llm_call` 表与 `internal/llmusage` hook,把每次调用的真实用量落库并按配置费率在写入时冻结成本,driver 通过 `/api/agents/{id}/sessions/{id}/usage` 读取,报表直接呈现 input/output/cache 与 USD。实测一个 `regex-log` trial:真实 input 12,502 + output 2,391,成本 $0.0400,而同一 trial 的字符估算只有 546——差 27 倍,这正是当初拒绝用估算推导成本的理由。未上报或未定价一律渲染为 `-`,绝不显示 `$0.00`。估算值保留在 trial JSON 中,仅用于 trial 之间的相对比较。
 
 不做任何投机性的公共 API 扩张。
 
@@ -197,24 +197,24 @@ runner 通过**宿主** Home snapshot 读取 project 的 `AGENTS.md` 与 project
 
 每条结果必须记录:
 
-| 字段                                               | 来源                                                     |
-| -------------------------------------------------- | -------------------------------------------------------- |
-| `candidate_commit`                                 | 被测 stellad 的 git commit                               |
-| `benchmark` / `dataset_version`                    | Harbor dataset slug + 版本                               |
-| `task_id` / `run_id` / `trial_id`                  | Harbor trial 标识                                        |
-| `model_config_digest`                              | provider + model + 采样参数的稳定哈希                    |
-| `capability_profile_digest`                        | eval 能力档(启用工具、技能、助手包版本)的哈希            |
-| `bridge_nonce`                                     | 本 trial 的 bridge 标识                                  |
-| `bridge_ledger`                                    | bridge 侧记录的调用序列(类型、路径/命令摘要、时间戳)     |
-| `stella_tool_calls`                                | Stella 消息流中的工具调用序列                            |
-| `turn_terminal_state`                              | Stella session 的确认终态(completed / stopped / errored) |
-| `tokens` / `cost_usd`                              | 阻塞于 #1068;在此之前留空,不填估算值                     |
-| `elapsed_sec`                                      | run() 墙钟耗时                                           |
-| `workspace_diff`                                   | 容器内 workdir 的 `git diff` 或产物清单(经 bridge 导出)  |
-| `harbor_verifier_result` / `harbor_exception_info` | post-trial 从 Harbor result.json 合并;两者独立字段       |
-| `judge_diagnostics`                                | benchmark 原生判分输出,原样保留                          |
-| `failure_class`                                    | 见 §10                                                   |
-| `valid`                                            | 见下                                                     |
+| 字段                                               | 来源                                                                |
+| -------------------------------------------------- | ------------------------------------------------------------------- |
+| `candidate_commit`                                 | 被测 stellad 的 git commit                                          |
+| `benchmark` / `dataset_version`                    | Harbor dataset slug + 版本                                          |
+| `task_id` / `run_id` / `trial_id`                  | Harbor trial 标识                                                   |
+| `model_config_digest`                              | provider + model + 采样参数的稳定哈希                               |
+| `capability_profile_digest`                        | eval 能力档(启用工具、技能、助手包版本)的哈希                       |
+| `bridge_nonce`                                     | 本 trial 的 bridge 标识                                             |
+| `bridge_ledger`                                    | bridge 侧记录的调用序列(类型、路径/命令摘要、时间戳)                |
+| `stella_tool_calls`                                | Stella 消息流中的工具调用序列                                       |
+| `turn_terminal_state`                              | Stella session 的确认终态(completed / stopped / errored)            |
+| `tokens` / `cost_usd`                              | 填 provider 上报的真实用量(#1068);未上报或未定价则留空,永不填估算值 |
+| `elapsed_sec`                                      | run() 墙钟耗时                                                      |
+| `workspace_diff`                                   | 容器内 workdir 的 `git diff` 或产物清单(经 bridge 导出)             |
+| `harbor_verifier_result` / `harbor_exception_info` | post-trial 从 Harbor result.json 合并;两者独立字段                  |
+| `judge_diagnostics`                                | benchmark 原生判分输出,原样保留                                     |
+| `failure_class`                                    | 见 §10                                                              |
+| `valid`                                            | 见下                                                                |
 
 **pass 谓词(fail-closed)**:只有当下列全部为真,`reward = 1` 才可显示为 pass;否则记 `valid = false`,`failure_class = adapter`,reward 原样保留但不计入通过率:
 
@@ -345,3 +345,19 @@ session 携带的账号 id 查 binding。driver 因此在 provision 后用新 to
 掩盖了它。修复之外,ledger 里 `internal`/`bad_nonce` 类失败被单独汇总为
 `metrics.bridge.adapter_faults` 并在 report 里单列一行:它们是 harness bug,不是
 任务难度。
+
+`sandbox backend` 前置校验。driver 在 provision 用户之前先读 `/api/status`,
+`sandbox_backend != bridge` 直接以 `exitAdapter` 退出。原因是配置错时后端会落到
+`local`,agent 的命令会在宿主机(受该后端自身约束)而非 trial 容器里执行,而
+bridge ledger 只能事后证明这件事——命令那时已经跑完了。不上报该字段的旧服务器同样
+拒绝:未知不等于 bridge,在"代码在哪执行"这个问题上不做猜测。
+
+轨迹导出。driver 把 session 消息历史按 API 返回的原始字节落到
+`<trial>/agent/stella/trajectory.json`,不经过自己的结构体。重新序列化会静默丢掉
+driver 未建模的字段,而那恰恰是失败分类学与公开日志要用的。满一页记
+`trajectory_truncated`,不假装完整。
+
+失败分类学。报表把未解决的 trial 归入 timeout / execution / coherence /
+verification,规则全部确定性、只读 trial 已经产出的证据。没有规则能解释的失败标
+`unclassified` 并计数,不塞进看起来合理的桶——那一堆也正是将来引入 LLM judge 时唯一
+该交给它的输入。
