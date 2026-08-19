@@ -189,7 +189,7 @@ runner 通过**宿主** Home snapshot 读取 project 的 `AGENTS.md` 与 project
 第一版需要的内部参数,不进 `api/spec`:
 
 1. session 创建时携带 **bridge 绑定**:`{socket_path, nonce}`。缺一不可,`bridge` 后端对没有绑定的 session 拒绝创建。
-2. **usage 导出**。公开 session API 只有消息级 `token_count`(`api/spec/domain/sessions/schemas.yaml:298`),没有 provider 的 input/output/cache 明细与成本。完整 usage 目前只在运行时可得。第一版用内部导出通道;若 spike 证明必须公开,作为"已证明的 API 缺口"记录进 #1055 并附证据。
+2. **usage 导出**。公开 session API 只有消息级 `token_count`(`api/spec/domain/sessions/schemas.yaml:298`),而且**它是 `memory.EstimateTokens` 的字符估算(`len/4`,`internal/memory/types.go:182`),不是 provider 的真实用量**,分不出 prompt/output/cache,也算不出成本。真实用量每次调用都在 `PostLLMCallContext`(`pkg/hooks/hook.go:112`)里,但只有 trace hook 消费后丢弃(`internal/observability/tracehook/llm.go:96`)。第一版因此不填 Harbor 的 `n_input_tokens` / `n_output_tokens` / `cost_usd`,报表只报标注为估算的 token,绝不由它推导成本。这是**已证明的 API 缺口**,已开 issue #1068 追踪;上排行榜(TB2 要求成本与 input/output 拆分,Harbor Hub 还要 cached,参考提交里 cached 占 85%)必须先解决它。
 
 不做任何投机性的公共 API 扩张。
 
@@ -208,7 +208,7 @@ runner 通过**宿主** Home snapshot 读取 project 的 `AGENTS.md` 与 project
 | `bridge_ledger`                                    | bridge 侧记录的调用序列(类型、路径/命令摘要、时间戳)     |
 | `stella_tool_calls`                                | Stella 消息流中的工具调用序列                            |
 | `turn_terminal_state`                              | Stella session 的确认终态(completed / stopped / errored) |
-| `tokens` / `cost_usd`                              | 内部 usage 导出;成本由价目表计算                         |
+| `tokens` / `cost_usd`                              | 阻塞于 #1068;在此之前留空,不填估算值                     |
 | `elapsed_sec`                                      | run() 墙钟耗时                                           |
 | `workspace_diff`                                   | 容器内 workdir 的 `git diff` 或产物清单(经 bridge 导出)  |
 | `harbor_verifier_result` / `harbor_exception_info` | post-trial 从 Harbor result.json 合并;两者独立字段       |
