@@ -62,3 +62,36 @@ def test_read_file_falls_back_to_the_original_path_when_readlink_is_absent(tmp_p
     asyncio.run(server._op_read_file({"path": "/link"}))
 
     assert env.downloaded == ["/link"]
+
+
+def test_socket_binds_even_when_the_job_path_is_long(tmp_path):
+    # sun_path is 104 bytes on macOS; Harbor's job/timestamp/task__id/agent/stella
+    # log path plus a repo checkout blows past it, and the failure is a hard
+    # OSError at trial start that a longer job name is enough to trigger.
+    deep = tmp_path / ("d" * 60) / ("e" * 60) / "agent" / "stella"
+    server = BridgeServer(_FakeEnv(), "/app", deep / "bridge.sock", tmp_path / "l.jsonl")
+
+    bind = server._short_socket_path()
+
+    assert len(str(bind).encode()) <= BridgeServer.SUN_PATH_MAX
+    assert bind != server.socket_path
+    assert server._bind_dir is not None and server._bind_dir.is_dir()
+    import shutil
+
+    shutil.rmtree(server._bind_dir)
+
+
+def test_short_job_paths_keep_the_socket_next_to_the_ledger(tmp_path):
+    # pytest's own tmp_path is already near the limit on macOS, so the short
+    # case has to be built somewhere genuinely short.
+    import shutil
+    import tempfile
+
+    short = Path(tempfile.mkdtemp(prefix="t", dir="/tmp"))
+    try:
+        server = BridgeServer(_FakeEnv(), "/app", short / "b.sock", tmp_path / "l.jsonl")
+
+        assert server._short_socket_path() == server.socket_path
+        assert server._bind_dir is None
+    finally:
+        shutil.rmtree(short)

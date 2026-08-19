@@ -29,8 +29,17 @@ export STELLA_EVAL_BRIDGE_DIR="$(mktemp -d)"
 mise run testbed:start
 ```
 
-The testbed forwards only these two `STELLA_*` variables to `stellad`. Then,
-using the credentials file:
+The testbed forwards only these two `STELLA_*` variables to `stellad`, and both
+must be exported **before** `testbed:start`: exporting them afterwards has no
+effect on the already-running server.
+
+> Get `STELLA_SANDBOX_BACKEND` wrong and the backend falls back to `local`,
+> which runs the agent's `bash` **on the host machine** instead of in the trial
+> container. The evidence predicate catches it (zero bridge ledger entries makes
+> the trial `valid: false`), but only after the commands have already run. Check
+> the first trial's ledger before starting a long job.
+
+Then, using the credentials file:
 
 - Create a provider with the admin PAT (`POST /api/providers`, for example
   type `openai-response`) and enable one model; the model reference is

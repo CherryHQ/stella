@@ -68,20 +68,22 @@ class BridgeServer:
     _server: asyncio.AbstractServer | None = None
     _ledger: Any = None
     _calls: int = 0
+    _bind_path: Path | None = None
+    _bind_dir: Path | None = None
 
     # ---- lifecycle -------------------------------------------------------
 
     async def start(self) -> Binding:
-        self.socket_path.parent.mkdir(parents=True, exist_ok=True)
-        if self.socket_path.exists():
-            self.socket_path.unlink()
+        self._bind_path = self._short_socket_path()
+        if self._bind_path.exists():
+            self._bind_path.unlink()
         self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
         self._ledger = self.ledger_path.open("a")
-        self._server = await asyncio.start_unix_server(self._handle, path=str(self.socket_path))
-        os.chmod(self.socket_path, 0o600)
+        self._server = await asyncio.start_unix_server(self._handle, path=str(self._bind_path))
+        os.chmod(self._bind_path, 0o600)
         home, path, temp_dir = await self._discover()
         return Binding(
-            socket=str(self.socket_path),
+            socket=str(self._bind_path),
             nonce=self.nonce,
             workdir=self.workdir,
             home=home,
@@ -94,11 +96,30 @@ class BridgeServer:
             self._server.close()
             await self._server.wait_closed()
             self._server = None
-        if self.socket_path.exists():
-            self.socket_path.unlink()
+        if self._bind_path is not None:
+            self._bind_path.unlink(missing_ok=True)
+            if self._bind_dir is not None:
+                shutil.rmtree(self._bind_dir, ignore_errors=True)
+                self._bind_dir = None
+            self._bind_path = None
         if self._ledger is not None:
             self._ledger.close()
             self._ledger = None
+
+    # sockaddr_un.sun_path is 104 bytes on macOS and 108 on Linux, and Harbor's
+    # log path (job/timestamp/task__id/agent/stella) eats most of that. Bind in a
+    # private temp dir instead and keep socket_path as the artifact location, so
+    # renaming a job directory can never break a run.
+    SUN_PATH_MAX = 100
+
+    def _short_socket_path(self) -> Path:
+        preferred = self.socket_path
+        preferred.parent.mkdir(parents=True, exist_ok=True)
+        if len(str(preferred).encode()) <= self.SUN_PATH_MAX:
+            return preferred
+        # mkdtemp is 0700, and the nonce is the real authenticator regardless.
+        self._bind_dir = Path(tempfile.mkdtemp(prefix="sb-", dir="/tmp"))
+        return self._bind_dir / "s.sock"
 
     @property
     def calls(self) -> int:
