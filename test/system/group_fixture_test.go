@@ -289,3 +289,63 @@ func (h *harness) testGroupPingPongHardCap(t *testing.T) {
 	}
 	fake.discardModelScripts()
 }
+
+// testGroupModelPass covers the seam a Go test cannot reach: a full turn runs
+// in the real server, the model decides it has nothing to add, and the turn has
+// to leave the group untouched while still recording what the agent read.
+func (h *harness) testGroupModelPass(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	fake := newFakeAnthropic(t)
+	providerID := h.createFakeProviderNamed(t, ctx, fake.baseURL(), "group-pass-"+h.runID)
+	const modelA, modelB = "pass-a", "pass-b"
+	// B is woken and its classifier says act: only the model itself can decide
+	// that the answer belongs to A. That is the whole point of the pass.
+	fake.setTriageForModel(modelA, true, "asked")
+	fake.setTriageForModel(modelB, true, "worth a look")
+	fake.enqueueTextForModel(modelA, "the deploy finished at 14:02")
+	fake.enqueueTextForModel(modelB, "PASS")
+	fake.setTrailingTextForModel(modelA, "PASS")
+	fake.setTrailingTextForModel(modelB, "PASS")
+	a := h.createAgentNamedWithFast(t, ctx, providerID+"/"+modelA, providerID+"/"+modelA, "pass-a-"+h.runID)
+	b := h.createAgentNamedWithFast(t, ctx, providerID+"/"+modelB, providerID+"/"+modelB, "pass-b-"+h.runID)
+	groupID := h.createWebGroup(t, ctx, "pass-"+h.runID, a, b)
+	h.sendGroupMessage(t, ctx, groupID, "@"+a+" when did the deploy finish?")
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		var answers, passerPosts, passed int
+		var cursor int64
+		err := h.db.QueryRow(ctx, `
+			SELECT
+			  (SELECT count(*) FROM ctx_group_message WHERE group_id=$1 AND actor_type='agent' AND actor_id=$2),
+			  (SELECT count(*) FROM ctx_group_message WHERE group_id=$1 AND actor_type='agent' AND actor_id=$3),
+			  (SELECT count(*) FROM ctx_group_dispatch WHERE group_id=$1 AND agent_id=$3 AND status='silent' AND last_error='model_pass'),
+			  (SELECT COALESCE(max(last_seq), 0) FROM ctx_group_ingest_cursor WHERE group_id=$1 AND pipeline='lcm:' || $3)
+		`, groupID, a, b).Scan(&answers, &passerPosts, &passed, &cursor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if answers == 1 && passed >= 1 {
+			if passerPosts != 0 {
+				t.Fatalf("the passing agent posted %d messages, want none", passerPosts)
+			}
+			// It read the group even though it said nothing; without the cursor
+			// it would re-read the same messages on every later turn.
+			if cursor < 1 {
+				t.Fatalf("passer ingest cursor=%d, want the trigger committed", cursor)
+			}
+			fake.discardModelScripts()
+			return
+		}
+		select {
+		case <-ctx.Done():
+			var messages, dispatches string
+			_ = h.db.QueryRow(context.Background(), `SELECT COALESCE(string_agg(seq || ':' || actor_type || ':' || actor_id || ':' || content, ' | ' ORDER BY seq), '') FROM ctx_group_message WHERE group_id=$1`, groupID).Scan(&messages)
+			_ = h.db.QueryRow(context.Background(), `SELECT COALESCE(string_agg(agent_id || '/' || status || '/' || last_error, ' | ' ORDER BY created_at), '') FROM ctx_group_dispatch WHERE group_id=$1`, groupID).Scan(&dispatches)
+			t.Fatalf("answers=%d passes=%d: %v\nmessages=%s\ndispatches=%s\n%s", answers, passed, ctx.Err(), messages, dispatches, h.proc.logTail(60))
+		case <-ticker.C:
+		}
+	}
+}
