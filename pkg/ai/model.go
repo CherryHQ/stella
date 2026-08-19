@@ -141,10 +141,12 @@ type UsageCost struct {
 }
 
 // Usage tracks token accounting returned by providers.
-// InputTokens preserves provider semantics: some providers include cached input
-// in this value while others report cache categories separately. TotalTokens is
-// the complete normalized total with cache categories counted exactly once;
-// consumers must not derive it by blindly summing the other fields.
+// The token categories are disjoint: InputTokens counts only input that was not
+// served from cache, so the four categories can be priced independently.
+// Providers that fold cached tokens into their input count are normalized at
+// their own boundary with UsageWithCachedInput. TotalTokens is the complete
+// normalized total; consumers must not derive it by blindly summing the other
+// fields.
 type Usage struct {
 	// Reported distinguishes a provider that sent an all-zero usage payload from
 	// one that sent no usage payload at all. Do not infer this from token values.
@@ -158,6 +160,23 @@ type Usage struct {
 	// CostConfigured records whether Cost was calculated from declared model
 	// rates. A zero Cost without this bit means price is unknown, not free.
 	CostConfigured bool
+}
+
+// UsageWithCachedInput builds a Usage from a provider that folds cache hits into
+// its input count, which is what the OpenAI APIs do. Keeping the cached share in
+// both InputTokens and CacheRead would bill it at the input rate and again at
+// the cache-read rate; on a long session that is most of the reported cost.
+func UsageWithCachedInput(input, output, cacheRead, total int) Usage {
+	uncached := max(input-cacheRead,
+		// A provider reporting more cache hits than input is malformed. Trust
+		// the smaller, cheaper category rather than inventing negative usage.
+		0)
+	return Usage{
+		InputTokens:  uncached,
+		OutputTokens: output,
+		CacheRead:    cacheRead,
+		TotalTokens:  total,
+	}
 }
 
 // WithCost calculates usage costs from the model's per-million-token rates.
