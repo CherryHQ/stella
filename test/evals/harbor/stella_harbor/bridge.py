@@ -142,12 +142,36 @@ class BridgeServer:
 
     # ---- connection handling --------------------------------------------
 
+    async def _read_request(self, reader: asyncio.StreamReader) -> bytes:
+        """Read one request in full.
+
+        StreamReader.read(n) returns whatever has arrived, not n bytes, so a
+        request that spans more than one segment used to be parsed from its first
+        chunk and fail as malformed. Small payloads always fit, which is why this
+        only showed up on a task with large edits. The client half-closes after
+        writing, so EOF is the frame boundary.
+        """
+        cap = MAX_PAYLOAD + (1 << 20)
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            chunk = await reader.read(1 << 16)
+            if not chunk:
+                return b"".join(chunks)
+            total += len(chunk)
+            if total > cap:
+                raise BridgeError("too_large", f"request exceeds {cap} bytes")
+            chunks.append(chunk)
+
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         started = time.monotonic()
         req: dict[str, Any] = {}
         try:
-            raw = await reader.read(MAX_PAYLOAD + (1 << 20))
-            req = json.loads(raw)
+            raw = await self._read_request(reader)
+            try:
+                req = json.loads(raw)
+            except ValueError as e:
+                raise BridgeError("bad_request", f"{e} after {len(raw)} bytes") from e
             if req.get("nonce") != self.nonce:
                 resp = {"ok": False, "code": "bad_nonce", "error": "nonce mismatch"}
             else:

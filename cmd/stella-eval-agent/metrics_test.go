@@ -98,3 +98,23 @@ func TestDeriveMetricsCountsAToolCallWithoutAResult(t *testing.T) {
 		t.Errorf("unfinished tool call must contribute no duration: %+v", m)
 	}
 }
+
+// The evidence predicate skips failed calls, so the driver has to say which
+// ones failed; a call that never reached the sandbox leaves no ledger entry.
+func TestDeriveMetricsMarksTheCallThatFailed(t *testing.T) {
+	var messages []sessionMessage
+	if err := json.Unmarshal([]byte(`[
+	  {"role":"assistant","timestamp":"2026-08-19T10:00:00Z","blocks":[{"type":"tool_call","id":"c1","name":"edit"}]},
+	  {"role":"tool","timestamp":"2026-08-19T10:00:01Z","tool_call_id":"c1","is_error":true},
+	  {"role":"assistant","timestamp":"2026-08-19T10:00:02Z","blocks":[{"type":"tool_call","id":"c2","name":"edit"}]},
+	  {"role":"tool","timestamp":"2026-08-19T10:00:03Z","tool_call_id":"c2"}
+	]`), &messages); err != nil {
+		t.Fatal(err)
+	}
+
+	_, calls := deriveMetrics(messages)
+
+	if len(calls) != 2 || !calls[0].IsError || calls[1].IsError {
+		t.Fatalf("error flag not attributed to the right call: %+v", calls)
+	}
+}

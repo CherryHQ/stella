@@ -20,7 +20,7 @@ EXIT_PRODUCT = 11
 EXIT_TIMEOUT = 12
 
 # Bridge error codes that mean the harness broke, not the agent misbehaved.
-ADAPTER_FAULT_CODES = {"internal", "bad_nonce"}
+ADAPTER_FAULT_CODES = {"internal", "bad_nonce", "bad_request"}
 
 
 def _ledger(path: Path) -> list[dict[str, Any]]:
@@ -113,6 +113,11 @@ def verify_evidence(result: dict[str, Any], ledger: list[dict[str, Any]], nonce:
     for call in calls:
         name = call.get("name")
         if name not in expected:
+            continue
+        if call.get("is_error"):
+            # A call that failed may never have reached the sandbox, so it leaves
+            # no ledger entry by construction. Demanding one turned a task whose
+            # agent hit a few bad edits into a trial with no evidence at all.
             continue
         wanted = expected[name]
         path = _path(call.get("arguments") or {})

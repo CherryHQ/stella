@@ -96,8 +96,9 @@ func deriveMetrics(messages []sessionMessage) (metrics, []toolCall) {
 	m := metrics{Tools: map[string]toolStat{}}
 	var calls []toolCall
 	pending := map[string]struct {
-		name string
-		at   time.Time
+		name  string
+		at    time.Time
+		index int
 	}{}
 	var prev time.Time
 	var firstUser time.Time
@@ -133,9 +134,10 @@ func deriveMetrics(messages []sessionMessage) (metrics, []toolCall) {
 			calls = append(calls, toolCall{Name: b.Name, Arguments: b.Arguments})
 			if b.ID != "" {
 				pending[b.ID] = struct {
-					name string
-					at   time.Time
-				}{b.Name, msg.Timestamp}
+					name  string
+					at    time.Time
+					index int
+				}{b.Name, msg.Timestamp, len(calls) - 1}
 			}
 		}
 
@@ -150,6 +152,7 @@ func deriveMetrics(messages []sessionMessage) (metrics, []toolCall) {
 				stat := m.Tools[call.name]
 				if msg.IsError {
 					stat.Errors++
+					calls[call.index].IsError = true
 				}
 				stat.TotalMs += elapsed
 				if elapsed > stat.MaxMs {

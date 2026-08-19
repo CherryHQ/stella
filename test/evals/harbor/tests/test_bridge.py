@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -95,3 +96,40 @@ def test_short_job_paths_keep_the_socket_next_to_the_ledger(tmp_path):
         assert server._bind_dir is None
     finally:
         shutil.rmtree(short)
+
+
+def test_a_request_split_across_segments_is_read_whole(tmp_path):
+    # StreamReader.read(n) returns what has arrived, not n bytes. A large edit
+    # spans several segments, so reading once parsed a prefix and failed as
+    # malformed; small payloads always fit, which is why it only showed up on a
+    # task with big edits.
+    payload = json.dumps({"op": "write_file", "data": "x" * 200_000}).encode()
+    server = BridgeServer(_FakeEnv(), "/app", tmp_path / "s.sock", tmp_path / "l.jsonl")
+
+    async def read_it() -> bytes:
+        reader = asyncio.StreamReader()
+        for i in range(0, len(payload), 4096):
+            reader.feed_data(payload[i:i + 4096])
+        reader.feed_eof()
+        return await server._read_request(reader)
+
+    assert asyncio.run(read_it()) == payload
+
+
+def test_an_oversized_request_is_refused_rather_than_buffered(tmp_path):
+    from stella_harbor.bridge import MAX_PAYLOAD, BridgeError
+
+    server = BridgeServer(_FakeEnv(), "/app", tmp_path / "s.sock", tmp_path / "l.jsonl")
+
+    async def read_it() -> bytes:
+        reader = asyncio.StreamReader()
+        reader.feed_data(b"x" * (MAX_PAYLOAD + (2 << 20)))
+        reader.feed_eof()
+        return await server._read_request(reader)
+
+    try:
+        asyncio.run(read_it())
+    except BridgeError as e:
+        assert e.code == "too_large"
+    else:
+        raise AssertionError("oversized request was accepted")

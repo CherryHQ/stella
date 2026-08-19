@@ -81,3 +81,15 @@ def test_one_unmatched_call_does_not_consume_the_ledger_for_the_rest():
 
     assert verify_evidence(_result(calls), ledger, "n") == [
         "write tool call has no matching bridge ledger entry"]
+
+
+def test_a_failed_tool_call_needs_no_ledger_entry():
+    # A call that failed may never have reached the sandbox. Requiring evidence
+    # for it voided trials whose agent simply made some bad edits.
+    from stella_harbor.agent import verify_evidence
+
+    calls = [{"name": "edit", "arguments": {"path": "/app/x"}, "is_error": True},
+             {"name": "edit", "arguments": {"path": "/app/y"}}]
+    ledger = [{"op": "write_file", "path": "/app/y", "ok": True}]
+
+    assert verify_evidence(_result(calls), ledger, "n") == []

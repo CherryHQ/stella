@@ -66,6 +66,10 @@ type result struct {
 type toolCall struct {
 	Name      string         `json:"name"`
 	Arguments map[string]any `json:"arguments"`
+	// IsError marks a call that failed. A call that never reached the sandbox
+	// leaves no bridge ledger entry by definition, so the evidence predicate
+	// must not demand one for it.
+	IsError bool `json:"is_error,omitempty"`
 }
 
 type apiClient struct {
