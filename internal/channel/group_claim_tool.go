@@ -48,21 +48,32 @@ func NewGroupClaimPromptLoader(db *pgxpool.Pool) func(context.Context, string, s
 		if err != nil {
 			return nil
 		}
-		now := time.Now().UTC()
 		claims := make([]prompt.GroupClaim, 0, len(rows))
 		for _, claim := range rows {
+			// The prompt speaks about peers; an agent does not need to be told
+			// what it took itself.
 			if claim.OwnerAgentID == agentID {
 				continue
 			}
-			name := claim.OwnerAgentID
-			if owner, getErr := q.GetAgent(ctx, claim.OwnerAgentID); getErr == nil && owner.Name != "" {
-				name = owner.Name
-			}
-			age := max(now.Sub(claim.CreatedAt.UTC()).Round(time.Minute), 0)
-			claims = append(claims, prompt.GroupClaim{Agent: name, Subject: claim.Note, Age: age.String()})
+			claims = append(claims, prompt.GroupClaim{Agent: groupClaimOwnerName(ctx, q, claim.OwnerAgentID), Subject: claim.Note, Age: groupClaimAge(claim.CreatedAt.UTC())})
 		}
 		return claims
 	}
+}
+
+// groupClaimOwnerName resolves a claim owner's display name, falling back to
+// the agent id. Peers coordinate by name; ids mean nothing to a model.
+func groupClaimOwnerName(ctx context.Context, q *sqlc.Queries, agentID string) string {
+	if owner, err := q.GetAgent(ctx, agentID); err == nil && owner.Name != "" {
+		return owner.Name
+	}
+	return agentID
+}
+
+// groupClaimAge rounds to the minute: a claim's exact second never changes a
+// decision, and an exact timestamp invites the model to do arithmetic.
+func groupClaimAge(createdAt time.Time) string {
+	return max(time.Now().UTC().Sub(createdAt), 0).Round(time.Minute).String()
 }
 
 func (t *GroupClaimTools) Tools() []tools.Tool {
@@ -142,7 +153,7 @@ func (groupClaimsTool) Definition() tools.Definition {
 }
 
 func (t groupClaimsTool) Execute(ctx context.Context, _ map[string]any) (string, error) {
-	groupID, _, err := groupClaimIdentity(ctx)
+	groupID, agentID, err := groupClaimIdentity(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -150,7 +161,21 @@ func (t groupClaimsTool) Execute(ctx context.Context, _ map[string]any) (string,
 	if err != nil {
 		return "", err
 	}
-	return tools.MarshalResult(map[string]any{"claims": rows})
+	// Raw rows carry uuids, lease timestamps and tombstone columns that cost
+	// tokens and mean nothing to a model. It gets the same view the system
+	// prompt gives, plus the key, which is the handle group_release needs --
+	// so the caller's own claims stay listed, marked rather than hidden.
+	claims := make([]map[string]any, 0, len(rows))
+	for _, claim := range rows {
+		claims = append(claims, map[string]any{
+			"key":     claim.Key,
+			"agent":   groupClaimOwnerName(ctx, t.owner.q, claim.OwnerAgentID),
+			"subject": claim.Note,
+			"age":     groupClaimAge(claim.CreatedAt.UTC()),
+			"mine":    claim.OwnerAgentID == agentID,
+		})
+	}
+	return tools.MarshalResult(map[string]any{"claims": claims})
 }
 
 func groupClaimIdentity(ctx context.Context) (string, string, error) {
