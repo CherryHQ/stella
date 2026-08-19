@@ -72,7 +72,7 @@ func TestGroupPromptRendersPeerClaimsOnly(t *testing.T) {
 			Agent: "Agent B", Subject: "the report", Age: "3m",
 		}},
 	})
-	for _, want := range []string{"### Active peer work", "Agent B owns the report", "claimed 3m ago"} {
+	for _, want := range []string{"## Active peer work", "Agent B owns the report", "claimed 3m ago"} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, p)
 		}

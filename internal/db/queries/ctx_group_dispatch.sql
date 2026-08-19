@@ -153,6 +153,16 @@ WHERE held.group_id = sqlc.arg(group_id)
   -- would forget a HOLD on that first wake and let the same chain livelock.
   AND held.trigger_seq >= ctx_group_chain_root(sqlc.arg(group_id), sqlc.arg(agent_id), sqlc.arg(trigger_seq));
 
+-- name: MaxHeldUpToSeqInChain :one
+-- How far peers had moved when this agent was last held in the current chain.
+-- Zero means it was never held here; the turn is a first attempt.
+SELECT COALESCE(MAX(held.held_up_to_seq), 0)::bigint
+FROM ctx_group_dispatch held
+WHERE held.group_id = sqlc.arg(group_id)
+  AND held.agent_id = sqlc.arg(agent_id)
+  AND held.status = 'held'
+  AND held.trigger_seq >= ctx_group_chain_root(sqlc.arg(group_id), sqlc.arg(agent_id), sqlc.arg(trigger_seq));
+
 -- name: RequeueHeldGroupDispatchesAfterAcceptedPost :execrows
 -- A peer may have yielded while this accepted post was pending platform egress.
 -- If final delivery fails, that peer needs a fresh chance to answer instead of

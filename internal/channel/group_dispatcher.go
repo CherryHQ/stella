@@ -531,6 +531,9 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	// bypass the hard caps that keep a stalled group from turning into a flood.
 	if claimed.Kind == "wake" || claimed.Kind == "nudge" {
 		act, reason, degraded := d.triageWake(ownedCtx, claimed, message, state, envelope)
+		if act {
+			ownedCtx = memory.WithGroupWake(ownedCtx, d.groupWake(ownedCtx, claimed, reason))
+		}
 		if !act {
 			if d.events != nil {
 				d.events.AnnounceTurn(claimed.GroupID, claimed.AgentID, "silent", reason)
@@ -573,6 +576,11 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		}
 		return d.failDispatch(ctx, claimed, cause)
 	}
+	// The model's own decision to stay quiet, checked before the accept gates:
+	// nothing was written, so there is nothing for them to judge.
+	if isModelPass(response.text) {
+		return d.retireModelPass(ownedCtx, claimed, turn)
+	}
 	outcome, err := d.acceptGroupResponse(ownedCtx, claimed, state, response, turn)
 	if err != nil {
 		return d.failDispatch(ctx, claimed, err)
@@ -587,6 +595,22 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	// row is authoritative for retry; the first delivery preserves all events.
 	response.agentName = agentName
 	return d.publishAcceptedWithEnvelope(ownedCtx, claimed, message, state, publisher, response, envelope, outcome.Accepted)
+}
+
+// groupWake describes this turn to the agent about to run it: which gate let it
+// through, and whether it is recovering from a HOLD. Reading the transcript
+// cannot answer either question, and the answer changes what a good reply is.
+func (d *GroupDispatcher) groupWake(ctx context.Context, row sqlc.CtxGroupDispatch, reason string) memory.GroupWake {
+	wake := memory.GroupWake{Reason: reason}
+	heldUpTo, err := d.q.MaxHeldUpToSeqInChain(ctx, sqlc.MaxHeldUpToSeqInChainParams{GroupID: row.GroupID, AgentID: row.AgentID, TriggerSeq: row.TriggerSeq})
+	if err != nil {
+		// A missing HOLD note costs the model one hint; failing the turn over it
+		// would cost the group the reply.
+		d.log.Debug("wake hold lookup failed", "dispatch_id", row.ID, "error", err)
+		return wake
+	}
+	wake.HeldUpToSeq = heldUpTo
+	return wake
 }
 
 func (d *GroupDispatcher) claimDispatch(ctx context.Context, row sqlc.CtxGroupDispatch) (sqlc.CtxGroupDispatch, bool, error) {
@@ -776,6 +800,7 @@ func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.Ctx
 		}, row.GroupID, row.AgentID, row.ReplyChannelID)
 		if err == nil {
 			rc.CurrentSpeaker, rc.InputActor = groupMessageProvenance(message, rc.CurrentSpeaker)
+			rc.GroupWake = memory.GroupWakeFromContext(ctx)
 			stream, err = d.coord.chatWithRC(ctx, rc, content)
 		}
 	}
@@ -886,6 +911,7 @@ func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch
 		Message:        agent.MessageContent(d.triggerContent(ctx, row.GroupID, message)),
 		CurrentSpeaker: speaker,
 		InputActor:     inputActor,
+		GroupWake:      memory.GroupWakeFromContext(ctx),
 		Authority:      rc.Authority,
 	})
 	out := make(chan pkgchannel.Event, 100)

@@ -258,6 +258,9 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 		if co.hasSpeaker {
 			modelMsg.Content = withCurrentSpeakerContext(msg, co.currentSpeaker)
 		}
+		// The wake reason goes closest to the trigger, above the speaker block:
+		// it frames everything that follows.
+		modelMsg.Content = withGroupWakeContext(modelMsg.Content, co.groupWake)
 		storePrefix = []ai.Message{userMsg}
 	} else {
 		// Direct internal callers may supply either one image block or the usual

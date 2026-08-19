@@ -18,6 +18,7 @@ type chatOptions struct {
 	hasSpeaker     bool
 	inputActor     eventlog.MessageActor
 	inboxID        string
+	groupWake      memory.GroupWake
 }
 
 // WithInputActor attaches runtime-derived provenance to the input message.
@@ -43,6 +44,15 @@ func WithCurrentSpeaker(speaker memory.CurrentSpeaker) Option {
 	return func(o *chatOptions) {
 		o.currentSpeaker = speaker
 		o.hasSpeaker = true
+	}
+}
+
+// WithGroupWake attaches why this group turn was started. It reaches the model
+// with the trigger and is never persisted: history records what was said, not
+// which gate let this turn run.
+func WithGroupWake(wake memory.GroupWake) Option {
+	return func(o *chatOptions) {
+		o.groupWake = wake
 	}
 }
 

@@ -42,6 +42,8 @@ type ResolvedChat struct {
 	// InputActor is set only for canonical system coordination messages. It
 	// preserves system provenance without broadening the group authority.
 	InputActor eventlog.MessageActor
+	// GroupWake is why this group turn is running; per-turn model context only.
+	GroupWake memory.GroupWake
 }
 
 func (rc *ResolvedChat) UserID() string { return rc.User.ID }
@@ -196,6 +198,7 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) 
 		Message:        message,
 		CurrentSpeaker: rc.CurrentSpeaker,
 		InputActor:     rc.InputActor,
+		GroupWake:      rc.GroupWake,
 		Authority:      rc.Authority,
 	})
 	return stream, info.ID, nil

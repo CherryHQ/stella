@@ -742,6 +742,30 @@ func (q *Queries) MarkGroupDispatchSilent(ctx context.Context, arg MarkGroupDisp
 	return result.RowsAffected(), nil
 }
 
+const maxHeldUpToSeqInChain = `-- name: MaxHeldUpToSeqInChain :one
+SELECT COALESCE(MAX(held.held_up_to_seq), 0)::bigint
+FROM ctx_group_dispatch held
+WHERE held.group_id = $1
+  AND held.agent_id = $2
+  AND held.status = 'held'
+  AND held.trigger_seq >= ctx_group_chain_root($1, $2, $3)
+`
+
+type MaxHeldUpToSeqInChainParams struct {
+	GroupID    string `json:"group_id"`
+	AgentID    string `json:"agent_id"`
+	TriggerSeq int64  `json:"trigger_seq"`
+}
+
+// How far peers had moved when this agent was last held in the current chain.
+// Zero means it was never held here; the turn is a first attempt.
+func (q *Queries) MaxHeldUpToSeqInChain(ctx context.Context, arg MaxHeldUpToSeqInChainParams) (int64, error) {
+	row := q.db.QueryRow(ctx, maxHeldUpToSeqInChain, arg.GroupID, arg.AgentID, arg.TriggerSeq)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const requeueGroupDispatch = `-- name: RequeueGroupDispatch :execrows
 UPDATE ctx_group_dispatch
 SET status = 'pending',

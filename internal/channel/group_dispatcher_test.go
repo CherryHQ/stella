@@ -1900,3 +1900,89 @@ func TestTriggerLabelSurvivesImageOnlyMessage(t *testing.T) {
 		t.Fatal("image block dropped")
 	}
 }
+
+// A model that read the group and has nothing to add says so with PASS. It must
+// leave no post behind, and the group must not see the fact that it thought.
+func TestModelPassRetiresSilentWithoutPost(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	publisher := &recordingGroupPublisher{}
+	fx.d.publishers.Register("ch-1", publisher)
+	fx.d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+		if sink, ok := memory.GroupTurnSinkFrom(ctx); ok {
+			sink.Deliver(memory.DeferredGroupTurn{Complete: true})
+		}
+		return textStream("PASS"), nil
+	}
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-0000000001a1", "agent-1", fx.groupID, "pending", pgtype.Timestamptz{})
+	row, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-0000000001a1")
+	if err := fx.d.ExecuteDispatch(ctx, row); err != nil {
+		t.Fatalf("a pass is a normal outcome, got %v", err)
+	}
+	row, _ = fx.q.GetGroupDispatch(ctx, row.ID)
+	if row.Status != "silent" || row.LastError != "model_pass" {
+		t.Fatalf("dispatch = %q/%q, want silent/model_pass", row.Status, row.LastError)
+	}
+	var posts int
+	if err := fx.db.QueryRow(ctx, `SELECT count(*) FROM ctx_group_message WHERE group_id=$1 AND actor_type='agent'`, fx.groupID).Scan(&posts); err != nil {
+		t.Fatal(err)
+	}
+	if posts != 0 {
+		t.Fatalf("agent posts = %d, want none", posts)
+	}
+}
+
+// Passing still means the agent read the group: the peer rows it was shown and
+// its ingest cursor commit, or it re-reads them forever. Its own empty turn
+// does not.
+func TestModelPassCommitsReadContextWithoutOwnRows(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	var committed memory.DeferredGroupTurn
+	var commits int
+	fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(_ context.Context, _ *sqlc.Queries, turn memory.DeferredGroupTurn) error {
+		committed, commits = turn, commits+1
+		return nil
+	}))
+	fx.d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+		if sink, ok := memory.GroupTurnSinkFrom(ctx); ok {
+			sink.Deliver(memory.DeferredGroupTurn{
+				Complete:         true,
+				TriggerSeq:       1,
+				InjectedPeerRows: []ai.Message{ai.UserMessage{Content: "[seq:1 user-1]: hello"}},
+				OwnRows:          []ai.Message{ai.AssistantMessage{}},
+			})
+		}
+		return textStream("  pass  "), nil
+	}
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-0000000001a2", "agent-1", fx.groupID, "pending", pgtype.Timestamptz{})
+	row, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-0000000001a2")
+	if err := fx.d.ExecuteDispatch(ctx, row); err != nil {
+		t.Fatal(err)
+	}
+	if commits != 1 {
+		t.Fatalf("commits = %d, want 1", commits)
+	}
+	if len(committed.InjectedPeerRows) != 1 || committed.TriggerSeq != 1 {
+		t.Fatalf("committed turn = %+v, want the read peer rows and cursor", committed)
+	}
+	if len(committed.OwnRows) != 0 {
+		t.Fatalf("committed own rows = %+v, want none", committed.OwnRows)
+	}
+}
+
+func TestModelPassRecognition(t *testing.T) {
+	passes := []string{"PASS", "pass", "  PASS  ", "`PASS`", "**PASS**", "PASS.", "```\nPASS\n```", "```text\nPASS\n```", "", "   "}
+	for _, text := range passes {
+		if !isModelPass(text) {
+			t.Errorf("isModelPass(%q) = false, want true", text)
+		}
+	}
+	// A reply that merely starts with the word is a reply.
+	replies := []string{"PASS, but check the logs", "I'll pass this to Anna", "passing on the deploy: it needs review"}
+	for _, text := range replies {
+		if isModelPass(text) {
+			t.Errorf("isModelPass(%q) = true, want false", text)
+		}
+	}
+}

@@ -136,6 +136,7 @@ const (
 	projectIDKey      contextKey = "memory_project_id"
 	groupSeqKey       contextKey = "memory_group_seq"
 	currentSpeakerKey contextKey = "memory_current_speaker"
+	groupWakeKey      contextKey = "memory_group_wake"
 )
 
 // WithSessionID attaches a session ID to the context.
@@ -186,6 +187,32 @@ func WithCurrentSpeaker(ctx context.Context, speaker CurrentSpeaker) context.Con
 func CurrentSpeakerFromContext(ctx context.Context) (CurrentSpeaker, bool) {
 	s, ok := ctx.Value(currentSpeakerKey).(CurrentSpeaker)
 	return s, ok
+}
+
+// GroupWake is why this group turn exists. A group agent is woken by several
+// different things -- being mentioned, a peer posting, a stalled-work nudge,
+// being the only member -- and the reply it should write differs for each. The
+// model cannot infer this from the transcript, so the turn carries it.
+//
+// It is per-turn metadata, never group content: it is rendered into the model's
+// copy of the trigger and is not persisted to history or echoed to the group.
+type GroupWake struct {
+	// Reason is the triage outcome that let this turn run.
+	Reason string
+	// HeldUpToSeq is set when this run follows a HOLD: a peer posted while the
+	// agent was drafting, and everything up to this seq is new since then.
+	HeldUpToSeq int64
+}
+
+// WithGroupWake attaches this turn's wake reason to the context.
+func WithGroupWake(ctx context.Context, wake GroupWake) context.Context {
+	return context.WithValue(ctx, groupWakeKey, wake)
+}
+
+// GroupWakeFromContext extracts this turn's wake reason, if any.
+func GroupWakeFromContext(ctx context.Context) GroupWake {
+	w, _ := ctx.Value(groupWakeKey).(GroupWake)
+	return w
 }
 
 // WithGroupSeq attaches the triggering event-log seq to the context.
