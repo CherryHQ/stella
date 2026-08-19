@@ -671,6 +671,41 @@ func TestVerbatimDuplicateHeld(t *testing.T) {
 	wantGroupTurnStopped(t, outcome, err, groupTurnHeld, "duplicate")
 }
 
+// Dedup is scoped to the causal chain: a phrase a peer used in an older chain
+// must not make that phrase unpostable forever, since this gate ignores
+// hold_limit and would discard the turn every single time.
+func TestVerbatimDuplicateOutsideChainPostsThrough(t *testing.T) {
+	ctx := context.Background()
+	fx := newDispatcherFixture(t, "web", "{}")
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_state SET hold_limit = 0 WHERE id = $1`, fx.groupID); err != nil {
+		t.Fatal(err)
+	}
+	// Peer said it in the chain that the seq-1 human message opened.
+	if _, err := eventlog.NewStore(fx.db).AppendToGroup(ctx, fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: "agent-2", Content: "done"}); err != nil {
+		t.Fatal(err)
+	}
+	// A new human message opens a new chain; this agent answers inside it.
+	human := createGroupMessage(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-000000000071", 3, eventlog.ActorHuman, "user-1", "and now?")
+	setGroupNextSeq(t, fx.db, fx.groupID, human.Seq)
+	createDispatchForGroupMessage(t, fx.q, human, "d15a0000-0000-0000-0000-000000000071", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
+	row, err := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000071")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := fx.q.GetGroupStateByID(ctx, fx.groupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	outcome, err := fx.d.acceptGroupResponse(ctx, row, state, groupResponse{text: "done", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	if outcome.Status != groupTurnAccepted {
+		t.Fatalf("outcome = %+v, want accepted: the echo belongs to an older chain", outcome)
+	}
+}
+
 func TestHardCapSilencesAcceptedTurn(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	ctx := context.Background()

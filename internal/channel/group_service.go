@@ -67,6 +67,10 @@ type GroupDispatchRunner interface {
 // mistaken for a platform message id in the same group.
 const webGroupPlatform = "web"
 
+// groupReplayWindow bounds one stream replay. Raise it when clients need deeper
+// scrollback on connect; paging history is the /messages endpoint's job.
+const groupReplayWindow = 500
+
 // NewGroupService builds the group boundary over the pool, the Agent PEP (agent
 // use authorization), and the runtime resolver (agent-name projection). eventLog
 // and dispatcher may be nil, degrading only the send path to 503.
@@ -195,7 +199,9 @@ func (a *GroupAccess) SubscribeEvents(ctx context.Context, groupID string) (<-ch
 	return ch, cancel, nil
 }
 
-// MessagesAfterSeq replays canonical rows in ascending sequence order.
+// MessagesAfterSeq replays the newest window of canonical rows, in ascending
+// sequence order. A group longer than the window drops its oldest messages from
+// the replay, never its newest: the stream exists to show what just happened.
 func (a *GroupAccess) MessagesAfterSeq(ctx context.Context, groupID string, sinceSeq int64) ([]GroupMessageItem, error) {
 	if sinceSeq < 0 {
 		return nil, ErrInvalidPage
@@ -203,7 +209,7 @@ func (a *GroupAccess) MessagesAfterSeq(ctx context.Context, groupID string, sinc
 	if _, err := a.requireOwner(ctx, groupID); err != nil {
 		return nil, err
 	}
-	rows, err := a.q().ListGroupMessagesAfterSeq(ctx, sqlc.ListGroupMessagesAfterSeqParams{GroupID: groupID, MinSeq: sinceSeq, BatchLimit: 500})
+	rows, err := a.q().ListLatestGroupMessagesAfterSeq(ctx, sqlc.ListLatestGroupMessagesAfterSeqParams{GroupID: groupID, MinSeq: sinceSeq, BatchLimit: groupReplayWindow})
 	if err != nil {
 		return nil, fmt.Errorf("replay group messages: %w", err)
 	}

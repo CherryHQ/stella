@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"sync"
 	"testing"
@@ -463,6 +464,40 @@ func TestGroupRemoveMemberConcurrentLastTwo(t *testing.T) {
 // TestGroupPaginationRejectsOutOfRange proves List and Messages reject paging
 // arguments that would overflow or invert the int32 LIMIT/OFFSET columns before
 // they reach the query layer.
+// A stream replay must show what just happened. Ordering the window from the
+// oldest end would make an active group replay its first messages forever.
+func TestMessagesAfterSeqReplaysNewestWindow(t *testing.T) {
+	fx := setupGroupFixture(t)
+	ctx := fx.ts.ctx()
+	user := createTestUser(t, fx.ts.oidcStore, "user@example.com")
+	acc := fx.begin(t, user.ID, false)
+	g, err := acc.Create(ctx, "team", []string{fx.stella})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	store := eventlog.NewStore(fx.ts.db)
+	total := groupReplayWindow + 5
+	for i := range total {
+		if _, err := store.AppendToGroup(ctx, g.ID, eventlog.GroupMessage{ActorType: eventlog.ActorHuman, ActorID: user.ID, Content: fmt.Sprintf("m%d", i)}); err != nil {
+			t.Fatalf("append %d: %v", i, err)
+		}
+	}
+
+	rows, err := acc.MessagesAfterSeq(ctx, g.ID, 0)
+	if err != nil {
+		t.Fatalf("MessagesAfterSeq: %v", err)
+	}
+	if len(rows) != groupReplayWindow {
+		t.Fatalf("replayed %d rows, want the %d-row window", len(rows), groupReplayWindow)
+	}
+	if rows[0].Seq >= rows[len(rows)-1].Seq {
+		t.Fatalf("replay not ascending: %d..%d", rows[0].Seq, rows[len(rows)-1].Seq)
+	}
+	if got, want := rows[len(rows)-1].Content, fmt.Sprintf("m%d", total-1); got != want {
+		t.Fatalf("last replayed = %q, want the newest message %q", got, want)
+	}
+}
+
 func TestGroupPaginationRejectsOutOfRange(t *testing.T) {
 	fx := setupGroupFixture(t)
 	ctx := fx.ts.ctx()

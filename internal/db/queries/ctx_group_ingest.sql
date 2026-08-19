@@ -33,6 +33,21 @@ WHERE group_id = sqlc.arg(group_id) AND seq > sqlc.arg(min_seq)
 ORDER BY seq ASC
 LIMIT sqlc.arg(batch_limit);
 
+-- name: ListLatestGroupMessagesAfterSeq :many
+-- Replay for a live stream wants the newest window, not the oldest: a group past
+-- the batch limit would otherwise replay its first N messages forever and never
+-- show the ones the client is waiting for.
+SELECT * FROM (
+  SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
+         platform_message_id, reply_to, platform_timestamp, idempotency_key,
+         content, reasoning, agent_session_id, created_at, delivery_state
+  FROM ctx_group_message
+  WHERE group_id = sqlc.arg(group_id) AND seq > sqlc.arg(min_seq)
+  ORDER BY seq DESC
+  LIMIT sqlc.arg(batch_limit)
+) recent
+ORDER BY recent.seq ASC;
+
 -- name: ListGroupMessagesBetweenSeqs :many
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
        platform_message_id, reply_to, platform_timestamp, idempotency_key,

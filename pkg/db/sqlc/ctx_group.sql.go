@@ -532,19 +532,30 @@ SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_mess
 FROM ctx_group_message
 WHERE group_id = $1
   AND NOT (actor_type = 'agent' AND actor_id = $2)
-  AND btrim(content) = btrim($3)
+  AND seq >= ctx_group_chain_root($1, $2, $3)
+  AND delivery_state != 'failed'
+  AND btrim(content) = btrim($4)
 ORDER BY seq DESC
 LIMIT 1
 `
 
 type GetLatestPeerGroupMessageWithContentParams struct {
-	GroupID string `json:"group_id"`
-	AgentID string `json:"agent_id"`
-	Content string `json:"content"`
+	GroupID    string `json:"group_id"`
+	AgentID    string `json:"agent_id"`
+	TriggerSeq int64  `json:"trigger_seq"`
+	Content    string `json:"content"`
 }
 
+// Scoped to the current causal chain on purpose. Matching the whole history
+// would make any short acknowledgement ("Done.") unpostable by every agent
+// forever, because this gate is not subject to hold_limit.
 func (q *Queries) GetLatestPeerGroupMessageWithContent(ctx context.Context, arg GetLatestPeerGroupMessageWithContentParams) (CtxGroupMessage, error) {
-	row := q.db.QueryRow(ctx, getLatestPeerGroupMessageWithContent, arg.GroupID, arg.AgentID, arg.Content)
+	row := q.db.QueryRow(ctx, getLatestPeerGroupMessageWithContent,
+		arg.GroupID,
+		arg.AgentID,
+		arg.TriggerSeq,
+		arg.Content,
+	)
 	var i CtxGroupMessage
 	err := row.Scan(
 		&i.ID,

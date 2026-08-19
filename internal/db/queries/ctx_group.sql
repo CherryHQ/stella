@@ -52,10 +52,15 @@ WHERE group_id = sqlc.arg(group_id)
   AND delivery_state != 'failed';
 
 -- name: GetLatestPeerGroupMessageWithContent :one
+-- Scoped to the current causal chain on purpose. Matching the whole history
+-- would make any short acknowledgement ("Done.") unpostable by every agent
+-- forever, because this gate is not subject to hold_limit.
 SELECT *
 FROM ctx_group_message
 WHERE group_id = sqlc.arg(group_id)
   AND NOT (actor_type = 'agent' AND actor_id = sqlc.arg(agent_id))
+  AND seq >= ctx_group_chain_root(sqlc.arg(group_id), sqlc.arg(agent_id), sqlc.arg(trigger_seq))
+  AND delivery_state != 'failed'
   AND btrim(content) = btrim(sqlc.arg(content))
 ORDER BY seq DESC
 LIMIT 1;

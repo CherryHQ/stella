@@ -147,7 +147,7 @@ func (d *GroupDispatcher) groupBackstopVerdict(ctx context.Context, q *sqlc.Quer
 	}
 	// Verbatim echo. Two agents reaching the same sentence is the visible face
 	// of optimistic collaboration; the second one adds nothing.
-	switch _, err := q.GetLatestPeerGroupMessageWithContent(ctx, sqlc.GetLatestPeerGroupMessageWithContentParams{GroupID: row.GroupID, AgentID: row.AgentID, Content: response.text}); {
+	switch _, err := q.GetLatestPeerGroupMessageWithContent(ctx, sqlc.GetLatestPeerGroupMessageWithContentParams{GroupID: row.GroupID, AgentID: row.AgentID, TriggerSeq: row.TriggerSeq, Content: response.text}); {
 	case err == nil:
 		return groupBackstop{status: groupTurnHeld, reason: "duplicate"}, nil
 	case !errors.Is(err, pgx.ErrNoRows):

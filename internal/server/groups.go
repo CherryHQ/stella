@@ -155,22 +155,26 @@ func (s *Server) StreamGroupEvents(w http.ResponseWriter, r *http.Request, group
 		}
 		since = *params.SinceSeq
 	}
-	rows, err := acc.MessagesAfterSeq(r.Context(), groupId, int64(since))
-	if err != nil {
-		s.groupError(w, err)
-		return
-	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming not supported")
 		return
 	}
+	// Subscribe before replaying: a message committed between the two would
+	// otherwise be in neither, and the client has no way to notice the gap.
+	// The overlap is harmless because replayed seqs are skipped below and the
+	// client merges by seq anyway.
 	events, cancel, err := acc.SubscribeEvents(r.Context(), groupId)
 	if err != nil {
 		s.groupError(w, err)
 		return
 	}
 	defer cancel()
+	rows, err := acc.MessagesAfterSeq(r.Context(), groupId, int64(since))
+	if err != nil {
+		s.groupError(w, err)
+		return
+	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
@@ -183,10 +187,12 @@ func (s *Server) StreamGroupEvents(w http.ResponseWriter, r *http.Request, group
 		flusher.Flush()
 		return err == nil
 	}
+	replayedThrough := int64(since)
 	for _, row := range rows {
 		if !write("message", groupMessageToAPI(row)) {
 			return
 		}
+		replayedThrough = max(replayedThrough, int64(row.Seq))
 	}
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
@@ -202,6 +208,9 @@ func (s *Server) StreamGroupEvents(w http.ResponseWriter, r *http.Request, group
 				if !write("turn", event.Turn) {
 					return
 				}
+				continue
+			}
+			if event.Seq <= replayedThrough {
 				continue
 			}
 			if !write("message", groupMessageToAPI(channel.GroupMessageItem{ID: event.Message.ID, GroupID: event.GroupID, Seq: int(event.Seq), ActorType: event.Message.ActorType, ActorID: event.Message.ActorID, Content: event.Message.Content, DeliveryState: event.Message.DeliveryState, CreatedAt: event.Message.CreatedAt.UTC()})) {
