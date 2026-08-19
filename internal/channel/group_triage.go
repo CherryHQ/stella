@@ -3,15 +3,14 @@ package channel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/eventlog"
-	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/providers"
@@ -57,32 +56,23 @@ func (t *LLMGroupTriage) Decide(ctx context.Context, req GroupTriageRequest) (bo
 	if modelAgentID == "" {
 		modelAgentID = req.AgentID
 	}
-	snap, err := t.load(ctx, modelAgentID)
-	if err != nil || snap == nil {
-		return false, "snapshot", fmt.Errorf("load snapshot: %w", err)
-	}
-	if strings.TrimSpace(snap.ModelFast) == "" {
+	payload := fmt.Sprintf("Agent: %s (%s)\nAuthor type: %s\nActive claims:\n%s\nRecent context:\n%s\nLatest message:\n%s", req.AgentID, req.AgentName, req.AuthorType, strings.Join(req.Claims, "\n"), strings.Join(req.Context, "\n"), req.Message)
+	caller := fastModelCaller{load: t.load, build: t.build, complete: t.complete}
+	raw, stage, err := caller.Complete(ctx, modelAgentID, groupTriagePrompt, payload, groupTriageTimeout)
+	if errors.Is(err, errNoFastModel) {
 		t.warnNoModel(req.GroupID)
 		return false, "rules_only", nil
 	}
-	model := snap.ResolveModelTier(config.ModelTierFast)
-	creds := snap.ResolveProviderCreds(model.Provider)
-	stream, err := t.build(ctx, classifierProviderType(snap, model.Provider, creds), creds)
-	if err != nil || stream == nil {
-		return false, "stream", fmt.Errorf("build stream: %w", err)
-	}
-	payload := fmt.Sprintf("Agent: %s (%s)\nAuthor type: %s\nActive claims:\n%s\nRecent context:\n%s\nLatest message:\n%s", req.AgentID, req.AgentName, req.AuthorType, strings.Join(req.Claims, "\n"), strings.Join(req.Context, "\n"), req.Message)
-	cctx, cancel := context.WithTimeout(ctx, groupTriageTimeout)
-	defer cancel()
-	msg, err := t.complete(cctx, model, ai.Context{System: groupTriagePrompt, Messages: []ai.Message{ai.UserMessage{Content: payload}}}, ai.CompleteOptions{StreamOptions: ai.StreamOptions{Timeout: groupTriageTimeout}}, stream)
 	if err != nil {
-		return false, "completion", err
+		// Triage fails closed: the caller retries the dispatch rather than let
+		// a flaky classifier silence the whole group.
+		return false, stage, err
 	}
 	var result struct {
 		Act    bool   `json:"act"`
 		Reason string `json:"reason"`
 	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(ai.FlattenText(msg.Content))), &result); err != nil {
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &result); err != nil {
 		return false, "malformed", err
 	}
 	return result.Act, result.Reason, nil
@@ -147,14 +137,7 @@ func (d *GroupDispatcher) triageWake(ctx context.Context, row sqlc.CtxGroupDispa
 	}
 	modelAgentID := row.AgentID
 	if state.Platform != "web" {
-		modelAgentID = ""
-		for _, member := range members {
-			candidate, getErr := d.q.GetAgent(ctx, member.AgentID)
-			if getErr == nil && candidate.Scope == config.AgentScopeSystem {
-				modelAgentID = candidate.ID
-				break
-			}
-		}
+		modelAgentID = firstSystemScopeMember(ctx, d.q, members)
 		if modelAgentID == "" {
 			return false, "rules_only", false
 		}

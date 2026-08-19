@@ -16,10 +16,8 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
-	"github.com/CherryHQ/stella/internal/config"
 	appdb "github.com/CherryHQ/stella/internal/db"
 	"github.com/CherryHQ/stella/internal/eventlog"
-	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 	"github.com/CherryHQ/stella/pkg/providers"
 )
@@ -246,44 +244,28 @@ func (c *LLMGroupNudgeClassifier) DecideNudge(ctx context.Context, req GroupNudg
 	if err != nil {
 		return GroupNudgeDecision{}, fmt.Errorf("list group members: %w", err)
 	}
-	modelAgentID := ""
-	memberIDs := make([]string, 0, len(members))
-	for _, member := range members {
-		memberIDs = append(memberIDs, member.AgentID)
-		agent, getErr := c.q.GetAgent(ctx, member.AgentID)
-		if getErr == nil && agent.Scope == config.AgentScopeSystem && modelAgentID == "" {
-			modelAgentID = agent.ID
-		}
-	}
+	modelAgentID := firstSystemScopeMember(ctx, c.q, members)
 	if modelAgentID == "" {
 		return GroupNudgeDecision{}, errors.New("group nudge classifier has no system-scope member")
 	}
-	snap, err := c.load(ctx, modelAgentID)
-	if err != nil || snap == nil {
-		return GroupNudgeDecision{}, fmt.Errorf("load system agent snapshot: %w", err)
-	}
-	if strings.TrimSpace(snap.ModelFast) == "" {
-		return GroupNudgeDecision{}, errors.New("system agent has no fast model")
-	}
-	model := snap.ResolveModelTier(config.ModelTierFast)
-	creds := snap.ResolveProviderCreds(model.Provider)
-	stream, err := c.build(ctx, classifierProviderType(snap, model.Provider, creds), creds)
-	if err != nil || stream == nil {
-		return GroupNudgeDecision{}, fmt.Errorf("build system fast-model stream: %w", err)
+	memberIDs := make([]string, 0, len(members))
+	for _, member := range members {
+		memberIDs = append(memberIDs, member.AgentID)
 	}
 	payload := fmt.Sprintf("Last author: %s\nLast author is human: %t\nSilence: %s\nMember agent IDs: %s\nLive claims:\n%s\nRecent messages:\n%s", req.LastAuthor, req.LastAuthorType == string(eventlog.ActorHuman), req.Silence.Round(time.Second), strings.Join(memberIDs, ", "), strings.Join(req.Claims, "\n"), strings.Join(req.Recent, "\n"))
-	cctx, cancel := context.WithTimeout(ctx, groupNudgeTimeout)
-	defer cancel()
-	msg, err := c.complete(cctx, model, ai.Context{System: groupNudgePrompt, Messages: []ai.Message{ai.UserMessage{Content: payload}}}, ai.CompleteOptions{StreamOptions: ai.StreamOptions{Timeout: groupNudgeTimeout}}, stream)
+	caller := fastModelCaller{load: c.load, build: c.build, complete: c.complete}
+	raw, stage, err := caller.Complete(ctx, modelAgentID, groupNudgePrompt, payload, groupNudgeTimeout)
 	if err != nil {
-		return GroupNudgeDecision{}, fmt.Errorf("complete group nudge classifier: %w", err)
+		// Every failure lands the worker on its deterministic fallback; the
+		// stage is what tells an operator which one to go look at.
+		return GroupNudgeDecision{}, fmt.Errorf("group nudge classifier (%s): %w", stage, err)
 	}
 	var decision struct {
 		Stalled bool   `json:"stalled"`
 		Target  string `json:"target"`
 		Reason  string `json:"reason"`
 	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(ai.FlattenText(msg.Content))), &decision); err != nil {
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &decision); err != nil {
 		return GroupNudgeDecision{}, fmt.Errorf("decode group nudge classifier: %w", err)
 	}
 	return GroupNudgeDecision{Stalled: decision.Stalled, Target: strings.TrimSpace(decision.Target), Reason: strings.TrimSpace(decision.Reason)}, nil

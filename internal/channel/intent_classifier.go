@@ -105,43 +105,16 @@ func (c *LLMIntentClassifier) Classify(ctx context.Context, agentID string, cont
 		return IntentNone
 	}
 
-	snap, err := c.loadSnapshot(ctx, agentID)
-	if err != nil || snap == nil {
-		c.debug("load snapshot failed", "agent_id", agentID, "error", err)
-		return IntentNone
-	}
-	if strings.TrimSpace(snap.ModelFast) == "" {
-		c.debug("model_fast not configured; skipping intent classification", "agent_id", agentID)
-		return IntentNone
-	}
-
-	model := snap.ResolveModelTier(config.ModelTierFast)
-	if model.API == "" || model.ID == "" {
-		return IntentNone
-	}
-	creds := snap.ResolveProviderCreds(model.Provider)
-	providerType := classifierProviderType(snap, model.Provider, creds)
-	stream, err := c.buildStream(ctx, providerType, creds)
-	if err != nil || stream == nil {
-		c.debug("build stream func failed", "agent_id", agentID, "provider", model.Provider, "provider_type", providerType, "error", err)
-		return IntentNone
-	}
-
-	reqCtx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-
-	msg, err := c.complete(reqCtx, model, ai.Context{
-		System: intentClassifierPrompt,
-		Messages: []ai.Message{
-			ai.UserMessage{Content: text},
-		},
-	}, ai.CompleteOptions{StreamOptions: ai.StreamOptions{Timeout: c.timeout}}, stream)
+	caller := fastModelCaller{load: c.loadSnapshot, build: c.buildStream, complete: c.complete, requireModelID: true}
+	raw, stage, err := caller.Complete(ctx, agentID, intentClassifierPrompt, text, c.timeout)
 	if err != nil {
-		c.debug("intent classification failed", "agent_id", agentID, "error", err)
+		// Any failure means the message was not a control request as far as
+		// this turn is concerned: it goes to the agent as ordinary chat.
+		c.debug("intent classification unavailable", "agent_id", agentID, "stage", stage, "error", err)
 		return IntentNone
 	}
 
-	intent, err := parseIntentResponse(ai.FlattenText(msg.Content))
+	intent, err := parseIntentResponse(raw)
 	if err != nil {
 		c.debug("intent response parse failed", "agent_id", agentID, "error", err)
 		return IntentNone
