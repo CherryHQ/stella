@@ -142,7 +142,7 @@ func TestSendGroupMessageCommandStreamsPlainReply(t *testing.T) {
 	}
 }
 
-func TestSendGroupMessageFreshIngestWakesWorker(t *testing.T) {
+func TestSendGroupMessageFreshIngestWakesWorkerThroughPrepareSend(t *testing.T) {
 	s, runner, userID, groupID := setupGroupSSE(t)
 	rr := sendGroupSSE(t, s, userID, groupID, "hello team", "")
 

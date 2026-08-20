@@ -338,14 +338,12 @@ func (d *GroupDispatcher) reapExpired(ctx context.Context) error {
 				// Platform success is durable, but its local outbox/delivery
 				// finalization may have crashed. Re-run only that idempotent DB work,
 				// never complete the row or repeat the platform side effect here.
-				updated, err := d.q.RequeueExpiredGroupDispatch(ctx, sqlc.RequeueExpiredGroupDispatchParams{
-					ID: row.ID, AttemptCount: row.AttemptCount, NextAttemptAt: nullTime(nextClaimAt), LastError: "published finalize lease expired", Now: nullTime(now),
-				})
-				if err != nil {
-					return fmt.Errorf("requeue expired published finalization: %w", err)
-				}
-				if updated > 0 {
-					d.announceTurn(row, "failed", "published finalize lease expired")
+				if _, err := d.markAndAnnounce(ctx, row, "failed", "published finalize lease expired", "requeue expired published finalization", func(ctx context.Context) (int64, error) {
+					return d.q.RequeueExpiredGroupDispatch(ctx, sqlc.RequeueExpiredGroupDispatchParams{
+						ID: row.ID, AttemptCount: row.AttemptCount, NextAttemptAt: nullTime(nextClaimAt), LastError: "published finalize lease expired", Now: nullTime(now),
+					})
+				}); err != nil {
+					return err
 				}
 				continue
 			}
@@ -361,37 +359,31 @@ func (d *GroupDispatcher) reapExpired(ctx context.Context) error {
 				}
 				continue
 			}
-			updated, err := d.q.RequeueExpiredGroupDispatch(ctx, sqlc.RequeueExpiredGroupDispatchParams{
-				ID: row.ID, AttemptCount: row.AttemptCount, NextAttemptAt: nullTime(nextClaimAt), LastError: acceptedPublishRecoveryPrefix + "lease expired before publish", Now: nullTime(now),
-			})
-			if err != nil {
-				return fmt.Errorf("requeue expired accepted dispatch: %w", err)
-			}
-			if updated > 0 {
-				d.announceTurn(row, "failed", "lease expired before publish")
+			if _, err := d.markAndAnnounce(ctx, row, "failed", "lease expired before publish", "requeue expired accepted dispatch", func(ctx context.Context) (int64, error) {
+				return d.q.RequeueExpiredGroupDispatch(ctx, sqlc.RequeueExpiredGroupDispatchParams{
+					ID: row.ID, AttemptCount: row.AttemptCount, NextAttemptAt: nullTime(nextClaimAt), LastError: acceptedPublishRecoveryPrefix + "lease expired before publish", Now: nullTime(now),
+				})
+			}); err != nil {
+				return err
 			}
 			continue
 		}
 		if row.AttemptCount >= d.maxAttempts {
-			updated, err := d.q.MarkExpiredGroupDispatchFailed(ctx, sqlc.MarkExpiredGroupDispatchFailedParams{
-				ID: row.ID, AttemptCount: row.AttemptCount, LastError: "lease expired", Now: nullTime(now),
-			})
-			if err != nil {
-				return fmt.Errorf("fail expired dispatch: %w", err)
-			}
-			if updated > 0 {
-				d.announceTurn(row, "failed", "lease expired")
+			if _, err := d.markAndAnnounce(ctx, row, "failed", "lease expired", "fail expired dispatch", func(ctx context.Context) (int64, error) {
+				return d.q.MarkExpiredGroupDispatchFailed(ctx, sqlc.MarkExpiredGroupDispatchFailedParams{
+					ID: row.ID, AttemptCount: row.AttemptCount, LastError: "lease expired", Now: nullTime(now),
+				})
+			}); err != nil {
+				return err
 			}
 			continue
 		}
-		updated, err := d.q.RequeueExpiredGroupDispatch(ctx, sqlc.RequeueExpiredGroupDispatchParams{
-			ID: row.ID, AttemptCount: row.AttemptCount, NextAttemptAt: nullTime(nextClaimAt), LastError: "lease expired", Now: nullTime(now),
-		})
-		if err != nil {
-			return fmt.Errorf("requeue expired dispatch: %w", err)
-		}
-		if updated > 0 {
-			d.announceTurn(row, "failed", "lease expired")
+		if _, err := d.markAndAnnounce(ctx, row, "failed", "lease expired", "requeue expired dispatch", func(ctx context.Context) (int64, error) {
+			return d.q.RequeueExpiredGroupDispatch(ctx, sqlc.RequeueExpiredGroupDispatchParams{
+				ID: row.ID, AttemptCount: row.AttemptCount, NextAttemptAt: nullTime(nextClaimAt), LastError: "lease expired", Now: nullTime(now),
+			})
+		}); err != nil {
+			return err
 		}
 	}
 	// Expired claims are already invisible to every reader; this is pure
@@ -609,14 +601,15 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 				// can trust from a failed read, so requeue without a terminal frame.
 				return d.failDispatch(ctx, claimed, fmt.Errorf("triage unavailable: %s", reason))
 			}
-			updated, err := d.q.MarkGroupDispatchSilent(ctx, sqlc.MarkGroupDispatchSilentParams{ID: claimed.ID, AttemptCount: claimed.AttemptCount, Reason: reason})
+			updated, err := d.markAndAnnounce(ctx, claimed, "silent", reason, "", func(ctx context.Context) (int64, error) {
+				return d.q.MarkGroupDispatchSilent(ctx, sqlc.MarkGroupDispatchSilentParams{ID: claimed.ID, AttemptCount: claimed.AttemptCount, Reason: reason})
+			})
 			if err != nil {
 				return err
 			}
 			if updated == 0 {
 				return errors.New("mark gated dispatch silent: lost dispatch ownership")
 			}
-			d.announceTurn(claimed, "silent", reason)
 			return nil
 		}
 	}
@@ -628,14 +621,15 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	if errors.Is(err, errGroupNudgeMoot) {
 		// The re-check runs after the session queue grants this slot. Do not emit
 		// a running frame for work the wake ahead of it already completed.
-		updated, markErr := d.q.MarkGroupDispatchSilent(ctx, sqlc.MarkGroupDispatchSilentParams{ID: claimed.ID, AttemptCount: claimed.AttemptCount, Reason: "nudge_moot"})
+		updated, markErr := d.markAndAnnounce(ctx, claimed, "silent", "nudge_moot", "", func(ctx context.Context) (int64, error) {
+			return d.q.MarkGroupDispatchSilent(ctx, sqlc.MarkGroupDispatchSilentParams{ID: claimed.ID, AttemptCount: claimed.AttemptCount, Reason: "nudge_moot"})
+		})
 		if markErr != nil {
 			return markErr
 		}
 		if updated == 0 {
 			return errors.New("mark moot nudge silent: lost dispatch ownership")
 		}
-		d.announceTurn(claimed, "silent", "nudge_moot")
 		return nil
 	}
 	if errors.Is(err, errGroupTurnSuperseded) {
@@ -691,6 +685,23 @@ func (d *GroupDispatcher) announceTurn(row sqlc.CtxGroupDispatch, state, reason 
 		return
 	}
 	d.events.AnnounceTurn(row.GroupID, row.AgentID, state, reason)
+}
+
+// markAndAnnounce executes one CAS-backed dispatch transition and projects its
+// frame only when this process won the row. An empty wrap preserves callers'
+// existing unwrapped query errors when ownership loss needs a distinct error.
+func (d *GroupDispatcher) markAndAnnounce(ctx context.Context, row sqlc.CtxGroupDispatch, state, reason, wrap string, mark func(context.Context) (int64, error)) (int64, error) {
+	updated, err := mark(ctx)
+	if err != nil {
+		if wrap == "" {
+			return 0, err
+		}
+		return 0, fmt.Errorf("%s: %w", wrap, err)
+	}
+	if updated > 0 {
+		d.announceTurn(row, state, reason)
+	}
+	return updated, nil
 }
 
 // publishAccepted sequences one egress attempt: the driver delivers, this
@@ -790,15 +801,13 @@ func (d *GroupDispatcher) failDispatch(ctx context.Context, row sqlc.CtxGroupDis
 	if row.ResultMessageID != "" && row.PublishedAt.Valid {
 		// The platform already accepted this reply. Retrying its local finalize is
 		// safe and must never reclassify the delivered message as a platform fail.
-		updated, err := d.q.RequeueGroupDispatch(ctx, sqlc.RequeueGroupDispatchParams{
-			ID: row.ID, AttemptCount: row.AttemptCount,
-			NextAttemptAt: nullTime(time.Now().UTC().Add(backoff(row.AttemptCount))), LastError: cause.Error(),
-		})
-		if err != nil {
-			return fmt.Errorf("requeue published dispatch finalization: %w", err)
-		}
-		if updated > 0 {
-			d.announceTurn(row, "failed", cause.Error())
+		if _, err := d.markAndAnnounce(ctx, row, "failed", cause.Error(), "requeue published dispatch finalization", func(ctx context.Context) (int64, error) {
+			return d.q.RequeueGroupDispatch(ctx, sqlc.RequeueGroupDispatchParams{
+				ID: row.ID, AttemptCount: row.AttemptCount,
+				NextAttemptAt: nullTime(time.Now().UTC().Add(backoff(row.AttemptCount))), LastError: cause.Error(),
+			})
+		}); err != nil {
+			return err
 		}
 		return cause
 	}
@@ -811,26 +820,22 @@ func (d *GroupDispatcher) failDispatch(ctx context.Context, row sqlc.CtxGroupDis
 		if row.ResultMessageID != "" {
 			return d.publish.failAcceptedPublishWithExpiryFence(ctx, row, cause, time.Time{})
 		}
-		updated, err := d.q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: cause.Error()})
-		if err != nil {
-			return fmt.Errorf("mark dispatch failed: %w", err)
-		}
-		if updated > 0 {
-			d.announceTurn(row, "failed", cause.Error())
+		if _, err := d.markAndAnnounce(ctx, row, "failed", cause.Error(), "mark dispatch failed", func(ctx context.Context) (int64, error) {
+			return d.q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: cause.Error()})
+		}); err != nil {
+			return err
 		}
 		return cause
 	}
-	updated, err := d.q.RequeueGroupDispatch(ctx, sqlc.RequeueGroupDispatchParams{
-		ID:            row.ID,
-		AttemptCount:  row.AttemptCount,
-		NextAttemptAt: nullTime(time.Now().UTC().Add(backoff(row.AttemptCount))),
-		LastError:     d.dispatchFailureLastError(row, cause),
-	})
-	if err != nil {
-		return fmt.Errorf("requeue dispatch: %w", err)
-	}
-	if updated > 0 {
-		d.announceTurn(row, "failed", cause.Error())
+	if _, err := d.markAndAnnounce(ctx, row, "failed", cause.Error(), "requeue dispatch", func(ctx context.Context) (int64, error) {
+		return d.q.RequeueGroupDispatch(ctx, sqlc.RequeueGroupDispatchParams{
+			ID:            row.ID,
+			AttemptCount:  row.AttemptCount,
+			NextAttemptAt: nullTime(time.Now().UTC().Add(backoff(row.AttemptCount))),
+			LastError:     d.dispatchFailureLastError(row, cause),
+		})
+	}); err != nil {
+		return err
 	}
 	return cause
 }

@@ -8,9 +8,6 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"github.com/CherryHQ/stella/internal/agent"
 	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
 	"github.com/CherryHQ/stella/internal/agent/session"
@@ -84,18 +81,7 @@ func (c *Coordinator) appendGroupMessage(ctx context.Context, msg pkgchannel.Inc
 		if err != nil {
 			return fmt.Errorf("encode outbox envelope: %w", err)
 		}
-		_, err = q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{
-			ID:             uuid.Must(uuid.NewV7()).String(),
-			GroupMessageID: result.Message.ID,
-			GroupID:        result.GroupID,
-			Envelope:       envelope,
-			Status:         "pending",
-			AttemptCount:   0,
-			LeaseUntil:     pgtype.Timestamptz{},
-			NextAttemptAt:  pgtype.Timestamptz{},
-			LastError:      "",
-		})
-		if err != nil {
+		if err := createPendingGroupOutbox(ctx, q, result.Message.ID, result.GroupID, envelope); err != nil {
 			return fmt.Errorf("create group outbox: %w", err)
 		}
 		return nil

@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
@@ -243,7 +242,7 @@ func (n *GroupNudger) append(ctx context.Context, groupID, expectedLastMessageID
 	if err != nil {
 		return err
 	}
-	if _, err := q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{ID: uuid.Must(uuid.NewV7()).String(), GroupMessageID: result.Message.ID, GroupID: groupID, Envelope: envelope, Status: "pending", LastError: ""}); err != nil {
+	if err := createPendingGroupOutbox(ctx, q, result.Message.ID, groupID, envelope); err != nil {
 		return fmt.Errorf("create nudge outbox: %w", err)
 	}
 	// AppendToGroupWithQueries bumps the group sequence, which resets the

@@ -553,17 +553,7 @@ func (a *GroupAccess) PrepareSend(ctx context.Context, groupID, content, clientM
 		if err != nil {
 			return fmt.Errorf("encode outbox envelope: %w", err)
 		}
-		if _, err := q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{
-			ID:             uuid.Must(uuid.NewV7()).String(),
-			GroupMessageID: result.Message.ID,
-			GroupID:        result.GroupID,
-			Envelope:       envelope,
-			Status:         "pending",
-			AttemptCount:   0,
-			LeaseUntil:     pgtype.Timestamptz{},
-			NextAttemptAt:  pgtype.Timestamptz{},
-			LastError:      "",
-		}); err != nil {
+		if err := createPendingGroupOutbox(ctx, q, result.Message.ID, result.GroupID, envelope); err != nil {
 			return fmt.Errorf("create group outbox: %w", err)
 		}
 		return nil
@@ -575,14 +565,8 @@ func (a *GroupAccess) PrepareSend(ctx context.Context, groupID, content, clientM
 		return PreparedSend{Deduplicated: true}, nil
 	}
 
+	a.svc.dispatcher.Wake()
 	return PreparedSend{MessageSeq: int(appendResult.Message.Seq)}, nil
-}
-
-// Wake makes a newly persisted outbox immediately visible to the worker pool.
-func (a *GroupAccess) Wake() {
-	if a.svc.dispatcher != nil {
-		a.svc.dispatcher.Wake()
-	}
 }
 
 // AbortGroupTurn authorizes cancellation against the group before addressing

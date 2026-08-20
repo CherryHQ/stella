@@ -36,7 +36,7 @@ func (noAssignStore) ListUserAgentIDs(context.Context, string) ([]string, error)
 
 // fakeDispatchRunner records wake signals without running a real agent turn.
 type fakeDispatchRunner struct {
-	called bool
+	calls int
 }
 
 type fakeGroupOwnerDeletion struct{ db *pgxpool.Pool }
@@ -46,7 +46,7 @@ func (f fakeGroupOwnerDeletion) DeleteGroup(ctx context.Context, id, _ string) e
 }
 
 func (f *fakeDispatchRunner) Wake() {
-	f.called = true
+	f.calls++
 }
 
 func (f *fakeDispatchRunner) AbortGroupTurn(_, _ string) bool { return false }
@@ -252,6 +252,9 @@ func TestGroupPrepareSendDedup(t *testing.T) {
 	if !second.Deduplicated {
 		t.Fatalf("replay = %+v, want Deduplicated", second)
 	}
+	if fx.runner.calls != 1 {
+		t.Fatalf("dispatcher woke %d times, want once for the fresh append only", fx.runner.calls)
+	}
 
 	msgs, err := acc.Messages(ctx, g.ID, 0, 50)
 	if err != nil {
@@ -342,9 +345,8 @@ func TestGroupSendWakesDispatcher(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PrepareSend: %v", err)
 	}
-	acc.Wake()
-	if !fx.runner.called {
-		t.Fatal("dispatch runner was not invoked")
+	if fx.runner.calls != 1 {
+		t.Fatalf("dispatcher woke %d times, want 1", fx.runner.calls)
 	}
 }
 
