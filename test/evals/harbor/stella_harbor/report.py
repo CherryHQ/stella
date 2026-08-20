@@ -73,6 +73,7 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
         adapter = json.loads(adapter_path.read_text()) if adapter_path.exists() else {}
         metrics = adapter.get("metrics") or {}
         timing = metrics.get("timing_ms") or {}
+        nonzero, timeouts = _command_outcomes(metrics, adapter.get("bridge_ledger") or [])
         rewards = (harbor.get("verifier_result") or {}).get("rewards") or {}
         rows.append({
             "task": trial.parent.name.split("__")[0],
@@ -93,9 +94,9 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
             # the ledger proves was the container answering leaves the calls that
             # actually failed, which is the only number a failure taxonomy may
             # read. Both are reported: exploration is signal, not noise.
-            "command_nonzero": (metrics.get("bridge") or {}).get("command_nonzero") or 0,
-            "command_timeout": (metrics.get("bridge") or {}).get("command_timeout") or 0,
-            "tool_faults": _tool_faults(metrics),
+            "command_nonzero": nonzero,
+            "command_timeout": timeouts,
+            "tool_faults": _tool_faults(metrics, nonzero + timeouts),
             "est_tokens": (metrics.get("tokens_estimated") or {}).get("total"),
             "usage": metrics.get("usage") or {},
             "timed_out": adapter.get("timed_out"),
@@ -110,13 +111,33 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _tool_faults(metrics: dict[str, Any]) -> int | None:
+def _command_outcomes(metrics: dict[str, Any], ledger: list[dict[str, Any]]) -> tuple[int, int]:
+    """Commands the container answered nonzero, and commands we killed.
+
+    The driver records both at trial end, but jobs run before it did still
+    carry the raw ledger, which is where the counts came from in the first
+    place. Recount from it so an old job reports the same numbers as a new one.
+    """
+    bridge = metrics.get("bridge") or {}
+    if "command_nonzero" in bridge:
+        return bridge.get("command_nonzero") or 0, bridge.get("command_timeout") or 0
+    nonzero = timeouts = 0
+    for entry in ledger:
+        if not entry.get("ok") or (entry.get("op") or "") != "exec":
+            continue
+        code = entry.get("return_code")
+        if code == -1:
+            timeouts += 1
+        elif isinstance(code, int) and code != 0:
+            nonzero += 1
+    return nonzero, timeouts
+
+
+def _tool_faults(metrics: dict[str, Any], explained: int) -> int | None:
     """Tool calls that failed, with nonzero command exits taken back out."""
     errors = metrics.get("tool_error_total")
     if errors is None:
         return None
-    bridge = metrics.get("bridge") or {}
-    explained = (bridge.get("command_nonzero") or 0) + (bridge.get("command_timeout") or 0)
     return max(0, errors - explained)
 
 

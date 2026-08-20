@@ -224,3 +224,29 @@ def test_taxonomy_still_reports_execution_when_the_tools_really_failed():
 
     assert label == "execution"
     assert "3 tool calls failed" in why
+
+
+def test_report_recounts_command_exits_for_a_job_that_predates_the_counts(tmp_path):
+    """An old job kept its ledger; the counts must come back out of it."""
+    write_trial(tmp_path, "probe", {"verifier_result": {"rewards": {"reward": 0.0}}}, {
+        "valid": True,
+        "turn_terminal_state": "stopped",
+        "metrics": {
+            "tool_call_total": 4,
+            "tool_error_total": 3,
+            # no command_nonzero here: this job ran before the driver counted it
+            "bridge": {"total_ms": 10, "operations": {}, "adapter_faults": []},
+        },
+        "bridge_ledger": [
+            {"op": "exec", "ok": True, "return_code": 1},
+            {"op": "exec", "ok": True, "return_code": -1},
+            {"op": "exec", "ok": True, "return_code": 0},
+            {"op": "read", "ok": False, "code": "not_found"},
+        ],
+    })
+
+    row = collect(tmp_path)[0]
+
+    assert row["command_nonzero"] == 1
+    assert row["command_timeout"] == 1
+    assert row["tool_faults"] == 1
