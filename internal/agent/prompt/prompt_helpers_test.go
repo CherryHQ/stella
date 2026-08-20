@@ -59,3 +59,18 @@ func TestRecallGuidanceMatchesUnifiedAgentActions(t *testing.T) {
 		}
 	}
 }
+
+// Every agent used to be seeded with the product default persona, so a group of
+// two fresh agents contained two Stellas.
+func TestDefaultPersonaUsesAgentName(t *testing.T) {
+	got := prompt.DefaultSystemPromptFor("Anna")
+	if !strings.Contains(got, "You are Anna") {
+		t.Fatalf("default persona = %q, want it named after the agent", got)
+	}
+	if strings.Contains(got, "Stella") {
+		t.Fatalf("default persona still claims another name: %q", got)
+	}
+	if unnamed := prompt.DefaultSystemPromptFor("  "); !strings.Contains(unnamed, "You are Stella") {
+		t.Fatalf("unnamed default = %q, want the product default", unnamed)
+	}
+}

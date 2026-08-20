@@ -124,7 +124,7 @@ plugins/
 
 ### Agent 路由
 
-渠道绑定 agent 时使用该专用 agent。否则，私聊使用用户的默认 agent，群聊使用其已分配 agent，并在未配置时回退到第一个启用的 agent。
+渠道绑定 agent 时使用该专用 agent。否则，私聊使用用户的默认 agent，并在未配置时回退到第一个启用的 agent。每条群消息会唤醒所有合格成员 agent，再由每个成员的本地确定性 triage 决定是否发言。
 
 ## 提供商
 

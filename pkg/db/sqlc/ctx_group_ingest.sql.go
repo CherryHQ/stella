@@ -81,7 +81,7 @@ const listGroupMessagesAfterSeq = `-- name: ListGroupMessagesAfterSeq :many
 
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
        platform_message_id, reply_to, platform_timestamp, idempotency_key,
-       content, reasoning, agent_session_id, created_at
+       content, reasoning, agent_session_id, created_at, delivery_state
 FROM ctx_group_message
 WHERE group_id = $1 AND seq > $2
 ORDER BY seq ASC
@@ -109,6 +109,7 @@ type ListGroupMessagesAfterSeqRow struct {
 	Reasoning         string             `json:"reasoning"`
 	AgentSessionID    string             `json:"agent_session_id"`
 	CreatedAt         time.Time          `json:"created_at"`
+	DeliveryState     string             `json:"delivery_state"`
 }
 
 // Both ingest list queries feed text-only consumers (group-memory extraction and
@@ -140,6 +141,7 @@ func (q *Queries) ListGroupMessagesAfterSeq(ctx context.Context, arg ListGroupMe
 			&i.Reasoning,
 			&i.AgentSessionID,
 			&i.CreatedAt,
+			&i.DeliveryState,
 		); err != nil {
 			return nil, err
 		}
@@ -159,6 +161,10 @@ FROM ctx_group_message
 WHERE group_id = $1
   AND seq > $2
   AND seq < $3
+  -- A failed platform delivery was never visible to peers. The author keeps
+  -- its own attempted reply and tool history in memory, but no other agent may
+  -- reason from a canonical row that the conversation never received.
+  AND delivery_state <> 'failed'
 ORDER BY seq ASC
 `
 
@@ -246,6 +252,82 @@ func (q *Queries) ListGroupsWithPendingIngest(ctx context.Context, pipeline stri
 	for rows.Next() {
 		var i ListGroupsWithPendingIngestRow
 		if err := rows.Scan(&i.GroupID, &i.CursorSeq, &i.HeadSeq); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLatestGroupMessagesAfterSeq = `-- name: ListLatestGroupMessagesAfterSeq :many
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, delivery_state FROM (
+  SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
+         platform_message_id, reply_to, platform_timestamp, idempotency_key,
+         content, reasoning, agent_session_id, created_at, delivery_state
+  FROM ctx_group_message
+  WHERE group_id = $1 AND seq > $2
+  ORDER BY seq DESC
+  LIMIT $3
+) recent
+ORDER BY recent.seq ASC
+`
+
+type ListLatestGroupMessagesAfterSeqParams struct {
+	GroupID    string `json:"group_id"`
+	MinSeq     int64  `json:"min_seq"`
+	BatchLimit int32  `json:"batch_limit"`
+}
+
+type ListLatestGroupMessagesAfterSeqRow struct {
+	ID                string             `json:"id"`
+	GroupID           string             `json:"group_id"`
+	Seq               int64              `json:"seq"`
+	SourceChannelID   pgtype.Text        `json:"source_channel_id"`
+	ActorType         string             `json:"actor_type"`
+	ActorID           string             `json:"actor_id"`
+	PlatformMessageID pgtype.Text        `json:"platform_message_id"`
+	ReplyTo           pgtype.Text        `json:"reply_to"`
+	PlatformTimestamp pgtype.Timestamptz `json:"platform_timestamp"`
+	IdempotencyKey    pgtype.Text        `json:"idempotency_key"`
+	Content           string             `json:"content"`
+	Reasoning         string             `json:"reasoning"`
+	AgentSessionID    string             `json:"agent_session_id"`
+	CreatedAt         time.Time          `json:"created_at"`
+	DeliveryState     string             `json:"delivery_state"`
+}
+
+// Replay for a live stream wants the newest window, not the oldest: a group past
+// the batch limit would otherwise replay its first N messages forever and never
+// show the ones the client is waiting for.
+func (q *Queries) ListLatestGroupMessagesAfterSeq(ctx context.Context, arg ListLatestGroupMessagesAfterSeqParams) ([]ListLatestGroupMessagesAfterSeqRow, error) {
+	rows, err := q.db.Query(ctx, listLatestGroupMessagesAfterSeq, arg.GroupID, arg.MinSeq, arg.BatchLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListLatestGroupMessagesAfterSeqRow{}
+	for rows.Next() {
+		var i ListLatestGroupMessagesAfterSeqRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.GroupID,
+			&i.Seq,
+			&i.SourceChannelID,
+			&i.ActorType,
+			&i.ActorID,
+			&i.PlatformMessageID,
+			&i.ReplyTo,
+			&i.PlatformTimestamp,
+			&i.IdempotencyKey,
+			&i.Content,
+			&i.Reasoning,
+			&i.AgentSessionID,
+			&i.CreatedAt,
+			&i.DeliveryState,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

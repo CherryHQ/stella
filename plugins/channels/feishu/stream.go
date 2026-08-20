@@ -62,6 +62,7 @@ func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.
 	var sb strings.Builder
 	var streamErr error
 	var currentTool string
+	tools := &channel.ToolTracker{}
 	var sentMsgID string
 	var images []channel.ImageEvent
 	var files []channel.FileEvent
@@ -104,6 +105,7 @@ func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.
 		}
 
 		if evt.ToolUse != nil {
+			tools.Handle(evt.ToolUse)
 			line := channel.ToolLine(evt.ToolUse)
 			if line != "" {
 				currentTool = line
@@ -153,7 +155,11 @@ func (b *Bot) streamResponseInThread(ctx context.Context, events <-chan channel.
 	// via sendFinalResponseInThread with elapsed time appended).
 	elapsed := nowFunc().Sub(startTime)
 
-	return sentMsgID, sb.String(), images, files, dedupeReferences(refs), elapsed, streamErr
+	response := sb.String()
+	if tools.HasHistory() {
+		response += tools.RenderFinal()
+	}
+	return sentMsgID, response, images, files, dedupeReferences(refs), elapsed, streamErr
 }
 
 // sendCardReply sends an interactive card reply and returns the new message ID.
@@ -170,6 +176,78 @@ func (b *Bot) sendCardReply(ctx context.Context, replyMsgID, text string, replyI
 		return sendErr
 	})
 	return messageID, err
+}
+
+// sendCardToChat posts a card into the chat itself, with nothing to reply to.
+// A group turn woken by a peer's post or by a stall nudge has no platform
+// message behind it, and the Reply API rejects an empty message_id -- so
+// without this path those replies are lost rather than merely unthreaded.
+func (b *Bot) sendCardToChat(ctx context.Context, chatID, text string) (string, error) {
+	content, err := buildCardContent(text)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", errCardContentBuild, err)
+	}
+	var messageID string
+	err = b.retryFeishuSend(ctx, "send card", func(ctx context.Context) error {
+		if b.createMessageFn != nil {
+			var sendErr error
+			messageID, sendErr = b.createMessageFn(ctx, chatID, larkim.MsgTypeInteractive, content)
+			return sendErr
+		}
+		if b.client == nil {
+			return fmt.Errorf("feishu client is not initialized")
+		}
+		resp, sendErr := b.client.Im.Message.Create(ctx,
+			larkim.NewCreateMessageReqBuilder().
+				ReceiveIdType(receiveIDTypeForChatID(chatID)).
+				Body(larkim.NewCreateMessageReqBodyBuilder().
+					MsgType(larkim.MsgTypeInteractive).
+					ReceiveId(chatID).
+					Content(content).
+					Build()).
+				Build())
+		if sendErr != nil {
+			return sendErr
+		}
+		if !resp.Success() {
+			return &feishuAPIError{code: resp.Code, msg: resp.Msg}
+		}
+		if resp.Data != nil && resp.Data.MessageId != nil {
+			messageID = *resp.Data.MessageId
+		}
+		return nil
+	})
+	return messageID, err
+}
+
+// sendTextToChat is sendCardToChat's plain-text sibling, used when card
+// rendering itself failed.
+func (b *Bot) sendTextToChat(ctx context.Context, chatID, text string) error {
+	return b.retryFeishuSend(ctx, "send text", func(ctx context.Context) error {
+		if b.createMessageFn != nil {
+			_, sendErr := b.createMessageFn(ctx, chatID, larkim.MsgTypeText, textContent(text))
+			return sendErr
+		}
+		if b.client == nil {
+			return fmt.Errorf("feishu client is not initialized")
+		}
+		resp, sendErr := b.client.Im.Message.Create(ctx,
+			larkim.NewCreateMessageReqBuilder().
+				ReceiveIdType(receiveIDTypeForChatID(chatID)).
+				Body(larkim.NewCreateMessageReqBodyBuilder().
+					MsgType(larkim.MsgTypeText).
+					ReceiveId(chatID).
+					Content(textContent(text)).
+					Build()).
+				Build())
+		if sendErr != nil {
+			return sendErr
+		}
+		if !resp.Success() {
+			return &feishuAPIError{code: resp.Code, msg: resp.Msg}
+		}
+		return nil
+	})
 }
 
 func (b *Bot) replyCard(ctx context.Context, replyMsgID, content string, replyInThread bool) (string, error) {

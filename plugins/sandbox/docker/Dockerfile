@@ -32,26 +32,12 @@ FROM debian:13-slim
 ARG BUILTIN_BUNDLE_REVISION
 LABEL org.cherryhq.stella.builtin-bundle-revision=${BUILTIN_BUNDLE_REVISION}
 
-# mise lives at /opt/stella/bin/mise — the same path the bwrap sandbox exposes —
-# so per-user and system shims (which relink to ../../bin/mise) resolve to it.
-# bun, uv (+uvx), fd, rg, and lightpanda are NOT vendored here: `stellad mise
-# reconcile-builtins` below installs them from resources/tools.yaml, exposing
-# them via mise shims exactly as the host does. Only non-mise base runtime deps
-# are installed via apt.
-#
-# This tag trails resources/binaries/gen.go's miseVersion: jdxcode/mise publishes
-# fewer image tags than mise cuts CLI releases, and an unpublished tag fails the
-# build with a bare "not found". Check Docker Hub before bumping this line.
-COPY --from=jdxcode/mise:2026.8.3 /usr/local/bin/mise /opt/stella/bin/mise
-
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ca-certificates git curl wget \
         python3 python3-venv \
         nodejs npm && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
-
-COPY --chmod=0644 resources/binaries/shell_env.sh /opt/stella/bin/.stella-shell-env
 
 ARG USER_UID=1000
 ARG USER_GID=1000
@@ -82,17 +68,16 @@ ENV MISE_CACHE_DIR=/opt/stella/.mise-tools/cache
 ENV MISE_SYSTEM_CONFIG_FILE=/opt/stella/.mise-tools/configs/_builtin.toml
 ENV PATH=/opt/stella/bin:/opt/stella/.mise-tools/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# Install the builtin tools through the SAME reconcile path the daemon runs, so
-# the image's tool identifiers and versions are byte-for-byte what the host
-# produces from resources/tools.yaml (single source of truth, no drift). The
-# stellad is bind-mounted only for this build step; it is not shipped in the
-# runtime image. This writes /opt/stella/.mise-tools/configs/_builtin.toml,
-# installs every enabled plugin binary, relinks shims to relative targets, and
-# extracts Stella's embedded Xberg runtime with its adjacent native libraries.
+# `system-bundle install` extracts the exact release-owned mise, Xberg, and
+# shell environment before the reconciler invokes mise. This avoids a second,
+# image-provided mise version and lets relative system/user shims resolve at the
+# same /opt/stella/bin path bwrap exposes. The stellad is bind-mounted only for
+# this build step; it is not shipped in the runtime image. Reconcile then writes
+# the builtin config, installs enabled plugin binaries, and relinks shims.
 RUN --mount=type=bind,from=stella-builder,source=/out/stellad,target=/usr/local/bin/stellad \
     --mount=type=secret,id=github_token,env=GITHUB_TOKEN \
-    STELLA_HOME=/opt/stella stellad mise reconcile-builtins && \
 	STELLA_HOME=/opt/stella stellad system-bundle install && \
+	STELLA_HOME=/opt/stella stellad mise reconcile-builtins && \
 	REVISION="$(STELLA_HOME=/opt/stella stellad system-bundle revision)" && \
 	test "$REVISION" = "$BUILTIN_BUNDLE_REVISION" && \
 	mkdir -p /opt/stella/skills && ln -s "../bundles/$REVISION" /opt/stella/skills/builtin && \

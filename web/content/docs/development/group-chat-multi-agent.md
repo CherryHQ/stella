@@ -1,258 +1,167 @@
 ---
-title: Group-chat multi-agent
+title: Group chat with multiple agents
+description: How Stella lets several agents share one conversation without a router deciding who speaks.
 ---
 
-> This page is for developers working on Stella's group-chat support: channel adapters, the message event log, the arbiter/dispatcher, group memory, or session identity. For the user-facing guide, see the channels docs.
+> This developer reference explains the design of Stella group collaboration: what problem it solves, which alternatives were rejected, and which invariants the implementation is holding up. For the same material as diagrams, see [Group-chat dataflow](./group-chat-dataflow). For channel setup, see the channel guides.
 
-Stella's group chat hosts **multiple agents in one physical group**. Each agent is its own platform bot; a single backend process owns all of them, so a central arbiter can act as a real, enforceable speaking gate. This page documents the data model and the identity rules that make that safe. For the target request-to-reply flow shared by Web UI and platform adapters, see [Group-chat dataflow](/docs/development/group-chat-dataflow).
+## The problem
 
-The design is locked up front because most of it is hard to change once it carries data: new tables (event log, group memory, membership, ingest cursor) and the `ctx_conversation` ownership column are all "ship-it-with-data-and-you-can't-go-back" decisions.
+A group holds one human (or several) and several agents. Every agent has its own memory, tools, schedule, and sandbox. When a message arrives, something has to decide which agents respond — and that decision is genuinely hard, because "should I say something here" depends on the whole conversation, on what the agent knows, and on what it is already doing.
 
-## The one rule that governs everything
+The design constraint that shapes everything below: **the entity best qualified to answer that question is the agent itself**, and it is the one entity that has not run yet when the question is asked.
 
-A group has **three identity dimensions that must never borrow each other's name**:
+## Why not a router
 
-| Dimension                      | Value                                                              | Used for                                                                 | Never used for                                              |
-| ------------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------ | ----------------------------------------------------------- |
-| **Session scope**              | `group_id` (surrogate id from the `ctx_group_state` registry)      | LCM lookup key, conversation history, group-memory drawer key            | Runtime identity (vault/token/workspace)                    |
-| **Runtime execution identity** | the agent's own group principal `group:{group_id}` (not any human) | tool execution, vault, workspace path                                    | impersonating any member; reading any human's private vault |
-| **Per-turn actor**             | the real human speaker's `auth_user`                               | @-addressing, writing the speaker's _own_ private memory, access control | session lookup key, runtime execution identity              |
+The previous implementation put a _semantic arbiter_ at ingest. Every incoming message triggered one fast-model call that read the last six messages plus a short summary of each member and returned the list of agents that should reply. Only those agents got dispatch rows.
 
-If you only remember one thing: **a group session never touches any member's private resources.** The speaker's `user_id` is carried per-turn for addressing and access control, then discarded — it never reaches the workspace path, the vault, or any agent tool execution identity.
+Three problems made this untenable, and all three are structural rather than tuning issues.
 
-## Canonical group identity (D0)
+**A small model was gating large ones.** The arbiter saw six truncated messages and a 180-rune summary per member. The agent it was gating saw the full transcript, its own long-term memory, and its live tool state. The decision was being made by the party with strictly less information.
 
-A physical group conversation is registered once in `ctx_group_state`, which mints a **surrogate `id`** (app uuid/ulid) as its primary key. Every group-scoped table references that `id` — never a re-derived string. The physical identity that maps to one `id` is the triple `(platform, platform_group_id, platform_thread_id)`, enforced by a `UNIQUE` index; any bot observing the same physical group/thread does a get-or-create on the triple and lands on the same `id`.
+**It sat on the hot path with a timeout.** The call had an 8-second budget. A timeout had to resolve to something, and both answers were bad: silence loses a reply the user asked for; broadcast is a storm. There is no safe default for a gate that can fail.
 
-Why a surrogate id and not a derived `platform:chat_id` string? The id is opaque and stable, so it survives platform-side id reformatting and keeps FK joins cheap; the triple stays as the natural key for lookup. Under the per-bot architecture each agent is a distinct bot = a distinct `channel_id`, so **one physical group is observed by N channel_ids**. The platform's group id is group-global (it does not change with which bot received the message), so the triple is the stable group identity; `channel_id` only answers "which bot saw it."
+**Non-selected agents went blind.** An agent that was not picked never read the message, so its ingest cursor never moved. Its next turn began with a hole in the conversation, and that hole compounded.
 
-**Threads are separate groups.** A Telegram forum topic (or any platform sub-thread) is its own conversation, so each distinct `platform_thread_id` gets its own registry row — its own event log, `seq`, memory drawer, and arbiter scope. `platform_thread_id` is `TEXT NOT NULL DEFAULT ''` (empty string, not `NULL`): PostgreSQL treats `NULL`s as distinct in a unique index by default, so a nullable column would break the `UNIQUE` triple.
+The replacement inverts the assumption. Assume every member might have something to say, let each one decide locally with full information, and put the cost control _after_ the decision, where it can be exact instead of predictive.
 
-`source_channel_id` (which bot observed an inbound message) is recorded on the event-log row **for audit only**. It never enters an idempotency key, `seq`, cursor, or membership primary key, and it is **never a reply route**. The reply route is always the speaking agent's own `reply_channel_id` (see membership).
+## The shape of the system
 
-Every module reuses the registry `id` — event log, group memory, membership, ingest cursor, session key. No module invents its own notion of "group."
+Four tables carry the event and work ledger. Coordination also relies on `ctx_group_state` for the locked caps/nudge state and `ctx_group_ingest_cursor` for each agent's durable read boundary. Nothing load-bearing lives only in process memory, so a restart loses no decision.
 
-## How agents join a group (D1)
+| Table                | Role                                                                                                                                                                                                                                                                              |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ctx_group_message`  | The canonical ordered event log. `seq` is the only ordering anyone reads: the client reducer, the freshness check, and the memory cursor all key on it. Carries `delivery_state` (`pending` / `delivered` / `failed`).                                                            |
+| `ctx_group_outbox`   | Durable fan-out source. Ingest creates one row for its canonical message; a delivered agent reply gets its peer outbox only in the publisher's successful finalization transaction.                                                                                               |
+| `ctx_group_dispatch` | Durable wake ledger. Normal fan-out creates one row for each eligible member, skipping an agent author; a targeted nudge creates exactly one row for its target. Rows carry `kind` (`wake` / `nudge`), `trigger_seq`, `held_up_to_seq`, `publish_started_at`, and `published_at`. |
+| `ctx_group_claim`    | Durable work claims. One live owner per `(group, key)`, with a lease so a crashed owner cannot strand the work.                                                                                                                                                                   |
 
-Each agent in a group is an independent bot bound to its own channel config (its own token). The platform provides identity, @mention, and delivery. A single backend process hosts every channel, which is what makes the arbiter a real gate rather than a soft suggestion.
+Caps and nudge bookkeeping live on `ctx_group_state`. All four caps are per-group state, settable through `PATCH /api/groups/{id}` (API only; the Web UI does not expose them): `agent_chain_hard_limit` (default 8, range 1–100), `max_agent_posts_per_minute` (default 10 per agent, range 1–1000), `max_replies_per_human_trigger` (default 5, range 1–100), `hold_limit` (default 3, range 0–20), plus `nudge_at`, `nudge_checked_at`, and `nudge_streak_count`.
 
-Message-ingress topology:
+One SQL function, `ctx_group_chain_root(group, agent, trigger_seq)`, answers where an agent's current causal chain starts: the later of the most recent human message at or before `trigger_seq` and the agent's own most recent accepted post. The trigger bound is deliberately asymmetric: it applies to the human branch, while the accepted-post branch reads the agent's latest committed result. Its four consumers are the wake claim's held-coverage gate, the HOLD budget count, the wake's `held_up_to_seq` hint, and chain-scoped verbatim dedup. These have different failure modes: relaxing only the claim gate lets a held row re-run and post twice; tightening only the count makes a HOLD that never expires; widening dedup suppresses an ordinary acknowledgement forever. One definition is what stops all four drifting apart.
 
-- **Bound bots must read all group messages.** Joining requires disabling the platform privacy mode (Telegram BotFather `/setprivacy` → Disable; equivalent authorization scope on Feishu/QQ). Without full visibility the arbiter has nothing to decide on.
-- **One human message may be delivered by several bots.** The event-log idempotency key converges them to one row regardless of which bot delivered it.
-- **Dispatch/arbiter fire exactly once**, only when the message is first successfully inserted into the event log.
+## The life of a message
 
-Rejected alternative: one bot puppeteering multiple virtual agents. The platform can't distinguish virtual identities, so @mention and delivery would have to be simulated and the arbiter degrades to advice.
+Ingest appends one canonical event and creates one outbox row. Draining a normal outbox materializes one wake per eligible member, skipping an agent author — **a member never wakes itself**. A nudge outbox instead materializes exactly its named target; that target exception is why neither the outbox nor dispatch cardinality is simply “one row per member.”
 
-## The event log (D2)
+A worker coalesces ordinary wakes to the newest one per `(group, agent)` and marks older pending wakes `status='superseded'`. A targeted nudge is never coalesced this way. Both kinds nevertheless share **one kind-agnostic live slot per `(group, agent)`**: a wake and a nudge cannot run concurrently for the same agent in the same group. This is what makes the model survive a busy group: five messages in a row cost one turn that sees all five, not five turns each seeing a stale prefix. Rows superseded by claim-time coalescing never advance the memory cursor and emit no turn frame, so nothing is marked as read that was not read.
 
-`ctx_group_message` is the authoritative, deduplicated copy of every group message. Key columns:
+After a worker obtains a queue slot, it re-checks whether a targeted nudge is already moot. An ordinary wake may have posted while the nudge waited; that nudge retires silently rather than spending another turn.
 
-| Column                     | Notes                                                                      |
-| -------------------------- | -------------------------------------------------------------------------- |
-| `id TEXT PRIMARY KEY`      | app-generated uuid/ulid (schema rule requires a TEXT PK)                   |
-| `group_id TEXT NOT NULL`   | FK → `ctx_group_state(id)` (D0); all dedup/ordering keys off this          |
-| `seq INTEGER NOT NULL`     | per-group monotonic ordering token, starting at 1; `UNIQUE(group_id, seq)` |
-| `source_channel_id TEXT`   | observing bot — **audit only**, not in any unique key                      |
-| `actor_type TEXT NOT NULL` | `human` / `agent` — schema-level, never guessed from content               |
-| `actor_id TEXT NOT NULL`   | human → platform sender_id; agent → agent_id (no separate source_agent_id) |
-| `platform_message_id TEXT` | platform id, nullable (some adapters cannot supply it)                     |
-| `reply_to TEXT`            | platform id this message replies to; empty/NULL if none                    |
-| `platform_timestamp TEXT`  | platform-reported send time (UTC); feeds the high-precision dedup fallback |
-| `idempotency_key TEXT`     | fallback dedup key, set only when there is no stable `platform_message_id` |
-| `content TEXT NOT NULL`    | JSON-serialized `[]ai.ContentBlock`                                        |
+The claimed wake then passes three gates in order.
 
-### Deduplication: "rather duplicate than silently drop"
+## Gate one: deterministic triage
 
-Three tiers, in priority order:
+`triageWake` decides whether a turn may _run_. It never decides whether an agent _should speak_ — only the agent can answer that. There is no model call here; every rule is either a hard cap or an addressing fact.
 
-1. Stable `platform_message_id` present → dedup via partial unique `(group_id, platform_message_id)`. No idempotency key generated.
-2. No stable id but a **high-precision platform timestamp** → `idempotency_key = hash(group_id, actor_id, platform_timestamp, content)`, partial unique (non-null only).
-3. Neither → **no idempotency key** — the message is not idempotent but is never swallowed (occasional duplicates are accepted).
+Rules are evaluated in order, first match wins:
 
-Never use the local receive time or a low-precision/default timestamp to build the hash: that would misclassify "two identical messages sent back-to-back" as a redelivery and silently drop data.
+| #   | Rule                                                    | Verdict                   | Why                                                                                                                                                                         |
+| --- | ------------------------------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Chain, rate, or per-human-trigger cap exceeded          | `hard_cap` — silent       | The anti-storm floor. No bypass, no exceptions. The rate cap defaults to 10 posts per agent per minute.                                                                     |
+| 2   | An unconsumed message mentions this agent               | `mentioned` — act         | Read from the ingest cursor, not only the trigger envelope: coalescing can move a wake past the message that addressed it.                                                  |
+| 3   | A nudge names this agent                                | `nudge` — act             | A nudge is never superseded, so a wake already in flight may have posted the very reply the nudge asks for. The post-queue-slot recheck then returns `nudge_moot` — silent. |
+| 4   | This wake covers an outstanding previous HOLD           | `held_successor` — act    | The held turn consumed its mention and history; until the cursor covers `held_up_to_seq`, its durable held row admits the required successor.                               |
+| 5   | A resolved mention names some other member              | `mentioned_peer` — silent | Somebody else was addressed, unless this wake still owes a held successor turn.                                                                                             |
+| 6   | Agent-only run, this agent already spoke, no live claim | `agent_lap` — silent      | One lap per participant. A live claim means work is in flight, so the run is not idle chatter and the floor stays open.                                                     |
+| 7   | Nothing matched                                         | `open_floor` — act        | The default is to run. A rule that cannot classify a wake must not silence it.                                                                                              |
 
-### seq allocation
+Rule 7 is the thesis. Any gate that fails closed hands the decision to whoever wrote the rules; failing open hands it to the agent, which is the party with the most information.
 
-A global sequence can't give a **per-group** monotonic `seq`, and app-level `max+1` races under concurrency. Instead the registry row doubles as the per-group counter and write lock:
+A read error inside rule 2 resolves to "no match" on purpose. A transient database failure then costs the mention its rule, never the agent its turn. The cap reads before rule 1 and the durable HOLD read for rule 4 are different: if any of them fail, triage returns `triage_db_error`, requeues while attempts remain, and retires silently only after the ordinary three-attempt budget is exhausted. The nudge-moot read runs later, inside the session queue; a failure there fails and retries the dispatch rather than risking duplicate work.
 
-```sql
-CREATE TABLE ctx_group_state (
-  id                 UUID PRIMARY KEY DEFAULT uuidv7(),  -- surrogate group id (D0)
-  platform           TEXT NOT NULL,              -- 'telegram' | 'feishu' | 'qq' | ...
-  platform_group_id  TEXT NOT NULL,              -- native group/chat id
-  platform_thread_id TEXT NOT NULL DEFAULT '',   -- sub-thread/topic; '' when none
-  next_seq           BIGINT NOT NULL DEFAULT 0,
-  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (platform, platform_group_id, platform_thread_id)
-);
--- allocation: UPDATE ... SET next_seq = next_seq + 1 WHERE id = $1 RETURNING next_seq (post-update; first = 1)
-```
+## Gate two: the agent's own PASS
 
-### The single write path
+The agent has read the whole group, has its memory, and knows what it is working on. If it has nothing to add, it replies with exactly `PASS`, or with nothing at all.
 
-All appends go through one primitive — **never raw `INSERT`**:
+`isModelPass` recognises the reply through the wrapping models add — surrounding whitespace, a code fence, inline backticks, bold markers, a trailing period. Only a _bare_ pass counts: `PASS, but check the logs` is a reply that happens to start with the word, and it gets posted.
 
-```
-AppendGroupMessage(ctx, msg) -> (result{inserted|existing}, seq)
-```
+The turn is retired as `silent` with reason `model_pass`. No post, no outbox, no cap or hold accounting. But **everything else the turn did still commits**: the peer rows it read, its ingest cursor, and any tool calls it made.
 
-The closed, idempotent algorithm (a transaction takes a per-group row lock — `SELECT ... FOR UPDATE` on the registry row, or the atomic `UPDATE ... RETURNING` below — so writes to one group serialize):
+That last part is load-bearing. An agent may claim a piece of work, write a file, and _then_ decide it has nothing worth saying. Dropping the whole turn would make it forget the claim it holds while the side effect stays real for every peer. `stripTrailingPass` removes only trailing text-only assistant messages and stops at the first message carrying a tool call, so no `tool_use` is ever separated from its `tool_result`.
 
-0. **Get-or-create the registry row** by the `(platform, platform_group_id, platform_thread_id)` triple → obtain its surrogate `id` (= `group_id`).
-1. **Inside the lock, check for an existing message** by unique key (`platform_message_id` or fallback `idempotency_key`).
-2. **Exists** → return "no insert / no bump / no dispatch."
-3. **Not exists** → `UPDATE ctx_group_state SET next_seq = next_seq + 1 WHERE id = $1 ... RETURNING next_seq` → `INSERT` the message row with that seq → dispatch only after commit.
+A `model_pass` advances the ingest cursor. So does a post-turn backstop: after a `held`, duplicate, or cap verdict, the transaction commits the history and tool trajectory the agent actually read and advances its cursor through `trigger_seq`; it discards only the trailing reply that was not accepted. Because a HOLD has therefore consumed its original mention, the successor is admitted by the covered durable held row (`held_successor`), before peer-mention or lap triage can silence it. Once that successor commits a cursor through `held_up_to_seq`, the old HOLD stops granting admission. A claim-time superseded row or a pre-turn gate decline did not run the model, so neither advances the cursor.
 
-Because both the bump and the insert happen only in the cache-miss branch and inside the same write lock, an idempotent redelivery neither inserts a row nor consumes a seq. `ON CONFLICT DO NOTHING` is a last-resort backstop only; it does not carry the dedup decision.
+## Gate three: the accept transaction
 
-## IncomingMessage fields (D3)
+This is the server-side backstop, and the only place that sees the group under a lock _after_ the agent has finished thinking.
 
-`pkg/channel.IncomingMessage` gains `ThreadID / MessageID / Timestamp / ReplyTo / Mentions`. `ThreadID` is the platform sub-thread/topic id within `ChatID` (e.g. a Telegram forum topic); it feeds the D0 registry triple so a thread becomes its own group. `Mentions` is a normalized structure, not the platform's raw string:
+The transaction takes `FOR UPDATE` on `ctx_group_state`, then runs its gates in cost order:
 
-```go
-type Mention struct {
-    Raw        string // raw @ text (@username / <at open_id> ...), for audit/fallback
-    PlatformID string // platform-side mentioned id (username / open_id / qq number)
-    AgentID    string // resolved Stella agent; empty if unresolved
-}
-```
+- **Freshness.** While fewer than `hold_limit` holds have occurred in `ctx_group_chain_root`, a peer post after the agent's snapshot makes the reply `held` and it is **never published**. The old row normally remains held with `held_up_to_seq`; a later, separate pending wake whose snapshot covers that sequence is the successor turn. The compensation exception is terminal accepted-delivery failure, which requeues only the rows causally held by that failed post. Once the hold limit is exhausted, freshness no longer stops the stale reply: it continues through dedup and caps and is normally accepted.
+- **Verbatim dedup.** An identical reply already in the chain retires as `silent` with reason `duplicate`. It does not consume HOLD budget.
+- **Chain and reply caps.** `agent_chain_hard_limit` and `max_replies_per_human_trigger` are re-checked under the lock, not on the snapshot, and retire the reply as `silent` if spent.
 
-Adapters fill `Raw` and `PlatformID` (they know the platform id). Ingest resolves `AgentID` best-effort and stores the result in the outbox envelope; the dispatcher re-resolves any still-empty `AgentID` before routing. @-routing honors only `Mention.AgentID != ""` — no component guesses usernames or open_ids on its own.
+If all gates pass, one transaction commits the **pending** agent message, the deferred memory turn and its cursor, and the dispatch result marker. There is deliberately no peer outbox in this transaction: this reply does not itself wake peers until the publisher returns successfully. That publisher finalization transaction marks the message `delivered` and creates its peer outbox together. The pending canonical row already exists, however, so a peer woken independently by later activity can encounter it before delivery resolves. The strict atomic guarantee is that an accepted message is never visible without its own agent memory.
 
-## Memory: subject axis (D4)
+Each gate carries its own retirement reason, reported verbatim. A gate that reports a neighbour's reason is indistinguishable from a backstop misfiring, and that is exactly the bug class this design is meant to make debuggable.
 
-A separate group-memory table, **keyed by `(group_id)` only — not per-agent**:
+## What an agent sees
 
-```sql
-CREATE TABLE ctx_group_memory (
-  group_id TEXT PRIMARY KEY,
-  -- ... blob drawer, no auth_user FK
-);
-```
+Every message an agent reads is labelled `[seq:N who]` with the participant's group name — including the message that woke the turn. Agents address other agents by those names only. On every surface, a human can write `@Name` in plain text, using a member's display name or ID, and it resolves the same way as a native platform mention. Participant naming tries the platform identity and account name, but resolution never fails: if that lookup or platform-ID resolution cannot produce a name, the model receives the stable raw actor ID instead.
 
-The three existing user-memory tables (`ctx_agent_memory` / `_changelog` / `_snapshot`) are left untouched. Two reasons:
+Each turn is prefixed with a `<wake>` block naming why it is running (`mentioned`, `nudge`, `open_floor`, …). This matters for gate two: an agent woken on the open floor should pass far more readily than one that was named.
 
-1. Those tables have `user_id REFERENCES auth_user(id) ON DELETE CASCADE`. A `group_id` is not an `auth_user`, so generalizing into the same tables would mean dropping the FK and losing "delete user → cascade-clean memory."
-2. A separate table **upgrades the privacy wall from discipline to the type system**: the DM write path simply has no handle to `ctx_group_memory`, so `private → group` leakage is structurally impossible.
+Agent templates fill `{{ .AgentName }}` with the name of the agent being created, so a shared persona template does not give every agent built from it the same name.
 
-Why `(group_id)` and not `(group_id, agent_id)`? v1 extraction is generic (not agent-role-specific), so per-agent drawers would be identical copies of the same extraction — no benefit, and they'd drag in cursor agent-dimension, a membership dependency, and N× cost. Group memory is the group's shared knowledge; all agents in the group read the same drawer. Agent-specific group memory is a future, additive change (add an `agent_id` axis then).
+## Work claims
 
-Write rules, decided by hard facts about message origin (never by the LLM):
+`ctx_group_claim` is a conditional-upsert lease. An agent claims a concrete shared deliverable by key; a peer that tries the same key is told who holds it and until when. TTL is clamped to 1 minute – 24 hours, default 10 minutes, and an expired lease can be taken over.
 
-| Message origin                  | Written to                                                                        |
-| ------------------------------- | --------------------------------------------------------------------------------- |
-| User speaks publicly in a group | group-shared drawer `(group_id)` **+** that user's private drawer `(user, agent)` |
-| User sends a DM                 | private drawer only — **never** the group-shared drawer                           |
-| Agent speaks                    | no memory written                                                                 |
+Claims are surfaced twice: in the group prompt, so peers can see what is already owned, and in triage rule 6, where a live claim keeps the floor open during an agent-only run.
 
-`private → group` is a one-way wall enforced by path isolation, not by prompt pleading.
+Claims are for deliverables, never for ordinary chat replies. A claim on "answering this question" would turn the collaboration model back into a lock.
 
-## Memory timestamps (D5)
+## Nudges
 
-`profile` moves from a single blob to dated entries (aligning with how constraints already carry `CreatedAt`), and the **date must render into the system prompt** (today it does not, so the timestamp is wasted). HTTP stays compatible: entries are stored internally, but the read API flattens manual entries back into a string, so OpenAPI / SDK / UI are unchanged.
+A group can stall: a human asks something, every agent passes or is gated, and nothing happens. A background worker checks every 60 seconds for groups idle between 5 minutes and 6 hours, and can append a canonical system message plus one targeted nudge wake.
 
-## Async memory ingest (D6)
+This is the only model call left in the group path, and it is deliberately off the message path: a 5-second fast-model classifier that returns `{"stalled", "target", "reason"}`. It cannot silence anybody — the worst it can do is spend one turn.
 
-Memory is never written on the reply path. A background single-consumer pulls from the event log by `seq > cursor`, batches, runs a lightweight LLM extraction, and routes per D4.
+It is bounded twice:
 
-- Cursor: `ctx_group_ingest_cursor(group_id, pipeline)`, value = last consumed `seq`.
-- Dead-letter: `ctx_group_ingest_error(id, group_id, pipeline, seq, reason, created_at)`. Transient failure (LLM timeout/rate-limit) → cursor does not advance, retry the same batch. Bad message (unparseable) → record in the dead-letter table, then the cursor steps over that seq.
-- The cursor only advances to the end of the contiguous prefix of "extracted-or-dead-lettered," so it neither skips nor stalls.
+- **Candidate work:** each pass reads at most 50 candidates. `nudge_checked_at` is separate from `nudge_at`: a group is reconsidered after new activity or after a 30-minute recheck, not on every tick while nothing has changed.
+- **Per group:** one nudge per 45-minute cooldown (5 minutes for the deterministic claim-based fallback).
+- **Per conversation:** at most three consecutive nudges between two real messages (`nudge_streak_count`). Any human or agent message resets it.
 
-## Arbiter: the speaking gate (D7)
+The deterministic fallback exists only when the classifier is unavailable. It proceeds only when that pass has exactly one candidate, its latest message is no more than 30 minutes old, and that group has exactly one live claim whose owner is not the latest speaker; it uses the 5-minute cooldown. This narrow shape prevents an outage from turning one batch into a broad, speculative recovery sweep.
 
-Group messages no longer flow each-bot-directly-into-runtime. The durable path:
+The streak bound is the important one. Every nudge that remains live after the queue-slot moot check costs a full turn from the agent it names; a group that stays quiet after three such attempts is not stalled, it is done.
 
-```
-group message (delivered by any bot)
-  → append to event log (D2 idempotent; if not first insert, drop here)
-  → create outbox work
-  → single group dispatcher
-      → L0 rule gate: resolved @mention → deterministic responders
-      → L1 semantic gate: no mention → fast-model JSON decision
-      → materialize ctx_group_dispatch rows
-      → for each selected agent: runtime → publisher (through reply_channel_id)
-```
+## Delivery
 
-- Any `@mention` signal stays on the L0 rule path. Resolved mentions bypass `MaxRepliesPerTrigger`: if a user mentions multiple group agents, every mentioned member replies. A platform mention that cannot be resolved to a Stella group member is not silently dropped: the dispatcher falls through to the same no-mention semantic path, so an explicit `@mention` is never less reliable than a plain message. Web text mentions that do not resolve remain ordinary text and use the same no-mention path.
-- No-mention messages use L1 semantic routing when the semantic arbiter is configured. The classifier can return silence, one agent, or a capped multi-agent broadcast. Failures, timeouts, invalid JSON, or no eligible routing model collapse to silence. Without a semantic arbiter, the only auto-reply is a Web single-member group routing to that one member; every other group stays silent, and any multi-member group also logs a WARN to configure the semantic arbiter.
-- The L1 routing model is selected by ownership, not by arbitrary member order. Web groups prefer the group owner's own agent, then system-scope agents. Platform groups allow system-scope agents only, so private agents' credentials are not used for shared routing decisions.
-- L1 sees only bounded public routing metadata: agent ID/name, member summary (the first 180 characters of `system_prompt`, intentionally sent for correct routing), and bounded prior group context with `seq < currentSeq`. Delayed outbox retries never see future messages as prior context.
-- decide and generate are separate; **decide emits intent only, not a draft** (saves tokens).
-- A hard cap of N public replies per human trigger prevents runaway flooding.
-- An agent's own message is logged (passively readable) but **does not wake other agents' arbiters by default.** The exception is an explicit `@otherAgent`, which is handled by a separate handoff dispatcher — the normal arbiter only reacts to `actor_type=human`, so the two paths don't conflict.
+Web `POST /api/groups/{id}/messages` only ingests and wakes workers. It returns `start`, `data-group-ingest`, and `finish`; canonical messages and turn presence arrive on the group event stream.
 
-### Durable dispatch correctness
+**Web is a platform whose publisher is a noop, not a bypass.** A web reply runs the same lifecycle as a Telegram one: born `pending`, marked `delivered` in the successful publisher finalization transaction, `failed` when accepted delivery permanently cannot complete. Only that accepted-delivery failure frees peers that were held behind the reply. A normal wake that fails before acceptance has no accepted peer post to compensate. Failed canonical rows remain in the author's own memory for tool/history consistency, but are excluded from every peer's injected transcript because the conversation never received them.
 
-- Platform ingest creates a pending outbox row in the same transaction as the event-log message. Web synchronous ingest creates the outbox as `running` with a lease in that same transaction, so the background worker cannot steal the request while the SSE path is executing. If the process crashes or the lease expires, the worker recovers it with `NoopGroupPublisher`; Web's durable delivery source is the event log, not the open SSE socket.
-- Web disconnects do not cancel generation. The server uses a service-lifecycle context with a bounded timeout, drains the stream, and writes back only complete successful responses. Partial streams caused by cancellation or errors are not appended.
-- Dispatch retries use linear backoff: `1s * attempts`, capped at 60s. Rows that exceed the retry budget are marked `failed`; there is no fallback that lets another channel impersonate the agent.
-- Dispatch is ordered per `(group_id, agent_id)`: SQL only claims a row when no earlier `seq` for the same agent is pending or running with a live lease. Expired running rows are reclaimed instead of blocking forever.
-- Reply publishing is at-least-once. The normal tail is publish → one DB transaction that appends the group reply and writes `result_message_id` → mark completed. A retry that sees `result_message_id` skips chat and publish, then completes. The remaining duplicate window is publish succeeded but the writeback+marker transaction did not commit.
-- Group context injection deduplicates already-persisted injected messages with an exact SQL content lookup across the conversation, not a token-budget window.
+The real prebuffer is `bufferGroupResponse`: it drains the runtime's complete event stream, up to its 8 MiB in-memory ceiling, before acceptance or any platform side effect. Publishers receive a closed replay. `ValidateGroupReplay` is a defensive publisher-side recheck of that replay, not the mechanism that buffers a live model stream. No live model stream or model error remains at egress; platform delivery can still fail and is handled by the dispatch retry state machine. This is why platform publishers send one complete message rather than a placeholder they later edit.
 
-## Reply egress: group only (D8)
+A delivered agent message creates its own outbox in that same finalization transaction. That is what makes agent-to-agent collaboration possible on every platform, and the caps are what make it bounded.
 
-No agent-initiated DMs to group members (platforms forbid bots from DMing strangers). All output lands on the group ChatID; @mentions are a content-layer concern over the same delivery route.
+## Turn presence
 
-## Session ownership (D9): why this must be fixed at design time
+`GET /api/groups/{id}/events` carries `turn` frames alongside canonical `message` frames. A turn frame is live presence for one member, never replayed history.
 
-`ctx_conversation.session_id` is `UNIQUE`, and the LCM lookup is `(session_id, user_id, agent_id)`. If a shared session kept passing the current speaker's `user_id`:
+Claiming a row first makes its database status `running`. A wake or nudge emits a `running` frame only after it owns the per-session queue slot and the chat stream has started; a queued nudge that became moot emits only terminal `silent`. A gate decline likewise emits its terminal `silent` frame from an already-running database row, but never emits a `running` frame. A claimed row that fails before its `running` frame — context load, outbox decode, or publisher lookup — likewise emits a terminal `failed` frame, so a subscriber that saw the row as `running` in a presence snapshot is still retired. Rows marked `status='superseded'` by claim-time wake coalescing emit no turn frame at all. Separately, a claimed row whose trigger was already consumed across a session boundary retires with a terminal `silent` frame whose reason is also `superseded`; this is a verdict reason, not the database superseded status. Once a subscriber has observed `running`, either as a live frame or a presence snapshot, exactly one terminal frame retires it: `done` once the accepted reply has been delivered, `held` when freshness stopped it, `silent` when the model or a later backstop declined, `failed` otherwise.
 
-- A speaks → row `(S, A, agentX)` created.
-- B speaks → lookup `(S, B, agentX)` misses → create-if-missing inserts `session_id = S` → **collides with the UNIQUE constraint.**
+Egress compensation — republishing an accepted reply after a restart — skips `running`, because no model is taking that turn, and still emits `done` on delivery.
 
-So the group session stores `group_id` in `ctx_conversation.user_id` as a **lookup key only** (the column has no `auth_user` FK). The group branch of `requireSessionScope` / `GetConversationBySessionID` matches `(session_id, group_id, agent_id)` and does not require an actor match.
+Because turn frames are not replayed, a fresh subscriber is handed a snapshot: one synthetic `running` frame per distinct agent with an executing dispatch at connect time. A crashed worker leaves its row `running` until the 5-minute lease expires, so a snapshot can show a stale `running` for that long. The reaper then retires that attempt with a terminal `failed` frame before requeueing or failing it, and every reconnect re-snapshots, so clients self-heal rather than needing a repair path.
 
-The critical constraint: that `group_id` must **never flow into member-owned runtime identity surfaces.** The runtime detects "this is a group session" in one place and reroutes these surfaces:
+## Failure and recovery
 
-| Surface                 | Code                                                       | Group-session behavior                                                                             |
-| ----------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| memory / prompt profile | `runtime/chat.go` (`authz.WithUserID`), `prompt/prompt.go` | inject no human; read the group drawer, never a member's private profile                           |
-| workspace               | `runner_builder.go`, `workspace.go`                        | path `users/group-{group_id}/` — the group is its own principal, never a member's `users/{userID}` |
-| vault                   | `sandbox/env.go`                                           | resolve only agent/group-scoped secrets, never a member's private vault                            |
-| agent tools             | `authz.Identity` facades and tool handlers                 | act as the group principal, not a human userID                                                     |
+An ordinary wake has at most 3 attempts: the initial attempt plus 2 retries, with a 5-minute lease per attempt.
 
-No synthetic `auth_user` is created: the group principal is an execution scope, not a row in `auth_user`.
+`publish_started_at` and `published_at` are separate columns because "publish never ran" and "publish ran and we never saw its outcome" are different states after a crash. Only the second is ambiguous, and its accepted reply may be recovered up to a ceiling of 10 attempts. That path deliberately chooses a possible duplicate over a lost reply. Once `published_at` is durably set, platform delivery is known; local delivered/outbox finalization is idempotent and keeps retrying rather than falsely marking a delivered message failed.
 
-The membership table closes the loop:
+Giving up on a row that already carries an accepted reply is not the same as giving up on a wake. The message is committed and visible to peers, so terminal accepted-delivery failure marks it `failed` and releases peers held behind it. A failed ordinary wake does neither.
 
-```sql
--- channel_group_member: PK (group_id, agent_id), plus reply_channel_id
---   reply_channel_id FK -> channel(id)
---   assert channel.agent_id == channel_group_member.agent_id at membership write AND publisher send
-```
+## Invariants
 
-`channel.agent_id` still means bot→agent binding; `channel_agent`'s single-active semantics stay for DM/non-group only. The dispatcher receives a message from any bot, resolves all agents in the group by `group_id`, and each agent replies via its own `reply_channel_id`. The dual assertion stops a misconfiguration or malicious write from letting agentB speak through agentA's bot.
-
-## Current speaker: per-turn personalization (D10)
-
-D9 keeps the group session anonymous so no human owns the runtime. But the agent still needs to know **who is speaking right now** to personalize a reply. That is a second identity axis, deliberately kept separate from the runtime/session identity so it can never become it.
-
-`memory.CurrentSpeaker` carries the per-turn speaker: `Platform`, `PlatformUserID` (lookup/audit only), `DisplayName`, and `UserID` (the resolved Stella user when the sender is linked; empty when unlinked). It travels on the context via `WithCurrentSpeaker` / `CurrentSpeakerFromContext`, parallel to — never merged with — `UserIDFromContext`.
-
-The hard rules:
-
-- **Personalization target, not runtime identity.** `CurrentSpeaker.UserID` must never be passed to `authz.WithUserID`, sandbox/vault/token code, plugin or delegate contexts, notify routing, or hook user metadata. `runtime/chat.go` attaches the speaker for group turns but still skips `WithUserID`, so all four D9 surfaces stay group-scoped.
-- **Per-turn, never cached.** The prompt's `## Current Speaker` section is built fresh each turn by the PoolManager before-run prompt rebuild, which re-renders the full system prompt. The cached group runner never holds speaker context, so one speaker's turn metadata can't leak into another's turn.
-- **Prompt rendering is keyed on `GroupID`, not on group memory being non-empty.** A group turn renders `## Group Memory` (+ optional `## Current Speaker`) and never falls back to the per-user `## User Profile` section, even when the group drawer is empty.
-- **No automatic private profile injection.** `## Current Speaker` exposes the display name and linked/unlinked status only. It does not include the speaker's profile blob, dated entries, soul, or constraints: a public room is not the place to disclose one member's private memory or apply their hard rules to the whole group.
-- **Resolution by hard facts.** Platform senders resolve through channel identity lookup (linked → auth user id, unlinked → empty UserID → name only). Web senders trust the authenticated `actor_id` as the speaker only for a genuine human actor, failing closed otherwise.
-
-The `memory` tool mirrors this in group turns: with no session user, ordinary chat can only use read-only `profile_get` to fall back to the current speaker when the model explicitly calls the tool. `profile_update` exists only for explicitly write-enabled internal tools. `soul_*`, `constraint_*`, and `profile_history` / `profile_rollback` stay strict and fail closed.
-
-## Implementation order
-
-Data model (the hard-to-change parts) first, behavior second:
-
-1. **Phase 1** — IncomingMessage fields (D3).
-2. **Phase 2** — event log + group session ownership at the DB layer (D2, D9 session scope). **Safety gate: group sessions are NOT wired into `Runtime.Chat` here** — testing stays at the schema/event-log/session-registry layer so `group_id` can't leak into runtime identity.
-3. **Phase 2b** — group runtime identity isolation (D9 runtime surfaces), a cross-cut over the eight files above; the prerequisite for Phase 5 wiring.
-4. **Phase 3** — group memory table + timestamps (D4, D5).
-5. **Phase 4** — async ingest (D6).
-6. **Phase 5** — multi-agent + arbiter (D1, D7), including the membership table.
-7. **Phase 6** — reply egress (D8).
-
-Migrations always go schema-file edit → `mise run db:diff` → `mise run generate`; never hand-write SQL.
+- Canonical `seq` order is the client reducer key.
+- A member never wakes itself; normal fan-out skips an agent author and a nudge targets one named member.
+- At most one live dispatch, wake or nudge, runs for an agent and group.
+- Superseded rows and pre-turn gate declines do not advance the memory cursor. Model passes and post-turn backstops commit the history and tool work actually read through `trigger_seq`, without retaining a rejected trailing reply.
+- Server acceptance, not model judgement, enforces freshness and caps.
+- A `running` turn frame is always followed by exactly one terminal turn frame; a gate decline and a superseded row never produce that `running` frame.
+- No model decides whether another model may speak.

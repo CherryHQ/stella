@@ -53,3 +53,16 @@ func (b *Bot) finishReaction(ctx context.Context, channelID, messageID string, s
 	}
 	b.reactBestEffort(ctx, channelID, messageID, emoji)
 }
+
+// clearReactionLifecycle removes only this bot's lifecycle markers. Group
+// delivery failure is durable dispatcher state, not a platform failure reply.
+func (b *Bot) clearReactionLifecycle(ctx context.Context, channelID, messageID string) {
+	if b.rest == nil || channelID == "" || messageID == "" {
+		return
+	}
+	for _, emoji := range []string{reactionReceived, reactionSuccess, reactionFailure} {
+		if err := b.rest.MessageReactionRemove(channelID, messageID, emoji, "@me", discordgo.WithContext(ctx)); err != nil {
+			logger().Debug("clear discord lifecycle reaction failed", "channel_id", channelID, "message_id", messageID, "emoji", emoji, "error", err)
+		}
+	}
+}

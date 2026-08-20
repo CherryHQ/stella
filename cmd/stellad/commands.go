@@ -132,6 +132,7 @@ type setupResult struct {
 	workflowSvc              *workflowpkg.Service
 	embeddingSvc             *embedding.Service
 	librarySvc               *library.Service
+	groupNudgeWorker         *channel.GroupNudgeWorker
 	riverClient              *river.Client[pgx.Tx]
 	builtinTools             []agent.BuiltinTool
 	notifier                 *notify.Dispatcher
@@ -489,7 +490,17 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	}
 	mcpSvc := mcp.NewServiceForPool(db, mcpVault)
 
-	serviceTools := []agent.BuiltinTool{
+	// The group claim tools share one availability rule and are registered as a
+	// set. Naming them by index meant three copies of that rule, three stores,
+	// and a silent mismatch the day the slice gained a fourth entry.
+	inGroupTurn := func(_ context.Context, params agent.RunnerParams) bool {
+		return params.GroupID != "" && params.AgentID != ""
+	}
+	var serviceTools []agent.BuiltinTool
+	for _, tool := range channel.NewGroupClaimTools(db).Tools() {
+		serviceTools = append(serviceTools, agent.BuiltinTool{Tool: tool, Available: inGroupTurn})
+	}
+	serviceTools = append(serviceTools, []agent.BuiltinTool{
 		{Tool: goal.NewTool(goalSvc), Available: agent.BuiltinToolAvailable},
 		{Tool: sessionaccess.NewTool(sessionAccess), Available: func(ctx context.Context, params agent.RunnerParams) bool {
 			return params.GroupID == "" && agent.BuiltinToolAvailable(ctx, params)
@@ -504,7 +515,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		{Tool: email.NewTool(emailSvc), Available: emailToolAvailable(vaultSvc)},
 		{Tool: sharepkg.NewTool(shareSvc), Available: agent.BuiltinToolAvailable},
 		{Tool: recally.NewTool(recallySvc), Available: agent.BuiltinToolAvailable},
-	}
+	}...)
 	if vaultSvc != nil {
 		serviceTools = append(serviceTools, agent.BuiltinTool{Tool: vault.NewTool(vaultSvc, credSvc), Available: agent.BuiltinToolAvailable})
 	}
@@ -515,6 +526,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		agent.WithCompactionPM(agent.CompactionConfig{}.WithDefaults()),
 		agent.WithSessionImagePipeline(sessionImages),
 		agent.WithSessionInboxPM(sessionInbox),
+		agent.WithGroupClaimsLoader(channel.NewGroupClaimPromptLoader(db)),
+		agent.WithGroupRosterLoader(channel.NewGroupRosterPromptLoader(db)),
 		agent.WithBuiltinTools(builtinTools),
 		agent.WithPluginToolsBuilder(pluginToolsBuilder),
 		agent.WithPluginHooksBuilder(pluginHooksBuilder),
@@ -595,7 +608,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build Home deletion lifecycle: %w", err)
 	}
-	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, librarySvc, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
+	groupNudgeWorker := channel.NewGroupNudgeWorker()
+	riverClient, err := buildSharedRiverClient(db, schedulerSvc, goalSvc, embeddingSvc, librarySvc, groupNudgeWorker, cfg.Lifecycle.RiverSoftStopTimeout, cfg.Observability.RiverLogLevel)
 	if err != nil {
 		return nil, err
 	}
@@ -654,6 +668,7 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 		workflowSvc:              workflowSvc,
 		embeddingSvc:             embeddingSvc,
 		librarySvc:               librarySvc,
+		groupNudgeWorker:         groupNudgeWorker,
 		riverClient:              riverClient,
 		builtinTools:             builtinTools,
 		notifier:                 dispatcher,
@@ -729,10 +744,14 @@ func setupScheduler(db *pgxpool.Pool, phost *pluginhost.Host, agentAccess *agent
 // electable River client per database (see db.NewWorkingRiverClient); this is
 // where that invariant is enforced. The caller owns the returned client's
 // Start/Stop lifecycle (runServer); the subsystems only use it.
-func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service, librarySvc *library.Service, softStopTimeout time.Duration, riverLogLevel string) (*river.Client[pgx.Tx], error) {
+func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, goalSvc *goal.Service, embeddingSvc *embedding.Service, librarySvc *library.Service, groupNudgeWorker *channel.GroupNudgeWorker, softStopTimeout time.Duration, riverLogLevel string) (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	scheduler.RegisterRiverWorker(workers, schedulerSvc)
 	goalSvc.RegisterRiverWorker(workers)
+	if groupNudgeWorker == nil {
+		return nil, errors.New("build shared river client: group nudge worker is required")
+	}
+	channel.RegisterGroupNudgeWorker(workers, groupNudgeWorker)
 
 	queues := map[string]river.QueueConfig{}
 	sn, sc := scheduler.SchedulerQueueConfig()
@@ -741,6 +760,8 @@ func buildSharedRiverClient(db *pgxpool.Pool, schedulerSvc *scheduler.Service, g
 	queues[gn] = gc
 	gtn, gtc := goalSvc.GoalTickQueueConfig()
 	queues[gtn] = gtc
+	nn, nc := channel.GroupNudgeQueueConfig()
+	queues[nn] = nc
 
 	// The embedding lane is opt-in: only contribute its backfill worker + queue
 	// when an embedding provider is configured.

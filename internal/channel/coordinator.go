@@ -54,31 +54,28 @@ type userInvalidator interface {
 }
 
 type Coordinator struct {
-	serviceManager       agent.ServiceManager
-	invalidator          userInvalidator
-	store                config.Store
-	auth                 channelAuthStore
-	feishuEnroller       feishuEnroller
-	agentAccess          *agentaccess.Service
-	linkCodes            *auth.LinkCodeStore
-	vaultRecipient       *age.X25519Recipient
-	vaultSvc             *vault.Service
-	listFn               func() []pkgchannel.ModelOption
-	switchFn             func(provider, model string) error
-	queue                *sessionQueue
-	intentClassifier     IntentClassifier
-	groupResolver        GroupResolver
-	eventLog             *eventlog.Store
-	memberLister         GroupMemberLister
-	botRegistry          *BotIdentityRegistry
-	arbiter              *Arbiter
-	semanticGroupArbiter SemanticGroupArbiter
-	publisherRegistry    *PublisherRegistry
-	groupDispatcher      *GroupDispatcher
-	db                   *pgxpool.Pool
-	rootOpener           home.RootOpener
-	guests               GuestStore
-	guestLimiter         *guestRateLimiter
+	serviceManager    agent.ServiceManager
+	invalidator       userInvalidator
+	store             config.Store
+	auth              channelAuthStore
+	feishuEnroller    feishuEnroller
+	agentAccess       *agentaccess.Service
+	linkCodes         *auth.LinkCodeStore
+	vaultRecipient    *age.X25519Recipient
+	vaultSvc          *vault.Service
+	listFn            func() []pkgchannel.ModelOption
+	switchFn          func(provider, model string) error
+	queue             *sessionQueue
+	intentClassifier  IntentClassifier
+	groupResolver     GroupResolver
+	eventLog          *eventlog.Store
+	botRegistry       *BotIdentityRegistry
+	publisherRegistry *PublisherRegistry
+	groupDispatcher   *GroupDispatcher
+	db                *pgxpool.Pool
+	rootOpener        home.RootOpener
+	guests            GuestStore
+	guestLimiter      *guestRateLimiter
 }
 
 // WithGuestStore enables durable unlinked channel principals.
@@ -175,33 +172,10 @@ func WithEventLog(el *eventlog.Store) CoordinatorOption {
 	}
 }
 
-// WithGroupMemberLister enables group membership queries for mention resolution.
-func WithGroupMemberLister(lister GroupMemberLister) CoordinatorOption {
-	return func(c *Coordinator) {
-		c.memberLister = lister
-	}
-}
-
 // WithBotRegistry enables bot identity resolution for @mention → agent routing.
 func WithBotRegistry(reg *BotIdentityRegistry) CoordinatorOption {
 	return func(c *Coordinator) {
 		c.botRegistry = reg
-	}
-}
-
-// WithArbiter configures the group arbiter for deciding which agents respond.
-func WithArbiter(a *Arbiter) CoordinatorOption {
-	return func(c *Coordinator) {
-		c.arbiter = a
-	}
-}
-
-// WithSemanticGroupArbiter configures semantic routing for no-mention group
-// messages. When set, no-mention messages are classified instead of using the
-// all-members fallback; when unset, no-mention behavior is unchanged.
-func WithSemanticGroupArbiter(a SemanticGroupArbiter) CoordinatorOption {
-	return func(c *Coordinator) {
-		c.semanticGroupArbiter = a
 	}
 }
 
@@ -273,7 +247,7 @@ func (c *Coordinator) ensurePlatformGroupMember(ctx context.Context, platform, p
 		AgentID: lockedChannel.AgentID.String,
 		Enabled: lockedChannel.Enabled,
 	}
-	if err := validateGroupChannel(ch, platform, ch.AgentID); err != nil {
+	if err := validateGroupChannel(ch, platform); err != nil {
 		return fmt.Errorf("channel %q cannot join platform group: %w", channelID, err)
 	}
 	boundAgent, err := q.GetAgent(ctx, ch.AgentID)
@@ -352,6 +326,22 @@ func (c *Coordinator) UnregisterBotIdentity(platform, platformBotID, channelID s
 		return
 	}
 	c.botRegistry.Unregister(platform, platformBotID, channelID)
+}
+
+// RegisterBotName records a bot's platform display name as the cross-app
+// fallback identity. Implements pkgchannel.BotNameRegistrar.
+func (c *Coordinator) RegisterBotName(platform, displayName, channelID string) {
+	if c.botRegistry == nil {
+		return
+	}
+	c.botRegistry.RegisterName(platform, displayName, channelID)
+}
+
+func (c *Coordinator) UnregisterBotName(platform, displayName, channelID string) {
+	if c.botRegistry == nil {
+		return
+	}
+	c.botRegistry.UnregisterName(platform, displayName, channelID)
 }
 
 func (c *Coordinator) RegisterGroupPublisher(channelID string, publisher GroupPublisher) {
@@ -588,6 +578,18 @@ func (c *Coordinator) chatWithRC(ctx context.Context, rc *ResolvedChat, content 
 		return nil, err
 	}
 
+	return &pkgchannel.ChatStream{
+		Events:    forwardAgentEvents(ctx, events),
+		SessionID: sessionID,
+	}, nil
+}
+
+// forwardAgentEvents copies the agent's event stream onto a channel stream.
+// A cancelled turn is not a completed one: the cause goes onto the stream for
+// a consumer still reading (mirroring chatWeb and chatDispatch), non-blocking
+// because the usual canceller is a consumer that already walked away. The
+// upstream is then drained so the model never blocks on a dead channel.
+func forwardAgentEvents(ctx context.Context, events <-chan agent.Event) chan pkgchannel.Event {
 	out := make(chan pkgchannel.Event, 100)
 	go func() {
 		defer close(out)
@@ -595,14 +597,17 @@ func (c *Coordinator) chatWithRC(ctx context.Context, rc *ResolvedChat, content 
 			select {
 			case out <- convertEvent(evt):
 			case <-ctx.Done():
+				select {
+				case out <- pkgchannel.Event{Err: ctx.Err()}:
+				default:
+				}
+				for range events {
+				}
+				return
 			}
 		}
 	}()
-
-	return &pkgchannel.ChatStream{
-		Events:    out,
-		SessionID: sessionID,
-	}, nil
+	return out
 }
 
 func convertEvent(evt agent.Event) pkgchannel.Event {

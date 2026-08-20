@@ -63,6 +63,21 @@ func appendAgent(t *testing.T, store *eventlog.Store, groupID, actorID, content 
 	return r
 }
 
+func appendSystem(t *testing.T, store *eventlog.Store, groupID, actorID, content string) eventlog.AppendResult {
+	t.Helper()
+	r, err := store.AppendGroupMessage(context.Background(), eventlog.Message{
+		Platform:        "test",
+		PlatformGroupID: groupID,
+		ActorType:       eventlog.ActorSystem,
+		ActorID:         actorID,
+		Content:         content,
+	})
+	if err != nil {
+		t.Fatalf("append system: %v", err)
+	}
+	return r
+}
+
 // fakeExtractor returns a fixed result. Set Err to simulate transient failures.
 type fakeExtractor struct {
 	Calls int
@@ -335,6 +350,30 @@ func TestAgentMessagesExcluded(t *testing.T) {
 	}
 	if cursor.LastSeq < 2 {
 		t.Fatalf("cursor should advance past agent message too, got last_seq=%d", cursor.LastSeq)
+	}
+}
+
+func TestSystemActorAcceptedByValidatorsAndSkippedByIngest(t *testing.T) {
+	db, q := openTestDB(t)
+	ctx := context.Background()
+	store := eventlog.NewStore(db)
+	result := appendSystem(t, store, "g1", "nudge", "agent-1, please continue")
+
+	ext := &fakeExtractor{}
+	ing := groupingest.New(groupingest.Config{DB: db, Q: q, Extractor: ext})
+	if err := ing.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if ext.Calls != 0 {
+		t.Fatalf("system row reached human-memory extractor %d times", ext.Calls)
+	}
+	groupID := resolveGroup(t, store, "test", "g1", "")
+	cursor, err := q.GetIngestCursor(ctx, sqlc.GetIngestCursorParams{GroupID: groupID, Pipeline: groupingest.PipelineMemoryIngest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cursor.LastSeq != result.Seq {
+		t.Fatalf("system row cursor = %d, want %d", cursor.LastSeq, result.Seq)
 	}
 }
 

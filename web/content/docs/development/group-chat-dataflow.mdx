@@ -1,14 +1,14 @@
 ---
 title: Group-chat dataflow
-description: Target unified group-chat pipeline for Web UI and platform adapters.
+description: Three diagrams of the optimistic group collaboration pipeline.
 ---
 
-The visual flow below is the source of truth for the target model: Web UI and platform adapters share the same core pipeline; only ingress adapters and egress publishers differ.
+Three figures, in the order you need them. **One pipeline** traces a message from ingest to egress and shows where the accept transaction sits. **Two agents, one message** shows what happens when both are woken by the same message and only one reply can land. **The life of a wake row** is the dispatch-row state machine, with the `turn` frame each state emits.
+
+For the prose version — the problem, the rejected alternatives, and the invariants — see [Group chat with multiple agents](./group-chat-multi-agent).
 
 <iframe
-  title="Group-chat unified dataflow"
+  title="Group-chat optimistic dataflow"
   src="/docs/group-chat-dataflow.html"
-  className="my-6 h-[calc(100vh-12rem)] min-h-[760px] w-full rounded-xl border border-border bg-background"
+  className="my-6 h-[calc(100vh-8rem)] min-h-[820px] w-full rounded-xl border border-border bg-background"
 />
-
-[Open the diagram full screen](/docs/group-chat-dataflow.html)

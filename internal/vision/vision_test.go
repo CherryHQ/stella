@@ -21,7 +21,7 @@ import (
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/providers"
-	pkgsandbox "github.com/CherryHQ/stella/pkg/sandbox"
+	"github.com/CherryHQ/stella/resources/binaries"
 )
 
 // pngBytes builds a tiny valid PNG. w varies the content so tests can produce
@@ -39,10 +39,10 @@ func pngBytes(t *testing.T, w, h int) []byte {
 	return buf.Bytes()
 }
 
-// installXbergShim writes a fake Xberg CLI under a fresh STELLA_HOME so the
-// fallback path runs without the real binary. It returns the text the shim
+// installXbergBinary writes a fake Xberg CLI under a fresh STELLA_HOME so the
+// fallback path runs without the real binary. It returns the text the fake
 // prints.
-func installXbergShim(t *testing.T, output string) string {
+func installXbergBinary(t *testing.T, output string) string {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("test helper uses a POSIX shell script")
@@ -52,13 +52,13 @@ func installXbergShim(t *testing.T, output string) string {
 	config.ResetStellaHome()
 	t.Cleanup(config.ResetStellaHome)
 
-	shim := filepath.Join(pkgsandbox.MiseShimsDir(stellaHome), "xberg")
-	if err := os.MkdirAll(filepath.Dir(shim), 0o755); err != nil {
-		t.Fatalf("create shim directory: %v", err)
+	bin := filepath.Join(binaries.BinDir(stellaHome), "xberg")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatalf("create bin directory: %v", err)
 	}
 	script := "#!/bin/sh\n[ \"$1\" = extract ] || exit 1\nprintf %s '" + output + "'\n"
-	if err := os.WriteFile(shim, []byte(script), 0o755); err != nil {
-		t.Fatalf("write Xberg shim: %v", err)
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatalf("write Xberg binary: %v", err)
 	}
 	return output
 }
@@ -150,7 +150,7 @@ func TestBaselineFallsBackForMalformedOrTruncatedModelOutput(t *testing.T) {
 		{name: "missing stop", text: "## Text\na\n\n## Scene\nb", reason: ai.StopReasonUnknown},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			want := installXbergShim(t, "xberg visible text")
+			want := installXbergBinary(t, "xberg visible text")
 			build := func(_, _, _ string) (providers.StreamFunc, error) {
 				return func(context.Context, ai.Model, ai.Context, ai.StreamOptions) (providers.AssistantEventStream, error) {
 					s := providers.NewChannelEventStream(3)
@@ -189,7 +189,7 @@ func TestNormalizeXbergBaselineKeepsContractForOCRHeadings(t *testing.T) {
 }
 
 func TestBaselineWithoutModelUsesXberg(t *testing.T) {
-	want := installXbergShim(t, "OCR only")
+	want := installXbergBinary(t, "OCR only")
 	result, err := New(Options{}).Baseline(context.Background(), Request{Data: pngBytes(t, 8, 8), MimeType: "image/png"})
 	if err != nil {
 		t.Fatalf("Baseline: %v", err)
@@ -258,7 +258,7 @@ func encodedImage(t *testing.T, mime string, w, h int) []byte {
 	return buf.Bytes()
 }
 
-func TestExtractWithXbergUsesManagedShim(t *testing.T) {
+func TestExtractWithXbergUsesEmbeddedRuntime(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test helper uses a POSIX shell script")
 	}
@@ -267,18 +267,24 @@ func TestExtractWithXbergUsesManagedShim(t *testing.T) {
 	config.ResetStellaHome()
 	t.Cleanup(config.ResetStellaHome)
 
-	shim := filepath.Join(pkgsandbox.MiseShimsDir(stellaHome), "xberg")
-	if err := os.MkdirAll(filepath.Dir(shim), 0o755); err != nil {
-		t.Fatalf("create shim directory: %v", err)
+	bin := filepath.Join(binaries.BinDir(stellaHome), "xberg")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatalf("create bin directory: %v", err)
 	}
-	if err := os.WriteFile(shim, []byte("#!/bin/sh\n[ \"$1\" = extract ] || exit 1\nprintf %s \"$PWD\"\n"), 0o755); err != nil {
-		t.Fatalf("write Xberg shim: %v", err)
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n[ \"$1\" = extract ] || exit 1\nprintf %s \"$PWD\"\n"), 0o755); err != nil {
+		t.Fatalf("write Xberg binary: %v", err)
 	}
 	inputDir := t.TempDir()
 
 	got, err := ExtractWithXberg(context.Background(), filepath.Join(inputDir, "document.pdf"))
 	if err != nil {
 		t.Fatalf("ExtractWithXberg() error: %v", err)
+	}
+	// macOS hands out /var/folders temp dirs that symlink into /private/var, and
+	// the shell may report either spelling; compare the resolved paths.
+	got, err = filepath.EvalSymlinks(got)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(got): %v", err)
 	}
 	want, err := filepath.EvalSymlinks(inputDir)
 	if err != nil {

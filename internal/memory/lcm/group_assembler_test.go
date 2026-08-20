@@ -41,6 +41,52 @@ func groupCtx(triggerSeq int64) context.Context {
 	return ctx
 }
 
+func TestGroupAssembleExcludesFailedPeerDelivery(t *testing.T) {
+	db := openTestDB(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+
+	visible, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "failed-peer", ActorType: eventlog.ActorHuman,
+		ActorID: "user-1", Content: "visible context", PlatformMessageID: "failed-peer-1",
+	})
+	if err != nil {
+		t.Fatalf("append visible message: %v", err)
+	}
+	failed, err := el.AppendToGroup(ctx, visible.GroupID, eventlog.GroupMessage{
+		ActorType: eventlog.ActorAgent, ActorID: "agent-b", Content: "delivery never reached the group",
+	})
+	if err != nil {
+		t.Fatalf("append failed peer message: %v", err)
+	}
+	q := sqlc.New(db)
+	if _, err := q.SetGroupMessageDeliveryState(ctx, sqlc.SetGroupMessageDeliveryStateParams{ID: failed.Message.ID, DeliveryState: "failed"}); err != nil {
+		t.Fatalf("mark peer delivery failed: %v", err)
+	}
+	trigger, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "failed-peer", ActorType: eventlog.ActorHuman,
+		ActorID: "user-2", Content: "trigger", PlatformMessageID: "failed-peer-3",
+	})
+	if err != nil {
+		t.Fatalf("append trigger: %v", err)
+	}
+
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	msgs, err := p.Assemble(groupCtx(trigger.Seq), groupSess("agent-a", visible.GroupID), 100_000, 20)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("injected messages = %d, want only the visible peer message", len(msgs))
+	}
+	if got := flattenUserMessage(msgs[0].(ai.UserMessage)); got != "[seq:1 user-1]: visible context" {
+		t.Fatalf("injected text = %q", got)
+	}
+}
+
 func TestGroupAssemble_HybridFlow(t *testing.T) {
 	db := openTestDB(t)
 	el := eventlog.NewStore(db)
@@ -224,7 +270,7 @@ func TestGroupAssemble_OtherAgentInjected(t *testing.T) {
 	assertRole(t, msgs2[2], "user")      // injected: agent-b
 
 	text := flattenUserMessage(msgs2[2].(ai.UserMessage))
-	if text != "[seq:3 agent:agent-b]: I'm agent B" {
+	if text != "[seq:3 @agent-b]: I'm agent B" {
 		t.Fatalf("injected text = %q", text)
 	}
 }
@@ -686,6 +732,89 @@ func TestGroupAssemblePersistsInjectedButCommitAdvancesCursor(t *testing.T) {
 	}
 	if len(retryMsgs) != 2 {
 		t.Fatalf("retry assemble messages = %d, want 2 without duplicate injected", len(retryMsgs))
+	}
+}
+
+func TestAssemblerSetsPreTrimInjectedRows(t *testing.T) {
+	db := openTestDB(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+	first, err := el.AppendGroupMessage(ctx, eventlog.Message{Platform: "test", PlatformGroupID: "pre-trim", ActorType: eventlog.ActorHuman, ActorID: "user-1", Content: strings.Repeat("old peer words ", 40), PlatformMessageID: "pre-trim-1"})
+	if err != nil {
+		t.Fatalf("append peer: %v", err)
+	}
+	trigger, err := el.AppendGroupMessage(ctx, eventlog.Message{Platform: "test", PlatformGroupID: "pre-trim", ActorType: eventlog.ActorHuman, ActorID: "user-2", Content: "trigger", PlatformMessageID: "pre-trim-2"})
+	if err != nil {
+		t.Fatalf("append trigger: %v", err)
+	}
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sink := memory.NewGroupTurnSink()
+	msgs, err := p.Assemble(memory.WithGroupTurnSink(groupCtx(trigger.Seq), sink), groupSess("agent-a", first.GroupID), 1, 20)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Fatalf("trimmed prompt rows = %d, want 0", len(msgs))
+	}
+	injected := sink.Injected()
+	if len(injected) != 1 || !strings.Contains(flattenUserMessage(injected[0].(ai.UserMessage)), "old peer words") {
+		t.Fatalf("pre-trim injected rows = %#v", injected)
+	}
+}
+
+func TestTxGroupCommitterUsesOuterTxAndSessionLock(t *testing.T) {
+	db := openTestDB(t)
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupID := newEmptyGroupState(t, p)
+	sess := groupSess("agent-a", groupID)
+	ctx := groupCtx(5)
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin outer tx: %v", err)
+	}
+	qtx := sqlc.New(tx)
+	turn := memory.DeferredGroupTurn{
+		Session:          sess,
+		InjectedPeerRows: []ai.Message{ai.UserMessage{Content: "peer"}},
+		OwnRows:          []ai.Message{ai.UserMessage{Content: "trigger"}, ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "answer"}}}},
+		TriggerSeq:       5,
+		Complete:         true,
+	}
+	if err := p.CommitGroupTurn(ctx, qtx, turn); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("commit through outer tx: %v", err)
+	}
+	// The provider must not commit the caller's tx. Rollback removes all turn
+	// rows, proving there was no nested commit.
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatalf("rollback outer tx: %v", err)
+	}
+	if stats, err := p.Stats(ctx, sess); err != nil || stats.MessageCount != 0 {
+		t.Fatalf("rolled-back turn stats = %+v, %v", stats, err)
+	}
+
+	tx, err = db.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin committed outer tx: %v", err)
+	}
+	if err := p.CommitGroupTurn(ctx, sqlc.New(tx), turn); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("commit through outer tx: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit outer tx: %v", err)
+	}
+	if stats, err := p.Stats(ctx, sess); err != nil || stats.MessageCount != 3 {
+		t.Fatalf("committed turn stats = %+v, %v", stats, err)
+	}
+	if got := p.getGroupCursor(ctx, groupID, groupCursorPipeline("agent-a")); got != 5 {
+		t.Fatalf("cursor = %d, want 5", got)
 	}
 }
 

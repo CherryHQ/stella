@@ -103,7 +103,7 @@ Group chats are off until you turn on **Allow group chats** in the Web UI. While
 
 Optionally set **Allowed chat IDs** to limit the bot to specific groups, and **Allowed topic IDs** to limit it further to specific forum topics. Topic entries use `chat_id:thread_id` (for example, `-1001234567890:42`). Empty lists preserve the broad behavior: every group the bot has joined is eligible when group chats are enabled. Once either list is configured, a non-matching group or topic is rejected before it reaches the agent.
 
-Group messages must @mention the bot by default. Commands follow the same rule: use `/help@your_bot` (or reply to a bot message) in a group when mentions are required. You can turn off **Require a mention** to enable Stella's semantic group routing; also disable privacy mode for the bot in BotFather so it can read ordinary messages.
+Group messages must @mention the bot by default. Commands follow the same rule: use `/help@your_bot` (or reply to a bot message) in a group when mentions are required. You can turn off **Require a mention** to enable Stella's group collaboration; also disable privacy mode for the bot in BotFather so it can read ordinary messages.
 
 ## Access Control
 

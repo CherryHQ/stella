@@ -1,0 +1,72 @@
+package channel
+
+import (
+	"context"
+	"encoding/json"
+	"reflect"
+	"testing"
+
+	"github.com/CherryHQ/stella/internal/db/dbtest"
+	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
+)
+
+// Human text is parsed with the same rule on every group surface. A person
+// writes prose in the Web composer just as an agent does, so punctuation and
+// repeats must read the same on both sides -- otherwise "@Ada," addresses Ada
+// when a peer writes it and nobody when a person does.
+func TestParseGroupMentionsScansHumanProse(t *testing.T) {
+	db := dbtest.New(t)
+	q := sqlc.New(db)
+	ctx := context.Background()
+	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
+		ID: "agent-1", Name: "Ada", Workspace: t.TempDir(),
+		Sandbox: json.RawMessage("{}"), Scope: "system", Enabled: true,
+	}); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	members := []sqlc.ChannelGroupMember{{AgentID: "agent-1"}, {AgentID: "agent-2"}}
+
+	if got := parseGroupMentions(ctx, q, "nobody here", members); !reflect.DeepEqual(got, []pkgchannel.Mention{}) {
+		t.Fatalf("mentions = %#v, want no mentions", got)
+	}
+	if got := parseGroupMentions(ctx, q, "hi @agent-1 and @agent-3", members); !reflect.DeepEqual(got, []pkgchannel.Mention{
+		{Raw: "@agent-1", AgentID: "agent-1"},
+	}) {
+		t.Fatalf("mentions = %#v, want only the member token", got)
+	}
+	// Trailing punctuation belongs to the sentence, not to the name.
+	if got := parseGroupMentions(ctx, q, "hi @Ada, bye", members); !reflect.DeepEqual(got, []pkgchannel.Mention{
+		{Raw: "@Ada", AgentID: "agent-1"},
+	}) {
+		t.Fatalf("mentions = %#v, want the display-name mention despite the comma", got)
+	}
+	// One mention per agent: no consumer reads cardinality, and a repeat in the
+	// envelope is noise.
+	if got := parseGroupMentions(ctx, q, "@Ada @agent-1", members); len(got) != 1 {
+		t.Fatalf("mentions = %#v, want one per agent", got)
+	}
+}
+
+func TestParseGroupMentionsMatchesIDsNamesAndDedups(t *testing.T) {
+	db := dbtest.New(t)
+	q := sqlc.New(db)
+	ctx := context.Background()
+	if _, err := q.CreateAgent(ctx, sqlc.CreateAgentParams{
+		ID: "agent-1", Name: "Ada", Workspace: t.TempDir(),
+		Sandbox: json.RawMessage("{}"), Scope: "system", Enabled: true,
+	}); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	members := []sqlc.ChannelGroupMember{{AgentID: "agent-1"}}
+
+	if got := parseGroupMentions(ctx, q, "nothing here", members); !reflect.DeepEqual(got, []pkgchannel.Mention{}) {
+		t.Fatalf("mentions = %#v, want a non-nil empty list", got)
+	}
+	// Prose: the trailing comma belongs to the sentence, the display name is how
+	// an agent knows its peers, and naming a peer twice wakes it once.
+	got := parseGroupMentions(ctx, q, "(@Ada), then @agent-1 again", members)
+	if !reflect.DeepEqual(got, []pkgchannel.Mention{{Raw: "@Ada", AgentID: "agent-1"}}) {
+		t.Fatalf("mentions = %#v, want one deduplicated mention resolved by display name", got)
+	}
+}

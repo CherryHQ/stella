@@ -3,7 +3,9 @@ package channel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
+	"reflect"
 	"sync"
 	"testing"
 
@@ -33,12 +35,9 @@ type noAssignStore struct{}
 
 func (noAssignStore) ListUserAgentIDs(context.Context, string) ([]string, error) { return nil, nil }
 
-// fakeDispatchRunner records the outbox handed to DispatchSync so a test can
-// prove the send boundary claims the right row without running a real agent turn.
+// fakeDispatchRunner records wake signals without running a real agent turn.
 type fakeDispatchRunner struct {
-	called   bool
-	outboxID string
-	err      error
+	calls int
 }
 
 type fakeGroupOwnerDeletion struct{ db *pgxpool.Pool }
@@ -47,11 +46,11 @@ func (f fakeGroupOwnerDeletion) DeleteGroup(ctx context.Context, id, _ string) e
 	return sqlc.New(f.db).DeleteGroupState(ctx, id)
 }
 
-func (f *fakeDispatchRunner) DispatchSync(_ context.Context, outbox sqlc.CtxGroupOutbox, _ GroupPublisher) error {
-	f.called = true
-	f.outboxID = outbox.ID
-	return f.err
+func (f *fakeDispatchRunner) Wake() {
+	f.calls++
 }
+
+func (f *fakeDispatchRunner) AbortGroupTurn(_, _ string) bool { return false }
 
 type groupFixture struct {
 	svc    *GroupService
@@ -254,6 +253,9 @@ func TestGroupPrepareSendDedup(t *testing.T) {
 	if !second.Deduplicated {
 		t.Fatalf("replay = %+v, want Deduplicated", second)
 	}
+	if fx.runner.calls != 1 {
+		t.Fatalf("dispatcher woke %d times, want once for the fresh append only", fx.runner.calls)
+	}
 
 	msgs, err := acc.Messages(ctx, g.ID, 0, 50)
 	if err != nil {
@@ -330,9 +332,7 @@ func TestGroupPrepareSendNewIsRefused(t *testing.T) {
 	}
 }
 
-// TestGroupDispatchHandsClaimedOutbox proves Dispatch runs the freshly claimed
-// outbox through the dispatch runner (the DispatchSync handoff).
-func TestGroupDispatchHandsClaimedOutbox(t *testing.T) {
+func TestGroupSendWakesDispatcher(t *testing.T) {
 	fx := setupGroupFixture(t)
 	ctx := fx.ts.ctx()
 	user := createTestUser(t, fx.ts.oidcStore, "user@example.com")
@@ -342,26 +342,51 @@ func TestGroupDispatchHandsClaimedOutbox(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	prep, err := acc.PrepareSend(ctx, g.ID, "hi", "")
+	_, err = acc.PrepareSend(ctx, g.ID, "hi", "")
 	if err != nil {
 		t.Fatalf("PrepareSend: %v", err)
 	}
-	if err := acc.Dispatch(ctx, prep, noopGroupPublisher{}); err != nil {
-		t.Fatalf("Dispatch: %v", err)
+	if fx.runner.calls != 1 {
+		t.Fatalf("dispatcher woke %d times, want 1", fx.runner.calls)
 	}
-	if !fx.runner.called {
-		t.Fatal("dispatch runner was not invoked")
+}
+
+// A Web composer has no native mention payload, so its text must resolve a
+// member's display name exactly as platform and agent text do.
+func TestGroupPrepareSendResolvesDisplayNameMention(t *testing.T) {
+	fx := setupGroupFixture(t)
+	ctx := fx.ts.ctx()
+	user := createTestUser(t, fx.ts.oidcStore, "user@example.com")
+	if err := fx.ts.store.CreateAgent(ctx, config.Agent{
+		ID: "ada", Name: "Ada", Model: "anthropic/claude-sonnet-4-6",
+		Workspace: "/tmp/ada", Scope: config.AgentScopeSystem, Enabled: true,
+	}); err != nil {
+		t.Fatalf("CreateAgent(Ada): %v", err)
 	}
-	msgs, err := acc.Messages(ctx, g.ID, 0, 50)
+	acc := fx.begin(t, user.ID, false)
+	g, err := acc.Create(ctx, "team", []string{fx.stella, "ada"})
 	if err != nil {
-		t.Fatalf("Messages: %v", err)
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := acc.PrepareSend(ctx, g.ID, "@Ada, please review this", "mention-1"); err != nil {
+		t.Fatalf("PrepareSend: %v", err)
+	}
+
+	msgs, err := acc.Messages(ctx, g.ID, 0, 50)
+	if err != nil || len(msgs) != 1 {
+		t.Fatalf("Messages = %#v, %v; want one message", msgs, err)
 	}
 	outbox, err := sqlc.New(fx.ts.db).GetGroupOutboxByMessage(ctx, msgs[0].ID)
 	if err != nil {
 		t.Fatalf("GetGroupOutboxByMessage: %v", err)
 	}
-	if fx.runner.outboxID != outbox.ID {
-		t.Fatalf("dispatched outbox = %q, want claimed %q", fx.runner.outboxID, outbox.ID)
+	envelope, err := DecodeGroupOutboxEnvelope(outbox.Envelope)
+	if err != nil {
+		t.Fatalf("DecodeGroupOutboxEnvelope: %v", err)
+	}
+	want := []pkgchannel.Mention{{Raw: "@Ada", AgentID: "ada"}}
+	if !reflect.DeepEqual(envelope.Mentions, want) {
+		t.Fatalf("mentions = %#v, want %#v", envelope.Mentions, want)
 	}
 }
 
@@ -481,6 +506,40 @@ func TestGroupRemoveMemberConcurrentLastTwo(t *testing.T) {
 // TestGroupPaginationRejectsOutOfRange proves List and Messages reject paging
 // arguments that would overflow or invert the int32 LIMIT/OFFSET columns before
 // they reach the query layer.
+// A stream replay must show what just happened. Ordering the window from the
+// oldest end would make an active group replay its first messages forever.
+func TestMessagesAfterSeqReplaysNewestWindow(t *testing.T) {
+	fx := setupGroupFixture(t)
+	ctx := fx.ts.ctx()
+	user := createTestUser(t, fx.ts.oidcStore, "user@example.com")
+	acc := fx.begin(t, user.ID, false)
+	g, err := acc.Create(ctx, "team", []string{fx.stella})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	store := eventlog.NewStore(fx.ts.db)
+	total := groupReplayWindow + 5
+	for i := range total {
+		if _, err := store.AppendToGroup(ctx, g.ID, eventlog.GroupMessage{ActorType: eventlog.ActorHuman, ActorID: user.ID, Content: fmt.Sprintf("m%d", i)}); err != nil {
+			t.Fatalf("append %d: %v", i, err)
+		}
+	}
+
+	rows, err := acc.MessagesAfterSeq(ctx, g.ID, 0)
+	if err != nil {
+		t.Fatalf("MessagesAfterSeq: %v", err)
+	}
+	if len(rows) != groupReplayWindow {
+		t.Fatalf("replayed %d rows, want the %d-row window", len(rows), groupReplayWindow)
+	}
+	if rows[0].Seq >= rows[len(rows)-1].Seq {
+		t.Fatalf("replay not ascending: %d..%d", rows[0].Seq, rows[len(rows)-1].Seq)
+	}
+	if got, want := rows[len(rows)-1].Content, fmt.Sprintf("m%d", total-1); got != want {
+		t.Fatalf("last replayed = %q, want the newest message %q", got, want)
+	}
+}
+
 func TestGroupPaginationRejectsOutOfRange(t *testing.T) {
 	fx := setupGroupFixture(t)
 	ctx := fx.ts.ctx()

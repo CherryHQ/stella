@@ -3,6 +3,7 @@ package eventlog_test
 import (
 	"context"
 	"errors"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -425,7 +426,7 @@ func TestResolveGroupIDWithAdoptionMigratesLegacyThreadIdentity(t *testing.T) {
 		t.Fatalf("legacy triple lookup error = %v, want pgx.ErrNoRows", err)
 	}
 
-	messages, err := q.ListRecentGroupMessages(ctx, sqlc.ListRecentGroupMessagesParams{GroupID: legacyID, MaxCount: 10})
+	messages, err := q.ListRecentGroupMessagesBeforeSeq(ctx, sqlc.ListRecentGroupMessagesBeforeSeqParams{GroupID: legacyID, BeforeSeq: math.MaxInt64, MaxCount: 10})
 	if err != nil {
 		t.Fatalf("list messages: %v", err)
 	}

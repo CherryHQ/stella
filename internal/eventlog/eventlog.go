@@ -27,7 +27,7 @@ import (
 )
 
 // ActorType records who spoke. It is a hard schema fact, never guessed from
-// content: downstream (arbiter, memory ingest) acts on human rows only.
+// content: downstream memory ingest acts on human rows only.
 type ActorType string
 
 const (
@@ -152,11 +152,24 @@ func WithOnInserted(callback func(context.Context, *sqlc.Queries, AppendResult) 
 
 // Store appends to the group event log.
 type Store struct {
-	db *pgxpool.Pool
+	db          *pgxpool.Pool
+	onCommitted func(AppendResult)
 }
 
 // NewStore returns a Store backed by the given database handle.
 func NewStore(db *pgxpool.Pool) *Store { return &Store{db: db} }
+
+// OnCommitted registers the post-commit observer for newly inserted rows.
+// It deliberately runs outside the transaction, so observers can never expose
+// a row that later rolls back. It is intended for best-effort live projection;
+// callers still replay the durable event log on reconnect.
+func (s *Store) OnCommitted(fn func(AppendResult)) { s.onCommitted = fn }
+
+func (s *Store) committed(result AppendResult) {
+	if result.Inserted && s.onCommitted != nil {
+		s.onCommitted(result)
+	}
+}
 
 // AppendGroupMessage is the single sanctioned append primitive. It runs the
 // closed, idempotent algorithm under a per-group advisory lock (which
@@ -218,6 +231,7 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...App
 		IdempotencyKey:    idemKey,
 		Content:           msg.Content,
 		ContentBlocks:     contentBlocksOrEmpty(msg.ContentBlocks),
+		DeliveryState:     "delivered",
 	})
 	if err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: create message: %w", err)
@@ -233,6 +247,7 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...App
 	if err := tx.Commit(ctx); err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: commit: %w", err)
 	}
+	s.committed(result)
 	return result, nil
 }
 
@@ -272,6 +287,7 @@ func (s *Store) AppendToGroup(ctx context.Context, groupID string, msg GroupMess
 	if err := tx.Commit(ctx); err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: commit: %w", err)
 	}
+	s.committed(result)
 	return result, nil
 }
 
@@ -286,7 +302,15 @@ func AppendToGroupWithQueries(ctx context.Context, q *sqlc.Queries, groupID stri
 	if err := validateGroupAppend(groupID, msg); err != nil {
 		return AppendResult{}, err
 	}
-	seq, err := q.BumpGroupSeq(ctx, groupID)
+	var seq int64
+	var err error
+	if msg.ActorType == ActorSystem && msg.ActorID == "nudge" {
+		// A fallback nudge must preserve its own anti-loop counter. Any later
+		// human or agent append takes the normal path and resets it.
+		seq, err = q.BumpGroupSeqWithoutNudgeStreakReset(ctx, groupID)
+	} else {
+		seq, err = q.BumpGroupSeq(ctx, groupID)
+	}
 	if err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: bump seq: %w", err)
 	}
@@ -300,6 +324,7 @@ func AppendToGroupWithQueries(ctx context.Context, q *sqlc.Queries, groupID stri
 		ContentBlocks:  contentBlocksOrEmpty(nil),
 		Reasoning:      msg.Reasoning,
 		AgentSessionID: msg.AgentSessionID,
+		DeliveryState:  deliveryStateOrDelivered(msg.DeliveryState),
 	})
 	if err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: create message: %w", err)
@@ -320,8 +345,11 @@ func validateGroupAppend(groupID string, msg GroupMessage) error {
 	if groupID == "" {
 		return errors.New("eventlog: group_id is required")
 	}
-	if msg.ActorType != ActorHuman && msg.ActorType != ActorAgent {
+	if msg.ActorType != ActorHuman && msg.ActorType != ActorAgent && msg.ActorType != ActorSystem {
 		return fmt.Errorf("eventlog: invalid actor_type %q", msg.ActorType)
+	}
+	if state := deliveryStateOrDelivered(msg.DeliveryState); state != "pending" && state != "delivered" && state != "failed" {
+		return fmt.Errorf("eventlog: invalid delivery_state %q", msg.DeliveryState)
 	}
 	if msg.ActorID == "" {
 		return errors.New("eventlog: actor_id is required")
@@ -336,13 +364,23 @@ type GroupMessage struct {
 	Content        string
 	Reasoning      string
 	AgentSessionID string
+	// DeliveryState is pending only for an accepted platform reply awaiting
+	// egress. All ingress and Web messages are immediately delivered.
+	DeliveryState string
+}
+
+func deliveryStateOrDelivered(state string) string {
+	if state == "" {
+		return "delivered"
+	}
+	return state
 }
 
 func validate(msg Message) error {
 	if msg.Platform == "" || msg.PlatformGroupID == "" {
 		return errors.New("eventlog: platform and platform_group_id are required")
 	}
-	if msg.ActorType != ActorHuman && msg.ActorType != ActorAgent {
+	if msg.ActorType != ActorHuman && msg.ActorType != ActorAgent && msg.ActorType != ActorSystem {
 		return fmt.Errorf("eventlog: invalid actor_type %q", msg.ActorType)
 	}
 	if msg.ActorID == "" {

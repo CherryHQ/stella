@@ -1774,10 +1774,26 @@ func TestToggleManifestPluginRejectsDisablingEssential(t *testing.T) {
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("disable essential: status = %d, want 400 (body: %s)", rr.Code, rr.Body.String())
 	}
+	// The rejection has to come from Essential, not from a blanket "builtins are
+	// untouchable" rule: that distinction is the whole point of the guard.
+	if body := rr.Body.String(); !strings.Contains(body, "essential") {
+		t.Fatalf("rejection reason = %s, want it to name essential", body)
+	}
 	if _, ok, err := env.store.GetManifestPluginOverride(octx, pluginID); err != nil {
 		t.Fatalf("get override: %v", err)
 	} else if ok {
 		t.Fatal("a rejected toggle must not write an override row")
+	}
+
+	// ...and a non-essential builtin stays an admin's call.
+	const optionalID = "tool/tap-web"
+	if rr := toggleManifestPlugin(t, env, optionalID, false); rr.Code != http.StatusOK {
+		t.Fatalf("disable non-essential builtin: status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if ov, ok, err := env.store.GetManifestPluginOverride(octx, optionalID); err != nil || !ok {
+		t.Fatalf("non-essential toggle not persisted: ok=%v err=%v", ok, err)
+	} else if ov.Enabled == nil || *ov.Enabled {
+		t.Fatalf("override enabled = %v, want a recorded false", ov.Enabled)
 	}
 }
 

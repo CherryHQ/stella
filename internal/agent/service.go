@@ -100,6 +100,12 @@ type ChatRequest struct {
 	// target only (D9): forwarded to the runtime as WithCurrentSpeaker, never
 	// used as the session/runtime UserID. Zero value for DM turns.
 	CurrentSpeaker memory.CurrentSpeaker
+	// GroupWake is why this group turn is running (triage outcome, HOLD
+	// recovery). Per-turn model context only; never persisted.
+	GroupWake memory.GroupWake
+	// InputActor overrides derived provenance for trusted system coordination
+	// messages. GroupAgent authority still confines execution to the group.
+	InputActor eventlog.MessageActor
 	// RuntimeOpts are forwarded verbatim to Runtime.Chat.
 	RuntimeOpts []agentruntime.Option
 	// Authority is the trusted capability for resolving/using this session. It is
@@ -355,10 +361,17 @@ func (s *Service) ChatAdmitted(ctx context.Context, req ChatRequest) (<-chan Eve
 	if req.Model != "" {
 		opts = append(opts, agentruntime.WithModel(req.Model))
 	}
+	if info.GroupID != "" && req.GroupWake != (memory.GroupWake{}) {
+		opts = append(opts, agentruntime.WithGroupWake(req.GroupWake))
+	}
 	if info.GroupID != "" && req.CurrentSpeaker != (memory.CurrentSpeaker{}) {
 		opts = append(opts, agentruntime.WithCurrentSpeaker(req.CurrentSpeaker))
 	}
-	opts = append(opts, agentruntime.WithInputActor(messageActor(req.Authority, req.CurrentSpeaker, memory.SessionIDFromContext(ctx))))
+	actor := req.InputActor
+	if !actor.Valid() {
+		actor = messageActor(req.Authority, req.CurrentSpeaker, memory.SessionIDFromContext(ctx))
+	}
+	opts = append(opts, agentruntime.WithInputActor(actor))
 	return s.admit(ctx, info, req.Message, opts...)
 }
 

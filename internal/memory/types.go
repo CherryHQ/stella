@@ -3,11 +3,94 @@ package memory
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/pkg/ai"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+type groupTurnSinkKey struct{}
+
+// DeferredGroupTurn is the uncommitted group-turn state handed to the
+// dispatcher. It is intentionally separate from ChatStream: stream rebuilding
+// must never lose the transaction payload.
+type DeferredGroupTurn struct {
+	Session          Session
+	InjectedPeerRows []ai.Message
+	OwnRows          []ai.Message
+	TriggerSeq       int64
+	Complete         bool
+}
+
+// GroupTurnSink is a one-shot, non-blocking turn finalization record.
+type GroupTurnSink struct {
+	once      sync.Once
+	mu        sync.RWMutex
+	injected  []ai.Message
+	result    DeferredGroupTurn
+	delivered bool
+}
+
+func NewGroupTurnSink() *GroupTurnSink {
+	return &GroupTurnSink{}
+}
+
+func (s *GroupTurnSink) SetInjected(rows []ai.Message) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.injected = append([]ai.Message(nil), rows...)
+	s.mu.Unlock()
+}
+
+func (s *GroupTurnSink) Injected() []ai.Message {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]ai.Message(nil), s.injected...)
+}
+
+// Deliver records the first terminal result without blocking the producer.
+func (s *GroupTurnSink) Deliver(turn DeferredGroupTurn) {
+	if s == nil {
+		return
+	}
+	s.once.Do(func() {
+		s.mu.Lock()
+		s.result = turn
+		s.delivered = true
+		s.mu.Unlock()
+	})
+}
+
+// Result returns the delivered result, and whether the producer delivered one.
+func (s *GroupTurnSink) Result() (DeferredGroupTurn, bool) {
+	if s == nil {
+		return DeferredGroupTurn{}, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.result, s.delivered
+}
+
+func WithGroupTurnSink(ctx context.Context, sink *GroupTurnSink) context.Context {
+	return context.WithValue(ctx, groupTurnSinkKey{}, sink)
+}
+
+func GroupTurnSinkFrom(ctx context.Context) (*GroupTurnSink, bool) {
+	sink, ok := ctx.Value(groupTurnSinkKey{}).(*GroupTurnSink)
+	return sink, ok && sink != nil
+}
+
+// TxGroupCommitter commits a deferred turn into the dispatcher's outer tx.
+type TxGroupCommitter interface {
+	CommitGroupTurn(context.Context, *sqlc.Queries, DeferredGroupTurn) error
+}
 
 // ScopeUserIDFromContext returns the user_id this turn's conversation rows are
 // keyed by. A group turn carries no user identity — runtime identity stays the
@@ -35,6 +118,7 @@ const (
 	projectIDKey      contextKey = "memory_project_id"
 	groupSeqKey       contextKey = "memory_group_seq"
 	currentSpeakerKey contextKey = "memory_current_speaker"
+	groupWakeKey      contextKey = "memory_group_wake"
 )
 
 // WithSessionID attaches a session ID to the context.
@@ -85,6 +169,32 @@ func WithCurrentSpeaker(ctx context.Context, speaker CurrentSpeaker) context.Con
 func CurrentSpeakerFromContext(ctx context.Context) (CurrentSpeaker, bool) {
 	s, ok := ctx.Value(currentSpeakerKey).(CurrentSpeaker)
 	return s, ok
+}
+
+// GroupWake is why this group turn exists. A group agent is woken by several
+// different things -- being mentioned, a peer posting, a stalled-work nudge --
+// and the reply it should write differs for each. The
+// model cannot infer this from the transcript, so the turn carries it.
+//
+// It is per-turn metadata, never group content: it is rendered into the model's
+// copy of the trigger and is not persisted to history or echoed to the group.
+type GroupWake struct {
+	// Reason is the triage outcome that let this turn run.
+	Reason string
+	// HeldUpToSeq is set when this run follows a HOLD: a peer posted while the
+	// agent was drafting, and everything up to this seq is new since then.
+	HeldUpToSeq int64
+}
+
+// WithGroupWake attaches this turn's wake reason to the context.
+func WithGroupWake(ctx context.Context, wake GroupWake) context.Context {
+	return context.WithValue(ctx, groupWakeKey, wake)
+}
+
+// GroupWakeFromContext extracts this turn's wake reason, if any.
+func GroupWakeFromContext(ctx context.Context) GroupWake {
+	w, _ := ctx.Value(groupWakeKey).(GroupWake)
+	return w
 }
 
 // WithGroupSeq attaches the triggering event-log seq to the context.

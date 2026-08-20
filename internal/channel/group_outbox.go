@@ -1,15 +1,21 @@
 package channel
 
 import (
+	"context"
 	"encoding/json"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // GroupOutboxEnvelope stores dispatch metadata that must be decided at ingest
 // time, while the group_id and membership view are available in the append
 // transaction.
 type GroupOutboxEnvelope struct {
+	NudgeTarget       string               `json:"nudge_target,omitempty"`
 	Mentions          []pkgchannel.Mention `json:"mentions,omitempty"`
 	LifecycleFeedback bool                 `json:"lifecycle_feedback,omitempty"`
 }
@@ -39,4 +45,22 @@ func DecodeGroupOutboxEnvelope(raw string) (GroupOutboxEnvelope, error) {
 		return GroupOutboxEnvelope{}, err
 	}
 	return envelope, nil
+}
+
+// createPendingGroupOutbox is the only way canonical ingest and nudge appends
+// create a claimable outbox row. The zero-value lease and retry timestamps
+// deliberately mean immediately claimable work.
+func createPendingGroupOutbox(ctx context.Context, q *sqlc.Queries, groupMessageID, groupID, envelope string) error {
+	_, err := q.CreateGroupOutbox(ctx, sqlc.CreateGroupOutboxParams{
+		ID:             uuid.Must(uuid.NewV7()).String(),
+		GroupMessageID: groupMessageID,
+		GroupID:        groupID,
+		Envelope:       envelope,
+		Status:         "pending",
+		AttemptCount:   0,
+		LeaseUntil:     pgtype.Timestamptz{},
+		NextAttemptAt:  pgtype.Timestamptz{},
+		LastError:      "",
+	})
+	return err
 }

@@ -19,7 +19,7 @@ SET platform_group_id = $1,
     platform_thread_id = $2,
     updated_at = now()
 WHERE id = $3
-RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id
+RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_streak_count
 `
 
 type AdoptGroupStateParams struct {
@@ -44,13 +44,22 @@ func (q *Queries) AdoptGroupState(ctx context.Context, arg AdoptGroupStateParams
 		&i.UpdatedAt,
 		&i.GroupName,
 		&i.CreatedByUserID,
+		&i.AgentChainHardLimit,
+		&i.MaxAgentPostsPerMinute,
+		&i.MaxRepliesPerHumanTrigger,
+		&i.HoldLimit,
+		&i.NudgeAt,
+		&i.NudgeCheckedAt,
+		&i.NudgeStreakCount,
 	)
 	return i, err
 }
 
 const bumpGroupSeq = `-- name: BumpGroupSeq :one
 UPDATE ctx_group_state
-SET next_seq = next_seq + 1, updated_at = now()
+SET next_seq = next_seq + 1,
+    nudge_streak_count = 0,
+    updated_at = now()
 WHERE id = $1
 RETURNING next_seq
 `
@@ -62,19 +71,147 @@ func (q *Queries) BumpGroupSeq(ctx context.Context, id string) (int64, error) {
 	return next_seq, err
 }
 
+const bumpGroupSeqWithoutNudgeStreakReset = `-- name: BumpGroupSeqWithoutNudgeStreakReset :one
+UPDATE ctx_group_state
+SET next_seq = next_seq + 1,
+    updated_at = now()
+WHERE id = $1
+RETURNING next_seq
+`
+
+// A nudge is itself a canonical system message. It must not erase the cap that
+// bounds consecutive nudges; human and agent appends use the regular bump above
+// and reset the counter.
+func (q *Queries) BumpGroupSeqWithoutNudgeStreakReset(ctx context.Context, id string) (int64, error) {
+	row := q.db.QueryRow(ctx, bumpGroupSeqWithoutNudgeStreakReset, id)
+	var next_seq int64
+	err := row.Scan(&next_seq)
+	return next_seq, err
+}
+
+const claimGroupNudge = `-- name: ClaimGroupNudge :one
+UPDATE ctx_group_state
+SET nudge_at = $1, updated_at = now()
+WHERE id = $2
+  AND (nudge_at IS NULL OR nudge_at < $3)
+RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_streak_count
+`
+
+type ClaimGroupNudgeParams struct {
+	Now            pgtype.Timestamptz `json:"now"`
+	GroupID        string             `json:"group_id"`
+	CooldownBefore pgtype.Timestamptz `json:"cooldown_before"`
+}
+
+func (q *Queries) ClaimGroupNudge(ctx context.Context, arg ClaimGroupNudgeParams) (CtxGroupState, error) {
+	row := q.db.QueryRow(ctx, claimGroupNudge, arg.Now, arg.GroupID, arg.CooldownBefore)
+	var i CtxGroupState
+	err := row.Scan(
+		&i.ID,
+		&i.Platform,
+		&i.PlatformGroupID,
+		&i.PlatformThreadID,
+		&i.NextSeq,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.GroupName,
+		&i.CreatedByUserID,
+		&i.AgentChainHardLimit,
+		&i.MaxAgentPostsPerMinute,
+		&i.MaxRepliesPerHumanTrigger,
+		&i.HoldLimit,
+		&i.NudgeAt,
+		&i.NudgeCheckedAt,
+		&i.NudgeStreakCount,
+	)
+	return i, err
+}
+
+const countAgentPostsInWindow = `-- name: CountAgentPostsInWindow :one
+SELECT COUNT(*)::bigint
+FROM ctx_group_message
+WHERE group_id = $1
+  AND actor_type = 'agent'
+  AND actor_id = $2
+  AND created_at >= $3
+  AND delivery_state != 'failed'
+`
+
+type CountAgentPostsInWindowParams struct {
+	GroupID string    `json:"group_id"`
+	AgentID string    `json:"agent_id"`
+	Since   time.Time `json:"since"`
+}
+
+func (q *Queries) CountAgentPostsInWindow(ctx context.Context, arg CountAgentPostsInWindowParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAgentPostsInWindow, arg.GroupID, arg.AgentID, arg.Since)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countAgentPostsSinceSeq = `-- name: CountAgentPostsSinceSeq :one
+SELECT COUNT(*)::bigint
+FROM ctx_group_message
+WHERE group_id = $1
+  AND actor_type = 'agent'
+  AND seq > $2
+  AND delivery_state != 'failed'
+`
+
+type CountAgentPostsSinceSeqParams struct {
+	GroupID  string `json:"group_id"`
+	AfterSeq int64  `json:"after_seq"`
+}
+
+func (q *Queries) CountAgentPostsSinceSeq(ctx context.Context, arg CountAgentPostsSinceSeqParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAgentPostsSinceSeq, arg.GroupID, arg.AfterSeq)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countPeerMessagesAfterSeq = `-- name: CountPeerMessagesAfterSeq :one
+SELECT COUNT(*)::bigint
+FROM ctx_group_message
+WHERE group_id = $1
+  AND seq > $2
+  AND NOT (actor_type = 'agent' AND actor_id = $3)
+  AND actor_type != 'system'
+  AND delivery_state != 'failed'
+`
+
+type CountPeerMessagesAfterSeqParams struct {
+	GroupID  string `json:"group_id"`
+	AfterSeq int64  `json:"after_seq"`
+	AgentID  string `json:"agent_id"`
+}
+
+// Failed platform deliveries are canonical audit rows, but not peer activity:
+// nobody could have seen them, so later freshness gates must ignore them.
+// System rows are excluded for the same reason in reverse: the stalled-work
+// nudge writes one, and counting it would let recovery invalidate the very turn
+// it is waiting for.
+func (q *Queries) CountPeerMessagesAfterSeq(ctx context.Context, arg CountPeerMessagesAfterSeqParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countPeerMessagesAfterSeq, arg.GroupID, arg.AfterSeq, arg.AgentID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createGroupMessage = `-- name: CreateGroupMessage :one
 INSERT INTO ctx_group_message (
   id, group_id, seq, source_channel_id, actor_type, actor_id,
-  platform_message_id, reply_to, platform_timestamp, idempotency_key, content, content_blocks, reasoning, agent_session_id
+  platform_message_id, reply_to, platform_timestamp, idempotency_key, content, content_blocks, reasoning, agent_session_id, delivery_state
 )
 VALUES (
   $1, $2, $3, $4,
   $5, $6, $7,
   $8, $9, $10,
   $11, COALESCE($12::jsonb, '[]'::jsonb),
-  $13, $14
+  $13, $14, $15
 )
-RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks
+RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state
 `
 
 type CreateGroupMessageParams struct {
@@ -92,6 +229,7 @@ type CreateGroupMessageParams struct {
 	ContentBlocks     json.RawMessage    `json:"content_blocks"`
 	Reasoning         string             `json:"reasoning"`
 	AgentSessionID    string             `json:"agent_session_id"`
+	DeliveryState     string             `json:"delivery_state"`
 }
 
 func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessageParams) (CtxGroupMessage, error) {
@@ -110,6 +248,7 @@ func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessage
 		arg.ContentBlocks,
 		arg.Reasoning,
 		arg.AgentSessionID,
+		arg.DeliveryState,
 	)
 	var i CtxGroupMessage
 	err := row.Scan(
@@ -128,6 +267,7 @@ func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessage
 		&i.AgentSessionID,
 		&i.CreatedAt,
 		&i.ContentBlocks,
+		&i.DeliveryState,
 	)
 	return i, err
 }
@@ -135,7 +275,7 @@ func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessage
 const createGroupState = `-- name: CreateGroupState :one
 INSERT INTO ctx_group_state (id, platform, platform_group_id, platform_thread_id, group_name, created_by_user_id)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id
+RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_streak_count
 `
 
 type CreateGroupStateParams struct {
@@ -167,6 +307,13 @@ func (q *Queries) CreateGroupState(ctx context.Context, arg CreateGroupStatePara
 		&i.UpdatedAt,
 		&i.GroupName,
 		&i.CreatedByUserID,
+		&i.AgentChainHardLimit,
+		&i.MaxAgentPostsPerMinute,
+		&i.MaxRepliesPerHumanTrigger,
+		&i.HoldLimit,
+		&i.NudgeAt,
+		&i.NudgeCheckedAt,
+		&i.NudgeStreakCount,
 	)
 	return i, err
 }
@@ -196,7 +343,7 @@ func (q *Queries) GetGroupLastActive(ctx context.Context, id string) (time.Time,
 }
 
 const getGroupMessage = `-- name: GetGroupMessage :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks FROM ctx_group_message WHERE id = $1
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state FROM ctx_group_message WHERE id = $1
 `
 
 func (q *Queries) GetGroupMessage(ctx context.Context, id string) (CtxGroupMessage, error) {
@@ -218,12 +365,13 @@ func (q *Queries) GetGroupMessage(ctx context.Context, id string) (CtxGroupMessa
 		&i.AgentSessionID,
 		&i.CreatedAt,
 		&i.ContentBlocks,
+		&i.DeliveryState,
 	)
 	return i, err
 }
 
 const getGroupMessageByIdempotencyKey = `-- name: GetGroupMessageByIdempotencyKey :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state FROM ctx_group_message
 WHERE idempotency_key = $1
 `
 
@@ -246,12 +394,13 @@ func (q *Queries) GetGroupMessageByIdempotencyKey(ctx context.Context, idempoten
 		&i.AgentSessionID,
 		&i.CreatedAt,
 		&i.ContentBlocks,
+		&i.DeliveryState,
 	)
 	return i, err
 }
 
 const getGroupMessageByPlatformID = `-- name: GetGroupMessageByPlatformID :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state FROM ctx_group_message
 WHERE group_id = $1
   AND platform_message_id = $2
 `
@@ -280,12 +429,13 @@ func (q *Queries) GetGroupMessageByPlatformID(ctx context.Context, arg GetGroupM
 		&i.AgentSessionID,
 		&i.CreatedAt,
 		&i.ContentBlocks,
+		&i.DeliveryState,
 	)
 	return i, err
 }
 
 const getGroupStateByID = `-- name: GetGroupStateByID :one
-SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id FROM ctx_group_state WHERE id = $1
+SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_streak_count FROM ctx_group_state WHERE id = $1
 `
 
 func (q *Queries) GetGroupStateByID(ctx context.Context, id string) (CtxGroupState, error) {
@@ -301,12 +451,19 @@ func (q *Queries) GetGroupStateByID(ctx context.Context, id string) (CtxGroupSta
 		&i.UpdatedAt,
 		&i.GroupName,
 		&i.CreatedByUserID,
+		&i.AgentChainHardLimit,
+		&i.MaxAgentPostsPerMinute,
+		&i.MaxRepliesPerHumanTrigger,
+		&i.HoldLimit,
+		&i.NudgeAt,
+		&i.NudgeCheckedAt,
+		&i.NudgeStreakCount,
 	)
 	return i, err
 }
 
 const getGroupStateByIDForUpdate = `-- name: GetGroupStateByIDForUpdate :one
-SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id FROM ctx_group_state WHERE id = $1 FOR UPDATE
+SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_streak_count FROM ctx_group_state WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) GetGroupStateByIDForUpdate(ctx context.Context, id string) (CtxGroupState, error) {
@@ -322,12 +479,19 @@ func (q *Queries) GetGroupStateByIDForUpdate(ctx context.Context, id string) (Ct
 		&i.UpdatedAt,
 		&i.GroupName,
 		&i.CreatedByUserID,
+		&i.AgentChainHardLimit,
+		&i.MaxAgentPostsPerMinute,
+		&i.MaxRepliesPerHumanTrigger,
+		&i.HoldLimit,
+		&i.NudgeAt,
+		&i.NudgeCheckedAt,
+		&i.NudgeStreakCount,
 	)
 	return i, err
 }
 
 const getGroupStateByTriple = `-- name: GetGroupStateByTriple :one
-SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id FROM ctx_group_state
+SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_streak_count FROM ctx_group_state
 WHERE platform = $1
   AND platform_group_id = $2
   AND platform_thread_id = $3
@@ -352,14 +516,144 @@ func (q *Queries) GetGroupStateByTriple(ctx context.Context, arg GetGroupStateBy
 		&i.UpdatedAt,
 		&i.GroupName,
 		&i.CreatedByUserID,
+		&i.AgentChainHardLimit,
+		&i.MaxAgentPostsPerMinute,
+		&i.MaxRepliesPerHumanTrigger,
+		&i.HoldLimit,
+		&i.NudgeAt,
+		&i.NudgeCheckedAt,
+		&i.NudgeStreakCount,
 	)
 	return i, err
+}
+
+const getLatestGroupMessageID = `-- name: GetLatestGroupMessageID :one
+SELECT id
+FROM ctx_group_message
+WHERE group_id = $1
+ORDER BY seq DESC
+LIMIT 1
+`
+
+func (q *Queries) GetLatestGroupMessageID(ctx context.Context, groupID string) (string, error) {
+	row := q.db.QueryRow(ctx, getLatestGroupMessageID, groupID)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
+const getLatestPeerGroupMessageWithContent = `-- name: GetLatestPeerGroupMessageWithContent :one
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state
+FROM ctx_group_message
+WHERE group_id = $1
+  AND NOT (actor_type = 'agent' AND actor_id = $2)
+  AND seq >= ctx_group_chain_root($1, $2, $3)
+  AND delivery_state != 'failed'
+  AND btrim(content) = btrim($4)
+ORDER BY seq DESC
+LIMIT 1
+`
+
+type GetLatestPeerGroupMessageWithContentParams struct {
+	GroupID    string `json:"group_id"`
+	AgentID    string `json:"agent_id"`
+	TriggerSeq int64  `json:"trigger_seq"`
+	Content    string `json:"content"`
+}
+
+// Scoped to the current causal chain on purpose. Matching the whole history
+// would make any short acknowledgement ("Done.") unpostable by every agent
+// forever, because this gate is not subject to hold_limit.
+func (q *Queries) GetLatestPeerGroupMessageWithContent(ctx context.Context, arg GetLatestPeerGroupMessageWithContentParams) (CtxGroupMessage, error) {
+	row := q.db.QueryRow(ctx, getLatestPeerGroupMessageWithContent,
+		arg.GroupID,
+		arg.AgentID,
+		arg.TriggerSeq,
+		arg.Content,
+	)
+	var i CtxGroupMessage
+	err := row.Scan(
+		&i.ID,
+		&i.GroupID,
+		&i.Seq,
+		&i.SourceChannelID,
+		&i.ActorType,
+		&i.ActorID,
+		&i.PlatformMessageID,
+		&i.ReplyTo,
+		&i.PlatformTimestamp,
+		&i.IdempotencyKey,
+		&i.Content,
+		&i.Reasoning,
+		&i.AgentSessionID,
+		&i.CreatedAt,
+		&i.ContentBlocks,
+		&i.DeliveryState,
+	)
+	return i, err
+}
+
+const incrementGroupNudgeStreak = `-- name: IncrementGroupNudgeStreak :one
+UPDATE ctx_group_state
+SET nudge_streak_count = nudge_streak_count + 1, updated_at = now()
+WHERE id = $1
+  AND nudge_streak_count < $2
+RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_streak_count
+`
+
+type IncrementGroupNudgeStreakParams struct {
+	GroupID    string `json:"group_id"`
+	LimitCount int32  `json:"limit_count"`
+}
+
+func (q *Queries) IncrementGroupNudgeStreak(ctx context.Context, arg IncrementGroupNudgeStreakParams) (CtxGroupState, error) {
+	row := q.db.QueryRow(ctx, incrementGroupNudgeStreak, arg.GroupID, arg.LimitCount)
+	var i CtxGroupState
+	err := row.Scan(
+		&i.ID,
+		&i.Platform,
+		&i.PlatformGroupID,
+		&i.PlatformThreadID,
+		&i.NextSeq,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.GroupName,
+		&i.CreatedByUserID,
+		&i.AgentChainHardLimit,
+		&i.MaxAgentPostsPerMinute,
+		&i.MaxRepliesPerHumanTrigger,
+		&i.HoldLimit,
+		&i.NudgeAt,
+		&i.NudgeCheckedAt,
+		&i.NudgeStreakCount,
+	)
+	return i, err
+}
+
+const lastHumanSeqAtOrBefore = `-- name: LastHumanSeqAtOrBefore :one
+SELECT COALESCE(MAX(seq), 0)::bigint
+FROM ctx_group_message
+WHERE group_id = $1
+  AND actor_type = 'human'
+  AND seq <= $2
+`
+
+type LastHumanSeqAtOrBeforeParams struct {
+	GroupID    string `json:"group_id"`
+	TriggerSeq int64  `json:"trigger_seq"`
+}
+
+func (q *Queries) LastHumanSeqAtOrBefore(ctx context.Context, arg LastHumanSeqAtOrBeforeParams) (int64, error) {
+	row := q.db.QueryRow(ctx, lastHumanSeqAtOrBefore, arg.GroupID, arg.TriggerSeq)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const listGroupMessagesPaginated = `-- name: ListGroupMessagesPaginated :many
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
        platform_message_id, reply_to, platform_timestamp, idempotency_key,
-       content, reasoning, agent_session_id, created_at
+       content, reasoning, agent_session_id, created_at, delivery_state
 FROM ctx_group_message
 WHERE group_id = $1
 ORDER BY seq DESC
@@ -387,6 +681,7 @@ type ListGroupMessagesPaginatedRow struct {
 	Reasoning         string             `json:"reasoning"`
 	AgentSessionID    string             `json:"agent_session_id"`
 	CreatedAt         time.Time          `json:"created_at"`
+	DeliveryState     string             `json:"delivery_state"`
 }
 
 func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupMessagesPaginatedParams) ([]ListGroupMessagesPaginatedRow, error) {
@@ -413,6 +708,122 @@ func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupM
 			&i.Reasoning,
 			&i.AgentSessionID,
 			&i.CreatedAt,
+			&i.DeliveryState,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGroupNudgeCandidate = `-- name: ListGroupNudgeCandidate :many
+SELECT gs.id, gs.platform, gs.platform_group_id, gs.platform_thread_id, gs.next_seq, gs.created_at, gs.updated_at, gs.group_name, gs.created_by_user_id, gs.agent_chain_hard_limit, gs.max_agent_posts_per_minute, gs.max_replies_per_human_trigger, gs.hold_limit, gs.nudge_at, gs.nudge_checked_at, gs.nudge_streak_count,
+       (SELECT gm.id FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) AS last_message_id,
+       (SELECT gm.actor_type FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) AS last_actor_type,
+       (SELECT gm.actor_id FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) AS last_actor_id,
+       (SELECT gm.content FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) AS last_content,
+       (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) AS last_message_at
+FROM ctx_group_state gs
+WHERE (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) <= $1
+  AND (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) >= $2
+  AND (
+    EXISTS (SELECT 1 FROM ctx_group_claim claim WHERE claim.group_id = gs.id AND claim.lease_until > $3)
+    OR (EXISTS (
+      SELECT 1 FROM ctx_group_message human
+      WHERE human.group_id = gs.id AND human.actor_type = 'human'
+        AND human.seq = (SELECT MAX(gm.seq) FROM ctx_group_message gm WHERE gm.group_id = gs.id)
+    ) AND NOT EXISTS (
+      SELECT 1 FROM ctx_group_message reply
+      WHERE reply.group_id = gs.id AND reply.actor_type = 'agent'
+        AND reply.seq > (SELECT MAX(gm.seq) FROM ctx_group_message gm WHERE gm.group_id = gs.id)
+        AND reply.delivery_state != 'failed'
+    ))
+  )
+  -- Re-ask only when the answer could have changed: new activity since the last
+  -- look, or a long backoff for the things that move on their own (claim leases,
+  -- fallback budget). Classification costs a model call per candidate per tick.
+  AND (
+    gs.nudge_checked_at IS NULL
+    OR gs.nudge_checked_at < (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1)
+    OR gs.nudge_checked_at < $4
+  )
+ORDER BY (SELECT gm.created_at FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) ASC
+LIMIT $5
+`
+
+type ListGroupNudgeCandidateParams struct {
+	LatestBefore  time.Time          `json:"latest_before"`
+	EarliestAfter time.Time          `json:"earliest_after"`
+	Now           time.Time          `json:"now"`
+	RecheckBefore pgtype.Timestamptz `json:"recheck_before"`
+	LimitCount    int32              `json:"limit_count"`
+}
+
+type ListGroupNudgeCandidateRow struct {
+	ID                        string             `json:"id"`
+	Platform                  string             `json:"platform"`
+	PlatformGroupID           string             `json:"platform_group_id"`
+	PlatformThreadID          string             `json:"platform_thread_id"`
+	NextSeq                   int64              `json:"next_seq"`
+	CreatedAt                 time.Time          `json:"created_at"`
+	UpdatedAt                 time.Time          `json:"updated_at"`
+	GroupName                 string             `json:"group_name"`
+	CreatedByUserID           pgtype.Text        `json:"created_by_user_id"`
+	AgentChainHardLimit       int32              `json:"agent_chain_hard_limit"`
+	MaxAgentPostsPerMinute    int32              `json:"max_agent_posts_per_minute"`
+	MaxRepliesPerHumanTrigger int32              `json:"max_replies_per_human_trigger"`
+	HoldLimit                 int32              `json:"hold_limit"`
+	NudgeAt                   pgtype.Timestamptz `json:"nudge_at"`
+	NudgeCheckedAt            pgtype.Timestamptz `json:"nudge_checked_at"`
+	NudgeStreakCount          int32              `json:"nudge_streak_count"`
+	LastMessageID             string             `json:"last_message_id"`
+	LastActorType             string             `json:"last_actor_type"`
+	LastActorID               string             `json:"last_actor_id"`
+	LastContent               string             `json:"last_content"`
+	LastMessageAt             time.Time          `json:"last_message_at"`
+}
+
+func (q *Queries) ListGroupNudgeCandidate(ctx context.Context, arg ListGroupNudgeCandidateParams) ([]ListGroupNudgeCandidateRow, error) {
+	rows, err := q.db.Query(ctx, listGroupNudgeCandidate,
+		arg.LatestBefore,
+		arg.EarliestAfter,
+		arg.Now,
+		arg.RecheckBefore,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListGroupNudgeCandidateRow{}
+	for rows.Next() {
+		var i ListGroupNudgeCandidateRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Platform,
+			&i.PlatformGroupID,
+			&i.PlatformThreadID,
+			&i.NextSeq,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.GroupName,
+			&i.CreatedByUserID,
+			&i.AgentChainHardLimit,
+			&i.MaxAgentPostsPerMinute,
+			&i.MaxRepliesPerHumanTrigger,
+			&i.HoldLimit,
+			&i.NudgeAt,
+			&i.NudgeCheckedAt,
+			&i.NudgeStreakCount,
+			&i.LastMessageID,
+			&i.LastActorType,
+			&i.LastActorID,
+			&i.LastContent,
+			&i.LastMessageAt,
 		); err != nil {
 			return nil, err
 		}
@@ -426,7 +837,7 @@ func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupM
 
 const listGroupsByUser = `-- name: ListGroupsByUser :many
 SELECT
-  gs.id, gs.platform, gs.platform_group_id, gs.platform_thread_id, gs.next_seq, gs.created_at, gs.updated_at, gs.group_name, gs.created_by_user_id,
+  gs.id, gs.platform, gs.platform_group_id, gs.platform_thread_id, gs.next_seq, gs.created_at, gs.updated_at, gs.group_name, gs.created_by_user_id, gs.agent_chain_hard_limit, gs.max_agent_posts_per_minute, gs.max_replies_per_human_trigger, gs.hold_limit, gs.nudge_at, gs.nudge_checked_at, gs.nudge_streak_count,
   COALESCE(MAX(gm.created_at), gs.updated_at) AS last_active
 FROM ctx_group_state gs
 LEFT JOIN ctx_group_message gm ON gm.group_id = gs.id
@@ -444,16 +855,23 @@ type ListGroupsByUserParams struct {
 }
 
 type ListGroupsByUserRow struct {
-	ID               string      `json:"id"`
-	Platform         string      `json:"platform"`
-	PlatformGroupID  string      `json:"platform_group_id"`
-	PlatformThreadID string      `json:"platform_thread_id"`
-	NextSeq          int64       `json:"next_seq"`
-	CreatedAt        time.Time   `json:"created_at"`
-	UpdatedAt        time.Time   `json:"updated_at"`
-	GroupName        string      `json:"group_name"`
-	CreatedByUserID  pgtype.Text `json:"created_by_user_id"`
-	LastActive       time.Time   `json:"last_active"`
+	ID                        string             `json:"id"`
+	Platform                  string             `json:"platform"`
+	PlatformGroupID           string             `json:"platform_group_id"`
+	PlatformThreadID          string             `json:"platform_thread_id"`
+	NextSeq                   int64              `json:"next_seq"`
+	CreatedAt                 time.Time          `json:"created_at"`
+	UpdatedAt                 time.Time          `json:"updated_at"`
+	GroupName                 string             `json:"group_name"`
+	CreatedByUserID           pgtype.Text        `json:"created_by_user_id"`
+	AgentChainHardLimit       int32              `json:"agent_chain_hard_limit"`
+	MaxAgentPostsPerMinute    int32              `json:"max_agent_posts_per_minute"`
+	MaxRepliesPerHumanTrigger int32              `json:"max_replies_per_human_trigger"`
+	HoldLimit                 int32              `json:"hold_limit"`
+	NudgeAt                   pgtype.Timestamptz `json:"nudge_at"`
+	NudgeCheckedAt            pgtype.Timestamptz `json:"nudge_checked_at"`
+	NudgeStreakCount          int32              `json:"nudge_streak_count"`
+	LastActive                time.Time          `json:"last_active"`
 }
 
 func (q *Queries) ListGroupsByUser(ctx context.Context, arg ListGroupsByUserParams) ([]ListGroupsByUserRow, error) {
@@ -475,6 +893,13 @@ func (q *Queries) ListGroupsByUser(ctx context.Context, arg ListGroupsByUserPara
 			&i.UpdatedAt,
 			&i.GroupName,
 			&i.CreatedByUserID,
+			&i.AgentChainHardLimit,
+			&i.MaxAgentPostsPerMinute,
+			&i.MaxRepliesPerHumanTrigger,
+			&i.HoldLimit,
+			&i.NudgeAt,
+			&i.NudgeCheckedAt,
+			&i.NudgeStreakCount,
 			&i.LastActive,
 		); err != nil {
 			return nil, err
@@ -487,70 +912,11 @@ func (q *Queries) ListGroupsByUser(ctx context.Context, arg ListGroupsByUserPara
 	return items, nil
 }
 
-const listRecentGroupMessages = `-- name: ListRecentGroupMessages :many
-
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks FROM ctx_group_message
-WHERE group_id = $1
-ORDER BY seq DESC
-LIMIT $2
-`
-
-type ListRecentGroupMessagesParams struct {
-	GroupID  string `json:"group_id"`
-	MaxCount int32  `json:"max_count"`
-}
-
-// content_blocks holds inbound image payloads, so a single row is bounded only
-// by the channel inline ceiling (telegram/qq inline up to 20MB today; 5MB once
-// #786 lands). Only the dispatch reads above (GetGroupMessage / the dedup
-// :one lookups) rehydrate images, so they keep SELECT *. The text-only list
-// consumers below — semantic-arbiter recent context, LCM cross-agent assembly,
-// and web pagination — read only the projected text columns, so they select an
-// explicit column list that EXCLUDES content_blocks and never drag image blobs
-// across a history window.
-// ListRecentGroupMessages currently has no caller; it keeps SELECT * so a future
-// replay/dispatch consumer that needs content_blocks gets the full row. Give it
-// an explicit lean list only if a text-only consumer adopts it.
-func (q *Queries) ListRecentGroupMessages(ctx context.Context, arg ListRecentGroupMessagesParams) ([]CtxGroupMessage, error) {
-	rows, err := q.db.Query(ctx, listRecentGroupMessages, arg.GroupID, arg.MaxCount)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []CtxGroupMessage{}
-	for rows.Next() {
-		var i CtxGroupMessage
-		if err := rows.Scan(
-			&i.ID,
-			&i.GroupID,
-			&i.Seq,
-			&i.SourceChannelID,
-			&i.ActorType,
-			&i.ActorID,
-			&i.PlatformMessageID,
-			&i.ReplyTo,
-			&i.PlatformTimestamp,
-			&i.IdempotencyKey,
-			&i.Content,
-			&i.Reasoning,
-			&i.AgentSessionID,
-			&i.CreatedAt,
-			&i.ContentBlocks,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listRecentGroupMessagesBeforeSeq = `-- name: ListRecentGroupMessagesBeforeSeq :many
+
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
        platform_message_id, reply_to, platform_timestamp, idempotency_key,
-       content, reasoning, agent_session_id, created_at
+       content, reasoning, agent_session_id, created_at, delivery_state
 FROM ctx_group_message
 WHERE group_id = $1
   AND seq < $2
@@ -579,8 +945,17 @@ type ListRecentGroupMessagesBeforeSeqRow struct {
 	Reasoning         string             `json:"reasoning"`
 	AgentSessionID    string             `json:"agent_session_id"`
 	CreatedAt         time.Time          `json:"created_at"`
+	DeliveryState     string             `json:"delivery_state"`
 }
 
+// content_blocks holds inbound image payloads, so a single row is bounded only
+// by the channel inline ceiling (telegram/qq inline up to 20MB today; 5MB once
+// #786 lands). Only the dispatch reads above (GetGroupMessage / the dedup
+// :one lookups) rehydrate images, so they keep SELECT *. The text-only list
+// consumers below — group-triage recent context, LCM cross-agent assembly,
+// and web pagination — read only the projected text columns, so they select an
+// explicit column list that EXCLUDES content_blocks and never drag image blobs
+// across a history window.
 func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg ListRecentGroupMessagesBeforeSeqParams) ([]ListRecentGroupMessagesBeforeSeqRow, error) {
 	rows, err := q.db.Query(ctx, listRecentGroupMessagesBeforeSeq, arg.GroupID, arg.BeforeSeq, arg.MaxCount)
 	if err != nil {
@@ -605,6 +980,7 @@ func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg List
 			&i.Reasoning,
 			&i.AgentSessionID,
 			&i.CreatedAt,
+			&i.DeliveryState,
 		); err != nil {
 			return nil, err
 		}
@@ -616,11 +992,137 @@ func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg List
 	return items, nil
 }
 
+const markGroupNudgeChecked = `-- name: MarkGroupNudgeChecked :exec
+UPDATE ctx_group_state
+SET nudge_checked_at = $1, updated_at = now()
+WHERE id = $2
+`
+
+type MarkGroupNudgeCheckedParams struct {
+	Now     pgtype.Timestamptz `json:"now"`
+	GroupID string             `json:"group_id"`
+}
+
+func (q *Queries) MarkGroupNudgeChecked(ctx context.Context, arg MarkGroupNudgeCheckedParams) error {
+	_, err := q.db.Exec(ctx, markGroupNudgeChecked, arg.Now, arg.GroupID)
+	return err
+}
+
+const maxPeerMessageSeqAfterSeq = `-- name: MaxPeerMessageSeqAfterSeq :one
+SELECT COALESCE(MAX(seq), 0)::bigint
+FROM ctx_group_message
+WHERE group_id = $1
+  AND seq > $2
+  AND NOT (actor_type = 'agent' AND actor_id = $3)
+  AND actor_type != 'system'
+  AND delivery_state != 'failed'
+`
+
+type MaxPeerMessageSeqAfterSeqParams struct {
+	GroupID  string `json:"group_id"`
+	AfterSeq int64  `json:"after_seq"`
+	AgentID  string `json:"agent_id"`
+}
+
+// Same exclusions as CountPeerMessagesAfterSeq: the two must agree, or a turn is
+// held against a seq the count never saw.
+func (q *Queries) MaxPeerMessageSeqAfterSeq(ctx context.Context, arg MaxPeerMessageSeqAfterSeqParams) (int64, error) {
+	row := q.db.QueryRow(ctx, maxPeerMessageSeqAfterSeq, arg.GroupID, arg.AfterSeq, arg.AgentID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const setGroupDispatchCaps = `-- name: SetGroupDispatchCaps :one
+UPDATE ctx_group_state
+SET agent_chain_hard_limit = $1,
+    max_agent_posts_per_minute = $2,
+    max_replies_per_human_trigger = $3,
+    hold_limit = $4,
+    updated_at = now()
+WHERE id = $5
+RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_streak_count
+`
+
+type SetGroupDispatchCapsParams struct {
+	AgentChainHardLimit       int32  `json:"agent_chain_hard_limit"`
+	MaxAgentPostsPerMinute    int32  `json:"max_agent_posts_per_minute"`
+	MaxRepliesPerHumanTrigger int32  `json:"max_replies_per_human_trigger"`
+	HoldLimit                 int32  `json:"hold_limit"`
+	ID                        string `json:"id"`
+}
+
+func (q *Queries) SetGroupDispatchCaps(ctx context.Context, arg SetGroupDispatchCapsParams) (CtxGroupState, error) {
+	row := q.db.QueryRow(ctx, setGroupDispatchCaps,
+		arg.AgentChainHardLimit,
+		arg.MaxAgentPostsPerMinute,
+		arg.MaxRepliesPerHumanTrigger,
+		arg.HoldLimit,
+		arg.ID,
+	)
+	var i CtxGroupState
+	err := row.Scan(
+		&i.ID,
+		&i.Platform,
+		&i.PlatformGroupID,
+		&i.PlatformThreadID,
+		&i.NextSeq,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.GroupName,
+		&i.CreatedByUserID,
+		&i.AgentChainHardLimit,
+		&i.MaxAgentPostsPerMinute,
+		&i.MaxRepliesPerHumanTrigger,
+		&i.HoldLimit,
+		&i.NudgeAt,
+		&i.NudgeCheckedAt,
+		&i.NudgeStreakCount,
+	)
+	return i, err
+}
+
+const setGroupMessageDeliveryState = `-- name: SetGroupMessageDeliveryState :one
+UPDATE ctx_group_message
+SET delivery_state = $1
+WHERE id = $2
+RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state
+`
+
+type SetGroupMessageDeliveryStateParams struct {
+	DeliveryState string `json:"delivery_state"`
+	ID            string `json:"id"`
+}
+
+func (q *Queries) SetGroupMessageDeliveryState(ctx context.Context, arg SetGroupMessageDeliveryStateParams) (CtxGroupMessage, error) {
+	row := q.db.QueryRow(ctx, setGroupMessageDeliveryState, arg.DeliveryState, arg.ID)
+	var i CtxGroupMessage
+	err := row.Scan(
+		&i.ID,
+		&i.GroupID,
+		&i.Seq,
+		&i.SourceChannelID,
+		&i.ActorType,
+		&i.ActorID,
+		&i.PlatformMessageID,
+		&i.ReplyTo,
+		&i.PlatformTimestamp,
+		&i.IdempotencyKey,
+		&i.Content,
+		&i.Reasoning,
+		&i.AgentSessionID,
+		&i.CreatedAt,
+		&i.ContentBlocks,
+		&i.DeliveryState,
+	)
+	return i, err
+}
+
 const updateGroupName = `-- name: UpdateGroupName :one
 UPDATE ctx_group_state
 SET group_name = $1, updated_at = now()
 WHERE id = $2
-RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id
+RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_streak_count
 `
 
 type UpdateGroupNameParams struct {
@@ -641,6 +1143,13 @@ func (q *Queries) UpdateGroupName(ctx context.Context, arg UpdateGroupNameParams
 		&i.UpdatedAt,
 		&i.GroupName,
 		&i.CreatedByUserID,
+		&i.AgentChainHardLimit,
+		&i.MaxAgentPostsPerMinute,
+		&i.MaxRepliesPerHumanTrigger,
+		&i.HoldLimit,
+		&i.NudgeAt,
+		&i.NudgeCheckedAt,
+		&i.NudgeStreakCount,
 	)
 	return i, err
 }

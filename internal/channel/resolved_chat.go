@@ -13,6 +13,7 @@ import (
 	"github.com/CherryHQ/stella/internal/auth"
 	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
+	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 )
@@ -38,6 +39,11 @@ type ResolvedChat struct {
 	// Canonical source for group personalization; runtime/session scope still
 	// flows from GroupID / sessionUserID(), never from User.ID.
 	CurrentSpeaker memory.CurrentSpeaker
+	// InputActor is set only for canonical system coordination messages. It
+	// preserves system provenance without broadening the group authority.
+	InputActor eventlog.MessageActor
+	// GroupWake is why this group turn is running; per-turn model context only.
+	GroupWake memory.GroupWake
 }
 
 func (rc *ResolvedChat) UserID() string { return rc.User.ID }
@@ -191,6 +197,8 @@ func (rc *ResolvedChat) Chat(ctx context.Context, message agent.MessageContent) 
 		Channel:        rc.Channel,
 		Message:        message,
 		CurrentSpeaker: rc.CurrentSpeaker,
+		InputActor:     rc.InputActor,
+		GroupWake:      rc.GroupWake,
 		Authority:      rc.Authority,
 	})
 	return stream, info.ID, nil

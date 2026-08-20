@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/tencent-connect/botgo/dto"
+
 	internalchannel "github.com/CherryHQ/stella/internal/channel"
+	"github.com/CherryHQ/stella/pkg/channel"
 )
 
 func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishRequest) error {
@@ -16,23 +19,66 @@ func (b *Bot) Publish(ctx context.Context, req internalchannel.GroupPublishReque
 	if groupID == "" {
 		return fmt.Errorf("qq: empty group id")
 	}
-	if req.Stream == nil {
+	stream, err := internalchannel.ValidateGroupReplay(ctx, req.Stream)
+	if err != nil {
+		return err
+	}
+	if stream == nil {
 		return nil
 	}
-	response, images, streamErr := b.streamResponse(req.Stream.Events, "", groupID, req.ReplyTo, scopeGroup)
-	if streamErr != nil {
-		if response == "" {
-			response = fmt.Sprintf("Agent error: %v", streamErr)
-		} else {
-			response += fmt.Sprintf("\n\n[Agent error: %v]", streamErr)
-		}
+	response, err := qqGroupReplay(stream)
+	if err != nil {
+		return err
 	}
 	if strings.TrimSpace(response) == "" {
 		response = "(empty response)"
 	}
-	b.sendFinalResponse(groupID, req.ReplyTo, response, scopeGroup)
-	for _, img := range images {
-		b.sendImage(groupID, req.ReplyTo, img, scopeGroup)
+	if b.api == nil {
+		return fmt.Errorf("qq: group API unavailable")
+	}
+	for i, chunk := range channel.SplitMessage(response, qqMaxMessageLen) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, err := b.api.PostGroupMessage(ctx, groupID, dto.MessageToCreate{
+			Content: chunk,
+			MsgType: dto.TextMsg,
+			MsgID:   req.ReplyTo,
+			MsgSeq:  uint32(i + 1),
+		}); err != nil {
+			return fmt.Errorf("qq: send group response chunk %d: %w", i+1, err)
+		}
 	}
 	return nil
+}
+
+// qqGroupReplay renders every replayed event into one complete textual
+// delivery. QQ's group API has no binary upload endpoint, so media is made
+// explicit instead of silently disappearing; rich media is the upgrade path.
+func qqGroupReplay(stream *channel.ChatStream) (string, error) {
+	var text strings.Builder
+	tools := channel.ToolTracker{}
+	for event := range stream.Events {
+		if event.Err != nil {
+			return "", fmt.Errorf("qq: render group replay: %w", event.Err)
+		}
+		text.WriteString(event.Text)
+		if event.ToolUse != nil {
+			tools.Handle(event.ToolUse)
+		}
+		if event.Image != nil {
+			fmt.Fprintf(&text, "\n\n[Image: %s]", event.Image.MimeType)
+		}
+		if event.File != nil {
+			name := event.File.Name
+			if name == "" {
+				name = event.File.Path
+			}
+			fmt.Fprintf(&text, "\n\n[File: %s]", name)
+		}
+	}
+	if tools.HasHistory() {
+		text.WriteString(tools.RenderFinal())
+	}
+	return text.String(), nil
 }

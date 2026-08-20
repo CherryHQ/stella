@@ -9,6 +9,3 @@ ON CONFLICT(group_id) DO UPDATE SET
     version = ctx_group_memory.version + 1,
     updated_at = now()
 RETURNING *;
-
--- name: DeleteGroupMemory :exec
-DELETE FROM ctx_group_memory WHERE group_id = $1;

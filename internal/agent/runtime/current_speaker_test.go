@@ -103,3 +103,28 @@ func TestWithCurrentSpeakerContextSupportsMultimodalContent(t *testing.T) {
 		t.Fatalf("original blocks not preserved: %#v", got)
 	}
 }
+
+func TestWakeBlockRendersReasonAndHeldUpTo(t *testing.T) {
+	got, ok := withGroupWakeContext("[seq:4 Alice]: ship it?", memory.GroupWake{Reason: "mentioned"}).(string)
+	if !ok || !strings.Contains(got, "<wake>") || !strings.Contains(got, "mentioned") {
+		t.Fatalf("wake prefix = %q", got)
+	}
+	if strings.Contains(got, "held") {
+		t.Fatalf("a first attempt must not claim it was held: %q", got)
+	}
+	if !strings.HasSuffix(got, "[seq:4 Alice]: ship it?") {
+		t.Fatalf("wake prefix dropped the trigger: %q", got)
+	}
+
+	held, _ := withGroupWakeContext("[seq:9 Alice]: and now?", memory.GroupWake{Reason: "open_floor", HeldUpToSeq: 7}).(string)
+	if !strings.Contains(held, "seq 7") {
+		t.Fatalf("held wake = %q, want the seq peers reached", held)
+	}
+}
+
+func TestNoWakeReasonLeavesTriggerUntouched(t *testing.T) {
+	msg := "[seq:1 Alice]: hi"
+	if got := withGroupWakeContext(msg, memory.GroupWake{}); got != msg {
+		t.Fatalf("unset wake changed the trigger: %v", got)
+	}
+}

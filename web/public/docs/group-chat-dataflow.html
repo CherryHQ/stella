@@ -1,1812 +1,2505 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Group Chat 统一数据流</title>
+    <title>Stella group chat — optimistic collaboration</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
     <style>
-      :root {
-        --bg: oklch(14% 0.01 260);
-        --surface: oklch(18% 0.012 260);
-        --surface-2: oklch(22% 0.014 260);
-        --fg: oklch(92% 0.008 250);
-        --muted: oklch(58% 0.014 250);
-        --border: oklch(28% 0.012 260);
-        --accent-blue: oklch(68% 0.16 240);
-        --accent-green: oklch(72% 0.16 155);
-        --accent-amber: oklch(78% 0.14 75);
-        --accent-red: oklch(68% 0.18 25);
-        --accent-purple: oklch(68% 0.14 300);
-        --accent-cyan: oklch(72% 0.12 200);
-        --code-bg: oklch(12% 0.008 260);
-
-        --font-display: "SF Pro Display", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-        --font-body: "SF Pro Text", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-        --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
-      }
-
-      * {
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
         margin: 0;
         padding: 0;
-        box-sizing: border-box;
+      }
+
+      /* Skinned from web/src/tokens.css (Teal theme). The page is embedded in an
+         iframe, so it cannot inherit the docs site's .dark class -- it follows the
+         OS scheme instead, which is what the docs site defaults to anyway. */
+      :root {
+        --paper: oklch(0.975 0.008 200);
+        --paper-2: oklch(0.95 0.012 198);
+        --ink: oklch(0.2 0.022 220);
+        --muted: oklch(0.48 0.025 205);
+        --soft: oklch(0.6 0.022 205);
+        --rule: oklch(0.2 0.022 220 / 0.12);
+        --rule-solid: oklch(0.9 0.012 200);
+        --accent: oklch(0.5 0.12 190);
+        --accent-tint: oklch(0.5 0.12 190 / 0.1);
+        --accent-40: oklch(0.5 0.12 190 / 0.4);
+        --link: oklch(0.6 0.13 230);
+        --ink-02: oklch(0.2 0.022 220 / 0.02);
+        --ink-03: oklch(0.2 0.022 220 / 0.03);
+        --ink-05: oklch(0.2 0.022 220 / 0.05);
+        --ink-06: oklch(0.2 0.022 220 / 0.06);
+        --ink-10: oklch(0.2 0.022 220 / 0.1);
+        --ink-20: oklch(0.2 0.022 220 / 0.2);
+        --ink-22: oklch(0.2 0.022 220 / 0.22);
+        --ink-30: oklch(0.2 0.022 220 / 0.3);
+        --ink-40: oklch(0.2 0.022 220 / 0.4);
+        --muted-10: oklch(0.48 0.025 205 / 0.1);
+        --card: oklch(1 0 0);
+        --font-sans: "Inter", system-ui, sans-serif;
+        --font-serif: "Instrument Serif", "Times New Roman", serif;
+        --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --paper: oklch(0.18 0.014 215);
+          --paper-2: oklch(0.21 0.016 215);
+          --ink: oklch(0.95 0.006 200);
+          --muted: oklch(0.7 0.02 205);
+          --soft: oklch(0.58 0.02 205);
+          --rule: oklch(0.95 0.006 200 / 0.14);
+          --rule-solid: oklch(0.28 0.016 210);
+          --accent: oklch(0.72 0.13 190);
+          --accent-tint: oklch(0.72 0.13 190 / 0.14);
+          --accent-40: oklch(0.72 0.13 190 / 0.4);
+          --link: oklch(0.68 0.12 230);
+          --ink-02: oklch(0.95 0.006 200 / 0.03);
+          --ink-03: oklch(0.95 0.006 200 / 0.04);
+          --ink-05: oklch(0.95 0.006 200 / 0.06);
+          --ink-06: oklch(0.95 0.006 200 / 0.07);
+          --ink-10: oklch(0.95 0.006 200 / 0.12);
+          --ink-20: oklch(0.95 0.006 200 / 0.22);
+          --ink-22: oklch(0.95 0.006 200 / 0.24);
+          --ink-30: oklch(0.95 0.006 200 / 0.32);
+          --ink-40: oklch(0.95 0.006 200 / 0.42);
+          --muted-10: oklch(0.7 0.02 205 / 0.12);
+          --card: oklch(0.21 0.016 215);
+        }
       }
 
       body {
-        background: var(--bg);
-        color: var(--fg);
-        font-family: var(--font-body);
-        font-size: 14px;
-        line-height: 1.6;
+        font-family: var(--font-sans);
+        background: var(--paper);
+        color: var(--ink);
+        padding: 3rem 2rem 4rem;
         -webkit-font-smoothing: antialiased;
       }
 
       .container {
-        max-width: 1100px;
+        max-width: 1120px;
         margin: 0 auto;
-        padding: 48px 24px 80px;
       }
 
-      header {
-        margin-bottom: 48px;
+      .header {
+        margin-bottom: 2.5rem;
       }
 
-      header h1 {
-        font-family: var(--font-display);
-        font-size: 28px;
-        font-weight: 600;
-        letter-spacing: -0.02em;
-        margin-bottom: 12px;
-      }
-
-      header p {
-        color: var(--muted);
-        font-size: 14px;
-        max-width: 720px;
-      }
-
-      /* Entry point diagram */
-      .entry-diagram {
-        display: grid;
-        grid-template-columns: 1fr auto 1fr;
-        gap: 0;
-        align-items: center;
-        margin-bottom: 40px;
-      }
-
-      .entry-column {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-      }
-
-      .entry-card {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 12px 16px;
-        font-size: 13px;
-      }
-
-      .entry-card-label {
+      .eyebrow {
         font-family: var(--font-mono);
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        margin-bottom: 4px;
-      }
-
-      .entry-card-label.web {
-        color: var(--accent-blue);
-      }
-      .entry-card-label.platform {
-        color: var(--accent-purple);
-      }
-      .entry-card-label.shared {
-        color: var(--accent-green);
-      }
-
-      .entry-card dd {
-        font-family: var(--font-mono);
-        font-size: 12px;
-        color: oklch(78% 0.008 250);
-      }
-
-      .entry-merge {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        padding: 0 24px;
-        color: var(--muted);
-        font-family: var(--font-mono);
-        font-size: 11px;
-        gap: 4px;
-      }
-
-      .entry-merge .arrow-down {
-        font-size: 20px;
-        opacity: 0.4;
-      }
-
-      .merge-target {
-        grid-column: 1 / -1;
-        margin-top: 12px;
-        background: oklch(72% 0.16 155 / 0.06);
-        border: 1px solid oklch(72% 0.16 155 / 0.25);
-        border-radius: 6px;
-        padding: 14px 20px;
-        text-align: center;
-      }
-
-      .merge-target-label {
-        font-family: var(--font-mono);
-        font-size: 11px;
-        color: var(--accent-green);
-        font-weight: 600;
-        margin-bottom: 4px;
-      }
-
-      .merge-target p {
-        font-size: 13px;
-        color: oklch(78% 0.01 250);
-      }
-
-      /* Scenario */
-      .scenario {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        padding: 20px 24px;
-        margin-bottom: 40px;
-      }
-
-      .scenario-label {
-        font-family: var(--font-mono);
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: var(--accent-amber);
-        margin-bottom: 10px;
-      }
-
-      .scenario-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr 1fr;
-        gap: 16px;
-      }
-
-      .scenario-item {
-        font-size: 13px;
-      }
-
-      .scenario-item dt {
-        color: var(--muted);
-        font-size: 11px;
-        margin-bottom: 2px;
-      }
-
-      .scenario-item dd {
-        font-family: var(--font-mono);
-        font-size: 12px;
-      }
-
-      /* Flow stages */
-      .flow {
-        position: relative;
-      }
-
-      .flow::before {
-        content: "";
-        position: absolute;
-        left: 23px;
-        top: 0;
-        bottom: 0;
-        width: 1px;
-        background: linear-gradient(
-          to bottom,
-          var(--border) 0%,
-          var(--accent-blue) 10%,
-          var(--accent-green) 30%,
-          var(--accent-amber) 50%,
-          var(--accent-purple) 75%,
-          var(--border) 100%
-        );
-        opacity: 0.5;
-      }
-
-      .stage {
-        position: relative;
-        padding-left: 56px;
-        margin-bottom: 32px;
-      }
-
-      .stage-dot {
-        position: absolute;
-        left: 16px;
-        top: 4px;
-        width: 15px;
-        height: 15px;
-        border-radius: 50%;
-        border: 2px solid;
-        background: var(--bg);
-        z-index: 1;
-      }
-
-      .stage-dot.blue {
-        border-color: var(--accent-blue);
-      }
-      .stage-dot.green {
-        border-color: var(--accent-green);
-      }
-      .stage-dot.amber {
-        border-color: var(--accent-amber);
-      }
-      .stage-dot.red {
-        border-color: var(--accent-red);
-      }
-      .stage-dot.purple {
-        border-color: var(--accent-purple);
-      }
-      .stage-dot.cyan {
-        border-color: var(--accent-cyan);
-      }
-
-      .stage-header {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin-bottom: 8px;
-      }
-
-      .stage-number {
-        font-family: var(--font-mono);
-        font-size: 11px;
-        color: var(--muted);
-        min-width: 20px;
-      }
-
-      .stage-title {
-        font-family: var(--font-display);
-        font-size: 16px;
-        font-weight: 600;
-        letter-spacing: -0.01em;
-        color: oklch(82% 0.008 250);
-      }
-
-      .stage-file {
-        font-family: var(--font-mono);
-        font-size: 11px;
-        color: var(--muted);
-        background: var(--surface);
-        padding: 2px 6px;
-        border-radius: 3px;
-        border: 1px solid var(--border);
-      }
-
-      .stage-desc {
-        color: var(--muted);
-        font-size: 13px;
-        margin-bottom: 12px;
-        max-width: 720px;
-      }
-
-      .stage-body {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-      }
-
-      /* Data cards */
-      .data-card {
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        overflow: hidden;
-      }
-
-      .data-card-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 8px 14px;
-        border-bottom: 1px solid var(--border);
-        background: var(--surface-2);
-      }
-
-      .data-card-label {
-        font-family: var(--font-mono);
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        color: var(--muted);
-      }
-
-      .data-card-tag {
-        font-family: var(--font-mono);
-        font-size: 10px;
-        padding: 2px 6px;
-        border-radius: 3px;
-        border: 1px solid;
-      }
-
-      .tag-go {
-        color: var(--accent-blue);
-        border-color: oklch(68% 0.16 240 / 0.3);
-        background: oklch(68% 0.16 240 / 0.08);
-      }
-      .tag-sql {
-        color: var(--accent-green);
-        border-color: oklch(72% 0.16 155 / 0.3);
-        background: oklch(72% 0.16 155 / 0.08);
-      }
-      .tag-sse {
-        color: var(--accent-purple);
-        border-color: oklch(68% 0.14 300 / 0.3);
-        background: oklch(68% 0.14 300 / 0.08);
-      }
-      .tag-ts {
-        color: var(--accent-amber);
-        border-color: oklch(78% 0.14 75 / 0.3);
-        background: oklch(78% 0.14 75 / 0.08);
-      }
-      .tag-db {
-        color: var(--accent-green);
-        border-color: oklch(72% 0.16 155 / 0.3);
-        background: oklch(72% 0.16 155 / 0.08);
-      }
-      .tag-arbiter {
-        color: var(--accent-cyan);
-        border-color: oklch(72% 0.12 200 / 0.3);
-        background: oklch(72% 0.12 200 / 0.08);
-      }
-      .tag-risk {
-        color: var(--accent-red);
-        border-color: oklch(68% 0.18 25 / 0.3);
-        background: oklch(68% 0.18 25 / 0.08);
-      }
-
-      .data-card pre {
-        padding: 12px 14px;
-        font-family: var(--font-mono);
-        font-size: 12px;
-        line-height: 1.7;
-        color: oklch(82% 0.008 250);
-        overflow-x: auto;
-        white-space: pre;
-        background: var(--code-bg);
-      }
-
-      /* DB table */
-      .db-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-family: var(--font-mono);
-        font-size: 11.5px;
-      }
-
-      .db-table th {
-        text-align: left;
-        padding: 6px 12px;
-        color: var(--muted);
+        font-size: 0.66rem;
         font-weight: 500;
-        font-size: 10.5px;
+        letter-spacing: 0.18em;
         text-transform: uppercase;
-        letter-spacing: 0.04em;
-        border-bottom: 1px solid var(--border);
-        background: var(--surface-2);
-      }
-
-      .db-table td {
-        padding: 6px 12px;
-        border-bottom: 1px solid oklch(22% 0.01 260);
-        color: oklch(78% 0.008 250);
-        white-space: nowrap;
-      }
-
-      .db-table tr:last-child td {
-        border-bottom: none;
-      }
-
-      .db-table .highlight td {
-        background: oklch(68% 0.16 240 / 0.06);
-        color: var(--fg);
-      }
-
-      .db-table .new td {
-        background: oklch(72% 0.16 155 / 0.06);
-      }
-      .db-table .dim td {
         color: var(--muted);
+        margin-bottom: 0.75rem;
       }
 
-      /* Arrow */
-      .arrow {
+      h1 {
+        font-family: var(--font-serif);
+        font-size: clamp(1.75rem, 3vw + 1rem, 2.5rem);
+        font-weight: 400;
+        letter-spacing: -0.02em;
+        line-height: 1.1;
+        margin-bottom: 0.5rem;
+      }
+
+      h2 {
+        font-family: var(--font-serif);
+        font-size: 1.5rem;
+        font-weight: 400;
+        letter-spacing: -0.015em;
+        margin-bottom: 0.375rem;
+      }
+
+      .subtitle {
+        font-size: 0.95rem;
+        line-height: 1.6;
+        color: var(--muted);
+        max-width: 62ch;
+      }
+
+      section {
+        margin-top: 3.5rem;
+        padding-top: 2.5rem;
+        border-top: 1px solid var(--rule);
+      }
+
+      .diagram {
+        overflow-x: auto;
+        margin-top: 1.5rem;
+      }
+
+      svg.figure {
+        width: 100%;
+        min-width: 880px;
+        display: block;
+      }
+
+      .cards {
+        display: grid;
+        grid-template-columns: 1.1fr 1fr 0.9fr;
+        gap: 1rem;
+        margin-top: 1.75rem;
+      }
+
+      @media (max-width: 860px) {
+        .cards {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--rule);
+        border-radius: 6px;
+        padding: 1.25rem;
+      }
+
+      .card-header {
         display: flex;
         align-items: center;
-        gap: 8px;
-        padding: 4px 0;
+        gap: 0.6rem;
+        margin-bottom: 0.875rem;
+        padding-bottom: 0.875rem;
+        border-bottom: 1px solid var(--rule);
+      }
+
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .dot.ink {
+        background: var(--ink);
+      }
+      .dot.muted {
+        background: var(--muted);
+      }
+      .dot.accent {
+        background: var(--accent);
+      }
+      .dot.link {
+        background: var(--link);
+      }
+
+      .card h3 {
+        font-size: 0.875rem;
+        font-weight: 600;
+      }
+
+      .card ul {
+        list-style: none;
         color: var(--muted);
+        font-size: 0.8125rem;
+        line-height: 1.55;
+      }
+
+      .card li {
+        margin-bottom: 0.35rem;
+        padding-left: 0.875rem;
+        position: relative;
+      }
+
+      .card li::before {
+        content: "—";
+        position: absolute;
+        left: 0;
+        color: var(--ink-30);
+        font-size: 0.75rem;
+      }
+
+      .card code {
         font-family: var(--font-mono);
-        font-size: 11px;
+        font-size: 0.75rem;
+        color: var(--ink);
       }
 
-      .arrow::before {
-        content: "↓";
-        font-size: 14px;
-        opacity: 0.5;
-      }
-
-      /* Callouts */
-      .risk-callout {
-        background: oklch(68% 0.18 25 / 0.06);
-        border: 1px solid oklch(68% 0.18 25 / 0.25);
-        border-radius: 6px;
-        padding: 12px 16px;
-        font-size: 13px;
-      }
-
-      .risk-callout-label {
+      .footer {
+        margin-top: 3rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid var(--rule);
         font-family: var(--font-mono);
-        font-size: 11px;
-        color: var(--accent-red);
-        font-weight: 600;
-        margin-bottom: 4px;
-      }
-
-      .risk-callout p {
-        color: oklch(78% 0.01 250);
-      }
-
-      .info-callout {
-        background: oklch(68% 0.16 240 / 0.06);
-        border: 1px solid oklch(68% 0.16 240 / 0.25);
-        border-radius: 6px;
-        padding: 12px 16px;
-        font-size: 13px;
-      }
-
-      .info-callout-label {
-        font-family: var(--font-mono);
-        font-size: 11px;
-        color: var(--accent-blue);
-        font-weight: 600;
-        margin-bottom: 4px;
-      }
-
-      .info-callout p {
-        color: oklch(78% 0.01 250);
-      }
-
-      .design-callout {
-        background: oklch(72% 0.16 155 / 0.06);
-        border: 1px solid oklch(72% 0.16 155 / 0.25);
-        border-radius: 6px;
-        padding: 12px 16px;
-        font-size: 13px;
-      }
-
-      .design-callout-label {
-        font-family: var(--font-mono);
-        font-size: 11px;
-        color: var(--accent-green);
-        font-weight: 600;
-        margin-bottom: 4px;
-      }
-
-      .design-callout p {
-        color: oklch(78% 0.01 250);
-      }
-
-      /* Inline code */
-      code {
-        font-family: var(--font-mono);
-        font-size: 11.5px;
-        background: var(--surface-2);
-        padding: 1px 5px;
-        border-radius: 3px;
-        border: 1px solid var(--border);
-        color: oklch(78% 0.06 240);
-      }
-
-      /* Sub-stage */
-      .sub-stage {
-        margin-left: 20px;
-        padding-left: 16px;
-        border-left: 1px solid var(--border);
-      }
-
-      .sub-label {
-        font-family: var(--font-mono);
-        font-size: 11px;
-        color: var(--accent-green);
-        margin-bottom: 6px;
-      }
-
-      /* Decision tree */
-      .decision-tree {
-        border: 1px dashed oklch(72% 0.12 200 / 0.3);
-        border-radius: 6px;
-        padding: 16px;
-        background: oklch(72% 0.12 200 / 0.03);
-      }
-
-      .decision-label {
-        font-family: var(--font-mono);
-        font-size: 11px;
-        color: var(--accent-cyan);
-        margin-bottom: 12px;
-      }
-
-      .decision-branch {
+        font-size: 0.72rem;
+        letter-spacing: 0.06em;
+        color: var(--soft);
         display: flex;
-        gap: 12px;
-        margin-bottom: 8px;
-        align-items: flex-start;
-      }
-
-      .decision-condition {
-        font-family: var(--font-mono);
-        font-size: 11px;
-        color: var(--accent-cyan);
-        background: oklch(72% 0.12 200 / 0.1);
-        border: 1px solid oklch(72% 0.12 200 / 0.2);
-        border-radius: 4px;
-        padding: 4px 8px;
-        white-space: nowrap;
-        min-width: 120px;
-      }
-
-      .decision-result {
-        font-size: 13px;
-        color: oklch(78% 0.008 250);
-        padding-top: 2px;
-      }
-
-      .decision-result code {
-        font-size: 11px;
-      }
-
-      /* Two col */
-      .two-col {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 12px;
-      }
-
-      .three-col {
-        display: grid;
-        grid-template-columns: 1fr 1fr 1fr;
-        gap: 12px;
-      }
-
-      /* Section divider */
-      .section-divider {
-        border-top: 1px solid var(--border);
-        margin: 48px 0 40px;
-        padding-top: 40px;
-      }
-
-      .section-divider h2 {
-        font-family: var(--font-display);
-        font-size: 20px;
-        font-weight: 600;
-        letter-spacing: -0.01em;
-        margin-bottom: 8px;
-      }
-
-      .section-divider p {
-        color: var(--muted);
-        font-size: 13px;
-        max-width: 680px;
-      }
-
-      /* Syntax highlight */
-      .cm {
-        color: oklch(50% 0.01 250);
-      }
-      .kw {
-        color: oklch(72% 0.12 300);
-      }
-      .str {
-        color: oklch(72% 0.12 155);
-      }
-      .num {
-        color: oklch(78% 0.12 75);
-      }
-      .fn {
-        color: oklch(72% 0.14 240);
-      }
-      .err {
-        color: var(--accent-red);
-      }
-      .ok {
-        color: var(--accent-green);
-      }
-
-      @media (max-width: 768px) {
-        .scenario-grid {
-          grid-template-columns: 1fr;
-        }
-        .two-col,
-        .three-col {
-          grid-template-columns: 1fr;
-        }
-        .entry-diagram {
-          grid-template-columns: 1fr;
-        }
-        .entry-merge {
-          padding: 12px 0;
-        }
-        .stage {
-          padding-left: 44px;
-        }
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.5rem;
       }
     </style>
   </head>
   <body>
     <div class="container">
-      <header>
-        <h1>Group Chat 统一数据流</h1>
-        <p>
-          目标模型：Web UI 和平台适配器（Telegram / QQ / Feishu）共用同一条管线： triple resolve →
-          dedup event log → durable outbox → dispatcher worker → dispatch ledger →
-          publisher(reply_channel_id) → hybrid memory → LLM → writeback。
-          本文档追踪一条消息从入口到渲染的完整路径。
+      <div class="header">
+        <p class="eyebrow">Stella · Group chat · Development reference</p>
+        <h1>Optimistic group collaboration</h1>
+        <p class="subtitle">
+          Every ordinary group message wakes eligible members; a nudge targets one agent. Each agent
+          decides locally whether it has anything to say; one locked transaction accepts a pending
+          reply, and publisher success finalizes its delivery and peer wake. No model decides
+          whether another model may speak.
         </p>
-      </header>
-
-      <!-- ───────── Entry Points ───────── -->
-      <div class="entry-diagram">
-        <div class="entry-column">
-          <div class="entry-card">
-            <div class="entry-card-label web">Web UI</div>
-            <dd>POST /api/groups/:id/messages</dd>
-            <dd style="color: var(--muted); font-size: 11px; margin-top: 4px">
-              platform="web", chat_id=groupId, thread_id=""
-            </dd>
-          </div>
-        </div>
-        <div class="entry-merge">
-          <span class="arrow-down">→</span>
-          <span>汇入</span>
-          <span class="arrow-down">←</span>
-        </div>
-        <div class="entry-column">
-          <div class="entry-card">
-            <div class="entry-card-label platform">Platform Adapter</div>
-            <dd>Telegram / QQ / Feishu</dd>
-            <dd style="color: var(--muted); font-size: 11px; margin-top: 4px">
-              platform="telegram", chat_id="-10012345", thread_id="42"
-            </dd>
-          </div>
-        </div>
-        <div class="merge-target">
-          <div class="merge-target-label">目标统一管线入口</div>
-          <p>
-            <code>AppendGroupMessage(platform, chat_id, thread_id)</code>
-            — triple resolve group_id → two-tier dedup → per-group monotonic seq → same-transaction
-            outbox
-          </p>
-        </div>
       </div>
 
-      <!-- ───────── Scenario ───────── -->
-      <div class="scenario">
-        <div class="scenario-label">场景实例 — Telegram 群聊</div>
-        <div class="scenario-grid">
-          <div class="scenario-item">
-            <dt>用户</dt>
-            <dd>Alice (telegram:uid_88)</dd>
-          </div>
-          <div class="scenario-item">
-            <dt>群组 triple</dt>
-            <dd>("telegram", "-10012345", "")</dd>
-          </div>
-          <div class="scenario-item">
-            <dt>resolved group_id</dt>
-            <dd>grp_9f3a (UUID)</dd>
-          </div>
-          <div class="scenario-item">
-            <dt>消息内容</dt>
-            <dd>"@weather-bot 北京今天天气怎么样？"</dd>
-          </div>
-          <div class="scenario-item">
-            <dt>Group 成员</dt>
-            <dd>weather-bot, travel-bot</dd>
-          </div>
-          <div class="scenario-item">
-            <dt>Channel default agent</dt>
-            <dd>weather-bot</dd>
-          </div>
-          <div class="scenario-item">
-            <dt>上轮 triggerSeq</dt>
-            <dd>39 (watermark)</dd>
-          </div>
-          <div class="scenario-item">
-            <dt>Event Log 最新 seq</dt>
-            <dd>41 (travel-bot 回复)</dd>
-          </div>
-          <div class="scenario-item">
-            <dt>Arbiter config</dt>
-            <dd>MaxReplies=1, Debounce=0</dd>
-          </div>
-        </div>
-      </div>
+      <section style="margin-top: 0; padding-top: 0; border-top: none">
+        <p class="eyebrow">Figure 01 · Architecture</p>
+        <h2>One pipeline, from ingest to egress</h2>
+        <p class="subtitle">
+          Web and platform messages share one path. Ingest appends a canonical event and fans out
+          eligible dispatch rows; the per-agent worker serializes wake and nudge work; the accept
+          transaction is the single place a reply can still be stopped.
+        </p>
 
-      <!-- ───────── Flow ───────── -->
-      <div class="flow">
-        <!-- Stage 1: Triple Resolve + Dedup -->
-        <div class="stage">
-          <div class="stage-dot green"></div>
-          <div class="stage-header">
-            <span class="stage-number">01</span>
-            <span class="stage-title">Triple Resolve + Dedup 写入</span>
-            <span class="stage-file">eventlog.go (target)</span>
-          </div>
-          <div class="stage-desc">
-            目标态下，所有入口都调用同一个 ingest 原语。适配器只负责收消息并写入事实：resolve
-            group_id → dedup check → bump seq + insert message → best-effort 解析 mention → insert
-            dispatch outbox，全部在同一个
-            <code>BEGIN IMMEDIATE</code> 事务里完成。Web 同步路径在同一事务内直接以
-            <code>running</code> + lease 创建 outbox，避免后台 worker 抢单；adapter
-            不再直接负责回复。
-          </div>
-          <div class="stage-body">
-            <div class="data-card">
-              <div class="data-card-header">
-                <span class="data-card-label">AppendGroupMessage 调用</span>
-                <span class="data-card-tag tag-go">Go</span>
-              </div>
-              <pre><span class="cm">// 目标统一入口 — Web 和 Platform 都走这里</span>
-result, err := eventLog.AppendGroupMessageAndOutbox(ctx, eventlog.Message{
-    Platform:          "telegram",
-    PlatformGroupID:   "-10012345",
-    PlatformThreadID:  "",               <span class="cm">← triple 的第三维</span>
-    SourceChannelID:   "tg-bot-weather",  <span class="cm">← 观察者 bot，仅审计；不参与 dispatch</span>
-    ActorType:         "human",
-    ActorID:           "uid_88",
-    PlatformMessageID: "tg_msg_9001",    <span class="cm">← Tier 1 dedup key</span>
-    PlatformTimestamp:  msg.Timestamp,    <span class="cm">← Tier 2 fallback key</span>
-    Content:           "@weather-bot 北京今天天气怎么样？",
-})</pre>
-            </div>
-            <div class="data-card">
-              <div class="data-card-header">
-                <span class="data-card-label">内部三步</span>
-                <span class="data-card-tag tag-sql">SQLite</span>
-              </div>
-              <pre><span class="cm">-- Step 0: resolve group_id (get or create)</span>
-SELECT id FROM ctx_group_state
-WHERE platform='telegram' AND platform_group_id='-10012345'
-  AND platform_thread_id='';
-<span class="cm">-- → grp_9f3a</span>
+        <div class="diagram">
+          <svg
+            class="figure"
+            viewBox="0 0 1000 620"
+            xmlns="http://www.w3.org/2000/svg"
+            role="img"
+            aria-labelledby="gcflow-title gcflow-desc"
+          >
+            <title id="gcflow-title">Group chat optimistic dataflow</title>
+            <desc id="gcflow-desc">
+              Messages from web or a chat platform are appended to one canonical log, which creates
+              a durable outbox and eligible dispatch rows: normal fan-out skips an agent author and
+              a nudge targets one agent. A per-agent worker serializes wake and nudge work, passes
+              it through deterministic triage, buffers the model turn, and submits it to an accept
+              transaction. Acceptance commits a pending reply with its memory and cursor; publisher
+              success finalizes delivery and creates the peer outbox that wakes peers in turn.
+            </desc>
+            <defs>
+              <marker
+                id="f1-arrow"
+                markerWidth="8"
+                markerHeight="6"
+                refX="7"
+                refY="3"
+                orient="auto"
+              >
+                <polygon points="0 0, 8 3, 0 6" fill="var(--muted)" />
+              </marker>
+              <marker
+                id="f1-arrow-accent"
+                markerWidth="8"
+                markerHeight="6"
+                refX="7"
+                refY="3"
+                orient="auto"
+              >
+                <polygon points="0 0, 8 3, 0 6" fill="var(--accent)" />
+              </marker>
+              <marker
+                id="f1-arrow-link"
+                markerWidth="8"
+                markerHeight="6"
+                refX="7"
+                refY="3"
+                orient="auto"
+              >
+                <polygon points="0 0, 8 3, 0 6" fill="var(--link)" />
+              </marker>
+            </defs>
 
-<span class="cm">-- Step 1: Tier 1 dedup — 按 platform_message_id</span>
-SELECT * FROM ctx_group_message
-WHERE group_id='grp_9f3a' AND platform_message_id='tg_msg_9001';
-<span class="cm">-- → no rows (新消息)</span>
+            <rect width="100%" height="100%" fill="var(--paper)" />
 
-<span class="cm">-- Step 2: bump seq + insert fact</span>
-UPDATE ctx_group_state SET next_seq = next_seq + 1 WHERE id='grp_9f3a'
-  RETURNING next_seq;  <span class="cm">-- → 42</span>
+            <rect
+              x="32"
+              y="208"
+              width="912"
+              height="136"
+              rx="8"
+              fill="var(--ink-02)"
+              stroke="var(--ink-10)"
+              stroke-width="0.8"
+            />
+            <rect x="44" y="212" width="128" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="48"
+              y="221"
+              fill="var(--ink-40)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              letter-spacing="0.14em"
+            >
+              PER-AGENT WORKER
+            </text>
 
-INSERT INTO ctx_group_message (id, group_id, seq, actor_type, actor_id,
-  platform_message_id, content, ...)
-VALUES ('uuid-new', 'grp_9f3a', <span class="num">42</span>, 'human', 'uid_88',
-  'tg_msg_9001', '@weather-bot 北京今天天气怎么样？', ...);
+            <line
+              x1="184"
+              y1="100"
+              x2="228"
+              y2="100"
+              stroke="var(--link)"
+              stroke-width="1.2"
+              marker-end="url(#f1-arrow-link)"
+            />
+            <line
+              x1="400"
+              y1="100"
+              x2="444"
+              y2="100"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              marker-end="url(#f1-arrow)"
+            />
 
-<span class="cm">-- Step 3: same transaction outbox — “这条事实需要被调度”</span>
-<span class="cm">-- ingest best-effort 解析 mention；未解析项保留 raw/platform id，dispatch 时补解析</span>
-INSERT INTO ctx_group_outbox (id, group_message_id, group_id, envelope, status, lease_until)
-VALUES ('outbox-uuid-1', 'uuid-new', 'grp_9f3a', '{"mentions":[{"agent_id":"weather-bot"}]}', 'pending', NULL);
-<span class="cm">-- Web 同步路径：status='running', lease_until=now+5m，由当前请求协程持有</span></pre>
-            </div>
+            <path
+              d="M 536,128 V 160 Q 536,168 528,168 H 152 Q 144,168 144,176 V 248"
+              fill="none"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              marker-end="url(#f1-arrow)"
+            />
+            <rect x="292" y="148" width="112" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="348"
+              y="157"
+              fill="var(--soft)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.06em"
+            >
+              DISPATCH × ELIGIBLE
+            </text>
 
-            <div class="info-callout">
-              <div class="info-callout-label">Dedup 两层</div>
-              <p>
-                <strong>Tier 1</strong>：<code>platform_message_id</code> — 平台提供的稳定 ID，多个
-                bot 观察到同一条消息会合并。<br />
-                <strong>Tier 2</strong>：<code
-                  >SHA256(group_id + actor_id + timestamp + content)</code
-                >
-                — 仅当没有稳定消息 ID、且有平台提供的高精度发送时间时启用。<br />
-                <strong>Web 要求</strong>：前端必须发送稳定
-                <code>client_message_id</code>，服务端把它作为
-                <code>platform_message_id</code>；不要用服务端接收时间做 dedup。<br />
-                <strong>无 key</strong>：两者都没有时，永远插入（不做 dedup）。
-              </p>
-            </div>
+            <line
+              x1="232"
+              y1="280"
+              x2="272"
+              y2="280"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              marker-end="url(#f1-arrow)"
+            />
+            <line
+              x1="456"
+              y1="280"
+              x2="496"
+              y2="280"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              marker-end="url(#f1-arrow)"
+            />
+            <line
+              x1="680"
+              y1="280"
+              x2="720"
+              y2="280"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              marker-end="url(#f1-arrow)"
+            />
 
-            <div class="design-callout" style="margin-top: 8px">
-              <div class="design-callout-label">Dispatch gate</div>
-              <p>
-                只有首次插入的 human message 才创建 outbox。幂等重投返回 existing seq 后必须停在
-                ingest 层：不 bump seq、不创建 outbox、不重复 arbiter、不重复回复。平台入口创建
-                pending outbox 交给 worker；Web 同步入口创建 running+lease outbox 并立即执行，后台
-                worker 只在租约过期后用 NoopGroupPublisher 做 crash recovery。调度是否完成由 outbox
-                / dispatch ledger 记录，不靠接收 adapter 的调用栈。
-              </p>
-            </div>
+            <path
+              d="M 792,312 V 392 Q 792,400 784,400 H 556 Q 548,400 548,408 V 440"
+              fill="none"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              marker-end="url(#f1-arrow)"
+            />
+            <rect x="620" y="380" width="92" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="666"
+              y="389"
+              fill="var(--soft)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.06em"
+            >
+              PENDING ACCEPT
+            </text>
 
-            <div class="data-card" style="margin-top: 8px">
-              <div class="data-card-header">
-                <span class="data-card-label">ctx_group_message — 写入后状态</span>
-                <span class="data-card-tag tag-db">per-group seq</span>
-              </div>
-              <table class="db-table">
-                <tr>
-                  <th>id (UUID)</th>
-                  <th>group_id</th>
-                  <th>seq</th>
-                  <th>actor</th>
-                  <th>actor_id</th>
-                  <th>content</th>
-                </tr>
-                <tr class="dim">
-                  <td>a1b2…</td>
-                  <td>grp_9f3a</td>
-                  <td>39</td>
-                  <td>human</td>
-                  <td>uid_88</td>
-                  <td>推荐一下周末去哪玩</td>
-                </tr>
-                <tr class="dim">
-                  <td>c3d4…</td>
-                  <td>grp_9f3a</td>
-                  <td>40</td>
-                  <td>agent</td>
-                  <td>weather-bot</td>
-                  <td>周末天气晴朗适合出行…</td>
-                </tr>
-                <tr class="dim">
-                  <td>e5f6…</td>
-                  <td>grp_9f3a</td>
-                  <td>41</td>
-                  <td>agent</td>
-                  <td>travel-bot</td>
-                  <td>推荐故宫和颐和园…</td>
-                </tr>
-                <tr class="highlight">
-                  <td>uuid-new</td>
-                  <td>grp_9f3a</td>
-                  <td style="color: var(--accent-green); font-weight: 600">42</td>
-                  <td>human</td>
-                  <td>uid_88</td>
-                  <td>@weather-bot 北京今天天气怎么样？</td>
-                </tr>
-              </table>
-            </div>
+            <line
+              x1="864"
+              y1="312"
+              x2="864"
+              y2="440"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              marker-end="url(#f1-arrow)"
+            />
+            <rect x="872" y="368" width="72" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="876"
+              y="377"
+              fill="var(--soft)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              letter-spacing="0.06em"
+            >
+              TURN FRAME
+            </text>
 
-            <div class="design-callout">
-              <div class="design-callout-label">seq 作用域</div>
-              <p>
-                seq 是 <strong>per-group monotonic</strong>，不是全局递增。 UNIQUE(group_id,
-                seq)。不同群组的 seq 互相独立。
-              </p>
-            </div>
+            <line
+              x1="648"
+              y1="468"
+              x2="720"
+              y2="468"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              marker-end="url(#f1-arrow)"
+            />
+            <rect x="652" y="440" width="68" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="686"
+              y="449"
+              fill="var(--soft)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.06em"
+            >
+              FINALIZE SUCCESS
+            </text>
 
-            <div class="data-card" style="margin-top: 8px">
-              <div class="data-card-header">
-                <span class="data-card-label">目标 schema — ctx_group_outbox</span>
-                <span class="data-card-tag tag-sql">SQLite</span>
-              </div>
-              <pre>CREATE TABLE ctx_group_outbox (
-    id               TEXT NOT NULL PRIMARY KEY,
-    group_message_id TEXT NOT NULL REFERENCES ctx_group_message(id) ON DELETE CASCADE,
-    group_id         TEXT NOT NULL REFERENCES ctx_group_state(id) ON DELETE CASCADE,
-    envelope         TEXT NOT NULL DEFAULT '{}',        <span class="cm">-- best-effort resolved mentions JSON; unresolved resolved at dispatch</span>
-    status           TEXT NOT NULL DEFAULT 'pending',  <span class="cm">-- Go-enforced: pending/running/completed/failed</span>
-    attempt_count    INTEGER NOT NULL DEFAULT 0,
-    lease_until      TEXT,
-    next_attempt_at  TEXT,
-    last_error       TEXT NOT NULL DEFAULT '',
-    created_at       TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE (group_message_id)
-);
+            <path
+              d="M 648,484 H 680 Q 688,484 688,476 V 152 Q 688,144 680,144 H 632 Q 624,144 624,136 V 128"
+              fill="none"
+              stroke="var(--accent)"
+              stroke-width="1.2"
+              stroke-dasharray="5,4"
+              marker-end="url(#f1-arrow-accent)"
+            />
+            <rect x="696" y="128" width="136" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="764"
+              y="137"
+              fill="var(--accent)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.06em"
+            >
+              SUCCESS → PEER OUTBOX
+            </text>
 
-CREATE INDEX idx_ctx_group_outbox_pending
-    ON ctx_group_outbox (status, next_attempt_at, created_at)
-    WHERE status = 'pending';
-CREATE INDEX idx_ctx_group_outbox_running_lease
-    ON ctx_group_outbox (status, lease_until)
-    WHERE status = 'running';</pre>
-            </div>
-          </div>
-        </div>
+            <rect x="32" y="72" width="152" height="56" rx="6" fill="var(--paper)" />
+            <rect
+              x="32"
+              y="72"
+              width="152"
+              height="56"
+              rx="6"
+              fill="var(--muted-10)"
+              stroke="var(--soft)"
+              stroke-width="1"
+            />
+            <rect
+              x="40"
+              y="78"
+              width="30"
+              height="12"
+              rx="2"
+              fill="transparent"
+              stroke="var(--ink-30)"
+              stroke-width="0.8"
+            />
+            <text
+              x="55"
+              y="87"
+              fill="var(--soft)"
+              font-size="7"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.08em"
+            >
+              IN
+            </text>
+            <text
+              x="108"
+              y="106"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              Ingress
+            </text>
+            <text
+              x="108"
+              y="120"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              web · telegram · feishu
+            </text>
 
-        <!-- Stage 2: Mention Resolve -->
-        <div class="stage">
-          <div class="stage-dot blue"></div>
-          <div class="stage-header">
-            <span class="stage-number">02</span>
-            <span class="stage-title">Dispatcher Worker 领取 Outbox + @Mention 解析</span>
-            <span class="stage-file">dispatcher worker (target)</span>
-          </div>
-          <div class="stage-desc">
-            独立 dispatcher worker 从 outbox claim 待处理消息，复用 ingest 已解析的 mention，并对
-            envelope 里仍未解析的 mention（bot 的 platform_id）补映射为 agent_id。接收消息的 adapter
-            已经退出路径；后续调度不依赖 observerChannelID。
-          </div>
-          <div class="stage-body">
-            <div class="data-card">
-              <div class="data-card-header">
-                <span class="data-card-label">Mention 解析链</span>
-                <span class="data-card-tag tag-go">Go</span>
-              </div>
-              <pre><span class="cm">// 0. dispatcher claim outbox</span>
-outbox := ClaimGroupOutbox(ctx, groupMessageID: "uuid-new")
-<span class="cm">// status: pending → running，失败可重试，重启可恢复</span>
+            <rect x="232" y="72" width="168" height="56" rx="6" fill="var(--paper)" />
+            <rect
+              x="232"
+              y="72"
+              width="168"
+              height="56"
+              rx="6"
+              fill="var(--ink-05)"
+              stroke="var(--muted)"
+              stroke-width="1"
+            />
+            <rect
+              x="240"
+              y="78"
+              width="26"
+              height="12"
+              rx="2"
+              fill="transparent"
+              stroke="var(--ink-30)"
+              stroke-width="0.8"
+            />
+            <text
+              x="253"
+              y="87"
+              fill="var(--muted)"
+              font-size="7"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.08em"
+            >
+              LOG
+            </text>
+            <text
+              x="316"
+              y="106"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              Canonical event log
+            </text>
+            <text
+              x="316"
+              y="120"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              ctx_group_message.seq
+            </text>
 
-<span class="cm">// 1. 从 event log / stored envelope 读取 mentions</span>
-mentions = [{PlatformID: "bot_777", AgentID: ""}]
+            <rect x="448" y="72" width="176" height="56" rx="6" fill="var(--paper)" />
+            <rect
+              x="448"
+              y="72"
+              width="176"
+              height="56"
+              rx="6"
+              fill="var(--ink-05)"
+              stroke="var(--muted)"
+              stroke-width="1"
+            />
+            <rect
+              x="456"
+              y="78"
+              width="34"
+              height="12"
+              rx="2"
+              fill="transparent"
+              stroke="var(--ink-30)"
+              stroke-width="0.8"
+            />
+            <text
+              x="473"
+              y="87"
+              fill="var(--muted)"
+              font-size="7"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.08em"
+            >
+              QUEUE
+            </text>
+            <text
+              x="536"
+              y="106"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              Outbox
+            </text>
+            <text
+              x="536"
+              y="120"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              one row per fan-out message
+            </text>
 
-<span class="cm">// 2. resolveMentionAgentsWithMembers 填充 AgentID</span>
-<span class="cm">//    bot_777 → channel_id "tg-bot-weather" → agent_id "weather-bot"</span>
-<span class="cm">//    检查 weather-bot 是否在 group 成员里 → 是</span>
-mentions = [{PlatformID: "bot_777", AgentID: <span class="ok">"weather-bot"</span>}]
+            <rect x="56" y="248" width="176" height="64" rx="6" fill="var(--paper)" />
+            <rect
+              x="56"
+              y="248"
+              width="176"
+              height="64"
+              rx="6"
+              fill="var(--card)"
+              stroke="var(--ink)"
+              stroke-width="1"
+            />
+            <rect
+              x="64"
+              y="254"
+              width="34"
+              height="12"
+              rx="2"
+              fill="transparent"
+              stroke="var(--ink-40)"
+              stroke-width="0.8"
+            />
+            <text
+              x="81"
+              y="263"
+              fill="var(--ink)"
+              font-size="7"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.08em"
+            >
+              CLAIM
+            </text>
+            <text
+              x="144"
+              y="284"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              Claim one live kind
+            </text>
+            <text
+              x="144"
+              y="300"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              wake coalesces · nudge waits
+            </text>
 
-<span class="cm">// Web UI 则直接解析 @AgentID → 匹配 member.AgentID</span></pre>
-            </div>
-          </div>
-        </div>
+            <rect x="280" y="248" width="176" height="64" rx="6" fill="var(--paper)" />
+            <rect
+              x="280"
+              y="248"
+              width="176"
+              height="64"
+              rx="6"
+              fill="var(--card)"
+              stroke="var(--ink)"
+              stroke-width="1"
+            />
+            <rect
+              x="288"
+              y="254"
+              width="34"
+              height="12"
+              rx="2"
+              fill="transparent"
+              stroke="var(--ink-40)"
+              stroke-width="0.8"
+            />
+            <text
+              x="305"
+              y="263"
+              fill="var(--ink)"
+              font-size="7"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.08em"
+            >
+              GATE
+            </text>
+            <text
+              x="368"
+              y="284"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              Deterministic triage
+            </text>
+            <text
+              x="368"
+              y="300"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              no model call
+            </text>
 
-        <!-- Stage 3: Arbiter -->
-        <div class="stage">
-          <div class="stage-dot cyan"></div>
-          <div class="stage-header">
-            <span class="stage-number">03</span>
-            <span class="stage-title">Arbiter 路由决策 + Dispatch Ledger</span>
-            <span class="stage-file">arbiter.go + ctx_group_dispatch (target)</span>
-          </div>
-          <div class="stage-desc">
-            Arbiter 是统一的路由闸门。目标态下 Web 和 Platform 都不绕过它：@mention
-            走规则直达（L0）， 无 mention 时若配置了<strong>语义群仲裁（L1）</strong>，则由 fast
-            模型判断该谁回复（定向 / 广播 / 静默），否则回退到旧的成员 fallback 规则。决策结果落到
-            dispatch ledger，记录哪个 agent 该通过哪个
-            <code>reply_channel_id</code> 发言、是否已经完成。
-          </div>
-          <div class="stage-body">
-            <div class="data-card">
-              <div class="data-card-header">
-                <span class="data-card-label">Arbiter.Decide 调用</span>
-                <span class="data-card-tag tag-arbiter">Arbiter</span>
-              </div>
-              <pre>policy := LoadGroupDispatchPolicy(groupID)  <span class="cm">// target: per-group config</span>
+            <rect x="504" y="248" width="176" height="64" rx="6" fill="var(--paper)" />
+            <rect
+              x="504"
+              y="248"
+              width="176"
+              height="64"
+              rx="6"
+              fill="var(--card)"
+              stroke="var(--ink)"
+              stroke-width="1"
+            />
+            <rect
+              x="512"
+              y="254"
+              width="34"
+              height="12"
+              rx="2"
+              fill="transparent"
+              stroke="var(--ink-40)"
+              stroke-width="0.8"
+            />
+            <text
+              x="529"
+              y="263"
+              fill="var(--ink)"
+              font-size="7"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.08em"
+            >
+              TURN
+            </text>
+            <text
+              x="592"
+              y="284"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              Agent turn, buffered
+            </text>
+            <text
+              x="592"
+              y="300"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              model · tools · PASS
+            </text>
 
- decision := arbiter.Decide(ctx,
-    groupID:        "grp_9f3a",
-    mentions:       [{AgentID: "weather-bot"}],
-    groupMembers:   ["weather-bot", "travel-bot"],
-    channelAgentID: "",  <span class="cm">← source_channel_id 不参与 responder 选择</span>
-    channel.DecideOptions{AllMembersFallback: policy.AllMembersFallback},
-)</pre>
-            </div>
+            <rect x="728" y="248" width="200" height="64" rx="6" fill="var(--paper)" />
+            <rect
+              x="728"
+              y="248"
+              width="200"
+              height="64"
+              rx="6"
+              fill="var(--accent-tint)"
+              stroke="var(--accent)"
+              stroke-width="1"
+            />
+            <rect
+              x="736"
+              y="254"
+              width="40"
+              height="12"
+              rx="2"
+              fill="transparent"
+              stroke="var(--accent-40)"
+              stroke-width="0.8"
+            />
+            <text
+              x="756"
+              y="263"
+              fill="var(--accent)"
+              font-size="7"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.08em"
+            >
+              COMMIT
+            </text>
+            <text
+              x="828"
+              y="284"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              Accept transaction
+            </text>
+            <text
+              x="828"
+              y="300"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              pending · memory · cursor
+            </text>
 
-            <div class="decision-tree">
-              <div class="decision-label">决策树 (三条路径)</div>
+            <rect x="448" y="440" width="200" height="56" rx="6" fill="var(--paper)" />
+            <rect
+              x="448"
+              y="440"
+              width="200"
+              height="56"
+              rx="6"
+              fill="var(--card)"
+              stroke="var(--ink)"
+              stroke-width="1"
+            />
+            <rect
+              x="456"
+              y="446"
+              width="30"
+              height="12"
+              rx="2"
+              fill="transparent"
+              stroke="var(--ink-40)"
+              stroke-width="0.8"
+            />
+            <text
+              x="471"
+              y="455"
+              fill="var(--ink)"
+              font-size="7"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.08em"
+            >
+              PUB
+            </text>
+            <text
+              x="548"
+              y="474"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              Publisher
+            </text>
+            <text
+              x="548"
+              y="488"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              publish → finalize
+            </text>
 
-              <div class="decision-branch">
-                <span class="decision-condition">有任意 @mention?</span>
-                <div class="decision-result">
-                  <strong style="color: var(--accent-green)">→ L0 规则路径</strong><br />
-                  已解析到 Stella 群成员的 mention 直达对应 agent(s)，跳过 debounce，并绕过
-                  <code>MaxRepliesPerTrigger</code>：一条消息 @ 多个成员时所有被 @ 的成员都会回复。
-                  无法解析的 platform mention 不会被当成无 mention
-                  语义请求；默认静默，避免回复本来发给别人的消息。<br />
-                  <span
-                    style="
-                      color: var(--accent-green);
-                      font-family: var(--font-mono);
-                      font-size: 11px;
-                    "
-                  >
-                    本例命中此路径 → responding = ["weather-bot"]
-                  </span>
-                </div>
-              </div>
+            <rect x="728" y="440" width="200" height="56" rx="6" fill="var(--paper)" />
+            <rect
+              x="728"
+              y="440"
+              width="200"
+              height="56"
+              rx="6"
+              fill="var(--ink-03)"
+              stroke="var(--ink-30)"
+              stroke-width="1"
+            />
+            <rect
+              x="736"
+              y="446"
+              width="30"
+              height="12"
+              rx="2"
+              fill="transparent"
+              stroke="var(--ink-30)"
+              stroke-width="0.8"
+            />
+            <text
+              x="751"
+              y="455"
+              fill="var(--soft)"
+              font-size="7"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.08em"
+            >
+              SSE
+            </text>
+            <text
+              x="828"
+              y="474"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              Group event stream
+            </text>
+            <text
+              x="828"
+              y="488"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              message · turn frames
+            </text>
 
-              <div class="decision-branch">
-                <span class="decision-condition">无 mention + 配置了语义仲裁 (L1)</span>
-                <div class="decision-result">
-                  → <code>semantic_group_arbiter.go</code>：fast 模型读取有界历史群上下文（只取
-                  <code>seq &lt; currentSeq</code>）+ 有界公开成员描述，返回
-                  <code>{should_reply, agents[]}</code>。定向 → 单个 agent；广播 → 多个（受自身
-                  <code>maxResponders</code> 上限）；闲聊/超时/解析失败 → 静默。<br />
-                  路由模型按归属选取：Web 群优先群主自己的 agent，否则 system-scope；Platform 群仅
-                  system-scope。所选 agent 用其 fast tier 分类，若未配置
-                  <code>model_fast</code> 则自动回退到该 agent
-                  的默认模型（不会因为没配快模型就静默）。私有 agent
-                  的凭据不会被用于共享路由决策；成员摘要（<code>system_prompt</code> 前 180
-                  字符）有意发给路由模型，用于正确路由。<br />
-                  分类调用有
-                  <strong>8s</strong> 预算（覆盖首 token + 一小段
-                  JSON）。失败均降级为静默，并按级别记日志：每条消息的 prompt / 原始响应 / 决策走
-                  <code>DEBUG</code>，「本该路由却被吞」的降级（无可用模型、provider
-                  报错、空响应、解析失败）走 <code>WARN</code>。
-                </div>
-              </div>
-
-              <div class="decision-branch">
-                <span class="decision-condition">无 mention + 未配置语义仲裁（回退）</span>
-                <div class="decision-result">
-                  → Web：单成员群直接让唯一成员回复；多成员群静默并写 WARN，提示配置语义仲裁。<br />
-                  → Platform <code>always</code>：所有成员响应（受 MaxReplies 上限）。<br />
-                  → Platform <code>mention</code>：不响应（静默跳过）。
-                </div>
-              </div>
-            </div>
-
-            <div class="data-card" style="margin-top: 12px">
-              <div class="data-card-header">
-                <span class="data-card-label">ArbiterConfig</span>
-                <span class="data-card-tag tag-arbiter">Config</span>
-              </div>
-              <pre>type ArbiterConfig struct {
-    MaxRepliesPerTrigger int            <span class="cm">// 0 → default 1; 每条消息最多触发几个 agent</span>
-    DebounceWindow       time.Duration  <span class="cm">// 0 → 不 debounce; 同群组非 mention 消息最小间隔</span>
-}
-
-<span class="cm">// 规则路径默认 MaxReplies=1，避免无 @ fallback 炸群</span>
-<span class="cm">// 语义广播使用自己的 maxResponders 上限；未配置语义仲裁时才走 AllMembersFallback</span></pre>
-            </div>
-
-            <div class="data-card" style="margin-top: 12px">
-              <div class="data-card-header">
-                <span class="data-card-label">决策结果</span>
-                <span class="data-card-tag tag-arbiter">Output</span>
-              </div>
-              <pre>ArbiterDecision {
-    RespondingAgents: [<span class="ok">"weather-bot"</span>],  <span class="cm">← @mention 直达</span>
-    Debounced:        false,
-}
-
-INSERT INTO ctx_group_dispatch (
-  id, group_message_id, agent_id, group_id,
-  reply_channel_id, status, attempt_count
-) VALUES (
-  'disp-uuid-1', 'uuid-new', 'weather-bot', 'grp_9f3a',
-  'tg-bot-weather', 'pending', 0
-);</pre>
-            </div>
-
-            <div class="data-card" style="margin-top: 12px">
-              <div class="data-card-header">
-                <span class="data-card-label">语义仲裁内部流水 — semantic_group_arbiter.go</span>
-                <span class="data-card-tag tag-arbiter">L1 详细</span>
-              </div>
-              <pre><span class="cm">// ① 选路由模型 resolveRoutingModel()：按归属挑一个 agent 的凭据来分类</span>
-<span class="cm">//    Web 群：群主自己的 agent → 任意 system-scope；Platform 群：仅 system-scope</span>
-<span class="cm">//    每个候选走 modelFor()，全失败则带原因 WARN「no eligible routing agent」</span>
-model := snap.ResolveModelTier(<span class="ok">ModelTierFast</span>)  <span class="cm">// model_fast 未配置 → 回退默认模型</span>
-
-<span class="cm">// ② 组装有界 payload（成员描述 + 最近 N 条上下文 + 最新消息，各有 rune 上限）</span>
-<span class="cm">// ③ complete()：8s 预算，流式跑完拼成一条 assistant message</span>
-msg := complete(ctx, model, {System: semanticGroupPrompt, User: payload})
-
-<span class="cm">// ④ 解析 + 净化 sanitizeSemanticDecision()：</span>
-<span class="cm">//    只保留当前群成员的 agent_id（丢弃模型臆造的 ID）、去重、按 maxResponders 截断</span>
-<span class="cm">//    should_reply=true 但净化后为空 → 收敛为静默</span>
-decision := sanitize(parse(FlattenText(msg.Content)))</pre>
-            </div>
-
-            <div class="data-card" style="margin-top: 12px">
-              <div class="data-card-header">
-                <span class="data-card-label">路由 system prompt（节选）</span>
-                <span class="data-card-tag tag-arbiter">Prompt</span>
-              </div>
-              <pre>
-You route a group chat message to the agents that should respond.
-No agent was @mentioned, so decide from meaning alone.
-Return JSON only: {"should_reply":bool,"agents":["agent_id",...],"reason":"short"}.
-
-Rules:
-- should_reply=false for chatter / small talk → empty agents.
-- targeted question → single best-matching agent by description.
-- explicit broadcast ("大家都说说") → include relevant agents.
-- agents MUST be ids from the list. Never invent IDs.
-- Prefer silence when unsure. A wrong reply is worse than no reply.</pre>
-            </div>
-
-            <div class="data-card" style="margin-top: 12px">
-              <div class="data-card-header">
-                <span class="data-card-label">失败模式与日志级别</span>
-                <span class="data-card-tag tag-arbiter">可观测性</span>
-              </div>
-              <pre><span class="cm">// 每条无 mention 消息的流水（高频，排查时才开） → DEBUG</span>
-semantic routing request    {model, provider, payload}
-semantic routing response   {stop_reason, provider_error, tokens, raw}
-semantic routing decision   {should_reply, agents, reason}
-
-<span class="cm">// 「本该路由却降级成静默」——消息可能被吞，运维要看 → WARN</span>
-no eligible routing agent     <span class="cm">// 无可用模型 / 凭据（配置问题）</span>
-semantic completion failed    <span class="cm">// provider / 传输报错</span>
-semantic response empty       <span class="cm">// 超时或 provider error 砍断流（带 stop_reason）</span>
-semantic response parse failed<span class="cm">// 模型返回非法 JSON</span></pre>
-            </div>
-
-            <div class="data-card" style="margin-top: 12px">
-              <div class="data-card-header">
-                <span class="data-card-label">目标 schema — ctx_group_dispatch</span>
-                <span class="data-card-tag tag-sql">SQLite</span>
-              </div>
-              <pre>CREATE TABLE ctx_group_dispatch (
-    id               TEXT NOT NULL PRIMARY KEY,
-    group_message_id TEXT NOT NULL REFERENCES ctx_group_message(id) ON DELETE CASCADE,
-    agent_id         TEXT NOT NULL REFERENCES agent(id) ON DELETE CASCADE,
-    group_id         TEXT NOT NULL REFERENCES ctx_group_state(id) ON DELETE CASCADE,
-    reply_channel_id TEXT NOT NULL REFERENCES channel(id) ON DELETE CASCADE,
-    status           TEXT NOT NULL DEFAULT 'pending',  <span class="cm">-- Go-enforced: pending/running/completed/failed</span>
-    attempt_count    INTEGER NOT NULL DEFAULT 0,
-    lease_until      TEXT,
-    next_attempt_at  TEXT,
-    result_message_id TEXT NOT NULL DEFAULT '',
-    last_error       TEXT NOT NULL DEFAULT '',
-    created_at       TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE (group_message_id, agent_id)
-);
-
-CREATE INDEX idx_ctx_group_dispatch_group_id
-    ON ctx_group_dispatch (group_id);
-CREATE INDEX idx_ctx_group_dispatch_reply_channel
-    ON ctx_group_dispatch (reply_channel_id);
-CREATE INDEX idx_ctx_group_dispatch_pending
-    ON ctx_group_dispatch (status, next_attempt_at, created_at)
-    WHERE status = 'pending';
-CREATE INDEX idx_ctx_group_dispatch_running_lease
-    ON ctx_group_dispatch (status, lease_until)
-    WHERE status = 'running';</pre>
-            </div>
-          </div>
-        </div>
-
-        <!-- Stage 4: Context Injection -->
-        <div class="stage">
-          <div class="stage-dot blue"></div>
-          <div class="stage-header">
-            <span class="stage-number">04</span>
-            <span class="stage-title">Publisher by reply_channel_id</span>
-            <span class="stage-file">publisher registry (target)</span>
-          </div>
-          <div class="stage-desc">
-            dispatcher claim pending dispatch row 后，只按 selected agent 的
-            <code>reply_channel_id</code> 查 publisher。publisher 是平台出口：它负责 resolve session
-            → Chat → 用自己的平台 API 发消息 → writeback。观察到消息的 bot 不是回复身份。
-          </div>
-          <div class="stage-body">
-            <div class="data-card">
-              <div class="data-card-header">
-                <span class="data-card-label">Context + Dispatch</span>
-                <span class="data-card-tag tag-go">Go</span>
-              </div>
-              <pre><span class="cm">// claim dispatch row，保证同一 agent 对同一 message 只执行一次</span>
-dispatch := ClaimGroupDispatch(ctx,
-    groupMessageID: "uuid-new",
-    agentID:        "weather-bot",
-)
-
-publisher := publisherRegistry.Get(dispatch.ReplyChannelID)
-if publisher == nil {
-    RetryOrFailDispatch(dispatch, "publisher unavailable")
-    return
-}
-
-<span class="cm">// 注入 triggerSeq — 从 group_message.seq 读取，所有 agent 共享同一个</span>
-ctx = memory.WithGroupSeq(ctx, groupMessage.Seq)
-
-publisher.PublishGroupResponse(ctx, GroupDispatchRequest{
-    GroupID:        dispatch.GroupID,
-    AgentID:        dispatch.AgentID,
-    ReplyChannelID: dispatch.ReplyChannelID,
-    TriggerSeq:     groupMessage.Seq,
-})
-
-<span class="cm">// publisher 内部：session resolve → Chat() → platform API → 同事务 AppendToGroup + result_message_id</span>
-<span class="cm">// 成功：status=completed；失败：attempt_count++，按线性 backoff 设置 next_attempt_at；超过上限 status=failed</span></pre>
-            </div>
-
-            <div class="design-callout" style="margin-top: 8px">
-              <div class="design-callout-label">Retry / lease policy</div>
-              <p>
-                Claim 使用
-                <code
-                  >status='pending' AND (next_attempt_at IS NULL OR next_attempt_at &lt;= now)</code
-                >，以及
-                <code>status='running' AND lease_until &lt; now</code> 的过期租约回收。执行期初始
-                lease 默认 5 分钟，长工具调用可 heartbeat 延长。失败时递增
-                <code>attempt_count</code> 并线性退避（1s × attempts，封顶 60s）；超过
-                <code>MaxDispatchAttempts</code> 后标记 <code>failed</code>，写
-                log/metric，平台侧不冒名 fallback。 同一 agent 在同一 group 内按 seq
-                顺序领取：若存在更小 seq 的 pending 或未过期 running
-                dispatch，后序行不会被查出，避免乱序执行。
-              </p>
-            </div>
-
-            <div class="design-callout" style="margin-top: 8px">
-              <div class="design-callout-label">At-least-once 收敛</div>
-              <p>
-                发布语义是 at-least-once。正常收尾顺序是：Publish 成功 → 同一个 DB 事务内
-                <code>AppendToGroup</code> writeback + 写 <code>result_message_id</code> marker →
-                标记 completed。重试若看到 marker 已存在，会跳过 Chat 和 Publish，直接 completed。
-                因此 writeback 已提交后的崩溃不会重发；唯一残余重复窗口是平台 Publish 已成功、但
-                writeback+marker 事务尚未提交前进程崩溃。Web 的主交付通道是 event log，客户端断线后
-                服务端继续跑完；NoopGroupPublisher 用于重启后的恢复，不向客户端推 SSE。
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Stage 5: Per-Agent Execution -->
-        <div class="stage">
-          <div class="stage-dot amber"></div>
-          <div class="stage-header">
-            <span class="stage-number">05</span>
-            <span class="stage-title">Agent 执行 — weather-bot</span>
-            <span class="stage-file">group_assembler.go</span>
-          </div>
-          <div class="stage-desc">
-            每个被选中的 agent 执行同一条路径：session resolve → hybrid memory assembly → LLM →
-            stream。
-          </div>
-          <div class="stage-body">
-            <!-- 5a: Session -->
-            <div class="sub-stage">
-              <div class="sub-label">5a. Session 解析</div>
-              <div class="data-card">
-                <div class="data-card-header">
-                  <span class="data-card-label">ResolveChannelSession</span>
-                  <span class="data-card-tag tag-go">Go</span>
-                </div>
-                <pre>sessionKey := "weather-bot:group:grp_9f3a"
-info, _ := svc.ResolveChannelSession(ctx, sessionKey, "grp_9f3a", "weather-bot", channel)
-info.GroupID = "grp_9f3a"
-
-<span class="cm">// info.ID      = "sess_wb_001"  (每 agent×group 一个 session)</span>
-<span class="cm">// info.AgentID  = "weather-bot"</span>
-<span class="cm">// info.GroupID  = "grp_9f3a"</span></pre>
-              </div>
-
-              <!-- 5b: Memory Assembly -->
-              <div class="sub-label" style="margin-top: 16px">
-                5b. Hybrid Memory Assembly — assembleGroup()
-              </div>
-              <div class="stage-desc">
-                合并两路数据：agent 自身的 ctx_message (LCM) + event log 中其他参与者的 between-turn
-                消息。
-              </div>
-
-              <div class="data-card" style="margin-top: 8px">
-                <div class="data-card-header">
-                  <span class="data-card-label">① 标准 LCM: Agent 自身历史</span>
-                  <span class="data-card-tag tag-db">ctx_message</span>
-                </div>
-                <table class="db-table">
-                  <tr>
-                    <th>conv_id</th>
-                    <th>role</th>
-                    <th>content</th>
-                  </tr>
-                  <tr class="dim">
-                    <td>sess_wb_001</td>
-                    <td>user</td>
-                    <td>推荐一下周末去哪玩</td>
-                  </tr>
-                  <tr class="dim">
-                    <td>sess_wb_001</td>
-                    <td>assistant</td>
-                    <td>周末天气晴朗适合出行…</td>
-                  </tr>
-                </table>
-              </div>
-
-              <div class="data-card" style="margin-top: 8px">
-                <div class="data-card-header">
-                  <span class="data-card-label">② 水位线 (ctx_group_ingest_cursor)</span>
-                  <span class="data-card-tag tag-db">Cursor</span>
-                </div>
-                <table class="db-table">
-                  <tr>
-                    <th>group_id</th>
-                    <th>pipeline</th>
-                    <th>last_seq</th>
-                  </tr>
-                  <tr class="highlight">
-                    <td>grp_9f3a</td>
-                    <td>lcm:weather-bot</td>
-                    <td>39</td>
-                  </tr>
-                </table>
-                <pre
-                  style="border-top: 1px solid var(--border)"
-                >triggerSeq = <span class="num">42</span>    <span class="cm">← context 注入的当前消息 seq</span>
-watermark  = <span class="num">39</span>    <span class="cm">← 上轮 triggerSeq</span>
-<span class="cm">// 42 > 39+1 → 有 between-turn 消息需要注入</span></pre>
-              </div>
-
-              <div class="data-card" style="margin-top: 8px">
-                <div class="data-card-header">
-                  <span class="data-card-label">③ Between-turn 查询</span>
-                  <span class="data-card-tag tag-sql">SQL</span>
-                </div>
-                <pre><span class="cm">-- ListGroupMessagesBetweenSeqs</span>
-<span class="cm">-- 两端都是开区间：不含 watermark(39) 也不含 triggerSeq(42)</span>
-SELECT * FROM ctx_group_message
-WHERE group_id = 'grp_9f3a'
-  AND seq &gt; <span class="num">39</span>     <span class="cm">← afterSeq (watermark)</span>
-  AND seq &lt; <span class="num">42</span>     <span class="cm">← beforeSeq (triggerSeq)</span>
-ORDER BY seq ASC;
-
-<span class="cm">-- 结果:</span>
-<span class="cm">-- seq=40  agent  weather-bot  "周末天气晴朗…"  ← selfAgentID, 跳过</span>
-<span class="cm">-- seq=41  agent  travel-bot   "推荐故宫和颐和园…" ← 注入!</span>
-
-injected = [
-  {Role: "user", Content: "[seq:41 agent:travel-bot]: 推荐故宫和颐和园…"},
-]</pre>
-              </div>
-
-              <div class="data-card" style="margin-top: 8px">
-                <div class="data-card-header">
-                  <span class="data-card-label">③.5 持久化 injected → ctx_message</span>
-                  <span class="data-card-tag tag-go">Append</span>
-                </div>
-                <pre><span class="cm">// group_assembler.go — step 3.5</span>
-p.Append(ctx, session, injected...)
-<span class="cm">// 写入 ctx_message，后续轮次 agentHistory 会包含这些消息</span>
-<span class="cm">// 跨 agent 上下文不会丢失</span></pre>
-              </div>
-
-              <div class="info-callout" style="margin-top: 8px">
-                <div class="info-callout-label">Compaction 说明</div>
-                <p>
-                  injected 消息进入 ctx_message 后 <strong>不会</strong>
-                  自动触发 LCM compaction —
-                  <code>NeedsCompaction</code> 对 <code>GroupID != ""</code> 的 session 直接返回
-                  false。 只有手动 <code>/compact</code>
-                  命令才会压缩 group session 的 ctx_message。
-                </p>
-              </div>
-
-              <div class="data-card" style="margin-top: 8px">
-                <div class="data-card-header">
-                  <span class="data-card-label">④ 成功后提交水位线</span>
-                  <span class="data-card-tag tag-db">Cursor</span>
-                </div>
-                <pre><span class="cm">// assembleGroup() 不推进 cursor</span>
-<span class="cm">// Chat() 成功、stream 正常结束后：</span>
-CommitGroupCursor(grp_9f3a, "lcm:weather-bot", triggerSeq=<span class="num">42</span>)
-UpsertIngestCursor(grp_9f3a, "lcm:weather-bot", last_seq=<span class="num">42</span>)</pre>
-              </div>
-
-              <div class="info-callout" style="margin-top: 8px">
-                <div class="info-callout-label">CR-006 resolved — prepare / commit</div>
-                <p>
-                  <code>assembleGroup()</code> 负责准备上下文并持久化 injected
-                  消息以保持时间线顺序， 但不移动 <code>ctx_group_ingest_cursor</code>。只有
-                  <code>Chat()</code> 成功完成后， runtime 才调用
-                  <code>CommitGroupCursor()</code> 推进 cursor；runner error、timeout、 客户端断开或
-                  assemble 失败都不会提交。
-                </p>
-              </div>
-
-              <div class="data-card" style="margin-top: 8px">
-                <div class="data-card-header">
-                  <span class="data-card-label">⑤ 最终 history 合并</span>
-                  <span class="data-card-tag tag-go">[]ai.Message</span>
-                </div>
-                <pre>merged = agentHistory + injected
-
-history = [
-  <span class="cm">// agentHistory (ctx_message)</span>
-  {Role: "user",      Content: "推荐一下周末去哪玩"},
-  {Role: "assistant", Content: "周末天气晴朗适合出行…"},
-  <span class="cm">// injected (event log between-turn)</span>
-  {Role: "user",      Content: <span class="ok">"[seq:41 agent:travel-bot]: 推荐故宫和颐和园…"</span>},
-]
-<span class="cm">// 当前用户消息不在 history 里 — 通过 ChatRequest.Message 独立传入</span></pre>
-              </div>
-
-              <!-- 5c: LLM -->
-              <div class="sub-label" style="margin-top: 16px">5c. LLM 调用</div>
-              <div class="data-card">
-                <div class="data-card-header">
-                  <span class="data-card-label">发送给 LLM 的完整上下文</span>
-                  <span class="data-card-tag tag-go">runtime/chat.go:172</span>
-                </div>
-                <pre>r.Chat(ctx, history, userMsg)
-
-<span class="cm">// system 由 PoolManager before-run 路径逐轮重建 (prompt/prompt.go)</span>
-[system]    你是天气助手，帮助用户查询天气信息…
-            <span class="ok">## Group Memory</span>      <span class="cm">← 群共享抽屉 (group_id)</span>
-            <span class="ok">## Current Speaker</span>   <span class="cm">← 发言人元信息，不自动注入私有 profile</span>
-              Name: Alice         <span class="cm">  仅寻址/语气目标，非运行时身份 (D9)</span>
-              Linked Stella user: yes  <span class="cm">profile 仅在显式工具调用时可读</span>
-
-<span class="cm">// LLM 看到的消息序列:</span>
-[user]      推荐一下周末去哪玩            <span class="cm">← agentHistory</span>
-[assistant] 周末天气晴朗适合出行…         <span class="cm">← agentHistory</span>
-[user]      <span class="ok">[agent:travel-bot]: 推荐故宫和颐和园…</span>  <span class="cm">← injected</span>
-[user]      @weather-bot 北京今天天气怎么样？   <span class="cm">← userMsg + ChatRequest.CurrentSpeaker</span></pre>
-              </div>
-
-              <!-- 5d: Writeback -->
-              <div class="sub-label" style="margin-top: 16px">5d. 响应写回</div>
-              <div class="two-col">
-                <div class="data-card">
-                  <div class="data-card-header">
-                    <span class="data-card-label">写回 → ctx_message</span>
-                    <span class="data-card-tag tag-db">Agent 历史</span>
-                  </div>
-                  <pre><span class="cm">// runtime/chat.go:168</span>
-mem.Append(ctx, session, userMsg)
-<span class="cm">// 流式完成后</span>
-mem.Append(ctx, session, assistantMsg)</pre>
-                </div>
-                <div class="data-card">
-                  <div class="data-card-header">
-                    <span class="data-card-label">写回 → event log</span>
-                    <span class="data-card-tag tag-db">全局可见</span>
-                  </div>
-                  <pre><span class="cm">// 流结束后 AppendToGroup</span>
-eventLog.AppendToGroup(ctx,
-  "grp_9f3a", GroupMessage{
-    ActorType: "agent",
-    ActorID:   "weather-bot",
-    Content:   "北京今天晴…",
-  })
-<span class="cm">// → seq = 43</span></pre>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Stage 6: Same-round isolation -->
-        <div class="stage">
-          <div class="stage-dot red"></div>
-          <div class="stage-header">
-            <span class="stage-number">06</span>
-            <span class="stage-title">同轮隔离机制</span>
-          </div>
-          <div class="stage-desc">
-            当 MaxReplies > 1 时多个 agent 在同一轮响应。它们共享同一个 triggerSeq， 所以 agent
-            之间看不到彼此本轮的回复。这是 by design 的隔离。
-          </div>
-          <div class="stage-body">
-            <div class="data-card">
-              <div class="data-card-header">
-                <span class="data-card-label">假设 travel-bot 也被选中</span>
-                <span class="data-card-tag tag-go">对比</span>
-              </div>
-              <pre><span class="cm">// travel-bot 的 assembleGroup:</span>
-watermark  = <span class="num">39</span>    <span class="cm">← 自己的 cursor</span>
-triggerSeq = <span class="num">42</span>    <span class="cm">← 共享同一个 baseCtx</span>
-
-<span class="cm">// between-turn: seq > 39 AND seq < 42</span>
-<span class="cm">// seq=40: weather-bot "周末天气晴朗…" → 注入</span>
-<span class="cm">// seq=41: travel-bot  "推荐故宫…"     → self, 跳过</span>
-
-<span class="cm">// ⚠️ weather-bot 本轮回复 (seq=43) 不在范围内</span>
-<span class="cm">// 因为 43 > triggerSeq=42 → 被 beforeSeq 排除</span>
-<span class="cm">// 这保证同轮 agent 之间不会互相影响</span></pre>
-            </div>
-
-            <div class="design-callout">
-              <div class="design-callout-label">设计意图</div>
-              <p>
-                同轮隔离避免了串行执行时后面的 agent 被前面 agent 的回复干扰。 所有 agent
-                看到的上下文是确定性的（由 triggerSeq 锚定）， 不依赖执行顺序。本轮 agent 回复会在
-                <strong>下一轮</strong> 通过 between-turn 注入。
-              </p>
-            </div>
-          </div>
+            <line x1="32" y1="532" x2="968" y2="532" stroke="var(--rule)" stroke-width="0.8" />
+            <text
+              x="32"
+              y="552"
+              fill="var(--muted)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              letter-spacing="0.14em"
+            >
+              LEGEND
+            </text>
+            <rect
+              x="112"
+              y="544"
+              width="14"
+              height="10"
+              rx="2"
+              fill="var(--muted-10)"
+              stroke="var(--soft)"
+              stroke-width="1"
+            />
+            <text x="134" y="553" fill="var(--muted)" font-size="9" font-family="var(--font-sans)">
+              Ingress
+            </text>
+            <rect
+              x="220"
+              y="544"
+              width="14"
+              height="10"
+              rx="2"
+              fill="var(--ink-05)"
+              stroke="var(--muted)"
+              stroke-width="1"
+            />
+            <text x="242" y="553" fill="var(--muted)" font-size="9" font-family="var(--font-sans)">
+              Durable state
+            </text>
+            <rect
+              x="360"
+              y="544"
+              width="14"
+              height="10"
+              rx="2"
+              fill="var(--card)"
+              stroke="var(--ink)"
+              stroke-width="1"
+            />
+            <text x="382" y="553" fill="var(--muted)" font-size="9" font-family="var(--font-sans)">
+              Worker step
+            </text>
+            <rect
+              x="488"
+              y="544"
+              width="14"
+              height="10"
+              rx="2"
+              fill="var(--accent-tint)"
+              stroke="var(--accent)"
+              stroke-width="1"
+            />
+            <text x="510" y="553" fill="var(--muted)" font-size="9" font-family="var(--font-sans)">
+              Locked transaction
+            </text>
+            <line
+              x1="656"
+              y1="549"
+              x2="676"
+              y2="549"
+              stroke="var(--link)"
+              stroke-width="1.2"
+              marker-end="url(#f1-arrow-link)"
+            />
+            <text x="684" y="553" fill="var(--muted)" font-size="9" font-family="var(--font-sans)">
+              HTTP ingress
+            </text>
+            <line
+              x1="800"
+              y1="549"
+              x2="820"
+              y2="549"
+              stroke="var(--accent)"
+              stroke-width="1.2"
+              stroke-dasharray="4,3"
+              marker-end="url(#f1-arrow-accent)"
+            />
+            <text x="828" y="553" fill="var(--muted)" font-size="9" font-family="var(--font-sans)">
+              Agent-to-agent loop
+            </text>
+          </svg>
         </div>
 
-        <!-- Stage 7: SSE (Web only) -->
-        <div class="stage">
-          <div class="stage-dot purple"></div>
-          <div class="stage-header">
-            <span class="stage-number">07</span>
-            <span class="stage-title">SSE 流 (Web UI)</span>
-            <span class="stage-file">groups.go (target Web publisher)</span>
-          </div>
-          <div class="stage-desc">
-            Web 采用同步 publisher：HTTP handler 写 event log/outbox 后，立即在当前 goroutine
-            执行同一套 dispatch service，并把 stream 写回当前 POST/SSE 连接；background worker
-            只负责 platform dispatch 和 crash recovery。每个 agent = 一个 step，agent 身份通过
-            <code>data-agent-info</code> data part 传递。
-          </div>
-          <div class="stage-body">
-            <div class="data-card">
-              <div class="data-card-header">
-                <span class="data-card-label">完整 SSE 事件序列</span>
-                <span class="data-card-tag tag-sse">SSE</span>
-              </div>
-              <pre>Content-Type: text/event-stream
-X-Vercel-AI-UI-Message-Stream: v1
-
-data: {"type":"start","messageId":"msg_uuid_001"}
-
-  <span style="color:var(--accent-blue)">┌─ weather-bot ──────────────────────────────────┐</span>
-  data: {"type":"start-step"}
-  data: {"type":"data-agent-info","id":"uuid_ai_1",
-         "data":{"agentId":"weather-bot","agentName":"天气助手"}}
-  data: {"type":"reasoning-start","id":"r_001"}
-  data: {"type":"reasoning-delta","id":"r_001","delta":"需要查天气…"}
-  data: {"type":"reasoning-end","id":"r_001"}
-  data: {"type":"tool-input-start","toolCallId":"tc_001","toolName":"get_weather"}
-  data: {"type":"tool-input-available","toolCallId":"tc_001",
-         "input":{"city":"北京","date":"today"}}
-  data: {"type":"tool-output-available","toolCallId":"tc_001",
-         "output":{"temp":"32°C","condition":"晴"}}
-  data: {"type":"text-start","id":"t_001"}
-  data: {"type":"text-delta","id":"t_001","delta":"北京今天晴，气温32°C…"}
-  data: {"type":"text-end","id":"t_001"}
-  data: {"type":"finish-step"}
-  <span style="color:var(--accent-blue)">└────────────────────────────────────────────────┘</span>
-
-data: {"type":"finish"}
-data: [DONE]</pre>
+        <div class="cards">
+          <div class="card">
+            <div class="card-header">
+              <span class="dot accent"></span>
+              <h3>Why the accept transaction exists</h3>
             </div>
+            <ul>
+              <li>
+                The only place that sees the group under a lock, <em>after</em> the agent finished
+                thinking
+              </li>
+              <li>Commits the pending reply, memory turn and cursor together</li>
+              <li>Publisher success finalizes delivery and creates the peer outbox</li>
+              <li>A stale reply stays <code>held</code> unless failed delivery compensates it</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <span class="dot ink"></span>
+              <h3>Why newest-wake-wins</h3>
+            </div>
+            <ul>
+              <li>A busy group coalesces stale snapshots instead of queueing a turn per message</li>
+              <li>Five messages in a row cost one turn that sees all five</li>
+              <li>Claim-coalesced <code>status=superseded</code> wakes never advance the cursor</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <span class="dot muted"></span>
+              <h3>Web is a platform</h3>
+            </div>
+            <ul>
+              <li><code>POST /messages</code> only ingests and wakes workers</li>
+              <li>Its publisher is a noop, not a bypass</li>
+              <li>
+                <code>pending</code> → publisher finalizes <code>delivered</code> /
+                <code>failed</code>
+              </li>
+              <li>Failed replies remain author-only and never enter a peer transcript</li>
+            </ul>
           </div>
         </div>
+      </section>
 
-        <!-- Stage 8: Frontend Rendering -->
-        <div class="stage">
-          <div class="stage-dot blue"></div>
-          <div class="stage-header">
-            <span class="stage-number">08</span>
-            <span class="stage-title">前端渲染 (Web UI)</span>
-            <span class="stage-file">GroupTranscript.tsx</span>
-          </div>
-          <div class="stage-desc">
-            <code>useChat</code> 产出一条 assistant UIMessage， GroupTranscript 按
-            <code>step-start</code> 切分，每个 step 渲染为独立 agent 气泡。
-          </div>
-          <div class="stage-body">
-            <div class="data-card">
-              <div class="data-card-header">
-                <span class="data-card-label">UIMessage → TranscriptMessage[]</span>
-                <span class="data-card-tag tag-ts">TypeScript</span>
-              </div>
-              <pre><span class="cm">// useChat 产出的 UIMessage.parts:</span>
-[step-start, data-agent-info{weather-bot}, reasoning, tool-…, text, …]
+      <section>
+        <p class="eyebrow">Figure 02 · Sequence</p>
+        <h2>Two agents, one message</h2>
+        <p class="subtitle">
+          Both agents are woken by the same message and both think against the same snapshot. The
+          accept transaction serializes them: the first commits a pending reply, the second is held
+          against the stale snapshot, and a later, separate pending wake must cover that sequence.
+        </p>
 
-<span class="cm">// splitBySteps() → extractAgentInfo() → TranscriptMessage</span>
-{
-  id: "msg_uuid_001-step-0",
-  role: "assistant",
-  agentId: <span class="ok">"weather-bot"</span>,    <span class="cm">← 从 data-agent-info 提取</span>
-  agentName: "天气助手",
-  blocks: [{type:"thinking",…}, {type:"tool_call",…}, {type:"text",…}],
-}
+        <div class="diagram">
+          <svg
+            class="figure"
+            viewBox="0 0 1000 720"
+            xmlns="http://www.w3.org/2000/svg"
+            role="img"
+            aria-labelledby="gcrace-title gcrace-desc"
+          >
+            <title id="gcrace-title">Accept transaction resolving two concurrent agent turns</title>
+            <desc id="gcrace-desc">
+              A human message wakes two agents at the same sequence. Agent A submits its reply first
+              and the accept transaction commits it as a new canonical message. Agent B submits a
+              reply built on the now-stale snapshot; the transaction returns a held verdict carrying
+              the sequence that caused the hold. That old row normally remains held; terminal
+              delivery failure of Agent A's post is the compensation exception. A later, separate
+              pending successor wake covering that sequence lets Agent B run again and be accepted.
+            </desc>
+            <defs>
+              <marker
+                id="f2-arrow"
+                markerWidth="8"
+                markerHeight="6"
+                refX="7"
+                refY="3"
+                orient="auto"
+              >
+                <polygon points="0 0, 8 3, 0 6" fill="var(--muted)" />
+              </marker>
+              <marker
+                id="f2-arrow-accent"
+                markerWidth="8"
+                markerHeight="6"
+                refX="7"
+                refY="3"
+                orient="auto"
+              >
+                <polygon points="0 0, 8 3, 0 6" fill="var(--accent)" />
+              </marker>
+              <marker
+                id="f2-arrow-link"
+                markerWidth="8"
+                markerHeight="6"
+                refX="7"
+                refY="3"
+                orient="auto"
+              >
+                <polygon points="0 0, 8 3, 0 6" fill="var(--link)" />
+              </marker>
+              <marker
+                id="f2-arrow-open"
+                markerWidth="8"
+                markerHeight="6"
+                refX="7"
+                refY="3"
+                orient="auto"
+              >
+                <polyline
+                  points="0 0, 8 3, 0 6"
+                  fill="none"
+                  stroke="var(--muted)"
+                  stroke-width="1.2"
+                />
+              </marker>
+            </defs>
 
-<span class="cm">// ChatTranscript 对每条 TranscriptMessage:</span>
-<span class="cm">// - sameRoleAsPrev 同时比较 role 和 agentId</span>
-<span class="cm">// - 不同 agentId → 显示独立 name header + avatar</span>
-<span class="cm">// - getAgentColor(agentId) → 7 种渐变色，hash 分配</span></pre>
-            </div>
-          </div>
+            <rect width="100%" height="100%" fill="var(--paper)" />
+
+            <rect
+              x="468"
+              y="424"
+              width="408"
+              height="152"
+              rx="4"
+              fill="var(--ink-02)"
+              stroke="var(--ink-22)"
+              stroke-width="1"
+            />
+            <rect
+              x="468"
+              y="424"
+              width="44"
+              height="16"
+              rx="2"
+              fill="var(--paper)"
+              stroke="var(--ink-22)"
+              stroke-width="1"
+            />
+            <text
+              x="490"
+              y="436"
+              fill="var(--muted)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.12em"
+            >
+              OPT
+            </text>
+            <text
+              x="488"
+              y="456"
+              fill="var(--muted)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              letter-spacing="0.04em"
+            >
+              [holds so far &lt; hold_limit]
+            </text>
+
+            <line
+              x1="96"
+              y1="80"
+              x2="96"
+              y2="608"
+              stroke="var(--ink-20)"
+              stroke-width="1"
+              stroke-dasharray="3,3"
+            />
+            <line
+              x1="288"
+              y1="80"
+              x2="288"
+              y2="608"
+              stroke="var(--ink-20)"
+              stroke-width="1"
+              stroke-dasharray="3,3"
+            />
+            <line
+              x1="480"
+              y1="80"
+              x2="480"
+              y2="608"
+              stroke="var(--ink-20)"
+              stroke-width="1"
+              stroke-dasharray="3,3"
+            />
+            <line
+              x1="672"
+              y1="80"
+              x2="672"
+              y2="608"
+              stroke="var(--ink-20)"
+              stroke-width="1"
+              stroke-dasharray="3,3"
+            />
+            <line
+              x1="864"
+              y1="80"
+              x2="864"
+              y2="608"
+              stroke="var(--ink-20)"
+              stroke-width="1"
+              stroke-dasharray="3,3"
+            />
+
+            <rect x="20" y="32" width="152" height="48" rx="6" fill="var(--paper)" />
+            <rect
+              x="20"
+              y="32"
+              width="152"
+              height="48"
+              rx="6"
+              fill="var(--muted-10)"
+              stroke="var(--soft)"
+              stroke-width="1"
+            />
+            <text
+              x="96"
+              y="54"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              Human
+            </text>
+            <text
+              x="96"
+              y="69"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              web · platform
+            </text>
+
+            <rect x="212" y="32" width="152" height="48" rx="6" fill="var(--paper)" />
+            <rect
+              x="212"
+              y="32"
+              width="152"
+              height="48"
+              rx="6"
+              fill="var(--card)"
+              stroke="var(--ink)"
+              stroke-width="1"
+            />
+            <text
+              x="288"
+              y="54"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              Agent A
+            </text>
+            <text
+              x="288"
+              y="69"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              worker
+            </text>
+
+            <rect x="404" y="32" width="152" height="48" rx="6" fill="var(--paper)" />
+            <rect
+              x="404"
+              y="32"
+              width="152"
+              height="48"
+              rx="6"
+              fill="var(--card)"
+              stroke="var(--ink)"
+              stroke-width="1"
+            />
+            <text
+              x="480"
+              y="54"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              Agent B
+            </text>
+            <text
+              x="480"
+              y="69"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              worker
+            </text>
+
+            <rect x="596" y="32" width="152" height="48" rx="6" fill="var(--paper)" />
+            <rect
+              x="596"
+              y="32"
+              width="152"
+              height="48"
+              rx="6"
+              fill="var(--accent-tint)"
+              stroke="var(--accent)"
+              stroke-width="1"
+            />
+            <text
+              x="672"
+              y="54"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              Accept tx
+            </text>
+            <text
+              x="672"
+              y="69"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              FOR UPDATE
+            </text>
+
+            <rect x="788" y="32" width="152" height="48" rx="6" fill="var(--paper)" />
+            <rect
+              x="788"
+              y="32"
+              width="152"
+              height="48"
+              rx="6"
+              fill="var(--ink-05)"
+              stroke="var(--muted)"
+              stroke-width="1"
+            />
+            <text
+              x="864"
+              y="54"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              Group log
+            </text>
+            <text
+              x="864"
+              y="69"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              ctx_group_message
+            </text>
+
+            <rect
+              x="284"
+              y="160"
+              width="8"
+              height="144"
+              fill="var(--ink-06)"
+              stroke="var(--muted)"
+              stroke-width="0.8"
+            />
+            <rect
+              x="476"
+              y="192"
+              width="8"
+              height="192"
+              fill="var(--ink-06)"
+              stroke="var(--muted)"
+              stroke-width="0.8"
+            />
+            <rect
+              x="476"
+              y="480"
+              width="8"
+              height="68"
+              fill="var(--ink-06)"
+              stroke="var(--muted)"
+              stroke-width="0.8"
+            />
+            <rect
+              x="668"
+              y="240"
+              width="8"
+              height="64"
+              fill="var(--ink-06)"
+              stroke="var(--muted)"
+              stroke-width="0.8"
+            />
+            <rect
+              x="668"
+              y="352"
+              width="8"
+              height="32"
+              fill="var(--ink-06)"
+              stroke="var(--muted)"
+              stroke-width="0.8"
+            />
+            <rect
+              x="668"
+              y="516"
+              width="8"
+              height="32"
+              fill="var(--ink-06)"
+              stroke="var(--muted)"
+              stroke-width="0.8"
+            />
+
+            <line
+              x1="96"
+              y1="120"
+              x2="856"
+              y2="120"
+              stroke="var(--link)"
+              stroke-width="1.2"
+              marker-end="url(#f2-arrow-link)"
+            />
+            <rect x="416" y="100" width="120" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="476"
+              y="109"
+              fill="var(--link)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.06em"
+            >
+              APPEND seq:41
+            </text>
+
+            <line
+              x1="864"
+              y1="160"
+              x2="296"
+              y2="160"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              stroke-dasharray="4,3"
+              marker-end="url(#f2-arrow-open)"
+            />
+            <rect x="520" y="140" width="120" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="580"
+              y="149"
+              fill="var(--soft)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.06em"
+            >
+              WAKE @ seq:41
+            </text>
+
+            <line
+              x1="864"
+              y1="192"
+              x2="488"
+              y2="192"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              stroke-dasharray="4,3"
+              marker-end="url(#f2-arrow-open)"
+            />
+            <rect x="616" y="172" width="120" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="676"
+              y="181"
+              fill="var(--soft)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.06em"
+            >
+              WAKE @ seq:41
+            </text>
+
+            <line
+              x1="292"
+              y1="240"
+              x2="664"
+              y2="240"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              marker-end="url(#f2-arrow)"
+            />
+            <rect x="318" y="220" width="124" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="380"
+              y="229"
+              fill="var(--soft)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.06em"
+            >
+              SUBMIT @ seq:41
+            </text>
+
+            <line
+              x1="676"
+              y1="272"
+              x2="856"
+              y2="272"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              marker-end="url(#f2-arrow)"
+            />
+            <rect x="716" y="252" width="104" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="768"
+              y="261"
+              fill="var(--soft)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.06em"
+            >
+              COMMIT seq:42
+            </text>
+
+            <line
+              x1="668"
+              y1="304"
+              x2="296"
+              y2="304"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              stroke-dasharray="4,3"
+              marker-end="url(#f2-arrow)"
+            />
+            <rect x="324" y="284" width="112" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="380"
+              y="293"
+              fill="var(--soft)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.06em"
+            >
+              ACCEPTED
+            </text>
+
+            <line
+              x1="484"
+              y1="352"
+              x2="664"
+              y2="352"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              marker-end="url(#f2-arrow)"
+            />
+            <rect x="524" y="332" width="124" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="586"
+              y="341"
+              fill="var(--soft)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.06em"
+            >
+              SUBMIT @ seq:41
+            </text>
+
+            <line
+              x1="668"
+              y1="384"
+              x2="488"
+              y2="384"
+              stroke="var(--accent)"
+              stroke-width="1.2"
+              stroke-dasharray="4,3"
+              marker-end="url(#f2-arrow-accent)"
+            />
+            <rect x="500" y="364" width="156" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="578"
+              y="373"
+              fill="var(--accent)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.06em"
+            >
+              HELD · up_to_seq=42
+            </text>
+
+            <line
+              x1="864"
+              y1="480"
+              x2="488"
+              y2="480"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              stroke-dasharray="4,3"
+              marker-end="url(#f2-arrow-open)"
+            />
+            <rect x="580" y="460" width="192" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="676"
+              y="469"
+              fill="var(--soft)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.06em"
+            >
+              DELIVERED OUTBOX → WAKE @ 42
+            </text>
+
+            <line
+              x1="484"
+              y1="516"
+              x2="664"
+              y2="516"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              marker-end="url(#f2-arrow)"
+            />
+            <rect x="524" y="496" width="124" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="586"
+              y="505"
+              fill="var(--soft)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.06em"
+            >
+              SUBMIT @ seq:42
+            </text>
+
+            <line
+              x1="668"
+              y1="548"
+              x2="488"
+              y2="548"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              stroke-dasharray="4,3"
+              marker-end="url(#f2-arrow)"
+            />
+            <rect x="524" y="528" width="112" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="580"
+              y="537"
+              fill="var(--soft)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.06em"
+            >
+              ACCEPTED
+            </text>
+
+            <line x1="32" y1="636" x2="968" y2="636" stroke="var(--rule)" stroke-width="0.8" />
+            <text
+              x="32"
+              y="656"
+              fill="var(--muted)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              letter-spacing="0.14em"
+            >
+              LEGEND
+            </text>
+            <line
+              x1="112"
+              y1="652"
+              x2="132"
+              y2="652"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              marker-end="url(#f2-arrow)"
+            />
+            <text x="140" y="656" fill="var(--muted)" font-size="9" font-family="var(--font-sans)">
+              Call
+            </text>
+            <line
+              x1="212"
+              y1="652"
+              x2="232"
+              y2="652"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              stroke-dasharray="4,3"
+              marker-end="url(#f2-arrow)"
+            />
+            <text x="240" y="656" fill="var(--muted)" font-size="9" font-family="var(--font-sans)">
+              Return
+            </text>
+            <line
+              x1="324"
+              y1="652"
+              x2="344"
+              y2="652"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              stroke-dasharray="4,3"
+              marker-end="url(#f2-arrow-open)"
+            />
+            <text x="352" y="656" fill="var(--muted)" font-size="9" font-family="var(--font-sans)">
+              Async wake
+            </text>
+            <line
+              x1="472"
+              y1="652"
+              x2="492"
+              y2="652"
+              stroke="var(--accent)"
+              stroke-width="1.2"
+              stroke-dasharray="4,3"
+              marker-end="url(#f2-arrow-accent)"
+            />
+            <text x="500" y="656" fill="var(--muted)" font-size="9" font-family="var(--font-sans)">
+              Held verdict
+            </text>
+            <rect
+              x="644"
+              y="646"
+              width="8"
+              height="12"
+              fill="var(--ink-06)"
+              stroke="var(--muted)"
+              stroke-width="0.8"
+            />
+            <text x="660" y="656" fill="var(--muted)" font-size="9" font-family="var(--font-sans)">
+              Agent is thinking
+            </text>
+          </svg>
         </div>
 
-        <!-- Stage 9: Final DB State -->
-        <div class="stage">
-          <div class="stage-dot green"></div>
-          <div class="stage-header">
-            <span class="stage-number">09</span>
-            <span class="stage-title">完成后的数据库状态</span>
-          </div>
-          <div class="stage-desc">
-            一轮对话后数据分三层：event log（不可变全局）、ctx_message（per-agent
-            可压缩）、cursor（水位线）。
-          </div>
-          <div class="stage-body">
-            <div class="data-card">
-              <div class="data-card-header">
-                <span class="data-card-label">ctx_group_message (Event Log)</span>
-                <span class="data-card-tag tag-db">不可变 · per-group seq</span>
-              </div>
-              <table class="db-table">
-                <tr>
-                  <th>id (UUID)</th>
-                  <th>seq</th>
-                  <th>actor</th>
-                  <th>actor_id</th>
-                  <th>content</th>
-                </tr>
-                <tr class="dim">
-                  <td>a1b2…</td>
-                  <td>39</td>
-                  <td>human</td>
-                  <td>uid_88</td>
-                  <td>推荐一下周末去哪玩</td>
-                </tr>
-                <tr class="dim">
-                  <td>c3d4…</td>
-                  <td>40</td>
-                  <td>agent</td>
-                  <td>weather-bot</td>
-                  <td>周末天气晴朗适合出行…</td>
-                </tr>
-                <tr class="dim">
-                  <td>e5f6…</td>
-                  <td>41</td>
-                  <td>agent</td>
-                  <td>travel-bot</td>
-                  <td>推荐故宫和颐和园…</td>
-                </tr>
-                <tr class="new">
-                  <td>uuid-new</td>
-                  <td>42</td>
-                  <td>human</td>
-                  <td>uid_88</td>
-                  <td>@weather-bot 北京今天天气怎么样？</td>
-                </tr>
-                <tr class="new">
-                  <td>uuid-resp</td>
-                  <td>43</td>
-                  <td>agent</td>
-                  <td>weather-bot</td>
-                  <td>北京今天晴，气温32°C…</td>
-                </tr>
-              </table>
+        <div class="cards">
+          <div class="card">
+            <div class="card-header">
+              <span class="dot accent"></span>
+              <h3>Shown implies seen</h3>
             </div>
-
-            <div class="two-col" style="margin-top: 12px">
-              <div class="data-card">
-                <div class="data-card-header">
-                  <span class="data-card-label">ctx_message (weather-bot)</span>
-                  <span class="data-card-tag tag-db">可手动 /compact</span>
-                </div>
-                <table class="db-table">
-                  <tr>
-                    <th>role</th>
-                    <th>content</th>
-                    <th>来源</th>
-                  </tr>
-                  <tr class="dim">
-                    <td>user</td>
-                    <td>推荐一下周末去哪玩</td>
-                    <td style="color: var(--muted)">userMsg</td>
-                  </tr>
-                  <tr class="dim">
-                    <td>assistant</td>
-                    <td>周末天气晴朗…</td>
-                    <td style="color: var(--muted)">LLM</td>
-                  </tr>
-                  <tr class="new">
-                    <td>user</td>
-                    <td style="color: var(--accent-green)">[agent:travel-bot]: 推荐故宫…</td>
-                    <td style="color: var(--accent-green)">injected 持久化</td>
-                  </tr>
-                  <tr class="new">
-                    <td>user</td>
-                    <td>@weather-bot 北京今天天气怎么样？</td>
-                    <td style="color: var(--muted)">userMsg</td>
-                  </tr>
-                  <tr class="new">
-                    <td>assistant</td>
-                    <td>北京今天晴，气温32°C…</td>
-                    <td style="color: var(--muted)">LLM</td>
-                  </tr>
-                </table>
-              </div>
-              <div class="data-card">
-                <div class="data-card-header">
-                  <span class="data-card-label">ctx_group_ingest_cursor</span>
-                  <span class="data-card-tag tag-db">水位线</span>
-                </div>
-                <table class="db-table">
-                  <tr>
-                    <th>pipeline</th>
-                    <th>last_seq</th>
-                    <th>变化</th>
-                  </tr>
-                  <tr class="new">
-                    <td>lcm:weather-bot</td>
-                    <td>42</td>
-                    <td style="color: var(--muted)">39 → 42</td>
-                  </tr>
-                  <tr>
-                    <td>lcm:travel-bot</td>
-                    <td>39</td>
-                    <td style="color: var(--muted)">未变（本轮未被选中）</td>
-                  </tr>
-                </table>
-                <pre
-                  style="
-                    border-top: 1px solid var(--border);
-                    font-size: 11px;
-                    padding: 8px 12px;
-                    color: var(--muted);
-                  "
-                >
-下一轮 weather-bot: seq > 42 AND seq < nextTriggerSeq
-下一轮 travel-bot:  seq > 39 AND seq < nextTriggerSeq
-  → travel-bot 会补上 seq=40-43 的所有消息</pre>
-              </div>
+            <ul>
+              <li>A hold records <code>held_up_to_seq</code></li>
+              <li>The claim gate refuses any wake older than it</li>
+              <li>So B's next snapshot always covers what caused the hold</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <span class="dot ink"></span>
+              <h3>Holds are bounded</h3>
             </div>
+            <ul>
+              <li>
+                <code>hold_limit</code> (default 3), counted within
+                <code>ctx_group_chain_root</code>
+              </li>
+              <li>Past it, a stale reply continues to dedup and cap checks</li>
+              <li>It is then normally accepted, so a slow agent is not starved forever</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <span class="dot muted"></span>
+              <h3>A rejected ending is not a forgotten turn</h3>
+            </div>
+            <ul>
+              <li>A post-turn hold commits the history and tool work actually read</li>
+              <li>Its cursor advances through the trigger sequence</li>
+              <li>An outstanding covered hold admits one successor before peer/lap triage</li>
+              <li>Only the rejected trailing reply is discarded</li>
+            </ul>
           </div>
         </div>
-      </div>
+      </section>
 
-      <!-- ───────── Path Comparison ───────── -->
-      <div class="section-divider">
-        <h2>Web vs Platform 差异点</h2>
-        <p>统一管线下，两个入口的差异仅限于接入层和输出层，核心逻辑完全共享。</p>
-      </div>
+      <section>
+        <p class="eyebrow">Figure 03 · State machine</p>
+        <h2>The life of a wake row</h2>
+        <p class="subtitle">
+          One durable dispatch row per eligible wake: normal fan-out skips the agent author and a
+          nudge has one target. A database claim is <code>running</code>, but only a turn that
+          passes triage emits a <code>running</code> frame, so a UI badge always resolves.
+        </p>
 
-      <div class="data-card">
-        <table class="db-table" style="font-size: 12px">
-          <tr>
-            <th style="width: 20%">阶段</th>
-            <th style="width: 40%">Web UI</th>
-            <th style="width: 40%">Platform Adapter</th>
-          </tr>
-          <tr>
-            <td style="color: var(--accent-blue)">入口</td>
-            <td>POST /api/groups/:id/messages</td>
-            <td>Telegram webhook / QQ gateway / …</td>
-          </tr>
-          <tr>
-            <td style="color: var(--accent-blue)">Triple</td>
-            <td>("web", groupId, "")</td>
-            <td>("telegram", "-10012345", "42")</td>
-          </tr>
-          <tr>
-            <td style="color: var(--accent-green)">Dedup</td>
-            <td colspan="2" style="text-align: center">AppendGroupMessage — 共享 Tier 1/2 dedup</td>
-          </tr>
-          <tr>
-            <td style="color: var(--accent-green)">@Mention 解析</td>
-            <td>解析 @AgentID 文本匹配</td>
-            <td>平台 mention → botRegistry → agentID</td>
-          </tr>
-          <tr>
-            <td style="color: var(--accent-cyan)">Outbox</td>
-            <td colspan="2" style="text-align: center">
-              首次插入 human message 时同事务创建 pending outbox；duplicate 不创建
-            </td>
-          </tr>
-          <tr>
-            <td style="color: var(--accent-cyan)">Arbiter + Ledger</td>
-            <td colspan="2" style="text-align: center">
-              dispatcher worker claim outbox → Arbiter.Decide() → ctx_group_dispatch
-              pending/running/completed
-            </td>
-          </tr>
-          <tr>
-            <td style="color: var(--accent-amber)">Memory assembly</td>
-            <td colspan="2" style="text-align: center">
-              共享 assembleGroup() — hybrid LCM + event log
-            </td>
-          </tr>
-          <tr>
-            <td style="color: var(--accent-purple)">Publisher</td>
-            <td>web publisher：绑定当前 POST/SSE 连接；连接断开后仍以 event log writeback 为准</td>
-            <td>channel publisher：按 reply_channel_id 使用对应 bot/token 调平台 API</td>
-          </tr>
-          <tr>
-            <td style="color: var(--accent-purple)">Writeback</td>
-            <td colspan="2" style="text-align: center">
-              共享 AppendToGroup — agent 回复写回 event log
-            </td>
-          </tr>
-          <tr>
-            <td style="color: var(--accent-purple)">渲染</td>
-            <td>useChat → GroupTranscript → per-agent bubbles</td>
-            <td>平台原生消息（单条文本/Markdown）</td>
-          </tr>
-          <tr>
-            <td style="color: var(--accent-red)">Cross-adapter</td>
-            <td>不适用（同一 Web 连接）</td>
-            <td>
-              dispatch 不绑定 observer adapter；publisher registry 按 selected agent 的
-              reply_channel_id 发布；fallback 到 channel default 被禁止
-            </td>
-          </tr>
-        </table>
+        <div class="diagram">
+          <svg
+            class="figure"
+            viewBox="0 0 900 720"
+            xmlns="http://www.w3.org/2000/svg"
+            role="img"
+            aria-labelledby="gcstate-title gcstate-desc"
+          >
+            <title id="gcstate-title">Lifecycle of a group dispatch wake row</title>
+            <desc id="gcstate-desc">
+              A wake row starts pending. A newer wake supersedes it without a turn frame. A worker
+              claims a row into database-running; a gate decline emits only terminal silent, while a
+              turn that acts emits running. From there it completes after publisher finalization,
+              retries as pending, ends silent or failed, or becomes held when stale. A held row
+              normally stays held; a separate later pending successor wake covers the sequence that
+              caused the hold. Terminal failure of the accepted post is the compensation exception:
+              it requeues the rows causally held by that post.
+            </desc>
+            <defs>
+              <marker
+                id="f3-arrow"
+                markerWidth="8"
+                markerHeight="6"
+                refX="7"
+                refY="3"
+                orient="auto"
+              >
+                <polygon points="0 0, 8 3, 0 6" fill="var(--muted)" />
+              </marker>
+              <marker
+                id="f3-arrow-accent"
+                markerWidth="8"
+                markerHeight="6"
+                refX="7"
+                refY="3"
+                orient="auto"
+              >
+                <polygon points="0 0, 8 3, 0 6" fill="var(--accent)" />
+              </marker>
+            </defs>
+
+            <rect width="100%" height="100%" fill="var(--paper)" />
+
+            <circle cx="176" cy="48" r="6" fill="var(--ink)" />
+            <line
+              x1="176"
+              y1="54"
+              x2="176"
+              y2="88"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              marker-end="url(#f3-arrow)"
+            />
+
+            <line
+              x1="176"
+              y1="144"
+              x2="176"
+              y2="248"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              marker-end="url(#f3-arrow)"
+            />
+            <rect x="188" y="184" width="132" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="192"
+              y="193"
+              fill="var(--soft)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              letter-spacing="0.06em"
+            >
+              CLAIM · GATE SAYS ACT
+            </text>
+
+            <path
+              d="M 96,288 H 48 Q 40,288 40,280 V 160 Q 40,152 48,152 H 88 Q 96,152 96,144"
+              fill="none"
+              stroke="var(--accent)"
+              stroke-width="1.2"
+              stroke-dasharray="5,4"
+              marker-end="url(#f3-arrow-accent)"
+            />
+            <rect x="0" y="204" width="184" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="92"
+              y="213"
+              fill="var(--accent)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.04em"
+            >
+              RETRYABLE · BELOW PATH CEILING
+            </text>
+
+            <line
+              x1="256"
+              y1="116"
+              x2="432"
+              y2="116"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              marker-end="url(#f3-arrow)"
+            />
+            <rect x="292" y="96" width="104" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="344"
+              y="105"
+              fill="var(--soft)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.06em"
+            >
+              NEWER WAKE
+            </text>
+
+            <path
+              d="M 256,260 H 320 Q 328,260 328,252 V 224 Q 328,216 336,216 H 752 Q 760,216 760,224 V 248"
+              fill="none"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              marker-end="url(#f3-arrow)"
+            />
+            <rect x="452" y="196" width="184" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="544"
+              y="205"
+              fill="var(--soft)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.06em"
+            >
+              DB RUNNING · GATE DECLINES
+            </text>
+
+            <line
+              x1="256"
+              y1="276"
+              x2="672"
+              y2="276"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              marker-end="url(#f3-arrow)"
+            />
+            <rect x="404" y="256" width="124" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="466"
+              y="265"
+              fill="var(--soft)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.06em"
+            >
+              MODEL REPLIES PASS
+            </text>
+
+            <path
+              d="M 160,304 V 428 Q 160,436 168,436 H 432"
+              fill="none"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              marker-end="url(#f3-arrow)"
+            />
+            <rect x="248" y="416" width="120" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="308"
+              y="425"
+              fill="var(--soft)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.06em"
+            >
+              SNAPSHOT STALE
+            </text>
+
+            <line
+              x1="128"
+              y1="304"
+              x2="128"
+              y2="568"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              marker-end="url(#f3-arrow)"
+            />
+            <rect x="4" y="440" width="144" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="144"
+              y="449"
+              fill="var(--soft)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="end"
+              letter-spacing="0.06em"
+            >
+              ACCEPT · PUBLISH · FINALIZE
+            </text>
+
+            <path
+              d="M 224,304 V 532 Q 224,540 232,540 H 752 Q 760,540 760,548 V 568"
+              fill="none"
+              stroke="var(--muted)"
+              stroke-width="1.2"
+              marker-end="url(#f3-arrow)"
+            />
+            <rect x="576" y="520" width="128" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="640"
+              y="529"
+              fill="var(--soft)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.06em"
+            >
+              ATTEMPT CEILING
+            </text>
+
+            <circle cx="416" cy="520" r="5" fill="var(--accent)" />
+            <line
+              x1="416"
+              y1="525"
+              x2="416"
+              y2="568"
+              stroke="var(--accent)"
+              stroke-width="1.2"
+              stroke-dasharray="5,4"
+              marker-end="url(#f3-arrow-accent)"
+            />
+            <rect x="348" y="530" width="136" height="12" rx="2" fill="var(--paper)" />
+            <text
+              x="416"
+              y="539"
+              fill="var(--accent)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+              letter-spacing="0.06em"
+            >
+              NEW PEER OUTBOX
+            </text>
+
+            <path
+              d="M 336,596 H 288 Q 280,596 280,588 V 320 Q 280,312 272,312 H 264 Q 256,312 256,304"
+              fill="none"
+              stroke="var(--accent)"
+              stroke-width="1.2"
+              stroke-dasharray="5,4"
+              marker-end="url(#f3-arrow-accent)"
+            />
+
+            <rect x="96" y="88" width="160" height="56" rx="8" fill="var(--paper)" />
+            <rect
+              x="96"
+              y="88"
+              width="160"
+              height="56"
+              rx="8"
+              fill="var(--card)"
+              stroke="var(--ink)"
+              stroke-width="1"
+            />
+            <text
+              x="176"
+              y="112"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              pending
+            </text>
+            <text
+              x="176"
+              y="128"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              no turn frame
+            </text>
+
+            <rect x="440" y="88" width="160" height="56" rx="8" fill="var(--paper)" />
+            <rect
+              x="440"
+              y="88"
+              width="160"
+              height="56"
+              rx="8"
+              fill="var(--ink-05)"
+              stroke="var(--muted)"
+              stroke-width="1"
+            />
+            <text
+              x="520"
+              y="112"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              status=superseded
+            </text>
+            <text
+              x="520"
+              y="128"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              claim-coalesced · no frame
+            </text>
+
+            <rect x="96" y="248" width="160" height="56" rx="8" fill="var(--paper)" />
+            <rect
+              x="96"
+              y="248"
+              width="160"
+              height="56"
+              rx="8"
+              fill="var(--card)"
+              stroke="var(--ink)"
+              stroke-width="1"
+            />
+            <text
+              x="176"
+              y="272"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              running
+            </text>
+            <text
+              x="176"
+              y="288"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              turn: running only when act
+            </text>
+
+            <rect x="680" y="248" width="160" height="56" rx="8" fill="var(--paper)" />
+            <rect
+              x="680"
+              y="248"
+              width="160"
+              height="56"
+              rx="8"
+              fill="var(--ink-05)"
+              stroke="var(--muted)"
+              stroke-width="1"
+            />
+            <text
+              x="760"
+              y="272"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              silent
+            </text>
+            <text
+              x="760"
+              y="288"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              turn: terminal silent
+            </text>
+
+            <rect x="440" y="408" width="160" height="56" rx="8" fill="var(--paper)" />
+            <rect
+              x="440"
+              y="408"
+              width="160"
+              height="56"
+              rx="8"
+              fill="var(--accent-tint)"
+              stroke="var(--accent)"
+              stroke-width="1"
+            />
+            <text
+              x="520"
+              y="432"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              held
+            </text>
+            <text
+              x="520"
+              y="448"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              old row kept · turn: held
+            </text>
+
+            <rect x="336" y="568" width="160" height="56" rx="8" fill="var(--paper)" />
+            <rect
+              x="336"
+              y="568"
+              width="160"
+              height="56"
+              rx="8"
+              fill="var(--card)"
+              stroke="var(--accent)"
+              stroke-width="1"
+            />
+            <text
+              x="416"
+              y="592"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              pending successor
+            </text>
+            <text
+              x="416"
+              y="608"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              new row · no turn frame
+            </text>
+
+            <rect x="48" y="568" width="176" height="56" rx="8" fill="var(--paper)" />
+            <rect
+              x="48"
+              y="568"
+              width="176"
+              height="56"
+              rx="8"
+              fill="var(--ink-05)"
+              stroke="var(--muted)"
+              stroke-width="1"
+            />
+            <text
+              x="136"
+              y="592"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              completed
+            </text>
+            <text
+              x="136"
+              y="608"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              turn: done
+            </text>
+
+            <rect x="680" y="568" width="160" height="56" rx="8" fill="var(--paper)" />
+            <rect
+              x="680"
+              y="568"
+              width="160"
+              height="56"
+              rx="8"
+              fill="var(--ink-05)"
+              stroke="var(--muted)"
+              stroke-width="1"
+            />
+            <text
+              x="760"
+              y="592"
+              fill="var(--ink)"
+              font-size="12"
+              font-weight="600"
+              font-family="var(--font-sans)"
+              text-anchor="middle"
+            >
+              failed
+            </text>
+            <text
+              x="760"
+              y="608"
+              fill="var(--muted)"
+              font-size="9"
+              font-family="var(--font-mono)"
+              text-anchor="middle"
+            >
+              accepted delivery frees peers
+            </text>
+
+            <line x1="32" y1="656" x2="868" y2="656" stroke="var(--rule)" stroke-width="0.8" />
+            <text
+              x="32"
+              y="676"
+              fill="var(--muted)"
+              font-size="8"
+              font-family="var(--font-mono)"
+              letter-spacing="0.14em"
+            >
+              LEGEND
+            </text>
+            <rect
+              x="112"
+              y="668"
+              width="14"
+              height="10"
+              rx="2"
+              fill="var(--card)"
+              stroke="var(--ink)"
+              stroke-width="1"
+            />
+            <text x="134" y="677" fill="var(--muted)" font-size="9" font-family="var(--font-sans)">
+              Live
+            </text>
+            <rect
+              x="196"
+              y="668"
+              width="14"
+              height="10"
+              rx="2"
+              fill="var(--ink-05)"
+              stroke="var(--muted)"
+              stroke-width="1"
+            />
+            <text x="218" y="677" fill="var(--muted)" font-size="9" font-family="var(--font-sans)">
+              Terminal
+            </text>
+            <rect
+              x="308"
+              y="668"
+              width="14"
+              height="10"
+              rx="2"
+              fill="var(--accent-tint)"
+              stroke="var(--accent)"
+              stroke-width="1"
+            />
+            <text x="330" y="677" fill="var(--muted)" font-size="9" font-family="var(--font-sans)">
+              Retryable same-row transition
+            </text>
+            <line
+              x1="620"
+              y1="673"
+              x2="640"
+              y2="673"
+              stroke="var(--accent)"
+              stroke-width="1.2"
+              stroke-dasharray="4,3"
+              marker-end="url(#f3-arrow-accent)"
+            />
+            <text x="648" y="677" fill="var(--muted)" font-size="9" font-family="var(--font-sans)">
+              Recovery loop
+            </text>
+          </svg>
+        </div>
+
+        <div class="cards">
+          <div class="card">
+            <div class="card-header">
+              <span class="dot link"></span>
+              <h3>One running, one terminal</h3>
+            </div>
+            <ul>
+              <li>Every emitted <code>running</code> frame owes exactly one terminal frame</li>
+              <li>A gate decline is database-running but emits only <code>silent</code></li>
+              <li>Claim-coalesced <code>status=superseded</code> rows emit no turn frame</li>
+              <li>
+                A terminal <code>silent</code> may separately use reason <code>superseded</code>
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <span class="dot ink"></span>
+              <h3>What advances the cursor</h3>
+            </div>
+            <ul>
+              <li>
+                <code>completed</code>, <code>silent(model_pass)</code> and post-turn backstops do
+              </li>
+              <li>
+                They commit history and tool work through the trigger, not the rejected ending
+              </li>
+              <li>
+                Claim-coalesced supersedes and pre-turn gate declines leave the cursor unchanged
+              </li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <span class="dot muted"></span>
+              <h3>Crash recovery</h3>
+            </div>
+            <ul>
+              <li>Ordinary work has 3 attempts, the initial try plus 2 retries</li>
+              <li>Ambiguous accepted delivery can recover up to 10 attempts</li>
+              <li>Only terminal accepted-delivery failure frees held peers</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <div class="footer">
+        <span>Stella · internal/channel · docs/development/group-chat-multi-agent</span>
+        <span>2026-08-20</span>
       </div>
     </div>
   </body>

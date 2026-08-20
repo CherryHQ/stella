@@ -59,21 +59,29 @@ func (p *Provider) assembleGroup(ctx context.Context, session memory.Session, bu
 		if err != nil {
 			return nil, fmt.Errorf("list between-turn messages: %w", err)
 		}
-		injected = groupRowsToMessages(rows, agentID)
+		injected = groupRowsToMessages(ctx, eventlog.NewParticipantNamer(p.q), groupID, rows, agentID)
 	}
 
-	// 3.5. Persist injected messages before the live user turn so future
-	// assemblies preserve event-log chronology. Cursor movement is intentionally
-	// deferred to CommitGroupCursor after the chat succeeds.
-	injected, err = p.filterAlreadyPersistedInjected(ctx, convID, injected)
-	if err != nil {
-		return nil, fmt.Errorf("filter persisted injected messages: %w", err)
-	}
-	if len(injected) > 0 {
-		if err := p.Append(ctx, session, injected...); err != nil {
-			return nil, fmt.Errorf("persist between-turn messages: %w", err)
-		}
+	// A deferred group turn commits peer rows in the dispatcher's accept tx. The
+	// sink receives the full set before trim because rows outside this prompt
+	// window still have to be committed before its cursor can advance.
+	if sink, ok := memory.GroupTurnSinkFrom(ctx); ok {
+		sink.SetInjected(injected)
 		agentHistory = append(agentHistory, injected...)
+	} else {
+		// Legacy callers retain the original inline append path exactly. In
+		// particular, this defensive content dedup only belongs here: deferred
+		// turns must preserve legitimately repeated peer messages.
+		injected, err = p.filterAlreadyPersistedInjected(ctx, convID, injected)
+		if err != nil {
+			return nil, fmt.Errorf("filter persisted injected messages: %w", err)
+		}
+		if len(injected) > 0 {
+			if err := p.Append(ctx, session, injected...); err != nil {
+				return nil, fmt.Errorf("persist between-turn messages: %w", err)
+			}
+			agentHistory = append(agentHistory, injected...)
+		}
 	}
 
 	// 4. Apply the post-injection budget by whole user turns. The ordinary
@@ -105,16 +113,20 @@ func trimOldestCompleteTurns(messages []ai.Message, budget int) []ai.Message {
 }
 
 func (p *Provider) CommitGroupCursor(ctx context.Context, session memory.Session, triggerSeq int64) error {
+	return p.commitGroupCursorWithQueries(ctx, p.q, session, triggerSeq)
+}
+
+func (p *Provider) commitGroupCursorWithQueries(ctx context.Context, q *sqlc.Queries, session memory.Session, triggerSeq int64) error {
 	if session.GroupID == "" || session.AgentID == "" || triggerSeq <= 0 {
 		return nil
 	}
 	groupID := session.GroupID
 	pipeline := groupCursorPipeline(session.AgentID)
-	watermark := p.getGroupCursor(ctx, groupID, pipeline)
+	watermark := p.getGroupCursorWithQueries(ctx, q, groupID, pipeline)
 	if triggerSeq <= watermark {
 		return nil
 	}
-	if err := p.q.UpsertIngestCursor(ctx, sqlc.UpsertIngestCursorParams{
+	if err := q.UpsertIngestCursor(ctx, sqlc.UpsertIngestCursorParams{
 		GroupID:  groupID,
 		Pipeline: pipeline,
 		LastSeq:  triggerSeq,
@@ -181,7 +193,11 @@ func flattenUserContent(msg ai.UserMessage) string {
 
 // getGroupCursor returns the last-seen event log seq for this agent, or 0.
 func (p *Provider) getGroupCursor(ctx context.Context, groupID, pipeline string) int64 {
-	cursor, err := p.q.GetIngestCursor(ctx, sqlc.GetIngestCursorParams{
+	return p.getGroupCursorWithQueries(ctx, p.q, groupID, pipeline)
+}
+
+func (p *Provider) getGroupCursorWithQueries(ctx context.Context, q *sqlc.Queries, groupID, pipeline string) int64 {
+	cursor, err := q.GetIngestCursor(ctx, sqlc.GetIngestCursorParams{
 		GroupID:  groupID,
 		Pipeline: pipeline,
 	})
@@ -198,7 +214,11 @@ func (p *Provider) getGroupCursor(ctx context.Context, groupID, pipeline string)
 // groupRowsToMessages converts event log rows to ai.Messages.
 // The current agent's own messages are skipped (they're already in ctx_message).
 // All other messages become UserMessages with actor attribution.
-func groupRowsToMessages(rows []sqlc.ListGroupMessagesBetweenSeqsRow, selfAgentID string) []ai.Message {
+//
+// Attribution is a name, never an id: the model has to recognise the same
+// participant here, in its roster, and in the trigger of its own turn, and it
+// has to be able to address them back. The namer is the one place that decides.
+func groupRowsToMessages(ctx context.Context, namer *eventlog.ParticipantNamer, groupID string, rows []sqlc.ListGroupMessagesBetweenSeqsRow, selfAgentID string) []ai.Message {
 	msgs := make([]ai.Message, 0, len(rows))
 	for _, row := range rows {
 		if row.Content == "" {
@@ -207,11 +227,7 @@ func groupRowsToMessages(rows []sqlc.ListGroupMessagesBetweenSeqsRow, selfAgentI
 		if row.ActorType == string(eventlog.ActorAgent) && row.ActorID == selfAgentID {
 			continue
 		}
-		label := row.ActorID
-		if row.ActorType == string(eventlog.ActorAgent) {
-			label = "agent:" + row.ActorID
-		}
-		msgs = append(msgs, ai.UserMessage{Content: fmt.Sprintf("[seq:%d %s]: %s", row.Seq, label, row.Content)})
+		msgs = append(msgs, ai.UserMessage{Content: namer.Line(ctx, groupID, row.Seq, row.ActorType, row.ActorID, row.Content)})
 	}
 	return msgs
 }
