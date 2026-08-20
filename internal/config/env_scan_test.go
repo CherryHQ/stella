@@ -31,6 +31,11 @@ var envReadAllowlist = map[string]map[string]bool{
 	// value to the (now pure) ParseLogLevel.
 	"cmd/stellad/main.go": {"LOG_LEVEL": true},
 
+	// The evaluation driver is a standalone operator tool. Its provisioning
+	// credential deliberately never accepts a flag, preventing shell history
+	// and process listings from exposing it.
+	"cmd/stella-eval-agent/main.go": {"STELLA_EVAL_ADMIN_TOKEN": true},
+
 	// Bootstrap: STELLA_HOME locates the home dir (and thus $STELLA_HOME/.env),
 	// so it must be readable before and independent of ServerConfig.
 	"internal/config/paths.go": {"STELLA_HOME": true},
