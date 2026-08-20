@@ -68,11 +68,15 @@ func NewGroupClaimPromptLoader(db *pgxpool.Pool) func(context.Context, string, s
 func NewGroupRosterPromptLoader(db *pgxpool.Pool) func(context.Context, string, string) prompt.GroupRoster {
 	q := sqlc.New(db)
 	return func(ctx context.Context, groupID, agentID string) prompt.GroupRoster {
+		roster := prompt.GroupRoster{}
+		if state, err := q.GetGroupStateByID(ctx, groupID); err == nil {
+			roster.Platform = state.Platform
+			roster.GroupName = state.GroupName
+		}
 		members, err := q.ListGroupMembers(ctx, groupID)
 		if err != nil {
-			return prompt.GroupRoster{}
+			return roster
 		}
-		roster := prompt.GroupRoster{}
 		for _, member := range members {
 			name := groupClaimOwnerName(ctx, q, member.AgentID)
 			if member.AgentID == agentID {

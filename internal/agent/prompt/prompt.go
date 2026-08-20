@@ -110,6 +110,8 @@ type promptData struct {
 	ProfileEntries []memory.ProfileEntry
 	GroupMemory    string // group-scoped shared memory (non-empty only for group sessions)
 	GroupClaims    []GroupClaim
+	GroupPlatform  string   // group platform, when the loader could read it
+	GroupName      string   // group name, when the loader could read it
 	GroupSelfName  string   // this agent's name in the group
 	GroupPeerNames []string // the other members' names
 	Constraints    []memory.ConstraintEntry
@@ -148,11 +150,13 @@ type GroupClaim struct {
 	Age     string
 }
 
-// GroupRoster is who the agent is in this group and who else is in it. An
-// agent's own persona prompt names it (often the product default), so without
-// this a group turn cannot tell whether "@Anna" addresses it, and every member
-// answers to every name.
+// GroupRoster is prompt-safe group context: its platform and name, who this
+// agent is, and who else is in it. An agent's own persona prompt names it
+// (often the product default), so without the roster a group turn cannot tell
+// whether "@Anna" addresses it, and every member answers to every name.
 type GroupRoster struct {
+	Platform  string
+	GroupName string
 	SelfName  string
 	PeerNames []string
 }
@@ -244,6 +248,8 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 	}
 	if p.GroupID != "" {
 		data.GroupClaims = append([]GroupClaim(nil), p.GroupClaims...)
+		data.GroupPlatform = p.GroupRoster.Platform
+		data.GroupName = p.GroupRoster.GroupName
 		data.GroupSelfName = p.GroupRoster.SelfName
 		data.GroupPeerNames = append([]string(nil), p.GroupRoster.PeerNames...)
 	}

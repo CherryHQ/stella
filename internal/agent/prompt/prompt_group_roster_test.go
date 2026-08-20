@@ -67,6 +67,33 @@ func TestGroupPromptStatesIdentityLinesAndPass(t *testing.T) {
 	}
 }
 
+func TestGroupPromptRendersGroupEnvironmentAndMentionContract(t *testing.T) {
+	base := prompt.DBPromptParams{
+		SystemPrompt: "You are Stella.",
+		Memory:       memorytest.New(),
+		AgentID:      "anna",
+		GroupID:      "grp-1",
+	}
+	withName := base
+	withName.GroupRoster = prompt.GroupRoster{Platform: "telegram", GroupName: "Release planning", SelfName: "Anna"}
+	if got := prompt.BuildSystemPromptFromDB(context.Background(), withName); !strings.Contains(got, `This is the telegram group "Release planning".`) || !strings.Contains(got, "Address a member by writing @TheirName in plain text; it resolves the same way on every platform.") {
+		t.Fatalf("named group prompt missing environment or mention contract:\n%s", got)
+	}
+
+	withoutName := base
+	withoutName.GroupRoster = prompt.GroupRoster{Platform: "web", SelfName: "Anna"}
+	if got := prompt.BuildSystemPromptFromDB(context.Background(), withoutName); !strings.Contains(got, "This is the web group.") || strings.Contains(got, `This is the web group "".`) {
+		t.Fatalf("unnamed group prompt rendered environment incorrectly:\n%s", got)
+	}
+
+	dm := base
+	dm.GroupID = ""
+	dm.GroupRoster = prompt.GroupRoster{}
+	if got := prompt.BuildSystemPromptFromDB(context.Background(), dm); strings.Contains(got, "This is the ") || strings.Contains(got, "Address a member by writing @TheirName") {
+		t.Fatalf("direct-message prompt leaked group context:\n%s", got)
+	}
+}
+
 // One-to-one guidance is noise in a group and, for profile writes, wrong: a
 // group turn must not teach the agent to write a private profile.
 func TestGroupPromptSkipsPrivateOnlySections(t *testing.T) {
