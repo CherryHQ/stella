@@ -45,6 +45,7 @@ type toolConfig struct {
 	sessionReadOnlyWrites bool
 	hideTranscriptActions bool
 	recallSource          RecallSource
+	groupRecallSource     GroupRecallSource
 	actionsOnly           map[string]bool // nil means all available
 }
 
@@ -87,6 +88,14 @@ func WithoutTranscriptActions() ToolOption {
 func WithRecallSource(source RecallSource) ToolOption {
 	return func(c *toolConfig) {
 		c.recallSource = source
+	}
+}
+
+// WithGroupRecallSource enables the group-only public-transcript recall lane.
+// It is selected solely from trusted group turn context, never from tool input.
+func WithGroupRecallSource(source GroupRecallSource) ToolOption {
+	return func(c *toolConfig) {
+		c.groupRecallSource = source
 	}
 }
 
@@ -202,7 +211,7 @@ func (t *memoryTool) buildActions() []actionMeta {
 		}
 		actions = append(actions, actionMeta{name: name, desc: desc})
 	}
-	if t.cfg.recallSource != nil {
+	if t.cfg.recallSource != nil || t.cfg.groupRecallSource != nil {
 		add(actionSearch, "Recall relevant content across session messages, LCM summaries, durable facts, profile, soul, and constraints. The storage scope is selected automatically.")
 		add(actionRead, "Read an opaque ref returned by search, or a well-known ref: profile, soul, constraints, profile_versions, or soul_versions. Summary refs include metadata, lineage, and one bounded expansion level.")
 		return actions
@@ -264,7 +273,7 @@ func (t *memoryTool) Definition() tools.Definition {
 
 func (t *memoryTool) buildDescription() string {
 	var b strings.Builder
-	if t.cfg.recallSource != nil {
+	if t.cfg.recallSource != nil || t.cfg.groupRecallSource != nil {
 		b.WriteString("Recall anything remembered for the current user and agent. Search chooses storage automatically and returns opaque refs; read follows those refs or well-known memory refs.\n\nActions:\n")
 	} else {
 		b.WriteString("Read durable knowledge, identity, profile, and constraints. Session transcripts are available through the session tool.\n\nActions:\n")
@@ -292,7 +301,7 @@ func (t *memoryTool) buildInputSchema() map[string]any {
 	}
 
 	// Add action-specific parameters.
-	if t.hasAction(actionSearch) && t.cfg.recallSource != nil {
+	if t.hasAction(actionSearch) && (t.cfg.recallSource != nil || t.cfg.groupRecallSource != nil) {
 		properties["query"] = map[string]any{
 			"type":        "string",
 			"description": "What to recall across all memory (required for search)",
@@ -416,6 +425,12 @@ func (t *memoryTool) hasAction(name string) bool {
 }
 
 func (t *memoryTool) Execute(ctx context.Context, args map[string]any) (string, error) {
+	// This is deliberately before action validation, ref decoding, and every
+	// unified-memory dispatch. A group turn has no private-memory authority.
+	if authz.GroupIDFromContext(ctx) != "" {
+		return t.execGroupRecall(ctx, args)
+	}
+
 	action, _ := args["action"].(string)
 	if !t.hasAction(action) {
 		available := make([]string, len(t.actions))

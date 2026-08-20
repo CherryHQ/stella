@@ -353,6 +353,31 @@ type fakeRecallSource struct {
 	requestedReadCap   int
 }
 
+type fakeGroupRecallSource struct {
+	searches int
+	reads    int
+	groupID  string
+	seq      int64
+	rows     []memory.GroupRecallResult
+}
+
+func (f *fakeGroupRecallSource) SearchGroupRecall(_ context.Context, groupID string, triggerSeq int64, _ string, _ int) ([]memory.GroupRecallResult, error) {
+	f.searches++
+	f.groupID, f.seq = groupID, triggerSeq
+	return f.rows, nil
+}
+
+func (f *fakeGroupRecallSource) ReadGroupRecall(_ context.Context, groupID string, triggerSeq int64, messageID string, _ int) ([]memory.GroupRecallResult, bool, error) {
+	f.reads++
+	f.groupID, f.seq = groupID, triggerSeq
+	for _, row := range f.rows {
+		if row.ID == messageID {
+			return f.rows, false, nil
+		}
+	}
+	return nil, false, memory.ErrGroupRecallNotFound
+}
+
 func (f *fakeRecallSource) SearchRecall(_ context.Context, _ authz.Authority, _, _ string, limit int) ([]memory.RecallSearchResult, error) {
 	f.requestedSearchCap = limit
 	return f.hits, nil
@@ -382,6 +407,49 @@ func TestBuildTool_WithRecallSourceExposesOnlyUnifiedActions(t *testing.T) {
 		if _, ok := properties[hidden]; ok {
 			t.Fatalf("unified memory schema exposed internal selector %q", hidden)
 		}
+	}
+}
+
+func TestGroupMemoryRecallBranchesBeforePrivateRefDispatch(t *testing.T) {
+	fake := memorytest.New()
+	group := &fakeGroupRecallSource{rows: []memory.GroupRecallResult{{
+		ID: "group-message-1", Seq: 4, ActorType: "human", ActorDisplayName: "Alice", Content: "older public detail", OccurredAt: time.Now().UTC(), Score: 1,
+	}}}
+	private := &fakeRecallSource{}
+	tool := memory.BuildTool(fake, memory.WithRecallSource(private), memory.WithGroupRecallSource(group))
+	ctx := authz.WithAgentID(authz.WithGroupID(context.Background(), "group-1"), "agent-1")
+	ctx = memory.WithGroupSeq(ctx, 9)
+	ctx = memory.WithCurrentSpeaker(ctx, memory.CurrentSpeaker{UserID: "speaker-1"})
+
+	assertActions(t, extractActionEnum(t, tool.Definition().InputSchema), []string{"search", "read"})
+	out, err := tool.Execute(ctx, map[string]any{"action": "search", "query": "older"})
+	if err != nil || private.requestedSearchCap != 0 || group.searches != 1 || group.groupID != "group-1" || group.seq != 9 {
+		t.Fatalf("group search output=%s err=%v private=%d group=%+v", out, err, private.requestedSearchCap, group)
+	}
+	if strings.Contains(out, "group-1") || strings.Contains(out, "actor_id") || !strings.Contains(out, `"authority": "information_only"`) {
+		t.Fatalf("group search leaked internal provenance or lost authority: %s", out)
+	}
+	var search struct {
+		Results []struct {
+			Ref string `json:"ref"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(out), &search); err != nil || len(search.Results) != 1 {
+		t.Fatalf("decode group search: output=%s err=%v", out, err)
+	}
+	read, err := tool.Execute(ctx, map[string]any{"action": "read", "ref": search.Results[0].Ref})
+	if err != nil || private.requestedReadCap != 0 || group.reads != 1 || !strings.Contains(read, "[seq:4 Alice]: older public detail") || !strings.Contains(read, `"authority": "information_only"`) {
+		t.Fatalf("group read output=%s err=%v private=%d group=%+v", read, err, private.requestedReadCap, group)
+	}
+
+	for _, ref := range []string{"profile", "soul", "constraints", "profile_versions", "soul_versions", "mem1.not-valid", "foreign-private-ref"} {
+		_, err := tool.Execute(ctx, map[string]any{"action": "read", "ref": ref})
+		if err == nil || err.Error() != "memory read: ref not found" {
+			t.Fatalf("group ref %q error=%v, want uniform not found", ref, err)
+		}
+	}
+	if _, err := tool.Execute(ctx, map[string]any{"action": "profile_get"}); err == nil || !strings.Contains(err.Error(), "action not found") {
+		t.Fatalf("group profile action error=%v, want unavailable", err)
 	}
 }
 

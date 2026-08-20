@@ -35,6 +35,10 @@ var ErrInboxNotPending = errors.New("session inbox message is not pending")
 // committed; callers must resolve the pending row before promising no delivery.
 var ErrInboxAppendOutcomeUnknown = errors.New("session inbox append outcome unknown")
 
+// ErrGroupRecallNotFound is the uniform fail-closed result for an unavailable
+// group-history reference, including malformed, stale, foreign, and non-public rows.
+var ErrGroupRecallNotFound = errors.New("group recall ref not found")
+
 // InboxAppender is implemented by providers that can atomically claim a durable
 // Session inbox row and append its input to the transcript. Callers must verify
 // the unwrapped provider supports this capability before relying on a wrapper.
@@ -239,6 +243,28 @@ type RecallDocument struct {
 type RecallSource interface {
 	SearchRecall(ctx context.Context, authority authz.Authority, agentID, query string, limit int) ([]RecallSearchResult, error)
 	ReadRecall(ctx context.Context, authority authz.Authority, agentID string, ref RecallReference, tokenCap int) (RecallDocument, error)
+}
+
+// GroupRecallResult is one canonical public group event found by the group-only
+// recall lane. It deliberately excludes internal event-log fields and all media
+// payloads: models receive just the public text projection and display snapshot.
+type GroupRecallResult struct {
+	ID               string
+	Seq              int64
+	ActorType        string
+	ActorDisplayName string
+	Content          string
+	Snippet          string
+	Score            float64
+	OccurredAt       time.Time
+}
+
+// GroupRecallSource reads the canonical public transcript for one group turn.
+// The caller obtains groupID and triggerSeq from trusted runtime context; model
+// arguments never select either scope.
+type GroupRecallSource interface {
+	SearchGroupRecall(ctx context.Context, groupID string, triggerSeq int64, query string, limit int) ([]GroupRecallResult, error)
+	ReadGroupRecall(ctx context.Context, groupID string, triggerSeq int64, messageID string, tokenCap int) ([]GroupRecallResult, bool, error)
 }
 
 // ---------------------------------------------------------------------------

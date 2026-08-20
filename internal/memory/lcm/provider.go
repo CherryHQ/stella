@@ -36,6 +36,7 @@ var (
 	_ memory.ConstraintStore       = (*Provider)(nil)
 	_ memory.KnowledgeUsageTracker = (*Provider)(nil)
 	_ memory.TxGroupCommitter      = (*Provider)(nil)
+	_ memory.GroupRecallSource     = (*Provider)(nil)
 )
 
 // Provider implements memory.Provider and all six capability interfaces
