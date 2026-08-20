@@ -94,9 +94,8 @@ func stripTrailingTextOnlyAssistant(rows []ai.Message) []ai.Message {
 
 // retireModelPass records the silent turn and commits what the agent read.
 //
-// The peer rows it was shown and its ingest cursor still commit: the agent did
-// read them, and leaving the cursor behind would replay the same messages on
-// every later turn. The pass reply itself does not: an empty assistant message
+// Its trigger anchor, private tool trajectory, and completed-trigger cursor
+// still commit. The pass reply itself does not: an empty assistant message
 // would make the session history look like the agent ignored the group, and
 // some providers reject empty turns outright.
 func (d *GroupDispatcher) retireModelPass(ctx context.Context, row sqlc.CtxGroupDispatch, turn memory.DeferredGroupTurn) error {

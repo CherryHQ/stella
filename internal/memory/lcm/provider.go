@@ -313,12 +313,33 @@ func (p *Provider) CommitGroupTurn(ctx context.Context, qtx *sqlc.Queries, turn 
 			return err
 		}
 
-		rows := make([]storageRow, 0, len(turn.InjectedPeerRows)+len(turn.OwnRows))
-		for _, msg := range turn.InjectedPeerRows {
-			rows = append(rows, messageToRows(msg)...)
+		if turn.OriginGroupMessageID != "" {
+			if err := qtx.LockConversationForWrite(ctx, convID); err != nil {
+				return fmt.Errorf("lock group conversation: %w", err)
+			}
+			_, err := qtx.GetMessageByConversationOrigin(ctx, sqlc.GetMessageByConversationOriginParams{
+				ConversationID:       convID,
+				OriginGroupMessageID: pgtype.Text{String: turn.OriginGroupMessageID, Valid: true},
+			})
+			switch {
+			case err == nil:
+				return p.commitGroupCursorWithQueries(ctx, qtx, session, turn.TriggerSeq)
+			case !errors.Is(err, pgx.ErrNoRows):
+				return fmt.Errorf("get group turn origin: %w", err)
+			}
 		}
+
+		rows := make([]storageRow, 0, len(turn.OwnRows))
 		for _, msg := range turn.OwnRows {
 			rows = append(rows, messageToRows(msg)...)
+		}
+		if turn.OriginGroupMessageID != "" {
+			for i := range rows {
+				if rows[i].role == roleUser {
+					rows[i].originGroupMessageID = turn.OriginGroupMessageID
+					break
+				}
+			}
 		}
 		if err := p.appendRowsWithQueries(ctx, qtx, session, convID, rows, nil); err != nil {
 			return err
@@ -373,17 +394,18 @@ func (p *Provider) appendRowsWithQueries(ctx context.Context, qtx *sqlc.Queries,
 			inboxID = pgtype.Text{String: claim.id, Valid: true}
 		}
 		dbMsg, err := qtx.CreateMessage(ctx, sqlc.CreateMessageParams{
-			ID:              uuid.Must(uuid.NewV7()).String(),
-			ConversationID:  convID,
-			Seq:             seq,
-			Role:            row.role,
-			EventType:       row.eventType,
-			Content:         row.content,
-			TokenCount:      int64(memory.EstimateTokens(row.tokenText)),
-			ActorType:       string(actor.Type),
-			ActorID:         pgtype.Text{String: actor.ID, Valid: actor.ID != ""},
-			SourceSessionID: pgtype.Text{String: actor.SourceSessionID, Valid: actor.SourceSessionID != ""},
-			InboxID:         inboxID,
+			ID:                   uuid.Must(uuid.NewV7()).String(),
+			ConversationID:       convID,
+			Seq:                  seq,
+			Role:                 row.role,
+			EventType:            row.eventType,
+			Content:              row.content,
+			TokenCount:           int64(memory.EstimateTokens(row.tokenText)),
+			ActorType:            string(actor.Type),
+			ActorID:              pgtype.Text{String: actor.ID, Valid: actor.ID != ""},
+			SourceSessionID:      pgtype.Text{String: actor.SourceSessionID, Valid: actor.SourceSessionID != ""},
+			InboxID:              inboxID,
+			OriginGroupMessageID: pgtype.Text{String: row.originGroupMessageID, Valid: row.originGroupMessageID != ""},
 		})
 		if err != nil {
 			return fmt.Errorf("create message: %w", err)

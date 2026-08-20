@@ -37,6 +37,65 @@ func (q *Queries) CreateIngestError(ctx context.Context, arg CreateIngestErrorPa
 	return err
 }
 
+const existsGroupMessageBeforeSeq = `-- name: ExistsGroupMessageBeforeSeq :one
+SELECT EXISTS (
+  SELECT 1
+  FROM ctx_group_message
+  WHERE group_id = $1
+    AND seq < $2
+)::boolean
+`
+
+type ExistsGroupMessageBeforeSeqParams struct {
+	GroupID   string `json:"group_id"`
+	BeforeSeq int64  `json:"before_seq"`
+}
+
+func (q *Queries) ExistsGroupMessageBeforeSeq(ctx context.Context, arg ExistsGroupMessageBeforeSeqParams) (bool, error) {
+	row := q.db.QueryRow(ctx, existsGroupMessageBeforeSeq, arg.GroupID, arg.BeforeSeq)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const getDeliveredGroupMessageBySeq = `-- name: GetDeliveredGroupMessageBySeq :one
+SELECT id, group_id, seq, actor_type, actor_id, actor_display_name, content
+FROM ctx_group_message
+WHERE group_id = $1
+  AND seq = $2
+  AND delivery_state = 'delivered'
+`
+
+type GetDeliveredGroupMessageBySeqParams struct {
+	GroupID string `json:"group_id"`
+	Seq     int64  `json:"seq"`
+}
+
+type GetDeliveredGroupMessageBySeqRow struct {
+	ID               string      `json:"id"`
+	GroupID          string      `json:"group_id"`
+	Seq              int64       `json:"seq"`
+	ActorType        string      `json:"actor_type"`
+	ActorID          string      `json:"actor_id"`
+	ActorDisplayName pgtype.Text `json:"actor_display_name"`
+	Content          string      `json:"content"`
+}
+
+func (q *Queries) GetDeliveredGroupMessageBySeq(ctx context.Context, arg GetDeliveredGroupMessageBySeqParams) (GetDeliveredGroupMessageBySeqRow, error) {
+	row := q.db.QueryRow(ctx, getDeliveredGroupMessageBySeq, arg.GroupID, arg.Seq)
+	var i GetDeliveredGroupMessageBySeqRow
+	err := row.Scan(
+		&i.ID,
+		&i.GroupID,
+		&i.Seq,
+		&i.ActorType,
+		&i.ActorID,
+		&i.ActorDisplayName,
+		&i.Content,
+	)
+	return i, err
+}
+
 const getIngestCursor = `-- name: GetIngestCursor :one
 SELECT group_id, pipeline, last_seq, updated_at FROM ctx_group_ingest_cursor
 WHERE group_id = $1 AND pipeline = $2
@@ -77,6 +136,62 @@ func (q *Queries) IsIngestError(ctx context.Context, arg IsIngestErrorParams) (b
 	return is_error, err
 }
 
+const listDeliveredGroupMessagesBeforeSeq = `-- name: ListDeliveredGroupMessagesBeforeSeq :many
+SELECT id, group_id, seq, actor_type, actor_id, actor_display_name, content
+FROM ctx_group_message
+WHERE group_id = $1
+  AND seq < $2
+  AND delivery_state = 'delivered'
+ORDER BY seq DESC
+LIMIT $3
+`
+
+type ListDeliveredGroupMessagesBeforeSeqParams struct {
+	GroupID   string `json:"group_id"`
+	BeforeSeq int64  `json:"before_seq"`
+	PageSize  int32  `json:"page_size"`
+}
+
+type ListDeliveredGroupMessagesBeforeSeqRow struct {
+	ID               string      `json:"id"`
+	GroupID          string      `json:"group_id"`
+	Seq              int64       `json:"seq"`
+	ActorType        string      `json:"actor_type"`
+	ActorID          string      `json:"actor_id"`
+	ActorDisplayName pgtype.Text `json:"actor_display_name"`
+	Content          string      `json:"content"`
+}
+
+// Reverse pagination is mandatory: group context reads only its newest bounded
+// window, never an interval whose size is controlled by group history.
+func (q *Queries) ListDeliveredGroupMessagesBeforeSeq(ctx context.Context, arg ListDeliveredGroupMessagesBeforeSeqParams) ([]ListDeliveredGroupMessagesBeforeSeqRow, error) {
+	rows, err := q.db.Query(ctx, listDeliveredGroupMessagesBeforeSeq, arg.GroupID, arg.BeforeSeq, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDeliveredGroupMessagesBeforeSeqRow{}
+	for rows.Next() {
+		var i ListDeliveredGroupMessagesBeforeSeqRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.GroupID,
+			&i.Seq,
+			&i.ActorType,
+			&i.ActorID,
+			&i.ActorDisplayName,
+			&i.Content,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGroupMessagesAfterSeq = `-- name: ListGroupMessagesAfterSeq :many
 
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
@@ -112,11 +227,9 @@ type ListGroupMessagesAfterSeqRow struct {
 	DeliveryState     string             `json:"delivery_state"`
 }
 
-// Both ingest list queries feed text-only consumers (group-memory extraction and
-// LCM cross-agent assembly); neither reads content_blocks. They select an
-// explicit column list that EXCLUDES content_blocks so a lagging agent or a
-// memory batch never drags inbound image payloads across the seq range —
-// ListGroupMessagesBetweenSeqs has no LIMIT, so the interval alone bounds it.
+// These text-only ingest/context readers deliberately exclude content_blocks:
+// historical group context retains the content projection (including [image])
+// without loading the original media payload.
 func (q *Queries) ListGroupMessagesAfterSeq(ctx context.Context, arg ListGroupMessagesAfterSeqParams) ([]ListGroupMessagesAfterSeqRow, error) {
 	rows, err := q.db.Query(ctx, listGroupMessagesAfterSeq, arg.GroupID, arg.MinSeq, arg.BatchLimit)
 	if err != nil {
@@ -142,79 +255,6 @@ func (q *Queries) ListGroupMessagesAfterSeq(ctx context.Context, arg ListGroupMe
 			&i.AgentSessionID,
 			&i.CreatedAt,
 			&i.DeliveryState,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listGroupMessagesBetweenSeqs = `-- name: ListGroupMessagesBetweenSeqs :many
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
-       platform_message_id, reply_to, platform_timestamp, idempotency_key,
-       content, reasoning, agent_session_id, created_at
-FROM ctx_group_message
-WHERE group_id = $1
-  AND seq > $2
-  AND seq < $3
-  -- A failed platform delivery was never visible to peers. The author keeps
-  -- its own attempted reply and tool history in memory, but no other agent may
-  -- reason from a canonical row that the conversation never received.
-  AND delivery_state <> 'failed'
-ORDER BY seq ASC
-`
-
-type ListGroupMessagesBetweenSeqsParams struct {
-	GroupID   string `json:"group_id"`
-	AfterSeq  int64  `json:"after_seq"`
-	BeforeSeq int64  `json:"before_seq"`
-}
-
-type ListGroupMessagesBetweenSeqsRow struct {
-	ID                string             `json:"id"`
-	GroupID           string             `json:"group_id"`
-	Seq               int64              `json:"seq"`
-	SourceChannelID   pgtype.Text        `json:"source_channel_id"`
-	ActorType         string             `json:"actor_type"`
-	ActorID           string             `json:"actor_id"`
-	PlatformMessageID pgtype.Text        `json:"platform_message_id"`
-	ReplyTo           pgtype.Text        `json:"reply_to"`
-	PlatformTimestamp pgtype.Timestamptz `json:"platform_timestamp"`
-	IdempotencyKey    pgtype.Text        `json:"idempotency_key"`
-	Content           string             `json:"content"`
-	Reasoning         string             `json:"reasoning"`
-	AgentSessionID    string             `json:"agent_session_id"`
-	CreatedAt         time.Time          `json:"created_at"`
-}
-
-func (q *Queries) ListGroupMessagesBetweenSeqs(ctx context.Context, arg ListGroupMessagesBetweenSeqsParams) ([]ListGroupMessagesBetweenSeqsRow, error) {
-	rows, err := q.db.Query(ctx, listGroupMessagesBetweenSeqs, arg.GroupID, arg.AfterSeq, arg.BeforeSeq)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ListGroupMessagesBetweenSeqsRow{}
-	for rows.Next() {
-		var i ListGroupMessagesBetweenSeqsRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.GroupID,
-			&i.Seq,
-			&i.SourceChannelID,
-			&i.ActorType,
-			&i.ActorID,
-			&i.PlatformMessageID,
-			&i.ReplyTo,
-			&i.PlatformTimestamp,
-			&i.IdempotencyKey,
-			&i.Content,
-			&i.Reasoning,
-			&i.AgentSessionID,
-			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

@@ -126,6 +126,7 @@ func (c *Coordinator) groupEventMessage(ctx context.Context, msg pkgchannel.Inco
 		SourceChannelID:   channelID,
 		ActorType:         eventlog.ActorHuman,
 		ActorID:           msg.SenderID,
+		ActorDisplayName:  msg.SenderName,
 		PlatformMessageID: msg.MessageID,
 		PlatformTimestamp: msg.Timestamp,
 		ReplyTo:           msg.ReplyTo,

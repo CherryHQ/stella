@@ -110,7 +110,12 @@ func (n *ParticipantNamer) Line(ctx context.Context, groupID string, seq int64, 
 
 // Handle is Name with the "@" agents are addressed by.
 func (n *ParticipantNamer) Handle(ctx context.Context, groupID string, actorType, actorID string) string {
-	name := n.Name(ctx, groupID, actorType, actorID)
+	return HandleDisplayName(n.Name(ctx, groupID, actorType, actorID), actorType)
+}
+
+// HandleDisplayName applies the group-addressable agent prefix to a stored
+// event-time name. Callers pass a live fallback only for legacy NULL snapshots.
+func HandleDisplayName(name, actorType string) string {
 	if actorType == string(ActorAgent) && !strings.HasPrefix(name, "@") {
 		return "@" + name
 	}

@@ -104,8 +104,9 @@ type Message struct {
 
 	SourceChannelID string // observing bot; audit only, never a dedup/route key
 
-	ActorType ActorType
-	ActorID   string // platform sender id (human) or agent id (agent)
+	ActorType        ActorType
+	ActorID          string // platform sender id (human) or agent id (agent)
+	ActorDisplayName string // event-time snapshot; empty preserves legacy NULL
 
 	PlatformMessageID string // "" when the adapter cannot supply one
 	ReplyTo           string // platform message id this replies to; "" if none
@@ -225,6 +226,7 @@ func (s *Store) AppendGroupMessage(ctx context.Context, msg Message, opts ...App
 		SourceChannelID:   pgnull.TextTrim(msg.SourceChannelID),
 		ActorType:         string(msg.ActorType),
 		ActorID:           msg.ActorID,
+		ActorDisplayName:  pgnull.TextTrim(msg.ActorDisplayName),
 		PlatformMessageID: pgnull.TextTrim(msg.PlatformMessageID),
 		ReplyTo:           pgnull.TextTrim(msg.ReplyTo),
 		PlatformTimestamp: nullTime(msg.PlatformTimestamp),
@@ -315,16 +317,17 @@ func AppendToGroupWithQueries(ctx context.Context, q *sqlc.Queries, groupID stri
 		return AppendResult{}, fmt.Errorf("eventlog: bump seq: %w", err)
 	}
 	row, err := q.CreateGroupMessage(ctx, sqlc.CreateGroupMessageParams{
-		ID:             uuid.Must(uuid.NewV7()).String(),
-		GroupID:        groupID,
-		Seq:            seq,
-		ActorType:      string(msg.ActorType),
-		ActorID:        msg.ActorID,
-		Content:        msg.Content,
-		ContentBlocks:  contentBlocksOrEmpty(nil),
-		Reasoning:      msg.Reasoning,
-		AgentSessionID: msg.AgentSessionID,
-		DeliveryState:  deliveryStateOrDelivered(msg.DeliveryState),
+		ID:               uuid.Must(uuid.NewV7()).String(),
+		GroupID:          groupID,
+		Seq:              seq,
+		ActorType:        string(msg.ActorType),
+		ActorID:          msg.ActorID,
+		ActorDisplayName: pgnull.TextTrim(msg.ActorDisplayName),
+		Content:          msg.Content,
+		ContentBlocks:    contentBlocksOrEmpty(nil),
+		Reasoning:        msg.Reasoning,
+		AgentSessionID:   msg.AgentSessionID,
+		DeliveryState:    deliveryStateOrDelivered(msg.DeliveryState),
 	})
 	if err != nil {
 		return AppendResult{}, fmt.Errorf("eventlog: create message: %w", err)
@@ -359,11 +362,12 @@ func validateGroupAppend(groupID string, msg GroupMessage) error {
 
 // GroupMessage is a simplified message for direct group append (pre-resolved groupID).
 type GroupMessage struct {
-	ActorType      ActorType
-	ActorID        string
-	Content        string
-	Reasoning      string
-	AgentSessionID string
+	ActorType        ActorType
+	ActorID          string
+	ActorDisplayName string // event-time snapshot; empty preserves legacy NULL
+	Content          string
+	Reasoning        string
+	AgentSessionID   string
 	// DeliveryState is pending only for an accepted platform reply awaiting
 	// egress. All ingress and Web messages are immediately delivered.
 	DeliveryState string

@@ -18,11 +18,9 @@ ON CONFLICT(group_id, pipeline, seq) DO NOTHING;
 SELECT count(*) > 0 as is_error FROM ctx_group_ingest_error
 WHERE group_id = sqlc.arg(group_id) AND pipeline = sqlc.arg(pipeline) AND seq = sqlc.arg(seq);
 
--- Both ingest list queries feed text-only consumers (group-memory extraction and
--- LCM cross-agent assembly); neither reads content_blocks. They select an
--- explicit column list that EXCLUDES content_blocks so a lagging agent or a
--- memory batch never drags inbound image payloads across the seq range —
--- ListGroupMessagesBetweenSeqs has no LIMIT, so the interval alone bounds it.
+-- These text-only ingest/context readers deliberately exclude content_blocks:
+-- historical group context retains the content projection (including [image])
+-- without loading the original media payload.
 
 -- name: ListGroupMessagesAfterSeq :many
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
@@ -48,19 +46,31 @@ SELECT * FROM (
 ) recent
 ORDER BY recent.seq ASC;
 
--- name: ListGroupMessagesBetweenSeqs :many
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
-       platform_message_id, reply_to, platform_timestamp, idempotency_key,
-       content, reasoning, agent_session_id, created_at
+-- name: ListDeliveredGroupMessagesBeforeSeq :many
+-- Reverse pagination is mandatory: group context reads only its newest bounded
+-- window, never an interval whose size is controlled by group history.
+SELECT id, group_id, seq, actor_type, actor_id, actor_display_name, content
 FROM ctx_group_message
 WHERE group_id = sqlc.arg(group_id)
-  AND seq > sqlc.arg(after_seq)
   AND seq < sqlc.arg(before_seq)
-  -- A failed platform delivery was never visible to peers. The author keeps
-  -- its own attempted reply and tool history in memory, but no other agent may
-  -- reason from a canonical row that the conversation never received.
-  AND delivery_state <> 'failed'
-ORDER BY seq ASC;
+  AND delivery_state = 'delivered'
+ORDER BY seq DESC
+LIMIT sqlc.arg(page_size);
+
+-- name: ExistsGroupMessageBeforeSeq :one
+SELECT EXISTS (
+  SELECT 1
+  FROM ctx_group_message
+  WHERE group_id = sqlc.arg(group_id)
+    AND seq < sqlc.arg(before_seq)
+)::boolean;
+
+-- name: GetDeliveredGroupMessageBySeq :one
+SELECT id, group_id, seq, actor_type, actor_id, actor_display_name, content
+FROM ctx_group_message
+WHERE group_id = sqlc.arg(group_id)
+  AND seq = sqlc.arg(seq)
+  AND delivery_state = 'delivered';
 
 -- name: ListGroupsWithPendingIngest :many
 SELECT gs.id as group_id,

@@ -367,6 +367,22 @@ SELECT EXISTS (
     AND (outbox.envelope::jsonb -> 'mentions') @> jsonb_build_array(jsonb_build_object('AgentID', sqlc.arg(agent_id)::text))
 )::boolean;
 
+-- name: GetEarliestGroupMentionSinceCursor :one
+-- The bounded context assembler needs the actual event, not just the triage
+-- boolean, when a coalesced wake would otherwise omit the mentioning row.
+SELECT COALESCE(MIN(message.seq), 0)::bigint
+FROM ctx_group_outbox outbox
+JOIN ctx_group_message message ON message.id = outbox.group_message_id
+LEFT JOIN ctx_group_ingest_cursor cursor
+  ON cursor.group_id = message.group_id
+ AND cursor.pipeline = sqlc.arg(pipeline)
+WHERE message.group_id = sqlc.arg(group_id)
+  AND message.actor_id <> sqlc.arg(agent_id)
+  AND message.seq > COALESCE(cursor.last_seq, 0)
+  AND message.seq <= sqlc.arg(trigger_seq)
+  AND message.delivery_state = 'delivered'
+  AND (outbox.envelope::jsonb -> 'mentions') @> jsonb_build_array(jsonb_build_object('AgentID', sqlc.arg(agent_id)::text));
+
 -- name: AgentPostedSinceSeq :one
 -- Has this agent already spoken after the given seq? A nudge names one agent
 -- and never gets superseded, so a wake that was already in flight can post the

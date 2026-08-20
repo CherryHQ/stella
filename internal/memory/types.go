@@ -17,42 +17,23 @@ type groupTurnSinkKey struct{}
 // dispatcher. It is intentionally separate from ChatStream: stream rebuilding
 // must never lose the transaction payload.
 type DeferredGroupTurn struct {
-	Session          Session
-	InjectedPeerRows []ai.Message
-	OwnRows          []ai.Message
-	TriggerSeq       int64
-	Complete         bool
+	Session              Session
+	OwnRows              []ai.Message
+	TriggerSeq           int64
+	OriginGroupMessageID string
+	Complete             bool
 }
 
 // GroupTurnSink is a one-shot, non-blocking turn finalization record.
 type GroupTurnSink struct {
 	once      sync.Once
 	mu        sync.RWMutex
-	injected  []ai.Message
 	result    DeferredGroupTurn
 	delivered bool
 }
 
 func NewGroupTurnSink() *GroupTurnSink {
 	return &GroupTurnSink{}
-}
-
-func (s *GroupTurnSink) SetInjected(rows []ai.Message) {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	s.injected = append([]ai.Message(nil), rows...)
-	s.mu.Unlock()
-}
-
-func (s *GroupTurnSink) Injected() []ai.Message {
-	if s == nil {
-		return nil
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return append([]ai.Message(nil), s.injected...)
 }
 
 // Deliver records the first terminal result without blocking the producer.
@@ -117,6 +98,7 @@ const (
 	sessionIDKey      contextKey = "memory_session_id"
 	projectIDKey      contextKey = "memory_project_id"
 	groupSeqKey       contextKey = "memory_group_seq"
+	groupMessageIDKey contextKey = "memory_group_message_id"
 	currentSpeakerKey contextKey = "memory_current_speaker"
 	groupWakeKey      contextKey = "memory_group_wake"
 )
@@ -184,6 +166,9 @@ type GroupWake struct {
 	// HeldUpToSeq is set when this run follows a HOLD: a peer posted while the
 	// agent was drafting, and everything up to this seq is new since then.
 	HeldUpToSeq int64
+	// MentionSeq is the earliest unconsumed event that addressed this agent.
+	// It lets bounded context retain the reason for a coalesced wake.
+	MentionSeq int64
 }
 
 // WithGroupWake attaches this turn's wake reason to the context.
@@ -208,6 +193,18 @@ func GroupSeqFromContext(ctx context.Context) int64 {
 	return s
 }
 
+// WithGroupMessageID attaches the durable trigger event identity to a group
+// turn. It is runtime-authored alongside GroupSeq and never comes from model input.
+func WithGroupMessageID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, groupMessageIDKey, id)
+}
+
+// GroupMessageIDFromContext extracts the durable trigger event identity.
+func GroupMessageIDFromContext(ctx context.Context) string {
+	id, _ := ctx.Value(groupMessageIDKey).(string)
+	return id
+}
+
 // Session identifies the context of a single conversation.
 // It is created by the runtime and passed to all Provider methods.
 type Session struct {
@@ -219,16 +216,14 @@ type Session struct {
 	GuestID string // non-empty for a persistent channel guest; equals UserID
 }
 
-// GroupIngestPipeline names the ctx_group_ingest_cursor pipeline that tracks
-// one agent's consumption of a group's event log. The LCM assembler owns the
-// cursor's movement, but the name is shared: session rotation fast-forwards it
-// as a message boundary, and the group dispatcher reads it to drop restarted
-// dispatch rows whose trigger that boundary already consumed.
+// GroupIngestPipeline names the ctx_group_ingest_cursor pipeline that records
+// one agent's last_completed_trigger_seq. The LCM committer owns movement, but
+// the name is shared: session rotation fast-forwards the completed boundary,
+// and the dispatcher reads it to drop restarted dispatch rows already completed.
 func GroupIngestPipeline(agentID string) string { return "lcm:" + agentID }
 
-// GroupCursorCommitter advances group event-log ingestion only after a chat turn
-// has completed successfully. Assemble may prepare between-turn rows, but commit
-// owns durable cursor movement.
+// GroupCursorCommitter records a completed trigger only after its chat turn has
+// completed successfully. Assembly is stateless; commit owns durable movement.
 type GroupCursorCommitter interface {
 	CommitGroupCursor(ctx context.Context, session Session, triggerSeq int64) error
 }

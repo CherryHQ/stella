@@ -95,14 +95,14 @@ func (rt *Runtime) chatWithRunner(ctx context.Context, out chan<- Event, info se
 	// sink on a direct session must not swallow the ordinary persist path.
 	deferredGroupTurn := hasGroupSink && memSess.GroupID != ""
 	deferred := memory.DeferredGroupTurn{
-		Session:    memSess,
-		TriggerSeq: memory.GroupSeqFromContext(ctx),
+		Session:              memSess,
+		TriggerSeq:           memory.GroupSeqFromContext(ctx),
+		OriginGroupMessageID: memory.GroupMessageIDFromContext(ctx),
 	}
 	// This is the only owner of out for a valid turn. Deliver before close gives
 	// the dispatcher a happens-before edge after it finishes draining the stream.
 	defer func() {
 		if deferredGroupTurn {
-			deferred.InjectedPeerRows = groupSink.Injected()
 			groupSink.Deliver(deferred)
 		}
 		close(out)

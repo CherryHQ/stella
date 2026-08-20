@@ -152,11 +152,12 @@ type toolResultEnvelope struct {
 // name their text-only search/token projection explicitly; legacy rows leave
 // parts nil and continue to use their historical inline content codec.
 type storageRow struct {
-	role      string
-	eventType string
-	content   string
-	tokenText string
-	parts     []messagePartRow
+	role                 string
+	eventType            string
+	content              string
+	tokenText            string
+	originGroupMessageID string // set only on a group turn's trigger user anchor
+	parts                []messagePartRow
 }
 
 type messagePartRow struct {

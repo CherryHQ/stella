@@ -422,6 +422,42 @@ func (q *Queries) ExtendRunningGroupDispatchLease(ctx context.Context, arg Exten
 	return result.RowsAffected(), nil
 }
 
+const getEarliestGroupMentionSinceCursor = `-- name: GetEarliestGroupMentionSinceCursor :one
+SELECT COALESCE(MIN(message.seq), 0)::bigint
+FROM ctx_group_outbox outbox
+JOIN ctx_group_message message ON message.id = outbox.group_message_id
+LEFT JOIN ctx_group_ingest_cursor cursor
+  ON cursor.group_id = message.group_id
+ AND cursor.pipeline = $1
+WHERE message.group_id = $2
+  AND message.actor_id <> $3
+  AND message.seq > COALESCE(cursor.last_seq, 0)
+  AND message.seq <= $4
+  AND message.delivery_state = 'delivered'
+  AND (outbox.envelope::jsonb -> 'mentions') @> jsonb_build_array(jsonb_build_object('AgentID', $3::text))
+`
+
+type GetEarliestGroupMentionSinceCursorParams struct {
+	Pipeline   string `json:"pipeline"`
+	GroupID    string `json:"group_id"`
+	AgentID    string `json:"agent_id"`
+	TriggerSeq int64  `json:"trigger_seq"`
+}
+
+// The bounded context assembler needs the actual event, not just the triage
+// boolean, when a coalesced wake would otherwise omit the mentioning row.
+func (q *Queries) GetEarliestGroupMentionSinceCursor(ctx context.Context, arg GetEarliestGroupMentionSinceCursorParams) (int64, error) {
+	row := q.db.QueryRow(ctx, getEarliestGroupMentionSinceCursor,
+		arg.Pipeline,
+		arg.GroupID,
+		arg.AgentID,
+		arg.TriggerSeq,
+	)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const getGroupDispatch = `-- name: GetGroupDispatch :one
 SELECT id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, publish_started_at, published_at FROM ctx_group_dispatch WHERE id = $1
 `

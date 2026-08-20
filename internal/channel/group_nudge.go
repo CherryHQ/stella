@@ -234,7 +234,7 @@ func (n *GroupNudger) append(ctx context.Context, groupID, expectedLastMessageID
 	// The nudge is read by the whole group, so it names the target the way the
 	// group addresses them; the id it dispatches on rides in the envelope.
 	targetName := eventlog.NewParticipantNamer(q).Handle(ctx, groupID, string(eventlog.ActorAgent), target)
-	result, err := eventlog.AppendToGroupWithQueries(ctx, q, groupID, eventlog.GroupMessage{ActorType: eventlog.ActorSystem, ActorID: "nudge", Content: fmt.Sprintf("%s, please continue %s.", targetName, note)})
+	result, err := eventlog.AppendToGroupWithQueries(ctx, q, groupID, eventlog.GroupMessage{ActorType: eventlog.ActorSystem, ActorID: "nudge", ActorDisplayName: eventlog.SystemParticipantName, Content: fmt.Sprintf("%s, please continue %s.", targetName, note)})
 	if err != nil {
 		return fmt.Errorf("append nudge message: %w", err)
 	}

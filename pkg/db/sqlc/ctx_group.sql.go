@@ -202,16 +202,16 @@ func (q *Queries) CountPeerMessagesAfterSeq(ctx context.Context, arg CountPeerMe
 const createGroupMessage = `-- name: CreateGroupMessage :one
 INSERT INTO ctx_group_message (
   id, group_id, seq, source_channel_id, actor_type, actor_id,
-  platform_message_id, reply_to, platform_timestamp, idempotency_key, content, content_blocks, reasoning, agent_session_id, delivery_state
+  platform_message_id, reply_to, platform_timestamp, idempotency_key, actor_display_name, content, content_blocks, reasoning, agent_session_id, delivery_state
 )
 VALUES (
   $1, $2, $3, $4,
   $5, $6, $7,
-  $8, $9, $10,
-  $11, COALESCE($12::jsonb, '[]'::jsonb),
-  $13, $14, $15
+  $8, $9, $10, $11,
+  $12, COALESCE($13::jsonb, '[]'::jsonb),
+  $14, $15, $16
 )
-RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state
+RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state, actor_display_name
 `
 
 type CreateGroupMessageParams struct {
@@ -225,6 +225,7 @@ type CreateGroupMessageParams struct {
 	ReplyTo           pgtype.Text        `json:"reply_to"`
 	PlatformTimestamp pgtype.Timestamptz `json:"platform_timestamp"`
 	IdempotencyKey    pgtype.Text        `json:"idempotency_key"`
+	ActorDisplayName  pgtype.Text        `json:"actor_display_name"`
 	Content           string             `json:"content"`
 	ContentBlocks     json.RawMessage    `json:"content_blocks"`
 	Reasoning         string             `json:"reasoning"`
@@ -244,6 +245,7 @@ func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessage
 		arg.ReplyTo,
 		arg.PlatformTimestamp,
 		arg.IdempotencyKey,
+		arg.ActorDisplayName,
 		arg.Content,
 		arg.ContentBlocks,
 		arg.Reasoning,
@@ -268,6 +270,7 @@ func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessage
 		&i.CreatedAt,
 		&i.ContentBlocks,
 		&i.DeliveryState,
+		&i.ActorDisplayName,
 	)
 	return i, err
 }
@@ -343,7 +346,7 @@ func (q *Queries) GetGroupLastActive(ctx context.Context, id string) (time.Time,
 }
 
 const getGroupMessage = `-- name: GetGroupMessage :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state FROM ctx_group_message WHERE id = $1
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state, actor_display_name FROM ctx_group_message WHERE id = $1
 `
 
 func (q *Queries) GetGroupMessage(ctx context.Context, id string) (CtxGroupMessage, error) {
@@ -366,12 +369,13 @@ func (q *Queries) GetGroupMessage(ctx context.Context, id string) (CtxGroupMessa
 		&i.CreatedAt,
 		&i.ContentBlocks,
 		&i.DeliveryState,
+		&i.ActorDisplayName,
 	)
 	return i, err
 }
 
 const getGroupMessageByIdempotencyKey = `-- name: GetGroupMessageByIdempotencyKey :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state, actor_display_name FROM ctx_group_message
 WHERE idempotency_key = $1
 `
 
@@ -395,12 +399,13 @@ func (q *Queries) GetGroupMessageByIdempotencyKey(ctx context.Context, idempoten
 		&i.CreatedAt,
 		&i.ContentBlocks,
 		&i.DeliveryState,
+		&i.ActorDisplayName,
 	)
 	return i, err
 }
 
 const getGroupMessageByPlatformID = `-- name: GetGroupMessageByPlatformID :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state FROM ctx_group_message
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state, actor_display_name FROM ctx_group_message
 WHERE group_id = $1
   AND platform_message_id = $2
 `
@@ -430,6 +435,7 @@ func (q *Queries) GetGroupMessageByPlatformID(ctx context.Context, arg GetGroupM
 		&i.CreatedAt,
 		&i.ContentBlocks,
 		&i.DeliveryState,
+		&i.ActorDisplayName,
 	)
 	return i, err
 }
@@ -543,7 +549,7 @@ func (q *Queries) GetLatestGroupMessageID(ctx context.Context, groupID string) (
 }
 
 const getLatestPeerGroupMessageWithContent = `-- name: GetLatestPeerGroupMessageWithContent :one
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state
+SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state, actor_display_name
 FROM ctx_group_message
 WHERE group_id = $1
   AND NOT (actor_type = 'agent' AND actor_id = $2)
@@ -589,6 +595,7 @@ func (q *Queries) GetLatestPeerGroupMessageWithContent(ctx context.Context, arg 
 		&i.CreatedAt,
 		&i.ContentBlocks,
 		&i.DeliveryState,
+		&i.ActorDisplayName,
 	)
 	return i, err
 }
@@ -1086,7 +1093,7 @@ const setGroupMessageDeliveryState = `-- name: SetGroupMessageDeliveryState :one
 UPDATE ctx_group_message
 SET delivery_state = $1
 WHERE id = $2
-RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state
+RETURNING id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state, actor_display_name
 `
 
 type SetGroupMessageDeliveryStateParams struct {
@@ -1114,6 +1121,7 @@ func (q *Queries) SetGroupMessageDeliveryState(ctx context.Context, arg SetGroup
 		&i.CreatedAt,
 		&i.ContentBlocks,
 		&i.DeliveryState,
+		&i.ActorDisplayName,
 	)
 	return i, err
 }

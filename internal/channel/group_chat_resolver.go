@@ -113,7 +113,7 @@ func (r *groupChatResolver) chatDispatchUnqueued(ctx context.Context, row sqlc.C
 	case message.Seq <= cursor.LastSeq:
 		return nil, errGroupTurnSuperseded
 	}
-	ctx = memory.WithGroupSeq(ctx, message.Seq)
+	ctx = memory.WithGroupMessageID(memory.WithGroupSeq(ctx, message.Seq), message.ID)
 	content := r.triggerContent(ctx, row.GroupID, message)
 	// The only surviving web/platform split, and it is about where a turn's
 	// authority comes from, not about how the reply is delivered. A platform turn
@@ -168,7 +168,11 @@ func groupMessageContentBlocks(message sqlc.CtxGroupMessage) []ai.ContentBlock {
 func (r *groupChatResolver) triggerContent(ctx context.Context, groupID string, message sqlc.CtxGroupMessage) []ai.ContentBlock {
 	blocks := groupMessageContentBlocks(message)
 	namer := eventlog.NewParticipantNamer(r.q)
-	label := fmt.Sprintf("[seq:%d %s]:", message.Seq, namer.Handle(ctx, groupID, message.ActorType, message.ActorID))
+	name := namer.Name(ctx, groupID, message.ActorType, message.ActorID)
+	if message.ActorDisplayName.Valid {
+		name = message.ActorDisplayName.String
+	}
+	label := fmt.Sprintf("[seq:%d %s]:", message.Seq, eventlog.HandleDisplayName(name, message.ActorType))
 	for i, block := range blocks {
 		text, ok := block.(ai.TextContent)
 		if !ok {
