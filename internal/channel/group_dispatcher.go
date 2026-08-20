@@ -708,7 +708,10 @@ func (d *GroupDispatcher) publishAccepted(ctx context.Context, job publishJob) e
 // cannot answer either question, and the answer changes what a good reply is.
 func (d *GroupDispatcher) groupWake(ctx context.Context, row sqlc.CtxGroupDispatch, reason string) memory.GroupWake {
 	wake := memory.GroupWake{Reason: reason}
-	heldUpTo, err := d.q.MaxHeldUpToSeqInChain(ctx, sqlc.MaxHeldUpToSeqInChainParams{GroupID: row.GroupID, AgentID: row.AgentID, TriggerSeq: row.TriggerSeq})
+	heldUpTo, err := d.q.MaxHeldUpToSeqInChain(ctx, sqlc.MaxHeldUpToSeqInChainParams{
+		GroupID: row.GroupID, AgentID: row.AgentID, TriggerSeq: row.TriggerSeq,
+		Pipeline: memory.GroupIngestPipeline(row.AgentID),
+	})
 	if err != nil {
 		// A missing HOLD note costs the model one hint; failing the turn over it
 		// would cost the group the reply.

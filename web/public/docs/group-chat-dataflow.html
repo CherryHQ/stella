@@ -1086,7 +1086,7 @@
             <ul>
               <li>A busy group coalesces stale snapshots instead of queueing a turn per message</li>
               <li>Five messages in a row cost one turn that sees all five</li>
-              <li>Superseded wakes never advance the memory cursor</li>
+              <li>Claim-coalesced <code>status=superseded</code> wakes never advance the cursor</li>
             </ul>
           </div>
           <div class="card">
@@ -1101,6 +1101,7 @@
                 <code>pending</code> → publisher finalizes <code>delivered</code> /
                 <code>failed</code>
               </li>
+              <li>Failed replies remain author-only and never enter a peer transcript</li>
             </ul>
           </div>
         </div>
@@ -1849,6 +1850,7 @@
             <ul>
               <li>A post-turn hold commits the history and tool work actually read</li>
               <li>Its cursor advances through the trigger sequence</li>
+              <li>An outstanding covered hold admits one successor before peer/lap triage</li>
               <li>Only the rejected trailing reply is discarded</li>
             </ul>
           </div>
@@ -2172,7 +2174,7 @@
               font-family="var(--font-sans)"
               text-anchor="middle"
             >
-              superseded
+              status=superseded
             </text>
             <text
               x="520"
@@ -2182,7 +2184,7 @@
               font-family="var(--font-mono)"
               text-anchor="middle"
             >
-              no turn frame · cursor unchanged
+              claim-coalesced · no frame
             </text>
 
             <rect x="96" y="248" width="160" height="56" rx="8" fill="var(--paper)" />
@@ -2458,7 +2460,10 @@
             <ul>
               <li>Every emitted <code>running</code> frame owes exactly one terminal frame</li>
               <li>A gate decline is database-running but emits only <code>silent</code></li>
-              <li>Superseded rows emit no turn frame; frames are live-only and never replayed</li>
+              <li>Claim-coalesced <code>status=superseded</code> rows emit no turn frame</li>
+              <li>
+                A terminal <code>silent</code> may separately use reason <code>superseded</code>
+              </li>
             </ul>
           </div>
           <div class="card">
@@ -2473,7 +2478,9 @@
               <li>
                 They commit history and tool work through the trigger, not the rejected ending
               </li>
-              <li><code>superseded</code> and pre-turn gate declines do not advance the cursor</li>
+              <li>
+                Claim-coalesced supersedes and pre-turn gate declines leave the cursor unchanged
+              </li>
             </ul>
           </div>
           <div class="card">

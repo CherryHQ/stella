@@ -41,6 +41,52 @@ func groupCtx(triggerSeq int64) context.Context {
 	return ctx
 }
 
+func TestGroupAssembleExcludesFailedPeerDelivery(t *testing.T) {
+	db := openTestDB(t)
+	el := eventlog.NewStore(db)
+	ctx := context.Background()
+
+	visible, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "failed-peer", ActorType: eventlog.ActorHuman,
+		ActorID: "user-1", Content: "visible context", PlatformMessageID: "failed-peer-1",
+	})
+	if err != nil {
+		t.Fatalf("append visible message: %v", err)
+	}
+	failed, err := el.AppendToGroup(ctx, visible.GroupID, eventlog.GroupMessage{
+		ActorType: eventlog.ActorAgent, ActorID: "agent-b", Content: "delivery never reached the group",
+	})
+	if err != nil {
+		t.Fatalf("append failed peer message: %v", err)
+	}
+	q := sqlc.New(db)
+	if _, err := q.SetGroupMessageDeliveryState(ctx, sqlc.SetGroupMessageDeliveryStateParams{ID: failed.Message.ID, DeliveryState: "failed"}); err != nil {
+		t.Fatalf("mark peer delivery failed: %v", err)
+	}
+	trigger, err := el.AppendGroupMessage(ctx, eventlog.Message{
+		Platform: "test", PlatformGroupID: "failed-peer", ActorType: eventlog.ActorHuman,
+		ActorID: "user-2", Content: "trigger", PlatformMessageID: "failed-peer-3",
+	})
+	if err != nil {
+		t.Fatalf("append trigger: %v", err)
+	}
+
+	p, err := New(db, nil, nil)
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+	msgs, err := p.Assemble(groupCtx(trigger.Seq), groupSess("agent-a", visible.GroupID), 100_000, 20)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if len(msgs) != 1 {
+		t.Fatalf("injected messages = %d, want only the visible peer message", len(msgs))
+	}
+	if got := flattenUserMessage(msgs[0].(ai.UserMessage)); got != "[seq:1 user-1]: visible context" {
+		t.Fatalf("injected text = %q", got)
+	}
+}
+
 func TestGroupAssemble_HybridFlow(t *testing.T) {
 	db := openTestDB(t)
 	el := eventlog.NewStore(db)

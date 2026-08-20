@@ -40,9 +40,10 @@ type AgentMentionedSinceCursorParams struct {
 
 // Was this agent addressed in any message it has not consumed yet?
 // Coalescing is what makes this necessary: the newest wake can supersede the
-// row created for the message that addressed the agent, and a HOLD can move a
-// successor wake forward too. The LCM cursor is the right boundary: a PASS or
-// accepted turn has seen the mention, while a superseded or held turn has not.
+// row created for the message that addressed the agent. The LCM cursor is the
+// incorporation boundary: accepted, PASS, held, and post-turn silent outcomes
+// have seen the mention, while a claim-time superseded row never ran. A held
+// successor is admitted separately from its durable held row in triage.
 func (q *Queries) AgentMentionedSinceCursor(ctx context.Context, arg AgentMentionedSinceCursorParams) (bool, error) {
 	row := q.db.QueryRow(ctx, agentMentionedSinceCursor,
 		arg.Pipeline,
@@ -847,18 +848,32 @@ WHERE held.group_id = $1
   AND held.agent_id = $2
   AND held.status = 'held'
   AND held.trigger_seq >= ctx_group_chain_root($1, $2, $3)
+  AND held.held_up_to_seq > COALESCE((
+    SELECT cursor.last_seq
+    FROM ctx_group_ingest_cursor cursor
+    WHERE cursor.group_id = held.group_id
+      AND cursor.pipeline = $4
+  ), 0)
 `
 
 type MaxHeldUpToSeqInChainParams struct {
 	GroupID    string `json:"group_id"`
 	AgentID    string `json:"agent_id"`
 	TriggerSeq int64  `json:"trigger_seq"`
+	Pipeline   string `json:"pipeline"`
 }
 
 // How far peers had moved when this agent was last held in the current chain.
-// Zero means it was never held here; the turn is a first attempt.
+// Once a covering successor commits its cursor, that HOLD is no longer owed and
+// must not keep bypassing peer-mention or lap triage on every later wake.
+// Zero means there is no unconsumed HOLD here; the turn is a first attempt.
 func (q *Queries) MaxHeldUpToSeqInChain(ctx context.Context, arg MaxHeldUpToSeqInChainParams) (int64, error) {
-	row := q.db.QueryRow(ctx, maxHeldUpToSeqInChain, arg.GroupID, arg.AgentID, arg.TriggerSeq)
+	row := q.db.QueryRow(ctx, maxHeldUpToSeqInChain,
+		arg.GroupID,
+		arg.AgentID,
+		arg.TriggerSeq,
+		arg.Pipeline,
+	)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err

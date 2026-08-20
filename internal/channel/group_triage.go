@@ -41,10 +41,9 @@ func (d *GroupDispatcher) triageWake(ctx context.Context, row sqlc.CtxGroupDispa
 	}
 
 	// Read mentions since this agent's ingest watermark, not just from the
-	// trigger envelope. Coalescing and HOLD can move a wake past the message
-	// that addressed this agent. The cursor is the consumption boundary: a
-	// PASS/accepted turn has seen the mention, while a superseded or held turn
-	// has not.
+	// trigger envelope. Coalescing can move a wake past the message that
+	// addressed this agent. A completed model turn, including one stopped by a
+	// post-turn backstop, has incorporated that mention and advances the cursor.
 	if d.mentionedSinceCursor(ctx, row) || mentionsAgent(envelope.Mentions, row.AgentID) {
 		return true, "mentioned", false
 	}
@@ -53,6 +52,22 @@ func (d *GroupDispatcher) triageWake(ctx context.Context, row sqlc.CtxGroupDispa
 		// here. A queued nudge must observe the final post before it acquires the
 		// slot, otherwise it can announce and run duplicate work.
 		return true, "nudge", false
+	}
+
+	// A held turn did consume its mention and commits that cursor together with
+	// its tool history. Its successor therefore cannot rely on mention triage;
+	// the durable held row is the causal admission fact. Claiming already waits
+	// until this wake covers held_up_to_seq, and this check keeps a peer mention
+	// or lap rule from discarding the required successor turn.
+	heldUpTo, err := d.q.MaxHeldUpToSeqInChain(ctx, sqlc.MaxHeldUpToSeqInChainParams{
+		GroupID: row.GroupID, AgentID: row.AgentID, TriggerSeq: row.TriggerSeq,
+		Pipeline: memory.GroupIngestPipeline(row.AgentID),
+	})
+	if err != nil {
+		return false, "triage_db_error", true
+	}
+	if heldUpTo > 0 && row.TriggerSeq >= heldUpTo {
+		return true, "held_successor", false
 	}
 	if len(resolvedMentions(envelope.Mentions)) > 0 {
 		return false, "mentioned_peer", false

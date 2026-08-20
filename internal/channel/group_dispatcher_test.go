@@ -511,7 +511,7 @@ func TestUnclassifiedWakeRunsTheTurn(t *testing.T) {
 	}
 }
 
-func TestMentionSurvivesCoalescedAndHeldWake(t *testing.T) {
+func TestMentionSurvivesCoalescedWake(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	ctx := context.Background()
 	mentionEnvelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{AgentID: "agent-1"}})
@@ -524,9 +524,8 @@ func TestMentionSurvivesCoalescedAndHeldWake(t *testing.T) {
 
 	// The newer wake is the one that survives coalescing. It has no mention of
 	// agent-1, and the current envelope points at a peer, but the older human
-	// mention is still unread because the superseded turn never committed its
-	// cursor. This is also the HOLD successor shape: the trigger moved forward,
-	// while the agent's read boundary did not.
+	// mention is still unread because the superseded turn never ran or committed
+	// its cursor.
 	followUp := createGroupMessage(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-000000000002", 2, eventlog.ActorHuman, "user-1", "why no answer?")
 	setGroupNextSeq(t, fx.db, fx.groupID, followUp.Seq)
 	state, err := fx.q.GetGroupStateByID(ctx, fx.groupID)
@@ -539,6 +538,61 @@ func TestMentionSurvivesCoalescedAndHeldWake(t *testing.T) {
 	})
 	if !act || degraded || reason != "mentioned" {
 		t.Fatalf("act=%v reason=%q degraded=%v, want mentioned wake to act", act, reason, degraded)
+	}
+}
+
+func TestHeldSuccessorRunsAfterConsumedMention(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	mentionEnvelope, err := EncodeGroupOutboxEnvelope([]pkgchannel.Mention{{AgentID: "agent-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_outbox SET envelope = $1 WHERE group_message_id = $2`, mentionEnvelope, fx.message.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.q.UpsertIngestCursor(ctx, sqlc.UpsertIngestCursorParams{
+		GroupID:  fx.groupID,
+		Pipeline: memory.GroupIngestPipeline("agent-1"),
+		LastSeq:  fx.message.Seq,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	followUp := createGroupMessage(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-000000000004", 2, eventlog.ActorAgent, "agent-2", "@Carol take this instead")
+	setGroupNextSeq(t, fx.db, fx.groupID, followUp.Seq)
+	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000004", "agent-1", fx.groupID, "held", pgtype.Timestamptz{})
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET held_up_to_seq = $1 WHERE id = $2`, followUp.Seq, "d15a0000-0000-0000-0000-000000000004"); err != nil {
+		t.Fatal(err)
+	}
+
+	state, err := fx.q.GetGroupStateByID(ctx, fx.groupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := sqlc.CtxGroupDispatch{GroupID: fx.groupID, AgentID: "agent-1", TriggerSeq: followUp.Seq, Kind: "wake"}
+	act, reason, degraded := fx.d.triageWake(ctx, row, followUp, state, GroupOutboxEnvelope{
+		Mentions: []pkgchannel.Mention{{AgentID: "agent-3"}},
+	})
+	if !act || degraded || reason != "held_successor" {
+		t.Fatalf("act=%v reason=%q degraded=%v, want held successor to act", act, reason, degraded)
+	}
+
+	// Once that successor commits through the held coverage point, the old held
+	// row is no longer an outstanding admission token. A later peer mention may
+	// silence this agent normally instead of forcing turns forever.
+	if err := fx.q.UpsertIngestCursor(ctx, sqlc.UpsertIngestCursorParams{
+		GroupID:  fx.groupID,
+		Pipeline: memory.GroupIngestPipeline("agent-1"),
+		LastSeq:  followUp.Seq,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	act, reason, degraded = fx.d.triageWake(ctx, row, followUp, state, GroupOutboxEnvelope{
+		Mentions: []pkgchannel.Mention{{AgentID: "agent-3"}},
+	})
+	if act || degraded || reason != "mentioned_peer" {
+		t.Fatalf("act=%v reason=%q degraded=%v, want consumed held successor to stop bypassing triage", act, reason, degraded)
 	}
 }
 

@@ -48,10 +48,12 @@ CREATE INDEX idx_ctx_group_dispatch_wake_newest
 -- +goose StatementBegin
 -- ctx_group_chain_root is the single definition of where one agent's current
 -- causal chain starts: a later human message, or this agent's own accepted
--- post, opens a new chain. Two places read it -- the wake claim gate and the
--- HOLD count -- and they stand on opposite failure modes: relaxing only the
--- gate lets a held row re-run and post twice, tightening only the count makes
--- a HOLD never expire. Keeping one definition is what stops that pair drifting.
+-- post, opens a new chain. Four consumers share it: the wake claim gate, HOLD
+-- count, held-coverage hint, and chain-scoped verbatim dedup. They stand on
+-- different failure modes: relaxing only the gate lets a held row re-run and
+-- post twice, tightening only the count makes a HOLD never expire, and widening
+-- only dedup can suppress an ordinary acknowledgement forever. Keeping one
+-- definition is what stops those consumers drifting.
 CREATE FUNCTION ctx_group_chain_root(p_group_id UUID, p_agent_id TEXT, p_trigger_seq BIGINT)
 RETURNS BIGINT
 LANGUAGE sql STABLE PARALLEL SAFE AS $$

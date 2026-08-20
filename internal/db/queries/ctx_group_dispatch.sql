@@ -160,13 +160,21 @@ WHERE held.group_id = sqlc.arg(group_id)
 
 -- name: MaxHeldUpToSeqInChain :one
 -- How far peers had moved when this agent was last held in the current chain.
--- Zero means it was never held here; the turn is a first attempt.
+-- Once a covering successor commits its cursor, that HOLD is no longer owed and
+-- must not keep bypassing peer-mention or lap triage on every later wake.
+-- Zero means there is no unconsumed HOLD here; the turn is a first attempt.
 SELECT COALESCE(MAX(held.held_up_to_seq), 0)::bigint
 FROM ctx_group_dispatch held
 WHERE held.group_id = sqlc.arg(group_id)
   AND held.agent_id = sqlc.arg(agent_id)
   AND held.status = 'held'
-  AND held.trigger_seq >= ctx_group_chain_root(sqlc.arg(group_id), sqlc.arg(agent_id), sqlc.arg(trigger_seq));
+  AND held.trigger_seq >= ctx_group_chain_root(sqlc.arg(group_id), sqlc.arg(agent_id), sqlc.arg(trigger_seq))
+  AND held.held_up_to_seq > COALESCE((
+    SELECT cursor.last_seq
+    FROM ctx_group_ingest_cursor cursor
+    WHERE cursor.group_id = held.group_id
+      AND cursor.pipeline = sqlc.arg(pipeline)
+  ), 0);
 
 -- name: RequeueHeldGroupDispatchesAfterAcceptedPost :execrows
 -- Release only peers that actually yielded to this accepted post. Wall-clock
@@ -337,9 +345,10 @@ WHERE id = sqlc.arg(id)
 -- name: AgentMentionedSinceCursor :one
 -- Was this agent addressed in any message it has not consumed yet?
 -- Coalescing is what makes this necessary: the newest wake can supersede the
--- row created for the message that addressed the agent, and a HOLD can move a
--- successor wake forward too. The LCM cursor is the right boundary: a PASS or
--- accepted turn has seen the mention, while a superseded or held turn has not.
+-- row created for the message that addressed the agent. The LCM cursor is the
+-- incorporation boundary: accepted, PASS, held, and post-turn silent outcomes
+-- have seen the mention, while a claim-time superseded row never ran. A held
+-- successor is admitted separately from its durable held row in triage.
 SELECT EXISTS (
   SELECT 1
   FROM ctx_group_outbox outbox

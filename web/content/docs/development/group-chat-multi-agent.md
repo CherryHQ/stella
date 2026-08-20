@@ -44,7 +44,7 @@ One SQL function, `ctx_group_chain_root(group, agent, trigger_seq)`, answers whe
 
 Ingest appends one canonical event and creates one outbox row. Draining a normal outbox materializes one wake per eligible member, skipping an agent author — **a member never wakes itself**. A nudge outbox instead materializes exactly its named target; that target exception is why neither the outbox nor dispatch cardinality is simply “one row per member.”
 
-A worker coalesces ordinary wakes to the newest one per `(group, agent)` and marks older pending wakes `superseded`. A targeted nudge is never superseded. Both kinds nevertheless share **one kind-agnostic live slot per `(group, agent)`**: a wake and a nudge cannot run concurrently for the same agent in the same group. This is what makes the model survive a busy group: five messages in a row cost one turn that sees all five, not five turns each seeing a stale prefix. Superseded rows never advance the memory cursor and emit no turn frame, so nothing is marked as read that was not read.
+A worker coalesces ordinary wakes to the newest one per `(group, agent)` and marks older pending wakes `status='superseded'`. A targeted nudge is never coalesced this way. Both kinds nevertheless share **one kind-agnostic live slot per `(group, agent)`**: a wake and a nudge cannot run concurrently for the same agent in the same group. This is what makes the model survive a busy group: five messages in a row cost one turn that sees all five, not five turns each seeing a stale prefix. Rows superseded by claim-time coalescing never advance the memory cursor and emit no turn frame, so nothing is marked as read that was not read.
 
 After a worker obtains a queue slot, it re-checks whether a targeted nudge is already moot. An ordinary wake may have posted while the nudge waited; that nudge retires silently rather than spending another turn.
 
@@ -59,15 +59,16 @@ Rules are evaluated in order, first match wins:
 | #   | Rule                                                    | Verdict                   | Why                                                                                                                                                                         |
 | --- | ------------------------------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | Chain, rate, or per-human-trigger cap exceeded          | `hard_cap` — silent       | The anti-storm floor. No bypass, no exceptions. The rate cap is 10 posts per agent per minute.                                                                              |
-| 2   | An unconsumed message mentions this agent               | `mentioned` — act         | Read from the ingest cursor, not only the trigger envelope: coalescing and HOLD can move a wake past the message that addressed it.                                         |
+| 2   | An unconsumed message mentions this agent               | `mentioned` — act         | Read from the ingest cursor, not only the trigger envelope: coalescing can move a wake past the message that addressed it.                                                  |
 | 3   | A nudge names this agent, and it has not posted since   | `nudge` — act             | A nudge is never superseded, so a wake already in flight may have posted the very reply the nudge asks for. The post-queue-slot recheck then returns `nudge_moot` — silent. |
-| 4   | A resolved mention names some other member              | `mentioned_peer` — silent | Somebody else was addressed.                                                                                                                                                |
-| 5   | Agent-only run, this agent already spoke, no live claim | `agent_lap` — silent      | One lap per participant. A live claim means work is in flight, so the run is not idle chatter and the floor stays open.                                                     |
-| 6   | Nothing matched                                         | `open_floor` — act        | The default is to run. A rule that cannot classify a wake must not silence it.                                                                                              |
+| 4   | This wake covers an outstanding previous HOLD           | `held_successor` — act    | The held turn consumed its mention and history; until the cursor covers `held_up_to_seq`, its durable held row admits the required successor.                               |
+| 5   | A resolved mention names some other member              | `mentioned_peer` — silent | Somebody else was addressed, unless this wake still owes a held successor turn.                                                                                             |
+| 6   | Agent-only run, this agent already spoke, no live claim | `agent_lap` — silent      | One lap per participant. A live claim means work is in flight, so the run is not idle chatter and the floor stays open.                                                     |
+| 7   | Nothing matched                                         | `open_floor` — act        | The default is to run. A rule that cannot classify a wake must not silence it.                                                                                              |
 
-Rule 6 is the thesis. Any gate that fails closed hands the decision to whoever wrote the rules; failing open hands it to the agent, which is the party with the most information.
+Rule 7 is the thesis. Any gate that fails closed hands the decision to whoever wrote the rules; failing open hands it to the agent, which is the party with the most information.
 
-A read error inside rule 2 resolves to "no match" on purpose. A transient database failure then costs the mention its rule, never the agent its turn. The cap reads before rule 1 are different: if any of them fail, triage returns `triage_db_error`, requeues while attempts remain, and retires silently only after the ordinary three-attempt budget is exhausted. The nudge-moot read runs later, inside the session queue; a failure there fails and retries the dispatch rather than risking duplicate work.
+A read error inside rule 2 resolves to "no match" on purpose. A transient database failure then costs the mention its rule, never the agent its turn. The cap reads before rule 1 and the durable HOLD read for rule 4 are different: if any of them fail, triage returns `triage_db_error`, requeues while attempts remain, and retires silently only after the ordinary three-attempt budget is exhausted. The nudge-moot read runs later, inside the session queue; a failure there fails and retries the dispatch rather than risking duplicate work.
 
 ## Gate two: the agent's own PASS
 
@@ -79,7 +80,7 @@ The turn is retired as `silent` with reason `model_pass`. No post, no outbox, no
 
 That last part is load-bearing. An agent may claim a piece of work, write a file, and _then_ decide it has nothing worth saying. Dropping the whole turn would make it forget the claim it holds while the side effect stays real for every peer. `stripTrailingPass` removes only trailing text-only assistant messages and stops at the first message carrying a tool call, so no `tool_use` is ever separated from its `tool_result`.
 
-A `model_pass` advances the ingest cursor. So does a post-turn backstop: after a `held`, duplicate, or cap verdict, the transaction commits the history and tool trajectory the agent actually read and advances its cursor through `trigger_seq`; it discards only the trailing reply that was not accepted. A superseded row or a pre-turn gate decline did not run the model, so neither advances the cursor.
+A `model_pass` advances the ingest cursor. So does a post-turn backstop: after a `held`, duplicate, or cap verdict, the transaction commits the history and tool trajectory the agent actually read and advances its cursor through `trigger_seq`; it discards only the trailing reply that was not accepted. Because a HOLD has therefore consumed its original mention, the successor is admitted by the covered durable held row (`held_successor`), before peer-mention or lap triage can silence it. Once that successor commits a cursor through `held_up_to_seq`, the old HOLD stops granting admission. A claim-time superseded row or a pre-turn gate decline did not run the model, so neither advances the cursor.
 
 ## Gate three: the accept transaction
 
@@ -107,7 +108,7 @@ Agent templates fill `{{ .AgentName }}` with the name of the agent being created
 
 `ctx_group_claim` is a conditional-upsert lease. An agent claims a concrete shared deliverable by key; a peer that tries the same key is told who holds it and until when. TTL is clamped to 1 minute – 24 hours, default 10 minutes, and an expired lease can be taken over.
 
-Claims are surfaced twice: in the group prompt, so peers can see what is already owned, and in triage rule 5, where a live claim keeps the floor open during an agent-only run.
+Claims are surfaced twice: in the group prompt, so peers can see what is already owned, and in triage rule 6, where a live claim keeps the floor open during an agent-only run.
 
 Claims are for deliverables, never for ordinary chat replies. A claim on "answering this question" would turn the collaboration model back into a lock.
 
@@ -131,7 +132,7 @@ The streak bound is the important one. Every nudge that remains live after the q
 
 Web `POST /api/groups/{id}/messages` only ingests and wakes workers. It returns `start`, `data-group-ingest`, and `finish`; canonical messages and turn presence arrive on the group event stream.
 
-**Web is a platform whose publisher is a noop, not a bypass.** A web reply runs the same lifecycle as a Telegram one: born `pending`, marked `delivered` in the successful publisher finalization transaction, `failed` when accepted delivery permanently cannot complete. Only that accepted-delivery failure frees peers that were held behind the reply. A normal wake that fails before acceptance has no accepted peer post to compensate.
+**Web is a platform whose publisher is a noop, not a bypass.** A web reply runs the same lifecycle as a Telegram one: born `pending`, marked `delivered` in the successful publisher finalization transaction, `failed` when accepted delivery permanently cannot complete. Only that accepted-delivery failure frees peers that were held behind the reply. A normal wake that fails before acceptance has no accepted peer post to compensate. Failed canonical rows remain in the author's own memory for tool/history consistency, but are excluded from every peer's injected transcript because the conversation never received them.
 
 The real prebuffer is `bufferGroupResponse`: it drains the runtime's complete event stream, up to its 8 MiB in-memory ceiling, before acceptance or any platform side effect. Publishers receive a closed replay. `ValidateGroupReplay` is a defensive publisher-side recheck of that replay, not the mechanism that buffers a live model stream. No live model stream or model error remains at egress; platform delivery can still fail and is handled by the dispatch retry state machine. This is why platform publishers send one complete message rather than a placeholder they later edit.
 
@@ -141,7 +142,7 @@ A delivered agent message creates its own outbox in that same finalization trans
 
 `GET /api/groups/{id}/events` carries `turn` frames alongside canonical `message` frames. A turn frame is live presence for one member, never replayed history.
 
-Claiming a row first makes its database status `running`. A wake or nudge emits a `running` frame only after it owns the per-session queue slot and the chat stream has started; a queued nudge that became moot emits only terminal `silent`. A gate decline likewise emits its terminal `silent` frame from an already-running database row, but never emits a `running` frame. Superseded rows emit no turn frame at all. Once a `running` frame has been emitted, exactly one terminal frame retires it: `done` once the accepted reply has been delivered, `held` when freshness stopped it, `silent` when the model or a later backstop declined, `failed` otherwise.
+Claiming a row first makes its database status `running`. A wake or nudge emits a `running` frame only after it owns the per-session queue slot and the chat stream has started; a queued nudge that became moot emits only terminal `silent`. A gate decline likewise emits its terminal `silent` frame from an already-running database row, but never emits a `running` frame. Rows marked `status='superseded'` by claim-time wake coalescing emit no turn frame at all. Separately, a claimed row whose trigger was already consumed across a session boundary retires with a terminal `silent` frame whose reason is also `superseded`; this is a verdict reason, not the database superseded status. Once a `running` frame has been emitted, exactly one terminal frame retires it: `done` once the accepted reply has been delivered, `held` when freshness stopped it, `silent` when the model or a later backstop declined, `failed` otherwise.
 
 Egress compensation — republishing an accepted reply after a restart — skips `running`, because no model is taking that turn, and still emits `done` on delivery.
 

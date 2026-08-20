@@ -44,7 +44,7 @@ description: Stella 如何让多个 agent 共享同一个会话，而不需要�
 
 Ingest 追加一条 canonical 事件并创建一条 outbox。消费普通 outbox 时，为每个合格成员物化一条 wake，跳过 agent 作者——**成员不会唤醒自己**。nudge outbox 则只物化给它点名目标的一条 wake；这个目标例外意味着 outbox 和 dispatch 的基数都不是简单的“每成员一行”。
 
-worker 会把同一个 `(group, agent)` 的普通 wake 合并到最新一条，并把更旧的 pending wake 标为 superseded。定向 nudge 永不被 supersede。不过两种 kind 共享**每个 `(group, agent)` 一个、不区分 kind 的 live slot**：wake 和 nudge 不能在同一群中为同一个 agent 并发执行。这正是这个模型能扛住忙群聊的原因：连着 5 条消息的代价是一个看得见全部 5 条的 turn，而不是 5 个各自看到过期前缀的 turn。superseded 的行绝不推进 memory cursor，也不发 turn frame，所以不会有“没读过却被标记为已读”的消息。
+worker 会把同一个 `(group, agent)` 的普通 wake 合并到最新一条，并把更旧的 pending wake 标为 `status='superseded'`。定向 nudge 永不以这种方式被合并。不过两种 kind 共享**每个 `(group, agent)` 一个、不区分 kind 的 live slot**：wake 和 nudge 不能在同一群中为同一个 agent 并发执行。这正是这个模型能扛住忙群聊的原因：连着 5 条消息的代价是一个看得见全部 5 条的 turn，而不是 5 个各自看到过期前缀的 turn。被 claim 阶段合并而 supersede 的行绝不推进 memory cursor，也不发 turn frame，所以不会有“没读过却被标记为已读”的消息。
 
 worker 拿到 queue slot 后，会重查定向 nudge 是否已经 moot。nudge 等待期间，一条普通 wake 可能已经发出了它要的那条回复；这条 nudge 会静默退休，不再消耗一个 turn。
 
@@ -59,15 +59,16 @@ worker 拿到 queue slot 后，会重查定向 nudge 是否已经 moot。nudge �
 | #   | 规则                                                   | 判决                    | 为什么                                                                                                                                      |
 | --- | ------------------------------------------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | 链长、速率或每条人类触发的回复数超限                   | `hard_cap` — 静默       | 防风暴底线。无绕过，无例外。速率上限是每个 agent 每分钟 10 条。                                                                             |
-| 2   | cursor 之后有未消费的消息点名了这个 agent              | `mentioned` — 行动      | 从 ingest cursor 读，而不只读触发消息的 envelope：合并和 HOLD 会把一条 wake 推过那条点名它的消息。                                          |
+| 2   | cursor 之后有未消费的消息点名了这个 agent              | `mentioned` — 行动      | 从 ingest cursor 读，而不只读触发消息的 envelope：合并可能让一条 wake 越过那条点名它的消息。                                                |
 | 3   | 有 nudge 点名这个 agent，且它此后还没发过言            | `nudge` — 行动          | nudge 不会被 supersede，所以一条已经在飞的 wake 可能已经发了 nudge 要的那条回复。拿到 queue slot 后重查若为真，判决是 `nudge_moot` — 静默。 |
-| 4   | 已解析的点名指向别的成员                               | `mentioned_peer` — 静默 | 被叫的是别人。                                                                                                                              |
-| 5   | 纯 agent 轮次中，这个 agent 已经发过言，且无存活 claim | `agent_lap` — 静默      | 每人一圈。存活的 claim 说明有活在干，这一轮不是空转闲聊，地板保持开放。                                                                     |
-| 6   | 什么都没命中                                           | `open_floor` — 行动     | 默认是跑。一条无法分类这条 wake 的规则，不该让它闭嘴。                                                                                      |
+| 4   | 这条 wake 覆盖了尚未消费的旧 HOLD                      | `held_successor` — 行动 | 被 hold 的 turn 已消费自己的 mention 和 history；在 cursor 覆盖 `held_up_to_seq` 前，必需的后继由 durable held 行准入。                     |
+| 5   | 已解析的点名指向别的成员                               | `mentioned_peer` — 静默 | 被叫的是别人，除非这条 wake 仍欠着一个 HOLD 后继 turn。                                                                                     |
+| 6   | 纯 agent 轮次中，这个 agent 已经发过言，且无存活 claim | `agent_lap` — 静默      | 每人一圈。存活的 claim 说明有活在干，这一轮不是空转闲聊，地板保持开放。                                                                     |
+| 7   | 什么都没命中                                           | `open_floor` — 行动     | 默认是跑。一条无法分类这条 wake 的规则，不该让它闭嘴。                                                                                      |
 
-规则 6 是整个设计的论点。任何 fail-closed 的门都把决定权交给了写规则的人；fail-open 则把它交给 agent，也就是信息最全的那一方。
+规则 7 是整个设计的论点。任何 fail-closed 的门都把决定权交给了写规则的人；fail-open 则把它交给 agent，也就是信息最全的那一方。
 
-规则 2 内部的读错误会被有意地归结为“未命中”。这样，一次瞬时数据库故障代价是这条点名失去它的规则，而不是这个 agent 失去它的 turn。规则 1 之前读取任何上限数据失败则不同：triage 返回 `triage_db_error`，还有尝试预算时重新入队，普通三次尝试耗尽后才静默退休。nudge-moot 读取发生得更晚，在 session queue 内；那里读取失败会让 dispatch 失败并重试，而不是冒险重复工作。
+规则 2 内部的读错误会被有意地归结为“未命中”。这样，一次瞬时数据库故障代价是这条点名失去它的规则，而不是这个 agent 失去它的 turn。规则 1 之前读取上限数据失败，以及规则 4 读取 durable HOLD 失败则不同：triage 返回 `triage_db_error`，还有尝试预算时重新入队，普通三次尝试耗尽后才静默退休。nudge-moot 读取发生得更晚，在 session queue 内；那里读取失败会让 dispatch 失败并重试，而不是冒险重复工作。
 
 ## 门二：agent 自己的 PASS
 
@@ -79,7 +80,7 @@ agent 已经读完整个群，带着自己的记忆，也知道自己在做什�
 
 最后这条是承重的。一个 agent 可能先认领一块工作、写了一个文件，**然后**才判断没什么值得说的。丢掉整轮会让它忘记自己持有的 claim，而副作用对每个 peer 都是真的。`stripTrailingPass` 只移除末尾的纯文本 assistant 消息，遇到第一条带 tool call 的消息就停，所以任何 `tool_use` 都不会和它的 `tool_result` 分家。
 
-`model_pass` 会推进 ingest cursor。post-turn backstop 也会：`held`、duplicate 或 cap 判决之后，事务会提交 agent 实际读过的 history 和 tool 轨迹，并把 cursor 推进到 `trigger_seq`；它只丢掉没有被接受的末尾回复。superseded 行或 turn 开始前的 gate decline 没有跑模型，所以两者都不推进 cursor。
+`model_pass` 会推进 ingest cursor。post-turn backstop 也会：`held`、duplicate 或 cap 判决之后，事务会提交 agent 实际读过的 history 和 tool 轨迹，并把 cursor 推进到 `trigger_seq`；它只丢掉没有被接受的末尾回复。因为 HOLD 因而已经消费了原始 mention，它的后继会在 peer-mention 和 lap triage 有机会静默之前，由覆盖范围内的 durable held 行以 `held_successor` 准入。一旦该后继提交的 cursor 覆盖 `held_up_to_seq`，旧 HOLD 就不再提供准入。claim 阶段 superseded 的行或 turn 开始前的 gate decline 没有跑模型，所以两者都不推进 cursor。
 
 ## 门三：接受事务
 
@@ -107,7 +108,7 @@ Agent 模板会把 `{{ .AgentName }}` 填成正在创建的 agent 的名字，�
 
 `ctx_group_claim` 是一个条件 upsert 租约。agent 按 key 认领一个具体的共享交付物；试图认领同一个 key 的 peer 会被告知持有者是谁、持有到什么时候。TTL 被夹在 1 分钟到 24 小时之间，默认 10 分钟，过期的租约可以被接管。
 
-claim 会在两处露出：群 prompt 里，让 peer 看得见什么已经有主；以及 triage 规则 5 里，存活的 claim 会在纯 agent 轮次中保持地板开放。
+claim 会在两处露出：群 prompt 里，让 peer 看得见什么已经有主；以及 triage 规则 6 里，存活的 claim 会在纯 agent 轮次中保持地板开放。
 
 claim 是给交付物的，绝不给普通聊天回复。给“回答这个问题”加 claim，会把协作模型退化回一把锁。
 
@@ -131,7 +132,7 @@ streak 上限才是关键。只有通过 queue-slot moot 复检后仍然存活�
 
 Web `POST /api/groups/{id}/messages` 只负责 ingest 并唤醒 worker。它返回 `start`、`data-group-ingest`、`finish`；canonical 消息和 turn presence 通过 group event stream 到达。
 
-**Web 是一个 publisher 为 noop 的平台，而不是一条绕过。** 一条 web 回复走的生命周期和 Telegram 的完全一样：以 `pending` 出生，在 publisher 成功 finalize 的事务中标为 `delivered`，已接受的投递永久不能完成时标为 `failed`。只有这种已接受投递失败会释放被该回复 hold 住的 peer；一条接受前就失败的普通 wake 没有已接受的 peer post 可以补偿。
+**Web 是一个 publisher 为 noop 的平台，而不是一条绕过。** 一条 web 回复走的生命周期和 Telegram 的完全一样：以 `pending` 出生，在 publisher 成功 finalize 的事务中标为 `delivered`，已接受的投递永久不能完成时标为 `failed`。只有这种已接受投递失败会释放被该回复 hold 住的 peer；一条接受前就失败的普通 wake 没有已接受的 peer post 可以补偿。失败的 canonical 行会留在作者自己的 memory 中，维持工具/history 一致性，但不会注入任何 peer 的 transcript，因为群对话从未收到它。
 
 真正的预缓冲是 `bufferGroupResponse`：它在接受和任何平台副作用之前，抽干 runtime 的完整 event stream，受 8 MiB 内存上限约束。publisher 拿到的是已经关闭的 replay。`ValidateGroupReplay` 是 publisher 侧对该 replay 的防御性复检，不是缓冲实时模型流的机制。egress 处不再有实时模型流或模型错误；平台投递本身仍可能失败，并由 dispatch 重试状态机处理。这就是平台 publisher 发一条完整消息、而不是先发占位再编辑的原因。
 
@@ -141,7 +142,7 @@ Web `POST /api/groups/{id}/messages` 只负责 ingest 并唤醒 worker。它返�
 
 `GET /api/groups/{id}/events` 在 canonical `message` 帧之外还带 `turn` 帧。turn 帧是某个成员的实时 presence，绝不是被重放的历史。
 
-一行被 claim 后，数据库状态先变成 `running`。wake 或 nudge 只有在拿到 per-session queue slot、chat stream 已经启动后才发 `running` 帧；排队期间变成 moot 的 nudge 只发终态 `silent`。gate decline 同样从一条数据库中已经 `running` 的行发出终态 `silent`，但绝不发 `running` 帧。superseded 行完全不发 turn frame。只要发出过 `running`，恰好一个终态帧让它退休：已接受回复投递完成后是 `done`，新鲜度拦住回复是 `held`，模型或后续 backstop 选择不发言是 `silent`，其他情况是 `failed`。
+一行被 claim 后，数据库状态先变成 `running`。wake 或 nudge 只有在拿到 per-session queue slot、chat stream 已经启动后才发 `running` 帧；排队期间变成 moot 的 nudge 只发终态 `silent`。gate decline 同样从一条数据库中已经 `running` 的行发出终态 `silent`，但绝不发 `running` 帧。被 claim 阶段 wake 合并标成 `status='superseded'` 的行完全不发 turn frame。另一种情况是：已经 claim 的行发现自己的 trigger 跨 session boundary 被消费，它会发一帧终态 `silent`，reason 同样叫 `superseded`；这是判决原因，不是数据库里的 superseded 状态。只要发出过 `running`，恰好一个终态帧让它退休：已接受回复投递完成后是 `done`，新鲜度拦住回复是 `held`，模型或后续 backstop 选择不发言是 `silent`，其他情况是 `failed`。
 
 egress 补偿——重启后重新发布一条已接受的回复——会跳过 `running`，因为没有模型在跑这一轮，但投递时仍然发 `done`。
 

@@ -56,6 +56,10 @@ FROM ctx_group_message
 WHERE group_id = sqlc.arg(group_id)
   AND seq > sqlc.arg(after_seq)
   AND seq < sqlc.arg(before_seq)
+  -- A failed platform delivery was never visible to peers. The author keeps
+  -- its own attempted reply and tool history in memory, but no other agent may
+  -- reason from a canonical row that the conversation never received.
+  AND delivery_state <> 'failed'
 ORDER BY seq ASC;
 
 -- name: ListGroupsWithPendingIngest :many
