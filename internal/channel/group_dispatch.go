@@ -326,17 +326,6 @@ func platformGroupSpeaker(msg pkgchannel.IncomingMessage, userID, userName strin
 	}
 }
 
-// firstMentionedAgent returns the AgentID of the first resolved @mention,
-// or "" if none is resolved.
-func firstMentionedAgent(mentions []pkgchannel.Mention) string {
-	for _, m := range mentions {
-		if m.AgentID != "" {
-			return m.AgentID
-		}
-	}
-	return ""
-}
-
 // legacyGroupContent keeps the old inline group codec bounded at its storage
 // boundary. Producers do not need to know whether a message will become an
 // ordinary session or a deferred group event.

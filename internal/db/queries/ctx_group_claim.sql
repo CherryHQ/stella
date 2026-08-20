@@ -22,6 +22,16 @@ WHERE group_id = sqlc.arg(group_id)
   AND lease_until > now()
 ORDER BY created_at ASC, key ASC;
 
+-- name: DeleteExpiredGroupClaims :execrows
+-- Claims are read-side filtered by `lease_until > now()`, so an expired row is
+-- already invisible; without this the table only ever shrinks on group delete.
+-- The grace period keeps a just-expired claim readable for a while: an agent
+-- that overran its lease still sees its own note when it comes back, and an
+-- operator debugging a stuck turn can still see who held what. One hour is
+-- comfortably longer than any single turn.
+DELETE FROM ctx_group_claim
+WHERE lease_until < sqlc.arg('now')::timestamptz - interval '1 hour';
+
 -- name: ReleaseGroupClaim :execrows
 DELETE FROM ctx_group_claim
 WHERE group_id = sqlc.arg(group_id)

@@ -55,6 +55,25 @@ func (q *Queries) ClaimGroupWork(ctx context.Context, arg ClaimGroupWorkParams) 
 	return i, err
 }
 
+const deleteExpiredGroupClaims = `-- name: DeleteExpiredGroupClaims :execrows
+DELETE FROM ctx_group_claim
+WHERE lease_until < $1::timestamptz - interval '1 hour'
+`
+
+// Claims are read-side filtered by `lease_until > now()`, so an expired row is
+// already invisible; without this the table only ever shrinks on group delete.
+// The grace period keeps a just-expired claim readable for a while: an agent
+// that overran its lease still sees its own note when it comes back, and an
+// operator debugging a stuck turn can still see who held what. One hour is
+// comfortably longer than any single turn.
+func (q *Queries) DeleteExpiredGroupClaims(ctx context.Context, now time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteExpiredGroupClaims, now)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getLiveGroupClaim = `-- name: GetLiveGroupClaim :one
 SELECT id, group_id, key, owner_agent_id, note, lease_until, created_at, updated_at FROM ctx_group_claim
 WHERE group_id = $1

@@ -24,8 +24,10 @@ SELECT EXISTS (
     AND message.actor_id <> $3
     AND message.seq > COALESCE(cursor.last_seq, 0)
     AND message.seq <= $4
-    -- Mention.AgentID carries no json tag, so the encoded key is the Go field
-    -- name. Containment matches an element with that id whatever else it holds.
+    -- The key is the Go field name: pkg/channel.Mention pins it with an
+    -- explicit ` + "`" + `json:"AgentID"` + "`" + ` tag precisely so this query keeps matching
+    -- stored envelopes. Containment matches an element with that id whatever
+    -- else it holds.
     AND (outbox.envelope::jsonb -> 'mentions') @> jsonb_build_array(jsonb_build_object('AgentID', $3::text))
 )::boolean
 `
@@ -290,43 +292,6 @@ func (q *Queries) CountHeldGroupDispatchesInChain(ctx context.Context, arg Count
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
-}
-
-const createGroupDispatch = `-- name: CreateGroupDispatch :exec
-INSERT INTO ctx_group_dispatch (
-  id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, trigger_seq, kind
-)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-  (SELECT seq FROM ctx_group_message WHERE id = $2), 'wake') ON CONFLICT DO NOTHING
-`
-
-type CreateGroupDispatchParams struct {
-	ID             string             `json:"id"`
-	GroupMessageID string             `json:"group_message_id"`
-	GroupID        string             `json:"group_id"`
-	AgentID        string             `json:"agent_id"`
-	ReplyChannelID string             `json:"reply_channel_id"`
-	Status         string             `json:"status"`
-	AttemptCount   int64              `json:"attempt_count"`
-	LeaseUntil     pgtype.Timestamptz `json:"lease_until"`
-	NextAttemptAt  pgtype.Timestamptz `json:"next_attempt_at"`
-	LastError      string             `json:"last_error"`
-}
-
-func (q *Queries) CreateGroupDispatch(ctx context.Context, arg CreateGroupDispatchParams) error {
-	_, err := q.db.Exec(ctx, createGroupDispatch,
-		arg.ID,
-		arg.GroupMessageID,
-		arg.GroupID,
-		arg.AgentID,
-		arg.ReplyChannelID,
-		arg.Status,
-		arg.AttemptCount,
-		arg.LeaseUntil,
-		arg.NextAttemptAt,
-		arg.LastError,
-	)
-	return err
 }
 
 const createGroupNudge = `-- name: CreateGroupNudge :exec

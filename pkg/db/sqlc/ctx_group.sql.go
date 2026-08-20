@@ -897,68 +897,8 @@ func (q *Queries) ListGroupsByUser(ctx context.Context, arg ListGroupsByUserPara
 	return items, nil
 }
 
-const listRecentGroupMessages = `-- name: ListRecentGroupMessages :many
-
-SELECT id, group_id, seq, source_channel_id, actor_type, actor_id, platform_message_id, reply_to, platform_timestamp, idempotency_key, content, reasoning, agent_session_id, created_at, content_blocks, delivery_state FROM ctx_group_message
-WHERE group_id = $1
-ORDER BY seq DESC
-LIMIT $2
-`
-
-type ListRecentGroupMessagesParams struct {
-	GroupID  string `json:"group_id"`
-	MaxCount int32  `json:"max_count"`
-}
-
-// content_blocks holds inbound image payloads, so a single row is bounded only
-// by the channel inline ceiling (telegram/qq inline up to 20MB today; 5MB once
-// #786 lands). Only the dispatch reads above (GetGroupMessage / the dedup
-// :one lookups) rehydrate images, so they keep SELECT *. The text-only list
-// consumers below — group-triage recent context, LCM cross-agent assembly,
-// and web pagination — read only the projected text columns, so they select an
-// explicit column list that EXCLUDES content_blocks and never drag image blobs
-// across a history window.
-// ListRecentGroupMessages currently has no caller; it keeps SELECT * so a future
-// replay/dispatch consumer that needs content_blocks gets the full row. Give it
-// an explicit lean list only if a text-only consumer adopts it.
-func (q *Queries) ListRecentGroupMessages(ctx context.Context, arg ListRecentGroupMessagesParams) ([]CtxGroupMessage, error) {
-	rows, err := q.db.Query(ctx, listRecentGroupMessages, arg.GroupID, arg.MaxCount)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []CtxGroupMessage{}
-	for rows.Next() {
-		var i CtxGroupMessage
-		if err := rows.Scan(
-			&i.ID,
-			&i.GroupID,
-			&i.Seq,
-			&i.SourceChannelID,
-			&i.ActorType,
-			&i.ActorID,
-			&i.PlatformMessageID,
-			&i.ReplyTo,
-			&i.PlatformTimestamp,
-			&i.IdempotencyKey,
-			&i.Content,
-			&i.Reasoning,
-			&i.AgentSessionID,
-			&i.CreatedAt,
-			&i.ContentBlocks,
-			&i.DeliveryState,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listRecentGroupMessagesBeforeSeq = `-- name: ListRecentGroupMessagesBeforeSeq :many
+
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
        platform_message_id, reply_to, platform_timestamp, idempotency_key,
        content, reasoning, agent_session_id, created_at, delivery_state
@@ -993,6 +933,14 @@ type ListRecentGroupMessagesBeforeSeqRow struct {
 	DeliveryState     string             `json:"delivery_state"`
 }
 
+// content_blocks holds inbound image payloads, so a single row is bounded only
+// by the channel inline ceiling (telegram/qq inline up to 20MB today; 5MB once
+// #786 lands). Only the dispatch reads above (GetGroupMessage / the dedup
+// :one lookups) rehydrate images, so they keep SELECT *. The text-only list
+// consumers below — group-triage recent context, LCM cross-agent assembly,
+// and web pagination — read only the projected text columns, so they select an
+// explicit column list that EXCLUDES content_blocks and never drag image blobs
+// across a history window.
 func (q *Queries) ListRecentGroupMessagesBeforeSeq(ctx context.Context, arg ListRecentGroupMessagesBeforeSeqParams) ([]ListRecentGroupMessagesBeforeSeqRow, error) {
 	rows, err := q.db.Query(ctx, listRecentGroupMessagesBeforeSeq, arg.GroupID, arg.BeforeSeq, arg.MaxCount)
 	if err != nil {

@@ -219,15 +219,6 @@ SELECT * FROM ctx_group_message WHERE id = $1;
 -- explicit column list that EXCLUDES content_blocks and never drag image blobs
 -- across a history window.
 
--- ListRecentGroupMessages currently has no caller; it keeps SELECT * so a future
--- replay/dispatch consumer that needs content_blocks gets the full row. Give it
--- an explicit lean list only if a text-only consumer adopts it.
--- name: ListRecentGroupMessages :many
-SELECT * FROM ctx_group_message
-WHERE group_id = sqlc.arg(group_id)
-ORDER BY seq DESC
-LIMIT sqlc.arg(max_count);
-
 -- name: ListRecentGroupMessagesBeforeSeq :many
 SELECT id, group_id, seq, source_channel_id, actor_type, actor_id,
        platform_message_id, reply_to, platform_timestamp, idempotency_key,

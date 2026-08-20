@@ -7,7 +7,10 @@ import type { GroupTurnEvent, GroupTurnState } from "./use-group-events";
 // idle.
 export const GROUP_TURN_LINGER_MS = 6000;
 
-const TERMINAL_TURN_STATES: readonly GroupTurnState[] = ["done", "silent", "held", "failed"];
+// Every state in the union today is terminal, so this list is currently the
+// whole union. It stays a list, and activeTurnAgentIds stays a filter, because
+// the first live progress state the server grows lands here without a rewrite.
+const TERMINAL_TURN_STATES: readonly GroupTurnState[] = ["silent", "held", "failed"];
 
 export function isTerminalTurn(state: GroupTurnState): boolean {
   return TERMINAL_TURN_STATES.includes(state);

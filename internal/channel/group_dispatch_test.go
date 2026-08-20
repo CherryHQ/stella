@@ -219,25 +219,6 @@ func TestImageOnlyMessageProjectionAndRehydration(t *testing.T) {
 	}
 }
 
-func TestFirstMentionedAgent(t *testing.T) {
-	if got := firstMentionedAgent(nil); got != "" {
-		t.Errorf("expected empty, got %q", got)
-	}
-	if got := firstMentionedAgent([]pkgchannel.Mention{
-		{PlatformID: "bot1"},
-		{PlatformID: "bot2"},
-	}); got != "" {
-		t.Errorf("expected empty (no AgentID), got %q", got)
-	}
-	if got := firstMentionedAgent([]pkgchannel.Mention{
-		{PlatformID: "bot1"},
-		{PlatformID: "bot2", AgentID: "agent-2"},
-		{PlatformID: "bot3", AgentID: "agent-3"},
-	}); got != "agent-2" {
-		t.Errorf("expected agent-2, got %q", got)
-	}
-}
-
 func openGroupTestDB(t *testing.T) *eventlog.Store {
 	t.Helper()
 	db := dbtest.New(t)

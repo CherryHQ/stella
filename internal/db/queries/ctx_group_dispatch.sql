@@ -1,10 +1,3 @@
--- name: CreateGroupDispatch :exec
-INSERT INTO ctx_group_dispatch (
-  id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, trigger_seq, kind
-)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-  (SELECT seq FROM ctx_group_message WHERE id = $2), 'wake') ON CONFLICT DO NOTHING;
-
 -- name: CreateGroupWake :exec
 INSERT INTO ctx_group_dispatch (
   id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, trigger_seq, kind
@@ -284,8 +277,10 @@ SELECT EXISTS (
     AND message.actor_id <> sqlc.arg(agent_id)
     AND message.seq > COALESCE(cursor.last_seq, 0)
     AND message.seq <= sqlc.arg(trigger_seq)
-    -- Mention.AgentID carries no json tag, so the encoded key is the Go field
-    -- name. Containment matches an element with that id whatever else it holds.
+    -- The key is the Go field name: pkg/channel.Mention pins it with an
+    -- explicit `json:"AgentID"` tag precisely so this query keeps matching
+    -- stored envelopes. Containment matches an element with that id whatever
+    -- else it holds.
     AND (outbox.envelope::jsonb -> 'mentions') @> jsonb_build_array(jsonb_build_object('AgentID', sqlc.arg(agent_id)::text))
 )::boolean;
 

@@ -1,7 +1,12 @@
 import { useEffect, useRef } from "react";
 import type { GroupMessage } from "@/lib/api-client/types.gen";
 
-export type GroupTurnState = "thinking" | "tool" | "held" | "silent" | "failed" | "done";
+// Exactly the states the dispatcher emits on a turn frame: an agent yielded
+// (held), stayed quiet (silent), or blew up (failed). An accepted reply is a
+// message frame, not a turn frame, so there is no "done" here. Widen this union
+// the day the server emits a live progress state; the reducer already handles
+// non-terminal states.
+export type GroupTurnState = "held" | "silent" | "failed";
 
 export interface GroupTurnEvent {
   agent_id: string;
