@@ -17,27 +17,27 @@ import (
 //     it resolves a platform identity (bot id, then bot display name) through
 //     the bot registry and never looks at the text;
 //   - agent-authored text and web-composed text are both scanned for @tokens,
-//     and differ only in which tokens count and whether repeats collapse.
+//     and differ only in which tokens resolve: an agent may name a peer by
+//     display name, web ingest matches member ids only.
 //
 // The two text paths share mentionScan below. The platform path has no text to
 // scan, so it shares the file and not the scanner: forcing it through a common
 // interface would add a layer that hides nothing.
 
-// agentTextMentionCutset is stripped from both ends of a word before its @ is
-// read. Agents write mentions inside prose ("ask @ada, then wait"), so the
-// trailing punctuation belongs to the sentence, not to the name.
-const agentTextMentionCutset = "()[]{}:;,.!?"
+// textMentionCutset is stripped from both ends of a word before its @ is read.
+// Mentions are written inside prose ("ask @ada, then wait"), by an agent and by
+// a human alike, so the trailing punctuation belongs to the sentence rather than
+// to the name.
+const textMentionCutset = "()[]{}:;,.!?"
 
-// mentionScan is the shared matching logic behind both text entry points.
+// mentionScan is the shared matching logic behind both text entry points. Both
+// scan prose the same way; resolve below is the only rule that differs.
 type mentionScan struct {
 	// trimCutset is cut from both ends of a word before the "@" prefix is read.
-	// Empty means the word is taken exactly as written, which is what the web
-	// composer needs: it inserts a bare token, and trimming there would widen a
-	// mention past what the UI showed the user.
 	trimCutset string
-	// dedup emits one mention per agent. An agent naming a peer twice in one
-	// reply must not wake it twice; web ingest has always emitted one mention
-	// per written @ and its consumers count on that.
+	// dedup emits one mention per agent. No consumer reads mention cardinality
+	// -- triage asks whether an agent is named and whether any peer is named --
+	// so repeats are noise in the stored envelope either way.
 	dedup bool
 	// resolve maps one @token to a member agent id. This is the rule that
 	// actually differs: agent text accepts an agent id or a display name, web
@@ -85,7 +85,7 @@ func parseGroupMentions(ctx context.Context, q *sqlc.Queries, content string, me
 		}
 	}
 	scan := mentionScan{
-		trimCutset: agentTextMentionCutset,
+		trimCutset: textMentionCutset,
 		dedup:      true,
 		resolve: func(token string) (string, bool) {
 			agentID, ok := byToken[token]
@@ -104,6 +104,8 @@ func parseWebMentions(content string, members []sqlc.ChannelGroupMember) []pkgch
 		memberSet[m.AgentID] = struct{}{}
 	}
 	scan := mentionScan{
+		trimCutset: textMentionCutset,
+		dedup:      true,
 		resolve: func(token string) (string, bool) {
 			_, isMember := memberSet[token]
 			return token, isMember

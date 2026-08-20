@@ -164,6 +164,12 @@ func (d *GroupDispatcher) groupBackstopVerdict(ctx context.Context, q *sqlc.Quer
 	// reply count is re-read: it is the ceiling a peer can cross while this
 	// agent thinks, and the lock this backstop holds is what makes the count
 	// authoritative. The chain and rate ceilings are the pre-gate's job.
+	//
+	// Deliberate ceiling: a chain limit set below max_replies_per_human_trigger
+	// can then be overshot by a peer posting during this turn, because only the
+	// pre-gate counted the chain. Defaults keep it unreachable (replies 5 <
+	// chain 8). Re-read the chain here if the two caps ever become independently
+	// configurable in a way that lets chain sit lower.
 	lastHuman, err := q.LastHumanSeqAtOrBefore(ctx, sqlc.LastHumanSeqAtOrBeforeParams{GroupID: row.GroupID, TriggerSeq: row.TriggerSeq})
 	if err != nil {
 		return groupBackstop{}, fmt.Errorf("last human seq: %w", err)

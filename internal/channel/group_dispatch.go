@@ -208,15 +208,37 @@ func (c *Coordinator) resolveGroupChat(ctx context.Context, msg pkgchannel.Incom
 		ChatCtx:        ChatContext{Platform: msg.Platform, ChannelID: channelID, ChatID: msg.ChatID, GroupID: groupID, IsGroup: true},
 		GroupID:        groupID,
 		Authority:      authority,
-		CurrentSpeaker: platformGroupSpeaker(msg, resolved.User.ID, resolved.User.Name),
+		CurrentSpeaker: platformGroupSpeaker(msg, resolved.User.ID, resolved.User.Name, c.transcriptSpeakerName(ctx, groupID, msg.SenderID)),
 	}, nil
+}
+
+// transcriptSpeakerName is the name the injected transcript will print for this
+// sender, or "" when the namer has none and would fall back to the raw actor id.
+func (c *Coordinator) transcriptSpeakerName(ctx context.Context, groupID, senderID string) string {
+	if c.db == nil || senderID == "" {
+		return ""
+	}
+	name := eventlog.NewParticipantNamer(sqlc.New(c.db)).Name(ctx, groupID, string(eventlog.ActorHuman), senderID)
+	if name == senderID {
+		return ""
+	}
+	return name
 }
 
 // platformGroupSpeaker builds the per-turn speaker for a platform group sender.
 // A linked sender carries the resolved auth user id (profile target); an unlinked
 // sender carries an empty UserID, so no profile is ever injected for them.
-func platformGroupSpeaker(msg pkgchannel.IncomingMessage, userID, userName string) memory.CurrentSpeaker {
-	displayName := msg.SenderName
+//
+// transcriptName wins when the namer produced one, so a person is spelled the
+// same way in <current_speaker> as on their own transcript line -- the whole
+// point of routing every participant name through one function. When the namer
+// has nothing and would print the raw actor id, the live platform sender name is
+// the friendlier choice and cannot contradict a name the transcript never shows.
+func platformGroupSpeaker(msg pkgchannel.IncomingMessage, userID, userName, transcriptName string) memory.CurrentSpeaker {
+	displayName := transcriptName
+	if displayName == "" {
+		displayName = msg.SenderName
+	}
 	if displayName == "" {
 		displayName = userName
 	}

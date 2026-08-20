@@ -11,10 +11,12 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// The two text entry points share one scanner and must keep disagreeing exactly
-// where they disagreed before: agent prose is forgiving (punctuation, display
-// names, one wake per peer), the web composer is literal.
-func TestParseWebMentionsStaysLiteral(t *testing.T) {
+// The two text entry points share one scanner and now disagree on exactly one
+// rule: which tokens resolve. A human writes prose in the web composer just as
+// an agent does, so punctuation and repeats must read the same on both sides --
+// otherwise "@Ada," addresses Ada when a peer writes it and nobody when a
+// person does.
+func TestParseWebMentionsScansProseLikeAgentText(t *testing.T) {
 	members := []sqlc.ChannelGroupMember{{AgentID: "agent-1"}, {AgentID: "agent-2"}}
 
 	if got := parseWebMentions("nobody here", members); got != nil {
@@ -25,14 +27,20 @@ func TestParseWebMentionsStaysLiteral(t *testing.T) {
 	}) {
 		t.Fatalf("mentions = %#v, want only the member token", got)
 	}
-	// No punctuation trimming: the composer inserts a bare token, so a token
-	// with punctuation clinging to it was not what the UI showed the user.
-	if got := parseWebMentions("hi @agent-1, bye", members); got != nil {
-		t.Fatalf("mentions = %#v, want no match for a token the composer did not insert", got)
+	// Trailing punctuation belongs to the sentence, not to the name.
+	if got := parseWebMentions("hi @agent-1, bye", members); !reflect.DeepEqual(got, []pkgchannel.Mention{
+		{Raw: "@agent-1", AgentID: "agent-1"},
+	}) {
+		t.Fatalf("mentions = %#v, want the mention despite the comma", got)
 	}
-	// No dedup: web ingest has always emitted one mention per written @.
-	if got := parseWebMentions("@agent-1 @agent-1", members); len(got) != 2 {
-		t.Fatalf("mentions = %#v, want one per written @", got)
+	// One mention per agent: no consumer reads cardinality, and a repeat in the
+	// envelope is noise.
+	if got := parseWebMentions("@agent-1 @agent-1", members); len(got) != 1 {
+		t.Fatalf("mentions = %#v, want one per agent", got)
+	}
+	// Web still matches member ids only: a display name is not a web token.
+	if got := parseWebMentions("hi @Ada", members); got != nil {
+		t.Fatalf("mentions = %#v, want no match for a display name on web", got)
 	}
 }
 
