@@ -566,6 +566,43 @@ func (q *Queries) ListPendingGroupWakePairs(ctx context.Context, arg ListPending
 	return items, nil
 }
 
+const listRunningGroupDispatchAgents = `-- name: ListRunningGroupDispatchAgents :many
+SELECT DISTINCT agent_id FROM ctx_group_dispatch
+WHERE group_id = $1
+  AND status = 'running'
+ORDER BY agent_id
+`
+
+// Presence snapshot for a fresh SSE subscriber: which members of this group are
+// executing a turn right now. Deliberately reads the durable row rather than an
+// in-process set, so a browser that opens mid-turn sees the same state a
+// long-lived subscriber does.
+//
+// Known softness: a worker that died mid-turn leaves status='running' until its
+// lease expires (5min), so a snapshot can show a stale running. The reaper's
+// requeue then emits fresh frames, and every reconnect re-snapshots, so the UI
+// self-heals. Filtering by lease_until here would instead hide a live turn whose
+// heartbeat is merely late, which is the worse lie.
+func (q *Queries) ListRunningGroupDispatchAgents(ctx context.Context, groupID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, listRunningGroupDispatchAgents, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var agent_id string
+		if err := rows.Scan(&agent_id); err != nil {
+			return nil, err
+		}
+		items = append(items, agent_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markGroupDispatchCompleted = `-- name: MarkGroupDispatchCompleted :execrows
 UPDATE ctx_group_dispatch
 SET status = 'completed',

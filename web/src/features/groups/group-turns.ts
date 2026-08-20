@@ -1,16 +1,13 @@
 import type { GroupTurnEvent, GroupTurnState } from "./use-group-events";
 
-// Every turn state the server emits today is terminal: an agent either stayed
-// quiet (silent/held) or failed. Dropping those on arrival left the inspector
-// permanently blank, which hid the one thing worth showing in a group -- why
-// nobody answered. A finished turn stays visible briefly, then falls back to
-// idle.
+// A terminal turn is history worth showing for a moment -- it is the one thing
+// that explains why nobody answered -- then it falls back to idle. "running" is
+// not history and never gets a linger timer: it stays until the server replaces
+// it with a terminal frame, and a reconnect re-snapshots it, so a lost frame
+// self-heals instead of pinning a stale badge forever.
 export const GROUP_TURN_LINGER_MS = 6000;
 
-// Every state in the union today is terminal, so this list is currently the
-// whole union. It stays a list, and activeTurnAgentIds stays a filter, because
-// the first live progress state the server grows lands here without a rewrite.
-const TERMINAL_TURN_STATES: readonly GroupTurnState[] = ["silent", "held", "failed"];
+const TERMINAL_TURN_STATES: readonly GroupTurnState[] = ["silent", "held", "failed", "done"];
 
 export function isTerminalTurn(state: GroupTurnState): boolean {
   return TERMINAL_TURN_STATES.includes(state);
@@ -32,6 +29,21 @@ export function expireTurn(
   if (turns.get(turn.agent_id) !== turn) return turns;
   const next = new Map(turns);
   next.delete(turn.agent_id);
+  return next;
+}
+
+// Belt and braces for a lost "done" frame: an agent's own canonical message
+// proves its turn ended, so the message reducer clears the running state even if
+// the terminal frame never arrived. A terminal state is left alone -- it is
+// already retiring on its linger timer and still explains the turn.
+export function clearRunningTurn(
+  turns: Map<string, GroupTurnEvent>,
+  agentId: string,
+): Map<string, GroupTurnEvent> {
+  const current = turns.get(agentId);
+  if (!current || isTerminalTurn(current.state)) return turns;
+  const next = new Map(turns);
+  next.delete(agentId);
   return next;
 }
 

@@ -11,8 +11,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
@@ -24,6 +27,7 @@ import (
 	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	cfgstore "github.com/CherryHQ/stella/internal/store"
+	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
 // fakeGroupRunner counts wake signals from fresh ingests.
@@ -48,7 +52,15 @@ func (f *fakeGroupRunner) AbortGroupTurn(groupID, agentID string) bool {
 // needed), plus one group owned by the returned user.
 func setupGroupSSE(t *testing.T) (s *Server, runner *fakeGroupRunner, userID, groupID string) {
 	t.Helper()
-	db := dbtest.New(t)
+	s, runner, userID, groupID, _, _ = setupGroupSSEWithDB(t)
+	return s, runner, userID, groupID
+}
+
+// setupGroupSSEWithDB is setupGroupSSE plus the handles a test needs to write
+// dispatch rows directly: the pool and the member agent id.
+func setupGroupSSEWithDB(t *testing.T) (s *Server, runner *fakeGroupRunner, userID, groupID string, db *pgxpool.Pool, agentID string) {
+	t.Helper()
+	db = dbtest.New(t)
 	store := cfgstore.NewDBStore(db)
 	ctx := context.Background()
 	if err := store.Seed(ctx); err != nil {
@@ -58,7 +70,7 @@ func setupGroupSSE(t *testing.T) (s *Server, runner *fakeGroupRunner, userID, gr
 	oidc := appdb.NewOIDCStore(db)
 	agentAccess := agentaccess.NewService(store, as)
 	runner = &fakeGroupRunner{}
-	groupSvc := channel.NewGroupService(db, agentAccess, channel.NewRuntimeResolver(store), eventlog.NewStore(db), runner)
+	groupSvc := channel.NewGroupService(db, agentAccess, channel.NewRuntimeResolver(store), eventlog.NewStore(db), runner, channel.WithGroupEventHub(channel.NewGroupEventHub()))
 
 	user, err := oidc.CreateUser(ctx, auth.User{ID: uuid.NewString(), Email: "u@example.com", Name: "u"})
 	if err != nil {
@@ -92,7 +104,7 @@ func setupGroupSSE(t *testing.T) (s *Server, runner *fakeGroupRunner, userID, gr
 		log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 		runtimeCtx: context.Background(),
 	}
-	return s, runner, user.ID, g.ID
+	return s, runner, user.ID, g.ID, db, stella
 }
 
 func sendGroupSSE(t *testing.T, s *Server, userID, groupID, content, clientID string) *httptest.ResponseRecorder {
@@ -183,6 +195,59 @@ func TestSendGroupMessageForeignGroupNotFound(t *testing.T) {
 	}
 	if runner.calls != 0 {
 		t.Fatalf("foreign send dispatched %d times, want 0", runner.calls)
+	}
+}
+
+// TestStreamGroupEventsSnapshotsRunningTurns proves a browser that opens the
+// stream mid-turn is told who is generating. Turn frames are live-only and never
+// replayed, so without this snapshot every agent would read as idle until the
+// next frame happened to arrive.
+func TestStreamGroupEventsSnapshotsRunningTurns(t *testing.T) {
+	s, _, userID, groupID, db, agentID := setupGroupSSEWithDB(t)
+	if rr := sendGroupSSE(t, s, userID, groupID, "hello team", ""); rr.Code != http.StatusOK {
+		t.Fatalf("send status = %d", rr.Code)
+	}
+	q := sqlc.New(db)
+	ctx := context.Background()
+	messages, err := q.ListGroupMessagesAfterSeq(ctx, sqlc.ListGroupMessagesAfterSeqParams{GroupID: groupID, MinSeq: 0, BatchLimit: 1})
+	if err != nil || len(messages) == 0 {
+		t.Fatalf("list group messages: %v (%d rows)", err, len(messages))
+	}
+	members, err := q.ListGroupMembers(ctx, groupID)
+	if err != nil || len(members) == 0 {
+		t.Fatalf("list group members: %v (%d rows)", err, len(members))
+	}
+	if err := q.CreateGroupWake(ctx, sqlc.CreateGroupWakeParams{
+		ID: uuid.NewString(), GroupMessageID: messages[0].ID, GroupID: groupID,
+		AgentID: agentID, ReplyChannelID: members[0].ReplyChannelID,
+	}); err != nil {
+		t.Fatalf("create wake: %v", err)
+	}
+	wake, err := q.ClaimNewestGroupWake(ctx, sqlc.ClaimNewestGroupWakeParams{
+		GroupID: groupID, AgentID: agentID,
+		Now:        pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true},
+		LeaseUntil: pgtype.Timestamptz{Time: time.Now().UTC().Add(time.Minute), Valid: true},
+	})
+	if err != nil {
+		t.Fatalf("claim wake: %v", err)
+	}
+	if wake.Status != "running" {
+		t.Fatalf("claimed wake status = %q, want running", wake.Status)
+	}
+
+	// The handler blocks until the request context ends; a short deadline lets it
+	// write the replay plus the snapshot and then return.
+	reqCtx, cancel := context.WithTimeout(context.Background(), 750*time.Millisecond)
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/api/groups/"+groupID+"/events", nil)
+	req = req.WithContext(withAuthInfo(reqCtx, &AuthInfo{UserID: userID, Role: auth.RoleUser}))
+	rr := httptest.NewRecorder()
+	s.StreamGroupEvents(rr, req, groupID, apiserver.StreamGroupEventsParams{})
+
+	body := rr.Body.String()
+	want := `event: turn` + "\n" + `data: {"agent_id":"` + agentID + `","state":"running"}`
+	if !strings.Contains(body, want) {
+		t.Fatalf("snapshot frame missing.\nwant: %q\nbody: %q", want, body)
 	}
 }
 

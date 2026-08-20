@@ -38,6 +38,7 @@ export function GroupInspector({ members, messages, activeAgentIds, turns, uploa
           <div className="mt-2 space-y-2">
             {members.map((member) => {
               const active = activeAgentIds.has(member.agent_id);
+              const turnState = turns.get(member.agent_id)?.state;
               return (
                 <div
                   key={member.agent_id}
@@ -64,8 +65,11 @@ export function GroupInspector({ members, messages, activeAgentIds, turns, uploa
                     // "hard_cap"); too long for the badge, too useful to drop.
                     title={turns.get(member.agent_id)?.reason}
                   >
-                    {turns.get(member.agent_id)?.state ??
-                      (active ? t("groups.inspector.active") : t("groups.inspector.idle"))}
+                    {turnState
+                      ? t(`groups.inspector.turn.${turnState}`)
+                      : active
+                        ? t("groups.inspector.active")
+                        : t("groups.inspector.idle")}
                   </span>
                 </div>
               );

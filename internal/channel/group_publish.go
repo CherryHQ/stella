@@ -151,6 +151,11 @@ func (p *groupPublishDriver) markAcceptedPublished(ctx context.Context, row sqlc
 	p.wake()
 	if p.events != nil {
 		p.events.Announce(eventlog.AppendResult{GroupID: row.GroupID, Seq: message.Seq, Message: message})
+		// The terminal frame for an accepted turn, emitted after the message so a
+		// subscriber never retires the presence badge before the reply it was
+		// waiting for lands. Without it the browser would have to guess when the
+		// dispatcher's 'running' frame stopped being true.
+		p.events.AnnounceTurn(row.GroupID, row.AgentID, "done", "")
 	}
 	return nil
 }

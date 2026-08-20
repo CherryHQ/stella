@@ -537,11 +537,14 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		act, reason, degraded := d.triageWake(ownedCtx, claimed, message, state, envelope)
 		if act {
 			ownedCtx = memory.WithGroupWake(ownedCtx, d.groupWake(ownedCtx, claimed, reason))
+			// The one non-terminal turn frame: this agent is generating now. It is
+			// announced only where a model turn actually follows -- never on the
+			// gated path below, and never on the egress-compensation replay above,
+			// where the reply already exists and republishing is immediate.
+			d.announceTurn(claimed, "running", reason)
 		}
 		if !act {
-			if d.events != nil {
-				d.events.AnnounceTurn(claimed.GroupID, claimed.AgentID, "silent", reason)
-			}
+			d.announceTurn(claimed, "silent", reason)
 			if degraded && claimed.AttemptCount < d.maxAttempts {
 				// Only a DB read failure lands here. Silence is not a verdict we
 				// can trust from a failed read, so requeue instead.
@@ -561,9 +564,14 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		// (restart after `/new`, or a redundant re-execution). Running it now
 		// would leak a pre-reset message into the successor session; there is
 		// nothing left to do but retire the row.
+		//
+		// Every path below the running frame owes a terminal frame: without one
+		// the browser keeps a presence badge lit until it reconnects.
+		d.announceTurn(claimed, "silent", "superseded")
 		return d.completeDispatch(ctx, claimed)
 	}
 	if err != nil {
+		d.announceTurn(claimed, "failed", err.Error())
 		return d.failDispatch(ctx, claimed, err)
 	}
 	response := d.bufferGroupResponse(ownedCtx, stream)
@@ -573,9 +581,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		if cause == nil {
 			cause = errors.New("group turn ended without a complete deferred result")
 		}
-		if d.events != nil {
-			d.events.AnnounceTurn(claimed.GroupID, claimed.AgentID, "failed", cause.Error())
-		}
+		d.announceTurn(claimed, "failed", cause.Error())
 		return d.failDispatch(ctx, claimed, cause)
 	}
 	// The model's own decision to stay quiet, checked before the accept gates:
@@ -585,12 +591,11 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 	}
 	outcome, err := d.acceptGroupResponse(ownedCtx, claimed, response, turn)
 	if err != nil {
+		d.announceTurn(claimed, "failed", err.Error())
 		return d.failDispatch(ctx, claimed, err)
 	}
 	if outcome.Status != groupTurnAccepted {
-		if d.events != nil {
-			d.events.AnnounceTurn(claimed.GroupID, claimed.AgentID, string(outcome.Status), outcome.Reason)
-		}
+		d.announceTurn(claimed, string(outcome.Status), outcome.Reason)
 		return nil
 	}
 	return d.publishAccepted(ownedCtx, publishJob{
@@ -598,6 +603,16 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		response: response, envelope: envelope, acceptedMessageID: outcome.Accepted.Message.ID,
 		finalAttempt: claimed.AttemptCount >= d.maxAttempts,
 	})
+}
+
+// announceTurn projects one live turn state to the group's subscribers. The hub
+// is optional (tests, headless deployments), so the nil check lives here rather
+// than at every call site.
+func (d *GroupDispatcher) announceTurn(row sqlc.CtxGroupDispatch, state, reason string) {
+	if d.events == nil {
+		return
+	}
+	d.events.AnnounceTurn(row.GroupID, row.AgentID, state, reason)
 }
 
 // publishAccepted sequences one egress attempt: the driver delivers, this

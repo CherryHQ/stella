@@ -22,6 +22,7 @@ import {
   GROUP_TURN_LINGER_MS,
   activeTurnAgentIds,
   applyTurn,
+  clearRunningTurn,
   expireTurn,
   isTerminalTurn,
 } from "./group-turns";
@@ -198,6 +199,11 @@ export function GroupChat({ groupId }: Props) {
       next.set(message.seq, message);
       return next;
     });
+    // An agent's own message is proof its turn ended, whether or not the "done"
+    // frame survived the hub.
+    if (message.actor_type === "agent") {
+      setTurns((current) => clearRunningTurn(current, message.actor_id));
+    }
   }, []);
   const onTurn = useCallback((turn: GroupTurnEvent) => {
     setTurns((current) => applyTurn(current, turn));
@@ -251,13 +257,17 @@ export function GroupChat({ groupId }: Props) {
 
   // "Active" means responding right now: only agent-info parts from live
   // streaming messages count, never the merged history (grp-* ids).
+  // Agents the server says are generating right now. This is the stop button's
+  // target list and the inspector's presence source; a fresh page load gets it
+  // from the event stream's running snapshot.
+  const runningAgentIds = useMemo(() => activeTurnAgentIds(turns), [turns]);
   const activeAgentIds = useMemo(() => {
-    const ids = new Set(activeTurnAgentIds(turns));
+    const ids = new Set(runningAgentIds);
     if (isStreaming) {
       for (const id of collectActiveAgentIds(chatMessages)) ids.add(id);
     }
     return ids;
-  }, [turns, isStreaming, chatMessages]);
+  }, [runningAgentIds, isStreaming, chatMessages]);
   const displayMessages = useMemo(
     () => [
       ...canonicalUIMessages,
@@ -265,15 +275,17 @@ export function GroupChat({ groupId }: Props) {
     ],
     [canonicalUIMessages, chatMessages, isStreaming],
   );
+  // Stop only what is actually running: the server's `running` turn frames name
+  // the responding agents, so the old broadcast-abort to every member is gone.
   const handleStop = useCallback(() => {
     void chatStop();
-    // Group replies are buffered before the publisher names the responding
-    // agent, so the stop affordance cannot wait for a presence frame. Aborting
-    // every member is safe and idempotent; only the active session slot cancels.
-    for (const { agent_id: agentId } of members) {
+    for (const agentId of runningAgentIds) {
       void abortGroupTurn({ path: { groupId, agentId }, throwOnError: true });
     }
-  }, [members, chatStop, groupId]);
+  }, [runningAgentIds, chatStop, groupId]);
+  // Nothing running and no local request in flight means nothing to stop, so the
+  // composer keeps its send affordance instead of offering a dead button.
+  const canStop = isStreaming || runningAgentIds.length > 0;
 
   return (
     <div className="relative flex min-h-0 flex-1 overflow-hidden">
@@ -292,7 +304,7 @@ export function GroupChat({ groupId }: Props) {
         composer={
           <ChatComposer
             onSend={handleSend}
-            onStop={handleStop}
+            onStop={canStop ? handleStop : undefined}
             isStreaming={isStreaming}
             placeholder={t("groups.messagePlaceholder")}
             draftKey={draftKey}

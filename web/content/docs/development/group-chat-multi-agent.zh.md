@@ -22,6 +22,14 @@ nudge 有两重上限：每个群每个冷却期最多一次，且两条真实�
 
 Web `POST /api/groups/{id}/messages` 只负责 ingest 并唤醒 worker，返回 `start`、`data-group-ingest`、`finish`；canonical 消息和 turn presence 通过 group event stream 到达。publisher 仅在接受后投递。Web 也是一个平台，只是它的 publisher 是 noop，因此 Web 回复走与平台完全相同的生命周期：出生为 `pending`，publisher 返回后标为 `delivered`，永久失败则标为 `failed` 并重新排队被它 hold 住的 peer。已接受的 agent 消息会创建自己的 outbox，从而启用有界的 agent-to-agent 协作。
 
+## Turn presence（在线状态）
+
+`GET /api/groups/{id}/events` 除 canonical `message` 帧外还发送 `turn` 帧。turn 帧是某个成员的实时状态，不作为历史重放。
+
+通过唤醒门的 wake 会在模型开始前发出 `running`，并且必定由恰好一个终止帧收尾：已接受的回复投递完成后是 `done`，回复过期是 `held`，唤醒门或模型选择不发言是 `silent`，其余情况是 `failed`。egress 补偿（重启后重新发布已接受的回复）不发 `running`——那一轮没有任何模型在跑——但投递完成后同样发 `done`。
+
+由于 turn 帧不重放，新订阅者会先收到一份快照：连接时每个正在执行的 dispatch 行对应一个合成的 `running` 帧。worker 崩溃会让它的行保持 `running` 直到租约过期（5 分钟），因此快照最多可能显示这么久的过期 `running`；随后 reaper 重新入队会产生新的帧，而且每次重连都会重新快照，客户端因此可以自愈，不需要额外的修复路径。
+
 ## 不变量
 
 - canonical `seq` 是客户端 reducer 的键。
@@ -29,3 +37,4 @@ Web `POST /api/groups/{id}/messages` 只负责 ingest 并唤醒 worker，返回 
 - 每个 agent/group 最多一个 live wake。
 - held、superseded，以及在 turn 开始前就静默的 wake 不推进 memory cursor；`model_pass` 会推进，因为 agent 确实读过这些消息。
 - 新鲜度和上限由 Server 的接受事务保证，不由模型判断保证。
+- 一个 `running` turn 帧之后必定跟随恰好一个终止 turn 帧。

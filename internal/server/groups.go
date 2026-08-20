@@ -135,6 +135,14 @@ func groupMessageToAPI(m channel.GroupMessageItem) apitypes.GroupMessage {
 	}
 }
 
+func groupTurnToAPI(turn channel.GroupTurnEvent) apitypes.GroupTurnEvent {
+	out := apitypes.GroupTurnEvent{AgentId: turn.AgentID, State: apitypes.GroupTurnEventState(turn.State)}
+	if turn.Reason != "" {
+		out.Reason = &turn.Reason
+	}
+	return out
+}
+
 // StreamGroupEvents replays canonical messages by sequence, then holds a
 // best-effort subscription open. Reconnect is the correctness path: the hub
 // intentionally drops slow consumers rather than blocking group dispatch.
@@ -175,6 +183,19 @@ func (s *Server) StreamGroupEvents(w http.ResponseWriter, r *http.Request, group
 		s.groupError(w, err)
 		return
 	}
+	// Presence snapshot, read after subscribing for the same reason as the replay:
+	// a turn that starts between the two appears in the live channel, and one that
+	// ends between them is overwritten by the terminal frame the live channel
+	// already holds, because these synthetic frames are written before the loop
+	// drains it. Softness worth naming: a crashed worker's row stays 'running'
+	// until its lease expires (5 min), so a snapshot can show a stale running.
+	// The reaper's requeue emits fresh frames, and every hub drop or reconnect
+	// re-snapshots, so the UI self-heals.
+	running, err := acc.RunningTurnAgents(r.Context(), groupId)
+	if err != nil {
+		s.groupError(w, err)
+		return
+	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
@@ -194,6 +215,11 @@ func (s *Server) StreamGroupEvents(w http.ResponseWriter, r *http.Request, group
 		}
 		replayedThrough = max(replayedThrough, int64(row.Seq))
 	}
+	for _, agentID := range running {
+		if !write("turn", apitypes.GroupTurnEvent{AgentId: agentID, State: apitypes.GroupTurnEventStateRunning}) {
+			return
+		}
+	}
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 	for {
@@ -205,7 +231,7 @@ func (s *Server) StreamGroupEvents(w http.ResponseWriter, r *http.Request, group
 				return
 			}
 			if event.Turn != nil {
-				if !write("turn", event.Turn) {
+				if !write("turn", groupTurnToAPI(*event.Turn)) {
 					return
 				}
 				continue

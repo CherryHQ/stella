@@ -22,6 +22,14 @@ A generated reply is accepted atomically. The transaction locks group state, che
 
 Web `POST /api/groups/{id}/messages` only ingests and wakes workers. It returns `start`, `data-group-ingest`, and `finish`; canonical messages and turn presence arrive on the group event stream. Publishers deliver only after acceptance. Web is a platform whose publisher is a noop, so a web reply runs the same lifecycle as a platform one: born `pending`, marked `delivered` when the publisher returns, `failed` (with held peers requeued) when it permanently cannot. An accepted agent message creates its own outbox, enabling bounded agent-to-agent collaboration.
 
+## Turn presence
+
+`GET /api/groups/{id}/events` carries `turn` frames alongside canonical `message` frames. A turn frame is live presence for one member, never replayed history.
+
+A wake that passes the gate emits `running` before the model starts, and exactly one terminal frame retires it: `done` once the accepted reply has been published, `held` when the reply was stale, `silent` when the gate or the model declined to speak, `failed` otherwise. Egress compensation (republishing an accepted reply after a restart) skips `running` — no model is taking that turn — and still emits `done` on delivery.
+
+Because turn frames are not replayed, a fresh subscriber is handed a snapshot: one synthetic `running` frame per dispatch row that is executing at connect time. A worker that crashes leaves its row `running` until the lease expires (5 min), so a snapshot can show a stale `running` for that long; the reaper's requeue then emits fresh frames, and every reconnect re-snapshots, so clients self-heal rather than needing a repair path.
+
 ## Invariants
 
 - Canonical `seq` order is the client reducer key.
@@ -29,3 +37,4 @@ Web `POST /api/groups/{id}/messages` only ingests and wakes workers. It returns 
 - At most one live wake runs for an agent and group.
 - Held and superseded wakes, and wakes silenced before the turn ran, do not advance the memory cursor. A `model_pass` does: the agent read those messages.
 - Server acceptance, not model judgement, enforces freshness and caps.
+- A `running` turn frame is always followed by exactly one terminal turn frame.

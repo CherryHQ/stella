@@ -1501,7 +1501,7 @@ func TestIncompleteStreamDiscardsDeferredTurnAndPersistsNothing(t *testing.T) {
 	}
 }
 
-func TestAcceptTxRollbackAnnouncesNothing(t *testing.T) {
+func TestAcceptTxRollbackAnnouncesNoMessage(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	hub := NewGroupEventHub()
 	fx.d.SetGroupEventHub(hub)
@@ -1522,10 +1522,20 @@ func TestAcceptTxRollbackAnnouncesNothing(t *testing.T) {
 	if countAgentGroupMessages(t, fx.db) != 0 {
 		t.Fatal("rollback left a group post")
 	}
-	select {
-	case event := <-follow:
-		t.Fatalf("rollback announced %+v", event)
-	case <-time.After(50 * time.Millisecond):
+	// Presence frames are fine and expected (the turn did run, then failed); a
+	// canonical message projection is what a rolled-back accept must never emit.
+	for {
+		select {
+		case event, alive := <-follow:
+			if !alive {
+				return
+			}
+			if event.Turn == nil {
+				t.Fatalf("rollback announced a message projection: %+v", event)
+			}
+		case <-time.After(50 * time.Millisecond):
+			return
+		}
 	}
 }
 
@@ -2015,5 +2025,116 @@ func TestFinalFailureOnAcceptedRowReleasesHeldPeers(t *testing.T) {
 	peer, _ = fx.q.GetGroupDispatch(ctx, peer.ID)
 	if peer.Status != "pending" || peer.HeldUpToSeq.Valid {
 		t.Fatalf("held peer = %+v, want requeued with cleared gate", peer)
+	}
+}
+
+// drainTurnStates collects the turn states announced on a hub subscription until
+// the feed goes quiet. Message frames are ignored: this is about presence only.
+func drainTurnStates(t *testing.T, follow <-chan GroupEvent) []string {
+	t.Helper()
+	states := []string{}
+	for {
+		select {
+		case event, alive := <-follow:
+			if !alive {
+				return states
+			}
+			if event.Turn != nil {
+				states = append(states, event.Turn.State)
+			}
+		case <-time.After(300 * time.Millisecond):
+			return states
+		}
+	}
+}
+
+// TestAcceptedTurnAnnouncesRunningThenDone pins the presence lifecycle a browser
+// depends on: the dispatcher opens the turn before the model runs, and the
+// publish driver closes it once the reply is delivered.
+func TestAcceptedTurnAnnouncesRunningThenDone(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	hub := NewGroupEventHub()
+	fx.d.SetGroupEventHub(hub)
+	follow, cancel := hub.Subscribe(fx.groupID)
+	defer cancel()
+	fx.d.publish.publishers.Register("ch-1", &recordingGroupPublisher{})
+	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000001", "agent-1", fx.groupID, "pending", pgtype.Timestamptz{})
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
+	if err != nil {
+		t.Fatalf("get dispatch: %v", err)
+	}
+	if err := fx.d.ExecuteDispatch(context.Background(), dispatch); err != nil {
+		t.Fatalf("execute dispatch: %v", err)
+	}
+	if got := drainTurnStates(t, follow); len(got) != 2 || got[0] != "running" || got[1] != "done" {
+		t.Fatalf("turn states = %v, want [running done]", got)
+	}
+}
+
+// TestGatedWakeAnnouncesSilentWithoutRunning proves presence is only claimed for
+// a turn that actually runs: a wake the gate stops never lights the badge.
+func TestGatedWakeAnnouncesSilentWithoutRunning(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	hub := NewGroupEventHub()
+	fx.d.SetGroupEventHub(hub)
+	fx.d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+		t.Fatal("a gated wake must not start a model turn")
+		return nil, nil
+	}
+	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_state SET max_agent_posts_per_minute = 1 WHERE id = $1`, fx.groupID); err != nil {
+		t.Fatalf("tighten rate cap: %v", err)
+	}
+	if _, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: "agent-1", Content: "already posted"}); err != nil {
+		t.Fatalf("append agent post: %v", err)
+	}
+	follow, cancel := hub.Subscribe(fx.groupID)
+	defer cancel()
+	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000001", "agent-1", fx.groupID, "pending", pgtype.Timestamptz{})
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
+	if err != nil {
+		t.Fatalf("get dispatch: %v", err)
+	}
+	if err := fx.d.ExecuteDispatch(context.Background(), dispatch); err != nil {
+		t.Fatalf("execute gated dispatch: %v", err)
+	}
+	if got := drainTurnStates(t, follow); len(got) != 1 || got[0] != "silent" {
+		t.Fatalf("turn states = %v, want [silent]", got)
+	}
+}
+
+// TestCompensationReplayAnnouncesDoneWithoutRunning proves the egress-compensation
+// path stays presence-quiet on the way in: the reply already exists, republishing
+// is immediate, and announcing 'running' there would flash a badge for a turn no
+// model is taking. The delivery still closes the turn with 'done'.
+func TestCompensationReplayAnnouncesDoneWithoutRunning(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", `{}`)
+	hub := NewGroupEventHub()
+	fx.d.SetGroupEventHub(hub)
+	fx.d.publish.publishers.Register("ch-1", &recordingGroupPublisher{})
+	fx.d.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+		t.Fatal("compensation replay must not run chat")
+		return nil, nil
+	}
+	insertGroupDispatch(t, fx.db, "d15a0000-0000-0000-0000-000000000001", fx.message.ID, fx.groupID, "agent-1", "running", 1, pgtype.Timestamptz{})
+	accepted, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{
+		ActorType: eventlog.ActorAgent, ActorID: "agent-1", Content: "canonical text",
+	})
+	if err != nil {
+		t.Fatalf("append accepted result: %v", err)
+	}
+	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_dispatch SET result_message_id = $1 WHERE id = $2`, accepted.Message.ID, "d15a0000-0000-0000-0000-000000000001"); err != nil {
+		t.Fatalf("set result marker: %v", err)
+	}
+	follow, cancel := hub.Subscribe(fx.groupID)
+	defer cancel()
+	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
+	if err != nil {
+		t.Fatalf("get dispatch: %v", err)
+	}
+	if err := fx.d.ExecuteDispatch(context.Background(), dispatch); err != nil {
+		t.Fatalf("replay accepted reply: %v", err)
+	}
+	if got := drainTurnStates(t, follow); len(got) != 1 || got[0] != "done" {
+		t.Fatalf("turn states = %v, want [done]", got)
 	}
 }

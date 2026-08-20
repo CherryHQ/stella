@@ -67,24 +67,43 @@ func (h *harness) testGroupIngest(t *testing.T) {
 		t.Fatalf("GET group events=%d", resp.StatusCode)
 	}
 	h.sendGroupMessage(t, ctx, groupID, "group ingest "+h.runID)
+	// Both frame kinds over the real transport: the canonical message, then the
+	// presence frame the browser needs to know who is generating. The provider is
+	// unreachable on purpose, so this turn starts (running) and then fails; the
+	// running frame is what proves the presence seam is wired end to end.
+	var sawMessage bool
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if !strings.HasPrefix(line, "event: message") {
+		if !strings.HasPrefix(line, "event: message") && !strings.HasPrefix(line, "event: turn") {
 			continue
 		}
 		if !scanner.Scan() {
 			break
 		}
-		if !strings.Contains(scanner.Text(), "group ingest "+h.runID) {
-			t.Fatalf("unexpected group message frame: %q", scanner.Text())
+		data := scanner.Text()
+		if strings.HasPrefix(line, "event: message") {
+			if !strings.Contains(data, "group ingest "+h.runID) {
+				t.Fatalf("unexpected group message frame: %q", data)
+			}
+			sawMessage = true
+			continue
+		}
+		if !strings.Contains(data, `"state":"running"`) {
+			continue
+		}
+		if !sawMessage {
+			t.Fatalf("running turn frame arrived before the canonical message: %q", data)
+		}
+		if !strings.Contains(data, `"agent_id":"`+agentID+`"`) {
+			t.Fatalf("running turn frame names the wrong agent: %q", data)
 		}
 		return
 	}
 	if err := scanner.Err(); err != nil {
 		t.Fatal(err)
 	}
-	t.Fatal("group event stream ended before canonical message")
+	t.Fatal("group event stream ended before the running turn frame")
 }
 
 func (h *harness) testGroupConcurrentCounting(t *testing.T) {

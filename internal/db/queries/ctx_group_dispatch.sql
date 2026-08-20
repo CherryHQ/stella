@@ -297,3 +297,19 @@ SELECT EXISTS (
     AND seq > sqlc.arg(after_seq)
     AND delivery_state <> 'failed'
 )::boolean;
+
+-- name: ListRunningGroupDispatchAgents :many
+-- Presence snapshot for a fresh SSE subscriber: which members of this group are
+-- executing a turn right now. Deliberately reads the durable row rather than an
+-- in-process set, so a browser that opens mid-turn sees the same state a
+-- long-lived subscriber does.
+--
+-- Known softness: a worker that died mid-turn leaves status='running' until its
+-- lease expires (5min), so a snapshot can show a stale running. The reaper's
+-- requeue then emits fresh frames, and every reconnect re-snapshots, so the UI
+-- self-heals. Filtering by lease_until here would instead hide a live turn whose
+-- heartbeat is merely late, which is the worse lie.
+SELECT DISTINCT agent_id FROM ctx_group_dispatch
+WHERE group_id = sqlc.arg(group_id)
+  AND status = 'running'
+ORDER BY agent_id;

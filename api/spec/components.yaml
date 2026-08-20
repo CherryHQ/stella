@@ -2088,6 +2088,20 @@ components:
         created_at:
           type: string
           format: date-time
+    GroupTurnEvent:
+      type: object
+      description: >-
+        One `turn` frame on the group event stream: live presence for a single member. `running` is the only non-terminal state and is emitted when a turn passes the wake gate and starts generating; a fresh subscriber also receives one synthetic `running` frame per member whose dispatch is already executing. Every running turn is retired by exactly one terminal frame: `done` (reply accepted and delivered), `held` (reply was stale), `silent` (the gate or the model declined to speak), or `failed`.
+      required: [agent_id, state]
+      properties:
+        agent_id:
+          type: string
+        state:
+          type: string
+          enum: [running, done, held, silent, failed]
+        reason:
+          type: string
+          description: Why the turn reached this state, e.g. `hard_cap`, `model_pass`.
     GroupMessageList:
       type: object
       required: [messages]

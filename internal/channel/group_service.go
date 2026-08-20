@@ -199,6 +199,20 @@ func (a *GroupAccess) SubscribeEvents(ctx context.Context, groupID string) (<-ch
 	return ch, cancel, nil
 }
 
+// RunningTurnAgents lists the members whose dispatch row is executing right now.
+// It is the presence snapshot a fresh SSE subscriber needs: turn frames are not
+// replayed, so without it a browser opened mid-turn shows every agent idle.
+func (a *GroupAccess) RunningTurnAgents(ctx context.Context, groupID string) ([]string, error) {
+	if _, err := a.requireOwner(ctx, groupID); err != nil {
+		return nil, err
+	}
+	agents, err := a.q().ListRunningGroupDispatchAgents(ctx, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("list running group turns: %w", err)
+	}
+	return agents, nil
+}
+
 // MessagesAfterSeq replays the newest window of canonical rows, in ascending
 // sequence order. A group longer than the window drops its oldest messages from
 // the replay, never its newest: the stream exists to show what just happened.

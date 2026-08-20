@@ -230,6 +230,12 @@ paths:
     get:
       tags: [groups]
       summary: Stream canonical group message events
+      description: >-
+        SSE stream with three event names. `message` carries a GroupMessage and
+        is replayed from `since_seq` on connect; `turn` carries a GroupTurnEvent
+        and is live presence, never replayed as history, though a fresh
+        subscriber does receive a `running` snapshot of the turns executing at
+        connect time; `heartbeat` is an empty keep-alive.
       operationId: streamGroupEvents
       parameters:
         - name: since_seq
@@ -241,6 +247,10 @@ paths:
           content:
             text/event-stream:
               schema: { type: string }
+              examples:
+                turn:
+                  summary: turn frame payload (GroupTurnEvent)
+                  value: { agent_id: stella, state: running }
         "401": {
           $ref: "../../components.yaml#/components/responses/Unauthorized",
         }

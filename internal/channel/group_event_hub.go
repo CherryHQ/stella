@@ -15,8 +15,11 @@ type GroupEventHub struct {
 	subs map[string]map[uint64]chan GroupEvent
 }
 
-// GroupTurnEvent is an ephemeral execution projection. Message rows remain the
-// canonical replay source; reconnecting clients intentionally do not replay it.
+// GroupTurnEvent is an ephemeral execution projection: 'running' while an agent
+// generates, then exactly one terminal state (done, held, silent, failed).
+// Message rows remain the canonical replay source, so past turn frames are never
+// replayed; a fresh subscriber instead gets a presence snapshot of the dispatch
+// rows that are running right now (see StreamGroupEvents).
 type GroupTurnEvent struct {
 	AgentID string `json:"agent_id"`
 	State   string `json:"state"`
