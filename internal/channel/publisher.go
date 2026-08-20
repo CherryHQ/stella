@@ -56,9 +56,6 @@ func ValidateGroupReplay(ctx context.Context, stream *pkgchannel.ChatStream) (*p
 }
 
 type GroupPublishRequest struct {
-	GroupID          string
-	AgentID          string
-	ReplyChannelID   string
 	Platform         string
 	PlatformGroupID  string
 	PlatformThreadID string
@@ -79,10 +76,6 @@ type GroupPublishRequest struct {
 	// invokes it at most once per accepted cancel click. Nil when the
 	// dispatcher offers no cancellation for this request.
 	Abort func() bool
-	// FinalAttempt reports that the dispatcher will not requeue a returned
-	// publish error. Publishers may use it for terminal platform feedback;
-	// earlier attempts should return errors without claiming delivery ended.
-	FinalAttempt bool
 }
 
 type PublisherRegistry struct {

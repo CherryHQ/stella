@@ -9,6 +9,8 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
+const maxGroupSequence = int64(1<<63 - 1)
+
 // triageWake is the deterministic admission gate in front of a full turn. It
 // answers "may this agent run", never "should this agent speak": the only thing
 // qualified to judge that is the agent itself, which sees the whole transcript
@@ -28,7 +30,7 @@ func (d *GroupDispatcher) triageWake(ctx context.Context, row sqlc.CtxGroupDispa
 	if err != nil {
 		return false, "triage_db_error", true
 	}
-	chain, err := d.consecutiveAgentMessages(ctx, row.GroupID, message.Seq)
+	chain, err := d.consecutiveAgentMessages(ctx, d.q, row.GroupID, message.Seq)
 	if err != nil {
 		return false, "triage_db_error", true
 	}
@@ -119,8 +121,14 @@ func (d *GroupDispatcher) agentRunLapped(ctx context.Context, groupID string, be
 	return alreadySpoke && len(seen) > 0
 }
 
-func (d *GroupDispatcher) consecutiveAgentMessages(ctx context.Context, groupID string, beforeSeq int64) (int, error) {
-	rows, err := d.q.ListRecentGroupMessagesBeforeSeq(ctx, sqlc.ListRecentGroupMessagesBeforeSeqParams{GroupID: groupID, BeforeSeq: beforeSeq + 1, MaxCount: 64})
+func (d *GroupDispatcher) consecutiveAgentMessages(ctx context.Context, q *sqlc.Queries, groupID string, beforeSeq int64) (int, error) {
+	// The query is strictly before its sequence bound. Preserve the pre-gate's
+	// inclusive contract without overflowing when accept asks for the latest row.
+	queryBeforeSeq := beforeSeq
+	if queryBeforeSeq < maxGroupSequence {
+		queryBeforeSeq++
+	}
+	rows, err := q.ListRecentGroupMessagesBeforeSeq(ctx, sqlc.ListRecentGroupMessagesBeforeSeqParams{GroupID: groupID, BeforeSeq: queryBeforeSeq, MaxCount: 64})
 	if err != nil {
 		return 0, err
 	}

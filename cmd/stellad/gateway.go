@@ -363,7 +363,6 @@ func runServer(ctx context.Context, s *setupResult, loginConfig oidc.LoginConfig
 	coordOpts = append(coordOpts, channel.WithEventLog(elStore))
 	coordOpts = append(coordOpts, channel.WithBotRegistry(botRegistry))
 	coordOpts = append(coordOpts, channel.WithPublisherRegistry(publisherRegistry))
-	coordOpts = append(coordOpts, channel.WithGroupMemberLister(channel.NewDBGroupMemberLister(s.db)))
 
 	// The channel domain builds the coordinator and its durable group dispatcher
 	// together and closes the coordinator<->dispatcher cycle; the HTTP server

@@ -189,8 +189,8 @@ func (s *Server) StreamGroupEvents(w http.ResponseWriter, r *http.Request, group
 	// already holds, because these synthetic frames are written before the loop
 	// drains it. Softness worth naming: a crashed worker's row stays 'running'
 	// until its lease expires (5 min), so a snapshot can show a stale running.
-	// The reaper's requeue emits fresh frames, and every hub drop or reconnect
-	// re-snapshots, so the UI self-heals.
+	// The reaper emits a terminal failed frame before requeueing or failing that
+	// attempt, and every hub drop or reconnect re-snapshots, so the UI self-heals.
 	running, err := acc.RunningTurnAgents(r.Context(), groupId)
 	if err != nil {
 		s.groupError(w, err)

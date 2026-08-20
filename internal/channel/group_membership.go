@@ -26,7 +26,7 @@ func validatePlatformChannel(ctx context.Context, store config.Store, platform, 
 	if err != nil {
 		return config.Channel{}, fmt.Errorf("lookup channel: %w", err)
 	}
-	if err := validateGroupChannel(ch, platform, ch.AgentID); err != nil {
+	if err := validateGroupChannel(ch, platform); err != nil {
 		return config.Channel{}, err
 	}
 	ag, err := store.GetAgent(ctx, ch.AgentID)
@@ -39,7 +39,7 @@ func validatePlatformChannel(ctx context.Context, store config.Store, platform, 
 	return ch, nil
 }
 
-func validateGroupChannel(ch config.Channel, platform, agentID string) error {
+func validateGroupChannel(ch config.Channel, platform string) error {
 	if !ch.Enabled {
 		return fmt.Errorf("channel is disabled")
 	}
@@ -48,9 +48,6 @@ func validateGroupChannel(ch config.Channel, platform, agentID string) error {
 	}
 	if ch.AgentID == "" {
 		return fmt.Errorf("channel has no bound agent")
-	}
-	if ch.AgentID != agentID {
-		return fmt.Errorf("channel belongs to agent %q, not %q", ch.AgentID, agentID)
 	}
 	return nil
 }

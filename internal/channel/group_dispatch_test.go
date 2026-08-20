@@ -440,9 +440,6 @@ func TestGroupIncomingNewIsRefusedBeforeEventLog(t *testing.T) {
 	coord := &Coordinator{
 		eventLog:      el,
 		groupResolver: el,
-		memberLister: FuncGroupMemberLister(func(context.Context, string) ([]GroupMember, error) {
-			return []GroupMember{{AgentID: "a1"}, {AgentID: "a2"}}, nil
-		}),
 	}
 	msg := pkgchannel.IncomingMessage{
 		Platform: "telegram", ChatID: "chat-new", SenderID: "alice",
@@ -471,28 +468,5 @@ func TestGroupIncomingNewIsRefusedBeforeEventLog(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("/new appended %d group messages, want 0", count)
-	}
-}
-
-func TestFuncGroupMemberLister(t *testing.T) {
-	lister := FuncGroupMemberLister(func(_ context.Context, groupID string) ([]GroupMember, error) {
-		if groupID == "g1" {
-			return []GroupMember{
-				{AgentID: "a1", ReplyChannelID: "ch1"},
-				{AgentID: "a2", ReplyChannelID: "ch2"},
-			}, nil
-		}
-		return nil, nil
-	})
-
-	members, err := lister.ListGroupMembers(context.Background(), "g1")
-	if err != nil {
-		t.Fatalf("ListGroupMembers: %v", err)
-	}
-	if len(members) != 2 {
-		t.Fatalf("expected 2 members, got %d", len(members))
-	}
-	if members[0].AgentID != "a1" {
-		t.Errorf("expected a1, got %s", members[0].AgentID)
 	}
 }

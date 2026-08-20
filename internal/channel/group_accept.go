@@ -160,16 +160,13 @@ func (d *GroupDispatcher) groupBackstopVerdict(ctx context.Context, q *sqlc.Quer
 		// retries the turn; treating it as "unique" posts the echo for good.
 		return groupBackstop{}, fmt.Errorf("check verbatim duplicate: %w", err)
 	}
-	// Hard cap, shared with the pre-turn gate in exceedsGroupHardCap. Only the
-	// reply count is re-read: it is the ceiling a peer can cross while this
-	// agent thinks, and the lock this backstop holds is what makes the count
-	// authoritative. The chain and rate ceilings are the pre-gate's job.
-	//
-	// Deliberate ceiling: a chain limit set below max_replies_per_human_trigger
-	// can then be overshot by a peer posting during this turn, because only the
-	// pre-gate counted the chain. Defaults keep it unreachable (replies 5 <
-	// chain 8). Re-read the chain here if the two caps ever become independently
-	// configurable in a way that lets chain sit lower.
+	// Hard caps shared with the pre-turn gate in exceedsGroupHardCap. The state
+	// lock makes this second measurement authoritative against peer posts that
+	// committed while this agent was thinking.
+	chain, err := d.consecutiveAgentMessages(ctx, q, row.GroupID, maxGroupSequence)
+	if err != nil {
+		return groupBackstop{}, fmt.Errorf("count consecutive agent messages: %w", err)
+	}
 	lastHuman, err := q.LastHumanSeqAtOrBefore(ctx, sqlc.LastHumanSeqAtOrBeforeParams{GroupID: row.GroupID, TriggerSeq: row.TriggerSeq})
 	if err != nil {
 		return groupBackstop{}, fmt.Errorf("last human seq: %w", err)
@@ -179,6 +176,7 @@ func (d *GroupDispatcher) groupBackstopVerdict(ctx context.Context, q *sqlc.Quer
 		return groupBackstop{}, fmt.Errorf("count agent posts: %w", err)
 	}
 	if capped, reason := exceedsGroupHardCap(
+		groupCapCheck{count: int64(chain), limit: int64(locked.AgentChainHardLimit)},
 		groupCapCheck{count: posts, limit: int64(locked.MaxRepliesPerHumanTrigger)},
 	); capped {
 		return groupBackstop{status: groupTurnSilent, reason: reason}, nil
@@ -192,17 +190,23 @@ func (d *GroupDispatcher) groupBackstopVerdict(ctx context.Context, q *sqlc.Quer
 // are real. Dropping only the final text response keeps that durable history
 // consistent with the group message that was intentionally not published.
 func (d *GroupDispatcher) stopGroupTurn(ctx context.Context, tx pgx.Tx, q *sqlc.Queries, row sqlc.CtxGroupDispatch, verdict groupBackstop, turn memory.DeferredGroupTurn) (groupAcceptOutcome, error) {
-	var err error
+	var (
+		updated int64
+		err     error
+	)
 	switch verdict.status {
 	case groupTurnHeld:
-		_, err = q.MarkGroupDispatchHeld(ctx, sqlc.MarkGroupDispatchHeldParams{ID: row.ID, AttemptCount: row.AttemptCount, HeldUpToSeq: verdict.heldUpTo})
+		updated, err = q.MarkGroupDispatchHeld(ctx, sqlc.MarkGroupDispatchHeldParams{ID: row.ID, AttemptCount: row.AttemptCount, HeldUpToSeq: verdict.heldUpTo})
 	case groupTurnSilent:
-		_, err = q.MarkGroupDispatchSilent(ctx, sqlc.MarkGroupDispatchSilentParams{ID: row.ID, AttemptCount: row.AttemptCount, Reason: verdict.reason})
+		updated, err = q.MarkGroupDispatchSilent(ctx, sqlc.MarkGroupDispatchSilentParams{ID: row.ID, AttemptCount: row.AttemptCount, Reason: verdict.reason})
 	default:
 		return groupAcceptOutcome{}, fmt.Errorf("stop group turn: unexpected status %q", verdict.status)
 	}
 	if err != nil {
 		return groupAcceptOutcome{}, fmt.Errorf("mark dispatch %s (%s): %w", verdict.status, verdict.reason, err)
+	}
+	if updated == 0 {
+		return groupAcceptOutcome{}, fmt.Errorf("mark dispatch %s (%s): lost dispatch ownership", verdict.status, verdict.reason)
 	}
 	turn.OwnRows = stripTrailingTextOnlyAssistant(turn.OwnRows)
 	if err := d.committer.CommitGroupTurn(ctx, q, turn); err != nil {

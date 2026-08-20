@@ -69,7 +69,6 @@ type Coordinator struct {
 	intentClassifier  IntentClassifier
 	groupResolver     GroupResolver
 	eventLog          *eventlog.Store
-	memberLister      GroupMemberLister
 	botRegistry       *BotIdentityRegistry
 	publisherRegistry *PublisherRegistry
 	groupDispatcher   *GroupDispatcher
@@ -173,13 +172,6 @@ func WithEventLog(el *eventlog.Store) CoordinatorOption {
 	}
 }
 
-// WithGroupMemberLister enables group membership queries for mention resolution.
-func WithGroupMemberLister(lister GroupMemberLister) CoordinatorOption {
-	return func(c *Coordinator) {
-		c.memberLister = lister
-	}
-}
-
 // WithBotRegistry enables bot identity resolution for @mention → agent routing.
 func WithBotRegistry(reg *BotIdentityRegistry) CoordinatorOption {
 	return func(c *Coordinator) {
@@ -255,7 +247,7 @@ func (c *Coordinator) ensurePlatformGroupMember(ctx context.Context, platform, p
 		AgentID: lockedChannel.AgentID.String,
 		Enabled: lockedChannel.Enabled,
 	}
-	if err := validateGroupChannel(ch, platform, ch.AgentID); err != nil {
+	if err := validateGroupChannel(ch, platform); err != nil {
 		return fmt.Errorf("channel %q cannot join platform group: %w", channelID, err)
 	}
 	boundAgent, err := q.GetAgent(ctx, ch.AgentID)

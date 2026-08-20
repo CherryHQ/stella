@@ -160,7 +160,7 @@ func TestNudgeCreatesOneTargetedWake(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fx.d.ProcessOutbox(context.Background(), outbox); err != nil {
+	if err := fx.d.processOutbox(context.Background(), outbox); err != nil {
 		t.Fatal(err)
 	}
 	var agentID, kind string
@@ -193,7 +193,7 @@ func TestNudgeRowReachesThePoolAndTriages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fx.d.ProcessOutbox(ctx, outbox); err != nil {
+	if err := fx.d.processOutbox(ctx, outbox); err != nil {
 		t.Fatal(err)
 	}
 
@@ -208,7 +208,7 @@ func TestNudgeRowReachesThePoolAndTriages(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("claim nudge: ok=%v, err=%v", ok, err)
 	}
-	message, state, err := fx.d.messageAndState(ctx, claimed.GroupMessageID)
+	message, state, err := fx.d.messageAndState(ctx, fx.d.q, claimed.GroupMessageID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,7 +421,7 @@ func TestNudgeTriageDefersMootCheckUntilSessionSlot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fx.d.ProcessOutbox(ctx, outbox); err != nil {
+	if err := fx.d.processOutbox(ctx, outbox); err != nil {
 		t.Fatal(err)
 	}
 	// The in-flight wake lands first.
@@ -436,7 +436,7 @@ func TestNudgeTriageDefersMootCheckUntilSessionSlot(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("claim nudge: ok=%v, err=%v", ok, err)
 	}
-	message, state, err := fx.d.messageAndState(ctx, claimed.GroupMessageID)
+	message, state, err := fx.d.messageAndState(ctx, fx.d.q, claimed.GroupMessageID)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -24,9 +24,8 @@ type DeferredGroupTurn struct {
 	Complete         bool
 }
 
-// GroupTurnSink is a one-shot, non-blocking turn finalization channel.
+// GroupTurnSink is a one-shot, non-blocking turn finalization record.
 type GroupTurnSink struct {
-	done      chan struct{}
 	once      sync.Once
 	mu        sync.RWMutex
 	injected  []ai.Message
@@ -35,7 +34,7 @@ type GroupTurnSink struct {
 }
 
 func NewGroupTurnSink() *GroupTurnSink {
-	return &GroupTurnSink{done: make(chan struct{})}
+	return &GroupTurnSink{}
 }
 
 func (s *GroupTurnSink) SetInjected(rows []ai.Message) {
@@ -57,8 +56,6 @@ func (s *GroupTurnSink) Injected() []ai.Message {
 }
 
 // Deliver records the first terminal result without blocking the producer.
-// Result assignment happens before done is closed, so Wait and Result observe a
-// complete value after the producer closes its output channel.
 func (s *GroupTurnSink) Deliver(turn DeferredGroupTurn) {
 	if s == nil {
 		return
@@ -68,22 +65,7 @@ func (s *GroupTurnSink) Deliver(turn DeferredGroupTurn) {
 		s.result = turn
 		s.delivered = true
 		s.mu.Unlock()
-		close(s.done)
 	})
-}
-
-// Wait blocks until the producer delivers its one terminal result or ctx ends.
-func (s *GroupTurnSink) Wait(ctx context.Context) (DeferredGroupTurn, error) {
-	if s == nil {
-		return DeferredGroupTurn{}, fmt.Errorf("wait for nil group turn sink")
-	}
-	select {
-	case <-s.done:
-		turn, _ := s.Result()
-		return turn, nil
-	case <-ctx.Done():
-		return DeferredGroupTurn{}, ctx.Err()
-	}
 }
 
 // Result returns the delivered result, and whether the producer delivered one.

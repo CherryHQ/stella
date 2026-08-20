@@ -388,9 +388,10 @@ SELECT EXISTS (
 -- long-lived subscriber does.
 --
 -- Known softness: a worker that died mid-turn leaves status='running' until its
--- lease expires (5min), so a snapshot can show a stale running. The reaper's
--- requeue then emits fresh frames, and every reconnect re-snapshots, so the UI
--- self-heals. Filtering by lease_until here would instead hide a live turn whose
+-- lease expires (5min), so a snapshot can show a stale running. The reaper
+-- emits a terminal failed frame before requeueing or failing that attempt, and
+-- every reconnect re-snapshots, so the UI self-heals. Filtering by lease_until
+-- here would instead hide a live turn whose
 -- heartbeat is merely late, which is the worse lie.
 SELECT DISTINCT agent_id FROM ctx_group_dispatch
 WHERE group_id = sqlc.arg(group_id)

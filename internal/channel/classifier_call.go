@@ -24,8 +24,9 @@ import (
 // retry: retrying a missing setting only burns attempts.
 var errNoFastModel = errors.New("no fast model configured")
 
-// The stage a call reached before failing. Callers surface these verbatim as a
-// degraded reason, so the strings are data, not prose.
+// The stage a call reached before failing. Callers record it in diagnostics;
+// fallback policy stays local to the call site, so the strings are data, not
+// user-visible degraded reasons.
 const (
 	fastModelStageSnapshot   = "snapshot"
 	fastModelStageStream     = "stream"
@@ -73,9 +74,9 @@ func (f fastModelCaller) Complete(ctx context.Context, agentID, system, payload 
 	return ai.FlattenText(msg.Content), "", nil
 }
 
-// firstSystemScopeMember returns the first system-scope member of a group, or
-// "" when it has none. Classifier calls in a platform group are billed to it so
-// that platform participants cannot spend a private member's provider credits.
+// firstSystemScopeMember returns one system-scope group member, or "" when
+// none is available. A platform-group nudge classifier is billed to that agent,
+// so platform participants cannot spend a private member's provider credits.
 //
 // It costs one GetAgent per member; a group-scoped join belongs here once
 // member counts justify it (CR-012).

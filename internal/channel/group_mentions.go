@@ -35,10 +35,6 @@ const textMentionCutset = "()[]{}:;,.!?"
 type mentionScan struct {
 	// trimCutset is cut from both ends of a word before the "@" prefix is read.
 	trimCutset string
-	// dedup emits one mention per agent. No consumer reads mention cardinality
-	// -- triage asks whether an agent is named and whether any peer is named --
-	// so repeats are noise in the stored envelope either way.
-	dedup bool
 	// resolve maps one @token to a member agent id. This is the rule that
 	// actually differs: agent text accepts an agent id or a display name, web
 	// ingest accepts an agent id only.
@@ -50,10 +46,9 @@ type mentionScan struct {
 // value: those slices are serialized into the outbox envelope, where a nil and
 // an empty list are not the same stored JSON.
 func (s mentionScan) run(content string, mentions []pkgchannel.Mention) []pkgchannel.Mention {
-	var seen map[string]struct{}
-	if s.dedup {
-		seen = make(map[string]struct{})
-	}
+	// No consumer reads mention cardinality: triage asks whether an agent or any
+	// peer is named, so repeats are noise in the stored envelope.
+	seen := make(map[string]struct{})
 	for word := range strings.FieldsSeq(content) {
 		token, ok := strings.CutPrefix(strings.Trim(word, s.trimCutset), "@")
 		if !ok {
@@ -63,12 +58,10 @@ func (s mentionScan) run(content string, mentions []pkgchannel.Mention) []pkgcha
 		if !ok {
 			continue
 		}
-		if s.dedup {
-			if _, duplicate := seen[agentID]; duplicate {
-				continue
-			}
-			seen[agentID] = struct{}{}
+		if _, duplicate := seen[agentID]; duplicate {
+			continue
 		}
+		seen[agentID] = struct{}{}
 		mentions = append(mentions, pkgchannel.Mention{Raw: "@" + token, AgentID: agentID})
 	}
 	return mentions
@@ -86,7 +79,6 @@ func parseGroupMentions(ctx context.Context, q *sqlc.Queries, content string, me
 	}
 	scan := mentionScan{
 		trimCutset: textMentionCutset,
-		dedup:      true,
 		resolve: func(token string) (string, bool) {
 			agentID, ok := byToken[token]
 			return agentID, ok
@@ -105,7 +97,6 @@ func parseWebMentions(content string, members []sqlc.ChannelGroupMember) []pkgch
 	}
 	scan := mentionScan{
 		trimCutset: textMentionCutset,
-		dedup:      true,
 		resolve: func(token string) (string, bool) {
 			_, isMember := memberSet[token]
 			return token, isMember

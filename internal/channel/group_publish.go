@@ -73,9 +73,6 @@ type publishJob struct {
 	// acceptedMessageID is the canonical row this publish is rendering. It is
 	// empty on the recovery path, where the row already carries the id.
 	acceptedMessageID string
-	// finalAttempt tells the publisher this is the last try, so it can render a
-	// terminal notice instead of a retryable one. The dispatcher owns the count.
-	finalAttempt bool
 }
 
 // run performs one egress attempt and returns the dispatch row it worked on.
@@ -109,13 +106,11 @@ func (p *groupPublishDriver) run(ctx context.Context, job publishJob) (sqlc.CtxG
 		}
 	}
 	err := job.publisher.Publish(ctx, GroupPublishRequest{
-		GroupID: row.GroupID, AgentID: row.AgentID,
-		ReplyChannelID: row.ReplyChannelID, Platform: job.state.Platform,
+		Platform:        job.state.Platform,
 		PlatformGroupID: job.state.PlatformGroupID, PlatformThreadID: job.state.PlatformThreadID,
 		ReplyTo: nullStringValue(job.trigger.PlatformMessageID), Stream: replayGroupResponse(job.response),
 		RequesterID: job.trigger.ActorID, LifecycleFeedback: job.envelope.LifecycleFeedback,
-		Abort:        func() bool { return p.abort(sessionKey) },
-		FinalAttempt: job.finalAttempt,
+		Abort: func() bool { return p.abort(sessionKey) },
 	})
 	if err != nil {
 		// A returned publisher error is a known platform outcome and stays on the
@@ -163,15 +158,6 @@ func (p *groupPublishDriver) markPublished(ctx context.Context, row sqlc.CtxGrou
 		return errors.New("mark dispatch published: lost dispatch ownership")
 	}
 	return nil
-}
-
-// markAcceptedPublished is retained for focused callers/tests that need the
-// complete success transition; run keeps the marker and finalization separate.
-func (p *groupPublishDriver) markAcceptedPublished(ctx context.Context, row sqlc.CtxGroupDispatch) error {
-	if err := p.markPublished(ctx, row); err != nil {
-		return err
-	}
-	return p.finalizeAcceptedPublished(ctx, row)
 }
 
 // finalizeAcceptedPublished contains only idempotent local DB work. A retry
@@ -236,14 +222,6 @@ func (p *groupPublishDriver) createAgentReplyOutbox(ctx context.Context, q *sqlc
 		return fmt.Errorf("create agent reply outbox: %w", err)
 	}
 	return nil
-}
-
-func (p *groupPublishDriver) failAcceptedPublish(ctx context.Context, row sqlc.CtxGroupDispatch, cause error) error {
-	return p.failAcceptedPublishWithExpiryFence(ctx, row, cause, time.Time{})
-}
-
-func (p *groupPublishDriver) failExpiredAcceptedPublish(ctx context.Context, row sqlc.CtxGroupDispatch, cause error, now time.Time) error {
-	return p.failAcceptedPublishWithExpiryFence(ctx, row, cause, now.UTC())
 }
 
 func (p *groupPublishDriver) failAcceptedPublishWithExpiryFence(ctx context.Context, row sqlc.CtxGroupDispatch, cause error, expiredAt time.Time) error {

@@ -28,11 +28,6 @@ type GroupMember struct {
 	ReplyChannelID string
 }
 
-// GroupMemberLister returns the agents that belong to a group.
-type GroupMemberLister interface {
-	ListGroupMembers(ctx context.Context, groupID string) ([]GroupMember, error)
-}
-
 // handleGroupIncoming ingests a group message and wakes the durable dispatcher.
 func (c *Coordinator) handleGroupIncoming(ctx context.Context, msg pkgchannel.IncomingMessage, command, args string) (string, bool, *pkgchannel.ChatStream, error) {
 	log := slog.With("component", "group_dispatch", "platform", msg.Platform, "chat_id", msg.ChatID)
@@ -316,11 +311,4 @@ func marshalGroupContentBlocks(blocks []ai.ContentBlock) []byte {
 		return nil
 	}
 	return data
-}
-
-// FuncGroupMemberLister adapts a function to GroupMemberLister.
-type FuncGroupMemberLister func(ctx context.Context, groupID string) ([]GroupMember, error)
-
-func (f FuncGroupMemberLister) ListGroupMembers(ctx context.Context, groupID string) ([]GroupMember, error) {
-	return f(ctx, groupID)
 }

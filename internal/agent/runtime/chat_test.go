@@ -700,9 +700,9 @@ func TestSinkDeliversExactlyOneResultOnEveryExit(t *testing.T) {
 			sink := memory.NewGroupTurnSink()
 			for range rt.Chat(memory.WithGroupTurnSink(context.Background(), sink), info, "hello") {
 			}
-			turn, err := sink.Wait(t.Context())
-			if err != nil {
-				t.Fatalf("wait: %v", err)
+			turn, delivered := sink.Result()
+			if !delivered {
+				t.Fatal("sink did not deliver a result")
 			}
 			if turn.Complete {
 				t.Fatal("incomplete exit delivered Complete=true")
@@ -725,9 +725,9 @@ func TestSinkDeliversExactlyOneResultOnEveryExit(t *testing.T) {
 		sink := memory.NewGroupTurnSink()
 		for range rt.Chat(memory.WithGroupTurnSink(context.Background(), sink), info, "hello") {
 		}
-		turn, err := sink.Wait(t.Context())
-		if err != nil {
-			t.Fatalf("wait: %v", err)
+		turn, delivered := sink.Result()
+		if !delivered {
+			t.Fatal("sink did not deliver a result")
 		}
 		if turn.Complete {
 			t.Fatal("panic delivered Complete=true")
@@ -772,9 +772,9 @@ func TestSinkGroupTurnDefersRowsAndCursor(t *testing.T) {
 	ctx := memory.WithGroupTurnSink(memory.WithGroupSeq(context.Background(), 8), sink)
 	for range rt.Chat(ctx, session.Info{ID: "deferred-sink-session", UserID: group, AgentID: "agent-1", GroupID: group}, "hello") {
 	}
-	turn, err := sink.Wait(t.Context())
-	if err != nil {
-		t.Fatalf("wait: %v", err)
+	turn, delivered := sink.Result()
+	if !delivered {
+		t.Fatal("sink did not deliver a result")
 	}
 	if !turn.Complete || turn.TriggerSeq != 8 || len(turn.OwnRows) != 2 {
 		t.Fatalf("deferred turn = %+v", turn)
