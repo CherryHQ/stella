@@ -39,6 +39,7 @@ import (
 	"github.com/CherryHQ/stella/internal/goal"
 	"github.com/CherryHQ/stella/internal/home"
 	"github.com/CherryHQ/stella/internal/library"
+	"github.com/CherryHQ/stella/internal/llmusage"
 	"github.com/CherryHQ/stella/internal/mcp"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/notify"
@@ -364,7 +365,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build session prompt service: %w", err)
 	}
-	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder), sessionaccess.WithHomeWorkspace(homeRegistry))
+	usageHook := llmusage.New(db)
+	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder), sessionaccess.WithHomeWorkspace(homeRegistry), sessionaccess.WithUsageProgress(usageHook))
 	if err != nil {
 		return nil, fmt.Errorf("build session/workspace service: %w", err)
 	}
@@ -402,7 +404,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// its idle-session reaper here, bound to the daemon lifecycle context.
 	traceHook := tracehook.New(observability.LoadConfig().Enabled, cfg.Observability.RecordToolIO)
 	traceHook.Start(parent)
-	coreHooks := []hooks.HookPlugin{traceHook}
+	usageHook.Start()
+	coreHooks := []hooks.HookPlugin{traceHook, usageHook}
 
 	toolLifecycle := buildToolLifecycle(phost)
 	promptSectionsBuilder := func(ctx context.Context, build pkgplugins.SystemPromptContext) ([]pkgplugins.SystemPromptSection, error) {

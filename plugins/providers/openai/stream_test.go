@@ -40,7 +40,8 @@ func TestMapChunkTextAndStop(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected third event usage")
 	}
-	want := ai.Usage{InputTokens: 5, OutputTokens: 1, CacheRead: 4, TotalTokens: 6}
+	// prompt_tokens is 5 with 4 of them cached, so only 1 is billable input.
+	want := ai.Usage{InputTokens: 1, OutputTokens: 1, CacheRead: 4, TotalTokens: 6}
 	if usage.Usage != want {
 		t.Fatalf("usage = %+v, want %+v", usage.Usage, want)
 	}

@@ -64,12 +64,14 @@ func mapEvent(event responses.ResponseStreamEventUnion, itemToCall map[string]st
 	case "response.completed":
 		usage := event.Response.Usage
 		if usage.TotalTokens > 0 || usage.InputTokens > 0 || usage.OutputTokens > 0 || usage.InputTokensDetails.CachedTokens > 0 {
-			events = append(events, ai.EventUsage{Usage: ai.Usage{
-				InputTokens:  int(usage.InputTokens),
-				OutputTokens: int(usage.OutputTokens),
-				CacheRead:    int(usage.InputTokensDetails.CachedTokens),
-				TotalTokens:  int(usage.TotalTokens),
-			}})
+			// input_tokens includes cached_tokens; ai.Usage keeps the two
+			// disjoint so each is priced at its own rate.
+			events = append(events, ai.EventUsage{Usage: ai.UsageWithCachedInput(
+				int(usage.InputTokens),
+				int(usage.OutputTokens),
+				int(usage.InputTokensDetails.CachedTokens),
+				int(usage.TotalTokens),
+			)})
 		}
 		events = append(events, ai.EventStop{Reason: mapStopReason(event.Response.Status)})
 
