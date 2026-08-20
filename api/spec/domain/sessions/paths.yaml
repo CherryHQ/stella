@@ -208,9 +208,11 @@ paths:
       tags: [sessions]
       summary: Get provider-reported LLM usage for a session
       description: >-
-        Returns exact provider usage, never message-length estimates. Token and
-        cost totals are null unless every request reported usage and, for cost,
-        every reported request had configured pricing.
+        Returns exact provider usage, never message-length estimates. A nonzero
+        pending_call_count means the asynchronous persistence queue has not
+        finished, so consumers must retry before treating totals as final. Token
+        and cost totals are null unless every request reported usage and, for
+        cost, every reported request had configured pricing.
       operationId: getSessionUsage
       responses:
         "200":

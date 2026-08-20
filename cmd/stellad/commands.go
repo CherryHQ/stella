@@ -365,7 +365,8 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	if err != nil {
 		return nil, fmt.Errorf("build session prompt service: %w", err)
 	}
-	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder), sessionaccess.WithHomeWorkspace(homeRegistry))
+	usageHook := llmusage.New(db)
+	sessionAccess, err := sessionaccess.NewService(memProvider, db, store, assetStore, agentAccess, sessionaccess.WithSystemPromptBuilder(systemPromptBuilder), sessionaccess.WithHomeWorkspace(homeRegistry), sessionaccess.WithUsageProgress(usageHook))
 	if err != nil {
 		return nil, fmt.Errorf("build session/workspace service: %w", err)
 	}
@@ -403,7 +404,6 @@ func setup(parent context.Context, cfg config.ServerConfig, baseURL string) (*se
 	// its idle-session reaper here, bound to the daemon lifecycle context.
 	traceHook := tracehook.New(observability.LoadConfig().Enabled, cfg.Observability.RecordToolIO)
 	traceHook.Start(parent)
-	usageHook := llmusage.New(db)
 	usageHook.Start()
 	coreHooks := []hooks.HookPlugin{traceHook, usageHook}
 

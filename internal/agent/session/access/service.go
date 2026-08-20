@@ -48,6 +48,7 @@ type Service struct {
 	runtime  RuntimeManager
 	prompts  SystemPromptBuilder
 	homes    home.RootOpener
+	usage    UsageProgress
 }
 
 type Option func(*Service)
@@ -58,6 +59,16 @@ func WithSystemPromptBuilder(builder SystemPromptBuilder) Option {
 
 func WithHomeWorkspace(opener home.RootOpener) Option {
 	return func(s *Service) { s.homes = opener }
+}
+
+// UsageProgress exposes only the completion state of asynchronously persisted
+// usage. Accounting rows remain owned by the session service's query port.
+type UsageProgress interface {
+	PendingCallCount(sessionID string) int64
+}
+
+func WithUsageProgress(progress UsageProgress) Option {
+	return func(s *Service) { s.usage = progress }
 }
 
 // NewService constructs the only Session/Workspace PEP. The registry remains the

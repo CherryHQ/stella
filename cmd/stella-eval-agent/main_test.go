@@ -163,6 +163,30 @@ func TestCollectEvidenceMarksATruncatedTrajectory(t *testing.T) {
 	}
 }
 
+func TestCollectUsageWaitsForAcceptedWrites(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/agents/a/sessions/s/usage" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		requests++
+		if requests < 3 {
+			_, _ = w.Write([]byte(`{"pending_call_count":1}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"pending_call_count":0,"call_count":2}`))
+	}))
+	defer server.Close()
+
+	u, err := collectUsage(t.Context(), apiClient{baseURL: server.URL, http: server.Client()}, "a", "s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u == nil || u.CallCount != 2 || requests != 3 {
+		t.Fatalf("usage = %+v after %d requests, want settled usage on third request", u, requests)
+	}
+}
+
 // A deployment on any other backend runs the agent's commands outside the trial
 // container. The bridge ledger proves that only afterwards, so the driver has
 // to refuse before it provisions a user or starts a turn.

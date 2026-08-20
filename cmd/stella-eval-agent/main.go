@@ -24,10 +24,12 @@ import (
 )
 
 const (
-	exitAdapter   = 10
-	exitProduct   = 11
-	exitTimeout   = 12
-	cleanupMargin = 2 * time.Minute
+	exitAdapter        = 10
+	exitProduct        = 11
+	exitTimeout        = 12
+	cleanupMargin      = 2 * time.Minute
+	usageSettleTimeout = 30 * time.Second
+	usageSettlePoll    = 100 * time.Millisecond
 )
 
 type binding struct {
@@ -330,9 +332,10 @@ func collectEvidence(ctx context.Context, c apiClient, agentID, sessionID, traje
 	// Best effort: a deployment that predates the usage API still produces a
 	// valid trial, it just cannot report cost. Failing the trial over a missing
 	// optional metric would be worse than reporting it as absent.
-	var u usage
-	if err := c.call(ctx, http.MethodGet, "/api/agents/"+agentID+"/sessions/"+sessionID+"/usage", nil, &u); err == nil {
-		m.Usage = &u
+	if u, err := collectUsage(ctx, c, agentID, sessionID); err == nil && u != nil {
+		m.Usage = u
+	} else if err != nil {
+		return fmt.Errorf("collect session usage: %w", err)
 	}
 	// Preserve the timing the driver measured itself; deriveMetrics only knows
 	// what the message timeline shows.
@@ -346,6 +349,32 @@ func collectEvidence(ctx context.Context, c apiClient, agentID, sessionID, traje
 		out.ToolCalls[name] = m.Tools[name].Calls
 	}
 	return nil
+}
+
+func collectUsage(ctx context.Context, c apiClient, agentID, sessionID string) (*usage, error) {
+	ctx, cancel := context.WithTimeout(ctx, usageSettleTimeout)
+	defer cancel()
+	path := "/api/agents/" + agentID + "/sessions/" + sessionID + "/usage"
+	for {
+		var u usage
+		if err := c.call(ctx, http.MethodGet, path, nil, &u); err != nil {
+			// Usage did not exist before this evaluation adapter. Keep old servers
+			// usable, but never treat an explicit in-flight result as final.
+			var apiErr *apiError
+			if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound {
+				return nil, nil
+			}
+			return nil, err
+		}
+		if u.PendingCallCount == nil || *u.PendingCallCount == 0 {
+			return &u, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("usage persistence did not settle: %w", ctx.Err())
+		case <-time.After(usageSettlePoll):
+		}
+	}
 }
 
 func run() int {

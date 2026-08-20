@@ -4632,8 +4632,18 @@ components:
           description: USD total, null when any request in this model bucket is unreported or unpriced.
     SessionUsage:
       type: object
-      required: [call_count, reported_call_count, priced_call_count, models]
+      required: [
+        pending_call_count,
+        call_count,
+        reported_call_count,
+        priced_call_count,
+        models,
+      ]
       properties:
+        pending_call_count:
+          type: integer
+          format: int64
+          description: Accepted usage observations still being persisted. Totals are complete only when this is zero.
         call_count:
           type: integer
           format: int64

@@ -89,6 +89,7 @@ class BridgeServer:
     _bind_dir: Path | None = None
     _deadline: float = 0.0
     _has_timeout_bin: bool = False
+    _handlers: set[asyncio.Task[None]] = field(default_factory=set)
 
     # ---- lifecycle -------------------------------------------------------
 
@@ -99,9 +100,13 @@ class BridgeServer:
             self._bind_path.unlink()
         self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
         self._ledger = self.ledger_path.open("a")
-        self._server = await asyncio.start_unix_server(self._handle, path=str(self._bind_path))
+        self._server = await asyncio.start_unix_server(self._serve_connection, path=str(self._bind_path))
         os.chmod(self._bind_path, 0o600)
-        home, path, temp_dir = await self._discover()
+        try:
+            home, path, temp_dir = await self._discover()
+        except BaseException:
+            await self.close()
+            raise
         return Binding(
             socket=str(self._bind_path),
             nonce=self.nonce,
@@ -116,6 +121,11 @@ class BridgeServer:
             self._server.close()
             await self._server.wait_closed()
             self._server = None
+        handlers = tuple(self._handlers)
+        for handler in handlers:
+            handler.cancel()
+        if handlers:
+            await asyncio.gather(*handlers, return_exceptions=True)
         if self._bind_path is not None:
             self._bind_path.unlink(missing_ok=True)
             if self._bind_dir is not None:
@@ -156,16 +166,24 @@ class BridgeServer:
         lines = (r.stdout or "").splitlines()
         home = lines[0] if lines else ""
         path = lines[1] if len(lines) > 1 else ""
-        # coreutils `timeout` is what actually kills a runaway: the transport
-        # only ever kills its own client, and the process inside the container
-        # survives that. An image without it keeps the old, weaker behaviour
-        # rather than failing the trial.
         self._has_timeout_bin = bool(len(lines) > 2 and lines[2].strip())
+        if not self._has_timeout_bin:
+            raise RuntimeError("bridge requires the task container to provide timeout")
         if self.tool_path_prepend:
             path = f"{self.tool_path_prepend}:{path}" if path else self.tool_path_prepend
         return home, path, temp_dir
 
     # ---- connection handling --------------------------------------------
+
+    async def _serve_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        task = asyncio.current_task()
+        if task is not None:
+            self._handlers.add(task)
+        try:
+            await self._handle(reader, writer)
+        finally:
+            if task is not None:
+                self._handlers.discard(task)
 
     async def _read_request(self, reader: asyncio.StreamReader) -> bytes:
         """Read one request in full.
@@ -277,8 +295,10 @@ class BridgeServer:
         remaining = self._remaining_sec()
         if remaining is not None:
             timeout = remaining if timeout is None else min(timeout, remaining)
-        if timeout is None or not self._has_timeout_bin:
-            return command, timeout, timeout
+        if not self._has_timeout_bin:
+            raise BridgeError("internal", "task container does not provide timeout")
+        if timeout is None:
+            raise BridgeError("internal", "bridge command has no timeout")
         # -k: SIGKILL follows if the command ignores SIGTERM.
         return f"timeout -k 5s {timeout}s bash -c {shlex.quote(command)}", timeout, timeout + 10
 
@@ -306,10 +326,7 @@ class BridgeServer:
 
     async def _op_stat(self, req: dict[str, Any]) -> dict[str, Any]:
         p = shlex.quote(req["path"])
-        r = await self._exec(
-            f'if [ -d {p} ]; then echo d 0; elif [ -e {p} ]; then echo f "$(wc -c < {p})"; else exit 3; fi',
-            timeout_sec=30,
-        )
+        r = await self._exec_bounded(f'if [ -d {p} ]; then echo d 0; elif [ -e {p} ]; then echo f "$(wc -c < {p})"; else exit 3; fi', timeout_sec=30)
         if r.return_code == 3:
             raise BridgeError("not_found", f"{req['path']}: no such file or directory")
         if r.return_code != 0:
@@ -327,7 +344,7 @@ class BridgeServer:
             'if [ -d "$f" ]; then printf "d\\t0\\t%s\\n" "$f"; '
             'else printf "f\\t%s\\t%s\\n" "$(wc -c < "$f" 2>/dev/null || echo 0)" "$f"; fi; done'
         )
-        r = await self._exec(script, timeout_sec=60)
+        r = await self._exec_bounded(script, timeout_sec=60)
         if r.return_code == 3:
             raise BridgeError("not_found", f"{req['path']}: no such directory")
         if r.return_code != 0:
@@ -364,7 +381,7 @@ class BridgeServer:
         Resolving first keeps read consistent with what bash sees.
         """
         p = shlex.quote(path)
-        r = await self._exec(
+        r = await self._exec_bounded(
             f'if command -v readlink >/dev/null 2>&1; then readlink -f -- {p} 2>/dev/null '
             f'|| printf "%s" {p}; else printf "%s" {p}; fi',
             timeout_sec=30,
@@ -381,16 +398,16 @@ class BridgeServer:
         with tempfile.TemporaryDirectory(prefix="stella-bridge-") as td:
             local = Path(td) / "f"
             local.write_bytes(data)
-            r = await self._exec(f"mkdir -p {parent}", timeout_sec=30)
+            r = await self._exec_bounded(f"mkdir -p {parent}", timeout_sec=30)
             if r.return_code != 0:
                 raise BridgeError("internal", f"mkdir failed: {r.stderr}")
             await self.env.upload_file(local, tmp_remote)
-        r = await self._exec(
+        r = await self._exec_bounded(
             f"chmod {mode:o} {shlex.quote(tmp_remote)} && mv -f {shlex.quote(tmp_remote)} {shlex.quote(path)}",
             timeout_sec=30,
         )
         if r.return_code != 0:
-            await self._exec(f"rm -f {shlex.quote(tmp_remote)}", timeout_sec=10)
+            await self._exec_bounded(f"rm -f {shlex.quote(tmp_remote)}", timeout_sec=10)
             raise BridgeError("internal", f"write failed: {r.stderr}")
         return {"ok": True}
 
@@ -414,7 +431,7 @@ class BridgeServer:
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_bytes(base64.b64decode(f.get("data") or ""))
                 os.chmod(dest, int(f.get("mode") or 0o644))
-            r = await self._exec(f"mkdir -p {shlex.quote(stage)}", timeout_sec=30)
+            r = await self._exec_bounded(f"mkdir -p {shlex.quote(stage)}", timeout_sec=30)
             if r.return_code != 0:
                 raise BridgeError("internal", f"stage mkdir failed: {r.stderr}")
             await self.env.upload_dir(root, stage)
@@ -425,9 +442,13 @@ class BridgeServer:
             f"  else rm -rf {q_stage}; exit 75; fi; "
             f"else mkdir -p \"$(dirname {q_target})\" && mv {q_stage} {q_target}; fi"
         )
-        r = await self._exec(script, timeout_sec=60)
+        r = await self._exec_bounded(script, timeout_sec=60)
         if r.return_code == 75:
             raise BridgeError("conflict", f"{target}: existing tree differs")
         if r.return_code != 0:
             raise BridgeError("internal", f"project failed: {r.stderr}")
         return {"ok": True}
+
+    async def _exec_bounded(self, command: str, *, cwd: str | None = None, env: dict[str, str] | None = None, timeout_sec: int) -> Any:
+        command, _, client_timeout = self._bounded(command, timeout_sec)
+        return await self._exec(command, cwd=cwd, env=env, timeout_sec=client_timeout)

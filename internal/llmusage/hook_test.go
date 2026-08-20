@@ -65,3 +65,17 @@ func TestHookPersistsReportedUsageAndLeavesMissingUsageEmpty(t *testing.T) {
 		t.Fatalf("missing-usage row must be empty, got %+v", missing)
 	}
 }
+
+func TestPendingCallCountTracksAcceptedWrites(t *testing.T) {
+	db := dbtest.New(t)
+	h := New(db)
+	h.OnPostLLMCall(t.Context(), &hooks.PostLLMCallContext{
+		HookMeta: hooks.HookMeta{SessionID: "session", AgentID: "agent"},
+	})
+	if got := h.PendingCallCount("session"); got != 1 {
+		t.Fatalf("pending before writer starts = %d, want 1", got)
+	}
+	if got := h.PendingCallCount("other"); got != 0 {
+		t.Fatalf("pending for another session = %d, want 0", got)
+	}
+}

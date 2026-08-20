@@ -868,7 +868,7 @@ func (s *Server) GetSessionUsage(w http.ResponseWriter, r *http.Request, agentID
 		}
 	}
 	writeData(w, http.StatusOK, apitypes.SessionUsage{
-		CallCount: usage.CallCount, ReportedCallCount: usage.ReportedCallCount, PricedCallCount: usage.PricedCallCount,
+		PendingCallCount: usage.PendingCallCount, CallCount: usage.CallCount, ReportedCallCount: usage.ReportedCallCount, PricedCallCount: usage.PricedCallCount,
 		InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens,
 		CacheReadTokens: usage.CacheReadTokens, CacheWriteTokens: usage.CacheWriteTokens,
 		CostUsd: usage.CostUSD, Models: models,

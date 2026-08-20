@@ -29,16 +29,18 @@ type Hook struct {
 	done chan struct{}
 	wg   sync.WaitGroup
 
-	mu     sync.RWMutex
-	closed bool
+	mu      sync.RWMutex
+	closed  bool
+	pending map[string]int64
 }
 
 func New(db *pgxpool.Pool) *Hook {
 	return &Hook{
-		q:    sqlc.New(db),
-		log:  slog.With("hook", "llm_usage"),
-		jobs: make(chan sqlc.CreateAgentLLMCallParams, queueCapacity),
-		done: make(chan struct{}),
+		q:       sqlc.New(db),
+		log:     slog.With("hook", "llm_usage"),
+		jobs:    make(chan sqlc.CreateAgentLLMCallParams, queueCapacity),
+		done:    make(chan struct{}),
+		pending: make(map[string]int64),
 	}
 }
 
@@ -72,16 +74,26 @@ func (h *Hook) OnPostLLMCall(_ context.Context, hctx *hooks.PostLLMCallContext) 
 	}
 	job := paramsFrom(hctx)
 
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	if h.closed {
 		return
 	}
 	select {
 	case h.jobs <- job:
+		h.pending[job.SessionID]++
 	default:
 		h.log.Warn("llm usage queue full; dropping observation", "session_id", hctx.SessionID, "agent_id", hctx.AgentID)
 	}
+}
+
+// PendingCallCount reports accepted observations that have not finished their
+// database write. It is session-scoped so callers can distinguish a complete
+// zero-usage session from one whose accounting is still in flight.
+func (h *Hook) PendingCallCount(sessionID string) int64 {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.pending[sessionID]
 }
 
 func paramsFrom(hctx *hooks.PostLLMCallContext) sqlc.CreateAgentLLMCallParams {
@@ -123,6 +135,13 @@ func (h *Hook) write(job sqlc.CreateAgentLLMCallParams) {
 	if _, err := h.q.CreateAgentLLMCall(ctx, job); err != nil {
 		h.log.Warn("persist llm usage", "error", err, "session_id", job.SessionID, "agent_id", job.AgentID)
 	}
+	h.mu.Lock()
+	if h.pending[job.SessionID] <= 1 {
+		delete(h.pending, job.SessionID)
+	} else {
+		h.pending[job.SessionID]--
+	}
+	h.mu.Unlock()
 }
 
 // Close stops admission, then drains the bounded queue before returning. It is

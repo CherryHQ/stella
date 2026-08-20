@@ -14,6 +14,7 @@ import (
 // priced", which is a different fact from zero and must not be flattened into
 // one. A leaderboard reads these as ground truth.
 type usage struct {
+	PendingCallCount  *int64   `json:"pending_call_count,omitempty"`
 	CallCount         int64    `json:"call_count"`
 	ReportedCallCount int64    `json:"reported_call_count"`
 	PricedCallCount   int64    `json:"priced_call_count"`

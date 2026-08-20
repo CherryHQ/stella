@@ -24,6 +24,7 @@ type ModelUsage struct {
 
 // Usage is the session-wide rollup plus its per-model breakdown.
 type Usage struct {
+	PendingCallCount  int64
 	CallCount         int64
 	ReportedCallCount int64
 	PricedCallCount   int64
@@ -48,6 +49,9 @@ func (a *Access) Usage(ctx context.Context, agentID, sessionID string) (Usage, e
 	}
 
 	out := Usage{Models: make([]ModelUsage, 0, len(rows))}
+	if a.svc.usage != nil {
+		out.PendingCallCount = a.svc.usage.PendingCallCount(sessionID)
+	}
 	for _, row := range rows {
 		item, err := modelUsageFromRow(row)
 		if err != nil {

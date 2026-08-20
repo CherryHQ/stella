@@ -36,12 +36,18 @@ class _FakeEnv:
         local.write_bytes(b"hello")
 
 
+def _ready_server(env, tmp_path, **kwargs) -> BridgeServer:
+    server = BridgeServer(env, "/app", tmp_path / "s.sock", tmp_path / "l.jsonl", **kwargs)
+    server._has_timeout_bin = True
+    return server
+
+
 def test_read_file_downloads_the_symlink_target_not_the_link(tmp_path):
     # docker cp copies a symlink as a symlink, so the host copy dangles and the
     # read fails with an opaque error. Resolving first is what keeps read
     # consistent with what bash sees inside the container.
     env = _FakeEnv()
-    server = BridgeServer(env, "/app", tmp_path / "s.sock", tmp_path / "l.jsonl")
+    server = _ready_server(env, tmp_path)
 
     out = asyncio.run(server._op_read_file({"path": "/link"}))
 
@@ -58,7 +64,7 @@ def test_read_file_falls_back_to_the_original_path_when_readlink_is_absent(tmp_p
         return _Result(stdout="f 5\n")
 
     env.exec = exec_without_readlink  # type: ignore[method-assign]
-    server = BridgeServer(env, "/app", tmp_path / "s.sock", tmp_path / "l.jsonl")
+    server = _ready_server(env, tmp_path)
 
     asyncio.run(server._op_read_file({"path": "/link"}))
 
@@ -143,10 +149,10 @@ def test_exec_reports_a_timeout_as_exit_code_minus_one(tmp_path):
     env = _FakeEnv()
 
     async def exec_that_times_out(command: str, **kwargs) -> _Result:
-        raise RuntimeError("Command timed out after 120 seconds")
+        raise RuntimeError(f"Command timed out after {kwargs['timeout_sec']} seconds")
 
     env.exec = exec_that_times_out  # type: ignore[method-assign]
-    server = BridgeServer(env, "/app", tmp_path / "s.sock", tmp_path / "l.jsonl")
+    server = _ready_server(env, tmp_path)
 
     out = asyncio.run(server._op_exec({"command": "sleep 999", "timeout_sec": 120}))
 
@@ -162,7 +168,7 @@ def test_exec_still_fails_loudly_when_the_environment_breaks(tmp_path):
         raise RuntimeError("container is not running")
 
     env.exec = exec_that_breaks  # type: ignore[method-assign]
-    server = BridgeServer(env, "/app", tmp_path / "s.sock", tmp_path / "l.jsonl")
+    server = _ready_server(env, tmp_path)
 
     try:
         asyncio.run(server._op_exec({"command": "ls", "timeout_sec": 120}))
@@ -183,9 +189,8 @@ def test_exec_without_a_timeout_is_bounded_by_the_trial(tmp_path):
         return _Result()
 
     env.exec = record  # type: ignore[method-assign]
-    server = BridgeServer(env, "/app", tmp_path / "s.sock", tmp_path / "l.jsonl", budget_sec=600)
+    server = _ready_server(env, tmp_path, budget_sec=600)
     server._deadline = __import__("time").monotonic() + 600
-    server._has_timeout_bin = True
 
     asyncio.run(server._op_exec({"command": "python3 -c 'while True: pass'"}))
 
@@ -207,8 +212,7 @@ def test_exec_reports_a_container_side_kill_as_a_timeout(tmp_path):
         return _Result(stdout="partial", return_code=124)
 
     env.exec = killed  # type: ignore[method-assign]
-    server = BridgeServer(env, "/app", tmp_path / "s.sock", tmp_path / "l.jsonl")
-    server._has_timeout_bin = True
+    server = _ready_server(env, tmp_path)
 
     out = asyncio.run(server._op_exec({"command": "sleep 999", "timeout_sec": 30}))
 
@@ -217,19 +221,48 @@ def test_exec_reports_a_container_side_kill_as_a_timeout(tmp_path):
     assert out["stdout"] == "partial"
 
 
-def test_exec_keeps_the_old_behaviour_without_the_timeout_binary(tmp_path):
-    # A minimal image without coreutils must still run commands, unwrapped.
+def test_exec_refuses_to_run_without_the_timeout_binary(tmp_path):
+    # Cancelling a host-side docker client does not kill its container child, so
+    # weaker images cannot safely participate in an evaluation trial.
     env = _FakeEnv()
-    seen: list[str] = []
-
-    async def record(command: str, **kwargs) -> _Result:
-        seen.append(command)
-        return _Result()
-
-    env.exec = record  # type: ignore[method-assign]
     server = BridgeServer(env, "/app", tmp_path / "s.sock", tmp_path / "l.jsonl")
-    server._has_timeout_bin = False
+    from stella_harbor.bridge import BridgeError
 
-    asyncio.run(server._op_exec({"command": "ls", "timeout_sec": 30}))
+    try:
+        asyncio.run(server._op_exec({"command": "ls", "timeout_sec": 30}))
+    except BridgeError as e:
+        assert "timeout" in str(e)
+    else:
+        raise AssertionError("bridge accepted an unbounded container command")
 
-    assert seen[0] == "ls"
+
+def test_close_cancels_an_inflight_handler(tmp_path):
+    server = _ready_server(_FakeEnv(), tmp_path)
+    started = asyncio.Event()
+
+    async def block(_req):
+        started.set()
+        await asyncio.Future()
+
+    server._dispatch = block  # type: ignore[method-assign]
+
+    class _Writer:
+        def write(self, _data):
+            pass
+
+        async def drain(self):
+            pass
+
+        def close(self):
+            pass
+
+    async def close_it():
+        reader = asyncio.StreamReader()
+        reader.feed_data(json.dumps({"nonce": server.nonce, "op": "exec"}).encode())
+        reader.feed_eof()
+        task = asyncio.create_task(server._serve_connection(reader, _Writer()))
+        await started.wait()
+        await server.close()
+        assert task.cancelled()
+
+    asyncio.run(close_it())
