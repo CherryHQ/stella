@@ -548,7 +548,7 @@ func (a *GroupAccess) PrepareSend(ctx context.Context, groupID, content, clientM
 		PlatformMessageID: clientMessageID,
 		Content:           content,
 	}, eventlog.WithOnInserted(func(ctx context.Context, q *sqlc.Queries, result eventlog.AppendResult) error {
-		mentions := parseWebMentions(content, members)
+		mentions := parseGroupMentions(ctx, q, content, members)
 		envelope, err := EncodeGroupOutboxEnvelope(mentions)
 		if err != nil {
 			return fmt.Errorf("encode outbox envelope: %w", err)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"reflect"
 	"sync"
 	"testing"
 
@@ -347,6 +348,45 @@ func TestGroupSendWakesDispatcher(t *testing.T) {
 	}
 	if fx.runner.calls != 1 {
 		t.Fatalf("dispatcher woke %d times, want 1", fx.runner.calls)
+	}
+}
+
+// A Web composer has no native mention payload, so its text must resolve a
+// member's display name exactly as platform and agent text do.
+func TestGroupPrepareSendResolvesDisplayNameMention(t *testing.T) {
+	fx := setupGroupFixture(t)
+	ctx := fx.ts.ctx()
+	user := createTestUser(t, fx.ts.oidcStore, "user@example.com")
+	if err := fx.ts.store.CreateAgent(ctx, config.Agent{
+		ID: "ada", Name: "Ada", Model: "anthropic/claude-sonnet-4-6",
+		Workspace: "/tmp/ada", Scope: config.AgentScopeSystem, Enabled: true,
+	}); err != nil {
+		t.Fatalf("CreateAgent(Ada): %v", err)
+	}
+	acc := fx.begin(t, user.ID, false)
+	g, err := acc.Create(ctx, "team", []string{fx.stella, "ada"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := acc.PrepareSend(ctx, g.ID, "@Ada, please review this", "mention-1"); err != nil {
+		t.Fatalf("PrepareSend: %v", err)
+	}
+
+	msgs, err := acc.Messages(ctx, g.ID, 0, 50)
+	if err != nil || len(msgs) != 1 {
+		t.Fatalf("Messages = %#v, %v; want one message", msgs, err)
+	}
+	outbox, err := sqlc.New(fx.ts.db).GetGroupOutboxByMessage(ctx, msgs[0].ID)
+	if err != nil {
+		t.Fatalf("GetGroupOutboxByMessage: %v", err)
+	}
+	envelope, err := DecodeGroupOutboxEnvelope(outbox.Envelope)
+	if err != nil {
+		t.Fatalf("DecodeGroupOutboxEnvelope: %v", err)
+	}
+	want := []pkgchannel.Mention{{Raw: "@Ada", AgentID: "ada"}}
+	if !reflect.DeepEqual(envelope.Mentions, want) {
+		t.Fatalf("mentions = %#v, want %#v", envelope.Mentions, want)
 	}
 }
 

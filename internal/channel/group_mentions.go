@@ -10,19 +10,11 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// This file owns every way a group message can come to name an agent. There are
-// three ingress paths and they do not share a rule set by accident:
-//
-//   - platform ingest already receives structured mentions from the plugin, so
-//     it resolves a platform identity (bot id, then bot display name) through
-//     the bot registry and never looks at the text;
-//   - agent-authored text and web-composed text are both scanned for @tokens,
-//     and differ only in which tokens resolve: an agent may name a peer by
-//     display name, web ingest matches member ids only.
-//
-// The two text paths share mentionScan below. The platform path has no text to
-// scan, so it shares the file and not the scanner: forcing it through a common
-// interface would add a layer that hides nothing.
+// This file owns every way a group message can come to name an agent. Agent
+// replies and human Web messages both scan text with the same rule: @AgentID
+// and @display-name resolve to group members. Platform ingest resolves native
+// structured mentions through the bot registry, then scans text as a fallback
+// so a human-typed @Name behaves like a native platform mention.
 
 // textMentionCutset is stripped from both ends of a word before its @ is read.
 // Mentions are written inside prose ("ask @ada, then wait"), by an agent and by
@@ -30,14 +22,11 @@ import (
 // to the name.
 const textMentionCutset = "()[]{}:;,.!?"
 
-// mentionScan is the shared matching logic behind both text entry points. Both
-// scan prose the same way; resolve below is the only rule that differs.
+// mentionScan is the shared matching logic behind every text entry point.
 type mentionScan struct {
 	// trimCutset is cut from both ends of a word before the "@" prefix is read.
 	trimCutset string
-	// resolve maps one @token to a member agent id. This is the rule that
-	// actually differs: agent text accepts an agent id or a display name, web
-	// ingest accepts an agent id only.
+	// resolve maps one @token to a member agent id.
 	resolve func(token string) (agentID string, ok bool)
 }
 
@@ -67,8 +56,8 @@ func (s mentionScan) run(content string, mentions []pkgchannel.Mention) []pkgcha
 	return mentions
 }
 
-// parseGroupMentions keeps agent-authored outboxes self-contained. Web ingress
-// already has member IDs; agent text may use either an ID or a display name.
+// parseGroupMentions resolves @AgentID and @display-name tokens to group
+// members. It keeps every text-originated outbox self-contained.
 func parseGroupMentions(ctx context.Context, q *sqlc.Queries, content string, members []sqlc.ChannelGroupMember) []pkgchannel.Mention {
 	byToken := make(map[string]string, len(members)*2)
 	for _, member := range members {
@@ -87,22 +76,28 @@ func parseGroupMentions(ctx context.Context, q *sqlc.Queries, content string, me
 	return scan.run(content, make([]pkgchannel.Mention, 0))
 }
 
-// parseWebMentions extracts @AgentID patterns from message text against the
-// group's members. Web has no platform-level bot identity, so the AgentID is the
-// mention target directly.
-func parseWebMentions(content string, members []sqlc.ChannelGroupMember) []pkgchannel.Mention {
-	memberSet := make(map[string]struct{}, len(members))
-	for _, m := range members {
-		memberSet[m.AgentID] = struct{}{}
+// mergeResolvedMentions appends text matches that are not already resolved by
+// a platform-native mention. Unresolved platform mentions stay intact: they are
+// platform noise rather than group addresses, and existing callers preserve
+// them in the envelope for diagnostics.
+func mergeResolvedMentions(mentions, textMentions []pkgchannel.Mention) []pkgchannel.Mention {
+	seen := make(map[string]struct{}, len(mentions)+len(textMentions))
+	for _, mention := range mentions {
+		if mention.AgentID != "" {
+			seen[mention.AgentID] = struct{}{}
+		}
 	}
-	scan := mentionScan{
-		trimCutset: textMentionCutset,
-		resolve: func(token string) (string, bool) {
-			_, isMember := memberSet[token]
-			return token, isMember
-		},
+	for _, mention := range textMentions {
+		if mention.AgentID == "" {
+			continue
+		}
+		if _, duplicate := seen[mention.AgentID]; duplicate {
+			continue
+		}
+		seen[mention.AgentID] = struct{}{}
+		mentions = append(mentions, mention)
 	}
-	return scan.run(content, nil)
+	return mentions
 }
 
 // resolveMentionAgents fills Mention.AgentID from the bot registry alone, with

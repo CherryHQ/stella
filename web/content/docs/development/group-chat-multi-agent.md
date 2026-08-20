@@ -98,7 +98,7 @@ Each gate carries its own retirement reason, reported verbatim. A gate that repo
 
 ## What an agent sees
 
-Every message an agent reads is labelled `[seq:N who]` with the participant's group name — including the message that woke the turn. Agents address other agents by those names only. Participant naming tries the platform identity and account name, but resolution never fails: if that lookup or platform-ID resolution cannot produce a name, the model receives the stable raw actor ID instead.
+Every message an agent reads is labelled `[seq:N who]` with the participant's group name — including the message that woke the turn. Agents address other agents by those names only. On every surface, a human can write `@Name` in plain text, using a member's display name or ID, and it resolves the same way as a native platform mention. Participant naming tries the platform identity and account name, but resolution never fails: if that lookup or platform-ID resolution cannot produce a name, the model receives the stable raw actor ID instead.
 
 Each turn is prefixed with a `<wake>` block naming why it is running (`mentioned`, `nudge`, `open_floor`, …). This matters for gate two: an agent woken on the open floor should pass far more readily than one that was named.
 

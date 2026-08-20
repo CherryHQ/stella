@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"encoding/base64"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -426,6 +427,59 @@ func TestResolveMentionAgents(t *testing.T) {
 			t.Errorf("expected pre-set AgentID to be preserved, got %q", mentions[0].AgentID)
 		}
 	})
+}
+
+// Text mentions are a fallback, not a second routing protocol: they resolve
+// without a native payload and never duplicate an already resolved native one.
+func TestPlatformTextMentionFallsBackWithoutDuplicatingNativeMention(t *testing.T) {
+	ts := setupStores(t)
+	ctx := context.Background()
+	q := sqlc.New(ts.db)
+	agentID := ts.stellaAgentID(t)
+	if _, err := ts.db.Exec(ctx, `INSERT INTO channel (id, name, type, agent_id, enabled) VALUES ('ch-bot1', 'Bot1', 'telegram', $1, true)`, agentID); err != nil {
+		t.Fatalf("create channel: %v", err)
+	}
+
+	el := eventlog.NewStore(ts.db)
+	groupID, err := el.ResolveGroupID(ctx, "telegram", "group-text-mention", "")
+	if err != nil {
+		t.Fatalf("ResolveGroupID: %v", err)
+	}
+	if _, err := q.AddGroupMember(ctx, sqlc.AddGroupMemberParams{GroupID: groupID, AgentID: agentID, ReplyChannelID: "ch-bot1"}); err != nil {
+		t.Fatalf("AddGroupMember: %v", err)
+	}
+	registry := NewBotIdentityRegistry()
+	registry.Register("telegram", "bot1_username", "ch-bot1")
+	coord := &Coordinator{eventLog: el, store: ts.store, botRegistry: registry}
+
+	appendAndReadMentions := func(t *testing.T, id string, native []pkgchannel.Mention) []pkgchannel.Mention {
+		t.Helper()
+		result, err := coord.appendGroupMessage(ctx, pkgchannel.IncomingMessage{
+			Platform: "telegram", ChannelID: "ch-bot1", ChatID: "group-text-mention", SenderID: "alice", MessageID: id,
+			Content: pkgchannel.TextContent("please ask @Stella"), Mentions: native,
+		})
+		if err != nil {
+			t.Fatalf("appendGroupMessage: %v", err)
+		}
+		outbox, err := q.GetGroupOutboxByMessage(ctx, result.Message.ID)
+		if err != nil {
+			t.Fatalf("GetGroupOutboxByMessage: %v", err)
+		}
+		envelope, err := DecodeGroupOutboxEnvelope(outbox.Envelope)
+		if err != nil {
+			t.Fatalf("DecodeGroupOutboxEnvelope: %v", err)
+		}
+		return envelope.Mentions
+	}
+
+	textOnly := appendAndReadMentions(t, "text-only", nil)
+	if want := []pkgchannel.Mention{{Raw: "@Stella", AgentID: agentID}}; !reflect.DeepEqual(textOnly, want) {
+		t.Fatalf("text-only mentions = %#v, want %#v", textOnly, want)
+	}
+	nativeAndText := appendAndReadMentions(t, "native-and-text", []pkgchannel.Mention{{Raw: "bot1_username", PlatformID: "bot1_username"}})
+	if len(nativeAndText) != 1 || nativeAndText[0].AgentID != agentID {
+		t.Fatalf("native-and-text mentions = %#v, want one resolved mention for %q", nativeAndText, agentID)
+	}
 }
 
 // TestGroupIncomingNewIsRefusedBeforeEventLog proves a platform group `/new` is
