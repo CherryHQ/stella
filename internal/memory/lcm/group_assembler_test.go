@@ -614,7 +614,7 @@ func TestGroupAssemble_WatermarkAdvances(t *testing.T) {
 		t.Fatalf("turn 1: expected 2 injected, got %d", len(msgs))
 	}
 
-	if got := p.getGroupCursor(context.Background(), gid, groupCursorPipeline("agent-a")); got != 0 {
+	if got := mustGroupCursor(t, context.Background(), p, gid, groupCursorPipeline("agent-a")); got != 0 {
 		t.Fatalf("assemble advanced cursor before commit: got %d", got)
 	}
 
@@ -629,7 +629,7 @@ func TestGroupAssemble_WatermarkAdvances(t *testing.T) {
 	if err := p.CommitGroupCursor(context.Background(), sess, res3.Seq); err != nil {
 		t.Fatalf("commit cursor turn 1: %v", err)
 	}
-	if got := p.getGroupCursor(context.Background(), gid, groupCursorPipeline("agent-a")); got != res3.Seq {
+	if got := mustGroupCursor(t, context.Background(), p, gid, groupCursorPipeline("agent-a")); got != res3.Seq {
 		t.Fatalf("cursor after commit = %d, want %d", got, res3.Seq)
 	}
 
@@ -687,7 +687,7 @@ func TestGroupAssemblePersistsInjectedButCommitAdvancesCursor(t *testing.T) {
 	if len(msgs) != 1 {
 		t.Fatalf("assemble messages = %d, want 1", len(msgs))
 	}
-	if got := p.getGroupCursor(context.Background(), res1.GroupID, groupCursorPipeline("agent-a")); got != 0 {
+	if got := mustGroupCursor(t, context.Background(), p, res1.GroupID, groupCursorPipeline("agent-a")); got != 0 {
 		t.Fatalf("cursor before commit = %d, want 0", got)
 	}
 	historyBeforeCommit, err := p.assembler.assemble(context.Background(), mustConversationID(t, p, sess), 100_000, 20)
@@ -716,7 +716,7 @@ func TestGroupAssemblePersistsInjectedButCommitAdvancesCursor(t *testing.T) {
 	if err := p.CommitGroupCursor(context.Background(), sess, res2.Seq); err != nil {
 		t.Fatalf("commit cursor: %v", err)
 	}
-	if got := p.getGroupCursor(context.Background(), res1.GroupID, groupCursorPipeline("agent-a")); got != res2.Seq {
+	if got := mustGroupCursor(t, context.Background(), p, res1.GroupID, groupCursorPipeline("agent-a")); got != res2.Seq {
 		t.Fatalf("cursor after commit = %d, want %d", got, res2.Seq)
 	}
 	historyAfterCommit, err := p.assembler.assemble(context.Background(), mustConversationID(t, p, sess), 100_000, 20)
@@ -813,7 +813,7 @@ func TestTxGroupCommitterUsesOuterTxAndSessionLock(t *testing.T) {
 	if stats, err := p.Stats(ctx, sess); err != nil || stats.MessageCount != 3 {
 		t.Fatalf("committed turn stats = %+v, %v", stats, err)
 	}
-	if got := p.getGroupCursor(ctx, groupID, groupCursorPipeline("agent-a")); got != 5 {
+	if got := mustGroupCursor(t, ctx, p, groupID, groupCursorPipeline("agent-a")); got != 5 {
 		t.Fatalf("cursor = %d, want 5", got)
 	}
 }
@@ -895,7 +895,7 @@ func TestGroupAssemble_RotationResetsContextButKeepsWatermark(t *testing.T) {
 	if err := p.CommitGroupCursor(context.Background(), before, res2.Seq); err != nil {
 		t.Fatalf("commit cursor: %v", err)
 	}
-	watermark := p.getGroupCursor(context.Background(), gid, groupCursorPipeline("agent-a"))
+	watermark := mustGroupCursor(t, context.Background(), p, gid, groupCursorPipeline("agent-a"))
 	if watermark != res2.Seq {
 		t.Fatalf("watermark before rotation = %d, want %d", watermark, res2.Seq)
 	}
@@ -911,7 +911,7 @@ func TestGroupAssemble_RotationResetsContextButKeepsWatermark(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("rotate group session: %v", err)
 	}
-	if got := p.getGroupCursor(context.Background(), gid, groupCursorPipeline("agent-a")); got != watermark {
+	if got := mustGroupCursor(t, context.Background(), p, gid, groupCursorPipeline("agent-a")); got != watermark {
 		t.Fatalf("rotation moved the watermark: got %d, want %d", got, watermark)
 	}
 
@@ -977,4 +977,14 @@ func flattenUserMessage(um ai.UserMessage) string {
 	default:
 		return ""
 	}
+}
+
+// mustGroupCursor reads the cursor and fails the test on a read error.
+func mustGroupCursor(t *testing.T, ctx context.Context, p *Provider, groupID, pipeline string) int64 {
+	t.Helper()
+	got, err := p.getGroupCursor(ctx, groupID, pipeline)
+	if err != nil {
+		t.Fatalf("getGroupCursor: %v", err)
+	}
+	return got
 }

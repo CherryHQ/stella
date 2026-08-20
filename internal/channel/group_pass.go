@@ -110,11 +110,17 @@ func (d *GroupDispatcher) retireModelPass(ctx context.Context, row sqlc.CtxGroup
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	q := d.q.WithTx(tx)
+	// CAS before committing memory: a worker that outlived its lease must not
+	// advance the cursor for a dispatch a newer attempt now owns.
+	updated, err := q.MarkGroupDispatchSilent(ctx, sqlc.MarkGroupDispatchSilentParams{ID: row.ID, AttemptCount: row.AttemptCount, Reason: groupSilentModelPass})
+	if err != nil {
+		return fmt.Errorf("model pass: mark silent: %w", err)
+	}
+	if updated == 0 {
+		return fmt.Errorf("model pass: mark silent: lost dispatch ownership")
+	}
 	if err := d.committer.CommitGroupTurn(ctx, q, turn); err != nil {
 		return fmt.Errorf("model pass: commit read context: %w", err)
-	}
-	if _, err := q.MarkGroupDispatchSilent(ctx, sqlc.MarkGroupDispatchSilentParams{ID: row.ID, AttemptCount: row.AttemptCount, Reason: groupSilentModelPass}); err != nil {
-		return fmt.Errorf("model pass: mark silent: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("model pass: commit: %w", err)
