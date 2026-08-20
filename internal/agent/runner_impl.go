@@ -443,24 +443,13 @@ func (r *runner) Chat(ctx context.Context, history []ai.Message, message Message
 			}(),
 		})
 
-		// Inject progress nudges at milestone turns so the model can summarize
-		// its state before the timeout fires.
-		chatStart := time.Now()
-		loopRunner.SetTurnNotify(func(turn int, _ time.Duration) *string {
-			elapsed := time.Since(chatStart).Round(time.Second)
-			var msg string
-			switch turn {
-			case 50:
-				msg = fmt.Sprintf("You have been running for %s and completed 50 turns. Please report your current progress. If the user's request is not yet resolved, suggest alternative approaches.", elapsed)
-			case 80:
-				msg = fmt.Sprintf("You have been running for %s and completed 80 turns. Please report your progress again and consider whether a simpler approach could resolve the problem.", elapsed)
-			case 100:
-				msg = fmt.Sprintf("You have been running for %s and completed 100 turns. Please summarize the current state clearly and stop further attempts. Wait for the user's instructions before continuing.", elapsed)
-			default:
-				return nil
-			}
-			return &msg
-		})
+		// Nudge the model toward a summary as the wall-clock budget runs out.
+		// The trigger is elapsed time, not a turn count. Turn milestones fire in
+		// the middle of healthy work on fast turns, and the old turn-50 message
+		// ("please report your current progress") was answered with a summary
+		// and no tool call, which ends the loop: every unattended task was
+		// capped at 50 turns regardless of how much of its budget was left.
+		loopRunner.SetTurnNotify(progressNudge(timeout))
 
 		// Reload the OAuth-derived session env before each turn so a long-lived
 		// cached runner (kept warm by frequent scheduler fires) never hands tools
@@ -742,4 +731,38 @@ func summarizeToolInput(toolName string, args map[string]any) string {
 		}
 	}
 	return ""
+}
+
+// Progress-nudge thresholds, as a fraction of the chat budget. The first is a
+// checkpoint the model must survive without stopping; the second is close
+// enough to the deadline that wrapping up is the useful thing to do.
+const (
+	nudgeCheckpointFraction = 3.0 / 4.0
+	nudgeWrapUpFraction     = 9.0 / 10.0
+)
+
+// progressNudge returns a turn-notify callback that fires at most twice per
+// chat, on elapsed time rather than turn count. The wording matters as much as
+// the trigger: a nudge the model reads as "stop and report" ends the loop,
+// because a turn without a tool call is a finished turn.
+func progressNudge(budget time.Duration) func(int, time.Duration) *string {
+	checkpoint := time.Duration(float64(budget) * nudgeCheckpointFraction)
+	wrapUp := time.Duration(float64(budget) * nudgeWrapUpFraction)
+	var sentCheckpoint, sentWrapUp bool
+	return func(_ int, elapsed time.Duration) *string {
+		var msg string
+		switch {
+		case !sentWrapUp && elapsed >= wrapUp:
+			sentWrapUp, sentCheckpoint = true, true
+			msg = fmt.Sprintf("You have about %s left of a %s budget for this request. Finish or safely stop what you are doing now, then summarize what you completed and what remains.",
+				(budget - elapsed).Round(time.Second), budget.Round(time.Second))
+		case !sentCheckpoint && elapsed >= checkpoint:
+			sentCheckpoint = true
+			msg = fmt.Sprintf("Checkpoint: you have been working for %s of a %s budget. Briefly state your progress and then keep working. This is not a request to stop; if the approach is not converging, try a different one.",
+				elapsed.Round(time.Second), budget.Round(time.Second))
+		default:
+			return nil
+		}
+		return &msg
+	}
 }
