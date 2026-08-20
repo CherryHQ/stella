@@ -50,7 +50,13 @@ def classify(row: dict[str, Any]) -> tuple[str, str]:
         return "execution", str(detail)[:200]
 
     calls = row.get("calls") or 0
-    errors = row.get("tool_errors") or 0
+    # Not tool_errors: that number counts a nonzero command exit as a tool
+    # failure, so a healthy run that probed the image would be labelled an
+    # execution failure. tool_faults is the same count with the container's own
+    # answers removed.
+    errors = row.get("tool_faults")
+    if errors is None:
+        errors = row.get("tool_errors") or 0
     if calls == 0:
         # It held a turn and never touched the container. Whatever it was doing,
         # it was not the task.

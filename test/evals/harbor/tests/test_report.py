@@ -199,3 +199,28 @@ def test_html_report_explains_why_trials_failed():
     assert "Why trials failed" in out
     assert "verification" in out
     assert "How to read this" in out
+
+
+def test_taxonomy_does_not_call_a_probing_run_an_execution_failure():
+    # Every tool call "errored" only because every command exited nonzero while
+    # the agent probed the image. That is exploration, not machinery failing.
+    from stella_harbor.taxonomy import classify
+
+    row = {"valid": True, "reward": 0.0, "state": "completed", "calls": 4,
+           "tool_errors": 4, "tool_faults": 0, "command_nonzero": 4}
+
+    label, _ = classify(row)
+
+    assert label == "verification"
+
+
+def test_taxonomy_still_reports_execution_when_the_tools_really_failed():
+    from stella_harbor.taxonomy import classify
+
+    row = {"valid": True, "reward": 0.0, "state": "completed", "calls": 3,
+           "tool_errors": 3, "tool_faults": 3, "command_nonzero": 0}
+
+    label, why = classify(row)
+
+    assert label == "execution"
+    assert "3 tool calls failed" in why

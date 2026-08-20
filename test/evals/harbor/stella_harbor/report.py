@@ -88,6 +88,14 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
             "turns": metrics.get("turns"),
             "calls": metrics.get("tool_call_total"),
             "tool_errors": metrics.get("tool_error_total"),
+            # tool_error_total flags every tool message the runtime marked as an
+            # error, and a nonzero command exit is one of those. Subtracting what
+            # the ledger proves was the container answering leaves the calls that
+            # actually failed, which is the only number a failure taxonomy may
+            # read. Both are reported: exploration is signal, not noise.
+            "command_nonzero": (metrics.get("bridge") or {}).get("command_nonzero") or 0,
+            "command_timeout": (metrics.get("bridge") or {}).get("command_timeout") or 0,
+            "tool_faults": _tool_faults(metrics),
             "est_tokens": (metrics.get("tokens_estimated") or {}).get("total"),
             "usage": metrics.get("usage") or {},
             "timed_out": adapter.get("timed_out"),
@@ -100,6 +108,16 @@ def collect(job_dir: Path) -> list[dict[str, Any]]:
             "ledger": adapter.get("bridge_ledger") or [],
         })
     return rows
+
+
+def _tool_faults(metrics: dict[str, Any]) -> int | None:
+    """Tool calls that failed, with nonzero command exits taken back out."""
+    errors = metrics.get("tool_error_total")
+    if errors is None:
+        return None
+    bridge = metrics.get("bridge") or {}
+    explained = (bridge.get("command_nonzero") or 0) + (bridge.get("command_timeout") or 0)
+    return max(0, errors - explained)
 
 
 def reliability(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -220,6 +238,13 @@ def render(rows: list[dict[str, Any]]) -> str:
             lines.append(
                 f"{name[:20]:20} {stat['calls']:5}  {stat['errors']:4}  "
                 f"{_seconds(stat['total_ms']):7}  {_seconds(stat['max_ms'])}")
+        nonzero = sum(r.get("command_nonzero") or 0 for r in rows)
+        timeouts = sum(r.get("command_timeout") or 0 for r in rows)
+        if nonzero or timeouts:
+            lines.append(
+                f"of those errs, {nonzero} are commands that exited nonzero and {timeouts} timed out."
+                " Those are the container answering, not tools failing, and the failure"
+                " classes below already exclude them.")
 
     failures = [b for b in breakdown(rows) if b["label"] not in {"resolved", "invalid"}]
     if failures:

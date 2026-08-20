@@ -112,3 +112,21 @@ def test_trial_budget_shrinks_the_confirmation_rather_than_the_work():
     assert deadline + confirm <= 45
     assert deadline > confirm
     assert confirm >= 1
+
+
+def test_bridge_stats_counts_a_nonzero_exit_as_the_container_answering():
+    # A nonzero exit is the agent learning what the image has, not a tool that
+    # failed. Counting the two together made a clean run report 81 tool errors
+    # and fed the execution class of the failure taxonomy.
+    from stella_harbor.agent import bridge_stats
+
+    stats = bridge_stats([
+        {"op": "exec", "ok": True, "return_code": 0, "elapsed_ms": 5},
+        {"op": "exec", "ok": True, "return_code": 1, "elapsed_ms": 5},
+        {"op": "exec", "ok": True, "return_code": 127, "elapsed_ms": 5},
+        {"op": "exec", "ok": True, "return_code": -1, "elapsed_ms": 5},
+        {"op": "read", "ok": False, "code": "not_found", "elapsed_ms": 1},
+    ])
+
+    assert stats["command_nonzero"] == 2
+    assert stats["command_timeout"] == 1

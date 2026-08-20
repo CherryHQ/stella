@@ -39,6 +39,8 @@ def bridge_stats(ledger: list[dict[str, Any]]) -> dict[str, Any]:
     """
     ops: dict[str, dict[str, Any]] = {}
     total = 0
+    nonzero = 0
+    timeouts = 0
     faults: list[dict[str, Any]] = []
     for entry in ledger:
         op = entry.get("op") or "unknown"
@@ -47,6 +49,17 @@ def bridge_stats(ledger: list[dict[str, Any]]) -> dict[str, Any]:
         stat["calls"] += 1
         stat["total_ms"] += elapsed
         stat["max_ms"] = max(stat["max_ms"], elapsed)
+        # A command that ran and exited nonzero is the container answering, not
+        # a tool failing: probing for a binary, a test suite failing before the
+        # fix, a grep that matched nothing. The ledger is the only structured
+        # place that difference survives, so count it here rather than guessing
+        # from the message text later.
+        if entry.get("ok") and op == "exec":
+            code = entry.get("return_code")
+            if code == -1:
+                timeouts += 1
+            elif isinstance(code, int) and code != 0:
+                nonzero += 1
         if not entry.get("ok"):
             stat["failures"] += 1
             if entry.get("code") in ADAPTER_FAULT_CODES:
@@ -56,7 +69,8 @@ def bridge_stats(ledger: list[dict[str, Any]]) -> dict[str, Any]:
                 faults.append({"seq": entry.get("seq"), "op": op, "code": entry.get("code"),
                                "path": entry.get("path")})
         total += elapsed
-    return {"total_ms": total, "operations": ops, "adapter_faults": faults}
+    return {"total_ms": total, "operations": ops, "adapter_faults": faults,
+            "command_nonzero": nonzero, "command_timeout": timeouts}
 
 
 def _path(arguments: dict[str, Any]) -> str | None:
