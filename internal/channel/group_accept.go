@@ -155,8 +155,10 @@ func (d *GroupDispatcher) groupBackstopVerdict(ctx context.Context, q *sqlc.Quer
 		// retries the turn; treating it as "unique" posts the echo for good.
 		return groupBackstop{}, fmt.Errorf("check verbatim duplicate: %w", err)
 	}
-	// Hard cap. The number of agent replies one human message may provoke; the
-	// last defence against a group talking to itself.
+	// Hard cap, shared with the pre-turn gate in exceedsGroupHardCap. Only the
+	// reply count is re-read: it is the ceiling a peer can cross while this
+	// agent thinks, and the lock this backstop holds is what makes the count
+	// authoritative. The chain and rate ceilings are the pre-gate's job.
 	lastHuman, err := q.LastHumanSeqAtOrBefore(ctx, sqlc.LastHumanSeqAtOrBeforeParams{GroupID: row.GroupID, TriggerSeq: row.TriggerSeq})
 	if err != nil {
 		return groupBackstop{}, fmt.Errorf("last human seq: %w", err)
@@ -165,8 +167,10 @@ func (d *GroupDispatcher) groupBackstopVerdict(ctx context.Context, q *sqlc.Quer
 	if err != nil {
 		return groupBackstop{}, fmt.Errorf("count agent posts: %w", err)
 	}
-	if posts >= int64(locked.MaxRepliesPerHumanTrigger) {
-		return groupBackstop{status: groupTurnSilent, reason: "hard_cap"}, nil
+	if capped, reason := exceedsGroupHardCap(
+		groupCapCheck{count: posts, limit: int64(locked.MaxRepliesPerHumanTrigger)},
+	); capped {
+		return groupBackstop{status: groupTurnSilent, reason: reason}, nil
 	}
 	return groupTurnAccepts, nil
 }

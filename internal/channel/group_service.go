@@ -680,27 +680,6 @@ func (a *GroupAccess) groupCommandReply(ctx context.Context, groupID, content, c
 	}
 }
 
-// parseWebMentions extracts @AgentID patterns from message text against the
-// group's members. Web has no platform-level bot identity, so the AgentID is the
-// mention target directly.
-func parseWebMentions(content string, members []sqlc.ChannelGroupMember) []pkgchannel.Mention {
-	memberSet := make(map[string]struct{}, len(members))
-	for _, m := range members {
-		memberSet[m.AgentID] = struct{}{}
-	}
-	var mentions []pkgchannel.Mention
-	for w := range strings.FieldsSeq(content) {
-		after, ok := strings.CutPrefix(w, "@")
-		if !ok {
-			continue
-		}
-		if _, isMember := memberSet[after]; isMember {
-			mentions = append(mentions, pkgchannel.Mention{Raw: "@" + after, AgentID: after})
-		}
-	}
-	return mentions
-}
-
 // textPtr maps a nullable text column to *string (nil when NULL).
 func textPtr(t pgtype.Text) *string {
 	if !t.Valid {

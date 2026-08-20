@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -1163,36 +1162,6 @@ func (d *GroupDispatcher) createAgentReplyOutbox(ctx context.Context, q *sqlc.Qu
 		return fmt.Errorf("create agent reply outbox: %w", err)
 	}
 	return nil
-}
-
-// parseGroupMentions keeps agent-authored outboxes self-contained. Web ingress
-// already has member IDs; agent text may use either an ID or a display name.
-func parseGroupMentions(ctx context.Context, q *sqlc.Queries, content string, members []sqlc.ChannelGroupMember) []pkgchannel.Mention {
-	byToken := make(map[string]string, len(members)*2)
-	for _, member := range members {
-		byToken[member.AgentID] = member.AgentID
-		if a, err := q.GetAgent(ctx, member.AgentID); err == nil && a.Name != "" {
-			byToken[a.Name] = member.AgentID
-		}
-	}
-	seen := make(map[string]struct{}, len(members))
-	mentions := make([]pkgchannel.Mention, 0)
-	for word := range strings.FieldsSeq(content) {
-		token, ok := strings.CutPrefix(strings.Trim(word, "()[]{}:;,.!?"), "@")
-		if !ok {
-			continue
-		}
-		agentID, ok := byToken[token]
-		if !ok {
-			continue
-		}
-		if _, duplicate := seen[agentID]; duplicate {
-			continue
-		}
-		seen[agentID] = struct{}{}
-		mentions = append(mentions, pkgchannel.Mention{Raw: "@" + token, AgentID: agentID})
-	}
-	return mentions
 }
 
 func (d *GroupDispatcher) failAcceptedPublish(ctx context.Context, row sqlc.CtxGroupDispatch, cause error) error {

@@ -6,7 +6,6 @@ import (
 
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
-	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -30,8 +29,12 @@ func (d *GroupDispatcher) triageWake(ctx context.Context, row sqlc.CtxGroupDispa
 		return false, "triage_db_error", true
 	}
 	chain := d.consecutiveAgentMessages(ctx, row.GroupID, message.Seq)
-	if chain >= int(state.AgentChainHardLimit) || posts >= int64(state.MaxRepliesPerHumanTrigger) || rate >= int64(state.MaxAgentPostsPerMinute) {
-		return false, "hard_cap", false
+	if capped, reason := exceedsGroupHardCap(
+		groupCapCheck{count: int64(chain), limit: int64(state.AgentChainHardLimit)},
+		groupCapCheck{count: posts, limit: int64(state.MaxRepliesPerHumanTrigger)},
+		groupCapCheck{count: rate, limit: int64(state.MaxAgentPostsPerMinute)},
+	); capped {
+		return false, reason, false
 	}
 
 	// Read mentions since this agent's ingest watermark, not just from the
@@ -91,28 +94,9 @@ func (d *GroupDispatcher) agentPostedSince(ctx context.Context, row sqlc.CtxGrou
 	return err == nil && posted
 }
 
-func mentionsAgent(mentions []pkgchannel.Mention, agentID string) bool {
-	for _, mention := range mentions {
-		if mention.AgentID == agentID {
-			return true
-		}
-	}
-	return false
-}
-
 func (d *GroupDispatcher) hasLiveGroupClaims(ctx context.Context, groupID string) bool {
 	claims, err := d.q.ListLiveGroupClaims(ctx, groupID)
 	return err == nil && len(claims) > 0
-}
-
-func resolvedMentions(mentions []pkgchannel.Mention) []pkgchannel.Mention {
-	resolved := make([]pkgchannel.Mention, 0, len(mentions))
-	for _, mention := range mentions {
-		if mention.AgentID != "" {
-			resolved = append(resolved, mention)
-		}
-	}
-	return resolved
 }
 
 func (d *GroupDispatcher) agentRunLapped(ctx context.Context, groupID string, beforeSeq int64, agentID string) bool {
