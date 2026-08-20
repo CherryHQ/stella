@@ -83,9 +83,18 @@ func TestGroupRecallSearchUsesCanonicalDeliveredTextAndDisplaySnapshot(t *testin
 			t.Fatalf("punctuation query %q = %+v, err=%v", query, rows, err)
 		}
 	}
-	for _, id := range []string{pending.ID, failed.ID, future.ID} {
+	// A ref naming a delivered row in another group must be indistinguishable
+	// from a missing one: group_id comes from the trusted turn, never the ref.
+	other, err := store.AppendGroupMessage(context.Background(), eventlog.Message{
+		Platform: "test", PlatformGroupID: "recall-other-" + t.Name(), PlatformMessageID: "other",
+		ActorType: eventlog.ActorHuman, ActorID: "person", Content: "deployment other-group secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{pending.ID, failed.ID, future.ID, other.Message.ID} {
 		if _, _, err := p.ReadGroupRecall(context.Background(), groupID, trigger.Seq, id, 100); !errors.Is(err, memory.ErrGroupRecallNotFound) {
-			t.Fatalf("non-public or future ref %q error=%v, want not found", id, err)
+			t.Fatalf("non-public, future, or cross-group ref %q error=%v, want not found", id, err)
 		}
 	}
 }
