@@ -469,3 +469,53 @@ func TestContinueRequiresValidTail(t *testing.T) {
 		t.Fatalf("expected tail validation error")
 	}
 }
+
+func TestRunEmptyTruncatedTurnFailsInsteadOfFinishingSilently(t *testing.T) {
+	// A reasoning model can spend its whole output budget thinking and return
+	// nothing: finish_reason=length, no text, no tool call. Reported as a clean
+	// finish it is indistinguishable from a model that chose to do nothing, and
+	// on the Terminal-Bench baseline that silently lost 13 trials.
+	stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		out := providers.NewChannelEventStream(8)
+		go func() {
+			out.Emit(ai.EventStop{Reason: ai.StopReasonLength})
+			out.Finish(nil)
+		}()
+		return out, nil
+	}
+
+	runner := newTestRunner(stream)
+	_, events, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
+	if err == nil {
+		t.Fatal("an empty truncated turn finished cleanly")
+	}
+	if !strings.Contains(err.Error(), "output token limit") {
+		t.Fatalf("error does not name the cause: %v", err)
+	}
+	if countEvents[AgentErrored](events) != 1 {
+		t.Fatalf("expected 1 AgentErrored, got %d", countEvents[AgentErrored](events))
+	}
+}
+
+func TestRunTruncatedTurnWithContentStaysAFinish(t *testing.T) {
+	// Scoped: a truncated reply that carried text is still usable, and failing
+	// it would throw away a partial answer the caller can read.
+	stream := func(_ context.Context, _ ai.Model, _ ai.Context, _ ai.StreamOptions) (providers.AssistantEventStream, error) {
+		out := providers.NewChannelEventStream(8)
+		go func() {
+			out.Emit(ai.EventTextDelta{Text: "half an ans"})
+			out.Emit(ai.EventStop{Reason: ai.StopReasonLength})
+			out.Finish(nil)
+		}()
+		return out, nil
+	}
+
+	runner := newTestRunner(stream)
+	history, _, err := collectEvents(runner, []ai.Message{ai.UserMessage{Content: "go"}})
+	if err != nil {
+		t.Fatalf("a truncated reply with content must still finish: %v", err)
+	}
+	if len(history) != 2 {
+		t.Fatalf("expected the partial answer in history, got %d messages", len(history))
+	}
+}
