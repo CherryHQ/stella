@@ -70,6 +70,12 @@ type ModelCost struct {
 	CacheWrite float64
 }
 
+// Configured reports whether at least one rate is configured. A zero-valued
+// ModelCost means pricing is unknown, not that the model is free.
+func (c ModelCost) Configured() bool {
+	return c.Input != 0 || c.Output != 0 || c.CacheRead != 0 || c.CacheWrite != 0
+}
+
 // Model identifies a concrete model and its capabilities.
 type Model struct {
 	ID            string
@@ -135,17 +141,60 @@ type UsageCost struct {
 }
 
 // Usage tracks token accounting returned by providers.
-// InputTokens preserves provider semantics: some providers include cached input
-// in this value while others report cache categories separately. TotalTokens is
-// the complete normalized total with cache categories counted exactly once;
-// consumers must not derive it by blindly summing the other fields.
+// The token categories are disjoint: InputTokens counts only input that was not
+// served from cache, so the four categories can be priced independently.
+// Providers that fold cached tokens into their input count are normalized at
+// their own boundary with UsageWithCachedInput. TotalTokens is the complete
+// normalized total; consumers must not derive it by blindly summing the other
+// fields.
 type Usage struct {
+	// Reported distinguishes a provider that sent an all-zero usage payload from
+	// one that sent no usage payload at all. Do not infer this from token values.
+	Reported     bool
 	InputTokens  int
 	OutputTokens int
 	CacheRead    int
 	CacheWrite   int
 	TotalTokens  int
 	Cost         UsageCost
+	// CostConfigured records whether Cost was calculated from declared model
+	// rates. A zero Cost without this bit means price is unknown, not free.
+	CostConfigured bool
+}
+
+// UsageWithCachedInput builds a Usage from a provider that folds cache hits into
+// its input count, which is what the OpenAI APIs do. Keeping the cached share in
+// both InputTokens and CacheRead would bill it at the input rate and again at
+// the cache-read rate; on a long session that is most of the reported cost.
+func UsageWithCachedInput(input, output, cacheRead, total int) Usage {
+	uncached := max(input-cacheRead,
+		// A provider reporting more cache hits than input is malformed. Trust
+		// the smaller, cheaper category rather than inventing negative usage.
+		0)
+	return Usage{
+		InputTokens:  uncached,
+		OutputTokens: output,
+		CacheRead:    cacheRead,
+		TotalTokens:  total,
+	}
+}
+
+// WithCost calculates usage costs from the model's per-million-token rates.
+// A model without configured rates remains unpriced rather than appearing free.
+func (u Usage) WithCost(rates ModelCost) Usage {
+	if !u.Reported || !rates.Configured() {
+		return u
+	}
+	const perMillion = 1_000_000
+	u.Cost = UsageCost{
+		Input:      float64(u.InputTokens) * rates.Input / perMillion,
+		Output:     float64(u.OutputTokens) * rates.Output / perMillion,
+		CacheRead:  float64(u.CacheRead) * rates.CacheRead / perMillion,
+		CacheWrite: float64(u.CacheWrite) * rates.CacheWrite / perMillion,
+	}
+	u.Cost.Total = u.Cost.Input + u.Cost.Output + u.Cost.CacheRead + u.Cost.CacheWrite
+	u.CostConfigured = true
+	return u
 }
 
 // StopReason normalizes provider-specific stop signals.

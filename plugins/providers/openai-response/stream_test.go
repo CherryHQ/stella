@@ -107,7 +107,8 @@ func TestMapEventCompleted(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected EventUsage, got %T", events[0])
 	}
-	wantUsage := ai.Usage{InputTokens: 10, OutputTokens: 5, CacheRead: 7, TotalTokens: 15}
+	// input_tokens is 10 with 7 of them cached, so only 3 is billable input.
+	wantUsage := ai.Usage{InputTokens: 3, OutputTokens: 5, CacheRead: 7, TotalTokens: 15}
 	if usage.Usage != wantUsage {
 		t.Fatalf("usage = %+v, want %+v", usage.Usage, wantUsage)
 	}

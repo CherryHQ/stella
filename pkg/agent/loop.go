@@ -121,13 +121,14 @@ func runLoop(ctx context.Context, cfg loopConfig, history []ai.Message, activeSt
 
 		// PostLLMCall hooks: telemetry / observation.
 		if !cfg.Hooks.Empty() {
+			usage := complete.Usage.WithCost(effectiveModel.Cost)
 			postCtx := &hooks.PostLLMCallContext{
 				HookMeta:         cfg.HookMeta,
 				Model:            effectiveModel.Name,
 				Provider:         effectiveModel.Provider,
 				API:              effectiveModel.API,
 				BaseURL:          effectiveModel.BaseURL,
-				Usage:            complete.Usage,
+				Usage:            usage,
 				StopReason:       complete.StopReason,
 				Duration:         duration,
 				TimeToFirstToken: result.TimeToFirstToken,
@@ -256,6 +257,7 @@ func streamAssistant(ctx context.Context, messages []ai.Message, cfg loopConfig,
 			}
 			toolCalls[e.ID] = call
 		case ai.EventUsage:
+			e.Usage.Reported = true
 			msg.Usage = e.Usage
 		case ai.EventStop:
 			msg.StopReason = e.Reason
