@@ -43,6 +43,12 @@ func (d *GroupDispatcher) triageWake(ctx context.Context, row sqlc.CtxGroupDispa
 		return true, "mentioned", false
 	}
 	if row.Kind == "nudge" && envelope.NudgeTarget == row.AgentID {
+		// A nudge is never superseded, so an ordinary wake that was already in
+		// flight can post the reply the nudge asks for. Running it anyway posts
+		// the same work twice.
+		if d.agentPostedSince(ctx, row) {
+			return false, "nudge_moot", false
+		}
 		return true, "nudge", false
 	}
 	if len(resolvedMentions(envelope.Mentions)) > 0 {
@@ -70,6 +76,19 @@ func (d *GroupDispatcher) mentionedSinceCursor(ctx context.Context, row sqlc.Ctx
 		TriggerSeq: row.TriggerSeq,
 	})
 	return err == nil && found
+}
+
+// agentPostedSince answers whether the agent has spoken since its wake was
+// created. A read failure means "no": the nudge still runs, because losing a
+// nudge to a transient error leaves the group stalled, while running one extra
+// turn only risks a duplicate the acceptance gate can still catch.
+func (d *GroupDispatcher) agentPostedSince(ctx context.Context, row sqlc.CtxGroupDispatch) bool {
+	posted, err := d.q.AgentPostedSinceSeq(ctx, sqlc.AgentPostedSinceSeqParams{
+		GroupID:  row.GroupID,
+		AgentID:  row.AgentID,
+		AfterSeq: row.TriggerSeq,
+	})
+	return err == nil && posted
 }
 
 func mentionsAgent(mentions []pkgchannel.Mention, agentID string) bool {

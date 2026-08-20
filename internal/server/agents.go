@@ -6,6 +6,7 @@ import (
 
 	apiserver "github.com/CherryHQ/stella/api/server"
 	apitypes "github.com/CherryHQ/stella/api/types"
+	"github.com/CherryHQ/stella/internal/agent/prompt"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/resources"
 )
@@ -46,7 +47,7 @@ func applyTemplate(a *config.Agent, templateID string) error {
 		}
 	}
 	if a.SystemPrompt == "" {
-		a.SystemPrompt = tmpl.Content
+		a.SystemPrompt = prompt.NamePersona(tmpl.Content, a.Name)
 	}
 	if a.Soul == "" {
 		soulID, _ := tmpl.Metadata["soul_id"].(string)

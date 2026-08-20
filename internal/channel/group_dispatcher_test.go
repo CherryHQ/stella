@@ -2000,3 +2000,89 @@ func TestModelPassRecognition(t *testing.T) {
 		}
 	}
 }
+
+// A pass is a decision not to speak, not a decision to forget: an agent that
+// claimed work and then passed must still remember the claim it holds.
+func TestModelPassKeepsToolRowsAndDropsOnlyThePassReply(t *testing.T) {
+	fx := newDispatcherFixture(t, "web", "{}")
+	ctx := context.Background()
+	var committed memory.DeferredGroupTurn
+	fx.d.SetGroupTurnCommitter(groupTurnCommitterFunc(func(_ context.Context, _ *sqlc.Queries, turn memory.DeferredGroupTurn) error {
+		committed = turn
+		return nil
+	}))
+	toolCall := ai.AssistantMessage{Content: []ai.ContentBlock{ai.ToolCall{ID: "call-1", Name: "group_claim"}}}
+	toolResult := ai.ToolResultMessage{ToolCallID: "call-1", ToolName: "group_claim", Content: []ai.ContentBlock{ai.TextContent{Text: "claimed"}}}
+	fx.d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
+		if sink, ok := memory.GroupTurnSinkFrom(ctx); ok {
+			sink.Deliver(memory.DeferredGroupTurn{
+				Complete:   true,
+				TriggerSeq: 1,
+				OwnRows: []ai.Message{
+					ai.UserMessage{Content: "[seq:1 user-1]: hello"},
+					toolCall,
+					toolResult,
+					ai.AssistantMessage{Content: []ai.ContentBlock{ai.TextContent{Text: "PASS"}}},
+				},
+			})
+		}
+		return textStream("PASS"), nil
+	}
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-0000000001a3", "agent-1", fx.groupID, "pending", pgtype.Timestamptz{})
+	row, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-0000000001a3")
+	if err := fx.d.ExecuteDispatch(ctx, row); err != nil {
+		t.Fatal(err)
+	}
+	if len(committed.OwnRows) != 3 {
+		t.Fatalf("committed own rows = %+v, want the trigger and the tool pair", committed.OwnRows)
+	}
+	if _, ok := committed.OwnRows[2].(ai.ToolResultMessage); !ok {
+		t.Fatalf("last committed row = %T, want the tool result", committed.OwnRows[2])
+	}
+}
+
+// Giving up on a row that already carries an accepted reply is not the same as
+// giving up on a wake. The message is committed and readable by peers, so it
+// must be marked undelivered and the peers it held released; otherwise it sits
+// 'pending' forever and holds them with it.
+func TestFinalFailureOnAcceptedRowReleasesHeldPeers(t *testing.T) {
+	fx := newDispatcherFixture(t, "telegram", "{}")
+	ctx := context.Background()
+	fx.d.maxAttempts = 1
+	addFixtureAgent(t, fx, "agent-2", "ch-2")
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-0000000001a4", "agent-1", fx.groupID, "running", pgtype.Timestamptz{})
+	post, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-0000000001a4")
+	state, _ := fx.q.GetGroupStateByID(ctx, fx.groupID)
+	if _, err := fx.d.acceptGroupResponse(ctx, post, state, groupResponse{text: "pending delivery", complete: true}, memory.DeferredGroupTurn{Complete: true}); err != nil {
+		t.Fatal(err)
+	}
+	createDispatchForGroupMessage(t, fx.q, fx.message, "d15a0000-0000-0000-0000-0000000001a5", "agent-2", fx.groupID, "running", pgtype.Timestamptz{})
+	peer, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-0000000001a5")
+	peerOutcome, err := fx.d.acceptGroupResponse(ctx, peer, state, groupResponse{text: "peer reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
+	wantGroupTurnStopped(t, peerOutcome, err, groupTurnHeld, "freshness")
+
+	// The reply channel is gone by the time egress is retried: publisherFor
+	// fails before the accepted result can be replayed.
+	if _, err := fx.db.Exec(ctx, `UPDATE ctx_group_dispatch SET status = 'pending', attempt_count = 1 WHERE id = $1`, post.ID); err != nil {
+		t.Fatal(err)
+	}
+	post, _ = fx.q.GetGroupDispatch(ctx, post.ID)
+	if err := fx.d.ExecuteDispatch(ctx, post); err == nil {
+		t.Fatal("missing publisher must be reported")
+	}
+	post, _ = fx.q.GetGroupDispatch(ctx, post.ID)
+	if post.Status != "failed" {
+		t.Fatalf("dispatch status = %q, want failed", post.Status)
+	}
+	result, err := fx.q.GetGroupMessage(ctx, post.ResultMessageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.DeliveryState != "failed" {
+		t.Fatalf("delivery state = %q, want failed", result.DeliveryState)
+	}
+	peer, _ = fx.q.GetGroupDispatch(ctx, peer.ID)
+	if peer.Status != "pending" || peer.HeldUpToSeq.Valid {
+		t.Fatalf("held peer = %+v, want requeued with cleared gate", peer)
+	}
+}

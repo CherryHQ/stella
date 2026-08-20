@@ -19,7 +19,7 @@ SET platform_group_id = $1,
     platform_thread_id = $2,
     updated_at = now()
 WHERE id = $3
-RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_fallback_count
+RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_streak_count
 `
 
 type AdoptGroupStateParams struct {
@@ -50,7 +50,7 @@ func (q *Queries) AdoptGroupState(ctx context.Context, arg AdoptGroupStateParams
 		&i.HoldLimit,
 		&i.NudgeAt,
 		&i.NudgeCheckedAt,
-		&i.NudgeFallbackCount,
+		&i.NudgeStreakCount,
 	)
 	return i, err
 }
@@ -58,7 +58,7 @@ func (q *Queries) AdoptGroupState(ctx context.Context, arg AdoptGroupStateParams
 const bumpGroupSeq = `-- name: BumpGroupSeq :one
 UPDATE ctx_group_state
 SET next_seq = next_seq + 1,
-    nudge_fallback_count = 0,
+    nudge_streak_count = 0,
     updated_at = now()
 WHERE id = $1
 RETURNING next_seq
@@ -71,7 +71,7 @@ func (q *Queries) BumpGroupSeq(ctx context.Context, id string) (int64, error) {
 	return next_seq, err
 }
 
-const bumpGroupSeqWithoutNudgeFallbackReset = `-- name: BumpGroupSeqWithoutNudgeFallbackReset :one
+const bumpGroupSeqWithoutNudgeStreakReset = `-- name: BumpGroupSeqWithoutNudgeStreakReset :one
 UPDATE ctx_group_state
 SET next_seq = next_seq + 1,
     updated_at = now()
@@ -79,11 +79,11 @@ WHERE id = $1
 RETURNING next_seq
 `
 
-// A fallback nudge is itself a canonical system message. It must not erase the
-// cap that bounds consecutive outage nudges; human and agent appends use the
-// regular bump above and reset the counter.
-func (q *Queries) BumpGroupSeqWithoutNudgeFallbackReset(ctx context.Context, id string) (int64, error) {
-	row := q.db.QueryRow(ctx, bumpGroupSeqWithoutNudgeFallbackReset, id)
+// A nudge is itself a canonical system message. It must not erase the cap that
+// bounds consecutive nudges; human and agent appends use the regular bump above
+// and reset the counter.
+func (q *Queries) BumpGroupSeqWithoutNudgeStreakReset(ctx context.Context, id string) (int64, error) {
+	row := q.db.QueryRow(ctx, bumpGroupSeqWithoutNudgeStreakReset, id)
 	var next_seq int64
 	err := row.Scan(&next_seq)
 	return next_seq, err
@@ -94,7 +94,7 @@ UPDATE ctx_group_state
 SET nudge_at = $1, updated_at = now()
 WHERE id = $2
   AND (nudge_at IS NULL OR nudge_at < $3)
-RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_fallback_count
+RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_streak_count
 `
 
 type ClaimGroupNudgeParams struct {
@@ -122,7 +122,7 @@ func (q *Queries) ClaimGroupNudge(ctx context.Context, arg ClaimGroupNudgeParams
 		&i.HoldLimit,
 		&i.NudgeAt,
 		&i.NudgeCheckedAt,
-		&i.NudgeFallbackCount,
+		&i.NudgeStreakCount,
 	)
 	return i, err
 }
@@ -275,7 +275,7 @@ func (q *Queries) CreateGroupMessage(ctx context.Context, arg CreateGroupMessage
 const createGroupState = `-- name: CreateGroupState :one
 INSERT INTO ctx_group_state (id, platform, platform_group_id, platform_thread_id, group_name, created_by_user_id)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_fallback_count
+RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_streak_count
 `
 
 type CreateGroupStateParams struct {
@@ -313,7 +313,7 @@ func (q *Queries) CreateGroupState(ctx context.Context, arg CreateGroupStatePara
 		&i.HoldLimit,
 		&i.NudgeAt,
 		&i.NudgeCheckedAt,
-		&i.NudgeFallbackCount,
+		&i.NudgeStreakCount,
 	)
 	return i, err
 }
@@ -435,7 +435,7 @@ func (q *Queries) GetGroupMessageByPlatformID(ctx context.Context, arg GetGroupM
 }
 
 const getGroupStateByID = `-- name: GetGroupStateByID :one
-SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_fallback_count FROM ctx_group_state WHERE id = $1
+SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_streak_count FROM ctx_group_state WHERE id = $1
 `
 
 func (q *Queries) GetGroupStateByID(ctx context.Context, id string) (CtxGroupState, error) {
@@ -457,13 +457,13 @@ func (q *Queries) GetGroupStateByID(ctx context.Context, id string) (CtxGroupSta
 		&i.HoldLimit,
 		&i.NudgeAt,
 		&i.NudgeCheckedAt,
-		&i.NudgeFallbackCount,
+		&i.NudgeStreakCount,
 	)
 	return i, err
 }
 
 const getGroupStateByIDForUpdate = `-- name: GetGroupStateByIDForUpdate :one
-SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_fallback_count FROM ctx_group_state WHERE id = $1 FOR UPDATE
+SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_streak_count FROM ctx_group_state WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) GetGroupStateByIDForUpdate(ctx context.Context, id string) (CtxGroupState, error) {
@@ -485,13 +485,13 @@ func (q *Queries) GetGroupStateByIDForUpdate(ctx context.Context, id string) (Ct
 		&i.HoldLimit,
 		&i.NudgeAt,
 		&i.NudgeCheckedAt,
-		&i.NudgeFallbackCount,
+		&i.NudgeStreakCount,
 	)
 	return i, err
 }
 
 const getGroupStateByTriple = `-- name: GetGroupStateByTriple :one
-SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_fallback_count FROM ctx_group_state
+SELECT id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_streak_count FROM ctx_group_state
 WHERE platform = $1
   AND platform_group_id = $2
   AND platform_thread_id = $3
@@ -522,7 +522,7 @@ func (q *Queries) GetGroupStateByTriple(ctx context.Context, arg GetGroupStateBy
 		&i.HoldLimit,
 		&i.NudgeAt,
 		&i.NudgeCheckedAt,
-		&i.NudgeFallbackCount,
+		&i.NudgeStreakCount,
 	)
 	return i, err
 }
@@ -578,21 +578,21 @@ func (q *Queries) GetLatestPeerGroupMessageWithContent(ctx context.Context, arg 
 	return i, err
 }
 
-const incrementGroupNudgeFallback = `-- name: IncrementGroupNudgeFallback :one
+const incrementGroupNudgeStreak = `-- name: IncrementGroupNudgeStreak :one
 UPDATE ctx_group_state
-SET nudge_fallback_count = nudge_fallback_count + 1, updated_at = now()
+SET nudge_streak_count = nudge_streak_count + 1, updated_at = now()
 WHERE id = $1
-  AND nudge_fallback_count < $2
-RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_fallback_count
+  AND nudge_streak_count < $2
+RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_streak_count
 `
 
-type IncrementGroupNudgeFallbackParams struct {
+type IncrementGroupNudgeStreakParams struct {
 	GroupID    string `json:"group_id"`
 	LimitCount int32  `json:"limit_count"`
 }
 
-func (q *Queries) IncrementGroupNudgeFallback(ctx context.Context, arg IncrementGroupNudgeFallbackParams) (CtxGroupState, error) {
-	row := q.db.QueryRow(ctx, incrementGroupNudgeFallback, arg.GroupID, arg.LimitCount)
+func (q *Queries) IncrementGroupNudgeStreak(ctx context.Context, arg IncrementGroupNudgeStreakParams) (CtxGroupState, error) {
+	row := q.db.QueryRow(ctx, incrementGroupNudgeStreak, arg.GroupID, arg.LimitCount)
 	var i CtxGroupState
 	err := row.Scan(
 		&i.ID,
@@ -610,7 +610,7 @@ func (q *Queries) IncrementGroupNudgeFallback(ctx context.Context, arg Increment
 		&i.HoldLimit,
 		&i.NudgeAt,
 		&i.NudgeCheckedAt,
-		&i.NudgeFallbackCount,
+		&i.NudgeStreakCount,
 	)
 	return i, err
 }
@@ -706,7 +706,7 @@ func (q *Queries) ListGroupMessagesPaginated(ctx context.Context, arg ListGroupM
 }
 
 const listGroupNudgeCandidate = `-- name: ListGroupNudgeCandidate :many
-SELECT gs.id, gs.platform, gs.platform_group_id, gs.platform_thread_id, gs.next_seq, gs.created_at, gs.updated_at, gs.group_name, gs.created_by_user_id, gs.agent_chain_hard_limit, gs.max_agent_posts_per_minute, gs.max_replies_per_human_trigger, gs.hold_limit, gs.nudge_at, gs.nudge_checked_at, gs.nudge_fallback_count, 
+SELECT gs.id, gs.platform, gs.platform_group_id, gs.platform_thread_id, gs.next_seq, gs.created_at, gs.updated_at, gs.group_name, gs.created_by_user_id, gs.agent_chain_hard_limit, gs.max_agent_posts_per_minute, gs.max_replies_per_human_trigger, gs.hold_limit, gs.nudge_at, gs.nudge_checked_at, gs.nudge_streak_count, 
        (SELECT gm.id FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) AS last_message_id,
        (SELECT gm.actor_type FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) AS last_actor_type,
        (SELECT gm.actor_id FROM ctx_group_message gm WHERE gm.group_id = gs.id ORDER BY gm.seq DESC LIMIT 1) AS last_actor_id,
@@ -764,7 +764,7 @@ type ListGroupNudgeCandidateRow struct {
 	HoldLimit                 int32              `json:"hold_limit"`
 	NudgeAt                   pgtype.Timestamptz `json:"nudge_at"`
 	NudgeCheckedAt            pgtype.Timestamptz `json:"nudge_checked_at"`
-	NudgeFallbackCount        int32              `json:"nudge_fallback_count"`
+	NudgeStreakCount          int32              `json:"nudge_streak_count"`
 	LastMessageID             string             `json:"last_message_id"`
 	LastActorType             string             `json:"last_actor_type"`
 	LastActorID               string             `json:"last_actor_id"`
@@ -803,7 +803,7 @@ func (q *Queries) ListGroupNudgeCandidate(ctx context.Context, arg ListGroupNudg
 			&i.HoldLimit,
 			&i.NudgeAt,
 			&i.NudgeCheckedAt,
-			&i.NudgeFallbackCount,
+			&i.NudgeStreakCount,
 			&i.LastMessageID,
 			&i.LastActorType,
 			&i.LastActorID,
@@ -822,7 +822,7 @@ func (q *Queries) ListGroupNudgeCandidate(ctx context.Context, arg ListGroupNudg
 
 const listGroupsByUser = `-- name: ListGroupsByUser :many
 SELECT
-  gs.id, gs.platform, gs.platform_group_id, gs.platform_thread_id, gs.next_seq, gs.created_at, gs.updated_at, gs.group_name, gs.created_by_user_id, gs.agent_chain_hard_limit, gs.max_agent_posts_per_minute, gs.max_replies_per_human_trigger, gs.hold_limit, gs.nudge_at, gs.nudge_checked_at, gs.nudge_fallback_count,
+  gs.id, gs.platform, gs.platform_group_id, gs.platform_thread_id, gs.next_seq, gs.created_at, gs.updated_at, gs.group_name, gs.created_by_user_id, gs.agent_chain_hard_limit, gs.max_agent_posts_per_minute, gs.max_replies_per_human_trigger, gs.hold_limit, gs.nudge_at, gs.nudge_checked_at, gs.nudge_streak_count,
   COALESCE(MAX(gm.created_at), gs.updated_at) AS last_active
 FROM ctx_group_state gs
 LEFT JOIN ctx_group_message gm ON gm.group_id = gs.id
@@ -855,7 +855,7 @@ type ListGroupsByUserRow struct {
 	HoldLimit                 int32              `json:"hold_limit"`
 	NudgeAt                   pgtype.Timestamptz `json:"nudge_at"`
 	NudgeCheckedAt            pgtype.Timestamptz `json:"nudge_checked_at"`
-	NudgeFallbackCount        int32              `json:"nudge_fallback_count"`
+	NudgeStreakCount          int32              `json:"nudge_streak_count"`
 	LastActive                time.Time          `json:"last_active"`
 }
 
@@ -884,7 +884,7 @@ func (q *Queries) ListGroupsByUser(ctx context.Context, arg ListGroupsByUserPara
 			&i.HoldLimit,
 			&i.NudgeAt,
 			&i.NudgeCheckedAt,
-			&i.NudgeFallbackCount,
+			&i.NudgeStreakCount,
 			&i.LastActive,
 		); err != nil {
 			return nil, err
@@ -1078,7 +1078,7 @@ SET agent_chain_hard_limit = $1,
     hold_limit = $4,
     updated_at = now()
 WHERE id = $5
-RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_fallback_count
+RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_streak_count
 `
 
 type SetGroupDispatchCapsParams struct {
@@ -1114,7 +1114,7 @@ func (q *Queries) SetGroupDispatchCaps(ctx context.Context, arg SetGroupDispatch
 		&i.HoldLimit,
 		&i.NudgeAt,
 		&i.NudgeCheckedAt,
-		&i.NudgeFallbackCount,
+		&i.NudgeStreakCount,
 	)
 	return i, err
 }
@@ -1159,7 +1159,7 @@ const updateGroupName = `-- name: UpdateGroupName :one
 UPDATE ctx_group_state
 SET group_name = $1, updated_at = now()
 WHERE id = $2
-RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_fallback_count
+RETURNING id, platform, platform_group_id, platform_thread_id, next_seq, created_at, updated_at, group_name, created_by_user_id, agent_chain_hard_limit, max_agent_posts_per_minute, max_replies_per_human_trigger, hold_limit, nudge_at, nudge_checked_at, nudge_streak_count
 `
 
 type UpdateGroupNameParams struct {
@@ -1186,7 +1186,7 @@ func (q *Queries) UpdateGroupName(ctx context.Context, arg UpdateGroupNameParams
 		&i.HoldLimit,
 		&i.NudgeAt,
 		&i.NudgeCheckedAt,
-		&i.NudgeFallbackCount,
+		&i.NudgeStreakCount,
 	)
 	return i, err
 }

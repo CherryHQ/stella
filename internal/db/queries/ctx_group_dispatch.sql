@@ -307,3 +307,17 @@ SELECT EXISTS (
     -- name. Containment matches an element with that id whatever else it holds.
     AND (outbox.envelope::jsonb -> 'mentions') @> jsonb_build_array(jsonb_build_object('AgentID', sqlc.arg(agent_id)::text))
 )::boolean;
+
+-- name: AgentPostedSinceSeq :one
+-- Has this agent already spoken after the given seq? A nudge names one agent
+-- and never gets superseded, so a wake that was already in flight can post the
+-- very reply the nudge asks for; without this the nudge posts a second one.
+SELECT EXISTS (
+  SELECT 1
+  FROM ctx_group_message
+  WHERE group_id = sqlc.arg(group_id)
+    AND actor_type = 'agent'
+    AND actor_id = sqlc.arg(agent_id)
+    AND seq > sqlc.arg(after_seq)
+    AND delivery_state <> 'failed'
+)::boolean;

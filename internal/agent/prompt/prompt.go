@@ -50,11 +50,18 @@ func DefaultSystemPrompt() string { return DefaultSystemPromptFor("") }
 // for. Every agent used to be seeded as "You are Stella", so two of them in one
 // group answered to the same name and to each other's messages.
 func DefaultSystemPromptFor(name string) string {
+	return NamePersona(defaultSystemPrompt, name)
+}
+
+// NamePersona fills an agent-template persona with the name of the agent it is
+// being created for. Templates are shared, so a persona that hardcodes a name
+// gives every agent built from it the same one.
+func NamePersona(persona, name string) string {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		name = "Stella"
 	}
-	return strings.TrimSpace(strings.ReplaceAll(defaultSystemPrompt, "{{ .AgentName }}", name))
+	return strings.TrimSpace(strings.ReplaceAll(persona, "{{ .AgentName }}", name))
 }
 
 const guestLimitations = `You are serving an unauthenticated guest. You may converse using only the visible conversation history. You have no tools, files, workspace, skills, plugins, memories, profile, reflection, delegation, secrets, OAuth connections, or other Stella capabilities. Do not claim to access or retain anything beyond this conversation.`

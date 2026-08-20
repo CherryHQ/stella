@@ -54,6 +54,34 @@ func (q *Queries) AgentMentionedSinceCursor(ctx context.Context, arg AgentMentio
 	return column_1, err
 }
 
+const agentPostedSinceSeq = `-- name: AgentPostedSinceSeq :one
+SELECT EXISTS (
+  SELECT 1
+  FROM ctx_group_message
+  WHERE group_id = $1
+    AND actor_type = 'agent'
+    AND actor_id = $2
+    AND seq > $3
+    AND delivery_state <> 'failed'
+)::boolean
+`
+
+type AgentPostedSinceSeqParams struct {
+	GroupID  string `json:"group_id"`
+	AgentID  string `json:"agent_id"`
+	AfterSeq int64  `json:"after_seq"`
+}
+
+// Has this agent already spoken after the given seq? A nudge names one agent
+// and never gets superseded, so a wake that was already in flight can post the
+// very reply the nudge asks for; without this the nudge posts a second one.
+func (q *Queries) AgentPostedSinceSeq(ctx context.Context, arg AgentPostedSinceSeqParams) (bool, error) {
+	row := q.db.QueryRow(ctx, agentPostedSinceSeq, arg.GroupID, arg.AgentID, arg.AfterSeq)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const claimExpiredGroupDispatch = `-- name: ClaimExpiredGroupDispatch :one
 UPDATE ctx_group_dispatch
 SET status = 'running',

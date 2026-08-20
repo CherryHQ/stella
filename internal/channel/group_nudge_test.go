@@ -239,7 +239,7 @@ func TestNudgeFallbackNarrowAndCapped(t *testing.T) {
 	nudger.SetClassifier(nudgeClassifierFunc(func(context.Context, GroupNudgeRequest) (GroupNudgeDecision, error) {
 		return GroupNudgeDecision{}, errors.New("fast model unavailable")
 	}))
-	for i := range groupNudgeFallbackMax {
+	for i := range groupNudgeStreakMax {
 		tick := now.Add(time.Duration(i) * 6 * time.Minute)
 		nudger.now = func() time.Time { return tick }
 		if err := nudger.RunOnce(context.Background()); err != nil {
@@ -251,15 +251,15 @@ func TestNudgeFallbackNarrowAndCapped(t *testing.T) {
 	if err := nudger.RunOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := countNudgeMessages(t, fx); got != groupNudgeFallbackMax {
-		t.Fatalf("fallback nudges = %d, want cap %d", got, groupNudgeFallbackMax)
+	if got := countNudgeMessages(t, fx); got != groupNudgeStreakMax {
+		t.Fatalf("fallback nudges = %d, want cap %d", got, groupNudgeStreakMax)
 	}
 	state, err := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.NudgeFallbackCount != groupNudgeFallbackMax {
-		t.Fatalf("fallback count = %d, want %d", state.NudgeFallbackCount, groupNudgeFallbackMax)
+	if state.NudgeStreakCount != groupNudgeStreakMax {
+		t.Fatalf("fallback count = %d, want %d", state.NudgeStreakCount, groupNudgeStreakMax)
 	}
 	// The fallback must not nudge the same agent that was the latest speaker.
 	if _, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: "agent-1", Content: "still working"}); err != nil {
@@ -272,8 +272,8 @@ func TestNudgeFallbackNarrowAndCapped(t *testing.T) {
 	if err := nudger.RunOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := countNudgeMessages(t, fx); got != groupNudgeFallbackMax {
-		t.Fatalf("fallback nudged latest owner: got %d, want %d", got, groupNudgeFallbackMax)
+	if got := countNudgeMessages(t, fx); got != groupNudgeStreakMax {
+		t.Fatalf("fallback nudged latest owner: got %d, want %d", got, groupNudgeStreakMax)
 	}
 }
 
@@ -320,5 +320,89 @@ func TestLLMGroupNudgeClassifierUsesSystemFastTier(t *testing.T) {
 	}
 	if loadedAgent != "agent-1" || !decision.Stalled || decision.Target != "agent-1" {
 		t.Fatalf("system fast decision = %#v, loaded agent = %q", decision, loadedAgent)
+	}
+}
+
+// The classifier path shares the streak cap with the outage fallback: every
+// nudge costs the named agent a full turn, and a claim lease can outlive a
+// day's worth of 45-minute cooldowns.
+func TestNudgeClassifierPathSharesTheStreakCap(t *testing.T) {
+	fx, nudger, now := staleNudgeFixture(t)
+	createLiveNudgeClaim(t, fx)
+	if _, err := fx.db.Exec(context.Background(), `UPDATE ctx_group_claim SET lease_until = now() + interval '1 day' WHERE group_id = $1`, fx.groupID); err != nil {
+		t.Fatal(err)
+	}
+	nudger.SetClassifier(nudgeClassifierFunc(func(context.Context, GroupNudgeRequest) (GroupNudgeDecision, error) {
+		return GroupNudgeDecision{Stalled: true, Target: "agent-1", Reason: "finish the report"}, nil
+	}))
+	for i := range groupNudgeStreakMax + 2 {
+		tick := now.Add(time.Duration(i) * (groupNudgeCooldown + time.Minute))
+		nudger.now = func() time.Time { return tick }
+		if err := nudger.RunOnce(context.Background()); err != nil {
+			t.Fatalf("tick %d: %v", i, err)
+		}
+	}
+	if got := countNudgeMessages(t, fx); got != groupNudgeStreakMax {
+		t.Fatalf("classifier nudges = %d, want cap %d", got, groupNudgeStreakMax)
+	}
+	// A real message means the group moved: the streak starts over.
+	if _, err := eventlog.NewStore(fx.db).AppendToGroup(context.Background(), fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorHuman, ActorID: "user-1", Content: "any progress?"}); err != nil {
+		t.Fatal(err)
+	}
+	state, err := fx.q.GetGroupStateByID(context.Background(), fx.groupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.NudgeStreakCount != 0 {
+		t.Fatalf("streak after a real message = %d, want 0", state.NudgeStreakCount)
+	}
+}
+
+// A nudge is never superseded, so the wake that was already in flight can post
+// the very reply the nudge asks for. Running it anyway posts the work twice.
+func TestNudgeSilentWhenTargetAlreadyPosted(t *testing.T) {
+	fx, nudger, _ := staleNudgeFixture(t)
+	ctx := context.Background()
+	createLiveNudgeClaim(t, fx)
+	nudger.SetClassifier(nudgeClassifierFunc(func(context.Context, GroupNudgeRequest) (GroupNudgeDecision, error) {
+		return GroupNudgeDecision{Stalled: true, Target: "agent-1", Reason: "finish the report"}, nil
+	}))
+	if err := nudger.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var messageID string
+	if err := fx.db.QueryRow(ctx, `SELECT id FROM ctx_group_message WHERE group_id = $1 AND actor_type = 'system'`, fx.groupID).Scan(&messageID); err != nil {
+		t.Fatal(err)
+	}
+	outbox, err := fx.q.GetGroupOutboxByMessage(ctx, messageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.d.ProcessOutbox(ctx, outbox); err != nil {
+		t.Fatal(err)
+	}
+	// The in-flight wake lands first.
+	if _, err := eventlog.NewStore(fx.db).AppendToGroup(ctx, fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorAgent, ActorID: "agent-1", Content: "report is done"}); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := fx.q.ListPendingGroupNudges(ctx, sqlc.ListPendingGroupNudgesParams{Now: nullTime(time.Now().UTC()), LimitCount: 10})
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("pending nudges = %#v, err=%v", pending, err)
+	}
+	claimed, ok, err := fx.d.claimDispatch(ctx, pending[0])
+	if err != nil || !ok {
+		t.Fatalf("claim nudge: ok=%v, err=%v", ok, err)
+	}
+	message, state, err := fx.d.messageAndState(ctx, claimed.GroupMessageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := DecodeGroupOutboxEnvelope(outbox.Envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	act, reason, degraded := fx.d.triageWake(ctx, claimed, message, state, envelope)
+	if act || reason != "nudge_moot" || degraded {
+		t.Fatalf("triage = act:%v reason:%q degraded:%v, want silent/nudge_moot", act, reason, degraded)
 	}
 }

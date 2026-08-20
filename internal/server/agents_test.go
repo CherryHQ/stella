@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/CherryHQ/stella/internal/auth"
@@ -106,6 +107,11 @@ func TestCreateAgentFromTemplate(t *testing.T) {
 	}
 	if a.SystemPrompt == "" {
 		t.Errorf("expected SystemPrompt populated from template body, got empty")
+	}
+	// A shared template must not hand every agent the same name: in a group,
+	// two agents answering to "Stella" answer to each other's messages.
+	if !strings.Contains(a.SystemPrompt, "Template-built") || strings.Contains(a.SystemPrompt, "Stella") {
+		t.Errorf("SystemPrompt = %q, want the new agent's own name", a.SystemPrompt)
 	}
 }
 

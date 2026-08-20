@@ -130,15 +130,15 @@ DELETE FROM ctx_group_state WHERE id = $1;
 -- name: BumpGroupSeq :one
 UPDATE ctx_group_state
 SET next_seq = next_seq + 1,
-    nudge_fallback_count = 0,
+    nudge_streak_count = 0,
     updated_at = now()
 WHERE id = sqlc.arg(id)
 RETURNING next_seq;
 
--- name: BumpGroupSeqWithoutNudgeFallbackReset :one
--- A fallback nudge is itself a canonical system message. It must not erase the
--- cap that bounds consecutive outage nudges; human and agent appends use the
--- regular bump above and reset the counter.
+-- name: BumpGroupSeqWithoutNudgeStreakReset :one
+-- A nudge is itself a canonical system message. It must not erase the cap that
+-- bounds consecutive nudges; human and agent appends use the regular bump above
+-- and reset the counter.
 UPDATE ctx_group_state
 SET next_seq = next_seq + 1,
     updated_at = now()
@@ -191,11 +191,11 @@ WHERE id = sqlc.arg(group_id)
   AND (nudge_at IS NULL OR nudge_at < sqlc.arg(cooldown_before))
 RETURNING *;
 
--- name: IncrementGroupNudgeFallback :one
+-- name: IncrementGroupNudgeStreak :one
 UPDATE ctx_group_state
-SET nudge_fallback_count = nudge_fallback_count + 1, updated_at = now()
+SET nudge_streak_count = nudge_streak_count + 1, updated_at = now()
 WHERE id = sqlc.arg(group_id)
-  AND nudge_fallback_count < sqlc.arg(limit_count)
+  AND nudge_streak_count < sqlc.arg(limit_count)
 RETURNING *;
 
 -- name: GetGroupMessageByPlatformID :one

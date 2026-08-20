@@ -505,7 +505,7 @@ type CtxGroupState struct {
 	HoldLimit                 int32              `json:"hold_limit"`
 	NudgeAt                   pgtype.Timestamptz `json:"nudge_at"`
 	NudgeCheckedAt            pgtype.Timestamptz `json:"nudge_checked_at"`
-	NudgeFallbackCount        int32              `json:"nudge_fallback_count"`
+	NudgeStreakCount          int32              `json:"nudge_streak_count"`
 }
 
 type CtxItem struct {

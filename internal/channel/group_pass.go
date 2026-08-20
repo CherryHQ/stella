@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/CherryHQ/stella/internal/memory"
+	"github.com/CherryHQ/stella/pkg/ai"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
@@ -38,18 +39,49 @@ func isModelPass(text string) bool {
 	return trimmed == "" || strings.EqualFold(trimmed, modelPassToken)
 }
 
+// stripTrailingPass drops the pass reply itself and keeps everything the turn
+// actually did. An agent may call tools and then decide it has nothing to say;
+// dropping the whole turn would make it forget the claim it just took or the
+// file it just wrote, while the side effect stays real for every peer.
+//
+// Only trailing text-only assistant messages go. A message carrying a tool call
+// stops the walk, so no tool_use is ever separated from its tool_result.
+func stripTrailingPass(rows []ai.Message) []ai.Message {
+	for len(rows) > 0 {
+		msg, ok := rows[len(rows)-1].(ai.AssistantMessage)
+		if !ok {
+			break
+		}
+		text := strings.Builder{}
+		for _, block := range msg.Content {
+			switch b := block.(type) {
+			case ai.TextContent:
+				text.WriteString(b.Text)
+			case ai.ThinkingContent:
+			default:
+				return rows
+			}
+		}
+		if !isModelPass(text.String()) {
+			break
+		}
+		rows = rows[:len(rows)-1]
+	}
+	return rows
+}
+
 // retireModelPass records the silent turn and commits what the agent read.
 //
 // The peer rows it was shown and its ingest cursor still commit: the agent did
 // read them, and leaving the cursor behind would replay the same messages on
-// every later turn. Its own rows do not: an empty assistant message would make
-// the session history look like the agent ignored the group, and some providers
-// reject empty turns outright.
+// every later turn. The pass reply itself does not: an empty assistant message
+// would make the session history look like the agent ignored the group, and
+// some providers reject empty turns outright.
 func (d *GroupDispatcher) retireModelPass(ctx context.Context, row sqlc.CtxGroupDispatch, turn memory.DeferredGroupTurn) error {
 	if d.committer == nil {
 		return errors.New("group dispatcher requires memory.TxGroupCommitter")
 	}
-	turn.OwnRows = nil
+	turn.OwnRows = stripTrailingPass(turn.OwnRows)
 	tx, err := d.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("model pass: begin: %w", err)

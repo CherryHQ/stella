@@ -685,6 +685,13 @@ func (d *GroupDispatcher) failOutbox(ctx context.Context, row sqlc.CtxGroupOutbo
 
 func (d *GroupDispatcher) failDispatch(ctx context.Context, row sqlc.CtxGroupDispatch, cause error) error {
 	if row.AttemptCount >= d.maxAttempts {
+		// Giving up on a row that already carries an accepted reply is not the
+		// same as giving up on a wake: the message is committed and visible to
+		// peers, so it must be marked undelivered and the peers it held must be
+		// released, or it stays 'pending' forever and holds them with it.
+		if row.ResultMessageID != "" {
+			return d.failAcceptedPublish(ctx, row, cause)
+		}
 		if _, err := d.q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: cause.Error()}); err != nil {
 			return fmt.Errorf("mark dispatch failed: %w", err)
 		}

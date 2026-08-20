@@ -33,11 +33,14 @@ const (
 	groupNudgeRecheck = 30 * time.Minute
 	// Bounded per tick so one large deployment cannot turn a single tick into
 	// hundreds of serialized model calls.
-	groupNudgeBatch       = int32(50)
-	groupNudgeFallbackMax = 3
-	groupNudgeQueue       = "stella_group_nudge"
-	groupNudgeInterval    = time.Minute
-	groupNudgeTimeout     = 5 * time.Second
+	groupNudgeBatch = int32(50)
+	// Consecutive nudges allowed between two real messages. Every nudge costs a
+	// full turn from the agent it names, so a group that stays quiet after being
+	// asked three times is not stalled, it is done.
+	groupNudgeStreakMax = 3
+	groupNudgeQueue     = "stella_group_nudge"
+	groupNudgeInterval  = time.Minute
+	groupNudgeTimeout   = 5 * time.Second
 )
 
 const groupNudgePrompt = `You detect genuinely stalled work in a group chat. Return JSON only: {"stalled":bool,"target":"member agent ID","reason":"short"}.
@@ -103,6 +106,9 @@ func (n *GroupNudger) RunOnce(ctx context.Context) error {
 	if n.classifier != nil {
 		fallback := false
 		for _, candidate := range candidates {
+			if candidate.NudgeStreakCount >= groupNudgeStreakMax {
+				continue
+			}
 			decision, available := n.classify(ctx, candidate, now)
 			if !available {
 				fallback = true
@@ -116,7 +122,7 @@ func (n *GroupNudger) RunOnce(ctx context.Context) error {
 			if !decision.Stalled {
 				continue
 			}
-			if err := n.append(ctx, candidate.ID, decision.Target, decision.Reason, now, groupNudgeCooldown, false); err != nil {
+			if err := n.append(ctx, candidate.ID, decision.Target, decision.Reason, now, groupNudgeCooldown); err != nil {
 				return err
 			}
 		}
@@ -130,7 +136,7 @@ func (n *GroupNudger) RunOnce(ctx context.Context) error {
 	candidate := candidates[0]
 	if now.Sub(candidate.LastMessageAt) > 30*time.Minute ||
 		(candidate.NudgeAt.Valid && candidate.NudgeAt.Time.UTC().After(now.Add(-groupNudgeFallbackDelay))) ||
-		candidate.NudgeFallbackCount >= groupNudgeFallbackMax {
+		candidate.NudgeStreakCount >= groupNudgeStreakMax {
 		return nil
 	}
 	claims, err := n.q.ListLiveGroupClaims(ctx, candidate.ID)
@@ -141,7 +147,7 @@ func (n *GroupNudger) RunOnce(ctx context.Context) error {
 		return nil
 	}
 	target := claims[0].OwnerAgentID
-	return n.append(ctx, candidate.ID, target, claims[0].Note, now, groupNudgeFallbackDelay, true)
+	return n.append(ctx, candidate.ID, target, claims[0].Note, now, groupNudgeFallbackDelay)
 }
 
 // classify asks the model whether one quiet group is stalled. The second return
@@ -187,10 +193,10 @@ func (n *GroupNudger) classify(ctx context.Context, candidate sqlc.ListGroupNudg
 	return GroupNudgeDecision{}, false
 }
 
-// append atomically wins the cooldown, persists the canonical system message,
-// and creates its outbox. A cooldown without its message would lose work for
-// 45 minutes after a transient database failure.
-func (n *GroupNudger) append(ctx context.Context, groupID, target, note string, now time.Time, cooldown time.Duration, fallback bool) error {
+// append atomically wins the cooldown and the streak budget, persists the
+// canonical system message, and creates its outbox. A cooldown without its
+// message would lose work for 45 minutes after a transient database failure.
+func (n *GroupNudger) append(ctx context.Context, groupID, target, note string, now time.Time, cooldown time.Duration) error {
 	tx, err := n.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin group nudge: %w", err)
@@ -222,11 +228,13 @@ func (n *GroupNudger) append(ctx context.Context, groupID, target, note string, 
 	}
 	// AppendToGroupWithQueries bumps the group sequence, which resets the
 	// counter for ordinary messages. Increment afterwards so the nudge itself
-	// does not erase the cap that prevents an outage loop.
-	if fallback {
-		if _, err := q.IncrementGroupNudgeFallback(ctx, sqlc.IncrementGroupNudgeFallbackParams{GroupID: groupID, LimitCount: groupNudgeFallbackMax}); err != nil {
-			return fmt.Errorf("increment nudge fallback: %w", err)
+	// does not erase the cap. Losing the CAS means the streak is spent: roll the
+	// whole nudge back rather than post past the cap.
+	if _, err := q.IncrementGroupNudgeStreak(ctx, sqlc.IncrementGroupNudgeStreakParams{GroupID: groupID, LimitCount: groupNudgeStreakMax}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
 		}
+		return fmt.Errorf("increment nudge streak: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit group nudge: %w", err)

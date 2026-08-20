@@ -12,7 +12,9 @@ ALTER TABLE ctx_group_state
     -- every tick for as long as it stays idle, and the answer cannot change
     -- until somebody speaks.
     ADD COLUMN nudge_checked_at TIMESTAMPTZ,
-    ADD COLUMN nudge_fallback_count INT NOT NULL DEFAULT 0;
+    -- Consecutive nudges since the last human or agent message. Any real
+    -- message resets it, so it bounds a nudge loop without bounding a group.
+    ADD COLUMN nudge_streak_count INT NOT NULL DEFAULT 0;
 
 ALTER TABLE ctx_group_message
     ADD COLUMN delivery_state TEXT NOT NULL DEFAULT 'delivered';
@@ -104,7 +106,7 @@ ALTER TABLE ctx_group_dispatch
     DROP COLUMN kind;
 ALTER TABLE ctx_group_message DROP COLUMN delivery_state;
 ALTER TABLE ctx_group_state
-    DROP COLUMN nudge_fallback_count,
+    DROP COLUMN nudge_streak_count,
     DROP COLUMN nudge_checked_at,
     DROP COLUMN nudge_at,
     DROP COLUMN hold_limit,
