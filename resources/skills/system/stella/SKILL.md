@@ -49,7 +49,7 @@ Release builtins (`builtin:<name>`) are immutable and come only from the release
 - **Multi-agent**: Multiple agents can run simultaneously, each with its own global Provider/model selection, optional API-key override, system prompt, and workspace. Provider endpoints, types, models, and enabled state remain administrator-controlled; per-Agent key overrides are API-only.
 - **Multi-user**: Channel identities resolve users. Verified Feishu tenant members can be auto-provisioned when their channel enables it; each user has per-agent memory that persists across sessions.
 - **Single bot per platform**: One Telegram/Discord/QQ/Feishu/DingTalk/WeChat bot can serve an agent selected through channel configuration.
-- **Agent routing**: DMs use the user's default agent. Groups use the group's assigned agent. Fallback: first enabled agent.
+- **Agent routing**: DMs use the user's default agent. Fallback: first enabled agent. Each group message wakes every eligible member agent, and each member's local deterministic triage decides whether it speaks.
 - **Session scoping**: Sessions are scoped to (agent, platform, user, chat context) so switching agents gives you a fresh conversation.
 
 ### System prompt layers

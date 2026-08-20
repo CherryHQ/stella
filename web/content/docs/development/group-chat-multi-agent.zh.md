@@ -36,7 +36,7 @@ description: Stella 如何让多个 agent 共享同一个会话，而不需要�
 | `ctx_group_dispatch` | durable wake 台账。普通扇出为每个合格成员各建一行，但跳过 agent 作者；定向 nudge 则只建给目标的一行。行带 `kind`（`wake` / `nudge`）、`trigger_seq`、`held_up_to_seq`、`publish_started_at`、`published_at`。 |
 | `ctx_group_claim`    | durable work claim。每个 `(group, key)` 一个活主人，带租约，所以崩掉的主人不会永久卡住工作。                                                                                                                  |
 
-上限和 nudge 簿记放在 `ctx_group_state` 上：`agent_chain_hard_limit`（8）、`max_agent_posts_per_minute`（**每个 agent 10**）、`max_replies_per_human_trigger`（5）、`hold_limit`（3），以及 `nudge_at`、`nudge_checked_at`、`nudge_streak_count`。
+上限和 nudge 簿记放在 `ctx_group_state` 上：`agent_chain_hard_limit`（8）、`max_agent_posts_per_minute`（**每个 agent 默认 10，可配 1–1000**）、`max_replies_per_human_trigger`（5）、`hold_limit`（3），以及 `nudge_at`、`nudge_checked_at`、`nudge_streak_count`。
 
 一个 SQL 函数 `ctx_group_chain_root(group, agent, trigger_seq)` 回答“这个 agent 当前的因果链从哪开始”：`trigger_seq` 之前最近一条人类消息，和这个 agent 自己最近一条被接受的发言，取较晚者。trigger 上界是有意不对称的：它只约束 human 分支，accepted-post 分支读取 agent 最新已提交的结果。它有四个消费者：wake claim 的 held 覆盖 gate、HOLD 预算计数、wake 的 `held_up_to_seq` 提示，以及按链范围做的逐字去重。它们失败的方式不同：只放松 claim gate，会让一条 held 的行重跑并发两遍；只收紧计数，会造出一个永不过期的 HOLD；把去重范围放宽，则会永远压掉一句普通确认。保持一个定义，正是防止这四处漂移开的东西。
 
@@ -90,7 +90,7 @@ agent 已经读完整个群，带着自己的记忆，也知道自己在做什�
 
 - **新鲜度。** 在 `ctx_group_chain_root` 内发生的 HOLD 少于 `hold_limit` 时，如果 agent 快照之后有 peer 发言，这条回复就变成 `held`，**永不投递**。旧行通常会带着 `held_up_to_seq` 保持 held；之后另一条独立的 pending wake，且其快照覆盖该 seq，才是后继 turn。补偿例外是已接受投递的终态失败，它只会重新入队被该失败 post 因果性 hold 的行。HOLD 上限耗尽后，新鲜度不再拦住这条过期回复：它继续经过去重和上限检查，通常会被接受。
 - **逐字去重。** 链上已存在的完全相同回复以 `silent`、原因 `duplicate` 退休；它不消耗 HOLD 预算。
-- **回复上限。** `max_replies_per_human_trigger` 在锁下重新检查，而不是拿快照检查；若用尽则以 `silent` 退休。
+- **链和回复上限。** `agent_chain_hard_limit` 与 `max_replies_per_human_trigger` 都在锁下重新检查，而不是拿快照检查；若用尽则以 `silent` 退休。
 
 全部通过，则一个事务一起提交**`pending`** 的 agent 消息、deferred memory turn 及其 cursor、以及 dispatch result marker。这个事务刻意不建 peer outbox：这条回复本身要等 publisher 成功返回后才会唤醒 peer。publisher 的 finalize 事务会一起把消息标为 `delivered` 并创建 peer outbox。不过 pending canonical 行已经存在，所以被后续独立活动唤醒的 peer 仍可能在投递结果确定前遇到它。严格的原子保证是：被接受的消息绝不会在自己的 agent memory 尚未落地时可见。
 
@@ -124,7 +124,7 @@ claim 是给交付物的，绝不给普通聊天回复。给“回答这个问�
 - **每群：** 每 45 分钟冷却期一次（确定性的基于 claim 的兜底路径是 5 分钟）。
 - **每段对话：** 两条真实消息之间最多三次连续 nudge（`nudge_streak_count`）。任何人类或 agent 消息都会重置它。
 
-确定性 fallback 只在 classifier 不可用时启用。它只会在这一轮恰好有一个候选，且该群恰好有一个 live claim、其 owner 又不是最后发言者时继续；它使用 5 分钟冷却期。这个窄形状避免一次故障把一个 batch 变成广泛、臆测性的恢复扫描。
+确定性 fallback 只在 classifier 不可用时启用。它只会在这一轮恰好有一个候选、其最新消息不超过 30 分钟前，且该群恰好有一个 live claim、其 owner 又不是最后发言者时继续；它使用 5 分钟冷却期。这个窄形状避免一次故障把一个 batch 变成广泛、臆测性的恢复扫描。
 
 streak 上限才是关键。只有通过 queue-slot moot 复检后仍然存活的 nudge，才会让它点名的 agent 花一整个 turn；连续三次这样的尝试后仍然安静的群不是卡住了，是说完了。
 
@@ -142,11 +142,11 @@ Web `POST /api/groups/{id}/messages` 只负责 ingest 并唤醒 worker。它返�
 
 `GET /api/groups/{id}/events` 在 canonical `message` 帧之外还带 `turn` 帧。turn 帧是某个成员的实时 presence，绝不是被重放的历史。
 
-一行被 claim 后，数据库状态先变成 `running`。wake 或 nudge 只有在拿到 per-session queue slot、chat stream 已经启动后才发 `running` 帧；排队期间变成 moot 的 nudge 只发终态 `silent`。gate decline 同样从一条数据库中已经 `running` 的行发出终态 `silent`，但绝不发 `running` 帧。被 claim 阶段 wake 合并标成 `status='superseded'` 的行完全不发 turn frame。另一种情况是：已经 claim 的行发现自己的 trigger 跨 session boundary 被消费，它会发一帧终态 `silent`，reason 同样叫 `superseded`；这是判决原因，不是数据库里的 superseded 状态。只要发出过 `running`，恰好一个终态帧让它退休：已接受回复投递完成后是 `done`，新鲜度拦住回复是 `held`，模型或后续 backstop 选择不发言是 `silent`，其他情况是 `failed`。
+一行被 claim 后，数据库状态先变成 `running`。wake 或 nudge 只有在拿到 per-session queue slot、chat stream 已经启动后才发 `running` 帧；排队期间变成 moot 的 nudge 只发终态 `silent`。gate decline 同样从一条数据库中已经 `running` 的行发出终态 `silent`，但绝不发 `running` 帧。被 claim 阶段 wake 合并标成 `status='superseded'` 的行完全不发 turn frame。另一种情况是：已经 claim 的行发现自己的 trigger 跨 session boundary 被消费，它会发一帧终态 `silent`，reason 同样叫 `superseded`；这是判决原因，不是数据库里的 superseded 状态。订阅者一旦通过实时帧或 presence 快照见过 `running`，恰好一个终态帧让它退休：已接受回复投递完成后是 `done`，新鲜度拦住回复是 `held`，模型或后续 backstop 选择不发言是 `silent`，其他情况是 `failed`。
 
 egress 补偿——重启后重新发布一条已接受的回复——会跳过 `running`，因为没有模型在跑这一轮，但投递时仍然发 `done`。
 
-由于 turn 帧不重放，新订阅者拿到的是一份快照：连接时每个存在执行中 dispatch 的不同 agent 各合成一帧 `running`。崩掉的 worker 会让它的行停在 `running`，直到 5 分钟租约过期，所以快照最长可能陈旧 5 分钟。随后 reaper 的重新入队会发出新帧，而每次重连都会重新快照，所以客户端自愈，不需要一条修复路径。
+由于 turn 帧不重放，新订阅者拿到的是一份快照：连接时每个存在执行中 dispatch 的不同 agent 各合成一帧 `running`。崩掉的 worker 会让它的行停在 `running`，直到 5 分钟租约过期，所以快照最长可能陈旧 5 分钟。随后 reaper 会在重新入队或标记失败前，用一帧终态 `failed` 退休这次尝试；每次重连都会重新快照，所以客户端自愈，不需要一条修复路径。
 
 ## 失败与恢复
 

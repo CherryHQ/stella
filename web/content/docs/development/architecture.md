@@ -124,7 +124,7 @@ The `ServiceManager` (implemented by `PoolManager`) maintains a `map[agentID]*Se
 
 ### Agent Routing
 
-Channel configuration selects a dedicated agent when one is bound. Otherwise, direct messages use the user's default agent and groups use their assigned agent, falling back to the first enabled agent.
+Channel configuration selects a dedicated agent when one is bound. Otherwise, direct messages use the user's default agent, falling back to the first enabled agent. Each group message wakes every eligible member agent, and each member's local deterministic triage decides whether it speaks.
 
 ## Providers
 

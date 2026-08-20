@@ -5,7 +5,7 @@ All channel configuration is stored in the database and managed via the Web UI (
 ## Agent routing
 
 - **DMs**: Use the user's default agent
-- **Groups**: Use the group's assigned agent
+- **Groups**: Each message wakes every eligible member agent; each member's local deterministic triage decides whether it speaks
 - **Dedicated channels**: If a channel instance has `agent_id`, all chats on that channel use the bound agent
 - **Fallback**: First enabled agent
 
