@@ -543,10 +543,6 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 			return err
 		}
 	}
-	agentName := claimed.AgentID
-	if a, err := d.q.GetAgent(ownedCtx, claimed.AgentID); err == nil && a.Name != "" {
-		agentName = a.Name
-	}
 	// The sink is deliberately installed before Chat. The runtime finalizes it
 	// before closing its output, so draining the stream is the handoff barrier.
 	sink := memory.NewGroupTurnSink()
@@ -589,10 +585,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		}
 		return nil
 	}
-	// Keep the display name on the replayed event stream's request. The accepted
-	// row is authoritative for retry; the first delivery preserves all events.
-	response.agentName = agentName
-	return d.publishAcceptedWithEnvelope(ownedCtx, claimed, message, state, publisher, response, envelope, outcome.Accepted)
+	return d.publishAcceptedWithEnvelope(ownedCtx, claimed, message, state, publisher, response, envelope, outcome.Accepted.Message.ID)
 }
 
 // groupWake describes this turn to the agent about to run it: which gate let it
@@ -973,7 +966,6 @@ type groupResponse struct {
 	text      string
 	reasoning string
 	sessionID string
-	agentName string
 	events    []pkgchannel.Event
 	complete  bool
 	err       error
@@ -1053,26 +1045,14 @@ func replayGroupResponse(response groupResponse) *pkgchannel.ChatStream {
 }
 
 func (d *GroupDispatcher) publishAccepted(ctx context.Context, row sqlc.CtxGroupDispatch, trigger sqlc.CtxGroupMessage, state sqlc.CtxGroupState, publisher GroupPublisher, response groupResponse) error {
-	return d.publishAcceptedWithEnvelope(ctx, row, trigger, state, publisher, response, GroupOutboxEnvelope{}, eventlog.AppendResult{})
+	return d.publishAcceptedWithEnvelope(ctx, row, trigger, state, publisher, response, GroupOutboxEnvelope{}, "")
 }
 
-func (d *GroupDispatcher) publishAcceptedWithEnvelope(ctx context.Context, row sqlc.CtxGroupDispatch, trigger sqlc.CtxGroupMessage, state sqlc.CtxGroupState, publisher GroupPublisher, response groupResponse, envelope GroupOutboxEnvelope, accepted eventlog.AppendResult) error {
-	if row.ResultMessageID == "" && accepted.Message.ID != "" {
-		row.ResultMessageID = accepted.Message.ID
-	}
-	if accepted.Message.ID == "" && row.ResultMessageID != "" {
-		canonical, err := d.q.GetGroupMessage(ctx, row.ResultMessageID)
-		if err != nil {
-			return d.failDispatch(ctx, row, fmt.Errorf("get canonical group result: %w", err))
-		}
-		accepted = eventlog.AppendResult{GroupID: row.GroupID, Seq: canonical.Seq, Message: canonical}
-	}
-	agentName := response.agentName
-	if agentName == "" {
-		agentName = row.AgentID
-		if a, err := d.q.GetAgent(ctx, row.AgentID); err == nil && a.Name != "" {
-			agentName = a.Name
-		}
+// acceptedMessageID is the canonical row this publish is rendering. It is empty
+// on the recovery path, where the row already carries the id.
+func (d *GroupDispatcher) publishAcceptedWithEnvelope(ctx context.Context, row sqlc.CtxGroupDispatch, trigger sqlc.CtxGroupMessage, state sqlc.CtxGroupState, publisher GroupPublisher, response groupResponse, envelope GroupOutboxEnvelope, acceptedMessageID string) error {
+	if row.ResultMessageID == "" && acceptedMessageID != "" {
+		row.ResultMessageID = acceptedMessageID
 	}
 	sessionKey := agent.BuildGroupSessionKey(row.AgentID, row.GroupID)
 	if row.ResultMessageID != "" {
@@ -1088,15 +1068,13 @@ func (d *GroupDispatcher) publishAcceptedWithEnvelope(ctx context.Context, row s
 		}
 	}
 	err := publisher.Publish(ctx, GroupPublishRequest{
-		GroupID: row.GroupID, AgentID: row.AgentID, AgentName: agentName,
+		GroupID: row.GroupID, AgentID: row.AgentID,
 		ReplyChannelID: row.ReplyChannelID, Platform: state.Platform,
 		PlatformGroupID: state.PlatformGroupID, PlatformThreadID: state.PlatformThreadID,
 		ReplyTo: nullStringValue(trigger.PlatformMessageID), Stream: replayGroupResponse(response),
 		RequesterID: trigger.ActorID, LifecycleFeedback: envelope.LifecycleFeedback,
-		Abort:              func() bool { return d.queue.Abort(sessionKey) },
-		FinalAttempt:       row.AttemptCount >= d.maxAttempts,
-		AcceptedMessageID:  accepted.Message.ID,
-		AcceptedMessageSeq: accepted.Seq,
+		Abort:        func() bool { return d.queue.Abort(sessionKey) },
+		FinalAttempt: row.AttemptCount >= d.maxAttempts,
 	})
 	if err != nil {
 		// A returned error is an outcome: the next attempt is an ordinary retry,
@@ -1168,7 +1146,7 @@ func (d *GroupDispatcher) createAgentReplyOutbox(ctx context.Context, q *sqlc.Qu
 		return fmt.Errorf("list group members: %w", err)
 	}
 	mentions := parseGroupMentions(ctx, q, message.Content, members)
-	envelope, err := encodeGroupOutboxEnvelope(GroupOutboxEnvelope{ActorType: string(eventlog.ActorAgent), Mentions: mentions})
+	envelope, err := encodeGroupOutboxEnvelope(GroupOutboxEnvelope{Mentions: mentions})
 	if err != nil {
 		return fmt.Errorf("encode agent reply outbox: %w", err)
 	}

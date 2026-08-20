@@ -46,20 +46,6 @@ WHERE id = sqlc.arg(id)
   AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg(now))
 RETURNING *;
 
--- name: ClaimExpiredGroupOutbox :one
-UPDATE ctx_group_outbox
-SET status = 'running',
-    attempt_count = attempt_count + 1,
-    lease_until = sqlc.arg(lease_until),
-    next_attempt_at = NULL,
-    last_error = '',
-    updated_at = now()
-WHERE id = sqlc.arg(id)
-  AND status = 'running'
-  AND lease_until IS NOT NULL
-  AND lease_until <= sqlc.arg(now)
-RETURNING *;
-
 -- name: ExtendRunningGroupOutboxLease :execrows
 UPDATE ctx_group_outbox
 SET lease_until = sqlc.arg(lease_until),

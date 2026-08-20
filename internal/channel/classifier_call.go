@@ -12,20 +12,19 @@ import (
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
 
-// Three classifiers in this package run one JSON completion on an agent's fast
-// model: chat intent, group triage, and group nudge. They share the machinery
-// below and nothing else -- their degradation policies differ on purpose. Intent
-// sits on the user's synchronous path and goes quiet; triage fails closed and
-// retries the whole turn; nudge drops to a deterministic heuristic. So this
-// returns raw text plus the stage it reached, and every policy decision stays
-// with the caller.
+// Two classifiers in this package run one JSON completion on an agent's fast
+// model: chat intent and group nudge. They share the machinery below and
+// nothing else -- their degradation policies differ on purpose. Intent sits on
+// the user's synchronous path and goes quiet; nudge drops to a deterministic
+// heuristic. So this returns raw text plus the stage it reached, and every
+// policy decision stays with the caller.
 
 // errNoFastModel reports that this agent has no usable fast model configured.
 // It is a static configuration fact, so callers should degrade rather than
 // retry: retrying a missing setting only burns attempts.
 var errNoFastModel = errors.New("no fast model configured")
 
-// The stage a call reached before failing. Triage reports these verbatim as its
+// The stage a call reached before failing. Callers surface these verbatim as a
 // degraded reason, so the strings are data, not prose.
 const (
 	fastModelStageSnapshot   = "snapshot"
@@ -39,9 +38,9 @@ type fastModelCaller struct {
 	complete CompleteFunc
 	// requireModelID keeps intent's precheck exactly where it is while CR-016
 	// D-C is open: a half-configured ModelFast like "openai/" parses into an
-	// empty model id, which makes intent skip classification while triage and
-	// nudge still spend one provider round trip and call it a failure. Delete
-	// the field and precheck unconditionally once that difference is settled.
+	// empty model id, which makes intent skip classification while nudge still
+	// spends one provider round trip and calls it a failure. Delete the field
+	// and precheck unconditionally once that difference is settled.
 	requireModelID bool
 }
 

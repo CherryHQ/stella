@@ -15,7 +15,7 @@ const SystemParticipantName = "system"
 
 // ParticipantNamer is the single source of the name a group participant is
 // addressed by. Every group surface a model reads -- roster, transcript, the
-// current trigger, triage context, nudge text -- renders participants through
+// current trigger, nudge text -- renders participants through
 // it, so the name the model sees is always the name it can @mention back.
 //
 // Resolution never fails: an unknown actor falls back to its raw id, which is

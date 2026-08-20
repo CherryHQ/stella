@@ -519,8 +519,8 @@ func (s *Server) SendGroupMessage(w http.ResponseWriter, r *http.Request, groupI
 	}
 
 	// The group boundary authorizes ownership, intercepts group commands, and
-	// appends+claims the outbox in one transaction (dedup preserved). The transport
-	// only decides how to render each of the three outcomes as SSE.
+	// appends the message and its outbox in one transaction (dedup preserved).
+	// The transport only decides how to render each of the three outcomes as SSE.
 	prep, err := acc.PrepareSend(r.Context(), groupId, req.Content, derefStr(req.ClientMessageId))
 	if err != nil {
 		s.groupError(w, err)

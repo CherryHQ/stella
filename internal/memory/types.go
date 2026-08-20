@@ -190,8 +190,8 @@ func CurrentSpeakerFromContext(ctx context.Context) (CurrentSpeaker, bool) {
 }
 
 // GroupWake is why this group turn exists. A group agent is woken by several
-// different things -- being mentioned, a peer posting, a stalled-work nudge,
-// being the only member -- and the reply it should write differs for each. The
+// different things -- being mentioned, a peer posting, a stalled-work nudge --
+// and the reply it should write differs for each. The
 // model cannot infer this from the transcript, so the turn carries it.
 //
 // It is per-turn metadata, never group content: it is rendered into the model's

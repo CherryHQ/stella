@@ -219,7 +219,7 @@ func (n *GroupNudger) append(ctx context.Context, groupID, target, note string, 
 	if err != nil {
 		return fmt.Errorf("append nudge message: %w", err)
 	}
-	envelope, err := encodeGroupOutboxEnvelope(GroupOutboxEnvelope{ActorType: string(eventlog.ActorSystem), NudgeTarget: target})
+	envelope, err := encodeGroupOutboxEnvelope(GroupOutboxEnvelope{NudgeTarget: target})
 	if err != nil {
 		return err
 	}

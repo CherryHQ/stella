@@ -82,53 +82,6 @@ func (q *Queries) AgentPostedSinceSeq(ctx context.Context, arg AgentPostedSinceS
 	return column_1, err
 }
 
-const claimExpiredGroupDispatch = `-- name: ClaimExpiredGroupDispatch :one
-UPDATE ctx_group_dispatch
-SET status = 'running',
-    attempt_count = attempt_count + 1,
-    lease_until = $1,
-    next_attempt_at = NULL,
-    last_error = '',
-    updated_at = now()
-WHERE id = $2
-  AND status = 'running'
-  AND lease_until IS NOT NULL
-  AND lease_until <= $3
-RETURNING id, group_message_id, group_id, agent_id, reply_channel_id, status, attempt_count, lease_until, next_attempt_at, last_error, result_message_id, created_at, updated_at, kind, trigger_seq, held_up_to_seq, publish_started_at, published_at
-`
-
-type ClaimExpiredGroupDispatchParams struct {
-	LeaseUntil pgtype.Timestamptz `json:"lease_until"`
-	ID         string             `json:"id"`
-	Now        pgtype.Timestamptz `json:"now"`
-}
-
-func (q *Queries) ClaimExpiredGroupDispatch(ctx context.Context, arg ClaimExpiredGroupDispatchParams) (CtxGroupDispatch, error) {
-	row := q.db.QueryRow(ctx, claimExpiredGroupDispatch, arg.LeaseUntil, arg.ID, arg.Now)
-	var i CtxGroupDispatch
-	err := row.Scan(
-		&i.ID,
-		&i.GroupMessageID,
-		&i.GroupID,
-		&i.AgentID,
-		&i.ReplyChannelID,
-		&i.Status,
-		&i.AttemptCount,
-		&i.LeaseUntil,
-		&i.NextAttemptAt,
-		&i.LastError,
-		&i.ResultMessageID,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.Kind,
-		&i.TriggerSeq,
-		&i.HeldUpToSeq,
-		&i.PublishStartedAt,
-		&i.PublishedAt,
-	)
-	return i, err
-}
-
 const claimNewestGroupWake = `-- name: ClaimNewestGroupWake :one
 WITH newest AS (
   SELECT id
@@ -334,19 +287,6 @@ type CountHeldGroupDispatchesInChainParams struct {
 
 func (q *Queries) CountHeldGroupDispatchesInChain(ctx context.Context, arg CountHeldGroupDispatchesInChainParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countHeldGroupDispatchesInChain, arg.GroupID, arg.AgentID, arg.TriggerSeq)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
-const countNonTerminalGroupDispatchByMessage = `-- name: CountNonTerminalGroupDispatchByMessage :one
-SELECT CAST(COUNT(*) AS BIGINT) FROM ctx_group_dispatch
-WHERE group_message_id = $1
-  AND status IN ('pending', 'running')
-`
-
-func (q *Queries) CountNonTerminalGroupDispatchByMessage(ctx context.Context, groupMessageID string) (int64, error) {
-	row := q.db.QueryRow(ctx, countNonTerminalGroupDispatchByMessage, groupMessageID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err

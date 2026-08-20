@@ -26,11 +26,6 @@ SELECT * FROM ctx_group_dispatch WHERE id = $1;
 SELECT CAST(COUNT(*) AS BIGINT) FROM ctx_group_dispatch
 WHERE group_message_id = $1;
 
--- name: CountNonTerminalGroupDispatchByMessage :one
-SELECT CAST(COUNT(*) AS BIGINT) FROM ctx_group_dispatch
-WHERE group_message_id = $1
-  AND status IN ('pending', 'running');
-
 -- name: ListPendingGroupWakePairs :many
 -- One representative per (group, agent) wakes the bounded pool. Claiming
 -- chooses newest again transactionally, so this advisory feed may be stale.
@@ -195,20 +190,6 @@ SET status = 'running',
 WHERE id = sqlc.arg(id)
   AND status = 'pending'
   AND (next_attempt_at IS NULL OR next_attempt_at <= sqlc.arg('now'))
-RETURNING *;
-
--- name: ClaimExpiredGroupDispatch :one
-UPDATE ctx_group_dispatch
-SET status = 'running',
-    attempt_count = attempt_count + 1,
-    lease_until = sqlc.arg(lease_until),
-    next_attempt_at = NULL,
-    last_error = '',
-    updated_at = now()
-WHERE id = sqlc.arg(id)
-  AND status = 'running'
-  AND lease_until IS NOT NULL
-  AND lease_until <= sqlc.arg('now')
 RETURNING *;
 
 -- name: ExtendRunningGroupDispatchLease :execrows

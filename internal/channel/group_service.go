@@ -491,22 +491,18 @@ func (a *GroupAccess) Messages(ctx context.Context, groupID string, offset, limi
 // three states holds:
 //   - Command: a group slash command was intercepted; Reply carries the plain text.
 //   - Deduplicated: the append collapsed onto an existing row (idempotent replay).
-//   - otherwise: a fresh message was appended and its outbox claimed; the caller
-//     drives the synchronous turn through Dispatch.
-//
-// The claimed outbox stays private so the transport holds an opaque token and
-// never touches sqlc.
+//   - otherwise: a fresh message was appended with its outbox; the caller wakes
+//     the worker pool and the turn runs asynchronously.
 type PreparedSend struct {
 	Command      bool
 	Reply        string
 	Deduplicated bool
 	MessageSeq   int
-	outbox       sqlc.CtxGroupOutbox
 }
 
 // PrepareSend authorizes the caller as the group owner, intercepts group slash
-// commands, then appends the human message and claims its dispatch outbox inside
-// one transaction (dedup preserved). The appended actor is the authenticated
+// commands, then appends the human message and creates its dispatch outbox
+// inside one transaction (dedup preserved). The appended actor is the authenticated
 // user id (invariant #308): the dispatcher trusts it as the current-speaker
 // profile target, so it must never be a client-supplied value.
 func (a *GroupAccess) PrepareSend(ctx context.Context, groupID, content, clientMessageID string) (PreparedSend, error) {
@@ -565,11 +561,7 @@ func (a *GroupAccess) PrepareSend(ctx context.Context, groupID, content, clientM
 		return PreparedSend{Deduplicated: true}, nil
 	}
 
-	outbox, err := a.q().GetGroupOutboxByMessage(ctx, appendResult.Message.ID)
-	if err != nil {
-		return PreparedSend{}, fmt.Errorf("get group outbox: %w", err)
-	}
-	return PreparedSend{outbox: outbox, MessageSeq: int(appendResult.Message.Seq)}, nil
+	return PreparedSend{MessageSeq: int(appendResult.Message.Seq)}, nil
 }
 
 // Wake makes a newly persisted outbox immediately visible to the worker pool.

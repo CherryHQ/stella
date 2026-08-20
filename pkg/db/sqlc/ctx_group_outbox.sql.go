@@ -11,46 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const claimExpiredGroupOutbox = `-- name: ClaimExpiredGroupOutbox :one
-UPDATE ctx_group_outbox
-SET status = 'running',
-    attempt_count = attempt_count + 1,
-    lease_until = $1,
-    next_attempt_at = NULL,
-    last_error = '',
-    updated_at = now()
-WHERE id = $2
-  AND status = 'running'
-  AND lease_until IS NOT NULL
-  AND lease_until <= $3
-RETURNING id, group_message_id, group_id, envelope, status, attempt_count, lease_until, next_attempt_at, last_error, created_at, updated_at
-`
-
-type ClaimExpiredGroupOutboxParams struct {
-	LeaseUntil pgtype.Timestamptz `json:"lease_until"`
-	ID         string             `json:"id"`
-	Now        pgtype.Timestamptz `json:"now"`
-}
-
-func (q *Queries) ClaimExpiredGroupOutbox(ctx context.Context, arg ClaimExpiredGroupOutboxParams) (CtxGroupOutbox, error) {
-	row := q.db.QueryRow(ctx, claimExpiredGroupOutbox, arg.LeaseUntil, arg.ID, arg.Now)
-	var i CtxGroupOutbox
-	err := row.Scan(
-		&i.ID,
-		&i.GroupMessageID,
-		&i.GroupID,
-		&i.Envelope,
-		&i.Status,
-		&i.AttemptCount,
-		&i.LeaseUntil,
-		&i.NextAttemptAt,
-		&i.LastError,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const claimPendingGroupOutbox = `-- name: ClaimPendingGroupOutbox :one
 UPDATE ctx_group_outbox
 SET status = 'running',
