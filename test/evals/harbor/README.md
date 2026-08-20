@@ -51,12 +51,19 @@ Then, using the credentials file:
 - Export `STELLA_URL`, `STELLA_EVAL_MODEL`, and `STELLA_EVAL_AGENT_BIN`. Keep
   the driver binary outside `dist/bin`; `mise run build` clears that directory.
 
+Terminal-Bench 2.1 (`terminal-bench/terminal-bench-2-1`, 89 tasks) is the
+dataset to run. It keeps 2.0's task collection but repairs 28 tasks whose
+verification was broken, which moved scores enough that the two versions cannot
+be compared: one unchanged model and harness gained 12.1 points from the repairs
+alone. 2.0 (`terminal-bench@2.0`, legacy registry) still resolves, and the k=5
+baseline in #1054 was measured on it.
+
 Run the single Terminal-Bench smoke trial (add `-k 5` for a reportable
 reliability number; a single trial cannot produce one):
 
 ```bash
 uv run --project test/evals/harbor harbor run \
-  -d terminal-bench@2.0 \
+  -d terminal-bench/terminal-bench-2-1 \
   -a stella_harbor.agent:StellaAgent \
   -i regex-log -n 1 \
   -o dist/evals/jobs/regex-log-stella
@@ -128,7 +135,7 @@ to a controlled baseline:
 
 ```bash
 set -a; . ./.env; set +a   # OPENAI_BASE_URL and OPENAI_API_KEY
-uv run --project test/evals/harbor harbor run -d terminal-bench@2.0 \
+uv run --project test/evals/harbor harbor run -d terminal-bench/terminal-bench-2-1 \
   -a stella_harbor.pi_gateway:PiGateway -m gateway/gpt-5.6-terra \
   -i regex-log -k 2 -n 4 -o dist/evals/jobs/pi-sample -q
 ```
