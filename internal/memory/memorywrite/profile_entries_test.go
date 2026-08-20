@@ -7,10 +7,17 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CherryHQ/stella/internal/db/dbtest"
 	"github.com/CherryHQ/stella/internal/memory"
 	"github.com/CherryHQ/stella/internal/memory/memorywrite"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
+
+func openTestDB(t *testing.T) (*pgxpool.Pool, *sqlc.Queries) {
+	t.Helper()
+	db := dbtest.New(t)
+	return db, sqlc.New(db)
+}
 
 // seedUserAgent inserts a test user (uuid id) and agent (text slug id) and
 // returns the user id so callers thread the same id through every write.

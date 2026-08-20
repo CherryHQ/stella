@@ -108,7 +108,6 @@ type promptData struct {
 	AgentSoul      string // per-user agent soul from ProfileStore
 	UserProfile    string // per-user profile from ProfileStore
 	ProfileEntries []memory.ProfileEntry
-	GroupMemory    string // group-scoped shared memory (non-empty only for group sessions)
 	GroupClaims    []GroupClaim
 	GroupPlatform  string   // group platform, when the loader could read it
 	GroupName      string   // group name, when the loader could read it
@@ -119,9 +118,8 @@ type promptData struct {
 	PromptSections []pkgplugins.SystemPromptSection
 	ContextFiles   []contextFile // AGENTS.md files (root → leaf)
 
-	// Group session rendering. IsGroup switches the template from the per-user
-	// "## User Profile" section to "## Group Memory" (+ optional current speaker),
-	// driven by session kind, not by whether group memory text is non-empty.
+	// Group session rendering. IsGroup suppresses per-user profile data, driven
+	// by session kind rather than the availability of any contextual content.
 	IsGroup bool
 }
 
@@ -132,8 +130,7 @@ type DBPromptParams struct {
 	Memory         memory.Provider // active provider for profile loading (may be nil)
 	UserID         string          // auth user ID for profile lookup
 	AgentID        string          // agent ID for profile lookup
-	GroupID        string          // group ID for group memory lookup (D4); mutually exclusive with UserID
-	GroupMemory    string          // pre-loaded group memory content; injected when non-empty
+	GroupID        string          // group ID for group roster and claims; mutually exclusive with UserID
 	GroupClaims    []GroupClaim    // live peer work claims, excluding this agent's own
 	GroupRoster    GroupRoster     // who this agent is in the group, and who else is in it
 	Sections       []pkgplugins.SystemPromptSection
@@ -235,17 +232,9 @@ func BuildSystemPromptFromDB(ctx context.Context, p DBPromptParams) string {
 		}
 	}
 
-	// Group memory: inject shared group knowledge for group sessions (D4).
-	// Group mode is keyed on GroupID, not on group memory being non-empty, so a
-	// group turn never falls through to the per-user "## User Profile" section.
+	// Group mode is keyed on GroupID so group turns never fall through to the
+	// per-user "## User Profile" section.
 	data.IsGroup = p.GroupID != ""
-	if p.GroupID != "" && p.Memory != nil {
-		if gms, ok := p.Memory.(memory.GroupMemoryStore); ok {
-			if content, err := gms.GetGroupMemory(ctx, p.GroupID); err == nil && content != "" {
-				data.GroupMemory = strings.TrimRight(content, "\n")
-			}
-		}
-	}
 	if p.GroupID != "" {
 		data.GroupClaims = append([]GroupClaim(nil), p.GroupClaims...)
 		data.GroupPlatform = p.GroupRoster.Platform

@@ -96,7 +96,6 @@
 ## Minor / 备注
 
 - `internal/auth/linkcode.go`:生产走 DB 共享 store(好),但 `ensureSchema` 会 `DROP TABLE`——滚动重启会清掉 5 分钟内的 link code,UX 小坑。
-- `internal/groupingest`:目前**没有**在 server boot 接线;如果将来以 ticker 接入,其 `tryLock` 是进程本地,多副本会重复抽取(重复 LLM 花费)。
 - `$STELLA_HOME/pg-runtime`、`$STELLA_HOME/bin`、builtin skills 抽取:副本安全的启动产物,但 emptyDir 每次重启重抽;建议烤进镜像。
 - `internal/scheduler/service.go:252` `ScheduleEvery` 是裸 ticker,当前生产 boot 未使用;留意别新增调用。
 - Debug dumps 写 `$STELLA_HOME/dumps`,K8s 下应改 stdout。

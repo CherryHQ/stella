@@ -105,7 +105,7 @@ Each turn can rebuild the system prompt from the current or frozen memory versio
 2. **Tools and plugin prompt inventory** — available tools, plugin capabilities, skills.
 3. **Constraints** — user-approved hard rules from `ConstraintStore`; injected before soul/profile and not touched by Reflect.
 4. **Agent soul** — agent identity/personality text.
-5. **User profile** — durable user notes. **Group turns replace this with `## Group Memory` (the shared group drawer) plus an optional `## Current Speaker` section** that contains only speaker name and linked status; the per-user profile is never rendered in a group turn. Group mode is keyed on the session having a `group_id`, not on group memory being non-empty.
+5. **User profile** — durable user notes. Group turns never render a per-user profile. Group mode is keyed on the session having a `group_id`.
 6. **Knowledge** — active `subject=world` facts from the facts table.
 7. **Project context** — `AGENTS.md` and related project instructions.
 

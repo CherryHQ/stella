@@ -18,14 +18,6 @@ Use `group_claim` only for a genuine shared deliverable that another agent could
 
 {{ range .GroupClaims }}- {{ .Agent }} owns {{ .Subject }} (claimed {{ .Age }} ago)
 {{ end }}{{ end }}
-## Group Memory
-
-Shared knowledge about this group conversation.
-
-<group_memory>
-{{ .GroupMemory }}
-</group_memory>
-
 {{ end }}{{ .SystemPrompt }}
 
 # Tools

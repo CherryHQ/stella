@@ -105,7 +105,7 @@ Reflect、manual 管理路径与底层内部调用方继续保留各自负责的
 2. **工具和插件提示清单** —— 可用工具、插件能力、技能。
 3. **约束** —— 来自 `ConstraintStore` 的用户确认硬规则；位于 soul/profile 之前，Reflect 不会修改。
 4. **Agent soul** —— agent 身份、人格和语气文本。
-5. **用户画像** —— 持久用户笔记。**群聊回合用 `## Group Memory`(共享群抽屉)加可选的 `## Current Speaker` 段替换它**,该段只包含发言人姓名和关联状态;群聊回合绝不渲染按用户的画像。群模式按 session 是否有 `group_id` 分支,而非按群记忆是否为空。
+5. **用户画像** —— 持久用户笔记。群聊回合绝不渲染按用户的画像。群模式按 session 是否有 `group_id` 分支。
 6. **知识** —— facts 表里的 active `subject=world` 事实。
 7. **项目上下文** —— `AGENTS.md` 等项目指令。
 

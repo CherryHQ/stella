@@ -52,8 +52,6 @@ type Fake struct {
 	profileEntries map[string][]memory.ProfileEntry
 	// facts maps "userID:agentID" -> []Fact.
 	facts map[string][]memory.Fact
-	// groupMemory maps groupID -> content.
-	groupMemory map[string]string
 	// summaries maps summary ID -> FakeSummary.
 	summaries map[string]FakeSummary
 	// sessionInfos maps session ID -> fakeSessionInfo.
@@ -79,7 +77,6 @@ func New() *Fake {
 		constraints:    make(map[string][]memory.ConstraintEntry),
 		profileEntries: make(map[string][]memory.ProfileEntry),
 		facts:          make(map[string][]memory.Fact),
-		groupMemory:    make(map[string]string),
 		summaries:      make(map[string]FakeSummary),
 		sessionInfos:   make(map[string]fakeSessionInfo),
 		bootstrapped:   make(map[string]bool),
@@ -105,7 +102,6 @@ var (
 	_ memory.SessionSnapshotStore     = (*Fake)(nil)
 	_ memory.ProfileEntryStore        = (*Fake)(nil)
 	_ memory.ChangelogPageReader      = (*Fake)(nil)
-	_ memory.GroupMemoryStore         = (*Fake)(nil)
 	_ memory.FactStore                = (*Fake)(nil)
 	_ memory.VersionedFactStore       = (*Fake)(nil)
 	_ memory.ReviewHistoryReader      = (*Fake)(nil)
@@ -900,24 +896,6 @@ func (f *Fake) AddProfileEntry(userID, agentID string, entry memory.ProfileEntry
 	defer f.mu.Unlock()
 	key := profileKey(userID, agentID)
 	f.profileEntries[key] = append(f.profileEntries[key], entry)
-}
-
-// ---------------------------------------------------------------------------
-// GroupMemoryStore
-// ---------------------------------------------------------------------------
-
-// GetGroupMemory implements memory.GroupMemoryStore.
-func (f *Fake) GetGroupMemory(_ context.Context, groupID string) (string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.groupMemory[groupID], nil
-}
-
-// SetGroupMemory is a test helper to populate group memory.
-func (f *Fake) SetGroupMemory(groupID, content string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.groupMemory[groupID] = content
 }
 
 // ---------------------------------------------------------------------------
