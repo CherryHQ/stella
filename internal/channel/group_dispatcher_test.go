@@ -452,7 +452,7 @@ func TestClaimNewestWakeKeepsAcceptedUnpublishedOlder(t *testing.T) {
 
 func TestGroupDispatcherWebNoMentionSingleMemberFallbackCreatesOneDispatch(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
-	fx.d.publishers.Register("ch-1", &recordingGroupPublisher{})
+	fx.d.publish.publishers.Register("ch-1", &recordingGroupPublisher{})
 
 	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
 		t.Fatalf("process outbox: %v", err)
@@ -923,7 +923,7 @@ func TestHoldDiscardsDeferredTurn(t *testing.T) {
 		t.Fatal("a held turn must not commit deferred memory")
 		return nil
 	}))
-	fx.d.publishers.Register("ch-1", &recordingGroupPublisher{})
+	fx.d.publish.publishers.Register("ch-1", &recordingGroupPublisher{})
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000104", "agent-1", fx.groupID, "pending", pgtype.Timestamptz{})
 	if _, err := eventlog.NewStore(fx.db).AppendToGroup(ctx, fx.groupID, eventlog.GroupMessage{ActorType: eventlog.ActorHuman, ActorID: "user-2", Content: "newer"}); err != nil {
 		t.Fatal(err)
@@ -953,7 +953,7 @@ func TestPendingPostFinalFailureRequeuesHeldPeers(t *testing.T) {
 	peer, _ := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000106")
 	peerOutcome, err := fx.d.acceptGroupResponse(ctx, peer, groupResponse{text: "peer reply", complete: true}, memory.DeferredGroupTurn{Complete: true})
 	wantGroupTurnStopped(t, peerOutcome, err, groupTurnHeld, "freshness")
-	if err := fx.d.failAcceptedPublish(ctx, post, errors.New("platform down")); err == nil {
+	if err := fx.d.publish.failAcceptedPublish(ctx, post, errors.New("platform down")); err == nil {
 		t.Fatal("final publish failure must be reported")
 	}
 	peer, _ = fx.q.GetGroupDispatch(ctx, peer.ID)
@@ -1016,11 +1016,11 @@ func TestWebAgentReplyTraversesTheSameDeliveryLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	publisher, err := fx.d.publisherFor(state, row)
+	publisher, err := fx.d.publish.publisherFor(state, row)
 	if err != nil {
 		t.Fatalf("web publisher: %v", err)
 	}
-	if err := fx.d.publishAccepted(ctx, row, fx.message, state, publisher, groupResponse{text: "peer reply", complete: true}); err != nil {
+	if err := fx.d.publishAccepted(ctx, publishJob{row: row, trigger: fx.message, state: state, publisher: publisher, response: groupResponse{text: "peer reply", complete: true}}); err != nil {
 		t.Fatalf("publish accepted: %v", err)
 	}
 	message, err := fx.q.GetGroupMessage(ctx, result.Accepted.Message.ID)
@@ -1058,7 +1058,7 @@ func TestAgentReplyCreatesOutboxOnPlatformGroup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fx.d.markAcceptedPublished(ctx, row); err != nil {
+	if err := fx.d.publish.markAcceptedPublished(ctx, row); err != nil {
 		t.Fatalf("mark accepted published: %v", err)
 	}
 	outbox, err := fx.q.GetGroupOutboxByMessage(ctx, result.Accepted.Message.ID)
@@ -1083,7 +1083,7 @@ func TestGroupDispatcherResolvesEnvelopeMentionAtDispatch(t *testing.T) {
 	reg := NewBotIdentityRegistry()
 	reg.Register("telegram", "bot1", "ch-1")
 	fx.d.coord.botRegistry = reg
-	fx.d.publishers.Register("ch-1", &recordingGroupPublisher{})
+	fx.d.publish.publishers.Register("ch-1", &recordingGroupPublisher{})
 
 	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
 		t.Fatalf("process outbox: %v", err)
@@ -1096,7 +1096,7 @@ func TestGroupDispatcherResolvesEnvelopeMentionAtDispatch(t *testing.T) {
 func TestGroupDispatcherExistingDispatchSkipsEnvelopeDecode(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{not-json`)
 	publisher := &recordingGroupPublisher{}
-	fx.d.publishers.Register("ch-1", publisher)
+	fx.d.publish.publishers.Register("ch-1", publisher)
 	insertGroupDispatch(t, fx.db, "d15a0000-0000-0000-0000-000000000001", fx.message.ID, "11111111-1111-1111-1111-111111111111", "agent-1", "pending", 0, pgtype.Timestamptz{})
 
 	if err := fx.d.ProcessOutbox(context.Background(), fx.outbox); err != nil {
@@ -1115,7 +1115,7 @@ func TestGroupDispatcherPublishFailureLeavesResultEmptyAndRequeues(t *testing.T)
 	fx := newDispatcherFixture(t, "web", `{}`)
 	boom := errors.New("boom")
 	publisher := &recordingGroupPublisher{err: boom}
-	fx.d.publishers.Register("ch-1", publisher)
+	fx.d.publish.publishers.Register("ch-1", publisher)
 	insertGroupDispatch(t, fx.db, "d15a0000-0000-0000-0000-000000000001", fx.message.ID, "11111111-1111-1111-1111-111111111111", "agent-1", "pending", 0, pgtype.Timestamptz{})
 	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
@@ -1159,7 +1159,7 @@ func TestGroupDispatcherRepublishesAcceptedResultDespiteHardCap(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	boom := errors.New("boom")
 	publisher := &recordingGroupPublisher{err: boom}
-	fx.d.publishers.Register("ch-1", publisher)
+	fx.d.publish.publishers.Register("ch-1", publisher)
 	insertGroupDispatch(t, fx.db, "d15a0000-0000-0000-0000-000000000031", fx.message.ID, fx.groupID, "agent-1", "pending", 0, pgtype.Timestamptz{})
 	dispatch, err := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000031")
 	if err != nil {
@@ -1204,7 +1204,7 @@ func TestPublishStartMarkerClearedOnReturnedError(t *testing.T) {
 	ctx := context.Background()
 	fx := newDispatcherFixture(t, "web", `{}`)
 	publisher := &recordingGroupPublisher{err: errors.New("boom")}
-	fx.d.publishers.Register("ch-1", publisher)
+	fx.d.publish.publishers.Register("ch-1", publisher)
 	insertGroupDispatch(t, fx.db, "d15a0000-0000-0000-0000-000000000041", fx.message.ID, fx.groupID, "agent-1", "pending", 0, pgtype.Timestamptz{})
 	dispatch, err := fx.q.GetGroupDispatch(ctx, "d15a0000-0000-0000-0000-000000000041")
 	if err != nil {
@@ -1244,7 +1244,7 @@ func TestPublishStartMarkerClearedOnReturnedError(t *testing.T) {
 func TestGroupDispatcherWritebackFailureLeavesResultEmptyAndRequeues(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	publisher := &recordingGroupPublisher{}
-	fx.d.publishers.Register("ch-1", publisher)
+	fx.d.publish.publishers.Register("ch-1", publisher)
 	chatCalls := 0
 	fx.d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
 		chatCalls++
@@ -1305,9 +1305,9 @@ func TestGroupDispatcherWritebackFailureLeavesResultEmptyAndRequeues(t *testing.
 // the successor session.
 func TestGroupDispatcherSupersededTriggerCompletesWithoutChat(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
-	fx.d.chat = fx.d.chatDispatch // the cursor guard lives on the real chat path
+	fx.d.chat = fx.d.chats.chatDispatch // the cursor guard lives on the real chat path
 	publisher := &recordingGroupPublisher{}
-	fx.d.publishers.Register("ch-1", publisher)
+	fx.d.publish.publishers.Register("ch-1", publisher)
 	if err := fx.q.UpsertIngestCursor(context.Background(), sqlc.UpsertIngestCursorParams{
 		GroupID:  "11111111-1111-1111-1111-111111111111",
 		Pipeline: memory.GroupIngestPipeline("agent-1"),
@@ -1342,7 +1342,7 @@ func TestGroupDispatcherSupersededTriggerCompletesWithoutChat(t *testing.T) {
 func TestGroupDispatcherAcceptedResultSkipsChatAndReplaysPublish(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	publisher := &recordingGroupPublisher{}
-	fx.d.publishers.Register("ch-1", publisher)
+	fx.d.publish.publishers.Register("ch-1", publisher)
 	chatCalls := 0
 	fx.d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
 		chatCalls++
@@ -1388,7 +1388,7 @@ func TestRepublishAfterRestartUsesCanonicalTextOnly(t *testing.T) {
 		t.Fatal("restart replay must not commit another group turn")
 		return nil
 	}))
-	restarted.publishers.Register("ch-1", publisher)
+	restarted.publish.publishers.Register("ch-1", publisher)
 	restarted.chat = func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroupMessage, sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
 		t.Fatal("restart replay must not run chat")
 		return nil, nil
@@ -1427,7 +1427,7 @@ func TestRepublishAfterRestartUsesCanonicalTextOnly(t *testing.T) {
 func TestGroupDispatcherWebWriteErrorStillRecordsResult(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	publisher := &recordingGroupPublisher{}
-	fx.d.publishers.Register("ch-1", publisher)
+	fx.d.publish.publishers.Register("ch-1", publisher)
 	insertGroupDispatch(t, fx.db, "d15a0000-0000-0000-0000-000000000001", fx.message.ID, "11111111-1111-1111-1111-111111111111", "agent-1", "pending", 0, pgtype.Timestamptz{})
 	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
@@ -1449,7 +1449,7 @@ func TestGroupDispatcherPublisherFailureMarksFailedAtMaxAttempts(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	fx.d.maxAttempts = 1
 	boom := errors.New("boom")
-	fx.d.publishers.Register("ch-1", &recordingGroupPublisher{err: boom})
+	fx.d.publish.publishers.Register("ch-1", &recordingGroupPublisher{err: boom})
 	insertGroupDispatch(t, fx.db, "d15a0000-0000-0000-0000-000000000001", fx.message.ID, "11111111-1111-1111-1111-111111111111", "agent-1", "pending", 0, pgtype.Timestamptz{})
 	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
@@ -1481,7 +1481,7 @@ func TestGroupDispatcherPublisherFailureMarksFailedAtMaxAttempts(t *testing.T) {
 func TestIncompleteStreamDiscardsDeferredTurnAndPersistsNothing(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	publisher := &recordingGroupPublisher{}
-	fx.d.publishers.Register("ch-1", publisher)
+	fx.d.publish.publishers.Register("ch-1", publisher)
 	fx.d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
 		if sink, ok := memory.GroupTurnSinkFrom(ctx); ok {
 			sink.Deliver(memory.DeferredGroupTurn{Complete: false})
@@ -1510,7 +1510,7 @@ func TestAcceptTxRollbackAnnouncesNothing(t *testing.T) {
 	}))
 	follow, cancel := hub.Subscribe(fx.groupID)
 	defer cancel()
-	fx.d.publishers.Register("ch-1", &recordingGroupPublisher{})
+	fx.d.publish.publishers.Register("ch-1", &recordingGroupPublisher{})
 	createDispatchForGroupMessage(t, fx.db, fx.message, "d15a0000-0000-0000-0000-000000000001", "agent-1", fx.groupID, "pending", pgtype.Timestamptz{})
 	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
@@ -1608,7 +1608,7 @@ func TestGroupDispatcherCancelsDispatchAfterOwnershipLoss(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	fx.d.leaseDuration = 2 * time.Second
 	publisher := &blockingGroupPublisher{started: make(chan struct{}), release: make(chan struct{})}
-	fx.d.publishers.Register("ch-1", publisher)
+	fx.d.publish.publishers.Register("ch-1", publisher)
 	insertGroupDispatch(t, fx.db, "d15a0000-0000-0000-0000-000000000001", fx.message.ID, "11111111-1111-1111-1111-111111111111", "agent-1", "pending", 0, pgtype.Timestamptz{})
 	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
@@ -1647,7 +1647,7 @@ func TestGroupDispatcherExtendsDispatchLeaseWhilePublishing(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", `{}`)
 	fx.d.leaseDuration = 2 * time.Second
 	publisher := &blockingGroupPublisher{started: make(chan struct{}), release: make(chan struct{})}
-	fx.d.publishers.Register("ch-1", publisher)
+	fx.d.publish.publishers.Register("ch-1", publisher)
 	insertGroupDispatch(t, fx.db, "d15a0000-0000-0000-0000-000000000001", fx.message.ID, "11111111-1111-1111-1111-111111111111", "agent-1", "pending", 0, pgtype.Timestamptz{})
 	dispatch, err := fx.q.GetGroupDispatch(context.Background(), "d15a0000-0000-0000-0000-000000000001")
 	if err != nil {
@@ -1807,21 +1807,21 @@ func TestTriggerRenderedAsTranscriptLine(t *testing.T) {
 	ctx := context.Background()
 
 	human := fx.message // seq 1, human "user-1"
-	blocks := fx.d.triggerContent(ctx, fx.groupID, human)
+	blocks := fx.d.chats.triggerContent(ctx, fx.groupID, human)
 	text, ok := blocks[0].(ai.TextContent)
 	if !ok || text.Text != "[seq:1 user-1]: hello" {
 		t.Fatalf("human trigger = %#v, want a labelled transcript line", blocks[0])
 	}
 
 	peer := createGroupMessage(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-0000000000f1", 2, eventlog.ActorAgent, "agent-1", "on it")
-	blocks = fx.d.triggerContent(ctx, fx.groupID, peer)
+	blocks = fx.d.chats.triggerContent(ctx, fx.groupID, peer)
 	text, ok = blocks[0].(ai.TextContent)
 	if !ok || text.Text != "[seq:2 @Agent One]: on it" {
 		t.Fatalf("peer trigger = %#v, want [seq:2 @Agent One]: on it", blocks[0])
 	}
 
 	nudge := createGroupMessage(t, fx.q, fx.groupID, "a1a1a1a1-0000-0000-0000-0000000000f2", 3, eventlog.ActorSystem, "nudge", "@Agent One, please continue.")
-	blocks = fx.d.triggerContent(ctx, fx.groupID, nudge)
+	blocks = fx.d.chats.triggerContent(ctx, fx.groupID, nudge)
 	text, ok = blocks[0].(ai.TextContent)
 	if !ok || text.Text != "[seq:3 system]: @Agent One, please continue." {
 		t.Fatalf("nudge trigger = %#v, want a system-labelled line", blocks[0])
@@ -1834,7 +1834,7 @@ func TestTriggerLabelSurvivesImageOnlyMessage(t *testing.T) {
 		Seq: 9, ActorType: string(eventlog.ActorAgent), ActorID: "agent-1",
 		ContentBlocks: []byte(`[{"kind":"image","data":"aGk=","mime_type":"image/png"}]`),
 	}
-	blocks := fx.d.triggerContent(context.Background(), fx.groupID, msg)
+	blocks := fx.d.chats.triggerContent(context.Background(), fx.groupID, msg)
 	if len(blocks) != 2 {
 		t.Fatalf("blocks = %#v, want label + image", blocks)
 	}
@@ -1853,7 +1853,7 @@ func TestModelPassRetiresSilentWithoutPost(t *testing.T) {
 	fx := newDispatcherFixture(t, "web", "{}")
 	ctx := context.Background()
 	publisher := &recordingGroupPublisher{}
-	fx.d.publishers.Register("ch-1", publisher)
+	fx.d.publish.publishers.Register("ch-1", publisher)
 	fx.d.chat = func(ctx context.Context, _ sqlc.CtxGroupDispatch, _ sqlc.CtxGroupMessage, _ sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
 		if sink, ok := memory.GroupTurnSinkFrom(ctx); ok {
 			sink.Deliver(memory.DeferredGroupTurn{Complete: true})

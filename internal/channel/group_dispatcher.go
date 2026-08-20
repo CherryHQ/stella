@@ -14,13 +14,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CherryHQ/stella/internal/agent"
-	agentaccess "github.com/CherryHQ/stella/internal/agent/access"
-	"github.com/CherryHQ/stella/internal/agent/session"
-	"github.com/CherryHQ/stella/internal/authz"
 	"github.com/CherryHQ/stella/internal/config"
 	"github.com/CherryHQ/stella/internal/eventlog"
 	"github.com/CherryHQ/stella/internal/memory"
-	"github.com/CherryHQ/stella/pkg/ai"
 	pkgchannel "github.com/CherryHQ/stella/pkg/channel"
 	"github.com/CherryHQ/stella/pkg/db/sqlc"
 )
@@ -42,11 +38,16 @@ type dispatchChatFunc func(context.Context, sqlc.CtxGroupDispatch, sqlc.CtxGroup
 // GroupDispatcher materializes durable group response decisions and executes
 // one selected-agent dispatch at a time. Ingest owns facts; this owns work.
 type GroupDispatcher struct {
-	db         *pgxpool.Pool
-	q          *sqlc.Queries
-	coord      *Coordinator
-	publishers *PublisherRegistry
-	log        *slog.Logger
+	db    *pgxpool.Pool
+	q     *sqlc.Queries
+	coord *Coordinator
+	log   *slog.Logger
+
+	// publish owns egress for an accepted reply; chats owns the turn transport
+	// and the per-(agent, group) session queue. Both are called from here and
+	// never call back.
+	publish *groupPublishDriver
+	chats   *groupChatResolver
 
 	leaseDuration    time.Duration
 	pollInterval     time.Duration
@@ -54,7 +55,6 @@ type GroupDispatcher struct {
 	wakeC            chan struct{}
 	dispatchC        chan sqlc.CtxGroupDispatch
 	workerCount      int
-	queue            *sessionQueue
 	chat             dispatchChatFunc
 	committer        memory.TxGroupCommitter
 	events           *GroupEventHub
@@ -102,7 +102,6 @@ func NewGroupDispatcher(db *pgxpool.Pool, coord *Coordinator, publishers *Publis
 		db:               db,
 		q:                sqlc.New(db),
 		coord:            coord,
-		publishers:       publishers,
 		log:              slog.With("component", "group_dispatcher"),
 		leaseDuration:    defaultGroupDispatchLease,
 		pollInterval:     defaultGroupDispatchPoll,
@@ -111,9 +110,10 @@ func NewGroupDispatcher(db *pgxpool.Pool, coord *Coordinator, publishers *Publis
 		dispatchC:        make(chan sqlc.CtxGroupDispatch, 25),
 		workerCount:      defaultGroupDispatchWorkers,
 		replyBufferBytes: defaultGroupReplyBufferBytes,
-		queue:            newSessionQueue(),
 	}
-	d.chat = d.chatDispatch
+	d.chats = newGroupChatResolver(d.q, coord)
+	d.publish = newGroupPublishDriver(db, d.q, publishers, d.log, d.Wake, d.chats.abort)
+	d.chat = d.chats.chatDispatch
 	return d
 }
 
@@ -129,6 +129,7 @@ func (d *GroupDispatcher) SetGroupTurnCommitter(committer memory.TxGroupCommitte
 func (d *GroupDispatcher) SetGroupEventHub(events *GroupEventHub) {
 	if d != nil {
 		d.events = events
+		d.publish.events = events
 	}
 }
 
@@ -233,7 +234,7 @@ func (d *GroupDispatcher) AbortGroupTurn(groupID, agentID string) bool {
 	if d == nil || groupID == "" || agentID == "" {
 		return false
 	}
-	return d.queue.Abort(agent.BuildGroupSessionKey(agentID, groupID))
+	return d.chats.abort(agent.BuildGroupSessionKey(agentID, groupID))
 }
 
 func (d *GroupDispatcher) poll(ctx context.Context) error {
@@ -508,7 +509,7 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		d.log.Debug("ignoring invalid group outbox publish metadata", "dispatch_id", claimed.ID, "error", err)
 		envelope = GroupOutboxEnvelope{}
 	}
-	publisher, err := d.publisherFor(state, claimed)
+	publisher, err := d.publish.publisherFor(state, claimed)
 	if err != nil {
 		return d.failDispatch(ctx, claimed, err)
 	}
@@ -525,7 +526,10 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 			return d.failDispatch(ctx, claimed, fmt.Errorf("get accepted group result: %w", err))
 		}
 		d.log.Warn("replaying accepted group reply from canonical text after buffer loss", "dispatch_id", claimed.ID, "result_message_id", accepted.ID, "upgrade_trigger", "cross-process rich replay requires BlobStore event spooling")
-		return d.publishAccepted(ownedCtx, claimed, message, state, publisher, groupResponseFromMessage(accepted))
+		return d.publishAccepted(ownedCtx, publishJob{
+			row: claimed, trigger: message, state: state, publisher: publisher,
+			response: groupResponseFromMessage(accepted), finalAttempt: claimed.AttemptCount >= d.maxAttempts,
+		})
 	}
 	// Nudges pass the gate too: recovery may hand an agent the floor, but it
 	// must not bypass the hard caps that keep a stalled group from flooding.
@@ -589,7 +593,21 @@ func (d *GroupDispatcher) ExecuteDispatch(ctx context.Context, row sqlc.CtxGroup
 		}
 		return nil
 	}
-	return d.publishAcceptedWithEnvelope(ownedCtx, claimed, message, state, publisher, response, envelope, outcome.Accepted.Message.ID)
+	return d.publishAccepted(ownedCtx, publishJob{
+		row: claimed, trigger: message, state: state, publisher: publisher,
+		response: response, envelope: envelope, acceptedMessageID: outcome.Accepted.Message.ID,
+		finalAttempt: claimed.AttemptCount >= d.maxAttempts,
+	})
+}
+
+// publishAccepted sequences one egress attempt: the driver delivers, this
+// applies the row's terminal state. Retry policy stays with the row's owner.
+func (d *GroupDispatcher) publishAccepted(ctx context.Context, job publishJob) error {
+	row, err := d.publish.run(ctx, job)
+	if err != nil {
+		return d.failDispatch(ctx, row, err)
+	}
+	return d.completeDispatch(ctx, row)
 }
 
 // groupWake describes this turn to the agent about to run it: which gate let it
@@ -652,19 +670,6 @@ func (d *GroupDispatcher) completeDispatch(ctx context.Context, row sqlc.CtxGrou
 	return nil
 }
 
-func (d *GroupDispatcher) publisherFor(state sqlc.CtxGroupState, row sqlc.CtxGroupDispatch) (GroupPublisher, error) {
-	if publisher, ok := d.publishers.Get(row.ReplyChannelID); ok {
-		return publisher, nil
-	}
-	if state.Platform == webGroupPlatform {
-		// Web is a platform whose egress is the event log the browser already
-		// reads, so its publisher does nothing. Everything else about the turn
-		// -- publish markers, delivery state, compensation -- stays identical.
-		return NoopGroupPublisher(), nil
-	}
-	return nil, fmt.Errorf("publisher %q not registered", row.ReplyChannelID)
-}
-
 func (d *GroupDispatcher) failOutbox(ctx context.Context, row sqlc.CtxGroupOutbox, cause error) error {
 	if row.AttemptCount >= d.maxAttempts {
 		if _, err := d.q.MarkGroupOutboxFailed(ctx, sqlc.MarkGroupOutboxFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: cause.Error()}); err != nil {
@@ -690,7 +695,7 @@ func (d *GroupDispatcher) failDispatch(ctx context.Context, row sqlc.CtxGroupDis
 		// peers, so it must be marked undelivered and the peers it held must be
 		// released, or it stays 'pending' forever and holds them with it.
 		if row.ResultMessageID != "" {
-			return d.failAcceptedPublish(ctx, row, cause)
+			return d.publish.failAcceptedPublish(ctx, row, cause)
 		}
 		if _, err := d.q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: cause.Error()}); err != nil {
 			return fmt.Errorf("mark dispatch failed: %w", err)
@@ -722,248 +727,6 @@ func (d *GroupDispatcher) messageAndStateWithQueries(ctx context.Context, q *sql
 		return sqlc.CtxGroupMessage{}, sqlc.CtxGroupState{}, fmt.Errorf("get group state: %w", err)
 	}
 	return message, state, nil
-}
-
-func (d *GroupDispatcher) chatDispatch(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
-	sessionKey := agent.BuildGroupSessionKey(row.AgentID, row.GroupID)
-	stream, doneC, err := d.queue.Enqueue(ctx, sessionKey, func(qctx context.Context) (*pkgchannel.ChatStream, error) {
-		return d.chatDispatchUnqueued(qctx, row, message, state)
-	})
-	if err != nil {
-		return nil, err
-	}
-	out := make(chan pkgchannel.Event, 100)
-	go func() {
-		defer close(doneC)
-		defer close(out)
-		for evt := range stream.Events {
-			select {
-			case out <- evt:
-			case <-ctx.Done():
-				out <- pkgchannel.Event{Err: ctx.Err()}
-				for range stream.Events {
-				}
-				return
-			}
-		}
-	}()
-	return &pkgchannel.ChatStream{Events: out, SessionID: stream.SessionID}, nil
-}
-
-// errGroupTurnSuperseded reports that a dispatch row's trigger message sits at
-// or below the agent's ingest cursor: a session rotation (or a completed later
-// turn) already consumed it. The row is finished work, not a failure.
-var errGroupTurnSuperseded = errors.New("group turn superseded by the agent's ingest cursor")
-
-func (d *GroupDispatcher) chatDispatchUnqueued(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, state sqlc.CtxGroupState) (*pkgchannel.ChatStream, error) {
-	if d.coord == nil {
-		return nil, errors.New("coordinator not configured")
-	}
-	// This runs inside the per-(agent,group) queue — the same queue that
-	// serializes `/new` — so the cursor read cannot interleave with a rotation:
-	// either the rotation committed first and its boundary is visible here, or
-	// this turn runs first and the rotation waits. Checking outside the queue
-	// would reopen exactly the race this closes: a dispatch row restarted after
-	// a rotation would run a pre-reset trigger against the successor session.
-	cursor, err := d.q.GetIngestCursor(ctx, sqlc.GetIngestCursorParams{
-		GroupID:  row.GroupID,
-		Pipeline: memory.GroupIngestPipeline(row.AgentID),
-	})
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		// No cursor yet: nothing has been consumed, the turn runs.
-	case err != nil:
-		return nil, fmt.Errorf("read group ingest cursor: %w", err)
-	case message.Seq <= cursor.LastSeq:
-		return nil, errGroupTurnSuperseded
-	}
-	ctx = memory.WithGroupSeq(ctx, message.Seq)
-	content := d.triggerContent(ctx, row.GroupID, message)
-	// The only surviving web/platform split, and it is about where a turn's
-	// authority comes from, not about how the reply is delivered. A platform turn
-	// re-checks the persisted channel binding it was routed through; a web group
-	// has no such binding, so resolveWebGroupChat mints and re-checks the group
-	// authority instead. Both then run buffered through the same session queue.
-	if state.Platform == webGroupPlatform {
-		return d.chatWeb(ctx, row, message, content)
-	}
-	// The dispatch row is routing state, not authority. Re-check the originating
-	// persisted channel after this turn reaches the head of its execution queue.
-	// resolveGroupChat separately re-checks that the agent itself is enabled.
-	if err := ValidateGroupMembership(ctx, d.coord.store, state.Platform, row.AgentID, row.ReplyChannelID); err != nil {
-		return nil, fmt.Errorf("validate queued group channel: %w", err)
-	}
-	rc, err := d.coord.resolveGroupChat(ctx, pkgchannel.IncomingMessage{
-		Platform:  state.Platform,
-		ChannelID: row.ReplyChannelID,
-		SenderID:  message.ActorID,
-		ChatID:    state.PlatformGroupID,
-		IsGroup:   true,
-		ThreadID:  state.PlatformThreadID,
-		Content:   content,
-		MessageID: nullStringValue(message.PlatformMessageID),
-		ReplyTo:   nullStringValue(message.ReplyTo),
-	}, row.GroupID, row.AgentID, row.ReplyChannelID)
-	if err != nil {
-		return nil, err
-	}
-	rc.CurrentSpeaker, rc.InputActor = groupMessageProvenance(message, rc.CurrentSpeaker)
-	rc.GroupWake = memory.GroupWakeFromContext(ctx)
-	return d.coord.chatWithRC(ctx, rc, content)
-}
-
-// groupMessageContentBlocks rebuilds the structured blocks persisted for a
-// group message (images survive the event log via content_blocks), falling
-// back to the plain-text projection for text-only or legacy rows.
-func groupMessageContentBlocks(message sqlc.CtxGroupMessage) []ai.ContentBlock {
-	if blocks, err := ai.UnmarshalContentBlocks(message.ContentBlocks); err == nil && blocks != nil {
-		return blocks
-	}
-	return []ai.ContentBlock{ai.TextContent{Text: message.Content}}
-}
-
-// triggerContent renders the message that woke this turn the same way the
-// injected transcript renders every other message: a seq and a participant
-// name. A human question, a peer's post and a nudge all reach the model as one
-// more labelled line, so "who is talking to me" never depends on which of the
-// three woke the turn -- the case that had agents answering in each other's
-// name. Attribution rides in the text because it must survive the prompt
-// window; the structured actor envelope does not reach the model here.
-func (d *GroupDispatcher) triggerContent(ctx context.Context, groupID string, message sqlc.CtxGroupMessage) []ai.ContentBlock {
-	blocks := groupMessageContentBlocks(message)
-	namer := eventlog.NewParticipantNamer(d.q)
-	label := fmt.Sprintf("[seq:%d %s]:", message.Seq, namer.Handle(ctx, groupID, message.ActorType, message.ActorID))
-	for i, block := range blocks {
-		text, ok := block.(ai.TextContent)
-		if !ok {
-			continue
-		}
-		text.Text = label + " " + text.Text
-		blocks[i] = text
-		return blocks
-	}
-	// Image-only message: the label still has to arrive, as its own block.
-	return append([]ai.ContentBlock{ai.TextContent{Text: label}}, blocks...)
-}
-
-// resolveWebGroupChat builds the group chat binding for an agent in a Web group.
-// A persisted membership is not a standing execute grant: the authority is
-// minted fresh for this exact group/member and re-authorized here, so service
-// selection and the group authority live in exactly one place.
-func (d *GroupDispatcher) resolveWebGroupChat(ctx context.Context, groupID, agentID string) (*ResolvedChat, error) {
-	if d == nil || d.coord == nil || d.coord.agentAccess == nil {
-		return nil, ErrAgentAccessDenied
-	}
-	authority, err := agentaccess.GroupAgentAuthority(groupID, agentID)
-	if err != nil {
-		return nil, ErrAgentAccessDenied
-	}
-	if _, err := d.coord.agentAccess.Use(ctx, authority, agentID); err != nil {
-		return nil, ErrAgentAccessDenied
-	}
-	svc := d.coord.serviceManager.GetService(agentID)
-	if svc == nil {
-		return nil, fmt.Errorf("agent service %q not found", agentID)
-	}
-	return &ResolvedChat{
-		Service:    svc,
-		AgentID:    agentID,
-		SessionKey: agent.BuildGroupSessionKey(agentID, groupID),
-		Channel:    session.Channel("group:" + groupID),
-		GroupID:    groupID,
-		Authority:  authority,
-	}, nil
-}
-
-func (d *GroupDispatcher) chatWeb(ctx context.Context, row sqlc.CtxGroupDispatch, message sqlc.CtxGroupMessage, content []ai.ContentBlock) (*pkgchannel.ChatStream, error) {
-	// Pool workers begin with a process context, unlike the historical HTTP
-	// request path. Carry the confined group actor before any prompt/skill work.
-	ctx = authz.WithAgentID(authz.WithGroupID(ctx, row.GroupID), row.AgentID)
-	speaker := webGroupSpeaker(message)
-	speaker, inputActor := groupMessageProvenance(message, speaker)
-	// A persisted group membership is not an execute grant forever. The human
-	// speaker is audit/personalization only; never borrow their private user
-	// authority to execute a group turn. resolveWebGroupChat mints and re-checks
-	// the group authority.
-	rc, err := d.resolveWebGroupChat(ctx, row.GroupID, row.AgentID)
-	if err != nil {
-		return nil, err
-	}
-	info, err := rc.Service.ResolveChatChannelSession(ctx, rc.chatChannelRequest())
-	if err != nil {
-		return nil, fmt.Errorf("resolve session: %w", err)
-	}
-	// CtxGroupMessage carries no display name; fill it best-effort from the auth
-	// user so the prompt shows a real name instead of "Unknown". Fail-soft.
-	if speaker.UserID != "" && speaker.DisplayName == "" && d.coord.auth != nil {
-		if u, err := d.coord.auth.GetUser(ctx, speaker.UserID); err == nil && u.Name != "" {
-			speaker.DisplayName = u.Name
-		}
-	}
-	// The Web group turn does not go through ResolvedChat.Chat, so it attaches
-	// the same durable chat-binding marker here; without it the group turn would
-	// look like a Web send to tools that require a channel-backed chat.
-	events := rc.Service.Chat(rc.withChatBinding(ctx), agent.ChatRequest{
-		SessionID:      info.ID,
-		UserID:         row.GroupID,
-		AgentID:        row.AgentID,
-		Kind:           session.KindChat,
-		GroupID:        row.GroupID,
-		Channel:        rc.Channel,
-		Message:        agent.MessageContent(content),
-		CurrentSpeaker: speaker,
-		InputActor:     inputActor,
-		GroupWake:      memory.GroupWakeFromContext(ctx),
-		Authority:      rc.Authority,
-	})
-	out := make(chan pkgchannel.Event, 100)
-	go func() {
-		defer close(out)
-		for evt := range events {
-			select {
-			case out <- convertEvent(evt):
-			case <-ctx.Done():
-				out <- pkgchannel.Event{Err: ctx.Err()}
-				for range events {
-				}
-				return
-			}
-		}
-	}()
-	return &pkgchannel.ChatStream{Events: out, SessionID: info.ID}, nil
-}
-
-// webGroupSpeaker derives the per-turn speaker for a Web group dispatch. Web
-// senders authenticate and SendGroupMessage persists the auth user id as
-// actor_id, so it is a safe profile target — but only for a genuine human actor.
-// Any other actor type or an empty id fails closed (zero speaker) so a malformed
-// row never injects an arbitrary user's private profile.
-func webGroupSpeaker(message sqlc.CtxGroupMessage) memory.CurrentSpeaker {
-	if message.ActorType != string(eventlog.ActorHuman) || message.ActorID == "" {
-		return memory.CurrentSpeaker{}
-	}
-	return memory.CurrentSpeaker{
-		Platform:       webGroupPlatform,
-		PlatformUserID: message.ActorID,
-		UserID:         message.ActorID,
-	}
-}
-
-// groupMessageProvenance makes coordination rows speakerless system input. The
-// group-agent authority still controls which member can execute the resulting
-// turn; this only prevents a system nudge from impersonating a human speaker.
-func groupMessageProvenance(message sqlc.CtxGroupMessage, speaker memory.CurrentSpeaker) (memory.CurrentSpeaker, eventlog.MessageActor) {
-	switch message.ActorType {
-	case string(eventlog.ActorSystem):
-		return memory.CurrentSpeaker{}, eventlog.MessageActor{Type: eventlog.ActorSystem, ID: message.ActorID}
-	case string(eventlog.ActorHuman):
-		return speaker, eventlog.MessageActor{}
-	default:
-		// A peer's post is not a speaker: <current_speaker> carries a human's
-		// linked identity and profile target, and an agent has neither. The
-		// trigger label is the whole provenance of an agent-authored wake.
-		return memory.CurrentSpeaker{}, eventlog.MessageActor{}
-	}
 }
 
 type groupResponse struct {
@@ -1020,179 +783,6 @@ func (d *GroupDispatcher) bufferGroupResponse(ctx context.Context, stream *pkgch
 		}
 	}
 	return response
-}
-
-func groupResponseFromMessage(message sqlc.CtxGroupMessage) groupResponse {
-	// Ceiling: event envelopes live only in this process. After a restart, an
-	// accepted unpublished reply replays canonical text/reasoning only. Spool the
-	// buffered event sequence to BlobStore when cross-process rich replay matters.
-	events := make([]pkgchannel.Event, 0, 2)
-	if message.Reasoning != "" {
-		events = append(events, pkgchannel.Event{Reasoning: message.Reasoning})
-	}
-	if message.Content != "" {
-		events = append(events, pkgchannel.Event{Text: message.Content})
-	}
-	return groupResponse{
-		text: message.Content, reasoning: message.Reasoning, sessionID: message.AgentSessionID,
-		events: events, complete: true,
-	}
-}
-
-func replayGroupResponse(response groupResponse) *pkgchannel.ChatStream {
-	events := make(chan pkgchannel.Event, len(response.events))
-	for _, evt := range response.events {
-		events <- evt
-	}
-	close(events)
-	return &pkgchannel.ChatStream{Events: events, SessionID: response.sessionID}
-}
-
-func (d *GroupDispatcher) publishAccepted(ctx context.Context, row sqlc.CtxGroupDispatch, trigger sqlc.CtxGroupMessage, state sqlc.CtxGroupState, publisher GroupPublisher, response groupResponse) error {
-	return d.publishAcceptedWithEnvelope(ctx, row, trigger, state, publisher, response, GroupOutboxEnvelope{}, "")
-}
-
-// acceptedMessageID is the canonical row this publish is rendering. It is empty
-// on the recovery path, where the row already carries the id.
-func (d *GroupDispatcher) publishAcceptedWithEnvelope(ctx context.Context, row sqlc.CtxGroupDispatch, trigger sqlc.CtxGroupMessage, state sqlc.CtxGroupState, publisher GroupPublisher, response groupResponse, envelope GroupOutboxEnvelope, acceptedMessageID string) error {
-	if row.ResultMessageID == "" && acceptedMessageID != "" {
-		row.ResultMessageID = acceptedMessageID
-	}
-	sessionKey := agent.BuildGroupSessionKey(row.AgentID, row.GroupID)
-	if row.ResultMessageID != "" {
-		if row.PublishStartedAt.Valid {
-			// The previous attempt reached the platform and never reported back,
-			// so this reply may already be visible. Chosen deliberately: a group
-			// assistant that repeats itself is recoverable, one that silently
-			// drops an answer is not. Platform-side dedup needs an idempotency
-			// key the channel APIs do not offer today.
-			d.log.Warn("republishing an accepted group reply whose delivery outcome is unknown", "dispatch_id", row.ID, "result_message_id", row.ResultMessageID, "upgrade_trigger", "per-platform idempotency keys would remove the duplicate")
-		} else if _, err := d.q.MarkGroupDispatchPublishStarted(ctx, sqlc.MarkGroupDispatchPublishStartedParams{ID: row.ID, AttemptCount: row.AttemptCount}); err != nil {
-			return d.failDispatch(ctx, row, fmt.Errorf("mark publish started: %w", err))
-		}
-	}
-	err := publisher.Publish(ctx, GroupPublishRequest{
-		GroupID: row.GroupID, AgentID: row.AgentID,
-		ReplyChannelID: row.ReplyChannelID, Platform: state.Platform,
-		PlatformGroupID: state.PlatformGroupID, PlatformThreadID: state.PlatformThreadID,
-		ReplyTo: nullStringValue(trigger.PlatformMessageID), Stream: replayGroupResponse(response),
-		RequesterID: trigger.ActorID, LifecycleFeedback: envelope.LifecycleFeedback,
-		Abort:        func() bool { return d.queue.Abort(sessionKey) },
-		FinalAttempt: row.AttemptCount >= d.maxAttempts,
-	})
-	if err != nil {
-		// A returned error is an outcome: the next attempt is an ordinary retry,
-		// not a recovery from an unknown state.
-		if _, clearErr := d.q.ClearGroupDispatchPublishStarted(ctx, sqlc.ClearGroupDispatchPublishStartedParams{ID: row.ID, AttemptCount: row.AttemptCount}); clearErr != nil {
-			d.log.Warn("clear publish start marker failed", "dispatch_id", row.ID, "error", clearErr)
-		}
-		if row.AttemptCount >= d.maxAttempts && row.ResultMessageID != "" {
-			return d.failAcceptedPublish(ctx, row, fmt.Errorf("publish: %w", err))
-		}
-		return d.failDispatch(ctx, row, fmt.Errorf("publish: %w", err))
-	}
-	if err := d.markAcceptedPublished(ctx, row); err != nil {
-		return d.failDispatch(ctx, row, err)
-	}
-	return d.completeDispatch(ctx, row)
-}
-
-func (d *GroupDispatcher) markAcceptedPublished(ctx context.Context, row sqlc.CtxGroupDispatch) error {
-	tx, err := d.db.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("mark accepted publish: begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := d.q.WithTx(tx)
-	updated, err := q.MarkGroupDispatchPublished(ctx, sqlc.MarkGroupDispatchPublishedParams{ID: row.ID, AttemptCount: row.AttemptCount, ResultMessageID: row.ResultMessageID})
-	if err != nil {
-		return fmt.Errorf("mark dispatch published: %w", err)
-	}
-	if updated == 0 {
-		return errors.New("mark dispatch published: lost dispatch ownership")
-	}
-	// Every platform gets the successor outbox: it is what wakes the peers, and
-	// without it agent-to-agent collaboration silently exists on web only. No
-	// platform echoes a bot's own message back through ingest, so this is the
-	// only path that carries an agent post to its peers. Chain length stays
-	// bounded by triage (agent_lap, agent_chain_hard_limit) and the accept caps.
-	if err := d.createAgentReplyOutbox(ctx, q, row); err != nil {
-		return err
-	}
-	// Delivery is a fact about the publisher returning, not about which one ran:
-	// the noop web publisher earns 'delivered' the same way a platform API call
-	// does, and the browser gets the pending -> delivered frame every other
-	// surface already emits.
-	message, err := q.SetGroupMessageDeliveryState(ctx, sqlc.SetGroupMessageDeliveryStateParams{ID: row.ResultMessageID, DeliveryState: "delivered"})
-	if err != nil {
-		return fmt.Errorf("mark group message delivered: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("mark accepted publish: commit: %w", err)
-	}
-	d.Wake()
-	if d.events != nil {
-		d.events.Announce(eventlog.AppendResult{GroupID: row.GroupID, Seq: message.Seq, Message: message})
-	}
-	return nil
-}
-
-func (d *GroupDispatcher) createAgentReplyOutbox(ctx context.Context, q *sqlc.Queries, row sqlc.CtxGroupDispatch) error {
-	message, err := q.GetGroupMessage(ctx, row.ResultMessageID)
-	if err != nil {
-		return fmt.Errorf("get accepted agent reply: %w", err)
-	}
-	members, err := q.ListGroupMembers(ctx, row.GroupID)
-	if err != nil {
-		return fmt.Errorf("list group members: %w", err)
-	}
-	mentions := parseGroupMentions(ctx, q, message.Content, members)
-	envelope, err := encodeGroupOutboxEnvelope(GroupOutboxEnvelope{Mentions: mentions})
-	if err != nil {
-		return fmt.Errorf("encode agent reply outbox: %w", err)
-	}
-	err = q.CreateGroupOutboxIfAbsent(ctx, sqlc.CreateGroupOutboxIfAbsentParams{
-		ID: uuid.Must(uuid.NewV7()).String(), GroupMessageID: row.ResultMessageID, GroupID: row.GroupID,
-		Envelope: envelope, Status: "pending", LastError: "",
-	})
-	if err != nil {
-		return fmt.Errorf("create agent reply outbox: %w", err)
-	}
-	return nil
-}
-
-func (d *GroupDispatcher) failAcceptedPublish(ctx context.Context, row sqlc.CtxGroupDispatch, cause error) error {
-	tx, err := d.db.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("fail accepted publish: begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	q := d.q.WithTx(tx)
-	message, err := q.SetGroupMessageDeliveryState(ctx, sqlc.SetGroupMessageDeliveryStateParams{ID: row.ResultMessageID, DeliveryState: "failed"})
-	if err != nil {
-		return fmt.Errorf("mark group message failed: %w", err)
-	}
-	if _, err := q.RequeueHeldGroupDispatchesAfterAcceptedPost(ctx, sqlc.RequeueHeldGroupDispatchesAfterAcceptedPostParams{
-		GroupID: row.GroupID, AcceptedAt: message.CreatedAt,
-	}); err != nil {
-		return fmt.Errorf("requeue held peers after failed delivery: %w", err)
-	}
-	updated, err := q.MarkGroupDispatchFailed(ctx, sqlc.MarkGroupDispatchFailedParams{ID: row.ID, AttemptCount: row.AttemptCount, LastError: cause.Error()})
-	if err != nil {
-		return fmt.Errorf("mark dispatch failed: %w", err)
-	}
-	if updated == 0 {
-		return errors.New("mark dispatch failed: lost dispatch ownership")
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("fail accepted publish: commit: %w", err)
-	}
-	d.log.Warn("group reply delivery failed permanently", "dispatch_id", row.ID, "result_message_id", row.ResultMessageID, "error", cause)
-	if d.events != nil {
-		d.events.Announce(eventlog.AppendResult{GroupID: row.GroupID, Seq: message.Seq, Message: message})
-		d.events.AnnounceTurn(row.GroupID, row.AgentID, "failed", cause.Error())
-	}
-	return cause
 }
 
 func backoff(attempts int64) time.Duration {
