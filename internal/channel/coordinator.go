@@ -586,6 +586,18 @@ func (c *Coordinator) chatWithRC(ctx context.Context, rc *ResolvedChat, content 
 		return nil, err
 	}
 
+	return &pkgchannel.ChatStream{
+		Events:    forwardAgentEvents(ctx, events),
+		SessionID: sessionID,
+	}, nil
+}
+
+// forwardAgentEvents copies the agent's event stream onto a channel stream.
+// A cancelled turn is not a completed one: the cause goes onto the stream for
+// a consumer still reading (mirroring chatWeb and chatDispatch), non-blocking
+// because the usual canceller is a consumer that already walked away. The
+// upstream is then drained so the model never blocks on a dead channel.
+func forwardAgentEvents(ctx context.Context, events <-chan agent.Event) chan pkgchannel.Event {
 	out := make(chan pkgchannel.Event, 100)
 	go func() {
 		defer close(out)
@@ -593,14 +605,17 @@ func (c *Coordinator) chatWithRC(ctx context.Context, rc *ResolvedChat, content 
 			select {
 			case out <- convertEvent(evt):
 			case <-ctx.Done():
+				select {
+				case out <- pkgchannel.Event{Err: ctx.Err()}:
+				default:
+				}
+				for range events {
+				}
+				return
 			}
 		}
 	}()
-
-	return &pkgchannel.ChatStream{
-		Events:    out,
-		SessionID: sessionID,
-	}, nil
+	return out
 }
 
 func convertEvent(evt agent.Event) pkgchannel.Event {
